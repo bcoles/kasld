@@ -97,9 +97,6 @@ nf_conntrack.c:15:1: warning: large integer implicitly truncated to unsigned typ
 
 perf_event_open.c:19:1: warning: large integer implicitly truncated to unsigned type [-Woverflow]
 perf_event_open.c:20:1: warning: large integer implicitly truncated to unsigned type [-Woverflow]
-perf_event_open.c: In function ‘get_kernel_addr_perf’:
-perf_event_open.c:51:12: warning: missing braces around initializer [-Wmissing-braces]
-perf_event_open.c:51:12: warning: (near initialization for ‘self.sysname’) [-Wmissing-braces]
 [.] trying perf_event_open sampling ...
 lowest leaked address: c106f6aa
 kernel base (likely): c1000000
@@ -153,11 +150,6 @@ leaked init_net: ffffffff98511640
 kernel base (possible): ffffffff98500000
 kernel base (possible): ffffffff98000000
 
-perf_event_open.c: In function ‘get_kernel_addr_perf’:
-perf_event_open.c:51:12: warning: missing braces around initializer [-Wmissing-braces]
-     struct utsname self = {0};
-            ^
-perf_event_open.c:51:12: warning: (near initialization for ‘self.sysname’) [-Wmissing-braces]
 [.] trying perf_event_open sampling ...
 [-] syscall(SYS_perf_event_open): Permission denied
 
@@ -218,36 +210,49 @@ opendir(/sys/kernel/slab/): No such file or directory
 
 ## Addendum
 
-Additional noteworthy techniques not included for one reason or another.
+Additional noteworthy techniques not included for various reasons.
 
 KASLD checks for TSX/RTM support and Meltdown vulnerability, but does not implement these techniques. Refer to:
 
 * [vnik5287/kaslr_tsx_bypass](https://github.com/vnik5287/kaslr_tsx_bypass)
 * [paboldin/meltdown-exploit](https://github.com/paboldin/meltdown-exploit)
 
-[sctp_af_inet kernel pointer leak (CVE-2017-7558)](https://www.exploit-db.com/exploits/45919) requires `libsctp-dev`.
+Prefetch side-channel attacks. Refer to:
 
-[inet_csk_listen_stop GPF (CVE-2017-18509)](https://pulsesecurity.co.nz/advisories/linux-kernel-4.9-inetcsklistenstop-gpf) requires unprivileged user namespaces (or `CAP_NET_ADMIN`) and access to `dmesg`.
+* [xairy/kernel-exploits/prefetch-side-channel](https://github.com/xairy/kernel-exploits/tree/master/prefetch-side-channel)
+* [Prefetch Side-Channel Attacks: Bypassing SMAP and Kernel ASLR](https://gruss.cc/files/prefetch.pdf)
 
-[wait_for_kaslr_to_be_effective.c](https://grsecurity.net/~spender/exploits/wait_for_kaslr_to_be_effective.c)
+[From IP ID to Device ID and KASLR Bypass](https://arxiv.org/pdf/1906.10478.pdf) (CVE-2019-10639).
 
-[From IP ID to Device ID and KASLR Bypass](https://arxiv.org/pdf/1906.10478.pdf)
+[sctp_af_inet kernel pointer leak](https://www.exploit-db.com/exploits/45919) (CVE-2017-7558) requires `libsctp-dev`.
 
-Bugs which triggers a kernel oops (ie: inet_csk_listen_stop GPF) can be used to leak kernel pointers by reading dmesg / syslog on systems without `dmesg_restrict`.
+[wait_for_kaslr_to_be_effective.c](https://grsecurity.net/~spender/exploits/wait_for_kaslr_to_be_effective.c) (CVE-2017-14954).
 
-On Ubuntu systems, `dmesg_restrict` can be bypassed by users in the `adm` group, due to file read permissions on `/var/log/syslog`.
+Bugs which trigger a kernel oops can be used to leak kernel pointers by reading `dmesg` / `syslog` on systems without `kernel.dmesg_restrict` and without `kernel.panic_on_oops`. There are countless examples. Here's one:
+
+* [inet_csk_listen_stop GPF](https://pulsesecurity.co.nz/advisories/linux-kernel-4.9-inetcsklistenstop-gpf) (CVE-2017-18509) requires unprivileged user namespaces (or `CAP_NET_ADMIN`).
+
+On Ubuntu systems, `dmesg_restrict` can be bypassed by users in the `adm` group, due to file read permissions on log files in `/var/log/`.
 
 ```
-$ ls -la /var/log/syslog
--rw-r----- 1 syslog adm 985810 Dec 30 15:26 /var/log/syslog
+$ ls -la /var/log/syslog /var/log/kern.log
+-rw-r----- 1 syslog adm 1916625 Dec 31 04:24 /var/log/kern.log
+-rw-r----- 1 syslog adm 1115029 Dec 31 04:24 /var/log/syslog
 ```
 
-Offsets to useful functions (`commit_creds`, `prepare_kernel_cred`, `native_write_cr4`, etc) from the base address can be pre-calculated for publicly available kernels, or retrieved from various locations (kallsyms, vmlinux, Sysmte.map, etc) using [jonoberheide/ksymhunter](https://github.com/jonoberheide/ksymhunter).
+Various areas of [DebugFS](https://en.wikipedia.org/wiki/Debugfs) (`/sys/kernel/debug/*`) may disclose kernel pointers; however, [DebugFS is not readable by unprivileged users](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=82aceae4f0d42f03d9ad7d1e90389e731153898f) by default (since 2012).
+
+Offsets to useful functions (`commit_creds`, `prepare_kernel_cred`, `native_write_cr4`, etc) from the base address can be pre-calculated for publicly available kernels, or retrieved from various locations (`kallsyms`, `vmlinux`, `System.map`, etc) using [jonoberheide/ksymhunter](https://github.com/jonoberheide/ksymhunter).
 
 Privileged arbitrary read/write in kernel space can be used to bypass KASLR:
 
 * https://github.com/salls/kernel-exploits/blob/master/CVE-2017-5123/exploit_no_smap.c
 * https://ryiron.wordpress.com/2013/09/05/kptr_restrict-finding-kernel-symbols-for-shell-code/
+
+Arbitrary-read vulnerability in the timer subsystem (CVE-2017-18344):
+
+* [xairy/kernel-exploits/CVE-2017-18344](https://github.com/xairy/kernel-exploits/tree/master/CVE-2017-18344)
+* http://www.openwall.com/lists/oss-security/2018/08/09/6
 
 
 ## References
