@@ -49,7 +49,7 @@ unsigned long get_kernel_addr_perf() {
   }
 
   if (child == 0) {
-    struct utsname self = {0};
+    struct utsname self = {{0}};
     while (1) uname(&self);
     return 0;
   }
