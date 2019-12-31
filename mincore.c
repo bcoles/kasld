@@ -1,4 +1,4 @@
-// This file is part of KASLD
+// This file is part of KASLD - https://github.com/bcoles/kasld
 // mincore heap page disclosure (CVE-2017-16994)
 // Largely based on original code by Jann Horn:
 // - https://bugs.chromium.org/p/project-zero/issues/detail?id=1431

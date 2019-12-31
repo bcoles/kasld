@@ -1,4 +1,4 @@
-// This file is part of KASLD
+// This file is part of KASLD - https://github.com/bcoles/kasld
 // Check kernel command line /proc/cmdline for nokaslr flag
 // ---
 // <bcoles@gmail.com>

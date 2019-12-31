@@ -1,4 +1,4 @@
-// This file is part of KASLD
+// This file is part of KASLD - https://github.com/bcoles/kasld
 // Infer kernel base by sampling kernel events and taking the lowest address
 // Requires kernel.perf_event_paranoid < 2 (Default on Ubuntu 4.4.0 kernels)
 // Largely based on original code by lizzie:

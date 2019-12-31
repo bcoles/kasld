@@ -1,4 +1,4 @@
-// This file is part of KASLD
+// This file is part of KASLD - https://github.com/bcoles/kasld
 // kptr_restrict %pK check is performed at open(), rather than read(),
 // allowing symbol disclosure using set-uid executables.
 // pppd is set-uid root and returns the first line of

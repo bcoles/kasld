@@ -1,4 +1,4 @@
-// This file is part of KASLD
+// This file is part of KASLD - https://github.com/bcoles/kasld
 // Retrieve inet_net kernel symbol virtual address from /sys/kernel/slab/nf_conntrack_*
 // Patched some time around 2016, but still present in RHEL 7.6 as of 2018
 // - https://www.openwall.com/lists/kernel-hardening/2017/10/05/5

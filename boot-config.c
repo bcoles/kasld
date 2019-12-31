@@ -1,4 +1,4 @@
-// This file is part of KASLD
+// This file is part of KASLD - https://github.com/bcoles/kasld
 // Check kernel config for CONFIG_RELOCATABLE and CONFIG_RANDOMIZE_BASE
 // - https://lwn.net/Articles/444556/
 // - https://cateee.net/lkddb/web-lkddb/RANDOMIZE_BASE.html

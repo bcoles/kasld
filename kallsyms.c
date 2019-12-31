@@ -1,4 +1,4 @@
-// This file is part of KASLD
+// This file is part of KASLD - https://github.com/bcoles/kasld
 // Read startup symbol from /proc/kallsyms
 // Requires kernel.kptr_restrict = 0 (Default on Debian <= 9 systems)
 // Based on original code by spender:
