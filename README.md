@@ -43,7 +43,6 @@ kernel base (possible): ffffffff81000000
 [.] trying perf_event_open sampling ...
 lowest leaked address: ffffffff81094f86
 kernel base (likely): ffffffff81000000
-kernel base (likely): ffffffff81000000
 
 [.] trying syslog ...
 leaked address: ffffffff820b2000
@@ -99,7 +98,6 @@ perf_event_open.c:19:1: warning: large integer implicitly truncated to unsigned 
 perf_event_open.c:20:1: warning: large integer implicitly truncated to unsigned type [-Woverflow]
 [.] trying perf_event_open sampling ...
 lowest leaked address: c106f6aa
-kernel base (likely): c1000000
 kernel base (likely): c1000000
 
 syslog.c:19:1: warning: large integer implicitly truncated to unsigned type [-Woverflow]
@@ -167,7 +165,7 @@ kernel base (possible): ffffffff98000000
 
 ```
 
-## Debian 9.6 (x64)
+### Debian 9.6 (x64)
 
 ```
 $ ./kasld 
@@ -228,9 +226,7 @@ Prefetch side-channel attacks. Refer to:
 
 [wait_for_kaslr_to_be_effective.c](https://grsecurity.net/~spender/exploits/wait_for_kaslr_to_be_effective.c) (CVE-2017-14954).
 
-Bugs which trigger a kernel oops can be used to leak kernel pointers by reading `dmesg` / `syslog` on systems without `kernel.dmesg_restrict` and without `kernel.panic_on_oops`. There are countless examples. Here's one:
-
-* [inet_csk_listen_stop GPF](https://pulsesecurity.co.nz/advisories/linux-kernel-4.9-inetcsklistenstop-gpf) (CVE-2017-18509) requires unprivileged user namespaces (or `CAP_NET_ADMIN`).
+Bugs which trigger a kernel oops can be used to leak kernel pointers by reading `dmesg` / `syslog` on systems without `kernel.dmesg_restrict` and without `kernel.panic_on_oops`. There are countless examples. A few simple examples are available in the `extra` directory.
 
 On Ubuntu systems, `dmesg_restrict` can be bypassed by users in the `adm` group, due to file read permissions on log files in `/var/log/`.
 
@@ -263,7 +259,7 @@ Arbitrary-read vulnerability in the timer subsystem (CVE-2017-18344):
 * [Linux Kernel Driver DataBase: CONFIG_RANDOMIZE_BASE: Randomize the address of the kernel image (KASLR)](https://cateee.net/lkddb/web-lkddb/RANDOMIZE_BASE.html)
 * [Linux Kernel Driver DataBase: CONFIG_RELOCATABLE: Build a relocatable kernel](https://cateee.net/lkddb/web-lkddb/RELOCATABLE.html)
 * [nf_conntrack net_inet leak](https://www.openwall.com/lists/kernel-hardening/2017/10/05/5)
-* [mincore heap page disclosure](https://bugs.chromium.org/p/project-zero/issues/detail?id=1431)
+* [mincore heap page disclosure (CVE-2017-16994)](https://bugs.chromium.org/p/project-zero/issues/detail?id=1431)
 * [Breaking KASLR with perf](https://blog.lizzie.io/kaslr-and-perf.html)
 * [pppd kptr_restrict bypass](https://www.openwall.com/lists/kernel-hardening/2013/10/14/2)
 
