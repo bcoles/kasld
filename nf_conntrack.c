@@ -81,8 +81,12 @@ int main (int argc, char **argv) {
 
   printf("leaked init_net: %lx\n", addr);
 
-  printf("kernel base (possible): %lx\n", addr & 0xfffffffffff00000ul);
-  printf("kernel base (possible): %lx\n", addr & 0xffffffffff000000ul);
+  if ((addr & 0xfffffffffff00000ul) == (addr & 0xffffffffff000000ul)) {
+    printf("kernel base (likely): %lx\n", addr & 0xfffffffffff00000ul);
+  } else {
+    printf("kernel base (possible): %lx\n", addr & 0xfffffffffff00000ul);
+    printf("kernel base (possible): %lx\n", addr & 0xffffffffff000000ul);
+  }
 
   return 0;
 }
