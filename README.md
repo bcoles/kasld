@@ -60,6 +60,8 @@ kernel base (possible): ffffffff81000000
 [-] CPU does not support TSX/RTM
 
 [.] checking /sys/devices/system/cpu/vulnerabilities ...
+[.] for more accurate results, try spectre-meldown-checker:
+- https://github.com/speed47/spectre-meltdown-checker
 
 ```
 
@@ -121,6 +123,8 @@ mincore.c:59:5: warning: large integer implicitly truncated to unsigned type [-W
 [-] CPU does not support TSX/RTM
 
 [.] checking /sys/devices/system/cpu/vulnerabilities ...
+[.] for more accurate results, try spectre-meldown-checker:
+- https://github.com/speed47/spectre-meltdown-checker
 
 ```
 
@@ -162,6 +166,8 @@ kernel base (possible): ffffffff98000000
 [-] CPU does not support TSX/RTM
 
 [.] checking /sys/devices/system/cpu/vulnerabilities ...
+[.] for more accurate results, try spectre-meldown-checker:
+- https://github.com/speed47/spectre-meltdown-checker
 
 ```
 
@@ -202,6 +208,50 @@ opendir(/sys/kernel/slab/): No such file or directory
 [-] CPU does not support TSX/RTM
 
 [.] checking /sys/devices/system/cpu/vulnerabilities ...
+[.] for more accurate results, try spectre-meldown-checker:
+- https://github.com/speed47/spectre-meltdown-checker
+
+```
+
+### Fedora 27 (x64)
+
+```
+$ ./kasld
+[ KASLD ] Kernel Address Space Layout Derandomization
+
+Kernel release: 4.13.9-300.fc27.x86_64
+Kernel version: #1 SMP Mon Oct 23 13:41:58 UTC 2017
+Kernel arch:    x86_64
+
+kernel base (arch default): ffffffff81000000
+
+[.] checking /boot/config ...
+
+[.] trying /proc/cmdline ...
+
+[.] trying /proc/kallsyms...
+kernel base (certain): ffffffffa3000000
+
+[.] trying /sys/kernel/slab/ ...
+
+[.] trying perf_event_open sampling ...
+[-] syscall(SYS_perf_event_open): Permission denied
+
+[.] trying syslog ...
+
+[.] trying 'pppd file /proc/kallsyms 2>&1' ...
+
+[.] trying mincore info leak...
+leaked address: ffffffffa32892d0
+kernel base (possible): ffffffffa3200000
+kernel base (possible): ffffffffa3000000
+
+[.] checking CPU TSX/RTM support ...
+[-] CPU does not support TSX/RTM
+
+[.] checking /sys/devices/system/cpu/vulnerabilities ...
+[.] for more accurate results, try spectre-meldown-checker:
+- https://github.com/speed47/spectre-meltdown-checker
 
 ```
 
@@ -210,7 +260,7 @@ opendir(/sys/kernel/slab/): No such file or directory
 
 Additional noteworthy techniques not included for various reasons.
 
-KASLD checks for TSX/RTM support and Meltdown vulnerability, but does not implement these techniques. Refer to:
+KASLD performs rudimentary checks for several hardware vulnerabilities, such as TSX/RTM support and Spectre / Meltdown vulnerabilities, but does not implement these techniques. Refer to:
 
 * [vnik5287/kaslr_tsx_bypass](https://github.com/vnik5287/kaslr_tsx_bypass)
 * [paboldin/meltdown-exploit](https://github.com/paboldin/meltdown-exploit)
@@ -227,14 +277,6 @@ Prefetch side-channel attacks. Refer to:
 [wait_for_kaslr_to_be_effective.c](https://grsecurity.net/~spender/exploits/wait_for_kaslr_to_be_effective.c) (CVE-2017-14954).
 
 Bugs which trigger a kernel oops can be used to leak kernel pointers by reading `dmesg` / `syslog` on systems without `kernel.dmesg_restrict` and without `kernel.panic_on_oops`. There are countless examples. A few simple examples are available in the `extra` directory.
-
-On Ubuntu systems, `dmesg_restrict` can be bypassed by users in the `adm` group, due to file read permissions on log files in `/var/log/`.
-
-```
-$ ls -la /var/log/syslog /var/log/kern.log
--rw-r----- 1 syslog adm 1916625 Dec 31 04:24 /var/log/kern.log
--rw-r----- 1 syslog adm 1115029 Dec 31 04:24 /var/log/syslog
-```
 
 Various areas of [DebugFS](https://en.wikipedia.org/wiki/Debugfs) (`/sys/kernel/debug/*`) may disclose kernel pointers; however, [DebugFS is not readable by unprivileged users](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=82aceae4f0d42f03d9ad7d1e90389e731153898f) by default (since 2012).
 
@@ -262,4 +304,5 @@ Arbitrary-read vulnerability in the timer subsystem (CVE-2017-18344):
 * [mincore heap page disclosure (CVE-2017-16994)](https://bugs.chromium.org/p/project-zero/issues/detail?id=1431)
 * [Breaking KASLR with perf](https://blog.lizzie.io/kaslr-and-perf.html)
 * [pppd kptr_restrict bypass](https://www.openwall.com/lists/kernel-hardening/2013/10/14/2)
+* [speed47/spectre-meltdown-checker](https://github.com/speed47/spectre-meltdown-checker)
 

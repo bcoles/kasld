@@ -51,9 +51,15 @@ if gcc perf_event_open.c -o perf_event_open -Wall; then
   echo
 fi
 
-if gcc syslog.c -o syslog -Wall; then
-  ./syslog
-  rm syslog
+if gcc free_reserved_area_dmesg.c -o free_reserved_area_dmesg -Wall; then
+  ./free_reserved_area_dmesg
+  rm free_reserved_area_dmesg
+  echo
+fi
+
+if gcc free_reserved_area_syslog.c -o free_reserved_area_syslog -Wall; then
+  ./free_reserved_area_syslog
+  rm free_reserved_area_syslog
   echo
 fi
 
@@ -76,9 +82,23 @@ if gcc tsx-rtm.c -o tsx-rtm -Wall; then
 fi
 
 echo "[.] checking /sys/devices/system/cpu/vulnerabilities ..."
+echo "[.] for more accurate results, try spectre-meldown-checker:"
+echo "- https://github.com/speed47/spectre-meltdown-checker"
+
+if grep -s -q Vulnerable /sys/devices/system/cpu/vulnerabilities/spectre_v1 ; then
+  echo "CPU vulnerable to spectre v1 (CVE-2017-5753)."
+fi
+
+if grep -s -q Vulnerable /sys/devices/system/cpu/vulnerabilities/spectre_v2 ; then
+  echo "CPU vulnerable to spectre v2 (CVE-2017-5715)."
+fi
+
 if grep -s -q Vulnerable /sys/devices/system/cpu/vulnerabilities/meltdown ; then
-  echo "CPU vulnerable to meltdown. Try meltdown exploit:"
+  echo "CPU vulnerable to meltdown (CVE-2017-5754). Try meltdown exploit:"
   echo "- https://github.com/paboldin/meltdown-exploit"
-  echo
+fi
+
+if grep -s -q Vulnerable /sys/devices/system/cpu/vulnerabilities/spec_store_bypass ; then
+  echo "CPU vulnerable to spectre v4 (CVE-2018-3639)."
 fi
 

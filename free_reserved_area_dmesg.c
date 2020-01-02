@@ -1,7 +1,9 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
-// syslog KASLR bypass
+// free_reserved_area() dmesg KASLR bypass
 // Requires kernel.dmesg_restrict = 0 (Default on Ubuntu systems); or CAP_SYSLOG capabilities.
 // - https://web.archive.org/web/20171029060939/http://www.blackbunny.io/linux-kernel-x86-64-bypass-smep-kaslr-kptr_restric/
+// free_reserved_area() leak was patched in 2016:
+// - https://lore.kernel.org/patchwork/patch/728905/
 // Mostly taken from original code by xairy:
 // - https://github.com/xairy/kernel-exploits/blob/master/CVE-2017-1000112/poc.c
 
@@ -51,7 +53,7 @@ int mmap_syslog(char** buffer, int* size) {
   return 0;
 }
 
-unsigned long get_kernel_addr_syslog() {
+unsigned long get_kernel_addr_free_reserved_area_dmesg() {
   char* syslog;
   int size;
 
@@ -84,7 +86,7 @@ unsigned long get_kernel_addr_syslog() {
 }
 
 int main (int argc, char **argv) {
-  printf("[.] trying syslog ...\n");
+  printf("[.] checking dmesg for free_reserved_area() info ...\n");
 
   struct utsname u = get_kernel_version();
 
@@ -93,7 +95,7 @@ int main (int argc, char **argv) {
     exit(1);
   }
 
-  unsigned long addr = get_kernel_addr_syslog();
+  unsigned long addr = get_kernel_addr_free_reserved_area_dmesg();
   if (!addr) return 1;
 
   printf("leaked address: %lx\n", addr);
