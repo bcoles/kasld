@@ -10,6 +10,8 @@ all :
 	cc -Wall perf_event_open.c -o perf_event_open
 	cc -Wall pppd_kallsyms.c -o pppd_kallsyms
 	cc -Wall tsx-rtm.c -o tsx-rtm
+	cc -Wall extra/oops_inet_csk_listen_stop.c -o extra/oops_inet_csk_listen_stop
+	cc -Wall extra/oops_netlink_getsockbyportid_null_ptr.c -o extra/oops_netlink_getsockbyportid_null_ptr
 
 clean :
 	rm boot-config
@@ -23,4 +25,6 @@ clean :
 	rm free_reserved_area_dmesg
 	rm free_reserved_area_syslog
 	rm tsx-rtm
+	rm extra/oops_inet_csk_listen_stop
+	rm extra/oops_netlink_getsockbyportid_null_ptr
 
