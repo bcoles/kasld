@@ -7,6 +7,9 @@
 # ---
 # 2019 - <bcoles@gmail.com>
 
+base_dir="$(dirname $(readlink -f "$0"))"
+cd $base_dir
+
 echo "[ KASLD ] Kernel Address Space Layout Derandomization"
 echo
 
@@ -15,75 +18,73 @@ echo "Kernel version: $(uname -v)"
 echo "Kernel arch:    $(uname -m)"
 echo
 
-if gcc default.c -o default -Wall; then
+if gcc src/default.c -o default -Wall; then
   ./default
   rm default
   echo
 fi
 
-if gcc boot-config.c -o boot-config -Wall; then
+if gcc src/boot-config.c -o boot-config -Wall; then
   ./boot-config
   rm boot-config
   echo
 fi
 
-if gcc cmdline.c -o cmdline -Wall; then
+if gcc src/cmdline.c -o cmdline -Wall; then
   ./cmdline
   rm cmdline
   echo
 fi
 
-if gcc kallsyms.c -o kallsyms -Wall; then
+if gcc src/kallsyms.c -o kallsyms -Wall; then
   ./kallsyms
   rm kallsyms
   echo
 fi
 
-if gcc nf_conntrack.c -o nf_conntrack -Wall; then
+if gcc src/nf_conntrack.c -o nf_conntrack -Wall; then
   ./nf_conntrack
   rm nf_conntrack
   echo
 fi
 
-if gcc perf_event_open.c -o perf_event_open -Wall; then
+if gcc src/perf_event_open.c -o perf_event_open -Wall; then
   ./perf_event_open
   rm perf_event_open
   echo
 fi
 
-if gcc free_reserved_area_dmesg.c -o free_reserved_area_dmesg -Wall; then
+if gcc src/free_reserved_area_dmesg.c -o free_reserved_area_dmesg -Wall; then
   ./free_reserved_area_dmesg
   rm free_reserved_area_dmesg
   echo
 fi
 
-if gcc free_reserved_area_syslog.c -o free_reserved_area_syslog -Wall; then
+if gcc src/free_reserved_area_syslog.c -o free_reserved_area_syslog -Wall; then
   ./free_reserved_area_syslog
   rm free_reserved_area_syslog
   echo
 fi
 
-if gcc pppd_kallsyms.c -o pppd_kallsyms -Wall; then
+if gcc src/pppd_kallsyms.c -o pppd_kallsyms -Wall; then
   ./pppd_kallsyms
   rm pppd_kallsyms
   echo
 fi
 
-if gcc mincore.c -o mincore -Wall; then
+if gcc src/mincore.c -o mincore -Wall; then
   ./mincore
   rm mincore
   echo
 fi
 
-if gcc tsx-rtm.c -o tsx-rtm -Wall; then
+if gcc src/tsx-rtm.c -o tsx-rtm -Wall; then
   ./tsx-rtm
   rm tsx-rtm
   echo
 fi
 
 echo "[.] checking /sys/devices/system/cpu/vulnerabilities ..."
-echo "[.] for more accurate results, try spectre-meldown-checker:"
-echo "- https://github.com/speed47/spectre-meltdown-checker"
 
 if grep -s -q Vulnerable /sys/devices/system/cpu/vulnerabilities/spectre_v1 ; then
   echo "CPU vulnerable to spectre v1 (CVE-2017-5753)."
@@ -101,4 +102,7 @@ fi
 if grep -s -q Vulnerable /sys/devices/system/cpu/vulnerabilities/spec_store_bypass ; then
   echo "CPU vulnerable to spectre v4 (CVE-2018-3639)."
 fi
+
+echo "[.] for more accurate results, try spectre-meldown-checker:"
+echo "- https://github.com/speed47/spectre-meltdown-checker"
 

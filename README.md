@@ -301,6 +301,7 @@ Arbitrary-read vulnerability in the timer subsystem (CVE-2017-18344):
 * [Linux Kernel Driver DataBase: CONFIG_RANDOMIZE_BASE: Randomize the address of the kernel image (KASLR)](https://cateee.net/lkddb/web-lkddb/RANDOMIZE_BASE.html)
 * [Linux Kernel Driver DataBase: CONFIG_RELOCATABLE: Build a relocatable kernel](https://cateee.net/lkddb/web-lkddb/RELOCATABLE.html)
 * [nf_conntrack net_inet leak](https://www.openwall.com/lists/kernel-hardening/2017/10/05/5)
+* [dmesg free_reserved_area() info leak](https://lore.kernel.org/patchwork/patch/728905/)
 * [mincore heap page disclosure (CVE-2017-16994)](https://bugs.chromium.org/p/project-zero/issues/detail?id=1431)
 * [Breaking KASLR with perf](https://blog.lizzie.io/kaslr-and-perf.html)
 * [pppd kptr_restrict bypass](https://www.openwall.com/lists/kernel-hardening/2013/10/14/2)
