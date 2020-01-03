@@ -50,7 +50,7 @@ int trigger_oops(void) {
   memset(iov,  0, sizeof(iov));
 
   int buf[64];
-  memset(buf, 0, 64);
+  memset(buf, 0, sizeof(buf));
 
   int s = socket(AF_NETLINK, SOCK_RAW, NETLINK_NETFILTER);
 
