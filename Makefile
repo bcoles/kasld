@@ -8,6 +8,7 @@ all :
 	cc -Wall src/free_reserved_area_syslog.c -o free_reserved_area_syslog
 	cc -Wall src/nf_conntrack.c -o nf_conntrack
 	cc -Wall src/perf_event_open.c -o perf_event_open
+	cc -Wall src/dmesg.c -o dmesg
 	cc -Wall src/pppd_kallsyms.c -o pppd_kallsyms
 	cc -Wall src/tsx-rtm.c -o tsx-rtm
 	cc -Wall extra/oops_inet_csk_listen_stop.c -o extra/oops_inet_csk_listen_stop
@@ -22,6 +23,7 @@ clean :
 	rm nf_conntrack
 	rm perf_event_open
 	rm pppd_kallsyms
+	rm dmesg
 	rm free_reserved_area_dmesg
 	rm free_reserved_area_syslog
 	rm tsx-rtm

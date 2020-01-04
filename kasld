@@ -66,6 +66,12 @@ if gcc src/free_reserved_area_syslog.c -o free_reserved_area_syslog -Wall; then
   echo
 fi
 
+if gcc src/dmesg.c -o dmesg -Wall; then
+  ./dmesg
+  rm dmesg
+  echo
+fi
+
 if gcc src/pppd_kallsyms.c -o pppd_kallsyms -Wall; then
   ./pppd_kallsyms
   rm pppd_kallsyms

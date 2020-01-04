@@ -276,7 +276,9 @@ Prefetch side-channel attacks. Refer to:
 
 [wait_for_kaslr_to_be_effective.c](https://grsecurity.net/~spender/exploits/wait_for_kaslr_to_be_effective.c) (CVE-2017-14954).
 
-Bugs which trigger a kernel oops can be used to leak kernel pointers by reading `dmesg` / `syslog` on systems without `kernel.dmesg_restrict` and without `kernel.panic_on_oops`. There are countless examples. A few simple examples are available in the `extra` directory.
+Bugs which trigger a kernel oops can be used to leak kernel pointers by reading `dmesg` / `syslog` on systems without `kernel.dmesg_restrict` (and `kernel.grsecurity.dmesg`) and without `kernel.panic_on_oops`. There are countless examples. A few simple examples are available in the `extra` directory.
+
+Traditionally, kernel pointers were frequently [printed without using `%pK`](https://github.com/torvalds/linux/search?p=1&q=%25pK&type=Commits).
 
 Various areas of [DebugFS](https://en.wikipedia.org/wiki/Debugfs) (`/sys/kernel/debug/*`) may disclose kernel pointers; however, [DebugFS is not readable by unprivileged users](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=82aceae4f0d42f03d9ad7d1e90389e731153898f) by default (since 2012).
 
