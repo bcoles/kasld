@@ -78,6 +78,12 @@ if gcc src/pppd_kallsyms.c -o pppd_kallsyms -Wall; then
   echo
 fi
 
+if gcc src/proc-stat-wchan.c -o proc-stat-wchan -Wall; then
+  ./proc-stat-wchan
+  rm proc-stat-wchan
+  echo
+fi
+
 if gcc src/mincore.c -o mincore -Wall; then
   ./mincore
   rm mincore

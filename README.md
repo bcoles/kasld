@@ -307,5 +307,6 @@ Arbitrary-read vulnerability in the timer subsystem (CVE-2017-18344):
 * [mincore heap page disclosure (CVE-2017-16994)](https://bugs.chromium.org/p/project-zero/issues/detail?id=1431)
 * [Breaking KASLR with perf](https://blog.lizzie.io/kaslr-and-perf.html)
 * [pppd kptr_restrict bypass](https://www.openwall.com/lists/kernel-hardening/2013/10/14/2)
+* [wchan info leak](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=b2f73922d119686323f14fbbe46587f863852328)
 * [speed47/spectre-meltdown-checker](https://github.com/speed47/spectre-meltdown-checker)
 
