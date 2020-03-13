@@ -1,7 +1,7 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 // kptr_restrict %pK check is performed at open(), rather than read(),
 // allowing symbol disclosure using set-uid executables.
-// pppd is set-uid root and returns the first line of
+// pppd is set-uid root and returns a portion of the first line of
 // user-specified files. On 32-bit systems, the first line
 // of /proc/kallsyms contains the startup symbol.
 // - https://www.openwall.com/lists/kernel-hardening/2013/10/14/2
@@ -12,16 +12,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/utsname.h>
-
-struct utsname get_kernel_version() {
-  struct utsname u;
-  if (uname(&u) != 0) {
-    printf("[-] uname(): %m\n");
-    exit(1);
-  }
-  return u;
-}
 
 unsigned long get_kernel_addr_pppd_kallsyms() {
   FILE *f;
@@ -65,8 +55,7 @@ int main (int argc, char **argv) {
   unsigned long addr = get_kernel_addr_pppd_kallsyms();
   if (!addr) return 1;
 
-  printf("kernel base (certain): %lx\n", addr);
+  printf("kernel base (likely): %lx\n", addr);
 
   return 0;
 }
-
