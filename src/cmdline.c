@@ -1,4 +1,5 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
+//
 // Check kernel command line /proc/cmdline for nokaslr flag
 // ---
 // <bcoles@gmail.com>
@@ -21,7 +22,7 @@ struct utsname get_kernel_version() {
 unsigned long get_kernel_addr_cmdline() {
   FILE *f;
   const char *path = "/proc/cmdline";
-  const char* flag = "nokaslr";
+  const char *flag = "nokaslr";
   char cmdline[1024];
   unsigned long addr = 0;
   struct utsname u = get_kernel_version();
@@ -56,12 +57,12 @@ unsigned long get_kernel_addr_cmdline() {
   return addr;
 }
 
-int main (int argc, char **argv) {
+int main(int argc, char **argv) {
   unsigned long addr = get_kernel_addr_cmdline();
-  if (!addr) return 1;
+  if (!addr)
+    return 1;
 
   printf("kernel base (likely): %lx\n", addr);
 
   return 0;
 }
-

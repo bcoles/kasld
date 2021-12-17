@@ -1,20 +1,23 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
-// Search dmesg for splats and return the first address that looks like a kernel pointer
+//
+// Search dmesg for splats and return the first address that looks like a kernel
+// pointer.
+//
 // Requires:
-// - kernel.dmesg_restrict = 0 (Default on Ubuntu systems); or CAP_SYSLOG capabilities.
+// - kernel.dmesg_restrict = 0 (Default on Ubuntu systems);
+//   or CAP_SYSLOG capabilities.
 // - kernel.panic_on_oops = 0 (Default on most systems).
 
 #define _GNU_SOURCE
-
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
 #include <sys/klog.h>
 #include <sys/mman.h>
 #include <sys/types.h>
 #include <sys/utsname.h>
+#include <unistd.h>
 
 // https://www.kernel.org/doc/Documentation/x86/x86_64/mm.txt
 unsigned long KERNEL_BASE_MIN = 0xffffffff80000000ul;
@@ -32,7 +35,7 @@ struct utsname get_kernel_version() {
 #define SYSLOG_ACTION_READ_ALL 3
 #define SYSLOG_ACTION_SIZE_BUFFER 10
 
-int mmap_syslog(char** buffer, int* size) {
+int mmap_syslog(char **buffer, int *size) {
   *size = klogctl(SYSLOG_ACTION_SIZE_BUFFER, 0, 0);
 
   if (*size == -1) {
@@ -41,7 +44,8 @@ int mmap_syslog(char** buffer, int* size) {
   }
 
   *size = (*size / getpagesize() + 1) * getpagesize();
-  *buffer = (char*)mmap(NULL, *size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  *buffer = (char *)mmap(NULL, *size, PROT_READ | PROT_WRITE,
+                         MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
 
   *size = klogctl(SYSLOG_ACTION_READ_ALL, &((*buffer)[0]), *size);
 
@@ -53,8 +57,8 @@ int mmap_syslog(char** buffer, int* size) {
   return 0;
 }
 
-unsigned long search_dmesg(char* needle) {
-  char* syslog;
+unsigned long search_dmesg(char *needle) {
+  char *syslog;
   int size;
   const int addr_len = 16; /* 64-bit */
   unsigned long addr = 0;
@@ -62,7 +66,7 @@ unsigned long search_dmesg(char* needle) {
   if (mmap_syslog(&syslog, &size))
     return 0;
 
-  char* substr = (char*)memmem(&syslog[0], size, needle, strlen(needle));
+  char *substr = (char *)memmem(&syslog[0], size, needle, strlen(needle));
   if (substr == NULL)
     return 0;
 
@@ -75,7 +79,7 @@ unsigned long search_dmesg(char* needle) {
   if (addr_buf == NULL)
     return 0;
 
-  char* endptr = &addr_buf[addr_len];
+  char *endptr = &addr_buf[addr_len];
   addr = strtoul(&addr_buf[1], &endptr, 16);
 
   if (addr > KERNEL_BASE_MIN && addr < KERNEL_BASE_MAX)
@@ -84,7 +88,7 @@ unsigned long search_dmesg(char* needle) {
   return 0;
 }
 
-int main (int argc, char **argv) {
+int main(int argc, char **argv) {
   printf("[.] searching dmesg ...\n");
 
   struct utsname u = get_kernel_version();
@@ -95,7 +99,8 @@ int main (int argc, char **argv) {
   }
 
   unsigned long addr = search_dmesg("Oops");
-  if (!addr) return 1;
+  if (!addr)
+    return 1;
 
   printf("leaked address: %lx\n", addr);
 
@@ -104,4 +109,3 @@ int main (int argc, char **argv) {
 
   return 0;
 }
-

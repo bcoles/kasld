@@ -1,5 +1,6 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
-// Print default kernel base virtual address
+//
+// Print architecture default kernel base virtual address
 // ---
 // <bcoles@gmail.com>
 
@@ -33,12 +34,12 @@ unsigned long get_kernel_addr_default() {
   return addr;
 }
 
-int main (int argc, char **argv) {
+int main(int argc, char **argv) {
   unsigned long addr = get_kernel_addr_default();
-  if (!addr) return 1;
+  if (!addr)
+    return 1;
 
   printf("kernel base (arch default): %lx\n", addr);
 
   return 0;
 }
-

@@ -1,8 +1,12 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
+//
 // Read kernel startup symbol from /proc/kallsyms
-// Requires kernel.kptr_restrict = 0 (Default on Debian <= 9 systems)
+//
+// Requires:
+// - kernel.kptr_restrict = 0 (Default on Debian <= 9 systems)
+//
 // Based on original code by spender:
-// - https://grsecurity.net/~spender/exploits/exploit.txt
+// https://grsecurity.net/~spender/exploits/exploit.txt
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -23,7 +27,7 @@ unsigned long get_kernel_sym(char *name) {
   unsigned long addr = 0;
   char dummy;
   char sname[256];
-  const char* path = "/proc/kallsyms";
+  const char *path = "/proc/kallsyms";
 
   printf("[.] trying %s...\n", path);
 
@@ -57,8 +61,8 @@ unsigned long get_kernel_sym(char *name) {
   return addr;
 }
 
-int main (int argc, char **argv) {
-  char* name;
+int main(int argc, char **argv) {
+  char *name;
   struct utsname u = get_kernel_version();
 
   if (strstr(u.machine, "64") != NULL) {
@@ -71,7 +75,8 @@ int main (int argc, char **argv) {
   }
 
   unsigned long addr = get_kernel_sym(name);
-  if (!addr) return 1;
+  if (!addr)
+    return 1;
 
   printf("kernel base (certain): %lx\n", addr);
 

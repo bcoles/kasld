@@ -1,8 +1,11 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
+//
 // Check kernel config for CONFIG_RELOCATABLE and CONFIG_RANDOMIZE_BASE
-// - https://lwn.net/Articles/444556/
-// - https://cateee.net/lkddb/web-lkddb/RANDOMIZE_BASE.html
-// - https://cateee.net/lkddb/web-lkddb/RELOCATABLE.html
+//
+// References:
+// https://lwn.net/Articles/444556/
+// https://cateee.net/lkddb/web-lkddb/RANDOMIZE_BASE.html
+// https://cateee.net/lkddb/web-lkddb/RELOCATABLE.html
 // ---
 // <bcoles@gmail.com>
 
@@ -27,10 +30,12 @@ unsigned long get_kernel_addr_cmdline() {
 
   if (system("test -r /boot/config-$(uname -r)") != 0)
     return 0;
-  if (system("grep -q CONFIG_RELOCATABLE=y /boot/config-$(uname -r) && grep -q CONFIG_RANDOMIZE_BASE=y /boot/config-$(uname -r)") == 0)
+  if (system("grep -q CONFIG_RELOCATABLE=y /boot/config-$(uname -r) && grep -q "
+             "CONFIG_RANDOMIZE_BASE=y /boot/config-$(uname -r)") == 0)
     return 0;
 
-  printf("[.] Kernel appears to have been compiled without CONFIG_RELOCATABLE and CONFIG_RANDOMIZE_BASE\n");
+  printf("[.] Kernel appears to have been compiled without CONFIG_RELOCATABLE "
+         "and CONFIG_RANDOMIZE_BASE\n");
 
   struct utsname u = get_kernel_version();
 
@@ -45,12 +50,12 @@ unsigned long get_kernel_addr_cmdline() {
   return addr;
 }
 
-int main (int argc, char **argv) {
+int main(int argc, char **argv) {
   unsigned long addr = get_kernel_addr_cmdline();
-  if (!addr) return 1;
+  if (!addr)
+    return 1;
 
   printf("kernel base (likely): %lx\n", addr);
 
   return 0;
 }
-

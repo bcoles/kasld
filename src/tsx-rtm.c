@@ -1,13 +1,18 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
-// Check CPU for Intel TSX/RTM support
-// - https://www.blackhat.com/docs/us-16/materials/us-16-Jang-Breaking-Kernel-Address-Space-Layout-Randomization-KASLR-With-Intel-TSX.pdf
+//
+// Check CPU for Intel TSX/RTM support.
+//
 // Excerpt from original code by vn1k:
-// - https://github.com/vnik5287/kaslr_tsx_bypass/blob/master/util.c
+// https://github.com/vnik5287/kaslr_tsx_bypass/blob/master/util.c
+//
 // Note: may not be accurate for virtual machines:
-// - https://stackoverflow.com/questions/47153723/how-to-check-for-tsx-support
+// https://stackoverflow.com/questions/47153723/how-to-check-for-tsx-support
+//
+// References:
+// https://www.blackhat.com/docs/us-16/materials/us-16-Jang-Breaking-Kernel-Address-Space-Layout-Randomization-KASLR-With-Intel-TSX.pdf
 
-#include <stdio.h>
 #include <cpuid.h>
+#include <stdio.h>
 
 #define RTM_BIT (1 << 11)
 
@@ -21,11 +26,12 @@ int cpu_has_rtm(void) {
   return 0;
 }
 
-int main (int argc, char **argv) {
+int main(int argc, char **argv) {
   printf("[.] checking CPU TSX/RTM support ...\n");
 
   if (cpu_has_rtm()) {
-    printf("[.] CPU has TSX/RTM support. Try:\n- https://github.com/vnik5287/kaslr_tsx_bypass\n");
+    printf("[.] CPU has TSX/RTM support. Try:\n- "
+           "https://github.com/vnik5287/kaslr_tsx_bypass\n");
   } else {
     printf("[-] CPU does not support TSX/RTM\n");
   }
