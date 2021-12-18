@@ -39,10 +39,19 @@ unsigned long get_kernel_addr_cmdline() {
 
   struct utsname u = get_kernel_version();
 
-  if (strstr(u.machine, "64") != NULL) {
-    addr = 0xffffffff81000000;
-  } else if (strstr(u.machine, "86") != NULL) {
+  if (strstr(u.machine, "x86_64") != NULL) {
+    addr = 0xffffffff81000000ul;
+  } else if (strstr(u.machine, "i486") != NULL) {
     addr = 0xc1000000ul;
+  } else if (strstr(u.machine, "i586") != NULL) {
+    addr = 0xc1000000ul;
+  } else if (strstr(u.machine, "i686") != NULL) {
+    addr = 0xc1000000ul;
+  /* TODO */
+  } else if (strstr(u.machine, "armv6l") != NULL) {
+    addr = 0xc0100000ul;
+  } else if (strstr(u.machine, "armv7l") != NULL) {
+    addr = 0xc0100000ul;
   } else {
     printf("[.] kernel base for arch '%s' is unknown\n", u.machine);
   }

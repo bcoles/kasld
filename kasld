@@ -2,97 +2,94 @@
 # [ KASLD ] Kernel Address Space Layout Derandomization
 #
 # A collection of various techniques to bypass KASLR and retrieve
-# the Linux kernel base virtual address on x86 / x86_64 architectures
-# as an unprivileged user.
+# the Linux kernel base virtual address as an unprivileged user.
 # ---
 # 2019 - <bcoles@gmail.com>
 
-base_dir="$(dirname $(readlink -f "$0"))"
-cd $base_dir
+base_dir="$(dirname "$(readlink -f "$0")")"
+build="${base_dir}/build"
+
+cd "${base_dir}" || exit 1
 
 echo "[ KASLD ] Kernel Address Space Layout Derandomization"
 echo
 
-echo "Kernel release: $(uname -r)"
-echo "Kernel version: $(uname -v)"
-echo "Kernel arch:    $(uname -m)"
+echo "Kernel release:  $(uname -r)"
+echo "Kernel version:  $(uname -v)"
+echo "Kernel arch:     $(uname -m)"
+echo "Kernel platform: $(uname -i)"
 echo
 
-if gcc src/default.c -o default -Wall; then
-  ./default
-  rm default
+long_bit="$(getconf LONG_BIT)bit"
+
+echo "Building (${long_bit}) ..."
+
+make "${long_bit}" || exit 1
+
+echo
+
+if [ -x "${build}/default.o" ]; then
+  "${build}/default.o"
   echo
 fi
 
-if gcc src/boot-config.c -o boot-config -Wall; then
-  ./boot-config
-  rm boot-config
+if [ -x "${build}/boot-config.o" ]; then
+  "${build}/boot-config.o"
   echo
 fi
 
-if gcc src/cmdline.c -o cmdline -Wall; then
-  ./cmdline
-  rm cmdline
+if [ -x "${build}/cmdline.o" ]; then
+  "${build}/cmdline.o"
   echo
 fi
 
-if gcc src/kallsyms.c -o kallsyms -Wall; then
-  ./kallsyms
-  rm kallsyms
+if [ -x "${build}/kallsyms.o" ]; then
+  "${build}/kallsyms.o"
   echo
 fi
 
-if gcc src/nf_conntrack.c -o nf_conntrack -Wall; then
-  ./nf_conntrack
-  rm nf_conntrack
+if [ -x "${build}/nf_conntrack.o" ]; then
+  "${build}/nf_conntrack.o"
   echo
 fi
 
-if gcc src/perf_event_open.c -o perf_event_open -Wall; then
-  ./perf_event_open
-  rm perf_event_open
+if [ -x "${build}/perf_event_open.o" ]; then
+  "${build}/perf_event_open.o"
   echo
 fi
 
-if gcc src/free_reserved_area_dmesg.c -o free_reserved_area_dmesg -Wall; then
-  ./free_reserved_area_dmesg
-  rm free_reserved_area_dmesg
+if [ -x "${build}/free_reserved_area_dmesg.o" ]; then
+  "${build}/free_reserved_area_dmesg.o"
   echo
 fi
 
-if gcc src/free_reserved_area_syslog.c -o free_reserved_area_syslog -Wall; then
-  ./free_reserved_area_syslog
-  rm free_reserved_area_syslog
+if [ -x "${build}/free_reserved_area_syslog.o" ]; then
+  "${build}/free_reserved_area_syslog.o"
   echo
 fi
 
-if gcc src/dmesg.c -o dmesg -Wall; then
-  ./dmesg
-  rm dmesg
+if [ -x "${build}/dmesg.o" ]; then
+  "${build}/dmesg.o"
   echo
 fi
 
-if gcc src/pppd_kallsyms.c -o pppd_kallsyms -Wall; then
-  ./pppd_kallsyms
-  rm pppd_kallsyms
+if [ -x "${build}/pppd_kallsyms.o" ]; then
+  "${build}/pppd_kallsyms.o"
   echo
 fi
 
-if gcc src/proc-stat-wchan.c -o proc-stat-wchan -Wall; then
-  ./proc-stat-wchan
-  rm proc-stat-wchan
+if [ -x "${build}/proc-stat-wchan.o" ]; then
+  "${build}/proc-stat-wchan.o"
   echo
 fi
 
-if gcc src/mincore.c -o mincore -Wall; then
-  ./mincore
-  rm mincore
+if [ -x "${build}/mincore.o" ]; then
+  "${build}/mincore.o"
   echo
 fi
 
-if gcc src/tsx-rtm.c -o tsx-rtm -Wall; then
-  ./tsx-rtm
-  rm tsx-rtm
+if [ -x "${build}/tsx-rtm.o" ]; then
+  "${build}/tsx-rtm.o"
   echo
 fi
 
@@ -108,7 +105,7 @@ fi
 
 if grep -s -q Vulnerable /sys/devices/system/cpu/vulnerabilities/meltdown ; then
   echo "CPU vulnerable to meltdown (CVE-2017-5754). Try meltdown exploit:"
-  echo "- https://github.com/paboldin/meltdown-exploit"
+  echo "https://github.com/paboldin/meltdown-exploit"
 fi
 
 if grep -s -q Vulnerable /sys/devices/system/cpu/vulnerabilities/spec_store_bypass ; then
@@ -116,5 +113,5 @@ if grep -s -q Vulnerable /sys/devices/system/cpu/vulnerabilities/spec_store_bypa
 fi
 
 echo "[.] for more accurate results, try spectre-meldown-checker:"
-echo "- https://github.com/speed47/spectre-meltdown-checker"
+echo "    https://github.com/speed47/spectre-meltdown-checker"
 

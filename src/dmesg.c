@@ -93,6 +93,7 @@ int main(int argc, char **argv) {
 
   struct utsname u = get_kernel_version();
 
+  /* this technique should also work on 32-bit. lazy */
   if (strstr(u.machine, "64") == NULL) {
     printf("[-] unsupported: system is not 64-bit.\n");
     exit(1);

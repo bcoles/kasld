@@ -15,6 +15,9 @@
 #include <stdlib.h>
 #include <string.h>
 
+unsigned long KERNEL_BASE_MIN = 0xc0000000ul;
+unsigned long KERNEL_BASE_MAX = 0xff000000ul;
+
 unsigned long get_kernel_addr_pppd_kallsyms() {
   FILE *f;
   const char *cmd = "pppd file /proc/kallsyms 2>&1";
@@ -50,7 +53,10 @@ unsigned long get_kernel_addr_pppd_kallsyms() {
   char *endptr = &addr_buf[addr_len];
   addr = strtoul(&addr_buf[1], &endptr, 16);
 
-  return addr;
+  if (addr > KERNEL_BASE_MIN && addr < KERNEL_BASE_MAX)
+    return addr;
+
+  return 0;
 }
 
 int main(int argc, char **argv) {

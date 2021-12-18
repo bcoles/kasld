@@ -11,16 +11,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/utsname.h>
-
-struct utsname get_kernel_version() {
-  struct utsname u;
-  if (uname(&u) != 0) {
-    printf("[-] uname(): %m\n");
-    exit(1);
-  }
-  return u;
-}
 
 unsigned long get_kernel_sym(char *name) {
   FILE *f;
@@ -62,19 +52,7 @@ unsigned long get_kernel_sym(char *name) {
 }
 
 int main(int argc, char **argv) {
-  char *name;
-  struct utsname u = get_kernel_version();
-
-  if (strstr(u.machine, "64") != NULL) {
-    name = "startup_64";
-  } else if (strstr(u.machine, "86") != NULL) {
-    name = "startup_32";
-  } else {
-    printf("[-] kernel startup symbol for arch '%s' is unknown\n", u.machine);
-    return 1;
-  }
-
-  unsigned long addr = get_kernel_sym(name);
+  unsigned long addr = get_kernel_sym("_stext");
   if (!addr)
     return 1;
 

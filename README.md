@@ -2,7 +2,7 @@
 
 A collection of various techniques to bypass Linux Kernel Address Space
 Layout Randomization (KASLR) and retrieve the kernel base virtual address
-on x86 / x86_64 architectures as an unprivileged local user.
+as an unprivileged user.
 
 The code is structed for easy re-use; however, leaked addresses
 may need to be bit masked appropriately for the target kernel.
@@ -10,8 +10,6 @@ may need to be bit masked appropriately for the target kernel.
 Various code snippets were taken from third-parties and may
 have license restrictions. Refer to the reference URLs in the
 comment headers available in each file for more information.
-
-Android is not supported.
 
 
 ## Example Output
