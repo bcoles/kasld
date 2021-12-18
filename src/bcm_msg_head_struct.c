@@ -25,6 +25,10 @@
 unsigned long KERNEL_BASE_MIN = 0xc0000000ul;
 unsigned long KERNEL_BASE_MAX = 0xff000000ul;
 
+#ifndef CAN_FD_FRAME
+#define CAN_FD_FRAME 2048
+#endif
+
 void rxsetup_sock(int sock) {
   struct sockaddr_can sa;
   struct {
