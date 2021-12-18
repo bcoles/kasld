@@ -9,6 +9,7 @@ SRC_DIR := ./src
 
 all :
 	mkdir -p $(BUILD_DIR)
+	$(CC) $(FLAGS) $(SRC_DIR)/bcm_msg_head_struct.c -o $(BUILD_DIR)/bcm_msg_head_struct.o
 	$(CC) $(FLAGS) $(SRC_DIR)/boot-config.c -o $(BUILD_DIR)/boot-config.o
 	$(CC) $(FLAGS) $(SRC_DIR)/cmdline.c -o $(BUILD_DIR)/cmdline.o
 	$(CC) $(FLAGS) $(SRC_DIR)/default.c -o $(BUILD_DIR)/default.o
@@ -41,6 +42,7 @@ all :
 
 32bit :
 	mkdir -p $(BUILD_DIR)
+	$(CC) $(FLAGS) $(SRC_DIR)/bcm_msg_head_struct.c -o $(BUILD_DIR)/bcm_msg_head_struct.o
 	$(CC) $(FLAGS) $(SRC_DIR)/boot-config.c -o $(BUILD_DIR)/boot-config.o
 	$(CC) $(FLAGS) $(SRC_DIR)/cmdline.c -o $(BUILD_DIR)/cmdline.o
 	$(CC) $(FLAGS) $(SRC_DIR)/default.c -o $(BUILD_DIR)/default.o

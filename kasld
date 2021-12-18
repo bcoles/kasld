@@ -43,6 +43,11 @@ if [ -x "${build}/cmdline.o" ]; then
   echo
 fi
 
+if [ -x "${build}/bcm_msg_head_struct.o" ]; then
+  "${build}/bcm_msg_head_struct.o"
+  echo
+fi
+
 if [ -x "${build}/kallsyms.o" ]; then
   "${build}/kallsyms.o"
   echo
