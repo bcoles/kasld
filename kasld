@@ -73,8 +73,8 @@ if [ -x "${build}/free_reserved_area_syslog.o" ]; then
   echo
 fi
 
-if [ -x "${build}/dmesg.o" ]; then
-  "${build}/dmesg.o"
+if [ -x "${build}/dmesg_backtrace.o" ]; then
+  "${build}/dmesg_backtrace.o"
   echo
 fi
 

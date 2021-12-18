@@ -1,7 +1,7 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
-// Search dmesg for splats and return the first address that looks like a kernel
-// pointer.
+// Search kernel log for backtraces and return the first address
+// that looks like a kernel address.
 //
 // Requires:
 // - kernel.dmesg_restrict = 0 (Default on Ubuntu systems);

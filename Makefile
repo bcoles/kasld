@@ -13,7 +13,7 @@ all :
 	$(CC) $(FLAGS) $(SRC_DIR)/boot-config.c -o $(BUILD_DIR)/boot-config.o
 	$(CC) $(FLAGS) $(SRC_DIR)/cmdline.c -o $(BUILD_DIR)/cmdline.o
 	$(CC) $(FLAGS) $(SRC_DIR)/default.c -o $(BUILD_DIR)/default.o
-	$(CC) $(FLAGS) $(SRC_DIR)/dmesg.c -o $(BUILD_DIR)/dmesg.o
+	$(CC) $(FLAGS) $(SRC_DIR)/dmesg_backtrace.c -o $(BUILD_DIR)/dmesg_backtrace.o
 	$(CC) $(FLAGS) $(SRC_DIR)/kallsyms.c -o $(BUILD_DIR)/kallsyms.o
 	$(CC) $(FLAGS) $(SRC_DIR)/mincore.c -o $(BUILD_DIR)/mincore.o
 	$(CC) $(FLAGS) $(SRC_DIR)/free_reserved_area_dmesg.c -o $(BUILD_DIR)/free_reserved_area_dmesg.o
@@ -31,7 +31,7 @@ all :
 	$(CC) $(FLAGS) $(SRC_DIR)/boot-config.c -o $(BUILD_DIR)/boot-config.o
 	$(CC) $(FLAGS) $(SRC_DIR)/cmdline.c -o $(BUILD_DIR)/cmdline.o
 	$(CC) $(FLAGS) $(SRC_DIR)/default.c -o $(BUILD_DIR)/default.o
-	$(CC) $(FLAGS) $(SRC_DIR)/dmesg.c -o $(BUILD_DIR)/dmesg.o
+	$(CC) $(FLAGS) $(SRC_DIR)/dmesg_backtrace.c -o $(BUILD_DIR)/dmesg_backtrace.o
 	$(CC) $(FLAGS) $(SRC_DIR)/kallsyms.c -o $(BUILD_DIR)/kallsyms.o
 	$(CC) $(FLAGS) $(SRC_DIR)/mincore.c -o $(BUILD_DIR)/mincore.o
 	$(CC) $(FLAGS) $(SRC_DIR)/free_reserved_area_dmesg.c -o $(BUILD_DIR)/free_reserved_area_dmesg.o
