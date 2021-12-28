@@ -97,30 +97,3 @@ if [ -x "${build}/mincore.o" ]; then
   echo
 fi
 
-if [ -x "${build}/tsx-rtm.o" ]; then
-  "${build}/tsx-rtm.o"
-  echo
-fi
-
-echo "[.] checking /sys/devices/system/cpu/vulnerabilities ..."
-
-if grep -s -q Vulnerable /sys/devices/system/cpu/vulnerabilities/spectre_v1 ; then
-  echo "CPU vulnerable to spectre v1 (CVE-2017-5753)."
-fi
-
-if grep -s -q Vulnerable /sys/devices/system/cpu/vulnerabilities/spectre_v2 ; then
-  echo "CPU vulnerable to spectre v2 (CVE-2017-5715)."
-fi
-
-if grep -s -q Vulnerable /sys/devices/system/cpu/vulnerabilities/meltdown ; then
-  echo "CPU vulnerable to meltdown (CVE-2017-5754). Try meltdown exploit:"
-  echo "https://github.com/paboldin/meltdown-exploit"
-fi
-
-if grep -s -q Vulnerable /sys/devices/system/cpu/vulnerabilities/spec_store_bypass ; then
-  echo "CPU vulnerable to spectre v4 (CVE-2018-3639)."
-fi
-
-echo "[.] for more accurate results, try spectre-meldown-checker:"
-echo "    https://github.com/speed47/spectre-meltdown-checker"
-

@@ -62,13 +62,14 @@ KASLD serves as a non-exhaustive collection and reference for address leaks
 useful in KASLR bypass; however, it is far from complete. There are many additional
 noteworthy techniques not included for various reasons.
 
-KASLD performs rudimentary checks for several hardware vulnerabilities,
-such as TSX/RTM support and Spectre / Meltdown vulnerabilities,
+The [extra/check-hardware-vulnerabilities](extra/check-hardware-vulnerabilities)
+script performs rudimentary checks for several known hardware vulnerabilities,
 but does not implement these techniques. Refer to:
 
-* [vnik5287/kaslr_tsx_bypass](https://github.com/vnik5287/kaslr_tsx_bypass)
-* [paboldin/meltdown-exploit](https://github.com/paboldin/meltdown-exploit)
 * [speed47/spectre-meltdown-checker](https://github.com/speed47/spectre-meltdown-checker)
+* [vusec/ridl](https://github.com/vusec/ridl)
+* [paboldin/meltdown-exploit](https://github.com/paboldin/meltdown-exploit)
+* [vnik5287/kaslr_tsx_bypass](https://github.com/vnik5287/kaslr_tsx_bypass)
 
 Prefetch side-channel attacks:
 
