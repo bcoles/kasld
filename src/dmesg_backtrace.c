@@ -60,7 +60,7 @@ int mmap_syslog(char **buffer, int *size) {
 unsigned long search_dmesg(char *needle) {
   char *syslog;
   int size;
-  const int addr_len = 16; /* 64-bit */
+  const int addr_len = sizeof(long*) * 2;
   unsigned long addr = 0;
 
   if (mmap_syslog(&syslog, &size))

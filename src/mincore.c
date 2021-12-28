@@ -11,10 +11,7 @@
 #include <sys/mman.h>
 #include <sys/utsname.h>
 #include <unistd.h>
-
-// https://www.kernel.org/doc/Documentation/x86/x86_64/mm.txt
-unsigned long KERNEL_BASE_MIN = 0xffffffff80000000ul;
-unsigned long KERNEL_BASE_MAX = 0xffffffffff000000ul;
+#include "kasld.h"
 
 struct utsname get_kernel_version() {
   struct utsname u;
@@ -70,8 +67,8 @@ int main(int argc, char **argv) {
 
   struct utsname u = get_kernel_version();
 
-  if (strstr(u.machine, "64") == NULL) {
-    printf("[-] unsupported: system is not 64-bit.\n");
+  if (strstr(u.machine, "x86_64") == NULL) {
+    printf("[-] unsupported: system is not x86_64.\n");
     exit(1);
   }
 

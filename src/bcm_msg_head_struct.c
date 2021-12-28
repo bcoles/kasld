@@ -21,9 +21,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
-
-unsigned long KERNEL_BASE_MIN = 0xc0000000ul;
-unsigned long KERNEL_BASE_MAX = 0xff000000ul;
+#include "kasld.h"
 
 #ifndef CAN_FD_FRAME
 #define CAN_FD_FRAME 2048

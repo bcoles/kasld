@@ -3,7 +3,7 @@
 // Infer kernel base by sampling kernel events and taking the lowest address
 //
 // Requires:
-// - kernel.perf_event_paranoid < 2 (Default on Ubuntu 4.4.0 kernels)
+// - kernel.perf_event_paranoid < 2 (Default on Ubuntu <= 4.4.0 kernels)
 //
 // Largely based on original code by lizzie:
 // https://blog.lizzie.io/kaslr-and-perf.html
@@ -19,19 +19,7 @@
 #include <sys/syscall.h>
 #include <sys/utsname.h>
 #include <unistd.h>
-
-// https://www.kernel.org/doc/Documentation/x86/x86_64/mm.txt
-unsigned long KERNEL_BASE_MIN = 0xffffffff80000000ul;
-unsigned long KERNEL_BASE_MAX = 0xffffffffff000000ul;
-
-struct utsname get_kernel_version() {
-  struct utsname u;
-  if (uname(&u) != 0) {
-    printf("[-] uname(): %m\n");
-    exit(1);
-  }
-  return u;
-}
+#include "kasld.h"
 
 int perf_event_open(struct perf_event_attr *attr, pid_t pid, int cpu,
                     int group_fd, unsigned long flags) {
@@ -172,13 +160,6 @@ int main(int argc, char **argv) {
     return 1;
 
   printf("lowest leaked address: %lx\n", addr);
-
-  if ((addr & 0xfffffffffff00000ul) == (addr & 0xffffffffff000000ul)) {
-    printf("kernel base (likely): %lx\n", addr & 0xfffffffffff00000ul);
-  } else {
-    printf("kernel base (possible): %lx\n", addr & 0xfffffffffff00000ul);
-    printf("kernel base (possible): %lx\n", addr & 0xffffffffff000000ul);
-  }
 
   return 0;
 }

@@ -8,24 +8,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/utsname.h>
-
-struct utsname get_kernel_version() {
-  struct utsname u;
-  if (uname(&u) != 0) {
-    printf("[-] uname(): %m\n");
-    exit(1);
-  }
-  return u;
-}
+#include "kasld.h"
 
 unsigned long get_kernel_addr_cmdline() {
   FILE *f;
   const char *path = "/proc/cmdline";
   const char *flag = "nokaslr";
   char cmdline[1024];
-  unsigned long addr = 0;
-  struct utsname u = get_kernel_version();
 
   printf("[.] trying %s ...\n", path);
 
@@ -40,29 +29,14 @@ unsigned long get_kernel_addr_cmdline() {
 
   fclose(f);
 
-  if (memmem(&cmdline[0], sizeof(cmdline), flag, strlen(flag)) == NULL)
+  if (memmem(&cmdline[0], sizeof(cmdline), flag, strlen(flag)) == NULL) {
+    printf("[-] Kernel was not booted with nokaslr flag.\n");
     return 0;
+  }
 
   printf("[.] Kernel booted with nokaslr flag.\n");
 
-  if (strstr(u.machine, "x86_64") != NULL) {
-    addr = 0xffffffff81000000ul;
-  } else if (strstr(u.machine, "i486") != NULL) {
-    addr = 0xc1000000ul;
-  } else if (strstr(u.machine, "i586") != NULL) {
-    addr = 0xc1000000ul;
-  } else if (strstr(u.machine, "i686") != NULL) {
-    addr = 0xc1000000ul;
-  /* TODO */
-  } else if (strstr(u.machine, "armv6l") != NULL) {
-    addr = 0xc0100000ul;
-  } else if (strstr(u.machine, "armv7l") != NULL) {
-    addr = 0xc0100000ul;
-  } else {
-    printf("[.] kernel base for arch '%s' is unknown\n", u.machine);
-  }
-
-  return addr;
+  return KERNEL_TEXT_DEFAULT;
 }
 
 int main(int argc, char **argv) {
@@ -70,7 +44,7 @@ int main(int argc, char **argv) {
   if (!addr)
     return 1;
 
-  printf("kernel base (likely): %lx\n", addr);
+  printf("common default kernel text for arch: %lx\n", addr);
 
   return 0;
 }

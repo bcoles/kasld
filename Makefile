@@ -21,6 +21,7 @@ all :
 	$(CC) $(FLAGS) $(SRC_DIR)/nf_conntrack.c -o $(BUILD_DIR)/nf_conntrack.o
 	$(CC) $(FLAGS) $(SRC_DIR)/perf_event_open.c -o $(BUILD_DIR)/perf_event_open.o
 	$(CC) $(FLAGS) $(SRC_DIR)/pppd_kallsyms.c -o $(BUILD_DIR)/pppd_kallsyms.o
+	$(CC) $(FLAGS) $(SRC_DIR)/proc-stat-wchan.c -o $(BUILD_DIR)/proc-stat-wchan.o
 	$(CC) $(FLAGS) $(SRC_DIR)/tsx-rtm.c -o $(BUILD_DIR)/tsx-rtm.o
 	$(CC) $(FLAGS) extra/iscsi_transport_handle.c -o $(BUILD_DIR)/iscsi_transport_handle.o
 	$(CC) $(FLAGS) extra/oops_inet_csk_listen_stop.c -o $(BUILD_DIR)/oops_inet_csk_listen_stop.o
@@ -38,6 +39,7 @@ all :
 	$(CC) $(FLAGS) $(SRC_DIR)/free_reserved_area_syslog.c -o $(BUILD_DIR)/free_reserved_area_syslog.o
 	$(CC) $(FLAGS) $(SRC_DIR)/nf_conntrack.c -o $(BUILD_DIR)/nf_conntrack.o
 	$(CC) $(FLAGS) $(SRC_DIR)/perf_event_open.c -o $(BUILD_DIR)/perf_event_open.o
+	$(CC) $(FLAGS) $(SRC_DIR)/proc-stat-wchan.c -o $(BUILD_DIR)/proc-stat-wchan.o
 	$(CC) $(FLAGS) $(SRC_DIR)/tsx-rtm.c -o $(BUILD_DIR)/tsx-rtm.o
 
 32bit :
@@ -47,7 +49,10 @@ all :
 	$(CC) $(FLAGS) $(SRC_DIR)/cmdline.c -o $(BUILD_DIR)/cmdline.o
 	$(CC) $(FLAGS) $(SRC_DIR)/default.c -o $(BUILD_DIR)/default.o
 	$(CC) $(FLAGS) $(SRC_DIR)/kallsyms.c -o $(BUILD_DIR)/kallsyms.o
+	$(CC) $(FLAGS) $(SRC_DIR)/nf_conntrack.c -o $(BUILD_DIR)/nf_conntrack.o
+	$(CC) $(FLAGS) $(SRC_DIR)/perf_event_open.c -o $(BUILD_DIR)/perf_event_open.o
 	$(CC) $(FLAGS) $(SRC_DIR)/pppd_kallsyms.c -o $(BUILD_DIR)/pppd_kallsyms.o
+	$(CC) $(FLAGS) $(SRC_DIR)/proc-stat-wchan.c -o $(BUILD_DIR)/proc-stat-wchan.o
 
 extra :
 	$(CC) $(FLAGS) extra/iscsi_transport_handle.c -o $(BUILD_DIR)/iscsi_transport_handle.o

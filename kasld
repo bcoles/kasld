@@ -18,11 +18,15 @@ echo "Kernel release:  $(uname -r)"
 echo "Kernel version:  $(uname -v)"
 echo "Kernel arch:     $(uname -m)"
 echo "Kernel platform: $(uname -i)"
+
+page_size="$(getconf PAGE_SIZE)"
+echo "Page size:       ${page_size}"
 echo
 
 long_bit="$(getconf LONG_BIT)bit"
 
 echo "Building (${long_bit}) ..."
+echo
 
 make "${long_bit}" || exit 1
 
