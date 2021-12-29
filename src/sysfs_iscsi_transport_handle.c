@@ -24,10 +24,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-
-// https://www.kernel.org/doc/Documentation/x86/x86_64/mm.txt
-unsigned long KERNEL_BASE_MIN = 0xffffffff80000000ul;
-unsigned long KERNEL_BASE_MAX = 0xffffffffff000000ul;
+#include "kasld.h"
 
 unsigned long get_kernel_addr_iscsi_iser_transport() {
   char* path = "/sys/class/iscsi_transport/iser/handle";
@@ -51,8 +48,7 @@ unsigned long get_kernel_addr_iscsi_iser_transport() {
 
   fclose(f);
 
-  /* 64-bit */
-  if (strlen(buff) != 21)
+  if (strlen(buff) > 21)
     return 0;
 
   char *endptr;
@@ -86,8 +82,7 @@ unsigned long get_kernel_addr_iscsi_sw_tcp_transport() {
 
   fclose(f);
 
-  /* 64-bit */
-  if (strlen(buff) != 21)
+  if (strlen(buff) > 21)
     return 0;
 
   char *endptr;

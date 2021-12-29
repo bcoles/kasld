@@ -57,6 +57,11 @@ if [ -x "${build}/kallsyms.o" ]; then
   echo
 fi
 
+if [ -x "${build}/sysfs_iscsi_transport_handle.o" ]; then
+  "${build}/sysfs_iscsi_transport_handle.o"
+  echo
+fi
+
 if [ -x "${build}/nf_conntrack.o" ]; then
   "${build}/nf_conntrack.o"
   echo
