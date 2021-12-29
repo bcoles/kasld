@@ -87,6 +87,11 @@ if [ -x "${build}/dmesg_mem_init_kernel_layout.o" ]; then
   echo
 fi
 
+if [ -x "${build}/dmesg_mmu_idmap.o" ]; then
+  "${build}/dmesg_mmu_idmap.o"
+  echo
+fi
+
 if [ -x "${build}/pppd_kallsyms.o" ]; then
   "${build}/pppd_kallsyms.o"
   echo
