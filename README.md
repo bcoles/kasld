@@ -80,6 +80,11 @@ Branch Target Buffer (BTB) based side-channel attacks:
 
 * [Jump Over ASLR: Attacking Branch Predictors to Bypass ASLR](https://www.cs.ucr.edu/~nael/pubs/micro16.pdf)
 
+Translation Lookaside Buffer (TLB) side-channel attacks:
+
+* [TagBleed: Breaking KASLR on the Isolated Kernel Address Space using Tagged TLBs](https://download.vusec.net/papers/tagbleed_eurosp20.pdf)
+* [renorobert/tagbleedvmm](https://github.com/renorobert/tagbleedvmm)
+
 RAMBleed side-channel attack (CVE-2019-0174):
 
 * [RAMBleed](https://rambleed.com/)
@@ -89,12 +94,19 @@ Remote kernel pointer leak via IP packet headers:
 
 * [From IP ID to Device ID and KASLR Bypass](https://arxiv.org/pdf/1906.10478.pdf) (CVE-2019-10639).
 
-`waitid` (CVE-2017-14954):
+[show_floppy kernel function pointer leak](https://www.exploit-db.com/exploits/44325) (CVE-2018-7273) (requires `floppy` driver).
+
+`kernel_waitid` leak (CVE-2017-14954) (only affects kernels 4.13-rc1 to 4.13.4):
 
   * [wait_for_kaslr_to_be_effective.c](https://grsecurity.net/~spender/exploits/wait_for_kaslr_to_be_effective.c).
   * https://github.com/salls/kernel-exploits/blob/master/CVE-2017-5123/exploit_no_smap.c
 
-[sctp_af_inet kernel pointer leak](https://www.exploit-db.com/exploits/45919) (CVE-2017-7558) (requires `libsctp-dev`).
+[Leak kernel pointer by exploiting uninitialized uses in Linux kernel](https://jinb-park.github.io/leak-kptr.html):
+* [jinb-park/leak-kptr](https://github.com/jinb-park/leak-kptr)
+* [compat_get_timex kernel stack pointer leak](https://github.com/jinb-park/leak-kptr/blob/master/exploit/CVE-2018-11508/poc.c) (CVE-2018-11508).
+* [sctp_af_inet kernel pointer leak](https://github.com/jinb-park/leak-kptr/tree/master/exploit/sctp-leak) (CVE-2017-7558) (requires `libsctp-dev`).
+* [rtnl_fill_link_ifmap kernel stack pointer leak](https://github.com/jinb-park/leak-kptr/tree/master/exploit/CVE-2016-4486) (CVE-2016-4486).
+* [snd_timer_user_params kernel stack pointer leak](https://github.com/jinb-park/leak-kptr/tree/master/exploit/CVE-2016-4569) (CVE-2016-4569).
 
 Exploiting an arbitrary read using `msg_msg` struct:
 
