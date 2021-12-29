@@ -52,8 +52,8 @@ if [ -x "${build}/bcm_msg_head_struct.o" ]; then
   echo
 fi
 
-if [ -x "${build}/kallsyms.o" ]; then
-  "${build}/kallsyms.o"
+if [ -x "${build}/proc-kallsyms.o" ]; then
+  "${build}/proc-kallsyms.o"
   echo
 fi
 

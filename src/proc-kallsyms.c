@@ -1,6 +1,6 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
-// Read kernel startup symbol from /proc/kallsyms
+// Retrieve kernel _stext symbol from /proc/kallsyms
 //
 // Requires:
 // - kernel.kptr_restrict = 0 (Default on Debian <= 9 systems)
@@ -56,7 +56,7 @@ int main(int argc, char **argv) {
   if (!addr)
     return 1;
 
-  printf("kernel base (certain): %lx\n", addr);
+  printf("kernel text start: %lx\n", addr);
 
   return 0;
 }
