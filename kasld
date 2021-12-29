@@ -62,6 +62,11 @@ if [ -x "${build}/sysfs_iscsi_transport_handle.o" ]; then
   echo
 fi
 
+if [ -x "${build}/sysfs-module-sections.o" ]; then
+  "${build}/sysfs-module-sections.o"
+  echo
+fi
+
 if [ -x "${build}/sysfs_nf_conntrack.o" ]; then
   "${build}/sysfs_nf_conntrack.o"
   echo
