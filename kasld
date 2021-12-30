@@ -1,8 +1,10 @@
 #!/bin/sh
 # [ KASLD ] Kernel Address Space Layout Derandomization
+# https://github.com/bcoles/kasld
 #
-# A collection of various techniques to bypass KASLR and retrieve
-# the Linux kernel base virtual address as an unprivileged user.
+# A collection of various techniques to infer the Linux kernel base virtual
+# address as an unprivileged local user, for the purpose of bypassing Kernel
+# Address Space Layout Randomization (KASLR).
 # ---
 # 2019 - <bcoles@gmail.com>
 
@@ -23,12 +25,7 @@ page_size="$(getconf PAGE_SIZE)"
 echo "Page size:       ${page_size}"
 echo
 
-long_bit="$(getconf LONG_BIT)bit"
-
-echo "Building (${long_bit}) ..."
-echo
-
-make "${long_bit}" || exit 1
+make
 
 echo
 
@@ -52,8 +49,48 @@ if [ -x "${build}/bcm_msg_head_struct.o" ]; then
   echo
 fi
 
+if [ -x "${build}/dmesg_backtrace.o" ]; then
+  "${build}/dmesg_backtrace.o"
+  echo
+fi
+
+if [ -x "${build}/dmesg_mem_init_kernel_layout.o" ]; then
+  "${build}/dmesg_mem_init_kernel_layout.o"
+  echo
+fi
+
+if [ -x "${build}/dmesg_mmu_idmap.o" ]; then
+  "${build}/dmesg_mmu_idmap.o"
+  echo
+fi
+
+if [ -x "${build}/free_reserved_area_dmesg.o" ]; then
+  "${build}/free_reserved_area_dmesg.o"
+  echo
+fi
+
+if [ -x "${build}/free_reserved_area_syslog.o" ]; then
+  "${build}/free_reserved_area_syslog.o"
+  echo
+fi
+
+if [ -x "${build}/perf_event_open.o" ]; then
+  "${build}/perf_event_open.o"
+  echo
+fi
+
+if [ -x "${build}/pppd_kallsyms.o" ]; then
+  "${build}/pppd_kallsyms.o"
+  echo
+fi
+
 if [ -x "${build}/proc-kallsyms.o" ]; then
   "${build}/proc-kallsyms.o"
+  echo
+fi
+
+if [ -x "${build}/proc-stat-wchan.o" ]; then
+  "${build}/proc-stat-wchan.o"
   echo
 fi
 
@@ -72,48 +109,8 @@ if [ -x "${build}/sysfs_nf_conntrack.o" ]; then
   echo
 fi
 
-if [ -x "${build}/perf_event_open.o" ]; then
-  "${build}/perf_event_open.o"
-  echo
-fi
-
-if [ -x "${build}/free_reserved_area_dmesg.o" ]; then
-  "${build}/free_reserved_area_dmesg.o"
-  echo
-fi
-
-if [ -x "${build}/free_reserved_area_syslog.o" ]; then
-  "${build}/free_reserved_area_syslog.o"
-  echo
-fi
-
-if [ -x "${build}/dmesg_backtrace.o" ]; then
-  "${build}/dmesg_backtrace.o"
-  echo
-fi
-
-if [ -x "${build}/dmesg_mem_init_kernel_layout.o" ]; then
-  "${build}/dmesg_mem_init_kernel_layout.o"
-  echo
-fi
-
-if [ -x "${build}/dmesg_mmu_idmap.o" ]; then
-  "${build}/dmesg_mmu_idmap.o"
-  echo
-fi
-
-if [ -x "${build}/pppd_kallsyms.o" ]; then
-  "${build}/pppd_kallsyms.o"
-  echo
-fi
-
-if [ -x "${build}/proc-stat-wchan.o" ]; then
-  "${build}/proc-stat-wchan.o"
-  echo
-fi
-
+# slow - leave last
 if [ -x "${build}/mincore.o" ]; then
   "${build}/mincore.o"
   echo
 fi
-

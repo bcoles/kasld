@@ -10,6 +10,7 @@
 // ---
 // <bcoles@gmail.com>
 
+#define _GNU_SOURCE
 #include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -45,7 +46,7 @@ unsigned long read_module_text(char *path) {
   unsigned long addr = (unsigned long)strtoull(buff, &endptr, 16);
 
   // modules may be mapped below kernel text
-  if (addr && addr < KERNEL_BASE_MAX)
+  if (addr && addr <= KERNEL_BASE_MAX)
     return addr;
 
   return 0;

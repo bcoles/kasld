@@ -75,7 +75,7 @@ int mmap_syslog(char **buffer, int *size) {
   return 0;
 }
 
-unsigned long search_dmesg(char *needle) {
+unsigned long search_dmesg_mem_init_kernel_text() {
   char *syslog;
   int size;
   unsigned long addr = 0;
@@ -83,13 +83,18 @@ unsigned long search_dmesg(char *needle) {
   if (mmap_syslog(&syslog, &size))
     return 0;
 
+  char * needle = " kernel memory layout:";
+  printf("[.] searching dmesg for '%s' ...\n", needle);
+
   char *substr = (char *)memmem(&syslog[0], size, needle, strlen(needle));
   if (substr == NULL)
     return 0;
 
-  char *addr_buf;
-  addr_buf = strstr(substr, "      .text : 0x");
+  char *text_buf = strstr(substr, "      .text : 0x");
+  if (text_buf == NULL)
+    return 0;
 
+  char *addr_buf = strtok(text_buf, "\n");
   if (addr_buf == NULL)
     return 0;
 
@@ -100,7 +105,7 @@ unsigned long search_dmesg(char *needle) {
     char *endptr = &ptr[strlen(ptr)];
     addr = (unsigned long)strtoull(&ptr[0], &endptr, 16);
 
-    if (addr > KERNEL_BASE_MIN && addr < KERNEL_BASE_MAX)
+    if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX)
       break;
 
     addr = 0;
@@ -110,14 +115,12 @@ unsigned long search_dmesg(char *needle) {
 }
 
 int main(int argc, char **argv) {
-  char * needle = " kernel memory layout:";
-  printf("[.] searching dmesg for '%s' ...\n", needle);
-
-  unsigned long addr = search_dmesg(needle);
+  unsigned long addr = search_dmesg_mem_init_kernel_text();
   if (!addr)
     return 1;
 
   printf("kernel text start: %lx\n", addr);
+  printf("possible kernel base: %lx\n", addr &~ KERNEL_BASE_MASK);
 
   return 0;
 }

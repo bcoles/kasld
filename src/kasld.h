@@ -14,6 +14,9 @@
 #define KERNEL_BASE_MIN 0xffffffff80000000ul
 #define KERNEL_BASE_MAX 0xffffffffff000000ul
 
+// 2MB aligned
+#define KERNEL_BASE_MASK 0x0ffffful
+
 // https://elixir.bootlin.com/linux/v5.15.10/source/arch/x86/Kconfig#L2046
 #define PHYSICAL_START 0x1000000ul
 
@@ -29,9 +32,14 @@
 #elif defined(__aarch64__)
 
 // page_offset = (0xffffffffffffffffUL) << (va_bits - 1)
-// 48 va bits (0xffff800000000000) is a common configuration (CONFIG_ARM64_PA_BITS_48=y)
+// 48 va bits (0xffff800000000000) is a common configuration
+// (CONFIG_ARM64_PA_BITS_48=y)
 #define KERNEL_BASE_MIN 0xffff800000000000ul
 #define KERNEL_BASE_MAX 0xffffffff00000000ul
+
+// 2MB aligned
+// https://elixir.bootlin.com/linux/v5.15.12/source/arch/arm64/include/asm/boot.h
+#define KERNEL_BASE_MASK 0x0ffffful
 
 // TEXT_OFFSET was changed from 0x80000 to zero on 2020-04-15
 // https://lore.kernel.org/all/20200428134119.GI6791@willie-the-truck/T/
@@ -46,9 +54,13 @@
  */
 #elif defined(__i386__)
 
-// 3GB vmsplit (0xc0000000) is a common configuration for distro kernels on non-embedded systems
+// 3GB vmsplit (0xc0000000) is a common configuration
+// for distro kernels non-embedded systems
 #define KERNEL_BASE_MIN 0xc0000000ul
 #define KERNEL_BASE_MAX 0xff000000ul
+
+// 2MB aligned
+#define KERNEL_BASE_MASK 0x0ffffful
 
 #define TEXT_OFFSET 0
 #define KERNEL_TEXT_DEFAULT (KERNEL_BASE_MIN + TEXT_OFFSET)
@@ -66,9 +78,13 @@
     defined(__ARM_ARCH_7R__) || defined(__ARM_ARCH_7M__) ||                    \
     defined(__ARM_ARCH_7S__)
 
-// 3GB vmsplit (0xc0000000) is common; but an unsafe assumption, especially for embedded systems
+// 3GB vmsplit (0xc0000000) is common; but an unsafe assumption,
+// especially for embedded systems
 #define KERNEL_BASE_MIN 0xc0000000ul
 #define KERNEL_BASE_MAX 0xff000000ul
+
+// 2MB aligned
+#define KERNEL_BASE_MASK 0x0ffffful
 
 #define TEXT_OFFSET 0x8000
 #define KERNEL_TEXT_DEFAULT (KERNEL_BASE_MIN + TEXT_OFFSET)

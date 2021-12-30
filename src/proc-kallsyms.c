@@ -11,6 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "kasld.h"
 
 unsigned long get_kernel_sym(char *name) {
   FILE *f;
@@ -32,10 +33,8 @@ unsigned long get_kernel_sym(char *name) {
   while (ret != EOF) {
     ret = fscanf(f, "%p %c %s\n", (void **)&addr, &dummy, sname);
 
-    if (ret == 0) {
-      fscanf(f, "%s\n", sname);
+    if (ret == 0)
       continue;
-    }
 
     if (!strcmp(name, sname))
       break;
@@ -57,6 +56,7 @@ int main(int argc, char **argv) {
     return 1;
 
   printf("kernel text start: %lx\n", addr);
+  printf("possible kernel base: %lx\n", addr &~ KERNEL_BASE_MASK);
 
   return 0;
 }

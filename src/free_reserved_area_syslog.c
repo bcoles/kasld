@@ -60,7 +60,7 @@ unsigned long get_kernel_addr_free_reserved_area_syslog() {
     char *endptr = &addr_buf[addr_len];
     addr = strtoul(&addr_buf[1], &endptr, 16);
 
-    if (addr > KERNEL_BASE_MIN && addr < KERNEL_BASE_MAX)
+    if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX)
       break;
 
     addr = 0;
@@ -77,6 +77,7 @@ int main(int argc, char **argv) {
     return 1;
 
   printf("leaked __init_begin: %lx\n", addr);
+  printf("possible kernel base: %lx\n", addr &~ KERNEL_BASE_MASK);
 
 #if defined(__x86_64__) || defined(__amd64__)
   printf("kernel base (ubuntu trusty): %lx\n", addr & 0xffffffffff000000ul);

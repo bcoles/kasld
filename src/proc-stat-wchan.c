@@ -46,7 +46,7 @@ unsigned long get_kernel_addr_proc_stat_wchan() {
     char *endptr = &ptr[strlen(ptr)];
     addr = (unsigned long)strtoull(&ptr[0], &endptr, 10);
 
-    if (addr > KERNEL_BASE_MIN && addr < KERNEL_BASE_MAX)
+    if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX)
       break;
 
     addr = 0;
@@ -63,6 +63,7 @@ int main(int argc, char **argv) {
     return 1;
 
   printf("leaked wchan address: %lx\n", addr);
+  printf("possible kernel base: %lx\n", addr &~ KERNEL_BASE_MASK);
 
   return 0;
 }

