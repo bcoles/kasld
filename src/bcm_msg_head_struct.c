@@ -23,10 +23,6 @@
 #include <unistd.h>
 #include "kasld.h"
 
-#ifndef CAN_FD_FRAME
-#define CAN_FD_FRAME 2048
-#endif
-
 void rxsetup_sock(int sock) {
   struct sockaddr_can sa;
   struct {
