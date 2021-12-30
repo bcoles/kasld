@@ -32,7 +32,7 @@ Common default kernel config options are defined in [src/kasld.h](src/kasld.h).
 Bugs which trigger a kernel oops can be used to leak kernel pointers by reading
 the kernel debug log (`dmesg` / `syslog`) on systems without `kernel.dmesg_restrict`
 (and `kernel.grsecurity.dmesg`) and without `kernel.panic_on_oops`. There are
-countless examples. A few simple examples are available in the [extra/](extra/)
+countless examples. A few simple examples are available in the [extra](extra/)
 directory.
 
 Traditionally, kernel pointers were frequently printed to the kernel debug log
@@ -141,7 +141,7 @@ and more information.
 
 ## Additional References
 
-* [grsecurity - KASLR: An Exercise in Cargo Cult Security](https://grsecurity.net/kaslr_an_exercise_in_cargo_cult_security)
+* [grsecurity - KASLR: An Exercise in Cargo Cult Security](https://grsecurity.net/kaslr_an_exercise_in_cargo_cult_security) (grsecurity, 2013)
 * [Randomize kernel base address on boot [LWN.net]](https://lwn.net/Articles/444556/)
 * Function Granular KASLR (LWN.net):
   * https://lwn.net/Articles/811685/
@@ -153,3 +153,9 @@ and more information.
 * [Linux Kernel Driver DataBase: CONFIG_RANDOMIZE_BASE_MAX_OFFSET: Maximum kASLR offset](https://cateee.net/lkddb/web-lkddb/RANDOMIZE_BASE_MAX_OFFSET.html)
 * [Linux Kernel Driver DataBase: CONFIG_RANDOMIZE_MEMORY: Randomize the kernel memory sections](https://cateee.net/lkddb/web-lkddb/RANDOMIZE_MEMORY.html)
 * [Linux Kernel Driver DataBase: CONFIG_RELOCATABLE: Build a relocatable kernel](https://cateee.net/lkddb/web-lkddb/RELOCATABLE.html)
+* [0xAX/linux-insides](https://github.com/0xAX/linux-insides)
+  * https://github.com/0xAX/linux-insides/tree/master/Initialization
+  * https://github.com/0xAX/linux-insides/blob/master/Theory/linux-theory-1.md
+  * https://github.com/0xAX/linux-insides/tree/master/MM
+* [Understanding the Linux Virtual Memory Manager](https://www.kernel.org/doc/gorman/html/understand/index.html) (Mel Gorman, 2004)
+* [Micro architecture attacks on KASLR](https://cyber.wtf/2016/10/25/micro-architecture-attacks-on-kasrl/) (Anders FoghPosted, 2016)
