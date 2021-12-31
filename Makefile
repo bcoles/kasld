@@ -13,6 +13,7 @@ all :
 	-$(CC) $(FLAGS) $(SRC_DIR)/boot-config.c -o $(BUILD_DIR)/boot-config.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/cmdline.c -o $(BUILD_DIR)/cmdline.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/default.c -o $(BUILD_DIR)/default.o
+	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_android_ion_snapshot.c -o $(BUILD_DIR)/dmesg_android_ion_snapshot.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_backtrace.c -o $(BUILD_DIR)/dmesg_backtrace.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_driver_component_ops.c -o $(BUILD_DIR)/dmesg_driver_component_ops.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_mem_init_kernel_layout.c -o $(BUILD_DIR)/dmesg_mem_init_kernel_layout.o

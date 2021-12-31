@@ -59,6 +59,11 @@ if [ -x "${build}/bcm_msg_head_struct.o" ]; then
   echo
 fi
 
+if [ -x "${build}/dmesg_android_ion_snapshot.o" ]; then
+  "${build}/dmesg_android_ion_snapshot.o"
+  echo
+fi
+
 if [ -x "${build}/dmesg_backtrace.o" ]; then
   "${build}/dmesg_backtrace.o"
   echo
