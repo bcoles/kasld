@@ -10,6 +10,8 @@
 //
 // Largely based on original code by Jann Horn:
 // https://bugs.chromium.org/p/project-zero/issues/detail?id=1431
+// ---
+// <bcoles@gmail.com>
 
 #define _GNU_SOURCE
 #include <stdio.h>

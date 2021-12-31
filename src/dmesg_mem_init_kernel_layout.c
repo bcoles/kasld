@@ -34,8 +34,7 @@
 // https://github.com/torvalds/linux/commit/fd8d0ca2563151204f3fe555dc8ca4bcfe8677a3
 //
 // Requires:
-// - kernel.dmesg_restrict = 0 (Default on Ubuntu systems);
-//   or CAP_SYSLOG capabilities.
+// - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities.
 // ---
 // <bcoles@gmail.com>
 
@@ -77,7 +76,10 @@ int mmap_syslog(char **buffer, int *size) {
 
 unsigned long search_dmesg_mem_init_kernel_text() {
   char *syslog;
+  char *ptr;
+  char *endptr;
   int size;
+  const char delim[] = " ";
   unsigned long addr = 0;
 
   if (mmap_syslog(&syslog, &size))
@@ -98,11 +100,8 @@ unsigned long search_dmesg_mem_init_kernel_text() {
   if (addr_buf == NULL)
     return 0;
 
-  char delim[] = " ";
-
-  char *ptr = strtok(addr_buf, delim);
+  ptr = strtok(addr_buf, delim);
   while ((ptr = strtok(NULL, delim)) != NULL) {
-    char *endptr = &ptr[strlen(ptr)];
     addr = (unsigned long)strtoull(&ptr[0], &endptr, 16);
 
     if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX)

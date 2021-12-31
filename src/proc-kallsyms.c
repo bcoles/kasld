@@ -2,11 +2,13 @@
 //
 // Retrieve kernel _stext symbol from /proc/kallsyms
 //
-// Requires:
-// - kernel.kptr_restrict = 0 (Default on Debian <= 9 systems)
-//
 // Based on original code by spender:
 // https://grsecurity.net/~spender/exploits/exploit.txt
+//
+// Requires:
+// - kernel.kptr_restrict = 0 (Default on Debian <= 9 systems)
+// ---
+// <bcoles@gmail.com>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -18,9 +20,10 @@ unsigned long get_kernel_sym(char *name) {
   unsigned long addr = 0;
   char dummy;
   char sname[256];
+  int ret = 0;
   const char *path = "/proc/kallsyms";
 
-  printf("[.] trying %s...\n", path);
+  printf("[.] checking %s...\n", path);
 
   f = fopen(path, "r");
 
@@ -29,7 +32,6 @@ unsigned long get_kernel_sym(char *name) {
     return 0;
   }
 
-  int ret = 0;
   while (ret != EOF) {
     ret = fscanf(f, "%p %c %s\n", (void **)&addr, &dummy, sname);
 

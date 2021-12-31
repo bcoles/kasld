@@ -68,11 +68,11 @@ unsigned long get_kernel_addr_boot_config() {
 }
 
 int main(int argc, char **argv) {
-  unsigned long addr = 0;
+  unsigned long addr = get_kernel_addr_boot_config();
+  if (!addr)
+    return 1;
 
-  addr = get_kernel_addr_boot_config();
-  if (addr)
-    printf("common default kernel text for arch: %lx\n", addr);
+  printf("common default kernel text for arch: %lx\n", addr);
 
   return 0;
 }

@@ -2,11 +2,13 @@
 //
 // Infer kernel base by sampling kernel events and taking the lowest address
 //
-// Requires:
-// - kernel.perf_event_paranoid < 2 (Default on Ubuntu <= 4.4.0 kernels)
-//
 // Largely based on original code by lizzie:
 // https://blog.lizzie.io/kaslr-and-perf.html
+//
+// Requires:
+// - kernel.perf_event_paranoid < 2 (Default on Ubuntu <= 4.4.0 kernels)
+// ---
+// <bcoles@gmail.com>
 
 #define _GNU_SOURCE
 #include <linux/perf_event.h>

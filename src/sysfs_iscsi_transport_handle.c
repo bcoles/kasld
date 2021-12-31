@@ -27,18 +27,20 @@
 #include "kasld.h"
 
 unsigned long get_kernel_addr_iscsi_iser_transport() {
-  char* path = "/sys/class/iscsi_transport/iser/handle";
+  FILE *f;
+  char *endptr;
+  const char* path = "/sys/class/iscsi_transport/iser/handle";
+  unsigned long addr = 0;
+  unsigned int buff_len = 1024;
+  char buff[buff_len];
 
   printf("[.] checking %s ...\n", path);
 
-  FILE *f = fopen(path, "rb");
+  f = fopen(path, "rb");
   if (f == NULL) {
     printf("[-] open/read(%s): %m\n", path);
     return 0;
   }
-
-  unsigned int buff_len = 1024;
-  char buff[buff_len];
 
   if (fgets(buff, buff_len, f) == NULL) {
     printf("[-] fgets(%s): %m\n", path);
@@ -51,8 +53,7 @@ unsigned long get_kernel_addr_iscsi_iser_transport() {
   if (strlen(buff) > 21)
     return 0;
 
-  char *endptr;
-  unsigned long addr = (unsigned long)strtoull(buff, &endptr, 10);
+  addr = (unsigned long)strtoull(buff, &endptr, 10);
 
   if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX)
     return addr;
@@ -61,18 +62,20 @@ unsigned long get_kernel_addr_iscsi_iser_transport() {
 }
 
 unsigned long get_kernel_addr_iscsi_sw_tcp_transport() {
-  char* path = "/sys/class/iscsi_transport/tcp/handle";
+  FILE *f;
+  char *endptr;
+  const char* path = "/sys/class/iscsi_transport/tcp/handle";
+  unsigned long addr = 0;
+  unsigned int buff_len = 1024;
+  char buff[buff_len];
 
   printf("[.] checking %s ...\n", path);
 
-  FILE *f = fopen(path, "rb");
+  f = fopen(path, "rb");
   if (f == NULL) {
     printf("[-] open/read(%s): %m\n", path);
     return 0;
   }
-
-  unsigned int buff_len = 1024;
-  char buff[buff_len];
 
   if (fgets(buff, buff_len, f) == NULL) {
     printf("[-] fgets(%s): %m\n", path);
@@ -85,8 +88,7 @@ unsigned long get_kernel_addr_iscsi_sw_tcp_transport() {
   if (strlen(buff) > 21)
     return 0;
 
-  char *endptr;
-  unsigned long addr = (unsigned long)strtoull(buff, &endptr, 10);
+  addr = (unsigned long)strtoull(buff, &endptr, 10);
 
   if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX)
     return addr;

