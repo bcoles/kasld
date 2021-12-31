@@ -54,6 +54,11 @@ if [ -x "${build}/dmesg_backtrace.o" ]; then
   echo
 fi
 
+if [ -x "${build}/dmesg_driver_component_ops.o" ]; then
+  "${build}/dmesg_driver_component_ops.o"
+  echo
+fi
+
 if [ -x "${build}/dmesg_mem_init_kernel_layout.o" ]; then
   "${build}/dmesg_mem_init_kernel_layout.o"
   echo
