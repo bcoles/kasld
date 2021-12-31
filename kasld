@@ -79,6 +79,11 @@ if [ -x "${build}/free_reserved_area_syslog.o" ]; then
   echo
 fi
 
+if [ -x "${build}/mmap-brute-vmsplit.o" ]; then
+  "${build}/mmap-brute-vmsplit.o"
+  echo
+fi
+
 if [ -x "${build}/perf_event_open.o" ]; then
   "${build}/perf_event_open.o"
   echo
