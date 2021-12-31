@@ -21,6 +21,7 @@ all :
 	-$(CC) $(FLAGS) $(SRC_DIR)/free_reserved_area_syslog.c -o $(BUILD_DIR)/free_reserved_area_syslog.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/mincore.c -o $(BUILD_DIR)/mincore.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/perf_event_open.c -o $(BUILD_DIR)/perf_event_open.o
+	-$(CC) $(FLAGS) $(SRC_DIR)/proc-config.c -o $(BUILD_DIR)/proc-config.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/pppd_kallsyms.c -o $(BUILD_DIR)/pppd_kallsyms.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/proc-kallsyms.c -o $(BUILD_DIR)/proc-kallsyms.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/proc-stat-wchan.c -o $(BUILD_DIR)/proc-stat-wchan.o
