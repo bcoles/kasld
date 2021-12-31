@@ -13,20 +13,30 @@ build="${base_dir}/build"
 
 cd "${base_dir}" || exit 1
 
+echo
 echo "[ KASLD ] Kernel Address Space Layout Derandomization"
 echo
 
-echo "Kernel release:  $(uname -r)"
-echo "Kernel version:  $(uname -v)"
-echo "Kernel arch:     $(uname -m)"
-echo "Kernel platform: $(uname -i)"
-
-page_size="$(getconf PAGE_SIZE)"
-echo "Page size:       ${page_size}"
+echo "Kernel release:   $(uname -r)"
+echo "Kernel version:   $(uname -v)"
+echo "Kernel arch:      $(uname -m)"
+echo "Kernel platform:  $(uname -i)"
+echo
+echo "kernel.kptr_restrict:      $(cat /proc/sys/kernel/kptr_restrict)"
+echo "kernel.dmesg_restrict:     $(cat /proc/sys/kernel/dmesg_restrict)"
+echo "kernel.panic_on_oops:      $(cat /proc/sys/kernel/panic_on_oops)"
+echo
+echo "Readable /var/log/syslog:  $(test -r /var/log/syslog && echo yes || echo no)"
+echo "Readable DebugFS:          $(test -r /sys/kernel/debug && echo yes || echo no)"
 echo
 
-make
+echo "Building ..."
+echo
 
+make || echo "build failed!"
+echo
+
+echo "Running build ..."
 echo
 
 if [ -x "${build}/default.o" ]; then
