@@ -22,9 +22,10 @@ echo "Kernel version:   $(uname -v)"
 echo "Kernel arch:      $(uname -m)"
 echo "Kernel platform:  $(uname -i)"
 echo
-echo "kernel.kptr_restrict:      $(cat /proc/sys/kernel/kptr_restrict)"
-echo "kernel.dmesg_restrict:     $(cat /proc/sys/kernel/dmesg_restrict)"
-echo "kernel.panic_on_oops:      $(cat /proc/sys/kernel/panic_on_oops)"
+echo "kernel.kptr_restrict:        $(cat /proc/sys/kernel/kptr_restrict)"
+echo "kernel.dmesg_restrict:       $(cat /proc/sys/kernel/dmesg_restrict)"
+echo "kernel.panic_on_oops:        $(cat /proc/sys/kernel/panic_on_oops)"
+echo "kernel.perf_event_paranoid:  $(cat /proc/sys/kernel/perf_event_paranoid)"
 echo
 echo "Readable /var/log/syslog:  $(test -r /var/log/syslog && echo yes || echo no)"
 echo "Readable DebugFS:          $(test -r /sys/kernel/debug && echo yes || echo no)"
@@ -39,6 +40,7 @@ echo
 echo "Running build ..."
 echo
 
+# leave default as first
 if [ -x "${build}/default.o" ]; then
   "${build}/default.o"
   echo

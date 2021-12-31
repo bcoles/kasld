@@ -75,28 +75,31 @@ int mmap_syslog(char **buffer, int *size) {
 }
 
 unsigned long search_dmesg_mem_init_kernel_text() {
+  char *addr_buf;
+  char *substr;
   char *syslog;
+  char *text_buf;
   char *ptr;
   char *endptr;
   int size;
   const char delim[] = " ";
   unsigned long addr = 0;
+  const char *needle = " kernel memory layout:";
 
   if (mmap_syslog(&syslog, &size))
     return 0;
 
-  char * needle = " kernel memory layout:";
   printf("[.] searching dmesg for '%s' ...\n", needle);
 
-  char *substr = (char *)memmem(&syslog[0], size, needle, strlen(needle));
+  substr = (char *)memmem(&syslog[0], size, needle, strlen(needle));
   if (substr == NULL)
     return 0;
 
-  char *text_buf = strstr(substr, "      .text : 0x");
+  text_buf = strstr(substr, "      .text : 0x");
   if (text_buf == NULL)
     return 0;
 
-  char *addr_buf = strtok(text_buf, "\n");
+  addr_buf = strtok(text_buf, "\n");
   if (addr_buf == NULL)
     return 0;
 
