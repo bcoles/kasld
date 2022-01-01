@@ -17,7 +17,7 @@ In some instances a compiler which supports the `_GNU_SOURCE` macro is required.
 of these files, offering a quick and easy method to check for address leaks
 on a target system. This script requires `make`.
 
-Refer to [examples.md](examples.md) for example output from various distros.
+Refer to [output.md](output.md) for example output from various distros.
 
 Leaked addresses may need to be bit masked off appropriately for the target kernel,
 depending on kernel alignment. Once bitmasked, the address may need to be adjusted
