@@ -89,6 +89,27 @@
 #define TEXT_OFFSET 0x8000
 #define KERNEL_TEXT_DEFAULT (KERNEL_BASE_MIN + TEXT_OFFSET)
 
+#elif defined(__mips64) || defined (__mips64__)
+#error "Unrecognised architecture!"
+
+#elif defined(__mips__)
+// https://www.kernel.org/doc/Documentation/mips/booting.rst
+// https://elixir.bootlin.com/linux/v5.15.12/source/arch/mips/include/asm/mach-malta/spaces.h#L37
+// https://elixir.bootlin.com/linux/v5.15.12/source/arch/mips/include/asm/processor.h#L39
+// https://training.mips.com/basic_mips/PDF/Memory_Map.pdf
+
+// kseg0: 0x80000000 - 0x9fffffff
+#define KERNEL_BASE_MIN 0x80000000ul
+#define KERNEL_BASE_MAX 0xff000000ul
+
+// page aligned (default CONFIG_PAGE_SIZE_4KB=y)
+#define KERNEL_BASE_MASK 0x0ffful
+
+// https://elixir.bootlin.com/linux/v5.15.12/source/arch/mips/kernel/head.S#L67
+#define TEXT_OFFSET 0x400
+
+#define KERNEL_TEXT_DEFAULT (KERNEL_BASE_MIN + 0x100000 + TEXT_OFFSET)
+
 #else
 #error "Unrecognised architecture!"
 #endif
