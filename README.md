@@ -4,6 +4,7 @@ A collection of various techniques to infer the Linux kernel base virtual
 address as an unprivileged local user, for the purpose of bypassing Kernel
 Address Space Layout Randomization (KASLR).
 
+Supports x86, x86_64, ARM32, ARM64, MIPS32, MIPS64.
 
 ## Usage
 
@@ -39,9 +40,9 @@ Bugs which trigger a kernel oops can be used to leak kernel pointers by reading
 the kernel debug log. There are countless examples. A few simple examples are
 available in the [extra](extra/) directory.
 
-Modern distros now use `kernel.dmesg_restrict` to prevent unprivileged users
-from accessing the kernel debug log by default. grsecurity hardened kernels
-also support `kernel.grsecurity.dmesg` to prevent unprivileged access.
+Modern distros ship with `kernel.dmesg_restrict` enabled by default to prevent
+unprivileged users from accessing the kernel debug log. grsecurity hardened
+kernels also support `kernel.grsecurity.dmesg` to prevent unprivileged access.
 
 
 ## Function Offsets
@@ -158,6 +159,8 @@ and more information.
 
 ## References
 
+### KASLR
+
 * [grsecurity - KASLR: An Exercise in Cargo Cult Security](https://grsecurity.net/kaslr_an_exercise_in_cargo_cult_security) (grsecurity, 2013)
 * [Randomize kernel base address on boot [LWN.net]](https://lwn.net/Articles/444556/)
 * Function Granular KASLR (LWN.net)
@@ -171,9 +174,13 @@ and more information.
   * [CONFIG_RANDOMIZE_BASE_MAX_OFFSET: Maximum kASLR offset](https://cateee.net/lkddb/web-lkddb/RANDOMIZE_BASE_MAX_OFFSET.html)
   * [CONFIG_RANDOMIZE_MEMORY: Randomize the kernel memory sections](https://cateee.net/lkddb/web-lkddb/RANDOMIZE_MEMORY.html)
   * [CONFIG_RELOCATABLE: Build a relocatable kernel](https://cateee.net/lkddb/web-lkddb/RELOCATABLE.html)
+* [Micro architecture attacks on KASLR](https://cyber.wtf/2016/10/25/micro-architecture-attacks-on-kasrl/) (Anders FoghPosted, 2016)
+
+### Memory Management
+
 * [0xAX/linux-insides](https://github.com/0xAX/linux-insides)
   * https://github.com/0xAX/linux-insides/tree/master/Initialization
   * https://github.com/0xAX/linux-insides/blob/master/Theory/linux-theory-1.md
   * https://github.com/0xAX/linux-insides/tree/master/MM
 * [Understanding the Linux Virtual Memory Manager](https://www.kernel.org/doc/gorman/html/understand/index.html) (Mel Gorman, 2004)
-* [Micro architecture attacks on KASLR](https://cyber.wtf/2016/10/25/micro-architecture-attacks-on-kasrl/) (Anders FoghPosted, 2016)
+* Linux Kernel Programming (2021, Kaiwan N Billimoria)
