@@ -11,6 +11,8 @@
  */
 #if defined(__x86_64__) || defined(__amd64__)
 
+#define KERNEL_VAS_START 0xff00000000000000ul
+
 #define KERNEL_BASE_MIN 0xffffffff80000000ul
 #define KERNEL_BASE_MAX 0xffffffffff000000ul
 
@@ -31,11 +33,12 @@
  */
 #elif defined(__aarch64__)
 
+#define KERNEL_VAS_START 0xff00000000000000ul
+
+// 48 va bits (CONFIG_ARM64_VA_BITS_48=y) is a common configuration
 // page_offset = (0xffffffffffffffffUL) << (va_bits - 1)
-// 48 va bits (0xffff800000000000) is a common configuration
-// (CONFIG_ARM64_PA_BITS_48=y)
-#define KERNEL_BASE_MIN 0xffff800000000000ul
-#define KERNEL_BASE_MAX 0xffffffff00000000ul
+#define KERNEL_BASE_MIN 0xffff000080000000ul
+#define KERNEL_BASE_MAX 0xffffffffff000000ul
 
 // 2MB aligned
 // https://elixir.bootlin.com/linux/v5.15.12/source/arch/arm64/include/asm/boot.h
@@ -53,6 +56,8 @@
  */
 #elif defined(__mips64) || defined (__mips64__)
 
+#define KERNEL_VAS_START 0xffff000000000000ul
+
 #define KERNEL_BASE_MIN 0xffffffff80000000ul
 #define KERNEL_BASE_MAX 0xffffffffff000000ul
 
@@ -61,7 +66,7 @@
 // https://elixir.bootlin.com/linux/v5.15.12/source/arch/mips/kernel/head.S#L67
 #define TEXT_OFFSET 0x400
 
-#define KERNEL_TEXT_DEFAULT (KERNEL_BASE_MIN + 0x100000 + TEXT_OFFSET)
+#define KERNEL_TEXT_DEFAULT (KERNEL_BASE_MIN + 0x100000ul + TEXT_OFFSET)
 
 /*
  * x86 (i386)
@@ -72,6 +77,8 @@
 
 // 3GB vmsplit (0xc0000000) is a common configuration
 // for distro kernels non-embedded systems
+#define KERNEL_VAS_START 0xc0000000ul
+
 #define KERNEL_BASE_MIN 0xc0000000ul
 #define KERNEL_BASE_MAX 0xff000000ul
 
@@ -87,7 +94,8 @@
  * https://people.kernel.org/linusw/how-the-arm32-kernel-starts
  * https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/arch/arm/kernel/head.S
  */
-#elif defined(__ARM_ARCH_6__) || defined(__ARM_ARCH_6J__) ||                   \
+#elif defined(__arm__) ||                                                      \
+    defined(__ARM_ARCH_6__) || defined(__ARM_ARCH_6J__) ||                     \
     defined(__ARM_ARCH_6K__) || defined(__ARM_ARCH_6Z__) ||                    \
     defined(__ARM_ARCH_6ZK__) || defined(__ARM_ARCH_6T2__) ||                  \
     defined(__ARM_ARCH_7__) || defined(__ARM_ARCH_7A__) ||                     \
@@ -96,6 +104,8 @@
 
 // 3GB vmsplit (0xc0000000) is common; but an unsafe assumption,
 // especially for embedded systems
+#define KERNEL_VAS_START 0xc0000000ul
+
 #define KERNEL_BASE_MIN 0xc0000000ul
 #define KERNEL_BASE_MAX 0xff000000ul
 
@@ -115,6 +125,8 @@
 #elif defined(__mips__)
 
 // kseg0: 0x80000000 - 0x9fffffff
+#define KERNEL_VAS_START 0x80000000ul
+
 #define KERNEL_BASE_MIN 0x80000000ul
 #define KERNEL_BASE_MAX 0xff000000ul
 
@@ -124,7 +136,7 @@
 // https://elixir.bootlin.com/linux/v5.15.12/source/arch/mips/kernel/head.S#L67
 #define TEXT_OFFSET 0x400
 
-#define KERNEL_TEXT_DEFAULT (KERNEL_BASE_MIN + 0x100000 + TEXT_OFFSET)
+#define KERNEL_TEXT_DEFAULT (KERNEL_BASE_MIN + 0x100000ul + TEXT_OFFSET)
 
 #else
 #error "Unrecognised architecture!"
