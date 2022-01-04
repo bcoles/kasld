@@ -48,6 +48,22 @@
 #define KERNEL_TEXT_DEFAULT (KERNEL_BASE_MIN + TEXT_OFFSET)
 
 /*
+ * MIPS 64-bit (mips64el)
+ * https://training.mips.com/basic_mips/PDF/Memory_Map.pdf
+ */
+#elif defined(__mips64) || defined (__mips64__)
+
+#define KERNEL_BASE_MIN 0xffffffff80000000ul
+#define KERNEL_BASE_MAX 0xffffffffff000000ul
+
+#define KERNEL_BASE_MASK 0x0ffffful
+
+// https://elixir.bootlin.com/linux/v5.15.12/source/arch/mips/kernel/head.S#L67
+#define TEXT_OFFSET 0x400
+
+#define KERNEL_TEXT_DEFAULT (KERNEL_BASE_MIN + 0x100000 + TEXT_OFFSET)
+
+/*
  * x86 (i386)
  * https://elixir.bootlin.com/linux/latest/source/arch/x86/Kconfig
  * https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/arch/x86/kernel/head_32.S
@@ -89,14 +105,14 @@
 #define TEXT_OFFSET 0x8000
 #define KERNEL_TEXT_DEFAULT (KERNEL_BASE_MIN + TEXT_OFFSET)
 
-#elif defined(__mips64) || defined (__mips64__)
-#error "Unrecognised architecture!"
-
+/*
+ * MIPS 32-bit (mipsel)
+ * https://elixir.bootlin.com/linux/v5.15.12/source/arch/mips/include/asm/mach-malta/spaces.h#L37
+ * https://elixir.bootlin.com/linux/v5.15.12/source/arch/mips/include/asm/processor.h#L39
+ * https://www.kernel.org/doc/Documentation/mips/booting.rst
+ * https://training.mips.com/basic_mips/PDF/Memory_Map.pdf
+ */
 #elif defined(__mips__)
-// https://www.kernel.org/doc/Documentation/mips/booting.rst
-// https://elixir.bootlin.com/linux/v5.15.12/source/arch/mips/include/asm/mach-malta/spaces.h#L37
-// https://elixir.bootlin.com/linux/v5.15.12/source/arch/mips/include/asm/processor.h#L39
-// https://training.mips.com/basic_mips/PDF/Memory_Map.pdf
 
 // kseg0: 0x80000000 - 0x9fffffff
 #define KERNEL_BASE_MIN 0x80000000ul
