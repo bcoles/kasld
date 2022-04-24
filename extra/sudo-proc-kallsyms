@@ -1,0 +1,18 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# Search /proc/kallsyms for kernel base (with sudo).
+#
+# Requires:
+# - sudo privileges
+# - CONFIG_KALLSYMS=y
+# - /proc/sys/kernel/kptr_restrict < 2
+#
+# References:
+# https://sysctl-explorer.net/kernel/kptr_restrict/
+# https://www.kernel.org/doc/Documentation/sysctl/kernel.txt
+# ---
+# <bcoles@gmail.com>
+sudo grep 'T startup_64' /proc/kallsyms
+sudo grep 'T _stext' /proc/kallsyms
+sudo grep 'T _text' /proc/kallsyms
