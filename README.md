@@ -81,6 +81,7 @@ but does not implement these techniques. Refer to:
 * [vusec/ridl](https://github.com/vusec/ridl)
 * [paboldin/meltdown-exploit](https://github.com/paboldin/meltdown-exploit)
 * [vnik5287/kaslr_tsx_bypass](https://github.com/vnik5287/kaslr_tsx_bypass)
+* [comsec-group/retbleed](https://github.com/comsec-group/retbleed)
 
 Prefetch side-channel attacks:
 
@@ -93,15 +94,21 @@ Branch Target Buffer (BTB) based side-channel attacks:
 
 * [Jump Over ASLR: Attacking Branch Predictors to Bypass ASLR](https://www.cs.ucr.edu/~nael/pubs/micro16.pdf)
 
+Branch Target Injection (BTI) attacks:
+
+* [speed47/spectre-meltdown-checker](https://github.com/speed47/spectre-meltdown-checker)
+* [RETBLEED: Arbitrary Speculative Code Execution with Return Instructions](https://comsec.ethz.ch/wp-content/files/retbleed_sec22.pdf)
+  * [comsec-group/retbleed](https://github.com/comsec-group/retbleed) - Intel/AMD x86_64 CPUs
+
 Translation Lookaside Buffer (TLB) side-channel attacks:
 
 * [TagBleed: Breaking KASLR on the Isolated Kernel Address Space using Tagged TLBs](https://download.vusec.net/papers/tagbleed_eurosp20.pdf)
-* [renorobert/tagbleedvmm](https://github.com/renorobert/tagbleedvmm)
+  * [renorobert/tagbleedvmm](https://github.com/renorobert/tagbleedvmm)
 
 RAMBleed side-channel attack (CVE-2019-0174):
 
 * [RAMBleed](https://rambleed.com/)
-* [google/rowhammer-test](https://github.com/google/rowhammer-test)
+  * [google/rowhammer-test](https://github.com/google/rowhammer-test)
 
 Remote kernel pointer leak via IP packet headers:
 
