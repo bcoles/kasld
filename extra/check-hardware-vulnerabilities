@@ -4,15 +4,26 @@
 # Check for various known hardware vulnerabilities which can
 # be used to read arbitrary kernel memory.
 #
+# Note: Outdated systems which pre-date patches for CPU vulnerabilities
+#       will not report CPU vulnerabilties and associated mitigations,
+#       thus cannot be checked using this script.
+#
 # References:
 # https://www.kernel.org/doc/html/latest/admin-guide/hw-vuln/index.html
 # ---
 # <bcoles@gmail.com>
 
-echo "[.] For more accurate results, try spectre-meldown-checker:"
-echo "    https://github.com/speed47/spectre-meltdown-checker"
+echo "[.] CPU:"
+echo "$(grep 'model name' /proc/cpuinfo | uniq)"
+echo "$(grep 'cpu cores' /proc/cpuinfo | uniq)"
+echo "total cores	: $(nproc)"
+echo
 
-echo "[.] Checking /sys/devices/system/cpu/vulnerabilities ..."
+echo "[.] Checking /proc/cpuinfo bugs ..."
+echo "$(grep 'bugs' /proc/cpuinfo | uniq)"
+echo
+
+echo "[.] Checking /sys/devices/system/cpu/vulnerabilities mitigations ..."
 
 grep -sr Vulnerable /sys/devices/system/cpu/vulnerabilities/
 echo
@@ -34,6 +45,11 @@ if grep -s -q Vulnerable /sys/devices/system/cpu/vulnerabilities/spec_store_bypa
   echo "[.] CPU vulnerable to spectre v4 (CVE-2018-3639)"
 fi
 
+if grep -s -q Vulnerable /sys/devices/system/cpu/vulnerabilities/retbleed ; then
+  echo "[.] CPU vulnerable to RETBleed (CVE-2022-29900 / CVE-2022-29901). Try:"
+  echo "    https://github.com/comsec-group/retbleed"
+fi
+
 if grep -s -q Vulnerable /sys/devices/system/cpu/vulnerabilities/mds ; then
   echo "[.] CPU vulnerable to Microarchitectural Data Sampling (MDS) attacks. Try:"
   echo "    https://github.com/vusec/ridl"
@@ -43,3 +59,7 @@ if grep -s -q Vulnerable /sys/devices/system/cpu/vulnerabilities/tsx_async_abort
   echo "[.] CPU vulnerable to TSX asynchronous abort (CVE-2019-11135). Try:"
   echo "    https://github.com/vnik5287/kaslr_tsx_bypass"
 fi
+
+echo
+echo "[.] For more accurate Spectre/Meltdown results, try:"
+echo "    https://github.com/speed47/spectre-meltdown-checker"
