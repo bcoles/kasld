@@ -89,6 +89,8 @@ Prefetch side-channel attacks:
 * [xairy/kernel-exploits/prefetch-side-channel](https://github.com/xairy/kernel-exploits/tree/master/prefetch-side-channel)
 * [Fetching the KASLR slide with prefetch](https://googleprojectzero.blogspot.com/2022/12/exploiting-CVE-2022-42703-bringing-back-the-stack-attack.html)
   * [prefetch_poc.zip](https://bugs.chromium.org/p/project-zero/issues/detail?id=2351) - Intel x86_64 CPUs with kPTI disabled (`pti=off`)
+* [EntryBleed: Breaking KASLR under KPTI with Prefetch (CVE-2022-4543)](https://www.willsroot.io/2022/12/entrybleed.html)
+  * Intel x86_64 CPUs; AMD x86_64 CPUs with kPTI disabled (`pti=off`)
 
 Branch Target Buffer (BTB) based side-channel attacks:
 
