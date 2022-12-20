@@ -14,7 +14,7 @@
 #define KERNEL_VAS_START 0xff00000000000000ul
 
 #define KERNEL_BASE_MIN 0xffffffff80000000ul
-#define KERNEL_BASE_MAX 0xffffffffff000000ul
+#define KERNEL_BASE_MAX 0xfffffffff0000000ul
 
 // 2MB aligned
 #define KERNEL_BASE_MASK 0x0ffffful
@@ -38,7 +38,7 @@
 // 48 va bits (CONFIG_ARM64_VA_BITS_48=y) is a common configuration
 // page_offset = (0xffffffffffffffffUL) << (va_bits - 1)
 #define KERNEL_BASE_MIN 0xffff000080000000ul
-#define KERNEL_BASE_MAX 0xffffffffff000000ul
+#define KERNEL_BASE_MAX 0xfffffffff0000000ul
 
 // 2MB aligned
 // https://elixir.bootlin.com/linux/v5.15.12/source/arch/arm64/include/asm/boot.h
@@ -59,7 +59,7 @@
 #define KERNEL_VAS_START 0xffff000000000000ul
 
 #define KERNEL_BASE_MIN 0xffffffff80000000ul
-#define KERNEL_BASE_MAX 0xffffffffff000000ul
+#define KERNEL_BASE_MAX 0xfffffffff0000000ul
 
 #define KERNEL_BASE_MASK 0x0ffffful
 
@@ -80,7 +80,7 @@
 #define KERNEL_VAS_START 0xc0000000ul
 
 #define KERNEL_BASE_MIN 0xc0000000ul
-#define KERNEL_BASE_MAX 0xff000000ul
+#define KERNEL_BASE_MAX 0xf0000000ul
 
 // 2MB aligned
 #define KERNEL_BASE_MASK 0x0ffffful
@@ -107,7 +107,7 @@
 #define KERNEL_VAS_START 0xc0000000ul
 
 #define KERNEL_BASE_MIN 0xc0000000ul
-#define KERNEL_BASE_MAX 0xff000000ul
+#define KERNEL_BASE_MAX 0xf0000000ul
 
 // 2MB aligned
 #define KERNEL_BASE_MASK 0x0ffffful
@@ -128,7 +128,7 @@
 #define KERNEL_VAS_START 0x80000000ul
 
 #define KERNEL_BASE_MIN 0x80000000ul
-#define KERNEL_BASE_MAX 0xff000000ul
+#define KERNEL_BASE_MAX 0xf0000000ul
 
 // page aligned (default CONFIG_PAGE_SIZE_4KB=y)
 #define KERNEL_BASE_MASK 0x0ffful
