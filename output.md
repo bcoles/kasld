@@ -331,6 +331,119 @@ opendir(/sys/kernel/slab/): No such file or directory
 </details>
 
 
+### Debian 11.0 (x86_64)
+
+<details>
+   
+```
+[ KASLD ] Kernel Address Space Layout Derandomization
+Kernel release:   5.10.0-8-amd64
+Kernel version:   #1 SMP Debian 5.10.46-5 (2021-09-23)
+Kernel arch:      x86_64
+Kernel platform:  unknown
+
+kernel.kptr_restrict:        0
+kernel.dmesg_restrict:       1
+kernel.panic_on_oops:        0
+kernel.perf_event_paranoid:  3
+
+Readable /var/log/syslog:  no
+Readable DebugFS:          no
+
+Building ...
+
+mkdir -p ./build
+cc -Wall -std=c99 ./src/bcm_msg_head_struct.c -o ./build/bcm_msg_head_struct.o
+cc -Wall -std=c99 ./src/boot-config.c -o ./build/boot-config.o
+cc -Wall -std=c99 ./src/cmdline.c -o ./build/cmdline.o
+cc -Wall -std=c99 ./src/default.c -o ./build/default.o
+cc -Wall -std=c99 ./src/dmesg_android_ion_snapshot.c -o ./build/dmesg_android_ion_snapshot.o
+cc -Wall -std=c99 ./src/dmesg_backtrace.c -o ./build/dmesg_backtrace.o
+cc -Wall -std=c99 ./src/dmesg_driver_component_ops.c -o ./build/dmesg_driver_component_ops.o
+cc -Wall -std=c99 ./src/dmesg_mem_init_kernel_layout.c -o ./build/dmesg_mem_init_kernel_layout.o
+cc -Wall -std=c99 ./src/dmesg_mmu_idmap.c -o ./build/dmesg_mmu_idmap.o
+cc -Wall -std=c99 ./src/entrybleed.c -o ./build/entrybleed.o
+cc -Wall -std=c99 ./src/free_reserved_area_dmesg.c -o ./build/free_reserved_area_dmesg.o
+cc -Wall -std=c99 ./src/free_reserved_area_syslog.c -o ./build/free_reserved_area_syslog.o
+cc -Wall -std=c99 ./src/mincore.c -o ./build/mincore.o
+cc -Wall -std=c99 ./src/mmap-brute-vmsplit.c -o ./build/mmap-brute-vmsplit.o
+cc -Wall -std=c99 ./src/perf_event_open.c -o ./build/perf_event_open.o
+cc -Wall -std=c99 ./src/proc-config.c -o ./build/proc-config.o
+cc -Wall -std=c99 ./src/pppd_kallsyms.c -o ./build/pppd_kallsyms.o
+cc -Wall -std=c99 ./src/proc-kallsyms.c -o ./build/proc-kallsyms.o
+cc -Wall -std=c99 ./src/proc-stat-wchan.c -o ./build/proc-stat-wchan.o
+cc -Wall -std=c99 ./src/sysfs_iscsi_transport_handle.c -o ./build/sysfs_iscsi_transport_handle.o
+cc -Wall -std=c99 ./src/sysfs-module-sections.c -o ./build/sysfs-module-sections.o
+cc -Wall -std=c99 ./src/sysfs_nf_conntrack.c -o ./build/sysfs_nf_conntrack.o
+
+Running build ...
+
+common default kernel text for arch: ffffffff81000000
+
+[.] checking /boot/config-5.10.0-8-amd64 ...
+[.] checking /boot/config-5.10.0-8-amd64 ...
+
+[.] trying /proc/cmdline ...
+[-] Kernel was not booted with nokaslr flag.
+
+[.] trying bcm_msg_head struct stack pointer leak ...
+
+[.] searching dmesg for 'ion_snapshot: ' ...
+[-] klogctl(SYSLOG_ACTION_SIZE_BUFFER): Operation not permitted
+
+[.] searching dmesg for call trace kernel pointers ...
+[-] klogctl(SYSLOG_ACTION_SIZE_BUFFER): Operation not permitted
+
+[.] searching dmesg for driver component ops pointers ...
+[-] klogctl(SYSLOG_ACTION_SIZE_BUFFER): Operation not permitted
+
+[-] klogctl(SYSLOG_ACTION_SIZE_BUFFER): Operation not permitted
+
+[.] searching dmesg for ' static identity map for ' ...
+[-] klogctl(SYSLOG_ACTION_SIZE_BUFFER): Operation not permitted
+
+[.] trying EntryBleed (CVE-2022-4543) ...
+[.] Intel CPU with KPTI enabled
+[.] kernel version '5.10.0-8-amd64 #1 SMP Debian 5.10.46-5 (2021-09-23)' detected
+possible kernel base: ffffffffb0000000
+
+[.] checking dmesg for free_reserved_area() info ...
+[-] klogctl(SYSLOG_ACTION_SIZE_BUFFER): Operation not permitted
+
+[.] checking /var/log/syslog for free_reserved_area() info ...
+[-] open/read(/var/log/syslog): Permission denied
+
+[.] searching for kernel virtual address space start ...
+[-] Could not locate kernel virtual address space
+
+[.] trying perf_event_open sampling ...
+[-] syscall(SYS_perf_event_open): Permission denied
+
+[.] trying 'pppd file /proc/kallsyms 2>&1' ...
+
+[.] checking /proc/config.gz ...
+[-] Could not read /proc/config.gz
+
+[.] checking /proc/kallsyms...
+[-] kernel symbol '_stext' not found in /proc/kallsyms
+
+[.] checking /proc/1788/stat 'wchan' field ...
+
+[.] checking /sys/class/iscsi_transport/iser/handle ...
+[-] open/read(/sys/class/iscsi_transport/iser/handle): No such file or directory
+[.] checking /sys/class/iscsi_transport/tcp/handle ...
+[-] open/read(/sys/class/iscsi_transport/tcp/handle): No such file or directory
+
+[.] trying /sys/modules/*/sections/.text ...
+
+[.] trying /sys/kernel/slab/nf_contrack_* ...
+
+[.] trying mincore info leak...
+[-] kernel base not found in mincore info leak
+```
+</details>
+
+
 ### Fedora 27 (x86_64)
 
 <details>
@@ -660,6 +773,115 @@ lowest leaked module text address: ffffffffc03ec000
 [.] trying /sys/kernel/slab/nf_contrack_* ...
 leaked init_net: ffffffffb9311640
 possible kernel base: ffffffffb9300000
+
+[.] trying mincore info leak...
+[-] kernel base not found in mincore info leak
+```
+</details>
+
+
+### RHEL 9.1 (x86_64)
+
+<details>
+
+```
+[ KASLD ] Kernel Address Space Layout Derandomization
+
+Kernel release:   5.14.0-162.6.1.el9_1.x86_64
+Kernel version:   #1 SMP PREEMPT_DYNAMIC Fri Sep 30 07:36:03 EDT 2022
+Kernel arch:      x86_64
+Kernel platform:  x86_64
+
+kernel.kptr_restrict:        1
+kernel.dmesg_restrict:       0
+kernel.panic_on_oops:        1
+kernel.perf_event_paranoid:  2
+
+Readable /var/log/syslog:  no
+Readable DebugFS:          no
+
+Building ...
+
+mkdir -p ./build
+cc -Wall -std=c99 ./src/bcm_msg_head_struct.c -o ./build/bcm_msg_head_struct.o
+cc -Wall -std=c99 ./src/boot-config.c -o ./build/boot-config.o
+cc -Wall -std=c99 ./src/cmdline.c -o ./build/cmdline.o
+cc -Wall -std=c99 ./src/default.c -o ./build/default.o
+cc -Wall -std=c99 ./src/dmesg_android_ion_snapshot.c -o ./build/dmesg_android_ion_snapshot.o
+cc -Wall -std=c99 ./src/dmesg_backtrace.c -o ./build/dmesg_backtrace.o
+cc -Wall -std=c99 ./src/dmesg_driver_component_ops.c -o ./build/dmesg_driver_component_ops.o
+cc -Wall -std=c99 ./src/dmesg_mem_init_kernel_layout.c -o ./build/dmesg_mem_init_kernel_layout.o
+cc -Wall -std=c99 ./src/dmesg_mmu_idmap.c -o ./build/dmesg_mmu_idmap.o
+cc -Wall -std=c99 ./src/entrybleed.c -o ./build/entrybleed.o
+cc -Wall -std=c99 ./src/free_reserved_area_dmesg.c -o ./build/free_reserved_area_dmesg.o
+cc -Wall -std=c99 ./src/free_reserved_area_syslog.c -o ./build/free_reserved_area_syslog.o
+cc -Wall -std=c99 ./src/mincore.c -o ./build/mincore.o
+cc -Wall -std=c99 ./src/mmap-brute-vmsplit.c -o ./build/mmap-brute-vmsplit.o
+cc -Wall -std=c99 ./src/perf_event_open.c -o ./build/perf_event_open.o
+cc -Wall -std=c99 ./src/proc-config.c -o ./build/proc-config.o
+cc -Wall -std=c99 ./src/pppd_kallsyms.c -o ./build/pppd_kallsyms.o
+cc -Wall -std=c99 ./src/proc-kallsyms.c -o ./build/proc-kallsyms.o
+cc -Wall -std=c99 ./src/proc-stat-wchan.c -o ./build/proc-stat-wchan.o
+cc -Wall -std=c99 ./src/sysfs_iscsi_transport_handle.c -o ./build/sysfs_iscsi_transport_handle.o
+cc -Wall -std=c99 ./src/sysfs-module-sections.c -o ./build/sysfs-module-sections.o
+cc -Wall -std=c99 ./src/sysfs_nf_conntrack.c -o ./build/sysfs_nf_conntrack.o
+
+Running build ...
+
+common default kernel text for arch: ffffffff81000000
+
+[.] checking /boot/config-5.14.0-162.6.1.el9_1.x86_64 ...
+[.] checking /boot/config-5.14.0-162.6.1.el9_1.x86_64 ...
+
+[.] trying /proc/cmdline ...
+[-] Kernel was not booted with nokaslr flag.
+
+[.] trying bcm_msg_head struct stack pointer leak ...
+
+[.] searching dmesg for 'ion_snapshot: ' ...
+
+[.] searching dmesg for call trace kernel pointers ...
+
+[.] searching dmesg for driver component ops pointers ...
+
+[.] searching dmesg for ' kernel memory layout:' ...
+
+[.] searching dmesg for ' static identity map for ' ...
+
+[.] trying EntryBleed (CVE-2022-4543) ...
+[.] AMD CPU with KPTI disabled
+[.] kernel version '5.14.0-162.6.1.el9_1.x86_64 #1 SMP PREEMPT_DYNAMIC Fri Sep 30 07:36:03 EDT 2022' detected
+possible kernel base: ffffffffa4e00000
+
+[.] checking dmesg for free_reserved_area() info ...
+
+[.] checking /var/log/syslog for free_reserved_area() info ...
+[-] open/read(/var/log/syslog): No such file or directory
+
+[.] searching for kernel virtual address space start ...
+[-] Could not locate kernel virtual address space
+
+[.] trying perf_event_open sampling ...
+[-] syscall(SYS_perf_event_open): Permission denied
+
+[.] trying 'pppd file /proc/kallsyms 2>&1' ...
+
+[.] checking /proc/config.gz ...
+[-] Could not read /proc/config.gz
+
+[.] checking /proc/kallsyms...
+[-] kernel symbol '_stext' not found in /proc/kallsyms
+
+[.] checking /proc/38466/stat 'wchan' field ...
+
+[.] checking /sys/class/iscsi_transport/iser/handle ...
+[-] open/read(/sys/class/iscsi_transport/iser/handle): No such file or directory
+[.] checking /sys/class/iscsi_transport/tcp/handle ...
+[-] open/read(/sys/class/iscsi_transport/tcp/handle): No such file or directory
+
+[.] trying /sys/modules/*/sections/.text ...
+
+[.] trying /sys/kernel/slab/nf_contrack_* ...
 
 [.] trying mincore info leak...
 [-] kernel base not found in mincore info leak
