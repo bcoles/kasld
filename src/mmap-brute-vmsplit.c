@@ -15,6 +15,7 @@
 // <bcoles@gmail.com>
 
 #define _GNU_SOURCE
+#include "kasld.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -42,6 +43,9 @@ int main(int argc, char **argv) {
     return 1;
 
   printf("kernel virtual address start: %lx\n", addr);
+
+  if (addr < KERNEL_VAS_START)
+    printf("[!] warning: virtual address start %lx below configured KERNEL_VAS_START %lx\n", addr, KERNEL_VAS_START);
 
   return 0;
 }
