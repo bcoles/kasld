@@ -37,7 +37,7 @@
 
 // 48 va bits (CONFIG_ARM64_VA_BITS_48=y) is a common configuration
 // page_offset = (0xffffffffffffffffUL) << (va_bits - 1)
-#define KERNEL_BASE_MIN 0xffff000080000000ul
+#define KERNEL_BASE_MIN 0xffff000008000000ul
 #define KERNEL_BASE_MAX 0xfffffffff0000000ul
 
 // 2MB aligned
