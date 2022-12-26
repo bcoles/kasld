@@ -1,7 +1,16 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
 // Leak the parent process waiting kernel function virtual address
-// from /proc/<PPID>/stat wait channel 'wchan' field. Patched late 2015.
+// from /proc/<PPID>/stat wait channel 'wchan' field.
+//
+// Patched in kernel v4.4-rc1~160 on 2015-10-01:
+// https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=b2f73922d119686323f14fbbe46587f863852328
+//
+// Partially reintroduced in kernel v5.12-rc1-dontuse~27^2~35 on 2021-02-25:
+// https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/fs/proc/base.c?id=152c432b128cb043fc107e8f211195fe94b2159c
+//
+// Regression was subsequently reverted in kernel v5.16-rc1~197^2~21 on 2021-10-15:
+// https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/fs/proc/base.c?id=54354c6a9f7fd5572d2b9ec108117c4f376d4d23
 //
 // References:
 // https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=b2f73922d119686323f14fbbe46587f863852328
