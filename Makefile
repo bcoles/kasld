@@ -27,6 +27,7 @@ all :
 	-$(CC) $(FLAGS) $(SRC_DIR)/proc-config.c -o $(BUILD_DIR)/proc-config.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/pppd_kallsyms.c -o $(BUILD_DIR)/pppd_kallsyms.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/proc-kallsyms.c -o $(BUILD_DIR)/proc-kallsyms.o
+	-$(CC) $(FLAGS) $(SRC_DIR)/proc-pid-syscall.c -o $(BUILD_DIR)/proc-pid-syscall.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/proc-stat-wchan.c -o $(BUILD_DIR)/proc-stat-wchan.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/sysfs_iscsi_transport_handle.c -o $(BUILD_DIR)/sysfs_iscsi_transport_handle.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/sysfs-module-sections.c -o $(BUILD_DIR)/sysfs-module-sections.o
