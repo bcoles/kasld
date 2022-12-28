@@ -1528,17 +1528,17 @@ common default kernel text for arch: c0008000
 </details>
 
 
-### Raspbian GNU/Linux 11 (armv6l)
+### Raspbian GNU/Linux 10.4 (armv6l)
 
-Hardware: QEMU (`-cpu arm1176 -kernel kernel-qemu-4.19.50-buster`)
+Hardware: QEMU (`-cpu arm1176 -kernel kernel-qemu-5.4.51-buster`)
 
 <details>
 
 ```
 [ KASLD ] Kernel Address Space Layout Derandomization
 
-Kernel release:   4.19.50+
-Kernel version:   #1 Tue Nov 26 01:49:16 CET 2019
+Kernel release:   5.4.51
+Kernel version:   #1 Sat Aug 8 23:28:32 +03 2020
 Kernel arch:      armv6l
 Kernel platform:  unknown
 
@@ -1563,6 +1563,15 @@ cc -Wall -std=c99 ./src/dmesg_backtrace.c -o ./build/dmesg_backtrace.o
 cc -Wall -std=c99 ./src/dmesg_driver_component_ops.c -o ./build/dmesg_driver_component_ops.o
 cc -Wall -std=c99 ./src/dmesg_mem_init_kernel_layout.c -o ./build/dmesg_mem_init_kernel_layout.o
 cc -Wall -std=c99 ./src/dmesg_mmu_idmap.c -o ./build/dmesg_mmu_idmap.o
+cc -Wall -std=c99 ./src/entrybleed.c -o ./build/entrybleed.o
+./src/entrybleed.c: In function ‘sidechannel’:
+./src/entrybleed.c:289:3: error: unknown register name ‘rdx’ in ‘asm’
+   __asm__ volatile(".intel_syntax noprefix;"
+   ^~~~~~~
+./src/entrybleed.c:289:3: error: unknown register name ‘rcx’ in ‘asm’
+./src/entrybleed.c:289:3: error: unknown register name ‘rbx’ in ‘asm’
+./src/entrybleed.c:289:3: error: unknown register name ‘rax’ in ‘asm’
+make: [Makefile:21: all] Error 1 (ignored)
 cc -Wall -std=c99 ./src/free_reserved_area_dmesg.c -o ./build/free_reserved_area_dmesg.o
 cc -Wall -std=c99 ./src/free_reserved_area_syslog.c -o ./build/free_reserved_area_syslog.o
 cc -Wall -std=c99 ./src/mincore.c -o ./build/mincore.o
@@ -1571,6 +1580,7 @@ cc -Wall -std=c99 ./src/perf_event_open.c -o ./build/perf_event_open.o
 cc -Wall -std=c99 ./src/proc-config.c -o ./build/proc-config.o
 cc -Wall -std=c99 ./src/pppd_kallsyms.c -o ./build/pppd_kallsyms.o
 cc -Wall -std=c99 ./src/proc-kallsyms.c -o ./build/proc-kallsyms.o
+cc -Wall -std=c99 ./src/proc-pid-syscall.c -o ./build/proc-pid-syscall.o
 cc -Wall -std=c99 ./src/proc-stat-wchan.c -o ./build/proc-stat-wchan.o
 cc -Wall -std=c99 ./src/sysfs_iscsi_transport_handle.c -o ./build/sysfs_iscsi_transport_handle.o
 cc -Wall -std=c99 ./src/sysfs-module-sections.c -o ./build/sysfs-module-sections.o
@@ -1580,8 +1590,8 @@ Running build ...
 
 common default kernel text for arch: c0008000
 
-[.] checking /boot/config-4.19.50+ ...
-[-] open/read(/boot/config-4.19.50+): No such file or directory
+[.] checking /boot/config-5.4.51 ...
+[-] open/read(/boot/config-5.4.51): No such file or directory
 
 [.] trying /proc/cmdline ...
 [-] Kernel was not booted with nokaslr flag.
@@ -1591,6 +1601,8 @@ common default kernel text for arch: c0008000
 [.] searching dmesg for 'ion_snapshot: ' ...
 
 [.] searching dmesg for call trace kernel pointers ...
+lowest leaked address: c00090e8
+possible kernel base: c0000000
 
 [.] searching dmesg for driver component ops pointers ...
 
@@ -1618,10 +1630,13 @@ common default kernel text for arch: c0008000
 [.] checking /proc/kallsyms...
 [-] kernel symbol '_stext' not found in /proc/kallsyms
 
-[.] checking /proc/2602/stat 'wchan' field ...
+[.] checking /proc/self/syscall argument registers ...
+lowest leaked address: c001ec1c
+possible kernel base: c0000000
 
-[.] checking /sys/class/iscsi_transport/iser/handle ...
-[-] open/read(/sys/class/iscsi_transport/iser/handle): No such file or directory
+[.] checking /proc/15996/stat 'wchan' field ...
+
+[-] Failed to get a NETLINK_ISCSI socket: Protocol not supported
 [.] checking /sys/class/iscsi_transport/tcp/handle ...
 [-] open/read(/sys/class/iscsi_transport/tcp/handle): No such file or directory
 
