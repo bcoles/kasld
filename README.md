@@ -85,15 +85,26 @@ Kernel and system logs (`dmesg` / `syslog`) offer a wealth of information, inclu
 kernel pointers.
 
 Historically, raw kernel pointers were frequently printed to the kernel debug log
-[without using `%pK`](https://github.com/torvalds/linux/search?p=1&q=%25pK&type=Commits).
+without using the [`%pK` printk format](https://www.kernel.org/doc/html/latest/core-api/printk-formats.html).
+
+* https://github.com/torvalds/linux/search?p=1&q=%25pK&type=Commits
 
 Bugs which trigger a kernel oops can be used to leak kernel pointers by reading
-the kernel debug log. There are countless examples. A few simple examples are
-available in the [extra](extra/) directory.
+the system log (on systems with `kernel.panic_on_oops = 0`).
+
+There are countless examples. A few simple examples are available in the [extra](extra/) directory:
+
+* [extra/oops_inet_csk_listen_stop.c](extra/oops_inet_csk_listen_stop.c)
+* [extra/oops_netlink_getsockbyportid_null_ptr.c](extra/oops_netlink_getsockbyportid_null_ptr.c)
 
 Modern distros ship with `kernel.dmesg_restrict` enabled by default to prevent
 unprivileged users from accessing the kernel debug log. grsecurity hardened
 kernels also support `kernel.grsecurity.dmesg` to prevent unprivileged access.
+
+Similarly, the associated log files (ie, `/var/log/syslog`) are readable only
+by privileged users on modern distros. On Ubuntu systems, users in the `adm`
+group have read permissions on log files in `/var/log/`. Typically the first
+user created on the system is a member of the `adm` group.
 
 
 ### DebugFS
@@ -106,7 +117,7 @@ This change pre-dates Linux KASLR by 2 years. However, DebugFS may still be
 readable in some non-default configurations.
 
 
-### Hardware Vulnerabilities
+### Hardware Bugs
 
 The [extra/check-hardware-vulnerabilities](extra/check-hardware-vulnerabilities)
 script performs rudimentary checks for several known hardware vulnerabilities,
@@ -120,15 +131,17 @@ hardware-related attacks, listed below.
 Microarchitectural Data Sampling (MDS) side-channel attacks:
 
   * [Fallout: Leaking Data on Meltdown-resistant CPUs](https://mdsattacks.com/files/fallout.pdf) (Claudio Canella, Daniel Genkin, Lukas Giner, Daniel Gruss, Moritz Lipp, Marina Minkin, Daniel Moghimi, Frank Piessens, Michael Schwarz, Berk Sunar, Jo Van Bulck, Yuval Yarom, 2019)
-  * [vusec/ridl](https://github.com/vusec/ridl)
+  * [vusec/ridl](https://github.com/vusec/ridl) (VUSec, 2019)
 
 EchoLoad: [KASLR: Break It, Fix It, Repeat](https://gruss.cc/files/kaslrbfr.pdf) (Claudio Canella, Michael Schwarz, Martin Haubenwallner, 2020)
 
 Prefetch side-channel attacks:
 
 * [Prefetch Side-Channel Attacks: Bypassing SMAP and Kernel ASLR](https://gruss.cc/files/prefetch.pdf) (Daniel Gruss, Clémentine Maurice, Anders Fogh, 2016)
+* [Using Undocumented CPU Behaviour to See into Kernel Mode and Break KASLR in the Process](https://www.blackhat.com/docs/us-16/materials/us-16-Fogh-Using-Undocumented-CPU-Behaviour-To-See-Into-Kernel-Mode-And-Break-KASLR-In-The-Process.pdf) (Anders Fogh, Daniel Gruss, 2016)
+  * Blackhat USA 2015 Video: [https://www.youtube.com/watch?v=Pwq0vv4X7m4](https://www.youtube.com/watch?v=Pwq0vv4X7m4) (Anders Fogh, Daniel Gruss, 2015)
 * [xairy/kernel-exploits/prefetch-side-channel](https://github.com/xairy/kernel-exploits/tree/master/prefetch-side-channel) (xairy, 2020)
-* [Fetching the KASLR slide with prefetch](https://googleprojectzero.blogspot.com/2022/12/exploiting-CVE-2022-42703-bringing-back-the-stack-attack.html) (Google Project Zero, 2022)
+* [Fetching the KASLR slide with prefetch](https://googleprojectzero.blogspot.com/2022/12/exploiting-CVE-2022-42703-bringing-back-the-stack-attack.html) (Seth Jenkins, 2022)
   * [prefetch_poc.zip](https://bugs.chromium.org/p/project-zero/issues/detail?id=2351) - Intel x86_64 CPUs with kPTI disabled (`pti=off`)
 * [EntryBleed: Breaking KASLR under KPTI with Prefetch (CVE-2022-4543)](https://www.willsroot.io/2022/12/entrybleed.html) (willsroot, 2022)
   * Intel x86_64 CPUs; AMD x86_64 CPUs with kPTI disabled (`pti=off`)
@@ -136,29 +149,31 @@ Prefetch side-channel attacks:
 Transactional Synchronization eXtensions (TSX) side-channel timing attacks:
 
   * [TSX improves timing attacks against KASLR](http://web.archive.org/web/20141107045306/http://labs.bromium.com/2014/10/27/tsx-improves-timing-attacks-against-kaslr/) (Rafal Wojtczuk, 2014)
-  * [vnik5287/kaslr_tsx_bypass](https://github.com/vnik5287/kaslr_tsx_bypass)
+  * [DrK: Breaking Kernel Address Space Layout Randomization with Intel TSX](https://www.blackhat.com/docs/us-16/materials/us-16-Jang-Breaking-Kernel-Address-Space-Layout-Randomization-KASLR-With-Intel-TSX.pdf) (Yeongjin Jang, Sangho Lee, Taesoo Kim, 2016)
+  * [vnik5287/kaslr_tsx_bypass](https://github.com/vnik5287/kaslr_tsx_bypass) (Vitaly Nikolenko, 2017)
 
 Branch Target Buffer (BTB) based side-channel attacks:
 
-  * [Jump Over ASLR: Attacking Branch Predictors to Bypass ASLR](https://www.cs.ucr.edu/~nael/pubs/micro16.pdf)
-    * [felixwilhelm/mario_baslr](https://github.com/felixwilhelm/mario_baslr) - Intel CPUs
+  * [Jump Over ASLR: Attacking Branch Predictors to Bypass ASLR](https://www.cs.ucr.edu/~nael/pubs/micro16.pdf) (Dmitry Evtyushkin, Dmitry Ponomarev, Nael Abu-Ghazaleh, 2016)
+    * [felixwilhelm/mario_baslr](https://github.com/felixwilhelm/mario_baslr) - Intel CPUs (Felix Wilhelm, 2016)
 
 Branch Target Injection (BTI) attacks:
 
   * [paboldin/meltdown-exploit](https://github.com/paboldin/meltdown-exploit)
+  * [Reading privileged memory with a side-channel](https://googleprojectzero.blogspot.com/2018/01/reading-privileged-memory-with-side.html) (Jann Horn, 2018)
   * [speed47/spectre-meltdown-checker](https://github.com/speed47/spectre-meltdown-checker)
-  * [RETBLEED: Arbitrary Speculative Code Execution with Return Instructions](https://comsec.ethz.ch/wp-content/files/retbleed_sec22.pdf)
+  * [RETBLEED: Arbitrary Speculative Code Execution with Return Instructions](https://comsec.ethz.ch/wp-content/files/retbleed_sec22.pdf) (Johannes Wikner, Kaveh Razavi, 2022)
     * [comsec-group/retbleed](https://github.com/comsec-group/retbleed) - Intel/AMD x86_64 CPUs
 
-Translation Lookaside Buffer (TLB) side-channel attacks:
+TagBleed: Tagged Translation Lookaside Buffer (TLB) side-channel attacks:
 
   * [TagBleed: Breaking KASLR on the Isolated Kernel Address Space using Tagged TLBs](https://download.vusec.net/papers/tagbleed_eurosp20.pdf) (Jakob Koschel, Cristiano Giuffrida, Herbert Bos, Kaveh Razavi, 2020)
-    * [renorobert/tagbleedvmm](https://github.com/renorobert/tagbleedvmm)
+    * [renorobert/tagbleedvmm](https://github.com/renorobert/tagbleedvmm) (Reno Robert, 2020)
 
-RAMBleed side-channel attack (CVE-2019-0174):
+[RAMBleed](https://rambleed.com/) side-channel attack (CVE-2019-0174):
 
-  * [RAMBleed](https://rambleed.com/)
-    * [google/rowhammer-test](https://github.com/google/rowhammer-test)
+  * [RAMBleed: Reading Bits in Memory Without Accessing Them](https://rambleed.com/docs/20190603-rambleed-web.pdf) (Andrew Kwong, Daniel Genkin, Daniel Gruss, Yuval Yarom, 2019)
+  * [google/rowhammer-test](https://github.com/google/rowhammer-test) (Google, 2015)
 
 
 ### Kernel Bugs
@@ -169,14 +184,14 @@ Patched bugs caught by KernelMemorySanitizer (KMSAN):
 
 Remote kernel pointer leak via IP packet headers (CVE-2019-10639):
 
-  * [From IP ID to Device ID and KASLR Bypass](https://arxiv.org/pdf/1906.10478.pdf).
+  * [From IP ID to Device ID and KASLR Bypass](https://arxiv.org/pdf/1906.10478.pdf)
 
 [show_floppy kernel function pointer leak](https://www.exploit-db.com/exploits/44325) (CVE-2018-7273) (requires `floppy` driver).
 
 `kernel_waitid` leak (CVE-2017-14954) (affects kernels 4.13-rc1 to 4.13.4):
 
-  * [wait_for_kaslr_to_be_effective.c](https://grsecurity.net/~spender/exploits/wait_for_kaslr_to_be_effective.c).
-  * https://github.com/salls/kernel-exploits/blob/master/CVE-2017-5123/exploit_no_smap.c
+  * [wait_for_kaslr_to_be_effective.c](https://grsecurity.net/~spender/exploits/wait_for_kaslr_to_be_effective.c) (spender, 2017)
+  * https://github.com/salls/kernel-exploits/blob/master/CVE-2017-5123/exploit_no_smap.c (salls, 2017)
 
 Exploiting uninitialized stack variables:
 
@@ -200,8 +215,8 @@ Leaking kernel addresses using `msg_msg` struct for arbitrary read (for `KMALLOC
 
 Leaking kernel addresses using privileged arbitrary read (or write) in kernel space:
 
-  * https://ryiron.wordpress.com/2013/09/05/kptr_restrict-finding-kernel-symbols-for-shell-code/
-  * CVE-2017-18344: Exploiting an arbitrary-read vulnerability in the Linux kernel timer subsystem:
+  * [kptr_restrict – Finding kernel symbols for shell code](https://ryiron.wordpress.com/2013/09/05/kptr_restrict-finding-kernel-symbols-for-shell-code/) (ryiron, 2013)
+  * CVE-2017-18344: Exploiting an arbitrary-read vulnerability in the Linux kernel timer subsystem (xairy, 2017):
     * https://www.openwall.com/lists/oss-security/2018/08/09/6
     * https://xairy.io/articles/cve-2017-18344
     * [xairy/kernel-exploits/CVE-2017-18344](https://github.com/xairy/kernel-exploits/tree/master/CVE-2017-18344)
