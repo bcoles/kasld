@@ -16,6 +16,7 @@ all :
 	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_android_ion_snapshot.c -o $(BUILD_DIR)/dmesg_android_ion_snapshot.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_backtrace.c -o $(BUILD_DIR)/dmesg_backtrace.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_driver_component_ops.c -o $(BUILD_DIR)/dmesg_driver_component_ops.o
+	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_ex_handler_msr.c -o $(BUILD_DIR)/dmesg_ex_handler_msr.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_mem_init_kernel_layout.c -o $(BUILD_DIR)/dmesg_mem_init_kernel_layout.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_mmu_idmap.c -o $(BUILD_DIR)/dmesg_mmu_idmap.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/entrybleed.c -o $(BUILD_DIR)/entrybleed.o
