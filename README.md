@@ -1,4 +1,8 @@
-# [ KASLD ] Kernel Address Space Layout Derandomization
+<p align="center">
+ <img src="logo.png" alt="KASLD logo generated with Stable Diffusion (modified)"/>
+</p>
+
+# Kernel Address Space Layout Derandomization [ KASLD ]
 
 A collection of various techniques to infer the Linux kernel base virtual
 address as an unprivileged local user, for the purpose of bypassing Kernel
