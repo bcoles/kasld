@@ -151,6 +151,11 @@ if [ -x "${build}/sysfs_nf_conntrack.o" ]; then
   echo
 fi
 
+if [ -x "${build}/syslog_backtrace.o" ]; then
+  "${build}/syslog_backtrace.o"
+  echo
+fi
+
 if [ -x "${build}/syslog_free_reserved_area.o" ]; then
   "${build}/syslog_free_reserved_area.o"
   echo
