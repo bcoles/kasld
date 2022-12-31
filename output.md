@@ -119,8 +119,8 @@ possible kernel base: ffffffff81e00000
 ```
 [ KASLD ] Kernel Address Space Layout Derandomization
 
-Kernel release:   4.15.0-142-generic
-Kernel version:   #146~16.04.1-Ubuntu SMP Tue Apr 13 09:26:57 UTC 2021
+Kernel release:   4.15.0-45-generic
+Kernel version:   #48~16.04.1-Ubuntu SMP Tue Jan 29 18:03:19 UTC 2019
 Kernel arch:      i686
 Kernel platform:  i686
 
@@ -149,27 +149,37 @@ cc -Wall -std=c99 ./src/default.c -o ./build/default.o
 cc -Wall -std=c99 ./src/dmesg_android_ion_snapshot.c -o ./build/dmesg_android_ion_snapshot.o
 cc -Wall -std=c99 ./src/dmesg_backtrace.c -o ./build/dmesg_backtrace.o
 cc -Wall -std=c99 ./src/dmesg_driver_component_ops.c -o ./build/dmesg_driver_component_ops.o
+cc -Wall -std=c99 ./src/dmesg_ex_handler_msr.c -o ./build/dmesg_ex_handler_msr.o
+cc -Wall -std=c99 ./src/dmesg_free_reserved_area.c -o ./build/dmesg_free_reserved_area.o
 cc -Wall -std=c99 ./src/dmesg_mem_init_kernel_layout.c -o ./build/dmesg_mem_init_kernel_layout.o
 cc -Wall -std=c99 ./src/dmesg_mmu_idmap.c -o ./build/dmesg_mmu_idmap.o
-cc -Wall -std=c99 ./src/free_reserved_area_dmesg.c -o ./build/free_reserved_area_dmesg.o
-cc -Wall -std=c99 ./src/free_reserved_area_syslog.c -o ./build/free_reserved_area_syslog.o
+cc -Wall -std=c99 ./src/entrybleed.c -o ./build/entrybleed.o
+./src/entrybleed.c: In function ‘sidechannel’:
+./src/entrybleed.c:289:3: error: ‘asm’ operand has impossible constraints
+   __asm__ volatile(".intel_syntax noprefix;"
+   ^
+Makefile:11: recipe for target 'all' failed
+make: [all] Error 1 (ignored)
 cc -Wall -std=c99 ./src/mincore.c -o ./build/mincore.o
 cc -Wall -std=c99 ./src/mmap-brute-vmsplit.c -o ./build/mmap-brute-vmsplit.o
 cc -Wall -std=c99 ./src/perf_event_open.c -o ./build/perf_event_open.o
 cc -Wall -std=c99 ./src/proc-config.c -o ./build/proc-config.o
 cc -Wall -std=c99 ./src/pppd_kallsyms.c -o ./build/pppd_kallsyms.o
 cc -Wall -std=c99 ./src/proc-kallsyms.c -o ./build/proc-kallsyms.o
+cc -Wall -std=c99 ./src/proc-pid-syscall.c -o ./build/proc-pid-syscall.o
 cc -Wall -std=c99 ./src/proc-stat-wchan.c -o ./build/proc-stat-wchan.o
 cc -Wall -std=c99 ./src/sysfs_iscsi_transport_handle.c -o ./build/sysfs_iscsi_transport_handle.o
 cc -Wall -std=c99 ./src/sysfs-module-sections.c -o ./build/sysfs-module-sections.o
 cc -Wall -std=c99 ./src/sysfs_nf_conntrack.c -o ./build/sysfs_nf_conntrack.o
+cc -Wall -std=c99 ./src/syslog_backtrace.c -o ./build/syslog_backtrace.o
+cc -Wall -std=c99 ./src/syslog_free_reserved_area.c -o ./build/syslog_free_reserved_area.o
 
 Running build ...
 
 common default kernel text for arch: c0000000
 
-[.] checking /boot/config-4.15.0-142-generic ...
-[.] checking /boot/config-4.15.0-142-generic ...
+[.] checking /boot/config-4.15.0-45-generic ...
+[.] checking /boot/config-4.15.0-45-generic ...
 
 [.] trying /proc/cmdline ...
 [-] Kernel was not booted with nokaslr flag.
@@ -182,15 +192,15 @@ common default kernel text for arch: c0000000
 
 [.] searching dmesg for driver component ops pointers ...
 
-[.] searching dmesg for ' kernel memory layout:' ...
-kernel text start: dc000000
-possible kernel base: dc000000
-
-[.] searching dmesg for ' static identity map for ' ...
+[.] searching dmesg for native_[read|write]_msr function pointer ...
 
 [.] checking dmesg for free_reserved_area() info ...
 
-[.] checking /var/log/syslog for free_reserved_area() info ...
+[.] searching dmesg for ' kernel memory layout:' ...
+kernel text start: c9000000
+possible kernel base: c9000000
+
+[.] searching dmesg for ' static identity map for ' ...
 
 [.] searching for kernel virtual address space start ...
 kernel virtual address start: c0000000
@@ -206,113 +216,9 @@ kernel virtual address start: c0000000
 [.] checking /proc/kallsyms...
 [-] kernel symbol '_stext' not found in /proc/kallsyms
 
-[.] checking /proc/3731/stat 'wchan' field ...
+[.] checking /proc/self/syscall argument registers ...
 
-[.] checking /sys/class/iscsi_transport/iser/handle ...
-[-] fgets(/sys/class/iscsi_transport/iser/handle): Permission denied
-[.] checking /sys/class/iscsi_transport/tcp/handle ...
-[-] fgets(/sys/class/iscsi_transport/tcp/handle): Permission denied
-
-[.] trying /sys/modules/*/sections/.text ...
-
-[.] trying /sys/kernel/slab/nf_contrack_* ...
-```
-</details>
-
-
-### Debian 9.6 (x86_64)
-
-<details>
-
-```
-[ KASLD ] Kernel Address Space Layout Derandomization
-
-Kernel release:   4.9.0-9-amd64
-Kernel version:   #1 SMP Debian 4.9.168-1 (2019-04-12)
-Kernel arch:      x86_64
-Kernel platform:  unknown
-
-kernel.kptr_restrict:        0
-kernel.dmesg_restrict:       1
-kernel.panic_on_oops:        0
-kernel.perf_event_paranoid:  3
-
-Readable /var/log/syslog:  no
-Readable DebugFS:          no
-
-Building ...
-
-mkdir -p ./build
-cc -Wall -std=c99 ./src/bcm_msg_head_struct.c -o ./build/bcm_msg_head_struct.o
-cc -Wall -std=c99 ./src/boot-config.c -o ./build/boot-config.o
-cc -Wall -std=c99 ./src/cmdline.c -o ./build/cmdline.o
-cc -Wall -std=c99 ./src/default.c -o ./build/default.o
-cc -Wall -std=c99 ./src/dmesg_android_ion_snapshot.c -o ./build/dmesg_android_ion_snapshot.o
-cc -Wall -std=c99 ./src/dmesg_backtrace.c -o ./build/dmesg_backtrace.o
-cc -Wall -std=c99 ./src/dmesg_driver_component_ops.c -o ./build/dmesg_driver_component_ops.o
-cc -Wall -std=c99 ./src/dmesg_mem_init_kernel_layout.c -o ./build/dmesg_mem_init_kernel_layout.o
-cc -Wall -std=c99 ./src/dmesg_mmu_idmap.c -o ./build/dmesg_mmu_idmap.o
-cc -Wall -std=c99 ./src/free_reserved_area_dmesg.c -o ./build/free_reserved_area_dmesg.o
-cc -Wall -std=c99 ./src/free_reserved_area_syslog.c -o ./build/free_reserved_area_syslog.o
-cc -Wall -std=c99 ./src/mincore.c -o ./build/mincore.o
-cc -Wall -std=c99 ./src/mmap-brute-vmsplit.c -o ./build/mmap-brute-vmsplit.o
-cc -Wall -std=c99 ./src/perf_event_open.c -o ./build/perf_event_open.o
-cc -Wall -std=c99 ./src/proc-config.c -o ./build/proc-config.o
-cc -Wall -std=c99 ./src/pppd_kallsyms.c -o ./build/pppd_kallsyms.o
-cc -Wall -std=c99 ./src/proc-kallsyms.c -o ./build/proc-kallsyms.o
-cc -Wall -std=c99 ./src/proc-stat-wchan.c -o ./build/proc-stat-wchan.o
-cc -Wall -std=c99 ./src/sysfs_iscsi_transport_handle.c -o ./build/sysfs_iscsi_transport_handle.o
-cc -Wall -std=c99 ./src/sysfs-module-sections.c -o ./build/sysfs-module-sections.o
-cc -Wall -std=c99 ./src/sysfs_nf_conntrack.c -o ./build/sysfs_nf_conntrack.o
-
-Running build ...
-
-common default kernel text for arch: ffffffff81000000
-
-[.] checking /boot/config-4.9.0-9-amd64 ...
-[.] checking /boot/config-4.9.0-9-amd64 ...
-
-[.] trying /proc/cmdline ...
-[-] Kernel was not booted with nokaslr flag.
-
-[.] trying bcm_msg_head struct stack pointer leak ...
-
-[.] searching dmesg for 'ion_snapshot: ' ...
-[-] klogctl(SYSLOG_ACTION_SIZE_BUFFER): Operation not permitted
-
-[.] searching dmesg for call trace kernel pointers ...
-[-] klogctl(SYSLOG_ACTION_SIZE_BUFFER): Operation not permitted
-
-[.] searching dmesg for driver component ops pointers ...
-[-] klogctl(SYSLOG_ACTION_SIZE_BUFFER): Operation not permitted
-
-[-] klogctl(SYSLOG_ACTION_SIZE_BUFFER): Operation not permitted
-
-[.] searching dmesg for ' static identity map for ' ...
-[-] klogctl(SYSLOG_ACTION_SIZE_BUFFER): Operation not permitted
-
-[.] checking dmesg for free_reserved_area() info ...
-[-] klogctl(SYSLOG_ACTION_SIZE_BUFFER): Operation not permitted
-
-[.] checking /var/log/syslog for free_reserved_area() info ...
-[-] open/read(/var/log/syslog): Permission denied
-
-[.] searching for kernel virtual address space start ...
-[-] Could not locate kernel virtual address space
-
-[.] trying perf_event_open sampling ...
-[-] syscall(SYS_perf_event_open): Permission denied
-
-[.] trying 'pppd file /proc/kallsyms 2>&1' ...
-
-[.] checking /proc/config.gz ...
-[-] Could not read /proc/config.gz
-
-[.] checking /proc/kallsyms...
-kernel text start: ffffffff8d0002b8
-possible kernel base: ffffffff8d000000
-
-[.] checking /proc/115191/stat 'wchan' field ...
+[.] checking /proc/4338/stat 'wchan' field ...
 
 [.] checking /sys/class/iscsi_transport/iser/handle ...
 [-] open/read(/sys/class/iscsi_transport/iser/handle): No such file or directory
@@ -320,13 +226,12 @@ possible kernel base: ffffffff8d000000
 [-] open/read(/sys/class/iscsi_transport/tcp/handle): No such file or directory
 
 [.] trying /sys/modules/*/sections/.text ...
-lowest leaked module text address: ffffffffc00a3000
 
 [.] trying /sys/kernel/slab/nf_contrack_* ...
-opendir(/sys/kernel/slab/): No such file or directory
 
-[.] trying mincore info leak...
-[-] kernel base not found in mincore info leak
+[.] searching /var/log/syslog for call trace kernel pointers ...
+
+[.] checking /var/log/syslog for free_reserved_area() info ...
 ```
 </details>
 
@@ -474,20 +379,24 @@ cc -Wall -std=c99 ./src/default.c -o ./build/default.o
 cc -Wall -std=c99 ./src/dmesg_android_ion_snapshot.c -o ./build/dmesg_android_ion_snapshot.o
 cc -Wall -std=c99 ./src/dmesg_backtrace.c -o ./build/dmesg_backtrace.o
 cc -Wall -std=c99 ./src/dmesg_driver_component_ops.c -o ./build/dmesg_driver_component_ops.o
+cc -Wall -std=c99 ./src/dmesg_ex_handler_msr.c -o ./build/dmesg_ex_handler_msr.o
+cc -Wall -std=c99 ./src/dmesg_free_reserved_area.c -o ./build/dmesg_free_reserved_area.o
 cc -Wall -std=c99 ./src/dmesg_mem_init_kernel_layout.c -o ./build/dmesg_mem_init_kernel_layout.o
 cc -Wall -std=c99 ./src/dmesg_mmu_idmap.c -o ./build/dmesg_mmu_idmap.o
-cc -Wall -std=c99 ./src/free_reserved_area_dmesg.c -o ./build/free_reserved_area_dmesg.o
-cc -Wall -std=c99 ./src/free_reserved_area_syslog.c -o ./build/free_reserved_area_syslog.o
+cc -Wall -std=c99 ./src/entrybleed.c -o ./build/entrybleed.o
 cc -Wall -std=c99 ./src/mincore.c -o ./build/mincore.o
 cc -Wall -std=c99 ./src/mmap-brute-vmsplit.c -o ./build/mmap-brute-vmsplit.o
 cc -Wall -std=c99 ./src/perf_event_open.c -o ./build/perf_event_open.o
 cc -Wall -std=c99 ./src/proc-config.c -o ./build/proc-config.o
 cc -Wall -std=c99 ./src/pppd_kallsyms.c -o ./build/pppd_kallsyms.o
 cc -Wall -std=c99 ./src/proc-kallsyms.c -o ./build/proc-kallsyms.o
+cc -Wall -std=c99 ./src/proc-pid-syscall.c -o ./build/proc-pid-syscall.o
 cc -Wall -std=c99 ./src/proc-stat-wchan.c -o ./build/proc-stat-wchan.o
 cc -Wall -std=c99 ./src/sysfs_iscsi_transport_handle.c -o ./build/sysfs_iscsi_transport_handle.o
 cc -Wall -std=c99 ./src/sysfs-module-sections.c -o ./build/sysfs-module-sections.o
 cc -Wall -std=c99 ./src/sysfs_nf_conntrack.c -o ./build/sysfs_nf_conntrack.o
+cc -Wall -std=c99 ./src/syslog_backtrace.c -o ./build/syslog_backtrace.o
+cc -Wall -std=c99 ./src/syslog_free_reserved_area.c -o ./build/syslog_free_reserved_area.o
 
 Running build ...
 
@@ -507,14 +416,17 @@ common default kernel text for arch: ffffffff81000000
 
 [.] searching dmesg for driver component ops pointers ...
 
+[.] searching dmesg for native_[read|write]_msr function pointer ...
+
+[.] checking dmesg for free_reserved_area() info ...
+
 [.] searching dmesg for ' kernel memory layout:' ...
 
 [.] searching dmesg for ' static identity map for ' ...
 
-[.] checking dmesg for free_reserved_area() info ...
-
-[.] checking /var/log/syslog for free_reserved_area() info ...
-[-] open/read(/var/log/syslog): No such file or directory
+[.] trying EntryBleed (CVE-2022-4543) ...
+[.] AMD CPU with KPTI disabled
+[-] kernel version '4.13.9-300.fc27.x86_64 #1 SMP Mon Oct 23 13:41:58 UTC 2017' not recognized
 
 [.] searching for kernel virtual address space start ...
 [-] Could not locate kernel virtual address space
@@ -528,10 +440,12 @@ common default kernel text for arch: ffffffff81000000
 [-] Could not read /proc/config.gz
 
 [.] checking /proc/kallsyms...
-kernel text start: ffffffffa3000000
-possible kernel base: ffffffffa3000000
+kernel text start: ffffffffb3000000
+possible kernel base: ffffffffb3000000
 
-[.] checking /proc/10190/stat 'wchan' field ...
+[.] checking /proc/self/syscall argument registers ...
+
+[.] checking /proc/2266/stat 'wchan' field ...
 
 [.] checking /sys/class/iscsi_transport/iser/handle ...
 [-] open/read(/sys/class/iscsi_transport/iser/handle): No such file or directory
@@ -539,243 +453,19 @@ possible kernel base: ffffffffa3000000
 [-] open/read(/sys/class/iscsi_transport/tcp/handle): No such file or directory
 
 [.] trying /sys/modules/*/sections/.text ...
-lowest leaked module text address: ffffffffc01d2000
+lowest leaked module text address: ffffffffc0118000
 
 [.] trying /sys/kernel/slab/nf_contrack_* ...
 
-[.] trying mincore info leak...
-leaked address: ffffffffa32892d0
-possible kernel base: ffffffffa3200000
-```
-</details>
-
-
-### Fedora 15 (i686)
-
-<details>
-
-```
-[ KASLD ] Kernel Address Space Layout Derandomization
-
-Kernel release:   2.6.38.6-26.rc1.fc15.i686.PAE
-Kernel version:   #1 SMP Mon May 9 20:36:50 UTC 2011
-Kernel arch:      i686
-Kernel platform:  i386
-
-kernel.kptr_restrict:        1
-kernel.dmesg_restrict:       0
-kernel.panic_on_oops:        0
-kernel.perf_event_paranoid:  1
-
-Readable /var/log/syslog:  no
-Readable DebugFS:          yes
-
-Building ...
-
-mkdir -p ./build
-cc -Wall -std=c99 ./src/bcm_msg_head_struct.c -o ./build/bcm_msg_head_struct.o
-In file included from ./src/bcm_msg_head_struct.c:17:0:
-/usr/include/linux/can.h:81:2: error: unknown type name ‘sa_family_t’
-In file included from ./src/bcm_msg_head_struct.c:18:0:
-/usr/include/linux/can/bcm.h:34:17: error: field ‘ival1’ has incomplete type
-/usr/include/linux/can/bcm.h:34:24: error: field ‘ival2’ has incomplete type
-./src/bcm_msg_head_struct.c: In function ‘rxsetup_sock’:
-./src/bcm_msg_head_struct.c:32:24: error: field ‘f’ has incomplete type
-./src/bcm_msg_head_struct.c:43:17: error: ‘CAN_FD_FRAME’ undeclared (first use in this function)
-./src/bcm_msg_head_struct.c:43:17: note: each undeclared identifier is reported only once for each function it appears in
-./src/bcm_msg_head_struct.c: In function ‘get_kernel_addr_from_bcm_msg_head_struct’:
-./src/bcm_msg_head_struct.c:58:24: error: field ‘f’ has incomplete type
-make: [all] Error 1 (ignored)
-cc -Wall -std=c99 ./src/boot-config.c -o ./build/boot-config.o
-cc -Wall -std=c99 ./src/cmdline.c -o ./build/cmdline.o
-cc -Wall -std=c99 ./src/default.c -o ./build/default.o
-cc -Wall -std=c99 ./src/dmesg_android_ion_snapshot.c -o ./build/dmesg_android_ion_snapshot.o
-cc -Wall -std=c99 ./src/dmesg_backtrace.c -o ./build/dmesg_backtrace.o
-cc -Wall -std=c99 ./src/dmesg_driver_component_ops.c -o ./build/dmesg_driver_component_ops.o
-cc -Wall -std=c99 ./src/dmesg_mem_init_kernel_layout.c -o ./build/dmesg_mem_init_kernel_layout.o
-cc -Wall -std=c99 ./src/dmesg_mmu_idmap.c -o ./build/dmesg_mmu_idmap.o
-cc -Wall -std=c99 ./src/free_reserved_area_dmesg.c -o ./build/free_reserved_area_dmesg.o
-cc -Wall -std=c99 ./src/free_reserved_area_syslog.c -o ./build/free_reserved_area_syslog.o
-cc -Wall -std=c99 ./src/mincore.c -o ./build/mincore.o
-cc -Wall -std=c99 ./src/mmap-brute-vmsplit.c -o ./build/mmap-brute-vmsplit.o
-cc -Wall -std=c99 ./src/perf_event_open.c -o ./build/perf_event_open.o
-cc -Wall -std=c99 ./src/proc-config.c -o ./build/proc-config.o
-cc -Wall -std=c99 ./src/pppd_kallsyms.c -o ./build/pppd_kallsyms.o
-cc -Wall -std=c99 ./src/proc-kallsyms.c -o ./build/proc-kallsyms.o
-cc -Wall -std=c99 ./src/proc-stat-wchan.c -o ./build/proc-stat-wchan.o
-cc -Wall -std=c99 ./src/sysfs_iscsi_transport_handle.c -o ./build/sysfs_iscsi_transport_handle.o
-cc -Wall -std=c99 ./src/sysfs-module-sections.c -o ./build/sysfs-module-sections.o
-cc -Wall -std=c99 ./src/sysfs_nf_conntrack.c -o ./build/sysfs_nf_conntrack.o
-
-Running build ...
-
-common default kernel text for arch: c0000000
-
-[.] checking /boot/config-2.6.38.6-26.rc1.fc15.i686.PAE ...
-[.] checking /boot/config-2.6.38.6-26.rc1.fc15.i686.PAE ...
-
-[.] trying /proc/cmdline ...
-[-] Kernel was not booted with nokaslr flag.
-
-[.] searching dmesg for 'ion_snapshot: ' ...
-
-[.] searching dmesg for call trace kernel pointers ...
-lowest leaked address: c00f6a70
-possible kernel base: c0000000
-
-[.] searching dmesg for driver component ops pointers ...
-
-[.] searching dmesg for ' kernel memory layout:' ...
-kernel text start: c0400000
-possible kernel base: c0400000
-
-[.] searching dmesg for ' static identity map for ' ...
-
-[.] checking dmesg for free_reserved_area() info ...
+[.] searching /var/log/syslog for call trace kernel pointers ...
+[-] open/read(/var/log/syslog): No such file or directory
 
 [.] checking /var/log/syslog for free_reserved_area() info ...
 [-] open/read(/var/log/syslog): No such file or directory
 
-[.] searching for kernel virtual address space start ...
-kernel virtual address start: c0000000
-
-[.] trying perf_event_open sampling ...
-lowest leaked address: c040965f
-possible kernel base: c0400000
-
-[.] trying 'pppd file /proc/kallsyms 2>&1' ...
-leaked kernel symbol: c0400000
-possible kernel base: c0400000
-
-[.] checking /proc/config.gz ...
-[-] Could not read /proc/config.gz
-
-[.] checking /proc/kallsyms...
-kernel text start: c04010e8
-possible kernel base: c0400000
-
-[.] checking /proc/25762/stat 'wchan' field ...
-leaked wchan address: c044496c
-possible kernel base: c0400000
-
-[.] checking /sys/class/iscsi_transport/iser/handle ...
-[-] open/read(/sys/class/iscsi_transport/iser/handle): No such file or directory
-[.] checking /sys/class/iscsi_transport/tcp/handle ...
-[-] open/read(/sys/class/iscsi_transport/tcp/handle): No such file or directory
-
-[.] trying /sys/modules/*/sections/.text ...
-lowest leaked module text address: f7a40000
-
-[.] trying /sys/kernel/slab/nf_contrack_* ...
-leaked init_net: c0bfddc0
-possible kernel base: c0b00000
-
-```
-</details>
-
-
-### RHEL 7.6 (x86_64)
-
-<details>
-
-```
-[ KASLD ] Kernel Address Space Layout Derandomization
-
-Kernel release:   3.10.0-957.el7.x86_64
-Kernel version:   #1 SMP Thu Oct 4 20:48:51 UTC 2018
-Kernel arch:      x86_64
-Kernel platform:  x86_64
-
-kernel.kptr_restrict:        0
-kernel.dmesg_restrict:       0
-kernel.panic_on_oops:        1
-kernel.perf_event_paranoid:  2
-
-Readable /var/log/syslog:  no
-Readable DebugFS:          no
-
-Building ...
-
-mkdir -p ./build
-cc -Wall -std=c99 ./src/bcm_msg_head_struct.c -o ./build/bcm_msg_head_struct.o
-cc -Wall -std=c99 ./src/boot-config.c -o ./build/boot-config.o
-cc -Wall -std=c99 ./src/cmdline.c -o ./build/cmdline.o
-cc -Wall -std=c99 ./src/default.c -o ./build/default.o
-cc -Wall -std=c99 ./src/dmesg_android_ion_snapshot.c -o ./build/dmesg_android_ion_snapshot.o
-cc -Wall -std=c99 ./src/dmesg_backtrace.c -o ./build/dmesg_backtrace.o
-cc -Wall -std=c99 ./src/dmesg_driver_component_ops.c -o ./build/dmesg_driver_component_ops.o
-cc -Wall -std=c99 ./src/dmesg_mem_init_kernel_layout.c -o ./build/dmesg_mem_init_kernel_layout.o
-cc -Wall -std=c99 ./src/dmesg_mmu_idmap.c -o ./build/dmesg_mmu_idmap.o
-cc -Wall -std=c99 ./src/free_reserved_area_dmesg.c -o ./build/free_reserved_area_dmesg.o
-cc -Wall -std=c99 ./src/free_reserved_area_syslog.c -o ./build/free_reserved_area_syslog.o
-cc -Wall -std=c99 ./src/mincore.c -o ./build/mincore.o
-cc -Wall -std=c99 ./src/mmap-brute-vmsplit.c -o ./build/mmap-brute-vmsplit.o
-cc -Wall -std=c99 ./src/perf_event_open.c -o ./build/perf_event_open.o
-cc -Wall -std=c99 ./src/proc-config.c -o ./build/proc-config.o
-cc -Wall -std=c99 ./src/pppd_kallsyms.c -o ./build/pppd_kallsyms.o
-cc -Wall -std=c99 ./src/proc-kallsyms.c -o ./build/proc-kallsyms.o
-cc -Wall -std=c99 ./src/proc-stat-wchan.c -o ./build/proc-stat-wchan.o
-cc -Wall -std=c99 ./src/sysfs_iscsi_transport_handle.c -o ./build/sysfs_iscsi_transport_handle.o
-cc -Wall -std=c99 ./src/sysfs-module-sections.c -o ./build/sysfs-module-sections.o
-cc -Wall -std=c99 ./src/sysfs_nf_conntrack.c -o ./build/sysfs_nf_conntrack.o
-
-Running build ...
-
-common default kernel text for arch: ffffffff81000000
-
-[.] checking /boot/config-3.10.0-957.el7.x86_64 ...
-[.] checking /boot/config-3.10.0-957.el7.x86_64 ...
-
-[.] trying /proc/cmdline ...
-[-] Kernel was not booted with nokaslr flag.
-
-[.] searching dmesg for 'ion_snapshot: ' ...
-
-[.] searching dmesg for call trace kernel pointers ...
-
-[.] searching dmesg for driver component ops pointers ...
-
-[.] searching dmesg for ' kernel memory layout:' ...
-
-[.] searching dmesg for ' static identity map for ' ...
-
-[.] checking dmesg for free_reserved_area() info ...
-
-[.] checking /var/log/syslog for free_reserved_area() info ...
-[-] open/read(/var/log/syslog): No such file or directory
-
-[.] searching for kernel virtual address space start ...
-[-] Could not locate kernel virtual address space
-
-[.] trying perf_event_open sampling ...
-[-] syscall(SYS_perf_event_open): Permission denied
-
-[.] trying 'pppd file /proc/kallsyms 2>&1' ...
-
-[.] checking /proc/config.gz ...
-[-] Could not read /proc/config.gz
-
-[.] checking /proc/kallsyms...
-[-] kernel symbol '_stext' not found in /proc/kallsyms
-
-[.] checking /proc/8810/stat 'wchan' field ...
-leaked wchan address: ffffffffb869d516
-possible kernel base: ffffffffb8600000
-
-[.] checking /sys/class/iscsi_transport/iser/handle ...
-[-] open/read(/sys/class/iscsi_transport/iser/handle): No such file or directory
-[.] checking /sys/class/iscsi_transport/tcp/handle ...
-[-] open/read(/sys/class/iscsi_transport/tcp/handle): No such file or directory
-
-[.] trying /sys/modules/*/sections/.text ...
-lowest leaked module text address: ffffffffc03ec000
-
-[.] trying /sys/kernel/slab/nf_contrack_* ...
-leaked init_net: ffffffffb9311640
-possible kernel base: ffffffffb9300000
-
 [.] trying mincore info leak...
-[-] kernel base not found in mincore info leak
+leaked address: ffffffffb30d82b5
+possible kernel base: ffffffffb3000000
 ```
 </details>
 
@@ -919,20 +609,24 @@ cc -Wall -std=c99 ./src/default.c -o ./build/default.o
 cc -Wall -std=c99 ./src/dmesg_android_ion_snapshot.c -o ./build/dmesg_android_ion_snapshot.o
 cc -Wall -std=c99 ./src/dmesg_backtrace.c -o ./build/dmesg_backtrace.o
 cc -Wall -std=c99 ./src/dmesg_driver_component_ops.c -o ./build/dmesg_driver_component_ops.o
+cc -Wall -std=c99 ./src/dmesg_ex_handler_msr.c -o ./build/dmesg_ex_handler_msr.o
+cc -Wall -std=c99 ./src/dmesg_free_reserved_area.c -o ./build/dmesg_free_reserved_area.o
 cc -Wall -std=c99 ./src/dmesg_mem_init_kernel_layout.c -o ./build/dmesg_mem_init_kernel_layout.o
 cc -Wall -std=c99 ./src/dmesg_mmu_idmap.c -o ./build/dmesg_mmu_idmap.o
-cc -Wall -std=c99 ./src/free_reserved_area_dmesg.c -o ./build/free_reserved_area_dmesg.o
-cc -Wall -std=c99 ./src/free_reserved_area_syslog.c -o ./build/free_reserved_area_syslog.o
+cc -Wall -std=c99 ./src/entrybleed.c -o ./build/entrybleed.o
 cc -Wall -std=c99 ./src/mincore.c -o ./build/mincore.o
 cc -Wall -std=c99 ./src/mmap-brute-vmsplit.c -o ./build/mmap-brute-vmsplit.o
 cc -Wall -std=c99 ./src/perf_event_open.c -o ./build/perf_event_open.o
 cc -Wall -std=c99 ./src/proc-config.c -o ./build/proc-config.o
 cc -Wall -std=c99 ./src/pppd_kallsyms.c -o ./build/pppd_kallsyms.o
 cc -Wall -std=c99 ./src/proc-kallsyms.c -o ./build/proc-kallsyms.o
+cc -Wall -std=c99 ./src/proc-pid-syscall.c -o ./build/proc-pid-syscall.o
 cc -Wall -std=c99 ./src/proc-stat-wchan.c -o ./build/proc-stat-wchan.o
 cc -Wall -std=c99 ./src/sysfs_iscsi_transport_handle.c -o ./build/sysfs_iscsi_transport_handle.o
 cc -Wall -std=c99 ./src/sysfs-module-sections.c -o ./build/sysfs-module-sections.o
 cc -Wall -std=c99 ./src/sysfs_nf_conntrack.c -o ./build/sysfs_nf_conntrack.o
+cc -Wall -std=c99 ./src/syslog_backtrace.c -o ./build/syslog_backtrace.o
+cc -Wall -std=c99 ./src/syslog_free_reserved_area.c -o ./build/syslog_free_reserved_area.o
 
 Running build ...
 
@@ -952,14 +646,20 @@ common default kernel text for arch: ffffffff81000000
 
 [.] searching dmesg for driver component ops pointers ...
 
+[.] searching dmesg for native_[read|write]_msr function pointer ...
+leaked native_[read|write]_msr: ffffffffb6c60dd3
+possible kernel base: ffffffffb6c00000
+
+[.] checking dmesg for free_reserved_area() info ...
+
 [.] searching dmesg for ' kernel memory layout:' ...
 
 [.] searching dmesg for ' static identity map for ' ...
 
-[.] checking dmesg for free_reserved_area() info ...
-
-[.] checking /var/log/syslog for free_reserved_area() info ...
-[-] open/read(/var/log/syslog): No such file or directory
+[.] trying EntryBleed (CVE-2022-4543) ...
+[.] AMD CPU with KPTI disabled
+[.] kernel version '4.18.0-147.el8.x86_64 #1 SMP Wed Dec 4 21:51:45 UTC 2019' detected
+possible kernel base: ffffffffb6c00000
 
 [.] searching for kernel virtual address space start ...
 [-] Could not locate kernel virtual address space
@@ -975,16 +675,24 @@ common default kernel text for arch: ffffffff81000000
 [.] checking /proc/kallsyms...
 [-] kernel symbol '_stext' not found in /proc/kallsyms
 
-[.] checking /proc/17991/stat 'wchan' field ...
+[.] checking /proc/self/syscall argument registers ...
+
+[.] checking /proc/5453/stat 'wchan' field ...
 
 [.] checking /sys/class/iscsi_transport/iser/handle ...
-[-] open/read(/sys/class/iscsi_transport/iser/handle): No such file or directory
+leaked iscsi_iser_transport address: ffffffffc0dce040
 [.] checking /sys/class/iscsi_transport/tcp/handle ...
 [-] open/read(/sys/class/iscsi_transport/tcp/handle): No such file or directory
 
 [.] trying /sys/modules/*/sections/.text ...
 
 [.] trying /sys/kernel/slab/nf_contrack_* ...
+
+[.] searching /var/log/syslog for call trace kernel pointers ...
+[-] open/read(/var/log/syslog): No such file or directory
+
+[.] checking /var/log/syslog for free_reserved_area() info ...
+[-] open/read(/var/log/syslog): No such file or directory
 
 [.] trying mincore info leak...
 [-] kernel base not found in mincore info leak
@@ -1022,20 +730,24 @@ cc -Wall -std=c99 ./src/default.c -o ./build/default.o
 cc -Wall -std=c99 ./src/dmesg_android_ion_snapshot.c -o ./build/dmesg_android_ion_snapshot.o
 cc -Wall -std=c99 ./src/dmesg_backtrace.c -o ./build/dmesg_backtrace.o
 cc -Wall -std=c99 ./src/dmesg_driver_component_ops.c -o ./build/dmesg_driver_component_ops.o
+cc -Wall -std=c99 ./src/dmesg_ex_handler_msr.c -o ./build/dmesg_ex_handler_msr.o
+cc -Wall -std=c99 ./src/dmesg_free_reserved_area.c -o ./build/dmesg_free_reserved_area.o
 cc -Wall -std=c99 ./src/dmesg_mem_init_kernel_layout.c -o ./build/dmesg_mem_init_kernel_layout.o
 cc -Wall -std=c99 ./src/dmesg_mmu_idmap.c -o ./build/dmesg_mmu_idmap.o
-cc -Wall -std=c99 ./src/free_reserved_area_dmesg.c -o ./build/free_reserved_area_dmesg.o
-cc -Wall -std=c99 ./src/free_reserved_area_syslog.c -o ./build/free_reserved_area_syslog.o
+cc -Wall -std=c99 ./src/entrybleed.c -o ./build/entrybleed.o
 cc -Wall -std=c99 ./src/mincore.c -o ./build/mincore.o
 cc -Wall -std=c99 ./src/mmap-brute-vmsplit.c -o ./build/mmap-brute-vmsplit.o
 cc -Wall -std=c99 ./src/perf_event_open.c -o ./build/perf_event_open.o
 cc -Wall -std=c99 ./src/proc-config.c -o ./build/proc-config.o
 cc -Wall -std=c99 ./src/pppd_kallsyms.c -o ./build/pppd_kallsyms.o
 cc -Wall -std=c99 ./src/proc-kallsyms.c -o ./build/proc-kallsyms.o
+cc -Wall -std=c99 ./src/proc-pid-syscall.c -o ./build/proc-pid-syscall.o
 cc -Wall -std=c99 ./src/proc-stat-wchan.c -o ./build/proc-stat-wchan.o
 cc -Wall -std=c99 ./src/sysfs_iscsi_transport_handle.c -o ./build/sysfs_iscsi_transport_handle.o
 cc -Wall -std=c99 ./src/sysfs-module-sections.c -o ./build/sysfs-module-sections.o
 cc -Wall -std=c99 ./src/sysfs_nf_conntrack.c -o ./build/sysfs_nf_conntrack.o
+cc -Wall -std=c99 ./src/syslog_backtrace.c -o ./build/syslog_backtrace.o
+cc -Wall -std=c99 ./src/syslog_free_reserved_area.c -o ./build/syslog_free_reserved_area.o
 
 Running build ...
 
@@ -1055,14 +767,18 @@ common default kernel text for arch: ffffffff81000000
 
 [.] searching dmesg for driver component ops pointers ...
 
+[.] searching dmesg for native_[read|write]_msr function pointer ...
+
+[.] checking dmesg for free_reserved_area() info ...
+
 [.] searching dmesg for ' kernel memory layout:' ...
 
 [.] searching dmesg for ' static identity map for ' ...
 
-[.] checking dmesg for free_reserved_area() info ...
-
-[.] checking /var/log/syslog for free_reserved_area() info ...
-[-] open/read(/var/log/syslog): No such file or directory
+[.] trying EntryBleed (CVE-2022-4543) ...
+[.] AMD CPU with KPTI disabled
+[.] kernel version '4.12.14-lp151.28.10-default #1 SMP Sat Jul 13 17:59:31 UTC 2019 (0ab03b7)' detected
+possible kernel base: ffffffff81000000
 
 [.] searching for kernel virtual address space start ...
 [-] Could not locate kernel virtual address space
@@ -1079,7 +795,9 @@ common default kernel text for arch: ffffffff81000000
 [.] checking /proc/kallsyms...
 [-] kernel symbol '_stext' not found in /proc/kallsyms
 
-[.] checking /proc/5342/stat 'wchan' field ...
+[.] checking /proc/self/syscall argument registers ...
+
+[.] checking /proc/3971/stat 'wchan' field ...
 
 [.] checking /sys/class/iscsi_transport/iser/handle ...
 [-] open/read(/sys/class/iscsi_transport/iser/handle): No such file or directory
@@ -1090,6 +808,12 @@ common default kernel text for arch: ffffffff81000000
 
 [.] trying /sys/kernel/slab/nf_contrack_* ...
 opendir(/sys/kernel/slab/): No such file or directory
+
+[.] searching /var/log/syslog for call trace kernel pointers ...
+[-] open/read(/var/log/syslog): No such file or directory
+
+[.] checking /var/log/syslog for free_reserved_area() info ...
+[-] open/read(/var/log/syslog): No such file or directory
 
 [.] trying mincore info leak...
 [-] kernel base not found in mincore info leak
@@ -1127,20 +851,24 @@ cc -Wall -std=c99 ./src/default.c -o ./build/default.o
 cc -Wall -std=c99 ./src/dmesg_android_ion_snapshot.c -o ./build/dmesg_android_ion_snapshot.o
 cc -Wall -std=c99 ./src/dmesg_backtrace.c -o ./build/dmesg_backtrace.o
 cc -Wall -std=c99 ./src/dmesg_driver_component_ops.c -o ./build/dmesg_driver_component_ops.o
+cc -Wall -std=c99 ./src/dmesg_ex_handler_msr.c -o ./build/dmesg_ex_handler_msr.o
+cc -Wall -std=c99 ./src/dmesg_free_reserved_area.c -o ./build/dmesg_free_reserved_area.o
 cc -Wall -std=c99 ./src/dmesg_mem_init_kernel_layout.c -o ./build/dmesg_mem_init_kernel_layout.o
 cc -Wall -std=c99 ./src/dmesg_mmu_idmap.c -o ./build/dmesg_mmu_idmap.o
-cc -Wall -std=c99 ./src/free_reserved_area_dmesg.c -o ./build/free_reserved_area_dmesg.o
-cc -Wall -std=c99 ./src/free_reserved_area_syslog.c -o ./build/free_reserved_area_syslog.o
+cc -Wall -std=c99 ./src/entrybleed.c -o ./build/entrybleed.o
 cc -Wall -std=c99 ./src/mincore.c -o ./build/mincore.o
 cc -Wall -std=c99 ./src/mmap-brute-vmsplit.c -o ./build/mmap-brute-vmsplit.o
 cc -Wall -std=c99 ./src/perf_event_open.c -o ./build/perf_event_open.o
 cc -Wall -std=c99 ./src/proc-config.c -o ./build/proc-config.o
 cc -Wall -std=c99 ./src/pppd_kallsyms.c -o ./build/pppd_kallsyms.o
 cc -Wall -std=c99 ./src/proc-kallsyms.c -o ./build/proc-kallsyms.o
+cc -Wall -std=c99 ./src/proc-pid-syscall.c -o ./build/proc-pid-syscall.o
 cc -Wall -std=c99 ./src/proc-stat-wchan.c -o ./build/proc-stat-wchan.o
 cc -Wall -std=c99 ./src/sysfs_iscsi_transport_handle.c -o ./build/sysfs_iscsi_transport_handle.o
 cc -Wall -std=c99 ./src/sysfs-module-sections.c -o ./build/sysfs-module-sections.o
 cc -Wall -std=c99 ./src/sysfs_nf_conntrack.c -o ./build/sysfs_nf_conntrack.o
+cc -Wall -std=c99 ./src/syslog_backtrace.c -o ./build/syslog_backtrace.o
+cc -Wall -std=c99 ./src/syslog_free_reserved_area.c -o ./build/syslog_free_reserved_area.o
 
 Running build ...
 
@@ -1160,14 +888,17 @@ common default kernel text for arch: ffffffff81000000
 
 [.] searching dmesg for driver component ops pointers ...
 
+[.] searching dmesg for native_[read|write]_msr function pointer ...
+
+[.] checking dmesg for free_reserved_area() info ...
+
 [.] searching dmesg for ' kernel memory layout:' ...
 
 [.] searching dmesg for ' static identity map for ' ...
 
-[.] checking dmesg for free_reserved_area() info ...
-
-[.] checking /var/log/syslog for free_reserved_area() info ...
-[-] open/read(/var/log/syslog): No such file or directory
+[.] trying EntryBleed (CVE-2022-4543) ...
+[.] AMD CPU with KPTI disabled
+[-] kernel version '4.14.171-136.231.amzn2.x86_64 #1 SMP Thu Feb 27 20:22:48 UTC 2020' not recognized
 
 [.] searching for kernel virtual address space start ...
 [-] Could not locate kernel virtual address space
@@ -1184,7 +915,9 @@ common default kernel text for arch: ffffffff81000000
 kernel text start: ffffffff81000000
 possible kernel base: ffffffff81000000
 
-[.] checking /proc/116986/stat 'wchan' field ...
+[.] checking /proc/self/syscall argument registers ...
+
+[.] checking /proc/5332/stat 'wchan' field ...
 
 [.] checking /sys/class/iscsi_transport/iser/handle ...
 [-] open/read(/sys/class/iscsi_transport/iser/handle): No such file or directory
@@ -1196,128 +929,14 @@ lowest leaked module text address: ffffffffa0002000
 
 [.] trying /sys/kernel/slab/nf_contrack_* ...
 
-[.] trying mincore info leak...
-[-] kernel base not found in mincore info leak
-```
-</details>
-
-
-### Scientific Linux release 7.6 (x86_64)
-
-<details>
-
-```
-[ KASLD ] Kernel Address Space Layout Derandomization
-
-Kernel release:   3.10.0-957.1.3.el7.x86_64
-Kernel version:   #1 SMP Mon Nov 26 12:36:06 CST 2018
-Kernel arch:      x86_64
-Kernel platform:  x86_64
-
-kernel.kptr_restrict:        0
-kernel.dmesg_restrict:       0
-kernel.panic_on_oops:        1
-kernel.perf_event_paranoid:  2
-
-Readable /var/log/syslog:  no
-Readable DebugFS:          no
-
-Building ...
-
-mkdir -p ./build
-cc -Wall -std=c99 ./src/bcm_msg_head_struct.c -o ./build/bcm_msg_head_struct.o
-In file included from ./src/bcm_msg_head_struct.c:18:0:
-/usr/include/linux/can/bcm.h:33:17: error: field ‘ival1’ has incomplete type
-  struct timeval ival1, ival2;
-                 ^
-/usr/include/linux/can/bcm.h:33:24: error: field ‘ival2’ has incomplete type
-  struct timeval ival1, ival2;
-                        ^
-./src/bcm_msg_head_struct.c: In function ‘rxsetup_sock’:
-./src/bcm_msg_head_struct.c:43:17: error: ‘CAN_FD_FRAME’ undeclared (first use in this function)
-   msg.b.flags = CAN_FD_FRAME | SETTIMER | STARTTIMER;
-                 ^
-./src/bcm_msg_head_struct.c:43:17: note: each undeclared identifier is reported only once for each function it appears in
-make: [all] Error 1 (ignored)
-cc -Wall -std=c99 ./src/boot-config.c -o ./build/boot-config.o
-cc -Wall -std=c99 ./src/cmdline.c -o ./build/cmdline.o
-cc -Wall -std=c99 ./src/default.c -o ./build/default.o
-cc -Wall -std=c99 ./src/dmesg_android_ion_snapshot.c -o ./build/dmesg_android_ion_snapshot.o
-cc -Wall -std=c99 ./src/dmesg_backtrace.c -o ./build/dmesg_backtrace.o
-cc -Wall -std=c99 ./src/dmesg_driver_component_ops.c -o ./build/dmesg_driver_component_ops.o
-cc -Wall -std=c99 ./src/dmesg_mem_init_kernel_layout.c -o ./build/dmesg_mem_init_kernel_layout.o
-cc -Wall -std=c99 ./src/dmesg_mmu_idmap.c -o ./build/dmesg_mmu_idmap.o
-cc -Wall -std=c99 ./src/free_reserved_area_dmesg.c -o ./build/free_reserved_area_dmesg.o
-cc -Wall -std=c99 ./src/free_reserved_area_syslog.c -o ./build/free_reserved_area_syslog.o
-cc -Wall -std=c99 ./src/mincore.c -o ./build/mincore.o
-cc -Wall -std=c99 ./src/mmap-brute-vmsplit.c -o ./build/mmap-brute-vmsplit.o
-cc -Wall -std=c99 ./src/perf_event_open.c -o ./build/perf_event_open.o
-cc -Wall -std=c99 ./src/proc-config.c -o ./build/proc-config.o
-cc -Wall -std=c99 ./src/pppd_kallsyms.c -o ./build/pppd_kallsyms.o
-cc -Wall -std=c99 ./src/proc-kallsyms.c -o ./build/proc-kallsyms.o
-cc -Wall -std=c99 ./src/proc-stat-wchan.c -o ./build/proc-stat-wchan.o
-cc -Wall -std=c99 ./src/sysfs_iscsi_transport_handle.c -o ./build/sysfs_iscsi_transport_handle.o
-cc -Wall -std=c99 ./src/sysfs-module-sections.c -o ./build/sysfs-module-sections.o
-cc -Wall -std=c99 ./src/sysfs_nf_conntrack.c -o ./build/sysfs_nf_conntrack.o
-
-Running build ...
-
-common default kernel text for arch: ffffffff81000000
-
-[.] checking /boot/config-3.10.0-957.1.3.el7.x86_64 ...
-[.] checking /boot/config-3.10.0-957.1.3.el7.x86_64 ...
-
-[.] trying /proc/cmdline ...
-[-] Kernel was not booted with nokaslr flag.
-
-[.] searching dmesg for 'ion_snapshot: ' ...
-
-[.] searching dmesg for call trace kernel pointers ...
-
-[.] searching dmesg for driver component ops pointers ...
-
-[.] searching dmesg for ' kernel memory layout:' ...
-
-[.] searching dmesg for ' static identity map for ' ...
-
-[.] checking dmesg for free_reserved_area() info ...
+[.] searching /var/log/syslog for call trace kernel pointers ...
+[-] open/read(/var/log/syslog): No such file or directory
 
 [.] checking /var/log/syslog for free_reserved_area() info ...
 [-] open/read(/var/log/syslog): No such file or directory
 
-[.] searching for kernel virtual address space start ...
-[-] Could not locate kernel virtual address space
-
-[.] trying perf_event_open sampling ...
-[-] syscall(SYS_perf_event_open): Permission denied
-
-[.] trying 'pppd file /proc/kallsyms 2>&1' ...
-
-[.] checking /proc/config.gz ...
-[-] Could not read /proc/config.gz
-
-[.] checking /proc/kallsyms...
-[-] kernel symbol '_stext' not found in /proc/kallsyms
-
-[.] checking /proc/7696/stat 'wchan' field ...
-leaked wchan address: ffffffffb729d516
-possible kernel base: ffffffffb7200000
-
-[.] checking /sys/class/iscsi_transport/iser/handle ...
-[-] open/read(/sys/class/iscsi_transport/iser/handle): No such file or directory
-[.] checking /sys/class/iscsi_transport/tcp/handle ...
-[-] open/read(/sys/class/iscsi_transport/tcp/handle): No such file or directory
-
-[.] trying /sys/modules/*/sections/.text ...
-lowest leaked module text address: ffffffffc03d2000
-
-[.] trying /sys/kernel/slab/nf_contrack_* ...
-leaked init_net: ffffffffb7f11640
-possible kernel base: ffffffffb7f00000
-
 [.] trying mincore info leak...
 [-] kernel base not found in mincore info leak
-
 ```
 </details>
 
