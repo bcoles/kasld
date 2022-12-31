@@ -79,15 +79,19 @@ KASLD serves as a non-exhaustive collection and reference for address leaks
 useful in KASLR bypass; however, it is far from complete. There are many additional
 noteworthy techniques not included for various reasons.
 
+
 ### System Logs
 
 Kernel and system logs (`dmesg` / `syslog`) offer a wealth of information, including
 kernel pointers.
 
-Historically, raw kernel pointers were frequently printed to the kernel debug log
+Historically, raw kernel pointers were frequently printed to the system log
 without using the [`%pK` printk format](https://www.kernel.org/doc/html/latest/core-api/printk-formats.html).
 
 * https://github.com/torvalds/linux/search?p=1&q=%25pK&type=Commits
+
+Several KASLD components read from the kernel ring buffer. Refer to
+`./src/dmesg_*` files.
 
 Bugs which trigger a kernel oops can be used to leak kernel pointers by reading
 the system log (on systems with `kernel.panic_on_oops = 0`).
@@ -105,6 +109,8 @@ Similarly, the associated log files (ie, `/var/log/syslog`) are readable only
 by privileged users on modern distros. On Ubuntu systems, users in the `adm`
 group have read permissions on log files in `/var/log/`. Typically the first
 user created on the system is a member of the `adm` group.
+
+Several KASLD components read from syslog log files. Refer to `./src/syslog_*` files.
 
 
 ### DebugFS
