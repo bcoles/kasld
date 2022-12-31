@@ -21,7 +21,6 @@ all :
 	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_mem_init_kernel_layout.c -o $(BUILD_DIR)/dmesg_mem_init_kernel_layout.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_mmu_idmap.c -o $(BUILD_DIR)/dmesg_mmu_idmap.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/entrybleed.c -o $(BUILD_DIR)/entrybleed.o
-	-$(CC) $(FLAGS) $(SRC_DIR)/free_reserved_area_syslog.c -o $(BUILD_DIR)/free_reserved_area_syslog.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/mincore.c -o $(BUILD_DIR)/mincore.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/mmap-brute-vmsplit.c -o $(BUILD_DIR)/mmap-brute-vmsplit.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/perf_event_open.c -o $(BUILD_DIR)/perf_event_open.o
@@ -33,6 +32,7 @@ all :
 	-$(CC) $(FLAGS) $(SRC_DIR)/sysfs_iscsi_transport_handle.c -o $(BUILD_DIR)/sysfs_iscsi_transport_handle.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/sysfs-module-sections.c -o $(BUILD_DIR)/sysfs-module-sections.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/sysfs_nf_conntrack.c -o $(BUILD_DIR)/sysfs_nf_conntrack.o
+	-$(CC) $(FLAGS) $(SRC_DIR)/syslog_free_reserved_area.c -o $(BUILD_DIR)/syslog_free_reserved_area.o
 
 clean :
 	rm -f $(BUILD_DIR)/*.o

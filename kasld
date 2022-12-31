@@ -101,11 +101,6 @@ if [ -x "${build}/entrybleed.o" ]; then
   echo
 fi
 
-if [ -x "${build}/free_reserved_area_syslog.o" ]; then
-  "${build}/free_reserved_area_syslog.o"
-  echo
-fi
-
 if [ -x "${build}/mmap-brute-vmsplit.o" ]; then
   "${build}/mmap-brute-vmsplit.o"
   echo
@@ -153,6 +148,11 @@ fi
 
 if [ -x "${build}/sysfs_nf_conntrack.o" ]; then
   "${build}/sysfs_nf_conntrack.o"
+  echo
+fi
+
+if [ -x "${build}/syslog_free_reserved_area.o" ]; then
+  "${build}/syslog_free_reserved_area.o"
   echo
 fi
 
