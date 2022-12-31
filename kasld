@@ -81,6 +81,11 @@ if [ -x "${build}/dmesg_ex_handler_msr.o" ]; then
   echo
 fi
 
+if [ -x "${build}/dmesg_free_reserved_area.o" ]; then
+  "${build}/dmesg_free_reserved_area.o"
+  echo
+fi
+
 if [ -x "${build}/dmesg_mem_init_kernel_layout.o" ]; then
   "${build}/dmesg_mem_init_kernel_layout.o"
   echo
@@ -93,11 +98,6 @@ fi
 
 if [ -x "${build}/entrybleed.o" ]; then
   "${build}/entrybleed.o"
-  echo
-fi
-
-if [ -x "${build}/free_reserved_area_dmesg.o" ]; then
-  "${build}/free_reserved_area_dmesg.o"
   echo
 fi
 

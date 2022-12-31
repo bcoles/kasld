@@ -17,10 +17,10 @@ all :
 	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_backtrace.c -o $(BUILD_DIR)/dmesg_backtrace.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_driver_component_ops.c -o $(BUILD_DIR)/dmesg_driver_component_ops.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_ex_handler_msr.c -o $(BUILD_DIR)/dmesg_ex_handler_msr.o
+	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_free_reserved_area.c -o $(BUILD_DIR)/dmesg_free_reserved_area.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_mem_init_kernel_layout.c -o $(BUILD_DIR)/dmesg_mem_init_kernel_layout.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_mmu_idmap.c -o $(BUILD_DIR)/dmesg_mmu_idmap.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/entrybleed.c -o $(BUILD_DIR)/entrybleed.o
-	-$(CC) $(FLAGS) $(SRC_DIR)/free_reserved_area_dmesg.c -o $(BUILD_DIR)/free_reserved_area_dmesg.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/free_reserved_area_syslog.c -o $(BUILD_DIR)/free_reserved_area_syslog.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/mincore.c -o $(BUILD_DIR)/mincore.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/mmap-brute-vmsplit.c -o $(BUILD_DIR)/mmap-brute-vmsplit.o
