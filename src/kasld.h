@@ -34,6 +34,10 @@
  */
 #if defined(__x86_64__) || defined(__amd64__)
 
+// VAS start with 5-level page tables (CONFIG_X86_5LEVEL): 0xff000000_00000000
+// VAS start with 4-level page tables: 0xffff8000_00000000
+// https://www.kernel.org/doc/html/latest/x86/x86_64/mm.html
+// https://www.cateee.net/lkddb/web-lkddb/X86_5LEVEL.html
 #define KERNEL_VAS_START 0xff00000000000000ul
 
 // Old <= 4.4 era kernels used the RANDOMIZE_BASE_MAX_OFFSET config option
@@ -71,15 +75,18 @@
  */
 #elif defined(__aarch64__)
 
-#define KERNEL_VAS_START 0xff00000000000000ul
-
-// 48 va bits (CONFIG_ARM64_VA_BITS_48=y) is a common configuration
+// 52 va bits (CONFIG_ARM64_VA_BITS_48_52) is largest.
 // page_offset = (0xffffffffffffffffUL) << (va_bits - 1)
-#define KERNEL_BASE_MIN 0xffff000008000000ul
-#define KERNEL_BASE_MAX 0xfffffffff0000000ul
+#define KERNEL_VAS_START 0xfff8000000000000ul
+
+// 48 va bits (CONFIG_ARM64_VA_BITS_48) is a common configuration;
+// but an unsafe assumption since introduction of CONFIG_ARM64_VA_BITS_48_52.
+#define KERNEL_BASE_MIN 0xffff800008000000ul
+#define KERNEL_BASE_MAX 0xffffffffff000000ul
 
 // 2MB aligned
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm64/include/asm/boot.h#L18
+// We use 1MB alignment (rather than 2MB)
 #define KERNEL_ALIGN 0x100000ul
 #define KERNEL_BASE_MASK 0x0ffffful
 
@@ -102,6 +109,8 @@
 #define KERNEL_BASE_MIN 0xffffffff80000000ul
 #define KERNEL_BASE_MAX 0xfffffffff0000000ul
 
+// 2MB aligned
+// We use 1MB alignment (rather than 2MB)
 #define KERNEL_ALIGN 0x100000ul
 #define KERNEL_BASE_MASK 0x0ffffful
 
@@ -167,6 +176,7 @@
 #define KERNEL_BASE_MAX 0xf0000000ul
 
 // 2MB aligned
+// We use 1MB alignment (rather than 2MB)
 #define KERNEL_ALIGN 0x100000ul
 #define KERNEL_BASE_MASK 0x0ffffful
 
