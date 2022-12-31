@@ -53,7 +53,7 @@ unsigned long get_kernel_addr_proc_stat_wchan() {
 
   ptr = strtok(buff, delim);
   while ((ptr = strtok(NULL, delim)) != NULL) {
-    addr = (unsigned long)strtoull(&ptr[0], &endptr, 10);
+    addr = strtoul(&ptr[0], &endptr, 10);
 
     if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX)
       break;

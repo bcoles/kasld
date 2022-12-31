@@ -46,7 +46,7 @@ unsigned long get_kernel_addr_conntrack() {
     if (substr == NULL)
       continue;
 
-    addr = strtoull(&substr[strlen(needle)], &endptr, 16);
+    addr = strtoul(&substr[strlen(needle)], &endptr, 16);
 
     if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX)
       break;

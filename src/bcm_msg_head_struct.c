@@ -92,7 +92,7 @@ unsigned long get_kernel_addr_from_bcm_msg_head_struct() {
   snprintf(addrs, sizeof(addrs), "%02x%02x%02x%02x", buf[39], buf[38], buf[37],
            buf[36]);
 
-  addr = (unsigned long)strtoull(addrs, &endptr, 16);
+  addr = strtoul(addrs, &endptr, 16);
 
   if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX)
     return addr;

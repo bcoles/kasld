@@ -85,7 +85,7 @@ unsigned long search_dmesg_driver_component_ops() {
     if (ops_buf == NULL)
       continue;
 
-    leaked_addr = (unsigned long)strtoull(&ops_buf[strlen(needle)], &endptr, 16);
+    leaked_addr = strtoul(&ops_buf[strlen(needle)], &endptr, 16);
 
     if (!leaked_addr)
       continue;

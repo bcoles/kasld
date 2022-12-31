@@ -60,7 +60,7 @@ unsigned long search_dmesg_kernel_pointers() {
 
   ptr = strtok(syslog, "[<");
   while ((ptr = strtok(NULL, "[<")) != NULL) {
-    leaked_addr = (unsigned long)strtoull(&ptr[0], &endptr, 16);
+    leaked_addr = strtoul(&ptr[0], &endptr, 16);
 
     if (!leaked_addr)
       continue;

@@ -45,7 +45,7 @@ unsigned long read_module_text(char *path) {
   if (strlen(buff) != addr_len + 3)
     return 0;
 
-  addr = (unsigned long)strtoull(buff, &endptr, 16);
+  addr = strtoul(buff, &endptr, 16);
 
   // modules may be mapped below kernel text
   if (addr && addr <= KERNEL_BASE_MAX)

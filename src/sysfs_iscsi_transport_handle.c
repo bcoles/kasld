@@ -70,7 +70,7 @@ unsigned long get_kernel_addr_iscsi_iser_transport() {
   if (strlen(buff) > 21)
     return 0;
 
-  addr = (unsigned long)strtoull(buff, &endptr, 10);
+  addr = strtoul(buff, &endptr, 10);
 
   if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX)
     return addr;
@@ -105,7 +105,7 @@ unsigned long get_kernel_addr_iscsi_sw_tcp_transport() {
   if (strlen(buff) > 21)
     return 0;
 
-  addr = (unsigned long)strtoull(buff, &endptr, 10);
+  addr = strtoul(buff, &endptr, 10);
 
   if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX)
     return addr;

@@ -52,7 +52,7 @@ unsigned long get_kernel_addr_pppd_kallsyms() {
   if (addr_buf == NULL)
     return 0;
 
-  addr = strtoull(&addr_buf[1], &endptr, 16);
+  addr = strtoul(&addr_buf[1], &endptr, 16);
 
   if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX)
     return addr;

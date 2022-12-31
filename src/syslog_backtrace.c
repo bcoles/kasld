@@ -29,7 +29,6 @@ unsigned long search_syslog_file_kernel_pointers() {
   FILE *f;
   char *ptr;
   char *endptr;
-  char *line_buf;
   char *line = 0;
   size_t size = 0;
   // We could also try /var/log/syslog.1 and /var/log/syslog.*.gz

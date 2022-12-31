@@ -83,7 +83,7 @@ unsigned long search_dmesg_mmu_idmap() {
 
   ptr = strtok(addr_buf, delim);
   while ((ptr = strtok(NULL, delim)) != NULL) {
-    addr = (unsigned long)strtoull(&ptr[0], &endptr, 16);
+    addr = strtoul(&ptr[0], &endptr, 16);
 
     if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX)
       break;

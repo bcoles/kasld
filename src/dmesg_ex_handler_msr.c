@@ -104,8 +104,7 @@ unsigned long search_dmesg_ex_handler_msr() {
     if (addr_buf == NULL)
       continue;
 
-    leaked_addr =
-        (unsigned long)strtoull(&addr_buf[strlen(needle)], &endptr, 16);
+    leaked_addr = strtoul(&addr_buf[strlen(needle)], &endptr, 16);
 
     if (!leaked_addr)
       continue;
