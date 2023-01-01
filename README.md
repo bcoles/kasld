@@ -94,8 +94,8 @@ without using the [`%pK` printk format](https://www.kernel.org/doc/html/latest/c
 
 * https://github.com/torvalds/linux/search?p=1&q=%25pK&type=Commits
 
-Several KASLD components read from the kernel ring buffer. Refer to
-`./src/dmesg_*` files.
+Several KASLD components search the kernel ring buffer for kernel addresses.
+Refer to `dmesg_*` files in the [src](src/) directory.
 
 Bugs which trigger a kernel oops can be used to leak kernel pointers by reading
 the system log (on systems with `kernel.panic_on_oops = 0`).
@@ -105,16 +105,27 @@ There are countless examples. A few simple examples are available in the [extra]
 * [extra/oops_inet_csk_listen_stop.c](extra/oops_inet_csk_listen_stop.c)
 * [extra/oops_netlink_getsockbyportid_null_ptr.c](extra/oops_netlink_getsockbyportid_null_ptr.c)
 
-Modern distros ship with `kernel.dmesg_restrict` enabled by default to prevent
-unprivileged users from accessing the kernel debug log. grsecurity hardened
-kernels also support `kernel.grsecurity.dmesg` to prevent unprivileged access.
+Most modern distros ship with `kernel.dmesg_restrict` enabled by default to
+prevent unprivileged users from accessing the kernel debug log. Similarly,
+grsecurity hardened kernels support `kernel.grsecurity.dmesg` to prevent
+unprivileged access.
 
-Similarly, the associated log files (ie, `/var/log/syslog`) are readable only
-by privileged users on modern distros. On Ubuntu systems, users in the `adm`
-group have read permissions on log files in `/var/log/`. Typically the first
-user created on the system is a member of the `adm` group.
+System log files (ie, `/var/log/syslog`) are readable only by privileged users
+on modern distros. On Debian/Ubuntu systems, users in the `adm` group also have
+read permissions on various system log files in `/var/log/`. Typically the first
+user created on an Ubuntu system is a member of the `adm` group.
 
-Several KASLD components read from syslog log files. Refer to `./src/syslog_*` files.
+Several KASLD components read from `/var/log/syslog`.
+Refer to `syslog_*` files in the [src](src/) directory.
+
+Similarly, the `/var/log/dmesg` log file may be readable by low privileged users,
+regardless of whether `dmesg_restrict` is enabled. Additionally,
+[an initscript bug](https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=867747)
+present from 2017-2019 caused this file to be generated with `644` world-readble
+permissions.
+
+The `kasld` wrapper script includes a check for readable log files, including
+`/var/log/dmesg`, but does not use this technique.
 
 
 ### DebugFS
@@ -122,7 +133,9 @@ Several KASLD components read from syslog log files. Refer to `./src/syslog_*` f
 Various areas of [DebugFS](https://en.wikipedia.org/wiki/Debugfs)
 (`/sys/kernel/debug/*`) may disclose kernel pointers.
 
-[DebugFS is not readable by unprivileged users](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=82aceae4f0d42f03d9ad7d1e90389e731153898f) by default (since 2012-08-27).
+DebugFS is [no longer readable by unprivileged users by default](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=82aceae4f0d42f03d9ad7d1e90389e731153898f)
+since kernel version `v3.7-rc1~174^2~57` on 2012-08-27.
+
 This change pre-dates Linux KASLR by 2 years. However, DebugFS may still be
 readable in some non-default configurations.
 
@@ -131,30 +144,49 @@ readable in some non-default configurations.
 
 The [extra/check-hardware-vulnerabilities](extra/check-hardware-vulnerabilities)
 script performs rudimentary checks for several known hardware vulnerabilities,
-but does not implement these techniques. There are a plethora of viable
-hardware-related attacks, listed below.
+but does not implement these techniques.
+
+There are a plethora of viable hardware-related attacks which can be used to break
+KASLR, in particular timing side-channels and transient execution attacks.
+
+The [transient.fail](https://transient.fail/) website offers a good overview
+of speculative execution / transient execution attacks. See also:
+
+  * [A Systematic Evaluation of Transient Execution Attacks and Defenses](https://www.cc0x1f.net/publications/transient_sytematization.pdf) (Claudio Canella, Jo Van Bulck, Michael Schwarz, Moritz Lipp, Benjamin von Berg, Philipp Ortner, Frank Piessens, Dmitry Evtyushkin3, Daniel Gruss, 2019)
 
 [Practical Timing Side Channel Attacks Against Kernel Space ASLR](https://openwall.info/wiki/_media/archive/TR-HGI-2013-001.pdf) (Ralf Hund, Carsten Willems, Thorsten Holz, 2013)
 
+[google/safeside](https://github.com/google/safeside)
+
 [Micro architecture attacks on KASLR](https://cyber.wtf/2016/10/25/micro-architecture-attacks-on-kasrl/) (Anders Fogh, 2016)
+
+[PLATYPUS: Software-based Power Side-Channel Attacks on x86](https://platypusattack.com/platypus.pdf) (Moritz Lipp, Andreas Kogler, David Oswald†, Michael Schwarz, Catherine Easdon, Claudio Canella, and Daniel Gruss, 2020)
 
 Microarchitectural Data Sampling (MDS) side-channel attacks:
 
   * [Fallout: Leaking Data on Meltdown-resistant CPUs](https://mdsattacks.com/files/fallout.pdf) (Claudio Canella, Daniel Genkin, Lukas Giner, Daniel Gruss, Moritz Lipp, Marina Minkin, Daniel Moghimi, Frank Piessens, Michael Schwarz, Berk Sunar, Jo Van Bulck, Yuval Yarom, 2019)
-  * [vusec/ridl](https://github.com/vusec/ridl) (VUSec, 2019)
+  * [RIDL: Rogue In-Flight Data Load](https://mdsattacks.com/files/ridl.pdf) (Stephan van Schaik, Alyssa Milburn, Sebastian Österlund, Pietro Frigo, Giorgi Maisuradze, Kaveh Razavi, Herbert Bos, and Cristiano Giuffrida, 2019)
+    * [vusec/ridl](https://github.com/vusec/ridl) - Intel CPUs (VUSec, 2019)
 
 EchoLoad: [KASLR: Break It, Fix It, Repeat](https://gruss.cc/files/kaslrbfr.pdf) (Claudio Canella, Michael Schwarz, Martin Haubenwallner, 2020)
 
+Data Bounce: [Store-to-Leak Forwarding: Leaking Data on Meltdown-resistant CPUs](https://cpu.fail/store_to_leak_forwarding.pdf) (Michael Schwarz, Claudio Canella, Lukas Giner, Daniel Gruss, 2019)
+
 Prefetch side-channel attacks:
 
-* [Prefetch Side-Channel Attacks: Bypassing SMAP and Kernel ASLR](https://gruss.cc/files/prefetch.pdf) (Daniel Gruss, Clémentine Maurice, Anders Fogh, 2016)
-* [Using Undocumented CPU Behaviour to See into Kernel Mode and Break KASLR in the Process](https://www.blackhat.com/docs/us-16/materials/us-16-Fogh-Using-Undocumented-CPU-Behaviour-To-See-Into-Kernel-Mode-And-Break-KASLR-In-The-Process.pdf) (Anders Fogh, Daniel Gruss, 2016)
-  * Blackhat USA 2015 Video: [https://www.youtube.com/watch?v=Pwq0vv4X7m4](https://www.youtube.com/watch?v=Pwq0vv4X7m4) (Anders Fogh, Daniel Gruss, 2015)
-* [xairy/kernel-exploits/prefetch-side-channel](https://github.com/xairy/kernel-exploits/tree/master/prefetch-side-channel) (xairy, 2020)
-* [Fetching the KASLR slide with prefetch](https://googleprojectzero.blogspot.com/2022/12/exploiting-CVE-2022-42703-bringing-back-the-stack-attack.html) (Seth Jenkins, 2022)
-  * [prefetch_poc.zip](https://bugs.chromium.org/p/project-zero/issues/detail?id=2351) - Intel x86_64 CPUs with kPTI disabled (`pti=off`)
-* [EntryBleed: Breaking KASLR under KPTI with Prefetch (CVE-2022-4543)](https://www.willsroot.io/2022/12/entrybleed.html) (willsroot, 2022)
-  * Intel x86_64 CPUs; AMD x86_64 CPUs with kPTI disabled (`pti=off`)
+  * [Prefetch Side-Channel Attacks: Bypassing SMAP and Kernel ASLR](https://gruss.cc/files/prefetch.pdf) (Daniel Gruss, Clémentine Maurice, Anders Fogh, 2016)
+    * [xairy/kernel-exploits/prefetch-side-channel](https://github.com/xairy/kernel-exploits/tree/master/prefetch-side-channel) (xairy, 2020)
+  * [Using Undocumented CPU Behaviour to See into Kernel Mode and Break KASLR in the Process](https://www.blackhat.com/docs/us-16/materials/us-16-Fogh-Using-Undocumented-CPU-Behaviour-To-See-Into-Kernel-Mode-And-Break-KASLR-In-The-Process.pdf) (Anders Fogh, Daniel Gruss, 2016)
+    * Blackhat USA 2015 Video: [https://www.youtube.com/watch?v=Pwq0vv4X7m4](https://www.youtube.com/watch?v=Pwq0vv4X7m4) (Anders Fogh, Daniel Gruss, 2015)
+  * [Fetching the KASLR slide with prefetch](https://googleprojectzero.blogspot.com/2022/12/exploiting-CVE-2022-42703-bringing-back-the-stack-attack.html) (Seth Jenkins, 2022)
+    * [prefetch_poc.zip](https://bugs.chromium.org/p/project-zero/issues/detail?id=2351) - Intel x86_64 CPUs with kPTI disabled (`pti=off`)
+  * [EntryBleed: Breaking KASLR under KPTI with Prefetch (CVE-2022-4543)](https://www.willsroot.io/2022/12/entrybleed.html) (willsroot, 2022)
+    * Intel x86_64 CPUs; AMD x86_64 CPUs with kPTI disabled (`pti=off`)
+
+Straight-line Speculation (SLS):
+
+  * [The AMD Branch (Mis)predictor Part 2: Where No CPU has Gone Before (CVE-2021-26341)](https://grsecurity.net/amd_branch_mispredictor_part_2_where_no_cpu_has_gone_before) (Pawel Wieczorkiewicz, 2022)
+  * [Straight-line Speculation Whitepaper](https://developer.arm.com/documentation/102825/0100/?lang=en) (ARM, 2020)
 
 Transactional Synchronization eXtensions (TSX) side-channel timing attacks:
 
@@ -172,6 +204,7 @@ Branch Target Injection (BTI) attacks:
   * [paboldin/meltdown-exploit](https://github.com/paboldin/meltdown-exploit)
   * [Reading privileged memory with a side-channel](https://googleprojectzero.blogspot.com/2018/01/reading-privileged-memory-with-side.html) (Jann Horn, 2018)
   * [speed47/spectre-meltdown-checker](https://github.com/speed47/spectre-meltdown-checker)
+  * [VDSO As A Potential KASLR Oracle](https://www.longterm.io/vdso_sidechannel.html) (Philip Pettersson, Alex Radocea, 2021)
   * [RETBLEED: Arbitrary Speculative Code Execution with Return Instructions](https://comsec.ethz.ch/wp-content/files/retbleed_sec22.pdf) (Johannes Wikner, Kaveh Razavi, 2022)
     * [comsec-group/retbleed](https://github.com/comsec-group/retbleed) - Intel/AMD x86_64 CPUs
 
@@ -186,11 +219,16 @@ TagBleed: Tagged Translation Lookaside Buffer (TLB) side-channel attacks:
   * [google/rowhammer-test](https://github.com/google/rowhammer-test) (Google, 2015)
 
 
-### Kernel Bugs
+### Kernel Info Leaks
 
 Patched bugs caught by KernelMemorySanitizer (KMSAN):
   * [https://github.com/torvalds/linux/search?p=1&type=Commits&q=BUG: KMSAN: kernel-infoleak](https://github.com/torvalds/linux/search?p=1&type=Commits&q=BUG:%20KMSAN:%20kernel-infoleak)
   * `git clone https://github.com/torvalds/linux && cd linux && git log | grep "BUG: KMSAN: kernel-infoleak"`
+
+Netfilter info leak (CVE-2022-1972):
+
+  * [Yet another bug into Netfilter](https://www.randorisec.fr/yet-another-bug-netfilter/)
+    * https://github.com/randorisec/CVE-2022-1972-infoleak-PoC
 
 Remote kernel pointer leak via IP packet headers (CVE-2019-10639):
 
@@ -203,6 +241,11 @@ Remote kernel pointer leak via IP packet headers (CVE-2019-10639):
   * [wait_for_kaslr_to_be_effective.c](https://grsecurity.net/~spender/exploits/wait_for_kaslr_to_be_effective.c) (spender, 2017)
   * https://github.com/salls/kernel-exploits/blob/master/CVE-2017-5123/exploit_no_smap.c (salls, 2017)
 
+`snd_timer_user_read` uninitialized kernel heap memory disclosure (CVE-2017-1000380):
+
+  * [Linux kernel 2.6.0 to 4.12-rc4 infoleak due to a data race in ALSA timer](https://seclists.org/oss-sec/2017/q2/455) (Alexander Potapenko, 2017)
+    * [snd_timer_c.bin](https://seclists.org/oss-sec/2017/q2/att-529/snd_timer_c.bin) (Alexander Potapenko, 2017)
+
 Exploiting uninitialized stack variables:
 
   * [Leak kernel pointer by exploiting uninitialized uses in Linux kernel](https://jinb-park.github.io/leak-kptr.html)
@@ -212,6 +255,9 @@ Exploiting uninitialized stack variables:
   * [sctp_af_inet kernel pointer leak](https://github.com/jinb-park/leak-kptr/tree/master/exploit/sctp-leak) (CVE-2017-7558) (requires `libsctp-dev`).
   * [rtnl_fill_link_ifmap kernel stack pointer leak](https://github.com/jinb-park/leak-kptr/tree/master/exploit/CVE-2016-4486) (CVE-2016-4486).
   * [snd_timer_user_params kernel stack pointer leak](https://github.com/jinb-park/leak-kptr/tree/master/exploit/CVE-2016-4569) (CVE-2016-4569).
+
+
+### Kernel Bugs
 
 Leaking kernel addresses using `msg_msg` struct for arbitrary read (for `KMALLOC_CGROUP` objects):
 
@@ -234,7 +280,7 @@ Leaking kernel addresses using privileged arbitrary read (or write) in kernel sp
 
 ## References
 
-### KASLR
+### Linux KASLR
 
 * [grsecurity - KASLR: An Exercise in Cargo Cult Security](https://grsecurity.net/kaslr_an_exercise_in_cargo_cult_security) (grsecurity, 2013)
 * Kernel Address Space Layout Randomization (LWN.net)
@@ -253,7 +299,7 @@ Leaking kernel addresses using privileged arbitrary read (or write) in kernel sp
   * [CONFIG_RELOCATABLE: Build a relocatable kernel](https://cateee.net/lkddb/web-lkddb/RELOCATABLE.html)
 * [An Info-Leak Resistant Kernel Randomization for Virtualized Systems | IEEE Journals & Magazine | IEEE Xplore](https://ieeexplore.ieee.org/document/9178757)
 
-### Memory Management
+### Linux Memory Management
 
 * [0xAX/linux-insides](https://github.com/0xAX/linux-insides)
   * https://github.com/0xAX/linux-insides/tree/master/Initialization
