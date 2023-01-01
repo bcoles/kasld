@@ -27,8 +27,10 @@ echo "kernel.dmesg_restrict:       $(cat /proc/sys/kernel/dmesg_restrict)"
 echo "kernel.panic_on_oops:        $(cat /proc/sys/kernel/panic_on_oops)"
 echo "kernel.perf_event_paranoid:  $(cat /proc/sys/kernel/perf_event_paranoid)"
 echo
-echo "Readable /var/log/syslog:  $(test -r /var/log/syslog && echo yes || echo no)"
-echo "Readable DebugFS:          $(test -r /sys/kernel/debug && echo yes || echo no)"
+echo "Readable /var/log/dmesg:     $(test -r /var/log/dmesg && echo yes || echo no)"
+echo "Readable /var/log/kern.log:  $(test -r /var/log/kern.log && echo yes || echo no)"
+echo "Readable /var/log/syslog:    $(test -r /var/log/syslog && echo yes || echo no)"
+echo "Readable DebugFS:            $(test -r /sys/kernel/debug && echo yes || echo no)"
 echo
 
 echo "Building ..."
