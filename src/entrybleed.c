@@ -26,7 +26,7 @@
 // ---
 // <bcoles@gmail.com>
 
-#define _GNU_SOURCE
+#define _DEFAULT_SOURCE
 #include "kasld.h"
 #include <stdbool.h>
 #include <stdint.h>
@@ -286,6 +286,7 @@ int detect_cpu_vendor() {
 
 uint64_t sidechannel(uint64_t addr) {
   uint64_t a, b, c, d;
+  // Note: unlike gcc, clang does not support this asm with intel syntax noprefix
   __asm__ volatile(".intel_syntax noprefix;"
                    "mfence;"
                    "rdtscp;"

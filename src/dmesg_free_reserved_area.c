@@ -21,7 +21,7 @@
 // ---
 // <bcoles@gmail.com>
 
-#define _GNU_SOURCE
+#define _DEFAULT_SOURCE
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -69,7 +69,7 @@ unsigned long get_kernel_addr_free_reserved_area_dmesg() {
   if (mmap_syslog(&syslog, &size))
     return 0;
 
-  substr = (char *)memmem(&syslog[0], size, needle, strlen(needle));
+  substr = strstr(syslog, needle);
   if (substr == NULL)
     return 0;
 
@@ -95,7 +95,7 @@ int main(int argc, char **argv) {
     return 1;
 
   printf("leaked __init_begin: %lx\n", addr);
-  printf("possible kernel base: %lx\n", addr &~ KERNEL_BASE_MASK);
+  printf("possible kernel base: %lx\n", addr & ~KERNEL_BASE_MASK);
 
 #if defined(__x86_64__) || defined(__amd64__)
   printf("kernel base (ubuntu trusty): %lx\n", addr & 0xffffffffff000000ul);

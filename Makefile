@@ -2,6 +2,7 @@ SHELL = /bin/sh
 .SUFFIXES: .c .o
 
 CC = cc
+# Warning: Do not compile with -O
 FLAGS = -Wall -std=c99
 
 BUILD_DIR := ./build

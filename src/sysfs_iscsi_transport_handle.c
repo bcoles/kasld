@@ -18,7 +18,7 @@
 // ---
 // <bcoles@gmail.com>
 
-#define _GNU_SOURCE
+#include "kasld.h"
 #include <inttypes.h>
 #include <linux/netlink.h>
 #include <stdio.h>
@@ -26,12 +26,11 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
-#include "kasld.h"
 
 unsigned long get_kernel_addr_iscsi_iser_transport() {
   FILE *f;
   char *endptr;
-  const char* path = "/sys/class/iscsi_transport/iser/handle";
+  const char *path = "/sys/class/iscsi_transport/iser/handle";
   int sock_fd;
   unsigned long addr = 0;
   unsigned int buff_len = 1024;
@@ -81,7 +80,7 @@ unsigned long get_kernel_addr_iscsi_iser_transport() {
 unsigned long get_kernel_addr_iscsi_sw_tcp_transport() {
   FILE *f;
   char *endptr;
-  const char* path = "/sys/class/iscsi_transport/tcp/handle";
+  const char *path = "/sys/class/iscsi_transport/tcp/handle";
   unsigned long addr = 0;
   unsigned int buff_len = 1024;
   char buff[buff_len];

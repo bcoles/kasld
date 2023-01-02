@@ -10,12 +10,12 @@
 // ---
 // <bcoles@gmail.com>
 
-#define _GNU_SOURCE
+#define _DEFAULT_SOURCE
+#include "kasld.h"
 #include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "kasld.h"
 
 unsigned long read_module_text(char *path) {
   FILE *f;

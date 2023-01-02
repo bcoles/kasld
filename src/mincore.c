@@ -13,13 +13,13 @@
 // ---
 // <bcoles@gmail.com>
 
-#define _GNU_SOURCE
+#define _DEFAULT_SOURCE
+#include "kasld.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
 #include <unistd.h>
-#include "kasld.h"
 
 unsigned long get_kernel_addr_mincore() {
   unsigned char buf[getpagesize() / sizeof(unsigned char)];
@@ -71,7 +71,7 @@ int main(int argc, char **argv) {
     return 1;
 
   printf("leaked address: %lx\n", addr);
-  printf("possible kernel base: %lx\n", addr &~ KERNEL_BASE_MASK);
+  printf("possible kernel base: %lx\n", addr & ~KERNEL_BASE_MASK);
 #endif
 
   return 0;

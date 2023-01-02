@@ -10,7 +10,8 @@
 // ---
 // <bcoles@gmail.com>
 
-#define _GNU_SOURCE
+#define _DEFAULT_SOURCE
+#include "kasld.h"
 #include <linux/perf_event.h>
 #include <signal.h>
 #include <stdint.h>
@@ -19,10 +20,10 @@
 #include <string.h>
 #include <sys/ioctl.h>
 #include <sys/mman.h>
+#include <sys/types.h>
 #include <sys/syscall.h>
 #include <sys/utsname.h>
 #include <unistd.h>
-#include "kasld.h"
 
 int perf_event_open(struct perf_event_attr *attr, pid_t pid, int cpu,
                     int group_fd, unsigned long flags) {
@@ -163,7 +164,7 @@ int main(int argc, char **argv) {
     return 1;
 
   printf("lowest leaked address: %lx\n", addr);
-  printf("possible kernel base: %lx\n", addr &~ KERNEL_BASE_MASK);
+  printf("possible kernel base: %lx\n", addr & ~KERNEL_BASE_MASK);
 
   return 0;
 }

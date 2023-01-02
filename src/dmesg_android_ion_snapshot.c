@@ -18,7 +18,8 @@
 // ---
 // <bcoles@gmail.com>
 
-#define _GNU_SOURCE
+#define _DEFAULT_SOURCE
+#include "kasld.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,7 +28,6 @@
 #include <sys/mman.h>
 #include <sys/types.h>
 #include <unistd.h>
-#include "kasld.h"
 
 #define SYSLOG_ACTION_READ_ALL 3
 #define SYSLOG_ACTION_SIZE_BUFFER 10
@@ -70,7 +70,7 @@ unsigned long search_dmesg_ion_snapshot() {
   if (mmap_syslog(&syslog, &size))
     return 0;
 
-  substr = (char *)memmem(&syslog[0], size, needle1, strlen(needle1));
+  substr = strstr(syslog, needle1);
   if (substr == NULL)
     return 0;
 
@@ -96,7 +96,7 @@ int main(int argc, char **argv) {
     return 1;
 
   printf("leaked last_ion_buf: %lx\n", addr);
-  printf("possible kernel base: %lx\n", addr &~ KERNEL_BASE_MASK);
+  printf("possible kernel base: %lx\n", addr & ~KERNEL_BASE_MASK);
 
   return 0;
 }

@@ -34,7 +34,8 @@ on a target system. This script requires `make`.
 
 Refer to [output.md](output.md) for example output from various distros.
 
-A compiler which supports the `_GNU_SOURCE` macro is required.
+A compiler which supports the `_DEFAULT_SOURCE` macro is required due to
+use of non-portable code (`MAP_ANONYMOUS`, `getline()`, `popen()`, ...).
 
 
 ## Configuration
@@ -121,7 +122,7 @@ Refer to `syslog_*` files in the [src](src/) directory.
 Similarly, the `/var/log/dmesg` log file may be readable by low privileged users,
 regardless of whether `dmesg_restrict` is enabled. Additionally,
 [an initscript bug](https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=867747)
-present from 2017-2019 caused this file to be generated with `644` world-readble
+present from 2017-2019 caused this file to be generated with `644` world-readable
 permissions.
 
 The `kasld` wrapper script includes a check for readable log files, including

@@ -9,7 +9,7 @@
 // Partially reintroduced in kernel v5.12-rc1-dontuse~27^2~35 on 2021-02-25:
 // https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/fs/proc/base.c?id=152c432b128cb043fc107e8f211195fe94b2159c
 //
-// Regression was subsequently reverted in kernel v5.16-rc1~197^2~21 on 2021-10-15:
+// Regression was later reverted in kernel v5.16-rc1~197^2~21 on 2021-10-15:
 // https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/fs/proc/base.c?id=54354c6a9f7fd5572d2b9ec108117c4f376d4d23
 //
 // References:
@@ -19,13 +19,13 @@
 // ---
 // <bcoles@gmail.com>
 
-#define _GNU_SOURCE
+#include "kasld.h"
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/types.h>
 #include <unistd.h>
-#include "kasld.h"
 
 unsigned long get_kernel_addr_proc_stat_wchan() {
   FILE *f;
@@ -72,7 +72,7 @@ int main(int argc, char **argv) {
     return 1;
 
   printf("leaked wchan address: %lx\n", addr);
-  printf("possible kernel base: %lx\n", addr &~ KERNEL_BASE_MASK);
+  printf("possible kernel base: %lx\n", addr & ~KERNEL_BASE_MASK);
 
   return 0;
 }

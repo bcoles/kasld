@@ -1,14 +1,16 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
-// Check kernel command line /proc/cmdline for nokaslr flag
+// Check kernel command line /proc/cmdline for nokaslr flag.
+//
+// References:
+// https://www.kernel.org/doc/html/v6.1/admin-guide/kernel-parameters.html
 // ---
 // <bcoles@gmail.com>
 
-#define _GNU_SOURCE
+#include "kasld.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "kasld.h"
 
 unsigned long get_kernel_addr_cmdline() {
   FILE *f;
@@ -24,12 +26,15 @@ unsigned long get_kernel_addr_cmdline() {
     return 0;
   }
 
-  if (fgets(cmdline, sizeof(cmdline), f) == NULL)
+  if (fgets(cmdline, sizeof(cmdline), f) == NULL) {
     printf("[-] fgets(%s): %m\n", path);
+    fclose(f);
+    return 0;
+  }
 
   fclose(f);
 
-  if (memmem(&cmdline[0], sizeof(cmdline), flag, strlen(flag)) == NULL) {
+  if (strstr(cmdline, flag) == NULL) {
     printf("[-] Kernel was not booted with nokaslr flag.\n");
     return 0;
   }

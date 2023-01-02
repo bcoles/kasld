@@ -18,7 +18,8 @@
 // ---
 // <bcoles@gmail.com>
 
-#define _GNU_SOURCE
+#define _DEFAULT_SOURCE
+#include "kasld.h"
 #include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -26,7 +27,6 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <unistd.h>
-#include "kasld.h"
 
 unsigned long get_kernel_addr_free_reserved_area_syslog() {
   FILE *f;
@@ -48,8 +48,7 @@ unsigned long get_kernel_addr_free_reserved_area_syslog() {
   }
 
   while ((fgets(buff, BUFSIZ, f)) != NULL) {
-    substr = (char *)memmem(&buff[0], BUFSIZ, needle, strlen(needle));
-
+    substr = strstr(buff, needle);
     if (substr == NULL)
       continue;
 
@@ -80,7 +79,7 @@ int main(int argc, char **argv) {
     return 1;
 
   printf("leaked __init_begin: %lx\n", addr);
-  printf("possible kernel base: %lx\n", addr &~ KERNEL_BASE_MASK);
+  printf("possible kernel base: %lx\n", addr & ~KERNEL_BASE_MASK);
 
 #if defined(__x86_64__) || defined(__amd64__)
   printf("kernel base (ubuntu trusty): %lx\n", addr & 0xffffffffff000000ul);
