@@ -73,6 +73,11 @@ if [ -x "${build}/dmesg_backtrace.o" ]; then
   echo
 fi
 
+if [ -x "${build}/dmesg_check_for_initrd.o" ]; then
+  "${build}/dmesg_check_for_initrd.o"
+  echo
+fi
+
 if [ -x "${build}/dmesg_driver_component_ops.o" ]; then
   "${build}/dmesg_driver_component_ops.o"
   echo

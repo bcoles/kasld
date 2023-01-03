@@ -16,6 +16,7 @@ all :
 	-$(CC) $(FLAGS) $(SRC_DIR)/default.c -o $(BUILD_DIR)/default.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_android_ion_snapshot.c -o $(BUILD_DIR)/dmesg_android_ion_snapshot.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_backtrace.c -o $(BUILD_DIR)/dmesg_backtrace.o
+	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_check_for_initrd.c -o $(BUILD_DIR)/dmesg_check_for_initrd.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_driver_component_ops.c -o $(BUILD_DIR)/dmesg_driver_component_ops.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_ex_handler_msr.c -o $(BUILD_DIR)/dmesg_ex_handler_msr.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_free_reserved_area.c -o $(BUILD_DIR)/dmesg_free_reserved_area.o
