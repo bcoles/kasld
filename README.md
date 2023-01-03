@@ -70,12 +70,26 @@ Offsets to useful kernel functions (`commit_creds`, `prepare_kernel_cred`,
 systems with the same kernel - an easy task for publicly available kernels
 (ie, distro kernels).
 
-Offsets may also be retrieved from various file system locations (`/proc/kallsyms`, `vmlinux`, `System.map`, etc) depending on file system permissions. [jonoberheide/ksymhunter](https://github.com/jonoberheide/ksymhunter) automates this process.
+Offsets may also be retrieved from various file system locations (`/proc/kallsyms`,
+`vmlinux`, `System.map`, etc) depending on file system permissions.
+[jonoberheide/ksymhunter](https://github.com/jonoberheide/ksymhunter) automates
+this process.
 
-FG KASLR ["rearranges your kernel code at load time on a per-function level granularity"](https://lwn.net/Articles/811685/) and can be enabled with the [CONFIG_FG_KASLR](https://patchwork.kernel.org/project/linux-hardening/patch/20211223002209.1092165-8-alexandr.lobakin@intel.com/) flag. Following the introduction of FG KASLR, the location of kernel and module functions are independently randomized and no longer located at a constant offset from the kernel `.text` base.
+FG KASLR ["rearranges your kernel code at load time on a per-function level granularity"](https://lwn.net/Articles/811685/)
+and can be enabled with the [CONFIG_FG_KASLR](https://patchwork.kernel.org/project/linux-hardening/patch/20211223002209.1092165-8-alexandr.lobakin@intel.com/) flag.
+Following the introduction of FG KASLR, the location of kernel and module functions
+are independently randomized and no longer located at a constant offset from the
+kernel `.text` base.
 
-This makes calculating offset to useful functions more difficult and renders kernel
+On systems which support FG KASLR (x86_64 and arm64 as of 2023), this makes
+calculating offsets to useful functions more difficult and renders kernel
 pointer leaks significantly less useful.
+
+However, some regions of the kernel are not randomized (such as symbols before
+`__startup_secondary_64` on x86_64) and offsets remain consistent across reboots.
+Additionally, FG KASLR randomizes only kernel functions, leaving other useful
+kernel data (such as [modprobe_path](https://github.com/smallkirby/kernelpwn/blob/master/technique/modprobe_path.md))
+unchanged at a static offset.
 
 
 ## Addendum
@@ -163,15 +177,28 @@ of speculative execution / transient execution attacks. See also:
 
 [PLATYPUS: Software-based Power Side-Channel Attacks on x86](https://platypusattack.com/platypus.pdf) (Moritz Lipp, Andreas Kogler, David Oswald†, Michael Schwarz, Catherine Easdon, Claudio Canella, and Daniel Gruss, 2020)
 
+[LVI: Hijacking Transient Execution through Microarchitectural Load Value Injection](https://www.semanticscholar.org/paper/LVI:-Hijacking-Transient-Execution-through-Load-Bulck-Moghimi/5cbf634d4308a30b2cddb4c769056750233ddaf6) (Jo Van Bulck, Daniel Moghimi, Michael Schwarz, Moritz Lipp, Marina Minkin, Daniel Genkin, Yuval Yarom, Berk Sunar, Daniel Gruss, and Frank Piessens, 2020)
+
+[Hardening the Kernel Against Unprivileged Attacks](https://www.cc0x1f.net/publications/thesis.pdf) (Claudio Canella, 2022)
+
 Microarchitectural Data Sampling (MDS) side-channel attacks:
 
   * [Fallout: Leaking Data on Meltdown-resistant CPUs](https://mdsattacks.com/files/fallout.pdf) (Claudio Canella, Daniel Genkin, Lukas Giner, Daniel Gruss, Moritz Lipp, Marina Minkin, Daniel Moghimi, Frank Piessens, Michael Schwarz, Berk Sunar, Jo Van Bulck, Yuval Yarom, 2019)
+    * https://github.com/wbowling/cpu.fail/blob/master/zombieload_kaslr.c (wbowling, 2019)
   * [RIDL: Rogue In-Flight Data Load](https://mdsattacks.com/files/ridl.pdf) (Stephan van Schaik, Alyssa Milburn, Sebastian Österlund, Pietro Frigo, Giorgi Maisuradze, Kaveh Razavi, Herbert Bos, and Cristiano Giuffrida, 2019)
     * [vusec/ridl](https://github.com/vusec/ridl) - Intel CPUs (VUSec, 2019)
+  * [ZombieLoad](https://zombieloadattack.com/):
+    * [IAIK/ZombieLoad](https://github.com/IAIK/ZombieLoad)
+    * https://github.com/wbowling/cpu.fail/blob/master/fallout_kaslr.c (wbowling, 2019)
 
-EchoLoad: [KASLR: Break It, Fix It, Repeat](https://gruss.cc/files/kaslrbfr.pdf) (Claudio Canella, Michael Schwarz, Martin Haubenwallner, 2020)
+EchoLoad:
 
-Data Bounce: [Store-to-Leak Forwarding: Leaking Data on Meltdown-resistant CPUs](https://cpu.fail/store_to_leak_forwarding.pdf) (Michael Schwarz, Claudio Canella, Lukas Giner, Daniel Gruss, 2019)
+  * [KASLR: Break It, Fix It, Repeat](https://gruss.cc/files/kaslrbfr.pdf) (Claudio Canella, Michael Schwarz, Martin Haubenwallner, 2020)
+
+Data Bounce:
+
+  * [Store-to-Leak Forwarding: Leaking Data on Meltdown-resistant CPUs](https://cpu.fail/store_to_leak_forwarding.pdf) (Michael Schwarz, Claudio Canella, Lukas Giner, Daniel Gruss, 2019)
+    * Slides: [Store-to-Leak Forwarding - There and Back Again - store2leak_blackhat_slides.pdf](https://misc0110.net/files/store2leak_blackhat_slides.pdf)
 
 Prefetch side-channel attacks:
 
@@ -277,6 +304,11 @@ Leaking kernel addresses using privileged arbitrary read (or write) in kernel sp
     * https://www.openwall.com/lists/oss-security/2018/08/09/6
     * https://xairy.io/articles/cve-2017-18344
     * [xairy/kernel-exploits/CVE-2017-18344](https://github.com/xairy/kernel-exploits/tree/master/CVE-2017-18344)
+
+
+### KASLR Slide Randomness
+
+[Another look at two Linux KASLR patches](https://www.kryptoslogic.com/blog/2020/03/another-look-at-two-linux-kaslr-patches/index.html) (Kryptos Logic, 2020)
 
 
 ## References
