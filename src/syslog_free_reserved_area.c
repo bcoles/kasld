@@ -28,7 +28,7 @@
 #include <sys/mman.h>
 #include <unistd.h>
 
-unsigned long get_kernel_addr_free_reserved_area_syslog() {
+unsigned long get_kernel_addr_syslog_free_reserved_area() {
   FILE *f;
   char *endptr;
   char *substr;
@@ -39,7 +39,7 @@ unsigned long get_kernel_addr_free_reserved_area_syslog() {
   unsigned long addr = 0;
   char buff[BUFSIZ];
 
-  printf("[.] checking %s for free_reserved_area() info ...\n", path);
+  printf("[.] searching %s for free_reserved_area() info ...\n", path);
 
   f = fopen(path, "rb");
   if (f == NULL) {
@@ -74,7 +74,7 @@ unsigned long get_kernel_addr_free_reserved_area_syslog() {
 }
 
 int main(int argc, char **argv) {
-  unsigned long addr = get_kernel_addr_free_reserved_area_syslog();
+  unsigned long addr = get_kernel_addr_syslog_free_reserved_area();
   if (!addr)
     return 1;
 

@@ -6,6 +6,10 @@
 // [    0.985903] Freeing unused kernel memory: 872K (c19b4000 - c1a8e000)
 // x86_64:
 // [    0.872873] Freeing unused kernel memory: 1476K (ffffffff81f41000 - ffffffff820b2000)
+// arm64:
+// [    2.804317] Freeing initrd memory: 16776K (ffff80005745b000 - ffff8000584bd000)
+// ppc64:
+// [    2.950991] Freeing unused kernel memory: 960K (c000000000920000 - c000000000a10000)
 //
 // free_reserved_area() leak was removed in kernel v4.10-rc1 on 2016-10-26:
 // https://github.com/torvalds/linux/commit/adb1fe9ae2ee6ef6bc10f3d5a588020e7664dfa7
@@ -54,7 +58,7 @@ int mmap_syslog(char **buffer, int *size) {
   return 0;
 }
 
-unsigned long get_kernel_addr_free_reserved_area_dmesg() {
+unsigned long get_kernel_addr_dmesg_free_reserved_area() {
   char *syslog;
   char *endptr;
   char *substr;
@@ -64,7 +68,7 @@ unsigned long get_kernel_addr_free_reserved_area_dmesg() {
   int size;
   unsigned long addr = 0;
 
-  printf("[.] checking dmesg for free_reserved_area() info ...\n");
+  printf("[.] searching for free_reserved_area() info ...\n");
 
   if (mmap_syslog(&syslog, &size))
     return 0;
@@ -76,6 +80,9 @@ unsigned long get_kernel_addr_free_reserved_area_dmesg() {
   line_buf = strtok(substr, "\n");
   if (line_buf == NULL)
     return 0;
+
+  /* Freeing unused kernel memory: 1476K (ffffffff81f41000 - ffffffff820b2000) */
+  // printf("%s\n", line_buf);
 
   addr_buf = strstr(line_buf, "(");
   if (addr_buf == NULL)
@@ -90,7 +97,7 @@ unsigned long get_kernel_addr_free_reserved_area_dmesg() {
 }
 
 int main(int argc, char **argv) {
-  unsigned long addr = get_kernel_addr_free_reserved_area_dmesg();
+  unsigned long addr = get_kernel_addr_dmesg_free_reserved_area();
   if (!addr)
     return 1;
 

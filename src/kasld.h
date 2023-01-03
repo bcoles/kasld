@@ -186,7 +186,7 @@
 #define KERNEL_TEXT_DEFAULT (KERNEL_BASE_MIN + TEXT_OFFSET)
 
 /* -----------------------------------------------------------------------------
- * MIPS 32-bit (mipsel)
+ * MIPS 32-bit (mips / mipsbe / mipsel)
  * -----------------------------------------------------------------------------
  * https://elixir.bootlin.com/linux/v6.1.1/source/arch/mips/include/asm/mach-malta/spaces.h#L37
  * https://elixir.bootlin.com/linux/v6.1.1/source/arch/mips/include/asm/processor.h#L39
@@ -209,6 +209,86 @@
 #define TEXT_OFFSET 0x400
 
 #define KERNEL_TEXT_DEFAULT (KERNEL_BASE_MIN + 0x100000ul + TEXT_OFFSET)
+
+/* -----------------------------------------------------------------------------
+ * PowerPC 64-bit (powerpc64 / ppc64 / ppc64le)
+ * -----------------------------------------------------------------------------
+ * https://www.kernel.org/doc/ols/2001/ppc64.pdf
+ */
+#elif defined(__powerpc64__) || defined(__POWERPC64__)                         \
+    || defined(__ppc64__) || defined(__PPC64__)
+
+// 0xc000000000000000ul is a common configuration; but an unsafe assumption.
+// For Freescale E-Book readers (CONFIG_PPC_BOOK3E_64), the kernel VAS start
+// and text start is 0x8000000000000000ul.
+// vmalloc, I/O and Bolted sections are mapped above kernel.
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/Kconfig#L1267
+#define KERNEL_VAS_START 0xc000000000000000ul
+
+#define KERNEL_BASE_MIN 0xc000000000000000ul
+#define KERNEL_BASE_MAX 0xffffffffff000000ul
+
+// 16KiB (0x4000) aligned
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/Kconfig#L595
+#define KERNEL_ALIGN 0x4000ul
+#define KERNEL_BASE_MASK 0x0ffful
+
+#define TEXT_OFFSET 0
+
+#define KERNEL_TEXT_DEFAULT (KERNEL_BASE_MIN + TEXT_OFFSET)
+
+/* -----------------------------------------------------------------------------
+ PowerPC 32-bit (powerpc / ppc)
+ * -----------------------------------------------------------------------------
+ */
+#elif defined(__powerpc__) || defined(__POWERPC__) ||                          \
+    defined(__ppc__) || defined(__PPC__)
+
+#define KERNEL_VAS_START 0xc0000000ul
+
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/Kconfig#L1220
+#define KERNEL_BASE_MIN 0xc0000000ul
+#define KERNEL_BASE_MAX 0xf0000000ul
+
+// page aligned
+#define KERNEL_ALIGN 0x1000ul
+#define KERNEL_BASE_MASK 0x0ffful
+
+#define TEXT_OFFSET 0
+
+#define KERNEL_TEXT_DEFAULT (KERNEL_BASE_MIN + TEXT_OFFSET)
+
+/* -----------------------------------------------------------------------------
+ * S390 (24-bit s370 / 32-bit s390 / 64-bit s390x)
+ * -----------------------------------------------------------------------------
+ * kernel uses 1:1 phys:virt mapping.
+ * kernel text starts at 0x00000000_00100000 (1MB) offset.
+ * Uses 24-bit (amode24), 32-bit (amode31) and 64-bit (amode64) addressing modes.
+ * Linux for s390x did not receive KASLR support until kernel 5.2.
+ *
+ * https://elixir.bootlin.com/linux/v6.1.1/source/arch/s390/mm/vmem.c#L665
+ * https://www.ibm.com/docs/en/zos-basic-skills?topic=1960s-what-is-virtual-storage
+ * https://share.confex.com/share/115/webprogram/Handout/Session6865/Understanding%20zOS%20CS%20storage%20use.pdf
+ * https://www.linux-kvm.org/images/a/ae/KVM_Forum_2018_s390_KVM_memory_management.pdf
+ */
+#elif defined(__s390__) || defined(__s390x__) ||                               \
+    defined(__370__) || defined(__zarch__)
+#error "S390 architecture is not supported!"
+
+/* -----------------------------------------------------------------------------
+ * SPARC (sparc / sparc64)
+ * -----------------------------------------------------------------------------
+ * Linux for sparc/sparc64 is largely abandoned and does not support KASLR.
+ *
+ * sparc32 kernel text starts at 0xf0004000
+ * https://elixir.bootlin.com/linux/v6.1.1/source/arch/sparc/kernel/vmlinux.lds.S#L11
+ *
+ * sparc64 kernel text starts at 0x00000000_00404000
+ * https://elixir.bootlin.com/linux/v6.1.1/source/arch/sparc/kernel/head_64.S#L39
+ * https://elixir.bootlin.com/linux/v6.1.1/source/arch/sparc/kernel/vmlinux.lds.S#L18
+ */
+#elif defined(__sparc__)
+#error "SPARC architecture is not supported!"
 
 /* -----------------------------------------------------------------------------
  * Unsupported architectures

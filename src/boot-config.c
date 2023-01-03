@@ -64,7 +64,7 @@ unsigned long get_kernel_addr_boot_config() {
   printf("[.] Kernel appears to have been compiled without CONFIG_RELOCATABLE "
          "and CONFIG_RANDOMIZE_BASE\n");
 
-  return KERNEL_TEXT_DEFAULT;
+  return (unsigned long)KERNEL_TEXT_DEFAULT;
 }
 
 int main(int argc, char **argv) {

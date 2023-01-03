@@ -41,7 +41,7 @@ unsigned long get_kernel_addr_cmdline() {
 
   printf("[.] Kernel booted with nokaslr flag.\n");
 
-  return KERNEL_TEXT_DEFAULT;
+  return (unsigned long)KERNEL_TEXT_DEFAULT;
 }
 
 int main(int argc, char **argv) {

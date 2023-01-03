@@ -44,8 +44,8 @@ int main(int argc, char **argv) {
 
   printf("kernel virtual address start: %lx\n", addr);
 
-  if (addr < KERNEL_VAS_START)
-    printf("[!] warning: virtual address start %lx below configured KERNEL_VAS_START %lx\n", addr, KERNEL_VAS_START);
+  if (addr < (unsigned long)KERNEL_VAS_START)
+    printf("[!] warning: virtual address start %lx below configured KERNEL_VAS_START %lx\n", addr, (unsigned long)KERNEL_VAS_START);
 
   return 0;
 }

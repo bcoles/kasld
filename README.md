@@ -12,8 +12,8 @@ Supports:
 
 * x86 (i386+, amd64)
 * ARM (armv6, armv7, armv8)
-* MIPS (mipsel, mips64el)
-
+* MIPS (mipsbe, mipsel, mips64el)
+* PowerPC (ppc, ppc64)
 
 ## Usage
 
@@ -123,7 +123,7 @@ Similarly, the `/var/log/dmesg` log file may be readable by low privileged users
 regardless of whether `dmesg_restrict` is enabled. Additionally,
 [an initscript bug](https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=867747)
 present from 2017-2019 caused this file to be generated with `644` world-readable
-permissions.
+permissions and may still be world-readable on some systems.
 
 The `kasld` wrapper script includes a check for readable log files, including
 `/var/log/dmesg`, but does not use this technique.

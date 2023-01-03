@@ -10,7 +10,7 @@
 #include "kasld.h"
 
 unsigned long get_kernel_addr_default() {
-  return KERNEL_TEXT_DEFAULT;
+  return (unsigned long)KERNEL_TEXT_DEFAULT;
 }
 
 int main(int argc, char **argv) {
