@@ -47,8 +47,9 @@ unsigned long read_module_text(char *path) {
 
   addr = strtoul(buff, &endptr, 16);
 
-  // modules may be mapped below kernel text
-  if (addr && addr <= KERNEL_BASE_MAX)
+  // modules may be mapped below kernel text for some architectures
+  // (arm32/riscv64/ppc32/...)
+  if (addr && addr <= KERNEL_VAS_END)
     return addr;
 
   return 0;
@@ -95,6 +96,9 @@ int main(int argc, char **argv) {
     return 1;
 
   printf("lowest leaked module text address: %lx\n", addr);
+
+  if (addr < MODULES_START || addr > MODULES_END)
+    printf("[!] warning: module located outside of defined MODULES_START and MODULES_END range (%lx - %lx)\n", MODULES_START, MODULES_END);
 
   return 0;
 }

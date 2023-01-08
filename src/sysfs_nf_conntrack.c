@@ -1,12 +1,12 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
-// Retrieve `init_net` kernel symbol virtual address from SysFS
-// `/sys/kernel/slab/nf_conntrack_<pointer>` world-readable filename.
+// Retrieve kernel pointer to `inet_net` structure from SysFS world-readable
+// filename: `/sys/kernel/slab/nf_conntrack_<pointer>`.
 //
 // Patched in kernel v4.6~2^2~2 on 2016-05-14:
 // https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=31b0b385f69d8d5491a4bca288e25e63f1d945d0
 //
-// But still present in RHEL 7.7 as of 2019. Removed in RHEL 7.8.
+// But still present in RHEL 7.7 as of 2019. Removed in RHEL 7.8 (2020).
 //
 // References:
 // https://www.openwall.com/lists/kernel-hardening/2017/10/05/5
@@ -52,7 +52,7 @@ unsigned long get_kernel_addr_conntrack() {
 
     addr = strtoul(&substr[strlen(needle)], &endptr, 16);
 
-    if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX)
+    if (addr >= KERNEL_VAS_START && addr <= KERNEL_VAS_END)
       break;
 
     addr = 0;
@@ -68,7 +68,7 @@ int main(int argc, char **argv) {
   if (!addr)
     return 1;
 
-  printf("leaked init_net: %lx\n", addr);
+  printf("leaked inet_net struct pointer: %lx\n", addr);
   printf("possible kernel base: %lx\n", addr & ~KERNEL_BASE_MASK);
 
   return 0;

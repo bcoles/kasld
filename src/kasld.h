@@ -6,9 +6,16 @@
 //                        virtual address space (VAS).
 //                        (eg. 0xc0000000 for 32-bit systems with 3GB vmsplit)
 //
+// - KERNEL_VAS_END:      Expected end of kernel virtual address space.
+//                        (including modules, I/O, guard regions, ...)
+//
 // - KERNEL_BASE_MIN:     Expected minimum possible kernel base virtual address.
 //
 // - KERNEL_BASE_MAX:     Expected maximum possible kernel base virtual address.
+//
+// - MODULES_START:       Expected start virtual address for kernel modules.
+//
+// - MODULES_END:         Expected end virtual address for kernel modules.
 //
 // - KERNEL_ALIGN:        Expected kernel address alignment.
 //                        (usually 2MB on modern systems)
@@ -27,6 +34,8 @@
 // ---
 // <bcoles@gmail.com>
 
+// clang-format off
+
 /* -----------------------------------------------------------------------------
  * x86_64 (amd64)
  * -----------------------------------------------------------------------------
@@ -39,14 +48,17 @@
 // https://www.kernel.org/doc/html/latest/x86/x86_64/mm.html
 // https://www.cateee.net/lkddb/web-lkddb/X86_5LEVEL.html
 #define KERNEL_VAS_START 0xff00000000000000ul
+#define KERNEL_VAS_END   0xfffffffffffffffful
 
 // Old <= 4.4 era kernels used the RANDOMIZE_BASE_MAX_OFFSET config option
 // which limited the maximum offset to 1 GiB (0x40_000_000), yielding 512
 // possible base addresses (between 0xffffffff_80000000 and
 // 0xffffffff_c0000000). The RANDOMIZE_BASE_MAX_OFFSET option was later removed.
-// We use a larger range with a max of 0xffffffff_f0000000.
-#define KERNEL_BASE_MIN 0xffffffff80000000ul
-#define KERNEL_BASE_MAX 0xfffffffff0000000ul
+#define KERNEL_BASE_MIN  0xffffffff80000000ul
+#define KERNEL_BASE_MAX  0xffffffffc0000000ul
+
+#define MODULES_START    0xffffffffc0000000ul
+#define MODULES_END      0xfffffffffffffffful
 
 // For x86_64, possible max alignment is 0x1_000_000 (16MB) with default of
 // 0x200_000 (2MB) in increments of 0x200_000 (2MB).
@@ -78,17 +90,30 @@
 // 52 va bits (CONFIG_ARM64_VA_BITS_48_52) is largest.
 // page_offset = (0xffffffffffffffffUL) << (va_bits - 1)
 #define KERNEL_VAS_START 0xfff8000000000000ul
+#define KERNEL_VAS_END   0xfffffffffffffffful
 
 // 48 va bits (CONFIG_ARM64_VA_BITS_48) is a common configuration;
 // but an unsafe assumption since introduction of CONFIG_ARM64_VA_BITS_48_52.
-#define KERNEL_BASE_MIN 0xffff800008000000ul
-#define KERNEL_BASE_MAX 0xffffffffff000000ul
+// older kernels may use 0xffff000008000000ul
+#define KERNEL_BASE_MIN  0xffff800008000000ul
+#define KERNEL_BASE_MAX  0xffffffffff000000ul
 
-// 2MB aligned
-// https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm64/include/asm/boot.h#L18
-// We use 1MB alignment (rather than 2MB)
-#define KERNEL_ALIGN 0x100000ul
-#define KERNEL_BASE_MASK 0x0ffffful
+#define MODULES_START    0xffff800000000000ul
+#define MODULES_END      0xffff800007fffffful
+
+// MIN_KIMG_ALIGN is 2MiB (used without KASLR).
+// https://elixir.bootlin.com/linux/v6.2-rc2/source/arch/arm64/include/asm/boot.h#L18
+// EFI_KIMG_ALIGN is the larger of THREAD_ALIGN or SEGMENT_ALIGN:
+// https://elixir.bootlin.com/linux/v6.2-rc2/source/arch/arm64/include/asm/efi.h#L102
+// https://elixir.bootlin.com/linux/v6.2-rc2/source/arch/arm64/include/asm/efi.h#L72
+// SEGMENT_ALIGN is hard-coded as 64KiB:
+// https://elixir.bootlin.com/linux/v6.2-rc2/source/arch/arm64/include/asm/memory.h#L131
+// The largest possible THREAD_ALIGN is also 64KiB.
+// THREAD_ALIGN = THREAD_SIZE = (1 << THREAD_SHIFT)
+// default CONFIG_ARM64_PAGE_SHIFT is 12. largest is 16.
+// https://elixir.bootlin.com/linux/v6.2-rc2/source/arch/arm64/Kconfig#L262
+#define KERNEL_ALIGN 0x10000ul
+#define KERNEL_BASE_MASK 0x0fffful
 
 // TEXT_OFFSET was changed from 0x80000 to zero in 2020 from kernel v5.8 onwards
 // https://elixir.bootlin.com/linux/v5.8/source/arch/arm64/Makefile
@@ -105,9 +130,13 @@
 #elif defined(__mips64) || defined(__mips64__)
 
 #define KERNEL_VAS_START 0xffff000000000000ul
+#define KERNEL_VAS_END   0xfffffffffffffffful
 
-#define KERNEL_BASE_MIN 0xffffffff80000000ul
-#define KERNEL_BASE_MAX 0xfffffffff0000000ul
+#define KERNEL_BASE_MIN  0xffffffff80000000ul
+#define KERNEL_BASE_MAX  0xffffffffc0000000ul
+
+#define MODULES_START    0xffffffffc0000000ul
+#define MODULES_END      0xfffffffffffffffful
 
 // 2MB aligned
 // We use 1MB alignment (rather than 2MB)
@@ -131,14 +160,18 @@
 // for distro kernels for non-embedded systems
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/Kconfig#L1474
 #define KERNEL_VAS_START 0xc0000000ul
+#define KERNEL_VAS_END   0xfffffffful
 
 // Old <= 4.4 era kernels used the RANDOMIZE_BASE_MAX_OFFSET config option
 // which limited the maximum offset to 512 MiB (0x20_000_000), yielding 256
 // possible base addresses (between 0xc0000000 and 0xe0000000).
 // The RANDOMIZE_BASE_MAX_OFFSET option was later removed.
 // We use a larger range with a max of 0xf0000000.
-#define KERNEL_BASE_MIN 0xc0000000ul
-#define KERNEL_BASE_MAX 0xf0000000ul
+#define KERNEL_BASE_MIN  0xc0000000ul
+#define KERNEL_BASE_MAX  0xf0000000ul
+
+#define MODULES_START    0xf0000000ul
+#define MODULES_END      0xfffffffful
 
 // For x86_32, possible max alignment is 0x1_000_000 (16MB) with default of
 // 0x200_000 (2MB) in increments of 0x2_000 (8KB).
@@ -170,10 +203,18 @@
 
 // 3GB vmsplit (0xc0000000) is common; but an unsafe assumption,
 // especially for embedded systems
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm/Kconfig#L1116
 #define KERNEL_VAS_START 0xc0000000ul
+#define KERNEL_VAS_END   0xfffffffful
 
-#define KERNEL_BASE_MIN 0xc0000000ul
-#define KERNEL_BASE_MAX 0xf0000000ul
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm/include/asm/memory.h#L26
+#define KERNEL_BASE_MIN  0xc0000000ul
+#define KERNEL_BASE_MAX  0xf0000000ul
+
+// Modules are located below kernel: PAGE_OFFSET - 16MB (0x01000000)
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm/include/asm/memory.h#L51
+#define MODULES_START    0xbf000000ul
+#define MODULES_END      0xc0000000ul
 
 // 2MB aligned
 // We use 1MB alignment (rather than 2MB)
@@ -197,9 +238,13 @@
 
 // kseg0: 0x80000000 - 0x9fffffff
 #define KERNEL_VAS_START 0x80000000ul
+#define KERNEL_VAS_END   0xfffffffful
 
-#define KERNEL_BASE_MIN 0x80000000ul
-#define KERNEL_BASE_MAX 0xf0000000ul
+#define KERNEL_BASE_MIN  0x80000000ul
+#define KERNEL_BASE_MAX  0xc0000000ul
+
+#define MODULES_START    0xc0000000ul
+#define MODULES_END      0xfffffffful
 
 // page aligned (default CONFIG_PAGE_SIZE_4KB=y)
 #define KERNEL_ALIGN 0x1000ul
@@ -224,9 +269,13 @@
 // vmalloc, I/O and Bolted sections are mapped above kernel.
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/Kconfig#L1267
 #define KERNEL_VAS_START 0xc000000000000000ul
+#define KERNEL_VAS_END   0xfffffffffffffffful
 
-#define KERNEL_BASE_MIN 0xc000000000000000ul
-#define KERNEL_BASE_MAX 0xffffffffff000000ul
+#define KERNEL_BASE_MIN  0xc000000000000000ul
+#define KERNEL_BASE_MAX  0xffffffffff000000ul
+
+#define MODULES_START    0xc000000000000000ul
+#define MODULES_END      0xfffffffffffffffful
 
 // 16KiB (0x4000) aligned
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/Kconfig#L595
@@ -244,11 +293,19 @@
 #elif defined(__powerpc__) || defined(__POWERPC__) ||                          \
     defined(__ppc__) || defined(__PPC__)
 
-#define KERNEL_VAS_START 0xc0000000ul
-
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/Kconfig#L1203
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/Kconfig#L1220
-#define KERNEL_BASE_MIN 0xc0000000ul
-#define KERNEL_BASE_MAX 0xf0000000ul
+#define KERNEL_VAS_START 0xc0000000ul
+#define KERNEL_VAS_END   0xfffffffful
+
+#define KERNEL_BASE_MIN  0xc0000000ul
+#define KERNEL_BASE_MAX  0xf0000000ul
+
+// Modules are located below kernel: PAGE_OFFSET - 256MB (0x10000000)
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/include/asm/book3s/32/pgtable.h#L214
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/include/asm/nohash/32/mmu-8xx.h#L173
+#define MODULES_START    0xb0000000ul
+#define MODULES_END      0xc0000000ul
 
 // page aligned
 #define KERNEL_ALIGN 0x1000ul
@@ -265,9 +322,15 @@
 #elif (defined(__riscv) || defined(__riscv__)) && __riscv_xlen == 64
 
 #define KERNEL_VAS_START 0xffffffff80000000ul
+#define KERNEL_VAS_END   0xfffffffffffffffful
 
-#define KERNEL_BASE_MIN 0xffffffff80000000ul
-#define KERNEL_BASE_MAX 0xffffffffff000000ul
+#define KERNEL_BASE_MIN  0xffffffff80000000ul
+#define KERNEL_BASE_MAX  0xffffffffff000000ul
+
+// Modules are located below kernel: KERNEL_LINK_ADDR - 2GB (0x80000000)
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/riscv/include/asm/pgtable.h#L52
+#define MODULES_START    0xffffffff00000000ul
+#define MODULES_END      0xffffffff80000000ul
 
 // 2MiB (0x200000) aligned
 // https://elixir.bootlin.com/linux/v6.2-rc2/source/arch/riscv/include/asm/efi.h#L41
@@ -287,9 +350,13 @@
 
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/riscv/Kconfig#L169
 #define KERNEL_VAS_START 0xc0000000ul
+#define KERNEL_VAS_END   0xfffffffful
 
-#define KERNEL_BASE_MIN 0xc0000000ul
-#define KERNEL_BASE_MAX 0xf0000000ul
+#define KERNEL_BASE_MIN  0xc0000000ul
+#define KERNEL_BASE_MAX  0xf0000000ul
+
+#define MODULES_START    0xc0000000ul
+#define MODULES_END      0xfffffffful
 
 // 4MiB (0x400000) aligned
 // https://elixir.bootlin.com/linux/v6.2-rc2/source/arch/riscv/include/asm/efi.h#L41
@@ -341,12 +408,22 @@
 #error "Unrecognised architecture!"
 #endif
 
+// clang-format on
+
 /* -----------------------------------------------------------------------------
  * Sanity check configured values
  * -----------------------------------------------------------------------------
  */
+#if KERNEL_VAS_START > KERNEL_VAS_END
+#error "Defined KERNEL_VAS_START is larger than KERNEL_VAS_END"
+#endif
+
 #if KERNEL_VAS_START > KERNEL_BASE_MIN
 #error "Defined KERNEL_VAS_START is larger than KERNEL_BASE_MIN"
+#endif
+
+#if KERNEL_BASE_MAX > KERNEL_VAS_END
+#error "Defined KERNEL_BASE_MAX is larger than KERNEL_VAS_END"
 #endif
 
 #if KERNEL_BASE_MASK > KERNEL_ALIGN

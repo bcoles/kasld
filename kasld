@@ -30,6 +30,7 @@ echo
 echo "Readable /var/log/dmesg:     $(test -r /var/log/dmesg && echo yes || echo no)"
 echo "Readable /var/log/kern.log:  $(test -r /var/log/kern.log && echo yes || echo no)"
 echo "Readable /var/log/syslog:    $(test -r /var/log/syslog && echo yes || echo no)"
+echo "Readable /boot/System.map:   $(test -r /boot/System.map-$(uname -r) && echo yes || echo no)"
 echo "Readable DebugFS:            $(test -r /sys/kernel/debug && echo yes || echo no)"
 echo
 

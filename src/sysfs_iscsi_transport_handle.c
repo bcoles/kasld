@@ -106,7 +106,7 @@ unsigned long get_kernel_addr_iscsi_sw_tcp_transport() {
 
   addr = strtoul(buff, &endptr, 10);
 
-  if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX)
+  if (addr >= KERNEL_VAS_START && addr <= KERNEL_VAS_END)
     return addr;
 
   return 0;
