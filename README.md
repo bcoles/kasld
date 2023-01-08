@@ -165,11 +165,6 @@ but does not implement these techniques.
 There are a plethora of viable hardware-related attacks which can be used to break
 KASLR, in particular timing side-channels and transient execution attacks.
 
-The [transient.fail](https://transient.fail/) website offers a good overview
-of speculative execution / transient execution attacks. See also:
-
-  * [A Systematic Evaluation of Transient Execution Attacks and Defenses](https://www.cc0x1f.net/publications/transient_sytematization.pdf) (Claudio Canella, Jo Van Bulck, Michael Schwarz, Moritz Lipp, Benjamin von Berg, Philipp Ortner, Frank Piessens, Dmitry Evtyushkin3, Daniel Gruss, 2019)
-
 [Practical Timing Side Channel Attacks Against Kernel Space ASLR](https://openwall.info/wiki/_media/archive/TR-HGI-2013-001.pdf) (Ralf Hund, Carsten Willems, Thorsten Holz, 2013)
 
 [google/safeside](https://github.com/google/safeside)
@@ -195,11 +190,14 @@ Microarchitectural Data Sampling (MDS) side-channel attacks:
 EchoLoad:
 
   * [KASLR: Break It, Fix It, Repeat](https://gruss.cc/files/kaslrbfr.pdf) (Claudio Canella, Michael Schwarz, Martin Haubenwallner, 2020)
+  * [Store-to-Leak Forwarding: There and Back Again](https://i.blackhat.com/asia-20/Friday/asia-20-Canella-Store-To-Leak-Forwarding-There-And-Back-Again-wp.pdf) (Claudio Canella, Lukas Giner, Michael Schwarz, 2020)
+    * Slides: [Store-to-Leak Forwarding - There and Back Again - store2leak_blackhat_slides.pdf](https://misc0110.net/files/store2leak_blackhat_slides.pdf)
+    * https://github.com/cc0x1f/store-to-leak-forwarding-there-and-back-again/tree/master/echoload
 
 Data Bounce:
 
   * [Store-to-Leak Forwarding: Leaking Data on Meltdown-resistant CPUs](https://cpu.fail/store_to_leak_forwarding.pdf) (Michael Schwarz, Claudio Canella, Lukas Giner, Daniel Gruss, 2019)
-    * Slides: [Store-to-Leak Forwarding - There and Back Again - store2leak_blackhat_slides.pdf](https://misc0110.net/files/store2leak_blackhat_slides.pdf)
+    * https://github.com/cc0x1f/store-to-leak-forwarding-there-and-back-again/tree/master/data_bounce
 
 Prefetch side-channel attacks:
 
@@ -228,9 +226,18 @@ Branch Target Buffer (BTB) based side-channel attacks:
   * [Jump Over ASLR: Attacking Branch Predictors to Bypass ASLR](https://www.cs.ucr.edu/~nael/pubs/micro16.pdf) (Dmitry Evtyushkin, Dmitry Ponomarev, Nael Abu-Ghazaleh, 2016)
     * [felixwilhelm/mario_baslr](https://github.com/felixwilhelm/mario_baslr) - Intel CPUs (Felix Wilhelm, 2016)
 
-Branch Target Injection (BTI) attacks:
+Transient Execution / Speculative Execution:
 
-  * [paboldin/meltdown-exploit](https://github.com/paboldin/meltdown-exploit)
+  * The [transient.fail](https://transient.fail/) website offers a good overview of speculative execution / transient execution attacks.
+  * [A Systematic Evaluation of Transient Execution Attacks and Defenses](https://www.cc0x1f.net/publications/transient_sytematization.pdf) (Claudio Canella, Jo Van Bulck, Michael Schwarz, Moritz Lipp, Benjamin von Berg, Philipp Ortner, Frank Piessens, Dmitry Evtyushkin3, Daniel Gruss, 2019)
+  * [Meltdown](https://meltdownattack.com)
+    * [Meltdown: Reading Kernel Memory from User Space](https://meltdownattack.com/meltdown.pdf) (Moritz Lipp, Michael Schwarz, Daniel Gruss, Thomas Prescher, Werner Haas, Anders Fogh, Jann Horn, Stefan Mangard, Paul Kocher, Daniel Genkin, Yuval Yarom, Mike Hamburg, 2018)
+    * USENIX Security 2018 Video: https://www.usenix.org/conference/usenixsecurity18/presentation/lipp
+    * [paboldin/meltdown-exploit](https://github.com/paboldin/meltdown-exploit)
+    * [IAIK/meltdown](https://github.com/IAIK/meltdown)
+    * https://github.com/IAIK/transientfail/tree/master/pocs/meltdown
+  * [Spectre Attacks: Exploiting Speculative Execution](https://spectreattack.com/spectre.pdf) (Paul Kocher, Jann Horn, Anders Fogh, Daniel Genkin, Daniel Gruss, Werner Haas, Mike Hamburg, Moritz Lipp, Stefan Mangard, Thomas Prescher, Michael Schwarz, Yuval Yarom, 2018)
+    * https://github.com/IAIK/transientfail/tree/master/pocs/spectre
   * [Reading privileged memory with a side-channel](https://googleprojectzero.blogspot.com/2018/01/reading-privileged-memory-with-side.html) (Jann Horn, 2018)
   * [speed47/spectre-meltdown-checker](https://github.com/speed47/spectre-meltdown-checker)
   * [VDSO As A Potential KASLR Oracle](https://www.longterm.io/vdso_sidechannel.html) (Philip Pettersson, Alex Radocea, 2021)
