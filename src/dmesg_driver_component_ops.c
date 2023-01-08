@@ -106,7 +106,7 @@ int main(int argc, char **argv) {
     return 1;
 
   printf("lowest leaked address: %lx\n", addr);
-  printf("possible kernel base: %lx\n", addr & ~KERNEL_BASE_MASK);
+  printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);
 
   return 0;
 }

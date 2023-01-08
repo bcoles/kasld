@@ -18,10 +18,7 @@
 // - MODULES_END:         Expected end virtual address for kernel modules.
 //
 // - KERNEL_ALIGN:        Expected kernel address alignment.
-//                        (usually 2MB on modern systems)
-//
-// - KERNEL_BASE_MASK:    Bitmask when guessing base address.
-//                        Used to bitmask-off least significant bits.
+//                        (usually 2MiB on modern systems)
 //
 // - KERNEL_TEXT_DEFAULT: Default kernel base virtual address when KASLR is
 //                        disabled (including text offset). This value is
@@ -60,13 +57,11 @@
 #define MODULES_START    0xffffffffc0000000ul
 #define MODULES_END      0xfffffffffffffffful
 
-// For x86_64, possible max alignment is 0x1_000_000 (16MB) with default of
-// 0x200_000 (2MB) in increments of 0x200_000 (2MB).
+// For x86_64, possible max alignment is 0x1_000_000 (16MiB) with default of
+// 0x200_000 (2MiB) in increments of 0x200_000 (2MiB).
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/boot/compressed/kaslr.c#L850
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/Kconfig#L2182
-// We use 1MB alignment (rather than 2MB)
-#define KERNEL_ALIGN 0x100000ul
-#define KERNEL_BASE_MASK 0x0ffffful
+#define KERNEL_ALIGN 0x200000ul
 
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/Kconfig#L2084
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/boot/compressed/kaslr.c#L869
@@ -113,7 +108,6 @@
 // default CONFIG_ARM64_PAGE_SHIFT is 12. largest is 16.
 // https://elixir.bootlin.com/linux/v6.2-rc2/source/arch/arm64/Kconfig#L262
 #define KERNEL_ALIGN 0x10000ul
-#define KERNEL_BASE_MASK 0x0fffful
 
 // TEXT_OFFSET was changed from 0x80000 to zero in 2020 from kernel v5.8 onwards
 // https://elixir.bootlin.com/linux/v5.8/source/arch/arm64/Makefile
@@ -138,10 +132,8 @@
 #define MODULES_START    0xffffffffc0000000ul
 #define MODULES_END      0xfffffffffffffffful
 
-// 2MB aligned
-// We use 1MB alignment (rather than 2MB)
-#define KERNEL_ALIGN 0x100000ul
-#define KERNEL_BASE_MASK 0x0ffffful
+// 2MiB aligned
+#define KERNEL_ALIGN 0x200000ul
 
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/mips/kernel/head.S#L67
 #define TEXT_OFFSET 0x400
@@ -173,13 +165,11 @@
 #define MODULES_START    0xf0000000ul
 #define MODULES_END      0xfffffffful
 
-// For x86_32, possible max alignment is 0x1_000_000 (16MB) with default of
-// 0x200_000 (2MB) in increments of 0x2_000 (8KB).
+// For x86_32, possible max alignment is 0x1_000_000 (16MiB) with default of
+// 0x200_000 (2MiB) in increments of 0x2_000 (8KiB).
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/boot/compressed/kaslr.c#L850
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/Kconfig#L2182
-// We use 1MB alignment (rather than 2MB)
-#define KERNEL_ALIGN 0x100000ul
-#define KERNEL_BASE_MASK 0x0ffffful
+#define KERNEL_ALIGN 0x200000ul
 
 #define TEXT_OFFSET 0
 
@@ -211,15 +201,13 @@
 #define KERNEL_BASE_MIN  0xc0000000ul
 #define KERNEL_BASE_MAX  0xf0000000ul
 
-// Modules are located below kernel: PAGE_OFFSET - 16MB (0x01000000)
+// Modules are located below kernel: PAGE_OFFSET - 16MiB (0x01000000)
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm/include/asm/memory.h#L51
 #define MODULES_START    0xbf000000ul
 #define MODULES_END      0xc0000000ul
 
-// 2MB aligned
-// We use 1MB alignment (rather than 2MB)
-#define KERNEL_ALIGN 0x100000ul
-#define KERNEL_BASE_MASK 0x0ffffful
+// 2MiB aligned
+#define KERNEL_ALIGN 0x200000ul
 
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm/Makefile#L145
 #define TEXT_OFFSET 0x8000
@@ -248,7 +236,6 @@
 
 // page aligned (default CONFIG_PAGE_SIZE_4KB=y)
 #define KERNEL_ALIGN 0x1000ul
-#define KERNEL_BASE_MASK 0x0ffful
 
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/mips/kernel/head.S#L67
 #define TEXT_OFFSET 0x400
@@ -280,7 +267,6 @@
 // 16KiB (0x4000) aligned
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/Kconfig#L595
 #define KERNEL_ALIGN 0x4000ul
-#define KERNEL_BASE_MASK 0x0ffful
 
 #define TEXT_OFFSET 0
 
@@ -301,7 +287,7 @@
 #define KERNEL_BASE_MIN  0xc0000000ul
 #define KERNEL_BASE_MAX  0xf0000000ul
 
-// Modules are located below kernel: PAGE_OFFSET - 256MB (0x10000000)
+// Modules are located below kernel: PAGE_OFFSET - 256MiB (0x10000000)
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/include/asm/book3s/32/pgtable.h#L214
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/include/asm/nohash/32/mmu-8xx.h#L173
 #define MODULES_START    0xb0000000ul
@@ -309,7 +295,6 @@
 
 // page aligned
 #define KERNEL_ALIGN 0x1000ul
-#define KERNEL_BASE_MASK 0x0ffful
 
 #define TEXT_OFFSET 0
 
@@ -334,9 +319,7 @@
 
 // 2MiB (0x200000) aligned
 // https://elixir.bootlin.com/linux/v6.2-rc2/source/arch/riscv/include/asm/efi.h#L41
-// We use 1MiB alignment (rather than 2MiB)
-#define KERNEL_ALIGN 0x100000ul
-#define KERNEL_BASE_MASK 0x0ffffful
+#define KERNEL_ALIGN 0x200000ul
 
 #define TEXT_OFFSET 0x2000
 
@@ -360,9 +343,7 @@
 
 // 4MiB (0x400000) aligned
 // https://elixir.bootlin.com/linux/v6.2-rc2/source/arch/riscv/include/asm/efi.h#L41
-// We use 1MiB alignment (rather than 4MiB)
-#define KERNEL_ALIGN 0x100000ul
-#define KERNEL_BASE_MASK 0x0ffffful
+#define KERNEL_ALIGN 0x400000ul
 
 #define TEXT_OFFSET 0x2000
 
@@ -372,7 +353,7 @@
  * S390 (24-bit s370 / 32-bit s390 / 64-bit s390x)
  * -----------------------------------------------------------------------------
  * kernel uses 1:1 phys:virt mapping.
- * kernel text starts at 0x00000000_00100000 (1MB) offset.
+ * kernel text starts at 0x00000000_00100000 (1MiB) offset.
  * Uses 24-bit (amode24), 32-bit (amode31) and 64-bit (amode64) addressing modes.
  * Linux for s390x did not receive KASLR support until kernel 5.2.
  *
@@ -424,10 +405,6 @@
 
 #if KERNEL_BASE_MAX > KERNEL_VAS_END
 #error "Defined KERNEL_BASE_MAX is larger than KERNEL_VAS_END"
-#endif
-
-#if KERNEL_BASE_MASK > KERNEL_ALIGN
-#error "Defined KERNEL_BASE_MASK is larger than KERNEL_ALIGN"
 #endif
 
 #if KERNEL_TEXT_DEFAULT > KERNEL_BASE_MAX

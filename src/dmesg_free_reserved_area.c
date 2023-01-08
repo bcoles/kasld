@@ -102,13 +102,7 @@ int main(int argc, char **argv) {
     return 1;
 
   printf("leaked __init_begin: %lx\n", addr);
-  printf("possible kernel base: %lx\n", addr & ~KERNEL_BASE_MASK);
-
-#if defined(__x86_64__) || defined(__amd64__)
-  printf("kernel base (ubuntu trusty): %lx\n", addr & 0xffffffffff000000ul);
-  printf("kernel base (ubuntu xenial): %lx\n",
-         (addr & 0xfffffffffff00000ul) - 0x1000000ul);
-#endif
+  printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);
 
   return 0;
 }
