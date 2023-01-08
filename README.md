@@ -14,6 +14,7 @@ Supports:
 * ARM (armv6, armv7, armv8)
 * MIPS (mipsbe, mipsel, mips64el)
 * PowerPC (ppc, ppc64)
+* RISC-V (riscv32, riscv64)
 
 ## Usage
 

@@ -259,6 +259,49 @@
 #define KERNEL_TEXT_DEFAULT (KERNEL_BASE_MIN + TEXT_OFFSET)
 
 /* -----------------------------------------------------------------------------
+ * RISC-V 64-bit (riscv64)
+ * -----------------------------------------------------------------------------
+ */
+#elif (defined(__riscv) || defined(__riscv__)) && __riscv_xlen == 64
+
+#define KERNEL_VAS_START 0xffffffff80000000ul
+
+#define KERNEL_BASE_MIN 0xffffffff80000000ul
+#define KERNEL_BASE_MAX 0xffffffffff000000ul
+
+// 2MiB (0x200000) aligned
+// https://elixir.bootlin.com/linux/v6.2-rc2/source/arch/riscv/include/asm/efi.h#L41
+// We use 1MiB alignment (rather than 2MiB)
+#define KERNEL_ALIGN 0x100000ul
+#define KERNEL_BASE_MASK 0x0ffffful
+
+#define TEXT_OFFSET 0x2000
+
+#define KERNEL_TEXT_DEFAULT (KERNEL_BASE_MIN + TEXT_OFFSET)
+
+/* -----------------------------------------------------------------------------
+ * RISC-V 32-bit (riscv32)
+ * -----------------------------------------------------------------------------
+ */
+#elif (defined(__riscv) || defined(__riscv__)) && __riscv_xlen == 32
+
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/riscv/Kconfig#L169
+#define KERNEL_VAS_START 0xc0000000ul
+
+#define KERNEL_BASE_MIN 0xc0000000ul
+#define KERNEL_BASE_MAX 0xf0000000ul
+
+// 4MiB (0x400000) aligned
+// https://elixir.bootlin.com/linux/v6.2-rc2/source/arch/riscv/include/asm/efi.h#L41
+// We use 1MiB alignment (rather than 4MiB)
+#define KERNEL_ALIGN 0x100000ul
+#define KERNEL_BASE_MASK 0x0ffffful
+
+#define TEXT_OFFSET 0x2000
+
+#define KERNEL_TEXT_DEFAULT (KERNEL_BASE_MIN + TEXT_OFFSET)
+
+/* -----------------------------------------------------------------------------
  * S390 (24-bit s370 / 32-bit s390 / 64-bit s390x)
  * -----------------------------------------------------------------------------
  * kernel uses 1:1 phys:virt mapping.
