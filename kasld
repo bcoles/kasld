@@ -99,6 +99,11 @@ if [ -x "${build}/dmesg_fake_numa_init.o" ]; then
   echo
 fi
 
+if [ -x "${build}/dmesg_free_area_init_node.o" ]; then
+  "${build}/dmesg_free_area_init_node.o"
+  echo
+fi
+
 if [ -x "${build}/dmesg_free_reserved_area.o" ]; then
   "${build}/dmesg_free_reserved_area.o"
   echo
