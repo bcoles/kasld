@@ -33,8 +33,22 @@
 // Code was commented out in kernel 4.16-rc4 on 2018-03-02:
 // https://github.com/torvalds/linux/commit/fd8d0ca2563151204f3fe555dc8ca4bcfe8677a3
 //
+// RISC-V:
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/riscv/mm/init.c#L127
+// Kernel virtual memory layout is printed (excluding .text section),
+// but requires kernel to be configured with CONFIG_DEBUG_VM.
+//
+// Xtensa:
+// Code is still present as of 2023:
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/xtensa/mm/init.c#L134
+//
+// SuperH:
+// Code is still present as of 2023:
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/sh/mm/init.c#L371
+//
 // Requires:
 // - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities.
+// - CONFIG_DEBUG_VM on RISC-V systems
 // ---
 // <bcoles@gmail.com>
 
@@ -103,6 +117,8 @@ unsigned long search_dmesg_mem_init_kernel_text() {
   if (addr_buf == NULL)
     return 0;
 
+  // printf("%s\n", addr_buf);
+
   ptr = strtok(addr_buf, delim);
   while ((ptr = strtok(NULL, delim)) != NULL) {
     addr = strtoul(&ptr[0], &endptr, 16);
@@ -116,13 +132,65 @@ unsigned long search_dmesg_mem_init_kernel_text() {
   return addr;
 }
 
+unsigned long search_dmesg_mem_init_lowmem() {
+  char *addr_buf;
+  char *substr;
+  char *syslog;
+  char *text_buf;
+  char *ptr;
+  char *endptr;
+  int size;
+  const char delim[] = " ";
+  unsigned long addr = 0;
+  const char *needle = " kernel memory layout:";
+
+  if (mmap_syslog(&syslog, &size))
+    return 0;
+
+  printf("[.] searching dmesg for '%s' ...\n", needle);
+
+  substr = strstr(syslog, needle);
+  if (substr == NULL)
+    return 0;
+
+  text_buf = strstr(substr, "    lowmem ");
+  if (text_buf == NULL)
+    return 0;
+
+  addr_buf = strtok(text_buf, "\n");
+  if (addr_buf == NULL)
+    return 0;
+
+  // printf("%s\n", addr_buf);
+
+  ptr = strtok(addr_buf, delim);
+  while ((ptr = strtok(NULL, delim)) != NULL) {
+    addr = strtoul(&ptr[0], &endptr, 16);
+
+    if (addr && addr <= KERNEL_VAS_END)
+      break;
+
+    addr = 0;
+  }
+
+  return addr;
+}
+
 int main(int argc, char **argv) {
   unsigned long addr = search_dmesg_mem_init_kernel_text();
-  if (!addr)
-    return 1;
+  if (addr) {
+    printf("kernel text start: %lx\n", addr);
+    printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);
+  }
 
-  printf("kernel text start: %lx\n", addr);
-  printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);
+  addr = search_dmesg_mem_init_lowmem();
+  if (addr) {
+    printf("kernel lowmem start: %lx\n", addr);
+    if (addr < (unsigned long)KERNEL_VAS_START)
+      printf("[!] warning: lowmem start %lx below configured KERNEL_VAS_START "
+             "%lx\n",
+             addr, (unsigned long)KERNEL_VAS_START);
+  }
 
   return 0;
 }
