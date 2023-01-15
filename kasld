@@ -84,6 +84,11 @@ if [ -x "${build}/dmesg_driver_component_ops.o" ]; then
   echo
 fi
 
+if [ -x "${build}/dmesg_early_init_dt_add_memory_arch.o" ]; then
+  "${build}/dmesg_early_init_dt_add_memory_arch.o"
+  echo
+fi
+
 if [ -x "${build}/dmesg_ex_handler_msr.o" ]; then
   "${build}/dmesg_ex_handler_msr.o"
   echo
