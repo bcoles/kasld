@@ -20,6 +20,7 @@ all :
 	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_driver_component_ops.c -o $(BUILD_DIR)/dmesg_driver_component_ops.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_early_init_dt_add_memory_arch.c -o $(BUILD_DIR)/dmesg_early_init_dt_add_memory_arch.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_ex_handler_msr.c -o $(BUILD_DIR)/dmesg_ex_handler_msr.o
+	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_fake_numa_init.c -o $(BUILD_DIR)/dmesg_fake_numa_init.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_free_reserved_area.c -o $(BUILD_DIR)/dmesg_free_reserved_area.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_mem_init_kernel_layout.c -o $(BUILD_DIR)/dmesg_mem_init_kernel_layout.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_mmu_idmap.c -o $(BUILD_DIR)/dmesg_mmu_idmap.o

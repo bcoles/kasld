@@ -94,6 +94,11 @@ if [ -x "${build}/dmesg_ex_handler_msr.o" ]; then
   echo
 fi
 
+if [ -x "${build}/dmesg_fake_numa_init.o" ]; then
+  "${build}/dmesg_fake_numa_init.o"
+  echo
+fi
+
 if [ -x "${build}/dmesg_free_reserved_area.o" ]; then
   "${build}/dmesg_free_reserved_area.o"
   echo
