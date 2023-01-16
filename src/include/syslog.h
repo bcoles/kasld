@@ -1,3 +1,9 @@
+// This file is part of KASLD - https://github.com/bcoles/kasld
+//
+// Syslog/dmesg helper functions.
+// ---
+// <bcoles@gmail.com>
+
 #define _DEFAULT_SOURCE
 #include <stddef.h>
 #include <stdio.h>

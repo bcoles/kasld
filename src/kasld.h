@@ -33,6 +33,9 @@
 
 // clang-format off
 
+#define MB 0x100000ul
+#define GB 0x40000000ul
+
 /* -----------------------------------------------------------------------------
  * x86_64 (amd64)
  * -----------------------------------------------------------------------------
@@ -44,13 +47,20 @@
 // VAS start with 4-level page tables: 0xffff8000_00000000
 // https://www.kernel.org/doc/html/latest/x86/x86_64/mm.html
 // https://www.cateee.net/lkddb/web-lkddb/X86_5LEVEL.html
-#define KERNEL_VAS_START 0xff00000000000000ul
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/include/asm/page_64_types.h#L34
+#define PAGE_OFFSET      0xff00000000000000ul
+
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/include/asm/page.h#L59
+#define phys_to_virt(x)  ((unsigned long)(x + PAGE_OFFSET))
+
+#define KERNEL_VAS_START PAGE_OFFSET
 #define KERNEL_VAS_END   0xfffffffffffffffful
 
 // Old <= 4.4 era kernels used the RANDOMIZE_BASE_MAX_OFFSET config option
 // which limited the maximum offset to 1 GiB (0x40_000_000), yielding 512
 // possible base addresses (between 0xffffffff_80000000 and
 // 0xffffffff_c0000000). The RANDOMIZE_BASE_MAX_OFFSET option was later removed.
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/include/asm/page_64_types.h#L50
 #define KERNEL_BASE_MIN  0xffffffff80000000ul
 #define KERNEL_BASE_MAX  0xffffffffc0000000ul
 
@@ -61,7 +71,7 @@
 // 0x200_000 (2MiB) in increments of 0x200_000 (2MiB).
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/boot/compressed/kaslr.c#L850
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/Kconfig#L2182
-#define KERNEL_ALIGN 0x200000ul
+#define KERNEL_ALIGN 2 * MB
 
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/Kconfig#L2084
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/boot/compressed/kaslr.c#L869
@@ -83,8 +93,17 @@
 #elif defined(__aarch64__)
 
 // 52 va bits (CONFIG_ARM64_VA_BITS_48_52) is largest.
+// 48 va bits (CONFIG_ARM64_VA_BITS_48) is more common.
 // page_offset = (0xffffffffffffffffUL) << (va_bits - 1)
-#define KERNEL_VAS_START 0xfff8000000000000ul
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm64/include/asm/memory.h#L45
+// We assume 52 va bits:
+#define PAGE_OFFSET      0xfff8000000000000ul
+#define PHYS_OFFSET      0ul
+
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm64/include/asm/memory.h#L295
+#define phys_to_virt(x) ((unsigned long)((x) - PHYS_OFFSET) | PAGE_OFFSET)
+
+#define KERNEL_VAS_START PAGE_OFFSET
 #define KERNEL_VAS_END   0xfffffffffffffffful
 
 // 48 va bits (CONFIG_ARM64_VA_BITS_48) is a common configuration;
@@ -123,17 +142,25 @@
  */
 #elif defined(__mips64) || defined(__mips64__)
 
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/mips/include/asm/addrspace.h#L68
+#define PAGE_OFFSET      0xffffffff80000000ul
+
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/mips/include/asm/mach-generic/spaces.h#L28
+#define PHYS_OFFSET      0ul
+
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/mips/include/asm/page.h#L199
+#define phys_to_virt(x) ((unsigned long)((x) + PAGE_OFFSET - PHYS_OFFSET))
+
 #define KERNEL_VAS_START 0xffff000000000000ul
 #define KERNEL_VAS_END   0xfffffffffffffffful
 
-#define KERNEL_BASE_MIN  0xffffffff80000000ul
+#define KERNEL_BASE_MIN  PAGE_OFFSET
 #define KERNEL_BASE_MAX  0xffffffffc0000000ul
 
 #define MODULES_START    0xffffffffc0000000ul
 #define MODULES_END      0xfffffffffffffffful
 
-// 2MiB aligned
-#define KERNEL_ALIGN 0x200000ul
+#define KERNEL_ALIGN 2 * MB
 
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/mips/kernel/head.S#L67
 #define TEXT_OFFSET 0x400
@@ -151,7 +178,12 @@
 // 3GB vmsplit (0xc0000000) is a common configuration
 // for distro kernels for non-embedded systems
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/Kconfig#L1474
-#define KERNEL_VAS_START 0xc0000000ul
+#define PAGE_OFFSET      0xc0000000ul
+
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/include/asm/page.h#L59
+#define phys_to_virt(x)  ((unsigned long)(x + PAGE_OFFSET))
+
+#define KERNEL_VAS_START PAGE_OFFSET
 #define KERNEL_VAS_END   0xfffffffful
 
 // Old <= 4.4 era kernels used the RANDOMIZE_BASE_MAX_OFFSET config option
@@ -159,7 +191,7 @@
 // possible base addresses (between 0xc0000000 and 0xe0000000).
 // The RANDOMIZE_BASE_MAX_OFFSET option was later removed.
 // We use a larger range with a max of 0xf0000000.
-#define KERNEL_BASE_MIN  0xc0000000ul
+#define KERNEL_BASE_MIN  PAGE_OFFSET
 #define KERNEL_BASE_MAX  0xf0000000ul
 
 #define MODULES_START    0xf0000000ul
@@ -169,7 +201,7 @@
 // 0x200_000 (2MiB) in increments of 0x2_000 (8KiB).
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/boot/compressed/kaslr.c#L850
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/Kconfig#L2182
-#define KERNEL_ALIGN 0x200000ul
+#define KERNEL_ALIGN 2 * MB
 
 #define TEXT_OFFSET 0
 
@@ -194,20 +226,27 @@
 // 3GB vmsplit (0xc0000000) is common; but an unsafe assumption,
 // especially for embedded systems
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm/Kconfig#L1116
-#define KERNEL_VAS_START 0xc0000000ul
+#define PAGE_OFFSET      0xc0000000ul
+
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm/Kconfig#L276
+#define PHYS_OFFSET      0ul
+
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm/include/asm/memory.h#L286
+#define phys_to_virt(x) ((unsigned long)((x) - PHYS_OFFSET + PAGE_OFFSET))
+
+#define KERNEL_VAS_START PAGE_OFFSET
 #define KERNEL_VAS_END   0xfffffffful
 
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm/include/asm/memory.h#L26
-#define KERNEL_BASE_MIN  0xc0000000ul
+#define KERNEL_BASE_MIN  PAGE_OFFSET
 #define KERNEL_BASE_MAX  0xf0000000ul
 
 // Modules are located below kernel: PAGE_OFFSET - 16MiB (0x01000000)
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm/include/asm/memory.h#L51
-#define MODULES_START    0xbf000000ul
-#define MODULES_END      0xc0000000ul
+#define MODULES_START    PAGE_OFFSET - 0x01000000 // 0xbf000000ul
+#define MODULES_END      PAGE_OFFSET
 
-// 2MiB aligned
-#define KERNEL_ALIGN 0x200000ul
+#define KERNEL_ALIGN 2 * MB
 
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm/Makefile#L145
 #define TEXT_OFFSET 0x8000
@@ -217,18 +256,32 @@
 /* -----------------------------------------------------------------------------
  * MIPS 32-bit (mips / mipsbe / mipsel)
  * -----------------------------------------------------------------------------
- * https://elixir.bootlin.com/linux/v6.1.1/source/arch/mips/include/asm/mach-malta/spaces.h#L37
  * https://elixir.bootlin.com/linux/v6.1.1/source/arch/mips/include/asm/processor.h#L39
  * https://www.kernel.org/doc/Documentation/mips/booting.rst
  * https://training.mips.com/basic_mips/PDF/Memory_Map.pdf
  */
 #elif defined(__mips__)
 
-// kseg0: 0x80000000 - 0x9fffffff
-#define KERNEL_VAS_START 0x80000000ul
+// Boards:
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/mips/include/asm/mach-ar7/spaces.h#L17
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/mips/include/asm/mach-malta/spaces.h#L36
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/mips/include/asm/mach-generic/spaces.h#L91
+//
+// We use generic and assume kseg0: 0x80000000 - 0x9fffffff
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/mips/include/asm/mach-generic/spaces.h#L33
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/mips/include/asm/addrspace.h#L98
+#define PAGE_OFFSET      0x80000000ul
+
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/mips/include/asm/mach-generic/spaces.h#L28
+#define PHYS_OFFSET      0ul
+
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/mips/include/asm/page.h#L199
+#define phys_to_virt(x) ((unsigned long)((x) + PAGE_OFFSET - PHYS_OFFSET))
+
+#define KERNEL_VAS_START PAGE_OFFSET
 #define KERNEL_VAS_END   0xfffffffful
 
-#define KERNEL_BASE_MIN  0x80000000ul
+#define KERNEL_BASE_MIN  PAGE_OFFSET
 #define KERNEL_BASE_MAX  0xc0000000ul
 
 #define MODULES_START    0xc0000000ul
@@ -255,14 +308,23 @@
 // and text start is 0x8000000000000000ul.
 // vmalloc, I/O and Bolted sections are mapped above kernel.
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/Kconfig#L1267
-#define KERNEL_VAS_START 0xc000000000000000ul
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/Kconfig#L1264
+#define PAGE_OFFSET      0xc000000000000000ul
+
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/include/asm/page.h#L227
+#define phys_to_virt(x) ((unsigned long)((x) | PAGE_OFFSET))
+
+#define KERNEL_VAS_START PAGE_OFFSET
 #define KERNEL_VAS_END   0xfffffffffffffffful
 
-#define KERNEL_BASE_MIN  0xc000000000000000ul
+#define KERNEL_BASE_MIN  PAGE_OFFSET
 #define KERNEL_BASE_MAX  0xffffffffff000000ul
 
 #define MODULES_START    0xc000000000000000ul
 #define MODULES_END      0xfffffffffffffffful
+
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/Kconfig#L1270
+#define PHYSICAL_START   0ul
 
 // 16KiB (0x4000) aligned
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/Kconfig#L595
@@ -281,17 +343,25 @@
 
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/Kconfig#L1203
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/Kconfig#L1220
-#define KERNEL_VAS_START 0xc0000000ul
+#define PAGE_OFFSET      0xc0000000ul
+
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/Kconfig#L1233
+#define PHYSICAL_START   0ul
+
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/include/asm/page.h#L240
+#define phys_to_virt(x) ((unsigned long)((x) + PAGE_OFFSET - PHYSICAL_START))
+
+#define KERNEL_VAS_START PAGE_OFFSET
 #define KERNEL_VAS_END   0xfffffffful
 
-#define KERNEL_BASE_MIN  0xc0000000ul
+#define KERNEL_BASE_MIN  PAGE_OFFSET
 #define KERNEL_BASE_MAX  0xf0000000ul
 
 // Modules are located below kernel: PAGE_OFFSET - 256MiB (0x10000000)
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/include/asm/book3s/32/pgtable.h#L214
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/include/asm/nohash/32/mmu-8xx.h#L173
-#define MODULES_START    0xb0000000ul
-#define MODULES_END      0xc0000000ul
+#define MODULES_START    PAGE_OFFSET - 0x10000000ul // 0xb0000000ul
+#define MODULES_END      PAGE_OFFSET
 
 // page aligned
 #define KERNEL_ALIGN 0x1000ul
@@ -303,10 +373,20 @@
 /* -----------------------------------------------------------------------------
  * RISC-V 64-bit (riscv64)
  * -----------------------------------------------------------------------------
+ * https://docs.kernel.org/riscv/vm-layout.html
  */
 #elif (defined(__riscv) || defined(__riscv__)) && __riscv_xlen == 64
 
-#define KERNEL_VAS_START 0xffffffff80000000ul
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/riscv/Kconfig#L171
+#define PAGE_OFFSET      0xff60000000000000ul
+
+// Assume linear mapping (not Execute-In-Place (XIP_KERNEL) kernel)
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/riscv/include/asm/page.h#L125
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/riscv/mm/init.c#L984
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/riscv/mm/init.c#L976
+#define phys_to_virt(x) ((unsigned long)(x) + (PAGE_OFFSET - 0x80000000ul))
+
+#define KERNEL_VAS_START 0xff00000000000000ul
 #define KERNEL_VAS_END   0xfffffffffffffffful
 
 #define KERNEL_BASE_MIN  0xffffffff80000000ul
@@ -314,12 +394,11 @@
 
 // Modules are located below kernel: KERNEL_LINK_ADDR - 2GB (0x80000000)
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/riscv/include/asm/pgtable.h#L52
-#define MODULES_START    0xffffffff00000000ul
-#define MODULES_END      0xffffffff80000000ul
+#define MODULES_START    KERNEL_VAS_START - 0x80000000ul
+#define MODULES_END      KERNEL_VAS_START
 
-// 2MiB (0x200000) aligned
 // https://elixir.bootlin.com/linux/v6.2-rc2/source/arch/riscv/include/asm/efi.h#L41
-#define KERNEL_ALIGN 0x200000ul
+#define KERNEL_ALIGN 2 * MB
 
 #define TEXT_OFFSET 0x2000
 
@@ -332,18 +411,25 @@
 #elif (defined(__riscv) || defined(__riscv__)) && __riscv_xlen == 32
 
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/riscv/Kconfig#L169
-#define KERNEL_VAS_START 0xc0000000ul
+#define PAGE_OFFSET      0xc0000000ul
+
+// Assume linear mapping (not Execute-In-Place (XIP_KERNEL) kernel)
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/riscv/include/asm/page.h#L125
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/riscv/mm/init.c#L984
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/riscv/mm/init.c#L976
+#define phys_to_virt(x) ((unsigned long)(x) + PAGE_OFFSET)
+
+#define KERNEL_VAS_START PAGE_OFFSET
 #define KERNEL_VAS_END   0xfffffffful
 
-#define KERNEL_BASE_MIN  0xc0000000ul
+#define KERNEL_BASE_MIN  PAGE_OFFSET
 #define KERNEL_BASE_MAX  0xf0000000ul
 
-#define MODULES_START    0xc0000000ul
+#define MODULES_START    PAGE_OFFSET
 #define MODULES_END      0xfffffffful
 
-// 4MiB (0x400000) aligned
 // https://elixir.bootlin.com/linux/v6.2-rc2/source/arch/riscv/include/asm/efi.h#L41
-#define KERNEL_ALIGN 0x400000ul
+#define KERNEL_ALIGN 4 * MB
 
 #define TEXT_OFFSET 0x2000
 
