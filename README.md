@@ -35,7 +35,7 @@ on a target system. This script requires `make`.
 
 Refer to [output.md](output.md) for example output from various distros.
 
-A compiler which supports the `_DEFAULT_SOURCE` macro is required due to
+A compiler which supports the `_GNU_SOURCE` macro is required due to
 use of non-portable code (`MAP_ANONYMOUS`, `getline()`, `popen()`, ...).
 
 
@@ -54,7 +54,7 @@ offset is zero.
 The configuration options should be fairly self-explanatory. Refer to the comment
 headers in [src/kasld.h](src/kasld.h):
 
-https://github.com/bcoles/kasld/blob/31a89cec8f8b0e0198836ddb67d1aebd2edfa3f9/src/kasld.h#L5-L21
+https://github.com/bcoles/kasld/blob/5dc63024d08c152b84359a7cd76a95fb10b6b9dc/src/kasld.h#L5-L25
 
 
 ## Function Offsets
@@ -95,15 +95,15 @@ unchanged at a static offset.
 
 ## Addendum
 
-KASLD serves as a non-exhaustive collection and reference for address leaks
-useful in KASLR bypass; however, it is far from complete. There are many additional
-noteworthy techniques not included for various reasons.
+KASLD serves as a non-exhaustive collection and reference for techniques
+useful in KASLR bypass; however, it is far from complete. There are many
+additional noteworthy techniques not included for various reasons.
 
 
 ### System Logs
 
 Kernel and system logs (`dmesg` / `syslog`) offer a wealth of information, including
-kernel pointers.
+kernel pointers and the layout of virtual and physical memory.
 
 Historically, raw kernel pointers were frequently printed to the system log
 without using the [`%pK` printk format](https://www.kernel.org/doc/html/latest/core-api/printk-formats.html).
@@ -114,7 +114,7 @@ Several KASLD components search the kernel ring buffer for kernel addresses.
 Refer to `dmesg_*` files in the [src](src/) directory.
 
 Bugs which trigger a kernel oops can be used to leak kernel pointers by reading
-the system log (on systems with `kernel.panic_on_oops = 0`).
+the associated backtrace from system log (on systems with `kernel.panic_on_oops = 0`).
 
 There are countless examples. A few simple examples are available in the [extra](extra/) directory:
 
@@ -134,14 +134,10 @@ user created on an Ubuntu system is a member of the `adm` group.
 Several KASLD components read from `/var/log/syslog`.
 Refer to `syslog_*` files in the [src](src/) directory.
 
-Similarly, the `/var/log/dmesg` log file may be readable by low privileged users,
-regardless of whether `dmesg_restrict` is enabled. Additionally,
-[an initscript bug](https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=867747)
-present from 2017-2019 caused this file to be generated with `644` world-readable
-permissions and may still be world-readable on some systems.
-
-The `kasld` wrapper script includes a check for readable log files, including
-`/var/log/dmesg`, but does not use this technique.
+Additionally, [an initscript bug](https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=867747)
+present from 2017-2019 caused the `/var/log/dmesg` log file to be generated
+with world-readable permissions (`644`) and may still be world-readable on
+some systems.
 
 
 ### DebugFS
@@ -158,12 +154,74 @@ readable in some non-default configurations.
 
 ### Hardware Bugs
 
+There are a plethora of viable hardware-related attacks which can be used to break
+KASLR, in particular timing side-channels and transient execution attacks.
+
+KASLD includes the following hardare-related KASLR breaks:
+
+* [EntryBleed (CVE-2022-4543)](src/entrybleed.c)
+
 The [extra/check-hardware-vulnerabilities](extra/check-hardware-vulnerabilities)
 script performs rudimentary checks for several known hardware vulnerabilities,
 but does not implement these techniques.
 
-There are a plethora of viable hardware-related attacks which can be used to break
-KASLR, in particular timing side-channels and transient execution attacks.
+Refer to the [Hardware Bugs](#hardware-bugs) section for more information.
+
+
+### Weak Entropy
+
+The kernel is loaded at an aligned memory address, usually between `PAGE_SIZE` (4096 KiB)
+and 2MiB on modern systems (see `KERNEL_ALIGN` definitions in [kasld.h](src/kasld.h)).
+This limits the number of possible kernel locations. For example, on x86_64 with
+`RANDOMIZE_BASE_MAX_OFFSET` of 1GiB and 2MiB alignment, this limited the kernel load
+address to `0x4000_0000 / 0x20_0000 = 512` possible locations.
+ 
+Weaknesses in randomisation can decrease entropy, further limiting the possible kernel
+locations in memory and making the kernel easier to locate.
+
+KASLR may be disabled if insufficient randomness is generated during boot (for example, if `get_kaslr_seed()` fails on ARM64).
+
+Refer to the [Weak Entropy](#weak-entropy) section for more information.
+
+
+## References
+
+### Linux KASLR History and Implementation
+
+* [grsecurity - KASLR: An Exercise in Cargo Cult Security](https://grsecurity.net/kaslr_an_exercise_in_cargo_cult_security) (grsecurity, 2013)
+* [An Info-Leak Resistant Kernel Randomization for Virtualized Systems | IEEE Journals & Magazine | IEEE Xplore](https://ieeexplore.ieee.org/document/9178757) (Fernando Vano-Garcia, Hector Marco-Gisbert, 2020)
+* Kernel Address Space Layout Randomization (LWN.net)
+  * [Kernel address space layout randomization [LWN.net]](https://lwn.net/Articles/569635/)
+  * [Randomize kernel base address on boot [LWN.net]](https://lwn.net/Articles/444556/)
+  * [arm64: implement support for KASLR [LWN.net]](https://lwn.net/Articles/673598/)
+* Function Granular KASLR (LWN.net)
+  * https://lwn.net/Articles/811685/
+  * https://lwn.net/Articles/824307/
+  * https://lwn.net/Articles/826539/
+  * https://lwn.net/Articles/877487/
+
+
+### Linux KASLR Configuration
+
+* Linux Kernel Driver DataBase
+  * [CONFIG_RANDOMIZE_BASE: Randomize the address of the kernel image (KASLR)](https://cateee.net/lkddb/web-lkddb/RANDOMIZE_BASE.html)
+  * [CONFIG_RANDOMIZE_BASE_MAX_OFFSET: Maximum kASLR offset](https://cateee.net/lkddb/web-lkddb/RANDOMIZE_BASE_MAX_OFFSET.html)
+  * [CONFIG_RANDOMIZE_MEMORY: Randomize the kernel memory sections](https://cateee.net/lkddb/web-lkddb/RANDOMIZE_MEMORY.html)
+  * [CONFIG_RELOCATABLE: Build a relocatable kernel](https://cateee.net/lkddb/web-lkddb/RELOCATABLE.html)
+
+
+### Linux Memory Management
+
+* [0xAX/linux-insides](https://github.com/0xAX/linux-insides)
+  * https://github.com/0xAX/linux-insides/tree/master/Initialization
+  * https://github.com/0xAX/linux-insides/blob/master/Theory/linux-theory-1.md
+  * https://github.com/0xAX/linux-insides/tree/master/MM
+* [Virtual Memory and Linux](https://elinux.org/images/b/b0/Introduction_to_Memory_Management_in_Linux.pdf) (Matt Porter, 2016)
+* [Understanding the Linux Virtual Memory Manager](https://www.kernel.org/doc/gorman/html/understand/index.html) (Mel Gorman, 2004)
+* Linux Kernel Programming (Kaiwan N Billimoria, 2021)
+
+
+### Hardware Bugs
 
 [Practical Timing Side Channel Attacks Against Kernel Space ASLR](https://openwall.info/wiki/_media/archive/TR-HGI-2013-001.pdf) (Ralf Hund, Carsten Willems, Thorsten Holz, 2013)
 
@@ -191,7 +249,8 @@ EchoLoad:
 
   * [KASLR: Break It, Fix It, Repeat](https://gruss.cc/files/kaslrbfr.pdf) (Claudio Canella, Michael Schwarz, Martin Haubenwallner, 2020)
   * [Store-to-Leak Forwarding: There and Back Again](https://i.blackhat.com/asia-20/Friday/asia-20-Canella-Store-To-Leak-Forwarding-There-And-Back-Again-wp.pdf) (Claudio Canella, Lukas Giner, Michael Schwarz, 2020)
-    * Slides: [Store-to-Leak Forwarding - There and Back Again - store2leak_blackhat_slides.pdf](https://misc0110.net/files/store2leak_blackhat_slides.pdf)
+    * Slides: https://misc0110.net/files/store2leak_blackhat_slides.pdf
+    * Blackhat Asia 2020 Presentation: https://www.youtube.com/watch?v=Yc1AXkCu2AA
     * https://github.com/cc0x1f/store-to-leak-forwarding-there-and-back-again/tree/master/echoload
 
 Data Bounce:
@@ -204,7 +263,7 @@ Prefetch side-channel attacks:
   * [Prefetch Side-Channel Attacks: Bypassing SMAP and Kernel ASLR](https://gruss.cc/files/prefetch.pdf) (Daniel Gruss, Clémentine Maurice, Anders Fogh, 2016)
     * [xairy/kernel-exploits/prefetch-side-channel](https://github.com/xairy/kernel-exploits/tree/master/prefetch-side-channel) (xairy, 2020)
   * [Using Undocumented CPU Behaviour to See into Kernel Mode and Break KASLR in the Process](https://www.blackhat.com/docs/us-16/materials/us-16-Fogh-Using-Undocumented-CPU-Behaviour-To-See-Into-Kernel-Mode-And-Break-KASLR-In-The-Process.pdf) (Anders Fogh, Daniel Gruss, 2016)
-    * Blackhat USA 2015 Video: [https://www.youtube.com/watch?v=Pwq0vv4X7m4](https://www.youtube.com/watch?v=Pwq0vv4X7m4) (Anders Fogh, Daniel Gruss, 2015)
+    * Blackhat USA 2015 Presentation: https://www.youtube.com/watch?v=Pwq0vv4X7m4
   * [Fetching the KASLR slide with prefetch](https://googleprojectzero.blogspot.com/2022/12/exploiting-CVE-2022-42703-bringing-back-the-stack-attack.html) (Seth Jenkins, 2022)
     * [prefetch_poc.zip](https://bugs.chromium.org/p/project-zero/issues/detail?id=2351) - Intel x86_64 CPUs with kPTI disabled (`pti=off`)
   * [EntryBleed: Breaking KASLR under KPTI with Prefetch (CVE-2022-4543)](https://www.willsroot.io/2022/12/entrybleed.html) (willsroot, 2022)
@@ -219,6 +278,8 @@ Transactional Synchronization eXtensions (TSX) side-channel timing attacks:
 
   * [TSX improves timing attacks against KASLR](http://web.archive.org/web/20141107045306/http://labs.bromium.com/2014/10/27/tsx-improves-timing-attacks-against-kaslr/) (Rafal Wojtczuk, 2014)
   * [DrK: Breaking Kernel Address Space Layout Randomization with Intel TSX](https://www.blackhat.com/docs/us-16/materials/us-16-Jang-Breaking-Kernel-Address-Space-Layout-Randomization-KASLR-With-Intel-TSX.pdf) (Yeongjin Jang, Sangho Lee, Taesoo Kim, 2016)
+    * Slides: https://www.blackhat.com/docs/us-16/materials/us-16-Jang-Breaking-Kernel-Address-Space-Layout-Randomization-KASLR-With-Intel-TSX.pdf
+    * Blackhat USA 2015 Presentation: https://www.youtube.com/watch?v=rtuXG28g0CU
   * [vnik5287/kaslr_tsx_bypass](https://github.com/vnik5287/kaslr_tsx_bypass) (Vitaly Nikolenko, 2017)
 
 Branch Target Buffer (BTB) based side-channel attacks:
@@ -229,6 +290,7 @@ Branch Target Buffer (BTB) based side-channel attacks:
 Transient Execution / Speculative Execution:
 
   * The [transient.fail](https://transient.fail/) website offers a good overview of speculative execution / transient execution attacks.
+  * [SPECULOSE: Analyzing the Security Implications of Speculative Execution in CPUs](https://arxiv.org/pdf/1801.04084v1.pdf) (Giorgi Maisuradze, Christian Rossow, 2018)
   * [A Systematic Evaluation of Transient Execution Attacks and Defenses](https://www.cc0x1f.net/publications/transient_sytematization.pdf) (Claudio Canella, Jo Van Bulck, Michael Schwarz, Moritz Lipp, Benjamin von Berg, Philipp Ortner, Frank Piessens, Dmitry Evtyushkin3, Daniel Gruss, 2019)
   * [Meltdown](https://meltdownattack.com)
     * [Meltdown: Reading Kernel Memory from User Space](https://meltdownattack.com/meltdown.pdf) (Moritz Lipp, Michael Schwarz, Daniel Gruss, Thomas Prescher, Werner Haas, Anders Fogh, Jann Horn, Stefan Mangard, Paul Kocher, Daniel Genkin, Yuval Yarom, Mike Hamburg, 2018)
@@ -282,6 +344,9 @@ Remote kernel pointer leak via IP packet headers (CVE-2019-10639):
   * [Linux kernel 2.6.0 to 4.12-rc4 infoleak due to a data race in ALSA timer](https://seclists.org/oss-sec/2017/q2/455) (Alexander Potapenko, 2017)
     * [snd_timer_c.bin](https://seclists.org/oss-sec/2017/q2/att-529/snd_timer_c.bin) (Alexander Potapenko, 2017)
 
+PPTP sockets `pptp_bind()` / `pptp_connect()` kernel stack leak (CVE-2015-8569):
+  * https://lkml.org/lkml/2015/12/14/252
+
 Exploiting uninitialized stack variables:
 
   * [Leak kernel pointer by exploiting uninitialized uses in Linux kernel](https://jinb-park.github.io/leak-kptr.html)
@@ -314,40 +379,11 @@ Leaking kernel addresses using privileged arbitrary read (or write) in kernel sp
     * [xairy/kernel-exploits/CVE-2017-18344](https://github.com/xairy/kernel-exploits/tree/master/CVE-2017-18344)
 
 
-### KASLR Slide Randomness
+### Weak Entropy
 
 [Another look at two Linux KASLR patches](https://www.kryptoslogic.com/blog/2020/03/another-look-at-two-linux-kaslr-patches/index.html) (Kryptos Logic, 2020)
 
-
-## References
-
-### Linux KASLR
-
-* [grsecurity - KASLR: An Exercise in Cargo Cult Security](https://grsecurity.net/kaslr_an_exercise_in_cargo_cult_security) (grsecurity, 2013)
-* Kernel Address Space Layout Randomization (LWN.net)
-  * [Kernel address space layout randomization [LWN.net]](https://lwn.net/Articles/569635/)
-  * [Randomize kernel base address on boot [LWN.net]](https://lwn.net/Articles/444556/)
-  * [arm64: implement support for KASLR [LWN.net]](https://lwn.net/Articles/673598/)
-* Function Granular KASLR (LWN.net)
-  * https://lwn.net/Articles/811685/
-  * https://lwn.net/Articles/824307/
-  * https://lwn.net/Articles/826539/
-  * https://lwn.net/Articles/877487/
-* Linux Kernel Driver DataBase
-  * [CONFIG_RANDOMIZE_BASE: Randomize the address of the kernel image (KASLR)](https://cateee.net/lkddb/web-lkddb/RANDOMIZE_BASE.html)
-  * [CONFIG_RANDOMIZE_BASE_MAX_OFFSET: Maximum kASLR offset](https://cateee.net/lkddb/web-lkddb/RANDOMIZE_BASE_MAX_OFFSET.html)
-  * [CONFIG_RANDOMIZE_MEMORY: Randomize the kernel memory sections](https://cateee.net/lkddb/web-lkddb/RANDOMIZE_MEMORY.html)
-  * [CONFIG_RELOCATABLE: Build a relocatable kernel](https://cateee.net/lkddb/web-lkddb/RELOCATABLE.html)
-* [An Info-Leak Resistant Kernel Randomization for Virtualized Systems | IEEE Journals & Magazine | IEEE Xplore](https://ieeexplore.ieee.org/document/9178757)
-
-### Linux Memory Management
-
-* [0xAX/linux-insides](https://github.com/0xAX/linux-insides)
-  * https://github.com/0xAX/linux-insides/tree/master/Initialization
-  * https://github.com/0xAX/linux-insides/blob/master/Theory/linux-theory-1.md
-  * https://github.com/0xAX/linux-insides/tree/master/MM
-* [Understanding the Linux Virtual Memory Manager](https://www.kernel.org/doc/gorman/html/understand/index.html) (Mel Gorman, 2004)
-* Linux Kernel Programming (2021, Kaiwan N Billimoria)
+[arm64: efi: kaslr: Fix occasional random alloc (and boot) failure](https://github.com/torvalds/linux/commit/4152433c397697acc4b02c4a10d17d5859c2730d)
 
 
 ## License
