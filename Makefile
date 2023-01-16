@@ -23,6 +23,7 @@ all :
 	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_fake_numa_init.c -o $(BUILD_DIR)/dmesg_fake_numa_init.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_free_area_init_node.c -o $(BUILD_DIR)/dmesg_free_area_init_node.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_free_reserved_area.c -o $(BUILD_DIR)/dmesg_free_reserved_area.o
+	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_kaslr-disabled.c -o $(BUILD_DIR)/dmesg_kaslr-disabled.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_mem_init_kernel_layout.c -o $(BUILD_DIR)/dmesg_mem_init_kernel_layout.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_mmu_idmap.c -o $(BUILD_DIR)/dmesg_mmu_idmap.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/entrybleed.c -o $(BUILD_DIR)/entrybleed.o

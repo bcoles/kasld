@@ -109,6 +109,11 @@ if [ -x "${build}/dmesg_free_reserved_area.o" ]; then
   echo
 fi
 
+if [ -x "${build}/dmesg_kaslr-disabled.o" ]; then
+  "${build}/dmesg_kaslr-disabled.o"
+  echo
+fi
+
 if [ -x "${build}/dmesg_mem_init_kernel_layout.o" ]; then
   "${build}/dmesg_mem_init_kernel_layout.o"
   echo
