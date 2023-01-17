@@ -4,7 +4,7 @@
 // ---
 // <bcoles@gmail.com>
 
-#define _DEFAULT_SOURCE
+#define _GNU_SOURCE
 #include <stddef.h>
 #include <stdio.h>
 #include <sys/klog.h>

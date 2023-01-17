@@ -18,7 +18,7 @@
 // ---
 // <bcoles@gmail.com>
 
-#define _DEFAULT_SOURCE
+#define _GNU_SOURCE
 #include "kasld.h"
 #include <fcntl.h>
 #include <stdint.h>

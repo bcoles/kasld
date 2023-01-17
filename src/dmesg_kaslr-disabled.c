@@ -26,7 +26,7 @@
 // ---
 // <bcoles@gmail.com>
 
-#define _DEFAULT_SOURCE
+#define _GNU_SOURCE
 #include "include/syslog.h"
 #include "kasld.h"
 #include <stdbool.h>
