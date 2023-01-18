@@ -5,6 +5,7 @@
 // <bcoles@gmail.com>
 
 #define _GNU_SOURCE
+#include <errno.h>
 #include <stddef.h>
 #include <stdio.h>
 #include <sys/klog.h>
@@ -17,7 +18,7 @@
 int mmap_syslog(char **buffer, int *size) {
   *size = klogctl(SYSLOG_ACTION_SIZE_BUFFER, 0, 0);
   if (*size == -1) {
-    printf("[-] klogctl(SYSLOG_ACTION_SIZE_BUFFER): %m\n");
+    perror("[-] klogctl(SYSLOG_ACTION_SIZE_BUFFER)");
     return 1;
   }
 
@@ -27,7 +28,7 @@ int mmap_syslog(char **buffer, int *size) {
 
   *size = klogctl(SYSLOG_ACTION_READ_ALL, &((*buffer)[0]), *size);
   if (*size == -1) {
-    printf("[-] klogctl(SYSLOG_ACTION_READ_ALL): %m\n");
+    perror("[-] klogctl(SYSLOG_ACTION_READ_ALL)");
     return 1;
   }
 

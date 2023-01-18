@@ -12,6 +12,7 @@
 
 #define _GNU_SOURCE
 #include "kasld.h"
+#include <errno.h>
 #include <linux/perf_event.h>
 #include <signal.h>
 #include <stdint.h>
@@ -40,7 +41,7 @@ unsigned long get_kernel_addr_perf() {
   child = fork();
 
   if (child == -1) {
-    printf("[-] fork() failed: %m\n");
+    perror("[-] fork");
     return 0;
   }
 
@@ -64,7 +65,7 @@ unsigned long get_kernel_addr_perf() {
   fd = perf_event_open(&event, child, -1, -1, 0);
 
   if (fd < 0) {
-    printf("[-] syscall(SYS_perf_event_open): %m\n");
+    perror("[-] syscall(SYS_perf_event_open)");
     if (child)
       kill(child, SIGKILL);
     if (fd > 0)
@@ -78,7 +79,7 @@ unsigned long get_kernel_addr_perf() {
       mmap(NULL, (page_size * 2), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 
   if (meta_page == MAP_FAILED) {
-    printf("[-] mmap() failed: %m\n");
+    perror("[-] mmap");
     if (child)
       kill(child, SIGKILL);
     if (fd > 0)
@@ -87,7 +88,7 @@ unsigned long get_kernel_addr_perf() {
   }
 
   if (ioctl(fd, PERF_EVENT_IOC_ENABLE)) {
-    printf("[-] ioctl failed: %m\n");
+    perror("[-] ioctl");
     if (child)
       kill(child, SIGKILL);
     if (fd > 0)
@@ -116,7 +117,7 @@ unsigned long get_kernel_addr_perf() {
       case PERF_RECORD_SAMPLE:
         num_samples++;
         if (here->header.size < sizeof(*here)) {
-          printf("[-] size too small.\n");
+          fprintf(stderr, "[-] perf event header size too small\n");
           if (child)
             kill(child, SIGKILL);
           if (fd > 0)
@@ -134,7 +135,7 @@ unsigned long get_kernel_addr_perf() {
       case PERF_RECORD_LOST:
         break;
       default:
-        printf("[-] unexpected perf event: %x\n", here->header.type);
+        fprintf(stderr, "[-] unexpected perf event: %x\n", here->header.type);
         if (child)
           kill(child, SIGKILL);
         if (fd > 0)

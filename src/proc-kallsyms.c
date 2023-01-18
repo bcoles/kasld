@@ -11,6 +11,7 @@
 // <bcoles@gmail.com>
 
 #include "kasld.h"
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -28,7 +29,7 @@ unsigned long get_kernel_sym(char *name) {
   f = fopen(path, "r");
 
   if (f == NULL) {
-    printf("[-] open/read(%s): %m\n", path);
+    perror("[-] fopen");
     return 0;
   }
 
@@ -47,7 +48,7 @@ unsigned long get_kernel_sym(char *name) {
   fclose(f);
 
   if (addr == 0)
-    printf("[-] kernel symbol '%s' not found in %s\n", name, path);
+    fprintf(stderr, "[-] kernel symbol '%s' not found in %s\n", name, path);
 
   return addr;
 }

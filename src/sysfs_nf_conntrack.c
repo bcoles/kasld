@@ -17,6 +17,7 @@
 #define _GNU_SOURCE
 #include "kasld.h"
 #include <dirent.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -35,7 +36,7 @@ unsigned long get_kernel_addr_conntrack() {
 
   d = opendir(path);
   if (d == NULL) {
-    printf("opendir(%s): %m\n", path);
+    perror("[-] opendir");
     return 0;
   }
 

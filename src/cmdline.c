@@ -8,6 +8,7 @@
 // <bcoles@gmail.com>
 
 #include "kasld.h"
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,12 +23,12 @@ unsigned long get_kernel_addr_cmdline() {
 
   f = fopen(path, "rb");
   if (f == NULL) {
-    printf("[-] open/read(%s): %m\n", path);
+    perror("[-] fopen");
     return 0;
   }
 
   if (fgets(cmdline, sizeof(cmdline), f) == NULL) {
-    printf("[-] fgets(%s): %m\n", path);
+    perror("[-] fgets");
     fclose(f);
     return 0;
   }
@@ -35,7 +36,7 @@ unsigned long get_kernel_addr_cmdline() {
   fclose(f);
 
   if (strstr(cmdline, flag) == NULL) {
-    printf("[-] Kernel was not booted with nokaslr flag.\n");
+    fprintf(stderr, "[-] Kernel was not booted with nokaslr flag.\n");
     return 0;
   }
 

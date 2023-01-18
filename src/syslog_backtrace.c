@@ -19,6 +19,7 @@
 
 #define _GNU_SOURCE
 #include "kasld.h"
+#include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -42,7 +43,7 @@ unsigned long search_syslog_file_kernel_pointers() {
   f = fopen(path, "rb");
 
   if (f == NULL) {
-    printf("[-] open/read(%s): %m\n", path);
+    perror("[-] fopen");
     return 0;
   }
 

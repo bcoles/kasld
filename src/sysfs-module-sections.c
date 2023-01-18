@@ -13,6 +13,7 @@
 #define _GNU_SOURCE
 #include "kasld.h"
 #include <dirent.h>
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -28,13 +29,10 @@ unsigned long read_module_text(char *path) {
   // printf("[.] checking %s ...\n", path);
 
   f = fopen(path, "rb");
-  if (f == NULL) {
-    // printf("[-] open/read(%s): %m\n", path);
+  if (f == NULL)
     return 0;
-  }
 
   if (fgets(buff, buff_len, f) == NULL) {
-    // printf("[-] fgets(%s): %m\n", path);
     fclose(f);
     return 0;
   }
@@ -67,7 +65,7 @@ unsigned long get_module_text_sysfs() {
 
   d = opendir(path);
   if (d == NULL) {
-    printf("opendir(%s): %m\n", path);
+    perror("[-] opendir");
     return 0;
   }
 

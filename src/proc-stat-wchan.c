@@ -20,6 +20,7 @@
 // <bcoles@gmail.com>
 
 #include "kasld.h"
+#include <errno.h>
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -42,12 +43,12 @@ unsigned long get_kernel_addr_proc_stat_wchan() {
 
   f = fopen(path, "rb");
   if (f == NULL) {
-    printf("[-] open/read(%s): %m\n", path);
+    perror("[-] fopen");
     return 0;
   }
 
   if (fgets(buff, BUFSIZ, f) == NULL) {
-    printf("[-] fgets(%s): %m\n", path);
+    perror("[-] fgets");
     return 0;
   }
 

@@ -24,6 +24,7 @@
 
 #define _GNU_SOURCE
 #include "kasld.h"
+#include <errno.h>
 #include <inttypes.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -48,12 +49,12 @@ unsigned long get_kernel_addr_proc_pid_syscall() {
     // leaks lower addresses than reading with fopen()
     f = popen(cmd, "r");
     if (f == NULL) {
-      printf("[-] popen(%s): %m\n", cmd);
+      perror("[-] popen");
       return 0;
     }
 
     if (fgets(buff, sizeof(buff), f) == NULL) {
-      printf("[-] fgets(%s): %m\n", cmd);
+      perror("[-] fgets");
       pclose(f);
       return 0;
     }

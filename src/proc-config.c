@@ -14,6 +14,7 @@
 // ---
 // <bcoles@gmail.com>
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -24,7 +25,7 @@ unsigned long get_kernel_addr_proc_config() {
   printf("[.] checking %s ...\n", path);
 
   if (system("test -r /proc/config.gz") != 0) {
-    printf("[-] Could not read %s\n", path);
+    fprintf(stderr, "[-] Could not read %s\n", path);
     return 0;
   }
 

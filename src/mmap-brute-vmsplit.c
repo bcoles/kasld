@@ -16,6 +16,7 @@
 
 #define _GNU_SOURCE
 #include "kasld.h"
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -33,7 +34,7 @@ unsigned long find_kernel_address_space_start(void) {
     munmap((void *)i, 0x1000);
   }
 
-  printf("[-] Could not locate kernel virtual address space\n");
+  fprintf(stderr, "[-] Could not locate kernel virtual address space\n");
   return 0;
 }
 

@@ -19,6 +19,7 @@
 // <bcoles@gmail.com>
 
 #include "kasld.h"
+#include <errno.h>
 #include <inttypes.h>
 #include <linux/netlink.h>
 #include <stdio.h>
@@ -43,7 +44,7 @@ unsigned long get_kernel_addr_iscsi_iser_transport() {
 
   sock_fd = socket(PF_NETLINK, SOCK_RAW, NETLINK_ISCSI);
   if (sock_fd < 0) {
-    printf("[-] Failed to get a NETLINK_ISCSI socket: %m\n");
+    perror("[-] Failed to get a NETLINK_ISCSI socket");
     return 0;
   }
 
@@ -54,12 +55,12 @@ unsigned long get_kernel_addr_iscsi_iser_transport() {
 
   f = fopen(path, "rb");
   if (f == NULL) {
-    printf("[-] open/read(%s): %m\n", path);
+    perror("[-] fopen");
     return 0;
   }
 
   if (fgets(buff, buff_len, f) == NULL) {
-    printf("[-] fgets(%s): %m\n", path);
+    perror("[-] fgets");
     fclose(f);
     return 0;
   }
@@ -89,12 +90,12 @@ unsigned long get_kernel_addr_iscsi_sw_tcp_transport() {
 
   f = fopen(path, "rb");
   if (f == NULL) {
-    printf("[-] open/read(%s): %m\n", path);
+    perror("[-] fopen");
     return 0;
   }
 
   if (fgets(buff, buff_len, f) == NULL) {
-    printf("[-] fgets(%s): %m\n", path);
+    perror("[-] fgets");
     fclose(f);
     return 0;
   }

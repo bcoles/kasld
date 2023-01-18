@@ -29,6 +29,7 @@
 #define _GNU_SOURCE
 #include "include/syslog.h"
 #include "kasld.h"
+#include <errno.h>
 #include <stdbool.h>
 #include <string.h>
 #include <unistd.h>
@@ -74,7 +75,7 @@ unsigned long search_dmesg_log_file_kaslr_disabled() {
   f = fopen(path, "rb");
 
   if (f == NULL) {
-    printf("[-] open/read(%s): %m\n", path);
+    perror("[-] fopen");
     return 0;
   }
 

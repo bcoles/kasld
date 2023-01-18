@@ -9,6 +9,7 @@
 // ---
 // <bcoles@gmail.com>
 
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -34,7 +35,7 @@ static int is_kconfig_set(const char *config) {
 
   fp = fopen(buf, "r");
   if (fp == NULL) {
-    printf("[-] open/read(%s): %m\n", buf);
+    perror("[-] fopen");
     return -1;
   }
 

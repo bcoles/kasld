@@ -20,6 +20,7 @@
 
 #define _GNU_SOURCE
 #include "kasld.h"
+#include <errno.h>
 #include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -43,7 +44,7 @@ unsigned long get_kernel_addr_syslog_free_reserved_area() {
 
   f = fopen(path, "rb");
   if (f == NULL) {
-    printf("[-] open/read(%s): %m\n", path);
+    perror("[-] fopen");
     return 0;
   }
 

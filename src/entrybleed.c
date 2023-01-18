@@ -28,6 +28,7 @@
 
 #define _GNU_SOURCE
 #include "kasld.h"
+#include <errno.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -209,7 +210,7 @@ struct utsname get_kernel_version() {
   struct utsname u;
   int rv = uname(&u);
   if (rv != 0) {
-    printf("[-] uname()\n");
+    fprintf(stderr, "[-] uname()\n");
     exit(1);
   }
   return u;
@@ -225,7 +226,7 @@ int detect_kernel_version() {
   u = get_kernel_version();
 
   if (strstr(u.machine, "64") == NULL) {
-    printf("[-] system is not using a 64-bit kernel\n");
+    fprintf(stderr, "[-] system is not using a 64-bit kernel\n");
     exit(1);
   }
 
@@ -240,7 +241,7 @@ int detect_kernel_version() {
     }
   }
 
-  printf("[-] kernel version '%s' not recognized\n", kernel_version);
+  fprintf(stderr, "[-] kernel version '%s' not recognized\n", kernel_version);
   return -1;
 }
 
@@ -287,7 +288,7 @@ int detect_cpu_vendor() {
 
 uint64_t sidechannel(uint64_t addr) {
   uint64_t a, b, c, d;
-  // Note: unlike gcc, clang does not support this asm with intel syntax noprefix
+  // Note: clang does not support this asm with intel_syntax noprofix
   __asm__ volatile(".intel_syntax noprefix;"
                    "mfence;"
                    "rdtscp;"
@@ -353,7 +354,7 @@ unsigned long get_kernel_addr_entrybleed() {
   int cpu = detect_cpu_vendor();
 
   if (cpu == 0) {
-    printf("[-] Unknown CPU vendor\n");
+    fprintf(stderr, "[-] Unknown CPU vendor\n");
     return 0;
   }
 
@@ -363,7 +364,8 @@ unsigned long get_kernel_addr_entrybleed() {
          (pti ? "enabled" : "disabled"));
 
   if (cpu == 1 && pti == 1) {
-    printf(
+    fprintf(
+        stderr,
         "[-] AMD systems with KPTI enabled are not affected by EntryBleed\n");
     return 0;
   }
@@ -384,7 +386,7 @@ unsigned long get_kernel_addr_entrybleed() {
   for (i = 0; i < iterations; i++) {
     if (addr != leak_syscall_entry(offset)) {
       addr = 0;
-      printf("[-] Inconsistent results. Aborting ...\n");
+      fprintf(stderr, "[-] Inconsistent results. Aborting ...\n");
       break;
     }
   }
