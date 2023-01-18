@@ -72,7 +72,7 @@ unsigned long get_kernel_addr_dmesg_free_reserved_area() {
   return 0;
 }
 
-int main(int argc, char **argv) {
+int main() {
   unsigned long addr = get_kernel_addr_dmesg_free_reserved_area();
   if (!addr)
     return 1;

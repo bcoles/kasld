@@ -74,7 +74,7 @@ unsigned long get_kernel_addr_syslog_free_reserved_area() {
   return addr;
 }
 
-int main(int argc, char **argv) {
+int main() {
   unsigned long addr = get_kernel_addr_syslog_free_reserved_area();
   if (!addr)
     return 1;

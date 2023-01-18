@@ -40,7 +40,7 @@ unsigned long read_module_text(char *path) {
   fclose(f);
 
   // pointer hex string length + "0x" prefix + "\n" line feed
-  if (strlen(buff) != addr_len + 3)
+  if (strlen(buff) != (size_t)(addr_len + 3))
     return 0;
 
   addr = strtoul(buff, &endptr, 16);
@@ -88,7 +88,7 @@ unsigned long get_module_text_sysfs() {
   return addr;
 }
 
-int main(int argc, char **argv) {
+int main() {
   unsigned long addr = get_module_text_sysfs();
   if (!addr)
     return 1;

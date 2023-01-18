@@ -113,7 +113,7 @@ unsigned long get_kernel_addr_iscsi_sw_tcp_transport() {
   return 0;
 }
 
-int main(int argc, char **argv) {
+int main() {
   unsigned long addr;
 
   addr = get_kernel_addr_iscsi_iser_transport();

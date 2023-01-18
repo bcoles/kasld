@@ -46,7 +46,7 @@ unsigned long get_kernel_addr_perf() {
   }
 
   if (child == 0) {
-    struct utsname self = {{0}};
+    struct utsname self;
     while (1)
       uname(&self);
     return 0;
@@ -159,7 +159,7 @@ unsigned long get_kernel_addr_perf() {
   return 0;
 }
 
-int main(int argc, char **argv) {
+int main() {
   unsigned long addr = get_kernel_addr_perf();
   if (!addr)
     return 1;

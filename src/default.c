@@ -13,7 +13,7 @@ unsigned long get_kernel_addr_default() {
   return (unsigned long)KERNEL_TEXT_DEFAULT;
 }
 
-int main(int argc, char **argv) {
+int main() {
   unsigned long addr = get_kernel_addr_default();
   if (!addr)
     return 1;

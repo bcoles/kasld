@@ -76,7 +76,7 @@ unsigned long get_phys_addr_dmesg_early_init_dt_add_memory_arch() {
   return 0;
 }
 
-int main(int argc, char **argv) {
+int main() {
   unsigned long addr = get_phys_addr_dmesg_early_init_dt_add_memory_arch();
   if (!addr)
     return 1;

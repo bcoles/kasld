@@ -131,7 +131,7 @@ unsigned long get_kernel_addr_proc_pid_syscall() {
   return addr;
 }
 
-int main(int argc, char **argv) {
+int main() {
   unsigned long addr = get_kernel_addr_proc_pid_syscall();
   if (!addr)
     return 1;

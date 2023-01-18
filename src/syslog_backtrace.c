@@ -68,7 +68,7 @@ unsigned long search_syslog_file_kernel_pointers() {
   return addr;
 }
 
-int main(int argc, char **argv) {
+int main() {
   unsigned long addr = search_syslog_file_kernel_pointers();
   if (!addr)
     return 1;

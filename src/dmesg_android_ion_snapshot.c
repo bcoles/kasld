@@ -64,7 +64,7 @@ unsigned long search_dmesg_ion_snapshot() {
   return 0;
 }
 
-int main(int argc, char **argv) {
+int main() {
   unsigned long addr = search_dmesg_ion_snapshot();
   if (!addr)
     return 1;

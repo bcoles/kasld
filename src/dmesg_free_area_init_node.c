@@ -62,7 +62,7 @@ unsigned long get_phys_addr_dmesg_free_area_init_node() {
   return 0;
 }
 
-int main(int argc, char **argv) {
+int main() {
   unsigned long addr = get_phys_addr_dmesg_free_area_init_node();
   if (!addr)
     return 1;

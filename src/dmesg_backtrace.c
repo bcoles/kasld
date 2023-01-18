@@ -49,7 +49,7 @@ unsigned long search_dmesg_kernel_pointers() {
   return addr;
 }
 
-int main(int argc, char **argv) {
+int main() {
   unsigned long addr = search_dmesg_kernel_pointers();
   if (!addr)
     return 1;

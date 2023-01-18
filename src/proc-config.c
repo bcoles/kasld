@@ -39,7 +39,7 @@ unsigned long get_kernel_addr_proc_config() {
   return (unsigned long)KERNEL_TEXT_DEFAULT;
 }
 
-int main(int argc, char **argv) {
+int main() {
   unsigned long addr = get_kernel_addr_proc_config();
   if (!addr)
     return 1;

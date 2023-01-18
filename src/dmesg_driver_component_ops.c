@@ -74,7 +74,7 @@ unsigned long search_dmesg_driver_component_ops() {
   return addr;
 }
 
-int main(int argc, char **argv) {
+int main() {
   unsigned long addr = search_dmesg_driver_component_ops();
   if (!addr)
     return 1;

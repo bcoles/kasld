@@ -150,7 +150,7 @@ unsigned long search_dmesg_mem_init_lowmem() {
   return addr;
 }
 
-int main(int argc, char **argv) {
+int main() {
   unsigned long addr = search_dmesg_mem_init_kernel_text();
   if (addr) {
     printf("kernel text start: %lx\n", addr);

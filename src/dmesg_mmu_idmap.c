@@ -68,7 +68,7 @@ unsigned long search_dmesg_mmu_idmap() {
   return addr;
 }
 
-int main(int argc, char **argv) {
+int main() {
   unsigned long addr = search_dmesg_mmu_idmap();
   if (!addr)
     return 1;

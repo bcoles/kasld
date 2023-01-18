@@ -93,7 +93,7 @@ unsigned long search_dmesg_ex_handler_msr() {
   return addr;
 }
 
-int main(int argc, char **argv) {
+int main() {
   unsigned long addr = search_dmesg_ex_handler_msr();
   if (!addr)
     return 1;

@@ -69,7 +69,7 @@ unsigned long get_phys_addr_dmesg_fake_numa_init() {
   return 0;
 }
 
-int main(int argc, char **argv) {
+int main() {
   unsigned long addr = get_phys_addr_dmesg_fake_numa_init();
   if (!addr)
     return 1;
