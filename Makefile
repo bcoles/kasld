@@ -3,7 +3,7 @@ SHELL = /bin/sh
 
 CC = cc
 # Warning: Do not compile with -O
-FLAGS = -Wall -std=c99
+FLAGS = -std=c99 -Wall -Wextra -pedantic
 
 BUILD_DIR := ./build
 SRC_DIR := ./src
