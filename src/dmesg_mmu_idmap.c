@@ -10,7 +10,8 @@
 //
 // Requires:
 // - CONFIG_MMU=y
-// - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities.
+// - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities; or
+//   readable /var/log/dmesg.
 //
 // References:
 // https://elixir.bootlin.com/linux/v5.15.11/source/arch/arm/mm/idmap.c#L89
@@ -38,7 +39,6 @@ unsigned long search_dmesg_mmu_idmap() {
   char *endptr;
   char *substr;
   int size;
-  const char delim[] = " ";
   const char *needle = " static identity map for ";
   unsigned long addr = 0;
 
@@ -55,8 +55,8 @@ unsigned long search_dmesg_mmu_idmap() {
   if (addr_buf == NULL)
     return 0;
 
-  ptr = strtok(addr_buf, delim);
-  while ((ptr = strtok(NULL, delim)) != NULL) {
+  ptr = strtok(addr_buf, " ");
+  while ((ptr = strtok(NULL, " ")) != NULL) {
     addr = strtoul(&ptr[0], &endptr, 16);
 
     if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX)
@@ -68,8 +68,53 @@ unsigned long search_dmesg_mmu_idmap() {
   return addr;
 }
 
+unsigned long search_dmesg_log_file_mmu_idmap() {
+  FILE *f;
+  char *endptr;
+  char *line = 0;
+  char *ptr;
+  char *addr_buf;
+  size_t size = 0;
+  const char *path = "/var/log/dmesg";
+  const char *needle = " static identity map for ";
+  unsigned long addr = 0;
+
+  printf("[.] searching %s for '%s' ...\n", path, needle);
+
+  f = fopen(path, "rb");
+
+  if (f == NULL) {
+    perror("[-] fopen");
+    return 0;
+  }
+
+  while ((getline(&line, &size, f)) != -1) {
+    addr_buf = strstr(line, needle);
+
+    if (addr_buf == NULL)
+      continue;
+
+    ptr = strtok(addr_buf, " ");
+    while ((ptr = strtok(NULL, " ")) != NULL) {
+      addr = strtoul(&ptr[0], &endptr, 16);
+
+      if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX)
+        break;
+
+      addr = 0;
+    }
+  }
+
+  fclose(f);
+
+  return addr;
+}
+
 int main() {
   unsigned long addr = search_dmesg_mmu_idmap();
+  if (!addr)
+    addr = search_dmesg_log_file_mmu_idmap();
+
   if (!addr)
     return 1;
 

@@ -12,7 +12,8 @@
 // Interface (ACPI) do not support NUMA.
 //
 // Requires:
-// - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities.
+// - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities; or
+//   readable /var/log/dmesg.
 //
 // References:
 // https://cateee.net/lkddb/web-lkddb/NUMA.html
@@ -42,7 +43,7 @@ unsigned long get_phys_addr_dmesg_fake_numa_init() {
   int size;
   unsigned long addr = 0;
 
-  printf("[.] searching for fake_numa_init() info ...\n");
+  printf("[.] searching dmesg for fake_numa_init() info ...\n");
 
   if (mmap_syslog(&syslog, &size))
     return 0;
@@ -69,8 +70,56 @@ unsigned long get_phys_addr_dmesg_fake_numa_init() {
   return 0;
 }
 
+unsigned long get_phys_addr_dmesg_log_file_fake_numa_init() {
+  FILE *f;
+  char *endptr;
+  char *substr;
+  char *addr_buf;
+  char *line_buf;
+  const char *path = "/var/log/dmesg";
+  const char *needle = "NUMA: Faking a node at";
+  unsigned long addr = 0;
+  char buff[BUFSIZ];
+
+  printf("[.] searching %s for free_area_init_node() info ...\n", path);
+
+  f = fopen(path, "rb");
+  if (f == NULL) {
+    perror("[-] fopen");
+    return 0;
+  }
+
+  while ((fgets(buff, BUFSIZ, f)) != NULL) {
+    substr = strstr(buff, needle);
+    if (substr == NULL)
+      continue;
+
+    line_buf = strtok(substr, "\n");
+    if (line_buf == NULL)
+      break;
+
+    /* NUMA: Faking a node at [mem 0x0000000080200000-0x00000000bfffffff] */
+    // printf("%s\n", line_buf);
+
+    addr_buf = strstr(line_buf, " [mem ");
+    if (addr_buf == NULL)
+      break;
+
+    addr = strtoul(&addr_buf[5], &endptr, 16);
+    if (addr)
+      break;
+  }
+
+  fclose(f);
+
+  return addr;
+}
+
 int main() {
   unsigned long addr = get_phys_addr_dmesg_fake_numa_init();
+  if (!addr)
+    addr = get_phys_addr_dmesg_log_file_fake_numa_init();
+
   if (!addr)
     return 1;
 

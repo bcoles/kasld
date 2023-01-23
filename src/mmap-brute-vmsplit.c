@@ -25,7 +25,7 @@
 
 unsigned long find_kernel_address_space_start(void) {
   unsigned long i;
-  printf("[.] searching for kernel virtual address space start ...\n");
+  printf("[.] searching 32-bit address space for kernel virtual address space start ...\n");
 
   for (i = 0x10000000; i < 0xf0000000; i += 0x10000000) {
     if (mmap((void *)i, 0x1000, PROT_READ,

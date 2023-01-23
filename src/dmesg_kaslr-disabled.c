@@ -41,7 +41,7 @@ unsigned long search_dmesg_kaslr_disabled() {
   const char *needle = "KASLR disabled";
   bool nokaslr = false;
 
-  printf("[.] searching dmesg for \"%s\" ...\n", needle);
+  printf("[.] searching dmesg for '%s' ...\n", needle);
 
   if (mmap_syslog(&syslog, &size))
     return 0;
@@ -70,7 +70,7 @@ unsigned long search_dmesg_log_file_kaslr_disabled() {
   const char *needle = "KASLR disabled";
   bool nokaslr = false;
 
-  printf("[.] searching %s for \"%s\" ...\n", path, needle);
+  printf("[.] searching %s for '%s' ...\n", path, needle);
 
   f = fopen(path, "rb");
 

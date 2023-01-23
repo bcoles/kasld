@@ -1,6 +1,6 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
-// Syslog/dmesg helper functions.
+// Kernel message ring buffer syslog/dmesg helper functions.
 // ---
 // <bcoles@gmail.com>
 
@@ -15,6 +15,10 @@
 #define SYSLOG_ACTION_READ_ALL 3
 #define SYSLOG_ACTION_SIZE_BUFFER 10
 
+/* mmap entire kernel message ring buffer into +buffer+.
+ * Copied from exploit code by xairy:
+ * https://github.com/xairy/kernel-exploits/blob/master/CVE-2017-1000112/poc.c
+ */
 int mmap_syslog(char **buffer, int *size) {
   *size = klogctl(SYSLOG_ACTION_SIZE_BUFFER, 0, 0);
   if (*size == -1) {

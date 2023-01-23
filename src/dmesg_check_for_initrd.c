@@ -8,7 +8,8 @@
 //
 // Requires:
 // - CONFIG_BLK_DEV_INITRD=y
-// - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities.
+// - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities; or
+//   readable /var/log/dmesg.
 //
 // References:
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/kernel/setup-common.c#L385
@@ -24,7 +25,7 @@
 #include <string.h>
 #include <unistd.h>
 
-unsigned long get_kernel_addr_dmesg_check_for_initrd() {
+unsigned long search_dmesg_check_for_initrd() {
   char *syslog;
   char *endptr;
   char *substr;
@@ -57,8 +58,52 @@ unsigned long get_kernel_addr_dmesg_check_for_initrd() {
   return 0;
 }
 
+unsigned long search_dmesg_log_file_check_for_initrd() {
+  FILE *f;
+  char *endptr;
+  char *substr;
+  char *line_buf;
+  const char *path = "/var/log/dmesg";
+  const char *needle = "Found initrd at 0x";
+  unsigned long addr = 0;
+  char buff[BUFSIZ];
+
+  printf("[.] searching %s for check_for_initrd() info ...\n", path);
+
+  f = fopen(path, "rb");
+  if (f == NULL) {
+    perror("[-] fopen");
+    return 0;
+  }
+
+  while ((fgets(buff, BUFSIZ, f)) != NULL) {
+    substr = strstr(buff, needle);
+    if (substr == NULL)
+      continue;
+
+    line_buf = strtok(substr, "\n");
+    if (line_buf == NULL)
+      break;
+
+    /* Found initrd at 0xc000000001a00000:0xc000000002a26000 */
+    // printf("%s\n", line_buf);
+
+    addr = strtoul(&line_buf[strlen(needle)], &endptr, 16);
+
+    if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX)
+      break;
+  }
+
+  fclose(f);
+
+  return addr;
+}
+
 int main() {
-  unsigned long addr = get_kernel_addr_dmesg_check_for_initrd();
+  unsigned long addr = search_dmesg_check_for_initrd();
+  if (!addr)
+    addr = search_dmesg_log_file_check_for_initrd();
+
   if (!addr)
     return 1;
 

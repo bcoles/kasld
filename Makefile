@@ -38,8 +38,6 @@ all :
 	-$(CC) $(FLAGS) $(SRC_DIR)/sysfs_iscsi_transport_handle.c -o $(BUILD_DIR)/sysfs_iscsi_transport_handle.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/sysfs-module-sections.c -o $(BUILD_DIR)/sysfs-module-sections.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/sysfs_nf_conntrack.c -o $(BUILD_DIR)/sysfs_nf_conntrack.o
-	-$(CC) $(FLAGS) $(SRC_DIR)/syslog_backtrace.c -o $(BUILD_DIR)/syslog_backtrace.o
-	-$(CC) $(FLAGS) $(SRC_DIR)/syslog_free_reserved_area.c -o $(BUILD_DIR)/syslog_free_reserved_area.o
 
 clean :
 	rm -f $(BUILD_DIR)/*.o
