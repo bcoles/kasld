@@ -154,6 +154,11 @@ if [ -x "${build}/proc-kallsyms.o" ]; then
   echo
 fi
 
+if [ -x "${build}/proc-modules.o" ]; then
+  "${build}/proc-modules.o"
+  echo
+fi
+
 if [ -x "${build}/proc-pid-syscall.o" ]; then
   "${build}/proc-pid-syscall.o"
   echo
