@@ -184,7 +184,7 @@ The [extra/check-hardware-vulnerabilities](extra/check-hardware-vulnerabilities)
 script performs rudimentary checks for several known hardware vulnerabilities,
 but does not implement these techniques.
 
-Refer to the [Hardware Bugs](#hardware-bugs) section for more information.
+Refer to the [Hardware Side-Channels](#hardware-side-channels) section for more information.
 
 
 ### Weak Entropy
@@ -241,7 +241,7 @@ Refer to the [Weak Entropy](#weak-entropy) section for more information.
 * Linux Kernel Programming (Kaiwan N Billimoria, 2021)
 
 
-### Hardware Bugs
+### Hardware Side-Channels
 
 [Practical Timing Side Channel Attacks Against Kernel Space ASLR](https://openwall.info/wiki/_media/archive/TR-HGI-2013-001.pdf) (Ralf Hund, Carsten Willems, Thorsten Holz, 2013)
 
@@ -348,6 +348,12 @@ TagBleed: Tagged Translation Lookaside Buffer (TLB) side-channel attacks:
   * [RAMBleed: Reading Bits in Memory Without Accessing Them](https://rambleed.com/docs/20190603-rambleed-web.pdf) (Andrew Kwong, Daniel Genkin, Daniel Gruss, Yuval Yarom, 2019)
   * [google/rowhammer-test](https://github.com/google/rowhammer-test) (Google, 2015)
 
+Memory deduplication timing side-channel attacks:
+
+  * [Memory deduplication as a threat to the guest OS](https://kth.diva-portal.org/smash/get/diva2:1060434/FULLTEXT01) (Kuniyasu Suzaki, Kengo Iijima, Toshiki Yagi, Cyrille Artho. 2011)
+  * [Breaking KASLR Using Memory Deduplication in Virtualized Environments](https://www.mdpi.com/2079-9292/10/17/2174) (Taehun Kim, Taehyun Kim, Youngjoo Shin. 2021)
+  * [Remote Memory-Deduplication Attacks](https://pure.tugraz.at/ws/portalfiles/portal/38441480/main.pdf) (Martin Schwarzl, Erik Kraft, Moritz Lipp, Daniel Gruss. 2022)
+
 
 ### Kernel Info Leaks
 
@@ -390,13 +396,16 @@ PPTP sockets `pptp_bind()` / `pptp_connect()` kernel stack leak (CVE-2015-8569):
 
 Exploiting uninitialized stack variables:
 
-  * [Leak kernel pointer by exploiting uninitialized uses in Linux kernel](https://jinb-park.github.io/leak-kptr.html)
-  * [Exploiting Uses of Uninitialized Stack Variables in Linux Kernels to Leak Kernel Pointers](https://sefcom.asu.edu/publications/leak-kptr-woot20.pdf)
-  * [jinb-park/leak-kptr](https://github.com/jinb-park/leak-kptr)
-  * [compat_get_timex kernel stack pointer leak](https://github.com/jinb-park/leak-kptr/blob/master/exploit/CVE-2018-11508/poc.c) (CVE-2018-11508).
-  * [sctp_af_inet kernel pointer leak](https://github.com/jinb-park/leak-kptr/tree/master/exploit/sctp-leak) (CVE-2017-7558) (requires `libsctp-dev`).
-  * [rtnl_fill_link_ifmap kernel stack pointer leak](https://github.com/jinb-park/leak-kptr/tree/master/exploit/CVE-2016-4486) (CVE-2016-4486).
-  * [snd_timer_user_params kernel stack pointer leak](https://github.com/jinb-park/leak-kptr/tree/master/exploit/CVE-2016-4569) (CVE-2016-4569).
+  * [Structure holes and information leaks](https://lwn.net/Articles/417989/) (Jonathan Corbet. 2010)
+  * [C Structure Padding Initialization](https://interrupt.memfault.com/blog/c-struct-padding-initialization) (Noah Pendleton. 2022)
+  * [DCL39-C. Avoid information leakage when passing a structure across a trust boundary - SEI CERT C Coding Standard](https://wiki.sei.cmu.edu/confluence/display/c/DCL39-C.+Avoid+information+leakage+when+passing+a+structure+across+a+trust+boundary)
+  * [Exploiting Uses of Uninitialized Stack Variables in Linux Kernels to Leak Kernel Pointers](https://sefcom.asu.edu/publications/leak-kptr-woot20.pdf) (Haehyun Cho, Jinbum Park, Joonwon Kang, Tiffany Bao, Ruoyu Wang, Yan Shoshitaishvili, Adam Doupé, Gail-Joon Ahn. 2020)
+    * [Leak kernel pointer by exploiting uninitialized uses in Linux kernel](https://jinb-park.github.io/leak-kptr.html)
+    * [jinb-park/leak-kptr](https://github.com/jinb-park/leak-kptr)
+    * [compat_get_timex kernel stack pointer leak](https://github.com/jinb-park/leak-kptr/blob/master/exploit/CVE-2018-11508/poc.c) (CVE-2018-11508).
+    * [sctp_af_inet kernel pointer leak](https://github.com/jinb-park/leak-kptr/tree/master/exploit/sctp-leak) (CVE-2017-7558) (requires `libsctp-dev`).
+    * [rtnl_fill_link_ifmap kernel stack pointer leak](https://github.com/jinb-park/leak-kptr/tree/master/exploit/CVE-2016-4486) (CVE-2016-4486).
+    * [snd_timer_user_params kernel stack pointer leak](https://github.com/jinb-park/leak-kptr/tree/master/exploit/CVE-2016-4569) (CVE-2016-4569).
 
 
 ### Kernel Bugs
