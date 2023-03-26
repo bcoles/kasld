@@ -13,6 +13,10 @@
 // ---
 // <bcoles@gmail.com>
 
+#if !defined(__x86_64__) && !defined(__amd64__)
+#error "Architecture is not supported"
+#endif
+
 #define _GNU_SOURCE
 #include "kasld.h"
 #include <errno.h>
@@ -64,7 +68,6 @@ unsigned long get_kernel_addr_mincore() {
 }
 
 int main() {
-#if defined(__x86_64__) || defined(__amd64__)
   printf("[.] trying mincore info leak...\n");
 
   unsigned long addr = get_kernel_addr_mincore();
@@ -73,7 +76,6 @@ int main() {
 
   printf("leaked address: %lx\n", addr);
   printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);
-#endif
 
   return 0;
 }

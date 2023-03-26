@@ -26,6 +26,10 @@
 // ---
 // <bcoles@gmail.com>
 
+#if !defined(__x86_64__) && !defined(__amd64__)
+#error "Architecture is not supported"
+#endif
+
 #define _GNU_SOURCE
 #include "kasld.h"
 #include <errno.h>
@@ -396,7 +400,6 @@ unsigned long get_kernel_addr_entrybleed() {
 }
 
 int main() {
-#if defined(__x86_64__) || defined(__amd64__)
   printf("[.] trying EntryBleed (CVE-2022-4543) ...\n");
 
   unsigned long addr = get_kernel_addr_entrybleed();
@@ -404,6 +407,6 @@ int main() {
     return 1;
 
   printf("possible kernel base: %lx\n", addr);
-#endif
+
   return 0;
 }
