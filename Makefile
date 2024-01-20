@@ -37,6 +37,7 @@ all :
 	-$(CC) $(FLAGS) $(SRC_DIR)/proc-pid-syscall.c -o $(BUILD_DIR)/proc-pid-syscall.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/proc-stat-wchan.c -o $(BUILD_DIR)/proc-stat-wchan.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/sysfs_iscsi_transport_handle.c -o $(BUILD_DIR)/sysfs_iscsi_transport_handle.o
+	-$(CC) $(FLAGS) $(SRC_DIR)/sysfs-kernel-notes-xen.c -o $(BUILD_DIR)/sysfs-kernel-notes-xen.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/sysfs-module-sections.c -o $(BUILD_DIR)/sysfs-module-sections.o
 	-$(CC) $(FLAGS) $(SRC_DIR)/sysfs_nf_conntrack.c -o $(BUILD_DIR)/sysfs_nf_conntrack.o
 
