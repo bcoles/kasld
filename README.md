@@ -59,15 +59,12 @@ https://github.com/bcoles/kasld/blob/5dc63024d08c152b84359a7cd76a95fb10b6b9dc/sr
 
 ## Function Offsets
 
-A single kernel pointer leak can be used to infer the location of the kernel
+As the entire kernel code text is mapped with only the base address randomized,
+a single kernel pointer leak can be used to infer the location of the kernel
 virtual address space and offset of the kernel base address.
 
-Prior to the introduction of Function Granular KASLR (aka "finer grained KASLR")
-in early 5.x kernels in 2020, the entire kernel code text was mapped with only
-the base address randomized.
-
 Offsets to useful kernel functions (`commit_creds`, `prepare_kernel_cred`,
-`native_write_cr4`, etc) from the base address could be pre-calculated on other
+`native_write_cr4`, etc) from the base address can be pre-calculated on other
 systems with the same kernel - an easy task for publicly available kernels
 (ie, distro kernels).
 
@@ -76,21 +73,29 @@ Offsets may also be retrieved from various file system locations (`/proc/kallsym
 [jonoberheide/ksymhunter](https://github.com/jonoberheide/ksymhunter) automates
 this process.
 
-FG KASLR ["rearranges your kernel code at load time on a per-function level granularity"](https://lwn.net/Articles/811685/)
-and can be enabled with the [CONFIG_FG_KASLR](https://patchwork.kernel.org/project/linux-hardening/patch/20211223002209.1092165-8-alexandr.lobakin@intel.com/) flag.
-Following the introduction of FG KASLR, the location of kernel and module functions
-are independently randomized and no longer located at a constant offset from the
-kernel `.text` base.
 
-On systems which support FG KASLR (x86_64 and arm64 as of 2023), this makes
-calculating offsets to useful functions more difficult and renders kernel
-pointer leaks significantly less useful.
+## Function Granular KASLR (FG-KASLR)
+
+Function Granular KASLR (aka "finer grained KASLR") patches for the 5.5.0-rc7
+kernel were [proposed in February 2020](https://lwn.net/Articles/811685/)
+(but have not been merged as of 2024-01-01).
+
+This optional non-mainline mitigation ["rearranges your kernel code at load time on a per-function level granularity"](https://lwn.net/Articles/811685/)
+and can be enabled with the [CONFIG_FG_KASLR](https://patchwork.kernel.org/project/linux-hardening/patch/20211223002209.1092165-8-alexandr.lobakin@intel.com/) flag.
+
+FG-KASLR ensures the location of kernel and module functions are independently
+randomized and no longer located at a constant offset from the kernel `.text`
+base.
+
+On systems which support FG-KASLR patches (x86_64 from 2020, arm64 from 2023),
+this makes calculating offsets to useful functions more difficult and renders
+kernel pointer leaks significantly less useful.
 
 However, some regions of the kernel are not randomized (such as symbols before
 `__startup_secondary_64` on x86_64) and offsets remain consistent across reboots.
-Additionally, FG KASLR randomizes only kernel functions, leaving other useful
-kernel data (such as [modprobe_path](https://github.com/smallkirby/kernelpwn/blob/master/technique/modprobe_path.md))
-unchanged at a static offset.
+Additionally, FG-KASLR randomizes only kernel functions, leaving other useful
+kernel data (such as [modprobe_path](https://sam4k.com/like-techniques-modprobe_path/)
+and `core_pattern` usermode helpers) unchanged at a static offset.
 
 
 ## Addendum
@@ -214,12 +219,8 @@ Refer to the [Weak Entropy](#weak-entropy) section for more information.
   * [Kernel address space layout randomization [LWN.net]](https://lwn.net/Articles/569635/)
   * [Randomize kernel base address on boot [LWN.net]](https://lwn.net/Articles/444556/)
   * [arm64: implement support for KASLR [LWN.net]](https://lwn.net/Articles/673598/)
-* Function Granular KASLR (LWN.net)
-  * https://lwn.net/Articles/811685/
-  * https://lwn.net/Articles/824307/
-  * https://lwn.net/Articles/826539/
-  * https://lwn.net/Articles/877487/
-
+* Function Granular KASLR (FG-KASLR) (kernel.org)
+  * [[PATCH v10 00/15] Function Granular KASLR](https://lore.kernel.org/lkml/20220209185752.1226407-1-alexandr.lobakin@intel.com/)
 
 ### Linux KASLR Configuration
 
@@ -298,8 +299,14 @@ Prefetch side-channel attacks:
     * Blackhat USA 2015 Presentation: https://www.youtube.com/watch?v=Pwq0vv4X7m4
   * [Fetching the KASLR slide with prefetch](https://googleprojectzero.blogspot.com/2022/12/exploiting-CVE-2022-42703-bringing-back-the-stack-attack.html) (Seth Jenkins, 2022)
     * [prefetch_poc.zip](https://bugs.chromium.org/p/project-zero/issues/detail?id=2351) - Intel x86_64 CPUs with kPTI disabled (`pti=off`)
-  * [EntryBleed: Breaking KASLR under KPTI with Prefetch (CVE-2022-4543)](https://www.willsroot.io/2022/12/entrybleed.html) (willsroot, 2022)
+  * EntryBleed
     * Intel x86_64 CPUs; AMD x86_64 CPUs with kPTI disabled (`pti=off`)
+    * [EntryBleed: Breaking KASLR under KPTI with Prefetch (CVE-2022-4543)](https://www.willsroot.io/2022/12/entrybleed.html) (willsroot, 2022)
+    * [EntryBleed: A Universal KASLR Bypass against KPTI on Linux](https://dl.acm.org/doi/pdf/10.1145/3623652.3623669) (William Liu, Joseph Ravichandran, Mengjia Yan, 2023)
+  * SLAM: Spectre based on Linear Address Masking
+    * [Leaky Address Masking: Exploiting Unmasked Spectre Gadgets with Noncanonical Address Translation](https://download.vusec.net/papers/slam_sp24.pdf) (Mathé Hertogh, Sander Wiebing, Cristiano Giuffrida, 2024)
+    * [https://www.vusec.net/projects/slam/](https://www.vusec.net/projects/slam/)
+    * [vusec/slam](https://github.com/vusec/slam)
 
 Straight-line Speculation (SLS):
 
@@ -337,6 +344,12 @@ Transient Execution / Speculative Execution:
   * [VDSO As A Potential KASLR Oracle](https://www.longterm.io/vdso_sidechannel.html) (Philip Pettersson, Alex Radocea, 2021)
   * [RETBLEED: Arbitrary Speculative Code Execution with Return Instructions](https://comsec.ethz.ch/wp-content/files/retbleed_sec22.pdf) (Johannes Wikner, Kaveh Razavi, 2022)
     * [comsec-group/retbleed](https://github.com/comsec-group/retbleed) - Intel/AMD x86_64 CPUs
+  * [Timing the Transient Execution: A New Side-Channel Attack on Intel CPUs](https://arxiv.org/pdf/2304.10877.pdf) (Yu Jin, Pengfei Qiu, Chunlu Wang, Yihao Yang, Dongsheng Wang, Gang Qu, 2023)
+
+Speculative Data Gathering / Gather Data Sampling:
+
+  * [Downfall](https://downfall.page/) (CVE-2022-40982)
+    * [Downfall: Exploiting Speculative Data Gathering](https://downfall.page/media/downfall.pdf) (Daniel Moghimi), 2023)
 
 TagBleed: Tagged Translation Lookaside Buffer (TLB) side-channel attacks:
 
@@ -371,6 +384,11 @@ Netfilter info leak (CVE-2022-1972):
 
   * [Yet another bug into Netfilter](https://www.randorisec.fr/yet-another-bug-netfilter/)
     * https://github.com/randorisec/CVE-2022-1972-infoleak-PoC
+
+Remote uninitialized stack variables leaked via Bluetooth (L2CAP `l2cap_conf_efs` struct):
+
+  * [Linux Kernel: Infoleak in Bluetooth L2CAP Handling](https://seclists.org/oss-sec/2022/q4/188) (CVE-2022-42895)
+  * [Info Leak in the Linux Kernel via Bluetooth](https://seclists.org/oss-sec/2017/q4/357) (CVE-2017-1000410)
 
 Remote kernel pointer leak via IP packet headers (CVE-2019-10639):
 
