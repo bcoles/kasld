@@ -395,7 +395,7 @@
 // Modules are located below kernel: KERNEL_LINK_ADDR - 2GB (0x80000000)
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/riscv/include/asm/pgtable.h#L52
 #define MODULES_START    KERNEL_VAS_START - 0x80000000ul
-#define MODULES_END      KERNEL_VAS_START
+#define MODULES_END      KERNEL_BASE_MIN
 
 // https://elixir.bootlin.com/linux/v6.2-rc2/source/arch/riscv/include/asm/efi.h#L41
 #define KERNEL_ALIGN 2 * MB
