@@ -1,9 +1,16 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
-// Retrieve Xen symbols from the kernel ELF .notes section on x86_64 kernels
+// Retrieve Xen symbols from the kernel ELF .notes section on x86(_64) kernels
 // with Xen support (Debian and Ubuntu by default) via SysFS /sys/kernel/notes.
 //
-// Discovered by Nassim-Asrir (@p1k4l4) and exploited in CVE-2023-6546.
+// # grep hypercall_page /proc/kallsyms | head -n 1
+// ffffffffa6316000 T hypercall_page
+// $ hexdump -C /sys/kernel/notes | grep '00 60 31 a6' -A 1 -B 1
+// 00000180  04 00 00 00 08 00 00 00  02 00 00 00 58 65 6e 00 |............Xen.|
+// 00000190 [00 60 31 a6 ff ff ff ff] 04 00 00 00 04 00 00 00 |.`1.............|
+// 000001a0  11 00 00 00 58 65 6e 00  01 88 00 00 04 00 00 00 |....Xen.........|
+//
+// Discovered by Nassim-Asrir (@p1k4l4). Used in an exploit for CVE-2023-6546:
 // https://github.com/Nassim-Asrir/ZDI-24-020/blob/a267e27f5868a975e767794cf77b3092acff4a26/exploit.c#L421
 //
 // /sys/kernel/notes was introduced in kernel v2.6.23-rc1~389 on 2007-07-20:
@@ -18,9 +25,14 @@
 //
 // References:
 // https://cateee.net/lkddb/web-lkddb/XEN.html
+// https://elixir.bootlin.com/linux/v6.7.3/source/arch/x86/xen/xen-head.S#L118
 // https://github.com/Nassim-Asrir/ZDI-24-020/blob/a267e27f5868a975e767794cf77b3092acff4a26/exploit.c#L421
 // ---
 // <bcoles@gmail.com>
+
+#if !defined(__i386__) && !defined(__x86_64__) && !defined(__amd64__)
+#error "Architecture is not supported"
+#endif
 
 #define _GNU_SOURCE
 #include "kasld.h"
@@ -79,17 +91,18 @@ unsigned long get_kernel_addr_kernel_notes_xen_entry() {
 
     // printf("type: %u\n", type);
 
-    if (read(fd, &name, namesz) != namesz)
+    if (read(fd, &name, namesz) < 0)
       break;
 
     // printf("name: %s\n", name);
 
-    if (read(fd, &desc, descsz) != descsz)
+    if (read(fd, &desc, descsz) < 0)
       break;
 
     // printf("desc: %s\n", desc);
 
-    if (strcmp(name, "Xen") == 0 && type == 2 && descsz == 8) {
+    /* we're only interested in Xen pointers */
+    if (strcmp(name, "Xen") == 0 && type == 2 && descsz == sizeof(char *)) {
       addr = *(unsigned long *)&desc;
       // printf("addr: %lx\n", addr);
       break;
@@ -97,7 +110,7 @@ unsigned long get_kernel_addr_kernel_notes_xen_entry() {
 
     pad = 4 - ((namesz + descsz) % 4);
     if (pad < 4)
-      if (read(fd, &name, pad) != pad)
+      if (read(fd, &name, pad) < 0)
         break;
   }
 
