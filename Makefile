@@ -49,7 +49,7 @@ run : build
 	@echo
 	-$(OBJ_DIR)/boot-config.o
 	@echo
-	-$(OBJ_DIR)/cmdline.o
+	-$(OBJ_DIR)/proc-cmdline.o
 	@echo
 	-$(OBJ_DIR)/dmesg_android_ion_snapshot.o
 	@echo
