@@ -1,45 +1,129 @@
+# This file is part of KASLD - https://github.com/bcoles/kasld
+# ---
+# <bcoles@gmail.com>
+
 SHELL = /bin/sh
 .SUFFIXES: .c .o
 
 CC = cc
 # Warning: Do not compile with -O
-FLAGS = -std=c99 -Wall -Wextra -pedantic
+CFLAGS = -g -Wall -Wextra -pedantic
+ALL_CFLAGS = -std=c99 $(CFLAGS)
+LDFLAGS = -static
+ALL_LDFLAGS = $(LDFLAGS)
+
+ifndef _ARCH
+_ARCH := $(shell $(CC) -dumpmachine)
+export _ARCH
+endif
 
 BUILD_DIR := ./build
+OBJ_DIR := $(BUILD_DIR)/$(_ARCH)
 SRC_DIR := ./src
+SRC_FILES := $(wildcard $(SRC_DIR)/*.c)
+OBJ_FILES := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(SRC_FILES))
 
-all :
-	mkdir -p $(BUILD_DIR)
-	-$(CC) $(FLAGS) $(SRC_DIR)/bcm_msg_head_struct.c -o $(BUILD_DIR)/bcm_msg_head_struct.o
-	-$(CC) $(FLAGS) $(SRC_DIR)/boot-config.c -o $(BUILD_DIR)/boot-config.o
-	-$(CC) $(FLAGS) $(SRC_DIR)/cmdline.c -o $(BUILD_DIR)/cmdline.o
-	-$(CC) $(FLAGS) $(SRC_DIR)/default.c -o $(BUILD_DIR)/default.o
-	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_android_ion_snapshot.c -o $(BUILD_DIR)/dmesg_android_ion_snapshot.o
-	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_backtrace.c -o $(BUILD_DIR)/dmesg_backtrace.o
-	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_check_for_initrd.c -o $(BUILD_DIR)/dmesg_check_for_initrd.o
-	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_driver_component_ops.c -o $(BUILD_DIR)/dmesg_driver_component_ops.o
-	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_early_init_dt_add_memory_arch.c -o $(BUILD_DIR)/dmesg_early_init_dt_add_memory_arch.o
-	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_ex_handler_msr.c -o $(BUILD_DIR)/dmesg_ex_handler_msr.o
-	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_fake_numa_init.c -o $(BUILD_DIR)/dmesg_fake_numa_init.o
-	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_free_area_init_node.c -o $(BUILD_DIR)/dmesg_free_area_init_node.o
-	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_free_reserved_area.c -o $(BUILD_DIR)/dmesg_free_reserved_area.o
-	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_kaslr-disabled.c -o $(BUILD_DIR)/dmesg_kaslr-disabled.o
-	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_mem_init_kernel_layout.c -o $(BUILD_DIR)/dmesg_mem_init_kernel_layout.o
-	-$(CC) $(FLAGS) $(SRC_DIR)/dmesg_mmu_idmap.c -o $(BUILD_DIR)/dmesg_mmu_idmap.o
-	-$(CC) $(FLAGS) $(SRC_DIR)/entrybleed.c -o $(BUILD_DIR)/entrybleed.o
-	-$(CC) $(FLAGS) $(SRC_DIR)/mincore.c -o $(BUILD_DIR)/mincore.o
-	-$(CC) $(FLAGS) $(SRC_DIR)/mmap-brute-vmsplit.c -o $(BUILD_DIR)/mmap-brute-vmsplit.o
-	-$(CC) $(FLAGS) $(SRC_DIR)/perf_event_open.c -o $(BUILD_DIR)/perf_event_open.o
-	-$(CC) $(FLAGS) $(SRC_DIR)/proc-config.c -o $(BUILD_DIR)/proc-config.o
-	-$(CC) $(FLAGS) $(SRC_DIR)/pppd_kallsyms.c -o $(BUILD_DIR)/pppd_kallsyms.o
-	-$(CC) $(FLAGS) $(SRC_DIR)/proc-kallsyms.c -o $(BUILD_DIR)/proc-kallsyms.o
-	-$(CC) $(FLAGS) $(SRC_DIR)/proc-modules.c -o $(BUILD_DIR)/proc-modules.o
-	-$(CC) $(FLAGS) $(SRC_DIR)/proc-pid-syscall.c -o $(BUILD_DIR)/proc-pid-syscall.o
-	-$(CC) $(FLAGS) $(SRC_DIR)/proc-stat-wchan.c -o $(BUILD_DIR)/proc-stat-wchan.o
-	-$(CC) $(FLAGS) $(SRC_DIR)/sysfs_iscsi_transport_handle.c -o $(BUILD_DIR)/sysfs_iscsi_transport_handle.o
-	-$(CC) $(FLAGS) $(SRC_DIR)/sysfs-kernel-notes-xen.c -o $(BUILD_DIR)/sysfs-kernel-notes-xen.o
-	-$(CC) $(FLAGS) $(SRC_DIR)/sysfs-module-sections.c -o $(BUILD_DIR)/sysfs-module-sections.o
-	-$(CC) $(FLAGS) $(SRC_DIR)/sysfs_nf_conntrack.c -o $(BUILD_DIR)/sysfs_nf_conntrack.o
+.PHONY: all
+all : build
 
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
+	-$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) $< -o $@
+
+.PHONY: pre-build
+pre-build :
+	@echo "Building $(OBJ_DIR) ..."
+	mkdir -p "$(OBJ_DIR)"
+
+.PHONY: build
+build : pre-build $(OBJ_FILES)
+
+.PHONY: run
+run : build
+	@echo "Running build ..."
+	@echo
+
+# run default first
+	-$(OBJ_DIR)/default.o
+	@echo
+	-$(OBJ_DIR)/bcm_msg_head_struct.o
+	@echo
+	-$(OBJ_DIR)/boot-config.o
+	@echo
+	-$(OBJ_DIR)/cmdline.o
+	@echo
+	-$(OBJ_DIR)/dmesg_android_ion_snapshot.o
+	@echo
+	-$(OBJ_DIR)/dmesg_backtrace.o
+	@echo
+	-$(OBJ_DIR)/dmesg_check_for_initrd.o
+	@echo
+	-$(OBJ_DIR)/dmesg_driver_component_ops.o
+	@echo
+	-$(OBJ_DIR)/dmesg_early_init_dt_add_memory_arch.o
+	@echo
+	-$(OBJ_DIR)/dmesg_ex_handler_msr.o
+	@echo
+	-$(OBJ_DIR)/dmesg_fake_numa_init.o
+	@echo
+	-$(OBJ_DIR)/dmesg_free_area_init_node.o
+	@echo
+	-$(OBJ_DIR)/dmesg_free_reserved_area.o
+	@echo
+	-$(OBJ_DIR)/dmesg_kaslr-disabled.o
+	@echo
+	-$(OBJ_DIR)/dmesg_mem_init_kernel_layout.o
+	@echo
+	-$(OBJ_DIR)/dmesg_mmu_idmap.o
+	@echo
+	-$(OBJ_DIR)/entrybleed.o
+	@echo
+	-$(OBJ_DIR)/mmap-brute-vmsplit.o
+	@echo
+	-$(OBJ_DIR)/perf_event_open.o
+	@echo
+	-$(OBJ_DIR)/proc-config.o
+	@echo
+	-$(OBJ_DIR)/pppd_kallsyms.o
+	@echo
+	-$(OBJ_DIR)/proc-kallsyms.o
+	@echo
+	-$(OBJ_DIR)/proc-modules.o
+	@echo
+	-$(OBJ_DIR)/proc-pid-syscall.o
+	@echo
+	-$(OBJ_DIR)/proc-stat-wchan.o
+	@echo
+	-$(OBJ_DIR)/sysfs_iscsi_transport_handle.o
+	@echo
+	-$(OBJ_DIR)/sysfs-kernel-notes-xen.o
+	@echo
+	-$(OBJ_DIR)/sysfs-module-sections.o
+	@echo
+	-$(OBJ_DIR)/sysfs_nf_conntrack.o
+	@echo
+# slow - leave this one last
+	-$(OBJ_DIR)/mincore.o
+	@echo
+
+
+.PHONY: clean
 clean :
-	rm -f $(BUILD_DIR)/*.o
+	@echo "Cleaning $(BUILD_DIR) ..."
+	rm -rf "$(BUILD_DIR)"
+
+
+.PHONY: help
+help:
+	@echo
+	@echo "  make [target] [OPTIONS]"
+	@echo
+	@echo "  Targets:"
+	@echo "      run             Build and run"
+	@echo "      all             Build all from src directory"
+	@echo "      clean           Remove build directory"
+	@echo
+	@echo "  Options:"
+	@echo "      CC=compiler     Compiler executable"
+	@echo "      CFLAGS=flags    Compiler flags"
+	@echo "      LDFLAGS=flags   Linker flags"
+	@echo
