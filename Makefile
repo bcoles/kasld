@@ -33,6 +33,9 @@ $(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
 pre-build :
 	@echo "Building $(OBJ_DIR) ..."
 	mkdir -p "$(OBJ_DIR)"
+# check for pre-compile errors before building
+	$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) $(SRC_DIR)/kasld.h
+
 
 .PHONY: build
 build : pre-build $(OBJ_FILES)
