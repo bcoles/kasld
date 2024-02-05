@@ -9,7 +9,7 @@ CC = cc
 # Warning: Do not compile with -O
 CFLAGS = -g -Wall -Wextra -pedantic
 ALL_CFLAGS = -std=c99 $(CFLAGS)
-LDFLAGS = -static
+LDFLAGS =
 ALL_LDFLAGS = $(LDFLAGS)
 
 ifndef _ARCH
