@@ -35,9 +35,17 @@ on a target system. This script requires `make`.
 
 Refer to [output.md](output.md) for example output from various distros.
 
+## Building
+
 A compiler which supports the `_GNU_SOURCE` macro is required due to
 use of non-portable code (`MAP_ANONYMOUS`, `getline()`, `popen()`, ...).
 
+KASLD components can be cross-compiled with `make` by specfying the approriate
+compiler (`CC`) with `LDFLAGS=-static`. For example:
+
+```
+make CC=aarch64-linux-musl-gcc LDFLAGS=-static
+```
 
 ## Configuration
 
