@@ -20,7 +20,7 @@
 unsigned long get_addr_proc_modules() {
   FILE *f;
   char *endptr;
-  char *line;
+  char *line = 0;
   char *addr_buf;
   size_t size = 0;
   const char *path = "/proc/modules";
