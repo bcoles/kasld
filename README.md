@@ -2,7 +2,7 @@
  <img src="logo.png" alt="KASLD logo generated with Stable Diffusion (modified)"/>
 </p>
 
-# Kernel Address Space Layout Derandomization [ KASLD ]
+# Kernel Address Space Layout Derandomization (KASLD)
 
 A collection of various techniques to infer the Linux kernel base virtual
 address as an unprivileged local user, for the purpose of bypassing Kernel
@@ -217,7 +217,7 @@ KASLR may be disabled if insufficient randomness is generated during boot
 Refer to the [Weak Entropy](#weak-entropy) section for more information.
 
 
-## References
+## Additional References
 
 ### Linux KASLR History and Implementation
 
@@ -227,8 +227,11 @@ Refer to the [Weak Entropy](#weak-entropy) section for more information.
   * [Kernel address space layout randomization [LWN.net]](https://lwn.net/Articles/569635/)
   * [Randomize kernel base address on boot [LWN.net]](https://lwn.net/Articles/444556/)
   * [arm64: implement support for KASLR [LWN.net]](https://lwn.net/Articles/673598/)
-* Function Granular KASLR (FG-KASLR) (kernel.org)
+* [Kernel load address randomization · Linux Inside](https://0xax.gitbooks.io/linux-insides/content/Booting/linux-bootstrap-6.html)
+* Function Granular KASLR (FG-KASLR)
   * [[PATCH v10 00/15] Function Granular KASLR](https://lore.kernel.org/lkml/20220209185752.1226407-1-alexandr.lobakin@intel.com/)
+  * [FGKASLR - CTF Wiki](https://ctf-wiki.org/pwn/linux/kernel-mode/defense/randomization/fgkaslr/)
+
 
 ### Linux KASLR Configuration
 
@@ -236,6 +239,7 @@ Refer to the [Weak Entropy](#weak-entropy) section for more information.
   * [CONFIG_RANDOMIZE_BASE: Randomize the address of the kernel image (KASLR)](https://cateee.net/lkddb/web-lkddb/RANDOMIZE_BASE.html)
   * [CONFIG_RANDOMIZE_BASE_MAX_OFFSET: Maximum kASLR offset](https://cateee.net/lkddb/web-lkddb/RANDOMIZE_BASE_MAX_OFFSET.html)
   * [CONFIG_RANDOMIZE_MEMORY: Randomize the kernel memory sections](https://cateee.net/lkddb/web-lkddb/RANDOMIZE_MEMORY.html)
+  * [CONFIG_RANDOMIZE_MEMORY_PHYSICAL_PADDING: Physical memory mapping padding](https://cateee.net/lkddb/web-lkddb/RANDOMIZE_MEMORY_PHYSICAL_PADDING.html)
   * [CONFIG_RELOCATABLE: Build a relocatable kernel](https://cateee.net/lkddb/web-lkddb/RELOCATABLE.html)
 
 
