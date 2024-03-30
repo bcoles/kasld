@@ -133,6 +133,7 @@ The following KASLD components read from `dmesg` and `/var/log/dmesg`:
 * [dmesg_kaslr-disabled.c](src/dmesg_kaslr-disabled.c)
 * [dmesg_mem_init_kernel_layout.c](src/dmesg_mem_init_kernel_layout.c)
 * [dmesg_mmu_idmap.c](src/dmesg_mmu_idmap.c)
+* [dmesg_riscv_relocation.c](src/dmesg_riscv_relocation.c)
 
 Historically, raw kernel pointers were frequently printed to the system log
 without using the [`%pK` printk format](https://www.kernel.org/doc/html/latest/core-api/printk-formats.html).

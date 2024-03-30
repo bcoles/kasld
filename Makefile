@@ -78,6 +78,8 @@ run : build
 	@echo
 	-$(OBJ_DIR)/dmesg_mmu_idmap.o
 	@echo
+	-$(OBJ_DIR)/dmesg_riscv_relocation.o
+	@echo
 	-$(OBJ_DIR)/entrybleed.o
 	@echo
 	-$(OBJ_DIR)/mmap-brute-vmsplit.o
