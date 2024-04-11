@@ -54,7 +54,7 @@
 // <bcoles@gmail.com>
 
 #define _GNU_SOURCE
-#include "kasld.h"
+#include "include/kasld.h"
 #include "include/syslog.h"
 #include <stdint.h>
 #include <stdio.h>

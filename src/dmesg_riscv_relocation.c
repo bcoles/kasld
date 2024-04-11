@@ -41,7 +41,7 @@
 
 #define _GNU_SOURCE
 #include "include/syslog.h"
-#include "kasld.h"
+#include "include/kasld.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>

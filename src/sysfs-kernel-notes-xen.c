@@ -35,7 +35,7 @@
 #endif
 
 #define _GNU_SOURCE
-#include "kasld.h"
+#include "include/kasld.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>

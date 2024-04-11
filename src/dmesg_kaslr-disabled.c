@@ -2,6 +2,9 @@
 //
 // Search kernel log for messages stating KASLR is disabled.
 //
+// x86/x86_64:
+// KASLR disabled: 'kaslr' not on cmdline (hibernation selected).
+//
 // ARM64:
 // KASLR disabled due to lack of seed
 // KASLR disabled due to FDT remapping failure
@@ -28,7 +31,7 @@
 
 #define _GNU_SOURCE
 #include "include/syslog.h"
-#include "kasld.h"
+#include "include/kasld.h"
 #include <errno.h>
 #include <stdbool.h>
 #include <string.h>

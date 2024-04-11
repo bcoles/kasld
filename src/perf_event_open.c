@@ -11,7 +11,7 @@
 // <bcoles@gmail.com>
 
 #define _GNU_SOURCE
-#include "kasld.h"
+#include "include/kasld.h"
 #include <errno.h>
 #include <linux/perf_event.h>
 #include <signal.h>
