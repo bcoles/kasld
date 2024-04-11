@@ -47,9 +47,10 @@ compiler (`CC`) with `LDFLAGS=-static`. For example:
 make CC=aarch64-linux-musl-gcc LDFLAGS=-static
 ```
 
+
 ## Configuration
 
-Common default kernel config options are defined in [src/kasld.h](src/kasld.h).
+Common default kernel config options are defined in [kasld.h](src/include/kasld.h).
 The default values should work on most systems, but may need to be tweaked for
 the target system - especially old kernels, embedded devices (ie, armv7), or
 systems with a non-default memory layout.
@@ -59,10 +60,10 @@ depending on kernel alignment. Once bitmasked, the address may need to be adjust
 based on text offset, although on x86_64 and arm64 (since 2020-04-15) the text
 offset is zero.
 
-The configuration options should be fairly self-explanatory. Refer to the comment
-headers in [src/kasld.h](src/kasld.h):
+The configuration options should be fairly self-explanatory.
+Refer to the comment headers in [kasld.h](src/include/kasld.h):
 
-https://github.com/bcoles/kasld/blob/5dc63024d08c152b84359a7cd76a95fb10b6b9dc/src/kasld.h#L5-L25
+https://github.com/bcoles/kasld/blob/5ae25b8367ac511b1caac6c34666f4c76b3face6/src/include/kasld.h#L5-L25
 
 
 ## Function Offsets
@@ -204,7 +205,7 @@ Refer to the [Hardware Side-Channels](#hardware-side-channels) section for more 
 ### Weak Entropy
 
 The kernel is loaded at an aligned memory address, usually between `PAGE_SIZE` (4096 KiB)
-and 2MiB on modern systems (see `KERNEL_ALIGN` definitions in [kasld.h](src/kasld.h)).
+and 2MiB on modern systems (see `KERNEL_ALIGN` definitions in [kasld.h](src/include/kasld.h).
 This limits the number of possible kernel locations. For example, on x86_64 with
 `RANDOMIZE_BASE_MAX_OFFSET` of 1GiB and 2MiB alignment, this limited the kernel load
 address to `0x4000_0000 / 0x20_0000 = 512` possible locations.
