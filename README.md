@@ -399,8 +399,9 @@ Netfilter info leak (CVE-2022-1972):
   * [Yet another bug into Netfilter](https://www.randorisec.fr/yet-another-bug-netfilter/)
     * https://github.com/randorisec/CVE-2022-1972-infoleak-PoC
 
-Remote uninitialized stack variables leaked via Bluetooth (L2CAP `l2cap_conf_efs` struct):
+Remote uninitialized stack variables leaked via Bluetooth:
 
+  * [BadChoice: Stack-Based Information Leak (BleedingTooth)](https://github.com/google/security-research/security/advisories/GHSA-7mh3-gq28-gfrq) (CVE-2020-12352)
   * [Linux Kernel: Infoleak in Bluetooth L2CAP Handling](https://seclists.org/oss-sec/2022/q4/188) (CVE-2022-42895)
   * [Info Leak in the Linux Kernel via Bluetooth](https://seclists.org/oss-sec/2017/q4/357) (CVE-2017-1000410)
 
