@@ -125,6 +125,7 @@ unsigned long search_dmesg_log_file_riscv_relocation() {
     }
   }
 
+  free(line);
   fclose(f);
 
   return addr;

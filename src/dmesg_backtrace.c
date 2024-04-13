@@ -85,6 +85,7 @@ unsigned long search_dmesg_log_file_kernel_pointers() {
     }
   }
 
+  free(line);
   fclose(f);
 
   return addr;

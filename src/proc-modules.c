@@ -54,6 +54,7 @@ unsigned long get_addr_proc_modules() {
     }
   }
 
+  free(line);
   fclose(f);
 
   return addr;

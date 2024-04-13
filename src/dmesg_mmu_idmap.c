@@ -105,6 +105,7 @@ unsigned long search_dmesg_log_file_mmu_idmap() {
     }
   }
 
+  free(line);
   fclose(f);
 
   return addr;

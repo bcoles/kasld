@@ -149,6 +149,7 @@ unsigned long search_dmesg_log_file_mem_init_kernel_text() {
     }
   }
 
+  free(line);
   fclose(f);
 
   return addr;
@@ -240,6 +241,7 @@ unsigned long search_dmesg_log_file_mem_init_lowmem() {
     }
   }
 
+  free(line);
   fclose(f);
 
   return addr;

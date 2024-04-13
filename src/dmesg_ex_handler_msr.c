@@ -133,6 +133,7 @@ unsigned long search_dmesg_log_file_ex_handler_msr() {
     }
   }
 
+  free(line);
   fclose(f);
 
   return addr;

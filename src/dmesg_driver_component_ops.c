@@ -113,6 +113,7 @@ unsigned long search_dmesg_log_file_driver_component_ops() {
     }
   }
 
+  free(line);
   fclose(f);
 
   return addr;
