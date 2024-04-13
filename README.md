@@ -15,6 +15,8 @@ Supports:
 * MIPS (mipsbe, mipsel, mips64el)
 * PowerPC (ppc, ppc64)
 * RISC-V (riscv32, riscv64)
+* LoongArch (loongarch64)
+
 
 ## Usage
 

@@ -61,6 +61,8 @@
 #include "kasld/riscv64.h"
 #elif (defined(__riscv) || defined(__riscv__)) && __riscv_xlen == 32
 #include "kasld/riscv32.h"
+#elif defined(__loongarch__) && __loongarch_grlen == 64
+#include "kasld/loongarch64.h"
 #elif defined(__s390__) || defined(__s390x__) || defined(__370__) ||           \
     defined(__zarch__)
 #include "kasld/s390.h"
