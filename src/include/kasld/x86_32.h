@@ -22,24 +22,24 @@
 // 3GB vmsplit (0xc0000000) is a common configuration
 // for distro kernels for non-embedded systems
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/Kconfig#L1474
-#define PAGE_OFFSET      0xc0000000ul
+#define PAGE_OFFSET 0xc0000000ul
 
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/include/asm/page.h#L59
-#define phys_to_virt(x)  ((unsigned long)(x + PAGE_OFFSET))
+#define phys_to_virt(x) ((unsigned long)(x + PAGE_OFFSET))
 
 #define KERNEL_VAS_START PAGE_OFFSET
-#define KERNEL_VAS_END   0xfffffffful
+#define KERNEL_VAS_END 0xfffffffful
 
 // Old <= 4.4 era kernels used the RANDOMIZE_BASE_MAX_OFFSET config option
 // which limited the maximum offset to 512 MiB (0x2000_0000), yielding 256
 // possible base addresses (between 0xc0000000 and 0xe0000000).
 // The RANDOMIZE_BASE_MAX_OFFSET option was later removed.
 // We use a larger range with a max of 0xf0000000.
-#define KERNEL_BASE_MIN  PAGE_OFFSET
-#define KERNEL_BASE_MAX  0xf0000000ul
+#define KERNEL_BASE_MIN PAGE_OFFSET
+#define KERNEL_BASE_MAX 0xf0000000ul
 
-#define MODULES_START    0xf0000000ul
-#define MODULES_END      0xfffffffful
+#define MODULES_START 0xf0000000ul
+#define MODULES_END 0xfffffffful
 
 // For x86_32, possible max alignment is 0x100_0000 (16MiB) with default of
 // 0x20_0000 (2MiB) in increments of 0x2000 (8KiB).

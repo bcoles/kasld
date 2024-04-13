@@ -4,13 +4,16 @@
 // for SMP kernels:
 //
 // x86:
-// [    0.985903] Freeing unused kernel memory: 872K (c19b4000 - c1a8e000)
+// Freeing unused kernel memory: 872K (c19b4000 - c1a8e000)
+//
 // x86_64:
-// [    0.872873] Freeing unused kernel memory: 1476K (ffffffff81f41000 - ffffffff820b2000)
+// Freeing unused kernel memory: 1476K (ffffffff81f41000 - ffffffff820b2000)
+//
 // arm64:
-// [    2.804317] Freeing initrd memory: 16776K (ffff80005745b000 - ffff8000584bd000)
+// Freeing initrd memory: 16776K (ffff80005745b000 - ffff8000584bd000)
+//
 // ppc64:
-// [    2.950991] Freeing unused kernel memory: 960K (c000000000920000 - c000000000a10000)
+// Freeing unused kernel memory: 960K (c000000000920000 - c000000000a10000)
 //
 // Removed in kernel v4.10-rc1 on 2016-10-26:
 // https://github.com/torvalds/linux/commit/adb1fe9ae2ee6ef6bc10f3d5a588020e7664dfa7
@@ -58,7 +61,8 @@ unsigned long search_dmesg_free_reserved_area() {
   if (line_buf == NULL)
     return 0;
 
-  /* Freeing unused kernel memory: 1476K (ffffffff81f41000 - ffffffff820b2000) */
+  /* Freeing unused kernel memory: 1476K (ffffffff81f41000 - ffffffff820b2000)
+   */
   // printf("%s\n", line_buf);
 
   addr_buf = strstr(line_buf, "(");

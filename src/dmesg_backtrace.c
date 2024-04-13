@@ -41,7 +41,7 @@ unsigned long search_dmesg_kernel_pointers() {
       continue;
 
     if (leaked_addr >= KERNEL_BASE_MIN && leaked_addr <= KERNEL_BASE_MAX) {
-      //printf("Found kernel pointer: %lx\n", leaked_addr);
+      // printf("Found kernel pointer: %lx\n", leaked_addr);
       if (!addr || leaked_addr < addr)
         addr = leaked_addr;
     }

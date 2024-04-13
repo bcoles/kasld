@@ -20,23 +20,23 @@
 // page_offset = (0xffffffffffffffffUL) << (va_bits - 1)
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm64/include/asm/memory.h#L45
 // We assume 52 va bits:
-#define PAGE_OFFSET      0xfff8000000000000ul
-#define PHYS_OFFSET      0ul
+#define PAGE_OFFSET 0xfff8000000000000ul
+#define PHYS_OFFSET 0ul
 
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm64/include/asm/memory.h#L295
-#define phys_to_virt(x) ((unsigned long)((x) - PHYS_OFFSET) | PAGE_OFFSET)
+#define phys_to_virt(x) ((unsigned long)((x)-PHYS_OFFSET) | PAGE_OFFSET)
 
 #define KERNEL_VAS_START PAGE_OFFSET
-#define KERNEL_VAS_END   0xfffffffffffffffful
+#define KERNEL_VAS_END 0xfffffffffffffffful
 
 // 48 va bits (CONFIG_ARM64_VA_BITS_48) is a common configuration;
 // but an unsafe assumption since introduction of CONFIG_ARM64_VA_BITS_48_52.
 // older kernels may use 0xffff000008000000ul
-#define KERNEL_BASE_MIN  0xffff800008000000ul
-#define KERNEL_BASE_MAX  0xffffffffff000000ul
+#define KERNEL_BASE_MIN 0xffff800008000000ul
+#define KERNEL_BASE_MAX 0xffffffffff000000ul
 
-#define MODULES_START    0xffff800000000000ul
-#define MODULES_END      0xffff800007fffffful
+#define MODULES_START 0xffff800000000000ul
+#define MODULES_END 0xffff800007fffffful
 
 // MIN_KIMG_ALIGN is 2MiB (used without KASLR).
 // https://elixir.bootlin.com/linux/v6.2-rc2/source/arch/arm64/include/asm/boot.h#L18

@@ -5,12 +5,14 @@
 // The `ex_handler_msr` exception handler function prints registers
 // (including RIP) to the kernel log:
 //
+// clang-format off
 // pr_warn("unchecked MSR access error: WRMSR to 0x%x (tried to write 0x%08x%08x) at rIP: 0x%lx (%pS)\n",
 //        (unsigned int)regs->cx, (unsigned int)regs->dx,
 //        (unsigned int)regs->ax,  regs->ip, (void *)regs->ip);
 //
 // pr_warn("unchecked MSR access error: RDMSR from 0x%x at rIP: 0x%lx (%pS)\n",
 //        (unsigned int)regs->cx, regs->ip, (void *)regs->ip);
+// clang-format on
 //
 // regs->ip (RIP) address is printed as a raw pointer using "%lx" printk format.
 //
@@ -23,6 +25,7 @@
 // Prior to kernel v5.2-rc1~168^2^2 on 2019-03-25, the "%pF" printk format
 // was used instead of "%pS". This printed raw function pointers.
 //
+// clang-format off
 // $ dmesg | grep "unchecked MSR access error"
 // [    0.133554] unchecked MSR access error: RDMSR from 0x852 at rIP: 0xffffffffad467c37 (native_read_msr+0x7/0x40)
 // $ sudo grep native_read_msr /proc/kallsyms 
@@ -33,6 +36,7 @@
 // [.] searching dmesg for native_[read|write]_msr function pointer ...
 // leaked native_[read|write]_msr: ffffffffad467c37
 // possible kernel base: ffffffffad400000
+// clang-format on
 //
 // Requires:
 // - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities; or
@@ -105,8 +109,8 @@ unsigned long search_dmesg_log_file_ex_handler_msr() {
   unsigned long leaked_addr = 0;
   unsigned long addr = 0;
 
-  printf(
-      "[.] searching %s for native_[read|write]_msr function pointer ...\n", path);
+  printf("[.] searching %s for native_[read|write]_msr function pointer ...\n",
+         path);
 
   f = fopen(path, "rb");
 

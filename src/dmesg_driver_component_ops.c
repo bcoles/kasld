@@ -127,7 +127,6 @@ int main() {
   if (!addr)
     return 1;
 
-
   printf("lowest leaked address: %lx\n", addr);
   printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);
 

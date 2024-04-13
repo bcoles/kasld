@@ -18,25 +18,25 @@
 // 3GB vmsplit (0xc0000000) is common; but an unsafe assumption,
 // especially for embedded systems
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm/Kconfig#L1116
-#define PAGE_OFFSET      0xc0000000ul
+#define PAGE_OFFSET 0xc0000000ul
 
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm/Kconfig#L276
-#define PHYS_OFFSET      0ul
+#define PHYS_OFFSET 0ul
 
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm/include/asm/memory.h#L286
-#define phys_to_virt(x) ((unsigned long)((x) - PHYS_OFFSET + PAGE_OFFSET))
+#define phys_to_virt(x) ((unsigned long)((x)-PHYS_OFFSET + PAGE_OFFSET))
 
 #define KERNEL_VAS_START PAGE_OFFSET
-#define KERNEL_VAS_END   0xfffffffful
+#define KERNEL_VAS_END 0xfffffffful
 
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm/include/asm/memory.h#L26
-#define KERNEL_BASE_MIN  PAGE_OFFSET
-#define KERNEL_BASE_MAX  0xf0000000ul
+#define KERNEL_BASE_MIN PAGE_OFFSET
+#define KERNEL_BASE_MAX 0xf0000000ul
 
 // Modules are located below kernel: PAGE_OFFSET - 16MiB (0x01000000)
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm/include/asm/memory.h#L51
-#define MODULES_START    PAGE_OFFSET - 0x01000000 // 0xbf000000ul
-#define MODULES_END      PAGE_OFFSET
+#define MODULES_START PAGE_OFFSET - 0x01000000 // 0xbf000000ul
+#define MODULES_END PAGE_OFFSET
 
 #define KERNEL_ALIGN 2 * MB
 

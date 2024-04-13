@@ -18,22 +18,22 @@
 // vmalloc, I/O and Bolted sections are mapped above kernel.
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/Kconfig#L1267
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/Kconfig#L1264
-#define PAGE_OFFSET      0xc000000000000000ul
+#define PAGE_OFFSET 0xc000000000000000ul
 
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/include/asm/page.h#L227
 #define phys_to_virt(x) ((unsigned long)((x) | PAGE_OFFSET))
 
 #define KERNEL_VAS_START PAGE_OFFSET
-#define KERNEL_VAS_END   0xfffffffffffffffful
+#define KERNEL_VAS_END 0xfffffffffffffffful
 
-#define KERNEL_BASE_MIN  PAGE_OFFSET
-#define KERNEL_BASE_MAX  0xffffffffff000000ul
+#define KERNEL_BASE_MIN PAGE_OFFSET
+#define KERNEL_BASE_MAX 0xffffffffff000000ul
 
-#define MODULES_START    0xc000000000000000ul
-#define MODULES_END      0xfffffffffffffffful
+#define MODULES_START 0xc000000000000000ul
+#define MODULES_END 0xfffffffffffffffful
 
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/Kconfig#L1270
-#define PHYSICAL_START   0ul
+#define PHYSICAL_START 0ul
 
 // 16KiB (0x4000) aligned
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/Kconfig#L595

@@ -23,7 +23,7 @@ unsigned long read_module_text(char *path) {
   char *endptr;
   unsigned int buff_len = 64;
   char buff[buff_len];
-  const int addr_len = sizeof(long*) * 2;
+  const int addr_len = sizeof(long *) * 2;
   unsigned long addr = 0;
 
   // printf("[.] checking %s ...\n", path);
@@ -96,7 +96,9 @@ int main() {
   printf("lowest leaked module text address: %lx\n", addr);
 
   if (addr < MODULES_START || addr > MODULES_END)
-    printf("[!] warning: module located outside of defined MODULES_START and MODULES_END range (%lx - %lx)\n", MODULES_START, MODULES_END);
+    printf("[!] warning: module located outside of defined MODULES_START and "
+           "MODULES_END range (%lx - %lx)\n",
+           MODULES_START, MODULES_END);
 
   return 0;
 }

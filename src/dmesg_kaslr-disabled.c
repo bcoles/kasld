@@ -36,8 +36,8 @@
 // <bcoles@gmail.com>
 
 #define _GNU_SOURCE
-#include "include/syslog.h"
 #include "include/kasld.h"
+#include "include/syslog.h"
 #include <errno.h>
 #include <stdbool.h>
 #include <stdlib.h>

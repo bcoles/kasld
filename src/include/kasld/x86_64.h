@@ -23,24 +23,24 @@
 // https://www.kernel.org/doc/html/latest/x86/x86_64/mm.html
 // https://www.cateee.net/lkddb/web-lkddb/X86_5LEVEL.html
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/include/asm/page_64_types.h#L34
-#define PAGE_OFFSET      0xff00000000000000ul
+#define PAGE_OFFSET 0xff00000000000000ul
 
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/include/asm/page.h#L59
-#define phys_to_virt(x)  ((unsigned long)(x + PAGE_OFFSET))
+#define phys_to_virt(x) ((unsigned long)(x + PAGE_OFFSET))
 
 #define KERNEL_VAS_START PAGE_OFFSET
-#define KERNEL_VAS_END   0xfffffffffffffffful
+#define KERNEL_VAS_END 0xfffffffffffffffful
 
 // Old <= 4.4 era kernels used the RANDOMIZE_BASE_MAX_OFFSET config option
 // which limited the maximum offset to 1 GiB (0x4000_0000), yielding 512
 // possible base addresses (between 0xffffffff_80000000 and
 // 0xffffffff_c0000000). The RANDOMIZE_BASE_MAX_OFFSET option was later removed.
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/include/asm/page_64_types.h#L50
-#define KERNEL_BASE_MIN  0xffffffff80000000ul
-#define KERNEL_BASE_MAX  0xffffffffc0000000ul
+#define KERNEL_BASE_MIN 0xffffffff80000000ul
+#define KERNEL_BASE_MAX 0xffffffffc0000000ul
 
-#define MODULES_START    0xffffffffc0000000ul
-#define MODULES_END      0xfffffffffffffffful
+#define MODULES_START 0xffffffffc0000000ul
+#define MODULES_END 0xfffffffffffffffful
 
 // For x86_64, possible max alignment is 0x100_0000 (16MiB) with default of
 // 0x20_0000 (2MiB) in increments of 0x20_0000 (2MiB).

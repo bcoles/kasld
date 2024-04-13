@@ -13,25 +13,25 @@
 
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/Kconfig#L1203
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/Kconfig#L1220
-#define PAGE_OFFSET      0xc0000000ul
+#define PAGE_OFFSET 0xc0000000ul
 
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/Kconfig#L1233
-#define PHYSICAL_START   0ul
+#define PHYSICAL_START 0ul
 
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/include/asm/page.h#L240
 #define phys_to_virt(x) ((unsigned long)((x) + PAGE_OFFSET - PHYSICAL_START))
 
 #define KERNEL_VAS_START PAGE_OFFSET
-#define KERNEL_VAS_END   0xfffffffful
+#define KERNEL_VAS_END 0xfffffffful
 
-#define KERNEL_BASE_MIN  PAGE_OFFSET
-#define KERNEL_BASE_MAX  0xf0000000ul
+#define KERNEL_BASE_MIN PAGE_OFFSET
+#define KERNEL_BASE_MAX 0xf0000000ul
 
 // Modules are located below kernel: PAGE_OFFSET - 256MiB (0x10000000)
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/include/asm/book3s/32/pgtable.h#L214
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/include/asm/nohash/32/mmu-8xx.h#L173
-#define MODULES_START    PAGE_OFFSET - 0x10000000ul // 0xb0000000ul
-#define MODULES_END      PAGE_OFFSET
+#define MODULES_START PAGE_OFFSET - 0x10000000ul // 0xb0000000ul
+#define MODULES_END PAGE_OFFSET
 
 // page aligned
 #define KERNEL_ALIGN 0x1000ul

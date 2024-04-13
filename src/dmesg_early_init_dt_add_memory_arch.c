@@ -43,8 +43,9 @@ unsigned long get_phys_addr_dmesg_early_init_dt_add_memory_arch() {
   int size;
   unsigned long addr = 0;
 
-  printf("[.] searching dmesg for early_init_dt_add_memory_arch() ignored memory "
-         "ranges ...\n");
+  printf(
+      "[.] searching dmesg for early_init_dt_add_memory_arch() ignored memory "
+      "ranges ...\n");
 
   if (mmap_syslog(&syslog, &size))
     return 0;
@@ -89,7 +90,8 @@ unsigned long get_phys_addr_dmesg_log_file_early_init_dt_add_memory_arch() {
   char buff[BUFSIZ];
 
   printf("[.] searching %s for early_init_dt_add_memory_arch() ignored memory "
-         "ranges ...\n", path);
+         "ranges ...\n",
+         path);
 
   f = fopen(path, "rb");
   if (f == NULL) {

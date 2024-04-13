@@ -25,7 +25,8 @@
 
 unsigned long find_kernel_address_space_start(void) {
   unsigned long i;
-  printf("[.] searching 32-bit address space for kernel virtual address space start ...\n");
+  printf("[.] searching 32-bit address space for kernel virtual address space "
+         "start ...\n");
 
   for (i = 0x10000000; i < 0xf0000000; i += 0x10000000) {
     if (mmap((void *)i, 0x1000, PROT_READ,
@@ -46,7 +47,9 @@ int main() {
   printf("kernel virtual address start: %lx\n", addr);
 
   if (addr < (unsigned long)KERNEL_VAS_START)
-    printf("[!] warning: virtual address start %lx below configured KERNEL_VAS_START %lx\n", addr, (unsigned long)KERNEL_VAS_START);
+    printf("[!] warning: virtual address start %lx below configured "
+           "KERNEL_VAS_START %lx\n",
+           addr, (unsigned long)KERNEL_VAS_START);
 
   return 0;
 }

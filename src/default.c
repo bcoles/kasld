@@ -4,10 +4,10 @@
 // ---
 // <bcoles@gmail.com>
 
+#include "include/kasld.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "include/kasld.h"
 
 unsigned long get_kernel_addr_default() {
   return (unsigned long)KERNEL_TEXT_DEFAULT;
