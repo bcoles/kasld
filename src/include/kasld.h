@@ -95,3 +95,7 @@
 #if KERNEL_TEXT_DEFAULT < KERNEL_BASE_MIN
 #error "Generated KERNEL_TEXT_DEFAULT is smaller than KERNEL_BASE_MIN"
 #endif
+
+// Suppress GCC compiler warning when compiled with -pedantic:
+// warning: ISO C forbids an empty translation unit [-Wpedantic]
+typedef int make_iso_compilers_happy;
