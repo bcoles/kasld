@@ -5,7 +5,7 @@
 # be used to read arbitrary kernel memory.
 #
 # Note: Outdated systems which pre-date patches for CPU vulnerabilities
-#       will not report CPU vulnerabilties and associated mitigations,
+#       will not report CPU vulnerabilities and associated mitigations,
 #       thus cannot be checked using this script.
 #
 # References:
@@ -45,9 +45,8 @@ if grep -s -q Vulnerable /sys/devices/system/cpu/vulnerabilities/spec_store_bypa
   echo "[.] CPU vulnerable to spectre v4 (CVE-2018-3639)"
 fi
 
-if grep -s -q Vulnerable /sys/devices/system/cpu/vulnerabilities/retbleed ; then
-  echo "[.] CPU vulnerable to RETBleed (CVE-2022-29900 / CVE-2022-29901). Try:"
-  echo "    https://github.com/comsec-group/retbleed"
+if grep -s -q Vulnerable /sys/devices/system/cpu/vulnerabilities/l1tf ; then
+  echo "[.] CPU vulnerable to L1 Terminal Fault / Foreshadow (CVE-2018-3615 / CVE-2018-3620 / CVE-2018-3646)"
 fi
 
 if grep -s -q Vulnerable /sys/devices/system/cpu/vulnerabilities/mds ; then
@@ -58,6 +57,63 @@ fi
 if grep -s -q Vulnerable /sys/devices/system/cpu/vulnerabilities/tsx_async_abort ; then
   echo "[.] CPU vulnerable to TSX asynchronous abort (CVE-2019-11135). Try:"
   echo "    https://github.com/vnik5287/kaslr_tsx_bypass"
+fi
+
+if grep -s -q Vulnerable /sys/devices/system/cpu/vulnerabilities/srbds ; then
+  echo "[.] CPU vulnerable to Special Register Buffer Data Sampling / CrossTalk (CVE-2020-0543)"
+fi
+
+if grep -s -q Vulnerable /sys/devices/system/cpu/vulnerabilities/mmio_stale_data ; then
+  echo "[.] CPU vulnerable to MMIO Stale Data (CVE-2022-21123 / CVE-2022-21125 / CVE-2022-21166)"
+fi
+
+if grep -s -q Vulnerable /sys/devices/system/cpu/vulnerabilities/retbleed ; then
+  echo "[.] CPU vulnerable to RETBleed (CVE-2022-29900 / CVE-2022-29901). Try:"
+  echo "    https://github.com/comsec-group/retbleed"
+fi
+
+if grep -s -q Vulnerable /sys/devices/system/cpu/vulnerabilities/gather_data_sampling ; then
+  echo "[.] CPU vulnerable to Gather Data Sampling / Downfall (CVE-2022-40982). Try:"
+  echo "    https://github.com/flowyroll/downfall"
+fi
+
+if grep -s -q Vulnerable /sys/devices/system/cpu/vulnerabilities/spec_rstack_overflow ; then
+  echo "[.] CPU vulnerable to Speculative Return Stack Overflow / Inception / SRSO (CVE-2023-20569)"
+fi
+
+if grep -s -q Vulnerable /sys/devices/system/cpu/vulnerabilities/reg_file_data_sampling ; then
+  echo "[.] CPU vulnerable to Register File Data Sampling / RFDS (CVE-2023-28746)"
+fi
+
+if grep -s -q Vulnerable /sys/devices/system/cpu/vulnerabilities/indirect_target_selection ; then
+  echo "[.] CPU vulnerable to Indirect Target Selection / ITS (CVE-2025-20012)"
+fi
+
+if grep -s -q Vulnerable /sys/devices/system/cpu/vulnerabilities/tsa ; then
+  echo "[.] CPU vulnerable to Transient Scheduler Attacks / TSA"
+fi
+
+if grep -s -q Vulnerable /sys/devices/system/cpu/vulnerabilities/vmscape ; then
+  echo "[.] CPU vulnerable to VMScape"
+fi
+
+# GhostWrite (CVE-2024-44067) - T-Head XuanTie C910/C920 RISC-V CPUs
+# Hardware bug: vector extension instructions operate on physical memory
+# instead of virtual memory, bypassing all isolation. No microcode fix exists;
+# only mitigation is disabling xtheadvector (kernel >=6.14 does this automatically).
+# Sysfs entry exists on kernels >=6.14 with CONFIG_ERRATA_THEAD_GHOSTWRITE.
+# Fall back to /proc/cpuinfo detection: mvendorid 0x5b7 (T-Head) with marchid 0x0 (c9xx).
+if grep -s -q Vulnerable /sys/devices/system/cpu/vulnerabilities/ghostwrite ; then
+  echo "[.] CPU vulnerable to GhostWrite (CVE-2024-44067). Try:"
+  echo "    https://github.com/cispa/GhostWrite"
+elif ! [ -e /sys/devices/system/cpu/vulnerabilities/ghostwrite ] ; then
+  if grep -s -q 'mvendorid' /proc/cpuinfo ; then
+    if grep -s -q 'mvendorid.*0x5b7$' /proc/cpuinfo && grep -s -q 'marchid.*0x0$' /proc/cpuinfo ; then
+      echo "[.] T-Head XuanTie C9xx RISC-V CPU detected (mvendorid=0x5b7, marchid=0x0)"
+      echo "    CPU likely vulnerable to GhostWrite (CVE-2024-44067). Try:"
+      echo "    https://github.com/cispa/GhostWrite"
+    fi
+  fi
 fi
 
 echo
