@@ -42,7 +42,7 @@ Refer to [output.md](output.md) for example output from various distros.
 A compiler which supports the `_GNU_SOURCE` macro is required due to
 use of non-portable code (`MAP_ANONYMOUS`, `getline()`, `popen()`, ...).
 
-KASLD components can be cross-compiled with `make` by specfying the approriate
+KASLD components can be cross-compiled with `make` by specfying the appropriate
 compiler (`CC`) with `LDFLAGS=-static`. For example:
 
 ```
@@ -68,28 +68,29 @@ Refer to the comment headers in [kasld.h](src/include/kasld.h):
 https://github.com/bcoles/kasld/blob/5ae25b8367ac511b1caac6c34666f4c76b3face6/src/include/kasld.h#L5-L25
 
 
-## Function Offsets
+## Background
+
+### Function Offsets
 
 As the entire kernel code text is mapped with only the base address randomized,
 a single kernel pointer leak can be used to infer the location of the kernel
 virtual address space and offset of the kernel base address.
 
-Offsets to useful kernel functions (`commit_creds`, `prepare_kernel_cred`,
-`native_write_cr4`, etc) from the base address can be pre-calculated on other
-systems with the same kernel - an easy task for publicly available kernels
-(ie, distro kernels).
+Offsets to useful kernel functions (`commit_creds`, `prepare_kernel_cred`, etc)
+from the base address can be pre-calculated on other systems with the same
+kernel - an easy task for publicly available kernels(ie, distro kernels).
 
-Offsets may also be retrieved from various file system locations (`/proc/kallsyms`,
-`vmlinux`, `System.map`, etc) depending on file system permissions.
-[jonoberheide/ksymhunter](https://github.com/jonoberheide/ksymhunter) automates
-this process.
+Function offsets may also be retrieved from various file system locations
+(`/proc/kallsyms`, `vmlinux`, `System.map`, etc) depending on file system
+permissions. [jonoberheide/ksymhunter](https://github.com/jonoberheide/ksymhunter)
+automates this process.
 
 
-## Function Granular KASLR (FG-KASLR)
+### Function Granular KASLR (FG-KASLR)
 
 Function Granular KASLR (aka "finer grained KASLR") patches for the 5.5.0-rc7
 kernel were [proposed in February 2020](https://lwn.net/Articles/811685/)
-(but have not been merged as of 2024-01-01).
+(but have not been merged as of 2026-01-01).
 
 This optional non-mainline mitigation ["rearranges your kernel code at load time on a per-function level granularity"](https://lwn.net/Articles/811685/)
 and can be enabled with the [CONFIG_FG_KASLR](https://patchwork.kernel.org/project/linux-hardening/patch/20211223002209.1092165-8-alexandr.lobakin@intel.com/) flag.
@@ -109,17 +110,67 @@ kernel data (such as [modprobe_path](https://sam4k.com/like-techniques-modprobe_
 and `core_pattern` usermode helpers) unchanged at a static offset.
 
 
-## Addendum
+### Linux KASLR History and Implementation
+
+Not all architectures support KASLR (`CONFIG_RANDOMIZE_BASE`) or enable it by default:
+
+| Architecture | KASLR Added | Date | Default On | Notes |
+|---|---|---|---|---|
+| x86_32 | v3.14 ([`8ab3820fd5b2`](https://github.com/torvalds/linux/commit/8ab3820fd5b2)) | 2013-10-13 | v4.12 ([`09e43968fc6c`](https://github.com/torvalds/linux/commit/09e43968fc6c)) | Kconfig `default y` since v4.12 |
+| x86_64 | v3.14 ([`8ab3820fd5b2`](https://github.com/torvalds/linux/commit/8ab3820fd5b2)) | 2013-10-13 | v4.12 ([`09e43968fc6c`](https://github.com/torvalds/linux/commit/09e43968fc6c)) | Kconfig `default y` since v4.12 |
+| arm64 | v4.6 ([`f80fb3a3d508`](https://github.com/torvalds/linux/commit/f80fb3a3d508)) | 2016-02-24 | Yes (defconfig) | Enabled in upstream arm64 defconfig |
+| MIPS | v4.7 ([`405bc8fd12f5`](https://github.com/torvalds/linux/commit/405bc8fd12f5)) | 2016-05-13 | No | |
+| s390 | v5.2 ([`b2d24b97b2a9`](https://github.com/torvalds/linux/commit/b2d24b97b2a9)) | 2019-04-29 | v5.2 | Kconfig `default y` from initial commit |
+| PowerPC | v5.5 ([`2b0e86cc5de6`](https://github.com/torvalds/linux/commit/2b0e86cc5de6)) | 2019-11-13 | No | BookE/e500 (PPC_85xx) 32-bit only; not available on PPC64/Book3S |
+| LoongArch | v6.3 ([`e5f02b51fa0c`](https://github.com/torvalds/linux/commit/e5f02b51fa0c)) | 2023-02-25 | No | |
+| RISC-V | v6.6 ([`84fe419dc757`](https://github.com/torvalds/linux/commit/84fe419dc757)) | 2023-07-22 | No | 64-bit only |
+| arm32 | — | — | — | Not supported |
+| sparc | — | — | — | Not supported |
+
+* [grsecurity - KASLR: An Exercise in Cargo Cult Security](https://grsecurity.net/kaslr_an_exercise_in_cargo_cult_security) (grsecurity, 2013)
+* [An Info-Leak Resistant Kernel Randomization for Virtualized Systems | IEEE Journals & Magazine | IEEE Xplore](https://ieeexplore.ieee.org/document/9178757) (Fernando Vano-Garcia, Hector Marco-Gisbert, 2020)
+* Kernel Address Space Layout Randomization (LWN.net)
+  * [Kernel address space layout randomization [LWN.net]](https://lwn.net/Articles/569635/)
+  * [Randomize kernel base address on boot [LWN.net]](https://lwn.net/Articles/444556/)
+  * [arm64: implement support for KASLR [LWN.net]](https://lwn.net/Articles/673598/)
+* [Kernel load address randomization · Linux Inside](https://0xax.gitbooks.io/linux-insides/content/Booting/linux-bootstrap-6.html)
+* Function Granular KASLR (FG-KASLR)
+  * [[PATCH v10 00/15] Function Granular KASLR](https://lore.kernel.org/lkml/20220209185752.1226407-1-alexandr.lobakin@intel.com/)
+  * [FGKASLR - CTF Wiki](https://ctf-wiki.org/pwn/linux/kernel-mode/defense/randomization/fgkaslr/)
+
+
+### Linux KASLR Configuration
+
+* Linux Kernel Driver DataBase
+  * [CONFIG_RANDOMIZE_BASE: Randomize the address of the kernel image (KASLR)](https://cateee.net/lkddb/web-lkddb/RANDOMIZE_BASE.html)
+  * [CONFIG_RANDOMIZE_BASE_MAX_OFFSET: Maximum kASLR offset](https://cateee.net/lkddb/web-lkddb/RANDOMIZE_BASE_MAX_OFFSET.html)
+  * [CONFIG_RANDOMIZE_MEMORY: Randomize the kernel memory sections](https://cateee.net/lkddb/web-lkddb/RANDOMIZE_MEMORY.html)
+  * [CONFIG_RANDOMIZE_MEMORY_PHYSICAL_PADDING: Physical memory mapping padding](https://cateee.net/lkddb/web-lkddb/RANDOMIZE_MEMORY_PHYSICAL_PADDING.html)
+  * [CONFIG_RELOCATABLE: Build a relocatable kernel](https://cateee.net/lkddb/web-lkddb/RELOCATABLE.html)
+
+
+### Linux Memory Management
+
+* [0xAX/linux-insides](https://github.com/0xAX/linux-insides)
+  * https://github.com/0xAX/linux-insides/tree/master/Initialization
+  * https://github.com/0xAX/linux-insides/blob/master/Theory/linux-theory-1.md
+  * https://github.com/0xAX/linux-insides/tree/master/MM
+* [Virtual Memory and Linux](https://elinux.org/images/b/b0/Introduction_to_Memory_Management_in_Linux.pdf) (Matt Porter, 2016)
+* [Understanding the Linux Virtual Memory Manager](https://www.kernel.org/doc/gorman/html/understand/index.html) (Mel Gorman, 2004)
+* Linux Kernel Programming (Kaiwan N Billimoria, 2021)
+
+
+
+## KASLR Bypass Techniques
 
 KASLD serves as a non-exhaustive collection and reference for techniques
 useful in KASLR bypass; however, it is far from complete. There are many
 additional noteworthy techniques not included for various reasons.
 
-
 ### System Logs
 
-Kernel and system logs (`dmesg` / `syslog`) offer a wealth of information, including
-kernel pointers and the layout of virtual and physical memory.
+Kernel and system logs (`dmesg` / `syslog`) offer a wealth of information,
+including kernel pointers and the layout of virtual and physical memory.
 
 Several KASLD components search the kernel message ring buffer for kernel addresses.
 The following KASLD components read from `dmesg` and `/var/log/dmesg`:
@@ -136,6 +187,7 @@ The following KASLD components read from `dmesg` and `/var/log/dmesg`:
 * [dmesg_kaslr-disabled.c](src/dmesg_kaslr-disabled.c)
 * [dmesg_mem_init_kernel_layout.c](src/dmesg_mem_init_kernel_layout.c)
 * [dmesg_mmu_idmap.c](src/dmesg_mmu_idmap.c)
+* [dmesg_reserved_mem_opensbi.c](src/dmesg_reserved_mem_opensbi.c)
 * [dmesg_riscv_relocation.c](src/dmesg_riscv_relocation.c)
 
 Historically, raw kernel pointers were frequently printed to the system log
@@ -188,7 +240,7 @@ This change pre-dates Linux KASLR by 2 years. However, DebugFS may still be
 readable in some non-default configurations.
 
 
-### Hardware Bugs
+### Hardware Side-Channels
 
 There are a plethora of viable hardware-related attacks which can be used to break
 KASLR, in particular timing side-channels and transient execution attacks.
@@ -201,79 +253,7 @@ The [extra/check-hardware-vulnerabilities](extra/check-hardware-vulnerabilities)
 script performs rudimentary checks for several known hardware vulnerabilities,
 but does not implement these techniques.
 
-Refer to the [Hardware Side-Channels](#hardware-side-channels) section for more information.
-
-
-### Weak Entropy
-
-The kernel is loaded at an aligned memory address, usually between `PAGE_SIZE` (4096 KiB)
-and 2MiB on modern systems (see `KERNEL_ALIGN` definitions in [kasld.h](src/include/kasld.h).
-This limits the number of possible kernel locations. For example, on x86_64 with
-`RANDOMIZE_BASE_MAX_OFFSET` of 1GiB and 2MiB alignment, this limited the kernel load
-address to `0x4000_0000 / 0x20_0000 = 512` possible locations.
- 
-Weaknesses in randomisation can decrease entropy, further limiting the possible kernel
-locations in memory and making the kernel easier to locate.
-
-KASLR may be disabled if insufficient randomness is generated during boot
-(for example, if `get_kaslr_seed()` fails on ARM64).
-
-Refer to the [Weak Entropy](#weak-entropy) section for more information.
-
-
-## Additional References
-
-### Linux KASLR History and Implementation
-
-Not all architectures support KASLR (`CONFIG_RANDOMIZE_BASE`) or enable it by default:
-
-| Architecture | KASLR Added | Date | Default On | Notes |
-|---|---|---|---|---|
-| x86_32 | v3.14 ([`8ab3820fd5b2`](https://github.com/torvalds/linux/commit/8ab3820fd5b2)) | 2013-10-13 | v4.12 ([`09e43968fc6c`](https://github.com/torvalds/linux/commit/09e43968fc6c)) | Kconfig `default y` since v4.12 |
-| x86_64 | v3.14 ([`8ab3820fd5b2`](https://github.com/torvalds/linux/commit/8ab3820fd5b2)) | 2013-10-13 | v4.12 ([`09e43968fc6c`](https://github.com/torvalds/linux/commit/09e43968fc6c)) | Kconfig `default y` since v4.12 |
-| arm64 | v4.6 ([`f80fb3a3d508`](https://github.com/torvalds/linux/commit/f80fb3a3d508)) | 2016-02-24 | Yes (defconfig) | Enabled in upstream arm64 defconfig |
-| MIPS | v4.7 ([`405bc8fd12f5`](https://github.com/torvalds/linux/commit/405bc8fd12f5)) | 2016-05-13 | No | |
-| s390 | v5.2 ([`b2d24b97b2a9`](https://github.com/torvalds/linux/commit/b2d24b97b2a9)) | 2019-04-29 | v5.2 | Kconfig `default y` from initial commit |
-| PowerPC | v5.5 ([`2b0e86cc5de6`](https://github.com/torvalds/linux/commit/2b0e86cc5de6)) | 2019-11-13 | No | BookE/e500 (PPC_85xx) 32-bit only; not available on PPC64/Book3S |
-| LoongArch | v6.3 ([`e5f02b51fa0c`](https://github.com/torvalds/linux/commit/e5f02b51fa0c)) | 2023-02-25 | No | |
-| RISC-V | v6.6 ([`84fe419dc757`](https://github.com/torvalds/linux/commit/84fe419dc757)) | 2023-07-22 | No | 64-bit only |
-| arm32 | — | — | — | Not supported |
-| sparc | — | — | — | Not supported |
-
-* [grsecurity - KASLR: An Exercise in Cargo Cult Security](https://grsecurity.net/kaslr_an_exercise_in_cargo_cult_security) (grsecurity, 2013)
-* [An Info-Leak Resistant Kernel Randomization for Virtualized Systems | IEEE Journals & Magazine | IEEE Xplore](https://ieeexplore.ieee.org/document/9178757) (Fernando Vano-Garcia, Hector Marco-Gisbert, 2020)
-* Kernel Address Space Layout Randomization (LWN.net)
-  * [Kernel address space layout randomization [LWN.net]](https://lwn.net/Articles/569635/)
-  * [Randomize kernel base address on boot [LWN.net]](https://lwn.net/Articles/444556/)
-  * [arm64: implement support for KASLR [LWN.net]](https://lwn.net/Articles/673598/)
-* [Kernel load address randomization · Linux Inside](https://0xax.gitbooks.io/linux-insides/content/Booting/linux-bootstrap-6.html)
-* Function Granular KASLR (FG-KASLR)
-  * [[PATCH v10 00/15] Function Granular KASLR](https://lore.kernel.org/lkml/20220209185752.1226407-1-alexandr.lobakin@intel.com/)
-  * [FGKASLR - CTF Wiki](https://ctf-wiki.org/pwn/linux/kernel-mode/defense/randomization/fgkaslr/)
-
-
-### Linux KASLR Configuration
-
-* Linux Kernel Driver DataBase
-  * [CONFIG_RANDOMIZE_BASE: Randomize the address of the kernel image (KASLR)](https://cateee.net/lkddb/web-lkddb/RANDOMIZE_BASE.html)
-  * [CONFIG_RANDOMIZE_BASE_MAX_OFFSET: Maximum kASLR offset](https://cateee.net/lkddb/web-lkddb/RANDOMIZE_BASE_MAX_OFFSET.html)
-  * [CONFIG_RANDOMIZE_MEMORY: Randomize the kernel memory sections](https://cateee.net/lkddb/web-lkddb/RANDOMIZE_MEMORY.html)
-  * [CONFIG_RANDOMIZE_MEMORY_PHYSICAL_PADDING: Physical memory mapping padding](https://cateee.net/lkddb/web-lkddb/RANDOMIZE_MEMORY_PHYSICAL_PADDING.html)
-  * [CONFIG_RELOCATABLE: Build a relocatable kernel](https://cateee.net/lkddb/web-lkddb/RELOCATABLE.html)
-
-
-### Linux Memory Management
-
-* [0xAX/linux-insides](https://github.com/0xAX/linux-insides)
-  * https://github.com/0xAX/linux-insides/tree/master/Initialization
-  * https://github.com/0xAX/linux-insides/blob/master/Theory/linux-theory-1.md
-  * https://github.com/0xAX/linux-insides/tree/master/MM
-* [Virtual Memory and Linux](https://elinux.org/images/b/b0/Introduction_to_Memory_Management_in_Linux.pdf) (Matt Porter, 2016)
-* [Understanding the Linux Virtual Memory Manager](https://www.kernel.org/doc/gorman/html/understand/index.html) (Mel Gorman, 2004)
-* Linux Kernel Programming (Kaiwan N Billimoria, 2021)
-
-
-### Hardware Side-Channels
+See also:
 
 [Practical Timing Side Channel Attacks Against Kernel Space ASLR](https://openwall.info/wiki/_media/archive/TR-HGI-2013-001.pdf) (Ralf Hund, Carsten Willems, Thorsten Holz, 2013)
 
@@ -410,7 +390,35 @@ KernelSnitch: Software side-channel attacks on kernel data structures:
   * [KernelSnitch: Side-Channel Attacks on Kernel Data Structures](https://lukasmaar.github.io/papers/ndss25-kernelsnitch.pdf) (Lukas Maar, Jonas Juffinger, Thomas Steinbauer, Daniel Gruss, Stefan Mangard, 2025)
 
 
+### Weak Entropy
+
+The kernel is loaded at an aligned memory address, usually between `PAGE_SIZE` (4096 KiB)
+and 2MiB on modern systems (see `KERNEL_ALIGN` definitions in [kasld.h](src/include/kasld.h).
+This limits the number of possible kernel locations. For example, on x86_64 with
+`RANDOMIZE_BASE_MAX_OFFSET` of 1GiB and 2MiB alignment, this limited the kernel load
+address to `0x4000_0000 / 0x20_0000 = 512` possible locations.
+ 
+Weaknesses in randomisation can decrease entropy, further limiting the possible kernel
+locations in memory and making the kernel easier to locate.
+
+KASLR may be disabled if insufficient randomness is generated during boot
+(for example, if `get_kaslr_seed()` fails on ARM64).
+
+See also:
+
+[Another look at two Linux KASLR patches](https://www.kryptoslogic.com/blog/2020/03/another-look-at-two-linux-kaslr-patches/index.html) (Kryptos Logic, 2020)
+
+[arm64: efi: kaslr: Fix occasional random alloc (and boot) failure](https://github.com/torvalds/linux/commit/4152433c397697acc4b02c4a10d17d5859c2730d)
+
+[Defeating KASLR by Doing Nothing at All](https://projectzero.google/2025/11/defeating-kaslr-by-doing-nothing-at-all.html) (Seth Jenkins, 2025) - arm64 linear map is not randomized due to memory hotplug support; Pixel bootloader loads kernel at static physical address, making kernel virtual addresses fully predictable even with KASLR enabled.
+
+
 ### Kernel Info Leaks
+
+There have been many kernel bugs which leaked kernel addresses to unprivileged
+users via uninitialized memory, missing pointer sanitization, using kernel
+pointers as a basis for "random" strings in userland, and many other weird and
+wonderful flaws. These bugs are regularly discovered and patched.
 
 Patched kernel info leak bugs:
 
@@ -452,6 +460,20 @@ floppy block driver `show_floppy` kernel function pointer leak (CVE-2018-7273) (
   * [Linux kernel 2.6.0 to 4.12-rc4 infoleak due to a data race in ALSA timer](https://seclists.org/oss-sec/2017/q2/455) (Alexander Potapenko, 2017)
     * [snd_timer_c.bin](https://seclists.org/oss-sec/2017/q2/att-529/snd_timer_c.bin) (Alexander Potapenko, 2017)
 
+Uninitialized kernel heap memory in ELF core dumps (CVE-2020-10732). `fill_thread_core_info()` in `fs/binfmt_elf.c` allocated regset data buffers with `kmalloc()`, which were not fully initialized by regset `get()` callbacks. Several kilobytes of stale kernel heap data (potentially containing kernel pointers) could be written to the core file and read by an unprivileged user. Trivially exploitable by crashing any program:
+
+  * [google/kmsan#76: Uninitialized memory in ELF core dump](https://github.com/google/kmsan/issues/76)
+  * [Bug 1831399 - CVE-2020-10732 kernel: uninitialized kernel data leak in userspace coredumps](https://bugzilla.redhat.com/show_bug.cgi?id=CVE-2020-10732)
+  * [fs/binfmt_elf.c: allocate initialized memory in fill_thread_core_info()](https://github.com/ruscur/linux/commit/a95cdec9fa0c08e6eeb410d461c03af8fd1fef0a) (Alexander Potapenko, 2020)
+
+Uninitialized x86 FPU/xstate data in core dumps. `copy_xstate_to_kernel()` only copied enabled xstate features, leaving gaps between features uninitialized. Stale kernel memory was leaked through the `NT_X86_XSTATE` ELF core dump note:
+
+  * [copy_xstate_to_kernel(): don't leave parts of destination uninitialized](https://github.com/torvalds/linux/commit/9e4636545933131de15e1ecd06733538ae939b2f) (Al Viro, 2020)
+
+RISC-V kernel `gp` register leaked to userland (CVE-2024-35871) (affects kernels 4.15 to 6.8.5). The kernel `__global_pointer$` was exposed via `childregs->gp` in user_mode_helper threads (PID 1, `core_pattern` pipe handlers, etc), observable through `kernel_execve` register state, `ptrace(PTRACE_GETREGSET)`, and `PERF_SAMPLE_REGS_USER`:
+
+  * [riscv: process: Fix kernel gp leakage](https://git.kernel.org/stable/c/d14fa1fcf69db9d070e75f1c4425211fa619dfc8)
+
 PPTP sockets `pptp_bind()` / `pptp_connect()` kernel stack leak (CVE-2015-8569):
   * https://lkml.org/lkml/2015/12/14/252
 
@@ -469,7 +491,11 @@ Exploiting uninitialized stack variables:
     * [snd_timer_user_params kernel stack pointer leak](https://github.com/jinb-park/leak-kptr/tree/master/exploit/CVE-2016-4569) (CVE-2016-4569).
 
 
-### Kernel Bugs
+### Arbitrary Read
+
+Kernel vulnerabilities which provide arbitrary read (or write) primitives can
+be leveraged to leak kernel pointers and defeat KASLR, even when direct info
+leak vectors are unavailable.
 
 Leaking kernel addresses using `msg_msg` struct for arbitrary read (for `KMALLOC_CGROUP` objects):
 
@@ -488,15 +514,6 @@ Leaking kernel addresses using privileged arbitrary read (or write) in kernel sp
     * https://www.openwall.com/lists/oss-security/2018/08/09/6
     * https://xairy.io/articles/cve-2017-18344
     * [xairy/kernel-exploits/CVE-2017-18344](https://github.com/xairy/kernel-exploits/tree/master/CVE-2017-18344)
-
-
-### Weak Entropy
-
-[Another look at two Linux KASLR patches](https://www.kryptoslogic.com/blog/2020/03/another-look-at-two-linux-kaslr-patches/index.html) (Kryptos Logic, 2020)
-
-[arm64: efi: kaslr: Fix occasional random alloc (and boot) failure](https://github.com/torvalds/linux/commit/4152433c397697acc4b02c4a10d17d5859c2730d)
-
-[Defeating KASLR by Doing Nothing at All](https://projectzero.google/2025/11/defeating-kaslr-by-doing-nothing-at-all.html) (Seth Jenkins, 2025) - arm64 linear map is not randomized due to memory hotplug support; Pixel bootloader loads kernel at static physical address, making kernel virtual addresses fully predictable even with KASLR enabled.
 
 
 ## License
