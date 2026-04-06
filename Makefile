@@ -98,6 +98,8 @@ run : build
 	@echo
 	-$(OBJ_DIR)/proc-stat-wchan.o
 	@echo
+	-$(OBJ_DIR)/qemu-tcg-iret-x86_64.o
+	@echo
 	-$(OBJ_DIR)/sysfs_iscsi_transport_handle.o
 	@echo
 	-$(OBJ_DIR)/sysfs-kernel-notes-xen.o
