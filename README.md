@@ -225,6 +225,21 @@ Refer to the [Weak Entropy](#weak-entropy) section for more information.
 
 ### Linux KASLR History and Implementation
 
+Not all architectures support KASLR (`CONFIG_RANDOMIZE_BASE`) or enable it by default:
+
+| Architecture | KASLR Added | Date | Default On | Notes |
+|---|---|---|---|---|
+| x86_32 | v3.14 ([`8ab3820fd5b2`](https://github.com/torvalds/linux/commit/8ab3820fd5b2)) | 2013-10-13 | v4.12 ([`09e43968fc6c`](https://github.com/torvalds/linux/commit/09e43968fc6c)) | Kconfig `default y` since v4.12 |
+| x86_64 | v3.14 ([`8ab3820fd5b2`](https://github.com/torvalds/linux/commit/8ab3820fd5b2)) | 2013-10-13 | v4.12 ([`09e43968fc6c`](https://github.com/torvalds/linux/commit/09e43968fc6c)) | Kconfig `default y` since v4.12 |
+| arm64 | v4.6 ([`f80fb3a3d508`](https://github.com/torvalds/linux/commit/f80fb3a3d508)) | 2016-02-24 | Yes (defconfig) | Enabled in upstream arm64 defconfig |
+| MIPS | v4.7 ([`405bc8fd12f5`](https://github.com/torvalds/linux/commit/405bc8fd12f5)) | 2016-05-13 | No | |
+| s390 | v5.2 ([`b2d24b97b2a9`](https://github.com/torvalds/linux/commit/b2d24b97b2a9)) | 2019-04-29 | v5.2 | Kconfig `default y` from initial commit |
+| PowerPC | v5.5 ([`2b0e86cc5de6`](https://github.com/torvalds/linux/commit/2b0e86cc5de6)) | 2019-11-13 | No | BookE/e500 (PPC_85xx) 32-bit only; not available on PPC64/Book3S |
+| LoongArch | v6.3 ([`e5f02b51fa0c`](https://github.com/torvalds/linux/commit/e5f02b51fa0c)) | 2023-02-25 | No | |
+| RISC-V | v6.6 ([`84fe419dc757`](https://github.com/torvalds/linux/commit/84fe419dc757)) | 2023-07-22 | No | 64-bit only |
+| arm32 | — | — | — | Not supported |
+| sparc | — | — | — | Not supported |
+
 * [grsecurity - KASLR: An Exercise in Cargo Cult Security](https://grsecurity.net/kaslr_an_exercise_in_cargo_cult_security) (grsecurity, 2013)
 * [An Info-Leak Resistant Kernel Randomization for Virtualized Systems | IEEE Journals & Magazine | IEEE Xplore](https://ieeexplore.ieee.org/document/9178757) (Fernando Vano-Garcia, Hector Marco-Gisbert, 2020)
 * Kernel Address Space Layout Randomization (LWN.net)
@@ -383,6 +398,17 @@ Memory deduplication timing side-channel attacks:
   * [Breaking KASLR Using Memory Deduplication in Virtualized Environments](https://www.mdpi.com/2079-9292/10/17/2174) (Taehun Kim, Taehyun Kim, Youngjoo Shin. 2021)
   * [Remote Memory-Deduplication Attacks](https://pure.tugraz.at/ws/portalfiles/portal/38441480/main.pdf) (Martin Schwarzl, Erik Kraft, Moritz Lipp, Daniel Gruss. 2022)
 
+GhostWrite (CVE-2024-44067) - T-Head XuanTie C910/C920 RISC-V CPUs:
+
+  * [GhostWrite](https://www.ghostwriteattack.com/) - Faulty vector extension instructions operate directly on physical memory instead of virtual memory, bypassing all isolation. Hardware bug; cannot be fixed with software updates. Only mitigation is disabling the vector extension entirely (kernel >=6.14 does this automatically).
+    * [GhostWrite: RISCover - Differential CPU Fuzz Testing](https://ghostwriteattack.com/riscover_ccs25.pdf) (Fabian Thomas, Eric García Arribas, Lorenz Hetterich, Ruiyi Zhang, Daniel Weber, Lukas Gerlach, Michael Schwarz, 2025)
+    * [cispa/GhostWrite](https://github.com/cispa/GhostWrite)
+    * [cispa/RISCover](https://github.com/cispa/RISCover)
+
+KernelSnitch: Software side-channel attacks on kernel data structures:
+
+  * [KernelSnitch: Side-Channel Attacks on Kernel Data Structures](https://lukasmaar.github.io/papers/ndss25-kernelsnitch.pdf) (Lukas Maar, Jonas Juffinger, Thomas Steinbauer, Daniel Gruss, Stefan Mangard, 2025)
+
 
 ### Kernel Info Leaks
 
@@ -469,6 +495,8 @@ Leaking kernel addresses using privileged arbitrary read (or write) in kernel sp
 [Another look at two Linux KASLR patches](https://www.kryptoslogic.com/blog/2020/03/another-look-at-two-linux-kaslr-patches/index.html) (Kryptos Logic, 2020)
 
 [arm64: efi: kaslr: Fix occasional random alloc (and boot) failure](https://github.com/torvalds/linux/commit/4152433c397697acc4b02c4a10d17d5859c2730d)
+
+[Defeating KASLR by Doing Nothing at All](https://projectzero.google/2025/11/defeating-kaslr-by-doing-nothing-at-all.html) (Seth Jenkins, 2025) - arm64 linear map is not randomized due to memory hotplug support; Pixel bootloader loads kernel at static physical address, making kernel virtual addresses fully predictable even with KASLR enabled.
 
 
 ## License
