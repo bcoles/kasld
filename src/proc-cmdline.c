@@ -45,7 +45,7 @@ unsigned long get_kernel_addr_cmdline() {
   return (unsigned long)KERNEL_TEXT_DEFAULT;
 }
 
-int main() {
+int main(void) {
   unsigned long addr = get_kernel_addr_cmdline();
   if (!addr)
     return 1;

@@ -100,7 +100,7 @@ unsigned long get_kernel_addr_from_bcm_msg_head_struct() {
   return 0;
 }
 
-int main() {
+int main(void) {
   unsigned long addr = get_kernel_addr_from_bcm_msg_head_struct();
   if (!addr)
     return 1;

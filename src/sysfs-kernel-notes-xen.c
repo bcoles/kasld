@@ -129,7 +129,7 @@ unsigned long get_kernel_addr_kernel_notes_xen_entry() {
   return 0;
 }
 
-int main() {
+int main(void) {
   unsigned long addr = get_kernel_addr_kernel_notes_xen_entry();
 
   if (!addr)

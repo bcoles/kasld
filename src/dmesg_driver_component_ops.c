@@ -119,7 +119,7 @@ unsigned long search_dmesg_log_file_driver_component_ops() {
   return addr;
 }
 
-int main() {
+int main(void) {
   unsigned long addr = search_dmesg_driver_component_ops();
   if (!addr)
     addr = search_dmesg_log_file_driver_component_ops();

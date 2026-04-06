@@ -39,7 +39,7 @@ unsigned long find_kernel_address_space_start(void) {
   return 0;
 }
 
-int main() {
+int main(void) {
   unsigned long addr = find_kernel_address_space_start();
   if (!addr)
     return 1;

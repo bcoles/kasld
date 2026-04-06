@@ -111,7 +111,7 @@ unsigned long search_dmesg_log_file_mmu_idmap() {
   return addr;
 }
 
-int main() {
+int main(void) {
   unsigned long addr = search_dmesg_mmu_idmap();
   if (!addr)
     addr = search_dmesg_log_file_mmu_idmap();

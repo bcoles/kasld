@@ -115,7 +115,7 @@ unsigned long get_phys_addr_dmesg_log_file_fake_numa_init() {
   return addr;
 }
 
-int main() {
+int main(void) {
   unsigned long addr = get_phys_addr_dmesg_fake_numa_init();
   if (!addr)
     addr = get_phys_addr_dmesg_log_file_fake_numa_init();

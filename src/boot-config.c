@@ -69,7 +69,7 @@ unsigned long get_kernel_addr_boot_config() {
   return (unsigned long)KERNEL_TEXT_DEFAULT;
 }
 
-int main() {
+int main(void) {
   unsigned long addr = get_kernel_addr_boot_config();
   if (!addr)
     return 1;

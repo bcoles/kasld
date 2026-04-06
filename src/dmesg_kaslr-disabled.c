@@ -111,7 +111,7 @@ unsigned long search_dmesg_log_file_kaslr_disabled() {
   return 0;
 }
 
-int main() {
+int main(void) {
   unsigned long addr = search_dmesg_kaslr_disabled();
   if (!addr)
     addr = search_dmesg_log_file_kaslr_disabled();

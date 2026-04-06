@@ -58,7 +58,7 @@ unsigned long get_kernel_addr_pppd_kallsyms() {
   return 0;
 }
 
-int main() {
+int main(void) {
   unsigned long addr = get_kernel_addr_pppd_kallsyms();
   if (!addr)
     return 1;

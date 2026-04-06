@@ -60,7 +60,7 @@ unsigned long get_addr_proc_modules() {
   return addr;
 }
 
-int main() {
+int main(void) {
   unsigned long addr = get_addr_proc_modules();
   if (!addr)
     return 1;

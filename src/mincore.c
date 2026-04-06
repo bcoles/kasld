@@ -67,7 +67,7 @@ unsigned long get_kernel_addr_mincore() {
   return 0;
 }
 
-int main() {
+int main(void) {
   printf("[.] trying mincore info leak...\n");
 
   unsigned long addr = get_kernel_addr_mincore();

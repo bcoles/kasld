@@ -399,7 +399,7 @@ unsigned long get_kernel_addr_entrybleed() {
   return addr;
 }
 
-int main() {
+int main(void) {
   printf("[.] trying EntryBleed (CVE-2022-4543) ...\n");
 
   unsigned long addr = get_kernel_addr_entrybleed();

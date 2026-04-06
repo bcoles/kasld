@@ -88,7 +88,7 @@ unsigned long get_module_text_sysfs() {
   return addr;
 }
 
-int main() {
+int main(void) {
   unsigned long addr = get_module_text_sysfs();
   if (!addr)
     return 1;

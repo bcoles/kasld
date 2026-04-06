@@ -108,7 +108,7 @@ unsigned long get_phys_addr_dmesg_log_file_free_area_init_node() {
   return addr;
 }
 
-int main() {
+int main(void) {
   unsigned long addr = get_phys_addr_dmesg_free_area_init_node();
   if (!addr)
     addr = get_phys_addr_dmesg_log_file_free_area_init_node();

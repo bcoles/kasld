@@ -91,7 +91,7 @@ unsigned long search_dmesg_log_file_kernel_pointers() {
   return addr;
 }
 
-int main() {
+int main(void) {
   unsigned long addr = search_dmesg_kernel_pointers();
   if (!addr)
     addr = search_dmesg_log_file_kernel_pointers();

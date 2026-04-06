@@ -247,7 +247,7 @@ unsigned long search_dmesg_log_file_mem_init_lowmem() {
   return addr;
 }
 
-int main() {
+int main(void) {
   unsigned long addr;
 
   addr = search_dmesg_mem_init_kernel_text();

@@ -122,7 +122,7 @@ unsigned long search_dmesg_log_file_free_reserved_area() {
   return addr;
 }
 
-int main() {
+int main(void) {
   unsigned long addr = search_dmesg_free_reserved_area();
   if (!addr)
     addr = search_dmesg_log_file_free_reserved_area();

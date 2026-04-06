@@ -109,7 +109,7 @@ unsigned long search_dmesg_log_file_ion_snapshot() {
   return addr;
 }
 
-int main() {
+int main(void) {
   unsigned long addr = search_dmesg_ion_snapshot();
   if (!addr)
     addr = search_dmesg_log_file_ion_snapshot();

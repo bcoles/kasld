@@ -159,7 +159,7 @@ unsigned long get_kernel_addr_perf() {
   return 0;
 }
 
-int main() {
+int main(void) {
   unsigned long addr = get_kernel_addr_perf();
   if (!addr)
     return 1;

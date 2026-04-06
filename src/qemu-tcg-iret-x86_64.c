@@ -155,7 +155,7 @@ uint64_t get_kernel_stack_addr_using_qemu_tcg_iret() {
   return 0;
 }
 
-int main() {
+int main(void) {
   unsigned long addr = get_kernel_stack_addr_using_qemu_tcg_iret();
 
   if (!addr)

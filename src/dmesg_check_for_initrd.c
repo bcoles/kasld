@@ -99,7 +99,7 @@ unsigned long search_dmesg_log_file_check_for_initrd() {
   return addr;
 }
 
-int main() {
+int main(void) {
   unsigned long addr = search_dmesg_check_for_initrd();
   if (!addr)
     addr = search_dmesg_log_file_check_for_initrd();

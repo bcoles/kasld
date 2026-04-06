@@ -143,7 +143,7 @@ unsigned long search_dmesg_log_file_ex_handler_msr() {
   return addr;
 }
 
-int main() {
+int main(void) {
   unsigned long addr = search_dmesg_ex_handler_msr();
   if (!addr)
     addr = search_dmesg_log_file_ex_handler_msr();

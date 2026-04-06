@@ -131,7 +131,7 @@ unsigned long search_dmesg_log_file_riscv_relocation() {
   return addr;
 }
 
-int main() {
+int main(void) {
   unsigned long addr = search_dmesg_riscv_relocation();
   if (!addr)
     addr = search_dmesg_log_file_riscv_relocation();

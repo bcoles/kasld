@@ -53,7 +53,7 @@ unsigned long get_kernel_sym(char *name) {
   return addr;
 }
 
-int main() {
+int main(void) {
   unsigned long addr = get_kernel_sym("_stext");
   if (!addr)
     return 1;
