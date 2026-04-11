@@ -1,0 +1,45 @@
+name: build-and-test
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install dependencies
+      run: sudo apt-get update && sudo apt-get install -y zlib1g-dev
+
+    - name: Build
+      run: make
+
+    - name: Run tests
+      run: make test
+
+  cross-compile:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install cross-compilers
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          gcc-aarch64-linux-gnu \
+          gcc-arm-linux-gnueabihf \
+          gcc-mips-linux-gnu \
+          gcc-mipsel-linux-gnu \
+          gcc-mips64-linux-gnuabi64 \
+          gcc-mips64el-linux-gnuabi64 \
+          gcc-powerpc-linux-gnu \
+          gcc-powerpc64le-linux-gnu \
+          gcc-riscv64-linux-gnu \
+          gcc-s390x-linux-gnu
+
+    - name: Cross-compile all targets
+      run: make cross
