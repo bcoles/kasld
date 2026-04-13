@@ -1,3 +1,5 @@
 a.out
+*.o
 *.gch
 build
+dev
