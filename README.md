@@ -1,5 +1,5 @@
 <p align="center">
- <img src="logo.png" alt="KASLD logo generated with Stable Diffusion (modified)"/>
+ <img src="logo.png" alt="KASLD logo generated with Copilot (cropped)"/>
 </p>
 
 # Kernel Address Space Layout Derandomization (KASLD)
