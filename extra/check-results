@@ -1,0 +1,346 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# Validate KASLD results against ground truth available to root.
+#
+# Reads tagged lines from a KASLD run (or runs kasld itself), then
+# compares each result against /proc/kallsyms and /proc/iomem.
+#
+# Usage:
+#   sudo ./extra/check-results                  # run kasld and validate
+#   sudo ./extra/check-results results.txt      # validate saved tagged lines
+#   ./build/*/kasld -v 2>&1 | sudo ./extra/check-results -
+#                                               # validate from stdin pipe
+#
+# Requires: root (for unhashed /proc/kallsyms and /proc/iomem)
+# ---
+# <bcoles@gmail.com>
+
+set -e
+
+# -------------------------------------------------------------------------
+# Colors (disable if not a terminal)
+# -------------------------------------------------------------------------
+if [ -t 1 ]; then
+  GREEN='\033[0;32m'
+  RED='\033[0;31m'
+  YELLOW='\033[0;33m'
+  BOLD='\033[1m'
+  RESET='\033[0m'
+else
+  GREEN='' RED='' YELLOW='' BOLD='' RESET=''
+fi
+
+# Counters — written to a temp file so the subshell pipeline can update them
+tmp_counts=$(mktemp)
+printf '0 0 0\n' > "$tmp_counts"
+trap 'rm -f "$tmp_counts"' EXIT INT TERM
+
+update_counts() {
+  read p f s < "$tmp_counts"
+  case "$1" in
+    pass) p=$((p + 1)) ;;
+    fail) f=$((f + 1)) ;;
+    skip) s=$((s + 1)) ;;
+  esac
+  printf '%d %d %d\n' "$p" "$f" "$s" > "$tmp_counts"
+}
+
+pass() { update_counts pass; printf "  ${GREEN}PASS${RESET}  %s\n" "$1"; }
+fail() { update_counts fail; printf "  ${RED}FAIL${RESET}  %s\n" "$1"; }
+skip() { update_counts skip; printf "  ${YELLOW}SKIP${RESET}  %s\n" "$1"; }
+
+# -------------------------------------------------------------------------
+# Hex address comparison helpers (POSIX-safe, unsigned 64-bit)
+#
+# All addresses are normalized to 16-char zero-padded lowercase hex.
+# Lexicographic string comparison of fixed-width hex == unsigned ordering.
+# -------------------------------------------------------------------------
+
+# Normalize a hex string (with or without 0x prefix) to 16-char lowercase
+hex16() {
+  printf '%s' "$1" | tr 'A-F' 'a-f' | sed 's/^0x//; s/^0*//' | \
+    awk '{ printf "%016s\n", $0 }' | tr ' ' '0'
+}
+
+# hex_le A B  → return 0 (true) if A <= B
+hex_le() { [ "$1" \< "$2" ] || [ "$1" = "$2" ]; }
+
+# hex_ge A B  → return 0 (true) if A >= B
+hex_ge() { [ "$1" \> "$2" ] || [ "$1" = "$2" ]; }
+
+# hex_in_range ADDR LO HI → return 0 (true) if LO <= ADDR <= HI
+hex_in_range() { hex_ge "$1" "$2" && hex_le "$1" "$3"; }
+
+# -------------------------------------------------------------------------
+# Root check
+# -------------------------------------------------------------------------
+if [ "$(id -u)" -ne 0 ]; then
+  echo "error: must be run as root for ground truth from /proc/kallsyms and /proc/iomem" >&2
+  exit 1
+fi
+
+# -------------------------------------------------------------------------
+# Collect tagged lines
+# -------------------------------------------------------------------------
+if [ "$1" = "-" ]; then
+  # Read from stdin
+  tagged_lines=$(cat)
+elif [ -n "$1" ] && [ -f "$1" ]; then
+  # Read from file
+  tagged_lines=$(cat "$1")
+else
+  # Find and run kasld
+  script_dir=$(cd "$(dirname "$0")" && pwd)
+  kasld=""
+
+  # Look for kasld binary relative to this script (extra/ is beside build/)
+  for candidate in \
+    "$script_dir/../build"/*/kasld \
+    "$script_dir/../kasld" \
+    ; do
+    if [ -x "$candidate" ]; then
+      kasld="$candidate"
+      break
+    fi
+  done
+
+  if [ -z "$kasld" ]; then
+    echo "error: cannot find kasld binary; build first or pass results file" >&2
+    exit 1
+  fi
+
+  printf "${BOLD}Running kasld...${RESET}\n"
+  tagged_lines=$("$kasld" -v 2>&1 | grep '^[VPD] ' || true)
+fi
+
+# Filter to tagged lines only
+tagged_lines=$(printf '%s\n' "$tagged_lines" | grep '^[VPD] ' || true)
+
+if [ -z "$tagged_lines" ]; then
+  echo "error: no tagged lines found" >&2
+  exit 1
+fi
+
+num_lines=$(printf '%s\n' "$tagged_lines" | wc -l)
+printf "${BOLD}Validating ${num_lines} tagged results...${RESET}\n"
+echo
+
+# -------------------------------------------------------------------------
+# Extract ground truth from /proc/kallsyms
+# -------------------------------------------------------------------------
+truth_stext=$(awk '$3 == "_stext" { print $1 }' /proc/kallsyms 2>/dev/null)
+truth_etext=$(awk '$3 == "_etext" { print $1 }' /proc/kallsyms 2>/dev/null)
+truth_sdata=$(awk '$3 == "_sdata" { print $1 }' /proc/kallsyms 2>/dev/null)
+
+# Check for zeroed-out symbols (kptr_restrict=2 or similar)
+case "$truth_stext" in
+  0000000000000000|00000000)
+    echo "warning: /proc/kallsyms symbols are zeroed (kptr_restrict?)" >&2
+    truth_stext="" ;;
+esac
+
+# Normalize to 16-char hex
+if [ -n "$truth_stext" ]; then truth_stext=$(hex16 "$truth_stext"); fi
+if [ -n "$truth_etext" ]; then truth_etext=$(hex16 "$truth_etext"); fi
+if [ -n "$truth_sdata" ]; then truth_sdata=$(hex16 "$truth_sdata"); fi
+
+# Module address range from /proc/modules
+truth_mod_lo=""
+truth_mod_hi=""
+if [ -r /proc/modules ]; then
+  # Format: name size refcount deps state addr [taint]
+  # Field 6 is the address; $NF may be taint flags like (OE)
+  mod_addrs=$(awk '$6 ~ /^0x/ { print $6 }' /proc/modules 2>/dev/null | \
+    sed 's/^0x//' | tr 'A-F' 'a-f' | sort)
+  if [ -n "$mod_addrs" ]; then
+    truth_mod_lo=$(hex16 "$(printf '%s\n' "$mod_addrs" | head -1)")
+    truth_mod_hi=$(hex16 "$(printf '%s\n' "$mod_addrs" | tail -1)")
+  fi
+fi
+
+# -------------------------------------------------------------------------
+# Extract ground truth from /proc/iomem
+# -------------------------------------------------------------------------
+extract_iomem_range() {
+  # Usage: extract_iomem_range "pattern" → sets _range_lo and _range_hi
+  _line=$(grep "$1" /proc/iomem 2>/dev/null | head -1)
+  if [ -n "$_line" ]; then
+    _range_lo=$(hex16 "$(printf '%s' "$_line" | sed 's/^ *//' | cut -d'-' -f1 | tr -d ' ')")
+    _range_hi=$(hex16 "$(printf '%s' "$_line" | sed 's/^ *//' | cut -d'-' -f2 | cut -d' ' -f1 | tr -d ' ')")
+  else
+    _range_lo=""
+    _range_hi=""
+  fi
+}
+
+# Kernel code physical range
+extract_iomem_range 'Kernel code'
+truth_ptext_lo="$_range_lo"
+truth_ptext_hi="$_range_hi"
+
+# System RAM: first range start, last range end
+truth_ram_lo=""
+truth_ram_hi=""
+iomem_ram=$(grep 'System RAM' /proc/iomem 2>/dev/null || true)
+if [ -n "$iomem_ram" ]; then
+  first_ram=$(printf '%s\n' "$iomem_ram" | head -1)
+  last_ram=$(printf '%s\n' "$iomem_ram" | tail -1)
+  truth_ram_lo=$(hex16 "$(printf '%s' "$first_ram" | sed 's/^ *//' | cut -d'-' -f1 | tr -d ' ')")
+  truth_ram_hi=$(hex16 "$(printf '%s' "$last_ram" | sed 's/^ *//' | cut -d'-' -f2 | cut -d' ' -f1 | tr -d ' ')")
+fi
+
+# -------------------------------------------------------------------------
+# Print ground truth
+# -------------------------------------------------------------------------
+printf "${BOLD}Ground truth:${RESET}\n"
+if [ -n "$truth_stext" ]; then
+  printf "  _stext (V text):       0x%s\n" "$truth_stext"
+else
+  echo "  _stext (V text):       (unavailable)"
+fi
+if [ -n "$truth_etext" ]; then
+  printf "  _etext (V text end):   0x%s\n" "$truth_etext"
+fi
+if [ -n "$truth_sdata" ]; then
+  printf "  _sdata (V data):       0x%s\n" "$truth_sdata"
+fi
+if [ -n "$truth_mod_lo" ]; then
+  printf "  module lo:             0x%s\n" "$truth_mod_lo"
+  printf "  module hi:             0x%s\n" "$truth_mod_hi"
+fi
+if [ -n "$truth_ptext_lo" ]; then
+  printf "  kernel code (P):       0x%s - 0x%s\n" "$truth_ptext_lo" "$truth_ptext_hi"
+fi
+if [ -n "$truth_ram_lo" ]; then
+  printf "  System RAM (P):        0x%s - 0x%s\n" "$truth_ram_lo" "$truth_ram_hi"
+fi
+echo
+
+# -------------------------------------------------------------------------
+# Validate each tagged line
+# -------------------------------------------------------------------------
+printf "${BOLD}Results:${RESET}\n"
+
+printf '%s\n' "$tagged_lines" | while IFS= read -r line; do
+  type=$(printf '%s' "$line" | awk '{ print $1 }')
+  section=$(printf '%s' "$line" | awk '{ print $2 }')
+  addr_hex=$(printf '%s' "$line" | awk '{ print $3 }')
+  label=$(printf '%s' "$line" | awk '{ $1=""; $2=""; $3=""; sub(/^  */, ""); print }')
+
+  addr=$(hex16 "$addr_hex")
+  desc="${label} (${type} ${section} 0x${addr})"
+
+  case "${type} ${section}" in
+    "V text")
+      if [ -z "$truth_stext" ]; then
+        skip "$desc — no ground truth"
+        continue
+      fi
+
+      if [ "$addr" = "$truth_stext" ]; then
+        pass "$desc — exact _stext match"
+      elif [ -n "$truth_etext" ] && hex_in_range "$addr" "$truth_stext" "$truth_etext"; then
+        pass "$desc — within text section"
+      else
+        fail "$desc — expected 0x${truth_stext}"
+      fi
+      ;;
+
+    "V module")
+      if [ -z "$truth_mod_lo" ]; then
+        skip "$desc — no modules loaded"
+        continue
+      fi
+
+      if hex_in_range "$addr" "$truth_mod_lo" "$truth_mod_hi"; then
+        pass "$desc — within module range"
+      else
+        fail "$desc — outside module range [0x${truth_mod_lo}, 0x${truth_mod_hi}]"
+      fi
+      ;;
+
+    "V directmap")
+      if [ -z "$truth_stext" ]; then
+        skip "$desc — no ground truth"
+        continue
+      fi
+      # Directmap should be a valid kernel-space address (non-zero)
+      if [ "$addr" != "0000000000000000" ]; then
+        pass "$desc — non-zero kernel address"
+      else
+        fail "$desc — zero address"
+      fi
+      ;;
+
+    "V data")
+      if [ -z "$truth_sdata" ]; then
+        skip "$desc — no _sdata ground truth"
+        continue
+      fi
+      # Data addresses should be at or above _sdata
+      if hex_ge "$addr" "$truth_sdata"; then
+        pass "$desc — at or above _sdata"
+      elif hex_ge "$addr" "$truth_stext"; then
+        pass "$desc — within kernel image"
+      else
+        fail "$desc — below _stext"
+      fi
+      ;;
+
+    "P text")
+      if [ -z "$truth_ptext_lo" ]; then
+        skip "$desc — no /proc/iomem Kernel code"
+        continue
+      fi
+
+      if hex_in_range "$addr" "$truth_ptext_lo" "$truth_ptext_hi"; then
+        pass "$desc — within kernel code physical range"
+      elif hex_le "$addr" "$truth_ptext_lo" && hex_ge "$addr" "$truth_ram_lo"; then
+        # Address is below Kernel code but within RAM — likely aligned base
+        pass "$desc — aligned base below kernel code start"
+      else
+        fail "$desc — expected range [0x${truth_ptext_lo}, 0x${truth_ptext_hi}]"
+      fi
+      ;;
+
+    "P dram")
+      if [ -z "$truth_ram_lo" ]; then
+        skip "$desc — no /proc/iomem System RAM"
+        continue
+      fi
+
+      if hex_in_range "$addr" "$truth_ram_lo" "$truth_ram_hi"; then
+        pass "$desc — within System RAM range"
+      else
+        fail "$desc — outside RAM [0x${truth_ram_lo}, 0x${truth_ram_hi}]"
+      fi
+      ;;
+
+    "V pageoffset")
+      skip "$desc — informational (PAGE_OFFSET)"
+      ;;
+
+    "D -")
+      skip "$desc — informational (KASLR state)"
+      ;;
+
+    *)
+      skip "$desc — no validator for ${type} ${section}"
+      ;;
+  esac
+done
+
+# -------------------------------------------------------------------------
+# Summary
+# -------------------------------------------------------------------------
+echo
+read pass_count fail_count skip_count < "$tmp_counts"
+total=$((pass_count + fail_count + skip_count))
+printf "${BOLD}Summary: %d passed, %d failed, %d skipped (of %d)${RESET}\n" \
+  "$pass_count" "$fail_count" "$skip_count" "$total"
+
+if [ "$fail_count" -gt 0 ]; then
+  exit 1
+fi
+exit 0

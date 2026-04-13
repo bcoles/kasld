@@ -1,0 +1,1242 @@
+// This file is part of KASLD - https://github.com/bcoles/kasld
+//
+// Orchestrator: discovers and runs leak components, then post-processes
+// tagged output to produce a section-aware summary.
+//
+// Component discovery order:
+//   1. KASLD_COMPONENT_DIR environment variable (explicit override)
+//   2. components/ relative to the binary (build tree / tarball)
+//   3. ../libexec/kasld/ relative to the binary (FHS install)
+//
+// Tagged line format: <type> <section> <addr> <label>
+//   type:    V (virtual), P (physical), D (default/KASLR-disabled)
+//   section: text, module, directmap, data, dram, pageoffset, or - (default)
+// ---
+// <bcoles@gmail.com>
+
+#define _POSIX_C_SOURCE 200809L
+
+#include "include/kasld_internal.h"
+
+#include <dirent.h>
+#include <errno.h>
+#include <limits.h>
+#include <poll.h>
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <sys/utsname.h>
+#include <sys/wait.h>
+#include <time.h>
+#include <unistd.h>
+
+#ifndef VERSION
+#define VERSION "unknown"
+#endif
+
+int verbose;
+int json_output;
+int oneline_output;
+int markdown_output;
+int color_output;
+
+/* =========================================================================
+ * Runtime memory layout (initialized from compile-time defaults, may be
+ * adjusted at runtime when a pageoffset result overrides PAGE_OFFSET)
+ * =========================================================================
+ */
+struct kasld_layout layout = {
+    .page_offset = PAGE_OFFSET,
+    .kernel_vas_start = KERNEL_VAS_START,
+    .kernel_vas_end = KERNEL_VAS_END,
+    .kernel_base_min = KERNEL_BASE_MIN,
+    .kernel_base_max = KERNEL_BASE_MAX,
+    .modules_start = MODULES_START,
+    .modules_end = MODULES_END,
+    .kernel_align = KERNEL_ALIGN,
+    .text_offset = TEXT_OFFSET,
+    .kernel_text_default = KERNEL_TEXT_DEFAULT,
+    .kaslr_base_min = KASLR_BASE_MIN,
+    .kaslr_base_max = KASLR_BASE_MAX,
+    .kaslr_align = KASLR_ALIGN,
+};
+
+/* Adjust layout when runtime PAGE_OFFSET differs from compile-time default.
+ * On 32-bit, the floor shifts with PAGE_OFFSET; the ceiling stays fixed.
+ * Modules shift with PAGE_OFFSET on arm32/ppc32 (where modules_end == old PO),
+ * but are fixed on x86_32/mips32.
+ * On decoupled architectures (x86_64, modern riscv64), kernel text is not at
+ * PAGE_OFFSET, so only directmap/VAS bounds change. */
+static void adjust_for_page_offset(unsigned long new_po) {
+  unsigned long old_po = layout.page_offset;
+  if (new_po == old_po)
+    return;
+
+  long delta = (long)(new_po - old_po);
+
+  if (verbose && !json_output)
+    printf("[layout] PAGE_OFFSET adjusted: %#lx -> %#lx (delta %+ld)\n", old_po,
+           new_po, delta);
+
+  layout.page_offset = new_po;
+  layout.kernel_vas_start = new_po;
+
+  /* Ensure VAS start doesn't exceed any section that extends below
+   * PAGE_OFFSET. On riscv64 SV39, modules (anchored to kernel _end)
+   * can be below the detected PAGE_OFFSET. */
+  if (layout.modules_start && layout.modules_start < layout.kernel_vas_start)
+    layout.kernel_vas_start = layout.modules_start;
+
+#if !PHYS_VIRT_DECOUPLED
+  /* On coupled architectures, kernel text base tracks PAGE_OFFSET */
+  layout.kernel_base_min = new_po;
+  layout.kaslr_base_min = new_po;
+  layout.kernel_text_default = new_po + layout.text_offset;
+#endif
+
+  /* Modules shift with PAGE_OFFSET when they sit just below it */
+  if (layout.modules_end == old_po) {
+    layout.modules_start += delta;
+    layout.modules_end = new_po;
+  }
+}
+
+/* Constants used only by the orchestrator */
+#define KASLD_PATH_MAX 4096
+#define LINE_LEN 512
+#define COMPONENT_TIMEOUT_SECS 120
+
+/* -------------------------------------------------------------------------
+ * Component execution log (for --verbose --json)
+ * -------------------------------------------------------------------------
+ */
+struct component_log comp_logs[MAX_COMPONENTS];
+int num_comp_logs;
+
+/* =========================================================================
+ * Component discovery
+ * =========================================================================
+ */
+struct component {
+  char path[KASLD_PATH_MAX];
+  char name[256];
+};
+
+static struct component components[MAX_COMPONENTS];
+static int num_components;
+
+/* Phased execution order.
+ * Phase 1 (discovery): determines PAGE_OFFSET, KASLR state, and may yield
+ *   exact kernel addresses before the main inference phase runs.
+ * Phase 2 (inference): all remaining components except brute-force.
+ * Phase 3 (brute-force): timing / side-channel components, skipped when
+ *   KASLR is disabled or unsupported.
+ */
+static const char *phase_discovery[] = {
+    "boot-config", "default",      "dmesg_kaslr-disabled", "proc-cmdline",
+    "proc-config", "proc-cpuinfo", "proc-kallsyms",        NULL};
+static const char *phase_bruteforce[] = {"entrybleed", "mincore",
+                                         "mmap-brute-vmsplit", NULL};
+
+static int name_in_list(const char *name, const char **list) {
+  for (int i = 0; list[i]; i++) {
+    if (strcmp(name, list[i]) == 0)
+      return 1;
+  }
+  return 0;
+}
+
+static int component_cmp(const void *a, const void *b) {
+  const struct component *ca = (const struct component *)a;
+  const struct component *cb = (const struct component *)b;
+  return strcmp(ca->name, cb->name);
+}
+
+/* Resolve the directory of the running binary via /proc/self/exe */
+static int get_self_dir(char *buf, size_t buflen) {
+  ssize_t len = readlink("/proc/self/exe", buf, buflen - 1);
+  if (len < 0)
+    return -1;
+  buf[len] = '\0';
+
+  /* Truncate to directory */
+  char *slash = strrchr(buf, '/');
+  if (slash)
+    *slash = '\0';
+  else
+    return -1;
+
+  return 0;
+}
+
+/* Try to open a component directory. Returns DIR* or NULL. */
+static DIR *try_component_dir(const char *base, const char *rel, char *resolved,
+                              size_t rlen) {
+  int n = snprintf(resolved, rlen, "%s/%s", base, rel);
+  if (n < 0 || (size_t)n >= rlen)
+    return NULL;
+  return opendir(resolved);
+}
+
+/* Discover component directory using search order */
+static int discover_components(void) {
+  char comp_dir[KASLD_PATH_MAX];
+  DIR *d = NULL;
+
+  /* 1. KASLD_COMPONENT_DIR env var */
+  const char *env = getenv("KASLD_COMPONENT_DIR");
+  if (env && env[0]) {
+    snprintf(comp_dir, sizeof(comp_dir), "%s", env);
+    d = opendir(comp_dir);
+  }
+
+  /* 2-3. Resolve relative to binary */
+  if (!d) {
+    char self_dir[KASLD_PATH_MAX];
+    if (get_self_dir(self_dir, sizeof(self_dir)) < 0) {
+      fprintf(stderr, "error: cannot resolve binary location\n");
+      return -1;
+    }
+
+    /* 2. components/ beside the binary */
+    d = try_component_dir(self_dir, "components", comp_dir, sizeof(comp_dir));
+
+    /* 3. ../libexec/kasld/ (FHS install) */
+    if (!d)
+      d = try_component_dir(self_dir, "../libexec/kasld", comp_dir,
+                            sizeof(comp_dir));
+  }
+
+  if (!d) {
+    fprintf(stderr, "error: cannot find component directory\n");
+    fprintf(stderr, "  tried: components/ and ../libexec/kasld/ "
+                    "relative to binary\n");
+    fprintf(stderr, "  hint:  set KASLD_COMPONENT_DIR environment variable\n");
+    return -1;
+  }
+
+  /* Scan directory for executables */
+  struct dirent *ent;
+  while ((ent = readdir(d)) != NULL) {
+    if (num_components >= MAX_COMPONENTS) {
+      fprintf(stderr,
+              "warning: component limit (%d) reached, "
+              "skipping remaining\n",
+              MAX_COMPONENTS);
+      break;
+    }
+
+    /* Skip dotfiles */
+    if (ent->d_name[0] == '.')
+      continue;
+
+    char path[KASLD_PATH_MAX];
+    int n = snprintf(path, sizeof(path), "%s/%s", comp_dir, ent->d_name);
+    if (n < 0 || (size_t)n >= sizeof(path))
+      continue;
+
+    /* Must be a regular executable file */
+    struct stat st;
+    if (stat(path, &st) < 0)
+      continue;
+    if (!S_ISREG(st.st_mode))
+      continue;
+    if (!(st.st_mode & S_IXUSR))
+      continue;
+
+    struct component *c = &components[num_components];
+    snprintf(c->path, sizeof(c->path), "%s", path);
+    snprintf(c->name, sizeof(c->name), "%s", ent->d_name);
+    num_components++;
+  }
+  closedir(d);
+
+  if (num_components == 0) {
+    fprintf(stderr, "error: no components found in %s\n", comp_dir);
+    return -1;
+  }
+
+  /* Sort alphabetically for deterministic default ordering */
+  qsort(components, (size_t)num_components, sizeof(struct component),
+        component_cmp);
+
+  return 0;
+}
+
+/* =========================================================================
+ * System information
+ * =========================================================================
+ */
+static void read_proc_value(const char *label, const char *path) {
+  FILE *f = fopen(path, "r");
+  if (!f) {
+    printf("%-30s%s(unavailable)%s\n", label, c(C_DIM), c(C_RESET));
+    return;
+  }
+  char buf[64];
+  if (fgets(buf, sizeof(buf), f)) {
+    /* Strip trailing newline */
+    buf[strcspn(buf, "\n")] = '\0';
+    printf("%-30s%s\n", label, buf);
+  }
+  fclose(f);
+}
+
+static void print_banner(void) {
+  struct utsname u;
+  if (uname(&u) < 0) {
+    perror("uname");
+    return;
+  }
+
+  // Delta Corps Priest 1 font from https://www.asciiart.eu/text-to-ascii-art
+  printf("\n"
+         "     ▄█   ▄█▄    ▄████████    ▄████████  ▄█       ████████▄\n"
+         "    ███ ▄███▀   ███    ███   ███    ███ ███       ███   ▀███\n"
+         "    ███▐██▀     ███    ███   ███    █▀  ███       ███    ███\n"
+         "   ▄█████▀      ███    ███   ███        ███       ███    ███\n"
+         "  ▀▀█████▄    ▀███████████ ▀███████████ ███       ███    ███\n"
+         "    ███▐██▄     ███    ███          ███ ███       ███    ███\n"
+         "    ███ ▀███▄   ███    ███    ▄█    ███ ███▌    ▄ ███   ▄███\n"
+         "    ███   ▀█▀   ███    █▀   ▄████████▀  █████▄▄██ ████████▀\n"
+         "    ▀                                   ▀ v%s\n\n",
+         VERSION);
+}
+
+static void print_system_config(void) {
+  struct utsname u;
+  if (uname(&u) < 0) {
+    perror("uname");
+    return;
+  }
+
+  printf("%-30s%s\n", "Kernel release:", u.release);
+  printf("%-30s%s\n", "Kernel version:", u.version);
+  printf("%-30s%s\n", "Kernel arch:", u.machine);
+
+  printf("\n");
+  read_proc_value("kernel.kptr_restrict:", "/proc/sys/kernel/kptr_restrict");
+  read_proc_value("kernel.dmesg_restrict:", "/proc/sys/kernel/dmesg_restrict");
+  read_proc_value("kernel.panic_on_oops:", "/proc/sys/kernel/panic_on_oops");
+  read_proc_value("kernel.perf_event_paranoid:",
+                  "/proc/sys/kernel/perf_event_paranoid");
+  printf("\n");
+
+  const char *check_files[][2] = {
+      {"Readable /var/log/dmesg:", "/var/log/dmesg"},
+      {"Readable /var/log/kern.log:", "/var/log/kern.log"},
+      {"Readable /var/log/syslog:", "/var/log/syslog"},
+      {"Readable DebugFS:", "/sys/kernel/debug"},
+      {NULL, NULL},
+  };
+
+  for (int i = 0; check_files[i][0]; i++) {
+    int readable = access(check_files[i][1], R_OK) == 0;
+    printf("%-30s%s%s%s\n", check_files[i][0], readable ? c(C_GREEN) : c(C_DIM),
+           readable ? "yes" : "no", c(C_RESET));
+  }
+
+  /* Kernel-release-specific paths */
+  char path[KASLD_PATH_MAX];
+  int readable;
+
+  snprintf(path, sizeof(path), "/boot/System.map-%s", u.release);
+  readable = access(path, R_OK) == 0;
+  printf("%-30s%s%s%s\n",
+         "Readable /boot/System.map:", readable ? c(C_GREEN) : c(C_DIM),
+         readable ? "yes" : "no", c(C_RESET));
+
+  snprintf(path, sizeof(path), "/boot/config-%s", u.release);
+  readable = access(path, R_OK) == 0;
+  printf("%-30s%s%s%s\n",
+         "Readable /boot/config:", readable ? c(C_GREEN) : c(C_DIM),
+         readable ? "yes" : "no", c(C_RESET));
+
+  printf("\n");
+}
+
+/* =========================================================================
+ * Component execution
+ * =========================================================================
+ */
+
+/* Result storage — defined in kasld_internal.h */
+
+struct result results[MAX_RESULTS];
+int num_results;
+
+/* Name of the currently-running component (set by run_component) */
+static const char *current_component_name;
+
+/* Method lookup table: maps component name to methodology category.
+ * Categories: exact, parsed, timing, heuristic.
+ * Default for unlisted components: "parsed" (most are dmesg/sysfs parsers). */
+static const struct {
+  const char *name;
+  const char *method;
+} method_table[] = {
+    /* exact — deterministic kernel pointer */
+    {"proc-kallsyms", "exact"},
+    {"proc-modules", "exact"},
+    {"pppd_kallsyms", "exact"},
+    {"proc-pid-syscall", "exact"},
+    {"proc-stat-wchan", "exact"},
+    {"qemu-tcg-iret", "exact"},
+    {"sysfs-module-sections", "exact"},
+    {"sysfs_nf_conntrack", "exact"},
+    {"sysfs_iscsi_transport_handle", "exact"},
+    /* timing — microarchitectural side-channel */
+    {"prefetch", "timing"},
+    {"entrybleed", "timing"},
+    /* heuristic — brute-force probing or uninitialized memory */
+    {"mincore", "heuristic"},
+    {"mmap-brute-vmsplit", "heuristic"},
+    {"perf_event_open", "heuristic"},
+    {"bcm_msg_head_struct", "heuristic"},
+    /* parsed — everything else (dmesg, sysfs, proc text parsing) */
+    {NULL, NULL},
+};
+
+static const char *method_for(const char *name) {
+  for (int i = 0; method_table[i].name; i++) {
+    if (strcmp(method_table[i].name, name) == 0)
+      return method_table[i].method;
+  }
+  return "parsed";
+}
+
+/* Forward declarations for functions defined in the post-processing section */
+static unsigned long align_for_section(char type, const char *section,
+                                       unsigned long addr);
+static int validate_for_section(char type, const char *section,
+                                unsigned long addr);
+
+static void capture_result(const char *line) {
+  if (num_results >= MAX_RESULTS) {
+    static int warned;
+    if (!warned) {
+      fprintf(stderr,
+              "warning: result limit (%d) reached, dropping further results\n",
+              MAX_RESULTS);
+      warned = 1;
+    }
+    return;
+  }
+  if (line[0] != KASLD_ADDR_VIRT && line[0] != KASLD_ADDR_PHYS &&
+      line[0] != KASLD_ADDR_DEFAULT)
+    return;
+  if (line[1] != ' ')
+    return;
+
+  char type_ch;
+  char section[SECTION_LEN];
+  unsigned long addr;
+  int pos = 0;
+
+  if (sscanf(line, "%c %31s %lx %n", &type_ch, section, &addr, &pos) < 3 ||
+      pos == 0)
+    return;
+
+  const char *label_start = line + pos;
+  if (*label_start == '\0')
+    return;
+
+  struct result *r = &results[num_results];
+  r->type = type_ch;
+  strncpy(r->section, section, SECTION_LEN - 1);
+  r->section[SECTION_LEN - 1] = '\0';
+
+  strncpy(r->label, label_start, LABEL_LEN - 1);
+  r->label[LABEL_LEN - 1] = '\0';
+  size_t llen = strlen(r->label);
+  if (llen > 0 && r->label[llen - 1] == '\n')
+    r->label[llen - 1] = '\0';
+
+  r->raw = addr;
+  r->aligned = align_for_section(type_ch, section, addr);
+  r->valid = validate_for_section(type_ch, section, addr);
+
+  /* Set method from static lookup table */
+  const char *meth =
+      current_component_name ? method_for(current_component_name) : "parsed";
+  strncpy(r->method, meth, METHOD_LEN - 1);
+  r->method[METHOD_LEN - 1] = '\0';
+
+  num_results++;
+}
+
+static long deadline_remaining_ms(const struct timespec *deadline) {
+  struct timespec now;
+  clock_gettime(CLOCK_MONOTONIC, &now);
+  long ms = (deadline->tv_sec - now.tv_sec) * 1000 +
+            (deadline->tv_nsec - now.tv_nsec) / 1000000;
+  return ms > 0 ? ms : 0;
+}
+
+static int run_component(const struct component *c) {
+  current_component_name = c->name;
+
+  if (verbose && !json_output)
+    printf("--- %s ---\n", c->name);
+
+  /* Allocate a log slot for --verbose --json */
+  struct component_log *clog = NULL;
+  if (verbose && json_output && num_comp_logs < MAX_COMPONENTS) {
+    clog = &comp_logs[num_comp_logs++];
+    snprintf(clog->name, sizeof(clog->name), "%s", c->name);
+    clog->exit_code = -1;
+    clog->num_lines = 0;
+  }
+
+  int pipefd[2];
+  if (pipe(pipefd) < 0) {
+    perror("pipe");
+    return -1;
+  }
+
+  pid_t pid = fork();
+  if (pid < 0) {
+    perror("fork");
+    close(pipefd[0]);
+    close(pipefd[1]);
+    return -1;
+  }
+
+  if (pid == 0) {
+    /* Child: new process group so we can kill any grandchildren */
+    setpgid(0, 0);
+
+    /* Redirect stdout to pipe, merge stderr into stdout */
+    close(pipefd[0]);
+    dup2(pipefd[1], STDOUT_FILENO);
+    dup2(pipefd[1], STDERR_FILENO);
+    close(pipefd[1]);
+
+    execl(c->path, c->name, (char *)NULL);
+    _exit(127);
+  }
+
+  /* Parent: also set child pgid (race-safe double-set with child) */
+  setpgid(pid, pid);
+  close(pipefd[1]);
+
+  /* Compute deadline */
+  struct timespec deadline;
+  clock_gettime(CLOCK_MONOTONIC, &deadline);
+  deadline.tv_sec += COMPONENT_TIMEOUT_SECS;
+
+  /* Non-blocking read with poll() timeout */
+  struct pollfd pfd = {.fd = pipefd[0], .events = POLLIN};
+  char buf[LINE_LEN];
+  size_t buf_pos = 0;
+  int timed_out = 0;
+
+  while (1) {
+    long remaining = deadline_remaining_ms(&deadline);
+    if (remaining == 0) {
+      timed_out = 1;
+      break;
+    }
+
+    int pr = poll(&pfd, 1, (int)(remaining > INT_MAX ? INT_MAX : remaining));
+    if (pr < 0) {
+      if (errno == EINTR)
+        continue;
+      break;
+    }
+    if (pr == 0) {
+      timed_out = 1;
+      break;
+    }
+
+    /* Read available data */
+    ssize_t n = read(pipefd[0], buf + buf_pos, sizeof(buf) - buf_pos - 1);
+    if (n <= 0)
+      break; /* EOF or error */
+
+    buf_pos += (size_t)n;
+    buf[buf_pos] = '\0';
+
+    /* Process complete lines */
+    char *start = buf;
+    char *nl;
+    while ((nl = strchr(start, '\n')) != NULL) {
+      *nl = '\0';
+      if (verbose && !json_output)
+        printf("%s\n", start);
+
+      /* Capture line for verbose JSON */
+      if (clog && clog->num_lines < MAX_COMPONENT_LINES) {
+        strncpy(clog->lines[clog->num_lines], start, MAX_LINE_LEN - 1);
+        clog->lines[clog->num_lines][MAX_LINE_LEN - 1] = '\0';
+        clog->num_lines++;
+      }
+
+      /* Re-add newline for capture (label newline stripped in capture_result)
+       */
+      *nl = '\n';
+      char line[LINE_LEN];
+      size_t llen = (size_t)(nl - start + 1);
+      if (llen < sizeof(line)) {
+        memcpy(line, start, llen);
+        line[llen] = '\0';
+        capture_result(line);
+      }
+
+      start = nl + 1;
+    }
+
+    /* Shift remaining partial line to front of buffer */
+    size_t left = buf_pos - (size_t)(start - buf);
+    if (left > 0)
+      memmove(buf, start, left);
+    buf_pos = left;
+  }
+
+  close(pipefd[0]);
+
+  if (timed_out) {
+    fprintf(stderr, "warning: component '%s' timed out after %ds, killing\n",
+            c->name, COMPONENT_TIMEOUT_SECS);
+    kill(-pid, SIGKILL); /* Kill entire process group */
+  }
+
+  int status;
+  waitpid(pid, &status, 0);
+
+  if (timed_out)
+    return -1;
+
+  int rc = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+  if (clog)
+    clog->exit_code = rc;
+  return rc;
+}
+
+/* Progress tracking across phases */
+static int progress_done;
+static struct timespec progress_start;
+
+static void progress_update(void) {
+  progress_done++;
+  if (verbose && !json_output && !oneline_output && !markdown_output)
+    printf("\n");
+  else if (!json_output && !oneline_output && !markdown_output) {
+    int pct = num_components > 0 ? (progress_done * 100) / num_components : 0;
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    double elapsed = (double)(now.tv_sec - progress_start.tv_sec) +
+                     (double)(now.tv_nsec - progress_start.tv_nsec) / 1e9;
+
+    /* Build a small progress bar: [████░░░░░░] */
+    int bar_width = 20;
+    int filled = (pct * bar_width) / 100;
+    char bar[32];
+    for (int i = 0; i < bar_width; i++)
+      bar[i] = i < filled ? '#' : '.';
+    bar[bar_width] = '\0';
+
+    printf("\r%s[%s]%s %3d%%  %d/%d  %s%.1fs%s", c(C_DIM), bar, c(C_RESET), pct,
+           progress_done, num_components, c(C_DIM), elapsed, c(C_RESET));
+    fflush(stdout);
+  }
+}
+
+/* Run components whose name is (include=1) or is not (include=0) in list.
+ * When exclude2 is non-NULL, also skip names in that list. */
+static void run_phase(const char **list, int include, const char **exclude2) {
+  for (int i = 0; i < num_components; i++) {
+    int in_list = name_in_list(components[i].name, list);
+    if (in_list != include)
+      continue;
+    if (exclude2 && name_in_list(components[i].name, exclude2))
+      continue;
+    run_component(&components[i]);
+    progress_update();
+  }
+}
+
+/* =========================================================================
+ * Post-processing: validate, align, group, and summarize tagged results
+ * =========================================================================
+ */
+static unsigned long align_for_section(char type, const char *section,
+                                       unsigned long addr) {
+  if (type == KASLD_ADDR_DEFAULT)
+    return addr;
+
+  if (strcmp(section, KASLD_SECTION_TEXT) == 0)
+    return addr & -layout.kernel_align;
+
+  /* module, directmap, data, dram, pageoffset: no alignment (report as-is) */
+  return addr;
+}
+
+static int validate_for_section(char type, const char *section,
+                                unsigned long addr) {
+  if (type == KASLD_ADDR_DEFAULT)
+    return 1;
+
+  if (type == KASLD_ADDR_VIRT) {
+    if (strcmp(section, KASLD_SECTION_TEXT) == 0)
+      return addr >= layout.kernel_base_min && addr <= layout.kernel_base_max;
+
+    if (strcmp(section, KASLD_SECTION_MODULE) == 0)
+      return addr >= layout.modules_start && addr <= layout.modules_end;
+
+    if (strcmp(section, KASLD_SECTION_DIRECTMAP) == 0 ||
+        strcmp(section, KASLD_SECTION_DATA) == 0)
+      return addr >= layout.kernel_vas_start && addr <= layout.kernel_vas_end;
+
+    if (strcmp(section, KASLD_SECTION_PAGEOFFSET) == 0)
+      return 1;
+  }
+
+  if (type == KASLD_ADDR_PHYS) {
+#ifdef KERNEL_PHYS_MIN
+    if (strcmp(section, KASLD_SECTION_TEXT) == 0)
+      return addr >= KERNEL_PHYS_MIN && addr <= KERNEL_PHYS_MAX;
+
+    if (strcmp(section, KASLD_SECTION_DRAM) == 0)
+      return 1;
+#endif
+    return 1;
+  }
+
+  return 1;
+}
+
+/* Re-validate and re-align all results against the current layout */
+static void revalidate_results(void) {
+  for (int i = 0; i < num_results; i++) {
+    results[i].aligned =
+        align_for_section(results[i].type, results[i].section, results[i].raw);
+    results[i].valid = validate_for_section(results[i].type, results[i].section,
+                                            results[i].aligned);
+  }
+}
+
+#ifdef LEGACY_LAYOUT_BOUNDARY
+/* Search virtual text results for an address below the arch-defined legacy
+ * layout boundary. Does not require results[i].valid because on arches
+ * where the modern KERNEL_BASE_MIN is above the legacy range (arm64), the
+ * legacy address will have initially failed validation.  The VAS-range
+ * check provides a minimal sanity gate. */
+static unsigned long find_legacy_text(void) {
+  for (int i = 0; i < num_results; i++) {
+    if (results[i].type == KASLD_ADDR_VIRT &&
+        strcmp(results[i].section, KASLD_SECTION_TEXT) == 0 &&
+        results[i].aligned != 0 && results[i].aligned >= KERNEL_VAS_START &&
+        results[i].aligned < LEGACY_LAYOUT_BOUNDARY)
+      return results[i].aligned;
+  }
+  return 0;
+}
+#endif
+
+/* Apply PAGE_OFFSET adjustment if a pageoffset result overrides the default */
+static void apply_layout_adjustments(void) {
+  /* Check for conflicting pageoffset sources (e.g., proc-config's
+   * CONFIG_PAGE_OFFSET vs proc-cpuinfo's MMU-inferred value). Conflicts
+   * indicate a legacy kernel where CONFIG_PAGE_OFFSET was a compile-time
+   * constant rather than derived from the active paging mode. */
+  unsigned long po_vals[MAX_RESULTS];
+  int po_n = 0;
+  for (int i = 0; i < num_results; i++) {
+    if (results[i].type == KASLD_ADDR_VIRT &&
+        strcmp(results[i].section, KASLD_SECTION_PAGEOFFSET) == 0 &&
+        results[i].valid) {
+      int dup = 0;
+      for (int j = 0; j < po_n; j++) {
+        if (po_vals[j] == results[i].aligned) {
+          dup = 1;
+          break;
+        }
+      }
+      if (!dup && po_n < MAX_RESULTS)
+        po_vals[po_n++] = results[i].aligned;
+    }
+  }
+  if (po_n > 1) {
+    fprintf(stderr, "[!] Conflicting PAGE_OFFSET sources detected "
+                    "(possible legacy kernel layout):\n");
+    for (int i = 0; i < po_n; i++)
+      fprintf(stderr, "    0x%016lx\n", po_vals[i]);
+    fprintf(stderr, "    Using 0x%016lx (modern layout assumed)\n",
+            po_vals[0] < po_vals[1] ? po_vals[0] : po_vals[1]);
+  }
+
+  unsigned long detected_po =
+      group_consensus(KASLD_ADDR_VIRT, KASLD_SECTION_PAGEOFFSET);
+  if (detected_po && detected_po != layout.page_offset)
+    adjust_for_page_offset(detected_po);
+
+#if !PHYS_VIRT_DECOUPLED
+  /* On coupled architectures, kernel text lives above PAGE_OFFSET.
+   * KERNEL_BASE_MIN may be conservatively low (e.g. x86_32 uses 0x40000000
+   * to accept addresses from any CONFIG_VMSPLIT_* at validation time), but
+   * must be clamped to PAGE_OFFSET for the final layout so the memory map
+   * and KASLR analysis reference the correct text region floor.
+   * Also fix kernel_vas_start: on arm32 modules sit just below PAGE_OFFSET,
+   * so VAS start is min(page_offset, modules_start). */
+  if (layout.kernel_base_min < layout.page_offset) {
+    layout.kernel_base_min = layout.page_offset;
+    layout.kernel_text_default = layout.page_offset + layout.text_offset;
+    layout.kernel_vas_start = layout.page_offset;
+    if (layout.modules_start < layout.kernel_vas_start)
+      layout.kernel_vas_start = layout.modules_start;
+  }
+#endif
+
+#ifdef LEGACY_LAYOUT_BOUNDARY
+  /* Detect legacy kernel layout: if a validated virtual text address falls
+   * below the arch-defined boundary, the kernel is using an older VAS layout.
+   *
+   * Two modes (selected by the arch header):
+   *   LEGACY_COUPLED:  PAGE_OFFSET derived from text; all base fields track
+   *                    it (e.g. riscv64 SV39).
+   *   Otherwise:       Static constants from LEGACY_* macros replace the
+   *                    modern defaults (e.g. arm64 pre-v5.4). */
+  {
+    unsigned long legacy_text = find_legacy_text();
+    if (legacy_text) {
+#ifdef LEGACY_COUPLED
+      layout.text_offset = LEGACY_TEXT_OFFSET;
+      unsigned long legacy_po = legacy_text & LEGACY_PAGE_OFFSET_MASK;
+      if (legacy_po != layout.page_offset)
+        adjust_for_page_offset(legacy_po);
+      /* adjust_for_page_offset handles VAS start and module shifting but,
+       * on PHYS_VIRT_DECOUPLED arches, does not update text-tracking fields.
+       * Apply them explicitly for the coupled legacy layout. */
+      layout.kernel_text_default = legacy_po + layout.text_offset;
+      layout.kernel_base_min = legacy_po;
+      layout.kaslr_base_min = legacy_po;
+#else
+      layout.page_offset = LEGACY_PAGE_OFFSET;
+      layout.kernel_vas_start = LEGACY_KERNEL_VAS_START;
+      layout.modules_start = LEGACY_MODULES_START;
+      layout.modules_end = LEGACY_MODULES_END;
+      layout.text_offset = LEGACY_TEXT_OFFSET;
+      layout.kernel_text_default = LEGACY_KERNEL_TEXT_DEFAULT;
+      layout.kernel_base_min = LEGACY_KERNEL_BASE_MIN;
+      layout.kaslr_base_min = LEGACY_KASLR_BASE_MIN;
+      layout.kaslr_base_max = LEGACY_KASLR_BASE_MAX;
+#endif
+    }
+  }
+#endif
+
+  revalidate_results();
+}
+
+/* Check parsed results for KASLR-disabled / unsupported indicators.
+ * With the component:qualifier label convention, nokaslr indicators
+ * end with ":nokaslr" and the default text is "default:text". */
+static int detect_kaslr_state(void) {
+  for (int i = 0; i < num_results; i++) {
+    if (results[i].type == KASLD_ADDR_DEFAULT &&
+        strcmp(results[i].label, "default:text") != 0)
+      return 1; /* disabled or unsupported */
+  }
+  return 0;
+}
+
+/* -------------------------------------------------------------------------
+ * Analysis helpers: find consensus address for a (type, section) group
+ * -------------------------------------------------------------------------
+ */
+unsigned long group_consensus(char type, const char *section) {
+  /* Find the most common aligned address in a group */
+  unsigned long addrs[MAX_RESULTS];
+  int counts[MAX_RESULTS];
+  int n = 0;
+
+  for (int i = 0; i < num_results; i++) {
+    struct result *r = &results[i];
+    if (r->type != type || strcmp(r->section, section) != 0 || !r->valid)
+      continue;
+
+    int found = 0;
+    for (int j = 0; j < n; j++) {
+      if (addrs[j] == r->aligned) {
+        counts[j]++;
+        found = 1;
+        break;
+      }
+    }
+    if (!found && n < MAX_RESULTS) {
+      addrs[n] = r->aligned;
+      counts[n] = 1;
+      n++;
+    }
+  }
+
+  if (n == 0)
+    return 0;
+
+  /* Return the address with highest count (ties: lowest address) */
+  int best = 0;
+  for (int i = 1; i < n; i++) {
+    if (counts[i] > counts[best] ||
+        (counts[i] == counts[best] && addrs[i] < addrs[best]))
+      best = i;
+  }
+  return addrs[best];
+}
+
+/* -------------------------------------------------------------------------
+ * KASLR slide and entropy analysis
+ * -------------------------------------------------------------------------
+ */
+static int ilog2(unsigned long v) {
+  int r = 0;
+  while (v >>= 1)
+    r++;
+  return r;
+}
+
+/* Pure computation: fill kaslr_info from consensus addresses */
+void compute_kaslr_info(struct summary *s) {
+  s->kaslr.vtext = group_consensus(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT);
+  s->kaslr.ptext = group_consensus(KASLD_ADDR_PHYS, KASLD_SECTION_TEXT);
+  s->kaslr.has_phys = 0;
+
+  if (s->kaslr.vtext) {
+    s->kaslr.vslide = (long)(s->kaslr.vtext - layout.kernel_text_default);
+    unsigned long text_range = layout.kaslr_base_max - layout.kaslr_base_min;
+    s->kaslr.vslots = layout.kaslr_align ? text_range / layout.kaslr_align : 0;
+    s->kaslr.vbits = s->kaslr.vslots > 0 ? ilog2(s->kaslr.vslots) : 0;
+    s->kaslr.vslot_valid =
+        (layout.kaslr_align > 0 && s->kaslr.vtext >= layout.kaslr_base_min &&
+         s->kaslr.vtext < layout.kaslr_base_max);
+    if (s->kaslr.vslot_valid)
+      s->kaslr.vslot_idx =
+          (s->kaslr.vtext - layout.kaslr_base_min) / layout.kaslr_align;
+  }
+
+  if (s->kaslr.ptext) {
+#ifdef KERNEL_PHYS_DEFAULT
+    s->kaslr.has_phys = 1;
+    s->kaslr.pslide = (long)(s->kaslr.ptext - KERNEL_PHYS_DEFAULT);
+    unsigned long phys_range = KASLR_PHYS_MAX - KASLR_PHYS_MIN;
+    s->kaslr.pslots = KASLR_PHYS_ALIGN ? phys_range / KASLR_PHYS_ALIGN : 0;
+    s->kaslr.pbits = s->kaslr.pslots > 0 ? ilog2(s->kaslr.pslots) : 0;
+#endif
+  }
+
+  /* When KASLR is disabled or unsupported, slide and entropy are
+   * definitionally zero regardless of what addresses were leaked. */
+  if (s->kaslr.disabled || s->kaslr.unsupported) {
+    s->kaslr.vslide = 0;
+    s->kaslr.vslots = 0;
+    s->kaslr.vbits = 0;
+    s->kaslr.vslot_valid = 0;
+    s->kaslr.pslide = 0;
+    s->kaslr.pslots = 0;
+    s->kaslr.pbits = 0;
+  }
+}
+
+/* -------------------------------------------------------------------------
+ * Derive cross-section information (compute-then-render)
+ * -------------------------------------------------------------------------
+ */
+static void add_derived(struct summary *s, char type, const char *section,
+                        unsigned long addr, unsigned long addr_hi,
+                        const char *label, const char *via) {
+  if (s->num_derived >= MAX_DERIVED)
+    return;
+  struct derived_addr *d = &s->derived[s->num_derived++];
+  d->type = type;
+  strncpy(d->section, section, SECTION_LEN - 1);
+  d->section[SECTION_LEN - 1] = '\0';
+  d->addr = addr;
+  d->addr_hi = addr_hi;
+  snprintf(d->label, sizeof(d->label), "%s", label);
+  snprintf(d->via, sizeof(d->via), "%s", via);
+}
+
+/* Pure computation: derive addresses across sections (no printf) */
+void compute_derived_addrs(struct summary *s) {
+  s->num_derived = 0;
+  unsigned long ptext = group_consensus(KASLD_ADDR_PHYS, KASLD_SECTION_TEXT);
+  (void)add_derived; /* conditionally used depending on architecture */
+
+#if !PHYS_VIRT_DECOUPLED
+  unsigned long vtext = group_consensus(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT);
+  unsigned long vdmap =
+      group_consensus(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP);
+  /* Coupled: virtual text <-> physical text <-> directmap */
+  if (vtext && !ptext) {
+    unsigned long derived = vtext - layout.page_offset + PHYS_OFFSET;
+    add_derived(s, KASLD_ADDR_PHYS, KASLD_SECTION_TEXT, derived, 0,
+                "Physical text base", "via V text");
+  }
+  if (ptext && !vtext) {
+    unsigned long derived =
+        (ptext - PHYS_OFFSET + layout.page_offset + layout.text_offset) &
+        -layout.kernel_align;
+    if (derived >= layout.kernel_base_min && derived <= layout.kernel_base_max)
+      add_derived(s, KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, derived, 0,
+                  "Virtual text base", "via P text");
+  }
+#if PAGE_OFFSET_RANDOMIZED
+  if (vdmap && !vtext) {
+    unsigned long derived = (vdmap + layout.text_offset) & -layout.kernel_align;
+    if (derived >= layout.kernel_base_min && derived <= layout.kernel_base_max)
+      add_derived(s, KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, derived, 0,
+                  "Virtual text base", "via V directmap");
+  }
+  if (vtext && !vdmap) {
+    unsigned long derived = (vtext - layout.text_offset) & -layout.kernel_align;
+    add_derived(s, KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, derived, 0,
+                "Direct map (PAGE_OFFSET)", "via V text");
+  }
+#endif
+#else
+  /* Decoupled: phys_to_virt() yields a direct-map address, not the kernel
+   * text address. Cannot derive virtual text from physical results. */
+  {
+    unsigned long vtext = group_consensus(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT);
+    unsigned long pdram_lo, pdram_hi;
+    group_range(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, &pdram_lo, &pdram_hi);
+    if (!vtext && (ptext || pdram_lo))
+      s->decoupled_note = 1;
+  }
+#endif
+
+  /* Derive approximate text range from module addresses on architectures
+   * where the module region is anchored to the kernel image.
+   * On riscv64: MODULES_VADDR = _end - 2G, so _end ≈ module_lo + 2G.
+   * Kernel image size varies (~5-60 MiB), so we report a range. */
+#if MODULES_RELATIVE_TO_TEXT
+  {
+    unsigned long vtext = group_consensus(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT);
+    if (!vtext) {
+      unsigned long vmod_lo, vmod_hi;
+      group_range(KASLD_ADDR_VIRT, KASLD_SECTION_MODULE, &vmod_lo, &vmod_hi);
+      if (vmod_lo) {
+        /* _end ≈ module_start + MODULES_END_TO_TEXT_OFFSET */
+        unsigned long end_est = vmod_lo + MODULES_END_TO_TEXT_OFFSET;
+
+        /* Estimate text range: small kernel (~4 MiB) to large (~64 MiB) */
+        unsigned long text_hi = (end_est - 4 * MB) & -layout.kernel_align;
+        unsigned long text_lo = (end_est - 64 * MB) & -layout.kernel_align;
+
+        /* Clamp to valid kernel text region */
+        if (text_lo < layout.kernel_base_min)
+          text_lo = layout.kernel_base_min;
+
+        if (text_hi <= layout.kernel_base_max && text_lo < text_hi) {
+          add_derived(s, KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, end_est, 0,
+                      "Kernel _end estimate", "module_lo + 2 GiB");
+
+          /* Cross-reference with physical DRAM leak to narrow the range */
+          unsigned long pdram_lo, pdram_hi;
+          group_range(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, &pdram_lo,
+                      &pdram_hi);
+          if (pdram_lo) {
+            unsigned long vtext_from_phys =
+                (pdram_lo - PHYS_OFFSET + layout.page_offset +
+                 layout.text_offset) &
+                -layout.kernel_align;
+            if (vtext_from_phys >= text_lo && vtext_from_phys <= text_hi) {
+              add_derived(s, KASLD_ADDR_VIRT, KASLD_SECTION_TEXT,
+                          vtext_from_phys, 0, "Virtual text base",
+                          "P dram + PAGE_OFFSET confirmed by module range");
+            } else {
+              add_derived(s, KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, text_lo,
+                          text_hi, "Virtual text range", "module range");
+              add_derived(s, KASLD_ADDR_VIRT, KASLD_SECTION_TEXT,
+                          vtext_from_phys, 0, "Virtual text (phys)",
+                          "P dram derived, outside module range");
+            }
+          } else {
+            add_derived(s, KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, text_lo,
+                        text_hi, "Virtual text range", "module range");
+          }
+        }
+      }
+    }
+  }
+#endif
+}
+
+/* -------------------------------------------------------------------------
+ * ASCII memory layout map — group_range used by rendering and core
+ * -------------------------------------------------------------------------
+ */
+void group_range(char type, const char *section, unsigned long *lo,
+                 unsigned long *hi) {
+  *lo = 0;
+  *hi = 0;
+  int found = 0;
+  for (int i = 0; i < num_results; i++) {
+    struct result *r = &results[i];
+    if (r->type != type || strcmp(r->section, section) != 0 || !r->valid)
+      continue;
+    if (!found || r->aligned < *lo)
+      *lo = r->aligned;
+    if (r->aligned > *hi)
+      *hi = r->aligned;
+    found = 1;
+  }
+  /* If only one unique address, clear hi */
+  if (*lo == *hi)
+    *hi = 0;
+}
+
+/* -------------------------------------------------------------------------
+ * Pre-computation: detect KASLR state and inject default address
+ * -------------------------------------------------------------------------
+ */
+void inject_kaslr_defaults(struct summary *s) {
+  s->kaslr.disabled = 0;
+  s->kaslr.unsupported = 0;
+  s->kaslr.default_addr = 0;
+
+  for (int i = 0; i < num_results; i++) {
+    if (results[i].type == KASLD_ADDR_DEFAULT) {
+      s->kaslr.default_addr = results[i].aligned;
+      if (strcmp(results[i].label, "default:unsupported") == 0)
+        s->kaslr.unsupported = 1;
+      else if (strcmp(results[i].label, "default:text") != 0)
+        s->kaslr.disabled = 1;
+    }
+  }
+
+  /* The default component emits the compile-time KERNEL_TEXT_DEFAULT, but
+   * runtime layout adjustments (e.g. legacy riscv64 detection) may have
+   * changed layout.kernel_text_default. Use the runtime value. */
+  if (s->kaslr.default_addr)
+    s->kaslr.default_addr = layout.kernel_text_default;
+
+  /* When KASLR is disabled/unsupported, inject the default text address
+   * as a virtual text result so it flows into the memory map and
+   * cross-section derivation. */
+  if ((s->kaslr.disabled || s->kaslr.unsupported) && s->kaslr.default_addr &&
+      num_results < MAX_RESULTS) {
+    struct result *r = &results[num_results];
+    r->type = KASLD_ADDR_VIRT;
+    strncpy(r->section, KASLD_SECTION_TEXT, SECTION_LEN - 1);
+    r->section[SECTION_LEN - 1] = '\0';
+    strncpy(r->label, "default:nokaslr", LABEL_LEN - 1);
+    r->label[LABEL_LEN - 1] = '\0';
+    r->raw = s->kaslr.default_addr;
+    r->aligned = s->kaslr.default_addr;
+    r->valid = 1;
+    strncpy(r->method, "exact", METHOD_LEN - 1);
+    r->method[METHOD_LEN - 1] = '\0';
+    num_results++;
+  }
+}
+
+/* =========================================================================
+ * Main
+ * =========================================================================
+ */
+#ifndef KASLD_TESTING
+static void usage(const char *progname) {
+  printf("Usage: %s [OPTIONS]\n\n"
+         "Options:\n"
+         "  -j, --json      Machine-readable JSON output\n"
+         "  -1, --oneline   Single-line summary output\n"
+         "  -m, --markdown  Markdown table output\n"
+         "  -c, --color     Colorize text output (auto-detected for TTYs)\n"
+         "  -v, --verbose   Show component output\n"
+         "  -V, --version   Print version and exit\n"
+         "  -h, --help      Show this help\n",
+         progname);
+}
+
+int main(int argc, char *argv[]) {
+  for (int i = 1; i < argc; i++) {
+    if (strcmp(argv[i], "-j") == 0 || strcmp(argv[i], "--json") == 0) {
+      json_output = 1;
+      oneline_output = 0;
+      markdown_output = 0;
+    } else if (strcmp(argv[i], "-1") == 0 ||
+               strcmp(argv[i], "--oneline") == 0) {
+      oneline_output = 1;
+      json_output = 0;
+      markdown_output = 0;
+    } else if (strcmp(argv[i], "-m") == 0 ||
+               strcmp(argv[i], "--markdown") == 0) {
+      markdown_output = 1;
+      json_output = 0;
+      oneline_output = 0;
+    } else if (strcmp(argv[i], "-c") == 0 || strcmp(argv[i], "--color") == 0) {
+      color_output = 1;
+    } else if (strcmp(argv[i], "-v") == 0 ||
+               strcmp(argv[i], "--verbose") == 0) {
+      verbose = 1;
+    } else if (strcmp(argv[i], "-V") == 0 ||
+               strcmp(argv[i], "--version") == 0) {
+      printf("kasld %s\n", VERSION);
+      return 0;
+    } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
+      usage(argv[0]);
+      return 0;
+    } else {
+      fprintf(stderr, "unknown option: %s\n", argv[i]);
+      usage(argv[0]);
+      return 2;
+    }
+  }
+
+  /* Ensure line-buffered stdout so output appears in real-time */
+  setvbuf(stdout, NULL, _IOLBF, 0);
+
+  /* Auto-detect color when stdout is a TTY and no structured format selected */
+  if (!color_output && !json_output && !oneline_output && !markdown_output)
+    color_output = isatty(STDOUT_FILENO);
+
+  if (!json_output && !oneline_output && !markdown_output) {
+    print_banner();
+    print_system_config();
+  }
+
+  if (discover_components() < 0)
+    return 2;
+
+  if (!verbose && !json_output && !oneline_output && !markdown_output) {
+    clock_gettime(CLOCK_MONOTONIC, &progress_start);
+    printf("Running %d components...\n", num_components);
+    fflush(stdout);
+  }
+
+  /* Phase 1: layout discovery — PAGE_OFFSET, KASLR state, exact addrs */
+  run_phase(phase_discovery, 1, NULL);
+  apply_layout_adjustments();
+  int kaslr_off = detect_kaslr_state();
+
+  /* Phase 2: main inference — everything except discovery and brute-force */
+  run_phase(phase_discovery, 0, phase_bruteforce);
+  apply_layout_adjustments();
+
+  /* Phase 3: brute-force / timing — skip when KASLR is off */
+  if (!kaslr_off)
+    run_phase(phase_bruteforce, 1, NULL);
+  else if (verbose && !json_output && !oneline_output && !markdown_output)
+    printf("skipping brute-force phase (KASLR disabled)\n\n");
+
+  apply_layout_adjustments();
+
+  if (!verbose && !json_output && !oneline_output && !markdown_output)
+    printf("\n\n");
+
+  if (num_results > 0) {
+    print_summary();
+    return 0;
+  }
+
+  if (json_output || oneline_output || markdown_output) {
+    print_summary(); /* valid empty structured output */
+  } else {
+    printf("\n---\n\nno tagged results to process\n");
+  }
+  return 1;
+}
+#endif /* !KASLD_TESTING */

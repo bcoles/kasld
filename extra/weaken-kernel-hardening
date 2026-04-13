@@ -1,0 +1,84 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# Temporarily weaken kernel hardening settings for KASLD testing.
+# Saves current values and restores them on exit (or SIGINT/SIGTERM).
+#
+# This script is intended for testing on systems you control.
+# DO NOT run this on production systems.
+#
+# Settings modified:
+# - kernel.dmesg_restrict  -> 0  (allow unprivileged dmesg access)
+# - kernel.kptr_restrict   -> 0  (expose kernel pointers in /proc/kallsyms etc)
+# - kernel.perf_event_paranoid -> 0  (allow unprivileged perf_event_open)
+#
+# Requires: root privileges
+#
+# References:
+# https://www.kernel.org/doc/Documentation/sysctl/kernel.txt
+# https://sysctl-explorer.net/kernel/kptr_restrict/
+# https://sysctl-explorer.net/kernel/dmesg_restrict/
+# https://sysctl-explorer.net/kernel/perf_event_paranoid/
+# ---
+# <bcoles@gmail.com>
+
+set -e
+
+if [ "$(id -u)" -ne 0 ]; then
+  echo "[-] This script requires root privileges." >&2
+  exit 1
+fi
+
+echo "========================================"
+echo " WARNING: Weakening kernel hardening"
+echo "========================================"
+echo
+echo "This script temporarily weakens kernel hardening settings"
+echo "to allow KASLD components to function without restrictions."
+echo
+echo "Settings will be restored on exit (Ctrl+C or script completion)."
+echo
+
+# Save current values
+saved_dmesg=$(sysctl -n kernel.dmesg_restrict 2>/dev/null) || saved_dmesg=""
+saved_kptr=$(sysctl -n kernel.kptr_restrict 2>/dev/null) || saved_kptr=""
+saved_perf=$(sysctl -n kernel.perf_event_paranoid 2>/dev/null) || saved_perf=""
+
+restore() {
+  echo
+  echo "[*] Restoring kernel settings ..."
+  [ -n "$saved_dmesg" ] && sysctl -q kernel.dmesg_restrict="$saved_dmesg"
+  [ -n "$saved_kptr" ] && sysctl -q kernel.kptr_restrict="$saved_kptr"
+  [ -n "$saved_perf" ] && sysctl -q kernel.perf_event_paranoid="$saved_perf"
+  echo "[+] Restored."
+  exit 0
+}
+
+trap restore INT TERM EXIT
+
+echo "[*] Current settings:"
+[ -n "$saved_dmesg" ] && echo "  kernel.dmesg_restrict       = $saved_dmesg"
+[ -n "$saved_kptr" ] && echo "  kernel.kptr_restrict        = $saved_kptr"
+[ -n "$saved_perf" ] && echo "  kernel.perf_event_paranoid  = $saved_perf"
+echo
+
+echo "[*] Applying weakened settings ..."
+[ -n "$saved_dmesg" ] && sysctl -q kernel.dmesg_restrict=0
+[ -n "$saved_kptr" ] && sysctl -q kernel.kptr_restrict=0
+[ -n "$saved_perf" ] && sysctl -q kernel.perf_event_paranoid=0
+echo
+
+echo "[*] New settings:"
+[ -n "$saved_dmesg" ] && echo "  kernel.dmesg_restrict       = $(sysctl -n kernel.dmesg_restrict)"
+[ -n "$saved_kptr" ] && echo "  kernel.kptr_restrict        = $(sysctl -n kernel.kptr_restrict)"
+[ -n "$saved_perf" ] && echo "  kernel.perf_event_paranoid  = $(sysctl -n kernel.perf_event_paranoid)"
+echo
+
+echo "[*] Hardening weakened. Run KASLD in another terminal."
+echo "[*] Press Ctrl+C to restore settings and exit."
+echo
+
+# Wait until interrupted
+while true; do
+  sleep 86400
+done

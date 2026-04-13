@@ -2,11 +2,18 @@
  <img src="logo.png" alt="KASLD logo generated with Copilot (cropped)"/>
 </p>
 
+<p align="center">
+  <img src="https://github.com/bcoles/kasld/actions/workflows/build-and-test.yml/badge.svg" alt="Build Status"/>
+  <img src="https://img.shields.io/github/v/release/bcoles/kasld" alt="Release"/>
+  <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"/>
+</p>
+
+
 # Kernel Address Space Layout Derandomization (KASLD)
 
-A collection of various techniques to infer the Linux kernel base virtual
-address as an unprivileged local user, for the purpose of bypassing Kernel
-Address Space Layout Randomization (KASLR).
+A collection of various techniques to infer the Linux kernel virtual address
+layout and physical memory map as an unprivileged local user, for the purpose
+of bypassing Kernel Address Space Layout Randomization (KASLR).
 
 Supports:
 
@@ -24,29 +31,162 @@ Supports:
 sudo apt install libc-dev make gcc binutils git
 git clone https://github.com/bcoles/kasld
 cd kasld
-./kasld
+make run
 ```
 
-KASLD is written in C and structured for easy re-use. Each file in the `./src`
-directory uses a different technique to retrieve or infer kernel addresses
-and can be compiled individually.
+Each component in the `src/` directory is a standalone leak component using
+a different technique to retrieve or infer kernel addresses. The `kasld`
+orchestrator discovers and executes all components, displays results in
+real-time, and produces a section-aware summary with validated addresses
+grouped by kernel section (text, modules, direct map, etc).
 
-`./kasld` is a lazy shell script wrapper which simply builds and executes each
-of these files, offering a quick and easy method to check for address leaks
-on a target system. This script requires `make`.
+After building, the `build/<arch>/` directory is self-contained and can be
+deployed to a target system:
 
-Refer to [output.md](output.md) for example output from various distros.
+```
+build/<arch>/
+  kasld              <- run this
+  components/        <- leak components
+```
+
+Modern fully-patched systems with `kernel.dmesg_restrict=1`,
+`kernel.kptr_restrict=1`, and `kernel.perf_event_paranoid=2` (or higher)
+are expected to return limited results. For testing purposes, the
+[extra/weaken-kernel-hardening](extra/weaken-kernel-hardening) script
+can temporarily relax these settings (requires root).
+
+
+### Example Output
+
+The following is example output from a default Debian 13 (x86-64) system:
+
+<details>
+<summary>Click to expand</summary>
+
+```
+
+     ▄█   ▄█▄    ▄████████    ▄████████  ▄█       ████████▄
+    ███ ▄███▀   ███    ███   ███    ███ ███       ███   ▀███
+    ███▐██▀     ███    ███   ███    █▀  ███       ███    ███
+   ▄█████▀      ███    ███   ███        ███       ███    ███
+  ▀▀█████▄    ▀███████████ ▀███████████ ███       ███    ███
+    ███▐██▄     ███    ███          ███ ███       ███    ███
+    ███ ▀███▄   ███    ███    ▄█    ███ ███▌    ▄ ███   ▄███
+    ███   ▀█▀   ███    █▀   ▄████████▀  █████▄▄██ ████████▀
+    ▀                                   ▀ v0.1.0
+
+Kernel release:               6.12.38+deb13-amd64
+Kernel version:               #1 SMP PREEMPT_DYNAMIC Debian 6.12.38-1 (2025-07-16)
+Kernel arch:                  x86_64
+
+kernel.kptr_restrict:         0
+kernel.dmesg_restrict:        1
+kernel.panic_on_oops:         0
+kernel.perf_event_paranoid:   3
+
+Readable /var/log/dmesg:      no
+Readable /var/log/kern.log:   no
+Readable /var/log/syslog:     no
+Readable DebugFS:             no
+Readable /boot/System.map:    yes
+Readable /boot/config:        yes
+
+Running 49 components...
+[####################] 100%  49/49  11.1s
+
+========================================
+ Results
+========================================
+
+  Kernel text (virtual)     0xffffffffa7a00000  (1 source)
+  Physical DRAM             0x0000000000000000 - 0x0000000080000000  (2.0 GiB, 7 sources)
+  Physical MMIO             0x00000000000c0000 - 0x00000000febfffff  (4.0 GiB, 2 sources)
+
+----------------------------------------
+KASLR analysis:
+  Virtual text base:    0xffffffffa7a00000
+  Default text base:    0xffffffff81000000
+  KASLR slide:          +648019968 (618.0 MiB)
+  KASLR text entropy:   8 bits (504 slots of 0x200000)
+  Observed slot index:  309 / 504
+
+----------------------------------------
+Virtual memory layout (decoupled):
+
+  0xffffffffffffffff
+  +------------------------------------------------------------------+
+  |  modules                                                         |
+  |  (no leak)                                                       |
+  +------------------------------------------------------------------+
+  0xffffffffc0000000
+  +------------------------------------------------------------------+
+  |  kernel text                                                     |
+  |    0xffffffffa7a00000                                            |
+  +------------------------------------------------------------------+
+  0xffffffff80000000
+  +------------------------------------------------------------------+
+  |                                                                  |
+  |  ...  128.0 TiB                                                  |
+  |                                                                  |
+  +------------------------------------------------------------------+
+  |  direct map                                                      |
+  |  (no leak)                                                       |
+  +------------------------------------------------------------------+
+  0xffff800000000000
+
+Physical memory layout:
+
+  0x00000000febfffff
+  +------------------------------------------------------------------+
+  |  0x00000000febfffff  [mmio] sysfs_pci_resource:hi                |
+  |  0x0000000080000000  [dram] proc-zoneinfo:hi                     |
+  |  0x000000007fffffff  [dram] sysfs_firmware_memmap:hi             |
+  |  0x000000007c944000  [dram] sysfs_vmcoreinfo                     |
+  |  0x00000000000c0000  [mmio] sysfs_pci_resource:lo                |
+  |  0x0000000000001000  [dram] proc-zoneinfo:lo                     |
+  |  0x0000000000000000  [dram] sysfs_firmware_memmap:lo             |
+  +------------------------------------------------------------------+
+  0x0000000000000000
+```
+
+</details>
 
 ## Building
 
 A compiler which supports the `_GNU_SOURCE` macro is required due to
 use of non-portable code (`MAP_ANONYMOUS`, `getline()`, `popen()`, ...).
 
-KASLD components can be cross-compiled with `make` by specfying the appropriate
-compiler (`CC`) with `LDFLAGS=-static`. For example:
+```
+make              # build kasld + components
+make run          # build and run
+make test         # build and run unit tests
+make cross        # cross-compile for all supported architectures
+make install      # install to /usr/local (PREFIX=/usr/local)
+make uninstall    # remove installed files
+make clean        # remove build directory
+make help         # show all targets and options
+```
+
+Command-line options:
 
 ```
-make CC=aarch64-linux-musl-gcc LDFLAGS=-static
+-j, --json      Machine-readable JSON output
+-v, --verbose   Show component output
+-V, --version   Print version and exit
+-h, --help      Show this help
+```
+
+KASLD can be cross-compiled with `make` by specifying the appropriate
+compiler (`CC`). Static linking is applied automatically when cross-compiling:
+
+```
+make CC=aarch64-linux-musl-gcc
+```
+
+Build all supported cross-compilation targets (toolchains must be in `PATH`):
+
+```
+make cross
 ```
 
 
@@ -54,8 +194,8 @@ make CC=aarch64-linux-musl-gcc LDFLAGS=-static
 
 Common default kernel config options are defined in [kasld.h](src/include/kasld.h).
 The default values should work on most systems, but may need to be tweaked for
-the target system - especially old kernels, embedded devices (ie, armv7), or
-systems with a non-default memory layout.
+the target system - especially old kernels, embedded devices, or systems with a
+non-default memory layout.
 
 Leaked addresses may need to be bit masked off appropriately for the target kernel,
 depending on kernel alignment. Once bitmasked, the address may need to be adjusted
@@ -63,9 +203,7 @@ based on text offset, although on x86_64 and arm64 (since 2020-04-15) the text
 offset is zero.
 
 The configuration options should be fairly self-explanatory.
-Refer to the comment headers in [kasld.h](src/include/kasld.h):
-
-https://github.com/bcoles/kasld/blob/5ae25b8367ac511b1caac6c34666f4c76b3face6/src/include/kasld.h#L5-L25
+Refer to the comment headers in [kasld.h](src/include/kasld.h).
 
 
 ## Background
@@ -78,7 +216,7 @@ virtual address space and offset of the kernel base address.
 
 Offsets to useful kernel functions (`commit_creds`, `prepare_kernel_cred`, etc)
 from the base address can be pre-calculated on other systems with the same
-kernel - an easy task for publicly available kernels(ie, distro kernels).
+kernel - an easy task for publicly available kernels (ie, distro kernels).
 
 Function offsets may also be retrieved from various file system locations
 (`/proc/kallsyms`, `vmlinux`, `System.map`, etc) depending on file system
@@ -109,6 +247,12 @@ Additionally, FG-KASLR randomizes only kernel functions, leaving other useful
 kernel data (such as [modprobe_path](https://sam4k.com/like-techniques-modprobe_path/)
 and `core_pattern` usermode helpers) unchanged at a static offset.
 
+See also:
+
+* [[PATCH v10 00/15] Function Granular KASLR](https://lore.kernel.org/lkml/20220209185752.1226407-1-alexandr.lobakin@intel.com/)
+* [CONFIG_FG_KASLR](https://patchwork.kernel.org/project/linux-hardening/patch/20211223002209.1092165-8-alexandr.lobakin@intel.com/)
+* [FGKASLR - CTF Wiki](https://ctf-wiki.org/pwn/linux/kernel-mode/defense/randomization/fgkaslr/)
+
 
 ### Linux KASLR History and Implementation
 
@@ -127,6 +271,8 @@ Not all architectures support KASLR (`CONFIG_RANDOMIZE_BASE`) or enable it by de
 | arm32 | — | — | — | Not supported |
 | sparc | — | — | — | Not supported |
 
+See also:
+
 * [grsecurity - KASLR: An Exercise in Cargo Cult Security](https://grsecurity.net/kaslr_an_exercise_in_cargo_cult_security) (grsecurity, 2013)
 * [An Info-Leak Resistant Kernel Randomization for Virtualized Systems | IEEE Journals & Magazine | IEEE Xplore](https://ieeexplore.ieee.org/document/9178757) (Fernando Vano-Garcia, Hector Marco-Gisbert, 2020)
 * Kernel Address Space Layout Randomization (LWN.net)
@@ -134,19 +280,143 @@ Not all architectures support KASLR (`CONFIG_RANDOMIZE_BASE`) or enable it by de
   * [Randomize kernel base address on boot [LWN.net]](https://lwn.net/Articles/444556/)
   * [arm64: implement support for KASLR [LWN.net]](https://lwn.net/Articles/673598/)
 * [Kernel load address randomization · Linux Inside](https://0xax.gitbooks.io/linux-insides/content/Booting/linux-bootstrap-6.html)
-* Function Granular KASLR (FG-KASLR)
-  * [[PATCH v10 00/15] Function Granular KASLR](https://lore.kernel.org/lkml/20220209185752.1226407-1-alexandr.lobakin@intel.com/)
-  * [FGKASLR - CTF Wiki](https://ctf-wiki.org/pwn/linux/kernel-mode/defense/randomization/fgkaslr/)
 
 
 ### Linux KASLR Configuration
 
-* Linux Kernel Driver DataBase
-  * [CONFIG_RANDOMIZE_BASE: Randomize the address of the kernel image (KASLR)](https://cateee.net/lkddb/web-lkddb/RANDOMIZE_BASE.html)
-  * [CONFIG_RANDOMIZE_BASE_MAX_OFFSET: Maximum kASLR offset](https://cateee.net/lkddb/web-lkddb/RANDOMIZE_BASE_MAX_OFFSET.html)
-  * [CONFIG_RANDOMIZE_MEMORY: Randomize the kernel memory sections](https://cateee.net/lkddb/web-lkddb/RANDOMIZE_MEMORY.html)
-  * [CONFIG_RANDOMIZE_MEMORY_PHYSICAL_PADDING: Physical memory mapping padding](https://cateee.net/lkddb/web-lkddb/RANDOMIZE_MEMORY_PHYSICAL_PADDING.html)
-  * [CONFIG_RELOCATABLE: Build a relocatable kernel](https://cateee.net/lkddb/web-lkddb/RELOCATABLE.html)
+* [CONFIG_RANDOMIZE_BASE: Randomize the address of the kernel image (KASLR)](https://cateee.net/lkddb/web-lkddb/RANDOMIZE_BASE.html)
+* [CONFIG_RANDOMIZE_BASE_MAX_OFFSET: Maximum kASLR offset](https://cateee.net/lkddb/web-lkddb/RANDOMIZE_BASE_MAX_OFFSET.html)
+* [CONFIG_RANDOMIZE_MEMORY: Randomize the kernel memory sections](https://cateee.net/lkddb/web-lkddb/RANDOMIZE_MEMORY.html)
+* [CONFIG_RANDOMIZE_MEMORY_PHYSICAL_PADDING: Physical memory mapping padding](https://cateee.net/lkddb/web-lkddb/RANDOMIZE_MEMORY_PHYSICAL_PADDING.html)
+* [CONFIG_RELOCATABLE: Build a relocatable kernel](https://cateee.net/lkddb/web-lkddb/RELOCATABLE.html)
+
+
+### Physical and Virtual KASLR
+
+Linux KASLR randomizes the kernel location in both physical memory (where the
+kernel image resides in RAM) and virtual memory (where the kernel is mapped in
+the address space). Depending on the architecture, these may be randomized
+together using a single offset (coupled) or independently using separate offsets
+(decoupled).
+
+On architectures where physical and virtual randomization are coupled (i.e.
+the same offset), leaking either a physical or virtual kernel address
+trivially reveals the other. On architectures where they are decoupled,
+a physical address leak does not directly reveal the virtual address
+(and vice versa), providing stronger isolation.
+
+| Architecture | Phys/Virt Relationship | Since | Notes |
+|---|---|---|---|
+| x86_64 | Decoupled | v4.8 | Separate `find_random_phys_addr` / `find_random_virt_addr`; also `CONFIG_RANDOMIZE_MEMORY` for memory sections |
+| x86_32 | Coupled | v3.14 | Virtual offset equals physical offset |
+| arm64 | Decoupled | v4.6 | EFI stub randomizes physical; `kaslr_early_init` randomizes virtual; linear map has limited entropy |
+| MIPS | Coupled | v4.7 | Single relocation offset; fixed kseg0 virt-to-phys mapping |
+| LoongArch | Coupled | v6.3 | Single relocation offset; direct-mapped windows |
+| RISC-V (64-bit) | Virtual only | v6.6 | Only virtual address randomized; physical depends on bootloader |
+| s390 | Coupled (identity) | v5.2 | 1:1 virtual = physical mapping |
+| PowerPC (32-bit) | Coupled | v5.5 | Same offset applied to both addresses |
+
+See also:
+
+* [security things in Linux v4.8](https://outflux.net/blog/archives/2016/10/04/security-things-in-linux-v4-8/) (Kees Cook, 2016) — describes x86_64 physical/virtual decoupling and `CONFIG_RANDOMIZE_MEMORY`
+* [x86, boot: KASLR memory randomization [LWN.net]](https://lwn.net/Articles/687353/) (Thomas Garnier, 2016) — `CONFIG_RANDOMIZE_MEMORY` patch series
+* [Kernel load address randomization · Linux Inside](https://0xax.gitbooks.io/linux-insides/content/Booting/linux-bootstrap-6.html) — detailed walkthrough of `choose_random_location()` on x86
+
+
+### Kernel Sections and Cross-Section Inference
+
+The kernel virtual address space contains distinct sections (text, modules,
+direct map, etc.) mapped at different address ranges. KASLR randomizes the
+kernel text base address, but not all sections are randomized together —
+depending on the architecture, other sections may be at fixed addresses,
+use the same KASLR offset, or be randomized independently.
+
+| Architecture | Text ↔ Phys | Text ↔ Direct map | Text ↔ Modules | Notes |
+|---|---|---|---|---|
+| x86_64 | Independent | Independent | Independent | Three separate randomizations (`CONFIG_RANDOMIZE_MEMORY`) |
+| x86_32 | Coupled | Coupled | Fixed module region | Single KASLR offset |
+| arm64 | Independent | Independent | Fixed module region | Separate phys/virt randomization |
+| arm32 | — | Coupled | Fixed (PAGE_OFFSET - 16M) | No KASLR |
+| MIPS 32/64 | Coupled | Coupled (kseg0) | Fixed module region | Hardware-defined mapping |
+| RISC-V 64 | Virtual only | Decoupled | Coupled (shifts with kernel) | Module region anchored to kernel `_end`; text ↔ directmap coupled on legacy pre-v5.10 kernels (no KASLR) |
+| RISC-V 32 | — | Coupled | Same as PAGE_OFFSET | No KASLR |
+| LoongArch 64 | Coupled | Coupled | Fixed module region | Direct-mapped windows |
+| PowerPC 32 | Coupled | Coupled | Fixed (PAGE_OFFSET - 256M) | |
+| PowerPC 64 | — | Coupled | Shared VAS | No KASLR |
+
+On coupled architectures, all sections are at fixed offsets from each other:
+a physical address reveals the virtual text base via `phys_to_virt()`, the
+direct map is at a known offset (`TEXT_OFFSET`) from the text base, and
+modules are either at a fixed address or a constant offset from `PAGE_OFFSET`.
+A single leak from any section is sufficient to derive the others — KASLD
+implements this for coupled architectures (e.g. physical text ↔ virtual text
+↔ direct map via `phys_to_virt()` and `TEXT_OFFSET` arithmetic). On
+decoupled architectures like x86_64, each section is randomized independently
+— a physical address tells you nothing about the virtual text base, and the
+direct map base (`page_offset_base`) is randomized separately. As a result,
+the "Derived addresses" section in KASLD output only appears on coupled
+architectures; on decoupled architectures a note is printed instead when
+physical results exist that would have been derivable on a coupled system.
+
+RISC-V 64 is notable: the module region is anchored to the kernel image
+(`MODULES_VADDR = PFN_ALIGN(&_end) - SZ_2G`, `MODULES_END = PFN_ALIGN(&_start)`),
+so modules shift with the randomized kernel. If module addresses are known
+but the text base is not, a text range can be derived:
+
+```
+_end   ≈ lowest_module_addr + 2 GiB
+_start ≈ highest_module_addr          (MODULES_END = PFN_ALIGN(&_start))
+text_base ∈ [_end - 64 MiB, _end - 4 MiB]   (loose, from typical image size)
+text_base ≈ _start                          (tight, if any module addr is near MODULES_END)
+```
+
+With `KERNEL_ALIGN` of 2 MiB and a 60 MiB uncertainty window, the loose
+bound yields ~30 possible KASLR slots. In practice, module addresses near
+`MODULES_END` directly approximate `_start`, reducing this to one slot.
+
+
+### Virtual Memory Split (vmsplit)
+
+On 32-bit systems, the 4 GiB virtual address space is divided between
+userspace and the kernel. The boundary — `PAGE_OFFSET` (also known as
+the "vmsplit") — determines where the kernel virtual address space begins.
+
+The most common configuration is a 3G/1G split (`PAGE_OFFSET=0xC0000000`),
+but embedded systems and custom kernels may use different splits:
+
+| Split | `PAGE_OFFSET` | User / Kernel | Notes |
+|---|---|---|---|
+| 1G/3G | `0x40000000` | 1 GiB / 3 GiB | Rare |
+| 2G(opt)/2G | `0x78000000` | ~1.9 GiB / ~2.1 GiB | x86_32 only |
+| 2G/2G | `0x80000000` | 2 GiB / 2 GiB | Common on embedded ARM |
+| 3G(opt)/1G | `0xB0000000` | ~2.75 GiB / ~1.25 GiB | x86_32 only |
+| 3G/1G | `0xC0000000` | 3 GiB / 1 GiB | Default for most distros |
+
+The vmsplit affects nearly all kernel virtual address boundaries: the kernel
+text base, direct map, and (on some architectures) the module region all
+shift with `PAGE_OFFSET`. This means KASLR analysis, address validation,
+and memory layout interpretation depend on knowing the correct vmsplit.
+
+Since KASLD is typically compiled on one system and deployed to another,
+the compile-time `PAGE_OFFSET` assumption may not match the target system.
+KASLD handles this at runtime: components that detect the actual `PAGE_OFFSET`
+(e.g. `mmap-brute-vmsplit`, `boot-config`) emit a `pageoffset` tagged result,
+and the orchestrator automatically adjusts all layout boundaries before
+performing validation and analysis.
+
+| Architecture | Configurable vmsplit | Config option | Default |
+|---|---|---|---|
+| x86_32 | Yes | `CONFIG_VMSPLIT_*` | `0xC0000000` (3G/1G) |
+| arm32 | Yes | `CONFIG_PAGE_OFFSET` / `CONFIG_VMSPLIT_*` | `0xC0000000` (3G/1G) |
+| PowerPC 32 | Yes | `CONFIG_PAGE_OFFSET` | `0xC0000000` (3G/1G) |
+| MIPS 32 | No | — | `0x80000000` (hardware kseg0) |
+| RISC-V 32 | No | — | `0xC0000000` |
+| x86_64 | No | — | `0xFF00000000000000` (5-level) / `0xFFFF800000000000` (4-level) |
+| arm64 | No | — | `0xFFF0000000000000` (52-bit VA) |
+| MIPS 64 | No | — | `0xFFFFFFFF80000000` (xkseg) |
+| PowerPC 64 | No | — | `0xC000000000000000` |
+| RISC-V 64 | No | — | `0xFF60000000000000` (SV57) |
+| LoongArch 64 | No | — | `0x9000000000000000` |
 
 
 ### Linux Memory Management
@@ -160,35 +430,46 @@ Not all architectures support KASLR (`CONFIG_RANDOMIZE_BASE`) or enable it by de
 * Linux Kernel Programming (Kaiwan N Billimoria, 2021)
 
 
-
 ## KASLR Bypass Techniques
 
 KASLD serves as a non-exhaustive collection and reference for techniques
-useful in KASLR bypass; however, it is far from complete. There are many
-additional noteworthy techniques not included for various reasons.
+useful in KASLR bypass; however, it is far from complete. Many additional
+techniques are not included for various reasons, such as requiring elevated
+privileges, targeting specific hardware or narrow kernel version ranges,
+implementation complexity across the wide variety of Linux deployments, or
+needing external dependencies.
 
 ### System Logs
 
 Kernel and system logs (`dmesg` / `syslog`) offer a wealth of information,
 including kernel pointers and the layout of virtual and physical memory.
 
-Several KASLD components search the kernel message ring buffer for kernel addresses.
+Many KASLD components search the kernel message ring buffer for kernel addresses.
 The following KASLD components read from `dmesg` and `/var/log/dmesg`:
 
 * [dmesg_android_ion_snapshot.c](src/dmesg_android_ion_snapshot.c)
 * [dmesg_backtrace.c](src/dmesg_backtrace.c)
 * [dmesg_check_for_initrd.c](src/dmesg_check_for_initrd.c)
+* [dmesg_cma_reserved.c](src/dmesg_cma_reserved.c)
+* [dmesg_crashkernel.c](src/dmesg_crashkernel.c)
 * [dmesg_driver_component_ops.c](src/dmesg_driver_component_ops.c)
+* [dmesg_e820_memory_map.c](src/dmesg_e820_memory_map.c)
 * [dmesg_early_init_dt_add_memory_arch.c](src/dmesg_early_init_dt_add_memory_arch.c)
+* [dmesg_efi_memmap.c](src/dmesg_efi_memmap.c)
 * [dmesg_ex_handler_msr.c](src/dmesg_ex_handler_msr.c)
 * [dmesg_fake_numa_init.c](src/dmesg_fake_numa_init.c)
 * [dmesg_free_area_init_node.c](src/dmesg_free_area_init_node.c)
 * [dmesg_free_reserved_area.c](src/dmesg_free_reserved_area.c)
 * [dmesg_kaslr-disabled.c](src/dmesg_kaslr-disabled.c)
+* [dmesg_last_pfn.c](src/dmesg_last_pfn.c)
 * [dmesg_mem_init_kernel_layout.c](src/dmesg_mem_init_kernel_layout.c)
 * [dmesg_mmu_idmap.c](src/dmesg_mmu_idmap.c)
+* [dmesg_node_data.c](src/dmesg_node_data.c)
+* [dmesg_ramdisk.c](src/dmesg_ramdisk.c)
+* [dmesg_reserved_mem.c](src/dmesg_reserved_mem.c)
 * [dmesg_reserved_mem_opensbi.c](src/dmesg_reserved_mem_opensbi.c)
 * [dmesg_riscv_relocation.c](src/dmesg_riscv_relocation.c)
+* [dmesg_swiotlb.c](src/dmesg_swiotlb.c)
 
 Historically, raw kernel pointers were frequently printed to the system log
 without using the [`%pK` printk format](https://www.kernel.org/doc/html/latest/core-api/printk-formats.html).
@@ -248,6 +529,7 @@ KASLR, in particular timing side-channels and transient execution attacks.
 KASLD includes the following hardware-related KASLR breaks:
 
 * [EntryBleed (CVE-2022-4543)](src/entrybleed.c)
+* [Prefetch side-channel (Gruss et al., 2016)](src/prefetch.c)
 
 The [extra/check-hardware-vulnerabilities](extra/check-hardware-vulnerabilities)
 script performs rudimentary checks for several known hardware vulnerabilities,
@@ -388,6 +670,12 @@ GhostWrite (CVE-2024-44067) - T-Head XuanTie C910/C920 RISC-V CPUs:
 KernelSnitch: Software side-channel attacks on kernel data structures:
 
   * [KernelSnitch: Side-Channel Attacks on Kernel Data Structures](https://lukasmaar.github.io/papers/ndss25-kernelsnitch.pdf) (Lukas Maar, Jonas Juffinger, Thomas Steinbauer, Daniel Gruss, Stefan Mangard, 2025)
+
+SLUBStick (CVE-2024-26808): Timing side-channel on the SLUB kernel heap allocator for reliable cross-cache attacks:
+
+  * [SLUBStick: Arbitrary Memory Writes through Practical Software Cross-Cache Attacks within the Linux Kernel](https://www.usenix.org/system/files/usenixsecurity24-maar-slubstick.pdf) (Lukas Maar, Stefan Gast, Martin Unterguggenberger, Mathias Oberhuber, Stefan Mangard, 2024)
+    * USENIX Security 2024 Presentation: https://www.usenix.org/conference/usenixsecurity24/presentation/maar-slubstick
+    * Note: SLUBStick is a kernel exploitation amplification technique, not a standalone KASLR bypass. It uses a timing side-channel on SLUB page reuse to achieve ~99% reliable cross-cache attacks, but requires a pre-existing heap vulnerability (UAF, heap overflow, etc.) as a prerequisite.
 
 
 ### Weak Entropy
