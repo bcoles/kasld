@@ -137,8 +137,9 @@ static int num_components;
 static const char *phase_discovery[] = {
     "boot-config", "default",      "dmesg_kaslr-disabled", "proc-cmdline",
     "proc-config", "proc-cpuinfo", "proc-kallsyms",        NULL};
-static const char *phase_bruteforce[] = {"entrybleed", "mincore",
-                                         "mmap-brute-vmsplit", NULL};
+static const char *phase_bruteforce[] = {
+    "databounce",         "echoload", "entrybleed", "mincore",
+    "mmap-brute-vmsplit", "prefetch", NULL};
 
 static int name_in_list(const char *name, const char **list) {
   for (int i = 0; list[i]; i++) {
