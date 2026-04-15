@@ -784,16 +784,14 @@ int main(void) {
      *
      * Tier 1 (step=128): sizes 1024, 1152, 1280, 1536.
      * Tier 2 (step=64):  sizes 1088, 1216, 1344, 1408, 1472. */
-    fprintf(stderr,
-            "[.] tier 1: step=128 (covers sizes "
-            "1024, 1152, 1280, 1536) ...\n");
+    fprintf(stderr, "[.] tier 1: step=128 (covers sizes "
+                    "1024, 1152, 1280, 1536) ...\n");
     result =
         brute_force_mm(collisions, num_collisions, hashsize, 128, phys_mem);
 
     if (!result) {
-      fprintf(stderr,
-              "[.] tier 2: step=64 (covers sizes "
-              "1088, 1216, 1344, 1408, 1472) ...\n");
+      fprintf(stderr, "[.] tier 2: step=64 (covers sizes "
+                      "1088, 1216, 1344, 1408, 1472) ...\n");
       result =
           brute_force_mm(collisions, num_collisions, hashsize, 64, phys_mem);
     }
