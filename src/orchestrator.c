@@ -138,8 +138,8 @@ static const char *phase_discovery[] = {
     "boot-config", "default",      "dmesg_kaslr-disabled", "proc-cmdline",
     "proc-config", "proc-cpuinfo", "proc-kallsyms",        NULL};
 static const char *phase_bruteforce[] = {
-    "databounce",         "echoload", "entrybleed", "mincore",
-    "mmap-brute-vmsplit", "prefetch", NULL};
+    "databounce",         "echoload", "entrybleed",   "mincore",
+    "mmap-brute-vmsplit", "prefetch", "kernelsnitch", NULL};
 
 static int name_in_list(const char *name, const char **list) {
   for (int i = 0; list[i]; i++) {

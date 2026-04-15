@@ -66,6 +66,10 @@ $(COMP_DIR)/proc-config: $(COMP_SRC_DIR)/proc-config.c $(HDRS) | $(COMP_DIR)
 	-$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) -DHAVE_ZLIB $< -lz -o $@
 endif
 
+# kernelsnitch: needs -lpthread and -O2 for brute-force hash performance
+$(COMP_DIR)/kernelsnitch: $(COMP_SRC_DIR)/kernelsnitch.c $(HDRS) | $(COMP_DIR)
+	-$(CC) $(ALL_CFLAGS) -O2 $(ALL_LDFLAGS) -I$(SRC_DIR) $< -lpthread -o $@
+
 .PHONY: build
 build : check-headers $(BIN_FILES) $(KASLD_BIN)
 
