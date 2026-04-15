@@ -24,6 +24,33 @@ Supports:
 * RISC-V (riscv32, riscv64)
 * LoongArch (loongarch64)
 
+## Table of Contents
+
+* [Usage](#usage)
+  * [Example Output](#example-output)
+* [Building](#building)
+* [Configuration](#configuration)
+* [KASLR and Kernel Memory Layout](#kaslr-and-kernel-memory-layout)
+  * [Function Offsets](#function-offsets)
+  * [Function Granular KASLR (FG-KASLR)](#function-granular-kaslr-fg-kaslr)
+  * [Linux KASLR History and Implementation](#linux-kaslr-history-and-implementation)
+  * [Physical and Virtual KASLR](#physical-and-virtual-kaslr)
+  * [Kernel Sections and Cross-Section Inference](#kernel-sections-and-cross-section-inference)
+  * [Virtual Memory Split (vmsplit)](#virtual-memory-split-vmsplit)
+* [KASLR Bypass Techniques](#kaslr-bypass-techniques)
+  * [Filesystem Leaks](#filesystem-leaks)
+    * [System Logs](#system-logs)
+    * [DebugFS](#debugfs)
+    * [Procfs and Sysfs](#procfs-and-sysfs)
+    * [Boot Configuration](#boot-configuration)
+  * [Side-Channels](#side-channels)
+  * [Syscall and Interface Leaks](#syscall-and-interface-leaks)
+  * [Brute Force](#brute-force)
+  * [Weak Entropy](#weak-entropy)
+  * [Patched Kernel Bugs](#patched-kernel-bugs)
+  * [Arbitrary Read](#arbitrary-read)
+* [License](#license)
+
 
 ## Usage
 
@@ -171,6 +198,9 @@ Command-line options:
 
 ```
 -j, --json      Machine-readable JSON output
+-1, --oneline   Single-line summary output
+-m, --markdown  Markdown table output
+-c, --color     Colorize text output (auto-detected for TTYs)
 -v, --verbose   Show component output
 -V, --version   Print version and exit
 -h, --help      Show this help
@@ -192,21 +222,21 @@ make cross
 
 ## Configuration
 
-Common default kernel config options are defined in [kasld.h](src/include/kasld.h).
-The default values should work on most systems, but may need to be tweaked for
-the target system - especially old kernels, embedded devices, or systems with a
-non-default memory layout.
+Architecture-specific kernel memory layout constants are defined in
+[kasld.h](src/include/kasld.h). The default values should work on all systems,
+but may need to be adjusted for very old kernels, embedded devices, or systems
+with unusual configurations.
 
-Leaked addresses may need to be bit masked off appropriately for the target kernel,
-depending on kernel alignment. Once bitmasked, the address may need to be adjusted
-based on text offset, although on x86_64 and arm64 (since 2020-04-15) the text
-offset is zero.
+The orchestrator automatically aligns leaked addresses to `KERNEL_ALIGN`
+boundaries and adjusts for `TEXT_OFFSET`. If a component detects a non-default
+`PAGE_OFFSET` at runtime (e.g. on a 32-bit system with a 2G/2G vmsplit),
+the orchestrator adjusts all layout boundaries before validation.
 
-The configuration options should be fairly self-explanatory.
-Refer to the comment headers in [kasld.h](src/include/kasld.h).
+Refer to the comment headers in [kasld.h](src/include/kasld.h) for
+documentation of each configuration option.
 
 
-## Background
+## KASLR and Kernel Memory Layout
 
 ### Function Offsets
 
@@ -280,15 +310,12 @@ See also:
   * [Randomize kernel base address on boot [LWN.net]](https://lwn.net/Articles/444556/)
   * [arm64: implement support for KASLR [LWN.net]](https://lwn.net/Articles/673598/)
 * [Kernel load address randomization · Linux Inside](https://0xax.gitbooks.io/linux-insides/content/Booting/linux-bootstrap-6.html)
-
-
-### Linux KASLR Configuration
-
-* [CONFIG_RANDOMIZE_BASE: Randomize the address of the kernel image (KASLR)](https://cateee.net/lkddb/web-lkddb/RANDOMIZE_BASE.html)
-* [CONFIG_RANDOMIZE_BASE_MAX_OFFSET: Maximum kASLR offset](https://cateee.net/lkddb/web-lkddb/RANDOMIZE_BASE_MAX_OFFSET.html)
-* [CONFIG_RANDOMIZE_MEMORY: Randomize the kernel memory sections](https://cateee.net/lkddb/web-lkddb/RANDOMIZE_MEMORY.html)
-* [CONFIG_RANDOMIZE_MEMORY_PHYSICAL_PADDING: Physical memory mapping padding](https://cateee.net/lkddb/web-lkddb/RANDOMIZE_MEMORY_PHYSICAL_PADDING.html)
-* [CONFIG_RELOCATABLE: Build a relocatable kernel](https://cateee.net/lkddb/web-lkddb/RELOCATABLE.html)
+* KASLR Kconfig options:
+  * [CONFIG_RANDOMIZE_BASE: Randomize the address of the kernel image (KASLR)](https://cateee.net/lkddb/web-lkddb/RANDOMIZE_BASE.html)
+  * [CONFIG_RANDOMIZE_BASE_MAX_OFFSET: Maximum kASLR offset](https://cateee.net/lkddb/web-lkddb/RANDOMIZE_BASE_MAX_OFFSET.html)
+  * [CONFIG_RANDOMIZE_MEMORY: Randomize the kernel memory sections](https://cateee.net/lkddb/web-lkddb/RANDOMIZE_MEMORY.html)
+  * [CONFIG_RANDOMIZE_MEMORY_PHYSICAL_PADDING: Physical memory mapping padding](https://cateee.net/lkddb/web-lkddb/RANDOMIZE_MEMORY_PHYSICAL_PADDING.html)
+  * [CONFIG_RELOCATABLE: Build a relocatable kernel](https://cateee.net/lkddb/web-lkddb/RELOCATABLE.html)
 
 
 ### Physical and Virtual KASLR
@@ -418,8 +445,7 @@ performing validation and analysis.
 | RISC-V 64 | No | — | `0xFF60000000000000` (SV57) |
 | LoongArch 64 | No | — | `0x9000000000000000` |
 
-
-### Linux Memory Management
+See also:
 
 * [0xAX/linux-insides](https://github.com/0xAX/linux-insides)
   * https://github.com/0xAX/linux-insides/tree/master/Initialization
@@ -432,14 +458,21 @@ performing validation and analysis.
 
 ## KASLR Bypass Techniques
 
-KASLD serves as a non-exhaustive collection and reference for techniques
-useful in KASLR bypass; however, it is far from complete. Many additional
-techniques are not included for various reasons, such as requiring elevated
-privileges, targeting specific hardware or narrow kernel version ranges,
-implementation complexity across the wide variety of Linux deployments, or
-needing external dependencies.
+KASLR bypass techniques broadly fall into several categories: reading kernel
+pointers or memory layout details from filesystem interfaces, exploiting
+microarchitectural or software side-channels, leaking addresses through
+syscalls and kernel interfaces, brute-forcing memory layout constraints,
+taking advantage of weak randomization entropy, leveraging patched kernel
+info leak bugs, and using arbitrary read primitives.
 
-### System Logs
+### Filesystem Leaks
+
+The kernel exposes a variety of information through pseudo-filesystems
+(`/proc`, `/sys`), log files (`/var/log`), and boot configuration files
+(`/boot`, `/proc/config.gz`) that can reveal kernel pointers or memory
+layout details to unprivileged users.
+
+#### System Logs
 
 Kernel and system logs (`dmesg` / `syslog`) offer a wealth of information,
 including kernel pointers and the layout of virtual and physical memory.
@@ -447,29 +480,29 @@ including kernel pointers and the layout of virtual and physical memory.
 Many KASLD components search the kernel message ring buffer for kernel addresses.
 The following KASLD components read from `dmesg` and `/var/log/dmesg`:
 
-* [dmesg_android_ion_snapshot.c](src/dmesg_android_ion_snapshot.c)
-* [dmesg_backtrace.c](src/dmesg_backtrace.c)
-* [dmesg_check_for_initrd.c](src/dmesg_check_for_initrd.c)
-* [dmesg_cma_reserved.c](src/dmesg_cma_reserved.c)
-* [dmesg_crashkernel.c](src/dmesg_crashkernel.c)
-* [dmesg_driver_component_ops.c](src/dmesg_driver_component_ops.c)
-* [dmesg_e820_memory_map.c](src/dmesg_e820_memory_map.c)
-* [dmesg_early_init_dt_add_memory_arch.c](src/dmesg_early_init_dt_add_memory_arch.c)
-* [dmesg_efi_memmap.c](src/dmesg_efi_memmap.c)
-* [dmesg_ex_handler_msr.c](src/dmesg_ex_handler_msr.c)
-* [dmesg_fake_numa_init.c](src/dmesg_fake_numa_init.c)
-* [dmesg_free_area_init_node.c](src/dmesg_free_area_init_node.c)
-* [dmesg_free_reserved_area.c](src/dmesg_free_reserved_area.c)
-* [dmesg_kaslr-disabled.c](src/dmesg_kaslr-disabled.c)
-* [dmesg_last_pfn.c](src/dmesg_last_pfn.c)
-* [dmesg_mem_init_kernel_layout.c](src/dmesg_mem_init_kernel_layout.c)
-* [dmesg_mmu_idmap.c](src/dmesg_mmu_idmap.c)
-* [dmesg_node_data.c](src/dmesg_node_data.c)
-* [dmesg_ramdisk.c](src/dmesg_ramdisk.c)
-* [dmesg_reserved_mem.c](src/dmesg_reserved_mem.c)
-* [dmesg_reserved_mem_opensbi.c](src/dmesg_reserved_mem_opensbi.c)
-* [dmesg_riscv_relocation.c](src/dmesg_riscv_relocation.c)
-* [dmesg_swiotlb.c](src/dmesg_swiotlb.c)
+* [dmesg_android_ion_snapshot.c](src/components/dmesg_android_ion_snapshot.c)
+* [dmesg_backtrace.c](src/components/dmesg_backtrace.c)
+* [dmesg_check_for_initrd.c](src/components/dmesg_check_for_initrd.c)
+* [dmesg_cma_reserved.c](src/components/dmesg_cma_reserved.c)
+* [dmesg_crashkernel.c](src/components/dmesg_crashkernel.c)
+* [dmesg_driver_component_ops.c](src/components/dmesg_driver_component_ops.c)
+* [dmesg_e820_memory_map.c](src/components/dmesg_e820_memory_map.c)
+* [dmesg_early_init_dt_add_memory_arch.c](src/components/dmesg_early_init_dt_add_memory_arch.c)
+* [dmesg_efi_memmap.c](src/components/dmesg_efi_memmap.c)
+* [dmesg_ex_handler_msr.c](src/components/dmesg_ex_handler_msr.c)
+* [dmesg_fake_numa_init.c](src/components/dmesg_fake_numa_init.c)
+* [dmesg_free_area_init_node.c](src/components/dmesg_free_area_init_node.c)
+* [dmesg_free_reserved_area.c](src/components/dmesg_free_reserved_area.c)
+* [dmesg_kaslr-disabled.c](src/components/dmesg_kaslr-disabled.c)
+* [dmesg_last_pfn.c](src/components/dmesg_last_pfn.c)
+* [dmesg_mem_init_kernel_layout.c](src/components/dmesg_mem_init_kernel_layout.c)
+* [dmesg_mmu_idmap.c](src/components/dmesg_mmu_idmap.c)
+* [dmesg_node_data.c](src/components/dmesg_node_data.c)
+* [dmesg_ramdisk.c](src/components/dmesg_ramdisk.c)
+* [dmesg_reserved_mem.c](src/components/dmesg_reserved_mem.c)
+* [dmesg_reserved_mem_opensbi.c](src/components/dmesg_reserved_mem_opensbi.c)
+* [dmesg_riscv_relocation.c](src/components/dmesg_riscv_relocation.c)
+* [dmesg_swiotlb.c](src/components/dmesg_swiotlb.c)
 
 Historically, raw kernel pointers were frequently printed to the system log
 without using the [`%pK` printk format](https://www.kernel.org/doc/html/latest/core-api/printk-formats.html).
@@ -509,7 +542,7 @@ with world-readable permissions (`644`) and may still be world-readable on
 some systems.
 
 
-### DebugFS
+#### DebugFS
 
 Various areas of [DebugFS](https://en.wikipedia.org/wiki/Debugfs)
 (`/sys/kernel/debug/*`) may disclose kernel pointers.
@@ -521,15 +554,93 @@ This change pre-dates Linux KASLR by 2 years. However, DebugFS may still be
 readable in some non-default configurations.
 
 
-### Hardware Side-Channels
+#### Procfs and Sysfs
 
-There are a plethora of viable hardware-related attacks which can be used to break
-KASLR, in particular timing side-channels and transient execution attacks.
+The `/proc` and `/sys` pseudo-filesystems expose kernel addresses, memory
+layout details, symbol information, and hardware configuration. Many of
+these files are readable by unprivileged users by default.
 
-KASLD includes the following hardware-related KASLR breaks:
+The following KASLD components read from `/proc`:
 
-* [EntryBleed (CVE-2022-4543)](src/entrybleed.c)
-* [Prefetch side-channel (Gruss et al., 2016)](src/prefetch.c)
+* [proc-kallsyms.c](src/components/proc-kallsyms.c) — kernel symbol addresses from `/proc/kallsyms`
+* [proc-modules.c](src/components/proc-modules.c) — loaded module addresses from `/proc/modules`
+* [proc-zoneinfo.c](src/components/proc-zoneinfo.c) — memory zone boundaries from `/proc/zoneinfo`
+* [proc-cpuinfo.c](src/components/proc-cpuinfo.c) — CPU information from `/proc/cpuinfo`
+* [proc-pid-syscall.c](src/components/proc-pid-syscall.c) — kernel stack pointer from `/proc/<pid>/syscall`
+* [proc-stat-wchan.c](src/components/proc-stat-wchan.c) — wait channel address from `/proc/<pid>/stat`
+* [proc-cmdline.c](src/components/proc-cmdline.c) — kernel command line from `/proc/cmdline` (checks for `nokaslr`)
+* [proc-config.c](src/components/proc-config.c) — kernel configuration from `/proc/config.gz`
+
+The following KASLD components read from `/sys`:
+
+* [sysfs_firmware_memmap.c](src/components/sysfs_firmware_memmap.c) — firmware memory map from `/sys/firmware/memmap/`
+* [sysfs_memory_blocks.c](src/components/sysfs_memory_blocks.c) — memory block addresses from `/sys/devices/system/memory/`
+* [sysfs_pci_resource.c](src/components/sysfs_pci_resource.c) — PCI BAR addresses from `/sys/bus/pci/devices/`
+* [sysfs_vmcoreinfo.c](src/components/sysfs_vmcoreinfo.c) — kernel addresses from `/sys/kernel/vmcoreinfo`
+* [sysfs_devicetree_initrd.c](src/components/sysfs_devicetree_initrd.c) — initrd address from `/sys/firmware/devicetree/`
+* [sysfs_devicetree_memory.c](src/components/sysfs_devicetree_memory.c) — memory regions from `/sys/firmware/devicetree/`
+* [sysfs_iscsi_transport_handle.c](src/components/sysfs_iscsi_transport_handle.c) — iSCSI transport handle from `/sys/class/iscsi_transport/`
+* [sysfs-kernel-notes-xen.c](src/components/sysfs-kernel-notes-xen.c) — Xen notes from `/sys/kernel/notes`
+* [sysfs-module-sections.c](src/components/sysfs-module-sections.c) — module section addresses from `/sys/module/*/sections/`
+* [sysfs_nf_conntrack.c](src/components/sysfs_nf_conntrack.c) — netfilter conntrack hash from `/sys/module/nf_conntrack/`
+
+Most of these are mitigated by `kernel.kptr_restrict` (for `/proc/kallsyms`,
+`/proc/modules`, etc.) and root-only permissions on sensitive sysfs entries.
+
+
+#### Boot Configuration
+
+Boot configuration and kernel config files can reveal whether KASLR is
+enabled, the `PAGE_OFFSET` (vmsplit), and other layout-relevant settings.
+
+The following KASLD components read boot configuration:
+
+* [boot-config.c](src/components/boot-config.c) — reads `/boot/config-*` for `CONFIG_RELOCATABLE`, `CONFIG_RANDOMIZE_BASE`, and `CONFIG_PAGE_OFFSET`
+* [proc-config.c](src/components/proc-config.c) — reads `/proc/config.gz` for the same configuration options
+* [proc-cmdline.c](src/components/proc-cmdline.c) — reads `/proc/cmdline` to check for `nokaslr`
+
+
+### Side-Channels
+
+There are a plethora of viable side-channel attacks which can be used to break
+KASLR, including microarchitectural timing attacks, transient execution attacks,
+and software side-channels that exploit timing variations in kernel algorithms
+and data structures.
+
+The following table catalogues known side-channel KASLR attacks.
+
+| Attack | Year | Status | References |
+|---|---|---|---|
+| KernelSnitch | 2025 | **Implemented (experimental)**: [kernelsnitch.c](src/components/kernelsnitch.c)<br>Futex hash-table timing leaks `mm_struct` directmap address (not `_stext`). x86_64, unprivileged. Requires `KASLD_EXPERIMENTAL=1` (~1–30 min runtime). Mitigated by `CONFIG_FUTEX_PRIVATE_HASH` (mainline ~v6.14+) which removes `mm_struct` from the private futex hash key. | [KernelSnitch: Side-Channel Attacks on Kernel Data Structures](https://lukasmaar.github.io/papers/ndss25-kernelsnitch.pdf) (Maar et al., 2025) — [NDSS 2025](https://www.ndss-symposium.org/ndss-paper/kernelsnitch-side-channel-attacks-on-kernel-data-structures/)<br>[lukasmaar/kernelsnitch](https://github.com/lukasmaar/kernelsnitch) |
+| GhostWrite (CVE-2024-44067) | 2024 | T-Head XuanTie C910/C920 RISC-V only (2 CPU models); kernel ≥6.14 disables vector extension as mitigation. | [GhostWrite](https://www.ghostwriteattack.com/)<br>[RISCover: Differential CPU Fuzz Testing](https://ghostwriteattack.com/riscover_ccs25.pdf) (Thomas et al., 2025)<br>[cispa/GhostWrite](https://github.com/cispa/GhostWrite), [cispa/RISCover](https://github.com/cispa/RISCover) |
+| SLAM | 2024 | Requires Intel LAM / AMD UAI (no mainstream kernel support yet); Spectre-based, needs specific gadgets. | [Leaky Address Masking: Exploiting Unmasked Spectre Gadgets with Noncanonical Address Translation](https://download.vusec.net/papers/slam_sp24.pdf) (Hertogh et al., 2024)<br>[vusec.net/projects/slam](https://www.vusec.net/projects/slam/), [vusec/slam](https://github.com/vusec/slam) |
+| SLUBStick (CVE-2024-26808) | 2024 | Achieves arbitrary kernel read/write (enabling KASLR bypass) via allocator timing side-channel, but requires a pre-existing heap vulnerability (UAF, heap overflow). Not a standalone KASLR bypass. | [SLUBStick: Arbitrary Memory Writes through Practical Software Cross-Cache Attacks within the Linux Kernel](https://www.usenix.org/system/files/usenixsecurity24-maar-slubstick.pdf) (Maar et al., 2024) — [USENIX Security 2024](https://www.usenix.org/conference/usenixsecurity24/presentation/maar-slubstick) |
+| Downfall (CVE-2022-40982) | 2023 | Mitigated by microcode on affected Intel CPUs (6th-11th gen); Gather Data Sampling, complex setup. | [Downfall: Exploiting Speculative Data Gathering](https://downfall.page/media/downfall.pdf) (Moghimi, 2023) |
+| Timing Transient Execution | 2023 | Depends on Meltdown-type transient execution; mitigated by KPTI on all affected Intel CPUs. | [Timing the Transient Execution: A New Side-Channel Attack on Intel CPUs](https://arxiv.org/pdf/2304.10877.pdf) (Jin et al., 2023) |
+| AMD Prefetch Attacks (CVE-2021-26318) | 2022 | Mitigated on Zen 3+ via microcode (AMD-SB-1017); redundant on older AMD / VMs where `prefetch.c` also works. | [AMD Prefetch Attacks through Power and Time](https://www.usenix.org/system/files/sec22-lipp.pdf) (Lipp et al., 2022) — [USENIX Security 2022](https://www.youtube.com/watch?v=bTV-9-B26_w)<br>[AMD-SB-1017](https://www.amd.com/en/corporate/product-security/bulletin/amd-sb-1017)<br>[amdprefetch/amd-prefetch-attacks](https://github.com/amdprefetch/amd-prefetch-attacks/tree/master/case-studies/kaslr-break) |
+| AMD RAPL power side-channel (CVE-2021-26318) | 2022 | Unprivileged RAPL access blocked since Linux 5.10; requires `amd_energy` module (not loaded by default); mitigated by same microcode as timing variant. | [AMD Prefetch Attacks through Power and Time](https://www.usenix.org/system/files/sec22-lipp.pdf) (Lipp et al., 2022) |
+| EntryBleed (CVE-2022-4543) | 2022 | **Implemented**: [entrybleed.c](src/components/entrybleed.c)<br>Intel x86_64 with KPTI enabled or disabled; AMD x86_64 with KPTI disabled. Requires kernel-version-specific offsets. Patched in kernel ~v6.2 (randomized per-CPU entry areas). | [EntryBleed: Breaking KASLR under KPTI with Prefetch (CVE-2022-4543)](https://www.willsroot.io/2022/12/entrybleed.html) (willsroot, 2022)<br>[EntryBleed: A Universal KASLR Bypass against KPTI on Linux](https://dl.acm.org/doi/pdf/10.1145/3623652.3623669) (William Liu, Joseph Ravichandran, Mengjia Yan, 2023) |
+| RETBLEED | 2022 | Kernel mitigated (IBRS/eIBRS, retpoline); requires specific Intel (6th-8th gen) or AMD (Zen 1/1+/2) CPUs. | [RETBLEED: Arbitrary Speculative Code Execution with Return Instructions](https://comsec.ethz.ch/wp-content/files/retbleed_sec22.pdf) (Wikner & Razavi, 2022)<br>[comsec-group/retbleed](https://github.com/comsec-group/retbleed) |
+| SLS (CVE-2021-26341) | 2022 | AMD Zen 1/2 only; requires eBPF JIT (restricted since Linux 5.8); mitigated by INT3/LFENCE after every unconditional branch. | [The AMD Branch (Mis)predictor Part 2: Where No CPU has Gone Before](https://grsecurity.net/amd_branch_mispredictor_part_2_where_no_cpu_has_gone_before) (Wieczorkiewicz, 2022)<br>[Straight-line Speculation Whitepaper](https://developer.arm.com/documentation/102825/0100/?lang=en) (ARM, 2020) |
+| ThermalBleed | 2022 | Thermal side-channel operates at ms-second timescale; far too slow/noisy for KASLR (needs sub-µs resolution). | [ThermalBleed: A Practical Thermal Side-Channel Attack](https://ieeexplore.ieee.org/stamp/stamp.jsp?arnumber=9727162) (Kim & Shin, 2022) |
+| Memory deduplication timing | 2021 | Requires KSM enabled (disabled by default on most distros); primarily a VM-to-VM attack. | [Memory deduplication as a threat to the guest OS](https://kth.diva-portal.org/smash/get/diva2:1060434/FULLTEXT01) (Suzaki et al., 2011)<br>[Breaking KASLR Using Memory Deduplication in Virtualized Environments](https://www.mdpi.com/2079-9292/10/17/2174) (Kim et al., 2021)<br>[Remote Memory-Deduplication Attacks](https://pure.tugraz.at/ws/portalfiles/portal/38441480/main.pdf) (Schwarzl et al., 2022) |
+| VDSO sidechannel | 2021 | ARM64 only; requires custom kernel gadget in VDSO; mitigated by Spectre barriers in VDSO code. | [VDSO As A Potential KASLR Oracle](https://www.longterm.io/vdso_sidechannel.html) (Pettersson & Radocea, 2021) |
+| EchoLoad | 2020 | **Implemented (experimental)**: [echoload.c](src/components/echoload.c)<br>Intel x86_64 only; relies on Meltdown zero-return behavior. Supports TSX, speculation, and signal-handler transient modes. No signal on non-vulnerable hardware (AMD, modern Intel with in-silicon Meltdown fix). Mitigated by KPTI on patched kernels. Requires `KASLD_EXPERIMENTAL=1`. | [KASLR: Break It, Fix It, Repeat](https://gruss.cc/files/kaslrbfr.pdf) (Claudio Canella, Michael Schwarz, Martin Haubenwallner, 2020)<br>[Store-to-Leak Forwarding: There and Back Again](https://i.blackhat.com/asia-20/Friday/asia-20-Canella-Store-To-Leak-Forwarding-There-And-Back-Again-wp.pdf) (Canella et al., 2020) — [Slides](https://misc0110.net/files/store2leak_blackhat_slides.pdf), [Blackhat Asia 2020](https://www.youtube.com/watch?v=Yc1AXkCu2AA)<br>[cc0x1f/store-to-leak-forwarding/echoload](https://github.com/cc0x1f/store-to-leak-forwarding-there-and-back-again/tree/master/echoload) |
+| PLATYPUS | 2020 | Unprivileged RAPL access restricted since Linux 5.10 (`powercap` driver); requires Intel CPU with specific RAPL interface. | [PLATYPUS: Software-based Power Side-Channel Attacks on x86](https://platypusattack.com/platypus.pdf) (Lipp et al., 2020) |
+| TagBleed | 2020 | Requires Intel CPU with tagged TLBs and a VMM environment; narrow applicability. | [TagBleed: Breaking KASLR on the Isolated Kernel Address Space using Tagged TLBs](https://download.vusec.net/papers/tagbleed_eurosp20.pdf) (Koschel et al., 2020)<br>[renorobert/tagbleedvmm](https://github.com/renorobert/tagbleedvmm) |
+| MDS / ZombieLoad / RIDL / Fallout | 2019 | Mitigated by microcode + kernel (MDS buffer clearing on context switch). Requires specific vulnerable Intel CPU generations (pre-Cascade Lake). | [Fallout: Leaking Data on Meltdown-resistant CPUs](https://mdsattacks.com/files/fallout.pdf) (Canella et al., 2019) — [fallout_kaslr.c](https://github.com/wbowling/cpu.fail/blob/master/fallout_kaslr.c)<br>[RIDL: Rogue In-Flight Data Load](https://mdsattacks.com/files/ridl.pdf) (van Schaik et al., 2019) — [vusec/ridl](https://github.com/vusec/ridl)<br>[ZombieLoad](https://zombieloadattack.com/) — [IAIK/ZombieLoad](https://github.com/IAIK/ZombieLoad), [zombieload_kaslr.c](https://github.com/wbowling/cpu.fail/blob/master/zombieload_kaslr.c) |
+| Data Bounce | 2019 | **Implemented (experimental)**: [databounce.c](src/components/databounce.c)<br>Intel x86_64 only; requires TSX (RTM). Exploits store-to-load forwarding within a TSX transaction. Works with KPTI enabled or disabled, bare metal and VMs. TSX deprecated by Intel, disabled via microcode on most consumer CPUs since 2019 (TAA mitigation). Requires `KASLD_EXPERIMENTAL=1`. | [Store-to-Leak Forwarding: Leaking Data on Meltdown-resistant CPUs](https://cpu.fail/store_to_leak_forwarding.pdf) (Michael Schwarz, Claudio Canella, Lukas Giner, Daniel Gruss, 2019)<br>[cc0x1f/store-to-leak-forwarding/data_bounce](https://github.com/cc0x1f/store-to-leak-forwarding-there-and-back-again/tree/master/data_bounce) |
+| Meltdown | 2018 | Fully mitigated by KPTI on all vulnerable CPUs; KPTI enabled by default since 2018. | [Meltdown: Reading Kernel Memory from User Space](https://meltdownattack.com/meltdown.pdf) (Lipp et al., 2018) — [USENIX Security 2018](https://www.usenix.org/conference/usenixsecurity18/presentation/lipp)<br>[IAIK/meltdown](https://github.com/IAIK/meltdown), [paboldin/meltdown-exploit](https://github.com/paboldin/meltdown-exploit) |
+| Spectre v1 / v2 | 2018 | Heavily mitigated (retpoline, IBRS/eIBRS, eBPF verifier hardening). KASLR break requires eBPF JIT or specific kernel gadgets; eBPF restricted to `CAP_BPF` since Linux 5.8. | [Spectre Attacks: Exploiting Speculative Execution](https://spectreattack.com/spectre.pdf) (Kocher et al., 2018)<br>[Reading privileged memory with a side-channel](https://googleprojectzero.blogspot.com/2018/01/reading-privileged-memory-with-side.html) (Jann Horn, 2018)<br>[speed47/spectre-meltdown-checker](https://github.com/speed47/spectre-meltdown-checker) |
+| SPECULOSE | 2018 | Equivalent to prefetch-style probing via speculative execution; fully mitigated by KPTI. | [SPECULOSE: Analyzing the Security Implications of Speculative Execution in CPUs](https://arxiv.org/pdf/1801.04084v1.pdf) (Maisuradze & Rossow, 2018) |
+| Prefetch side-channel | 2016 | **Implemented**: [prefetch.c](src/components/prefetch.c)<br>Intel and AMD x86_64. Requires KPTI to be disabled (kernel auto-disables KPTI on non-Meltdown-vulnerable CPUs: all AMD, Intel Ice Lake+). Does not require kernel-version-specific offsets. May fail silently on some newer AMD microarchitectures (Zen 3+) where the prefetch timing differential is absent. | [Prefetch Side-Channel Attacks: Bypassing SMAP and Kernel ASLR](https://gruss.cc/files/prefetch.pdf) (Daniel Gruss, Clémentine Maurice, Anders Fogh, 2016)<br>[Using Undocumented CPU Behaviour to See into Kernel Mode and Break KASLR in the Process](https://www.blackhat.com/docs/us-16/materials/us-16-Fogh-Using-Undocumented-CPU-Behaviour-To-See-Into-Kernel-Mode-And-Break-KASLR-In-The-Process.pdf) (Anders Fogh, Daniel Gruss, 2016) — [Blackhat USA](https://www.youtube.com/watch?v=Pwq0vv4X7m4)<br>[xairy/kernel-exploits/prefetch-side-channel](https://github.com/xairy/kernel-exploits/tree/master/prefetch-side-channel)<br>[Fetching the KASLR slide with prefetch](https://googleprojectzero.blogspot.com/2022/12/exploiting-CVE-2022-42703-bringing-back-the-stack-attack.html) (Seth Jenkins, 2022) — [prefetch_poc.zip](https://bugs.chromium.org/p/project-zero/issues/detail?id=2351) |
+| BTB side-channel | 2016 | Complex implementation; largely superseded by simpler prefetch / EntryBleed techniques. | [Jump Over ASLR: Attacking Branch Predictors to Bypass ASLR](https://www.cs.ucr.edu/~nael/pubs/micro16.pdf) (Evtyushkin et al., 2016)<br>[felixwilhelm/mario_baslr](https://github.com/felixwilhelm/mario_baslr) |
+| TSX/RTM abort timing (DrK) | 2016 | TSX deprecated by Intel, disabled via microcode on most consumer CPUs since 2019 (TAA mitigation). Redundant with Data Bounce on TSX-capable hardware. | [TSX improves timing attacks against KASLR](http://web.archive.org/web/20141107045306/http://labs.bromium.com/2014/10/27/tsx-improves-timing-attacks-against-kaslr/) (Rafal Wojtczuk, 2014)<br>[DrK: Breaking KASLR with Intel TSX](https://www.blackhat.com/docs/us-16/materials/us-16-Jang-Breaking-Kernel-Address-Space-Layout-Randomization-KASLR-With-Intel-TSX.pdf) (Jang et al., 2016) — [Blackhat USA](https://www.youtube.com/watch?v=rtuXG28g0CU)<br>[vnik5287/kaslr_tsx_bypass](https://github.com/vnik5287/kaslr_tsx_bypass) |
+| Double page fault timing | 2013 | Precursor to prefetch side-channel; fully mitigated by KPTI (Meltdown patches). Superseded by prefetch / EntryBleed. | [Practical Timing Side Channel Attacks Against Kernel Space ASLR](https://openwall.info/wiki/_media/archive/TR-HGI-2013-001.pdf) (Hund et al., 2013) |
+
+Note: Several related attacks (LVI, RAMBleed) are omitted from the table
+because they are not KASLR bypass techniques. LVI targets SGX enclaves;
+RAMBleed is a general memory read primitive (rowhammer-based, hours-slow).
 
 The [extra/check-hardware-vulnerabilities](extra/check-hardware-vulnerabilities)
 script performs rudimentary checks for several known hardware vulnerabilities,
@@ -537,171 +648,65 @@ but does not implement these techniques.
 
 See also:
 
-[Practical Timing Side Channel Attacks Against Kernel Space ASLR](https://openwall.info/wiki/_media/archive/TR-HGI-2013-001.pdf) (Ralf Hund, Carsten Willems, Thorsten Holz, 2013)
+* [google/safeside](https://github.com/google/safeside) — project to understand and mitigate software-observable side-channels (Google)
+* [Hardening the Kernel Against Unprivileged Attacks](https://www.cc0x1f.net/publications/thesis.pdf) (Claudio Canella, 2022)
+* [Exploiting Microarchitectural Optimizations from Software](https://diglib.tugraz.at/download.php?id=61adc85670183&location=browse) (Moritz Lipp. 2021)
+* [transient.fail](https://transient.fail/) — overview of speculative / transient execution attacks (Graz University of Technology, 2020)
+* [LVI: Hijacking Transient Execution through Microarchitectural Load Value Injection](https://www.semanticscholar.org/paper/LVI:-Hijacking-Transient-Execution-through-Load-Bulck-Moghimi/5cbf634d4308a30b2cddb4c769056750233ddaf6) (Jo Van Bulck, Daniel Moghimi, Michael Schwarz, Moritz Lipp, Marina Minkin, Daniel Genkin, Yuval Yarom, Berk Sunar, Daniel Gruss, and Frank Piessens, 2020)
+* [A Systematic Evaluation of Transient Execution Attacks and Defenses](https://www.cc0x1f.net/publications/transient_sytematization.pdf) (Claudio Canella, Jo Van Bulck, Michael Schwarz, Moritz Lipp, Benjamin von Berg, Philipp Ortner, Frank Piessens, Dmitry Evtyushkin, Daniel Gruss, 2019)
+* [RAMBleed: Reading Bits in Memory Without Accessing Them](https://rambleed.com/docs/20190603-rambleed-web.pdf) (Andrew Kwong, Daniel Genkin, Daniel Gruss, Yuval Yarom, 2019) — [google/rowhammer-test](https://github.com/google/rowhammer-test)
+* [Micro architecture attacks on KASLR](https://cyber.wtf/2016/10/25/micro-architecture-attacks-on-kasrl/) (Anders Fogh, 2016)
 
-[google/safeside](https://github.com/google/safeside)
+### Syscall and Interface Leaks
 
-[Micro architecture attacks on KASLR](https://cyber.wtf/2016/10/25/micro-architecture-attacks-on-kasrl/) (Anders Fogh, 2016)
+Kernel syscalls and device interfaces can leak kernel addresses through
+return values, uninitialized memory in structures, or sampling kernel events.
 
-[PLATYPUS: Software-based Power Side-Channel Attacks on x86](https://platypusattack.com/platypus.pdf) (Moritz Lipp, Andreas Kogler, David Oswald†, Michael Schwarz, Catherine Easdon, Claudio Canella, and Daniel Gruss, 2020)
+The following KASLD components exploit syscall and interface leaks:
 
-[LVI: Hijacking Transient Execution through Microarchitectural Load Value Injection](https://www.semanticscholar.org/paper/LVI:-Hijacking-Transient-Execution-through-Load-Bulck-Moghimi/5cbf634d4308a30b2cddb4c769056750233ddaf6) (Jo Van Bulck, Daniel Moghimi, Michael Schwarz, Moritz Lipp, Marina Minkin, Daniel Genkin, Yuval Yarom, Berk Sunar, Daniel Gruss, and Frank Piessens, 2020)
+* [perf_event_open.c](src/components/perf_event_open.c) — samples kernel event addresses via `perf_event_open()` (requires `kernel.perf_event_paranoid < 2`)
+* [mincore.c](src/components/mincore.c) — `mincore()` heap page disclosure via uninitialized memory (CVE-2017-16994; patched in v4.15)
+* [bcm_msg_head_struct.c](src/components/bcm_msg_head_struct.c) — CAN BCM `bcm_msg_head` struct uninitialized 4-byte hole leaks kernel stack pointer (CVE-2021-34693)
+* [pppd_kallsyms.c](src/components/pppd_kallsyms.c) — exploits set-uid `pppd` to read `/proc/kallsyms` bypassing `kptr_restrict` open-time check
+* [qemu-tcg-iret.c](src/components/qemu-tcg-iret.c) — leaks kernel stack address inside QEMU TCG guests via `iret` instruction (patched in QEMU 9.1)
 
-[Exploiting Microarchitectural Optimizations from Software](https://diglib.tugraz.at/download.php?id=61adc85670183&location=browse) (Moritz Lipp. 2021)
 
-[Hardening the Kernel Against Unprivileged Attacks](https://www.cc0x1f.net/publications/thesis.pdf) (Claudio Canella, 2022)
+### Brute Force
 
-[ThermalBleed: A Practical Thermal Side-Channel Attack](https://ieeexplore.ieee.org/stamp/stamp.jsp?arnumber=9727162) (Taehun Kim, Youngjoo Shin. 2022)
+Some memory layout properties can be determined by probing the address
+space directly, without reading any files or exploiting vulnerabilities.
 
-AMD prefetch and power-based side channel attacks (CVE-2021-26318):
+The following KASLD components use brute-force probing:
 
-  * https://www.amd.com/en/corporate/product-security/bulletin/amd-sb-1017
-  * [AMD Prefetch Attacks through Power and Time](https://www.usenix.org/conference/usenixsecurity22/presentation/lipp) (Moritz Lipp, Daniel Gruss, Michael Schwarz. 2022)
-    * https://www.usenix.org/system/files/sec22-lipp.pdf
-    * USENIX Security 2022 Presentation: https://www.youtube.com/watch?v=bTV-9-B26_w
-    * https://github.com/amdprefetch/amd-prefetch-attacks/tree/master/case-studies/kaslr-break
-
-Microarchitectural Data Sampling (MDS) side-channel attacks:
-
-  * [Fallout: Leaking Data on Meltdown-resistant CPUs](https://mdsattacks.com/files/fallout.pdf) (Claudio Canella, Daniel Genkin, Lukas Giner, Daniel Gruss, Moritz Lipp, Marina Minkin, Daniel Moghimi, Frank Piessens, Michael Schwarz, Berk Sunar, Jo Van Bulck, Yuval Yarom, 2019)
-    * https://github.com/wbowling/cpu.fail/blob/master/zombieload_kaslr.c (wbowling, 2019)
-  * [RIDL: Rogue In-Flight Data Load](https://mdsattacks.com/files/ridl.pdf) (Stephan van Schaik, Alyssa Milburn, Sebastian Österlund, Pietro Frigo, Giorgi Maisuradze, Kaveh Razavi, Herbert Bos, and Cristiano Giuffrida, 2019)
-    * [vusec/ridl](https://github.com/vusec/ridl) - Intel CPUs (VUSec, 2019)
-  * [ZombieLoad](https://zombieloadattack.com/):
-    * [IAIK/ZombieLoad](https://github.com/IAIK/ZombieLoad)
-    * https://github.com/wbowling/cpu.fail/blob/master/fallout_kaslr.c (wbowling, 2019)
-
-EchoLoad:
-
-  * [KASLR: Break It, Fix It, Repeat](https://gruss.cc/files/kaslrbfr.pdf) (Claudio Canella, Michael Schwarz, Martin Haubenwallner, 2020)
-  * [Store-to-Leak Forwarding: There and Back Again](https://i.blackhat.com/asia-20/Friday/asia-20-Canella-Store-To-Leak-Forwarding-There-And-Back-Again-wp.pdf) (Claudio Canella, Lukas Giner, Michael Schwarz, 2020)
-    * Slides: https://misc0110.net/files/store2leak_blackhat_slides.pdf
-    * Blackhat Asia 2020 Presentation: https://www.youtube.com/watch?v=Yc1AXkCu2AA
-    * https://github.com/cc0x1f/store-to-leak-forwarding-there-and-back-again/tree/master/echoload
-
-Data Bounce:
-
-  * [Store-to-Leak Forwarding: Leaking Data on Meltdown-resistant CPUs](https://cpu.fail/store_to_leak_forwarding.pdf) (Michael Schwarz, Claudio Canella, Lukas Giner, Daniel Gruss, 2019)
-    * https://github.com/cc0x1f/store-to-leak-forwarding-there-and-back-again/tree/master/data_bounce
-
-Prefetch side-channel attacks:
-
-  * [Prefetch Side-Channel Attacks: Bypassing SMAP and Kernel ASLR](https://gruss.cc/files/prefetch.pdf) (Daniel Gruss, Clémentine Maurice, Anders Fogh, 2016)
-    * [xairy/kernel-exploits/prefetch-side-channel](https://github.com/xairy/kernel-exploits/tree/master/prefetch-side-channel) (xairy, 2020)
-  * [Using Undocumented CPU Behaviour to See into Kernel Mode and Break KASLR in the Process](https://www.blackhat.com/docs/us-16/materials/us-16-Fogh-Using-Undocumented-CPU-Behaviour-To-See-Into-Kernel-Mode-And-Break-KASLR-In-The-Process.pdf) (Anders Fogh, Daniel Gruss, 2016)
-    * Blackhat USA 2015 Presentation: https://www.youtube.com/watch?v=Pwq0vv4X7m4
-  * [Fetching the KASLR slide with prefetch](https://googleprojectzero.blogspot.com/2022/12/exploiting-CVE-2022-42703-bringing-back-the-stack-attack.html) (Seth Jenkins, 2022)
-    * [prefetch_poc.zip](https://bugs.chromium.org/p/project-zero/issues/detail?id=2351) - Intel x86_64 CPUs with kPTI disabled (`pti=off`)
-  * EntryBleed
-    * Intel x86_64 CPUs; AMD x86_64 CPUs with kPTI disabled (`pti=off`)
-    * [EntryBleed: Breaking KASLR under KPTI with Prefetch (CVE-2022-4543)](https://www.willsroot.io/2022/12/entrybleed.html) (willsroot, 2022)
-    * [EntryBleed: A Universal KASLR Bypass against KPTI on Linux](https://dl.acm.org/doi/pdf/10.1145/3623652.3623669) (William Liu, Joseph Ravichandran, Mengjia Yan, 2023)
-  * SLAM: Spectre based on Linear Address Masking
-    * [Leaky Address Masking: Exploiting Unmasked Spectre Gadgets with Noncanonical Address Translation](https://download.vusec.net/papers/slam_sp24.pdf) (Mathé Hertogh, Sander Wiebing, Cristiano Giuffrida, 2024)
-    * [https://www.vusec.net/projects/slam/](https://www.vusec.net/projects/slam/)
-    * [vusec/slam](https://github.com/vusec/slam)
-
-Straight-line Speculation (SLS):
-
-  * [The AMD Branch (Mis)predictor Part 2: Where No CPU has Gone Before (CVE-2021-26341)](https://grsecurity.net/amd_branch_mispredictor_part_2_where_no_cpu_has_gone_before) (Pawel Wieczorkiewicz, 2022)
-  * [Straight-line Speculation Whitepaper](https://developer.arm.com/documentation/102825/0100/?lang=en) (ARM, 2020)
-
-Transactional Synchronization eXtensions (TSX) side-channel timing attacks:
-
-  * [TSX improves timing attacks against KASLR](http://web.archive.org/web/20141107045306/http://labs.bromium.com/2014/10/27/tsx-improves-timing-attacks-against-kaslr/) (Rafal Wojtczuk, 2014)
-  * [DrK: Breaking Kernel Address Space Layout Randomization with Intel TSX](https://www.blackhat.com/docs/us-16/materials/us-16-Jang-Breaking-Kernel-Address-Space-Layout-Randomization-KASLR-With-Intel-TSX.pdf) (Yeongjin Jang, Sangho Lee, Taesoo Kim, 2016)
-    * Slides: https://www.blackhat.com/docs/us-16/materials/us-16-Jang-Breaking-Kernel-Address-Space-Layout-Randomization-KASLR-With-Intel-TSX.pdf
-    * Blackhat USA 2015 Presentation: https://www.youtube.com/watch?v=rtuXG28g0CU
-  * [vnik5287/kaslr_tsx_bypass](https://github.com/vnik5287/kaslr_tsx_bypass) (Vitaly Nikolenko, 2017)
-
-Branch Target Buffer (BTB) based side-channel attacks:
-
-  * [Jump Over ASLR: Attacking Branch Predictors to Bypass ASLR](https://www.cs.ucr.edu/~nael/pubs/micro16.pdf) (Dmitry Evtyushkin, Dmitry Ponomarev, Nael Abu-Ghazaleh, 2016)
-    * [felixwilhelm/mario_baslr](https://github.com/felixwilhelm/mario_baslr) - Intel CPUs (Felix Wilhelm, 2016)
-
-Transient Execution / Speculative Execution:
-
-  * The [transient.fail](https://transient.fail/) website offers a good overview of speculative execution / transient execution attacks.
-  * [SPECULOSE: Analyzing the Security Implications of Speculative Execution in CPUs](https://arxiv.org/pdf/1801.04084v1.pdf) (Giorgi Maisuradze, Christian Rossow, 2018)
-  * [A Systematic Evaluation of Transient Execution Attacks and Defenses](https://www.cc0x1f.net/publications/transient_sytematization.pdf) (Claudio Canella, Jo Van Bulck, Michael Schwarz, Moritz Lipp, Benjamin von Berg, Philipp Ortner, Frank Piessens, Dmitry Evtyushkin3, Daniel Gruss, 2019)
-  * [Meltdown](https://meltdownattack.com)
-    * [Meltdown: Reading Kernel Memory from User Space](https://meltdownattack.com/meltdown.pdf) (Moritz Lipp, Michael Schwarz, Daniel Gruss, Thomas Prescher, Werner Haas, Anders Fogh, Jann Horn, Stefan Mangard, Paul Kocher, Daniel Genkin, Yuval Yarom, Mike Hamburg, 2018)
-    * USENIX Security 2018 Video: https://www.usenix.org/conference/usenixsecurity18/presentation/lipp
-    * [paboldin/meltdown-exploit](https://github.com/paboldin/meltdown-exploit)
-    * [IAIK/meltdown](https://github.com/IAIK/meltdown)
-    * https://github.com/IAIK/transientfail/tree/master/pocs/meltdown
-  * [Spectre Attacks: Exploiting Speculative Execution](https://spectreattack.com/spectre.pdf) (Paul Kocher, Jann Horn, Anders Fogh, Daniel Genkin, Daniel Gruss, Werner Haas, Mike Hamburg, Moritz Lipp, Stefan Mangard, Thomas Prescher, Michael Schwarz, Yuval Yarom, 2018)
-    * https://github.com/IAIK/transientfail/tree/master/pocs/spectre
-  * [Reading privileged memory with a side-channel](https://googleprojectzero.blogspot.com/2018/01/reading-privileged-memory-with-side.html) (Jann Horn, 2018)
-  * [speed47/spectre-meltdown-checker](https://github.com/speed47/spectre-meltdown-checker)
-  * [VDSO As A Potential KASLR Oracle](https://www.longterm.io/vdso_sidechannel.html) (Philip Pettersson, Alex Radocea, 2021)
-  * [RETBLEED: Arbitrary Speculative Code Execution with Return Instructions](https://comsec.ethz.ch/wp-content/files/retbleed_sec22.pdf) (Johannes Wikner, Kaveh Razavi, 2022)
-    * [comsec-group/retbleed](https://github.com/comsec-group/retbleed) - Intel/AMD x86_64 CPUs
-  * [Timing the Transient Execution: A New Side-Channel Attack on Intel CPUs](https://arxiv.org/pdf/2304.10877.pdf) (Yu Jin, Pengfei Qiu, Chunlu Wang, Yihao Yang, Dongsheng Wang, Gang Qu, 2023)
-
-Speculative Data Gathering / Gather Data Sampling:
-
-  * [Downfall](https://downfall.page/) (CVE-2022-40982)
-    * [Downfall: Exploiting Speculative Data Gathering](https://downfall.page/media/downfall.pdf) (Daniel Moghimi), 2023)
-
-TagBleed: Tagged Translation Lookaside Buffer (TLB) side-channel attacks:
-
-  * [TagBleed: Breaking KASLR on the Isolated Kernel Address Space using Tagged TLBs](https://download.vusec.net/papers/tagbleed_eurosp20.pdf) (Jakob Koschel, Cristiano Giuffrida, Herbert Bos, Kaveh Razavi, 2020)
-    * [renorobert/tagbleedvmm](https://github.com/renorobert/tagbleedvmm) (Reno Robert, 2020)
-
-[RAMBleed](https://rambleed.com/) side-channel attack (CVE-2019-0174):
-
-  * [RAMBleed: Reading Bits in Memory Without Accessing Them](https://rambleed.com/docs/20190603-rambleed-web.pdf) (Andrew Kwong, Daniel Genkin, Daniel Gruss, Yuval Yarom, 2019)
-  * [google/rowhammer-test](https://github.com/google/rowhammer-test) (Google, 2015)
-
-Memory deduplication timing side-channel attacks:
-
-  * [Memory deduplication as a threat to the guest OS](https://kth.diva-portal.org/smash/get/diva2:1060434/FULLTEXT01) (Kuniyasu Suzaki, Kengo Iijima, Toshiki Yagi, Cyrille Artho. 2011)
-  * [Breaking KASLR Using Memory Deduplication in Virtualized Environments](https://www.mdpi.com/2079-9292/10/17/2174) (Taehun Kim, Taehyun Kim, Youngjoo Shin. 2021)
-  * [Remote Memory-Deduplication Attacks](https://pure.tugraz.at/ws/portalfiles/portal/38441480/main.pdf) (Martin Schwarzl, Erik Kraft, Moritz Lipp, Daniel Gruss. 2022)
-
-GhostWrite (CVE-2024-44067) - T-Head XuanTie C910/C920 RISC-V CPUs:
-
-  * [GhostWrite](https://www.ghostwriteattack.com/) - Faulty vector extension instructions operate directly on physical memory instead of virtual memory, bypassing all isolation. Hardware bug; cannot be fixed with software updates. Only mitigation is disabling the vector extension entirely (kernel >=6.14 does this automatically).
-    * [GhostWrite: RISCover - Differential CPU Fuzz Testing](https://ghostwriteattack.com/riscover_ccs25.pdf) (Fabian Thomas, Eric García Arribas, Lorenz Hetterich, Ruiyi Zhang, Daniel Weber, Lukas Gerlach, Michael Schwarz, 2025)
-    * [cispa/GhostWrite](https://github.com/cispa/GhostWrite)
-    * [cispa/RISCover](https://github.com/cispa/RISCover)
-
-KernelSnitch: Software side-channel attacks on kernel data structures:
-
-  * [KernelSnitch: Side-Channel Attacks on Kernel Data Structures](https://lukasmaar.github.io/papers/ndss25-kernelsnitch.pdf) (Lukas Maar, Jonas Juffinger, Thomas Steinbauer, Daniel Gruss, Stefan Mangard, 2025)
-
-SLUBStick (CVE-2024-26808): Timing side-channel on the SLUB kernel heap allocator for reliable cross-cache attacks:
-
-  * [SLUBStick: Arbitrary Memory Writes through Practical Software Cross-Cache Attacks within the Linux Kernel](https://www.usenix.org/system/files/usenixsecurity24-maar-slubstick.pdf) (Lukas Maar, Stefan Gast, Martin Unterguggenberger, Mathias Oberhuber, Stefan Mangard, 2024)
-    * USENIX Security 2024 Presentation: https://www.usenix.org/conference/usenixsecurity24/presentation/maar-slubstick
-    * Note: SLUBStick is a kernel exploitation amplification technique, not a standalone KASLR bypass. It uses a timing side-channel on SLUB page reuse to achieve ~99% reliable cross-cache attacks, but requires a pre-existing heap vulnerability (UAF, heap overflow, etc.) as a prerequisite.
+* [mmap-brute-vmsplit.c](src/components/mmap-brute-vmsplit.c) — determines `PAGE_OFFSET` (vmsplit) on 32-bit systems by mapping pages across the address space until failure
 
 
 ### Weak Entropy
 
-The kernel is loaded at an aligned memory address, usually between `PAGE_SIZE` (4096 KiB)
-and 2MiB on modern systems (see `KERNEL_ALIGN` definitions in [kasld.h](src/include/kasld.h).
+The kernel is loaded at an aligned memory address, usually between `PAGE_SIZE` (4 KiB)
+and 2 MiB on modern systems (see `KERNEL_ALIGN` definitions in [kasld.h](src/include/kasld.h)).
 This limits the number of possible kernel locations. For example, on x86_64 with
-`RANDOMIZE_BASE_MAX_OFFSET` of 1GiB and 2MiB alignment, this limited the kernel load
+`RANDOMIZE_BASE_MAX_OFFSET` of 1 GiB and 2 MiB alignment, this limits the kernel load
 address to `0x4000_0000 / 0x20_0000 = 512` possible locations.
- 
+
 Weaknesses in randomisation can decrease entropy, further limiting the possible kernel
 locations in memory and making the kernel easier to locate.
 
 KASLR may be disabled if insufficient randomness is generated during boot
 (for example, if `get_kaslr_seed()` fails on ARM64).
 
+The following KASLD component provides a baseline reference:
+
+* [default.c](src/components/default.c) — reports the hardcoded default kernel text base address for the target architecture, used as the baseline for KASLR slide calculation
+
 See also:
 
-[Another look at two Linux KASLR patches](https://www.kryptoslogic.com/blog/2020/03/another-look-at-two-linux-kaslr-patches/index.html) (Kryptos Logic, 2020)
-
-[arm64: efi: kaslr: Fix occasional random alloc (and boot) failure](https://github.com/torvalds/linux/commit/4152433c397697acc4b02c4a10d17d5859c2730d)
-
-[Defeating KASLR by Doing Nothing at All](https://projectzero.google/2025/11/defeating-kaslr-by-doing-nothing-at-all.html) (Seth Jenkins, 2025) - arm64 linear map is not randomized due to memory hotplug support; Pixel bootloader loads kernel at static physical address, making kernel virtual addresses fully predictable even with KASLR enabled.
+* [Another look at two Linux KASLR patches](https://www.kryptoslogic.com/blog/2020/03/another-look-at-two-linux-kaslr-patches/index.html) (Kryptos Logic, 2020)
+* [arm64: efi: kaslr: Fix occasional random alloc (and boot) failure](https://github.com/torvalds/linux/commit/4152433c397697acc4b02c4a10d17d5859c2730d)
+* [Defeating KASLR by Doing Nothing at All](https://projectzero.google/2025/11/defeating-kaslr-by-doing-nothing-at-all.html) (Seth Jenkins, 2025) - arm64 linear map is not randomized due to memory hotplug support; Pixel bootloader loads kernel at static physical address, making kernel virtual addresses fully predictable even with KASLR enabled.
 
 
-### Kernel Info Leaks
+### Patched Kernel Bugs
 
 There have been many kernel bugs which leaked kernel addresses to unprivileged
 users via uninitialized memory, missing pointer sanitization, using kernel
