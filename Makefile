@@ -55,7 +55,7 @@ $(COMP_DIR):
 # Validate headers before building components
 .PHONY: check-headers
 check-headers: | $(COMP_DIR)
-	@$(CC) $(ALL_CFLAGS) -fsyntax-only $(SRC_DIR)/include/kasld.h
+	@$(CC) $(ALL_CFLAGS) -xc -fsyntax-only $(SRC_DIR)/include/kasld.h
 
 $(COMP_DIR)/%: $(COMP_SRC_DIR)/%.c $(HDRS) | $(COMP_DIR)
 	-$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $< -o $@
