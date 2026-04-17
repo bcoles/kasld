@@ -37,10 +37,14 @@
 #endif
 
 int verbose;
+int quiet;
 int json_output;
 int oneline_output;
 int markdown_output;
 int color_output;
+
+/* True when no structured output format is selected (plain text mode) */
+#define plain_output() (!json_output && !oneline_output && !markdown_output)
 
 /* =========================================================================
  * Runtime memory layout (initialized from compile-time defaults, may be
@@ -76,7 +80,7 @@ static void adjust_for_page_offset(unsigned long new_po) {
 
   long delta = (long)(new_po - old_po);
 
-  if (verbose && !json_output)
+  if (verbose && !quiet && !json_output)
     printf("[layout] PAGE_OFFSET adjusted: %#lx -> %#lx (delta %+ld)\n", old_po,
            new_po, delta);
 
@@ -223,10 +227,11 @@ static int discover_components(void) {
   struct dirent *ent;
   while ((ent = readdir(d)) != NULL) {
     if (num_components >= MAX_COMPONENTS) {
-      fprintf(stderr,
-              "warning: component limit (%d) reached, "
-              "skipping remaining\n",
-              MAX_COMPONENTS);
+      if (!quiet)
+        fprintf(stderr,
+                "warning: component limit (%d) reached, "
+                "skipping remaining\n",
+                MAX_COMPONENTS);
       break;
     }
 
@@ -422,9 +427,11 @@ static void capture_result(const char *line) {
   if (num_results >= MAX_RESULTS) {
     static int warned;
     if (!warned) {
-      fprintf(stderr,
-              "warning: result limit (%d) reached, dropping further results\n",
-              MAX_RESULTS);
+      if (!quiet)
+        fprintf(
+            stderr,
+            "warning: result limit (%d) reached, dropping further results\n",
+            MAX_RESULTS);
       warned = 1;
     }
     return;
@@ -450,11 +457,9 @@ static void capture_result(const char *line) {
 
   struct result *r = &results[num_results];
   r->type = type_ch;
-  strncpy(r->section, section, SECTION_LEN - 1);
-  r->section[SECTION_LEN - 1] = '\0';
+  snprintf(r->section, SECTION_LEN, "%s", section);
 
-  strncpy(r->label, label_start, LABEL_LEN - 1);
-  r->label[LABEL_LEN - 1] = '\0';
+  snprintf(r->label, LABEL_LEN, "%s", label_start);
   size_t llen = strlen(r->label);
   if (llen > 0 && r->label[llen - 1] == '\n')
     r->label[llen - 1] = '\0';
@@ -574,8 +579,7 @@ static int run_component(const struct component *c) {
 
       /* Capture line for verbose JSON */
       if (clog && clog->num_lines < MAX_COMPONENT_LINES) {
-        strncpy(clog->lines[clog->num_lines], start, MAX_LINE_LEN - 1);
-        clog->lines[clog->num_lines][MAX_LINE_LEN - 1] = '\0';
+        snprintf(clog->lines[clog->num_lines], MAX_LINE_LEN, "%s", start);
         clog->num_lines++;
       }
 
@@ -603,8 +607,9 @@ static int run_component(const struct component *c) {
   close(pipefd[0]);
 
   if (timed_out) {
-    fprintf(stderr, "warning: component '%s' timed out after %ds, killing\n",
-            c->name, COMPONENT_TIMEOUT_SECS);
+    if (!quiet)
+      fprintf(stderr, "warning: component '%s' timed out after %ds, killing\n",
+              c->name, COMPONENT_TIMEOUT_SECS);
     kill(-pid, SIGKILL); /* Kill entire process group */
   }
 
@@ -626,9 +631,11 @@ static struct timespec progress_start;
 
 static void progress_update(void) {
   progress_done++;
-  if (verbose && !json_output && !oneline_output && !markdown_output)
+  if (quiet || json_output || oneline_output || markdown_output)
+    return;
+  if (verbose)
     printf("\n");
-  else if (!json_output && !oneline_output && !markdown_output) {
+  else {
     int pct = num_components > 0 ? (progress_done * 100) / num_components : 0;
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
@@ -765,12 +772,14 @@ static void apply_layout_adjustments(void) {
     }
   }
   if (po_n > 1) {
-    fprintf(stderr, "[!] Conflicting PAGE_OFFSET sources detected "
-                    "(possible legacy kernel layout):\n");
-    for (int i = 0; i < po_n; i++)
-      fprintf(stderr, "    0x%016lx\n", po_vals[i]);
-    fprintf(stderr, "    Using 0x%016lx (modern layout assumed)\n",
-            po_vals[0] < po_vals[1] ? po_vals[0] : po_vals[1]);
+    if (!quiet) {
+      fprintf(stderr, "[!] Conflicting PAGE_OFFSET sources detected "
+                      "(possible legacy kernel layout):\n");
+      for (int i = 0; i < po_n; i++)
+        fprintf(stderr, "    0x%016lx\n", po_vals[i]);
+      fprintf(stderr, "    Using 0x%016lx (modern layout assumed)\n",
+              po_vals[0] < po_vals[1] ? po_vals[0] : po_vals[1]);
+    }
   }
 
   unsigned long detected_po =
@@ -1150,6 +1159,7 @@ static void usage(const char *progname) {
          "  -1, --oneline   Single-line summary output\n"
          "  -m, --markdown  Markdown table output\n"
          "  -c, --color     Colorize text output (auto-detected for TTYs)\n"
+         "  -q, --quiet     Suppress banner, progress, and warnings\n"
          "  -v, --verbose   Show component output\n"
          "  -V, --version   Print version and exit\n"
          "  -h, --help      Show this help\n",
@@ -1174,6 +1184,8 @@ int main(int argc, char *argv[]) {
       oneline_output = 0;
     } else if (strcmp(argv[i], "-c") == 0 || strcmp(argv[i], "--color") == 0) {
       color_output = 1;
+    } else if (strcmp(argv[i], "-q") == 0 || strcmp(argv[i], "--quiet") == 0) {
+      quiet = 1;
     } else if (strcmp(argv[i], "-v") == 0 ||
                strcmp(argv[i], "--verbose") == 0) {
       verbose = 1;
@@ -1195,10 +1207,10 @@ int main(int argc, char *argv[]) {
   setvbuf(stdout, NULL, _IOLBF, 0);
 
   /* Auto-detect color when stdout is a TTY and no structured format selected */
-  if (!color_output && !json_output && !oneline_output && !markdown_output)
+  if (!color_output && plain_output())
     color_output = isatty(STDOUT_FILENO);
 
-  if (!json_output && !oneline_output && !markdown_output) {
+  if (!quiet && plain_output()) {
     print_banner();
     print_system_config();
   }
@@ -1206,7 +1218,7 @@ int main(int argc, char *argv[]) {
   if (discover_components() < 0)
     return 2;
 
-  if (!verbose && !json_output && !oneline_output && !markdown_output) {
+  if (!quiet && !verbose && plain_output()) {
     clock_gettime(CLOCK_MONOTONIC, &progress_start);
     printf("Running %d components...\n", num_components);
     fflush(stdout);
@@ -1224,12 +1236,12 @@ int main(int argc, char *argv[]) {
   /* Phase 3: probing — side-channels and brute-force, skip when KASLR is off */
   if (!kaslr_off)
     run_phase(phase_probing, 1, NULL);
-  else if (verbose && !json_output && !oneline_output && !markdown_output)
+  else if (!quiet && verbose && plain_output())
     printf("skipping probing phase (KASLR disabled)\n\n");
 
   apply_layout_adjustments();
 
-  if (!verbose && !json_output && !oneline_output && !markdown_output)
+  if (!quiet && !verbose && plain_output())
     printf("\n\n");
 
   if (num_results > 0) {
