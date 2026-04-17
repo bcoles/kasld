@@ -130,14 +130,15 @@ static int num_components;
 /* Phased execution order.
  * Phase 1 (discovery): determines PAGE_OFFSET, KASLR state, and may yield
  *   exact kernel addresses before the main inference phase runs.
- * Phase 2 (inference): all remaining components except brute-force.
- * Phase 3 (brute-force): timing / side-channel components, skipped when
+ * Phase 2 (inference): all remaining components except probing.
+ * Phase 3 (probing): active probing components — microarchitectural
+ *   side-channels, timing attacks, and brute-force search. Skipped when
  *   KASLR is disabled or unsupported.
  */
 static const char *phase_discovery[] = {
     "boot-config", "default",      "dmesg_kaslr-disabled", "proc-cmdline",
     "proc-config", "proc-cpuinfo", "proc-kallsyms",        NULL};
-static const char *phase_bruteforce[] = {
+static const char *phase_probing[] = {
     "databounce",         "echoload", "entrybleed",   "mincore",
     "mmap-brute-vmsplit", "prefetch", "kernelsnitch", NULL};
 
@@ -391,7 +392,10 @@ static const struct {
     /* timing — microarchitectural side-channel */
     {"prefetch", "timing"},
     {"entrybleed", "timing"},
-    /* heuristic — brute-force probing or uninitialized memory */
+    {"databounce", "timing"},
+    {"echoload", "timing"},
+    {"kernelsnitch", "timing"},
+    /* heuristic — iterative probing or uninitialized memory */
     {"mincore", "heuristic"},
     {"mmap-brute-vmsplit", "heuristic"},
     {"perf_event_open", "heuristic"},
@@ -1213,15 +1217,15 @@ int main(int argc, char *argv[]) {
   apply_layout_adjustments();
   int kaslr_off = detect_kaslr_state();
 
-  /* Phase 2: main inference — everything except discovery and brute-force */
-  run_phase(phase_discovery, 0, phase_bruteforce);
+  /* Phase 2: main inference — everything except discovery and probing */
+  run_phase(phase_discovery, 0, phase_probing);
   apply_layout_adjustments();
 
-  /* Phase 3: brute-force / timing — skip when KASLR is off */
+  /* Phase 3: probing — side-channels and brute-force, skip when KASLR is off */
   if (!kaslr_off)
-    run_phase(phase_bruteforce, 1, NULL);
+    run_phase(phase_probing, 1, NULL);
   else if (verbose && !json_output && !oneline_output && !markdown_output)
-    printf("skipping brute-force phase (KASLR disabled)\n\n");
+    printf("skipping probing phase (KASLR disabled)\n\n");
 
   apply_layout_adjustments();
 
