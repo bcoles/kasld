@@ -28,7 +28,7 @@
 #define METHOD_LEN 16
 #define MAX_DERIVED 16
 #define MAX_COMPONENT_LINES 64
-#define MAX_LINE_LEN 256
+#define MAX_LINE_LEN 512
 
 /* =========================================================================
  * ANSI color helpers (gated by color_output flag)
