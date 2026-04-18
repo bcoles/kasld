@@ -635,6 +635,60 @@ static void test_consensus_three_way_tie(void) {
   assert(group_consensus(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT) == a2);
 }
 
+static void test_consensus_weight_beats_count(void) {
+  reset_state();
+  unsigned long addr_exact = KERNEL_BASE_MIN + 4 * KERNEL_ALIGN;
+  unsigned long addr_heur = KERNEL_BASE_MIN + 2 * KERNEL_ALIGN;
+
+  /* One exact result (weight 4) vs two heuristic results (weight 1 each) */
+  struct result *r = &results[num_results++];
+  r->type = KASLD_ADDR_VIRT;
+  strncpy(r->section, KASLD_SECTION_TEXT, SECTION_LEN - 1);
+  r->raw = addr_exact;
+  r->aligned = addr_exact;
+  r->valid = 1;
+  strncpy(r->label, "e", LABEL_LEN - 1);
+  strncpy(r->method, "exact", METHOD_LEN - 1);
+
+  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr_heur, "h1");
+  results[num_results - 1].method[0] = '\0';
+  strncpy(results[num_results - 1].method, "heuristic", METHOD_LEN - 1);
+
+  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr_heur, "h2");
+  results[num_results - 1].method[0] = '\0';
+  strncpy(results[num_results - 1].method, "heuristic", METHOD_LEN - 1);
+
+  /* exact (score 4) beats 2x heuristic (score 2) */
+  assert(group_consensus(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT) == addr_exact);
+}
+
+static void test_consensus_weight_tie_to_count(void) {
+  reset_state();
+  unsigned long addr_a = KERNEL_BASE_MIN + 4 * KERNEL_ALIGN;
+  unsigned long addr_b = KERNEL_BASE_MIN + 2 * KERNEL_ALIGN;
+
+  /* Two parsed results (2+2=4) vs one exact result (4) — score tie */
+  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr_a, "p1");
+  results[num_results - 1].method[0] = '\0';
+  strncpy(results[num_results - 1].method, "parsed", METHOD_LEN - 1);
+
+  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr_a, "p2");
+  results[num_results - 1].method[0] = '\0';
+  strncpy(results[num_results - 1].method, "parsed", METHOD_LEN - 1);
+
+  struct result *r = &results[num_results++];
+  r->type = KASLD_ADDR_VIRT;
+  strncpy(r->section, KASLD_SECTION_TEXT, SECTION_LEN - 1);
+  r->raw = addr_b;
+  r->aligned = addr_b;
+  r->valid = 1;
+  strncpy(r->label, "e", LABEL_LEN - 1);
+  strncpy(r->method, "exact", METHOD_LEN - 1);
+
+  /* Score tie (4 vs 4): break to count (2 vs 1) */
+  assert(group_consensus(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT) == addr_a);
+}
+
 /* =========================================================================
  * group_range — additional edge cases
  * =========================================================================
@@ -844,8 +898,9 @@ static void test_compute_kaslr_disabled_zeroes(void) {
 
   compute_kaslr_info(&s);
 
-  /* Text consensus should still be set */
-  assert(s.kaslr.vtext == addr);
+  /* Consensus should prefer the exact default over the unknown-method
+   * result, since inject_kaslr_defaults sets method=exact (weight 4). */
+  assert(s.kaslr.vtext == layout.kernel_text_default);
 
   /* But slide and entropy must be clamped to zero */
   assert(s.kaslr.disabled == 1);
@@ -1317,6 +1372,8 @@ int main(void) {
   printf("group_consensus (extended):\n");
   RUN_TEST(test_consensus_section_isolation);
   RUN_TEST(test_consensus_three_way_tie);
+  RUN_TEST(test_consensus_weight_beats_count);
+  RUN_TEST(test_consensus_weight_tie_to_count);
   printf("\n");
 
   printf("group_range (extended):\n");

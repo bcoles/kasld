@@ -144,8 +144,8 @@ static const char *phase_discovery[] = {
     "boot-config", "default",      "dmesg_kaslr-disabled", "proc-cmdline",
     "proc-config", "proc-cpuinfo", "proc-kallsyms",        NULL};
 static const char *phase_probing[] = {
-    "databounce",         "echoload",   "entrybleed",
-    "mmap-brute-vmsplit", "prefetch",    "kernelsnitch", NULL};
+    "databounce", "echoload",     "entrybleed", "mmap-brute-vmsplit",
+    "prefetch",   "kernelsnitch", NULL};
 
 static int name_in_list(const char *name, const char **list) {
   for (int i = 0; list[i]; i++) {
@@ -862,9 +862,24 @@ static int detect_kaslr_state(void) {
  * Analysis helpers: find consensus address for a (type, section) group
  * -------------------------------------------------------------------------
  */
+static int method_weight(const char *method) {
+  if (strcmp(method, "exact") == 0)
+    return 4;
+  if (strcmp(method, "timing") == 0)
+    return 3;
+  if (strcmp(method, "parsed") == 0)
+    return 2;
+  if (strcmp(method, "heuristic") == 0)
+    return 1;
+  return 2; /* default: same as parsed */
+}
+
 unsigned long group_consensus(char type, const char *section) {
-  /* Find the most common aligned address in a group */
+  /* Find the best aligned address in a group using method-weighted scoring.
+   * Each result contributes its method weight to the address's total score.
+   * Highest score wins; ties break to most sources, then lowest address. */
   unsigned long addrs[MAX_RESULTS];
+  int scores[MAX_RESULTS];
   int counts[MAX_RESULTS];
   int n = 0;
 
@@ -873,9 +888,11 @@ unsigned long group_consensus(char type, const char *section) {
     if (r->type != type || strcmp(r->section, section) != 0 || !r->valid)
       continue;
 
+    int w = method_weight(r->method);
     int found = 0;
     for (int j = 0; j < n; j++) {
       if (addrs[j] == r->aligned) {
+        scores[j] += w;
         counts[j]++;
         found = 1;
         break;
@@ -883,6 +900,7 @@ unsigned long group_consensus(char type, const char *section) {
     }
     if (!found && n < MAX_RESULTS) {
       addrs[n] = r->aligned;
+      scores[n] = w;
       counts[n] = 1;
       n++;
     }
@@ -891,14 +909,50 @@ unsigned long group_consensus(char type, const char *section) {
   if (n == 0)
     return 0;
 
-  /* Return the address with highest count (ties: lowest address) */
+  /* Return the address with highest score (ties: most sources, then lowest) */
   int best = 0;
   for (int i = 1; i < n; i++) {
-    if (counts[i] > counts[best] ||
-        (counts[i] == counts[best] && addrs[i] < addrs[best]))
+    if (scores[i] > scores[best] ||
+        (scores[i] == scores[best] && counts[i] > counts[best]) ||
+        (scores[i] == scores[best] && counts[i] == counts[best] &&
+         addrs[i] < addrs[best]))
       best = i;
   }
   return addrs[best];
+}
+
+void group_consensus_info(char type, const char *section,
+                          const char **best_method, int *n_sources,
+                          int *n_conflicts) {
+  unsigned long consensus = group_consensus(type, section);
+
+  const char *top_method = NULL;
+  int top_weight = 0;
+  int sources = 0;
+  int distinct = 0;
+
+  for (int i = 0; i < num_results; i++) {
+    struct result *r = &results[i];
+    if (r->type != type || strcmp(r->section, section) != 0 || !r->valid)
+      continue;
+    if (r->aligned == consensus) {
+      sources++;
+      int w = method_weight(r->method);
+      if (w > top_weight) {
+        top_weight = w;
+        top_method = r->method;
+      }
+    } else {
+      distinct++;
+    }
+  }
+
+  if (best_method)
+    *best_method = top_method ? top_method : "unknown";
+  if (n_sources)
+    *n_sources = sources;
+  if (n_conflicts)
+    *n_conflicts = distinct;
 }
 
 /* -------------------------------------------------------------------------
@@ -1165,8 +1219,7 @@ static void usage(const char *progname) {
          "  -t, --timeout N Per-component timeout in seconds (default: %d)\n"
          "  -V, --version   Print version and exit\n"
          "  -h, --help      Show this help\n",
-         progname,
-         DEFAULT_TIMEOUT_SECS);
+         progname, DEFAULT_TIMEOUT_SECS);
 }
 
 int main(int argc, char *argv[]) {

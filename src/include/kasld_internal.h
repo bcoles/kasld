@@ -148,6 +148,9 @@ extern int num_comp_logs;
  * =========================================================================
  */
 unsigned long group_consensus(char type, const char *section);
+void group_consensus_info(char type, const char *section,
+                          const char **best_method, int *n_sources,
+                          int *n_conflicts);
 void group_range(char type, const char *section, unsigned long *lo,
                  unsigned long *hi);
 void inject_kaslr_defaults(struct summary *s);

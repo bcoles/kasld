@@ -154,12 +154,23 @@ static void print_group(char type, const char *section) {
       addrs[n_addrs++] = r->aligned;
   }
 
-  if (n_addrs == 1)
-    printf("  %s==>%s 0x%016lx\n", c(C_CYAN), c(C_RESET), addrs[0]);
-  else if (n_addrs > 1) {
+  if (n_addrs == 1) {
+    const char *bm;
+    int ns, nc;
+    group_consensus_info(type, section, &bm, &ns, &nc);
+    printf("  %s==>%s 0x%016lx  %s(%s, %d source%s)%s\n", c(C_CYAN), c(C_RESET),
+           addrs[0], c(C_DIM), bm, ns, ns == 1 ? "" : "s", c(C_RESET));
+  } else if (n_addrs > 1) {
+    const char *bm;
+    int ns, nc;
+    group_consensus_info(type, section, &bm, &ns, &nc);
     char hbuf[32];
     unsigned long span = addrs[n_addrs - 1] - addrs[0];
-    printf("  %s==>%s range: 0x%016lx - 0x%016lx  (%s)\n", c(C_CYAN),
+    unsigned long consensus = group_consensus(type, section);
+    printf("  %s==>%s 0x%016lx  %s(%s, %d source%s, %d conflict%s)%s\n",
+           c(C_CYAN), c(C_RESET), consensus, c(C_DIM), bm, ns,
+           ns == 1 ? "" : "s", nc, nc == 1 ? "" : "s", c(C_RESET));
+    printf("  %s   %s range: 0x%016lx - 0x%016lx  (%s)\n", c(C_CYAN),
            c(C_RESET), addrs[0], addrs[n_addrs - 1],
            human_size(span, hbuf, sizeof(hbuf)));
   }
@@ -486,6 +497,10 @@ static void render_json_group(char gt, const char *gs) {
   unsigned long lo, hi;
   group_range(gt, gs, &lo, &hi);
 
+  const char *bm;
+  int ns, nc;
+  group_consensus_info(gt, gs, &bm, &ns, &nc);
+
   printf("    {\n");
   printf("      \"type\": \"%c\",\n", gt);
   printf("      \"section\": \"%s\",\n", gs);
@@ -493,6 +508,11 @@ static void render_json_group(char gt, const char *gs) {
   json_print_escaped(display);
   printf(",\n");
   printf("      \"consensus\": \"0x%016lx\",\n", consensus);
+  printf("      \"consensus_method\": ");
+  json_print_escaped(bm);
+  printf(",\n");
+  printf("      \"consensus_sources\": %d,\n", ns);
+  printf("      \"conflicts\": %d,\n", nc);
   printf("      \"lo\": \"0x%016lx\"", lo);
   if (hi)
     printf(",\n      \"hi\": \"0x%016lx\"", hi);
@@ -813,11 +833,14 @@ static void render_text(const struct summary *s) {
 
         printf("  %-26s", name);
         if (hi) {
+          const char *bm;
+          int ns, nc;
+          group_consensus_info(type_order[t], section_order[si], &bm, &ns, &nc);
           unsigned long span = hi - lo;
-          printf("%s0x%016lx%s - %s0x%016lx%s  (%s, %d source%s)\n", c(C_GREEN),
-                 lo, c(C_RESET), c(C_GREEN), hi, c(C_RESET),
-                 human_size(span, hbuf, sizeof(hbuf)), count,
-                 count == 1 ? "" : "s");
+          printf("%s0x%016lx%s  (%s, %d source%s, %d conflict%s, %s)\n",
+                 c(C_GREEN), consensus, c(C_RESET),
+                 human_size(span, hbuf, sizeof(hbuf)), ns, ns == 1 ? "" : "s",
+                 nc, nc == 1 ? "" : "s", bm);
         } else {
           printf("%s0x%016lx%s  (%d source%s)\n", c(C_GREEN), consensus,
                  c(C_RESET), count, count == 1 ? "" : "s");
@@ -854,11 +877,14 @@ static void render_text(const struct summary *s) {
 
       printf("  %-26s", name);
       if (hi) {
+        const char *bm;
+        int ns, nc;
+        group_consensus_info(r->type, r->section, &bm, &ns, &nc);
         unsigned long span = hi - lo;
-        printf("%s0x%016lx%s - %s0x%016lx%s  (%s, %d source%s)\n", c(C_GREEN),
-               lo, c(C_RESET), c(C_GREEN), hi, c(C_RESET),
-               human_size(span, hbuf, sizeof(hbuf)), count,
-               count == 1 ? "" : "s");
+        printf("%s0x%016lx%s  (%s, %d source%s, %d conflict%s, %s)\n",
+               c(C_GREEN), consensus, c(C_RESET),
+               human_size(span, hbuf, sizeof(hbuf)), ns, ns == 1 ? "" : "s", nc,
+               nc == 1 ? "" : "s", bm);
       } else {
         printf("%s0x%016lx%s  (%d source%s)\n", c(C_GREEN), consensus,
                c(C_RESET), count, count == 1 ? "" : "s");
