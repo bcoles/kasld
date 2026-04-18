@@ -30,6 +30,16 @@ Supports:
   * [Example Output](#example-output)
 * [Building](#building)
 * [Configuration](#configuration)
+* [Writing a Component](#writing-a-component)
+  * [The tagged line protocol](#the-tagged-line-protocol)
+  * [Sections](#sections)
+  * [Labels](#labels)
+  * [What the orchestrator does with tagged lines](#what-the-orchestrator-does-with-tagged-lines)
+  * [Minimal component](#minimal-component)
+  * [Component execution model](#component-execution-model)
+  * [Phases](#phases)
+  * [Physical-to-virtual derivation](#physical-to-virtual-derivation)
+  * [API reference](#api-reference)
 * [KASLR and Kernel Memory Layout](#kaslr-and-kernel-memory-layout)
   * [Function Offsets](#function-offsets)
   * [Function Granular KASLR (FG-KASLR)](#function-granular-kaslr-fg-kaslr)
@@ -236,6 +246,198 @@ Refer to the comment headers in [kasld.h](src/include/kasld.h) for
 documentation of each configuration option.
 
 
+## Writing a Component
+
+KASLD's architecture is a simple contract: each component is a standalone
+executable that probes one data source and prints tagged lines to stdout.
+The orchestrator discovers, runs, and post-processes components
+automatically — no registration, no linking, no Makefile changes.
+
+### The tagged line protocol
+
+Components communicate results to the orchestrator via tagged lines on
+stdout:
+
+```
+<type> <section> <addr> <label>
+```
+
+| Field | Format | Description |
+|---|---|---|
+| `type` | Single char: `V`, `P`, or `D` | `V` = virtual address, `P` = physical address, `D` = default (KASLR-disabled indicator) |
+| `section` | String token (no spaces) | Which kernel memory section the address belongs to (see table below) |
+| `addr` | `0x` + 16 hex digits | The leaked address, zero-padded (e.g., `0xffffffff81000000`) |
+| `label` | Free-form text | Human-readable identifier, typically the component name |
+
+Example output from a component:
+
+```
+[.] trying /proc/kallsyms ...
+V text 0xffffffff81000000 proc-kallsyms
+```
+
+The orchestrator ignores any line that does not begin with `V`, `P`, or
+`D` followed by a space. This means components can freely print diagnostic
+messages (progress, errors, explanations) to stdout — only tagged lines
+are captured as results.
+
+A component may emit zero, one, or multiple tagged lines. The orchestrator
+processes each independently.
+
+### Sections
+
+| Constant | String | Use when |
+|---|---|---|
+| `KASLD_SECTION_TEXT` | `text` | Address falls in the kernel text (`.text`) region |
+| `KASLD_SECTION_MODULE` | `module` | Address is in the loadable module region |
+| `KASLD_SECTION_DIRECTMAP` | `directmap` | Address is in the direct-map (linear mapping) region |
+| `KASLD_SECTION_DATA` | `data` | Address is in the kernel data section |
+| `KASLD_SECTION_DRAM` | `dram` | Physical DRAM address (use with type `P`) |
+| `KASLD_SECTION_MMIO` | `mmio` | Physical MMIO address (use with type `P`) |
+| `KASLD_SECTION_PAGEOFFSET` | `pageoffset` | The PAGE_OFFSET value itself (use with type `V`) |
+| `KASLD_SECTION_NONE` | `-` | No specific section / default indicator |
+
+### Labels
+
+The label field identifies the source of the result. Convention:
+
+- **Simple label:** the component name (`proc-kallsyms`, `sysfs_vmcoreinfo`)
+- **Qualified label:** `component:qualifier` when a component emits multiple
+  results from different derivations (`sysfs_vmcoreinfo:directmap`)
+- **Special labels:** `default:text` (default kernel text address),
+  `default:unsupported` (KASLR not supported on this architecture)
+
+### What the orchestrator does with tagged lines
+
+1. **Parses** the four fields
+2. **Aligns** text-section addresses to the architecture's `KERNEL_ALIGN`
+   boundary (e.g., 2 MiB on x86_64)
+3. **Validates** the address against the architecture's expected range for
+   that section — out-of-range results are marked invalid
+4. **Assigns a method label** (`exact`, `parsed`, `timing`, or `heuristic`)
+   based on the component name
+5. **Groups** results by section and aligned address for consensus analysis
+6. **Derives** cross-section addresses on architectures with coupled
+   physical/virtual randomization
+
+Components do not need to align addresses or validate ranges — report
+the raw leaked value and the orchestrator handles the rest.
+
+### Minimal component
+
+```c
+// src/components/my-leak.c
+#include "include/kasld.h"
+#include <stdio.h>
+#include <stdlib.h>
+
+int main(void) {
+  unsigned long addr;
+
+  /* ... probe a data source ... */
+  addr = 0; /* replace with actual leak logic */
+
+  if (!addr)
+    return 1;
+
+  printf("leaked kernel text address: 0x%lx\n", addr);
+  kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr, "my-leak");
+  return 0;
+}
+```
+
+Place the file in `src/components/`. Run `make` — the build system
+automatically discovers all `.c` files in that directory and compiles each
+into a standalone binary under `build/<arch>/components/`. No Makefile
+edits required.
+
+The component can also be run directly:
+
+```
+$ ./build/x86_64-linux-musl/components/my-leak
+leaked kernel text address: 0xffffffff81000000
+V text 0xffffffff81000000 my-leak
+```
+
+### Component execution model
+
+The orchestrator runs each component as an isolated child process:
+
+1. `fork()` + `execl()` — the component runs in its own process group
+2. stdout and stderr are merged into a single pipe back to the orchestrator
+3. The orchestrator reads lines from the pipe, capturing tagged lines as
+   results and (in verbose mode) printing all output
+4. A per-component timeout (default: 30 seconds, configurable via
+   `--timeout`) kills the component and its children if it does not exit
+   in time
+5. Exit code does not affect result validity — any tagged lines emitted
+   before exit (or timeout) are captured normally
+
+This model means a component that segfaults, hangs, or exits with an error
+does not affect other components or the orchestrator.
+
+### Phases
+
+Components run in three phases, determined by name:
+
+| Phase | Purpose | Components |
+|---|---|---|
+| **1 — Discovery** | PAGE_OFFSET detection, KASLR state, exact addresses | `boot-config`, `default`, `dmesg_kaslr-disabled`, `proc-cmdline`, `proc-config`, `proc-cpuinfo`, `proc-kallsyms` |
+| **2 — Inference** | All remaining filesystem/interface parsers | Everything not in Phase 1 or Phase 3 |
+| **3 — Probing** | Side-channels, timing, brute-force | `databounce`, `echoload`, `entrybleed`, `mmap-brute-vmsplit`, `prefetch`, `kernelsnitch` |
+
+The orchestrator runs `apply_layout_adjustments()` between each phase,
+propagating PAGE_OFFSET discoveries and revalidating all prior results.
+Phase 3 is skipped entirely when KASLR is detected as disabled.
+
+New components are placed in Phase 2 by default — no configuration
+needed. To assign a component to Phase 1 or Phase 3, add its name to
+the `phase_discovery[]` or `phase_probing[]` array in
+[orchestrator.c](src/orchestrator.c).
+
+### Physical-to-virtual derivation
+
+On architectures where physical and virtual KASLR are coupled (ARM64,
+ARM, MIPS, PowerPC, LoongArch), a physical DRAM leak can be converted to
+a direct-map virtual address using the `phys_to_virt()` macro from
+[kasld.h](src/include/kasld.h). Components that leak a physical address
+should emit both the raw physical result and the derived virtual result:
+
+```c
+kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, phys, "my-leak");
+
+#if !PHYS_VIRT_DECOUPLED
+unsigned long virt = phys_to_virt(phys);
+kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
+             "my-leak:directmap");
+#endif
+```
+
+On decoupled architectures (x86_64, RISC-V 64-bit), the `#if` guard
+ensures the derivation is not compiled. The orchestrator also performs
+cross-section derivation centrally, but component-level derivation
+provides an additional data point.
+
+### API reference
+
+The complete component API is a single header:
+[`src/include/kasld.h`](src/include/kasld.h). It provides:
+
+| Symbol | Purpose |
+|---|---|
+| `kasld_result(type, section, addr, label)` | Emit a tagged result line |
+| `KASLD_ADDR_VIRT`, `KASLD_ADDR_PHYS`, `KASLD_ADDR_DEFAULT` | Type characters |
+| `KASLD_SECTION_TEXT`, `KASLD_SECTION_DRAM`, ... | Section strings |
+| `KERNEL_TEXT_DEFAULT` | Default (non-randomized) kernel text base |
+| `KERNEL_VAS_START`, `KERNEL_VAS_END` | Kernel virtual address space bounds |
+| `KERNEL_BASE_MIN`, `KERNEL_BASE_MAX` | Plausible kernel text range |
+| `PAGE_OFFSET` | Direct-map base (compile-time default) |
+| `PHYS_OFFSET` | Physical-to-virtual offset |
+| `PHYS_VIRT_DECOUPLED` | 1 if phys/virt KASLR are independent |
+| `phys_to_virt(addr)` | Convert physical to direct-map virtual |
+| `virt_to_phys(addr)` | Convert direct-map virtual to physical |
+
+
 ## KASLR and Kernel Memory Layout
 
 ### Function Offsets
@@ -293,12 +495,14 @@ Not all architectures support KASLR (`CONFIG_RANDOMIZE_BASE`) or enable it by de
 | x86_32 | v3.14 ([`8ab3820fd5b2`](https://github.com/torvalds/linux/commit/8ab3820fd5b2)) | 2013-10-13 | v4.12 ([`09e43968fc6c`](https://github.com/torvalds/linux/commit/09e43968fc6c)) | Kconfig `default y` since v4.12 |
 | x86_64 | v3.14 ([`8ab3820fd5b2`](https://github.com/torvalds/linux/commit/8ab3820fd5b2)) | 2013-10-13 | v4.12 ([`09e43968fc6c`](https://github.com/torvalds/linux/commit/09e43968fc6c)) | Kconfig `default y` since v4.12 |
 | arm64 | v4.6 ([`f80fb3a3d508`](https://github.com/torvalds/linux/commit/f80fb3a3d508)) | 2016-02-24 | Yes (defconfig) | Enabled in upstream arm64 defconfig |
-| MIPS | v4.7 ([`405bc8fd12f5`](https://github.com/torvalds/linux/commit/405bc8fd12f5)) | 2016-05-13 | No | |
+| MIPS32 | v4.7 ([`405bc8fd12f5`](https://github.com/torvalds/linux/commit/405bc8fd12f5)) | 2016-05-13 | No | Max offset 128 MiB (limited by KSEG0) |
+| MIPS64 | v4.7 ([`405bc8fd12f5`](https://github.com/torvalds/linux/commit/405bc8fd12f5)) | 2016-05-13 | No | Max offset 1 GiB |
 | s390 | v5.2 ([`b2d24b97b2a9`](https://github.com/torvalds/linux/commit/b2d24b97b2a9)) | 2019-04-29 | v5.2 | Kconfig `default y` from initial commit |
-| PowerPC | v5.5 ([`2b0e86cc5de6`](https://github.com/torvalds/linux/commit/2b0e86cc5de6)) | 2019-11-13 | No | BookE/e500 (PPC_85xx) 32-bit only; not available on PPC64/Book3S |
-| LoongArch | v6.3 ([`e5f02b51fa0c`](https://github.com/torvalds/linux/commit/e5f02b51fa0c)) | 2023-02-25 | No | |
-| RISC-V | v6.6 ([`84fe419dc757`](https://github.com/torvalds/linux/commit/84fe419dc757)) | 2023-07-22 | No | 64-bit only |
+| PowerPC32 | v5.5 ([`2b0e86cc5de6`](https://github.com/torvalds/linux/commit/2b0e86cc5de6)) | 2019-11-13 | No | BookE/e500 (PPC_85xx) only |
+| LoongArch | v6.3 ([`e5f02b51fa0c`](https://github.com/torvalds/linux/commit/e5f02b51fa0c)) | 2023-02-25 | Yes (defconfig) | Enabled in upstream loongson3_defconfig |
+| RISC-V64 | v6.6 ([`84fe419dc757`](https://github.com/torvalds/linux/commit/84fe419dc757)) | 2023-07-22 | No | |
 | arm32 | — | — | — | Not supported |
+| PowerPC64 | — | — | — | Not supported |
 | sparc | — | — | — | Not supported |
 
 See also:
@@ -334,14 +538,14 @@ a physical address leak does not directly reveal the virtual address
 
 | Architecture | Phys/Virt Relationship | Since | Notes |
 |---|---|---|---|
-| x86_64 | Decoupled | v4.8 | Separate `find_random_phys_addr` / `find_random_virt_addr`; also `CONFIG_RANDOMIZE_MEMORY` for memory sections |
 | x86_32 | Coupled | v3.14 | Virtual offset equals physical offset |
 | arm64 | Decoupled | v4.6 | EFI stub randomizes physical; `kaslr_early_init` randomizes virtual; linear map has limited entropy |
-| MIPS | Coupled | v4.7 | Single relocation offset; fixed kseg0 virt-to-phys mapping |
-| LoongArch | Coupled | v6.3 | Single relocation offset; direct-mapped windows |
-| RISC-V (64-bit) | Virtual only | v6.6 | Only virtual address randomized; physical depends on bootloader |
+| MIPS32/64 | Coupled | v4.7 | Single relocation offset; fixed kseg0 virt-to-phys mapping |
+| x86_64 | Decoupled | v4.8 | Separate `find_random_phys_addr` / `find_random_virt_addr`; also `CONFIG_RANDOMIZE_MEMORY` for memory sections |
 | s390 | Coupled (identity) | v5.2 | 1:1 virtual = physical mapping |
-| PowerPC (32-bit) | Coupled | v5.5 | Same offset applied to both addresses |
+| PowerPC32 | Coupled | v5.5 | Same offset applied to both addresses |
+| LoongArch | Coupled | v6.3 | Single relocation offset; direct-mapped windows |
+| RISC-V64 | Virtual only | v6.6 | Only virtual address randomized; physical depends on bootloader |
 
 See also:
 
@@ -364,12 +568,12 @@ use the same KASLR offset, or be randomized independently.
 | x86_32 | Coupled | Coupled | Fixed module region | Single KASLR offset |
 | arm64 | Independent | Independent | Fixed module region | Separate phys/virt randomization |
 | arm32 | — | Coupled | Fixed (PAGE_OFFSET - 16M) | No KASLR |
-| MIPS 32/64 | Coupled | Coupled (kseg0) | Fixed module region | Hardware-defined mapping |
-| RISC-V 64 | Virtual only | Decoupled | Coupled (shifts with kernel) | Module region anchored to kernel `_end`; text ↔ directmap coupled on legacy pre-v5.10 kernels (no KASLR) |
-| RISC-V 32 | — | Coupled | Same as PAGE_OFFSET | No KASLR |
-| LoongArch 64 | Coupled | Coupled | Fixed module region | Direct-mapped windows |
-| PowerPC 32 | Coupled | Coupled | Fixed (PAGE_OFFSET - 256M) | |
-| PowerPC 64 | — | Coupled | Shared VAS | No KASLR |
+| MIPS32/64 | Coupled | Coupled (kseg0) | Fixed module region | Hardware-defined mapping |
+| PowerPC32 | Coupled | Coupled | Fixed (PAGE_OFFSET - 256M) | |
+| PowerPC64 | — | Coupled | Shared VAS | No KASLR |
+| LoongArch64 | Coupled | Coupled | Fixed module region | Direct-mapped windows |
+| RISC-V64 | Virtual only | Decoupled | Coupled (shifts with kernel) | Module region anchored to kernel `_end`; text ↔ directmap coupled on legacy pre-v5.10 kernels (no KASLR) |
+| RISC-V32 | — | Coupled | Same as PAGE_OFFSET | No KASLR |
 
 On coupled architectures, all sections are at fixed offsets from each other:
 a physical address reveals the virtual text base via `phys_to_virt()`, the
@@ -385,7 +589,7 @@ the "Derived addresses" section in KASLD output only appears on coupled
 architectures; on decoupled architectures a note is printed instead when
 physical results exist that would have been derivable on a coupled system.
 
-RISC-V 64 is notable: the module region is anchored to the kernel image
+RISC-V64 is notable: the module region is anchored to the kernel image
 (`MODULES_VADDR = PFN_ALIGN(&_end) - SZ_2G`, `MODULES_END = PFN_ALIGN(&_start)`),
 so modules shift with the randomized kernel. If module addresses are known
 but the text base is not, a text range can be derived:
@@ -435,15 +639,15 @@ performing validation and analysis.
 |---|---|---|---|
 | x86_32 | Yes | `CONFIG_VMSPLIT_*` | `0xC0000000` (3G/1G) |
 | arm32 | Yes | `CONFIG_PAGE_OFFSET` / `CONFIG_VMSPLIT_*` | `0xC0000000` (3G/1G) |
-| PowerPC 32 | Yes | `CONFIG_PAGE_OFFSET` | `0xC0000000` (3G/1G) |
-| MIPS 32 | No | — | `0x80000000` (hardware kseg0) |
-| RISC-V 32 | No | — | `0xC0000000` |
+| PowerPC32 | Yes | `CONFIG_PAGE_OFFSET` | `0xC0000000` (3G/1G) |
 | x86_64 | No | — | `0xFF00000000000000` (5-level) / `0xFFFF800000000000` (4-level) |
 | arm64 | No | — | `0xFFF0000000000000` (52-bit VA) |
-| MIPS 64 | No | — | `0xFFFFFFFF80000000` (xkseg) |
-| PowerPC 64 | No | — | `0xC000000000000000` |
-| RISC-V 64 | No | — | `0xFF60000000000000` (SV57) |
-| LoongArch 64 | No | — | `0x9000000000000000` |
+| MIPS32 | No | — | `0x80000000` (hardware kseg0) |
+| MIPS64 | No | — | `0xFFFFFFFF80000000` (xkseg) |
+| PowerPC64 | No | — | `0xC000000000000000` |
+| LoongArch64 | No | — | `0x9000000000000000` |
+| RISC-V32 | No | — | `0xC0000000` |
+| RISC-V64 | No | — | `0xFF60000000000000` (SV57) |
 
 See also:
 
