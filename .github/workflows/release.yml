@@ -1,0 +1,120 @@
+name: release
+
+# TODO: musl.cc blocks GitHub Actions (since 2025-05). Re-enable the tag
+# trigger once toolchains are mirrored or an alternative source is set up.
+# on:
+#   push:
+#     tags:
+#       - 'v*'
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # --- Primary CTF targets ---
+          - arch: x86_64
+            musl_triple: x86_64-linux-musl
+            native_test: true
+          - arch: aarch64
+            musl_triple: aarch64-linux-musl
+          - arch: i686
+            musl_triple: i686-linux-musl
+          # --- ARM variants ---
+          - arch: arm
+            musl_triple: arm-linux-musleabi
+          - arch: armeb
+            musl_triple: armeb-linux-musleabi
+          - arch: armv7l
+            musl_triple: armv7l-linux-musleabihf
+          # --- MIPS ---
+          - arch: mips
+            musl_triple: mips-linux-musl
+          - arch: mipsel
+            musl_triple: mipsel-linux-musl
+          - arch: mips64
+            musl_triple: mips64-linux-musl
+          - arch: mips64el
+            musl_triple: mips64el-linux-musl
+          # --- POWER ---
+          - arch: powerpc64
+            musl_triple: powerpc64-linux-musl
+          - arch: powerpc64le
+            musl_triple: powerpc64le-linux-musl
+          # --- RISC-V ---
+          - arch: riscv64
+            musl_triple: riscv64-linux-musl
+          # --- s390x ---
+          - arch: s390x
+            musl_triple: s390x-linux-musl
+          # TODO: loongarch64 — musl.cc does not provide a toolchain yet.
+          # Add when available or mirror a custom-built one.
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download musl cross-compiler
+        run: |
+          curl -fsSL "https://musl.cc/${{ matrix.musl_triple }}-cross.tgz" \
+            | tar xz -C /opt
+          echo "/opt/${{ matrix.musl_triple }}-cross/bin" >> "$GITHUB_PATH"
+
+      - name: Build static binaries
+        run: make build CC=${{ matrix.musl_triple }}-gcc
+
+      - name: Identify build directory
+        id: builddir
+        run: |
+          ARCH=$(${{ matrix.musl_triple }}-gcc -dumpmachine)
+          echo "dir=build/${ARCH}" >> "$GITHUB_OUTPUT"
+
+      - name: Verify static linkage
+        run: |
+          file "${{ steps.builddir.outputs.dir }}/kasld"
+          file "${{ steps.builddir.outputs.dir }}/kasld" | grep -q "statically linked"
+
+      - name: Run tests (native only)
+        if: matrix.native_test
+        run: make test CC=${{ matrix.musl_triple }}-gcc
+
+      - name: Package release tarball
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          DIR="kasld-${TAG}-${{ matrix.arch }}"
+          mkdir -p "${DIR}"
+          cp "${{ steps.builddir.outputs.dir }}/kasld" "${DIR}/"
+          cp -r "${{ steps.builddir.outputs.dir }}/components" "${DIR}/"
+          cp README.md LICENSE "${DIR}/"
+          tar czf "${DIR}.tar.gz" "${DIR}"
+          sha256sum "${DIR}.tar.gz" > "${DIR}.tar.gz.sha256"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: kasld-${{ matrix.arch }}
+          path: |
+            kasld-*-${{ matrix.arch }}.tar.gz
+            kasld-*-${{ matrix.arch }}.tar.gz.sha256
+
+  create-release:
+    needs: build-release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            kasld-*.tar.gz
+            kasld-*.tar.gz.sha256
