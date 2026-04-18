@@ -7,49 +7,21 @@
 // ---
 // <bcoles@gmail.com>
 
+#include "include/cmdline.h"
 #include "include/kasld.h"
-#include <errno.h>
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 
-unsigned long get_kernel_addr_cmdline() {
-  FILE *f;
-  const char *path = "/proc/cmdline";
-  const char *flag = "nokaslr";
-  char cmdline[1024];
+int main(void) {
+  printf("[.] trying /proc/cmdline ...\n");
 
-  printf("[.] trying %s ...\n", path);
-
-  f = fopen(path, "rb");
-  if (f == NULL) {
-    perror("[-] fopen");
-    return 0;
-  }
-
-  if (fgets(cmdline, sizeof(cmdline), f) == NULL) {
-    perror("[-] fgets");
-    fclose(f);
-    return 0;
-  }
-
-  fclose(f);
-
-  if (strstr(cmdline, flag) == NULL) {
+  if (!cmdline_has_word("nokaslr")) {
     fprintf(stderr, "[-] Kernel was not booted with nokaslr flag.\n");
-    return 0;
+    return 1;
   }
 
   printf("[.] Kernel booted with nokaslr flag.\n");
 
-  return (unsigned long)KERNEL_TEXT_DEFAULT;
-}
-
-int main(void) {
-  unsigned long addr = get_kernel_addr_cmdline();
-  if (!addr)
-    return 1;
-
+  unsigned long addr = (unsigned long)KERNEL_TEXT_DEFAULT;
   printf("common default kernel text for arch: %lx\n", addr);
   kasld_result(KASLD_ADDR_DEFAULT, KASLD_SECTION_NONE, addr,
                "proc-cmdline:nokaslr");

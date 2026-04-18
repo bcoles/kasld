@@ -24,6 +24,7 @@
 
 #define _GNU_SOURCE
 #include "include/kasld.h"
+#include "include/kconfig.h"
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -95,65 +96,8 @@ static FILE *open_proc_config(void) {
   return fp;
 }
 
-static int is_kconfig_set(FILE *fp, const char *config) {
-  char pattern[BUFSIZ], buf[BUFSIZ];
-
-  snprintf(pattern, sizeof(pattern), "%s=y", config);
-  rewind(fp);
-
-  printf("[.] checking for %s... \n", config);
-
-  while (fgets(buf, sizeof(buf), fp) != NULL) {
-    if (strncmp(buf, pattern, strlen(pattern)) == 0)
-      return 1;
-  }
-
-  return 0;
-}
-
-/* Search for CONFIG_PAGE_OFFSET=0x... in the kernel config.
- * Returns the value, or 0 if not found. */
-static unsigned long get_kconfig_page_offset(FILE *fp) {
-  const char *key = "CONFIG_PAGE_OFFSET=";
-  size_t keylen = strlen(key);
-  char buf[BUFSIZ];
-
-  rewind(fp);
-
-  while (fgets(buf, sizeof(buf), fp) != NULL) {
-    if (strncmp(buf, key, keylen) == 0) {
-      unsigned long val = strtoul(buf + keylen, NULL, 0);
-      if (val)
-        return val;
-    }
-  }
-
-  /* Fallback: check CONFIG_VMSPLIT_* choices (x86_32, arm32) */
-  const struct {
-    const char *config;
-    unsigned long page_offset;
-  } vmsplit_map[] = {
-      {"CONFIG_VMSPLIT_1G", 0x40000000ul},
-      {"CONFIG_VMSPLIT_2G", 0x80000000ul},
-      {"CONFIG_VMSPLIT_2G_OPT", 0x78000000ul},
-      {"CONFIG_VMSPLIT_3G", 0xc0000000ul},
-      {"CONFIG_VMSPLIT_3G_OPT", 0xb0000000ul},
-      {NULL, 0},
-  };
-
-  for (int i = 0; vmsplit_map[i].config; i++) {
-    if (is_kconfig_set(fp, vmsplit_map[i].config))
-      return vmsplit_map[i].page_offset;
-  }
-
-  return 0;
-}
-
 static unsigned long get_kernel_addr_proc_config(FILE *fp) {
-  int relocatable = is_kconfig_set(fp, "CONFIG_RELOCATABLE");
-  int randomize_base = is_kconfig_set(fp, "CONFIG_RANDOMIZE_BASE");
-
-  if (relocatable && randomize_base)
+  if (kconfig_has_kaslr(fp))
     return 0;
 
   printf("[.] Kernel appears to have been compiled without both "
