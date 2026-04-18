@@ -5,8 +5,13 @@
 SHELL = /bin/sh
 
 CC = cc
-# Warning: Do not compile with -O2 (known to cause issues)
-CFLAGS = -g -Wall -Wextra -pedantic
+# -O2 is safe for most components (pure C parsers, syscall wrappers).
+# Side-channel components that rely on precise timing or speculative
+# execution are compiled with -O0 below: the compiler may reorder memory
+# operations around rdtsc/rdtscp timing, eliminate volatile accesses used
+# for Flush+Reload cache probing, or reschedule instructions across
+# mfence/lfence serialization barriers — destroying the timing signal.
+CFLAGS = -g -O2 -Wall -Wextra -pedantic
 ALL_CFLAGS = -std=c99 $(CFLAGS)
 LDFLAGS =
 ALL_LDFLAGS = $(LDFLAGS)
@@ -66,9 +71,28 @@ $(COMP_DIR)/proc-config: $(COMP_SRC_DIR)/proc-config.c $(HDRS) | $(COMP_DIR)
 	-$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) -DHAVE_ZLIB $< -lz -o $@
 endif
 
-# kernelsnitch: needs -lpthread and -O2 for brute-force hash performance
+# Side-channel components: compile without optimization (-O0 overrides -O2).
+# These rely on precise instruction ordering around timing measurements
+# (rdtsc/rdtscp + mfence/lfence), speculative execution gadgets (asm goto),
+# or Flush+Reload cache probing via volatile pointer accesses.
+$(COMP_DIR)/databounce: $(COMP_SRC_DIR)/databounce.c $(HDRS) | $(COMP_DIR)
+	-$(CC) $(ALL_CFLAGS) -O0 $(ALL_LDFLAGS) -I$(SRC_DIR) $< -o $@
+
+$(COMP_DIR)/echoload: $(COMP_SRC_DIR)/echoload.c $(HDRS) | $(COMP_DIR)
+	-$(CC) $(ALL_CFLAGS) -O0 $(ALL_LDFLAGS) -I$(SRC_DIR) $< -o $@
+
+$(COMP_DIR)/entrybleed: $(COMP_SRC_DIR)/entrybleed.c $(HDRS) | $(COMP_DIR)
+	-$(CC) $(ALL_CFLAGS) -O0 $(ALL_LDFLAGS) -I$(SRC_DIR) $< -o $@
+
+$(COMP_DIR)/mincore: $(COMP_SRC_DIR)/mincore.c $(HDRS) | $(COMP_DIR)
+	-$(CC) $(ALL_CFLAGS) -O0 $(ALL_LDFLAGS) -I$(SRC_DIR) $< -o $@
+
+$(COMP_DIR)/prefetch: $(COMP_SRC_DIR)/prefetch.c $(HDRS) | $(COMP_DIR)
+	-$(CC) $(ALL_CFLAGS) -O0 $(ALL_LDFLAGS) -I$(SRC_DIR) $< -o $@
+
+# kernelsnitch: needs -lpthread (uses default -O2 for hash timing performance)
 $(COMP_DIR)/kernelsnitch: $(COMP_SRC_DIR)/kernelsnitch.c $(HDRS) | $(COMP_DIR)
-	-$(CC) $(ALL_CFLAGS) -O2 $(ALL_LDFLAGS) -I$(SRC_DIR) $< -lpthread -o $@
+	-$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $< -lpthread -o $@
 
 .PHONY: build
 build : check-headers $(BIN_FILES) $(KASLD_BIN)
