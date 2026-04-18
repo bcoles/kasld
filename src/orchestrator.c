@@ -110,7 +110,8 @@ static void adjust_for_page_offset(unsigned long new_po) {
 /* Constants used only by the orchestrator */
 #define KASLD_PATH_MAX 4096
 #define LINE_LEN 512
-#define COMPONENT_TIMEOUT_SECS 120
+#define DEFAULT_TIMEOUT_SECS 30
+static int component_timeout = DEFAULT_TIMEOUT_SECS;
 
 /* -------------------------------------------------------------------------
  * Component execution log (for --verbose --json)
@@ -143,8 +144,8 @@ static const char *phase_discovery[] = {
     "boot-config", "default",      "dmesg_kaslr-disabled", "proc-cmdline",
     "proc-config", "proc-cpuinfo", "proc-kallsyms",        NULL};
 static const char *phase_probing[] = {
-    "databounce",         "echoload", "entrybleed",   "mincore",
-    "mmap-brute-vmsplit", "prefetch", "kernelsnitch", NULL};
+    "databounce",         "echoload",   "entrybleed",
+    "mmap-brute-vmsplit", "prefetch",    "kernelsnitch", NULL};
 
 static int name_in_list(const char *name, const char **list) {
   for (int i = 0; list[i]; i++) {
@@ -535,7 +536,7 @@ static int run_component(const struct component *c) {
   /* Compute deadline */
   struct timespec deadline;
   clock_gettime(CLOCK_MONOTONIC, &deadline);
-  deadline.tv_sec += COMPONENT_TIMEOUT_SECS;
+  deadline.tv_sec += component_timeout;
 
   /* Non-blocking read with poll() timeout */
   struct pollfd pfd = {.fd = pipefd[0], .events = POLLIN};
@@ -609,7 +610,7 @@ static int run_component(const struct component *c) {
   if (timed_out) {
     if (!quiet)
       fprintf(stderr, "warning: component '%s' timed out after %ds, killing\n",
-              c->name, COMPONENT_TIMEOUT_SECS);
+              c->name, component_timeout);
     kill(-pid, SIGKILL); /* Kill entire process group */
   }
 
@@ -1161,9 +1162,11 @@ static void usage(const char *progname) {
          "  -c, --color     Colorize text output (auto-detected for TTYs)\n"
          "  -q, --quiet     Suppress banner, progress, and warnings\n"
          "  -v, --verbose   Show component output\n"
+         "  -t, --timeout N Per-component timeout in seconds (default: %d)\n"
          "  -V, --version   Print version and exit\n"
          "  -h, --help      Show this help\n",
-         progname);
+         progname,
+         DEFAULT_TIMEOUT_SECS);
 }
 
 int main(int argc, char *argv[]) {
@@ -1189,6 +1192,17 @@ int main(int argc, char *argv[]) {
     } else if (strcmp(argv[i], "-v") == 0 ||
                strcmp(argv[i], "--verbose") == 0) {
       verbose = 1;
+    } else if (strcmp(argv[i], "-t") == 0 ||
+               strcmp(argv[i], "--timeout") == 0) {
+      if (i + 1 >= argc) {
+        fprintf(stderr, "--timeout requires a value\n");
+        return 2;
+      }
+      component_timeout = atoi(argv[++i]);
+      if (component_timeout <= 0) {
+        fprintf(stderr, "--timeout must be a positive integer\n");
+        return 2;
+      }
     } else if (strcmp(argv[i], "-V") == 0 ||
                strcmp(argv[i], "--version") == 0) {
       printf("kasld %s\n", VERSION);
