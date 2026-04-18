@@ -31,15 +31,20 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y \
           gcc-aarch64-linux-gnu \
+          gcc-arm-linux-gnueabi \
           gcc-arm-linux-gnueabihf \
+          gcc-i686-linux-gnu \
           gcc-mips-linux-gnu \
           gcc-mipsel-linux-gnu \
           gcc-mips64-linux-gnuabi64 \
           gcc-mips64el-linux-gnuabi64 \
           gcc-powerpc-linux-gnu \
+          gcc-powerpc64-linux-gnu \
           gcc-powerpc64le-linux-gnu \
           gcc-riscv64-linux-gnu \
           gcc-s390x-linux-gnu
+        # TODO: loongarch64 — no gcc-loongarch64-linux-gnu package in Ubuntu.
+        # TODO: armeb — no big-endian ARM package in Ubuntu.
 
     - name: Cross-compile all targets
       run: make cross
