@@ -156,8 +156,10 @@ uint64_t get_kernel_stack_addr_using_qemu_tcg_iret() {
 int main(void) {
   unsigned long addr = get_kernel_stack_addr_using_qemu_tcg_iret();
 
-  if (!addr)
-    return 1;
+  if (!addr) {
+    printf("[-] QEMU TCG IRET fault not triggered\n");
+    return 0;
+  }
 
   printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);
   kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr, "qemu-tcg-iret");

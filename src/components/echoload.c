@@ -41,6 +41,7 @@
 
 #define _GNU_SOURCE
 #include "include/kasld.h"
+#include "include/kasld_internal.h"
 #include <cpuid.h>
 #include <memory.h>
 #include <sched.h>
@@ -334,12 +335,12 @@ int main(void) {
   if (!getenv("KASLD_EXPERIMENTAL")) {
     fprintf(stderr, "[-] echoload: experimental component; "
                     "set KASLD_EXPERIMENTAL=1 to enable\n");
-    return 1;
+    return KASLD_EXIT_UNAVAILABLE;
   }
 
   if (!is_intel_cpu()) {
     fprintf(stderr, "[-] echoload: not an Intel CPU; attack not applicable\n");
-    return 1;
+    return KASLD_EXIT_UNAVAILABLE;
   }
 
   int use_tsx;
@@ -390,7 +391,7 @@ int main(void) {
   if (!addr) {
     fprintf(stderr, "[-] echoload: no kernel mapping detected "
                     "(CPU may not be vulnerable)\n");
-    return 1;
+    return 0;
   }
 
   /* Unanimity verification: repeat the full sweep and require every result to
@@ -398,7 +399,7 @@ int main(void) {
   for (int v = 0; v < ECHOLOAD_VERIFY; v++) {
     if (addr != echoload_sweep(use_tsx)) {
       fprintf(stderr, "[-] echoload: inconsistent results. Aborting ...\n");
-      return 1;
+      return 0;
     }
   }
 

@@ -22,10 +22,12 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld.h"
+#include "include/kasld_internal.h"
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 unsigned long get_phys_addr_vmcoreinfo(void) {
   FILE *f;
@@ -59,9 +61,14 @@ unsigned long get_phys_addr_vmcoreinfo(void) {
 }
 
 int main(void) {
+  /* Pre-check: can we access /sys/kernel/vmcoreinfo? */
+  if (access("/sys/kernel/vmcoreinfo", R_OK) != 0)
+    return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM
+                                               : KASLD_EXIT_UNAVAILABLE;
+
   unsigned long addr = get_phys_addr_vmcoreinfo();
   if (!addr)
-    return 1;
+    return 0;
 
   printf("vmcoreinfo_note physical address: 0x%016lx\n", addr);
   kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, addr, "sysfs_vmcoreinfo");

@@ -95,7 +95,7 @@ int main(void) {
 
   unsigned long addr = get_kernel_addr_mincore();
   if (!addr)
-    return 1;
+    return 0;
 
   printf("leaked address: %lx\n", addr);
   printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);

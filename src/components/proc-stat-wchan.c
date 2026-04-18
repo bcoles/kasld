@@ -84,8 +84,10 @@ unsigned long get_kernel_addr_proc_stat_wchan() {
 
 int main(void) {
   unsigned long addr = get_kernel_addr_proc_stat_wchan();
-  if (!addr)
-    return 1;
+  if (!addr) {
+    printf("[-] no kernel address found in /proc/pid/stat wchan\n");
+    return 0;
+  }
 
   printf("leaked wchan address: %lx\n", addr);
   printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);

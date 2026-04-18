@@ -1178,6 +1178,7 @@ static void test_json_verbose_has_components(void) {
   struct component_log *cl = &comp_logs[num_comp_logs++];
   strncpy(cl->name, "test-comp", sizeof(cl->name) - 1);
   cl->exit_code = 0;
+  cl->outcome = OUTCOME_SUCCESS;
   cl->num_lines = 1;
   strncpy(cl->lines[0], "V text 0xffffffff81000000 test", MAX_LINE_LEN - 1);
 
@@ -1189,6 +1190,7 @@ static void test_json_verbose_has_components(void) {
   assert(strstr(out, "\"components\""));
   assert(strstr(out, "\"test-comp\""));
   assert(strstr(out, "\"exit_code\": 0"));
+  assert(strstr(out, "\"outcome\": \"success\""));
   assert(strstr(out, "\"output\""));
 
   /* Must still be valid JSON (ends with }\n) */
@@ -1212,6 +1214,76 @@ static void test_json_verbose_no_logs(void) {
 
   /* verbose=1 but no comp_logs: should NOT have components */
   assert(strstr(out, "\"components\"") == NULL);
+
+  /* Should still have component_stats */
+  assert(strstr(out, "\"component_stats\""));
+
+  free(out);
+}
+
+static void test_component_stats(void) {
+  reset_state();
+  struct summary s;
+  memset(&s, 0, sizeof(s));
+
+  /* Inject comp_logs with different outcomes */
+  struct component_log *cl;
+  cl = &comp_logs[num_comp_logs++];
+  strncpy(cl->name, "comp-a", sizeof(cl->name) - 1);
+  cl->outcome = OUTCOME_SUCCESS;
+
+  cl = &comp_logs[num_comp_logs++];
+  strncpy(cl->name, "comp-b", sizeof(cl->name) - 1);
+  cl->outcome = OUTCOME_ACCESS_DENIED;
+
+  cl = &comp_logs[num_comp_logs++];
+  strncpy(cl->name, "comp-c", sizeof(cl->name) - 1);
+  cl->outcome = OUTCOME_TIMEOUT;
+
+  cl = &comp_logs[num_comp_logs++];
+  strncpy(cl->name, "comp-d", sizeof(cl->name) - 1);
+  cl->outcome = OUTCOME_NO_RESULT;
+
+  cl = &comp_logs[num_comp_logs++];
+  strncpy(cl->name, "comp-e", sizeof(cl->name) - 1);
+  cl->outcome = OUTCOME_SUCCESS;
+
+  cl = &comp_logs[num_comp_logs++];
+  strncpy(cl->name, "comp-f", sizeof(cl->name) - 1);
+  cl->outcome = OUTCOME_UNAVAILABLE;
+
+  compute_component_stats(&s);
+  assert(s.stats.total == 6);
+  assert(s.stats.succeeded == 2);
+  assert(s.stats.unavailable == 1);
+  assert(s.stats.access_denied == 1);
+  assert(s.stats.timed_out == 1);
+  assert(s.stats.no_result == 1);
+}
+
+static void test_json_component_stats(void) {
+  reset_state();
+  struct summary s;
+  memset(&s, 0, sizeof(s));
+
+  s.stats.total = 12;
+  s.stats.succeeded = 5;
+  s.stats.unavailable = 2;
+  s.stats.access_denied = 2;
+  s.stats.timed_out = 1;
+  s.stats.no_result = 2;
+
+  capture_start();
+  render_json(&s);
+  char *out = capture_end();
+
+  assert(strstr(out, "\"component_stats\""));
+  assert(strstr(out, "\"total\": 12"));
+  assert(strstr(out, "\"succeeded\": 5"));
+  assert(strstr(out, "\"unavailable\": 2"));
+  assert(strstr(out, "\"access_denied\": 2"));
+  assert(strstr(out, "\"timed_out\": 1"));
+  assert(strstr(out, "\"no_result\": 2"));
 
   free(out);
 }
@@ -1423,6 +1495,11 @@ int main(void) {
   printf("render_json (verbose):\n");
   RUN_TEST(test_json_verbose_has_components);
   RUN_TEST(test_json_verbose_no_logs);
+  printf("\n");
+
+  printf("component stats:\n");
+  RUN_TEST(test_component_stats);
+  RUN_TEST(test_json_component_stats);
   printf("\n");
 
   printf("end-to-end:\n");

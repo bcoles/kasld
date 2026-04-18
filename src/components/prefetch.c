@@ -475,8 +475,10 @@ int main(int argc, char *argv[]) {
   printf("[.] trying prefetch side-channel ...\n");
 
   unsigned long addr = get_kernel_addr_prefetch();
-  if (!addr)
-    return 1;
+  if (!addr) {
+    printf("[-] prefetch side-channel failed (not exploitable?)\n");
+    return 0;
+  }
 
   printf("possible kernel base: %lx\n", addr);
   kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr, "prefetch");

@@ -28,6 +28,7 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld.h"
+#include "include/kasld_internal.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -85,10 +86,14 @@ int main(void) {
   struct e820_ctx e = {0, 0};
 
   printf("[.] searching dmesg for e820 physical memory map ...\n");
-  dmesg_search("e820", on_match, &e);
+  int ds = dmesg_search("e820", on_match, &e);
 
-  if (!e.lo && !e.hi)
-    return 1;
+  if (!e.lo && !e.hi) {
+    if (ds < 0)
+      return KASLD_EXIT_NOPERM;
+    printf("[-] e820 memory map not found in dmesg\n");
+    return 0;
+  }
 
   if (e.lo) {
     printf("leaked e820 DRAM low:  0x%016lx\n", e.lo);

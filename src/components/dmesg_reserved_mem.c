@@ -28,6 +28,7 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld.h"
+#include "include/kasld_internal.h"
 #include "include/kasld_types.h"
 #include <stdint.h>
 #include <stdio.h>
@@ -71,11 +72,13 @@ int main(void) {
   struct range_ctx r = {0, 0};
 
   printf("[.] searching dmesg for device tree reserved memory regions ...\n");
-  dmesg_search("OF: reserved mem:", on_match, &r);
+  int ds = dmesg_search("OF: reserved mem:", on_match, &r);
 
   if (!r.lo) {
     printf("[-] no device tree reserved memory regions found in dmesg\n");
-    return 1;
+    if (ds < 0)
+      return KASLD_EXIT_NOPERM;
+    return 0;
   }
 
   printf("lowest reserved mem physical address:  0x%016lx\n", r.lo);

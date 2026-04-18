@@ -40,6 +40,7 @@
 
 #define _GNU_SOURCE
 #include "include/kasld.h"
+#include "include/kasld_internal.h"
 #include <cpuid.h>
 #include <memory.h>
 #include <sched.h>
@@ -283,19 +284,19 @@ int main(void) {
   if (!getenv("KASLD_EXPERIMENTAL")) {
     fprintf(stderr, "[-] databounce: experimental component; "
                     "set KASLD_EXPERIMENTAL=1 to enable\n");
-    return 1;
+    return KASLD_EXIT_UNAVAILABLE;
   }
 
   if (!is_intel_cpu()) {
     fprintf(stderr,
             "[-] databounce: not an Intel CPU; attack not applicable\n");
-    return 1;
+    return KASLD_EXIT_UNAVAILABLE;
   }
 
   if (!has_rtm()) {
     fprintf(stderr, "[-] databounce: TSX/RTM not available; "
                     "required for store-to-load forwarding\n");
-    return 1;
+    return KASLD_EXIT_UNAVAILABLE;
   }
 
   fprintf(stderr, "[.] databounce: using TSX abort mode\n");
@@ -317,7 +318,7 @@ int main(void) {
   if (!addr) {
     fprintf(stderr, "[-] databounce: no kernel mapping detected "
                     "(CPU may not be vulnerable)\n");
-    return 1;
+    return 0;
   }
 
   /* Unanimity verification: repeat the full sweep and require every result to
@@ -325,7 +326,7 @@ int main(void) {
   for (int v = 0; v < DATABOUNCE_VERIFY; v++) {
     if (addr != databounce_sweep()) {
       fprintf(stderr, "[-] databounce: inconsistent results. Aborting ...\n");
-      return 1;
+      return 0;
     }
   }
 

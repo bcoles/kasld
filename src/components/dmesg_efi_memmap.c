@@ -27,6 +27,7 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld.h"
+#include "include/kasld_internal.h"
 #include "include/kasld_types.h"
 #include <stdint.h>
 #include <stdio.h>
@@ -109,7 +110,9 @@ int main(void) {
   printf("[.] searching dmesg for EFI memory map (requires efi=debug) ...\n");
 
   /* ARM/ARM64/RISC-V format: lines start with "efi:   0x" */
-  dmesg_search("efi:   0x", on_efi_init, &e);
+  int ds = dmesg_search("efi:   0x", on_efi_init, &e);
+  if (ds < 0)
+    return KASLD_EXIT_NOPERM;
 
   /* x86 format: "efi: mem00: ... range=[0x...-0x...]" */
   if (!e.dram.lo && !e.mmio.lo)
@@ -118,7 +121,7 @@ int main(void) {
   if (!e.dram.lo && !e.mmio.lo) {
     printf("[-] EFI memory map not found in dmesg\n");
     printf("    (requires efi=debug kernel boot parameter)\n");
-    return 1;
+    return 0;
   }
 
   if (e.dram.lo) {

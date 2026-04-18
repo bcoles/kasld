@@ -32,6 +32,7 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld.h"
+#include "include/kasld_internal.h"
 #include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -87,7 +88,7 @@ int main(void) {
 
   if (!chosen) {
     printf("[-] device tree chosen node not found or no initrd properties\n");
-    return 1;
+    return KASLD_EXIT_UNAVAILABLE;
   }
 
   printf("[.] trying %s/linux,initrd-{start,end} ...\n", chosen);
@@ -97,7 +98,7 @@ int main(void) {
   n = read_binary(path, buf, sizeof(buf));
   if (n != 4 && n != 8) {
     fprintf(stderr, "[-] failed to read %s (got %d bytes)\n", path, n);
-    return 1;
+    return 0;
   }
 
   unsigned long start = read_addr(buf, n);
@@ -112,7 +113,7 @@ int main(void) {
 
   if (!start) {
     fprintf(stderr, "[-] initrd-start is zero\n");
-    return 1;
+    return 0;
   }
 
   printf("initrd physical start: 0x%016lx\n", start);

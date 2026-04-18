@@ -25,6 +25,7 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld.h"
+#include "include/kasld_internal.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -59,10 +60,14 @@ int main(void) {
   unsigned long addr = 0;
 
   printf("[.] searching dmesg for ' static identity map for ' ...\n");
-  dmesg_search(" static identity map for ", on_match, &addr);
+  int ds = dmesg_search(" static identity map for ", on_match, &addr);
 
-  if (!addr)
-    return 1;
+  if (!addr) {
+    if (ds < 0)
+      return KASLD_EXIT_NOPERM;
+    printf("[-] MMU identity map info not found in dmesg\n");
+    return 0;
+  }
 
   printf("leaked __turn_mmu_on: %lx\n", addr);
   printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);

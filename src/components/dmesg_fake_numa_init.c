@@ -27,6 +27,7 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld.h"
+#include "include/kasld_internal.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -54,10 +55,14 @@ int main(void) {
   unsigned long addr = 0;
 
   printf("[.] searching dmesg for fake_numa_init() info ...\n");
-  dmesg_search("NUMA: Faking a node at", on_match, &addr);
+  int ds = dmesg_search("NUMA: Faking a node at", on_match, &addr);
 
-  if (!addr)
-    return 1;
+  if (!addr) {
+    if (ds < 0)
+      return KASLD_EXIT_NOPERM;
+    printf("[-] fake_numa_init info not found in dmesg\n");
+    return 0;
+  }
 
   printf("leaked faked NUMA NODE #0 physical address: 0x%016lx\n", addr);
   kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, addr,

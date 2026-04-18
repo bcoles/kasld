@@ -36,6 +36,7 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld.h"
+#include "include/kasld_internal.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -67,10 +68,14 @@ int main(void) {
   unsigned long phys_addr = 0;
 
   printf("[.] searching dmesg for OpenSBI reserved memory regions ...\n");
-  dmesg_search("mmode_resv0@", on_match, &phys_addr);
+  int ds = dmesg_search("mmode_resv0@", on_match, &phys_addr);
 
-  if (!phys_addr)
-    return 1;
+  if (!phys_addr) {
+    if (ds < 0)
+      return KASLD_EXIT_NOPERM;
+    printf("[-] OpenSBI reserved memory not found in dmesg\n");
+    return 0;
+  }
 
   kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, phys_addr,
                "dmesg_reserved_mem_opensbi:dram");

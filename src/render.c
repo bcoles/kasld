@@ -488,6 +488,22 @@ static void json_print_escaped(const char *s) {
   putchar('"');
 }
 
+static const char *outcome_name(enum component_outcome o) {
+  switch (o) {
+  case OUTCOME_SUCCESS:
+    return "success";
+  case OUTCOME_TIMEOUT:
+    return "timeout";
+  case OUTCOME_ACCESS_DENIED:
+    return "access_denied";
+  case OUTCOME_UNAVAILABLE:
+    return "unavailable";
+  case OUTCOME_NO_RESULT:
+    return "no_result";
+  }
+  return "unknown";
+}
+
 static void render_json_group(char gt, const char *gs) {
   const char *display = section_display_name(gt, gs);
   if (!display)
@@ -703,9 +719,21 @@ static void render_json(const struct summary *s) {
     printf("\n    }");
   }
 
-  /* Close derived array — with trailing comma if components follow */
+  /* Close derived array — with trailing comma if stats/components follow */
+  printf("\n  ],\n");
+
+  /* Component statistics — always present */
+  printf("  \"component_stats\": {\n");
+  printf("    \"total\": %d,\n", s->stats.total);
+  printf("    \"succeeded\": %d,\n", s->stats.succeeded);
+  printf("    \"unavailable\": %d,\n", s->stats.unavailable);
+  printf("    \"access_denied\": %d,\n", s->stats.access_denied);
+  printf("    \"timed_out\": %d,\n", s->stats.timed_out);
+  printf("    \"no_result\": %d\n", s->stats.no_result);
+  printf("  }");
+
   if (verbose && num_comp_logs > 0) {
-    printf("\n  ],\n");
+    printf(",\n");
 
     /* components — only present with --verbose */
     printf("  \"components\": [\n");
@@ -717,7 +745,8 @@ static void render_json(const struct summary *s) {
       printf("      \"name\": ");
       json_print_escaped(cl->name);
       printf(",\n");
-      printf("      \"exit_code\": %d", cl->exit_code);
+      printf("      \"exit_code\": %d,\n", cl->exit_code);
+      printf("      \"outcome\": \"%s\"", outcome_name(cl->outcome));
       if (cl->num_lines > 0) {
         printf(",\n      \"output\": [\n");
         for (int j = 0; j < cl->num_lines; j++) {
@@ -733,7 +762,7 @@ static void render_json(const struct summary *s) {
     }
     printf("\n  ]\n");
   } else {
-    printf("\n  ]\n");
+    printf("\n");
   }
 
   printf("}\n");
@@ -744,6 +773,22 @@ static void render_json(const struct summary *s) {
  * -------------------------------------------------------------------------
  */
 static void render_text(const struct summary *s) {
+  /* Component outcome summary (skip in quiet mode) */
+  if (!quiet && s->stats.total > 0) {
+    printf("%sComponents: %d total", c(C_DIM), s->stats.total);
+    if (s->stats.succeeded)
+      printf(", %d succeeded", s->stats.succeeded);
+    if (s->stats.unavailable)
+      printf(", %d unavailable", s->stats.unavailable);
+    if (s->stats.access_denied)
+      printf(", %d access denied", s->stats.access_denied);
+    if (s->stats.timed_out)
+      printf(", %d timed out", s->stats.timed_out);
+    if (s->stats.no_result)
+      printf(", %d no result", s->stats.no_result);
+    printf("%s\n\n", c(C_RESET));
+  }
+
   printf("%s========================================%s\n", c(C_BOLD),
          c(C_RESET));
   printf("%s Results%s\n", c(C_BOLD), c(C_RESET));
@@ -897,6 +942,7 @@ static void render_text(const struct summary *s) {
 
   render_kaslr_text(s);
   render_derived_text(s);
+
   printf("%s%s%s\n", c(C_DIM), "----------------------------------------",
          c(C_RESET));
   print_memory_map();
@@ -978,6 +1024,22 @@ static void render_markdown(const struct summary *s) {
   printf("# KASLD Results\n\n");
   if (have_uname)
     printf("**Kernel:** %s (%s, %s)\n\n", u.release, u.machine, u.version);
+
+  /* Component outcome summary */
+  if (s->stats.total > 0) {
+    printf("*Components: %d total", s->stats.total);
+    if (s->stats.succeeded)
+      printf(", %d succeeded", s->stats.succeeded);
+    if (s->stats.unavailable)
+      printf(", %d unavailable", s->stats.unavailable);
+    if (s->stats.access_denied)
+      printf(", %d access denied", s->stats.access_denied);
+    if (s->stats.timed_out)
+      printf(", %d timed out", s->stats.timed_out);
+    if (s->stats.no_result)
+      printf(", %d no result", s->stats.no_result);
+    printf("*\n\n");
+  }
 
   if (s->kaslr.unsupported)
     printf("> **KASLR is not supported on this architecture**\n\n");
@@ -1194,6 +1256,7 @@ static void render_markdown(const struct summary *s) {
 void print_summary(void) {
   struct summary s = {0};
 
+  compute_component_stats(&s);
   inject_kaslr_defaults(&s);
   compute_kaslr_info(&s);
   compute_derived_addrs(&s);

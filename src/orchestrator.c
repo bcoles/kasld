@@ -492,12 +492,13 @@ static int run_component(const struct component *c) {
   if (verbose && !json_output)
     printf("--- %s ---\n", c->name);
 
-  /* Allocate a log slot for --verbose --json */
+  /* Always allocate a log slot for outcome tracking */
   struct component_log *clog = NULL;
-  if (verbose && json_output && num_comp_logs < MAX_COMPONENTS) {
+  if (num_comp_logs < MAX_COMPONENTS) {
     clog = &comp_logs[num_comp_logs++];
     snprintf(clog->name, sizeof(clog->name), "%s", c->name);
     clog->exit_code = -1;
+    clog->outcome = OUTCOME_NO_RESULT;
     clog->num_lines = 0;
   }
 
@@ -543,6 +544,7 @@ static int run_component(const struct component *c) {
   char buf[LINE_LEN];
   size_t buf_pos = 0;
   int timed_out = 0;
+  int results_before = num_results;
 
   while (1) {
     long remaining = deadline_remaining_ms(&deadline);
@@ -578,8 +580,8 @@ static int run_component(const struct component *c) {
       if (verbose && !json_output)
         printf("%s\n", start);
 
-      /* Capture line for verbose JSON */
-      if (clog && clog->num_lines < MAX_COMPONENT_LINES) {
+      /* Capture line for verbose output */
+      if (clog && verbose && clog->num_lines < MAX_COMPONENT_LINES) {
         snprintf(clog->lines[clog->num_lines], MAX_LINE_LEN, "%s", start);
         clog->num_lines++;
       }
@@ -617,12 +619,30 @@ static int run_component(const struct component *c) {
   int status;
   waitpid(pid, &status, 0);
 
+  int had_tagged = (num_results > results_before);
+  int rc = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+
+  /* Classify outcome from exit code.  Components signal their own status:
+   *   exit 0  = ran successfully (results determined by tagged output)
+   *   exit 69 = feature/hardware unavailable (EX_UNAVAILABLE)
+   *   exit 77 = access denied (EX_NOPERM) */
+  if (clog) {
+    if (had_tagged)
+      clog->outcome = OUTCOME_SUCCESS;
+    else if (timed_out)
+      clog->outcome = OUTCOME_TIMEOUT;
+    else if (rc == KASLD_EXIT_NOPERM)
+      clog->outcome = OUTCOME_ACCESS_DENIED;
+    else if (rc == KASLD_EXIT_UNAVAILABLE)
+      clog->outcome = OUTCOME_UNAVAILABLE;
+    else
+      clog->outcome = OUTCOME_NO_RESULT;
+    clog->exit_code = rc;
+  }
+
   if (timed_out)
     return -1;
 
-  int rc = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
-  if (clog)
-    clog->exit_code = rc;
   return rc;
 }
 
@@ -1155,6 +1175,39 @@ void group_range(char type, const char *section, unsigned long *lo,
   /* If only one unique address, clear hi */
   if (*lo == *hi)
     *hi = 0;
+}
+
+/* -------------------------------------------------------------------------
+ * Component statistics: aggregate outcome counts
+ * -------------------------------------------------------------------------
+ */
+void compute_component_stats(struct summary *s) {
+  s->stats.total = num_comp_logs;
+  s->stats.succeeded = 0;
+  s->stats.no_result = 0;
+  s->stats.unavailable = 0;
+  s->stats.access_denied = 0;
+  s->stats.timed_out = 0;
+
+  for (int i = 0; i < num_comp_logs; i++) {
+    switch (comp_logs[i].outcome) {
+    case OUTCOME_SUCCESS:
+      s->stats.succeeded++;
+      break;
+    case OUTCOME_TIMEOUT:
+      s->stats.timed_out++;
+      break;
+    case OUTCOME_ACCESS_DENIED:
+      s->stats.access_denied++;
+      break;
+    case OUTCOME_UNAVAILABLE:
+      s->stats.unavailable++;
+      break;
+    case OUTCOME_NO_RESULT:
+      s->stats.no_result++;
+      break;
+    }
+  }
 }
 
 /* -------------------------------------------------------------------------

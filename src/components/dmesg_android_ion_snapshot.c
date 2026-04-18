@@ -22,6 +22,7 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld.h"
+#include "include/kasld_internal.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -51,10 +52,14 @@ int main(void) {
   unsigned long addr = 0;
 
   printf("[.] searching dmesg for 'ion_snapshot: ' ...\n");
-  dmesg_search("ion_snapshot: ", on_match, &addr);
+  int ds = dmesg_search("ion_snapshot: ", on_match, &addr);
 
-  if (!addr)
-    return 1;
+  if (!addr) {
+    if (ds < 0)
+      return KASLD_EXIT_NOPERM;
+    printf("[-] ion_snapshot not found in dmesg\n");
+    return 0;
+  }
 
   printf("leaked last_ion_buf: %lx\n", addr);
   printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);

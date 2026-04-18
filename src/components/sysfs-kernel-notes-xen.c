@@ -52,6 +52,7 @@
 
 #define _GNU_SOURCE
 #include "include/kasld.h"
+#include "include/kasld_internal.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <stdint.h>
@@ -113,7 +114,8 @@ int main(void) {
   fd = open("/sys/kernel/notes", O_RDONLY);
   if (fd < 0) {
     perror("[-] open(/sys/kernel/notes)");
-    return 1;
+    return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM
+                                               : KASLD_EXIT_UNAVAILABLE;
   }
 
   while (read(fd, hdr, sizeof hdr) == (ssize_t)sizeof hdr) {
@@ -262,5 +264,5 @@ int main(void) {
   // The orchestrator handles this correctly since it does not assume a
   // fixed symbol-to-base offset.
 
-  return found ? 0 : 1;
+  return 0;
 }

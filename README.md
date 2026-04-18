@@ -43,6 +43,7 @@ Supports:
     * [Tagged line protocol](#tagged-line-protocol)
     * [Sections](#sections)
     * [Labels](#labels)
+    * [Exit code convention](#exit-code-convention)
     * [Minimal component](#minimal-component)
     * [API reference](#api-reference)
 * [KASLR and Kernel Memory Layout](#kaslr-and-kernel-memory-layout)
@@ -270,8 +271,9 @@ The orchestrator runs each component as an isolated child process:
 4. A per-component timeout (default: 30 seconds, configurable via
    `--timeout`) kills the component and its children if it does not exit
    in time
-5. Exit code does not affect result validity — any tagged lines emitted
-   before exit (or timeout) are captured normally
+5. The exit code signals the component's relationship with its data
+   source (see [Exit code convention](#exit-code-convention) below).
+   Tagged lines emitted before exit (or timeout) are always captured.
 
 This model means a component that segfaults, hangs, or exits with an error
 does not affect other components or the orchestrator.
@@ -446,6 +448,35 @@ The label field identifies the source of the result. Convention:
 - **Special labels:** `default:text` (default kernel text address),
   `default:unsupported` (KASLR not supported on this architecture)
 
+#### Exit code convention
+
+Components signal their outcome to the orchestrator via exit code:
+
+| Exit code | Constant | Meaning |
+|---|---|---|
+| **0** | — | Ran successfully (results, if any, are in tagged output) |
+| **69** | `KASLD_EXIT_UNAVAILABLE` | Data source or hardware feature not present on this system |
+| **77** | `KASLD_EXIT_NOPERM` | Access denied to data source |
+
+The orchestrator classifies each component's outcome using this priority:
+
+1. **SUCCESS** — component emitted at least one tagged line
+2. **TIMEOUT** — component was killed by the timeout
+3. **ACCESS_DENIED** — exit code 77
+4. **UNAVAILABLE** — exit code 69
+5. **NO_RESULT** — ran successfully but found nothing
+
+The exit code answers "what was your relationship with your data
+source?" — not "did you find results". A component that accessed its
+data source and found no matching data should exit 0, not 69 or 77.
+The orchestrator already knows whether results were found from the
+tagged output.
+
+The constants are defined in
+[`src/include/kasld_internal.h`](src/include/kasld_internal.h) and
+follow the `<sysexits.h>` convention (`EX_UNAVAILABLE` = 69,
+`EX_NOPERM` = 77).
+
 #### Minimal component
 
 ```c
@@ -460,8 +491,10 @@ int main(void) {
   /* ... probe a data source ... */
   addr = 0; /* replace with actual leak logic */
 
-  if (!addr)
-    return 1;
+  if (!addr) {
+    printf("[-] no kernel address found via my-leak\n");
+    return 0;
+  }
 
   printf("leaked kernel text address: 0x%lx\n", addr);
   kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr, "my-leak");
@@ -502,14 +535,18 @@ for details.
 
 #### API reference
 
-The complete component API is a single header:
-[`src/include/kasld.h`](src/include/kasld.h). It provides:
+The complete component API spans two headers:
+[`src/include/kasld.h`](src/include/kasld.h) (results, address layout)
+and [`src/include/kasld_internal.h`](src/include/kasld_internal.h)
+(exit codes).
 
 | Symbol | Purpose |
 |---|---|
 | `kasld_result(type, section, addr, label)` | Emit a tagged result line |
 | `KASLD_ADDR_VIRT`, `KASLD_ADDR_PHYS`, `KASLD_ADDR_DEFAULT` | Type characters |
 | `KASLD_SECTION_TEXT`, `KASLD_SECTION_DRAM`, ... | Section strings |
+| `KASLD_EXIT_UNAVAILABLE` | Exit code 69: feature/hardware not present |
+| `KASLD_EXIT_NOPERM` | Exit code 77: access denied |
 | `KERNEL_TEXT_DEFAULT` | Default (non-randomized) kernel text base |
 | `KERNEL_VAS_START`, `KERNEL_VAS_END` | Kernel virtual address space bounds |
 | `KERNEL_BASE_MIN`, `KERNEL_BASE_MAX` | Plausible kernel text range |

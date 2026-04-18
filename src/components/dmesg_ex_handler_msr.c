@@ -53,6 +53,7 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld.h"
+#include "include/kasld_internal.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -84,10 +85,14 @@ int main(void) {
 
   printf(
       "[.] searching dmesg for native_[read|write]_msr function pointer ...\n");
-  dmesg_search(" at rIP: 0x", on_match, &addr);
+  int ds = dmesg_search(" at rIP: 0x", on_match, &addr);
 
-  if (!addr)
-    return 1;
+  if (!addr) {
+    if (ds < 0)
+      return KASLD_EXIT_NOPERM;
+    printf("[-] ex_handler_msr function pointer not found in dmesg\n");
+    return 0;
+  }
 
   printf("leaked native_[read|write]_msr: %lx\n", addr);
   printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);

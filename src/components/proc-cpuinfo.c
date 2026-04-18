@@ -173,7 +173,7 @@ int main(void) {
 
   if (!found) {
     printf("[-] No actionable cpuinfo data found for this architecture.\n");
-    return 1;
+    return 0;
   }
 
   return 0;

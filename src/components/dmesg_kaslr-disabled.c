@@ -38,6 +38,7 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld.h"
+#include "include/kasld_internal.h"
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
@@ -58,10 +59,14 @@ int main(void) {
 
   printf(
       "[.] searching dmesg for 'KASLR disabled' or 'KASLR is disabled' ...\n");
-  dmesg_search("KASLR ", on_match, &nokaslr);
+  int ds = dmesg_search("KASLR ", on_match, &nokaslr);
 
-  if (!nokaslr)
-    return 1;
+  if (!nokaslr) {
+    if (ds < 0)
+      return KASLD_EXIT_NOPERM;
+    printf("[-] KASLR disabled indicator not found in dmesg\n");
+    return 0;
+  }
 
   printf("[.] Kernel was booted with KASLR disabled\n");
 

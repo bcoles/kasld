@@ -12,11 +12,13 @@
 
 #define _GNU_SOURCE
 #include "include/kasld.h"
+#include "include/kasld_internal.h"
 #include "include/kasld_types.h"
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #define module_range addr_range
 
@@ -63,9 +65,16 @@ struct module_range get_addr_proc_modules() {
 }
 
 int main(void) {
+  /* Pre-check: can we access /proc/modules? */
+  if (access("/proc/modules", R_OK) != 0)
+    return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM
+                                               : KASLD_EXIT_UNAVAILABLE;
+
   struct module_range range = get_addr_proc_modules();
-  if (!range.lo)
-    return 1;
+  if (!range.lo) {
+    printf("[-] no kernel address found in /proc/modules\n");
+    return 0;
+  }
 
   printf("lowest leaked module address:  %lx\n", range.lo);
   kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_MODULE, range.lo,

@@ -17,6 +17,7 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld.h"
+#include "include/kasld_internal.h"
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -65,9 +66,32 @@ unsigned long get_kernel_sym(char *name) {
 }
 
 int main(void) {
+  /* Pre-check: can we access /proc/kallsyms? */
+  FILE *f = fopen("/proc/kallsyms", "r");
+  if (!f)
+    return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM
+                                               : KASLD_EXIT_UNAVAILABLE;
+
+  /* Detect kptr_restrict: when restricted, ALL addresses are 0.
+   * Some symbols (e.g. __per_cpu_start) are legitimately at address 0,
+   * so check several lines — if every address is 0, we're restricted. */
+  char buf[64];
+  int all_zero = 1;
+  for (int i = 0; i < 16 && fgets(buf, sizeof(buf), f); i++) {
+    unsigned long test;
+    if (sscanf(buf, "%lx", &test) == 1 && test != 0) {
+      all_zero = 0;
+      break;
+    }
+  }
+  fclose(f);
+
+  if (all_zero)
+    return KASLD_EXIT_NOPERM;
+
   unsigned long addr = get_kernel_sym("_stext");
   if (!addr)
-    return 1;
+    return 0;
 
   printf("kernel text start: %lx\n", addr);
   printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);

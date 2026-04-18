@@ -27,6 +27,7 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld.h"
+#include "include/kasld_internal.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -61,10 +62,14 @@ int main(void) {
   printf(
       "[.] searching dmesg for early_init_dt_add_memory_arch() ignored memory "
       "ranges ...\n");
-  dmesg_search("OF: fdt: Ignoring memory range 0x", on_match, &addr);
+  int ds = dmesg_search("OF: fdt: Ignoring memory range 0x", on_match, &addr);
 
-  if (!addr)
-    return 1;
+  if (!addr) {
+    if (ds < 0)
+      return KASLD_EXIT_NOPERM;
+    printf("[-] early_init_dt_add_memory_arch info not found in dmesg\n");
+    return 0;
+  }
 
   printf("possible PAGE_OFFSET physical address: 0x%016lx\n", addr);
   kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, addr,

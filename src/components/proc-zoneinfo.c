@@ -40,6 +40,7 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld.h"
+#include "include/kasld_internal.h"
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -58,7 +59,8 @@ int main(void) {
   f = fopen(path, "r");
   if (f == NULL) {
     perror("[-] fopen");
-    return 1;
+    return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM
+                                               : KASLD_EXIT_UNAVAILABLE;
   }
 
   while (fgets(line, sizeof(line), f) != NULL) {
@@ -91,7 +93,7 @@ int main(void) {
 
   if (!count || !lo_pfn) {
     printf("[-] no zone start_pfn entries found\n");
-    return 1;
+    return 0;
   }
 
   unsigned long lo = lo_pfn * PAGE_SIZE;

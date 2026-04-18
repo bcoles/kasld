@@ -139,8 +139,10 @@ unsigned long get_kernel_addr_proc_pid_syscall() {
 
 int main(void) {
   unsigned long addr = get_kernel_addr_proc_pid_syscall();
-  if (!addr)
-    return 1;
+  if (!addr) {
+    printf("[-] no kernel address found in /proc/pid/syscall\n");
+    return 0;
+  }
 
   printf("lowest leaked address: %lx\n", addr);
   printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);

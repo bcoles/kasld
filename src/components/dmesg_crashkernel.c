@@ -30,6 +30,7 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld.h"
+#include "include/kasld_internal.h"
 #include "include/kasld_types.h"
 #include <stdint.h>
 #include <stdio.h>
@@ -108,7 +109,10 @@ int main(void) {
   printf("[.] searching dmesg for crashkernel reservation ...\n");
 
   /* Try modern hex format first */
-  dmesg_search("crashkernel reserved:", on_reserved, &r);
+  int ds = dmesg_search("crashkernel reserved:", on_reserved, &r);
+  if (ds < 0)
+    return KASLD_EXIT_NOPERM;
+
   dmesg_search("crashkernel low memory reserved:", on_reserved, &r);
 
   /* Fall back to older MB-only format */
@@ -117,7 +121,7 @@ int main(void) {
 
   if (!r.lo) {
     printf("[-] crashkernel reservation not found in dmesg\n");
-    return 1;
+    return 0;
   }
 
   printf("crashkernel start: 0x%016lx\n", r.lo);

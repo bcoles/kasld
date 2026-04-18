@@ -60,8 +60,10 @@ unsigned long get_kernel_addr_pppd_kallsyms() {
 
 int main(void) {
   unsigned long addr = get_kernel_addr_pppd_kallsyms();
-  if (!addr)
-    return 1;
+  if (!addr) {
+    printf("[-] no kernel address found via pppd\n");
+    return 0;
+  }
 
   printf("leaked kernel symbol: %lx\n", addr);
   printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);

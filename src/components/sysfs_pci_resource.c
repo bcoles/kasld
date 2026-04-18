@@ -33,6 +33,7 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld.h"
+#include "include/kasld_internal.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
@@ -54,7 +55,8 @@ int main(void) {
   d = opendir(base);
   if (!d) {
     perror("[-] opendir");
-    return 1;
+    return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM
+                                               : KASLD_EXIT_UNAVAILABLE;
   }
 
   while ((ent = readdir(d)) != NULL) {
@@ -96,7 +98,7 @@ int main(void) {
 
   if (!bar_count) {
     printf("[-] no PCI memory BARs found in %s\n", base);
-    return 1;
+    return 0;
   }
 
   printf("PCI devices: %d, memory BARs: %d\n", device_count, bar_count);

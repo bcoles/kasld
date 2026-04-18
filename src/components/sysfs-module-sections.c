@@ -12,12 +12,14 @@
 
 #define _GNU_SOURCE
 #include "include/kasld.h"
+#include "include/kasld_internal.h"
 #include "include/kasld_types.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 unsigned long read_module_text(char *path) {
   FILE *f;
@@ -92,9 +94,16 @@ struct module_range get_module_text_sysfs() {
 }
 
 int main(void) {
+  /* Pre-check: can we access /sys/module/? */
+  if (access("/sys/module/", R_OK) != 0)
+    return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM
+                                               : KASLD_EXIT_UNAVAILABLE;
+
   struct module_range range = get_module_text_sysfs();
-  if (!range.lo)
-    return 1;
+  if (!range.lo) {
+    printf("[-] no kernel address found in /sys/module sections\n");
+    return 0;
+  }
 
   printf("lowest leaked module text address:  %lx\n", range.lo);
   kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_MODULE, range.lo,

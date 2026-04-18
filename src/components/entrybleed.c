@@ -38,6 +38,7 @@
 
 #define _GNU_SOURCE
 #include "include/kasld.h"
+#include "include/kasld_internal.h"
 #include <errno.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -226,7 +227,7 @@ struct utsname get_kernel_version() {
   int rv = uname(&u);
   if (rv != 0) {
     fprintf(stderr, "[-] uname()\n");
-    exit(1);
+    exit(KASLD_EXIT_UNAVAILABLE);
   }
   return u;
 }
@@ -242,7 +243,7 @@ int detect_kernel_version() {
 
   if (strstr(u.machine, "64") == NULL) {
     fprintf(stderr, "[-] system is not using a 64-bit kernel\n");
-    exit(1);
+    exit(KASLD_EXIT_UNAVAILABLE);
   }
 
   snprintf(kernel_version, KERNEL_VERSION_SIZE_BUFFER, "%s %s", u.release,
@@ -417,8 +418,10 @@ int main(void) {
   printf("[.] trying EntryBleed (CVE-2022-4543) ...\n");
 
   unsigned long addr = get_kernel_addr_entrybleed();
-  if (!addr)
-    return 1;
+  if (!addr) {
+    printf("[-] EntryBleed (CVE-2022-4543) not exploitable\n");
+    return 0;
+  }
 
   printf("possible kernel base: %lx\n", addr);
   kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr, "entrybleed");

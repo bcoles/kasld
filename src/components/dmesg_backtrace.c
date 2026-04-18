@@ -28,6 +28,7 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld.h"
+#include "include/kasld_internal.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -153,7 +154,10 @@ int main(void) {
 
   printf("[.] searching dmesg for kernel oops information ...\n");
 
-  dmesg_search("[<", on_calltrace, &ctx);
+  int ds = dmesg_search("[<", on_calltrace, &ctx);
+  if (ds < 0)
+    return KASLD_EXIT_NOPERM;
+
   dmesg_search("CR3:", on_cr3, &ctx);
 
   for (int i = 0; reg_needles[i]; i++)
@@ -161,7 +165,7 @@ int main(void) {
 
   if (!ctx.text && !ctx.directmap && !ctx.phys) {
     printf("[-] no kernel oops information found in dmesg\n");
-    return 1;
+    return 0;
   }
 
   if (ctx.text) {

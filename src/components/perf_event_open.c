@@ -161,8 +161,10 @@ unsigned long get_kernel_addr_perf() {
 
 int main(void) {
   unsigned long addr = get_kernel_addr_perf();
-  if (!addr)
-    return 1;
+  if (!addr) {
+    printf("[-] no kernel address found via perf_event_open\n");
+    return 0;
+  }
 
   printf("lowest leaked address: %lx\n", addr);
   printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);

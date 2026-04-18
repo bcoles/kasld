@@ -31,6 +31,7 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld.h"
+#include "include/kasld_internal.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdint.h>
@@ -89,7 +90,7 @@ int main(void) {
       closedir(d);
     } else {
       printf("[-] device tree not available (not a DT platform?)\n");
-      return 1;
+      return KASLD_EXIT_UNAVAILABLE;
     }
   }
 
@@ -114,7 +115,7 @@ int main(void) {
             "[-] unexpected cell counts: #address-cells=%d, "
             "#size-cells=%d\n",
             addr_cells, size_cells);
-    return 1;
+    return 0;
   }
 
   int entry_bytes = (addr_cells + size_cells) * 4;
@@ -126,7 +127,8 @@ int main(void) {
   d = opendir(root);
   if (!d) {
     perror("[-] opendir");
-    return 1;
+    return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM
+                                               : KASLD_EXIT_UNAVAILABLE;
   }
 
   while ((ent = readdir(d)) != NULL) {
@@ -170,7 +172,7 @@ int main(void) {
 
   if (!count) {
     printf("[-] no memory nodes found in device tree\n");
-    return 1;
+    return 0;
   }
 
   printf("device tree: %d memory region(s)\n", count);

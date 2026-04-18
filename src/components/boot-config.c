@@ -12,6 +12,7 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld.h"
+#include "include/kasld_internal.h"
 #include "include/kconfig.h"
 #include <errno.h>
 #include <stdio.h>
@@ -68,7 +69,7 @@ static unsigned long get_kernel_addr_boot_config(FILE *fp) {
 int main(void) {
   FILE *fp;
   if (open_boot_config(&fp) < 0)
-    return 1;
+    return KASLD_EXIT_UNAVAILABLE;
 
   /* Detect PAGE_OFFSET (32-bit vmsplit) */
   unsigned long page_offset = get_kconfig_page_offset(fp);
@@ -88,5 +89,5 @@ int main(void) {
 
   fclose(fp);
 
-  return (page_offset || addr) ? 0 : 1;
+  return 0;
 }

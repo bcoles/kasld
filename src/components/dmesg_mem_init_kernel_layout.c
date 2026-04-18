@@ -64,6 +64,7 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld.h"
+#include "include/kasld_internal.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -171,7 +172,13 @@ int main(void) {
 
   /* Use a broad needle to match any layout line */
   printf("[.] searching dmesg for kernel memory layout sections ...\n");
-  dmesg_search(": 0x", on_match, &ctx);
+  int ds = dmesg_search(": 0x", on_match, &ctx);
+
+  if (!ctx.found_mask) {
+    if (ds < 0)
+      return KASLD_EXIT_NOPERM;
+    printf("[-] kernel memory layout sections not found in dmesg\n");
+  }
 
   return 0;
 }

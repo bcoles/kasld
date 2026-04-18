@@ -172,7 +172,7 @@ int main(void) {
   unsigned long addr = get_kernel_addr_sidt();
 
   if (!addr)
-    return 1;
+    return 0;
 
   printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);
   kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr, "sidt");

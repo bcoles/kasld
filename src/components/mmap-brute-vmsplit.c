@@ -42,7 +42,7 @@ unsigned long find_kernel_address_space_start(void) {
 int main(void) {
   unsigned long addr = find_kernel_address_space_start();
   if (!addr)
-    return 1;
+    return 0;
 
   printf("kernel virtual address start: %lx\n", addr);
   kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_PAGEOFFSET, addr,

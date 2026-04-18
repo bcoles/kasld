@@ -81,12 +81,36 @@ struct result {
   int valid;
 };
 
-/* Per-component stdout capture (for --verbose --json) */
+/* Component exit codes (sysexits.h) */
+#define KASLD_EXIT_UNAVAILABLE 69 /* EX_UNAVAILABLE: feature/hw not present */
+#define KASLD_EXIT_NOPERM 77      /* EX_NOPERM: access denied */
+
+/* Component outcome classification */
+enum component_outcome {
+  OUTCOME_SUCCESS,       /* Emitted at least one tagged line */
+  OUTCOME_NO_RESULT,     /* Ran without error, no tagged lines */
+  OUTCOME_UNAVAILABLE,   /* Feature/hardware not present (exit 69) */
+  OUTCOME_ACCESS_DENIED, /* Access denied (exit 77) */
+  OUTCOME_TIMEOUT,       /* Killed by timeout */
+};
+
+/* Per-component execution record (always populated) */
 struct component_log {
   char name[256];
   int exit_code;
+  enum component_outcome outcome;
   char lines[MAX_COMPONENT_LINES][MAX_LINE_LEN];
   int num_lines;
+};
+
+/* Aggregate component outcome counts */
+struct component_stats {
+  int total;
+  int succeeded;
+  int no_result;
+  int unavailable;
+  int access_denied;
+  int timed_out;
 };
 
 /* KASLR analysis results */
@@ -125,6 +149,7 @@ struct summary {
   struct derived_addr derived[MAX_DERIVED];
   int num_derived;
   int decoupled_note; /* true when phys results exist but can't derive vtext */
+  struct component_stats stats;
 };
 
 /* =========================================================================
@@ -132,6 +157,7 @@ struct summary {
  * =========================================================================
  */
 extern int verbose;
+extern int quiet;
 extern int json_output;
 extern int oneline_output;
 extern int markdown_output;
@@ -154,6 +180,7 @@ void group_consensus_info(char type, const char *section,
 void group_range(char type, const char *section, unsigned long *lo,
                  unsigned long *hi);
 void inject_kaslr_defaults(struct summary *s);
+void compute_component_stats(struct summary *s);
 void compute_kaslr_info(struct summary *s);
 void compute_derived_addrs(struct summary *s);
 

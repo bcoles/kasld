@@ -25,6 +25,7 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld.h"
+#include "include/kasld_internal.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -69,5 +70,9 @@ int main(void) {
   printf("[.] searching dmesg for last_pfn ...\n");
   match_count = 0;
   int found = dmesg_search("last_pfn = 0x", on_match, NULL);
-  return found ? 0 : 1;
+  if (found < 0)
+    return KASLD_EXIT_NOPERM;
+  if (!found)
+    printf("[-] last_pfn not found in dmesg\n");
+  return 0;
 }

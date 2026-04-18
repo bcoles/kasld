@@ -28,6 +28,7 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld.h"
+#include "include/kasld_internal.h"
 #include "include/kasld_types.h"
 #include <stdint.h>
 #include <stdio.h>
@@ -89,12 +90,15 @@ int main(void) {
 
   printf("[.] searching dmesg for CMA/DMA reserved memory pools ...\n");
 
-  dmesg_search("Reserved memory: created", on_reserved_pool, &r);
+  int ds = dmesg_search("Reserved memory: created", on_reserved_pool, &r);
+  if (ds < 0)
+    return KASLD_EXIT_NOPERM;
+
   dmesg_search("cma: Reserved", on_cma_reserved, &r);
 
   if (!r.lo) {
     printf("[-] No CMA/DMA reserved memory pools found in dmesg\n");
-    return 1;
+    return 0;
   }
 
   printf("lowest reserved pool:  0x%016lx\n", r.lo);

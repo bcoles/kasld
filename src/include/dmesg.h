@@ -24,14 +24,17 @@ typedef int (*dmesg_match_fn)(const char *line, void *ctx);
 
 /* Search klogctl syslog buffer, then fall back to /var/log/dmesg log file,
  * for lines containing `needle`.  For each match, call fn(line, ctx).
- * Returns the number of times fn() was called. */
+ * Returns the number of times fn() was called, or -1 if neither source
+ * could be accessed. */
 static int dmesg_search(const char *needle, dmesg_match_fn fn, void *ctx) {
   char *syslog;
   int size;
   int calls = 0;
+  int had_source = 0;
 
   /* --- Source 1: klogctl syslog ring buffer --- */
   if (!mmap_syslog(&syslog, &size)) {
+    had_source = 1;
     char *ptr = syslog;
     while ((ptr = strstr(ptr, needle)) != NULL) {
       /* Walk back to start of this line */
@@ -72,8 +75,14 @@ static int dmesg_search(const char *needle, dmesg_match_fn fn, void *ctx) {
     const char *path = "/var/log/dmesg";
 
     f = fopen(path, "rb");
-    if (f == NULL)
+    if (f == NULL) {
+      if (!had_source) {
+        fprintf(stderr, "[-] dmesg: access denied "
+                        "(klogctl and /var/log/dmesg both inaccessible)\n");
+        return -1;
+      }
       return 0;
+    }
 
     while (fgets(buf, sizeof(buf), f) != NULL) {
       if (strstr(buf, needle) == NULL)

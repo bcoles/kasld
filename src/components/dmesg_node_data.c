@@ -25,6 +25,7 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld.h"
+#include "include/kasld_internal.h"
 #include "include/kasld_types.h"
 #include <stdint.h>
 #include <stdio.h>
@@ -63,11 +64,13 @@ int main(void) {
   struct range_ctx r = {0, 0};
 
   printf("[.] searching dmesg for NODE_DATA allocations ...\n");
-  dmesg_search("NODE_DATA(", on_match, &r);
+  int ds = dmesg_search("NODE_DATA(", on_match, &r);
 
   if (!r.hi) {
     printf("[-] no NODE_DATA allocation info found in dmesg\n");
-    return 1;
+    if (ds < 0)
+      return KASLD_EXIT_NOPERM;
+    return 0;
   }
 
   printf("lowest NODE_DATA physical address:  0x%016lx\n", r.lo);
