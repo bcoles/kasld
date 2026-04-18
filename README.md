@@ -11,9 +11,11 @@
 
 # Kernel Address Space Layout Derandomization (KASLD)
 
-A collection of various techniques to infer the Linux kernel virtual address
-layout and physical memory map as an unprivileged local user, for the purpose
-of bypassing Kernel Address Space Layout Randomization (KASLR).
+A tool for inferring the Linux kernel base address and physical memory
+layout as an unprivileged local user, for the purpose of bypassing Kernel
+Address Space Layout Randomization (KASLR). An orchestrator discovers and
+runs standalone leak components, then validates, cross-references, and
+summarizes the results with section-aware consensus analysis.
 
 Supports:
 
@@ -30,22 +32,26 @@ Supports:
   * [Example Output](#example-output)
 * [Building](#building)
 * [Configuration](#configuration)
-* [Writing a Component](#writing-a-component)
-  * [The tagged line protocol](#the-tagged-line-protocol)
-  * [Sections](#sections)
-  * [Labels](#labels)
-  * [What the orchestrator does with tagged lines](#what-the-orchestrator-does-with-tagged-lines)
-  * [Minimal component](#minimal-component)
-  * [Component execution model](#component-execution-model)
+* [Architecture and Design](#architecture-and-design)
+  * [Component model](#component-model)
   * [Phases](#phases)
-  * [Physical-to-virtual derivation](#physical-to-virtual-derivation)
-  * [API reference](#api-reference)
+  * [Cross-section derivation](#cross-section-derivation)
+    * [Component-level derivation](#component-level-derivation)
+    * [Orchestrator derivation rules](#orchestrator-derivation-rules)
+  * [Kernel version detection](#kernel-version-detection)
+  * [Writing a component](#writing-a-component)
+    * [Tagged line protocol](#tagged-line-protocol)
+    * [Sections](#sections)
+    * [Labels](#labels)
+    * [Minimal component](#minimal-component)
+    * [API reference](#api-reference)
 * [KASLR and Kernel Memory Layout](#kaslr-and-kernel-memory-layout)
   * [Function Offsets](#function-offsets)
   * [Function Granular KASLR (FG-KASLR)](#function-granular-kaslr-fg-kaslr)
   * [Linux KASLR History and Implementation](#linux-kaslr-history-and-implementation)
+    * [Default text base and KASLR alignment](#default-text-base-and-kaslr-alignment)
   * [Physical and Virtual KASLR](#physical-and-virtual-kaslr)
-  * [Kernel Sections and Cross-Section Inference](#kernel-sections-and-cross-section-inference)
+  * [Kernel Sections](#kernel-sections)
   * [Virtual Memory Split (vmsplit)](#virtual-memory-split-vmsplit)
 * [KASLR Bypass Techniques](#kaslr-bypass-techniques)
   * [Filesystem Leaks](#filesystem-leaks)
@@ -246,14 +252,147 @@ Refer to the comment headers in [kasld.h](src/include/kasld.h) for
 documentation of each configuration option.
 
 
-## Writing a Component
+## Architecture and Design
 
 KASLD's architecture is a simple contract: each component is a standalone
 executable that probes one data source and prints tagged lines to stdout.
 The orchestrator discovers, runs, and post-processes components
 automatically — no registration, no linking, no Makefile changes.
 
-### The tagged line protocol
+### Component model
+
+The orchestrator runs each component as an isolated child process:
+
+1. `fork()` + `execl()` — the component runs in its own process group
+2. stdout and stderr are merged into a single pipe back to the orchestrator
+3. The orchestrator reads lines from the pipe, capturing tagged lines as
+   results and (in verbose mode) printing all output
+4. A per-component timeout (default: 30 seconds, configurable via
+   `--timeout`) kills the component and its children if it does not exit
+   in time
+5. Exit code does not affect result validity — any tagged lines emitted
+   before exit (or timeout) are captured normally
+
+This model means a component that segfaults, hangs, or exits with an error
+does not affect other components or the orchestrator.
+
+Tagged lines are parsed, aligned to the architecture's `KERNEL_ALIGN`
+boundary, validated against expected address ranges, assigned a method
+label (`exact`, `parsed`, `timing`, or `heuristic`), and grouped by
+section for consensus analysis. Components do not need to align addresses
+or validate ranges — report the raw leaked value and the orchestrator
+handles the rest.
+
+### Phases
+
+Components run in three phases, determined by name:
+
+| Phase | Purpose | Components |
+|---|---|---|
+| **1 — Discovery** | PAGE_OFFSET detection, KASLR state, exact addresses | `boot-config`, `default`, `dmesg_kaslr-disabled`, `proc-cmdline`, `proc-config`, `proc-cpuinfo`, `proc-kallsyms` |
+| **2 — Inference** | All remaining filesystem/interface parsers | Everything not in Phase 1 or Phase 3 |
+| **3 — Probing** | Side-channels, timing, brute-force | `databounce`, `echoload`, `entrybleed`, `mmap-brute-vmsplit`, `prefetch`, `kernelsnitch` |
+
+The orchestrator runs `apply_layout_adjustments()` between each phase,
+propagating PAGE_OFFSET discoveries and revalidating all prior results.
+Phase 3 is skipped entirely when KASLR is detected as disabled.
+
+New components are placed in Phase 2 by default — no configuration
+needed. To assign a component to Phase 1 or Phase 3, add its name to
+the `phase_discovery[]` or `phase_probing[]` array in
+[orchestrator.c](src/orchestrator.c).
+
+### Cross-section derivation
+
+The kernel virtual address space contains distinct sections (text, modules,
+direct map) at different address ranges. On some architectures these are at
+fixed offsets from each other (coupled), so a leak from one section can
+derive addresses in another. KASLD exploits this at two levels: components
+can emit derived results directly, and the orchestrator derives centrally
+after collecting all results.
+
+#### Component-level derivation
+
+Components that leak a physical address can convert it to a direct-map
+virtual address using `phys_to_virt()`, guarded by `#if !PHYS_VIRT_DECOUPLED`
+so the derivation is compiled out on decoupled architectures (x86_64,
+arm64, RISC-V 64-bit). This produces an additional data point alongside
+the raw physical result.
+
+#### Orchestrator derivation rules
+
+The orchestrator implements cross-section derivation rules in
+`compute_derived_addrs()`. All derived addresses are aligned to
+`KERNEL_ALIGN` (e.g., 2 MiB on x86_64).
+
+On **coupled** architectures (x86_32, arm32, MIPS, PowerPC, LoongArch,
+riscv32), the KASLR slide is a single offset applied uniformly, so a
+single address from any section is sufficient to derive all others:
+
+| Given | Derives | Formula |
+|---|---|---|
+| Physical text | Virtual text | `(ptext - PHYS_OFFSET + PAGE_OFFSET + TEXT_OFFSET) & ~(ALIGN-1)` |
+| Virtual text | Physical text | `vtext - PAGE_OFFSET + PHYS_OFFSET` |
+| PAGE_OFFSET (runtime) | Default text base | `PAGE_OFFSET + TEXT_OFFSET` |
+
+`PAGE_OFFSET`, `PHYS_OFFSET`, and `TEXT_OFFSET` are compile-time constants
+(or runtime-detected in the case of a non-default vmsplit).
+
+On **decoupled** architectures (x86_64, arm64, riscv64), physical and
+virtual addresses are randomized independently, so physical results cannot
+derive virtual text. The orchestrator prints a note when physical results
+exist that would have been derivable on a coupled system.
+
+RISC-V64 is a special case among decoupled architectures: its module
+region is anchored to the kernel image, so module addresses provide an
+additional derivation path:
+
+| Given | Derives | Formula |
+|---|---|---|
+| Lowest module address | Kernel `_end` estimate | `vmod_lo + 2 GiB` |
+| Kernel `_end` estimate | Text base range | `(_end - 64 MiB) .. (_end - 4 MiB)`, aligned to `KERNEL_ALIGN` |
+| DRAM + module range | Virtual text (confirmed) | Physical rule above, validated against module-derived range |
+
+When both a physical DRAM address and a module address are available, the
+orchestrator cross-references them: if the physically-derived text base
+falls within the module-derived range, it is emitted as a high-confidence
+result.
+
+### Kernel version detection
+
+Some techniques (e.g., EntryBleed) have been mitigated in specific mainline
+kernel releases. It would seem natural to check `uname -r` and skip components
+that target patched vulnerabilities.
+
+KASLD deliberately does not do this. Distribution kernels (Ubuntu, Debian, RHEL,
+SUSE, etc.) backport security fixes extensively, and their version numbers
+do not correspond to the mainline release where a fix appeared:
+
+* Ubuntu ships `4.4.0-xxx` and `4.15.0-xxx` LTS kernels that contain
+  backported fixes from mainline 5.x and 6.x.
+* RHEL ships `3.10.0-xxx` kernels with fixes from mainline 4.x and 5.x.
+* A kernel reporting `6.8.0` may lack a fix from mainline 6.3, or include
+  a fix from mainline 6.12, depending on the distributor.
+
+Version-based gating would be wrong in both directions: skipping a technique
+on a kernel that is actually vulnerable (false negative), or running a
+technique on a kernel that has already been patched (false positive).
+
+Instead, KASLD treats each component as its own detector. Components probe the
+actual kernel — they either produce a result or they don't. Side-channel
+components that target patched vulnerabilities will time out (bounded by
+`--timeout`, default 30 seconds) or exit with no output, which the orchestrator
+handles gracefully. Filesystem-based components that lack access typically fail
+in under a second.
+
+This design means KASLD is correct on any kernel — mainline, distro, custom,
+or embedded — without maintaining per-component version ranges that would be
+inaccurate for most real-world deployments.
+
+
+### Writing a component
+
+#### Tagged line protocol
 
 Components communicate results to the orchestrator via tagged lines on
 stdout:
@@ -284,7 +423,7 @@ are captured as results.
 A component may emit zero, one, or multiple tagged lines. The orchestrator
 processes each independently.
 
-### Sections
+#### Sections
 
 | Constant | String | Use when |
 |---|---|---|
@@ -297,7 +436,7 @@ processes each independently.
 | `KASLD_SECTION_PAGEOFFSET` | `pageoffset` | The PAGE_OFFSET value itself (use with type `V`) |
 | `KASLD_SECTION_NONE` | `-` | No specific section / default indicator |
 
-### Labels
+#### Labels
 
 The label field identifies the source of the result. Convention:
 
@@ -307,23 +446,7 @@ The label field identifies the source of the result. Convention:
 - **Special labels:** `default:text` (default kernel text address),
   `default:unsupported` (KASLR not supported on this architecture)
 
-### What the orchestrator does with tagged lines
-
-1. **Parses** the four fields
-2. **Aligns** text-section addresses to the architecture's `KERNEL_ALIGN`
-   boundary (e.g., 2 MiB on x86_64)
-3. **Validates** the address against the architecture's expected range for
-   that section — out-of-range results are marked invalid
-4. **Assigns a method label** (`exact`, `parsed`, `timing`, or `heuristic`)
-   based on the component name
-5. **Groups** results by section and aligned address for consensus analysis
-6. **Derives** cross-section addresses on architectures with coupled
-   physical/virtual randomization
-
-Components do not need to align addresses or validate ranges — report
-the raw leaked value and the orchestrator handles the rest.
-
-### Minimal component
+#### Minimal component
 
 ```c
 // src/components/my-leak.c
@@ -359,49 +482,8 @@ leaked kernel text address: 0xffffffff81000000
 V text 0xffffffff81000000 my-leak
 ```
 
-### Component execution model
-
-The orchestrator runs each component as an isolated child process:
-
-1. `fork()` + `execl()` — the component runs in its own process group
-2. stdout and stderr are merged into a single pipe back to the orchestrator
-3. The orchestrator reads lines from the pipe, capturing tagged lines as
-   results and (in verbose mode) printing all output
-4. A per-component timeout (default: 30 seconds, configurable via
-   `--timeout`) kills the component and its children if it does not exit
-   in time
-5. Exit code does not affect result validity — any tagged lines emitted
-   before exit (or timeout) are captured normally
-
-This model means a component that segfaults, hangs, or exits with an error
-does not affect other components or the orchestrator.
-
-### Phases
-
-Components run in three phases, determined by name:
-
-| Phase | Purpose | Components |
-|---|---|---|
-| **1 — Discovery** | PAGE_OFFSET detection, KASLR state, exact addresses | `boot-config`, `default`, `dmesg_kaslr-disabled`, `proc-cmdline`, `proc-config`, `proc-cpuinfo`, `proc-kallsyms` |
-| **2 — Inference** | All remaining filesystem/interface parsers | Everything not in Phase 1 or Phase 3 |
-| **3 — Probing** | Side-channels, timing, brute-force | `databounce`, `echoload`, `entrybleed`, `mmap-brute-vmsplit`, `prefetch`, `kernelsnitch` |
-
-The orchestrator runs `apply_layout_adjustments()` between each phase,
-propagating PAGE_OFFSET discoveries and revalidating all prior results.
-Phase 3 is skipped entirely when KASLR is detected as disabled.
-
-New components are placed in Phase 2 by default — no configuration
-needed. To assign a component to Phase 1 or Phase 3, add its name to
-the `phase_discovery[]` or `phase_probing[]` array in
-[orchestrator.c](src/orchestrator.c).
-
-### Physical-to-virtual derivation
-
-On architectures where physical and virtual KASLR are coupled (ARM64,
-ARM, MIPS, PowerPC, LoongArch), a physical DRAM leak can be converted to
-a direct-map virtual address using the `phys_to_virt()` macro from
-[kasld.h](src/include/kasld.h). Components that leak a physical address
-should emit both the raw physical result and the derived virtual result:
+Components that leak a physical address should also emit a derived
+direct-map virtual address on coupled architectures:
 
 ```c
 kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, phys, "my-leak");
@@ -413,12 +495,12 @@ kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
 #endif
 ```
 
-On decoupled architectures (x86_64, RISC-V 64-bit), the `#if` guard
-ensures the derivation is not compiled. The orchestrator also performs
-cross-section derivation centrally, but component-level derivation
-provides an additional data point.
+The `#if` guard compiles out the derivation on decoupled architectures
+(x86_64, arm64, RISC-V 64-bit) where physical addresses cannot reveal
+virtual text. See [Cross-section derivation](#cross-section-derivation)
+for details.
 
-### API reference
+#### API reference
 
 The complete component API is a single header:
 [`src/include/kasld.h`](src/include/kasld.h). It provides:
@@ -521,6 +603,39 @@ See also:
   * [CONFIG_RANDOMIZE_MEMORY_PHYSICAL_PADDING: Physical memory mapping padding](https://cateee.net/lkddb/web-lkddb/RANDOMIZE_MEMORY_PHYSICAL_PADDING.html)
   * [CONFIG_RELOCATABLE: Build a relocatable kernel](https://cateee.net/lkddb/web-lkddb/RELOCATABLE.html)
 
+#### Default text base and KASLR alignment
+
+When KASLR is disabled, the kernel loads at a fixed virtual address — the
+"default text base." This address is determined by the architecture's linker
+script, Kconfig options, or hardware memory map. When KASLR is enabled, the
+kernel is placed at `default + N × KERNEL_ALIGN`, where N is chosen randomly
+within the architecture's valid range. `KERNEL_ALIGN` is therefore the
+randomization granularity: each possible position is one "KASLR slot."
+
+| Architecture | Default text base | Derivation | `KERNEL_ALIGN` | KASLR slots | Entropy |
+|---|---|---|---|---|---|
+| x86_64 | `0xffffffff81000000` | `__START_KERNEL_map` + `PHYSICAL_START` (`page_64_types.h`) | 2 MiB | 504 | ~9 bits |
+| x86_32 | `0xc0000000` | `PAGE_OFFSET` (3G/1G vmsplit default) | 2 MiB | 248 | ~8 bits |
+| arm64 | `0xffff800080000000` | `KIMAGE_VADDR` (`memory.h`); module region size determines offset from `_PAGE_END` | 2 MiB¹ | ~33M | ~25 bits |
+| arm32 | `0xc0008000` | `PAGE_OFFSET` + `TEXT_OFFSET` (`0x8000`, from `arch/arm/Makefile`) | — | — | No KASLR |
+| MIPS32 | `0x80100400` | KSEG0 (`0x80000000`) + 1 MiB + `TEXT_OFFSET` (`0x400`, from `head.S`) | 64 KiB | varies | varies |
+| MIPS64 | `0xffffffff80100400` | CKSEG0 (`0xffffffff80000000`) + 1 MiB + `TEXT_OFFSET` (`0x400`) | 64 KiB | varies | varies |
+| s390 | `0x3FFE0100000` | `CONFIG_KERNEL_IMAGE_BASE` + `TEXT_OFFSET` (1 MiB) | 16 KiB | ~131K | ~17 bits |
+| PowerPC32 | `0xc0000000` | `PAGE_OFFSET` (3G/1G default); BookE only | 16 KiB¹ | varies | varies |
+| PowerPC64 | `0xc000000000000000` | `PAGE_OFFSET` (Kconfig) | — | — | No KASLR |
+| LoongArch | `0x9000000000200000` | DMW1 (`0x9000000000000000`) + `TEXT_OFFSET` (2 MiB, from `Makefile`) | 64 KiB | varies | varies |
+| RISC-V64 | `0xffffffff80000000` | `KERNEL_LINK_ADDR` (top 2 GiB of VA) | 2 MiB | 512 | ~9 bits |
+| RISC-V32 | `0xc0002000` | `PAGE_OFFSET` + `TEXT_OFFSET` (`0x2000`) | — | — | No KASLR |
+
+The "Derivation" column shows where each default address comes from. On
+most architectures the formula is `PAGE_OFFSET + TEXT_OFFSET`, where
+`PAGE_OFFSET` is the start of the kernel virtual address space (set by
+hardware mapping or Kconfig) and `TEXT_OFFSET` is the offset from the
+mapping base to the `.text` section entry point (set by the linker script
+or boot protocol). x86_64 is an exception: the kernel image virtual base
+(`__START_KERNEL_map = 0xffffffff80000000`) is separate from `PAGE_OFFSET`
+(the direct-map base), and `PHYSICAL_START` (16 MiB) is added for
+alignment with the physical load address.
 
 ### Physical and Virtual KASLR
 
@@ -554,7 +669,7 @@ See also:
 * [Kernel load address randomization · Linux Inside](https://0xax.gitbooks.io/linux-insides/content/Booting/linux-bootstrap-6.html) — detailed walkthrough of `choose_random_location()` on x86
 
 
-### Kernel Sections and Cross-Section Inference
+### Kernel Sections
 
 The kernel virtual address space contains distinct sections (text, modules,
 direct map, etc.) mapped at different address ranges. KASLR randomizes the
@@ -579,31 +694,16 @@ On coupled architectures, all sections are at fixed offsets from each other:
 a physical address reveals the virtual text base via `phys_to_virt()`, the
 direct map is at a known offset (`TEXT_OFFSET`) from the text base, and
 modules are either at a fixed address or a constant offset from `PAGE_OFFSET`.
-A single leak from any section is sufficient to derive the others — KASLD
-implements this for coupled architectures (e.g. physical text ↔ virtual text
-↔ direct map via `phys_to_virt()` and `TEXT_OFFSET` arithmetic). On
+A single leak from any section is sufficient to derive the others. On
 decoupled architectures like x86_64, each section is randomized independently
 — a physical address tells you nothing about the virtual text base, and the
-direct map base (`page_offset_base`) is randomized separately. As a result,
-the "Derived addresses" section in KASLD output only appears on coupled
-architectures; on decoupled architectures a note is printed instead when
-physical results exist that would have been derivable on a coupled system.
+direct map base (`page_offset_base`) is randomized separately.
 
 RISC-V64 is notable: the module region is anchored to the kernel image
 (`MODULES_VADDR = PFN_ALIGN(&_end) - SZ_2G`, `MODULES_END = PFN_ALIGN(&_start)`),
-so modules shift with the randomized kernel. If module addresses are known
-but the text base is not, a text range can be derived:
-
-```
-_end   ≈ lowest_module_addr + 2 GiB
-_start ≈ highest_module_addr          (MODULES_END = PFN_ALIGN(&_start))
-text_base ∈ [_end - 64 MiB, _end - 4 MiB]   (loose, from typical image size)
-text_base ≈ _start                          (tight, if any module addr is near MODULES_END)
-```
-
-With `KERNEL_ALIGN` of 2 MiB and a 60 MiB uncertainty window, the loose
-bound yields ~30 possible KASLR slots. In practice, module addresses near
-`MODULES_END` directly approximate `_start`, reducing this to one slot.
+so modules shift with the randomized kernel rather than occupying a fixed
+region. See [Orchestrator derivation rules](#orchestrator-derivation-rules)
+for how KASLD exploits this.
 
 
 ### Virtual Memory Split (vmsplit)
@@ -715,6 +815,17 @@ without using the [`%pK` printk format](https://www.kernel.org/doc/html/latest/c
 
 Bugs which trigger a kernel oops can be used to leak kernel pointers by reading
 the associated backtrace from system logs (on systems with `kernel.panic_on_oops = 0`).
+
+For testing purposes, a backtrace can be forced using SysRq (requires root):
+
+```
+echo l > /proc/sysrq-trigger
+```
+
+This prints a backtrace of all CPUs to the kernel log, which the
+`dmesg_backtrace` component will then parse. The SysRq `l` command requires
+`kernel.sysrq` to include bit 4 (dump-backtrace), which is enabled by default
+on most distro kernels (`kernel.sysrq = 1` enables all commands).
 
 Most modern distros ship with `kernel.dmesg_restrict` enabled by default to
 prevent unprivileged users from accessing the kernel debug log. Similarly,
