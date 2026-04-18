@@ -716,11 +716,6 @@ without using the [`%pK` printk format](https://www.kernel.org/doc/html/latest/c
 Bugs which trigger a kernel oops can be used to leak kernel pointers by reading
 the associated backtrace from system logs (on systems with `kernel.panic_on_oops = 0`).
 
-There are countless examples. A few simple examples are available in the [extra](extra/) directory:
-
-* [extra/oops_inet_csk_listen_stop.c](extra/oops_inet_csk_listen_stop.c)
-* [extra/oops_netlink_getsockbyportid_null_ptr.c](extra/oops_netlink_getsockbyportid_null_ptr.c)
-
 Most modern distros ship with `kernel.dmesg_restrict` enabled by default to
 prevent unprivileged users from accessing the kernel debug log. Similarly,
 grsecurity hardened kernels support `kernel.grsecurity.dmesg` to prevent
