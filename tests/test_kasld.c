@@ -1363,7 +1363,8 @@ static void inject_comp_meta(const char *name, enum component_outcome outcome,
       if (colon) {
         struct meta_entry *e = &cl->meta.entries[cl->meta.num_entries++];
         size_t klen = (size_t)(colon - line);
-        if (klen >= META_KEY_LEN) klen = META_KEY_LEN - 1;
+        if (klen >= META_KEY_LEN)
+          klen = META_KEY_LEN - 1;
         memcpy(e->key, line, klen);
         e->key[klen] = '\0';
         strncpy(e->value, colon + 1, META_VALUE_LEN - 1);
@@ -1411,7 +1412,8 @@ static void test_hardening_text_exposure_summary(void) {
   sysctl_lockdown = LOCKDOWN_NONE;
 
   inject_comp_meta("comp-a", OUTCOME_SUCCESS, "method:parsed\naddr:physical");
-  inject_comp_meta("comp-b", OUTCOME_UNAVAILABLE, "method:timing\naddr:virtual");
+  inject_comp_meta("comp-b", OUTCOME_UNAVAILABLE,
+                   "method:timing\naddr:virtual");
   inject_comp_meta("comp-c", OUTCOME_SUCCESS, "method:exact\naddr:virtual");
   inject_comp_meta("comp-d", OUTCOME_SUCCESS, "method:detection\naddr:none");
 
@@ -1470,10 +1472,12 @@ static void test_hardening_text_patched(void) {
   sysctl_perf_event_paranoid = -1;
   sysctl_lockdown = LOCKDOWN_NONE;
 
-  inject_comp_meta("entrybleed", OUTCOME_SUCCESS,
-                   "method:timing\naddr:virtual\ncve:CVE-2022-4543\npatch:v6.2");
-  inject_comp_meta("mincore", OUTCOME_UNAVAILABLE,
-                   "method:heuristic\naddr:virtual\ncve:CVE-2017-16994\npatch:v4.15");
+  inject_comp_meta(
+      "entrybleed", OUTCOME_SUCCESS,
+      "method:timing\naddr:virtual\ncve:CVE-2022-4543\npatch:v6.2");
+  inject_comp_meta(
+      "mincore", OUTCOME_UNAVAILABLE,
+      "method:heuristic\naddr:virtual\ncve:CVE-2017-16994\npatch:v4.15");
 
   capture_start();
   render_hardening_text();
@@ -1567,8 +1571,9 @@ static void test_hardening_json_meta_array(void) {
   sysctl_perf_event_paranoid = -1;
   sysctl_lockdown = LOCKDOWN_NONE;
 
-  inject_comp_meta("prefetch", OUTCOME_SUCCESS,
-                   "method:timing\naddr:virtual\nhardware:KPTI\nhardware:AMD Zen 3+");
+  inject_comp_meta(
+      "prefetch", OUTCOME_SUCCESS,
+      "method:timing\naddr:virtual\nhardware:KPTI\nhardware:AMD Zen 3+");
 
   struct summary s;
   memset(&s, 0, sizeof(s));
