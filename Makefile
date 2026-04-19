@@ -90,6 +90,9 @@ $(COMP_DIR)/mincore: $(COMP_SRC_DIR)/mincore.c $(HDRS) | $(COMP_DIR)
 $(COMP_DIR)/prefetch: $(COMP_SRC_DIR)/prefetch.c $(HDRS) | $(COMP_DIR)
 	-$(CC) $(ALL_CFLAGS) -O0 $(ALL_LDFLAGS) -I$(SRC_DIR) $< -o $@
 
+$(COMP_DIR)/zombieload: $(COMP_SRC_DIR)/zombieload.c $(HDRS) | $(COMP_DIR)
+	-$(CC) $(ALL_CFLAGS) -O0 $(ALL_LDFLAGS) -I$(SRC_DIR) $< -o $@
+
 # kernelsnitch: needs -lpthread (uses default -O2 for hash timing performance)
 $(COMP_DIR)/kernelsnitch: $(COMP_SRC_DIR)/kernelsnitch.c $(HDRS) | $(COMP_DIR)
 	-$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $< -lpthread -o $@
