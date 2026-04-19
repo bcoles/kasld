@@ -45,6 +45,7 @@ int oneline_output;
 int markdown_output;
 int color_output;
 int explain_mode;
+int fast_mode;
 int hardening_mode;
 
 /* Stored sysctl values for hardening report (-1 = unavailable) */
@@ -123,6 +124,7 @@ static void adjust_for_page_offset(unsigned long new_po) {
 #define KASLD_PATH_MAX 4096
 #define LINE_LEN 512
 #define DEFAULT_TIMEOUT_SECS 30
+#define FAST_TIMEOUT_SECS 2
 static int component_timeout = DEFAULT_TIMEOUT_SECS;
 
 /* -------------------------------------------------------------------------
@@ -139,6 +141,8 @@ int num_comp_logs;
 struct component {
   char path[KASLD_PATH_MAX];
   char name[256];
+  int is_probing; /* set from method:timing or method:heuristic in .kasld_meta
+                   */
 };
 
 static struct component components[MAX_COMPONENTS];
@@ -149,15 +153,13 @@ static int num_components;
  *   exact kernel addresses before the main inference phase runs.
  * Phase 2 (inference): all remaining components except probing.
  * Phase 3 (probing): active probing components — microarchitectural
- *   side-channels, timing attacks, and brute-force search. Skipped when
- *   KASLR is disabled or unsupported.
+ *   side-channels, timing attacks, and brute-force search. Detected
+ *   automatically from .kasld_meta method field (timing or heuristic).
+ *   Skipped when KASLR is disabled or unsupported.
  */
 static const char *phase_discovery[] = {
     "boot-config", "default",      "dmesg_kaslr-disabled", "proc-cmdline",
     "proc-config", "proc-cpuinfo", "proc-kallsyms",        NULL};
-static const char *phase_probing[] = {
-    "databounce", "echoload",     "entrybleed", "mmap-brute-vmsplit",
-    "prefetch",   "kernelsnitch", NULL};
 
 static int name_in_list(const char *name, const char **list) {
   for (int i = 0; list[i]; i++) {
@@ -766,6 +768,24 @@ int meta_get_all(const struct component_meta *m, const char *key,
   return n;
 }
 
+/* Classify components by reading .kasld_meta from each binary.
+ * Sets is_probing for components whose method is "timing" or "heuristic"
+ * (side-channels, brute-force, iterative syscall loops). */
+static void classify_components(void) {
+  for (int i = 0; i < num_components; i++) {
+    char *meta_raw = extract_elf_section(components[i].path, ".kasld_meta");
+    if (!meta_raw)
+      continue;
+    struct component_meta m = {0};
+    parse_meta(meta_raw, &m);
+    free(meta_raw);
+    const char *method = meta_get(&m, "method");
+    if (method &&
+        (strcmp(method, "timing") == 0 || strcmp(method, "heuristic") == 0))
+      components[i].is_probing = 1;
+  }
+}
+
 static int run_component(const struct component *c) {
   current_component_name = c->name;
 
@@ -985,13 +1005,23 @@ static void progress_update(void) {
 }
 
 /* Run components whose name is (include=1) or is not (include=0) in list.
- * When exclude2 is non-NULL, also skip names in that list. */
-static void run_phase(const char **list, int include, const char **exclude2) {
+ * When skip_probing is set, also skip components with is_probing flag. */
+static void run_phase(const char **list, int include, int skip_probing) {
   for (int i = 0; i < num_components; i++) {
     int in_list = name_in_list(components[i].name, list);
     if (in_list != include)
       continue;
-    if (exclude2 && name_in_list(components[i].name, exclude2))
+    if (skip_probing && components[i].is_probing)
+      continue;
+    run_component(&components[i]);
+    progress_update();
+  }
+}
+
+/* Run only probing components (is_probing flag set by classify_components) */
+static void run_probing_phase(void) {
+  for (int i = 0; i < num_components; i++) {
+    if (!components[i].is_probing)
       continue;
     run_component(&components[i]);
     progress_update();
@@ -1577,11 +1607,12 @@ static void usage(const char *progname) {
          "  -q, --quiet     Suppress banner, progress, and warnings\n"
          "  -v, --verbose   Show component output\n"
          "  -e, --explain   Show technique explanations before each component\n"
+         "  -f, --fast      Use %ds per-component timeout\n"
          "  -H, --hardening Show post-run hardening assessment\n"
          "  -t, --timeout N Per-component timeout in seconds (default: %d)\n"
          "  -V, --version   Print version and exit\n"
          "  -h, --help      Show this help\n",
-         progname, DEFAULT_TIMEOUT_SECS);
+         progname, FAST_TIMEOUT_SECS, DEFAULT_TIMEOUT_SECS);
 }
 
 int main(int argc, char *argv[]) {
@@ -1611,6 +1642,8 @@ int main(int argc, char *argv[]) {
                strcmp(argv[i], "--explain") == 0) {
       explain_mode = 1;
       verbose = 1; /* --explain implies --verbose */
+    } else if (strcmp(argv[i], "-f") == 0 || strcmp(argv[i], "--fast") == 0) {
+      fast_mode = 1;
     } else if (strcmp(argv[i], "-H") == 0 ||
                strcmp(argv[i], "--hardening") == 0) {
       hardening_mode = 1;
@@ -1661,6 +1694,12 @@ int main(int argc, char *argv[]) {
   if (discover_components() < 0)
     return 2;
 
+  classify_components();
+
+  /* --fast: tighten per-component timeout unless user set an explicit -t */
+  if (fast_mode && component_timeout == DEFAULT_TIMEOUT_SECS)
+    component_timeout = FAST_TIMEOUT_SECS;
+
   if (!quiet && !verbose && plain_output()) {
     clock_gettime(CLOCK_MONOTONIC, &progress_start);
     printf("Running %d components...\n", num_components);
@@ -1668,17 +1707,17 @@ int main(int argc, char *argv[]) {
   }
 
   /* Phase 1: layout discovery — PAGE_OFFSET, KASLR state, exact addrs */
-  run_phase(phase_discovery, 1, NULL);
+  run_phase(phase_discovery, 1, 0);
   apply_layout_adjustments();
   int kaslr_off = detect_kaslr_state();
 
   /* Phase 2: main inference — everything except discovery and probing */
-  run_phase(phase_discovery, 0, phase_probing);
+  run_phase(phase_discovery, 0, 1);
   apply_layout_adjustments();
 
   /* Phase 3: probing — side-channels and brute-force, skip when KASLR is off */
   if (!kaslr_off)
-    run_phase(phase_probing, 1, NULL);
+    run_probing_phase();
   else if (!quiet && verbose && plain_output())
     printf("skipping probing phase (KASLR disabled)\n\n");
 

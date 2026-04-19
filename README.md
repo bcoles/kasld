@@ -365,9 +365,11 @@ propagating PAGE_OFFSET discoveries and revalidating all prior results.
 Phase 3 is skipped entirely when KASLR is detected as disabled.
 
 New components are placed in Phase 2 by default — no configuration
-needed. To assign a component to Phase 1 or Phase 3, add its name to
-the `phase_discovery[]` or `phase_probing[]` array in
-[orchestrator.c](src/orchestrator.c).
+needed. To assign a component to Phase 1, add its name to
+the `phase_discovery[]` array in
+[orchestrator.c](src/orchestrator.c). Components are automatically
+assigned to Phase 3 when their `.kasld_meta` section declares
+`method:timing` or `method:heuristic`.
 
 ### Cross-section derivation
 

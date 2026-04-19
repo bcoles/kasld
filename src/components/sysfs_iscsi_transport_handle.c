@@ -78,7 +78,14 @@ unsigned long get_kernel_addr_iscsi_iser_transport() {
   }
 
   close(sock_fd);
-  sleep(5);
+
+  /* Wait for the module to load and sysfs entries to appear.
+   * Poll once per second for up to 5 seconds. */
+  for (int wait = 0; wait < 5; wait++) {
+    if (access(path, R_OK) == 0)
+      break;
+    sleep(1);
+  }
 
   printf("[.] checking %s ...\n", path);
 
