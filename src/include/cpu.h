@@ -31,8 +31,7 @@
 #define CPU_VENDOR_AMD 1
 #define CPU_VENDOR_INTEL 2
 
-__attribute__((unused))
-static bool is_intel_cpu(void) {
+__attribute__((unused)) static bool is_intel_cpu(void) {
   unsigned int eax, ebx, ecx, edx;
   __asm__ volatile("cpuid"
                    : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
@@ -42,8 +41,7 @@ static bool is_intel_cpu(void) {
   return ebx == 0x756e6547 && edx == 0x49656e69 && ecx == 0x6c65746e;
 }
 
-__attribute__((unused))
-static bool is_amd_cpu(void) {
+__attribute__((unused)) static bool is_amd_cpu(void) {
   unsigned int eax, ebx, ecx, edx;
   __asm__ volatile("cpuid"
                    : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
@@ -53,8 +51,7 @@ static bool is_amd_cpu(void) {
   return ebx == 0x68747541 && edx == 0x69746e65 && ecx == 0x444d4163;
 }
 
-__attribute__((unused))
-static int detect_cpu_vendor(void) {
+__attribute__((unused)) static int detect_cpu_vendor(void) {
   FILE *f = fopen("/proc/cpuinfo", "r");
   if (!f)
     return CPU_VENDOR_UNKNOWN;
@@ -84,8 +81,7 @@ static int detect_cpu_vendor(void) {
  * =========================================================================
  */
 
-__attribute__((unused))
-static bool detect_kpti(void) {
+__attribute__((unused)) static bool detect_kpti(void) {
   FILE *f = fopen("/proc/cpuinfo", "r");
   if (!f)
     return false;
@@ -111,8 +107,7 @@ static bool detect_kpti(void) {
  * =========================================================================
  */
 
-__attribute__((unused))
-static int has_rdtscp(void) {
+__attribute__((unused)) static int has_rdtscp(void) {
   unsigned int eax, ebx, ecx, edx;
   __asm__ volatile("cpuid"
                    : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
@@ -121,8 +116,7 @@ static int has_rdtscp(void) {
   return (edx >> 27) & 1;
 }
 
-__attribute__((unused))
-static int has_rtm(void) {
+__attribute__((unused)) static int has_rtm(void) {
   unsigned int eax, ebx, ecx, edx;
   if (__get_cpuid_max(0, NULL) >= 7) {
     __cpuid_count(7, 0, eax, ebx, ecx, edx);
@@ -136,8 +130,7 @@ static int has_rtm(void) {
  * =========================================================================
  */
 
-__attribute__((unused))
-static void pin_cpu(int cpu) {
+__attribute__((unused)) static void pin_cpu(int cpu) {
   cpu_set_t set;
   CPU_ZERO(&set);
   CPU_SET(cpu, &set);

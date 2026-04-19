@@ -61,8 +61,7 @@ static inline __attribute__((always_inline)) void flush(volatile void *p) {
   __asm__ volatile("clflush 0(%0)" : : "c"(p) : "rax");
 }
 
-__attribute__((unused))
-static int flush_reload(volatile void *ptr) {
+__attribute__((unused)) static int flush_reload(volatile void *ptr) {
   uint64_t start, end;
   start = rdtscp_time();
   maccess(ptr);
@@ -71,8 +70,7 @@ static int flush_reload(volatile void *ptr) {
   return (end - start) < cache_miss_threshold;
 }
 
-__attribute__((unused))
-static size_t detect_flush_reload_threshold(void) {
+__attribute__((unused)) static size_t detect_flush_reload_threshold(void) {
   size_t reload_time = 0, flush_reload_time = 0;
   const size_t count = 1000000;
   size_t dummy[16];
@@ -106,8 +104,8 @@ static size_t detect_flush_reload_threshold(void) {
  * =========================================================================
  */
 
-__attribute__((unused))
-static char __attribute__((aligned(4096))) probe[4096 * 256];
+__attribute__((unused)) static char
+    __attribute__((aligned(4096))) probe[4096 * 256];
 
 /* =========================================================================
  * TSX (RTM) transactional wrappers
@@ -140,8 +138,7 @@ static inline __attribute__((always_inline)) void xend_wrapper(void) {
  * =========================================================================
  */
 
-__attribute__((unused))
-static uint64_t time_prefetch(uint64_t addr) {
+__attribute__((unused)) static uint64_t time_prefetch(uint64_t addr) {
   uint64_t t0_lo, t0_hi, t1_lo, t1_hi;
 
   __asm__ volatile(".intel_syntax noprefix;"

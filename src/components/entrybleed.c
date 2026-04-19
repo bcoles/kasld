@@ -335,8 +335,7 @@ unsigned long get_kernel_addr_entrybleed() {
 
   bool pti = detect_kpti();
 
-  printf("[.] %s CPU with KPTI %s\n",
-         (cpu == CPU_VENDOR_AMD ? "AMD" : "Intel"),
+  printf("[.] %s CPU with KPTI %s\n", (cpu == CPU_VENDOR_AMD ? "AMD" : "Intel"),
          (pti ? "enabled" : "disabled"));
 
   if (cpu == CPU_VENDOR_AMD && pti) {
