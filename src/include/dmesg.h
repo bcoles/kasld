@@ -8,6 +8,27 @@
 //
 // Callback receives each matched line (null-terminated, mutable).
 // Return 1 from the callback to continue, 0 to stop.
+//
+// Shared access gate for all dmesg-based components:
+//
+//   All dmesg_*.c components share the same access restrictions. The
+//   kernel log is accessed via klogctl(SYSLOG_ACTION_READ_ALL), falling
+//   back to reading /var/log/dmesg if klogctl fails.
+//
+//   Gate                              Effect                        Since
+//   ----                              ------                        -----
+//   kernel.dmesg_restrict = 1         klogctl requires CAP_SYSLOG   v2.6.37
+//   CAP_SYSLOG                        Overrides dmesg_restrict      v2.6.37
+//   Kernel lockdown (integrity mode)  Blocks klogctl entirely       v5.4
+//   /var/log/dmesg                    Fallback if klogctl fails     distro
+//
+//   On most modern distros, dmesg_restrict defaults to 1. The
+//   /var/log/dmesg fallback is distro-dependent (Debian/Ubuntu write
+//   the boot log there; others may not).
+//
+//   Individual dmesg components may have additional CONFIG_ or boot
+//   parameter requirements that control whether the leaked data
+//   appears in the kernel log at all — see each component's header.
 // ---
 // <bcoles@gmail.com>
 

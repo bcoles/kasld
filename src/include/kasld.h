@@ -2,27 +2,35 @@
 //
 // Expected kernel address space values for supported architectures.
 //
-// - KERNEL_VAS_START:    Expected virtual address for start of the kernel
-//                        virtual address space (VAS).
-//                        (eg. 0xc0000000 for 32-bit systems with 3GB vmsplit)
+// Each architecture header (arch/*.h) defines the following constants:
 //
-// - KERNEL_VAS_END:      Expected end of kernel virtual address space.
-//                        (including modules, I/O, guard regions, ...)
+// Virtual address space layout:
+// - PAGE_OFFSET:              Start of the kernel direct-mapping (linear map).
+// - KERNEL_VAS_START:         Lowest plausible kernel virtual address (floor).
+//                             Often equals PAGE_OFFSET, but may be lower on
+//                             architectures with configurable vmsplit to cover
+//                             all configs (eg. 0x40000000 on 32-bit x86/arm).
+// - KERNEL_VAS_END:           End of kernel virtual address space.
+// - KERNEL_BASE_MIN:          Minimum plausible kernel text virtual address.
+// - KERNEL_BASE_MAX:          Maximum plausible kernel text virtual address.
+// - MODULES_START:            Start of kernel module virtual address range.
+// - MODULES_END:              End of kernel module virtual address range.
+// - MODULES_RELATIVE_TO_TEXT: 1 if the module region shifts with KASLR text.
+// - KERNEL_ALIGN:             Kernel text address alignment.
+// - TEXT_OFFSET:              Offset from base address to _stext.
+// - KERNEL_TEXT_DEFAULT:      Default _stext virtual address (no KASLR).
+//                             Defined per-architecture.
 //
-// - KERNEL_BASE_MIN:     Expected minimum possible kernel base virtual address.
+// Physical addresses:
+// - PHYS_OFFSET:              Physical RAM base address.
+// - KERNEL_PHYS_MIN:          Minimum plausible kernel physical load address.
+// - KERNEL_PHYS_MAX:          Maximum plausible kernel physical load address.
 //
-// - KERNEL_BASE_MAX:     Expected maximum possible kernel base virtual address.
-//
-// - MODULES_START:       Expected start virtual address for kernel modules.
-//
-// - MODULES_END:         Expected end virtual address for kernel modules.
-//
-// - KERNEL_ALIGN:        Expected kernel address alignment.
-//                        (usually 2MiB on modern systems)
-//
-// - KERNEL_TEXT_DEFAULT: Default kernel base virtual address when KASLR is
-//                        disabled (including text offset). This value is
-//                        calculated automatically based on above values.
+// KASLR and address derivation:
+// - KASLR_SUPPORTED:          1 if the architecture has mainline KASLR.
+// - PHYS_VIRT_DECOUPLED:      1 if physical and virtual KASLR are independent
+//                             (phys_to_virt yields directmap, not text addr).
+// - phys_to_virt():           Macro to convert physical to virtual address.
 //
 // The default values should work on most systems, but may need
 // to be tweaked for the target system - especially old kernels,
@@ -134,8 +142,8 @@
  *            KASLR_BASE  = [KERNEL_BASE_MIN + 16 MiB, ...]
  *            KASLR_ALIGN = KERNEL_ALIGN (2 MiB)
  *
- *   arm64:   KERNEL_BASE = [KIMAGE_VADDR, KIMAGE_VADDR + 128 TiB]   (full VA)
- *            KASLR_BASE  = [KIMAGE_VADDR + 2^45, + 2^46]            (narrower)
+ *   arm64:   KERNEL_BASE = [0xffff800008000000, 0xffffffffff000000]  (~128 TiB)
+ *            KASLR_BASE  = [KIMAGE_VADDR + 2^45, + 2^45 + 2^46]     (~64 TiB)
  *            KASLR_ALIGN = 2 MiB (vs KERNEL_ALIGN = 64 KiB)
  * -----------------------------------------------------------------------------
  */
@@ -226,5 +234,31 @@ __attribute__((constructor)) static void kasld_init_buffering(void) {
 // Suppress GCC compiler warning when compiled with -pedantic:
 // warning: ISO C forbids an empty translation unit [-Wpedantic]
 typedef int make_iso_compilers_happy;
+
+/* Place a plain-text explanation string in a dedicated ELF section.
+ * The orchestrator reads this section from the binary (without executing it)
+ * and prints it when --explain is active.  Usage:
+ *
+ *   KASLD_EXPLAIN("One-paragraph explanation of the technique.");
+ */
+#define KASLD_EXPLAIN(text)                                                    \
+  __attribute__((                                                              \
+      used, section(".kasld_explain"))) static const char kasld_explain[] =    \
+      text
+
+/* Place machine-readable metadata in a dedicated ELF section.
+ * The orchestrator reads this section to determine the component's leak
+ * primitive type, address type, and applicable mitigations.  Format is
+ * newline-delimited key:value pairs.  Usage:
+ *
+ *   KASLD_META(
+ *       "method:parsed\n"
+ *       "addr:physical\n"
+ *       "sysctl:dmesg_restrict>=1\n"
+ *   )
+ */
+#define KASLD_META(text)                                                       \
+  __attribute__((                                                              \
+      used, section(".kasld_meta"))) static const char kasld_meta[] = text
 
 #endif /* KASLD_H */

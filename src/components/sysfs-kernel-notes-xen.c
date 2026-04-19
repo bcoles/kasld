@@ -29,6 +29,20 @@
 // Xen ELF notes were introduced in kernel v2.6.23-rc1~498^2~25 on 2007-07-19:
 // https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=5ead97c84fa7d63a6a7a2f4e9f18f452bd109045
 //
+// Leak primitive:
+//   Data leaked:      kernel text virtual address (startup_xen, hypercall_page)
+//   Kernel subsystem: arch/x86/xen — /sys/kernel/notes (ELF notes)
+//   Data structure:   Xen ELF notes (XEN_ELFNOTE_ENTRY,
+//   XEN_ELFNOTE_HYPERCALL_PAGE) Address type:     virtual (kernel text) Method:
+//   exact (ELF note parsing) Patched:          v6.9 (commit aaa8736370db);
+//   hardened v6.13 (223abe96ac0d) Status:           fixed in v6.9
+//
+// Mitigations:
+//   Patched in v6.9 (relocations in .notes skipped). Further hardened in
+//   v6.13 (place-relative relocations). Requires CONFIG_XEN=y.
+//   /sys/kernel/notes is world-readable (0444); no runtime sysctl
+//   can restrict access.
+//
 // Requires:
 // - Readable /sys/kernel/notes
 // - CONFIG_XEN=y (for Xen-specific notes; generic scan works without it)
@@ -68,6 +82,17 @@
 #define XEN_ELFNOTE_ENTRY 1
 #define XEN_ELFNOTE_HYPERCALL_PAGE 2
 #define XEN_ELFNOTE_PHYS32_ENTRY 18
+
+KASLD_EXPLAIN("On Xen PV and PVH guests, /sys/kernel/notes contains ELF notes "
+              "that embed KASLR-adjusted virtual addresses of startup_xen and "
+              "the hypercall page. These notes are world-readable and were not "
+              "updated after KASLR relocation until v6.9. Parsing the ELF note "
+              "structures reveals the kernel text virtual base.");
+
+KASLD_META("method:exact\n"
+           "addr:virtual\n"
+           "patch:v6.9\n"
+           "config:CONFIG_XEN\n");
 
 /* Check if /proc/kallsyms contains xen_elfnote_* global symbols,
  * indicating v6.13+ place-relative encoding where Xen ELF note values

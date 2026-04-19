@@ -12,6 +12,20 @@
 // Regression was later reverted in kernel v5.16-rc1~197^2~21 on 2021-10-15:
 // https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/fs/proc/base.c?id=54354c6a9f7fd5572d2b9ec108117c4f376d4d23
 //
+// Leak primitive:
+//   Data leaked:      kernel function virtual address (wait channel)
+//   Kernel subsystem: fs/proc — /proc/<PID>/stat field 34 (wchan)
+//   Data structure:   task_struct → last sleeping kernel function address
+//   Address type:     virtual (kernel text)
+//   Method:           parsed (field 34 of stat file)
+//   Patched:          v4.4 (commit b2f73922d119)
+//   Status:           fixed in v4.4; regressed v5.12–v5.15; re-fixed v5.16
+//
+// Mitigations:
+//   Patched in v4.4 (wchan zeroed for non-root). Regression in v5.12
+//   re-exposed wchan; reverted in v5.16. No runtime sysctl can
+//   restrict access.
+//
 // References:
 // https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=b2f73922d119686323f14fbbe46587f863852328
 // https://www.cr0.org/paper/to-jt-linux-alsr-leak.pdf
@@ -27,6 +41,17 @@
 #include <string.h>
 #include <sys/types.h>
 #include <unistd.h>
+
+KASLD_EXPLAIN(
+    "Reads the wchan (wait channel) field from /proc/<PPID>/stat, which "
+    "reports the kernel text virtual address where a process is sleeping. "
+    "Before v4.4, this was an unfiltered kernel pointer. Fixed in v4.4 "
+    "by zeroing the field; regressed in v5.12-v5.15 where the raw "
+    "address was again exposed, then re-fixed in v5.16.");
+
+KASLD_META("method:exact\n"
+           "addr:virtual\n"
+           "patch:v4.4\n");
 
 unsigned long get_kernel_addr_proc_stat_wchan() {
   FILE *f;

@@ -11,6 +11,19 @@
 // Format: "<hex_phys_addr> <hex_size>"
 // Example: "0x00000001015f0000 1024"
 //
+// Leak primitive:
+//   Data leaked:      physical memory layout (PHYS_OFFSET from vmcoreinfo)
+//   Kernel subsystem: kernel/ksysfs — /sys/kernel/vmcoreinfo
+//   Data structure:   vmcoreinfo note (NUMBER(phys_base), SYMBOL(_stext), etc.)
+//   Address type:     physical (+ virtual symbols if present)
+//   Method:           parsed
+//   Status:           unfixed (information exposure by design)
+//
+// Mitigations:
+//   CONFIG_VMCORE_INFO=n (or CONFIG_CRASH_DUMP=n) removes the file.
+//   The file is world-readable (0444); no runtime sysctl can restrict
+//   access. Kernel lockdown (integrity mode) blocks access.
+//
 // Requires:
 // - CONFIG_VMCORE_INFO (selected by crash dump support; enabled on
 //   most distros)
@@ -28,6 +41,18 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+
+KASLD_EXPLAIN(
+    "Reads /sys/kernel/vmcoreinfo, a world-readable (0444) file that "
+    "exposes the physical address of the vmcoreinfo_note page and, on "
+    "some kernels, virtual symbol addresses. The file exists when "
+    "CONFIG_VMCORE_INFO or CONFIG_CRASH_DUMP is enabled. The physical "
+    "address reveals DRAM layout; symbols may reveal kernel text base.");
+
+KASLD_META("method:parsed\n"
+           "addr:physical\n"
+           "lockdown:integrity\n"
+           "config:CONFIG_VMCORE_INFO\n");
 
 unsigned long get_phys_addr_vmcoreinfo(void) {
   FILE *f;

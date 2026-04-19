@@ -19,6 +19,19 @@
 // leaked kernel stack address: ffffffff9880105f
 // possible kernel base: ffffffff98800000
 //
+// Leak primitive:
+//   Data leaked:      kernel stack address (exception handler return address)
+//   Kernel subsystem: QEMU TCG — iret instruction emulation bug
+//   Data structure:   kernel exception stack frame (return address)
+//   Address type:     virtual (kernel stack)
+//   Method:           exact (QEMU reads kernel stack instead of user stack)
+//   Patched:          QEMU v9.1 (commit 0bd385e7)
+//   Status:           fixed in QEMU v9.1 (not a kernel bug)
+//
+// Mitigations:
+//   Fixed in QEMU v9.1. Only affects QEMU TCG (software emulation);
+//   KVM (hardware virtualization) is not affected. Not a kernel bug.
+//
 // References:
 // https://kqx.io/post/qemu-nday/#leak-exploit
 // https://bugs.launchpad.net/qemu/+bug/1866892
@@ -39,6 +52,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/mman.h>
+
+KASLD_EXPLAIN(
+    "Inside a QEMU TCG (software-emulated) x86_64 guest, the iret "
+    "instruction was not fully emulated: TCG stored the kernel stack "
+    "pointer in a guest-accessible register during the iret sequence. "
+    "Executing iret from a user-mode code segment leaks the host "
+    "kernel stack address into the guest. Fixed in QEMU v9.1.");
+
+KASLD_META("method:exact\n"
+           "addr:virtual\n"
+           "patch:QEMU v9.1\n");
 
 uint64_t kbase;
 static sigjmp_buf env;

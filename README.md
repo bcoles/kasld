@@ -30,6 +30,8 @@ Supports:
 
 * [Usage](#usage)
   * [Example Output](#example-output)
+  * [Explain mode](#explain-mode)
+  * [Hardening assessment](#hardening-assessment)
 * [Building](#building)
 * [Configuration](#configuration)
 * [Architecture and Design](#architecture-and-design)
@@ -45,6 +47,7 @@ Supports:
     * [Labels](#labels)
     * [Exit code convention](#exit-code-convention)
     * [Minimal component](#minimal-component)
+    * [Component metadata](#component-metadata)
     * [API reference](#api-reference)
 * [KASLR and Kernel Memory Layout](#kaslr-and-kernel-memory-layout)
   * [Function Offsets](#function-offsets)
@@ -195,6 +198,64 @@ Physical memory layout:
 
 </details>
 
+
+### Explain mode
+
+The `--explain` (`-e`) flag prints a brief technique explanation before
+each component runs. Each component embeds a plain-text explanation in a
+dedicated ELF section (`.kasld_explain`) via the `KASLD_EXPLAIN()` macro.
+The orchestrator reads this section from the binary without executing it
+and displays it inline.
+
+This mode implies `--verbose`.
+
+```
+$ ./kasld --explain
+...
+[dmesg_free_reserved_area]
+  Searches dmesg for 'Freeing ... memory' messages from free_reserved_area()
+  that print kernel virtual addresses. These messages were removed in v4.10.
+  On older kernels, they reveal kernel text and init section virtual addresses.
+  Access is gated by dmesg_restrict.
+
+  -> unavailable (feature/hardware not present)
+...
+```
+
+
+### Hardening assessment
+
+The `--hardening` (`-H`) flag appends a post-run hardening assessment that
+evaluates the system's KASLR defenses based on the component results and
+their machine-readable metadata. The assessment has five sections:
+
+1. **Active defenses** — runtime security settings detected on the system
+   (`dmesg_restrict`, `kptr_restrict`, `perf_event_paranoid`, lockdown mode)
+   and their current values.
+
+2. **Available hardening** — actionable suggestions for settings that are
+   not currently active but would block one or more successful components
+   (e.g. "Set `kernel.dmesg_restrict` = 1" if dmesg-based leaks succeeded).
+
+3. **Patched vulnerabilities** — components that target known CVEs. Shows
+   how many are patched (returned no result or unavailable) versus unpatched
+   (successfully leaked), with CVE identifiers and patch versions.
+
+4. **Compile-time attack surface** — successful components that exploit
+   kernel features enabled at compile time (e.g. `CONFIG_E820_TABLE`,
+   `CONFIG_EFI`), grouped by address type (physical vs. virtual).
+
+5. **No known mitigation** — successful components with no known sysctl
+   gate, lockdown restriction, CVE, or kernel config dependency. These
+   represent leak vectors that cannot be blocked by runtime hardening
+   alone.
+
+The hardening assessment is also available in JSON output (`-j -H`),
+where it appears in a top-level `"hardening"` object with fields
+`active_defenses`, `suggestions`, `patched_vulns`, `unpatched_vulns`,
+`config_surface`, and `no_mitigation`.
+
+
 ## Building
 
 A compiler which supports the `_GNU_SOURCE` macro is required due to
@@ -218,7 +279,11 @@ Command-line options:
 -1, --oneline   Single-line summary output
 -m, --markdown  Markdown table output
 -c, --color     Colorize text output (auto-detected for TTYs)
+-q, --quiet     Suppress banner, progress, and warnings
 -v, --verbose   Show component output
+-e, --explain   Show technique explanations before each component
+-H, --hardening Show post-run hardening assessment
+-t, --timeout N Per-component timeout in seconds (default: 10)
 -V, --version   Print version and exit
 -h, --help      Show this help
 ```
@@ -533,6 +598,63 @@ The `#if` guard compiles out the derivation on decoupled architectures
 virtual text. See [Cross-section derivation](#cross-section-derivation)
 for details.
 
+#### Component metadata
+
+Each component embeds two optional pieces of metadata via dedicated macros:
+
+**`KASLD_EXPLAIN(text)`** — a plain-text explanation of the technique,
+stored in a `.kasld_explain` ELF section. Displayed by `--explain` mode.
+
+```c
+KASLD_EXPLAIN("Searches dmesg for 'Freeing ... memory' messages from "
+              "free_reserved_area() that print kernel virtual addresses.");
+```
+
+**`KASLD_META(text)`** — machine-readable key:value metadata, stored in a
+`.kasld_meta` ELF section. The orchestrator reads this to determine the
+component's leak primitive, address type, applicable mitigations, and
+CVE associations. Used by the `--hardening` assessment.
+
+```c
+KASLD_META(
+    "method:parsed\n"
+    "addr:virtual\n"
+    "sysctl:dmesg_restrict>=1\n"
+    "bypass:CAP_SYSLOG\n"
+    "fallback:/var/log/dmesg\n"
+    "patch:v4.10\n"
+);
+```
+
+Supported metadata keys:
+
+| Key | Description | Example |
+|---|---|---|
+| `method` | How the leak works | `parsed`, `timing`, `brute`, `probed` |
+| `addr` | Address type leaked | `virtual`, `physical`, `both` |
+| `sysctl` | Runtime sysctl gate | `dmesg_restrict>=1`, `kptr_restrict>=1` |
+| `bypass` | Condition that bypasses the gate | `CAP_SYSLOG`, `adm group` |
+| `fallback` | Alternative data source | `/var/log/dmesg` |
+| `lockdown` | Blocked by kernel lockdown | `integrity`, `confidentiality` |
+| `config` | Kernel compile-time config dependency | `CONFIG_E820_TABLE` |
+| `cve` | Associated CVE identifier | `CVE-2022-4543` |
+| `patch` | Kernel version where the leak was patched | `v4.10`, `v6.2` |
+
+Each component should also include structured comment blocks in its file
+header documenting the leak primitive and mitigations:
+
+```c
+// Leak primitive:
+//   Data leaked:      kernel virtual addresses (freed memory section boundaries)
+//   Kernel subsystem: mm — free_reserved_area()
+//   Address type:     virtual (kernel text / initrd)
+//   Method:           parsed (dmesg string)
+//   Status:           removed in v4.10
+//
+// Mitigations:
+//   Removed in v4.10. Access gated by dmesg_restrict.
+```
+
 #### API reference
 
 The complete component API spans two headers:
@@ -543,6 +665,8 @@ and [`src/include/kasld_internal.h`](src/include/kasld_internal.h)
 | Symbol | Purpose |
 |---|---|
 | `kasld_result(type, section, addr, label)` | Emit a tagged result line |
+| `KASLD_EXPLAIN(text)` | Embed a technique explanation (`.kasld_explain` ELF section) |
+| `KASLD_META(text)` | Embed machine-readable metadata (`.kasld_meta` ELF section) |
 | `KASLD_ADDR_VIRT`, `KASLD_ADDR_PHYS`, `KASLD_ADDR_DEFAULT` | Type characters |
 | `KASLD_SECTION_TEXT`, `KASLD_SECTION_DRAM`, ... | Section strings |
 | `KASLD_EXIT_UNAVAILABLE` | Exit code 69: feature/hardware not present |

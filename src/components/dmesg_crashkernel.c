@@ -16,6 +16,21 @@
 //   Reserving 256MB of low memory at 128MB for crashkernel (low RAM limit:
 //   4095MB)
 //
+// Leak primitive:
+//   Data leaked:      physical address range reserved for crash kernel
+//   Kernel subsystem: kernel/crash_reserve — reserve_crashkernel()
+//   Data structure:   crashk_res (struct resource, physical start/end)
+//   Address type:     physical (DRAM)
+//   Method:           parsed (dmesg string)
+//   Status:           unfixed (printed unconditionally when crashkernel= is
+//   set)
+//
+// Mitigations:
+//   No crashkernel= boot parameter means no message. Access gated by
+//   dmesg_restrict (see dmesg.h for shared access gate details). On
+//   decoupled architectures, physical addresses cannot derive the
+//   virtual text base.
+//
 // Requires:
 // - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities; or
 //   readable /var/log/dmesg.
@@ -39,6 +54,19 @@
 #include <unistd.h>
 
 #define range_ctx addr_range
+
+KASLD_EXPLAIN(
+    "Searches dmesg for crashkernel (kdump) reservation messages that "
+    "print the physical address range reserved for the crash kernel. "
+    "Only present when the crashkernel= boot parameter is used. The "
+    "reserved range reveals physical DRAM layout. Access is gated by "
+    "dmesg_restrict.");
+
+KASLD_META("method:parsed\n"
+           "addr:physical\n"
+           "sysctl:dmesg_restrict>=1\n"
+           "bypass:CAP_SYSLOG\n"
+           "fallback:/var/log/dmesg\n");
 
 /* Modern format: "crashkernel reserved: 0x<start> - 0x<end>" */
 static int on_reserved(const char *line, void *ctx) {

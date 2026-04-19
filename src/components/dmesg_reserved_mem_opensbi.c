@@ -19,6 +19,19 @@
 // On systems with a known phys->virt offset mapping (i.e. without KASLR or
 // pre-v6.6 kernels), this may be used to identify the kernel virtual address.
 //
+// Leak primitive:
+//   Data leaked:      physical DRAM base address (OpenSBI M-mode reservation)
+//   Kernel subsystem: drivers/of/fdt_reserved_mem — mmode_resv0 DT node
+//   Data structure:   reserved memory node (physical address of DRAM base)
+//   Address type:     physical (DRAM)
+//   Method:           parsed (dmesg string)
+//   Status:           unfixed (printed unconditionally on RISC-V with OpenSBI)
+//
+// Mitigations:
+//   Access gated by dmesg_restrict (see dmesg.h for shared access gate
+//   details). RISC-V only. On RISC-V 64 with KASLR (v6.6+, decoupled),
+//   physical addresses cannot derive the virtual text base.
+//
 // Requires:
 // - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities; or
 //   readable /var/log/dmesg.
@@ -42,6 +55,18 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+
+KASLD_EXPLAIN(
+    "Searches dmesg for OpenSBI M-mode reserved memory (mmode_resv0@) "
+    "messages on RISC-V. The reservation address is typically at the "
+    "start of physical DRAM, revealing the DRAM base. RISC-V only. "
+    "Access is gated by dmesg_restrict.");
+
+KASLD_META("method:parsed\n"
+           "addr:physical\n"
+           "sysctl:dmesg_restrict>=1\n"
+           "bypass:CAP_SYSLOG\n"
+           "fallback:/var/log/dmesg\n");
 
 static const char *needle = "mmode_resv0@";
 

@@ -6,6 +6,22 @@
 //
 // Patched March 2021.
 //
+// Leak primitive:
+//   Data leaked:      kernel pointer to iscsi_transport struct
+//   Kernel subsystem: drivers/scsi — /sys/class/iscsi_transport/*/handle
+//   Data structure:   struct iscsi_transport (module data pointer)
+//   Address type:     virtual (kernel module data)
+//   Method:           exact (sysfs file read)
+//   CVE:              CVE-2021-27363
+//   Patched:          v5.12 (multiple commits)
+//   Status:           fixed in v5.12
+//
+// Mitigations:
+//   Patched in v5.12. Requires CONFIG_SCSI_ISCSI_ATTRS=y/m. The module
+//   can be auto-loaded by opening a NETLINK_ISCSI socket (unprivileged).
+//   The handle file is world-readable (0444); no runtime sysctl
+//   can restrict access.
+//
 // References:
 // https://nvd.nist.gov/vuln/detail/CVE-2021-27363
 // https://blog.grimm-co.com/2021/03/new-old-bugs-in-linux-kernel.html
@@ -27,6 +43,19 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
+
+KASLD_EXPLAIN(
+    "CVE-2021-27363: /sys/class/iscsi_transport/*/handle exposes the "
+    "raw kernel pointer to the struct iscsi_transport, which resides "
+    "in kernel module memory. This world-readable sysfs attribute was "
+    "not filtered through %pK. Fixed in v5.12 by restricting the "
+    "attribute to root.");
+
+KASLD_META("method:exact\n"
+           "addr:virtual\n"
+           "cve:CVE-2021-27363\n"
+           "patch:v5.12\n"
+           "config:CONFIG_SCSI_ISCSI_ATTRS\n");
 
 unsigned long get_kernel_addr_iscsi_iser_transport() {
   FILE *f;

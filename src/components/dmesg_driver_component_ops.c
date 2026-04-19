@@ -16,6 +16,19 @@
 // Kernels may be compiled without debugging symbols to decrease the size of
 // the kernel image.
 //
+// Leak primitive:
+//   Data leaked:      kernel function pointers (driver component ops)
+//   Kernel subsystem: drivers/base/component — component_bind/__component_add
+//   Data structure:   struct component_ops function pointers
+//   Address type:     virtual (kernel text / module text)
+//   Method:           parsed (dmesg string)
+//   Status:           unfixed (requires CONFIG_KALLSYMS=n to leak raw pointers)
+//
+// Mitigations:
+//   CONFIG_KALLSYMS=y causes %ps to print symbol names instead of raw
+//   pointers. Access gated by dmesg_restrict (see dmesg.h for shared
+//   access gate details).
+//
 // Requires:
 // - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities; or
 //   readable /var/log/dmesg.
@@ -37,6 +50,19 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+
+KASLD_EXPLAIN(
+    "Searches dmesg for raw function pointer values printed by the "
+    "driver component framework (ops 0x...). When CONFIG_KALLSYMS is "
+    "disabled, the kernel prints raw %p pointers instead of symbolized "
+    "names. These pointers are kernel text or module virtual addresses. "
+    "Access is gated by dmesg_restrict.");
+
+KASLD_META("method:parsed\n"
+           "addr:virtual\n"
+           "sysctl:dmesg_restrict>=1\n"
+           "bypass:CAP_SYSLOG\n"
+           "fallback:/var/log/dmesg\n");
 
 static const char *needle = " (ops 0x";
 

@@ -8,6 +8,11 @@
 // Uses zlib for native gzip decompression when available (HAVE_ZLIB),
 // otherwise falls back to popen("zcat").
 //
+// Detection component — does not leak an address.
+//   Purpose: reads /proc/config.gz to determine whether
+//   CONFIG_RANDOMIZE_BASE is set (KASLR compiled in) and what the
+//   32-bit vmsplit (CONFIG_PAGE_OFFSET) is.
+//
 // Requires:
 // - CONFIG_PROC_FS=y
 // - CONFIG_IKCONFIG=y
@@ -37,6 +42,15 @@
 #endif
 
 #define PROC_CONFIG_GZ "/proc/config.gz"
+
+KASLD_EXPLAIN(
+    "Reads /proc/config.gz (requires CONFIG_IKCONFIG_PROC) to check "
+    "CONFIG_RANDOMIZE_BASE and CONFIG_PAGE_OFFSET. Determines whether "
+    "KASLR is compiled in and the 32-bit user/kernel address split.");
+
+KASLD_META("method:detection\n"
+           "addr:none\n"
+           "config:CONFIG_IKCONFIG_PROC\n");
 
 /* Decompress /proc/config.gz into a seekable FILE*.
  * Uses zlib if available, otherwise falls back to popen("zcat"). */

@@ -54,6 +54,7 @@
 // https://elixir.bootlin.com/linux/v6.12/source/arch/x86/include/asm/pgtable_64_types.h
 #define MODULES_START 0xffffffffc0000000ul
 #define MODULES_END 0xffffffffff000000ul
+// Module region is fixed at MODULES_VADDR; does not shift with KASLR.
 #define MODULES_RELATIVE_TO_TEXT 0
 
 // For x86_64, possible max alignment is 0x100_0000 (16MiB) with default of
@@ -70,8 +71,10 @@
 #define KERNEL_PHYS_MIN PHYSICAL_START
 #define KERNEL_PHYS_MAX (16ul * GB)
 
+// x86_64 kernel text starts at the base address (no offset from _stext).
 #define TEXT_OFFSET 0
 
+// Default: 0xffffffff81000000 (base + 16 MiB PHYSICAL_START).
 #define KERNEL_TEXT_DEFAULT (KERNEL_BASE_MIN + PHYSICAL_START + TEXT_OFFSET)
 
 #define KASLR_SUPPORTED 1

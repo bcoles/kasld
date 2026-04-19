@@ -6,6 +6,18 @@
 // ppc64:
 // [    0.000000] Found initrd at 0xc000000001a00000:0xc000000002a26000
 //
+// Leak primitive:
+//   Data leaked:      initrd physical/virtual load address
+//   Kernel subsystem: arch/powerpc/kernel — check_for_initrd()
+//   Data structure:   initrd_start / initrd_end (kernel virtual addresses)
+//   Address type:     virtual (kernel direct-map, ppc64)
+//   Method:           parsed (dmesg string)
+//   Status:           unfixed (boot message printed unconditionally)
+//
+// Mitigations:
+//   CONFIG_BLK_DEV_INITRD=n prevents the message. Access gated by
+//   dmesg_restrict (see dmesg.h for shared access gate details).
+//
 // Requires:
 // - CONFIG_BLK_DEV_INITRD=y
 // - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities; or
@@ -25,6 +37,18 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+
+KASLD_EXPLAIN("Searches dmesg for the PowerPC check_for_initrd() message that "
+              "prints the initrd start virtual address. On ppc64, this is a "
+              "direct-map (linear map) virtual address that reveals the kernel "
+              "PAGE_OFFSET. Access is gated by dmesg_restrict.");
+
+KASLD_META("method:parsed\n"
+           "addr:virtual\n"
+           "sysctl:dmesg_restrict>=1\n"
+           "bypass:CAP_SYSLOG\n"
+           "fallback:/var/log/dmesg\n"
+           "config:CONFIG_BLK_DEV_INITRD\n");
 
 static const char *needle = "Found initrd at 0x";
 

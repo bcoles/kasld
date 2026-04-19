@@ -11,6 +11,20 @@
 // Patched in kernel v5.10-rc7~25 on 2020-12-03.
 // https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=4f134b89a24b965991e7c345b9a4591821f7c2a6
 //
+// Leak primitive:
+//   Data leaked:      kernel stack data (uninitialized upper bytes of syscall
+//   args) Kernel subsystem: fs/proc — /proc/<PID>/syscall (collect_syscall)
+//   Data structure:   struct syscall_info → data.args[] (upper 32 bits on
+//   32-bit) Address type:     virtual (kernel stack) Method:           parsed
+//   CVE:              CVE-2020-28588
+//   Patched:          v5.10 (commit 4f134b89a24b)
+//   Status:           fixed in v5.10
+//
+// Mitigations:
+//   Patched in v5.10. No runtime sysctl could restrict access — the bug was
+//   in collect_syscall() failing to zero upper bytes of 64-bit arg fields on
+//   32-bit systems. Only affects 32-bit kernels (ARM, x86_32, etc.).
+//
 // Requires:
 // - CONFIG_HAVE_ARCH_TRACEHOOK=y
 //
@@ -30,6 +44,19 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+
+KASLD_EXPLAIN(
+    "Reads /proc/<PID>/syscall on a 32-bit kernel. The file reports six "
+    "64-bit argument registers, but on 32-bit only the lower 32 bits are "
+    "used. Before the v5.10 fix (CVE-2020-28588), the upper 32 bits were "
+    "not zeroed, leaking stale kernel stack data that often contains "
+    "kernel text or stack pointers.");
+
+KASLD_META("method:exact\n"
+           "addr:virtual\n"
+           "cve:CVE-2020-28588\n"
+           "patch:v5.10\n"
+           "config:CONFIG_HAVE_ARCH_TRACEHOOK\n");
 
 unsigned long get_kernel_addr_proc_pid_syscall() {
   FILE *f;

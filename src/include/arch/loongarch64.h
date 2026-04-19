@@ -43,7 +43,9 @@
 
 // https://elixir.bootlin.com/linux/v6.8.5/source/arch/loongarch/Kconfig#L629
 #define KERNEL_BASE_MIN PAGE_OFFSET
-#define KERNEL_BASE_MAX 0x9000000010000000ul
+// KASLR offset: get_random_u16() << 16, max ~4 GiB. Use 8 GiB headroom.
+// https://elixir.bootlin.com/linux/v6.12/source/arch/loongarch/kernel/relocate.c
+#define KERNEL_BASE_MAX 0x9000000200000000ul
 
 // Modules are in XKVRANGE at vm_map_base + PCI_IOSIZE + 2*PAGE_SIZE.
 // vm_map_base = 0 - (1 << vabits); for 48-bit VA: 0xffff000000000000.
@@ -67,6 +69,11 @@
 #define KERNEL_PHYS_MAX (64ul * GB)
 
 #define KERNEL_TEXT_DEFAULT (KERNEL_BASE_MIN + TEXT_OFFSET)
+
+// KASLR randomization: offset = get_random_u16() << 16, range [0, 0xFFFF0000].
+// Virtual text = PAGE_OFFSET + TEXT_OFFSET + offset.
+#define KASLR_BASE_MIN (PAGE_OFFSET + TEXT_OFFSET)
+#define KASLR_BASE_MAX (PAGE_OFFSET + TEXT_OFFSET + 0x100000000ul)
 
 #define KASLR_SUPPORTED 1
 

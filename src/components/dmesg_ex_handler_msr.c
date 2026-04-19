@@ -38,6 +38,18 @@
 // possible kernel base: ffffffffad400000
 // clang-format on
 //
+// Leak primitive:
+//   Data leaked:      kernel function virtual address (native_read/write_msr
+//   RIP) Kernel subsystem: arch/x86/mm/extable — ex_handler_msr() Data
+//   structure:   struct pt_regs → ip (instruction pointer at MSR fault) Address
+//   type:     virtual (kernel text) Method:           parsed (dmesg string)
+//   Status:           unfixed (uses raw %lx format for RIP)
+//
+// Mitigations:
+//   CONFIG_KALLSYMS=y causes %pS to print symbolized names (but %lx
+//   raw pointer is always printed regardless). Access gated by
+//   dmesg_restrict (see dmesg.h for shared access gate details).
+//
 // Requires:
 // - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities; or
 //   readable /var/log/dmesg.
@@ -59,6 +71,19 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+
+KASLD_EXPLAIN(
+    "Searches dmesg for x86 MSR exception handler messages that print "
+    "the faulting RIP as a raw hex address (unchecked_isa_dma RIP: "
+    "0x...). When CONFIG_KALLSYMS is off, the kernel uses %%lx instead "
+    "of %%pS, exposing raw kernel text pointers. Access is gated by "
+    "dmesg_restrict.");
+
+KASLD_META("method:parsed\n"
+           "addr:virtual\n"
+           "sysctl:dmesg_restrict>=1\n"
+           "bypass:CAP_SYSLOG\n"
+           "fallback:/var/log/dmesg\n");
 
 static const char *needle = " at rIP: 0x";
 

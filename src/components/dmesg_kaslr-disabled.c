@@ -21,6 +21,11 @@
 // Introduced for ARM64 in kernel v5.5-rc1~22^2~11^9~1 on 2019-11-09:
 // https://github.com/torvalds/linux/commit/294a9ddde6cdbf931a28b8c8c928d3f799b61cb5
 //
+// Detection component — does not leak an address.
+//   Purpose: searches dmesg for messages indicating KASLR was disabled
+//   (nokaslr boot param, missing entropy seed, etc.). If found, the
+//   default text base is the actual kernel base.
+//
 // Requires:
 // - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities; or
 //   readable /var/log/dmesg.
@@ -43,6 +48,18 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+
+KASLD_EXPLAIN("Searches dmesg for messages indicating KASLR was disabled or "
+              "could not be enabled (nokaslr boot flag, missing entropy seed, "
+              "insufficient randomness). If KASLR is off, the compile-time "
+              "default kernel text base is the actual load address. Access is "
+              "gated by dmesg_restrict.");
+
+KASLD_META("method:detection\n"
+           "addr:none\n"
+           "sysctl:dmesg_restrict>=1\n"
+           "bypass:CAP_SYSLOG\n"
+           "fallback:/var/log/dmesg\n");
 
 static int on_match(const char *line, void *ctx) {
   bool *found = ctx;

@@ -2,6 +2,11 @@
 //
 // Check kernel command line /proc/cmdline for nokaslr flag.
 //
+// Detection component — does not leak an address.
+//   Purpose: checks whether the kernel was booted with the nokaslr
+//   flag, which disables KASLR. If set, the default text base is the
+//   actual kernel base. /proc/cmdline is world-readable (0444).
+//
 // References:
 // https://www.kernel.org/doc/html/v6.1/admin-guide/kernel-parameters.html
 // ---
@@ -10,6 +15,14 @@
 #include "include/cmdline.h"
 #include "include/kasld.h"
 #include <stdio.h>
+
+KASLD_EXPLAIN(
+    "Checks /proc/cmdline for the nokaslr boot flag. If present, KASLR "
+    "was disabled at boot and the default text base is the actual "
+    "kernel base. /proc/cmdline is world-readable (0444);.");
+
+KASLD_META("method:detection\n"
+           "addr:none\n");
 
 int main(void) {
   printf("[.] trying /proc/cmdline ...\n");

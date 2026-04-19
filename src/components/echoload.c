@@ -28,6 +28,21 @@
 // Martin Schwarzl, and Daniel Gruss:
 // "KASLR: Break It, Fix It, Repeat" (Asia CCS 2020)
 //
+// Leak primitive:
+//   Data leaked:      kernel text virtual base address
+//   Kernel subsystem: arch/x86 — Meltdown zero-return transient execution
+//   Data structure:   kernel text mapping (faulting load returns zero)
+//   Address type:     virtual (kernel text)
+//   Method:           timing (Flush+Reload on probe array)
+//   Status:           unfixed on Meltdown-vulnerable hardware
+//
+// Mitigations:
+//   Non-Meltdown hardware (all AMD CPUs, Intel Ice Lake+) is immune —
+//   the transient load stalls instead of returning zero. TSX disabled
+//   (microcode or CONFIG_X86_INTEL_TSX_MODE_OFF) blocks the most
+//   reliable mode but signal-handler mode still works. KPTI does not
+//   fully mitigate (zero-return still distinguishes mapped vs unmapped).
+//
 // References:
 // https://cc0x1f.net/publications/kaslr.pdf
 // https://github.com/cc0x1f/store-to-leak-forwarding-there-and-back-again
@@ -92,6 +107,19 @@
 #define SCAN_STEP (KERNEL_ALIGN)
 #define SCAN_SLOTS                                                             \
   ((unsigned long)(KERNEL_BASE_MAX - KERNEL_BASE_MIN) / SCAN_STEP)
+
+KASLD_EXPLAIN("EchoLoad exploits the Meltdown vulnerability's zero-return "
+              "behavior: on affected Intel CPUs, a speculative kernel memory "
+              "read that faults returns zero to the transient execution path, "
+              "but only for mapped pages. By using Flush+Reload to detect "
+              "whether the speculative load produced a zero byte, the attack "
+              "distinguishes mapped from unmapped kernel pages, revealing the "
+              "KASLR text base. Requires Meltdown-vulnerable hardware (pre-Ice "
+              "Lake Intel);.");
+
+KASLD_META("method:timing\n"
+           "addr:virtual\n"
+           "hardware:Meltdown-vulnerable CPU required\n");
 
 /* =========================================================================
  * Timing primitives (x86_64 only)

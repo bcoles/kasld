@@ -10,6 +10,19 @@
 // Allocated new RAMDISK: [mem 0x37200000-0x37be2fff]
 // Move RAMDISK from [mem 0x35f1b000-0x369fdfff] to [mem 0x37200000-0x37be2fff]
 //
+// Leak primitive:
+//   Data leaked:      physical address of RAMDISK (initrd) reservation
+//   Kernel subsystem: arch/x86/kernel/setup — reserve_initrd() /
+//   relocate_initrd() Data structure:   RAMDISK physical address range Address
+//   type:     physical (DRAM) Method:           parsed (dmesg string) Status:
+//   unfixed (printed unconditionally when initrd is present)
+//
+// Mitigations:
+//   CONFIG_BLK_DEV_INITRD=n prevents the message (but initrd is near-
+//   universal). Access gated by dmesg_restrict (see dmesg.h for shared
+//   access gate details). On x86_64 (decoupled), physical addresses
+//   cannot derive the virtual text base.
+//
 // Requires:
 // - CONFIG_BLK_DEV_INITRD=y (very common; initrd/initramfs is standard)
 // - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities; or
@@ -33,6 +46,19 @@
 #if !defined(__i386__) && !defined(__x86_64__) && !defined(__amd64__)
 #error "Architecture is not supported"
 #endif
+
+KASLD_EXPLAIN(
+    "Searches dmesg for x86 RAMDISK physical address messages from "
+    "reserve_initrd() and relocate_initrd(). These boot messages print "
+    "the physical address range where the initrd/initramfs was loaded. "
+    "x86 only. Access is gated by dmesg_restrict.");
+
+KASLD_META("method:parsed\n"
+           "addr:physical\n"
+           "sysctl:dmesg_restrict>=1\n"
+           "bypass:CAP_SYSLOG\n"
+           "fallback:/var/log/dmesg\n"
+           "config:CONFIG_BLK_DEV_INITRD\n");
 
 /* Parse "[mem 0x<start>-0x<end>]" and return start address, or 0 on failure */
 static unsigned long parse_mem_range(const char *p) {

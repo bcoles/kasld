@@ -11,6 +11,20 @@
 // Most x86_64 distribution kernels have NUMA enabled, so this message
 // appears even on single-socket systems (using dummy_numa_init).
 //
+// Leak primitive:
+//   Data leaked:      physical address of NODE_DATA allocation (top of DRAM)
+//   Kernel subsystem: mm/numa, arch/x86/mm/numa — alloc_node_data()
+//   Data structure:   NODE_DATA pgdat allocation (physical address range)
+//   Address type:     physical (DRAM)
+//   Method:           parsed (dmesg string)
+//   Status:           unfixed (printed unconditionally on NUMA systems)
+//
+// Mitigations:
+//   Access gated by dmesg_restrict (see dmesg.h for shared access gate
+//   details). Printed unconditionally on NUMA-capable kernels. On
+//   decoupled architectures, physical addresses cannot derive the
+//   virtual text base.
+//
 // Requires:
 // - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities; or
 //   readable /var/log/dmesg.
@@ -34,6 +48,18 @@
 #include <unistd.h>
 
 #define range_ctx addr_range
+
+KASLD_EXPLAIN(
+    "Searches dmesg for NODE_DATA() allocation messages that print the "
+    "physical address of NUMA node data structures allocated at the top "
+    "of each node's memory. This reveals the physical DRAM ceiling. "
+    "Access is gated by dmesg_restrict.");
+
+KASLD_META("method:parsed\n"
+           "addr:physical\n"
+           "sysctl:dmesg_restrict>=1\n"
+           "bypass:CAP_SYSLOG\n"
+           "fallback:/var/log/dmesg\n");
 
 static int on_match(const char *line, void *ctx) {
   struct range_ctx *r = ctx;

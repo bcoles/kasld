@@ -13,6 +13,20 @@
 // These are common on ARM/ARM64/embedded and on systems with DMA-constrained
 // devices. Less common on x86 desktop but present on many x86 servers.
 //
+// Leak primitive:
+//   Data leaked:      physical addresses of CMA/DMA memory pool reservations
+//   Kernel subsystem: kernel/dma, mm/cma — reserved memory initialization
+//   Data structure:   CMA/DMA pool base address (physical)
+//   Address type:     physical (DRAM)
+//   Method:           parsed (dmesg string)
+//   Status:           unfixed (boot messages printed unconditionally)
+//
+// Mitigations:
+//   Access gated by dmesg_restrict (see dmesg.h for shared access gate
+//   details). The messages are printed unconditionally during boot when
+//   CMA/DMA pools are configured. On decoupled architectures, physical
+//   addresses cannot derive the virtual text base.
+//
 // Requires:
 // - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities; or
 //   readable /var/log/dmesg.
@@ -37,6 +51,18 @@
 #include <unistd.h>
 
 #define range_ctx addr_range
+
+KASLD_EXPLAIN("Searches dmesg for CMA (Contiguous Memory Allocator) or DMA "
+              "reserved memory messages that print physical address ranges. "
+              "These boot-time messages reveal where the kernel reserved "
+              "contiguous physical memory for DMA operations. Access is gated "
+              "by dmesg_restrict.");
+
+KASLD_META("method:parsed\n"
+           "addr:physical\n"
+           "sysctl:dmesg_restrict>=1\n"
+           "bypass:CAP_SYSLOG\n"
+           "fallback:/var/log/dmesg\n");
 
 static void update_range(struct range_ctx *r, unsigned long addr) {
   if (!addr)

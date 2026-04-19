@@ -2,11 +2,12 @@
 //
 // Definitions for ARM 32-bit (arm6l / arm7l / armhf)
 //
-// KASLR support added in commit 588ab3f9afdfa1a6b1e5761c858b2c4ab6098285 in
-// kernel v4.6-rc1~110 on 2016-03-17.
+// arm32 does not have mainline KASLR support. A patchset by Ard Biesheuvel
+// (August 2017) wired KASLR into the EFI stub via efi_random_alloc() in
+// drivers/firmware/efi/libstub/arm32-stub.c, but the series was never merged.
+// https://www.openwall.com/lists/kernel-hardening/2017/08/14/31
 //
 // References:
-// https://github.com/torvalds/linux/commit/588ab3f9afdfa1a6b1e5761c858b2c4ab6098285
 // https://people.kernel.org/linusw/how-the-arm32-linux-kernel-decompresses
 // https://people.kernel.org/linusw/how-the-arm32-kernel-starts
 // https://www.kernel.org/doc/Documentation/arm/Porting
@@ -41,14 +42,17 @@
 // configurations. The orchestrator adjusts at runtime once vmsplit is detected.
 #define KERNEL_VAS_START KERNEL_BASE_MIN
 #define KERNEL_VAS_END 0xfffffffful
+// Above this, addresses fall in the vectors/fixmap region.
 #define KERNEL_BASE_MAX 0xf0000000ul
 
 // Modules are located below kernel: PAGE_OFFSET - 16MiB (0x01000000)
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm/include/asm/memory.h#L51
 #define MODULES_START (PAGE_OFFSET - 0x01000000) // 0xbf000000ul
 #define MODULES_END PAGE_OFFSET
+// Module region is fixed below PAGE_OFFSET; does not shift with KASLR.
 #define MODULES_RELATIVE_TO_TEXT 0
 
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm/include/asm/efi.h
 #define KERNEL_ALIGN (2 * MB)
 
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm/Makefile#L145
@@ -58,6 +62,7 @@
 #define KERNEL_PHYS_MIN 0ul
 #define KERNEL_PHYS_MAX (4ul * GB)
 
+// Default: 0xc0008000 (PAGE_OFFSET + 32 KiB TEXT_OFFSET).
 #define KERNEL_TEXT_DEFAULT (PAGE_OFFSET + TEXT_OFFSET)
 
 #define KASLR_SUPPORTED 0

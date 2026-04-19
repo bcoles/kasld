@@ -1,6 +1,11 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
 // Print architecture default kernel base text virtual address
+//
+// Detection component — does not leak an address.
+//   Purpose: reports the compile-time default kernel text base for the
+//   current architecture. If KASLR is disabled or unsupported, this is
+//   the actual kernel base. No access control applies.
 // ---
 // <bcoles@gmail.com>
 
@@ -8,6 +13,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+KASLD_EXPLAIN(
+    "Reports the compile-time default kernel text base address for the "
+    "current architecture. When KASLR is disabled or unsupported, this "
+    "is the actual kernel load address. No access control applies.");
+
+KASLD_META("method:detection\n"
+           "addr:none\n");
 
 unsigned long get_kernel_addr_default() {
   return (unsigned long)KERNEL_TEXT_DEFAULT;

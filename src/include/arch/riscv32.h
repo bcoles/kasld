@@ -27,6 +27,7 @@
 #define KERNEL_VAS_END 0xfffffffful
 
 #define KERNEL_BASE_MIN PAGE_OFFSET
+// Above this, addresses fall in the fixmap/vmalloc region.
 #define KERNEL_BASE_MAX 0xf0000000ul
 
 #define MODULES_START PAGE_OFFSET
@@ -36,14 +37,17 @@
 // https://elixir.bootlin.com/linux/v6.2-rc2/source/arch/riscv/include/asm/efi.h#L41
 #define KERNEL_ALIGN (4 * MB)
 
+// .head.text section size (8 KiB) before _stext.
 #define TEXT_OFFSET 0x2000
 
 // Plausible physical address range for kernel image
 #define KERNEL_PHYS_MIN 0ul
 #define KERNEL_PHYS_MAX (1ul * GB)
 
+// Default: 0xc0002000 (PAGE_OFFSET + 8 KiB .head.text).
 #define KERNEL_TEXT_DEFAULT (KERNEL_BASE_MIN + TEXT_OFFSET)
 
+// RISC-V 32-bit does not have mainline KASLR.
 #define KASLR_SUPPORTED 0
 
 #endif /* KASLD_RISCV32_H */

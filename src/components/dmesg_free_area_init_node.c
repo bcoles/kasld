@@ -19,6 +19,19 @@
 // On systems with a known phys->virt offset mapping, the lowest
 // address may be used to identify the kernel direct-map base.
 //
+// Leak primitive:
+//   Data leaked:      physical DRAM address ranges (zone/node boundaries)
+//   Kernel subsystem: mm/mm_init — zone/node initialization messages
+//   Data structure:   zone ranges, node ranges, initmem setup (physical)
+//   Address type:     physical (DRAM)
+//   Method:           parsed (dmesg string)
+//   Status:           unfixed (printed unconditionally during boot)
+//
+// Mitigations:
+//   Access gated by dmesg_restrict (see dmesg.h for shared access gate
+//   details). Messages printed unconditionally. On decoupled architectures,
+//   physical addresses cannot derive the virtual text base.
+//
 // Requires:
 // - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities; or
 //   readable /var/log/dmesg.
@@ -42,6 +55,18 @@
 #include <unistd.h>
 
 #define range_ctx addr_range
+
+KASLD_EXPLAIN(
+    "Extracts physical DRAM address ranges from mm_init zone setup "
+    "messages in dmesg. Messages like 'Zone ranges', 'early memory "
+    "node ranges', and '[mem ...]' report physical address boundaries "
+    "for each NUMA node. Access is gated by dmesg_restrict.");
+
+KASLD_META("method:parsed\n"
+           "addr:physical\n"
+           "sysctl:dmesg_restrict>=1\n"
+           "bypass:CAP_SYSLOG\n"
+           "fallback:/var/log/dmesg\n");
 
 /* Parse "[mem 0x<start>-0x<end>]" and update lo/hi */
 static int on_mem_range(const char *line, void *ctx) {

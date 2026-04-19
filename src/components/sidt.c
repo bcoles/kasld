@@ -44,6 +44,21 @@
 //   3. IDT in CPU entry area      -> no leak (4.15+ with KPTI)
 //   4. UMIP dummy value           -> no leak (CPU prevents the read)
 //
+// Leak primitive:
+//   Data leaked:      IDT base virtual address
+//   Kernel subsystem: arch/x86 — SIDT instruction (unprivileged)
+//   Data structure:   IDTR (Interrupt Descriptor Table Register)
+//   Address type:     virtual
+//   Method:           exact (CPU instruction)
+//   Patched:          v3.10 (commit 4eefbe792bae; IDT moved to fixmap)
+//   Status:           fixed in v3.10 (predates KASLR v3.14)
+//
+// Mitigations:
+//   IDT moved to fixmap in v3.10 (constant virtual address). KPTI
+//   (v4.15) further moves IDT to CPU entry area. UMIP (Intel Cannon
+//   Lake+, AMD Zen 2+) traps SIDT in ring 3 with #GP, returning
+//   dummy values. Never a viable KASLR bypass on upstream kernels.
+//
 // References:
 //   https://gruss.cc/files/kaiser.pdf ("KASLR is Dead: Long Live KASLR")
 //   https://www.ieee-security.org/TC/SP2013/papers/4977a191.pdf
@@ -69,6 +84,19 @@
 #else
 #define UMIP_DUMMY_IDT_BASE 0xffff0000UL
 #endif
+
+KASLD_EXPLAIN(
+    "Executes the unprivileged SIDT instruction to read the Interrupt "
+    "Descriptor Table (IDT) base virtual address. Before v3.10, the IDT "
+    "lived in the kernel BSS at a fixed offset from the text base. Since "
+    "v3.10 (predating KASLR v3.14), the IDT was moved to a per-CPU "
+    "fixmap page, making SIDT return a constant address. Intel UMIP "
+    "(User-Mode Instruction Prevention) faults on SIDT from ring 3.");
+
+KASLD_META("method:exact\n"
+           "addr:virtual\n"
+           "patch:v3.10\n"
+           "hardware:UMIP\n");
 
 /* IDTR layout: 2-byte limit followed by base address (4 or 8 bytes) */
 struct idtr {

@@ -19,6 +19,19 @@
 // Not available on x86/x86_64 (uses ACPI instead of device tree).
 // Use sysfs_firmware_memmap or sysfs_memory_blocks on x86.
 //
+// Leak primitive:
+//   Data leaked:      physical DRAM base and size (device tree memory node)
+//   Kernel subsystem: drivers/of — /sys/firmware/devicetree/base/memory*/reg
+//   Data structure:   device tree memory node reg property (address + size
+//   cells) Address type:     physical (DRAM) Method:           parsed (binary
+//   sysfs property) Status:           unfixed (information exposure by design)
+//
+// Mitigations:
+//   CONFIG_OF=n removes device tree sysfs entirely (not applicable on
+//   x86). The reg property is world-readable (0444); no runtime
+//   sysctl can restrict access. On decoupled architectures, physical
+//   addresses cannot derive the virtual text base.
+//
 // Requires:
 // - CONFIG_OF (device tree support — standard on ARM/RISC-V/MIPS/PPC)
 // - CONFIG_SYSFS
@@ -38,6 +51,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+KASLD_EXPLAIN(
+    "Reads the physical DRAM base address and size from the device tree "
+    "sysfs memory node (/sys/firmware/devicetree/base/memory*/reg). "
+    "This world-readable binary property contains the physical address "
+    "ranges of system RAM. Only present on device tree platforms "
+    "(ARM, ARM64, RISC-V, MIPS, PowerPC); requires CONFIG_OF.");
+
+KASLD_META("method:parsed\n"
+           "addr:physical\n"
+           "config:CONFIG_OF\n");
 
 /* Read raw binary content from a sysfs file. Returns bytes read, or -1. */
 static int read_binary(const char *path, unsigned char *buf, size_t len) {

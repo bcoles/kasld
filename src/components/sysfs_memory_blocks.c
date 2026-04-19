@@ -11,6 +11,20 @@
 // each block is: phys_index * block_size. By scanning all online memory
 // blocks, we derive the lowest and highest physical DRAM addresses.
 //
+// Leak primitive:
+//   Data leaked:      physical DRAM address range (memory block indices)
+//   Kernel subsystem: drivers/base/memory —
+//   /sys/devices/system/memory/memory*/phys_index Data structure:   struct
+//   memory_block → phys_index (section number) Address type:     physical
+//   (DRAM) Method:           parsed (sysfs text attribute) Status: unfixed
+//   (information exposure by design)
+//
+// Mitigations:
+//   CONFIG_MEMORY_HOTPLUG=n removes the memory block sysfs entries.
+//   The phys_index attribute is world-readable (0444); no runtime
+//   sysctl can restrict access. On decoupled architectures, physical
+//   addresses cannot derive the virtual text base.
+//
 // Requires:
 // - CONFIG_MEMORY_HOTPLUG (common on distros)
 //
@@ -27,6 +41,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+KASLD_EXPLAIN(
+    "Reads physical memory block addresses from "
+    "/sys/devices/system/memory/memory*/phys_index. Each world-readable "
+    "(0444) entry reports the physical page frame number of a memory "
+    "block (typically 128 MiB). Enumerating all blocks maps the "
+    "physical DRAM layout. Requires CONFIG_MEMORY_HOTPLUG.");
+
+KASLD_META("method:parsed\n"
+           "addr:physical\n"
+           "config:CONFIG_MEMORY_HOTPLUG\n");
 
 static int read_file_line(const char *path, char *buf, size_t len) {
   FILE *f = fopen(path, "r");

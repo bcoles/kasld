@@ -7,6 +7,18 @@
 //
 // Requires:
 // - kernel.kptr_restrict = 0 (Default on Debian <= 9 systems)
+//
+// Leak primitive:
+//   Data leaked:      kernel module virtual load addresses
+//   Kernel subsystem: kernel/module — /proc/modules
+//   Data structure:   struct module → module_core (base address)
+//   Address type:     virtual (kernel module text)
+//   Method:           exact (proc file read)
+//   Status:           gated by design (kptr_restrict)
+//
+// Mitigations:
+//   kernel.kptr_restrict >= 1 masks module addresses to 0x0.
+//   Bypass requires CAP_SYSLOG or CAP_SYS_ADMIN.
 // ---
 // <bcoles@gmail.com>
 
@@ -21,6 +33,19 @@
 #include <unistd.h>
 
 #define module_range addr_range
+
+KASLD_EXPLAIN(
+    "Reads kernel module virtual load addresses from /proc/modules. "
+    "Each line reports the module name, size, and base address. When "
+    "kernel.kptr_restrict is 0 (or the reader has CAP_SYSLOG), raw "
+    "addresses are shown. Module addresses fall in the modules region, "
+    "which on some architectures is at a fixed offset from kernel "
+    "text.");
+
+KASLD_META("method:exact\n"
+           "addr:virtual\n"
+           "sysctl:kptr_restrict>=1\n"
+           "bypass:CAP_SYSLOG\n");
 
 struct module_range get_addr_proc_modules() {
   FILE *f;

@@ -13,6 +13,19 @@
 // Multiplying last_pfn by PAGE_SIZE (0x1000) gives the physical end of RAM:
 //   0x340000 * 0x1000 = 0x340000000 (~13 GiB)
 //
+// Leak primitive:
+//   Data leaked:      physical RAM ceiling (last page frame number)
+//   Kernel subsystem: arch/x86/kernel/e820 — e820__end_of_ram_pfn()
+//   Data structure:   last_pfn, max_arch_pfn (page frame numbers)
+//   Address type:     physical (DRAM, as PFN × PAGE_SIZE)
+//   Method:           parsed (dmesg string)
+//   Status:           unfixed (printed unconditionally during boot)
+//
+// Mitigations:
+//   Access gated by dmesg_restrict (see dmesg.h for shared access gate
+//   details). Always printed on x86/x86_64. On x86_64 (decoupled),
+//   physical addresses cannot derive the virtual text base.
+//
 // Requires:
 // - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities; or
 //   readable /var/log/dmesg.
@@ -35,6 +48,18 @@
 #if !defined(__i386__) && !defined(__x86_64__) && !defined(__amd64__)
 #error "Architecture is not supported"
 #endif
+
+KASLD_EXPLAIN(
+    "Searches dmesg for x86 last_pfn and max_arch_pfn values from "
+    "e820__end_of_ram_pfn(). Multiplying the page frame number by "
+    "PAGE_SIZE (4096) gives the physical RAM ceiling. x86 only. Access "
+    "is gated by dmesg_restrict.");
+
+KASLD_META("method:parsed\n"
+           "addr:physical\n"
+           "sysctl:dmesg_restrict>=1\n"
+           "bypass:CAP_SYSLOG\n"
+           "fallback:/var/log/dmesg\n");
 
 static int match_count;
 

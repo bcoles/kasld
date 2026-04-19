@@ -7,6 +7,18 @@
 //
 // Android ION drivers were removed in kernel v5.11-rc1.
 //
+// Leak primitive:
+//   Data leaked:      kernel symbol address (last_ion_buf) and virtual mapping
+//   Kernel subsystem: drivers/staging/android/ion — ion_snapshot()
+//   Data structure:   ion_snapshot map address (kernel virtual pointer)
+//   Address type:     virtual
+//   Method:           parsed (dmesg string)
+//   Status:           removed in v5.11 (Android ION subsystem deleted)
+//
+// Mitigations:
+//   Android ION was removed in v5.11. Access gated by dmesg_restrict
+//   (see dmesg.h for shared access gate details).
+//
 // Requires:
 // - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities; or
 //   readable /var/log/dmesg.
@@ -28,6 +40,18 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+
+KASLD_EXPLAIN(
+    "Searches dmesg for Android ION ion_snapshot messages that print "
+    "the last_ion_buf symbol virtual address. The ION memory allocator "
+    "was removed from mainline in v5.11. Access is gated by "
+    "dmesg_restrict.");
+
+KASLD_META("method:parsed\n"
+           "addr:virtual\n"
+           "sysctl:dmesg_restrict>=1\n"
+           "bypass:CAP_SYSLOG\n"
+           "fallback:/var/log/dmesg\n");
 
 static int on_match(const char *line, void *ctx) {
   unsigned long *result = ctx;

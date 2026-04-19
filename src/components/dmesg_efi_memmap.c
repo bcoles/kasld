@@ -13,6 +13,20 @@
 // Both formats require `efi=debug` (`efi_enabled(EFI_DBG)`), which is
 // not commonly available on production systems.
 //
+// Leak primitive:
+//   Data leaked:      physical memory map (EFI memory map entries)
+//   Kernel subsystem: drivers/firmware/efi — efi_print_memmap()
+//   Data structure:   EFI memory descriptor entries (physical address ranges)
+//   Address type:     physical (DRAM + MMIO)
+//   Method:           parsed (dmesg string)
+//   Status:           unfixed (but requires efi=debug boot parameter)
+//
+// Mitigations:
+//   Requires efi=debug boot parameter (not set by default). Access
+//   gated by dmesg_restrict (see dmesg.h for shared access gate details).
+//   On decoupled architectures, physical addresses cannot derive the
+//   virtual text base.
+//
 // Requires:
 // - efi=debug kernel boot parameter.
 // - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities; or
@@ -36,6 +50,18 @@
 #include <unistd.h>
 
 #define range_ctx addr_range
+
+KASLD_EXPLAIN(
+    "Parses EFI memory map entries from dmesg (requires efi=debug boot "
+    "parameter). Each entry lists a physical address range and its type "
+    "(conventional memory, MMIO, runtime services, etc.). Extracts "
+    "physical DRAM and MMIO ranges. Access is gated by dmesg_restrict.");
+
+KASLD_META("method:parsed\n"
+           "addr:physical\n"
+           "sysctl:dmesg_restrict>=1\n"
+           "bypass:CAP_SYSLOG\n"
+           "fallback:/var/log/dmesg\n");
 
 struct efi_ctx {
   struct range_ctx dram;

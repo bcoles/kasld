@@ -13,6 +13,19 @@
 // to gate address visibility. This requires CAP_SYSLOG, or
 // perf_event_paranoid <= 1 (with kptr_restrict = 0), to reveal
 // addresses. Without these, all addresses appear as zero.
+//
+// Leak primitive:
+//   Data leaked:      kernel symbol virtual addresses (_stext, etc.)
+//   Kernel subsystem: kernel/kallsyms — /proc/kallsyms
+//   Data structure:   kernel symbol table (struct kallsym_iter)
+//   Address type:     virtual (kernel text / data)
+//   Method:           exact (symbol table read)
+//   Status:           gated by design (kptr_restrict)
+//
+// Mitigations:
+//   kernel.kptr_restrict >= 1 (default since v5.10) masks addresses.
+//   Bypass requires CAP_SYSLOG or (kptr_restrict=0 + perf_event_paranoid<=1).
+//   On modern kernels, kallsyms_show_value() checks at open() time.
 // ---
 // <bcoles@gmail.com>
 
@@ -22,6 +35,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+KASLD_EXPLAIN(
+    "Reads kernel symbol virtual addresses from /proc/kallsyms. When "
+    "kernel.kptr_restrict is 0 (or the reader has CAP_SYSLOG), symbol "
+    "addresses are printed in full. The _stext symbol gives the kernel "
+    "text base directly. Since v5.10, kptr_restrict defaults to 1, "
+    "hiding addresses from unprivileged users.");
+
+KASLD_META("method:exact\n"
+           "addr:virtual\n"
+           "sysctl:kptr_restrict>=1\n"
+           "bypass:CAP_SYSLOG\n");
 
 unsigned long get_kernel_sym(char *name) {
   FILE *f;

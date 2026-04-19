@@ -94,6 +94,21 @@ enum component_outcome {
   OUTCOME_TIMEOUT,       /* Killed by timeout */
 };
 
+/* Component metadata from .kasld_meta ELF section */
+#define META_MAX_ENTRIES 32
+#define META_KEY_LEN 32
+#define META_VALUE_LEN 256
+
+struct meta_entry {
+  char key[META_KEY_LEN];
+  char value[META_VALUE_LEN];
+};
+
+struct component_meta {
+  struct meta_entry entries[META_MAX_ENTRIES];
+  int num_entries;
+};
+
 /* Per-component execution record (always populated) */
 struct component_log {
   char name[256];
@@ -101,6 +116,8 @@ struct component_log {
   enum component_outcome outcome;
   char lines[MAX_COMPONENT_LINES][MAX_LINE_LEN];
   int num_lines;
+  char *explain; /* malloc'd explain string from .kasld_explain section */
+  struct component_meta meta; /* parsed .kasld_meta section */
 };
 
 /* Aggregate component outcome counts */
@@ -161,6 +178,21 @@ extern int quiet;
 extern int json_output;
 extern int oneline_output;
 extern int markdown_output;
+extern int explain_mode;
+extern int hardening_mode;
+extern int sysctl_kptr_restrict;
+extern int sysctl_dmesg_restrict;
+extern int sysctl_perf_event_paranoid;
+
+/* Kernel lockdown status */
+enum lockdown_mode {
+  LOCKDOWN_UNAVAILABLE = -1,
+  LOCKDOWN_NONE = 0,
+  LOCKDOWN_INTEGRITY,
+  LOCKDOWN_CONFIDENTIALITY,
+};
+extern enum lockdown_mode sysctl_lockdown;
+
 /* color_output declared above (before c()) */
 
 extern struct kasld_layout layout;
@@ -173,6 +205,9 @@ extern int num_comp_logs;
  * Shared functions (defined in orchestrator.c)
  * =========================================================================
  */
+const char *meta_get(const struct component_meta *m, const char *key);
+int meta_get_all(const struct component_meta *m, const char *key,
+                 const char **values, int max_values);
 unsigned long group_consensus(char type, const char *section);
 void group_consensus_info(char type, const char *section,
                           const char **best_method, int *n_sources,

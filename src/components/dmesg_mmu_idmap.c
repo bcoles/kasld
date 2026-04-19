@@ -8,6 +8,19 @@
 // On 32-bit arm systems, the `identity_mapping_add()` function prints
 // mappings to the kernel log.
 //
+// Leak primitive:
+//   Data leaked:      kernel identity mapping virtual/physical address
+//   Kernel subsystem: arch/arm/mm/idmap — identity_mapping_add()
+//   Data structure:   identity map page table entries (__turn_mmu_on address)
+//   Address type:     virtual (kernel text, ARM32)
+//   Method:           parsed (dmesg string)
+//   Status:           unfixed (printed unconditionally on ARM32 with MMU)
+//
+// Mitigations:
+//   CONFIG_MMU=n disables (impractical — always enabled on ARM32 Linux).
+//   Access gated by dmesg_restrict (see dmesg.h for shared access gate
+//   details).
+//
 // Requires:
 // - CONFIG_MMU=y
 // - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities; or
@@ -31,6 +44,18 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+
+KASLD_EXPLAIN(
+    "Searches dmesg for ARM32 identity_mapping_add() messages printed "
+    "during early MMU setup. These print the physical-to-virtual "
+    "identity mapping address range, which on ARM32 corresponds to the "
+    "kernel text virtual address. Access is gated by dmesg_restrict.");
+
+KASLD_META("method:parsed\n"
+           "addr:virtual\n"
+           "sysctl:dmesg_restrict>=1\n"
+           "bypass:CAP_SYSLOG\n"
+           "fallback:/var/log/dmesg\n");
 
 static int on_match(const char *line, void *ctx) {
   unsigned long *result = ctx;

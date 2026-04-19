@@ -11,6 +11,19 @@
 // the `acpi=off` flag. Systems without Advanced Configuration and Power
 // Interface (ACPI) do not support NUMA.
 //
+// Leak primitive:
+//   Data leaked:      physical DRAM base address (memblock_start_of_DRAM)
+//   Kernel subsystem: mm/numa, arch/x86/mm/numa — dummy_numa_init()
+//   Data structure:   memblock_start_of_DRAM() return value (physical address)
+//   Address type:     physical (DRAM)
+//   Method:           parsed (dmesg string)
+//   Status:           unfixed (printed unconditionally on non-NUMA systems)
+//
+// Mitigations:
+//   Access gated by dmesg_restrict (see dmesg.h for shared access gate
+//   details). Only printed on systems without NUMA support. On decoupled
+//   architectures, physical addresses cannot derive the virtual text base.
+//
 // Requires:
 // - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities; or
 //   readable /var/log/dmesg.
@@ -33,6 +46,18 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+
+KASLD_EXPLAIN(
+    "Searches dmesg for fake_numa_init() or dummy_numa_init() messages "
+    "that print memblock_start_of_DRAM() on non-NUMA systems. This "
+    "reveals the physical base address of system RAM. Access is gated "
+    "by dmesg_restrict.");
+
+KASLD_META("method:parsed\n"
+           "addr:physical\n"
+           "sysctl:dmesg_restrict>=1\n"
+           "bypass:CAP_SYSLOG\n"
+           "fallback:/var/log/dmesg\n");
 
 static int on_match(const char *line, void *ctx) {
   unsigned long *result = ctx;

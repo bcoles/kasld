@@ -29,6 +29,7 @@
 #define KERNEL_VAS_END 0xfffffffful
 
 #define KERNEL_BASE_MIN PAGE_OFFSET
+// Above this, addresses fall in the I/O or fixmap region.
 #define KERNEL_BASE_MAX 0xf0000000ul
 
 // Modules are located below kernel: PAGE_OFFSET - 256MiB (0x10000000)
@@ -51,6 +52,7 @@
 #define KERNEL_PHYS_MIN 0ul
 #define KERNEL_PHYS_MAX (1ul * GB)
 
+// Default: 0xc0000000 (PAGE_OFFSET, no text offset on PPC32).
 #define KERNEL_TEXT_DEFAULT (KERNEL_BASE_MIN + TEXT_OFFSET)
 
 #define KASLR_SUPPORTED 1

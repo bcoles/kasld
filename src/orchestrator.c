@@ -32,6 +32,8 @@
 #include <time.h>
 #include <unistd.h>
 
+#include <elf.h>
+
 #ifndef VERSION
 #define VERSION "unknown"
 #endif
@@ -42,6 +44,16 @@ int json_output;
 int oneline_output;
 int markdown_output;
 int color_output;
+int explain_mode;
+int hardening_mode;
+
+/* Stored sysctl values for hardening report (-1 = unavailable) */
+int sysctl_kptr_restrict = -1;
+int sysctl_dmesg_restrict = -1;
+int sysctl_perf_event_paranoid = -1;
+
+/* Kernel lockdown status */
+enum lockdown_mode sysctl_lockdown = LOCKDOWN_UNAVAILABLE;
 
 /* True when no structured output format is selected (plain text mode) */
 #define plain_output() (!json_output && !oneline_output && !markdown_output)
@@ -292,6 +304,46 @@ static void read_proc_value(const char *label, const char *path) {
   fclose(f);
 }
 
+/* Read a /proc/sys/ file and return its integer value, or -1 on failure */
+static int read_sysctl_int(const char *path) {
+  FILE *f = fopen(path, "r");
+  if (!f)
+    return -1;
+  int val = -1;
+  if (fscanf(f, "%d", &val) != 1)
+    val = -1;
+  fclose(f);
+  return val;
+}
+
+/* Read /sys/kernel/security/lockdown and parse the active mode.
+ * Format: "none [integrity] confidentiality" — bracketed word is active. */
+static enum lockdown_mode read_lockdown(void) {
+  FILE *f = fopen("/sys/kernel/security/lockdown", "r");
+  if (!f)
+    return LOCKDOWN_UNAVAILABLE;
+  char buf[128];
+  if (!fgets(buf, sizeof(buf), f)) {
+    fclose(f);
+    return LOCKDOWN_UNAVAILABLE;
+  }
+  fclose(f);
+
+  char *open = strchr(buf, '[');
+  char *close = open ? strchr(open, ']') : NULL;
+  if (!open || !close)
+    return LOCKDOWN_NONE;
+
+  size_t len = (size_t)(close - open - 1);
+  if (len >= 15 && memcmp(open + 1, "confidentiality", 15) == 0)
+    return LOCKDOWN_CONFIDENTIALITY;
+  if (len >= 9 && memcmp(open + 1, "integrity", 9) == 0)
+    return LOCKDOWN_INTEGRITY;
+  if (len >= 4 && memcmp(open + 1, "none", 4) == 0)
+    return LOCKDOWN_NONE;
+  return LOCKDOWN_NONE;
+}
+
 static void print_banner(void) {
   struct utsname u;
   if (uname(&u) < 0) {
@@ -324,12 +376,44 @@ static void print_system_config(void) {
   printf("%-30s%s\n", "Kernel version:", u.version);
   printf("%-30s%s\n", "Kernel arch:", u.machine);
 
+  /* Read and store sysctl values */
+  sysctl_kptr_restrict = read_sysctl_int("/proc/sys/kernel/kptr_restrict");
+  sysctl_dmesg_restrict = read_sysctl_int("/proc/sys/kernel/dmesg_restrict");
+  sysctl_perf_event_paranoid =
+      read_sysctl_int("/proc/sys/kernel/perf_event_paranoid");
+  sysctl_lockdown = read_lockdown();
+
   printf("\n");
   read_proc_value("kernel.kptr_restrict:", "/proc/sys/kernel/kptr_restrict");
   read_proc_value("kernel.dmesg_restrict:", "/proc/sys/kernel/dmesg_restrict");
   read_proc_value("kernel.panic_on_oops:", "/proc/sys/kernel/panic_on_oops");
   read_proc_value("kernel.perf_event_paranoid:",
                   "/proc/sys/kernel/perf_event_paranoid");
+
+  /* Lockdown status */
+  {
+    const char *mode_str;
+    switch (sysctl_lockdown) {
+    case LOCKDOWN_CONFIDENTIALITY:
+      mode_str = "confidentiality";
+      break;
+    case LOCKDOWN_INTEGRITY:
+      mode_str = "integrity";
+      break;
+    case LOCKDOWN_NONE:
+      mode_str = "none";
+      break;
+    default:
+      mode_str = NULL;
+      break;
+    }
+    if (mode_str)
+      printf("%-30s%s\n", "Kernel lockdown:", mode_str);
+    else
+      printf("%-30s%s(unavailable)%s\n", "Kernel lockdown:", c(C_DIM),
+             c(C_RESET));
+  }
+
   printf("\n");
 
   const char *check_files[][2] = {
@@ -378,45 +462,8 @@ int num_results;
 /* Name of the currently-running component (set by run_component) */
 static const char *current_component_name;
 
-/* Method lookup table: maps component name to methodology category.
- * Categories: exact, parsed, timing, heuristic.
- * Default for unlisted components: "parsed" (most are dmesg/sysfs parsers). */
-static const struct {
-  const char *name;
-  const char *method;
-} method_table[] = {
-    /* exact — deterministic kernel pointer */
-    {"proc-kallsyms", "exact"},
-    {"proc-modules", "exact"},
-    {"pppd_kallsyms", "exact"},
-    {"proc-pid-syscall", "exact"},
-    {"proc-stat-wchan", "exact"},
-    {"qemu-tcg-iret", "exact"},
-    {"sysfs-module-sections", "exact"},
-    {"sysfs_nf_conntrack", "exact"},
-    {"sysfs_iscsi_transport_handle", "exact"},
-    /* timing — microarchitectural side-channel */
-    {"prefetch", "timing"},
-    {"entrybleed", "timing"},
-    {"databounce", "timing"},
-    {"echoload", "timing"},
-    {"kernelsnitch", "timing"},
-    /* heuristic — iterative probing or uninitialized memory */
-    {"mincore", "heuristic"},
-    {"mmap-brute-vmsplit", "heuristic"},
-    {"perf_event_open", "heuristic"},
-    {"bcm_msg_head_struct", "heuristic"},
-    /* parsed — everything else (dmesg, sysfs, proc text parsing) */
-    {NULL, NULL},
-};
-
-static const char *method_for(const char *name) {
-  for (int i = 0; method_table[i].name; i++) {
-    if (strcmp(method_table[i].name, name) == 0)
-      return method_table[i].method;
-  }
-  return "parsed";
-}
+/* Method of the currently-running component (from .kasld_meta or default) */
+static const char *current_component_method = "parsed";
 
 /* Forward declarations for functions defined in the post-processing section */
 static unsigned long align_for_section(char type, const char *section,
@@ -469,9 +516,9 @@ static void capture_result(const char *line) {
   r->aligned = align_for_section(type_ch, section, addr);
   r->valid = validate_for_section(type_ch, section, addr);
 
-  /* Set method from static lookup table */
+  /* Set method from component metadata */
   const char *meth =
-      current_component_name ? method_for(current_component_name) : "parsed";
+      current_component_method ? current_component_method : "parsed";
   strncpy(r->method, meth, METHOD_LEN - 1);
   r->method[METHOD_LEN - 1] = '\0';
 
@@ -486,11 +533,262 @@ static long deadline_remaining_ms(const struct timespec *deadline) {
   return ms > 0 ? ms : 0;
 }
 
+/* =========================================================================
+ * ELF section extractor
+ *
+ * Reads a named section from a component ELF binary without executing it.
+ * Supports both ELF32 and ELF64.  Returns a malloc'd string (caller must
+ * free) or NULL if the section is absent or unreadable.
+ * =========================================================================
+ */
+static char *extract_elf_section(const char *path, const char *section_name) {
+  FILE *f = fopen(path, "rb");
+  if (!f)
+    return NULL;
+
+  unsigned char e_ident[EI_NIDENT];
+  if (fread(e_ident, 1, EI_NIDENT, f) != EI_NIDENT)
+    goto fail;
+  if (e_ident[EI_MAG0] != ELFMAG0 || e_ident[EI_MAG1] != ELFMAG1 ||
+      e_ident[EI_MAG2] != ELFMAG2 || e_ident[EI_MAG3] != ELFMAG3)
+    goto fail;
+
+  int is64 = (e_ident[EI_CLASS] == ELFCLASS64);
+
+  /* Read ELF header fields we need: e_shoff, e_shentsize, e_shnum,
+   * e_shstrndx.  Seek past e_ident which we already consumed. */
+  uint64_t e_shoff;
+  uint16_t e_shentsize, e_shnum, e_shstrndx;
+
+  if (is64) {
+    Elf64_Ehdr hdr;
+    rewind(f);
+    if (fread(&hdr, 1, sizeof(hdr), f) != sizeof(hdr))
+      goto fail;
+    e_shoff = hdr.e_shoff;
+    e_shentsize = hdr.e_shentsize;
+    e_shnum = hdr.e_shnum;
+    e_shstrndx = hdr.e_shstrndx;
+  } else {
+    Elf32_Ehdr hdr;
+    rewind(f);
+    if (fread(&hdr, 1, sizeof(hdr), f) != sizeof(hdr))
+      goto fail;
+    e_shoff = hdr.e_shoff;
+    e_shentsize = hdr.e_shentsize;
+    e_shnum = hdr.e_shnum;
+    e_shstrndx = hdr.e_shstrndx;
+  }
+
+  if (!e_shoff || !e_shnum || e_shstrndx >= e_shnum)
+    goto fail;
+
+  /* Read the section header string table (.shstrtab) to resolve names */
+  uint64_t shstrtab_off, shstrtab_size;
+  uint64_t shstrtab_hdr_off = e_shoff + (uint64_t)e_shstrndx * e_shentsize;
+  if (is64) {
+    Elf64_Shdr shdr;
+    if (shstrtab_hdr_off > LONG_MAX ||
+        fseek(f, (long)shstrtab_hdr_off, SEEK_SET))
+      goto fail;
+    if (fread(&shdr, 1, sizeof(shdr), f) != sizeof(shdr))
+      goto fail;
+    shstrtab_off = shdr.sh_offset;
+    shstrtab_size = shdr.sh_size;
+  } else {
+    Elf32_Shdr shdr;
+    if (shstrtab_hdr_off > LONG_MAX ||
+        fseek(f, (long)shstrtab_hdr_off, SEEK_SET))
+      goto fail;
+    if (fread(&shdr, 1, sizeof(shdr), f) != sizeof(shdr))
+      goto fail;
+    shstrtab_off = shdr.sh_offset;
+    shstrtab_size = shdr.sh_size;
+  }
+
+  if (shstrtab_size > 1024 * 1024) /* sanity limit: 1 MiB */
+    goto fail;
+
+  if (shstrtab_off > LONG_MAX)
+    goto fail;
+
+  char *strtab = malloc((size_t)shstrtab_size + 1);
+  if (!strtab)
+    goto fail;
+  if (fseek(f, (long)shstrtab_off, SEEK_SET) ||
+      fread(strtab, 1, (size_t)shstrtab_size, f) != (size_t)shstrtab_size) {
+    free(strtab);
+    goto fail;
+  }
+  strtab[shstrtab_size] = '\0';
+
+  /* Scan section headers for the target section */
+  char *result = NULL;
+
+  for (uint16_t i = 0; i < e_shnum; i++) {
+    uint64_t sh_offset, sh_size;
+    uint32_t sh_name;
+
+    uint64_t shdr_off = e_shoff + (uint64_t)i * e_shentsize;
+    if (shdr_off > LONG_MAX || fseek(f, (long)shdr_off, SEEK_SET))
+      break;
+
+    if (is64) {
+      Elf64_Shdr shdr;
+      if (fread(&shdr, 1, sizeof(shdr), f) != sizeof(shdr))
+        break;
+      sh_name = shdr.sh_name;
+      sh_offset = shdr.sh_offset;
+      sh_size = shdr.sh_size;
+    } else {
+      Elf32_Shdr shdr;
+      if (fread(&shdr, 1, sizeof(shdr), f) != sizeof(shdr))
+        break;
+      sh_name = shdr.sh_name;
+      sh_offset = shdr.sh_offset;
+      sh_size = shdr.sh_size;
+    }
+
+    if (sh_name >= shstrtab_size)
+      continue;
+    if (strcmp(strtab + sh_name, section_name) != 0)
+      continue;
+
+    /* Found it — read the section contents */
+    if (sh_size == 0 || sh_size > 8192) /* sanity limit */
+      break;
+    if (sh_offset > LONG_MAX)
+      break;
+    result = malloc((size_t)sh_size + 1);
+    if (!result)
+      break;
+    if (fseek(f, (long)sh_offset, SEEK_SET) ||
+        fread(result, 1, (size_t)sh_size, f) != (size_t)sh_size) {
+      free(result);
+      result = NULL;
+      break;
+    }
+    result[sh_size] = '\0';
+    break;
+  }
+
+  free(strtab);
+  fclose(f);
+  return result;
+
+fail:
+  fclose(f);
+  return NULL;
+}
+
+/* =========================================================================
+ * Component metadata parsing (.kasld_meta)
+ * =========================================================================
+ */
+
+/* Parse a raw .kasld_meta string into a component_meta struct.
+ * Format: newline-delimited "key:value" pairs. */
+static void parse_meta(const char *raw, struct component_meta *m) {
+  m->num_entries = 0;
+  if (!raw)
+    return;
+
+  const char *p = raw;
+  while (*p && m->num_entries < META_MAX_ENTRIES) {
+    /* Skip leading whitespace/newlines */
+    while (*p == '\n' || *p == '\r' || *p == ' ' || *p == '\t')
+      p++;
+    if (!*p)
+      break;
+
+    /* Find end of line */
+    const char *eol = strchr(p, '\n');
+    if (!eol)
+      eol = p + strlen(p);
+
+    /* Find first colon separator */
+    const char *colon = NULL;
+    for (const char *c = p; c < eol; c++) {
+      if (*c == ':') {
+        colon = c;
+        break;
+      }
+    }
+
+    if (colon && colon > p) {
+      struct meta_entry *e = &m->entries[m->num_entries];
+
+      /* Copy key (trimmed) */
+      size_t klen = (size_t)(colon - p);
+      if (klen >= META_KEY_LEN)
+        klen = META_KEY_LEN - 1;
+      memcpy(e->key, p, klen);
+      e->key[klen] = '\0';
+
+      /* Copy value (after colon, trimmed) */
+      const char *vstart = colon + 1;
+      while (vstart < eol && (*vstart == ' ' || *vstart == '\t'))
+        vstart++;
+      size_t vlen = (size_t)(eol - vstart);
+      /* Trim trailing whitespace */
+      while (vlen > 0 && (vstart[vlen - 1] == ' ' || vstart[vlen - 1] == '\t' ||
+                          vstart[vlen - 1] == '\r'))
+        vlen--;
+      if (vlen >= META_VALUE_LEN)
+        vlen = META_VALUE_LEN - 1;
+      memcpy(e->value, vstart, vlen);
+      e->value[vlen] = '\0';
+
+      m->num_entries++;
+    }
+
+    p = (*eol) ? eol + 1 : eol;
+  }
+}
+
+/* Return first value for key, or NULL */
+const char *meta_get(const struct component_meta *m, const char *key) {
+  for (int i = 0; i < m->num_entries; i++) {
+    if (strcmp(m->entries[i].key, key) == 0)
+      return m->entries[i].value;
+  }
+  return NULL;
+}
+
+/* Return number of values for key, populate values[] array */
+int meta_get_all(const struct component_meta *m, const char *key,
+                 const char **values, int max_values) {
+  int n = 0;
+  for (int i = 0; i < m->num_entries; i++) {
+    if (strcmp(m->entries[i].key, key) == 0 && n < max_values)
+      values[n++] = m->entries[i].value;
+  }
+  return n;
+}
+
 static int run_component(const struct component *c) {
   current_component_name = c->name;
 
+  /* Extract explain string before execution (if --explain active or JSON) */
+  char *explain_str = NULL;
+  if (explain_mode || json_output)
+    explain_str = extract_elf_section(c->path, ".kasld_explain");
+
+  /* Extract metadata (always — needed for method and hardening report) */
+  char *meta_raw = extract_elf_section(c->path, ".kasld_meta");
+  struct component_meta tmp_meta = {0};
+  parse_meta(meta_raw, &tmp_meta);
+  free(meta_raw);
+
+  /* Set method from metadata (fallback: "parsed") */
+  const char *method = meta_get(&tmp_meta, "method");
+  current_component_method = method ? method : "parsed";
+
   if (verbose && !json_output)
     printf("--- %s ---\n", c->name);
+
+  if (explain_mode && explain_str && !json_output)
+    printf("  %s\n\n", explain_str);
 
   /* Always allocate a log slot for outcome tracking */
   struct component_log *clog = NULL;
@@ -500,7 +798,16 @@ static int run_component(const struct component *c) {
     clog->exit_code = -1;
     clog->outcome = OUTCOME_NO_RESULT;
     clog->num_lines = 0;
+    clog->explain = explain_str; /* transfer ownership */
+    clog->meta = tmp_meta;       /* copy parsed metadata */
+    explain_str = NULL;
+    /* Re-point method to the clog copy (stable for capture_result calls) */
+    method = meta_get(&clog->meta, "method");
+    current_component_method = method ? method : "parsed";
   }
+
+  /* Free explain_str if not transferred to clog */
+  free(explain_str);
 
   int pipefd[2];
   if (pipe(pipefd) < 0) {
@@ -1269,6 +1576,8 @@ static void usage(const char *progname) {
          "  -c, --color     Colorize text output (auto-detected for TTYs)\n"
          "  -q, --quiet     Suppress banner, progress, and warnings\n"
          "  -v, --verbose   Show component output\n"
+         "  -e, --explain   Show technique explanations before each component\n"
+         "  -H, --hardening Show post-run hardening assessment\n"
          "  -t, --timeout N Per-component timeout in seconds (default: %d)\n"
          "  -V, --version   Print version and exit\n"
          "  -h, --help      Show this help\n",
@@ -1298,6 +1607,13 @@ int main(int argc, char *argv[]) {
     } else if (strcmp(argv[i], "-v") == 0 ||
                strcmp(argv[i], "--verbose") == 0) {
       verbose = 1;
+    } else if (strcmp(argv[i], "-e") == 0 ||
+               strcmp(argv[i], "--explain") == 0) {
+      explain_mode = 1;
+      verbose = 1; /* --explain implies --verbose */
+    } else if (strcmp(argv[i], "-H") == 0 ||
+               strcmp(argv[i], "--hardening") == 0) {
+      hardening_mode = 1;
     } else if (strcmp(argv[i], "-t") == 0 ||
                strcmp(argv[i], "--timeout") == 0) {
       if (i + 1 >= argc) {
@@ -1333,6 +1649,13 @@ int main(int argc, char *argv[]) {
   if (!quiet && plain_output()) {
     print_banner();
     print_system_config();
+  } else {
+    /* Always read system state even when banner is suppressed */
+    sysctl_kptr_restrict = read_sysctl_int("/proc/sys/kernel/kptr_restrict");
+    sysctl_dmesg_restrict = read_sysctl_int("/proc/sys/kernel/dmesg_restrict");
+    sysctl_perf_event_paranoid =
+        read_sysctl_int("/proc/sys/kernel/perf_event_paranoid");
+    sysctl_lockdown = read_lockdown();
   }
 
   if (discover_components() < 0)

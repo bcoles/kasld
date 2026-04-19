@@ -27,6 +27,20 @@
 // Based on: "KernelSnitch: Side-Channel Attacks on Kernel Data
 // Structures" (Maar et al., NDSS 2025)
 //
+// Leak primitive:
+//   Data leaked:      mm_struct kernel heap address (direct-map region)
+//   Kernel subsystem: kernel/futex — global futex hash table (jhash2)
+//   Data structure:   current->mm (struct mm_struct pointer)
+//   Address type:     virtual (direct-map / kernel heap)
+//   Method:           timing (hash collision side-channel)
+//   Status:           mitigated in v6.14 (CONFIG_FUTEX_PRIVATE_HASH)
+//
+// Mitigations:
+//   CONFIG_FUTEX_PRIVATE_HASH=y (v6.14+) replaces the global hash table
+//   with per-mm private hash tables, eliminating cross-process hash
+//   collisions. Most distro kernels as of 2025 lack this option.
+//   No runtime sysctl can restrict access. No other mitigation.
+//
 // References:
 // https://lukasmaar.github.io/papers/ndss25-kernelsnitch.pdf
 // https://github.com/IAIK/KernelSnitch
@@ -162,6 +176,20 @@
     (c) ^= (b);                                                                \
     (c) -= ((b) << 24) | ((b) >> 8);                                           \
   } while (0)
+
+KASLD_EXPLAIN(
+    "KernelSnitch exploits the kernel futex hash table: the hash "
+    "function mixes the mm_struct kernel heap address with the futex "
+    "user virtual address. By creating many futex wait operations and "
+    "measuring contention-induced timing differences, the attacker "
+    "brute-forces the mm_struct address. Mitigated by "
+    "CONFIG_FUTEX_PRIVATE_HASH (v6.14+), which replaces the global "
+    "hash table with per-process private tables.");
+
+KASLD_META("method:timing\n"
+           "addr:virtual\n"
+           "config:CONFIG_FUTEX_PRIVATE_HASH\n"
+           "patch:v6.14\n");
 
 /* Hash exactly 4 u32 words with initval (matches kernel futex path). */
 static inline uint32_t jhash2_4(const uint32_t *k, uint32_t initval) {

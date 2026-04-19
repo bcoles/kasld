@@ -43,10 +43,14 @@
 // configurations. The orchestrator adjusts at runtime once vmsplit is detected.
 #define KERNEL_VAS_START KERNEL_BASE_MIN
 #define KERNEL_VAS_END 0xfffffffful
+// Above this, addresses fall in the module/fixmap region.
 #define KERNEL_BASE_MAX 0xf0000000ul
 
+// Modules placed in high memory above kernel text.
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/kernel/module.c
 #define MODULES_START 0xf0000000ul
 #define MODULES_END 0xfffffffful
+// Module region is fixed; does not shift with KASLR.
 #define MODULES_RELATIVE_TO_TEXT 0
 
 // For x86_32, possible max alignment is 0x100_0000 (16MiB) with default of
@@ -61,6 +65,7 @@
 #define KERNEL_PHYS_MIN 0ul
 #define KERNEL_PHYS_MAX (1ul * GB)
 
+// Default: 0xc0000000 (PAGE_OFFSET with 3GB vmsplit, no offset).
 #define KERNEL_TEXT_DEFAULT (PAGE_OFFSET + TEXT_OFFSET)
 
 #define KASLR_SUPPORTED 1

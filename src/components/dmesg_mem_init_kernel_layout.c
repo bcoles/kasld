@@ -54,6 +54,21 @@
 // Code is still present as of 2023:
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/sh/mm/init.c#L371
 //
+// Leak primitive:
+//   Data leaked:      kernel virtual memory layout (.text, .data, lowmem,
+//   modules) Kernel subsystem: arch/*/mm/init — mem_init() layout printout Data
+//   structure:   kernel segment boundaries (virtual addresses) Address type:
+//   virtual (kernel text, data, direct-map) Method:           parsed (dmesg
+//   string) Status:           removed from most architectures (x86_32: v5.7,
+//   ARM: v5.1,
+//                     ARM64: v4.16). Still present on RISC-V (CONFIG_DEBUG_VM),
+//                     Xtensa, and SuperH.
+//
+// Mitigations:
+//   Removed from most architectures. On RISC-V, requires CONFIG_DEBUG_VM.
+//   Access gated by dmesg_restrict (see dmesg.h for shared access gate
+//   details).
+//
 // Requires:
 // - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities; or
 //   readable /var/log/dmesg.
@@ -70,6 +85,19 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+
+KASLD_EXPLAIN(
+    "Parses the kernel virtual memory layout block printed by mem_init() "
+    "during boot. This block shows virtual address ranges for .text, "
+    ".data, lowmem, modules, and other sections. Removed from most "
+    "architectures: ARM64 v4.16, ARM v5.1, x86_32 v5.7. Access is "
+    "gated by dmesg_restrict.");
+
+KASLD_META("method:parsed\n"
+           "addr:virtual\n"
+           "sysctl:dmesg_restrict>=1\n"
+           "bypass:CAP_SYSLOG\n"
+           "fallback:/var/log/dmesg\n");
 
 /* Layout sections to extract from the kernel memory layout block.
  *

@@ -6,6 +6,21 @@
 // Mostly taken from original PoC by Norbert Slusarek:
 // https://www.openwall.com/lists/oss-security/2021/06/15/1/2
 //
+// Leak primitive:
+//   Data leaked:      kernel stack pointer (uninitialized struct padding)
+//   Kernel subsystem: net/can — CAN BCM (net/can/bcm.c)
+//   Data structure:   struct bcm_msg_head (4-byte padding hole after flags)
+//   Address type:     virtual (kernel stack)
+//   Method:           exact
+//   CVE:              CVE-2021-34693
+//   Patched:          v5.12 (multiple commits)
+//   Status:           fixed in v5.12
+//
+// Mitigations:
+//   Patched in v5.12. Requires CONFIG_CAN=y and CONFIG_CAN_BCM=y/m.
+//   AF_CAN socket creation may be restricted by LSM or network namespace
+//   policy. No runtime sysctl can restrict access.
+//
 // References:
 // https://nvd.nist.gov/vuln/detail/CVE-2021-34693
 // https://www.openwall.com/lists/oss-security/2021/06/15/1
@@ -24,6 +39,21 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <unistd.h>
+
+KASLD_EXPLAIN(
+    "Exploits CVE-2021-34693: the CAN BCM bcm_msg_head struct has a "
+    "4-byte padding hole between the count and ival1 fields that was "
+    "not zeroed when copied to userspace. Reading back a BCM RX_SETUP "
+    "message via recvmsg() leaked 4 bytes of kernel stack data, which "
+    "often contains kernel text or stack virtual addresses. Fixed in "
+    "v5.12.");
+
+KASLD_META("method:heuristic\n"
+           "addr:virtual\n"
+           "cve:CVE-2021-34693\n"
+           "patch:v5.12\n"
+           "config:CONFIG_CAN\n"
+           "config:CONFIG_CAN_BCM\n");
 
 void rxsetup_sock(int sock) {
   struct sockaddr_can sa;

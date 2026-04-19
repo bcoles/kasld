@@ -75,6 +75,8 @@
 // https://elixir.bootlin.com/linux/v6.6/source/arch/arm64/include/asm/memory.h
 #define MODULES_START 0xffff800000000000ul
 #define MODULES_END 0xffff80007ffffffful
+// Module region does not shift with KASLR on arm64.
+// (Modules are loaded independently of kernel text placement.)
 #define MODULES_RELATIVE_TO_TEXT 0
 
 // MIN_KIMG_ALIGN is 2MiB (used without KASLR).

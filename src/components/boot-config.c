@@ -3,6 +3,12 @@
 // Check kernel config for CONFIG_RELOCATABLE, CONFIG_RANDOMIZE_BASE,
 // and CONFIG_PAGE_OFFSET (32-bit vmsplit).
 //
+// Detection component — does not leak an address.
+//   Purpose: reads /boot/config-$(uname -r) to determine whether
+//   CONFIG_RANDOMIZE_BASE is set (KASLR compiled in) and what the
+//   32-bit vmsplit (CONFIG_PAGE_OFFSET) is. Readable when /boot is
+//   accessible (common on most distros).
+//
 // References:
 // https://lwn.net/Articles/444556/
 // https://cateee.net/lkddb/web-lkddb/RANDOMIZE_BASE.html
@@ -19,6 +25,14 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/utsname.h>
+
+KASLD_EXPLAIN(
+    "Reads /boot/config-$(uname -r) to check whether CONFIG_RANDOMIZE_BASE "
+    "is set (KASLR compiled in) and determines the 32-bit vmsplit "
+    "(CONFIG_PAGE_OFFSET). Readable when /boot is accessible.");
+
+KASLD_META("method:detection\n"
+           "addr:none\n");
 
 static int open_boot_config(FILE **fpp) {
   struct utsname utsname;

@@ -63,6 +63,21 @@
 //   https://github.com/google/security-research/blob/master/pocs/linux/
 //   kernelctf/CVE-2023-6817_mitigation/exploit/mitigation-v3-6.1.55/exploit.c
 //
+// Leak primitive:
+//   Data leaked:      kernel text virtual base address
+//   Kernel subsystem: arch/x86 — CPU prefetch timing side-channel
+//   Data structure:   kernel text mapping (page table walk timing)
+//   Address type:     virtual (kernel text)
+//   Method:           timing (prefetch latency, 2 MiB scan)
+//   Status:           unfixed (hardware side-channel)
+//
+// Mitigations:
+//   KPTI (CONFIG_PAGE_TABLE_ISOLATION=y) removes kernel mappings from
+//   userspace page tables, eliminating the timing differential. KPTI is
+//   auto-disabled for CPUs not vulnerable to Meltdown (all AMD, Intel Ice
+//   Lake+). Some newer AMD Zen 3+ microarchitectures lack the prefetch
+//   timing differential entirely. No kernel patch; hardware-dependent.
+//
 // References:
 //   https://gruss.cc/files/prefetch.pdf
 //   https://github.com/IAIK/prefetch
@@ -82,6 +97,18 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+
+KASLD_EXPLAIN(
+    "Prefetch side-channel (Gruss et al., 2016): the x86 PREFETCH "
+    "instruction has measurably different latency for mapped versus "
+    "unmapped kernel pages, even from user mode. By timing PREFETCH "
+    "across KASLR-aligned candidate addresses, the mapped kernel text "
+    "base is identified. Mitigated by KPTI (separate page tables for "
+    "user/kernel mode) and fixed in newer AMD Zen 3+ hardware.");
+
+KASLD_META("method:timing\n"
+           "addr:virtual\n"
+           "hardware:KPTI\n");
 
 static int verbose = 0;
 

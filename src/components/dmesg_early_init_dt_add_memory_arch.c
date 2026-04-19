@@ -14,6 +14,20 @@
 // On systems with a known phys->virt offset mapping, this may be used to
 // identify the kernel virtual address region used for direct mapping.
 //
+// Leak primitive:
+//   Data leaked:      physical DRAM base address (memblock range boundary)
+//   Kernel subsystem: drivers/of/fdt — early_init_dt_add_memory_arch()
+//   Data structure:   memblock range (physical base address)
+//   Address type:     physical (DRAM)
+//   Method:           parsed (dmesg string)
+//   Status:           unfixed (printed unconditionally when range is truncated)
+//
+// Mitigations:
+//   Access gated by dmesg_restrict (see dmesg.h for shared access gate
+//   details). Only printed when FDT memory range extends below usable
+//   DRAM start. On decoupled architectures, physical addresses cannot
+//   derive the virtual text base.
+//
 // Requires:
 // - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities; or
 //   readable /var/log/dmesg.
@@ -33,6 +47,20 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+
+KASLD_EXPLAIN(
+    "Searches dmesg for 'Ignoring memory range' messages from the FDT "
+    "(flattened device tree) memory setup. These messages print the "
+    "physical address of memory ranges that exceed the kernel's "
+    "addressable limit. Common on ARM/ARM64/RISC-V systems with more "
+    "RAM than the virtual address space can map. Access is gated by "
+    "dmesg_restrict.");
+
+KASLD_META("method:parsed\n"
+           "addr:physical\n"
+           "sysctl:dmesg_restrict>=1\n"
+           "bypass:CAP_SYSLOG\n"
+           "fallback:/var/log/dmesg\n");
 
 static int on_match(const char *line, void *ctx) {
   unsigned long *result = ctx;

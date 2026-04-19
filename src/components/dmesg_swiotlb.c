@@ -13,6 +13,20 @@
 // SWIOTLB is initialized on systems with IOMMU, VMs, or large-memory
 // systems where some devices cannot address all physical memory.
 //
+// Leak primitive:
+//   Data leaked:      physical address of SWIOTLB bounce buffer pool
+//   Kernel subsystem: kernel/dma/swiotlb — swiotlb_init()
+//   Data structure:   SWIOTLB buffer physical address range
+//   Address type:     physical (DRAM)
+//   Method:           parsed (dmesg string)
+//   Status:           unfixed (printed unconditionally during boot)
+//
+// Mitigations:
+//   Access gated by dmesg_restrict (see dmesg.h for shared access gate
+//   details). Only printed when SWIOTLB is initialized (common on VMs
+//   and systems with IOMMU). On decoupled architectures, physical
+//   addresses cannot derive the virtual text base.
+//
 // Requires:
 // - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities; or
 //   readable /var/log/dmesg.
@@ -34,6 +48,19 @@
 #include <unistd.h>
 
 #define range_ctx addr_range
+
+KASLD_EXPLAIN(
+    "Searches dmesg for SWIOTLB (Software I/O TLB) initialization "
+    "messages that print the physical address of the bounce buffer "
+    "pool. SWIOTLB is initialized on VMs and systems with IOMMU where "
+    "some devices cannot address all physical memory. Access is gated "
+    "by dmesg_restrict.");
+
+KASLD_META("method:parsed\n"
+           "addr:physical\n"
+           "sysctl:dmesg_restrict>=1\n"
+           "bypass:CAP_SYSLOG\n"
+           "fallback:/var/log/dmesg\n");
 
 /* Modern format: "mapped [mem 0x<start>-0x<end>]" */
 static int on_mapped(const char *line, void *ctx) {

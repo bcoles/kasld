@@ -7,6 +7,19 @@
 // Usually vmsplit is located at 3GB (0xc0000000) on 32-bit systems;
 // however, embedded systems may make use of a lower vmsplit.
 //
+// Leak primitive:
+//   Data leaked:      kernel/user address space split point
+//   (CONFIG_PAGE_OFFSET) Kernel subsystem: mm — mmap syscall (virtual address
+//   space probing) Data structure:   kernel virtual address space boundary
+//   Address type:     virtual (kernel VAS start)
+//   Method:           heuristic (mmap brute-force across 32-bit address space)
+//   Status:           unfixed (fundamental to 32-bit VM split design)
+//
+// Mitigations:
+//   None — 32-bit address space split is a fundamental architectural
+//   property. No runtime sysctl can restrict access. Only applies to
+//   32-bit systems.
+//
 // References:
 // https://cateee.net/lkddb/web-lkddb/PAGE_OFFSET.html
 // https://elixir.bootlin.com/linux/v5.10/source/arch/arm/Kconfig
@@ -22,6 +35,15 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <unistd.h>
+
+KASLD_EXPLAIN("Probes the 32-bit address space by attempting mmap at 256 MiB "
+              "increments until mapping fails. The first unmappable address is "
+              "the kernel/user virtual address split (CONFIG_PAGE_OFFSET). "
+              "32-bit only. No privilege or sysctl gate; the split is a "
+              "fundamental architectural property.");
+
+KASLD_META("method:heuristic\n"
+           "addr:virtual\n");
 
 unsigned long find_kernel_address_space_start(void) {
   unsigned long i;

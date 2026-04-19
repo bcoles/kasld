@@ -25,6 +25,19 @@
 // ffffffe0000dbc18 D __init_end
 // ffffffe0000dbc18 D __per_cpu_end
 //
+// Leak primitive:
+//   Data leaked:      kernel text virtual address (_stext / _text)
+//   Kernel subsystem: arch/riscv/kernel/module — module relocation error
+//   Data structure:   relocation target address (kernel text virtual pointer)
+//   Address type:     virtual (kernel text)
+//   Method:           parsed (dmesg string)
+//   Status:           unfixed (error message prints raw kernel pointer)
+//
+// Mitigations:
+//   Access gated by dmesg_restrict (see dmesg.h for shared access gate
+//   details). Only triggered when a RISC-V kernel module has a 32-bit
+//   relocation that cannot reach the target. RISC-V only.
+//
 // Requires:
 // - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities; or
 //   readable /var/log/dmesg.
@@ -48,6 +61,19 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+
+KASLD_EXPLAIN(
+    "Searches dmesg for RISC-V kernel module relocation error messages "
+    "that print raw kernel text virtual addresses. When a 32-bit "
+    "relocation overflows, the error message includes the target "
+    "address (e.g., _stext), which is the KASLR-adjusted kernel text "
+    "base. RISC-V only. Access is gated by dmesg_restrict.");
+
+KASLD_META("method:parsed\n"
+           "addr:virtual\n"
+           "sysctl:dmesg_restrict>=1\n"
+           "bypass:CAP_SYSLOG\n"
+           "fallback:/var/log/dmesg\n");
 
 static const char *needle = ": target ";
 

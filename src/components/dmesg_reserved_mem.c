@@ -16,6 +16,20 @@
 // dmesg_reserved_mem_opensbi component specifically targets OpenSBI
 // mmode_resv0 entries on RISC-V.
 //
+// Leak primitive:
+//   Data leaked:      physical address ranges of device tree reserved memory
+//   Kernel subsystem: drivers/of/of_reserved_mem — __reserved_mem_init_node()
+//   Data structure:   reserved memory node entries (physical address + size)
+//   Address type:     physical (DRAM)
+//   Method:           parsed (dmesg string)
+//   Status:           unfixed (printed unconditionally during boot)
+//
+// Mitigations:
+//   Access gated by dmesg_restrict (see dmesg.h for shared access gate
+//   details). Only present on device tree platforms (ARM, ARM64, RISC-V,
+//   MIPS, PPC). On decoupled architectures, physical addresses cannot
+//   derive the virtual text base.
+//
 // Requires:
 // - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities; or
 //   readable /var/log/dmesg.
@@ -37,6 +51,17 @@
 #include <unistd.h>
 
 #define range_ctx addr_range
+
+KASLD_EXPLAIN("Searches dmesg for device tree reserved memory messages (OF: "
+              "reserved mem) that print physical address ranges for firmware-"
+              "reserved regions. Common on ARM, ARM64, RISC-V, MIPS, and "
+              "PowerPC. Access is gated by dmesg_restrict.");
+
+KASLD_META("method:parsed\n"
+           "addr:physical\n"
+           "sysctl:dmesg_restrict>=1\n"
+           "bypass:CAP_SYSLOG\n"
+           "fallback:/var/log/dmesg\n");
 
 /* Parse "0x<start>..0x<end>" from reserved mem lines */
 static int on_match(const char *line, void *ctx) {

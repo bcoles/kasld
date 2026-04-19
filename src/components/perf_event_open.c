@@ -7,6 +7,18 @@
 //
 // Requires:
 // - kernel.perf_event_paranoid < 2 (Default on Ubuntu <= 4.4.0 kernels)
+//
+// Leak primitive:
+//   Data leaked:      kernel text virtual addresses (sampled instruction
+//   pointers) Kernel subsystem: kernel/events — perf_event_open syscall Data
+//   structure:   struct perf_event → sample IP (instruction pointer) Address
+//   type:     virtual (kernel text) Method:           exact (perf event
+//   sampling) Status:           gated by design (perf_event_paranoid)
+//
+// Mitigations:
+//   kernel.perf_event_paranoid >= 2 (default on most distros) blocks
+//   kernel-space sampling. Bypass requires CAP_PERFMON (v5.8+) or
+//   CAP_SYS_ADMIN.
 // ---
 // <bcoles@gmail.com>
 
@@ -25,6 +37,19 @@
 #include <sys/types.h>
 #include <sys/utsname.h>
 #include <unistd.h>
+
+KASLD_EXPLAIN(
+    "Uses the perf_event_open() syscall to sample kernel instruction "
+    "pointers during system calls. Each sample reports a raw kernel "
+    "text virtual address. Gated by kernel.perf_event_paranoid: values "
+    "below 2 allow kernel profiling. Requires CAP_PERFMON (v5.8+) or "
+    "CAP_SYS_ADMIN when paranoid >= 2.");
+
+KASLD_META("method:exact\n"
+           "addr:virtual\n"
+           "sysctl:perf_event_paranoid>=2\n"
+           "bypass:CAP_PERFMON\n"
+           "bypass:CAP_SYS_ADMIN\n");
 
 int perf_event_open(struct perf_event_attr *attr, pid_t pid, int cpu,
                     int group_fd, unsigned long flags) {

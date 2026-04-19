@@ -22,6 +22,19 @@
 // "EntryBleed: A Universal KASLR Bypass against KPTI on Linux"
 // (William Liu, Joseph Ravichandran, Mengjia Yan, HASP 2023)
 //
+// Leak primitive:
+//   Data leaked:      kernel text virtual base (entry_SYSCALL_64 /
+//   __start_rodata) Kernel subsystem: arch/x86 — CPU prefetch timing
+//   side-channel Data structure:   entry_SYSCALL_64 (KPTI) or __start_rodata
+//   (non-KPTI) Address type:     virtual (kernel text, page-aligned) Method:
+//   timing (prefetch side-channel) CVE:              CVE-2022-4543 Patched:
+//   v6.2 (commit 97e3d26b5e5f) Status:           fixed in v6.2
+//
+// Mitigations:
+//   Patched in v6.2. On AMD CPUs, KPTI mitigates (no trampoline leak).
+//   Intel: works with or without KPTI on unpatched kernels. Requires
+//   kernel-version-specific offsets (offset table embedded in component).
+//
 // References:
 // https://gruss.cc/files/prefetch.pdf
 // https://www.openwall.com/lists/oss-security/2022/12/16/3
@@ -47,6 +60,20 @@
 #include <string.h>
 #include <sys/utsname.h>
 #include <unistd.h>
+
+KASLD_EXPLAIN(
+    "EntryBleed (CVE-2022-4543): on x86_64, the CPU prefetch unit "
+    "leaks timing differences for the entry_SYSCALL_64 trampoline "
+    "page (KPTI) or __start_rodata (non-KPTI). Measuring prefetch "
+    "latency across candidate addresses reveals which page is mapped. "
+    "Fixed in v6.2 by randomizing per-CPU entry areas independently "
+    "from KASLR.");
+
+KASLD_META("method:timing\n"
+           "addr:virtual\n"
+           "cve:CVE-2022-4543\n"
+           "patch:v6.2\n"
+           "hardware:KPTI (mitigates on AMD)\n");
 
 struct kernel_info {
   const char *kernel_version;

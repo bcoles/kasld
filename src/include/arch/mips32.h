@@ -41,6 +41,7 @@
 #define KERNEL_VAS_END 0xfffffffful
 
 #define KERNEL_BASE_MIN PAGE_OFFSET
+// Above this, addresses fall in the module region (kseg2).
 #define KERNEL_BASE_MAX 0xc0000000ul
 
 #define MODULES_START 0xc0000000ul
@@ -58,6 +59,8 @@
 #define KERNEL_PHYS_MIN 0ul
 #define KERNEL_PHYS_MAX (512ul * MB)
 
+// Default: 0x80100400 (kseg0 + 1 MiB standard load offset + head.S entry).
+// 0x100000: standard MIPS kernel load offset (load-y in arch/mips/Makefile).
 #define KERNEL_TEXT_DEFAULT (KERNEL_BASE_MIN + 0x100000ul + TEXT_OFFSET)
 
 #define KASLR_SUPPORTED 1

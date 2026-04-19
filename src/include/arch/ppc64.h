@@ -25,6 +25,9 @@
 
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/include/asm/page.h#L227
 #define PHYS_OFFSET 0ul
+// phys_to_virt uses bitwise OR because PAGE_OFFSET has only the top bits set
+// and physical addresses use only the lower bits. Equivalent to addition when
+// the bit ranges don't overlap.
 #define PHYS_VIRT_DECOUPLED 0
 #define phys_to_virt(x) ((unsigned long)((x) | PAGE_OFFSET))
 
@@ -55,8 +58,10 @@
 
 #define TEXT_OFFSET 0
 
+// Default: 0xc000000000000000 (PAGE_OFFSET, no text offset on PPC64).
 #define KERNEL_TEXT_DEFAULT (KERNEL_BASE_MIN + TEXT_OFFSET)
 
+// PPC64 does not have mainline KASLR.
 #define KASLR_SUPPORTED 0
 
 #endif /* KASLD_PPC64_H */

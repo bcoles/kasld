@@ -7,6 +7,19 @@
 // Permissions were modified to prevent access (unless `kptr_restrict = 0`) in
 // kernel 4.15-rc1 on 2017-11-12:
 // https://github.com/torvalds/linux/commit/277642dcca765a1955d4c753a5a315ff7f2eb09d
+//
+// Leak primitive:
+//   Data leaked:      kernel module section virtual addresses (.text, etc.)
+//   Kernel subsystem: kernel/module — /sys/module/*/sections/.text
+//   Data structure:   struct module_sect_attr → address
+//   Address type:     virtual (kernel module text)
+//   Method:           exact (sysfs file read)
+//   Patched:          v4.15 (commit 277642dcca76; permissions restricted)
+//   Status:           gated since v4.15 (kptr_restrict)
+//
+// Mitigations:
+//   Since v4.15, section files require kptr_restrict = 0 (or CAP_SYSLOG)
+//   to read addresses. Before v4.15, world-readable (0444).
 // ---
 // <bcoles@gmail.com>
 
@@ -20,6 +33,20 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+
+KASLD_EXPLAIN(
+    "Reads kernel module section addresses from "
+    "/sys/module/*/sections/.text. Each loaded module exposes its .text "
+    "virtual address. Since v4.15, these files are filtered through "
+    "kptr_restrict (requiring kptr_restrict=0 or CAP_SYSLOG). Module "
+    "addresses constrain the modules region and, on coupled "
+    "architectures, the kernel text base.");
+
+KASLD_META("method:exact\n"
+           "addr:virtual\n"
+           "sysctl:kptr_restrict>=1\n"
+           "bypass:CAP_SYSLOG\n"
+           "patch:v4.15\n");
 
 unsigned long read_module_text(char *path) {
   FILE *f;

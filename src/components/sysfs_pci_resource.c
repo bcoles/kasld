@@ -22,6 +22,20 @@
 // world-readable via the "config" binary attribute (0644), but the
 // "resource" text file is easier to parse.
 //
+// Leak primitive:
+//   Data leaked:      PCI BAR physical addresses (MMIO regions)
+//   Kernel subsystem: drivers/pci — /sys/bus/pci/devices/*/resource
+//   Data structure:   struct pci_dev → resource[] (PCI BARs)
+//   Address type:     physical (MMIO)
+//   Method:           parsed (sysfs text file)
+//   Status:           unfixed (information exposure by design)
+//
+// Mitigations:
+//   CONFIG_PCI=n removes PCI subsystem entirely. The resource file is
+//   world-readable (0444); no runtime sysctl or capability check
+//   can restrict access. On decoupled architectures, MMIO addresses
+//    cannot derive the virtual text base.
+//
 // Requires:
 // - CONFIG_PCI
 // - At least one PCI device with allocated BARs
@@ -39,6 +53,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+KASLD_EXPLAIN(
+    "Reads PCI BAR (Base Address Register) physical addresses from "
+    "/sys/bus/pci/devices/*/resource. These world-readable (0444) files "
+    "expose MMIO physical address ranges assigned to PCI devices. On "
+    "systems where MMIO is near DRAM, this constrains the physical "
+    "memory layout. Requires CONFIG_PCI.");
+
+KASLD_META("method:parsed\n"
+           "addr:physical\n"
+           "config:CONFIG_PCI\n");
 
 int main(void) {
   const char *base = "/sys/bus/pci/devices";

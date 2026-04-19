@@ -15,6 +15,19 @@
 //
 // Both formats leak physical memory addresses from the firmware memory map.
 //
+// Leak primitive:
+//   Data leaked:      physical memory map (BIOS/firmware e820 table)
+//   Kernel subsystem: arch/x86/kernel/e820 — e820__print_table()
+//   Data structure:   e820_table entries (physical address ranges)
+//   Address type:     physical (DRAM + reserved regions)
+//   Method:           parsed (dmesg string)
+//   Status:           unfixed (printed unconditionally during boot)
+//
+// Mitigations:
+//   Access gated by dmesg_restrict (see dmesg.h for shared access gate
+//   details). The e820 table is printed unconditionally. On x86_64
+//   (decoupled), physical addresses cannot derive the virtual text base.
+//
 // Requires:
 // - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities; or
 //   readable /var/log/dmesg.
@@ -38,6 +51,18 @@
 #if !defined(__i386__) && !defined(__x86_64__) && !defined(__amd64__)
 #error "Architecture is not supported"
 #endif
+
+KASLD_EXPLAIN(
+    "Parses the x86 BIOS-provided E820 physical memory map from dmesg. "
+    "This boot-time table shows all usable RAM and reserved physical "
+    "address ranges. The lowest usable entry gives the physical DRAM "
+    "base. x86 only. Access is gated by dmesg_restrict.");
+
+KASLD_META("method:parsed\n"
+           "addr:physical\n"
+           "sysctl:dmesg_restrict>=1\n"
+           "bypass:CAP_SYSLOG\n"
+           "fallback:/var/log/dmesg\n");
 
 struct e820_ctx {
   unsigned long lo; /* lowest start address of usable RAM */

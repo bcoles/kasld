@@ -21,6 +21,18 @@
 // Removed in kernel v4.10-rc1 on 2016-10-26:
 // https://github.com/torvalds/linux/commit/adb1fe9ae2ee6ef6bc10f3d5a588020e7664dfa7
 //
+// Leak primitive:
+//   Data leaked:      kernel virtual addresses (freed memory section
+//   boundaries) Kernel subsystem: mm — free_reserved_area() (pr_info with %p)
+//   Data structure:   freed section start/end virtual addresses
+//   Address type:     virtual (kernel text / initrd)
+//   Method:           parsed (dmesg string)
+//   Status:           removed in v4.10 (commit adb1fe9ae2ee)
+//
+// Mitigations:
+//   Removed in v4.10 (pr_info with raw %p replaced). Access gated by
+//   dmesg_restrict (see dmesg.h for shared access gate details).
+//
 // Requires:
 // - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities; or
 //   readable /var/log/dmesg.
@@ -41,6 +53,19 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+
+KASLD_EXPLAIN("Searches dmesg for 'Freeing ... memory' messages from "
+              "free_reserved_area() that print kernel virtual addresses. These "
+              "messages were removed in v4.10. On older kernels, they reveal "
+              "kernel text and init section virtual addresses. Access is gated "
+              "by dmesg_restrict.");
+
+KASLD_META("method:parsed\n"
+           "addr:virtual\n"
+           "sysctl:dmesg_restrict>=1\n"
+           "bypass:CAP_SYSLOG\n"
+           "fallback:/var/log/dmesg\n"
+           "patch:v4.10\n");
 
 /* Parse a "Freeing <name> memory: <size>K (<start> - <end>)" line.
  * Emits a kasld_result() for the start address.  Returns 1 on success. */

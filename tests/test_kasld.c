@@ -41,6 +41,12 @@ static void reset_state(void) {
   json_output = 0;
   oneline_output = 0;
   markdown_output = 0;
+  hardening_mode = 0;
+  explain_mode = 0;
+  sysctl_kptr_restrict = -1;
+  sysctl_dmesg_restrict = -1;
+  sysctl_perf_event_paranoid = -1;
+  sysctl_lockdown = LOCKDOWN_UNAVAILABLE;
   memset(results, 0, sizeof(results));
   memset(components, 0, sizeof(components));
   memset(comp_logs, 0, sizeof(comp_logs));
@@ -1333,6 +1339,282 @@ static void test_e2e_incremental_phases(void) {
 }
 
 /* =========================================================================
+ * Hardening helpers
+ * =========================================================================
+ */
+
+/* Helper: inject a comp_log with metadata string */
+static void inject_comp_meta(const char *name, enum component_outcome outcome,
+                             const char *meta_str) {
+  assert(num_comp_logs < MAX_COMPONENTS);
+  struct component_log *cl = &comp_logs[num_comp_logs++];
+  memset(cl, 0, sizeof(*cl));
+  strncpy(cl->name, name, sizeof(cl->name) - 1);
+  cl->outcome = outcome;
+  /* Parse meta_str into cl->meta */
+  if (meta_str) {
+    char buf[1024];
+    strncpy(buf, meta_str, sizeof(buf) - 1);
+    buf[sizeof(buf) - 1] = '\0';
+    char *saveptr;
+    char *line = strtok_r(buf, "\n", &saveptr);
+    while (line && cl->meta.num_entries < META_MAX_ENTRIES) {
+      char *colon = strchr(line, ':');
+      if (colon) {
+        struct meta_entry *e = &cl->meta.entries[cl->meta.num_entries++];
+        size_t klen = (size_t)(colon - line);
+        if (klen >= META_KEY_LEN) klen = META_KEY_LEN - 1;
+        memcpy(e->key, line, klen);
+        e->key[klen] = '\0';
+        strncpy(e->value, colon + 1, META_VALUE_LEN - 1);
+        e->value[META_VALUE_LEN - 1] = '\0';
+      }
+      line = strtok_r(NULL, "\n", &saveptr);
+    }
+  }
+}
+
+/* =========================================================================
+ * meta_get / meta_get_all
+ * =========================================================================
+ */
+static void test_meta_get_basic(void) {
+  reset_state();
+  inject_comp_meta("comp-a", OUTCOME_SUCCESS,
+                   "method:parsed\naddr:physical\nsysctl:dmesg_restrict>=1");
+  assert(strcmp(meta_get(&comp_logs[0].meta, "method"), "parsed") == 0);
+  assert(strcmp(meta_get(&comp_logs[0].meta, "addr"), "physical") == 0);
+  assert(meta_get(&comp_logs[0].meta, "nonexistent") == NULL);
+}
+
+static void test_meta_get_all_multiple(void) {
+  reset_state();
+  inject_comp_meta("comp-b", OUTCOME_SUCCESS,
+                   "method:timing\nhardware:KPTI\nhardware:AMD Zen 3+");
+  const char *vals[4];
+  int n = meta_get_all(&comp_logs[0].meta, "hardware", vals, 4);
+  assert(n == 2);
+  assert(strcmp(vals[0], "KPTI") == 0);
+  assert(strcmp(vals[1], "AMD Zen 3+") == 0);
+}
+
+/* =========================================================================
+ * Hardening text render
+ * =========================================================================
+ */
+static void test_hardening_text_exposure_summary(void) {
+  reset_state();
+  hardening_mode = 1;
+  sysctl_kptr_restrict = 0;
+  sysctl_dmesg_restrict = 0;
+  sysctl_perf_event_paranoid = 1;
+  sysctl_lockdown = LOCKDOWN_NONE;
+
+  inject_comp_meta("comp-a", OUTCOME_SUCCESS, "method:parsed\naddr:physical");
+  inject_comp_meta("comp-b", OUTCOME_UNAVAILABLE, "method:timing\naddr:virtual");
+  inject_comp_meta("comp-c", OUTCOME_SUCCESS, "method:exact\naddr:virtual");
+  inject_comp_meta("comp-d", OUTCOME_SUCCESS, "method:detection\naddr:none");
+
+  struct summary s;
+  memset(&s, 0, sizeof(s));
+
+  capture_start();
+  render_hardening_text();
+  char *out = capture_end();
+
+  /* 2 of 3 succeeded (detection excluded from count) */
+  assert(strstr(out, "2 of 3"));
+  assert(strstr(out, "Hardening Assessment"));
+  assert(strstr(out, "Active defenses:"));
+  assert(strstr(out, "Available hardening:"));
+  assert(strstr(out, "Patched vulnerabilities:"));
+  assert(strstr(out, "Compile-time attack surface:"));
+  assert(strstr(out, "No known mitigation:"));
+
+  free(out);
+}
+
+static void test_hardening_text_active_defenses(void) {
+  reset_state();
+  hardening_mode = 1;
+  sysctl_kptr_restrict = 2;
+  sysctl_dmesg_restrict = 1;
+  sysctl_perf_event_paranoid = 4;
+  sysctl_lockdown = LOCKDOWN_NONE;
+
+  inject_comp_meta("proc-kallsyms", OUTCOME_ACCESS_DENIED,
+                   "method:exact\naddr:virtual\nsysctl:kptr_restrict>=1");
+  inject_comp_meta("dmesg_e820", OUTCOME_ACCESS_DENIED,
+                   "method:parsed\naddr:physical\nsysctl:dmesg_restrict>=1");
+  inject_comp_meta("perf_event_open", OUTCOME_ACCESS_DENIED,
+                   "method:exact\naddr:virtual\nsysctl:perf_event_paranoid>=2");
+
+  capture_start();
+  render_hardening_text();
+  char *out = capture_end();
+
+  assert(strstr(out, "kernel.kptr_restrict"));
+  assert(strstr(out, "kernel.dmesg_restrict"));
+  assert(strstr(out, "kernel.perf_event_paranoid"));
+  /* All gates active → should show checkmarks */
+  assert(strstr(out, "\xe2\x9c\x93"));
+
+  free(out);
+}
+
+static void test_hardening_text_patched(void) {
+  reset_state();
+  hardening_mode = 1;
+  sysctl_kptr_restrict = -1;
+  sysctl_dmesg_restrict = -1;
+  sysctl_perf_event_paranoid = -1;
+  sysctl_lockdown = LOCKDOWN_NONE;
+
+  inject_comp_meta("entrybleed", OUTCOME_SUCCESS,
+                   "method:timing\naddr:virtual\ncve:CVE-2022-4543\npatch:v6.2");
+  inject_comp_meta("mincore", OUTCOME_UNAVAILABLE,
+                   "method:heuristic\naddr:virtual\ncve:CVE-2017-16994\npatch:v4.15");
+
+  capture_start();
+  render_hardening_text();
+  char *out = capture_end();
+
+  assert(strstr(out, "1 of 2 vulnerability-based"));
+  assert(strstr(out, "entrybleed"));
+  assert(strstr(out, "CVE-2022-4543"));
+  assert(strstr(out, "v6.2"));
+
+  free(out);
+}
+
+static void test_hardening_text_no_mitigation(void) {
+  reset_state();
+  hardening_mode = 1;
+  sysctl_kptr_restrict = -1;
+  sysctl_dmesg_restrict = -1;
+  sysctl_perf_event_paranoid = -1;
+  sysctl_lockdown = LOCKDOWN_NONE;
+
+  inject_comp_meta("proc-zoneinfo", OUTCOME_SUCCESS,
+                   "method:parsed\naddr:physical");
+
+  capture_start();
+  render_hardening_text();
+  char *out = capture_end();
+
+  assert(strstr(out, "No known mitigation:"));
+  assert(strstr(out, "proc-zoneinfo"));
+
+  free(out);
+}
+
+/* =========================================================================
+ * Hardening JSON render
+ * =========================================================================
+ */
+static void test_hardening_json_structure(void) {
+  reset_state();
+  hardening_mode = 1;
+  json_output = 1;
+  sysctl_kptr_restrict = 2;
+  sysctl_dmesg_restrict = 1;
+  sysctl_perf_event_paranoid = 1;
+  sysctl_lockdown = LOCKDOWN_NONE;
+
+  inject_comp_meta("proc-kallsyms", OUTCOME_ACCESS_DENIED,
+                   "method:exact\naddr:virtual\nsysctl:kptr_restrict>=1");
+  inject_comp_meta("proc-zoneinfo", OUTCOME_SUCCESS,
+                   "method:parsed\naddr:physical");
+
+  struct summary s;
+  memset(&s, 0, sizeof(s));
+
+  capture_start();
+  render_json(&s);
+  char *out = capture_end();
+
+  /* Top-level hardening object */
+  assert(strstr(out, "\"hardening\""));
+  assert(strstr(out, "\"exposure\""));
+  assert(strstr(out, "\"succeeded\": 1"));
+  assert(strstr(out, "\"total\": 2"));
+  assert(strstr(out, "\"active_defenses\""));
+  assert(strstr(out, "\"lockdown\""));
+  assert(strstr(out, "\"available_hardening\""));
+  assert(strstr(out, "\"patched_vulnerabilities\""));
+  assert(strstr(out, "\"compile_time_surface\""));
+  assert(strstr(out, "\"no_mitigation\""));
+
+  /* Per-component meta */
+  assert(strstr(out, "\"components\""));
+  assert(strstr(out, "\"meta\""));
+  assert(strstr(out, "\"method\": \"exact\""));
+
+  /* Valid JSON (ends with }\n) */
+  size_t len = strlen(out);
+  assert(out[len - 2] == '}');
+  assert(out[len - 1] == '\n');
+
+  free(out);
+}
+
+static void test_hardening_json_meta_array(void) {
+  reset_state();
+  hardening_mode = 1;
+  json_output = 1;
+  sysctl_kptr_restrict = -1;
+  sysctl_dmesg_restrict = -1;
+  sysctl_perf_event_paranoid = -1;
+  sysctl_lockdown = LOCKDOWN_NONE;
+
+  inject_comp_meta("prefetch", OUTCOME_SUCCESS,
+                   "method:timing\naddr:virtual\nhardware:KPTI\nhardware:AMD Zen 3+");
+
+  struct summary s;
+  memset(&s, 0, sizeof(s));
+
+  capture_start();
+  render_json(&s);
+  char *out = capture_end();
+
+  /* Multi-value key should be array */
+  assert(strstr(out, "\"hardware\": ["));
+  assert(strstr(out, "\"KPTI\""));
+  assert(strstr(out, "\"AMD Zen 3+\""));
+
+  free(out);
+}
+
+static void test_hardening_json_no_meta_without_flag(void) {
+  reset_state();
+  hardening_mode = 0;
+  verbose = 1;
+  json_output = 1;
+  sysctl_kptr_restrict = 0;
+  sysctl_dmesg_restrict = 0;
+  sysctl_perf_event_paranoid = 1;
+  sysctl_lockdown = LOCKDOWN_NONE;
+
+  inject_comp_meta("comp-a", OUTCOME_SUCCESS, "method:parsed\naddr:physical");
+
+  struct summary s;
+  memset(&s, 0, sizeof(s));
+
+  capture_start();
+  render_json(&s);
+  char *out = capture_end();
+
+  /* Without --hardening, should NOT have meta or hardening object */
+  assert(strstr(out, "\"meta\"") == NULL);
+  assert(strstr(out, "\"hardening\"") == NULL);
+
+  /* But should still have components (verbose=1) */
+  assert(strstr(out, "\"components\""));
+
+  free(out);
+}
+
+/* =========================================================================
  * Main
  * =========================================================================
  */
@@ -1500,6 +1782,24 @@ int main(void) {
   printf("component stats:\n");
   RUN_TEST(test_component_stats);
   RUN_TEST(test_json_component_stats);
+  printf("\n");
+
+  printf("meta_get:\n");
+  RUN_TEST(test_meta_get_basic);
+  RUN_TEST(test_meta_get_all_multiple);
+  printf("\n");
+
+  printf("hardening (text):\n");
+  RUN_TEST(test_hardening_text_exposure_summary);
+  RUN_TEST(test_hardening_text_active_defenses);
+  RUN_TEST(test_hardening_text_patched);
+  RUN_TEST(test_hardening_text_no_mitigation);
+  printf("\n");
+
+  printf("hardening (json):\n");
+  RUN_TEST(test_hardening_json_structure);
+  RUN_TEST(test_hardening_json_meta_array);
+  RUN_TEST(test_hardening_json_no_meta_without_flag);
   printf("\n");
 
   printf("end-to-end:\n");

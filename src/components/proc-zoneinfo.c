@@ -31,6 +31,20 @@
 //     ...
 //     start_pfn:           1048576
 //
+// Leak primitive:
+//   Data leaked:      physical DRAM base address (zone start PFN × PAGE_SIZE)
+//   Kernel subsystem: mm/vmstat — /proc/zoneinfo (proc_zoneinfo_show)
+//   Data structure:   struct zone → zone_start_pfn (unsigned long)
+//   Address type:     physical (DRAM)
+//   Method:           parsed (text file)
+//   Status:           unfixed (information exposure by design)
+//
+// Mitigations:
+//   None — /proc/zoneinfo is world-readable (0444); no runtime sysctl can
+//   restrict access. The start_pfn field is part of core mm and cannot be
+//   hidden without a kernel patch. On decoupled architectures (x86_64, ARM64,
+//   RISC-V 64), the physical address cannot derive the virtual text base.
+//
 // Requires:
 // - /proc filesystem
 //
@@ -45,6 +59,16 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+KASLD_EXPLAIN(
+    "Reads /proc/zoneinfo to extract the start page frame number (PFN) "
+    "of each memory zone. Multiplying the PFN by the page size (4096) "
+    "yields the physical base address of system RAM. This file is "
+    "world-readable (0444) and part of core mm; no sysctl or CONFIG "
+    "option can hide the start_pfn field.");
+
+KASLD_META("method:parsed\n"
+           "addr:physical\n");
 
 int main(void) {
   FILE *f;

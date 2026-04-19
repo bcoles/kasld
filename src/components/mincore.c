@@ -10,6 +10,19 @@
 //
 // Largely based on original code by Jann Horn:
 // https://bugs.chromium.org/p/project-zero/issues/detail?id=1431
+//
+// Leak primitive:
+//   Data leaked:      kernel heap pointer (page allocator metadata)
+//   Kernel subsystem: mm — mincore syscall (do_mincore /
+//   __mincore_unmapped_range) Data structure:   page allocator metadata
+//   (uninitialized byte in vec) Address type:     virtual Method: heuristic
+//   (brute-force scan of MAP_HUGETLB region) CVE:              CVE-2017-16994
+//   Patched:          v4.15 (commit 373c4557d2aa)
+//   Status:           fixed in v4.15
+//
+// Mitigations:
+//   Patched in v4.15. No runtime sysctl could restrict access — the
+//   bug was an uninitialized byte in the mincore output vector. x86_64 only.
 // ---
 // <bcoles@gmail.com>
 
@@ -32,6 +45,18 @@
  * few thousand iterations, so this limit only fires on patched kernels
  * where every iteration is fruitless. */
 #define TIMEOUT_SECS 5
+
+KASLD_EXPLAIN(
+    "Exploits CVE-2017-16994: the mincore() syscall, when given an "
+    "unmapped address, returned uninitialized page allocator metadata "
+    "instead of an error. This leaked heap virtual addresses from the "
+    "buddy allocator. Fixed in v4.15 by returning -ENOMEM for unmapped "
+    "ranges.");
+
+KASLD_META("method:heuristic\n"
+           "addr:virtual\n"
+           "cve:CVE-2017-16994\n"
+           "patch:v4.15\n");
 
 unsigned long get_kernel_addr_mincore() {
   unsigned char buf[getpagesize() / sizeof(unsigned char)];

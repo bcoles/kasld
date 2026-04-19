@@ -14,6 +14,20 @@
 //   /sys/firmware/memmap/0/end    -> "0x9e7ff"
 //   /sys/firmware/memmap/0/type   -> "System RAM"
 //
+// Leak primitive:
+//   Data leaked:      physical memory map (firmware-reported RAM regions)
+//   Kernel subsystem: drivers/firmware — /sys/firmware/memmap/*/start,end,type
+//   Data structure:   firmware memory map entries (E820 on x86, EFI memmap)
+//   Address type:     physical (DRAM)
+//   Method:           parsed (sysfs text files)
+//   Status:           unfixed (information exposure by design)
+//
+// Mitigations:
+//   CONFIG_FIRMWARE_MEMMAP=n removes the sysfs entries entirely.
+//   x86-only (not available on ARM/RISC-V). The files are world-readable
+//   (0444); no runtime sysctl can restrict access. On x86_64
+//   (decoupled), physical addresses cannot derive the virtual text base.
+//
 // Requires:
 // - CONFIG_FIRMWARE_MEMMAP (common on x86 distros; not available on
 //   ARM/RISC-V)
@@ -31,6 +45,17 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+KASLD_EXPLAIN(
+    "Reads the firmware-provided physical memory map from "
+    "/sys/firmware/memmap/*/start and /sys/firmware/memmap/*/end. These "
+    "world-readable files expose E820 or EFI memory map entries showing "
+    "physical DRAM and reserved region addresses. x86 only; requires "
+    "CONFIG_FIRMWARE_MEMMAP.");
+
+KASLD_META("method:parsed\n"
+           "addr:physical\n"
+           "config:CONFIG_FIRMWARE_MEMMAP\n");
 
 static int read_file_line(const char *path, char *buf, size_t len) {
   FILE *f = fopen(path, "r");

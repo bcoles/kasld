@@ -20,6 +20,20 @@
 //
 // Analogous to dmesg_check_for_initrd but works without dmesg access.
 //
+// Leak primitive:
+//   Data leaked:      physical initrd load address (start and end)
+//   Kernel subsystem: drivers/of —
+//   /sys/firmware/devicetree/base/chosen/linux,initrd-* Data structure: device
+//   tree chosen node (linux,initrd-start / linux,initrd-end) Address type:
+//   physical (DRAM) Method:           parsed (binary sysfs property) Status:
+//   unfixed (information exposure by design)
+//
+// Mitigations:
+//   CONFIG_OF=n removes device tree sysfs. CONFIG_BLK_DEV_INITRD=n prevents
+//   the property from existing. The property is world-readable (0444);
+//   no runtime sysctl can restrict access. On decoupled architectures,
+//   physical addresses cannot derive the virtual text base.
+//
 // Requires:
 // - CONFIG_OF (device tree support)
 // - CONFIG_BLK_DEV_INITRD
@@ -38,6 +52,18 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+KASLD_EXPLAIN(
+    "Reads the physical initrd/initramfs address from the device tree "
+    "sysfs chosen node (/sys/firmware/devicetree/base/chosen/"
+    "linux,initrd-start). This world-readable binary property contains "
+    "the physical address where the bootloader placed the initrd in "
+    "RAM. Only present on device tree platforms with an initrd.");
+
+KASLD_META("method:parsed\n"
+           "addr:physical\n"
+           "config:CONFIG_OF\n"
+           "config:CONFIG_BLK_DEV_INITRD\n");
 
 /* Read raw binary content from a sysfs file. Returns bytes read, or -1. */
 static int read_binary(const char *path, unsigned char *buf, size_t len) {

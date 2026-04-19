@@ -8,6 +8,20 @@
 //
 // But still present in RHEL 7.7 as of 2019. Removed in RHEL 7.8 (2020).
 //
+// Leak primitive:
+//   Data leaked:      kernel pointer to net structure (inet_net)
+//   Kernel subsystem: net/netfilter — /sys/kernel/slab/ directory names
+//   Data structure:   slab cache name containing raw kernel pointer
+//   Address type:     virtual (kernel data)
+//   Method:           exact (sysfs directory name parsing)
+//   Patched:          v4.6 (commit 31b0b385f69d)
+//   Status:           fixed in v4.6 (still present in RHEL 7.7)
+//
+// Mitigations:
+//   Patched in v4.6 (pointer removed from slab cache name). Requires
+//   CONFIG_NETFILTER=y and CONFIG_NF_CONNTRACK=y/m. /sys/kernel/slab/
+//   is world-readable; no runtime sysctl can restrict access.
+//
 // References:
 // https://www.openwall.com/lists/kernel-hardening/2017/10/05/5
 // https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=31b0b385f69d8d5491a4bca288e25e63f1d945d0
@@ -23,6 +37,18 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+
+KASLD_EXPLAIN(
+    "Before v4.6, the SLAB allocator exposed per-cache sysfs "
+    "directories named /sys/kernel/slab/nf_conntrack_<pointer> where "
+    "<pointer> was an unobfuscated kernel heap address. This directory "
+    "was world-readable. Fixed in v4.6 by removing the pointer from "
+    "the directory name.");
+
+KASLD_META("method:exact\n"
+           "addr:virtual\n"
+           "patch:v4.6\n"
+           "config:CONFIG_NF_CONNTRACK\n");
 
 unsigned long get_kernel_addr_conntrack() {
   unsigned long addr = 0;

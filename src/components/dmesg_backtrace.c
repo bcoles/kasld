@@ -18,6 +18,20 @@
 // Individual register values are unpredictable across different oopses,
 // but any value landing in a known kernel address range is useful.
 //
+// Leak primitive:
+//   Data leaked:      kernel text addresses, physical page table base (CR3),
+//                     directmap virtual addresses from register dumps
+//   Kernel subsystem: arch/*/kernel — kernel oops handler (show_regs)
+//   Data structure:   struct pt_regs (register dump), call trace addresses
+//   Address type:     virtual (kernel text) + physical (CR3 on x86)
+//   Method:           parsed (dmesg oops output)
+//   Status:           unfixed (oops output is essential for debugging)
+//
+// Mitigations:
+//   Access gated by dmesg_restrict (see dmesg.h for shared access gate
+//   details). Oops output cannot be suppressed without CONFIG_PANIC_ON_OOPS.
+//   %pK/%pS sanitization does not apply to oops register dumps.
+//
 // Requires:
 // - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities; or
 //   readable /var/log/dmesg.
@@ -34,6 +48,20 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+
+KASLD_EXPLAIN(
+    "Extracts kernel addresses from oops/panic call traces in dmesg. "
+    "Bracketed addresses [<ffffffff...>] are kernel text pointers; "
+    "x86 CR3 values reveal the physical page table base; register "
+    "dumps may contain direct-map virtual addresses. Any kernel crash "
+    "or warning logged to dmesg can expose multiple address types. "
+    "Access is gated by dmesg_restrict.");
+
+KASLD_META("method:parsed\n"
+           "addr:virtual\n"
+           "sysctl:dmesg_restrict>=1\n"
+           "bypass:CAP_SYSLOG\n"
+           "fallback:/var/log/dmesg\n");
 
 struct oops_ctx {
   unsigned long text;
