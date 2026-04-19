@@ -191,15 +191,13 @@ static void render_kaslr_text(const struct summary *s) {
   printf("%sKASLR analysis:%s\n", c(C_BOLD), c(C_RESET));
 
   if (s->kaslr.vtext) {
-    char hbuf[32];
     printf("  Virtual text base:    %s0x%016lx%s\n", c(C_GREEN), s->kaslr.vtext,
            c(C_RESET));
     printf("  Default text base:    0x%016lx\n", layout.kernel_text_default);
-    printf("  KASLR slide:          %s%+ld%s (%s)\n", c(C_CYAN),
-           s->kaslr.vslide, c(C_RESET),
-           human_size((unsigned long)(s->kaslr.vslide < 0 ? -s->kaslr.vslide
-                                                          : s->kaslr.vslide),
-                      hbuf, sizeof(hbuf)));
+    long abs_vslide = s->kaslr.vslide < 0 ? -s->kaslr.vslide : s->kaslr.vslide;
+    printf("  KASLR slide:          %s%s0x%lx%s (%ld)\n", c(C_CYAN),
+           s->kaslr.vslide < 0 ? "-" : "+", (unsigned long)abs_vslide,
+           c(C_RESET), s->kaslr.vslide);
     if (s->kaslr.vslots > 0)
       printf("  KASLR text entropy:   %s%d bits%s (%lu slots of %#lx)\n",
              c(C_MAGENTA), s->kaslr.vbits, c(C_RESET), s->kaslr.vslots,
@@ -214,17 +212,15 @@ static void render_kaslr_text(const struct summary *s) {
   }
 
   if (s->kaslr.has_phys) {
-    char hbuf[32];
     printf("  Physical text base:   %s0x%016lx%s\n", c(C_GREEN), s->kaslr.ptext,
            c(C_RESET));
 #ifdef KERNEL_PHYS_DEFAULT
     printf("  Default phys base:    0x%016lx\n",
            (unsigned long)KERNEL_PHYS_DEFAULT);
-    printf("  Physical KASLR slide: %s%+ld%s (%s)\n", c(C_CYAN),
-           s->kaslr.pslide, c(C_RESET),
-           human_size((unsigned long)(s->kaslr.pslide < 0 ? -s->kaslr.pslide
-                                                          : s->kaslr.pslide),
-                      hbuf, sizeof(hbuf)));
+    long abs_pslide = s->kaslr.pslide < 0 ? -s->kaslr.pslide : s->kaslr.pslide;
+    printf("  Physical KASLR slide: %s%s0x%lx%s (%ld)\n", c(C_CYAN),
+           s->kaslr.pslide < 0 ? "-" : "+", (unsigned long)abs_pslide,
+           c(C_RESET), s->kaslr.pslide);
     if (s->kaslr.pslots > 0)
       printf("  Physical KASLR entropy: %s%d bits%s (%lu slots of %#lx)\n",
              c(C_MAGENTA), s->kaslr.pbits, c(C_RESET), s->kaslr.pslots,
@@ -1672,11 +1668,9 @@ static void render_oneline(const struct summary *s) {
 
   /* KASLR slide */
   if (s->kaslr.vtext) {
-    char hbuf[32];
-    printf(" slide=%+ld(%s)", s->kaslr.vslide,
-           human_size((unsigned long)(s->kaslr.vslide < 0 ? -s->kaslr.vslide
-                                                          : s->kaslr.vslide),
-                      hbuf, sizeof(hbuf)));
+    long abs_vs = s->kaslr.vslide < 0 ? -s->kaslr.vslide : s->kaslr.vslide;
+    printf(" slide=%s0x%lx(%ld)", s->kaslr.vslide < 0 ? "-" : "+",
+           (unsigned long)abs_vs, s->kaslr.vslide);
   }
 
   /* Entropy */
@@ -1745,14 +1739,13 @@ static void render_markdown(const struct summary *s) {
     printf("| Metric | Value |\n");
     printf("|:-------|:------|\n");
     if (s->kaslr.vtext) {
-      char hbuf[32];
+      long abs_vs = s->kaslr.vslide < 0 ? -s->kaslr.vslide : s->kaslr.vslide;
       printf("| Virtual text base | `0x%016lx` |\n", s->kaslr.vtext);
       printf("| Default text base | `0x%016lx` |\n",
              layout.kernel_text_default);
-      printf("| KASLR slide | %+ld (%s) |\n", s->kaslr.vslide,
-             human_size((unsigned long)(s->kaslr.vslide < 0 ? -s->kaslr.vslide
-                                                            : s->kaslr.vslide),
-                        hbuf, sizeof(hbuf)));
+      printf("| KASLR slide | %s0x%lx (%ld) |\n",
+             s->kaslr.vslide < 0 ? "-" : "+", (unsigned long)abs_vs,
+             s->kaslr.vslide);
       printf("| Virtual entropy | %d bits (%lu slots) |\n", s->kaslr.vbits,
              s->kaslr.vslots);
       if (s->kaslr.vslot_valid)
