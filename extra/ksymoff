@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# Compute runtime addresses of kernel symbols by applying a KASLR slide.
+#
+# Takes a runtime text base (from KASLD or manual) and a symbol source
+# (System.map, kallsyms dump, or vmlinux ELF). Finds _text in the
+# symbol file as the default base, computes slide = runtime - default,
+# and adds the slide to requested symbol addresses.
+#
+# Usage:
+#   ./extra/ksymoff -b 0xffffffff82200000 -s System.map commit_creds
+#   ./extra/ksymoff -b 0xffffffff82200000 -s vmlinux commit_creds
+#   ./build/*/kasld -1 2>/dev/null | ./extra/ksymoff -s System.map commit_creds
+#   ./extra/ksymoff -b 0xffffffff82200000 -s System.map --slide
+#   ./extra/ksymoff -b 0xffffffff82200000 -s System.map
+#
+# Requires bash for 64-bit hex arithmetic (dash clamps to LONG_MAX).
+# Requires nm(1) only when the symbol source is an ELF binary.
+# ---
+# <bcoles@gmail.com>
+
+set -e
+
+die() { printf '%s\n' "$1" >&2; exit 1; }
+
+# -- Parse args -----------------------------------------------------------
+base="" symfile="" slide_only=0
+symbols=()
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -b|--base)    base="$2"; shift 2 ;;
+    -s|--symbols) symfile="$2"; shift 2 ;;
+    --slide)      slide_only=1; shift ;;
+    -h|--help)
+      sed -n '2,/^[^#]/{ /^#/s/^# \?//p; }' "$0" >&2; exit 0 ;;
+    -*)           die "Unknown option: $1" ;;
+    *)            symbols+=("$1"); shift ;;
+  esac
+done
+
+[[ -z "$symfile" ]] && die "Usage: ksymoff [-b BASE] -s SYMBOLS [--slide] [SYMBOL ...]"
+[[ -f "$symfile" ]] || die "Symbol file not found: $symfile"
+
+# -- Read base from KASLD --oneline on stdin if not given -----------------
+if [[ -z "$base" ]]; then
+  [[ -t 0 ]] && die "No --base given and stdin is a terminal. Pipe kasld -1 or use -b."
+  read -r line
+  [[ "$line" =~ text=0x([0-9a-fA-F]+) ]] || die "No text=0x... found in stdin"
+  base="0x${BASH_REMATCH[1]}"
+fi
+
+base_hex="${base#0[xX]}"
+
+# -- If ELF, extract symbols via nm --------------------------------------
+if file "$symfile" | grep -q ELF; then
+  tmp=$(mktemp)
+  trap 'rm -f "$tmp"' EXIT
+  # Try nm first (reads .symtab), then nm -D (.dynsym), then readelf
+  if command -v nm >/dev/null && nm "$symfile" 2>/dev/null > "$tmp" && [[ -s "$tmp" ]]; then
+    :
+  elif command -v nm >/dev/null && nm -D "$symfile" 2>/dev/null > "$tmp" && [[ -s "$tmp" ]]; then
+    :
+  elif command -v readelf >/dev/null; then
+    # readelf -sW output: "Num: Value Size Type Bind Vis Ndx Name"
+    readelf -sW "$symfile" 2>/dev/null | awk 'NF>=8 && $2 ~ /^[0-9a-fA-F]+$/ {
+      printf "%s %s %s\n", $2, substr($4,1,1), $8
+    }' > "$tmp"
+    [[ -s "$tmp" ]] || die "ELF has no symbols. Install debug symbols (e.g. linux-image-\$(uname -r)-dbgsym)"
+  else
+    die "nm(1) or readelf(1) required for ELF symbol extraction"
+  fi
+  symfile="$tmp"
+fi
+
+# -- Find default base (_text / _stext / startup_64) ---------------------
+default_hex=$(awk '/ [Tt] _text$/{print $1; exit}' "$symfile")
+[[ -z "$default_hex" ]] && default_hex=$(awk '/ [Tt] _stext$/{print $1; exit}' "$symfile")
+[[ -z "$default_hex" ]] && default_hex=$(awk '/ [Tt] startup_64$/{print $1; exit}' "$symfile")
+[[ -z "$default_hex" ]] && die "Cannot find _text, _stext, or startup_64 in symbol file"
+
+# -- Compute slide --------------------------------------------------------
+slide=$(( 0x$base_hex - 0x$default_hex ))
+
+if [[ "$slide_only" -eq 1 ]]; then
+  (( slide >= 0 )) && printf '+0x%x\n' "$slide" || printf -- '-0x%x\n' $(( -slide ))
+  exit 0
+fi
+
+# -- Look up symbols and apply slide -------------------------------------
+if [[ ${#symbols[@]} -gt 0 ]]; then
+  for sym in "${symbols[@]}"; do
+    line=$(awk -v s="$sym" '$3 == s { print; exit }' "$symfile")
+    if [[ -z "$line" ]]; then
+      printf '# not found: %s\n' "$sym" >&2
+      continue
+    fi
+    addr_hex=$(awk '{print $1}' <<< "$line")
+    type=$(awk '{print $2}' <<< "$line")
+    printf '%016x %s %s\n' $(( 0x$addr_hex + slide )) "$type" "$sym"
+  done
+else
+  # Dump all symbols with slide applied
+  while IFS=' ' read -r addr type name _; do
+    [[ "$addr" =~ ^[0-9a-fA-F]+$ ]] || continue
+    [[ -n "$name" ]] || continue
+    printf '%016x %s %s\n' $(( 0x$addr + slide )) "$type" "$name"
+  done < "$symfile"
+fi

@@ -685,18 +685,36 @@ and [`src/include/kasld_internal.h`](src/include/kasld_internal.h)
 
 ### Function Offsets
 
-As the entire kernel code text is mapped with only the base address randomized,
-a single kernel pointer leak can be used to infer the location of the kernel
-virtual address space and offset of the kernel base address.
+As the entire kernel code text is mapped with only the base address
+randomized, a single kernel pointer leak reveals the KASLR slide — the
+offset between the default and actual text base. Adding this slide to any
+symbol address from an unrandomized source (System.map, debug vmlinux, or
+a `/proc/kallsyms` snapshot) yields the runtime virtual address.
 
-Offsets to useful kernel functions (`commit_creds`, `prepare_kernel_cred`, etc)
-from the base address can be pre-calculated on other systems with the same
-kernel - an easy task for publicly available kernels (ie, distro kernels).
+Offsets to useful kernel functions (`commit_creds`, `prepare_kernel_cred`,
+etc) can be pre-calculated on another system running the same kernel — an
+easy task for publicly available distro kernels.
 
-Function offsets may also be retrieved from various file system locations
-(`/proc/kallsyms`, `vmlinux`, `System.map`, etc) depending on file system
-permissions. [jonoberheide/ksymhunter](https://github.com/jonoberheide/ksymhunter)
-automates this process.
+The included [extra/ksymoff](extra/ksymoff) utility computes runtime
+addresses by applying the KASLR slide from a KASLD run to a symbol source:
+
+```sh
+# Explicit base from a KASLD run + System.map
+./extra/ksymoff -b 0xffffffff82200000 -s System.map commit_creds
+ffffffff82276cb0 T commit_creds
+
+# Pipe directly from KASLD --oneline
+./build/*/kasld -1 2>/dev/null | ./extra/ksymoff -s System.map commit_creds
+
+# Show the slide
+./extra/ksymoff -b 0xffffffff82200000 -s System.map --slide
++0x1200000
+```
+
+`ksymoff` accepts System.map files, `/proc/kallsyms` snapshots, and
+vmlinux ELF binaries (symbols extracted via `nm`; debug symbols required —
+stripped distro vmlinux files have no symbol table). It derives the default
+base automatically from `_text` in the symbol file.
 
 
 ### Function Granular KASLR (FG-KASLR)
