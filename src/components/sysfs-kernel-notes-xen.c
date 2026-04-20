@@ -36,6 +36,9 @@
 //   XEN_ELFNOTE_HYPERCALL_PAGE) Address type:     virtual (kernel text) Method:
 //   exact (ELF note parsing) Patched:          v6.9 (commit aaa8736370db);
 //   hardened v6.13 (223abe96ac0d) Status:           fixed in v6.9
+//   Access check:     none (world-readable /sys/kernel/notes, 0444)
+//   Source:
+//   https://elixir.bootlin.com/linux/v6.7.3/source/arch/x86/xen/xen-head.S#L118
 //
 // Mitigations:
 //   Patched in v6.9 (relocations in .notes skipped). Further hardened in

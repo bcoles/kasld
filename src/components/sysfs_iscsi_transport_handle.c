@@ -15,6 +15,9 @@
 //   CVE:              CVE-2021-27363
 //   Patched:          v5.12 (multiple commits)
 //   Status:           fixed in v5.12
+//   Access check:     none pre-v5.12 (world-readable sysfs attribute)
+//   Source:
+//   https://elixir.bootlin.com/linux/v5.11/source/drivers/scsi/scsi_transport_iscsi.c
 //
 // Mitigations:
 //   Patched in v5.12. Requires CONFIG_SCSI_ISCSI_ATTRS=y/m. The module

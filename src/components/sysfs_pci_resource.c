@@ -29,6 +29,9 @@
 //   Address type:     physical (MMIO)
 //   Method:           parsed (sysfs text file)
 //   Status:           unfixed (information exposure by design)
+//   Access check:     none (world-readable sysfs attribute)
+//   Source:
+//   https://elixir.bootlin.com/linux/v6.12/source/drivers/pci/pci-sysfs.c#L163
 //
 // Mitigations:
 //   CONFIG_PCI=n removes PCI subsystem entirely. The resource file is

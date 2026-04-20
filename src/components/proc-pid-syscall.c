@@ -19,6 +19,8 @@
 //   CVE:              CVE-2020-28588
 //   Patched:          v5.10 (commit 4f134b89a24b)
 //   Status:           fixed in v5.10
+//   Access check:     none pre-v5.10 (world-readable /proc/<PID>/syscall)
+//   Source: https://elixir.bootlin.com/linux/v5.9/source/fs/proc/base.c
 //
 // Mitigations:
 //   Patched in v5.10. No runtime sysctl could restrict access — the bug was

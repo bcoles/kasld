@@ -26,6 +26,10 @@
 //   Address type:     virtual (kernel text) + physical (CR3 on x86)
 //   Method:           parsed (dmesg oops output)
 //   Status:           unfixed (oops output is essential for debugging)
+//   Access check:     do_syslog() → check_syslog_permissions(); gated by
+//                     dmesg_restrict
+//   Source:
+//   https://elixir.bootlin.com/linux/v6.12/source/arch/x86/kernel/dumpstack.c
 //
 // Mitigations:
 //   Access gated by dmesg_restrict (see dmesg.h for shared access gate

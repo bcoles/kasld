@@ -18,6 +18,10 @@
 //   Address type:     physical (+ virtual symbols if present)
 //   Method:           parsed
 //   Status:           unfixed (information exposure by design)
+//   Access check:     none (world-readable sysfs attribute); blocked by kernel
+//                     lockdown (integrity)
+//   Source:
+//   https://elixir.bootlin.com/linux/v6.12/source/kernel/ksysfs.c#L168
 //
 // Mitigations:
 //   CONFIG_VMCORE_INFO=n (or CONFIG_CRASH_DUMP=n) removes the file.

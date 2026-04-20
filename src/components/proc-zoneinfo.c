@@ -38,6 +38,8 @@
 //   Address type:     physical (DRAM)
 //   Method:           parsed (text file)
 //   Status:           unfixed (information exposure by design)
+//   Access check:     none (world-readable /proc/zoneinfo, 0444)
+//   Source:           https://elixir.bootlin.com/linux/v6.12/source/mm/vmstat.c
 //
 // Mitigations:
 //   None — /proc/zoneinfo is world-readable (0444); no runtime sysctl can

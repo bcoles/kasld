@@ -34,6 +34,8 @@
 //   Address type:     virtual (direct-map / kernel heap)
 //   Method:           timing (hash collision side-channel)
 //   Status:           mitigated in v6.14 (CONFIG_FUTEX_PRIVATE_HASH)
+//   Access check:     none (futex syscall, unprivileged; timing side-channel)
+//   Source: https://elixir.bootlin.com/linux/v6.12/source/kernel/futex/core.c
 //
 // Mitigations:
 //   CONFIG_FUTEX_PRIVATE_HASH=y (v6.14+) replaces the global hash table

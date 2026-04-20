@@ -68,6 +68,8 @@
 #define KERNEL_PHYS_MIN 0ul
 #define KERNEL_PHYS_MAX (64ul * GB)
 
+// See README.md "Default text base and KASLR alignment" for all architectures.
+// Kernel source: arch/loongarch/kernel/vmlinux.lds.S, arch/loongarch/Makefile
 #define KERNEL_TEXT_DEFAULT (KERNEL_BASE_MIN + TEXT_OFFSET)
 
 // KASLR randomization: offset = get_random_u16() << 16, range [0, 0xFFFF0000].

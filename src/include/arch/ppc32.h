@@ -53,6 +53,8 @@
 #define KERNEL_PHYS_MAX (1ul * GB)
 
 // Default: 0xc0000000 (PAGE_OFFSET, no text offset on PPC32).
+// See README.md "Default text base and KASLR alignment" for all architectures.
+// Kernel source: arch/powerpc/kernel/vmlinux.lds.S
 #define KERNEL_TEXT_DEFAULT (KERNEL_BASE_MIN + TEXT_OFFSET)
 
 #define KASLR_SUPPORTED 1

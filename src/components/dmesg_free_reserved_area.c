@@ -28,6 +28,10 @@
 //   Address type:     virtual (kernel text / initrd)
 //   Method:           parsed (dmesg string)
 //   Status:           removed in v4.10 (commit adb1fe9ae2ee)
+//   Access check:     do_syslog() → check_syslog_permissions(); gated by
+//                     dmesg_restrict
+//   Source:
+//   https://elixir.bootlin.com/linux/v4.9/source/mm/page_alloc.c
 //
 // Mitigations:
 //   Removed in v4.10 (pr_info with raw %p replaced). Access gated by

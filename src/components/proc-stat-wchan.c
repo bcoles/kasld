@@ -20,6 +20,8 @@
 //   Method:           parsed (field 34 of stat file)
 //   Patched:          v4.4 (commit b2f73922d119)
 //   Status:           fixed in v4.4; regressed v5.12–v5.15; re-fixed v5.16
+//   Access check:     none pre-v4.4 (world-readable /proc/<PID>/stat field 34)
+//   Source: https://elixir.bootlin.com/linux/v4.3/source/fs/proc/array.c
 //
 // Mitigations:
 //   Patched in v4.4 (wchan zeroed for non-root). Regression in v5.12

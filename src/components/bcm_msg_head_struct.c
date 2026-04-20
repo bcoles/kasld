@@ -15,6 +15,9 @@
 //   CVE:              CVE-2021-34693
 //   Patched:          v5.12 (multiple commits)
 //   Status:           fixed in v5.12
+//   Access check:     none pre-v5.12 (AF_CAN socket creation, unprivileged)
+//   Source:
+//   https://elixir.bootlin.com/linux/v5.11/source/net/can/bcm.c
 //
 // Mitigations:
 //   Patched in v5.12. Requires CONFIG_CAN=y and CONFIG_CAN_BCM=y/m.

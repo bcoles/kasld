@@ -14,6 +14,9 @@
 //   Address type:     virtual (kernel VAS start)
 //   Method:           heuristic (mmap brute-force across 32-bit address space)
 //   Status:           unfixed (fundamental to 32-bit VM split design)
+//   Access check:     none (mmap syscall, unprivileged)
+//   Source:           N/A (architectural inference — no specific kernel
+//                     function)
 //
 // Mitigations:
 //   None — 32-bit address space split is a fundamental architectural

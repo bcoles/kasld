@@ -32,6 +32,10 @@
 //   Address type:     virtual (kernel text)
 //   Method:           parsed (dmesg string)
 //   Status:           unfixed (error message prints raw kernel pointer)
+//   Access check:     do_syslog() → check_syslog_permissions(); gated by
+//                     dmesg_restrict
+//   Source:
+//   https://elixir.bootlin.com/linux/v6.7/source/arch/riscv/kernel/module.c
 //
 // Mitigations:
 //   Access gated by dmesg_restrict (see dmesg.h for shared access gate

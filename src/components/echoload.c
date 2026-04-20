@@ -35,6 +35,8 @@
 //   Address type:     virtual (kernel text)
 //   Method:           timing (Flush+Reload on probe array)
 //   Status:           unfixed on Meltdown-vulnerable hardware
+//   Access check:     N/A (hardware side-channel — no kernel gate)
+//   Source:           N/A (hardware side-channel)
 //
 // Mitigations:
 //   Non-Meltdown hardware (all AMD CPUs, Intel Ice Lake+) is immune —

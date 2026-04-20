@@ -14,6 +14,10 @@
 //   Address type:     virtual
 //   Method:           parsed (dmesg string)
 //   Status:           removed in v5.11 (Android ION subsystem deleted)
+//   Access check:     do_syslog() → check_syslog_permissions(); gated by
+//                     dmesg_restrict
+//   Source:
+//   https://elixir.bootlin.com/linux/v5.10.89/source/drivers/staging/android/ion
 //
 // Mitigations:
 //   Android ION was removed in v5.11. Access gated by dmesg_restrict

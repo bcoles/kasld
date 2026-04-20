@@ -121,6 +121,8 @@
 // CONFIG_KERNEL_IMAGE_BASE (introduced ~v6.8) default = 0x3FFE0000000
 // (+ TEXT_OFFSET for _stext). Pre-v6.8 kernels used identity mapping with
 // _stext at TEXT_OFFSET (0x100000).  Distros may override.
+// See README.md "Default text base and KASLR alignment" for all architectures.
+// Kernel source: arch/s390/kernel/vmlinux.lds.S, arch/s390/boot/startup.c
 #define KERNEL_TEXT_DEFAULT 0x3FFE0100000ul
 
 #define KASLR_SUPPORTED 1

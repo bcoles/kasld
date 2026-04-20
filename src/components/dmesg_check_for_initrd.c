@@ -13,6 +13,10 @@
 //   Address type:     virtual (kernel direct-map, ppc64)
 //   Method:           parsed (dmesg string)
 //   Status:           unfixed (boot message printed unconditionally)
+//   Access check:     do_syslog() → check_syslog_permissions(); gated by
+//                     dmesg_restrict
+//   Source:
+//   https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/kernel/setup-common.c#L385
 //
 // Mitigations:
 //   CONFIG_BLK_DEV_INITRD=n prevents the message. Access gated by

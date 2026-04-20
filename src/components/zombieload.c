@@ -41,6 +41,8 @@
 //   Method:           timing (Flush+Reload on 256-entry probe array)
 //   Status:           mitigated via VERW on supported CPUs; hardware fix
 //                     in Ice Lake+
+//   Access check:     N/A (hardware side-channel — no kernel gate)
+//   Source:           N/A (hardware side-channel)
 //
 // Mitigations:
 //   MDS mitigations (VERW buffer clearing): kernel clears LFBs on every

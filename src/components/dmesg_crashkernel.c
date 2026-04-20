@@ -24,6 +24,10 @@
 //   Method:           parsed (dmesg string)
 //   Status:           unfixed (printed unconditionally when crashkernel= is
 //   set)
+//   Access check:     do_syslog() → check_syslog_permissions(); gated by
+//                     dmesg_restrict
+//   Source:
+//   https://elixir.bootlin.com/linux/v6.12/source/kernel/crash_reserve.c
 //
 // Mitigations:
 //   No crashkernel= boot parameter means no message. Access gated by

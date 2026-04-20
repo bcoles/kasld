@@ -111,6 +111,9 @@
 // Use v6.2+ value (2G module region, current default).
 #define KIMAGE_VADDR 0xffff800080000000ul
 
+// See README.md "Default text base and KASLR alignment" for all architectures.
+// Kernel source: arch/arm64/kernel/vmlinux.lds.S,
+// arch/arm64/include/asm/memory.h
 #define KERNEL_TEXT_DEFAULT (KIMAGE_VADDR + TEXT_OFFSET)
 
 // KASLR randomization window (v4.6+):

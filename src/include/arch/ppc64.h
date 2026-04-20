@@ -59,6 +59,8 @@
 #define TEXT_OFFSET 0
 
 // Default: 0xc000000000000000 (PAGE_OFFSET, no text offset on PPC64).
+// See README.md "Default text base and KASLR alignment" for all architectures.
+// Kernel source: arch/powerpc/kernel/vmlinux.lds.S
 #define KERNEL_TEXT_DEFAULT (KERNEL_BASE_MIN + TEXT_OFFSET)
 
 // PPC64 does not have mainline KASLR.

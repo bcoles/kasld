@@ -14,6 +14,10 @@
 //   structure:   struct perf_event → sample IP (instruction pointer) Address
 //   type:     virtual (kernel text) Method:           exact (perf event
 //   sampling) Status:           gated by design (perf_event_paranoid)
+//   Access check:     perf_event_open() checks perf_event_paranoid; requires
+//                     CAP_PERFMON or CAP_SYS_ADMIN
+//   Source:
+//   https://elixir.bootlin.com/linux/v6.12/source/kernel/events/core.c
 //
 // Mitigations:
 //   kernel.perf_event_paranoid >= 2 (default on most distros) blocks

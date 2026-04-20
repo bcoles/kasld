@@ -18,6 +18,10 @@
 //   Address type:     physical (DRAM)
 //   Method:           parsed (dmesg string)
 //   Status:           unfixed (printed unconditionally on NUMA systems)
+//   Access check:     do_syslog() → check_syslog_permissions(); gated by
+//                     dmesg_restrict
+//   Source:
+//   https://elixir.bootlin.com/linux/v6.12/source/mm/numa.c#L27
 //
 // Mitigations:
 //   Access gated by dmesg_restrict (see dmesg.h for shared access gate

@@ -63,6 +63,10 @@
 //   ARM: v5.1,
 //                     ARM64: v4.16). Still present on RISC-V (CONFIG_DEBUG_VM),
 //                     Xtensa, and SuperH.
+//   Access check:     do_syslog() → check_syslog_permissions(); gated by
+//                     dmesg_restrict
+//   Source:
+//   https://elixir.bootlin.com/linux/v5.6.19/source/arch/x86/mm/init_32.c
 //
 // Mitigations:
 //   Removed from most architectures. On RISC-V, requires CONFIG_DEBUG_VM.

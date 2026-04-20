@@ -21,6 +21,9 @@
 //   Address type:     physical (DRAM)
 //   Method:           parsed (sysfs text files)
 //   Status:           unfixed (information exposure by design)
+//   Access check:     none (world-readable sysfs attribute)
+//   Source:
+//   https://elixir.bootlin.com/linux/v6.12/source/drivers/firmware/memmap.c
 //
 // Mitigations:
 //   CONFIG_FIRMWARE_MEMMAP=n removes the sysfs entries entirely.

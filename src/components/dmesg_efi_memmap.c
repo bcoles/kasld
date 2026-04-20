@@ -20,6 +20,10 @@
 //   Address type:     physical (DRAM + MMIO)
 //   Method:           parsed (dmesg string)
 //   Status:           unfixed (but requires efi=debug boot parameter)
+//   Access check:     do_syslog() → check_syslog_permissions(); gated by
+//                     dmesg_restrict
+//   Source:
+//   https://elixir.bootlin.com/linux/v6.12/source/drivers/firmware/efi/efi-init.c#L164
 //
 // Mitigations:
 //   Requires efi=debug boot parameter (not set by default). Access

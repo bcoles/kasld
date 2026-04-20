@@ -45,6 +45,8 @@
 #define KERNEL_PHYS_MAX (1ul * GB)
 
 // Default: 0xc0002000 (PAGE_OFFSET + 8 KiB .head.text).
+// See README.md "Default text base and KASLR alignment" for all architectures.
+// Kernel source: arch/riscv/kernel/vmlinux.lds.S
 #define KERNEL_TEXT_DEFAULT (KERNEL_BASE_MIN + TEXT_OFFSET)
 
 // RISC-V 32-bit does not have mainline KASLR.

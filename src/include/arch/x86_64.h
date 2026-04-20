@@ -75,6 +75,9 @@
 #define TEXT_OFFSET 0
 
 // Default: 0xffffffff81000000 (base + 16 MiB PHYSICAL_START).
+// See README.md "Default text base and KASLR alignment" for all architectures.
+// Kernel source: arch/x86/kernel/vmlinux.lds.S,
+// arch/x86/include/asm/page_64_types.h
 #define KERNEL_TEXT_DEFAULT (KERNEL_BASE_MIN + PHYSICAL_START + TEXT_OFFSET)
 
 #define KASLR_SUPPORTED 1

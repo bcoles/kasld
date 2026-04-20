@@ -104,6 +104,9 @@
 // at KERNEL_LINK_ADDR + 0x2000 (.head.text section). Aligned to
 // KERNEL_ALIGN (2 MiB), _stext rounds down to KERNEL_LINK_ADDR.
 #define KERNEL_LINK_ADDR 0xffffffff80000000ul
+// See README.md "Default text base and KASLR alignment" for all architectures.
+// Kernel source: arch/riscv/kernel/vmlinux.lds.S,
+// arch/riscv/include/asm/pgtable.h
 #define KERNEL_TEXT_DEFAULT KERNEL_LINK_ADDR
 
 // KASLR randomization window. KERNEL_BASE_MIN is intentionally wide to

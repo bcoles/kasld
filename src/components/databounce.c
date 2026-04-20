@@ -34,6 +34,8 @@
 //   Address type:     virtual (kernel text)
 //   Method:           timing (Flush+Reload on probe array)
 //   Status:           unfixed on TSX-capable hardware
+//   Access check:     N/A (hardware side-channel — no kernel gate)
+//   Source:           N/A (hardware side-channel)
 //
 // Mitigations:
 //   TSX disabled (tsx=off boot param, microcode update, or

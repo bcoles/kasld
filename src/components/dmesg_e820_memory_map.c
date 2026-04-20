@@ -22,6 +22,10 @@
 //   Address type:     physical (DRAM + reserved regions)
 //   Method:           parsed (dmesg string)
 //   Status:           unfixed (printed unconditionally during boot)
+//   Access check:     do_syslog() → check_syslog_permissions(); gated by
+//                     dmesg_restrict
+//   Source:
+//   https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/kernel/e820.c#L203
 //
 // Mitigations:
 //   Access gated by dmesg_restrict (see dmesg.h for shared access gate

@@ -52,6 +52,10 @@
 //   Method:           exact (CPU instruction)
 //   Patched:          v3.10 (commit 4eefbe792bae; IDT moved to fixmap)
 //   Status:           fixed in v3.10 (predates KASLR v3.14)
+//   Access check:     none (unprivileged CPU instruction); UMIP traps with #GP
+//                     on modern CPUs
+//   Source:           N/A (CPU SIDT instruction reads IDTR; no kernel
+//                     function involved)
 //
 // Mitigations:
 //   IDT moved to fixmap in v3.10 (constant virtual address). KPTI

@@ -19,6 +19,8 @@
 //   (brute-force scan of MAP_HUGETLB region) CVE:              CVE-2017-16994
 //   Patched:          v4.15 (commit 373c4557d2aa)
 //   Status:           fixed in v4.15
+//   Access check:     none pre-v4.15 (mincore syscall, unprivileged)
+//   Source: https://elixir.bootlin.com/linux/v4.14/source/mm/mincore.c
 //
 // Mitigations:
 //   Patched in v4.15. No runtime sysctl could restrict access — the

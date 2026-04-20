@@ -25,6 +25,8 @@
 //   Data structure:   device tree memory node reg property (address + size
 //   cells) Address type:     physical (DRAM) Method:           parsed (binary
 //   sysfs property) Status:           unfixed (information exposure by design)
+//   Access check:     none (world-readable sysfs attribute, 0444)
+//   Source: https://elixir.bootlin.com/linux/v6.12/source/drivers/of/kobj.c#L65
 //
 // Mitigations:
 //   CONFIG_OF=n removes device tree sysfs entirely (not applicable on

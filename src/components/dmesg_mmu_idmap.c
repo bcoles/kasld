@@ -15,6 +15,10 @@
 //   Address type:     virtual (kernel text, ARM32)
 //   Method:           parsed (dmesg string)
 //   Status:           unfixed (printed unconditionally on ARM32 with MMU)
+//   Access check:     do_syslog() → check_syslog_permissions(); gated by
+//                     dmesg_restrict
+//   Source:
+//   https://elixir.bootlin.com/linux/v5.15.11/source/arch/arm/mm/idmap.c#L89
 //
 // Mitigations:
 //   CONFIG_MMU=n disables (impractical — always enabled on ARM32 Linux).

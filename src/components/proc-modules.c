@@ -15,6 +15,10 @@
 //   Address type:     virtual (kernel module text)
 //   Method:           exact (proc file read)
 //   Status:           gated by design (kptr_restrict)
+//   Access check:     m_show() checks kptr_restrict via restricted_pointer();
+//                     requires CAP_SYSLOG
+//   Source:
+//   https://elixir.bootlin.com/linux/v6.12/source/kernel/module/procfs.c
 //
 // Mitigations:
 //   kernel.kptr_restrict >= 1 masks module addresses to 0x0.

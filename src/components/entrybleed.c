@@ -29,6 +29,8 @@
 //   (non-KPTI) Address type:     virtual (kernel text, page-aligned) Method:
 //   timing (prefetch side-channel) CVE:              CVE-2022-4543 Patched:
 //   v6.2 (commit 97e3d26b5e5f) Status:           fixed in v6.2
+//   Access check:     N/A (hardware side-channel — no kernel gate)
+//   Source:           N/A (hardware side-channel)
 //
 // Mitigations:
 //   Patched in v6.2. On AMD CPUs, KPTI mitigates (no trampoline leak).

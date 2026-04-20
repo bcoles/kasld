@@ -16,6 +16,10 @@
 //   Method:           exact (sysfs file read)
 //   Patched:          v4.15 (commit 277642dcca76; permissions restricted)
 //   Status:           gated since v4.15 (kptr_restrict)
+//   Access check:     module_sect_show() checks kptr_restrict since v4.15;
+//                     requires CAP_SYSLOG
+//   Source:
+//   https://elixir.bootlin.com/linux/v6.12/source/kernel/module/sysfs.c
 //
 // Mitigations:
 //   Since v4.15, section files require kptr_restrict = 0 (or CAP_SYSLOG)

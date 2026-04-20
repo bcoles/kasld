@@ -20,6 +20,10 @@
 //   Address type:     physical (DRAM)
 //   Method:           parsed (dmesg string)
 //   Status:           unfixed (boot messages printed unconditionally)
+//   Access check:     do_syslog() → check_syslog_permissions(); gated by
+//                     dmesg_restrict
+//   Source:
+//   https://elixir.bootlin.com/linux/v6.6/source/kernel/dma/contiguous.c
 //
 // Mitigations:
 //   Access gated by dmesg_restrict (see dmesg.h for shared access gate

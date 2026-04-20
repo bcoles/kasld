@@ -44,6 +44,10 @@
 //   structure:   struct pt_regs → ip (instruction pointer at MSR fault) Address
 //   type:     virtual (kernel text) Method:           parsed (dmesg string)
 //   Status:           unfixed (uses raw %lx format for RIP)
+//   Access check:     do_syslog() → check_syslog_permissions(); gated by
+//                     dmesg_restrict
+//   Source:
+//   https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/mm/extable.c
 //
 // Mitigations:
 //   CONFIG_KALLSYMS=y causes %pS to print symbolized names (but %lx

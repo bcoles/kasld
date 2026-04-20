@@ -16,6 +16,10 @@
 //   Method:           exact (sysfs directory name parsing)
 //   Patched:          v4.6 (commit 31b0b385f69d)
 //   Status:           fixed in v4.6 (still present in RHEL 7.7)
+//   Access check:     none (world-readable slab cache name in
+//                     /sys/kernel/slab/)
+//   Source:
+//   https://elixir.bootlin.com/linux/v4.5/source/net/netfilter/nf_conntrack_core.c
 //
 // Mitigations:
 //   Patched in v4.6 (pointer removed from slab cache name). Requires

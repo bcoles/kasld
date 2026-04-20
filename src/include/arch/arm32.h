@@ -63,6 +63,8 @@
 #define KERNEL_PHYS_MAX (4ul * GB)
 
 // Default: 0xc0008000 (PAGE_OFFSET + 32 KiB TEXT_OFFSET).
+// See README.md "Default text base and KASLR alignment" for all architectures.
+// Kernel source: arch/arm/kernel/vmlinux.lds.S, arch/arm/Makefile
 #define KERNEL_TEXT_DEFAULT (PAGE_OFFSET + TEXT_OFFSET)
 
 #define KASLR_SUPPORTED 0

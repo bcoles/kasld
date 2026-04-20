@@ -18,6 +18,9 @@
 //   memory_block → phys_index (section number) Address type:     physical
 //   (DRAM) Method:           parsed (sysfs text attribute) Status: unfixed
 //   (information exposure by design)
+//   Access check:     none (world-readable sysfs attribute, 0444)
+//   Source:
+//   https://elixir.bootlin.com/linux/v6.12/source/drivers/base/memory.c#L120
 //
 // Mitigations:
 //   CONFIG_MEMORY_HOTPLUG=n removes the memory block sysfs entries.

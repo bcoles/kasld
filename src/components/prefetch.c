@@ -70,6 +70,8 @@
 //   Address type:     virtual (kernel text)
 //   Method:           timing (prefetch latency, 2 MiB scan)
 //   Status:           unfixed (hardware side-channel)
+//   Access check:     N/A (hardware side-channel — no kernel gate)
+//   Source:           N/A (hardware side-channel)
 //
 // Mitigations:
 //   KPTI (CONFIG_PAGE_TABLE_ISOLATION=y) removes kernel mappings from

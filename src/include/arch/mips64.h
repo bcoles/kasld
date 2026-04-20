@@ -56,6 +56,8 @@
 
 // Default: 0xffffffff80100400 (CKSEG0 + 1 MiB load offset + head.S entry).
 // 0x100000: standard MIPS kernel load offset (load-y in arch/mips/Makefile).
+// See README.md "Default text base and KASLR alignment" for all architectures.
+// Kernel source: arch/mips/kernel/vmlinux.lds.S, arch/mips/kernel/head.S
 #define KERNEL_TEXT_DEFAULT (KERNEL_BASE_MIN + 0x100000ul + TEXT_OFFSET)
 
 #define KASLR_SUPPORTED 1

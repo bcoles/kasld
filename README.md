@@ -808,6 +808,11 @@ randomization granularity: each possible position is one "KASLR slot."
 | RISC-V64 | `0xffffffff80000000` | `KERNEL_LINK_ADDR` (top 2 GiB of VA) | 2 MiB | 512 | ~9 bits |
 | RISC-V32 | `0xc0002000` | `PAGE_OFFSET` + `TEXT_OFFSET` (`0x2000`) | — | — | No KASLR |
 
+¹ These architectures define a separate `KASLR_ALIGN` larger than
+`KERNEL_ALIGN` (the image alignment). The table shows the KASLR slot
+granularity. arm64: `KERNEL_ALIGN` = 64 KiB, `KASLR_ALIGN` = 2 MiB.
+PowerPC32: `KERNEL_ALIGN` = 4 KiB, `KASLR_ALIGN` = 16 KiB.
+
 The "Derivation" column shows where each default address comes from. On
 most architectures the formula is `PAGE_OFFSET + TEXT_OFFSET`, where
 `PAGE_OFFSET` is the start of the kernel virtual address space (set by

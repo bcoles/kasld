@@ -23,6 +23,10 @@
 //   Address type:     virtual (kernel text / module text)
 //   Method:           parsed (dmesg string)
 //   Status:           unfixed (requires CONFIG_KALLSYMS=n to leak raw pointers)
+//   Access check:     do_syslog() → check_syslog_permissions(); gated by
+//                     dmesg_restrict
+//   Source:
+//   https://elixir.bootlin.com/linux/v5.15.12/source/drivers/base/component.c
 //
 // Mitigations:
 //   CONFIG_KALLSYMS=y causes %ps to print symbol names instead of raw

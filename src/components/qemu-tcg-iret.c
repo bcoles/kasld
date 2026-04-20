@@ -27,6 +27,8 @@
 //   Method:           exact (QEMU reads kernel stack instead of user stack)
 //   Patched:          QEMU v9.1 (commit 0bd385e7)
 //   Status:           fixed in QEMU v9.1 (not a kernel bug)
+//   Access check:     N/A (QEMU TCG emulation bug; not a kernel vulnerability)
+//   Source:           N/A (QEMU bug, not kernel source)
 //
 // Mitigations:
 //   Fixed in QEMU v9.1. Only affects QEMU TCG (software emulation);

@@ -14,6 +14,10 @@
 //   Method:           exact
 //   Patched:          v4.8 (commit ef0010a30935; kptr_restrict moved to open())
 //   Status:           fixed in v4.8
+//   Access check:     kptr_restrict checked at read() pre-v4.8; set-uid pppd
+//                     bypasses at open()
+//   Source:
+//   https://elixir.bootlin.com/linux/v4.7/source/kernel/kallsyms.c
 //
 // Mitigations:
 //   Patched in v4.8 (kptr_restrict check at open() instead of read()).

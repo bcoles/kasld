@@ -16,6 +16,10 @@
 //   relocate_initrd() Data structure:   RAMDISK physical address range Address
 //   type:     physical (DRAM) Method:           parsed (dmesg string) Status:
 //   unfixed (printed unconditionally when initrd is present)
+//   Access check:     do_syslog() → check_syslog_permissions(); gated by
+//                     dmesg_restrict
+//   Source:
+//   https://elixir.bootlin.com/linux/v6.8/source/arch/x86/kernel/setup.c
 //
 // Mitigations:
 //   CONFIG_BLK_DEV_INITRD=n prevents the message (but initrd is near-
