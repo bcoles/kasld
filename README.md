@@ -20,11 +20,12 @@ summarizes the results with section-aware consensus analysis.
 Supports:
 
 * x86 (i386+, amd64)
-* ARM (armv6, armv7, armv8)
+* ARM (armv6, armv7, armv8, aarch64)
 * MIPS (mipsbe, mipsel, mips64el)
 * PowerPC (ppc, ppc64)
 * RISC-V (riscv32, riscv64)
 * LoongArch (loongarch64)
+* s390
 
 ## Table of Contents
 
@@ -60,11 +61,12 @@ Supports:
 * [KASLR Bypass Techniques](#kaslr-bypass-techniques)
   * [Filesystem Leaks](#filesystem-leaks)
     * [System Logs](#system-logs)
-    * [DebugFS](#debugfs)
+    * [debugfs](#debugfs)
     * [Procfs and Sysfs](#procfs-and-sysfs)
     * [Boot Configuration](#boot-configuration)
   * [Side-Channels](#side-channels)
   * [Syscall and Interface Leaks](#syscall-and-interface-leaks)
+  * [ioctl Leaks](#ioctl-leaks)
   * [Brute Force](#brute-force)
   * [Weak Entropy](#weak-entropy)
   * [Patched Kernel Bugs](#patched-kernel-bugs)
@@ -134,7 +136,7 @@ kernel.perf_event_paranoid:   3
 Readable /var/log/dmesg:      no
 Readable /var/log/kern.log:   no
 Readable /var/log/syslog:     no
-Readable DebugFS:             no
+Readable debugfs:             no
 Readable /boot/System.map:    yes
 Readable /boot/config:        yes
 
@@ -275,17 +277,19 @@ make help         # show all targets and options
 Command-line options:
 
 ```
--j, --json      Machine-readable JSON output
--1, --oneline   Single-line summary output
--m, --markdown  Markdown table output
--c, --color     Colorize text output (auto-detected for TTYs)
--q, --quiet     Suppress banner, progress, and warnings
--v, --verbose   Show component output
--e, --explain   Show technique explanations before each component
--H, --hardening Show post-run hardening assessment
--t, --timeout N Per-component timeout in seconds (default: 10)
--V, --version   Print version and exit
--h, --help      Show this help
+-j, --json          Machine-readable JSON output
+-1, --oneline       Single-line summary output
+-m, --markdown      Markdown table output
+-c, --color         Colorize text output (auto-detected for TTYs)
+-q, --quiet         Suppress banner, progress, and warnings
+-v, --verbose       Show component output
+-e, --explain       Show technique explanations before each component
+-f, --fast          Use 2s per-component timeout (fast scan mode)
+-w, --workers N     Parallel inference workers (default: nproc; 0 = sequential)
+-H, --hardening     Show post-run hardening assessment
+-t, --timeout N     Per-component timeout in seconds (default: 30)
+-V, --version       Print version and exit
+-h, --help          Show this help
 ```
 
 KASLD can be cross-compiled with `make` by specifying the appropriate
@@ -352,24 +356,28 @@ handles the rest.
 
 ### Phases
 
-Components run in three phases, determined by name:
+Components run in two phases:
 
-| Phase | Purpose | Components |
+| Phase | Purpose | Assignment |
 |---|---|---|
-| **1 — Discovery** | PAGE_OFFSET detection, KASLR state, exact addresses | `boot-config`, `default`, `dmesg_kaslr-disabled`, `proc-cmdline`, `proc-config`, `proc-cpuinfo`, `proc-kallsyms` |
-| **2 — Inference** | All remaining filesystem/interface parsers | Everything not in Phase 1 or Phase 3 |
-| **3 — Probing** | Side-channels, timing, brute-force | `databounce`, `echoload`, `entrybleed`, `mmap-brute-vmsplit`, `prefetch`, `zombieload`, `kernelsnitch` |
+| **Inference** | All non-probing components | Default — every component not classified as probing |
+| **Probing** | Side-channels, timing attacks, brute-force | Automatic: `.kasld_meta` declares `method:timing` or `method:heuristic` — e.g. `prefetch`, `entrybleed`, `databounce` |
 
-The orchestrator runs `apply_layout_adjustments()` between each phase,
-propagating PAGE_OFFSET discoveries and revalidating all prior results.
-Phase 3 is skipped entirely when KASLR is detected as disabled.
+Inference components run in a fixed-width worker pool (default: nproc
+threads). `apply_layout_adjustments()` is called once after all workers
+join, so PAGE_OFFSET discoveries from one worker do not propagate to
+concurrently-running workers — a minor correctness tradeoff for reduced
+wall-clock time. Pass `--workers 0` to run sequentially; in sequential
+mode `apply_layout_adjustments()` is called after every component so
+PAGE_OFFSET discoveries immediately revalidate all prior results.
+Verbose mode (`-v`) also runs sequentially to avoid interleaved output.
+Execution order within the inference phase is irrelevant for correctness.
+The probing phase runs after all inference and is skipped entirely when
+KASLR is detected as disabled.
 
-New components are placed in Phase 2 by default — no configuration
-needed. To assign a component to Phase 1, add its name to
-the `phase_discovery[]` array in
-[orchestrator.c](src/orchestrator.c). Components are automatically
-assigned to Phase 3 when their `.kasld_meta` section declares
-`method:timing` or `method:heuristic`.
+New components are automatically placed in the inference phase — no
+configuration needed. Probing phase membership is derived from
+`.kasld_meta` and requires no registration.
 
 ### Cross-section derivation
 
@@ -951,9 +959,10 @@ See also:
 KASLR bypass techniques broadly fall into several categories: reading kernel
 pointers or memory layout details from filesystem interfaces, exploiting
 microarchitectural or software side-channels, leaking addresses through
-syscalls and kernel interfaces, brute-forcing memory layout constraints,
-taking advantage of weak randomization entropy, leveraging patched kernel
-info leak bugs, and using arbitrary read primitives.
+syscalls and kernel interfaces, exploiting ioctl handlers that copy
+uninitialized kernel memory to userspace, brute-forcing memory layout
+constraints, taking advantage of weak randomization entropy, leveraging
+patched kernel info leak bugs, and using arbitrary read primitives.
 
 ### Filesystem Leaks
 
@@ -1018,7 +1027,7 @@ prevent unprivileged users from accessing the kernel debug log. Similarly,
 grsecurity hardened kernels support `kernel.grsecurity.dmesg` to prevent
 unprivileged access.
 
-System log files (ie, `/var/log/syslog`) are readable only by privileged users
+System log files (i.e., `/var/log/syslog`) are readable only by privileged users
 on modern distros. On Debian/Ubuntu systems, users in the `adm` group also have
 read permissions on various system log files in `/var/log/`:
 
@@ -1038,15 +1047,15 @@ with world-readable permissions (`644`) and may still be world-readable on
 some systems.
 
 
-#### DebugFS
+#### debugfs
 
-Various areas of [DebugFS](https://en.wikipedia.org/wiki/Debugfs)
+Various areas of [debugfs](https://en.wikipedia.org/wiki/Debugfs)
 (`/sys/kernel/debug/*`) may disclose kernel pointers.
 
-DebugFS is [no longer readable by unprivileged users by default](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=82aceae4f0d42f03d9ad7d1e90389e731153898f)
+debugfs is [no longer readable by unprivileged users by default](https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=82aceae4f0d42f03d9ad7d1e90389e731153898f)
 since kernel version `v3.7-rc1~174^2~57` on 2012-08-27.
 
-This change pre-dates Linux KASLR by 2 years. However, DebugFS may still be
+This change pre-dates Linux KASLR by 2 years. However, debugfs may still be
 readable in some non-default configurations.
 
 
@@ -1064,8 +1073,6 @@ The following KASLD components read from `/proc`:
 * [proc-cpuinfo.c](src/components/proc-cpuinfo.c) — CPU information from `/proc/cpuinfo`
 * [proc-pid-syscall.c](src/components/proc-pid-syscall.c) — kernel stack pointer from `/proc/<pid>/syscall`
 * [proc-stat-wchan.c](src/components/proc-stat-wchan.c) — wait channel address from `/proc/<pid>/stat`
-* [proc-cmdline.c](src/components/proc-cmdline.c) — kernel command line from `/proc/cmdline` (checks for `nokaslr`)
-* [proc-config.c](src/components/proc-config.c) — kernel configuration from `/proc/config.gz`
 
 The following KASLD components read from `/sys`:
 
@@ -1156,16 +1163,125 @@ See also:
 
 ### Syscall and Interface Leaks
 
-Kernel syscalls and device interfaces can leak kernel addresses through
-return values, uninitialized memory in structures, or sampling kernel events.
+The syscall boundary is the primary channel through which kernel data reaches
+userspace, making it a structurally significant source of KASLR bypass
+primitives. Several fundamental properties drive this attack surface:
+
+**Uninitialized bytes in copy-to-user paths.** Every syscall that writes
+structured data to a user buffer — output parameters, queried state, socket
+message payloads, event records, notification packets — is a potential
+information channel. Bytes that are never explicitly written (alignment padding
+between struct members, trailing bytes in under-filled allocations, fields
+skipped on error paths) retain their stale kernel content and cross the trust
+boundary as part of the copy. The kernel's ABI stability requirement compounds
+this: struct layouts, including their padding holes, cannot be changed without
+breaking existing userspace, so a hole that exists in one release persists
+indefinitely. The ioctl interface is a concentrated instance of this pattern
+(see [ioctl Leaks](#ioctl-leaks)), but it applies across all copy-to-user
+paths.
+
+**Kernel-pointer-derived values exposed by design.** Many interfaces predate
+KASLR or were not designed with pointer exposure in mind and legitimately return
+values derived from kernel virtual addresses — event handles, timer IDs, object
+references, perf sample instruction pointers. The kernel address is never
+directly returned, but the value is a deterministic function of it. Whether
+this constitutes a leak depends entirely on the access controls applied —
+removing access control, or finding a bypass, converts a by-design interface
+into a KASLR oracle.
+
+**Access controls applied at the wrong abstraction level.** A check that guards
+a kernel address from unprivileged access is only as strong as the assumption
+that the check and the data transfer happen in the same privilege context. When
+`kptr_restrict` is enforced at `read()` rather than `open()`, a privileged
+process can satisfy the `open()` and hand the descriptor to an unprivileged
+reader. When a syscall applies access controls to the calling process's
+credentials but not to an intermediate privileged agent acting on its behalf,
+the check is bypassed without being subverted.
+
+**Privilege delegation via set-uid executables.** The Unix set-uid mechanism
+exists to let unprivileged processes perform specific privileged operations as
+a side-effect of legitimate functionality. When that functionality involves
+reading a restricted kernel interface, the unprivileged caller can observe the
+elevated-privilege result. This is not a vulnerability in the set-uid binary
+— it is working as designed — but the composition of set-uid execution with
+a `kptr_restrict`-bypass-able interface produces an effective leak primitive.
+
+**Hypervisor and emulator transparency failures.** A virtualization layer that
+emulates kernel instructions or system calls must faithfully replicate guest
+kernel behavior without exposing host kernel state to guest user processes.
+Bugs in the emulation of privilege-transitioning instructions — instructions
+that change the CPU privilege level or access a different address space — can
+cause the emulator to operate on host kernel memory while the guest believes
+it is in user space. The leak is not a kernel vulnerability; the kernel is
+never involved. The attack surface exists entirely within the emulation layer.
 
 The following KASLD components exploit syscall and interface leaks:
 
-* [perf_event_open.c](src/components/perf_event_open.c) — samples kernel event addresses via `perf_event_open()` (requires `kernel.perf_event_paranoid < 2`)
+* [perf_event_open.c](src/components/perf_event_open.c) — samples kernel instruction pointer addresses via `perf_event_open()` (requires `kernel.perf_event_paranoid < 2`)
 * [mincore.c](src/components/mincore.c) — `mincore()` heap page disclosure via uninitialized memory (CVE-2017-16994; patched in v4.15)
-* [bcm_msg_head_struct.c](src/components/bcm_msg_head_struct.c) — CAN BCM `bcm_msg_head` struct uninitialized 4-byte hole leaks kernel stack pointer (CVE-2021-34693)
-* [pppd_kallsyms.c](src/components/pppd_kallsyms.c) — exploits set-uid `pppd` to read `/proc/kallsyms` bypassing `kptr_restrict` open-time check
-* [qemu-tcg-iret.c](src/components/qemu-tcg-iret.c) — leaks kernel stack address inside QEMU TCG guests via `iret` instruction (patched in QEMU 9.1)
+* [bcm_msg_head_struct.c](src/components/bcm_msg_head_struct.c) — CAN BCM `bcm_msg_head` struct uninitialized 4-byte padding hole leaks kernel stack pointer via `recvmsg()` (CVE-2021-34693; patched in v5.12)
+* [pppd_kallsyms.c](src/components/pppd_kallsyms.c) — set-uid `pppd` opens `/proc/kallsyms` as root, bypassing the `kptr_restrict` open-time check added in v4.8
+* [qemu-tcg-iret.c](src/components/qemu-tcg-iret.c) — QEMU TCG `iret` emulation bug causes the hypervisor to read from the host kernel stack instead of the guest user stack, leaking a kernel address (patched in QEMU 9.1; not a kernel bug)
+
+
+### ioctl Leaks
+
+`ioctl(2)` is a catch-all syscall that dispatches through `file_operations.unlocked_ioctl`
+into subsystem-specific handlers spread across drivers, filesystems, networking,
+and IPC. The handler receives a request code (encoding direction, type, number,
+and argument size via `_IO`/`_IOR`/`_IOW`/`_IOWR`) and a pointer to a userspace
+buffer. The response path — copying data back to userspace — has historically
+been a prolific source of kernel info leaks.
+
+Four distinct mechanisms account for most ioctl info leaks:
+
+**Struct padding holes.** C compiler-inserted alignment padding between struct
+members is never initialized by assignment or by individual `put_user()` writes.
+When the kernel copies a struct wholesale to userspace with `copy_to_user()`,
+the padding bytes contain stale stack or heap data. This is the most common
+class, covered by CERT C rule DCL39-C. Kernel-wide tools like KMSAN catch new
+instances; many historical examples were fixed by inserting explicit `memset()`
+before population, or by restructuring the struct to eliminate holes.
+
+**Uninitialized buffer copies.** The handler allocates a buffer with `kmalloc()`,
+`__get_free_pages()`, or a stack array, fills only part of it (e.g. because the
+actual payload is smaller than the allocation, or because the write callback
+leaves a trailing region untouched), then copies the full allocation to userspace.
+The unfilled bytes contain stale slab or page allocator data, which frequently
+holds kernel pointers from previously freed objects. The nilfs2
+`nilfs_ioctl_wrap_copy()` path is a canonical example.
+
+**Stack variable leaks.** The handler declares a struct or scalar on the stack
+and passes it to a helper that may return early without initializing all fields
+(e.g. on an unsupported index or error branch). The handler then copies the
+partially-initialized stack variable back to userspace. KVM `do_get_msr_feature()`
+is a canonical example: the `msr.data` field on the stack was never zeroed
+before the early return on an unrecognized MSR index.
+
+**Unsanitized kernel pointer values.** Some ioctl commands intentionally return
+values derived from kernel virtual addresses — object handles, DMA buffer
+identifiers, timer IDs — without applying `kptr_restrict`-equivalent masking.
+These are not uninitialized-memory bugs but deliberate design choices later
+recognized as leaks.
+
+The ioctl attack surface is wide because:
+
+* Handlers are scattered across hundreds of drivers and subsystems, each with its
+  own review history and padding discipline.
+* Many ioctls are only exercised on specific hardware or mounted filesystems,
+  reducing the chance that automated testing catches the leak.
+* The `copy_to_user()` size argument is often computed from the ABI-fixed struct
+  size, not from how much was actually written, making it structurally easy to
+  under-fill.
+
+The following KASLD components exploit ioctl info leaks:
+
+* [nilfs2_ioctl.c](src/components/nilfs2_ioctl.c) — `NILFS_IOCTL_GET_SUINFO` copies an uninitialized `__get_free_pages()` buffer; trailing page bytes contain stale kernel data (v2.6.30–v6.3)
+
+See also:
+
+* [DCL39-C. Avoid information leakage when passing a structure across a trust boundary](https://wiki.sei.cmu.edu/confluence/display/c/DCL39-C.+Avoid+information+leakage+when+passing+a+structure+across+a+trust+boundary)
+* [Exploiting Uses of Uninitialized Stack Variables in Linux Kernels to Leak Kernel Pointers](https://sefcom.asu.edu/publications/leak-kptr-woot20.pdf) (Haehyun Cho et al., 2020)
 
 
 ### Brute Force
@@ -1279,6 +1395,14 @@ Exploiting uninitialized stack variables:
     * [sctp_af_inet kernel pointer leak](https://github.com/jinb-park/leak-kptr/tree/master/exploit/sctp-leak) (CVE-2017-7558) (requires `libsctp-dev`).
     * [rtnl_fill_link_ifmap kernel stack pointer leak](https://github.com/jinb-park/leak-kptr/tree/master/exploit/CVE-2016-4486) (CVE-2016-4486).
     * [snd_timer_user_params kernel stack pointer leak](https://github.com/jinb-park/leak-kptr/tree/master/exploit/CVE-2016-4569) (CVE-2016-4569).
+
+VT console font uninitialized heap leak. `con_font_get()` in `drivers/tty/vt/vt.c` allocated a font data buffer with `kmalloc()` and copied it to userspace without fully initializing it when the font width is not byte-aligned. Stale slab data could be read by any user with access to a virtual terminal (tty group). Affects v6.3 to v6.12:
+
+  * [drivers: tty: vt: Fix a font data leak](https://github.com/torvalds/linux/commit/f956052e00de14f22e4b01766c7f2780a7e4a737) (2024)
+
+AMD IBS (Instruction-Based Sampling) uninitialized perf stack leak. `perf_ibs_handle_irq()` in `arch/x86/events/amd/ibs.c` did not fully initialize the `struct perf_ibs_data` on-stack buffer before copying it to the perf ring buffer. On AMD CPUs with IBS support, stale kernel stack data (potentially containing kernel pointers) leaked to unprivileged perf readers. Affects v6.13 to v6.15 (AMD CPUs only):
+
+  * [perf/x86/amd/ibs: Fix stack uninit access](https://github.com/torvalds/linux/commit/50a53b60e141b36e316dd1d1f5a4231486c8dc2d) (2025)
 
 
 ### Arbitrary Read
