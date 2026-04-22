@@ -49,11 +49,11 @@
 #define TIMEOUT_SECS 5
 
 KASLD_EXPLAIN(
-    "Exploits CVE-2017-16994: the mincore() syscall, when given an "
-    "unmapped address, returned uninitialized page allocator metadata "
-    "instead of an error. This leaked heap virtual addresses from the "
-    "buddy allocator. Fixed in v4.15 by returning -ENOMEM for unmapped "
-    "ranges.");
+    "Exploits CVE-2017-16994: the mincore() syscall, when querying "
+    "unbacked MAP_NORESERVE MAP_HUGETLB pages, left the output vector "
+    "uninitialised, leaking kernel slab data (including heap pointers "
+    "from the buddy allocator) to userspace. Fixed in v4.15 by zeroing "
+    "the output vector for unmapped huge-page ranges.");
 
 KASLD_META("method:heuristic\n"
            "addr:virtual\n"
