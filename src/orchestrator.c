@@ -20,6 +20,7 @@
 
 #include <dirent.h>
 #include <errno.h>
+#include <fnmatch.h>
 #include <limits.h>
 #include <poll.h>
 #include <signal.h>
@@ -49,6 +50,10 @@ int explain_mode;
 int fast_mode;
 int hardening_mode;
 int experimental_mode;
+
+#define MAX_SKIP_PATTERNS 64
+static char skip_patterns[MAX_SKIP_PATTERNS][256];
+static int num_skip_patterns;
 
 /* Stored sysctl values for hardening report (-1 = unavailable) */
 int sysctl_kptr_restrict = -1;
@@ -162,6 +167,7 @@ struct component {
   int is_probing; /* set from method:timing or method:heuristic in .kasld_meta
                    */
   int is_experimental; /* set from status:experimental in .kasld_meta */
+  int is_filtered;     /* set by apply_skip_filter() from --skip patterns */
 };
 
 static struct component components[MAX_COMPONENTS];
@@ -800,6 +806,21 @@ static void classify_components(void) {
   }
 }
 
+/* Mark components matching any --skip pattern as filtered.
+ * No-op when num_skip_patterns == 0. Called after classify_components(). */
+static void apply_skip_filter(void) {
+  if (num_skip_patterns == 0)
+    return;
+  for (int i = 0; i < num_components; i++) {
+    for (int j = 0; j < num_skip_patterns; j++) {
+      if (fnmatch(skip_patterns[j], components[i].name, 0) == 0) {
+        components[i].is_filtered = 1;
+        break;
+      }
+    }
+  }
+}
+
 static int run_component(const struct component *c) {
   /* Extract explain string before execution (if --explain active or JSON) */
   char *explain_str = NULL;
@@ -1053,7 +1074,8 @@ static void run_inference_parallel(int workers) {
   pool_inf_n = 0;
   for (int i = 0; i < num_components; i++) {
     if (!components[i].is_probing &&
-        (!components[i].is_experimental || exp_active))
+        (!components[i].is_experimental || exp_active) &&
+        !components[i].is_filtered)
       pool_inf[pool_inf_n++] = i;
   }
   if (pool_inf_n == 0)
@@ -1089,6 +1111,8 @@ static void run_probing_phase(void) {
   int exp_active = experimental_mode || getenv("KASLD_EXPERIMENTAL") != NULL;
   for (int i = 0; i < num_components; i++) {
     if (!components[i].is_probing)
+      continue;
+    if (components[i].is_filtered)
       continue;
     if (components[i].is_experimental && !exp_active)
       continue;
@@ -1673,21 +1697,24 @@ static void usage(const char *progname) {
   printf(
       "Usage: %s [OPTIONS]\n\n"
       "Options:\n"
-      "  -j, --json        Machine-readable JSON output\n"
-      "  -1, --oneline     Single-line summary output\n"
-      "  -m, --markdown    Markdown table output\n"
-      "  -c, --color       Colorize text output (auto-detected for TTYs)\n"
-      "  -q, --quiet       Suppress banner, progress, and warnings\n"
-      "  -v, --verbose     Show component output\n"
-      "  -e, --explain     Show technique explanations before each component\n"
-      "  -f, --fast        Use %ds per-component timeout\n"
-      "  -w, --workers N   Parallel inference workers (default: nproc; 0 = "
+      "  -j, --json          Machine-readable JSON output\n"
+      "  -1, --oneline       Single-line summary output\n"
+      "  -m, --markdown      Markdown table output\n"
+      "  -c, --color         Colorize text output (auto-detected for TTYs)\n"
+      "  -q, --quiet         Suppress banner, progress, and warnings\n"
+      "  -v, --verbose       Show component output\n"
+      "  -e, --explain       Show technique explanations before each "
+      "component\n"
+      "  -f, --fast          Use %ds per-component timeout\n"
+      "  -w, --workers N     Parallel inference workers (default: nproc; 0 = "
       "sequential)\n"
       "  -x, --experimental  Enable experimental components\n"
-      "  -H, --hardening   Show post-run hardening assessment\n"
-      "  -t, --timeout N   Per-component timeout in seconds (default: %d)\n"
-      "  -V, --version     Print version and exit\n"
-      "  -h, --help        Show this help\n",
+      "  -s, --skip PATTERN  Skip matching components (glob, comma-separated;\n"
+      "                      multiple --skip flags accumulate)\n"
+      "  -H, --hardening     Show post-run hardening assessment\n"
+      "  -t, --timeout N     Per-component timeout in seconds (default: %d)\n"
+      "  -V, --version       Print version and exit\n"
+      "  -h, --help          Show this help\n",
       progname, FAST_TIMEOUT_SECS, DEFAULT_TIMEOUT_SECS);
 }
 
@@ -1736,6 +1763,21 @@ int main(int argc, char *argv[]) {
     } else if (strcmp(argv[i], "-x") == 0 ||
                strcmp(argv[i], "--experimental") == 0) {
       experimental_mode = 1;
+    } else if (strcmp(argv[i], "-s") == 0 || strcmp(argv[i], "--skip") == 0) {
+      if (i + 1 >= argc) {
+        fprintf(stderr, "--skip requires a value\n");
+        return 2;
+      }
+      char *val = argv[++i];
+      char *tok = strtok(val, ",");
+      while (tok) {
+        if (num_skip_patterns < MAX_SKIP_PATTERNS) {
+          strncpy(skip_patterns[num_skip_patterns], tok, 255);
+          skip_patterns[num_skip_patterns][255] = '\0';
+          num_skip_patterns++;
+        }
+        tok = strtok(NULL, ",");
+      }
     } else if (strcmp(argv[i], "-H") == 0 ||
                strcmp(argv[i], "--hardening") == 0) {
       hardening_mode = 1;
@@ -1787,19 +1829,30 @@ int main(int argc, char *argv[]) {
     return 2;
 
   classify_components();
+  apply_skip_filter();
 
-  /* Experimental component accounting: count, enable via setenv, or hint */
-  {
-    int n_exp = 0;
+  /* Verbose: list components excluded by --skip */
+  if (verbose && num_skip_patterns > 0 && !json_output) {
     for (int i = 0; i < num_components; i++) {
-      if (components[i].is_experimental)
-        n_exp++;
+      if (components[i].is_filtered)
+        printf("[.] skipping %s (matched --skip filter)\n", components[i].name);
     }
+  }
+
+  /* Component accounting: determine how many will run */
+  {
     int exp_env = getenv("KASLD_EXPERIMENTAL") != NULL;
     if (experimental_mode)
       setenv("KASLD_EXPERIMENTAL", "1", 1);
     int exp_active = experimental_mode || exp_env;
-    num_active_components = num_components - (exp_active ? 0 : n_exp);
+    num_active_components = 0;
+    for (int i = 0; i < num_components; i++) {
+      if (components[i].is_filtered)
+        continue;
+      if (components[i].is_experimental && !exp_active)
+        continue;
+      num_active_components++;
+    }
   }
 
   /* --fast: tighten per-component timeout unless user set an explicit -t */
@@ -1808,11 +1861,26 @@ int main(int argc, char *argv[]) {
 
   if (!quiet && !verbose && plain_output()) {
     clock_gettime(CLOCK_MONOTONIC, &progress_start);
-    int n_skipped = num_components - num_active_components;
-    if (n_skipped > 0)
-      printf("Running %d components (%d experimental skipped; use -x to "
-             "enable)...\n",
-             num_active_components, n_skipped);
+    int exp_active =
+        experimental_mode || (getenv("KASLD_EXPERIMENTAL") != NULL);
+    int nf = 0, ne = 0;
+    for (int i = 0; i < num_components; i++) {
+      if (components[i].is_filtered)
+        nf++;
+      else if (components[i].is_experimental && !exp_active)
+        ne++;
+    }
+    if (nf > 0 && ne > 0)
+      printf("Running %d components (%d skipped by --skip, %d experimental "
+             "skipped; use -x to enable)...\n",
+             num_active_components, nf, ne);
+    else if (nf > 0)
+      printf("Running %d components (%d skipped by --skip)...\n",
+             num_active_components, nf);
+    else if (ne > 0)
+      printf("Running %d components (%d experimental skipped; "
+             "use -x to enable)...\n",
+             num_active_components, ne);
     else
       printf("Running %d components...\n", num_active_components);
     fflush(stdout);

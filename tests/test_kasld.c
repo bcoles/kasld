@@ -48,9 +48,12 @@ static void reset_state(void) {
   sysctl_dmesg_restrict = -1;
   sysctl_perf_event_paranoid = -1;
   sysctl_lockdown = LOCKDOWN_UNAVAILABLE;
+  num_skip_patterns = 0;
+  experimental_mode = 0;
   memset(results, 0, sizeof(results));
   memset(components, 0, sizeof(components));
   memset(comp_logs, 0, sizeof(comp_logs));
+  memset(skip_patterns, 0, sizeof(skip_patterns));
 
   /* Restore default layout */
   layout.page_offset = PAGE_OFFSET;
@@ -1618,6 +1621,113 @@ static void test_hardening_json_no_meta_without_flag(void) {
 }
 
 /* =========================================================================
+ * apply_skip_filter
+ * =========================================================================
+ */
+static void test_skip_exact_match(void) {
+  reset_state();
+  snprintf(components[0].name, sizeof(components[0].name), "dmesg");
+  snprintf(components[1].name, sizeof(components[1].name), "entrybleed");
+  num_components = 2;
+  strncpy(skip_patterns[0], "dmesg", 255);
+  num_skip_patterns = 1;
+  apply_skip_filter();
+  assert(components[0].is_filtered == 1); /* dmesg: matches — filtered */
+  assert(components[1].is_filtered == 0); /* entrybleed: no match — kept */
+}
+
+static void test_skip_glob_pattern(void) {
+  reset_state();
+  snprintf(components[0].name, sizeof(components[0].name), "dmesg_backtrace");
+  snprintf(components[1].name, sizeof(components[1].name), "dmesg_e820");
+  snprintf(components[2].name, sizeof(components[2].name), "entrybleed");
+  num_components = 3;
+  strncpy(skip_patterns[0], "dmesg_*", 255);
+  num_skip_patterns = 1;
+  apply_skip_filter();
+  assert(components[0].is_filtered == 1); /* dmesg_backtrace: matches */
+  assert(components[1].is_filtered == 1); /* dmesg_e820: matches */
+  assert(components[2].is_filtered == 0); /* entrybleed: no match */
+}
+
+static void test_skip_multiple_patterns(void) {
+  reset_state();
+  snprintf(components[0].name, sizeof(components[0].name), "entrybleed");
+  snprintf(components[1].name, sizeof(components[1].name), "dmesg");
+  snprintf(components[2].name, sizeof(components[2].name), "proc-kallsyms");
+  num_components = 3;
+  strncpy(skip_patterns[0], "entrybleed", 255);
+  strncpy(skip_patterns[1], "dmesg", 255);
+  num_skip_patterns = 2;
+  apply_skip_filter();
+  assert(components[0].is_filtered == 1); /* entrybleed: matches pattern 0 */
+  assert(components[1].is_filtered == 1); /* dmesg: matches pattern 1 */
+  assert(components[2].is_filtered == 0); /* proc-kallsyms: no match */
+}
+
+static void test_skip_no_patterns_no_filter(void) {
+  reset_state();
+  snprintf(components[0].name, sizeof(components[0].name), "dmesg");
+  num_components = 1;
+  /* num_skip_patterns already 0 from reset_state */
+  apply_skip_filter();
+  assert(components[0].is_filtered == 0); /* no patterns: nothing filtered */
+}
+
+static void test_skip_no_match_keeps_all(void) {
+  reset_state();
+  snprintf(components[0].name, sizeof(components[0].name), "dmesg");
+  num_components = 1;
+  strncpy(skip_patterns[0], "entrybleed", 255);
+  num_skip_patterns = 1;
+  apply_skip_filter();
+  assert(components[0].is_filtered == 0); /* no match: not filtered */
+}
+
+static void test_skip_active_count_excludes_filtered(void) {
+  reset_state();
+  snprintf(components[0].name, sizeof(components[0].name), "dmesg");
+  snprintf(components[1].name, sizeof(components[1].name), "entrybleed");
+  num_components = 2;
+  strncpy(skip_patterns[0], "dmesg", 255);
+  num_skip_patterns = 1;
+  apply_skip_filter();
+  /* Count active like main() does */
+  int count = 0;
+  for (int i = 0; i < num_components; i++) {
+    if (components[i].is_filtered)
+      continue;
+    if (components[i].is_experimental && !experimental_mode)
+      continue;
+    count++;
+  }
+  assert(count == 1); /* only entrybleed runs */
+}
+
+static void test_skip_inference_pool_excludes_filtered(void) {
+  reset_state();
+  snprintf(components[0].name, sizeof(components[0].name), "dmesg");
+  components[0].is_probing = 0;
+  snprintf(components[1].name, sizeof(components[1].name), "entrybleed");
+  components[1].is_probing = 0;
+  num_components = 2;
+  strncpy(skip_patterns[0], "dmesg", 255);
+  num_skip_patterns = 1;
+  apply_skip_filter();
+  /* Build inference pool the same way run_inference_parallel() does */
+  int exp_active = 0;
+  pool_inf_n = 0;
+  for (int i = 0; i < num_components; i++) {
+    if (!components[i].is_probing &&
+        (!components[i].is_experimental || exp_active) &&
+        !components[i].is_filtered)
+      pool_inf[pool_inf_n++] = i;
+  }
+  assert(pool_inf_n == 1);
+  assert(pool_inf[0] == 1); /* only entrybleed (index 1) */
+}
+
+/* =========================================================================
  * Main
  * =========================================================================
  */
@@ -1803,6 +1913,16 @@ int main(void) {
   RUN_TEST(test_e2e_pipeline);
   RUN_TEST(test_e2e_incremental_layout);
   RUN_TEST(test_e2e_kaslr_disabled_skips_probing);
+  printf("\n");
+
+  printf("apply_skip_filter:\n");
+  RUN_TEST(test_skip_exact_match);
+  RUN_TEST(test_skip_glob_pattern);
+  RUN_TEST(test_skip_multiple_patterns);
+  RUN_TEST(test_skip_no_patterns_no_filter);
+  RUN_TEST(test_skip_no_match_keeps_all);
+  RUN_TEST(test_skip_active_count_excludes_filtered);
+  RUN_TEST(test_skip_inference_pool_excludes_filtered);
   printf("\n");
 
   printf("---\n%d/%d tests passed\n", pass_count, test_count);
