@@ -95,6 +95,7 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:timing\n"
            "addr:virtual\n"
+           "status:experimental\n"
            "hardware:TSX required (mitigated by tsx=off)\n");
 
 /* =========================================================================

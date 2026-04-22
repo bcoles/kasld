@@ -48,6 +48,7 @@ int color_output;
 int explain_mode;
 int fast_mode;
 int hardening_mode;
+int experimental_mode;
 
 /* Stored sysctl values for hardening report (-1 = unavailable) */
 int sysctl_kptr_restrict = -1;
@@ -131,6 +132,10 @@ static int component_timeout = DEFAULT_TIMEOUT_SECS;
 /* Parallel inference: 0 = sequential (default), N > 1 = N worker threads */
 static int parallel_workers = 0;
 
+/* Number of components that will actually run (excludes skipped experimental)
+ */
+static int num_active_components;
+
 /* Protects results[], num_results, comp_logs[], num_comp_logs, progress_done,
  * and the parallel worker pool counter (pool_next). */
 static pthread_mutex_t result_mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -156,6 +161,7 @@ struct component {
   char name[256];
   int is_probing; /* set from method:timing or method:heuristic in .kasld_meta
                    */
+  int is_experimental; /* set from status:experimental in .kasld_meta */
 };
 
 static struct component components[MAX_COMPONENTS];
@@ -787,6 +793,10 @@ static void classify_components(void) {
     if (method &&
         (strcmp(method, "timing") == 0 || strcmp(method, "heuristic") == 0))
       components[i].is_probing = 1;
+
+    const char *status = meta_get(&m, "status");
+    if (status && strcmp(status, "experimental") == 0)
+      components[i].is_experimental = 1;
   }
 }
 
@@ -994,7 +1004,9 @@ static void progress_update(void) {
   if (verbose)
     printf("\n");
   else {
-    int pct = num_components > 0 ? (done * 100) / num_components : 0;
+    int total =
+        num_active_components > 0 ? num_active_components : num_components;
+    int pct = total > 0 ? (done * 100) / total : 0;
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
     double elapsed = (double)(now.tv_sec - progress_start.tv_sec) +
@@ -1009,7 +1021,7 @@ static void progress_update(void) {
     bar[bar_width] = '\0';
 
     printf("\r%s[%s]%s %3d%%  %d/%d  %s%.1fs%s", c(C_DIM), bar, c(C_RESET), pct,
-           done, num_components, c(C_DIM), elapsed, c(C_RESET));
+           done, total, c(C_DIM), elapsed, c(C_RESET));
     fflush(stdout);
   }
 }
@@ -1037,9 +1049,11 @@ static void *inference_worker(void *arg) {
  *                          align/validate calls inside capture_result() are
  *                          safe without additional locking. */
 static void run_inference_parallel(int workers) {
+  int exp_active = experimental_mode || getenv("KASLD_EXPERIMENTAL") != NULL;
   pool_inf_n = 0;
   for (int i = 0; i < num_components; i++) {
-    if (!components[i].is_probing)
+    if (!components[i].is_probing &&
+        (!components[i].is_experimental || exp_active))
       pool_inf[pool_inf_n++] = i;
   }
   if (pool_inf_n == 0)
@@ -1072,8 +1086,11 @@ static void run_inference_parallel(int workers) {
 
 /* Run only probing components (is_probing flag set by classify_components) */
 static void run_probing_phase(void) {
+  int exp_active = experimental_mode || getenv("KASLD_EXPERIMENTAL") != NULL;
   for (int i = 0; i < num_components; i++) {
     if (!components[i].is_probing)
+      continue;
+    if (components[i].is_experimental && !exp_active)
       continue;
     run_component(&components[i]);
     progress_update();
@@ -1666,6 +1683,7 @@ static void usage(const char *progname) {
       "  -f, --fast        Use %ds per-component timeout\n"
       "  -w, --workers N   Parallel inference workers (default: nproc; 0 = "
       "sequential)\n"
+      "  -x, --experimental  Enable experimental components\n"
       "  -H, --hardening   Show post-run hardening assessment\n"
       "  -t, --timeout N   Per-component timeout in seconds (default: %d)\n"
       "  -V, --version     Print version and exit\n"
@@ -1715,6 +1733,9 @@ int main(int argc, char *argv[]) {
         return 2;
       }
       parallel_workers = atoi(argv[++i]);
+    } else if (strcmp(argv[i], "-x") == 0 ||
+               strcmp(argv[i], "--experimental") == 0) {
+      experimental_mode = 1;
     } else if (strcmp(argv[i], "-H") == 0 ||
                strcmp(argv[i], "--hardening") == 0) {
       hardening_mode = 1;
@@ -1767,13 +1788,33 @@ int main(int argc, char *argv[]) {
 
   classify_components();
 
+  /* Experimental component accounting: count, enable via setenv, or hint */
+  {
+    int n_exp = 0;
+    for (int i = 0; i < num_components; i++) {
+      if (components[i].is_experimental)
+        n_exp++;
+    }
+    int exp_env = getenv("KASLD_EXPERIMENTAL") != NULL;
+    if (experimental_mode)
+      setenv("KASLD_EXPERIMENTAL", "1", 1);
+    int exp_active = experimental_mode || exp_env;
+    num_active_components = num_components - (exp_active ? 0 : n_exp);
+  }
+
   /* --fast: tighten per-component timeout unless user set an explicit -t */
   if (fast_mode && component_timeout == DEFAULT_TIMEOUT_SECS)
     component_timeout = FAST_TIMEOUT_SECS;
 
   if (!quiet && !verbose && plain_output()) {
     clock_gettime(CLOCK_MONOTONIC, &progress_start);
-    printf("Running %d components...\n", num_components);
+    int n_skipped = num_components - num_active_components;
+    if (n_skipped > 0)
+      printf("Running %d components (%d experimental skipped; use -x to "
+             "enable)...\n",
+             num_active_components, n_skipped);
+    else
+      printf("Running %d components...\n", num_active_components);
     fflush(stdout);
   }
 
