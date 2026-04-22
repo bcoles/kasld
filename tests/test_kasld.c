@@ -37,6 +37,7 @@ static void reset_state(void) {
   num_printed_groups = 0;
   num_comp_logs = 0;
   progress_done = 0;
+  parallel_workers = 0;
   verbose = 0;
   json_output = 0;
   oneline_output = 0;
@@ -69,7 +70,7 @@ static void reset_state(void) {
 static void inject_tagged(const char *line) {
   char buf[LINE_LEN];
   snprintf(buf, sizeof(buf), "%s\n", line);
-  capture_result(buf);
+  capture_result(buf, "parsed");
 }
 
 /* Inject a result directly */
@@ -86,25 +87,6 @@ static void inject_result(char type, const char *section, unsigned long addr,
   strncpy(r->label, label, LABEL_LEN - 1);
   r->label[LABEL_LEN - 1] = '\0';
   num_results++;
-}
-
-/* =========================================================================
- * name_in_list
- * =========================================================================
- */
-static void test_name_in_list_found(void) {
-  const char *list[] = {"alpha", "beta", "gamma", NULL};
-  assert(name_in_list("beta", list) == 1);
-}
-
-static void test_name_in_list_not_found(void) {
-  const char *list[] = {"alpha", "beta", NULL};
-  assert(name_in_list("delta", list) == 0);
-}
-
-static void test_name_in_list_empty(void) {
-  const char *list[] = {NULL};
-  assert(name_in_list("anything", list) == 0);
 }
 
 /* =========================================================================
@@ -243,7 +225,7 @@ static void test_parse_ignores_non_tagged(void) {
   /* Non-tagged lines are rejected by capture_result */
   char buf[LINE_LEN];
   snprintf(buf, sizeof(buf), "some random output\n");
-  capture_result(buf);
+  capture_result(buf, "parsed");
   assert(num_results == 0);
 }
 
@@ -564,7 +546,7 @@ static void test_parse_rejects_lowercase_type(void) {
   reset_state();
   char buf[LINE_LEN];
   snprintf(buf, sizeof(buf), "v text 0xffffffff81000000 lowercase\n");
-  capture_result(buf);
+  capture_result(buf, "parsed");
   assert(num_results == 0);
 }
 
@@ -572,7 +554,7 @@ static void test_parse_rejects_missing_space(void) {
   reset_state();
   char buf[LINE_LEN];
   snprintf(buf, sizeof(buf), "Vtext 0xffffffff81000000 nospace\n");
-  capture_result(buf);
+  capture_result(buf, "parsed");
   assert(num_results == 0);
 }
 
@@ -581,7 +563,7 @@ static void test_parse_rejects_empty_label(void) {
   char buf[LINE_LEN];
   /* Only type, section, addr — no label after the hex */
   snprintf(buf, sizeof(buf), "V text 0xffffffff81000000\n");
-  capture_result(buf);
+  capture_result(buf, "parsed");
   /* label_start points to '\n' or '\0'; should be rejected or have empty label
    */
   /* The function checks *label_start == '\0' but '\n' passes that check */
@@ -1321,21 +1303,37 @@ static void test_e2e_pipeline(void) {
   assert(vmod_hi == 0); /* only one */
 }
 
-static void test_e2e_incremental_phases(void) {
+/* Simulate inference phase: apply_layout_adjustments() called after each
+ * component. Results are valid regardless of the order components run. */
+static void test_e2e_incremental_layout(void) {
   reset_state();
 
-  /* Phase 1: discovery */
+  inject_tagged("D - 0xffffffff81000000 default:text");
+  apply_layout_adjustments();
+  assert(detect_kaslr_state() == 0); /* KASLR enabled */
+
+  inject_tagged("V text 0xffffffff81200000 dmesg_backtrace");
+  apply_layout_adjustments();
+  inject_tagged("V text 0xffffffff81200000 proc-kallsyms");
+  apply_layout_adjustments();
+
+  assert(num_results == 3);
+  assert(group_consensus(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT) ==
+         0xffffffff81200000ul);
+}
+
+/* A nokaslr indicator collected during inference makes detect_kaslr_state()
+ * return true — the probing phase is skipped. */
+static void test_e2e_kaslr_disabled_skips_probing(void) {
+  reset_state();
+
   inject_tagged("D - 0xffffffff81000000 default:text");
   apply_layout_adjustments();
   assert(detect_kaslr_state() == 0);
 
-  /* Phase 2: inference */
-  inject_tagged("V text 0xffffffff81200000 dmesg_backtrace");
-  inject_tagged("V text 0xffffffff81200000 proc-kallsyms");
-  assert(num_results == 3);
-
-  unsigned long vtext = group_consensus(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT);
-  assert(vtext == 0xffffffff81200000ul);
+  inject_tagged("D - 0xffffffff81000000 proc-cmdline:nokaslr");
+  apply_layout_adjustments();
+  assert(detect_kaslr_state() == 1); /* probing phase would be skipped */
 }
 
 /* =========================================================================
@@ -1626,12 +1624,6 @@ static void test_hardening_json_no_meta_without_flag(void) {
 int main(void) {
   printf("kasld unit tests (%s)\n\n", VERSION);
 
-  printf("name_in_list:\n");
-  RUN_TEST(test_name_in_list_found);
-  RUN_TEST(test_name_in_list_not_found);
-  RUN_TEST(test_name_in_list_empty);
-  printf("\n");
-
   printf("align_for_section:\n");
   RUN_TEST(test_align_text_rounds_down);
   RUN_TEST(test_align_text_already_aligned);
@@ -1809,7 +1801,8 @@ int main(void) {
 
   printf("end-to-end:\n");
   RUN_TEST(test_e2e_pipeline);
-  RUN_TEST(test_e2e_incremental_phases);
+  RUN_TEST(test_e2e_incremental_layout);
+  RUN_TEST(test_e2e_kaslr_disabled_skips_probing);
   printf("\n");
 
   printf("---\n%d/%d tests passed\n", pass_count, test_count);

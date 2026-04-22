@@ -33,6 +33,7 @@
 #include <unistd.h>
 
 #include <elf.h>
+#include <pthread.h>
 
 #ifndef VERSION
 #define VERSION "unknown"
@@ -127,6 +128,18 @@ static void adjust_for_page_offset(unsigned long new_po) {
 #define FAST_TIMEOUT_SECS 2
 static int component_timeout = DEFAULT_TIMEOUT_SECS;
 
+/* Parallel inference: 0 = sequential (default), N > 1 = N worker threads */
+static int parallel_workers = 0;
+
+/* Protects results[], num_results, comp_logs[], num_comp_logs, progress_done,
+ * and the parallel worker pool counter (pool_next). */
+static pthread_mutex_t result_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+/* Inference worker pool: index list built once, consumed by workers */
+static int pool_inf[MAX_COMPONENTS]; /* indices into components[] */
+static int pool_inf_n;               /* count of inference components */
+static int pool_next;                /* next index in pool_inf[] to claim */
+
 /* -------------------------------------------------------------------------
  * Component execution log (for --verbose --json)
  * -------------------------------------------------------------------------
@@ -148,26 +161,16 @@ struct component {
 static struct component components[MAX_COMPONENTS];
 static int num_components;
 
-/* Phased execution order.
- * Phase 1 (discovery): determines PAGE_OFFSET, KASLR state, and may yield
- *   exact kernel addresses before the main inference phase runs.
- * Phase 2 (inference): all remaining components except probing.
- * Phase 3 (probing): active probing components — microarchitectural
- *   side-channels, timing attacks, and brute-force search. Detected
- *   automatically from .kasld_meta method field (timing or heuristic).
- *   Skipped when KASLR is disabled or unsupported.
+/* Two-phase execution order.
+ * Inference: all non-probing components run sequentially.
+ *   apply_layout_adjustments() is called after each component so that
+ *   PAGE_OFFSET discoveries propagate and revalidate prior results
+ *   immediately, making execution order irrelevant for correctness.
+ * Probing: active probing components — microarchitectural side-channels,
+ *   timing attacks, and brute-force search. Detected automatically from
+ *   .kasld_meta method field (timing or heuristic). Runs after all
+ *   inference components and is skipped when KASLR is disabled.
  */
-static const char *phase_discovery[] = {
-    "boot-config", "default",      "dmesg_kaslr-disabled", "proc-cmdline",
-    "proc-config", "proc-cpuinfo", "proc-kallsyms",        NULL};
-
-static int name_in_list(const char *name, const char **list) {
-  for (int i = 0; list[i]; i++) {
-    if (strcmp(name, list[i]) == 0)
-      return 1;
-  }
-  return 0;
-}
 
 static int component_cmp(const void *a, const void *b) {
   const struct component *ca = (const struct component *)a;
@@ -422,7 +425,7 @@ static void print_system_config(void) {
       {"Readable /var/log/dmesg:", "/var/log/dmesg"},
       {"Readable /var/log/kern.log:", "/var/log/kern.log"},
       {"Readable /var/log/syslog:", "/var/log/syslog"},
-      {"Readable DebugFS:", "/sys/kernel/debug"},
+      {"Readable debugfs:", "/sys/kernel/debug"},
       {NULL, NULL},
   };
 
@@ -461,31 +464,16 @@ static void print_system_config(void) {
 struct result results[MAX_RESULTS];
 int num_results;
 
-/* Name of the currently-running component (set by run_component) */
-static const char *current_component_name;
-
-/* Method of the currently-running component (from .kasld_meta or default) */
-static const char *current_component_method = "parsed";
+/* Forward declarations for functions defined in the post-processing section */
 
 /* Forward declarations for functions defined in the post-processing section */
 static unsigned long align_for_section(char type, const char *section,
                                        unsigned long addr);
 static int validate_for_section(char type, const char *section,
                                 unsigned long addr);
+static void apply_layout_adjustments(void);
 
-static void capture_result(const char *line) {
-  if (num_results >= MAX_RESULTS) {
-    static int warned;
-    if (!warned) {
-      if (!quiet)
-        fprintf(
-            stderr,
-            "warning: result limit (%d) reached, dropping further results\n",
-            MAX_RESULTS);
-      warned = 1;
-    }
-    return;
-  }
+static void capture_result(const char *line, const char *method) {
   if (line[0] != KASLD_ADDR_VIRT && line[0] != KASLD_ADDR_PHYS &&
       line[0] != KASLD_ADDR_DEFAULT)
     return;
@@ -505,7 +493,27 @@ static void capture_result(const char *line) {
   if (*label_start == '\0')
     return;
 
-  struct result *r = &results[num_results];
+  /* Claim a result slot under the lock; fill it afterwards without the lock.
+   * layout.* is read-only during parallel inference so align/validate are safe
+   * outside the critical section. */
+  pthread_mutex_lock(&result_mutex);
+  if (num_results >= MAX_RESULTS) {
+    static int warned;
+    if (!warned) {
+      if (!quiet)
+        fprintf(
+            stderr,
+            "warning: result limit (%d) reached, dropping further results\n",
+            MAX_RESULTS);
+      warned = 1;
+    }
+    pthread_mutex_unlock(&result_mutex);
+    return;
+  }
+  int idx = num_results++;
+  pthread_mutex_unlock(&result_mutex);
+
+  struct result *r = &results[idx];
   r->type = type_ch;
   snprintf(r->section, SECTION_LEN, "%s", section);
 
@@ -518,13 +526,9 @@ static void capture_result(const char *line) {
   r->aligned = align_for_section(type_ch, section, addr);
   r->valid = validate_for_section(type_ch, section, addr);
 
-  /* Set method from component metadata */
-  const char *meth =
-      current_component_method ? current_component_method : "parsed";
+  const char *meth = method ? method : "parsed";
   strncpy(r->method, meth, METHOD_LEN - 1);
   r->method[METHOD_LEN - 1] = '\0';
-
-  num_results++;
 }
 
 static long deadline_remaining_ms(const struct timespec *deadline) {
@@ -787,8 +791,6 @@ static void classify_components(void) {
 }
 
 static int run_component(const struct component *c) {
-  current_component_name = c->name;
-
   /* Extract explain string before execution (if --explain active or JSON) */
   char *explain_str = NULL;
   if (explain_mode || json_output)
@@ -801,8 +803,8 @@ static int run_component(const struct component *c) {
   free(meta_raw);
 
   /* Set method from metadata (fallback: "parsed") */
-  const char *method = meta_get(&tmp_meta, "method");
-  current_component_method = method ? method : "parsed";
+  const char *method_val = meta_get(&tmp_meta, "method");
+  const char *comp_method = method_val ? method_val : "parsed";
 
   if (verbose && !json_output)
     printf("--- %s ---\n", c->name);
@@ -812,8 +814,11 @@ static int run_component(const struct component *c) {
 
   /* Always allocate a log slot for outcome tracking */
   struct component_log *clog = NULL;
+  pthread_mutex_lock(&result_mutex);
   if (num_comp_logs < MAX_COMPONENTS) {
-    clog = &comp_logs[num_comp_logs++];
+    int clog_idx = num_comp_logs++;
+    pthread_mutex_unlock(&result_mutex);
+    clog = &comp_logs[clog_idx];
     snprintf(clog->name, sizeof(clog->name), "%s", c->name);
     clog->exit_code = -1;
     clog->outcome = OUTCOME_NO_RESULT;
@@ -821,9 +826,11 @@ static int run_component(const struct component *c) {
     clog->explain = explain_str; /* transfer ownership */
     clog->meta = tmp_meta;       /* copy parsed metadata */
     explain_str = NULL;
-    /* Re-point method to the clog copy (stable for capture_result calls) */
-    method = meta_get(&clog->meta, "method");
-    current_component_method = method ? method : "parsed";
+    /* Re-point method to the clog copy (stable pointer into clog->meta) */
+    method_val = meta_get(&clog->meta, "method");
+    comp_method = method_val ? method_val : "parsed";
+  } else {
+    pthread_mutex_unlock(&result_mutex);
   }
 
   /* Free explain_str if not transferred to clog */
@@ -921,7 +928,7 @@ static int run_component(const struct component *c) {
       if (llen < sizeof(line)) {
         memcpy(line, start, llen);
         line[llen] = '\0';
-        capture_result(line);
+        capture_result(line, comp_method);
       }
 
       start = nl + 1;
@@ -978,19 +985,22 @@ static int progress_done;
 static struct timespec progress_start;
 
 static void progress_update(void) {
-  progress_done++;
+  pthread_mutex_lock(&result_mutex);
+  int done = ++progress_done;
+  pthread_mutex_unlock(&result_mutex);
+
   if (quiet || json_output || oneline_output || markdown_output)
     return;
   if (verbose)
     printf("\n");
   else {
-    int pct = num_components > 0 ? (progress_done * 100) / num_components : 0;
+    int pct = num_components > 0 ? (done * 100) / num_components : 0;
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);
     double elapsed = (double)(now.tv_sec - progress_start.tv_sec) +
                      (double)(now.tv_nsec - progress_start.tv_nsec) / 1e9;
 
-    /* Build a small progress bar: [████░░░░░░] */
+    /* Build a small progress bar: [####......] */
     int bar_width = 20;
     int filled = (pct * bar_width) / 100;
     char bar[32];
@@ -999,23 +1009,65 @@ static void progress_update(void) {
     bar[bar_width] = '\0';
 
     printf("\r%s[%s]%s %3d%%  %d/%d  %s%.1fs%s", c(C_DIM), bar, c(C_RESET), pct,
-           progress_done, num_components, c(C_DIM), elapsed, c(C_RESET));
+           done, num_components, c(C_DIM), elapsed, c(C_RESET));
     fflush(stdout);
   }
 }
 
-/* Run components whose name is (include=1) or is not (include=0) in list.
- * When skip_probing is set, also skip components with is_probing flag. */
-static void run_phase(const char **list, int include, int skip_probing) {
-  for (int i = 0; i < num_components; i++) {
-    int in_list = name_in_list(components[i].name, list);
-    if (in_list != include)
-      continue;
-    if (skip_probing && components[i].is_probing)
-      continue;
-    run_component(&components[i]);
+/* Worker thread: claims inference components from the pool and runs them. */
+static void *inference_worker(void *arg) {
+  (void)arg;
+  while (1) {
+    pthread_mutex_lock(&result_mutex);
+    int slot = (pool_next < pool_inf_n) ? pool_next++ : -1;
+    pthread_mutex_unlock(&result_mutex);
+    if (slot < 0)
+      break;
+    run_component(&components[pool_inf[slot]]);
     progress_update();
   }
+  return NULL;
+}
+
+/* Run all non-probing components.
+ * workers <= 1 or verbose: sequential, apply_layout_adjustments() after each.
+ * workers > 1:             parallel worker pool, apply_layout_adjustments()
+ *                          once after all workers join.  Layout state is
+ *                          read-only during parallel execution so
+ *                          align/validate calls inside capture_result() are
+ *                          safe without additional locking. */
+static void run_inference_parallel(int workers) {
+  pool_inf_n = 0;
+  for (int i = 0; i < num_components; i++) {
+    if (!components[i].is_probing)
+      pool_inf[pool_inf_n++] = i;
+  }
+  if (pool_inf_n == 0)
+    return;
+
+  /* Sequential when workers == 0, workers == 1, or verbose mode.
+   * verbose falls back to sequential to avoid interleaved output. */
+  if (workers <= 1 || verbose) {
+    for (int i = 0; i < pool_inf_n; i++) {
+      run_component(&components[pool_inf[i]]);
+      progress_update();
+      apply_layout_adjustments();
+    }
+    return;
+  }
+
+  if (workers > pool_inf_n)
+    workers = pool_inf_n;
+  pool_next = 0;
+
+  pthread_t threads[MAX_COMPONENTS];
+  int i;
+  for (i = 0; i < workers; i++)
+    pthread_create(&threads[i], NULL, inference_worker, NULL);
+  for (i = 0; i < workers; i++)
+    pthread_join(threads[i], NULL);
+
+  apply_layout_adjustments();
 }
 
 /* Run only probing components (is_probing flag set by classify_components) */
@@ -1111,7 +1163,9 @@ static void apply_layout_adjustments(void) {
   /* Check for conflicting pageoffset sources (e.g., proc-config's
    * CONFIG_PAGE_OFFSET vs proc-cpuinfo's MMU-inferred value). Conflicts
    * indicate a legacy kernel where CONFIG_PAGE_OFFSET was a compile-time
-   * constant rather than derived from the active paging mode. */
+   * constant rather than derived from the active paging mode.
+   * Guard against repeated warnings: called after every inference component. */
+  static int po_conflict_warned = 0;
   unsigned long po_vals[MAX_RESULTS];
   int po_n = 0;
   for (int i = 0; i < num_results; i++) {
@@ -1129,7 +1183,8 @@ static void apply_layout_adjustments(void) {
         po_vals[po_n++] = results[i].aligned;
     }
   }
-  if (po_n > 1) {
+  if (po_n > 1 && !po_conflict_warned) {
+    po_conflict_warned = 1;
     if (!quiet) {
       fprintf(stderr, "[!] Conflicting PAGE_OFFSET sources detected "
                       "(possible legacy kernel layout):\n");
@@ -1598,24 +1653,33 @@ void inject_kaslr_defaults(struct summary *s) {
  */
 #ifndef KASLD_TESTING
 static void usage(const char *progname) {
-  printf("Usage: %s [OPTIONS]\n\n"
-         "Options:\n"
-         "  -j, --json      Machine-readable JSON output\n"
-         "  -1, --oneline   Single-line summary output\n"
-         "  -m, --markdown  Markdown table output\n"
-         "  -c, --color     Colorize text output (auto-detected for TTYs)\n"
-         "  -q, --quiet     Suppress banner, progress, and warnings\n"
-         "  -v, --verbose   Show component output\n"
-         "  -e, --explain   Show technique explanations before each component\n"
-         "  -f, --fast      Use %ds per-component timeout\n"
-         "  -H, --hardening Show post-run hardening assessment\n"
-         "  -t, --timeout N Per-component timeout in seconds (default: %d)\n"
-         "  -V, --version   Print version and exit\n"
-         "  -h, --help      Show this help\n",
-         progname, FAST_TIMEOUT_SECS, DEFAULT_TIMEOUT_SECS);
+  printf(
+      "Usage: %s [OPTIONS]\n\n"
+      "Options:\n"
+      "  -j, --json        Machine-readable JSON output\n"
+      "  -1, --oneline     Single-line summary output\n"
+      "  -m, --markdown    Markdown table output\n"
+      "  -c, --color       Colorize text output (auto-detected for TTYs)\n"
+      "  -q, --quiet       Suppress banner, progress, and warnings\n"
+      "  -v, --verbose     Show component output\n"
+      "  -e, --explain     Show technique explanations before each component\n"
+      "  -f, --fast        Use %ds per-component timeout\n"
+      "  -w, --workers N   Parallel inference workers (default: nproc; 0 = "
+      "sequential)\n"
+      "  -H, --hardening   Show post-run hardening assessment\n"
+      "  -t, --timeout N   Per-component timeout in seconds (default: %d)\n"
+      "  -V, --version     Print version and exit\n"
+      "  -h, --help        Show this help\n",
+      progname, FAST_TIMEOUT_SECS, DEFAULT_TIMEOUT_SECS);
 }
 
 int main(int argc, char *argv[]) {
+  /* Default to nproc workers; --workers overrides */
+  {
+    long ncpu = sysconf(_SC_NPROCESSORS_ONLN);
+    parallel_workers = (ncpu > 1) ? (int)ncpu : 4;
+  }
+
   for (int i = 1; i < argc; i++) {
     if (strcmp(argv[i], "-j") == 0 || strcmp(argv[i], "--json") == 0) {
       json_output = 1;
@@ -1644,6 +1708,13 @@ int main(int argc, char *argv[]) {
       verbose = 1; /* --explain implies --verbose */
     } else if (strcmp(argv[i], "-f") == 0 || strcmp(argv[i], "--fast") == 0) {
       fast_mode = 1;
+    } else if (strcmp(argv[i], "-w") == 0 ||
+               strcmp(argv[i], "--workers") == 0) {
+      if (i + 1 >= argc) {
+        fprintf(stderr, "--workers requires a value\n");
+        return 2;
+      }
+      parallel_workers = atoi(argv[++i]);
     } else if (strcmp(argv[i], "-H") == 0 ||
                strcmp(argv[i], "--hardening") == 0) {
       hardening_mode = 1;
@@ -1706,22 +1777,19 @@ int main(int argc, char *argv[]) {
     fflush(stdout);
   }
 
-  /* Phase 1: layout discovery — PAGE_OFFSET, KASLR state, exact addrs */
-  run_phase(phase_discovery, 1, 0);
-  apply_layout_adjustments();
-  int kaslr_off = detect_kaslr_state();
+  /* Inference: run all non-probing components.
+   * Sequential (default): apply_layout_adjustments() after each component.
+   * Parallel (--parallel N): worker pool; one apply_layout_adjustments() at
+   * the end.  See run_inference_parallel() for the tradeoff. */
+  run_inference_parallel(parallel_workers);
 
-  /* Phase 2: main inference — everything except discovery and probing */
-  run_phase(phase_discovery, 0, 1);
-  apply_layout_adjustments();
-
-  /* Phase 3: probing — side-channels and brute-force, skip when KASLR is off */
-  if (!kaslr_off)
+  /* Probing: side-channels and brute-force, skipped when KASLR is off */
+  if (!detect_kaslr_state()) {
     run_probing_phase();
-  else if (!quiet && verbose && plain_output())
+    apply_layout_adjustments();
+  } else if (!quiet && verbose && plain_output()) {
     printf("skipping probing phase (KASLR disabled)\n\n");
-
-  apply_layout_adjustments();
+  }
 
   if (!quiet && !verbose && plain_output())
     printf("\n\n");

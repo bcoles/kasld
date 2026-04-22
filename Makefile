@@ -107,7 +107,7 @@ $(OBJ_DIR)/render.o: $(RENDER_SRC) $(HDRS) | $(COMP_DIR)
 	$(CC) $(ALL_CFLAGS) -DVERSION='"$(VERSION)"' -c $< -o $@
 
 $(KASLD_BIN): $(OBJ_DIR)/orchestrator.o $(OBJ_DIR)/render.o | $(COMP_DIR)
-	$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) $^ -o $@
+	$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) $^ -lpthread -o $@
 
 .PHONY: run
 run : build
@@ -118,7 +118,7 @@ TEST_DIR := ./tests
 TEST_BIN := $(OBJ_DIR)/test_kasld
 
 $(TEST_BIN): $(TEST_DIR)/test_kasld.c $(KASLD_SRC) $(RENDER_SRC) $(HDRS) | $(COMP_DIR)
-	$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -DKASLD_TESTING -I$(SRC_DIR) $(TEST_DIR)/test_kasld.c -o $@
+	$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -DKASLD_TESTING -I$(SRC_DIR) $(TEST_DIR)/test_kasld.c -lpthread -o $@
 
 .PHONY: test
 test : $(TEST_BIN)
