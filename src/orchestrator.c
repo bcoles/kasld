@@ -34,7 +34,9 @@
 #include <unistd.h>
 
 #include <elf.h>
+#ifdef HAVE_PTHREAD
 #include <pthread.h>
+#endif
 
 #ifndef VERSION
 #define VERSION "unknown"
@@ -142,8 +144,16 @@ static int parallel_workers = 0;
 static int num_active_components;
 
 /* Protects results[], num_results, comp_logs[], num_comp_logs, progress_done,
- * and the parallel worker pool counter (pool_next). */
+ * and the parallel worker pool counter (pool_next). No-ops when pthread is
+ * unavailable (sequential-only mode). */
+#ifdef HAVE_PTHREAD
 static pthread_mutex_t result_mutex = PTHREAD_MUTEX_INITIALIZER;
+#define RESULT_LOCK() pthread_mutex_lock(&result_mutex)
+#define RESULT_UNLOCK() pthread_mutex_unlock(&result_mutex)
+#else
+#define RESULT_LOCK() ((void)0)
+#define RESULT_UNLOCK() ((void)0)
+#endif
 
 /* Inference worker pool: index list built once, consumed by workers */
 static int pool_inf[MAX_COMPONENTS]; /* indices into components[] */
@@ -508,7 +518,7 @@ static void capture_result(const char *line, const char *method) {
   /* Claim a result slot under the lock; fill it afterwards without the lock.
    * layout.* is read-only during parallel inference so align/validate are safe
    * outside the critical section. */
-  pthread_mutex_lock(&result_mutex);
+  RESULT_LOCK();
   if (num_results >= MAX_RESULTS) {
     static int warned;
     if (!warned) {
@@ -519,11 +529,11 @@ static void capture_result(const char *line, const char *method) {
             MAX_RESULTS);
       warned = 1;
     }
-    pthread_mutex_unlock(&result_mutex);
+    RESULT_UNLOCK();
     return;
   }
   int idx = num_results++;
-  pthread_mutex_unlock(&result_mutex);
+  RESULT_UNLOCK();
 
   struct result *r = &results[idx];
   r->type = type_ch;
@@ -845,10 +855,10 @@ static int run_component(const struct component *c) {
 
   /* Always allocate a log slot for outcome tracking */
   struct component_log *clog = NULL;
-  pthread_mutex_lock(&result_mutex);
+  RESULT_LOCK();
   if (num_comp_logs < MAX_COMPONENTS) {
     int clog_idx = num_comp_logs++;
-    pthread_mutex_unlock(&result_mutex);
+    RESULT_UNLOCK();
     clog = &comp_logs[clog_idx];
     snprintf(clog->name, sizeof(clog->name), "%s", c->name);
     clog->exit_code = -1;
@@ -861,7 +871,7 @@ static int run_component(const struct component *c) {
     method_val = meta_get(&clog->meta, "method");
     comp_method = method_val ? method_val : "parsed";
   } else {
-    pthread_mutex_unlock(&result_mutex);
+    RESULT_UNLOCK();
   }
 
   /* Free explain_str if not transferred to clog */
@@ -1016,9 +1026,9 @@ static int progress_done;
 static struct timespec progress_start;
 
 static void progress_update(void) {
-  pthread_mutex_lock(&result_mutex);
+  RESULT_LOCK();
   int done = ++progress_done;
-  pthread_mutex_unlock(&result_mutex);
+  RESULT_UNLOCK();
 
   if (quiet || json_output || oneline_output || markdown_output)
     return;
@@ -1051,9 +1061,9 @@ static void progress_update(void) {
 static void *inference_worker(void *arg) {
   (void)arg;
   while (1) {
-    pthread_mutex_lock(&result_mutex);
+    RESULT_LOCK();
     int slot = (pool_next < pool_inf_n) ? pool_next++ : -1;
-    pthread_mutex_unlock(&result_mutex);
+    RESULT_UNLOCK();
     if (slot < 0)
       break;
     run_component(&components[pool_inf[slot]]);
@@ -1081,6 +1091,10 @@ static void run_inference_parallel(int workers) {
   if (pool_inf_n == 0)
     return;
 
+#ifndef HAVE_PTHREAD
+  workers = 1; /* no pthread: force sequential */
+#endif
+
   /* Sequential when workers == 0, workers == 1, or verbose mode.
    * verbose falls back to sequential to avoid interleaved output. */
   if (workers <= 1 || verbose) {
@@ -1096,6 +1110,7 @@ static void run_inference_parallel(int workers) {
     workers = pool_inf_n;
   pool_next = 0;
 
+#ifdef HAVE_PTHREAD
   pthread_t threads[MAX_COMPONENTS];
   int i;
   for (i = 0; i < workers; i++)
@@ -1104,6 +1119,7 @@ static void run_inference_parallel(int workers) {
     pthread_join(threads[i], NULL);
 
   apply_layout_adjustments();
+#endif
 }
 
 /* Run only probing components (is_probing flag set by classify_components) */

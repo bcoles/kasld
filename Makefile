@@ -37,6 +37,17 @@ HDRS := $(wildcard $(SRC_DIR)/include/*.h $(SRC_DIR)/include/arch/*.h)
 # Detect zlib (optional, for native gzip decompression in proc-config)
 HAVE_ZLIB := $(shell echo 'int main(void){return 0;}' | $(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -xc - -lz -o /dev/null 2>/dev/null && echo 1)
 
+# Detect pthread (optional, for parallel inference worker pool in orchestrator)
+HAVE_PTHREAD := $(shell echo 'int main(void){return 0;}' | $(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -xc - -lpthread -o /dev/null 2>/dev/null && echo 1)
+
+ifeq ($(HAVE_PTHREAD),1)
+PTHREAD_CFLAGS := -DHAVE_PTHREAD
+PTHREAD_LIBS   := -lpthread
+else
+PTHREAD_CFLAGS :=
+PTHREAD_LIBS   :=
+endif
+
 # kasld orchestrator (not a leak component)
 KASLD_SRC := $(SRC_DIR)/orchestrator.c
 RENDER_SRC := $(SRC_DIR)/render.c
@@ -95,19 +106,19 @@ $(COMP_DIR)/zombieload: $(COMP_SRC_DIR)/zombieload.c $(HDRS) | $(COMP_DIR)
 
 # kernelsnitch: needs -lpthread (uses default -O2 for hash timing performance)
 $(COMP_DIR)/kernelsnitch: $(COMP_SRC_DIR)/kernelsnitch.c $(HDRS) | $(COMP_DIR)
-	-$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $< -lpthread -o $@
+	-$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $< $(PTHREAD_LIBS) -o $@
 
 .PHONY: build
 build : check-headers $(BIN_FILES) $(KASLD_BIN)
 
 $(OBJ_DIR)/orchestrator.o: $(KASLD_SRC) $(HDRS) | $(COMP_DIR)
-	$(CC) $(ALL_CFLAGS) -DVERSION='"$(VERSION)"' -c $< -o $@
+	$(CC) $(ALL_CFLAGS) $(PTHREAD_CFLAGS) -DVERSION='"$(VERSION)"' -c $< -o $@
 
 $(OBJ_DIR)/render.o: $(RENDER_SRC) $(HDRS) | $(COMP_DIR)
 	$(CC) $(ALL_CFLAGS) -DVERSION='"$(VERSION)"' -c $< -o $@
 
 $(KASLD_BIN): $(OBJ_DIR)/orchestrator.o $(OBJ_DIR)/render.o | $(COMP_DIR)
-	$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) $^ -lpthread -o $@
+	$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) $^ $(PTHREAD_LIBS) -o $@
 
 .PHONY: run
 run : build
@@ -118,7 +129,7 @@ TEST_DIR := ./tests
 TEST_BIN := $(OBJ_DIR)/test_kasld
 
 $(TEST_BIN): $(TEST_DIR)/test_kasld.c $(KASLD_SRC) $(RENDER_SRC) $(HDRS) | $(COMP_DIR)
-	$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -DKASLD_TESTING -I$(SRC_DIR) $(TEST_DIR)/test_kasld.c -lpthread -o $@
+	$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) $(PTHREAD_CFLAGS) -DKASLD_TESTING -I$(SRC_DIR) $(TEST_DIR)/test_kasld.c $(PTHREAD_LIBS) -o $@
 
 .PHONY: test
 test : $(TEST_BIN)
