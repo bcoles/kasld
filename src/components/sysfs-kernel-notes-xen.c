@@ -7,7 +7,8 @@
 // addresses generated via _ASM_PTR in arch/x86/xen/xen-head.S:
 //   - Type 1 (XEN_ELFNOTE_ENTRY): startup_xen virtual address
 //   - Type 2 (XEN_ELFNOTE_HYPERCALL_PAGE): hypercall_page virtual address
-//   - Type 18 (XEN_ELFNOTE_PHYS32_ENTRY): physical kernel entry offset
+//   - Type 18 (XEN_ELFNOTE_PHYS32_ENTRY): virtual KASLR offset (pvh_start_xen -
+//   __START_KERNEL_map)
 //
 // Also performs a generic scan of all remaining note descriptors for
 // pointer-sized values in the kernel text virtual address range.
@@ -270,10 +271,20 @@ int main(void) {
         found++;
       }
       if (xen_phys32) {
-        printf("[+] Xen PHYS32_ENTRY: %lx\n", xen_phys32);
-        kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_TEXT, xen_phys32,
-                     "sysfs-kernel-notes-xen:phys32_entry");
-        found++;
+        /* PHYS32_ENTRY stores pvh_start_xen - __START_KERNEL_map, not a
+         * hardware physical address. On x86_64, the kernel text is mapped
+         * at __START_KERNEL_map + virt_offset, so this value IS the virtual
+         * KASLR offset. Adding __START_KERNEL_map recovers the virtual
+         * address of pvh_start_xen, which sits at or very near _stext.
+         * The hardware physical load address is independently randomized
+         * and is not recoverable from this note. */
+        unsigned long virt = KERNEL_BASE_MIN + xen_phys32;
+        if (virt >= KERNEL_BASE_MIN && virt <= KERNEL_BASE_MAX) {
+          printf("[+] Xen PHYS32_ENTRY -> virtual: %lx\n", virt);
+          kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, virt,
+                       "sysfs-kernel-notes-xen:phys32_entry");
+          found++;
+        }
       }
     } else {
       printf("[-] Xen notes appear stale (unrelocated); discarding\n");
