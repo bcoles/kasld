@@ -125,6 +125,18 @@ static inline __attribute__((always_inline)) void xend_wrapper(void) {
   __asm__ volatile(".byte 0x0f,0x01,0xd5" ::: "memory");
 }
 
+/* Returns 1 if RTM transactions actually commit (runtime check).
+ * has_rtm() only tests the CPUID bit; microcode updates and hypervisors can
+ * disable RTM at runtime without clearing that bit. */
+__attribute__((unused)) static int rtm_is_functional(void) {
+  unsigned int status = xbegin_wrapper();
+  if (status == ~0u) {
+    xend_wrapper();
+    return 1;
+  }
+  return 0;
+}
+
 /* =========================================================================
  * Prefetch timing
  *
