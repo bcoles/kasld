@@ -159,14 +159,14 @@ int main(void) {
   if (addr) {
     printf("leaked iscsi_iser_transport address: %lx\n", addr);
     kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DATA, addr,
-                 "sysfs_iscsi_transport_handle:iser");
+                 "iscsi_iser_transport", NULL);
   }
 
   addr = get_kernel_addr_iscsi_sw_tcp_transport();
   if (addr) {
     printf("leaked iscsi_sw_tcp_transport address: %lx\n", addr);
     kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DATA, addr,
-                 "sysfs_iscsi_transport_handle:tcp");
+                 "iscsi_sw_tcp_transport", NULL);
   }
 
   return 0;

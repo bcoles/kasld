@@ -81,16 +81,19 @@ static int on_match(const char *line, void *ctx) {
     return 1;
 
   /* last_pfn is the first invalid PFN (one past the end of RAM).
-   * Emit the start of the last valid page so the address is within RAM. */
-  unsigned long last_valid = (pfn - 1) * PAGE_SIZE;
+   * Subtract 1 to get the last valid byte address. */
+  unsigned long last_byte = pfn * PAGE_SIZE - 1;
 
   match_count++;
-  const char *label =
-      (match_count == 1) ? "dmesg_last_pfn:hi" : "dmesg_last_pfn:lo";
+  /* The kernel prints two "last_pfn = ..." lines at boot:
+   *   #1 — e820__end_of_ram_pfn()     — true top of usable RAM → RAM_TOP
+   *   #2 — e820__end_of_low_ram_pfn() — ceiling of memory below 4 GiB →
+   * DMA32_TOP The ordering is stable; the first match is the meaningful one. */
+  const char *region =
+      (match_count == 1) ? KASLD_REGION_RAM_TOP : KASLD_REGION_DMA32_TOP;
 
-  printf("leaked last_pfn: %#lx (last valid page: 0x%016lx)\n", pfn,
-         last_valid);
-  kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, last_valid, label);
+  printf("leaked last_pfn: %#lx (last valid byte: 0x%016lx)\n", pfn, last_byte);
+  kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, last_byte, region, NULL);
 
   return 1; /* keep scanning for second line */
 }

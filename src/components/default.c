@@ -31,13 +31,18 @@ int main(void) {
   if (!addr)
     return 1;
 
+  /* Always emit a DEFAULT-type fallback. The "text" name distinguishes
+   * this informational fallback from the "nokaslr" / "unsupported"
+   * markers that detect_kaslr_state() treats as KASLR-disabled
+   * indicators. */
   printf("common default kernel text for arch: %lx\n", addr);
-  kasld_result(KASLD_ADDR_DEFAULT, KASLD_SECTION_NONE, addr, "default:text");
+  kasld_result(KASLD_ADDR_DEFAULT, KASLD_SECTION_NONE, addr,
+               KASLD_REGION_KERNEL_TEXT, "text");
 
 #if !KASLR_SUPPORTED
   printf("[!] KASLR is not supported on this architecture\n");
   kasld_result(KASLD_ADDR_DEFAULT, KASLD_SECTION_NONE, addr,
-               "default:unsupported");
+               KASLD_REGION_KERNEL_TEXT, "unsupported");
 #endif
 
   return 0;

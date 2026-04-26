@@ -507,7 +507,7 @@ int main(void) {
 
   fprintf(stderr, "[+] zombieload: kernel text base = 0x%016lx\n", addr);
   kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr,
-               "zombieload [kernel text]");
+               KASLD_REGION_KERNEL_TEXT, NULL);
 
   return 0;
 }

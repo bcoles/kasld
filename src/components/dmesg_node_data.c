@@ -107,13 +107,13 @@ int main(void) {
   printf("highest NODE_DATA physical address: 0x%016lx\n", r.hi);
 
   kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, r.hi,
-               "dmesg_node_data:dram");
+               KASLD_REGION_NUMA_NODE, NULL);
 
 #if !PHYS_VIRT_DECOUPLED
   unsigned long virt = phys_to_virt(r.hi);
   printf("possible direct-map virtual address: 0x%016lx\n", virt);
   kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
-               "dmesg_node_data:directmap");
+               KASLD_REGION_NUMA_NODE, NULL);
 #else
   printf("note: phys and virt KASLR are decoupled on this arch; "
          "cannot derive kernel text virtual address from physical leak\n");

@@ -115,6 +115,6 @@ int main(void) {
   printf("lowest leaked address: %lx\n", addr);
   printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);
   kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr,
-               "dmesg_riscv_relocation");
+               KASLD_REGION_KERNEL_TEXT, NULL);
   return 0;
 }

@@ -105,14 +105,18 @@ int main(void) {
     return 0;
   }
 
+  /* /proc/modules gives us a list of loaded module base addresses.
+   * The component aggregates them into a min/max range — both endpoints
+   * are within the module region. (A future version could enumerate
+   * each module by name with kasld_result().) */
   printf("lowest leaked module address:  %lx\n", range.lo);
   kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_MODULE, range.lo,
-               "proc-modules:lo");
+               KASLD_REGION_MODULE_REGION, NULL);
 
   if (range.hi != range.lo) {
     printf("highest leaked module address: %lx\n", range.hi);
     kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_MODULE, range.hi,
-                 "proc-modules:hi");
+                 KASLD_REGION_MODULE_REGION, NULL);
   }
 
   return 0;

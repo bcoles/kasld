@@ -8,9 +8,11 @@
 //   2. components/ relative to the binary (build tree / tarball)
 //   3. ../libexec/kasld/ relative to the binary (FHS install)
 //
-// Tagged line format: <type> <section> <addr> <label>
+// Tagged line format: <type> <section> <addr> <region>[:<name>]
 //   type:    V (virtual), P (physical), D (default/KASLR-disabled)
 //   section: text, module, directmap, data, dram, pageoffset, or - (default)
+//   region:  what kind of thing is at the address (KASLD_REGION_* constant)
+//   name:    specific instance, when known (e.g. symbol, module, PCI BDF)
 // ---
 // <bcoles@gmail.com>
 
@@ -495,12 +497,13 @@ static int validate_for_section(char type, const char *section,
                                 unsigned long addr);
 static void apply_layout_adjustments(void);
 
-static void capture_result(const char *line, const char *method) {
+static int capture_result(const char *line, const char *method,
+                          const char *origin) {
   if (line[0] != KASLD_ADDR_VIRT && line[0] != KASLD_ADDR_PHYS &&
       line[0] != KASLD_ADDR_DEFAULT)
-    return;
+    return 0;
   if (line[1] != ' ')
-    return;
+    return 0;
 
   char type_ch;
   char section[SECTION_LEN];
@@ -509,11 +512,11 @@ static void capture_result(const char *line, const char *method) {
 
   if (sscanf(line, "%c %31s %lx %n", &type_ch, section, &addr, &pos) < 3 ||
       pos == 0)
-    return;
+    return 0;
 
-  const char *label_start = line + pos;
-  if (*label_start == '\0')
-    return;
+  const char *region_start = line + pos;
+  if (*region_start == '\0')
+    return 0;
 
   /* Claim a result slot under the lock; fill it afterwards without the lock.
    * layout.* is read-only during parallel inference so align/validate are safe
@@ -530,7 +533,7 @@ static void capture_result(const char *line, const char *method) {
       warned = 1;
     }
     RESULT_UNLOCK();
-    return;
+    return 0;
   }
   int idx = num_results++;
   RESULT_UNLOCK();
@@ -539,10 +542,41 @@ static void capture_result(const char *line, const char *method) {
   r->type = type_ch;
   snprintf(r->section, SECTION_LEN, "%s", section);
 
-  snprintf(r->label, LABEL_LEN, "%s", label_start);
-  size_t llen = strlen(r->label);
-  if (llen > 0 && r->label[llen - 1] == '\n')
-    r->label[llen - 1] = '\0';
+  /* Wire format: "<type> <section> <addr> <region>" — common case
+   *           or  "<type> <section> <addr> <region>:<name>" — when the
+   *               component knows the specific instance at this address
+   *               (kernel symbol, ACPI table OEM ID, module name, ...).
+   *
+   * Split on the FIRST `:` only. The name portion may itself contain
+   * colons (e.g. PCI BDF "0000:00:14.0"); only the boundary between
+   * region and name needs to be unambiguous, and KASLD_REGION_*
+   * constants never contain colons.
+   *
+   * Origin (provenance) is NOT on the wire — the orchestrator already
+   * knows which subprocess produced this line and attaches the
+   * component name as origin. Single source of truth: the component's
+   * identity is whatever the orchestrator launched, not whatever
+   * string the component types into its own kasld_result call. */
+  char trailing[REGION_LEN + NAME_LEN + 2];
+  snprintf(trailing, sizeof(trailing), "%s", region_start);
+  size_t tlen = strlen(trailing);
+  if (tlen > 0 && trailing[tlen - 1] == '\n')
+    trailing[tlen - 1] = '\0';
+
+  char *colon = strchr(trailing, ':');
+  if (colon) {
+    *colon = '\0';
+    snprintf(r->region, REGION_LEN, "%s", trailing);
+    snprintf(r->name, NAME_LEN, "%s", colon + 1);
+  } else {
+    snprintf(r->region, REGION_LEN, "%s", trailing);
+    r->name[0] = '\0';
+  }
+
+  const char *org = origin ? origin : "";
+  size_t olen = strnlen(org, ORIGIN_LEN - 1);
+  memcpy(r->origin, org, olen);
+  r->origin[olen] = '\0';
 
   r->raw = addr;
   r->aligned = align_for_section(type_ch, section, addr);
@@ -551,6 +585,7 @@ static void capture_result(const char *line, const char *method) {
   const char *meth = method ? method : "parsed";
   strncpy(r->method, meth, METHOD_LEN - 1);
   r->method[METHOD_LEN - 1] = '\0';
+  return 1;
 }
 
 static long deadline_remaining_ms(const struct timespec *deadline) {
@@ -919,7 +954,7 @@ static int run_component(const struct component *c) {
   char buf[LINE_LEN];
   size_t buf_pos = 0;
   int timed_out = 0;
-  int results_before = num_results;
+  int tagged_this_run = 0;
 
   while (1) {
     long remaining = deadline_remaining_ms(&deadline);
@@ -961,7 +996,7 @@ static int run_component(const struct component *c) {
         clog->num_lines++;
       }
 
-      /* Re-add newline for capture (label newline stripped in capture_result)
+      /* Re-add newline for capture (region newline stripped in capture_result)
        */
       *nl = '\n';
       char line[LINE_LEN];
@@ -969,7 +1004,9 @@ static int run_component(const struct component *c) {
       if (llen < sizeof(line)) {
         memcpy(line, start, llen);
         line[llen] = '\0';
-        capture_result(line, comp_method);
+        /* Origin (provenance) is the component name — captured at the
+         * orchestrator since it owns the subprocess identity. */
+        tagged_this_run += capture_result(line, comp_method, c->name);
       }
 
       start = nl + 1;
@@ -994,7 +1031,7 @@ static int run_component(const struct component *c) {
   int status;
   waitpid(pid, &status, 0);
 
-  int had_tagged = (num_results > results_before);
+  int had_tagged = (tagged_this_run > 0);
   int rc = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
 
   /* Classify outcome from exit code.  Components signal their own status:
@@ -1316,12 +1353,20 @@ static void apply_layout_adjustments(void) {
 }
 
 /* Check parsed results for KASLR-disabled / unsupported indicators.
- * With the component:qualifier label convention, nokaslr indicators
- * end with ":nokaslr" and the default text is "default:text". */
+ *
+ * Detection components (default, proc-cmdline, proc-config, boot-config,
+ * dmesg_kaslr-disabled, ...) emit DEFAULT-type results carrying a marker
+ * in r->name:
+ *   ""            — KASLR enabled; address is the compile-time fallback
+ *   "text"        — same (legacy "default:text" label, pre-sweep)
+ *   "nokaslr"     — KASLR is disabled
+ *   "unsupported" — KASLR not supported on this kernel/arch
+ *
+ * Anything other than "" / "text" indicates KASLR is not active. */
 static int detect_kaslr_state(void) {
   for (int i = 0; i < num_results; i++) {
-    if (results[i].type == KASLD_ADDR_DEFAULT &&
-        strcmp(results[i].label, "default:text") != 0)
+    if (results[i].type == KASLD_ADDR_DEFAULT && results[i].name[0] != '\0' &&
+        strcmp(results[i].name, "text") != 0)
       return 1; /* disabled or unsupported */
   }
   return 0;
@@ -1671,9 +1716,14 @@ void inject_kaslr_defaults(struct summary *s) {
   for (int i = 0; i < num_results; i++) {
     if (results[i].type == KASLD_ADDR_DEFAULT) {
       s->kaslr.default_addr = results[i].aligned;
-      if (strcmp(results[i].label, "default:unsupported") == 0)
+      /* See detect_kaslr_state() for the marker model:
+       *   r->name == "unsupported"  → arch lacks KASLR support
+       *   r->name == "nokaslr" or other non-empty/non-"text" → disabled
+       *   r->name == "" or "text"   → fallback only (KASLR may be active) */
+      if (strcmp(results[i].name, "unsupported") == 0)
         s->kaslr.unsupported = 1;
-      else if (strcmp(results[i].label, "default:text") != 0)
+      else if (results[i].name[0] != '\0' &&
+               strcmp(results[i].name, "text") != 0)
         s->kaslr.disabled = 1;
     }
   }
@@ -1693,8 +1743,16 @@ void inject_kaslr_defaults(struct summary *s) {
     r->type = KASLD_ADDR_VIRT;
     strncpy(r->section, KASLD_SECTION_TEXT, SECTION_LEN - 1);
     r->section[SECTION_LEN - 1] = '\0';
-    strncpy(r->label, "default:nokaslr", LABEL_LEN - 1);
-    r->label[LABEL_LEN - 1] = '\0';
+    /* Synthetic injection: region is KERNEL_TEXT (the address points at
+     * the kernel text base); name carries the "nokaslr" marker (the
+     * synthetic record represents the orchestrator's interpretation,
+     * not a fresh leak); origin identifies the synthetic source. */
+    strncpy(r->region, KASLD_REGION_KERNEL_TEXT, REGION_LEN - 1);
+    r->region[REGION_LEN - 1] = '\0';
+    strncpy(r->name, "nokaslr", NAME_LEN - 1);
+    r->name[NAME_LEN - 1] = '\0';
+    strncpy(r->origin, "kasld", ORIGIN_LEN - 1);
+    r->origin[ORIGIN_LEN - 1] = '\0';
     r->raw = s->kaslr.default_addr;
     r->aligned = s->kaslr.default_addr;
     r->valid = 1;

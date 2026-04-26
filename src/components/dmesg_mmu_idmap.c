@@ -100,7 +100,10 @@ int main(void) {
 
   printf("leaked __turn_mmu_on: %lx\n", addr);
   printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);
-  kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr, "dmesg_mmu_idmap");
+  /* The leaked address is __turn_mmu_on — a specific kernel symbol used
+   * by the early MMU bringup code on ARM. */
+  kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr,
+               KASLD_REGION_KERNEL_TEXT, "__turn_mmu_on");
 
   return 0;
 }

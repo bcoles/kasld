@@ -83,7 +83,14 @@ static void mark_group_printed(char type, const char *section) {
   }
 }
 
-static void print_group(char type, const char *section) {
+/* Render one validation block.
+ *
+ * region_filter: when non-NULL, only include results whose r->region
+ *                matches. The block heading shows "<section> / <region>".
+ * region_filter: when NULL, include every result in (type, section).
+ *                The block heading shows just "<section>". */
+static void print_group(char type, const char *section,
+                        const char *region_filter) {
   const char *name = section_display_name(type, section);
   if (!name)
     return;
@@ -91,7 +98,8 @@ static void print_group(char type, const char *section) {
   int valid_count = 0;
   for (int i = 0; i < num_results; i++) {
     if (results[i].type == type && strcmp(results[i].section, section) == 0 &&
-        results[i].valid)
+        results[i].valid &&
+        (!region_filter || strcmp(results[i].region, region_filter) == 0))
       valid_count++;
   }
   if (!valid_count)
@@ -102,13 +110,18 @@ static void print_group(char type, const char *section) {
     printf("%s%s%s\n", c(C_DIM), "----------------------------------------",
            c(C_RESET));
 
-  printf("%s%s%s [%d]:\n", c(C_BOLD), name, c(C_RESET), valid_count);
+  if (region_filter)
+    printf("%s%s / %s%s [%d]:\n", c(C_BOLD), name, region_filter, c(C_RESET),
+           valid_count);
+  else
+    printf("%s%s%s [%d]:\n", c(C_BOLD), name, c(C_RESET), valid_count);
 
   /* Collect indices of matching results, then sort by aligned address */
   int indices[MAX_RESULTS];
   int n_indices = 0;
   for (int i = 0; i < num_results; i++) {
-    if (results[i].type == type && strcmp(results[i].section, section) == 0)
+    if (results[i].type == type && strcmp(results[i].section, section) == 0 &&
+        (!region_filter || strcmp(results[i].region, region_filter) == 0))
       if (n_indices < MAX_RESULTS)
         indices[n_indices++] = i;
   }
@@ -126,22 +139,31 @@ static void print_group(char type, const char *section) {
   for (int k = 0; k < n_indices; k++) {
     struct result *r = &results[indices[k]];
 
+    /* Compact form shows region (and ":name" when known); verbose adds
+     * origin and method in parentheses. region+name tells the reader
+     * what the address is; origin tells them which component found it. */
+    char rn[REGION_LEN + NAME_LEN + 2];
+    if (r->name[0])
+      snprintf(rn, sizeof(rn), "%s:%s", r->region, r->name);
+    else
+      snprintf(rn, sizeof(rn), "%s", r->region);
+
     if (!r->valid) {
       if (verbose)
-        printf("  %s0x%016lx%s  %s %s(%s, out of range)%s\n", c(C_RED), r->raw,
-               c(C_RESET), r->label, c(C_DIM), r->method, c(C_RESET));
+        printf("  %s0x%016lx%s  %s %s(%s, %s, out of range)%s\n", c(C_RED),
+               r->raw, c(C_RESET), rn, c(C_DIM), r->origin, r->method,
+               c(C_RESET));
       else
         printf("  %s0x%016lx%s  %s %s(out of range)%s\n", c(C_RED), r->raw,
-               c(C_RESET), r->label, c(C_DIM), c(C_RESET));
+               c(C_RESET), rn, c(C_DIM), c(C_RESET));
       continue;
     }
 
     if (verbose)
-      printf("  %s0x%016lx%s  %s %s(%s)%s\n", c(C_GREEN), r->aligned,
-             c(C_RESET), r->label, c(C_DIM), r->method, c(C_RESET));
+      printf("  %s0x%016lx%s  %s %s(%s, %s)%s\n", c(C_GREEN), r->aligned,
+             c(C_RESET), rn, c(C_DIM), r->origin, r->method, c(C_RESET));
     else
-      printf("  %s0x%016lx%s  %s\n", c(C_GREEN), r->aligned, c(C_RESET),
-             r->label);
+      printf("  %s0x%016lx%s  %s\n", c(C_GREEN), r->aligned, c(C_RESET), rn);
 
     int dup = 0;
     for (int j = 0; j < n_addrs; j++) {
@@ -376,6 +398,55 @@ static void print_memory_map(void) {
     nppts++;
   }
 
+  /* Boundary markers are single-valued by definition. Pre-compute one
+   * consensus address per marker region so the layout box shows one line
+   * each regardless of how many components reported it.
+   * Base-type markers use the minimum (absolute lowest address);
+   * top-type markers use the maximum (absolute highest address).
+   * Multi-object regions (swiotlb, pci_mmio, acpi_table, ...) are NOT
+   * in this list and keep their per-address entries below. */
+  static const struct {
+    const char *region;
+    int use_max; /* 0 = min (base), 1 = max (top/ceiling) */
+  } boundary_markers[] = {
+      {KASLD_REGION_RAM_BASE, 0},
+      {KASLD_REGION_RAM_TOP, 1},
+      {KASLD_REGION_DMA_TOP, 1},
+      {KASLD_REGION_DMA32_TOP, 1},
+  };
+  int n_boundary =
+      (int)(sizeof(boundary_markers) / sizeof(boundary_markers[0]));
+
+  for (int b = 0; b < n_boundary && nppts < MAX_RESULTS; b++) {
+    const char *breg = boundary_markers[b].region;
+    int use_max = boundary_markers[b].use_max;
+    unsigned long best = use_max ? 0 : ~0ul;
+    int found = 0;
+
+    for (int i = 0; i < num_results; i++) {
+      struct result *r = &results[i];
+      if (r->type != KASLD_ADDR_PHYS || !r->valid)
+        continue;
+      if (strcmp(r->section, KASLD_SECTION_DRAM) != 0 &&
+          strcmp(r->section, KASLD_SECTION_MMIO) != 0)
+        continue;
+      if (strcmp(r->region, breg) != 0)
+        continue;
+      if (use_max ? r->aligned > best : r->aligned < best) {
+        best = r->aligned;
+        found = 1;
+      }
+    }
+
+    if (found) {
+      ppts[nppts].addr = best;
+      snprintf(ppts[nppts].label, sizeof(ppts[nppts].label), "[dram] %s", breg);
+      nppts++;
+    }
+  }
+
+  /* All other regions: emit one entry per unique address. Skip boundary
+   * marker regions — already handled above. */
   for (int i = 0; i < num_results; i++) {
     struct result *r = &results[i];
     if (r->type != KASLD_ADDR_PHYS || !r->valid)
@@ -383,6 +454,18 @@ static void print_memory_map(void) {
     if (strcmp(r->section, KASLD_SECTION_DRAM) != 0 &&
         strcmp(r->section, KASLD_SECTION_MMIO) != 0)
       continue;
+
+    /* Skip boundary marker regions — already consolidated above. */
+    int is_boundary = 0;
+    for (int b = 0; b < n_boundary; b++) {
+      if (strcmp(r->region, boundary_markers[b].region) == 0) {
+        is_boundary = 1;
+        break;
+      }
+    }
+    if (is_boundary)
+      continue;
+
     int dup = 0;
     for (int j = 0; j < nppts; j++) {
       if (ppts[j].addr == r->aligned) {
@@ -392,8 +475,12 @@ static void print_memory_map(void) {
     }
     if (!dup && nppts < MAX_RESULTS) {
       ppts[nppts].addr = r->aligned;
-      snprintf(ppts[nppts].label, sizeof(ppts[nppts].label), "[%s] %s",
-               r->section, r->label);
+      if (r->name[0])
+        snprintf(ppts[nppts].label, sizeof(ppts[nppts].label), "[%s] %s:%s",
+                 r->section, r->region, r->name);
+      else
+        snprintf(ppts[nppts].label, sizeof(ppts[nppts].label), "[%s] %s",
+                 r->section, r->region);
       nppts++;
     }
   }
@@ -906,8 +993,14 @@ static void render_json_group(char gt, const char *gs) {
     printf("        {\n");
     printf("          \"raw\": \"0x%016lx\",\n", results[i].raw);
     printf("          \"aligned\": \"0x%016lx\",\n", results[i].aligned);
-    printf("          \"label\": ");
-    json_print_escaped(results[i].label);
+    printf("          \"region\": ");
+    json_print_escaped(results[i].region);
+    printf(",\n");
+    printf("          \"name\": ");
+    json_print_escaped(results[i].name);
+    printf(",\n");
+    printf("          \"origin\": ");
+    json_print_escaped(results[i].origin);
     printf(",\n");
     printf("          \"method\": ");
     json_print_escaped(results[i].method);
@@ -1491,9 +1584,11 @@ static void render_text(const struct summary *s) {
     printf("%s** KASLR is disabled **%s\n\n", c(C_YELLOW), c(C_RESET));
     printf("Detected by:\n");
     for (int i = 0; i < num_results; i++) {
-      if (results[i].type == KASLD_ADDR_DEFAULT &&
-          strcmp(results[i].label, "default:text") != 0)
-        printf("  %s\n", results[i].label);
+      /* List components that emitted a non-fallback DEFAULT result —
+       * those are the ones reporting "nokaslr" / "unsupported" markers. */
+      if (results[i].type == KASLD_ADDR_DEFAULT && results[i].name[0] != '\0' &&
+          strcmp(results[i].name, "text") != 0)
+        printf("  %s (%s)\n", results[i].origin, results[i].name);
     }
     printf("\n");
     if (s->kaslr.default_addr)
@@ -1513,13 +1608,35 @@ static void render_text(const struct summary *s) {
   char type_order[] = {KASLD_ADDR_VIRT, KASLD_ADDR_PHYS, 0};
 
   if (verbose) {
-    /* Verbose: expanded per-address listing */
+    /* Verbose: one block per (type, section, region) — cross-source
+     * confirmations of the same memory landmark collapse into a single
+     * block, making it obvious which regions have multiple agreeing sources. */
     for (int t = 0; type_order[t]; t++) {
       for (int si = 0; section_order[si]; si++) {
-        if (!group_already_printed(type_order[t], section_order[si])) {
-          print_group(type_order[t], section_order[si]);
-          mark_group_printed(type_order[t], section_order[si]);
+        if (group_already_printed(type_order[t], section_order[si]))
+          continue;
+
+        /* Enumerate distinct regions in this (type, section) group. */
+        const char *seen[MAX_RESULTS];
+        int nseen = 0;
+        for (int i = 0; i < num_results; i++) {
+          struct result *r = &results[i];
+          if (r->type != type_order[t] ||
+              strcmp(r->section, section_order[si]) != 0)
+            continue;
+          int dup = 0;
+          for (int j = 0; j < nseen; j++)
+            if (strcmp(seen[j], r->region) == 0) {
+              dup = 1;
+              break;
+            }
+          if (!dup && nseen < MAX_RESULTS)
+            seen[nseen++] = r->region;
         }
+        for (int j = 0; j < nseen; j++)
+          print_group(type_order[t], section_order[si], seen[j]);
+
+        mark_group_printed(type_order[t], section_order[si]);
       }
     }
 
@@ -1528,10 +1645,27 @@ static void render_text(const struct summary *s) {
       struct result *r = &results[i];
       if (r->type == KASLD_ADDR_DEFAULT)
         continue;
-      if (!group_already_printed(r->type, r->section)) {
-        print_group(r->type, r->section);
-        mark_group_printed(r->type, r->section);
+      if (group_already_printed(r->type, r->section))
+        continue;
+
+      const char *seen2[MAX_RESULTS];
+      int nseen2 = 0;
+      for (int j = 0; j < num_results; j++) {
+        struct result *r2 = &results[j];
+        if (r2->type != r->type || strcmp(r2->section, r->section) != 0)
+          continue;
+        int dup = 0;
+        for (int k = 0; k < nseen2; k++)
+          if (strcmp(seen2[k], r2->region) == 0) {
+            dup = 1;
+            break;
+          }
+        if (!dup && nseen2 < MAX_RESULTS)
+          seen2[nseen2++] = r2->region;
       }
+      for (int j = 0; j < nseen2; j++)
+        print_group(r->type, r->section, seen2[j]);
+      mark_group_printed(r->type, r->section);
     }
   } else {
     /* Compact: one summary line per group */
@@ -1774,8 +1908,8 @@ static void render_markdown(const struct summary *s) {
 
   if (verbose) {
     /* Verbose: individual result rows */
-    printf("| Type | Section | Address | Label | Method |\n");
-    printf("|:-----|:--------|:--------|:------|:-------|\n");
+    printf("| Type | Section | Address | Region | Name | Origin | Method |\n");
+    printf("|:-----|:--------|:--------|:-------|:-----|:-------|:-------|\n");
 
     for (int t = 0; type_order[t]; t++) {
       for (int si = 0; section_order[si]; si++) {
@@ -1799,9 +1933,9 @@ static void render_markdown(const struct summary *s) {
             }
         for (int k = 0; k < nidx; k++) {
           struct result *r = &results[idx[k]];
-          printf("| %c | %s | `0x%016lx` | %s | %s%s |\n", r->type, r->section,
-                 r->valid ? r->aligned : r->raw, r->label, r->method,
-                 r->valid ? "" : " (invalid)");
+          printf("| %c | %s | `0x%016lx` | %s | %s | %s | %s%s |\n", r->type,
+                 r->section, r->valid ? r->aligned : r->raw, r->region, r->name,
+                 r->origin, r->method, r->valid ? "" : " (invalid)");
         }
       }
     }
@@ -1819,9 +1953,9 @@ static void render_markdown(const struct summary *s) {
         }
       }
       if (!in_order) {
-        printf("| %c | %s | `0x%016lx` | %s | %s%s |\n", r->type, r->section,
-               r->valid ? r->aligned : r->raw, r->label, r->method,
-               r->valid ? "" : " (invalid)");
+        printf("| %c | %s | `0x%016lx` | %s | %s | %s%s |\n", r->type,
+               r->section, r->valid ? r->aligned : r->raw, r->region, r->origin,
+               r->method, r->valid ? "" : " (invalid)");
       }
     }
   } else {

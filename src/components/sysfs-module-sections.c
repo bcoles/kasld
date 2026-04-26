@@ -138,12 +138,12 @@ int main(void) {
 
   printf("lowest leaked module text address:  %lx\n", range.lo);
   kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_MODULE, range.lo,
-               "sysfs-module-sections:lo");
+               "sysfs-module-sections:lo", NULL);
 
   if (range.hi != range.lo) {
     printf("highest leaked module text address: %lx\n", range.hi);
     kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_MODULE, range.hi,
-                 "sysfs-module-sections:hi");
+                 "sysfs-module-sections:hi", NULL);
   }
 
   return 0;

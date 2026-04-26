@@ -204,20 +204,20 @@ int main(void) {
   printf("device tree: %d memory region(s)\n", count);
 
   printf("lowest DRAM start:  0x%016lx\n", lo);
-  kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, lo,
-               "sysfs_devicetree_memory:lo");
+  kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, lo, KASLD_REGION_RAM_BASE,
+               NULL);
 
   if (hi && hi != lo) {
     printf("highest DRAM end:   0x%016lx\n", hi);
-    kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, hi,
-                 "sysfs_devicetree_memory:hi");
+    kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, hi, KASLD_REGION_RAM_TOP,
+                 NULL);
   }
 
 #if !PHYS_VIRT_DECOUPLED
   unsigned long virt = phys_to_virt(lo);
   printf("possible direct-map virtual address: 0x%016lx\n", virt);
   kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
-               "sysfs_devicetree_memory:directmap");
+               KASLD_REGION_RAM_BASE, NULL);
 #else
   printf("note: phys and virt KASLR are decoupled on this arch; "
          "cannot derive directmap virtual address from physical leak\n");

@@ -127,13 +127,13 @@ int main(void) {
   if (e.lo) {
     printf("leaked e820 DRAM low:  0x%016lx\n", e.lo);
     kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, e.lo,
-                 "dmesg_e820_memory_map:lo");
+                 KASLD_REGION_RAM_BASE, NULL);
   }
 
   if (e.hi) {
     printf("leaked e820 DRAM high: 0x%016lx\n", e.hi);
     kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, e.hi,
-                 "dmesg_e820_memory_map:hi");
+                 KASLD_REGION_RAM_TOP, NULL);
   }
 
 #if !PHYS_VIRT_DECOUPLED
@@ -141,13 +141,13 @@ int main(void) {
     unsigned long virt = phys_to_virt(e.lo);
     printf("possible direct-map virtual address (low):  0x%016lx\n", virt);
     kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
-                 "dmesg_e820_memory_map:lo");
+                 KASLD_REGION_RAM_BASE, NULL);
   }
   if (e.hi) {
     unsigned long virt = phys_to_virt(e.hi);
     printf("possible direct-map virtual address (high): 0x%016lx\n", virt);
     kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
-                 "dmesg_e820_memory_map:hi");
+                 KASLD_REGION_RAM_TOP, NULL);
   }
 #else
   printf("note: phys and virt KASLR are decoupled on this arch; "

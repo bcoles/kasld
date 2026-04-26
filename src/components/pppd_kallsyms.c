@@ -97,7 +97,8 @@ int main(void) {
 
   printf("leaked kernel symbol: %lx\n", addr);
   printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);
-  kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr, "pppd_kallsyms");
+  kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr,
+               KASLD_REGION_KERNEL_TEXT, NULL);
 
   return 0;
 }

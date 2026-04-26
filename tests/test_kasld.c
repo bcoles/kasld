@@ -73,10 +73,10 @@ static void reset_state(void) {
 static void inject_tagged(const char *line) {
   char buf[LINE_LEN];
   snprintf(buf, sizeof(buf), "%s\n", line);
-  capture_result(buf, "parsed");
+  capture_result(buf, "parsed", NULL);
 }
 
-/* Inject a result directly */
+/* Inject a result directly. label may be "region" or "region:name". */
 static void inject_result(char type, const char *section, unsigned long addr,
                           const char *label) {
   assert(num_results < MAX_RESULTS);
@@ -87,8 +87,19 @@ static void inject_result(char type, const char *section, unsigned long addr,
   r->raw = addr;
   r->aligned = align_for_section(type, section, addr);
   r->valid = validate_for_section(type, section, r->aligned);
-  strncpy(r->label, label, LABEL_LEN - 1);
-  r->label[LABEL_LEN - 1] = '\0';
+  const char *colon = strchr(label, ':');
+  if (colon) {
+    size_t rlen = (size_t)(colon - label);
+    if (rlen >= REGION_LEN)
+      rlen = REGION_LEN - 1;
+    memcpy(r->region, label, rlen);
+    r->region[rlen] = '\0';
+    strncpy(r->name, colon + 1, NAME_LEN - 1);
+    r->name[NAME_LEN - 1] = '\0';
+  } else {
+    strncpy(r->region, label, REGION_LEN - 1);
+    r->region[REGION_LEN - 1] = '\0';
+  }
   num_results++;
 }
 
@@ -197,7 +208,8 @@ static void test_parse_basic(void) {
   assert(num_results == 1);
   assert(results[0].type == KASLD_ADDR_VIRT);
   assert(strcmp(results[0].section, "text") == 0);
-  assert(strcmp(results[0].label, "proc-kallsyms") == 0);
+  assert(strcmp(results[0].region, "proc-kallsyms") == 0);
+  assert(results[0].name[0] == '\0');
   assert(results[0].raw == 0xffffffff81000000ul);
 }
 
@@ -220,7 +232,7 @@ static void test_parse_incremental(void) {
 
   inject_tagged("V text 0xffffffff82000000 second");
   assert(num_results == 2);
-  assert(strcmp(results[1].label, "second") == 0);
+  assert(strcmp(results[1].region, "second") == 0);
 }
 
 static void test_parse_ignores_non_tagged(void) {
@@ -228,7 +240,7 @@ static void test_parse_ignores_non_tagged(void) {
   /* Non-tagged lines are rejected by capture_result */
   char buf[LINE_LEN];
   snprintf(buf, sizeof(buf), "some random output\n");
-  capture_result(buf, "parsed");
+  capture_result(buf, "parsed", NULL);
   assert(num_results == 0);
 }
 
@@ -237,15 +249,16 @@ static void test_parse_label_with_colon(void) {
   inject_tagged("V module 0xffffffffc0001000 sysfs-module-sections:lo");
 
   assert(num_results == 1);
-  assert(strcmp(results[0].label, "sysfs-module-sections:lo") == 0);
+  assert(strcmp(results[0].region, "sysfs-module-sections") == 0);
+  assert(strcmp(results[0].name, "lo") == 0);
 }
 
 static void test_parse_strips_newline(void) {
   reset_state();
   inject_tagged("V text 0xffffffff81000000 test_label");
 
-  size_t len = strlen(results[0].label);
-  assert(results[0].label[len - 1] != '\n');
+  size_t len = strlen(results[0].region);
+  assert(results[0].region[len - 1] != '\n');
 }
 
 /* =========================================================================
@@ -301,7 +314,7 @@ static void test_consensus_ignores_invalid(void) {
   r->raw = 0x1000; /* way below KERNEL_BASE_MIN */
   r->aligned = 0x1000;
   r->valid = 0;
-  strncpy(r->label, "bad", LABEL_LEN - 1);
+  strncpy(r->region, "bad", REGION_LEN - 1);
 
   unsigned long c = group_consensus(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT);
   assert(c == 0);
@@ -549,7 +562,7 @@ static void test_parse_rejects_lowercase_type(void) {
   reset_state();
   char buf[LINE_LEN];
   snprintf(buf, sizeof(buf), "v text 0xffffffff81000000 lowercase\n");
-  capture_result(buf, "parsed");
+  capture_result(buf, "parsed", NULL);
   assert(num_results == 0);
 }
 
@@ -557,7 +570,7 @@ static void test_parse_rejects_missing_space(void) {
   reset_state();
   char buf[LINE_LEN];
   snprintf(buf, sizeof(buf), "Vtext 0xffffffff81000000 nospace\n");
-  capture_result(buf, "parsed");
+  capture_result(buf, "parsed", NULL);
   assert(num_results == 0);
 }
 
@@ -566,7 +579,7 @@ static void test_parse_rejects_empty_label(void) {
   char buf[LINE_LEN];
   /* Only type, section, addr — no label after the hex */
   snprintf(buf, sizeof(buf), "V text 0xffffffff81000000\n");
-  capture_result(buf, "parsed");
+  capture_result(buf, "parsed", NULL);
   /* label_start points to '\n' or '\0'; should be rejected or have empty label
    */
   /* The function checks *label_start == '\0' but '\n' passes that check */
@@ -638,7 +651,7 @@ static void test_consensus_weight_beats_count(void) {
   r->raw = addr_exact;
   r->aligned = addr_exact;
   r->valid = 1;
-  strncpy(r->label, "e", LABEL_LEN - 1);
+  strncpy(r->region, "e", REGION_LEN - 1);
   strncpy(r->method, "exact", METHOD_LEN - 1);
 
   inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr_heur, "h1");
@@ -673,7 +686,7 @@ static void test_consensus_weight_tie_to_count(void) {
   r->raw = addr_b;
   r->aligned = addr_b;
   r->valid = 1;
-  strncpy(r->label, "e", LABEL_LEN - 1);
+  strncpy(r->region, "e", REGION_LEN - 1);
   strncpy(r->method, "exact", METHOD_LEN - 1);
 
   /* Score tie (4 vs 4): break to count (2 vs 1) */
@@ -697,7 +710,7 @@ static void test_range_ignores_invalid(void) {
   r->raw = 0x1000; /* way out of range */
   r->aligned = 0x1000;
   r->valid = 0;
-  strncpy(r->label, "bad", LABEL_LEN - 1);
+  strncpy(r->region, "bad", REGION_LEN - 1);
 
   unsigned long lo, hi;
   group_range(KASLD_ADDR_VIRT, KASLD_SECTION_MODULE, &lo, &hi);
@@ -807,7 +820,8 @@ static void test_inject_defaults_nokaslr(void) {
   for (int i = 0; i < num_results; i++) {
     if (results[i].type == KASLD_ADDR_VIRT &&
         strcmp(results[i].section, KASLD_SECTION_TEXT) == 0 &&
-        strcmp(results[i].label, "default:nokaslr") == 0) {
+        strcmp(results[i].region, KASLD_REGION_KERNEL_TEXT) == 0 &&
+        strcmp(results[i].name, "nokaslr") == 0) {
       assert(results[i].raw == KERNEL_TEXT_DEFAULT);
       found = 1;
     }
@@ -1069,8 +1083,8 @@ static void test_json_groups_with_results(void) {
   /* Group should have type V and section text */
   assert(strstr(out, "\"type\": \"V\""));
   assert(strstr(out, "\"section\": \"text\""));
-  /* Label should appear in results */
-  assert(strstr(out, "\"label\": \"test-component\""));
+  /* Region should appear in results */
+  assert(strstr(out, "\"region\": \"test-component\""));
   /* Consensus should be populated */
   assert(strstr(out, "\"consensus\": \"0x"));
 

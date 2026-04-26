@@ -93,15 +93,18 @@ int main(void) {
     return 0;
   }
 
+  /* "Faking a node at [mem ...]" prints the start of the synthetic node's
+   * memory range — equivalent to the bottom of usable RAM on single-node
+   * systems. */
   printf("leaked faked NUMA NODE #0 physical address: 0x%016lx\n", addr);
-  kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, addr,
-               "dmesg_fake_numa_init:dram");
+  kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, addr, KASLD_REGION_RAM_BASE,
+               NULL);
 
 #if !PHYS_VIRT_DECOUPLED
   unsigned long virt = phys_to_virt(addr);
   printf("possible direct-map virtual address: 0x%016lx\n", virt);
   kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
-               "dmesg_fake_numa_init:directmap");
+               KASLD_REGION_RAM_BASE, NULL);
 #else
   printf("note: phys and virt KASLR are decoupled on this arch; "
          "cannot derive kernel text virtual address from physical leak\n");

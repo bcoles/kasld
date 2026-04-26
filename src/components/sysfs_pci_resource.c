@@ -133,12 +133,12 @@ int main(void) {
 
   printf("lowest PCI MMIO start:  0x%016lx\n", lo_mmio);
   kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_MMIO, lo_mmio,
-               "sysfs_pci_resource:lo");
+               KASLD_REGION_PCI_MMIO, NULL);
 
   if (hi_mmio && hi_mmio != lo_mmio) {
     printf("highest PCI MMIO end:   0x%016lx\n", hi_mmio);
     kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_MMIO, hi_mmio,
-                 "sysfs_pci_resource:hi");
+                 KASLD_REGION_PCI_MMIO, NULL);
   }
 
   return 0;

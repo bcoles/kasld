@@ -145,20 +145,20 @@ int main(void) {
   }
 
   printf("initrd physical start: 0x%016lx\n", start);
-  kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, start,
-               "sysfs_devicetree_initrd:start");
+  kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, start, KASLD_REGION_INITRD,
+               NULL);
 
   if (end && end != start) {
     printf("initrd physical end:   0x%016lx\n", end);
-    kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, end,
-                 "sysfs_devicetree_initrd:end");
+    kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, end, KASLD_REGION_INITRD,
+                 NULL);
   }
 
 #if !PHYS_VIRT_DECOUPLED
   unsigned long virt = phys_to_virt(start);
   printf("possible direct-map virtual address: 0x%016lx\n", virt);
   kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
-               "sysfs_devicetree_initrd:directmap");
+               KASLD_REGION_INITRD, NULL);
 #else
   printf("note: phys and virt KASLR are decoupled on this arch; "
          "cannot derive directmap virtual address from physical leak\n");

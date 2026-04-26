@@ -71,7 +71,7 @@ int main(void) {
 
   printf("kernel virtual address start: %lx\n", addr);
   kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_PAGEOFFSET, addr,
-               "mmap-brute-vmsplit");
+               KASLD_REGION_PAGE_OFFSET, NULL);
 
   if (addr < (unsigned long)KERNEL_VAS_START)
     printf("[!] warning: virtual address start %lx below configured "

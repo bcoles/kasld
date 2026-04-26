@@ -107,7 +107,7 @@ int main(void) {
   }
 
   kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, phys_addr,
-               "dmesg_reserved_mem_opensbi:dram");
+               KASLD_REGION_RESERVED_MEM, NULL);
 
   /* On older firmware, mmode_resv0 started at DRAM_BASE and the kernel
    * loaded at DRAM_BASE + TEXT_OFFSET. On newer firmware, the reservation
@@ -125,13 +125,13 @@ int main(void) {
 
   printf("possible kernel physical address: 0x%016lx\n", kernel_phys);
   kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_TEXT, kernel_phys,
-               "dmesg_reserved_mem_opensbi:text");
+               KASLD_REGION_KERNEL_IMAGE, NULL);
 
 #if !PHYS_VIRT_DECOUPLED
   unsigned long virt = phys_to_virt(kernel_phys);
   printf("possible kernel virtual address: 0x%016lx\n", virt);
   kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
-               "dmesg_reserved_mem_opensbi:directmap");
+               KASLD_REGION_KERNEL_IMAGE, NULL);
 #else
   printf("note: phys and virt KASLR are decoupled on this arch; "
          "cannot derive kernel text virtual address from physical leak\n");

@@ -127,11 +127,13 @@ int main(void) {
 
     unsigned long idx = strtoul(buf, NULL, 16);
     unsigned long addr = idx * block_size;
+    if (!addr)
+      continue;
 
     if (addr < lo)
       lo = addr;
 
-    unsigned long end = addr + block_size;
+    unsigned long end = addr + block_size - 1;
     if (end > hi)
       hi = end;
 
@@ -147,20 +149,20 @@ int main(void) {
   printf("memory blocks: %d online\n", count);
 
   printf("lowest memory block start:  0x%016lx\n", lo);
-  kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, lo,
-               "sysfs_memory_blocks:lo");
+  kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, lo, KASLD_REGION_RAM_BASE,
+               NULL);
 
   if (hi) {
     printf("highest memory block end:   0x%016lx\n", hi);
-    kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, hi,
-                 "sysfs_memory_blocks:hi");
+    kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, hi, KASLD_REGION_RAM_TOP,
+                 NULL);
   }
 
 #if !PHYS_VIRT_DECOUPLED
   unsigned long virt = phys_to_virt(lo);
   printf("possible direct-map virtual address: 0x%016lx\n", virt);
   kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
-               "sysfs_memory_blocks:directmap");
+               KASLD_REGION_RAM_BASE, NULL);
 #else
   printf("note: phys and virt KASLR are decoupled on this arch; "
          "cannot derive directmap virtual address from physical leak\n");

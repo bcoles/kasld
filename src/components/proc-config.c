@@ -131,15 +131,16 @@ int main(void) {
   if (page_offset) {
     printf("[.] CONFIG_PAGE_OFFSET: %#lx\n", page_offset);
     kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_PAGEOFFSET, page_offset,
-                 "proc-config:page_offset");
+                 KASLD_REGION_PAGE_OFFSET, NULL);
   }
 
-  /* Detect KASLR disabled */
+  /* Detect KASLR disabled — emit a DEFAULT-type marker. The "nokaslr"
+   * name in the result is what detect_kaslr_state() looks for. */
   unsigned long addr = get_kernel_addr_proc_config(fp);
   if (addr) {
     printf("common default kernel text for arch: %lx\n", addr);
     kasld_result(KASLD_ADDR_DEFAULT, KASLD_SECTION_NONE, addr,
-                 "proc-config:nokaslr");
+                 KASLD_REGION_KERNEL_TEXT, "nokaslr");
   }
 
   fclose(fp);

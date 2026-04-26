@@ -5,9 +5,10 @@
 // the physical DRAM ranges reported by the firmware (E820 on x86, EFI
 // memory map on UEFI systems).
 //
-// All attributes are world-readable (0444). The lowest "System RAM"
-// start address and highest end address are emitted as physical DRAM
-// range hints.
+// All attributes are world-readable (0444). The lowest non-zero "System RAM"
+// start address and highest end address are emitted as physical DRAM range
+// hints. Entries with start = 0 are skipped: physical address 0 is trivially
+// known and carries no KASLR information regardless of architecture.
 //
 // Layout:
 //   /sys/firmware/memmap/0/start  -> "0x0"
@@ -53,8 +54,9 @@ KASLD_EXPLAIN(
     "Reads the firmware-provided physical memory map from "
     "/sys/firmware/memmap/*/start and /sys/firmware/memmap/*/end. These "
     "world-readable files expose E820 or EFI memory map entries showing "
-    "physical DRAM and reserved region addresses. x86 only; requires "
-    "CONFIG_FIRMWARE_MEMMAP.");
+    "physical DRAM and reserved region addresses. Entries starting at "
+    "address 0 are skipped (trivially known; no KASLR information). "
+    "x86 only; requires CONFIG_FIRMWARE_MEMMAP.");
 
 KASLD_META("method:parsed\n"
            "addr:physical\n"
@@ -112,6 +114,8 @@ int main(void) {
 
     char *endptr;
     unsigned long start = strtoul(buf, &endptr, 16);
+    if (!start)
+      continue;
 
     /* read end */
     snprintf(path, sizeof(path), "%s/%s/end", base, ent->d_name);
@@ -138,20 +142,20 @@ int main(void) {
   printf("firmware memmap: %d System RAM entries\n", count);
 
   printf("lowest System RAM start:  0x%016lx\n", lo);
-  kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, lo,
-               "sysfs_firmware_memmap:lo");
+  kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, lo, KASLD_REGION_RAM_BASE,
+               NULL);
 
   if (hi && hi != lo) {
     printf("highest System RAM end:   0x%016lx\n", hi);
-    kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, hi,
-                 "sysfs_firmware_memmap:hi");
+    kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, hi, KASLD_REGION_RAM_TOP,
+                 NULL);
   }
 
 #if !PHYS_VIRT_DECOUPLED
   unsigned long virt = phys_to_virt(lo);
   printf("possible direct-map virtual address: 0x%016lx\n", virt);
   kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
-               "sysfs_firmware_memmap:directmap");
+               KASLD_REGION_RAM_BASE, NULL);
 #else
   printf("note: phys and virt KASLR are decoupled on this arch; "
          "cannot derive directmap virtual address from physical leak\n");

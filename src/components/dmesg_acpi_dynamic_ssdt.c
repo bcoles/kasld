@@ -160,8 +160,10 @@ int main(void) {
     printf(" (%s)", s.label);
   printf("\n");
 
+  /* Pass the OEM table id (e.g. "Cpu0Ist", "ApIst") as the specific
+   * instance name so the table reads "acpi_table:Cpu0Ist". */
   kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, s.addr,
-               "dmesg_acpi_dynamic_ssdt:directmap");
+               KASLD_REGION_ACPI_TABLE, s.label);
 
   return 0;
 }

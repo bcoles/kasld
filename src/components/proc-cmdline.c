@@ -34,10 +34,14 @@ int main(void) {
 
   printf("[.] Kernel booted with nokaslr flag.\n");
 
+  /* The "nokaslr" name in the result is the marker
+   * detect_kaslr_state() looks for; the address itself is the
+   * compile-time default kernel text base, which is the actual base
+   * when KASLR is off. */
   unsigned long addr = (unsigned long)KERNEL_TEXT_DEFAULT;
   printf("common default kernel text for arch: %lx\n", addr);
   kasld_result(KASLD_ADDR_DEFAULT, KASLD_SECTION_NONE, addr,
-               "proc-cmdline:nokaslr");
+               KASLD_REGION_KERNEL_TEXT, "nokaslr");
 
   return 0;
 }

@@ -110,7 +110,7 @@ static int detect_riscv_mmu(void) {
   }
 
   kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_PAGEOFFSET, page_offset,
-               "proc-cpuinfo:mmu");
+               KASLD_REGION_PAGE_OFFSET, NULL);
   return 1;
 }
 #endif /* riscv64 */
@@ -167,7 +167,7 @@ static int detect_x86_address_sizes(void) {
          virt_bits, page_offset);
 
   kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_PAGEOFFSET, page_offset,
-               "proc-cpuinfo:va-bits");
+               KASLD_REGION_PAGE_OFFSET, NULL);
   return 1;
 }
 #endif /* x86_64 */

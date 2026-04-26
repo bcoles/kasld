@@ -46,7 +46,9 @@ Supports:
   * [Writing a component](#writing-a-component)
     * [Tagged line protocol](#tagged-line-protocol)
     * [Sections](#sections)
-    * [Labels](#labels)
+    * [Regions](#regions)
+    * [Names](#names)
+    * [Detection components](#detection-components)
     * [Exit code convention](#exit-code-convention)
     * [Minimal component](#minimal-component)
     * [Component metadata](#component-metadata)
@@ -543,21 +545,29 @@ Components communicate results to the orchestrator via tagged lines on
 stdout:
 
 ```
-<type> <section> <addr> <label>
+<type> <section> <addr> <region>           # common case
+<type> <section> <addr> <region>:<name>    # specific instance known
 ```
 
 | Field | Format | Description |
 |---|---|---|
 | `type` | Single char: `V`, `P`, or `D` | `V` = virtual address, `P` = physical address, `D` = default (KASLR-disabled indicator) |
-| `section` | String token (no spaces) | Which kernel memory section the address belongs to (see table below) |
+| `section` | String token (no spaces) | Which address space the leak lives in (see table below) |
 | `addr` | `0x` + 16 hex digits | The leaked address, zero-padded (e.g., `0xffffffff81000000`) |
-| `label` | Free-form text | Human-readable identifier, typically the component name |
+| `region` | `KASLD_REGION_*` constant | What kind of kernel memory is at the address (the table column) |
+| `name` | Optional, after `:` | The specific instance, when known (kernel symbol, ACPI OEM ID, module name, PCI BDF). The parser splits region/name on the first `:` only — names may themselves contain colons (e.g. PCI BDF `0000:00:14.0`) |
 
 Example output from a component:
 
 ```
 [.] trying /proc/kallsyms ...
-V text 0xffffffff81000000 proc-kallsyms
+V text 0xffffffff81000000 kernel_text
+```
+
+Or, when the leaked address is a specific named symbol:
+
+```
+V text 0xffffffff8ac00080 kernel_text:entry_SYSCALL_64
 ```
 
 The orchestrator ignores any line that does not begin with `V`, `P`, or
@@ -581,15 +591,49 @@ processes each independently.
 | `KASLD_SECTION_PAGEOFFSET` | `pageoffset` | The PAGE_OFFSET value itself (use with type `V`) |
 | `KASLD_SECTION_NONE` | `-` | No specific section / default indicator |
 
-#### Labels
+#### Regions
 
-The label field identifies the source of the result. Convention:
+Region constants describe what kind of kernel memory is at the address.
+The vocabulary is grounded in standard Linux memory concepts.
+Subsystem-specific reservations (CBMEM, RMTFS, ION, ...) collapse to a
+standard concept (`RESERVED_MEM`, `PMEM`, ...); the discovery method is
+captured by the orchestrator-filled `origin`.
 
-- **Simple label:** the component name (`proc-kallsyms`, `sysfs_vmcoreinfo`)
-- **Qualified label:** `component:qualifier` when a component emits multiple
-  results from different derivations (`sysfs_vmcoreinfo:directmap`)
-- **Special labels:** `default:text` (default kernel text address),
-  `default:unsupported` (KASLR not supported on this architecture)
+Adding a new component should normally require zero new region constants.
+The complete vocabulary is defined in
+[`src/include/kasld.h`](src/include/kasld.h):
+
+| Group | Constants |
+|---|---|
+| Physical RAM boundaries | `RAM_BASE`, `RAM_TOP`, `DMA_TOP`, `DMA32_TOP` |
+| Physical memory regions | `KERNEL_IMAGE`, `INITRD`, `RESERVED_MEM`, `SWIOTLB`, `VMCOREINFO`, `CRASHKERNEL`, `PMEM`, `ACPI_TABLE`, `ACPI_NVS`, `EFI_MEMMAP`, `NUMA_NODE`, `MMIO`, `PCI_MMIO` |
+| Kernel virtual regions | `KERNEL_TEXT`, `KERNEL_DATA`, `MODULE`, `MODULE_REGION` |
+| Address-space landmarks (fallback when contents unknown) | `DIRECTMAP`, `PAGE_OFFSET`, `VMALLOC`, `VMEMMAP` |
+
+#### Names
+
+Pass a `name` to `kasld_result()` when you know exactly what kernel
+object is at the address — a specific symbol (`hypercall_page`), an
+ACPI OEM table ID (`Cpu0Ist`), a module instance (`nf_conntrack`),
+a device address (`0000:00:14.0`). The compact validation table will
+show `region:name`; JSON output gets a separate `name` key.
+
+When the leak only tells you "somewhere in this kind of memory" but
+not the specific instance, pass `NULL` for `name`.
+
+#### Detection components
+
+A handful of components emit `D`-type results not as leaks but as
+markers: `default.c` (compile-time fallback), `proc-cmdline.c` and
+`dmesg_kaslr-disabled.c` (`nokaslr` boot detection), etc. These use
+`kasld_result()` with one of three reserved name values:
+
+- `text` — informational fallback (KASLR may still be active)
+- `nokaslr` — KASLR is disabled
+- `unsupported` — KASLR is not supported on this kernel/arch
+
+The orchestrator's `detect_kaslr_state()` looks for these names to
+decide whether to inject a KASLR-disabled warning into the report.
 
 #### Exit code convention
 
@@ -640,7 +684,8 @@ int main(void) {
   }
 
   printf("leaked kernel text address: 0x%lx\n", addr);
-  kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr, "my-leak");
+  kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr,
+               KASLD_REGION_KERNEL_TEXT, NULL);
   return 0;
 }
 ```
@@ -655,19 +700,21 @@ The component can also be run directly:
 ```
 $ ./build/x86_64-linux-musl/components/my-leak
 leaked kernel text address: 0xffffffff81000000
-V text 0xffffffff81000000 my-leak
+V text 0xffffffff81000000 kernel_text
 ```
 
 Components that leak a physical address should also emit a derived
-direct-map virtual address on coupled architectures:
+direct-map virtual address on coupled architectures (the same region
+applies to both — the address space differs):
 
 ```c
-kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, phys, "my-leak");
+kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, phys,
+             KASLD_REGION_RAM_BASE, NULL);
 
 #if !PHYS_VIRT_DECOUPLED
 unsigned long virt = phys_to_virt(phys);
 kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
-             "my-leak:directmap");
+             KASLD_REGION_RAM_BASE, NULL);
 #endif
 ```
 
@@ -742,11 +789,12 @@ and [`src/include/kasld_internal.h`](src/include/kasld_internal.h)
 
 | Symbol | Purpose |
 |---|---|
-| `kasld_result(type, section, addr, label)` | Emit a tagged result line |
+| `kasld_result(type, section, addr, region, name)` | Emit a tagged result line; pass `NULL` for `name` when no specific instance is known |
 | `KASLD_EXPLAIN(text)` | Embed a technique explanation (`.kasld_explain` ELF section) |
 | `KASLD_META(text)` | Embed machine-readable metadata (`.kasld_meta` ELF section) |
 | `KASLD_ADDR_VIRT`, `KASLD_ADDR_PHYS`, `KASLD_ADDR_DEFAULT` | Type characters |
-| `KASLD_SECTION_TEXT`, `KASLD_SECTION_DRAM`, ... | Section strings |
+| `KASLD_SECTION_TEXT`, `KASLD_SECTION_DRAM`, ... | Section strings — which address space |
+| `KASLD_REGION_KERNEL_TEXT`, `KASLD_REGION_RAM_TOP`, `KASLD_REGION_SWIOTLB`, ... | Region strings — what kind of kernel memory is at the address |
 | `KASLD_EXIT_UNAVAILABLE` | Exit code 69: feature/hardware not present |
 | `KASLD_EXIT_NOPERM` | Exit code 77: access denied |
 | `KERNEL_TEXT_DEFAULT` | Default (non-randomized) kernel text base |

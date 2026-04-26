@@ -23,7 +23,9 @@
  */
 #define MAX_COMPONENTS 128
 #define MAX_RESULTS 512
-#define LABEL_LEN 64
+#define REGION_LEN 32 /* KASLD_REGION_* constants — short, table-friendly */
+#define NAME_LEN 48   /* specific instance: kernel symbol, ACPI ID, BDF, ... */
+#define ORIGIN_LEN 64 /* component name (orchestrator-filled) */
 #define SECTION_LEN 32
 #define METHOD_LEN 16
 #define MAX_DERIVED 16
@@ -70,13 +72,27 @@ struct kasld_layout {
   unsigned long kaslr_align;
 };
 
-/* Single tagged result from a component */
+/* Single tagged result from a component.
+ *
+ * Four orthogonal answers about a leak:
+ *   region  — what kind of thing is at the address (kernel memory
+ *             concept; see KASLD_REGION_* in kasld.h). Compact column.
+ *   name    — the specific instance, when known. May be empty.
+ *             Examples: "hypercall_page" (kernel symbol), "Cpu0Ist"
+ *             (ACPI table OEM ID), "nf_conntrack" (module).
+ *   section — which address space (text, dram, mmio, directmap, ...).
+ *   origin  — which component reported it. Filled by the orchestrator
+ *             from the subprocess identity, not from the wire. Shown
+ *             in --verbose / JSON for provenance.
+ */
 struct result {
   char type;
   char section[SECTION_LEN];
   unsigned long raw;
   unsigned long aligned;
-  char label[LABEL_LEN];
+  char region[REGION_LEN];
+  char name[NAME_LEN];
+  char origin[ORIGIN_LEN];
   char method[METHOD_LEN];
   int valid;
 };

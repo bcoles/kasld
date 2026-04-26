@@ -203,26 +203,34 @@ int main(void) {
   if (ctx.text) {
     printf("lowest leaked text address: %lx\n", ctx.text);
     printf("possible kernel base: %lx\n", ctx.text & -KERNEL_ALIGN);
+    /* Call-trace addresses point at specific kernel text symbols
+     * (function bodies, exception handlers). The component doesn't
+     * resolve the symbol name, so name is left empty. */
     kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, ctx.text,
-                 "dmesg_backtrace:text");
+                 KASLD_REGION_KERNEL_TEXT, NULL);
   }
 
   if (ctx.phys) {
     printf("leaked physical address (CR3): %lx\n", ctx.phys);
+    /* CR3 is the page table base — physically the kernel image's
+     * top-level pgd resides at this address (modulo PCID bits). */
     kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, ctx.phys,
-                 "dmesg_backtrace:cr3");
+                 KASLD_REGION_KERNEL_IMAGE, "cr3");
 #if !PHYS_VIRT_DECOUPLED
     unsigned long virt = phys_to_virt(ctx.phys);
     printf("possible direct-map virtual address: %lx\n", virt);
     kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
-                 "dmesg_backtrace:cr3:directmap");
+                 KASLD_REGION_KERNEL_IMAGE, "cr3");
 #endif
   }
 
   if (ctx.directmap) {
     printf("leaked directmap virtual address: %lx\n", ctx.directmap);
+    /* Generic directmap point recovered from a register dump — we know
+     * it's *somewhere* in directmap but not what kernel object it points
+     * to. Fall back to the address-space landmark. */
     kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, ctx.directmap,
-                 "dmesg_backtrace:directmap");
+                 KASLD_REGION_DIRECTMAP, NULL);
   }
 
   return 0;

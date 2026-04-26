@@ -123,17 +123,21 @@ int main(void) {
     if (addr == ~0ULL || !addr)
       continue;
 
-    snprintf(label, sizeof(label), "sysfs_cxl_region:%.16s", ent->d_name);
+    /* CXL regions are persistent / volatile memory exposed by CXL devices.
+     * The region directory name (e.g. "region0") identifies which one. */
+    snprintf(label, sizeof(label), "%.32s", ent->d_name);
 
-    fprintf(stderr, "[+] %s: phys = 0x%016llx\n", label, addr);
+    fprintf(stderr, "[+] sysfs_cxl_region %s: phys = 0x%016llx\n", label, addr);
     kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, (unsigned long)addr,
-                 label);
+                 KASLD_REGION_PMEM, label);
     count++;
 
 #if !PHYS_VIRT_DECOUPLED
     unsigned long virt = phys_to_virt((unsigned long)addr);
-    fprintf(stderr, "[+] %s: directmap va = 0x%016lx\n", label, virt);
-    kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt, label);
+    fprintf(stderr, "[+] sysfs_cxl_region %s: directmap va = 0x%016lx\n", label,
+            virt);
+    kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
+                 KASLD_REGION_PMEM, label);
 #endif
   }
   closedir(d);

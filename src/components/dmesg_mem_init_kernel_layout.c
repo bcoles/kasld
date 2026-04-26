@@ -117,25 +117,25 @@ struct layout_entry {
   char type;
   const char *section;
   const char *display;
-  const char *label;
+  const char *region;
   unsigned long gate_min;
   unsigned long gate_max;
 };
 
 static const struct layout_entry entries[] = {
     {".text : 0x", KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, "kernel .text start",
-     "dmesg_mem_init_kernel_layout:text", KERNEL_BASE_MIN, KERNEL_BASE_MAX},
+     KASLD_REGION_KERNEL_TEXT, KERNEL_BASE_MIN, KERNEL_BASE_MAX},
     {".data : 0x", KASLD_ADDR_VIRT, KASLD_SECTION_DATA, "kernel .data start",
-     "dmesg_mem_init_kernel_layout:data", KERNEL_VAS_START, KERNEL_VAS_END},
+     KASLD_REGION_KERNEL_DATA, KERNEL_VAS_START, KERNEL_VAS_END},
     {"lowmem  : 0x", KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP,
-     "kernel lowmem start", "dmesg_mem_init_kernel_layout:lowmem",
-     KERNEL_VAS_START, KERNEL_VAS_END},
+     "kernel lowmem start", KASLD_REGION_DIRECTMAP, KERNEL_VAS_START,
+     KERNEL_VAS_END},
     {"modules : 0x", KASLD_ADDR_VIRT, KASLD_SECTION_MODULE,
-     "kernel modules start", "dmesg_mem_init_kernel_layout:modules",
-     MODULES_START, MODULES_END},
+     "kernel modules start", KASLD_REGION_MODULE_REGION, MODULES_START,
+     MODULES_END},
     {"memory  : 0x", KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP,
-     "kernel memory start", "dmesg_mem_init_kernel_layout:memory",
-     KERNEL_VAS_START, KERNEL_VAS_END},
+     "kernel memory start", KASLD_REGION_DIRECTMAP, KERNEL_VAS_START,
+     KERNEL_VAS_END},
     {NULL, 0, NULL, NULL, NULL, 0, 0},
 };
 
@@ -168,7 +168,7 @@ static void emit_result(int idx, unsigned long addr) {
            entries[idx].display, addr, (unsigned long)KERNEL_VAS_START);
 
   kasld_result(entries[idx].type, entries[idx].section, addr,
-               entries[idx].label);
+               entries[idx].region, NULL);
 }
 
 struct search_ctx {

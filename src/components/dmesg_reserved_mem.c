@@ -114,17 +114,17 @@ int main(void) {
   printf("highest reserved mem physical address: 0x%016lx\n", r.hi);
 
   kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, r.lo,
-               "dmesg_reserved_mem:lo");
+               KASLD_REGION_RESERVED_MEM, NULL);
 
   if (r.hi && r.hi != r.lo)
     kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, r.hi,
-                 "dmesg_reserved_mem:hi");
+                 KASLD_REGION_RESERVED_MEM, NULL);
 
 #if !PHYS_VIRT_DECOUPLED
   unsigned long virt = phys_to_virt(r.lo);
   printf("possible direct-map virtual address: 0x%016lx\n", virt);
   kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
-               "dmesg_reserved_mem:directmap");
+               KASLD_REGION_RESERVED_MEM, NULL);
 #else
   printf("note: phys and virt KASLR are decoupled on this arch; "
          "cannot derive kernel text virtual address from physical leak\n");

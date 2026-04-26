@@ -158,12 +158,16 @@ int main(void) {
     printf("lowest EFI RAM address:  0x%016lx\n", e.dram.lo);
     printf("highest EFI RAM address: 0x%016lx\n", e.dram.hi);
 
+    /* DRAM-typed EFI memmap entries describe usable system RAM ranges,
+     * so the boundary addresses map to RAM_BASE / RAM_TOP. The
+     * efi_memmap data structure itself is a separate concept (handled by
+     * sysfs_efi_memmap if/when added). */
     kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, e.dram.lo,
-                 "dmesg_efi_memmap:lo");
+                 KASLD_REGION_RAM_BASE, NULL);
 
     if (e.dram.hi && e.dram.hi != e.dram.lo)
       kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, e.dram.hi,
-                   "dmesg_efi_memmap:hi");
+                   KASLD_REGION_RAM_TOP, NULL);
   }
 
   if (e.mmio.lo) {
@@ -171,11 +175,11 @@ int main(void) {
     printf("highest EFI MMIO address: 0x%016lx\n", e.mmio.hi);
 
     kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_MMIO, e.mmio.lo,
-                 "dmesg_efi_memmap:mmio_lo");
+                 KASLD_REGION_MMIO, NULL);
 
     if (e.mmio.hi && e.mmio.hi != e.mmio.lo)
       kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_MMIO, e.mmio.hi,
-                   "dmesg_efi_memmap:mmio_hi");
+                   KASLD_REGION_MMIO, NULL);
   }
 
 #if !PHYS_VIRT_DECOUPLED
@@ -183,7 +187,7 @@ int main(void) {
     unsigned long virt = phys_to_virt(e.dram.lo);
     printf("possible direct-map virtual address: 0x%016lx\n", virt);
     kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
-                 "dmesg_efi_memmap:directmap");
+                 KASLD_REGION_RAM_BASE, NULL);
   }
 #else
   printf("note: phys and virt KASLR are decoupled on this arch; "

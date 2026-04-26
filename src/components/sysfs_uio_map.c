@@ -151,19 +151,27 @@ int main(void) {
         name[sizeof(name) - 1] = '\0';
       }
 
-      snprintf(label, sizeof(label), "sysfs_uio_map:%.32s/%.32s [%.64s]",
-               ent_uio->d_name, ent_map->d_name, name);
+      /* Encode the device + map identity in the result name so the
+       * compact column reads "mmio:uio0/map0" or similar — distinguishes
+       * multiple UIO mappings on the same machine. The optional human
+       * region name (if present in maps/<n>/name) goes in the stderr log
+       * for context. */
+      snprintf(label, sizeof(label), "%.32s/%.32s", ent_uio->d_name,
+               ent_map->d_name);
 
-      fprintf(stderr, "[+] %s: phys = 0x%016llx\n", label, addr);
+      fprintf(stderr, "[+] sysfs_uio_map %s [%.64s]: phys = 0x%016llx\n", label,
+              name, addr);
       kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_MMIO, (unsigned long)addr,
-                   label);
+                   KASLD_REGION_MMIO, label);
 
       map_count++;
 
 #if !PHYS_VIRT_DECOUPLED
       unsigned long virt = phys_to_virt((unsigned long)addr);
-      fprintf(stderr, "[+] %s: directmap va = 0x%016lx\n", label, virt);
-      kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt, label);
+      fprintf(stderr, "[+] sysfs_uio_map %s: directmap va = 0x%016lx\n", label,
+              virt);
+      kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
+                   KASLD_REGION_MMIO, label);
 #endif
     }
     closedir(d_maps);

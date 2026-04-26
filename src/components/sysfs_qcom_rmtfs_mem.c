@@ -126,17 +126,23 @@ int main(void) {
     if (!addr)
       continue;
 
-    snprintf(label, sizeof(label), "sysfs_qcom_rmtfs_mem:%.20s", ent->d_name);
+    /* RMTFS reservation is firmware-allocated for AP↔modem shared memory.
+     * From the kernel's perspective it's just a reserved memory region;
+     * the device-tree node name (e.g. "rmtfs@9c800000") identifies which. */
+    snprintf(label, sizeof(label), "%.32s", ent->d_name);
 
-    fprintf(stderr, "[+] %s: phys = 0x%016llx\n", label, addr);
+    fprintf(stderr, "[+] sysfs_qcom_rmtfs_mem %s: phys = 0x%016llx\n", label,
+            addr);
     kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, (unsigned long)addr,
-                 label);
+                 KASLD_REGION_RESERVED_MEM, label);
     count++;
 
 #if !PHYS_VIRT_DECOUPLED
     unsigned long virt = phys_to_virt((unsigned long)addr);
-    fprintf(stderr, "[+] %s: directmap va = 0x%016lx\n", label, virt);
-    kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt, label);
+    fprintf(stderr, "[+] sysfs_qcom_rmtfs_mem %s: directmap va = 0x%016lx\n",
+            label, virt);
+    kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
+                 KASLD_REGION_RESERVED_MEM, label);
 #endif
   }
   closedir(d);

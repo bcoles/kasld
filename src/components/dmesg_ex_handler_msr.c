@@ -125,8 +125,10 @@ int main(void) {
 
   printf("leaked native_[read|write]_msr: %lx\n", addr);
   printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);
+  /* The leaked address is native_read_msr or native_write_msr —
+   * specific x86 helper functions in the kernel text. */
   kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr,
-               "dmesg_ex_handler_msr");
+               KASLD_REGION_KERNEL_TEXT, "native_*_msr");
 
   return 0;
 }

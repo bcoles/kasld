@@ -142,8 +142,8 @@ int main(void) {
 
   printf("leaked stack pointer: %lx\n", addr);
   printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);
-  kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr,
-               "bcm_msg_head_struct");
+  kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr, "bcm_msg_head_struct",
+               NULL);
 
   return 0;
 }

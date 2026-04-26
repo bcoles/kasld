@@ -81,7 +81,6 @@ static unsigned long parse_mem_range(const char *p) {
 static int on_match(const char *line, void *ctx) {
   (void)ctx;
   unsigned long addr;
-  const char *label;
 
   /*
    * Three possible formats, all from arch/x86/kernel/setup.c:
@@ -90,9 +89,8 @@ static int on_match(const char *line, void *ctx) {
    *   "Move RAMDISK from [mem %#010llx-%#010llx] to [mem ...]"
    *
    * For "Move RAMDISK", the destination (second [mem ...]) is more useful
-   * since that's the final location. The "Allocated new RAMDISK" line
-   * prints the same address, so we can just match on "[mem 0x" in any
-   * RAMDISK line.
+   * since that's the final location. All three semantically describe an
+   * INITRD location; the variant doesn't change the region tag.
    */
 
   if (strstr(line, "Move RAMDISK from")) {
@@ -101,27 +99,21 @@ static int on_match(const char *line, void *ctx) {
     if (!first)
       return 1;
     const char *second = strstr(first + 1, "[mem 0x");
-    if (second) {
+    if (second)
       addr = parse_mem_range(second);
-      label = "dmesg_ramdisk:relocated";
-    } else {
+    else
       addr = parse_mem_range(first);
-      label = "dmesg_ramdisk:move_src";
-    }
-  } else if (strstr(line, "Allocated new RAMDISK:")) {
-    addr = parse_mem_range(line);
-    label = "dmesg_ramdisk:allocated";
   } else {
-    /* "RAMDISK: [mem ...]" — initial location */
+    /* "RAMDISK: [mem ...]" or "Allocated new RAMDISK: [mem ...]" */
     addr = parse_mem_range(line);
-    label = "dmesg_ramdisk";
   }
 
   if (!addr)
     return 1;
 
   printf("leaked RAMDISK physical address: 0x%016lx\n", addr);
-  kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, addr, label);
+  kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, addr, KASLD_REGION_INITRD,
+               NULL);
 
   return 1; /* keep scanning for more lines */
 }

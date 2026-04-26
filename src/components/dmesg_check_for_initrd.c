@@ -87,7 +87,7 @@ int main(void) {
   printf("leaked initrd start: %lx\n", addr);
   printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);
   kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, addr,
-               "dmesg_check_for_initrd");
+               KASLD_REGION_INITRD, NULL);
 
   return 0;
 }

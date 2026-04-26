@@ -100,13 +100,14 @@ int main(void) {
     return 0;
 
   printf("vmcoreinfo_note physical address: 0x%016lx\n", addr);
-  kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, addr, "sysfs_vmcoreinfo");
+  kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, addr,
+               KASLD_REGION_VMCOREINFO, NULL);
 
 #if !PHYS_VIRT_DECOUPLED
   unsigned long virt = phys_to_virt(addr);
   printf("possible direct-map virtual address: 0x%016lx\n", virt);
   kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
-               "sysfs_vmcoreinfo:directmap");
+               KASLD_REGION_VMCOREINFO, NULL);
 #else
   printf("note: phys and virt KASLR are decoupled on this arch; "
          "cannot derive directmap virtual address from physical leak\n");

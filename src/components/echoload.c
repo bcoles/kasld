@@ -289,12 +289,15 @@ int main(void) {
     }
   }
 
+  /* The leaked address is the start of the kernel entry trampoline if
+   * KPTI is active (__entry_text_start, the cpu_entry_area trampoline)
+   * or _stext otherwise — both are well-known kernel text symbols. */
   bool pti = detect_kpti();
-  const char *label =
-      pti ? "echoload [__entry_text_start]" : "echoload [_stext]";
+  const char *symbol = pti ? "__entry_text_start" : "_stext";
 
-  fprintf(stderr, "[+] echoload: %s = 0x%016lx\n", label, addr);
-  kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr, label);
+  fprintf(stderr, "[+] echoload: %s = 0x%016lx\n", symbol, addr);
+  kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr,
+               KASLD_REGION_KERNEL_TEXT, symbol);
 
   return 0;
 }

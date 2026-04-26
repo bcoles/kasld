@@ -90,7 +90,7 @@ int main(void) {
   unsigned long addr = (unsigned long)KERNEL_TEXT_DEFAULT;
   printf("common default kernel text for arch: %lx\n", addr);
   kasld_result(KASLD_ADDR_DEFAULT, KASLD_SECTION_NONE, addr,
-               "dmesg_kaslr-disabled:nokaslr");
+               KASLD_REGION_KERNEL_TEXT, "nokaslr");
 
   return 0;
 }

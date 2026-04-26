@@ -121,17 +121,21 @@ int main(void) {
     if (!addr)
       continue;
 
-    snprintf(label, sizeof(label), "acpi_mrrm:%.16s", ent->d_name);
+    /* Each MRRM entry describes a memory range (typically CXL/HBM-backed
+     * persistent memory or special DRAM); the directory name (e.g.
+     * "range_0") identifies which entry we leaked. */
+    snprintf(label, sizeof(label), "%.32s", ent->d_name);
 
-    fprintf(stderr, "[+] %s: phys = 0x%016llx\n", label, addr);
+    fprintf(stderr, "[+] acpi_mrrm %s: phys = 0x%016llx\n", label, addr);
     kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, (unsigned long)addr,
-                 label);
+                 KASLD_REGION_PMEM, label);
     count++;
 
 #if !PHYS_VIRT_DECOUPLED
     unsigned long virt = phys_to_virt((unsigned long)addr);
-    fprintf(stderr, "[+] %s: directmap va = 0x%016lx\n", label, virt);
-    kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt, label);
+    fprintf(stderr, "[+] acpi_mrrm %s: directmap va = 0x%016lx\n", label, virt);
+    kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
+                 KASLD_REGION_PMEM, label);
 #endif
   }
   closedir(d);

@@ -837,8 +837,10 @@ int main(void) {
     return 0;
   }
 
+  /* The brute-forced address is the current task's mm_struct, allocated
+   * via kmalloc and thus living in the kernel direct-map region. */
   printf("leaked mm_struct address: %lx\n", result);
   kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, result,
-               "kernelsnitch");
+               KASLD_REGION_DIRECTMAP, "mm_struct");
   return 0;
 }

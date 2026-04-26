@@ -215,12 +215,14 @@ int main(void) {
     return 0;
   }
 
+  /* Same trampoline-vs-stext distinction as echoload: KPTI changes
+   * which symbol the prefetch primitive actually finds. */
   bool pti = detect_kpti();
-  const char *label =
-      pti ? "databounce [__entry_text_start]" : "databounce [_stext]";
+  const char *symbol = pti ? "__entry_text_start" : "_stext";
 
-  fprintf(stderr, "[+] databounce: %s = 0x%016lx\n", label, addr);
-  kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr, label);
+  fprintf(stderr, "[+] databounce: %s = 0x%016lx\n", symbol, addr);
+  kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr,
+               KASLD_REGION_KERNEL_TEXT, symbol);
 
   return 0;
 }

@@ -194,11 +194,37 @@
 /* -----------------------------------------------------------------------------
  * Machine-parseable tagged address output
  *
- * Format: "<type> <section> <addr> <label>"
+ * Format: "<type> <section> <addr> <region>"          — name unknown / generic
+ *      or "<type> <section> <addr> <region>:<name>"   — specific instance known
+ *
  *   type:    V = virtual, P = physical, D = default/KASLR-disabled
- *   section: text, module, directmap, data, dram, or - (default)
+ *   section: which address space the leak lives in
+ *              text, module, directmap, data, dram, mmio, pageoffset, -
  *   addr:    raw leaked address (post-processor handles alignment)
- *   label:   human-readable source identifier
+ *   region:  what kind of thing is at the address — see KASLD_REGION_*.
+ *              The compact table column.
+ *   name:    which specific instance, when known — e.g. a kernel symbol
+ *              ("hypercall_page"), an ACPI OEM table ID ("Cpu0Ist"), a
+ *              module name ("nf_conntrack"), a PCI BDF ("0000:00:14.0").
+ *              Optional. The orchestrator displays it after the region in
+ *              the compact column when present.
+ *
+ * The Region / Name / Section / Origin model:
+ *   Region  answers "what kind of thing is at the address?"
+ *   Name    answers "which specific instance, when known?"
+ *   Section answers "which address space does this address live in?"
+ *   Origin  answers "how did we find out?" (component name).
+ *
+ * Origin is NOT on the wire. The orchestrator already knows which
+ * subprocess produced each line and fills `r->origin` from the
+ * component's binary name. Components that need their own name for
+ * stderr/log messages should use argv[0].
+ *
+ * Adding a new component should normally require zero new region
+ * constants. Subsystem-specific reservations (CBMEM, RMTFS, ION, ...)
+ * collapse to a standard kernel concept (RESERVED_MEM, PMEM, ...).
+ * Specific identities go in the optional `name` field via
+ * kasld_result().
  * -----------------------------------------------------------------------------
  */
 #include <stdio.h>
@@ -207,6 +233,7 @@
 #define KASLD_ADDR_VIRT 'V'
 #define KASLD_ADDR_DEFAULT 'D'
 
+/* Section: which address space the leak lives in. */
 #define KASLD_SECTION_TEXT "text"
 #define KASLD_SECTION_MODULE "module"
 #define KASLD_SECTION_DIRECTMAP "directmap"
@@ -216,9 +243,89 @@
 #define KASLD_SECTION_PAGEOFFSET "pageoffset"
 #define KASLD_SECTION_NONE "-"
 
+/* -----------------------------------------------------------------------------
+ * Region: what kind of kernel memory is at the address.
+ *
+ * String constants (not an enum) for grep-ability and forward
+ * compatibility with out-of-tree components. Components are expected to
+ * use one of the constants below; the orchestrator does not enforce.
+ *
+ * The vocabulary is closed by *kernel concepts*, not by *the existing
+ * component set*: each entry is defined whether or not a leak currently
+ * exists for it. Adding a new component should normally require zero
+ * new constants.
+ *
+ * The single sanctioned free-form region is `module:<name>` — module
+ * identity is part of the answer. No other free-form regions.
+ * -----------------------------------------------------------------------------
+ */
+
+/* Physical RAM boundaries (single addresses on a region edge). */
+#define KASLD_REGION_RAM_BASE "ram_base"   /* bottom of usable RAM */
+#define KASLD_REGION_RAM_TOP "ram_top"     /* top of usable RAM */
+#define KASLD_REGION_DMA_TOP "dma_top"     /* DMA zone ceiling */
+#define KASLD_REGION_DMA32_TOP "dma32_top" /* DMA32 zone ceiling */
+
+/* Physical memory regions (semantic kernel memory areas). */
+#define KASLD_REGION_KERNEL_IMAGE                                              \
+  "kernel_image"                     /* vmlinux text/rodata/data/init (phys) */
+#define KASLD_REGION_INITRD "initrd" /* initramfs / initrd */
+#define KASLD_REGION_RESERVED_MEM                                              \
+  "reserved_mem" /* firmware/DT-reserved (CMA, CBMEM, RMTFS, ION, ...) */
+#define KASLD_REGION_SWIOTLB "swiotlb"       /* software IOTLB bounce buffers */
+#define KASLD_REGION_VMCOREINFO "vmcoreinfo" /* vmcoreinfo ELF notes */
+#define KASLD_REGION_CRASHKERNEL "crashkernel" /* crashkernel reservation */
+#define KASLD_REGION_PMEM "pmem" /* persistent memory (PMEM/CXL/NVDIMM) */
+#define KASLD_REGION_ACPI_TABLE                                                \
+  "acpi_table" /* ACPI table (static or dynamic) */
+#define KASLD_REGION_ACPI_NVS                                                  \
+  "acpi_nvs" /* ACPI Non-Volatile Sleeping memory                              \
+              */
+#define KASLD_REGION_EFI_MEMMAP "efi_memmap" /* EFI memory map descriptors */
+#define KASLD_REGION_NUMA_NODE "numa_node"   /* NUMA node descriptor (pgdat) */
+#define KASLD_REGION_MMIO "mmio"             /* generic device MMIO */
+#define KASLD_REGION_PCI_MMIO "pci_mmio"     /* PCI MMIO BAR */
+
+/* Kernel virtual memory regions. */
+#define KASLD_REGION_KERNEL_TEXT "kernel_text" /* kernel .text */
+#define KASLD_REGION_KERNEL_DATA "kernel_data" /* .data / .rodata / .bss */
+#define KASLD_REGION_MODULE                                                    \
+  "module" /* loaded LKM (instance: "module:<name>") */
+#define KASLD_REGION_MODULE_REGION                                             \
+  "module_region" /* bounds of the modules region */
+
+/* Address-space landmarks (fallback when contents unknown). */
+#define KASLD_REGION_DIRECTMAP "directmap" /* arbitrary point in direct-map */
+#define KASLD_REGION_PAGE_OFFSET "page_offset" /* start of direct-map */
+#define KASLD_REGION_VMALLOC "vmalloc"         /* somewhere in vmalloc */
+#define KASLD_REGION_VMEMMAP "vmemmap"         /* somewhere in vmemmap */
+
+/* Sentinel — used by the orchestrator's synthetic "default" / "no-leak"
+ * results, never by components. */
+#define KASLD_REGION_NONE "-"
+
+/* Emit a tagged result.
+ *
+ *   region: what kind of thing — KASLD_REGION_* constant.
+ *   name:   the specific instance, when known — e.g. kernel symbol
+ *           ("hypercall_page"), ACPI table OEM ID ("Cpu0Ist"), module
+ *           name ("nf_conntrack"), PCI BDF ("0000:00:14.0").
+ *           Pass NULL or "" when no specific instance is known.
+ *
+ * The compact table shows "<region>" or "<region>:<name>" when a name
+ * is given. The JSON output gets separate "region" and "name" keys.
+ * The name may itself contain colons — the orchestrator splits on the
+ * first `:` only. The orchestrator fills `origin` (the component name)
+ * automatically from the subprocess identity. */
 static inline void kasld_result(char type, const char *section,
-                                unsigned long addr, const char *label) {
-  printf("%c %s 0x%016lx %s\n", type, section, addr, label);
+                                unsigned long addr, const char *region,
+                                const char *name) {
+  if (!region)
+    region = "";
+  if (name && *name)
+    printf("%c %s 0x%016lx %s:%s\n", type, section, addr, region, name);
+  else
+    printf("%c %s 0x%016lx %s\n", type, section, addr, region);
 }
 
 /* When stdout is a pipe (as when the orchestrator captures output), glibc

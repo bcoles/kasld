@@ -79,9 +79,9 @@ static int on_match(const char *line, void *ctx) {
   const char *name_end;
   const char *paren;
   char *endptr;
-  char label[128];
   unsigned long addr;
   const char *section;
+  const char *region;
   size_t name_len;
 
   name_start = strstr(line, "Freeing ");
@@ -104,23 +104,22 @@ static int on_match(const char *line, void *ctx) {
   if (addr < KERNEL_VAS_START || addr > KERNEL_VAS_END)
     return 1;
 
-  /* Build label: "dmesg_free_reserved_area:<section name>" */
+  /* "Freeing initrd memory" → INITRD region in the direct-map.
+   * Every other "Freeing <foo> memory" message (unused kernel image,
+   * SMP alternatives, init section, decrypted memory, ...) describes
+   * memory carved out of the kernel image — KERNEL_IMAGE region in the
+   * kernel text section. */
   name_len = (size_t)(name_end - name_start);
-  if (name_len >= sizeof(label) - 32)
-    name_len = sizeof(label) - 32;
-  snprintf(label, sizeof(label), "dmesg_free_reserved_area:%.*s", (int)name_len,
-           name_start);
-
-  /* "initrd" addresses live in the physmap/linear region (DRAM).
-   * All other sections (unused kernel, SMP alternatives, etc.)
-   * are within the kernel image (text). */
-  if (name_len >= 6 && strncmp(name_start, "initrd", 6) == 0)
+  if (name_len >= 6 && strncmp(name_start, "initrd", 6) == 0) {
     section = KASLD_SECTION_DRAM;
-  else
+    region = KASLD_REGION_INITRD;
+  } else {
     section = KASLD_SECTION_TEXT;
+    region = KASLD_REGION_KERNEL_IMAGE;
+  }
 
   printf("leaked address: %lx\n", addr);
-  kasld_result(KASLD_ADDR_VIRT, section, addr, label);
+  kasld_result(KASLD_ADDR_VIRT, section, addr, region, NULL);
 
   return 1; /* keep scanning for more sections */
 }

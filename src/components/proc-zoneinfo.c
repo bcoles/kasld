@@ -124,24 +124,31 @@ int main(void) {
 
   unsigned long lo = lo_pfn * PAGE_SIZE;
   unsigned long hi_use = hi_end_pfn > hi_pfn ? hi_end_pfn : hi_pfn;
-  unsigned long hi = hi_use * PAGE_SIZE;
+  unsigned long hi = hi_use * PAGE_SIZE - 1;
 
+  /* lo is the start of the lowest zone (typically ZONE_DMA at PFN 1) →
+   * RAM_BASE. hi is the end of the highest zone (top of ZONE_NORMAL) → RAM_TOP.
+   * The component currently aggregates across zones rather than reporting
+   * per-zone DMA_TOP / DMA32_TOP — that finer-grained reporting is left as
+   * a future enhancement. */
   printf("lowest zone start PFN:  %lu (phys 0x%016lx)\n", lo_pfn, lo);
-  kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, lo, "proc-zoneinfo:lo");
+  kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, lo, KASLD_REGION_RAM_BASE,
+               NULL);
 
   if (hi_use != lo_pfn) {
     if (hi_end_pfn > hi_pfn)
       printf("highest zone end PFN:   %lu (phys 0x%016lx)\n", hi_use, hi);
     else
       printf("highest zone start PFN: %lu (phys 0x%016lx)\n", hi_use, hi);
-    kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, hi, "proc-zoneinfo:hi");
+    kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, hi, KASLD_REGION_RAM_TOP,
+                 NULL);
   }
 
 #if !PHYS_VIRT_DECOUPLED
   unsigned long virt = phys_to_virt(lo);
   printf("possible direct-map virtual address: 0x%016lx\n", virt);
   kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
-               "proc-zoneinfo:directmap");
+               KASLD_REGION_RAM_BASE, NULL);
 #else
   printf("note: phys and virt KASLR are decoupled on this arch; "
          "cannot derive directmap virtual address from physical leak\n");

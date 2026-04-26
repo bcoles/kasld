@@ -196,6 +196,10 @@ int main(void) {
     /* --- Generic scan: check pointer-sized descriptors for kernel text
      * pointers. Catches vendor-specific notes (Intel TDX, AMD SEV,
      * Hyper-V, etc.) that may embed handler addresses. --- */
+    /* Generic note scan: name = note origin (e.g. "Xen", "Linux",
+     * "GNU"), val = a kernel text address. The exact symbol behind it
+     * is unknown without per-vendor decoding, so use the note name as
+     * the "name" qualifier. */
     if (descsz == sizeof(unsigned long)) {
       unsigned long val;
       memcpy(&val, desc, sizeof val);
@@ -203,8 +207,9 @@ int main(void) {
       if (val >= KERNEL_BASE_MIN && val <= KERNEL_BASE_MAX) {
         printf("[+] found kernel address in %s note (type %u): %lx\n", name,
                type, val);
-        snprintf(label, sizeof label, "sysfs-kernel-notes:%.40s", name);
-        kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, val, label);
+        snprintf(label, sizeof label, "%.40s", name);
+        kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, val,
+                     KASLD_REGION_KERNEL_TEXT, label);
         found++;
       }
     } else if (descsz == 2 * sizeof(unsigned long)) {
@@ -216,8 +221,9 @@ int main(void) {
           printf("[+] found kernel address in %s note (type %u, word %d): "
                  "%lx\n",
                  name, type, i, vals[i]);
-          snprintf(label, sizeof label, "sysfs-kernel-notes:%.40s", name);
-          kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, vals[i], label);
+          snprintf(label, sizeof label, "%.40s", name);
+          kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, vals[i],
+                       KASLD_REGION_KERNEL_TEXT, label);
           found++;
         }
       }
@@ -261,13 +267,13 @@ int main(void) {
       if (xen_entry) {
         printf("[+] Xen entry (startup_xen): %lx\n", xen_entry);
         kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, xen_entry,
-                     "sysfs-kernel-notes-xen:entry");
+                     KASLD_REGION_KERNEL_TEXT, "startup_xen");
         found++;
       }
       if (xen_hypercall) {
         printf("[+] Xen hypercall_page: %lx\n", xen_hypercall);
         kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, xen_hypercall,
-                     "sysfs-kernel-notes-xen:hypercall_page");
+                     KASLD_REGION_KERNEL_TEXT, "hypercall_page");
         found++;
       }
       if (xen_phys32) {
@@ -282,7 +288,7 @@ int main(void) {
         if (virt >= KERNEL_BASE_MIN && virt <= KERNEL_BASE_MAX) {
           printf("[+] Xen PHYS32_ENTRY -> virtual: %lx\n", virt);
           kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, virt,
-                       "sysfs-kernel-notes-xen:phys32_entry");
+                       KASLD_REGION_KERNEL_TEXT, "pvh_start_xen");
           found++;
         }
       }

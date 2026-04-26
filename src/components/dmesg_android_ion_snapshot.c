@@ -90,9 +90,11 @@ int main(void) {
   }
 
   printf("leaked last_ion_buf: %lx\n", addr);
+  kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr,
+               KASLD_REGION_KERNEL_TEXT, "last_ion_buf");
   printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);
   kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr,
-               "dmesg_android_ion_snapshot");
+               KASLD_REGION_KERNEL_TEXT, NULL);
 
   return 0;
 }
