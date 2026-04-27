@@ -94,6 +94,7 @@ KASLD_EXPLAIN("On Xen PV and PVH guests, /sys/kernel/notes contains ELF notes "
               "structures reveals the kernel text virtual base.");
 
 KASLD_META("method:exact\n"
+           "phase:inference\n"
            "addr:virtual\n"
            "patch:v6.9\n"
            "config:CONFIG_XEN\n");

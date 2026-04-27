@@ -68,6 +68,7 @@ KASLD_EXPLAIN(
 
 // Untested: no Qualcomm RMTFS hardware available for testing.
 KASLD_META("method:parsed\n"
+           "phase:inference\n"
            "addr:physical\n"
            "status:experimental\n"
            "config:CONFIG_QCOM_RMTFS_MEM\n");

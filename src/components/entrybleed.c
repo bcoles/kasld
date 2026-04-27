@@ -71,6 +71,7 @@ KASLD_EXPLAIN(
     "from KASLR.");
 
 KASLD_META("method:timing\n"
+           "phase:probing\n"
            "addr:virtual\n"
            "cve:CVE-2022-4543\n"
            "patch:v6.2\n"

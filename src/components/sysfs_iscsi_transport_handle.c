@@ -55,6 +55,7 @@ KASLD_EXPLAIN(
     "attribute to root.");
 
 KASLD_META("method:exact\n"
+           "phase:inference\n"
            "addr:virtual\n"
            "cve:CVE-2021-27363\n"
            "patch:v5.12\n"

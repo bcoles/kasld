@@ -99,6 +99,7 @@ KASLD_EXPLAIN(
     "CONFIG_X86_INTEL_TSX_MODE_OFF).");
 
 KASLD_META("method:timing\n"
+           "phase:probing\n"
            "addr:virtual\n"
            "hardware:TSX required (mitigated by tsx=off)\n");
 

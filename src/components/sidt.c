@@ -98,6 +98,7 @@ KASLD_EXPLAIN(
     "(User-Mode Instruction Prevention) faults on SIDT from ring 3.");
 
 KASLD_META("method:exact\n"
+           "phase:inference\n"
            "addr:virtual\n"
            "patch:v3.10\n"
            "hardware:UMIP\n");

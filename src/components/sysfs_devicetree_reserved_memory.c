@@ -64,6 +64,7 @@ KASLD_EXPLAIN(
     "MIPS, PowerPC); requires CONFIG_OF.");
 
 KASLD_META("method:parsed\n"
+           "phase:inference\n"
            "addr:physical\n"
            "config:CONFIG_OF\n");
 

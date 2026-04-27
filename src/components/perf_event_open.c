@@ -50,6 +50,7 @@ KASLD_EXPLAIN(
     "CAP_SYS_ADMIN when paranoid >= 2.");
 
 KASLD_META("method:exact\n"
+           "phase:inference\n"
            "addr:virtual\n"
            "sysctl:perf_event_paranoid>=2\n"
            "bypass:CAP_PERFMON\n"

@@ -189,6 +189,7 @@ KASLD_EXPLAIN(
     "hash table with per-process private tables.");
 
 KASLD_META("method:timing\n"
+           "phase:probing\n"
            "addr:virtual\n"
            "status:experimental\n"
            "config:CONFIG_FUTEX_PRIVATE_HASH\n"

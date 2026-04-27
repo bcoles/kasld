@@ -50,6 +50,7 @@ KASLD_EXPLAIN(
     "the directory name.");
 
 KASLD_META("method:exact\n"
+           "phase:inference\n"
            "addr:virtual\n"
            "patch:v4.6\n"
            "config:CONFIG_NF_CONNTRACK\n");

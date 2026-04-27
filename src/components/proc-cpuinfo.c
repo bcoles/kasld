@@ -35,6 +35,7 @@ KASLD_EXPLAIN(
     "PAGE_OFFSET. This constrains the kernel virtual address layout.");
 
 KASLD_META("method:detection\n"
+           "phase:inference\n"
            "addr:none\n");
 
 /* Read the first value for a given key from /proc/cpuinfo.

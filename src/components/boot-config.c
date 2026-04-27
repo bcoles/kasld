@@ -32,6 +32,7 @@ KASLD_EXPLAIN(
     "(CONFIG_PAGE_OFFSET). Readable when /boot is accessible.");
 
 KASLD_META("method:detection\n"
+           "phase:inference\n"
            "addr:none\n");
 
 static int open_boot_config(FILE **fpp) {

@@ -59,6 +59,7 @@ KASLD_EXPLAIN(
     "x86 only; requires CONFIG_FIRMWARE_MEMMAP.");
 
 KASLD_META("method:parsed\n"
+           "phase:inference\n"
            "addr:physical\n"
            "config:CONFIG_FIRMWARE_MEMMAP\n");
 

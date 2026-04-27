@@ -70,6 +70,7 @@ KASLD_EXPLAIN(
     "option can hide the start_pfn field.");
 
 KASLD_META("method:parsed\n"
+           "phase:inference\n"
            "addr:physical\n");
 
 int main(void) {

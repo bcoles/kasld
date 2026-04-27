@@ -47,6 +47,7 @@ KASLD_EXPLAIN(
     "architectures, the kernel text base.");
 
 KASLD_META("method:exact\n"
+           "phase:inference\n"
            "addr:virtual\n"
            "sysctl:kptr_restrict>=1\n"
            "bypass:CAP_SYSLOG\n"

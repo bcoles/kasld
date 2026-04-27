@@ -65,6 +65,7 @@ KASLD_EXPLAIN(
     "memory layout. Requires CONFIG_PCI.");
 
 KASLD_META("method:parsed\n"
+           "phase:inference\n"
            "addr:physical\n"
            "config:CONFIG_PCI\n");
 

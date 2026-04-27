@@ -22,6 +22,7 @@ KASLD_EXPLAIN(
     "kernel base. /proc/cmdline is world-readable (0444);.");
 
 KASLD_META("method:detection\n"
+           "phase:inference\n"
            "addr:none\n");
 
 int main(void) {

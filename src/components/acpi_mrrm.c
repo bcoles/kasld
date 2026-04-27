@@ -64,6 +64,7 @@ KASLD_EXPLAIN(
 
 // Untested: no hardware with an ACPI MRRM table available for testing.
 KASLD_META("method:parsed\n"
+           "phase:inference\n"
            "addr:physical\n"
            "status:experimental\n"
            "config:CONFIG_ACPI_MRRM\n");

@@ -75,6 +75,7 @@ KASLD_EXPLAIN(
     "linear-map kernel virtual address. Requires CONFIG_UIO.");
 
 KASLD_META("method:parsed\n"
+           "phase:inference\n"
            "addr:physical\n"
            "config:CONFIG_UIO\n");
 

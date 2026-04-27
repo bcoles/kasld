@@ -55,6 +55,7 @@ KASLD_EXPLAIN(
     "kernel text or stack pointers.");
 
 KASLD_META("method:exact\n"
+           "phase:inference\n"
            "addr:virtual\n"
            "cve:CVE-2020-28588\n"
            "patch:v5.10\n"

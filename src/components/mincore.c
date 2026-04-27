@@ -56,6 +56,7 @@ KASLD_EXPLAIN(
     "the output vector for unmapped huge-page ranges.");
 
 KASLD_META("method:heuristic\n"
+           "phase:probing\n"
            "addr:virtual\n"
            "cve:CVE-2017-16994\n"
            "patch:v4.15\n");

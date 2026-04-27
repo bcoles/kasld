@@ -125,6 +125,7 @@ KASLD_EXPLAIN(
     "(VERW) and hardware fixes in Intel Ice Lake+.");
 
 KASLD_META("method:timing\n"
+           "phase:probing\n"
            "addr:virtual\n"
            "status:experimental\n"
            "hardware:MDS-vulnerable Intel CPU + TSX required\n"

@@ -56,6 +56,7 @@ KASLD_EXPLAIN("Searches dmesg for messages indicating KASLR was disabled or "
               "gated by dmesg_restrict.");
 
 KASLD_META("method:detection\n"
+           "phase:inference\n"
            "addr:none\n"
            "sysctl:dmesg_restrict>=1\n"
            "bypass:CAP_SYSLOG\n"

@@ -46,6 +46,7 @@ KASLD_EXPLAIN(
     "_stext. Fixed in v4.8 by moving the kptr_restrict check to open().");
 
 KASLD_META("method:exact\n"
+           "phase:inference\n"
            "addr:virtual\n"
            "sysctl:kptr_restrict>=1\n"
            "patch:v4.8\n");

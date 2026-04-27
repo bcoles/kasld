@@ -49,6 +49,7 @@ KASLD_EXPLAIN(
     "KASLR is compiled in and the 32-bit user/kernel address split.");
 
 KASLD_META("method:detection\n"
+           "phase:inference\n"
            "addr:none\n"
            "config:CONFIG_IKCONFIG_PROC\n");
 

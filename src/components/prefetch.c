@@ -108,6 +108,7 @@ KASLD_EXPLAIN(
     "user/kernel mode) and fixed in newer AMD Zen 3+ hardware.");
 
 KASLD_META("method:timing\n"
+           "phase:probing\n"
            "addr:virtual\n"
            "hardware:KPTI\n");
 

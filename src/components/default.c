@@ -20,6 +20,7 @@ KASLD_EXPLAIN(
     "is the actual kernel load address. No access control applies.");
 
 KASLD_META("method:detection\n"
+           "phase:inference\n"
            "addr:none\n");
 
 unsigned long get_kernel_addr_default() {

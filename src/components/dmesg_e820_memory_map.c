@@ -63,6 +63,7 @@ KASLD_EXPLAIN(
     "base. x86 only. Access is gated by dmesg_restrict.");
 
 KASLD_META("method:parsed\n"
+           "phase:inference\n"
            "addr:physical\n"
            "sysctl:dmesg_restrict>=1\n"
            "bypass:CAP_SYSLOG\n"

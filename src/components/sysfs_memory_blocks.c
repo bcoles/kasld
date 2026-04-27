@@ -53,6 +53,7 @@ KASLD_EXPLAIN(
     "physical DRAM layout. Requires CONFIG_MEMORY_HOTPLUG.");
 
 KASLD_META("method:parsed\n"
+           "phase:inference\n"
            "addr:physical\n"
            "config:CONFIG_MEMORY_HOTPLUG\n");
 

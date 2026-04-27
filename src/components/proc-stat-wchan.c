@@ -52,6 +52,7 @@ KASLD_EXPLAIN(
     "address was again exposed, then re-fixed in v5.16.");
 
 KASLD_META("method:exact\n"
+           "phase:inference\n"
            "addr:virtual\n"
            "patch:v4.4\n");
 

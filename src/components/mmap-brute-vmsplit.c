@@ -46,6 +46,7 @@ KASLD_EXPLAIN("Probes the 32-bit address space by attempting mmap at 256 MiB "
               "fundamental architectural property.");
 
 KASLD_META("method:heuristic\n"
+           "phase:probing\n"
            "addr:virtual\n");
 
 unsigned long find_kernel_address_space_start(void) {

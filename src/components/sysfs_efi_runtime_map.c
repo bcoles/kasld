@@ -63,6 +63,7 @@ KASLD_EXPLAIN(
 
 // Untested: no suitable EFI system available for testing.
 KASLD_META("method:parsed\n"
+           "phase:inference\n"
            "addr:virtual\n"
            "status:experimental\n"
            "config:CONFIG_EFI\n"

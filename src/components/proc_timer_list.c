@@ -53,6 +53,7 @@ KASLD_EXPLAIN(
     "kernel VA range indicate hashing is active.");
 
 KASLD_META("method:parsed\n"
+           "phase:inference\n"
            "addr:virtual\n"
            "patch:v4.15\n");
 

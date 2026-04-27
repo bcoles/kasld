@@ -63,6 +63,7 @@ KASLD_EXPLAIN(
     "kernel stack address into the guest. Fixed in QEMU v9.1.");
 
 KASLD_META("method:exact\n"
+           "phase:inference\n"
            "addr:virtual\n"
            "patch:QEMU v9.1\n");
 

@@ -63,6 +63,7 @@ KASLD_EXPLAIN(
     "RAM. Only present on device tree platforms with an initrd.");
 
 KASLD_META("method:parsed\n"
+           "phase:inference\n"
            "addr:physical\n"
            "config:CONFIG_OF\n"
            "config:CONFIG_BLK_DEV_INITRD\n");

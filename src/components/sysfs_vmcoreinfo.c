@@ -54,6 +54,7 @@ KASLD_EXPLAIN(
     "address reveals DRAM layout; symbols may reveal kernel text base.");
 
 KASLD_META("method:parsed\n"
+           "phase:inference\n"
            "addr:physical\n"
            "lockdown:integrity\n"
            "config:CONFIG_VMCORE_INFO\n");

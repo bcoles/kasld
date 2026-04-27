@@ -52,6 +52,7 @@ KASLD_EXPLAIN(
     "v5.12.");
 
 KASLD_META("method:heuristic\n"
+           "phase:probing\n"
            "addr:virtual\n"
            "cve:CVE-2021-34693\n"
            "patch:v5.12\n"
