@@ -124,7 +124,7 @@ The following is example output from a default Debian 13 (x86-64) system:
     ███▐██▄     ███    ███          ███ ███       ███    ███
     ███ ▀███▄   ███    ███    ▄█    ███ ███▌    ▄ ███   ▄███
     ███   ▀█▀   ███    █▀   ▄████████▀  █████▄▄██ ████████▀
-    ▀                                   ▀ v0.1.0
+    ▀                                   ▀ v0.1.1
 
 Kernel release:               6.12.38+deb13-amd64
 Kernel version:               #1 SMP PREEMPT_DYNAMIC Debian 6.12.38-1 (2025-07-16)
@@ -134,6 +134,7 @@ kernel.kptr_restrict:         0
 kernel.dmesg_restrict:        1
 kernel.panic_on_oops:         0
 kernel.perf_event_paranoid:   3
+Kernel lockdown:              none
 
 Readable /var/log/dmesg:      no
 Readable /var/log/kern.log:   no
@@ -142,22 +143,24 @@ Readable debugfs:             no
 Readable /boot/System.map:    yes
 Readable /boot/config:        yes
 
-Running 49 components...
-[####################] 100%  49/49  11.1s
+Running 56 components (8 experimental skipped; use -x to enable)...
+[####################] 100%  56/56  10.3s
+
+Components: 56 total, 8 succeeded, 6 unavailable, 24 access denied, 18 no result
 
 ========================================
  Results
 ========================================
 
   Kernel text (virtual)     0xffffffffa7a00000  (1 source)
-  Physical DRAM             0x0000000000000000 - 0x0000000080000000  (2.0 GiB, 7 sources)
-  Physical MMIO             0x00000000000c0000 - 0x00000000febfffff  (4.0 GiB, 2 sources)
+  Physical DRAM             0x000000007fffffff  (2.0 GiB, 3 sources, 4 conflicts, parsed)
+  Physical MMIO             0x00000000000c0000  (4.0 GiB, 1 source, 1 conflict, parsed)
 
 ----------------------------------------
 KASLR analysis:
   Virtual text base:    0xffffffffa7a00000
   Default text base:    0xffffffff81000000
-  KASLR slide:          +648019968 (618.0 MiB)
+  KASLR slide:          +0x26a00000 (648019968)
   KASLR text entropy:   8 bits (504 slots of 0x200000)
   Observed slot index:  309 / 504
 
@@ -189,13 +192,11 @@ Physical memory layout:
 
   0x00000000febfffff
   +------------------------------------------------------------------+
-  |  0x00000000febfffff  [mmio] sysfs_pci_resource:hi                |
-  |  0x0000000080000000  [dram] proc-zoneinfo:hi                     |
-  |  0x000000007fffffff  [dram] sysfs_firmware_memmap:hi             |
-  |  0x000000007c944000  [dram] sysfs_vmcoreinfo                     |
-  |  0x00000000000c0000  [mmio] sysfs_pci_resource:lo                |
-  |  0x0000000000001000  [dram] proc-zoneinfo:lo                     |
-  |  0x0000000000000000  [dram] sysfs_firmware_memmap:lo             |
+  |  0x00000000febfffff  [mmio] pci_mmio                             |
+  |  0x000000007fffffff  [dram] ram_top                              |
+  |  0x000000007c944000  [dram] vmcoreinfo                           |
+  |  0x00000000000c0000  [mmio] pci_mmio                             |
+  |  0x0000000000001000  [dram] ram_base                             |
   +------------------------------------------------------------------+
   0x0000000000000000
 ```
@@ -918,8 +919,8 @@ randomization granularity: each possible position is one "KASLR slot."
 
 | Architecture | Default text base | Derivation | `KERNEL_ALIGN` | KASLR slots | Entropy |
 |---|---|---|---|---|---|
-| x86_64 | `0xffffffff81000000` | `__START_KERNEL_map` + `PHYSICAL_START` (`page_64_types.h`) | 2 MiB | 504 | ~9 bits |
-| x86_32 | `0xc0000000` | `PAGE_OFFSET` (3G/1G vmsplit default) | 2 MiB | 248 | ~8 bits |
+| x86_64 | `0xffffffff81000000` | `__START_KERNEL_map` + `PHYSICAL_START` (`page_64_types.h`) | 2 MiB | 504² | ~9 bits |
+| x86_32 | `0xc0000000` | `PAGE_OFFSET` (3G/1G vmsplit default) | 2 MiB | 248² | ~8 bits |
 | arm64 | `0xffff800080000000` | `KIMAGE_VADDR` (`memory.h`); module region size determines offset from `_PAGE_END` | 2 MiB¹ | ~33M | ~25 bits |
 | arm32 | `0xc0008000` | `PAGE_OFFSET` + `TEXT_OFFSET` (`0x8000`, from `arch/arm/Makefile`) | — | — | No KASLR |
 | MIPS32 | `0x80100400` | KSEG0 (`0x80000000`) + 1 MiB + `TEXT_OFFSET` (`0x400`, from `head.S`) | 64 KiB | varies | varies |
@@ -928,13 +929,8 @@ randomization granularity: each possible position is one "KASLR slot."
 | PowerPC32 | `0xc0000000` | `PAGE_OFFSET` (3G/1G default); BookE only | 16 KiB¹ | varies | varies |
 | PowerPC64 | `0xc000000000000000` | `PAGE_OFFSET` (Kconfig) | — | — | No KASLR |
 | LoongArch | `0x9000000000200000` | DMW1 (`0x9000000000000000`) + `TEXT_OFFSET` (2 MiB, from `Makefile`) | 64 KiB | varies | varies |
-| RISC-V64 | `0xffffffff80000000` | `KERNEL_LINK_ADDR` (top 2 GiB of VA) | 2 MiB | 512 | ~9 bits |
+| RISC-V64 | `0xffffffff80000000` | `KERNEL_LINK_ADDR` (top 2 GiB of VA) | 2 MiB | 512² | ~9 bits |
 | RISC-V32 | `0xc0002000` | `PAGE_OFFSET` + `TEXT_OFFSET` (`0x2000`) | — | — | No KASLR |
-
-¹ These architectures define a separate `KASLR_ALIGN` larger than
-`KERNEL_ALIGN` (the image alignment). The table shows the KASLR slot
-granularity. arm64: `KERNEL_ALIGN` = 64 KiB, `KASLR_ALIGN` = 2 MiB.
-PowerPC32: `KERNEL_ALIGN` = 4 KiB, `KASLR_ALIGN` = 16 KiB.
 
 The "Derivation" column shows where each default address comes from. On
 most architectures the formula is `PAGE_OFFSET + TEXT_OFFSET`, where
@@ -945,6 +941,39 @@ or boot protocol). x86_64 is an exception: the kernel image virtual base
 (`__START_KERNEL_map = 0xffffffff80000000`) is separate from `PAGE_OFFSET`
 (the direct-map base), and `PHYSICAL_START` (16 MiB) is added for
 alignment with the physical load address.
+
+¹ These architectures define a separate `KASLR_ALIGN` larger than
+`KERNEL_ALIGN` (the image alignment). The table shows the KASLR slot
+granularity. arm64: `KERNEL_ALIGN` = 64 KiB, `KASLR_ALIGN` = 2 MiB.
+PowerPC32: `KERNEL_ALIGN` = 4 KiB, `KASLR_ALIGN` = 16 KiB.
+
+² The slot count is an upper bound. Every architecture's KASLR placement
+code refuses positions where the image would extend past the end of the
+randomization region, so the actual available slots are:
+
+```
+valid_slots = (range_size - kernel_size) / KERNEL_ALIGN
+```
+
+`kernel_size` is measured differently per architecture. On x86
+(`arch/x86/boot/compressed/kaslr.c`), it is `init_size` from the boot
+header — the decompression buffer requirement, which is larger than the
+final loaded kernel size. On RISC-V (`arch/riscv/mm/init.c`), it is
+`_end − _start` — the actual in-memory kernel size with no overhead.
+On x86, `MODULES_VADDR` is defined as `__START_KERNEL_map +
+KERNEL_IMAGE_SIZE` with no gap, so the ceiling is hard.
+
+| Architecture | Max slots | Approx. `kernel_size` | Typical runtime slots | Reduction |
+|---|---|---|---|---|
+| x86_64 | 504 | `init_size` ≈ 70 MiB | ~469 | ~7% |
+| x86_32 | 248 | `init_size` ≈ 40 MiB | ~228 | ~8% |
+| RISC-V64 | 512 | `_end−_start` ≈ 30 MiB | ~497 | ~3% |
+| s390 | ~131K | ≈ 70 MiB | ~127K | ~3% |
+| arm64 | ~33M | ≈ 50 MiB | ~33M | <0.01% |
+
+On x86 and RISC-V, where total entropy is ~9 bits (~500 slots), a 3–8%
+reduction is material. On s390 (~17 bits) and arm64 (~25 bits) the
+effect is negligible.
 
 ### Physical and Virtual KASLR
 
@@ -1426,11 +1455,21 @@ The following KASLD components use brute-force probing:
 
 ### Weak Entropy
 
-The kernel is loaded at an aligned memory address, usually between `PAGE_SIZE` (4 KiB)
-and 2 MiB on modern systems (see `KERNEL_ALIGN` definitions in [kasld.h](src/include/kasld.h)).
-This limits the number of possible kernel locations. For example, on x86_64 with
-`RANDOMIZE_BASE_MAX_OFFSET` of 1 GiB and 2 MiB alignment, this limits the kernel load
-address to `0x4000_0000 / 0x20_0000 = 512` possible locations.
+The kernel is loaded at an aligned memory address, usually between `PAGE_SIZE`
+(4 KiB) and 2 MiB on modern systems (see `KERNEL_ALIGN` definitions in
+[kasld.h](src/include/kasld.h)).
+
+This limits the number of possible kernel locations to the values in the
+[KASLR slots table](#default-text-base-and-kaslr-alignment) above.
+
+The slot counts in that table are upper bounds. The kernel's KASLR placement code
+enforces `slot + kernel_size ≤ range_end`, so positions near the top of the
+randomization region where the image would overflow are never selected. Every
+additional `KERNEL_ALIGN` bytes of kernel image size removes one trailing slot.
+On architectures with tight entropy budgets — x86_64 and x86_32 (~500 slots,
+~9 bits) and RISC-V64 (~512 slots) — a typical production kernel reduces the
+effective slot count by 3–8%. On arm64 (~33M slots) and s390 (~131K slots) the
+reduction is negligible.
 
 Weaknesses in randomisation can decrease entropy, further limiting the possible kernel
 locations in memory and making the kernel easier to locate.
