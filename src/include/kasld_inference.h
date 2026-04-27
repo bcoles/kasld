@@ -39,6 +39,13 @@ struct kasld_arch_params {
   unsigned long kaslr_base_min;
   unsigned long kaslr_base_max;
   unsigned long kaslr_align;
+  /* Physical-to-virtual mapping constants for PHYS/DRAM bound inference.
+   * phys_virt_decoupled: 1 when physical and virtual KASLR are independent;
+   * on decoupled arches physical leaks do not constrain the text range. */
+  int phys_virt_decoupled;
+  unsigned long phys_offset; /* PHYS_OFFSET: physical base of DRAM */
+  unsigned long page_offset; /* PAGE_OFFSET: virtual base of direct map */
+  unsigned long text_offset; /* TEXT_OFFSET: offset from PAGE_OFFSET to _text */
 };
 
 /* Shared analysis context passed to every inference plugin.

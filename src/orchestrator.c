@@ -2061,6 +2061,10 @@ int main(int argc, char *argv[]) {
   g_arch_params.kaslr_base_min = layout.kaslr_base_min;
   g_arch_params.kaslr_base_max = layout.kaslr_base_max;
   g_arch_params.kaslr_align = layout.kaslr_align;
+  g_arch_params.phys_virt_decoupled = PHYS_VIRT_DECOUPLED;
+  g_arch_params.phys_offset = PHYS_OFFSET;
+  g_arch_params.page_offset = PAGE_OFFSET;
+  g_arch_params.text_offset = TEXT_OFFSET;
   g_ctx.results = results;
   g_ctx.result_count = 0;
   g_ctx.text_base_min = layout.kaslr_base_min;
