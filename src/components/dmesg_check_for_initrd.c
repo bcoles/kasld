@@ -92,8 +92,8 @@ int main(void) {
   {
     unsigned long phys = virt_to_phys(addr);
     printf("  possible physical address: 0x%016lx\n", phys);
-    kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, phys,
-                 KASLD_REGION_INITRD, NULL);
+    kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, phys, KASLD_REGION_INITRD,
+                 NULL);
   }
 #endif
 

@@ -173,8 +173,8 @@ static void emit_result(int idx, unsigned long addr) {
   if (strcmp(entries[idx].section, KASLD_SECTION_DIRECTMAP) == 0) {
     unsigned long phys = virt_to_phys(addr);
     printf("  possible physical address: 0x%016lx\n", phys);
-    kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, phys,
-                 entries[idx].region, NULL);
+    kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, phys, entries[idx].region,
+                 NULL);
   }
 #endif
 }
