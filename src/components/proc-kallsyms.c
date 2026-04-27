@@ -50,48 +50,6 @@ KASLD_META("method:exact\n"
            "sysctl:kptr_restrict>=1\n"
            "bypass:CAP_SYSLOG\n");
 
-unsigned long get_kernel_sym(char *name) {
-  FILE *f;
-  unsigned long addr = 0;
-  char dummy;
-  char sname[256];
-  int ret = 0;
-  const char *path = "/proc/kallsyms";
-
-  printf("[.] checking %s...\n", path);
-
-  f = fopen(path, "r");
-
-  if (f == NULL) {
-    perror("[-] fopen");
-    return 0;
-  }
-
-  while (ret != EOF) {
-    ret = fscanf(f, "%p %c %255s\n", (void **)&addr, &dummy, sname);
-
-    if (ret == 0)
-      continue;
-
-    if (!strcmp(name, sname))
-      break;
-
-    addr = 0;
-  }
-
-  fclose(f);
-
-  if (addr == 0) {
-    fprintf(stderr, "[-] kernel symbol '%s' not found in %s\n", name, path);
-    return 0;
-  }
-
-  if (addr >= KERNEL_VAS_START && addr <= KERNEL_VAS_END)
-    return addr;
-
-  return 0;
-}
-
 int main(void) {
   /* Pre-check: can we access /proc/kallsyms? */
   FILE *f = fopen("/proc/kallsyms", "r");
@@ -116,14 +74,36 @@ int main(void) {
   if (all_zero)
     return KASLD_EXIT_NOPERM;
 
-  unsigned long addr = get_kernel_sym("_stext");
-  if (!addr)
-    return 0;
+  unsigned long stext = 0, etext = 0;
 
-  printf("kernel text start: %lx\n", addr);
-  printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);
-  kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr,
-               KASLD_REGION_KERNEL_TEXT, NULL);
+  FILE *ks = fopen("/proc/kallsyms", "r");
+  if (ks) {
+    unsigned long a;
+    char type, sym[256];
+    printf("[.] scanning /proc/kallsyms for _stext and _etext ...\n");
+    while (fscanf(ks, "%lx %c %255s\n", &a, &type, sym) == 3) {
+      if (!stext && strcmp(sym, "_stext") == 0)
+        stext = a;
+      else if (!etext && strcmp(sym, "_etext") == 0)
+        etext = a;
+      if (stext && etext)
+        break;
+    }
+    fclose(ks);
+  }
+
+  if (!stext) {
+    fprintf(stderr, "[-] _stext not found in /proc/kallsyms\n");
+    return 0;
+  }
+
+  printf("kernel text start (_stext): 0x%lx\n", stext);
+  printf("possible kernel base: 0x%lx\n", stext & -KERNEL_ALIGN);
+  kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, stext,
+               KASLD_REGION_KERNEL_TEXT, "_stext");
+
+  if (etext)
+    printf("kernel text end   (_etext): 0x%lx\n", etext);
 
   return 0;
 }
