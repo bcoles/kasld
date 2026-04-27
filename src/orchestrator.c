@@ -186,15 +186,21 @@ struct component {
 static struct component components[MAX_COMPONENTS];
 static int num_components;
 
-/* Two-phase execution order.
- * Inference: all "inference" phase components.
- *   apply_layout_adjustments() is called after each component so that
- *   PAGE_OFFSET discoveries propagate and revalidate prior results
- *   immediately, making execution order irrelevant for correctness.
- * Probing: all "probing" phase components — microarchitectural side-channels,
- *   timing attacks, and brute-force search. Runs after all inference
- *   components and is skipped when KASLR is disabled.
- */
+/* State machine execution model.
+ * Each state declares a phase key (matched against components[].phase), an
+ * entry guard (NULL = always enter), an exit action (NULL = no action), and
+ * an execution mode (parallel or sequential).  The loop in main() drives the
+ * table; adding a new phase means adding one row, not editing main(). */
+typedef int  (*state_guard_fn)(void);
+typedef void (*state_action_fn)(void);
+
+struct exec_state {
+  const char      *name;       /* for logging and skip messages */
+  const char      *phase_key;  /* matches component.phase; NULL = no components */
+  state_guard_fn   can_enter;  /* NULL = always enter */
+  state_action_fn  on_exit;    /* NULL = no action; called once after run_state() */
+  int              parallel;   /* 1 = use worker pool (inference); 0 = sequential */
+};
 
 static int component_cmp(const void *a, const void *b) {
   const struct component *ca = (const struct component *)a;
@@ -1123,18 +1129,28 @@ static void *inference_worker(void *arg) {
   return NULL;
 }
 
-/* Run all non-probing components.
- * workers <= 1 or verbose: sequential, apply_layout_adjustments() after each.
- * workers > 1:             parallel worker pool, apply_layout_adjustments()
- *                          once after all workers join.  Layout state is
- *                          read-only during parallel execution so
- *                          align/validate calls inside capture_result() are
- *                          safe without additional locking. */
-static void run_inference_parallel(int workers) {
+/* Run the components for a single state.
+ *
+ * Parallel states (st->parallel): worker pool when parallel_workers > 1 and
+ *   not verbose; apply_layout_adjustments() after each component in sequential
+ *   mode, once after join in parallel mode.  Layout is read-only during
+ *   parallel execution so align/validate calls inside capture_result() are
+ *   safe without additional locking.
+ *
+ * Sequential states (!st->parallel): single-threaded loop;
+ *   apply_layout_adjustments() once at the end so that PAGE_OFFSET results
+ *   from probing components propagate before the on_exit action fires.
+ *
+ * States with phase_key == NULL (setup) have no associated components; the
+ * function returns immediately and on_exit fires in the caller. */
+static void run_state(const struct exec_state *st) {
+  if (!st->phase_key)
+    return;
+
   int exp_active = experimental_mode || getenv("KASLD_EXPERIMENTAL") != NULL;
   pool_inf_n = 0;
   for (int i = 0; i < num_components; i++) {
-    if (strcmp(components[i].phase, "inference") == 0 &&
+    if (strcmp(components[i].phase, st->phase_key) == 0 &&
         (!components[i].is_experimental || exp_active) &&
         !components[i].is_filtered)
       pool_inf[pool_inf_n++] = i;
@@ -1142,12 +1158,21 @@ static void run_inference_parallel(int workers) {
   if (pool_inf_n == 0)
     return;
 
+  if (!st->parallel) {
+    for (int i = 0; i < pool_inf_n; i++) {
+      run_component(&components[pool_inf[i]]);
+      progress_update();
+    }
+    apply_layout_adjustments();
+    return;
+  }
+
+  /* Parallel (inference): sequential fallback when workers <= 1 or verbose */
+  int workers = parallel_workers;
 #ifndef HAVE_PTHREAD
-  workers = 1; /* no pthread: force sequential */
+  workers = 1;
 #endif
 
-  /* Sequential when workers == 0, workers == 1, or verbose mode.
-   * verbose falls back to sequential to avoid interleaved output. */
   if (workers <= 1 || verbose) {
     for (int i = 0; i < pool_inf_n; i++) {
       run_component(&components[pool_inf[i]]);
@@ -1168,24 +1193,8 @@ static void run_inference_parallel(int workers) {
     pthread_create(&threads[i], NULL, inference_worker, NULL);
   for (i = 0; i < workers; i++)
     pthread_join(threads[i], NULL);
-
   apply_layout_adjustments();
 #endif
-}
-
-/* Run only probing components (phase set by classify_components) */
-static void run_probing_phase(void) {
-  int exp_active = experimental_mode || getenv("KASLD_EXPERIMENTAL") != NULL;
-  for (int i = 0; i < num_components; i++) {
-    if (strcmp(components[i].phase, "probing") != 0)
-      continue;
-    if (components[i].is_filtered)
-      continue;
-    if (components[i].is_experimental && !exp_active)
-      continue;
-    run_component(&components[i]);
-    progress_update();
-  }
 }
 
 /* =========================================================================
@@ -1384,6 +1393,11 @@ static int detect_kaslr_state(void) {
       return 1; /* disabled or unsupported */
   }
   return 0;
+}
+
+/* Guard for the probing state: enter only when KASLR appears active. */
+static int kaslr_appears_active(void) {
+  return !detect_kaslr_state();
 }
 
 /* -------------------------------------------------------------------------
@@ -1806,6 +1820,14 @@ static void usage(const char *progname) {
       progname, FAST_TIMEOUT_SECS, DEFAULT_TIMEOUT_SECS);
 }
 
+/* Execution state table.  Each row is one phase.  The loop in main() drives
+ * the table; on_exit actions are wired in Part 2 (inference plugins). */
+static const struct exec_state states[] = {
+  { "setup",     NULL,        NULL,                 NULL, 0 },
+  { "inference", "inference", NULL,                 NULL, 1 },
+  { "probing",   "probing",   kaslr_appears_active, NULL, 0 },
+};
+
 int main(int argc, char *argv[]) {
   /* Default to nproc workers; --workers overrides */
   {
@@ -1974,18 +1996,16 @@ int main(int argc, char *argv[]) {
     fflush(stdout);
   }
 
-  /* Inference: run all non-probing components.
-   * Sequential (default): apply_layout_adjustments() after each component.
-   * Parallel (--parallel N): worker pool; one apply_layout_adjustments() at
-   * the end.  See run_inference_parallel() for the tradeoff. */
-  run_inference_parallel(parallel_workers);
-
-  /* Probing: side-channels and brute-force, skipped when KASLR is off */
-  if (!detect_kaslr_state()) {
-    run_probing_phase();
-    apply_layout_adjustments();
-  } else if (!quiet && verbose && plain_output()) {
-    printf("skipping probing phase (KASLR disabled)\n\n");
+  for (int s = 0; s < (int)(sizeof(states) / sizeof(states[0])); s++) {
+    const struct exec_state *st = &states[s];
+    if (st->can_enter && !st->can_enter()) {
+      if (!quiet && verbose && plain_output())
+        printf("skipping %s phase (KASLR disabled)\n\n", st->name);
+      continue;
+    }
+    run_state(st);
+    if (st->on_exit)
+      st->on_exit();
   }
 
   if (!quiet && !verbose && plain_output())
