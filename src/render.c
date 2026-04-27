@@ -1702,10 +1702,11 @@ static void render_text(const struct summary *s) {
           int ns, nc;
           group_consensus_info(type_order[t], section_order[si], &bm, &ns, &nc);
           unsigned long span = hi - lo;
-          printf("%s0x%016lx%s  (%s, %d source%s, %d conflict%s, %s)\n",
-                 c(C_GREEN), consensus, c(C_RESET),
-                 human_size(span, hbuf, sizeof(hbuf)), ns, ns == 1 ? "" : "s",
-                 nc, nc == 1 ? "" : "s", bm);
+          printf(
+              "%s0x%016lx - 0x%016lx%s  (%s, %d source%s, %d conflict%s, %s)\n",
+              c(C_GREEN), lo, hi, c(C_RESET),
+              human_size(span, hbuf, sizeof(hbuf)), ns, ns == 1 ? "" : "s", nc,
+              nc == 1 ? "" : "s", bm);
         } else {
           printf("%s0x%016lx%s  (%d source%s)\n", c(C_GREEN), consensus,
                  c(C_RESET), count, count == 1 ? "" : "s");
@@ -1746,10 +1747,11 @@ static void render_text(const struct summary *s) {
         int ns, nc;
         group_consensus_info(r->type, r->section, &bm, &ns, &nc);
         unsigned long span = hi - lo;
-        printf("%s0x%016lx%s  (%s, %d source%s, %d conflict%s, %s)\n",
-               c(C_GREEN), consensus, c(C_RESET),
-               human_size(span, hbuf, sizeof(hbuf)), ns, ns == 1 ? "" : "s", nc,
-               nc == 1 ? "" : "s", bm);
+        printf(
+            "%s0x%016lx - 0x%016lx%s  (%s, %d source%s, %d conflict%s, %s)\n",
+            c(C_GREEN), lo, hi, c(C_RESET),
+            human_size(span, hbuf, sizeof(hbuf)), ns, ns == 1 ? "" : "s", nc,
+            nc == 1 ? "" : "s", bm);
       } else {
         printf("%s0x%016lx%s  (%d source%s)\n", c(C_GREEN), consensus,
                c(C_RESET), count, count == 1 ? "" : "s");
