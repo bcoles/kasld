@@ -37,11 +37,13 @@
 #include <string.h>
 
 KASLD_EXPLAIN(
-    "Exploits a race condition in the set-UID pppd binary: pppd opens "
-    "/proc/kallsyms with elevated privileges (bypassing kptr_restrict) "
-    "but the file remains readable after pppd drops privileges. "
-    "Attaching to the pppd process and reading its open file descriptor "
-    "leaks raw kernel symbol addresses. Fixed in v4.8.");
+    "Prior to v4.8, kptr_restrict's %pK check happened at read() rather "
+    "than open() time. The set-UID-root pppd binary accepts a 'file' "
+    "argument and parses it as a configuration file. When given "
+    "/proc/kallsyms, pppd opens and reads the file as root, then prints "
+    "an error containing the first address token: 'unrecognized option "
+    "<addr>'. On 32-bit systems the first kallsyms entry is typically "
+    "_stext. Fixed in v4.8 by moving the kptr_restrict check to open().");
 
 KASLD_META("method:exact\n"
            "addr:virtual\n"
