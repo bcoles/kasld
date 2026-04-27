@@ -1835,6 +1835,20 @@ void inject_kaslr_defaults(struct summary *s) {
 
 static void run_pre_collection_inference(void) {
   run_inference_phase(&g_ctx, KASLD_INFER_PHASE_PRE_COLLECTION);
+  /* Sync any tightened bounds back to the layout so that result validation
+   * and KASLR slot-count computation use the adjusted range. */
+  if (g_ctx.text_base_max < layout.kernel_base_max) {
+    if (verbose && !quiet && !json_output)
+      printf("[layout] kernel_base_max tightened: %#lx -> %#lx "
+             "(kaslr_ceiling)\n",
+             layout.kernel_base_max, g_ctx.text_base_max);
+    layout.kernel_base_max = g_ctx.text_base_max;
+    layout.kaslr_base_max = g_ctx.text_base_max;
+  }
+  if (g_ctx.text_base_min > layout.kernel_base_min) {
+    layout.kernel_base_min = g_ctx.text_base_min;
+    layout.kaslr_base_min = g_ctx.text_base_min;
+  }
 }
 
 static void run_post_collection_inference(void) {
