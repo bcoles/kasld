@@ -104,18 +104,22 @@ static int on_match(const char *line, void *ctx) {
   if (addr < KERNEL_VAS_START || addr > KERNEL_VAS_END)
     return 1;
 
-  /* "Freeing initrd memory" → INITRD region in the direct-map.
-   * Every other "Freeing <foo> memory" message (unused kernel image,
-   * SMP alternatives, init section, decrypted memory, ...) describes
-   * memory carved out of the kernel image — KERNEL_IMAGE region in the
-   * kernel text section. */
+  /* free_reserved_area() always prints virtual addresses.
+   * Assign section and region by address range, not by message name:
+   *
+   *   kernel text range  → TEXT / KERNEL_IMAGE
+   *   direct-map range   → DIRECTMAP, with region INITRD for "initrd"
+   *                        messages, DIRECTMAP for everything else */
   name_len = (size_t)(name_end - name_start);
-  if (name_len >= 6 && strncmp(name_start, "initrd", 6) == 0) {
-    section = KASLD_SECTION_DRAM;
-    region = KASLD_REGION_INITRD;
-  } else {
+
+  if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX) {
     section = KASLD_SECTION_TEXT;
     region = KASLD_REGION_KERNEL_IMAGE;
+  } else {
+    section = KASLD_SECTION_DIRECTMAP;
+    region = (name_len >= 6 && strncmp(name_start, "initrd", 6) == 0)
+                 ? KASLD_REGION_INITRD
+                 : KASLD_REGION_DIRECTMAP;
   }
 
   printf("leaked address: %lx\n", addr);
