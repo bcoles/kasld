@@ -873,12 +873,9 @@ int meta_get_all(const struct component_meta *m, const char *key,
 }
 
 /* Classify components by reading .kasld_meta from each binary.
- * Sets phase to "inference" or "probing".
- *
- * Phase is read from the "phase:" key in .kasld_meta when present.
- * When absent, it falls back to method-based inference for backward
- * compatibility: method:timing and method:heuristic map to "probing";
- * everything else maps to "inference". */
+ * Sets phase to the value of the "phase:" key ("inference" or "probing").
+ * Defaults to "inference" when the key is absent or the binary has no
+ * .kasld_meta section. */
 static void classify_components(void) {
   for (int i = 0; i < num_components; i++) {
     char *meta_raw = extract_elf_section(components[i].path, ".kasld_meta");
@@ -891,16 +888,8 @@ static void classify_components(void) {
     free(meta_raw);
 
     const char *phase = meta_get(&m, "phase");
-    if (!phase) {
-      /* Backward compat: infer phase from method */
-      const char *method = meta_get(&m, "method");
-      if (method &&
-          (strcmp(method, "timing") == 0 || strcmp(method, "heuristic") == 0))
-        phase = "probing";
-      else
-        phase = "inference";
-    }
-    snprintf(components[i].phase, sizeof(components[i].phase), "%s", phase);
+    snprintf(components[i].phase, sizeof(components[i].phase), "%s",
+             phase ? phase : "inference");
 
     const char *status = meta_get(&m, "status");
     if (status && strcmp(status, "experimental") == 0)
