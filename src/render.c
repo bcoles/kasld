@@ -872,7 +872,61 @@ static void render_hardening_text(void) {
 
   printf("\n");
 
-  /* ---- Section 5: No Known Mitigation ---- */
+  /* ---- Section 5: Hardware Side-Channels ---- */
+  printf("%sHardware side-channels:%s\n", c(C_BOLD), c(C_RESET));
+
+  struct {
+    const char *name;
+    const char *hardware;
+    const char *addr;
+    int outcome;
+  } hw_comps[32];
+  int nhw = 0, hw_succeeded = 0;
+
+  for (int i = 0; i < num_comp_logs; i++) {
+    const char *hw = meta_get(&comp_logs[i].meta, "hardware");
+    if (!hw)
+      continue;
+    const char *method = meta_get(&comp_logs[i].meta, "method");
+    if (!method || strcmp(method, "detection") == 0)
+      continue;
+    if (nhw < 32) {
+      hw_comps[nhw].name = comp_logs[i].name;
+      hw_comps[nhw].hardware = hw;
+      hw_comps[nhw].addr = meta_get(&comp_logs[i].meta, "addr");
+      hw_comps[nhw].outcome = comp_logs[i].outcome;
+      nhw++;
+      if (comp_logs[i].outcome == OUTCOME_SUCCESS)
+        hw_succeeded++;
+    }
+  }
+
+  if (nhw == 0) {
+    printf("  No hardware-mitigated components.\n");
+  } else if (hw_succeeded == 0) {
+    printf("  %d hardware-gated component%s did not succeed (CPU mitigations "
+           "active or attack not applicable).\n",
+           nhw, nhw == 1 ? "" : "s");
+  } else {
+    printf("  %s%d of %d%s hardware-gated components succeeded:\n", c(C_YELLOW),
+           hw_succeeded, nhw, c(C_RESET));
+    for (int i = 0; i < nhw; i++) {
+      if (hw_comps[i].outcome != OUTCOME_SUCCESS)
+        continue;
+      printf("    %-28s %s", hw_comps[i].name, hw_comps[i].hardware);
+      if (hw_comps[i].addr)
+        printf(" — leaks %s address", hw_comps[i].addr);
+      printf("\n");
+    }
+    if (hw_succeeded < nhw) {
+      printf("  %d of %d hardware-gated component%s did not succeed.\n",
+             nhw - hw_succeeded, nhw, nhw - hw_succeeded == 1 ? "" : "s");
+    }
+  }
+
+  printf("\n");
+
+  /* ---- Section 6: No Known Mitigation ---- */
   printf("%sNo known mitigation:%s\n", c(C_BOLD), c(C_RESET));
 
   int any_unmit = 0;
