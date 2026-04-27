@@ -169,6 +169,14 @@ static void emit_result(int idx, unsigned long addr) {
 
   kasld_result(entries[idx].type, entries[idx].section, addr,
                entries[idx].region, NULL);
+#if !PHYS_VIRT_DECOUPLED
+  if (strcmp(entries[idx].section, KASLD_SECTION_DIRECTMAP) == 0) {
+    unsigned long phys = virt_to_phys(addr);
+    printf("  possible physical address: 0x%016lx\n", phys);
+    kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, phys,
+                 entries[idx].region, NULL);
+  }
+#endif
 }
 
 struct search_ctx {

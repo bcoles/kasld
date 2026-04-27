@@ -124,6 +124,13 @@ static int on_match(const char *line, void *ctx) {
 
   printf("leaked address: %lx\n", addr);
   kasld_result(KASLD_ADDR_VIRT, section, addr, region, NULL);
+#if !PHYS_VIRT_DECOUPLED
+  if (strcmp(section, KASLD_SECTION_DIRECTMAP) == 0) {
+    unsigned long phys = virt_to_phys(addr);
+    printf("  possible physical address: 0x%016lx\n", phys);
+    kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, phys, region, NULL);
+  }
+#endif
 
   return 1; /* keep scanning for more sections */
 }

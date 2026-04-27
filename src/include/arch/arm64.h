@@ -52,6 +52,7 @@
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm64/include/asm/memory.h#L295
 #define PHYS_VIRT_DECOUPLED 1
 #define phys_to_virt(x) ((unsigned long)((x) - PHYS_OFFSET) | PAGE_OFFSET)
+#define virt_to_phys(v) ((unsigned long)(((v) & ~PAGE_OFFSET) + PHYS_OFFSET))
 
 #define KERNEL_VAS_START PAGE_OFFSET
 #define KERNEL_VAS_END 0xfffffffffffffffful

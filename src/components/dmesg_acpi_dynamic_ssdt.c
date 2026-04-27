@@ -164,6 +164,14 @@ int main(void) {
    * instance name so the table reads "acpi_table:Cpu0Ist". */
   kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, s.addr,
                KASLD_REGION_ACPI_TABLE, s.label);
+#if !PHYS_VIRT_DECOUPLED
+  {
+    unsigned long phys = virt_to_phys(s.addr);
+    printf("  possible physical address: 0x%016lx\n", phys);
+    kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, phys,
+                 KASLD_REGION_ACPI_TABLE, s.label);
+  }
+#endif
 
   return 0;
 }

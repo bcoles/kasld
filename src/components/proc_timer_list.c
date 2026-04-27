@@ -101,6 +101,14 @@ int main(void) {
       printf("timer base address: 0x%016lx\n", val);
       kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, val,
                    KASLD_REGION_DIRECTMAP, NULL);
+#if !PHYS_VIRT_DECOUPLED
+      {
+        unsigned long phys = virt_to_phys(val);
+        printf("  possible physical address: 0x%016lx\n", phys);
+        kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, phys,
+                     KASLD_REGION_DIRECTMAP, NULL);
+      }
+#endif
       count++;
       break;
     }

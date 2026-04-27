@@ -61,6 +61,7 @@
 // physical); KASLR was physical-only in that era.
 #define PHYS_VIRT_DECOUPLED 1
 #define phys_to_virt(x) ((unsigned long)(x) + PAGE_OFFSET - PHYS_OFFSET)
+#define virt_to_phys(v) ((unsigned long)(v) - PAGE_OFFSET + PHYS_OFFSET)
 
 // Identity mapping base is NOT randomized by default.
 // CONFIG_RANDOMIZE_IDENTITY_BASE depends on RANDOMIZE_BASE and defaults to

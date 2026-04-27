@@ -23,6 +23,7 @@
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/mips/include/asm/page.h#L199
 #define PHYS_VIRT_DECOUPLED 0
 #define phys_to_virt(x) ((unsigned long)((x) + PAGE_OFFSET - PHYS_OFFSET))
+#define virt_to_phys(v) ((unsigned long)((v) - PAGE_OFFSET + PHYS_OFFSET))
 
 // PAGE_OFFSET is fixed by CKSEG0 hardware mapping;
 // Directmap leaks cannot reveal the KASLR slide.

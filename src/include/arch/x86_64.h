@@ -36,6 +36,7 @@
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/include/asm/page.h#L59
 #define PHYS_VIRT_DECOUPLED 1
 #define phys_to_virt(x) ((unsigned long)(x + PAGE_OFFSET))
+#define virt_to_phys(v) ((unsigned long)(v - PAGE_OFFSET))
 
 #define KERNEL_VAS_START PAGE_OFFSET
 #define KERNEL_VAS_END 0xfffffffffffffffful

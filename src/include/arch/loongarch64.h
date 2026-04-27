@@ -27,6 +27,7 @@
 // https://elixir.bootlin.com/linux/v6.8.5/source/arch/loongarch/include/asm/page.h#L81
 #define PHYS_VIRT_DECOUPLED 0
 #define phys_to_virt(x) ((unsigned long)(x) + PAGE_OFFSET - PHYS_OFFSET)
+#define virt_to_phys(v) ((unsigned long)(v) - PAGE_OFFSET + PHYS_OFFSET)
 
 // PAGE_OFFSET is fixed by DMW hardware (CSR_DMW1_VSEG << DMW_PABITS);
 // KASLR randomizes only the physical load address.

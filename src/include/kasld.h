@@ -31,6 +31,7 @@
 // - PHYS_VIRT_DECOUPLED:      1 if physical and virtual KASLR are independent
 //                             (phys_to_virt yields directmap, not text addr).
 // - phys_to_virt():           Macro to convert physical to virtual address.
+// - virt_to_phys():           Macro to convert directmap virtual to physical address.
 //
 // The default values should work on most systems, but may need
 // to be tweaked for the target system - especially old kernels,

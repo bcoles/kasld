@@ -22,6 +22,7 @@
 #define PHYS_OFFSET 0ul
 #define PHYS_VIRT_DECOUPLED 0
 #define phys_to_virt(x) ((unsigned long)(x) + PAGE_OFFSET)
+#define virt_to_phys(v) ((unsigned long)(v) - PAGE_OFFSET)
 
 #define KERNEL_VAS_START PAGE_OFFSET
 #define KERNEL_VAS_END 0xfffffffful

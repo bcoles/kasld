@@ -54,6 +54,7 @@
 // those kernels had no KASLR so the loss of coupled derivation is acceptable.
 #define PHYS_VIRT_DECOUPLED 1
 #define phys_to_virt(x) ((unsigned long)(x) + (PAGE_OFFSET - PHYS_OFFSET))
+#define virt_to_phys(v) ((unsigned long)(v) - (PAGE_OFFSET - PHYS_OFFSET))
 
 // VAS start with SV57 (5-level page tables): ~0xff1bffff_fea00000
 // VAS start with SV48 (4-level page tables): ~0xffff8d7f_fea00000

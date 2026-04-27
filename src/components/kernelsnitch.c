@@ -842,5 +842,13 @@ int main(void) {
   printf("leaked mm_struct address: %lx\n", result);
   kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, result,
                KASLD_REGION_DIRECTMAP, "mm_struct");
+#if !PHYS_VIRT_DECOUPLED
+  {
+    unsigned long phys = virt_to_phys(result);
+    printf("  possible physical address: 0x%016lx\n", phys);
+    kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, phys,
+                 KASLD_REGION_DIRECTMAP, "mm_struct");
+  }
+#endif
   return 0;
 }
