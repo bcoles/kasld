@@ -176,8 +176,9 @@ int num_comp_logs;
 struct component {
   char path[KASLD_PATH_MAX];
   char name[256];
-  int is_probing; /* set from method:timing or method:heuristic in .kasld_meta
-                   */
+  char phase[32];      /* scheduling phase: "inference" or "probing".
+                        * Set from "phase:" in .kasld_meta; falls back to
+                        * method-based inference when "phase:" is absent. */
   int is_experimental; /* set from status:experimental in .kasld_meta */
   int is_filtered;     /* set by apply_skip_filter() from --skip patterns */
 };
@@ -186,14 +187,13 @@ static struct component components[MAX_COMPONENTS];
 static int num_components;
 
 /* Two-phase execution order.
- * Inference: all non-probing components run sequentially.
+ * Inference: all "inference" phase components.
  *   apply_layout_adjustments() is called after each component so that
  *   PAGE_OFFSET discoveries propagate and revalidate prior results
  *   immediately, making execution order irrelevant for correctness.
- * Probing: active probing components — microarchitectural side-channels,
- *   timing attacks, and brute-force search. Detected automatically from
- *   .kasld_meta method field (timing or heuristic). Runs after all
- *   inference components and is skipped when KASLR is disabled.
+ * Probing: all "probing" phase components — microarchitectural side-channels,
+ *   timing attacks, and brute-force search. Runs after all inference
+ *   components and is skipped when KASLR is disabled.
  */
 
 static int component_cmp(const void *a, const void *b) {
@@ -830,20 +830,34 @@ int meta_get_all(const struct component_meta *m, const char *key,
 }
 
 /* Classify components by reading .kasld_meta from each binary.
- * Sets is_probing for components whose method is "timing" or "heuristic"
- * (side-channels, brute-force, iterative syscall loops). */
+ * Sets phase to "inference" or "probing".
+ *
+ * Phase is read from the "phase:" key in .kasld_meta when present.
+ * When absent, it falls back to method-based inference for backward
+ * compatibility: method:timing and method:heuristic map to "probing";
+ * everything else maps to "inference". */
 static void classify_components(void) {
   for (int i = 0; i < num_components; i++) {
     char *meta_raw = extract_elf_section(components[i].path, ".kasld_meta");
-    if (!meta_raw)
+    if (!meta_raw) {
+      snprintf(components[i].phase, sizeof(components[i].phase), "inference");
       continue;
+    }
     struct component_meta m = {0};
     parse_meta(meta_raw, &m);
     free(meta_raw);
-    const char *method = meta_get(&m, "method");
-    if (method &&
-        (strcmp(method, "timing") == 0 || strcmp(method, "heuristic") == 0))
-      components[i].is_probing = 1;
+
+    const char *phase = meta_get(&m, "phase");
+    if (!phase) {
+      /* Backward compat: infer phase from method */
+      const char *method = meta_get(&m, "method");
+      if (method && (strcmp(method, "timing") == 0 ||
+                     strcmp(method, "heuristic") == 0))
+        phase = "probing";
+      else
+        phase = "inference";
+    }
+    snprintf(components[i].phase, sizeof(components[i].phase), "%s", phase);
 
     const char *status = meta_get(&m, "status");
     if (status && strcmp(status, "experimental") == 0)
@@ -1120,7 +1134,7 @@ static void run_inference_parallel(int workers) {
   int exp_active = experimental_mode || getenv("KASLD_EXPERIMENTAL") != NULL;
   pool_inf_n = 0;
   for (int i = 0; i < num_components; i++) {
-    if (!components[i].is_probing &&
+    if (strcmp(components[i].phase, "inference") == 0 &&
         (!components[i].is_experimental || exp_active) &&
         !components[i].is_filtered)
       pool_inf[pool_inf_n++] = i;
@@ -1159,11 +1173,11 @@ static void run_inference_parallel(int workers) {
 #endif
 }
 
-/* Run only probing components (is_probing flag set by classify_components) */
+/* Run only probing components (phase set by classify_components) */
 static void run_probing_phase(void) {
   int exp_active = experimental_mode || getenv("KASLD_EXPERIMENTAL") != NULL;
   for (int i = 0; i < num_components; i++) {
-    if (!components[i].is_probing)
+    if (strcmp(components[i].phase, "probing") != 0)
       continue;
     if (components[i].is_filtered)
       continue;

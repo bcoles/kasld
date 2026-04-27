@@ -1721,9 +1721,9 @@ static void test_skip_active_count_excludes_filtered(void) {
 static void test_skip_inference_pool_excludes_filtered(void) {
   reset_state();
   snprintf(components[0].name, sizeof(components[0].name), "dmesg");
-  components[0].is_probing = 0;
+  snprintf(components[0].phase, sizeof(components[0].phase), "inference");
   snprintf(components[1].name, sizeof(components[1].name), "entrybleed");
-  components[1].is_probing = 0;
+  snprintf(components[1].phase, sizeof(components[1].phase), "inference");
   num_components = 2;
   strncpy(skip_patterns[0], "dmesg", 255);
   num_skip_patterns = 1;
@@ -1732,7 +1732,7 @@ static void test_skip_inference_pool_excludes_filtered(void) {
   int exp_active = 0;
   pool_inf_n = 0;
   for (int i = 0; i < num_components; i++) {
-    if (!components[i].is_probing &&
+    if (strcmp(components[i].phase, "inference") == 0 &&
         (!components[i].is_experimental || exp_active) &&
         !components[i].is_filtered)
       pool_inf[pool_inf_n++] = i;
