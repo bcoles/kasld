@@ -49,9 +49,11 @@ PTHREAD_LIBS   :=
 endif
 
 # kasld orchestrator (not a leak component)
-KASLD_SRC := $(SRC_DIR)/orchestrator.c
-RENDER_SRC := $(SRC_DIR)/render.c
-KASLD_BIN := $(OBJ_DIR)/kasld
+KASLD_SRC     := $(SRC_DIR)/orchestrator.c
+RENDER_SRC    := $(SRC_DIR)/render.c
+KASLD_BIN     := $(OBJ_DIR)/kasld
+INFER_SRC_DIR := $(SRC_DIR)/inference
+INFER_OBJS    := $(patsubst $(INFER_SRC_DIR)/%.c,$(OBJ_DIR)/inference_%.o,$(wildcard $(INFER_SRC_DIR)/*.c))
 
 # Leak components: standalone binaries in src/components/
 COMP_SRC_DIR := $(SRC_DIR)/components
@@ -117,7 +119,10 @@ $(OBJ_DIR)/orchestrator.o: $(KASLD_SRC) $(HDRS) | $(COMP_DIR)
 $(OBJ_DIR)/render.o: $(RENDER_SRC) $(HDRS) | $(COMP_DIR)
 	$(CC) $(ALL_CFLAGS) -DVERSION='"$(VERSION)"' -c $< -o $@
 
-$(KASLD_BIN): $(OBJ_DIR)/orchestrator.o $(OBJ_DIR)/render.o | $(COMP_DIR)
+$(OBJ_DIR)/inference_%.o: $(INFER_SRC_DIR)/%.c $(HDRS) | $(COMP_DIR)
+	$(CC) $(ALL_CFLAGS) -DVERSION='"$(VERSION)"' -I$(SRC_DIR) -c $< -o $@
+
+$(KASLD_BIN): $(OBJ_DIR)/orchestrator.o $(OBJ_DIR)/render.o $(INFER_OBJS) | $(COMP_DIR)
 	$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) $^ $(PTHREAD_LIBS) -o $@
 
 .PHONY: run

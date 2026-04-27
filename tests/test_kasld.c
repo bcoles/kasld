@@ -1742,6 +1742,43 @@ static void test_skip_inference_pool_excludes_filtered(void) {
 }
 
 /* =========================================================================
+ * State machine
+ * =========================================================================
+ */
+
+/* kaslr_appears_active() is the probing guard: it mirrors detect_kaslr_state()
+ * and determines whether the probing state is entered. */
+static void test_state_table_guards(void) {
+  reset_state();
+  assert(kaslr_appears_active() == 1); /* no disabled markers → enter probing */
+
+  inject_tagged("D - 0xffffffff81000000 proc-cmdline:nokaslr");
+  assert(kaslr_appears_active() == 0); /* nokaslr marker → skip probing */
+}
+
+/* Verify state table structure: entry count, phase keys, guards, and
+ * parallel flags are wired correctly. */
+static void test_run_state_skips_on_guard(void) {
+  size_t n = sizeof(states) / sizeof(states[0]);
+  assert(n == 3);
+
+  /* setup: no components, no guard */
+  assert(states[0].phase_key == NULL);
+  assert(states[0].can_enter == NULL);
+  assert(states[0].parallel == 0);
+
+  /* inference: all inference-phase components, always entered, parallel */
+  assert(strcmp(states[1].phase_key, "inference") == 0);
+  assert(states[1].can_enter == NULL);
+  assert(states[1].parallel == 1);
+
+  /* probing: guarded by kaslr_appears_active, sequential */
+  assert(strcmp(states[2].phase_key, "probing") == 0);
+  assert(states[2].can_enter == kaslr_appears_active);
+  assert(states[2].parallel == 0);
+}
+
+/* =========================================================================
  * Main
  * =========================================================================
  */
@@ -1927,6 +1964,11 @@ int main(void) {
   RUN_TEST(test_e2e_pipeline);
   RUN_TEST(test_e2e_incremental_layout);
   RUN_TEST(test_e2e_kaslr_disabled_skips_probing);
+  printf("\n");
+
+  printf("state machine:\n");
+  RUN_TEST(test_state_table_guards);
+  RUN_TEST(test_run_state_skips_on_guard);
   printf("\n");
 
   printf("apply_skip_filter:\n");

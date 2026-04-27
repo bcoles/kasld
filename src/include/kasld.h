@@ -362,9 +362,27 @@ typedef int make_iso_compilers_happy;
  *
  *   KASLD_META(
  *       "method:parsed\n"
+ *       "phase:inference\n"
  *       "addr:physical\n"
  *       "sysctl:dmesg_restrict>=1\n"
  *   )
+ *
+ * Recognised keys:
+ *   method:  Technique description used in the hardening report.
+ *            Common values: exact, parsed, timing, heuristic, brute-force.
+ *   phase:   Scheduling phase.  "inference" (default) or "probing".
+ *            Inference components run first, in parallel.  Probing components
+ *            run after, sequentially, only when KASLR appears active.
+ *            Omitting phase: is allowed; the orchestrator falls back to
+ *            method-based inference (timing/heuristic → probing, else
+ *            inference).
+ *   addr:    Address type emitted.  "virtual" or "physical".
+ *   status:  "experimental" marks the component as opt-in (-x /
+ * KASLD_EXPERIMENTAL). sysctl:  Sysctl that mitigates or gates the technique.
+ *   bypass:  Capability or condition that bypasses the mitigation.
+ *   patch:   Kernel version that patched the vulnerability.
+ *   cve:     Associated CVE identifier.
+ *   hardware: Hardware requirement or affected microarchitecture.
  */
 #define KASLD_META(text)                                                       \
   __attribute__((                                                              \
