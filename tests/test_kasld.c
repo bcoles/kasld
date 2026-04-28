@@ -8,6 +8,9 @@
 #endif
 #define VERSION "test"
 
+#include "../src/inference/dram_bound.c"
+#include "../src/inference/kaslr_ceiling.c"
+#include "../src/inference/phys_virt_synth.c"
 #include "../src/orchestrator.c"
 #include "../src/render.c"
 
@@ -101,6 +104,36 @@ static void inject_result(char type, const char *section, unsigned long addr,
     r->region[REGION_LEN - 1] = '\0';
   }
   num_results++;
+}
+
+/* Initialize g_ctx and g_arch_params from compile-time layout constants.
+ * Call after reset_state() and after any inject_result() calls that should
+ * be visible to the plugin under test. */
+static void init_inference_ctx(void) {
+  g_arch_params.kaslr_base_min = layout.kaslr_base_min;
+  g_arch_params.kaslr_base_max = layout.kaslr_base_max;
+  g_arch_params.kaslr_align = layout.kaslr_align;
+  g_arch_params.phys_virt_decoupled = PHYS_VIRT_DECOUPLED;
+  g_arch_params.phys_offset = PHYS_OFFSET;
+  g_arch_params.page_offset = PAGE_OFFSET;
+  g_arch_params.text_offset = TEXT_OFFSET;
+  g_ctx.results = results;
+  g_ctx.result_count = (size_t)num_results;
+  g_ctx.text_base_min = layout.kaslr_base_min;
+  g_ctx.text_base_max = layout.kaslr_base_max;
+  g_ctx.page_offset_min = layout.kernel_vas_start;
+  g_ctx.page_offset_max = layout.kernel_vas_end;
+  g_ctx.arch = &g_arch_params;
+}
+
+/* Like inject_result(), but also tags the result with a component origin. */
+static void inject_result_with_origin(char type, const char *section,
+                                      unsigned long addr, const char *label,
+                                      const char *origin) {
+  inject_result(type, section, addr, label);
+  struct result *r = &results[num_results - 1];
+  strncpy(r->origin, origin, ORIGIN_LEN - 1);
+  r->origin[ORIGIN_LEN - 1] = '\0';
 }
 
 /* =========================================================================
@@ -1742,6 +1775,167 @@ static void test_skip_inference_pool_excludes_filtered(void) {
 }
 
 /* =========================================================================
+ * Inference plugins
+ * =========================================================================
+ */
+
+/* kaslr_ceiling (PRE_COLLECTION):
+ * Estimates kernel image size from /boot files and eliminates the top band of
+ * KASLR slots where base + image_size would exceed KASLR_BASE_MAX.
+ * On systems where the /boot files are absent estimate_kernel_size() returns 0
+ * and the plugin is a no-op; the invariant tests still hold. */
+
+static void test_kaslr_ceiling_never_widens(void) {
+  reset_state();
+  init_inference_ctx();
+  unsigned long initial_max = g_ctx.text_base_max;
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_PRE_COLLECTION);
+  assert(g_ctx.text_base_max <= initial_max);
+}
+
+static void test_kaslr_ceiling_alignment_invariant(void) {
+  reset_state();
+  init_inference_ctx();
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_PRE_COLLECTION);
+  assert((g_ctx.text_base_max % layout.kaslr_align) == 0);
+}
+
+static void test_kaslr_ceiling_max_above_min(void) {
+  reset_state();
+  init_inference_ctx();
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_PRE_COLLECTION);
+  assert(g_ctx.text_base_max > g_ctx.text_base_min);
+}
+
+/* dram_bound (POST_COLLECTION):
+ * Raises text_base_min from the minimum PHYS/DRAM result on coupled arches. */
+
+static void test_dram_bound_no_results_noop(void) {
+  reset_state();
+  init_inference_ctx();
+  unsigned long initial_min = g_ctx.text_base_min;
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+  assert(g_ctx.text_base_min == initial_min);
+}
+
+static void test_dram_bound_only_dram_section_used(void) {
+  reset_state();
+  /* PHYS/TEXT result — not DRAM — must leave text_base_min unchanged */
+  inject_result(KASLD_ADDR_PHYS, KASLD_SECTION_TEXT, PHYS_OFFSET + MB,
+                KASLD_REGION_KERNEL_IMAGE);
+  init_inference_ctx();
+  unsigned long initial_min = g_ctx.text_base_min;
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+  assert(g_ctx.text_base_min == initial_min);
+}
+
+#if PHYS_VIRT_DECOUPLED
+static void test_dram_bound_decoupled_noop(void) {
+  reset_state();
+  inject_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, PHYS_OFFSET + (64 * MB),
+                KASLD_REGION_KERNEL_IMAGE);
+  init_inference_ctx();
+  unsigned long initial_min = g_ctx.text_base_min;
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+  assert(g_ctx.text_base_min == initial_min);
+}
+#endif
+
+#if !PHYS_VIRT_DECOUPLED
+static void test_dram_bound_raises_min(void) {
+  reset_state();
+  inject_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, PHYS_OFFSET + (128 * MB),
+                KASLD_REGION_KERNEL_IMAGE);
+  init_inference_ctx();
+  unsigned long initial_min = g_ctx.text_base_min;
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+  assert(g_ctx.text_base_min >= initial_min);
+  assert((g_ctx.text_base_min % layout.kaslr_align) == 0);
+}
+#endif
+
+/* phys_virt_synth (POST_COLLECTION):
+ * Tightens page_offset_min/max by synthesising PAGE_OFFSET from per-origin
+ * (PHYS/DRAM, VIRT/DIRECTMAP) pairs.  Tests use synthetic addresses that make
+ * the arithmetic produce a po_target strictly interior to [page_offset_min,
+ * page_offset_max] so both bounds are visibly tightened. */
+
+static void test_phys_virt_synth_no_results_noop(void) {
+  reset_state();
+  init_inference_ctx();
+  unsigned long po_min = g_ctx.page_offset_min;
+  unsigned long po_max = g_ctx.page_offset_max;
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+  assert(g_ctx.page_offset_min == po_min);
+  assert(g_ctx.page_offset_max == po_max);
+}
+
+static void test_phys_virt_synth_no_cross_origin_pairing(void) {
+  reset_state();
+  /* VIRT/DIRECTMAP from "alpha", PHYS/DRAM from "beta" — different origins,
+   * no pair formed → page_offset bounds unchanged */
+  inject_result_with_origin(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP,
+                            PAGE_OFFSET + (32 * MB), KASLD_REGION_DIRECTMAP,
+                            "alpha");
+  inject_result_with_origin(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM,
+                            PHYS_OFFSET + (32 * MB), KASLD_REGION_KERNEL_IMAGE,
+                            "beta");
+  init_inference_ctx();
+  unsigned long po_min = g_ctx.page_offset_min;
+  unsigned long po_max = g_ctx.page_offset_max;
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+  assert(g_ctx.page_offset_min == po_min);
+  assert(g_ctx.page_offset_max == po_max);
+}
+
+static void test_phys_virt_synth_tightens_on_agreement(void) {
+  reset_state();
+  /* Construct a pair whose synthesised PAGE_OFFSET is interior to the initial
+   * [page_offset_min, page_offset_max] so both bounds are tightened.
+   * Formula: po = virt - phys + phys_offset.  Choose po_target = PAGE_OFFSET
+   * + 256*MB, then virt = po_target + phys - PHYS_OFFSET. */
+  unsigned long phys = PHYS_OFFSET + (32 * MB);
+  unsigned long po_target = PAGE_OFFSET + (256 * MB);
+  unsigned long virt = po_target + phys - PHYS_OFFSET;
+  inject_result_with_origin(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
+                            KASLD_REGION_DIRECTMAP, "test_comp");
+  inject_result_with_origin(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, phys,
+                            KASLD_REGION_KERNEL_IMAGE, "test_comp");
+  init_inference_ctx();
+  unsigned long po_min_before = g_ctx.page_offset_min;
+  unsigned long po_max_before = g_ctx.page_offset_max;
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+  assert(g_ctx.page_offset_min >= po_min_before);
+  assert(g_ctx.page_offset_max <= po_max_before);
+  assert(g_ctx.page_offset_min <= g_ctx.page_offset_max);
+}
+
+static void test_phys_virt_synth_disagreeing_candidates_noop(void) {
+  reset_state();
+  /* Two origins whose synthesised PAGE_OFFSET values differ by 4*MB, which
+   * exceeds KASLR_ALIGN (2*MB on x86_64) → plugin skips tightening */
+  unsigned long phys = PHYS_OFFSET + (32 * MB);
+  unsigned long po_a = PAGE_OFFSET + (256 * MB);
+  unsigned long po_b = PAGE_OFFSET + (260 * MB); /* |po_b - po_a| = 4*MB */
+  unsigned long virt_a = po_a + phys - PHYS_OFFSET;
+  unsigned long virt_b = po_b + phys - PHYS_OFFSET;
+  inject_result_with_origin(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt_a,
+                            KASLD_REGION_DIRECTMAP, "comp_a");
+  inject_result_with_origin(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, phys,
+                            KASLD_REGION_KERNEL_IMAGE, "comp_a");
+  inject_result_with_origin(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt_b,
+                            KASLD_REGION_DIRECTMAP, "comp_b");
+  inject_result_with_origin(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, phys,
+                            KASLD_REGION_KERNEL_IMAGE, "comp_b");
+  init_inference_ctx();
+  unsigned long po_min = g_ctx.page_offset_min;
+  unsigned long po_max = g_ctx.page_offset_max;
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+  assert(g_ctx.page_offset_min == po_min);
+  assert(g_ctx.page_offset_max == po_max);
+}
+
+/* =========================================================================
  * State machine
  * =========================================================================
  */
@@ -1979,6 +2173,30 @@ int main(void) {
   RUN_TEST(test_skip_no_match_keeps_all);
   RUN_TEST(test_skip_active_count_excludes_filtered);
   RUN_TEST(test_skip_inference_pool_excludes_filtered);
+  printf("\n");
+
+  printf("inference plugins (kaslr_ceiling):\n");
+  RUN_TEST(test_kaslr_ceiling_never_widens);
+  RUN_TEST(test_kaslr_ceiling_alignment_invariant);
+  RUN_TEST(test_kaslr_ceiling_max_above_min);
+  printf("\n");
+
+  printf("inference plugins (dram_bound):\n");
+  RUN_TEST(test_dram_bound_no_results_noop);
+  RUN_TEST(test_dram_bound_only_dram_section_used);
+#if PHYS_VIRT_DECOUPLED
+  RUN_TEST(test_dram_bound_decoupled_noop);
+#endif
+#if !PHYS_VIRT_DECOUPLED
+  RUN_TEST(test_dram_bound_raises_min);
+#endif
+  printf("\n");
+
+  printf("inference plugins (phys_virt_synth):\n");
+  RUN_TEST(test_phys_virt_synth_no_results_noop);
+  RUN_TEST(test_phys_virt_synth_no_cross_origin_pairing);
+  RUN_TEST(test_phys_virt_synth_tightens_on_agreement);
+  RUN_TEST(test_phys_virt_synth_disagreeing_candidates_noop);
   printf("\n");
 
   printf("---\n%d/%d tests passed\n", pass_count, test_count);
