@@ -919,6 +919,9 @@ static void test_compute_kaslr_empty(void) {
   assert(s.kaslr.vtext == 0);
   assert(s.kaslr.ptext == 0);
   assert(s.kaslr.has_phys == 0);
+  /* Slot count is computed unconditionally from the layout range. */
+  assert(s.kaslr.vslots > 0);
+  assert(s.kaslr.vbits > 0);
 }
 
 static void test_compute_kaslr_disabled_zeroes(void) {
@@ -1149,6 +1152,29 @@ static void test_json_kaslr_virtual(void) {
   free(out);
 }
 
+static void test_json_kaslr_no_address_has_inferred(void) {
+  reset_state();
+  struct summary s;
+  memset(&s, 0, sizeof(s));
+
+  /* No results — KASLR appears active; inferred range must appear in JSON */
+  compute_kaslr_info(&s);
+
+  capture_start();
+  render_json(&s);
+  char *out = capture_end();
+
+  assert(strstr(out, "\"inferred\""));
+  assert(strstr(out, "\"range_min\""));
+  assert(strstr(out, "\"range_max\""));
+  assert(strstr(out, "\"slots\""));
+  assert(strstr(out, "\"entropy_bits\""));
+  /* No concrete address → no "virtual" object */
+  assert(!strstr(out, "\"virtual\""));
+
+  free(out);
+}
+
 static void test_json_kaslr_disabled(void) {
   reset_state();
   struct summary s;
@@ -1164,6 +1190,8 @@ static void test_json_kaslr_disabled(void) {
   char *out = capture_end();
 
   assert(strstr(out, "\"disabled\": true"));
+  /* Disabled → no inferred object */
+  assert(!strstr(out, "\"inferred\""));
 
   free(out);
 }
@@ -2121,6 +2149,7 @@ int main(void) {
   RUN_TEST(test_json_layout_values);
   RUN_TEST(test_json_groups_with_results);
   RUN_TEST(test_json_kaslr_virtual);
+  RUN_TEST(test_json_kaslr_no_address_has_inferred);
   RUN_TEST(test_json_kaslr_disabled);
   RUN_TEST(test_json_derived_entries);
   RUN_TEST(test_json_derived_with_range);

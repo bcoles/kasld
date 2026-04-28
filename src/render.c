@@ -205,12 +205,26 @@ static void print_group(char type, const char *section,
  * -------------------------------------------------------------------------
  */
 static void render_kaslr_text(const struct summary *s) {
-  if (!s->kaslr.vtext && !s->kaslr.ptext)
+  if (s->kaslr.disabled || s->kaslr.unsupported)
+    return;
+  if (!s->kaslr.vtext && !s->kaslr.ptext && s->kaslr.vslots == 0)
     return;
 
   printf("%s%s%s\n", c(C_DIM), "----------------------------------------",
          c(C_RESET));
   printf("%sKASLR analysis:%s\n", c(C_BOLD), c(C_RESET));
+
+  if (!s->kaslr.vtext && !s->kaslr.ptext) {
+    /* Inference narrowed the range but no concrete address was found. */
+    printf("  Inferred text range:  0x%016lx - 0x%016lx\n",
+           layout.kaslr_base_min, layout.kaslr_base_max);
+    if (s->kaslr.vslots > 0)
+      printf("  Remaining slots:      %s%lu%s  (%d bits, step %#lx)\n",
+             c(C_MAGENTA), s->kaslr.vslots, c(C_RESET), s->kaslr.vbits,
+             layout.kaslr_align);
+    printf("\n");
+    return;
+  }
 
   if (s->kaslr.vtext) {
     printf("  Virtual text base:    %s0x%016lx%s\n", c(C_GREEN), s->kaslr.vtext,
@@ -1386,6 +1400,14 @@ static void render_json(const struct summary *s) {
     if (s->kaslr.vslot_valid)
       printf(",\n      \"slot_index\": %lu", s->kaslr.vslot_idx);
     printf("\n    }");
+  } else if (!s->kaslr.disabled && !s->kaslr.unsupported &&
+             s->kaslr.vslots > 0) {
+    printf(",\n    \"inferred\": {\n");
+    printf("      \"range_min\": \"0x%016lx\",\n", layout.kaslr_base_min);
+    printf("      \"range_max\": \"0x%016lx\",\n", layout.kaslr_base_max);
+    printf("      \"slots\": %lu,\n", s->kaslr.vslots);
+    printf("      \"entropy_bits\": %d\n", s->kaslr.vbits);
+    printf("    }");
   }
 
   if (s->kaslr.has_phys) {

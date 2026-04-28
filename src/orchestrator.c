@@ -1544,11 +1544,15 @@ void compute_kaslr_info(struct summary *s) {
   s->kaslr.ptext = group_consensus(KASLD_ADDR_PHYS, KASLD_SECTION_TEXT);
   s->kaslr.has_phys = 0;
 
+  /* Slot count computed unconditionally so it is available even when no
+   * concrete address was found (inference plugins may have narrowed the range
+   * without producing a specific address). Zeroed below when KASLR is off. */
+  unsigned long text_range = layout.kaslr_base_max - layout.kaslr_base_min;
+  s->kaslr.vslots = layout.kaslr_align ? text_range / layout.kaslr_align : 0;
+  s->kaslr.vbits = s->kaslr.vslots > 0 ? ilog2(s->kaslr.vslots) : 0;
+
   if (s->kaslr.vtext) {
     s->kaslr.vslide = (long)(s->kaslr.vtext - layout.kernel_text_default);
-    unsigned long text_range = layout.kaslr_base_max - layout.kaslr_base_min;
-    s->kaslr.vslots = layout.kaslr_align ? text_range / layout.kaslr_align : 0;
-    s->kaslr.vbits = s->kaslr.vslots > 0 ? ilog2(s->kaslr.vslots) : 0;
     s->kaslr.vslot_valid =
         (layout.kaslr_align > 0 && s->kaslr.vtext >= layout.kaslr_base_min &&
          s->kaslr.vtext < layout.kaslr_base_max);
@@ -1840,14 +1844,27 @@ static void run_pre_collection_inference(void) {
   }
 }
 
+static void sync_inference_bounds_to_layout(void) {
+  if (g_ctx.text_base_max < layout.kernel_base_max) {
+    layout.kernel_base_max = g_ctx.text_base_max;
+    layout.kaslr_base_max = g_ctx.text_base_max;
+  }
+  if (g_ctx.text_base_min > layout.kernel_base_min) {
+    layout.kernel_base_min = g_ctx.text_base_min;
+    layout.kaslr_base_min = g_ctx.text_base_min;
+  }
+}
+
 static void run_post_collection_inference(void) {
   apply_layout_adjustments(); /* existing PAGE_OFFSET propagation, unchanged */
   run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+  sync_inference_bounds_to_layout();
 }
 
 static void run_post_probing_inference(void) {
   apply_layout_adjustments();
   run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_PROBING);
+  sync_inference_bounds_to_layout();
 }
 
 /* Execution state table --------------------------------------------------- */
