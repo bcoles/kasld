@@ -14,11 +14,11 @@
 // Components on coupled architectures (PHYS_VIRT_DECOUPLED == 0) emit a
 // KASLD_ADDR_PHYS/KASLD_SECTION_DRAM result AND a
 // KASLD_ADDR_VIRT/KASLD_SECTION_DIRECTMAP result for the same physical
-// address.  The orchestrator tags each result with the component name as
+// address. The orchestrator tags each result with the component name as
 // 'origin', so pairs from the same component can be identified.
 //
 // Per-origin minimum pairing: min(VIRT/DIRECTMAP) and min(PHYS/DRAM) from
-// the same origin identify the pair for the lowest leaked address.  Because
+// the same origin identify the pair for the lowest leaked address. Because
 // phys_to_virt() is monotone on all KASLD architectures (it adds a constant
 // offset), the minimum virtual address corresponds to the minimum physical
 // address within the same component's output.
@@ -27,9 +27,9 @@
 // only one side of the pair, so no synthesis candidates are produced and the
 // plugin is a no-op.
 //
-// The plugin collects po_candidates from all origins.  If candidates agree
+// The plugin collects po_candidates from all origins. If candidates agree
 // within kaslr_align (i.e. max - min <= kaslr_align), page_offset_min/max
-// are tightened to the range [min_candidate, max_candidate].  Disagreeing
+// are tightened to the range [min_candidate, max_candidate]. Disagreeing
 // candidates indicate a cross-component mismatch and are left unconstrainted.
 // ---
 // <bcoles@gmail.com>

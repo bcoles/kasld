@@ -331,10 +331,10 @@ static inline void kasld_result(char type, const char *section,
 }
 
 /* When stdout is a pipe (as when the orchestrator captures output), glibc
- * switches to fully-buffered mode.  stderr remains unbuffered.  Since both
+ * switches to fully-buffered mode. stderr remains unbuffered. Since both
  * are merged into the same pipe, stderr lines can arrive before stdout lines
  * that were logically printed first — producing out-of-order output in the
- * verbose JSON log.  Force stdout to line-buffered so output order matches
+ * verbose JSON log. Force stdout to line-buffered so output order matches
  * the printf call order in each component. */
 __attribute__((constructor)) static void kasld_init_buffering(void) {
   setvbuf(stdout, NULL, _IOLBF, 0);
@@ -346,7 +346,7 @@ typedef int make_iso_compilers_happy;
 
 /* Place a plain-text explanation string in a dedicated ELF section.
  * The orchestrator reads this section from the binary (without executing it)
- * and prints it when --explain is active.  Usage:
+ * and prints it when --explain is active. Usage:
  *
  *   KASLD_EXPLAIN("One-paragraph explanation of the technique.");
  */
@@ -357,8 +357,8 @@ typedef int make_iso_compilers_happy;
 
 /* Place machine-readable metadata in a dedicated ELF section.
  * The orchestrator reads this section to determine the component's leak
- * primitive type, address type, and applicable mitigations.  Format is
- * newline-delimited key:value pairs.  Usage:
+ * primitive type, address type, and applicable mitigations. Format is
+ * newline-delimited key:value pairs. Usage:
  *
  *   KASLD_META(
  *       "method:parsed\n"
@@ -370,13 +370,11 @@ typedef int make_iso_compilers_happy;
  * Recognised keys:
  *   method:  Technique description used in the hardening report.
  *            Common values: exact, parsed, timing, heuristic, brute-force.
- *   phase:   Scheduling phase.  "inference" (default) or "probing".
- *            Inference components run first, in parallel.  Probing components
+ *   phase:   Scheduling phase. "inference" (default) or "probing".
+ *            Inference components run first, in parallel. Probing components
  *            run after, sequentially, only when KASLR appears active.
- *            Omitting phase: is allowed; the orchestrator falls back to
- *            method-based inference (timing/heuristic → probing, else
- *            inference).
- *   addr:    Address type emitted.  "virtual" or "physical".
+ *            Omitting phase: defaults to "inference".
+ *   addr:    Address type emitted. "virtual" or "physical".
  *   status:  "experimental" marks the component as opt-in (-x /
  * KASLD_EXPERIMENTAL). sysctl:  Sysctl that mitigates or gates the technique.
  *   bypass:  Capability or condition that bypasses the mitigation.

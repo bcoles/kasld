@@ -18,8 +18,8 @@
 // Timeline of mitigations:
 //
 //   Kernel v3.10 (2013-06): IDT remapped into the fixmap region at a
-//     compile-time constant read-only virtual address.  SIDT no longer
-//     leaks a KASLR-dependent address.  Part of the x86-kaslr prep work
+//     compile-time constant read-only virtual address. SIDT no longer
+//     leaks a KASLR-dependent address. Part of the x86-kaslr prep work
 //     by Kees Cook, merged before KASLR itself (v3.14).
 //     https://github.com/torvalds/linux/commit/4eefbe792bae
 //
@@ -122,8 +122,8 @@ struct idtr {
 #define CPU_ENTRY_AREA_MASK 0xffffff8000000000UL
 
 /* Fixmap region: sits just above the module area (above MODULES_END =
- * 0xffffffffff000000), below vsyscall (0xffffffffff600000).  FIXADDR_TOP
- * is typically 0xffffffffff7ff000.  The fixmap grows downward.  The IDT
+ * 0xffffffffff000000), below vsyscall (0xffffffffff600000). FIXADDR_TOP
+ * is typically 0xffffffffff7ff000. The fixmap grows downward. The IDT
  * fixmap slot sits within this range since v3.10 (commit 4eefbe792bae). */
 #define FIXMAP_TOP 0xffffffffff7ff000UL
 #define FIXMAP_BOTTOM 0xffffffffff000000UL

@@ -14,7 +14,7 @@
 //   - Identity mapping at __identity_base: virt = phys + __identity_base
 //     (__identity_base = 0 by default; randomized with RANDOMIZE_IDENTITY_BASE)
 //   - Kernel text mapped separately at __kaslr_offset (virtual) with physical
-//     load at __kaslr_offset_phys.  The two are independently randomized.
+//     load at __kaslr_offset_phys. The two are independently randomized.
 //   - Modules: 2 GiB region (MODULES_LEN) placed just below kernel text.
 //   - ASCE limit: 4 TiB (3-level) or 8 PiB (4-level).
 //   - TEXT_OFFSET = 0x100000 (1 MiB): .text starts 1 MiB into image.
@@ -28,7 +28,7 @@
 //
 // Note: s390 does NOT have a traditional kernel/user address space split.
 // Kernel and user addresses occupy separate ASCEs (address space control
-// elements), not separate halves of the virtual range.  The entire virtual
+// elements), not separate halves of the virtual range. The entire virtual
 // range [0, ASCE_LIMIT) is available to both kernel and user (in their
 // respective ASCEs).
 //
@@ -53,10 +53,10 @@
 // Physical memory starts at address 0.
 #define PHYS_OFFSET 0ul
 
-// Physical and virtual KASLR are decoupled (v6.8+).  __kaslr_offset (virtual)
+// Physical and virtual KASLR are decoupled (v6.8+). __kaslr_offset (virtual)
 // and __kaslr_offset_phys (physical) are randomized independently.
 // phys_to_virt() yields an identity-mapping address, NOT a kernel text
-// address.  Relationship: phys == (kvirt - __kaslr_offset) +
+// address. Relationship: phys == (kvirt - __kaslr_offset) +
 // __kaslr_offset_phys. Note: pre-v6.8 kernels used identity mapping (virtual =
 // physical); KASLR was physical-only in that era.
 #define PHYS_VIRT_DECOUPLED 1
@@ -94,7 +94,7 @@
 
 // Virtual KASLR granularity: THREAD_SIZE (16 KiB on s390, PAGE_SIZE << 2).
 // Physical placement uses _SEGMENT_SIZE (1 MiB), but virtual text addresses
-// are only THREAD_SIZE-aligned.  Confirmed on real hardware: _stext on a
+// are only THREAD_SIZE-aligned. Confirmed on real hardware: _stext on a
 // v6.18 system was 0x4000-aligned but not 1 MiB aligned.
 #define KERNEL_ALIGN 0x4000ul
 
@@ -114,14 +114,14 @@
 
 // Virtual KASLR randomization window (v6.8+ upstream defaults):
 // Image base picked from [CONFIG_KERNEL_IMAGE_BASE, KIB + KASLR_LEN).
-// KASLR_LEN = 1 << 31 = 2 GiB.  _stext = image_base + TEXT_OFFSET.
+// KASLR_LEN = 1 << 31 = 2 GiB. _stext = image_base + TEXT_OFFSET.
 #define KASLR_BASE_MIN (0x3FFE0000000ul + TEXT_OFFSET)
 #define KASLR_BASE_MAX (0x3FFE0000000ul + (1ul << 31) + TEXT_OFFSET)
 
 // Default kernel text virtual address without KASLR.
 // CONFIG_KERNEL_IMAGE_BASE (introduced ~v6.8) default = 0x3FFE0000000
 // (+ TEXT_OFFSET for _stext). Pre-v6.8 kernels used identity mapping with
-// _stext at TEXT_OFFSET (0x100000).  Distros may override.
+// _stext at TEXT_OFFSET (0x100000). Distros may override.
 // See README.md "Default text base and KASLR alignment" for all architectures.
 // Kernel source: arch/s390/kernel/vmlinux.lds.S, arch/s390/boot/startup.c
 #define KERNEL_TEXT_DEFAULT 0x3FFE0100000ul

@@ -1,7 +1,7 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
 // free_reserved_area() printed virtual memory layout information to dmesg
-// for SMP kernels.  The kernel prints one line per freed section:
+// for SMP kernels. The kernel prints one line per freed section:
 //
 //   pr_info("Freeing %s memory: %ldK (%p - %p)\n", s, ..., start, end);
 //
@@ -73,7 +73,7 @@ KASLD_META("method:parsed\n"
            "patch:v4.10\n");
 
 /* Parse a "Freeing <name> memory: <size>K (<start> - <end>)" line.
- * Emits a kasld_result() for the start address.  Returns 1 on success. */
+ * Emits a kasld_result() for the start address. Returns 1 on success. */
 static int on_match(const char *line, void *ctx) {
   (void)ctx;
   const char *name_start;

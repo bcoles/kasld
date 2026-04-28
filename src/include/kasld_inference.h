@@ -3,8 +3,8 @@
 // Inference plugin interface.
 //
 // An inference plugin is a plain C function compiled directly into the
-// orchestrator.  Plugins run at defined phase transition points and may read
-// component results and tighten analysis bounds.  They do not fork() or exec().
+// orchestrator. Plugins run at defined phase transition points and may read
+// component results and tighten analysis bounds. They do not fork() or exec().
 //
 // To add a plugin:
 //   1. Create src/inference/<name>.c
@@ -12,7 +12,7 @@
 //   3. No other file changes are required
 //
 // Commutativity invariant: plugins within a phase must only tighten bounds
-// (raise text_base_min, lower text_base_max).  This makes execution order
+// (raise text_base_min, lower text_base_max). This makes execution order
 // within a phase irrelevant.
 // ---
 // <bcoles@gmail.com>
@@ -71,7 +71,7 @@ struct kasld_inference {
 
 /* Register a plugin in the kasld_inferences ELF linker section.
  * The orchestrator iterates __start_kasld_inferences..__stop_kasld_inferences
- * at each phase transition.  No central registration file; adding a .c file
+ * at each phase transition. No central registration file; adding a .c file
  * to src/inference/ is the only step required. */
 #define KASLD_REGISTER_INFERENCE(inf)                                          \
   __attribute__((                                                              \

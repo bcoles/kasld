@@ -4,7 +4,7 @@
 //
 // On coupled architectures (PHYS_VIRT_DECOUPLED == 0), physical and virtual
 // KASLR are linked: virtual_text = phys_dram - PHYS_OFFSET + PAGE_OFFSET
-// + TEXT_OFFSET.  When a component leaks a physical DRAM address, the minimum
+// + TEXT_OFFSET. When a component leaks a physical DRAM address, the minimum
 // such address is a lower bound on the physical kernel placement, which maps
 // directly to a virtual text lower bound.
 //

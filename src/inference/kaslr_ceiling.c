@@ -3,9 +3,9 @@
 // Inference plugin: KASLR image ceiling (PRE_COLLECTION)
 //
 // Tightens ctx->text_base_max by eliminating positions where the kernel image
-// would overflow past the top of the KASLR randomization region.  The kernel's
+// would overflow past the top of the KASLR randomization region. The kernel's
 // own placement code enforces this constraint at boot: positions where
-// base + image_size > region_ceiling are never selected.  The resulting
+// base + image_size > region_ceiling are never selected. The resulting
 // forbidden band is always contiguous and always at the top of the range:
 //
 //   [KASLR_BASE_MAX - kernel_size, KASLR_BASE_MAX)
@@ -21,7 +21,7 @@
 //
 // The estimate uses a ratio at the low end of the observed compression range
 // to underestimate kernel_size: we only eliminate slots that are certainly
-// in the forbidden band.  Overestimating risks excluding the true kernel base
+// in the forbidden band. Overestimating risks excluding the true kernel base
 // from the candidate set.
 // ---
 // <bcoles@gmail.com>
@@ -35,13 +35,13 @@
 #include <sys/utsname.h>
 
 /* Low-end compression ratio: underestimates kernel_size so that only slots
- * certainly in the forbidden band are eliminated.  Typical xz/gzip/lzma
+ * certainly in the forbidden band are eliminated. Typical xz/gzip/lzma
  * ratio for init_size on x86 is 4–5×; using 3.5 stays below that floor. */
 #define KASLR_CEILING_RATIO 3.5
 
 /* Parameters for estimating kernel text size from System.map file size.
  * Format: ~43 bytes per line; ~87% of symbols are in the text section;
- * symbol density ~7 symbols/KiB.  The multiplier converts text size to
+ * symbol density ~7 symbols/KiB. The multiplier converts text size to
  * init_size (data + bss + decompressor slack). */
 #define SMAP_BYTES_PER_LINE 43UL
 #define SMAP_TEXT_FRACTION 0.87

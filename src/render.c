@@ -326,7 +326,7 @@ static void print_memory_map(void) {
 
   /* Only show directmap region if it's distinct from text region.
      Use page_offset as both start and end — we know the mapping begins
-     there but don't know its true extent.  kernel_vas_end would cause
+     there but don't know its true extent. kernel_vas_end would cause
      unsigned overflow in the gap arithmetic (end + 1 wraps to 0). */
   if (layout.page_offset != layout.kernel_base_min) {
     regions[n++] = (struct map_region){layout.page_offset, layout.page_offset,

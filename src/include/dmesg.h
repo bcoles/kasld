@@ -44,7 +44,7 @@
 typedef int (*dmesg_match_fn)(const char *line, void *ctx);
 
 /* Search klogctl syslog buffer, then fall back to /var/log/dmesg log file,
- * for lines containing `needle`.  For each match, call fn(line, ctx).
+ * for lines containing `needle`. For each match, call fn(line, ctx).
  * Returns the number of times fn() was called, or -1 if neither source
  * could be accessed. */
 static int dmesg_search(const char *needle, dmesg_match_fn fn, void *ctx) {
