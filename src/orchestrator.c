@@ -98,7 +98,7 @@ struct kasld_layout layout = {
  * but are fixed on x86_32/mips32.
  * On decoupled architectures (x86_64, modern riscv64), kernel text is not at
  * PAGE_OFFSET, so only directmap/VAS bounds change. */
-static void adjust_for_page_offset(unsigned long new_po) {
+void adjust_for_page_offset(unsigned long new_po) {
   unsigned long old_po = layout.page_offset;
   if (new_po == old_po)
     return;
@@ -500,7 +500,6 @@ static unsigned long align_for_section(char type, const char *section,
                                        unsigned long addr);
 static int validate_for_section(char type, const char *section,
                                 unsigned long addr);
-static void apply_layout_adjustments(void);
 
 /* =========================================================================
  * Inference plugin system
@@ -1158,14 +1157,12 @@ static void *inference_worker(void *arg) {
 /* Run the components for a single state.
  *
  * Parallel states (st->parallel): worker pool when parallel_workers > 1 and
- *   not verbose; apply_layout_adjustments() after each component in sequential
- *   mode, once after join in parallel mode. Layout is read-only during
- *   parallel execution so align/validate calls inside capture_result() are
- *   safe without additional locking.
+ *   not verbose; on_exit fires once after the parallel join. Layout is
+ *   read-only during parallel execution so align/validate calls inside
+ *   capture_result() are safe without additional locking.
  *
- * Sequential states (!st->parallel): single-threaded loop;
- *   apply_layout_adjustments() once at the end so that PAGE_OFFSET results
- *   from probing components propagate before the on_exit action fires.
+ * Sequential states (!st->parallel): single-threaded loop; on_exit fires
+ *   after each component so PAGE_OFFSET discoveries propagate immediately.
  *
  * States with phase_key == NULL (setup) have no associated components; the
  * function returns immediately and on_exit fires in the caller. */
@@ -1280,131 +1277,13 @@ static int validate_for_section(char type, const char *section,
 }
 
 /* Re-validate and re-align all results against the current layout */
-static void revalidate_results(void) {
+void revalidate_results(void) {
   for (int i = 0; i < num_results; i++) {
     results[i].aligned =
         align_for_section(results[i].type, results[i].section, results[i].raw);
     results[i].valid = validate_for_section(results[i].type, results[i].section,
                                             results[i].aligned);
   }
-}
-
-#ifdef LEGACY_LAYOUT_BOUNDARY
-/* Search virtual text results for an address below the arch-defined legacy
- * layout boundary. Does not require results[i].valid because on arches
- * where the modern KERNEL_BASE_MIN is above the legacy range (arm64), the
- * legacy address will have initially failed validation. The VAS-range
- * check provides a minimal sanity gate. */
-static unsigned long find_legacy_text(void) {
-  for (int i = 0; i < num_results; i++) {
-    if (results[i].type == KASLD_ADDR_VIRT &&
-        strcmp(results[i].section, KASLD_SECTION_TEXT) == 0 &&
-        results[i].aligned != 0 && results[i].aligned >= KERNEL_VAS_START &&
-        results[i].aligned < LEGACY_LAYOUT_BOUNDARY)
-      return results[i].aligned;
-  }
-  return 0;
-}
-#endif
-
-/* Apply PAGE_OFFSET adjustment if a pageoffset result overrides the default */
-static void apply_layout_adjustments(void) {
-  /* Check for conflicting pageoffset sources (e.g., proc-config's
-   * CONFIG_PAGE_OFFSET vs proc-cpuinfo's MMU-inferred value). Conflicts
-   * indicate a legacy kernel where CONFIG_PAGE_OFFSET was a compile-time
-   * constant rather than derived from the active paging mode.
-   * Guard against repeated warnings: called after every inference component. */
-  static int po_conflict_warned = 0;
-  unsigned long po_vals[MAX_RESULTS];
-  int po_n = 0;
-  for (int i = 0; i < num_results; i++) {
-    if (results[i].type == KASLD_ADDR_VIRT &&
-        strcmp(results[i].section, KASLD_SECTION_PAGEOFFSET) == 0 &&
-        results[i].valid) {
-      int dup = 0;
-      for (int j = 0; j < po_n; j++) {
-        if (po_vals[j] == results[i].aligned) {
-          dup = 1;
-          break;
-        }
-      }
-      if (!dup && po_n < MAX_RESULTS)
-        po_vals[po_n++] = results[i].aligned;
-    }
-  }
-  if (po_n > 1 && !po_conflict_warned) {
-    po_conflict_warned = 1;
-    if (!quiet) {
-      fprintf(stderr, "[!] Conflicting PAGE_OFFSET sources detected "
-                      "(possible legacy kernel layout):\n");
-      for (int i = 0; i < po_n; i++)
-        fprintf(stderr, "    0x%016lx\n", po_vals[i]);
-      fprintf(stderr, "    Using 0x%016lx (modern layout assumed)\n",
-              po_vals[0] < po_vals[1] ? po_vals[0] : po_vals[1]);
-    }
-  }
-
-  unsigned long detected_po =
-      group_consensus(KASLD_ADDR_VIRT, KASLD_SECTION_PAGEOFFSET);
-  if (detected_po && detected_po != layout.page_offset)
-    adjust_for_page_offset(detected_po);
-
-#if !PHYS_VIRT_DECOUPLED
-  /* On coupled architectures, kernel text lives above PAGE_OFFSET.
-   * KERNEL_BASE_MIN may be conservatively low (e.g. x86_32 uses 0x40000000
-   * to accept addresses from any CONFIG_VMSPLIT_* at validation time), but
-   * must be clamped to PAGE_OFFSET for the final layout so the memory map
-   * and KASLR analysis reference the correct text region floor.
-   * Also fix kernel_vas_start: on arm32 modules sit just below PAGE_OFFSET,
-   * so VAS start is min(page_offset, modules_start). */
-  if (layout.kernel_base_min < layout.page_offset) {
-    layout.kernel_base_min = layout.page_offset;
-    layout.kernel_text_default = layout.page_offset + layout.text_offset;
-    layout.kernel_vas_start = layout.page_offset;
-    if (layout.modules_start < layout.kernel_vas_start)
-      layout.kernel_vas_start = layout.modules_start;
-  }
-#endif
-
-#ifdef LEGACY_LAYOUT_BOUNDARY
-  /* Detect legacy kernel layout: if a validated virtual text address falls
-   * below the arch-defined boundary, the kernel is using an older VAS layout.
-   *
-   * Two modes (selected by the arch header):
-   *   LEGACY_COUPLED:  PAGE_OFFSET derived from text; all base fields track
-   *                    it (e.g. riscv64 SV39).
-   *   Otherwise:       Static constants from LEGACY_* macros replace the
-   *                    modern defaults (e.g. arm64 pre-v5.4). */
-  {
-    unsigned long legacy_text = find_legacy_text();
-    if (legacy_text) {
-#ifdef LEGACY_COUPLED
-      layout.text_offset = LEGACY_TEXT_OFFSET;
-      unsigned long legacy_po = legacy_text & LEGACY_PAGE_OFFSET_MASK;
-      if (legacy_po != layout.page_offset)
-        adjust_for_page_offset(legacy_po);
-      /* adjust_for_page_offset handles VAS start and module shifting but,
-       * on PHYS_VIRT_DECOUPLED arches, does not update text-tracking fields.
-       * Apply them explicitly for the coupled legacy layout. */
-      layout.kernel_text_default = legacy_po + layout.text_offset;
-      layout.kernel_base_min = legacy_po;
-      layout.kaslr_base_min = legacy_po;
-#else
-      layout.page_offset = LEGACY_PAGE_OFFSET;
-      layout.kernel_vas_start = LEGACY_KERNEL_VAS_START;
-      layout.modules_start = LEGACY_MODULES_START;
-      layout.modules_end = LEGACY_MODULES_END;
-      layout.text_offset = LEGACY_TEXT_OFFSET;
-      layout.kernel_text_default = LEGACY_KERNEL_TEXT_DEFAULT;
-      layout.kernel_base_min = LEGACY_KERNEL_BASE_MIN;
-      layout.kaslr_base_min = LEGACY_KASLR_BASE_MIN;
-      layout.kaslr_base_max = LEGACY_KASLR_BASE_MAX;
-#endif
-    }
-  }
-#endif
-
-  revalidate_results();
 }
 
 /* Check parsed results for KASLR-disabled / unsupported indicators.
@@ -1832,8 +1711,7 @@ static void run_pre_collection_inference(void) {
    * and KASLR slot-count computation use the adjusted range. */
   if (g_ctx.text_base_max < layout.kernel_base_max) {
     if (verbose && !quiet && !json_output)
-      printf("[layout] kernel_base_max tightened: %#lx -> %#lx "
-             "(kaslr_ceiling)\n",
+      printf("[layout] kernel_base_max tightened: %#lx -> %#lx\n",
              layout.kernel_base_max, g_ctx.text_base_max);
     layout.kernel_base_max = g_ctx.text_base_max;
     layout.kaslr_base_max = g_ctx.text_base_max;
@@ -1856,13 +1734,13 @@ static void sync_inference_bounds_to_layout(void) {
 }
 
 static void run_post_collection_inference(void) {
-  apply_layout_adjustments(); /* existing PAGE_OFFSET propagation, unchanged */
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_LAYOUT_ADJUST);
   run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
   sync_inference_bounds_to_layout();
 }
 
 static void run_post_probing_inference(void) {
-  apply_layout_adjustments();
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_LAYOUT_ADJUST);
   run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_PROBING);
   sync_inference_bounds_to_layout();
 }
@@ -2089,6 +1967,7 @@ int main(int argc, char *argv[]) {
   g_ctx.page_offset_min = layout.kernel_vas_start;
   g_ctx.page_offset_max = layout.kernel_vas_end;
   g_ctx.arch = &g_arch_params;
+  g_ctx.layout = &layout;
 
   for (int s = 0; s < (int)(sizeof(states) / sizeof(states[0])); s++) {
     const struct exec_state *st = &states[s];

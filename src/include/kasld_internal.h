@@ -224,6 +224,8 @@ extern int num_comp_logs;
 const char *meta_get(const struct component_meta *m, const char *key);
 int meta_get_all(const struct component_meta *m, const char *key,
                  const char **values, int max_values);
+void adjust_for_page_offset(unsigned long new_po);
+void revalidate_results(void);
 unsigned long group_consensus(char type, const char *section);
 void group_consensus_info(char type, const char *section,
                           const char **best_method, int *n_sources,

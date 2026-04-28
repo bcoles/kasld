@@ -10,6 +10,7 @@
 
 #include "../src/inference/dram_bound.c"
 #include "../src/inference/kaslr_ceiling.c"
+#include "../src/inference/layout_adjust.c"
 #include "../src/inference/phys_virt_synth.c"
 #include "../src/orchestrator.c"
 #include "../src/render.c"
@@ -124,6 +125,7 @@ static void init_inference_ctx(void) {
   g_ctx.page_offset_min = layout.kernel_vas_start;
   g_ctx.page_offset_max = layout.kernel_vas_end;
   g_ctx.arch = &g_arch_params;
+  g_ctx.layout = &layout;
 }
 
 /* Like inject_result(), but also tags the result with a component origin. */
@@ -1381,19 +1383,22 @@ static void test_e2e_pipeline(void) {
   assert(vmod_hi == 0); /* only one */
 }
 
-/* Simulate inference phase: apply_layout_adjustments() called after each
- * component. Results are valid regardless of the order components run. */
+/* Simulate inference phase: LAYOUT_ADJUST fires after each component via
+ * run_post_collection_inference(). Results are valid regardless of order. */
 static void test_e2e_incremental_layout(void) {
   reset_state();
 
   inject_tagged("D - 0xffffffff81000000 default:text");
-  apply_layout_adjustments();
+  init_inference_ctx();
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_LAYOUT_ADJUST);
   assert(detect_kaslr_state() == 0); /* KASLR enabled */
 
   inject_tagged("V text 0xffffffff81200000 dmesg_backtrace");
-  apply_layout_adjustments();
+  init_inference_ctx();
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_LAYOUT_ADJUST);
   inject_tagged("V text 0xffffffff81200000 proc-kallsyms");
-  apply_layout_adjustments();
+  init_inference_ctx();
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_LAYOUT_ADJUST);
 
   assert(num_results == 3);
   assert(group_consensus(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT) ==
@@ -1406,11 +1411,13 @@ static void test_e2e_kaslr_disabled_skips_probing(void) {
   reset_state();
 
   inject_tagged("D - 0xffffffff81000000 default:text");
-  apply_layout_adjustments();
+  init_inference_ctx();
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_LAYOUT_ADJUST);
   assert(detect_kaslr_state() == 0);
 
   inject_tagged("D - 0xffffffff81000000 proc-cmdline:nokaslr");
-  apply_layout_adjustments();
+  init_inference_ctx();
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_LAYOUT_ADJUST);
   assert(detect_kaslr_state() == 1); /* probing phase would be skipped */
 }
 
@@ -1964,6 +1971,69 @@ static void test_phys_virt_synth_disagreeing_candidates_noop(void) {
 }
 
 /* =========================================================================
+ * layout_adjust (LAYOUT_ADJUST)
+ * =========================================================================
+ */
+
+/* No pageoffset results → plugin is a no-op for layout fields */
+static void test_layout_adjust_no_results_noop(void) {
+  reset_state();
+  unsigned long orig_po = layout.page_offset;
+  init_inference_ctx();
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_LAYOUT_ADJUST);
+  assert(layout.page_offset == orig_po);
+}
+
+/* Pageoffset result equal to compile-time default → no change */
+static void test_layout_adjust_same_po_noop(void) {
+  reset_state();
+  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_PAGEOFFSET, PAGE_OFFSET,
+                "pageoffset");
+  unsigned long orig_po = layout.page_offset;
+  init_inference_ctx();
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_LAYOUT_ADJUST);
+  assert(layout.page_offset == orig_po);
+}
+
+/* New pageoffset result → layout.page_offset and kernel_vas_start updated */
+static void test_layout_adjust_new_po_updates_layout(void) {
+  reset_state();
+  /* Use PAGE_OFFSET + 512 MiB as a synthetic runtime value */
+  unsigned long new_po = PAGE_OFFSET + (512UL * 1024 * 1024);
+  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_PAGEOFFSET, new_po,
+                "pageoffset");
+  init_inference_ctx();
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_LAYOUT_ADJUST);
+  assert(layout.page_offset == new_po);
+  assert(layout.kernel_vas_start == new_po);
+}
+
+/* Consensus from multiple agreeing sources still applies the update */
+static void test_layout_adjust_consensus_applied(void) {
+  reset_state();
+  unsigned long new_po = PAGE_OFFSET + (256UL * 1024 * 1024);
+  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_PAGEOFFSET, new_po,
+                "pageoffset");
+  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_PAGEOFFSET, new_po,
+                "pageoffset");
+  init_inference_ctx();
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_LAYOUT_ADJUST);
+  assert(layout.page_offset == new_po);
+}
+
+#if !PHYS_VIRT_DECOUPLED
+/* On coupled arches: kernel_base_min is clamped up to page_offset when it
+ * was set conservatively low by the arch header. */
+static void test_layout_adjust_floor_clamp(void) {
+  reset_state();
+  layout.kernel_base_min = layout.page_offset - KERNEL_ALIGN;
+  init_inference_ctx();
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_LAYOUT_ADJUST);
+  assert(layout.kernel_base_min >= layout.page_offset);
+}
+#endif
+
+/* =========================================================================
  * State machine
  * =========================================================================
  */
@@ -2226,6 +2296,16 @@ int main(void) {
   RUN_TEST(test_phys_virt_synth_no_cross_origin_pairing);
   RUN_TEST(test_phys_virt_synth_tightens_on_agreement);
   RUN_TEST(test_phys_virt_synth_disagreeing_candidates_noop);
+  printf("\n");
+
+  printf("inference plugins (layout_adjust):\n");
+  RUN_TEST(test_layout_adjust_no_results_noop);
+  RUN_TEST(test_layout_adjust_same_po_noop);
+  RUN_TEST(test_layout_adjust_new_po_updates_layout);
+  RUN_TEST(test_layout_adjust_consensus_applied);
+#if !PHYS_VIRT_DECOUPLED
+  RUN_TEST(test_layout_adjust_floor_clamp);
+#endif
   printf("\n");
 
   printf("---\n%d/%d tests passed\n", pass_count, test_count);

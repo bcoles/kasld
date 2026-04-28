@@ -22,10 +22,14 @@
 
 #include "kasld_internal.h"
 
-/* Three phase points where inference plugins can fire. */
+/* Four phase points where inference plugins can fire. */
 enum kasld_inference_phase {
   KASLD_INFER_PHASE_PRE_COLLECTION, /* setup state on_exit: before any component
                                        runs */
+  KASLD_INFER_PHASE_LAYOUT_ADJUST,  /* fired before POST_COLLECTION and
+                                     * POST_PROBING: PAGE_OFFSET propagation,
+                                     * arch floor clamping, result revalidation.
+                                     * Plugins may mutate ctx->layout. */
   KASLD_INFER_PHASE_POST_COLLECTION, /* inference state on_exit: after each
                                       * sequential component, or once after the
                                       * parallel join */
@@ -60,6 +64,9 @@ struct kasld_analysis_ctx {
   unsigned long page_offset_min;
   unsigned long page_offset_max;
   const struct kasld_arch_params *arch;
+  /* Writable layout pointer — set by LAYOUT_ADJUST plugins only.
+   * POST_COLLECTION and POST_PROBING plugins treat this as read-only. */
+  struct kasld_layout *layout;
 };
 
 /* Inference plugin descriptor. */
