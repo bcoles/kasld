@@ -415,8 +415,8 @@ Components run in two phases:
 
 | Phase | Purpose | Assignment |
 |---|---|---|
-| **Inference** | All non-probing components | Default — every component not classified as probing |
-| **Probing** | Side-channels, timing attacks, brute-force | Automatic: `.kasld_meta` declares `method:timing` or `method:heuristic` — e.g. `prefetch`, `entrybleed`, `databounce` |
+| **Inference** | All non-probing components | `.kasld_meta` declares `phase:inference` (default when `phase:` is omitted) |
+| **Probing** | Side-channels, timing attacks, brute-force | `.kasld_meta` declares `phase:probing` — e.g. `prefetch`, `entrybleed`, `databounce` |
 
 Inference components run in a fixed-width worker pool (default: nproc
 threads). `apply_layout_adjustments()` is called once after all workers
@@ -430,9 +430,9 @@ Execution order within the inference phase is irrelevant for correctness.
 The probing phase runs after all inference and is skipped entirely when
 KASLR is detected as disabled.
 
-New components are automatically placed in the inference phase — no
-configuration needed. Probing phase membership is derived from
-`.kasld_meta` and requires no registration.
+New components default to the inference phase when `phase:` is omitted
+from `KASLD_META()`. Probing phase membership requires `phase:probing`
+in `.kasld_meta` — no other registration needed.
 
 Some components are marked `status:experimental` in their `.kasld_meta`
 and are skipped by default. These are components with narrow hardware
@@ -448,6 +448,26 @@ in a single flag or repeat the flag to accumulate them:
 `--skip dmesg_backtrace,dmesg_e820` and `--skip dmesg_backtrace --skip dmesg_e820`
 are equivalent. The number of skipped components is noted in the
 "Running N components..." line.
+
+### Inference plugins
+
+At phase boundaries the orchestrator runs a set of inference plugins compiled
+directly into the orchestrator binary. Plugins read collected results and
+tighten the constraint bounds used during validation — they may only raise
+`text_base_min`, lower `text_base_max`, or narrow `page_offset_min/max`.
+This commutativity invariant means plugin order within a phase is irrelevant.
+
+Currently implemented:
+
+| Plugin | Phase | Effect |
+|---|---|---|
+| `kaslr_ceiling` | PRE_COLLECTION | Lowers `text_base_max` by the provably-unreachable top-of-range band where `base + kernel_size > KASLR_MAX`. Estimates kernel size from `/boot/vmlinuz-*` and `/boot/System.map-*` via `stat()` (no read access required). |
+| `dram_bound` | POST_COLLECTION | Raises `text_base_min` from the minimum PHYS/DRAM result (coupled architectures only — no-op on x86_64, arm64, riscv64, s390). |
+| `phys_virt_synth` | POST_COLLECTION | Narrows `page_offset_min/max` by synthesising `PAGE_OFFSET = virt − phys + PHYS_OFFSET` from per-component (PHYS/DRAM, VIRT/DIRECTMAP) pairs. Only produces candidates on coupled architectures where components emit both sides. |
+
+Inference plugins live in `src/inference/` and register via a linker section
+macro (`KASLD_REGISTER_INFERENCE`). Adding a plugin requires only a new
+`.c` file — no central registration.
 
 ### Cross-section derivation
 
@@ -743,6 +763,7 @@ CVE associations. Used by the `--hardening` assessment.
 ```c
 KASLD_META(
     "method:parsed\n"
+    "phase:inference\n"
     "addr:virtual\n"
     "sysctl:dmesg_restrict>=1\n"
     "bypass:CAP_SYSLOG\n"
@@ -756,6 +777,7 @@ Supported metadata keys:
 | Key | Description | Example |
 |---|---|---|
 | `method` | How the leak works | `parsed`, `timing`, `brute`, `probed` |
+| `phase` | Scheduling phase | `inference` (default when omitted), `probing` |
 | `addr` | Address type leaked | `virtual`, `physical`, `both` |
 | `sysctl` | Runtime sysctl gate | `dmesg_restrict>=1`, `kptr_restrict>=1` |
 | `bypass` | Condition that bypasses the gate | `CAP_SYSLOG`, `adm group` |
