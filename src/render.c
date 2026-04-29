@@ -207,7 +207,8 @@ static void print_group(char type, const char *section,
 static void render_kaslr_text(const struct summary *s) {
   if (s->kaslr.disabled || s->kaslr.unsupported)
     return;
-  if (!s->kaslr.vtext && !s->kaslr.ptext && s->kaslr.vslots == 0)
+  if (!s->kaslr.vtext && !s->kaslr.ptext && s->kaslr.vslots == 0 &&
+      s->kaslr.pslots == 0)
     return;
 
   printf("%s%s%s\n", c(C_DIM), "----------------------------------------",
@@ -215,13 +216,23 @@ static void render_kaslr_text(const struct summary *s) {
   printf("%sKASLR analysis:%s\n", c(C_BOLD), c(C_RESET));
 
   if (!s->kaslr.vtext && !s->kaslr.ptext) {
-    /* Inference narrowed the range but no concrete address was found. */
-    printf("  Inferred text range:  0x%016lx - 0x%016lx\n",
-           layout.kaslr_base_min, layout.kaslr_base_max);
-    if (s->kaslr.vslots > 0)
+    /* Inference narrowed the range(s) but no concrete address was found. */
+    if (s->kaslr.vslots > 0) {
+      printf("  Inferred text range:  0x%016lx - 0x%016lx\n",
+             layout.kaslr_base_min, layout.kaslr_base_max);
       printf("  Remaining slots:      %s%lu%s  (%d bits, step %#lx)\n",
              c(C_MAGENTA), s->kaslr.vslots, c(C_RESET), s->kaslr.vbits,
              layout.kaslr_align);
+    }
+    if (s->kaslr.pslots > 0) {
+      if (s->kaslr.vslots > 0)
+        printf("\n");
+      printf("  Inferred phys text range:  0x%016lx - 0x%016lx\n",
+             layout.phys_kaslr_base_min, layout.phys_kaslr_base_max);
+      printf("  Remaining phys slots:      %s%lu%s  (%d bits, step %#lx)\n",
+             c(C_MAGENTA), s->kaslr.pslots, c(C_RESET), s->kaslr.pbits,
+             layout.phys_kaslr_align);
+    }
     printf("\n");
     return;
   }
@@ -260,12 +271,20 @@ static void render_kaslr_text(const struct summary *s) {
     if (s->kaslr.pslots > 0)
       printf("  Physical KASLR entropy: %s%d bits%s (%lu slots of %#lx)\n",
              c(C_MAGENTA), s->kaslr.pbits, c(C_RESET), s->kaslr.pslots,
-             (unsigned long)KASLR_PHYS_ALIGN);
+             layout.phys_kaslr_align);
     else
       printf("  Physical KASLR entropy: %s0 bits%s (no randomization range)\n",
              c(C_DIM), c(C_RESET));
     printf("\n");
 #endif
+  } else if (s->kaslr.pslots > 0) {
+    /* Physical range was narrowed by inference but no concrete ptext leaked. */
+    printf("  Inferred phys text range:  0x%016lx - 0x%016lx\n",
+           layout.phys_kaslr_base_min, layout.phys_kaslr_base_max);
+    printf("  Remaining phys slots:      %s%lu%s (%d bits, step %#lx)\n",
+           c(C_MAGENTA), s->kaslr.pslots, c(C_RESET), s->kaslr.pbits,
+           layout.phys_kaslr_align);
+    printf("\n");
   }
 }
 
@@ -1420,6 +1439,14 @@ static void render_json(const struct summary *s) {
     printf("      \"slide_bytes\": %ld,\n", s->kaslr.pslide);
     printf("      \"entropy_bits\": %d,\n", s->kaslr.pbits);
     printf("      \"slots\": %lu\n", s->kaslr.pslots);
+    printf("    }");
+  } else if (!s->kaslr.disabled && !s->kaslr.unsupported &&
+             s->kaslr.pslots > 0) {
+    printf(",\n    \"inferred_physical\": {\n");
+    printf("      \"range_min\": \"0x%016lx\",\n", layout.phys_kaslr_base_min);
+    printf("      \"range_max\": \"0x%016lx\",\n", layout.phys_kaslr_base_max);
+    printf("      \"slots\": %lu,\n", s->kaslr.pslots);
+    printf("      \"entropy_bits\": %d\n", s->kaslr.pbits);
     printf("    }");
   }
 

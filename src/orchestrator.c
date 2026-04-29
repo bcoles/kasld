@@ -1463,12 +1463,22 @@ void compute_kaslr_info(struct summary *s) {
   s->kaslr.ptext = group_consensus(KASLD_ADDR_PHYS, KASLD_SECTION_TEXT);
   s->kaslr.has_phys = 0;
 
-  /* Slot count computed unconditionally so it is available even when no
+  /* Slot counts computed unconditionally so they are available even when no
    * concrete address was found (inference plugins may have narrowed the range
    * without producing a specific address). Zeroed below when KASLR is off. */
   unsigned long text_range = layout.kaslr_base_max - layout.kaslr_base_min;
   s->kaslr.vslots = layout.kaslr_align ? text_range / layout.kaslr_align : 0;
   s->kaslr.vbits = s->kaslr.vslots > 0 ? ilog2(s->kaslr.vslots) : 0;
+
+#ifdef KASLR_PHYS_MIN
+  {
+    unsigned long phys_range =
+        layout.phys_kaslr_base_max - layout.phys_kaslr_base_min;
+    s->kaslr.pslots =
+        layout.phys_kaslr_align ? phys_range / layout.phys_kaslr_align : 0;
+    s->kaslr.pbits = s->kaslr.pslots > 0 ? ilog2(s->kaslr.pslots) : 0;
+  }
+#endif
 
   if (s->kaslr.vtext) {
     s->kaslr.vslide = (long)(s->kaslr.vtext - layout.kernel_text_default);
@@ -1484,11 +1494,6 @@ void compute_kaslr_info(struct summary *s) {
 #ifdef KERNEL_PHYS_DEFAULT
     s->kaslr.has_phys = 1;
     s->kaslr.pslide = (long)(s->kaslr.ptext - KERNEL_PHYS_DEFAULT);
-    unsigned long phys_range =
-        layout.phys_kaslr_base_max - layout.phys_kaslr_base_min;
-    s->kaslr.pslots =
-        layout.phys_kaslr_align ? phys_range / layout.phys_kaslr_align : 0;
-    s->kaslr.pbits = s->kaslr.pslots > 0 ? ilog2(s->kaslr.pslots) : 0;
 #endif
   }
 
