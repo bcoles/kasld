@@ -521,10 +521,31 @@ static struct kasld_arch_params g_arch_params;
 static struct kasld_analysis_ctx g_ctx;
 
 /* Run all plugins registered for the given phase. */
+static void sync_inference_bounds_to_layout(void);
+
 static void run_inference_phase(struct kasld_analysis_ctx *ctx,
                                 enum kasld_inference_phase phase) {
   if (!__start_kasld_inferences || !__stop_kasld_inferences)
     return;
+
+  /* Forward sync: clamp ctx bounds to the current layout before each phase.
+   * Any phase (e.g. LAYOUT_ADJUST) may have widened or shifted the layout's
+   * KASLR window; without this, the next phase's plugins would operate
+   * against stale bounds from g_ctx initialisation. Clamping preserves
+   * tightening already applied by earlier phases. Also refreshes g_arch_params
+   * so ctx->arch->kaslr_base_* reads inside plugins stay consistent. */
+  if (layout.kaslr_base_min > ctx->text_base_min)
+    ctx->text_base_min = layout.kaslr_base_min;
+  if (layout.kaslr_base_max < ctx->text_base_max)
+    ctx->text_base_max = layout.kaslr_base_max;
+  if (layout.kernel_vas_start > ctx->page_offset_min)
+    ctx->page_offset_min = layout.kernel_vas_start;
+  if (layout.kernel_vas_end < ctx->page_offset_max)
+    ctx->page_offset_max = layout.kernel_vas_end;
+  g_arch_params.kaslr_base_min = layout.kaslr_base_min;
+  g_arch_params.kaslr_base_max = layout.kaslr_base_max;
+  ctx->result_count = (size_t)num_results;
+
   const struct kasld_inference **p;
   for (p = __start_kasld_inferences; p < __stop_kasld_inferences; p++)
     if ((*p)->phase == phase)
@@ -1707,19 +1728,11 @@ void inject_kaslr_defaults(struct summary *s) {
 
 static void run_pre_collection_inference(void) {
   run_inference_phase(&g_ctx, KASLD_INFER_PHASE_PRE_COLLECTION);
-  /* Sync any tightened bounds back to the layout so that result validation
-   * and KASLR slot-count computation use the adjusted range. */
-  if (g_ctx.text_base_max < layout.kernel_base_max) {
-    if (verbose && !quiet && !json_output)
-      printf("[layout] kernel_base_max tightened: %#lx -> %#lx\n",
-             layout.kernel_base_max, g_ctx.text_base_max);
-    layout.kernel_base_max = g_ctx.text_base_max;
-    layout.kaslr_base_max = g_ctx.text_base_max;
-  }
-  if (g_ctx.text_base_min > layout.kernel_base_min) {
-    layout.kernel_base_min = g_ctx.text_base_min;
-    layout.kaslr_base_min = g_ctx.text_base_min;
-  }
+  if (verbose && !quiet && !json_output &&
+      g_ctx.text_base_max < layout.kernel_base_max)
+    printf("[layout] kernel_base_max tightened: %#lx -> %#lx\n",
+           layout.kernel_base_max, g_ctx.text_base_max);
+  sync_inference_bounds_to_layout();
 }
 
 static void sync_inference_bounds_to_layout(void) {
@@ -1731,6 +1744,10 @@ static void sync_inference_bounds_to_layout(void) {
     layout.kernel_base_min = g_ctx.text_base_min;
     layout.kaslr_base_min = g_ctx.text_base_min;
   }
+  if (g_ctx.page_offset_min > layout.kernel_vas_start)
+    layout.kernel_vas_start = g_ctx.page_offset_min;
+  if (g_ctx.page_offset_max < layout.kernel_vas_end)
+    layout.kernel_vas_end = g_ctx.page_offset_max;
 }
 
 static void run_post_collection_inference(void) {
