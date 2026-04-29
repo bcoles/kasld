@@ -150,6 +150,12 @@ void adjust_for_page_offset(unsigned long new_po) {
 #define LINE_LEN 512
 #define DEFAULT_TIMEOUT_SECS 30
 #define FAST_TIMEOUT_SECS 2
+/* Maximum convergence passes per inference phase group. Plugins within a
+ * phase may depend on each other's output (e.g. phys_virt_synth tightens
+ * page_offset_min/max, which dram_bound could use for a tighter text_base_min).
+ * We re-run until no bound changes, up to this limit as a safety cap. In
+ * practice convergence always occurs in ≤ 2 passes with current plugins. */
+#define MAX_INFERENCE_PASSES 8
 static int component_timeout = DEFAULT_TIMEOUT_SECS;
 
 /* Parallel inference: 0 = sequential (default), N > 1 = N worker threads */
@@ -1725,19 +1731,57 @@ void inject_kaslr_defaults(struct summary *s) {
   }
 }
 
+/* Convergence detection --------------------------------------------------- */
+
+/* Snapshot of every bound the convergence loop tracks. */
+struct bounds_snap {
+  unsigned long text_min, text_max;
+  unsigned long po_min, po_max;
+  unsigned long phys_min, phys_max;
+};
+
+static void snap_bounds(struct bounds_snap *s) {
+  s->text_min = g_ctx.text_base_min;
+  s->text_max = g_ctx.text_base_max;
+  s->po_min = g_ctx.page_offset_min;
+  s->po_max = g_ctx.page_offset_max;
+  s->phys_min = g_ctx.phys_base_min;
+  s->phys_max = g_ctx.phys_base_max;
+}
+
+/* Returns 1 if any bound differs from the snapshot, 0 if stable. */
+static int bounds_changed(const struct bounds_snap *s) {
+  return g_ctx.text_base_min != s->text_min ||
+         g_ctx.text_base_max != s->text_max ||
+         g_ctx.page_offset_min != s->po_min ||
+         g_ctx.page_offset_max != s->po_max ||
+         g_ctx.phys_base_min != s->phys_min ||
+         g_ctx.phys_base_max != s->phys_max;
+}
+
 /* State on_exit actions --------------------------------------------------- */
 
 static void run_pre_collection_inference(void) {
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_PRE_COLLECTION);
-  if (verbose && !quiet && !json_output &&
-      g_ctx.text_base_max < layout.kernel_base_max)
-    printf("[layout] kernel_base_max tightened: %#lx -> %#lx\n",
-           layout.kernel_base_max, g_ctx.text_base_max);
-  if (verbose && !quiet && !json_output &&
-      g_ctx.phys_base_max < layout.phys_kaslr_base_max)
-    printf("[layout] phys_kaslr_base_max tightened: %#lx -> %#lx\n",
-           layout.phys_kaslr_base_max, g_ctx.phys_base_max);
-  sync_inference_bounds_to_layout();
+  unsigned long init_text_max = layout.kernel_base_max;
+  unsigned long init_phys_max = layout.phys_kaslr_base_max;
+  struct bounds_snap snap;
+
+  for (int pass = 0; pass < MAX_INFERENCE_PASSES; pass++) {
+    snap_bounds(&snap);
+    run_inference_phase(&g_ctx, KASLD_INFER_PHASE_PRE_COLLECTION);
+    sync_inference_bounds_to_layout();
+    if (!bounds_changed(&snap))
+      break;
+  }
+
+  if (verbose && !quiet && !json_output) {
+    if (layout.kernel_base_max < init_text_max)
+      printf("[layout] kernel_base_max tightened: %#lx -> %#lx\n",
+             init_text_max, layout.kernel_base_max);
+    if (layout.phys_kaslr_base_max < init_phys_max)
+      printf("[layout] phys_kaslr_base_max tightened: %#lx -> %#lx\n",
+             init_phys_max, layout.phys_kaslr_base_max);
+  }
 }
 
 static void sync_inference_bounds_to_layout(void) {
@@ -1760,15 +1804,35 @@ static void sync_inference_bounds_to_layout(void) {
 }
 
 static void run_post_collection_inference(void) {
+  struct bounds_snap snap;
+
+  /* LAYOUT_ADJUST: apply PAGE_OFFSET and VAS discoveries to layout (once).
+   * Runs before the convergence loop because it mutates layout directly
+   * rather than tightening ctx bounds; the forward sync at the start of
+   * the first POST_COLLECTION pass picks up those mutations. */
   run_inference_phase(&g_ctx, KASLD_INFER_PHASE_LAYOUT_ADJUST);
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
-  sync_inference_bounds_to_layout();
+
+  for (int pass = 0; pass < MAX_INFERENCE_PASSES; pass++) {
+    snap_bounds(&snap);
+    run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+    sync_inference_bounds_to_layout();
+    if (!bounds_changed(&snap))
+      break;
+  }
 }
 
 static void run_post_probing_inference(void) {
+  struct bounds_snap snap;
+
   run_inference_phase(&g_ctx, KASLD_INFER_PHASE_LAYOUT_ADJUST);
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_PROBING);
-  sync_inference_bounds_to_layout();
+
+  for (int pass = 0; pass < MAX_INFERENCE_PASSES; pass++) {
+    snap_bounds(&snap);
+    run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_PROBING);
+    sync_inference_bounds_to_layout();
+    if (!bounds_changed(&snap))
+      break;
+  }
 }
 
 /* Execution state table --------------------------------------------------- */
