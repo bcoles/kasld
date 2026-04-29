@@ -11,6 +11,7 @@
 #include "../src/inference/dram_bound.c"
 #include "../src/inference/kaslr_ceiling.c"
 #include "../src/inference/layout_adjust.c"
+#include "../src/inference/module_text_bound.c"
 #include "../src/inference/phys_virt_synth.c"
 #include "../src/orchestrator.c"
 #include "../src/render.c"
@@ -1971,6 +1972,94 @@ static void test_phys_virt_synth_disagreeing_candidates_noop(void) {
 }
 
 /* =========================================================================
+ * module_text_bound (POST_COLLECTION)
+ * =========================================================================
+ */
+
+/* No module results → no-op on all arches */
+static void test_module_text_bound_no_results_noop(void) {
+  reset_state();
+  init_inference_ctx();
+  unsigned long max_before = g_ctx.text_base_max;
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+  assert(g_ctx.text_base_max == max_before);
+}
+
+/* Non-module results only → no-op */
+static void test_module_text_bound_non_module_section_noop(void) {
+  reset_state();
+  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT,
+                KERNEL_BASE_MIN + KERNEL_ALIGN, KASLD_REGION_KERNEL_TEXT);
+  init_inference_ctx();
+  unsigned long max_before = g_ctx.text_base_max;
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+  assert(g_ctx.text_base_max == max_before);
+}
+
+#if MODULES_RELATIVE_TO_TEXT
+/* A valid module address lowers text_base_max to
+ * (vmod_lo + MODULES_END_TO_TEXT_OFFSET - MIN_KERNEL_IMAGE_SIZE) & ~(align-1)
+ */
+static void test_module_text_bound_lowers_max(void) {
+  reset_state();
+  unsigned long vmod_lo = MODULES_START + KERNEL_ALIGN;
+  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_MODULE, vmod_lo,
+                KASLD_REGION_MODULE);
+  init_inference_ctx();
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+
+  unsigned long end_est = vmod_lo + MODULES_END_TO_TEXT_OFFSET;
+  unsigned long expected_max =
+      (end_est - MIN_KERNEL_IMAGE_SIZE) & ~(KASLR_ALIGN - 1);
+  assert(g_ctx.text_base_max == expected_max);
+  assert(g_ctx.text_base_max < g_ctx.text_base_min ||
+         g_ctx.text_base_max >= g_ctx.text_base_min);
+}
+
+/* The tightest (lowest-addressed) module drives the bound — not the highest */
+static void test_module_text_bound_uses_minimum_module(void) {
+  reset_state();
+  unsigned long vmod_lo = MODULES_START + KERNEL_ALIGN;
+  unsigned long vmod_hi = MODULES_START + 64 * MB;
+  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_MODULE, vmod_hi,
+                KASLD_REGION_MODULE);
+  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_MODULE, vmod_lo,
+                KASLD_REGION_MODULE);
+  init_inference_ctx();
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+
+  unsigned long end_est = vmod_lo + MODULES_END_TO_TEXT_OFFSET;
+  unsigned long expected_max =
+      (end_est - MIN_KERNEL_IMAGE_SIZE) & ~(KASLR_ALIGN - 1);
+  assert(g_ctx.text_base_max == expected_max);
+}
+
+/* text_base_min is never raised by this plugin */
+static void test_module_text_bound_never_raises_min(void) {
+  reset_state();
+  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_MODULE,
+                MODULES_START + KERNEL_ALIGN, KASLD_REGION_MODULE);
+  init_inference_ctx();
+  unsigned long min_before = g_ctx.text_base_min;
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+  assert(g_ctx.text_base_min == min_before);
+}
+
+/* A result that would only widen the max is ignored (commutativity) */
+static void test_module_text_bound_never_widens(void) {
+  reset_state();
+  /* Use a very high module address so derived max > initial max */
+  unsigned long vmod_hi = MODULES_END - KERNEL_ALIGN;
+  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_MODULE, vmod_hi,
+                KASLD_REGION_MODULE);
+  init_inference_ctx();
+  unsigned long max_before = g_ctx.text_base_max;
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+  assert(g_ctx.text_base_max <= max_before);
+}
+#endif /* MODULES_RELATIVE_TO_TEXT */
+
+/* =========================================================================
  * layout_adjust (LAYOUT_ADJUST)
  * =========================================================================
  */
@@ -2296,6 +2385,17 @@ int main(void) {
   RUN_TEST(test_phys_virt_synth_no_cross_origin_pairing);
   RUN_TEST(test_phys_virt_synth_tightens_on_agreement);
   RUN_TEST(test_phys_virt_synth_disagreeing_candidates_noop);
+  printf("\n");
+
+  printf("inference plugins (module_text_bound):\n");
+  RUN_TEST(test_module_text_bound_no_results_noop);
+  RUN_TEST(test_module_text_bound_non_module_section_noop);
+#if MODULES_RELATIVE_TO_TEXT
+  RUN_TEST(test_module_text_bound_lowers_max);
+  RUN_TEST(test_module_text_bound_uses_minimum_module);
+  RUN_TEST(test_module_text_bound_never_raises_min);
+  RUN_TEST(test_module_text_bound_never_widens);
+#endif
   printf("\n");
 
   printf("inference plugins (layout_adjust):\n");
