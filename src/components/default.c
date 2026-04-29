@@ -34,7 +34,7 @@ int main(void) {
 
   /* Always emit a DEFAULT-type fallback. The "text" name distinguishes
    * this informational fallback from the "nokaslr" / "unsupported"
-   * markers that detect_kaslr_state() treats as KASLR-disabled
+   * markers that inject_kaslr_defaults() uses as KASLR-disabled
    * indicators. */
   printf("common default kernel text for arch: %lx\n", addr);
   kasld_result(KASLD_ADDR_DEFAULT, KASLD_SECTION_NONE, addr,

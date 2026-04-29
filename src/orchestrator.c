@@ -202,16 +202,14 @@ static int num_components;
 
 /* State machine execution model.
  * Each state declares a phase key (matched against components[].phase), an
- * entry guard (NULL = always enter), an exit action (NULL = no action), and
- * an execution mode (parallel or sequential). The loop in main() drives the
- * table; adding a new phase means adding one row, not editing main(). */
-typedef int (*state_guard_fn)(void);
+ * exit action (NULL = no action), and an execution mode (parallel or
+ * sequential). The loop in main() drives the table; adding a new phase means
+ * adding one row, not editing main(). */
 typedef void (*state_action_fn)(void);
 
 struct exec_state {
-  const char *name;         /* for logging and skip messages */
-  const char *phase_key;    /* matches component.phase; NULL = no components */
-  state_guard_fn can_enter; /* NULL = always enter */
+  const char *name;        /* for logging and skip messages */
+  const char *phase_key;   /* matches component.phase; NULL = no components */
   state_action_fn on_exit; /* NULL = no action; called once after run_state() */
   int parallel;            /* 1 = use worker pool (inference); 0 = sequential */
 };
@@ -1326,29 +1324,6 @@ void revalidate_results(void) {
   }
 }
 
-/* Check parsed results for KASLR-disabled / unsupported indicators.
- *
- * Detection components (default, proc-cmdline, proc-config, boot-config,
- * dmesg_kaslr-disabled, ...) emit DEFAULT-type results carrying a marker
- * in r->name:
- *   ""            — KASLR enabled; address is the compile-time fallback
- *   "text"        — same (legacy "default:text" label, pre-sweep)
- *   "nokaslr"     — KASLR is disabled
- *   "unsupported" — KASLR not supported on this kernel/arch
- *
- * Anything other than "" / "text" indicates KASLR is not active. */
-static int detect_kaslr_state(void) {
-  for (int i = 0; i < num_results; i++) {
-    if (results[i].type == KASLD_ADDR_DEFAULT && results[i].name[0] != '\0' &&
-        strcmp(results[i].name, "text") != 0)
-      return 1; /* disabled or unsupported */
-  }
-  return 0;
-}
-
-/* Guard for the probing state: enter only when KASLR appears active. */
-static int kaslr_appears_active(void) { return !detect_kaslr_state(); }
-
 /* -------------------------------------------------------------------------
  * Analysis helpers: find consensus address for a (type, section) group
  * -------------------------------------------------------------------------
@@ -1704,7 +1679,7 @@ void inject_kaslr_defaults(struct summary *s) {
   for (int i = 0; i < num_results; i++) {
     if (results[i].type == KASLD_ADDR_DEFAULT) {
       s->kaslr.default_addr = results[i].aligned;
-      /* See detect_kaslr_state() for the marker model:
+      /* Marker model (see inject_kaslr_defaults()):
        *   r->name == "unsupported"  → arch lacks KASLR support
        *   r->name == "nokaslr" or other non-empty/non-"text" → disabled
        *   r->name == "" or "text"   → fallback only (KASLR may be active) */
@@ -1800,9 +1775,9 @@ static void run_post_probing_inference(void) {
 
 /* Each row is one phase. Adding a new phase = adding one row here. */
 static const struct exec_state states[] = {
-    {"setup", NULL, NULL, run_pre_collection_inference, 0},
-    {"inference", "inference", NULL, run_post_collection_inference, 1},
-    {"probing", "probing", kaslr_appears_active, run_post_probing_inference, 0},
+    {"setup", NULL, run_pre_collection_inference, 0},
+    {"inference", "inference", run_post_collection_inference, 1},
+    {"probing", "probing", run_post_probing_inference, 0},
 };
 
 /* =========================================================================
@@ -2025,15 +2000,8 @@ int main(int argc, char *argv[]) {
   g_ctx.arch = &g_arch_params;
   g_ctx.layout = &layout;
 
-  for (int s = 0; s < (int)(sizeof(states) / sizeof(states[0])); s++) {
-    const struct exec_state *st = &states[s];
-    if (st->can_enter && !st->can_enter()) {
-      if (!quiet && verbose && plain_output())
-        printf("skipping %s phase (KASLR disabled)\n\n", st->name);
-      continue;
-    }
-    run_state(st); /* on_exit is fired inside run_state() */
-  }
+  for (int s = 0; s < (int)(sizeof(states) / sizeof(states[0])); s++)
+    run_state(&states[s]); /* on_exit is fired inside run_state() */
 
   if (!quiet && !verbose && plain_output())
     printf("\n\n");

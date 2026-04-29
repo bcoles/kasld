@@ -136,7 +136,7 @@ int main(void) {
   }
 
   /* Detect KASLR disabled — emit a DEFAULT-type marker. The "nokaslr"
-   * name in the result is what detect_kaslr_state() looks for. */
+   * name is the KASLR-disabled marker read by inject_kaslr_defaults(). */
   unsigned long addr = get_kernel_addr_proc_config(fp);
   if (addr) {
     printf("common default kernel text for arch: %lx\n", addr);

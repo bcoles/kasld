@@ -96,8 +96,8 @@ int main(void) {
 
   /* Detect KASLR disabled — emit a DEFAULT-type marker.
    * Region carries the standard KERNEL_TEXT (the address truly is the
-   * default kernel text base); the "nokaslr" name is the state marker
-   * detect_kaslr_state() looks for. */
+   * default kernel text base); the "nokaslr" name is the KASLR-disabled
+   * marker read by inject_kaslr_defaults(). */
   unsigned long addr = get_kernel_addr_boot_config(fp);
   if (addr) {
     printf("common default kernel text for arch: %lx\n", addr);

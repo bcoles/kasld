@@ -411,38 +411,6 @@ static void test_range_empty(void) {
 }
 
 /* =========================================================================
- * detect_kaslr_state
- * =========================================================================
- */
-static void test_kaslr_enabled(void) {
-  reset_state();
-  inject_result(KASLD_ADDR_DEFAULT, KASLD_SECTION_NONE, KERNEL_TEXT_DEFAULT,
-                "default:text");
-  assert(detect_kaslr_state() == 0);
-}
-
-static void test_kaslr_disabled_cmdline(void) {
-  reset_state();
-  inject_result(KASLD_ADDR_DEFAULT, KASLD_SECTION_NONE, KERNEL_TEXT_DEFAULT,
-                "default:text");
-  inject_result(KASLD_ADDR_DEFAULT, KASLD_SECTION_NONE, KERNEL_TEXT_DEFAULT,
-                "proc-cmdline:nokaslr");
-  assert(detect_kaslr_state() == 1);
-}
-
-static void test_kaslr_unsupported(void) {
-  reset_state();
-  inject_result(KASLD_ADDR_DEFAULT, KASLD_SECTION_NONE, KERNEL_TEXT_DEFAULT,
-                "default:unsupported");
-  assert(detect_kaslr_state() == 1);
-}
-
-static void test_kaslr_no_results(void) {
-  reset_state();
-  assert(detect_kaslr_state() == 0);
-}
-
-/* =========================================================================
  * adjust_for_page_offset
  * =========================================================================
  */
@@ -1397,7 +1365,6 @@ static void test_e2e_incremental_layout(void) {
   inject_tagged("D - 0xffffffff81000000 default:text");
   init_inference_ctx();
   run_inference_phase(&g_ctx, KASLD_INFER_PHASE_LAYOUT_ADJUST);
-  assert(detect_kaslr_state() == 0); /* KASLR enabled */
 
   inject_tagged("V text 0xffffffff81200000 dmesg_backtrace");
   init_inference_ctx();
@@ -1411,20 +1378,20 @@ static void test_e2e_incremental_layout(void) {
          0xffffffff81200000ul);
 }
 
-/* A nokaslr indicator collected during inference makes detect_kaslr_state()
- * return true — the probing phase is skipped. */
-static void test_e2e_kaslr_disabled_skips_probing(void) {
+static void test_e2e_kaslr_disabled_detection(void) {
+  struct summary s = {0};
+
   reset_state();
-
   inject_tagged("D - 0xffffffff81000000 default:text");
-  init_inference_ctx();
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_LAYOUT_ADJUST);
-  assert(detect_kaslr_state() == 0);
+  inject_kaslr_defaults(&s);
+  assert(s.kaslr.disabled == 0);
 
+  reset_state();
+  memset(&s, 0, sizeof(s));
+  inject_tagged("D - 0xffffffff81000000 default:text");
   inject_tagged("D - 0xffffffff81000000 proc-cmdline:nokaslr");
-  init_inference_ctx();
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_LAYOUT_ADJUST);
-  assert(detect_kaslr_state() == 1); /* probing phase would be skipped */
+  inject_kaslr_defaults(&s);
+  assert(s.kaslr.disabled == 1);
 }
 
 /* =========================================================================
@@ -2164,35 +2131,21 @@ static void test_layout_adjust_floor_clamp(void) {
  * =========================================================================
  */
 
-/* kaslr_appears_active() is the probing guard: it mirrors detect_kaslr_state()
- * and determines whether the probing state is entered. */
-static void test_state_table_guards(void) {
-  reset_state();
-  assert(kaslr_appears_active() == 1); /* no disabled markers → enter probing */
-
-  inject_tagged("D - 0xffffffff81000000 proc-cmdline:nokaslr");
-  assert(kaslr_appears_active() == 0); /* nokaslr marker → skip probing */
-}
-
-/* Verify state table structure: entry count, phase keys, guards, and
- * parallel flags are wired correctly. */
-static void test_run_state_skips_on_guard(void) {
+/* Verify state table structure: entry count, phase keys, and parallel flags. */
+static void test_state_table_structure(void) {
   size_t n = sizeof(states) / sizeof(states[0]);
   assert(n == 3);
 
-  /* setup: no components, no guard */
+  /* setup: no components, sequential */
   assert(states[0].phase_key == NULL);
-  assert(states[0].can_enter == NULL);
   assert(states[0].parallel == 0);
 
-  /* inference: all inference-phase components, always entered, parallel */
+  /* inference: inference-phase components, parallel */
   assert(strcmp(states[1].phase_key, "inference") == 0);
-  assert(states[1].can_enter == NULL);
   assert(states[1].parallel == 1);
 
-  /* probing: guarded by kaslr_appears_active, sequential */
+  /* probing: probing-phase components, sequential, always entered */
   assert(strcmp(states[2].phase_key, "probing") == 0);
-  assert(states[2].can_enter == kaslr_appears_active);
   assert(states[2].parallel == 0);
 }
 
@@ -2245,13 +2198,6 @@ int main(void) {
   RUN_TEST(test_range_single);
   RUN_TEST(test_range_multiple);
   RUN_TEST(test_range_empty);
-  printf("\n");
-
-  printf("detect_kaslr_state:\n");
-  RUN_TEST(test_kaslr_enabled);
-  RUN_TEST(test_kaslr_disabled_cmdline);
-  RUN_TEST(test_kaslr_unsupported);
-  RUN_TEST(test_kaslr_no_results);
   printf("\n");
 
   printf("adjust_for_page_offset:\n");
@@ -2382,12 +2328,11 @@ int main(void) {
   printf("end-to-end:\n");
   RUN_TEST(test_e2e_pipeline);
   RUN_TEST(test_e2e_incremental_layout);
-  RUN_TEST(test_e2e_kaslr_disabled_skips_probing);
+  RUN_TEST(test_e2e_kaslr_disabled_detection);
   printf("\n");
 
   printf("state machine:\n");
-  RUN_TEST(test_state_table_guards);
-  RUN_TEST(test_run_state_skips_on_guard);
+  RUN_TEST(test_state_table_structure);
   printf("\n");
 
   printf("apply_skip_filter:\n");

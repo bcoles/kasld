@@ -427,8 +427,10 @@ mode `apply_layout_adjustments()` is called after every component so
 PAGE_OFFSET discoveries immediately revalidate all prior results.
 Verbose mode (`-v`) also runs sequentially to avoid interleaved output.
 Execution order within the inference phase is irrelevant for correctness.
-The probing phase runs after all inference and is skipped entirely when
-KASLR is detected as disabled.
+The probing phase runs after all inference, unconditionally. Components
+that cannot run on the current system (KASLR disabled, lockdown, access
+denied) return `KASLD_EXIT_NOPERM` or `KASLD_EXIT_UNAVAILABLE` and are
+recorded as such in the component log.
 
 New components default to the inference phase when `phase:` is omitted
 from `KASLD_META()`. Probing phase membership requires `phase:probing`
@@ -652,8 +654,8 @@ markers: `default.c` (compile-time fallback), `proc-cmdline.c` and
 - `nokaslr` — KASLR is disabled
 - `unsupported` — KASLR is not supported on this kernel/arch
 
-The orchestrator's `detect_kaslr_state()` looks for these names to
-decide whether to inject a KASLR-disabled warning into the report.
+The orchestrator uses these names to inject a KASLR-disabled note into
+the summary report.
 
 #### Exit code convention
 
