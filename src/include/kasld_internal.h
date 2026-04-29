@@ -70,6 +70,10 @@ struct kasld_layout {
   unsigned long kaslr_base_min;
   unsigned long kaslr_base_max;
   unsigned long kaslr_align;
+  /* Physical KASLR range (PHYS_VIRT_DECOUPLED arches only; zero otherwise). */
+  unsigned long phys_kaslr_base_min;
+  unsigned long phys_kaslr_base_max;
+  unsigned long phys_kaslr_align;
 };
 
 /* Single tagged result from a component.

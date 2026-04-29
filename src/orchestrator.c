@@ -76,6 +76,16 @@ enum lockdown_mode sysctl_lockdown = LOCKDOWN_UNAVAILABLE;
  * adjusted at runtime when a pageoffset result overrides PAGE_OFFSET)
  * =========================================================================
  */
+#ifdef KASLR_PHYS_MIN
+#define _PHYS_KASLR_BASE_MIN KASLR_PHYS_MIN
+#define _PHYS_KASLR_BASE_MAX KASLR_PHYS_MAX
+#define _PHYS_KASLR_ALIGN KASLR_PHYS_ALIGN
+#else
+#define _PHYS_KASLR_BASE_MIN 0ul
+#define _PHYS_KASLR_BASE_MAX 0ul
+#define _PHYS_KASLR_ALIGN 0ul
+#endif
+
 struct kasld_layout layout = {
     .page_offset = PAGE_OFFSET,
     .kernel_vas_start = KERNEL_VAS_START,
@@ -90,6 +100,9 @@ struct kasld_layout layout = {
     .kaslr_base_min = KASLR_BASE_MIN,
     .kaslr_base_max = KASLR_BASE_MAX,
     .kaslr_align = KASLR_ALIGN,
+    .phys_kaslr_base_min = _PHYS_KASLR_BASE_MIN,
+    .phys_kaslr_base_max = _PHYS_KASLR_BASE_MAX,
+    .phys_kaslr_align = _PHYS_KASLR_ALIGN,
 };
 
 /* Adjust layout when runtime PAGE_OFFSET differs from compile-time default.
@@ -544,6 +557,12 @@ static void run_inference_phase(struct kasld_analysis_ctx *ctx,
     ctx->page_offset_max = layout.kernel_vas_end;
   g_arch_params.kaslr_base_min = layout.kaslr_base_min;
   g_arch_params.kaslr_base_max = layout.kaslr_base_max;
+  g_arch_params.phys_kaslr_base_min = layout.phys_kaslr_base_min;
+  g_arch_params.phys_kaslr_base_max = layout.phys_kaslr_base_max;
+  if (layout.phys_kaslr_base_min > ctx->phys_base_min)
+    ctx->phys_base_min = layout.phys_kaslr_base_min;
+  if (layout.phys_kaslr_base_max < ctx->phys_base_max)
+    ctx->phys_base_max = layout.phys_kaslr_base_max;
   ctx->result_count = (size_t)num_results;
 
   const struct kasld_inference **p;
@@ -1465,8 +1484,10 @@ void compute_kaslr_info(struct summary *s) {
 #ifdef KERNEL_PHYS_DEFAULT
     s->kaslr.has_phys = 1;
     s->kaslr.pslide = (long)(s->kaslr.ptext - KERNEL_PHYS_DEFAULT);
-    unsigned long phys_range = KASLR_PHYS_MAX - KASLR_PHYS_MIN;
-    s->kaslr.pslots = KASLR_PHYS_ALIGN ? phys_range / KASLR_PHYS_ALIGN : 0;
+    unsigned long phys_range =
+        layout.phys_kaslr_base_max - layout.phys_kaslr_base_min;
+    s->kaslr.pslots =
+        layout.phys_kaslr_align ? phys_range / layout.phys_kaslr_align : 0;
     s->kaslr.pbits = s->kaslr.pslots > 0 ? ilog2(s->kaslr.pslots) : 0;
 #endif
   }
@@ -1732,6 +1753,10 @@ static void run_pre_collection_inference(void) {
       g_ctx.text_base_max < layout.kernel_base_max)
     printf("[layout] kernel_base_max tightened: %#lx -> %#lx\n",
            layout.kernel_base_max, g_ctx.text_base_max);
+  if (verbose && !quiet && !json_output &&
+      g_ctx.phys_base_max < layout.phys_kaslr_base_max)
+    printf("[layout] phys_kaslr_base_max tightened: %#lx -> %#lx\n",
+           layout.phys_kaslr_base_max, g_ctx.phys_base_max);
   sync_inference_bounds_to_layout();
 }
 
@@ -1748,6 +1773,10 @@ static void sync_inference_bounds_to_layout(void) {
     layout.kernel_vas_start = g_ctx.page_offset_min;
   if (g_ctx.page_offset_max < layout.kernel_vas_end)
     layout.kernel_vas_end = g_ctx.page_offset_max;
+  if (g_ctx.phys_base_max < layout.phys_kaslr_base_max)
+    layout.phys_kaslr_base_max = g_ctx.phys_base_max;
+  if (g_ctx.phys_base_min > layout.phys_kaslr_base_min)
+    layout.phys_kaslr_base_min = g_ctx.phys_base_min;
 }
 
 static void run_post_collection_inference(void) {
@@ -1973,6 +2002,9 @@ int main(int argc, char *argv[]) {
   g_arch_params.kaslr_base_min = layout.kaslr_base_min;
   g_arch_params.kaslr_base_max = layout.kaslr_base_max;
   g_arch_params.kaslr_align = layout.kaslr_align;
+  g_arch_params.phys_kaslr_base_min = layout.phys_kaslr_base_min;
+  g_arch_params.phys_kaslr_base_max = layout.phys_kaslr_base_max;
+  g_arch_params.phys_kaslr_align = layout.phys_kaslr_align;
   g_arch_params.phys_virt_decoupled = PHYS_VIRT_DECOUPLED;
   g_arch_params.phys_offset = PHYS_OFFSET;
   g_arch_params.page_offset = PAGE_OFFSET;
@@ -1983,6 +2015,8 @@ int main(int argc, char *argv[]) {
   g_ctx.text_base_max = layout.kaslr_base_max;
   g_ctx.page_offset_min = layout.kernel_vas_start;
   g_ctx.page_offset_max = layout.kernel_vas_end;
+  g_ctx.phys_base_min = layout.phys_kaslr_base_min;
+  g_ctx.phys_base_max = layout.phys_kaslr_base_max;
   g_ctx.arch = &g_arch_params;
   g_ctx.layout = &layout;
 

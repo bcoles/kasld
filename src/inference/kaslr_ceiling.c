@@ -98,15 +98,25 @@ static void kaslr_ceiling_run(struct kasld_analysis_ctx *ctx) {
   unsigned long kaslr_min = ctx->arch->kaslr_base_min;
   unsigned long kaslr_align = ctx->arch->kaslr_align;
 
-  if (kernel_size >= kaslr_max - kaslr_min)
-    return; /* estimate implausibly large; skip */
+  if (kernel_size < kaslr_max - kaslr_min) {
+    /* Valid base range: [KASLR_BASE_MIN, KASLR_BASE_MAX - kernel_size].
+     * Align down to the nearest slot boundary. */
+    unsigned long new_max = (kaslr_max - kernel_size) & ~(kaslr_align - 1);
+    if (new_max > kaslr_min && new_max < ctx->text_base_max)
+      ctx->text_base_max = new_max;
+  }
 
-  /* Valid base range: [KASLR_BASE_MIN, KASLR_BASE_MAX - kernel_size].
-   * Align down to the nearest slot boundary. */
-  unsigned long new_max = (kaslr_max - kernel_size) & ~(kaslr_align - 1);
+#if PHYS_VIRT_DECOUPLED
+  unsigned long phys_max = ctx->arch->phys_kaslr_base_max;
+  unsigned long phys_min = ctx->arch->phys_kaslr_base_min;
+  unsigned long phys_align = ctx->arch->phys_kaslr_align;
 
-  if (new_max > kaslr_min && new_max < ctx->text_base_max)
-    ctx->text_base_max = new_max;
+  if (phys_max > phys_min && kernel_size < phys_max - phys_min) {
+    unsigned long new_phys_max = (phys_max - kernel_size) & ~(phys_align - 1);
+    if (new_phys_max > phys_min && new_phys_max < ctx->phys_base_max)
+      ctx->phys_base_max = new_phys_max;
+  }
+#endif
 }
 
 static const struct kasld_inference kaslr_ceiling = {

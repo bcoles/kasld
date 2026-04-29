@@ -115,6 +115,9 @@ static void init_inference_ctx(void) {
   g_arch_params.kaslr_base_min = layout.kaslr_base_min;
   g_arch_params.kaslr_base_max = layout.kaslr_base_max;
   g_arch_params.kaslr_align = layout.kaslr_align;
+  g_arch_params.phys_kaslr_base_min = layout.phys_kaslr_base_min;
+  g_arch_params.phys_kaslr_base_max = layout.phys_kaslr_base_max;
+  g_arch_params.phys_kaslr_align = layout.phys_kaslr_align;
   g_arch_params.phys_virt_decoupled = PHYS_VIRT_DECOUPLED;
   g_arch_params.phys_offset = PHYS_OFFSET;
   g_arch_params.page_offset = PAGE_OFFSET;
@@ -125,6 +128,8 @@ static void init_inference_ctx(void) {
   g_ctx.text_base_max = layout.kaslr_base_max;
   g_ctx.page_offset_min = layout.kernel_vas_start;
   g_ctx.page_offset_max = layout.kernel_vas_end;
+  g_ctx.phys_base_min = layout.phys_kaslr_base_min;
+  g_ctx.phys_base_max = layout.phys_kaslr_base_max;
   g_ctx.arch = &g_arch_params;
   g_ctx.layout = &layout;
 }
@@ -1843,6 +1848,38 @@ static void test_kaslr_ceiling_max_above_min(void) {
   assert(g_ctx.text_base_max > g_ctx.text_base_min);
 }
 
+/* Physical ceiling: phys_base_max must never widen and, when the physical
+ * range is non-zero (PHYS_VIRT_DECOUPLED arches), must remain >= phys_base_min
+ * after the plugin runs. On arches where the physical range is zero both
+ * bounds stay at zero and the assertions are trivially satisfied. */
+
+static void test_kaslr_ceiling_phys_never_widens(void) {
+  reset_state();
+  init_inference_ctx();
+  unsigned long initial_phys_max = g_ctx.phys_base_max;
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_PRE_COLLECTION);
+  assert(g_ctx.phys_base_max <= initial_phys_max);
+}
+
+static void test_kaslr_ceiling_phys_max_above_min(void) {
+  reset_state();
+  init_inference_ctx();
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_PRE_COLLECTION);
+  /* On arches with no physical KASLR both are zero; the plugin is a no-op. */
+  if (layout.phys_kaslr_base_max > 0)
+    assert(g_ctx.phys_base_max > g_ctx.phys_base_min);
+}
+
+#if PHYS_VIRT_DECOUPLED
+static void test_kaslr_ceiling_phys_alignment_invariant(void) {
+  reset_state();
+  init_inference_ctx();
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_PRE_COLLECTION);
+  if (layout.phys_kaslr_align > 0)
+    assert((g_ctx.phys_base_max % layout.phys_kaslr_align) == 0);
+}
+#endif
+
 /* dram_bound (POST_COLLECTION):
  * Raises text_base_min from the minimum PHYS/DRAM result on coupled arches. */
 
@@ -2367,6 +2404,11 @@ int main(void) {
   RUN_TEST(test_kaslr_ceiling_never_widens);
   RUN_TEST(test_kaslr_ceiling_alignment_invariant);
   RUN_TEST(test_kaslr_ceiling_max_above_min);
+  RUN_TEST(test_kaslr_ceiling_phys_never_widens);
+  RUN_TEST(test_kaslr_ceiling_phys_max_above_min);
+#if PHYS_VIRT_DECOUPLED
+  RUN_TEST(test_kaslr_ceiling_phys_alignment_invariant);
+#endif
   printf("\n");
 
   printf("inference plugins (dram_bound):\n");

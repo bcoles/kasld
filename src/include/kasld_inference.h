@@ -12,8 +12,8 @@
 //   3. No other file changes are required
 //
 // Commutativity invariant: plugins within a phase must only tighten bounds
-// (raise text_base_min, lower text_base_max). This makes execution order
-// within a phase irrelevant.
+// (raise *_min, lower *_max). This makes execution order within a phase
+// irrelevant.
 // ---
 // <bcoles@gmail.com>
 
@@ -43,6 +43,11 @@ struct kasld_arch_params {
   unsigned long kaslr_base_min;
   unsigned long kaslr_base_max;
   unsigned long kaslr_align;
+  /* Physical KASLR range. Non-zero on PHYS_VIRT_DECOUPLED arches only.
+   * Refreshed from layout before each phase by run_inference_phase(). */
+  unsigned long phys_kaslr_base_min;
+  unsigned long phys_kaslr_base_max;
+  unsigned long phys_kaslr_align;
   /* Physical-to-virtual mapping constants for PHYS/DRAM bound inference.
    * phys_virt_decoupled: 1 when physical and virtual KASLR are independent;
    * on decoupled arches physical leaks do not constrain the text range. */
@@ -63,6 +68,9 @@ struct kasld_analysis_ctx {
   unsigned long text_base_max;
   unsigned long page_offset_min;
   unsigned long page_offset_max;
+  /* Physical KASLR bounds (PHYS_VIRT_DECOUPLED arches only; zero otherwise). */
+  unsigned long phys_base_min;
+  unsigned long phys_base_max;
   const struct kasld_arch_params *arch;
   /* Writable layout pointer — set by LAYOUT_ADJUST plugins only.
    * POST_COLLECTION and POST_PROBING plugins treat this as read-only. */
