@@ -412,8 +412,19 @@ static void print_memory_map(void) {
     }
   }
 
-  if (n == 0 || regions[0].start != layout.kernel_vas_start)
+  if (n == 0 || regions[0].start != layout.kernel_vas_start) {
+    if (n > 0 && regions[0].start > layout.kernel_vas_start + 1) {
+      char hbuf[32];
+      unsigned long gap = regions[0].start - layout.kernel_vas_start;
+      printf("  %s\n", box_top);
+      printf("  %s|%66s|%s\n", c(C_DIM), "", c(C_RESET));
+      printf("  %s|  ...  %-59s|%s\n", c(C_DIM),
+             human_size(gap, hbuf, sizeof(hbuf)), c(C_RESET));
+      printf("  %s|%66s|%s\n", c(C_DIM), "", c(C_RESET));
+      printf("  %s\n", box_top);
+    }
     printf("  0x%016lx\n", layout.kernel_vas_start);
+  }
   printf("\n");
 
   /* Physical memory map — unified view of all physical leaks */
