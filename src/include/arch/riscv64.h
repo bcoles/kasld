@@ -15,7 +15,8 @@
 //   - SV39/SV48/SV57 with runtime detection (set_satp_mode)
 //   - KERNEL_LINK_ADDR = ADDRESS_SPACE_END - SZ_2G + 1 = 0xffffffff80000000
 //   - PAGE_OFFSET varies by mode (runtime):
-//       SV39: 0xffffffd800000000 (PAGE_OFFSET_L3)
+//       SV39: 0xffffffd600000000 (PAGE_OFFSET_L3, v6.12+)
+//             0xffffffd800000000 (PAGE_OFFSET_L3, v5.10 - v6.10)
 //       SV48: 0xffffaf8000000000 (PAGE_OFFSET_L4)
 //       SV57: 0xff60000000000000 (PAGE_OFFSET_L5)
 //   - Kernel text and linear map have separate VA-PA mappings (decoupled)

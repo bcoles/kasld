@@ -71,13 +71,15 @@ static char *cpuinfo_get(const char *key, char *buf, size_t bufsz) {
 #if defined(__riscv) && __riscv_xlen == 64
 /* riscv64: /proc/cpuinfo contains "mmu : sv39" (or sv48, sv57).
  * The MMU mode determines PAGE_OFFSET on v5.10+ kernels:
- *   sv39 -> 0xffffffd800000000  (PAGE_OFFSET_L3)
+ *   sv39 -> 0xffffffd600000000  (PAGE_OFFSET_L3, v6.12+)
+ *           0xffffffd800000000  (PAGE_OFFSET_L3, v5.10 - v6.10)
  *   sv48 -> 0xffffaf8000000000  (PAGE_OFFSET_L4)
  *   sv57 -> 0xff60000000000000  (PAGE_OFFSET_L5)
  *
- * These are computed from the kernel source as:
- *   PAGE_OFFSET = -(1UL << (VA_BITS - 1))
- * where VA_BITS = 39, 48, or 57. */
+ * PAGE_OFFSET_L3 for sv39 changed between v6.10 and v6.12 when the
+ * SV39 linear mapping region was expanded from 160 GiB to 168 GiB.
+ * We use the newer value; this may be slightly off on older kernels but
+ * remains within the broader PAGE_OFFSET range so results are conservative. */
 static int detect_riscv_mmu(void) {
   char buf[256];
   char *mmu = cpuinfo_get("mmu", buf, sizeof(buf));
@@ -92,7 +94,7 @@ static int detect_riscv_mmu(void) {
   unsigned long page_offset = 0;
 
   if (strcmp(mmu, "sv39") == 0)
-    page_offset = 0xffffffd800000000ul;
+    page_offset = 0xffffffd600000000ul;
   else if (strcmp(mmu, "sv48") == 0)
     page_offset = 0xffffaf8000000000ul;
   else if (strcmp(mmu, "sv57") == 0)
