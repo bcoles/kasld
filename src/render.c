@@ -378,7 +378,17 @@ static void print_memory_map(void) {
   const char *box_sep =
       "|                                                                  |";
 
-  printf("  0x%016lx\n", layout.kernel_vas_end);
+  /* Use the highest of kernel_vas_end and all region.end values so the top
+   * label is never below a visible region boundary. kernel_vas_end can be
+   * tightened by the page_offset_max inference feedback loop (it reflects
+   * the upper bound on PAGE_OFFSET, not the architectural VAS ceiling), so
+   * we clamp it up to the highest region boundary we know about. */
+  unsigned long map_top = layout.kernel_vas_end;
+  for (int i = 0; i < n; i++)
+    if (regions[i].end > map_top)
+      map_top = regions[i].end;
+
+  printf("  0x%016lx\n", map_top);
 
   for (int i = n - 1; i >= 0; i--) {
     struct map_region *r = &regions[i];
@@ -412,7 +422,12 @@ static void print_memory_map(void) {
     }
   }
 
-  if (n == 0 || regions[0].start != layout.kernel_vas_start) {
+  /* Only print kernel_vas_start as a footer when it is genuinely below the
+   * lowest visible region (i.e. the VAS extends further down than page_offset).
+   * kernel_vas_start can be raised by the page_offset_min inference feedback
+   * loop, making it larger than layout.page_offset; printing it there would
+   * produce two labels in inverted address order. */
+  if (n == 0 || layout.kernel_vas_start < regions[0].start) {
     if (n > 0 && regions[0].start > layout.kernel_vas_start + 1) {
       char hbuf[32];
       unsigned long gap = regions[0].start - layout.kernel_vas_start;
