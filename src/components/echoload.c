@@ -142,12 +142,8 @@ static void segfault_handler(int signum) {
 #define speculation_start(label) __asm__ goto("call %l0" : : : : label##_retp)
 #define speculation_end(label)                                                 \
   __asm__ goto("jmp %l0" : : : : label);                                       \
-  label##_retp                                                                 \
-      : __asm__ goto("lea %l0(%%rip), %%rax\n\tmovq %%rax, (%%rsp)\n\tret"     \
-                     :                                                         \
-                     :                                                         \
-                     : "rax"                                                   \
-                     : label);                                                 \
+  label##_retp : __asm__ goto("lea %l0(%%rip), %%rax\n\tmovq %%rax, "          \
+                              "(%%rsp)\n\tret" : : : "rax" : label);           \
   label:                                                                       \
   __asm__ volatile("nop")
 #endif

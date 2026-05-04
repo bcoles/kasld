@@ -90,7 +90,8 @@ struct kasld_inference {
  * to src/inference/ is the only step required. */
 #define KASLD_REGISTER_INFERENCE(inf)                                          \
   __attribute__((                                                              \
-      used, section("kasld_inferences"))) static const struct kasld_inference  \
-      *const __kasld_inf_ptr_##inf = &(inf)
+      used,                                                                    \
+      section("kasld_inferences"))) static const struct kasld_inference *const \
+      __kasld_inf_ptr_##inf = &(inf)
 
 #endif /* KASLD_INFERENCE_H */

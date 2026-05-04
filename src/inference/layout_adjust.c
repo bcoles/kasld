@@ -99,12 +99,12 @@ static void layout_adjust_run(struct kasld_analysis_ctx *ctx) {
   if (detected_po && detected_po != ctx->layout->page_offset)
     adjust_for_page_offset(detected_po);
 
-    /* 3. Floor clamping: on coupled architectures kernel text lives above
-     *    PAGE_OFFSET. KERNEL_BASE_MIN may be conservatively low at compile time
-     *    (e.g. x86_32 accepts all CONFIG_VMSPLIT_* values at validation time)
-     *    but must be clamped to PAGE_OFFSET for the final layout.
-     *    VAS start is min(page_offset, modules_start) on arm32 where modules
-     *    sit just below PAGE_OFFSET. */
+  /* 3. Floor clamping: on coupled architectures kernel text lives above
+   *    PAGE_OFFSET. KERNEL_BASE_MIN may be conservatively low at compile time
+   *    (e.g. x86_32 accepts all CONFIG_VMSPLIT_* values at validation time)
+   *    but must be clamped to PAGE_OFFSET for the final layout.
+   *    VAS start is min(page_offset, modules_start) on arm32 where modules
+   *    sit just below PAGE_OFFSET. */
 #if !PHYS_VIRT_DECOUPLED
   if (ctx->layout->kernel_base_min < ctx->layout->page_offset) {
     ctx->layout->kernel_base_min = ctx->layout->page_offset;

@@ -95,8 +95,7 @@ static void meminfo_phys_ceiling_run(struct kasld_analysis_ctx *ctx) {
     /* Decoupled: tighten the physical KASLR ceiling directly.
      * Use the actual DRAM floor from collected results so that the ceiling
      * is phys_floor + MemTotal (= top of RAM), not a compile-time guess. */
-    unsigned long phys_floor =
-        dram_floor(ctx, ctx->arch->phys_offset);
+    unsigned long phys_floor = dram_floor(ctx, ctx->arch->phys_offset);
     unsigned long ceiling = phys_floor + mem_bytes - MIN_IMAGE_SIZE;
 
     unsigned long phys_min = ctx->arch->phys_kaslr_base_min;
