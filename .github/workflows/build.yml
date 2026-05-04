@@ -1,4 +1,4 @@
-name: build-and-test
+name: build
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
     branches: [ "master" ]
 
 jobs:
-  build-and-test:
+  build:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4

@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <img src="https://github.com/bcoles/kasld/actions/workflows/build-and-test.yml/badge.svg" alt="Build Status"/>
+  <img src="https://github.com/bcoles/kasld/actions/workflows/build.yml/badge.svg" alt="Build Status"/>
   <img src="https://img.shields.io/github/v/release/bcoles/kasld" alt="Release"/>
   <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"/>
 </p>
