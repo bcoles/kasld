@@ -12,4 +12,6 @@ jobs:
     steps:
     - uses: actions/checkout@v3
     - name: Run clang-format style check
-      uses: DoozyX/clang-format-lint-action@v0.17
+      uses: DoozyX/clang-format-lint-action@v0.20
+      with:
+        clangFormatVersion: 20
