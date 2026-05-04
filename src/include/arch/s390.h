@@ -85,12 +85,41 @@
 #define KERNEL_BASE_MIN 0x100000ul
 #define KERNEL_BASE_MAX 0x20000000000000ul
 
-// Modules: 2 GiB (MODULES_LEN = 1 << 31) placed just below kernel text.
-// MODULES_END = round_down(__kaslr_offset, _SEGMENT_SIZE).
+// Modules: 2 GiB (MODULES_LEN = 1 << 31) placed immediately below the kernel
+// image base. MODULES_END = round_down(__kaslr_offset, _SEGMENT_SIZE) ≈
+// __kaslr_offset = _stext - TEXT_OFFSET. MODULES_START = MODULES_END - 2 GiB.
+//
+// Any observed module address vmod constrains text_base in both directions:
+//   Upper bound (from minimum vmod_lo):
+//     MODULES_END = round_down(__kaslr_offset, _SEGMENT_SIZE) ≤ vmod_lo +
+//     MODULES_LEN
+//     __kaslr_offset is KERNEL_ALIGN-aligned, so the gap
+//       __kaslr_offset − MODULES_END ∈ [0, _SEGMENT_SIZE − KERNEL_ALIGN]
+//     __kaslr_offset ≤ vmod_lo + MODULES_LEN + (_SEGMENT_SIZE − KERNEL_ALIGN)
+//     _stext ≤ vmod_lo + MODULES_LEN + (_SEGMENT_SIZE − KERNEL_ALIGN) +
+//     TEXT_OFFSET
+//   Lower bound (from maximum vmod_hi):
+//     __kaslr_offset > vmod_hi  →  __kaslr_offset ≥ align_up(vmod_hi,
+//     KERNEL_ALIGN) _stext ≥ align_up(vmod_hi, KERNEL_ALIGN) + TEXT_OFFSET
+//
+// MODULES_BELOW_TEXT_START signals that MODULES_END is anchored to the image
+// start (_stext - TEXT_OFFSET), not to image end (_end) as on riscv64. The
+// module_text_bound plugin uses this flag to select the correct formula and to
+// derive a lower bound on text_base from the maximum observed module address.
+//
+// MODULES_END_TO_TEXT_OFFSET: upper-bound addend in module_text_bound.c:
+//   new_max = (vmod_lo + MODULES_END_TO_TEXT_OFFSET) & ~(kaslr_align - 1)
+//   = MODULES_LEN + (_SEGMENT_SIZE − KERNEL_ALIGN) + TEXT_OFFSET
+//   = 0x80000000 + 0xFC000 + 0x100000 = 0x801FC000
+//
 // Runtime-determined; use wide bounds for validation.
 #define MODULES_START 0ul
 #define MODULES_END 0x20000000000000ul
-#define MODULES_RELATIVE_TO_TEXT 0
+#define MODULES_RELATIVE_TO_TEXT 1
+#define MODULES_BELOW_TEXT_START 1
+#define MODULES_END_TO_TEXT_OFFSET                                             \
+  0x801FC000ul /* MODULES_LEN + (_SEGMENT_SIZE - KERNEL_ALIGN) + TEXT_OFFSET   \
+                */
 
 // Virtual KASLR granularity: THREAD_SIZE (16 KiB on s390, PAGE_SIZE << 2).
 // Physical placement uses _SEGMENT_SIZE (1 MiB), but virtual text addresses
