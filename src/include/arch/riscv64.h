@@ -119,7 +119,17 @@
 // No physical KASLR on RISC-V. The kernel always loads at a fixed offset
 // (TEXT_OFFSET) from the DRAM base provided by firmware. Only the virtual
 // mapping is randomized (v6.6+).
-#define KASLR_PHYS_MAX (KERNEL_PHYS_MIN + TEXT_OFFSET)
+//
+// TEXT_OFFSET = 2 MiB is the OpenSBI convention: OpenSBI occupies the first
+// 2 MiB of DRAM (trap vectors, fw_jump payload, etc.) and the kernel image
+// follows immediately. This gives a deterministic physical base on non-EFI
+// boots. On EFI-booted systems the EFI stub allocates memory from the EFI
+// memory map — anywhere in the physical address space — bypassing this
+// convention entirely. Additionally, the DRAM base itself varies by platform
+// (0x80000000 on QEMU virt/SiFive, 0x40000000 on StarFive VisionFive 2, etc.),
+// so the physical kernel base is not fixed across hardware. KASLR_PHYS_MAX is
+// therefore set to KERNEL_PHYS_MAX rather than the hardware default.
+#define KASLR_PHYS_MAX KERNEL_PHYS_MAX
 
 #define KASLR_SUPPORTED 1
 
