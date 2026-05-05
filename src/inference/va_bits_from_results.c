@@ -1,7 +1,7 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
-// Inference plugin: VA_BITS detection from directmap addresses (POST_COLLECTION)
-// ARM64 only.
+// Inference plugin: VA_BITS detection from directmap addresses
+// (POST_COLLECTION) ARM64 only.
 //
 // On arm64, PAGE_OFFSET is -(1UL << VA_BITS):
 //   VA_BITS=52: PAGE_OFFSET = 0xfff0000000000000
@@ -75,9 +75,10 @@ static void va_bits_from_results_run(struct kasld_analysis_ctx *ctx) {
   }
 
   if (have_va52) {
-    /* VA_BITS=52 confirmed. PAGE_OFFSET = 0xfff0000000000000 (no randomisation).
-     * page_offset_min is already ARM64_VA52_PAGE_OFFSET (compile-time default).
-     * Tighten page_offset_max to pin PAGE_OFFSET exactly. */
+    /* VA_BITS=52 confirmed. PAGE_OFFSET = 0xfff0000000000000 (no
+     * randomisation). page_offset_min is already ARM64_VA52_PAGE_OFFSET
+     * (compile-time default). Tighten page_offset_max to pin PAGE_OFFSET
+     * exactly. */
     if (ARM64_VA52_PAGE_OFFSET >= ctx->page_offset_min &&
         ARM64_VA52_PAGE_OFFSET < ctx->page_offset_max) {
       if (verbose && !quiet)

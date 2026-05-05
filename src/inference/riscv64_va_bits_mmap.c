@@ -53,7 +53,8 @@ static void riscv64_va_bits_mmap_run(struct kasld_analysis_ctx *ctx) {
 #if defined(__riscv) && __riscv_xlen == 64
 
 /* PAGE_OFFSET values from arch/riscv/include/asm/page.h */
-#define RISCV_PAGE_OFFSET_SV57 0xff60000000000000ul /* SV57, compile-time default */
+#define RISCV_PAGE_OFFSET_SV57                                                 \
+  0xff60000000000000ul /* SV57, compile-time default */
 #define RISCV_PAGE_OFFSET_SV48 0xffffaf8000000000ul /* SV48 */
 /* SV39 has two known values depending on kernel version (see header comment) */
 #define RISCV_PAGE_OFFSET_SV39_NEW 0xffffffd600000000ul /* v6.12+ */
@@ -62,7 +63,7 @@ static void riscv64_va_bits_mmap_run(struct kasld_analysis_ctx *ctx) {
 /* TASK_SIZE = 1UL << (VA_BITS - 1) for each mode */
 #define RISCV_TASK_SIZE_SV39 ((void *)(1UL << 38))
 #define RISCV_TASK_SIZE_SV48 ((void *)(1UL << 47))
-#define RISCV_PROBE_LEN      0x1000ul
+#define RISCV_PROBE_LEN 0x1000ul
 
   /* --- Probe 1: SV39 boundary (1 << 38) --- */
   void *p1 = mmap(RISCV_TASK_SIZE_SV39, RISCV_PROBE_LEN, PROT_READ,
@@ -72,12 +73,12 @@ static void riscv64_va_bits_mmap_run(struct kasld_analysis_ctx *ctx) {
     if (errno != ENOMEM)
       return; /* unexpected error — skip */
 
-    /* SV39: PAGE_OFFSET ∈ [RISCV_PAGE_OFFSET_SV39_NEW, RISCV_PAGE_OFFSET_SV39_OLD]. */
+    /* SV39: PAGE_OFFSET ∈ [RISCV_PAGE_OFFSET_SV39_NEW,
+     * RISCV_PAGE_OFFSET_SV39_OLD]. */
     unsigned long new_min = RISCV_PAGE_OFFSET_SV39_NEW;
     unsigned long new_max = RISCV_PAGE_OFFSET_SV39_OLD;
 
-    if (new_min > ctx->page_offset_min &&
-        new_min <= ctx->page_offset_max) {
+    if (new_min > ctx->page_offset_min && new_min <= ctx->page_offset_max) {
       if (verbose && !quiet)
         fprintf(stderr,
                 "[layout] page_offset_min tightened by riscv64_va_bits_mmap"
@@ -85,8 +86,7 @@ static void riscv64_va_bits_mmap_run(struct kasld_analysis_ctx *ctx) {
                 ctx->page_offset_min, new_min);
       ctx->page_offset_min = new_min;
     }
-    if (new_max < ctx->page_offset_max &&
-        new_max >= ctx->page_offset_min) {
+    if (new_max < ctx->page_offset_max && new_max >= ctx->page_offset_min) {
       if (verbose && !quiet)
         fprintf(stderr,
                 "[layout] page_offset_max tightened by riscv64_va_bits_mmap"

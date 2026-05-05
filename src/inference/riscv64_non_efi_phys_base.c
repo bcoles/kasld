@@ -31,9 +31,9 @@
 //   minimum is the lowest physical memory address — exactly DRAM_BASE. Adding
 //   TEXT_OFFSET gives the kernel load address.
 //
-//   Safety net: the `phys_exact >= phys_base_min && phys_exact <= phys_base_max`
-//   guard prevents widening the bounds if DRAM results are absent, malformed,
-//   or inconsistent with the arch constants.
+//   Safety net: the `phys_exact >= phys_base_min && phys_exact <=
+//   phys_base_max` guard prevents widening the bounds if DRAM results are
+//   absent, malformed, or inconsistent with the arch constants.
 //
 // Note: the compile-time PHYS_OFFSET (0x80000000) is a QEMU virt default.
 // On platforms with DRAM at a different physical base, PHYS/DRAM results give

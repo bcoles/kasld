@@ -84,8 +84,12 @@ static void read_lowmem_info(unsigned long *lowtotal_out,
   unsigned long long lo_bytes = lo_kb * 1024ULL;
   unsigned long long hi_bytes = hi_kb * 1024ULL;
 
-  *lowtotal_out = found_lo ? (lo_bytes > ULONG_MAX ? ULONG_MAX : (unsigned long)lo_bytes) : 0;
-  *hightotal_out = found_hi ? (hi_bytes > ULONG_MAX ? ULONG_MAX : (unsigned long)hi_bytes) : 0;
+  *lowtotal_out =
+      found_lo ? (lo_bytes > ULONG_MAX ? ULONG_MAX : (unsigned long)lo_bytes)
+               : 0;
+  *hightotal_out =
+      found_hi ? (hi_bytes > ULONG_MAX ? ULONG_MAX : (unsigned long)hi_bytes)
+               : 0;
 }
 
 static void highmem_32bit_bound_run(struct kasld_analysis_ctx *ctx) {
@@ -116,7 +120,8 @@ static void highmem_32bit_bound_run(struct kasld_analysis_ctx *ctx) {
 
   /* Guard against unsigned wraparound: page_offset + lowtotal must not exceed
    * ULONG_MAX. On a well-configured 32-bit system this cannot happen (the
-   * kernel VAS ends at 0xffffffff and lowtotal < VAS size), but check anyway. */
+   * kernel VAS ends at 0xffffffff and lowtotal < VAS size), but check anyway.
+   */
   if (lowtotal > ULONG_MAX - page_offset)
     return;
 
@@ -124,7 +129,8 @@ static void highmem_32bit_bound_run(struct kasld_analysis_ctx *ctx) {
    *   phys_base ≤ LowTotal - MIN_IMAGE_SIZE
    *   text_base = page_offset + phys_base + text_offset
    *             ≤ page_offset + LowTotal - MIN_IMAGE_SIZE + text_offset */
-  unsigned long virt_ceiling = page_offset + lowtotal - MIN_IMAGE_SIZE + text_offset;
+  unsigned long virt_ceiling =
+      page_offset + lowtotal - MIN_IMAGE_SIZE + text_offset;
 
   unsigned long kaslr_min = ctx->arch->kaslr_base_min;
   unsigned long kaslr_align = ctx->arch->kaslr_align;
@@ -137,8 +143,8 @@ static void highmem_32bit_bound_run(struct kasld_analysis_ctx *ctx) {
       fprintf(stderr,
               "[layout] text_base_max tightened by highmem_32bit_bound:"
               " %#lx -> %#lx (LowTotal=%lu kB, HighTotal=%lu kB)\n",
-              ctx->text_base_max, virt_ceiling,
-              lowtotal / 1024, hightotal / 1024);
+              ctx->text_base_max, virt_ceiling, lowtotal / 1024,
+              hightotal / 1024);
     ctx->text_base_max = virt_ceiling;
   }
 }

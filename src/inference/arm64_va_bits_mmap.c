@@ -61,7 +61,7 @@ static void arm64_va_bits_mmap_run(struct kasld_analysis_ctx *ctx) {
  * VA_BITS=48: TASK_SIZE = 1UL << 48; address is outside → ENOMEM.
  * VA_BITS=52: TASK_SIZE = 1UL << 52; address is inside → mmap may succeed. */
 #define ARM64_VA_PROBE_ADDR ((void *)(1UL << 48))
-#define ARM64_VA_PROBE_LEN  0x1000ul
+#define ARM64_VA_PROBE_LEN 0x1000ul
 
   void *p = mmap(ARM64_VA_PROBE_ADDR, ARM64_VA_PROBE_LEN, PROT_READ,
                  MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);

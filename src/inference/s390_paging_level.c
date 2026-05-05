@@ -19,7 +19,8 @@
 //     (eliminates the default 8 PiB assumption, a 2048× reduction)
 //
 //   Probe succeeds:
-//     4-level paging  →  vmax = 8 PiB  (no change; KERNEL_BASE_MAX already 8 PiB)
+//     4-level paging  →  vmax = 8 PiB  (no change; KERNEL_BASE_MAX already 8
+//     PiB)
 //
 // The probe address (1UL << 42) is the first byte at or above the 3-level
 // ASCE limit. Mapping it fails on 3-level (address > asce_limit) and
@@ -56,7 +57,7 @@ static void s390_paging_level_run(struct kasld_analysis_ctx *ctx) {
  * 3-level: asce_limit = 1 << 42; this address is outside → ENOMEM.
  * 4-level: asce_limit = 1 << 53; this address is inside → mmap succeeds. */
 #define S390_PROBE_ADDR ((void *)(1UL << 42))
-#define S390_PROBE_LEN  0x1000ul
+#define S390_PROBE_LEN 0x1000ul
 
   void *p = mmap(S390_PROBE_ADDR, S390_PROBE_LEN, PROT_READ,
                  MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);

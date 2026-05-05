@@ -57,7 +57,8 @@ static void image_size_from_text_data_gap_run(struct kasld_analysis_ctx *ctx) {
   for (size_t i = 0; i < ctx->result_count; i++) {
     const struct result *r = &ctx->results[i];
     /* Only virtual, valid results. KASLD_ADDR_DEFAULT ('D') results are
-     * already excluded because they carry type 'D', not KASLD_ADDR_VIRT ('V'). */
+     * already excluded because they carry type 'D', not KASLD_ADDR_VIRT ('V').
+     */
     if (r->type != KASLD_ADDR_VIRT || !r->valid)
       continue;
 
@@ -94,10 +95,11 @@ static void image_size_from_text_data_gap_run(struct kasld_analysis_ctx *ctx) {
     if (new_max > kaslr_min && new_max > ctx->text_base_min &&
         new_max < ctx->text_base_max) {
       if (verbose && !quiet)
-        fprintf(stderr,
-                "[layout] text_base_max tightened by image_size_from_text_data_gap:"
-                " %#lx -> %#lx (gap=%#lx, min_text=%#lx, max_data=%#lx)\n",
-                ctx->text_base_max, new_max, gap, min_text, max_data);
+        fprintf(
+            stderr,
+            "[layout] text_base_max tightened by image_size_from_text_data_gap:"
+            " %#lx -> %#lx (gap=%#lx, min_text=%#lx, max_data=%#lx)\n",
+            ctx->text_base_max, new_max, gap, min_text, max_data);
       ctx->text_base_max = new_max;
     }
   }
@@ -117,7 +119,8 @@ static void image_size_from_text_data_gap_run(struct kasld_analysis_ctx *ctx) {
           new_phys < ctx->phys_base_max) {
         if (verbose && !quiet)
           fprintf(stderr,
-                  "[layout] phys_base_max tightened by image_size_from_text_data_gap:"
+                  "[layout] phys_base_max tightened by "
+                  "image_size_from_text_data_gap:"
                   " %#lx -> %#lx (gap=%#lx)\n",
                   ctx->phys_base_max, new_phys, gap);
         ctx->phys_base_max = new_phys;
