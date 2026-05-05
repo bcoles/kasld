@@ -87,11 +87,16 @@
 // https://elixir.bootlin.com/linux/v6.2-rc2/source/arch/arm64/include/asm/efi.h#L72
 // SEGMENT_ALIGN is hard-coded as 64KiB:
 // https://elixir.bootlin.com/linux/v6.2-rc2/source/arch/arm64/include/asm/memory.h#L131
-// The largest possible THREAD_ALIGN is also 64KiB.
-// THREAD_ALIGN = THREAD_SIZE = (1 << THREAD_SHIFT)
-// default CONFIG_ARM64_PAGE_SHIFT is 12. largest is 16.
-// https://elixir.bootlin.com/linux/v6.2-rc2/source/arch/arm64/Kconfig#L262
-// Use 64KiB (0x10000) by default
+// THREAD_ALIGN = 2 * THREAD_SIZE = 2 * (1 << max(PAGE_SHIFT,
+// MIN_THREAD_SHIFT=14))
+// - 4K pages (PAGE_SHIFT=12): THREAD_SHIFT=14, THREAD_ALIGN=32KiB,
+// EFI_KIMG_ALIGN=64KiB
+// - 16K pages (PAGE_SHIFT=14): THREAD_SHIFT=14, THREAD_ALIGN=32KiB,
+// EFI_KIMG_ALIGN=64KiB
+// - 64K pages (PAGE_SHIFT=16): THREAD_SHIFT=16, THREAD_ALIGN=128KiB,
+// EFI_KIMG_ALIGN=128KiB For 4K/16K (the common case), EFI_KIMG_ALIGN=64KiB. Use
+// 64KiB (0x10000) by default. On 64K-page EFI systems this is conservative
+// (128KiB actual); see arm64_phys_kaslr_align.
 #define KERNEL_ALIGN 0x10000ul
 
 // TEXT_OFFSET was changed from 0x80000 to zero in 2020 from kernel v5.8 onwards
