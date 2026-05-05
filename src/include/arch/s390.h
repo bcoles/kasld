@@ -142,10 +142,19 @@
 #define KERNEL_PHYS_MAX (64ul * GB)
 
 // Virtual KASLR randomization window (v6.8+ upstream defaults):
-// Image base picked from [CONFIG_KERNEL_IMAGE_BASE, KIB + KASLR_LEN).
-// KASLR_LEN = 1 << 31 = 2 GiB. _stext = image_base + TEXT_OFFSET.
+// Image base picked from [CONFIG_KERNEL_IMAGE_BASE, vmax - image_size) where
+// vmax = asce_limit (paging-level-dependent):
+//   3-level: vmax = _REGION2_SIZE = 1 << 42 = 4 TiB
+//   4-level: vmax = _REGION1_SIZE = 1 << 53 = 8 PiB
+// The kernel is placed near the TOP of vmax rather than at a fixed address:
+// the identity mapping grows upward from 0 (covering all physical RAM), so
+// kernel text is anchored near vmax to stay clear of it. The minimum placement
+// is CONFIG_KERNEL_IMAGE_BASE (a compile-time floor near 4 TiB - 512 MiB);
+// the maximum is vmax - image_size (boot-time, tracks the ASCE limit).
+// On 4-level systems vmax = 8 PiB, so _stext can be anywhere from
+// CONFIG_KERNEL_IMAGE_BASE up to ~8 PiB — a much wider range than 3-level.
 #define KASLR_BASE_MIN (0x3FFE0000000ul + TEXT_OFFSET)
-#define KASLR_BASE_MAX (0x3FFE0000000ul + (1ul << 31) + TEXT_OFFSET)
+#define KASLR_BASE_MAX KERNEL_BASE_MAX
 
 // Default kernel text virtual address without KASLR.
 // CONFIG_KERNEL_IMAGE_BASE (introduced ~v6.8) default = 0x3FFE0000000
