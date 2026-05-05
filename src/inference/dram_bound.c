@@ -70,10 +70,11 @@ static void dram_bound_run(struct kasld_analysis_ctx *ctx) {
 
     if (pdram_lo > phys_arch_min && pdram_lo > ctx->phys_base_min &&
         pdram_lo < ctx->phys_base_max) {
-      fprintf(stderr,
-              "[layout] phys_base_min tightened by dram_bound:"
-              " %#lx -> %#lx (min PHYS/DRAM=%#lx)\n",
-              ctx->phys_base_min, pdram_lo, pdram_lo);
+      if (verbose && !quiet)
+        fprintf(stderr,
+                "[layout] phys_base_min tightened by dram_bound:"
+                " %#lx -> %#lx (min PHYS/DRAM=%#lx)\n",
+                ctx->phys_base_min, pdram_lo, pdram_lo);
       ctx->phys_base_min = pdram_lo;
     }
   } else {
@@ -95,10 +96,11 @@ static void dram_bound_run(struct kasld_analysis_ctx *ctx) {
 
     if (virt_lo > kaslr_min && virt_lo > ctx->text_base_min &&
         virt_lo < ctx->text_base_max) {
-      fprintf(stderr,
-              "[layout] text_base_min tightened by dram_bound:"
-              " %#lx -> %#lx (min PHYS/DRAM=%#lx)\n",
-              ctx->text_base_min, virt_lo, pdram_lo);
+      if (verbose && !quiet)
+        fprintf(stderr,
+                "[layout] text_base_min tightened by dram_bound:"
+                " %#lx -> %#lx (min PHYS/DRAM=%#lx)\n",
+                ctx->text_base_min, virt_lo, pdram_lo);
       ctx->text_base_min = virt_lo;
     }
   }

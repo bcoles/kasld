@@ -108,10 +108,11 @@ static void kaslr_ceiling_run(struct kasld_analysis_ctx *ctx) {
      * Align down to the nearest slot boundary. */
     unsigned long new_max = (kaslr_max - kernel_size) & ~(kaslr_align - 1);
     if (new_max > kaslr_min && new_max < ctx->text_base_max) {
-      fprintf(stderr,
-              "[layout] text_base_max tightened by kaslr_ceiling:"
-              " %#lx -> %#lx (kernel_size=%#lx)\n",
-              ctx->text_base_max, new_max, kernel_size);
+      if (verbose && !quiet)
+        fprintf(stderr,
+                "[layout] text_base_max tightened by kaslr_ceiling:"
+                " %#lx -> %#lx (kernel_size=%#lx)\n",
+                ctx->text_base_max, new_max, kernel_size);
       ctx->text_base_max = new_max;
     }
   }
@@ -124,10 +125,11 @@ static void kaslr_ceiling_run(struct kasld_analysis_ctx *ctx) {
   if (phys_max > phys_min && kernel_size < phys_max - phys_min) {
     unsigned long new_phys_max = (phys_max - kernel_size) & ~(phys_align - 1);
     if (new_phys_max > phys_min && new_phys_max < ctx->phys_base_max) {
-      fprintf(stderr,
-              "[layout] phys_base_max tightened by kaslr_ceiling:"
-              " %#lx -> %#lx (kernel_size=%#lx)\n",
-              ctx->phys_base_max, new_phys_max, kernel_size);
+      if (verbose && !quiet)
+        fprintf(stderr,
+                "[layout] phys_base_max tightened by kaslr_ceiling:"
+                " %#lx -> %#lx (kernel_size=%#lx)\n",
+                ctx->phys_base_max, new_phys_max, kernel_size);
       ctx->phys_base_max = new_phys_max;
     }
   }
