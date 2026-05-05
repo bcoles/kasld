@@ -49,6 +49,7 @@
 #include "../include/kasld_inference.h"
 
 #include <limits.h>
+#include <stdio.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -81,6 +82,12 @@ static void riscv64_nonEFI_phys_base_run(struct kasld_analysis_ctx *ctx) {
   if (phys_exact < ctx->phys_base_min || phys_exact > ctx->phys_base_max)
     return;
 
+  fprintf(
+      stderr,
+      "[layout] phys_base pinned by riscv64_nonEFI_phys_base:"
+      " [%#lx, %#lx] -> %#lx (non-EFI, DRAM_BASE=%#lx + TEXT_OFFSET=%#lx)\n",
+      ctx->phys_base_min, ctx->phys_base_max, phys_exact, pdram_lo,
+      (unsigned long)TEXT_OFFSET);
   ctx->phys_base_min = phys_exact;
   ctx->phys_base_max = phys_exact;
 #else

@@ -39,6 +39,7 @@
 #include "../include/kasld_inference.h"
 
 #include <limits.h>
+#include <stdio.h>
 #include <string.h>
 
 #define SYNTH_MAX_ORIGINS 128
@@ -124,10 +125,20 @@ static void phys_virt_synth_run(struct kasld_analysis_ctx *ctx) {
   if (cand_hi - cand_lo > kaslr_align)
     return;
 
-  if (cand_lo > ctx->page_offset_min)
+  if (cand_lo > ctx->page_offset_min) {
+    fprintf(stderr,
+            "[layout] page_offset_min tightened by phys_virt_synth:"
+            " %#lx -> %#lx\n",
+            ctx->page_offset_min, cand_lo);
     ctx->page_offset_min = cand_lo;
-  if (cand_hi < ctx->page_offset_max)
+  }
+  if (cand_hi < ctx->page_offset_max) {
+    fprintf(stderr,
+            "[layout] page_offset_max tightened by phys_virt_synth:"
+            " %#lx -> %#lx\n",
+            ctx->page_offset_max, cand_hi);
     ctx->page_offset_max = cand_hi;
+  }
 }
 
 static const struct kasld_inference phys_virt_synth = {

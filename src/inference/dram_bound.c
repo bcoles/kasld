@@ -39,6 +39,7 @@
 #include "../include/kasld_inference.h"
 
 #include <limits.h>
+#include <stdio.h>
 #include <string.h>
 
 static void dram_bound_run(struct kasld_analysis_ctx *ctx) {
@@ -68,8 +69,13 @@ static void dram_bound_run(struct kasld_analysis_ctx *ctx) {
       pdram_lo = (pdram_lo + phys_align - 1) & ~(phys_align - 1);
 
     if (pdram_lo > phys_arch_min && pdram_lo > ctx->phys_base_min &&
-        pdram_lo < ctx->phys_base_max)
+        pdram_lo < ctx->phys_base_max) {
+      fprintf(stderr,
+              "[layout] phys_base_min tightened by dram_bound:"
+              " %#lx -> %#lx (min PHYS/DRAM=%#lx)\n",
+              ctx->phys_base_min, pdram_lo, pdram_lo);
       ctx->phys_base_min = pdram_lo;
+    }
   } else {
     /* Coupled arches: phys_to_virt() links physical DRAM to virtual text.
      * Derive a virtual text lower bound and align DOWN to stay conservative. */
@@ -88,8 +94,13 @@ static void dram_bound_run(struct kasld_analysis_ctx *ctx) {
         ~(kaslr_align - 1);
 
     if (virt_lo > kaslr_min && virt_lo > ctx->text_base_min &&
-        virt_lo < ctx->text_base_max)
+        virt_lo < ctx->text_base_max) {
+      fprintf(stderr,
+              "[layout] text_base_min tightened by dram_bound:"
+              " %#lx -> %#lx (min PHYS/DRAM=%#lx)\n",
+              ctx->text_base_min, virt_lo, pdram_lo);
       ctx->text_base_min = virt_lo;
+    }
   }
 }
 
