@@ -94,9 +94,14 @@ static void kaslr_ceiling_run(struct kasld_analysis_ctx *ctx) {
   if (kernel_size == 0)
     return;
 
-  unsigned long kaslr_max = ctx->arch->kaslr_base_max;
-  unsigned long kaslr_min = ctx->arch->kaslr_base_min;
-  unsigned long kaslr_align = ctx->arch->kaslr_align;
+  /* Use compile-time arch constants, not the live ctx->arch values.
+   * ctx->arch->kaslr_base_max is refreshed from layout each convergence
+   * pass, so using it would re-apply the ceiling subtraction on an already-
+   * tightened bound and fire multiple times. The ceiling is a one-shot
+   * computation against the original KASLR window. */
+  const unsigned long kaslr_max = KASLR_BASE_MAX;
+  const unsigned long kaslr_min = KASLR_BASE_MIN;
+  const unsigned long kaslr_align = KASLR_ALIGN;
 
   if (kernel_size < kaslr_max - kaslr_min) {
     /* Valid base range: [KASLR_BASE_MIN, KASLR_BASE_MAX - kernel_size].
@@ -112,9 +117,9 @@ static void kaslr_ceiling_run(struct kasld_analysis_ctx *ctx) {
   }
 
 #if PHYS_VIRT_DECOUPLED
-  unsigned long phys_max = ctx->arch->phys_kaslr_base_max;
-  unsigned long phys_min = ctx->arch->phys_kaslr_base_min;
-  unsigned long phys_align = ctx->arch->phys_kaslr_align;
+  const unsigned long phys_max = KASLR_PHYS_MAX;
+  const unsigned long phys_min = KASLR_PHYS_MIN;
+  const unsigned long phys_align = KASLR_PHYS_ALIGN;
 
   if (phys_max > phys_min && kernel_size < phys_max - phys_min) {
     unsigned long new_phys_max = (phys_max - kernel_size) & ~(phys_align - 1);
