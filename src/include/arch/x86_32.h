@@ -62,9 +62,13 @@
 
 #define TEXT_OFFSET 0
 
-// Plausible physical address range for kernel image
+// Plausible physical address range for kernel image.
+// KASLR ceiling is KERNEL_IMAGE_SIZE = 512 MB
+// (arch/x86/boot/compressed/kaslr.c: `if (IS_ENABLED(CONFIG_X86_32)) mem_limit
+// = KERNEL_IMAGE_SIZE`). Physical and virtual are coupled on x86-32
+// (PHYS_VIRT_DECOUPLED = 0).
 #define KERNEL_PHYS_MIN 0ul
-#define KERNEL_PHYS_MAX (1ul * GB)
+#define KERNEL_PHYS_MAX (512ul * MB)
 
 // Default: 0xc0000000 (PAGE_OFFSET with 3GB vmsplit, no offset).
 // See README.md "Default text base and KASLR alignment" for all architectures.
