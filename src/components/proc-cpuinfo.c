@@ -124,13 +124,23 @@ static int detect_riscv_mmu(void) {
  *   48 bits -> 4-level paging (common)
  *   57 bits -> 5-level paging (la57, newer CPUs)
  *
- * On x86_64, CONFIG_RANDOMIZE_MEMORY randomizes page_offset_base
- * independently, so knowing the paging level only constrains the VAS
- * range — it does not reveal the actual directmap base. Still useful
- * for tightening validation bounds.
+ * CONFIG_RANDOMIZE_MEMORY randomizes page_offset_base by adding a
+ * non-negative PUD-aligned random offset to __PAGE_OFFSET_BASE_L{4,5},
+ * so the directmap base is always >= the compile-time base constant.
+ * Emitting the base constant as the PAGEOFFSET floor is therefore sound.
  *
- * 4-level: PAGE_OFFSET = 0xffff800000000000 (47-bit sign extension)
- * 5-level: PAGE_OFFSET = 0xff00000000000000 (56-bit sign extension) */
+ * 4-level: VAS floor = 0xffff800000000000 (47-bit sign extension).
+ *          We use the canonical half floor rather than __PAGE_OFFSET_BASE_L4
+ *          (0xffff888000000000) because the static (non-RANDOMIZE_MEMORY)
+ *          layout places the vmemmap at 0xffff800000000000 and LDT remap at
+ *          0xffff880000000000; raising the VAS floor higher would silently
+ *          reject those legitimate virtual addresses.
+ *
+ * 5-level: Directmap floor = 0xff11000000000000 (__PAGE_OFFSET_BASE_L5).
+ *          The range [0xff00000000000000, 0xff10000000000000) is a guard hole
+ *          (never mapped), [0xff10000000000000, 0xff11000000000000) is the LDT
+ *          remap for PTI (kernel-internal, not emitted by any KASLD component),
+ *          so 0xff11000000000000 is a safe and tight directmap floor. */
 static int detect_x86_address_sizes(void) {
   char buf[256];
   char *val = cpuinfo_get("address sizes", buf, sizeof(buf));
@@ -153,9 +163,9 @@ static int detect_x86_address_sizes(void) {
   unsigned long page_offset = 0;
 
   if (virt_bits <= 48)
-    page_offset = 0xffff800000000000ul;
+    page_offset = 0xffff800000000000ul; /* L4 canonical half floor */
   else if (virt_bits <= 57)
-    page_offset = 0xff00000000000000ul;
+    page_offset = 0xff11000000000000ul; /* __PAGE_OFFSET_BASE_L5 */
   else {
     fprintf(stderr, "[-] Unexpected virtual address width: %u\n", virt_bits);
     return 0;
@@ -166,8 +176,8 @@ static int detect_x86_address_sizes(void) {
     return 0;
   }
 
-  printf("[.] VAS narrowed: %u-bit virtual -> PAGE_OFFSET 0x%016lx\n",
-         virt_bits, page_offset);
+  printf("[.] Paging level %s: PAGE_OFFSET floor -> 0x%016lx\n",
+         virt_bits <= 48 ? "4" : "5", page_offset);
 
   kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_PAGEOFFSET, page_offset,
                KASLD_REGION_PAGE_OFFSET, NULL);
