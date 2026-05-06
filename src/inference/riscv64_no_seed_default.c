@@ -38,7 +38,7 @@
 // additional trigger can be added for the all-zero case.
 //
 // Phase: PRE_COLLECTION — access() checks need no component results.
-// Applicable: riscv64 only. See riscv64 H8.
+// Applicable: riscv64 only.
 // ---
 // <bcoles@gmail.com>
 
@@ -80,6 +80,10 @@ static void riscv64_no_seed_default_run(struct kasld_analysis_ctx *ctx) {
   /* Safety guard: only pin if KERNEL_LINK_ADDR is within the established
    * window. */
   if (link_addr < ctx->text_base_min || link_addr > ctx->text_base_max)
+    return;
+
+  /* Already pinned at this value — no-op. */
+  if (ctx->text_base_min == link_addr && ctx->text_base_max == link_addr)
     return;
 
   if (verbose && !quiet)
