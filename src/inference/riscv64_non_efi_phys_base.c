@@ -53,7 +53,7 @@
 #include <string.h>
 #include <unistd.h>
 
-static void riscv64_nonEFI_phys_base_run(struct kasld_analysis_ctx *ctx) {
+static void riscv64_non_efi_phys_base_run(struct kasld_analysis_ctx *ctx) {
 #if (defined(__riscv) || defined(__riscv__)) && __riscv_xlen == 64
   /* On EFI-booted systems the load address is firmware-determined, not
    * necessarily DRAM_BASE + TEXT_OFFSET. Only pin on non-EFI (OpenSBI). */
@@ -82,10 +82,14 @@ static void riscv64_nonEFI_phys_base_run(struct kasld_analysis_ctx *ctx) {
   if (phys_exact < ctx->phys_base_min || phys_exact > ctx->phys_base_max)
     return;
 
+  /* Already pinned at this value — no-op. */
+  if (ctx->phys_base_min == phys_exact && ctx->phys_base_max == phys_exact)
+    return;
+
   if (verbose && !quiet)
     fprintf(
         stdout,
-        "[infer] phys_base pinned by riscv64_nonEFI_phys_base:"
+        "[infer] phys_base pinned by riscv64_non_efi_phys_base:"
         " [%#lx, %#lx] -> %#lx (non-EFI, DRAM_BASE=%#lx + TEXT_OFFSET=%#lx)\n",
         ctx->phys_base_min, ctx->phys_base_max, phys_exact, pdram_lo,
         (unsigned long)TEXT_OFFSET);
@@ -96,10 +100,10 @@ static void riscv64_nonEFI_phys_base_run(struct kasld_analysis_ctx *ctx) {
 #endif /* riscv64 */
 }
 
-static const struct kasld_inference riscv64_nonEFI_phys_base = {
-    .name = "riscv64_nonEFI_phys_base",
+static const struct kasld_inference riscv64_non_efi_phys_base = {
+    .name = "riscv64_non_efi_phys_base",
     .phase = KASLD_INFER_PHASE_POST_COLLECTION,
-    .run = riscv64_nonEFI_phys_base_run,
+    .run = riscv64_non_efi_phys_base_run,
 };
 
-KASLD_REGISTER_INFERENCE(riscv64_nonEFI_phys_base);
+KASLD_REGISTER_INFERENCE(riscv64_non_efi_phys_base);
