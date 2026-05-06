@@ -116,8 +116,9 @@ static unsigned long get_kernel_addr_proc_config(FILE *fp) {
   if (kconfig_has_kaslr(fp))
     return 0;
 
-  printf("[.] Kernel appears to have been compiled without both "
-         "CONFIG_RELOCATABLE and CONFIG_RANDOMIZE_BASE\n");
+  printf(
+      "[.] Kernel appears to have been compiled without CONFIG_RANDOMIZE_BASE"
+      " (KASLR not compiled in)\n");
 
   return (unsigned long)KERNEL_TEXT_DEFAULT;
 }

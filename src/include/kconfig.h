@@ -76,11 +76,16 @@ static unsigned long get_kconfig_page_offset(FILE *fp) {
 }
 
 /* Check if the kernel was compiled with KASLR support
- * (CONFIG_RELOCATABLE=y and CONFIG_RANDOMIZE_BASE=y).
- * Returns 1 if KASLR is enabled, 0 otherwise. */
+ * (CONFIG_RANDOMIZE_BASE=y).
+ *
+ * On x86/x86_64, CONFIG_RANDOMIZE_BASE has CONFIG_RELOCATABLE as a hard
+ * Kconfig dependency, so checking CONFIG_RANDOMIZE_BASE alone is sufficient.
+ * On all other arches (arm64, s390x, riscv64, powerpc, mips, ...) there is
+ * no CONFIG_RELOCATABLE; KASLR requires only CONFIG_RANDOMIZE_BASE.
+ *
+ * Returns 1 if KASLR is compiled in, 0 otherwise. */
 static int kconfig_has_kaslr(FILE *fp) {
-  return is_kconfig_set(fp, "CONFIG_RELOCATABLE") &&
-         is_kconfig_set(fp, "CONFIG_RANDOMIZE_BASE");
+  return is_kconfig_set(fp, "CONFIG_RANDOMIZE_BASE");
 }
 
 #endif /* KASLD_KCONFIG_H */
