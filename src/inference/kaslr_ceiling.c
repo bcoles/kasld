@@ -30,6 +30,7 @@
 
 #include "../include/kasld_inference.h"
 
+#include <stdint.h>
 #include <stdio.h>
 #include <sys/stat.h>
 #include <sys/utsname.h>
@@ -48,14 +49,67 @@
 #define SMAP_SYMS_PER_KIB 7.0
 #define SMAP_INIT_MULTIPLIER 2.0 /* low end of 2.0–2.5 range; underestimate */
 
+/* Minimum plausible file sizes. A real compressed vmlinuz is always several
+ * MiB; a real System.map always contains thousands of symbol lines. Reject
+ * tiny stub files, placeholder symlinks, and partial downloads that would
+ * produce wildly wrong kernel-size estimates. */
+#define MIN_VMLINUZ_BYTES (512UL * 1024)
+#define MIN_SYSMAP_BYTES  (256UL * 1024)
+
 /* stat() requires only execute permission on the parent directory, not read
  * permission on the file itself. */
+
+/* Read exact image_size from an EFI/PE-style Image header (riscv64, arm64).
+ * The header layout (arch/riscv/include/asm/image.h,
+ * arch/arm64/include/asm/image.h) places image_size as a u64 LE field at
+ * byte offset 16, preceded by MZ magic at offset 0. Returns 0 on failure. */
+static unsigned long estimate_from_image_header(const char *release) {
+  const char * const paths[] = {
+      "/boot/Image-%s",
+      "/boot/vmlinuz-%s",
+      NULL,
+  };
+  char path[256];
+  uint8_t hdr[24];
+
+  for (int i = 0; paths[i] != NULL; i++) {
+    snprintf(path, sizeof(path), paths[i], release);
+    FILE *fp = fopen(path, "rb");
+    if (!fp)
+      continue;
+    size_t n = fread(hdr, 1, sizeof(hdr), fp);
+    fclose(fp);
+
+    if (n < sizeof(hdr))
+      continue;
+    if (hdr[0] != 0x4d || hdr[1] != 0x5a)
+      continue;
+
+    uint64_t image_size =
+        ((uint64_t)hdr[16])        |
+        ((uint64_t)hdr[17] <<  8)  |
+        ((uint64_t)hdr[18] << 16)  |
+        ((uint64_t)hdr[19] << 24)  |
+        ((uint64_t)hdr[20] << 32)  |
+        ((uint64_t)hdr[21] << 40)  |
+        ((uint64_t)hdr[22] << 48)  |
+        ((uint64_t)hdr[23] << 56);
+
+    if (image_size < MIN_VMLINUZ_BYTES)
+      continue;
+
+    return (unsigned long)image_size;
+  }
+  return 0;
+}
 
 static unsigned long estimate_from_vmlinuz(const char *release) {
   char path[256];
   struct stat st;
   snprintf(path, sizeof(path), "/boot/vmlinuz-%s", release);
   if (stat(path, &st) != 0)
+    return 0;
+  if ((unsigned long)st.st_size < MIN_VMLINUZ_BYTES)
     return 0;
   return (unsigned long)((double)st.st_size * KASLR_CEILING_RATIO);
 }
@@ -66,20 +120,40 @@ static unsigned long estimate_from_sysmap(const char *release) {
   snprintf(path, sizeof(path), "/boot/System.map-%s", release);
   if (stat(path, &st) != 0)
     return 0;
+  if ((unsigned long)st.st_size < MIN_SYSMAP_BYTES)
+    return 0;
   unsigned long lines = (unsigned long)st.st_size / SMAP_BYTES_PER_LINE;
   double text_syms = (double)lines * SMAP_TEXT_FRACTION;
   double text_kib = text_syms / SMAP_SYMS_PER_KIB;
   return (unsigned long)(text_kib * 1024.0 * SMAP_INIT_MULTIPLIER);
 }
 
-/* Use the smaller of the two estimates: eliminates fewer slots but avoids
- * excluding valid positions. */
+/* Use the most accurate available estimate. Image header gives the exact
+ * decompressed size (no ratio needed); vmlinuz and System.map are fallbacks
+ * with underestimating ratios to avoid excluding valid positions.
+ *
+ * Cross-check: vmlinuz and sysmap estimates are intentional lower bounds.
+ * If the header-derived value falls below either lower bound it is
+ * inconsistent — a sign of a misidentified file or a non-standard PE layout —
+ * and is discarded. */
 static unsigned long estimate_kernel_size(void) {
   struct utsname uts;
   if (uname(&uts) != 0)
     return 0;
-  unsigned long vmlinuz = estimate_from_vmlinuz(uts.release);
-  unsigned long sysmap = estimate_from_sysmap(uts.release);
+
+  unsigned long from_hdr = estimate_from_image_header(uts.release);
+  unsigned long vmlinuz   = estimate_from_vmlinuz(uts.release);
+  unsigned long sysmap    = estimate_from_sysmap(uts.release);
+
+  /* Discard the header value if it falls below a known lower bound. */
+  if (from_hdr > 0 &&
+      ((vmlinuz > 0 && from_hdr < vmlinuz) ||
+       (sysmap  > 0 && from_hdr < sysmap)))
+    from_hdr = 0;
+
+  if (from_hdr)
+    return from_hdr;
+
   if (vmlinuz == 0 && sysmap == 0)
     return 0;
   if (vmlinuz == 0)
