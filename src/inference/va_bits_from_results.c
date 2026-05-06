@@ -68,8 +68,8 @@ static void va_bits_from_results_run(struct kasld_analysis_ctx *ctx) {
   if (have_va52 && have_va48) {
     /* Contradictory evidence — do not modify bounds. */
     if (verbose && !quiet)
-      fprintf(stderr,
-              "[layout] va_bits_from_results: contradictory DIRECTMAP addresses"
+      fprintf(stdout,
+              "[infer] va_bits_from_results: contradictory DIRECTMAP addresses"
               " (VA_BITS=52 and VA_BITS=48 ranges both observed); skipping\n");
     return;
   }
@@ -82,8 +82,8 @@ static void va_bits_from_results_run(struct kasld_analysis_ctx *ctx) {
     if (ARM64_VA52_PAGE_OFFSET >= ctx->page_offset_min &&
         ARM64_VA52_PAGE_OFFSET < ctx->page_offset_max) {
       if (verbose && !quiet)
-        fprintf(stderr,
-                "[layout] page_offset_max tightened by va_bits_from_results"
+        fprintf(stdout,
+                "[infer] page_offset_max tightened by va_bits_from_results"
                 " (VA_BITS=52): %#lx -> %#lx\n",
                 ctx->page_offset_max, ARM64_VA52_PAGE_OFFSET);
       ctx->page_offset_max = ARM64_VA52_PAGE_OFFSET;
@@ -103,16 +103,16 @@ static void va_bits_from_results_run(struct kasld_analysis_ctx *ctx) {
 
   if (ARM64_VA48_PAGE_OFFSET > ctx->page_offset_min) {
     if (verbose && !quiet)
-      fprintf(stderr,
-              "[layout] page_offset_min tightened by va_bits_from_results"
+      fprintf(stdout,
+              "[infer] page_offset_min tightened by va_bits_from_results"
               " (VA_BITS=48): %#lx -> %#lx\n",
               ctx->page_offset_min, ARM64_VA48_PAGE_OFFSET);
     ctx->page_offset_min = ARM64_VA48_PAGE_OFFSET;
   }
   if (ARM64_VA48_PAGE_OFFSET < ctx->page_offset_max) {
     if (verbose && !quiet)
-      fprintf(stderr,
-              "[layout] page_offset_max tightened by va_bits_from_results"
+      fprintf(stdout,
+              "[infer] page_offset_max tightened by va_bits_from_results"
               " (VA_BITS=48): %#lx -> %#lx\n",
               ctx->page_offset_max, ARM64_VA48_PAGE_OFFSET);
     ctx->page_offset_max = ARM64_VA48_PAGE_OFFSET;

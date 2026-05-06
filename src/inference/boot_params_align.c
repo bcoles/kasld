@@ -102,16 +102,16 @@ static void boot_params_align_run(struct kasld_analysis_ctx *ctx) {
   if (!is_power_of_two(kernel_alignment) || kernel_alignment < 4096ul ||
       kernel_alignment > (1024ul * 1024 * 1024)) {
     if (verbose && !quiet)
-      fprintf(stderr,
-              "[layout] boot_params_align: kernel_alignment=%#lx"
+      fprintf(stdout,
+              "[infer] boot_params_align: kernel_alignment=%#lx"
               " failed sanity check; skipping\n",
               kernel_alignment);
     return;
   }
 
   if (verbose && !quiet)
-    fprintf(stderr,
-            "[layout] boot_params_align: kernel_alignment=%#lx"
+    fprintf(stdout,
+            "[infer] boot_params_align: kernel_alignment=%#lx"
             " init_size=%#x\n",
             kernel_alignment, raw_init_size);
 
@@ -122,8 +122,8 @@ static void boot_params_align_run(struct kasld_analysis_ctx *ctx) {
    * Guard phys_kaslr_align update: skip when zero (physical KASLR absent). */
   if (kernel_alignment > ctx->layout->kaslr_align) {
     if (verbose && !quiet)
-      fprintf(stderr,
-              "[layout] boot_params_align: kaslr_align updated"
+      fprintf(stdout,
+              "[infer] boot_params_align: kaslr_align updated"
               " %#lx -> %#lx\n",
               ctx->layout->kaslr_align, kernel_alignment);
     ctx->layout->kaslr_align = kernel_alignment;
@@ -131,8 +131,8 @@ static void boot_params_align_run(struct kasld_analysis_ctx *ctx) {
   if (ctx->layout->phys_kaslr_align > 0 &&
       kernel_alignment > ctx->layout->phys_kaslr_align) {
     if (verbose && !quiet)
-      fprintf(stderr,
-              "[layout] boot_params_align: phys_kaslr_align updated"
+      fprintf(stdout,
+              "[infer] boot_params_align: phys_kaslr_align updated"
               " %#lx -> %#lx\n",
               ctx->layout->phys_kaslr_align, kernel_alignment);
     ctx->layout->phys_kaslr_align = kernel_alignment;
@@ -146,8 +146,8 @@ static void boot_params_align_run(struct kasld_analysis_ctx *ctx) {
   unsigned long virt_max = ctx->text_base_max & ~(kernel_alignment - 1);
   if (virt_max > KASLR_BASE_MIN && virt_max < ctx->text_base_max) {
     if (verbose && !quiet)
-      fprintf(stderr,
-              "[layout] text_base_max tightened by boot_params_align"
+      fprintf(stdout,
+              "[infer] text_base_max tightened by boot_params_align"
               " (align snap): %#lx -> %#lx\n",
               ctx->text_base_max, virt_max);
     ctx->text_base_max = virt_max;
@@ -157,8 +157,8 @@ static void boot_params_align_run(struct kasld_analysis_ctx *ctx) {
   unsigned long phys_max = ctx->phys_base_max & ~(kernel_alignment - 1);
   if (phys_max > KASLR_PHYS_MIN && phys_max < ctx->phys_base_max) {
     if (verbose && !quiet)
-      fprintf(stderr,
-              "[layout] phys_base_max tightened by boot_params_align"
+      fprintf(stdout,
+              "[infer] phys_base_max tightened by boot_params_align"
               " (align snap): %#lx -> %#lx\n",
               ctx->phys_base_max, phys_max);
     ctx->phys_base_max = phys_max;
@@ -177,8 +177,8 @@ static void boot_params_align_run(struct kasld_analysis_ctx *ctx) {
         (KASLR_BASE_MAX - init_size) & ~(kernel_alignment - 1);
     if (new_virt_max > KASLR_BASE_MIN && new_virt_max < ctx->text_base_max) {
       if (verbose && !quiet)
-        fprintf(stderr,
-                "[layout] text_base_max tightened by boot_params_align"
+        fprintf(stdout,
+                "[infer] text_base_max tightened by boot_params_align"
                 " (init_size): %#lx -> %#lx (init_size=%#lx)\n",
                 ctx->text_base_max, new_virt_max, init_size);
       ctx->text_base_max = new_virt_max;
@@ -190,8 +190,8 @@ static void boot_params_align_run(struct kasld_analysis_ctx *ctx) {
         (KASLR_PHYS_MAX - init_size) & ~(kernel_alignment - 1);
     if (new_phys_max > KASLR_PHYS_MIN && new_phys_max < ctx->phys_base_max) {
       if (verbose && !quiet)
-        fprintf(stderr,
-                "[layout] phys_base_max tightened by boot_params_align"
+        fprintf(stdout,
+                "[infer] phys_base_max tightened by boot_params_align"
                 " (init_size): %#lx -> %#lx (init_size=%#lx)\n",
                 ctx->phys_base_max, new_phys_max, init_size);
       ctx->phys_base_max = new_phys_max;

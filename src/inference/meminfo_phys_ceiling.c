@@ -106,8 +106,8 @@ static void meminfo_phys_ceiling_run(struct kasld_analysis_ctx *ctx) {
 
     if (ceiling > phys_min && ceiling < ctx->phys_base_max) {
       if (verbose && !quiet)
-        fprintf(stderr,
-                "[layout] phys_base_max tightened by meminfo_phys_ceiling:"
+        fprintf(stdout,
+                "[infer] phys_base_max tightened by meminfo_phys_ceiling:"
                 " %#lx -> %#lx (MemTotal=%lu bytes)\n",
                 ctx->phys_base_max, ceiling, mem_bytes);
       ctx->phys_base_max = ceiling;
@@ -130,8 +130,8 @@ static void meminfo_phys_ceiling_run(struct kasld_analysis_ctx *ctx) {
 
     if (virt_ceiling > kaslr_min && virt_ceiling < ctx->text_base_max) {
       if (verbose && !quiet)
-        fprintf(stderr,
-                "[layout] text_base_max tightened by meminfo_phys_ceiling:"
+        fprintf(stdout,
+                "[infer] text_base_max tightened by meminfo_phys_ceiling:"
                 " %#lx -> %#lx (MemTotal=%lu bytes)\n",
                 ctx->text_base_max, virt_ceiling, mem_bytes);
       ctx->text_base_max = virt_ceiling;

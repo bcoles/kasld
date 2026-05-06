@@ -108,8 +108,8 @@ static void config_max_offset_bound_run(struct kasld_analysis_ctx *ctx) {
 
   if (new_max > ctx->text_base_min && new_max < ctx->text_base_max) {
     if (verbose && !quiet)
-      fprintf(stderr,
-              "[layout] text_base_max tightened by config_max_offset_bound:"
+      fprintf(stdout,
+              "[infer] text_base_max tightened by config_max_offset_bound:"
               " %#lx -> %#lx (CONFIG_RANDOMIZE_BASE_MAX_OFFSET=%#lx)\n",
               ctx->text_base_max, new_max, max_offset);
     ctx->text_base_max = new_max;

@@ -90,8 +90,8 @@ static void module_text_bound_run(struct kasld_analysis_ctx *ctx) {
   if (new_max > kaslr_min && new_max > ctx->text_base_min &&
       new_max < ctx->text_base_max) {
     if (verbose && !quiet)
-      fprintf(stderr,
-              "[layout] text_base_max tightened by module_text_bound:"
+      fprintf(stdout,
+              "[infer] text_base_max tightened by module_text_bound:"
               " %#lx -> %#lx (vmod_lo=%#lx)\n",
               ctx->text_base_max, new_max, vmod_lo);
     ctx->text_base_max = new_max;
@@ -105,8 +105,8 @@ static void module_text_bound_run(struct kasld_analysis_ctx *ctx) {
 
   if (new_min > ctx->text_base_min && new_min < ctx->text_base_max) {
     if (verbose && !quiet)
-      fprintf(stderr,
-              "[layout] text_base_min tightened by module_text_bound:"
+      fprintf(stdout,
+              "[infer] text_base_min tightened by module_text_bound:"
               " %#lx -> %#lx (vmod_hi=%#lx)\n",
               ctx->text_base_min, new_min, vmod_hi);
     ctx->text_base_min = new_min;
@@ -122,8 +122,8 @@ static void module_text_bound_run(struct kasld_analysis_ctx *ctx) {
 
   if (new_max > kaslr_min && new_max < ctx->text_base_max) {
     if (verbose && !quiet)
-      fprintf(stderr,
-              "[layout] text_base_max tightened by module_text_bound:"
+      fprintf(stdout,
+              "[infer] text_base_max tightened by module_text_bound:"
               " %#lx -> %#lx (vmod_lo=%#lx)\n",
               ctx->text_base_max, new_max, vmod_lo);
     ctx->text_base_max = new_max;

@@ -85,10 +85,11 @@ static void ppc32_booke_phys_ceiling_run(struct kasld_analysis_ctx *ctx) {
     if (def < ctx->text_base_min || def > ctx->text_base_max)
       return;
     if (verbose && !quiet)
-      fprintf(stderr,
-              "[layout] KASLR disabled by ppc32_booke_phys_ceiling:"
-              " MemTotal=%lu MiB < 64 MiB; pinning text_base=%#lx\n",
-              mem_bytes >> 20, def);
+      fprintf(stdout,
+              "[infer] text_base pinned by ppc32_booke_phys_ceiling:"
+              " [%#lx, %#lx] -> %#lx"
+              " (MemTotal=%lu MiB < 64 MiB, KASLR disabled)\n",
+              ctx->text_base_min, ctx->text_base_max, def, mem_bytes >> 20);
     ctx->text_base_min = def;
     ctx->text_base_max = def;
     return;
@@ -113,8 +114,8 @@ static void ppc32_booke_phys_ceiling_run(struct kasld_analysis_ctx *ctx) {
 
   if (virt_ceiling > kaslr_min && virt_ceiling < ctx->text_base_max) {
     if (verbose && !quiet)
-      fprintf(stderr,
-              "[layout] text_base_max tightened by ppc32_booke_phys_ceiling:"
+      fprintf(stdout,
+              "[infer] text_base_max tightened by ppc32_booke_phys_ceiling:"
               " %#lx -> %#lx (MemTotal=%lu MiB cap=%lu MiB)\n",
               ctx->text_base_max, virt_ceiling, mem_bytes >> 20, cap >> 20);
     ctx->text_base_max = virt_ceiling;

@@ -94,8 +94,8 @@ static void directmap_page_offset_bounds_run(struct kasld_analysis_ctx *ctx) {
    * violating the max ≥ min invariant. */
   if (vdmap_min >= ctx->page_offset_min && vdmap_min < ctx->page_offset_max) {
     if (verbose && !quiet)
-      fprintf(stderr,
-              "[layout] page_offset_max tightened by"
+      fprintf(stdout,
+              "[infer] page_offset_max tightened by"
               " directmap_page_offset_bounds: %#lx -> %#lx\n",
               ctx->page_offset_max, vdmap_min);
     ctx->page_offset_max = vdmap_min;
@@ -131,8 +131,8 @@ static void directmap_page_offset_bounds_run(struct kasld_analysis_ctx *ctx) {
 
   if (lower > ctx->page_offset_min && lower < ctx->page_offset_max) {
     if (verbose && !quiet)
-      fprintf(stderr,
-              "[layout] page_offset_min tightened by"
+      fprintf(stdout,
+              "[infer] page_offset_min tightened by"
               " directmap_page_offset_bounds: %#lx -> %#lx"
               " (MemTotal=%lu bytes)\n",
               ctx->page_offset_min, lower, mem_bytes);

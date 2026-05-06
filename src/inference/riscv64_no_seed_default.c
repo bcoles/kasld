@@ -83,8 +83,8 @@ static void riscv64_no_seed_default_run(struct kasld_analysis_ctx *ctx) {
     return;
 
   if (verbose && !quiet)
-    fprintf(stderr,
-            "[layout] text_base pinned by riscv64_no_seed_default:"
+    fprintf(stdout,
+            "[infer] text_base pinned by riscv64_no_seed_default:"
             " [%#lx, %#lx] -> %#lx"
             " (non-EFI, FDT kaslr-seed absent -> KASLR disabled)\n",
             ctx->text_base_min, ctx->text_base_max, link_addr);

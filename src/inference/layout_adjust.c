@@ -82,11 +82,11 @@ static void layout_adjust_run(struct kasld_analysis_ctx *ctx) {
   if (po_n > 1 && !po_conflict_warned) {
     po_conflict_warned = 1;
     if (!quiet) {
-      fprintf(stderr, "[!] Conflicting PAGE_OFFSET sources detected "
-                      "(possible legacy kernel layout):\n");
+      fprintf(stdout, "[infer] layout_adjust: conflicting PAGE_OFFSET sources"
+                      " (possible legacy kernel layout):");
       for (int i = 0; i < po_n; i++)
-        fprintf(stderr, "    0x%016lx\n", po_vals[i]);
-      fprintf(stderr, "    Using 0x%016lx (modern layout assumed)\n",
+        fprintf(stdout, " 0x%016lx", po_vals[i]);
+      fprintf(stdout, "; using 0x%016lx (modern layout assumed)\n",
               po_vals[0] < po_vals[1] ? po_vals[0] : po_vals[1]);
     }
   }

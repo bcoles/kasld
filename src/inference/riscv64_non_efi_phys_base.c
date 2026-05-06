@@ -84,8 +84,8 @@ static void riscv64_nonEFI_phys_base_run(struct kasld_analysis_ctx *ctx) {
 
   if (verbose && !quiet)
     fprintf(
-        stderr,
-        "[layout] phys_base pinned by riscv64_nonEFI_phys_base:"
+        stdout,
+        "[infer] phys_base pinned by riscv64_nonEFI_phys_base:"
         " [%#lx, %#lx] -> %#lx (non-EFI, DRAM_BASE=%#lx + TEXT_OFFSET=%#lx)\n",
         ctx->phys_base_min, ctx->phys_base_max, phys_exact, pdram_lo,
         (unsigned long)TEXT_OFFSET);

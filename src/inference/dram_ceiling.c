@@ -143,8 +143,8 @@ static void dram_ceiling_run(struct kasld_analysis_ctx *ctx) {
 
   if (virt_ceiling > kaslr_min && virt_ceiling < ctx->text_base_max) {
     if (verbose && !quiet)
-      fprintf(stderr,
-              "[layout] text_base_max tightened by dram_ceiling:"
+      fprintf(stdout,
+              "[infer] text_base_max tightened by dram_ceiling:"
               " %#lx -> %#lx (dram_top=%#lx kernel_size=%#lx)\n",
               ctx->text_base_max, virt_ceiling, dram_top, kernel_size);
     ctx->text_base_max = virt_ceiling;

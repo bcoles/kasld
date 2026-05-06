@@ -115,8 +115,8 @@ static void cpuinfo_phys_bits_run(struct kasld_analysis_ctx *ctx) {
 
     if (ceiling > phys_min && ceiling < ctx->phys_base_max) {
       if (verbose && !quiet)
-        fprintf(stderr,
-                "[layout] phys_base_max tightened by cpuinfo_phys_bits:"
+        fprintf(stdout,
+                "[infer] phys_base_max tightened by cpuinfo_phys_bits:"
                 " %#lx -> %#lx (phys_bits=%d)\n",
                 ctx->phys_base_max, ceiling, phys_bits);
       ctx->phys_base_max = ceiling;
@@ -144,8 +144,8 @@ static void cpuinfo_phys_bits_run(struct kasld_analysis_ctx *ctx) {
 
     if (virt_ceiling > kaslr_min && virt_ceiling < ctx->text_base_max) {
       if (verbose && !quiet)
-        fprintf(stderr,
-                "[layout] text_base_max tightened by cpuinfo_phys_bits:"
+        fprintf(stdout,
+                "[infer] text_base_max tightened by cpuinfo_phys_bits:"
                 " %#lx -> %#lx (phys_bits=%d)\n",
                 ctx->text_base_max, virt_ceiling, phys_bits);
       ctx->text_base_max = virt_ceiling;

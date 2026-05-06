@@ -155,8 +155,8 @@ static void min_offset_from_image_size_run(struct kasld_analysis_ctx *ctx) {
   if (new_min > kaslr_min && new_min > ctx->text_base_min &&
       new_min < ctx->text_base_max) {
     if (verbose && !quiet)
-      fprintf(stderr,
-              "[layout] text_base_min raised by min_offset_from_image_size:"
+      fprintf(stdout,
+              "[infer] text_base_min raised by min_offset_from_image_size:"
               " %#lx -> %#lx (kernel_length_estimate=%#lx)\n",
               ctx->text_base_min, new_min, gap);
     ctx->text_base_min = new_min;
@@ -181,8 +181,8 @@ static void min_offset_from_image_size_run(struct kasld_analysis_ctx *ctx) {
 
         if (verbose && !quiet)
           fprintf(
-              stderr,
-              "[layout] min_offset_from_image_size: LoongArch KASLR"
+              stdout,
+              "[infer] min_offset_from_image_size: LoongArch KASLR"
               " deterministic (kernel_length_estimate=%#lx >= max_offset=%#lx);"
               " deterministic text_base >= %#lx;"
               " bilateral pin requires exact kernel_length\n",
