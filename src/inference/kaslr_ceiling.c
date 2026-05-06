@@ -54,7 +54,7 @@
  * tiny stub files, placeholder symlinks, and partial downloads that would
  * produce wildly wrong kernel-size estimates. */
 #define MIN_VMLINUZ_BYTES (512UL * 1024)
-#define MIN_SYSMAP_BYTES  (256UL * 1024)
+#define MIN_SYSMAP_BYTES (256UL * 1024)
 
 /* stat() requires only execute permission on the parent directory, not read
  * permission on the file itself. */
@@ -64,7 +64,7 @@
  * arch/arm64/include/asm/image.h) places image_size as a u64 LE field at
  * byte offset 16, preceded by MZ magic at offset 0. Returns 0 on failure. */
 static unsigned long estimate_from_image_header(const char *release) {
-  const char * const paths[] = {
+  const char *const paths[] = {
       "/boot/Image-%s",
       "/boot/vmlinuz-%s",
       NULL,
@@ -86,14 +86,10 @@ static unsigned long estimate_from_image_header(const char *release) {
       continue;
 
     uint64_t image_size =
-        ((uint64_t)hdr[16])        |
-        ((uint64_t)hdr[17] <<  8)  |
-        ((uint64_t)hdr[18] << 16)  |
-        ((uint64_t)hdr[19] << 24)  |
-        ((uint64_t)hdr[20] << 32)  |
-        ((uint64_t)hdr[21] << 40)  |
-        ((uint64_t)hdr[22] << 48)  |
-        ((uint64_t)hdr[23] << 56);
+        ((uint64_t)hdr[16]) | ((uint64_t)hdr[17] << 8) |
+        ((uint64_t)hdr[18] << 16) | ((uint64_t)hdr[19] << 24) |
+        ((uint64_t)hdr[20] << 32) | ((uint64_t)hdr[21] << 40) |
+        ((uint64_t)hdr[22] << 48) | ((uint64_t)hdr[23] << 56);
 
     if (image_size < MIN_VMLINUZ_BYTES)
       continue;
@@ -142,13 +138,12 @@ static unsigned long estimate_kernel_size(void) {
     return 0;
 
   unsigned long from_hdr = estimate_from_image_header(uts.release);
-  unsigned long vmlinuz   = estimate_from_vmlinuz(uts.release);
-  unsigned long sysmap    = estimate_from_sysmap(uts.release);
+  unsigned long vmlinuz = estimate_from_vmlinuz(uts.release);
+  unsigned long sysmap = estimate_from_sysmap(uts.release);
 
   /* Discard the header value if it falls below a known lower bound. */
-  if (from_hdr > 0 &&
-      ((vmlinuz > 0 && from_hdr < vmlinuz) ||
-       (sysmap  > 0 && from_hdr < sysmap)))
+  if (from_hdr > 0 && ((vmlinuz > 0 && from_hdr < vmlinuz) ||
+                       (sysmap > 0 && from_hdr < sysmap)))
     from_hdr = 0;
 
   if (from_hdr)

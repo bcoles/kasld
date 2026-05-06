@@ -23,7 +23,7 @@
 // sound: the kernel cannot load within the forbidden zone, and the zone
 // extends at least gap bytes from KASLR_BASE_MIN.
 //
-// LoongArch extension (see LoongArch H4):
+// LoongArch extension:
 //   When kernel_length ≥ CONFIG_RANDOMIZE_BASE_MAX_OFFSET, every offset
 //   drawn from [0, max_offset) satisfies offset < kernel_length, so the
 //   bump always fires. On LoongArch the bump is an assignment (not an
@@ -37,8 +37,8 @@
 //   and setting text_base_max = KASLR_BASE_MIN + ALIGN(gap) could exclude
 //   the true text base if gap underestimates by more than one KERNEL_ALIGN
 //   step. Implementing the bilateral pin soundly requires exact kernel_length
-//   (e.g. from /boot/Image header — see riscv64_fdt_kaslr_seed §6 for the
-//   Image-header approach; a LoongArch variant is a future enhancement).
+//   (e.g. from /boot/Image header — see riscv64_fdt_kaslr_seed inference for
+//   the Image-header approach; a LoongArch variant is a future enhancement).
 //
 // Note: config_max_offset_bound (PRE_COLLECTION) sets
 //   text_base_max = KASLR_BASE_MIN + max_offset.
@@ -48,7 +48,6 @@
 //
 // Phase: POST_COLLECTION — requires TEXT and DATA results from components.
 // Applicable: MIPS (32-bit and 64-bit), LoongArch.
-// See MIPS H7, LoongArch H4.
 // ---
 // <bcoles@gmail.com>
 

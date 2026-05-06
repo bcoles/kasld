@@ -16,8 +16,8 @@
 // With 16 MiB max_offset: 256 slots (256 × 64 KiB). A 256× reduction.
 //
 // MIPS: same masking pattern; CONFIG_RANDOMIZE_BASE_MAX_OFFSET default is
-// arch/mips/Kconfig-defined. MIPS64 KASLR is not deployed in production
-// (MIPS H6 confirmed), so LoongArch is the primary target in practice.
+// arch/mips/Kconfig-defined. MIPS64 KASLR is not deployed in production,
+// so LoongArch is the primary target in practice.
 //
 // If the config file is unreadable or the option is absent, this plugin is a
 // no-op. The plugin is naturally a no-op on architectures that do not set
