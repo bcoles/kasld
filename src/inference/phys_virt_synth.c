@@ -128,7 +128,7 @@ static void phys_virt_synth_run(struct kasld_analysis_ctx *ctx) {
   if (cand_lo > ctx->page_offset_min) {
     if (verbose && !quiet)
       fprintf(stdout,
-              "[infer] page_offset_min tightened by phys_virt_synth:"
+              "[infer] virt_page_offset_min tightened by phys_virt_synth:"
               " %#lx -> %#lx\n",
               ctx->page_offset_min, cand_lo);
     ctx->page_offset_min = cand_lo;
@@ -136,7 +136,7 @@ static void phys_virt_synth_run(struct kasld_analysis_ctx *ctx) {
   if (cand_hi < ctx->page_offset_max) {
     if (verbose && !quiet)
       fprintf(stdout,
-              "[infer] page_offset_max tightened by phys_virt_synth:"
+              "[infer] virt_page_offset_max tightened by phys_virt_synth:"
               " %#lx -> %#lx\n",
               ctx->page_offset_max, cand_hi);
     ctx->page_offset_max = cand_hi;

@@ -78,7 +78,7 @@ static void arm64_va_bits_mmap_run(struct kasld_analysis_ctx *ctx) {
         ARM64_VA48_PAGE_OFFSET <= ctx->page_offset_max) {
       if (verbose && !quiet)
         fprintf(stdout,
-                "[infer] page_offset_min tightened by arm64_va_bits_mmap"
+                "[infer] virt_page_offset_min tightened by arm64_va_bits_mmap"
                 " (VA_BITS<=48 confirmed): %#lx -> %#lx\n",
                 ctx->page_offset_min, ARM64_VA48_PAGE_OFFSET);
       ctx->page_offset_min = ARM64_VA48_PAGE_OFFSET;
@@ -94,7 +94,7 @@ static void arm64_va_bits_mmap_run(struct kasld_analysis_ctx *ctx) {
       ARM64_VA52_PAGE_OFFSET < ctx->page_offset_max) {
     if (verbose && !quiet)
       fprintf(stdout,
-              "[infer] page_offset_max tightened by arm64_va_bits_mmap"
+              "[infer] virt_page_offset_max tightened by arm64_va_bits_mmap"
               " (VA_BITS>=52 confirmed): %#lx -> %#lx\n",
               ctx->page_offset_max, ARM64_VA52_PAGE_OFFSET);
     ctx->page_offset_max = ARM64_VA52_PAGE_OFFSET;

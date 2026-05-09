@@ -190,7 +190,7 @@ static void riscv64_fdt_kaslr_seed_run(struct kasld_analysis_ctx *ctx) {
             candidate <= ctx->text_base_max) {
           if (verbose && !quiet)
             fprintf(stdout,
-                    "[infer] text_base pinned by riscv64_fdt_kaslr_seed:"
+                    "[infer] virt_text_base pinned by riscv64_fdt_kaslr_seed:"
                     " [%#lx, %#lx] -> %#lx"
                     " (seed=%#llx, nr_pos=%lu, image_size=%#lx)\n",
                     ctx->text_base_min, ctx->text_base_max, candidate,
@@ -229,7 +229,7 @@ static void riscv64_fdt_kaslr_seed_run(struct kasld_analysis_ctx *ctx) {
   if (max_cand > ctx->text_base_min && max_cand < ctx->text_base_max) {
     if (verbose && !quiet)
       fprintf(stdout,
-              "[infer] text_base_max tightened by riscv64_fdt_kaslr_seed"
+              "[infer] virt_text_base_max tightened by riscv64_fdt_kaslr_seed"
               " (gap fallback): [%#lx, %#lx] -> [%#lx, %#lx]"
               " (seed=%#llx, nr_pos_max=%lu, gap=%#lx)\n",
               ctx->text_base_min, ctx->text_base_max, ctx->text_base_min,

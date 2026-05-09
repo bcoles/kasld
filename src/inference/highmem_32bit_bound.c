@@ -141,7 +141,7 @@ static void highmem_32bit_bound_run(struct kasld_analysis_ctx *ctx) {
   if (virt_ceiling > kaslr_min && virt_ceiling < ctx->text_base_max) {
     if (verbose && !quiet)
       fprintf(stdout,
-              "[infer] text_base_max tightened by highmem_32bit_bound:"
+              "[infer] virt_text_base_max tightened by highmem_32bit_bound:"
               " %#lx -> %#lx (LowTotal=%lu kB, HighTotal=%lu kB)\n",
               ctx->text_base_max, virt_ceiling, lowtotal / 1024,
               hightotal / 1024);

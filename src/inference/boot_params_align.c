@@ -123,7 +123,7 @@ static void boot_params_align_run(struct kasld_analysis_ctx *ctx) {
   if (kernel_alignment > ctx->layout->kaslr_align) {
     if (verbose && !quiet)
       fprintf(stdout,
-              "[infer] boot_params_align: kaslr_align updated"
+              "[infer] boot_params_align: virt_kaslr_align updated"
               " %#lx -> %#lx\n",
               ctx->layout->kaslr_align, kernel_alignment);
     ctx->layout->kaslr_align = kernel_alignment;
@@ -147,7 +147,7 @@ static void boot_params_align_run(struct kasld_analysis_ctx *ctx) {
   if (virt_max > KASLR_BASE_MIN && virt_max < ctx->text_base_max) {
     if (verbose && !quiet)
       fprintf(stdout,
-              "[infer] text_base_max tightened by boot_params_align"
+              "[infer] virt_text_base_max tightened by boot_params_align"
               " (align snap): %#lx -> %#lx\n",
               ctx->text_base_max, virt_max);
     ctx->text_base_max = virt_max;
@@ -178,7 +178,7 @@ static void boot_params_align_run(struct kasld_analysis_ctx *ctx) {
     if (new_virt_max > KASLR_BASE_MIN && new_virt_max < ctx->text_base_max) {
       if (verbose && !quiet)
         fprintf(stdout,
-                "[infer] text_base_max tightened by boot_params_align"
+                "[infer] virt_text_base_max tightened by boot_params_align"
                 " (init_size): %#lx -> %#lx (init_size=%#lx)\n",
                 ctx->text_base_max, new_virt_max, init_size);
       ctx->text_base_max = new_virt_max;

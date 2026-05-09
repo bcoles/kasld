@@ -106,7 +106,7 @@ static void randomize_memory_page_offset_run(struct kasld_analysis_ctx *ctx) {
 
   if (verbose && !quiet)
     fprintf(stdout,
-            "[infer] page_offset_base pinned by"
+            "[infer] virt_page_offset_base pinned by"
             " randomize_memory_page_offset:"
             " [%#lx, %#lx] -> %#lx"
             " (D_min=%#lx P_min=%#lx)\n",

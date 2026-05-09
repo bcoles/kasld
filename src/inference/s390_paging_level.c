@@ -76,7 +76,7 @@ static void s390_paging_level_run(struct kasld_analysis_ctx *ctx) {
     if (ceiling > ctx->text_base_min && ceiling < ctx->text_base_max) {
       if (verbose && !quiet)
         fprintf(stdout,
-                "[infer] text_base_max tightened by s390_paging_level"
+                "[infer] virt_text_base_max tightened by s390_paging_level"
                 " (3-level paging, vmax=4TiB): %#lx -> %#lx\n",
                 ctx->text_base_max, ceiling);
       ctx->text_base_max = ceiling;

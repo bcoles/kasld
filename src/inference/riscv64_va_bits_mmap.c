@@ -81,7 +81,7 @@ static void riscv64_va_bits_mmap_run(struct kasld_analysis_ctx *ctx) {
     if (new_min > ctx->page_offset_min && new_min <= ctx->page_offset_max) {
       if (verbose && !quiet)
         fprintf(stdout,
-                "[infer] page_offset_min tightened by riscv64_va_bits_mmap"
+                "[infer] virt_page_offset_min tightened by riscv64_va_bits_mmap"
                 " (SV39 confirmed): %#lx -> %#lx\n",
                 ctx->page_offset_min, new_min);
       ctx->page_offset_min = new_min;
@@ -89,7 +89,7 @@ static void riscv64_va_bits_mmap_run(struct kasld_analysis_ctx *ctx) {
     if (new_max < ctx->page_offset_max && new_max >= ctx->page_offset_min) {
       if (verbose && !quiet)
         fprintf(stdout,
-                "[infer] page_offset_max tightened by riscv64_va_bits_mmap"
+                "[infer] virt_page_offset_max tightened by riscv64_va_bits_mmap"
                 " (SV39 confirmed): %#lx -> %#lx\n",
                 ctx->page_offset_max, new_max);
       ctx->page_offset_max = new_max;
@@ -116,7 +116,7 @@ static void riscv64_va_bits_mmap_run(struct kasld_analysis_ctx *ctx) {
     if (po > ctx->page_offset_min) {
       if (verbose && !quiet)
         fprintf(stdout,
-                "[infer] page_offset_min tightened by riscv64_va_bits_mmap"
+                "[infer] virt_page_offset_min tightened by riscv64_va_bits_mmap"
                 " (SV48 confirmed): %#lx -> %#lx\n",
                 ctx->page_offset_min, po);
       ctx->page_offset_min = po;
@@ -124,7 +124,7 @@ static void riscv64_va_bits_mmap_run(struct kasld_analysis_ctx *ctx) {
     if (po < ctx->page_offset_max) {
       if (verbose && !quiet)
         fprintf(stdout,
-                "[infer] page_offset_max tightened by riscv64_va_bits_mmap"
+                "[infer] virt_page_offset_max tightened by riscv64_va_bits_mmap"
                 " (SV48 confirmed): %#lx -> %#lx\n",
                 ctx->page_offset_max, po);
       ctx->page_offset_max = po;
@@ -143,7 +143,7 @@ static void riscv64_va_bits_mmap_run(struct kasld_analysis_ctx *ctx) {
   if (po57 > ctx->page_offset_min) {
     if (verbose && !quiet)
       fprintf(stdout,
-              "[infer] page_offset_min tightened by riscv64_va_bits_mmap"
+              "[infer] virt_page_offset_min tightened by riscv64_va_bits_mmap"
               " (SV57 confirmed): %#lx -> %#lx\n",
               ctx->page_offset_min, po57);
     ctx->page_offset_min = po57;
@@ -151,7 +151,7 @@ static void riscv64_va_bits_mmap_run(struct kasld_analysis_ctx *ctx) {
   if (po57 < ctx->page_offset_max) {
     if (verbose && !quiet)
       fprintf(stdout,
-              "[infer] page_offset_max tightened by riscv64_va_bits_mmap"
+              "[infer] virt_page_offset_max tightened by riscv64_va_bits_mmap"
               " (SV57 confirmed): %#lx -> %#lx\n",
               ctx->page_offset_max, po57);
     ctx->page_offset_max = po57;

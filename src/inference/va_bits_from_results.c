@@ -83,7 +83,7 @@ static void va_bits_from_results_run(struct kasld_analysis_ctx *ctx) {
         ARM64_VA52_PAGE_OFFSET < ctx->page_offset_max) {
       if (verbose && !quiet)
         fprintf(stdout,
-                "[infer] page_offset_max tightened by va_bits_from_results"
+                "[infer] virt_page_offset_max tightened by va_bits_from_results"
                 " (VA_BITS=52): %#lx -> %#lx\n",
                 ctx->page_offset_max, ARM64_VA52_PAGE_OFFSET);
       ctx->page_offset_max = ARM64_VA52_PAGE_OFFSET;
@@ -104,7 +104,7 @@ static void va_bits_from_results_run(struct kasld_analysis_ctx *ctx) {
   if (ARM64_VA48_PAGE_OFFSET > ctx->page_offset_min) {
     if (verbose && !quiet)
       fprintf(stdout,
-              "[infer] page_offset_min tightened by va_bits_from_results"
+              "[infer] virt_page_offset_min tightened by va_bits_from_results"
               " (VA_BITS=48): %#lx -> %#lx\n",
               ctx->page_offset_min, ARM64_VA48_PAGE_OFFSET);
     ctx->page_offset_min = ARM64_VA48_PAGE_OFFSET;
@@ -112,7 +112,7 @@ static void va_bits_from_results_run(struct kasld_analysis_ctx *ctx) {
   if (ARM64_VA48_PAGE_OFFSET < ctx->page_offset_max) {
     if (verbose && !quiet)
       fprintf(stdout,
-              "[infer] page_offset_max tightened by va_bits_from_results"
+              "[infer] virt_page_offset_max tightened by va_bits_from_results"
               " (VA_BITS=48): %#lx -> %#lx\n",
               ctx->page_offset_max, ARM64_VA48_PAGE_OFFSET);
     ctx->page_offset_max = ARM64_VA48_PAGE_OFFSET;

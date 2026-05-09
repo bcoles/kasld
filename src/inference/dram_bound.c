@@ -98,7 +98,7 @@ static void dram_bound_run(struct kasld_analysis_ctx *ctx) {
         virt_lo < ctx->text_base_max) {
       if (verbose && !quiet)
         fprintf(stdout,
-                "[infer] text_base_min tightened by dram_bound:"
+                "[infer] virt_text_base_min tightened by dram_bound:"
                 " %#lx -> %#lx (min PHYS/DRAM=%#lx)\n",
                 ctx->text_base_min, virt_lo, pdram_lo);
       ctx->text_base_min = virt_lo;

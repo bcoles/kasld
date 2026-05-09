@@ -97,7 +97,7 @@ static void image_size_from_text_data_gap_run(struct kasld_analysis_ctx *ctx) {
       if (verbose && !quiet)
         fprintf(
             stdout,
-            "[infer] text_base_max tightened by image_size_from_text_data_gap:"
+            "[infer] virt_text_base_max tightened by image_size_from_text_data_gap:"
             " %#lx -> %#lx (gap=%#lx, min_text=%#lx, max_data=%#lx)\n",
             ctx->text_base_max, new_max, gap, min_text, max_data);
       ctx->text_base_max = new_max;

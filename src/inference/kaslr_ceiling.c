@@ -179,7 +179,7 @@ static void kaslr_ceiling_run(struct kasld_analysis_ctx *ctx) {
     if (new_max > kaslr_min && new_max < ctx->text_base_max) {
       if (verbose && !quiet)
         fprintf(stdout,
-                "[infer] text_base_max tightened by kaslr_ceiling:"
+                "[infer] virt_text_base_max tightened by kaslr_ceiling:"
                 " %#lx -> %#lx (kernel_size=%#lx)\n",
                 ctx->text_base_max, new_max, kernel_size);
       ctx->text_base_max = new_max;

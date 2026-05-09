@@ -119,8 +119,8 @@ void adjust_for_page_offset(unsigned long new_po) {
   long delta = (long)(new_po - old_po);
 
   if (verbose && !quiet && !json_output)
-    printf("[layout] PAGE_OFFSET adjusted: %#lx -> %#lx (delta %+ld)\n", old_po,
-           new_po, delta);
+    printf("[layout] virt_page_offset adjusted: %#lx -> %#lx (delta %+ld)\n",
+           old_po, new_po, delta);
 
   layout.page_offset = new_po;
   layout.kernel_vas_start = new_po;
@@ -1776,7 +1776,7 @@ static void run_pre_collection_inference(void) {
 
   if (verbose && !quiet && !json_output) {
     if (layout.kernel_base_max < init_text_max)
-      printf("[layout] kernel_base_max tightened: %#lx -> %#lx\n",
+      printf("[layout] virt_kernel_base_max tightened: %#lx -> %#lx\n",
              init_text_max, layout.kernel_base_max);
     if (layout.phys_kaslr_base_max < init_phys_max)
       printf("[layout] phys_kaslr_base_max tightened: %#lx -> %#lx\n",
