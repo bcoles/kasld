@@ -114,10 +114,11 @@ static void ppc32_booke_phys_ceiling_run(struct kasld_analysis_ctx *ctx) {
 
   if (virt_ceiling > kaslr_min && virt_ceiling < ctx->text_base_max) {
     if (verbose && !quiet)
-      fprintf(stdout,
-              "[infer] virt_text_base_max tightened by ppc32_booke_phys_ceiling:"
-              " %#lx -> %#lx (MemTotal=%lu MiB cap=%lu MiB)\n",
-              ctx->text_base_max, virt_ceiling, mem_bytes >> 20, cap >> 20);
+      fprintf(
+          stdout,
+          "[infer] virt_text_base_max tightened by ppc32_booke_phys_ceiling:"
+          " %#lx -> %#lx (MemTotal=%lu MiB cap=%lu MiB)\n",
+          ctx->text_base_max, virt_ceiling, mem_bytes >> 20, cap >> 20);
     ctx->text_base_max = virt_ceiling;
   }
 

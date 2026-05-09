@@ -52,10 +52,10 @@ static void x86_64_la57_from_directmap_run(struct kasld_analysis_ctx *ctx) {
 #if defined(__x86_64__)
 /* L4 kernel VAS floor: any DIRECTMAP below this is exclusively L5. */
 #define X86_64_L4_VAS_START 0xffff800000000000ul
-/* __PAGE_OFFSET_BASE_L5: directmap floor under L5 paging. CONFIG_RANDOMIZE_MEMORY
- * only randomises page_offset_base upward from this base, and the regions
- * below it ([0xff10..., 0xff11...) LDT remap, [0xff00..., 0xff10...) guard
- * hole) are never used as the directmap base. */
+/* __PAGE_OFFSET_BASE_L5: directmap floor under L5 paging.
+ * CONFIG_RANDOMIZE_MEMORY only randomises page_offset_base upward from this
+ * base, and the regions below it ([0xff10..., 0xff11...) LDT remap, [0xff00...,
+ * 0xff10...) guard hole) are never used as the directmap base. */
 #define X86_64_L5_PO_BASE 0xff11000000000000ul
 
   int have_l5 = 0; /* any valid DIRECTMAP result below X86_64_L4_VAS_START */
@@ -93,7 +93,8 @@ static void x86_64_la57_from_directmap_run(struct kasld_analysis_ctx *ctx) {
         X86_64_L5_PO_BASE <= ctx->page_offset_max) {
       if (verbose && !quiet)
         fprintf(stdout,
-                "[infer] virt_page_offset_min tightened by x86_64_la57_from_directmap"
+                "[infer] virt_page_offset_min tightened by "
+                "x86_64_la57_from_directmap"
                 " (L5): %#lx -> %#lx\n",
                 ctx->page_offset_min, X86_64_L5_PO_BASE);
       ctx->page_offset_min = X86_64_L5_PO_BASE;
@@ -102,7 +103,8 @@ static void x86_64_la57_from_directmap_run(struct kasld_analysis_ctx *ctx) {
     if (l5_max < ctx->page_offset_max && l5_max >= ctx->page_offset_min) {
       if (verbose && !quiet)
         fprintf(stdout,
-                "[infer] virt_page_offset_max tightened by x86_64_la57_from_directmap"
+                "[infer] virt_page_offset_max tightened by "
+                "x86_64_la57_from_directmap"
                 " (L5): %#lx -> %#lx\n",
                 ctx->page_offset_max, l5_max);
       ctx->page_offset_max = l5_max;
@@ -115,10 +117,11 @@ static void x86_64_la57_from_directmap_run(struct kasld_analysis_ctx *ctx) {
   if (X86_64_L4_VAS_START > ctx->page_offset_min &&
       X86_64_L4_VAS_START <= ctx->page_offset_max) {
     if (verbose && !quiet)
-      fprintf(stdout,
-              "[infer] virt_page_offset_min tightened by x86_64_la57_from_directmap"
-              " (L4): %#lx -> %#lx\n",
-              ctx->page_offset_min, X86_64_L4_VAS_START);
+      fprintf(
+          stdout,
+          "[infer] virt_page_offset_min tightened by x86_64_la57_from_directmap"
+          " (L4): %#lx -> %#lx\n",
+          ctx->page_offset_min, X86_64_L4_VAS_START);
     ctx->page_offset_min = X86_64_L4_VAS_START;
   }
 #else

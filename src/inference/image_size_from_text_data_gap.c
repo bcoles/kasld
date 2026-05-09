@@ -95,11 +95,11 @@ static void image_size_from_text_data_gap_run(struct kasld_analysis_ctx *ctx) {
     if (new_max > kaslr_min && new_max > ctx->text_base_min &&
         new_max < ctx->text_base_max) {
       if (verbose && !quiet)
-        fprintf(
-            stdout,
-            "[infer] virt_text_base_max tightened by image_size_from_text_data_gap:"
-            " %#lx -> %#lx (gap=%#lx, min_text=%#lx, max_data=%#lx)\n",
-            ctx->text_base_max, new_max, gap, min_text, max_data);
+        fprintf(stdout,
+                "[infer] virt_text_base_max tightened by "
+                "image_size_from_text_data_gap:"
+                " %#lx -> %#lx (gap=%#lx, min_text=%#lx, max_data=%#lx)\n",
+                ctx->text_base_max, new_max, gap, min_text, max_data);
       ctx->text_base_max = new_max;
     }
   }
