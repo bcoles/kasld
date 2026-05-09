@@ -9,10 +9,13 @@
 #define VERSION "test"
 
 #include "../src/inference/dram_bound.c"
+#include "../src/inference/image_size_from_text_data_gap.c"
 #include "../src/inference/kaslr_ceiling.c"
 #include "../src/inference/layout_adjust.c"
 #include "../src/inference/module_text_bound.c"
 #include "../src/inference/phys_virt_synth.c"
+#include "../src/inference/randomize_memory_page_offset.c"
+#include "../src/inference/va_bits_from_results.c"
 #include "../src/orchestrator.c"
 #include "../src/render.c"
 
@@ -1913,10 +1916,15 @@ static void test_phys_virt_synth_no_results_noop(void) {
 static void test_phys_virt_synth_no_cross_origin_pairing(void) {
   reset_state();
   /* VIRT/DIRECTMAP from "alpha", PHYS/DRAM from "beta" — different origins,
-   * no pair formed → page_offset bounds unchanged */
+   * no pair formed → page_offset bounds unchanged.
+   *
+   * The +1 MiB skew on the virtual address ensures the implied PAGE_OFFSET
+   * candidate (vdmap_min - pdram_min) is not 1 GiB aligned, so the
+   * cross-origin randomize_memory_page_offset plugin also no-ops and we
+   * isolate phys_virt_synth's same-origin requirement. */
   inject_result_with_origin(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP,
-                            PAGE_OFFSET + (32 * MB), KASLD_REGION_DIRECTMAP,
-                            "alpha");
+                            PAGE_OFFSET + (32 * MB) + (1 * MB),
+                            KASLD_REGION_DIRECTMAP, "alpha");
   inject_result_with_origin(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM,
                             PHYS_OFFSET + (32 * MB), KASLD_REGION_KERNEL_IMAGE,
                             "beta");
@@ -2125,6 +2133,256 @@ static void test_layout_adjust_floor_clamp(void) {
   assert(layout.kernel_base_min >= layout.page_offset);
 }
 #endif
+
+/* =========================================================================
+ * image_size_from_text_data_gap (POST_COLLECTION)
+ * Tightens text_base_max from max(VIRT/DATA) - min(VIRT/TEXT). On decoupled
+ * arches the same gap also tightens phys_base_max.
+ * =========================================================================
+ */
+
+static void test_image_size_no_results_noop(void) {
+  reset_state();
+  init_inference_ctx();
+  unsigned long max_before = g_ctx.text_base_max;
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+  assert(g_ctx.text_base_max == max_before);
+}
+
+static void test_image_size_text_only_noop(void) {
+  reset_state();
+  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT,
+                layout.kaslr_base_min + KERNEL_ALIGN, KASLD_REGION_KERNEL_TEXT);
+  init_inference_ctx();
+  unsigned long max_before = g_ctx.text_base_max;
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+  assert(g_ctx.text_base_max == max_before);
+}
+
+static void test_image_size_data_only_noop(void) {
+  reset_state();
+  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_DATA,
+                layout.kaslr_base_min + (16 * MB), KASLD_REGION_KERNEL_DATA);
+  init_inference_ctx();
+  unsigned long max_before = g_ctx.text_base_max;
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+  assert(g_ctx.text_base_max == max_before);
+}
+
+/* DATA at or below TEXT is inconsistent — plugin must skip rather than
+ * underflow. */
+static void test_image_size_inverted_pair_noop(void) {
+  reset_state();
+  unsigned long text_addr = layout.kaslr_base_min + (8 * MB);
+  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, text_addr,
+                KASLD_REGION_KERNEL_TEXT);
+  /* DATA below TEXT — invalid pairing */
+  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_DATA,
+                layout.kaslr_base_min + (4 * MB), KASLD_REGION_KERNEL_DATA);
+  init_inference_ctx();
+  unsigned long max_before = g_ctx.text_base_max;
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+  assert(g_ctx.text_base_max == max_before);
+}
+
+static void test_image_size_lowers_max(void) {
+  reset_state();
+  unsigned long text_addr = layout.kaslr_base_min + KERNEL_ALIGN;
+  unsigned long data_addr = text_addr + (16 * MB);
+  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, text_addr,
+                KASLD_REGION_KERNEL_TEXT);
+  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_DATA, data_addr,
+                KASLD_REGION_KERNEL_DATA);
+  init_inference_ctx();
+  unsigned long max_before = g_ctx.text_base_max;
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+
+  unsigned long gap = data_addr - text_addr;
+  unsigned long expected =
+      (layout.kaslr_base_max - gap) & ~(layout.kaslr_align - 1);
+  /* Tightening only applies when the new bound improves on the prior. */
+  if (expected > layout.kaslr_base_min && expected < max_before)
+    assert(g_ctx.text_base_max == expected);
+  else
+    assert(g_ctx.text_base_max == max_before);
+}
+
+static void test_image_size_alignment_invariant(void) {
+  reset_state();
+  unsigned long text_addr = layout.kaslr_base_min + KERNEL_ALIGN;
+  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, text_addr,
+                KASLD_REGION_KERNEL_TEXT);
+  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_DATA, text_addr + (8 * MB),
+                KASLD_REGION_KERNEL_DATA);
+  init_inference_ctx();
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+  assert((g_ctx.text_base_max % layout.kaslr_align) == 0);
+}
+
+static void test_image_size_never_widens(void) {
+  reset_state();
+  unsigned long text_addr = layout.kaslr_base_min + KERNEL_ALIGN;
+  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, text_addr,
+                KASLD_REGION_KERNEL_TEXT);
+  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_DATA, text_addr + (4 * MB),
+                KASLD_REGION_KERNEL_DATA);
+  init_inference_ctx();
+  unsigned long max_before = g_ctx.text_base_max;
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+  assert(g_ctx.text_base_max <= max_before);
+}
+
+/* =========================================================================
+ * randomize_memory_page_offset (POST_COLLECTION) — x86-64 only
+ * Pins page_offset_min/max from cross-origin min(VIRT/DIRECTMAP) and
+ * min(PHYS/DRAM) when the resulting candidate is 1 GiB aligned and lies
+ * within the current window.
+ * =========================================================================
+ */
+#if defined(__x86_64__)
+
+#define PUD_SIZE_TEST (1UL << 30)
+
+static void test_randomize_memory_no_results_noop(void) {
+  reset_state();
+  init_inference_ctx();
+  unsigned long po_min = g_ctx.page_offset_min;
+  unsigned long po_max = g_ctx.page_offset_max;
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+  assert(g_ctx.page_offset_min == po_min);
+  assert(g_ctx.page_offset_max == po_max);
+}
+
+static void test_randomize_memory_only_directmap_noop(void) {
+  reset_state();
+  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP,
+                PAGE_OFFSET + (32 * MB), KASLD_REGION_DIRECTMAP);
+  init_inference_ctx();
+  unsigned long po_min = g_ctx.page_offset_min;
+  unsigned long po_max = g_ctx.page_offset_max;
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+  assert(g_ctx.page_offset_min == po_min);
+  assert(g_ctx.page_offset_max == po_max);
+}
+
+static void test_randomize_memory_only_dram_noop(void) {
+  reset_state();
+  inject_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, PHYS_OFFSET + (32 * MB),
+                KASLD_REGION_KERNEL_IMAGE);
+  init_inference_ctx();
+  unsigned long po_min = g_ctx.page_offset_min;
+  unsigned long po_max = g_ctx.page_offset_max;
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+  assert(g_ctx.page_offset_min == po_min);
+  assert(g_ctx.page_offset_max == po_max);
+}
+
+/* Cross-origin DIRECTMAP and DRAM that synthesise a 1 GiB-aligned candidate
+ * within the current window → page_offset_min/max both pinned. Different
+ * origins ensure phys_virt_synth (which requires same-origin pairs) is a
+ * no-op. */
+static void test_randomize_memory_pins_page_offset(void) {
+  reset_state();
+  unsigned long phys = PHYS_OFFSET; /* P_min = 0 on x86-64 */
+  /* Choose a candidate one PUD above the default PAGE_OFFSET: 1 GiB-aligned,
+   * inside the [PAGE_OFFSET, KERNEL_VAS_END] window. */
+  unsigned long candidate = PAGE_OFFSET + PUD_SIZE_TEST;
+  unsigned long virt = candidate + phys;
+  inject_result_with_origin(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
+                            KASLD_REGION_DIRECTMAP, "comp_a");
+  inject_result_with_origin(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, phys,
+                            KASLD_REGION_KERNEL_IMAGE, "comp_b");
+  init_inference_ctx();
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+  assert(g_ctx.page_offset_min == candidate);
+  assert(g_ctx.page_offset_max == candidate);
+}
+
+/* A non-1 GiB-aligned candidate means D_min and P_min do not map the same
+ * physical region — plugin must skip. */
+static void test_randomize_memory_unaligned_candidate_noop(void) {
+  reset_state();
+  unsigned long phys = PHYS_OFFSET;
+  /* Candidate offset by 1 MiB so it is not 1 GiB aligned. */
+  unsigned long virt = PAGE_OFFSET + PUD_SIZE_TEST + (1 * MB);
+  inject_result_with_origin(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
+                            KASLD_REGION_DIRECTMAP, "comp_a");
+  inject_result_with_origin(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, phys,
+                            KASLD_REGION_KERNEL_IMAGE, "comp_b");
+  init_inference_ctx();
+  unsigned long po_min = g_ctx.page_offset_min;
+  unsigned long po_max = g_ctx.page_offset_max;
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+  assert(g_ctx.page_offset_min == po_min);
+  assert(g_ctx.page_offset_max == po_max);
+}
+
+#endif /* __x86_64__ */
+
+/* =========================================================================
+ * va_bits_from_results (POST_COLLECTION) — arm64 only
+ * Pins page_offset bounds from VA_BITS evidence in DIRECTMAP results.
+ * =========================================================================
+ */
+#if defined(__aarch64__)
+
+#define ARM64_VA48_PO_TEST 0xffff000000000000ul
+#define ARM64_VA52_PO_TEST 0xfff0000000000000ul
+
+static void test_va_bits_no_results_noop(void) {
+  reset_state();
+  init_inference_ctx();
+  unsigned long po_min = g_ctx.page_offset_min;
+  unsigned long po_max = g_ctx.page_offset_max;
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+  assert(g_ctx.page_offset_min == po_min);
+  assert(g_ctx.page_offset_max == po_max);
+}
+
+/* All DIRECTMAP results in the VA_BITS=48 range → PAGE_OFFSET pinned to
+ * 0xffff000000000000 (both bounds), provided that value lies inside the
+ * starting window. */
+static void test_va_bits_va48_pins_page_offset(void) {
+  reset_state();
+  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP,
+                ARM64_VA48_PO_TEST + (1 * MB), KASLD_REGION_DIRECTMAP);
+  init_inference_ctx();
+  /* The compile-time default sets page_offset_min to ARM64_VA52_PO and
+   * page_offset_max to KERNEL_VAS_END; both straddle ARM64_VA48_PO. */
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+  assert(g_ctx.page_offset_min == ARM64_VA48_PO_TEST);
+  assert(g_ctx.page_offset_max == ARM64_VA48_PO_TEST);
+}
+
+/* A VA_BITS=52 directmap address tightens page_offset_max down to
+ * ARM64_VA52_PO (page_offset_min was already at that value by default). */
+static void test_va_bits_va52_pins_page_offset_max(void) {
+  reset_state();
+  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP,
+                ARM64_VA52_PO_TEST + (1 * MB), KASLD_REGION_DIRECTMAP);
+  init_inference_ctx();
+  unsigned long po_max_before = g_ctx.page_offset_max;
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+  assert(g_ctx.page_offset_max <= po_max_before);
+  assert(g_ctx.page_offset_max == ARM64_VA52_PO_TEST);
+}
+
+/* Both ranges present → contradictory; plugin must leave bounds unchanged. */
+static void test_va_bits_contradictory_noop(void) {
+  reset_state();
+  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP,
+                ARM64_VA52_PO_TEST + (1 * MB), KASLD_REGION_DIRECTMAP);
+  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP,
+                ARM64_VA48_PO_TEST + (1 * MB), KASLD_REGION_DIRECTMAP);
+  init_inference_ctx();
+  unsigned long po_min = g_ctx.page_offset_min;
+  unsigned long po_max = g_ctx.page_offset_max;
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+  assert(g_ctx.page_offset_min == po_min);
+  assert(g_ctx.page_offset_max == po_max);
+}
+
+#endif /* __aarch64__ */
 
 /* =========================================================================
  * State machine
@@ -2394,6 +2652,35 @@ int main(void) {
   RUN_TEST(test_layout_adjust_floor_clamp);
 #endif
   printf("\n");
+
+  printf("inference plugins (image_size_from_text_data_gap):\n");
+  RUN_TEST(test_image_size_no_results_noop);
+  RUN_TEST(test_image_size_text_only_noop);
+  RUN_TEST(test_image_size_data_only_noop);
+  RUN_TEST(test_image_size_inverted_pair_noop);
+  RUN_TEST(test_image_size_lowers_max);
+  RUN_TEST(test_image_size_alignment_invariant);
+  RUN_TEST(test_image_size_never_widens);
+  printf("\n");
+
+#if defined(__x86_64__)
+  printf("inference plugins (randomize_memory_page_offset):\n");
+  RUN_TEST(test_randomize_memory_no_results_noop);
+  RUN_TEST(test_randomize_memory_only_directmap_noop);
+  RUN_TEST(test_randomize_memory_only_dram_noop);
+  RUN_TEST(test_randomize_memory_pins_page_offset);
+  RUN_TEST(test_randomize_memory_unaligned_candidate_noop);
+  printf("\n");
+#endif
+
+#if defined(__aarch64__)
+  printf("inference plugins (va_bits_from_results):\n");
+  RUN_TEST(test_va_bits_no_results_noop);
+  RUN_TEST(test_va_bits_va48_pins_page_offset);
+  RUN_TEST(test_va_bits_va52_pins_page_offset_max);
+  RUN_TEST(test_va_bits_contradictory_noop);
+  printf("\n");
+#endif
 
   printf("---\n%d/%d tests passed\n", pass_count, test_count);
   return (pass_count == test_count) ? 0 : 1;
