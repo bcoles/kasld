@@ -101,41 +101,81 @@ static void directmap_page_offset_bounds_run(struct kasld_analysis_ctx *ctx) {
     ctx->page_offset_max = vdmap_min;
   }
 
-  /* Lower bound: PAGE_OFFSET > V_min - MemTotal.
-   * Only sound when all physical RAM lies within [PHYS_OFFSET,
-   * PHYS_OFFSET + MemTotal). On NUMA systems with memory holes the highest
-   * DRAM address can exceed this range: a directmap leak from a high-address
-   * node would then give V_min > PAGE_OFFSET + MemTotal, making the lower
-   * bound unsound. Detect this by scanning PHYS/DRAM results and skip. */
+  /* Lower bound: PAGE_OFFSET > V_min - phys_span,
+   * where phys_span is the highest physical address mapped in the directmap.
+   *
+   * Anchored at PHYS_OFFSET, phys_span = (P_floor - phys_offset) + mem_bytes.
+   * On systems where the firmware reports DRAM starting at phys_offset,
+   * P_floor == phys_offset and phys_span == mem_bytes. On systems with a
+   * low-memory hole — e.g. arm64/MIPS boards where PHYS_OFFSET=0 but DRAM
+   * begins at 1 GiB — P_floor > phys_offset and phys_span > mem_bytes. The
+   * earlier formulation `lower = V_min - mem_bytes` (which assumed
+   * P_floor == phys_offset) could push page_offset_min above the true
+   * PAGE_OFFSET when V_min came from a high-physical-address leak.
+   *
+   * To stay sound we use the *observed* DRAM floor from PHYS/DRAM results.
+   * If no PHYS/DRAM evidence exists we cannot bound P_floor and must skip
+   * the lower-bound update.
+   *
+   * On NUMA systems with memory holes the highest physical DRAM address can
+   * exceed P_floor + mem_bytes: detect via PHYS/DRAM scan and skip rather
+   * than risk excluding the true PAGE_OFFSET. */
   unsigned long mem_bytes = read_memtotal_bytes();
   if (mem_bytes == 0)
     return;
 
-  if (ctx->arch->phys_offset <= ULONG_MAX - mem_bytes) {
-    unsigned long phys_limit = ctx->arch->phys_offset + mem_bytes;
-    for (size_t i = 0; i < ctx->result_count; i++) {
-      const struct result *r = &ctx->results[i];
-      if (!r->valid)
-        continue;
-      if (r->type == KASLD_ADDR_PHYS &&
-          strcmp(r->section, KASLD_SECTION_DRAM) == 0 && r->raw >= phys_limit)
-        return; /* NUMA hole detected; lower bound would be unsound */
-    }
+  unsigned long phys_floor = ULONG_MAX;
+  for (size_t i = 0; i < ctx->result_count; i++) {
+    const struct result *r = &ctx->results[i];
+    if (!r->valid)
+      continue;
+    if (r->type != KASLD_ADDR_PHYS)
+      continue;
+    if (strcmp(r->section, KASLD_SECTION_DRAM) != 0)
+      continue;
+    if (r->raw < phys_floor)
+      phys_floor = r->raw;
   }
 
-  /* Guard against unsigned underflow when MemTotal > V_min. */
-  if (vdmap_min < mem_bytes)
+  if (phys_floor == ULONG_MAX)
+    return; /* No PHYS/DRAM witness — cannot bound P_floor soundly. */
+
+  if (phys_floor < ctx->arch->phys_offset)
+    return; /* Inconsistent: a leak below PHYS_OFFSET indicates misclassified
+             * results. Skip rather than produce a wrong bound. */
+
+  unsigned long phys_floor_offset = phys_floor - ctx->arch->phys_offset;
+
+  if (phys_floor_offset > ULONG_MAX - mem_bytes)
+    return; /* Overflow guard. */
+
+  unsigned long phys_span = phys_floor_offset + mem_bytes;
+
+  /* NUMA-hole guard: any PHYS/DRAM result above phys_floor + mem_bytes
+   * indicates a hole that exceeds our phys_span estimate. Skip in that case. */
+  unsigned long phys_limit = phys_floor + mem_bytes;
+  for (size_t i = 0; i < ctx->result_count; i++) {
+    const struct result *r = &ctx->results[i];
+    if (!r->valid)
+      continue;
+    if (r->type == KASLD_ADDR_PHYS &&
+        strcmp(r->section, KASLD_SECTION_DRAM) == 0 && r->raw >= phys_limit)
+      return;
+  }
+
+  /* Guard against unsigned underflow when phys_span > V_min. */
+  if (vdmap_min < phys_span)
     return;
 
-  unsigned long lower = vdmap_min - mem_bytes;
+  unsigned long lower = vdmap_min - phys_span;
 
   if (lower > ctx->page_offset_min && lower < ctx->page_offset_max) {
     if (verbose && !quiet)
       fprintf(stdout,
               "[infer] virt_page_offset_min tightened by"
               " directmap_page_offset_bounds: %#lx -> %#lx"
-              " (MemTotal=%lu bytes)\n",
-              ctx->page_offset_min, lower, mem_bytes);
+              " (phys_floor=%#lx phys_span=%#lx)\n",
+              ctx->page_offset_min, lower, phys_floor, phys_span);
     ctx->page_offset_min = lower;
   }
 }

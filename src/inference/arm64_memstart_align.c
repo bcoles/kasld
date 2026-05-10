@@ -26,7 +26,8 @@
 //
 // The minimum DIRECTMAP result V_min therefore provides a tight upper bound:
 //
-//   page_offset_max = min(page_offset_max, round_down(V_min, ARM64_MEMSTART_ALIGN))
+//   page_offset_max = min(page_offset_max, round_down(V_min,
+//   ARM64_MEMSTART_ALIGN))
 //
 // This is strictly tighter than the V_min bound already set by
 // directmap_page_offset_bounds.c whenever the physical address corresponding

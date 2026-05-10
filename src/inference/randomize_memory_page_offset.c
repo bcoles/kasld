@@ -20,15 +20,23 @@
 //   D_min ≈ page_offset_base + DRAM base
 //   ⟹ D_min - P_min = page_offset_base
 //
-// Validity guards applied before tightening both bounds:
-//   1. Candidate must be 1 GiB-aligned (PUD granularity of randomisation).
-//   2. Candidate must fall within the current [page_offset_min,
-//   page_offset_max]
-//      window established by prior inference steps.
+// P_min sourcing — soundness requires P_min to be a true DRAM-floor witness.
+// PHYS/DRAM results tagged with regions like KASLD_REGION_INITRD,
+// KASLD_REGION_RESERVED_MEM, KASLD_REGION_KERNEL_IMAGE, etc., point at
+// addresses that may be 1 GiB-aligned above the true DRAM base; using such a
+// value would produce a candidate that is 1 GiB-low of true page_offset_base
+// and still pass the alignment guard. To prevent that we accept only
+// PHYS/DRAM results explicitly tagged as KASLD_REGION_RAM_BASE — the
+// well-known "this is the lowest RAM address" tag emitted by components
+// such as sysfs_firmware_memmap.c, proc-zoneinfo.c, and sysfs_memory_blocks.c.
 //
-// A non-1 GiB-aligned result means D_min and P_min do not correspond to the
-// same physical region; both guards together make false positives extremely
-// unlikely.
+// Validity guards applied before tightening both bounds:
+//   1. P_min must come from a PHYS/DRAM result tagged KASLD_REGION_RAM_BASE.
+//   2. Candidate must be 1 GiB-aligned (PUD granularity of randomisation).
+//   3. Candidate must fall within the current [page_offset_min,
+//      page_offset_max] window established by prior inference steps.
+//
+// Together these guards make false positives extremely unlikely.
 //
 // Phase: POST_COLLECTION — requires DIRECTMAP virtual and PHYS/DRAM results
 //        from earlier components.
@@ -67,7 +75,11 @@ static void randomize_memory_page_offset_run(struct kasld_analysis_ctx *ctx) {
   if (vdmap_min == ULONG_MAX)
     return;
 
-  /* Find the minimum valid PHYS/DRAM physical address across all results. */
+  /* Find the minimum valid PHYS/DRAM physical address across all results
+   * that are explicitly tagged KASLD_REGION_RAM_BASE. Skipping other DRAM
+   * regions (initrd, reserved, kernel image, etc.) prevents a non-floor
+   * witness from producing a 1 GiB-aligned-but-wrong candidate that would
+   * pass the alignment guard. */
   unsigned long pdram_min = ULONG_MAX;
 
   for (size_t i = 0; i < ctx->result_count; i++) {
@@ -77,6 +89,8 @@ static void randomize_memory_page_offset_run(struct kasld_analysis_ctx *ctx) {
     if (r->type != KASLD_ADDR_PHYS)
       continue;
     if (strcmp(r->section, KASLD_SECTION_DRAM) != 0)
+      continue;
+    if (strcmp(r->region, KASLD_REGION_RAM_BASE) != 0)
       continue;
     if (r->raw < pdram_min)
       pdram_min = r->raw;

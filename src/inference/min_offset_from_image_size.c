@@ -3,12 +3,15 @@
 // Inference plugin: forbidden lower slots from kernel image size
 // (POST_COLLECTION)
 //
-// Both MIPS and LoongArch enforce a minimum KASLR offset:
+// Both MIPS and LoongArch enforce a minimum KASLR offset using identical
+// arithmetic in their respective `relocate_kernel.c`:
 //
 //   offset &= (CONFIG_RANDOMIZE_BASE_MAX_OFFSET - 1);
 //   if (offset < kernel_length)
-//       offset += ALIGN(kernel_length, KERNEL_ALIGN);   // MIPS
-//       // or, on LoongArch: offset = ALIGN(kernel_length, KERNEL_ALIGN)
+//       offset += ALIGN(kernel_length, KERNEL_ALIGN);
+//
+// (Verified against arch/mips/kernel/relocate.c and
+//  arch/loongarch/kernel/relocate.c on Linux 6.17.)
 //
 // Any randomly-drawn offset in [0, kernel_length) is bumped upward. The
 // range [0, kernel_length) is a forbidden zone: no valid text base falls
@@ -23,22 +26,19 @@
 // sound: the kernel cannot load within the forbidden zone, and the zone
 // extends at least gap bytes from KASLR_BASE_MIN.
 //
-// LoongArch extension:
+// LoongArch diagnostic:
 //   When kernel_length ≥ CONFIG_RANDOMIZE_BASE_MAX_OFFSET, every offset
-//   drawn from [0, max_offset) satisfies offset < kernel_length, so the
-//   bump always fires. On LoongArch the bump is an assignment (not an
-//   addition), making the result a single fixed value:
-//
-//     text_base = KASLR_BASE_MIN + ALIGN(kernel_length, KERNEL_ALIGN)
-//
-//   When kernel_length_estimate ≥ max_offset this plugin emits a verbose
-//   diagnostic. A bilateral pin is not applied: the gap is a lower bound
-//   (gap ≤ true kernel_length), so ALIGN(gap) ≤ ALIGN(true_kernel_length),
-//   and setting text_base_max = KASLR_BASE_MIN + ALIGN(gap) could exclude
-//   the true text base if gap underestimates by more than one KERNEL_ALIGN
-//   step. Implementing the bilateral pin soundly requires exact kernel_length
-//   (e.g. from /boot/Image header — see riscv64_fdt_kaslr_seed inference for
-//   the Image-header approach; a LoongArch variant is a future enhancement).
+//   drawn from [0, max_offset) satisfies `offset < kernel_length`, so the
+//   bump always fires. The post-bump offset lands in
+//   [ALIGN(kernel_length, KERNEL_ALIGN),
+//    max_offset + ALIGN(kernel_length, KERNEL_ALIGN)) — *not* a single
+//   deterministic value. We emit a verbose diagnostic noting that the
+//   randomization range has been shifted into a higher window. No further
+//   bound tightening is applied because the gap is only a lower bound on
+//   kernel_length; soundly pinning text_base_max requires the exact
+//   kernel_length (e.g. from /boot/Image header — see
+//   riscv64_fdt_kaslr_seed for the Image-header approach; a LoongArch
+//   variant is a future enhancement).
 //
 // Note: config_max_offset_bound (PRE_COLLECTION) sets
 //   text_base_max = KASLR_BASE_MIN + max_offset.
@@ -162,10 +162,12 @@ static void min_offset_from_image_size_run(struct kasld_analysis_ctx *ctx) {
   }
 
 #if defined(__loongarch__)
-  /* LoongArch extension: when kernel_length >= max_offset the bump always
-   * fires (assignment semantics), making KASLR deterministic. Log this
-   * condition for awareness; a bilateral pin is not applied because gap is
-   * a lower bound on the true kernel_length (see file header). */
+  /* LoongArch diagnostic: when kernel_length >= max_offset, every random
+   * draw triggers the bump branch, shifting the slot window from
+   * [0, max_offset) to [ALIGN(kernel_length), max_offset +
+   * ALIGN(kernel_length)). The kernel is still randomized within this shifted
+   * window — not a single deterministic point. Log for awareness; no bound pin
+   * (see file header for why). */
   struct utsname uts;
   if (uname(&uts) == 0) {
     FILE *fp = open_boot_config(uts.release);
@@ -179,13 +181,11 @@ static void min_offset_from_image_size_run(struct kasld_analysis_ctx *ctx) {
                             : gap;
 
         if (verbose && !quiet)
-          fprintf(
-              stdout,
-              "[infer] min_offset_from_image_size: LoongArch KASLR"
-              " deterministic (kernel_length_estimate=%#lx >= max_offset=%#lx);"
-              " deterministic virt_text_base >= %#lx;"
-              " bilateral pin requires exact kernel_length\n",
-              gap, max_offset, kaslr_min + aligned_gap);
+          fprintf(stdout,
+                  "[infer] min_offset_from_image_size: LoongArch KASLR window"
+                  " shifted (kernel_length_estimate=%#lx >= max_offset=%#lx);"
+                  " virt_text_base >= %#lx; range shifted, not pinned\n",
+                  gap, max_offset, kaslr_min + aligned_gap);
       }
     }
   }

@@ -89,10 +89,12 @@ static void dram_bound_run(struct kasld_analysis_ctx *ctx) {
     if (pdram_lo < phys_offset)
       return;
 
-    /* Align down to the nearest slot boundary to stay conservative. */
-    unsigned long virt_lo =
-        (pdram_lo - phys_offset + page_offset + text_offset) &
-        ~(kaslr_align - 1);
+    /* Align down to the nearest slot boundary to stay conservative. Skip the
+     * mask when kaslr_align is zero (KASLR-disabled config) — masking with
+     * ~(0 - 1) == 0 would zero the address. */
+    unsigned long virt_lo = pdram_lo - phys_offset + page_offset + text_offset;
+    if (kaslr_align > 0)
+      virt_lo &= ~(kaslr_align - 1);
 
     if (virt_lo > kaslr_min && virt_lo > ctx->text_base_min &&
         virt_lo < ctx->text_base_max) {

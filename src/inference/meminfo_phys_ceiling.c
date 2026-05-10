@@ -113,14 +113,25 @@ static void meminfo_phys_ceiling_run(struct kasld_analysis_ctx *ctx) {
       ctx->phys_base_max = ceiling;
     }
   } else {
-    /* Coupled: phys_to_virt(ceiling) = page_offset + (ceiling - phys_offset)
-     *        = page_offset + mem_bytes - MIN_IMAGE_SIZE.
-     * text_base = phys_to_virt(phys_base) + TEXT_OFFSET, so add text_offset.
+    /* Coupled: phys_to_virt(P) = page_offset + (P - phys_offset). The phys
+     * ceiling is phys_floor + mem_bytes - MIN_IMAGE_SIZE, where phys_floor
+     * is the *observed* DRAM start (which may be ≥ arch->phys_offset on
+     * systems with a low-memory hole, e.g. arm/MIPS boards where DRAM
+     * begins at 0x40000000 but PHYS_OFFSET=0). So:
+     *   virt_ceiling = page_offset + (phys_floor - phys_offset) + mem_bytes
+     *                  - MIN_IMAGE_SIZE + text_offset.
+     * Using only `mem_bytes - MIN_IMAGE_SIZE` (the previous formulation,
+     * which assumed phys_floor == phys_offset) understated the ceiling on
+     * such systems and could exclude the true text base.
      * Use the runtime page_offset from layout (set by layout_adjust). */
     unsigned long page_offset = ctx->layout->page_offset;
     unsigned long text_offset = ctx->arch->text_offset;
-    unsigned long virt_ceiling =
-        page_offset + mem_bytes - MIN_IMAGE_SIZE + text_offset;
+    unsigned long phys_offset = ctx->arch->phys_offset;
+    unsigned long phys_floor = dram_floor(ctx, phys_offset);
+    unsigned long phys_floor_offset =
+        (phys_floor > phys_offset) ? (phys_floor - phys_offset) : 0;
+    unsigned long virt_ceiling = page_offset + phys_floor_offset + mem_bytes -
+                                 MIN_IMAGE_SIZE + text_offset;
 
     unsigned long kaslr_min = ctx->arch->kaslr_base_min;
     unsigned long kaslr_align = ctx->arch->kaslr_align;

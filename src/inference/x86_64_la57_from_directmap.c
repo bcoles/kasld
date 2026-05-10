@@ -33,7 +33,7 @@
 //   No valid DIRECTMAP results: no-op.
 //
 // This plugin provides a backup/confirmatory path for L4/L5 discrimination
-// when proc-cpuinfo LA57 detection (H10) is unavailable or inconclusive.
+// when proc-cpuinfo LA57 detection is unavailable or inconclusive.
 // Both plugins write page_offset_min/max; they are consistent and idempotent.
 //
 // Phase: POST_COLLECTION — requires collected DIRECTMAP results.

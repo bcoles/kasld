@@ -33,9 +33,13 @@
 //     The ceiling from init_size is applied after the alignment snap so a
 //     single pass handles both constraints.
 //
-// Phase: PRE_COLLECTION — boot_params is a static file (set at boot); no
-// component results are needed. Reading before components also means the
-// corrected alignment can contribute to kaslr_ceiling's bound via convergence.
+// Phase: LAYOUT_ADJUST — must be LAYOUT_ADJUST (not PRE_COLLECTION) because
+// the plugin writes ctx->layout->kaslr_align and ctx->layout->phys_kaslr_align;
+// per kasld_inference.h, layout is writable only in LAYOUT_ADJUST. Reading
+// boot_params requires no component results, so any phase from LAYOUT_ADJUST
+// onward is correct; LAYOUT_ADJUST is chosen so that subsequent
+// POST_COLLECTION plugins see the corrected alignment via the orchestrator's
+// per-phase refresh of ctx->arch->{kaslr_align, phys_kaslr_align}.
 //
 // Applicable: x86-64 only.
 // ---
@@ -123,7 +127,7 @@ static void boot_params_align_run(struct kasld_analysis_ctx *ctx) {
   if (kernel_alignment > ctx->layout->kaslr_align) {
     if (verbose && !quiet)
       fprintf(stdout,
-              "[infer] boot_params_align: virt_kaslr_align updated"
+              "[infer] virt_kaslr_align tightened by boot_params_align:"
               " %#lx -> %#lx\n",
               ctx->layout->kaslr_align, kernel_alignment);
     ctx->layout->kaslr_align = kernel_alignment;
@@ -132,7 +136,7 @@ static void boot_params_align_run(struct kasld_analysis_ctx *ctx) {
       kernel_alignment > ctx->layout->phys_kaslr_align) {
     if (verbose && !quiet)
       fprintf(stdout,
-              "[infer] boot_params_align: phys_kaslr_align updated"
+              "[infer] phys_kaslr_align tightened by boot_params_align:"
               " %#lx -> %#lx\n",
               ctx->layout->phys_kaslr_align, kernel_alignment);
     ctx->layout->phys_kaslr_align = kernel_alignment;
@@ -205,7 +209,7 @@ static void boot_params_align_run(struct kasld_analysis_ctx *ctx) {
 
 static const struct kasld_inference boot_params_align = {
     .name = "boot_params_align",
-    .phase = KASLD_INFER_PHASE_PRE_COLLECTION,
+    .phase = KASLD_INFER_PHASE_LAYOUT_ADJUST,
     .run = boot_params_align_run,
 };
 

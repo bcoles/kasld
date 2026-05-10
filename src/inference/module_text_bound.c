@@ -59,6 +59,12 @@ static void module_text_bound_run(struct kasld_analysis_ctx *ctx) {
   unsigned long kaslr_align = ctx->arch->kaslr_align;
   unsigned long kaslr_min = ctx->arch->kaslr_base_min;
 
+  /* Refuse to operate on a zero alignment — every formula below uses
+   * `~(kaslr_align - 1)` which would be 0 (i.e., zero-out the address).
+   * This guards against KASLR-disabled or otherwise-zero arch configs. */
+  if (kaslr_align == 0)
+    return;
+
   /* Find minimum and maximum valid aligned virtual module addresses. */
   unsigned long vmod_lo = ULONG_MAX;
   unsigned long vmod_hi = 0;

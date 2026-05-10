@@ -81,7 +81,29 @@ static uint64_t read_fdt_kaslr_seed(void) {
 }
 
 /* Open the kernel image and read image_size from its EFI/PE-style header.
- * Returns 0 if the image is absent, unreadable, or lacks the MZ header. */
+ * Returns 0 if the image is absent, unreadable, or lacks the MZ header.
+ *
+ * The riscv64 / arm64 Image format places `image_size` (u64 LE) at byte
+ * offset 16, with an MZ magic (0x4d 0x5a) at offset 0 when CONFIG_EFI=y
+ * (the default on virtually all distro builds). See
+ * Documentation/riscv/boot-image-header.rst.
+ *
+ * Path coverage:
+ *   /boot/Image-<release>   — raw uncompressed Image. Present on most embedded
+ *                              and some distro layouts. MZ magic intact.
+ *   /boot/vmlinuz-<release> — Debian/Ubuntu/Fedora/etc. ship this as a
+ *                              compressed (gzip/lz4/xz/zstd) wrapper around
+ *                              the raw Image. The wrapper does *not* have an
+ *                              MZ header at offset 0, so the MZ check below
+ *                              correctly rejects it. Path 2 thus succeeds
+ *                              only on systems that misnomer the raw Image
+ *                              as `vmlinuz` (rare); on standard distros it
+ *                              always falls through to the gap fallback.
+ *
+ * Builds with CONFIG_EFI=n produce an Image without the MZ stub even though
+ * `image_size` is still at offset 16 (the boot-protocol layout is identical).
+ * Such Images are silently skipped here; callers must rely on the gap
+ * fallback in those cases. */
 static unsigned long read_image_size(const char *release) {
   const char *const paths[] = {
       "/boot/Image-%s",
@@ -103,7 +125,10 @@ static unsigned long read_image_size(const char *release) {
     if (n < sizeof(hdr))
       continue;
 
-    /* MZ magic (0x4d 0x5a) at offset 0 confirms the EFI/PE-style header. */
+    /* MZ magic (0x4d 0x5a) at offset 0 confirms the EFI/PE-style header.
+     * Compressed vmlinuz wrappers and CONFIG_EFI=n raw Images lack the
+     * stub and are skipped here; the orchestrator falls back to the gap
+     * estimate downstream. */
     if (hdr[0] != 0x4d || hdr[1] != 0x5a)
       continue;
 

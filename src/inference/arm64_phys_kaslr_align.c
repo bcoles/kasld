@@ -50,7 +50,8 @@ static void arm64_phys_kaslr_align_run(struct kasld_analysis_ctx *ctx) {
 
   /* Derive EFI_KIMG_ALIGN = max(THREAD_ALIGN, SEGMENT_ALIGN=64KiB).
    * 64K pages: THREAD_ALIGN = 2*(1<<16) = 128KiB → EFI_KIMG_ALIGN = 128KiB.
-   * 4K/16K:    THREAD_ALIGN ≤ 32KiB → EFI_KIMG_ALIGN = 64KiB (SEGMENT_ALIGN). */
+   * 4K/16K:    THREAD_ALIGN ≤ 32KiB → EFI_KIMG_ALIGN = 64KiB (SEGMENT_ALIGN).
+   */
   if (pagesize == 65536)
     efi_kimg_align = 131072ul; /* 128 KiB */
   else if (pagesize == 4096 || pagesize == 16384)

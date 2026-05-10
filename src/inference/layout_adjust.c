@@ -79,6 +79,14 @@ static void layout_adjust_run(struct kasld_analysis_ctx *ctx) {
       po_vals[po_n++] = r->aligned;
   }
 
+  /* 2. Apply consensus PAGE_OFFSET when it differs from compile-time default.
+   *    adjust_for_page_offset() shifts all dependent layout fields atomically.
+   *    Compute first so the conflict warning below can report the value
+   *    actually being applied rather than a separately-derived "min of first
+   *    two values" approximation. */
+  unsigned long detected_po =
+      group_consensus(KASLD_ADDR_VIRT, KASLD_SECTION_PAGEOFFSET);
+
   if (po_n > 1 && !po_conflict_warned) {
     po_conflict_warned = 1;
     if (!quiet) {
@@ -86,16 +94,13 @@ static void layout_adjust_run(struct kasld_analysis_ctx *ctx) {
                       " (possible legacy kernel layout):");
       for (int i = 0; i < po_n; i++)
         fprintf(stdout, " 0x%016lx", po_vals[i]);
-      fprintf(stdout, "; using 0x%016lx (modern layout assumed)\n",
-              po_vals[0] < po_vals[1] ? po_vals[0] : po_vals[1]);
+      if (detected_po)
+        fprintf(stdout, "; using 0x%016lx (group_consensus)\n", detected_po);
+      else
+        fprintf(stdout, "; no consensus, retaining compile-time default\n");
     }
   }
 
-  /* 2. Apply consensus PAGE_OFFSET when it differs from compile-time default.
-   *    adjust_for_page_offset() shifts all dependent layout fields atomically.
-   */
-  unsigned long detected_po =
-      group_consensus(KASLD_ADDR_VIRT, KASLD_SECTION_PAGEOFFSET);
   if (detected_po && detected_po != ctx->layout->page_offset)
     adjust_for_page_offset(detected_po);
 

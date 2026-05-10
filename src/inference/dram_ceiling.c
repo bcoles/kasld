@@ -138,8 +138,9 @@ static void dram_ceiling_run(struct kasld_analysis_ctx *ctx) {
    * that fits entirely within RAM; rounding down keeps the bound sound. */
   unsigned long phys_ceiling = dram_top - kernel_size;
   unsigned long virt_ceiling =
-      (phys_ceiling - phys_offset + page_offset + text_offset) &
-      ~(kaslr_align - 1);
+      phys_ceiling - phys_offset + page_offset + text_offset;
+  if (kaslr_align > 0)
+    virt_ceiling &= ~(kaslr_align - 1);
 
   if (virt_ceiling > kaslr_min && virt_ceiling < ctx->text_base_max) {
     if (verbose && !quiet)
