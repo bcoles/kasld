@@ -57,6 +57,178 @@ static const char *section_display_name(char type, const char *section) {
   return "Unknown";
 }
 
+/* Kernel-locating regions are leaks that directly disclose where the kernel
+ * image sits in memory. They typically arrive tagged with a generic section
+ * (e.g. PHYS/DRAM for a CR3 read) but the region pinpoints them as
+ * kernel-base evidence. The compact Results renderer promotes these to
+ * their own line so the prize isn't buried inside a generic "Physical DRAM"
+ * range that also covers ram_base, ram_top, initrd, swiotlb, etc. */
+static int is_kernel_locating_region(const char *region) {
+  if (!region || region[0] == '\0')
+    return 0;
+  return strcmp(region, KASLD_REGION_KERNEL_IMAGE) == 0 ||
+         strcmp(region, KASLD_REGION_KERNEL_TEXT) == 0 ||
+         strcmp(region, KASLD_REGION_KERNEL_DATA) == 0;
+}
+
+/* Display label for a kernel-locating region presented inline as its own
+ * Results line. Only relevant when the underlying section is generic
+ * (DRAM / MMIO); for sections that already imply kernel scope (text, data,
+ * module) the section label is sufficient. */
+static const char *kernel_region_display_name(char type, const char *region) {
+  int phys = (type == KASLD_ADDR_PHYS);
+  if (strcmp(region, KASLD_REGION_KERNEL_IMAGE) == 0)
+    return phys ? "Kernel image (physical)" : "Kernel image (virtual)";
+  if (strcmp(region, KASLD_REGION_KERNEL_TEXT) == 0)
+    return phys ? "Kernel text (physical)" : "Kernel text (virtual)";
+  if (strcmp(region, KASLD_REGION_KERNEL_DATA) == 0)
+    return phys ? "Kernel data (physical)" : "Kernel data (virtual)";
+  return NULL;
+}
+
+/* Predicate matching the Results-renderer subgroup filter.
+ *   include_region == NULL && exclude_kernel_locating == 0: all results.
+ *   include_region == NULL && exclude_kernel_locating == 1: skip
+ *     kernel-locating regions (used for the catch-all line when
+ *     kernel-locating regions have been promoted to dedicated lines).
+ *   include_region != NULL: only that exact region. */
+static int subgroup_match(const struct result *r, char type,
+                          const char *section, const char *include_region,
+                          int exclude_kernel_locating) {
+  if (r->type != type || strcmp(r->section, section) != 0 || !r->valid)
+    return 0;
+  if (include_region)
+    return strcmp(r->region, include_region) == 0;
+  if (exclude_kernel_locating && is_kernel_locating_region(r->region))
+    return 0;
+  return 1;
+}
+
+/* Compute and print one compact-mode Results line for a (type, section)
+ * subgroup filtered by region. Mirrors the format used by the original
+ * single-group renderer. Silently no-ops when no results match. */
+static void print_compact_subgroup(const char *display_name, char type,
+                                   const char *section,
+                                   const char *include_region,
+                                   int exclude_kernel_locating) {
+  unsigned long lo = 0, hi = 0;
+  int count = 0;
+  int found = 0;
+
+  /* Aligned-address scoreboard for consensus selection (mirrors
+   * group_consensus's method-weighted scoring). */
+  unsigned long addrs[MAX_RESULTS];
+  int scores[MAX_RESULTS];
+  int hits[MAX_RESULTS];
+  int n_addrs = 0;
+
+  for (int i = 0; i < num_results; i++) {
+    const struct result *r = &results[i];
+    if (!subgroup_match(r, type, section, include_region,
+                        exclude_kernel_locating))
+      continue;
+
+    if (!found || r->aligned < lo)
+      lo = r->aligned;
+    if (r->aligned > hi)
+      hi = r->aligned;
+    found = 1;
+    count++;
+
+    int w = method_weight(r->method);
+    int seen = 0;
+    for (int j = 0; j < n_addrs; j++) {
+      if (addrs[j] == r->aligned) {
+        scores[j] += w;
+        hits[j]++;
+        seen = 1;
+        break;
+      }
+    }
+    if (!seen && n_addrs < MAX_RESULTS) {
+      addrs[n_addrs] = r->aligned;
+      scores[n_addrs] = w;
+      hits[n_addrs] = 1;
+      n_addrs++;
+    }
+  }
+
+  if (count == 0)
+    return;
+
+  /* Pick consensus: highest score; ties → most hits; ties → lowest addr. */
+  int best = 0;
+  for (int i = 1; i < n_addrs; i++) {
+    if (scores[i] > scores[best] ||
+        (scores[i] == scores[best] && hits[i] > hits[best]) ||
+        (scores[i] == scores[best] && hits[i] == hits[best] &&
+         addrs[i] < addrs[best]))
+      best = i;
+  }
+  unsigned long consensus = addrs[best];
+
+  /* Method label and conflict count over the filtered subset. */
+  const char *top_method = NULL;
+  int top_weight = 0;
+  int sources_at_consensus = 0;
+  int conflicts = 0;
+  for (int i = 0; i < num_results; i++) {
+    const struct result *r = &results[i];
+    if (!subgroup_match(r, type, section, include_region,
+                        exclude_kernel_locating))
+      continue;
+    if (r->aligned == consensus) {
+      sources_at_consensus++;
+      int w = method_weight(r->method);
+      if (w > top_weight) {
+        top_weight = w;
+        top_method = r->method;
+      }
+    } else {
+      conflicts++;
+    }
+  }
+  if (!top_method)
+    top_method = "unknown";
+
+  char hbuf[32];
+  printf("  %-26s", display_name);
+  if (lo != hi) {
+    unsigned long span = hi - lo;
+    printf("%s0x%016lx - 0x%016lx%s  (%s, %d source%s, %d conflict%s, %s)\n",
+           c(C_GREEN), lo, hi, c(C_RESET), human_size(span, hbuf, sizeof(hbuf)),
+           sources_at_consensus, sources_at_consensus == 1 ? "" : "s",
+           conflicts, conflicts == 1 ? "" : "s", top_method);
+  } else {
+    printf("%s0x%016lx%s  (%d source%s)\n", c(C_GREEN), consensus, c(C_RESET),
+           count, count == 1 ? "" : "s");
+  }
+}
+
+/* Enumerate distinct kernel-locating regions present in this (type, section)
+ * subgroup. Returns the count; up to MAX_RESULTS entries written into out. */
+static int collect_kernel_regions(char type, const char *section,
+                                  const char *out[]) {
+  int n = 0;
+  for (int i = 0; i < num_results; i++) {
+    const struct result *r = &results[i];
+    if (r->type != type || strcmp(r->section, section) != 0 || !r->valid)
+      continue;
+    if (!is_kernel_locating_region(r->region))
+      continue;
+    int dup = 0;
+    for (int j = 0; j < n; j++) {
+      if (strcmp(out[j], r->region) == 0) {
+        dup = 1;
+        break;
+      }
+    }
+    if (!dup && n < MAX_RESULTS)
+      out[n++] = r->region;
+  }
+  return n;
+}
+
 struct group_key {
   char type;
   char section[SECTION_LEN];
@@ -1797,55 +1969,49 @@ static void render_text(const struct summary *s) {
       mark_group_printed(r->type, r->section);
     }
   } else {
-    /* Compact: one summary line per group */
-    char hbuf[32];
-
+    /* Compact: one line per (type, section) for non-kernel-locating
+     * regions, plus one line per kernel-locating region (kernel_image,
+     * kernel_text, kernel_data) so direct kernel-base disclosures are not
+     * buried inside a generic "Physical DRAM" / "Physical MMIO" range. */
     for (int t = 0; type_order[t]; t++) {
       for (int si = 0; section_order[si]; si++) {
         if (group_already_printed(type_order[t], section_order[si]))
           continue;
 
-        const char *name =
+        const char *catchall_name =
             section_display_name(type_order[t], section_order[si]);
-        if (!name)
+        if (!catchall_name)
           continue;
 
-        int count = 0;
-        for (int i = 0; i < num_results; i++) {
-          if (results[i].type == type_order[t] &&
-              strcmp(results[i].section, section_order[si]) == 0 &&
-              results[i].valid)
-            count++;
+        /* Promote each kernel-locating region present in this subgroup to
+         * its own line. Print these before the catch-all so the prize is
+         * visible at the top. */
+        const char *kr_seen[MAX_RESULTS];
+        int nkr =
+            collect_kernel_regions(type_order[t], section_order[si], kr_seen);
+        for (int k = 0; k < nkr; k++) {
+          const char *kr_name =
+              kernel_region_display_name(type_order[t], kr_seen[k]);
+          if (!kr_name)
+            kr_name = catchall_name;
+          print_compact_subgroup(kr_name, type_order[t], section_order[si],
+                                 kr_seen[k], 0);
         }
-        if (!count)
-          continue;
 
-        unsigned long consensus =
-            group_consensus(type_order[t], section_order[si]);
-        unsigned long lo, hi;
-        group_range(type_order[t], section_order[si], &lo, &hi);
-
-        printf("  %-26s", name);
-        if (hi) {
-          const char *bm;
-          int ns, nc;
-          group_consensus_info(type_order[t], section_order[si], &bm, &ns, &nc);
-          unsigned long span = hi - lo;
-          printf(
-              "%s0x%016lx - 0x%016lx%s  (%s, %d source%s, %d conflict%s, %s)\n",
-              c(C_GREEN), lo, hi, c(C_RESET),
-              human_size(span, hbuf, sizeof(hbuf)), ns, ns == 1 ? "" : "s", nc,
-              nc == 1 ? "" : "s", bm);
-        } else {
-          printf("%s0x%016lx%s  (%d source%s)\n", c(C_GREEN), consensus,
-                 c(C_RESET), count, count == 1 ? "" : "s");
-        }
+        /* Catch-all line covers the rest. When kernel-locating regions
+         * were promoted, exclude them from the catch-all so its lo/hi
+         * span reflects only background landmarks (ram_base, ram_top,
+         * initrd, etc.). When no kernel-locating regions were present,
+         * this is identical to the original "all results" behaviour. */
+        print_compact_subgroup(catchall_name, type_order[t], section_order[si],
+                               NULL, nkr > 0);
 
         mark_group_printed(type_order[t], section_order[si]);
       }
     }
 
-    /* Any remaining groups not in predefined order */
+    /* Any remaining groups not in predefined order — same kernel-locating
+     * promotion as the predefined-order pass above. */
     for (int i = 0; i < num_results; i++) {
       struct result *r = &results[i];
       if (r->type == KASLD_ADDR_DEFAULT)
@@ -1853,38 +2019,19 @@ static void render_text(const struct summary *s) {
       if (group_already_printed(r->type, r->section))
         continue;
 
-      const char *name = section_display_name(r->type, r->section);
-      if (!name)
+      const char *catchall_name = section_display_name(r->type, r->section);
+      if (!catchall_name)
         continue;
 
-      int count = 0;
-      for (int j = 0; j < num_results; j++) {
-        if (results[j].type == r->type &&
-            strcmp(results[j].section, r->section) == 0 && results[j].valid)
-          count++;
+      const char *kr_seen[MAX_RESULTS];
+      int nkr = collect_kernel_regions(r->type, r->section, kr_seen);
+      for (int k = 0; k < nkr; k++) {
+        const char *kr_name = kernel_region_display_name(r->type, kr_seen[k]);
+        if (!kr_name)
+          kr_name = catchall_name;
+        print_compact_subgroup(kr_name, r->type, r->section, kr_seen[k], 0);
       }
-      if (!count)
-        continue;
-
-      unsigned long consensus = group_consensus(r->type, r->section);
-      unsigned long lo, hi;
-      group_range(r->type, r->section, &lo, &hi);
-
-      printf("  %-26s", name);
-      if (hi) {
-        const char *bm;
-        int ns, nc;
-        group_consensus_info(r->type, r->section, &bm, &ns, &nc);
-        unsigned long span = hi - lo;
-        printf(
-            "%s0x%016lx - 0x%016lx%s  (%s, %d source%s, %d conflict%s, %s)\n",
-            c(C_GREEN), lo, hi, c(C_RESET),
-            human_size(span, hbuf, sizeof(hbuf)), ns, ns == 1 ? "" : "s", nc,
-            nc == 1 ? "" : "s", bm);
-      } else {
-        printf("%s0x%016lx%s  (%d source%s)\n", c(C_GREEN), consensus,
-               c(C_RESET), count, count == 1 ? "" : "s");
-      }
+      print_compact_subgroup(catchall_name, r->type, r->section, NULL, nkr > 0);
 
       mark_group_printed(r->type, r->section);
     }

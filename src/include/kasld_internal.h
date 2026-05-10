@@ -236,6 +236,7 @@ void group_consensus_info(char type, const char *section,
                           int *n_conflicts);
 void group_range(char type, const char *section, unsigned long *lo,
                  unsigned long *hi);
+int method_weight(const char *method);
 void inject_kaslr_defaults(struct summary *s);
 void compute_component_stats(struct summary *s);
 void compute_kaslr_info(struct summary *s);

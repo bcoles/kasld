@@ -1336,7 +1336,7 @@ void revalidate_results(void) {
  * Analysis helpers: find consensus address for a (type, section) group
  * -------------------------------------------------------------------------
  */
-static int method_weight(const char *method) {
+int method_weight(const char *method) {
   if (strcmp(method, "exact") == 0)
     return 4;
   if (strcmp(method, "timing") == 0)
