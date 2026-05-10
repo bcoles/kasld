@@ -2290,8 +2290,12 @@ static void test_randomize_memory_pins_page_offset(void) {
   unsigned long virt = candidate + phys;
   inject_result_with_origin(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
                             KASLD_REGION_DIRECTMAP, "comp_a");
+  /* Plugin requires the PHYS witness to be tagged KASLD_REGION_RAM_BASE
+   * (the explicit DRAM-floor tag) so that non-floor regions like INITRD or
+   * KERNEL_IMAGE — which can fall 1 GiB-aligned above the true DRAM base —
+   * cannot produce a false 1 GiB-low pin. */
   inject_result_with_origin(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, phys,
-                            KASLD_REGION_KERNEL_IMAGE, "comp_b");
+                            KASLD_REGION_RAM_BASE, "comp_b");
   init_inference_ctx();
   run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
   assert(g_ctx.page_offset_min == candidate);
@@ -2305,6 +2309,28 @@ static void test_randomize_memory_unaligned_candidate_noop(void) {
   unsigned long phys = PHYS_OFFSET;
   /* Candidate offset by 1 MiB so it is not 1 GiB aligned. */
   unsigned long virt = PAGE_OFFSET + PUD_SIZE_TEST + (1 * MB);
+  inject_result_with_origin(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
+                            KASLD_REGION_DIRECTMAP, "comp_a");
+  inject_result_with_origin(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, phys,
+                            KASLD_REGION_RAM_BASE, "comp_b");
+  init_inference_ctx();
+  unsigned long po_min = g_ctx.page_offset_min;
+  unsigned long po_max = g_ctx.page_offset_max;
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+  assert(g_ctx.page_offset_min == po_min);
+  assert(g_ctx.page_offset_max == po_max);
+}
+
+/* PHYS witness tagged with a non-RAM_BASE region (e.g. KERNEL_IMAGE,
+ * INITRD, RESERVED_MEM) does NOT pin page_offset, even when the resulting
+ * candidate is 1 GiB-aligned and inside the window. This guards against a
+ * false-pin attack where a non-floor witness lands 1 GiB-aligned above the
+ * true DRAM base. */
+static void test_randomize_memory_non_ram_base_witness_noop(void) {
+  reset_state();
+  unsigned long phys = PHYS_OFFSET;
+  unsigned long candidate = PAGE_OFFSET + PUD_SIZE_TEST;
+  unsigned long virt = candidate + phys;
   inject_result_with_origin(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
                             KASLD_REGION_DIRECTMAP, "comp_a");
   inject_result_with_origin(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, phys,
@@ -2670,6 +2696,7 @@ int main(void) {
   RUN_TEST(test_randomize_memory_only_dram_noop);
   RUN_TEST(test_randomize_memory_pins_page_offset);
   RUN_TEST(test_randomize_memory_unaligned_candidate_noop);
+  RUN_TEST(test_randomize_memory_non_ram_base_witness_noop);
   printf("\n");
 #endif
 
