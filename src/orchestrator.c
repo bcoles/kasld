@@ -561,8 +561,10 @@ static void run_inference_phase(struct kasld_analysis_ctx *ctx,
     ctx->page_offset_max = layout.kernel_vas_end;
   g_arch_params.kaslr_base_min = layout.kaslr_base_min;
   g_arch_params.kaslr_base_max = layout.kaslr_base_max;
+  g_arch_params.kaslr_align = layout.kaslr_align;
   g_arch_params.phys_kaslr_base_min = layout.phys_kaslr_base_min;
   g_arch_params.phys_kaslr_base_max = layout.phys_kaslr_base_max;
+  g_arch_params.phys_kaslr_align = layout.phys_kaslr_align;
   if (layout.phys_kaslr_base_min > ctx->phys_base_min)
     ctx->phys_base_min = layout.phys_kaslr_base_min;
   if (layout.phys_kaslr_base_max < ctx->phys_base_max)
