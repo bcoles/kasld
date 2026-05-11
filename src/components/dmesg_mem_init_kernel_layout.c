@@ -180,6 +180,17 @@ static void emit_result(int idx, unsigned long addr) {
     kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, phys, entries[idx].region,
                  NULL);
   }
+  /* On coupled architectures, the kernel image is linearly mapped, so
+   * virt_to_phys() is valid for kernel BSS addresses too. Emitting a
+   * PHYS/KERNEL_BSS result enables the BSS-resident gap refinement in
+   * kernel_image_phys_bound.c on ARM32 and x86_32 (the only arches that
+   * print a ".bss  :" line; both are coupled). */
+  if (strcmp(entries[idx].section, KASLD_SECTION_BSS) == 0) {
+    unsigned long phys = virt_to_phys(addr);
+    printf("  possible physical address: 0x%016lx\n", phys);
+    kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, phys,
+                 KASLD_REGION_KERNEL_BSS, NULL);
+  }
 #endif
 }
 
