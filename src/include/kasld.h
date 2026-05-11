@@ -239,7 +239,8 @@
 #define KASLD_SECTION_TEXT "text"
 #define KASLD_SECTION_MODULE "module"
 #define KASLD_SECTION_DIRECTMAP "directmap"
-#define KASLD_SECTION_DATA "data"
+#define KASLD_SECTION_DATA "data" /* kernel .data and .rodata; never .bss */
+#define KASLD_SECTION_BSS "bss"   /* kernel .bss (zero-initialised data) */
 #define KASLD_SECTION_DRAM "dram"
 #define KASLD_SECTION_MMIO "mmio"
 #define KASLD_SECTION_PAGEOFFSET "pageoffset"
@@ -290,7 +291,8 @@
 
 /* Kernel virtual memory regions. */
 #define KASLD_REGION_KERNEL_TEXT "kernel_text" /* kernel .text */
-#define KASLD_REGION_KERNEL_DATA "kernel_data" /* .data / .rodata / .bss */
+#define KASLD_REGION_KERNEL_DATA "kernel_data" /* kernel .data / .rodata */
+#define KASLD_REGION_KERNEL_BSS "kernel_bss"   /* kernel .bss */
 #define KASLD_REGION_MODULE                                                    \
   "module" /* loaded LKM (instance: "module:<name>") */
 #define KASLD_REGION_MODULE_REGION                                             \

@@ -48,6 +48,8 @@ static const char *section_display_name(char type, const char *section) {
     return "Direct map (virtual)";
   if (strcmp(section, KASLD_SECTION_DATA) == 0)
     return "Kernel data (virtual)";
+  if (strcmp(section, KASLD_SECTION_BSS) == 0)
+    return "Kernel BSS (virtual)";
   if (strcmp(section, KASLD_SECTION_DRAM) == 0)
     return "Physical DRAM";
   if (strcmp(section, KASLD_SECTION_MMIO) == 0)
@@ -68,7 +70,8 @@ static int is_kernel_locating_region(const char *region) {
     return 0;
   return strcmp(region, KASLD_REGION_KERNEL_IMAGE) == 0 ||
          strcmp(region, KASLD_REGION_KERNEL_TEXT) == 0 ||
-         strcmp(region, KASLD_REGION_KERNEL_DATA) == 0;
+         strcmp(region, KASLD_REGION_KERNEL_DATA) == 0 ||
+         strcmp(region, KASLD_REGION_KERNEL_BSS) == 0;
 }
 
 /* Display label for a kernel-locating region presented inline as its own
@@ -83,6 +86,8 @@ static const char *kernel_region_display_name(char type, const char *region) {
     return phys ? "Kernel text (physical)" : "Kernel text (virtual)";
   if (strcmp(region, KASLD_REGION_KERNEL_DATA) == 0)
     return phys ? "Kernel data (physical)" : "Kernel data (virtual)";
+  if (strcmp(region, KASLD_REGION_KERNEL_BSS) == 0)
+    return phys ? "Kernel BSS (physical)" : "Kernel BSS (virtual)";
   return NULL;
 }
 
@@ -1651,13 +1656,10 @@ static void render_json(const struct summary *s) {
   printf("\n  },\n");
 
   /* groups — build ordered list of unique (type, section) keys */
-  const char *section_order[] = {KASLD_SECTION_TEXT,
-                                 KASLD_SECTION_MODULE,
-                                 KASLD_SECTION_DIRECTMAP,
-                                 KASLD_SECTION_DATA,
-                                 KASLD_SECTION_DRAM,
-                                 KASLD_SECTION_MMIO,
-                                 NULL};
+  const char *section_order[] = {KASLD_SECTION_TEXT,      KASLD_SECTION_MODULE,
+                                 KASLD_SECTION_DIRECTMAP, KASLD_SECTION_DATA,
+                                 KASLD_SECTION_BSS,       KASLD_SECTION_DRAM,
+                                 KASLD_SECTION_MMIO,      NULL};
   char type_order[] = {KASLD_ADDR_VIRT, KASLD_ADDR_PHYS, 0};
 
   struct group_key gkeys[64];
@@ -1899,13 +1901,10 @@ static void render_text(const struct summary *s) {
   }
 
   /* Print each (type, section) group in a defined order */
-  const char *section_order[] = {KASLD_SECTION_TEXT,
-                                 KASLD_SECTION_MODULE,
-                                 KASLD_SECTION_DIRECTMAP,
-                                 KASLD_SECTION_DATA,
-                                 KASLD_SECTION_DRAM,
-                                 KASLD_SECTION_MMIO,
-                                 NULL};
+  const char *section_order[] = {KASLD_SECTION_TEXT,      KASLD_SECTION_MODULE,
+                                 KASLD_SECTION_DIRECTMAP, KASLD_SECTION_DATA,
+                                 KASLD_SECTION_BSS,       KASLD_SECTION_DRAM,
+                                 KASLD_SECTION_MMIO,      NULL};
   char type_order[] = {KASLD_ADDR_VIRT, KASLD_ADDR_PHYS, 0};
 
   if (verbose) {
@@ -1971,8 +1970,9 @@ static void render_text(const struct summary *s) {
   } else {
     /* Compact: one line per (type, section) for non-kernel-locating
      * regions, plus one line per kernel-locating region (kernel_image,
-     * kernel_text, kernel_data) so direct kernel-base disclosures are not
-     * buried inside a generic "Physical DRAM" / "Physical MMIO" range. */
+     * kernel_text, kernel_data, kernel_bss) so direct kernel-base
+     * disclosures are not buried inside a generic "Physical DRAM" /
+     * "Physical MMIO" range. */
     for (int t = 0; type_order[t]; t++) {
       for (int si = 0; section_order[si]; si++) {
         if (group_already_printed(type_order[t], section_order[si]))
@@ -2173,13 +2173,10 @@ static void render_markdown(const struct summary *s) {
   }
 
   /* Result groups */
-  const char *section_order[] = {KASLD_SECTION_TEXT,
-                                 KASLD_SECTION_MODULE,
-                                 KASLD_SECTION_DIRECTMAP,
-                                 KASLD_SECTION_DATA,
-                                 KASLD_SECTION_DRAM,
-                                 KASLD_SECTION_MMIO,
-                                 NULL};
+  const char *section_order[] = {KASLD_SECTION_TEXT,      KASLD_SECTION_MODULE,
+                                 KASLD_SECTION_DIRECTMAP, KASLD_SECTION_DATA,
+                                 KASLD_SECTION_BSS,       KASLD_SECTION_DRAM,
+                                 KASLD_SECTION_MMIO,      NULL};
   char type_order[] = {KASLD_ADDR_PHYS, KASLD_ADDR_VIRT, 0};
 
   printf("## Leak Results\n\n");

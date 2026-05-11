@@ -213,15 +213,16 @@ int main(void) {
 
   if (ctx.phys) {
     printf("leaked physical address (CR3): %lx\n", ctx.phys);
-    /* CR3 is the page table base — physically the kernel image's
-     * top-level pgd resides at this address (modulo PCID bits). */
+    /* CR3 is the physical address of swapper_pg_dir, which lives in the
+     * kernel .bss section. Tagged KERNEL_BSS so inference plugins can
+     * apply the BSS-resident gap refinement without an allow-list. */
     kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, ctx.phys,
-                 KASLD_REGION_KERNEL_IMAGE, "cr3");
+                 KASLD_REGION_KERNEL_BSS, "cr3");
 #if !PHYS_VIRT_DECOUPLED
     unsigned long virt = phys_to_virt(ctx.phys);
     printf("possible direct-map virtual address: %lx\n", virt);
     kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
-                 KASLD_REGION_KERNEL_IMAGE, "cr3");
+                 KASLD_REGION_KERNEL_BSS, "cr3");
 #endif
   }
 

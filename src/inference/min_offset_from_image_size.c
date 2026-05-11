@@ -63,8 +63,13 @@
 
 #if defined(__mips__) || defined(__loongarch__)
 
-/* Compute kernel_length_estimate = max(DATA results) - min(TEXT results).
- * Returns 0 if insufficient results are present or the pair is inconsistent. */
+/* Compute kernel_length_estimate = max(DATA or BSS results) - min(TEXT
+ * results). Returns 0 if insufficient results are present or the pair is
+ * inconsistent. BSS addresses are included because they are inside the image
+ * (BSS is past .rodata), making the estimate tighter. This is valid here
+ * because the gap is used as a lower bound on kernel_length (image size), not
+ * on data_end_offset — the distinction that makes kernel_image_phys_bound.c's
+ * compute_virt_gap() intentionally DATA-only. */
 static unsigned long get_text_data_gap(const struct kasld_analysis_ctx *ctx) {
   unsigned long min_text = ULONG_MAX;
   unsigned long max_data = 0;
@@ -76,7 +81,8 @@ static unsigned long get_text_data_gap(const struct kasld_analysis_ctx *ctx) {
     if (strcmp(r->section, KASLD_SECTION_TEXT) == 0) {
       if (r->raw < min_text)
         min_text = r->raw;
-    } else if (strcmp(r->section, KASLD_SECTION_DATA) == 0) {
+    } else if (strcmp(r->section, KASLD_SECTION_DATA) == 0 ||
+               strcmp(r->section, KASLD_SECTION_BSS) == 0) {
       if (r->raw > max_data)
         max_data = r->raw;
     }

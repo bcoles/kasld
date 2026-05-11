@@ -150,6 +150,12 @@ static unsigned long read_image_size(const char *release) {
 
 /* Returns gap = max(DATA results) - min(TEXT results), a lower bound on
  * kernel_size.  Returns 0 if insufficient results or inconsistent pair. */
+/* Compute image_size_lower_bound = max(DATA or BSS results) - min(TEXT
+ * results). BSS is included because BSS addresses are inside the image; a
+ * larger gap gives a tighter nr_pos_max and fewer valid candidate positions.
+ * This is intentionally DATA+BSS (image size lower bound), unlike
+ * kernel_image_phys_bound.c's compute_virt_gap() which is DATA-only because
+ * it bounds data_end_offset rather than image size. */
 static unsigned long get_text_data_gap(const struct kasld_analysis_ctx *ctx) {
   unsigned long min_text = ULONG_MAX;
   unsigned long max_data = 0;
@@ -161,7 +167,8 @@ static unsigned long get_text_data_gap(const struct kasld_analysis_ctx *ctx) {
     if (strcmp(r->section, KASLD_SECTION_TEXT) == 0) {
       if (r->raw < min_text)
         min_text = r->raw;
-    } else if (strcmp(r->section, KASLD_SECTION_DATA) == 0) {
+    } else if (strcmp(r->section, KASLD_SECTION_DATA) == 0 ||
+               strcmp(r->section, KASLD_SECTION_BSS) == 0) {
       if (r->raw > max_data)
         max_data = r->raw;
     }

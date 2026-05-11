@@ -9,6 +9,7 @@
 // Sections extracted:
 //   .text    -> V text      (kernel text virtual address)
 //   .data    -> V data      (kernel data virtual address)
+//   .bss     -> V bss       (kernel BSS virtual address; ARM and x86_32 only)
 //   lowmem   -> V directmap (lowmem / direct-mapped region, x86_32/arm)
 //   modules  -> V module    (kernel module region, arm/arm64)
 //   memory   -> V directmap (linear memory map, arm64)
@@ -93,9 +94,9 @@
 KASLD_EXPLAIN(
     "Parses the kernel virtual memory layout block printed by mem_init() "
     "during boot. This block shows virtual address ranges for .text, "
-    ".data, lowmem, modules, and other sections. Removed from most "
-    "architectures: ARM64 v4.16, ARM v5.1, x86_32 v5.7. Access is "
-    "gated by dmesg_restrict.");
+    ".data, .bss (ARM and x86_32), lowmem, modules, and other sections. "
+    "Removed from most architectures: ARM64 v4.16, ARM v5.1, x86_32 v5.7. "
+    "Access is gated by dmesg_restrict.");
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"
@@ -128,6 +129,8 @@ static const struct layout_entry entries[] = {
      KASLD_REGION_KERNEL_TEXT, KERNEL_BASE_MIN, KERNEL_BASE_MAX},
     {".data : 0x", KASLD_ADDR_VIRT, KASLD_SECTION_DATA, "kernel .data start",
      KASLD_REGION_KERNEL_DATA, KERNEL_VAS_START, KERNEL_VAS_END},
+    {".bss  : 0x", KASLD_ADDR_VIRT, KASLD_SECTION_BSS, "kernel .bss start",
+     KASLD_REGION_KERNEL_BSS, KERNEL_BASE_MIN, KERNEL_BASE_MAX},
     {"lowmem  : 0x", KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP,
      "kernel lowmem start", KASLD_REGION_DIRECTMAP, KERNEL_VAS_START,
      KERNEL_VAS_END},

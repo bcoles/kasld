@@ -4,18 +4,18 @@
 // (POST_COLLECTION)
 //
 // If the collected results contain at least one virtual TEXT address and at
-// least one virtual DATA address, their gap is a lower bound on the kernel
-// image size:
+// least one virtual DATA or BSS address, their gap is a lower bound on the
+// kernel image size:
 //
-//   image_size >= max(DATA results) - min(TEXT results)
+//   image_size >= max(DATA or BSS results) - min(TEXT results)
 //
 // Soundness argument:
 //   Let B = _stext (true kernel text base, unknown).
 //   Any TEXT result T satisfies T >= B (kernel text is above _stext).
-//   Any DATA result D satisfies D <= B + image_size (_end >= D).
-//   Therefore: D - T <= (B + image_size) - B = image_size.
-//   Equivalently: image_size >= D - T for any valid (T, D) pair.
-//   Using max(DATA) - min(TEXT) maximises the lower bound from collected data.
+//   Any DATA result D satisfies D <= B + image_size (_edata >= D).
+//   Any BSS result X satisfies X <= B + image_size (_end >= X).
+//   Therefore: max(D or X) - T <= image_size for any valid T.
+//   Using max(DATA or BSS) - min(TEXT) maximises the lower bound.
 //
 // The kernel image must fit within the KASLR randomisation window:
 //   text_base + image_size <= KASLR_BASE_MAX
@@ -30,11 +30,10 @@
 // the identical image size lower bound also tightens phys_base_max.
 //
 // Reliability notes:
-// - TEXT and DATA results are emitted by different components (backtrace,
-//   dmesg_mem_init_kernel_layout, sysfs_iscsi_transport_handle, etc.) and
+// - TEXT, DATA, and BSS results are emitted by different components and
 //   are always from the running kernel image, so they come from the same
 //   single KASLR slot. The gap is always a sound lower bound within one run.
-// - If only TEXT or only DATA results are present, the plugin is a no-op.
+// - If only TEXT or only DATA/BSS results are present, the plugin is a no-op.
 // - Default ('D'-type) results are excluded implicitly: they carry type 'D',
 //   not 'V', so they are skipped by the KASLD_ADDR_VIRT filter.
 //
@@ -65,7 +64,8 @@ static void image_size_from_text_data_gap_run(struct kasld_analysis_ctx *ctx) {
     if (strcmp(r->section, KASLD_SECTION_TEXT) == 0) {
       if (r->raw < min_text)
         min_text = r->raw;
-    } else if (strcmp(r->section, KASLD_SECTION_DATA) == 0) {
+    } else if (strcmp(r->section, KASLD_SECTION_DATA) == 0 ||
+               strcmp(r->section, KASLD_SECTION_BSS) == 0) {
       if (r->raw > max_data)
         max_data = r->raw;
     }
