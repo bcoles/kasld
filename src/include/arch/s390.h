@@ -99,8 +99,9 @@
 //     _stext ≤ vmod_lo + MODULES_LEN + (_SEGMENT_SIZE − KERNEL_ALIGN) +
 //     TEXT_OFFSET
 //   Lower bound (from maximum vmod_hi):
-//     __kaslr_offset > vmod_hi  →  __kaslr_offset ≥ align_up(vmod_hi,
-//     KERNEL_ALIGN) _stext ≥ align_up(vmod_hi, KERNEL_ALIGN) + TEXT_OFFSET
+//     __kaslr_offset > vmod_hi  →  __kaslr_offset ≥ align_down(vmod_hi,
+//     KERNEL_ALIGN) + KERNEL_ALIGN
+//     _stext ≥ align_down(vmod_hi, KERNEL_ALIGN) + KERNEL_ALIGN + TEXT_OFFSET
 //
 // MODULES_BELOW_TEXT_START signals that MODULES_END is anchored to the image
 // start (_stext - TEXT_OFFSET), not to image end (_end) as on riscv64. The
