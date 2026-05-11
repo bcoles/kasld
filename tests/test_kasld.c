@@ -11,6 +11,7 @@
 #include "../src/inference/dram_bound.c"
 #include "../src/inference/image_size_from_text_data_gap.c"
 #include "../src/inference/kaslr_ceiling.c"
+#include "../src/inference/kernel_image_phys_bound.c"
 #include "../src/inference/layout_adjust.c"
 #include "../src/inference/module_text_bound.c"
 #include "../src/inference/phys_virt_synth.c"
@@ -2343,6 +2344,138 @@ static void test_randomize_memory_non_ram_base_witness_noop(void) {
   assert(g_ctx.page_offset_max == po_max);
 }
 
+/* =========================================================================
+ * kernel_image_phys_bound (POST_COLLECTION)
+ * Bounds phys_base from kernel-locating PHYS witnesses; BSS-resident
+ * witnesses (e.g. cr3) refine the upper bound using virt TEXT/DATA gap.
+ * =========================================================================
+ */
+
+#define KIPB_MAX_IMAGE_SIZE (256ul * 1024 * 1024)
+
+/* Witnessless: no kernel-locating PHYS results → no change. */
+static void test_kernel_image_phys_no_witness_noop(void) {
+  reset_state();
+  /* Non-kernel-locating PHYS witnesses must be ignored. */
+  inject_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, 0x1000,
+                KASLD_REGION_RAM_BASE);
+  inject_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, 0x100000000ul,
+                KASLD_REGION_RAM_TOP);
+  init_inference_ctx();
+  unsigned long min0 = g_ctx.phys_base_min;
+  unsigned long max0 = g_ctx.phys_base_max;
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+  assert(g_ctx.phys_base_min == min0);
+  assert(g_ctx.phys_base_max == max0);
+}
+
+/* Note on test setup: every kernel_image_phys_bound test that expects
+ * tightening also injects a low PHYS/DRAM `ram_base` witness. This pins
+ * dram_bound's `min PHYS/DRAM` to the low value, causing dram_bound's
+ * tightening check to fail (it can't raise phys_base_min above
+ * `phys_kaslr_base_min`). Without this, dram_bound would raise
+ * phys_base_min above the kernel_image witness in its same convergence
+ * pass, blocking kernel_image_phys_bound from firing — an order-dependence
+ * that doesn't occur in production parallel mode (where ram_base witnesses
+ * from /sys/firmware/memmap or /proc/zoneinfo are present alongside cr3).
+ */
+#define KIPB_RAM_BASE (0x1000ul)
+
+/* Single kernel_image witness → both bounds tighten symmetrically around
+ * the witness, with the lower bound separated by MAX_IMAGE_SIZE. */
+static void test_kernel_image_phys_single_witness_tightens(void) {
+  reset_state();
+  unsigned long cr3 = 0x119446000ul;
+  inject_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, KIPB_RAM_BASE,
+                KASLD_REGION_RAM_BASE);
+  inject_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, cr3, "kernel_bss:cr3");
+  init_inference_ctx();
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+  /* phys_base_max ≤ cr3, aligned down to phys_kaslr_align (2 MiB). */
+  unsigned long align = g_ctx.arch->phys_kaslr_align;
+  assert(g_ctx.phys_base_max <= cr3);
+  assert((g_ctx.phys_base_max & (align - 1)) == 0);
+  /* phys_base_min ≥ cr3 - MAX_IMAGE_SIZE + 1, aligned up. */
+  unsigned long expected_min =
+      (cr3 - KIPB_MAX_IMAGE_SIZE + 1 + align - 1) & ~(align - 1);
+  assert(g_ctx.phys_base_min == expected_min);
+}
+
+/* BSS-resident refinement: cr3 witness *plus* a VIRT/TEXT and VIRT/DATA
+ * pair → phys_base_max contribution is `cr3 - virt_gap` (tighter than
+ * cr3 alone). */
+static void test_kernel_image_phys_bss_refinement_with_gap(void) {
+  reset_state();
+  unsigned long cr3 = 0x119446000ul;
+  unsigned long vtext_min = KERNEL_BASE_MIN + 0x1000000ul; /* +16 MiB */
+  /* Place max(VIRT DATA) such that gap = 32 MiB (well within image). */
+  unsigned long gap = 32ul * 1024 * 1024;
+  unsigned long vdata_max = vtext_min + gap;
+
+  inject_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, KIPB_RAM_BASE,
+                KASLD_REGION_RAM_BASE);
+  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, vtext_min,
+                KASLD_REGION_KERNEL_TEXT);
+  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_DATA, vdata_max,
+                KASLD_REGION_KERNEL_DATA);
+  inject_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, cr3, "kernel_bss:cr3");
+  init_inference_ctx();
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+  /* phys_base_max ≤ cr3 - gap (BSS-resident refinement), aligned down. */
+  unsigned long align = g_ctx.arch->phys_kaslr_align;
+  unsigned long expected_max = (cr3 - gap) & ~(align - 1);
+  assert(g_ctx.phys_base_max == expected_max);
+}
+
+/* Non-cr3 kernel_image witness (no name match) → BSS refinement does NOT
+ * apply, even with a virt gap present. */
+static void test_kernel_image_phys_no_bss_refinement_for_unknown_name(void) {
+  reset_state();
+  unsigned long w = 0x119446000ul;
+  unsigned long vtext_min = KERNEL_BASE_MIN + 0x1000000ul;
+  unsigned long gap = 32ul * 1024 * 1024;
+  unsigned long vdata_max = vtext_min + gap;
+  inject_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, KIPB_RAM_BASE,
+                KASLD_REGION_RAM_BASE);
+  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, vtext_min,
+                KASLD_REGION_KERNEL_TEXT);
+  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_DATA, vdata_max,
+                KASLD_REGION_KERNEL_DATA);
+  /* Region kernel_image (not kernel_bss) → BSS refinement does NOT apply
+   * regardless of name. The discriminant is the region tag, not the name. */
+  inject_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, w,
+                "kernel_image:unknown_symbol");
+  init_inference_ctx();
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+  /* phys_base_max ≤ W (no gap subtraction), aligned down. */
+  unsigned long align = g_ctx.arch->phys_kaslr_align;
+  assert(g_ctx.phys_base_max == (w & ~(align - 1)));
+}
+
+/* Conflicting witnesses (spread > MAX_IMAGE_SIZE) → skip entirely. */
+static void test_kernel_image_phys_contradictory_witnesses_noop(void) {
+  reset_state();
+  unsigned long lo_w = 0x119446000ul;
+  unsigned long hi_w = lo_w + KIPB_MAX_IMAGE_SIZE + 0x100000ul; /* +1 MiB */
+  inject_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, KIPB_RAM_BASE,
+                KASLD_REGION_RAM_BASE);
+  inject_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, lo_w, "kernel_bss:cr3");
+  inject_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, hi_w,
+                KASLD_REGION_KERNEL_IMAGE);
+  init_inference_ctx();
+  unsigned long max0 = g_ctx.phys_base_max;
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+  /* The conflict guard refused to emit any bound from this plugin. With
+   * the spread exceeding MAX_IMAGE_SIZE, the plugin returns before
+   * computing new_phys_max. The rest of the convergence loop may still
+   * shift things but the plugin under test must not have pinned
+   * phys_base_max to lo_w. */
+  assert(g_ctx.phys_base_max > lo_w || g_ctx.phys_base_max == max0);
+}
+
+#undef KIPB_RAM_BASE
+#undef KIPB_MAX_IMAGE_SIZE
+
 #endif /* __x86_64__ */
 
 /* =========================================================================
@@ -2697,6 +2830,14 @@ int main(void) {
   RUN_TEST(test_randomize_memory_pins_page_offset);
   RUN_TEST(test_randomize_memory_unaligned_candidate_noop);
   RUN_TEST(test_randomize_memory_non_ram_base_witness_noop);
+  printf("\n");
+
+  printf("inference plugins (kernel_image_phys_bound):\n");
+  RUN_TEST(test_kernel_image_phys_no_witness_noop);
+  RUN_TEST(test_kernel_image_phys_single_witness_tightens);
+  RUN_TEST(test_kernel_image_phys_bss_refinement_with_gap);
+  RUN_TEST(test_kernel_image_phys_no_bss_refinement_for_unknown_name);
+  RUN_TEST(test_kernel_image_phys_contradictory_witnesses_noop);
   printf("\n");
 #endif
 
