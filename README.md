@@ -8,9 +8,6 @@
   <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"/>
 </p>
 
-
-# Kernel Address Space Layout Derandomization (KASLD)
-
 KASLD maps the Linux kernel virtual and physical memory layout as an
 unprivileged local user to defeat Kernel Address Space Layout Randomization
 (KASLR). A central orchestrator runs standalone leak components and
@@ -38,6 +35,7 @@ Supports:
 * [Architecture and Design](#architecture-and-design)
   * [Component model](#component-model)
   * [Phases](#phases)
+  * [Inference plugins](#inference-plugins)
   * [Cross-section derivation](#cross-section-derivation)
     * [Component-level derivation](#component-level-derivation)
     * [Orchestrator derivation rules](#orchestrator-derivation-rules)
@@ -459,13 +457,54 @@ tighten the constraint bounds used during validation — they may only raise
 `text_base_min`, lower `text_base_max`, or narrow `page_offset_min/max`.
 This commutativity invariant means plugin order within a phase is irrelevant.
 
+Inference plugins run in four phases:
+
+| Phase | When |
+|---|---|
+| `PRE_COLLECTION` | Before any component runs — architecture detection, static ceiling/floor establishment |
+| `LAYOUT_ADJUST` | After `PRE_COLLECTION`, before `POST_COLLECTION` — result reclassification, PAGE_OFFSET propagation |
+| `POST_COLLECTION` | After inference components complete — runs in a convergence loop until bounds stabilise |
+| `POST_PROBING` | After all probing components complete |
+
 Currently implemented:
 
 | Plugin | Phase | Effect |
 |---|---|---|
-| `kaslr_ceiling` | PRE_COLLECTION | Lowers `text_base_max` by the provably-unreachable top-of-range band where `base + kernel_size > KASLR_MAX`. Estimates kernel size from `/boot/vmlinuz-*` and `/boot/System.map-*` via `stat()` (no read access required). |
-| `dram_bound` | POST_COLLECTION | Raises `text_base_min` from the minimum PHYS/DRAM result (coupled architectures only — no-op on x86_64, arm64, riscv64, s390). |
-| `phys_virt_synth` | POST_COLLECTION | Narrows `page_offset_min/max` by synthesising `PAGE_OFFSET = virt − phys + PHYS_OFFSET` from per-component (PHYS/DRAM, VIRT/DIRECTMAP) pairs. Only produces candidates on coupled architectures where components emit both sides. |
+| `arm64_va_bits_mmap` | PRE_COLLECTION | arm64 VA_BITS detection via mmap boundary probe |
+| `config_max_offset_bound` | PRE_COLLECTION | CONFIG_RANDOMIZE_BASE_MAX_OFFSET ceiling — tightens MIPS/LoongArch 4 GB window to 16 MB (256 slots) |
+| `cpuinfo_phys_bits` | PRE_COLLECTION | CPU physical address bits → physical ceiling |
+| `kaslr_ceiling` | PRE_COLLECTION | KASLR image ceiling — lowers `text_base_max` by the provably-unreachable top-of-range band where `base + kernel_size > KASLR_MAX`; estimates kernel size from `/boot/vmlinuz-*` and `/boot/System.map-*` via `stat()` (no read access required) |
+| `ppc32_booke_phys_ceiling` | PRE_COLLECTION | PPC32 BookE physical KASLR ceiling |
+| `ppc64_opal_bound` | PRE_COLLECTION | PPC64 OPAL base → text range ceiling |
+| `ppc64_rtas_bound` | PRE_COLLECTION | PPC64 RTAS base → text range ceiling |
+| `riscv64_no_seed_default` | PRE_COLLECTION | Pins `text_base` to `KERNEL_LINK_ADDR` on non-EFI riscv64 when the FDT `kaslr-seed` property is absent (KASLR effectively disabled) |
+| `riscv64_va_bits_mmap` | PRE_COLLECTION | riscv64 SATP mode detection via mmap boundary probe |
+| `s390_paging_level` | PRE_COLLECTION | s390 paging level detection via mmap boundary probe |
+| `arm64_phys_kaslr_align` | LAYOUT_ADJUST | arm64 EFI_KIMG_ALIGN detection via getpagesize() |
+| `boot_params_align` | LAYOUT_ADJUST | x86-64 boot_params `kernel_alignment` and `init_size` → alignment floor and image-size lower bound |
+| `layout_adjust` | LAYOUT_ADJUST | Propagates PAGE_OFFSET discoveries to revalidate all prior results |
+| `mips64_xkphys_filter` | LAYOUT_ADJUST | Reclassifies MIPS64 XKPHYS VIRT/DIRECTMAP results as PHYS/DRAM |
+| `arm64_memstart_align` | POST_COLLECTION | arm64 ARM64_MEMSTART_ALIGN → `page_offset_max` snap |
+| `directmap_page_offset_bounds` | POST_COLLECTION | Directmap addresses → PAGE_OFFSET bounds |
+| `dram_bound` | POST_COLLECTION | Raises `text_base_min` from the minimum PHYS/DRAM result (coupled architectures only — no-op on x86_64, arm64, riscv64, s390) |
+| `dram_ceiling` | POST_COLLECTION | DRAM ceiling → `text_base_max` |
+| `highmem_32bit_bound` | POST_COLLECTION | LowTotal physical ceiling for 32-bit highmem kernels |
+| `image_size_from_text_data_gap` | POST_COLLECTION | Runtime image size lower bound from TEXT/DATA address gap |
+| `initrd_phys_avoid` | POST_COLLECTION | initrd physical interval → forbidden zone for kernel placement |
+| `kernel_image_phys_bound` | POST_COLLECTION | Kernel-locating PHYS leak → tight `phys_base` bounds; BSS-resident gap refinement |
+| `meminfo_phys_ceiling` | POST_COLLECTION | MemTotal physical ceiling |
+| `min_offset_from_image_size` | POST_COLLECTION | Forbidden lower slots from kernel image size (MIPS/LoongArch) |
+| `module_text_bound` | POST_COLLECTION | Module region → text bounds |
+| `phys_virt_synth` | POST_COLLECTION | Narrows `page_offset_min/max` by synthesising `PAGE_OFFSET = virt − phys + PHYS_OFFSET` from per-component (PHYS/DRAM, VIRT/DIRECTMAP) pairs |
+| `randomize_memory_page_offset` | POST_COLLECTION | Cross-origin min-DIRECTMAP / min-PHYS → `page_offset_base` (x86-64) |
+| `riscv64_fdt_kaslr_seed` | POST_COLLECTION | riscv64 FDT `kaslr-seed` → exact `text_base` |
+| `riscv64_non_efi_phys_base` | POST_COLLECTION | Exact physical base on non-EFI riscv64 |
+| `text_cluster_filter` | POST_COLLECTION | TEXT-result cluster outlier rejection |
+| `va_bits_from_results` | POST_COLLECTION | VA_BITS detection from directmap addresses (arm64) |
+| `x86_32_vmsplit_ceiling` | POST_COLLECTION | x86-32 vmsplit ceiling |
+| `x86_64_coupling_validate` | POST_COLLECTION | x86-64 directmap/text region coupling validation |
+| `x86_64_la57_from_directmap` | POST_COLLECTION | x86-64 L4/L5 paging detection from directmap addresses |
+| `x86_firmware_memmap_holes` | POST_COLLECTION | x86 `/sys/firmware/memmap` System RAM hole validation |
 
 Inference plugins live in `src/inference/` and register via a linker section
 macro (`KASLD_REGISTER_INFERENCE`). Adding a plugin requires only a new
@@ -608,6 +647,7 @@ processes each independently.
 | `KASLD_SECTION_MODULE` | `module` | Address is in the loadable module region |
 | `KASLD_SECTION_DIRECTMAP` | `directmap` | Address is in the direct-map (linear mapping) region |
 | `KASLD_SECTION_DATA` | `data` | Address is in the kernel data section |
+| `KASLD_SECTION_BSS` | `bss` | Address is in the kernel BSS section (zero-initialised data; use with type `V`) |
 | `KASLD_SECTION_DRAM` | `dram` | Physical DRAM address (use with type `P`) |
 | `KASLD_SECTION_MMIO` | `mmio` | Physical MMIO address (use with type `P`) |
 | `KASLD_SECTION_PAGEOFFSET` | `pageoffset` | The PAGE_OFFSET value itself (use with type `V`) |
@@ -629,7 +669,7 @@ The complete vocabulary is defined in
 |---|---|
 | Physical RAM boundaries | `RAM_BASE`, `RAM_TOP`, `DMA_TOP`, `DMA32_TOP` |
 | Physical memory regions | `KERNEL_IMAGE`, `INITRD`, `RESERVED_MEM`, `SWIOTLB`, `VMCOREINFO`, `CRASHKERNEL`, `PMEM`, `ACPI_TABLE`, `ACPI_NVS`, `EFI_MEMMAP`, `NUMA_NODE`, `MMIO`, `PCI_MMIO` |
-| Kernel virtual regions | `KERNEL_TEXT`, `KERNEL_DATA`, `MODULE`, `MODULE_REGION` |
+| Kernel virtual regions | `KERNEL_TEXT`, `KERNEL_DATA`, `KERNEL_BSS`, `MODULE`, `MODULE_REGION` |
 | Address-space landmarks (fallback when contents unknown) | `DIRECTMAP`, `PAGE_OFFSET`, `VMALLOC`, `VMEMMAP` |
 
 #### Names
@@ -1278,6 +1318,7 @@ The following KASLD components read boot configuration:
 * [boot-config.c](src/components/boot-config.c) — reads `/boot/config-*` for `CONFIG_RELOCATABLE`, `CONFIG_RANDOMIZE_BASE`, and `CONFIG_PAGE_OFFSET`
 * [proc-config.c](src/components/proc-config.c) — reads `/proc/config.gz` for the same configuration options
 * [proc-cmdline.c](src/components/proc-cmdline.c) — reads `/proc/cmdline` to check for `nokaslr`
+* [hibernation_nokaslr.c](src/components/hibernation_nokaslr.c) — checks whether hibernation resume has disabled KASLR
 
 
 ### Side-Channels
@@ -1507,6 +1548,7 @@ The following KASLD component provides a baseline reference:
 
 See also:
 
+* [Linux KASLR Entropy](https://u1f383.github.io/linux/2025/01/02/linux-kaslr-entropy.html) (u1f383, 2025) — code-level walkthrough of x86_64 ktext slot calculation (`find_random_virt_addr`) and kheap randomization (`kernel_randomize_memory`)
 * [Another look at two Linux KASLR patches](https://www.kryptoslogic.com/blog/2020/03/another-look-at-two-linux-kaslr-patches/index.html) (Kryptos Logic, 2020)
 * [arm64: efi: kaslr: Fix occasional random alloc (and boot) failure](https://github.com/torvalds/linux/commit/4152433c397697acc4b02c4a10d17d5859c2730d)
 * [Defeating KASLR by Doing Nothing at All](https://projectzero.google/2025/11/defeating-kaslr-by-doing-nothing-at-all.html) (Seth Jenkins, 2025) - arm64 linear map is not randomized due to memory hotplug support; Pixel bootloader loads kernel at static physical address, making kernel virtual addresses fully predictable even with KASLR enabled.
