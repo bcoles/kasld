@@ -145,6 +145,15 @@ if [ -n "$truth_stext" ]; then truth_stext=$(hex16 "$truth_stext"); fi
 if [ -n "$truth_etext" ]; then truth_etext=$(hex16 "$truth_etext"); fi
 if [ -n "$truth_sdata" ]; then truth_sdata=$(hex16 "$truth_sdata"); fi
 
+# BSS boundaries
+truth_bss_start=$(awk '$3 == "__bss_start" { print $1 }' /proc/kallsyms 2>/dev/null)
+truth_end=$(awk '$3 == "_end" { print $1 }' /proc/kallsyms 2>/dev/null)
+case "$truth_bss_start" in
+  0000000000000000|00000000) truth_bss_start="" ;;
+esac
+if [ -n "$truth_bss_start" ]; then truth_bss_start=$(hex16 "$truth_bss_start"); fi
+if [ -n "$truth_end" ]; then truth_end=$(hex16 "$truth_end"); fi
+
 # Module address range from /proc/modules
 truth_mod_lo=""
 truth_mod_hi=""
@@ -204,6 +213,12 @@ if [ -n "$truth_etext" ]; then
 fi
 if [ -n "$truth_sdata" ]; then
   printf "  _sdata (V data):       0x%s\n" "$truth_sdata"
+fi
+if [ -n "$truth_bss_start" ]; then
+  printf "  __bss_start (V bss):   0x%s\n" "$truth_bss_start"
+fi
+if [ -n "$truth_end" ]; then
+  printf "  _end:                  0x%s\n" "$truth_end"
 fi
 if [ -n "$truth_mod_lo" ]; then
   printf "  module lo:             0x%s\n" "$truth_mod_lo"
@@ -285,6 +300,20 @@ printf '%s\n' "$tagged_lines" | while IFS= read -r line; do
         pass "$desc — within kernel image"
       else
         fail "$desc — below _stext"
+      fi
+      ;;
+
+    "V bss")
+      if [ -z "$truth_bss_start" ]; then
+        skip "$desc — no __bss_start ground truth"
+        continue
+      fi
+      if [ -n "$truth_end" ] && hex_in_range "$addr" "$truth_bss_start" "$truth_end"; then
+        pass "$desc — within BSS section"
+      elif hex_ge "$addr" "$truth_bss_start"; then
+        pass "$desc — at or above __bss_start"
+      else
+        fail "$desc — expected >= 0x${truth_bss_start}"
       fi
       ;;
 
