@@ -1,6 +1,6 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
-// Inference plugin: cross-origin min-DIRECTMAP / min-PHYS → page_offset_base
+// Inference plugin: directmap + phys pair → page_offset_base
 // (POST_COLLECTION)
 //
 // On x86-64 with CONFIG_RANDOMIZE_MEMORY, page_offset_base (the start of the
@@ -8,13 +8,29 @@
 // granularity. For any directmap virtual address D mapping physical address P:
 //   page_offset_base = D - P  (PHYS_OFFSET = 0 on x86-64)
 //
-// phys_virt_synth.c handles the same-origin case: a single component that
-// emits both a DIRECTMAP virtual and a PHYS/DRAM physical for the same physical
-// page. On decoupled architectures such as x86-64, components rarely emit both
-// sides, so phys_virt_synth.c is a no-op. This plugin handles the cross-origin
-// case: the global minimum DIRECTMAP virtual D_min and global minimum PHYS/DRAM
-// physical P_min can come from different components.
+// Two pairing paths, attempted in priority order:
 //
+// Path 1 — Same-(origin, region, name) pairing
+// ============================================
+// A single component emits both a PHYS result and a VIRT/DIRECTMAP result
+// with identical origin, region, AND name. This is the strongest signal:
+// they reference the same kernel object. Example: dmesg_backtrace emits
+// PHYS/DRAM kernel_bss:cr3 (the CR3 register value) AND on coupled-arch
+// builds VIRT/DIRECTMAP kernel_bss:cr3 (= phys_to_virt(cr3)). The
+// (origin, region, name) triple unambiguously identifies the pair.
+//
+// Per-pair: candidate = V_raw − P_raw. Apply 1-GiB alignment + window
+// guards. If the candidate survives, bilateral-pin page_offset_base.
+//
+// This path is a generalisation of phys_virt_synth.c: it accepts PHYS in
+// any section (DRAM, TEXT, DATA) when the (region, name) labels match,
+// and enforces the stricter 1-GiB PUD alignment required for x86-64
+// memory KASLR. phys_virt_synth.c uses kaslr_align (2 MiB) which is too
+// loose for the 1-GiB CONFIG_RANDOMIZE_MEMORY granularity and would let
+// a 2-MiB-aligned-but-not-1-GiB-aligned candidate slip through.
+//
+// Path 2 — Cross-origin min(DIRECTMAP) − min(PHYS/DRAM tagged RAM_BASE)
+// =====================================================================
 // On a typical x86-64 system with DRAM starting at a 1 GiB-aligned boundary:
 //   P_min ≈ DRAM base (from e.g. /proc/zoneinfo, /sys/devices/system/memory)
 //   D_min ≈ page_offset_base + DRAM base
@@ -30,11 +46,10 @@
 // well-known "this is the lowest RAM address" tag emitted by components
 // such as sysfs_firmware_memmap.c, proc-zoneinfo.c, and sysfs_memory_blocks.c.
 //
-// Validity guards applied before tightening both bounds:
-//   1. P_min must come from a PHYS/DRAM result tagged KASLD_REGION_RAM_BASE.
-//   2. Candidate must be 1 GiB-aligned (PUD granularity of randomisation).
-//   3. Candidate must fall within the current [page_offset_min,
-//      page_offset_max] window established by prior inference steps.
+// Validity guards (both paths):
+//   - Candidate must be 1 GiB-aligned (PUD granularity of randomisation).
+//   - Candidate must fall within the current [page_offset_min,
+//     page_offset_max] window established by prior inference steps.
 //
 // Together these guards make false positives extremely unlikely.
 //
@@ -54,12 +69,89 @@
 #include <stdio.h>
 #include <string.h>
 
+/* Returns 1 if candidate is acceptable (1-GiB-aligned, in window), else 0.
+ * On success, *out_candidate is the value to pin. */
+#if defined(__x86_64__)
+static int validate_candidate(const struct kasld_analysis_ctx *ctx,
+                              unsigned long virt, unsigned long phys,
+                              unsigned long *out_candidate) {
+  const unsigned long pud_size = 1ul << 30;
+  if (virt <= phys)
+    return 0;
+  unsigned long candidate = virt - phys;
+  if (candidate & (pud_size - 1))
+    return 0;
+  if (candidate < ctx->page_offset_min || candidate > ctx->page_offset_max)
+    return 0;
+  *out_candidate = candidate;
+  return 1;
+}
+
+static void apply_pin(struct kasld_analysis_ctx *ctx, unsigned long candidate,
+                      const char *path_label, unsigned long virt,
+                      unsigned long phys, const char *origin) {
+  if (verbose && !quiet)
+    fprintf(stdout,
+            "[infer] virt_page_offset_base pinned by"
+            " randomize_memory_page_offset (%s):"
+            " [%#lx, %#lx] -> %#lx"
+            " (D=%#lx P=%#lx%s%s)\n",
+            path_label, ctx->page_offset_min, ctx->page_offset_max, candidate,
+            virt, phys, origin ? " origin=" : "", origin ? origin : "");
+  ctx->page_offset_min = candidate;
+  ctx->page_offset_max = candidate;
+}
+#endif
+
 static void randomize_memory_page_offset_run(struct kasld_analysis_ctx *ctx) {
 #if defined(__x86_64__)
 
-  /* Find the minimum valid DIRECTMAP virtual address across all results. */
-  unsigned long vdmap_min = ULONG_MAX;
+  /* === Path 1: same-(origin, region, name) PHYS + VIRT/DIRECTMAP pairing ===
+   *
+   * For every VIRT/DIRECTMAP result V with non-empty origin, look for a
+   * PHYS result with matching (origin, region, name). Such a triple
+   * identifies the same kernel object across both address spaces — the
+   * tightest possible signal. Sections on the PHYS side are unrestricted
+   * (DRAM, TEXT, DATA, MMIO) because the matching tags carry the
+   * semantic equivalence. */
+  for (size_t i = 0; i < ctx->result_count; i++) {
+    const struct result *v = &ctx->results[i];
+    if (!v->valid)
+      continue;
+    if (v->type != KASLD_ADDR_VIRT)
+      continue;
+    if (strcmp(v->section, KASLD_SECTION_DIRECTMAP) != 0)
+      continue;
+    if (v->origin[0] == '\0')
+      continue;
 
+    for (size_t j = 0; j < ctx->result_count; j++) {
+      const struct result *p = &ctx->results[j];
+      if (!p->valid)
+        continue;
+      if (p->type != KASLD_ADDR_PHYS)
+        continue;
+      if (strcmp(p->origin, v->origin) != 0)
+        continue;
+      if (strcmp(p->region, v->region) != 0)
+        continue;
+      if (strcmp(p->name, v->name) != 0)
+        continue;
+
+      unsigned long candidate;
+      if (!validate_candidate(ctx, v->raw, p->raw, &candidate))
+        continue;
+
+      apply_pin(ctx, candidate, "same-origin pair", v->raw, p->raw, v->origin);
+      return;
+    }
+  }
+
+  /* === Path 2: cross-origin min(DIRECTMAP) − min(PHYS/DRAM RAM_BASE) ===
+   *
+   * No same-origin pair survived; fall back to the layout-landmark
+   * heuristic. */
+  unsigned long vdmap_min = ULONG_MAX;
   for (size_t i = 0; i < ctx->result_count; i++) {
     const struct result *r = &ctx->results[i];
     if (!r->valid)
@@ -71,17 +163,12 @@ static void randomize_memory_page_offset_run(struct kasld_analysis_ctx *ctx) {
     if (r->raw < vdmap_min)
       vdmap_min = r->raw;
   }
-
   if (vdmap_min == ULONG_MAX)
     return;
 
-  /* Find the minimum valid PHYS/DRAM physical address across all results
-   * that are explicitly tagged KASLD_REGION_RAM_BASE. Skipping other DRAM
-   * regions (initrd, reserved, kernel image, etc.) prevents a non-floor
-   * witness from producing a 1 GiB-aligned-but-wrong candidate that would
-   * pass the alignment guard. */
+  /* P_min must be explicitly tagged KASLD_REGION_RAM_BASE — see the file
+   * header for the soundness argument. */
   unsigned long pdram_min = ULONG_MAX;
-
   for (size_t i = 0; i < ctx->result_count; i++) {
     const struct result *r = &ctx->results[i];
     if (!r->valid)
@@ -95,40 +182,15 @@ static void randomize_memory_page_offset_run(struct kasld_analysis_ctx *ctx) {
     if (r->raw < pdram_min)
       pdram_min = r->raw;
   }
-
   if (pdram_min == ULONG_MAX)
     return;
 
-  /* Guard against unsigned underflow. */
-  if (vdmap_min <= pdram_min)
+  unsigned long candidate;
+  if (!validate_candidate(ctx, vdmap_min, pdram_min, &candidate))
     return;
 
-  /* page_offset_base = D_min - P_min (PHYS_OFFSET = 0 on x86-64). */
-  unsigned long candidate = vdmap_min - pdram_min;
-
-  /* page_offset_base is randomised at 1 GiB (PUD_SIZE) granularity.
-   * A non-aligned candidate indicates the two minimums do not map the same
-   * physical region; reject to avoid a false pin. */
-  const unsigned long pud_size = 1ul << 30;
-
-  if (candidate & (pud_size - 1))
-    return;
-
-  /* Candidate must lie within the established page_offset window. */
-  if (candidate < ctx->page_offset_min || candidate > ctx->page_offset_max)
-    return;
-
-  if (verbose && !quiet)
-    fprintf(stdout,
-            "[infer] virt_page_offset_base pinned by"
-            " randomize_memory_page_offset:"
-            " [%#lx, %#lx] -> %#lx"
-            " (D_min=%#lx P_min=%#lx)\n",
-            ctx->page_offset_min, ctx->page_offset_max, candidate, vdmap_min,
-            pdram_min);
-
-  ctx->page_offset_min = candidate;
-  ctx->page_offset_max = candidate;
+  apply_pin(ctx, candidate, "cross-origin ram_base", vdmap_min, pdram_min,
+            NULL);
 
 #else
   (void)ctx;
