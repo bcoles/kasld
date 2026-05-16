@@ -392,7 +392,8 @@ static void render_kaslr_text(const struct summary *s) {
          c(C_RESET));
   printf("%sKASLR analysis:%s\n", c(C_BOLD), c(C_RESET));
 
-  if (!s->kaslr.vtext && !s->kaslr.ptext) {
+  int no_concrete_text = (!s->kaslr.vtext && !s->kaslr.ptext);
+  if (no_concrete_text) {
     /* Inference narrowed the range(s) but no concrete address was found. */
     if (s->kaslr.vslots > 0) {
       printf("  Inferred text range:  0x%016lx - 0x%016lx\n",
@@ -411,7 +412,9 @@ static void render_kaslr_text(const struct summary *s) {
              layout.phys_kaslr_align);
     }
     printf("\n");
-    return;
+    /* Fall through to the Memory KASLR block at the end of the function —
+     * memory-region bounds are independent of whether a text address
+     * leaked. */
   }
 
   if (s->kaslr.vtext) {
@@ -454,13 +457,50 @@ static void render_kaslr_text(const struct summary *s) {
              c(C_DIM), c(C_RESET));
     printf("\n");
 #endif
-  } else if (s->kaslr.pslots > 0) {
-    /* Physical range was narrowed by inference but no concrete ptext leaked. */
+  } else if (s->kaslr.pslots > 0 && !no_concrete_text) {
+    /* Physical range was narrowed by inference but no concrete ptext leaked.
+     * Guarded by !no_concrete_text because the no-vtext-and-no-ptext branch
+     * above already prints this same line. */
     printf("  Inferred phys text range:  0x%016lx - 0x%016lx\n",
            layout.phys_kaslr_base_min, layout.phys_kaslr_base_max);
     printf("  Remaining phys slots:      %s%lu%s (%d bits, step %#lx)\n",
            c(C_MAGENTA), s->kaslr.pslots, c(C_RESET), s->kaslr.pbits,
            layout.phys_kaslr_align);
+    printf("\n");
+  }
+
+  /* Memory KASLR (x86_64 CONFIG_RANDOMIZE_MEMORY): show inferred bounds on
+   * the three independently-randomised memory regions when any has been
+   * narrowed from the compile-time defaults. The plugins
+   * x86_64_vmalloc_base_bound and x86_64_vmemmap_base_bound chain off
+   * page_offset_min to derive vmalloc and vmemmap bounds via the fixed
+   * inter-region ordering. */
+  if (s->kaslr.page_offset_min || s->kaslr.vmalloc_min ||
+      s->kaslr.vmemmap_min) {
+    printf("Memory KASLR (directmap / vmalloc / vmemmap):\n");
+    if (s->kaslr.page_offset_min || s->kaslr.page_offset_max) {
+      if (s->kaslr.page_offset_min == s->kaslr.page_offset_max &&
+          s->kaslr.page_offset_min != 0)
+        printf("  page_offset_base:    %s0x%016lx%s (pinned)\n", c(C_GREEN),
+               s->kaslr.page_offset_min, c(C_RESET));
+      else
+        printf("  page_offset_base:    0x%016lx - 0x%016lx\n",
+               s->kaslr.page_offset_min, s->kaslr.page_offset_max);
+    }
+    if (s->kaslr.vmalloc_min || s->kaslr.vmalloc_max) {
+      if (s->kaslr.vmalloc_max == 0)
+        printf("  vmalloc_base:        >= 0x%016lx\n", s->kaslr.vmalloc_min);
+      else
+        printf("  vmalloc_base:        0x%016lx - 0x%016lx\n",
+               s->kaslr.vmalloc_min, s->kaslr.vmalloc_max);
+    }
+    if (s->kaslr.vmemmap_min || s->kaslr.vmemmap_max) {
+      if (s->kaslr.vmemmap_max == 0)
+        printf("  vmemmap_base:        >= 0x%016lx\n", s->kaslr.vmemmap_min);
+      else
+        printf("  vmemmap_base:        0x%016lx - 0x%016lx\n",
+               s->kaslr.vmemmap_min, s->kaslr.vmemmap_max);
+    }
     printf("\n");
   }
 }
@@ -1651,6 +1691,35 @@ static void render_json(const struct summary *s) {
     printf("      \"slots\": %lu,\n", s->kaslr.pslots);
     printf("      \"entropy_bits\": %d\n", s->kaslr.pbits);
     printf("    }");
+  }
+
+  /* Memory KASLR (CONFIG_RANDOMIZE_MEMORY) — directmap / vmalloc / vmemmap
+   * base bounds derived from the structural placement chain. Emitted only
+   * when at least one region has been narrowed from its compile-time
+   * default. */
+  if (s->kaslr.page_offset_min || s->kaslr.vmalloc_min ||
+      s->kaslr.vmemmap_min) {
+    printf(",\n    \"memory_kaslr\": {\n");
+    int first = 1;
+    if (s->kaslr.page_offset_min || s->kaslr.page_offset_max) {
+      printf("%s      \"page_offset_base\": { \"min\": \"0x%016lx\","
+             " \"max\": \"0x%016lx\" }",
+             first ? "" : ",\n", s->kaslr.page_offset_min,
+             s->kaslr.page_offset_max);
+      first = 0;
+    }
+    if (s->kaslr.vmalloc_min || s->kaslr.vmalloc_max) {
+      printf("%s      \"vmalloc_base\": { \"min\": \"0x%016lx\","
+             " \"max\": \"0x%016lx\" }",
+             first ? "" : ",\n", s->kaslr.vmalloc_min, s->kaslr.vmalloc_max);
+      first = 0;
+    }
+    if (s->kaslr.vmemmap_min || s->kaslr.vmemmap_max) {
+      printf("%s      \"vmemmap_base\": { \"min\": \"0x%016lx\","
+             " \"max\": \"0x%016lx\" }",
+             first ? "" : ",\n", s->kaslr.vmemmap_min, s->kaslr.vmemmap_max);
+    }
+    printf("\n    }");
   }
 
   printf("\n  },\n");

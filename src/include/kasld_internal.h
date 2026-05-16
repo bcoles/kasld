@@ -168,6 +168,16 @@ struct kaslr_info {
   unsigned long pslots;
   int pbits;
   int has_phys;
+  /* Memory KASLR (x86_64 with CONFIG_RANDOMIZE_MEMORY only). Bounds on
+   * the three independently-randomised memory regions, computed by
+   * x86_64_vmalloc_base_bound.c and x86_64_vmemmap_base_bound.c via the
+   * structural placement chain. Zero when no bound was inferred. */
+  unsigned long page_offset_min;
+  unsigned long page_offset_max;
+  unsigned long vmalloc_min;
+  unsigned long vmalloc_max;
+  unsigned long vmemmap_min;
+  unsigned long vmemmap_max;
 };
 
 /* Cross-section derived address */

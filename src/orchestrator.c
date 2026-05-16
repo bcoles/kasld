@@ -1491,6 +1491,31 @@ void compute_kaslr_info(struct summary *s) {
     s->kaslr.pslots = 0;
     s->kaslr.pbits = 0;
   }
+
+  /* Memory KASLR bounds (x86_64 CONFIG_RANDOMIZE_MEMORY): copy the
+   * inference-narrowed bounds out of ctx into the summary so the renderer
+   * can display them without needing access to g_ctx. The compile-time
+   * PAGE_OFFSET / KERNEL_VAS_END defaults are the "no information"
+   * sentinels — leave the summary field zero if the bound hasn't been
+   * tightened beyond those defaults. Note we compare against the *static*
+   * arch constants, not against current `layout` values (the latter are
+   * tightened in lock-step with ctx via sync, so they'd always match). */
+  s->kaslr.page_offset_min =
+      (g_ctx.page_offset_min != (unsigned long)PAGE_OFFSET)
+          ? g_ctx.page_offset_min
+          : 0;
+  s->kaslr.page_offset_max =
+      (g_ctx.page_offset_max != (unsigned long)KERNEL_VAS_END)
+          ? g_ctx.page_offset_max
+          : 0;
+  s->kaslr.vmalloc_min =
+      (g_ctx.vmalloc_base_min != 0) ? g_ctx.vmalloc_base_min : 0;
+  s->kaslr.vmalloc_max =
+      (g_ctx.vmalloc_base_max != ULONG_MAX) ? g_ctx.vmalloc_base_max : 0;
+  s->kaslr.vmemmap_min =
+      (g_ctx.vmemmap_base_min != 0) ? g_ctx.vmemmap_base_min : 0;
+  s->kaslr.vmemmap_max =
+      (g_ctx.vmemmap_base_max != ULONG_MAX) ? g_ctx.vmemmap_base_max : 0;
 }
 
 /* -------------------------------------------------------------------------
@@ -1556,6 +1581,33 @@ void compute_derived_addrs(struct summary *s) {
     unsigned long vtext = group_consensus(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT);
     unsigned long pdram_lo, pdram_hi;
     group_range(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, &pdram_lo, &pdram_hi);
+
+    /* Physmap alias of kernel text:
+     *   phys_to_virt(ptext) = page_offset_base + (ptext − PHYS_OFFSET)
+     * On x86_64 and arm64 PHYS_OFFSET == 0 so this simplifies to
+     * page_offset_base + ptext; on riscv64 PHYS_OFFSET == 0x80000000 and
+     * the subtraction matters. This is the ret2dir target — the kernel
+     * text mapped through the direct-map region rather than the KASLR
+     * text window.
+     * Requires page_offset_base to be pinned (page_offset_min ==
+     * page_offset_max), which occurs when a direct leak or inference has
+     * eliminated all candidates. */
+    if (ptext && g_ctx.page_offset_min &&
+        g_ctx.page_offset_min == g_ctx.page_offset_max) {
+      /* Underflow guard via a non-constant: PHYS_OFFSET is 0 on
+       * x86_64/arm64 (where `ptext >= 0` always holds and the compiler
+       * warns it as a tautology). Indirecting through `phys_off` lets the
+       * guard stay sound on riscv64 (PHYS_OFFSET = 0x80000000) without
+       * tripping -Wtype-limits on x86_64. */
+      unsigned long phys_off = (unsigned long)PHYS_OFFSET;
+      if (ptext >= phys_off) {
+        add_derived(s, KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP,
+                    g_ctx.page_offset_min + (ptext - phys_off), 0,
+                    "Physmap alias of text",
+                    "page_offset_base + (P text − PHYS_OFFSET)");
+      }
+    }
+
     if (!vtext && (ptext || pdram_lo))
       s->decoupled_note = 1;
   }
@@ -1740,6 +1792,8 @@ struct bounds_snap {
   unsigned long text_min, text_max;
   unsigned long po_min, po_max;
   unsigned long phys_min, phys_max;
+  unsigned long vmalloc_min, vmalloc_max;
+  unsigned long vmemmap_min, vmemmap_max;
 };
 
 static void snap_bounds(struct bounds_snap *s) {
@@ -1749,6 +1803,10 @@ static void snap_bounds(struct bounds_snap *s) {
   s->po_max = g_ctx.page_offset_max;
   s->phys_min = g_ctx.phys_base_min;
   s->phys_max = g_ctx.phys_base_max;
+  s->vmalloc_min = g_ctx.vmalloc_base_min;
+  s->vmalloc_max = g_ctx.vmalloc_base_max;
+  s->vmemmap_min = g_ctx.vmemmap_base_min;
+  s->vmemmap_max = g_ctx.vmemmap_base_max;
 }
 
 /* Returns 1 if any bound differs from the snapshot, 0 if stable. */
@@ -1758,7 +1816,11 @@ static int bounds_changed(const struct bounds_snap *s) {
          g_ctx.page_offset_min != s->po_min ||
          g_ctx.page_offset_max != s->po_max ||
          g_ctx.phys_base_min != s->phys_min ||
-         g_ctx.phys_base_max != s->phys_max;
+         g_ctx.phys_base_max != s->phys_max ||
+         g_ctx.vmalloc_base_min != s->vmalloc_min ||
+         g_ctx.vmalloc_base_max != s->vmalloc_max ||
+         g_ctx.vmemmap_base_min != s->vmemmap_min ||
+         g_ctx.vmemmap_base_max != s->vmemmap_max;
 }
 
 /* State on_exit actions --------------------------------------------------- */
@@ -2063,6 +2125,10 @@ int main(int argc, char *argv[]) {
   g_ctx.page_offset_max = layout.kernel_vas_end;
   g_ctx.phys_base_min = layout.phys_kaslr_base_min;
   g_ctx.phys_base_max = layout.phys_kaslr_base_max;
+  g_ctx.vmalloc_base_min = 0;
+  g_ctx.vmalloc_base_max = ULONG_MAX;
+  g_ctx.vmemmap_base_min = 0;
+  g_ctx.vmemmap_base_max = ULONG_MAX;
   g_ctx.arch = &g_arch_params;
   g_ctx.layout = &layout;
 

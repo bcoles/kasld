@@ -71,6 +71,24 @@ struct kasld_analysis_ctx {
   /* Physical KASLR bounds (PHYS_VIRT_DECOUPLED arches only; zero otherwise). */
   unsigned long phys_base_min;
   unsigned long phys_base_max;
+  /* vmalloc region bounds (x86_64 with CONFIG_RANDOMIZE_MEMORY only).
+   * vmalloc_base_min: architectural lower bound derived from
+   *   page_offset_base + directmap_size_tb * 1TiB + PUD_SIZE.
+   * Initialised to 0 / ULONG_MAX. Only tightened by
+   * x86_64_vmalloc_base_bound.c when page_offset_base is known. */
+  unsigned long vmalloc_base_min;
+  unsigned long vmalloc_base_max;
+  /* vmemmap region bounds (x86_64 with CONFIG_RANDOMIZE_MEMORY only).
+   * vmemmap_base_min: derived from vmalloc_base_min + VMALLOC_SIZE_TB +
+   *   PUD_SIZE inter-region gap.
+   * vmemmap_base_max: derived from CPU_ENTRY_AREA_BASE − vmemmap_size.
+   * Initialised to 0 / ULONG_MAX. Only tightened by
+   * x86_64_vmemmap_base_bound.c. Per-PFN pinning via leaked struct page
+   * VAs is not feasible on modern kernels (%p hashing since v4.15
+   * closed the dump_page() source); see
+   * dev/research/phys-to-virt-bridges.md §B. */
+  unsigned long vmemmap_base_min;
+  unsigned long vmemmap_base_max;
   const struct kasld_arch_params *arch;
   /* Writable layout pointer — set by LAYOUT_ADJUST plugins only.
    * POST_COLLECTION and POST_PROBING plugins treat this as read-only. */
