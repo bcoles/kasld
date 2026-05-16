@@ -183,7 +183,8 @@ unsigned long get_kernel_addr_sidt(void) {
   }
 
   if (is_cpu_entry_area(base)) {
-    printf("[-] IDT is in the CPU entry area (KPTI active) — no leak\n");
+    printf("[-] IDT is in the CPU entry area (CONFIG_PAGE_TABLE_ISOLATION=y) — "
+           "no leak\n");
     return 0;
   }
 
