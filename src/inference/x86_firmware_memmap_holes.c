@@ -43,6 +43,7 @@
 #include "../include/kasld_inference.h"
 
 #include <dirent.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -172,9 +173,12 @@ static void x86_firmware_memmap_holes_run(struct kasld_analysis_ctx *ctx) {
   if (n <= 0)
     return; /* /sys/firmware/memmap absent or empty */
 
-  if (verbose && !quiet)
+  static bool printed = false;
+  if (verbose && !quiet && !printed) {
+    printed = true;
     fprintf(stdout,
             "[infer] x86_firmware_memmap_holes: %d System RAM intervals\n", n);
+  }
 
   int invalidated = 0;
   for (int i = 0; i < num_results; i++) {

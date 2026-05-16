@@ -50,6 +50,7 @@
 #include "../include/kasld_inference.h"
 
 #include <fcntl.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <unistd.h>
@@ -113,11 +114,14 @@ static void boot_params_align_run(struct kasld_analysis_ctx *ctx) {
     return;
   }
 
-  if (verbose && !quiet)
+  static bool printed = false;
+  if (verbose && !quiet && !printed) {
+    printed = true;
     fprintf(stdout,
             "[infer] boot_params_align: kernel_alignment=%#lx"
             " init_size=%#x\n",
             kernel_alignment, raw_init_size);
+  }
 
   /* Propagate the actual slot granularity to the layout so the analysis
    * summary reports the correct slot count. Only increase (coarser alignment

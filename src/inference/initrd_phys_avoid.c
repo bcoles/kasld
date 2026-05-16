@@ -53,6 +53,7 @@
 #include "../include/kasld_inference.h"
 
 #include <fcntl.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -190,11 +191,14 @@ static void initrd_phys_avoid_run(struct kasld_analysis_ctx *ctx) {
   if (initrd_end <= initrd_start || (initrd_end - initrd_start) > (1ul << 50))
     return;
 
-  if (verbose && !quiet)
+  static bool printed = false;
+  if (verbose && !quiet && !printed) {
+    printed = true;
     fprintf(stdout,
             "[infer] initrd_phys_avoid: forbidden interval [%#lx, %#lx)"
             " from %s\n",
             initrd_start, initrd_end, src);
+  }
 
   int invalidated = 0;
   for (int i = 0; i < num_results; i++) {
