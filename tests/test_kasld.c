@@ -2344,6 +2344,109 @@ static void test_randomize_memory_non_ram_base_witness_noop(void) {
   assert(g_ctx.page_offset_max == po_max);
 }
 
+/* === Same-(origin, region, name) pair path ===
+ *
+ * Isolation note: phys_virt_synth.c also pairs same-origin VIRT/DIRECTMAP
+ * with PHYS/DRAM (regardless of region/name) using a 2-MiB alignment
+ * check. To isolate the *new* path in randomize_memory_page_offset.c,
+ * these tests use PHYS/TEXT — a section phys_virt_synth explicitly
+ * ignores. That guarantees any observed pin came from the path under
+ * test. */
+
+/* Successful same-origin pair → bilateral pin. Demonstrates that PHYS in
+ * any section is accepted when the (origin, region, name) triple matches
+ * a VIRT/DIRECTMAP result. */
+static void test_randomize_memory_same_origin_pair_pins(void) {
+  reset_state();
+  /* No ram_base witness — cross-origin fallback would not fire. */
+  unsigned long phys = 0x119446000ul;
+  unsigned long expected = PAGE_OFFSET + PUD_SIZE_TEST;
+  unsigned long virt = expected + phys;
+  inject_result_with_origin(KASLD_ADDR_PHYS, KASLD_SECTION_TEXT, phys,
+                            "kernel_text:_text", "comp_x");
+  inject_result_with_origin(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
+                            "kernel_text:_text", "comp_x");
+  init_inference_ctx();
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+  assert(g_ctx.page_offset_min == expected);
+  assert(g_ctx.page_offset_max == expected);
+}
+
+/* Same origin but mismatching region → no same-origin pin from this
+ * plugin's path 1. No RAM_BASE witness → no cross-origin fallback either.
+ * Net effect: no change. */
+static void test_randomize_memory_same_origin_region_mismatch_noop(void) {
+  reset_state();
+  unsigned long phys = 0x119446000ul;
+  unsigned long virt = PAGE_OFFSET + PUD_SIZE_TEST + phys;
+  inject_result_with_origin(KASLD_ADDR_PHYS, KASLD_SECTION_TEXT, phys,
+                            "kernel_text:_text", "comp_x");
+  /* Same origin and name, DIFFERENT region. */
+  inject_result_with_origin(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
+                            "kernel_image:_text", "comp_x");
+  init_inference_ctx();
+  unsigned long po_min = g_ctx.page_offset_min;
+  unsigned long po_max = g_ctx.page_offset_max;
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+  assert(g_ctx.page_offset_min == po_min);
+  assert(g_ctx.page_offset_max == po_max);
+}
+
+/* Same origin and region but mismatching name → no pin. */
+static void test_randomize_memory_same_origin_name_mismatch_noop(void) {
+  reset_state();
+  unsigned long phys = 0x119446000ul;
+  unsigned long virt = PAGE_OFFSET + PUD_SIZE_TEST + phys;
+  inject_result_with_origin(KASLD_ADDR_PHYS, KASLD_SECTION_TEXT, phys,
+                            "kernel_text:_text", "comp_x");
+  inject_result_with_origin(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
+                            "kernel_text:_stext", "comp_x");
+  init_inference_ctx();
+  unsigned long po_min = g_ctx.page_offset_min;
+  unsigned long po_max = g_ctx.page_offset_max;
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+  assert(g_ctx.page_offset_min == po_min);
+  assert(g_ctx.page_offset_max == po_max);
+}
+
+/* Same-origin matched pair with a non-1-GiB-aligned candidate → rejected
+ * by the alignment guard. */
+static void test_randomize_memory_same_origin_misaligned_noop(void) {
+  reset_state();
+  unsigned long phys = 0x119446000ul;
+  /* Pad virt by 1 MiB so candidate is 2-MiB-aligned but not 1-GiB-aligned. */
+  unsigned long virt = PAGE_OFFSET + PUD_SIZE_TEST + (1 * MB) + phys;
+  inject_result_with_origin(KASLD_ADDR_PHYS, KASLD_SECTION_TEXT, phys,
+                            "kernel_text:_text", "comp_x");
+  inject_result_with_origin(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
+                            "kernel_text:_text", "comp_x");
+  init_inference_ctx();
+  unsigned long po_min = g_ctx.page_offset_min;
+  unsigned long po_max = g_ctx.page_offset_max;
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+  assert(g_ctx.page_offset_min == po_min);
+  assert(g_ctx.page_offset_max == po_max);
+}
+
+/* Cross-origin pair (different `origin` fields) → does NOT take path 1,
+ * even with matching (region, name). Without a RAM_BASE witness either,
+ * no pin. */
+static void test_randomize_memory_cross_origin_not_same_origin(void) {
+  reset_state();
+  unsigned long phys = 0x119446000ul;
+  unsigned long virt = PAGE_OFFSET + PUD_SIZE_TEST + phys;
+  inject_result_with_origin(KASLD_ADDR_PHYS, KASLD_SECTION_TEXT, phys,
+                            "kernel_text:_text", "comp_a");
+  inject_result_with_origin(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
+                            "kernel_text:_text", "comp_b");
+  init_inference_ctx();
+  unsigned long po_min = g_ctx.page_offset_min;
+  unsigned long po_max = g_ctx.page_offset_max;
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+  assert(g_ctx.page_offset_min == po_min);
+  assert(g_ctx.page_offset_max == po_max);
+}
+
 /* =========================================================================
  * kernel_image_phys_bound (POST_COLLECTION)
  * Bounds phys_base from kernel-locating PHYS witnesses; BSS-resident
@@ -2830,6 +2933,11 @@ int main(void) {
   RUN_TEST(test_randomize_memory_pins_page_offset);
   RUN_TEST(test_randomize_memory_unaligned_candidate_noop);
   RUN_TEST(test_randomize_memory_non_ram_base_witness_noop);
+  RUN_TEST(test_randomize_memory_same_origin_pair_pins);
+  RUN_TEST(test_randomize_memory_same_origin_region_mismatch_noop);
+  RUN_TEST(test_randomize_memory_same_origin_name_mismatch_noop);
+  RUN_TEST(test_randomize_memory_same_origin_misaligned_noop);
+  RUN_TEST(test_randomize_memory_cross_origin_not_same_origin);
   printf("\n");
 
   printf("inference plugins (kernel_image_phys_bound):\n");

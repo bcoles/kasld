@@ -377,6 +377,36 @@ static void print_group(char type, const char *section,
   printf("\n");
 }
 
+/* Print one row of the Memory KASLR (CONFIG_RANDOMIZE_MEMORY) table.
+ * Each region (page_offset_base, vmalloc_base, vmemmap_base) carries a
+ * (min, max) pair that compute_kaslr_info stores using 0 as the "not
+ * tightened beyond the compile-time default" sentinel for either side.
+ * Four display cases:
+ *   both 0:        skip (nothing to show)
+ *   only min set:  ">= min"
+ *   only max set:  "<= max"
+ *   both set, ==:  "<value> (pinned)"
+ *   both set, !=:  "min - max" */
+static void render_memory_kaslr_bound(const char *name, unsigned long min,
+                                      unsigned long max) {
+  if (!min && !max)
+    return;
+  if (min && !max) {
+    printf("  %-20s >= 0x%016lx\n", name, min);
+    return;
+  }
+  if (!min && max) {
+    printf("  %-20s <= 0x%016lx\n", name, max);
+    return;
+  }
+  if (min == max) {
+    printf("  %-20s %s0x%016lx%s (pinned)\n", name, c(C_GREEN), min,
+           c(C_RESET));
+    return;
+  }
+  printf("  %-20s 0x%016lx - 0x%016lx\n", name, min, max);
+}
+
 /* -------------------------------------------------------------------------
  * KASLR analysis text renderer (consumes pre-computed summary)
  * -------------------------------------------------------------------------
@@ -476,31 +506,15 @@ static void render_kaslr_text(const struct summary *s) {
    * page_offset_min to derive vmalloc and vmemmap bounds via the fixed
    * inter-region ordering. */
   if (s->kaslr.page_offset_min || s->kaslr.vmalloc_min ||
-      s->kaslr.vmemmap_min) {
+      s->kaslr.vmemmap_min || s->kaslr.page_offset_max ||
+      s->kaslr.vmalloc_max || s->kaslr.vmemmap_max) {
     printf("Memory KASLR (directmap / vmalloc / vmemmap):\n");
-    if (s->kaslr.page_offset_min || s->kaslr.page_offset_max) {
-      if (s->kaslr.page_offset_min == s->kaslr.page_offset_max &&
-          s->kaslr.page_offset_min != 0)
-        printf("  page_offset_base:    %s0x%016lx%s (pinned)\n", c(C_GREEN),
-               s->kaslr.page_offset_min, c(C_RESET));
-      else
-        printf("  page_offset_base:    0x%016lx - 0x%016lx\n",
-               s->kaslr.page_offset_min, s->kaslr.page_offset_max);
-    }
-    if (s->kaslr.vmalloc_min || s->kaslr.vmalloc_max) {
-      if (s->kaslr.vmalloc_max == 0)
-        printf("  vmalloc_base:        >= 0x%016lx\n", s->kaslr.vmalloc_min);
-      else
-        printf("  vmalloc_base:        0x%016lx - 0x%016lx\n",
-               s->kaslr.vmalloc_min, s->kaslr.vmalloc_max);
-    }
-    if (s->kaslr.vmemmap_min || s->kaslr.vmemmap_max) {
-      if (s->kaslr.vmemmap_max == 0)
-        printf("  vmemmap_base:        >= 0x%016lx\n", s->kaslr.vmemmap_min);
-      else
-        printf("  vmemmap_base:        0x%016lx - 0x%016lx\n",
-               s->kaslr.vmemmap_min, s->kaslr.vmemmap_max);
-    }
+    render_memory_kaslr_bound("page_offset_base", s->kaslr.page_offset_min,
+                              s->kaslr.page_offset_max);
+    render_memory_kaslr_bound("vmalloc_base", s->kaslr.vmalloc_min,
+                              s->kaslr.vmalloc_max);
+    render_memory_kaslr_bound("vmemmap_base", s->kaslr.vmemmap_min,
+                              s->kaslr.vmemmap_max);
     printf("\n");
   }
 }
@@ -1696,28 +1710,38 @@ static void render_json(const struct summary *s) {
   /* Memory KASLR (CONFIG_RANDOMIZE_MEMORY) — directmap / vmalloc / vmemmap
    * base bounds derived from the structural placement chain. Emitted only
    * when at least one region has been narrowed from its compile-time
-   * default. */
-  if (s->kaslr.page_offset_min || s->kaslr.vmalloc_min ||
-      s->kaslr.vmemmap_min) {
+   * default. Untightened sides emit JSON `null` so consumers can
+   * distinguish "no bound" from "bound that happens to be zero". */
+  if (s->kaslr.page_offset_min || s->kaslr.page_offset_max ||
+      s->kaslr.vmalloc_min || s->kaslr.vmalloc_max || s->kaslr.vmemmap_min ||
+      s->kaslr.vmemmap_max) {
     printf(",\n    \"memory_kaslr\": {\n");
     int first = 1;
-    if (s->kaslr.page_offset_min || s->kaslr.page_offset_max) {
-      printf("%s      \"page_offset_base\": { \"min\": \"0x%016lx\","
-             " \"max\": \"0x%016lx\" }",
-             first ? "" : ",\n", s->kaslr.page_offset_min,
-             s->kaslr.page_offset_max);
+    struct {
+      const char *name;
+      unsigned long min, max;
+    } regions[] = {
+        {"page_offset_base", s->kaslr.page_offset_min,
+         s->kaslr.page_offset_max},
+        {"vmalloc_base", s->kaslr.vmalloc_min, s->kaslr.vmalloc_max},
+        {"vmemmap_base", s->kaslr.vmemmap_min, s->kaslr.vmemmap_max},
+    };
+    for (size_t i = 0; i < sizeof(regions) / sizeof(regions[0]); i++) {
+      if (!regions[i].min && !regions[i].max)
+        continue;
+      printf("%s      \"%s\": { \"min\": ", first ? "" : ",\n",
+             regions[i].name);
+      if (regions[i].min)
+        printf("\"0x%016lx\"", regions[i].min);
+      else
+        printf("null");
+      printf(", \"max\": ");
+      if (regions[i].max)
+        printf("\"0x%016lx\"", regions[i].max);
+      else
+        printf("null");
+      printf(" }");
       first = 0;
-    }
-    if (s->kaslr.vmalloc_min || s->kaslr.vmalloc_max) {
-      printf("%s      \"vmalloc_base\": { \"min\": \"0x%016lx\","
-             " \"max\": \"0x%016lx\" }",
-             first ? "" : ",\n", s->kaslr.vmalloc_min, s->kaslr.vmalloc_max);
-      first = 0;
-    }
-    if (s->kaslr.vmemmap_min || s->kaslr.vmemmap_max) {
-      printf("%s      \"vmemmap_base\": { \"min\": \"0x%016lx\","
-             " \"max\": \"0x%016lx\" }",
-             first ? "" : ",\n", s->kaslr.vmemmap_min, s->kaslr.vmemmap_max);
     }
     printf("\n    }");
   }
