@@ -58,8 +58,11 @@
 KASLD_EXPLAIN(
     "Parses EFI memory map entries from dmesg (requires efi=debug boot "
     "parameter). Each entry lists a physical address range and its type "
-    "(conventional memory, MMIO, runtime services, etc.). Extracts "
-    "physical DRAM and MMIO ranges. Access is gated by dmesg_restrict.");
+    "(conventional memory, MMIO, runtime services, loader code, etc.). "
+    "Extracts physical DRAM and MMIO ranges. EFI_LOADER_CODE entries are "
+    "additionally tagged as kernel_image candidates (the running kernel's "
+    "PE image is loaded as EFI_LOADER_CODE on EFI stub boots). Access is "
+    "gated by dmesg_restrict.");
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"
@@ -71,6 +74,7 @@ KASLD_META("method:parsed\n"
 struct efi_ctx {
   struct range_ctx dram;
   struct range_ctx mmio;
+  struct range_ctx loader; /* EFI_LOADER_CODE (type 1): kernel + bootloader */
 };
 
 static void update_range(struct range_ctx *r, unsigned long start,
@@ -92,6 +96,19 @@ static int is_efi_mmio(const char *line) {
   return (strncmp(p, "MMIO", 4) == 0);
 }
 
+/* Detect EFI_LOADER_CODE (type 1) entries: "[Loader Code..."
+ * These are physical ranges where EFI loaded PE/COFF images (the kernel
+ * stub, the bootloader, or other EFI applications). On a direct EFI stub
+ * boot the running kernel's PE image is one of these entries; additional
+ * entries belong to the bootloader or firmware drivers. All are DRAM. */
+static int is_efi_loader_code(const char *line) {
+  const char *p = strchr(line, '[');
+  if (!p)
+    return 0;
+  p++;
+  return (strncmp(p, "Loader Code", 11) == 0);
+}
+
 /* ARM/ARM64/RISC-V format: "  0x000000000000-0x00000009ffff [..." */
 static int on_efi_init(const char *line, void *ctx) {
   struct efi_ctx *e = ctx;
@@ -109,7 +126,13 @@ static int on_efi_init(const char *line, void *ctx) {
   if (!end)
     return 1;
 
-  update_range(is_efi_mmio(line) ? &e->mmio : &e->dram, start, end);
+  if (is_efi_mmio(line))
+    update_range(&e->mmio, start, end);
+  else {
+    update_range(&e->dram, start, end);
+    if (is_efi_loader_code(line))
+      update_range(&e->loader, start, end);
+  }
   return 1; /* continue — multiple entries */
 }
 
@@ -131,12 +154,18 @@ static int on_efi_x86(const char *line, void *ctx) {
   if (!end)
     return 1;
 
-  update_range(is_efi_mmio(line) ? &e->mmio : &e->dram, start, end);
+  if (is_efi_mmio(line))
+    update_range(&e->mmio, start, end);
+  else {
+    update_range(&e->dram, start, end);
+    if (is_efi_loader_code(line))
+      update_range(&e->loader, start, end);
+  }
   return 1; /* continue — multiple entries */
 }
 
 int main(void) {
-  struct efi_ctx e = {{0, 0}, {0, 0}};
+  struct efi_ctx e = {{0, 0}, {0, 0}, {0, 0}};
 
   printf("[.] searching dmesg for EFI memory map (requires efi=debug) ...\n");
 
@@ -181,6 +210,22 @@ int main(void) {
     if (e.mmio.hi && e.mmio.hi != e.mmio.lo)
       kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_MMIO, e.mmio.hi,
                    KASLD_REGION_MMIO, NULL);
+  }
+
+  if (e.loader.lo) {
+    /* EFI_LOADER_CODE entries contain the kernel PE image (on direct EFI
+     * stub boot) and any bootloader images still live at ExitBootServices().
+     * Emit the bounds as KERNEL_IMAGE witnesses — the inference layer can
+     * use PMD alignment and expected image size to filter false positives. */
+    printf("lowest EFI Loader Code address:  0x%016lx\n", e.loader.lo);
+    kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, e.loader.lo,
+                 KASLD_REGION_KERNEL_IMAGE, NULL);
+
+    if (e.loader.hi && e.loader.hi != e.loader.lo) {
+      printf("highest EFI Loader Code address: 0x%016lx\n", e.loader.hi);
+      kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, e.loader.hi,
+                   KASLD_REGION_KERNEL_IMAGE, NULL);
+    }
   }
 
 #if !PHYS_VIRT_DECOUPLED
