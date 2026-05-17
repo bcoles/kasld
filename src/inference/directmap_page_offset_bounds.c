@@ -18,7 +18,7 @@
 //     → page_offset_max = min(page_offset_max, V_min)
 //
 //   Lower bound: PAGE_OFFSET > V_min - phys_span
-//     → page_offset_min = max(page_offset_min, V_min - phys_span)
+//     → page_offset_min = max(page_offset_min, V_min - phys_span + 1)
 //
 // The upper bound is always sound: any single directmap leak pins PAGE_OFFSET
 // to within phys_span below the leaked address. When V_min happens to map
@@ -167,7 +167,10 @@ static void directmap_page_offset_bounds_run(struct kasld_analysis_ctx *ctx) {
   if (vdmap_min < phys_span)
     return;
 
-  unsigned long lower = vdmap_min - phys_span;
+  /* PAGE_OFFSET > V_min − phys_span (strict), so the integer minimum is
+   * V_min − phys_span + 1. The +1 is practically irrelevant (PAGE_OFFSET
+   * is page-aligned) but keeps the bound mathematically precise. */
+  unsigned long lower = vdmap_min - phys_span + 1;
 
   if (lower > ctx->page_offset_min && lower < ctx->page_offset_max) {
     if (verbose && !quiet)
