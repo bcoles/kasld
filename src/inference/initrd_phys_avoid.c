@@ -53,6 +53,7 @@
 #include "../include/kasld_inference.h"
 
 #include <fcntl.h>
+#include <limits.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -115,14 +116,17 @@ static int read_initrd_x86(unsigned long *start, unsigned long *end) {
     return -1;
   (void)read_u32_at(BOOT_PARAMS_PATH, OFF_EXT_RAMDISK_SIZE, &hi_sz);
 
-  unsigned long phys = ((unsigned long)hi_img << 32) | (unsigned long)lo_img;
-  unsigned long size = ((unsigned long)hi_sz << 32) | (unsigned long)lo_sz;
+  /* Use uint64_t to avoid UB from shifting into/beyond the width of
+   * unsigned long on 32-bit hosts (where hi_img/hi_sz are always 0). */
+  uint64_t phys = ((uint64_t)hi_img << 32) | (uint64_t)lo_img;
+  uint64_t size = ((uint64_t)hi_sz << 32) | (uint64_t)lo_sz;
 
-  if (phys == 0 || size == 0)
+  if (phys == 0 || size == 0 || phys > (uint64_t)ULONG_MAX ||
+      phys + size > (uint64_t)ULONG_MAX)
     return -1;
 
-  *start = phys;
-  *end = phys + size;
+  *start = (unsigned long)phys;
+  *end = (unsigned long)(phys + size);
   return 0;
 #else
   (void)start;
@@ -187,8 +191,10 @@ static void initrd_phys_avoid_run(struct kasld_analysis_ctx *ctx) {
     return; /* no initrd information available */
 
   /* Sanity: end must strictly exceed start, and the interval must fit in
-   * a plausible physical address space (< 1 PiB). */
-  if (initrd_end <= initrd_start || (initrd_end - initrd_start) > (1ul << 50))
+   * a plausible physical address space (< 1 PiB). Use 1ull to avoid UB
+   * from shifting beyond the width of unsigned long on 32-bit hosts. */
+  if (initrd_end <= initrd_start ||
+      (uint64_t)(initrd_end - initrd_start) > (1ull << 50))
     return;
 
   static bool printed = false;
