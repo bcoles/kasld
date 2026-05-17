@@ -30,11 +30,11 @@
 // POST_COLLECTION inference loop converges them.
 //
 // Note on the SV39 window: PAGE_OFFSET_L3 changed between kernel v6.10
-// (0xffffffd800000000) and v6.12 (0xffffffd600000000) when the SV39 linear
-// mapping was expanded from 160 GiB to 168 GiB. Without a kernel version
-// check we narrow to the range containing both values. The range is tight
-// enough to be useful: from the compile-time default [0xff60000000000000, max]
-// down to a 512 MiB window.
+// (0xffffffd800000000, the _HI value) and v6.12 (0xffffffd600000000, the _LO
+// value) when the SV39 linear mapping was expanded from 160 GiB to 168 GiB.
+// Without a kernel version check we narrow to the range [_LO, _HI] containing
+// both values. The range is tight enough to be useful: from the compile-time
+// default [0xff60000000000000, max] down to a 512 MiB window.
 //
 // Phase: PRE_COLLECTION — runs before any component, establishes SATP mode
 // context for downstream inference.
@@ -57,8 +57,10 @@ static void riscv64_va_bits_mmap_run(struct kasld_analysis_ctx *ctx) {
   0xff60000000000000ul /* SV57, compile-time default */
 #define RISCV_PAGE_OFFSET_SV48 0xffffaf8000000000ul /* SV48 */
 /* SV39 has two known values depending on kernel version (see header comment) */
-#define RISCV_PAGE_OFFSET_SV39_NEW 0xffffffd600000000ul /* v6.12+ */
-#define RISCV_PAGE_OFFSET_SV39_OLD 0xffffffd800000000ul /* pre-v6.12 */
+/* SV39 PAGE_OFFSET changed in v6.12 (expanded linear map: 160 GiB → 168 GiB).
+ * _LO is numerically smaller (v6.12+); _HI is larger (pre-v6.12). */
+#define RISCV_PAGE_OFFSET_SV39_LO 0xffffffd600000000ul /* v6.12+ */
+#define RISCV_PAGE_OFFSET_SV39_HI 0xffffffd800000000ul /* pre-v6.12 */
 
 /* TASK_SIZE = 1UL << (VA_BITS - 1) for each mode */
 #define RISCV_TASK_SIZE_SV39 ((void *)(1UL << 38))
@@ -73,10 +75,10 @@ static void riscv64_va_bits_mmap_run(struct kasld_analysis_ctx *ctx) {
     if (errno != ENOMEM)
       return; /* unexpected error — skip */
 
-    /* SV39: PAGE_OFFSET ∈ [RISCV_PAGE_OFFSET_SV39_NEW,
-     * RISCV_PAGE_OFFSET_SV39_OLD]. */
-    unsigned long new_min = RISCV_PAGE_OFFSET_SV39_NEW;
-    unsigned long new_max = RISCV_PAGE_OFFSET_SV39_OLD;
+    /* SV39: PAGE_OFFSET ∈ [RISCV_PAGE_OFFSET_SV39_LO,
+     * RISCV_PAGE_OFFSET_SV39_HI]. */
+    unsigned long new_min = RISCV_PAGE_OFFSET_SV39_LO;
+    unsigned long new_max = RISCV_PAGE_OFFSET_SV39_HI;
 
     if (new_min > ctx->page_offset_min && new_min <= ctx->page_offset_max) {
       if (verbose && !quiet)
