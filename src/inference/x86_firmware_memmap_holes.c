@@ -121,11 +121,15 @@ static int load_ram_intervals(struct ram_interval *intervals, int max) {
       continue;
     char *endp;
     unsigned long start = strtoul(buf, &endp, 16);
+    if (endp == buf)
+      continue; /* conversion failed: no valid hex digits */
 
     snprintf(path, sizeof(path), "%s/%s/end", MEMMAP_BASE, ent->d_name);
     if (read_first_line(path, buf, sizeof(buf)) != 0)
       continue;
     unsigned long inclusive_end = strtoul(buf, &endp, 16);
+    if (endp == buf)
+      continue; /* conversion failed */
 
     if (inclusive_end < start)
       continue;
