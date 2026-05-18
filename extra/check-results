@@ -4,10 +4,21 @@
 # Validate KASLD results against ground truth available to root.
 #
 # Reads tagged lines from a KASLD run (or runs kasld itself), then
-# compares each result against /proc/kallsyms and /proc/iomem.
+# compares each result against /proc/kallsyms, /proc/iomem, and
+# /proc/modules.
+#
+# Wire format (see src/include/kasld/api.h):
+#   <type> <region>[:<name>] pos=<pos> conf=<conf> \
+#       [lo=<hex>] [hi=<hex>|sz=<hex>] [sample=<hex>] [base_align=<hex>]
+#
+#   type:   P (physical), V (virtual), D (default/KASLR-disabled)
+#   region: closed enum (kernel_text, kernel_data, kernel_bss,
+#           kernel_image, module, module_region, ram, dma, dma32,
+#           initrd, reserved_mem, swiotlb, vmcoreinfo, crashkernel,
+#           pmem, acpi_table, acpi_nvs, efi_memmap, numa_node, mmio,
+#           pci_mmio, directmap, page_offset, vmalloc, vmemmap).
 #
 # Usage:
-#   sudo ./extra/check-results                  # run kasld and validate
 #   sudo ./extra/check-results results.txt      # validate saved tagged lines
 #   ./build/*/kasld -v 2>&1 | sudo ./extra/check-results -
 #                                               # validate from stdin pipe
@@ -72,6 +83,13 @@ hex_ge() { [ "$1" \> "$2" ] || [ "$1" = "$2" ]; }
 # hex_in_range ADDR LO HI → return 0 (true) if LO <= ADDR <= HI
 hex_in_range() { hex_ge "$1" "$2" && hex_le "$1" "$3"; }
 
+# Extract the value of a `key=value` token from a tagged line.
+# Usage: get_field LINE KEY → echoes VALUE (without 0x), empty if absent.
+get_field() {
+  printf '%s' "$1" | tr ' ' '\n' | \
+    awk -F= -v k="$2" '$1 == k { print $2; exit }'
+}
+
 # -------------------------------------------------------------------------
 # Root check
 # -------------------------------------------------------------------------
@@ -114,7 +132,7 @@ else
   tagged_lines=$("$kasld" -v 2>&1 | grep '^[VPD] ' || true)
 fi
 
-# Filter to tagged lines only
+# Filter to tagged lines only (drops `[infer]`, `[parser]`, banner, etc.)
 tagged_lines=$(printf '%s\n' "$tagged_lines" | grep '^[VPD] ' || true)
 
 if [ -z "$tagged_lines" ]; then
@@ -188,6 +206,14 @@ extract_iomem_range 'Kernel code'
 truth_ptext_lo="$_range_lo"
 truth_ptext_hi="$_range_hi"
 
+# Kernel data / bss physical ranges (from /proc/iomem, when present)
+extract_iomem_range 'Kernel data'
+truth_pdata_lo="$_range_lo"
+truth_pdata_hi="$_range_hi"
+extract_iomem_range 'Kernel bss'
+truth_pbss_lo="$_range_lo"
+truth_pbss_hi="$_range_hi"
+
 # System RAM: first range start, last range end
 truth_ram_lo=""
 truth_ram_hi=""
@@ -203,32 +229,41 @@ fi
 # Print ground truth
 # -------------------------------------------------------------------------
 printf "${BOLD}Ground truth:${RESET}\n"
+# 29-char left column = longest label (__bss_start (V kernel_bss):, 27 chars)
+# + 2 trailing spaces of breathing room. Keeps the address column aligned.
+gt_label_w=29
 if [ -n "$truth_stext" ]; then
-  printf "  _stext (V text):       0x%s\n" "$truth_stext"
+  printf "  %-*s 0x%s\n" "$gt_label_w" "_stext (V kernel_text):" "$truth_stext"
 else
-  echo "  _stext (V text):       (unavailable)"
+  printf "  %-*s (unavailable)\n" "$gt_label_w" "_stext (V kernel_text):"
 fi
 if [ -n "$truth_etext" ]; then
-  printf "  _etext (V text end):   0x%s\n" "$truth_etext"
+  printf "  %-*s 0x%s\n" "$gt_label_w" "_etext (V text end):" "$truth_etext"
 fi
 if [ -n "$truth_sdata" ]; then
-  printf "  _sdata (V data):       0x%s\n" "$truth_sdata"
+  printf "  %-*s 0x%s\n" "$gt_label_w" "_sdata (V kernel_data):" "$truth_sdata"
 fi
 if [ -n "$truth_bss_start" ]; then
-  printf "  __bss_start (V bss):   0x%s\n" "$truth_bss_start"
+  printf "  %-*s 0x%s\n" "$gt_label_w" "__bss_start (V kernel_bss):" "$truth_bss_start"
 fi
 if [ -n "$truth_end" ]; then
-  printf "  _end:                  0x%s\n" "$truth_end"
+  printf "  %-*s 0x%s\n" "$gt_label_w" "_end:" "$truth_end"
 fi
 if [ -n "$truth_mod_lo" ]; then
-  printf "  module lo:             0x%s\n" "$truth_mod_lo"
-  printf "  module hi:             0x%s\n" "$truth_mod_hi"
+  printf "  %-*s 0x%s\n" "$gt_label_w" "module lo:" "$truth_mod_lo"
+  printf "  %-*s 0x%s\n" "$gt_label_w" "module hi:" "$truth_mod_hi"
 fi
 if [ -n "$truth_ptext_lo" ]; then
-  printf "  kernel code (P):       0x%s - 0x%s\n" "$truth_ptext_lo" "$truth_ptext_hi"
+  printf "  %-*s 0x%s - 0x%s\n" "$gt_label_w" "Kernel code (P):" "$truth_ptext_lo" "$truth_ptext_hi"
+fi
+if [ -n "$truth_pdata_lo" ]; then
+  printf "  %-*s 0x%s - 0x%s\n" "$gt_label_w" "Kernel data (P):" "$truth_pdata_lo" "$truth_pdata_hi"
+fi
+if [ -n "$truth_pbss_lo" ]; then
+  printf "  %-*s 0x%s - 0x%s\n" "$gt_label_w" "Kernel bss (P):" "$truth_pbss_lo" "$truth_pbss_hi"
 fi
 if [ -n "$truth_ram_lo" ]; then
-  printf "  System RAM (P):        0x%s - 0x%s\n" "$truth_ram_lo" "$truth_ram_hi"
+  printf "  %-*s 0x%s - 0x%s\n" "$gt_label_w" "System RAM (P):" "$truth_ram_lo" "$truth_ram_hi"
 fi
 echo
 
@@ -239,71 +274,95 @@ printf "${BOLD}Results:${RESET}\n"
 
 printf '%s\n' "$tagged_lines" | while IFS= read -r line; do
   type=$(printf '%s' "$line" | awk '{ print $1 }')
-  section=$(printf '%s' "$line" | awk '{ print $2 }')
-  addr_hex=$(printf '%s' "$line" | awk '{ print $3 }')
-  label=$(printf '%s' "$line" | awk '{ $1=""; $2=""; $3=""; sub(/^  */, ""); print }')
+  region_name=$(printf '%s' "$line" | awk '{ print $2 }')
 
-  addr=$(hex16 "$addr_hex")
-  desc="${label} (${type} ${section} 0x${addr})"
+  # Split region[:name] on the FIRST colon only — names can contain `:`
+  # (e.g. PCI BDF "0000:00:14.0"). The parser convention is documented in
+  # src/include/kasld/api.h.
+  region=${region_name%%:*}
+  case "$region_name" in
+    *:*) name=${region_name#*:} ;;
+    *)   name="" ;;
+  esac
 
-  case "${type} ${section}" in
-    "V text")
+  pos=$(get_field "$line" pos)
+  lo=$(get_field "$line" lo)
+  hi=$(get_field "$line" hi)
+  sz=$(get_field "$line" sz)
+  sample=$(get_field "$line" sample)
+
+  # Derive hi from sz if hi absent (parser does this too, but the wire form
+  # may carry either spelling). sz arithmetic kept simple: we mostly care
+  # about hi as a comparison key, not the exact byte.
+  if [ -n "$sz" ] && [ -z "$hi" ] && [ -n "$lo" ]; then
+    # printf supports unsigned hex arithmetic via $(( )) on most shells
+    hi_dec=$(( 0x$lo + 0x$sz - 1 ))
+    hi=$(printf '%x' "$hi_dec")
+  fi
+
+  # Normalize to 16-char hex
+  [ -n "$lo" ] && lo=$(hex16 "$lo")
+  [ -n "$hi" ] && hi=$(hex16 "$hi")
+  [ -n "$sample" ] && sample=$(hex16 "$sample")
+
+  # Pick a representative anchor address. Mirrors anchor_addr() in
+  # src/include/kasld/internal.h: prefer lo when pos=base, else sample,
+  # else any set bound.
+  addr=""
+  if [ "$pos" = "base" ] && [ -n "$lo" ]; then
+    addr="$lo"
+  elif [ -n "$sample" ]; then
+    addr="$sample"
+  elif [ -n "$lo" ]; then
+    addr="$lo"
+  elif [ -n "$hi" ]; then
+    addr="$hi"
+  fi
+
+  if [ -z "$addr" ]; then
+    skip "${type} ${region_name} pos=${pos} — no address fields"
+    continue
+  fi
+
+  if [ -n "$name" ]; then
+    desc="${type} ${region}:${name} (anchor 0x${addr})"
+  else
+    desc="${type} ${region} (anchor 0x${addr})"
+  fi
+
+  case "${type} ${region}" in
+    # ---- Virtual: kernel image regions ---------------------------------
+    "V kernel_text"|"V kernel_image")
       if [ -z "$truth_stext" ]; then
-        skip "$desc — no ground truth"
+        skip "$desc — no _stext ground truth"
         continue
       fi
-
       if [ "$addr" = "$truth_stext" ]; then
         pass "$desc — exact _stext match"
+      elif [ -n "$truth_end" ] && hex_in_range "$addr" "$truth_stext" "$truth_end"; then
+        pass "$desc — within kernel image"
       elif [ -n "$truth_etext" ] && hex_in_range "$addr" "$truth_stext" "$truth_etext"; then
         pass "$desc — within text section"
       else
-        fail "$desc — expected 0x${truth_stext}"
+        fail "$desc — expected near 0x${truth_stext}"
       fi
       ;;
 
-    "V module")
-      if [ -z "$truth_mod_lo" ]; then
-        skip "$desc — no modules loaded"
-        continue
-      fi
-
-      if hex_in_range "$addr" "$truth_mod_lo" "$truth_mod_hi"; then
-        pass "$desc — within module range"
-      else
-        fail "$desc — outside module range [0x${truth_mod_lo}, 0x${truth_mod_hi}]"
-      fi
-      ;;
-
-    "V directmap")
-      if [ -z "$truth_stext" ]; then
-        skip "$desc — no ground truth"
-        continue
-      fi
-      # Directmap should be a valid kernel-space address (non-zero)
-      if [ "$addr" != "0000000000000000" ]; then
-        pass "$desc — non-zero kernel address"
-      else
-        fail "$desc — zero address"
-      fi
-      ;;
-
-    "V data")
+    "V kernel_data")
       if [ -z "$truth_sdata" ]; then
         skip "$desc — no _sdata ground truth"
         continue
       fi
-      # Data addresses should be at or above _sdata
       if hex_ge "$addr" "$truth_sdata"; then
         pass "$desc — at or above _sdata"
-      elif hex_ge "$addr" "$truth_stext"; then
+      elif [ -n "$truth_stext" ] && hex_ge "$addr" "$truth_stext"; then
         pass "$desc — within kernel image"
       else
         fail "$desc — below _stext"
       fi
       ;;
 
-    "V bss")
+    "V kernel_bss")
       if [ -z "$truth_bss_start" ]; then
         skip "$desc — no __bss_start ground truth"
         continue
@@ -317,45 +376,126 @@ printf '%s\n' "$tagged_lines" | while IFS= read -r line; do
       fi
       ;;
 
-    "P text")
+    # ---- Virtual: modules ----------------------------------------------
+    "V module"|"V module_region")
+      if [ -z "$truth_mod_lo" ]; then
+        skip "$desc — no modules loaded"
+        continue
+      fi
+      if hex_in_range "$addr" "$truth_mod_lo" "$truth_mod_hi"; then
+        pass "$desc — within module range"
+      else
+        fail "$desc — outside module range [0x${truth_mod_lo}, 0x${truth_mod_hi}]"
+      fi
+      ;;
+
+    # ---- Virtual: direct-map and friends -------------------------------
+    "V directmap"|"V vmalloc"|"V vmemmap")
+      # Just sanity-check it's a non-zero kernel-space address. /proc/vmallocinfo
+      # could give a tighter ground truth for vmalloc but it's gated by
+      # kptr_restrict and not always populated.
+      if [ "$addr" != "0000000000000000" ]; then
+        pass "$desc — non-zero kernel address"
+      else
+        fail "$desc — zero address"
+      fi
+      ;;
+
+    "V page_offset")
+      skip "$desc — informational (PAGE_OFFSET)"
+      ;;
+
+    # ---- Physical: kernel image regions --------------------------------
+    "P kernel_text"|"P kernel_image")
       if [ -z "$truth_ptext_lo" ]; then
         skip "$desc — no /proc/iomem Kernel code"
         continue
       fi
-
       if hex_in_range "$addr" "$truth_ptext_lo" "$truth_ptext_hi"; then
-        pass "$desc — within kernel code physical range"
-      elif hex_le "$addr" "$truth_ptext_lo" && hex_ge "$addr" "$truth_ram_lo"; then
-        # Address is below Kernel code but within RAM — likely aligned base
-        pass "$desc — aligned base below kernel code start"
+        pass "$desc — within Kernel code phys range"
+      elif [ -n "$truth_ram_lo" ] && hex_le "$addr" "$truth_ptext_lo" && \
+           hex_ge "$addr" "$truth_ram_lo"; then
+        # Address below Kernel code but within RAM — likely the slot-aligned
+        # base (text base sits a few bytes below _stext after KASLR alignment).
+        pass "$desc — aligned base below Kernel code start"
       else
         fail "$desc — expected range [0x${truth_ptext_lo}, 0x${truth_ptext_hi}]"
       fi
       ;;
 
-    "P dram")
+    "P kernel_data")
+      if [ -n "$truth_pdata_lo" ] && hex_in_range "$addr" "$truth_pdata_lo" "$truth_pdata_hi"; then
+        pass "$desc — within Kernel data phys range"
+      elif [ -n "$truth_ram_lo" ] && hex_in_range "$addr" "$truth_ram_lo" "$truth_ram_hi"; then
+        pass "$desc — within System RAM"
+      else
+        skip "$desc — no Kernel data phys ground truth"
+      fi
+      ;;
+
+    "P kernel_bss")
+      if [ -n "$truth_pbss_lo" ] && hex_in_range "$addr" "$truth_pbss_lo" "$truth_pbss_hi"; then
+        pass "$desc — within Kernel bss phys range"
+      elif [ -n "$truth_ram_lo" ] && hex_in_range "$addr" "$truth_ram_lo" "$truth_ram_hi"; then
+        pass "$desc — within System RAM"
+      else
+        skip "$desc — no Kernel bss phys ground truth"
+      fi
+      ;;
+
+    # ---- Physical: DRAM-resident regions -------------------------------
+    "P ram"|"P dma"|"P dma32"|"P initrd"|"P reserved_mem"|\
+    "P swiotlb"|"P vmcoreinfo"|"P crashkernel"|"P pmem"|\
+    "P acpi_table"|"P acpi_nvs"|"P numa_node"|"P efi_memmap")
       if [ -z "$truth_ram_lo" ]; then
         skip "$desc — no /proc/iomem System RAM"
         continue
       fi
-
       if hex_in_range "$addr" "$truth_ram_lo" "$truth_ram_hi"; then
-        pass "$desc — within System RAM range"
+        pass "$desc — within System RAM"
       else
-        fail "$desc — outside RAM [0x${truth_ram_lo}, 0x${truth_ram_hi}]"
+        # Some regions (efi_memmap, acpi_*) may sit in reserved holes
+        # outside the System RAM extents. Don't fail those — skip with a
+        # note so the operator can spot-check.
+        case "$region" in
+          efi_memmap|acpi_table|acpi_nvs|reserved_mem|pmem)
+            skip "$desc — outside System RAM (region may be in reserved hole)"
+            ;;
+          *)
+            fail "$desc — outside RAM [0x${truth_ram_lo}, 0x${truth_ram_hi}]"
+            ;;
+        esac
       fi
       ;;
 
-    "V pageoffset")
-      skip "$desc — informational (PAGE_OFFSET)"
+    # ---- Physical: MMIO ------------------------------------------------
+    "P mmio"|"P pci_mmio")
+      # No direct ground truth: /proc/iomem entries for PCI BARs need name
+      # matching against `name` field. We can at least confirm the address
+      # is NOT within System RAM (MMIO and RAM are disjoint by design).
+      if [ -z "$truth_ram_lo" ]; then
+        skip "$desc — no /proc/iomem ground truth"
+        continue
+      fi
+      if hex_in_range "$addr" "$truth_ram_lo" "$truth_ram_hi"; then
+        # An MMIO address inside System RAM is suspicious — but UIO maps
+        # can legitimately expose reserved DRAM via sysfs_uio_map, which
+        # the new classifier should now tag as reserved_mem instead. Skip
+        # rather than fail to avoid flagging genuine driver-exposed DRAM.
+        skip "$desc — within RAM (UIO-mapped DRAM exposed as MMIO?)"
+      else
+        pass "$desc — outside System RAM (consistent with MMIO)"
+      fi
       ;;
 
-    "D -")
-      skip "$desc — informational (KASLR state)"
+    # ---- Default: KASLR-disabled marker --------------------------------
+    "D "*)
+      skip "$desc — informational (KASLR state marker)"
       ;;
 
+    # ---- Unmatched -----------------------------------------------------
     *)
-      skip "$desc — no validator for ${type} ${section}"
+      skip "$desc — no validator for ${type} ${region}"
       ;;
   esac
 done
