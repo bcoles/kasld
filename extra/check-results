@@ -19,9 +19,11 @@
 #           pci_mmio, directmap, page_offset, vmalloc, vmemmap).
 #
 # Usage:
-#   sudo ./extra/check-results results.txt      # validate saved tagged lines
-#   ./build/*/kasld -v 2>&1 | sudo ./extra/check-results -
-#                                               # validate from stdin pipe
+#   validate saved tagged lines from file:
+#     sudo ./extra/check-results results.txt
+#   validate from stdin pipe:
+#     ./build/*/kasld -v 2>&1 | sudo ./extra/check-results
+#     ./build/*/components/proc-kallsyms 2>&1 | sudo ./extra/check-results -
 #
 # Requires: root (for unhashed /proc/kallsyms and /proc/iomem)
 # ---
@@ -33,11 +35,11 @@ set -e
 # Colors (disable if not a terminal)
 # -------------------------------------------------------------------------
 if [ -t 1 ]; then
-  GREEN='\033[0;32m'
-  RED='\033[0;31m'
-  YELLOW='\033[0;33m'
-  BOLD='\033[1m'
-  RESET='\033[0m'
+  GREEN=$(printf '\033[0;32m')
+  RED=$(printf '\033[0;31m')
+  YELLOW=$(printf '\033[0;33m')
+  BOLD=$(printf '\033[1m')
+  RESET=$(printf '\033[0m')
 else
   GREEN='' RED='' YELLOW='' BOLD='' RESET=''
 fi
@@ -48,7 +50,7 @@ printf '0 0 0\n' > "$tmp_counts"
 trap 'rm -f "$tmp_counts"' EXIT INT TERM
 
 update_counts() {
-  read p f s < "$tmp_counts"
+  read -r p f s < "$tmp_counts"
   case "$1" in
     pass) p=$((p + 1)) ;;
     fail) f=$((f + 1)) ;;
@@ -75,10 +77,10 @@ hex16() {
 }
 
 # hex_le A B  → return 0 (true) if A <= B
-hex_le() { [ "$1" \< "$2" ] || [ "$1" = "$2" ]; }
+hex_le() { awk -v a="$1" -v b="$2" 'BEGIN { exit !(a <= b) }'; }
 
 # hex_ge A B  → return 0 (true) if A >= B
-hex_ge() { [ "$1" \> "$2" ] || [ "$1" = "$2" ]; }
+hex_ge() { awk -v a="$1" -v b="$2" 'BEGIN { exit !(a >= b) }'; }
 
 # hex_in_range ADDR LO HI → return 0 (true) if LO <= ADDR <= HI
 hex_in_range() { hex_ge "$1" "$2" && hex_le "$1" "$3"; }
@@ -101,35 +103,16 @@ fi
 # -------------------------------------------------------------------------
 # Collect tagged lines
 # -------------------------------------------------------------------------
-if [ "$1" = "-" ]; then
-  # Read from stdin
+if [ "$1" = "-" ] || { [ -z "$1" ] && [ ! -t 0 ]; }; then
+  # Read from stdin (explicit '-' or piped input with no argument)
   tagged_lines=$(cat)
 elif [ -n "$1" ] && [ -f "$1" ]; then
   # Read from file
   tagged_lines=$(cat "$1")
 else
-  # Find and run kasld
-  script_dir=$(cd "$(dirname "$0")" && pwd)
-  kasld=""
-
-  # Look for kasld binary relative to this script (extra/ is beside build/)
-  for candidate in \
-    "$script_dir/../build"/*/kasld \
-    "$script_dir/../kasld" \
-    ; do
-    if [ -x "$candidate" ]; then
-      kasld="$candidate"
-      break
-    fi
-  done
-
-  if [ -z "$kasld" ]; then
-    echo "error: cannot find kasld binary; build first or pass results file" >&2
-    exit 1
-  fi
-
-  printf "${BOLD}Running kasld...${RESET}\n"
-  tagged_lines=$("$kasld" -v 2>&1 | grep '^[VPD] ' || true)
+  echo "usage: $0 [results.txt|-]" >&2
+  echo "       pipe kasld output: ./build/*/kasld -v 2>&1 | sudo $0" >&2
+  exit 1
 fi
 
 # Filter to tagged lines only (drops `[infer]`, `[parser]`, banner, etc.)
@@ -141,7 +124,7 @@ if [ -z "$tagged_lines" ]; then
 fi
 
 num_lines=$(printf '%s\n' "$tagged_lines" | wc -l)
-printf "${BOLD}Validating ${num_lines} tagged results...${RESET}\n"
+printf '%sValidating %d tagged results...%s\n' "$BOLD" "$num_lines" "$RESET"
 echo
 
 # -------------------------------------------------------------------------
@@ -228,7 +211,7 @@ fi
 # -------------------------------------------------------------------------
 # Print ground truth
 # -------------------------------------------------------------------------
-printf "${BOLD}Ground truth:${RESET}\n"
+printf '%sGround truth:%s\n' "$BOLD" "$RESET"
 # 29-char left column = longest label (__bss_start (V kernel_bss):, 27 chars)
 # + 2 trailing spaces of breathing room. Keeps the address column aligned.
 gt_label_w=29
@@ -270,7 +253,7 @@ echo
 # -------------------------------------------------------------------------
 # Validate each tagged line
 # -------------------------------------------------------------------------
-printf "${BOLD}Results:${RESET}\n"
+printf '%sResults:%s\n' "$BOLD" "$RESET"
 
 printf '%s\n' "$tagged_lines" | while IFS= read -r line; do
   type=$(printf '%s' "$line" | awk '{ print $1 }')
@@ -504,10 +487,10 @@ done
 # Summary
 # -------------------------------------------------------------------------
 echo
-read pass_count fail_count skip_count < "$tmp_counts"
+read -r pass_count fail_count skip_count < "$tmp_counts"
 total=$((pass_count + fail_count + skip_count))
-printf "${BOLD}Summary: %d passed, %d failed, %d skipped (of %d)${RESET}\n" \
-  "$pass_count" "$fail_count" "$skip_count" "$total"
+printf '%sSummary: %d passed, %d failed, %d skipped (of %d)%s\n' \
+  "$BOLD" "$pass_count" "$fail_count" "$skip_count" "$total" "$RESET"
 
 if [ "$fail_count" -gt 0 ]; then
   exit 1
