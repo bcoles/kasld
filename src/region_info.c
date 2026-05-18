@@ -1,9 +1,14 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
 // region_info[] — per-region wire name, render section, default alignment,
-// and VAS-bound resolver. Compiled per-arch (derive_vas entries reference
-// arch-conditional helpers).
+// and VAS-bound resolver. Generated from the KASLD_REGION_LIST X-macro in
+// kasld/api.h so the enum, wire table, and this descriptor table all stay
+// in sync from a single source row.
 //
+// Adding a region: edit the X-list in kasld/api.h. Don't add entries here.
+// Per-region VAS rules live in the VAS_*_STATIC / VAS_*_DERIVE pairs
+// below; if a region needs a brand-new VAS shape, add a new pair and a
+// matching `kind` token to its X-list row.
 // ---
 // <bcoles@gmail.com>
 
@@ -46,13 +51,57 @@ static void derive_vas_module_region_coupled(const struct kasld_layout *ly,
 #endif
 
 /* =========================================================================
- * The table
+ * VAS-kind dispatch
+ *
+ * One pair per kind: VAS_<kind>_STATIC is the static_vas initializer,
+ * VAS_<kind>_DERIVE is the derive_vas function pointer (NULL for regions
+ * with no runtime derivation). The X-list row's `kind` token selects
+ * which pair lands in the row's region_info entry via token-pasting.
  * ========================================================================= */
 
-#define WIRE(R) kasld_region_wire_table[R]
+/* K_OPEN: any address admitted. Used for all DRAM-resident regions,
+ * MMIO, and the kernel-image regions (which legitimately appear in both
+ * phys and virt contexts). */
+#define VAS_K_OPEN_STATIC {0, ULONG_MAX}
+#define VAS_K_OPEN_DERIVE NULL
+
+/* K_VIRT: virtual-only regions bounded by the architectural kernel VAS
+ * window (DIRECTMAP / VMALLOC / VMEMMAP). Sub-VAS phys leaks are
+ * rejected by result_in_bounds(). */
+#define VAS_K_VIRT_STATIC {KERNEL_VAS_START, KERNEL_VAS_END}
+#define VAS_K_VIRT_DERIVE NULL
+
+/* K_PAGEOFFSET: PAGE_OFFSET itself, validated against the compile-time
+ * KERNEL_VAS window to avoid the circular dependency with runtime
+ * inference. (Bare `PAGE_OFFSET` as the kind token would collide with
+ * the arch-header macro — see api.h note on the K_ prefix.) */
+#define VAS_K_PAGEOFFSET_STATIC {0, 0}
+#define VAS_K_PAGEOFFSET_DERIVE derive_vas_page_offset
+
+/* K_MODULE: on coupled arches the range tracks ly->modules_start/end
+ * (which shifts with PAGE_OFFSET); on decoupled arches the range is
+ * fixed. */
+#if !PHYS_VIRT_DECOUPLED
+#define VAS_K_MODULE_STATIC {0, 0}
+#define VAS_K_MODULE_DERIVE derive_vas_module_region_coupled
+#else
+#define VAS_K_MODULE_STATIC {MODULES_START, MODULES_END}
+#define VAS_K_MODULE_DERIVE NULL
+#endif
+
+/* Helpers: paste `kind` onto VAS_ and the suffix, then expand. The
+ * K_ prefix on every kind token keeps `kind` from being pre-expanded
+ * as an arch macro before the paste. */
+#define VAS_STATIC(kind) VAS_##kind##_STATIC
+#define VAS_DERIVE(kind) VAS_##kind##_DERIVE
+
+/* =========================================================================
+ * The table — generated from KASLD_REGION_LIST.
+ * ========================================================================= */
 
 const struct region_info region_info[REGION__COUNT] = {
-    /* REGION_UNKNOWN — result_in_bounds short-circuits before reading. */
+    /* REGION_UNKNOWN — sentinel; result_in_bounds() short-circuits before
+     * reading. Not in the X-list because it has no wire name and no VAS. */
     [REGION_UNKNOWN] =
         {
             .wire_name = "unknown",
@@ -62,232 +111,14 @@ const struct region_info region_info[REGION__COUNT] = {
             .derive_vas = NULL,
         },
 
-    /* ---- Physical landmarks --------------------------------------- */
-    [REGION_RAM] =
-        {
-            .wire_name = "ram",
-            .section_name = "dram",
-            .default_align = 0,
-            .static_vas = {0, ULONG_MAX},
-            .derive_vas = NULL,
-        },
-    [REGION_DMA] =
-        {
-            .wire_name = "dma",
-            .section_name = "dram",
-            .default_align = 0,
-            .static_vas = {0, ULONG_MAX},
-            .derive_vas = NULL,
-        },
-    [REGION_DMA32] =
-        {
-            .wire_name = "dma32",
-            .section_name = "dram",
-            .default_align = 0,
-            .static_vas = {0, ULONG_MAX},
-            .derive_vas = NULL,
-        },
-    [REGION_INITRD] =
-        {
-            .wire_name = "initrd",
-            .section_name = "dram",
-            .default_align = 0,
-            .static_vas = {0, ULONG_MAX},
-            .derive_vas = NULL,
-        },
-    [REGION_RESERVED_MEM] =
-        {
-            .wire_name = "reserved_mem",
-            .section_name = "dram",
-            .default_align = 0,
-            .static_vas = {0, ULONG_MAX},
-            .derive_vas = NULL,
-        },
-    [REGION_SWIOTLB] =
-        {
-            .wire_name = "swiotlb",
-            .section_name = "dram",
-            .default_align = 0,
-            .static_vas = {0, ULONG_MAX},
-            .derive_vas = NULL,
-        },
-    [REGION_VMCOREINFO] =
-        {
-            .wire_name = "vmcoreinfo",
-            .section_name = "dram",
-            .default_align = 0,
-            .static_vas = {0, ULONG_MAX},
-            .derive_vas = NULL,
-        },
-    [REGION_CRASHKERNEL] =
-        {
-            .wire_name = "crashkernel",
-            .section_name = "dram",
-            .default_align = 0,
-            .static_vas = {0, ULONG_MAX},
-            .derive_vas = NULL,
-        },
-    [REGION_PMEM] =
-        {
-            .wire_name = "pmem",
-            .section_name = "dram",
-            .default_align = 0,
-            .static_vas = {0, ULONG_MAX},
-            .derive_vas = NULL,
-        },
-    [REGION_ACPI_TABLE] =
-        {
-            .wire_name = "acpi_table",
-            .section_name = "dram",
-            .default_align = 0,
-            .static_vas = {0, ULONG_MAX},
-            .derive_vas = NULL,
-        },
-    [REGION_ACPI_NVS] =
-        {
-            .wire_name = "acpi_nvs",
-            .section_name = "dram",
-            .default_align = 0,
-            .static_vas = {0, ULONG_MAX},
-            .derive_vas = NULL,
-        },
-    [REGION_EFI_MEMMAP] =
-        {
-            .wire_name = "efi_memmap",
-            .section_name = "dram",
-            .default_align = 0,
-            .static_vas = {0, ULONG_MAX},
-            .derive_vas = NULL,
-        },
-    [REGION_NUMA_NODE] =
-        {
-            .wire_name = "numa_node",
-            .section_name = "dram",
-            .default_align = 0,
-            .static_vas = {0, ULONG_MAX},
-            .derive_vas = NULL,
-        },
-    [REGION_MMIO] =
-        {
-            .wire_name = "mmio",
-            .section_name = "mmio",
-            .default_align = 0,
-            .static_vas = {0, ULONG_MAX},
-            .derive_vas = NULL,
-        },
-    [REGION_PCI_MMIO] =
-        {
-            .wire_name = "pci_mmio",
-            .section_name = "mmio",
-            .default_align = 0,
-            .static_vas = {0, ULONG_MAX},
-            .derive_vas = NULL,
-        },
-
-    /* ---- Kernel image --------------------------------------------- */
-    /* Kernel image regions (TEXT/DATA/BSS/IMAGE) legitimately exist in BOTH
-     * virtual space (kernel VAS) and physical space (kernel load address).
-     * The static_vas must accept either — narrowing to the virtual VAS would
-     * reject every PHYS leak of the kernel image. Per-type validation can be
-     * added later if needed; for now open VAS keeps both kinds of leaks
-     * visible. */
-    [REGION_KERNEL_TEXT] =
-        {
-            .wire_name = "kernel_text",
-            .section_name = "text",
-            .default_align = 0,
-            .static_vas = {0, ULONG_MAX},
-            .derive_vas = NULL,
-        },
-    [REGION_KERNEL_DATA] =
-        {
-            .wire_name = "kernel_data",
-            .section_name = "data",
-            .default_align = 0,
-            .static_vas = {0, ULONG_MAX},
-            .derive_vas = NULL,
-        },
-    [REGION_KERNEL_BSS] =
-        {
-            .wire_name = "kernel_bss",
-            .section_name = "bss",
-            .default_align = 0,
-            .static_vas = {0, ULONG_MAX},
-            .derive_vas = NULL,
-        },
-    /* REGION_KERNEL_IMAGE: vmlinux as a whole. Phys context: full phys
-     * range. Virt context: validate against kernel image VAS. The wire
-     * type disambiguates — both phys and virt contexts share this entry
-     * by accepting the union (full phys range OR full kernel image
-     * range). result_in_bounds() can't see type-vs-VAS distinction
-     * cleanly here; we keep static_vas wide and rely on the parser's
-     * per-type sanity. */
-    [REGION_KERNEL_IMAGE] =
-        {
-            .wire_name = "kernel_image",
-            .section_name = "text",
-            .default_align = 0,
-            .static_vas = {0, ULONG_MAX},
-            .derive_vas = NULL,
-        },
-    [REGION_MODULE] =
-        {
-            .wire_name = "module",
-            .section_name = "module",
-            .default_align = 0,
-#if !PHYS_VIRT_DECOUPLED
-            .static_vas = {0, 0},
-            .derive_vas = derive_vas_module_region_coupled,
-#else
-            .static_vas = {MODULES_START, MODULES_END},
-            .derive_vas = NULL,
-#endif
-        },
-    [REGION_MODULE_REGION] =
-        {
-            .wire_name = "module_region",
-            .section_name = "module",
-            .default_align = 0,
-#if !PHYS_VIRT_DECOUPLED
-            .static_vas = {0, 0},
-            .derive_vas = derive_vas_module_region_coupled,
-#else
-            .static_vas = {MODULES_START, MODULES_END},
-            .derive_vas = NULL,
-#endif
-        },
-
-    /* ---- Direct-map / virtual landmarks ---------------------------- */
-    [REGION_DIRECTMAP] =
-        {
-            .wire_name = "directmap",
-            .section_name = "directmap",
-            .default_align = 0,
-            .static_vas = {KERNEL_VAS_START, KERNEL_VAS_END},
-            .derive_vas = NULL,
-        },
-    [REGION_PAGE_OFFSET] =
-        {
-            .wire_name = "page_offset",
-            .section_name = "pageoffset",
-            .default_align = 0,
-            .static_vas = {0, 0},
-            .derive_vas = derive_vas_page_offset,
-        },
-    [REGION_VMALLOC] =
-        {
-            .wire_name = "vmalloc",
-            .section_name = "directmap",
-            .default_align = 0,
-            .static_vas = {KERNEL_VAS_START, KERNEL_VAS_END},
-            .derive_vas = NULL,
-        },
-    [REGION_VMEMMAP] =
-        {
-            .wire_name = "vmemmap",
-            .section_name = "directmap",
-            .default_align = 0,
-            .static_vas = {KERNEL_VAS_START, KERNEL_VAS_END},
-            .derive_vas = NULL,
-        },
+#define X(name, wire, sec, kind)                                               \
+  [name] = {                                                                   \
+      .wire_name = wire,                                                       \
+      .section_name = sec,                                                     \
+      .default_align = 0,                                                      \
+      .static_vas = VAS_STATIC(kind),                                          \
+      .derive_vas = VAS_DERIVE(kind),                                          \
+  },
+    KASLD_REGION_LIST(X)
+#undef X
 };

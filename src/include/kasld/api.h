@@ -4,8 +4,9 @@
 // shared component API: result emission helpers, region enum, KASLD_EXPLAIN,
 // KASLD_META.
 //
-// Each architecture header (arch/*.h) defines the constants documented at the
-// top of arch/x86_64.h.
+// Each architecture header (arch/*.h) defines kernel address-space constants
+// used throughout kasld; see any arch/*.h for the set, and the #error guards
+// below for the symbols every arch must supply.
 // ---
 // <bcoles@gmail.com>
 
@@ -176,80 +177,90 @@ enum kasld_confidence {
   CONF_PARSED,
 };
 
-/* Region: closed vocabulary of kernel memory areas.
- * REGION_UNKNOWN = 0 is the memset-default; result_in_bounds() returns
- * false for it (forgotten-region assignment → silently skipped, not UB). */
+/* Region table — single source of truth for the closed enum vocabulary.
+ *
+ * One row per region, expanded into the enum (kasld_region), the
+ * wire-name lookup (kasld_region_wire_table[]), and the per-region
+ * descriptor (region_info[] in src/region_info.c) via X-macros.
+ *
+ * Row format: X(enum_id, wire_name, section_name, vas_kind)
+ *
+ *   enum_id      Full enum identifier (REGION_RAM, ...). Spelled in full so
+ *                grep "REGION_RAM" lands on the definition.
+ *   wire_name    Lowercase snake_case token used on the IPC line.
+ *   section_name Render grouping ("dram" / "mmio" / "text" / ...).
+ *                "" for the unknown sentinel; never appears in render.
+ *   vas_kind     One of K_OPEN, K_VIRT, K_PAGEOFFSET, K_MODULE — selects
+ *                the {static_vas, derive_vas} pair via VAS_<kind>_STATIC
+ *                / VAS_<kind>_DERIVE in region_info.c. The K_ prefix is
+ *                deliberate: arch headers define names like PAGE_OFFSET
+ *                and would collide on the `kind` argument before
+ *                token-pasting if we used the bare names.
+ *                  K_OPEN       — {0, ULONG_MAX}, NULL (any phys address)
+ *                  K_VIRT       — {KERNEL_VAS_START, KERNEL_VAS_END}, NULL
+ *                                 (kernel-VAS-bounded virtual-only regions)
+ *                  K_PAGEOFFSET — {0, 0}, derive_vas_page_offset
+ *                                 (PAGE_OFFSET itself; layout-derived)
+ *                  K_MODULE     — coupled vs decoupled handled in
+ *                                 region_info.c via #if PHYS_VIRT_DECOUPLED
+ *
+ * Adding a region: add one row here. The enum value, the wire-name entry,
+ * and the region_info[] entry all get generated. REGION__COUNT auto-sizes
+ * the arrays — compile fails if anything is out of sync.
+ *
+ * REGION_UNKNOWN = 0 is the memset-default and is intentionally NOT in
+ * the X-list: it's the sentinel, hardcoded with empty section and
+ * {0, 0}/NULL VAS so result_in_bounds() short-circuits. */
+#define KASLD_REGION_LIST(X)                                                   \
+  /* ---- Physical landmarks (DRAM-resident and MMIO) -------------------- */  \
+  X(REGION_RAM, "ram", "dram", K_OPEN)                                         \
+  X(REGION_DMA, "dma", "dram", K_OPEN)                                         \
+  X(REGION_DMA32, "dma32", "dram", K_OPEN)                                     \
+  X(REGION_INITRD, "initrd", "dram", K_OPEN)                                   \
+  X(REGION_RESERVED_MEM, "reserved_mem", "dram", K_OPEN)                       \
+  X(REGION_SWIOTLB, "swiotlb", "dram", K_OPEN)                                 \
+  X(REGION_VMCOREINFO, "vmcoreinfo", "dram", K_OPEN)                           \
+  X(REGION_CRASHKERNEL, "crashkernel", "dram", K_OPEN)                         \
+  X(REGION_PMEM, "pmem", "dram", K_OPEN)                                       \
+  X(REGION_ACPI_TABLE, "acpi_table", "dram", K_OPEN)                           \
+  X(REGION_ACPI_NVS, "acpi_nvs", "dram", K_OPEN)                               \
+  X(REGION_EFI_MEMMAP, "efi_memmap", "dram", K_OPEN)                           \
+  X(REGION_NUMA_NODE, "numa_node", "dram", K_OPEN)                             \
+  X(REGION_MMIO, "mmio", "mmio", K_OPEN)                                       \
+  X(REGION_PCI_MMIO, "pci_mmio", "mmio", K_OPEN)                               \
+  /* ---- Kernel image (legitimately exists in both phys and virt) ------- */  \
+  /* K_OPEN keeps PHYS leaks visible alongside VIRT — per-type narrowing   */  \
+  /* lives in the parser / inference layer, not the region table.          */  \
+  X(REGION_KERNEL_TEXT, "kernel_text", "text", K_OPEN)                         \
+  X(REGION_KERNEL_DATA, "kernel_data", "data", K_OPEN)                         \
+  X(REGION_KERNEL_BSS, "kernel_bss", "bss", K_OPEN)                            \
+  X(REGION_KERNEL_IMAGE, "kernel_image", "text", K_OPEN)                       \
+  X(REGION_MODULE, "module", "module", K_MODULE)                               \
+  X(REGION_MODULE_REGION, "module_region", "module", K_MODULE)                 \
+  /* ---- Direct-map / virtual landmarks --------------------------------- */  \
+  X(REGION_DIRECTMAP, "directmap", "directmap", K_VIRT)                        \
+  X(REGION_PAGE_OFFSET, "page_offset", "pageoffset", K_PAGEOFFSET)             \
+  X(REGION_VMALLOC, "vmalloc", "directmap", K_VIRT)                            \
+  X(REGION_VMEMMAP, "vmemmap", "directmap", K_VIRT)
+
+/* Closed-enum vocabulary of kernel memory areas. */
 enum kasld_region {
   REGION_UNKNOWN = 0,
-
-  /* Physical landmarks. */
-  REGION_RAM,
-  REGION_DMA,
-  REGION_DMA32,
-  REGION_INITRD,
-  REGION_RESERVED_MEM,
-  REGION_SWIOTLB,
-  REGION_VMCOREINFO,
-  REGION_CRASHKERNEL,
-  REGION_PMEM,
-  REGION_ACPI_TABLE,
-  REGION_ACPI_NVS,
-  REGION_EFI_MEMMAP,
-  REGION_NUMA_NODE,
-  REGION_MMIO,
-  REGION_PCI_MMIO,
-
-  /* Kernel image — text, data, bss, image-as-a-whole, modules. */
-  REGION_KERNEL_TEXT,
-  REGION_KERNEL_DATA,
-  REGION_KERNEL_BSS,
-  REGION_KERNEL_IMAGE,
-  REGION_MODULE,
-  REGION_MODULE_REGION,
-
-  /* Direct-map / virtual landmarks. */
-  REGION_DIRECTMAP,
-  REGION_PAGE_OFFSET,
-  REGION_VMALLOC,
-  REGION_VMEMMAP,
-
+#define X(name, wire, sec, kind) name,
+  KASLD_REGION_LIST(X)
+#undef X
   /* Sentinel. Must be last so we can iterate 0..REGION__COUNT-1. */
   REGION__COUNT,
 };
 
-/* Wire-token mappings. The region table here is the source of truth
- * for region wire names; region_info[] in region_info.c references the
- * same strings.
- *
- * Convention: lowercase snake_case of the enum suffix
+/* Wire-token mappings. Generated from KASLD_REGION_LIST; do not edit
+ * directly. Convention: lowercase snake_case of the enum suffix
  * (REGION_KERNEL_IMAGE -> "kernel_image"). */
 static const char *const kasld_region_wire_table[REGION__COUNT] = {
     [REGION_UNKNOWN] = "unknown",
-    [REGION_RAM] = "ram",
-    [REGION_DMA] = "dma",
-    [REGION_DMA32] = "dma32",
-    [REGION_INITRD] = "initrd",
-    [REGION_RESERVED_MEM] = "reserved_mem",
-    [REGION_SWIOTLB] = "swiotlb",
-    [REGION_VMCOREINFO] = "vmcoreinfo",
-    [REGION_CRASHKERNEL] = "crashkernel",
-    [REGION_PMEM] = "pmem",
-    [REGION_ACPI_TABLE] = "acpi_table",
-    [REGION_ACPI_NVS] = "acpi_nvs",
-    [REGION_EFI_MEMMAP] = "efi_memmap",
-    [REGION_NUMA_NODE] = "numa_node",
-    [REGION_MMIO] = "mmio",
-    [REGION_PCI_MMIO] = "pci_mmio",
-    [REGION_KERNEL_TEXT] = "kernel_text",
-    [REGION_KERNEL_DATA] = "kernel_data",
-    [REGION_KERNEL_BSS] = "kernel_bss",
-    [REGION_KERNEL_IMAGE] = "kernel_image",
-    [REGION_MODULE] = "module",
-    [REGION_MODULE_REGION] = "module_region",
-    [REGION_DIRECTMAP] = "directmap",
-    [REGION_PAGE_OFFSET] = "page_offset",
-    [REGION_VMALLOC] = "vmalloc",
-    [REGION_VMEMMAP] = "vmemmap",
+#define X(name, wire, sec, kind) [name] = wire,
+    KASLD_REGION_LIST(X)
+#undef X
 };
 
 static inline const char *kasld_region_wire(enum kasld_region r) {
