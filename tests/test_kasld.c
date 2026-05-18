@@ -1,2963 +1,1535 @@
-/* Unit tests for kasld orchestrator logic.
- *
- * Uses the #include-the-.c-file pattern to access static functions.
- * Compiled with -DKASLD_TESTING to exclude main(). */
+// This file is part of KASLD - https://github.com/bcoles/kasld
+//
+// Unit tests for the new result model: parser, merge pass, select_anchor,
+// result_in_bounds, helpers. Compiled via `make test`, which includes
+// orchestrator.c with -DKASLD_TESTING so static helpers are accessible.
+// ---
+// <bcoles@gmail.com>
 
-#ifndef KASLD_TESTING
+#define _POSIX_C_SOURCE 200809L
 #define KASLD_TESTING
-#endif
-#define VERSION "test"
 
-#include "../src/inference/dram_bound.c"
-#include "../src/inference/image_size_from_text_data_gap.c"
-#include "../src/inference/kaslr_ceiling.c"
-#include "../src/inference/kernel_image_phys_bound.c"
-#include "../src/inference/layout_adjust.c"
-#include "../src/inference/module_text_bound.c"
-#include "../src/inference/phys_virt_synth.c"
-#include "../src/inference/randomize_memory_page_offset.c"
-#include "../src/inference/va_bits_from_results.c"
 #include "../src/orchestrator.c"
+#include "../src/region_info.c"
 #include "../src/render.c"
 
 #include <assert.h>
+#include <stdio.h>
 #include <string.h>
 
-/* =========================================================================
- * Helpers
- * =========================================================================
- */
 static int test_count;
 static int pass_count;
 
-#define RUN_TEST(fn)                                                           \
+#define RUN(t)                                                                 \
   do {                                                                         \
     test_count++;                                                              \
-    printf("  %-50s", #fn);                                                    \
-    fn();                                                                      \
+    fprintf(stderr, "[run ] %s\n", #t);                                        \
+    t();                                                                       \
     pass_count++;                                                              \
-    printf("PASS\n");                                                          \
+    fprintf(stderr, "[ ok ] %s\n", #t);                                        \
   } while (0)
 
-/* Reset all global state between tests */
-static void reset_state(void) {
+/* =========================================================================
+ * Helpers
+ * ========================================================================= */
+static void reset_results(void) {
   num_results = 0;
-  num_components = 0;
-  num_printed_groups = 0;
-  num_comp_logs = 0;
-  progress_done = 0;
-  parallel_workers = 0;
-  verbose = 0;
-  json_output = 0;
-  oneline_output = 0;
-  markdown_output = 0;
-  hardening_mode = 0;
-  explain_mode = 0;
-  sysctl_kptr_restrict = -1;
-  sysctl_dmesg_restrict = -1;
-  sysctl_perf_event_paranoid = -1;
-  sysctl_lockdown = LOCKDOWN_UNAVAILABLE;
-  num_skip_patterns = 0;
-  experimental_mode = 0;
-  memset(results, 0, sizeof(results));
-  memset(components, 0, sizeof(components));
-  memset(comp_logs, 0, sizeof(comp_logs));
-  memset(skip_patterns, 0, sizeof(skip_patterns));
-
-  /* Restore default layout */
-  layout.page_offset = PAGE_OFFSET;
-  layout.kernel_vas_start = KERNEL_VAS_START;
-  layout.kernel_vas_end = KERNEL_VAS_END;
-  layout.kernel_base_min = KERNEL_BASE_MIN;
-  layout.kernel_base_max = KERNEL_BASE_MAX;
-  layout.modules_start = MODULES_START;
-  layout.modules_end = MODULES_END;
-  layout.kernel_align = KERNEL_ALIGN;
-  layout.text_offset = TEXT_OFFSET;
-  layout.kernel_text_default = KERNEL_TEXT_DEFAULT;
+  for (int i = 0; i < MAX_RESULTS; i++)
+    result_init(&results[i]);
 }
 
-/* Inject a tagged line as if a component emitted it (parses directly into
- * results) */
-static void inject_tagged(const char *line) {
-  char buf[LINE_LEN];
-  snprintf(buf, sizeof(buf), "%s\n", line);
-  capture_result(buf, "parsed", NULL);
+static struct result *push_result(void) {
+  struct result *r = &results[num_results++];
+  result_init(r);
+  return r;
 }
 
-/* Inject a result directly. label may be "region" or "region:name". */
-static void inject_result(char type, const char *section, unsigned long addr,
-                          const char *label) {
-  assert(num_results < MAX_RESULTS);
-  struct result *r = &results[num_results];
-  r->type = type;
-  strncpy(r->section, section, SECTION_LEN - 1);
-  r->section[SECTION_LEN - 1] = '\0';
-  r->raw = addr;
-  r->aligned = align_for_section(type, section, addr);
-  r->valid = validate_for_section(type, section, r->aligned);
-  const char *colon = strchr(label, ':');
-  if (colon) {
-    size_t rlen = (size_t)(colon - label);
-    if (rlen >= REGION_LEN)
-      rlen = REGION_LEN - 1;
-    memcpy(r->region, label, rlen);
-    r->region[rlen] = '\0';
-    strncpy(r->name, colon + 1, NAME_LEN - 1);
-    r->name[NAME_LEN - 1] = '\0';
-  } else {
-    strncpy(r->region, label, REGION_LEN - 1);
-    r->region[REGION_LEN - 1] = '\0';
-  }
-  num_results++;
-}
-
-/* Initialize g_ctx and g_arch_params from compile-time layout constants.
- * Call after reset_state() and after any inject_result() calls that should
- * be visible to the plugin under test. */
-static void init_inference_ctx(void) {
-  g_arch_params.kaslr_base_min = layout.kaslr_base_min;
-  g_arch_params.kaslr_base_max = layout.kaslr_base_max;
-  g_arch_params.kaslr_align = layout.kaslr_align;
-  g_arch_params.phys_kaslr_base_min = layout.phys_kaslr_base_min;
-  g_arch_params.phys_kaslr_base_max = layout.phys_kaslr_base_max;
-  g_arch_params.phys_kaslr_align = layout.phys_kaslr_align;
-  g_arch_params.phys_virt_decoupled = PHYS_VIRT_DECOUPLED;
-  g_arch_params.phys_offset = PHYS_OFFSET;
-  g_arch_params.page_offset = PAGE_OFFSET;
-  g_arch_params.text_offset = TEXT_OFFSET;
-  g_ctx.results = results;
-  g_ctx.result_count = (size_t)num_results;
-  g_ctx.text_base_min = layout.kaslr_base_min;
-  g_ctx.text_base_max = layout.kaslr_base_max;
-  g_ctx.page_offset_min = layout.kernel_vas_start;
-  g_ctx.page_offset_max = layout.kernel_vas_end;
-  g_ctx.phys_base_min = layout.phys_kaslr_base_min;
-  g_ctx.phys_base_max = layout.phys_kaslr_base_max;
-  g_ctx.arch = &g_arch_params;
-  g_ctx.layout = &layout;
-}
-
-/* Like inject_result(), but also tags the result with a component origin. */
-static void inject_result_with_origin(char type, const char *section,
-                                      unsigned long addr, const char *label,
-                                      const char *origin) {
-  inject_result(type, section, addr, label);
-  struct result *r = &results[num_results - 1];
-  strncpy(r->origin, origin, ORIGIN_LEN - 1);
-  r->origin[ORIGIN_LEN - 1] = '\0';
+static int parse_line(const char *line, const char *method,
+                      const char *origin) {
+  return capture_result(line, method, origin);
 }
 
 /* =========================================================================
- * align_for_section
- * =========================================================================
- */
-static void test_align_text_rounds_down(void) {
-  /* KERNEL_ALIGN is 2 MiB on x86_64 */
-  unsigned long addr = KERNEL_BASE_MIN + 0x123456;
-  unsigned long aligned =
-      align_for_section(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr);
-  assert(aligned == (addr & -KERNEL_ALIGN));
-  assert(aligned < addr);
-  assert((aligned % KERNEL_ALIGN) == 0);
-}
-
-static void test_align_text_already_aligned(void) {
-  unsigned long addr = KERNEL_BASE_MIN + KERNEL_ALIGN;
-  unsigned long aligned =
-      align_for_section(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr);
-  assert(aligned == addr);
-}
-
-static void test_align_module_passthrough(void) {
-  unsigned long addr = MODULES_START + 0x123;
-  unsigned long aligned =
-      align_for_section(KASLD_ADDR_VIRT, KASLD_SECTION_MODULE, addr);
-  assert(aligned == addr);
-}
-
-static void test_align_default_passthrough(void) {
-  unsigned long addr = 0xdeadbeef;
-  unsigned long aligned =
-      align_for_section(KASLD_ADDR_DEFAULT, KASLD_SECTION_NONE, addr);
-  assert(aligned == addr);
-}
-
-static void test_align_phys_text_rounds_down(void) {
-  unsigned long addr = KERNEL_PHYS_MIN + 0x54321;
-  unsigned long aligned =
-      align_for_section(KASLD_ADDR_PHYS, KASLD_SECTION_TEXT, addr);
-  assert(aligned == (addr & -KERNEL_ALIGN));
+ * result_init
+ * ========================================================================= */
+static void test_result_init_zeroes_everything(void) {
+  struct result r;
+  memset(&r, 0xAA, sizeof(r));
+  result_init(&r);
+  assert(r.type == KASLD_TYPE_UNKNOWN);
+  assert(r.region == REGION_UNKNOWN);
+  assert(r.set_mask == 0);
+  assert(r.pos == POS_UNKNOWN);
+  assert(r.conf == CONF_UNKNOWN);
+  assert(r.provenance_count == 0);
+  assert(r.name[0] == '\0');
+  assert(!HAS_LO(&r) && !HAS_HI(&r) && !HAS_SAMPLE(&r) && !HAS_BASE_ALIGN(&r));
 }
 
 /* =========================================================================
- * validate_for_section
- * =========================================================================
- */
-static void test_validate_virt_text_in_range(void) {
-  unsigned long addr = KERNEL_BASE_MIN + KERNEL_ALIGN;
-  assert(validate_for_section(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr) == 1);
-}
-
-static void test_validate_virt_text_below_range(void) {
-  unsigned long addr = KERNEL_BASE_MIN - 1;
-  assert(validate_for_section(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr) == 0);
-}
-
-static void test_validate_virt_text_above_range(void) {
-  unsigned long addr = KERNEL_BASE_MAX + 1;
-  assert(validate_for_section(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr) == 0);
-}
-
-static void test_validate_virt_module_in_range(void) {
-  unsigned long addr = MODULES_START + 0x1000;
-  assert(validate_for_section(KASLD_ADDR_VIRT, KASLD_SECTION_MODULE, addr) ==
-         1);
-}
-
-static void test_validate_virt_module_below_range(void) {
-  unsigned long addr = MODULES_START - 1;
-  assert(validate_for_section(KASLD_ADDR_VIRT, KASLD_SECTION_MODULE, addr) ==
-         0);
-}
-
-static void test_validate_default_always_valid(void) {
-  assert(validate_for_section(KASLD_ADDR_DEFAULT, KASLD_SECTION_NONE, 0) == 1);
-  assert(validate_for_section(KASLD_ADDR_DEFAULT, KASLD_SECTION_NONE,
-                              0xdeadbeef) == 1);
-}
-
-static void test_validate_phys_text_in_range(void) {
-  unsigned long addr = KERNEL_PHYS_MIN + KERNEL_ALIGN;
-  assert(validate_for_section(KASLD_ADDR_PHYS, KASLD_SECTION_TEXT, addr) == 1);
-}
-
-static void test_validate_phys_text_below_range(void) {
-  unsigned long addr = KERNEL_PHYS_MIN - 1;
-  assert(validate_for_section(KASLD_ADDR_PHYS, KASLD_SECTION_TEXT, addr) == 0);
-}
-
-static void test_validate_phys_dram_always_valid(void) {
-  assert(validate_for_section(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM,
-                              0x80000000) == 1);
-}
-
-/* =========================================================================
- * capture_result (parse during capture)
- * =========================================================================
- */
-static void test_parse_basic(void) {
-  reset_state();
-  inject_tagged("V text 0xffffffff81000000 proc-kallsyms");
-
+ * Parser
+ * ========================================================================= */
+static void test_parse_base_record(void) {
+  reset_results();
+  int ok =
+      parse_line("P initrd pos=base conf=parsed lo=0x33000000 hi=0x333fffff",
+                 "parsed", "proc-iomem");
+  assert(ok == 1);
   assert(num_results == 1);
-  assert(results[0].type == KASLD_ADDR_VIRT);
-  assert(strcmp(results[0].section, "text") == 0);
-  assert(strcmp(results[0].region, "proc-kallsyms") == 0);
-  assert(results[0].name[0] == '\0');
-  assert(results[0].raw == 0xffffffff81000000ul);
+  struct result *r = &results[0];
+  assert(r->type == KASLD_TYPE_PHYS);
+  assert(r->region == REGION_INITRD);
+  assert(r->pos == POS_BASE);
+  assert(r->conf == CONF_PARSED);
+  assert(HAS_LO(r) && HAS_HI(r));
+  assert(r->lo == 0x33000000ul);
+  assert(r->hi == 0x333ffffful);
+  assert(r->provenance_count == 1);
+  assert(strcmp(r->origins[0], "proc-iomem") == 0);
 }
 
-static void test_parse_multiple(void) {
-  reset_state();
-  inject_tagged("V text 0xffffffff81200000 entrybleed");
-  inject_tagged("P dram 0x0000000001000000 dmesg_e820_memory_map:lo");
-  inject_tagged("D - 0xffffffff81000000 default:text");
-
-  assert(num_results == 3);
-  assert(results[0].type == KASLD_ADDR_VIRT);
-  assert(results[1].type == KASLD_ADDR_PHYS);
-  assert(results[2].type == KASLD_ADDR_DEFAULT);
+static void test_parse_interior_sample(void) {
+  reset_results();
+  assert(parse_line("V vmalloc pos=interior conf=heuristic "
+                    "sample=0xffffc90000123456",
+                    "heuristic", "comp") == 1);
+  struct result *r = &results[0];
+  assert(r->type == KASLD_TYPE_VIRT);
+  assert(r->region == REGION_VMALLOC);
+  assert(r->pos == POS_INTERIOR);
+  assert(HAS_SAMPLE(r) && !HAS_LO(r) && !HAS_HI(r));
+  assert(r->sample == 0xffffc90000123456ul);
 }
 
-static void test_parse_incremental(void) {
-  reset_state();
-  inject_tagged("V text 0xffffffff81000000 first");
-  assert(num_results == 1);
-
-  inject_tagged("V text 0xffffffff82000000 second");
-  assert(num_results == 2);
-  assert(strcmp(results[1].region, "second") == 0);
+static void test_parse_named_record(void) {
+  reset_results();
+  assert(parse_line("V kernel_image:commit_creds pos=interior conf=parsed "
+                    "sample=0xffffffff81234000",
+                    "parsed", "kallsyms") == 1);
+  struct result *r = &results[0];
+  assert(strcmp(r->name, "commit_creds") == 0);
+  assert(r->region == REGION_KERNEL_IMAGE);
 }
 
-static void test_parse_ignores_non_tagged(void) {
-  reset_state();
-  /* Non-tagged lines are rejected by capture_result */
-  char buf[LINE_LEN];
-  snprintf(buf, sizeof(buf), "some random output\n");
-  capture_result(buf, "parsed", NULL);
+static void test_parse_name_with_colons(void) {
+  reset_results();
+  assert(parse_line("P pci_mmio:0000:00:14.0 pos=base conf=parsed "
+                    "lo=0xfe000000 hi=0xfeffffff",
+                    "parsed", "sysfs") == 1);
+  struct result *r = &results[0];
+  assert(r->region == REGION_PCI_MMIO);
+  assert(strcmp(r->name, "0000:00:14.0") == 0);
+}
+
+static void test_parse_sz_normalizes_to_hi(void) {
+  reset_results();
+  assert(parse_line("P initrd pos=base conf=parsed lo=0x100000 sz=0x10000",
+                    "parsed", "x") == 1);
+  struct result *r = &results[0];
+  assert(HAS_LO(r) && HAS_HI(r));
+  assert(r->lo == 0x100000ul);
+  assert(r->hi == 0x10ffffu);
+}
+
+static void test_parse_rejects_unknown_key(void) {
+  reset_results();
+  assert(parse_line("V kernel_text pos=base conf=parsed lo=0xffffffff81000000 "
+                    "bogus=0x1",
+                    NULL, NULL) == 0);
   assert(num_results == 0);
 }
 
-static void test_parse_label_with_colon(void) {
-  reset_state();
-  inject_tagged("V module 0xffffffffc0001000 sysfs-module-sections:lo");
+static void test_parse_rejects_missing_pos(void) {
+  reset_results();
+  assert(parse_line("V kernel_text conf=parsed lo=0xffffffff81000000", NULL,
+                    NULL) == 0);
+}
 
+static void test_parse_rejects_missing_conf(void) {
+  reset_results();
+  assert(parse_line("V kernel_text pos=base lo=0xffffffff81000000", NULL,
+                    NULL) == 0);
+}
+
+static void test_parse_rejects_pos_base_without_lo(void) {
+  reset_results();
+  assert(
+      parse_line("V kernel_text pos=base conf=parsed sample=0xffffffff81234000",
+                 NULL, NULL) == 0);
+}
+
+static void test_parse_rejects_pos_top_without_hi(void) {
+  reset_results();
+  assert(parse_line("P ram pos=top conf=parsed lo=0x1000", NULL, NULL) == 0);
+}
+
+static void test_parse_rejects_lo_above_hi(void) {
+  reset_results();
+  assert(parse_line("V kernel_text pos=base conf=parsed lo=0xffffffff90000000 "
+                    "hi=0xffffffff80000000",
+                    NULL, NULL) == 0);
+}
+
+static void test_parse_rejects_sample_outside_extent(void) {
+  reset_results();
+  assert(parse_line(
+             "P initrd pos=base conf=parsed lo=0x1000 hi=0x2000 sample=0x3000",
+             NULL, NULL) == 0);
+}
+
+static void test_parse_rejects_sz_overflow(void) {
+  reset_results();
+  assert(parse_line("P ram pos=base conf=parsed lo=0xffffffffffffffff sz=0x2",
+                    NULL, NULL) == 0);
+}
+
+static void test_parse_rejects_non_power_of_two_base_align(void) {
+  reset_results();
+  assert(parse_line("V kernel_text pos=base conf=parsed lo=0xffffffff81000000 "
+                    "base_align=0x3",
+                    NULL, NULL) == 0);
+}
+
+static void test_parse_accepts_power_of_two_base_align(void) {
+  reset_results();
+  assert(parse_line("V kernel_text pos=base conf=parsed lo=0xffffffff81000000 "
+                    "base_align=0x200000",
+                    NULL, NULL) == 1);
+  assert(HAS_BASE_ALIGN(&results[0]));
+  assert(results[0].base_align == 0x200000ul);
+}
+
+static void test_parse_genuine_zero_lo(void) {
+  reset_results();
+  assert(parse_line("P ram pos=base conf=parsed lo=0x0", NULL, NULL) == 1);
+  struct result *r = &results[0];
+  assert(HAS_LO(r));
+  assert(r->lo == 0);
+}
+
+/* =========================================================================
+ * result_in_bounds
+ * ========================================================================= */
+static void test_result_in_bounds_rejects_region_unknown(void) {
+  struct result r;
+  result_init(&r);
+  r.region = REGION_UNKNOWN;
+  assert(result_in_bounds(&r, &layout) == 0);
+}
+
+static void test_result_in_bounds_open_vas_accepts_anything(void) {
+  struct result r;
+  result_init(&r);
+  r.region = REGION_RAM;
+  r.lo = 0x12345678;
+  r.set_mask = LO_SET;
+  assert(result_in_bounds(&r, &layout) == 1);
+}
+
+static void test_result_in_bounds_no_set_bits_passes(void) {
+  struct result r;
+  result_init(&r);
+  r.region = REGION_RAM;
+  assert(result_in_bounds(&r, &layout) == 1);
+}
+
+/* =========================================================================
+ * select_anchor
+ * ========================================================================= */
+static void test_select_anchor_prefers_no_name(void) {
+  reset_results();
+  struct result *named = push_result();
+  named->type = KASLD_TYPE_VIRT;
+  named->region = REGION_KERNEL_IMAGE;
+  snprintf(named->name, NAME_LEN, "commit_creds");
+  named->pos = POS_INTERIOR;
+  named->conf = CONF_PARSED;
+  named->sample = 0xffffffff81234000ul;
+  named->set_mask = SAMPLE_SET;
+
+  struct result *anchor = push_result();
+  anchor->type = KASLD_TYPE_VIRT;
+  anchor->region = REGION_KERNEL_IMAGE;
+  anchor->pos = POS_BASE;
+  anchor->conf = CONF_HEURISTIC;
+  anchor->lo = 0xffffffff81000000ul;
+  anchor->set_mask = LO_SET;
+
+  const struct result *picked =
+      select_anchor(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE);
+  assert(picked == anchor);
+}
+
+static void test_select_anchor_falls_back_to_named(void) {
+  reset_results();
+  struct result *named = push_result();
+  named->type = KASLD_TYPE_VIRT;
+  named->region = REGION_KERNEL_IMAGE;
+  snprintf(named->name, NAME_LEN, "commit_creds");
+  named->pos = POS_INTERIOR;
+  named->conf = CONF_PARSED;
+  named->sample = 0xffffffff81234000ul;
+  named->set_mask = SAMPLE_SET;
+
+  const struct result *picked =
+      select_anchor(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE);
+  assert(picked == named);
+}
+
+static void test_select_anchor_returns_null_on_miss(void) {
+  reset_results();
+  const struct result *picked =
+      select_anchor(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE);
+  assert(picked == NULL);
+}
+
+/* =========================================================================
+ * Merge pass
+ * ========================================================================= */
+static void test_merge_collapses_same_key(void) {
+  reset_results();
+  struct result *base = push_result();
+  base->type = KASLD_TYPE_PHYS;
+  base->region = REGION_INITRD;
+  base->pos = POS_BASE;
+  base->conf = CONF_PARSED;
+  base->lo = 0x33000000;
+  base->set_mask = LO_SET;
+  base->provenance_count = 1;
+  snprintf(base->origins[0], ORIGIN_LEN, "proc-iomem");
+
+  struct result *top = push_result();
+  top->type = KASLD_TYPE_PHYS;
+  top->region = REGION_INITRD;
+  top->pos = POS_TOP;
+  top->conf = CONF_PARSED;
+  top->hi = 0x333fffff;
+  top->set_mask = HI_SET;
+  top->provenance_count = 1;
+  snprintf(top->origins[0], ORIGIN_LEN, "dmesg");
+
+  merge_results();
   assert(num_results == 1);
-  assert(strcmp(results[0].region, "sysfs-module-sections") == 0);
-  assert(strcmp(results[0].name, "lo") == 0);
+  struct result *r = &results[0];
+  assert(HAS_LO(r) && HAS_HI(r));
+  assert(r->lo == 0x33000000ul && r->hi == 0x333ffffful);
+  assert(r->provenance_count == 2);
 }
 
-static void test_parse_strips_newline(void) {
-  reset_state();
-  inject_tagged("V text 0xffffffff81000000 test_label");
+static void test_merge_keeps_conflicting_records(void) {
+  reset_results();
+  struct result *a = push_result();
+  a->type = KASLD_TYPE_PHYS;
+  a->region = REGION_INITRD;
+  a->pos = POS_BASE;
+  a->conf = CONF_PARSED;
+  a->lo = 0x100000;
+  a->hi = 0x1fffff;
+  a->set_mask = LO_SET | HI_SET;
+  a->provenance_count = 1;
+  snprintf(a->origins[0], ORIGIN_LEN, "source-a");
 
-  size_t len = strlen(results[0].region);
-  assert(results[0].region[len - 1] != '\n');
+  struct result *b = push_result();
+  b->type = KASLD_TYPE_PHYS;
+  b->region = REGION_INITRD;
+  b->pos = POS_BASE;
+  b->conf = CONF_PARSED;
+  b->lo = 0x500000;
+  b->hi = 0x5fffff;
+  b->set_mask = LO_SET | HI_SET;
+  b->provenance_count = 1;
+  snprintf(b->origins[0], ORIGIN_LEN, "source-b");
+
+  int before = num_results;
+  merge_results();
+  assert(num_results == before);
+}
+
+static void test_merge_does_not_cross_types(void) {
+  reset_results();
+  struct result *p = push_result();
+  p->type = KASLD_TYPE_PHYS;
+  p->region = REGION_INITRD;
+  p->pos = POS_BASE;
+  p->conf = CONF_PARSED;
+  p->lo = 0x33000000;
+  p->set_mask = LO_SET;
+
+  struct result *v = push_result();
+  v->type = KASLD_TYPE_VIRT;
+  v->region = REGION_INITRD;
+  v->pos = POS_BASE;
+  v->conf = CONF_DERIVED;
+  v->lo = 0xffff888033000000ul;
+  v->set_mask = LO_SET;
+
+  merge_results();
+  assert(num_results == 2);
+}
+
+static void test_merge_sample_clamped_to_extent(void) {
+  reset_results();
+  struct result *a = push_result();
+  a->type = KASLD_TYPE_PHYS;
+  a->region = REGION_INITRD;
+  a->pos = POS_BASE;
+  a->conf = CONF_PARSED;
+  a->lo = 0x1000;
+  a->hi = 0x1fff;
+  a->set_mask = LO_SET | HI_SET;
+
+  struct result *b = push_result();
+  b->type = KASLD_TYPE_PHYS;
+  b->region = REGION_INITRD;
+  b->pos = POS_INTERIOR;
+  b->conf = CONF_HEURISTIC;
+  b->sample = 0x500;
+  b->set_mask = SAMPLE_SET;
+
+  merge_results();
+  assert(num_results == 1);
+  struct result *r = &results[0];
+  assert(HAS_SAMPLE(r));
+  assert(r->sample == 0x1000);
+}
+
+static void test_merge_picks_highest_conf_sample(void) {
+  reset_results();
+  /* Same-key contributors where only one has SAMPLE_SET: the sample
+   * survives, the other contributes nothing sample-wise. */
+  struct result *no_sample = push_result();
+  no_sample->type = KASLD_TYPE_VIRT;
+  no_sample->region = REGION_KERNEL_IMAGE;
+  no_sample->pos = POS_BASE;
+  no_sample->conf = CONF_HEURISTIC;
+  no_sample->lo = 0xffffffff81000000ul;
+  no_sample->set_mask = LO_SET;
+
+  struct result *sample = push_result();
+  sample->type = KASLD_TYPE_VIRT;
+  sample->region = REGION_KERNEL_IMAGE;
+  sample->pos = POS_INTERIOR;
+  sample->conf = CONF_PARSED;
+  sample->sample = 0xffffffff81222222ul;
+  sample->set_mask = SAMPLE_SET;
+
+  merge_results();
+  assert(num_results == 1);
+  struct result *r = &results[0];
+  assert(HAS_LO(r) && r->lo == 0xffffffff81000000ul);
+  assert(HAS_SAMPLE(r) && r->sample == 0xffffffff81222222ul);
+}
+
+static void test_merge_samples_conflict_kept_separate(void) {
+  /* Per the regression-fix to merge_results: two interior samples at
+   * different addresses with the same merge key are treated as a conflict
+   * (they're almost always different instances of the region — two swiotlb
+   * buffers, two initrd witnesses). Both records must survive. */
+  reset_results();
+  struct result *a = push_result();
+  a->type = KASLD_TYPE_PHYS;
+  a->region = REGION_SWIOTLB;
+  a->pos = POS_INTERIOR;
+  a->conf = CONF_PARSED;
+  a->sample = 0xbbed0000;
+  a->set_mask = SAMPLE_SET;
+
+  struct result *b = push_result();
+  b->type = KASLD_TYPE_PHYS;
+  b->region = REGION_SWIOTLB;
+  b->pos = POS_INTERIOR;
+  b->conf = CONF_PARSED;
+  b->sample = 0xbfed0000;
+  b->set_mask = SAMPLE_SET;
+
+  merge_results();
+  assert(num_results == 2);
 }
 
 /* =========================================================================
- * group_consensus
- * =========================================================================
- */
-static void test_consensus_single(void) {
-  reset_state();
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT,
-                KERNEL_BASE_MIN + KERNEL_ALIGN, "a");
-
-  unsigned long c = group_consensus(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT);
-  assert(c == KERNEL_BASE_MIN + KERNEL_ALIGN);
-}
-
-static void test_consensus_majority(void) {
-  reset_state();
-  unsigned long addr_a = KERNEL_BASE_MIN + 2 * KERNEL_ALIGN;
-  unsigned long addr_b = KERNEL_BASE_MIN + 4 * KERNEL_ALIGN;
-
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr_a, "a");
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr_b, "b");
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr_a, "c");
-
-  unsigned long c = group_consensus(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT);
-  assert(c == addr_a);
-}
-
-static void test_consensus_tie_lowest(void) {
-  reset_state();
-  unsigned long addr_lo = KERNEL_BASE_MIN + 2 * KERNEL_ALIGN;
-  unsigned long addr_hi = KERNEL_BASE_MIN + 8 * KERNEL_ALIGN;
-
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr_hi, "a");
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr_lo, "b");
-
-  unsigned long c = group_consensus(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT);
-  assert(c == addr_lo);
-}
-
-static void test_consensus_empty(void) {
-  reset_state();
-  unsigned long c = group_consensus(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT);
-  assert(c == 0);
-}
-
-static void test_consensus_ignores_invalid(void) {
-  reset_state();
-  /* Inject a result that's out of range */
-  struct result *r = &results[num_results++];
-  r->type = KASLD_ADDR_VIRT;
-  strncpy(r->section, KASLD_SECTION_TEXT, SECTION_LEN - 1);
-  r->raw = 0x1000; /* way below KERNEL_BASE_MIN */
-  r->aligned = 0x1000;
-  r->valid = 0;
-  strncpy(r->region, "bad", REGION_LEN - 1);
-
-  unsigned long c = group_consensus(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT);
-  assert(c == 0);
-}
-
-static void test_consensus_type_isolation(void) {
-  reset_state();
-  unsigned long vaddr = KERNEL_BASE_MIN + KERNEL_ALIGN;
-  unsigned long paddr = KERNEL_PHYS_MIN + KERNEL_ALIGN;
-
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, vaddr, "v");
-  inject_result(KASLD_ADDR_PHYS, KASLD_SECTION_TEXT, paddr, "p");
-
-  assert(group_consensus(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT) == vaddr);
-  assert(group_consensus(KASLD_ADDR_PHYS, KASLD_SECTION_TEXT) == paddr);
+ * conf_weight
+ * ========================================================================= */
+static void test_conf_weight_ordering(void) {
+  assert(conf_weight(CONF_PARSED) > conf_weight(CONF_DERIVED));
+  assert(conf_weight(CONF_DERIVED) > conf_weight(CONF_INFERRED));
+  assert(conf_weight(CONF_INFERRED) > conf_weight(CONF_HEURISTIC));
+  assert(conf_weight(CONF_HEURISTIC) > conf_weight(CONF_TIMING));
+  assert(conf_weight(CONF_TIMING) > conf_weight(CONF_BRUTE));
+  assert(conf_weight(CONF_BRUTE) > conf_weight(CONF_UNKNOWN));
 }
 
 /* =========================================================================
- * group_range
- * =========================================================================
- */
-static void test_range_single(void) {
-  reset_state();
-  unsigned long addr = MODULES_START + 0x1000;
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_MODULE, addr, "a");
-
-  unsigned long lo, hi;
-  group_range(KASLD_ADDR_VIRT, KASLD_SECTION_MODULE, &lo, &hi);
-  assert(lo == addr);
-  assert(hi == 0); /* single address → hi cleared */
+ * anchor_addr
+ * ========================================================================= */
+static void test_anchor_addr_base(void) {
+  struct result r;
+  result_init(&r);
+  r.pos = POS_BASE;
+  r.lo = 0x1000;
+  r.set_mask = LO_SET;
+  assert(anchor_addr(&r) == 0x1000);
 }
 
-static void test_range_multiple(void) {
-  reset_state();
-  unsigned long addr_lo = MODULES_START + 0x1000;
-  unsigned long addr_hi = MODULES_START + 0x50000;
-
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_MODULE, addr_hi, "hi");
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_MODULE, addr_lo, "lo");
-
-  unsigned long lo, hi;
-  group_range(KASLD_ADDR_VIRT, KASLD_SECTION_MODULE, &lo, &hi);
-  assert(lo == addr_lo);
-  assert(hi == addr_hi);
+static void test_anchor_addr_interior_sample(void) {
+  struct result r;
+  result_init(&r);
+  r.pos = POS_INTERIOR;
+  r.sample = 0x2000;
+  r.set_mask = SAMPLE_SET;
+  assert(anchor_addr(&r) == 0x2000);
 }
 
-static void test_range_empty(void) {
-  reset_state();
-  unsigned long lo, hi;
-  group_range(KASLD_ADDR_VIRT, KASLD_SECTION_MODULE, &lo, &hi);
-  assert(lo == 0);
-  assert(hi == 0);
-}
+static void test_anchor_addr_null(void) { assert(anchor_addr(NULL) == 0); }
 
 /* =========================================================================
- * adjust_for_page_offset
- * =========================================================================
- */
-static void test_adjust_noop_same_po(void) {
-  reset_state();
-  unsigned long orig = layout.page_offset;
-  adjust_for_page_offset(orig);
-  assert(layout.page_offset == orig);
-  assert(layout.kernel_base_min == KERNEL_BASE_MIN);
-}
-
-#if defined(__i386__) || defined(__arm__)
-/* PAGE_OFFSET adjustment is meaningful on 32-bit with vmsplit */
-static void test_adjust_shifts_layout(void) {
-  reset_state();
-  unsigned long new_po = PAGE_OFFSET + 0x10000000ul;
-  unsigned long old_modules_end = layout.modules_end;
-
-  adjust_for_page_offset(new_po);
-
-  assert(layout.page_offset == new_po);
-  assert(layout.kernel_vas_start == new_po);
-  assert(layout.kernel_base_min == new_po);
-  assert(layout.kernel_text_default == new_po + TEXT_OFFSET);
-
-  /* modules_end should shift if it was anchored to old PAGE_OFFSET */
-  if (old_modules_end == PAGE_OFFSET)
-    assert(layout.modules_end == new_po);
-}
-#endif
-
-/* =========================================================================
- * revalidate_results
- * =========================================================================
- */
-static void test_revalidate_updates_validity(void) {
-  reset_state();
-  /* Inject a result that's valid with current layout */
-  unsigned long addr = KERNEL_BASE_MIN + KERNEL_ALIGN;
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr, "test");
-  assert(results[0].valid == 1);
-
-  /* Manually corrupt validity, then revalidate */
-  results[0].valid = 0;
-  revalidate_results();
-  assert(results[0].valid == 1);
+ * Adjust for page offset
+ * ========================================================================= */
+static void test_adjust_noop(void) {
+  unsigned long saved = layout.page_offset;
+  adjust_for_page_offset(layout.page_offset);
+  assert(layout.page_offset == saved);
 }
 
 /* =========================================================================
  * ilog2
- * =========================================================================
- */
+ * ========================================================================= */
 static void test_ilog2_power_of_two(void) {
   assert(ilog2(1) == 0);
   assert(ilog2(2) == 1);
   assert(ilog2(4) == 2);
   assert(ilog2(1024) == 10);
-  assert(ilog2(0x200000) == 21); /* 2 MiB */
-}
-
-static void test_ilog2_non_power(void) {
-  assert(ilog2(3) == 1);
-  assert(ilog2(5) == 2);
-  assert(ilog2(1023) == 9);
 }
 
 static void test_ilog2_zero(void) { assert(ilog2(0) == 0); }
 
-static void test_ilog2_large(void) {
-  assert(ilog2(1ul << 30) == 30);
-#if __SIZEOF_LONG__ == 8
-  assert(ilog2(1ul << 62) == 62);
-#endif
-}
-
 /* =========================================================================
- * section_display_name
- * =========================================================================
- */
-static void test_section_display_default_null(void) {
-  assert(section_display_name(KASLD_ADDR_DEFAULT, KASLD_SECTION_NONE) == NULL);
-}
+ * compute_kaslr_info fallback chain
+ * ========================================================================= */
+static void test_compute_kaslr_info_uses_kernel_image_anchor(void) {
+  reset_results();
+  struct result *r = push_result();
+  r->type = KASLD_TYPE_VIRT;
+  r->region = REGION_KERNEL_IMAGE;
+  r->pos = POS_BASE;
+  r->conf = CONF_PARSED;
+  r->lo = layout.kaslr_base_min + layout.kaslr_align;
+  r->set_mask = LO_SET;
 
-static void test_section_display_virt_text(void) {
-  const char *name = section_display_name(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT);
-  assert(name != NULL);
-  assert(strstr(name, "virtual") != NULL);
-}
-
-static void test_section_display_phys_text(void) {
-  const char *name = section_display_name(KASLD_ADDR_PHYS, KASLD_SECTION_TEXT);
-  assert(name != NULL);
-  assert(strstr(name, "physical") != NULL);
-}
-
-static void test_section_display_pageoffset_null(void) {
-  assert(section_display_name(KASLD_ADDR_VIRT, KASLD_SECTION_PAGEOFFSET) ==
-         NULL);
-}
-
-static void test_section_display_module(void) {
-  assert(section_display_name(KASLD_ADDR_VIRT, KASLD_SECTION_MODULE) != NULL);
-}
-
-static void test_section_display_dram(void) {
-  assert(section_display_name(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM) != NULL);
-}
-
-/* =========================================================================
- * validate_for_section — additional section coverage
- * =========================================================================
- */
-static void test_validate_virt_directmap_in_range(void) {
-  unsigned long addr = layout.kernel_vas_start + 0x1000;
-  assert(validate_for_section(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, addr) ==
-         1);
-}
-
-static void test_validate_virt_directmap_below_range(void) {
-  unsigned long addr = layout.kernel_vas_start - 1;
-  assert(validate_for_section(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, addr) ==
-         0);
-}
-
-static void test_validate_virt_data_in_range(void) {
-  unsigned long addr = layout.kernel_vas_start + 0x1000;
-  assert(validate_for_section(KASLD_ADDR_VIRT, KASLD_SECTION_DATA, addr) == 1);
-}
-
-static void test_validate_virt_pageoffset_always_valid(void) {
-  assert(validate_for_section(KASLD_ADDR_VIRT, KASLD_SECTION_PAGEOFFSET,
-                              0x1000) == 1);
-  assert(validate_for_section(KASLD_ADDR_VIRT, KASLD_SECTION_PAGEOFFSET, 0) ==
-         1);
-}
-
-static void test_validate_virt_text_at_boundaries(void) {
-  /* Exactly at min: valid */
-  assert(validate_for_section(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT,
-                              KERNEL_BASE_MIN) == 1);
-  /* Exactly at max: valid */
-  assert(validate_for_section(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT,
-                              KERNEL_BASE_MAX) == 1);
-}
-
-static void test_validate_virt_module_at_boundaries(void) {
-  assert(validate_for_section(KASLD_ADDR_VIRT, KASLD_SECTION_MODULE,
-                              MODULES_START) == 1);
-  assert(validate_for_section(KASLD_ADDR_VIRT, KASLD_SECTION_MODULE,
-                              MODULES_END) == 1);
-}
-
-/* =========================================================================
- * capture_result — additional parser edge cases
- * =========================================================================
- */
-static void test_parse_rejects_lowercase_type(void) {
-  reset_state();
-  char buf[LINE_LEN];
-  snprintf(buf, sizeof(buf), "v text 0xffffffff81000000 lowercase\n");
-  capture_result(buf, "parsed", NULL);
-  assert(num_results == 0);
-}
-
-static void test_parse_rejects_missing_space(void) {
-  reset_state();
-  char buf[LINE_LEN];
-  snprintf(buf, sizeof(buf), "Vtext 0xffffffff81000000 nospace\n");
-  capture_result(buf, "parsed", NULL);
-  assert(num_results == 0);
-}
-
-static void test_parse_rejects_empty_label(void) {
-  reset_state();
-  char buf[LINE_LEN];
-  /* Only type, section, addr — no label after the hex */
-  snprintf(buf, sizeof(buf), "V text 0xffffffff81000000\n");
-  capture_result(buf, "parsed", NULL);
-  /* label_start points to '\n' or '\0'; should be rejected or have empty label
-   */
-  /* The function checks *label_start == '\0' but '\n' passes that check */
-  /* Either way it shouldn't crash */
-}
-
-static void test_parse_zero_address(void) {
-  reset_state();
-  inject_tagged("P dram 0x0 zero-addr");
-  assert(num_results == 1);
-  assert(results[0].raw == 0);
-}
-
-static void test_parse_phys_type(void) {
-  reset_state();
-  inject_tagged("P text 0x0000000040200000 dmesg-phys");
-  assert(num_results == 1);
-  assert(results[0].type == KASLD_ADDR_PHYS);
-  assert(strcmp(results[0].section, "text") == 0);
-}
-
-static void test_parse_directmap_section(void) {
-  reset_state();
-  inject_tagged("V directmap 0xffff888000000000 sysfs-directmap");
-  assert(num_results == 1);
-  assert(strcmp(results[0].section, "directmap") == 0);
-}
-
-/* =========================================================================
- * group_consensus — additional edge cases
- * =========================================================================
- */
-static void test_consensus_section_isolation(void) {
-  reset_state();
-  unsigned long text_addr = KERNEL_BASE_MIN + KERNEL_ALIGN;
-  unsigned long mod_addr = MODULES_START + 0x1000;
-
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, text_addr, "t");
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_MODULE, mod_addr, "m");
-
-  /* text consensus should not include the module result */
-  assert(group_consensus(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT) == text_addr);
-  assert(group_consensus(KASLD_ADDR_VIRT, KASLD_SECTION_MODULE) == mod_addr);
-}
-
-static void test_consensus_three_way_tie(void) {
-  reset_state();
-  unsigned long a1 = KERNEL_BASE_MIN + 4 * KERNEL_ALIGN;
-  unsigned long a2 = KERNEL_BASE_MIN + 2 * KERNEL_ALIGN;
-  unsigned long a3 = KERNEL_BASE_MIN + 6 * KERNEL_ALIGN;
-
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, a1, "x");
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, a2, "y");
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, a3, "z");
-
-  /* Three-way tie: should pick lowest */
-  assert(group_consensus(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT) == a2);
-}
-
-static void test_consensus_weight_beats_count(void) {
-  reset_state();
-  unsigned long addr_exact = KERNEL_BASE_MIN + 4 * KERNEL_ALIGN;
-  unsigned long addr_heur = KERNEL_BASE_MIN + 2 * KERNEL_ALIGN;
-
-  /* One exact result (weight 4) vs two heuristic results (weight 1 each) */
-  struct result *r = &results[num_results++];
-  r->type = KASLD_ADDR_VIRT;
-  strncpy(r->section, KASLD_SECTION_TEXT, SECTION_LEN - 1);
-  r->raw = addr_exact;
-  r->aligned = addr_exact;
-  r->valid = 1;
-  strncpy(r->region, "e", REGION_LEN - 1);
-  strncpy(r->method, "exact", METHOD_LEN - 1);
-
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr_heur, "h1");
-  results[num_results - 1].method[0] = '\0';
-  strncpy(results[num_results - 1].method, "heuristic", METHOD_LEN - 1);
-
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr_heur, "h2");
-  results[num_results - 1].method[0] = '\0';
-  strncpy(results[num_results - 1].method, "heuristic", METHOD_LEN - 1);
-
-  /* exact (score 4) beats 2x heuristic (score 2) */
-  assert(group_consensus(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT) == addr_exact);
-}
-
-static void test_consensus_weight_tie_to_count(void) {
-  reset_state();
-  unsigned long addr_a = KERNEL_BASE_MIN + 4 * KERNEL_ALIGN;
-  unsigned long addr_b = KERNEL_BASE_MIN + 2 * KERNEL_ALIGN;
-
-  /* Two parsed results (2+2=4) vs one exact result (4) — score tie */
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr_a, "p1");
-  results[num_results - 1].method[0] = '\0';
-  strncpy(results[num_results - 1].method, "parsed", METHOD_LEN - 1);
-
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr_a, "p2");
-  results[num_results - 1].method[0] = '\0';
-  strncpy(results[num_results - 1].method, "parsed", METHOD_LEN - 1);
-
-  struct result *r = &results[num_results++];
-  r->type = KASLD_ADDR_VIRT;
-  strncpy(r->section, KASLD_SECTION_TEXT, SECTION_LEN - 1);
-  r->raw = addr_b;
-  r->aligned = addr_b;
-  r->valid = 1;
-  strncpy(r->region, "e", REGION_LEN - 1);
-  strncpy(r->method, "exact", METHOD_LEN - 1);
-
-  /* Score tie (4 vs 4): break to count (2 vs 1) */
-  assert(group_consensus(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT) == addr_a);
-}
-
-/* =========================================================================
- * group_range — additional edge cases
- * =========================================================================
- */
-static void test_range_ignores_invalid(void) {
-  reset_state();
-  unsigned long valid_addr = MODULES_START + 0x1000;
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_MODULE, valid_addr, "ok");
-
-  /* Inject an invalid result manually */
-  struct result *r = &results[num_results++];
-  r->type = KASLD_ADDR_VIRT;
-  strncpy(r->section, KASLD_SECTION_MODULE, SECTION_LEN - 1);
-  r->section[SECTION_LEN - 1] = '\0';
-  r->raw = 0x1000; /* way out of range */
-  r->aligned = 0x1000;
-  r->valid = 0;
-  strncpy(r->region, "bad", REGION_LEN - 1);
-
-  unsigned long lo, hi;
-  group_range(KASLD_ADDR_VIRT, KASLD_SECTION_MODULE, &lo, &hi);
-  assert(lo == valid_addr);
-  assert(hi == 0); /* only one valid result */
-}
-
-static void test_range_type_isolation(void) {
-  reset_state();
-  unsigned long vaddr = MODULES_START + 0x1000;
-  unsigned long paddr = 0x80001000ul;
-
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_DRAM, vaddr, "v");
-  inject_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, paddr, "p");
-
-  unsigned long lo, hi;
-  group_range(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, &lo, &hi);
-  assert(lo == paddr);
-  assert(hi == 0);
-}
-
-static void test_range_zero_address(void) {
-  reset_state();
-  /* Physical DRAM can legitimately start at 0x0 */
-  results[num_results].type = KASLD_ADDR_PHYS;
-  strncpy(results[num_results].section, KASLD_SECTION_DRAM, SECTION_LEN - 1);
-  results[num_results].aligned = 0x0;
-  results[num_results].valid = 1;
-  num_results++;
-
-  results[num_results].type = KASLD_ADDR_PHYS;
-  strncpy(results[num_results].section, KASLD_SECTION_DRAM, SECTION_LEN - 1);
-  results[num_results].aligned = 0x340000000ul;
-  results[num_results].valid = 1;
-  num_results++;
-
-  unsigned long lo, hi;
-  group_range(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, &lo, &hi);
-  assert(lo == 0x0);
-  assert(hi == 0x340000000ul);
-}
-
-/* =========================================================================
- * add_derived
- * =========================================================================
- */
-static void test_add_derived_basic(void) {
-  struct summary s;
-  memset(&s, 0, sizeof(s));
-
-  add_derived(&s, KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, 0xffffffff81200000ul, 0,
-              "Virtual text base", "via P text");
-  assert(s.num_derived == 1);
-  assert(s.derived[0].type == KASLD_ADDR_VIRT);
-  assert(strcmp(s.derived[0].section, "text") == 0);
-  assert(s.derived[0].addr == 0xffffffff81200000ul);
-  assert(s.derived[0].addr_hi == 0);
-  assert(strcmp(s.derived[0].label, "Virtual text base") == 0);
-  assert(strcmp(s.derived[0].via, "via P text") == 0);
-}
-
-static void test_add_derived_with_range(void) {
-  struct summary s;
-  memset(&s, 0, sizeof(s));
-
-  add_derived(&s, KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, 0x1000ul, 0x8000ul,
-              "DRAM range", "via dmesg");
-  assert(s.num_derived == 1);
-  assert(s.derived[0].addr == 0x1000ul);
-  assert(s.derived[0].addr_hi == 0x8000ul);
-}
-
-static void test_add_derived_overflow(void) {
-  struct summary s;
-  memset(&s, 0, sizeof(s));
-
-  /* Fill to MAX_DERIVED */
-  for (int i = 0; i < MAX_DERIVED; i++)
-    add_derived(&s, KASLD_ADDR_VIRT, KASLD_SECTION_TEXT,
-                0x1000ul * (unsigned long)i, 0, "fill", "test");
-  assert(s.num_derived == MAX_DERIVED);
-
-  /* One more should be silently dropped */
-  add_derived(&s, KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, 0xdeadbeeful, 0,
-              "overflow", "test");
-  assert(s.num_derived == MAX_DERIVED);
-}
-
-/* =========================================================================
- * inject_kaslr_defaults
- * =========================================================================
- */
-static void test_inject_defaults_nokaslr(void) {
-  reset_state();
-  struct summary s;
-  memset(&s, 0, sizeof(s));
-
-  /* "proc-cmdline:nokaslr" isn't "default:text", so disabled=1 */
-  inject_result(KASLD_ADDR_DEFAULT, KASLD_SECTION_NONE, KERNEL_TEXT_DEFAULT,
-                "proc-cmdline:nokaslr");
-
-  inject_kaslr_defaults(&s);
-  assert(s.kaslr.disabled == 1);
-  assert(s.kaslr.default_addr == KERNEL_TEXT_DEFAULT);
-  /* Should have injected a V text result */
-  int found = 0;
-  for (int i = 0; i < num_results; i++) {
-    if (results[i].type == KASLD_ADDR_VIRT &&
-        strcmp(results[i].section, KASLD_SECTION_TEXT) == 0 &&
-        strcmp(results[i].region, KASLD_REGION_KERNEL_TEXT) == 0 &&
-        strcmp(results[i].name, "nokaslr") == 0) {
-      assert(results[i].raw == KERNEL_TEXT_DEFAULT);
-      found = 1;
-    }
-  }
-  assert(found == 1);
-}
-
-static void test_inject_defaults_unsupported(void) {
-  reset_state();
-  struct summary s;
-  memset(&s, 0, sizeof(s));
-
-  inject_result(KASLD_ADDR_DEFAULT, KASLD_SECTION_NONE, KERNEL_TEXT_DEFAULT,
-                "default:unsupported");
-
-  inject_kaslr_defaults(&s);
-  assert(s.kaslr.unsupported == 1);
-  assert(s.kaslr.disabled == 0);
-  /* Should still inject V text result */
-  assert(num_results == 2); /* original + injected */
-  assert(results[1].type == KASLD_ADDR_VIRT);
-}
-
-static void test_inject_defaults_kaslr_enabled(void) {
-  reset_state();
-  struct summary s;
-  memset(&s, 0, sizeof(s));
-
-  inject_result(KASLD_ADDR_DEFAULT, KASLD_SECTION_NONE, KERNEL_TEXT_DEFAULT,
-                "default:text");
-
-  inject_kaslr_defaults(&s);
-  assert(s.kaslr.disabled == 0);
-  assert(s.kaslr.unsupported == 0);
-  /* Should NOT inject V text result (KASLR is enabled) */
-  assert(num_results == 1);
-}
-
-/* =========================================================================
- * compute_kaslr_info
- * =========================================================================
- */
-static void test_compute_kaslr_with_vtext(void) {
-  reset_state();
-  struct summary s;
-  memset(&s, 0, sizeof(s));
-
-  unsigned long addr = KERNEL_BASE_MIN + 4 * KERNEL_ALIGN;
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr, "test");
-
-  compute_kaslr_info(&s);
-  assert(s.kaslr.vtext == addr);
-  assert(s.kaslr.vslide == (long)(addr - layout.kernel_text_default));
-}
-
-static void test_compute_kaslr_empty(void) {
-  reset_state();
-  struct summary s;
-  memset(&s, 0, sizeof(s));
-
-  compute_kaslr_info(&s);
-  assert(s.kaslr.vtext == 0);
-  assert(s.kaslr.ptext == 0);
-  assert(s.kaslr.has_phys == 0);
-  /* Slot count is computed unconditionally from the layout range. */
-  assert(s.kaslr.vslots > 0);
-  assert(s.kaslr.vbits > 0);
-}
-
-static void test_compute_kaslr_disabled_zeroes(void) {
-  reset_state();
-  struct summary s;
-  memset(&s, 0, sizeof(s));
-
-  /* Inject a nokaslr indicator and a virtual text result */
-  inject_result(KASLD_ADDR_DEFAULT, KASLD_SECTION_NONE, KERNEL_TEXT_DEFAULT,
-                "proc-cmdline:nokaslr");
-  inject_kaslr_defaults(&s);
-
-  unsigned long addr = KERNEL_BASE_MIN + 4 * KERNEL_ALIGN;
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr, "test");
-
-  compute_kaslr_info(&s);
-
-  /* Consensus should prefer the exact default over the unknown-method
-   * result, since inject_kaslr_defaults sets method=exact (weight 4). */
-  assert(s.kaslr.vtext == layout.kernel_text_default);
-
-  /* But slide and entropy must be clamped to zero */
-  assert(s.kaslr.disabled == 1);
-  assert(s.kaslr.vslide == 0);
-  assert(s.kaslr.vslots == 0);
-  assert(s.kaslr.vbits == 0);
-  assert(s.kaslr.vslot_valid == 0);
-  assert(s.kaslr.pslide == 0);
-  assert(s.kaslr.pslots == 0);
-  assert(s.kaslr.pbits == 0);
-}
-
-/* =========================================================================
- * compute_derived_addrs — decoupled_note flag
- * =========================================================================
- */
-static void test_derived_decoupled_note_with_phys(void) {
-  reset_state();
-  struct summary s;
-  memset(&s, 0, sizeof(s));
-
-  /* Only physical DRAM, no virtual text */
-  inject_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, 0x40000000ul, "test:dram");
-
-  compute_derived_addrs(&s);
-#if PHYS_VIRT_DECOUPLED
-  assert(s.decoupled_note == 1);
-#else
-  assert(s.decoupled_note == 0);
-#endif
-}
-
-static void test_derived_decoupled_note_suppressed_with_vtext(void) {
-  reset_state();
-  struct summary s;
-  memset(&s, 0, sizeof(s));
-
-  /* Both physical DRAM and virtual text — note should be suppressed */
-  inject_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, 0x40000000ul, "test:dram");
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT,
-                KERNEL_BASE_MIN + KERNEL_ALIGN, "test:text");
-
-  compute_derived_addrs(&s);
-  assert(s.decoupled_note == 0);
-}
-
-static void test_derived_decoupled_note_suppressed_no_phys(void) {
-  reset_state();
-  struct summary s;
-  memset(&s, 0, sizeof(s));
-
-  /* No physical results at all — nothing to explain */
-  compute_derived_addrs(&s);
-  assert(s.decoupled_note == 0);
-}
-
-/* =========================================================================
- * Helpers: stdout capture for render tests
- * =========================================================================
- */
-static int saved_stdout_fd = -1;
-static FILE *capture_tmpfp;
-
-static void capture_start(void) {
-  fflush(stdout);
-  saved_stdout_fd = dup(STDOUT_FILENO);
-  capture_tmpfp = tmpfile();
-  assert(capture_tmpfp);
-  dup2(fileno(capture_tmpfp), STDOUT_FILENO);
-}
-
-/* Returns malloc'd string of captured output. Caller must free. */
-static char *capture_end(void) {
-  fflush(stdout);
-  dup2(saved_stdout_fd, STDOUT_FILENO);
-  close(saved_stdout_fd);
-  saved_stdout_fd = -1;
-
-  long sz = ftell(capture_tmpfp);
-  rewind(capture_tmpfp);
-  char *buf = malloc((size_t)sz + 1);
-  assert(buf);
-  size_t n = fread(buf, 1, (size_t)sz, capture_tmpfp);
-  buf[n] = '\0';
-  fclose(capture_tmpfp);
-  return buf;
-}
-
-/* =========================================================================
- * json_print_escaped
- * =========================================================================
- */
-static void test_json_print_escaped_special_chars(void) {
-  capture_start();
-  json_print_escaped("hello \"world\"\nfoo\\bar");
-  char *out = capture_end();
-
-  assert(strcmp(out, "\"hello \\\"world\\\"\\nfoo\\\\bar\"") == 0);
-  free(out);
-}
-
-/* =========================================================================
- * render_json
- * =========================================================================
- */
-static void test_json_basic_structure(void) {
-  reset_state();
-  struct summary s;
-  memset(&s, 0, sizeof(s));
-
-  capture_start();
-  render_json(&s);
-  char *out = capture_end();
-
-  /* Must start with { and end with }\n */
-  assert(out[0] == '{');
-  size_t len = strlen(out);
-  assert(len >= 2);
-  assert(out[len - 2] == '}');
-  assert(out[len - 1] == '\n');
-
-  /* Required top-level keys */
-  assert(strstr(out, "\"version\""));
-  assert(strstr(out, "\"arch\""));
-  assert(strstr(out, "\"kernel\""));
-  assert(strstr(out, "\"layout\""));
-  assert(strstr(out, "\"kaslr\""));
-  assert(strstr(out, "\"groups\""));
-  assert(strstr(out, "\"derived\""));
-
-  /* No "components" without verbose */
-  assert(strstr(out, "\"components\"") == NULL);
-
-  free(out);
-}
-
-static void test_json_layout_values(void) {
-  reset_state();
-  struct summary s;
-  memset(&s, 0, sizeof(s));
-
-  capture_start();
-  render_json(&s);
-  char *out = capture_end();
-
-  /* Layout section should contain expected fields */
-  assert(strstr(out, "\"page_offset\""));
-  assert(strstr(out, "\"kernel_base_min\""));
-  assert(strstr(out, "\"kernel_align\""));
-  assert(strstr(out, "\"kernel_text_default\""));
-  assert(strstr(out, "\"modules_start\""));
-  assert(strstr(out, "\"modules_end\""));
-
-  /* phys_virt_decoupled matches compile-time constant */
-  if (PHYS_VIRT_DECOUPLED)
-    assert(strstr(out, "\"phys_virt_decoupled\": true"));
-  else
-    assert(strstr(out, "\"phys_virt_decoupled\": false"));
-
-  free(out);
-}
-
-static void test_json_groups_with_results(void) {
-  reset_state();
-  struct summary s;
-  memset(&s, 0, sizeof(s));
-
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT,
-                KERNEL_BASE_MIN + KERNEL_ALIGN, "test-component");
-
-  capture_start();
-  render_json(&s);
-  char *out = capture_end();
-
-  /* Group should have type V and section text */
-  assert(strstr(out, "\"type\": \"V\""));
-  assert(strstr(out, "\"section\": \"text\""));
-  /* Region should appear in results */
-  assert(strstr(out, "\"region\": \"test-component\""));
-  /* Consensus should be populated */
-  assert(strstr(out, "\"consensus\": \"0x"));
-
-  free(out);
-}
-
-static void test_json_kaslr_virtual(void) {
-  reset_state();
-  struct summary s;
-  memset(&s, 0, sizeof(s));
-
-  unsigned long addr = KERNEL_BASE_MIN + 4 * KERNEL_ALIGN;
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr, "test");
-
-  inject_kaslr_defaults(&s);
-  compute_kaslr_info(&s);
-
-  capture_start();
-  render_json(&s);
-  char *out = capture_end();
-
-  assert(strstr(out, "\"disabled\": false"));
-  assert(strstr(out, "\"virtual\""));
-  assert(strstr(out, "\"text_base\""));
-  assert(strstr(out, "\"slide_bytes\""));
-  assert(strstr(out, "\"entropy_bits\""));
-  assert(strstr(out, "\"slots\""));
-
-  free(out);
-}
-
-static void test_json_kaslr_no_address_has_inferred(void) {
-  reset_state();
-  struct summary s;
-  memset(&s, 0, sizeof(s));
-
-  /* No results — KASLR appears active; inferred range must appear in JSON */
-  compute_kaslr_info(&s);
-
-  capture_start();
-  render_json(&s);
-  char *out = capture_end();
-
-  assert(strstr(out, "\"inferred\""));
-  assert(strstr(out, "\"range_min\""));
-  assert(strstr(out, "\"range_max\""));
-  assert(strstr(out, "\"slots\""));
-  assert(strstr(out, "\"entropy_bits\""));
-  /* No concrete address → no "virtual" object */
-  assert(!strstr(out, "\"virtual\""));
-
-  free(out);
-}
-
-static void test_json_kaslr_disabled(void) {
-  reset_state();
-  struct summary s;
-  memset(&s, 0, sizeof(s));
-
-  inject_result(KASLD_ADDR_DEFAULT, KASLD_SECTION_NONE, KERNEL_TEXT_DEFAULT,
-                "proc-cmdline:nokaslr");
-  inject_kaslr_defaults(&s);
-  compute_kaslr_info(&s);
-
-  capture_start();
-  render_json(&s);
-  char *out = capture_end();
-
-  assert(strstr(out, "\"disabled\": true"));
-  /* Disabled → no inferred object */
-  assert(!strstr(out, "\"inferred\""));
-
-  free(out);
-}
-
-static void test_json_derived_entries(void) {
-  reset_state();
-  struct summary s;
-  memset(&s, 0, sizeof(s));
-
-  add_derived(&s, KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP,
-              PAGE_OFFSET + 0x1000, 0, "linear map", "phys_to_virt");
-
-  capture_start();
-  render_json(&s);
-  char *out = capture_end();
-
-  assert(strstr(out, "\"derived\""));
-  assert(strstr(out, "\"label\": \"linear map\""));
-  assert(strstr(out, "\"via\": \"phys_to_virt\""));
-
-  free(out);
-}
-
-static void test_json_derived_with_range(void) {
-  reset_state();
-  struct summary s;
-  memset(&s, 0, sizeof(s));
-
-  add_derived(&s, KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, 0x10000000ul,
-              0x20000000ul, "DRAM range", "e820");
-
-  capture_start();
-  render_json(&s);
-  char *out = capture_end();
-
-  assert(strstr(out, "\"addr\": \"0x"));
-  assert(strstr(out, "\"addr_hi\": \"0x"));
-  assert(strstr(out, "\"label\": \"DRAM range\""));
-
-  free(out);
-}
-
-static void test_json_verbose_has_components(void) {
-  reset_state();
-  verbose = 1;
-  struct summary s;
-  memset(&s, 0, sizeof(s));
-
-  /* Inject a component log entry */
-  struct component_log *cl = &comp_logs[num_comp_logs++];
-  strncpy(cl->name, "test-comp", sizeof(cl->name) - 1);
-  cl->exit_code = 0;
-  cl->outcome = OUTCOME_SUCCESS;
-  cl->num_lines = 1;
-  strncpy(cl->lines[0], "V text 0xffffffff81000000 test", MAX_LINE_LEN - 1);
-
-  capture_start();
-  render_json(&s);
-  char *out = capture_end();
-
-  /* Should have components array */
-  assert(strstr(out, "\"components\""));
-  assert(strstr(out, "\"test-comp\""));
-  assert(strstr(out, "\"exit_code\": 0"));
-  assert(strstr(out, "\"outcome\": \"success\""));
-  assert(strstr(out, "\"output\""));
-
-  /* Must still be valid JSON (ends with }\n) */
-  size_t len = strlen(out);
-  assert(out[len - 2] == '}');
-  assert(out[len - 1] == '\n');
-
-  free(out);
-}
-
-static void test_json_verbose_no_logs(void) {
-  reset_state();
-  verbose = 1;
-  /* No comp_logs entries */
-  struct summary s;
-  memset(&s, 0, sizeof(s));
-
-  capture_start();
-  render_json(&s);
-  char *out = capture_end();
-
-  /* verbose=1 but no comp_logs: should NOT have components */
-  assert(strstr(out, "\"components\"") == NULL);
-
-  /* Should still have component_stats */
-  assert(strstr(out, "\"component_stats\""));
-
-  free(out);
-}
-
-static void test_component_stats(void) {
-  reset_state();
-  struct summary s;
-  memset(&s, 0, sizeof(s));
-
-  /* Inject comp_logs with different outcomes */
-  struct component_log *cl;
-  cl = &comp_logs[num_comp_logs++];
-  strncpy(cl->name, "comp-a", sizeof(cl->name) - 1);
-  cl->outcome = OUTCOME_SUCCESS;
-
-  cl = &comp_logs[num_comp_logs++];
-  strncpy(cl->name, "comp-b", sizeof(cl->name) - 1);
-  cl->outcome = OUTCOME_ACCESS_DENIED;
-
-  cl = &comp_logs[num_comp_logs++];
-  strncpy(cl->name, "comp-c", sizeof(cl->name) - 1);
-  cl->outcome = OUTCOME_TIMEOUT;
-
-  cl = &comp_logs[num_comp_logs++];
-  strncpy(cl->name, "comp-d", sizeof(cl->name) - 1);
-  cl->outcome = OUTCOME_NO_RESULT;
-
-  cl = &comp_logs[num_comp_logs++];
-  strncpy(cl->name, "comp-e", sizeof(cl->name) - 1);
-  cl->outcome = OUTCOME_SUCCESS;
-
-  cl = &comp_logs[num_comp_logs++];
-  strncpy(cl->name, "comp-f", sizeof(cl->name) - 1);
-  cl->outcome = OUTCOME_UNAVAILABLE;
-
-  compute_component_stats(&s);
-  assert(s.stats.total == 6);
-  assert(s.stats.succeeded == 2);
-  assert(s.stats.unavailable == 1);
-  assert(s.stats.access_denied == 1);
-  assert(s.stats.timed_out == 1);
-  assert(s.stats.no_result == 1);
-}
-
-static void test_json_component_stats(void) {
-  reset_state();
-  struct summary s;
-  memset(&s, 0, sizeof(s));
-
-  s.stats.total = 12;
-  s.stats.succeeded = 5;
-  s.stats.unavailable = 2;
-  s.stats.access_denied = 2;
-  s.stats.timed_out = 1;
-  s.stats.no_result = 2;
-
-  capture_start();
-  render_json(&s);
-  char *out = capture_end();
-
-  assert(strstr(out, "\"component_stats\""));
-  assert(strstr(out, "\"total\": 12"));
-  assert(strstr(out, "\"succeeded\": 5"));
-  assert(strstr(out, "\"unavailable\": 2"));
-  assert(strstr(out, "\"access_denied\": 2"));
-  assert(strstr(out, "\"timed_out\": 1"));
-  assert(strstr(out, "\"no_result\": 2"));
-
-  free(out);
-}
-
-/* =========================================================================
- * End-to-end: tagged lines → parse → consensus
- * =========================================================================
- */
-static void test_e2e_pipeline(void) {
-  reset_state();
-
-  /* Simulate two components finding the same text address */
-  inject_tagged("V text 0xffffffff81200000 proc-kallsyms");
-  inject_tagged("V text 0xffffffff81200000 dmesg_backtrace");
-  inject_tagged("V text 0xffffffff81400000 entrybleed");
-  inject_tagged("V module 0xffffffffc0045000 proc-modules:lo");
-  inject_tagged("P dram 0x0000000001000000 dmesg_e820_memory_map:lo");
-
-  assert(num_results == 5);
-
-  /* Consensus should pick the address with 2 votes */
-  unsigned long vtext = group_consensus(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT);
-  assert(vtext == 0xffffffff81200000ul);
-
-  /* Module should have the single address */
-  unsigned long vmod_lo, vmod_hi;
-  group_range(KASLD_ADDR_VIRT, KASLD_SECTION_MODULE, &vmod_lo, &vmod_hi);
-  assert(vmod_lo == 0xffffffffc0045000ul);
-  assert(vmod_hi == 0); /* only one */
-}
-
-/* Simulate inference phase: LAYOUT_ADJUST fires after each component via
- * run_post_collection_inference(). Results are valid regardless of order. */
-static void test_e2e_incremental_layout(void) {
-  reset_state();
-
-  inject_tagged("D - 0xffffffff81000000 default:text");
-  init_inference_ctx();
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_LAYOUT_ADJUST);
-
-  inject_tagged("V text 0xffffffff81200000 dmesg_backtrace");
-  init_inference_ctx();
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_LAYOUT_ADJUST);
-  inject_tagged("V text 0xffffffff81200000 proc-kallsyms");
-  init_inference_ctx();
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_LAYOUT_ADJUST);
-
-  assert(num_results == 3);
-  assert(group_consensus(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT) ==
-         0xffffffff81200000ul);
-}
-
-static void test_e2e_kaslr_disabled_detection(void) {
   struct summary s = {0};
+  compute_kaslr_info(&s);
+  assert(s.kaslr.vtext == layout.kaslr_base_min + layout.kaslr_align);
+}
 
-  reset_state();
-  inject_tagged("D - 0xffffffff81000000 default:text");
-  inject_kaslr_defaults(&s);
-  assert(s.kaslr.disabled == 0);
+static void test_compute_kaslr_info_falls_back_to_kernel_text(void) {
+  reset_results();
+  struct result *r = push_result();
+  r->type = KASLD_TYPE_VIRT;
+  r->region = REGION_KERNEL_TEXT;
+  r->pos = POS_BASE;
+  r->conf = CONF_PARSED;
+  r->lo = layout.kaslr_base_min + 2 * layout.kaslr_align;
+  r->set_mask = LO_SET;
 
-  reset_state();
-  memset(&s, 0, sizeof(s));
-  inject_tagged("D - 0xffffffff81000000 default:text");
-  inject_tagged("D - 0xffffffff81000000 proc-cmdline:nokaslr");
-  inject_kaslr_defaults(&s);
-  assert(s.kaslr.disabled == 1);
+  struct summary s = {0};
+  compute_kaslr_info(&s);
+  assert(s.kaslr.vtext == layout.kaslr_base_min + 2 * layout.kaslr_align);
 }
 
 /* =========================================================================
- * Hardening helpers
- * =========================================================================
- */
+ * Round-trip: emit via helper → parse → struct equality
+ * ========================================================================= */
 
-/* Helper: inject a comp_log with metadata string */
-static void inject_comp_meta(const char *name, enum component_outcome outcome,
-                             const char *meta_str) {
-  assert(num_comp_logs < MAX_COMPONENTS);
-  struct component_log *cl = &comp_logs[num_comp_logs++];
-  memset(cl, 0, sizeof(*cl));
-  strncpy(cl->name, name, sizeof(cl->name) - 1);
-  cl->outcome = outcome;
-  /* Parse meta_str into cl->meta */
-  if (meta_str) {
-    char buf[1024];
-    strncpy(buf, meta_str, sizeof(buf) - 1);
-    buf[sizeof(buf) - 1] = '\0';
-    char *saveptr;
-    char *line = strtok_r(buf, "\n", &saveptr);
-    while (line && cl->meta.num_entries < META_MAX_ENTRIES) {
-      char *colon = strchr(line, ':');
-      if (colon) {
-        struct meta_entry *e = &cl->meta.entries[cl->meta.num_entries++];
-        size_t klen = (size_t)(colon - line);
-        if (klen >= META_KEY_LEN)
-          klen = META_KEY_LEN - 1;
-        memcpy(e->key, line, klen);
-        e->key[klen] = '\0';
-        strncpy(e->value, colon + 1, META_VALUE_LEN - 1);
-        e->value[META_VALUE_LEN - 1] = '\0';
-      }
-      line = strtok_r(NULL, "\n", &saveptr);
-    }
+/* Capture helper output by redirecting stdout to a pipe. Returns the line
+ * the helper emitted (without trailing newline). Caller passes a buffer. */
+static int capture_helper(int (*emit)(void), char *buf, size_t buflen) {
+  int pipefd[2];
+  if (pipe(pipefd) != 0)
+    return -1;
+  int saved_stdout = dup(fileno(stdout));
+  fflush(stdout);
+  dup2(pipefd[1], fileno(stdout));
+  close(pipefd[1]);
+  int ok = emit();
+  fflush(stdout);
+  dup2(saved_stdout, fileno(stdout));
+  close(saved_stdout);
+  ssize_t n = read(pipefd[0], buf, buflen - 1);
+  close(pipefd[0]);
+  if (n < 0)
+    return -1;
+  buf[n] = '\0';
+  /* Strip trailing newline for parser. */
+  if (n > 0 && buf[n - 1] == '\n')
+    buf[n - 1] = '\0';
+  return ok;
+}
+
+static int emit_base_helper(void) {
+  return kasld_result_base(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT,
+                           0xffffffff81000000ul, "test_sym", CONF_PARSED);
+}
+static int emit_range_helper(void) {
+  return kasld_result_range(KASLD_TYPE_PHYS, REGION_INITRD, 0x33000000ul,
+                            0x333ffffful, NULL, CONF_PARSED);
+}
+static int emit_top_helper(void) {
+  return kasld_result_top(KASLD_TYPE_PHYS, REGION_RAM, 0x100000000ul, NULL,
+                          CONF_PARSED);
+}
+static int emit_sample_helper(void) {
+  return kasld_result_sample(KASLD_TYPE_VIRT, REGION_VMALLOC,
+                             0xffffc90000123456ul, NULL, CONF_HEURISTIC);
+}
+static int emit_sized_helper(void) {
+  return kasld_result_sized(KASLD_TYPE_PHYS, REGION_INITRD, 0x100000ul,
+                            0x10000ul, NULL, CONF_PARSED);
+}
+
+static void test_roundtrip_base(void) {
+  char buf[512];
+  reset_results();
+  assert(capture_helper(emit_base_helper, buf, sizeof(buf)) == 1);
+  assert(capture_result(buf, "parsed", "test") == 1);
+  struct result *r = &results[0];
+  assert(r->type == KASLD_TYPE_VIRT);
+  assert(r->region == REGION_KERNEL_TEXT);
+  assert(strcmp(r->name, "test_sym") == 0);
+  assert(r->pos == POS_BASE);
+  assert(r->conf == CONF_PARSED);
+  assert(HAS_LO(r) && r->lo == 0xffffffff81000000ul);
+}
+
+static void test_roundtrip_range(void) {
+  char buf[512];
+  reset_results();
+  assert(capture_helper(emit_range_helper, buf, sizeof(buf)) == 1);
+  assert(capture_result(buf, "parsed", "test") == 1);
+  struct result *r = &results[0];
+  assert(r->type == KASLD_TYPE_PHYS);
+  assert(r->region == REGION_INITRD);
+  assert(r->name[0] == '\0');
+  assert(HAS_LO(r) && r->lo == 0x33000000ul);
+  assert(HAS_HI(r) && r->hi == 0x333ffffful);
+}
+
+static void test_roundtrip_top(void) {
+  char buf[512];
+  reset_results();
+  assert(capture_helper(emit_top_helper, buf, sizeof(buf)) == 1);
+  assert(capture_result(buf, "parsed", "test") == 1);
+  struct result *r = &results[0];
+  assert(r->type == KASLD_TYPE_PHYS);
+  assert(r->region == REGION_RAM);
+  assert(r->pos == POS_TOP);
+  assert(!HAS_LO(r) && HAS_HI(r));
+  assert(r->hi == 0x100000000ul);
+}
+
+static void test_roundtrip_sample(void) {
+  char buf[512];
+  reset_results();
+  assert(capture_helper(emit_sample_helper, buf, sizeof(buf)) == 1);
+  assert(capture_result(buf, "heuristic", "test") == 1);
+  struct result *r = &results[0];
+  assert(r->type == KASLD_TYPE_VIRT);
+  assert(r->region == REGION_VMALLOC);
+  assert(r->pos == POS_INTERIOR);
+  assert(r->conf == CONF_HEURISTIC);
+  assert(HAS_SAMPLE(r) && r->sample == 0xffffc90000123456ul);
+}
+
+static void test_roundtrip_sized(void) {
+  char buf[512];
+  reset_results();
+  assert(capture_helper(emit_sized_helper, buf, sizeof(buf)) == 1);
+  assert(capture_result(buf, "parsed", "test") == 1);
+  struct result *r = &results[0];
+  assert(HAS_LO(r) && HAS_HI(r));
+  assert(r->lo == 0x100000ul);
+  assert(r->hi == 0x10ffffu); /* lo + sz - 1 */
+}
+
+/* =========================================================================
+ * CONF_UNKNOWN rejection at helpers
+ * ========================================================================= */
+static int emit_with_conf_unknown_base(void) {
+  return kasld_result_base(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT,
+                           0xffffffff81000000ul, NULL, CONF_UNKNOWN);
+}
+static int emit_with_conf_unknown_sample(void) {
+  return kasld_result_sample(KASLD_TYPE_PHYS, REGION_RAM, 0x1000, NULL,
+                             CONF_UNKNOWN);
+}
+
+static int emit_with_invalid_type(void) {
+  return kasld_result_base(KASLD_TYPE_UNKNOWN, REGION_KERNEL_TEXT,
+                           0xffffffff81000000ul, NULL, CONF_PARSED);
+}
+
+static int emit_with_region_unknown(void) {
+  return kasld_result_base(KASLD_TYPE_VIRT, REGION_UNKNOWN, 0x1000, NULL,
+                           CONF_PARSED);
+}
+
+static void test_helpers_reject_conf_unknown(void) {
+  char buf[512];
+  /* Redirect stderr to /dev/null so the warning doesn't pollute test output. */
+  int saved = dup(fileno(stderr));
+  FILE *devnull = fopen("/dev/null", "w");
+  dup2(fileno(devnull), fileno(stderr));
+
+  /* All five helpers must reject CONF_UNKNOWN. */
+  assert(capture_helper(emit_with_conf_unknown_base, buf, sizeof(buf)) == 0);
+  assert(buf[0] == '\0'); /* no wire output */
+  assert(capture_helper(emit_with_conf_unknown_sample, buf, sizeof(buf)) == 0);
+  assert(buf[0] == '\0');
+
+  /* Same for invalid type and REGION_UNKNOWN. */
+  assert(capture_helper(emit_with_invalid_type, buf, sizeof(buf)) == 0);
+  assert(buf[0] == '\0');
+  assert(capture_helper(emit_with_region_unknown, buf, sizeof(buf)) == 0);
+  assert(buf[0] == '\0');
+
+  dup2(saved, fileno(stderr));
+  close(saved);
+  fclose(devnull);
+}
+
+/* =========================================================================
+ * Provenance dedup + MAX_PROVENANCE truncation
+ * ========================================================================= */
+static void test_merge_dedups_provenance(void) {
+  reset_results();
+  /* Three base contributors with consistent lo values (so they merge) but
+   * one origin duplicated. After merge the duplicate origin must appear
+   * only once. Use HAS_LO records (not HAS_SAMPLE) so samples_conflict
+   * doesn't prevent merging. */
+  for (int i = 0; i < 3; i++) {
+    struct result *r = push_result();
+    r->type = KASLD_TYPE_VIRT;
+    r->region = REGION_KERNEL_IMAGE;
+    r->pos = POS_BASE;
+    r->conf = CONF_HEURISTIC;
+    r->lo = 0xffffffff81000000ul + i * 0x10;
+    r->set_mask = LO_SET;
+    r->provenance_count = 1;
+    snprintf(r->origins[0], ORIGIN_LEN, "%s", i == 1 ? "src-b" : "src-a");
+    snprintf(r->methods[0], METHOD_LEN, "heuristic");
   }
-}
-
-/* =========================================================================
- * meta_get / meta_get_all
- * =========================================================================
- */
-static void test_meta_get_basic(void) {
-  reset_state();
-  inject_comp_meta("comp-a", OUTCOME_SUCCESS,
-                   "method:parsed\naddr:physical\nsysctl:dmesg_restrict>=1");
-  assert(strcmp(meta_get(&comp_logs[0].meta, "method"), "parsed") == 0);
-  assert(strcmp(meta_get(&comp_logs[0].meta, "addr"), "physical") == 0);
-  assert(meta_get(&comp_logs[0].meta, "nonexistent") == NULL);
-}
-
-static void test_meta_get_all_multiple(void) {
-  reset_state();
-  inject_comp_meta("comp-b", OUTCOME_SUCCESS,
-                   "method:timing\nhardware:KPTI\nhardware:AMD Zen 3+");
-  const char *vals[4];
-  int n = meta_get_all(&comp_logs[0].meta, "hardware", vals, 4);
-  assert(n == 2);
-  assert(strcmp(vals[0], "KPTI") == 0);
-  assert(strcmp(vals[1], "AMD Zen 3+") == 0);
-}
-
-/* =========================================================================
- * Hardening text render
- * =========================================================================
- */
-static void test_hardening_text_exposure_summary(void) {
-  reset_state();
-  hardening_mode = 1;
-  sysctl_kptr_restrict = 0;
-  sysctl_dmesg_restrict = 0;
-  sysctl_perf_event_paranoid = 1;
-  sysctl_lockdown = LOCKDOWN_NONE;
-
-  inject_comp_meta("comp-a", OUTCOME_SUCCESS, "method:parsed\naddr:physical");
-  inject_comp_meta("comp-b", OUTCOME_UNAVAILABLE,
-                   "method:timing\naddr:virtual");
-  inject_comp_meta("comp-c", OUTCOME_SUCCESS, "method:exact\naddr:virtual");
-  inject_comp_meta("comp-d", OUTCOME_SUCCESS, "method:detection\naddr:none");
-
-  struct summary s;
-  memset(&s, 0, sizeof(s));
-
-  capture_start();
-  render_hardening_text();
-  char *out = capture_end();
-
-  /* 2 of 3 succeeded (detection excluded from count) */
-  assert(strstr(out, "2 of 3"));
-  assert(strstr(out, "Hardening Assessment"));
-  assert(strstr(out, "Active defenses:"));
-  assert(strstr(out, "Available hardening:"));
-  assert(strstr(out, "Patched vulnerabilities:"));
-  assert(strstr(out, "Compile-time attack surface:"));
-  assert(strstr(out, "No known mitigation:"));
-
-  free(out);
-}
-
-static void test_hardening_text_active_defenses(void) {
-  reset_state();
-  hardening_mode = 1;
-  sysctl_kptr_restrict = 2;
-  sysctl_dmesg_restrict = 1;
-  sysctl_perf_event_paranoid = 4;
-  sysctl_lockdown = LOCKDOWN_NONE;
-
-  inject_comp_meta("proc-kallsyms", OUTCOME_ACCESS_DENIED,
-                   "method:exact\naddr:virtual\nsysctl:kptr_restrict>=1");
-  inject_comp_meta("dmesg_e820", OUTCOME_ACCESS_DENIED,
-                   "method:parsed\naddr:physical\nsysctl:dmesg_restrict>=1");
-  inject_comp_meta("perf_event_open", OUTCOME_ACCESS_DENIED,
-                   "method:exact\naddr:virtual\nsysctl:perf_event_paranoid>=2");
-
-  capture_start();
-  render_hardening_text();
-  char *out = capture_end();
-
-  assert(strstr(out, "kernel.kptr_restrict"));
-  assert(strstr(out, "kernel.dmesg_restrict"));
-  assert(strstr(out, "kernel.perf_event_paranoid"));
-  /* All gates active → should show checkmarks */
-  assert(strstr(out, "\xe2\x9c\x93"));
-
-  free(out);
-}
-
-static void test_hardening_text_patched(void) {
-  reset_state();
-  hardening_mode = 1;
-  sysctl_kptr_restrict = -1;
-  sysctl_dmesg_restrict = -1;
-  sysctl_perf_event_paranoid = -1;
-  sysctl_lockdown = LOCKDOWN_NONE;
-
-  inject_comp_meta(
-      "entrybleed", OUTCOME_SUCCESS,
-      "method:timing\naddr:virtual\ncve:CVE-2022-4543\npatch:v6.2");
-  inject_comp_meta(
-      "mincore", OUTCOME_UNAVAILABLE,
-      "method:heuristic\naddr:virtual\ncve:CVE-2017-16994\npatch:v4.15");
-
-  capture_start();
-  render_hardening_text();
-  char *out = capture_end();
-
-  assert(strstr(out, "1 of 2 vulnerability-based"));
-  assert(strstr(out, "entrybleed"));
-  assert(strstr(out, "CVE-2022-4543"));
-  assert(strstr(out, "v6.2"));
-
-  free(out);
-}
-
-static void test_hardening_text_no_mitigation(void) {
-  reset_state();
-  hardening_mode = 1;
-  sysctl_kptr_restrict = -1;
-  sysctl_dmesg_restrict = -1;
-  sysctl_perf_event_paranoid = -1;
-  sysctl_lockdown = LOCKDOWN_NONE;
-
-  inject_comp_meta("proc-zoneinfo", OUTCOME_SUCCESS,
-                   "method:parsed\naddr:physical");
-
-  capture_start();
-  render_hardening_text();
-  char *out = capture_end();
-
-  assert(strstr(out, "No known mitigation:"));
-  assert(strstr(out, "proc-zoneinfo"));
-
-  free(out);
-}
-
-/* =========================================================================
- * Hardening JSON render
- * =========================================================================
- */
-static void test_hardening_json_structure(void) {
-  reset_state();
-  hardening_mode = 1;
-  json_output = 1;
-  sysctl_kptr_restrict = 2;
-  sysctl_dmesg_restrict = 1;
-  sysctl_perf_event_paranoid = 1;
-  sysctl_lockdown = LOCKDOWN_NONE;
-
-  inject_comp_meta("proc-kallsyms", OUTCOME_ACCESS_DENIED,
-                   "method:exact\naddr:virtual\nsysctl:kptr_restrict>=1");
-  inject_comp_meta("proc-zoneinfo", OUTCOME_SUCCESS,
-                   "method:parsed\naddr:physical");
-
-  struct summary s;
-  memset(&s, 0, sizeof(s));
-
-  capture_start();
-  render_json(&s);
-  char *out = capture_end();
-
-  /* Top-level hardening object */
-  assert(strstr(out, "\"hardening\""));
-  assert(strstr(out, "\"exposure\""));
-  assert(strstr(out, "\"succeeded\": 1"));
-  assert(strstr(out, "\"total\": 2"));
-  assert(strstr(out, "\"active_defenses\""));
-  assert(strstr(out, "\"lockdown\""));
-  assert(strstr(out, "\"available_hardening\""));
-  assert(strstr(out, "\"patched_vulnerabilities\""));
-  assert(strstr(out, "\"compile_time_surface\""));
-  assert(strstr(out, "\"no_mitigation\""));
-
-  /* Per-component meta */
-  assert(strstr(out, "\"components\""));
-  assert(strstr(out, "\"meta\""));
-  assert(strstr(out, "\"method\": \"exact\""));
-
-  /* Valid JSON (ends with }\n) */
-  size_t len = strlen(out);
-  assert(out[len - 2] == '}');
-  assert(out[len - 1] == '\n');
-
-  free(out);
-}
-
-static void test_hardening_json_meta_array(void) {
-  reset_state();
-  hardening_mode = 1;
-  json_output = 1;
-  sysctl_kptr_restrict = -1;
-  sysctl_dmesg_restrict = -1;
-  sysctl_perf_event_paranoid = -1;
-  sysctl_lockdown = LOCKDOWN_NONE;
-
-  inject_comp_meta(
-      "prefetch", OUTCOME_SUCCESS,
-      "method:timing\naddr:virtual\nhardware:KPTI\nhardware:AMD Zen 3+");
-
-  struct summary s;
-  memset(&s, 0, sizeof(s));
-
-  capture_start();
-  render_json(&s);
-  char *out = capture_end();
-
-  /* Multi-value key should be array */
-  assert(strstr(out, "\"hardware\": ["));
-  assert(strstr(out, "\"KPTI\""));
-  assert(strstr(out, "\"AMD Zen 3+\""));
-
-  free(out);
-}
-
-static void test_hardening_json_no_meta_without_flag(void) {
-  reset_state();
-  hardening_mode = 0;
-  verbose = 1;
-  json_output = 1;
-  sysctl_kptr_restrict = 0;
-  sysctl_dmesg_restrict = 0;
-  sysctl_perf_event_paranoid = 1;
-  sysctl_lockdown = LOCKDOWN_NONE;
-
-  inject_comp_meta("comp-a", OUTCOME_SUCCESS, "method:parsed\naddr:physical");
-
-  struct summary s;
-  memset(&s, 0, sizeof(s));
-
-  capture_start();
-  render_json(&s);
-  char *out = capture_end();
-
-  /* Without --hardening, should NOT have meta or hardening object */
-  assert(strstr(out, "\"meta\"") == NULL);
-  assert(strstr(out, "\"hardening\"") == NULL);
-
-  /* But should still have components (verbose=1) */
-  assert(strstr(out, "\"components\""));
-
-  free(out);
-}
-
-/* =========================================================================
- * apply_skip_filter
- * =========================================================================
- */
-static void test_skip_exact_match(void) {
-  reset_state();
-  snprintf(components[0].name, sizeof(components[0].name), "dmesg");
-  snprintf(components[1].name, sizeof(components[1].name), "entrybleed");
-  num_components = 2;
-  strncpy(skip_patterns[0], "dmesg", 255);
-  num_skip_patterns = 1;
-  apply_skip_filter();
-  assert(components[0].is_filtered == 1); /* dmesg: matches — filtered */
-  assert(components[1].is_filtered == 0); /* entrybleed: no match — kept */
-}
-
-static void test_skip_glob_pattern(void) {
-  reset_state();
-  snprintf(components[0].name, sizeof(components[0].name), "dmesg_backtrace");
-  snprintf(components[1].name, sizeof(components[1].name), "dmesg_e820");
-  snprintf(components[2].name, sizeof(components[2].name), "entrybleed");
-  num_components = 3;
-  strncpy(skip_patterns[0], "dmesg_*", 255);
-  num_skip_patterns = 1;
-  apply_skip_filter();
-  assert(components[0].is_filtered == 1); /* dmesg_backtrace: matches */
-  assert(components[1].is_filtered == 1); /* dmesg_e820: matches */
-  assert(components[2].is_filtered == 0); /* entrybleed: no match */
-}
-
-static void test_skip_multiple_patterns(void) {
-  reset_state();
-  snprintf(components[0].name, sizeof(components[0].name), "entrybleed");
-  snprintf(components[1].name, sizeof(components[1].name), "dmesg");
-  snprintf(components[2].name, sizeof(components[2].name), "proc-kallsyms");
-  num_components = 3;
-  strncpy(skip_patterns[0], "entrybleed", 255);
-  strncpy(skip_patterns[1], "dmesg", 255);
-  num_skip_patterns = 2;
-  apply_skip_filter();
-  assert(components[0].is_filtered == 1); /* entrybleed: matches pattern 0 */
-  assert(components[1].is_filtered == 1); /* dmesg: matches pattern 1 */
-  assert(components[2].is_filtered == 0); /* proc-kallsyms: no match */
-}
-
-static void test_skip_no_patterns_no_filter(void) {
-  reset_state();
-  snprintf(components[0].name, sizeof(components[0].name), "dmesg");
-  num_components = 1;
-  /* num_skip_patterns already 0 from reset_state */
-  apply_skip_filter();
-  assert(components[0].is_filtered == 0); /* no patterns: nothing filtered */
-}
-
-static void test_skip_no_match_keeps_all(void) {
-  reset_state();
-  snprintf(components[0].name, sizeof(components[0].name), "dmesg");
-  num_components = 1;
-  strncpy(skip_patterns[0], "entrybleed", 255);
-  num_skip_patterns = 1;
-  apply_skip_filter();
-  assert(components[0].is_filtered == 0); /* no match: not filtered */
-}
-
-static void test_skip_active_count_excludes_filtered(void) {
-  reset_state();
-  snprintf(components[0].name, sizeof(components[0].name), "dmesg");
-  snprintf(components[1].name, sizeof(components[1].name), "entrybleed");
-  num_components = 2;
-  strncpy(skip_patterns[0], "dmesg", 255);
-  num_skip_patterns = 1;
-  apply_skip_filter();
-  /* Count active like main() does */
-  int count = 0;
-  for (int i = 0; i < num_components; i++) {
-    if (components[i].is_filtered)
-      continue;
-    if (components[i].is_experimental && !experimental_mode)
-      continue;
-    count++;
+  merge_results();
+  assert(num_results == 1);
+  struct result *r = &results[0];
+  /* "src-a" appears twice in the contributors but only once in the merged
+   * origin list. */
+  assert(r->provenance_count == 2);
+  int seen_a = 0, seen_b = 0;
+  for (int i = 0; i < r->provenance_count; i++) {
+    if (strcmp(r->origins[i], "src-a") == 0)
+      seen_a++;
+    if (strcmp(r->origins[i], "src-b") == 0)
+      seen_b++;
   }
-  assert(count == 1); /* only entrybleed runs */
+  assert(seen_a == 1 && seen_b == 1);
 }
 
-static void test_skip_inference_pool_excludes_filtered(void) {
-  reset_state();
-  snprintf(components[0].name, sizeof(components[0].name), "dmesg");
-  snprintf(components[0].phase, sizeof(components[0].phase), "inference");
-  snprintf(components[1].name, sizeof(components[1].name), "entrybleed");
-  snprintf(components[1].phase, sizeof(components[1].phase), "inference");
-  num_components = 2;
-  strncpy(skip_patterns[0], "dmesg", 255);
-  num_skip_patterns = 1;
-  apply_skip_filter();
-  /* Build inference pool the same way run_inference_parallel() does */
-  int exp_active = 0;
-  pool_inf_n = 0;
-  for (int i = 0; i < num_components; i++) {
-    if (strcmp(components[i].phase, "inference") == 0 &&
-        (!components[i].is_experimental || exp_active) &&
-        !components[i].is_filtered)
-      pool_inf[pool_inf_n++] = i;
+static void test_merge_caps_at_max_provenance(void) {
+  reset_results();
+  /* MAX_PROVENANCE + 2 contributors with distinct origins. Merge must keep
+   * the first MAX_PROVENANCE and drop the rest. */
+  int saved = dup(fileno(stderr));
+  FILE *devnull = fopen("/dev/null", "w");
+  dup2(fileno(devnull), fileno(stderr));
+
+  for (int i = 0; i < MAX_PROVENANCE + 2; i++) {
+    struct result *r = push_result();
+    r->type = KASLD_TYPE_VIRT;
+    r->region = REGION_KERNEL_IMAGE;
+    r->pos = POS_BASE;
+    r->conf = CONF_HEURISTIC;
+    r->lo = 0xffffffff81000000ul + i * 0x10;
+    r->set_mask = LO_SET;
+    r->provenance_count = 1;
+    snprintf(r->origins[0], ORIGIN_LEN, "src-%d", i);
   }
-  assert(pool_inf_n == 1);
-  assert(pool_inf[0] == 1); /* only entrybleed (index 1) */
+  merge_results();
+
+  dup2(saved, fileno(stderr));
+  close(saved);
+  fclose(devnull);
+
+  assert(num_results == 1);
+  assert(results[0].provenance_count == MAX_PROVENANCE);
 }
 
 /* =========================================================================
- * Inference plugins
- * =========================================================================
- */
+ * Phys/virt linkage: P and V records with same region+name stay separate
+ * ========================================================================= */
+static void test_phys_virt_linkage_stays_two_records(void) {
+  reset_results();
+  /* P initrd extent */
+  struct result *p = push_result();
+  p->type = KASLD_TYPE_PHYS;
+  p->region = REGION_INITRD;
+  p->pos = POS_BASE;
+  p->conf = CONF_PARSED;
+  p->lo = 0x33000000;
+  p->hi = 0x333fffff;
+  p->set_mask = LO_SET | HI_SET;
 
-/* kaslr_ceiling (PRE_COLLECTION):
- * Estimates kernel image size from /boot files and eliminates the top band of
- * KASLR slots where base + image_size would exceed KASLR_BASE_MAX.
- * On systems where the /boot files are absent estimate_kernel_size() returns 0
- * and the plugin is a no-op; the invariant tests still hold. */
+  /* V initrd extent derived via phys_to_virt — same region+name, different
+   * type. */
+  struct result *v = push_result();
+  v->type = KASLD_TYPE_VIRT;
+  v->region = REGION_INITRD;
+  v->pos = POS_BASE;
+  v->conf = CONF_DERIVED;
+  v->lo = 0xffff888033000000ul;
+  v->hi = 0xffff8880333ffffful;
+  v->set_mask = LO_SET | HI_SET;
 
-static void test_kaslr_ceiling_never_widens(void) {
-  reset_state();
-  init_inference_ctx();
-  unsigned long initial_max = g_ctx.text_base_max;
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_PRE_COLLECTION);
-  assert(g_ctx.text_base_max <= initial_max);
+  merge_results();
+  /* Must stay two records — type discriminates. */
+  assert(num_results == 2);
+  /* select_anchor returns the right one per type. */
+  const struct result *picked_p = select_anchor(KASLD_TYPE_PHYS, REGION_INITRD);
+  const struct result *picked_v = select_anchor(KASLD_TYPE_VIRT, REGION_INITRD);
+  assert(picked_p && picked_p->type == KASLD_TYPE_PHYS);
+  assert(picked_v && picked_v->type == KASLD_TYPE_VIRT);
 }
 
-static void test_kaslr_ceiling_alignment_invariant(void) {
-  reset_state();
-  init_inference_ctx();
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_PRE_COLLECTION);
-  assert((g_ctx.text_base_max % layout.kaslr_align) == 0);
-}
-
-static void test_kaslr_ceiling_max_above_min(void) {
-  reset_state();
-  init_inference_ctx();
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_PRE_COLLECTION);
-  assert(g_ctx.text_base_max > g_ctx.text_base_min);
-}
-
-/* Physical ceiling: phys_base_max must never widen and, when the physical
- * range is non-zero (PHYS_VIRT_DECOUPLED arches), must remain >= phys_base_min
- * after the plugin runs. On arches where the physical range is zero both
- * bounds stay at zero and the assertions are trivially satisfied. */
-
-static void test_kaslr_ceiling_phys_never_widens(void) {
-  reset_state();
-  init_inference_ctx();
-  unsigned long initial_phys_max = g_ctx.phys_base_max;
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_PRE_COLLECTION);
-  assert(g_ctx.phys_base_max <= initial_phys_max);
-}
-
-static void test_kaslr_ceiling_phys_max_above_min(void) {
-  reset_state();
-  init_inference_ctx();
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_PRE_COLLECTION);
-  /* On arches with no physical KASLR both are zero; the plugin is a no-op. */
-  if (layout.phys_kaslr_base_max > 0)
-    assert(g_ctx.phys_base_max > g_ctx.phys_base_min);
-}
-
-#if PHYS_VIRT_DECOUPLED
-static void test_kaslr_ceiling_phys_alignment_invariant(void) {
-  reset_state();
-  init_inference_ctx();
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_PRE_COLLECTION);
-  if (layout.phys_kaslr_align > 0)
-    assert((g_ctx.phys_base_max % layout.phys_kaslr_align) == 0);
-}
-#endif
-
-/* dram_bound (POST_COLLECTION):
- * Raises text_base_min from the minimum PHYS/DRAM result on coupled arches. */
-
-static void test_dram_bound_no_results_noop(void) {
-  reset_state();
-  init_inference_ctx();
-  unsigned long initial_min = g_ctx.text_base_min;
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
-  assert(g_ctx.text_base_min == initial_min);
-}
-
-static void test_dram_bound_only_dram_section_used(void) {
-  reset_state();
-  /* PHYS/TEXT result — not DRAM — must leave text_base_min unchanged */
-  inject_result(KASLD_ADDR_PHYS, KASLD_SECTION_TEXT, PHYS_OFFSET + MB,
-                KASLD_REGION_KERNEL_IMAGE);
-  init_inference_ctx();
-  unsigned long initial_min = g_ctx.text_base_min;
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
-  assert(g_ctx.text_base_min == initial_min);
-}
-
-#if PHYS_VIRT_DECOUPLED
-static void test_dram_bound_decoupled_noop(void) {
-  reset_state();
-  inject_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, PHYS_OFFSET + (64 * MB),
-                KASLD_REGION_KERNEL_IMAGE);
-  init_inference_ctx();
-  unsigned long initial_min = g_ctx.text_base_min;
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
-  assert(g_ctx.text_base_min == initial_min);
-}
-#endif
-
-#if !PHYS_VIRT_DECOUPLED
-static void test_dram_bound_raises_min(void) {
-  reset_state();
-  inject_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, PHYS_OFFSET + (128 * MB),
-                KASLD_REGION_KERNEL_IMAGE);
-  init_inference_ctx();
-  unsigned long initial_min = g_ctx.text_base_min;
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
-  assert(g_ctx.text_base_min >= initial_min);
-  assert((g_ctx.text_base_min % layout.kaslr_align) == 0);
-}
-#endif
-
-/* phys_virt_synth (POST_COLLECTION):
- * Tightens page_offset_min/max by synthesising PAGE_OFFSET from per-origin
- * (PHYS/DRAM, VIRT/DIRECTMAP) pairs.  Tests use synthetic addresses that make
- * the arithmetic produce a po_target strictly interior to [page_offset_min,
- * page_offset_max] so both bounds are visibly tightened. */
-
-static void test_phys_virt_synth_no_results_noop(void) {
-  reset_state();
-  init_inference_ctx();
-  unsigned long po_min = g_ctx.page_offset_min;
-  unsigned long po_max = g_ctx.page_offset_max;
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
-  assert(g_ctx.page_offset_min == po_min);
-  assert(g_ctx.page_offset_max == po_max);
-}
-
-static void test_phys_virt_synth_no_cross_origin_pairing(void) {
-  reset_state();
-  /* VIRT/DIRECTMAP from "alpha", PHYS/DRAM from "beta" — different origins,
-   * no pair formed → page_offset bounds unchanged.
+/* =========================================================================
+ * Layout-sensitive result_in_bounds: derive_vas re-evaluates each call
+ * ========================================================================= */
+static void test_result_in_bounds_layout_sensitive(void) {
+  /* REGION_PAGE_OFFSET deliberately uses ARCH-default kernel VAS bounds
+   * (compile-time constants), NOT layout.kernel_vas_start — using the
+   * runtime layout would create a circular dependency where a page_offset
+   * record gets rejected because earlier inference (based on different
+   * records) tightened the bound above it.
    *
-   * The +1 MiB skew on the virtual address ensures the implied PAGE_OFFSET
-   * candidate (vdmap_min - pdram_min) is not 1 GiB aligned, so the
-   * cross-origin randomize_memory_page_offset plugin also no-ops and we
-   * isolate phys_virt_synth's same-origin requirement. */
-  inject_result_with_origin(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP,
-                            PAGE_OFFSET + (32 * MB) + (1 * MB),
-                            KASLD_REGION_DIRECTMAP, "alpha");
-  inject_result_with_origin(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM,
-                            PHYS_OFFSET + (32 * MB), KASLD_REGION_KERNEL_IMAGE,
-                            "beta");
-  init_inference_ctx();
-  unsigned long po_min = g_ctx.page_offset_min;
-  unsigned long po_max = g_ctx.page_offset_max;
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
-  assert(g_ctx.page_offset_min == po_min);
-  assert(g_ctx.page_offset_max == po_max);
+   * To exercise the layout-sensitive code path, we'd need a region with
+   * derive_vas non-NULL whose bounds depend on layout. None currently exist
+   * (all derive_vas regions were removed in favour of static bounds to avoid
+   * the circular dependency). When such a region is added in the future,
+   * extend this test to exercise it. For now, verify that result_in_bounds
+   * accepts a valid record under default layout (smoke test). */
+  struct result r;
+  result_init(&r);
+  r.type = KASLD_TYPE_VIRT;
+  r.region = REGION_PAGE_OFFSET;
+  r.pos = POS_BASE;
+  r.conf = CONF_PARSED;
+  r.lo =
+      (unsigned long)PAGE_OFFSET; /* arch-default page_offset is always valid */
+  r.set_mask = LO_SET;
+  assert(result_in_bounds(&r, &layout) == 1);
 }
 
-static void test_phys_virt_synth_tightens_on_agreement(void) {
-  reset_state();
-  /* Construct a pair whose synthesised PAGE_OFFSET is interior to the initial
-   * [page_offset_min, page_offset_max] so both bounds are tightened.
-   * Formula: po = virt - phys + phys_offset.  Choose po_target = PAGE_OFFSET
-   * + 256*MB, then virt = po_target + phys - PHYS_OFFSET. */
-  unsigned long phys = PHYS_OFFSET + (32 * MB);
-  unsigned long po_target = PAGE_OFFSET + (256 * MB);
-  unsigned long virt = po_target + phys - PHYS_OFFSET;
-  inject_result_with_origin(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
-                            KASLD_REGION_DIRECTMAP, "test_comp");
-  inject_result_with_origin(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, phys,
-                            KASLD_REGION_KERNEL_IMAGE, "test_comp");
-  init_inference_ctx();
+/* =========================================================================
+ * Synthesized result: inference plugin constructs via result_init()
+ * ========================================================================= */
+static void test_synthesized_result_sets_fields_correctly(void) {
+  reset_results();
+  /* Simulate what a derived-result-emitting inference plugin does. */
+  struct result *r = &results[num_results++];
+  result_init(r);
+  r->type = KASLD_TYPE_VIRT;
+  r->region = REGION_INITRD;
+  /* name stays "" — canonical region anchor */
+  r->pos = POS_BASE;
+  r->conf = CONF_DERIVED;
+  r->lo = 0xffff888033000000ul;
+  r->hi = 0xffff8880333ffffful;
+  r->set_mask = LO_SET | HI_SET;
+  snprintf(r->origins[0], ORIGIN_LEN, "inference:my_plugin");
+  snprintf(r->methods[0], METHOD_LEN, "derived");
+  r->provenance_count = 1;
+
+  /* Round-trip through result_in_bounds and select_anchor. */
+  assert(result_in_bounds(r, &layout) == 1);
+  const struct result *picked = select_anchor(KASLD_TYPE_VIRT, REGION_INITRD);
+  assert(picked == r);
+  /* set_mask correctly reflects what was set. */
+  assert(HAS_LO(picked) && HAS_HI(picked));
+  assert(!HAS_SAMPLE(picked) && !HAS_BASE_ALIGN(picked));
+}
+
+/* =========================================================================
+ * compute_kaslr_info: derive_*_anchor terminal case and all-NULL
+ * ========================================================================= */
+#ifdef DATA_OFFSET
+static void test_compute_kaslr_info_derives_from_kernel_data(void) {
+  reset_results();
+  /* No KERNEL_IMAGE or KERNEL_TEXT anchor — only KERNEL_DATA with HAS_LO.
+   * derive_vtext_from_data must fire. */
+  struct result *r = push_result();
+  r->type = KASLD_TYPE_VIRT;
+  r->region = REGION_KERNEL_DATA;
+  r->pos = POS_BASE;
+  r->conf = CONF_PARSED;
+  unsigned long sdata =
+      layout.kaslr_base_min + (unsigned long)DATA_OFFSET + layout.kaslr_align;
+  r->lo = sdata;
+  r->set_mask = LO_SET;
+
+  struct summary s = {0};
+  compute_kaslr_info(&s);
+  assert(s.kaslr.vtext == sdata - (unsigned long)DATA_OFFSET);
+}
+#endif
+
+static void test_compute_kaslr_info_no_anchors_yields_zero_vtext(void) {
+  reset_results();
+  struct summary s = {0};
+  compute_kaslr_info(&s);
+  /* No anchors → vtext=0; the slot/entropy fields are still populated from
+   * the layout, but vtext itself is the "no information" sentinel. */
+  assert(s.kaslr.vtext == 0);
+}
+
+/* =========================================================================
+ * Inference plugin integration: structured-input test
+ * ========================================================================= */
+static void test_inference_phase_runs_against_structured_input(void) {
+  /* Set up a minimal scenario and run the POST_COLLECTION inference phase.
+   * The goal is to exercise the inference-phase machinery against new-model
+   * results without depending on any single plugin's specific output (which
+   * varies per arch). We just verify the phase runs without crashing and
+   * doesn't widen the bounds. */
+  reset_results();
+  struct result *r = push_result();
+  r->type = KASLD_TYPE_PHYS;
+  r->region = REGION_RAM;
+  r->pos = POS_TOP;
+  r->conf = CONF_PARSED;
+  r->hi = 0x100000000ul;
+  r->set_mask = HI_SET;
+
+  /* Snapshot the bounds before. */
+  unsigned long text_min_before = g_ctx.text_base_min;
+  unsigned long text_max_before = g_ctx.text_base_max;
+
+  /* run_inference_phase iterates all registered plugins for the phase.
+   * Plugins may tighten ctx bounds; they must not widen. */
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+
+  assert(g_ctx.text_base_min >= text_min_before);
+  assert(g_ctx.text_base_max <= text_max_before);
+}
+
+/* =========================================================================
+ * is_phys_dram_region predicate
+ *
+ * Used by dram_bound, dram_ceiling, meminfo_phys_ceiling, phys_virt_synth,
+ * directmap_page_offset_bounds, riscv64_non_efi_phys_base. Misclassifying
+ * a kernel-image region as not-DRAM (the regression we hit) silently
+ * excludes critical leaks from the inference chain.
+ * ========================================================================= */
+static void test_is_phys_dram_region_includes_ram_landmarks(void) {
+  assert(is_phys_dram_region(REGION_RAM));
+  assert(is_phys_dram_region(REGION_DMA));
+  assert(is_phys_dram_region(REGION_DMA32));
+  assert(is_phys_dram_region(REGION_INITRD));
+  assert(is_phys_dram_region(REGION_RESERVED_MEM));
+  assert(is_phys_dram_region(REGION_SWIOTLB));
+  assert(is_phys_dram_region(REGION_VMCOREINFO));
+  assert(is_phys_dram_region(REGION_CRASHKERNEL));
+  assert(is_phys_dram_region(REGION_PMEM));
+  assert(is_phys_dram_region(REGION_ACPI_TABLE));
+  assert(is_phys_dram_region(REGION_ACPI_NVS));
+  assert(is_phys_dram_region(REGION_NUMA_NODE));
+}
+
+static void test_is_phys_dram_region_includes_kernel_image(void) {
+  /* The kernel is loaded into physical RAM, so its phys leaks live in
+   * DRAM. The regression that triggered the page_offset-derivation hunt
+   * was caused by this predicate excluding kernel_image regions. */
+  assert(is_phys_dram_region(REGION_KERNEL_TEXT));
+  assert(is_phys_dram_region(REGION_KERNEL_DATA));
+  assert(is_phys_dram_region(REGION_KERNEL_BSS));
+  assert(is_phys_dram_region(REGION_KERNEL_IMAGE));
+}
+
+static void test_is_phys_dram_region_excludes_non_dram(void) {
+  /* MMIO is physical but not DRAM. */
+  assert(!is_phys_dram_region(REGION_MMIO));
+  assert(!is_phys_dram_region(REGION_PCI_MMIO));
+  /* EFI_MEMMAP is structurally a descriptor, not necessarily DRAM-resident. */
+  assert(!is_phys_dram_region(REGION_EFI_MEMMAP));
+  /* Virtual-only abstract regions. */
+  assert(!is_phys_dram_region(REGION_DIRECTMAP));
+  assert(!is_phys_dram_region(REGION_PAGE_OFFSET));
+  assert(!is_phys_dram_region(REGION_VMALLOC));
+  assert(!is_phys_dram_region(REGION_VMEMMAP));
+  assert(!is_phys_dram_region(REGION_MODULE));
+  assert(!is_phys_dram_region(REGION_MODULE_REGION));
+  /* Sentinel. */
+  assert(!is_phys_dram_region(REGION_UNKNOWN));
+}
+
+/* =========================================================================
+ * result_in_bounds: PHYS records in kernel-image regions
+ *
+ * Kernel-image regions (KERNEL_TEXT, KERNEL_DATA, KERNEL_BSS, KERNEL_IMAGE)
+ * legitimately carry PHYS leaks (the kernel is loaded into RAM). The
+ * regression hunt found that virt-only static_vas for these regions
+ * rejected every PHYS leak — costing us the kernel_bss:cr3 record that
+ * was needed to derive page_offset via phys_virt_synth.
+ * ========================================================================= */
+static void test_result_in_bounds_accepts_phys_kernel_image(void) {
+  struct result r;
+  result_init(&r);
+  r.type = KASLD_TYPE_PHYS;
+  /* A physical kernel-image leak at ~4.4 GiB (typical kernel load
+   * address on a system with phys KASLR). */
+  r.sample = 0x119446000ul;
+  r.set_mask = SAMPLE_SET;
+
+  /* All four kernel-image regions must accept a phys sample. */
+  r.region = REGION_KERNEL_TEXT;
+  assert(result_in_bounds(&r, &layout) == 1);
+  r.region = REGION_KERNEL_DATA;
+  assert(result_in_bounds(&r, &layout) == 1);
+  r.region = REGION_KERNEL_BSS;
+  assert(result_in_bounds(&r, &layout) == 1);
+  r.region = REGION_KERNEL_IMAGE;
+  assert(result_in_bounds(&r, &layout) == 1);
+}
+
+/* =========================================================================
+ * derive_vas_page_offset uses arch constants, not runtime layout
+ *
+ * PAGE_OFFSET is itself a layout field; validating PAGE_OFFSET records
+ * against the runtime layout.kernel_vas_start creates a circular
+ * dependency where a page_offset record gets rejected because earlier
+ * inference (based on different records) tightened the bound above it.
+ * Verify the check is layout-independent.
+ * ========================================================================= */
+static void test_page_offset_in_bounds_independent_of_runtime_layout(void) {
+  struct result r;
+  result_init(&r);
+  r.type = KASLD_TYPE_VIRT;
+  r.region = REGION_PAGE_OFFSET;
+  /* A page_offset value at the arch floor. */
+  r.lo = (unsigned long)PAGE_OFFSET;
+  r.set_mask = LO_SET;
+
+  /* Default layout: accepts. */
+  assert(result_in_bounds(&r, &layout) == 1);
+
+  /* Construct a synthetic layout with kernel_vas_start TIGHTENED far
+   * above the record. If derive_vas_page_offset read layout.kernel_vas_start,
+   * the record would be rejected. With arch-constant validation, it
+   * stays accepted. */
+  struct kasld_layout tight = layout;
+  tight.kernel_vas_start = (unsigned long)PAGE_OFFSET + (1ul << 40);
+  assert(result_in_bounds(&r, &tight) == 1);
+}
+
+/* =========================================================================
+ * select_anchor skips out-of-bounds records
+ *
+ * If a record is rendered out-of-bounds by inference-tightened layout,
+ * select_anchor must not return it. Verifies the select_anchor →
+ * result_in_bounds gating wired correctly.
+ * ========================================================================= */
+static void test_select_anchor_skips_out_of_bounds(void) {
+  reset_results();
+  /* A record in a region whose VAS is static and bounded, with an
+   * address outside that VAS. */
+  struct result *r = push_result();
+  r->type = KASLD_TYPE_VIRT;
+  r->region =
+      REGION_VMALLOC; /* has static_vas = {KERNEL_VAS_START, KERNEL_VAS_END} */
+  r->pos = POS_BASE;
+  r->conf = CONF_PARSED;
+  r->lo = 0x1000; /* far below KERNEL_VAS_START */
+  r->set_mask = LO_SET;
+
+  assert(result_in_bounds(r, &layout) == 0);
+  /* select_anchor must skip it. */
+  assert(select_anchor(KASLD_TYPE_VIRT, REGION_VMALLOC) == NULL);
+}
+
+/* =========================================================================
+ * Post-merge sample clamp on upper bound
+ *
+ * test_merge_sample_clamped_to_extent covers clamping up to lo. This
+ * covers the symmetric clamping down to hi.
+ * ========================================================================= */
+static void test_merge_sample_clamped_to_hi(void) {
+  reset_results();
+  struct result *base = push_result();
+  base->type = KASLD_TYPE_PHYS;
+  base->region = REGION_INITRD;
+  base->pos = POS_BASE;
+  base->conf = CONF_PARSED;
+  base->lo = 0x1000;
+  base->hi = 0x1fff;
+  base->set_mask = LO_SET | HI_SET;
+
+  struct result *sample = push_result();
+  sample->type = KASLD_TYPE_PHYS;
+  sample->region = REGION_INITRD;
+  sample->pos = POS_INTERIOR;
+  sample->conf = CONF_HEURISTIC;
+  sample->sample = 0x5000; /* ABOVE hi */
+  sample->set_mask = SAMPLE_SET;
+
+  merge_results();
+  assert(num_results == 1);
+  struct result *r = &results[0];
+  assert(HAS_SAMPLE(r));
+  assert(r->sample == 0x1fff); /* clamped down to hi */
+}
+
+/* =========================================================================
+ * Multi-pass convergence: merge is idempotent on its own output
+ *
+ * The spec requires merge_results to run at each convergence pass so
+ * that newly-emitted derived results merge before the next pass reads
+ * them. The invariant is that running merge twice produces the same
+ * result as running it once (idempotence).
+ * ========================================================================= */
+static void test_merge_is_idempotent(void) {
+  reset_results();
+  /* Four contributors to a single (PHYS, RAM) record. */
+  for (int i = 0; i < 4; i++) {
+    struct result *r = push_result();
+    r->type = KASLD_TYPE_PHYS;
+    r->region = REGION_RAM;
+    r->pos = POS_BASE;
+    r->conf = CONF_PARSED;
+    r->lo = 0x1000ul + i * 0x10;
+    r->set_mask = LO_SET;
+    r->provenance_count = 1;
+    snprintf(r->origins[0], ORIGIN_LEN, "src-%d", i);
+  }
+  merge_results();
+  assert(num_results == 1);
+  unsigned long lo_after_first = results[0].lo;
+  uint32_t mask_after_first = results[0].set_mask;
+  uint8_t prov_after_first = results[0].provenance_count;
+
+  /* Run again — must be a no-op. */
+  merge_results();
+  assert(num_results == 1);
+  assert(results[0].lo == lo_after_first);
+  assert(results[0].set_mask == mask_after_first);
+  assert(results[0].provenance_count == prov_after_first);
+}
+
+/* =========================================================================
+ * Parser: key order is irrelevant
+ *
+ * Spec rule: tail keys may appear in any order. The two-stage parser
+ * collects all keys before sz→hi normalisation, so `sz` before `lo` must
+ * work the same as `lo` before `sz`.
+ * ========================================================================= */
+static void test_parse_key_order_independent(void) {
+  reset_results();
+  /* Canonical order. */
+  assert(parse_line("P initrd pos=base conf=parsed lo=0x100000 hi=0x1fffff",
+                    NULL, NULL) == 1);
+  struct result a = results[0];
+
+  reset_results();
+  /* Permuted order. */
+  assert(parse_line("P initrd hi=0x1fffff lo=0x100000 conf=parsed pos=base",
+                    NULL, NULL) == 1);
+  struct result b = results[0];
+
+  assert(a.lo == b.lo);
+  assert(a.hi == b.hi);
+  assert(a.pos == b.pos);
+  assert(a.conf == b.conf);
+  assert(a.set_mask == b.set_mask);
+}
+
+static void test_parse_sz_before_lo_normalizes(void) {
+  /* Critical: sz needs lo to compute hi. If the parser were streaming, sz
+   * before lo would fail (lo unknown yet). The two-stage design must
+   * collect both keys before normalising. */
+  reset_results();
+  assert(parse_line("P initrd pos=base conf=parsed sz=0x10000 lo=0x100000",
+                    NULL, NULL) == 1);
+  assert(num_results == 1);
+  assert(HAS_LO(&results[0]) && HAS_HI(&results[0]));
+  assert(results[0].lo == 0x100000ul);
+  assert(results[0].hi == 0x10ffffu); /* lo + sz - 1 */
+}
+
+/* =========================================================================
+ * Merge: base_align LCM-of-powers-of-two (= max)
+ *
+ * The spec restricts base_align to powers of two so the merge rule
+ * simplifies to max() (no LCM overflow risk).
+ * ========================================================================= */
+static void test_merge_base_align_takes_max(void) {
+  reset_results();
+  struct result *a = push_result();
+  a->type = KASLD_TYPE_VIRT;
+  a->region = REGION_KERNEL_TEXT;
+  a->pos = POS_BASE;
+  a->conf = CONF_PARSED;
+  a->lo = 0xffffffff81000000ul;
+  a->base_align = 0x1000; /* 4 KiB */
+  a->set_mask = LO_SET | BASE_ALIGN_SET;
+
+  struct result *b = push_result();
+  b->type = KASLD_TYPE_VIRT;
+  b->region = REGION_KERNEL_TEXT;
+  b->pos = POS_BASE;
+  b->conf = CONF_PARSED;
+  b->lo = 0xffffffff81000000ul;
+  b->base_align = 0x200000; /* 2 MiB */
+  b->set_mask = LO_SET | BASE_ALIGN_SET;
+
+  merge_results();
+  assert(num_results == 1);
+  assert(HAS_BASE_ALIGN(&results[0]));
+  /* LCM of powers of two = max. Merged record carries the stricter
+   * (larger) alignment claim. */
+  assert(results[0].base_align == 0x200000);
+}
+
+static void test_merge_base_align_propagates_from_either_contributor(void) {
+  reset_results();
+  /* One contributor with base_align, one without. The set bit must
+   * propagate. */
+  struct result *a = push_result();
+  a->type = KASLD_TYPE_VIRT;
+  a->region = REGION_KERNEL_TEXT;
+  a->pos = POS_BASE;
+  a->conf = CONF_PARSED;
+  a->lo = 0xffffffff81000000ul;
+  a->set_mask = LO_SET;
+
+  struct result *b = push_result();
+  b->type = KASLD_TYPE_VIRT;
+  b->region = REGION_KERNEL_TEXT;
+  b->pos = POS_BASE;
+  b->conf = CONF_PARSED;
+  b->lo = 0xffffffff81000000ul;
+  b->base_align = 0x200000;
+  b->set_mask = LO_SET | BASE_ALIGN_SET;
+
+  merge_results();
+  assert(num_results == 1);
+  assert(HAS_BASE_ALIGN(&results[0]));
+  assert(results[0].base_align == 0x200000);
+}
+
+/* =========================================================================
+ * region_info: every region has a non-empty wire_name and a section_name
+ *
+ * The render layer reads region_info[r->region].section_name and the
+ * parser reads region_info[].wire_name. A NULL wire_name would skip
+ * the region in the parser's linear scan; a NULL section_name would
+ * crash the renderer.
+ * ========================================================================= */
+static void test_region_info_table_completeness(void) {
+  for (int i = 1; i < REGION__COUNT; i++) {
+    assert(region_info[i].wire_name != NULL);
+    assert(region_info[i].wire_name[0] != '\0');
+    assert(region_info[i].section_name != NULL);
+    /* wire_name in region_info must match the wire-token table in kasld.h. */
+    assert(strcmp(region_info[i].wire_name, kasld_region_wire_table[i]) == 0);
+  }
+}
+
+static void test_region_info_static_vas_or_derive_vas_set(void) {
+  /* Every non-UNKNOWN region must provide a VAS resolver: either
+   * derive_vas non-NULL, or static_vas with a meaningful range. An
+   * all-zero VAS is the "no constraint" form (open VAS) — explicitly
+   * checked by result_in_bounds. Any region with neither yields no
+   * validation, which would silently accept any address. */
+  for (int i = 1; i < REGION__COUNT; i++) {
+    const struct region_info *ri = &region_info[i];
+    int has_derive = (ri->derive_vas != NULL);
+    int has_static = (ri->static_vas.lo != 0 || ri->static_vas.hi != 0);
+    /* Either derive_vas or static_vas must be set (or, for fully
+     * open regions, both .lo and .hi being literal zero is rejected
+     * by the open-VAS short-circuit — that's deliberate, so this
+     * assertion just guards against accidental all-zero entries
+     * paired with a NULL derive_vas, which would silently accept
+     * any address with no recorded intent). */
+    assert(has_derive || has_static);
+  }
+}
+
+/* =========================================================================
+ * compute_kaslr_info: decoupled_note flag
+ *
+ * On decoupled arches (x86_64, arm64, riscv64, s390), when phys leaks
+ * exist but no virt text leak does, decoupled_note must be set so the
+ * summary clarifies that physical leaks don't reveal virtual text.
+ * ========================================================================= */
+#if PHYS_VIRT_DECOUPLED
+static void test_compute_kaslr_info_sets_decoupled_note(void) {
+  reset_results();
+  /* PHYS leak in a DRAM region, no VIRT text leak. */
+  struct result *r = push_result();
+  r->type = KASLD_TYPE_PHYS;
+  r->region = REGION_RAM;
+  r->pos = POS_BASE;
+  r->conf = CONF_PARSED;
+  r->lo = 0x100000;
+  r->set_mask = LO_SET;
+
+  struct summary s = {0};
+  compute_kaslr_info(&s);
+  assert(s.kaslr.vtext == 0);    /* no virt anchor */
+  assert(s.decoupled_note == 1); /* note must be set */
+}
+
+static void test_compute_kaslr_info_no_note_when_vtext_present(void) {
+  reset_results();
+  /* Both phys landmark AND virt text — no decoupling-explanation needed. */
+  struct result *p = push_result();
+  p->type = KASLD_TYPE_PHYS;
+  p->region = REGION_RAM;
+  p->pos = POS_BASE;
+  p->conf = CONF_PARSED;
+  p->lo = 0x100000;
+  p->set_mask = LO_SET;
+
+  struct result *v = push_result();
+  v->type = KASLD_TYPE_VIRT;
+  v->region = REGION_KERNEL_IMAGE;
+  v->pos = POS_BASE;
+  v->conf = CONF_PARSED;
+  v->lo = layout.kaslr_base_min + layout.kaslr_align;
+  v->set_mask = LO_SET;
+
+  struct summary s = {0};
+  compute_kaslr_info(&s);
+  assert(s.kaslr.vtext != 0);
+  assert(s.decoupled_note == 0);
+}
+
+static void test_compute_kaslr_info_no_note_without_phys_landmark(void) {
+  reset_results();
+  /* No phys leaks at all — note shouldn't fire (there's nothing to
+   * explain). */
+  struct summary s = {0};
+  compute_kaslr_info(&s);
+  assert(s.decoupled_note == 0);
+}
+#endif /* PHYS_VIRT_DECOUPLED */
+
+/* =========================================================================
+ * Convergence loop
+ *
+ * run_post_collection_inference() re-runs POST_COLLECTION until no bound
+ * changes (capped at MAX_INFERENCE_PASSES). The change-detection itself
+ * lives in snap_bounds() + bounds_changed(); if either misses a field, a
+ * plugin that tightens it would not trigger a re-pass for plugins that
+ * depend on that field. Both helpers are static — these tests catch
+ * silent regressions where a new ctx field is added but the snapshot
+ * isn't extended.
+ * ========================================================================= */
+static void test_bounds_snap_captures_all_tracked_fields(void) {
+  struct bounds_snap snap;
+  snap_bounds(&snap);
+  assert(!bounds_changed(&snap));
+
+  /* Mutate each tracked bound in turn; bounds_changed must flag every one.
+   * Restoring after each check keeps the test independent of g_ctx state. */
+#define CHECK_FIELD(field)                                                     \
+  do {                                                                         \
+    unsigned long _saved = g_ctx.field;                                        \
+    g_ctx.field = _saved ^ 0x1ul;                                              \
+    assert(bounds_changed(&snap));                                             \
+    g_ctx.field = _saved;                                                      \
+    assert(!bounds_changed(&snap));                                            \
+  } while (0)
+
+  CHECK_FIELD(text_base_min);
+  CHECK_FIELD(text_base_max);
+  CHECK_FIELD(page_offset_min);
+  CHECK_FIELD(page_offset_max);
+  CHECK_FIELD(phys_base_min);
+  CHECK_FIELD(phys_base_max);
+  CHECK_FIELD(vmalloc_base_min);
+  CHECK_FIELD(vmalloc_base_max);
+  CHECK_FIELD(vmemmap_base_min);
+  CHECK_FIELD(vmemmap_base_max);
+#undef CHECK_FIELD
+}
+
+static void test_bounds_changed_false_on_stable_snapshot(void) {
+  /* Snapshot, do nothing, expect stable. The convergence loop relies on
+   * this returning 0 to terminate. */
+  struct bounds_snap snap;
+  snap_bounds(&snap);
+  assert(!bounds_changed(&snap));
+  /* Re-snap immediately; still stable. */
+  struct bounds_snap snap2;
+  snap_bounds(&snap2);
+  assert(!bounds_changed(&snap2));
+}
+
+static void test_post_collection_inference_converges(void) {
+  /* End-to-end smoke: drive the full convergence loop with structured
+   * input and assert it (a) terminates and (b) leaves bounds in the
+   * tighten-only invariant. We don't depend on any specific plugin
+   * tightening any specific bound — the assertion is the meta-invariant. */
+  reset_results();
+
+  /* Plant one record per kind that POST_COLLECTION plugins commonly read. */
+  struct result *p = push_result();
+  p->type = KASLD_TYPE_PHYS;
+  p->region = REGION_RAM;
+  p->pos = POS_BASE;
+  p->conf = CONF_PARSED;
+  p->lo = 0x100000ul;
+  p->hi = 0x100000000ul;
+  p->set_mask = LO_SET | HI_SET;
+  snprintf(p->origins[0], ORIGIN_LEN, "test_converge");
+  p->provenance_count = 1;
+
+  struct bounds_snap before;
+  snap_bounds(&before);
+
+  unsigned long text_min_before = g_ctx.text_base_min;
+  unsigned long text_max_before = g_ctx.text_base_max;
   unsigned long po_min_before = g_ctx.page_offset_min;
   unsigned long po_max_before = g_ctx.page_offset_max;
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+  unsigned long phys_min_before = g_ctx.phys_base_min;
+  unsigned long phys_max_before = g_ctx.phys_base_max;
+
+  /* Drive the full loop. If the convergence guard or the change detector
+   * is broken, this either spins past MAX_INFERENCE_PASSES (and returns
+   * with non-monotone bounds) or asserts inside a plugin. */
+  run_post_collection_inference();
+
+  /* Tighten-only invariant: every bound moved inward or stayed put. */
+  assert(g_ctx.text_base_min >= text_min_before);
+  assert(g_ctx.text_base_max <= text_max_before);
   assert(g_ctx.page_offset_min >= po_min_before);
   assert(g_ctx.page_offset_max <= po_max_before);
-  assert(g_ctx.page_offset_min <= g_ctx.page_offset_max);
-}
+  assert(g_ctx.phys_base_min >= phys_min_before);
+  assert(g_ctx.phys_base_max <= phys_max_before);
 
-static void test_phys_virt_synth_disagreeing_candidates_noop(void) {
-  reset_state();
-  /* Two origins whose synthesised PAGE_OFFSET values differ by 4*MB, which
-   * exceeds KASLR_ALIGN (2*MB on x86_64) → plugin skips tightening */
-  unsigned long phys = PHYS_OFFSET + (32 * MB);
-  unsigned long po_a = PAGE_OFFSET + (256 * MB);
-  unsigned long po_b = PAGE_OFFSET + (260 * MB); /* |po_b - po_a| = 4*MB */
-  unsigned long virt_a = po_a + phys - PHYS_OFFSET;
-  unsigned long virt_b = po_b + phys - PHYS_OFFSET;
-  inject_result_with_origin(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt_a,
-                            KASLD_REGION_DIRECTMAP, "comp_a");
-  inject_result_with_origin(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, phys,
-                            KASLD_REGION_KERNEL_IMAGE, "comp_a");
-  inject_result_with_origin(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt_b,
-                            KASLD_REGION_DIRECTMAP, "comp_b");
-  inject_result_with_origin(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, phys,
-                            KASLD_REGION_KERNEL_IMAGE, "comp_b");
-  init_inference_ctx();
-  unsigned long po_min = g_ctx.page_offset_min;
-  unsigned long po_max = g_ctx.page_offset_max;
+  /* After convergence, an immediate re-run must be a no-op — bounds are
+   * already at the fixed point. This is the property the loop guarantees
+   * and the property production code relies on (merge_results idempotence
+   * + monotone tightening). */
+  struct bounds_snap after;
+  snap_bounds(&after);
   run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
-  assert(g_ctx.page_offset_min == po_min);
-  assert(g_ctx.page_offset_max == po_max);
-}
-
-/* =========================================================================
- * module_text_bound (POST_COLLECTION)
- * =========================================================================
- */
-
-/* No module results → no-op on all arches */
-static void test_module_text_bound_no_results_noop(void) {
-  reset_state();
-  init_inference_ctx();
-  unsigned long max_before = g_ctx.text_base_max;
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
-  assert(g_ctx.text_base_max == max_before);
-}
-
-/* Non-module results only → no-op */
-static void test_module_text_bound_non_module_section_noop(void) {
-  reset_state();
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT,
-                KERNEL_BASE_MIN + KERNEL_ALIGN, KASLD_REGION_KERNEL_TEXT);
-  init_inference_ctx();
-  unsigned long max_before = g_ctx.text_base_max;
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
-  assert(g_ctx.text_base_max == max_before);
-}
-
-#if MODULES_RELATIVE_TO_TEXT
-/* A valid module address lowers text_base_max to
- * (vmod_lo + MODULES_END_TO_TEXT_OFFSET - MIN_KERNEL_IMAGE_SIZE) & ~(align-1)
- */
-static void test_module_text_bound_lowers_max(void) {
-  reset_state();
-  unsigned long vmod_lo = MODULES_START + KERNEL_ALIGN;
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_MODULE, vmod_lo,
-                KASLD_REGION_MODULE);
-  init_inference_ctx();
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
-
-  unsigned long end_est = vmod_lo + MODULES_END_TO_TEXT_OFFSET;
-  unsigned long expected_max =
-      (end_est - MIN_KERNEL_IMAGE_SIZE) & ~(KASLR_ALIGN - 1);
-  assert(g_ctx.text_base_max == expected_max);
-  assert(g_ctx.text_base_max < g_ctx.text_base_min ||
-         g_ctx.text_base_max >= g_ctx.text_base_min);
-}
-
-/* The tightest (lowest-addressed) module drives the bound — not the highest */
-static void test_module_text_bound_uses_minimum_module(void) {
-  reset_state();
-  unsigned long vmod_lo = MODULES_START + KERNEL_ALIGN;
-  unsigned long vmod_hi = MODULES_START + 64 * MB;
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_MODULE, vmod_hi,
-                KASLD_REGION_MODULE);
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_MODULE, vmod_lo,
-                KASLD_REGION_MODULE);
-  init_inference_ctx();
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
-
-  unsigned long end_est = vmod_lo + MODULES_END_TO_TEXT_OFFSET;
-  unsigned long expected_max =
-      (end_est - MIN_KERNEL_IMAGE_SIZE) & ~(KASLR_ALIGN - 1);
-  assert(g_ctx.text_base_max == expected_max);
-}
-
-/* text_base_min is never raised by this plugin */
-static void test_module_text_bound_never_raises_min(void) {
-  reset_state();
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_MODULE,
-                MODULES_START + KERNEL_ALIGN, KASLD_REGION_MODULE);
-  init_inference_ctx();
-  unsigned long min_before = g_ctx.text_base_min;
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
-  assert(g_ctx.text_base_min == min_before);
-}
-
-/* A result that would only widen the max is ignored (commutativity) */
-static void test_module_text_bound_never_widens(void) {
-  reset_state();
-  /* Use a very high module address so derived max > initial max */
-  unsigned long vmod_hi = MODULES_END - KERNEL_ALIGN;
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_MODULE, vmod_hi,
-                KASLD_REGION_MODULE);
-  init_inference_ctx();
-  unsigned long max_before = g_ctx.text_base_max;
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
-  assert(g_ctx.text_base_max <= max_before);
-}
-#endif /* MODULES_RELATIVE_TO_TEXT */
-
-/* =========================================================================
- * layout_adjust (LAYOUT_ADJUST)
- * =========================================================================
- */
-
-/* No pageoffset results → plugin is a no-op for layout fields */
-static void test_layout_adjust_no_results_noop(void) {
-  reset_state();
-  unsigned long orig_po = layout.page_offset;
-  init_inference_ctx();
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_LAYOUT_ADJUST);
-  assert(layout.page_offset == orig_po);
-}
-
-/* Pageoffset result equal to compile-time default → no change */
-static void test_layout_adjust_same_po_noop(void) {
-  reset_state();
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_PAGEOFFSET, PAGE_OFFSET,
-                "pageoffset");
-  unsigned long orig_po = layout.page_offset;
-  init_inference_ctx();
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_LAYOUT_ADJUST);
-  assert(layout.page_offset == orig_po);
-}
-
-/* New pageoffset result → layout.page_offset and kernel_vas_start updated */
-static void test_layout_adjust_new_po_updates_layout(void) {
-  reset_state();
-  /* Use PAGE_OFFSET + 512 MiB as a synthetic runtime value */
-  unsigned long new_po = PAGE_OFFSET + (512UL * 1024 * 1024);
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_PAGEOFFSET, new_po,
-                "pageoffset");
-  init_inference_ctx();
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_LAYOUT_ADJUST);
-  assert(layout.page_offset == new_po);
-  assert(layout.kernel_vas_start == new_po);
-}
-
-/* Consensus from multiple agreeing sources still applies the update */
-static void test_layout_adjust_consensus_applied(void) {
-  reset_state();
-  unsigned long new_po = PAGE_OFFSET + (256UL * 1024 * 1024);
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_PAGEOFFSET, new_po,
-                "pageoffset");
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_PAGEOFFSET, new_po,
-                "pageoffset");
-  init_inference_ctx();
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_LAYOUT_ADJUST);
-  assert(layout.page_offset == new_po);
-}
-
-#if !PHYS_VIRT_DECOUPLED
-/* On coupled arches: kernel_base_min is clamped up to page_offset when it
- * was set conservatively low by the arch header. */
-static void test_layout_adjust_floor_clamp(void) {
-  reset_state();
-  layout.kernel_base_min = layout.page_offset - KERNEL_ALIGN;
-  init_inference_ctx();
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_LAYOUT_ADJUST);
-  assert(layout.kernel_base_min >= layout.page_offset);
-}
-#endif
-
-/* =========================================================================
- * image_size_from_text_data_gap (POST_COLLECTION)
- * Tightens text_base_max from max(VIRT/DATA) - min(VIRT/TEXT). On decoupled
- * arches the same gap also tightens phys_base_max.
- * =========================================================================
- */
-
-static void test_image_size_no_results_noop(void) {
-  reset_state();
-  init_inference_ctx();
-  unsigned long max_before = g_ctx.text_base_max;
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
-  assert(g_ctx.text_base_max == max_before);
-}
-
-static void test_image_size_text_only_noop(void) {
-  reset_state();
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT,
-                layout.kaslr_base_min + KERNEL_ALIGN, KASLD_REGION_KERNEL_TEXT);
-  init_inference_ctx();
-  unsigned long max_before = g_ctx.text_base_max;
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
-  assert(g_ctx.text_base_max == max_before);
-}
-
-static void test_image_size_data_only_noop(void) {
-  reset_state();
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_DATA,
-                layout.kaslr_base_min + (16 * MB), KASLD_REGION_KERNEL_DATA);
-  init_inference_ctx();
-  unsigned long max_before = g_ctx.text_base_max;
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
-  assert(g_ctx.text_base_max == max_before);
-}
-
-/* DATA at or below TEXT is inconsistent — plugin must skip rather than
- * underflow. */
-static void test_image_size_inverted_pair_noop(void) {
-  reset_state();
-  unsigned long text_addr = layout.kaslr_base_min + (8 * MB);
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, text_addr,
-                KASLD_REGION_KERNEL_TEXT);
-  /* DATA below TEXT — invalid pairing */
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_DATA,
-                layout.kaslr_base_min + (4 * MB), KASLD_REGION_KERNEL_DATA);
-  init_inference_ctx();
-  unsigned long max_before = g_ctx.text_base_max;
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
-  assert(g_ctx.text_base_max == max_before);
-}
-
-static void test_image_size_lowers_max(void) {
-  reset_state();
-  unsigned long text_addr = layout.kaslr_base_min + KERNEL_ALIGN;
-  unsigned long data_addr = text_addr + (16 * MB);
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, text_addr,
-                KASLD_REGION_KERNEL_TEXT);
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_DATA, data_addr,
-                KASLD_REGION_KERNEL_DATA);
-  init_inference_ctx();
-  unsigned long max_before = g_ctx.text_base_max;
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
-
-  unsigned long gap = data_addr - text_addr;
-  unsigned long expected =
-      (layout.kaslr_base_max - gap) & ~(layout.kaslr_align - 1);
-  /* Tightening only applies when the new bound improves on the prior. */
-  if (expected > layout.kaslr_base_min && expected < max_before)
-    assert(g_ctx.text_base_max == expected);
-  else
-    assert(g_ctx.text_base_max == max_before);
-}
-
-static void test_image_size_alignment_invariant(void) {
-  reset_state();
-  unsigned long text_addr = layout.kaslr_base_min + KERNEL_ALIGN;
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, text_addr,
-                KASLD_REGION_KERNEL_TEXT);
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_DATA, text_addr + (8 * MB),
-                KASLD_REGION_KERNEL_DATA);
-  init_inference_ctx();
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
-  assert((g_ctx.text_base_max % layout.kaslr_align) == 0);
-}
-
-static void test_image_size_never_widens(void) {
-  reset_state();
-  unsigned long text_addr = layout.kaslr_base_min + KERNEL_ALIGN;
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, text_addr,
-                KASLD_REGION_KERNEL_TEXT);
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_DATA, text_addr + (4 * MB),
-                KASLD_REGION_KERNEL_DATA);
-  init_inference_ctx();
-  unsigned long max_before = g_ctx.text_base_max;
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
-  assert(g_ctx.text_base_max <= max_before);
-}
-
-/* =========================================================================
- * randomize_memory_page_offset (POST_COLLECTION) — x86-64 only
- * Pins page_offset_min/max from cross-origin min(VIRT/DIRECTMAP) and
- * min(PHYS/DRAM) when the resulting candidate is 1 GiB aligned and lies
- * within the current window.
- * =========================================================================
- */
-#if defined(__x86_64__)
-
-#define PUD_SIZE_TEST (1UL << 30)
-
-static void test_randomize_memory_no_results_noop(void) {
-  reset_state();
-  init_inference_ctx();
-  unsigned long po_min = g_ctx.page_offset_min;
-  unsigned long po_max = g_ctx.page_offset_max;
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
-  assert(g_ctx.page_offset_min == po_min);
-  assert(g_ctx.page_offset_max == po_max);
-}
-
-static void test_randomize_memory_only_directmap_noop(void) {
-  reset_state();
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP,
-                PAGE_OFFSET + (32 * MB), KASLD_REGION_DIRECTMAP);
-  init_inference_ctx();
-  unsigned long po_min = g_ctx.page_offset_min;
-  unsigned long po_max = g_ctx.page_offset_max;
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
-  assert(g_ctx.page_offset_min == po_min);
-  assert(g_ctx.page_offset_max == po_max);
-}
-
-static void test_randomize_memory_only_dram_noop(void) {
-  reset_state();
-  inject_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, PHYS_OFFSET + (32 * MB),
-                KASLD_REGION_KERNEL_IMAGE);
-  init_inference_ctx();
-  unsigned long po_min = g_ctx.page_offset_min;
-  unsigned long po_max = g_ctx.page_offset_max;
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
-  assert(g_ctx.page_offset_min == po_min);
-  assert(g_ctx.page_offset_max == po_max);
-}
-
-/* Cross-origin DIRECTMAP and DRAM that synthesise a 1 GiB-aligned candidate
- * within the current window → page_offset_min/max both pinned. Different
- * origins ensure phys_virt_synth (which requires same-origin pairs) is a
- * no-op. */
-static void test_randomize_memory_pins_page_offset(void) {
-  reset_state();
-  unsigned long phys = PHYS_OFFSET; /* P_min = 0 on x86-64 */
-  /* Choose a candidate one PUD above the default PAGE_OFFSET: 1 GiB-aligned,
-   * inside the [PAGE_OFFSET, KERNEL_VAS_END] window. */
-  unsigned long candidate = PAGE_OFFSET + PUD_SIZE_TEST;
-  unsigned long virt = candidate + phys;
-  inject_result_with_origin(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
-                            KASLD_REGION_DIRECTMAP, "comp_a");
-  /* Plugin requires the PHYS witness to be tagged KASLD_REGION_RAM_BASE
-   * (the explicit DRAM-floor tag) so that non-floor regions like INITRD or
-   * KERNEL_IMAGE — which can fall 1 GiB-aligned above the true DRAM base —
-   * cannot produce a false 1 GiB-low pin. */
-  inject_result_with_origin(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, phys,
-                            KASLD_REGION_RAM_BASE, "comp_b");
-  init_inference_ctx();
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
-  assert(g_ctx.page_offset_min == candidate);
-  assert(g_ctx.page_offset_max == candidate);
-}
-
-/* A non-1 GiB-aligned candidate means D_min and P_min do not map the same
- * physical region — plugin must skip. */
-static void test_randomize_memory_unaligned_candidate_noop(void) {
-  reset_state();
-  unsigned long phys = PHYS_OFFSET;
-  /* Candidate offset by 1 MiB so it is not 1 GiB aligned. */
-  unsigned long virt = PAGE_OFFSET + PUD_SIZE_TEST + (1 * MB);
-  inject_result_with_origin(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
-                            KASLD_REGION_DIRECTMAP, "comp_a");
-  inject_result_with_origin(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, phys,
-                            KASLD_REGION_RAM_BASE, "comp_b");
-  init_inference_ctx();
-  unsigned long po_min = g_ctx.page_offset_min;
-  unsigned long po_max = g_ctx.page_offset_max;
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
-  assert(g_ctx.page_offset_min == po_min);
-  assert(g_ctx.page_offset_max == po_max);
-}
-
-/* PHYS witness tagged with a non-RAM_BASE region (e.g. KERNEL_IMAGE,
- * INITRD, RESERVED_MEM) does NOT pin page_offset, even when the resulting
- * candidate is 1 GiB-aligned and inside the window. This guards against a
- * false-pin attack where a non-floor witness lands 1 GiB-aligned above the
- * true DRAM base. */
-static void test_randomize_memory_non_ram_base_witness_noop(void) {
-  reset_state();
-  unsigned long phys = PHYS_OFFSET;
-  unsigned long candidate = PAGE_OFFSET + PUD_SIZE_TEST;
-  unsigned long virt = candidate + phys;
-  inject_result_with_origin(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
-                            KASLD_REGION_DIRECTMAP, "comp_a");
-  inject_result_with_origin(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, phys,
-                            KASLD_REGION_KERNEL_IMAGE, "comp_b");
-  init_inference_ctx();
-  unsigned long po_min = g_ctx.page_offset_min;
-  unsigned long po_max = g_ctx.page_offset_max;
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
-  assert(g_ctx.page_offset_min == po_min);
-  assert(g_ctx.page_offset_max == po_max);
-}
-
-/* === Same-(origin, region, name) pair path ===
- *
- * Isolation note: phys_virt_synth.c also pairs same-origin VIRT/DIRECTMAP
- * with PHYS/DRAM (regardless of region/name) using a 2-MiB alignment
- * check. To isolate the *new* path in randomize_memory_page_offset.c,
- * these tests use PHYS/TEXT — a section phys_virt_synth explicitly
- * ignores. That guarantees any observed pin came from the path under
- * test. */
-
-/* Successful same-origin pair → bilateral pin. Demonstrates that PHYS in
- * any section is accepted when the (origin, region, name) triple matches
- * a VIRT/DIRECTMAP result. */
-static void test_randomize_memory_same_origin_pair_pins(void) {
-  reset_state();
-  /* No ram_base witness — cross-origin fallback would not fire. */
-  unsigned long phys = 0x119446000ul;
-  unsigned long expected = PAGE_OFFSET + PUD_SIZE_TEST;
-  unsigned long virt = expected + phys;
-  inject_result_with_origin(KASLD_ADDR_PHYS, KASLD_SECTION_TEXT, phys,
-                            "kernel_text:_text", "comp_x");
-  inject_result_with_origin(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
-                            "kernel_text:_text", "comp_x");
-  init_inference_ctx();
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
-  assert(g_ctx.page_offset_min == expected);
-  assert(g_ctx.page_offset_max == expected);
-}
-
-/* Same origin but mismatching region → no same-origin pin from this
- * plugin's path 1. No RAM_BASE witness → no cross-origin fallback either.
- * Net effect: no change. */
-static void test_randomize_memory_same_origin_region_mismatch_noop(void) {
-  reset_state();
-  unsigned long phys = 0x119446000ul;
-  unsigned long virt = PAGE_OFFSET + PUD_SIZE_TEST + phys;
-  inject_result_with_origin(KASLD_ADDR_PHYS, KASLD_SECTION_TEXT, phys,
-                            "kernel_text:_text", "comp_x");
-  /* Same origin and name, DIFFERENT region. */
-  inject_result_with_origin(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
-                            "kernel_image:_text", "comp_x");
-  init_inference_ctx();
-  unsigned long po_min = g_ctx.page_offset_min;
-  unsigned long po_max = g_ctx.page_offset_max;
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
-  assert(g_ctx.page_offset_min == po_min);
-  assert(g_ctx.page_offset_max == po_max);
-}
-
-/* Same origin and region but mismatching name → no pin. */
-static void test_randomize_memory_same_origin_name_mismatch_noop(void) {
-  reset_state();
-  unsigned long phys = 0x119446000ul;
-  unsigned long virt = PAGE_OFFSET + PUD_SIZE_TEST + phys;
-  inject_result_with_origin(KASLD_ADDR_PHYS, KASLD_SECTION_TEXT, phys,
-                            "kernel_text:_text", "comp_x");
-  inject_result_with_origin(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
-                            "kernel_text:_stext", "comp_x");
-  init_inference_ctx();
-  unsigned long po_min = g_ctx.page_offset_min;
-  unsigned long po_max = g_ctx.page_offset_max;
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
-  assert(g_ctx.page_offset_min == po_min);
-  assert(g_ctx.page_offset_max == po_max);
-}
-
-/* Same-origin matched pair with a non-1-GiB-aligned candidate → rejected
- * by the alignment guard. */
-static void test_randomize_memory_same_origin_misaligned_noop(void) {
-  reset_state();
-  unsigned long phys = 0x119446000ul;
-  /* Pad virt by 1 MiB so candidate is 2-MiB-aligned but not 1-GiB-aligned. */
-  unsigned long virt = PAGE_OFFSET + PUD_SIZE_TEST + (1 * MB) + phys;
-  inject_result_with_origin(KASLD_ADDR_PHYS, KASLD_SECTION_TEXT, phys,
-                            "kernel_text:_text", "comp_x");
-  inject_result_with_origin(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
-                            "kernel_text:_text", "comp_x");
-  init_inference_ctx();
-  unsigned long po_min = g_ctx.page_offset_min;
-  unsigned long po_max = g_ctx.page_offset_max;
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
-  assert(g_ctx.page_offset_min == po_min);
-  assert(g_ctx.page_offset_max == po_max);
-}
-
-/* Cross-origin pair (different `origin` fields) → does NOT take path 1,
- * even with matching (region, name). Without a RAM_BASE witness either,
- * no pin. */
-static void test_randomize_memory_cross_origin_not_same_origin(void) {
-  reset_state();
-  unsigned long phys = 0x119446000ul;
-  unsigned long virt = PAGE_OFFSET + PUD_SIZE_TEST + phys;
-  inject_result_with_origin(KASLD_ADDR_PHYS, KASLD_SECTION_TEXT, phys,
-                            "kernel_text:_text", "comp_a");
-  inject_result_with_origin(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
-                            "kernel_text:_text", "comp_b");
-  init_inference_ctx();
-  unsigned long po_min = g_ctx.page_offset_min;
-  unsigned long po_max = g_ctx.page_offset_max;
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
-  assert(g_ctx.page_offset_min == po_min);
-  assert(g_ctx.page_offset_max == po_max);
-}
-
-/* =========================================================================
- * kernel_image_phys_bound (POST_COLLECTION)
- * Bounds phys_base from kernel-locating PHYS witnesses; BSS-resident
- * witnesses (e.g. cr3) refine the upper bound using virt TEXT/DATA gap.
- * =========================================================================
- */
-
-#define KIPB_MAX_IMAGE_SIZE (256ul * 1024 * 1024)
-
-/* Witnessless: no kernel-locating PHYS results → no change. */
-static void test_kernel_image_phys_no_witness_noop(void) {
-  reset_state();
-  /* Non-kernel-locating PHYS witnesses must be ignored. */
-  inject_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, 0x1000,
-                KASLD_REGION_RAM_BASE);
-  inject_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, 0x100000000ul,
-                KASLD_REGION_RAM_TOP);
-  init_inference_ctx();
-  unsigned long min0 = g_ctx.phys_base_min;
-  unsigned long max0 = g_ctx.phys_base_max;
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
-  assert(g_ctx.phys_base_min == min0);
-  assert(g_ctx.phys_base_max == max0);
-}
-
-/* Note on test setup: every kernel_image_phys_bound test that expects
- * tightening also injects a low PHYS/DRAM `ram_base` witness. This pins
- * dram_bound's `min PHYS/DRAM` to the low value, causing dram_bound's
- * tightening check to fail (it can't raise phys_base_min above
- * `phys_kaslr_base_min`). Without this, dram_bound would raise
- * phys_base_min above the kernel_image witness in its same convergence
- * pass, blocking kernel_image_phys_bound from firing — an order-dependence
- * that doesn't occur in production parallel mode (where ram_base witnesses
- * from /sys/firmware/memmap or /proc/zoneinfo are present alongside cr3).
- */
-#define KIPB_RAM_BASE (0x1000ul)
-
-/* Single kernel_image witness → both bounds tighten symmetrically around
- * the witness, with the lower bound separated by MAX_IMAGE_SIZE. */
-static void test_kernel_image_phys_single_witness_tightens(void) {
-  reset_state();
-  unsigned long cr3 = 0x119446000ul;
-  inject_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, KIPB_RAM_BASE,
-                KASLD_REGION_RAM_BASE);
-  inject_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, cr3, "kernel_bss:cr3");
-  init_inference_ctx();
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
-  /* phys_base_max ≤ cr3, aligned down to phys_kaslr_align (2 MiB). */
-  unsigned long align = g_ctx.arch->phys_kaslr_align;
-  assert(g_ctx.phys_base_max <= cr3);
-  assert((g_ctx.phys_base_max & (align - 1)) == 0);
-  /* phys_base_min ≥ cr3 - MAX_IMAGE_SIZE + 1, aligned up. */
-  unsigned long expected_min =
-      (cr3 - KIPB_MAX_IMAGE_SIZE + 1 + align - 1) & ~(align - 1);
-  assert(g_ctx.phys_base_min == expected_min);
-}
-
-/* BSS-resident refinement: cr3 witness *plus* a VIRT/TEXT and VIRT/DATA
- * pair → phys_base_max contribution is `cr3 - virt_gap` (tighter than
- * cr3 alone). */
-static void test_kernel_image_phys_bss_refinement_with_gap(void) {
-  reset_state();
-  unsigned long cr3 = 0x119446000ul;
-  unsigned long vtext_min = KERNEL_BASE_MIN + 0x1000000ul; /* +16 MiB */
-  /* Place max(VIRT DATA) such that gap = 32 MiB (well within image). */
-  unsigned long gap = 32ul * 1024 * 1024;
-  unsigned long vdata_max = vtext_min + gap;
-
-  inject_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, KIPB_RAM_BASE,
-                KASLD_REGION_RAM_BASE);
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, vtext_min,
-                KASLD_REGION_KERNEL_TEXT);
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_DATA, vdata_max,
-                KASLD_REGION_KERNEL_DATA);
-  inject_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, cr3, "kernel_bss:cr3");
-  init_inference_ctx();
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
-  /* phys_base_max ≤ cr3 - gap (BSS-resident refinement), aligned down. */
-  unsigned long align = g_ctx.arch->phys_kaslr_align;
-  unsigned long expected_max = (cr3 - gap) & ~(align - 1);
-  assert(g_ctx.phys_base_max == expected_max);
-}
-
-/* Non-cr3 kernel_image witness (no name match) → BSS refinement does NOT
- * apply, even with a virt gap present. */
-static void test_kernel_image_phys_no_bss_refinement_for_unknown_name(void) {
-  reset_state();
-  unsigned long w = 0x119446000ul;
-  unsigned long vtext_min = KERNEL_BASE_MIN + 0x1000000ul;
-  unsigned long gap = 32ul * 1024 * 1024;
-  unsigned long vdata_max = vtext_min + gap;
-  inject_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, KIPB_RAM_BASE,
-                KASLD_REGION_RAM_BASE);
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, vtext_min,
-                KASLD_REGION_KERNEL_TEXT);
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_DATA, vdata_max,
-                KASLD_REGION_KERNEL_DATA);
-  /* Region kernel_image (not kernel_bss) → BSS refinement does NOT apply
-   * regardless of name. The discriminant is the region tag, not the name. */
-  inject_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, w,
-                "kernel_image:unknown_symbol");
-  init_inference_ctx();
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
-  /* phys_base_max ≤ W (no gap subtraction), aligned down. */
-  unsigned long align = g_ctx.arch->phys_kaslr_align;
-  assert(g_ctx.phys_base_max == (w & ~(align - 1)));
-}
-
-/* Conflicting witnesses (spread > MAX_IMAGE_SIZE) → skip entirely. */
-static void test_kernel_image_phys_contradictory_witnesses_noop(void) {
-  reset_state();
-  unsigned long lo_w = 0x119446000ul;
-  unsigned long hi_w = lo_w + KIPB_MAX_IMAGE_SIZE + 0x100000ul; /* +1 MiB */
-  inject_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, KIPB_RAM_BASE,
-                KASLD_REGION_RAM_BASE);
-  inject_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, lo_w, "kernel_bss:cr3");
-  inject_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, hi_w,
-                KASLD_REGION_KERNEL_IMAGE);
-  init_inference_ctx();
-  unsigned long max0 = g_ctx.phys_base_max;
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
-  /* The conflict guard refused to emit any bound from this plugin. With
-   * the spread exceeding MAX_IMAGE_SIZE, the plugin returns before
-   * computing new_phys_max. The rest of the convergence loop may still
-   * shift things but the plugin under test must not have pinned
-   * phys_base_max to lo_w. */
-  assert(g_ctx.phys_base_max > lo_w || g_ctx.phys_base_max == max0);
-}
-
-#undef KIPB_RAM_BASE
-#undef KIPB_MAX_IMAGE_SIZE
-
-#endif /* __x86_64__ */
-
-/* =========================================================================
- * va_bits_from_results (POST_COLLECTION) — arm64 only
- * Pins page_offset bounds from VA_BITS evidence in DIRECTMAP results.
- * =========================================================================
- */
-#if defined(__aarch64__)
-
-#define ARM64_VA48_PO_TEST 0xffff000000000000ul
-#define ARM64_VA52_PO_TEST 0xfff0000000000000ul
-
-static void test_va_bits_no_results_noop(void) {
-  reset_state();
-  init_inference_ctx();
-  unsigned long po_min = g_ctx.page_offset_min;
-  unsigned long po_max = g_ctx.page_offset_max;
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
-  assert(g_ctx.page_offset_min == po_min);
-  assert(g_ctx.page_offset_max == po_max);
-}
-
-/* All DIRECTMAP results in the VA_BITS=48 range → PAGE_OFFSET pinned to
- * 0xffff000000000000 (both bounds), provided that value lies inside the
- * starting window. */
-static void test_va_bits_va48_pins_page_offset(void) {
-  reset_state();
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP,
-                ARM64_VA48_PO_TEST + (1 * MB), KASLD_REGION_DIRECTMAP);
-  init_inference_ctx();
-  /* The compile-time default sets page_offset_min to ARM64_VA52_PO and
-   * page_offset_max to KERNEL_VAS_END; both straddle ARM64_VA48_PO. */
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
-  assert(g_ctx.page_offset_min == ARM64_VA48_PO_TEST);
-  assert(g_ctx.page_offset_max == ARM64_VA48_PO_TEST);
-}
-
-/* A VA_BITS=52 directmap address tightens page_offset_max down to
- * ARM64_VA52_PO (page_offset_min was already at that value by default). */
-static void test_va_bits_va52_pins_page_offset_max(void) {
-  reset_state();
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP,
-                ARM64_VA52_PO_TEST + (1 * MB), KASLD_REGION_DIRECTMAP);
-  init_inference_ctx();
-  unsigned long po_max_before = g_ctx.page_offset_max;
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
-  assert(g_ctx.page_offset_max <= po_max_before);
-  assert(g_ctx.page_offset_max == ARM64_VA52_PO_TEST);
-}
-
-/* Both ranges present → contradictory; plugin must leave bounds unchanged. */
-static void test_va_bits_contradictory_noop(void) {
-  reset_state();
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP,
-                ARM64_VA52_PO_TEST + (1 * MB), KASLD_REGION_DIRECTMAP);
-  inject_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP,
-                ARM64_VA48_PO_TEST + (1 * MB), KASLD_REGION_DIRECTMAP);
-  init_inference_ctx();
-  unsigned long po_min = g_ctx.page_offset_min;
-  unsigned long po_max = g_ctx.page_offset_max;
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
-  assert(g_ctx.page_offset_min == po_min);
-  assert(g_ctx.page_offset_max == po_max);
-}
-
-#endif /* __aarch64__ */
-
-/* =========================================================================
- * State machine
- * =========================================================================
- */
-
-/* Verify state table structure: entry count, phase keys, and parallel flags. */
-static void test_state_table_structure(void) {
-  size_t n = sizeof(states) / sizeof(states[0]);
-  assert(n == 3);
-
-  /* setup: no components, sequential */
-  assert(states[0].phase_key == NULL);
-  assert(states[0].parallel == 0);
-
-  /* inference: inference-phase components, parallel */
-  assert(strcmp(states[1].phase_key, "inference") == 0);
-  assert(states[1].parallel == 1);
-
-  /* probing: probing-phase components, sequential, always entered */
-  assert(strcmp(states[2].phase_key, "probing") == 0);
-  assert(states[2].parallel == 0);
+  assert(!bounds_changed(&after));
 }
 
 /* =========================================================================
  * Main
- * =========================================================================
- */
+ * ========================================================================= */
 int main(void) {
-  printf("kasld unit tests (%s)\n\n", VERSION);
+  RUN(test_result_init_zeroes_everything);
 
-  printf("align_for_section:\n");
-  RUN_TEST(test_align_text_rounds_down);
-  RUN_TEST(test_align_text_already_aligned);
-  RUN_TEST(test_align_module_passthrough);
-  RUN_TEST(test_align_default_passthrough);
-  RUN_TEST(test_align_phys_text_rounds_down);
-  printf("\n");
+  RUN(test_parse_base_record);
+  RUN(test_parse_interior_sample);
+  RUN(test_parse_named_record);
+  RUN(test_parse_name_with_colons);
+  RUN(test_parse_sz_normalizes_to_hi);
+  RUN(test_parse_rejects_unknown_key);
+  RUN(test_parse_rejects_missing_pos);
+  RUN(test_parse_rejects_missing_conf);
+  RUN(test_parse_rejects_pos_base_without_lo);
+  RUN(test_parse_rejects_pos_top_without_hi);
+  RUN(test_parse_rejects_lo_above_hi);
+  RUN(test_parse_rejects_sample_outside_extent);
+  RUN(test_parse_rejects_sz_overflow);
+  RUN(test_parse_rejects_non_power_of_two_base_align);
+  RUN(test_parse_accepts_power_of_two_base_align);
+  RUN(test_parse_genuine_zero_lo);
 
-  printf("validate_for_section:\n");
-  RUN_TEST(test_validate_virt_text_in_range);
-  RUN_TEST(test_validate_virt_text_below_range);
-  RUN_TEST(test_validate_virt_text_above_range);
-  RUN_TEST(test_validate_virt_module_in_range);
-  RUN_TEST(test_validate_virt_module_below_range);
-  RUN_TEST(test_validate_default_always_valid);
-  RUN_TEST(test_validate_phys_text_in_range);
-  RUN_TEST(test_validate_phys_text_below_range);
-  RUN_TEST(test_validate_phys_dram_always_valid);
-  printf("\n");
+  RUN(test_result_in_bounds_rejects_region_unknown);
+  RUN(test_result_in_bounds_open_vas_accepts_anything);
+  RUN(test_result_in_bounds_no_set_bits_passes);
 
-  printf("capture_result:\n");
-  RUN_TEST(test_parse_basic);
-  RUN_TEST(test_parse_multiple);
-  RUN_TEST(test_parse_incremental);
-  RUN_TEST(test_parse_ignores_non_tagged);
-  RUN_TEST(test_parse_label_with_colon);
-  RUN_TEST(test_parse_strips_newline);
-  printf("\n");
+  RUN(test_select_anchor_prefers_no_name);
+  RUN(test_select_anchor_falls_back_to_named);
+  RUN(test_select_anchor_returns_null_on_miss);
 
-  printf("group_consensus:\n");
-  RUN_TEST(test_consensus_single);
-  RUN_TEST(test_consensus_majority);
-  RUN_TEST(test_consensus_tie_lowest);
-  RUN_TEST(test_consensus_empty);
-  RUN_TEST(test_consensus_ignores_invalid);
-  RUN_TEST(test_consensus_type_isolation);
-  printf("\n");
+  RUN(test_merge_collapses_same_key);
+  RUN(test_merge_keeps_conflicting_records);
+  RUN(test_merge_does_not_cross_types);
+  RUN(test_merge_sample_clamped_to_extent);
+  RUN(test_merge_picks_highest_conf_sample);
+  RUN(test_merge_samples_conflict_kept_separate);
 
-  printf("group_range:\n");
-  RUN_TEST(test_range_single);
-  RUN_TEST(test_range_multiple);
-  RUN_TEST(test_range_empty);
-  printf("\n");
+  RUN(test_conf_weight_ordering);
 
-  printf("adjust_for_page_offset:\n");
-  RUN_TEST(test_adjust_noop_same_po);
-#if defined(__i386__) || defined(__arm__)
-  RUN_TEST(test_adjust_shifts_layout);
+  RUN(test_anchor_addr_base);
+  RUN(test_anchor_addr_interior_sample);
+  RUN(test_anchor_addr_null);
+
+  RUN(test_adjust_noop);
+
+  RUN(test_ilog2_power_of_two);
+  RUN(test_ilog2_zero);
+
+  RUN(test_compute_kaslr_info_uses_kernel_image_anchor);
+  RUN(test_compute_kaslr_info_falls_back_to_kernel_text);
+  RUN(test_compute_kaslr_info_no_anchors_yields_zero_vtext);
+#ifdef DATA_OFFSET
+  RUN(test_compute_kaslr_info_derives_from_kernel_data);
 #endif
-  printf("\n");
 
-  printf("revalidate_results:\n");
-  RUN_TEST(test_revalidate_updates_validity);
-  printf("\n");
+  RUN(test_roundtrip_base);
+  RUN(test_roundtrip_range);
+  RUN(test_roundtrip_top);
+  RUN(test_roundtrip_sample);
+  RUN(test_roundtrip_sized);
 
-  printf("ilog2:\n");
-  RUN_TEST(test_ilog2_power_of_two);
-  RUN_TEST(test_ilog2_non_power);
-  RUN_TEST(test_ilog2_zero);
-  RUN_TEST(test_ilog2_large);
-  printf("\n");
+  RUN(test_helpers_reject_conf_unknown);
 
-  printf("section_display_name:\n");
-  RUN_TEST(test_section_display_default_null);
-  RUN_TEST(test_section_display_virt_text);
-  RUN_TEST(test_section_display_phys_text);
-  RUN_TEST(test_section_display_pageoffset_null);
-  RUN_TEST(test_section_display_module);
-  RUN_TEST(test_section_display_dram);
-  printf("\n");
+  RUN(test_merge_dedups_provenance);
+  RUN(test_merge_caps_at_max_provenance);
 
-  printf("validate_for_section (extended):\n");
-  RUN_TEST(test_validate_virt_directmap_in_range);
-  RUN_TEST(test_validate_virt_directmap_below_range);
-  RUN_TEST(test_validate_virt_data_in_range);
-  RUN_TEST(test_validate_virt_pageoffset_always_valid);
-  RUN_TEST(test_validate_virt_text_at_boundaries);
-  RUN_TEST(test_validate_virt_module_at_boundaries);
-  printf("\n");
+  RUN(test_phys_virt_linkage_stays_two_records);
 
-  printf("capture_result (extended):\n");
-  RUN_TEST(test_parse_rejects_lowercase_type);
-  RUN_TEST(test_parse_rejects_missing_space);
-  RUN_TEST(test_parse_rejects_empty_label);
-  RUN_TEST(test_parse_zero_address);
-  RUN_TEST(test_parse_phys_type);
-  RUN_TEST(test_parse_directmap_section);
-  printf("\n");
+  RUN(test_result_in_bounds_layout_sensitive);
 
-  printf("group_consensus (extended):\n");
-  RUN_TEST(test_consensus_section_isolation);
-  RUN_TEST(test_consensus_three_way_tie);
-  RUN_TEST(test_consensus_weight_beats_count);
-  RUN_TEST(test_consensus_weight_tie_to_count);
-  printf("\n");
+  RUN(test_synthesized_result_sets_fields_correctly);
 
-  printf("group_range (extended):\n");
-  RUN_TEST(test_range_ignores_invalid);
-  RUN_TEST(test_range_type_isolation);
-  RUN_TEST(test_range_zero_address);
-  printf("\n");
+  RUN(test_inference_phase_runs_against_structured_input);
 
-  printf("add_derived:\n");
-  RUN_TEST(test_add_derived_basic);
-  RUN_TEST(test_add_derived_with_range);
-  RUN_TEST(test_add_derived_overflow);
-  printf("\n");
+  RUN(test_is_phys_dram_region_includes_ram_landmarks);
+  RUN(test_is_phys_dram_region_includes_kernel_image);
+  RUN(test_is_phys_dram_region_excludes_non_dram);
 
-  printf("inject_kaslr_defaults:\n");
-  RUN_TEST(test_inject_defaults_nokaslr);
-  RUN_TEST(test_inject_defaults_unsupported);
-  RUN_TEST(test_inject_defaults_kaslr_enabled);
-  printf("\n");
+  RUN(test_result_in_bounds_accepts_phys_kernel_image);
 
-  printf("compute_kaslr_info:\n");
-  RUN_TEST(test_compute_kaslr_with_vtext);
-  RUN_TEST(test_compute_kaslr_empty);
-  RUN_TEST(test_compute_kaslr_disabled_zeroes);
-  printf("\n");
+  RUN(test_page_offset_in_bounds_independent_of_runtime_layout);
 
-  printf("compute_derived_addrs:\n");
-  RUN_TEST(test_derived_decoupled_note_with_phys);
-  RUN_TEST(test_derived_decoupled_note_suppressed_with_vtext);
-  RUN_TEST(test_derived_decoupled_note_suppressed_no_phys);
-  printf("\n");
+  RUN(test_select_anchor_skips_out_of_bounds);
 
-  printf("json_print_escaped:\n");
-  RUN_TEST(test_json_print_escaped_special_chars);
-  printf("\n");
+  RUN(test_merge_sample_clamped_to_hi);
 
-  printf("render_json:\n");
-  RUN_TEST(test_json_basic_structure);
-  RUN_TEST(test_json_layout_values);
-  RUN_TEST(test_json_groups_with_results);
-  RUN_TEST(test_json_kaslr_virtual);
-  RUN_TEST(test_json_kaslr_no_address_has_inferred);
-  RUN_TEST(test_json_kaslr_disabled);
-  RUN_TEST(test_json_derived_entries);
-  RUN_TEST(test_json_derived_with_range);
-  printf("\n");
+  RUN(test_merge_is_idempotent);
 
-  printf("render_json (verbose):\n");
-  RUN_TEST(test_json_verbose_has_components);
-  RUN_TEST(test_json_verbose_no_logs);
-  printf("\n");
+  RUN(test_parse_key_order_independent);
+  RUN(test_parse_sz_before_lo_normalizes);
 
-  printf("component stats:\n");
-  RUN_TEST(test_component_stats);
-  RUN_TEST(test_json_component_stats);
-  printf("\n");
+  RUN(test_merge_base_align_takes_max);
+  RUN(test_merge_base_align_propagates_from_either_contributor);
 
-  printf("meta_get:\n");
-  RUN_TEST(test_meta_get_basic);
-  RUN_TEST(test_meta_get_all_multiple);
-  printf("\n");
+  RUN(test_region_info_table_completeness);
+  RUN(test_region_info_static_vas_or_derive_vas_set);
 
-  printf("hardening (text):\n");
-  RUN_TEST(test_hardening_text_exposure_summary);
-  RUN_TEST(test_hardening_text_active_defenses);
-  RUN_TEST(test_hardening_text_patched);
-  RUN_TEST(test_hardening_text_no_mitigation);
-  printf("\n");
-
-  printf("hardening (json):\n");
-  RUN_TEST(test_hardening_json_structure);
-  RUN_TEST(test_hardening_json_meta_array);
-  RUN_TEST(test_hardening_json_no_meta_without_flag);
-  printf("\n");
-
-  printf("end-to-end:\n");
-  RUN_TEST(test_e2e_pipeline);
-  RUN_TEST(test_e2e_incremental_layout);
-  RUN_TEST(test_e2e_kaslr_disabled_detection);
-  printf("\n");
-
-  printf("state machine:\n");
-  RUN_TEST(test_state_table_structure);
-  printf("\n");
-
-  printf("apply_skip_filter:\n");
-  RUN_TEST(test_skip_exact_match);
-  RUN_TEST(test_skip_glob_pattern);
-  RUN_TEST(test_skip_multiple_patterns);
-  RUN_TEST(test_skip_no_patterns_no_filter);
-  RUN_TEST(test_skip_no_match_keeps_all);
-  RUN_TEST(test_skip_active_count_excludes_filtered);
-  RUN_TEST(test_skip_inference_pool_excludes_filtered);
-  printf("\n");
-
-  printf("inference plugins (kaslr_ceiling):\n");
-  RUN_TEST(test_kaslr_ceiling_never_widens);
-  RUN_TEST(test_kaslr_ceiling_alignment_invariant);
-  RUN_TEST(test_kaslr_ceiling_max_above_min);
-  RUN_TEST(test_kaslr_ceiling_phys_never_widens);
-  RUN_TEST(test_kaslr_ceiling_phys_max_above_min);
 #if PHYS_VIRT_DECOUPLED
-  RUN_TEST(test_kaslr_ceiling_phys_alignment_invariant);
-#endif
-  printf("\n");
-
-  printf("inference plugins (dram_bound):\n");
-  RUN_TEST(test_dram_bound_no_results_noop);
-  RUN_TEST(test_dram_bound_only_dram_section_used);
-#if PHYS_VIRT_DECOUPLED
-  RUN_TEST(test_dram_bound_decoupled_noop);
-#endif
-#if !PHYS_VIRT_DECOUPLED
-  RUN_TEST(test_dram_bound_raises_min);
-#endif
-  printf("\n");
-
-  printf("inference plugins (phys_virt_synth):\n");
-  RUN_TEST(test_phys_virt_synth_no_results_noop);
-  RUN_TEST(test_phys_virt_synth_no_cross_origin_pairing);
-  RUN_TEST(test_phys_virt_synth_tightens_on_agreement);
-  RUN_TEST(test_phys_virt_synth_disagreeing_candidates_noop);
-  printf("\n");
-
-  printf("inference plugins (module_text_bound):\n");
-  RUN_TEST(test_module_text_bound_no_results_noop);
-  RUN_TEST(test_module_text_bound_non_module_section_noop);
-#if MODULES_RELATIVE_TO_TEXT
-  RUN_TEST(test_module_text_bound_lowers_max);
-  RUN_TEST(test_module_text_bound_uses_minimum_module);
-  RUN_TEST(test_module_text_bound_never_raises_min);
-  RUN_TEST(test_module_text_bound_never_widens);
-#endif
-  printf("\n");
-
-  printf("inference plugins (layout_adjust):\n");
-  RUN_TEST(test_layout_adjust_no_results_noop);
-  RUN_TEST(test_layout_adjust_same_po_noop);
-  RUN_TEST(test_layout_adjust_new_po_updates_layout);
-  RUN_TEST(test_layout_adjust_consensus_applied);
-#if !PHYS_VIRT_DECOUPLED
-  RUN_TEST(test_layout_adjust_floor_clamp);
-#endif
-  printf("\n");
-
-  printf("inference plugins (image_size_from_text_data_gap):\n");
-  RUN_TEST(test_image_size_no_results_noop);
-  RUN_TEST(test_image_size_text_only_noop);
-  RUN_TEST(test_image_size_data_only_noop);
-  RUN_TEST(test_image_size_inverted_pair_noop);
-  RUN_TEST(test_image_size_lowers_max);
-  RUN_TEST(test_image_size_alignment_invariant);
-  RUN_TEST(test_image_size_never_widens);
-  printf("\n");
-
-#if defined(__x86_64__)
-  printf("inference plugins (randomize_memory_page_offset):\n");
-  RUN_TEST(test_randomize_memory_no_results_noop);
-  RUN_TEST(test_randomize_memory_only_directmap_noop);
-  RUN_TEST(test_randomize_memory_only_dram_noop);
-  RUN_TEST(test_randomize_memory_pins_page_offset);
-  RUN_TEST(test_randomize_memory_unaligned_candidate_noop);
-  RUN_TEST(test_randomize_memory_non_ram_base_witness_noop);
-  RUN_TEST(test_randomize_memory_same_origin_pair_pins);
-  RUN_TEST(test_randomize_memory_same_origin_region_mismatch_noop);
-  RUN_TEST(test_randomize_memory_same_origin_name_mismatch_noop);
-  RUN_TEST(test_randomize_memory_same_origin_misaligned_noop);
-  RUN_TEST(test_randomize_memory_cross_origin_not_same_origin);
-  printf("\n");
-
-  printf("inference plugins (kernel_image_phys_bound):\n");
-  RUN_TEST(test_kernel_image_phys_no_witness_noop);
-  RUN_TEST(test_kernel_image_phys_single_witness_tightens);
-  RUN_TEST(test_kernel_image_phys_bss_refinement_with_gap);
-  RUN_TEST(test_kernel_image_phys_no_bss_refinement_for_unknown_name);
-  RUN_TEST(test_kernel_image_phys_contradictory_witnesses_noop);
-  printf("\n");
+  RUN(test_compute_kaslr_info_sets_decoupled_note);
+  RUN(test_compute_kaslr_info_no_note_when_vtext_present);
+  RUN(test_compute_kaslr_info_no_note_without_phys_landmark);
 #endif
 
-#if defined(__aarch64__)
-  printf("inference plugins (va_bits_from_results):\n");
-  RUN_TEST(test_va_bits_no_results_noop);
-  RUN_TEST(test_va_bits_va48_pins_page_offset);
-  RUN_TEST(test_va_bits_va52_pins_page_offset_max);
-  RUN_TEST(test_va_bits_contradictory_noop);
-  printf("\n");
-#endif
+  RUN(test_bounds_snap_captures_all_tracked_fields);
+  RUN(test_bounds_changed_false_on_stable_snapshot);
+  RUN(test_post_collection_inference_converges);
 
-  printf("---\n%d/%d tests passed\n", pass_count, test_count);
+  fprintf(stderr, "\n%d/%d tests passed\n", pass_count, test_count);
   return (pass_count == test_count) ? 0 : 1;
 }

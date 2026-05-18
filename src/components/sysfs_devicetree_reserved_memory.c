@@ -45,8 +45,8 @@
 // ---
 // <bcoles@gmail.com>
 
-#include "include/kasld.h"
-#include "include/kasld_internal.h"
+#include "include/kasld/api.h"
+#include "include/kasld/internal.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdint.h>
@@ -209,14 +209,14 @@ int main(void) {
 
       /* Use the DT node name to identify the specific reservation
        * (e.g. "linux,cma", "optee@a0000000", "video_reserved@...") */
-      kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, base_addr,
-                   KASLD_REGION_RESERVED_MEM, ent->d_name);
+      kasld_result_sample(KASLD_TYPE_PHYS, REGION_RESERVED_MEM, base_addr,
+                          ent->d_name, CONF_PARSED);
 
 #if !PHYS_VIRT_DECOUPLED
       unsigned long virt = phys_to_virt(base_addr);
       printf("  possible direct-map virtual address: 0x%016lx\n", virt);
-      kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
-                   KASLD_REGION_RESERVED_MEM, ent->d_name);
+      kasld_result_sample(KASLD_TYPE_VIRT, REGION_RESERVED_MEM, virt,
+                          ent->d_name, CONF_PARSED);
 #endif
 
       count++;

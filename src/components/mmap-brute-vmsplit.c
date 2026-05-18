@@ -31,7 +31,7 @@
 // <bcoles@gmail.com>
 
 #define _GNU_SOURCE
-#include "include/kasld.h"
+#include "include/kasld/api.h"
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -71,8 +71,8 @@ int main(void) {
     return 0;
 
   printf("kernel virtual address start: %lx\n", addr);
-  kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_PAGEOFFSET, addr,
-               KASLD_REGION_PAGE_OFFSET, NULL);
+  kasld_result_base(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, addr, NULL,
+                    CONF_HEURISTIC);
 
   if (addr < (unsigned long)KERNEL_VAS_START)
     printf("[!] warning: virtual address start %lx below configured "

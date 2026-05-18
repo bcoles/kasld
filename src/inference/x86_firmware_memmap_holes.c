@@ -40,7 +40,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#include "../include/kasld_inference.h"
+#include "../include/kasld/inference.h"
 
 #include <dirent.h>
 #include <stdbool.h>
@@ -157,13 +157,15 @@ find_interval(const struct ram_interval *intervals, int count,
 }
 
 static int is_phys_kernel_base_candidate(const struct result *r) {
-  if (r->type != KASLD_ADDR_PHYS)
+  if (r->type != KASLD_TYPE_PHYS)
     return 0;
-  if (strcmp(r->section, KASLD_SECTION_TEXT) == 0)
-    return 1;
-  if (strcmp(r->section, KASLD_SECTION_DATA) == 0)
-    return 1;
-  return 0;
+  /* Kernel-base candidates live in the image's TEXT/DATA/whole-image
+   * regions. PHYS records for RAM landmarks (REGION_RAM, REGION_DMA*),
+   * MMIO regions (REGION_PCI_MMIO, REGION_MMIO), reserved regions
+   * (REGION_INITRD, REGION_SWIOTLB, ...) are NOT base candidates and
+   * must not be invalidated by hole/straddle checks. */
+  return r->region == REGION_KERNEL_TEXT || r->region == REGION_KERNEL_DATA ||
+         r->region == REGION_KERNEL_IMAGE;
 }
 
 #endif /* x86 */
@@ -187,39 +189,37 @@ static void x86_firmware_memmap_holes_run(struct kasld_analysis_ctx *ctx) {
   int invalidated = 0;
   for (int i = 0; i < num_results; i++) {
     struct result *r = &results[i];
-    if (!r->valid)
+    if (!result_in_bounds(r, ctx->layout))
       continue;
     if (!is_phys_kernel_base_candidate(r))
       continue;
 
-    const struct ram_interval *iv = find_interval(intervals, n, r->raw);
+    const struct ram_interval *iv = find_interval(intervals, n, anchor_addr(r));
     if (!iv) {
       if (verbose && !quiet)
         fprintf(stdout,
                 "[infer] x86_firmware_memmap_holes: invalidating PHYS/%s"
                 " result %#lx (not in any System RAM interval)\n",
-                r->section, r->raw);
-      r->valid = 0;
+                kasld_region_wire(r->region), anchor_addr(r));
+      r->region = REGION_UNKNOWN;
       invalidated++;
       continue;
     }
 
     /* Straddle check: even the smallest plausible image must fit inside
      * the containing interval. */
-    if (r->raw + MIN_IMAGE_SIZE > iv->end) {
+    if (anchor_addr(r) + MIN_IMAGE_SIZE > iv->end) {
       if (verbose && !quiet)
         fprintf(stdout,
                 "[infer] x86_firmware_memmap_holes: invalidating PHYS/%s"
                 " result %#lx (slot would straddle hole at %#lx;"
                 " interval end %#lx)\n",
-                r->section, r->raw, iv->end, iv->end);
-      r->valid = 0;
+                kasld_region_wire(r->region), anchor_addr(r), iv->end, iv->end);
+      r->region = REGION_UNKNOWN;
       invalidated++;
     }
   }
-
-  if (invalidated)
-    revalidate_results();
+  (void)invalidated;
 #else
   (void)ctx;
 #endif /* x86 */

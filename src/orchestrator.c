@@ -8,18 +8,22 @@
 //   2. components/ relative to the binary (build tree / tarball)
 //   3. ../libexec/kasld/ relative to the binary (FHS install)
 //
-// Tagged line format: <type> <section> <addr> <region>[:<name>]
-//   type:    V (virtual), P (physical), D (default/KASLR-disabled)
-//   section: text, module, directmap, data, dram, pageoffset, or - (default)
-//   region:  what kind of thing is at the address (KASLD_REGION_* constant)
-//   name:    specific instance, when known (e.g. symbol, module, PCI BDF)
+// Tagged line format (full spec: src/include/kasld.h):
+//   <type> <region>[:<name>] pos=<pos> conf=<conf>
+//       [lo=<hex>] [hi=<hex>|sz=<hex>] [sample=<hex>] [base_align=<hex>]
+//
+//   type:   P (physical), V (virtual), D (default/KASLR-disabled)
+//   region: closed vocabulary (enum kasld_region; snake_case wire names)
+//   name:   specific instance, when known (symbol, module, PCI BDF, ...)
+//   pos:    base | top | interior | unknown (what `sample` represents)
+//   conf:   parsed | derived | inferred | heuristic | timing | brute
 // ---
 // <bcoles@gmail.com>
 
 #define _POSIX_C_SOURCE 200809L
 
-#include "include/kasld_inference.h"
-#include "include/kasld_internal.h"
+#include "include/kasld/inference.h"
+#include "include/kasld/internal.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -507,16 +511,10 @@ static void print_system_config(void) {
  * =========================================================================
  */
 
-/* Result storage — defined in kasld_internal.h */
+/* Result storage — defined in kasld/internal.h */
 
 struct result results[MAX_RESULTS];
 int num_results;
-
-/* Forward declarations for functions defined in the post-processing section */
-static unsigned long align_for_section(char type, const char *section,
-                                       unsigned long addr);
-static int validate_for_section(char type, const char *section,
-                                unsigned long addr);
 
 /* =========================================================================
  * Inference plugin system
@@ -585,30 +583,315 @@ static void fire_on_exit(const struct exec_state *st) {
   st->on_exit();
 }
 
+/* Look up region enum by wire name. Linear scan over region_info[] — under
+ * 30 entries, negligible cost. Returns REGION_UNKNOWN on miss. */
+static enum kasld_region region_from_wire(const char *s) {
+  for (int i = 1; i < REGION__COUNT; i++) {
+    if (region_info[i].wire_name && strcmp(region_info[i].wire_name, s) == 0)
+      return (enum kasld_region)i;
+  }
+  return REGION_UNKNOWN;
+}
+
+static enum kasld_position pos_from_wire(const char *s) {
+  if (strcmp(s, "base") == 0)
+    return POS_BASE;
+  if (strcmp(s, "top") == 0)
+    return POS_TOP;
+  if (strcmp(s, "interior") == 0)
+    return POS_INTERIOR;
+  if (strcmp(s, "unknown") == 0)
+    return POS_UNKNOWN;
+  /* Unrecognised input also returns POS_UNKNOWN. The caller disambiguates
+   * via `strcmp(val, "unknown") != 0` immediately after this call —
+   * that guard must be kept co-located with any new call site. */
+  return POS_UNKNOWN;
+}
+
+static enum kasld_confidence conf_from_wire(const char *s) {
+  if (strcmp(s, "parsed") == 0)
+    return CONF_PARSED;
+  if (strcmp(s, "derived") == 0)
+    return CONF_DERIVED;
+  if (strcmp(s, "inferred") == 0)
+    return CONF_INFERRED;
+  if (strcmp(s, "heuristic") == 0)
+    return CONF_HEURISTIC;
+  if (strcmp(s, "timing") == 0)
+    return CONF_TIMING;
+  if (strcmp(s, "brute") == 0)
+    return CONF_BRUTE;
+  return CONF_UNKNOWN;
+}
+
+/* Power-of-two test, allowing v=0 to mean "no constraint" but the caller
+ * gates on v != 0 separately. */
+static int is_pow2(unsigned long v) { return v && !(v & (v - 1)); }
+
+static enum kasld_addr_type type_from_wire(char c) {
+  switch (c) {
+  case 'P':
+    return KASLD_TYPE_PHYS;
+  case 'V':
+    return KASLD_TYPE_VIRT;
+  case 'D':
+    return KASLD_TYPE_DEFAULT_VIRT;
+  default:
+    return KASLD_TYPE_UNKNOWN;
+  }
+}
+
+static int parse_hex(const char *s, unsigned long *out) {
+  if (s[0] != '0' || (s[1] != 'x' && s[1] != 'X'))
+    return 0;
+  char *end;
+  errno = 0;
+  unsigned long v = strtoul(s, &end, 16);
+  if (errno || *end != '\0')
+    return 0;
+  *out = v;
+  return 1;
+}
+
+/* Parse a new-format tagged line into a struct result.
+ *
+ * Wire format:
+ *   <type> <region>[:<name>] pos=<pos> conf=<conf> \
+ *       [lo=<hex>] [hi=<hex>|sz=<hex>] [sample=<hex>] [base_align=<hex>]
+ *
+ * Two-stage:
+ *   (1) sscanf the positional prefix "<type> <region>[:<name>]"
+ *   (2) tokenise the tail with strtok_r, collecting key/value pairs into a
+ *       local struct, then apply sz→hi normalisation and cross-key
+ *       validation in a second step.
+ *
+ * Returns 1 on accept (record appended to results[]), 0 on reject.
+ */
 static int capture_result(const char *line, const char *method,
                           const char *origin) {
-  if (line[0] != KASLD_ADDR_VIRT && line[0] != KASLD_ADDR_PHYS &&
-      line[0] != KASLD_ADDR_DEFAULT)
+  /* Quick prefix filter. */
+  if (line[0] != 'P' && line[0] != 'V' && line[0] != 'D')
     return 0;
   if (line[1] != ' ')
     return 0;
 
+  /* region_field holds the "region[:name]" token. Sized to hold the
+   * longest plausible name (NAME_LEN - 1) plus the longest region wire
+   * string (~16) plus the separator. Width-restricted sscanf matches the
+   * buffer size exactly. */
+#define REGION_FIELD_CAP (NAME_LEN + 32)
   char type_ch;
-  char section[SECTION_LEN];
-  unsigned long addr;
-  int pos = 0;
-
-  if (sscanf(line, "%c %31s %lx %n", &type_ch, section, &addr, &pos) < 3 ||
-      pos == 0)
+  char region_field[REGION_FIELD_CAP];
+  int prefix_consumed = 0;
+  /* sscanf width must be strictly less than buffer size — sscanf writes
+   * an implicit terminator. NAME_LEN + 31 here for REGION_FIELD_CAP = 80. */
+  if (sscanf(line, "%c %79s %n", &type_ch, region_field, &prefix_consumed) <
+          2 ||
+      prefix_consumed == 0)
     return 0;
 
-  const char *region_start = line + pos;
-  if (*region_start == '\0')
+  enum kasld_addr_type type = type_from_wire(type_ch);
+  if (type == KASLD_TYPE_UNKNOWN)
     return 0;
 
-  /* Claim a result slot under the lock; fill it afterwards without the lock.
-   * layout is read-only during parallel inference so align/validate are safe
-   * outside the critical section. */
+  /* Split region[:name] on FIRST `:` only. Names may legitimately contain
+   * subsequent colons (e.g. PCI BDF "0000:00:14.0"). Region wire names
+   * are short identifiers (longest current: "module_region" = 13) and
+   * never contain ':', so the split is unambiguous. */
+  char region_str[32];
+  char name_buf[NAME_LEN];
+  name_buf[0] = '\0';
+  {
+    char *colon = strchr(region_field, ':');
+    if (colon) {
+      size_t rlen = (size_t)(colon - region_field);
+      /* Over-length region string indicates a malformed line. */
+      if (rlen >= sizeof(region_str))
+        return 0;
+      memcpy(region_str, region_field, rlen);
+      region_str[rlen] = '\0';
+
+      const char *name_src = colon + 1;
+      size_t nlen = strlen(name_src);
+      /* Spec: over-length names reject the line (no silent truncation). */
+      if (nlen > NAME_LEN - 1)
+        return 0;
+      memcpy(name_buf, name_src, nlen);
+      name_buf[nlen] = '\0';
+    } else {
+      size_t rlen = strlen(region_field);
+      if (rlen >= sizeof(region_str))
+        return 0;
+      memcpy(region_str, region_field, rlen);
+      region_str[rlen] = '\0';
+    }
+  }
+#undef REGION_FIELD_CAP
+
+  enum kasld_region region = region_from_wire(region_str);
+  if (region == REGION_UNKNOWN)
+    return 0;
+
+  /* --- Tail pass: collect all keys first, then normalise + validate. --- */
+  struct {
+    int seen_pos, seen_conf, seen_lo, seen_hi, seen_sz, seen_sample;
+    int seen_base_align;
+    enum kasld_position pos;
+    enum kasld_confidence conf;
+    unsigned long lo, hi, sz, sample, base_align;
+  } p = {0};
+  p.pos = POS_UNKNOWN;
+  p.conf = CONF_UNKNOWN;
+
+  char tail[MAX_LINE_LEN];
+  {
+    const char *t = line + prefix_consumed;
+    size_t tl = strlen(t);
+    if (tl >= sizeof(tail))
+      return 0;
+    memcpy(tail, t, tl + 1);
+    /* Strip trailing newline. */
+    if (tl > 0 && tail[tl - 1] == '\n')
+      tail[tl - 1] = '\0';
+  }
+
+  char *save = NULL;
+  for (char *tok = strtok_r(tail, " \t", &save); tok;
+       tok = strtok_r(NULL, " \t", &save)) {
+    char *eq = strchr(tok, '=');
+    if (!eq)
+      return 0;
+    *eq = '\0';
+    const char *key = tok;
+    const char *val = eq + 1;
+
+    if (strcmp(key, "pos") == 0) {
+      if (p.seen_pos)
+        return 0;
+      p.seen_pos = 1;
+      p.pos = pos_from_wire(val);
+      /* pos_from_wire returns POS_UNKNOWN for both unknown literal and
+       * unrecognised — distinguish: only "unknown" string is valid here. */
+      if (p.pos == POS_UNKNOWN && strcmp(val, "unknown") != 0)
+        return 0;
+    } else if (strcmp(key, "conf") == 0) {
+      if (p.seen_conf)
+        return 0;
+      p.seen_conf = 1;
+      p.conf = conf_from_wire(val);
+      if (p.conf == CONF_UNKNOWN)
+        return 0;
+    } else if (strcmp(key, "lo") == 0) {
+      if (p.seen_lo || !parse_hex(val, &p.lo))
+        return 0;
+      p.seen_lo = 1;
+    } else if (strcmp(key, "hi") == 0) {
+      if (p.seen_hi || p.seen_sz || !parse_hex(val, &p.hi))
+        return 0;
+      p.seen_hi = 1;
+    } else if (strcmp(key, "sz") == 0) {
+      if (p.seen_sz || p.seen_hi || !parse_hex(val, &p.sz))
+        return 0;
+      p.seen_sz = 1;
+    } else if (strcmp(key, "sample") == 0) {
+      if (p.seen_sample || !parse_hex(val, &p.sample))
+        return 0;
+      p.seen_sample = 1;
+    } else if (strcmp(key, "base_align") == 0) {
+      if (p.seen_base_align || !parse_hex(val, &p.base_align))
+        return 0;
+      if (!is_pow2(p.base_align))
+        return 0;
+      p.seen_base_align = 1;
+    } else {
+      /* Unknown key rejects the line (spec: no forward-compat silence). */
+      return 0;
+    }
+  }
+
+  /* Mandatory fields. */
+  if (!p.seen_pos || !p.seen_conf)
+    return 0;
+
+  /* sz → hi normalisation. */
+  if (p.seen_sz) {
+    /* sz requires lo — check before doing arithmetic on p.lo. */
+    if (!p.seen_lo)
+      return 0;
+    if (p.sz == 0 || p.sz - 1 > ULONG_MAX - p.lo)
+      return 0;
+    p.hi = p.lo + p.sz - 1;
+    p.seen_hi = 1;
+  }
+
+  /* Cross-key constraints. */
+  if (p.seen_lo && p.seen_hi && p.lo > p.hi)
+    return 0;
+  if (p.seen_sample) {
+    if (p.seen_lo && p.sample < p.lo)
+      return 0;
+    if (p.seen_hi && p.sample > p.hi)
+      return 0;
+  }
+
+  /* pos-requires-field. */
+  switch (p.pos) {
+  case POS_BASE:
+    if (!p.seen_lo)
+      return 0;
+    break;
+  case POS_TOP:
+    if (!p.seen_hi)
+      return 0;
+    break;
+  case POS_INTERIOR:
+    if (!p.seen_sample)
+      return 0;
+    break;
+  case POS_UNKNOWN:
+    if (!p.seen_lo && !p.seen_hi && !p.seen_sample)
+      return 0;
+    break;
+  }
+
+  /* Parse-time VAS validation against region_info[region].static_vas.
+   * Layout-derived regions (derive_vas != NULL) skip parse-time validation
+   * — they're validated at runtime via result_in_bounds.
+   *
+   * Rejections are surfaced under --verbose so a developer porting a
+   * component to a new architecture sees the drop instead of a silent
+   * "ran but produced nothing". The reject reason names the offending
+   * field for actionable triage. */
+  const struct region_info *ri = &region_info[region];
+  if (ri->derive_vas == NULL &&
+      (ri->static_vas.lo != 0 || ri->static_vas.hi != 0)) {
+    unsigned long vlo = ri->static_vas.lo;
+    unsigned long vhi = ri->static_vas.hi;
+    const char *vas_field = NULL;
+    unsigned long vas_val = 0;
+    if (p.seen_lo && (p.lo < vlo || p.lo > vhi)) {
+      vas_field = "lo";
+      vas_val = p.lo;
+    } else if (p.seen_hi && (p.hi < vlo || p.hi > vhi)) {
+      vas_field = "hi";
+      vas_val = p.hi;
+    } else if (p.seen_sample && (p.sample < vlo || p.sample > vhi)) {
+      vas_field = "sample";
+      vas_val = p.sample;
+    }
+    if (vas_field) {
+      if (verbose && !quiet)
+        fprintf(stderr,
+                "[parser] dropped %c %s%s%s: %s=%#lx out of VAS [%#lx, %#lx]"
+                " (origin=%s)\n",
+                kasld_type_wire(type), kasld_region_wire(region),
+                name_buf[0] ? ":" : "", name_buf[0] ? name_buf : "", vas_field,
+                vas_val, vlo, vhi, origin && *origin ? origin : "?");
+      return 0;
+    }
+  }
+
+  /* Claim a slot. */
   RESULT_LOCK();
   if (num_results >= MAX_RESULTS) {
     static int warned;
@@ -627,52 +910,46 @@ static int capture_result(const char *line, const char *method,
   RESULT_UNLOCK();
 
   struct result *r = &results[idx];
-  r->type = type_ch;
-  snprintf(r->section, SECTION_LEN, "%s", section);
-
-  /* Wire format: "<type> <section> <addr> <region>" — common case
-   *           or  "<type> <section> <addr> <region>:<name>" — when the
-   *               component knows the specific instance at this address
-   *               (kernel symbol, ACPI table OEM ID, module name, ...).
-   *
-   * Split on the FIRST `:` only. The name portion may itself contain
-   * colons (e.g. PCI BDF "0000:00:14.0"); only the boundary between
-   * region and name needs to be unambiguous, and KASLD_REGION_*
-   * constants never contain colons.
-   *
-   * Origin (provenance) is NOT on the wire — the orchestrator already
-   * knows which subprocess produced this line and attaches the
-   * component name as origin. Single source of truth: the component's
-   * identity is whatever the orchestrator launched, not whatever
-   * string the component types into its own kasld_result call. */
-  char trailing[REGION_LEN + NAME_LEN + 2];
-  snprintf(trailing, sizeof(trailing), "%s", region_start);
-  size_t tlen = strlen(trailing);
-  if (tlen > 0 && trailing[tlen - 1] == '\n')
-    trailing[tlen - 1] = '\0';
-
-  char *colon = strchr(trailing, ':');
-  if (colon) {
-    *colon = '\0';
-    snprintf(r->region, REGION_LEN, "%s", trailing);
-    snprintf(r->name, NAME_LEN, "%s", colon + 1);
-  } else {
-    snprintf(r->region, REGION_LEN, "%s", trailing);
-    r->name[0] = '\0';
+  result_init(r);
+  r->type = type;
+  r->region = region;
+  if (name_buf[0]) {
+    size_t nl = strlen(name_buf);
+    if (nl > NAME_LEN - 1)
+      nl = NAME_LEN - 1;
+    memcpy(r->name, name_buf, nl);
+    r->name[nl] = '\0';
   }
-
-  const char *org = origin ? origin : "";
-  size_t olen = strnlen(org, ORIGIN_LEN - 1);
-  memcpy(r->origin, org, olen);
-  r->origin[olen] = '\0';
-
-  r->raw = addr;
-  r->aligned = align_for_section(type_ch, section, addr);
-  r->valid = validate_for_section(type_ch, section, addr);
-
-  const char *meth = method ? method : "parsed";
-  strncpy(r->method, meth, METHOD_LEN - 1);
-  r->method[METHOD_LEN - 1] = '\0';
+  r->pos = p.pos;
+  r->conf = p.conf;
+  if (p.seen_lo) {
+    r->lo = p.lo;
+    r->set_mask |= LO_SET;
+  }
+  if (p.seen_hi) {
+    r->hi = p.hi;
+    r->set_mask |= HI_SET;
+  }
+  if (p.seen_sample) {
+    r->sample = p.sample;
+    r->set_mask |= SAMPLE_SET;
+  }
+  if (p.seen_base_align) {
+    r->base_align = p.base_align;
+    r->set_mask |= BASE_ALIGN_SET;
+  }
+  /* Provenance: this is the first contributor. */
+  if (origin && *origin) {
+    size_t ol = strnlen(origin, ORIGIN_LEN - 1);
+    memcpy(r->origins[0], origin, ol);
+    r->origins[0][ol] = '\0';
+  }
+  if (method && *method) {
+    size_t ml = strnlen(method, METHOD_LEN - 1);
+    memcpy(r->methods[0], method, ml);
+    r->methods[0][ml] = '\0';
+  }
+  r->provenance_count = 1;
   return 1;
 }
 
@@ -1273,160 +1550,267 @@ static void run_state(const struct exec_state *st) {
 }
 
 /* =========================================================================
- * Post-processing: validate, align, group, and summarize tagged results
+ * Post-processing: bounds validation, merging, anchor selection
  * =========================================================================
+ *
+ * Layout of this section:
+ *   - result_in_bounds()  : runtime VAS check (replaces validate_for_section)
+ *   - conf_weight()       : trust ranking for merged-record voting
+ *   - select_anchor()     : pick the canonical record for (type, region)
+ *   - merge_results()     : collapse same-(type, region, name) groups
+ *   - compute_kaslr_info(): vtext/ptext + entropy summary
  */
-static unsigned long align_for_section(char type, const char *section,
-                                       unsigned long addr) {
-  if (type == KASLD_ADDR_DEFAULT)
-    return addr;
 
-  if (strcmp(section, KASLD_SECTION_TEXT) == 0)
-    return addr & -layout.kernel_align;
-
-  /* module, directmap, data, dram, pageoffset: no alignment (report as-is) */
-  return addr;
-}
-
-static int validate_for_section(char type, const char *section,
-                                unsigned long addr) {
-  if (type == KASLD_ADDR_DEFAULT)
-    return 1;
-
-  if (type == KASLD_ADDR_VIRT) {
-    if (strcmp(section, KASLD_SECTION_TEXT) == 0)
-      return addr >= layout.kernel_base_min && addr <= layout.kernel_base_max;
-
-    if (strcmp(section, KASLD_SECTION_MODULE) == 0)
-      return addr >= layout.modules_start && addr <= layout.modules_end;
-
-    if (strcmp(section, KASLD_SECTION_DIRECTMAP) == 0 ||
-        strcmp(section, KASLD_SECTION_DATA) == 0)
-      return addr >= layout.kernel_vas_start && addr <= layout.kernel_vas_end;
-
-    if (strcmp(section, KASLD_SECTION_PAGEOFFSET) == 0)
+int result_in_bounds(const struct result *r, const struct kasld_layout *ly) {
+  if (!r || r->region == REGION_UNKNOWN || r->region >= REGION__COUNT)
+    return 0;
+  const struct region_info *ri = &region_info[r->region];
+  unsigned long vlo, vhi;
+  if (ri->derive_vas) {
+    ri->derive_vas(ly, &vlo, &vhi);
+  } else {
+    vlo = ri->static_vas.lo;
+    vhi = ri->static_vas.hi;
+    /* Open VAS (0..ULONG_MAX) is "accept anything"; full-zero is "no
+     * constraint" (used by regions whose VAS spans the whole address
+     * space, like REGION_RAM). */
+    if (vlo == 0 && vhi == 0)
       return 1;
   }
-
-  if (type == KASLD_ADDR_PHYS) {
-#ifdef KERNEL_PHYS_MIN
-    if (strcmp(section, KASLD_SECTION_TEXT) == 0)
-      return addr >= KERNEL_PHYS_MIN && addr <= KERNEL_PHYS_MAX;
-
-    if (strcmp(section, KASLD_SECTION_DRAM) == 0)
-      return 1;
-#endif
-    return 1;
-  }
-
+  if (HAS_LO(r) && (r->lo < vlo || r->lo > vhi))
+    return 0;
+  if (HAS_HI(r) && (r->hi < vlo || r->hi > vhi))
+    return 0;
+  if (HAS_SAMPLE(r) && (r->sample < vlo || r->sample > vhi))
+    return 0;
   return 1;
 }
 
-/* Re-validate and re-align all results against the current layout */
-void revalidate_results(void) {
-  for (int i = 0; i < num_results; i++) {
-    results[i].aligned =
-        align_for_section(results[i].type, results[i].section, results[i].raw);
-    results[i].valid = validate_for_section(results[i].type, results[i].section,
-                                            results[i].aligned);
+int conf_weight(enum kasld_confidence c) {
+  switch (c) {
+  case CONF_PARSED:
+    return 6;
+  case CONF_DERIVED:
+    return 5;
+  case CONF_INFERRED:
+    return 4;
+  case CONF_HEURISTIC:
+    return 3;
+  case CONF_TIMING:
+    return 2;
+  case CONF_BRUTE:
+    return 1;
+  default:
+    return 0;
   }
+}
+
+const struct result *select_anchor(enum kasld_addr_type type,
+                                   enum kasld_region region) {
+  const struct result *best_no_name = NULL;
+  int best_no_name_w = -1;
+  const struct result *best_named = NULL;
+  int best_named_w = -1;
+
+  for (int i = 0; i < num_results; i++) {
+    const struct result *r = &results[i];
+    if (r->type != type || r->region != region)
+      continue;
+    if (!result_in_bounds(r, &layout))
+      continue;
+    int w = conf_weight(r->conf);
+    if (r->name[0] == '\0') {
+      if (w > best_no_name_w) {
+        best_no_name = r;
+        best_no_name_w = w;
+      }
+    } else {
+      if (w > best_named_w) {
+        best_named = r;
+        best_named_w = w;
+      }
+    }
+  }
+  return best_no_name ? best_no_name : best_named;
 }
 
 /* -------------------------------------------------------------------------
- * Analysis helpers: find consensus address for a (type, section) group
+ * Merge pass — collapse same-(type, region, name) records into one.
  * -------------------------------------------------------------------------
  */
-int method_weight(const char *method) {
-  if (strcmp(method, "exact") == 0)
-    return 4;
-  if (strcmp(method, "timing") == 0)
-    return 3;
-  if (strcmp(method, "parsed") == 0)
-    return 2;
-  if (strcmp(method, "heuristic") == 0)
+
+/* Dedup key is origin only — same origin with a different method means
+ * the second method is silently dropped. This is intentional: the method
+ * field is an attribute of the contribution, not a discriminator for
+ * identity. Two contributions from the same component are one provenance
+ * entry regardless of method. */
+static int provenance_has(const struct result *r, const char *s) {
+  if (!s || !*s)
     return 1;
-  return 2; /* default: same as parsed */
+  for (int i = 0; i < r->provenance_count; i++)
+    if (strncmp(r->origins[i], s, ORIGIN_LEN) == 0)
+      return 1;
+  return 0;
 }
 
-unsigned long group_consensus(char type, const char *section) {
-  /* Find the best aligned address in a group using method-weighted scoring.
-   * Each result contributes its method weight to the address's total score.
-   * Highest score wins; ties break to most sources, then lowest address. */
-  unsigned long addrs[MAX_RESULTS];
-  int scores[MAX_RESULTS];
-  int counts[MAX_RESULTS];
-  int n = 0;
-
-  for (int i = 0; i < num_results; i++) {
-    struct result *r = &results[i];
-    if (r->type != type || strcmp(r->section, section) != 0 || !r->valid)
-      continue;
-
-    int w = method_weight(r->method);
-    int found = 0;
-    for (int j = 0; j < n; j++) {
-      if (addrs[j] == r->aligned) {
-        scores[j] += w;
-        counts[j]++;
-        found = 1;
-        break;
-      }
+static void provenance_add(struct result *r, const char *origin,
+                           const char *method) {
+  if (origin && *origin && provenance_has(r, origin))
+    return;
+  if (r->provenance_count >= MAX_PROVENANCE) {
+    static int warned;
+    if (!warned && !quiet) {
+      fprintf(stderr,
+              "warning: merged record provenance capped at MAX_PROVENANCE=%d; "
+              "later contributors dropped\n",
+              MAX_PROVENANCE);
+      warned = 1;
     }
-    if (!found && n < MAX_RESULTS) {
-      addrs[n] = r->aligned;
-      scores[n] = w;
-      counts[n] = 1;
-      n++;
+    return;
+  }
+  int slot = r->provenance_count++;
+  if (origin && *origin) {
+    size_t ol = strnlen(origin, ORIGIN_LEN - 1);
+    memcpy(r->origins[slot], origin, ol);
+    r->origins[slot][ol] = '\0';
+  } else {
+    r->origins[slot][0] = '\0';
+  }
+  if (method && *method) {
+    size_t ml = strnlen(method, METHOD_LEN - 1);
+    memcpy(r->methods[slot], method, ml);
+    r->methods[slot][ml] = '\0';
+  } else {
+    r->methods[slot][0] = '\0';
+  }
+}
+
+static void merge_into(struct result *a, const struct result *b,
+                       int *sample_owner_w) {
+  if (HAS_LO(b)) {
+    if (!HAS_LO(a) || b->lo > a->lo)
+      a->lo = b->lo;
+    a->set_mask |= LO_SET;
+  }
+  if (HAS_HI(b)) {
+    if (!HAS_HI(a) || b->hi < a->hi)
+      a->hi = b->hi;
+    a->set_mask |= HI_SET;
+  }
+  if (HAS_SAMPLE(b)) {
+    int wb = conf_weight(b->conf);
+    if (!HAS_SAMPLE(a) || wb > *sample_owner_w) {
+      a->sample = b->sample;
+      a->set_mask |= SAMPLE_SET;
+      *sample_owner_w = wb;
+      /* pos is bound to whichever contributor provided the surviving
+       * sample. */
+      a->pos = b->pos;
     }
   }
+  if (HAS_BASE_ALIGN(b)) {
+    if (!HAS_BASE_ALIGN(a) || b->base_align > a->base_align)
+      a->base_align = b->base_align;
+    a->set_mask |= BASE_ALIGN_SET;
+  }
+  if (conf_weight(b->conf) > conf_weight(a->conf))
+    a->conf = b->conf;
+  for (int i = 0; i < b->provenance_count; i++)
+    provenance_add(a, b->origins[i], b->methods[i]);
+}
 
-  if (n == 0)
+static int merge_consistent(const struct result *a) {
+  if (HAS_LO(a) && HAS_HI(a) && a->lo > a->hi)
     return 0;
-
-  /* Return the address with highest score (ties: most sources, then lowest) */
-  int best = 0;
-  for (int i = 1; i < n; i++) {
-    if (scores[i] > scores[best] ||
-        (scores[i] == scores[best] && counts[i] > counts[best]) ||
-        (scores[i] == scores[best] && counts[i] == counts[best] &&
-         addrs[i] < addrs[best]))
-      best = i;
-  }
-  return addrs[best];
+  return 1;
 }
 
-void group_consensus_info(char type, const char *section,
-                          const char **best_method, int *n_sources,
-                          int *n_conflicts) {
-  unsigned long consensus = group_consensus(type, section);
+/* Sample-conflict predicate: two contributors both carry HAS_SAMPLE but
+ * point at different addresses. Spec rationale: same-(type, region, name)
+ * with differing samples almost always means different instances (e.g. two
+ * distinct swiotlb buffers, two initrd-witness pointers from different
+ * subsystems) — silently collapsing them would lose data. Treated the same
+ * as a bound conflict: keep both records separate. Records without a sample
+ * pair are always sample-compatible. */
+static int samples_conflict(const struct result *a, const struct result *b) {
+  if (!HAS_SAMPLE(a) || !HAS_SAMPLE(b))
+    return 0;
+  return a->sample != b->sample;
+}
 
-  const char *top_method = NULL;
-  int top_weight = 0;
-  int sources = 0;
-  int distinct = 0;
+static void clamp_sample(struct result *a) {
+  if (HAS_SAMPLE(a)) {
+    if (HAS_LO(a) && a->sample < a->lo)
+      a->sample = a->lo;
+    if (HAS_HI(a) && a->sample > a->hi)
+      a->sample = a->hi;
+  }
+  if (a->pos == POS_UNKNOWN) {
+    if (HAS_LO(a))
+      a->pos = POS_BASE;
+    else if (HAS_HI(a))
+      a->pos = POS_TOP;
+  }
+}
+
+void merge_results(void) {
+  int alive[MAX_RESULTS];
+  for (int i = 0; i < num_results; i++)
+    alive[i] = 1;
 
   for (int i = 0; i < num_results; i++) {
-    struct result *r = &results[i];
-    if (r->type != type || strcmp(r->section, section) != 0 || !r->valid)
+    if (!alive[i])
       continue;
-    if (r->aligned == consensus) {
-      sources++;
-      int w = method_weight(r->method);
-      if (w > top_weight) {
-        top_weight = w;
-        top_method = r->method;
-      }
-    } else {
-      distinct++;
+    int merged_any = 0;
+    struct result acc = results[i];
+    int sample_owner_w =
+        HAS_SAMPLE(&results[i]) ? conf_weight(results[i].conf) : -1;
+    int contribs[MAX_RESULTS];
+    int n_contribs = 0;
+    contribs[n_contribs++] = i;
+
+    for (int j = i + 1; j < num_results; j++) {
+      if (!alive[j])
+        continue;
+      const struct result *b = &results[j];
+      if (b->type != acc.type || b->region != acc.region)
+        continue;
+      if (strncmp(b->name, acc.name, NAME_LEN) != 0)
+        continue;
+      /* Sample-conflict gate: different samples for the same merge key are
+       * almost certainly different instances of the region (two swiotlb
+       * buffers, two initrd witnesses, ...). Keep both records. */
+      if (samples_conflict(&acc, b))
+        continue;
+      struct result trial = acc;
+      int trial_w = sample_owner_w;
+      merge_into(&trial, b, &trial_w);
+      if (!merge_consistent(&trial))
+        continue;
+      acc = trial;
+      sample_owner_w = trial_w;
+      contribs[n_contribs++] = j;
+      merged_any = 1;
     }
+
+    if (!merged_any)
+      continue;
+
+    clamp_sample(&acc);
+    results[i] = acc;
+    for (int k = 1; k < n_contribs; k++)
+      alive[contribs[k]] = 0;
   }
 
-  if (best_method)
-    *best_method = top_method ? top_method : "unknown";
-  if (n_sources)
-    *n_sources = sources;
-  if (n_conflicts)
-    *n_conflicts = distinct;
+  int w = 0;
+  for (int i = 0; i < num_results; i++) {
+    if (!alive[i])
+      continue;
+    if (w != i)
+      results[w] = results[i];
+    w++;
+  }
+  num_results = w;
 }
 
 /* -------------------------------------------------------------------------
@@ -1440,15 +1824,48 @@ static int ilog2(unsigned long v) {
   return r;
 }
 
-/* Pure computation: fill kaslr_info from consensus addresses */
+static unsigned long derive_vtext_from_data(void) {
+#ifdef DATA_OFFSET
+  const struct result *r = select_anchor(KASLD_TYPE_VIRT, REGION_KERNEL_DATA);
+  if (!r || !HAS_LO(r) || r->lo < (unsigned long)DATA_OFFSET)
+    return 0;
+  return r->lo - (unsigned long)DATA_OFFSET;
+#else
+  return 0;
+#endif
+}
+
+static unsigned long derive_ptext_from_data(void) {
+#ifdef DATA_OFFSET
+  const struct result *r = select_anchor(KASLD_TYPE_PHYS, REGION_KERNEL_DATA);
+  if (!r || !HAS_LO(r) || r->lo < (unsigned long)DATA_OFFSET)
+    return 0;
+  return r->lo - (unsigned long)DATA_OFFSET;
+#else
+  return 0;
+#endif
+}
+
 void compute_kaslr_info(struct summary *s) {
-  s->kaslr.vtext = group_consensus(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT);
-  s->kaslr.ptext = group_consensus(KASLD_ADDR_PHYS, KASLD_SECTION_TEXT);
+  const struct result *r_vt =
+      select_anchor(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE);
+  if (!r_vt)
+    r_vt = select_anchor(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT);
+  unsigned long vtext = anchor_addr(r_vt);
+  if (vtext == 0)
+    vtext = derive_vtext_from_data();
+  s->kaslr.vtext = vtext;
+
+  const struct result *r_pt =
+      select_anchor(KASLD_TYPE_PHYS, REGION_KERNEL_IMAGE);
+  if (!r_pt)
+    r_pt = select_anchor(KASLD_TYPE_PHYS, REGION_KERNEL_TEXT);
+  unsigned long ptext = anchor_addr(r_pt);
+  if (ptext == 0)
+    ptext = derive_ptext_from_data();
+  s->kaslr.ptext = ptext;
   s->kaslr.has_phys = 0;
 
-  /* Slot counts computed unconditionally so they are available even when no
-   * concrete address was found (inference plugins may have narrowed the range
-   * without producing a specific address). Zeroed below when KASLR is off. */
   unsigned long text_range = layout.kaslr_base_max - layout.kaslr_base_min;
   s->kaslr.vslots = layout.kaslr_align ? text_range / layout.kaslr_align : 0;
   s->kaslr.vbits = s->kaslr.vslots > 0 ? ilog2(s->kaslr.vslots) : 0;
@@ -1480,8 +1897,6 @@ void compute_kaslr_info(struct summary *s) {
 #endif
   }
 
-  /* When KASLR is disabled or unsupported, slide and entropy are
-   * definitionally zero regardless of what addresses were leaked. */
   if (s->kaslr.disabled || s->kaslr.unsupported) {
     s->kaslr.vslide = 0;
     s->kaslr.vslots = 0;
@@ -1492,14 +1907,6 @@ void compute_kaslr_info(struct summary *s) {
     s->kaslr.pbits = 0;
   }
 
-  /* Memory KASLR bounds (x86_64 CONFIG_RANDOMIZE_MEMORY): copy the
-   * inference-narrowed bounds out of ctx into the summary so the renderer
-   * can display them without needing access to g_ctx. The compile-time
-   * PAGE_OFFSET / KERNEL_VAS_END defaults are the "no information"
-   * sentinels — leave the summary field zero if the bound hasn't been
-   * tightened beyond those defaults. Note we compare against the *static*
-   * arch constants, not against current `layout` values (the latter are
-   * tightened in lock-step with ctx via sync, so they'd always match). */
   s->kaslr.page_offset_min =
       (g_ctx.page_offset_min != (unsigned long)PAGE_OFFSET)
           ? g_ctx.page_offset_min
@@ -1516,182 +1923,32 @@ void compute_kaslr_info(struct summary *s) {
       (g_ctx.vmemmap_base_min != 0) ? g_ctx.vmemmap_base_min : 0;
   s->kaslr.vmemmap_max =
       (g_ctx.vmemmap_base_max != ULONG_MAX) ? g_ctx.vmemmap_base_max : 0;
-}
 
-/* -------------------------------------------------------------------------
- * Derive cross-section information (compute-then-render)
- * -------------------------------------------------------------------------
- */
-static void add_derived(struct summary *s, char type, const char *section,
-                        unsigned long addr, unsigned long addr_hi,
-                        const char *label, const char *via) {
-  if (s->num_derived >= MAX_DERIVED)
-    return;
-  struct derived_addr *d = &s->derived[s->num_derived++];
-  d->type = type;
-  strncpy(d->section, section, SECTION_LEN - 1);
-  d->section[SECTION_LEN - 1] = '\0';
-  d->addr = addr;
-  d->addr_hi = addr_hi;
-  snprintf(d->label, sizeof(d->label), "%s", label);
-  snprintf(d->via, sizeof(d->via), "%s", via);
-}
-
-/* Pure computation: derive addresses across sections (no printf) */
-void compute_derived_addrs(struct summary *s) {
-  s->num_derived = 0;
-  unsigned long ptext = group_consensus(KASLD_ADDR_PHYS, KASLD_SECTION_TEXT);
-  (void)add_derived; /* conditionally used depending on architecture */
-
-#if !PHYS_VIRT_DECOUPLED
-  unsigned long vtext = group_consensus(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT);
-  unsigned long vdmap =
-      group_consensus(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP);
-  /* Coupled: virtual text <-> physical text <-> directmap */
-  if (vtext && !ptext) {
-    unsigned long derived = vtext - layout.page_offset + PHYS_OFFSET;
-    add_derived(s, KASLD_ADDR_PHYS, KASLD_SECTION_TEXT, derived, 0,
-                "Physical text base", "via V text");
-  }
-  if (ptext && !vtext) {
-    unsigned long derived =
-        (ptext - PHYS_OFFSET + layout.page_offset + layout.text_offset) &
-        -layout.kernel_align;
-    if (derived >= layout.kernel_base_min && derived <= layout.kernel_base_max)
-      add_derived(s, KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, derived, 0,
-                  "Virtual text base", "via P text");
-  }
-#if PAGE_OFFSET_RANDOMIZED
-  if (vdmap && !vtext) {
-    unsigned long derived = (vdmap + layout.text_offset) & -layout.kernel_align;
-    if (derived >= layout.kernel_base_min && derived <= layout.kernel_base_max)
-      add_derived(s, KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, derived, 0,
-                  "Virtual text base", "via V directmap");
-  }
-  if (vtext && !vdmap) {
-    unsigned long derived = (vtext - layout.text_offset) & -layout.kernel_align;
-    add_derived(s, KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, derived, 0,
-                "Direct map (PAGE_OFFSET)", "via V text");
-  }
-#endif
-#else
-  /* Decoupled: phys_to_virt() yields a direct-map address, not the kernel
-   * text address. Cannot derive virtual text from physical results. */
-  {
-    unsigned long vtext = group_consensus(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT);
-    unsigned long pdram_lo, pdram_hi;
-    group_range(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, &pdram_lo, &pdram_hi);
-
-    /* Physmap alias of kernel text:
-     *   phys_to_virt(ptext) = page_offset_base + (ptext − PHYS_OFFSET)
-     * On x86_64 and arm64 PHYS_OFFSET == 0 so this simplifies to
-     * page_offset_base + ptext; on riscv64 PHYS_OFFSET == 0x80000000 and
-     * the subtraction matters. This is the ret2dir target — the kernel
-     * text mapped through the direct-map region rather than the KASLR
-     * text window.
-     * Requires page_offset_base to be pinned (page_offset_min ==
-     * page_offset_max), which occurs when a direct leak or inference has
-     * eliminated all candidates. */
-    if (ptext && g_ctx.page_offset_min &&
-        g_ctx.page_offset_min == g_ctx.page_offset_max) {
-      /* Underflow guard via a non-constant: PHYS_OFFSET is 0 on
-       * x86_64/arm64 (where `ptext >= 0` always holds and the compiler
-       * warns it as a tautology). Indirecting through `phys_off` lets the
-       * guard stay sound on riscv64 (PHYS_OFFSET = 0x80000000) without
-       * tripping -Wtype-limits on x86_64. */
-      unsigned long phys_off = (unsigned long)PHYS_OFFSET;
-      if (ptext >= phys_off) {
-        add_derived(s, KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP,
-                    g_ctx.page_offset_min + (ptext - phys_off), 0,
-                    "Physmap alias of text",
-                    "page_offset_base + (P text − PHYS_OFFSET)");
-      }
-    }
-
-    if (!vtext && (ptext || pdram_lo))
-      s->decoupled_note = 1;
-  }
-#endif
-
-  /* Derive approximate text range from module addresses on architectures
-   * where the module region is anchored to the kernel image.
-   * On riscv64: MODULES_VADDR = _end - 2G, so _end ≈ module_lo + 2G.
-   * Kernel image size varies (~5-60 MiB), so we report a range. */
-#if MODULES_RELATIVE_TO_TEXT
-  {
-    unsigned long vtext = group_consensus(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT);
-    if (!vtext) {
-      unsigned long vmod_lo, vmod_hi;
-      group_range(KASLD_ADDR_VIRT, KASLD_SECTION_MODULE, &vmod_lo, &vmod_hi);
-      if (vmod_lo) {
-        /* _end ≈ module_start + MODULES_END_TO_TEXT_OFFSET */
-        unsigned long end_est = vmod_lo + MODULES_END_TO_TEXT_OFFSET;
-
-        /* Estimate text range: small kernel (~4 MiB) to large (~64 MiB) */
-        unsigned long text_hi = (end_est - 4 * MB) & -layout.kernel_align;
-        unsigned long text_lo = (end_est - 64 * MB) & -layout.kernel_align;
-
-        /* Clamp to valid kernel text region */
-        if (text_lo < layout.kernel_base_min)
-          text_lo = layout.kernel_base_min;
-
-        if (text_hi <= layout.kernel_base_max && text_lo < text_hi) {
-          add_derived(s, KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, end_est, 0,
-                      "Kernel _end estimate", "module_lo + 2 GiB");
-
-          /* Cross-reference with physical DRAM leak to narrow the range */
-          unsigned long pdram_lo, pdram_hi;
-          group_range(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, &pdram_lo,
-                      &pdram_hi);
-          if (pdram_lo) {
-            unsigned long vtext_from_phys =
-                (pdram_lo - PHYS_OFFSET + layout.page_offset +
-                 layout.text_offset) &
-                -layout.kernel_align;
-            if (vtext_from_phys >= text_lo && vtext_from_phys <= text_hi) {
-              add_derived(s, KASLD_ADDR_VIRT, KASLD_SECTION_TEXT,
-                          vtext_from_phys, 0, "Virtual text base",
-                          "P dram + PAGE_OFFSET confirmed by module range");
-            } else {
-              add_derived(s, KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, text_lo,
-                          text_hi, "Virtual text range", "module range");
-              add_derived(s, KASLD_ADDR_VIRT, KASLD_SECTION_TEXT,
-                          vtext_from_phys, 0, "Virtual text (phys)",
-                          "P dram derived, outside module range");
-            }
-          } else {
-            add_derived(s, KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, text_lo,
-                        text_hi, "Virtual text range", "module range");
-          }
+#if PHYS_VIRT_DECOUPLED
+  /* On decoupled arches (x86_64, arm64, riscv64, s390): note when physical
+   * leaks exist but no virtual text base — physical leaks don't reveal the
+   * virtual text base under decoupling, so the user shouldn't assume vtext
+   * can be derived from them. */
+  if (!s->kaslr.vtext) {
+    int have_phys_landmark = (s->kaslr.ptext != 0);
+    if (!have_phys_landmark) {
+      /* Check for any PHYS RAM landmark — same condition the old
+       * compute_derived_addrs used. */
+      for (int i = 0; i < num_results; i++) {
+        const struct result *r = &results[i];
+        if (r->type == KASLD_TYPE_PHYS &&
+            (r->region == REGION_RAM || r->region == REGION_DMA ||
+             r->region == REGION_DMA32) &&
+            result_in_bounds(r, &layout)) {
+          have_phys_landmark = 1;
+          break;
         }
       }
     }
+    if (have_phys_landmark)
+      s->decoupled_note = 1;
   }
 #endif
-}
-
-/* -------------------------------------------------------------------------
- * ASCII memory layout map — group_range used by rendering and core
- * -------------------------------------------------------------------------
- */
-void group_range(char type, const char *section, unsigned long *lo,
-                 unsigned long *hi) {
-  *lo = 0;
-  *hi = 0;
-  int found = 0;
-  for (int i = 0; i < num_results; i++) {
-    struct result *r = &results[i];
-    if (r->type != type || strcmp(r->section, section) != 0 || !r->valid)
-      continue;
-    if (!found || r->aligned < *lo)
-      *lo = r->aligned;
-    if (r->aligned > *hi)
-      *hi = r->aligned;
-    found = 1;
-  }
-  /* If only one unique address, clear hi */
-  if (*lo == *hi)
-    *hi = 0;
 }
 
 /* -------------------------------------------------------------------------
@@ -1736,19 +1993,19 @@ void inject_kaslr_defaults(struct summary *s) {
   s->kaslr.unsupported = 0;
   s->kaslr.default_addr = 0;
 
+  /* Marker model (see "default" component):
+   *   r->name == "unsupported"  → arch lacks KASLR support
+   *   r->name == "nokaslr" or other non-empty/non-"text" → disabled
+   *   r->name == "" or "text"   → fallback only (KASLR may be active) */
   for (int i = 0; i < num_results; i++) {
-    if (results[i].type == KASLD_ADDR_DEFAULT) {
-      s->kaslr.default_addr = results[i].aligned;
-      /* Marker model (see inject_kaslr_defaults()):
-       *   r->name == "unsupported"  → arch lacks KASLR support
-       *   r->name == "nokaslr" or other non-empty/non-"text" → disabled
-       *   r->name == "" or "text"   → fallback only (KASLR may be active) */
-      if (strcmp(results[i].name, "unsupported") == 0)
-        s->kaslr.unsupported = 1;
-      else if (results[i].name[0] != '\0' &&
-               strcmp(results[i].name, "text") != 0)
-        s->kaslr.disabled = 1;
-    }
+    const struct result *r = &results[i];
+    if (r->type != KASLD_TYPE_DEFAULT_VIRT)
+      continue;
+    s->kaslr.default_addr = HAS_LO(r) ? r->lo : (HAS_SAMPLE(r) ? r->sample : 0);
+    if (strcmp(r->name, "unsupported") == 0)
+      s->kaslr.unsupported = 1;
+    else if (r->name[0] != '\0' && strcmp(r->name, "text") != 0)
+      s->kaslr.disabled = 1;
   }
 
   /* The default component emits the compile-time KERNEL_TEXT_DEFAULT, but
@@ -1757,31 +2014,23 @@ void inject_kaslr_defaults(struct summary *s) {
   if (s->kaslr.default_addr)
     s->kaslr.default_addr = layout.kernel_text_default;
 
-  /* When KASLR is disabled/unsupported, inject the default text address
-   * as a virtual text result so it flows into the memory map and
-   * cross-section derivation. */
+  /* When KASLR is disabled/unsupported, inject the default text address as a
+   * synthesised VIRT/KERNEL_TEXT result so it flows into render and
+   * downstream derivation. */
   if ((s->kaslr.disabled || s->kaslr.unsupported) && s->kaslr.default_addr &&
       num_results < MAX_RESULTS) {
-    struct result *r = &results[num_results];
-    r->type = KASLD_ADDR_VIRT;
-    strncpy(r->section, KASLD_SECTION_TEXT, SECTION_LEN - 1);
-    r->section[SECTION_LEN - 1] = '\0';
-    /* Synthetic injection: region is KERNEL_TEXT (the address points at
-     * the kernel text base); name carries the "nokaslr" marker (the
-     * synthetic record represents the orchestrator's interpretation,
-     * not a fresh leak); origin identifies the synthetic source. */
-    strncpy(r->region, KASLD_REGION_KERNEL_TEXT, REGION_LEN - 1);
-    r->region[REGION_LEN - 1] = '\0';
-    strncpy(r->name, "nokaslr", NAME_LEN - 1);
-    r->name[NAME_LEN - 1] = '\0';
-    strncpy(r->origin, "kasld", ORIGIN_LEN - 1);
-    r->origin[ORIGIN_LEN - 1] = '\0';
-    r->raw = s->kaslr.default_addr;
-    r->aligned = s->kaslr.default_addr;
-    r->valid = 1;
-    strncpy(r->method, "exact", METHOD_LEN - 1);
-    r->method[METHOD_LEN - 1] = '\0';
-    num_results++;
+    struct result *r = &results[num_results++];
+    result_init(r);
+    r->type = KASLD_TYPE_VIRT;
+    r->region = REGION_KERNEL_TEXT;
+    snprintf(r->name, NAME_LEN, "nokaslr");
+    r->pos = POS_BASE;
+    r->conf = CONF_PARSED;
+    r->lo = s->kaslr.default_addr;
+    r->set_mask |= LO_SET;
+    snprintf(r->origins[0], ORIGIN_LEN, "kasld");
+    snprintf(r->methods[0], METHOD_LEN, "parsed");
+    r->provenance_count = 1;
   }
 }
 
@@ -1870,6 +2119,10 @@ static void sync_inference_bounds_to_layout(void) {
 static void run_post_collection_inference(void) {
   struct bounds_snap snap;
 
+  /* Merge before the first inference pass so plugins see deduplicated
+   * records (one per (type, region, name)). */
+  merge_results();
+
   /* LAYOUT_ADJUST: apply PAGE_OFFSET and VAS discoveries to layout (once).
    * Runs before the convergence loop because it mutates layout directly
    * rather than tightening ctx bounds; the forward sync at the start of
@@ -1880,6 +2133,10 @@ static void run_post_collection_inference(void) {
     snap_bounds(&snap);
     run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
     sync_inference_bounds_to_layout();
+    /* Re-run merge so any derived results emitted by this pass collapse
+     * into existing same-(type, region, name) records before the next
+     * pass reads them. */
+    merge_results();
     if (!bounds_changed(&snap))
       break;
   }
@@ -1888,12 +2145,14 @@ static void run_post_collection_inference(void) {
 static void run_post_probing_inference(void) {
   struct bounds_snap snap;
 
+  merge_results();
   run_inference_phase(&g_ctx, KASLD_INFER_PHASE_LAYOUT_ADJUST);
 
   for (int pass = 0; pass < MAX_INFERENCE_PASSES; pass++) {
     snap_bounds(&snap);
     run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_PROBING);
     sync_inference_bounds_to_layout();
+    merge_results();
     if (!bounds_changed(&snap))
       break;
   }
@@ -1979,7 +2238,13 @@ int main(int argc, char *argv[]) {
         fprintf(stderr, "--workers requires a value\n");
         return 2;
       }
-      parallel_workers = atoi(argv[++i]);
+      char *workers_end;
+      long workers_val = strtol(argv[++i], &workers_end, 10);
+      if (*workers_end != '\0' || workers_val < 0 || workers_val > 65535) {
+        fprintf(stderr, "--workers must be a non-negative integer\n");
+        return 2;
+      }
+      parallel_workers = (int)workers_val;
     } else if (strcmp(argv[i], "-x") == 0 ||
                strcmp(argv[i], "--experimental") == 0) {
       experimental_mode = 1;

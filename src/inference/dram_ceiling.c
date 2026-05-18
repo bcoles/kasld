@@ -19,11 +19,12 @@
 //                       align_down(phys_to_virt(dram_top − kernel_size)
 //                                  + TEXT_OFFSET, kaslr_align))
 //
-// dram_top is the maximum PHYS/DRAM address tagged KASLD_REGION_RAM_TOP
-// across all collected results. Components that emit RAM_TOP include
-// dmesg_last_pfn, sysfs_firmware_memmap, proc-zoneinfo, dmesg_node_data, and
-// sysfs_devicetree_memory. On systems with a single contiguous RAM region the
-// maximum RAM_TOP equals the true physical RAM ceiling.
+// dram_top is the maximum r->hi across PHYS/REGION_RAM records with
+// HAS_HI set (the "top of RAM" claim). Components that emit such records
+// via kasld_result_top(KASLD_TYPE_PHYS, REGION_RAM, ...) include
+// dmesg_last_pfn, sysfs_firmware_memmap, proc-zoneinfo, dmesg_node_data,
+// and sysfs_devicetree_memory. On systems with a single contiguous RAM
+// region this is the true physical RAM ceiling.
 //
 // kernel_size uses the same conservative estimate as kaslr_ceiling.c:
 //   vmlinuz: stat("/boot/vmlinuz-$(uname -r)") × 3.5 (low compression ratio)
@@ -41,7 +42,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#include "../include/kasld_inference.h"
+#include "../include/kasld/inference.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -100,18 +101,17 @@ static unsigned long estimate_kernel_size(void) {
 static void dram_ceiling_run(struct kasld_analysis_ctx *ctx) {
 #if !PHYS_VIRT_DECOUPLED
 
-  /* Find the maximum PHYS/DRAM address explicitly tagged as a RAM region top.
-   * Arbitrary DRAM addresses (initrd, CMA base, etc.) do not bound the RAM
-   * ceiling and are therefore excluded. */
+  /* Find the maximum PHYS/RAM top across all results. The new model
+   * encodes "ram top" as (region=RAM, HAS_HI) — use the merged record's
+   * hi bound. Arbitrary DRAM addresses (initrd, CMA base, etc.) live in
+   * other regions and are correctly excluded. */
   unsigned long dram_top = 0;
   for (size_t i = 0; i < ctx->result_count; i++) {
     const struct result *r = &ctx->results[i];
-    if (r->type != KASLD_ADDR_PHYS ||
-        strcmp(r->section, KASLD_SECTION_DRAM) != 0 ||
-        strcmp(r->region, KASLD_REGION_RAM_TOP) != 0)
+    if (r->type != KASLD_TYPE_PHYS || r->region != REGION_RAM || !HAS_HI(r))
       continue;
-    if (r->raw > dram_top)
-      dram_top = r->raw;
+    if (r->hi > dram_top)
+      dram_top = r->hi;
   }
 
   if (!dram_top)

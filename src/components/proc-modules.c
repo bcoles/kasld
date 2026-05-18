@@ -27,9 +27,8 @@
 // <bcoles@gmail.com>
 
 #define _GNU_SOURCE
-#include "include/kasld.h"
-#include "include/kasld_internal.h"
-#include "include/kasld_types.h"
+#include "include/kasld/api.h"
+#include "include/kasld/internal.h"
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -46,7 +45,7 @@ KASLD_EXPLAIN(
     "which on some architectures is at a fixed offset from kernel "
     "text.");
 
-KASLD_META("method:exact\n"
+KASLD_META("method:parsed\n"
            "phase:inference\n"
            "addr:virtual\n"
            "sysctl:kptr_restrict>=1\n"
@@ -111,13 +110,13 @@ int main(void) {
    * are within the module region. (A future version could enumerate
    * each module by name with kasld_result().) */
   printf("lowest leaked module address:  %lx\n", range.lo);
-  kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_MODULE, range.lo,
-               KASLD_REGION_MODULE_REGION, NULL);
+  kasld_result_sample(KASLD_TYPE_VIRT, REGION_MODULE_REGION, range.lo, NULL,
+                      CONF_PARSED);
 
   if (range.hi != range.lo) {
     printf("highest leaked module address: %lx\n", range.hi);
-    kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_MODULE, range.hi,
-                 KASLD_REGION_MODULE_REGION, NULL);
+    kasld_result_sample(KASLD_TYPE_VIRT, REGION_MODULE_REGION, range.hi, NULL,
+                        CONF_PARSED);
   }
 
   return 0;

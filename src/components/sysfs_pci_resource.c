@@ -49,8 +49,8 @@
 // ---
 // <bcoles@gmail.com>
 
-#include "include/kasld.h"
-#include "include/kasld_internal.h"
+#include "include/kasld/api.h"
+#include "include/kasld/internal.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
@@ -133,13 +133,13 @@ int main(void) {
   printf("PCI devices: %d, memory BARs: %d\n", device_count, bar_count);
 
   printf("lowest PCI MMIO start:  0x%016lx\n", lo_mmio);
-  kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_MMIO, lo_mmio,
-               KASLD_REGION_PCI_MMIO, NULL);
+  kasld_result_sample(KASLD_TYPE_PHYS, REGION_PCI_MMIO, lo_mmio, NULL,
+                      CONF_PARSED);
 
   if (hi_mmio && hi_mmio != lo_mmio) {
     printf("highest PCI MMIO end:   0x%016lx\n", hi_mmio);
-    kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_MMIO, hi_mmio,
-                 KASLD_REGION_PCI_MMIO, NULL);
+    kasld_result_sample(KASLD_TYPE_PHYS, REGION_PCI_MMIO, hi_mmio, NULL,
+                        CONF_PARSED);
   }
 
   return 0;

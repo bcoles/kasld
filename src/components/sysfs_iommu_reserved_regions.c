@@ -73,8 +73,8 @@
 // ---
 // <bcoles@gmail.com>
 
-#include "include/kasld.h"
-#include "include/kasld_internal.h"
+#include "include/kasld/api.h"
+#include "include/kasld/internal.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
@@ -190,13 +190,12 @@ int main(void) {
       printf("iommu_group %s: %s 0x%016llx - 0x%016llx\n", ent->d_name, type,
              start, end_addr);
 
-      kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, (unsigned long)start,
-                   KASLD_REGION_RESERVED_MEM, ent->d_name);
+      kasld_result_sample(KASLD_TYPE_PHYS, REGION_RESERVED_MEM,
+                          (unsigned long)start, ent->d_name, CONF_PARSED);
 
       if (end_addr != start) {
-        kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM,
-                     (unsigned long)end_addr, KASLD_REGION_RESERVED_MEM,
-                     ent->d_name);
+        kasld_result_sample(KASLD_TYPE_PHYS, REGION_RESERVED_MEM,
+                            (unsigned long)end_addr, ent->d_name, CONF_PARSED);
       }
     }
     fclose(f);

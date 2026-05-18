@@ -63,8 +63,8 @@
 
 #define _GNU_SOURCE
 #include "include/dmesg.h"
-#include "include/kasld.h"
-#include "include/kasld_internal.h"
+#include "include/kasld/api.h"
+#include "include/kasld/internal.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -163,14 +163,14 @@ int main(void) {
 
   /* Pass the OEM table id (e.g. "Cpu0Ist", "ApIst") as the specific
    * instance name so the table reads "acpi_table:Cpu0Ist". */
-  kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, s.addr,
-               KASLD_REGION_ACPI_TABLE, s.label);
+  kasld_result_sample(KASLD_TYPE_VIRT, REGION_ACPI_TABLE, s.addr, s.label,
+                      CONF_PARSED);
 #if !PHYS_VIRT_DECOUPLED
   {
     unsigned long phys = virt_to_phys(s.addr);
     printf("  possible physical address: 0x%016lx\n", phys);
-    kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, phys,
-                 KASLD_REGION_ACPI_TABLE, s.label);
+    kasld_result_sample(KASLD_TYPE_PHYS, REGION_ACPI_TABLE, phys, s.label,
+                        CONF_PARSED);
   }
 #endif
 

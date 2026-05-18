@@ -28,8 +28,8 @@
 // <bcoles@gmail.com>
 
 #define _GNU_SOURCE
-#include "include/kasld.h"
-#include "include/kasld_internal.h"
+#include "include/kasld/api.h"
+#include "include/kasld/internal.h"
 #include "include/kconfig.h"
 #include <errno.h>
 #include <stdio.h>
@@ -132,8 +132,8 @@ int main(void) {
   unsigned long page_offset = get_kconfig_page_offset(fp);
   if (page_offset) {
     printf("[.] CONFIG_PAGE_OFFSET: %#lx\n", page_offset);
-    kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_PAGEOFFSET, page_offset,
-                 KASLD_REGION_PAGE_OFFSET, NULL);
+    kasld_result_base(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, page_offset, NULL,
+                      CONF_PARSED);
   }
 
   /* Detect KASLR disabled — emit a DEFAULT-type marker. The "nokaslr"
@@ -141,8 +141,8 @@ int main(void) {
   unsigned long addr = get_kernel_addr_proc_config(fp);
   if (addr) {
     printf("common default kernel text for arch: %lx\n", addr);
-    kasld_result(KASLD_ADDR_DEFAULT, KASLD_SECTION_NONE, addr,
-                 KASLD_REGION_KERNEL_TEXT, "nokaslr");
+    kasld_result_base(KASLD_TYPE_DEFAULT_VIRT, REGION_KERNEL_TEXT, addr,
+                      "nokaslr", CONF_PARSED);
   }
 
   fclose(fp);

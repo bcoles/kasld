@@ -64,8 +64,8 @@
 // ---
 // <bcoles@gmail.com>
 
-#include "include/kasld.h"
-#include "include/kasld_internal.h"
+#include "include/kasld/api.h"
+#include "include/kasld/internal.h"
 #include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -151,14 +151,20 @@ int main(void) {
     if (ehdr_addr) {
       printf("linux,elfcorehdr address: 0x%016llx  size: 0x%llx\n",
              (unsigned long long)ehdr_addr, (unsigned long long)ehdr_size);
-      kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM,
-                   (unsigned long)ehdr_addr, KASLD_REGION_CRASHKERNEL,
-                   "elfcorehdr");
+      if (ehdr_size) {
+        kasld_result_sized(KASLD_TYPE_PHYS, REGION_CRASHKERNEL,
+                           (unsigned long)ehdr_addr, (unsigned long)ehdr_size,
+                           "elfcorehdr", CONF_PARSED);
+      } else {
+        kasld_result_sample(KASLD_TYPE_PHYS, REGION_CRASHKERNEL,
+                            (unsigned long)ehdr_addr, "elfcorehdr",
+                            CONF_PARSED);
+      }
 #if !PHYS_VIRT_DECOUPLED
       unsigned long virt = phys_to_virt((unsigned long)ehdr_addr);
       printf("possible direct-map virtual address: 0x%016lx\n", virt);
-      kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
-                   KASLD_REGION_CRASHKERNEL, "elfcorehdr");
+      kasld_result_sample(KASLD_TYPE_VIRT, REGION_CRASHKERNEL, virt,
+                          "elfcorehdr", CONF_PARSED);
 #endif
       count++;
     }
@@ -178,18 +184,19 @@ int main(void) {
         continue;
       printf("linux,usable-memory-range[%d]: base=0x%016llx  size=0x%llx\n", i,
              (unsigned long long)base, (unsigned long long)size);
-      kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, (unsigned long)base,
-                   KASLD_REGION_CRASHKERNEL, "usable-memory");
       if (size) {
-        kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM,
-                     (unsigned long)(base + size - 1), KASLD_REGION_CRASHKERNEL,
-                     "usable-memory");
+        kasld_result_sized(KASLD_TYPE_PHYS, REGION_CRASHKERNEL,
+                           (unsigned long)base, (unsigned long)size,
+                           "usable-memory", CONF_PARSED);
+      } else {
+        kasld_result_sample(KASLD_TYPE_PHYS, REGION_CRASHKERNEL,
+                            (unsigned long)base, "usable-memory", CONF_PARSED);
       }
 #if !PHYS_VIRT_DECOUPLED
       unsigned long virt = phys_to_virt((unsigned long)base);
       printf("possible direct-map virtual address: 0x%016lx\n", virt);
-      kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
-                   KASLD_REGION_CRASHKERNEL, "usable-memory");
+      kasld_result_sample(KASLD_TYPE_VIRT, REGION_CRASHKERNEL, virt,
+                          "usable-memory", CONF_PARSED);
 #endif
       count++;
     }

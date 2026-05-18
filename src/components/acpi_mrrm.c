@@ -44,8 +44,8 @@
 // ---
 // <bcoles@gmail.com>
 
-#include "include/kasld.h"
-#include "include/kasld_internal.h"
+#include "include/kasld/api.h"
+#include "include/kasld/internal.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
@@ -128,15 +128,14 @@ int main(void) {
     snprintf(label, sizeof(label), "%.32s", ent->d_name);
 
     fprintf(stderr, "[+] acpi_mrrm %s: phys = 0x%016llx\n", label, addr);
-    kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, (unsigned long)addr,
-                 KASLD_REGION_PMEM, label);
+    kasld_result_sample(KASLD_TYPE_PHYS, REGION_PMEM, (unsigned long)addr,
+                        label, CONF_PARSED);
     count++;
 
 #if !PHYS_VIRT_DECOUPLED
     unsigned long virt = phys_to_virt((unsigned long)addr);
     fprintf(stderr, "[+] acpi_mrrm %s: directmap va = 0x%016lx\n", label, virt);
-    kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
-                 KASLD_REGION_PMEM, label);
+    kasld_result_sample(KASLD_TYPE_VIRT, REGION_PMEM, virt, label, CONF_PARSED);
 #endif
   }
   closedir(d);

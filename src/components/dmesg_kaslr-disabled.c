@@ -42,8 +42,8 @@
 
 #define _GNU_SOURCE
 #include "include/dmesg.h"
-#include "include/kasld.h"
-#include "include/kasld_internal.h"
+#include "include/kasld/api.h"
+#include "include/kasld/internal.h"
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
@@ -90,8 +90,8 @@ int main(void) {
 
   unsigned long addr = (unsigned long)KERNEL_TEXT_DEFAULT;
   printf("common default kernel text for arch: %lx\n", addr);
-  kasld_result(KASLD_ADDR_DEFAULT, KASLD_SECTION_NONE, addr,
-               KASLD_REGION_KERNEL_TEXT, "nokaslr");
+  kasld_result_sample(KASLD_TYPE_DEFAULT_VIRT, REGION_KERNEL_TEXT, addr,
+                      "nokaslr", CONF_PARSED);
 
   return 0;
 }

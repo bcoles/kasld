@@ -9,7 +9,7 @@
 // ---
 // <bcoles@gmail.com>
 
-#include "include/kasld.h"
+#include "include/kasld/api.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -37,13 +37,13 @@ int main(void) {
    * markers that inject_kaslr_defaults() uses as KASLR-disabled
    * indicators. */
   printf("common default kernel text for arch: %lx\n", addr);
-  kasld_result(KASLD_ADDR_DEFAULT, KASLD_SECTION_NONE, addr,
-               KASLD_REGION_KERNEL_TEXT, "text");
+  kasld_result_base(KASLD_TYPE_DEFAULT_VIRT, REGION_KERNEL_TEXT, addr, "text",
+                    CONF_PARSED);
 
 #if !KASLR_SUPPORTED
   printf("[!] KASLR is not supported on this architecture\n");
-  kasld_result(KASLD_ADDR_DEFAULT, KASLD_SECTION_NONE, addr,
-               KASLD_REGION_KERNEL_TEXT, "unsupported");
+  kasld_result_base(KASLD_TYPE_DEFAULT_VIRT, REGION_KERNEL_TEXT, addr,
+                    "unsupported", CONF_PARSED);
 #endif
 
   return 0;

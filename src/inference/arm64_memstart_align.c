@@ -46,7 +46,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#include "../include/kasld_inference.h"
+#include "../include/kasld/inference.h"
 
 #include <limits.h>
 #include <stdio.h>
@@ -74,12 +74,12 @@ static void arm64_memstart_align_run(struct kasld_analysis_ctx *ctx) {
 
   for (size_t i = 0; i < ctx->result_count; i++) {
     const struct result *r = &ctx->results[i];
-    if (r->type != KASLD_ADDR_VIRT || !r->valid)
+    if (r->type != KASLD_TYPE_VIRT || !result_in_bounds(r, ctx->layout))
       continue;
-    if (strcmp(r->section, KASLD_SECTION_DIRECTMAP) != 0)
+    if (r->region != REGION_DIRECTMAP)
       continue;
-    if (r->raw < v_min)
-      v_min = r->raw;
+    if (anchor_addr(r) < v_min)
+      v_min = anchor_addr(r);
   }
 
   if (v_min == ULONG_MAX)

@@ -47,8 +47,8 @@
 
 #define _GNU_SOURCE
 #include "include/dmesg.h"
-#include "include/kasld.h"
-#include "include/kasld_internal.h"
+#include "include/kasld/api.h"
+#include "include/kasld/internal.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -107,8 +107,8 @@ int main(void) {
   /* The leaked address is a struct component_ops function pointer
    * (driver bind/unbind) — within kernel text but the specific symbol
    * varies by driver. */
-  kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr,
-               KASLD_REGION_KERNEL_TEXT, NULL);
+  kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr, NULL,
+                      CONF_PARSED);
 
   return 0;
 }

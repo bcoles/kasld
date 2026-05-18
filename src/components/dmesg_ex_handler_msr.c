@@ -68,8 +68,8 @@
 
 #define _GNU_SOURCE
 #include "include/dmesg.h"
-#include "include/kasld.h"
-#include "include/kasld_internal.h"
+#include "include/kasld/api.h"
+#include "include/kasld/internal.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -128,8 +128,8 @@ int main(void) {
   printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);
   /* The leaked address is native_read_msr or native_write_msr —
    * specific x86 helper functions in the kernel text. */
-  kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr,
-               KASLD_REGION_KERNEL_TEXT, "native_*_msr");
+  kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr, "native_*_msr",
+                      CONF_PARSED);
 
   return 0;
 }

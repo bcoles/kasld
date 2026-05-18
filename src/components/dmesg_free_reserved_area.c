@@ -50,8 +50,8 @@
 
 #define _GNU_SOURCE
 #include "include/dmesg.h"
-#include "include/kasld.h"
-#include "include/kasld_internal.h"
+#include "include/kasld/api.h"
+#include "include/kasld/internal.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -81,8 +81,8 @@ static int on_match(const char *line, void *ctx) {
   const char *paren;
   char *endptr;
   unsigned long addr;
-  const char *section;
-  const char *region;
+  enum kasld_region region;
+  int is_directmap;
   size_t name_len;
 
   name_start = strstr(line, "Freeing ");
@@ -114,22 +114,22 @@ static int on_match(const char *line, void *ctx) {
   name_len = (size_t)(name_end - name_start);
 
   if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX) {
-    section = KASLD_SECTION_TEXT;
-    region = KASLD_REGION_KERNEL_IMAGE;
+    region = REGION_KERNEL_IMAGE;
+    is_directmap = 0;
   } else {
-    section = KASLD_SECTION_DIRECTMAP;
     region = (name_len >= 6 && strncmp(name_start, "initrd", 6) == 0)
-                 ? KASLD_REGION_INITRD
-                 : KASLD_REGION_DIRECTMAP;
+                 ? REGION_INITRD
+                 : REGION_DIRECTMAP;
+    is_directmap = 1;
   }
 
   printf("leaked address: %lx\n", addr);
-  kasld_result(KASLD_ADDR_VIRT, section, addr, region, NULL);
+  kasld_result_sample(KASLD_TYPE_VIRT, region, addr, NULL, CONF_PARSED);
 #if !PHYS_VIRT_DECOUPLED
-  if (strcmp(section, KASLD_SECTION_DIRECTMAP) == 0) {
+  if (is_directmap) {
     unsigned long phys = virt_to_phys(addr);
     printf("  possible physical address: 0x%016lx\n", phys);
-    kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, phys, region, NULL);
+    kasld_result_sample(KASLD_TYPE_PHYS, region, phys, NULL, CONF_PARSED);
   }
 #endif
 

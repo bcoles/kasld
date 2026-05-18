@@ -49,9 +49,8 @@
 
 #define _GNU_SOURCE
 #include "include/dmesg.h"
-#include "include/kasld.h"
-#include "include/kasld_internal.h"
-#include "include/kasld_types.h"
+#include "include/kasld/api.h"
+#include "include/kasld/internal.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -121,20 +120,17 @@ int main(void) {
   }
 
   printf("lowest physical address:  0x%016lx\n", r.lo);
-  kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, r.lo, KASLD_REGION_RAM_BASE,
-               NULL);
+  kasld_result_base(KASLD_TYPE_PHYS, REGION_RAM, r.lo, NULL, CONF_PARSED);
 
   if (r.hi && r.hi != r.lo) {
     printf("highest physical address: 0x%016lx\n", r.hi);
-    kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, r.hi,
-                 KASLD_REGION_RAM_TOP, NULL);
+    kasld_result_top(KASLD_TYPE_PHYS, REGION_RAM, r.hi, NULL, CONF_PARSED);
   }
 
 #if !PHYS_VIRT_DECOUPLED
   unsigned long virt = phys_to_virt(r.lo);
   printf("possible direct-map virtual address: 0x%016lx\n", virt);
-  kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
-               KASLD_REGION_RAM_BASE, NULL);
+  kasld_result_base(KASLD_TYPE_VIRT, REGION_RAM, virt, NULL, CONF_PARSED);
 #else
   printf("note: phys and virt KASLR are decoupled on this arch; "
          "cannot derive kernel text virtual address from physical leak\n");

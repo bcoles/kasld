@@ -54,8 +54,8 @@
 #endif
 
 #define _GNU_SOURCE
-#include "include/kasld.h"
-#include "include/kasld_internal.h"
+#include "include/kasld/api.h"
+#include "include/kasld/internal.h"
 #include <errno.h>
 #include <limits.h>
 #include <linux/futex.h>
@@ -841,14 +841,14 @@ int main(void) {
   /* The brute-forced address is the current task's mm_struct, allocated
    * via kmalloc and thus living in the kernel direct-map region. */
   printf("leaked mm_struct address: %lx\n", result);
-  kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, result,
-               KASLD_REGION_DIRECTMAP, "mm_struct");
+  kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, result, "mm_struct",
+                      CONF_TIMING);
 #if !PHYS_VIRT_DECOUPLED
   {
     unsigned long phys = virt_to_phys(result);
     printf("  possible physical address: 0x%016lx\n", phys);
-    kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, phys,
-                 KASLD_REGION_DIRECTMAP, "mm_struct");
+    kasld_result_sample(KASLD_TYPE_PHYS, REGION_DIRECTMAP, phys, "mm_struct",
+                        CONF_TIMING);
   }
 #endif
   return 0;

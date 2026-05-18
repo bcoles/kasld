@@ -44,9 +44,8 @@
 
 #define _GNU_SOURCE
 #include "include/dmesg.h"
-#include "include/kasld.h"
-#include "include/kasld_internal.h"
-#include "include/kasld_types.h"
+#include "include/kasld/api.h"
+#include "include/kasld/internal.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -192,24 +191,24 @@ int main(void) {
      * so the boundary addresses map to RAM_BASE / RAM_TOP. The
      * efi_memmap data structure itself is a separate concept (handled by
      * sysfs_efi_memmap if/when added). */
-    kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, e.dram.lo,
-                 KASLD_REGION_RAM_BASE, NULL);
+    kasld_result_base(KASLD_TYPE_PHYS, REGION_RAM, e.dram.lo, NULL,
+                      CONF_PARSED);
 
     if (e.dram.hi && e.dram.hi != e.dram.lo)
-      kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, e.dram.hi,
-                   KASLD_REGION_RAM_TOP, NULL);
+      kasld_result_top(KASLD_TYPE_PHYS, REGION_RAM, e.dram.hi, NULL,
+                       CONF_PARSED);
   }
 
   if (e.mmio.lo) {
     printf("lowest EFI MMIO address:  0x%016lx\n", e.mmio.lo);
     printf("highest EFI MMIO address: 0x%016lx\n", e.mmio.hi);
 
-    kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_MMIO, e.mmio.lo,
-                 KASLD_REGION_MMIO, NULL);
+    kasld_result_sample(KASLD_TYPE_PHYS, REGION_MMIO, e.mmio.lo, NULL,
+                        CONF_PARSED);
 
     if (e.mmio.hi && e.mmio.hi != e.mmio.lo)
-      kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_MMIO, e.mmio.hi,
-                   KASLD_REGION_MMIO, NULL);
+      kasld_result_sample(KASLD_TYPE_PHYS, REGION_MMIO, e.mmio.hi, NULL,
+                          CONF_PARSED);
   }
 
   if (e.loader.lo) {
@@ -218,13 +217,13 @@ int main(void) {
      * Emit the bounds as KERNEL_IMAGE witnesses — the inference layer can
      * use PMD alignment and expected image size to filter false positives. */
     printf("lowest EFI Loader Code address:  0x%016lx\n", e.loader.lo);
-    kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, e.loader.lo,
-                 KASLD_REGION_KERNEL_IMAGE, NULL);
+    kasld_result_sample(KASLD_TYPE_PHYS, REGION_KERNEL_IMAGE, e.loader.lo, NULL,
+                        CONF_PARSED);
 
     if (e.loader.hi && e.loader.hi != e.loader.lo) {
       printf("highest EFI Loader Code address: 0x%016lx\n", e.loader.hi);
-      kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, e.loader.hi,
-                   KASLD_REGION_KERNEL_IMAGE, NULL);
+      kasld_result_sample(KASLD_TYPE_PHYS, REGION_KERNEL_IMAGE, e.loader.hi,
+                          NULL, CONF_PARSED);
     }
   }
 
@@ -232,8 +231,7 @@ int main(void) {
   if (e.dram.lo) {
     unsigned long virt = phys_to_virt(e.dram.lo);
     printf("possible direct-map virtual address: 0x%016lx\n", virt);
-    kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
-                 KASLD_REGION_RAM_BASE, NULL);
+    kasld_result_base(KASLD_TYPE_VIRT, REGION_RAM, virt, NULL, CONF_PARSED);
   }
 #else
   printf("note: phys and virt KASLR are decoupled on this arch; "

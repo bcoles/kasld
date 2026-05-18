@@ -11,11 +11,11 @@
 //
 //   PAGE_OFFSET = V - P + PHYS_OFFSET
 //
-// Components on coupled architectures (PHYS_VIRT_DECOUPLED == 0) emit a
-// KASLD_ADDR_PHYS/KASLD_SECTION_DRAM result AND a
-// KASLD_ADDR_VIRT/KASLD_SECTION_DIRECTMAP result for the same physical
-// address. The orchestrator tags each result with the component name as
-// 'origin', so pairs from the same component can be identified.
+// Components on coupled architectures (PHYS_VIRT_DECOUPLED == 0) emit
+// both a PHYS result in a DRAM-resident region and a VIRT/DIRECTMAP
+// result for the same physical address. The orchestrator tags each
+// result with the component name as 'origin', so pairs from the same
+// component can be identified.
 //
 // Per-origin minimum pairing: min(VIRT/DIRECTMAP) and min(PHYS/DRAM) from
 // the same origin identify the pair for the lowest leaked address. Because
@@ -36,7 +36,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#include "../include/kasld_inference.h"
+#include "../include/kasld/inference.h"
 
 #include <limits.h>
 #include <stdio.h>
@@ -60,19 +60,19 @@ static void phys_virt_synth_run(struct kasld_analysis_ctx *ctx) {
   /* Build per-origin min(VIRT/DIRECTMAP) and min(PHYS/DRAM). */
   for (size_t i = 0; i < ctx->result_count; i++) {
     const struct result *r = &ctx->results[i];
-    if (!r->valid || r->origin[0] == '\0')
+    if (!result_in_bounds(r, ctx->layout) || r->origins[0][0] == '\0')
       continue;
 
-    int is_virt_dmap = (r->type == KASLD_ADDR_VIRT &&
-                        strcmp(r->section, KASLD_SECTION_DIRECTMAP) == 0);
-    int is_phys_dram = (r->type == KASLD_ADDR_PHYS &&
-                        strcmp(r->section, KASLD_SECTION_DRAM) == 0);
+    int is_virt_dmap =
+        (r->type == KASLD_TYPE_VIRT && r->region == REGION_DIRECTMAP);
+    int is_phys_dram =
+        (r->type == KASLD_TYPE_PHYS && is_phys_dram_region(r->region));
     if (!is_virt_dmap && !is_phys_dram)
       continue;
 
     struct synth_origin *entry = NULL;
     for (int j = 0; j < n_origs; j++) {
-      if (strcmp(origs[j].origin, r->origin) == 0) {
+      if (strcmp(origs[j].origin, r->origins[0]) == 0) {
         entry = &origs[j];
         break;
       }
@@ -81,16 +81,15 @@ static void phys_virt_synth_run(struct kasld_analysis_ctx *ctx) {
       if (n_origs >= SYNTH_MAX_ORIGINS)
         continue;
       entry = &origs[n_origs++];
-      strncpy(entry->origin, r->origin, ORIGIN_LEN - 1);
-      entry->origin[ORIGIN_LEN - 1] = '\0';
+      snprintf(entry->origin, ORIGIN_LEN, "%s", r->origins[0]);
       entry->virt_min = ULONG_MAX;
       entry->phys_min = ULONG_MAX;
     }
 
-    if (is_virt_dmap && r->raw < entry->virt_min)
-      entry->virt_min = r->raw;
-    if (is_phys_dram && r->raw < entry->phys_min)
-      entry->phys_min = r->raw;
+    if (is_virt_dmap && anchor_addr(r) < entry->virt_min)
+      entry->virt_min = anchor_addr(r);
+    if (is_phys_dram && anchor_addr(r) < entry->phys_min)
+      entry->phys_min = anchor_addr(r);
   }
 
   /* Collect PAGE_OFFSET candidates from origins that have both. */

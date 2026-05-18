@@ -6,9 +6,10 @@
 // The bootloader-supplied initrd occupies a contiguous physical range
 // [initrd_start, initrd_end). The early kernel-placement code registers this
 // region as a forbidden interval and will not select a slot whose
-// [base, base + image_size) overlaps it. Any collected PHYS result tagged as
-// a kernel text/data address (i.e. KASLD_SECTION_TEXT or KASLD_SECTION_DATA)
-// that lands inside this interval is therefore misclassified.
+// [base, base + image_size) overlaps it. Any collected PHYS result in a
+// kernel-image region (REGION_KERNEL_TEXT, REGION_KERNEL_DATA,
+// REGION_KERNEL_IMAGE) that lands inside this interval is therefore
+// misclassified.
 //
 // Source of the initrd interval:
 //
@@ -28,7 +29,7 @@
 //   type == PHYS && section ∈ {text, data} && initrd_start ≤ raw < initrd_end.
 //
 // Distinct from the existing sysfs_devicetree_initrd.c component, which emits
-// the initrd start/end as PHYS/DRAM `KASLD_REGION_INITRD` *witnesses* (DRAM
+// the initrd start/end as PHYS/DRAM `REGION_INITRD` *witnesses* (DRAM
 // floor signal). This plugin uses the same data orthogonally — as an
 // interval-exclusion for kernel-base candidates.
 //
@@ -50,7 +51,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#include "../include/kasld_inference.h"
+#include "../include/kasld/inference.h"
 
 #include <fcntl.h>
 #include <limits.h>
@@ -168,13 +169,13 @@ static int read_initrd_dt(unsigned long *start, unsigned long *end) {
  * results carry RAM landmarks (ram_base/ram_top, initrd witnesses, etc.)
  * and must not be invalidated. */
 static int is_phys_kernel_base_candidate(const struct result *r) {
-  if (r->type != KASLD_ADDR_PHYS)
+  if (r->type != KASLD_TYPE_PHYS)
     return 0;
-  if (strcmp(r->section, KASLD_SECTION_TEXT) == 0)
-    return 1;
-  if (strcmp(r->section, KASLD_SECTION_DATA) == 0)
-    return 1;
-  return 0;
+  /* Kernel-base candidates live in the image's TEXT/DATA/whole-image
+   * regions. PHYS records for RAM landmarks (REGION_RAM, REGION_INITRD,
+   * REGION_DMA, ...) are NOT base candidates and must not be invalidated. */
+  return r->region == REGION_KERNEL_TEXT || r->region == REGION_KERNEL_DATA ||
+         r->region == REGION_KERNEL_IMAGE;
 }
 
 static void initrd_phys_avoid_run(struct kasld_analysis_ctx *ctx) {
@@ -209,24 +210,26 @@ static void initrd_phys_avoid_run(struct kasld_analysis_ctx *ctx) {
   int invalidated = 0;
   for (int i = 0; i < num_results; i++) {
     struct result *r = &results[i];
-    if (!r->valid)
+    if (!result_in_bounds(r, ctx->layout))
       continue;
     if (!is_phys_kernel_base_candidate(r))
       continue;
-    if (r->raw < initrd_start || r->raw >= initrd_end)
+    if (anchor_addr(r) < initrd_start || anchor_addr(r) >= initrd_end)
       continue;
 
     if (verbose && !quiet)
       fprintf(stdout,
               "[infer] initrd_phys_avoid: invalidating PHYS/%s result"
               " %#lx (inside initrd interval [%#lx, %#lx))\n",
-              r->section, r->raw, initrd_start, initrd_end);
-    r->valid = 0;
+              kasld_region_wire(r->region), anchor_addr(r), initrd_start,
+              initrd_end);
+    /* Invalidate by retyping to REGION_UNKNOWN — result_in_bounds() returns
+     * false for REGION_UNKNOWN, so all subsequent consumers skip the record.
+     * No global revalidation needed: the predicate is stateless. */
+    r->region = REGION_UNKNOWN;
     invalidated++;
   }
-
-  if (invalidated)
-    revalidate_results();
+  (void)invalidated;
 }
 
 static const struct kasld_inference initrd_phys_avoid = {

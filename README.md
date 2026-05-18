@@ -37,15 +37,16 @@ Supports:
   * [Component model](#component-model)
   * [Phases](#phases)
   * [Inference plugins](#inference-plugins)
-  * [Cross-section derivation](#cross-section-derivation)
+  * [Cross-region derivation](#cross-region-derivation)
     * [Component-level derivation](#component-level-derivation)
     * [Orchestrator derivation rules](#orchestrator-derivation-rules)
   * [Kernel version detection](#kernel-version-detection)
   * [Writing a component](#writing-a-component)
     * [Tagged line protocol](#tagged-line-protocol)
-    * [Sections](#sections)
+    * [Position vs. confidence](#position-vs-confidence)
     * [Regions](#regions)
-    * [Names](#names)
+    * [Confidence](#confidence)
+    * [Emitter API](#emitter-api)
     * [Detection components](#detection-components)
     * [Exit code convention](#exit-code-convention)
     * [Minimal component](#minimal-component)
@@ -371,16 +372,17 @@ make cross
 ## Configuration
 
 Architecture-specific kernel memory layout constants are defined in
-[kasld.h](src/include/kasld.h). The default values should work on all systems,
+[kasld/api.h](src/include/kasld/api.h). The default values should work on all systems,
 but may need to be adjusted for very old kernels, embedded devices, or systems
 with unusual configurations.
 
-The orchestrator automatically aligns leaked addresses to `KERNEL_ALIGN`
-boundaries and adjusts for `TEXT_OFFSET`. If a component detects a non-default
-`PAGE_OFFSET` at runtime (e.g. on a 32-bit system with a 2G/2G vmsplit),
-the orchestrator adjusts all layout boundaries before validation.
+Components emit addresses as-is via the intent-revealing helpers; the
+orchestrator handles merging, bound tightening, and consensus. If a component
+detects a non-default `PAGE_OFFSET` at runtime (e.g. on a 32-bit system with
+a 2G/2G vmsplit), the `layout_adjust` inference plugin revalidates all prior
+results against the updated layout.
 
-Refer to the comment headers in [kasld.h](src/include/kasld.h) for
+Refer to the comment headers in [kasld/api.h](src/include/kasld/api.h) for
 documentation of each configuration option.
 
 
@@ -409,12 +411,12 @@ The orchestrator runs each component as an isolated child process:
 This model means a component that segfaults, hangs, or exits with an error
 does not affect other components or the orchestrator.
 
-Tagged lines are parsed, aligned to the architecture's `KERNEL_ALIGN`
-boundary, validated against expected address ranges, assigned a method
-label (`exact`, `parsed`, `timing`, or `heuristic`), and grouped by
-section for consensus analysis. Components do not need to align addresses
-or validate ranges — report the raw leaked value and the orchestrator
-handles the rest.
+Tagged lines are parsed into structured records (type, region, position,
+confidence, bounds, sample), validated against the region's expected
+virtual address space, and merged across components by
+`(type, region, name)`. Components do not need to align addresses or
+validate ranges — they emit via the intent-revealing helpers and the
+orchestrator handles parsing, merging, bound tightening, and consensus.
 
 ### Phases
 
@@ -462,9 +464,10 @@ are equivalent. The number of skipped components is noted in the
 
 At phase boundaries the orchestrator runs a set of inference plugins compiled
 directly into the orchestrator binary. Plugins read collected results and
-tighten the memory section constraint bounds used during validation. The
-commutativity invariant — plugins may only tighten bounds, never widen them —
-means plugin order within a phase is irrelevant.
+tighten layout constraint bounds (`text_base_min/max`, `page_offset_min/max`,
+`phys_base_min/max`, etc.). The commutativity invariant — plugins may only
+tighten bounds, never widen them — means plugin order within a phase is
+irrelevant.
 
 Inference plugins run in four phases:
 
@@ -505,7 +508,7 @@ Currently implemented:
 | `min_offset_from_image_size` | POST_COLLECTION | Forbidden lower slots from kernel image size (MIPS/LoongArch) |
 | `module_text_bound` | POST_COLLECTION | Module region → text bounds |
 | `phys_virt_synth` | POST_COLLECTION | Narrows `page_offset_min/max` by synthesising `PAGE_OFFSET = virt − phys + PHYS_OFFSET` from per-component (PHYS/DRAM, VIRT/DIRECTMAP) pairs |
-| `randomize_memory_page_offset` | POST_COLLECTION | Pins `page_offset_base` on x86-64 with CONFIG_RANDOMIZE_MEMORY. Path 1: same-(origin, region, name) PHYS + VIRT/DIRECTMAP pairing. Path 2: cross-origin min-DIRECTMAP / min-PHYS-RAM_BASE fallback. Both paths enforce 1-GiB PUD alignment |
+| `randomize_memory_page_offset` | POST_COLLECTION | Pins `page_offset_base` on x86-64 with CONFIG_RANDOMIZE_MEMORY. Path 1: same-(origin, region, name) PHYS + VIRT/DIRECTMAP pairing. Path 2: cross-origin min(VIRT/DIRECTMAP) / min(PHYS/REGION_RAM with HAS_LO) fallback. Both paths enforce 1-GiB PUD alignment |
 | `riscv64_fdt_kaslr_seed` | POST_COLLECTION | riscv64 FDT `kaslr-seed` → exact `text_base` |
 | `riscv64_non_efi_phys_base` | POST_COLLECTION | Exact physical base on non-EFI riscv64 |
 | `text_cluster_filter` | POST_COLLECTION | TEXT-result cluster outlier rejection |
@@ -521,61 +524,93 @@ Inference plugins live in `src/inference/` and register via a linker section
 macro (`KASLD_REGISTER_INFERENCE`). Adding a plugin requires only a new
 `.c` file — no central registration.
 
-### Cross-section derivation
+### Cross-region derivation
 
-The kernel virtual address space contains distinct sections (text, modules,
-direct map) at different address ranges. On some architectures these are at
-fixed offsets from each other (coupled), so a leak from one section can
-derive addresses in another. KASLD exploits this at two levels: components
-can emit derived results directly, and the orchestrator derives centrally
-after collecting all results.
+The kernel address space contains distinct regions (text, modules,
+direct map, initrd, RAM landmarks, ...) at different addresses. On some
+architectures these are at fixed offsets from each other (coupled), so a
+leak from one region can derive addresses in another. KASLD exploits this
+at two levels: components can emit derived results directly, and inference
+plugins narrow bounds and synthesize new derived records during a
+convergence loop after collecting all leaked results.
 
 #### Component-level derivation
 
 Components that leak a physical address can convert it to a direct-map
 virtual address using `phys_to_virt()`, guarded by `#if !PHYS_VIRT_DECOUPLED`
 so the derivation is compiled out on decoupled architectures (x86_64,
-arm64, RISC-V 64-bit). This produces an additional data point alongside
-the raw physical result.
+arm64, RISC-V 64-bit). The component emits two records — one `PHYS`, one
+`VIRT` — both with the same `(region, name)`. The merge pass keeps them
+as separate records (different `type`) while inference plugins use the
+pair to derive PAGE_OFFSET.
 
-#### Orchestrator derivation rules
+#### Inference-time derivation
 
-The orchestrator implements cross-section derivation rules in
-`compute_derived_addrs()`. All derived addresses are aligned to
-`KERNEL_ALIGN` (e.g., 2 MiB on x86_64).
+Inference plugins run in a convergence loop after component collection
+and read structured records via the merge pass. They tighten bounds
+(`text_base_min/max`, `phys_base_min/max`, `page_offset_min/max`, etc.)
+and emit new `CONF_DERIVED` records when a derivation is sound. Plugins
+must only tighten, never widen.
+
+Key plugins for cross-region derivation:
+
+- **`phys_virt_synth`** — pairs a `VIRT/REGION_DIRECTMAP` leak with a
+  matching `PHYS` DRAM leak from the same `origin` to compute
+  `PAGE_OFFSET = V − P`. The same-`origin` pairing is the tightest
+  signal: it identifies the same kernel object across both address
+  spaces. Per-origin candidates are accumulated, and `page_offset_min/max`
+  are tightened to the consensus when candidates agree within
+  `kaslr_align`.
+
+- **`randomize_memory_page_offset`** (x86_64 only) — derives
+  `page_offset_base` (the randomized direct-map start under
+  `CONFIG_RANDOMIZE_MEMORY`) from a `VIRT/REGION_DIRECTMAP` leak and a
+  `PHYS/REGION_RAM` base record, with a 1 GiB alignment check.
+
+- **`directmap_page_offset_bounds`** — bounds `PAGE_OFFSET` from a
+  `VIRT/REGION_DIRECTMAP` leak: `PAGE_OFFSET ≤ V_min`, and
+  `PAGE_OFFSET > V_min − phys_span` where `phys_span` is derived from
+  `MemTotal` and the observed physical floor.
+
+- **`kernel_image_phys_bound`** — uses `PHYS/REGION_KERNEL_BSS`
+  witnesses (which sit past `_sdata`) to tighten `phys_base_max`. Falls
+  back to plain `PHYS/REGION_KERNEL_*` witnesses for a baseline bound.
+
+- **`dram_bound`** / **`dram_ceiling`** — use the minimum and maximum
+  observed physical addresses in DRAM regions (RAM, DMA, DMA32, initrd,
+  reserved, swiotlb, vmcoreinfo, kernel-image regions) to bound the
+  KASLR text window from both sides.
+
+- **`text_cluster_filter`** — drops outlier `VIRT/REGION_KERNEL_TEXT`
+  candidates that disagree with the cluster median by more than a slot
+  threshold.
+
+- **`initrd_phys_avoid`** / **`x86_firmware_memmap_holes`** — invalidate
+  `PHYS` kernel-image candidates that fall inside reserved intervals or
+  outside any System RAM range. Invalidation is done by retyping to
+  `REGION_UNKNOWN`, after which `result_in_bounds()` returns false and
+  downstream consumers skip the record.
+
+- **`layout_adjust`** (LAYOUT_ADJUST phase) — applies discovered
+  `PAGE_OFFSET` values to `layout.page_offset` and clamps dependent
+  layout fields on coupled architectures.
 
 On **coupled** architectures (x86_32, arm32, MIPS, PowerPC, LoongArch,
-riscv32), the KASLR slide is a single offset applied uniformly, so a
-single address from any section is sufficient to derive all others:
+riscv32), a single leak from any region can produce the KASLR slide via
+arithmetic on the compile-time `PAGE_OFFSET`, `PHYS_OFFSET`, and
+`TEXT_OFFSET` constants (with `PAGE_OFFSET` itself runtime-detected when
+vmsplit differs from the compile-time default).
 
-| Given | Derives | Formula |
-|---|---|---|
-| Physical text | Virtual text | `(ptext - PHYS_OFFSET + PAGE_OFFSET + TEXT_OFFSET) & ~(ALIGN-1)` |
-| Virtual text | Physical text | `vtext - PAGE_OFFSET + PHYS_OFFSET` |
-| PAGE_OFFSET (runtime) | Default text base | `PAGE_OFFSET + TEXT_OFFSET` |
+On **decoupled** architectures (x86_64, arm64, riscv64, s390), physical
+and virtual KASLR are randomised independently, so physical results
+cannot derive virtual text directly. The summary prints a note when
+physical results exist that would have been derivable on a coupled
+system.
 
-`PAGE_OFFSET`, `PHYS_OFFSET`, and `TEXT_OFFSET` are compile-time constants
-(or runtime-detected in the case of a non-default vmsplit).
-
-On **decoupled** architectures (x86_64, arm64, riscv64), physical and
-virtual addresses are randomized independently, so physical results cannot
-derive virtual text. The orchestrator prints a note when physical results
-exist that would have been derivable on a coupled system.
-
-RISC-V64 is a special case among decoupled architectures: its module
-region is anchored to the kernel image, so module addresses provide an
-additional derivation path:
-
-| Given | Derives | Formula |
-|---|---|---|
-| Lowest module address | Kernel `_end` estimate | `vmod_lo + 2 GiB` |
-| Kernel `_end` estimate | Text base range | `(_end - 64 MiB) .. (_end - 4 MiB)`, aligned to `KERNEL_ALIGN` |
-| DRAM + module range | Virtual text (confirmed) | Physical rule above, validated against module-derived range |
-
-When both a physical DRAM address and a module address are available, the
-orchestrator cross-references them: if the physically-derived text base
-falls within the module-derived range, it is emitted as a high-confidence
-result.
+RISC-V 64-bit is a special case: its module region is anchored to the
+kernel image (`MODULES_VADDR = _end − 2 GiB`), so module addresses
+provide an additional derivation path that `module_text_bound` exploits
+to estimate `_end` and bound `kernel_text` from above.
 
 ### Kernel version detection
 
@@ -617,89 +652,129 @@ Components communicate results to the orchestrator via tagged lines on
 stdout:
 
 ```
-<type> <section> <addr> <region>           # common case
-<type> <section> <addr> <region>:<name>    # specific instance known
+<type> <region>[:<name>] pos=<pos> conf=<conf> [lo=<hex>] [hi=<hex>|sz=<hex>] [sample=<hex>] [base_align=<hex>]
 ```
 
 | Field | Format | Description |
 |---|---|---|
-| `type` | Single char: `V`, `P`, or `D` | `V` = virtual address, `P` = physical address, `D` = default (KASLR-disabled indicator) |
-| `section` | String token (no spaces) | Which address space the leak lives in (see table below) |
-| `addr` | `0x` + 16 hex digits | The leaked address, zero-padded (e.g., `0xffffffff81000000`) |
-| `region` | `KASLD_REGION_*` constant | What kind of kernel memory is at the address (the table column) |
-| `name` | Optional, after `:` | The specific instance, when known (kernel symbol, ACPI OEM ID, module name, PCI BDF). The parser splits region/name on the first `:` only — names may themselves contain colons (e.g. PCI BDF `0000:00:14.0`) |
+| `type` | Single char: `P`, `V`, or `D` | `P` = physical, `V` = virtual, `D` = default (KASLR-disabled marker) |
+| `region` | Wire name from the `kasld_region` enum (snake_case) | What kind of kernel memory is at the address — closed vocabulary; see "Regions" below |
+| `name` | Optional, after the first `:` | The specific instance, when known (kernel symbol, ACPI OEM ID, module name, PCI BDF). Names may legitimately contain `:` (e.g. PCI BDF `0000:00:14.0`); the split is on the first `:` only |
+| `pos` | `base` / `top` / `interior` / `unknown` | What `sample` represents within the region's extent. `base` requires `lo`, `top` requires `hi`, `interior` requires `sample`. `unknown` requires at least one of the address keys. |
+| `conf` | `parsed` / `derived` / `inferred` / `heuristic` / `timing` / `brute` | How reliable the source is. Strict trust ordering — see "Confidence". |
+| `lo` / `hi` | `0x`-prefixed hex | Inclusive extent bounds. Either may be absent. |
+| `sz` | `0x`-prefixed hex | Mutually exclusive with `hi`. Parser normalises to `hi = lo + sz - 1`. Rejected on overflow or `sz == 0`. |
+| `sample` | `0x`-prefixed hex | A representative interior point. |
+| `base_align` | `0x`-prefixed hex, power of two | Declared alignment of the extent base. Optional. |
 
-Example output from a component:
-
-```
-[.] trying /proc/kallsyms ...
-V text 0xffffffff81000000 kernel_text
-```
-
-Or, when the leaked address is a specific named symbol:
+Example emissions:
 
 ```
-V text 0xffffffff8ac00080 kernel_text:entry_SYSCALL_64
+P initrd pos=base conf=parsed lo=0x33000000 hi=0x333fffff
+V kernel_image:commit_creds pos=interior conf=parsed sample=0xffffffff81234000
+P ram pos=top conf=parsed hi=0x100000000
+V vmalloc pos=interior conf=heuristic sample=0xffffc90000123456
 ```
 
-The orchestrator ignores any line that does not begin with `V`, `P`, or
-`D` followed by a space. This means components can freely print diagnostic
-messages (progress, errors, explanations) to stdout — only tagged lines
-are captured as results.
+The orchestrator ignores any line that does not begin with `P`, `V`, or
+`D` followed by a space. Components can freely print diagnostic messages
+(progress, errors, explanations) to stdout — only tagged lines are
+captured as results. A component may emit zero, one, or multiple tagged
+lines.
 
-A component may emit zero, one, or multiple tagged lines. The orchestrator
-processes each independently.
+Components don't write the tagged format by hand — they call one of the
+five intent-revealing helpers (see "Emitter API" below), which produce
+the correct line shape and reject malformed inputs at the source.
 
-#### Sections
+#### Position vs. confidence
 
-| Constant | String | Use when |
-|---|---|---|
-| `KASLD_SECTION_TEXT` | `text` | Address falls in the kernel text (`.text`) region |
-| `KASLD_SECTION_MODULE` | `module` | Address is in the loadable module region |
-| `KASLD_SECTION_DIRECTMAP` | `directmap` | Address is in the direct-map (linear mapping) region |
-| `KASLD_SECTION_DATA` | `data` | Address is in the kernel data section |
-| `KASLD_SECTION_BSS` | `bss` | Address is in the kernel BSS section (zero-initialised data; use with type `V`) |
-| `KASLD_SECTION_DRAM` | `dram` | Physical DRAM address (use with type `P`) |
-| `KASLD_SECTION_MMIO` | `mmio` | Physical MMIO address (use with type `P`) |
-| `KASLD_SECTION_PAGEOFFSET` | `pageoffset` | The PAGE_OFFSET value itself (use with type `V`) |
-| `KASLD_SECTION_NONE` | `-` | No specific section / default indicator |
+These are independent axes:
+
+- **`pos`** describes what `sample` represents (base / top / interior).
+  It does NOT say "we know the base" — that is a question about whether
+  `lo` is set, not about `pos`. Use `HAS_LO(r)` for that.
+- **`conf`** is a trust ranking of how the address was obtained. It does
+  NOT describe precision — precision lives in the width of `[lo, hi]`. A
+  CONF_PARSED record with `lo`–`hi` spanning 64 MB is "trustworthy but
+  imprecise"; a CONF_HEURISTIC record with `lo == hi` is "precise but
+  weak evidence".
 
 #### Regions
 
 Region constants describe what kind of kernel memory is at the address.
-The vocabulary is grounded in standard Linux memory concepts.
-Subsystem-specific reservations (CBMEM, RMTFS, ION, ...) collapse to a
-standard concept (`RESERVED_MEM`, `PMEM`, ...); the discovery method is
-captured by the orchestrator-filled `origin`.
+The vocabulary is a closed enum, grounded in standard Linux memory
+concepts. Subsystem-specific reservations (CBMEM, RMTFS, ION, ...)
+collapse to a standard concept (`REGION_RESERVED_MEM`, `REGION_PMEM`,
+...); the discovery method is captured by the orchestrator-filled
+`origin`.
 
 Adding a new component should normally require zero new region constants.
 The complete vocabulary is defined in
-[`src/include/kasld.h`](src/include/kasld.h):
+[`src/include/kasld/api.h`](src/include/kasld/api.h):
 
 | Group | Constants |
 |---|---|
-| Physical RAM boundaries | `RAM_BASE`, `RAM_TOP`, `DMA_TOP`, `DMA32_TOP` |
-| Physical memory regions | `KERNEL_IMAGE`, `INITRD`, `RESERVED_MEM`, `SWIOTLB`, `VMCOREINFO`, `CRASHKERNEL`, `PMEM`, `ACPI_TABLE`, `ACPI_NVS`, `EFI_MEMMAP`, `NUMA_NODE`, `MMIO`, `PCI_MMIO` |
-| Kernel virtual regions | `KERNEL_TEXT`, `KERNEL_DATA`, `KERNEL_BSS`, `MODULE`, `MODULE_REGION` |
-| Address-space landmarks (fallback when contents unknown) | `DIRECTMAP`, `PAGE_OFFSET`, `VMALLOC`, `VMEMMAP` |
+| Physical landmarks | `REGION_RAM`, `REGION_DMA`, `REGION_DMA32`, `REGION_INITRD`, `REGION_RESERVED_MEM`, `REGION_SWIOTLB`, `REGION_VMCOREINFO`, `REGION_CRASHKERNEL`, `REGION_PMEM`, `REGION_ACPI_TABLE`, `REGION_ACPI_NVS`, `REGION_EFI_MEMMAP`, `REGION_NUMA_NODE`, `REGION_MMIO`, `REGION_PCI_MMIO` |
+| Kernel image | `REGION_KERNEL_TEXT`, `REGION_KERNEL_DATA`, `REGION_KERNEL_BSS`, `REGION_KERNEL_IMAGE`, `REGION_MODULE`, `REGION_MODULE_REGION` |
+| Direct-map / virtual landmarks | `REGION_DIRECTMAP`, `REGION_PAGE_OFFSET`, `REGION_VMALLOC`, `REGION_VMEMMAP` |
 
-#### Names
+Edge-ness (RAM_BASE vs. RAM_TOP, DMA_TOP, etc.) is encoded via the
+emitter helper (`kasld_result_base` vs. `kasld_result_top`), not via
+distinct region constants.
 
-Pass a `name` to `kasld_result()` when you know exactly what kernel
-object is at the address — a specific symbol (`hypercall_page`), an
-ACPI OEM table ID (`Cpu0Ist`), a module instance (`nf_conntrack`),
-a device address (`0000:00:14.0`). The compact validation table will
-show `region:name`; JSON output gets a separate `name` key.
+#### Confidence
 
-When the leak only tells you "somewhere in this kind of memory" but
-not the specific instance, pass `NULL` for `name`.
+Confidence ranks the trustworthiness of how the address was obtained, not
+its precision. Highest to lowest: `parsed` > `derived` > `inferred` >
+`heuristic` > `timing` > `brute`. Pick the value that matches how the
+component produced the address:
+
+| Value | When |
+|---|---|
+| `CONF_PARSED` | Read from a structured source (kallsyms, /proc/iomem, sysfs, dmesg) |
+| `CONF_DERIVED` | Computed from another parsed address via a documented kernel offset |
+| `CONF_INFERRED` | Multi-step inference from several parsed/derived results |
+| `CONF_HEURISTIC` | Pattern match / fingerprinting — best-effort but not guaranteed |
+| `CONF_TIMING` | Side-channel timing measurement |
+| `CONF_BRUTE` | Brute-force probe |
+
+The orchestrator weights conflicting claims by `conf`: a parsed address
+beats a timing address when they disagree.
+
+#### Emitter API
+
+Components emit results via five intent-revealing helpers from
+[`src/include/kasld/api.h`](src/include/kasld/api.h). Each picks the wire shape
+that matches what the component actually knows. There is no `_exact`
+helper — "exact" was a precision conflation; precision lives in trust
+(`conf`) plus bounds width.
+
+| Helper | Use when |
+|---|---|
+| `kasld_result_range(type, region, lo, hi, name, conf)` | Both bounds known (full extent — e.g. a `/proc/iomem` entry) |
+| `kasld_result_sized(type, region, lo, sz, name, conf)` | Base and size known; emits `lo, hi = lo + sz - 1` |
+| `kasld_result_base(type, region, lo, name, conf)` | Lower bound known, upper unknown |
+| `kasld_result_top(type, region, hi, name, conf)` | Upper bound known, lower unknown |
+| `kasld_result_sample(type, region, addr, name, conf)` | A representative interior point — no extent claim |
+
+All helpers return `1` on emit, `0` on rejection (with a stderr
+warning). Rejection happens for: `CONF_UNKNOWN`, invalid type, invalid
+region, helper-specific preconditions (e.g. `_sized` overflow,
+`_range` with `lo > hi`).
+
+Pass `name = NULL` (or `""`) when the leak only tells you "somewhere in
+this kind of memory" but not the specific instance. Pass a real name
+when you know exactly what's at the address — a kernel symbol
+(`hypercall_page`), an ACPI OEM ID (`Cpu0Ist`), a module
+(`nf_conntrack`), a device (`0000:00:14.0`).
 
 #### Detection components
 
-A handful of components emit `D`-type results not as leaks but as
-markers: `default.c` (compile-time fallback), `proc-cmdline.c` and
-`dmesg_kaslr-disabled.c` (`nokaslr` boot detection), etc. These use
-`kasld_result()` with one of three reserved name values:
+A handful of components emit `KASLD_TYPE_DEFAULT_VIRT` (`D`) results not
+as leaks but as KASLR-status markers: `default.c` (compile-time
+fallback), `proc-cmdline.c` and `dmesg_kaslr-disabled.c` (`nokaslr` boot
+detection), etc. These call an emitter helper with one of three reserved
+name values:
 
 - `text` — informational fallback (KASLR may still be active)
 - `nokaslr` — KASLR is disabled
@@ -733,7 +808,7 @@ The orchestrator already knows whether results were found from the
 tagged output.
 
 The constants are defined in
-[`src/include/kasld_internal.h`](src/include/kasld_internal.h) and
+[`src/include/kasld/internal.h`](src/include/kasld/internal.h) and
 follow the `<sysexits.h>` convention (`EX_UNAVAILABLE` = 69,
 `EX_NOPERM` = 77).
 
@@ -741,7 +816,7 @@ follow the `<sysexits.h>` convention (`EX_UNAVAILABLE` = 69,
 
 ```c
 // src/components/my-leak.c
-#include "include/kasld.h"
+#include "include/kasld/api.h"
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -757,8 +832,10 @@ int main(void) {
   }
 
   printf("leaked kernel text address: 0x%lx\n", addr);
-  kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr,
-               KASLD_REGION_KERNEL_TEXT, NULL);
+  /* Leak gives a precise symbol address — interior of the kernel image,
+   * confidently parsed from a structured source. */
+  kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE, addr,
+                      "my_symbol", CONF_PARSED);
   return 0;
 }
 ```
@@ -773,27 +850,36 @@ The component can also be run directly:
 ```
 $ ./build/x86_64-linux-musl/components/my-leak
 leaked kernel text address: 0xffffffff81000000
-V text 0xffffffff81000000 kernel_text
+V kernel_image:my_symbol pos=interior conf=parsed sample=0xffffffff81000000
 ```
 
-Components that leak a physical address should also emit a derived
-direct-map virtual address on coupled architectures (the same region
-applies to both — the address space differs):
+Components that leak a physical address with a known extent (e.g. a
+`/proc/iomem` region) should use `kasld_result_range` to convey both
+bounds in a single call:
 
 ```c
-kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, phys,
-             KASLD_REGION_RAM_BASE, NULL);
+kasld_result_range(KASLD_TYPE_PHYS, REGION_INITRD, phys_start, phys_end,
+                   NULL, CONF_PARSED);
+```
+
+On coupled architectures, the same logical region exists in both spaces
+— emit both records and let the merge pass link them by
+`(region, name)`:
+
+```c
+kasld_result_range(KASLD_TYPE_PHYS, REGION_INITRD, phys_lo, phys_hi,
+                   NULL, CONF_PARSED);
 
 #if !PHYS_VIRT_DECOUPLED
-unsigned long virt = phys_to_virt(phys);
-kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
-             KASLD_REGION_RAM_BASE, NULL);
+kasld_result_range(KASLD_TYPE_VIRT, REGION_INITRD,
+                   phys_to_virt(phys_lo), phys_to_virt(phys_hi),
+                   NULL, CONF_DERIVED);
 #endif
 ```
 
 The `#if` guard compiles out the derivation on decoupled architectures
 (x86_64, arm64, RISC-V 64-bit) where physical addresses cannot reveal
-virtual text. See [Cross-section derivation](#cross-section-derivation)
+virtual text. See [Cross-region derivation](#cross-region-derivation)
 for details.
 
 #### Component metadata
@@ -829,7 +915,7 @@ Supported metadata keys:
 
 | Key | Description | Example |
 |---|---|---|
-| `method` | How the leak works | `parsed`, `timing`, `brute`, `probed` |
+| `method` | Technique category, used by the hardening report | `parsed`, `heuristic`, `timing`, `brute` |
 | `phase` | Scheduling phase | `inference` (default when omitted), `probing` |
 | `addr` | Address type leaked | `virtual`, `physical`, `both` |
 | `sysctl` | Runtime sysctl gate | `dmesg_restrict>=1`, `kptr_restrict>=1` |
@@ -857,21 +943,50 @@ header documenting the leak primitive and mitigations:
 
 #### API reference
 
-The complete component API spans two headers:
-[`src/include/kasld.h`](src/include/kasld.h) (results, address layout)
-and [`src/include/kasld_internal.h`](src/include/kasld_internal.h)
-(exit codes).
+The complete component API is in [`src/include/kasld/api.h`](src/include/kasld/api.h)
+(emitter helpers, enums, address-layout constants) and
+[`src/include/kasld/internal.h`](src/include/kasld/internal.h) (exit
+codes — components don't include this directly).
+
+**Emitter helpers** — pick the one matching what you know:
+
+| Helper | Use |
+|---|---|
+| `kasld_result_range(type, region, lo, hi, name, conf)` | Both bounds known (full extent) |
+| `kasld_result_sized(type, region, lo, sz, name, conf)` | Base and size known |
+| `kasld_result_base(type, region, lo, name, conf)` | Lower bound only |
+| `kasld_result_top(type, region, hi, name, conf)` | Upper bound only |
+| `kasld_result_sample(type, region, addr, name, conf)` | Interior point sample |
+
+All return `1` on emit, `0` on rejection (stderr warning is written).
+
+**Enums**:
+
+| Symbol | Values |
+|---|---|
+| `enum kasld_addr_type` | `KASLD_TYPE_PHYS`, `KASLD_TYPE_VIRT`, `KASLD_TYPE_DEFAULT_VIRT` |
+| `enum kasld_region` | `REGION_KERNEL_TEXT`, `REGION_RAM`, `REGION_INITRD`, `REGION_PCI_MMIO`, ... (see [kasld/api.h](src/include/kasld/api.h) for the full list) |
+| `enum kasld_confidence` | `CONF_PARSED` > `CONF_DERIVED` > `CONF_INFERRED` > `CONF_HEURISTIC` > `CONF_TIMING` > `CONF_BRUTE` |
+
+**ELF metadata**:
 
 | Symbol | Purpose |
 |---|---|
-| `kasld_result(type, section, addr, region, name)` | Emit a tagged result line; pass `NULL` for `name` when no specific instance is known |
 | `KASLD_EXPLAIN(text)` | Embed a technique explanation (`.kasld_explain` ELF section) |
 | `KASLD_META(text)` | Embed machine-readable metadata (`.kasld_meta` ELF section) |
-| `KASLD_ADDR_VIRT`, `KASLD_ADDR_PHYS`, `KASLD_ADDR_DEFAULT` | Type characters |
-| `KASLD_SECTION_TEXT`, `KASLD_SECTION_DRAM`, ... | Section strings — which address space |
-| `KASLD_REGION_KERNEL_TEXT`, `KASLD_REGION_RAM_TOP`, `KASLD_REGION_SWIOTLB`, ... | Region strings — what kind of kernel memory is at the address |
+
+**Exit codes** (from `kasld/internal.h`, but components reference them
+directly via the constants in `kasld/api.h`'s include chain):
+
+| Symbol | Purpose |
+|---|---|
 | `KASLD_EXIT_UNAVAILABLE` | Exit code 69: feature/hardware not present |
 | `KASLD_EXIT_NOPERM` | Exit code 77: access denied |
+
+**Address-layout constants** (per-arch, from `arch/<arch>.h`):
+
+| Symbol | Purpose |
+|---|---|
 | `KERNEL_TEXT_DEFAULT` | Default (non-randomized) kernel text base |
 | `KERNEL_VAS_START`, `KERNEL_VAS_END` | Kernel virtual address space bounds |
 | `KERNEL_BASE_MIN`, `KERNEL_BASE_MAX` | Plausible kernel text range |
@@ -1538,7 +1653,7 @@ The following KASLD components use brute-force probing:
 
 The kernel is loaded at an aligned memory address, usually between `PAGE_SIZE`
 (4 KiB) and 2 MiB on modern systems (see `KERNEL_ALIGN` definitions in
-[kasld.h](src/include/kasld.h)).
+[kasld/api.h](src/include/kasld/api.h)).
 
 This limits the number of possible kernel locations to the values in the
 [KASLR slots table](#default-text-base-and-kaslr-alignment) above.

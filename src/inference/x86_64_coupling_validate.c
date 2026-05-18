@@ -39,7 +39,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#include "../include/kasld_inference.h"
+#include "../include/kasld/inference.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -51,38 +51,35 @@ static void x86_64_coupling_validate_run(struct kasld_analysis_ctx *ctx) {
 
   for (int i = 0; i < num_results; i++) {
     struct result *r = &results[i];
-    if (!r->valid || r->type != KASLD_ADDR_VIRT)
+    if (!result_in_bounds(r, ctx->layout) || r->type != KASLD_TYPE_VIRT)
       continue;
 
     /* DIRECTMAP result in the kernel text mapping area: misclassified.
      * The directmap never reaches __START_KERNEL_map (KERNEL_BASE_MIN). */
-    if (strcmp(r->section, KASLD_SECTION_DIRECTMAP) == 0 &&
-        r->raw >= KERNEL_BASE_MIN) {
+    if (r->region == REGION_DIRECTMAP && anchor_addr(r) >= KERNEL_BASE_MIN) {
       if (verbose && !quiet)
         fprintf(stdout,
                 "[infer] x86_64_coupling_validate: invalidating DIRECTMAP"
                 " result %#lx (>= KERNEL_BASE_MIN %#lx); misclassified\n",
-                r->raw, (unsigned long)KERNEL_BASE_MIN);
-      r->valid = 0;
+                anchor_addr(r), (unsigned long)KERNEL_BASE_MIN);
+      r->region = REGION_UNKNOWN;
       invalidated++;
       continue;
     }
 
     /* TEXT result below the minimum KASLR text base: not a valid text base. */
-    if (strcmp(r->section, KASLD_SECTION_TEXT) == 0 &&
-        r->raw < KASLR_BASE_MIN) {
+    if ((r->region == REGION_KERNEL_TEXT || r->region == REGION_KERNEL_IMAGE) &&
+        anchor_addr(r) < KASLR_BASE_MIN) {
       if (verbose && !quiet)
         fprintf(stdout,
                 "[infer] x86_64_coupling_validate: invalidating TEXT"
                 " result %#lx (< KASLR_BASE_MIN %#lx); not a valid text base\n",
-                r->raw, (unsigned long)KASLR_BASE_MIN);
-      r->valid = 0;
+                anchor_addr(r), (unsigned long)KASLR_BASE_MIN);
+      r->region = REGION_UNKNOWN;
       invalidated++;
     }
   }
-
-  if (invalidated)
-    revalidate_results();
+  (void)invalidated;
 #else
   (void)ctx;
 #endif /* __x86_64__ */

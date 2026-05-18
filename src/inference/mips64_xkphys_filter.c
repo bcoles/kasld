@@ -35,7 +35,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#include "../include/kasld_inference.h"
+#include "../include/kasld/inference.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -47,30 +47,34 @@ static void mips64_xkphys_filter_run(struct kasld_analysis_ctx *ctx) {
 
   for (int i = 0; i < num_results; i++) {
     struct result *r = &results[i];
-    if (r->type != KASLD_ADDR_VIRT ||
-        strcmp(r->section, KASLD_SECTION_DIRECTMAP) != 0)
+    if (r->type != KASLD_TYPE_VIRT)
       continue;
-    if ((r->raw >> 62) != 2)
+    if ((anchor_addr(r) >> 62) != 2)
       continue;
 
     /* Strip XKPHYS marker (bits 63:62) and CCA field (bits 61:59);
      * bits 58:0 are the physical address. */
-    unsigned long phys = r->raw & 0x07fffffffffffffful;
+    unsigned long phys = anchor_addr(r) & 0x07fffffffffffffful;
 
     if (verbose && !quiet)
       fprintf(stdout,
               "[infer] mips64_xkphys_filter: reclassifying XKPHYS"
-              " %#lx -> PHYS/DRAM %#lx\n",
-              r->raw, phys);
+              " %#lx -> PHYS/RAM %#lx\n",
+              anchor_addr(r), phys);
 
-    r->type = KASLD_ADDR_PHYS;
-    snprintf(r->section, SECTION_LEN, "%s", KASLD_SECTION_DRAM);
-    r->raw = phys;
+    /* Reclassify: change type to PHYS, region to RAM, rewrite the
+     * representative address. The result is mutated in place. */
+    r->type = KASLD_TYPE_PHYS;
+    r->region = REGION_RAM;
+    if (HAS_SAMPLE(r))
+      r->sample = phys;
+    if (HAS_LO(r))
+      r->lo = phys;
+    if (HAS_HI(r))
+      r->hi = phys;
     reclassified++;
   }
-
-  if (reclassified)
-    revalidate_results();
+  (void)reclassified;
 #else
   (void)ctx;
 #endif /* __mips64 */

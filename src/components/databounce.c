@@ -54,8 +54,8 @@
 #endif
 
 #define _GNU_SOURCE
-#include "include/kasld.h"
-#include "include/kasld_internal.h"
+#include "include/kasld/api.h"
+#include "include/kasld/internal.h"
 #include "include/sidechannel.h"
 #include <memory.h>
 #include <stdio.h>
@@ -222,8 +222,8 @@ int main(void) {
   const char *symbol = pti ? "__entry_text_start" : "_stext";
 
   fprintf(stderr, "[+] databounce: %s = 0x%016lx\n", symbol, addr);
-  kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr,
-               KASLD_REGION_KERNEL_TEXT, symbol);
+  kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr, symbol,
+                      CONF_TIMING);
 
   return 0;
 }

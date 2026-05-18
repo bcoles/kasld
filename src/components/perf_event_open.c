@@ -27,7 +27,7 @@
 // <bcoles@gmail.com>
 
 #define _GNU_SOURCE
-#include "include/kasld.h"
+#include "include/kasld/api.h"
 #include <errno.h>
 #include <linux/perf_event.h>
 #include <signal.h>
@@ -49,7 +49,7 @@ KASLD_EXPLAIN(
     "below 2 allow kernel profiling. Requires CAP_PERFMON (v5.8+) or "
     "CAP_SYS_ADMIN when paranoid >= 2.");
 
-KASLD_META("method:exact\n"
+KASLD_META("method:parsed\n"
            "phase:inference\n"
            "addr:virtual\n"
            "sysctl:perf_event_paranoid>=2\n"
@@ -198,8 +198,8 @@ int main(void) {
 
   printf("lowest leaked address: %lx\n", addr);
   printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);
-  kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr,
-               KASLD_REGION_KERNEL_TEXT, NULL);
+  kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr, NULL,
+                      CONF_PARSED);
 
   return 0;
 }

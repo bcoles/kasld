@@ -5,7 +5,7 @@
 // ---
 // <bcoles@gmail.com>
 
-#include "include/kasld_internal.h"
+#include "include/kasld/internal.h"
 
 #include <limits.h>
 #include <stdio.h>
@@ -33,28 +33,61 @@ static const char *human_size(unsigned long bytes, char *buf, size_t bufsz) {
 }
 
 /* -------------------------------------------------------------------------
+ * Result-model helpers
+ *
+ * Mirror the orchestrator's anchor_addr() and the result_in_bounds()
+ * convention. methods[0]/origins[0] are the earliest contributor for a
+ * merged record; for the renderer this is the canonical display value.
+ * -------------------------------------------------------------------------
+ */
+/* anchor_addr() is defined as a static inline in kasld/internal.h. */
+
+static const char *result_method(const struct result *r) {
+  if (!r || r->provenance_count == 0 || r->methods[0][0] == '\0')
+    return "unknown";
+  return r->methods[0];
+}
+
+static const char *result_origin(const struct result *r) {
+  if (!r || r->provenance_count == 0)
+    return "";
+  return r->origins[0];
+}
+
+static const char *result_section(const struct result *r) {
+  if (!r)
+    return "";
+  return region_info[r->region].section_name;
+}
+
+static int in_bounds(const struct result *r) {
+  return result_in_bounds(r, &layout);
+}
+
+/* -------------------------------------------------------------------------
  * Output helpers
  * -------------------------------------------------------------------------
  */
-static const char *section_display_name(char type, const char *section) {
-  if (type == KASLD_ADDR_DEFAULT)
+static const char *section_display_name(enum kasld_addr_type type,
+                                        const char *section) {
+  if (type == KASLD_TYPE_DEFAULT_VIRT)
     return NULL;
-  if (strcmp(section, KASLD_SECTION_TEXT) == 0)
-    return type == KASLD_ADDR_VIRT ? "Kernel text (virtual)"
+  if (strcmp(section, "text") == 0)
+    return type == KASLD_TYPE_VIRT ? "Kernel text (virtual)"
                                    : "Kernel text (physical)";
-  if (strcmp(section, KASLD_SECTION_MODULE) == 0)
+  if (strcmp(section, "module") == 0)
     return "Kernel modules (virtual)";
-  if (strcmp(section, KASLD_SECTION_DIRECTMAP) == 0)
+  if (strcmp(section, "directmap") == 0)
     return "Direct map (virtual)";
-  if (strcmp(section, KASLD_SECTION_DATA) == 0)
+  if (strcmp(section, "data") == 0)
     return "Kernel data (virtual)";
-  if (strcmp(section, KASLD_SECTION_BSS) == 0)
+  if (strcmp(section, "bss") == 0)
     return "Kernel BSS (virtual)";
-  if (strcmp(section, KASLD_SECTION_DRAM) == 0)
+  if (strcmp(section, "dram") == 0)
     return "Physical DRAM";
-  if (strcmp(section, KASLD_SECTION_MMIO) == 0)
+  if (strcmp(section, "mmio") == 0)
     return "Physical MMIO";
-  if (strcmp(section, KASLD_SECTION_PAGEOFFSET) == 0)
+  if (strcmp(section, "pageoffset") == 0)
     return NULL; /* metadata, not a leak group */
   return "Unknown";
 }
@@ -65,63 +98,203 @@ static const char *section_display_name(char type, const char *section) {
  * kernel-base evidence. The compact Results renderer promotes these to
  * their own line so the prize isn't buried inside a generic "Physical DRAM"
  * range that also covers ram_base, ram_top, initrd, swiotlb, etc. */
-static int is_kernel_locating_region(const char *region) {
-  if (!region || region[0] == '\0')
-    return 0;
-  return strcmp(region, KASLD_REGION_KERNEL_IMAGE) == 0 ||
-         strcmp(region, KASLD_REGION_KERNEL_TEXT) == 0 ||
-         strcmp(region, KASLD_REGION_KERNEL_DATA) == 0 ||
-         strcmp(region, KASLD_REGION_KERNEL_BSS) == 0;
+static int is_kernel_locating_region(enum kasld_region region) {
+  return region == REGION_KERNEL_IMAGE || region == REGION_KERNEL_TEXT ||
+         region == REGION_KERNEL_DATA || region == REGION_KERNEL_BSS;
 }
 
 /* Display label for a kernel-locating region presented inline as its own
  * Results line. Only relevant when the underlying section is generic
  * (DRAM / MMIO); for sections that already imply kernel scope (text, data,
  * module) the section label is sufficient. */
-static const char *kernel_region_display_name(char type, const char *region) {
-  int phys = (type == KASLD_ADDR_PHYS);
-  if (strcmp(region, KASLD_REGION_KERNEL_IMAGE) == 0)
+static const char *kernel_region_display_name(enum kasld_addr_type type,
+                                              enum kasld_region region) {
+  int phys = (type == KASLD_TYPE_PHYS);
+  switch (region) {
+  case REGION_KERNEL_IMAGE:
     return phys ? "Kernel image (physical)" : "Kernel image (virtual)";
-  if (strcmp(region, KASLD_REGION_KERNEL_TEXT) == 0)
+  case REGION_KERNEL_TEXT:
     return phys ? "Kernel text (physical)" : "Kernel text (virtual)";
-  if (strcmp(region, KASLD_REGION_KERNEL_DATA) == 0)
+  case REGION_KERNEL_DATA:
     return phys ? "Kernel data (physical)" : "Kernel data (virtual)";
-  if (strcmp(region, KASLD_REGION_KERNEL_BSS) == 0)
+  case REGION_KERNEL_BSS:
     return phys ? "Kernel BSS (physical)" : "Kernel BSS (virtual)";
-  return NULL;
+  default:
+    return NULL;
+  }
 }
 
 /* Predicate matching the Results-renderer subgroup filter.
- *   include_region == NULL && exclude_kernel_locating == 0: all results.
- *   include_region == NULL && exclude_kernel_locating == 1: skip
+ *   include_region == REGION_UNKNOWN && exclude_kernel_locating == 0: all
+ *     in-bounds results for (type, section).
+ *   include_region == REGION_UNKNOWN && exclude_kernel_locating == 1: skip
  *     kernel-locating regions (used for the catch-all line when
  *     kernel-locating regions have been promoted to dedicated lines).
- *   include_region != NULL: only that exact region. */
-static int subgroup_match(const struct result *r, char type,
-                          const char *section, const char *include_region,
+ *   include_region != REGION_UNKNOWN: only that exact region. */
+static int subgroup_match(const struct result *r, enum kasld_addr_type type,
+                          const char *section, enum kasld_region include_region,
                           int exclude_kernel_locating) {
-  if (r->type != type || strcmp(r->section, section) != 0 || !r->valid)
+  if (r->type != type || strcmp(result_section(r), section) != 0 ||
+      !in_bounds(r))
     return 0;
-  if (include_region)
-    return strcmp(r->region, include_region) == 0;
+  if (include_region != REGION_UNKNOWN)
+    return r->region == include_region;
   if (exclude_kernel_locating && is_kernel_locating_region(r->region))
     return 0;
   return 1;
 }
 
+/* Inline (type, region) lo/hi scan over in-bounds results.
+ * Returns 1 if at least one match. */
+static int region_range(enum kasld_addr_type type, enum kasld_region region,
+                        unsigned long *out_lo, unsigned long *out_hi) {
+  unsigned long lo = 0, hi = 0;
+  int found = 0;
+  for (int i = 0; i < num_results; i++) {
+    const struct result *r = &results[i];
+    if (r->type != type || r->region != region)
+      continue;
+    if (!in_bounds(r))
+      continue;
+    unsigned long rlo =
+        HAS_LO(r) ? r->lo : (HAS_SAMPLE(r) ? r->sample : anchor_addr(r));
+    unsigned long rhi =
+        HAS_HI(r) ? r->hi : (HAS_SAMPLE(r) ? r->sample : anchor_addr(r));
+    if (!found || rlo < lo)
+      lo = rlo;
+    if (rhi > hi)
+      hi = rhi;
+    found = 1;
+  }
+  if (found) {
+    *out_lo = lo;
+    *out_hi = hi;
+  }
+  return found;
+}
+
+/* (type, section) span across all in-bounds results. */
+static void section_range(enum kasld_addr_type type, const char *section,
+                          unsigned long *out_lo, unsigned long *out_hi) {
+  unsigned long lo = 0, hi = 0;
+  int found = 0;
+  for (int i = 0; i < num_results; i++) {
+    const struct result *r = &results[i];
+    if (r->type != type || strcmp(result_section(r), section) != 0)
+      continue;
+    if (!in_bounds(r))
+      continue;
+    unsigned long rlo =
+        HAS_LO(r) ? r->lo : (HAS_SAMPLE(r) ? r->sample : anchor_addr(r));
+    unsigned long rhi =
+        HAS_HI(r) ? r->hi : (HAS_SAMPLE(r) ? r->sample : anchor_addr(r));
+    if (!found || rlo < lo)
+      lo = rlo;
+    if (rhi > hi)
+      hi = rhi;
+    found = 1;
+  }
+  *out_lo = found ? lo : 0;
+  *out_hi = found ? hi : 0;
+}
+
+/* Convenience: return the anchor address for the canonical record at
+ * (type, region), or 0 if no in-bounds record exists. */
+static unsigned long region_anchor(enum kasld_addr_type type,
+                                   enum kasld_region region) {
+  const struct result *r = select_anchor(type, region);
+  if (!r || !in_bounds(r))
+    return 0;
+  return anchor_addr(r);
+}
+
+/* Scan results[] for (type, section) and report:
+ *   *best_method      — method of the highest-conf record (CONF_PARSED first)
+ *   *n_sources        — number of records matching (type, section, in_bounds)
+ *                       whose anchor address equals the anchor-record's
+ *                       anchor (i.e. "agreeing" sources)
+ *   *n_conflicts      — count of in-bounds records with a different anchor
+ */
+static void section_consensus_info(enum kasld_addr_type type,
+                                   const char *section,
+                                   const char **best_method, int *n_sources,
+                                   int *n_conflicts) {
+  const struct result *anchor = NULL;
+  int best_w = -1;
+  unsigned long best_addr = 0;
+  /* First pass: find the best (highest-conf) in-bounds record. */
+  for (int i = 0; i < num_results; i++) {
+    const struct result *r = &results[i];
+    if (r->type != type || strcmp(result_section(r), section) != 0)
+      continue;
+    if (!in_bounds(r))
+      continue;
+    int w = conf_weight(r->conf);
+    if (w > best_w) {
+      best_w = w;
+      anchor = r;
+      best_addr = anchor_addr(r);
+    }
+  }
+  if (!anchor) {
+    *best_method = "unknown";
+    *n_sources = 0;
+    *n_conflicts = 0;
+    return;
+  }
+  *best_method = result_method(anchor);
+
+  int sources = 0, conflicts = 0;
+  for (int i = 0; i < num_results; i++) {
+    const struct result *r = &results[i];
+    if (r->type != type || strcmp(result_section(r), section) != 0)
+      continue;
+    if (!in_bounds(r))
+      continue;
+    if (anchor_addr(r) == best_addr)
+      sources++;
+    else
+      conflicts++;
+  }
+  *n_sources = sources;
+  *n_conflicts = conflicts;
+}
+
+/* Anchor address for a (type, section): the address of the highest-conf
+ * in-bounds record in that subgroup. */
+static unsigned long section_consensus(enum kasld_addr_type type,
+                                       const char *section) {
+  const struct result *anchor = NULL;
+  int best_w = -1;
+  for (int i = 0; i < num_results; i++) {
+    const struct result *r = &results[i];
+    if (r->type != type || strcmp(result_section(r), section) != 0)
+      continue;
+    if (!in_bounds(r))
+      continue;
+    int w = conf_weight(r->conf);
+    if (w > best_w) {
+      best_w = w;
+      anchor = r;
+    }
+  }
+  return anchor ? anchor_addr(anchor) : 0;
+}
+
 /* Compute and print one compact-mode Results line for a (type, section)
  * subgroup filtered by region. Mirrors the format used by the original
  * single-group renderer. Silently no-ops when no results match. */
-static void print_compact_subgroup(const char *display_name, char type,
+static void print_compact_subgroup(const char *display_name,
+                                   enum kasld_addr_type type,
                                    const char *section,
-                                   const char *include_region,
+                                   enum kasld_region include_region,
                                    int exclude_kernel_locating) {
   unsigned long lo = 0, hi = 0;
   int count = 0;
   int found = 0;
 
   /* Aligned-address scoreboard for consensus selection (mirrors
-   * group_consensus's method-weighted scoring). */
+   * the old method-weighted scoring; now uses conf_weight). */
   unsigned long addrs[MAX_RESULTS];
   int scores[MAX_RESULTS];
   int hits[MAX_RESULTS];
@@ -133,17 +306,18 @@ static void print_compact_subgroup(const char *display_name, char type,
                         exclude_kernel_locating))
       continue;
 
-    if (!found || r->aligned < lo)
-      lo = r->aligned;
-    if (r->aligned > hi)
-      hi = r->aligned;
+    unsigned long a = anchor_addr(r);
+    if (!found || a < lo)
+      lo = a;
+    if (a > hi)
+      hi = a;
     found = 1;
     count++;
 
-    int w = method_weight(r->method);
+    int w = conf_weight(r->conf);
     int seen = 0;
     for (int j = 0; j < n_addrs; j++) {
-      if (addrs[j] == r->aligned) {
+      if (addrs[j] == a) {
         scores[j] += w;
         hits[j]++;
         seen = 1;
@@ -151,7 +325,7 @@ static void print_compact_subgroup(const char *display_name, char type,
       }
     }
     if (!seen && n_addrs < MAX_RESULTS) {
-      addrs[n_addrs] = r->aligned;
+      addrs[n_addrs] = a;
       scores[n_addrs] = w;
       hits[n_addrs] = 1;
       n_addrs++;
@@ -182,12 +356,12 @@ static void print_compact_subgroup(const char *display_name, char type,
     if (!subgroup_match(r, type, section, include_region,
                         exclude_kernel_locating))
       continue;
-    if (r->aligned == consensus) {
+    if (anchor_addr(r) == consensus) {
       sources_at_consensus++;
-      int w = method_weight(r->method);
+      int w = conf_weight(r->conf);
       if (w > top_weight) {
         top_weight = w;
-        top_method = r->method;
+        top_method = result_method(r);
       }
     } else {
       conflicts++;
@@ -212,18 +386,20 @@ static void print_compact_subgroup(const char *display_name, char type,
 
 /* Enumerate distinct kernel-locating regions present in this (type, section)
  * subgroup. Returns the count; up to MAX_RESULTS entries written into out. */
-static int collect_kernel_regions(char type, const char *section,
-                                  const char *out[]) {
+static int collect_kernel_regions(enum kasld_addr_type type,
+                                  const char *section,
+                                  enum kasld_region out[]) {
   int n = 0;
   for (int i = 0; i < num_results; i++) {
     const struct result *r = &results[i];
-    if (r->type != type || strcmp(r->section, section) != 0 || !r->valid)
+    if (r->type != type || strcmp(result_section(r), section) != 0 ||
+        !in_bounds(r))
       continue;
     if (!is_kernel_locating_region(r->region))
       continue;
     int dup = 0;
     for (int j = 0; j < n; j++) {
-      if (strcmp(out[j], r->region) == 0) {
+      if (out[j] == r->region) {
         dup = 1;
         break;
       }
@@ -234,15 +410,19 @@ static int collect_kernel_regions(char type, const char *section,
   return n;
 }
 
+/* Group key for "already printed" tracking. Sections are short, fixed
+ * strings from region_info[].section_name — copy by pointer (those are
+ * static literals owned by region_info.c). */
 struct group_key {
-  char type;
-  char section[SECTION_LEN];
+  enum kasld_addr_type type;
+  const char *section;
 };
 
 static struct group_key printed_groups[32];
 static int num_printed_groups;
 
-static int group_already_printed(char type, const char *section) {
+static int group_already_printed(enum kasld_addr_type type,
+                                 const char *section) {
   for (int i = 0; i < num_printed_groups; i++) {
     if (printed_groups[i].type == type &&
         strcmp(printed_groups[i].section, section) == 0)
@@ -251,32 +431,33 @@ static int group_already_printed(char type, const char *section) {
   return 0;
 }
 
-static void mark_group_printed(char type, const char *section) {
+static void mark_group_printed(enum kasld_addr_type type, const char *section) {
   if (num_printed_groups < 32) {
     printed_groups[num_printed_groups].type = type;
-    strncpy(printed_groups[num_printed_groups].section, section,
-            SECTION_LEN - 1);
+    printed_groups[num_printed_groups].section = section;
     num_printed_groups++;
   }
 }
 
 /* Render one validation block.
  *
- * region_filter: when non-NULL, only include results whose r->region
- *                matches. The block heading shows "<section> / <region>".
- * region_filter: when NULL, include every result in (type, section).
- *                The block heading shows just "<section>". */
-static void print_group(char type, const char *section,
-                        const char *region_filter) {
+ * region_filter: when != REGION_UNKNOWN, only include results whose
+ *                r->region matches. The block heading shows
+ *                "<section> / <region-wire>".
+ * region_filter: when REGION_UNKNOWN, include every result in
+ *                (type, section). The block heading shows just "<section>". */
+static void print_group(enum kasld_addr_type type, const char *section,
+                        enum kasld_region region_filter) {
   const char *name = section_display_name(type, section);
   if (!name)
     return;
 
   int valid_count = 0;
   for (int i = 0; i < num_results; i++) {
-    if (results[i].type == type && strcmp(results[i].section, section) == 0 &&
-        results[i].valid &&
-        (!region_filter || strcmp(results[i].region, region_filter) == 0))
+    if (results[i].type == type &&
+        strcmp(result_section(&results[i]), section) == 0 &&
+        in_bounds(&results[i]) &&
+        (region_filter == REGION_UNKNOWN || results[i].region == region_filter))
       valid_count++;
   }
   if (!valid_count)
@@ -287,24 +468,26 @@ static void print_group(char type, const char *section,
     printf("%s%s%s\n", c(C_DIM), "----------------------------------------",
            c(C_RESET));
 
-  if (region_filter)
-    printf("%s%s / %s%s [%d]:\n", c(C_BOLD), name, region_filter, c(C_RESET),
-           valid_count);
+  if (region_filter != REGION_UNKNOWN)
+    printf("%s%s / %s%s [%d]:\n", c(C_BOLD), name,
+           kasld_region_wire(region_filter), c(C_RESET), valid_count);
   else
     printf("%s%s%s [%d]:\n", c(C_BOLD), name, c(C_RESET), valid_count);
 
-  /* Collect indices of matching results, then sort by aligned address */
+  /* Collect indices of matching results, then sort by anchor address */
   int indices[MAX_RESULTS];
   int n_indices = 0;
   for (int i = 0; i < num_results; i++) {
-    if (results[i].type == type && strcmp(results[i].section, section) == 0 &&
-        (!region_filter || strcmp(results[i].region, region_filter) == 0))
+    if (results[i].type == type &&
+        strcmp(result_section(&results[i]), section) == 0 &&
+        (region_filter == REGION_UNKNOWN || results[i].region == region_filter))
       if (n_indices < MAX_RESULTS)
         indices[n_indices++] = i;
   }
   for (int i = 0; i < n_indices - 1; i++)
     for (int j = i + 1; j < n_indices; j++)
-      if (results[indices[i]].aligned > results[indices[j]].aligned) {
+      if (anchor_addr(&results[indices[i]]) >
+          anchor_addr(&results[indices[j]])) {
         int tmp = indices[i];
         indices[i] = indices[j];
         indices[j] = tmp;
@@ -319,53 +502,55 @@ static void print_group(char type, const char *section,
     /* Compact form shows region (and ":name" when known); verbose adds
      * origin and method in parentheses. region+name tells the reader
      * what the address is; origin tells them which component found it. */
-    char rn[REGION_LEN + NAME_LEN + 2];
+    char rn[64 + NAME_LEN + 2];
     if (r->name[0])
-      snprintf(rn, sizeof(rn), "%s:%s", r->region, r->name);
+      snprintf(rn, sizeof(rn), "%s:%s", kasld_region_wire(r->region), r->name);
     else
-      snprintf(rn, sizeof(rn), "%s", r->region);
+      snprintf(rn, sizeof(rn), "%s", kasld_region_wire(r->region));
 
-    if (!r->valid) {
+    unsigned long a = anchor_addr(r);
+
+    if (!in_bounds(r)) {
       if (verbose)
-        printf("  %s0x%016lx%s  %s %s(%s, %s, out of range)%s\n", c(C_RED),
-               r->raw, c(C_RESET), rn, c(C_DIM), r->origin, r->method,
+        printf("  %s0x%016lx%s  %s %s(%s, %s, stale)%s\n", c(C_RED), a,
+               c(C_RESET), rn, c(C_DIM), result_origin(r), result_method(r),
                c(C_RESET));
       else
-        printf("  %s0x%016lx%s  %s %s(out of range)%s\n", c(C_RED), r->raw,
-               c(C_RESET), rn, c(C_DIM), c(C_RESET));
+        printf("  %s0x%016lx%s  %s %s(stale)%s\n", c(C_RED), a, c(C_RESET), rn,
+               c(C_DIM), c(C_RESET));
       continue;
     }
 
     if (verbose)
-      printf("  %s0x%016lx%s  %s %s(%s, %s)%s\n", c(C_GREEN), r->aligned,
-             c(C_RESET), rn, c(C_DIM), r->origin, r->method, c(C_RESET));
+      printf("  %s0x%016lx%s  %s %s(%s, %s)%s\n", c(C_GREEN), a, c(C_RESET), rn,
+             c(C_DIM), result_origin(r), result_method(r), c(C_RESET));
     else
-      printf("  %s0x%016lx%s  %s\n", c(C_GREEN), r->aligned, c(C_RESET), rn);
+      printf("  %s0x%016lx%s  %s\n", c(C_GREEN), a, c(C_RESET), rn);
 
     int dup = 0;
     for (int j = 0; j < n_addrs; j++) {
-      if (addrs[j] == r->aligned) {
+      if (addrs[j] == a) {
         dup = 1;
         break;
       }
     }
     if (!dup && n_addrs < MAX_RESULTS)
-      addrs[n_addrs++] = r->aligned;
+      addrs[n_addrs++] = a;
   }
 
   if (n_addrs == 1) {
     const char *bm;
     int ns, nc;
-    group_consensus_info(type, section, &bm, &ns, &nc);
+    section_consensus_info(type, section, &bm, &ns, &nc);
     printf("  %s==>%s 0x%016lx  %s(%s, %d source%s)%s\n", c(C_CYAN), c(C_RESET),
            addrs[0], c(C_DIM), bm, ns, ns == 1 ? "" : "s", c(C_RESET));
   } else if (n_addrs > 1) {
     const char *bm;
     int ns, nc;
-    group_consensus_info(type, section, &bm, &ns, &nc);
+    section_consensus_info(type, section, &bm, &ns, &nc);
     char hbuf[32];
     unsigned long span = addrs[n_addrs - 1] - addrs[0];
-    unsigned long consensus = group_consensus(type, section);
+    unsigned long consensus = section_consensus(type, section);
     printf("  %s==>%s 0x%016lx  %s(%s, %d source%s, %d conflict%s)%s\n",
            c(C_CYAN), c(C_RESET), consensus, c(C_DIM), bm, ns,
            ns == 1 ? "" : "s", nc, nc == 1 ? "" : "s", c(C_RESET));
@@ -520,25 +705,51 @@ static void render_kaslr_text(const struct summary *s) {
 }
 
 /* -------------------------------------------------------------------------
- * Derived addresses text renderer (consumes pre-computed summary)
+ * Derived addresses text renderer
+ *
+ * The old s->derived[] array is gone. Cross-region derivations now arrive
+ * as ordinary records in results[] with conf == CONF_DERIVED, emitted by
+ * inference plugins during the convergence loop. Render those records in
+ * the same per-record style as the leak groups, plus the architecture
+ * decoupling note when applicable.
  * -------------------------------------------------------------------------
  */
+static int count_derived(void) {
+  int n = 0;
+  for (int i = 0; i < num_results; i++)
+    if (results[i].conf == CONF_DERIVED)
+      n++;
+  return n;
+}
+
 static void render_derived_text(const struct summary *s) {
-  if (s->num_derived == 0 && !s->decoupled_note)
+  int n_derived = count_derived();
+  if (n_derived == 0 && !s->decoupled_note)
     return;
 
-  if (s->num_derived > 0)
+  if (n_derived > 0)
     printf("Derived addresses:\n");
-  for (int i = 0; i < s->num_derived; i++) {
-    const struct derived_addr *d = &s->derived[i];
-    if (d->addr_hi) {
-      unsigned long slots = layout.kernel_align
-                                ? (d->addr_hi - d->addr) / layout.kernel_align
-                                : 0;
-      printf("  %-24s0x%016lx - 0x%016lx  (~%lu slots, %s)\n", d->label,
-             d->addr, d->addr_hi, slots, d->via);
+  for (int i = 0; i < num_results; i++) {
+    const struct result *r = &results[i];
+    if (r->conf != CONF_DERIVED)
+      continue;
+    char label[96];
+    if (r->name[0])
+      snprintf(label, sizeof(label), "%s:%s", kasld_region_wire(r->region),
+               r->name);
+    else
+      snprintf(label, sizeof(label), "%s", kasld_region_wire(r->region));
+
+    /* Range-form when both bounds present; otherwise single-address. */
+    if (HAS_LO(r) && HAS_HI(r)) {
+      unsigned long slots =
+          layout.kernel_align ? (r->hi - r->lo) / layout.kernel_align : 0;
+      printf("  %-24s0x%016lx - 0x%016lx  (~%lu slots, %s)%s\n", label, r->lo,
+             r->hi, slots, result_method(r), in_bounds(r) ? "" : " [stale]");
     } else {
-      printf("  %-24s0x%016lx  (%s)\n", d->label, d->addr, d->via);
+      unsigned long a = anchor_addr(r);
+      printf("  %-24s0x%016lx  (%s)%s\n", label, a, result_method(r),
+             in_bounds(r) ? "" : " [stale]");
     }
   }
 
@@ -574,9 +785,9 @@ static int region_cmp(const void *a, const void *b) {
 
 static void print_memory_map(void) {
   unsigned long vtext_lo, vtext_hi, vmod_lo, vmod_hi, vdmap_lo, vdmap_hi;
-  group_range(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, &vtext_lo, &vtext_hi);
-  group_range(KASLD_ADDR_VIRT, KASLD_SECTION_MODULE, &vmod_lo, &vmod_hi);
-  group_range(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, &vdmap_lo, &vdmap_hi);
+  section_range(KASLD_TYPE_VIRT, "text", &vtext_lo, &vtext_hi);
+  section_range(KASLD_TYPE_VIRT, "module", &vmod_lo, &vmod_hi);
+  section_range(KASLD_TYPE_VIRT, "directmap", &vdmap_lo, &vdmap_hi);
 
   /* Build virtual memory region list */
   struct map_region regions[8];
@@ -628,10 +839,13 @@ static void print_memory_map(void) {
     printf("  |  %-62s  |\n", r->label);
 
     if (r->leak_lo) {
-      if (r->leak_hi) {
+      if (r->leak_hi && r->leak_hi != r->leak_lo) {
         printf("  |    0x%016lx  %-40s  |\n", r->leak_hi, "(hi)");
         printf("  |    0x%016lx  %-40s  |\n", r->leak_lo, "(lo)");
       } else {
+        /* Single witness — either no hi, or hi==lo (e.g. one sample-only
+         * record, or one record where the merged extent happens to be a
+         * single address). Show as one line. */
         printf("  |    0x%016lx%42s  |\n", r->leak_lo, "");
       }
     } else {
@@ -641,7 +855,12 @@ static void print_memory_map(void) {
     printf("  %s\n", box_top);
     printf("  0x%016lx\n", r->start);
 
-    /* Show gap if there's a non-trivial space before the next region */
+    /* Show gap if there's a non-trivial space before the next region.
+     * A gap above an inference-tightened region exposes the boundary
+     * that the inference produced — e.g. when kaslr_ceiling drops
+     * kernel_base_max from KASLR_BASE_MAX to text_base_default +
+     * KERNEL_IMAGE_SIZE, the gap is the "text base cannot be here"
+     * area. Label both ends of the gap so the boundary is readable. */
     if (i > 0 && regions[i - 1].end + 1 < r->start) {
       char hbuf[32];
       unsigned long gap = r->start - regions[i - 1].end - 1;
@@ -650,6 +869,8 @@ static void print_memory_map(void) {
       printf("  %s|  ...  %-59s|%s\n", c(C_DIM),
              human_size(gap, hbuf, sizeof(hbuf)), c(C_RESET));
       printf("  %s|%66s|%s\n", c(C_DIM), "", c(C_RESET));
+      printf("  %s\n", box_top);
+      printf("  0x%016lx\n", regions[i - 1].end);
     }
   }
 
@@ -674,81 +895,109 @@ static void print_memory_map(void) {
   printf("\n");
 
   /* Physical memory map — unified view of all physical leaks */
-  unsigned long ptext = group_consensus(KASLD_ADDR_PHYS, KASLD_SECTION_TEXT);
+  unsigned long ptext = section_consensus(KASLD_TYPE_PHYS, "text");
 
   struct {
     unsigned long addr;
     char label[128];
+    /* 1 iff this leak is a kernel-image region (text/data/bss/image). The
+     * phys-text-base window box only renders entries with is_text=1; other
+     * leaks whose address happens to land in the window are dropped from
+     * the visualization, matching the virt layout's per-region semantics. */
+    int is_text;
   } ppts[MAX_RESULTS];
   int nppts = 0;
 
   if (ptext && nppts < MAX_RESULTS) {
     ppts[nppts].addr = ptext;
     snprintf(ppts[nppts].label, sizeof(ppts[nppts].label), "[text] kernel");
+    ppts[nppts].is_text = 1;
     nppts++;
   }
 
   /* Boundary markers are single-valued by definition. Pre-compute one
-   * consensus address per marker region so the layout box shows one line
-   * each regardless of how many components reported it.
-   * Base-type markers use the minimum (absolute lowest address);
-   * top-type markers use the maximum (absolute highest address).
-   * Multi-object regions (swiotlb, pci_mmio, acpi_table, ...) are NOT
-   * in this list and keep their per-address entries below. */
+   * consensus address per marker (region, edge) so the layout box shows one
+   * line each regardless of how many components reported it.
+   * BASE markers use the minimum (absolute lowest address) of any record
+   * with HAS_LO; TOP markers use the maximum of any record with HAS_HI.
+   * The merge pass collapses base+top contributors into one record with
+   * pos=BASE — we must NOT gate boundary selection on `pos`. The
+   * `HAS_LO`/`HAS_HI` flags carry the genuine "is this edge known?"
+   * signal regardless of pos. */
+  enum boundary_edge { BE_LO, BE_HI };
   static const struct {
-    const char *region;
-    int use_max; /* 0 = min (base), 1 = max (top/ceiling) */
+    enum kasld_region region;
+    enum boundary_edge edge;
+    const char *label;
   } boundary_markers[] = {
-      {KASLD_REGION_RAM_BASE, 0},
-      {KASLD_REGION_RAM_TOP, 1},
-      {KASLD_REGION_DMA_TOP, 1},
-      {KASLD_REGION_DMA32_TOP, 1},
+      {REGION_RAM, BE_LO, "ram_base"},
+      {REGION_RAM, BE_HI, "ram_top"},
+      {REGION_DMA, BE_HI, "dma_top"},
+      {REGION_DMA32, BE_HI, "dma32_top"},
   };
   int n_boundary =
       (int)(sizeof(boundary_markers) / sizeof(boundary_markers[0]));
 
   for (int b = 0; b < n_boundary && nppts < MAX_RESULTS; b++) {
-    const char *breg = boundary_markers[b].region;
-    int use_max = boundary_markers[b].use_max;
+    enum kasld_region breg = boundary_markers[b].region;
+    int use_max = (boundary_markers[b].edge == BE_HI);
     unsigned long best = use_max ? 0 : ~0ul;
     int found = 0;
 
     for (int i = 0; i < num_results; i++) {
       struct result *r = &results[i];
-      if (r->type != KASLD_ADDR_PHYS || !r->valid)
+      if (r->type != KASLD_TYPE_PHYS || !in_bounds(r))
         continue;
-      if (strcmp(r->section, KASLD_SECTION_DRAM) != 0 &&
-          strcmp(r->section, KASLD_SECTION_MMIO) != 0)
+      if (r->region != breg)
         continue;
-      if (strcmp(r->region, breg) != 0)
-        continue;
-      if (use_max ? r->aligned > best : r->aligned < best) {
-        best = r->aligned;
+      unsigned long a;
+      if (use_max) {
+        if (!HAS_HI(r))
+          continue;
+        a = r->hi;
+      } else {
+        if (!HAS_LO(r))
+          continue;
+        a = r->lo;
+      }
+      if (use_max ? a > best : a < best) {
+        best = a;
         found = 1;
       }
     }
 
     if (found) {
       ppts[nppts].addr = best;
-      snprintf(ppts[nppts].label, sizeof(ppts[nppts].label), "[dram] %s", breg);
+      snprintf(ppts[nppts].label, sizeof(ppts[nppts].label), "[dram] %s",
+               boundary_markers[b].label);
+      ppts[nppts].is_text = 0;
       nppts++;
     }
   }
 
-  /* All other regions: emit one entry per unique address. Skip boundary
-   * marker regions — already handled above. */
+  /* All other physical records: emit one entry per unique address. Skip
+   * (region, pos) combinations already consolidated above as boundaries. */
   for (int i = 0; i < num_results; i++) {
     struct result *r = &results[i];
-    if (r->type != KASLD_ADDR_PHYS || !r->valid)
+    if (r->type != KASLD_TYPE_PHYS || !in_bounds(r))
       continue;
-    if (strcmp(r->section, KASLD_SECTION_DRAM) != 0 &&
-        strcmp(r->section, KASLD_SECTION_MMIO) != 0)
-      continue;
+    const char *sec = result_section(r);
+    /* No section allowlist: in_bounds(r) above is the gate. Regions whose
+     * physical leaks belong here have open VAS (static_vas={0,ULONG_MAX});
+     * virtual-only regions have a kernel-VAS-bounded static_vas/derive_vas
+     * that rejects sub-ULONG_MAX physical addresses via in_bounds. */
 
-    /* Skip boundary marker regions — already consolidated above. */
+    /* Skip records already consolidated into a boundary marker above. A
+     * record contributes to a boundary if (a) its region matches a marker,
+     * AND (b) it carries the corresponding edge bit (HAS_LO for BE_LO,
+     * HAS_HI for BE_HI). Records on a boundary region but contributing the
+     * other edge or only a sample still get shown below. */
     int is_boundary = 0;
     for (int b = 0; b < n_boundary; b++) {
-      if (strcmp(r->region, boundary_markers[b].region) == 0) {
+      if (r->region != boundary_markers[b].region)
+        continue;
+      if ((boundary_markers[b].edge == BE_HI && HAS_HI(r)) ||
+          (boundary_markers[b].edge == BE_LO && HAS_LO(r))) {
         is_boundary = 1;
         break;
       }
@@ -756,36 +1005,36 @@ static void print_memory_map(void) {
     if (is_boundary)
       continue;
 
+    unsigned long a = anchor_addr(r);
     int dup = 0;
     for (int j = 0; j < nppts; j++) {
-      if (ppts[j].addr == r->aligned) {
+      if (ppts[j].addr == a) {
         dup = 1;
         break;
       }
     }
     if (!dup && nppts < MAX_RESULTS) {
-      ppts[nppts].addr = r->aligned;
+      ppts[nppts].addr = a;
       if (r->name[0])
         snprintf(ppts[nppts].label, sizeof(ppts[nppts].label), "[%s] %s:%s",
-                 r->section, r->region, r->name);
+                 sec, kasld_region_wire(r->region), r->name);
       else
-        snprintf(ppts[nppts].label, sizeof(ppts[nppts].label), "[%s] %s",
-                 r->section, r->region);
+        snprintf(ppts[nppts].label, sizeof(ppts[nppts].label), "[%s] %s", sec,
+                 kasld_region_wire(r->region));
+      ppts[nppts].is_text = is_kernel_image_region(r->region);
       nppts++;
     }
   }
 
-  /* Sort descending by address (top of memory first) */
+  /* Sort descending by address (top of memory first). Whole-struct swap so
+   * every field (addr, label, is_text) stays paired. */
   for (int i = 0; i < nppts - 1; i++)
     for (int j = i + 1; j < nppts; j++)
       if (ppts[i].addr < ppts[j].addr) {
-        unsigned long ta = ppts[i].addr;
-        char tl[128];
-        memcpy(tl, ppts[i].label, sizeof(tl));
-        ppts[i].addr = ppts[j].addr;
-        memcpy(ppts[i].label, ppts[j].label, sizeof(tl));
-        ppts[j].addr = ta;
-        memcpy(ppts[j].label, tl, sizeof(tl));
+        char tmp[sizeof(ppts[0])];
+        memcpy(tmp, &ppts[i], sizeof(ppts[0]));
+        memcpy(&ppts[i], &ppts[j], sizeof(ppts[0]));
+        memcpy(&ppts[j], tmp, sizeof(ppts[0]));
       }
 
   printf("%sPhysical memory layout:%s\n\n", c(C_BOLD), c(C_RESET));
@@ -804,21 +1053,87 @@ static void print_memory_map(void) {
   } else {
     printf("  0x????????????????  (end of RAM unknown)\n");
   }
-  printf("  %s\n", box_top);
-  if (nppts > 0) {
-    for (int i = 0; i < nppts; i++) {
-      char str[164];
-      snprintf(str, sizeof(str), "0x%016lx  %s", ppts[i].addr, ppts[i].label);
-      printf("  |  %-62.62s  |\n", str);
-    }
+
+  /* On PHYS_VIRT_DECOUPLED arches the phys text base is independently
+   * randomized inside [phys_kaslr_base_min, phys_kaslr_base_max]. Inference
+   * tightens both ends (kaslr_ceiling, dram_bound, meminfo_phys_ceiling,
+   * ...) so this window can be much narrower than the arch default. When
+   * we have a non-trivial window, split the leak dump into three buckets
+   * (above-window / inside-window / below-window) with the window edges
+   * labeled, mirroring how the virtual layout exposes the inferred text
+   * range. Coupled arches and arches without phys KASLR leave both bounds
+   * at 0 — fall back to the single-box rendering. */
+  unsigned long pmin = layout.phys_kaslr_base_min;
+  unsigned long pmax = layout.phys_kaslr_base_max;
+  int show_phys_window = (pmax > pmin && pmin > 0);
+
+  /* Build a flat list of buckets. `footer_addr` is the boundary label printed
+   * after the bucket (= the address at the bottom edge of the bucket = the
+   * top edge of the next bucket). PHYS_OFFSET always terminates the list.
+   * `text_only` gates the bucket to kernel-image-region leaks; unrelated
+   * leaks whose address happens to fall in the window range are dropped
+   * (matching the virt layout's per-region semantics — virt "kernel text"
+   * shows only text-section leaks, not every virt leak in [base_min,
+   * base_max]). */
+  struct phys_bucket {
+    const char *header;
+    unsigned long lo, hi;
+    unsigned long footer_addr;
+    int text_only;
+  } buckets[3];
+  int nbuckets = 0;
+
+  if (!show_phys_window) {
+    buckets[nbuckets++] =
+        (struct phys_bucket){NULL, (unsigned long)PHYS_OFFSET, ULONG_MAX,
+                             (unsigned long)PHYS_OFFSET, 0};
   } else {
-    printf("  |  %s%-62s%s  |\n", c(C_DIM), "(no leak)", c(C_RESET));
+    if (ram_end > pmax)
+      buckets[nbuckets++] =
+          (struct phys_bucket){NULL, pmax + 1, ULONG_MAX, pmax, 0};
+    buckets[nbuckets++] =
+        (struct phys_bucket){"phys kernel text", pmin, pmax, pmin, 1};
+    if (pmin > (unsigned long)PHYS_OFFSET)
+      buckets[nbuckets++] =
+          (struct phys_bucket){NULL, (unsigned long)PHYS_OFFSET, pmin - 1,
+                               (unsigned long)PHYS_OFFSET, 0};
+    else
+      /* Window's lower edge IS PHYS_OFFSET; collapse the trailing label. */
+      buckets[nbuckets - 1].footer_addr = (unsigned long)PHYS_OFFSET;
   }
-  printf("  %s\n", box_top);
-  printf("  0x%016lx\n", (unsigned long)PHYS_OFFSET);
+
+  for (int b = 0; b < nbuckets; b++) {
+    const struct phys_bucket *bk = &buckets[b];
+    int any = 0;
+    for (int i = 0; i < nppts; i++) {
+      if (ppts[i].addr < bk->lo || ppts[i].addr > bk->hi)
+        continue;
+      if (bk->text_only && !ppts[i].is_text)
+        continue;
+      any = 1;
+      break;
+    }
+    printf("  %s\n", box_top);
+    if (bk->header)
+      printf("  |  %-62s  |\n", bk->header);
+    if (any) {
+      for (int i = 0; i < nppts; i++) {
+        if (ppts[i].addr < bk->lo || ppts[i].addr > bk->hi)
+          continue;
+        if (bk->text_only && !ppts[i].is_text)
+          continue;
+        char str[164];
+        snprintf(str, sizeof(str), "0x%016lx  %s", ppts[i].addr, ppts[i].label);
+        printf("  |  %-62.62s  |\n", str);
+      }
+    } else {
+      printf("  |  %s%-62s%s  |\n", c(C_DIM), "(no leak)", c(C_RESET));
+    }
+    printf("  %s\n", box_top);
+    printf("  0x%016lx\n", bk->footer_addr);
+  }
 
   printf("\n");
-
   (void)box_sep;
 }
 
@@ -1297,21 +1612,21 @@ static const char *outcome_name(enum component_outcome o) {
   return "unknown";
 }
 
-static void render_json_group(char gt, const char *gs) {
+static void render_json_group(enum kasld_addr_type gt, const char *gs) {
   const char *display = section_display_name(gt, gs);
   if (!display)
     return;
 
-  unsigned long consensus = group_consensus(gt, gs);
+  unsigned long consensus = section_consensus(gt, gs);
   unsigned long lo, hi;
-  group_range(gt, gs, &lo, &hi);
+  section_range(gt, gs, &lo, &hi);
 
   const char *bm;
   int ns, nc;
-  group_consensus_info(gt, gs, &bm, &ns, &nc);
+  section_consensus_info(gt, gs, &bm, &ns, &nc);
 
   printf("    {\n");
-  printf("      \"type\": \"%c\",\n", gt);
+  printf("      \"type\": \"%c\",\n", kasld_type_wire(gt));
   printf("      \"section\": \"%s\",\n", gs);
   printf("      \"display\": ");
   json_print_escaped(display);
@@ -1329,27 +1644,29 @@ static void render_json_group(char gt, const char *gs) {
   printf(",\n      \"results\": [\n");
   int first = 1;
   for (int i = 0; i < num_results; i++) {
-    if (results[i].type != gt || strcmp(results[i].section, gs) != 0)
+    if (results[i].type != gt || strcmp(result_section(&results[i]), gs) != 0)
       continue;
+    const struct result *r = &results[i];
     if (!first)
       printf(",\n");
     first = 0;
+    unsigned long a = anchor_addr(r);
     printf("        {\n");
-    printf("          \"raw\": \"0x%016lx\",\n", results[i].raw);
-    printf("          \"aligned\": \"0x%016lx\",\n", results[i].aligned);
+    printf("          \"raw\": \"0x%016lx\",\n", a);
+    printf("          \"aligned\": \"0x%016lx\",\n", a);
     printf("          \"region\": ");
-    json_print_escaped(results[i].region);
+    json_print_escaped(kasld_region_wire(r->region));
     printf(",\n");
     printf("          \"name\": ");
-    json_print_escaped(results[i].name);
+    json_print_escaped(r->name);
     printf(",\n");
     printf("          \"origin\": ");
-    json_print_escaped(results[i].origin);
+    json_print_escaped(result_origin(r));
     printf(",\n");
     printf("          \"method\": ");
-    json_print_escaped(results[i].method);
+    json_print_escaped(result_method(r));
     printf(",\n");
-    printf("          \"valid\": %s\n", results[i].valid ? "true" : "false");
+    printf("          \"valid\": %s\n", in_bounds(r) ? "true" : "false");
     printf("        }");
   }
   printf("\n      ]\n");
@@ -1749,29 +2066,28 @@ static void render_json(const struct summary *s) {
   printf("\n  },\n");
 
   /* groups — build ordered list of unique (type, section) keys */
-  const char *section_order[] = {KASLD_SECTION_TEXT,      KASLD_SECTION_MODULE,
-                                 KASLD_SECTION_DIRECTMAP, KASLD_SECTION_DATA,
-                                 KASLD_SECTION_BSS,       KASLD_SECTION_DRAM,
-                                 KASLD_SECTION_MMIO,      NULL};
-  char type_order[] = {KASLD_ADDR_VIRT, KASLD_ADDR_PHYS, 0};
+  const char *section_order[] = {"text", "module", "directmap", "data",
+                                 "bss",  "dram",   "mmio",      NULL};
+  enum kasld_addr_type type_order[] = {KASLD_TYPE_VIRT, KASLD_TYPE_PHYS,
+                                       KASLD_TYPE_UNKNOWN};
 
   struct group_key gkeys[64];
   int ngkeys = 0;
 
-  for (int t = 0; type_order[t]; t++) {
+  for (int t = 0; type_order[t] != KASLD_TYPE_UNKNOWN; t++) {
     for (int si = 0; section_order[si]; si++) {
       int has = 0;
       for (int i = 0; i < num_results; i++) {
         if (results[i].type == type_order[t] &&
-            strcmp(results[i].section, section_order[si]) == 0 &&
-            results[i].valid) {
+            strcmp(result_section(&results[i]), section_order[si]) == 0 &&
+            in_bounds(&results[i])) {
           has = 1;
           break;
         }
       }
       if (has && ngkeys < 64) {
         gkeys[ngkeys].type = type_order[t];
-        strncpy(gkeys[ngkeys].section, section_order[si], SECTION_LEN - 1);
+        gkeys[ngkeys].section = section_order[si];
         ngkeys++;
       }
     }
@@ -1779,19 +2095,20 @@ static void render_json(const struct summary *s) {
 
   /* Append any remaining groups not in predefined order */
   for (int i = 0; i < num_results; i++) {
-    if (results[i].type == KASLD_ADDR_DEFAULT)
+    if (results[i].type == KASLD_TYPE_DEFAULT_VIRT)
       continue;
+    const char *sec = result_section(&results[i]);
     int already = 0;
     for (int j = 0; j < ngkeys; j++) {
       if (gkeys[j].type == results[i].type &&
-          strcmp(gkeys[j].section, results[i].section) == 0) {
+          strcmp(gkeys[j].section, sec) == 0) {
         already = 1;
         break;
       }
     }
     if (!already && ngkeys < 64) {
       gkeys[ngkeys].type = results[i].type;
-      strncpy(gkeys[ngkeys].section, results[i].section, SECTION_LEN - 1);
+      gkeys[ngkeys].section = sec;
       ngkeys++;
     }
   }
@@ -1801,12 +2118,12 @@ static void render_json(const struct summary *s) {
   for (int g = 0; g < ngkeys; g++) {
     if (!section_display_name(gkeys[g].type, gkeys[g].section))
       continue;
-    /* Verify group has at least one valid result */
+    /* Verify group has at least one in-bounds result */
     int has = 0;
     for (int i = 0; i < num_results; i++) {
       if (results[i].type == gkeys[g].type &&
-          strcmp(results[i].section, gkeys[g].section) == 0 &&
-          results[i].valid) {
+          strcmp(result_section(&results[i]), gkeys[g].section) == 0 &&
+          in_bounds(&results[i])) {
         has = 1;
         break;
       }
@@ -1820,22 +2137,29 @@ static void render_json(const struct summary *s) {
   }
   printf("\n  ],\n");
 
-  /* derived */
+  /* derived — records with conf == CONF_DERIVED */
   printf("  \"derived\": [\n");
-  for (int i = 0; i < s->num_derived; i++) {
-    const struct derived_addr *d = &s->derived[i];
-    if (i > 0)
+  int first_d = 1;
+  for (int i = 0; i < num_results; i++) {
+    const struct result *r = &results[i];
+    if (r->conf != CONF_DERIVED)
+      continue;
+    if (!first_d)
       printf(",\n");
+    first_d = 0;
     printf("    {\n");
-    printf("      \"type\": \"%c\",\n", d->type);
-    printf("      \"section\": \"%s\",\n", d->section);
-    printf("      \"addr\": \"0x%016lx\"", d->addr);
-    if (d->addr_hi)
-      printf(",\n      \"addr_hi\": \"0x%016lx\"", d->addr_hi);
+    printf("      \"type\": \"%c\",\n", kasld_type_wire(r->type));
+    printf("      \"section\": \"%s\",\n", result_section(r));
+    if (HAS_LO(r) && HAS_HI(r)) {
+      printf("      \"addr\": \"0x%016lx\"", r->lo);
+      printf(",\n      \"addr_hi\": \"0x%016lx\"", r->hi);
+    } else {
+      printf("      \"addr\": \"0x%016lx\"", anchor_addr(r));
+    }
     printf(",\n      \"label\": ");
-    json_print_escaped(d->label);
+    json_print_escaped(kasld_region_wire(r->region));
     printf(",\n      \"via\": ");
-    json_print_escaped(d->via);
+    json_print_escaped(result_method(r));
     printf("\n    }");
   }
 
@@ -1982,9 +2306,9 @@ static void render_text(const struct summary *s) {
     for (int i = 0; i < num_results; i++) {
       /* List components that emitted a non-fallback DEFAULT result —
        * those are the ones reporting "nokaslr" / "unsupported" markers. */
-      if (results[i].type == KASLD_ADDR_DEFAULT && results[i].name[0] != '\0' &&
-          strcmp(results[i].name, "text") != 0)
-        printf("  %s (%s)\n", results[i].origin, results[i].name);
+      if (results[i].type == KASLD_TYPE_DEFAULT_VIRT &&
+          results[i].name[0] != '\0' && strcmp(results[i].name, "text") != 0)
+        printf("  %s (%s)\n", result_origin(&results[i]), results[i].name);
     }
     printf("\n");
     if (s->kaslr.default_addr)
@@ -1994,32 +2318,31 @@ static void render_text(const struct summary *s) {
   }
 
   /* Print each (type, section) group in a defined order */
-  const char *section_order[] = {KASLD_SECTION_TEXT,      KASLD_SECTION_MODULE,
-                                 KASLD_SECTION_DIRECTMAP, KASLD_SECTION_DATA,
-                                 KASLD_SECTION_BSS,       KASLD_SECTION_DRAM,
-                                 KASLD_SECTION_MMIO,      NULL};
-  char type_order[] = {KASLD_ADDR_VIRT, KASLD_ADDR_PHYS, 0};
+  const char *section_order[] = {"text", "module", "directmap", "data",
+                                 "bss",  "dram",   "mmio",      NULL};
+  enum kasld_addr_type type_order[] = {KASLD_TYPE_VIRT, KASLD_TYPE_PHYS,
+                                       KASLD_TYPE_UNKNOWN};
 
   if (verbose) {
     /* Verbose: one block per (type, section, region) — cross-source
      * confirmations of the same memory landmark collapse into a single
      * block, making it obvious which regions have multiple agreeing sources. */
-    for (int t = 0; type_order[t]; t++) {
+    for (int t = 0; type_order[t] != KASLD_TYPE_UNKNOWN; t++) {
       for (int si = 0; section_order[si]; si++) {
         if (group_already_printed(type_order[t], section_order[si]))
           continue;
 
         /* Enumerate distinct regions in this (type, section) group. */
-        const char *seen[MAX_RESULTS];
+        enum kasld_region seen[MAX_RESULTS];
         int nseen = 0;
         for (int i = 0; i < num_results; i++) {
           struct result *r = &results[i];
           if (r->type != type_order[t] ||
-              strcmp(r->section, section_order[si]) != 0)
+              strcmp(result_section(r), section_order[si]) != 0)
             continue;
           int dup = 0;
           for (int j = 0; j < nseen; j++)
-            if (strcmp(seen[j], r->region) == 0) {
+            if (seen[j] == r->region) {
               dup = 1;
               break;
             }
@@ -2036,20 +2359,21 @@ static void render_text(const struct summary *s) {
     /* Print any remaining groups not in the predefined order */
     for (int i = 0; i < num_results; i++) {
       struct result *r = &results[i];
-      if (r->type == KASLD_ADDR_DEFAULT)
+      if (r->type == KASLD_TYPE_DEFAULT_VIRT)
         continue;
-      if (group_already_printed(r->type, r->section))
+      const char *sec = result_section(r);
+      if (group_already_printed(r->type, sec))
         continue;
 
-      const char *seen2[MAX_RESULTS];
+      enum kasld_region seen2[MAX_RESULTS];
       int nseen2 = 0;
       for (int j = 0; j < num_results; j++) {
         struct result *r2 = &results[j];
-        if (r2->type != r->type || strcmp(r2->section, r->section) != 0)
+        if (r2->type != r->type || strcmp(result_section(r2), sec) != 0)
           continue;
         int dup = 0;
         for (int k = 0; k < nseen2; k++)
-          if (strcmp(seen2[k], r2->region) == 0) {
+          if (seen2[k] == r2->region) {
             dup = 1;
             break;
           }
@@ -2057,8 +2381,8 @@ static void render_text(const struct summary *s) {
           seen2[nseen2++] = r2->region;
       }
       for (int j = 0; j < nseen2; j++)
-        print_group(r->type, r->section, seen2[j]);
-      mark_group_printed(r->type, r->section);
+        print_group(r->type, sec, seen2[j]);
+      mark_group_printed(r->type, sec);
     }
   } else {
     /* Compact: one line per (type, section) for non-kernel-locating
@@ -2066,7 +2390,7 @@ static void render_text(const struct summary *s) {
      * kernel_text, kernel_data, kernel_bss) so direct kernel-base
      * disclosures are not buried inside a generic "Physical DRAM" /
      * "Physical MMIO" range. */
-    for (int t = 0; type_order[t]; t++) {
+    for (int t = 0; type_order[t] != KASLD_TYPE_UNKNOWN; t++) {
       for (int si = 0; section_order[si]; si++) {
         if (group_already_printed(type_order[t], section_order[si]))
           continue;
@@ -2079,7 +2403,7 @@ static void render_text(const struct summary *s) {
         /* Promote each kernel-locating region present in this subgroup to
          * its own line. Print these before the catch-all so the prize is
          * visible at the top. */
-        const char *kr_seen[MAX_RESULTS];
+        enum kasld_region kr_seen[MAX_RESULTS];
         int nkr =
             collect_kernel_regions(type_order[t], section_order[si], kr_seen);
         for (int k = 0; k < nkr; k++) {
@@ -2097,7 +2421,7 @@ static void render_text(const struct summary *s) {
          * initrd, etc.). When no kernel-locating regions were present,
          * this is identical to the original "all results" behaviour. */
         print_compact_subgroup(catchall_name, type_order[t], section_order[si],
-                               NULL, nkr > 0);
+                               REGION_UNKNOWN, nkr > 0);
 
         mark_group_printed(type_order[t], section_order[si]);
       }
@@ -2107,26 +2431,28 @@ static void render_text(const struct summary *s) {
      * promotion as the predefined-order pass above. */
     for (int i = 0; i < num_results; i++) {
       struct result *r = &results[i];
-      if (r->type == KASLD_ADDR_DEFAULT)
+      if (r->type == KASLD_TYPE_DEFAULT_VIRT)
         continue;
-      if (group_already_printed(r->type, r->section))
+      const char *sec = result_section(r);
+      if (group_already_printed(r->type, sec))
         continue;
 
-      const char *catchall_name = section_display_name(r->type, r->section);
+      const char *catchall_name = section_display_name(r->type, sec);
       if (!catchall_name)
         continue;
 
-      const char *kr_seen[MAX_RESULTS];
-      int nkr = collect_kernel_regions(r->type, r->section, kr_seen);
+      enum kasld_region kr_seen[MAX_RESULTS];
+      int nkr = collect_kernel_regions(r->type, sec, kr_seen);
       for (int k = 0; k < nkr; k++) {
         const char *kr_name = kernel_region_display_name(r->type, kr_seen[k]);
         if (!kr_name)
           kr_name = catchall_name;
-        print_compact_subgroup(kr_name, r->type, r->section, kr_seen[k], 0);
+        print_compact_subgroup(kr_name, r->type, sec, kr_seen[k], 0);
       }
-      print_compact_subgroup(catchall_name, r->type, r->section, NULL, nkr > 0);
+      print_compact_subgroup(catchall_name, r->type, sec, REGION_UNKNOWN,
+                             nkr > 0);
 
-      mark_group_printed(r->type, r->section);
+      mark_group_printed(r->type, sec);
     }
     printf("\n");
   }
@@ -2162,12 +2488,12 @@ static void render_oneline(const struct summary *s) {
     printf(" kaslr=on");
 
   /* Virtual text consensus */
-  unsigned long vtext = group_consensus(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT);
+  unsigned long vtext = section_consensus(KASLD_TYPE_VIRT, "text");
   if (vtext)
     printf(" text=0x%lx", vtext);
 
   /* Physical text consensus */
-  unsigned long ptext = group_consensus(KASLD_ADDR_PHYS, KASLD_SECTION_TEXT);
+  unsigned long ptext = section_consensus(KASLD_TYPE_PHYS, "text");
   if (ptext)
     printf(" ptext=0x%lx", ptext);
 
@@ -2183,14 +2509,13 @@ static void render_oneline(const struct summary *s) {
     printf(" entropy=%dbits", s->kaslr.vbits);
 
   /* Direct map */
-  unsigned long vdmap =
-      group_consensus(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP);
+  unsigned long vdmap = section_consensus(KASLD_TYPE_VIRT, "directmap");
   if (vdmap)
     printf(" dmap=0x%lx", vdmap);
 
   /* Physical DRAM range */
   unsigned long pdram_lo, pdram_hi;
-  group_range(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, &pdram_lo, &pdram_hi);
+  section_range(KASLD_TYPE_PHYS, "dram", &pdram_lo, &pdram_hi);
   if (pdram_lo) {
     char hbuf[32];
     unsigned long top = pdram_hi ? pdram_hi : pdram_lo;
@@ -2266,11 +2591,10 @@ static void render_markdown(const struct summary *s) {
   }
 
   /* Result groups */
-  const char *section_order[] = {KASLD_SECTION_TEXT,      KASLD_SECTION_MODULE,
-                                 KASLD_SECTION_DIRECTMAP, KASLD_SECTION_DATA,
-                                 KASLD_SECTION_BSS,       KASLD_SECTION_DRAM,
-                                 KASLD_SECTION_MMIO,      NULL};
-  char type_order[] = {KASLD_ADDR_PHYS, KASLD_ADDR_VIRT, 0};
+  const char *section_order[] = {"text", "module", "directmap", "data",
+                                 "bss",  "dram",   "mmio",      NULL};
+  enum kasld_addr_type type_order[] = {KASLD_TYPE_PHYS, KASLD_TYPE_VIRT,
+                                       KASLD_TYPE_UNKNOWN};
 
   printf("## Leak Results\n\n");
 
@@ -2279,31 +2603,33 @@ static void render_markdown(const struct summary *s) {
     printf("| Type | Section | Address | Region | Name | Origin | Method |\n");
     printf("|:-----|:--------|:--------|:-------|:-----|:-------|:-------|\n");
 
-    for (int t = 0; type_order[t]; t++) {
+    for (int t = 0; type_order[t] != KASLD_TYPE_UNKNOWN; t++) {
       for (int si = 0; section_order[si]; si++) {
         int idx[MAX_RESULTS];
         int nidx = 0;
         for (int i = 0; i < num_results; i++) {
           struct result *r = &results[i];
           if (r->type != type_order[t] ||
-              strcmp(r->section, section_order[si]) != 0)
+              strcmp(result_section(r), section_order[si]) != 0)
             continue;
-          if (r->type == KASLD_ADDR_DEFAULT)
+          if (r->type == KASLD_TYPE_DEFAULT_VIRT)
             continue;
           idx[nidx++] = i;
         }
         for (int a = 0; a < nidx - 1; a++)
           for (int b = a + 1; b < nidx; b++)
-            if (results[idx[a]].aligned > results[idx[b]].aligned) {
+            if (anchor_addr(&results[idx[a]]) > anchor_addr(&results[idx[b]])) {
               int tmp = idx[a];
               idx[a] = idx[b];
               idx[b] = tmp;
             }
         for (int k = 0; k < nidx; k++) {
           struct result *r = &results[idx[k]];
-          printf("| %c | %s | `0x%016lx` | %s | %s | %s | %s%s |\n", r->type,
-                 r->section, r->valid ? r->aligned : r->raw, r->region, r->name,
-                 r->origin, r->method, r->valid ? "" : " (invalid)");
+          unsigned long a = anchor_addr(r);
+          printf("| %c | %s | `0x%016lx` | %s | %s | %s | %s%s |\n",
+                 kasld_type_wire(r->type), result_section(r), a,
+                 kasld_region_wire(r->region), r->name, result_origin(r),
+                 result_method(r), in_bounds(r) ? "" : " (stale)");
         }
       }
     }
@@ -2311,19 +2637,22 @@ static void render_markdown(const struct summary *s) {
     /* Any remaining sections */
     for (int i = 0; i < num_results; i++) {
       struct result *r = &results[i];
-      if (r->type == KASLD_ADDR_DEFAULT)
+      if (r->type == KASLD_TYPE_DEFAULT_VIRT)
         continue;
+      const char *sec = result_section(r);
       int in_order = 0;
       for (int si = 0; section_order[si]; si++) {
-        if (strcmp(r->section, section_order[si]) == 0) {
+        if (strcmp(sec, section_order[si]) == 0) {
           in_order = 1;
           break;
         }
       }
       if (!in_order) {
-        printf("| %c | %s | `0x%016lx` | %s | %s | %s%s |\n", r->type,
-               r->section, r->valid ? r->aligned : r->raw, r->region, r->origin,
-               r->method, r->valid ? "" : " (invalid)");
+        unsigned long a = anchor_addr(r);
+        printf("| %c | %s | `0x%016lx` | %s | %s | %s%s |\n",
+               kasld_type_wire(r->type), sec, a, kasld_region_wire(r->region),
+               result_origin(r), result_method(r),
+               in_bounds(r) ? "" : " (stale)");
       }
     }
   } else {
@@ -2332,7 +2661,7 @@ static void render_markdown(const struct summary *s) {
     printf("| Section | Address | Sources |\n");
     printf("|:--------|:--------|--------:|\n");
 
-    for (int t = 0; type_order[t]; t++) {
+    for (int t = 0; type_order[t] != KASLD_TYPE_UNKNOWN; t++) {
       for (int si = 0; section_order[si]; si++) {
         const char *name =
             section_display_name(type_order[t], section_order[si]);
@@ -2341,19 +2670,19 @@ static void render_markdown(const struct summary *s) {
         int count = 0;
         for (int i = 0; i < num_results; i++) {
           if (results[i].type == type_order[t] &&
-              strcmp(results[i].section, section_order[si]) == 0 &&
-              results[i].valid)
+              strcmp(result_section(&results[i]), section_order[si]) == 0 &&
+              in_bounds(&results[i]))
             count++;
         }
         if (!count)
           continue;
 
         unsigned long consensus =
-            group_consensus(type_order[t], section_order[si]);
+            section_consensus(type_order[t], section_order[si]);
         unsigned long lo, hi;
-        group_range(type_order[t], section_order[si], &lo, &hi);
+        section_range(type_order[t], section_order[si], &lo, &hi);
 
-        if (hi) {
+        if (hi && hi != lo) {
           unsigned long span = hi - lo;
           printf("| %s | `0x%016lx` - `0x%016lx` (%s) | %d |\n", name, lo, hi,
                  human_size(span, hbuf, sizeof(hbuf)), count);
@@ -2366,16 +2695,17 @@ static void render_markdown(const struct summary *s) {
     /* Any remaining groups */
     for (int i = 0; i < num_results; i++) {
       struct result *r = &results[i];
-      if (r->type == KASLD_ADDR_DEFAULT)
+      if (r->type == KASLD_TYPE_DEFAULT_VIRT)
         continue;
-      const char *name = section_display_name(r->type, r->section);
+      const char *sec = result_section(r);
+      const char *name = section_display_name(r->type, sec);
       if (!name)
         continue;
 
       /* Check if already covered by predefined order */
       int in_order = 0;
       for (int si = 0; section_order[si]; si++) {
-        if (strcmp(r->section, section_order[si]) == 0) {
+        if (strcmp(sec, section_order[si]) == 0) {
           in_order = 1;
           break;
         }
@@ -2387,7 +2717,7 @@ static void render_markdown(const struct summary *s) {
       int already = 0;
       for (int j = 0; j < i; j++) {
         if (results[j].type == r->type &&
-            strcmp(results[j].section, r->section) == 0) {
+            strcmp(result_section(&results[j]), sec) == 0) {
           already = 1;
           break;
         }
@@ -2398,17 +2728,18 @@ static void render_markdown(const struct summary *s) {
       int count = 0;
       for (int j = 0; j < num_results; j++) {
         if (results[j].type == r->type &&
-            strcmp(results[j].section, r->section) == 0 && results[j].valid)
+            strcmp(result_section(&results[j]), sec) == 0 &&
+            in_bounds(&results[j]))
           count++;
       }
       if (!count)
         continue;
 
-      unsigned long consensus = group_consensus(r->type, r->section);
+      unsigned long consensus = section_consensus(r->type, sec);
       unsigned long lo, hi;
-      group_range(r->type, r->section, &lo, &hi);
+      section_range(r->type, sec, &lo, &hi);
 
-      if (hi) {
+      if (hi && hi != lo) {
         unsigned long span = hi - lo;
         printf("| %s | `0x%016lx` - `0x%016lx` (%s) | %d |\n", name, lo, hi,
                human_size(span, hbuf, sizeof(hbuf)), count);
@@ -2420,21 +2751,33 @@ static void render_markdown(const struct summary *s) {
 
   printf("\n");
 
-  /* Derived addresses */
-  if (s->num_derived > 0) {
+  /* Derived addresses (records with conf == CONF_DERIVED) */
+  int n_derived = count_derived();
+  if (n_derived > 0) {
     printf("## Derived Addresses\n\n");
     printf("| Address | Label | Via |\n");
     printf("|:--------|:------|:----|\n");
-    for (int i = 0; i < s->num_derived; i++) {
-      const struct derived_addr *d = &s->derived[i];
-      if (d->addr_hi)
-        printf("| `0x%016lx` - `0x%016lx` | %s | %s |\n", d->addr, d->addr_hi,
-               d->label, d->via);
+    for (int i = 0; i < num_results; i++) {
+      const struct result *r = &results[i];
+      if (r->conf != CONF_DERIVED)
+        continue;
+      char label[NAME_LEN + 32];
+      if (r->name[0])
+        snprintf(label, sizeof(label), "%s:%s", kasld_region_wire(r->region),
+                 r->name);
       else
-        printf("| `0x%016lx` | %s | %s |\n", d->addr, d->label, d->via);
+        snprintf(label, sizeof(label), "%s", kasld_region_wire(r->region));
+      if (HAS_LO(r) && HAS_HI(r))
+        printf("| `0x%016lx` - `0x%016lx` | %s | %s |\n", r->lo, r->hi, label,
+               result_method(r));
+      else
+        printf("| `0x%016lx` | %s | %s |\n", anchor_addr(r), label,
+               result_method(r));
     }
     printf("\n");
   }
+  (void)region_range; /* helper retained for future use */
+  (void)region_anchor;
 }
 
 /* -------------------------------------------------------------------------
@@ -2447,7 +2790,8 @@ void print_summary(void) {
   compute_component_stats(&s);
   inject_kaslr_defaults(&s);
   compute_kaslr_info(&s);
-  compute_derived_addrs(&s);
+  /* compute_derived_addrs() is gone — cross-region derivations now arrive
+   * as ordinary CONF_DERIVED results via inference plugins. */
 
   if (json_output)
     render_json(&s);

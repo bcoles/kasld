@@ -44,8 +44,8 @@
 // ---
 // <bcoles@gmail.com>
 
-#include "include/kasld.h"
-#include "include/kasld_internal.h"
+#include "include/kasld/api.h"
+#include "include/kasld/internal.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
@@ -123,8 +123,8 @@ int main(void) {
     snprintf(path, sizeof(path), "%s/%s/phys_addr", base, ent->d_name);
     if (read_file_line(path, buf, sizeof(buf)) < 0) {
       printf("EFI runtime entry %s: virt=0x%016lx\n", ent->d_name, virt);
-      kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
-                   KASLD_REGION_DIRECTMAP, NULL);
+      kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, NULL,
+                          CONF_PARSED);
       count++;
       continue;
     }
@@ -132,8 +132,8 @@ int main(void) {
     unsigned long phys = strtoul(buf, &endptr, 16);
     if (endptr == buf || phys > virt) {
       printf("EFI runtime entry %s: virt=0x%016lx\n", ent->d_name, virt);
-      kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
-                   KASLD_REGION_DIRECTMAP, NULL);
+      kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, NULL,
+                          CONF_PARSED);
       count++;
       continue;
     }
@@ -146,8 +146,8 @@ int main(void) {
     printf("EFI runtime entry %s: virt=0x%016lx phys=0x%016lx"
            " => page_offset=0x%016lx\n",
            ent->d_name, virt, phys, page_offset);
-    kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, page_offset,
-                 KASLD_REGION_PAGE_OFFSET, NULL);
+    kasld_result_sample(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, page_offset, NULL,
+                        CONF_PARSED);
     count++;
   }
   closedir(d);

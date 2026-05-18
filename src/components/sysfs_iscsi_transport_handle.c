@@ -37,7 +37,7 @@
 // ---
 // <bcoles@gmail.com>
 
-#include "include/kasld.h"
+#include "include/kasld/api.h"
 #include <errno.h>
 #include <inttypes.h>
 #include <linux/netlink.h>
@@ -54,7 +54,7 @@ KASLD_EXPLAIN(
     "not filtered through %pK. Fixed in v5.12 by restricting the "
     "attribute to root.");
 
-KASLD_META("method:exact\n"
+KASLD_META("method:parsed\n"
            "phase:inference\n"
            "addr:virtual\n"
            "cve:CVE-2021-27363\n"
@@ -159,15 +159,15 @@ int main(void) {
   addr = get_kernel_addr_iscsi_iser_transport();
   if (addr) {
     printf("leaked iscsi_iser_transport address: %lx\n", addr);
-    kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DATA, addr,
-                 "iscsi_iser_transport", NULL);
+    kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_DATA, addr,
+                        "iscsi_iser_transport", CONF_PARSED);
   }
 
   addr = get_kernel_addr_iscsi_sw_tcp_transport();
   if (addr) {
     printf("leaked iscsi_sw_tcp_transport address: %lx\n", addr);
-    kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DATA, addr,
-                 "iscsi_sw_tcp_transport", NULL);
+    kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_DATA, addr,
+                        "iscsi_sw_tcp_transport", CONF_PARSED);
   }
 
   return 0;

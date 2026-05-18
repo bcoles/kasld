@@ -42,7 +42,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#include "../include/kasld_inference.h"
+#include "../include/kasld/inference.h"
 
 #include <limits.h>
 #include <stdio.h>
@@ -75,14 +75,18 @@ static void directmap_page_offset_bounds_run(struct kasld_analysis_ctx *ctx) {
 
   for (size_t i = 0; i < ctx->result_count; i++) {
     const struct result *r = &ctx->results[i];
-    if (!r->valid)
+    if (!result_in_bounds(r, ctx->layout))
       continue;
-    if (r->type != KASLD_ADDR_VIRT)
+    if (r->type != KASLD_TYPE_VIRT)
       continue;
-    if (strcmp(r->section, KASLD_SECTION_DIRECTMAP) != 0)
+    /* Only directmap leaks make sense as "lowest directmap address" — other
+     * virtual leaks (kernel text/data, modules, the page_offset arch-floor
+     * constant) would yield wrong V_min and break the PAGE_OFFSET <= V_min
+     * upper-bound logic. */
+    if (r->region != REGION_DIRECTMAP)
       continue;
-    if (r->raw < vdmap_min)
-      vdmap_min = r->raw;
+    if (anchor_addr(r) < vdmap_min)
+      vdmap_min = anchor_addr(r);
   }
 
   if (vdmap_min == ULONG_MAX)
@@ -127,14 +131,12 @@ static void directmap_page_offset_bounds_run(struct kasld_analysis_ctx *ctx) {
   unsigned long phys_floor = ULONG_MAX;
   for (size_t i = 0; i < ctx->result_count; i++) {
     const struct result *r = &ctx->results[i];
-    if (!r->valid)
+    if (!result_in_bounds(r, ctx->layout))
       continue;
-    if (r->type != KASLD_ADDR_PHYS)
+    if (r->type != KASLD_TYPE_PHYS)
       continue;
-    if (strcmp(r->section, KASLD_SECTION_DRAM) != 0)
-      continue;
-    if (r->raw < phys_floor)
-      phys_floor = r->raw;
+    if (anchor_addr(r) < phys_floor)
+      phys_floor = anchor_addr(r);
   }
 
   if (phys_floor == ULONG_MAX)
@@ -156,10 +158,10 @@ static void directmap_page_offset_bounds_run(struct kasld_analysis_ctx *ctx) {
   unsigned long phys_limit = phys_floor + mem_bytes;
   for (size_t i = 0; i < ctx->result_count; i++) {
     const struct result *r = &ctx->results[i];
-    if (!r->valid)
+    if (!result_in_bounds(r, ctx->layout))
       continue;
-    if (r->type == KASLD_ADDR_PHYS &&
-        strcmp(r->section, KASLD_SECTION_DRAM) == 0 && r->raw >= phys_limit)
+    if (r->type == KASLD_TYPE_PHYS && is_phys_dram_region(r->region) &&
+        anchor_addr(r) >= phys_limit)
       return;
   }
 

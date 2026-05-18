@@ -41,8 +41,8 @@
 
 #define _GNU_SOURCE
 #include "include/dmesg.h"
-#include "include/kasld.h"
-#include "include/kasld_internal.h"
+#include "include/kasld/api.h"
+#include "include/kasld/internal.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -90,11 +90,10 @@ static int on_match(const char *line, void *ctx) {
    *   #1 — e820__end_of_ram_pfn()     — true top of usable RAM → RAM_TOP
    *   #2 — e820__end_of_low_ram_pfn() — ceiling of memory below 4 GiB →
    * DMA32_TOP The ordering is stable; the first match is the meaningful one. */
-  const char *region =
-      (match_count == 1) ? KASLD_REGION_RAM_TOP : KASLD_REGION_DMA32_TOP;
+  enum kasld_region region = (match_count == 1) ? REGION_RAM : REGION_DMA32;
 
   printf("leaked last_pfn: %#lx (last valid byte: 0x%016lx)\n", pfn, last_byte);
-  kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, last_byte, region, NULL);
+  kasld_result_top(KASLD_TYPE_PHYS, region, last_byte, NULL, CONF_PARSED);
 
   return 1; /* keep scanning for second line */
 }

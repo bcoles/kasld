@@ -36,23 +36,23 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#include "../include/kasld_inference.h"
+#include "../include/kasld/inference.h"
 
 #include <limits.h>
 #include <stdio.h>
 #include <string.h>
 
 static void dram_bound_run(struct kasld_analysis_ctx *ctx) {
-  /* Find the minimum physical DRAM address across all results. */
+  /* Find the minimum physical DRAM address. Uses is_phys_dram_region()
+   * to include kernel-image regions (the kernel is loaded into physical
+   * RAM) and exclude MMIO. */
   unsigned long pdram_lo = ULONG_MAX;
   for (size_t i = 0; i < ctx->result_count; i++) {
     const struct result *r = &ctx->results[i];
-    if (r->type != KASLD_ADDR_PHYS)
+    if (r->type != KASLD_TYPE_PHYS || !is_phys_dram_region(r->region))
       continue;
-    if (strcmp(r->section, KASLD_SECTION_DRAM) != 0)
-      continue;
-    if (r->raw < pdram_lo)
-      pdram_lo = r->raw;
+    if (anchor_addr(r) < pdram_lo)
+      pdram_lo = anchor_addr(r);
   }
 
   if (pdram_lo == ULONG_MAX)

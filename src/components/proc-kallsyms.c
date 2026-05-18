@@ -31,8 +31,8 @@
 // ---
 // <bcoles@gmail.com>
 
-#include "include/kasld.h"
-#include "include/kasld_internal.h"
+#include "include/kasld/api.h"
+#include "include/kasld/internal.h"
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -45,7 +45,7 @@ KASLD_EXPLAIN(
     "text base directly. Since v5.10, kptr_restrict defaults to 1, "
     "hiding addresses from unprivileged users.");
 
-KASLD_META("method:exact\n"
+KASLD_META("method:parsed\n"
            "phase:inference\n"
            "addr:virtual\n"
            "sysctl:kptr_restrict>=1\n"
@@ -100,8 +100,8 @@ int main(void) {
 
   printf("kernel text start (_stext): 0x%lx\n", stext);
   printf("possible kernel base: 0x%lx\n", stext & -KERNEL_ALIGN);
-  kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, stext,
-               KASLD_REGION_KERNEL_TEXT, "_stext");
+  kasld_result_base(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, stext, "_stext",
+                    CONF_PARSED);
 
   if (etext)
     printf("kernel text end   (_etext): 0x%lx\n", etext);

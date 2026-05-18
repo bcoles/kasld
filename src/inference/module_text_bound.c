@@ -43,7 +43,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#include "../include/kasld_inference.h"
+#include "../include/kasld/inference.h"
 
 #include <limits.h>
 #include <stdio.h>
@@ -70,13 +70,16 @@ static void module_text_bound_run(struct kasld_analysis_ctx *ctx) {
   unsigned long vmod_hi = 0;
   for (size_t i = 0; i < ctx->result_count; i++) {
     const struct result *r = &ctx->results[i];
-    if (r->type != KASLD_ADDR_VIRT || !r->valid ||
-        strcmp(r->section, KASLD_SECTION_MODULE) != 0)
+    if (r->type != KASLD_TYPE_VIRT || !result_in_bounds(r, ctx->layout))
       continue;
-    if (r->aligned < vmod_lo)
-      vmod_lo = r->aligned;
-    if (r->aligned > vmod_hi)
-      vmod_hi = r->aligned;
+    /* Only module-region records bound MODULES_END — kernel text/data leaks
+     * live elsewhere. */
+    if (r->region != REGION_MODULE && r->region != REGION_MODULE_REGION)
+      continue;
+    if (anchor_addr(r) < vmod_lo)
+      vmod_lo = anchor_addr(r);
+    if (anchor_addr(r) > vmod_hi)
+      vmod_hi = anchor_addr(r);
   }
 
   if (vmod_lo == ULONG_MAX)

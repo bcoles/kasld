@@ -32,23 +32,25 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#include "../include/kasld_inference.h"
+#include "../include/kasld/inference.h"
 
 #include <stdio.h>
 #include <string.h>
 
 #ifdef LEGACY_LAYOUT_BOUNDARY
 /* Search for a virtual text address below the arch legacy boundary.
- * Intentionally ignores result->valid: on arm64 the modern KERNEL_BASE_MIN
- * is above the legacy range, so legacy addresses fail validation until the
- * layout is switched. The VAS-start check is a minimal sanity gate. */
+ * Intentionally ignores result_in_bounds(result, ctx->layout): on arm64 the
+ * modern KERNEL_BASE_MIN is above the legacy range, so legacy addresses fail
+ * validation until the layout is switched. The VAS-start check is a minimal
+ * sanity gate. */
 static unsigned long find_legacy_text(const struct kasld_analysis_ctx *ctx) {
   for (size_t i = 0; i < ctx->result_count; i++) {
     const struct result *r = &ctx->results[i];
-    if (r->type == KASLD_ADDR_VIRT &&
-        strcmp(r->section, KASLD_SECTION_TEXT) == 0 && r->aligned != 0 &&
-        r->aligned >= KERNEL_VAS_START && r->aligned < LEGACY_LAYOUT_BOUNDARY)
-      return r->aligned;
+    if (r->type == KASLD_TYPE_VIRT &&
+        (r->region == REGION_KERNEL_TEXT || r->region == REGION_KERNEL_IMAGE) &&
+        anchor_addr(r) != 0 && anchor_addr(r) >= KERNEL_VAS_START &&
+        anchor_addr(r) < LEGACY_LAYOUT_BOUNDARY)
+      return anchor_addr(r);
   }
   return 0;
 }
@@ -65,18 +67,23 @@ static void layout_adjust_run(struct kasld_analysis_ctx *ctx) {
 
   for (size_t i = 0; i < ctx->result_count; i++) {
     const struct result *r = &ctx->results[i];
-    if (r->type != KASLD_ADDR_VIRT ||
-        strcmp(r->section, KASLD_SECTION_PAGEOFFSET) != 0 || !r->valid)
+    if (r->type != KASLD_TYPE_VIRT || !result_in_bounds(r, ctx->layout))
+      continue;
+    /* Only PAGE_OFFSET-tagged records are candidates for conflict
+     * detection. Other virtual leaks (kernel_text, directmap samples,
+     * etc.) live in their own ranges and aren't competing page_offset
+     * sources. */
+    if (r->region != REGION_PAGE_OFFSET)
       continue;
     int dup = 0;
     for (int j = 0; j < po_n; j++) {
-      if (po_vals[j] == r->aligned) {
+      if (po_vals[j] == anchor_addr(r)) {
         dup = 1;
         break;
       }
     }
     if (!dup && po_n < MAX_RESULTS)
-      po_vals[po_n++] = r->aligned;
+      po_vals[po_n++] = anchor_addr(r);
   }
 
   /* 2. Apply consensus PAGE_OFFSET when it differs from compile-time default.
@@ -84,8 +91,9 @@ static void layout_adjust_run(struct kasld_analysis_ctx *ctx) {
    *    Compute first so the conflict warning below can report the value
    *    actually being applied rather than a separately-derived "min of first
    *    two values" approximation. */
-  unsigned long detected_po =
-      group_consensus(KASLD_ADDR_VIRT, KASLD_SECTION_PAGEOFFSET);
+  const struct result *po_anchor =
+      select_anchor(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET);
+  unsigned long detected_po = anchor_addr(po_anchor);
 
   if (po_n > 1 && !po_conflict_warned) {
     po_conflict_warned = 1;
@@ -95,7 +103,7 @@ static void layout_adjust_run(struct kasld_analysis_ctx *ctx) {
       for (int i = 0; i < po_n; i++)
         fprintf(stdout, " 0x%016lx", po_vals[i]);
       if (detected_po)
-        fprintf(stdout, "; using 0x%016lx (group_consensus)\n", detected_po);
+        fprintf(stdout, "; using 0x%016lx (select_anchor)\n", detected_po);
       else
         fprintf(stdout, "; no consensus, retaining compile-time default\n");
     }
@@ -155,8 +163,9 @@ static void layout_adjust_run(struct kasld_analysis_ctx *ctx) {
   }
 #endif
 
-  /* 5. Single revalidation covering all layout mutations above. */
-  revalidate_results();
+  /* No revalidation step: result_in_bounds() is stateless and consults the
+   * current layout on each call, so all consumers automatically see the
+   * updated VAS bounds without an explicit revalidation pass. */
 }
 
 static const struct kasld_inference layout_adjust = {

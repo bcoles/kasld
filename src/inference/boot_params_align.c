@@ -35,7 +35,7 @@
 //
 // Phase: LAYOUT_ADJUST — must be LAYOUT_ADJUST (not PRE_COLLECTION) because
 // the plugin writes ctx->layout->kaslr_align and ctx->layout->phys_kaslr_align;
-// per kasld_inference.h, layout is writable only in LAYOUT_ADJUST. Reading
+// per kasld/inference.h, layout is writable only in LAYOUT_ADJUST. Reading
 // boot_params requires no component results, so any phase from LAYOUT_ADJUST
 // onward is correct; LAYOUT_ADJUST is chosen so that subsequent
 // POST_COLLECTION plugins see the corrected alignment via the orchestrator's
@@ -47,7 +47,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#include "../include/kasld_inference.h"
+#include "../include/kasld/inference.h"
 
 #include <fcntl.h>
 #include <stdbool.h>

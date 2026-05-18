@@ -33,8 +33,8 @@
 // <bcoles@gmail.com>
 
 #define _GNU_SOURCE
-#include "include/kasld.h"
-#include "include/kasld_internal.h"
+#include "include/kasld/api.h"
+#include "include/kasld/internal.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
@@ -49,7 +49,7 @@ KASLD_EXPLAIN(
     "was world-readable. Fixed in v4.6 by removing the pointer from "
     "the directory name.");
 
-KASLD_META("method:exact\n"
+KASLD_META("method:parsed\n"
            "phase:inference\n"
            "addr:virtual\n"
            "patch:v4.6\n"
@@ -114,8 +114,8 @@ int main(void) {
    * module name as the instance identity. */
   printf("leaked inet_net struct pointer: %lx\n", addr);
   printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);
-  kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_MODULE, addr, KASLD_REGION_MODULE,
-               "nf_conntrack");
+  kasld_result_sample(KASLD_TYPE_VIRT, REGION_MODULE, addr, "nf_conntrack",
+                      CONF_PARSED);
 
   return 0;
 }

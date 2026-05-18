@@ -56,8 +56,8 @@
 // ---
 // <bcoles@gmail.com>
 
-#include "include/kasld.h"
-#include "include/kasld_internal.h"
+#include "include/kasld/api.h"
+#include "include/kasld/internal.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
@@ -90,6 +90,50 @@ static int read_file_line(const char *path, char *buf, size_t len) {
   fclose(f);
   buf[strcspn(buf, "\n")] = '\0';
   return 0;
+}
+
+/* UIO maps can back onto either true device MMIO (PCI BAR space) or DRAM
+ * the driver has exposed for userspace (DMA-coherent buffers, reserved
+ * memory, hugepages, ...). The sysfs interface exposes the address but
+ * NOT the kernel's underlying memtype (UIO_MEM_PHYS vs UIO_MEM_LOGICAL/
+ * UIO_MEM_DMA_COHERENT/...), so we resolve via /proc/iomem: the
+ * outermost containing range tells us authoritatively whether the
+ * address is in "System RAM" or somewhere else (PCI Bus, ACPI Reserved,
+ * ...). Iomem entries nest — sub-ranges are listed after their parent —
+ * so the first containing match is the outermost.
+ *
+ * /proc/iomem requires CAP_SYS_ADMIN for unmasked addresses; without it
+ * every range reads as 0-0 and no match is found. Falling back to
+ * REGION_MMIO in that case is the safe default: misclassifying a
+ * DRAM-backed UIO map as MMIO only affects the renderer's text-window
+ * filter, while misclassifying true MMIO as DRAM (via
+ * REGION_RESERVED_MEM, which is_phys_dram_region() accepts) would
+ * pollute dram_bound / dram_ceiling inference. */
+static enum kasld_region classify_uio_addr(unsigned long addr) {
+  FILE *f = fopen("/proc/iomem", "r");
+  if (!f)
+    return REGION_MMIO;
+
+  char line[256];
+  enum kasld_region region = REGION_MMIO;
+  while (fgets(line, sizeof(line), f)) {
+    const char *p = line;
+    while (*p == ' ' || *p == '\t')
+      p++;
+    unsigned long start, end;
+    char name[128];
+    if (sscanf(p, "%lx-%lx : %127[^\n]", &start, &end, name) != 3)
+      continue;
+    if (addr < start || addr > end)
+      continue;
+    /* First containing match wins — that's the outermost range due to
+     * iomem's parent-before-child ordering. */
+    if (strstr(name, "System RAM"))
+      region = REGION_RESERVED_MEM;
+    break;
+  }
+  fclose(f);
+  return region;
 }
 
 int main(void) {
@@ -160,10 +204,12 @@ int main(void) {
       snprintf(label, sizeof(label), "%.32s/%.32s", ent_uio->d_name,
                ent_map->d_name);
 
-      fprintf(stderr, "[+] sysfs_uio_map %s [%.64s]: phys = 0x%016llx\n", label,
-              name, addr);
-      kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_MMIO, (unsigned long)addr,
-                   KASLD_REGION_MMIO, label);
+      enum kasld_region region = classify_uio_addr((unsigned long)addr);
+      fprintf(stderr,
+              "[+] sysfs_uio_map %s [%.64s]: phys = 0x%016llx (region=%s)\n",
+              label, name, addr, kasld_region_wire(region));
+      kasld_result_sample(KASLD_TYPE_PHYS, region, (unsigned long)addr, label,
+                          CONF_PARSED);
 
       map_count++;
 
@@ -171,8 +217,7 @@ int main(void) {
       unsigned long virt = phys_to_virt((unsigned long)addr);
       fprintf(stderr, "[+] sysfs_uio_map %s: directmap va = 0x%016lx\n", label,
               virt);
-      kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
-                   KASLD_REGION_MMIO, label);
+      kasld_result_sample(KASLD_TYPE_VIRT, region, virt, label, CONF_PARSED);
 #endif
     }
     closedir(d_maps);

@@ -37,8 +37,8 @@
 
 #define _GNU_SOURCE
 #include "include/dmesg.h"
-#include "include/kasld.h"
-#include "include/kasld_internal.h"
+#include "include/kasld/api.h"
+#include "include/kasld/internal.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -91,8 +91,8 @@ int main(void) {
   }
 
   printf("leaked last_ion_buf: %lx\n", addr);
-  kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr,
-               KASLD_REGION_KERNEL_TEXT, "last_ion_buf");
+  kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr, "last_ion_buf",
+                      CONF_PARSED);
   printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);
 
   return 0;

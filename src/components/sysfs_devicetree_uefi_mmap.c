@@ -52,8 +52,8 @@
 // ---
 // <bcoles@gmail.com>
 
-#include "include/kasld.h"
-#include "include/kasld_internal.h"
+#include "include/kasld/api.h"
+#include "include/kasld/internal.h"
 #include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -151,14 +151,14 @@ int main(void) {
   if (mmap_size)
     printf("EFI memmap size: %u bytes\n", mmap_size);
 
-  kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, (unsigned long)mmap_phys,
-               KASLD_REGION_EFI_MEMMAP, NULL);
+  kasld_result_sample(KASLD_TYPE_PHYS, REGION_EFI_MEMMAP,
+                      (unsigned long)mmap_phys, NULL, CONF_PARSED);
 
 #if !PHYS_VIRT_DECOUPLED
   unsigned long virt = phys_to_virt((unsigned long)mmap_phys);
   printf("possible direct-map virtual address: 0x%016lx\n", virt);
-  kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
-               KASLD_REGION_EFI_MEMMAP, NULL);
+  kasld_result_sample(KASLD_TYPE_VIRT, REGION_EFI_MEMMAP, virt, NULL,
+                      CONF_PARSED);
 #else
   printf("note: phys and virt KASLR are decoupled on this arch; "
          "cannot derive directmap virtual address from physical leak\n");

@@ -39,8 +39,8 @@
 
 #define _GNU_SOURCE
 #include "include/dmesg.h"
-#include "include/kasld.h"
-#include "include/kasld_internal.h"
+#include "include/kasld/api.h"
+#include "include/kasld/internal.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -113,8 +113,7 @@ static int on_match(const char *line, void *ctx) {
     return 1;
 
   printf("leaked RAMDISK physical address: 0x%016lx\n", addr);
-  kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, addr, KASLD_REGION_INITRD,
-               NULL);
+  kasld_result_sample(KASLD_TYPE_PHYS, REGION_INITRD, addr, NULL, CONF_PARSED);
 
   return 1; /* keep scanning for more lines */
 }

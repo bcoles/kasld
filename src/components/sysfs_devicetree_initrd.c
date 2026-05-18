@@ -47,8 +47,8 @@
 // ---
 // <bcoles@gmail.com>
 
-#include "include/kasld.h"
-#include "include/kasld_internal.h"
+#include "include/kasld/api.h"
+#include "include/kasld/internal.h"
 #include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -146,20 +146,19 @@ int main(void) {
   }
 
   printf("initrd physical start: 0x%016lx\n", start);
-  kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, start, KASLD_REGION_INITRD,
-               NULL);
 
-  if (end && end != start) {
+  if (end && end > start) {
     printf("initrd physical end:   0x%016lx\n", end);
-    kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, end, KASLD_REGION_INITRD,
-                 NULL);
+    kasld_result_range(KASLD_TYPE_PHYS, REGION_INITRD, start, end, NULL,
+                       CONF_PARSED);
+  } else {
+    kasld_result_base(KASLD_TYPE_PHYS, REGION_INITRD, start, NULL, CONF_PARSED);
   }
 
 #if !PHYS_VIRT_DECOUPLED
   unsigned long virt = phys_to_virt(start);
   printf("possible direct-map virtual address: 0x%016lx\n", virt);
-  kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
-               KASLD_REGION_INITRD, NULL);
+  kasld_result_sample(KASLD_TYPE_VIRT, REGION_INITRD, virt, NULL, CONF_PARSED);
 #else
   printf("note: phys and virt KASLR are decoupled on this arch; "
          "cannot derive directmap virtual address from physical leak\n");

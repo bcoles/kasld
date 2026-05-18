@@ -35,7 +35,7 @@
 //   single KASLR slot. The gap is always a sound lower bound within one run.
 // - If only TEXT or only DATA/BSS results are present, the plugin is a no-op.
 // - Default ('D'-type) results are excluded implicitly: they carry type 'D',
-//   not 'V', so they are skipped by the KASLD_ADDR_VIRT filter.
+//   not 'V', so they are skipped by the KASLD_TYPE_VIRT filter.
 //
 // Phase: POST_COLLECTION — requires both TEXT and DATA results to be collected.
 // ---
@@ -43,7 +43,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#include "../include/kasld_inference.h"
+#include "../include/kasld/inference.h"
 
 #include <limits.h>
 #include <stdio.h>
@@ -55,19 +55,19 @@ static void image_size_from_text_data_gap_run(struct kasld_analysis_ctx *ctx) {
 
   for (size_t i = 0; i < ctx->result_count; i++) {
     const struct result *r = &ctx->results[i];
-    /* Only virtual, valid results. KASLD_ADDR_DEFAULT ('D') results are
-     * already excluded because they carry type 'D', not KASLD_ADDR_VIRT ('V').
+    /* Only virtual, valid results. KASLD_TYPE_DEFAULT_VIRT ('D') results are
+     * already excluded because they carry type 'D', not KASLD_TYPE_VIRT ('V').
      */
-    if (r->type != KASLD_ADDR_VIRT || !r->valid)
+    if (r->type != KASLD_TYPE_VIRT || !result_in_bounds(r, ctx->layout))
       continue;
 
-    if (strcmp(r->section, KASLD_SECTION_TEXT) == 0) {
-      if (r->raw < min_text)
-        min_text = r->raw;
-    } else if (strcmp(r->section, KASLD_SECTION_DATA) == 0 ||
-               strcmp(r->section, KASLD_SECTION_BSS) == 0) {
-      if (r->raw > max_data)
-        max_data = r->raw;
+    if (r->region == REGION_KERNEL_TEXT || r->region == REGION_KERNEL_IMAGE) {
+      if (anchor_addr(r) < min_text)
+        min_text = anchor_addr(r);
+    } else if (r->region == REGION_KERNEL_DATA ||
+               r->region == REGION_KERNEL_BSS) {
+      if (anchor_addr(r) > max_data)
+        max_data = anchor_addr(r);
     }
   }
 

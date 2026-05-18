@@ -28,9 +28,8 @@
 // <bcoles@gmail.com>
 
 #define _GNU_SOURCE
-#include "include/kasld.h"
-#include "include/kasld_internal.h"
-#include "include/kasld_types.h"
+#include "include/kasld/api.h"
+#include "include/kasld/internal.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
@@ -46,7 +45,7 @@ KASLD_EXPLAIN(
     "addresses constrain the modules region and, on coupled "
     "architectures, the kernel text base.");
 
-KASLD_META("method:exact\n"
+KASLD_META("method:parsed\n"
            "phase:inference\n"
            "addr:virtual\n"
            "sysctl:kptr_restrict>=1\n"
@@ -138,13 +137,15 @@ int main(void) {
   }
 
   printf("lowest leaked module text address:  %lx\n", range.lo);
-  kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_MODULE, range.lo,
-               "sysfs-module-sections:lo", NULL);
-
   if (range.hi != range.lo) {
     printf("highest leaked module text address: %lx\n", range.hi);
-    kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_MODULE, range.hi,
-                 "sysfs-module-sections:hi", NULL);
+    /* Pair of base+top samples for the same MODULE region: the merge pass
+     * will combine them into a full extent. */
+    kasld_result_range(KASLD_TYPE_VIRT, REGION_MODULE_REGION, range.lo,
+                       range.hi, NULL, CONF_PARSED);
+  } else {
+    kasld_result_sample(KASLD_TYPE_VIRT, REGION_MODULE_REGION, range.lo, NULL,
+                        CONF_PARSED);
   }
 
   return 0;

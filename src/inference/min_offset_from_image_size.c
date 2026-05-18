@@ -53,7 +53,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#include "../include/kasld_inference.h"
+#include "../include/kasld/inference.h"
 
 #include <limits.h>
 #include <stdio.h>
@@ -76,15 +76,15 @@ static unsigned long get_text_data_gap(const struct kasld_analysis_ctx *ctx) {
 
   for (size_t i = 0; i < ctx->result_count; i++) {
     const struct result *r = &ctx->results[i];
-    if (r->type != KASLD_ADDR_VIRT || !r->valid)
+    if (r->type != KASLD_TYPE_VIRT || !result_in_bounds(r, ctx->layout))
       continue;
-    if (strcmp(r->section, KASLD_SECTION_TEXT) == 0) {
-      if (r->raw < min_text)
-        min_text = r->raw;
-    } else if (strcmp(r->section, KASLD_SECTION_DATA) == 0 ||
-               strcmp(r->section, KASLD_SECTION_BSS) == 0) {
-      if (r->raw > max_data)
-        max_data = r->raw;
+    if (r->region == REGION_KERNEL_TEXT || r->region == REGION_KERNEL_IMAGE) {
+      if (anchor_addr(r) < min_text)
+        min_text = anchor_addr(r);
+    } else if (r->region == REGION_KERNEL_DATA ||
+               r->region == REGION_KERNEL_BSS) {
+      if (anchor_addr(r) > max_data)
+        max_data = anchor_addr(r);
     }
   }
 

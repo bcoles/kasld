@@ -32,7 +32,8 @@ COMP_DIR := $(OBJ_DIR)/components
 SRC_DIR := ./src
 
 # Header dependencies: rebuild when any header changes
-HDRS := $(wildcard $(SRC_DIR)/include/*.h $(SRC_DIR)/include/arch/*.h)
+HDRS := $(wildcard $(SRC_DIR)/include/*.h $(SRC_DIR)/include/kasld/*.h \
+                    $(SRC_DIR)/include/kasld/arch/*.h)
 
 # Detect zlib (optional, for native gzip decompression in proc-config)
 HAVE_ZLIB := $(shell echo 'int main(void){return 0;}' | $(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -xc - -lz -o /dev/null 2>/dev/null && echo 1)
@@ -51,6 +52,7 @@ endif
 # kasld orchestrator (not a leak component)
 KASLD_SRC     := $(SRC_DIR)/orchestrator.c
 RENDER_SRC    := $(SRC_DIR)/render.c
+REGIONS_SRC   := $(SRC_DIR)/region_info.c
 KASLD_BIN     := $(OBJ_DIR)/kasld
 INFER_SRC_DIR := $(SRC_DIR)/inference
 INFER_OBJS    := $(patsubst $(INFER_SRC_DIR)/%.c,$(OBJ_DIR)/inference_%.o,$(wildcard $(INFER_SRC_DIR)/*.c))
@@ -73,7 +75,7 @@ $(COMP_DIR):
 # Validate headers before building components
 .PHONY: check-headers
 check-headers: | $(COMP_DIR)
-	@$(CC) $(ALL_CFLAGS) -xc -fsyntax-only $(SRC_DIR)/include/kasld.h
+	@$(CC) $(ALL_CFLAGS) -xc -fsyntax-only $(SRC_DIR)/include/kasld/api.h
 
 $(COMP_DIR)/%: $(COMP_SRC_DIR)/%.c $(HDRS) | $(COMP_DIR)
 	-$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $< -o $@
@@ -119,10 +121,13 @@ $(OBJ_DIR)/orchestrator.o: $(KASLD_SRC) $(HDRS) | $(COMP_DIR)
 $(OBJ_DIR)/render.o: $(RENDER_SRC) $(HDRS) | $(COMP_DIR)
 	$(CC) $(ALL_CFLAGS) -DVERSION='"$(VERSION)"' -c $< -o $@
 
+$(OBJ_DIR)/region_info.o: $(REGIONS_SRC) $(HDRS) | $(COMP_DIR)
+	$(CC) $(ALL_CFLAGS) -c $< -o $@
+
 $(OBJ_DIR)/inference_%.o: $(INFER_SRC_DIR)/%.c $(HDRS) | $(COMP_DIR)
 	$(CC) $(ALL_CFLAGS) -DVERSION='"$(VERSION)"' -I$(SRC_DIR) -c $< -o $@
 
-$(KASLD_BIN): $(OBJ_DIR)/orchestrator.o $(OBJ_DIR)/render.o $(INFER_OBJS) | $(COMP_DIR)
+$(KASLD_BIN): $(OBJ_DIR)/orchestrator.o $(OBJ_DIR)/render.o $(OBJ_DIR)/region_info.o $(INFER_OBJS) | $(COMP_DIR)
 	$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) $^ $(PTHREAD_LIBS) -o $@
 
 .PHONY: run

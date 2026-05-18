@@ -37,14 +37,13 @@
 //   ⟹ D_min - P_min = page_offset_base
 //
 // P_min sourcing — soundness requires P_min to be a true DRAM-floor witness.
-// PHYS/DRAM results tagged with regions like KASLD_REGION_INITRD,
-// KASLD_REGION_RESERVED_MEM, KASLD_REGION_KERNEL_IMAGE, etc., point at
-// addresses that may be 1 GiB-aligned above the true DRAM base; using such a
-// value would produce a candidate that is 1 GiB-low of true page_offset_base
-// and still pass the alignment guard. To prevent that we accept only
-// PHYS/DRAM results explicitly tagged as KASLD_REGION_RAM_BASE — the
-// well-known "this is the lowest RAM address" tag emitted by components
-// such as sysfs_firmware_memmap.c, proc-zoneinfo.c, and sysfs_memory_blocks.c.
+// PHYS results in non-RAM regions (REGION_INITRD, REGION_RESERVED_MEM,
+// REGION_KERNEL_IMAGE, etc.) point at addresses that may be 1 GiB-aligned
+// above the true DRAM base; using such a value would produce a candidate
+// that is 1 GiB-low of true page_offset_base and still pass the alignment
+// guard. To prevent that we accept only records with region=REGION_RAM and
+// HAS_LO set — the "lowest RAM address" claim emitted by components such as
+// sysfs_firmware_memmap.c, proc-zoneinfo.c, and sysfs_memory_blocks.c.
 //
 // Validity guards (both paths):
 //   - Candidate must be 1 GiB-aligned (PUD granularity of randomisation).
@@ -63,7 +62,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#include "../include/kasld_inference.h"
+#include "../include/kasld/inference.h"
 
 #include <limits.h>
 #include <stdio.h>
@@ -116,33 +115,32 @@ static void randomize_memory_page_offset_run(struct kasld_analysis_ctx *ctx) {
    * semantic equivalence. */
   for (size_t i = 0; i < ctx->result_count; i++) {
     const struct result *v = &ctx->results[i];
-    if (!v->valid)
+    if (!result_in_bounds(v, ctx->layout))
       continue;
-    if (v->type != KASLD_ADDR_VIRT)
+    if (v->type != KASLD_TYPE_VIRT)
       continue;
-    if (strcmp(v->section, KASLD_SECTION_DIRECTMAP) != 0)
-      continue;
-    if (v->origin[0] == '\0')
+    if (v->origins[0][0] == '\0')
       continue;
 
     for (size_t j = 0; j < ctx->result_count; j++) {
       const struct result *p = &ctx->results[j];
-      if (!p->valid)
+      if (!result_in_bounds(p, ctx->layout))
         continue;
-      if (p->type != KASLD_ADDR_PHYS)
+      if (p->type != KASLD_TYPE_PHYS)
         continue;
-      if (strcmp(p->origin, v->origin) != 0)
+      if (strcmp(p->origins[0], v->origins[0]) != 0)
         continue;
-      if (strcmp(p->region, v->region) != 0)
+      if (p->region != v->region)
         continue;
       if (strcmp(p->name, v->name) != 0)
         continue;
 
       unsigned long candidate;
-      if (!validate_candidate(ctx, v->raw, p->raw, &candidate))
+      if (!validate_candidate(ctx, anchor_addr(v), anchor_addr(p), &candidate))
         continue;
 
-      apply_pin(ctx, candidate, "same-origin pair", v->raw, p->raw, v->origin);
+      apply_pin(ctx, candidate, "same-origin pair", anchor_addr(v),
+                anchor_addr(p), v->origins[0]);
       return;
     }
   }
@@ -154,33 +152,35 @@ static void randomize_memory_page_offset_run(struct kasld_analysis_ctx *ctx) {
   unsigned long vdmap_min = ULONG_MAX;
   for (size_t i = 0; i < ctx->result_count; i++) {
     const struct result *r = &ctx->results[i];
-    if (!r->valid)
+    if (!result_in_bounds(r, ctx->layout))
       continue;
-    if (r->type != KASLD_ADDR_VIRT)
+    if (r->type != KASLD_TYPE_VIRT)
       continue;
-    if (strcmp(r->section, KASLD_SECTION_DIRECTMAP) != 0)
+    /* Only directmap leaks make sense here: page_offset_base = D − P
+     * requires D to be a direct-map address. Other virtual leaks (kernel
+     * text, modules, the arch-floor page_offset constant) would yield
+     * garbage. */
+    if (r->region != REGION_DIRECTMAP)
       continue;
-    if (r->raw < vdmap_min)
-      vdmap_min = r->raw;
+    if (anchor_addr(r) < vdmap_min)
+      vdmap_min = anchor_addr(r);
   }
   if (vdmap_min == ULONG_MAX)
     return;
 
-  /* P_min must be explicitly tagged KASLD_REGION_RAM_BASE — see the file
-   * header for the soundness argument. */
+  /* P_min must be a true RAM base — see the file header for why other
+   * DRAM-region records (initrd, reserved_mem, etc.) are excluded. */
   unsigned long pdram_min = ULONG_MAX;
   for (size_t i = 0; i < ctx->result_count; i++) {
     const struct result *r = &ctx->results[i];
-    if (!r->valid)
+    if (!result_in_bounds(r, ctx->layout))
       continue;
-    if (r->type != KASLD_ADDR_PHYS)
+    if (r->type != KASLD_TYPE_PHYS)
       continue;
-    if (strcmp(r->section, KASLD_SECTION_DRAM) != 0)
+    if (r->region != REGION_RAM || !HAS_LO(r))
       continue;
-    if (strcmp(r->region, KASLD_REGION_RAM_BASE) != 0)
-      continue;
-    if (r->raw < pdram_min)
-      pdram_min = r->raw;
+    if (r->lo < pdram_min)
+      pdram_min = r->lo;
   }
   if (pdram_min == ULONG_MAX)
     return;

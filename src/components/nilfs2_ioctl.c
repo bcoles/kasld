@@ -40,7 +40,7 @@
 // <bcoles@gmail.com>
 
 #define _GNU_SOURCE
-#include "include/kasld.h"
+#include "include/kasld/api.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <stdint.h>
@@ -190,8 +190,8 @@ int main(void) {
       close(fd);
       printf("leaked possible kernel pointer: %lx\n", addr);
       printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);
-      kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr,
-                   KASLD_REGION_KERNEL_TEXT, NULL);
+      kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr, NULL,
+                          CONF_HEURISTIC);
       return 0;
     }
   }

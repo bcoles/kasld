@@ -21,7 +21,7 @@
 // ---
 // <bcoles@gmail.com>
 
-#include "include/kasld.h"
+#include "include/kasld/api.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -112,8 +112,8 @@ static int detect_riscv_mmu(void) {
     return 0;
   }
 
-  kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_PAGEOFFSET, page_offset,
-               KASLD_REGION_PAGE_OFFSET, NULL);
+  kasld_result_base(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, page_offset, NULL,
+                    CONF_PARSED);
   return 1;
 }
 #endif /* riscv64 */
@@ -179,8 +179,8 @@ static int detect_x86_address_sizes(void) {
   printf("[.] Paging level %s: PAGE_OFFSET floor -> 0x%016lx\n",
          virt_bits <= 48 ? "4" : "5", page_offset);
 
-  kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_PAGEOFFSET, page_offset,
-               KASLD_REGION_PAGE_OFFSET, NULL);
+  kasld_result_base(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, page_offset, NULL,
+                    CONF_PARSED);
   return 1;
 }
 #endif /* x86_64 */

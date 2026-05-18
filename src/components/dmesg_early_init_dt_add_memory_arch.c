@@ -44,8 +44,8 @@
 
 #define _GNU_SOURCE
 #include "include/dmesg.h"
-#include "include/kasld.h"
-#include "include/kasld_internal.h"
+#include "include/kasld/api.h"
+#include "include/kasld/internal.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -105,14 +105,12 @@ int main(void) {
   }
 
   printf("possible PAGE_OFFSET physical address: 0x%016lx\n", addr);
-  kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, addr, KASLD_REGION_RAM_BASE,
-               NULL);
+  kasld_result_base(KASLD_TYPE_PHYS, REGION_RAM, addr, NULL, CONF_PARSED);
 
 #if !PHYS_VIRT_DECOUPLED
   unsigned long virt = phys_to_virt(addr);
   printf("possible direct-map virtual address: 0x%016lx\n", virt);
-  kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
-               KASLD_REGION_RAM_BASE, NULL);
+  kasld_result_base(KASLD_TYPE_VIRT, REGION_RAM, virt, NULL, CONF_PARSED);
 #else
   printf("note: phys and virt KASLR are decoupled on this arch; "
          "cannot derive kernel text virtual address from physical leak\n");

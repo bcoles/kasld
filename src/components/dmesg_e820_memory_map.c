@@ -44,8 +44,8 @@
 
 #define _GNU_SOURCE
 #include "include/dmesg.h"
-#include "include/kasld.h"
-#include "include/kasld_internal.h"
+#include "include/kasld/api.h"
+#include "include/kasld/internal.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -127,28 +127,24 @@ int main(void) {
 
   if (e.lo) {
     printf("leaked e820 DRAM low:  0x%016lx\n", e.lo);
-    kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, e.lo,
-                 KASLD_REGION_RAM_BASE, NULL);
+    kasld_result_base(KASLD_TYPE_PHYS, REGION_RAM, e.lo, NULL, CONF_PARSED);
   }
 
   if (e.hi) {
     printf("leaked e820 DRAM high: 0x%016lx\n", e.hi);
-    kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, e.hi,
-                 KASLD_REGION_RAM_TOP, NULL);
+    kasld_result_top(KASLD_TYPE_PHYS, REGION_RAM, e.hi, NULL, CONF_PARSED);
   }
 
 #if !PHYS_VIRT_DECOUPLED
   if (e.lo) {
     unsigned long virt = phys_to_virt(e.lo);
     printf("possible direct-map virtual address (low):  0x%016lx\n", virt);
-    kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
-                 KASLD_REGION_RAM_BASE, NULL);
+    kasld_result_base(KASLD_TYPE_VIRT, REGION_RAM, virt, NULL, CONF_PARSED);
   }
   if (e.hi) {
     unsigned long virt = phys_to_virt(e.hi);
     printf("possible direct-map virtual address (high): 0x%016lx\n", virt);
-    kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
-                 KASLD_REGION_RAM_TOP, NULL);
+    kasld_result_top(KASLD_TYPE_VIRT, REGION_RAM, virt, NULL, CONF_PARSED);
   }
 #else
   printf("note: phys and virt KASLR are decoupled on this arch; "

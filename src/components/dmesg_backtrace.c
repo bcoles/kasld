@@ -45,8 +45,8 @@
 
 #define _GNU_SOURCE
 #include "include/dmesg.h"
-#include "include/kasld.h"
-#include "include/kasld_internal.h"
+#include "include/kasld/api.h"
+#include "include/kasld/internal.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -207,8 +207,8 @@ int main(void) {
     /* Call-trace addresses point at specific kernel text symbols
      * (function bodies, exception handlers). The component doesn't
      * resolve the symbol name, so name is left empty. */
-    kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, ctx.text,
-                 KASLD_REGION_KERNEL_TEXT, NULL);
+    kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, ctx.text, NULL,
+                        CONF_PARSED);
   }
 
   if (ctx.phys) {
@@ -216,13 +216,13 @@ int main(void) {
     /* CR3 is the physical address of swapper_pg_dir, which lives in the
      * kernel .bss section. Tagged KERNEL_BSS so inference plugins can
      * apply the BSS-resident gap refinement without an allow-list. */
-    kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, ctx.phys,
-                 KASLD_REGION_KERNEL_BSS, "cr3");
+    kasld_result_sample(KASLD_TYPE_PHYS, REGION_KERNEL_BSS, ctx.phys, "cr3",
+                        CONF_PARSED);
 #if !PHYS_VIRT_DECOUPLED
     unsigned long virt = phys_to_virt(ctx.phys);
     printf("possible direct-map virtual address: %lx\n", virt);
-    kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
-                 KASLD_REGION_KERNEL_BSS, "cr3");
+    kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_BSS, virt, "cr3",
+                        CONF_PARSED);
 #endif
   }
 
@@ -231,8 +231,8 @@ int main(void) {
     /* Generic directmap point recovered from a register dump — we know
      * it's *somewhere* in directmap but not what kernel object it points
      * to. Fall back to the address-space landmark. */
-    kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, ctx.directmap,
-                 KASLD_REGION_DIRECTMAP, NULL);
+    kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, ctx.directmap, NULL,
+                        CONF_PARSED);
   }
 
   return 0;

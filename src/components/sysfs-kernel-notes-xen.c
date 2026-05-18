@@ -69,8 +69,8 @@
 #endif
 
 #define _GNU_SOURCE
-#include "include/kasld.h"
-#include "include/kasld_internal.h"
+#include "include/kasld/api.h"
+#include "include/kasld/internal.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <stdint.h>
@@ -93,7 +93,7 @@ KASLD_EXPLAIN("On Xen PV and PVH guests, /sys/kernel/notes contains ELF notes "
               "updated after KASLR relocation until v6.9. Parsing the ELF note "
               "structures reveals the kernel text virtual base.");
 
-KASLD_META("method:exact\n"
+KASLD_META("method:parsed\n"
            "phase:inference\n"
            "addr:virtual\n"
            "patch:v6.9\n"
@@ -209,8 +209,8 @@ int main(void) {
         printf("[+] found kernel address in %s note (type %u): %lx\n", name,
                type, val);
         snprintf(label, sizeof label, "%.40s", name);
-        kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, val,
-                     KASLD_REGION_KERNEL_TEXT, label);
+        kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, val, label,
+                            CONF_PARSED);
         found++;
       }
     } else if (descsz == 2 * sizeof(unsigned long)) {
@@ -223,8 +223,8 @@ int main(void) {
                  "%lx\n",
                  name, type, i, vals[i]);
           snprintf(label, sizeof label, "%.40s", name);
-          kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, vals[i],
-                       KASLD_REGION_KERNEL_TEXT, label);
+          kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, vals[i],
+                              label, CONF_PARSED);
           found++;
         }
       }
@@ -267,14 +267,14 @@ int main(void) {
     if (!stale) {
       if (xen_entry) {
         printf("[+] Xen entry (startup_xen): %lx\n", xen_entry);
-        kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, xen_entry,
-                     KASLD_REGION_KERNEL_TEXT, "startup_xen");
+        kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, xen_entry,
+                            "startup_xen", CONF_PARSED);
         found++;
       }
       if (xen_hypercall) {
         printf("[+] Xen hypercall_page: %lx\n", xen_hypercall);
-        kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, xen_hypercall,
-                     KASLD_REGION_KERNEL_TEXT, "hypercall_page");
+        kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, xen_hypercall,
+                            "hypercall_page", CONF_PARSED);
         found++;
       }
       if (xen_phys32) {
@@ -288,8 +288,8 @@ int main(void) {
         unsigned long virt = KERNEL_BASE_MIN + xen_phys32;
         if (virt >= KERNEL_BASE_MIN && virt <= KERNEL_BASE_MAX) {
           printf("[+] Xen PHYS32_ENTRY -> virtual: %lx\n", virt);
-          kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, virt,
-                       KASLD_REGION_KERNEL_TEXT, "pvh_start_xen");
+          kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, virt,
+                              "pvh_start_xen", CONF_PARSED);
           found++;
         }
       }

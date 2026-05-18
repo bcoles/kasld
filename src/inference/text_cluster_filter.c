@@ -44,7 +44,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#include "../include/kasld_inference.h"
+#include "../include/kasld/inference.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -95,11 +95,9 @@ static void text_cluster_filter_run(struct kasld_analysis_ctx *ctx) {
   int count = 0;
   for (int i = 0; i < num_results; i++) {
     const struct result *r = &results[i];
-    if (!r->valid)
+    if (!result_in_bounds(r, ctx->layout))
       continue;
-    if (r->type != KASLD_ADDR_VIRT)
-      continue;
-    if (strcmp(r->section, KASLD_SECTION_TEXT) != 0)
+    if (r->type != KASLD_TYPE_VIRT)
       continue;
     count++;
   }
@@ -114,13 +112,11 @@ static void text_cluster_filter_run(struct kasld_analysis_ctx *ctx) {
   int j = 0;
   for (int i = 0; i < num_results; i++) {
     const struct result *r = &results[i];
-    if (!r->valid)
+    if (!result_in_bounds(r, ctx->layout))
       continue;
-    if (r->type != KASLD_ADDR_VIRT)
+    if (r->type != KASLD_TYPE_VIRT)
       continue;
-    if (strcmp(r->section, KASLD_SECTION_TEXT) != 0)
-      continue;
-    vals[j++] = r->raw;
+    vals[j++] = anchor_addr(r);
   }
 
   qsort(vals, (size_t)count, sizeof(*vals), cmp_ulong);
@@ -156,27 +152,25 @@ static void text_cluster_filter_run(struct kasld_analysis_ctx *ctx) {
   int invalidated = 0;
   for (int i = 0; i < num_results; i++) {
     struct result *r = &results[i];
-    if (!r->valid)
+    if (!result_in_bounds(r, ctx->layout))
       continue;
-    if (r->type != KASLD_ADDR_VIRT)
+    if (r->type != KASLD_TYPE_VIRT)
       continue;
-    if (strcmp(r->section, KASLD_SECTION_TEXT) != 0)
-      continue;
-    if (abs_diff(r->raw, median) <= CLUSTER_OUTLIER_THRESHOLD)
+    if (abs_diff(anchor_addr(r), median) <= CLUSTER_OUTLIER_THRESHOLD)
       continue;
 
     if (verbose && !quiet)
       fprintf(stdout,
               "[infer] text_cluster_filter: invalidating VIRT/TEXT result"
               " %#lx (|delta|=%#lx > %#lx from median %#lx)\n",
-              r->raw, abs_diff(r->raw, median),
+              anchor_addr(r), abs_diff(anchor_addr(r), median),
               (unsigned long)CLUSTER_OUTLIER_THRESHOLD, median);
-    r->valid = 0;
+    /* Invalidate by retyping to REGION_UNKNOWN — result_in_bounds returns
+     * false for that, so all downstream consumers skip the record. */
+    r->region = REGION_UNKNOWN;
     invalidated++;
   }
-
-  if (invalidated)
-    revalidate_results();
+  (void)invalidated;
 }
 
 static const struct kasld_inference text_cluster_filter = {

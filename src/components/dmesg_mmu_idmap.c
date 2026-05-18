@@ -41,8 +41,8 @@
 
 #define _GNU_SOURCE
 #include "include/dmesg.h"
-#include "include/kasld.h"
-#include "include/kasld_internal.h"
+#include "include/kasld/api.h"
+#include "include/kasld/internal.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -103,8 +103,8 @@ int main(void) {
   printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);
   /* The leaked address is __turn_mmu_on — a specific kernel symbol used
    * by the early MMU bringup code on ARM. */
-  kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr,
-               KASLD_REGION_KERNEL_TEXT, "__turn_mmu_on");
+  kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr,
+                      "__turn_mmu_on", CONF_PARSED);
 
   return 0;
 }

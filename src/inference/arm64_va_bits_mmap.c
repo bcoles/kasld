@@ -43,7 +43,7 @@
 
 #define _GNU_SOURCE
 
-#include "../include/kasld_inference.h"
+#include "../include/kasld/inference.h"
 
 #include <errno.h>
 #include <stdio.h>

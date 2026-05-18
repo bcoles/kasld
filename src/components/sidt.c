@@ -74,7 +74,7 @@
 #error "Architecture is not supported"
 #endif
 
-#include "include/kasld.h"
+#include "include/kasld/api.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -97,7 +97,7 @@ KASLD_EXPLAIN(
     "fixmap page, making SIDT return a constant address. Intel UMIP "
     "(User-Mode Instruction Prevention) faults on SIDT from ring 3.");
 
-KASLD_META("method:exact\n"
+KASLD_META("method:parsed\n"
            "phase:inference\n"
            "addr:virtual\n"
            "patch:v3.10\n"
@@ -209,8 +209,8 @@ int main(void) {
     return 0;
 
   printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);
-  kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr,
-               KASLD_REGION_KERNEL_TEXT, NULL);
+  kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr, NULL,
+                      CONF_PARSED);
 
   return 0;
 }

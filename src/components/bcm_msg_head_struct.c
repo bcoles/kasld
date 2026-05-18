@@ -31,7 +31,7 @@
 // ---
 // <bcoles@gmail.com>
 
-#include "include/kasld.h"
+#include "include/kasld/api.h"
 #include <fcntl.h>
 #include <linux/can.h>
 #include <linux/can/bcm.h>
@@ -143,8 +143,8 @@ int main(void) {
 
   printf("leaked stack pointer: %lx\n", addr);
   printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);
-  kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr, "bcm_msg_head_struct",
-               NULL);
+  kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr,
+                      "bcm_msg_head_struct", CONF_HEURISTIC);
 
   return 0;
 }

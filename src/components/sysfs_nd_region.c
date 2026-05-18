@@ -63,8 +63,8 @@
 // ---
 // <bcoles@gmail.com>
 
-#include "include/kasld.h"
-#include "include/kasld_internal.h"
+#include "include/kasld/api.h"
+#include "include/kasld/internal.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdint.h>
@@ -148,14 +148,14 @@ int main(void) {
       continue;
 
     printf("%s resource: 0x%016lx\n", ent->d_name, addr);
-    kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, addr, KASLD_REGION_PMEM,
-                 ent->d_name);
+    kasld_result_sample(KASLD_TYPE_PHYS, REGION_PMEM, addr, ent->d_name,
+                        CONF_PARSED);
 
 #if !PHYS_VIRT_DECOUPLED
     unsigned long virt = phys_to_virt(addr);
     printf("possible direct-map virtual address: 0x%016lx\n", virt);
-    kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP, virt,
-                 KASLD_REGION_PMEM, ent->d_name);
+    kasld_result_sample(KASLD_TYPE_VIRT, REGION_PMEM, virt, ent->d_name,
+                        CONF_PARSED);
 #endif
 
     count++;

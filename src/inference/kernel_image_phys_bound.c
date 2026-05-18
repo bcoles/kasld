@@ -38,11 +38,12 @@
 // later pass.
 //
 // BSS-resident refinement (combined with image_size_from_text_data_gap):
-// When a witness is tagged KASLD_REGION_KERNEL_BSS, its symbol lives in the
+// When a witness is tagged REGION_KERNEL_BSS, its symbol lives in the
 // kernel .bss section, so its offset from _stext is strictly greater than
 // data_end_offset (the boundary between .rodata and .bss). Because
-// KASLD_SECTION_DATA is contractually limited to .data/.rodata addresses,
-// the gap = max(VIRT/DATA) − min(VIRT/TEXT) is always ≤ data_end_offset.
+// REGION_KERNEL_DATA is contractually limited to .data/.rodata addresses,
+// the gap = max(VIRT/KERNEL_DATA) − min(VIRT/KERNEL_TEXT) is always
+// ≤ data_end_offset.
 // Therefore gap < offset_of(any .bss symbol), and the tightened upper bound
 //   phys_base ≤ W − gap
 // is sound for all KERNEL_BSS witnesses. No allow-list is needed: emitters
@@ -62,7 +63,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#include "../include/kasld_inference.h"
+#include "../include/kasld/inference.h"
 
 #include <limits.h>
 #include <stdio.h>
@@ -78,13 +79,9 @@
 #define MIN_PLAUSIBLE_KERNEL_PHYS (1ul * 1024 * 1024)
 #define MAX_PLAUSIBLE_KERNEL_PHYS (1ul << 50)
 
-static int kipb_is_kernel_locating_region(const char *region) {
-  if (!region || region[0] == '\0')
-    return 0;
-  return strcmp(region, KASLD_REGION_KERNEL_IMAGE) == 0 ||
-         strcmp(region, KASLD_REGION_KERNEL_TEXT) == 0 ||
-         strcmp(region, KASLD_REGION_KERNEL_DATA) == 0 ||
-         strcmp(region, KASLD_REGION_KERNEL_BSS) == 0;
+static int kipb_is_kernel_locating_region(enum kasld_region region) {
+  return region == REGION_KERNEL_IMAGE || region == REGION_KERNEL_TEXT ||
+         region == REGION_KERNEL_DATA || region == REGION_KERNEL_BSS;
 }
 
 /* Compute the virtual TEXT/DATA gap that image_size_from_text_data_gap.c
@@ -96,14 +93,14 @@ static unsigned long compute_virt_gap(const struct kasld_analysis_ctx *ctx) {
 
   for (size_t i = 0; i < ctx->result_count; i++) {
     const struct result *r = &ctx->results[i];
-    if (!r->valid || r->type != KASLD_ADDR_VIRT)
+    if (!result_in_bounds(r, ctx->layout) || r->type != KASLD_TYPE_VIRT)
       continue;
-    if (strcmp(r->section, KASLD_SECTION_TEXT) == 0) {
-      if (r->raw < min_text)
-        min_text = r->raw;
-    } else if (strcmp(r->section, KASLD_SECTION_DATA) == 0) {
-      if (r->raw > max_data)
-        max_data = r->raw;
+    if (r->region == REGION_KERNEL_TEXT || r->region == REGION_KERNEL_IMAGE) {
+      if (anchor_addr(r) < min_text)
+        min_text = anchor_addr(r);
+    } else if (r->region == REGION_KERNEL_DATA) {
+      if (anchor_addr(r) > max_data)
+        max_data = anchor_addr(r);
     }
   }
 
@@ -137,28 +134,28 @@ static void kernel_image_phys_bound_run(struct kasld_analysis_ctx *ctx) {
 
   for (size_t i = 0; i < ctx->result_count; i++) {
     const struct result *r = &ctx->results[i];
-    if (!r->valid)
+    if (!result_in_bounds(r, ctx->layout))
       continue;
-    if (r->type != KASLD_ADDR_PHYS)
+    if (r->type != KASLD_TYPE_PHYS)
       continue;
     if (!kipb_is_kernel_locating_region(r->region))
       continue;
-    if (r->raw < MIN_PLAUSIBLE_KERNEL_PHYS ||
-        r->raw > MAX_PLAUSIBLE_KERNEL_PHYS)
+    if (anchor_addr(r) < MIN_PLAUSIBLE_KERNEL_PHYS ||
+        anchor_addr(r) > MAX_PLAUSIBLE_KERNEL_PHYS)
       continue;
 
-    if (r->raw < lo_raw)
-      lo_raw = r->raw;
-    if (r->raw > hi)
-      hi = r->raw;
+    if (anchor_addr(r) < lo_raw)
+      lo_raw = anchor_addr(r);
+    if (anchor_addr(r) > hi)
+      hi = anchor_addr(r);
 
     /* BSS-resident witnesses (KERNEL_BSS region) contribute a tightened
      * upper-bound candidate `W - virt_gap` provided gap is available and
      * won't underflow. Other witnesses contribute the raw value. */
-    unsigned long contrib = r->raw;
-    if (virt_gap > 0 && strcmp(r->region, KASLD_REGION_KERNEL_BSS) == 0 &&
-        r->raw > virt_gap) {
-      contrib = r->raw - virt_gap;
+    unsigned long contrib = anchor_addr(r);
+    if (virt_gap > 0 && r->region == REGION_KERNEL_BSS &&
+        anchor_addr(r) > virt_gap) {
+      contrib = anchor_addr(r) - virt_gap;
       bss_witnesses++;
     }
     if (contrib < lo_tight)

@@ -52,8 +52,8 @@
 #endif
 
 #define _GNU_SOURCE
-#include "include/kasld.h"
-#include "include/kasld_internal.h"
+#include "include/kasld/api.h"
+#include "include/kasld/internal.h"
 #include "include/sidechannel.h"
 #include <errno.h>
 #include <stdio.h>
@@ -385,8 +385,8 @@ int main(void) {
   }
 
   printf("possible kernel base: %lx\n", addr);
-  kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr,
-               KASLD_REGION_KERNEL_TEXT, NULL);
+  kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr, NULL,
+                      CONF_TIMING);
 
   return 0;
 }

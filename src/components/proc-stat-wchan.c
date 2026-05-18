@@ -35,7 +35,7 @@
 // ---
 // <bcoles@gmail.com>
 
-#include "include/kasld.h"
+#include "include/kasld/api.h"
 #include <errno.h>
 #include <inttypes.h>
 #include <stdio.h>
@@ -51,7 +51,7 @@ KASLD_EXPLAIN(
     "by zeroing the field; regressed in v5.12-v5.15 where the raw "
     "address was again exposed, then re-fixed in v5.16.");
 
-KASLD_META("method:exact\n"
+KASLD_META("method:parsed\n"
            "phase:inference\n"
            "addr:virtual\n"
            "patch:v4.4\n");
@@ -119,8 +119,8 @@ int main(void) {
 
   printf("leaked wchan address: %lx\n", addr);
   printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);
-  kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr,
-               KASLD_REGION_KERNEL_TEXT, NULL);
+  kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr, NULL,
+                      CONF_PARSED);
 
   return 0;
 }

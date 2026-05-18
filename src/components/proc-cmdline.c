@@ -13,7 +13,7 @@
 // <bcoles@gmail.com>
 
 #include "include/cmdline.h"
-#include "include/kasld.h"
+#include "include/kasld/api.h"
 #include <stdio.h>
 
 KASLD_EXPLAIN(
@@ -40,8 +40,8 @@ int main(void) {
    * kernel text base, which is the actual base when KASLR is off. */
   unsigned long addr = (unsigned long)KERNEL_TEXT_DEFAULT;
   printf("common default kernel text for arch: %lx\n", addr);
-  kasld_result(KASLD_ADDR_DEFAULT, KASLD_SECTION_NONE, addr,
-               KASLD_REGION_KERNEL_TEXT, "nokaslr");
+  kasld_result_base(KASLD_TYPE_DEFAULT_VIRT, REGION_KERNEL_TEXT, addr,
+                    "nokaslr", CONF_PARSED);
 
   return 0;
 }

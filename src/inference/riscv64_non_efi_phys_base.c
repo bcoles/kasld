@@ -46,7 +46,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#include "../include/kasld_inference.h"
+#include "../include/kasld/inference.h"
 
 #include <limits.h>
 #include <stdio.h>
@@ -60,16 +60,15 @@ static void riscv64_non_efi_phys_base_run(struct kasld_analysis_ctx *ctx) {
   if (access("/sys/firmware/efi", F_OK) == 0)
     return;
 
-  /* Find the minimum physical DRAM address across all results. */
+  /* Find the minimum physical DRAM address — uses is_phys_dram_region()
+   * for consistency with other DRAM-floor consumers. */
   unsigned long pdram_lo = ULONG_MAX;
   for (size_t i = 0; i < ctx->result_count; i++) {
     const struct result *r = &ctx->results[i];
-    if (r->type != KASLD_ADDR_PHYS)
+    if (r->type != KASLD_TYPE_PHYS || !is_phys_dram_region(r->region))
       continue;
-    if (strcmp(r->section, KASLD_SECTION_DRAM) != 0)
-      continue;
-    if (r->raw < pdram_lo)
-      pdram_lo = r->raw;
+    if (anchor_addr(r) < pdram_lo)
+      pdram_lo = anchor_addr(r);
   }
 
   if (pdram_lo == ULONG_MAX)

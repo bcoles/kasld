@@ -83,8 +83,8 @@
 
 #define _GNU_SOURCE
 #include "include/dmesg.h"
-#include "include/kasld.h"
-#include "include/kasld_internal.h"
+#include "include/kasld/api.h"
+#include "include/kasld/internal.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -116,31 +116,27 @@ KASLD_META("method:parsed\n"
  */
 struct layout_entry {
   const char *needle;
-  char type;
-  const char *section;
+  enum kasld_addr_type type;
   const char *display;
-  const char *region;
+  enum kasld_region region;
   unsigned long gate_min;
   unsigned long gate_max;
 };
 
 static const struct layout_entry entries[] = {
-    {".text : 0x", KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, "kernel .text start",
-     KASLD_REGION_KERNEL_TEXT, KERNEL_BASE_MIN, KERNEL_BASE_MAX},
-    {".data : 0x", KASLD_ADDR_VIRT, KASLD_SECTION_DATA, "kernel .data start",
-     KASLD_REGION_KERNEL_DATA, KERNEL_VAS_START, KERNEL_VAS_END},
-    {".bss  : 0x", KASLD_ADDR_VIRT, KASLD_SECTION_BSS, "kernel .bss start",
-     KASLD_REGION_KERNEL_BSS, KERNEL_BASE_MIN, KERNEL_BASE_MAX},
-    {"lowmem  : 0x", KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP,
-     "kernel lowmem start", KASLD_REGION_DIRECTMAP, KERNEL_VAS_START,
-     KERNEL_VAS_END},
-    {"modules : 0x", KASLD_ADDR_VIRT, KASLD_SECTION_MODULE,
-     "kernel modules start", KASLD_REGION_MODULE_REGION, MODULES_START,
-     MODULES_END},
-    {"memory  : 0x", KASLD_ADDR_VIRT, KASLD_SECTION_DIRECTMAP,
-     "kernel memory start", KASLD_REGION_DIRECTMAP, KERNEL_VAS_START,
-     KERNEL_VAS_END},
-    {NULL, 0, NULL, NULL, NULL, 0, 0},
+    {".text : 0x", KASLD_TYPE_VIRT, "kernel .text start", REGION_KERNEL_TEXT,
+     KERNEL_BASE_MIN, KERNEL_BASE_MAX},
+    {".data : 0x", KASLD_TYPE_VIRT, "kernel .data start", REGION_KERNEL_DATA,
+     KERNEL_VAS_START, KERNEL_VAS_END},
+    {".bss  : 0x", KASLD_TYPE_VIRT, "kernel .bss start", REGION_KERNEL_BSS,
+     KERNEL_BASE_MIN, KERNEL_BASE_MAX},
+    {"lowmem  : 0x", KASLD_TYPE_VIRT, "kernel lowmem start", REGION_DIRECTMAP,
+     KERNEL_VAS_START, KERNEL_VAS_END},
+    {"modules : 0x", KASLD_TYPE_VIRT, "kernel modules start",
+     REGION_MODULE_REGION, MODULES_START, MODULES_END},
+    {"memory  : 0x", KASLD_TYPE_VIRT, "kernel memory start", REGION_DIRECTMAP,
+     KERNEL_VAS_START, KERNEL_VAS_END},
+    {NULL, 0, NULL, REGION_UNKNOWN, 0, 0},
 };
 
 #define NUM_ENTRIES (sizeof(entries) / sizeof(entries[0]) - 1)
@@ -161,35 +157,36 @@ static unsigned long extract_addr(const char *s) {
 }
 
 static void emit_result(int idx, unsigned long addr) {
+  enum kasld_region region = entries[idx].region;
   printf("%s: %lx\n", entries[idx].display, addr);
 
-  if (strcmp(entries[idx].section, KASLD_SECTION_TEXT) == 0)
+  if (region == REGION_KERNEL_TEXT)
     printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);
 
-  if (strcmp(entries[idx].section, KASLD_SECTION_DIRECTMAP) == 0 &&
+  if ((region == REGION_DIRECTMAP || region == REGION_MODULE_REGION) &&
       addr < (unsigned long)KERNEL_VAS_START)
     printf("[!] warning: %s %lx below configured KERNEL_VAS_START %lx\n",
            entries[idx].display, addr, (unsigned long)KERNEL_VAS_START);
 
-  kasld_result(entries[idx].type, entries[idx].section, addr,
-               entries[idx].region, NULL);
+  /* Each "kernel .text start" / ".data start" / "modules start" message
+   * reports the BASE of the named region. */
+  kasld_result_base(entries[idx].type, region, addr, NULL, CONF_PARSED);
 #if !PHYS_VIRT_DECOUPLED
-  if (strcmp(entries[idx].section, KASLD_SECTION_DIRECTMAP) == 0) {
+  if (region == REGION_DIRECTMAP) {
     unsigned long phys = virt_to_phys(addr);
     printf("  possible physical address: 0x%016lx\n", phys);
-    kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, phys, entries[idx].region,
-                 NULL);
+    kasld_result_base(KASLD_TYPE_PHYS, region, phys, NULL, CONF_PARSED);
   }
   /* On coupled architectures, the kernel image is linearly mapped, so
    * virt_to_phys() is valid for kernel BSS addresses too. Emitting a
    * PHYS/KERNEL_BSS result enables the BSS-resident gap refinement in
    * kernel_image_phys_bound.c on ARM32 and x86_32 (the only arches that
    * print a ".bss  :" line; both are coupled). */
-  if (strcmp(entries[idx].section, KASLD_SECTION_BSS) == 0) {
+  if (region == REGION_KERNEL_BSS) {
     unsigned long phys = virt_to_phys(addr);
     printf("  possible physical address: 0x%016lx\n", phys);
-    kasld_result(KASLD_ADDR_PHYS, KASLD_SECTION_DRAM, phys,
-                 KASLD_REGION_KERNEL_BSS, NULL);
+    kasld_result_base(KASLD_TYPE_PHYS, REGION_KERNEL_BSS, phys, NULL,
+                      CONF_PARSED);
   }
 #endif
 }

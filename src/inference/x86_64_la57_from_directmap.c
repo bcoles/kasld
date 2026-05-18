@@ -43,7 +43,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#include "../include/kasld_inference.h"
+#include "../include/kasld/inference.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -63,10 +63,14 @@ static void x86_64_la57_from_directmap_run(struct kasld_analysis_ctx *ctx) {
 
   for (size_t i = 0; i < ctx->result_count; i++) {
     const struct result *r = &ctx->results[i];
-    if (r->type != KASLD_ADDR_VIRT || !r->valid ||
-        strcmp(r->section, KASLD_SECTION_DIRECTMAP) != 0)
+    if (r->type != KASLD_TYPE_VIRT || !result_in_bounds(r, ctx->layout))
       continue;
-    if (r->raw < X86_64_L4_VAS_START)
+    /* Only directmap leaks reveal LA57 vs LA48 via the page_offset window —
+     * other virtual leaks (kernel text, modules, page_offset constants) live
+     * in different ranges and would give false signal. */
+    if (r->region != REGION_DIRECTMAP)
+      continue;
+    if (anchor_addr(r) < X86_64_L4_VAS_START)
       have_l5 = 1;
     else
       have_l4 = 1;

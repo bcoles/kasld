@@ -37,7 +37,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#include "../include/kasld_inference.h"
+#include "../include/kasld/inference.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -53,10 +53,13 @@ static void va_bits_from_results_run(struct kasld_analysis_ctx *ctx) {
 
   for (size_t i = 0; i < ctx->result_count; i++) {
     const struct result *r = &ctx->results[i];
-    if (r->type != KASLD_ADDR_VIRT || !r->valid ||
-        strcmp(r->section, KASLD_SECTION_DIRECTMAP) != 0)
+    if (r->type != KASLD_TYPE_VIRT || !result_in_bounds(r, ctx->layout))
       continue;
-    if (r->raw < ARM64_VA48_PAGE_OFFSET)
+    /* Only directmap leaks can discriminate VA_BITS: kernel text/module
+     * addresses live in their own ranges and would give a false signal. */
+    if (r->region != REGION_DIRECTMAP)
+      continue;
+    if (anchor_addr(r) < ARM64_VA48_PAGE_OFFSET)
       have_va52 = 1;
     else
       have_va48 = 1;

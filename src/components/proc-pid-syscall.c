@@ -39,7 +39,7 @@
 // <bcoles@gmail.com>
 
 #define _GNU_SOURCE
-#include "include/kasld.h"
+#include "include/kasld/api.h"
 #include <errno.h>
 #include <inttypes.h>
 #include <stdio.h>
@@ -54,7 +54,7 @@ KASLD_EXPLAIN(
     "not zeroed, leaking stale kernel stack data that often contains "
     "kernel text or stack pointers.");
 
-KASLD_META("method:exact\n"
+KASLD_META("method:parsed\n"
            "phase:inference\n"
            "addr:virtual\n"
            "cve:CVE-2020-28588\n"
@@ -176,8 +176,8 @@ int main(void) {
 
   printf("lowest leaked address: %lx\n", addr);
   printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);
-  kasld_result(KASLD_ADDR_VIRT, KASLD_SECTION_TEXT, addr,
-               KASLD_REGION_KERNEL_TEXT, NULL);
+  kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr, NULL,
+                      CONF_PARSED);
 
   return 0;
 }
