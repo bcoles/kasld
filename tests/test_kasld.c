@@ -1423,6 +1423,95 @@ static void test_post_collection_inference_converges(void) {
 }
 
 /* =========================================================================
+ * Tighten-only invariant enforcement
+ *
+ * run_inference_phase() snapshots ctx bounds before each plugin and reverts
+ * any plugin that widens a bound (lo decreased OR hi increased). These tests
+ * cover the helper functions directly — first_widened_bound() must catch
+ * every tracked field, and restore_ctx_bounds() must reset all fields
+ * atomically. Together they keep the convergence loop's monotonicity
+ * guarantee from depending on plugin discipline alone.
+ * ========================================================================= */
+static void test_first_widened_bound_detects_each_field(void) {
+  struct ctx_bounds before;
+  snap_ctx_bounds(&g_ctx, &before);
+  assert(first_widened_bound(&before, &g_ctx) == NULL);
+
+  /* Widen each field in turn and confirm it's reported by name. Reset
+   * after each check so subsequent assertions see a clean baseline. */
+#define WIDEN_LO(field, name)                                                  \
+  do {                                                                         \
+    unsigned long saved = g_ctx.field;                                         \
+    g_ctx.field = (saved > 0) ? saved - 1 : 0;                                 \
+    if (saved > 0) {                                                           \
+      const char *w = first_widened_bound(&before, &g_ctx);                    \
+      assert(w && strcmp(w, name) == 0);                                       \
+    }                                                                          \
+    g_ctx.field = saved;                                                       \
+  } while (0)
+#define WIDEN_HI(field, name)                                                  \
+  do {                                                                         \
+    unsigned long saved = g_ctx.field;                                         \
+    g_ctx.field = (saved < ULONG_MAX) ? saved + 1 : ULONG_MAX;                 \
+    if (saved < ULONG_MAX) {                                                   \
+      const char *w = first_widened_bound(&before, &g_ctx);                    \
+      assert(w && strcmp(w, name) == 0);                                       \
+    }                                                                          \
+    g_ctx.field = saved;                                                       \
+  } while (0)
+
+  WIDEN_LO(text_base_min, "text_base_min");
+  WIDEN_HI(text_base_max, "text_base_max");
+  WIDEN_LO(page_offset_min, "page_offset_min");
+  WIDEN_HI(page_offset_max, "page_offset_max");
+  WIDEN_LO(phys_base_min, "phys_base_min");
+  WIDEN_HI(phys_base_max, "phys_base_max");
+  WIDEN_LO(vmalloc_base_min, "vmalloc_base_min");
+  WIDEN_HI(vmalloc_base_max, "vmalloc_base_max");
+  WIDEN_LO(vmemmap_base_min, "vmemmap_base_min");
+  WIDEN_HI(vmemmap_base_max, "vmemmap_base_max");
+#undef WIDEN_LO
+#undef WIDEN_HI
+
+  /* Tightening (lo increases or hi decreases) must NOT be flagged. */
+  unsigned long saved = g_ctx.text_base_min;
+  if (g_ctx.text_base_min < ULONG_MAX)
+    g_ctx.text_base_min = saved + 1;
+  assert(first_widened_bound(&before, &g_ctx) == NULL);
+  g_ctx.text_base_min = saved;
+}
+
+static void test_restore_ctx_bounds_resets_all_fields(void) {
+  struct ctx_bounds snap;
+  snap_ctx_bounds(&g_ctx, &snap);
+
+  /* Mutate every field in both directions; restore must put them all back. */
+  g_ctx.text_base_min = 0xdeadbeefu;
+  g_ctx.text_base_max = 0xdeadbeefu;
+  g_ctx.page_offset_min = 0xcafef00du;
+  g_ctx.page_offset_max = 0xcafef00du;
+  g_ctx.phys_base_min = 0x1234u;
+  g_ctx.phys_base_max = 0x5678u;
+  g_ctx.vmalloc_base_min = 0xabcdu;
+  g_ctx.vmalloc_base_max = 0xef01u;
+  g_ctx.vmemmap_base_min = 0x2345u;
+  g_ctx.vmemmap_base_max = 0x6789u;
+
+  restore_ctx_bounds(&g_ctx, &snap);
+
+  assert(g_ctx.text_base_min == snap.text_min);
+  assert(g_ctx.text_base_max == snap.text_max);
+  assert(g_ctx.page_offset_min == snap.po_min);
+  assert(g_ctx.page_offset_max == snap.po_max);
+  assert(g_ctx.phys_base_min == snap.phys_min);
+  assert(g_ctx.phys_base_max == snap.phys_max);
+  assert(g_ctx.vmalloc_base_min == snap.vmalloc_min);
+  assert(g_ctx.vmalloc_base_max == snap.vmalloc_max);
+  assert(g_ctx.vmemmap_base_min == snap.vmemmap_min);
+  assert(g_ctx.vmemmap_base_max == snap.vmemmap_max);
+}
+
+/* =========================================================================
  * Main
  * ========================================================================= */
 int main(void) {
@@ -1529,6 +1618,8 @@ int main(void) {
   RUN(test_bounds_snap_captures_all_tracked_fields);
   RUN(test_bounds_changed_false_on_stable_snapshot);
   RUN(test_post_collection_inference_converges);
+  RUN(test_first_widened_bound_detects_each_field);
+  RUN(test_restore_ctx_bounds_resets_all_fields);
 
   fprintf(stderr, "\n%d/%d tests passed\n", pass_count, test_count);
   return (pass_count == test_count) ? 0 : 1;

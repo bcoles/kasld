@@ -538,6 +538,72 @@ static struct kasld_analysis_ctx g_ctx;
 /* Run all plugins registered for the given phase. */
 static void sync_inference_bounds_to_layout(void);
 
+/* Snapshot of every ctx bound the tighten-only invariant applies to. */
+struct ctx_bounds {
+  unsigned long text_min, text_max;
+  unsigned long po_min, po_max;
+  unsigned long phys_min, phys_max;
+  unsigned long vmalloc_min, vmalloc_max;
+  unsigned long vmemmap_min, vmemmap_max;
+};
+
+static void snap_ctx_bounds(const struct kasld_analysis_ctx *ctx,
+                            struct ctx_bounds *b) {
+  b->text_min = ctx->text_base_min;
+  b->text_max = ctx->text_base_max;
+  b->po_min = ctx->page_offset_min;
+  b->po_max = ctx->page_offset_max;
+  b->phys_min = ctx->phys_base_min;
+  b->phys_max = ctx->phys_base_max;
+  b->vmalloc_min = ctx->vmalloc_base_min;
+  b->vmalloc_max = ctx->vmalloc_base_max;
+  b->vmemmap_min = ctx->vmemmap_base_min;
+  b->vmemmap_max = ctx->vmemmap_base_max;
+}
+
+/* Returns the name of the first bound that widened (lo decreased OR hi
+ * increased) relative to `before`, or NULL if every bound is
+ * tighter-or-equal. The convergence loop is sound only as long as every
+ * non-LAYOUT_ADJUST plugin honours this — see kasld/inference.h. */
+static const char *first_widened_bound(const struct ctx_bounds *before,
+                                       const struct kasld_analysis_ctx *ctx) {
+  if (ctx->text_base_min < before->text_min)
+    return "text_base_min";
+  if (ctx->text_base_max > before->text_max)
+    return "text_base_max";
+  if (ctx->page_offset_min < before->po_min)
+    return "page_offset_min";
+  if (ctx->page_offset_max > before->po_max)
+    return "page_offset_max";
+  if (ctx->phys_base_min < before->phys_min)
+    return "phys_base_min";
+  if (ctx->phys_base_max > before->phys_max)
+    return "phys_base_max";
+  if (ctx->vmalloc_base_min < before->vmalloc_min)
+    return "vmalloc_base_min";
+  if (ctx->vmalloc_base_max > before->vmalloc_max)
+    return "vmalloc_base_max";
+  if (ctx->vmemmap_base_min < before->vmemmap_min)
+    return "vmemmap_base_min";
+  if (ctx->vmemmap_base_max > before->vmemmap_max)
+    return "vmemmap_base_max";
+  return NULL;
+}
+
+static void restore_ctx_bounds(struct kasld_analysis_ctx *ctx,
+                               const struct ctx_bounds *b) {
+  ctx->text_base_min = b->text_min;
+  ctx->text_base_max = b->text_max;
+  ctx->page_offset_min = b->po_min;
+  ctx->page_offset_max = b->po_max;
+  ctx->phys_base_min = b->phys_min;
+  ctx->phys_base_max = b->phys_max;
+  ctx->vmalloc_base_min = b->vmalloc_min;
+  ctx->vmalloc_base_max = b->vmalloc_max;
+  ctx->vmemmap_base_min = b->vmemmap_min;
+  ctx->vmemmap_base_max = b->vmemmap_max;
+}
+
 static void run_inference_phase(struct kasld_analysis_ctx *ctx,
                                 enum kasld_inference_phase phase) {
   if (!__start_kasld_inferences || !__stop_kasld_inferences)
@@ -569,10 +635,36 @@ static void run_inference_phase(struct kasld_analysis_ctx *ctx,
     ctx->phys_base_max = layout.phys_kaslr_base_max;
   ctx->result_count = (size_t)num_results;
 
+  /* Run every plugin registered for this phase. For PRE_COLLECTION,
+   * POST_COLLECTION, and POST_PROBING we snapshot the ctx bounds and
+   * verify the plugin only tightened them — widening breaks the
+   * convergence loop's monotonicity guarantee and is almost always a
+   * plugin bug. On violation, restore the pre-plugin snapshot so the
+   * bad mutation doesn't propagate, and surface the offending plugin
+   * name. LAYOUT_ADJUST plugins legitimately mutate layout and are
+   * exempted. */
+  int enforce = (phase != KASLD_INFER_PHASE_LAYOUT_ADJUST);
   const struct kasld_inference **p;
-  for (p = __start_kasld_inferences; p < __stop_kasld_inferences; p++)
-    if ((*p)->phase == phase)
+  for (p = __start_kasld_inferences; p < __stop_kasld_inferences; p++) {
+    if ((*p)->phase != phase)
+      continue;
+    if (!enforce) {
       (*p)->run(ctx);
+      continue;
+    }
+    struct ctx_bounds before;
+    snap_ctx_bounds(ctx, &before);
+    (*p)->run(ctx);
+    const char *widened = first_widened_bound(&before, ctx);
+    if (widened) {
+      if (!quiet)
+        fprintf(stderr,
+                "warning: inference plugin '%s' widened %s; "
+                "reverting plugin's bound changes (tighten-only invariant)\n",
+                (*p)->name, widened);
+      restore_ctx_bounds(ctx, &before);
+    }
+  }
 }
 
 /* Update result_count and fire the state's on_exit action. */
