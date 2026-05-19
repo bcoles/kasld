@@ -1512,9 +1512,175 @@ static void test_restore_ctx_bounds_resets_all_fields(void) {
 }
 
 /* =========================================================================
+ * Bound-tightening inference plugins
+ *
+ * Each test plants a minimal scenario and confirms the named plugin
+ * tightens the right ctx bound. Plugins are exercised via
+ * run_inference_phase(), which enforces the tighten-only invariant — a
+ * regression that widens a bound would also surface as a failed
+ * assertion here.
+ * ========================================================================= */
+
+static void test_range_tighten_from_interior_caps_text_max(void) {
+  reset_results();
+  /* Save then restore g_ctx bounds for isolation from other tests. */
+  unsigned long saved_v = g_ctx.text_base_max;
+  unsigned long saved_p = g_ctx.phys_base_max;
+  g_ctx.text_base_max = layout.kaslr_base_max;
+  g_ctx.phys_base_max =
+      layout.phys_kaslr_base_max ? layout.phys_kaslr_base_max : ULONG_MAX;
+
+  /* Virt: an interior sample at kernel_base_min + 0x100000 caps
+   * text_base_max to that sample. */
+  unsigned long v_sample = layout.kaslr_base_min + 0x100000ul;
+  struct result *vr = push_result();
+  vr->type = KASLD_TYPE_VIRT;
+  vr->region = REGION_KERNEL_IMAGE;
+  vr->pos = POS_INTERIOR;
+  vr->conf = CONF_PARSED;
+  vr->sample = v_sample;
+  vr->set_mask = SAMPLE_SET;
+
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+
+  assert(g_ctx.text_base_max <= v_sample);
+
+  g_ctx.text_base_max = saved_v;
+  g_ctx.phys_base_max = saved_p;
+}
+
+static void test_base_align_cross_validate_raises_align(void) {
+  reset_results();
+  unsigned long saved_align = layout.kaslr_align;
+  unsigned long stricter = layout.kaslr_align * 2;
+  if (stricter == 0)
+    stricter = 0x400000ul; /* fallback for kaslr-disabled */
+
+  struct result *r = push_result();
+  r->type = KASLD_TYPE_VIRT;
+  r->region = REGION_KERNEL_TEXT;
+  r->pos = POS_BASE;
+  r->conf = CONF_PARSED;
+  r->lo = layout.kaslr_base_min;
+  r->base_align = stricter;
+  r->set_mask = LO_SET | BASE_ALIGN_SET;
+
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_LAYOUT_ADJUST);
+
+  assert(layout.kaslr_align >= stricter);
+
+  layout.kaslr_align = saved_align;
+}
+
+static void test_mmio_floor_phys_ceiling_tightens(void) {
+#if PHYS_VIRT_DECOUPLED
+  reset_results();
+  unsigned long saved = g_ctx.phys_base_max;
+  g_ctx.phys_base_max = ULONG_MAX;
+
+  /* DRAM at 0x100000..0x80000000, MMIO at 0xc0000000 → ceiling = c0000000-1 */
+  struct result *d = push_result();
+  d->type = KASLD_TYPE_PHYS;
+  d->region = REGION_RAM;
+  d->pos = POS_BASE;
+  d->conf = CONF_PARSED;
+  d->lo = 0x100000ul;
+  d->hi = 0x80000000ul;
+  d->set_mask = LO_SET | HI_SET;
+
+  struct result *m = push_result();
+  m->type = KASLD_TYPE_PHYS;
+  m->region = REGION_MMIO;
+  m->pos = POS_BASE;
+  m->conf = CONF_PARSED;
+  m->lo = 0xc0000000ul;
+  m->hi = 0xfebfffffful;
+  m->set_mask = LO_SET | HI_SET;
+
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+
+  assert(g_ctx.phys_base_max <= 0xc0000000ul - 1);
+
+  g_ctx.phys_base_max = saved;
+#endif
+}
+
+static void test_phys_hole_filter_drops_max_into_dram(void) {
+#if PHYS_VIRT_DECOUPLED
+  reset_results();
+  unsigned long saved = g_ctx.phys_base_max;
+  /* Set the ceiling INTO the PCI hole between two DRAM ranges, then
+   * verify the plugin drops it to the top of the lower DRAM range. */
+  g_ctx.phys_base_max = 0xd0000000ul; /* in the hole */
+
+  struct result *lo = push_result();
+  lo->type = KASLD_TYPE_PHYS;
+  lo->region = REGION_RAM;
+  lo->pos = POS_BASE;
+  lo->conf = CONF_PARSED;
+  lo->lo = 0x100000ul;
+  lo->hi = 0xbfffffffful;
+  lo->set_mask = LO_SET | HI_SET;
+
+  struct result *hi = push_result();
+  hi->type = KASLD_TYPE_PHYS;
+  hi->region = REGION_RAM;
+  hi->pos = POS_BASE;
+  hi->conf = CONF_PARSED;
+  hi->lo = 0x100000000ul;
+  hi->hi = 0x33ffffffful;
+  hi->set_mask = LO_SET | HI_SET;
+
+  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
+
+  /* Ceiling should drop to lo extent's hi (= 0xbfffffffful) — that's the
+   * highest DRAM extent strictly below the original ceiling. */
+  assert(g_ctx.phys_base_max <= 0xbfffffffful);
+
+  g_ctx.phys_base_max = saved;
+#endif
+}
+
+/* =========================================================================
  * Main
  * ========================================================================= */
+
+/* Initialise g_ctx and g_arch_params the same way orchestrator's main() does.
+ * Required because tests link against inference plugin objects (so the
+ * KASLD_REGISTER_INFERENCE section is non-empty and run_inference_phase
+ * actually fires plugins) — and plugins dereference ctx->arch / ctx->layout.
+ * Under KASLD_TESTING the orchestrator's main() is excluded, so we do the
+ * one-time pointer wiring here. */
+static void test_init_g_ctx(void) {
+  g_arch_params.kaslr_base_min = layout.kaslr_base_min;
+  g_arch_params.kaslr_base_max = layout.kaslr_base_max;
+  g_arch_params.kaslr_align = layout.kaslr_align;
+  g_arch_params.phys_kaslr_base_min = layout.phys_kaslr_base_min;
+  g_arch_params.phys_kaslr_base_max = layout.phys_kaslr_base_max;
+  g_arch_params.phys_kaslr_align = layout.phys_kaslr_align;
+  g_arch_params.phys_virt_decoupled = PHYS_VIRT_DECOUPLED;
+  g_arch_params.phys_offset = PHYS_OFFSET;
+  g_arch_params.page_offset = PAGE_OFFSET;
+  g_arch_params.text_offset = TEXT_OFFSET;
+  g_ctx.results = results;
+  g_ctx.result_count = 0;
+  g_ctx.text_base_min = layout.kaslr_base_min;
+  g_ctx.text_base_max = layout.kaslr_base_max;
+  g_ctx.page_offset_min = layout.kernel_vas_start;
+  g_ctx.page_offset_max = layout.kernel_vas_end;
+  g_ctx.phys_base_min = layout.phys_kaslr_base_min;
+  g_ctx.phys_base_max = layout.phys_kaslr_base_max;
+  g_ctx.vmalloc_base_min = 0;
+  g_ctx.vmalloc_base_max = ULONG_MAX;
+  g_ctx.vmemmap_base_min = 0;
+  g_ctx.vmemmap_base_max = ULONG_MAX;
+  g_ctx.arch = &g_arch_params;
+  g_ctx.layout = &layout;
+}
+
 int main(void) {
+  test_init_g_ctx();
+
   RUN(test_result_init_zeroes_everything);
 
   RUN(test_parse_base_record);
@@ -1620,6 +1786,11 @@ int main(void) {
   RUN(test_post_collection_inference_converges);
   RUN(test_first_widened_bound_detects_each_field);
   RUN(test_restore_ctx_bounds_resets_all_fields);
+
+  RUN(test_range_tighten_from_interior_caps_text_max);
+  RUN(test_base_align_cross_validate_raises_align);
+  RUN(test_mmio_floor_phys_ceiling_tightens);
+  RUN(test_phys_hole_filter_drops_max_into_dram);
 
   fprintf(stderr, "\n%d/%d tests passed\n", pass_count, test_count);
   return (pass_count == test_count) ? 0 : 1;

@@ -138,8 +138,12 @@ run : build
 TEST_DIR := ./tests
 TEST_BIN := $(OBJ_DIR)/test_kasld
 
-$(TEST_BIN): $(TEST_DIR)/test_kasld.c $(KASLD_SRC) $(RENDER_SRC) $(HDRS) | $(COMP_DIR)
-	$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) $(PTHREAD_CFLAGS) -DKASLD_TESTING -I$(SRC_DIR) $(TEST_DIR)/test_kasld.c $(PTHREAD_LIBS) -o $@
+# Test binary links the inference plugin objects so tests can exercise
+# run_inference_phase() against real registered plugins. Without these,
+# __start_kasld_inferences would be a zero-length section and the phase
+# loop would be a no-op.
+$(TEST_BIN): $(TEST_DIR)/test_kasld.c $(KASLD_SRC) $(RENDER_SRC) $(INFER_OBJS) $(HDRS) | $(COMP_DIR)
+	$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) $(PTHREAD_CFLAGS) -DKASLD_TESTING -I$(SRC_DIR) $(TEST_DIR)/test_kasld.c $(INFER_OBJS) $(PTHREAD_LIBS) -o $@
 
 .PHONY: test
 test : $(TEST_BIN)
