@@ -49,8 +49,10 @@ struct extent {
 static int extent_cmp(const void *a, const void *b) {
   const struct extent *ea = a;
   const struct extent *eb = b;
-  if (ea->lo < eb->lo) return -1;
-  if (ea->lo > eb->lo) return 1;
+  if (ea->lo < eb->lo)
+    return -1;
+  if (ea->lo > eb->lo)
+    return 1;
   return 0;
 }
 
@@ -80,14 +82,13 @@ static int collect_dram_extents(const struct kasld_analysis_ctx *ctx,
  * or overlapping extents collapse into one. After this call, the array
  * is strictly increasing in lo and has no overlaps. */
 static int merge_extents(struct extent *e, int n) {
-  if (n <= 1) return n;
+  if (n <= 1)
+    return n;
   int w = 0;
   for (int r = 1; r < n; r++) {
     /* Touch or overlap: e[w].hi + 1 >= e[r].lo (use guarded arithmetic
      * to avoid overflow on hi == ULONG_MAX). */
-    int touches = (e[w].hi == (unsigned long)-1)
-                      ? 1
-                      : (e[w].hi + 1 >= e[r].lo);
+    int touches = (e[w].hi == (unsigned long)-1) ? 1 : (e[w].hi + 1 >= e[r].lo);
     if (touches) {
       if (e[r].hi > e[w].hi)
         e[w].hi = e[r].hi;

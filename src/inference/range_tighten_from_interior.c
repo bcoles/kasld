@@ -44,8 +44,9 @@
 #include <limits.h>
 #include <stdio.h>
 
-static void tighten_max(struct kasld_analysis_ctx *ctx, enum kasld_addr_type type,
-                        unsigned long *ceiling, const char *bound_name) {
+static void tighten_max(struct kasld_analysis_ctx *ctx,
+                        enum kasld_addr_type type, unsigned long *ceiling,
+                        const char *bound_name) {
   unsigned long min_sample = ULONG_MAX;
   for (size_t i = 0; i < ctx->result_count; i++) {
     const struct result *r = &ctx->results[i];

@@ -1,6 +1,7 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
-// Inference plugin: tighten kaslr_align from observed base_align (LAYOUT_ADJUST)
+// Inference plugin: tighten kaslr_align from observed base_align
+// (LAYOUT_ADJUST)
 //
 // Components that know the alignment of a leaked base address (kallsyms
 // parsers, ELF relocations, ...) may emit base_align on the wire. If the
