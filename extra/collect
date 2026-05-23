@@ -1,0 +1,353 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# collect — capture a portable, self-identifying bundle of this system's
+# KASLD-relevant state.
+#
+# Bundle layout:
+#   <bundle>/
+#     meta.txt        # arch (raw + canonical), kernel, distro, kasld id, date
+#     verbose.txt     # full `kasld -v 2>&1` (the reference conclusions)
+#     dmesg.txt       # dmesg output, if permitted (parsed by dmesg_* sources)
+#     sysroot/        # faithful path-preserving copy of the files read
+#       proc/meminfo, proc/cpuinfo, sys/firmware/memmap/..., boot/config-*, ...
+#
+# The sysroot mirror is replayed by pointing the analysis at it
+# (KASLD_SYSROOT=<bundle>/sysroot), so paths under sysroot/ must match the
+# real layout.
+# ---
+# <bcoles@gmail.com>
+
+# `set -u` catches unset-variable bugs. We deliberately do NOT use `set -e`:
+# a diagnostic collector must gather everything it can on a locked-down or
+# unusual system and *note* what it couldn't — never abort midway and leave a
+# silent partial bundle. Fatal setup failures are checked explicitly.
+set -u
+
+PROG=$(basename "$0")
+COLLECT_VERSION=1
+
+die() { echo "$PROG: $*" >&2; exit 2; }
+need_val() { [ "$1" -ge 2 ] || die "$2 requires a value"; }
+
+usage() {
+  cat <<EOF
+Usage: $PROG [OPTIONS]
+
+Capture a KASLD diagnostic/fixture bundle for this system.
+
+Options:
+  -o, --out DIR     Bundle output directory (default: ./kasld-bundle-<arch>-<rel>-<ts>)
+  -k, --kasld PATH  kasld binary to run for verbose.txt (default: auto-detect)
+  -t, --tar         Also produce <bundle>.tar.gz
+  -a, --anonymize   Best-effort scrub of identifying data (hostname, CPU brand
+                    string, UUIDs/MACs and sensitive cmdline values), keeping
+                    the numeric facts inference reads. NOT a guarantee — always
+                    review the bundle before sharing (see PRIVACY below).
+      --kallsyms    Include /proc/kallsyms (large; the actual leak target —
+                    omitted by default)
+  -h, --help        This help
+
+PRIVACY: this bundle captures system state that can contain identifying or
+sensitive data — /proc/cmdline (may carry boot secrets), dmesg (hostnames,
+MAC addresses, serials), /proc/iomem, /proc/modules, and (with --kallsyms)
+kernel symbol addresses. REVIEW the bundle before attaching it to a public
+bug report. --anonymize reduces this but is best-effort. A PRIVACY file
+listing exactly what was collected is written into every bundle.
+
+The bundle is corpus-agnostic. To file it into the kasld test corpus, move it
+to tests/fixtures/<canonical-arch>/<distro>-<rel>-<kver>/ (the suggested id is
+printed at the end and recorded in meta.txt). Note: verbose.txt (kasld's own
+output) is volatile across kasld versions and is git-ignored — only the raw
+inputs (sysroot/, meta.txt, sizes.txt, dmesg.txt) belong in the committed
+corpus.
+EOF
+}
+
+# ---------------------------------------------------------------------------
+# Args
+# ---------------------------------------------------------------------------
+OUT=""
+KASLD=""
+DO_TAR=0
+ANON=0
+WANT_KALLSYMS=0
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o|--out) need_val "$#" "$1"; OUT=$2; shift 2 ;;
+    -k|--kasld) need_val "$#" "$1"; KASLD=$2; shift 2 ;;
+    -t|--tar) DO_TAR=1; shift ;;
+    -a|--anonymize) ANON=1; shift ;;
+    --kallsyms) WANT_KALLSYMS=1; shift ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "$PROG: unknown option: $1" >&2; usage >&2; exit 2 ;;
+  esac
+done
+
+# ---------------------------------------------------------------------------
+# Arch normalization: map `uname -m` onto kasld's arch identifiers (mirrors
+# the dispatch in src/include/kasld/api.h).
+# ---------------------------------------------------------------------------
+canonical_arch() {
+  m=$1
+  case "$m" in
+    x86_64|amd64)                 echo x86_64 ;;
+    i386|i486|i586|i686)          echo x86_32 ;;
+    aarch64|aarch64_be|arm64)     echo arm64 ;;
+    arm*)                         echo arm32 ;;
+    mips64|mips64el)              echo mips64 ;;
+    mips|mipsel)                  echo mips32 ;;
+    ppc64|ppc64le|powerpc64)      echo ppc64 ;;
+    ppc|powerpc|powerpc32)        echo ppc32 ;;
+    riscv64)                      echo riscv64 ;;
+    riscv32)                      echo riscv32 ;;
+    loongarch64|loong64)          echo loongarch64 ;;
+    s390x|s390)                   echo s390 ;;
+    sparc64|sparc)                echo sparc ;;
+    *)                            echo "unknown" ;;
+  esac
+}
+
+RAW_ARCH=$(uname -m 2>/dev/null || echo unknown)
+KARCH=$(canonical_arch "$RAW_ARCH")
+REL=$(uname -r 2>/dev/null || echo unknown)
+
+# Distro id from os-release, best-effort. Parsed (not sourced) so we never
+# execute the file's contents.
+DISTRO="unknown"
+if [ -r /etc/os-release ]; then
+  _id=$(sed -n 's/^ID=//p' /etc/os-release 2>/dev/null | tr -d '"' | head -1)
+  _ver=$(sed -n 's/^VERSION_ID=//p' /etc/os-release 2>/dev/null | tr -d '"' | head -1)
+  DISTRO="${_id:-unknown}-${_ver:-}"
+fi
+
+# Sanitize a token for use in a filename.
+sanitize() { printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_'; }
+
+TS=$(date -u +%Y%m%d%H%M%S 2>/dev/null || echo 0)
+FIXTURE_ID="$(sanitize "$DISTRO")-$(sanitize "$REL")"
+if [ -z "$OUT" ]; then
+  OUT="./kasld-bundle-$(sanitize "$KARCH")-$(sanitize "$REL")-$TS"
+fi
+
+# Fatal setup check (no `set -e`, so check explicitly). Warn if reusing a
+# non-empty directory — stale files from a prior run could mix in.
+if [ -d "$OUT" ] && [ -n "$(ls -A "$OUT" 2>/dev/null)" ]; then
+  echo "$PROG: warning: $OUT exists and is not empty; merging into it" >&2
+fi
+mkdir -p "$OUT/sysroot" || die "cannot create bundle dir: $OUT"
+
+# ---------------------------------------------------------------------------
+# Locate kasld for verbose.txt (best-effort; bundle is still useful without).
+# ---------------------------------------------------------------------------
+if [ -z "$KASLD" ]; then
+  if [ -n "${KASLD_BIN:-}" ] && [ -x "${KASLD_BIN:-}" ]; then
+    KASLD=$KASLD_BIN
+  else
+    script_dir=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+    for c in "$script_dir/../build/$RAW_ARCH"*/kasld "$script_dir/../build"/*/kasld \
+             "$script_dir/../kasld"; do
+      [ -x "$c" ] && { KASLD=$c; break; }
+    done
+    [ -z "$KASLD" ] && KASLD=$(command -v kasld 2>/dev/null || true)
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Capture helpers
+# ---------------------------------------------------------------------------
+NOTES="$OUT/sysroot/.collect-notes"
+: > "$NOTES"
+
+# grab PATH — copy a single file into the sysroot mirror, preserving its path.
+grab() {
+  src=$1
+  [ -e "$src" ] || { echo "absent: $src" >> "$NOTES"; return 0; }
+  dst="$OUT/sysroot$src"
+  mkdir -p "$(dirname "$dst")"
+  if cat "$src" > "$dst" 2>/dev/null; then
+    :
+  else
+    echo "unreadable: $src" >> "$NOTES"
+    rm -f "$dst"
+  fi
+}
+
+# grab_tree DIR — copy a (small) directory subtree into the mirror.
+grab_tree() {
+  d=$1
+  [ -d "$d" ] || { echo "absent: $d" >> "$NOTES"; return 0; }
+  # Walk regular files only; bounded by the small kernel-exposed trees.
+  find "$d" -type f 2>/dev/null | while IFS= read -r f; do
+    dst="$OUT/sysroot$f"
+    mkdir -p "$(dirname "$dst")" 2>/dev/null || continue
+    cat "$f" > "$dst" 2>/dev/null || { echo "unreadable: $f" >> "$NOTES"; rm -f "$dst"; }
+  done
+}
+
+# stat_size PATH — record a file's size from metadata, without reading it.
+# kaslr_ceiling only stat()s these multi-MiB images, which needs execute on
+# the directory, not read on the file — so use stat(1), never `wc -c`.
+SIZES="$OUT/sizes.txt"
+: > "$SIZES"
+stat_size() {
+  p=$1
+  [ -e "$p" ] || return 0
+  sz=$(stat -c %s "$p" 2>/dev/null || stat -f %z "$p" 2>/dev/null || echo "?")
+  printf '%s %s\n' "$sz" "$p" >> "$SIZES"
+}
+
+# ---------------------------------------------------------------------------
+# /proc, /sys facts the analysis reads (see the audited source list).
+# ---------------------------------------------------------------------------
+for f in \
+  /proc/meminfo /proc/cpuinfo /proc/zoneinfo /proc/cmdline \
+  /proc/iomem /proc/modules /proc/version \
+  /proc/sys/kernel/kptr_restrict /proc/sys/kernel/dmesg_restrict \
+  /proc/sys/kernel/perf_event_paranoid /proc/sys/kernel/randomize_va_space \
+  /sys/kernel/security/lockdown \
+  /sys/kernel/boot_params/data /sys/kernel/boot_params/setup_data \
+  /sys/kernel/notes
+do
+  grab "$f"
+done
+
+grab_tree /sys/firmware/memmap
+# Device tree is exposed at both paths depending on arch/kernel; capture both.
+grab_tree /proc/device-tree/chosen
+grab_tree /proc/device-tree/rtas
+grab_tree /sys/firmware/devicetree/base/chosen
+grab_tree /sys/firmware/devicetree/base/rtas
+[ -e /sys/firmware/efi ] && echo "present: /sys/firmware/efi" >> "$NOTES"
+
+# /boot: copy the config (small), stat the big images.
+grab "/boot/config-$REL"
+grab /proc/config.gz
+stat_size "/boot/vmlinuz-$REL"
+stat_size "/boot/vmlinux-$REL"
+stat_size "/boot/Image-$REL"
+stat_size "/boot/System.map-$REL"
+
+if [ "$WANT_KALLSYMS" -eq 1 ]; then
+  grab /proc/kallsyms
+else
+  echo "skipped: /proc/kallsyms (use --kallsyms to include)" >> "$NOTES"
+fi
+
+# dmesg stream (parsed by the dmesg_* sources), if permitted.
+if dmesg > "$OUT/dmesg.txt" 2>/dev/null && [ -s "$OUT/dmesg.txt" ]; then
+  :
+else
+  rm -f "$OUT/dmesg.txt"
+  echo "unavailable: dmesg" >> "$NOTES"
+fi
+
+# ---------------------------------------------------------------------------
+# kasld reference output (the conclusions to diff a replay against).
+# ---------------------------------------------------------------------------
+KASLD_ID="not-run"
+if [ -n "$KASLD" ] && [ -x "$KASLD" ]; then
+  KASLD_ID=$("$KASLD" --version 2>/dev/null | head -1 || echo "unknown")
+  "$KASLD" -v > "$OUT/verbose.txt" 2>&1 || \
+    echo "(kasld exited non-zero; output captured)" >> "$OUT/verbose.txt"
+else
+  echo "kasld binary not found — verbose.txt omitted." \
+       "Pass --kasld PATH (e.g. a cross-compiled binary copied into the guest)." \
+       > "$OUT/verbose.txt"
+fi
+
+# ---------------------------------------------------------------------------
+# Anonymize (optional): best-effort scrub of identifying data, keeping the
+# facts inference reads. NOT a guarantee — the bundle should still be reviewed.
+# ---------------------------------------------------------------------------
+# Redact secret-bearing tokens from a text stream in place: UUIDs, MAC
+# addresses, and the values of sensitive kernel-cmdline keys (root=, resume=,
+# ip=, BOOT_IMAGE=, *_token=, etc.). Bare flags like `nokaslr` are kept, so the
+# KASLR-relevant signal inference cares about survives.
+scrub_secrets() {
+  f=$1
+  [ -f "$f" ] || return 0
+  H=$(hostname 2>/dev/null || true)
+  sed -E \
+    -e 's/[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}/[uuid]/g' \
+    -e 's/([0-9a-fA-F]{2}:){5}[0-9a-fA-F]{2}/[mac]/g' \
+    -e 's/(root|resume|resume_offset|ip|nfsroot|BOOT_IMAGE|cryptdevice)=[^[:space:]]*/\1=[redacted]/g' \
+    -e 's/([A-Za-z_]*(token|key|secret|pass|cred)[A-Za-z_]*)=[^[:space:]]*/\1=[redacted]/Ig' \
+    "$f" > "$f.tmp" 2>/dev/null && mv "$f.tmp" "$f"
+  if [ -n "${H:-}" ]; then
+    sed "s/$H/HOST/g" "$f" > "$f.tmp" 2>/dev/null && mv "$f.tmp" "$f"
+  fi
+}
+
+if [ "$ANON" -eq 1 ]; then
+  ci="$OUT/sysroot/proc/cpuinfo"
+  if [ -f "$ci" ]; then
+    grep -v -e '^model name' -e '^Model' -e '^Hardware' -e '^Serial' "$ci" \
+      > "$ci.tmp" 2>/dev/null && mv "$ci.tmp" "$ci"
+  fi
+  scrub_secrets "$OUT/sysroot/proc/cmdline"
+  scrub_secrets "$OUT/sysroot/proc/version"
+  scrub_secrets "$OUT/verbose.txt"
+  scrub_secrets "$OUT/dmesg.txt"
+  echo "anonymized: host identity, CPU brand, UUIDs/MACs, sensitive cmdline values redacted" >> "$NOTES"
+fi
+
+# ---------------------------------------------------------------------------
+# Metadata
+# ---------------------------------------------------------------------------
+{
+  echo "collect_version:  $COLLECT_VERSION"
+  echo "collected_utc:    $(date -u 2>/dev/null || echo unknown)"
+  echo "uname_m_raw:      $RAW_ARCH"
+  echo "arch_canonical:   $KARCH"
+  echo "kernel_release:   $REL"
+  echo "distro:           $DISTRO"
+  echo "kasld:            $KASLD_ID"
+  echo "suggested_fixture: tests/fixtures/$KARCH/$FIXTURE_ID/"
+  echo "anonymized:       $ANON"
+  echo "kallsyms:         $WANT_KALLSYMS"
+} > "$OUT/meta.txt"
+
+# ---------------------------------------------------------------------------
+# PRIVACY note — in every bundle, so a recipient knows what's inside.
+# ---------------------------------------------------------------------------
+{
+  echo "KASLD diagnostic bundle — what this contains"
+  echo "==========================================="
+  echo
+  echo "REVIEW THIS BUNDLE BEFORE SHARING IT PUBLICLY."
+  echo
+  echo "Captured from this system (anonymized=$ANON):"
+  echo "  sysroot/        raw /proc, /sys, /boot facts the analysis reads."
+  echo "                  Includes proc/cmdline (may carry boot secrets),"
+  echo "                  proc/cpuinfo, proc/iomem, proc/modules."
+  echo "  dmesg.txt       kernel log, if permitted (hostnames, MACs, serials)."
+  echo "  verbose.txt     kasld output, including leaked kernel addresses."
+  if [ "$WANT_KALLSYMS" -eq 1 ]; then
+    echo "  sysroot/proc/kallsyms  kernel symbol addresses (--kallsyms)."
+  fi
+  echo
+  echo "--anonymize is best-effort (host identity, CPU brand, UUIDs/MACs,"
+  echo "sensitive cmdline values) and is NOT a guarantee. Inspect before"
+  echo "attaching to a public issue."
+  echo
+  echo "For the test corpus, only the raw inputs are committed; verbose.txt"
+  echo "is volatile across kasld versions and is git-ignored."
+} > "$OUT/PRIVACY"
+
+# ---------------------------------------------------------------------------
+# Optional tarball
+# ---------------------------------------------------------------------------
+if [ "$DO_TAR" -eq 1 ]; then
+  base=$(basename "$OUT")
+  ( cd "$(dirname "$OUT")" && tar czf "$base.tar.gz" "$base" ) 2>/dev/null \
+    && echo "tarball: $OUT.tar.gz"
+fi
+
+echo "bundle:  $OUT"
+echo "arch:    $RAW_ARCH -> $KARCH    kernel: $REL    distro: $DISTRO"
+if [ "$KARCH" = "unknown" ]; then
+  echo "warning: '$RAW_ARCH' did not map to a known kasld arch — check canonical_arch()." >&2
+fi
+echo "file into corpus as: tests/fixtures/$KARCH/$FIXTURE_ID/"

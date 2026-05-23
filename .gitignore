@@ -3,3 +3,11 @@ a.out
 *.gch
 build
 dev
+
+# Test-corpus volatile reference: kasld's own output changes across versions,
+# so it is kept locally for equivalence testing but not committed. Only the
+# raw inputs (sysroot/, meta.txt, sizes.txt, dmesg.txt) belong in the corpus.
+tests/fixtures/**/verbose.txt
+# Bundles produced by extra/collect outside the corpus.
+kasld-bundle-*/
+kasld-bundle-*.tar.gz
