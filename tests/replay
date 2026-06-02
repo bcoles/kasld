@@ -1,54 +1,51 @@
-#!/ bin / sh
-#This file is part of KASLD - https: // github.com/bcoles/kasld
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
 #
-#replay — end - to - end smoke harness : run the real kasld binary over captured
-#fixtures.
+# replay — end-to-end smoke harness: run the real kasld binary over captured
+# fixtures.
 #
-#For each fixture under tests / fixtures / < arch> / < host> /,                \
-    reconstruct a scratch
-#sysroot from its captured filesystem state and run `kasld - v` over it.The
-#check is that kasld RUNS to completion — parses the fixture, resolves the
-#engine, renders a summary — without crashing.There is no in - process oracle to
-#diff against and no stored golden master : the committed fixture is just
-#sysroot / +meta.txt + sizes.txt, and nothing depends on the volatile verbose
-#output.Truth - containment and per -                                          \
-    rule soundness are covered by the pure unit
-#tests(make check / test_engine / test_engine_integration); this is the
-#end - to - end "does the real binary run on real captured layouts" check.
+# For each fixture under tests/fixtures/<arch>/<host>/, reconstruct a scratch
+# sysroot from its captured filesystem state and run `kasld -v` over it. The
+# check is that kasld RUNS to completion — parses the fixture, resolves the
+# engine, renders a summary — without crashing. There is no in-process oracle to
+# diff against and no stored golden master: the committed fixture is just
+# sysroot/ + meta.txt + sizes.txt, and nothing depends on the volatile verbose
+# output. Truth-containment and per-rule soundness are covered by the pure unit
+# tests (make check / test_engine / test_engine_integration); this is the
+# end-to-end "does the real binary run on real captured layouts" check.
 #
-#Two modes:
-#- Native(KASLD_NATIVE = 1) : run host - arch fixtures directly, no qemu.CI runs
-#this(x86_64 + x86_32 on an x86_64 runner); foreign - arch fixtures skip.
-#- Default : run every fixture, using qemu - user for foreign arches.Needs the
-#cross binaries from `make cross` and qemu - user in QEMU_DIR.
+# Two modes:
+#   - Native (KASLD_NATIVE=1): run host-arch fixtures directly, no qemu. CI runs
+#     this (x86_64 + x86_32 on an x86_64 runner); foreign-arch fixtures skip.
+#   - Default: run every fixture, using qemu-user for foreign arches. Needs the
+#     cross binaries from `make cross` and qemu-user in QEMU_DIR.
 #
-#Only a crash(death by signal) is a failure.A run yielding no results or no
-#summary is informational : foreign - arch component children do not exec under
-#nested qemu - user, so those fixtures legitimately produce nothing under
-#emulation,                                                                    \
-    and whether a leak / probe component fires is environment - dependent.
+# Only a crash (death by signal) is a failure. A run yielding no results or no
+# summary is informational: foreign-arch component children do not exec under
+# nested qemu-user, so those fixtures legitimately produce nothing under
+# emulation, and whether a leak/probe component fires is environment-dependent.
 #
-#Usage : tests / replay[FIXTURE_DIR...](default : all under tests / fixtures)
-#Env : QEMU_DIR(default / home / user / qemu / build)
-#BUILD_DIR(default./ build)
-#KASLD_NATIVE = 1 run host - arch fixtures directly, no qemu(CI mode).
-#Foreign - arch fixtures are skipped; the binary is taken
-#from build / < arch> - */ (any triple, gnu or musl).
-#KEEP = 1 keep the scratch sysroot of the last fixture for inspection
-#-- -
-#<bcoles @gmail.com>
+# Usage:  tests/replay [FIXTURE_DIR ...]      (default: all under tests/fixtures)
+# Env:    QEMU_DIR      (default /home/user/qemu/build)
+#         BUILD_DIR     (default ./build)
+#         KASLD_NATIVE=1  run host-arch fixtures directly, no qemu (CI mode).
+#                       Foreign-arch fixtures are skipped; the binary is taken
+#                       from build/<arch>-*/ (any triple, gnu or musl).
+#         KEEP=1        keep the scratch sysroot of the last fixture for inspection
+# ---
+# <bcoles@gmail.com>
 
-set - u
+set -u
 
-          ROOT = $(CDPATH ='' cd-- "$(dirname -- " $0 ")/.." && pwd) QEMU_DIR =
-${QEMU_DIR : -/ home / user / qemu / build} BUILD_DIR =
-${BUILD_DIR : -$ROOT / build} FIXROOT = $ROOT / tests /
-                                        fixtures
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+QEMU_DIR=${QEMU_DIR:-/home/user/qemu/build}
+BUILD_DIR=${BUILD_DIR:-$ROOT/build}
+FIXROOT=$ROOT/tests/fixtures
 
-#Map a raw `uname - m` to "<build-subdir> <qemu-binary>".Endianness lives in
-#the raw machine string(mips vs mipsel, ppc64 vs ppc64le), which is why this
-#keys on uname_m_raw, not the coarser canonical arch.
-                                            target_for() {
+# Map a raw `uname -m` to "<build-subdir> <qemu-binary>". Endianness lives in
+# the raw machine string (mips vs mipsel, ppc64 vs ppc64le), which is why this
+# keys on uname_m_raw, not the coarser canonical arch.
+target_for() {
   case "$1" in
   x86_64)            echo "x86_64-linux-musl qemu-x86_64" ;;
   i686 | i386)       echo "i686-unknown-linux-musl qemu-i386" ;;
@@ -72,11 +69,11 @@ ${BUILD_DIR : -$ROOT / build} FIXROOT = $ROOT / tests /
   esac
 }
 
-#Native(KASLD_NATIVE = 1) helpers : run host - runnable fixtures with no qemu.
+# Native (KASLD_NATIVE=1) helpers: run host-runnable fixtures with no qemu.
 HOST_ARCH=$(uname -m)
 
-#True if the host can execute fixtures of uname_m_raw $1 directly.An x86_64
-#host also runs 32 - bit x86; otherwise the arch must match exactly.
+# True if the host can execute fixtures of uname_m_raw $1 directly. An x86_64
+# host also runs 32-bit x86; otherwise the arch must match exactly.
 native_ok() {
   case "$HOST_ARCH" in
   x86_64 | amd64) case "$1" in x86_64 | i686 | i386) return 0 ;; esac ;;
@@ -85,11 +82,9 @@ native_ok() {
   return 1
 }
 
-#Echo a build / <                                                            \
-      arch> - */ dir holding a host - runnable kasld for uname_m_raw $1,
-# or nothing.Globs the arch prefix so any triple matches(x86_64 - linux -    \
-                                                           gnu from
-# `make`, x86_64 - linux - musl from `make cross`, i686 - linux - gnu, ...).
+# Echo a build/<arch>-*/ dir holding a host-runnable kasld for uname_m_raw $1,
+# or nothing. Globs the arch prefix so any triple matches (x86_64-linux-gnu from
+# `make`, x86_64-linux-musl from `make cross`, i686-linux-gnu, ...).
 native_bindir() {
   case "$1" in
   x86_64)    set -- "$BUILD_DIR"/x86_64-* ;;
@@ -101,13 +96,13 @@ native_bindir() {
   done
 }
 
-#Pull "key:value" out of a fixture meta.txt(collect's format).
+# Pull "key:value" out of a fixture meta.txt (collect's format).
 meta() { grep -E "^$2:" "$1/meta.txt" 2>/dev/null | head -1 | sed -E 's/^[^:]*:[[:space:]]*//'; }
 
 pass=0; fail=0; skip=0; scratch_keep=""
 
 for fx in "${@:-$FIXROOT/*/*}"; do
-#Expand the default glob; skip non - dirs.
+  # Expand the default glob; skip non-dirs.
   for d in $fx; do
     [ -d "$d" ] || continue
     name=$(echo "$d" | sed "s#$FIXROOT/##")
@@ -120,7 +115,7 @@ for fx in "${@:-$FIXROOT/*/*}"; do
     release=$(meta "$d" kernel_release)
 
     if [ "${KASLD_NATIVE:-0}" = 1 ]; then
-#No qemu : only fixtures the host can run directly; binary from build /.
+      # No qemu: only fixtures the host can run directly; binary from build/.
       if ! native_ok "$machine"; then
         printf 'SKIP  %-44s (native mode: non-host arch %s)\n' "$name" "$machine"; skip=$((skip+1)); continue
       fi
@@ -146,8 +141,8 @@ for fx in "${@:-$FIXROOT/*/*}"; do
       runner="$QEMU_DIR/$qbin"
     fi
 
-#Reconstruct a scratch sysroot : copy captured facts, then materialise the
-#/ boot images as sparse files of their true size(header prefix preserved).
+    # Reconstruct a scratch sysroot: copy captured facts, then materialise the
+    # /boot images as sparse files of their true size (header prefix preserved).
     sc=$(mktemp -d)
     cp -a "$d/sysroot" "$sc/r"
     while read -r sz path; do
@@ -156,34 +151,34 @@ for fx in "${@:-$FIXROOT/*/*}"; do
       truncate -s "$sz" "$sc/r$path" 2>/dev/null
     done < "$d/sizes.txt"
 
-#Release handling : QEMU_UNAME sets the top - level process's uname, but is
-#NOT honored after qemu's self-re-exec for foreign-arch component children
-# — so KASLD_UNAME_RELEASE(read by kasld_uname(), propagated via the
-#environment) is what actually gives every process the fixture's release
-#for / boot path construction.Both are set; the latter is the load - bearing
-#one.
-#
-#KASLD_EXEC_WRAPPER lets the orchestrator's component children execve
-#through the host - arch qemu wrapper instead of trying to execve a guest -
-#arch ELF directly(which the host kernel refuses with ENOEXEC unless
-#binfmt_misc is registered).When $runner is non - empty(foreign - arch
-#fixture) we point KASLD_EXEC_WRAPPER at it; for native - arch fixtures
-#$runner is empty and KASLD_EXEC_WRAPPER stays unset, so the orchestrator
-#takes the production direct - execve path.
+    # Release handling: QEMU_UNAME sets the top-level process's uname, but is
+    # NOT honored after qemu's self-re-exec for foreign-arch component children
+    # — so KASLD_UNAME_RELEASE (read by kasld_uname(), propagated via the
+    # environment) is what actually gives every process the fixture's release
+    # for /boot path construction. Both are set; the latter is the load-bearing
+    # one.
+    #
+    # KASLD_EXEC_WRAPPER lets the orchestrator's component children execve
+    # through the host-arch qemu wrapper instead of trying to execve a guest-
+    # arch ELF directly (which the host kernel refuses with ENOEXEC unless
+    # binfmt_misc is registered). When $runner is non-empty (foreign-arch
+    # fixture) we point KASLD_EXEC_WRAPPER at it; for native-arch fixtures
+    # $runner is empty and KASLD_EXEC_WRAPPER stays unset, so the orchestrator
+    # takes the production direct-execve path.
     QEMU_UNAME="$release" KASLD_UNAME_RELEASE="$release" KASLD_SYSROOT="$sc/r" \
       KASLD_COMPONENT_DIR="$comps" KASLD_EXEC_WRAPPER="$runner" \
       $runner "$kasld" -v > "$sc/replay.txt" 2>/dev/null
     rc=$?
 
-#Smoke verdict : the run must complete without an emulation crash.kasld
-#exits 0 with results, 1 with no tagged results(a valid empty run);
-#anything killed by a signal exits >= 128. A crash on any arch's calling
-#convention is the failure this harness exists to catch.
-#
-#With KASLD_EXEC_WRAPPER pointed at the host qemu binary, foreign - arch
-#component children do exec successfully under nested qemu - user — so
-#both x86(native) and foreign - arch fixtures should produce results and
-#render a summary.
+    # Smoke verdict: the run must complete without an emulation crash. kasld
+    # exits 0 with results, 1 with no tagged results (a valid empty run);
+    # anything killed by a signal exits >= 128. A crash on any arch's calling
+    # convention is the failure this harness exists to catch.
+    #
+    # With KASLD_EXEC_WRAPPER pointed at the host qemu binary, foreign-arch
+    # component children do exec successfully under nested qemu-user — so
+    # both x86 (native) and foreign-arch fixtures should produce results and
+    # render a summary.
     has_summary=$(grep -cE '^(========|  KASLR analysis:|Virtual memory layout)' \
       "$sc/replay.txt" 2>/dev/null || true)
     n_results=$(grep -cE '^[VPD] ' "$sc/replay.txt" 2>/dev/null || true)
