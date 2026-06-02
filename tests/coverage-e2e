@@ -1,24 +1,24 @@
-#!/ bin / sh
-#This file is part of KASLD - https: // github.com/bcoles/kasld
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
 #
-#coverage - e2e — end - to - end line coverage of the REAL kasld binary.
+# coverage-e2e — end-to-end line coverage of the REAL kasld binary.
 #
-#Builds the actual orchestrator + render + region_info + engine + rules with
-#-- coverage and NO - DKASLD_TESTING, so main(), the engine bridge
-#(engine_build_evidence / engine_resolve / engine_sync_authoritative), and the
-#renderers are all compiled in.Runs the binary on the live host and over the
-#x86(x86_64 + i686) replay fixtures natively, then gcov's the tree. This is the
-#only harness that exercises render.c and the orchestrator's engine glue,
-#which the host unit tests(tests / coverage) cannot reach.
+# Builds the actual orchestrator + render + region_info + engine + rules with
+# --coverage and NO -DKASLD_TESTING, so main(), the engine bridge
+# (engine_build_evidence / engine_resolve / engine_sync_authoritative), and the
+# renderers are all compiled in. Runs the binary on the live host and over the
+# x86 (x86_64 + i686) replay fixtures natively, then gcov's the tree. This is the
+# only harness that exercises render.c and the orchestrator's engine glue,
+# which the host unit tests (tests/coverage) cannot reach.
 #
-#x86_64 host only : the instrumented binary runs natively(no qemu / no cross
-#gcov - version matching).Needs the normal components built(kasld execs them);
-#builds them via make if absent.Artifacts stay under build / coverage - e2e /.
+# x86_64 host only: the instrumented binary runs natively (no qemu / no cross
+# gcov-version matching). Needs the normal components built (kasld execs them);
+# builds them via make if absent. Artifacts stay under build/coverage-e2e/.
 #
-#Usage : tests / coverage - e2e(or : make coverage - e2e)
-#Env : CC(default cc), GCOV(default gcov), QEMU not used(native run)
-#-- -
-#<bcoles @gmail.com>
+# Usage:  tests/coverage-e2e        (or: make coverage-e2e)
+# Env:    CC (default cc), GCOV (default gcov), QEMU not used (native run)
+# ---
+# <bcoles@gmail.com>
 
 set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
@@ -36,9 +36,9 @@ case "$(uname -m)" in
 esac
 $GCOV --version >/dev/null 2>&1 || { echo "coverage-e2e: '$GCOV' not found" >&2; exit 1; }
 
-#Components kasld execs during collection.Use the normal(non - instrumented)
-#build; build it if missing.Their own coverage is not measured here — the goal
-#is the orchestrator / engine / render glue, which runs in the kasld process.
+# Components kasld execs during collection. Use the normal (non-instrumented)
+# build; build it if missing. Their own coverage is not measured here — the goal
+# is the orchestrator/engine/render glue, which runs in the kasld process.
 COMP=$(echo "$ROOT"/build/x86_64-*/components | awk '{print $1}')
 if [ ! -d "$COMP" ]; then
   echo "coverage-e2e: building components (make) ..."
@@ -48,7 +48,7 @@ fi
 
 rm -rf "$E2E"; mkdir -p "$E2E"
 
-#Instrumented objects : exactly what links into kasld(no KASLD_TESTING).
+# Instrumented objects: exactly what links into kasld (no KASLD_TESTING).
 OBJS=""
 for s in $ROOT/src/orchestrator.c $ROOT/src/render.c $ROOT/src/region_info.c \
          $ROOT/src/estimate.c $ROOT/src/quantities.c $ROOT/src/evidence.c \
@@ -76,10 +76,10 @@ for d in "$FIX"/x86_64/*/ "$FIX"/i686/*/; do
     [ -z "$sz" ] || [ -z "$path" ] && continue
     mkdir -p "$sc/r$(dirname "$path")" 2>/dev/null; truncate -s "$sz" "$sc/r$path" 2>/dev/null
   done < "$d/sizes.txt"
-#Exercise EVERY renderer so render.c is covered end - to - end, not just the
-#default text path : -v verbose text, -j JSON, -1 oneline, -m markdown,
-#- c forced color(ANSI paths), and the - H hardening add - on over both text
-#and JSON.Each is a distinct family of render.c branches.
+  # Exercise EVERY renderer so render.c is covered end-to-end, not just the
+  # default text path: -v verbose text, -j JSON, -1 oneline, -m markdown,
+  # -c forced color (ANSI paths), and the -H hardening add-on over both text
+  # and JSON. Each is a distinct family of render.c branches.
   for mode in "-v" "-j" "-1" "-m" "-c" "-H" "-j -H"; do
     KASLD_UNAME_RELEASE="$rel" KASLD_SYSROOT="$sc/r" KASLD_COMPONENT_DIR="$COMP" \
       "$E2E/kasld" $mode >/dev/null 2>&1 && runs=$((runs+1))
@@ -92,34 +92,20 @@ echo "coverage-e2e: $runs runs (1 live + x86 fixtures), real binary"
 ( cd "$E2E" && $GCOV -n *.gcno 2>/dev/null ) | awk '
   /^File / { f=$0; sub(/^File \047/,"",f); sub(/\047.*/,"",f);
              keep = (f ~ /(^|\/)src\/.*\.c$/) }
-  /^Lines executed:
-/ {
-  if (!keep)
-    next;
-  keep = 0;
-  line = $0;
-  sub(/ ^Lines executed : /, "", line);
-  pct = line + 0;
-  n = line;
-  sub(/.*of /, "", n);
-  tot = n + 0;
-  bn = f; sub(/.*\//,"",bn);
-    if (tot>0) {
-    printf "  %-34s %6.2f%%  of %4d lines\n", bn, pct, tot;
-    ex += pct * tot / 100;
-    all += tot }
-}
-END {
-  if (all > 0)
-    printf "  %-34s %6.2f%%  of %4d lines\n", "TOTAL (end-to-end binary)",
-        100 * ex / all, all
-}
-' echo "---------------------------------------------------------------------" "-" echo "coverage-e2e: built with $CC, reported via $GCOV; artifacts " "in $E2E" if command -
-            v lcov >
-        / dev / null 2 > &1 &&
-    command - v genhtml > / dev / null 2 > &1;
-then lcov-- quiet-- capture-- directory "$E2E" --output - file
-        "$E2E/coverage.info" 2 >
-    / dev / null &&genhtml-- quiet-- output - directory "$E2E/html"
-                                                        "$E2E/coverage.info" 2 >
-    / dev / null &&echo "coverage-e2e: HTML report -> $E2E/html/index.html" fi
+  /^Lines executed:/ {
+    if (!keep) next; keep = 0;
+    line=$0; sub(/^Lines executed:/,"",line);
+    pct=line+0; n=line; sub(/.*of /,"",n); tot=n+0;
+    bn=f; sub(/.*\//,"",bn);
+    if (tot>0) { printf "  %-34s %6.2f%%  of %4d lines\n", bn, pct, tot;
+                 ex+=pct*tot/100; all+=tot }
+  }
+  END { if (all>0) printf "  %-34s %6.2f%%  of %4d lines\n",
+                          "TOTAL (end-to-end binary)", 100*ex/all, all }'
+echo "----------------------------------------------------------------------"
+echo "coverage-e2e: built with $CC, reported via $GCOV; artifacts in $E2E"
+if command -v lcov >/dev/null 2>&1 && command -v genhtml >/dev/null 2>&1; then
+  lcov --quiet --capture --directory "$E2E" --output-file "$E2E/coverage.info" 2>/dev/null \
+    && genhtml --quiet --output-directory "$E2E/html" "$E2E/coverage.info" 2>/dev/null \
+    && echo "coverage-e2e: HTML report -> $E2E/html/index.html"
+fi

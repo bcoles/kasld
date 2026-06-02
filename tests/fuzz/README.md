@@ -1,4 +1,4 @@
-#Parser fuzz harnesses
+# Parser fuzz harnesses
 
 libFuzzer harnesses for the four pure string→struct parsers in
 `src/orchestrator.c`. Each parser consumes attacker-influenced input
@@ -67,16 +67,11 @@ build/fuzz/fuzz_capture_result crash-deadbeef
 This is a parser audit, not a full-engine fuzz. The harnesses do not
 drive the inference engine or the renderers — they exercise only the
 input-acceptance boundary. The engine is exercised by
-`make check` over synthetic constraint sets;
-the renderers are exercised by `tests /
-        replay` over captured trees
-            .
+`make check` over synthetic constraint sets; the renderers are
+exercised by `tests/replay` over captured trees.
 
-        ##CI
+## CI
 
-            Not wired into CI.The runtime
-            budget(corpus - guided fuzz wants hours,
-                   not seconds) makes it a local
-        / on
-    - demand harness.The `make fuzz` target only builds the binaries;
-running them is up to the operator.
+Not wired into CI. The runtime budget (corpus-guided fuzz wants hours,
+not seconds) makes it a local / on-demand harness. The `make fuzz`
+target only builds the binaries; running them is up to the operator.

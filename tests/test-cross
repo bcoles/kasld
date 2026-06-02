@@ -1,22 +1,19 @@
-#!/ bin / sh
-#This file is part of KASLD - https: // github.com/bcoles/kasld
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
 #
-#test - cross — run the engine per - rule + integration tests under qemu -     \
-    user for
-#each cross target, so ARCH - GATED rules actually execute their active path.
+# test-cross — run the engine per-rule + integration tests under qemu-user for
+# each cross target, so ARCH-GATED rules actually execute their active path.
 #
-# `make test` runs the suite on the host(x86_64) only, where every
+# `make test` runs the suite on the host (x86_64) only, where every
 # `#if defined(__aarch64__)` / riscv64 / s390 / mips / ppc rule body compiles to
-#a no - op — so those rules' real logic is never exercised. The engine tests are
-#pure,                                                                         \
-    syscall - free C over synthetic in - memory evidence(addresses anchored to
-#the arch's quantity tops / PHYS_OFFSET, so portable across 64-bit arches), so
-#cross - compiling and running under qemu -                                    \
-    user is sound and turns each arch - gated
-#assertion into genuine coverage on its own architecture.
+# a no-op — so those rules' real logic is never exercised. The engine tests are
+# pure, syscall-free C over synthetic in-memory evidence (addresses anchored to
+# the arch's quantity tops / PHYS_OFFSET, so portable across 64-bit arches), so
+# cross-compiling and running under qemu-user is sound and turns each arch-gated
+# assertion into genuine coverage on its own architecture.
 #
-#Self - contained : compiles directly with the cross toolchain(engine core +
-#rules/*.c wildcard, matching the Makefile) — no sysroot/fixtures needed.
+# Self-contained: compiles directly with the cross toolchain (engine core +
+# rules/*.c wildcard, matching the Makefile) — no sysroot/fixtures needed.
 # Skips any target whose toolchain or qemu binary is absent. Like tests/replay,
 # this is a local/CI-with-qemu aid, not part of the host `make test`.
 # Exit status is non-zero if any present target fails (CI-friendly).
