@@ -70,7 +70,6 @@
 
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
-#include "include/kasld/internal.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <stdint.h>
@@ -112,7 +111,7 @@ static int has_xen_elfnote_symbols(void) {
   FILE *fp;
   char line[256];
 
-  fp = fopen("/proc/kallsyms", "r");
+  fp = kasld_fopen("/proc/kallsyms", "r");
   if (!fp)
     return -1;
 
@@ -141,7 +140,7 @@ int main(void) {
 
   printf("[.] checking /sys/kernel/notes ...\n");
 
-  fd = open("/sys/kernel/notes", O_RDONLY);
+  fd = kasld_open("/sys/kernel/notes", O_RDONLY);
   if (fd < 0) {
     perror("[-] open(/sys/kernel/notes)");
     return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM
@@ -178,12 +177,12 @@ int main(void) {
         unsigned long addr;
         memcpy(&addr, desc, sizeof addr);
 
-        if (type == XEN_ELFNOTE_ENTRY && addr >= KERNEL_BASE_MIN &&
-            addr <= KERNEL_BASE_MAX)
+        if (type == XEN_ELFNOTE_ENTRY && addr >= KERNEL_TEXT_MIN &&
+            addr <= KERNEL_TEXT_MAX)
           xen_entry = addr;
 
-        if (type == XEN_ELFNOTE_HYPERCALL_PAGE && addr >= KERNEL_BASE_MIN &&
-            addr <= KERNEL_BASE_MAX)
+        if (type == XEN_ELFNOTE_HYPERCALL_PAGE && addr >= KERNEL_TEXT_MIN &&
+            addr <= KERNEL_TEXT_MAX)
           xen_hypercall = addr;
 
         if (type == XEN_ELFNOTE_PHYS32_ENTRY && addr >= KERNEL_PHYS_MIN &&
@@ -205,7 +204,7 @@ int main(void) {
       unsigned long val;
       memcpy(&val, desc, sizeof val);
 
-      if (val >= KERNEL_BASE_MIN && val <= KERNEL_BASE_MAX) {
+      if (val >= KERNEL_TEXT_MIN && val <= KERNEL_TEXT_MAX) {
         printf("[+] found kernel address in %s note (type %u): %lx\n", name,
                type, val);
         snprintf(label, sizeof label, "%.40s", name);
@@ -218,7 +217,7 @@ int main(void) {
       memcpy(vals, desc, sizeof vals);
 
       for (int i = 0; i < 2; i++) {
-        if (vals[i] >= KERNEL_BASE_MIN && vals[i] <= KERNEL_BASE_MAX) {
+        if (vals[i] >= KERNEL_TEXT_MIN && vals[i] <= KERNEL_TEXT_MAX) {
           printf("[+] found kernel address in %s note (type %u, word %d): "
                  "%lx\n",
                  name, type, i, vals[i]);
@@ -285,8 +284,8 @@ int main(void) {
          * address of pvh_start_xen, which sits at or very near _stext.
          * The hardware physical load address is independently randomized
          * and is not recoverable from this note. */
-        unsigned long virt = KERNEL_BASE_MIN + xen_phys32;
-        if (virt >= KERNEL_BASE_MIN && virt <= KERNEL_BASE_MAX) {
+        unsigned long virt = KERNEL_TEXT_MIN + xen_phys32;
+        if (virt >= KERNEL_TEXT_MIN && virt <= KERNEL_TEXT_MAX) {
           printf("[+] Xen PHYS32_ENTRY -> virtual: %lx\n", virt);
           kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, virt,
                               "pvh_start_xen", CONF_PARSED);

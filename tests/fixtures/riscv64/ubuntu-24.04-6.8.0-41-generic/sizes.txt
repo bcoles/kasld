@@ -1,0 +1,2 @@
+38600704 /boot/vmlinuz-6.8.0-41-generic
+4621474 /boot/System.map-6.8.0-41-generic

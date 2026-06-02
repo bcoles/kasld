@@ -11,12 +11,13 @@
 #   <type> <region>[:<name>] pos=<pos> conf=<conf> \
 #       [lo=<hex>] [hi=<hex>|sz=<hex>] [sample=<hex>] [base_align=<hex>]
 #
-#   type:   P (physical), V (virtual), D (default/KASLR-disabled)
+#   type:   P (physical), V (virtual)
 #   region: closed enum (kernel_text, kernel_data, kernel_bss,
 #           kernel_image, module, module_region, ram, dma, dma32,
-#           initrd, reserved_mem, swiotlb, vmcoreinfo, crashkernel,
-#           pmem, acpi_table, acpi_nvs, efi_memmap, numa_node, mmio,
-#           pci_mmio, directmap, page_offset, vmalloc, vmemmap).
+#           initrd, cmdline, cmdline_memmap, reserved_mem, swiotlb,
+#           vmcoreinfo, crashkernel, pmem, acpi_table, acpi_nvs,
+#           efi_memmap, numa_node, mmio, pci_mmio, directmap,
+#           page_offset, vmalloc, vmemmap).
 #
 # Usage:
 #   validate saved tagged lines from file:
@@ -427,8 +428,8 @@ printf '%s\n' "$tagged_lines" | while IFS= read -r line; do
       ;;
 
     # ---- Physical: DRAM-resident regions -------------------------------
-    "P ram"|"P dma"|"P dma32"|"P initrd"|"P reserved_mem"|\
-    "P swiotlb"|"P vmcoreinfo"|"P crashkernel"|"P pmem"|\
+    "P ram"|"P dma"|"P dma32"|"P initrd"|"P cmdline"|"P cmdline_memmap"|\
+    "P reserved_mem"|"P swiotlb"|"P vmcoreinfo"|"P crashkernel"|"P pmem"|\
     "P acpi_table"|"P acpi_nvs"|"P numa_node"|"P efi_memmap")
       if [ -z "$truth_ram_lo" ]; then
         skip "$desc — no /proc/iomem System RAM"
@@ -469,11 +470,6 @@ printf '%s\n' "$tagged_lines" | while IFS= read -r line; do
       else
         pass "$desc — outside System RAM (consistent with MMIO)"
       fi
-      ;;
-
-    # ---- Default: KASLR-disabled marker --------------------------------
-    "D "*)
-      skip "$desc — informational (KASLR state marker)"
       ;;
 
     # ---- Unmatched -----------------------------------------------------

@@ -1,0 +1,115 @@
+#!/ bin / sh
+#This file is part of KASLD - https: // github.com/bcoles/kasld
+#
+#test - cross — run the engine per - rule + integration tests under qemu -     \
+    user for
+#each cross target, so ARCH - GATED rules actually execute their active path.
+#
+# `make test` runs the suite on the host(x86_64) only, where every
+# `#if defined(__aarch64__)` / riscv64 / s390 / mips / ppc rule body compiles to
+#a no - op — so those rules' real logic is never exercised. The engine tests are
+#pure,                                                                         \
+    syscall - free C over synthetic in - memory evidence(addresses anchored to
+#the arch's quantity tops / PHYS_OFFSET, so portable across 64-bit arches), so
+#cross - compiling and running under qemu -                                    \
+    user is sound and turns each arch - gated
+#assertion into genuine coverage on its own architecture.
+#
+#Self - contained : compiles directly with the cross toolchain(engine core +
+#rules/*.c wildcard, matching the Makefile) — no sysroot/fixtures needed.
+# Skips any target whose toolchain or qemu binary is absent. Like tests/replay,
+# this is a local/CI-with-qemu aid, not part of the host `make test`.
+# Exit status is non-zero if any present target fails (CI-friendly).
+#
+# Usage:  tests/test-cross
+# Env:    QEMU_DIR (default /home/user/qemu/build), CFLAGS, KEEP=1
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+QEMU_DIR=${QEMU_DIR:-/home/user/qemu/build}
+OUT=$ROOT/build/tests
+CFLAGS=${CFLAGS:--std=c99 -O2 -static -I$ROOT/src}
+
+CORE="$ROOT/src/estimate.c $ROOT/src/quantities.c $ROOT/src/evidence.c $ROOT/src/engine.c"
+RULES=$(echo "$ROOT"/src/rules/*.c)
+
+pass=0; fail=0; skip=0
+
+run_target() {
+  triple=$1 qbin=$2
+  cc="${triple}-gcc"; qemu="$QEMU_DIR/$qbin"
+  if ! command -v "$cc" >/dev/null 2>&1; then
+    printf 'SKIP  %-30s (no toolchain: %s)\n' "$triple" "$cc"; skip=$((skip+1)); return
+  fi
+  if [ ! -x "$qemu" ]; then
+    printf 'SKIP  %-30s (no qemu: %s)\n' "$triple" "$qbin"; skip=$((skip+1)); return
+  fi
+  d="$OUT/$triple"; mkdir -p "$d"
+  # Per-rule engine test (every rule via the wildcard) AND the full-registry
+  # integration test, both under qemu so each arch-gated rule body executes its
+  # active path on its own arch. The tests anchor addresses to the arch's
+  # quantity tops / PHYS_OFFSET, so they are portable across 64-bit arches.
+  # (This harness has caught real arch bugs this way: a 64-bit shift overflow
+  # and PHYS_OFFSET-relative assertion errors.)
+  if ! $cc $CFLAGS "$ROOT/tests/test_engine.c" $CORE $RULES -o "$d/test_engine" 2>"$d/cc.log"; then
+    printf 'FAIL  %-30s (compile test_engine)\n' "$triple"; sed 's/^/      /' "$d/cc.log" | head -5; fail=$((fail+1)); return
+  fi
+  if ! $cc $CFLAGS "$ROOT/tests/test_engine_integration.c" $CORE "$ROOT/src/engine_rules.c" $RULES \
+        -o "$d/test_integration" 2>"$d/cc.log"; then
+    printf 'FAIL  %-30s (compile test_integration)\n' "$triple"; sed 's/^/      /' "$d/cc.log" | head -5; fail=$((fail+1)); return
+  fi
+  ok=1
+  for t in test_engine test_integration; do
+    if ! "$qemu" "$d/$t" >/dev/null 2>"$d/$t.run"; then
+      printf 'FAIL  %-30s (%s under qemu)\n' "$triple" "$t"; tail -3 "$d/$t.run" | sed 's/^/      /'; ok=0
+    fi
+  done
+  if [ "$ok" = 1 ]; then
+    printf 'PASS  %-30s engine + integration\n' "$triple"; pass=$((pass+1))
+  else
+    fail=$((fail+1))
+  fi
+  [ "${KEEP:-0}" = 1 ] || rm -rf "$d"
+}
+
+# "<toolchain-triple> <qemu-binary>" per target. <triple>-gcc must be on
+# PATH (the same musl-cross set `make cross` uses); qemu-<arch> must be
+# in QEMU_DIR.
+# Here-doc (not a pipe) so the counters survive into the summary/exit status.
+#
+# Both 64-bit and 32-bit targets. Tests that model 64-bit-only kernel layouts
+# (x86_64 RANDOMIZE_MEMORY vmalloc/vmemmap, LA57/arm64 VA-bits, TiB-scale direct
+# maps, wide PA widths) are guarded with `#if __SIZEOF_LONG__ >= 8` and skip on
+# 32-bit, where they have no analog; the rest run on every width. This lets the
+# 32-bit arch-gated rules execute their ACTIVE path on their own arch:
+#   i686    -> x86_32 vmsplit ceiling
+#   armv7   -> arm32 highmem_32bit_bound
+#   mips    -> mips32 min_offset_from_image_size
+#   powerpc -> ppc32 phys_ceiling (big-endian)
+# The ppc32 little-endian toolchain (powerpcle-unknown-linux-musl) has no
+# 32-bit-LE qemu-user binary, so that variant stays live-test-only.
+while read -r triple qbin; do
+  [ -z "$triple" ] && continue
+  run_target "$triple" "$qbin"
+done <<'EOF'
+aarch64-linux-musl qemu-aarch64
+armv7-unknown-linux-musleabi qemu-arm
+i686-unknown-linux-musl qemu-i386
+mips64-unknown-linux-musl qemu-mips64
+mips64el-unknown-linux-musl qemu-mips64el
+powerpc-linux-musl qemu-ppc
+powerpc64-unknown-linux-musl qemu-ppc64
+powerpc64le-unknown-linux-musl qemu-ppc64le
+loongarch64-unknown-linux-musl qemu-loongarch64
+mips-unknown-linux-musl qemu-mips
+mipsel-unknown-linux-musl qemu-mipsel
+riscv64-linux-musl qemu-riscv64
+s390x-ibm-linux-musl qemu-s390x
+x86_64-linux-musl qemu-x86_64
+EOF
+
+echo "----------------------------------------------------------------------"
+printf 'test-cross: %d pass, %d fail, %d skip\n' "$pass" "$fail" "$skip"
+[ "$fail" -eq 0 ]

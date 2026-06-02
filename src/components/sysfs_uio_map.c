@@ -57,7 +57,6 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld/api.h"
-#include "include/kasld/internal.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
@@ -80,7 +79,7 @@ KASLD_META("method:parsed\n"
            "config:CONFIG_UIO\n");
 
 static int read_file_line(const char *path, char *buf, size_t len) {
-  FILE *f = fopen(path, "r");
+  FILE *f = kasld_fopen(path, "r");
   if (!f)
     return -1;
   if (fgets(buf, (int)len, f) == NULL) {
@@ -110,7 +109,7 @@ static int read_file_line(const char *path, char *buf, size_t len) {
  * REGION_RESERVED_MEM, which is_phys_dram_region() accepts) would
  * pollute dram_bound / dram_ceiling inference. */
 static enum kasld_region classify_uio_addr(unsigned long addr) {
-  FILE *f = fopen("/proc/iomem", "r");
+  FILE *f = kasld_fopen("/proc/iomem", "r");
   if (!f)
     return REGION_MMIO;
 
@@ -213,11 +212,12 @@ int main(void) {
 
       map_count++;
 
-#if !PHYS_VIRT_DECOUPLED
-      unsigned long virt = phys_to_virt((unsigned long)addr);
+#ifdef phys_to_directmap_virt
+      unsigned long virt = phys_to_directmap_virt((unsigned long)addr);
       fprintf(stderr, "[+] sysfs_uio_map %s: directmap va = 0x%016lx\n", label,
               virt);
-      kasld_result_sample(KASLD_TYPE_VIRT, region, virt, label, CONF_PARSED);
+      kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, label,
+                          CONF_PARSED);
 #endif
     }
     closedir(d_maps);

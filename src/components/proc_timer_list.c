@@ -39,8 +39,8 @@
 
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
-#include "include/kasld/internal.h"
 #include <errno.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -64,7 +64,7 @@ int main(void) {
 
   printf("[.] scanning %s for timer base addresses ...\n", path);
 
-  FILE *f = fopen(path, "r");
+  FILE *f = kasld_fopen(path, "r");
   if (!f) {
     int e = errno;
     perror("[-] fopen");
@@ -92,9 +92,9 @@ int main(void) {
       continue;
 
     /* Direct-map range: PAGE_OFFSET to start of kernel text.
-     * On 32-bit or coupled arches PAGE_OFFSET == KERNEL_BASE_MIN;
+     * On 32-bit or coupled arches PAGE_OFFSET == KERNEL_TEXT_MIN;
      * accept any kernel VA in that case. */
-    int in_dmap = (val >= PAGE_OFFSET && val < KERNEL_BASE_MIN);
+    int in_dmap = (val >= PAGE_OFFSET && val < KERNEL_TEXT_MIN);
     int in_kvas =
         (!in_dmap && val >= KERNEL_VAS_START && val <= KERNEL_VAS_END);
 
@@ -102,9 +102,9 @@ int main(void) {
       printf("timer base address: 0x%016lx\n", val);
       kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, val, NULL,
                           CONF_PARSED);
-#if !PHYS_VIRT_DECOUPLED
+#ifdef directmap_virt_to_phys
       {
-        unsigned long phys = virt_to_phys(val);
+        unsigned long phys = directmap_virt_to_phys(val);
         printf("  possible physical address: 0x%016lx\n", phys);
         kasld_result_sample(KASLD_TYPE_PHYS, REGION_DIRECTMAP, phys, NULL,
                             CONF_PARSED);

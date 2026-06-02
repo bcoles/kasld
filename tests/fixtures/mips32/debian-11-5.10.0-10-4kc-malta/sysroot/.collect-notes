@@ -1,0 +1,13 @@
+absent: /sys/kernel/boot_params/data
+absent: /sys/kernel/boot_params/setup_data
+absent: /sys/firmware/memmap
+absent: /proc/device-tree/chosen
+absent: /proc/device-tree/rtas
+absent: /sys/firmware/devicetree/base/chosen
+absent: /sys/firmware/devicetree/base/rtas
+absent: /proc/config.gz
+header: /boot/vmlinuz-5.10.0-10-4kc-malta (4096B prefix; full size 4381040 in sizes.txt)
+absent: /boot/Image-5.10.0-10-4kc-malta
+absent: /boot/vmlinux-5.10.0-10-4kc-malta
+skipped: /proc/kallsyms (use --kallsyms to include)
+unavailable: dmesg

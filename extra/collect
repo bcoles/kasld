@@ -186,16 +186,44 @@ grab_tree() {
   done
 }
 
-# stat_size PATH — record a file's size from metadata, without reading it.
-# kaslr_ceiling only stat()s these multi-MiB images, which needs execute on
-# the directory, not read on the file — so use stat(1), never `wc -c`.
+# Boot images are multi-MiB and usually root-only (0600). The analysis needs
+# only their *size*: kaslr_ceiling/dram_ceiling stat() them (execute on the
+# directory, not read on the file). So we record the size in sizes.txt and do
+# NOT store the file itself — committing a tens-of-MiB sparse placeholder per
+# fixture would materialise as that many zero bytes on checkout. The replay
+# harness reconstructs a sparse file of the recorded size on the fly, into a
+# scratch (gitignored) sysroot.
+#
+# boot_image PATH MODE:
+#   hdr  : also capture a small (<=HDR_BYTES) real header prefix when readable
+#          — kernel image only, whose leading bytes are the EFI/PE boot stub
+#          (not kernel addresses). The harness lays this prefix down and
+#          truncate-extends it, so the exact-size header estimate (arm64/
+#          riscv64 Image header) replays faithfully. Costs a few KiB, and
+#          nothing on the common root-only case.
+#   size : size only. System.map/vmlinux bytes are kernel symbol addresses we
+#          keep out of the corpus, and only their length is ever read.
 SIZES="$OUT/sizes.txt"
 : > "$SIZES"
-stat_size() {
+HDR_BYTES=4096
+boot_image() {
   p=$1
-  [ -e "$p" ] || return 0
-  sz=$(stat -c %s "$p" 2>/dev/null || stat -f %z "$p" 2>/dev/null || echo "?")
+  mode=$2
+  [ -e "$p" ] || { echo "absent: $p" >> "$NOTES"; return 0; }
+  sz=$(stat -c %s "$p" 2>/dev/null || stat -f %z "$p" 2>/dev/null || echo "")
+  [ -n "$sz" ] || { echo "unsized: $p" >> "$NOTES"; return 0; }
   printf '%s %s\n' "$sz" "$p" >> "$SIZES"
+
+  if [ "$mode" = hdr ]; then
+    dst="$OUT/sysroot$p"
+    mkdir -p "$(dirname "$dst")"
+    if dd if="$p" of="$dst" bs="$HDR_BYTES" count=1 2>/dev/null && [ -s "$dst" ]; then
+      echo "header: $p (${HDR_BYTES}B prefix; full size $sz in sizes.txt)" >> "$NOTES"
+    else
+      rm -f "$dst"
+      echo "size-only (header unreadable): $p" >> "$NOTES"
+    fi
+  fi
 }
 
 # ---------------------------------------------------------------------------
@@ -221,13 +249,13 @@ grab_tree /sys/firmware/devicetree/base/chosen
 grab_tree /sys/firmware/devicetree/base/rtas
 [ -e /sys/firmware/efi ] && echo "present: /sys/firmware/efi" >> "$NOTES"
 
-# /boot: copy the config (small), stat the big images.
+# /boot: copy the config (small), mirror the big images as sparse placeholders.
 grab "/boot/config-$REL"
 grab /proc/config.gz
-stat_size "/boot/vmlinuz-$REL"
-stat_size "/boot/vmlinux-$REL"
-stat_size "/boot/Image-$REL"
-stat_size "/boot/System.map-$REL"
+boot_image "/boot/vmlinuz-$REL" hdr
+boot_image "/boot/Image-$REL" hdr
+boot_image "/boot/vmlinux-$REL" size
+boot_image "/boot/System.map-$REL" size
 
 if [ "$WANT_KALLSYMS" -eq 1 ]; then
   grab /proc/kallsyms
@@ -235,11 +263,18 @@ else
   echo "skipped: /proc/kallsyms (use --kallsyms to include)" >> "$NOTES"
 fi
 
-# dmesg stream (parsed by the dmesg_* sources), if permitted.
-if dmesg > "$OUT/dmesg.txt" 2>/dev/null && [ -s "$OUT/dmesg.txt" ]; then
-  :
+# dmesg stream (parsed by the dmesg_* sources), if permitted. klogctl(2) is a
+# syscall and can't be redirected, so for offline replay seed the captured log
+# at /var/log/dmesg inside the sysroot — the fallback path the dmesg readers
+# use when klogctl is denied. A top-level copy is kept for humans.
+# (Caveat: the live reference run reads dmesg via klogctl; its formatting may
+# differ slightly from dmesg(1), so dmesg-derived bounds replay best-effort.)
+DMESG_DST="$OUT/sysroot/var/log/dmesg"
+mkdir -p "$(dirname "$DMESG_DST")"
+if dmesg > "$DMESG_DST" 2>/dev/null && [ -s "$DMESG_DST" ]; then
+  cp "$DMESG_DST" "$OUT/dmesg.txt" 2>/dev/null || true
 else
-  rm -f "$OUT/dmesg.txt"
+  rm -f "$DMESG_DST"
   echo "unavailable: dmesg" >> "$NOTES"
 fi
 
@@ -290,6 +325,7 @@ if [ "$ANON" -eq 1 ]; then
   scrub_secrets "$OUT/sysroot/proc/version"
   scrub_secrets "$OUT/verbose.txt"
   scrub_secrets "$OUT/dmesg.txt"
+  scrub_secrets "$OUT/sysroot/var/log/dmesg"
   echo "anonymized: host identity, CPU brand, UUIDs/MACs, sensitive cmdline values redacted" >> "$NOTES"
 fi
 

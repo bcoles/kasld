@@ -11,10 +11,21 @@
 //                             architectures with configurable vmsplit to cover
 //                             all configs (eg. 0x40000000 on 32-bit x86/arm).
 // - KERNEL_VAS_END:           End of kernel virtual address space.
-// - KERNEL_BASE_MIN:          Minimum plausible kernel text virtual address.
-// - KERNEL_BASE_MAX:          Maximum plausible kernel text virtual address.
+// - KERNEL_TEXT_MIN:          Minimum plausible kernel text virtual address.
+// - KERNEL_TEXT_MAX:          Maximum plausible kernel text virtual address.
 // - MODULES_START:            Start of kernel module virtual address range.
 // - MODULES_END:              End of kernel module virtual address range.
+//
+//   CONTRACT: MODULES_START/END is the *validation UNION* across all
+//   in-scope kernel versions, not the snapshot of one. Narrower runtime
+//   windows are anchored from /proc/modules / /sys/module observations
+//   (engine_sync_authoritative); the static window must not exclude any
+//   address a real kernel might assign to a module — silently rejecting
+//   legitimate module leaks is the failure mode this guards against. A
+//   wider-than-truth window admits some non-module addresses (cosmetic on
+//   MODULES_RELATIVE_TO_TEXT=0 arches where the module band is not used to
+//   bound text); a narrower-than-truth window drops real data.
+//
 // - MODULES_RELATIVE_TO_TEXT: 1 if the module region shifts with KASLR text.
 // - KERNEL_ALIGN:             Kernel text address alignment.
 // - TEXT_OFFSET:              Offset from base address to _stext.
@@ -28,11 +39,28 @@
 //
 // KASLR and address derivation:
 // - KASLR_SUPPORTED:          1 if the architecture has mainline KASLR.
-// - PHYS_VIRT_DECOUPLED:      1 if physical and virtual KASLR are independent
-//                             (phys_to_virt yields directmap, not text addr).
-// - phys_to_virt():           Macro to convert physical to virtual address.
-// - virt_to_phys():           Macro to convert directmap virtual to physical
-//                             address.
+// - DIRECTMAP_STATIC:         1 if PAGE_OFFSET and PHYS_OFFSET are both
+//                             compile-time constants at runtime, so the
+//                             canonical formula
+//                                 phys_to_directmap_virt(p) =
+//                                     p - PHYS_OFFSET + PAGE_OFFSET
+//                             yields the actual runtime directmap virt.
+//                             0 if either offset shifts at boot (KASLR-style
+//                             randomization or runtime patching), in which
+//                             case phys_to_directmap_virt() is undefined and
+//                             callers must rely on engine-resolved values.
+// - TEXT_TRACKS_DIRECTMAP:    1 if kernel text sits at a fixed offset within
+//                             the linear map (text moves with the directmap;
+//                             KASLR cannot slide them independently).
+//                             0 if text relocates independently — phys-DRAM
+//                             ceilings/floors then do not propagate to
+//                             virtual text bounds.
+// - directmap_virt_to_phys(): Macro to convert a directmap virtual to its
+//                             physical page. Same gate as
+//                             phys_to_directmap_virt — both undefined on
+//                             arches where the compile-time formula is
+//                             unsound. Sound only when the input is a
+//                             directmap address; callers must ensure that.
 //
 // The default values should work on most systems, but may need
 // to be tweaked for the target system - especially old kernels,
@@ -91,24 +119,53 @@
  * Sanity check configured values
  * -----------------------------------------------------------------------------
  */
+
+/* DIRECTMAP_STATIC and TEXT_TRACKS_DIRECTMAP must be declared by every arch
+ * header — no defaults. Both are uniform per-arch properties; relying on a
+ * fallback hides the per-arch decision that this header forces every arch
+ * author to make explicitly. */
+#ifndef DIRECTMAP_STATIC
+#error "arch header must define DIRECTMAP_STATIC (0 or 1)"
+#endif
+#ifndef TEXT_TRACKS_DIRECTMAP
+#error "arch header must define TEXT_TRACKS_DIRECTMAP (0 or 1)"
+#endif
+
+/* Canonical directmap projections. Defined once here, gated by the same
+ * predicate on every arch, so a future arch flip is one #define change.
+ * Callers must use `#ifdef phys_to_directmap_virt` (or `#ifdef
+ * directmap_virt_to_phys`) to guard the call — unsound arches don't get the
+ * macro, so forgetting the guard fails to compile rather than silently
+ * emitting a wrong observation.
+ *
+ * Both directions are bijective on a static linear map: phys ↔ directmap
+ * virt = phys + (PAGE_OFFSET - PHYS_OFFSET). The two macros are gated on the
+ * same predicate; either or both can be undefined on randomized arches. */
+#if DIRECTMAP_STATIC
+#define phys_to_directmap_virt(p)                                              \
+  ((unsigned long)((p) - PHYS_OFFSET + PAGE_OFFSET))
+#define directmap_virt_to_phys(v)                                              \
+  ((unsigned long)((v) - PAGE_OFFSET + PHYS_OFFSET))
+#endif
+
 #if KERNEL_VAS_START > KERNEL_VAS_END
 #error "Defined KERNEL_VAS_START is larger than KERNEL_VAS_END"
 #endif
 
-#if KERNEL_VAS_START > KERNEL_BASE_MIN
-#error "Defined KERNEL_VAS_START is larger than KERNEL_BASE_MIN"
+#if KERNEL_VAS_START > KERNEL_TEXT_MIN
+#error "Defined KERNEL_VAS_START is larger than KERNEL_TEXT_MIN"
 #endif
 
-#if KERNEL_BASE_MAX > KERNEL_VAS_END
-#error "Defined KERNEL_BASE_MAX is larger than KERNEL_VAS_END"
+#if KERNEL_TEXT_MAX > KERNEL_VAS_END
+#error "Defined KERNEL_TEXT_MAX is larger than KERNEL_VAS_END"
 #endif
 
-#if KERNEL_TEXT_DEFAULT > KERNEL_BASE_MAX
-#error "Generated KERNEL_TEXT_DEFAULT is larger than KERNEL_BASE_MAX"
+#if KERNEL_TEXT_DEFAULT > KERNEL_TEXT_MAX
+#error "Generated KERNEL_TEXT_DEFAULT is larger than KERNEL_TEXT_MAX"
 #endif
 
-#if KERNEL_TEXT_DEFAULT < KERNEL_BASE_MIN
-#error "Generated KERNEL_TEXT_DEFAULT is smaller than KERNEL_BASE_MIN"
+#if KERNEL_TEXT_DEFAULT < KERNEL_TEXT_MIN
+#error "Generated KERNEL_TEXT_DEFAULT is smaller than KERNEL_TEXT_MIN"
 #endif
 
 #ifdef KERNEL_PHYS_MIN
@@ -118,18 +175,18 @@
 #endif
 
 /* -----------------------------------------------------------------------------
- * KASLR randomization window (KASLR_BASE_MIN/MAX, KASLR_ALIGN)
+ * KASLR randomization window (KASLR_TEXT_MIN/MAX, KASLR_ALIGN)
  *
  * Two tiers of address ranges are used:
  *
- *   KERNEL_BASE_MIN/MAX  — the **validation range**. Any leaked virtual text
+ *   KERNEL_TEXT_MIN/MAX  — the **validation range**. Any leaked virtual text
  *                          address in [MIN, MAX] is considered plausible on
  *                          this architecture. Wide enough to cover all vmsplit
  *                          configurations, non-KASLR defaults, and old kernels.
  *                          Used by validate_for_section() to accept or reject
  *                          a result.
  *
- *   KASLR_BASE_MIN/MAX   — the **randomization window**. The narrower range
+ *   KASLR_TEXT_MIN/MAX   — the **randomization window**. The narrower range
  *                          that the KASLR mechanism actually selects from at
  *                          boot. Used to compute the number of possible KASLR
  *                          slots and entropy bits.
@@ -140,26 +197,32 @@
  * KERNEL_ALIGN, so the defaults below simply alias them. Architecture headers
  * override when the ranges differ:
  *
- *   x86_64:  KERNEL_BASE = [0xffffffff80000000, 0xffffffffc0000000]  (1 GiB)
- *            KASLR_BASE  = [KERNEL_BASE_MIN + 16 MiB, ...]
+ *   x86_64:  KERNEL_TEXT = [0xffffffff80000000, 0xffffffffc0000000]  (1 GiB)
+ *            KASLR_TEXT  = [KERNEL_TEXT_MIN + 16 MiB, ...]
  *            KASLR_ALIGN = KERNEL_ALIGN (2 MiB)
  *
- *   arm64:   KERNEL_BASE = [0xffff800008000000, 0xffffffffff000000]  (~128 TiB)
- *            KASLR_BASE  = [KIMAGE_VADDR + 2^45, + 2^45 + 2^46]     (~64 TiB)
+ *   arm64:   KERNEL_TEXT = [0xffff800008000000, 0xffffffffff000000]  (~128 TiB)
+ *            KASLR_TEXT  = [KIMAGE_VADDR + 2^45, + 2^45 + 2^46]     (~64 TiB)
  *            KASLR_ALIGN = 2 MiB (vs KERNEL_ALIGN = 64 KiB)
  * -----------------------------------------------------------------------------
  */
-#ifndef KASLR_BASE_MIN
-#define KASLR_BASE_MIN KERNEL_BASE_MIN
+#ifndef KASLR_TEXT_MIN
+#define KASLR_TEXT_MIN KERNEL_TEXT_MIN
 #endif
 
-#ifndef KASLR_BASE_MAX
-#define KASLR_BASE_MAX KERNEL_BASE_MAX
+#ifndef KASLR_TEXT_MAX
+#define KASLR_TEXT_MAX KERNEL_TEXT_MAX
 #endif
 
 #ifndef KASLR_ALIGN
 #define KASLR_ALIGN KERNEL_ALIGN
 #endif
+
+/* KASLR_TEXT_MIN_WIDE / KASLR_PHYS_MIN_WIDE — the conservative lower edges
+ * of Q_VIRT_TEXT_BASE / Q_PHYS_TEXT_BASE — are defined in
+ * include/kasld/api.h (where the arch headers are already pulled in), so
+ * that quantities.c (which only includes the engine-side headers) can
+ * use them. */
 
 /* Default physical kernel text address (load address without randomization).
  * Architectures that define KERNEL_PHYS_MIN inherit KERNEL_PHYS_MIN +
@@ -193,144 +256,24 @@
 #define PAGE_OFFSET_RANDOMIZED 0
 #endif
 
+/* PAGE_OFFSET is fixed unless KASLR slides it (only x86_64 RANDOMIZE_MEMORY).
+ * Mirror of the api.h definition for kasld.h-rooted TUs. */
+#ifndef PAGE_OFFSET_FIXED
+#define PAGE_OFFSET_FIXED (!PAGE_OFFSET_RANDOMIZED)
+#endif
+
 /* -----------------------------------------------------------------------------
- * Machine-parseable tagged address output
+ * Tagged-line emission API: see `src/include/kasld/api.h`.
  *
- * Format: "<type> <section> <addr> <region>"          — name unknown / generic
- *      or "<type> <section> <addr> <region>:<name>"   — specific instance known
- *
- *   type:    V = virtual, P = physical, D = default/KASLR-disabled
- *   section: which address space the leak lives in
- *              text, module, directmap, data, dram, mmio, pageoffset, -
- *   addr:    raw leaked address (post-processor handles alignment)
- *   region:  what kind of thing is at the address — see KASLD_REGION_*.
- *              The compact table column.
- *   name:    which specific instance, when known — e.g. a kernel symbol
- *              ("hypercall_page"), an ACPI OEM table ID ("Cpu0Ist"), a
- *              module name ("nf_conntrack"), a PCI BDF ("0000:00:14.0").
- *              Optional. The orchestrator displays it after the region in
- *              the compact column when present.
- *
- * The Region / Name / Section / Origin model:
- *   Region  answers "what kind of thing is at the address?"
- *   Name    answers "which specific instance, when known?"
- *   Section answers "which address space does this address live in?"
- *   Origin  answers "how did we find out?" (component name).
- *
- * Origin is NOT on the wire. The orchestrator already knows which
- * subprocess produced each line and fills `r->origin` from the
- * component's binary name. Components that need their own name for
- * stderr/log messages should use argv[0].
- *
- * Adding a new component should normally require zero new region
- * constants. Subsystem-specific reservations (CBMEM, RMTFS, ION, ...)
- * collapse to a standard kernel concept (RESERVED_MEM, PMEM, ...).
- * Specific identities go in the optional `name` field via
- * kasld_result().
+ * The wire format and the closed `enum kasld_region` vocabulary live
+ * there alongside the typed emitter helpers (`kasld_result_range`,
+ * `kasld_result_sized`, `kasld_result_base`, `kasld_result_top`,
+ * `kasld_result_sample`). Components include `api.h` directly — this
+ * header carries only the build-system glue + the EXPLAIN/META section
+ * macros below.
  * -----------------------------------------------------------------------------
  */
 #include <stdio.h>
-
-#define KASLD_ADDR_PHYS 'P'
-#define KASLD_ADDR_VIRT 'V'
-#define KASLD_ADDR_DEFAULT 'D'
-
-/* Section: which address space the leak lives in. */
-#define KASLD_SECTION_TEXT "text"
-#define KASLD_SECTION_MODULE "module"
-#define KASLD_SECTION_DIRECTMAP "directmap"
-#define KASLD_SECTION_DATA "data" /* kernel .data and .rodata; never .bss */
-#define KASLD_SECTION_BSS "bss"   /* kernel .bss (zero-initialised data) */
-#define KASLD_SECTION_DRAM "dram"
-#define KASLD_SECTION_MMIO "mmio"
-#define KASLD_SECTION_PAGEOFFSET "pageoffset"
-#define KASLD_SECTION_NONE "-"
-
-/* -----------------------------------------------------------------------------
- * Region: what kind of kernel memory is at the address.
- *
- * String constants (not an enum) for grep-ability and forward
- * compatibility with out-of-tree components. Components are expected to
- * use one of the constants below; the orchestrator does not enforce.
- *
- * The vocabulary is closed by *kernel concepts*, not by *the existing
- * component set*: each entry is defined whether or not a leak currently
- * exists for it. Adding a new component should normally require zero
- * new constants.
- *
- * The single sanctioned free-form region is `module:<name>` — module
- * identity is part of the answer. No other free-form regions.
- * -----------------------------------------------------------------------------
- */
-
-/* Physical RAM boundaries (single addresses on a region edge). */
-#define KASLD_REGION_RAM_BASE "ram_base"   /* bottom of usable RAM */
-#define KASLD_REGION_RAM_TOP "ram_top"     /* top of usable RAM */
-#define KASLD_REGION_DMA_TOP "dma_top"     /* DMA zone ceiling */
-#define KASLD_REGION_DMA32_TOP "dma32_top" /* DMA32 zone ceiling */
-
-/* Physical memory regions (semantic kernel memory areas). */
-#define KASLD_REGION_KERNEL_IMAGE                                              \
-  "kernel_image"                     /* vmlinux text/rodata/data/init (phys) */
-#define KASLD_REGION_INITRD "initrd" /* initramfs / initrd */
-#define KASLD_REGION_RESERVED_MEM                                              \
-  "reserved_mem" /* firmware/DT-reserved (CMA, CBMEM, RMTFS, ION, ...) */
-#define KASLD_REGION_SWIOTLB "swiotlb"       /* software IOTLB bounce buffers */
-#define KASLD_REGION_VMCOREINFO "vmcoreinfo" /* vmcoreinfo ELF notes */
-#define KASLD_REGION_CRASHKERNEL "crashkernel" /* crashkernel reservation */
-#define KASLD_REGION_PMEM "pmem" /* persistent memory (PMEM/CXL/NVDIMM) */
-#define KASLD_REGION_ACPI_TABLE                                                \
-  "acpi_table" /* ACPI table (static or dynamic) */
-#define KASLD_REGION_ACPI_NVS                                                  \
-  "acpi_nvs" /* ACPI Non-Volatile Sleeping memory                              \
-              */
-#define KASLD_REGION_EFI_MEMMAP "efi_memmap" /* EFI memory map descriptors */
-#define KASLD_REGION_NUMA_NODE "numa_node"   /* NUMA node descriptor (pgdat) */
-#define KASLD_REGION_MMIO "mmio"             /* generic device MMIO */
-#define KASLD_REGION_PCI_MMIO "pci_mmio"     /* PCI MMIO BAR */
-
-/* Kernel virtual memory regions. */
-#define KASLD_REGION_KERNEL_TEXT "kernel_text" /* kernel .text */
-#define KASLD_REGION_KERNEL_DATA "kernel_data" /* kernel .data / .rodata */
-#define KASLD_REGION_KERNEL_BSS "kernel_bss"   /* kernel .bss */
-#define KASLD_REGION_MODULE                                                    \
-  "module" /* loaded LKM (instance: "module:<name>") */
-#define KASLD_REGION_MODULE_REGION                                             \
-  "module_region" /* bounds of the modules region */
-
-/* Address-space landmarks (fallback when contents unknown). */
-#define KASLD_REGION_DIRECTMAP "directmap" /* arbitrary point in direct-map */
-#define KASLD_REGION_PAGE_OFFSET "page_offset" /* start of direct-map */
-#define KASLD_REGION_VMALLOC "vmalloc"         /* somewhere in vmalloc */
-#define KASLD_REGION_VMEMMAP "vmemmap"         /* somewhere in vmemmap */
-
-/* Sentinel — used by the orchestrator's synthetic "default" / "no-leak"
- * results, never by components. */
-#define KASLD_REGION_NONE "-"
-
-/* Emit a tagged result.
- *
- *   region: what kind of thing — KASLD_REGION_* constant.
- *   name:   the specific instance, when known — e.g. kernel symbol
- *           ("hypercall_page"), ACPI table OEM ID ("Cpu0Ist"), module
- *           name ("nf_conntrack"), PCI BDF ("0000:00:14.0").
- *           Pass NULL or "" when no specific instance is known.
- *
- * The compact table shows "<region>" or "<region>:<name>" when a name
- * is given. The JSON output gets separate "region" and "name" keys.
- * The name may itself contain colons — the orchestrator splits on the
- * first `:` only. The orchestrator fills `origin` (the component name)
- * automatically from the subprocess identity. */
-static inline void kasld_result(char type, const char *section,
-                                unsigned long addr, const char *region,
-                                const char *name) {
-  if (!region)
-    region = "";
-  if (name && *name)
-    printf("%c %s 0x%016lx %s:%s\n", type, section, addr, region, name);
-  else
-    printf("%c %s 0x%016lx %s\n", type, section, addr, region);
-}
 
 /* When stdout is a pipe (as when the orchestrator captures output), glibc
  * switches to fully-buffered mode. stderr remains unbuffered. Since both

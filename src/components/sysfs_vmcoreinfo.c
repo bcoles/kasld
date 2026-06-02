@@ -39,7 +39,6 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld/api.h"
-#include "include/kasld/internal.h"
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -59,7 +58,7 @@ KASLD_META("method:parsed\n"
            "lockdown:integrity\n"
            "config:CONFIG_VMCORE_INFO\n");
 
-unsigned long get_phys_addr_vmcoreinfo(void) {
+static unsigned long get_phys_addr_vmcoreinfo(void) {
   FILE *f;
   const char *path = "/sys/kernel/vmcoreinfo";
   char buf[256];
@@ -68,7 +67,7 @@ unsigned long get_phys_addr_vmcoreinfo(void) {
 
   printf("[.] trying %s ...\n", path);
 
-  f = fopen(path, "r");
+  f = kasld_fopen(path, "r");
   if (f == NULL) {
     perror("[-] fopen");
     return 0;
@@ -92,7 +91,7 @@ unsigned long get_phys_addr_vmcoreinfo(void) {
 
 int main(void) {
   /* Pre-check: can we access /sys/kernel/vmcoreinfo? */
-  if (access("/sys/kernel/vmcoreinfo", R_OK) != 0)
+  if (kasld_access("/sys/kernel/vmcoreinfo", R_OK) != 0)
     return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM
                                                : KASLD_EXIT_UNAVAILABLE;
 
@@ -104,10 +103,10 @@ int main(void) {
   kasld_result_sample(KASLD_TYPE_PHYS, REGION_VMCOREINFO, addr, NULL,
                       CONF_PARSED);
 
-#if !PHYS_VIRT_DECOUPLED
-  unsigned long virt = phys_to_virt(addr);
+#ifdef phys_to_directmap_virt
+  unsigned long virt = phys_to_directmap_virt(addr);
   printf("possible direct-map virtual address: 0x%016lx\n", virt);
-  kasld_result_sample(KASLD_TYPE_VIRT, REGION_VMCOREINFO, virt, NULL,
+  kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, NULL,
                       CONF_PARSED);
 #else
   printf("note: phys and virt KASLR are decoupled on this arch; "

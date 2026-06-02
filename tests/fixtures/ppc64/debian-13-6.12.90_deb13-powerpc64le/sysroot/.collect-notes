@@ -1,0 +1,9 @@
+absent: /sys/kernel/boot_params/data
+absent: /sys/kernel/boot_params/setup_data
+absent: /sys/firmware/memmap
+absent: /proc/config.gz
+absent: /boot/vmlinuz-6.12.90+deb13-powerpc64le
+absent: /boot/Image-6.12.90+deb13-powerpc64le
+skipped: /proc/kallsyms (use --kallsyms to include)
+unavailable: dmesg
+anonymized: host identity, CPU brand, UUIDs/MACs, sensitive cmdline values redacted

@@ -1,110 +1,221 @@
 #!/usr/bin/env bash
 # This file is part of KASLD - https://github.com/bcoles/kasld
 #
-# Compute runtime addresses of kernel symbols by applying a KASLR slide.
+# Apply a KASLR slide to kernel symbols, or derive the slide and text
+# base from a known runtime symbol address. Works against System.map,
+# `/proc/kallsyms` snapshots, and vmlinux ELF (debug-symbols enabled).
 #
-# Takes a runtime text base (from KASLD or manual) and a symbol source
-# (System.map, kallsyms dump, or vmlinux ELF). Finds _text in the
-# symbol file as the default base, computes slide = runtime - default,
-# and adds the slide to requested symbol addresses.
+# Synopsis:
+#   ksymoff [-b BASE | --from NAME=ADDR] -s SOURCE [--slide] [SYMBOL ...]
 #
-# Usage:
-#   ./extra/ksymoff -b 0xffffffff82200000 -s System.map commit_creds
-#   ./extra/ksymoff -b 0xffffffff82200000 -s vmlinux commit_creds
-#   ./build/*/kasld -1 2>/dev/null | ./extra/ksymoff -s System.map commit_creds
-#   ./extra/ksymoff -b 0xffffffff82200000 -s System.map --slide
-#   ./extra/ksymoff -b 0xffffffff82200000 -s System.map
+# Modes
+# -----
+#   Forward    Given the runtime text base, print runtime addresses for
+#              one or more symbols, or for every symbol in the source
+#              when no symbols are listed.
+#
+#   Inverse    Given a known runtime symbol address (--from NAME=ADDR),
+#              derive the runtime text base. Combine with positional
+#              symbol names to chain into forward lookup — one leaked
+#              address yields many.
+#
+#   --slide    Print only the KASLR slide (signed hex). Combines with
+#              either mode.
+#
+# Three ways to supply the runtime text base, picked in priority order:
+#   --from NAME=ADDR    derived from any known runtime symbol address
+#   -b BASE             a hex address (with or without 0x prefix)
+#   stdin               a `kasld -1` line piped in (uses the `text=` field)
+#
+# Usage
+# -----
+#   # Forward: look up specific symbols
+#   ksymoff -b 0xffffffff82200000 -s System.map commit_creds
+#   ksymoff -b 0xffffffff82200000 -s vmlinux commit_creds prepare_kernel_cred
+#   kasld -1 | ksymoff -s System.map commit_creds
+#
+#   # Forward: dump every symbol with the slide applied
+#   ksymoff -b 0xffffffff82200000 -s System.map
+#
+#   # Slide only
+#   ksymoff -b 0xffffffff82200000 -s System.map --slide
+#   ksymoff --from commit_creds=0xffffffff82345678 -s System.map --slide
+#
+#   # Inverse: derive the runtime text base from one known symbol
+#   ksymoff --from commit_creds=0xffffffff82345678 -s System.map
+#
+#   # Inverse + forward: one leak yields many symbols
+#   ksymoff --from commit_creds=0xffffffff82345678 -s vmlinux \
+#           prepare_kernel_cred init_cred modprobe_path
+#
+# Options
+# -------
+#   -b, --base BASE       Runtime text base (hex, with or without 0x).
+#   -s, --symbols FILE    Symbol source: System.map, kallsyms dump, or
+#                         vmlinux ELF. Required.
+#   --from NAME=ADDR      Known runtime symbol address; derives base.
+#                         Mutually exclusive with -b.
+#   --slide               Print only the slide.
+#   -h, --help            Show this help and exit.
+#
+# Symbol file
+# -----------
+# `-s` accepts System.map, a kallsyms dump, or a vmlinux ELF. The
+# file must correspond to the running kernel; a mismatch produces
+# wrong addresses without error.
+#
+# The KASLD `kernel_notes_buildid` component prints the GNU build_id
+# from /sys/kernel/notes. `readelf -n vmlinux` prints the build_id
+# embedded in a vmlinux. Equal values mean the vmlinux matches the
+# running kernel.
+#
+# Sources for a matching vmlinux include: an offline build of the
+# running kernel's source tree; a captured System.map from install
+# time; the distro debug-symbols package when the target runs a
+# stock distro kernel and the analysis host can reach that distro's
+# archive (linux-image-$(uname -r)-dbgsym on Debian/Ubuntu,
+# kernel-debuginfo-$(uname -r) on Fedora/RHEL); `debuginfod-find
+# debuginfo <build_id>` when the kernel falls within a debuginfod
+# server's coverage window.
 #
 # Requires bash for 64-bit hex arithmetic (dash clamps to LONG_MAX).
-# Requires nm(1) only when the symbol source is an ELF binary.
+# Requires nm(1) or readelf(1) only when the symbol source is ELF.
 # ---
 # <bcoles@gmail.com>
 
 set -e
 
-die() { printf '%s\n' "$1" >&2; exit 1; }
+die()  { printf 'ksymoff: %s\n' "$1" >&2; exit 1; }
+have() { command -v "$1" >/dev/null 2>&1; }
 
-# -- Parse args -----------------------------------------------------------
+# -- Argument parsing -----------------------------------------------------
 base="" symfile="" slide_only=0
+from_sym="" from_addr=""
 symbols=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -b|--base)    base="$2"; shift 2 ;;
-    -s|--symbols) symfile="$2"; shift 2 ;;
-    --slide)      slide_only=1; shift ;;
+    -b|--base)
+      [[ $# -ge 2 ]] || die "$1 requires an argument"
+      base="$2"; shift 2 ;;
+    -s|--symbols)
+      [[ $# -ge 2 ]] || die "$1 requires an argument"
+      symfile="$2"; shift 2 ;;
+    --slide)
+      slide_only=1; shift ;;
+    --from)
+      [[ $# -ge 2 ]] || die "$1 requires NAME=ADDR"
+      [[ "$2" == *=* ]] || die "bad --from value: expected NAME=ADDR"
+      from_sym="${2%%=*}"
+      from_addr="${2#*=}"
+      from_addr="${from_addr#0[xX]}"
+      [[ "$from_addr" =~ ^[0-9a-fA-F]+$ ]] \
+        || die "bad --from address: ${2#*=}"
+      [[ "$from_sym" =~ ^[A-Za-z_][A-Za-z0-9_.]*$ ]] \
+        || die "bad --from symbol name: $from_sym"
+      shift 2 ;;
     -h|--help)
-      sed -n '2,/^[^#]/{ /^#/s/^# \?//p; }' "$0" >&2; exit 0 ;;
-    -*)           die "Unknown option: $1" ;;
-    *)            symbols+=("$1"); shift ;;
+      sed -n '2,/^[^#]/{ /^#/s/^# \?//p; }' "$0"
+      exit 0 ;;
+    --)
+      shift
+      while [[ $# -gt 0 ]]; do symbols+=("$1"); shift; done ;;
+    -*)
+      die "unknown option: $1" ;;
+    *)
+      symbols+=("$1"); shift ;;
   esac
 done
 
-[[ -z "$symfile" ]] && die "Usage: ksymoff [-b BASE] -s SYMBOLS [--slide] [SYMBOL ...]"
-[[ -f "$symfile" ]] || die "Symbol file not found: $symfile"
+[[ -n "$symfile" ]] || die "no symbol source (use -s SOURCE)"
+[[ -f "$symfile" ]] || die "symbol file not found: $symfile"
+[[ -n "$from_sym" && -n "$base" ]] \
+  && die "cannot combine -b/--base with --from"
 
-# -- Read base from KASLD --oneline on stdin if not given -----------------
-if [[ -z "$base" ]]; then
-  [[ -t 0 ]] && die "No --base given and stdin is a terminal. Pipe kasld -1 or use -b."
-  read -r line
-  [[ "$line" =~ text=0x([0-9a-fA-F]+) ]] || die "No text=0x... found in stdin"
-  base="0x${BASH_REMATCH[1]}"
-fi
-
-base_hex="${base#0[xX]}"
-
-# -- If ELF, extract symbols via nm --------------------------------------
-if file "$symfile" | grep -q ELF; then
+# -- ELF symbol extraction ------------------------------------------------
+# Normalise an ELF symbol source into `addr type name` format. Tries
+# nm (.symtab), nm -D (.dynsym), then readelf -sW. Fails if all three
+# yield empty output (a stripped binary without a usable symbol table).
+if file "$symfile" 2>/dev/null | grep -q ELF; then
   tmp=$(mktemp)
   trap 'rm -f "$tmp"' EXIT
-  # Try nm first (reads .symtab), then nm -D (.dynsym), then readelf
-  if command -v nm >/dev/null && nm "$symfile" 2>/dev/null > "$tmp" && [[ -s "$tmp" ]]; then
-    :
-  elif command -v nm >/dev/null && nm -D "$symfile" 2>/dev/null > "$tmp" && [[ -s "$tmp" ]]; then
-    :
-  elif command -v readelf >/dev/null; then
-    # readelf -sW output: "Num: Value Size Type Bind Vis Ndx Name"
-    readelf -sW "$symfile" 2>/dev/null | awk 'NF>=8 && $2 ~ /^[0-9a-fA-F]+$/ {
-      printf "%s %s %s\n", $2, substr($4,1,1), $8
-    }' > "$tmp"
-    [[ -s "$tmp" ]] || die "ELF has no symbols. Install debug symbols (e.g. linux-image-\$(uname -r)-dbgsym)"
+  if   have nm      && nm    "$symfile" 2>/dev/null > "$tmp" && [[ -s "$tmp" ]]; then :
+  elif have nm      && nm -D "$symfile" 2>/dev/null > "$tmp" && [[ -s "$tmp" ]]; then :
+  elif have readelf && readelf -sW "$symfile" 2>/dev/null \
+         | awk 'NF>=8 && $2 ~ /^[0-9a-fA-F]+$/ { printf "%s %s %s\n", $2, substr($4,1,1), $8 }' \
+         > "$tmp" && [[ -s "$tmp" ]]; then :
   else
-    die "nm(1) or readelf(1) required for ELF symbol extraction"
+    die "no usable symbols in ELF (stripped binary? install matching debug symbols)"
   fi
   symfile="$tmp"
 fi
 
-# -- Find default base (_text / _stext / startup_64) ---------------------
-default_hex=$(awk '/ [Tt] _text$/{print $1; exit}' "$symfile")
-[[ -z "$default_hex" ]] && default_hex=$(awk '/ [Tt] _stext$/{print $1; exit}' "$symfile")
-[[ -z "$default_hex" ]] && default_hex=$(awk '/ [Tt] startup_64$/{print $1; exit}' "$symfile")
-[[ -z "$default_hex" ]] && die "Cannot find _text, _stext, or startup_64 in symbol file"
+# -- Locate the default text base ----------------------------------------
+# _text is the canonical entry symbol on every architecture; _stext and
+# startup_64 are fallbacks for unusual sources (older kallsyms with
+# section symbols stripped, x86_64-only dumps, etc.).
+default_hex=""
+for sym in _text _stext startup_64; do
+  default_hex=$(awk -v s="$sym" '$2 ~ /^[Tt]$/ && $3 == s { print $1; exit }' "$symfile")
+  [[ -n "$default_hex" ]] && break
+done
+[[ -n "$default_hex" ]] || die "no _text / _stext / startup_64 in symbol source"
 
-# -- Compute slide --------------------------------------------------------
-slide=$(( 0x$base_hex - 0x$default_hex ))
+# -- Resolve runtime text base and KASLR slide ---------------------------
+if [[ -n "$from_sym" ]]; then
+  # Inverse: slide = runtime_addr − default_addr_of(NAME)
+  sym_default=$(awk -v s="$from_sym" '$3 == s { print $1; exit }' "$symfile")
+  [[ -n "$sym_default" ]] || die "symbol not in source: $from_sym"
+  slide=$(( 0x$from_addr - 0x$sym_default ))
+  base_hex=$(printf '%x' $(( 0x$default_hex + slide )))
+else
+  # Forward: base from -b or stdin; slide = base − default _text
+  if [[ -z "$base" ]]; then
+    [[ ! -t 0 ]] || die "no runtime base supplied — use -b BASE, --from NAME=ADDR, or pipe \`kasld -1\` on stdin"
+    if ! IFS= read -r line; then
+      die "stdin: no input (expected \`kasld -1\` output)"
+    fi
+    # Anchor on whitespace so we match the virtual `text=` field and not
+    # the substring inside `ptext=` (the physical base — wrong slide).
+    if [[ "$line" =~ [[:space:]]text=0x([0-9a-fA-F]+) ]]; then
+      base="0x${BASH_REMATCH[1]}"
+    else
+      die "no virtual \`text=0x...\` field in stdin (ptext alone cannot derive the virt slide)"
+    fi
+  fi
+  base_hex="${base#0[xX]}"
+  [[ "$base_hex" =~ ^[0-9a-fA-F]+$ ]] || die "bad runtime base: $base"
+  slide=$(( 0x$base_hex - 0x$default_hex ))
+fi
 
-if [[ "$slide_only" -eq 1 ]]; then
-  (( slide >= 0 )) && printf '+0x%x\n' "$slide" || printf -- '-0x%x\n' $(( -slide ))
+# -- Output ---------------------------------------------------------------
+if (( slide_only )); then
+  (( slide >= 0 )) && printf '+0x%x\n' "$slide" \
+                   || printf -- '-0x%x\n' $(( -slide ))
   exit 0
 fi
 
-# -- Look up symbols and apply slide -------------------------------------
-if [[ ${#symbols[@]} -gt 0 ]]; then
+# --from with no positional symbols: print just the derived base.
+if [[ -n "$from_sym" && ${#symbols[@]} -eq 0 ]]; then
+  printf '0x%s\n' "$base_hex"
+  exit 0
+fi
+
+# Look up specific symbols, or dump every symbol with the slide applied.
+if (( ${#symbols[@]} > 0 )); then
   for sym in "${symbols[@]}"; do
     line=$(awk -v s="$sym" '$3 == s { print; exit }' "$symfile")
     if [[ -z "$line" ]]; then
       printf '# not found: %s\n' "$sym" >&2
       continue
     fi
-    addr_hex=$(awk '{print $1}' <<< "$line")
-    type=$(awk '{print $2}' <<< "$line")
-    printf '%016x %s %s\n' $(( 0x$addr_hex + slide )) "$type" "$sym"
+    read -r addr_hex sym_type _ <<< "$line"
+    printf '%016x %s %s\n' $(( 0x$addr_hex + slide )) "$sym_type" "$sym"
   done
 else
-  # Dump all symbols with slide applied
-  while IFS=' ' read -r addr type name _; do
+  while IFS=' ' read -r addr sym_type name _; do
     [[ "$addr" =~ ^[0-9a-fA-F]+$ ]] || continue
     [[ -n "$name" ]] || continue
-    printf '%016x %s %s\n' $(( 0x$addr + slide )) "$type" "$name"
+    printf '%016x %s %s\n' $(( 0x$addr + slide )) "$sym_type" "$name"
   done < "$symfile"
 fi

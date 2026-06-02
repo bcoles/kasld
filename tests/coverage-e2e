@@ -1,0 +1,126 @@
+#!/ bin / sh
+#This file is part of KASLD - https: // github.com/bcoles/kasld
+#
+#coverage - e2e — end - to - end line coverage of the REAL kasld binary.
+#
+#Builds the actual orchestrator + render + region_info + engine + rules with
+#-- coverage and NO - DKASLD_TESTING, so main(), the engine bridge
+#(engine_build_evidence / engine_resolve / engine_sync_authoritative), and the
+#renderers are all compiled in.Runs the binary on the live host and over the
+#x86(x86_64 + i686) replay fixtures natively, then gcov's the tree. This is the
+#only harness that exercises render.c and the orchestrator's engine glue,
+#which the host unit tests(tests / coverage) cannot reach.
+#
+#x86_64 host only : the instrumented binary runs natively(no qemu / no cross
+#gcov - version matching).Needs the normal components built(kasld execs them);
+#builds them via make if absent.Artifacts stay under build / coverage - e2e /.
+#
+#Usage : tests / coverage - e2e(or : make coverage - e2e)
+#Env : CC(default cc), GCOV(default gcov), QEMU not used(native run)
+#-- -
+#<bcoles @gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+CC=${CC:-cc}
+GCOV=${GCOV:-gcov}
+E2E=$ROOT/build/coverage-e2e
+CFLAGS="-std=c99 -g -O0 --coverage -DHAVE_PTHREAD -I$ROOT/src ${CFLAGS_EXTRA:-}"
+FIX=$ROOT/tests/fixtures
+
+case "$(uname -m)" in
+  x86_64|amd64) ;;
+  *) echo "coverage-e2e: host is $(uname -m), not x86_64 — skipping (the real" >&2
+     echo "              binary must run natively; cross would need matching gcov)." >&2
+     exit 0 ;;
+esac
+$GCOV --version >/dev/null 2>&1 || { echo "coverage-e2e: '$GCOV' not found" >&2; exit 1; }
+
+#Components kasld execs during collection.Use the normal(non - instrumented)
+#build; build it if missing.Their own coverage is not measured here — the goal
+#is the orchestrator / engine / render glue, which runs in the kasld process.
+COMP=$(echo "$ROOT"/build/x86_64-*/components | awk '{print $1}')
+if [ ! -d "$COMP" ]; then
+  echo "coverage-e2e: building components (make) ..."
+  make -C "$ROOT" >/dev/null 2>&1 || { echo "coverage-e2e: make failed" >&2; exit 1; }
+  COMP=$(echo "$ROOT"/build/x86_64-*/components | awk '{print $1}')
+fi
+
+rm -rf "$E2E"; mkdir -p "$E2E"
+
+#Instrumented objects : exactly what links into kasld(no KASLD_TESTING).
+OBJS=""
+for s in $ROOT/src/orchestrator.c $ROOT/src/render.c $ROOT/src/region_info.c \
+         $ROOT/src/estimate.c $ROOT/src/quantities.c $ROOT/src/evidence.c \
+         $ROOT/src/engine.c $ROOT/src/engine_rules.c $(echo "$ROOT"/src/rules/*.c); do
+  o="$E2E/$(basename "${s%.c}").o"
+  $CC $CFLAGS -c "$s" -o "$o" || { echo "coverage-e2e: compile failed: $s" >&2; exit 1; }
+  OBJS="$OBJS $o"
+done
+$CC $CFLAGS $OBJS -lpthread -o "$E2E/kasld" \
+  || { echo "coverage-e2e: link failed" >&2; exit 1; }
+
+runs=0
+# (a) Live host: real collection + engine bridge over the running system.
+if KASLD_COMPONENT_DIR="$COMP" "$E2E/kasld" -v >/dev/null 2>&1; then runs=$((runs+1)); fi
+
+# (b) x86 fixtures (x86_64 + i686), reconstructed like tests/replay and run natively. These
+#     drive deterministic file-fact paths (config, boot_params, iomem, ...).
+meta() { grep -E "^$2:" "$1/meta.txt" 2>/dev/null | head -1 | sed -E 's/^[^:]*:[[:space:]]*//'; }
+for d in "$FIX"/x86_64/*/ "$FIX"/i686/*/; do
+  [ -d "$d" ] && [ -f "$d/meta.txt" ] && [ -f "$d/sizes.txt" ] || continue
+  case "$(meta "$d" uname_m_raw)" in x86_64|i686|i386) ;; *) continue ;; esac
+  rel=$(meta "$d" kernel_release)
+  sc=$(mktemp -d); cp -a "$d/sysroot" "$sc/r"
+  while read -r sz path; do
+    [ -z "$sz" ] || [ -z "$path" ] && continue
+    mkdir -p "$sc/r$(dirname "$path")" 2>/dev/null; truncate -s "$sz" "$sc/r$path" 2>/dev/null
+  done < "$d/sizes.txt"
+#Exercise EVERY renderer so render.c is covered end - to - end, not just the
+#default text path : -v verbose text, -j JSON, -1 oneline, -m markdown,
+#- c forced color(ANSI paths), and the - H hardening add - on over both text
+#and JSON.Each is a distinct family of render.c branches.
+  for mode in "-v" "-j" "-1" "-m" "-c" "-H" "-j -H"; do
+    KASLD_UNAME_RELEASE="$rel" KASLD_SYSROOT="$sc/r" KASLD_COMPONENT_DIR="$COMP" \
+      "$E2E/kasld" $mode >/dev/null 2>&1 && runs=$((runs+1))
+  done
+  rm -rf "$sc"
+done
+
+echo "----------------------------------------------------------------------"
+echo "coverage-e2e: $runs runs (1 live + x86 fixtures), real binary"
+( cd "$E2E" && $GCOV -n *.gcno 2>/dev/null ) | awk '
+  /^File / { f=$0; sub(/^File \047/,"",f); sub(/\047.*/,"",f);
+             keep = (f ~ /(^|\/)src\/.*\.c$/) }
+  /^Lines executed:
+/ {
+  if (!keep)
+    next;
+  keep = 0;
+  line = $0;
+  sub(/ ^Lines executed : /, "", line);
+  pct = line + 0;
+  n = line;
+  sub(/.*of /, "", n);
+  tot = n + 0;
+  bn = f; sub(/.*\//,"",bn);
+    if (tot>0) {
+    printf "  %-34s %6.2f%%  of %4d lines\n", bn, pct, tot;
+    ex += pct * tot / 100;
+    all += tot }
+}
+END {
+  if (all > 0)
+    printf "  %-34s %6.2f%%  of %4d lines\n", "TOTAL (end-to-end binary)",
+        100 * ex / all, all
+}
+' echo "---------------------------------------------------------------------" "-" echo "coverage-e2e: built with $CC, reported via $GCOV; artifacts "
+                                                                                        "in $E2E" if command -
+            v lcov >
+        / dev / null 2 > &1 &&
+    command - v genhtml > / dev / null 2 > &1;
+then lcov-- quiet-- capture-- directory "$E2E" --output - file
+        "$E2E/coverage.info" 2 >
+    / dev / null &&genhtml-- quiet-- output - directory "$E2E/html"
+                                                        "$E2E/coverage.info" 2 >
+    / dev / null &&echo "coverage-e2e: HTML report -> $E2E/html/index.html" fi

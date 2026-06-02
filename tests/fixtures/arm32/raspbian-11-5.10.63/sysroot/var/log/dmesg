@@ -1,0 +1,272 @@
+[    0.000000] Booting Linux on physical CPU 0x0
+[    0.000000] Linux version 5.10.63 (jmh205@jmh205pc) (arm-linux-gnueabihf-gcc (Ubuntu 9.3.0-17ubuntu1~20.04) 9.3.0, GNU ld (GNU Binutils for Ubuntu) 2.34) #1 Thu Dec 16 11:31:22 GMT 2021
+[    0.000000] CPU: ARMv6-compatible processor [410fb767] revision 7 (ARMv7), cr=00c5387d
+[    0.000000] CPU: VIPT aliasing data cache, unknown instruction cache
+[    0.000000] OF: fdt: Machine model: ARM Versatile PB
+[    0.000000] Memory policy: Data cache writeback
+[    0.000000] Zone ranges:
+[    0.000000]   Normal   [mem 0x0000000000000000-0x000000000fffffff]
+[    0.000000] Movable zone start for each node
+[    0.000000] Early memory node ranges
+[    0.000000]   node   0: [mem 0x0000000000000000-0x000000000fffffff]
+[    0.000000] Initmem setup node 0 [mem 0x0000000000000000-0x000000000fffffff]
+[    0.000000] On node 0 totalpages: 65536
+[    0.000000]   Normal zone: 576 pages used for memmap
+[    0.000000]   Normal zone: 0 pages reserved
+[    0.000000]   Normal zone: 65536 pages, LIFO batch:15
+[    0.000000] pcpu-alloc: s0 r0 d32768 u32768 alloc=1*32768
+[    0.000000] pcpu-alloc: [0] 0 
+[    0.000000] Built 1 zonelists, mobility grouping on.  Total pages: 64960
+[    0.000000] Kernel command line: root=[redacted] panic=1
+[    0.000000] Dentry cache hash table entries: 32768 (order: 5, 131072 bytes, linear)
+[    0.000000] Inode-cache hash table entries: 16384 (order: 4, 65536 bytes, linear)
+[    0.000000] mem auto-init: stack:off, heap alloc:off, heap free:off
+[    0.000000] Memory: 250548K/262144K available (6500K kernel code, 273K rwdata, 1608K rodata, 220K init, 171K bss, 11596K reserved, 0K cma-reserved)
+[    0.000000] NR_IRQS: 16, nr_irqs: 16, preallocated irqs: 16
+[    0.000000] VIC @(ptrval): id 0x00041190, vendor 0x41
+[    0.000000] FPGA IRQ chip 0 "interrupt-controller" @ (ptrval), 20 irqs, parent IRQ: 47
+[    0.000000] random: get_random_bytes called from start_kernel+0x2ac/0x4cc with crng_init=0
+[    0.000000] clocksource: arm,sp804: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 1911260446275 ns
+[    0.000140] sched_clock: 32 bits at 1000kHz, resolution 1000ns, wraps every 2147483647500ns
+[    0.000495] Failed to initialize '/amba/timer@101e3000': -22
+[    0.000818] sched_clock: 32 bits at 24MHz, resolution 41ns, wraps every 89478484971ns
+[    0.003654] Console: colour dummy device 80x30
+[    0.004530] printk: console [tty0] enabled
+[    0.005230] Calibrating delay loop... 1311.53 BogoMIPS (lpj=6557696)
+[    0.248938] pid_max: default: 32768 minimum: 301
+[    0.250231] Mount-cache hash table entries: 1024 (order: 0, 4096 bytes, linear)
+[    0.250299] Mountpoint-cache hash table entries: 1024 (order: 0, 4096 bytes, linear)
+[    0.260874] cgroup: Disabling memory control group subsystem
+[    0.262237] CPU: Testing write buffer coherency: ok
+[    0.270731] Setting up static identity map for 0x8220 - 0x827c
+[    0.276164] devtmpfs: initialized
+[    0.284287] VFP support v0.3: implementor 41 architecture 1 part 20 variant b rev 5
+[    0.296176] clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 19112604462750000 ns
+[    0.296652] futex hash table entries: 256 (order: -1, 3072 bytes, linear)
+[    0.308348] NET: Registered protocol family 16
+[    0.313976] DMA: preallocated 256 KiB pool for atomic coherent allocations
+[    0.332693] OF: amba_device_add() failed (-19) for /amba/smc@10100000
+[    0.333048] OF: amba_device_add() failed (-19) for /amba/mpmc@10110000
+[    0.333581] OF: amba_device_add() failed (-19) for /amba/sctl@101e0000
+[    0.333742] OF: amba_device_add() failed (-19) for /amba/watchdog@101e1000
+[    0.341452] OF: amba_device_add() failed (-19) for /amba/sci@101f0000
+[    0.341757] OF: amba_device_add() failed (-19) for /amba/spi@101f4000
+[    0.344368] OF: amba_device_add() failed (-19) for /amba/fpga/sci@a000
+[    0.346647] Serial: AMBA PL011 UART driver
+[    0.349890] 101f1000.uart: ttyAMA0 at MMIO 0x101f1000 (irq = 28, base_baud = 0) is a PL011 rev1
+[    0.369644] printk: console [ttyAMA0] enabled
+[    0.378507] 101f2000.uart: ttyAMA1 at MMIO 0x101f2000 (irq = 29, base_baud = 0) is a PL011 rev1
+[    0.381175] 101f3000.uart: ttyAMA2 at MMIO 0x101f3000 (irq = 30, base_baud = 0) is a PL011 rev1
+[    0.382304] 10009000.uart: ttyAMA3 at MMIO 0x10009000 (irq = 54, base_baud = 0) is a PL011 rev1
+[    0.411777] vgaarb: loaded
+[    0.413205] SCSI subsystem initialized
+[    0.414225] libata version 3.00 loaded.
+[    0.429061] clocksource: Switched to clocksource arm,sp804
+[    0.450324] NET: Registered protocol family 2
+[    0.452155] IP idents hash table entries: 4096 (order: 3, 32768 bytes, linear)
+[    0.456818] tcp_listen_portaddr_hash hash table entries: 512 (order: 0, 4096 bytes, linear)
+[    0.457603] TCP established hash table entries: 2048 (order: 1, 8192 bytes, linear)
+[    0.458262] TCP bind hash table entries: 2048 (order: 1, 8192 bytes, linear)
+[    0.459442] TCP: Hash tables configured (established 2048 bind 2048)
+[    0.461272] UDP hash table entries: 256 (order: 0, 4096 bytes, linear)
+[    0.461864] UDP-Lite hash table entries: 256 (order: 0, 4096 bytes, linear)
+[    0.463612] NET: Registered protocol family 1
+[    0.466439] RPC: Registered named UNIX socket transport module.
+[    0.467066] RPC: Registered udp transport module.
+[    0.467339] RPC: Registered tcp transport module.
+[    0.467610] RPC: Registered tcp NFSv4.1 backchannel transport module.
+[    0.468149] PCI: CLS 0 bytes, default 32
+[    0.473702] NetWinder Floating Point Emulator V0.97 (double precision)
+[    0.477742] workingset: timestamp_bits=14 max_order=16 bucket_order=2
+[    0.482944] Installing knfsd (copyright (C) 1996 okir@monad.swb.de).
+[    0.484311] jffs2: version 2.2. (NAND) © 2001-2006 Red Hat, Inc.
+[    0.486250] romfs: ROMFS MTD (C) 2007 Red Hat, Inc.
+[    0.486760] 9p: Installing v9fs 9p2000 file system support
+[    0.489264] Block layer SCSI generic (bsg) driver version 0.4 loaded (major 252)
+[    0.489959] io scheduler mq-deadline registered
+[    0.490308] io scheduler kyber registered
+[    0.494150] pl061_gpio 101e4000.gpio: PL061 GPIO chip registered
+[    0.495361] pl061_gpio 101e5000.gpio: PL061 GPIO chip registered
+[    0.496216] pl061_gpio 101e6000.gpio: PL061 GPIO chip registered
+[    0.497013] pl061_gpio 101e7000.gpio: PL061 GPIO chip registered
+[    0.497986] versatile-pci 10001000.pci: host bridge /amba/pci@10001000 ranges:
+[    0.499704] versatile-pci 10001000.pci:       IO 0x0043000000..0x004300ffff -> 0x0000000000
+[    0.500941] versatile-pci 10001000.pci:      MEM 0x0050000000..0x005fffffff -> 0x0050000000
+[    0.501873] versatile-pci 10001000.pci:      MEM 0x0060000000..0x006fffffff -> 0x0060000000
+[    0.504822] versatile-pci 10001000.pci: PCI core found (slot 11)
+[    0.506808] versatile-pci 10001000.pci: PCI host bridge to bus 0000:00
+[    0.507499] pci_bus 0000:00: root bus resource [bus 00-ff]
+[    0.507965] pci_bus 0000:00: root bus resource [io  0x0000-0xffff]
+[    0.508349] pci_bus 0000:00: root bus resource [mem 0x50000000-0x5fffffff]
+[    0.509569] pci_bus 0000:00: root bus resource [mem 0x60000000-0x6fffffff pref]
+[    0.511836] pci 0000:00:0c.0: [1000:0012] type 00 class 0x010000
+[    0.512773] pci 0000:00:0c.0: reg 0x10: [io  0x0000-0x00ff]
+[    0.513264] pci 0000:00:0c.0: reg 0x14: [mem 0x00000000-0x000003ff]
+[    0.513651] pci 0000:00:0c.0: reg 0x18: [mem 0x00000000-0x00001fff]
+[    0.515814] pci 0000:00:0d.0: [1af4:1001] type 00 class 0x010000
+[    0.516366] pci 0000:00:0d.0: reg 0x10: [io  0x0000-0x007f]
+[    0.517823] PCI: bus0: Fast back to back transfers disabled
+[    0.519569] pci 0000:00:0c.0: BAR 2: assigned [mem 0x50000000-0x50001fff]
+[    0.520480] pci 0000:00:0c.0: BAR 1: assigned [mem 0x50002000-0x500023ff]
+[    0.521137] pci 0000:00:0c.0: BAR 0: assigned [io  0x1000-0x10ff]
+[    0.521744] pci 0000:00:0d.0: BAR 0: assigned [io  0x1400-0x147f]
+[    0.525246] virtio-pci 0000:00:0d.0: enabling device (0100 -> 0101)
+[    0.526621] virtio-pci 0000:00:0d.0: virtio_pci: leaving for legacy driver
+[    0.537919] versatile-tft-panel 10000000.sysreg:display@0: no panel detected
+[    0.541989] drm-clcd-pl111 10120000.display: set up callbacks for Versatile PL110
+[    0.578593] brd: module loaded
+[    0.592928] loop: module loaded
+[    0.601326] virtio_blk virtio0: [vda] 4194304 512-byte logical blocks (2.15 GB/2.00 GiB)
+[    0.602712] vda: detected capacity change from 0 to 2147483648
+[    0.614465]  vda: vda1 vda2
+[    0.617256] sym53c8xx 0000:00:0c.0: enabling device (0100 -> 0103)
+[    0.620688] sym0: <895a> rev 0x0 at pci 0000:00:0c.0 irq 66
+[    0.626952] sym0: No NVRAM, ID 7, Fast-40, LVD, parity checking
+[    0.637615] sym0: SCSI BUS has been reset.
+[    0.638455] scsi host0: sym-2.2.3
+[    3.732480] scsi 0:0:2:0: CD-ROM            QEMU     QEMU CD-ROM      2.5+ PQ: 0 ANSI: 5
+[    3.733577] scsi target0:0:2: tagged command queuing enabled, command queue depth 16.
+[    3.734843] scsi target0:0:2: Beginning Domain Validation
+[    3.740253] scsi target0:0:2: Domain Validation skipping write tests
+[    3.741120] scsi target0:0:2: Ending Domain Validation
+[    3.758206] random: fast init done
+[    3.762633] sr 0:0:2:0: Power-on or device reset occurred
+[    3.764846] sr 0:0:2:0: [sr0] scsi3-mmc drive: 16x/50x cd/rw xa/form2 cdda tray
+[    3.765651] cdrom: Uniform CD-ROM driver Revision: 3.20
+[    3.775244] sr 0:0:2:0: Attached scsi CD-ROM sr0
+[    3.780647] physmap-flash 34000000.flash: versatile/realview flash protection
+[    3.789013] physmap-flash 34000000.flash: physmap platform flash device: [mem 0x34000000-0x37ffffff]
+[    3.802049] 34000000.flash: Found 1 x32 devices at 0x0 in 32-bit bank. Manufacturer ID 0x000000 Chip ID 0x000000
+[    3.803632] Intel/Sharp Extended Query Table at 0x0031
+[    3.805291] Using buffer write method
+[    3.806296] erase region 0: offset=0x0,size=0x40000,blocks=256
+[    3.831483] tun: Universal TUN/TAP device driver, 1.6
+[    3.835400] smc91x.c: v1.1, sep 22 2004 by Nicolas Pitre <nico@fluxnic.net>
+[    3.855791] smc91x 10010000.net eth0: SMC91C11xFD (rev 1) at (ptrval) IRQ 41
+
+[    3.857141] smc91x 10010000.net eth0: Ethernet addr: [mac]
+[    3.889442] rtc-ds1307 0-0068: registered as rtc0
+[    3.902922] rtc-ds1307 0-0068: setting system clock to 2026-05-31T13:23:56 UTC (1780233836)
+[    3.904637] versatile reboot driver registered
+[    3.907301] device-mapper: ioctl: 4.43.0-ioctl (2020-10-01) initialised: dm-devel@redhat.com
+[    3.913944] mmci-pl18x fpga:05: mmc0: PL181 manf 41 rev0 at 0x10005000 irq 59,60 (pio)
+[    3.949217] mmci-pl18x fpga:0b: mmc1: PL181 manf 41 rev0 at 0x1000b000 irq 49,50 (pio)
+[    3.981684] leds-syscon 10000000.core-module:led@08.0: registered LED (null)
+[    3.983160] leds-syscon 10000000.core-module:led@08.1: registered LED (null)
+[    3.983960] leds-syscon 10000000.core-module:led@08.2: registered LED (null)
+[    3.984815] leds-syscon 10000000.core-module:led@08.3: registered LED (null)
+[    3.985389] leds-syscon 10000000.core-module:led@08.4: registered LED (null)
+[    3.986031] leds-syscon 10000000.core-module:led@08.5: registered LED (null)
+[    3.986867] leds-syscon 10000000.core-module:led@08.6: registered LED (null)
+[    3.987473] leds-syscon 10000000.core-module:led@08.7: registered LED (null)
+[    3.990103] ledtrig-cpu: registered to indicate activity on CPUs
+[    3.998496] IPVS: Registered protocols (TCP, UDP, SCTP, AH, ESP)
+[    4.003551] input: AT Raw Set 2 keyboard as /devices/platform/amba/amba:fpga/10006000.kmi/serio0/input/input0
+[    4.014412] IPVS: Connection hash table configured (size=4096, memory=32Kbytes)
+[    4.016712] IPVS: ipvs loaded.
+[    4.017103] IPVS: [rr] scheduler registered.
+[    4.017428] IPVS: [wrr] scheduler registered.
+[    4.017671] IPVS: [lc] scheduler registered.
+[    4.017901] IPVS: [wlc] scheduler registered.
+[    4.018144] IPVS: [fo] scheduler registered.
+[    4.018374] IPVS: [ovf] scheduler registered.
+[    4.019161] IPVS: [lblc] scheduler registered.
+[    4.019587] IPVS: [lblcr] scheduler registered.
+[    4.019778] IPVS: [dh] scheduler registered.
+[    4.020053] IPVS: [sh] scheduler registered.
+[    4.020284] IPVS: [mh] scheduler registered.
+[    4.020587] IPVS: [sed] scheduler registered.
+[    4.020858] IPVS: [nq] scheduler registered.
+[    4.021447] ipip: IPv4 and MPLS over IPv4 tunneling driver
+[    4.028637] ipt_CLUSTERIP: ClusterIP Version 0.8 loaded successfully
+[    4.030625] NET: Registered protocol family 17
+[    4.031873] Bridge firewalling registered
+[    4.032202] 8021q: 802.1Q VLAN Support v1.8
+[    4.033255] 9pnet: Installing 9P2000 support
+[    4.042216] drm-clcd-pl111 10120000.display: set up callbacks for Versatile PL110
+[    4.045367] drm-clcd-pl111 10120000.display: set up callbacks for Versatile PL110
+[    4.052695] uart-pl011 101f1000.uart: no DMA platform data
+[    4.642267] input: ImExPS/2 Generic Explorer Mouse as /devices/platform/amba/amba:fpga/10007000.kmi/serio1/input/input2
+[    4.652836] drm-clcd-pl111 10120000.display: set up callbacks for Versatile PL110
+[    4.718039] EXT4-fs (vda2): mounted filesystem with ordered data mode. Opts: (null)
+[    4.720739] VFS: Mounted root (ext4 filesystem) readonly on device 254:2.
+[    4.735115] devtmpfs: mounted
+[    4.758438] Freeing unused kernel memory: 220K
+[    4.760226] Kernel memory protection not selected by kernel config.
+[    4.762257] Run /sbin/init as init process
+[    4.762546]   with arguments:
+[    4.762597]     /sbin/init
+[    4.762621]   with environment:
+[    4.762639]     HOME=/
+[    4.762653]     TERM=linux
+[    5.500656] systemd[1]: Failed to look up module alias 'autofs4': Function not implemented
+[    5.591711] systemd[1]: systemd 247.3-7+rpi1+deb11u1 running in system mode. (+PAM +AUDIT +SELINUX +IMA +APPARMOR +SMACK +SYSVINIT +UTMP +LIBCRYPTSETUP +GCRYPT +GNUTLS +ACL +XZ +LZ4 +ZSTD +SECCOMP +BLKID +ELFUTILS +KMOD +IDN2 -IDN +PCRE2 default-hierarchy=unified)
+[    5.601786] systemd[1]: Detected architecture arm.
+[    5.633013] systemd[1]: Set hostname to <HOST>.
+[    8.870750] systemd[1]: Queued start job for default target Graphical Interface.
+[    8.881570] random: systemd: uninitialized urandom read (16 bytes read)
+[    8.884206] systemd[1]: system-modprobe.slice: unit configures an IP firewall, but the local system does not support BPF/cgroup firewalling.
+[    8.885284] systemd[1]: (This warning is only shown for the first unit using IP firewalling.)
+[    8.911700] systemd[1]: Created slice system-modprobe.slice.
+[    8.920661] random: systemd: uninitialized urandom read (16 bytes read)
+[    8.926963] systemd[1]: Created slice system-serial\x2dgetty.slice.
+[    8.930956] random: systemd: uninitialized urandom read (16 bytes read)
+[    8.936025] systemd[1]: Created slice system-systemd\x2dfsck.slice.
+[    8.943682] systemd[1]: Created slice User and Session Slice.
+[    8.951186] systemd[1]: Started Dispatch Password Requests to Console Directory Watch.
+[    8.958115] systemd[1]: Started Forward Password Requests to Wall Directory Watch.
+[    8.963006] systemd[1]: Condition check resulted in Arbitrary Executable File Formats File System Automount Point being skipped.
+[    8.966267] systemd[1]: Reached target Local Encrypted Volumes.
+[    8.972636] systemd[1]: Reached target Paths.
+[    8.977493] systemd[1]: Reached target Slices.
+[    8.981565] systemd[1]: Reached target Swap.
+[    8.991035] systemd[1]: Listening on Syslog Socket.
+[    8.997664] systemd[1]: Listening on fsck to fsckd communication Socket.
+[    9.007437] systemd[1]: Listening on initctl Compatibility Named Pipe.
+[    9.065768] systemd[1]: Condition check resulted in Journal Audit Socket being skipped.
+[    9.076163] systemd[1]: Listening on Journal Socket (/dev/log).
+[    9.085187] systemd[1]: Listening on Journal Socket.
+[    9.095614] systemd[1]: Listening on udev Control Socket.
+[    9.104347] systemd[1]: Listening on udev Kernel Socket.
+[    9.112481] systemd[1]: Condition check resulted in Huge Pages File System being skipped.
+[    9.138307] systemd[1]: Mounting POSIX Message Queue File System...
+[    9.191813] systemd[1]: Mounting RPC Pipe File System...
+[    9.257453] systemd[1]: Mounting Kernel Debug File System...
+[    9.294155] systemd[1]: Condition check resulted in Kernel Trace File System being skipped.
+[    9.296145] systemd[1]: Condition check resulted in Kernel Module supporting RPCSEC_GSS being skipped.
+[    9.352542] systemd[1]: Starting Restore / save the current clock...
+[    9.420179] systemd[1]: Starting Set the console keyboard layout...
+[    9.423729] systemd[1]: Condition check resulted in Create list of static device nodes for the current kernel being skipped.
+[    9.485374] systemd[1]: Starting Load Kernel Module configfs...
+[    9.578477] systemd[1]: Starting Load Kernel Module drm...
+[    9.701275] systemd[1]: Starting Load Kernel Module fuse...
+[    9.765099] systemd[1]: Condition check resulted in Set Up Additional Binary Formats being skipped.
+[    9.842707] systemd[1]: Starting File System Check on Root Device...
+[    9.914675] systemd[1]: Starting Journal Service...
+[   10.041782] systemd[1]: Starting Load Kernel Modules...
+[   10.165041] systemd[1]: Starting Coldplug All udev Devices...
+[   10.713289] systemd[1]: Mounted POSIX Message Queue File System.
+[   10.784819] systemd[1]: Mounted RPC Pipe File System.
+[   10.794252] systemd[1]: Mounted Kernel Debug File System.
+[   11.075232] systemd[1]: Finished Restore / save the current clock.
+[   11.277475] systemd[1]: modprobe@configfs.service: Succeeded.
+[   11.360473] systemd[1]: Finished Load Kernel Module configfs.
+[   11.459662] systemd[1]: modprobe@drm.service: Succeeded.
+[   11.500295] systemd[1]: Finished Load Kernel Module drm.
+[   11.548466] systemd[1]: modprobe@fuse.service: Succeeded.
+[   11.609989] systemd[1]: Finished Load Kernel Module fuse.
+[   11.680683] systemd[1]: Finished File System Check on Root Device.
+[   11.740937] systemd[1]: Finished Load Kernel Modules.
+[   11.798403] systemd[1]: Condition check resulted in FUSE Control File System being skipped.
+[   11.832948] systemd[1]: Condition check resulted in Kernel Configuration File System being skipped.
+[   11.911586] systemd[1]: Started File System Check Daemon to report status.
+[   12.001628] systemd[1]: Starting Remount Root and Kernel File Systems...
+[   12.163252] systemd[1]: Starting Apply Kernel Variables...
+[   13.000068] systemd[1]: Finished Apply Kernel Variables.
+[   13.667275] systemd[1]: Started Journal Service.
+[   13.899037] EXT4-fs (vda2): re-mounted. Opts: (null)
+[   14.566314] systemd-journald[71]: Received client request to flush runtime journal.
+[   35.320228] smc91x 10010000.net eth0: link up
+[   37.864106] Adding 56316k swap on /var/swap.  Priority:-2 extents:3 across:1421140k 
+[  107.127412] random: crng init done
+[  107.127493] random: 7 urandom warning(s) missed due to ratelimiting

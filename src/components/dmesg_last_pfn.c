@@ -42,7 +42,6 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld/api.h"
-#include "include/kasld/internal.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>

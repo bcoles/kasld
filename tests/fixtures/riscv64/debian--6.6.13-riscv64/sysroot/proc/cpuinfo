@@ -1,0 +1,16 @@
+processor	: 0
+hart		: 0
+isa		: rv64imafdch_zicbom_zicboz_zicntr_zicsr_zifencei_zihintpause_zihpm_zba_zbb_zbs_sstc
+mmu		: sv57
+mvendorid	: 0x0
+marchid		: 0x0
+mimpid		: 0x0
+
+processor	: 1
+hart		: 1
+isa		: rv64imafdch_zicbom_zicboz_zicntr_zicsr_zifencei_zihintpause_zihpm_zba_zbb_zbs_sstc
+mmu		: sv57
+mvendorid	: 0x0
+marchid		: 0x0
+mimpid		: 0x0
+

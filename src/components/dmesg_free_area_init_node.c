@@ -50,7 +50,6 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld/api.h"
-#include "include/kasld/internal.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -72,7 +71,13 @@ KASLD_META("method:parsed\n"
            "bypass:CAP_SYSLOG\n"
            "fallback:/var/log/dmesg\n");
 
-/* Parse "[mem 0x<start>-0x<end>]" and update lo/hi */
+/* Parse "[mem 0x<start>-0x<end>]" and update lo/hi.
+ *
+ * Distinguishes parse failure from a real value of 0 via endptr: phys 0 is a
+ * legitimate "Initmem setup node 0 [mem 0x0-...]" lower edge on systems where
+ * RAM starts at the bottom of the address space. Rejecting it would drop the
+ * node/initmem ranges and leave only the higher zone lines (e.g. HighMem on
+ * ppc32 starting at 0x30000000), producing an unsound non-zero floor. */
 static int on_mem_range(const char *line, void *ctx) {
   struct range_ctx *r = ctx;
 
@@ -80,16 +85,21 @@ static int on_mem_range(const char *line, void *ctx) {
   if (!p)
     return 1;
 
+  const char *sp = p + 5;
   char *endptr;
-  unsigned long start = strtoul(p + 5, &endptr, 16);
-  if (!start || *endptr != '-')
-    return 1;
+  unsigned long start = strtoul(sp, &endptr, 16);
+  if (endptr == sp || *endptr != '-')
+    return 1; /* genuine parse failure (no hex digits or missing '-') */
 
-  unsigned long end = strtoul(endptr + 1, &endptr, 16);
-  if (!end)
-    return 1;
+  const char *ep = endptr + 1;
+  unsigned long end = strtoul(ep, &endptr, 16);
+  if (endptr == ep || end <= start)
+    return 1; /* genuine parse failure or zero-length range */
 
-  if (!r->lo || start < r->lo)
+  /* r->hi is the uninitialized sentinel (a valid range always has end > 0);
+   * r->lo doubles as a stored value, so checking r->lo == 0 would conflate
+   * "no range seen yet" with "lowest range starts at phys 0". */
+  if (r->hi == 0 || start < r->lo)
     r->lo = start;
   if (end > r->hi)
     r->hi = end;
@@ -114,23 +124,40 @@ int main(void) {
   dmesg_search("  Normal ", on_mem_range, &r);
   dmesg_search("  HighMem ", on_mem_range, &r);
 
-  if (!r.lo) {
+  if (r.hi == 0) {
+    /* r.hi == 0 is the "no valid range seen" sentinel — see on_mem_range. */
     printf("[-] no physical memory ranges found in dmesg\n");
     return 0;
   }
 
+  /* dmesg's zone/node ranges describe USER-ALLOCATABLE memory: the bottom
+   * of the lowest published zone is NOT necessarily the bottom of physical
+   * RAM. On systems where firmware reserves the low-phys range for the
+   * kernel image (e.g. ppc32 PowerMac with the kernel at phys 0 and dmesg
+   * zones starting at 0x30000000), treating r.lo as POS_BASE would feed
+   * dram_floor_bound a bogus high floor and exclude the actual text base.
+   * Emit as an interior SAMPLE — still a sound RAM witness, but not a
+   * floor pin. Authoritative floors come from sysfs_devicetree_memory and
+   * peer components that read the full memory map. r.hi IS sound as a TOP
+   * bound (the highest published zone end ≤ true top of RAM). */
   printf("lowest physical address:  0x%016lx\n", r.lo);
-  kasld_result_base(KASLD_TYPE_PHYS, REGION_RAM, r.lo, NULL, CONF_PARSED);
+  kasld_result_sample(KASLD_TYPE_PHYS, REGION_RAM, r.lo, NULL, CONF_PARSED);
 
   if (r.hi && r.hi != r.lo) {
     printf("highest physical address: 0x%016lx\n", r.hi);
     kasld_result_top(KASLD_TYPE_PHYS, REGION_RAM, r.hi, NULL, CONF_PARSED);
   }
 
-#if !PHYS_VIRT_DECOUPLED
-  unsigned long virt = phys_to_virt(r.lo);
+#ifdef phys_to_directmap_virt
+  /* Same soundness caveat: phys_to_directmap_virt(r.lo) is the BASE only
+   * when r.lo == actual phys floor. When firmware reserves low phys for
+   * the kernel image (RAM hole below r.lo), the projection lands INSIDE
+   * the directmap, not at its base. Emit as a directmap SAMPLE so peer
+   * rules treat it as a witness without pinning page_offset's ceiling. */
+  unsigned long virt = phys_to_directmap_virt(r.lo);
   printf("possible direct-map virtual address: 0x%016lx\n", virt);
-  kasld_result_base(KASLD_TYPE_VIRT, REGION_RAM, virt, NULL, CONF_PARSED);
+  kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, NULL,
+                      CONF_PARSED);
 #else
   printf("note: phys and virt KASLR are decoupled on this arch; "
          "cannot derive kernel text virtual address from physical leak\n");

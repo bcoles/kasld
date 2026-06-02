@@ -1,0 +1,2 @@
+22786540 /boot/vmlinux-6.6.13-powerpc-smp
+83 /boot/System.map-6.6.13-powerpc-smp

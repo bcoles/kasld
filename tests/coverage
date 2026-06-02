@@ -1,0 +1,137 @@
+#!/ bin / sh
+#This file is part of KASLD - https: // github.com/bcoles/kasld
+#
+#coverage — optional line - coverage report from the host unit tests.
+#
+#Builds the engine core(estimate / quantities / evidence / engine /            \
+                        engine_rules),
+#every rules /*.c, and the orchestrator internals + render + region_info (via     \
+# test_kasld) instrumented with --coverage, runs every test driver                \
+(accumulating # .gcda), and prints a per-file + total line-coverage summary       \
+via gcov. All # artifacts stay under build/coverage/.                             \
+#                                                                                 \
+# Scope note: render.c shows ~0% here (unit tests don't render) and the           \
+# orchestrator's engine bridge + main() are compiled out under                    \
+-DKASLD_TESTING. # Those are exercised end-to-end by tests/coverage-e2e (the      \
+real binary).                                                                     \
+#                                                                                 \
+# OPTIONAL by design — the normal build/test never use --coverage, so this      \
+adds # no dependency to them. Even here the only requirement is the compiler's    \
+own # gcov (bundled with gcc; for clang run: make coverage GCOV="llvm-cov         \
+gcov"). # An HTML report is produced only if lcov+genhtml are installed;          \
+otherwise the # gcov text summary IS the report.                                  \
+#                                                                                 \
+# Usage:  tests/coverage            (or: make coverage)                           \
+# Env:    CC (default cc), GCOV (default gcov), CFLAGS_EXTRA                      \
+#   clang:                make coverage CC=clang GCOV="llvm-cov gcov"             \
+#   a musl cross gcc on a glibc host (binary needs its own loader):               \
+#                         make coverage CC=<triple>-gcc GCOV=<triple>-gcov        \
+#                              CFLAGS_EXTRA=-static                               \
+# ---                                                                             \
+# <bcoles@gmail.com>                                                              \
+                                                                                \ \
+set -u                                                                            \
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)                            \
+CC=${CC:-cc}                                                                      \
+GCOV=${GCOV:-gcov}                                                                \
+COV=$ROOT/build/coverage                                                          \
+CFLAGS="-std=c99 -g -O0 --coverage -I$ROOT/src ${CFLAGS_EXTRA:-}"                 \
+                                                                                \ \
+command -v "$CC" >/dev/null 2>&1 || { echo "coverage: CC '$CC' not found" >&2;    \
+exit 1; } if ! $GCOV --version >/dev/null 2>&1; then echo "coverage: '$GCOV'      \
+not found. gcov ships with gcc; for clang run:" >&2 echo "          make          \
+coverage GCOV=\"llvm-cov gcov\"" >&2 exit 1 fi                                    \
+                                                                                \ \
+rm -rf "$COV"; mkdir -p "$COV"                                                    \
+                                                                                \ \
+# Instrumented objects under report (engine core + every rule). Absolute          \
+source # paths so gcov resolves them; .gcno/.gcda stay beside each .o in $COV.    \
+SRC="$ROOT/src/estimate.c $ROOT/src/quantities.c $ROOT/src/evidence.c             \
+     $ROOT/src/engine.c $ROOT/src/engine_rules.c $(echo                           \
+"$ROOT"/src/rules/*.c)" OBJS=""; GCNO="" for s in $SRC; do b=$(basename           \
+"${s%.c}") $CC $CFLAGS -c "$s" -o "$COV/$b.o" || { echo "coverage: compile        \
+failed: $s" >&2; exit 1; } OBJS="$OBJS $COV/$b.o"; GCNO="$GCNO $b.gcno" done      \
+                                                                                \ \
+# Driver compiled to its own object too, so test_*.c .gcno never pollutes the     \
+# tree; then linked against the shared instrumented objects and run. .gcda        \
+from # every run accumulates onto the shared objects. drive() { # <out>           \
+<driver.c> <objs...> out=$1; drv=$2; shift 2 $CC $CFLAGS -c "$ROOT/tests/$drv"    \
+-o "$COV/$out.drv.o"                                                              \
+    || { echo "coverage: compile failed: $drv" >&2; exit 1; }                     \
+  $CC $CFLAGS "$COV/$out.drv.o" "$@" -o "$COV/$out"                               \
+    || { echo "coverage: link failed: $out" >&2; exit 1; }                        \
+  "$COV/$out" >/dev/null 2>&1 || { echo "coverage: $out FAILED (tests must        \
+pass first)" >&2; exit 1; }                                                       \
+}                                                                                 \
+drive engine      test_engine.c             $OBJS                                 \
+drive integration test_engine_integration.c $OBJS                                 \
+drive estimate    test_estimate.c           "$COV/estimate.o"                     \
+"$COV/quantities.o" drive evidence    test_evidence.c "$COV/evidence.o"           \
+                                                                                \ \
+# Orchestrator internals + render + region_info: test_kasld.c is ONE TU that      \
+# #includes orchestrator.c/render.c/region_info.c under -DKASLD_TESTING (which    \
+# compiles out main() + the engine bridge — those lines are only covered by     \
+the # end-to-end run, tests/coverage-e2e). pthread is added when available,       \
+matching # what `make test` builds. PTH_C=""; PTH_L="" if echo 'int               \
+main(void){return 0;}' | $CC -xc - -lpthread -o "$COV/.pthr" 2>/dev/null; then    \
+  PTH_C="-DHAVE_PTHREAD"; PTH_L="-lpthread"; rm -f "$COV/.pthr"                   \
+fi                                                                                \
+$CC $CFLAGS -DKASLD_TESTING $PTH_C -c "$ROOT/tests/test_kasld.c" -o               \
+"$COV/test_kasld.drv.o"                                                           \
+  || { echo "coverage: compile failed: test_kasld.c" >&2; exit 1; }               \
+$CC $CFLAGS "$COV/test_kasld.drv.o" $PTH_L -o "$COV/test_kasld"                   \
+  || { echo "coverage: link failed: test_kasld" >&2; exit 1; }                    \
+"$COV/test_kasld" >/dev/null 2>&1 || { echo "coverage: test_kasld FAILED          \
+(tests must pass first)" >&2; exit 1; }                                           \
+                                                                                \ \
+# Per-file + weighted-total line coverage (gcov -n: summary only, no .gcov        \
+# files), over every .gcno. Report only our src/*.c sources — gcov also emits   \
+# an entry per included header (observation.h, api.h, ...) and per test           \
+driver, # which we drop; header-inline coverage is folded into each TU's .c.      \
+Each src # .c is covered by exactly one .gcno (its object, or test_kasld's TU     \
+for # orchestrator/render/region_info), so no double-counting. echo               \
+"----------------------------------------------------------------------" ( cd     \
+"$COV" && $GCOV -n *.gcno 2>/dev/null ) | awk ' # Keep our src/*.c only (abs      \
+path from gcc, relative from llvm-cov); this # excludes included headers and      \
+the test drivers (tests/*.c).                                                     \
+  /^File / { f=$0; sub(/^File \047/,"",f); sub(/\047.*/                           \
+    ,                                                                             \
+    "", f);
+keep = (f ~/ (^|\/) src\/.*\.c$ /)
+}
+/ ^Lines executed : / {
+  if (!keep)
+    next;
+  keep = 0;
+#one Lines - executed per File;
+  ignore gcovs trailing grand total line = $0;
+  sub(/ ^Lines executed : /, "", line);
+  pct = line + 0;
+  n = line;
+  sub(/.*of /, "", n);
+  tot = n + 0;
+  bn = f; sub(/.*\//,"",bn);
+    if (tot>0) {
+    printf "  %-34s %6.2f%%  of %4d lines\n", bn, pct, tot;
+    ex += pct * tot / 100;
+    all += tot }
+}
+END {
+  if (all > 0)
+    printf "  %-34s %6.2f%%  of %4d lines\n", "TOTAL (host unit tests)",
+        100 * ex / all, all
+}
+' echo "---------------------------------------------------------------------" "-" echo "coverage: built with $CC, reported via $GCOV; artifacts in $COV"
+
+#Optional HTML — only if the tools are present(never a hard dependency).
+            if command -
+            v lcov >
+        / dev / null 2 > &1 &&
+    command - v genhtml > / dev / null 2 > &1;
+then lcov-- quiet-- capture-- directory "$COV" --output - file
+        "$COV/coverage.info" 2 >
+    / dev / null &&genhtml-- quiet-- output - directory "$COV/html"
+                                                        "$COV/coverage.info" 2 >
+    / dev /
+        null &&echo "coverage: HTML report -> $COV/html/index.html" else echo
+        "coverage: (install lcov+genhtml for an optional HTML report)" fi

@@ -13,13 +13,26 @@ jobs:
     - uses: actions/checkout@v4
 
     - name: Install dependencies
-      run: sudo apt-get update && sudo apt-get install -y zlib1g-dev
+      run: sudo apt-get update && sudo apt-get install -y zlib1g-dev gcc-i686-linux-gnu
 
     - name: Build
       run: make
 
-    - name: Run tests
-      run: make test
+    - name: Run unit + integration tests
+      run: make check
+
+    # Build the 32-bit x86 binary too (auto-static when cross-compiling), so the
+    # end-to-end step also covers the x86_32 fixture. If the static link is
+    # unavailable the i686 fixture just skips below — never fatal.
+    - name: Build i686
+      run: make build CC=i686-linux-gnu-gcc || true
+
+    # End-to-end over the REAL binary on the x86 fixtures, run NATIVELY (no
+    # qemu): the only CI coverage of main() + the engine bridge + the renderers,
+    # which `make check` compiles out under -DKASLD_TESTING. Foreign-arch
+    # fixtures need qemu and are skipped here (the cross job build-checks them).
+    - name: End-to-end replay (x86, native)
+      run: KASLD_NATIVE=1 tests/replay tests/fixtures/x86_64/* tests/fixtures/x86_32/*
 
   cross-compile:
     runs-on: ubuntu-latest

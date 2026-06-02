@@ -34,7 +34,6 @@
 
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
-#include "include/kasld/internal.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
@@ -55,7 +54,7 @@ KASLD_META("method:parsed\n"
            "patch:v4.6\n"
            "config:CONFIG_NF_CONNTRACK\n");
 
-unsigned long get_kernel_addr_conntrack() {
+static unsigned long get_kernel_addr_conntrack(void) {
   unsigned long addr = 0;
   const char *path = "/sys/kernel/slab/";
   const char *needle = "nf_conntrack_";
@@ -99,7 +98,7 @@ unsigned long get_kernel_addr_conntrack() {
 
 int main(void) {
   /* Pre-check: can we access /sys/kernel/slab/? */
-  if (access("/sys/kernel/slab/", R_OK) != 0)
+  if (kasld_access("/sys/kernel/slab/", R_OK) != 0)
     return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM
                                                : KASLD_EXIT_UNAVAILABLE;
 

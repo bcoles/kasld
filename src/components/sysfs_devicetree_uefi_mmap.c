@@ -53,7 +53,6 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld/api.h"
-#include "include/kasld/internal.h"
 #include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -76,7 +75,7 @@ KASLD_META("method:parsed\n"
 
 /* Read raw binary content from a sysfs file. Returns bytes read, or -1. */
 static int read_binary(const char *path, unsigned char *buf, size_t len) {
-  FILE *f = fopen(path, "rb");
+  FILE *f = kasld_fopen(path, "rb");
   if (!f)
     return -1;
   int n = (int)fread(buf, 1, len, f);
@@ -108,7 +107,7 @@ int main(void) {
   /* Probe: look for the property in either DT sysfs location */
   for (int i = 0; bases[i]; i++) {
     snprintf(path, sizeof(path), "%s/linux,uefi-mmap-start", bases[i]);
-    FILE *f = fopen(path, "rb");
+    FILE *f = kasld_fopen(path, "rb");
     if (f) {
       fclose(f);
       chosen = bases[i];
@@ -154,10 +153,10 @@ int main(void) {
   kasld_result_sample(KASLD_TYPE_PHYS, REGION_EFI_MEMMAP,
                       (unsigned long)mmap_phys, NULL, CONF_PARSED);
 
-#if !PHYS_VIRT_DECOUPLED
-  unsigned long virt = phys_to_virt((unsigned long)mmap_phys);
+#ifdef phys_to_directmap_virt
+  unsigned long virt = phys_to_directmap_virt((unsigned long)mmap_phys);
   printf("possible direct-map virtual address: 0x%016lx\n", virt);
-  kasld_result_sample(KASLD_TYPE_VIRT, REGION_EFI_MEMMAP, virt, NULL,
+  kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, NULL,
                       CONF_PARSED);
 #else
   printf("note: phys and virt KASLR are decoupled on this arch; "

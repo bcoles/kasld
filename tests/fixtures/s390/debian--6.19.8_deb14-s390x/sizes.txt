@@ -1,0 +1,2 @@
+9625600 /boot/vmlinuz-6.19.8+deb14-s390x
+92 /boot/System.map-6.19.8+deb14-s390x

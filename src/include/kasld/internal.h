@@ -11,6 +11,7 @@
 #define KASLD_INTERNAL_H
 
 #include "api.h"
+#include "regions.h" /* canonical is_phys_dram_region / is_kernel_image_region */
 
 #include <stddef.h>
 #include <stdint.h>
@@ -29,7 +30,11 @@
 #define ORIGIN_LEN 64 /* component name (orchestrator-filled) */
 #define METHOD_LEN 16 /* method: meta value */
 #define MAX_PROVENANCE 8 /* cap on merged-record contributors */
-#define MAX_COMPONENT_LINES 64
+/* Captured-stdout lines are kept only for --verbose / --json output. The log
+ * is grown geometrically on demand from this initial capacity; there is no
+ * hard cap (the previous fixed cap of 64 silently truncated noisy components).
+ * Non-verbose runs never allocate. */
+#define COMPONENT_LINES_INITIAL_CAP 16
 #define MAX_LINE_LEN 512
 
 /* =========================================================================
@@ -51,28 +56,41 @@ static inline const char *c(const char *code) {
 }
 
 /* =========================================================================
- * Runtime memory layout (initialized from compile-time arch constants,
- * may be adjusted at runtime by LAYOUT_ADJUST plugins)
+ * Runtime memory layout: initialized from compile-time arch constants, then
+ * overwritten with the engine's resolved estimates by
+ * engine_sync_authoritative.
  * =========================================================================
  */
 struct kasld_layout {
   unsigned long page_offset;
   unsigned long kernel_vas_start;
   unsigned long kernel_vas_end;
-  unsigned long kernel_base_min;
-  unsigned long kernel_base_max;
+  unsigned long kernel_text_min;
+  unsigned long kernel_text_max;
   unsigned long modules_start;
   unsigned long modules_end;
   unsigned long kernel_align;
   unsigned long text_offset;
   unsigned long kernel_text_default;
-  unsigned long kaslr_base_min;
-  unsigned long kaslr_base_max;
+  unsigned long kaslr_text_min;
+  unsigned long kaslr_text_max;
   unsigned long kaslr_align;
-  /* Physical KASLR range (PHYS_VIRT_DECOUPLED arches only; zero otherwise). */
-  unsigned long phys_kaslr_base_min;
-  unsigned long phys_kaslr_base_max;
+  /* Physical KASLR range (!TEXT_TRACKS_DIRECTMAP arches only; zero otherwise).
+   */
+  unsigned long phys_kaslr_text_min;
+  unsigned long phys_kaslr_text_max;
   unsigned long phys_kaslr_align;
+  /* Engine-resolved direct-map / RANDOMIZE_MEMORY region bounds. Distinct
+   * from layout.page_offset (a single rendered anchor): these are the [min,
+   * max] window the engine proved. Folded in here so the seam between
+   * engine_sync_authoritative() and compute_kaslr_info() is one global
+   * (layout) instead of two (layout + an orchestrator-private g_ctx). */
+  unsigned long page_offset_min;
+  unsigned long page_offset_max;
+  unsigned long vmalloc_base_min;
+  unsigned long vmalloc_base_max;
+  unsigned long vmemmap_base_min;
+  unsigned long vmemmap_base_max;
 };
 
 /* =========================================================================
@@ -89,12 +107,17 @@ struct kasld_layout {
  * results[] table; pointer-to-transient-buffer fields would dangle.
  * ========================================================================= */
 
+/* #ifndef-guarded so this and observation.h's identical definition coexist;
+ * whichever header is included first defines the enum. */
+#ifndef KASLD_SET_BITS_DEFINED
+#define KASLD_SET_BITS_DEFINED 1
 enum kasld_set_bits {
   LO_SET = 1u << 0,
   HI_SET = 1u << 1,
   SAMPLE_SET = 1u << 2,
   BASE_ALIGN_SET = 1u << 3,
 };
+#endif
 
 struct result {
   enum kasld_addr_type type;
@@ -124,59 +147,13 @@ struct result {
  * their _UNKNOWN values, empty strings — all the correct unset state. */
 static inline void result_init(struct result *r) { memset(r, 0, sizeof(*r)); }
 
-/* True iff the region represents physical addresses that live in DRAM —
- * i.e., addresses in physical RAM rather than MMIO or virtual-only
- * abstract spaces (PAGE_OFFSET/DIRECTMAP/VMALLOC/VMEMMAP). Includes the
- * kernel-image regions because the kernel is loaded into RAM physically.
- *
- * Inference plugins that consume "phys DRAM" addresses use this:
- * dram_bound, dram_ceiling, meminfo_phys_ceiling, phys_virt_synth,
- * directmap_page_offset_bounds, riscv64_non_efi_phys_base. */
-static inline int is_phys_dram_region(enum kasld_region region) {
-  switch (region) {
-  case REGION_RAM:
-  case REGION_DMA:
-  case REGION_DMA32:
-  case REGION_INITRD:
-  case REGION_RESERVED_MEM:
-  case REGION_SWIOTLB:
-  case REGION_VMCOREINFO:
-  case REGION_CRASHKERNEL:
-  case REGION_PMEM:
-  case REGION_ACPI_TABLE:
-  case REGION_ACPI_NVS:
-  case REGION_NUMA_NODE:
-  case REGION_KERNEL_TEXT:
-  case REGION_KERNEL_DATA:
-  case REGION_KERNEL_BSS:
-  case REGION_KERNEL_IMAGE:
-    return 1;
-  default:
-    return 0;
-  }
-}
-
-/* True iff the region is part of the kernel image — text, data, bss, or
- * the image-as-a-whole. The phys-text-base randomization window in the
- * physical layout box is rendered with only these regions inside;
- * unrelated leaks (MMIO, reserved memory, ...) whose address happens to
- * fall numerically in the window are excluded — they tell us nothing
- * about the text base location. */
-static inline int is_kernel_image_region(enum kasld_region region) {
-  switch (region) {
-  case REGION_KERNEL_TEXT:
-  case REGION_KERNEL_DATA:
-  case REGION_KERNEL_BSS:
-  case REGION_KERNEL_IMAGE:
-    return 1;
-  default:
-    return 0;
-  }
-}
+/* is_phys_dram_region and is_kernel_image_region are defined once, in
+ * kasld/regions.h (included above). Rules and the orchestrator share the
+ * single definition so the two cannot drift apart silently. */
 
 /* Pick the most representative address from a result. Prefers a known
  * base (when pos=BASE and lo is set), else any interior sample, else
- * any set bound, else 0. Used by inference plugins and the renderer
+ * any set bound, else 0. Used by the engine bridge and the renderer
  * when they need a single representative address. */
 static inline unsigned long anchor_addr(const struct result *r) {
   if (!r)
@@ -239,20 +216,17 @@ int conf_weight(enum kasld_confidence c);
 const struct result *select_anchor(enum kasld_addr_type type,
                                    enum kasld_region region);
 
-/* Run the merge pass over results[]. Idempotent on its own output;
- * called between collection and the first inference phase, and at the
- * start of each subsequent convergence pass. */
+/* Run the merge pass over results[]. Idempotent on its own output; called
+ * after each collection state to deduplicate before the engine reads them. */
 void merge_results(void);
 
-/* Adjust layout when runtime PAGE_OFFSET differs from the compile-time
- * default. Called by the layout_adjust inference plugin. */
-void adjust_for_page_offset(unsigned long new_po);
-
 /* =========================================================================
- * Component metadata, logs, outcomes — unchanged from before.
+ * Component metadata, logs, outcomes.
+ *
+ * KASLD_EXIT_UNAVAILABLE / KASLD_EXIT_NOPERM are defined in api.h (the
+ * component-side ABI surface) and reach this header via the api.h include
+ * above.
  * ========================================================================= */
-#define KASLD_EXIT_UNAVAILABLE 69
-#define KASLD_EXIT_NOPERM 77
 
 enum component_outcome {
   OUTCOME_SUCCESS,
@@ -280,8 +254,14 @@ struct component_log {
   char name[256];
   int exit_code;
   enum component_outcome outcome;
-  char lines[MAX_COMPONENT_LINES][MAX_LINE_LEN];
+  /* Captured stdout lines for verbose/JSON output. Dynamically allocated
+   * by run_component() only when verbose mode is active; non-verbose runs
+   * leave `lines` == NULL and `lines_cap` == 0 so the per-component overhead
+   * is a few pointers rather than 32 KiB. Each `lines[i]` is a malloc'd
+   * NUL-terminated string (up to MAX_LINE_LEN-1 bytes of payload). */
+  char **lines;
   int num_lines;
+  int lines_cap;
   char *explain;
   struct component_meta meta;
 };
@@ -301,6 +281,13 @@ struct component_stats {
 struct kaslr_info {
   int disabled;
   int unsupported;
+  /* Boot stub attempted KASLR but could not produce a random offset
+   * (no entropy seed / no PRNG / insufficient memory). Kernel was
+   * relocated to a firmware- or boot-stub-deterministic position —
+   * NOT the link-time default. Distinct from `disabled` (opt-out):
+   * `default_addr` is NOT the kernel's actual position when this is
+   * set. Driven by SF_KASLR_RANDOMIZATION_FAILED. */
+  int randomization_failed;
   unsigned long default_addr;
   /* Virtual KASLR */
   unsigned long vtext;
@@ -358,6 +345,20 @@ extern int num_results;
 extern struct component_log comp_logs[MAX_COMPONENTS];
 extern int num_comp_logs;
 
+/* Scalar system facts collected from components' `S` wire records, parallel to
+ * results[]. The engine bridge copies these to OBS_SCALAR observations; the
+ * orchestrator and renderer also read them directly (e.g. SF_KASLR_DISABLED
+ * drives s->kaslr.disabled and the "Detected by:" list). */
+struct scalar_fact_record {
+  enum kasld_scalar_fact fact;
+  unsigned long value;
+  enum kasld_confidence conf;
+  char origin[ORIGIN_LEN];
+};
+#define MAX_SCALAR_FACTS 64
+extern struct scalar_fact_record scalar_facts[MAX_SCALAR_FACTS];
+extern int num_scalar_facts;
+
 /* =========================================================================
  * Shared functions (defined in orchestrator.c)
  * ========================================================================= */
@@ -371,6 +372,9 @@ void compute_kaslr_info(struct summary *s);
 /* =========================================================================
  * Rendering (defined in render.c)
  * ========================================================================= */
-void print_summary(void);
+/* Pure consumer: render an already-resolved summary. The orchestrator runs
+ * the engine (compute_kaslr_info) before calling this, so the renderer never
+ * triggers inference. */
+void render_summary(const struct summary *s);
 
 #endif /* KASLD_INTERNAL_H */

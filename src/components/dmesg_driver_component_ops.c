@@ -48,7 +48,6 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld/api.h"
-#include "include/kasld/internal.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -81,7 +80,7 @@ static int on_match(const char *line, void *ctx) {
 
   unsigned long addr = strtoul(p + strlen(needle), &endptr, 16);
 
-  if (addr && addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX) {
+  if (addr && addr >= KERNEL_TEXT_MIN && addr <= KERNEL_TEXT_MAX) {
     if (!*lowest || addr < *lowest)
       *lowest = addr;
   }

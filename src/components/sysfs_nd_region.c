@@ -49,7 +49,7 @@
 //   Requires physical NVDIMM/PMem hardware and the nd_region driver to be
 //   bound. On x86_64 with CONFIG_RANDOMIZE_MEMORY, physical addresses do not
 //   directly reveal the virtual text base. On ARM64/RISC-V without decoupled
-//   KASLR, phys_to_virt() gives the directmap virtual address.
+//   KASLR, phys_to_directmap_virt() gives the directmap virtual address.
 //
 // Requires:
 // - CONFIG_LIBNVDIMM
@@ -64,7 +64,6 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld/api.h"
-#include "include/kasld/internal.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdint.h>
@@ -127,7 +126,7 @@ int main(void) {
 
     snprintf(path, sizeof(path), "%s/%s/resource", nd_base, ent->d_name);
 
-    FILE *f = fopen(path, "r");
+    FILE *f = kasld_fopen(path, "r");
     if (!f) {
       /* ENXIO = driver not bound; ENOENT = attribute hidden (no mappings) */
       if (errno != ENOENT && errno != ENXIO)
@@ -151,10 +150,10 @@ int main(void) {
     kasld_result_sample(KASLD_TYPE_PHYS, REGION_PMEM, addr, ent->d_name,
                         CONF_PARSED);
 
-#if !PHYS_VIRT_DECOUPLED
-    unsigned long virt = phys_to_virt(addr);
+#ifdef phys_to_directmap_virt
+    unsigned long virt = phys_to_directmap_virt(addr);
     printf("possible direct-map virtual address: 0x%016lx\n", virt);
-    kasld_result_sample(KASLD_TYPE_VIRT, REGION_PMEM, virt, ent->d_name,
+    kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, ent->d_name,
                         CONF_PARSED);
 #endif
 

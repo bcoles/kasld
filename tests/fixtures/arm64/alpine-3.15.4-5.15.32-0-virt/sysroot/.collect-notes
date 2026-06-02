@@ -1,0 +1,17 @@
+absent: /sys/kernel/security/lockdown
+absent: /sys/kernel/boot_params/data
+absent: /sys/kernel/boot_params/setup_data
+absent: /sys/firmware/memmap
+absent: /proc/device-tree/chosen
+absent: /proc/device-tree/rtas
+absent: /sys/firmware/devicetree/base/chosen
+absent: /sys/firmware/devicetree/base/rtas
+present: /sys/firmware/efi
+absent: /boot/config-5.15.32-0-virt
+absent: /proc/config.gz
+absent: /boot/vmlinuz-5.15.32-0-virt
+absent: /boot/Image-5.15.32-0-virt
+absent: /boot/vmlinux-5.15.32-0-virt
+absent: /boot/System.map-5.15.32-0-virt
+skipped: /proc/kallsyms (use --kallsyms to include)
+unavailable: dmesg

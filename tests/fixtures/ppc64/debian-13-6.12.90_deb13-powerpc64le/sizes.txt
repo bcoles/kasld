@@ -1,0 +1,2 @@
+47018248 /boot/vmlinux-6.12.90+deb13-powerpc64le
+83 /boot/System.map-6.12.90+deb13-powerpc64le

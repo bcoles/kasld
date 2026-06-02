@@ -39,9 +39,13 @@ KASLD_META("method:detection\n"
            "addr:none\n");
 
 /* Read the first value for a given key from /proc/cpuinfo.
- * Returns a pointer into buf on success, NULL on failure. */
-static char *cpuinfo_get(const char *key, char *buf, size_t bufsz) {
-  FILE *f = fopen(CPUINFO_PATH, "r");
+ * Returns a pointer into buf on success, NULL on failure.
+ * `unused`-marked so non-{riscv64,x86_64} arches (which fall through both
+ * #if blocks below) don't warn. The attribute must precede `static` for
+ * gcc to apply it to the definition. */
+__attribute__((unused)) static char *cpuinfo_get(const char *key, char *buf,
+                                                 size_t bufsz) {
+  FILE *f = kasld_fopen(CPUINFO_PATH, "r");
   if (!f)
     return NULL;
 

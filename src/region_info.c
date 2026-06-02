@@ -27,7 +27,7 @@ static void derive_vas_page_offset(const struct kasld_layout *ly,
   /* PAGE_OFFSET is itself a layout field. Validate page_offset records
    * against the ARCH-default kernel VAS window (compile-time constants),
    * NOT the runtime layout.kernel_vas_start — the latter gets tightened
-   * by inference plugins (phys_virt_synth, directmap_page_offset_bounds)
+   * by engine rules (phys_virt_synth, directmap_page_offset_bounds)
    * which themselves derive their tightenings from page_offset records.
    * Using the runtime layout would create a circular dependency where
    * a page_offset record gets rejected because earlier inference (based
@@ -41,7 +41,7 @@ static void derive_vas_page_offset(const struct kasld_layout *ly,
   *hi = (unsigned long)KERNEL_VAS_END;
 }
 
-#if !PHYS_VIRT_DECOUPLED
+#if TEXT_TRACKS_DIRECTMAP
 static void derive_vas_module_region_coupled(const struct kasld_layout *ly,
                                              unsigned long *lo,
                                              unsigned long *hi) {
@@ -81,7 +81,7 @@ static void derive_vas_module_region_coupled(const struct kasld_layout *ly,
 /* K_MODULE: on coupled arches the range tracks ly->modules_start/end
  * (which shifts with PAGE_OFFSET); on decoupled arches the range is
  * fixed. */
-#if !PHYS_VIRT_DECOUPLED
+#if TEXT_TRACKS_DIRECTMAP
 #define VAS_K_MODULE_STATIC {0, 0}
 #define VAS_K_MODULE_DERIVE derive_vas_module_region_coupled
 #else
@@ -122,3 +122,26 @@ const struct region_info region_info[REGION__COUNT] = {
     KASLD_REGION_LIST(X)
 #undef X
 };
+
+/* Compile-time completeness check: REGION_UNKNOWN (hardcoded above) plus
+ * one entry per KASLD_REGION_LIST element must total exactly REGION__COUNT.
+ * Catches:
+ *   - adding REGION_FOO to the enum without adding it to KASLD_REGION_LIST
+ *     (count short),
+ *   - adding to the list without bumping the enum (count long),
+ *   - introducing a second hard-coded sentinel outside the X-loop. */
+enum {
+  kasld_region_list_count = 1 /* REGION_UNKNOWN, hardcoded above */
+#define X(...) +1
+  KASLD_REGION_LIST(X)
+#undef X
+};
+/* Cast both sides to int so the comparison is between integers, not between
+ * two distinct anonymous enum types (gcc's -Wenum-compare otherwise warns).
+ * __extension__ silences -Wpedantic on the -std=c99 build path:
+ * _Static_assert is a C11 keyword that gcc has supported as an extension
+ * since well before then, but pedantic flags any post-C99 keyword. */
+__extension__ _Static_assert(
+    (int)kasld_region_list_count == (int)REGION__COUNT,
+    "region_info[] must mention every kasld_region enumerator "
+    "(plus REGION_UNKNOWN)");

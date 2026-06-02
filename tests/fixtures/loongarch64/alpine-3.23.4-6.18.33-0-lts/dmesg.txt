@@ -1,0 +1,405 @@
+[    0.000000] Linux version 6.18.33-0-lts (buildozer@build-3-23-loongarch64) (cc (Alpine 15.2.0) 15.2.0, GNU ld (GNU Binutils) 2.45.1) #1-Alpine SMP PREEMPT_DYNAMIC 2026-05-24 18:06:34
+[    0.000000] Loongson-64bit Processor probed (LA464 Core)
+[    0.000000] CPU0 revision is: 0014c010 (Loongson-64bit)
+[    0.000000] FPU0 revision is: 00000001
+[    0.000000] efi: EFI v2.7 by EDK II
+[    0.000000] efi: SMBIOS=0xde00000 SMBIOS 3.0=0xdde0000 MEMATTR=0xe991018 ACPI=0xe200000 ACPI 2.0=0xe200014 INITRD=0xdfa1e98 MEMRESERVE=0xdfa1c18 MEMMAP=0xd840018 
+[    0.000000] ACPI: Early table checksum verification disabled
+[    0.000000] ACPI: RSDP 0x000000000E200014 000024 (v02 BOCHS )
+[    0.000000] ACPI: XSDT 0x000000000E1F00E8 00005C (v01 BOCHS  BXPC     00000001      01000013)
+[    0.000000] ACPI: FACP 0x000000000D810000 00010C (v05 BOCHS  BXPC     00000001 BXPC 00000001)
+[    0.000000] ACPI: DSDT 0x000000000D820000 001283 (v01 BOCHS  BXPC     00000001 BXPC 00000001)
+[    0.000000] ACPI: FACS 0x000000000D830000 000040
+[    0.000000] ACPI: APIC 0x000000000D800000 00007B (v01 BOCHS  BXPC     00000001 BXPC 00000001)
+[    0.000000] ACPI: PPTT 0x000000000D7F0000 000060 (v02 BOCHS  BXPC     00000001 BXPC 00000001)
+[    0.000000] ACPI: SRAT 0x000000000D7E0000 0000A0 (v01 BOCHS  BXPC     00000001 BXPC 00000001)
+[    0.000000] ACPI: SPCR 0x000000000D7D0000 000050 (v02 BOCHS  BXPC     00000001 BXPC 00000001)
+[    0.000000] ACPI: MCFG 0x000000000D7C0000 00003C (v01 BOCHS  BXPC     00000001 BXPC 00000001)
+[    0.000000] ACPI: BGRT 0x000000000D850000 000038 (v01 INTEL  EDK2     00000002      01000013)
+[    0.000000] ACPI: SPCR: console: uart,mmio,0x1fe001e0,115200
+[    0.000000] SRAT: PXM 0 -> CPU 0x00 -> Node 0
+[    0.000000] SRAT: PXM 0 -> CPU 0x01 -> Node 0
+[    0.000000] ACPI: SRAT: Node 0 PXM 0 [mem 0x00000000-0x0fffffff]
+[    0.000000] ACPI: SRAT: Node 0 PXM 0 [mem 0x80000000-0xefffffff]
+[    0.000000] NUMA: Node 0 [mem 0x00000000-0x0fffffff] + [mem 0x80000000-0xefffffff] -> [mem 0x00000000-0xefffffff]
+[    0.000000] Node0: mem_type:4, mem_start:0x0, mem_size:0x1000 Bytes
+[    0.000000]        start_pfn:0x0, end_pfn:0x0, num_physpages:0x0
+[    0.000000] Node0: mem_type:7, mem_start:0x1000, mem_size:0xf000 Bytes
+[    0.000000]        start_pfn:0x0, end_pfn:0x4, num_physpages:0x3
+[    0.000000] Node0: mem_type:4, mem_start:0x10000, mem_size:0x30000 Bytes
+[    0.000000]        start_pfn:0x4, end_pfn:0x10, num_physpages:0xf
+[    0.000000] Node0: mem_type:7, mem_start:0x40000, mem_size:0x1c0000 Bytes
+[    0.000000]        start_pfn:0x10, end_pfn:0x80, num_physpages:0x7f
+[    0.000000] Node0: mem_type:2, mem_start:0x200000, mem_size:0x19c0000 Bytes
+[    0.000000]        start_pfn:0x80, end_pfn:0x6f0, num_physpages:0x6ef
+[    0.000000] Node0: mem_type:7, mem_start:0x1bc0000, mem_size:0x9a50000 Bytes
+[    0.000000]        start_pfn:0x6f0, end_pfn:0x2d84, num_physpages:0x2d83
+[    0.000000] Node0: mem_type:2, mem_start:0xb610000, mem_size:0x9c0000 Bytes
+[    0.000000]        start_pfn:0x2d84, end_pfn:0x2ff4, num_physpages:0x2ff3
+[    0.000000] Node0: mem_type:7, mem_start:0xbfd0000, mem_size:0xa000 Bytes
+[    0.000000]        start_pfn:0x2ff4, end_pfn:0x2ff6, num_physpages:0x2ff5
+[    0.000000] Node0: mem_type:1, mem_start:0xbfda000, mem_size:0x915000 Bytes
+[    0.000000]        start_pfn:0x2ff6, end_pfn:0x323b, num_physpages:0x323a
+[    0.000000] Node0: mem_type:2, mem_start:0xc8ef000, mem_size:0x915000 Bytes
+[    0.000000]        start_pfn:0x323b, end_pfn:0x3481, num_physpages:0x347f
+[    0.000000] Node0: mem_type:1, mem_start:0xd204000, mem_size:0x2a000 Bytes
+[    0.000000]        start_pfn:0x3481, end_pfn:0x348b, num_physpages:0x3489
+[    0.000000] Node0: mem_type:4, mem_start:0xd22e000, mem_size:0x592000 Bytes
+[    0.000000]        start_pfn:0x348b, end_pfn:0x35f0, num_physpages:0x35ed
+[    0.000000] Node0: mem_type:9, mem_start:0xd7c0000, mem_size:0x70000 Bytes
+[    0.000000]        start_pfn:0x35f0, end_pfn:0x360c, num_physpages:0x3609
+[    0.000000] Resvd: mem_type:9, mem_start:0xd7c0000, mem_size:0x70000 Bytes
+[    0.000000] Node0: mem_type:9, mem_start:0xd840000, mem_size:0x20000 Bytes
+[    0.000000]        start_pfn:0x3610, end_pfn:0x3618, num_physpages:0x3611
+[    0.000000] Resvd: mem_type:9, mem_start:0xd840000, mem_size:0x20000 Bytes
+[    0.000000] Node0: mem_type:3, mem_start:0xd860000, mem_size:0x390000 Bytes
+[    0.000000]        start_pfn:0x3618, end_pfn:0x36fc, num_physpages:0x36f5
+[    0.000000] Resvd: mem_type:6, mem_start:0xdbf0000, mem_size:0x50000 Bytes
+[    0.000000] Resvd: mem_type:5, mem_start:0xdc40000, mem_size:0x50000 Bytes
+[    0.000000] Resvd: mem_type:6, mem_start:0xdc90000, mem_size:0x50000 Bytes
+[    0.000000] Resvd: mem_type:5, mem_start:0xdce0000, mem_size:0x50000 Bytes
+[    0.000000] Resvd: mem_type:6, mem_start:0xdd30000, mem_size:0x50000 Bytes
+[    0.000000] Resvd: mem_type:5, mem_start:0xdd80000, mem_size:0x50000 Bytes
+[    0.000000] Resvd: mem_type:6, mem_start:0xddd0000, mem_size:0x40000 Bytes
+[    0.000000] Node0: mem_type:7, mem_start:0xde10000, mem_size:0x8000 Bytes
+[    0.000000]        start_pfn:0x3784, end_pfn:0x3786, num_physpages:0x36f7
+[    0.000000] Node0: mem_type:3, mem_start:0xde18000, mem_size:0x68000 Bytes
+[    0.000000]        start_pfn:0x3786, end_pfn:0x37a0, num_physpages:0x3711
+[    0.000000] Resvd: mem_type:6, mem_start:0xde80000, mem_size:0xc0000 Bytes
+[    0.000000] Resvd: mem_type:5, mem_start:0xdf40000, mem_size:0x60000 Bytes
+[    0.000000] Node0: mem_type:7, mem_start:0xdfa0000, mem_size:0x1000 Bytes
+[    0.000000]        start_pfn:0x37e8, end_pfn:0x37e8, num_physpages:0x3711
+[    0.000000] Node0: mem_type:2, mem_start:0xdfa1000, mem_size:0x1000 Bytes
+[    0.000000]        start_pfn:0x37e8, end_pfn:0x37e8, num_physpages:0x3711
+[    0.000000] Node0: mem_type:7, mem_start:0xdfa2000, mem_size:0x4000 Bytes
+[    0.000000]        start_pfn:0x37e8, end_pfn:0x37e9, num_physpages:0x3712
+[    0.000000] Node0: mem_type:2, mem_start:0xdfa6000, mem_size:0x2000 Bytes
+[    0.000000]        start_pfn:0x37e9, end_pfn:0x37ea, num_physpages:0x3712
+[    0.000000] Node0: mem_type:3, mem_start:0xdfa8000, mem_size:0xd8000 Bytes
+[    0.000000]        start_pfn:0x37ea, end_pfn:0x3820, num_physpages:0x3748
+[    0.000000] Resvd: mem_type:6, mem_start:0xe080000, mem_size:0x80000 Bytes
+[    0.000000] Resvd: mem_type:5, mem_start:0xe100000, mem_size:0x50000 Bytes
+[    0.000000] Resvd: mem_type:6, mem_start:0xe150000, mem_size:0x50000 Bytes
+[    0.000000] Resvd: mem_type:5, mem_start:0xe1a0000, mem_size:0x50000 Bytes
+[    0.000000] Node0: mem_type:9, mem_start:0xe1f0000, mem_size:0x20000 Bytes
+[    0.000000]        start_pfn:0x387c, end_pfn:0x3884, num_physpages:0x3750
+[    0.000000] Resvd: mem_type:9, mem_start:0xe1f0000, mem_size:0x20000 Bytes
+[    0.000000] Resvd: mem_type:6, mem_start:0xe210000, mem_size:0x50000 Bytes
+[    0.000000] Resvd: mem_type:5, mem_start:0xe260000, mem_size:0x50000 Bytes
+[    0.000000] Resvd: mem_type:6, mem_start:0xe2b0000, mem_size:0x50000 Bytes
+[    0.000000] Resvd: mem_type:5, mem_start:0xe300000, mem_size:0x50000 Bytes
+[    0.000000] Resvd: mem_type:6, mem_start:0xe350000, mem_size:0x50000 Bytes
+[    0.000000] Resvd: mem_type:5, mem_start:0xe3a0000, mem_size:0x50000 Bytes
+[    0.000000] Node0: mem_type:7, mem_start:0xe3f0000, mem_size:0x9a000 Bytes
+[    0.000000]        start_pfn:0x38fc, end_pfn:0x3922, num_physpages:0x3776
+[    0.000000] Node0: mem_type:4, mem_start:0xe48a000, mem_size:0x3e8000 Bytes
+[    0.000000]        start_pfn:0x3922, end_pfn:0x3a1c, num_physpages:0x3870
+[    0.000000] Node0: mem_type:7, mem_start:0xe872000, mem_size:0xea000 Bytes
+[    0.000000]        start_pfn:0x3a1c, end_pfn:0x3a57, num_physpages:0x38aa
+[    0.000000] Node0: mem_type:4, mem_start:0xe95c000, mem_size:0x2c000 Bytes
+[    0.000000]        start_pfn:0x3a57, end_pfn:0x3a62, num_physpages:0x38b5
+[    0.000000] Node0: mem_type:7, mem_start:0xe988000, mem_size:0x4000 Bytes
+[    0.000000]        start_pfn:0x3a62, end_pfn:0x3a63, num_physpages:0x38b6
+[    0.000000] Node0: mem_type:4, mem_start:0xe98c000, mem_size:0x964000 Bytes
+[    0.000000]        start_pfn:0x3a63, end_pfn:0x3cbc, num_physpages:0x3b0f
+[    0.000000] Node0: mem_type:7, mem_start:0xf2f0000, mem_size:0x14000 Bytes
+[    0.000000]        start_pfn:0x3cbc, end_pfn:0x3cc1, num_physpages:0x3b14
+[    0.000000] Node0: mem_type:3, mem_start:0xf304000, mem_size:0x16c000 Bytes
+[    0.000000]        start_pfn:0x3cc1, end_pfn:0x3d1c, num_physpages:0x3b6f
+[    0.000000] Resvd: mem_type:5, mem_start:0xf470000, mem_size:0x30000 Bytes
+[    0.000000] Resvd: mem_type:6, mem_start:0xf4a0000, mem_size:0x20000 Bytes
+[    0.000000] Node0: mem_type:7, mem_start:0xf4c0000, mem_size:0x1c000 Bytes
+[    0.000000]        start_pfn:0x3d30, end_pfn:0x3d37, num_physpages:0x3b76
+[    0.000000] Node0: mem_type:4, mem_start:0xf4dc000, mem_size:0x21000 Bytes
+[    0.000000]        start_pfn:0x3d37, end_pfn:0x3d3f, num_physpages:0x3b7e
+[    0.000000] Node0: mem_type:3, mem_start:0xf4fd000, mem_size:0x44000 Bytes
+[    0.000000]        start_pfn:0x3d3f, end_pfn:0x3d50, num_physpages:0x3b8f
+[    0.000000] Node0: mem_type:4, mem_start:0xf541000, mem_size:0x985000 Bytes
+[    0.000000]        start_pfn:0x3d50, end_pfn:0x3fb1, num_physpages:0x3df0
+[    0.000000] Node0: mem_type:3, mem_start:0xfec6000, mem_size:0x2d000 Bytes
+[    0.000000]        start_pfn:0x3fb1, end_pfn:0x3fbc, num_physpages:0x3dfb
+[    0.000000] Node0: mem_type:4, mem_start:0xfef3000, mem_size:0x10d000 Bytes
+[    0.000000]        start_pfn:0x3fbc, end_pfn:0x4000, num_physpages:0x3e3e
+[    0.000000] Node0: mem_type:7, mem_start:0x80000000, mem_size:0x6e000000 Bytes
+[    0.000000]        start_pfn:0x20000, end_pfn:0x3b800, num_physpages:0x1f63e
+[    0.000000] Node0: mem_type:1, mem_start:0xee000000, mem_size:0x2000000 Bytes
+[    0.000000]        start_pfn:0x3b800, end_pfn:0x3c000, num_physpages:0x1fe3e
+[    0.000000] Resvd: mem_type:11, mem_start:0x100d0000, mem_size:0x1000 Bytes
+[    0.000000] Resvd: mem_type:11, mem_start:0x100e0000, mem_size:0x1000 Bytes
+[    0.000000] Resvd: mem_type:11, mem_start:0x1c000000, mem_size:0x1000000 Bytes
+[    0.000000] Node0's addrspace_offset is 0x0
+[    0.000000] Node0: start_pfn=0x0, end_pfn=0x3c000
+[    0.000000] NODE_DATA(0) allocated [mem 0xefffce00-0xeffffcff]
+[    0.000000] SMBIOS 3.0.0 present.
+[    0.000000] DMI: QEMU QEMU Virtual Machine, BIOS unknown 2/2/2022
+[    0.000000] DMI: Memory slots populated: 1/1
+[    0.000000] CpuClock = 2000000000
+[    0.000000] The BIOS Version: unknown
+[    0.000000] software IO TLB: area num 2.
+[    0.000000] software IO TLB: mapped [mem 0x0000000004220000-0x0000000008220000] (64MB)
+[    0.000000] PM: hibernation: Registered nosave memory: [mem 0x03d10000-0x03d13fff]
+[    0.000000] Detected 2 available CPU(s)
+[    0.000000] SMP: Allowing 2 CPUs, 0 hotplug CPUs
+[    0.000000] Zone ranges:
+[    0.000000]   DMA32    [mem 0x0000000000000000-0x00000000ffffffff]
+[    0.000000]   Normal   empty
+[    0.000000] Movable zone start for each node
+[    0.000000] Early memory node ranges
+[    0.000000]   node   0: [mem 0x0000000000000000-0x000000000d82ffff]
+[    0.000000]   node   0: [mem 0x000000000d840000-0x000000000dbeffff]
+[    0.000000]   node   0: [mem 0x000000000de10000-0x000000000de7ffff]
+[    0.000000]   node   0: [mem 0x000000000dfa0000-0x000000000e07ffff]
+[    0.000000]   node   0: [mem 0x000000000e1f0000-0x000000000e20ffff]
+[    0.000000]   node   0: [mem 0x000000000e3f0000-0x000000000f46ffff]
+[    0.000000]   node   0: [mem 0x000000000f4c0000-0x000000000fffffff]
+[    0.000000]   node   0: [mem 0x0000000080000000-0x00000000efffffff]
+[    0.000000] Initmem setup node 0 [mem 0x0000000000000000-0x00000000efffffff]
+[    0.000000] On node 0, zone DMA32: 4 pages in unavailable ranges
+[    0.000000] On node 0, zone DMA32: 136 pages in unavailable ranges
+[    0.000000] On node 0, zone DMA32: 72 pages in unavailable ranges
+[    0.000000] On node 0, zone DMA32: 92 pages in unavailable ranges
+[    0.000000] On node 0, zone DMA32: 120 pages in unavailable ranges
+[    0.000000] On node 0, zone DMA32: 20 pages in unavailable ranges
+[    0.000000] On node 0, zone DMA32: 16384 pages in unavailable ranges
+[    0.000000] On node 0, zone DMA32: 16384 pages in unavailable ranges
+[    0.000000] percpu: Embedded 6 pages/cpu s51416 r8192 d38696 u16777216
+[    0.000000] pcpu-alloc: s51416 r8192 d38696 u16777216 alloc=1*33554432
+[    0.000000] pcpu-alloc: [0] 0 1 
+[    0.000000] Kernel command line: BOOT_IMAGE=[redacted] root=[redacted] ro modules=sd-mod,usb-storage,ext4 quiet rootfstype=ext4
+[    0.000000] Unknown kernel command line parameters "modules=sd-mod,usb-storage,ext4", will be passed to user space.
+[    0.000000] printk: log buffer data + meta data: 262144 + 917504 = 1179648 bytes
+[    0.000000] Dentry cache hash table entries: 262144 (order: 7, 2097152 bytes, linear)
+[    0.000000] Inode-cache hash table entries: 131072 (order: 6, 1048576 bytes, linear)
+[    0.000000] Fallback order for Node 0: 0 
+[    0.000000] Built 1 zonelists, mobility grouping on.  Total pages: 130628
+[    0.000000] Policy zone: DMA32
+[    0.000000] mem auto-init: stack:all(zero), heap alloc:off, heap free:off
+[    0.000000] SLUB: HWalign=64, Order=0-3, MinObjects=0, CPUs=2, Nodes=1
+[    0.000000] Dynamic Preempt: voluntary
+[    0.000000] rcu: Preemptible hierarchical RCU implementation.
+[    0.000000] rcu: 	RCU event tracing is enabled.
+[    0.000000] rcu: 	RCU restricting CPUs from NR_CPUS=2048 to nr_cpu_ids=2.
+[    0.000000] 	Trampoline variant of Tasks RCU enabled.
+[    0.000000] 	Tracing variant of Tasks RCU enabled.
+[    0.000000] rcu: RCU calculated value of scheduler-enlistment delay is 100 jiffies.
+[    0.000000] rcu: Adjusting geometry for rcu_fanout_leaf=16, nr_cpu_ids=2
+[    0.000000] RCU Tasks: Setting shift to 1 and lim to 1 rcu_task_cb_adjust=1 rcu_task_cpu_ids=2.
+[    0.000000] RCU Tasks Trace: Setting shift to 1 and lim to 1 rcu_task_cb_adjust=1 rcu_task_cpu_ids=2.
+[    0.000000] NR_IRQS: 526400, nr_irqs: 320, preallocated irqs: 16
+[    0.000000] rcu: srcu_init: Setting srcu_struct sizes based on contention.
+[    0.000000] Constant clock event device register
+[    0.000000] clocksource: Constant: mask: 0xffffffffffffffff max_cycles: 0x171024e7e0, max_idle_ns: 440795205315 ns
+[    0.000043] sched_clock: 64 bits at 100MHz, resolution 10ns, wraps every 4398046511100ns
+[    0.000076] Constant clock source device register
+[    0.007498] Console: colour dummy device 80x25
+[    0.007922] printk: legacy console [tty0] enabled
+[    0.009844] ACPI: Core revision 20250807
+[    0.014191] Calibrating delay loop (skipped), value calculated using timer frequency.. 200.00 BogoMIPS (lpj=100000)
+[    0.014553] pid_max: default: 32768 minimum: 301
+[    0.016292] LSM: initializing lsm=lockdown,capability,yama
+[    0.016621] Yama: becoming mindful.
+[    0.017951] Mount-cache hash table entries: 4096 (order: 1, 32768 bytes, linear)
+[    0.017985] Mountpoint-cache hash table entries: 4096 (order: 1, 32768 bytes, linear)
+[    0.051294] rcu: Hierarchical SRCU implementation.
+[    0.051360] rcu: 	Max phase no-delay instances is 400.
+[    0.052357] Timer migration: 1 hierarchy levels; 8 children per group; 1 crossnode level
+[    0.054500] smp: Bringing up secondary CPUs ...
+[    0.057677] Booting CPU#1...
+[    5.648603] CPU1: failed to start
+[    5.650927] smp: Brought up 1 node, 1 CPU
+[    5.655213] Memory: 1945184K/2090048K available (12992K kernel code, 4191K rwdata, 7396K rodata, 640K init, 1002K bss, 141696K reserved, 0K cma-reserved)
+[    5.661857] devtmpfs: initialized
+[    5.671372] clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 1911260446275000 ns
+[    5.671821] posixtimers hash table entries: 1024 (order: 0, 16384 bytes, linear)
+[    5.672032] futex hash table entries: 512 (32768 bytes on 1 NUMA nodes, total 32 KiB, linear).
+[    5.673900] pinctrl core: initialized pinctrl subsystem
+[    5.682839] NET: Registered PF_NETLINK/PF_ROUTE protocol family
+[    5.685656] audit: initializing netlink subsys (disabled)
+[    5.687818] audit: type=2000 audit(5.123:1): state=initialized audit_enabled=0 res=1
+[    5.690811] thermal_sys: Registered thermal governor 'step_wise'
+[    5.691046] Final SIMD width = 256
+[    5.691998] hw-breakpoint: Found 0 breakpoint and 0 watchpoint registers.
+[    5.697640] HugeTLB: registered 32.0 MiB page size, pre-allocated 0 pages
+[    5.697682] HugeTLB: 112 KiB vmemmap can be freed for a 32.0 MiB page
+[    5.718691] ACPI: Added _OSI(Module Device)
+[    5.718728] ACPI: Added _OSI(Processor Device)
+[    5.718838] ACPI: Added _OSI(Processor Aggregator Device)
+[    5.734887] ACPI: 1 ACPI AML tables successfully acquired and loaded
+[    5.741690] ACPI: Interpreter enabled
+[    5.742720] ACPI: PM: (supports S0 S5)
+[    5.742768] ACPI: Using LPIC for interrupt routing
+[    5.743234] ACPI: MCFG table detected, 1 entries
+[    5.746698] ACPI Error: AE_AML_ALIGNMENT, Returned by Handler for [SystemMemory] (20250807/evregion-303)
+[    5.747393] ACPI Error: Aborting method \_SB.CPUS.CSTA due to previous error (AE_AML_ALIGNMENT) (20250807/psparse-529)
+[    5.747959] ACPI Error: Aborting method \_SB.CPUS.C000._STA due to previous error (AE_AML_ALIGNMENT) (20250807/psparse-529)
+[    5.748138] ACPI Error: Method execution failed \_SB.CPUS.C000._STA due to previous error (AE_AML_ALIGNMENT) (20250807/uteval-68)
+[    5.748400] ACPI Error: AE_AML_ALIGNMENT, Returned by Handler for [SystemMemory] (20250807/evregion-303)
+[    5.748451] ACPI Error: Aborting method \_SB.CPUS.CSTA due to previous error (AE_AML_ALIGNMENT) (20250807/psparse-529)
+[    5.748504] ACPI Error: Aborting method \_SB.CPUS.C001._STA due to previous error (AE_AML_ALIGNMENT) (20250807/psparse-529)
+[    5.748624] ACPI Error: Method execution failed \_SB.CPUS.C001._STA due to previous error (AE_AML_ALIGNMENT) (20250807/uteval-68)
+[    5.759075] ACPI Error: AE_AML_ALIGNMENT, Returned by Handler for [SystemMemory] (20250807/evregion-303)
+[    5.759173] ACPI Error: Aborting method \_SB.CPUS.CSTA due to previous error (AE_AML_ALIGNMENT) (20250807/psparse-529)
+[    5.759241] ACPI Error: Aborting method \_SB.CPUS.C000._STA due to previous error (AE_AML_ALIGNMENT) (20250807/psparse-529)
+[    5.759905] ACPI Error: AE_AML_ALIGNMENT, Returned by Handler for [SystemMemory] (20250807/evregion-303)
+[    5.760081] ACPI Error: Aborting method \_SB.CPUS.CSTA due to previous error (AE_AML_ALIGNMENT) (20250807/psparse-529)
+[    5.760144] ACPI Error: Aborting method \_SB.CPUS.C001._STA due to previous error (AE_AML_ALIGNMENT) (20250807/psparse-529)
+[    5.768888] ACPI Error: AE_AML_ALIGNMENT, Returned by Handler for [SystemMemory] (20250807/evregion-303)
+[    5.769028] ACPI Error: Aborting method \_SB.CPUS.CSTA due to previous error (AE_AML_ALIGNMENT) (20250807/psparse-529)
+[    5.769106] ACPI Error: Aborting method \_SB.CPUS.C000._STA due to previous error (AE_AML_ALIGNMENT) (20250807/psparse-529)
+[    5.769307] ACPI Error: AE_AML_ALIGNMENT, Returned by Handler for [SystemMemory] (20250807/evregion-303)
+[    5.769360] ACPI Error: Aborting method \_SB.CPUS.CSTA due to previous error (AE_AML_ALIGNMENT) (20250807/psparse-529)
+[    5.769482] ACPI Error: Aborting method \_SB.CPUS.C001._STA due to previous error (AE_AML_ALIGNMENT) (20250807/psparse-529)
+[    5.769875] ACPI: PCI: Interrupt link L000 configured for IRQ 80
+[    5.770017] ACPI: PCI: Interrupt link L001 configured for IRQ 81
+[    5.770077] ACPI: PCI: Interrupt link L002 configured for IRQ 82
+[    5.770131] ACPI: PCI: Interrupt link L003 configured for IRQ 83
+[    5.770415] ACPI: PCI Root Bridge [PCI0] (domain 0000 [bus 00-7f])
+[    5.771226] acpi PNP0A08:00: _OSC: OS supports [ExtendedConfig Segments MSI HPX-Type3]
+[    5.771358] acpi PNP0A08:00: _OSC: not requesting OS control; OS requires [ExtendedConfig ASPM ClockPM MSI]
+[    5.774721] acpi PNP0A08:00: ECAM at [mem 0x20000000-0x27ffffff] for [bus 00-7f]
+[    5.775592] ACPI: Remapped I/O 0x0000000018004000 to [io  0x0000-0xbfff window]
+[    5.777770] PCI host bridge to bus 0000:00
+[    5.778103] pci_bus 0000:00: root bus resource [io  0x0000-0xbfff window]
+[    5.778137] pci_bus 0000:00: root bus resource [mem 0x40000000-0x7fffffff window]
+[    5.778212] pci_bus 0000:00: root bus resource [bus 00-7f]
+[    5.779602] pci 0000:00:00.0: [1b36:0008] type 00 class 0x060000 conventional PCI endpoint
+[    5.782813] pci 0000:00:01.0: [1af4:1000] type 00 class 0x020000 conventional PCI endpoint
+[    5.784398] pci 0000:00:01.0: BAR 0 [io  0x4080-0x409f]
+[    5.784482] pci 0000:00:01.0: BAR 1 [mem 0x4004e000-0x4004efff]
+[    5.784561] pci 0000:00:01.0: BAR 4 [mem 0x40048000-0x4004bfff 64bit pref]
+[    5.784668] pci 0000:00:01.0: ROM [mem 0xfffc0000-0xffffffff pref]
+[    5.785451] pci 0000:00:02.0: [1af4:1050] type 00 class 0x038000 conventional PCI endpoint
+[    5.786599] pci 0000:00:02.0: BAR 1 [mem 0x4004d000-0x4004dfff]
+[    5.786637] pci 0000:00:02.0: BAR 4 [mem 0x40044000-0x40047fff 64bit pref]
+[    5.787431] pci 0000:00:03.0: [1af4:1001] type 00 class 0x010000 conventional PCI endpoint
+[    5.788100] pci 0000:00:03.0: BAR 0 [io  0x4000-0x407f]
+[    5.788249] pci 0000:00:03.0: BAR 1 [mem 0x4004c000-0x4004cfff]
+[    5.788284] pci 0000:00:03.0: BAR 4 [mem 0x40040000-0x40043fff 64bit pref]
+[    5.790274] pci 0000:00:01.0: ROM [mem 0x40000000-0x4003ffff pref]: assigned
+[    5.790489] pci 0000:00:01.0: BAR 4 [mem 0x40040000-0x40043fff 64bit pref]: assigned
+[    5.790718] pci 0000:00:02.0: BAR 4 [mem 0x40044000-0x40047fff 64bit pref]: assigned
+[    5.791804] pci 0000:00:03.0: BAR 4 [mem 0x40048000-0x4004bfff 64bit pref]: assigned
+[    5.792019] pci 0000:00:01.0: BAR 1 [mem 0x4004c000-0x4004cfff]: assigned
+[    5.792066] pci 0000:00:02.0: BAR 1 [mem 0x4004d000-0x4004dfff]: assigned
+[    5.792098] pci 0000:00:03.0: BAR 1 [mem 0x4004e000-0x4004efff]: assigned
+[    5.792135] pci 0000:00:03.0: BAR 0 [io  0x4000-0x407f]: assigned
+[    5.792193] pci 0000:00:01.0: BAR 0 [io  0x4080-0x409f]: assigned
+[    5.792440] pci_bus 0000:00: resource 4 [io  0x0000-0xbfff window]
+[    5.792470] pci_bus 0000:00: resource 5 [mem 0x40000000-0x7fffffff window]
+[    5.802459] iommu: Default domain type: Translated
+[    5.802637] iommu: DMA domain TLB invalidation policy: strict mode
+[    5.804630] SCSI subsystem initialized
+[    5.805391] ACPI: bus type USB registered
+[    5.805836] usbcore: registered new interface driver usbfs
+[    5.806173] usbcore: registered new interface driver hub
+[    5.806328] usbcore: registered new device driver usb
+[    5.806622] pps_core: LinuxPPS API ver. 1 registered
+[    5.806637] pps_core: Software ver. 5.3.6 - Copyright 2005-2007 Rodolfo Giometti <giometti@linux.it>
+[    5.806685] PTP clock support registered
+[    5.808430] efivars: Registered efivars operations
+[    5.821269] vgaarb: loaded
+[    5.822388] clocksource: Switched to clocksource Constant
+[    5.825083] VFS: Disk quotas dquot_6.6.0
+[    5.825291] VFS: Dquot-cache hash table entries: 2048 (order 0, 16384 bytes)
+[    5.827938] pnp: PnP ACPI init
+[    5.830994] ACPI Error: AE_AML_ALIGNMENT, Returned by Handler for [SystemMemory] (20250807/evregion-303)
+[    5.831113] ACPI Error: Aborting method \_SB.CPUS.CSTA due to previous error (AE_AML_ALIGNMENT) (20250807/psparse-529)
+[    5.831189] ACPI Error: Aborting method \_SB.CPUS.C000._STA due to previous error (AE_AML_ALIGNMENT) (20250807/psparse-529)
+[    5.831477] ACPI Error: Method execution failed \_SB.CPUS.C000._STA due to previous error (AE_AML_ALIGNMENT) (20250807/uteval-68)
+[    5.831692] ACPI Error: AE_AML_ALIGNMENT, Returned by Handler for [SystemMemory] (20250807/evregion-303)
+[    5.831747] ACPI Error: Aborting method \_SB.CPUS.CSTA due to previous error (AE_AML_ALIGNMENT) (20250807/psparse-529)
+[    5.831802] ACPI Error: Aborting method \_SB.CPUS.C001._STA due to previous error (AE_AML_ALIGNMENT) (20250807/psparse-529)
+[    5.831857] ACPI Error: Method execution failed \_SB.CPUS.C001._STA due to previous error (AE_AML_ALIGNMENT) (20250807/uteval-68)
+[    5.833822] system 00:04: [mem 0x20000000-0x27ffffff window] could not be reserved
+[    5.834743] pnp: PnP ACPI: found 5 devices
+[    5.852302] NET: Registered PF_INET protocol family
+[    5.853620] IP idents hash table entries: 32768 (order: 4, 262144 bytes, linear)
+[    5.889048] tcp_listen_portaddr_hash hash table entries: 1024 (order: 0, 16384 bytes, linear)
+[    5.889140] Table-perturb hash table entries: 65536 (order: 4, 262144 bytes, linear)
+[    5.889210] TCP established hash table entries: 16384 (order: 3, 131072 bytes, linear)
+[    5.889793] TCP bind hash table entries: 16384 (order: 5, 524288 bytes, linear)
+[    5.890135] TCP: Hash tables configured (established 16384 bind 16384)
+[    5.891276] UDP hash table entries: 1024 (order: 2, 65536 bytes, linear)
+[    5.891838] UDP-Lite hash table entries: 1024 (order: 2, 65536 bytes, linear)
+[    5.894095] NET: Registered PF_UNIX/PF_LOCAL protocol family
+[    5.894675] NET: Registered PF_XDP protocol family
+[    5.895019] PCI: CLS 0 bytes, default 64
+[    5.900903] Initialise system trusted keyrings
+[    5.901732] Trying to unpack rootfs image as initramfs...
+[    5.904489] workingset: timestamp_bits=40 max_order=17 bucket_order=0
+[    5.912321] Key type asymmetric registered
+[    5.913340] Asymmetric key parser 'x509' registered
+[    5.913672] Block layer SCSI generic (bsg) driver version 0.4 loaded (major 249)
+[    5.915835] io scheduler mq-deadline registered
+[    5.915896] io scheduler kyber registered
+[    5.916119] io scheduler bfq registered
+[    5.933582] input: Power Button as /devices/LNXSYSTM:00/PNP0C0C:00/input/input0
+[    5.935519] ACPI: button: Power Button [PWRB]
+[    5.947987] Serial: 8250/16550 driver, 16 ports, IRQ sharing enabled
+[    5.978358] 00:00: ttyS0 at MMIO 0x1fe001e0 (irq = 20, base_baud = 115200) is a 16550A
+[    6.029718] 00:01: ttyS1 at MMIO 0x1fe002e0 (irq = 21, base_baud = 115200) is a 16550A
+[    6.077815] 00:02: ttyS2 at MMIO 0x1fe003e0 (irq = 22, base_baud = 115200) is a 16550A
+[    6.127416] 00:03: ttyS3 at MMIO 0x1fe004e0 (irq = 23, base_baud = 115200) is a 16550A
+[    6.214766] brd: module loaded
+[    6.215073] mpt3sas version 54.100.00.00 loaded
+[    6.228799] i8042: PNP: No PS/2 controller found.
+[    6.235803] rtc-efi rtc-efi.0: registered as rtc0
+[    6.236585] rtc-efi rtc-efi.0: setting system clock to 2026-05-30T10:54:49 UTC (1780138489)
+[    6.237109] i2c_dev: i2c /dev entries driver
+[    6.240783] hid: raw HID events driver (C) Jiri Kosina
+[    6.242444] usbcore: registered new interface driver usbhid
+[    6.242485] usbhid: USB HID core driver
+[    6.246459] NET: Registered PF_INET6 protocol family
+[    6.263116] Segment Routing with IPv6
+[    6.264553] In-situ OAM (IOAM) with IPv6
+[    6.264889] sit: IPv6, IPv4 and MPLS over IPv4 tunneling driver
+[    6.271919] NET: Registered PF_PACKET protocol family
+[    6.272830] Key type dns_resolver registered
+[    6.307168] registered taskstats version 1
+[    6.311656] Loading compiled-in X.509 certificates
+[    6.335052] Freeing initrd memory: 9968K
+[    6.480886] Loaded X.509 cert 'alpinelinux.org: Alpine Linux kernel key: d02abb8710c08d2e4805b0129dd810a0bf387d98'
+[    6.495984] Demotion targets for Node 0: null
+[    6.513668] clk: Disabling unused clocks
+[    6.546450] Freeing unused kernel image (initmem) memory: 640K
+[    6.546525] This architecture does not have kernel memory protection.
+[    6.546816] Run /init as init process
+[    6.546832]   with arguments:
+[    6.546845]     /init
+[    6.546860]   with environment:
+[    6.546872]     HOME=/
+[    6.546883]     TERM=linux
+[    6.546888]     modules=sd-mod,usb-storage,ext4
+[    6.810513] Alpine Init 3.13.0-r0
+[    6.829195] Loading boot drivers...
+[    7.001707] usbcore: registered new interface driver usb-storage
+[    7.154672] loop: module loaded
+[    7.163676] Loading boot drivers: ok.
+[    7.200833] Mounting root...
+[    7.497872] ACPI: \L001: Enabled at IRQ 81
+[    7.500415] virtio-pci 0000:00:01.0: enabling device (0005 -> 0007)
+[    7.508793] ACPI: \L002: Enabled at IRQ 82
+[    7.511811] ACPI: \L003: Enabled at IRQ 83
+[    7.512090] virtio-pci 0000:00:03.0: enabling device (0005 -> 0007)
+[    7.729040] ACPI: bus type drm_connector registered
+[    7.798198] [drm] pci: virtio-gpu-pci detected at 0000:00:02.0
+[    7.798998] [drm] features: -virgl +edid -resource_blob -host_visible
+[    7.799068] [drm] features: -context_init
+[    7.800567] [drm] number of scanouts: 1
+[    7.800620] [drm] number of cap sets: 0
+[    7.812517] [drm] Initialized virtio_gpu 0.1.0 for 0000:00:02.0 on minor 0
+[    7.836844] Console: switching to colour frame buffer device 80x25
+[    7.847721] virtio-pci 0000:00:02.0: [drm] fb0: virtio_gpudrmfb frame buffer device
+[    7.882800] virtio_blk virtio2: 2/0/0 default/read/poll queues
+[    7.903968] virtio_blk virtio2: [vda] 41943040 512-byte logical blocks (21.5 GB/20.0 GiB)
+[    7.920464]  vda: vda1 vda2 vda3
+[   16.010810] EXT4-fs (vda3): orphan cleanup on readonly fs
+[   16.013211] EXT4-fs (vda3): mounted filesystem [uuid] ro with ordered data mode. Quota mode: none.
+[   16.017388] Mounting root: ok.
+[   27.214937] random: crng init done
+[   51.145760] pstore: Using crash dump compression: deflate
+[   51.145945] pstore: Registered efi_pstore as persistent store backend
+[   54.090645] EXT4-fs (vda3): re-mounted [uuid] r/w.
+[   54.342743] EXT4-fs (vda3): re-mounted [uuid].
+[   54.942513] Adding 3917808k swap on /dev/vda2.  Priority:-2 extents:1 across:3917808k 
+[  149.415015] hrtimer: interrupt took 3832613 ns

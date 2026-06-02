@@ -137,7 +137,7 @@ static int is_fixmap_region(unsigned long addr) {
 }
 
 static int is_kernel_text_region(unsigned long addr) {
-  return addr >= KERNEL_BASE_MIN && addr < MODULES_START;
+  return addr >= KERNEL_TEXT_MIN && addr < MODULES_START;
 }
 
 #else /* __i386__ */
@@ -158,12 +158,12 @@ static int is_fixmap_region(unsigned long addr) {
 }
 
 static int is_kernel_text_region(unsigned long addr) {
-  return addr >= KERNEL_BASE_MIN && addr < KERNEL_BASE_MAX;
+  return addr >= KERNEL_TEXT_MIN && addr < KERNEL_TEXT_MAX;
 }
 
 #endif
 
-unsigned long get_kernel_addr_sidt(void) {
+static unsigned long get_kernel_addr_sidt(void) {
   struct idtr idt;
 
   printf("[.] trying SIDT leak ...\n");

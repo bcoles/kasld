@@ -50,7 +50,6 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld/api.h"
-#include "include/kasld/internal.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
@@ -94,7 +93,7 @@ int main(void) {
 
     snprintf(path, sizeof(path), "%s/%s/resource", base, ent->d_name);
 
-    FILE *f = fopen(path, "r");
+    FILE *f = kasld_fopen(path, "r");
     if (!f)
       continue;
 

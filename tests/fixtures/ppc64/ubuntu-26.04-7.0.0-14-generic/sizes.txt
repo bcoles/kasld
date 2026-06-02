@@ -1,0 +1,2 @@
+64562872 /boot/vmlinux-7.0.0-14-generic
+5865350 /boot/System.map-7.0.0-14-generic

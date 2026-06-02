@@ -22,21 +22,26 @@
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/Kconfig#L1267
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/Kconfig#L1264
 #define PAGE_OFFSET 0xc000000000000000ul
+// book3s64 linear-mapping base is architecturally fixed (not
+// user-configurable).
+#define PAGE_OFFSET_INVARIANT 1
 
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/include/asm/page.h#L227
 #define PHYS_OFFSET 0ul
-// phys_to_virt uses bitwise OR because PAGE_OFFSET has only the top bits set
-// and physical addresses use only the lower bits. Equivalent to addition when
-// the bit ranges don't overlap.
-#define PHYS_VIRT_DECOUPLED 0
-#define phys_to_virt(x) ((unsigned long)((x) | PAGE_OFFSET))
-#define virt_to_phys(v) ((unsigned long)((v) & ~PAGE_OFFSET))
+// PAGE_OFFSET and PHYS_OFFSET (= 0) are compile-time on ppc64; the directmap
+// projection is sound. Mainline ppc64 has no KASLR — text sits at a fixed
+// offset within the linear map.
+// (The bitwise OR form of phys_to_virt used in kernel headers — equivalent to
+// addition when the bit ranges don't overlap — is subsumed by the canonical
+// (p - PHYS_OFFSET + PAGE_OFFSET) form in kasld.h.)
+#define DIRECTMAP_STATIC 1
+#define TEXT_TRACKS_DIRECTMAP 1
 
 #define KERNEL_VAS_START PAGE_OFFSET
 #define KERNEL_VAS_END 0xfffffffffffffffful
 
-#define KERNEL_BASE_MIN PAGE_OFFSET
-#define KERNEL_BASE_MAX 0xffffffffff000000ul
+#define KERNEL_TEXT_MIN PAGE_OFFSET
+#define KERNEL_TEXT_MAX 0xffffffffff000000ul
 
 // Modules are loaded in the vmalloc region, which starts at
 // PAGE_OFFSET + KERN_VIRT_SIZE (0xc008000000000000 on Book3S).
@@ -60,9 +65,9 @@
 #define TEXT_OFFSET 0
 
 // Default: 0xc000000000000000 (PAGE_OFFSET, no text offset on PPC64).
-// See README.md "Default text base and KASLR alignment" for all architectures.
-// Kernel source: arch/powerpc/kernel/vmlinux.lds.S
-#define KERNEL_TEXT_DEFAULT (KERNEL_BASE_MIN + TEXT_OFFSET)
+// See docs/kaslr.md "Default text base and KASLR alignment" for all
+// architectures. Kernel source: arch/powerpc/kernel/vmlinux.lds.S
+#define KERNEL_TEXT_DEFAULT (KERNEL_TEXT_MIN + TEXT_OFFSET)
 
 // PPC64 does not have mainline KASLR.
 #define KASLR_SUPPORTED 0

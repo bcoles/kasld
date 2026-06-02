@@ -27,25 +27,29 @@
 // from CONFIG_VMSPLIT_1G (0x40000000) to CONFIG_VMSPLIT_3G (0xc0000000).
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/Kconfig#L1474
 #define PAGE_OFFSET 0xc0000000ul
+// VMSPLIT (CONFIG_PAGE_OFFSET) is a compile-time constant, fixed at boot.
+#define PAGE_OFFSET_FROM_CONFIG 1
 
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/include/asm/page.h#L59
 #define PHYS_OFFSET 0ul
-#define PHYS_VIRT_DECOUPLED 0
-#define phys_to_virt(x) ((unsigned long)(x + PAGE_OFFSET))
-#define virt_to_phys(v) ((unsigned long)(v - PAGE_OFFSET))
+// PAGE_OFFSET and PHYS_OFFSET are both compile-time constants on x86_32 (no
+// PAGE_OFFSET randomization, no PHYS_OFFSET patching), and x86_32 has no
+// mainline KASLR — text sits at a fixed offset within the linear map.
+#define DIRECTMAP_STATIC 1
+#define TEXT_TRACKS_DIRECTMAP 1
 
 // Minimum possible kernel base across all vmsplit configurations.
 // CONFIG_VMSPLIT_1G sets PAGE_OFFSET=0x40000000, the lowest possible value.
-// We use this as KERNEL_BASE_MIN to accept kernel addresses from all vmsplits.
+// We use this as KERNEL_TEXT_MIN to accept kernel addresses from all vmsplits.
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/Kconfig#L1474
-#define KERNEL_BASE_MIN 0x40000000ul
+#define KERNEL_TEXT_MIN 0x40000000ul
 
 // VAS start uses the lowest possible PAGE_OFFSET to cover all vmsplit
 // configurations. The orchestrator adjusts at runtime once vmsplit is detected.
-#define KERNEL_VAS_START KERNEL_BASE_MIN
+#define KERNEL_VAS_START KERNEL_TEXT_MIN
 #define KERNEL_VAS_END 0xfffffffful
 // Above this, addresses fall in the module/fixmap region.
-#define KERNEL_BASE_MAX 0xf0000000ul
+#define KERNEL_TEXT_MAX 0xf0000000ul
 
 // Modules placed in high memory above kernel text.
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/kernel/module.c
@@ -66,13 +70,13 @@
 // KASLR ceiling is KERNEL_IMAGE_SIZE = 512 MB
 // (arch/x86/boot/compressed/kaslr.c: `if (IS_ENABLED(CONFIG_X86_32)) mem_limit
 // = KERNEL_IMAGE_SIZE`). Physical and virtual are coupled on x86-32
-// (PHYS_VIRT_DECOUPLED = 0).
+// (TEXT_TRACKS_DIRECTMAP = 1).
 #define KERNEL_PHYS_MIN 0ul
 #define KERNEL_PHYS_MAX (512ul * MB)
 
 // Default: 0xc0000000 (PAGE_OFFSET with 3GB vmsplit, no offset).
-// See README.md "Default text base and KASLR alignment" for all architectures.
-// Kernel source: arch/x86/kernel/vmlinux.lds.S
+// See docs/kaslr.md "Default text base and KASLR alignment" for all
+// architectures. Kernel source: arch/x86/kernel/vmlinux.lds.S
 #define KERNEL_TEXT_DEFAULT (PAGE_OFFSET + TEXT_OFFSET)
 
 #define KASLR_SUPPORTED 1

@@ -1,0 +1,105 @@
+Node 0, zone      DMA
+  per-node stats
+      nr_inactive_anon 360
+      nr_active_anon 20
+      nr_inactive_file 51600
+      nr_active_file 4200
+      nr_unevictable 0
+      nr_slab_reclaimable 6408
+      nr_slab_unreclaimable 1864
+      nr_isolated_anon 0
+      nr_isolated_file 0
+      workingset_nodes 0
+      workingset_refault_anon 0
+      workingset_refault_file 0
+      workingset_activate_anon 0
+      workingset_activate_file 0
+      workingset_restore_anon 0
+      workingset_restore_file 0
+      workingset_nodereclaim 0
+      nr_anon_pages 355
+      nr_mapped    388
+      nr_file_pages 55825
+      nr_dirty     9964
+      nr_writeback 0
+      nr_writeback_temp 0
+      nr_shmem     25
+      nr_shmem_hugepages 0
+      nr_shmem_pmdmapped 0
+      nr_file_hugepages 0
+      nr_file_pmdmapped 0
+      nr_anon_transparent_hugepages 0
+      nr_vmscan_write 0
+      nr_vmscan_immediate_reclaim 0
+      nr_dirtied   54278
+      nr_written   43146
+      nr_kernel_misc_reclaimable 0
+      nr_foll_pin_acquired 0
+      nr_foll_pin_released 0
+      nr_kernel_stack 920
+      nr_page_table_pages 146
+      nr_swapcached 0
+  pages free     435673
+        min      5632
+        low      7040
+        high     8448
+        spanned  524288
+        present  524288
+        managed  506949
+        cma      0
+        protection: (0, 0, 0, 0)
+      nr_free_pages 435673
+      nr_zone_inactive_anon 360
+      nr_zone_active_anon 20
+      nr_zone_inactive_file 51600
+      nr_zone_active_file 4200
+      nr_zone_unevictable 0
+      nr_zone_write_pending 9964
+      nr_mlock     0
+      nr_bounce    0
+      nr_zspages   0
+      nr_free_cma  0
+      numa_hit     0
+      numa_miss    0
+      numa_foreign 0
+      numa_interleave 0
+      numa_local   0
+      numa_other   0
+  pagesets
+    cpu: 0
+              count: 2571
+              high:  7040
+              batch: 63
+  vm stats threshold: 10
+  node_unreclaimable:  0
+  start_pfn:           262144
+Node 0, zone    DMA32
+  pages free     0
+        min      0
+        low      0
+        high     0
+        spanned  0
+        present  0
+        managed  0
+        cma      0
+        protection: (0, 0, 0, 0)
+Node 0, zone   Normal
+  pages free     0
+        min      0
+        low      0
+        high     0
+        spanned  0
+        present  0
+        managed  0
+        cma      0
+        protection: (0, 0, 0, 0)
+Node 0, zone  Movable
+  pages free     0
+        min      0
+        low      0
+        high     0
+        spanned  0
+        present  0
+        managed  0
+        cma      0
+        protection: (0, 0, 0, 0)

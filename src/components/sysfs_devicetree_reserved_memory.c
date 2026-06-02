@@ -46,7 +46,6 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld/api.h"
-#include "include/kasld/internal.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdint.h>
@@ -70,7 +69,7 @@ KASLD_META("method:parsed\n"
 
 /* Read raw binary content from a sysfs file. Returns bytes read, or -1. */
 static int read_binary(const char *path, unsigned char *buf, size_t len) {
-  FILE *f = fopen(path, "rb");
+  FILE *f = kasld_fopen(path, "rb");
   if (!f)
     return -1;
   int n = (int)fread(buf, 1, len, f);
@@ -212,11 +211,11 @@ int main(void) {
       kasld_result_sample(KASLD_TYPE_PHYS, REGION_RESERVED_MEM, base_addr,
                           ent->d_name, CONF_PARSED);
 
-#if !PHYS_VIRT_DECOUPLED
-      unsigned long virt = phys_to_virt(base_addr);
+#ifdef phys_to_directmap_virt
+      unsigned long virt = phys_to_directmap_virt(base_addr);
       printf("  possible direct-map virtual address: 0x%016lx\n", virt);
-      kasld_result_sample(KASLD_TYPE_VIRT, REGION_RESERVED_MEM, virt,
-                          ent->d_name, CONF_PARSED);
+      kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, ent->d_name,
+                          CONF_PARSED);
 #endif
 
       count++;
@@ -230,7 +229,7 @@ int main(void) {
     return 0;
   }
 
-#if PHYS_VIRT_DECOUPLED
+#ifndef phys_to_directmap_virt
   printf("note: phys and virt KASLR are decoupled on this arch; "
          "cannot derive directmap virtual address from physical leak\n");
 #endif

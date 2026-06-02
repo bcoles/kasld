@@ -1,0 +1,1 @@
+BOOT_IMAGE=[redacted] root=[redacted] ro modules=sd-mod,usb-storage,ext4 quiet rootfstype=ext4

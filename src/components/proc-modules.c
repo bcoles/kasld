@@ -28,7 +28,6 @@
 
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
-#include "include/kasld/internal.h"
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -51,7 +50,7 @@ KASLD_META("method:parsed\n"
            "sysctl:kptr_restrict>=1\n"
            "bypass:CAP_SYSLOG\n");
 
-struct module_range get_addr_proc_modules() {
+static struct module_range get_addr_proc_modules(void) {
   FILE *f;
   char *endptr;
   char *line = 0;
@@ -63,7 +62,7 @@ struct module_range get_addr_proc_modules() {
 
   printf("[.] reading %s ...\n", path);
 
-  f = fopen(path, "r");
+  f = kasld_fopen(path, "r");
 
   if (f == NULL) {
     perror("[-] fopen");
@@ -79,7 +78,7 @@ struct module_range get_addr_proc_modules() {
     if (!module_addr)
       continue;
 
-    if (module_addr >= MODULES_START && module_addr <= MODULES_END) {
+    if (kasld_addr_is_module_region(module_addr)) {
       if (!range.lo || module_addr < range.lo)
         range.lo = module_addr;
       if (module_addr > range.hi)
@@ -95,7 +94,7 @@ struct module_range get_addr_proc_modules() {
 
 int main(void) {
   /* Pre-check: can we access /proc/modules? */
-  if (access("/proc/modules", R_OK) != 0)
+  if (kasld_access("/proc/modules", R_OK) != 0)
     return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM
                                                : KASLD_EXIT_UNAVAILABLE;
 

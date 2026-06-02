@@ -5,7 +5,7 @@
 // 1. Kernel text addresses from [<addr>] call trace tokens.
 // 2. Physical DRAM address from CR3 page table base register (x86).
 // 3. Directmap virtual addresses from register dump values that fall
-//    in the PAGE_OFFSET..KERNEL_BASE_MIN range.
+//    in the PAGE_OFFSET..KERNEL_TEXT_MIN range.
 //
 // Oops messages contain structured register dumps whose format varies
 // by architecture:
@@ -46,7 +46,6 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld/api.h"
-#include "include/kasld/internal.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -78,14 +77,14 @@ struct oops_ctx {
  * above PAGE_OFFSET but below both text and module regions.
  *
  * On arches where directmap overlaps text (arm32, x86_32), this
- * returns 0 for all values because PAGE_OFFSET >= KERNEL_BASE_MIN. */
+ * returns 0 for all values because PAGE_OFFSET >= KERNEL_TEXT_MIN. */
 static int in_directmap_range(unsigned long val) {
   if (val < PAGE_OFFSET)
     return 0;
-  if (val >= KERNEL_BASE_MIN)
+  if (val >= KERNEL_TEXT_MIN)
     return 0;
 #if MODULES_START >= PAGE_OFFSET
-  if (val >= MODULES_START && val <= MODULES_END)
+  if (kasld_addr_is_module_region(val))
     return 0;
 #endif
   return 1;
@@ -104,7 +103,7 @@ static int on_calltrace(const char *line, void *ctx) {
     if (!addr)
       continue;
 
-    if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX) {
+    if (addr >= KERNEL_TEXT_MIN && addr <= KERNEL_TEXT_MAX) {
       if (!c->text || addr < c->text)
         c->text = addr;
     }
@@ -213,13 +212,34 @@ int main(void) {
 
   if (ctx.phys) {
     printf("leaked physical address (CR3): %lx\n", ctx.phys);
-    /* CR3 is the physical address of swapper_pg_dir, which lives in the
-     * kernel .bss section. Tagged KERNEL_BSS so inference plugins can
-     * apply the BSS-resident gap refinement without an allow-list. */
+    /* CR3 is the active PGD's physical address at the point of the oops.
+     * Tagging trade-off (intentional KERNEL_BSS choice):
+     *
+     *   Kernel-thread context — CR3 = swapper_pg_dir, which lives in the
+     *   kernel .bss section. kernel_image_phys_bound's BSS-gap refinement
+     *   then yields a TIGHT upper bound on phys_text_base (offset of
+     *   swapper from _stext is small — ~38 MiB on stock x86_64).
+     *
+     *   User-process context — CR3 = task's PGD, allocated by the buddy
+     *   allocator anywhere in DRAM. kernel_image_phys_bound emits an
+     *   upper bound (vacuous: well above the true text base, harmlessly
+     *   subsumed) and a lower bound (contradicts the resolved upper
+     *   bound from text-pin / coupling synth, cleanly rejected at the
+     *   resolver with one log line under -v).
+     *
+     * The user-context case produces no functional impact — both
+     * emitted constraints are either subsumed or rejected. The
+     * kernel-thread case produces real tightening. Keeping the
+     * KERNEL_BSS tag preserves the rare-but-useful capability at the
+     * cost of one rejection log line in the common case. */
     kasld_result_sample(KASLD_TYPE_PHYS, REGION_KERNEL_BSS, ctx.phys, "cr3",
                         CONF_PARSED);
-#if !PHYS_VIRT_DECOUPLED
-    unsigned long virt = phys_to_virt(ctx.phys);
+#if defined(phys_to_directmap_virt) && TEXT_TRACKS_DIRECTMAP
+    /* On coupled arches the directmap virt of the CR3 phys is computable
+     * via the static linear map. In the kernel-thread case this IS the
+     * BSS virtual address; in the user case it's just a generic directmap
+     * landmark. Tag KERNEL_BSS for symmetry with the phys side. */
+    unsigned long virt = phys_to_directmap_virt(ctx.phys);
     printf("possible direct-map virtual address: %lx\n", virt);
     kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_BSS, virt, "cr3",
                         CONF_PARSED);

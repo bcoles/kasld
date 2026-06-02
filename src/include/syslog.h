@@ -8,6 +8,8 @@
 #define KASLD_SYSLOG_H
 
 #define _GNU_SOURCE
+#include "include/kasld/sysroot.h"
+
 #include <errno.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -27,7 +29,7 @@ static int read_dmesg_log_file(char **buffer, int *size) {
   int alloc;
   const char *path = "/var/log/dmesg";
 
-  f = fopen(path, "rb");
+  f = kasld_fopen(path, "rb");
   if (f == NULL) {
     perror("[-] fopen(/var/log/dmesg)");
     return 1;

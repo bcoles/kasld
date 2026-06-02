@@ -1,0 +1,186 @@
+Node 0, zone      DMA
+  per-node stats
+      nr_inactive_anon 8846
+      nr_active_anon 14581
+      nr_inactive_file 219969
+      nr_active_file 41450
+      nr_unevictable 2461
+      nr_slab_reclaimable 38173
+      nr_slab_unreclaimable 34715
+      nr_isolated_anon 0
+      nr_isolated_file 0
+      workingset_nodes 6733
+      workingset_refault_anon 515
+      workingset_refault_file 118256
+      workingset_activate_anon 515
+      workingset_activate_file 9184
+      workingset_restore_anon 0
+      workingset_restore_file 1056
+      workingset_nodereclaim 1024
+      nr_anon_pages 23521
+      nr_mapped    23191
+      nr_file_pages 264259
+      nr_dirty     18713
+      nr_writeback 0
+      nr_shmem     307
+      nr_shmem_hugepages 0
+      nr_shmem_pmdmapped 0
+      nr_file_hugepages 88
+      nr_file_pmdmapped 0
+      nr_anon_transparent_hugepages 0
+      nr_vmscan_write 1345
+      nr_vmscan_immediate_reclaim 0
+      nr_dirtied   762255
+      nr_written   665319
+      nr_throttled_written 0
+      nr_kernel_misc_reclaimable 0
+      nr_foll_pin_acquired 352
+      nr_foll_pin_released 352
+      nr_kernel_stack 6280
+      nr_page_table_pages 950
+      nr_sec_page_table_pages 0
+      nr_iommu_pages 0
+      nr_swapcached 669
+      pgpromote_success 0
+      pgpromote_candidate 0
+      pgpromote_candidate_nrl 0
+      pgdemote_kswapd 0
+      pgdemote_direct 0
+      pgdemote_khugepaged 0
+      pgdemote_proactive 0
+      nr_hugetlb   0
+      nr_balloon_pages 0
+      nr_kernel_file_pages 0
+  pages free     1813
+        boost    0
+        min      110
+        low      137
+        high     164
+        promo    191
+        spanned  4095
+        present  3997
+        managed  3840
+        cma      0
+        protection: (0, 1579, 1579, 1579, 1579)
+      nr_free_pages 1813
+      nr_free_pages_blocks 512
+      nr_zone_inactive_anon 205
+      nr_zone_active_anon 154
+      nr_zone_inactive_file 1056
+      nr_zone_active_file 0
+      nr_zone_unevictable 0
+      nr_zone_write_pending 0
+      nr_mlock     0
+      nr_zspages   0
+      nr_free_cma  0
+      nr_unaccepted 0
+      numa_hit     12510
+      numa_miss    0
+      numa_foreign 0
+      numa_interleave 1
+      numa_local   12510
+      numa_other   0
+  pagesets
+    cpu: 0
+              count:    0
+              high:     68
+              batch:    1
+              high_min: 68
+              high_max: 240
+  vm stats threshold: 13
+    cpu: 1
+              count:    13
+              high:     68
+              batch:    1
+              high_min: 68
+              high_max: 240
+  vm stats threshold: 13
+  node_unreclaimable:  0
+  start_pfn:           1
+  reserved_highatomic: 0
+  free_highatomic:     0
+Node 0, zone    DMA32
+  pages free     22124
+        boost    0
+        min      11153
+        low      13941
+        high     16729
+        promo    19517
+        spanned  520192
+        present  520160
+        managed  404354
+        cma      0
+        protection: (0, 0, 0, 0, 0)
+      nr_free_pages 22124
+      nr_free_pages_blocks 0
+      nr_zone_inactive_anon 8641
+      nr_zone_active_anon 14427
+      nr_zone_inactive_file 218913
+      nr_zone_active_file 41450
+      nr_zone_unevictable 2461
+      nr_zone_write_pending 18713
+      nr_mlock     2461
+      nr_zspages   0
+      nr_free_cma  0
+      nr_unaccepted 0
+      numa_hit     26592825
+      numa_miss    0
+      numa_foreign 0
+      numa_interleave 84
+      numa_local   26592825
+      numa_other   0
+  pagesets
+    cpu: 0
+              count:    823
+              high:     7285
+              batch:    63
+              high_min: 6970
+              high_max: 24157
+  vm stats threshold: 20
+    cpu: 1
+              count:    1107
+              high:     7159
+              batch:    63
+              high_min: 6970
+              high_max: 24157
+  vm stats threshold: 20
+  node_unreclaimable:  0
+  start_pfn:           4096
+  reserved_highatomic: 0
+  free_highatomic:     0
+Node 0, zone   Normal
+  pages free     0
+        boost    0
+        min      0
+        low      0
+        high     0
+        promo    0
+        spanned  0
+        present  0
+        managed  0
+        cma      0
+        protection: (0, 0, 0, 0, 0)
+Node 0, zone  Movable
+  pages free     0
+        boost    0
+        min      32
+        low      32
+        high     32
+        promo    32
+        spanned  0
+        present  0
+        managed  0
+        cma      0
+        protection: (0, 0, 0, 0, 0)
+Node 0, zone   Device
+  pages free     0
+        boost    0
+        min      0
+        low      0
+        high     0
+        promo    0
+        spanned  0
+        present  0
+        managed  0
+        cma      0
+        protection: (0, 0, 0, 0, 0)

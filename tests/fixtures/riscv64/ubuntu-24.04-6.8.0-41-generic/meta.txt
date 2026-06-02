@@ -1,0 +1,10 @@
+collect_version:  1
+collected_utc:    Sun May 24 02:45:01 UTC 2026
+uname_m_raw:      riscv64
+arch_canonical:   riscv64
+kernel_release:   6.8.0-41-generic
+distro:           ubuntu-24.04
+kasld:            kasld 0.1.2-dev
+suggested_fixture: tests/fixtures/riscv64/ubuntu-24.04-6.8.0-41-generic/
+anonymized:       0
+kallsyms:         0

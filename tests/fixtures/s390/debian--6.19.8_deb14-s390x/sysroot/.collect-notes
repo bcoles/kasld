@@ -1,0 +1,13 @@
+absent: /sys/kernel/boot_params/data
+absent: /sys/kernel/boot_params/setup_data
+absent: /sys/firmware/memmap
+absent: /proc/device-tree/chosen
+absent: /proc/device-tree/rtas
+absent: /sys/firmware/devicetree/base/chosen
+absent: /sys/firmware/devicetree/base/rtas
+absent: /proc/config.gz
+header: /boot/vmlinuz-6.19.8+deb14-s390x (4096B prefix; full size 9625600 in sizes.txt)
+absent: /boot/Image-6.19.8+deb14-s390x
+absent: /boot/vmlinux-6.19.8+deb14-s390x
+skipped: /proc/kallsyms (use --kallsyms to include)
+unavailable: dmesg

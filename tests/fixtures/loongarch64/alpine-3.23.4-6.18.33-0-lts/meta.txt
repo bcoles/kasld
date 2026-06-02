@@ -1,0 +1,10 @@
+collect_version:  1
+collected_utc:    Sat May 30 10:58:05 UTC 2026
+uname_m_raw:      loongarch64
+arch_canonical:   loongarch64
+kernel_release:   6.18.33-0-lts
+distro:           alpine-3.23.4
+kasld:            kasld 0.2.0-dev
+suggested_fixture: tests/fixtures/loongarch64/alpine-3.23.4-6.18.33-0-lts/
+anonymized:       1
+kallsyms:         0

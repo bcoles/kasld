@@ -1,0 +1,9 @@
+absent: /sys/kernel/boot_params/data
+absent: /sys/kernel/boot_params/setup_data
+absent: /sys/firmware/memmap
+absent: /proc/config.gz
+absent: /boot/vmlinuz-7.0.0-14-generic
+absent: /boot/Image-7.0.0-14-generic
+skipped: /proc/kallsyms (use --kallsyms to include)
+unavailable: dmesg
+anonymized: host identity, CPU brand, UUIDs/MACs, sensitive cmdline values redacted

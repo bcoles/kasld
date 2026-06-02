@@ -53,15 +53,15 @@
 // Physical memory starts at address 0.
 #define PHYS_OFFSET 0ul
 
-// Physical and virtual KASLR are decoupled (v6.8+). __kaslr_offset (virtual)
-// and __kaslr_offset_phys (physical) are randomized independently.
-// phys_to_virt() yields an identity-mapping address, NOT a kernel text
-// address. Relationship: phys == (kvirt - __kaslr_offset) +
-// __kaslr_offset_phys. Note: pre-v6.8 kernels used identity mapping (virtual =
-// physical); KASLR was physical-only in that era.
-#define PHYS_VIRT_DECOUPLED 1
-#define phys_to_virt(x) ((unsigned long)(x) + PAGE_OFFSET - PHYS_OFFSET)
-#define virt_to_phys(v) ((unsigned long)(v) - PAGE_OFFSET + PHYS_OFFSET)
+// On s390 v6.8+, PAGE_OFFSET (= __identity_base) may be runtime-randomized
+// when CONFIG_RANDOMIZE_IDENTITY_BASE is set; the compile-time formula is
+// then NOT a sound runtime directmap projection. Treat as runtime
+// conservatively — phys_to_directmap_virt() is left undefined (see gate at
+// end of file). Kernel text (__kaslr_offset) and identity base move
+// independently, so text does not track the directmap.
+// Relationship: phys == (kvirt - __kaslr_offset) + __kaslr_offset_phys.
+#define DIRECTMAP_STATIC 0
+#define TEXT_TRACKS_DIRECTMAP 0
 
 // Identity mapping base is NOT randomized by default.
 // CONFIG_RANDOMIZE_IDENTITY_BASE depends on RANDOMIZE_BASE and defaults to
@@ -82,8 +82,8 @@
 //   MiB)
 // With KASLR, the kernel is placed near the top of the ASCE limit within a
 // 2 GiB window (KASLR_LEN = 1 << 31).
-#define KERNEL_BASE_MIN 0x100000ul
-#define KERNEL_BASE_MAX 0x20000000000000ul
+#define KERNEL_TEXT_MIN 0x100000ul
+#define KERNEL_TEXT_MAX 0x20000000000000ul
 
 // Modules: 2 GiB (MODULES_LEN = 1 << 31) placed immediately below the kernel
 // image base. MODULES_END = round_down(__kaslr_offset, _SEGMENT_SIZE) ≈
@@ -105,7 +105,7 @@
 //
 // MODULES_BELOW_TEXT_START signals that MODULES_END is anchored to the image
 // start (_stext - TEXT_OFFSET), not to image end (_end) as on riscv64. The
-// module_text_bound plugin uses this flag to select the correct formula and to
+// module_text_bound rule uses this flag to select the correct formula and to
 // derive a lower bound on text_base from the maximum observed module address.
 //
 // MODULES_END_TO_TEXT_OFFSET: upper-bound addend in module_text_bound.c:
@@ -154,17 +154,32 @@
 // the maximum is vmax - image_size (boot-time, tracks the ASCE limit).
 // On 4-level systems vmax = 8 PiB, so _stext can be anywhere from
 // CONFIG_KERNEL_IMAGE_BASE up to ~8 PiB — a much wider range than 3-level.
-#define KASLR_BASE_MIN (0x3FFE0000000ul + TEXT_OFFSET)
-#define KASLR_BASE_MAX KERNEL_BASE_MAX
+#define KASLR_TEXT_MIN (0x3FFE0000000ul + TEXT_OFFSET)
+#define KASLR_TEXT_MAX KERNEL_TEXT_MAX
 
 // Default kernel text virtual address without KASLR.
 // CONFIG_KERNEL_IMAGE_BASE (introduced ~v6.8) default = 0x3FFE0000000
 // (+ TEXT_OFFSET for _stext). Pre-v6.8 kernels used identity mapping with
 // _stext at TEXT_OFFSET (0x100000). Distros may override.
-// See README.md "Default text base and KASLR alignment" for all architectures.
-// Kernel source: arch/s390/kernel/vmlinux.lds.S, arch/s390/boot/startup.c
+// See docs/kaslr.md "Default text base and KASLR alignment" for all
+// architectures. Kernel source: arch/s390/kernel/vmlinux.lds.S,
+// arch/s390/boot/startup.c
 #define KERNEL_TEXT_DEFAULT 0x3FFE0100000ul
 
 #define KASLR_SUPPORTED 1
+
+/* KASLR-off ⇒ pin contract: arch/s390/boot/startup.c setup_ident_map_size()
+ * forces __kaslr_enabled = 0 on the kdump crash kernel (oldmem_data.start
+ * non-zero, signalled by elfcorehdr= on the cmdline). The kernel then lands
+ * at __NO_KASLR_START_KERNEL = CONFIG_KERNEL_IMAGE_BASE + TEXT_OFFSET, which
+ * matches KERNEL_TEXT_DEFAULT for the default config. Also fires on the
+ * generic SF_KASLR_DISABLED signals (nokaslr cmdline, RANDOMIZE_BASE=n).
+ * Distros may override CONFIG_KERNEL_IMAGE_BASE; the rule's window-
+ * containment check is the soundness backstop. */
+#define KASLR_DISABLED_PINS_TEXT 1
+#define KASLD_ARCH_DEFAULT_TEXT_BASE_DEFINED 1
+static inline unsigned long arch_default_text_base(void) {
+  return KERNEL_TEXT_DEFAULT;
+}
 
 #endif /* KASLD_S390_H */

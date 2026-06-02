@@ -18,7 +18,6 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld/api.h"
-#include "include/kasld/internal.h"
 #include "include/kconfig.h"
 #include <errno.h>
 #include <stdio.h>
@@ -39,7 +38,7 @@ static int open_boot_config(FILE **fpp) {
   struct utsname utsname;
   char path[256];
 
-  if (uname(&utsname) == -1)
+  if (kasld_uname(&utsname) == -1)
     return -1;
 
   /* Try multiple known locations for the kernel config file.
@@ -48,7 +47,7 @@ static int open_boot_config(FILE **fpp) {
   const char *fixed_paths[] = {"/boot/config", NULL};
 
   for (int i = 0; fixed_paths[i]; i++) {
-    *fpp = fopen(fixed_paths[i], "r");
+    *fpp = kasld_fopen(fixed_paths[i], "r");
     if (*fpp)
       return 0;
   }
@@ -62,7 +61,7 @@ static int open_boot_config(FILE **fpp) {
 
   for (int i = 0; release_fmts[i]; i++) {
     snprintf(path, sizeof(path), release_fmts[i], utsname.release);
-    *fpp = fopen(path, "r");
+    *fpp = kasld_fopen(path, "r");
     if (*fpp)
       return 0;
   }
@@ -95,16 +94,33 @@ int main(void) {
                       CONF_PARSED);
   }
 
-  /* Detect KASLR disabled — emit a DEFAULT-type marker.
-   * Region carries the standard KERNEL_TEXT (the address truly is the
-   * default kernel text base); the "nokaslr" name is the KASLR-disabled
-   * marker read by inject_kaslr_defaults(). */
-  unsigned long addr = get_kernel_addr_boot_config(fp);
-  if (addr) {
-    printf("common default kernel text for arch: %lx\n", addr);
-    kasld_result_base(KASLD_TYPE_DEFAULT_VIRT, REGION_KERNEL_TEXT, addr,
-                      "nokaslr", CONF_PARSED);
+  /* CONFIG_PHYSICAL_START (x86 LOAD_PHYSICAL_ADDR). The honest-top floors
+   * for Q_VIRT_TEXT_BASE / Q_PHYS_TEXT_BASE are *widened* to the smallest
+   * practical value (2 MiB, the minimum CONFIG_PHYSICAL_START alignment);
+   * when we can learn the real value, the physical_start_lower_bound rule
+   * raises the floor to the precise position at CONF_PARSED. */
+  unsigned long phys_start = get_kconfig_physical_start(fp);
+  if (phys_start) {
+    printf("[.] CONFIG_PHYSICAL_START: %#lx\n", phys_start);
+    kasld_emit_scalar(SF_PHYSICAL_START, phys_start, CONF_PARSED);
   }
+
+  /* CONFIG_PHYSICAL_ALIGN — KASLR slot granularity on x86. boot_params
+   * exposes the same value at hdr.kernel_alignment; this is a fallback for
+   * systems where /sys/kernel/boot_params/data is unreadable. Both sources
+   * emit the same SF_KERNEL_ALIGN scalar; boot_params_kaslr_align raises
+   * Q_KASLR_ALIGN / Q_PHYS_KASLR_ALIGN regardless of source. */
+  unsigned long phys_align = get_kconfig_physical_align(fp);
+  if (phys_align) {
+    printf("[.] CONFIG_PHYSICAL_ALIGN: %#lx\n", phys_align);
+    kasld_emit_scalar(SF_KERNEL_ALIGN, phys_align, CONF_PARSED);
+  }
+
+  /* KASLR-off detection. The engine's kaslr_disabled_pin rule consumes
+   * SF_KASLR_DISABLED and pins the per-arch default text base (gated by
+   * KASLR_DISABLED_PINS_TEXT + window-containment). */
+  if (get_kernel_addr_boot_config(fp))
+    kasld_emit_scalar(SF_KASLR_DISABLED, 1, CONF_PARSED);
 
   fclose(fp);
 

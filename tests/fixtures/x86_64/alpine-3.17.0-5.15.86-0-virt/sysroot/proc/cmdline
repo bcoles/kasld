@@ -1,0 +1,1 @@
+BOOT_IMAGE=vmlinuz-virt root=UUID=03658773-a7a7-4912-826f-889db06eb732 modules=sd-mod,usb-storage,ext4 quiet rootfstype=ext4 initrd=initramfs-virt

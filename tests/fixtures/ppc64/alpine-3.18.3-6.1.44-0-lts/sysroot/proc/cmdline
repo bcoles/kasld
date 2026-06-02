@@ -1,0 +1,1 @@
+BOOT_IMAGE=/vmlinuz-lts root=UUID=9b8cec0c-c58e-4760-b23a-ae46cf12a41c ro modules=sd-mod,usb-storage,ext4 quiet rootfstype=ext4

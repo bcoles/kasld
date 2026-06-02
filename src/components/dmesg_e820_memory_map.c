@@ -45,7 +45,6 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld/api.h"
-#include "include/kasld/internal.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -135,16 +134,18 @@ int main(void) {
     kasld_result_top(KASLD_TYPE_PHYS, REGION_RAM, e.hi, NULL, CONF_PARSED);
   }
 
-#if !PHYS_VIRT_DECOUPLED
+#ifdef phys_to_directmap_virt
   if (e.lo) {
-    unsigned long virt = phys_to_virt(e.lo);
+    unsigned long virt = phys_to_directmap_virt(e.lo);
     printf("possible direct-map virtual address (low):  0x%016lx\n", virt);
-    kasld_result_base(KASLD_TYPE_VIRT, REGION_RAM, virt, NULL, CONF_PARSED);
+    kasld_result_base(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, NULL,
+                      CONF_PARSED);
   }
   if (e.hi) {
-    unsigned long virt = phys_to_virt(e.hi);
+    unsigned long virt = phys_to_directmap_virt(e.hi);
     printf("possible direct-map virtual address (high): 0x%016lx\n", virt);
-    kasld_result_top(KASLD_TYPE_VIRT, REGION_RAM, virt, NULL, CONF_PARSED);
+    kasld_result_top(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, NULL,
+                     CONF_PARSED);
   }
 #else
   printf("note: phys and virt KASLR are decoupled on this arch; "

@@ -1,0 +1,10 @@
+collect_version:  1
+collected_utc:    Sun May 31 08:39:22 UTC 2026
+uname_m_raw:      riscv64
+arch_canonical:   riscv64
+kernel_release:   6.12.90+deb13-riscv64
+distro:           debian-13
+kasld:            kasld 0.2.0-dev
+suggested_fixture: tests/fixtures/riscv64/debian-13-6.12.90_deb13-riscv64/
+anonymized:       1
+kallsyms:         0

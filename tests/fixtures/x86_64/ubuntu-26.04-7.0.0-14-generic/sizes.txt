@@ -1,0 +1,2 @@
+17275272 /boot/vmlinuz-7.0.0-14-generic
+11001551 /boot/System.map-7.0.0-14-generic

@@ -75,6 +75,46 @@ static unsigned long get_kconfig_page_offset(FILE *fp) {
   return 0;
 }
 
+/* Search for CONFIG_PHYSICAL_START=0x... in the kernel config.
+ * Returns the value, or 0 if not found. x86 only — other arches don't
+ * have this knob (riscv64 has CONFIG_RISCV_BASE_ADDRESS, arm64 doesn't
+ * have one at all; defer arch-specific siblings until needed). */
+static unsigned long __attribute__((unused))
+get_kconfig_physical_start(FILE *fp) {
+  const char *key = "CONFIG_PHYSICAL_START=";
+  size_t keylen = strlen(key);
+  char buf[BUFSIZ];
+
+  rewind(fp);
+
+  while (fgets(buf, sizeof(buf), fp) != NULL) {
+    if (strncmp(buf, key, keylen) == 0)
+      return strtoul(buf + keylen, NULL, 0);
+  }
+  return 0;
+}
+
+/* Search for CONFIG_PHYSICAL_ALIGN=0x... in the kernel config — the x86
+ * KASLR slot granularity (= boot_params.hdr.kernel_alignment). x86 only;
+ * Kconfig range is [0x200000, 0x1000000]. Returns the value, or 0 if not
+ * found. Fallback for systems where /sys/kernel/boot_params/data is
+ * unreadable; boot_params_kaslr_align consumes the value identically via
+ * SF_KERNEL_ALIGN regardless of source. */
+static unsigned long __attribute__((unused))
+get_kconfig_physical_align(FILE *fp) {
+  const char *key = "CONFIG_PHYSICAL_ALIGN=";
+  size_t keylen = strlen(key);
+  char buf[BUFSIZ];
+
+  rewind(fp);
+
+  while (fgets(buf, sizeof(buf), fp) != NULL) {
+    if (strncmp(buf, key, keylen) == 0)
+      return strtoul(buf + keylen, NULL, 0);
+  }
+  return 0;
+}
+
 /* Check if the kernel was compiled with KASLR support
  * (CONFIG_RANDOMIZE_BASE=y).
  *

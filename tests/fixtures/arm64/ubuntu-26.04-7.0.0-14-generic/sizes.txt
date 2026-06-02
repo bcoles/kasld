@@ -1,0 +1,2 @@
+23831944 /boot/vmlinuz-7.0.0-14-generic
+8778148 /boot/System.map-7.0.0-14-generic

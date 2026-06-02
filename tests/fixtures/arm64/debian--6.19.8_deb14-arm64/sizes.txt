@@ -1,0 +1,2 @@
+44015552 /boot/vmlinuz-6.19.8+deb14-arm64
+92 /boot/System.map-6.19.8+deb14-arm64

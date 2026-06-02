@@ -1,0 +1,1 @@
+rd_start=0xffffffff8e8c0000 rd_size=24273190 root=/dev/sda1 console=ttyS0,38400n8r

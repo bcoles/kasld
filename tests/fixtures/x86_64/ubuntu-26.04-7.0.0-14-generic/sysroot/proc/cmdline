@@ -1,0 +1,1 @@
+BOOT_IMAGE=[redacted] root=[redacted] ro crashkernel=2G-4G:320M,4G-32G:512M,32G-64G:1024M,64G-128G:2048M,128G-:4096M

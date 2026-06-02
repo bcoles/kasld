@@ -14,6 +14,8 @@
 #error "cpu.h: x86_64 only"
 #endif
 
+#include "include/kasld/sysroot.h"
+
 #include <cpuid.h>
 #include <sched.h>
 #include <stdbool.h>
@@ -52,7 +54,7 @@ __attribute__((unused)) static bool is_amd_cpu(void) {
 }
 
 __attribute__((unused)) static int detect_cpu_vendor(void) {
-  FILE *f = fopen("/proc/cpuinfo", "r");
+  FILE *f = kasld_fopen("/proc/cpuinfo", "r");
   if (!f)
     return CPU_VENDOR_UNKNOWN;
 
@@ -82,7 +84,7 @@ __attribute__((unused)) static int detect_cpu_vendor(void) {
  */
 
 __attribute__((unused)) static bool detect_kpti(void) {
-  FILE *f = fopen("/proc/cpuinfo", "r");
+  FILE *f = kasld_fopen("/proc/cpuinfo", "r");
   if (!f)
     return false;
 

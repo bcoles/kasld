@@ -1,0 +1,10 @@
+absent: /sys/kernel/boot_params/data
+absent: /sys/kernel/boot_params/setup_data
+absent: /sys/firmware/memmap
+absent: /proc/device-tree/rtas
+absent: /sys/firmware/devicetree/base/rtas
+absent: /proc/config.gz
+header: /boot/vmlinuz-6.12.90+deb13-arm64 (4096B prefix; full size 37664704 in sizes.txt)
+absent: /boot/Image-6.12.90+deb13-arm64
+absent: /boot/vmlinux-6.12.90+deb13-arm64
+unavailable: dmesg

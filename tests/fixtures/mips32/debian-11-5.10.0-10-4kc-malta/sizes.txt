@@ -1,0 +1,2 @@
+4381040 /boot/vmlinuz-5.10.0-10-4kc-malta
+83 /boot/System.map-5.10.0-10-4kc-malta

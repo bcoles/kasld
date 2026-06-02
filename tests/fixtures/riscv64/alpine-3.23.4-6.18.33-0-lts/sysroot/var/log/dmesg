@@ -1,0 +1,211 @@
+[    0.000000] Booting Linux on hartid 1
+[    0.000000] Linux version 6.18.33-0-lts (buildozer@build-3-23-riscv64) (cc (Alpine 15.2.0) 15.2.0, GNU ld (GNU Binutils) 2.45.1) #1-Alpine SMP PREEMPT_DYNAMIC 2026-05-24 18:06:34
+[    0.000000] Machine model: riscv-virtio,qemu
+[    0.000000] SBI specification v3.0 detected
+[    0.000000] SBI implementation ID=0x1 Version=0x10007
+[    0.000000] SBI TIME extension detected
+[    0.000000] SBI IPI extension detected
+[    0.000000] SBI RFENCE extension detected
+[    0.000000] SBI SRST extension detected
+[    0.000000] SBI DBCN extension detected
+[    0.000000] SBI FWFT extension detected
+[    0.000000] efi: EFI v2.11 by Das U-Boot
+[    0.000000] efi: RTPROP=0xfde7e040 SMBIOS 3.0=0xfeee3000 INITRD=0xfde67040 RNG=0xfde66040 MEMRESERVE=0xfde65040 
+[    0.000000] random: crng init done
+[    0.000000] cma: Reserved 16 MiB at 0x00000000fcc00000
+[    0.000000] OF: reserved mem: 0x0000000080000000..0x000000008003ffff (256 KiB) nomap non-reusable mmode_resv1@80000000
+[    0.000000] OF: reserved mem: 0x0000000080040000..0x000000008005ffff (128 KiB) nomap non-reusable mmode_resv0@80040000
+[    0.000000] Zone ranges:
+[    0.000000]   DMA32    [mem 0x0000000080000000-0x00000000ffffffff]
+[    0.000000]   Normal   empty
+[    0.000000] Movable zone start for each node
+[    0.000000] Early memory node ranges
+[    0.000000]   node   0: [mem 0x0000000080000000-0x000000008005ffff]
+[    0.000000]   node   0: [mem 0x0000000080060000-0x00000000fdbfffff]
+[    0.000000]   node   0: [mem 0x00000000fdc00000-0x00000000fdc00fff]
+[    0.000000]   node   0: [mem 0x00000000fdc01000-0x00000000fde7dfff]
+[    0.000000]   node   0: [mem 0x00000000fde7e000-0x00000000fde7efff]
+[    0.000000]   node   0: [mem 0x00000000fde7f000-0x00000000fde7ffff]
+[    0.000000]   node   0: [mem 0x00000000fde80000-0x00000000fdea1fff]
+[    0.000000]   node   0: [mem 0x00000000fdea2000-0x00000000feee2fff]
+[    0.000000]   node   0: [mem 0x00000000feee3000-0x00000000feee3fff]
+[    0.000000]   node   0: [mem 0x00000000feee4000-0x00000000ff6cefff]
+[    0.000000]   node   0: [mem 0x00000000ff6cf000-0x00000000ff6d0fff]
+[    0.000000]   node   0: [mem 0x00000000ff6d1000-0x00000000ffffffff]
+[    0.000000] Initmem setup node 0 [mem 0x0000000080000000-0x00000000ffffffff]
+[    0.000000] SBI HSM extension detected
+[    0.000000] riscv: base ISA extensions acdfhim
+[    0.000000] riscv: ELF capabilities acdfim
+[    0.000000] Queued spinlock using Ziccrse: enabled
+[    0.000000] percpu: Embedded 22 pages/cpu s50776 r8192 d31144 u90112
+[    0.000000] pcpu-alloc: s50776 r8192 d31144 u90112 alloc=22*4096
+[    0.000000] pcpu-alloc: [0] 0 [0] 1 
+[    0.000000] Kernel command line: BOOT_IMAGE=[redacted] root=[redacted] ro modules=sd-mod,usb-storage,ext4 quiet rootfstype=ext4
+[    0.000000] Unknown kernel command line parameters "modules=sd-mod,usb-storage,ext4", will be passed to user space.
+[    0.000000] printk: log buffer data + meta data: 262144 + 917504 = 1179648 bytes
+[    0.000000] Dentry cache hash table entries: 262144 (order: 9, 2097152 bytes, linear)
+[    0.000000] Inode-cache hash table entries: 131072 (order: 8, 1048576 bytes, linear)
+[    0.000000] software IO TLB: SWIOTLB bounce buffer size adjusted to 2MB
+[    0.000000] software IO TLB: area num 2.
+[    0.000000] software IO TLB: mapped [mem 0x00000000ffabd000-0x00000000ffcbd000] (2MB)
+[    0.000000] Built 1 zonelists, mobility grouping on.  Total pages: 524288
+[    0.000000] mem auto-init: stack:off, heap alloc:off, heap free:off
+[    0.000000] SLUB: HWalign=64, Order=0-3, MinObjects=0, CPUs=2, Nodes=1
+[    0.000000] Dynamic Preempt: full
+[    0.000000] rcu: Preemptible hierarchical RCU implementation.
+[    0.000000] rcu: 	RCU restricting CPUs from NR_CPUS=64 to nr_cpu_ids=2.
+[    0.000000] 	Trampoline variant of Tasks RCU enabled.
+[    0.000000] 	Tracing variant of Tasks RCU enabled.
+[    0.000000] rcu: RCU calculated value of scheduler-enlistment delay is 100 jiffies.
+[    0.000000] rcu: Adjusting geometry for rcu_fanout_leaf=16, nr_cpu_ids=2
+[    0.000000] RCU Tasks: Setting shift to 1 and lim to 1 rcu_task_cb_adjust=1 rcu_task_cpu_ids=2.
+[    0.000000] RCU Tasks Trace: Setting shift to 1 and lim to 1 rcu_task_cb_adjust=1 rcu_task_cpu_ids=2.
+[    0.000000] NR_IRQS: 64, nr_irqs: 64, preallocated irqs: 0
+[    0.000000] riscv-intc: 64 local interrupts mapped
+[    0.000000] riscv: providing IPIs using SBI IPI extension
+[    0.000000] rcu: srcu_init: Setting srcu_struct sizes based on contention.
+[    0.000000] clocksource: riscv_clocksource: mask: 0xffffffffffffffff max_cycles: 0x24e6a1710, max_idle_ns: 440795202120 ns
+[    0.000048] sched_clock: 64 bits at 10MHz, resolution 100ns, wraps every 4398046511100ns
+[    0.000145] riscv-timer: Timer interrupt in S-mode is available via sstc extension
+[    0.008919] Console: colour dummy device 80x25
+[    0.009419] printk: legacy console [tty0] enabled
+[    0.011542] Calibrating delay loop (skipped), value calculated using timer frequency.. 20.00 BogoMIPS (lpj=10000)
+[    0.011704] pid_max: default: 32768 minimum: 301
+[    0.014129] LSM: initializing lsm=capability
+[    0.016455] Mount-cache hash table entries: 4096 (order: 3, 32768 bytes, linear)
+[    0.016516] Mountpoint-cache hash table entries: 4096 (order: 3, 32768 bytes, linear)
+[    0.052972] riscv: ELF compat mode supported
+[    0.053246] ASID allocator using 16 bits (65536 entries)
+[    0.055669] rcu: Hierarchical SRCU implementation.
+[    0.055723] rcu: 	Max phase no-delay instances is 400.
+[    0.057051] Timer migration: 1 hierarchy levels; 8 children per group; 1 crossnode level
+[    0.060496] Remapping and enabling EFI services.
+[    0.062891] smp: Bringing up secondary CPUs ...
+[    0.079586] smp: Brought up 1 node, 2 CPUs
+[    0.089242] Memory: 2008976K/2097152K available (8842K kernel code, 5215K rwdata, 4096K rodata, 2304K init, 503K bss, 66900K reserved, 16384K cma-reserved)
+[    0.098432] devtmpfs: initialized
+[    0.114221] clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 1911260446275000 ns
+[    0.114471] posixtimers hash table entries: 1024 (order: 2, 16384 bytes, linear)
+[    0.114685] futex hash table entries: 512 (32768 bytes on 1 NUMA nodes, total 32 KiB, linear).
+[    0.119065] pinctrl core: initialized pinctrl subsystem
+[    0.128562] NET: Registered PF_NETLINK/PF_ROUTE protocol family
+[    0.139254] DMA: preallocated 256 KiB GFP_KERNEL pool for atomic allocations
+[    0.140151] DMA: preallocated 256 KiB GFP_KERNEL|GFP_DMA32 pool for atomic allocations
+[    0.145216] thermal_sys: Registered thermal governor 'step_wise'
+[    0.145290] thermal_sys: Registered thermal governor 'user_space'
+[    0.145896] cpuidle: using governor menu
+[    0.148263] SBI misaligned access exception delegation ok
+[    0.154949] cpu1: Ratio of byte access time to unaligned word access is 9.08, unaligned accesses are fast
+[    0.161977] cpu0: Ratio of byte access time to unaligned word access is 8.69, unaligned accesses are fast
+[    0.187502] HugeTLB: registered 1.00 GiB page size, pre-allocated 0 pages
+[    0.187663] HugeTLB: 0 KiB vmemmap can be freed for a 1.00 GiB page
+[    0.187700] HugeTLB: registered 2.00 MiB page size, pre-allocated 0 pages
+[    0.187712] HugeTLB: 0 KiB vmemmap can be freed for a 2.00 MiB page
+[    0.196450] iommu: Default domain type: Translated
+[    0.196507] iommu: DMA domain TLB invalidation policy: strict mode
+[    0.198418] SCSI subsystem initialized
+[    0.199862] usbcore: registered new interface driver usbfs
+[    0.200294] usbcore: registered new interface driver hub
+[    0.200541] usbcore: registered new device driver usb
+[    0.201092] pps_core: LinuxPPS API ver. 1 registered
+[    0.201218] pps_core: Software ver. 5.3.6 - Copyright 2005-2007 Rodolfo Giometti <giometti@linux.it>
+[    0.203718] efivars: Registered efivars operations
+[    0.225946] vgaarb: loaded
+[    0.228297] clocksource: Switched to clocksource riscv_clocksource
+[    0.234446] VFS: Disk quotas dquot_6.6.0
+[    0.234658] VFS: Dquot-cache hash table entries: 512 (order 0, 4096 bytes)
+[    0.288165] NET: Registered PF_INET protocol family
+[    0.290186] IP idents hash table entries: 32768 (order: 6, 262144 bytes, linear)
+[    0.301822] tcp_listen_portaddr_hash hash table entries: 1024 (order: 2, 16384 bytes, linear)
+[    0.302144] Table-perturb hash table entries: 65536 (order: 6, 262144 bytes, linear)
+[    0.302272] TCP established hash table entries: 16384 (order: 5, 131072 bytes, linear)
+[    0.302639] TCP bind hash table entries: 16384 (order: 7, 524288 bytes, linear)
+[    0.303159] TCP: Hash tables configured (established 16384 bind 16384)
+[    0.304945] MPTCP token hash table entries: 2048 (order: 4, 49152 bytes, linear)
+[    0.305451] UDP hash table entries: 1024 (order: 4, 65536 bytes, linear)
+[    0.305684] UDP-Lite hash table entries: 1024 (order: 4, 65536 bytes, linear)
+[    0.307583] NET: Registered PF_UNIX/PF_LOCAL protocol family
+[    0.308644] PCI: CLS 0 bytes, default 64
+[    0.316187] Initialise system trusted keyrings
+[    0.317171] Unpacking initramfs...
+[    0.320269] workingset: timestamp_bits=46 max_order=19 bucket_order=0
+[    0.405457] NET: Registered PF_ALG protocol family
+[    0.405641] Key type asymmetric registered
+[    0.405758] Asymmetric key parser 'x509' registered
+[    0.406819] Block layer SCSI generic (bsg) driver version 0.4 loaded (major 249)
+[    0.413782] riscv-plic: plic@c000000: mapped 95 interrupts with 2 handlers for 4 contexts.
+[    0.420452] pci-host-generic 30000000.pci: host bridge /soc/pci@30000000 ranges:
+[    0.421280] pci-host-generic 30000000.pci:       IO 0x0003000000..0x000300ffff -> 0x0000000000
+[    0.421821] pci-host-generic 30000000.pci:      MEM 0x0040000000..0x007fffffff -> 0x0040000000
+[    0.421903] pci-host-generic 30000000.pci:      MEM 0x0400000000..0x07ffffffff -> 0x0400000000
+[    0.422566] pci-host-generic 30000000.pci: Memory resource size exceeds max for 32 bits
+[    0.422960] pci-host-generic 30000000.pci: ECAM at [mem 0x30000000-0x3fffffff] for [bus 00-ff]
+[    0.424853] pci-host-generic 30000000.pci: PCI host bridge to bus 0000:00
+[    0.425214] pci_bus 0000:00: root bus resource [bus 00-ff]
+[    0.425283] pci_bus 0000:00: root bus resource [io  0x0000-0xffff]
+[    0.425328] pci_bus 0000:00: root bus resource [mem 0x40000000-0x7fffffff]
+[    0.425368] pci_bus 0000:00: root bus resource [mem 0x400000000-0x7ffffffff]
+[    0.426589] pci 0000:00:00.0: [1b36:0008] type 00 class 0x060000 conventional PCI endpoint
+[    0.430973] pci 0000:00:01.0: [1af4:1005] type 00 class 0x00ff00 conventional PCI endpoint
+[    0.433153] pci 0000:00:01.0: BAR 0 [io  0x1000-0x101f]
+[    0.433225] pci 0000:00:01.0: BAR 1 [mem 0x40000000-0x40000fff]
+[    0.433273] pci 0000:00:01.0: BAR 4 [mem 0x40004000-0x40007fff 64bit pref]
+[    0.433945] pci 0000:00:02.0: [1af4:1001] type 00 class 0x010000 conventional PCI endpoint
+[    0.435841] pci 0000:00:02.0: BAR 0 [io  0x1080-0x10ff]
+[    0.435881] pci 0000:00:02.0: BAR 1 [mem 0x40008000-0x40008fff]
+[    0.435902] pci 0000:00:02.0: BAR 4 [mem 0x4000c000-0x4000ffff 64bit pref]
+[    0.438681] pci 0000:00:01.0: BAR 4 [mem 0x400000000-0x400003fff 64bit pref]: assigned
+[    0.440174] pci 0000:00:02.0: BAR 4 [mem 0x400004000-0x400007fff 64bit pref]: assigned
+[    0.441708] pci 0000:00:01.0: BAR 1 [mem 0x40000000-0x40000fff]: assigned
+[    0.441769] pci 0000:00:02.0: BAR 1 [mem 0x40001000-0x40001fff]: assigned
+[    0.443132] pci 0000:00:02.0: BAR 0 [io  0x0080-0x00ff]: assigned
+[    0.443718] pci 0000:00:01.0: BAR 0 [io  0x0020-0x003f]: assigned
+[    0.444578] pci_bus 0000:00: resource 4 [io  0x0000-0xffff]
+[    0.444634] pci_bus 0000:00: resource 5 [mem 0x40000000-0x7fffffff]
+[    0.444652] pci_bus 0000:00: resource 6 [mem 0x400000000-0x7ffffffff]
+[    0.454941] Serial: 8250/16550 driver, 4 ports, IRQ sharing disabled
+[    0.480965] 10000000.serial: ttyS0 at MMIO 0x10000000 (irq = 12, base_baud = 230400) is a 16550A
+[    0.483450] printk: legacy console [ttyS0] enabled
+[    0.509645] usbcore: registered new interface driver uas
+[    0.510147] usbcore: registered new interface driver usb-storage
+[    0.515351] goldfish_rtc 101000.rtc: registered as rtc0
+[    0.515908] goldfish_rtc 101000.rtc: setting system clock to 2026-05-31T17:04:21 UTC (1780247061)
+[    0.516824] i2c_dev: i2c /dev entries driver
+[    0.523718] riscv-pmu-sbi: SBI PMU extension is available
+[    0.524432] riscv-pmu-sbi: 16 firmware and 18 hardware counters
+[    0.524505] riscv-pmu-sbi: Perf sampling/filtering is not supported as sscof extension is not available
+[    0.530129] NET: Registered PF_INET6 protocol family
+[    0.540524] Segment Routing with IPv6
+[    0.540802] In-situ OAM (IOAM) with IPv6
+[    0.553715] Freeing initrd memory: 5616K
+[    0.621664] registered taskstats version 1
+[    0.625533] Loading compiled-in X.509 certificates
+[    0.744529] Loaded X.509 cert 'alpinelinux.org: Alpine Linux kernel key: 6b9af90fcec91b5a5b53e42935a606b791ef508f'
+[    0.775616] Key type .fscrypt registered
+[    0.775677] Key type fscrypt-provisioning registered
+[    0.781701] clk: Disabling unused clocks
+[    0.781980] PM: genpd: Disabling unused power domains
+[    0.839587] Freeing unused kernel image (initmem) memory: 2304K
+[    0.840531] Run /init as init process
+[    0.840570]   with arguments:
+[    0.840589]     /init
+[    0.840610]   with environment:
+[    0.840627]     HOME=/
+[    0.840644]     TERM=linux
+[    0.840655]     modules=sd-mod,usb-storage,ext4
+[    1.037916] Alpine Init 3.13.0-r0
+[    1.050345] Loading boot drivers...
+[    1.247270] loop: module loaded
+[    1.257701] Loading boot drivers: ok.
+[    1.277675] Mounting root...
+[    1.731911] virtio_blk virtio2: 2/0/0 default/read/poll queues
+[    1.740588] virtio_blk virtio2: [vda] 41943040 512-byte logical blocks (21.5 GB/20.0 GiB)
+[    1.777469]  vda: vda1 vda2 vda3
+[    4.453631] EXT4-fs (vda3): orphan cleanup on readonly fs
+[    4.457565] EXT4-fs (vda3): mounted filesystem [uuid] ro with ordered data mode. Quota mode: none.
+[    4.460469] Mounting root: ok.
+[   12.297516] NET: Registered PF_PACKET protocol family
+[   13.506152] EXT4-fs (vda3): re-mounted [uuid] r/w.
+[   13.629282] EXT4-fs (vda3): re-mounted [uuid].
+[   13.968458] Adding 4075516k swap on /dev/vda2.  Priority:-2 extents:1 across:4075516k 
+[   14.344815] FAT-fs (vda1): utf8 is not a recommended IO charset for FAT filesystems, filesystem will be case sensitive!

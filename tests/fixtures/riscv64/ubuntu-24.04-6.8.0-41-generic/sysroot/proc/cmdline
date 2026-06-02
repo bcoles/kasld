@@ -1,0 +1,1 @@
+BOOT_IMAGE=/boot/vmlinuz-6.8.0-41-generic root=LABEL=cloudimg-rootfs ro efi=debug earlycon=sbi

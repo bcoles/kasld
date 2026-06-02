@@ -95,7 +95,7 @@ static int dmesg_search(const char *needle, dmesg_match_fn fn, void *ctx) {
     char buf[BUFSIZ];
     const char *path = "/var/log/dmesg";
 
-    f = fopen(path, "rb");
+    f = kasld_fopen(path, "rb");
     if (f == NULL) {
       if (!had_source) {
         fprintf(stderr, "[-] dmesg: access denied "

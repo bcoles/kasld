@@ -1,0 +1,77 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# run-all — invoke every host test binary and print a grand total.
+#
+# Each test binary prints its own per-suite tally via test_harness.h's
+# TEST_DONE(); this wrapper sums them and prints a final aggregate line.
+# Exits non-zero if any suite reported a failure.
+#
+# Honours TEST_QUIET=1 (forwarded to each child) for per-category one-liners
+# instead of per-test output.
+#
+# Usage:  tests/run-all              (or: make test)
+#         TEST_QUIET=1 make test
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+BIN=$ROOT/build/tests
+
+# ANSI colors when stderr is a tty.
+if [ -t 2 ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m')
+  BOLD=$(printf '\033[1m'); RESET=$(printf '\033[0m')
+else
+  RED=""; GREEN=""; BOLD=""; RESET=""
+fi
+
+# Suite binaries (smallest first).
+SUITES="test_evidence test_estimate test_engine_integration test_kasld test_engine"
+
+total_pass=0
+total_count=0
+any_fail=0
+
+for s in $SUITES; do
+  b=$BIN/$s
+  if [ ! -x "$b" ]; then
+    printf '%s%s: not built%s\n' "$RED" "$s" "$RESET" >&2
+    any_fail=1
+    continue
+  fi
+  # Capture stderr to a temp file; relay it to our own stderr; parse the tally
+  # line "N/M tests passed" out of it.
+  tmp=$(mktemp)
+  "$b" 2>"$tmp"
+  rc=$?
+  cat "$tmp" >&2
+  # ANSI may bracket the tally; strip before extracting.
+  line_plain=$(grep -E '[0-9]+/[0-9]+ tests passed' "$tmp" \
+               | tail -1 \
+               | sed 's/\x1b\[[0-9;]*m//g')
+  pass=$(printf '%s' "$line_plain" | awk '{ split($1, a, "/"); print a[1] }')
+  count=$(printf '%s' "$line_plain" | awk '{ split($1, a, "/"); print a[2] }')
+  rm -f "$tmp"
+  if [ -z "$pass" ] || [ -z "$count" ]; then
+    printf '%srun-all: %s did not print a tally%s\n' "$RED" "$s" "$RESET" >&2
+    any_fail=1
+    continue
+  fi
+  total_pass=$((total_pass + pass))
+  total_count=$((total_count + count))
+  if [ "$rc" -ne 0 ] || [ "$pass" -ne "$count" ]; then any_fail=1; fi
+done
+
+# Grand total.
+printf '\n' >&2
+if [ "$any_fail" -eq 0 ]; then
+  printf '%s%sGRAND TOTAL: %d/%d tests passed%s\n' "$GREEN" "$BOLD" \
+         "$total_pass" "$total_count" "$RESET" >&2
+  exit 0
+else
+  printf '%s%sGRAND TOTAL: %d/%d tests passed (failures present)%s\n' \
+         "$RED" "$BOLD" "$total_pass" "$total_count" "$RESET" >&2
+  exit 1
+fi

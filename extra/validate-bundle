@@ -1,0 +1,331 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# validate-bundle — inference-layer soundness check against a kasld bundle.
+#
+# Companion to extra/check-results (the live-system per-leak validator).
+# This tool runs OFFLINE against a captured bundle (extra/collect output),
+# extracts ground truth from the bundle's sysroot, runs the arch-correct
+# kasld binary over the same sysroot, and asserts the engine's resolved
+# ranges contain the truth — the soundness criterion that the ground-truth
+# value must fall inside every inferred range (a window that excludes the
+# truth is a soundness bug, not a tightness improvement).
+#
+# A bundle needs --kallsyms for full validation (otherwise the virt
+# kernel-text truth is unavailable). A bundle without kallsyms still gets
+# phys-text validation against /proc/iomem and shape-only checks for the
+# other quantities.
+#
+# Usage:
+#   extra/validate-bundle <bundle-dir>
+#
+# Exit codes:
+#   0  every observable quantity PASS or N/A (no truth)
+#   1  at least one FAIL (soundness violation — file a bug)
+#   2  bundle malformed / kasld binary missing
+#
+# Dependencies: jq, awk, sed.  No root required (truth comes from the
+# bundle's captured files, not /proc on the host).
+# ---
+# <bcoles@gmail.com>
+
+set -u
+
+PROG=$(basename "$0")
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+
+die() { echo "$PROG: $*" >&2; exit 2; }
+
+if [ "$#" -ne 1 ]; then
+  cat <<EOF >&2
+Usage: $PROG <bundle-dir>
+
+Compare a kasld bundle's engine-resolved ranges against the ground truth
+captured in the bundle's sysroot. Reports PASS/FAIL/N_A per quantity.
+EOF
+  exit 2
+fi
+
+BUNDLE=$1
+[ -d "$BUNDLE" ] || die "bundle '$BUNDLE' is not a directory"
+[ -d "$BUNDLE/sysroot" ] || die "bundle missing sysroot/"
+[ -f "$BUNDLE/meta.txt" ] || die "bundle missing meta.txt"
+command -v jq >/dev/null || die "jq not found (apt install jq)"
+
+# ---------------------------------------------------------------------------
+# Colours (TTY only)
+# ---------------------------------------------------------------------------
+if [ -t 1 ]; then
+  GREEN=$(printf '\033[0;32m')
+  RED=$(printf '\033[0;31m')
+  YELLOW=$(printf '\033[0;33m')
+  DIM=$(printf '\033[2m')
+  BOLD=$(printf '\033[1m')
+  RESET=$(printf '\033[0m')
+else
+  GREEN='' RED='' YELLOW='' DIM='' BOLD='' RESET=''
+fi
+
+# Counters (mktemp so the pipeline subshells can update)
+TMP=$(mktemp -d) || die "mktemp failed"
+trap 'rm -rf "$TMP"' EXIT INT TERM
+printf '0 0 0\n' > "$TMP/counts"
+
+pass() { printf '  %sPASS%s  %-22s %s\n' "$GREEN" "$RESET" "$1" "$2"; bump pass; }
+fail() { printf '  %sFAIL%s  %-22s %s\n' "$RED"   "$RESET" "$1" "$2"; bump fail; }
+nare() { printf '  %sN/A%s   %-22s %s\n' "$YELLOW" "$RESET" "$1" "$2"; bump skip; }
+bump() {
+  read -r p f s < "$TMP/counts"
+  case "$1" in
+    pass) p=$((p + 1)) ;;
+    fail) f=$((f + 1)) ;;
+    skip) s=$((s + 1)) ;;
+  esac
+  printf '%d %d %d\n' "$p" "$f" "$s" > "$TMP/counts"
+}
+
+# ---------------------------------------------------------------------------
+# Hex helpers — normalise to 16-char lowercase for byte-wise comparison.
+# ---------------------------------------------------------------------------
+hex16() {
+  printf '%s' "$1" | tr 'A-F' 'a-f' | sed 's/^0x//; s/^0*//' \
+    | awk '{ printf "%016s\n", $0 }' | tr ' ' '0'
+}
+# String compare on 16-char zero-padded lowercase hex (the hex16 output).
+# Forced via a "x" prefix so awk does not try to parse strings containing
+# 'e' or 'd' as scientific notation, e.g. "000000002e133000" -> 2e133.
+# With both operands equal-length lowercase hex, lexicographic order is
+# numeric order ('0'..'9' < 'a'..'f' in ASCII).
+hex_le() { awk -v a="x$1" -v b="x$2" 'BEGIN { exit !(a <= b) }'; }
+hex_ge() { awk -v a="x$1" -v b="x$2" 'BEGIN { exit !(a >= b) }'; }
+hex_in() { hex_ge "$1" "$2" && hex_le "$1" "$3"; }
+
+# ---------------------------------------------------------------------------
+# Locate the arch-correct kasld binary for this bundle. Use qemu-user when
+# the bundle is for a foreign arch.
+# ---------------------------------------------------------------------------
+ARCH=$(awk -F: '/^uname_m_raw:/ { gsub(/[ \t]/, "", $2); print $2 }' "$BUNDLE/meta.txt")
+REL=$(awk -F: '/^kernel_release:/ { gsub(/[ \t]/, "", $2); print $2 }' "$BUNDLE/meta.txt")
+DISTRO=$(awk -F: '/^distro:/ { gsub(/[ \t]/, "", $2); print $2 }' "$BUNDLE/meta.txt")
+HOST_ARCH=$(uname -m)
+QEMU_DIR=${QEMU_DIR:-/home/user/qemu/build}
+
+# Reuse the same uname_m_raw → "<build-subdir> <qemu-binary>" mapping as
+# tests/replay, so behaviour stays consistent.
+case "$ARCH" in
+  x86_64)              SUB=x86_64-linux-gnu;           QBIN=qemu-x86_64 ;;
+  i686|i386)           SUB=i686-unknown-linux-musl;    QBIN=qemu-i386 ;;
+  aarch64)             SUB=aarch64-linux-musl;         QBIN=qemu-aarch64 ;;
+  armv7l|armv6l|armhf|arm) SUB=armv7-unknown-linux-musleabi; QBIN=qemu-arm ;;
+  armeb)               SUB=armeb-linux-musleabi;       QBIN=qemu-armeb ;;
+  riscv64)             SUB=riscv64-linux-musl;         QBIN=qemu-riscv64 ;;
+  riscv32)             SUB=riscv32-linux-musl;         QBIN=qemu-riscv32 ;;
+  mips)                SUB=mips-unknown-linux-musl;    QBIN=qemu-mips ;;
+  mipsel)              SUB=mipsel-unknown-linux-musl;  QBIN=qemu-mipsel ;;
+  mips64)              SUB=mips64-unknown-linux-musl;  QBIN=qemu-mips64 ;;
+  mips64el)            SUB=mips64el-unknown-linux-musl; QBIN=qemu-mips64el ;;
+  ppc|powerpc)         SUB=powerpc-linux-musl;         QBIN=qemu-ppc ;;
+  ppcle|powerpcle)     SUB=powerpcle-unknown-linux-musl; QBIN= ;;
+  ppc64|powerpc64)     SUB=powerpc64-unknown-linux-musl; QBIN=qemu-ppc64 ;;
+  ppc64le|powerpc64le) SUB=powerpc64le-unknown-linux-musl; QBIN=qemu-ppc64le ;;
+  s390x)               SUB=s390x-ibm-linux-musl;       QBIN=qemu-s390x ;;
+  loongarch64)         SUB=loongarch64-unknown-linux-musl; QBIN=qemu-loongarch64 ;;
+  *)                   die "no build-subdir mapping for arch '$ARCH'" ;;
+esac
+BIN=$ROOT/build/$SUB/kasld
+[ -x "$BIN" ] || die "kasld binary missing: $BIN (run 'make cross')"
+
+# Decide: native (host can run it directly) or qemu-user (foreign arch).
+native_ok=0
+case "$HOST_ARCH" in
+  x86_64|amd64) case "$ARCH" in x86_64|i686|i386) native_ok=1 ;; esac ;;
+  *) [ "$ARCH" = "$HOST_ARCH" ] && native_ok=1 ;;
+esac
+
+QEMU_NOTE=""
+if [ "$native_ok" = 1 ]; then
+  RUNNER=""
+else
+  [ -n "$QBIN" ] || die "no qemu-user binary exists for arch '$ARCH'; validate this bundle natively on a matching host"
+  QPATH="$QEMU_DIR/$QBIN"
+  [ -x "$QPATH" ] || die "foreign-arch bundle ($ARCH) and qemu-user not found at $QPATH"
+  RUNNER=$QPATH
+  QEMU_NOTE="qemu-user replay; component subprocesses don't exec under nested qemu — engine sees no leaks, windows reflect static arch tops"
+fi
+
+# ---------------------------------------------------------------------------
+# Run kasld over the bundle's sysroot, capture the JSON.
+# ---------------------------------------------------------------------------
+JSON=$TMP/kasld.json
+# Don't gate on exit code: kasld returns the count of failed component
+# subprocesses (sometimes >0 even on a healthy bundle — collect_kasld_results
+# in orchestrator.c maps "no_result"/"unavailable"/"timed_out" through to
+# a non-zero summary on some paths, and under qemu-user every component
+# fails to exec). The output JSON is what matters.
+if [ -n "$RUNNER" ]; then
+  KASLD_SYSROOT="$BUNDLE/sysroot" KASLD_UNAME_RELEASE="$REL" \
+    "$RUNNER" "$BIN" -j -q > "$JSON" 2>"$TMP/err"
+else
+  KASLD_SYSROOT="$BUNDLE/sysroot" KASLD_UNAME_RELEASE="$REL" \
+    "$BIN" -j -q > "$JSON" 2>"$TMP/err"
+fi
+if [ ! -s "$JSON" ]; then
+  echo "$PROG: kasld produced empty JSON" >&2
+  [ -s "$TMP/err" ] && { echo "stderr (first lines):" >&2; head -5 "$TMP/err" >&2; }
+  exit 2
+fi
+# Catch the case where JSON exists but is unparsable.
+jq empty "$JSON" 2>/dev/null || die "kasld JSON is malformed"
+
+# ---------------------------------------------------------------------------
+# Extract ground truth from the bundle.
+# ---------------------------------------------------------------------------
+KS=$BUNDLE/sysroot/proc/kallsyms
+IM=$BUNDLE/sysroot/proc/iomem
+
+truth_stext=""
+truth_text=""
+truth_end=""
+if [ -s "$KS" ]; then
+  truth_stext=$(awk '$3 == "_stext"      { print $1 }' "$KS")
+  truth_text=$(awk  '$3 == "_text"       { print $1 }' "$KS")
+  truth_end=$(awk   '$3 == "_end"        { print $1 }' "$KS")
+  case "$truth_stext" in
+    0000000000000000|00000000|"") truth_stext="" ;;
+  esac
+  case "$truth_text" in
+    0000000000000000|00000000|"") truth_text="" ;;
+  esac
+fi
+# Prefer _text; fall back to _stext (they're equal on most kernels).
+truth_vtext=${truth_text:-$truth_stext}
+[ -n "$truth_vtext" ] && truth_vtext=$(hex16 "$truth_vtext")
+[ -n "$truth_end" ]   && truth_end=$(hex16 "$truth_end")
+
+truth_ptext=""
+if [ -s "$IM" ]; then
+  # First "Kernel code" line — format: "  lo-hi : Kernel code"
+  line=$(grep ' Kernel code$' "$IM" 2>/dev/null | head -1)
+  if [ -n "$line" ]; then
+    lo=$(printf '%s' "$line" | sed 's/^ *//' | cut -d'-' -f1)
+    truth_ptext=$(hex16 "$lo")
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Print bundle / truth summary.
+# ---------------------------------------------------------------------------
+printf '%sBundle:%s %s\n' "$BOLD" "$RESET" "$BUNDLE"
+printf '  arch=%s  distro=%s  kernel=%s\n' "$ARCH" "$DISTRO" "$REL"
+printf '  binary: %s\n' "$BIN"
+if [ -n "$QEMU_NOTE" ]; then
+  printf '  %srunner: %s%s\n' "$YELLOW" "$QEMU_NOTE" "$RESET"
+fi
+echo
+
+printf '%sGround truth:%s\n' "$BOLD" "$RESET"
+if [ -n "$truth_vtext" ]; then
+  printf '  virt _text  = 0x%s\n' "$truth_vtext"
+else
+  printf '  virt _text  = %s(unavailable — no --kallsyms?)%s\n' "$DIM" "$RESET"
+fi
+if [ -n "$truth_ptext" ]; then
+  printf '  phys text   = 0x%s  (iomem "Kernel code" start)\n' "$truth_ptext"
+else
+  printf '  phys text   = %s(unavailable — kptr_restrict?)%s\n' "$DIM" "$RESET"
+fi
+echo
+
+# ---------------------------------------------------------------------------
+# Pull engine-resolved ranges from JSON.
+# ---------------------------------------------------------------------------
+get() { jq -r "$1 // empty" "$JSON" 2>/dev/null; }
+
+vmin=$(get '.layout.kernel_text_min')
+vmax=$(get '.layout.kernel_text_max')
+vtext=$(get '.kaslr.virtual.text_base')
+
+pmin=$(get '.layout.phys_kaslr_text_min')
+pmax=$(get '.layout.phys_kaslr_text_max')
+ptext=$(get '.kaslr.physical.text_base')
+
+[ -n "$vmin" ]  && vmin=$(hex16 "$vmin")
+[ -n "$vmax" ]  && vmax=$(hex16 "$vmax")
+[ -n "$vtext" ] && vtext=$(hex16 "$vtext")
+[ -n "$pmin" ]  && pmin=$(hex16 "$pmin")
+[ -n "$pmax" ]  && pmax=$(hex16 "$pmax")
+[ -n "$ptext" ] && ptext=$(hex16 "$ptext")
+
+# ---------------------------------------------------------------------------
+# Soundness checks.
+# ---------------------------------------------------------------------------
+printf '%sSoundness:%s\n' "$BOLD" "$RESET"
+
+# Virt KASLR window
+if [ -n "$vmin" ] && [ -n "$vmax" ]; then
+  if [ -n "$truth_vtext" ]; then
+    if hex_in "$truth_vtext" "$vmin" "$vmax"; then
+      pass "virt kaslr window" "[0x$vmin, 0x$vmax] ∋ 0x$truth_vtext"
+    else
+      fail "virt kaslr window" "[0x$vmin, 0x$vmax] ∌ 0x$truth_vtext"
+    fi
+  else
+    nare "virt kaslr window" "no kallsyms truth (window: [0x$vmin, 0x$vmax])"
+  fi
+else
+  nare "virt kaslr window" "no resolved window in JSON"
+fi
+
+# Virt text-base resolved point (when a leak pinned it)
+if [ -n "$vtext" ] && [ -n "$truth_vtext" ]; then
+  if [ "$vtext" = "$truth_vtext" ]; then
+    pass "virt text_base"    "exact match 0x$vtext"
+  elif [ -n "$truth_end" ] && hex_in "$vtext" "$truth_vtext" "$truth_end"; then
+    pass "virt text_base"    "0x$vtext within kernel image [0x$truth_vtext, 0x$truth_end]"
+  else
+    fail "virt text_base"    "resolved 0x$vtext ≠ truth 0x$truth_vtext"
+  fi
+elif [ -n "$vtext" ]; then
+  nare "virt text_base"    "resolved 0x$vtext (no truth)"
+fi
+
+# Phys KASLR window
+if [ -n "$pmin" ] && [ -n "$pmax" ]; then
+  if [ -n "$truth_ptext" ]; then
+    if hex_in "$truth_ptext" "$pmin" "$pmax"; then
+      pass "phys kaslr window" "[0x$pmin, 0x$pmax] ∋ 0x$truth_ptext"
+    else
+      fail "phys kaslr window" "[0x$pmin, 0x$pmax] ∌ 0x$truth_ptext"
+    fi
+  else
+    nare "phys kaslr window" "no iomem truth (window: [0x$pmin, 0x$pmax])"
+  fi
+else
+  nare "phys kaslr window" "no resolved window (coupled arch or no narrowing)"
+fi
+
+# Phys text-base resolved point
+if [ -n "$ptext" ] && [ -n "$truth_ptext" ]; then
+  if [ "$ptext" = "$truth_ptext" ]; then
+    pass "phys text_base"    "exact match 0x$ptext"
+  else
+    # An aligned-down base sitting at-or-just-below iomem 'Kernel code' start
+    # is acceptable (KASLR aligns to PHYSICAL_ALIGN; _stext can be offset).
+    if hex_le "$ptext" "$truth_ptext"; then
+      pass "phys text_base"    "0x$ptext ≤ truth 0x$truth_ptext (aligned base)"
+    else
+      fail "phys text_base"    "resolved 0x$ptext ≠ truth 0x$truth_ptext"
+    fi
+  fi
+elif [ -n "$ptext" ]; then
+  nare "phys text_base"    "resolved 0x$ptext (no truth)"
+fi
+
+echo
+read -r p f s < "$TMP/counts"
+total=$((p + f + s))
+printf '%sSummary: %d PASS, %d FAIL, %d N/A (%d checks)%s\n' \
+  "$BOLD" "$p" "$f" "$s" "$total" "$RESET"
+
+[ "$f" -gt 0 ] && exit 1
+exit 0

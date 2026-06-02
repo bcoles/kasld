@@ -51,7 +51,6 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld/api.h"
-#include "include/kasld/internal.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -113,7 +112,7 @@ static int on_match(const char *line, void *ctx) {
    *                        messages, DIRECTMAP for everything else */
   name_len = (size_t)(name_end - name_start);
 
-  if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX) {
+  if (addr >= KERNEL_TEXT_MIN && addr <= KERNEL_TEXT_MAX) {
     region = REGION_KERNEL_IMAGE;
     is_directmap = 0;
   } else {
@@ -125,12 +124,14 @@ static int on_match(const char *line, void *ctx) {
 
   printf("leaked address: %lx\n", addr);
   kasld_result_sample(KASLD_TYPE_VIRT, region, addr, NULL, CONF_PARSED);
-#if !PHYS_VIRT_DECOUPLED
+#ifdef directmap_virt_to_phys
   if (is_directmap) {
-    unsigned long phys = virt_to_phys(addr);
+    unsigned long phys = directmap_virt_to_phys(addr);
     printf("  possible physical address: 0x%016lx\n", phys);
     kasld_result_sample(KASLD_TYPE_PHYS, region, phys, NULL, CONF_PARSED);
   }
+#else
+  (void)is_directmap;
 #endif
 
   return 1; /* keep scanning for more sections */

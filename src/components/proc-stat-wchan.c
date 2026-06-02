@@ -56,7 +56,7 @@ KASLD_META("method:parsed\n"
            "addr:virtual\n"
            "patch:v4.4\n");
 
-unsigned long get_kernel_addr_proc_stat_wchan() {
+static unsigned long get_kernel_addr_proc_stat_wchan(void) {
   FILE *f;
   char path[32];
   unsigned long addr = 0;
@@ -69,7 +69,7 @@ unsigned long get_kernel_addr_proc_stat_wchan() {
 
   printf("[.] checking %s 'wchan' field ...\n", path);
 
-  f = fopen(path, "rb");
+  f = kasld_fopen(path, "rb");
   if (f == NULL) {
     perror("[-] fopen");
     return 0;
@@ -97,7 +97,7 @@ unsigned long get_kernel_addr_proc_stat_wchan() {
   while (ptr != NULL) {
     if (field == 34) {
       addr = strtoul(ptr, &endptr, 10);
-      if (addr < KERNEL_BASE_MIN || addr > KERNEL_BASE_MAX)
+      if (addr < KERNEL_TEXT_MIN || addr > KERNEL_TEXT_MAX)
         addr = 0;
       break;
     }

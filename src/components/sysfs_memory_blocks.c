@@ -38,7 +38,6 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld/api.h"
-#include "include/kasld/internal.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
@@ -58,7 +57,7 @@ KASLD_META("method:parsed\n"
            "config:CONFIG_MEMORY_HOTPLUG\n");
 
 static int read_file_line(const char *path, char *buf, size_t len) {
-  FILE *f = fopen(path, "r");
+  FILE *f = kasld_fopen(path, "r");
   if (!f)
     return -1;
   if (fgets(buf, (int)len, f) == NULL) {
@@ -128,8 +127,9 @@ int main(void) {
 
     unsigned long idx = strtoul(buf, NULL, 16);
     unsigned long addr = idx * block_size;
-    if (!addr)
-      continue;
+    /* No `if (!addr) continue;` — block 0 at idx 0 is a legitimate value
+     * (phys 0). lo = ~0ul above is the "no blocks seen" sentinel; the
+     * comparison below handles addr == 0 cleanly. */
 
     if (addr < lo)
       lo = addr;
@@ -149,18 +149,32 @@ int main(void) {
 
   printf("memory blocks: %d online\n", count);
 
+  /* `lo` is the start of the lowest ONLINE memory block. A block becomes
+   * online once memory hotplug attaches it to a zone; reserved-during-boot
+   * regions (the kernel image's hotplug block, EFI runtime, memblock
+   * reservations) are typically offline or absent. On systems where
+   * firmware reserves low phys for the kernel image (the same class as
+   * dmesg_free_area_init_node / proc-zoneinfo), `lo` sits ABOVE the true
+   * phys RAM floor. Emit the lowest block start as an interior SAMPLE —
+   * a sound RAM witness, but not a floor pin. Authoritative phys floors
+   * come from sysfs_devicetree_memory, sysfs_firmware_memmap,
+   * boot_params_e820 and peers that read the full memory map. The
+   * highest block end IS sound as a TOP bound. */
   printf("lowest memory block start:  0x%016lx\n", lo);
-  kasld_result_base(KASLD_TYPE_PHYS, REGION_RAM, lo, NULL, CONF_PARSED);
+  kasld_result_sample(KASLD_TYPE_PHYS, REGION_RAM, lo, NULL, CONF_PARSED);
 
   if (hi) {
     printf("highest memory block end:   0x%016lx\n", hi);
     kasld_result_top(KASLD_TYPE_PHYS, REGION_RAM, hi, NULL, CONF_PARSED);
   }
 
-#if !PHYS_VIRT_DECOUPLED
-  unsigned long virt = phys_to_virt(lo);
+#ifdef phys_to_directmap_virt
+  /* Same caveat: phys_to_directmap_virt(lo) lands at the directmap base
+   * ONLY when lo is the actual phys floor. Emit as a directmap sample. */
+  unsigned long virt = phys_to_directmap_virt(lo);
   printf("possible direct-map virtual address: 0x%016lx\n", virt);
-  kasld_result_base(KASLD_TYPE_VIRT, REGION_RAM, virt, NULL, CONF_PARSED);
+  kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, NULL,
+                      CONF_PARSED);
 #else
   printf("note: phys and virt KASLR are decoupled on this arch; "
          "cannot derive directmap virtual address from physical leak\n");

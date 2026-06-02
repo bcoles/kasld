@@ -29,7 +29,6 @@
 
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
-#include "include/kasld/internal.h"
 #include "include/kconfig.h"
 #include <errno.h>
 #include <stdio.h>
@@ -58,16 +57,20 @@ KASLD_META("method:detection\n"
 static FILE *open_proc_config(void) {
   FILE *fp;
   char buf[4096];
+  /* gzopen()/popen() don't go through the kasld_* wrappers, so resolve the
+   * KASLD_SYSROOT path explicitly and use it for both decompression paths. */
+  char pathbuf[KASLD_PATH_MAX];
+  const char *cfg = kasld_resolve(PROC_CONFIG_GZ, pathbuf, sizeof(pathbuf));
 
   printf("[.] checking %s ...\n", PROC_CONFIG_GZ);
 
-  if (access(PROC_CONFIG_GZ, R_OK) != 0) {
+  if (kasld_access(PROC_CONFIG_GZ, R_OK) != 0) {
     fprintf(stderr, "[-] Could not read %s\n", PROC_CONFIG_GZ);
     return NULL;
   }
 
 #ifdef HAVE_ZLIB
-  gzFile gz = gzopen(PROC_CONFIG_GZ, "rb");
+  gzFile gz = gzopen(cfg, "rb");
   if (gz) {
     fp = tmpfile();
     if (fp) {
@@ -83,7 +86,9 @@ static FILE *open_proc_config(void) {
 #endif
 
   /* Fallback: decompress via zcat and buffer into a seekable tmpfile. */
-  FILE *proc = popen("zcat " PROC_CONFIG_GZ, "r");
+  char cmd[KASLD_PATH_MAX + 16];
+  snprintf(cmd, sizeof(cmd), "zcat \"%s\"", cfg);
+  FILE *proc = popen(cmd, "r");
   if (!proc) {
     perror("[-] popen");
     return NULL;
@@ -112,15 +117,14 @@ static FILE *open_proc_config(void) {
   return fp;
 }
 
-static unsigned long get_kernel_addr_proc_config(FILE *fp) {
+static int kaslr_disabled_from_config(FILE *fp) {
   if (kconfig_has_kaslr(fp))
     return 0;
 
   printf(
       "[.] Kernel appears to have been compiled without CONFIG_RANDOMIZE_BASE"
       " (KASLR not compiled in)\n");
-
-  return (unsigned long)KERNEL_TEXT_DEFAULT;
+  return 1;
 }
 
 int main(void) {
@@ -136,14 +140,26 @@ int main(void) {
                       CONF_PARSED);
   }
 
-  /* Detect KASLR disabled — emit a DEFAULT-type marker. The "nokaslr"
-   * name is the KASLR-disabled marker read by inject_kaslr_defaults(). */
-  unsigned long addr = get_kernel_addr_proc_config(fp);
-  if (addr) {
-    printf("common default kernel text for arch: %lx\n", addr);
-    kasld_result_base(KASLD_TYPE_DEFAULT_VIRT, REGION_KERNEL_TEXT, addr,
-                      "nokaslr", CONF_PARSED);
+  /* CONFIG_PHYSICAL_START (x86 LOAD_PHYSICAL_ADDR) — see boot-config.c. */
+  unsigned long phys_start = get_kconfig_physical_start(fp);
+  if (phys_start) {
+    printf("[.] CONFIG_PHYSICAL_START: %#lx\n", phys_start);
+    kasld_emit_scalar(SF_PHYSICAL_START, phys_start, CONF_PARSED);
   }
+
+  /* CONFIG_PHYSICAL_ALIGN — KASLR slot granularity (x86). See boot-config.c.
+   * Fallback for systems where /sys/kernel/boot_params/data is unreadable.  */
+  unsigned long phys_align = get_kconfig_physical_align(fp);
+  if (phys_align) {
+    printf("[.] CONFIG_PHYSICAL_ALIGN: %#lx\n", phys_align);
+    kasld_emit_scalar(SF_KERNEL_ALIGN, phys_align, CONF_PARSED);
+  }
+
+  /* KASLR-off detection. The engine's kaslr_disabled_pin rule consumes
+   * SF_KASLR_DISABLED and pins the per-arch default text base (gated by
+   * KASLR_DISABLED_PINS_TEXT + window-containment). */
+  if (kaslr_disabled_from_config(fp))
+    kasld_emit_scalar(SF_KASLR_DISABLED, 1, CONF_PARSED);
 
   fclose(fp);
 

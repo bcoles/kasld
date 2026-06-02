@@ -1,0 +1,2 @@
+49179528 /boot/vmlinux-6.19.8+deb14-powerpc64le
+98 /boot/System.map-6.19.8+deb14-powerpc64le

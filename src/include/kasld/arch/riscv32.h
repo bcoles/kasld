@@ -20,16 +20,18 @@
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/riscv/mm/init.c#L984
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/riscv/mm/init.c#L976
 #define PHYS_OFFSET 0ul
-#define PHYS_VIRT_DECOUPLED 0
-#define phys_to_virt(x) ((unsigned long)(x) + PAGE_OFFSET)
-#define virt_to_phys(v) ((unsigned long)(v) - PAGE_OFFSET)
+// PAGE_OFFSET and PHYS_OFFSET are compile-time on riscv32; the directmap
+// projection is sound. No mainline KASLR — text sits at a fixed offset
+// within the linear map.
+#define DIRECTMAP_STATIC 1
+#define TEXT_TRACKS_DIRECTMAP 1
 
 #define KERNEL_VAS_START PAGE_OFFSET
 #define KERNEL_VAS_END 0xfffffffful
 
-#define KERNEL_BASE_MIN PAGE_OFFSET
+#define KERNEL_TEXT_MIN PAGE_OFFSET
 // Above this, addresses fall in the fixmap/vmalloc region.
-#define KERNEL_BASE_MAX 0xf0000000ul
+#define KERNEL_TEXT_MAX 0xf0000000ul
 
 #define MODULES_START PAGE_OFFSET
 #define MODULES_END 0xfffffffful
@@ -46,9 +48,9 @@
 #define KERNEL_PHYS_MAX (1ul * GB)
 
 // Default: 0xc0002000 (PAGE_OFFSET + 8 KiB .head.text).
-// See README.md "Default text base and KASLR alignment" for all architectures.
-// Kernel source: arch/riscv/kernel/vmlinux.lds.S
-#define KERNEL_TEXT_DEFAULT (KERNEL_BASE_MIN + TEXT_OFFSET)
+// See docs/kaslr.md "Default text base and KASLR alignment" for all
+// architectures. Kernel source: arch/riscv/kernel/vmlinux.lds.S
+#define KERNEL_TEXT_DEFAULT (KERNEL_TEXT_MIN + TEXT_OFFSET)
 
 // RISC-V 32-bit does not have mainline KASLR.
 #define KASLR_SUPPORTED 0

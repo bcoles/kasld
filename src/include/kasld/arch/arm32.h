@@ -24,27 +24,34 @@
 // CONFIG_VMSPLIT_1G (0x40000000) to CONFIG_VMSPLIT_3G (0xc0000000).
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm/Kconfig#L1116
 #define PAGE_OFFSET 0xc0000000ul
+// VMSPLIT (CONFIG_PAGE_OFFSET) is a compile-time constant, fixed at boot.
+#define PAGE_OFFSET_FROM_CONFIG 1
 
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm/Kconfig#L276
 #define PHYS_OFFSET 0ul
 
+// PAGE_OFFSET is compile-time (VMSPLIT Kconfig). PHYS_OFFSET is patched at
+// boot under CONFIG_ARM_PATCH_PHYS_VIRT, but the patching reflects the
+// kernel's load address rather than KASLR randomization; treat as static
+// for projection purposes (matches the behaviour of every other coupled arch
+// in scope). Mainline ARM has no KASLR — text sits at a fixed offset within
+// the linear map.
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm/include/asm/memory.h#L286
-#define PHYS_VIRT_DECOUPLED 0
-#define phys_to_virt(x) ((unsigned long)((x) - PHYS_OFFSET + PAGE_OFFSET))
-#define virt_to_phys(v) ((unsigned long)((v) - PAGE_OFFSET + PHYS_OFFSET))
+#define DIRECTMAP_STATIC 1
+#define TEXT_TRACKS_DIRECTMAP 1
 
 // Minimum possible kernel base across all vmsplit configurations.
 // CONFIG_VMSPLIT_1G sets PAGE_OFFSET=0x40000000, the lowest possible value.
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm/Kconfig#L1116
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm/include/asm/memory.h#L26
-#define KERNEL_BASE_MIN 0x40000000ul
+#define KERNEL_TEXT_MIN 0x40000000ul
 
 // VAS start uses the lowest possible PAGE_OFFSET to cover all vmsplit
 // configurations. The orchestrator adjusts at runtime once vmsplit is detected.
-#define KERNEL_VAS_START KERNEL_BASE_MIN
+#define KERNEL_VAS_START KERNEL_TEXT_MIN
 #define KERNEL_VAS_END 0xfffffffful
 // Above this, addresses fall in the vectors/fixmap region.
-#define KERNEL_BASE_MAX 0xf0000000ul
+#define KERNEL_TEXT_MAX 0xf0000000ul
 
 // Modules are located below kernel: PAGE_OFFSET - 16MiB (0x01000000)
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm/include/asm/memory.h#L51
@@ -59,13 +66,21 @@
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm/Makefile#L145
 #define TEXT_OFFSET 0x8000
 
-// Plausible physical address range for kernel image
+// Plausible physical address range for kernel image. KERNEL_PHYS_MAX is
+// the highest 32-bit-addressable byte (~4 GiB - 1) rather than `4 * GB`
+// — the latter expression evaluates to 0x100000000 which OVERFLOWS the
+// 32-bit `unsigned long` on this arch and silently produces 0, collapsing
+// the honest top of Q_PHYS_TEXT_BASE to a bottom interval. LPAE permits
+// up to 40-bit phys addresses, but the kernel image's early-boot MMU
+// setup requires the image be in the lower 32-bit-addressable window,
+// so 0xFFFFFFFF is a sound ceiling.
 #define KERNEL_PHYS_MIN 0ul
-#define KERNEL_PHYS_MAX (4ul * GB)
+#define KERNEL_PHYS_MAX 0xFFFFFFFFul
 
 // Default: 0xc0008000 (PAGE_OFFSET + 32 KiB TEXT_OFFSET).
-// See README.md "Default text base and KASLR alignment" for all architectures.
-// Kernel source: arch/arm/kernel/vmlinux.lds.S, arch/arm/Makefile
+// See docs/kaslr.md "Default text base and KASLR alignment" for all
+// architectures. Kernel source: arch/arm/kernel/vmlinux.lds.S,
+// arch/arm/Makefile
 #define KERNEL_TEXT_DEFAULT (PAGE_OFFSET + TEXT_OFFSET)
 
 #define KASLR_SUPPORTED 0

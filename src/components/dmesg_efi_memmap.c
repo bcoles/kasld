@@ -1,40 +1,36 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
-// EFI memory map entries are printed to dmesg when the kernel is booted
-// with the `efi=debug` boot parameter. The format differs by architecture:
+// Parses EFI memory map entries from dmesg. Requires the `efi=debug`
+// boot parameter (gates `efi_enabled(EFI_DBG)` in the kernel); not set
+// by default on most distributions. Format differs by architecture:
 //
-// ARM/ARM64/RISC-V (drivers/firmware/efi/efi-init.c):
+// ARM / ARM64 / RISC-V (drivers/firmware/efi/efi-init.c):
 //   efi:   0x000000000000-0x00000009ffff [Conventional Memory|  ...]
 //
 // x86 (arch/x86/platform/efi/efi.c):
 //   efi: mem00: [Conventional Memory|  ...]
 //   range=[0x0000000000000000-0x000000000009ffff] (0MB)
 //
-// Both formats require `efi=debug` (`efi_enabled(EFI_DBG)`), which is
-// not commonly available on production systems.
-//
 // Leak primitive:
 //   Data leaked:      physical memory map (EFI memory map entries)
 //   Kernel subsystem: drivers/firmware/efi — efi_print_memmap()
-//   Data structure:   EFI memory descriptor entries (physical address ranges)
+//   Data structure:   EFI memory descriptor entries (physical ranges)
 //   Address type:     physical (DRAM + MMIO)
 //   Method:           parsed (dmesg string)
-//   Status:           unfixed (but requires efi=debug boot parameter)
-//   Access check:     do_syslog() → check_syslog_permissions(); gated by
-//                     dmesg_restrict
+//   Status:           unfixed; gated by efi=debug
+//   Access check:     do_syslog() → check_syslog_permissions(),
+//                     gated by dmesg_restrict
 //   Source:
 //   https://elixir.bootlin.com/linux/v6.12/source/drivers/firmware/efi/efi-init.c#L164
 //
 // Mitigations:
-//   Requires efi=debug boot parameter (not set by default). Access
-//   gated by dmesg_restrict (see dmesg.h for shared access gate details).
-//   On decoupled architectures, physical addresses cannot derive the
-//   virtual text base.
+//   efi=debug is off by default. Access is gated by dmesg_restrict (see
+//   dmesg.h for the shared access path). On decoupled architectures the
+//   physical addresses do not derive the virtual text base.
 //
 // Requires:
 // - efi=debug kernel boot parameter.
-// - kernel.dmesg_restrict = 0; or CAP_SYSLOG capabilities; or
-//   readable /var/log/dmesg.
+// - kernel.dmesg_restrict = 0, or CAP_SYSLOG, or readable /var/log/dmesg.
 //
 // References:
 // https://elixir.bootlin.com/linux/v6.12/source/drivers/firmware/efi/efi-init.c#L164
@@ -45,7 +41,6 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld/api.h"
-#include "include/kasld/internal.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -58,10 +53,13 @@ KASLD_EXPLAIN(
     "Parses EFI memory map entries from dmesg (requires efi=debug boot "
     "parameter). Each entry lists a physical address range and its type "
     "(conventional memory, MMIO, runtime services, loader code, etc.). "
-    "Extracts physical DRAM and MMIO ranges. EFI_LOADER_CODE entries are "
-    "additionally tagged as kernel_image candidates (the running kernel's "
-    "PE image is loaded as EFI_LOADER_CODE on EFI stub boots). Access is "
-    "gated by dmesg_restrict.");
+    "Extracts physical DRAM, MMIO and EFI_LOADER_CODE ranges. Each "
+    "EFI_LOADER_CODE entry is emitted as a separate REGION_EFI_LOADER_IMAGE "
+    "observation with its full [start, end] extent — the running kernel is "
+    "one of these entries on an EFI stub boot, with bootloader/driver "
+    "images claiming the others. efi_loader_kernel_pick filters by EFI stub "
+    "alignment + SF_IMAGE_SIZE match to identify the running-kernel entry. "
+    "Access is gated by dmesg_restrict.");
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"
@@ -70,10 +68,23 @@ KASLD_META("method:parsed\n"
            "bypass:CAP_SYSLOG\n"
            "fallback:/var/log/dmesg\n");
 
+/* Per-entry storage for EFI_LOADER_CODE ranges. The kernel + bootloader +
+ * driver images each get one entry on an EFI stub boot; efi_loader_kernel_pick
+ * narrows to the running kernel via alignment / size filters. A small cap
+ * keeps the worst case bounded — EFI memmaps in the wild rarely exceed a
+ * handful of Loader Code entries; beyond the cap the rule produces no pin
+ * (matches its conservative behaviour when multiple entries pass the filters
+ * without a disambiguator). */
+#define EFI_LOADER_MAX 16
+
 struct efi_ctx {
   struct range_ctx dram;
   struct range_ctx mmio;
-  struct range_ctx loader; /* EFI_LOADER_CODE (type 1): kernel + bootloader */
+  struct {
+    unsigned long lo, hi;
+  } loader[EFI_LOADER_MAX];
+  int loader_n; /* count of Loader Code entries seen (may exceed EFI_LOADER_MAX)
+                 */
 };
 
 static void update_range(struct range_ctx *r, unsigned long start,
@@ -129,8 +140,13 @@ static int on_efi_init(const char *line, void *ctx) {
     update_range(&e->mmio, start, end);
   else {
     update_range(&e->dram, start, end);
-    if (is_efi_loader_code(line))
-      update_range(&e->loader, start, end);
+    if (is_efi_loader_code(line)) {
+      if (e->loader_n < EFI_LOADER_MAX) {
+        e->loader[e->loader_n].lo = start;
+        e->loader[e->loader_n].hi = end;
+      }
+      e->loader_n++;
+    }
   }
   return 1; /* continue — multiple entries */
 }
@@ -157,14 +173,20 @@ static int on_efi_x86(const char *line, void *ctx) {
     update_range(&e->mmio, start, end);
   else {
     update_range(&e->dram, start, end);
-    if (is_efi_loader_code(line))
-      update_range(&e->loader, start, end);
+    if (is_efi_loader_code(line)) {
+      if (e->loader_n < EFI_LOADER_MAX) {
+        e->loader[e->loader_n].lo = start;
+        e->loader[e->loader_n].hi = end;
+      }
+      e->loader_n++;
+    }
   }
   return 1; /* continue — multiple entries */
 }
 
 int main(void) {
-  struct efi_ctx e = {{0, 0}, {0, 0}, {0, 0}};
+  struct efi_ctx e;
+  memset(&e, 0, sizeof(e));
 
   printf("[.] searching dmesg for EFI memory map (requires efi=debug) ...\n");
 
@@ -187,12 +209,25 @@ int main(void) {
     printf("lowest EFI RAM address:  0x%016lx\n", e.dram.lo);
     printf("highest EFI RAM address: 0x%016lx\n", e.dram.hi);
 
-    /* DRAM-typed EFI memmap entries describe usable system RAM ranges,
-     * so the boundary addresses map to RAM_BASE / RAM_TOP. The
-     * efi_memmap data structure itself is a separate concept (handled by
-     * sysfs_efi_memmap if/when added). */
-    kasld_result_base(KASLD_TYPE_PHYS, REGION_RAM, e.dram.lo, NULL,
-                      CONF_PARSED);
+    /* Soundness: EFI memmap entries are typed — Conventional Memory
+     * (user-allocatable RAM), Loader Code (the running kernel image),
+     * Boot Services Code/Data, Reserved, etc. on_efi_init aggregates
+     * only the non-MMIO entries into e.dram, which in practice
+     * skews toward Conventional Memory ranges. The kernel image
+     * itself lives in Loader Code (a separate type), and on every EFI
+     * system the Loader Code phys range sits BELOW the lowest
+     * Conventional Memory entry — same shape as the ppc32 PowerMac
+     * "kernel reserved below the lowest zone" case
+     * (see dmesg_free_area_init_node / proc-zoneinfo /
+     * sysfs_memory_blocks). Treating e.dram.lo as POS_BASE would feed
+     * dram_floor_bound a bogus high floor and exclude the actual
+     * phys text base. Emit as an interior SAMPLE — a sound RAM
+     * witness, but not a floor pin. Authoritative phys floors come
+     * from sysfs_devicetree_memory, sysfs_firmware_memmap and
+     * boot_params_e820 (E820 Type 1 RAM ranges DO include the kernel
+     * image area). e.dram.hi IS sound as a TOP bound. */
+    kasld_result_sample(KASLD_TYPE_PHYS, REGION_RAM, e.dram.lo, NULL,
+                        CONF_PARSED);
 
     if (e.dram.hi && e.dram.hi != e.dram.lo)
       kasld_result_top(KASLD_TYPE_PHYS, REGION_RAM, e.dram.hi, NULL,
@@ -211,27 +246,48 @@ int main(void) {
                           CONF_PARSED);
   }
 
-  if (e.loader.lo) {
-    /* EFI_LOADER_CODE entries contain the kernel PE image (on direct EFI
-     * stub boot) and any bootloader images still live at ExitBootServices().
-     * Emit the bounds as KERNEL_IMAGE witnesses — the inference layer can
-     * use PMD alignment and expected image size to filter false positives. */
-    printf("lowest EFI Loader Code address:  0x%016lx\n", e.loader.lo);
-    kasld_result_sample(KASLD_TYPE_PHYS, REGION_KERNEL_IMAGE, e.loader.lo, NULL,
-                        CONF_PARSED);
-
-    if (e.loader.hi && e.loader.hi != e.loader.lo) {
-      printf("highest EFI Loader Code address: 0x%016lx\n", e.loader.hi);
-      kasld_result_sample(KASLD_TYPE_PHYS, REGION_KERNEL_IMAGE, e.loader.hi,
-                          NULL, CONF_PARSED);
+  if (e.loader_n > 0) {
+    /* Emit each EFI_LOADER_CODE entry as a separate REGION_EFI_LOADER_IMAGE
+     * observation with its full [lo, hi] extent. On an EFI stub boot the
+     * running kernel's PE image is one of these entries; bootloader and
+     * driver images claim the others. The component cannot tell which
+     * entry is the kernel from address/size alone — that's the
+     * efi_loader_kernel_pick rule's job, which applies the per-arch
+     * EFI_KIMG_ALIGN start-alignment filter and the SF_IMAGE_SIZE size-
+     * tolerance filter. Separation of concerns: this component surfaces
+     * raw EFI memmap entries; the rule performs the alignment/size
+     * arithmetic that depends on arch constants and SF_IMAGE_SIZE.
+     *
+     * Cap at EFI_LOADER_MAX — beyond that the rule's per-entry scan would
+     * not find more candidates anyway; the extra entries are noted but
+     * not emitted. */
+    int emit_n = e.loader_n < EFI_LOADER_MAX ? e.loader_n : EFI_LOADER_MAX;
+    if (e.loader_n > EFI_LOADER_MAX)
+      printf("note: %d EFI Loader Code entries (cap %d); emitting first %d\n",
+             e.loader_n, EFI_LOADER_MAX, emit_n);
+    for (int i = 0; i < emit_n; i++) {
+      unsigned long lo = e.loader[i].lo;
+      unsigned long hi = e.loader[i].hi;
+      printf("EFI Loader Code image #%d: 0x%016lx-0x%016lx\n", i, lo, hi);
+      /* The EFI memmap end is an inclusive last-byte address (matches
+       * dmesg's `[lo-hi]` rendering), so size = hi - lo + 1. */
+      if (hi >= lo)
+        kasld_result_sized(KASLD_TYPE_PHYS, REGION_EFI_LOADER_IMAGE, lo,
+                           hi - lo + 1, NULL, CONF_PARSED);
     }
   }
 
-#if !PHYS_VIRT_DECOUPLED
+#ifdef phys_to_directmap_virt
   if (e.dram.lo) {
-    unsigned long virt = phys_to_virt(e.dram.lo);
+    /* Same caveat: phys_to_directmap_virt(e.dram.lo) lands at the
+     * directmap base ONLY when e.dram.lo is the actual phys floor.
+     * When firmware reserves low phys for the kernel's Loader Code
+     * range, e.dram.lo is interior to the directmap, not its base.
+     * Emit as a directmap sample. */
+    unsigned long virt = phys_to_directmap_virt(e.dram.lo);
     printf("possible direct-map virtual address: 0x%016lx\n", virt);
-    kasld_result_base(KASLD_TYPE_VIRT, REGION_RAM, virt, NULL, CONF_PARSED);
+    kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, NULL,
+                        CONF_PARSED);
   }
 #else
   printf("note: phys and virt KASLR are decoupled on this arch; "

@@ -16,14 +16,18 @@
 
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/mips/include/asm/addrspace.h#L68
 #define PAGE_OFFSET 0xffffffff80000000ul
+// CKSEG0 is fixed by the MIPS ISA — page_offset cannot vary at runtime.
+#define PAGE_OFFSET_INVARIANT 1
 
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/mips/include/asm/mach-generic/spaces.h#L28
 #define PHYS_OFFSET 0ul
 
+// XKPHYS / CKSEG0 are hardware-fixed; PHYS_OFFSET is compile-time. The
+// directmap projection is sound. Kernel text lives in CKSEG0/XKPHYS at a
+// fixed offset, so text tracks the directmap.
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/mips/include/asm/page.h#L199
-#define PHYS_VIRT_DECOUPLED 0
-#define phys_to_virt(x) ((unsigned long)((x) + PAGE_OFFSET - PHYS_OFFSET))
-#define virt_to_phys(v) ((unsigned long)((v) - PAGE_OFFSET + PHYS_OFFSET))
+#define DIRECTMAP_STATIC 1
+#define TEXT_TRACKS_DIRECTMAP 1
 
 // PAGE_OFFSET is fixed by CKSEG0 hardware mapping;
 // Directmap leaks cannot reveal the KASLR slide.
@@ -36,9 +40,9 @@
 #define KERNEL_VAS_START 0x8000000000000000ul
 #define KERNEL_VAS_END 0xfffffffffffffffful
 
-#define KERNEL_BASE_MIN PAGE_OFFSET
+#define KERNEL_TEXT_MIN PAGE_OFFSET
 // Above this, addresses fall in the module region.
-#define KERNEL_BASE_MAX 0xffffffffc0000000ul
+#define KERNEL_TEXT_MAX 0xffffffffc0000000ul
 
 #define MODULES_START 0xffffffffc0000000ul
 #define MODULES_END 0xfffffffffffffffful
@@ -57,9 +61,10 @@
 
 // Default: 0xffffffff80100400 (CKSEG0 + 1 MiB load offset + head.S entry).
 // 0x100000: standard MIPS kernel load offset (load-y in arch/mips/Makefile).
-// See README.md "Default text base and KASLR alignment" for all architectures.
-// Kernel source: arch/mips/kernel/vmlinux.lds.S, arch/mips/kernel/head.S
-#define KERNEL_TEXT_DEFAULT (KERNEL_BASE_MIN + 0x100000ul + TEXT_OFFSET)
+// See docs/kaslr.md "Default text base and KASLR alignment" for all
+// architectures. Kernel source: arch/mips/kernel/vmlinux.lds.S,
+// arch/mips/kernel/head.S
+#define KERNEL_TEXT_DEFAULT (KERNEL_TEXT_MIN + 0x100000ul + TEXT_OFFSET)
 
 #define KASLR_SUPPORTED 1
 

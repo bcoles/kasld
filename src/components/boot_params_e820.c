@@ -43,7 +43,7 @@
 // Mitigations:
 //   No kernel runtime sysctl restricts access to this file. The file is
 //   unconditionally present on x86/x86_64 (ksysfs.c is always compiled).
-//   On x86-64 (PHYS_VIRT_DECOUPLED=1), physical addresses cannot be used
+//   On x86-64 (TEXT_TRACKS_DIRECTMAP=0), physical addresses cannot be used
 //   to derive the virtual kernel text base directly.
 //
 // Requires:
@@ -59,7 +59,6 @@
 
 #define _POSIX_C_SOURCE 200809L
 #include "include/kasld/api.h"
-#include "include/kasld/internal.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <stdint.h>
@@ -131,7 +130,7 @@ int main(void) {
   printf("[.] reading E820 memory map and initrd address from " BOOT_PARAMS_PATH
          " ...\n");
 
-  int fd = open(BOOT_PARAMS_PATH, O_RDONLY);
+  int fd = kasld_open(BOOT_PARAMS_PATH, O_RDONLY);
   if (fd < 0) {
     int saved_errno = errno;
     perror("[-] open " BOOT_PARAMS_PATH);
@@ -205,16 +204,18 @@ int main(void) {
         kasld_result_top(KASLD_TYPE_PHYS, REGION_RAM, hi, NULL, CONF_PARSED);
       }
 
-#if !PHYS_VIRT_DECOUPLED
+#ifdef phys_to_directmap_virt
       if (lo != ~0ul) {
-        unsigned long virt = phys_to_virt(lo);
+        unsigned long virt = phys_to_directmap_virt(lo);
         printf("possible direct-map virtual address (low):  0x%016lx\n", virt);
-        kasld_result_base(KASLD_TYPE_VIRT, REGION_RAM, virt, NULL, CONF_PARSED);
+        kasld_result_base(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, NULL,
+                          CONF_PARSED);
       }
       if (hi) {
-        unsigned long virt = phys_to_virt(hi);
+        unsigned long virt = phys_to_directmap_virt(hi);
         printf("possible direct-map virtual address (high): 0x%016lx\n", virt);
-        kasld_result_top(KASLD_TYPE_VIRT, REGION_RAM, virt, NULL, CONF_PARSED);
+        kasld_result_top(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, NULL,
+                         CONF_PARSED);
       }
 #else
       printf("note: phys and virt KASLR are decoupled on this arch; "
@@ -256,10 +257,10 @@ int main(void) {
                      (unsigned long)initrd_start, (unsigned long)initrd_end,
                      NULL, CONF_PARSED);
 
-#if !PHYS_VIRT_DECOUPLED
-  unsigned long virt = phys_to_virt((unsigned long)initrd_start);
+#ifdef phys_to_directmap_virt
+  unsigned long virt = phys_to_directmap_virt((unsigned long)initrd_start);
   printf("possible direct-map virtual address: 0x%016lx\n", virt);
-  kasld_result_base(KASLD_TYPE_VIRT, REGION_INITRD, virt, NULL, CONF_PARSED);
+  kasld_result_base(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, NULL, CONF_PARSED);
 #endif
 
   return 0;

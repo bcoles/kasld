@@ -33,7 +33,6 @@
 
 #include "include/cmdline.h"
 #include "include/kasld/api.h"
-#include "include/kasld/internal.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -56,7 +55,7 @@ KASLD_META("method:detection\n"
 static FILE *open_boot_config(const char *release) {
   const char *fixed_paths[] = {"/boot/config", NULL};
   for (int i = 0; fixed_paths[i]; i++) {
-    FILE *fp = fopen(fixed_paths[i], "r");
+    FILE *fp = kasld_fopen(fixed_paths[i], "r");
     if (fp)
       return fp;
   }
@@ -70,7 +69,7 @@ static FILE *open_boot_config(const char *release) {
   char path[256];
   for (int i = 0; release_fmts[i]; i++) {
     snprintf(path, sizeof(path), release_fmts[i], release);
-    FILE *fp = fopen(path, "r");
+    FILE *fp = kasld_fopen(path, "r");
     if (fp)
       return fp;
   }
@@ -118,8 +117,8 @@ int main(void) {
   /* CONFIG_HIBERNATION=y must be compiled in for the kernel to act on
    * resume=. Without it the parameter is ignored and KASLR is not affected. */
   struct utsname uts;
-  if (uname(&uts) != 0) {
-    fprintf(stderr, "[-] uname() failed.\n");
+  if (kasld_uname(&uts) != 0) {
+    fprintf(stderr, "[-] kasld_uname() failed.\n");
     return 1;
   }
 
@@ -141,14 +140,13 @@ int main(void) {
   }
 
   /* All conditions met: KASLR was disabled at boot. The kernel loaded at
-   * the compile-time default text address (KERNEL_TEXT_DEFAULT). */
+   * the compile-time default text base; the engine's kaslr_disabled_pin rule
+   * computes and pins that per-arch (gated by KASLR_DISABLED_PINS_TEXT +
+   * window-containment). */
   printf("[.] hibernation resume detected with CONFIG_HIBERNATION=y; KASLR "
          "disabled.\n");
 
-  unsigned long addr = (unsigned long)KERNEL_TEXT_DEFAULT;
-  printf("common default kernel text for arch: %lx\n", addr);
-  kasld_result_sample(KASLD_TYPE_DEFAULT_VIRT, REGION_KERNEL_TEXT, addr,
-                      "nokaslr", CONF_PARSED);
+  kasld_emit_scalar(SF_KASLR_DISABLED, 1, CONF_PARSED);
 
   return 0;
 }

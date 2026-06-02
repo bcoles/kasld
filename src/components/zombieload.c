@@ -87,7 +87,6 @@
 
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
-#include "include/kasld/internal.h"
 #include "include/sidechannel.h"
 #include <memory.h>
 #include <stdio.h>
@@ -141,7 +140,7 @@ KASLD_META("method:timing\n"
  * =========================================================================
  */
 static int check_mds_status(void) {
-  FILE *f = fopen("/sys/devices/system/cpu/vulnerabilities/mds", "r");
+  FILE *f = kasld_fopen("/sys/devices/system/cpu/vulnerabilities/mds", "r");
   if (!f)
     return -1;
 
@@ -345,7 +344,7 @@ static unsigned long analyze_histograms(void) {
     addr &= ~(KERNEL_ALIGN - 1);
 
     /* Validate against expected kernel text range */
-    if (addr >= KERNEL_BASE_MIN && addr < KERNEL_BASE_MAX)
+    if (addr >= KERNEL_TEXT_MIN && addr < KERNEL_TEXT_MAX)
       return addr;
   }
 
@@ -417,8 +416,10 @@ int main(void) {
 
   /* Run multiple independent sampling passes and majority-vote.
    * Each run collects fresh histograms at all 64 cache-line offsets
-   * and produces a candidate kernel text address. */
-  unsigned long results[MDS_RUNS];
+   * and produces a candidate kernel text address.
+   * `samples` (not `results`) — avoid shadowing the kasld.h `results[]`
+   * global that components inherit through kasld/api.h. */
+  unsigned long samples[MDS_RUNS];
 
   for (int run = 0; run < MDS_RUNS; run++) {
     memset(histograms, 0, sizeof(histograms));
@@ -428,12 +429,12 @@ int main(void) {
         mds_sample_at(off);
     }
 
-    results[run] = analyze_histograms();
+    samples[run] = analyze_histograms();
     if (debug_mode) {
       dump_histograms(run);
-      if (results[run])
+      if (samples[run])
         fprintf(stderr, "[debug] run %d: candidate 0x%016lx\n", run + 1,
-                results[run]);
+                samples[run]);
       else
         fprintf(stderr, "[debug] run %d: no candidate found\n", run + 1);
     }
@@ -443,16 +444,16 @@ int main(void) {
   unsigned long addr = 0;
   int best_count = 0;
   for (int i = 0; i < MDS_RUNS; i++) {
-    if (!results[i])
+    if (!samples[i])
       continue;
     int count = 0;
     for (int j = 0; j < MDS_RUNS; j++) {
-      if (results[j] == results[i])
+      if (samples[j] == samples[i])
         count++;
     }
     if (count > best_count) {
       best_count = count;
-      addr = results[i];
+      addr = samples[i];
     }
   }
 
@@ -461,8 +462,8 @@ int main(void) {
             total_probe_hits);
     fprintf(stderr, "[debug] votes:");
     for (int i = 0; i < MDS_RUNS; i++) {
-      if (results[i])
-        fprintf(stderr, " [%d]=0x%lx", i + 1, results[i]);
+      if (samples[i])
+        fprintf(stderr, " [%d]=0x%lx", i + 1, samples[i]);
       else
         fprintf(stderr, " [%d]=none", i + 1);
     }

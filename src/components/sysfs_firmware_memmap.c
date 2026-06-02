@@ -43,7 +43,6 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld/api.h"
-#include "include/kasld/internal.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
@@ -64,7 +63,7 @@ KASLD_META("method:parsed\n"
            "config:CONFIG_FIRMWARE_MEMMAP\n");
 
 static int read_file_line(const char *path, char *buf, size_t len) {
-  FILE *f = fopen(path, "r");
+  FILE *f = kasld_fopen(path, "r");
   if (!f)
     return -1;
   if (fgets(buf, (int)len, f) == NULL) {
@@ -150,10 +149,10 @@ int main(void) {
     kasld_result_top(KASLD_TYPE_PHYS, REGION_RAM, hi, NULL, CONF_PARSED);
   }
 
-#if !PHYS_VIRT_DECOUPLED
-  unsigned long virt = phys_to_virt(lo);
+#ifdef phys_to_directmap_virt
+  unsigned long virt = phys_to_directmap_virt(lo);
   printf("possible direct-map virtual address: 0x%016lx\n", virt);
-  kasld_result_base(KASLD_TYPE_VIRT, REGION_RAM, virt, NULL, CONF_PARSED);
+  kasld_result_base(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, NULL, CONF_PARSED);
 #else
   printf("note: phys and virt KASLR are decoupled on this arch; "
          "cannot derive directmap virtual address from physical leak\n");

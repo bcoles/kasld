@@ -1,0 +1,10 @@
+collect_version:  1
+collected_utc:    Mon Jun  1 06:33:29 AM UTC 2026
+uname_m_raw:      aarch64
+arch_canonical:   arm64
+kernel_release:   7.0.0-14-generic
+distro:           ubuntu-26.04
+kasld:            kasld 0.2.0-dev
+suggested_fixture: tests/fixtures/arm64/ubuntu-26.04-7.0.0-14-generic/
+anonymized:       1
+kallsyms:         0

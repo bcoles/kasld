@@ -64,7 +64,6 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld/api.h"
-#include "include/kasld/internal.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -108,9 +107,9 @@ static int on_match(const char *line, void *ctx) {
     return 1;
 
   /* Direct-map addresses land between PAGE_OFFSET (VAS upper-half start)
-   * and KERNEL_BASE_MIN (start of kernel text region). Physical addresses
+   * and KERNEL_TEXT_MIN (start of kernel text region). Physical addresses
    * printed for static tables are well below PAGE_OFFSET and get rejected. */
-  if (addr < PAGE_OFFSET || addr >= KERNEL_BASE_MIN)
+  if (addr < PAGE_OFFSET || addr >= KERNEL_TEXT_MIN)
     return 1;
 
   /* Capture OEM table id (e.g. "Cpu0Ist", "ApCst") for the result label.
@@ -165,9 +164,9 @@ int main(void) {
    * instance name so the table reads "acpi_table:Cpu0Ist". */
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_ACPI_TABLE, s.addr, s.label,
                       CONF_PARSED);
-#if !PHYS_VIRT_DECOUPLED
+#ifdef directmap_virt_to_phys
   {
-    unsigned long phys = virt_to_phys(s.addr);
+    unsigned long phys = directmap_virt_to_phys(s.addr);
     printf("  possible physical address: 0x%016lx\n", phys);
     kasld_result_sample(KASLD_TYPE_PHYS, REGION_ACPI_TABLE, phys, s.label,
                         CONF_PARSED);

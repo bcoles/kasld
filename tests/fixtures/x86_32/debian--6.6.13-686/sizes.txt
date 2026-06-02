@@ -1,0 +1,2 @@
+6093664 /boot/vmlinuz-6.6.13-686
+83 /boot/System.map-6.6.13-686

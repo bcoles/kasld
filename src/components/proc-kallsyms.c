@@ -32,7 +32,6 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld/api.h"
-#include "include/kasld/internal.h"
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -53,7 +52,7 @@ KASLD_META("method:parsed\n"
 
 int main(void) {
   /* Pre-check: can we access /proc/kallsyms? */
-  FILE *f = fopen("/proc/kallsyms", "r");
+  FILE *f = kasld_fopen("/proc/kallsyms", "r");
   if (!f)
     return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM
                                                : KASLD_EXIT_UNAVAILABLE;
@@ -77,7 +76,7 @@ int main(void) {
 
   unsigned long stext = 0, etext = 0;
 
-  FILE *ks = fopen("/proc/kallsyms", "r");
+  FILE *ks = kasld_fopen("/proc/kallsyms", "r");
   if (ks) {
     unsigned long a;
     char type, sym[256];

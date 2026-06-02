@@ -1,0 +1,74 @@
+Node 0, zone   Normal
+  per-node stats
+      nr_inactive_anon 6825
+      nr_active_anon 188
+      nr_inactive_file 12732
+      nr_active_file 9066
+      nr_unevictable 0
+      nr_slab_reclaimable 2360
+      nr_slab_unreclaimable 1035
+      nr_isolated_anon 0
+      nr_isolated_file 0
+      workingset_nodes 0
+      workingset_refault_anon 0
+      workingset_refault_file 0
+      workingset_activate_anon 0
+      workingset_activate_file 0
+      workingset_restore_anon 0
+      workingset_restore_file 0
+      workingset_nodereclaim 0
+      nr_anon_pages 6811
+      nr_mapped    7220
+      nr_file_pages 22004
+      nr_dirty     2
+      nr_writeback 0
+      nr_writeback_temp 0
+      nr_shmem     206
+      nr_shmem_hugepages 0
+      nr_shmem_pmdmapped 0
+      nr_file_hugepages 0
+      nr_file_pmdmapped 0
+      nr_anon_transparent_hugepages 0
+      nr_vmscan_write 0
+      nr_vmscan_immediate_reclaim 0
+      nr_dirtied   18040
+      nr_written   17493
+      nr_kernel_misc_reclaimable 0
+      nr_foll_pin_acquired 0
+      nr_foll_pin_released 0
+      nr_kernel_stack 544
+  pages free     28806
+        min      4096
+        low      5120
+        high     6144
+        spanned  65536
+        present  65536
+        managed  62692
+        protection: (0, 0)
+      nr_free_pages 28806
+      nr_zone_inactive_anon 6825
+      nr_zone_active_anon 188
+      nr_zone_inactive_file 12732
+      nr_zone_active_file 9066
+      nr_zone_unevictable 0
+      nr_zone_write_pending 2
+      nr_mlock     0
+      nr_page_table_pages 226
+      nr_bounce    0
+      nr_free_cma  0
+  pagesets
+    cpu: 0
+              count: 58
+              high:  90
+              batch: 15
+  node_unreclaimable:  0
+  start_pfn:           0
+Node 0, zone  Movable
+  pages free     0
+        min      0
+        low      0
+        high     0
+        spanned  0
+        present  0
+        managed  0
+        protection: (0, 0)

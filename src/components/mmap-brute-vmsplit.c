@@ -49,7 +49,7 @@ KASLD_META("method:heuristic\n"
            "phase:probing\n"
            "addr:virtual\n");
 
-unsigned long find_kernel_address_space_start(void) {
+static unsigned long find_kernel_address_space_start(void) {
   unsigned long i;
   printf("[.] searching 32-bit address space for kernel virtual address space "
          "start ...\n");

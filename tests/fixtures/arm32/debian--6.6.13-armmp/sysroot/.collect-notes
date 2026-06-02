@@ -1,0 +1,11 @@
+absent: /sys/kernel/boot_params/data
+absent: /sys/kernel/boot_params/setup_data
+absent: /sys/firmware/memmap
+absent: /proc/device-tree/rtas
+absent: /sys/firmware/devicetree/base/rtas
+absent: /proc/config.gz
+header: /boot/vmlinuz-6.6.13-armmp (4096B prefix; full size 5730816 in sizes.txt)
+absent: /boot/Image-6.6.13-armmp
+absent: /boot/vmlinux-6.6.13-armmp
+skipped: /proc/kallsyms (use --kallsyms to include)
+unavailable: dmesg

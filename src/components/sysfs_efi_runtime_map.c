@@ -45,7 +45,6 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld/api.h"
-#include "include/kasld/internal.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
@@ -70,7 +69,7 @@ KASLD_META("method:parsed\n"
            "config:CONFIG_KEXEC_CORE\n");
 
 static int read_file_line(const char *path, char *buf, size_t len) {
-  FILE *f = fopen(path, "r");
+  FILE *f = kasld_fopen(path, "r");
   if (!f)
     return -1;
   if (fgets(buf, (int)len, f) == NULL) {
@@ -117,7 +116,7 @@ int main(void) {
     /* Must be in the direct-map region: at or above PAGE_OFFSET, below
      * kernel text. Rejects physical-range values on systems where
      * SetVirtualAddressMap was never called or used identity mapping. */
-    if (virt < PAGE_OFFSET || virt >= KERNEL_BASE_MIN)
+    if (virt < PAGE_OFFSET || virt >= KERNEL_TEXT_MIN)
       continue;
 
     snprintf(path, sizeof(path), "%s/%s/phys_addr", base, ent->d_name);
@@ -140,7 +139,7 @@ int main(void) {
 
     /* page_offset_base = virt - phys for any direct-map entry */
     unsigned long page_offset = virt - phys;
-    if (page_offset < KERNEL_VAS_START || page_offset >= KERNEL_BASE_MIN)
+    if (page_offset < KERNEL_VAS_START || page_offset >= KERNEL_TEXT_MIN)
       continue;
 
     printf("EFI runtime entry %s: virt=0x%016lx phys=0x%016lx"

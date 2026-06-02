@@ -35,13 +35,11 @@ int main(void) {
 
   printf("[.] Kernel booted with nokaslr flag.\n");
 
-  /* The "nokaslr" name is the KASLR-disabled marker read by
-   * inject_kaslr_defaults(); the address is the compile-time default
-   * kernel text base, which is the actual base when KASLR is off. */
-  unsigned long addr = (unsigned long)KERNEL_TEXT_DEFAULT;
-  printf("common default kernel text for arch: %lx\n", addr);
-  kasld_result_base(KASLD_TYPE_DEFAULT_VIRT, REGION_KERNEL_TEXT, addr,
-                    "nokaslr", CONF_PARSED);
+  /* Off-detection signal; the engine's kaslr_disabled_pin rule computes the
+   * per-arch default text base and pins Q_VIRT_TEXT_BASE (gated by
+   * KASLR_DISABLED_PINS_TEXT + window-containment). The renderer's baseline
+   * is emitted independently by the `default` component. */
+  kasld_emit_scalar(SF_KASLR_DISABLED, 1, CONF_PARSED);
 
   return 0;
 }

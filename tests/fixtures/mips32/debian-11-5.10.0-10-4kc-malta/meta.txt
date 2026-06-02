@@ -1,0 +1,10 @@
+collect_version:  1
+collected_utc:    Sat 23 May 2026 04:12:40 PM UTC
+uname_m_raw:      mips
+arch_canonical:   mips32
+kernel_release:   5.10.0-10-4kc-malta
+distro:           debian-11
+kasld:            kasld 0.1.2-dev
+suggested_fixture: tests/fixtures/mips32/debian-11-5.10.0-10-4kc-malta/
+anonymized:       0
+kallsyms:         0

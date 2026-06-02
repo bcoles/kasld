@@ -1,0 +1,17 @@
+system type		: generic-loongson-machine
+
+processor		: 0
+package			: 0
+core			: 0
+global_id		: 0
+CPU Family		: Loongson-64bit
+PRID			: LA464 (0014c010)
+CPU Revision		: 0x10
+FPU Revision		: 0x01
+CPU MHz			: 2000.00
+BogoMIPS		: 4000.00
+TLB Entries		: 2112
+Address Sizes		: 48 bits physical, 48 bits virtual
+ISA			: loongarch32r loongarch32s loongarch64
+Features		: cpucfg lam ual fpu lsx lasx crc32 lspw
+

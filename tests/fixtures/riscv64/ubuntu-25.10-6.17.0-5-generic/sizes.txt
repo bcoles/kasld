@@ -1,0 +1,2 @@
+12755456 /boot/vmlinuz-6.17.0-5-generic
+5054769 /boot/System.map-6.17.0-5-generic

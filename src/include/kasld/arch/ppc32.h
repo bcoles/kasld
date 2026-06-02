@@ -21,17 +21,19 @@
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/Kconfig#L1233
 #define PHYS_OFFSET 0ul
 
+// PAGE_OFFSET and PHYS_OFFSET are compile-time on ppc32 (BookE
+// CONFIG_RELOCATABLE is out of KASLD scope). Mainline ppc32 has no KASLR —
+// text sits at a fixed offset within the linear map.
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/include/asm/page.h#L240
-#define PHYS_VIRT_DECOUPLED 0
-#define phys_to_virt(x) ((unsigned long)((x) + PAGE_OFFSET - PHYS_OFFSET))
-#define virt_to_phys(v) ((unsigned long)((v) - PAGE_OFFSET + PHYS_OFFSET))
+#define DIRECTMAP_STATIC 1
+#define TEXT_TRACKS_DIRECTMAP 1
 
 #define KERNEL_VAS_START PAGE_OFFSET
 #define KERNEL_VAS_END 0xfffffffful
 
-#define KERNEL_BASE_MIN PAGE_OFFSET
+#define KERNEL_TEXT_MIN PAGE_OFFSET
 // Above this, addresses fall in the I/O or fixmap region.
-#define KERNEL_BASE_MAX 0xf0000000ul
+#define KERNEL_TEXT_MAX 0xf0000000ul
 
 // Modules are located below kernel: PAGE_OFFSET - 256MiB (0x10000000)
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/include/asm/book3s/32/pgtable.h#L214
@@ -54,9 +56,9 @@
 #define KERNEL_PHYS_MAX (1ul * GB)
 
 // Default: 0xc0000000 (PAGE_OFFSET, no text offset on PPC32).
-// See README.md "Default text base and KASLR alignment" for all architectures.
-// Kernel source: arch/powerpc/kernel/vmlinux.lds.S
-#define KERNEL_TEXT_DEFAULT (KERNEL_BASE_MIN + TEXT_OFFSET)
+// See docs/kaslr.md "Default text base and KASLR alignment" for all
+// architectures. Kernel source: arch/powerpc/kernel/vmlinux.lds.S
+#define KERNEL_TEXT_DEFAULT (KERNEL_TEXT_MIN + TEXT_OFFSET)
 
 #define KASLR_SUPPORTED 1
 

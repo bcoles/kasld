@@ -24,10 +24,12 @@
 // https://elixir.bootlin.com/linux/v6.8.5/source/arch/loongarch/include/asm/addrspace.h#L22
 #define PHYS_OFFSET 0ul
 
+// DMW hardware fixes PAGE_OFFSET; PHYS_OFFSET is compile-time. The directmap
+// projection is sound. Kernel text lives in XKPRANGE at a fixed offset, so
+// text tracks the directmap.
 // https://elixir.bootlin.com/linux/v6.8.5/source/arch/loongarch/include/asm/page.h#L81
-#define PHYS_VIRT_DECOUPLED 0
-#define phys_to_virt(x) ((unsigned long)(x) + PAGE_OFFSET - PHYS_OFFSET)
-#define virt_to_phys(v) ((unsigned long)(v) - PAGE_OFFSET + PHYS_OFFSET)
+#define DIRECTMAP_STATIC 1
+#define TEXT_TRACKS_DIRECTMAP 1
 
 // PAGE_OFFSET is fixed by DMW hardware (CSR_DMW1_VSEG << DMW_PABITS);
 // KASLR randomizes only the physical load address.
@@ -43,10 +45,10 @@
 #define KERNEL_VAS_END 0xfffffffffffffffful
 
 // https://elixir.bootlin.com/linux/v6.8.5/source/arch/loongarch/Kconfig#L629
-#define KERNEL_BASE_MIN PAGE_OFFSET
+#define KERNEL_TEXT_MIN PAGE_OFFSET
 // KASLR offset: get_random_u16() << 16, max ~4 GiB. Use 8 GiB headroom.
 // https://elixir.bootlin.com/linux/v6.12/source/arch/loongarch/kernel/relocate.c
-#define KERNEL_BASE_MAX 0x9000000200000000ul
+#define KERNEL_TEXT_MAX 0x9000000200000000ul
 
 // Modules are in XKVRANGE at vm_map_base + PCI_IOSIZE + 2*PAGE_SIZE.
 // vm_map_base = 0 - (1 << vabits); for 48-bit VA: 0xffff000000000000.
@@ -62,6 +64,14 @@
 // https://elixir.bootlin.com/linux/v6.12/source/arch/loongarch/include/asm/efi.h#L30
 #define KERNEL_ALIGN 0x10000ul
 
+// EFI_KIMG_ALIGN is the alignment the EFI stub uses when calling
+// AllocatePages() for the kernel image — SZ_2M on LoongArch per the
+// kernel header linked above. Distinct from KERNEL_ALIGN (the KASLR
+// offset granularity, 64 KiB) which is used by KASLR_PHYS_ALIGN paths
+// elsewhere. Used by efi_loader_kernel_pick to filter multi-entry
+// EFI_LOADER_CODE memmaps.
+#define EFI_KIMG_ALIGN (2 * MB)
+
 // https://elixir.bootlin.com/linux/v6.8.5/source/arch/loongarch/Makefile#L99
 #define TEXT_OFFSET 0x200000
 
@@ -69,14 +79,40 @@
 #define KERNEL_PHYS_MIN 0ul
 #define KERNEL_PHYS_MAX (64ul * GB)
 
-// See README.md "Default text base and KASLR alignment" for all architectures.
-// Kernel source: arch/loongarch/kernel/vmlinux.lds.S, arch/loongarch/Makefile
-#define KERNEL_TEXT_DEFAULT (KERNEL_BASE_MIN + TEXT_OFFSET)
+// See docs/kaslr.md "Default text base and KASLR alignment" for all
+// architectures. Kernel source: arch/loongarch/kernel/vmlinux.lds.S,
+// arch/loongarch/Makefile
+#define KERNEL_TEXT_DEFAULT (KERNEL_TEXT_MIN + TEXT_OFFSET)
+
+/* KASLR-off ⇒ pin contract: arch/loongarch/kernel/relocate.c kaslr_disabled()
+ * short-circuits the relocate path and the kernel stays at the link address
+ * VMLINUX_LOAD_ADDRESS = PAGE_OFFSET + TEXT_OFFSET = KERNEL_TEXT_DEFAULT here.
+ * Triggered by the "kexec_file" cmdline token (loongarch_kexec_file_nokaslr),
+ * the resume= hibernation path (hibernation_nokaslr), nokaslr cmdline
+ * (proc-cmdline), or RANDOMIZE_BASE=n (proc-config / boot-config). The pin
+ * rule's window-containment check is the backstop for a distro-overridden
+ * VMLINUX_LOAD_ADDRESS. */
+#define KASLR_DISABLED_PINS_TEXT 1
+#define KASLD_ARCH_DEFAULT_TEXT_BASE_DEFINED 1
+static inline unsigned long arch_default_text_base(void) {
+  return KERNEL_TEXT_DEFAULT;
+}
+
+/* KASLR-off ⇒ phys pin contract: loongarch64's relocate.c skips
+ * relocation when kaslr_disabled(), so the kernel stays at its build-time
+ * physical load address VMLINUX_LOAD_ADDRESS = PAGE_OFFSET + TEXT_OFFSET in
+ * the virtual mapping; the physical equivalent is TEXT_OFFSET above the RAM
+ * base. With PHYS_OFFSET=0 that collapses to TEXT_OFFSET. */
+#define KASLR_DISABLED_PINS_PHYS 1
+#define KASLD_ARCH_DEFAULT_PHYS_TEXT_BASE_DEFINED 1
+static inline unsigned long arch_default_phys_text_base(void) {
+  return (unsigned long)TEXT_OFFSET;
+}
 
 // KASLR randomization: offset = get_random_u16() << 16, range [0, 0xFFFF0000].
 // Virtual text = PAGE_OFFSET + TEXT_OFFSET + offset.
-#define KASLR_BASE_MIN (PAGE_OFFSET + TEXT_OFFSET)
-#define KASLR_BASE_MAX (PAGE_OFFSET + TEXT_OFFSET + 0x100000000ul)
+#define KASLR_TEXT_MIN (PAGE_OFFSET + TEXT_OFFSET)
+#define KASLR_TEXT_MAX (PAGE_OFFSET + TEXT_OFFSET + 0x100000000ul)
 
 #define KASLR_SUPPORTED 1
 

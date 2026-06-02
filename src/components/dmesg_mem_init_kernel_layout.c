@@ -13,6 +13,18 @@
 //   lowmem   -> V directmap (lowmem / direct-mapped region, x86_32/arm)
 //   modules  -> V module    (kernel module region, arm/arm64)
 //   memory   -> V directmap (linear memory map, arm64)
+//   vmalloc  -> V vmalloc   (vmalloc region, range: riscv64 with
+//                            CONFIG_DEBUG_VM; xtensa/sh/parisc; s390 KERN_DEBUG
+//                            "vmalloc area:" boot-time line)
+//   vmemmap  -> V vmemmap   (vmemmap region, range: riscv64 with
+//                            CONFIG_DEBUG_VM)
+//
+// On riscv64 the vmalloc/vmemmap range lines feed the engine's
+// riscv64_page_offset_from_vmalloc_vmemmap rule (tightens Q_PAGE_OFFSET).
+// On s390 the "vmalloc area:" range line feeds s390_text_from_vmalloc
+// (tightens Q_VIRT_TEXT_BASE lower bound). On other arches with these prints
+// the observations are still recorded — they cost nothing if no rule consumes
+// them, and unlock future rules.
 //
 // x86:
 // https://elixir.bootlin.com/linux/v5.6.19/source/arch/x86/mm/init_32.c
@@ -84,7 +96,6 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld/api.h"
-#include "include/kasld/internal.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -113,7 +124,16 @@ KASLD_META("method:parsed\n"
  *           "    modules : 0x%08lx"
  *   arm64:  "      .text : 0x%p",    "    modules : 0x%16lx",
  *           "    memory  : 0x%16lx"
+ *   riscv:  "       vmalloc : 0x... - 0x... (   N MB)" (range; CONFIG_DEBUG_VM)
+ *   xtensa: "    vmalloc : 0x... - 0x... (    N MB)"   (range; current)
+ *   sh:     "    vmalloc : 0x... - 0x... (   N MB)"    (range; current)
+ *   s390:   "vmalloc area:        0x...-0x..."         (range; boot KERN_DEBUG)
  */
+enum layout_kind {
+  LK_BASE = 0, /* needle ... 0x<lo> ...      (single address) */
+  LK_RANGE,    /* needle ... 0x<lo>[ ]-[ ]0x<hi> ... (two addresses) */
+};
+
 struct layout_entry {
   const char *needle;
   enum kasld_addr_type type;
@@ -121,22 +141,36 @@ struct layout_entry {
   enum kasld_region region;
   unsigned long gate_min;
   unsigned long gate_max;
+  enum layout_kind kind;
 };
 
 static const struct layout_entry entries[] = {
     {".text : 0x", KASLD_TYPE_VIRT, "kernel .text start", REGION_KERNEL_TEXT,
-     KERNEL_BASE_MIN, KERNEL_BASE_MAX},
+     KERNEL_TEXT_MIN, KERNEL_TEXT_MAX, LK_BASE},
     {".data : 0x", KASLD_TYPE_VIRT, "kernel .data start", REGION_KERNEL_DATA,
-     KERNEL_VAS_START, KERNEL_VAS_END},
+     KERNEL_VAS_START, KERNEL_VAS_END, LK_BASE},
     {".bss  : 0x", KASLD_TYPE_VIRT, "kernel .bss start", REGION_KERNEL_BSS,
-     KERNEL_BASE_MIN, KERNEL_BASE_MAX},
+     KERNEL_TEXT_MIN, KERNEL_TEXT_MAX, LK_BASE},
     {"lowmem  : 0x", KASLD_TYPE_VIRT, "kernel lowmem start", REGION_DIRECTMAP,
-     KERNEL_VAS_START, KERNEL_VAS_END},
+     KERNEL_VAS_START, KERNEL_VAS_END, LK_BASE},
     {"modules : 0x", KASLD_TYPE_VIRT, "kernel modules start",
-     REGION_MODULE_REGION, MODULES_START, MODULES_END},
+     REGION_MODULE_REGION, MODULES_START, MODULES_END, LK_BASE},
     {"memory  : 0x", KASLD_TYPE_VIRT, "kernel memory start", REGION_DIRECTMAP,
-     KERNEL_VAS_START, KERNEL_VAS_END},
-    {NULL, 0, NULL, REGION_UNKNOWN, 0, 0},
+     KERNEL_VAS_START, KERNEL_VAS_END, LK_BASE},
+    /* Range extractions (lo,hi). One needle per print-format dialect:
+     *   "vmalloc : 0x"  — riscv/xtensa/sh/parisc print_ml() style
+     *   "vmalloc area:" — s390 boot KERN_DEBUG (boot_debug)
+     * The riscv/xtensa needle also matches "    fixmap : 0x", "    lowmem : 0x"
+     * etc. — guard with a prefix-anchor on the region NAME (the substring
+     * "vmalloc"/"vmemmap" appears only in matching layout lines on these
+     * kernels; the needle includes it explicitly). */
+    {"vmalloc : 0x", KASLD_TYPE_VIRT, "vmalloc region", REGION_VMALLOC,
+     KERNEL_VAS_START, KERNEL_VAS_END, LK_RANGE},
+    {"vmalloc area:", KASLD_TYPE_VIRT, "vmalloc region", REGION_VMALLOC,
+     KERNEL_VAS_START, KERNEL_VAS_END, LK_RANGE},
+    {"vmemmap : 0x", KASLD_TYPE_VIRT, "vmemmap region", REGION_VMEMMAP,
+     KERNEL_VAS_START, KERNEL_VAS_END, LK_RANGE},
+    {NULL, 0, NULL, REGION_UNKNOWN, 0, 0, LK_BASE},
 };
 
 #define NUM_ENTRIES (sizeof(entries) / sizeof(entries[0]) - 1)
@@ -156,7 +190,33 @@ static unsigned long extract_addr(const char *s) {
   return addr;
 }
 
-static void emit_result(int idx, unsigned long addr) {
+/* Extract a range from a line bearing "0x<lo>...0x<hi>" — both addresses must
+ * parse. Tolerates the separator variants seen in the wild:
+ *   "0x... - 0x..."   (riscv/xtensa/sh/parisc — spaces around the dash)
+ *   "0x...-0x..."     (s390 boot_debug — no spaces around the dash)
+ * Returns 1 on success (both addresses extracted, *lo and *hi set); 0 on
+ * single-address line or parse failure. */
+static int extract_range(const char *s, unsigned long *lo, unsigned long *hi) {
+  const char *p1 = strstr(s, "0x");
+  if (!p1)
+    return 0;
+  char *endptr;
+  unsigned long v1 = strtoul(p1 + 2, &endptr, 16);
+  if (endptr == p1 + 2)
+    return 0;
+  const char *p2 = strstr(endptr, "0x");
+  if (!p2)
+    return 0;
+  unsigned long v2 = strtoul(p2 + 2, &endptr, 16);
+  if (endptr == p2 + 2)
+    return 0;
+  /* Order-invariant: emit (min, max). */
+  *lo = v1 < v2 ? v1 : v2;
+  *hi = v1 < v2 ? v2 : v1;
+  return 1;
+}
+
+static void emit_base(int idx, unsigned long addr) {
   enum kasld_region region = entries[idx].region;
   printf("%s: %lx\n", entries[idx].display, addr);
 
@@ -171,24 +231,34 @@ static void emit_result(int idx, unsigned long addr) {
   /* Each "kernel .text start" / ".data start" / "modules start" message
    * reports the BASE of the named region. */
   kasld_result_base(entries[idx].type, region, addr, NULL, CONF_PARSED);
-#if !PHYS_VIRT_DECOUPLED
+#ifdef directmap_virt_to_phys
   if (region == REGION_DIRECTMAP) {
-    unsigned long phys = virt_to_phys(addr);
+    unsigned long phys = directmap_virt_to_phys(addr);
     printf("  possible physical address: 0x%016lx\n", phys);
     kasld_result_base(KASLD_TYPE_PHYS, region, phys, NULL, CONF_PARSED);
   }
-  /* On coupled architectures, the kernel image is linearly mapped, so
-   * virt_to_phys() is valid for kernel BSS addresses too. Emitting a
-   * PHYS/KERNEL_BSS result enables the BSS-resident gap refinement in
-   * kernel_image_phys_bound.c on ARM32 and x86_32 (the only arches that
-   * print a ".bss  :" line; both are coupled). */
+#endif
+#if defined(directmap_virt_to_phys) && TEXT_TRACKS_DIRECTMAP
+  /* The BSS virt is also the BSS directmap virt only when the kernel image
+   * sits at the linear-map offset (TEXT_TRACKS_DIRECTMAP). Both gates are
+   * required: without the second, a future (DIRECTMAP_STATIC=1,
+   * TEXT_TRACKS_DIRECTMAP=0) arch would silently misproject the BSS virt
+   * through the linear-map formula. Emitting the PHYS/KERNEL_BSS result
+   * enables the BSS-resident gap refinement in kernel_image_phys_bound.c on
+   * ARM32 and x86_32 (the only arches that print a ".bss  :" line). */
   if (region == REGION_KERNEL_BSS) {
-    unsigned long phys = virt_to_phys(addr);
+    unsigned long phys = directmap_virt_to_phys(addr);
     printf("  possible physical address: 0x%016lx\n", phys);
     kasld_result_base(KASLD_TYPE_PHYS, REGION_KERNEL_BSS, phys, NULL,
                       CONF_PARSED);
   }
 #endif
+}
+
+static void emit_range(int idx, unsigned long lo, unsigned long hi) {
+  printf("%s: 0x%lx - 0x%lx\n", entries[idx].display, lo, hi);
+  kasld_result_range(entries[idx].type, entries[idx].region, lo, hi, NULL,
+                     CONF_PARSED);
 }
 
 struct search_ctx {
@@ -205,14 +275,23 @@ static int on_match(const char *line, void *ctx) {
     if (strstr(line, entries[i].needle) == NULL)
       continue;
 
-    unsigned long addr = extract_addr(line);
-    if (!addr)
-      continue;
-
-    if (addr < entries[i].gate_min || addr > entries[i].gate_max)
-      continue;
-
-    emit_result(i, addr);
+    if (entries[i].kind == LK_RANGE) {
+      unsigned long lo, hi;
+      if (!extract_range(line, &lo, &hi))
+        continue;
+      /* Both edges must lie inside the gate, and the line must actually
+       * describe a non-degenerate range (lo < hi). */
+      if (lo < entries[i].gate_min || hi > entries[i].gate_max || lo >= hi)
+        continue;
+      emit_range(i, lo, hi);
+    } else {
+      unsigned long addr = extract_addr(line);
+      if (!addr)
+        continue;
+      if (addr < entries[i].gate_min || addr > entries[i].gate_max)
+        continue;
+      emit_base(i, addr);
+    }
     sc->found_mask |= (1 << i);
   }
 
@@ -222,9 +301,14 @@ static int on_match(const char *line, void *ctx) {
 int main(void) {
   struct search_ctx ctx = {0};
 
-  /* Use a broad needle to match any layout line */
+  /* Broad prefilter — any line carrying a hex address. The per-entry needles
+   * in on_match() do the real selection; this just narrows the dmesg sweep to
+   * lines that could plausibly be layout prints. Broadened from ": 0x" to
+   * "0x" to catch the s390 boot_debug format "vmalloc area:        0x..."
+   * (multiple spaces between colon and address) alongside the
+   * single-space riscv/xtensa/sh/parisc form "vmalloc : 0x...". */
   printf("[.] searching dmesg for kernel memory layout sections ...\n");
-  int ds = dmesg_search(": 0x", on_match, &ctx);
+  int ds = dmesg_search("0x", on_match, &ctx);
 
   if (!ctx.found_mask) {
     if (ds < 0)

@@ -14,6 +14,21 @@
 // Without spanned, the :hi result would report 0x100000000 (zone start),
 // missing the top 2 GiB of DRAM.
 //
+// Soundness: /proc/zoneinfo describes USER-ALLOCATABLE memory zones
+// (buddy-allocator state), not the full physical-RAM extent. Firmware-
+// and kernel-reserved regions (the kernel image, EFI runtime services,
+// memblock reservations) live OUTSIDE the published zones. On systems
+// where firmware reserves the low-phys range for the kernel image
+// (e.g. ppc32 PowerMac with the kernel at phys 0 and the lowest zone
+// starting at 0x30000000), treating the lowest zone start as POS_BASE
+// would pin dram_floor_bound to a bogus high floor and exclude the
+// actual text base. The lowest zone start is therefore emitted as an
+// interior SAMPLE — a sound RAM witness, but not a floor pin.
+// Authoritative phys floors come from sysfs_devicetree_memory,
+// sysfs_firmware_memmap, boot_params_e820 and peers that read the full
+// memory map. The HIGHEST zone end IS sound as a TOP bound (the largest
+// published zone end ≤ true top of RAM).
+//
 // Example output (excerpt):
 //   Node 0, zone      DMA
 //     ...
@@ -56,18 +71,17 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld/api.h"
-#include "include/kasld/internal.h"
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 KASLD_EXPLAIN(
-    "Reads /proc/zoneinfo to extract the start page frame number (PFN) "
-    "of each memory zone. Multiplying the PFN by the page size (4096) "
-    "yields the physical base address of system RAM. This file is "
-    "world-readable (0444) and part of core mm; no sysctl or CONFIG "
-    "option can hide the start_pfn field.");
+    "Reads /proc/zoneinfo to extract the start_pfn and spanned page "
+    "count of each memory zone. Multiplying PFN by page size yields "
+    "physical-RAM witnesses (interior samples) and a sound top edge of "
+    "the published RAM extent. World-readable (0444); part of core mm; "
+    "no sysctl or CONFIG option can hide the start_pfn field.");
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"
@@ -83,7 +97,7 @@ int main(void) {
 
   printf("[.] searching %s for zone start_pfn and spanned ...\n", path);
 
-  f = fopen(path, "r");
+  f = kasld_fopen(path, "r");
   if (f == NULL) {
     perror("[-] fopen");
     return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM
@@ -101,10 +115,11 @@ int main(void) {
     if (sscanf(line, "  start_pfn: %lu", &val) != 1)
       continue;
 
-    if (!val)
-      continue;
-
-    if (!lo_pfn || val < lo_pfn)
+    /* `count` is the "no zones seen yet" sentinel — checking lo_pfn == 0
+     * would conflate "first zone" with "zone genuinely starting at PFN 0"
+     * (rare but admissible: some hot-plug / embedded boots place a zone at
+     * PFN 0). The sscanf above already detected parse failure. */
+    if (count == 0 || val < lo_pfn)
       lo_pfn = val;
     if (val > hi_pfn)
       hi_pfn = val;
@@ -118,7 +133,7 @@ int main(void) {
   }
   fclose(f);
 
-  if (!count || !lo_pfn) {
+  if (!count) {
     printf("[-] no zone start_pfn entries found\n");
     return 0;
   }
@@ -127,13 +142,16 @@ int main(void) {
   unsigned long hi_use = hi_end_pfn > hi_pfn ? hi_end_pfn : hi_pfn;
   unsigned long hi = hi_use * PAGE_SIZE - 1;
 
-  /* lo is the start of the lowest zone (typically ZONE_DMA at PFN 1) →
-   * RAM_BASE. hi is the end of the highest zone (top of ZONE_NORMAL) → RAM_TOP.
-   * The component currently aggregates across zones rather than reporting
-   * per-zone DMA_TOP / DMA32_TOP — that finer-grained reporting is left as
-   * a future enhancement. */
+  /* lo: the start of the lowest published zone — a sound RAM witness but
+   * NOT a floor pin (reserved low memory below the lowest zone is
+   * invisible to zoneinfo; see the file header). Emit as an interior
+   * sample. hi: the end of the highest zone — a sound TOP bound (RAM
+   * does not extend above the highest published zone end). The component
+   * currently aggregates across zones rather than reporting per-zone
+   * DMA_TOP / DMA32_TOP — finer-grained reporting is a future
+   * enhancement. */
   printf("lowest zone start PFN:  %lu (phys 0x%016lx)\n", lo_pfn, lo);
-  kasld_result_base(KASLD_TYPE_PHYS, REGION_RAM, lo, NULL, CONF_PARSED);
+  kasld_result_sample(KASLD_TYPE_PHYS, REGION_RAM, lo, NULL, CONF_PARSED);
 
   if (hi_use != lo_pfn) {
     if (hi_end_pfn > hi_pfn)
@@ -143,10 +161,15 @@ int main(void) {
     kasld_result_top(KASLD_TYPE_PHYS, REGION_RAM, hi, NULL, CONF_PARSED);
   }
 
-#if !PHYS_VIRT_DECOUPLED
-  unsigned long virt = phys_to_virt(lo);
+#ifdef phys_to_directmap_virt
+  /* Same caveat: phys_to_directmap_virt(lo) lands at the directmap base
+   * ONLY when lo is the actual phys floor. When firmware reserves low
+   * phys for the kernel image, lo is interior to the directmap, not its
+   * base. Emit as a directmap sample. */
+  unsigned long virt = phys_to_directmap_virt(lo);
   printf("possible direct-map virtual address: 0x%016lx\n", virt);
-  kasld_result_base(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, NULL, CONF_PARSED);
+  kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, NULL,
+                      CONF_PARSED);
 #else
   printf("note: phys and virt KASLR are decoupled on this arch; "
          "cannot derive directmap virtual address from physical leak\n");

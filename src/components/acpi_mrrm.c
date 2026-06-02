@@ -45,7 +45,6 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld/api.h"
-#include "include/kasld/internal.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
@@ -70,7 +69,7 @@ KASLD_META("method:parsed\n"
            "config:CONFIG_ACPI_MRRM\n");
 
 static int read_file_line(const char *path, char *buf, size_t len) {
-  FILE *f = fopen(path, "r");
+  FILE *f = kasld_fopen(path, "r");
   if (!f)
     return -1;
   if (fgets(buf, (int)len, f) == NULL) {
@@ -132,10 +131,11 @@ int main(void) {
                         label, CONF_PARSED);
     count++;
 
-#if !PHYS_VIRT_DECOUPLED
-    unsigned long virt = phys_to_virt((unsigned long)addr);
+#ifdef phys_to_directmap_virt
+    unsigned long virt = phys_to_directmap_virt((unsigned long)addr);
     fprintf(stderr, "[+] acpi_mrrm %s: directmap va = 0x%016lx\n", label, virt);
-    kasld_result_sample(KASLD_TYPE_VIRT, REGION_PMEM, virt, label, CONF_PARSED);
+    kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, label,
+                        CONF_PARSED);
 #endif
   }
   closedir(d);

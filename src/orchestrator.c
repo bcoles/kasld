@@ -8,11 +8,11 @@
 //   2. components/ relative to the binary (build tree / tarball)
 //   3. ../libexec/kasld/ relative to the binary (FHS install)
 //
-// Tagged line format (full spec: src/include/kasld.h):
+// Tagged line format (full spec: src/include/kasld/api.h):
 //   <type> <region>[:<name>] pos=<pos> conf=<conf>
 //       [lo=<hex>] [hi=<hex>|sz=<hex>] [sample=<hex>] [base_align=<hex>]
 //
-//   type:   P (physical), V (virtual), D (default/KASLR-disabled)
+//   type:   P (physical), V (virtual)
 //   region: closed vocabulary (enum kasld_region; snake_case wire names)
 //   name:   specific instance, when known (symbol, module, PCI BDF, ...)
 //   pos:    base | top | interior | unknown (what `sample` represents)
@@ -22,7 +22,8 @@
 
 #define _POSIX_C_SOURCE 200809L
 
-#include "include/kasld/inference.h"
+#include "include/kasld/engine.h"
+#include "include/kasld/engine_rules.h"
 #include "include/kasld/internal.h"
 
 #include <dirent.h>
@@ -81,12 +82,12 @@ enum lockdown_mode sysctl_lockdown = LOCKDOWN_UNAVAILABLE;
  * =========================================================================
  */
 #ifdef KASLR_PHYS_MIN
-#define _PHYS_KASLR_BASE_MIN KASLR_PHYS_MIN
-#define _PHYS_KASLR_BASE_MAX KASLR_PHYS_MAX
+#define _PHYS_KASLR_TEXT_MIN KASLR_PHYS_MIN
+#define _PHYS_KASLR_TEXT_MAX KASLR_PHYS_MAX
 #define _PHYS_KASLR_ALIGN KASLR_PHYS_ALIGN
 #else
-#define _PHYS_KASLR_BASE_MIN 0ul
-#define _PHYS_KASLR_BASE_MAX 0ul
+#define _PHYS_KASLR_TEXT_MIN 0ul
+#define _PHYS_KASLR_TEXT_MAX 0ul
 #define _PHYS_KASLR_ALIGN 0ul
 #endif
 
@@ -94,72 +95,26 @@ struct kasld_layout layout = {
     .page_offset = PAGE_OFFSET,
     .kernel_vas_start = KERNEL_VAS_START,
     .kernel_vas_end = KERNEL_VAS_END,
-    .kernel_base_min = KERNEL_BASE_MIN,
-    .kernel_base_max = KERNEL_BASE_MAX,
+    .kernel_text_min = KERNEL_TEXT_MIN,
+    .kernel_text_max = KERNEL_TEXT_MAX,
     .modules_start = MODULES_START,
     .modules_end = MODULES_END,
     .kernel_align = KERNEL_ALIGN,
     .text_offset = TEXT_OFFSET,
     .kernel_text_default = KERNEL_TEXT_DEFAULT,
-    .kaslr_base_min = KASLR_BASE_MIN,
-    .kaslr_base_max = KASLR_BASE_MAX,
+    .kaslr_text_min = KASLR_TEXT_MIN,
+    .kaslr_text_max = KASLR_TEXT_MAX,
     .kaslr_align = KASLR_ALIGN,
-    .phys_kaslr_base_min = _PHYS_KASLR_BASE_MIN,
-    .phys_kaslr_base_max = _PHYS_KASLR_BASE_MAX,
+    .phys_kaslr_text_min = _PHYS_KASLR_TEXT_MIN,
+    .phys_kaslr_text_max = _PHYS_KASLR_TEXT_MAX,
     .phys_kaslr_align = _PHYS_KASLR_ALIGN,
 };
-
-/* Adjust layout when runtime PAGE_OFFSET differs from compile-time default.
- * On 32-bit, the floor shifts with PAGE_OFFSET; the ceiling stays fixed.
- * Modules shift with PAGE_OFFSET on arm32/ppc32 (where modules_end == old PO),
- * but are fixed on x86_32/mips32.
- * On decoupled architectures (x86_64, modern riscv64), kernel text is not at
- * PAGE_OFFSET, so only directmap/VAS bounds change. */
-void adjust_for_page_offset(unsigned long new_po) {
-  unsigned long old_po = layout.page_offset;
-  if (new_po == old_po)
-    return;
-
-  long delta = (long)(new_po - old_po);
-
-  if (verbose && !quiet && !json_output)
-    printf("[layout] virt_page_offset adjusted: %#lx -> %#lx (delta %+ld)\n",
-           old_po, new_po, delta);
-
-  layout.page_offset = new_po;
-  layout.kernel_vas_start = new_po;
-
-  /* Ensure VAS start doesn't exceed any section that extends below
-   * PAGE_OFFSET. On riscv64 SV39, modules (anchored to kernel _end)
-   * can be below the detected PAGE_OFFSET. */
-  if (layout.modules_start && layout.modules_start < layout.kernel_vas_start)
-    layout.kernel_vas_start = layout.modules_start;
-
-#if !PHYS_VIRT_DECOUPLED
-  /* On coupled architectures, kernel text base tracks PAGE_OFFSET */
-  layout.kernel_base_min = new_po;
-  layout.kaslr_base_min = new_po;
-  layout.kernel_text_default = new_po + layout.text_offset;
-#endif
-
-  /* Modules shift with PAGE_OFFSET when they sit just below it */
-  if (layout.modules_end == old_po) {
-    layout.modules_start += delta;
-    layout.modules_end = new_po;
-  }
-}
 
 /* Constants used only by the orchestrator */
 #define KASLD_PATH_MAX 4096
 #define LINE_LEN 512
 #define DEFAULT_TIMEOUT_SECS 30
 #define FAST_TIMEOUT_SECS 2
-/* Maximum convergence passes per inference phase group. Plugins within a
- * phase may depend on each other's output (e.g. phys_virt_synth tightens
- * page_offset_min/max, which dram_bound could use for a tighter text_base_min).
- * We re-run until no bound changes, up to this limit as a safety cap. In
- * practice convergence always occurs in ≤ 2 passes with current plugins. */
-#define MAX_INFERENCE_PASSES 8
 static int component_timeout = DEFAULT_TIMEOUT_SECS;
 
 /* Parallel inference: 0 = sequential (default), N > 1 = N worker threads */
@@ -193,6 +148,24 @@ static int pool_next;                /* next index in pool_inf[] to claim */
 struct component_log comp_logs[MAX_COMPONENTS];
 int num_comp_logs;
 
+/* -------------------------------------------------------------------------
+ * Orchestrator-side saturation flags. Parallels engine.saturation (which
+ * covers the inference layer's fixed-size caps): bits are set when a
+ * fixed-size buffer in the orchestrator truncates evidence. Surfaced
+ * under --verbose by orchestrator_report_saturation() so a dropped-info
+ * case is observable rather than silent. None of these caps bind on
+ * realistic workloads; the bits exist so growth can be detected.
+ * -------------------------------------------------------------------------
+ */
+enum orchestrator_saturation {
+  ORCH_SAT_RESULTS_FULL = 1u << 0, /* MAX_RESULTS hit; drops new records */
+  ORCH_SAT_PROVENANCE_FULL =
+      1u << 1, /* MAX_PROVENANCE hit; drops later contributors */
+  ORCH_SAT_COMPONENT_LINES_DROPPED =
+      1u << 2, /* alloc failure during verbose-line capture */
+};
+static unsigned int orchestrator_saturation;
+
 /* =========================================================================
  * Component discovery
  * =========================================================================
@@ -210,18 +183,16 @@ struct component {
 static struct component components[MAX_COMPONENTS];
 static int num_components;
 
-/* State machine execution model.
- * Each state declares a phase key (matched against components[].phase), an
- * exit action (NULL = no action), and an execution mode (parallel or
- * sequential). The loop in main() drives the table; adding a new phase means
- * adding one row, not editing main(). */
-typedef void (*state_action_fn)(void);
-
-struct exec_state {
-  const char *name;        /* for logging and skip messages */
-  const char *phase_key;   /* matches component.phase; NULL = no components */
-  state_action_fn on_exit; /* NULL = no action; called once after run_state() */
-  int parallel;            /* 1 = use worker pool (inference); 0 = sequential */
+/* Phase table.
+ * Each row declares a phase key (matched against components[].phase) and an
+ * execution mode (parallel or sequential). The loop in main() iterates the
+ * table; adding a new phase means adding one row, not editing main(). Every
+ * phase runs merge_results() once after its components finish — that step
+ * lives in run_phase() rather than as a per-row callback because no consumer
+ * has needed differentiated post-actions. */
+struct phase {
+  const char *key; /* matches component.phase (non-NULL on every row) */
+  int parallel;    /* 1 = use worker pool (inference); 0 = sequential */
 };
 
 static int component_cmp(const void *a, const void *b) {
@@ -257,6 +228,7 @@ static DIR *try_component_dir(const char *base, const char *rel, char *resolved,
 }
 
 /* Discover component directory using search order */
+#ifndef KASLD_TESTING
 static int discover_components(void) {
   char comp_dir[KASLD_PATH_MAX];
   DIR *d = NULL;
@@ -341,13 +313,14 @@ static int discover_components(void) {
 
   return 0;
 }
+#endif /* !KASLD_TESTING */
 
 /* =========================================================================
  * System information
  * =========================================================================
  */
 static void read_proc_value(const char *label, const char *path) {
-  FILE *f = fopen(path, "r");
+  FILE *f = kasld_fopen(path, "r");
   if (!f) {
     printf("%-30s%s(unavailable)%s\n", label, c(C_DIM), c(C_RESET));
     return;
@@ -363,7 +336,7 @@ static void read_proc_value(const char *label, const char *path) {
 
 /* Read a /proc/sys/ file and return its integer value, or -1 on failure */
 static int read_sysctl_int(const char *path) {
-  FILE *f = fopen(path, "r");
+  FILE *f = kasld_fopen(path, "r");
   if (!f)
     return -1;
   int val = -1;
@@ -376,7 +349,7 @@ static int read_sysctl_int(const char *path) {
 /* Read /sys/kernel/security/lockdown and parse the active mode.
  * Format: "none [integrity] confidentiality" — bracketed word is active. */
 static enum lockdown_mode read_lockdown(void) {
-  FILE *f = fopen("/sys/kernel/security/lockdown", "r");
+  FILE *f = kasld_fopen("/sys/kernel/security/lockdown", "r");
   if (!f)
     return LOCKDOWN_UNAVAILABLE;
   char buf[128];
@@ -401,9 +374,10 @@ static enum lockdown_mode read_lockdown(void) {
   return LOCKDOWN_NONE;
 }
 
+#ifndef KASLD_TESTING
 static void print_banner(void) {
   struct utsname u;
-  if (uname(&u) < 0) {
+  if (kasld_uname(&u) < 0) {
     perror("uname");
     return;
   }
@@ -424,7 +398,7 @@ static void print_banner(void) {
 
 static void print_system_config(void) {
   struct utsname u;
-  if (uname(&u) < 0) {
+  if (kasld_uname(&u) < 0) {
     perror("uname");
     return;
   }
@@ -482,7 +456,7 @@ static void print_system_config(void) {
   };
 
   for (int i = 0; check_files[i][0]; i++) {
-    int readable = access(check_files[i][1], R_OK) == 0;
+    int readable = kasld_access(check_files[i][1], R_OK) == 0;
     printf("%-30s%s%s%s\n", check_files[i][0], readable ? c(C_GREEN) : c(C_DIM),
            readable ? "yes" : "no", c(C_RESET));
   }
@@ -492,19 +466,20 @@ static void print_system_config(void) {
   int readable;
 
   snprintf(path, sizeof(path), "/boot/System.map-%s", u.release);
-  readable = access(path, R_OK) == 0;
+  readable = kasld_access(path, R_OK) == 0;
   printf("%-30s%s%s%s\n",
          "Readable /boot/System.map:", readable ? c(C_GREEN) : c(C_DIM),
          readable ? "yes" : "no", c(C_RESET));
 
   snprintf(path, sizeof(path), "/boot/config-%s", u.release);
-  readable = access(path, R_OK) == 0;
+  readable = kasld_access(path, R_OK) == 0;
   printf("%-30s%s%s%s\n",
          "Readable /boot/config:", readable ? c(C_GREEN) : c(C_DIM),
          readable ? "yes" : "no", c(C_RESET));
 
   printf("\n");
 }
+#endif /* !KASLD_TESTING */
 
 /* =========================================================================
  * Component execution
@@ -516,164 +491,11 @@ static void print_system_config(void) {
 struct result results[MAX_RESULTS];
 int num_results;
 
-/* =========================================================================
- * Inference plugin system
- * =========================================================================
- */
-
-/* ELF section bounds — generated by the linker when any inference plugin is
- * compiled in. Declared weak so the orchestrator links cleanly with no
- * plugins registered (loop has zero iterations). */
-extern const struct kasld_inference *__start_kasld_inferences[]
-    __attribute__((weak));
-extern const struct kasld_inference *__stop_kasld_inferences[]
-    __attribute__((weak));
-
-/* Architecture constants (compile-time, set once before the first state) */
-static struct kasld_arch_params g_arch_params;
-
-/* Shared analysis context — passed to every inference plugin */
-static struct kasld_analysis_ctx g_ctx;
-
-/* Run all plugins registered for the given phase. */
-static void sync_inference_bounds_to_layout(void);
-
-/* Snapshot of every ctx bound the tighten-only invariant applies to. */
-struct ctx_bounds {
-  unsigned long text_min, text_max;
-  unsigned long po_min, po_max;
-  unsigned long phys_min, phys_max;
-  unsigned long vmalloc_min, vmalloc_max;
-  unsigned long vmemmap_min, vmemmap_max;
-};
-
-static void snap_ctx_bounds(const struct kasld_analysis_ctx *ctx,
-                            struct ctx_bounds *b) {
-  b->text_min = ctx->text_base_min;
-  b->text_max = ctx->text_base_max;
-  b->po_min = ctx->page_offset_min;
-  b->po_max = ctx->page_offset_max;
-  b->phys_min = ctx->phys_base_min;
-  b->phys_max = ctx->phys_base_max;
-  b->vmalloc_min = ctx->vmalloc_base_min;
-  b->vmalloc_max = ctx->vmalloc_base_max;
-  b->vmemmap_min = ctx->vmemmap_base_min;
-  b->vmemmap_max = ctx->vmemmap_base_max;
-}
-
-/* Returns the name of the first bound that widened (lo decreased OR hi
- * increased) relative to `before`, or NULL if every bound is
- * tighter-or-equal. The convergence loop is sound only as long as every
- * non-LAYOUT_ADJUST plugin honours this — see kasld/inference.h. */
-static const char *first_widened_bound(const struct ctx_bounds *before,
-                                       const struct kasld_analysis_ctx *ctx) {
-  if (ctx->text_base_min < before->text_min)
-    return "text_base_min";
-  if (ctx->text_base_max > before->text_max)
-    return "text_base_max";
-  if (ctx->page_offset_min < before->po_min)
-    return "page_offset_min";
-  if (ctx->page_offset_max > before->po_max)
-    return "page_offset_max";
-  if (ctx->phys_base_min < before->phys_min)
-    return "phys_base_min";
-  if (ctx->phys_base_max > before->phys_max)
-    return "phys_base_max";
-  if (ctx->vmalloc_base_min < before->vmalloc_min)
-    return "vmalloc_base_min";
-  if (ctx->vmalloc_base_max > before->vmalloc_max)
-    return "vmalloc_base_max";
-  if (ctx->vmemmap_base_min < before->vmemmap_min)
-    return "vmemmap_base_min";
-  if (ctx->vmemmap_base_max > before->vmemmap_max)
-    return "vmemmap_base_max";
-  return NULL;
-}
-
-static void restore_ctx_bounds(struct kasld_analysis_ctx *ctx,
-                               const struct ctx_bounds *b) {
-  ctx->text_base_min = b->text_min;
-  ctx->text_base_max = b->text_max;
-  ctx->page_offset_min = b->po_min;
-  ctx->page_offset_max = b->po_max;
-  ctx->phys_base_min = b->phys_min;
-  ctx->phys_base_max = b->phys_max;
-  ctx->vmalloc_base_min = b->vmalloc_min;
-  ctx->vmalloc_base_max = b->vmalloc_max;
-  ctx->vmemmap_base_min = b->vmemmap_min;
-  ctx->vmemmap_base_max = b->vmemmap_max;
-}
-
-static void run_inference_phase(struct kasld_analysis_ctx *ctx,
-                                enum kasld_inference_phase phase) {
-  if (!__start_kasld_inferences || !__stop_kasld_inferences)
-    return;
-
-  /* Forward sync: clamp ctx bounds to the current layout before each phase.
-   * Any phase (e.g. LAYOUT_ADJUST) may have widened or shifted the layout's
-   * KASLR window; without this, the next phase's plugins would operate
-   * against stale bounds from g_ctx initialisation. Clamping preserves
-   * tightening already applied by earlier phases. Also refreshes g_arch_params
-   * so ctx->arch->kaslr_base_* reads inside plugins stay consistent. */
-  if (layout.kaslr_base_min > ctx->text_base_min)
-    ctx->text_base_min = layout.kaslr_base_min;
-  if (layout.kaslr_base_max < ctx->text_base_max)
-    ctx->text_base_max = layout.kaslr_base_max;
-  if (layout.kernel_vas_start > ctx->page_offset_min)
-    ctx->page_offset_min = layout.kernel_vas_start;
-  if (layout.kernel_vas_end < ctx->page_offset_max)
-    ctx->page_offset_max = layout.kernel_vas_end;
-  g_arch_params.kaslr_base_min = layout.kaslr_base_min;
-  g_arch_params.kaslr_base_max = layout.kaslr_base_max;
-  g_arch_params.kaslr_align = layout.kaslr_align;
-  g_arch_params.phys_kaslr_base_min = layout.phys_kaslr_base_min;
-  g_arch_params.phys_kaslr_base_max = layout.phys_kaslr_base_max;
-  g_arch_params.phys_kaslr_align = layout.phys_kaslr_align;
-  if (layout.phys_kaslr_base_min > ctx->phys_base_min)
-    ctx->phys_base_min = layout.phys_kaslr_base_min;
-  if (layout.phys_kaslr_base_max < ctx->phys_base_max)
-    ctx->phys_base_max = layout.phys_kaslr_base_max;
-  ctx->result_count = (size_t)num_results;
-
-  /* Run every plugin registered for this phase. For PRE_COLLECTION,
-   * POST_COLLECTION, and POST_PROBING we snapshot the ctx bounds and
-   * verify the plugin only tightened them — widening breaks the
-   * convergence loop's monotonicity guarantee and is almost always a
-   * plugin bug. On violation, restore the pre-plugin snapshot so the
-   * bad mutation doesn't propagate, and surface the offending plugin
-   * name. LAYOUT_ADJUST plugins legitimately mutate layout and are
-   * exempted. */
-  int enforce = (phase != KASLD_INFER_PHASE_LAYOUT_ADJUST);
-  const struct kasld_inference **p;
-  for (p = __start_kasld_inferences; p < __stop_kasld_inferences; p++) {
-    if ((*p)->phase != phase)
-      continue;
-    if (!enforce) {
-      (*p)->run(ctx);
-      continue;
-    }
-    struct ctx_bounds before;
-    snap_ctx_bounds(ctx, &before);
-    (*p)->run(ctx);
-    const char *widened = first_widened_bound(&before, ctx);
-    if (widened) {
-      if (!quiet)
-        fprintf(stderr,
-                "warning: inference plugin '%s' widened %s; "
-                "reverting plugin's bound changes (tighten-only invariant)\n",
-                (*p)->name, widened);
-      restore_ctx_bounds(ctx, &before);
-    }
-  }
-}
-
-/* Update result_count and fire the state's on_exit action. */
-static void fire_on_exit(const struct exec_state *st) {
-  if (!st->on_exit)
-    return;
-  g_ctx.result_count = (size_t)num_results;
-  st->on_exit();
-}
+/* scalar_fact_record + scalar_facts[]/num_scalar_facts declared in
+ * include/kasld/internal.h; the engine bridge copies these to OBS_SCALAR
+ * observations and inject_kaslr_defaults / render also read them directly. */
+struct scalar_fact_record scalar_facts[MAX_SCALAR_FACTS];
+int num_scalar_facts;
 
 /* Look up region enum by wire name. Linear scan over region_info[] — under
  * 30 entries, negligible cost. Returns REGION_UNKNOWN on miss. */
@@ -726,8 +548,6 @@ static enum kasld_addr_type type_from_wire(char c) {
     return KASLD_TYPE_PHYS;
   case 'V':
     return KASLD_TYPE_VIRT;
-  case 'D':
-    return KASLD_TYPE_DEFAULT_VIRT;
   default:
     return KASLD_TYPE_UNKNOWN;
   }
@@ -762,7 +582,7 @@ static int parse_hex(const char *s, unsigned long *out) {
 static int capture_result(const char *line, const char *method,
                           const char *origin) {
   /* Quick prefix filter. */
-  if (line[0] != 'P' && line[0] != 'V' && line[0] != 'D')
+  if (line[0] != 'P' && line[0] != 'V')
     return 0;
   if (line[1] != ' ')
     return 0;
@@ -986,6 +806,7 @@ static int capture_result(const char *line, const char *method,
   /* Claim a slot. */
   RESULT_LOCK();
   if (num_results >= MAX_RESULTS) {
+    orchestrator_saturation |= ORCH_SAT_RESULTS_FULL;
     static int warned;
     if (!warned) {
       if (!quiet)
@@ -1045,6 +866,45 @@ static int capture_result(const char *line, const char *method,
   return 1;
 }
 
+/* Parse one `S <fact> conf=<c> value=0x<hex>` scalar-fact wire record into
+ * scalar_facts[]. Returns 1 on capture, 0 on reject (unknown fact, bad conf or
+ * value). Sibling of capture_result(); same validate-or-reject discipline. */
+static int capture_scalar(const char *line, const char *origin) {
+  if (line[0] != 'S' || line[1] != ' ')
+    return 0;
+  char name[32], conf_str[16], val_str[40];
+  if (sscanf(line, "S %31s conf=%15s value=%39s", name, conf_str, val_str) != 3)
+    return 0;
+  enum kasld_scalar_fact f = kasld_scalar_fact_from_wire(name);
+  if (f == SF_NONE)
+    return 0;
+  enum kasld_confidence c = conf_from_wire(conf_str);
+  if (c == CONF_UNKNOWN)
+    return 0;
+  unsigned long v;
+  if (!parse_hex(val_str, &v))
+    return 0;
+  /* Cap check + slot reservation under the same lock as capture_result —
+   * the inference worker pool can call this from any thread, so a naked
+   * num_scalar_facts++ is racy. Once the slot is reserved, this thread is
+   * the only writer of that slot, so the field assignments below run
+   * outside the lock. */
+  RESULT_LOCK();
+  if (num_scalar_facts >= MAX_SCALAR_FACTS) {
+    RESULT_UNLOCK();
+    return 0;
+  }
+  int idx = num_scalar_facts++;
+  RESULT_UNLOCK();
+  struct scalar_fact_record *s = &scalar_facts[idx];
+  s->fact = f;
+  s->value = v;
+  s->conf = c;
+  snprintf(s->origin, ORIGIN_LEN, "%.*s", (int)(ORIGIN_LEN - 1),
+           origin ? origin : "");
+  return 1;
+}
+
 static long deadline_remaining_ms(const struct timespec *deadline) {
   struct timespec now;
   clock_gettime(CLOCK_MONOTONIC, &now);
@@ -1062,7 +922,7 @@ static long deadline_remaining_ms(const struct timespec *deadline) {
  * =========================================================================
  */
 static char *extract_elf_section(const char *path, const char *section_name) {
-  FILE *f = fopen(path, "rb");
+  FILE *f = kasld_fopen(path, "rb");
   if (!f)
     return NULL;
 
@@ -1290,6 +1150,7 @@ int meta_get_all(const struct component_meta *m, const char *key,
  * Sets phase to the value of the "phase:" key ("inference" or "probing").
  * Defaults to "inference" when the key is absent or the binary has no
  * .kasld_meta section. */
+#ifndef KASLD_TESTING
 static void classify_components(void) {
   for (int i = 0; i < num_components; i++) {
     char *meta_raw = extract_elf_section(components[i].path, ".kasld_meta");
@@ -1325,6 +1186,7 @@ static void apply_skip_filter(void) {
     }
   }
 }
+#endif /* !KASLD_TESTING */
 
 static int run_component(const struct component *c) {
   /* Extract explain string before execution (if --explain active or JSON) */
@@ -1358,7 +1220,9 @@ static int run_component(const struct component *c) {
     snprintf(clog->name, sizeof(clog->name), "%s", c->name);
     clog->exit_code = -1;
     clog->outcome = OUTCOME_NO_RESULT;
+    clog->lines = NULL;
     clog->num_lines = 0;
+    clog->lines_cap = 0;
     clog->explain = explain_str; /* transfer ownership */
     clog->meta = tmp_meta;       /* copy parsed metadata */
     explain_str = NULL;
@@ -1390,13 +1254,34 @@ static int run_component(const struct component *c) {
     /* Child: new process group so we can kill any grandchildren */
     setpgid(0, 0);
 
-    /* Redirect stdout to pipe, merge stderr into stdout */
+    /* Redirect stdout to pipe, merge stderr into stdout. If either dup2
+     * fails the child cannot communicate results back; abort. dup2 only
+     * fails on EBADF (pipefd[1] invalid — impossible here, the pipe()
+     * succeeded above) or EINVAL (target fd out of range, also impossible
+     * for STDOUT/STDERR), so this is purely defensive — but cheap. */
     close(pipefd[0]);
-    dup2(pipefd[1], STDOUT_FILENO);
-    dup2(pipefd[1], STDERR_FILENO);
+    if (dup2(pipefd[1], STDOUT_FILENO) < 0 ||
+        dup2(pipefd[1], STDERR_FILENO) < 0)
+      _exit(127);
     close(pipefd[1]);
 
-    execl(c->path, c->name, (char *)NULL);
+    /* KASLD_EXEC_WRAPPER (optional): when set, the child execve's this
+     * wrapper path with the component path as argv[1] instead of the
+     * component directly. Intended for nested-emulation scenarios where
+     * the parent kasld is a guest-arch ELF running under qemu-user and
+     * cannot directly execve another guest-arch binary — the host kernel
+     * refuses with ENOEXEC unless binfmt_misc is registered. Pointing
+     * the wrapper at the host-arch qemu-<guest> binary lets the child
+     * cross the ABI boundary correctly. Inherited env (including
+     * KASLD_SYSROOT) propagates through.
+     * Empty / unset → direct execve of the component (the normal path). */
+    const char *wrap = getenv("KASLD_EXEC_WRAPPER");
+    if (wrap && *wrap) {
+      execl(wrap, wrap, c->path, (char *)NULL);
+      /* fall-through to _exit on failure */
+    } else {
+      execl(c->path, c->name, (char *)NULL);
+    }
     _exit(127);
   }
 
@@ -1436,11 +1321,26 @@ static int run_component(const struct component *c) {
 
     /* Read available data */
     ssize_t n = read(pipefd[0], buf + buf_pos, sizeof(buf) - buf_pos - 1);
-    if (n <= 0)
-      break; /* EOF or error */
-
-    buf_pos += (size_t)n;
-    buf[buf_pos] = '\0';
+    int eof_flush = 0;
+    if (n <= 0) {
+      /* EOF or error. Promote any unterminated tail to a synthetic final
+       * line so it reaches the per-line handler below: capture_result /
+       * capture_scalar parse-reject malformed input cleanly (return 0),
+       * which surfaces a segfault-mid-line as a recordable parse failure
+       * rather than a silent drop. The line is also streamed to verbose
+       * stdout and captured into the per-component log, matching the
+       * normal path. The synthetic '\n' fits because the read leaves at
+       * least one byte of headroom (`sizeof(buf) - buf_pos - 1` was the
+       * read length, so buf_pos < sizeof(buf) - 1 holds). */
+      if (buf_pos == 0 || buf[buf_pos - 1] == '\n')
+        break; /* nothing to flush, or already cleanly terminated */
+      buf[buf_pos++] = '\n';
+      buf[buf_pos] = '\0';
+      eof_flush = 1; /* break out after processing this final line */
+    } else {
+      buf_pos += (size_t)n;
+      buf[buf_pos] = '\0';
+    }
 
     /* Process complete lines */
     char *start = buf;
@@ -1450,10 +1350,34 @@ static int run_component(const struct component *c) {
       if (verbose && !json_output)
         printf("%s\n", start);
 
-      /* Capture line for verbose output */
-      if (clog && verbose && clog->num_lines < MAX_COMPONENT_LINES) {
-        snprintf(clog->lines[clog->num_lines], MAX_LINE_LEN, "%s", start);
-        clog->num_lines++;
+      /* Capture line for verbose / JSON-with-output. Allocated on first use
+       * and grown geometrically — no fixed cap, so noisy components do not
+       * silently lose their tail. Non-verbose runs never enter this branch
+       * and never allocate. Allocation failures degrade gracefully: the line
+       * is dropped (and counts as truncated), but capture continues for
+       * subsequent lines. */
+      if (clog && verbose) {
+        if (clog->num_lines >= clog->lines_cap) {
+          int new_cap = clog->lines_cap ? clog->lines_cap * 2
+                                        : COMPONENT_LINES_INITIAL_CAP;
+          char **bigger =
+              realloc(clog->lines, (size_t)new_cap * sizeof(char *));
+          if (bigger) {
+            clog->lines = bigger;
+            clog->lines_cap = new_cap;
+          } else {
+            orchestrator_saturation |= ORCH_SAT_COMPONENT_LINES_DROPPED;
+          }
+        }
+        if (clog->num_lines < clog->lines_cap) {
+          char *copy = malloc(MAX_LINE_LEN);
+          if (copy) {
+            snprintf(copy, MAX_LINE_LEN, "%s", start);
+            clog->lines[clog->num_lines++] = copy;
+          } else {
+            orchestrator_saturation |= ORCH_SAT_COMPONENT_LINES_DROPPED;
+          }
+        }
       }
 
       /* Re-add newline for capture (region newline stripped in capture_result)
@@ -1465,8 +1389,12 @@ static int run_component(const struct component *c) {
         memcpy(line, start, llen);
         line[llen] = '\0';
         /* Origin (provenance) is the component name — captured at the
-         * orchestrator since it owns the subprocess identity. */
-        tagged_this_run += capture_result(line, comp_method, c->name);
+         * orchestrator since it owns the subprocess identity. `S` lines are
+         * scalar system facts; everything else is an address record. */
+        if (line[0] == 'S')
+          tagged_this_run += capture_scalar(line, c->name);
+        else
+          tagged_this_run += capture_result(line, comp_method, c->name);
       }
 
       start = nl + 1;
@@ -1477,6 +1405,9 @@ static int run_component(const struct component *c) {
     if (left > 0)
       memmove(buf, start, left);
     buf_pos = left;
+
+    if (eof_flush)
+      break; /* EOF tail was just flushed as a synthetic final line */
   }
 
   close(pipefd[0]);
@@ -1569,29 +1500,22 @@ static void *inference_worker(void *arg) {
   return NULL;
 }
 
-/* Run the components for a single state.
+/* Run the components for a single phase. After every component has
+ * finished, merge_results() is called once to deduplicate emitted records.
  *
- * Parallel states (st->parallel): worker pool when parallel_workers > 1 and
- *   not verbose; on_exit fires once after the parallel join. Layout is
- *   read-only during parallel execution so align/validate calls inside
- *   capture_result() are safe without additional locking.
+ * Parallel phases (p->parallel): real worker pool when parallel_workers > 1
+ *   and not verbose. Layout is read-only during parallel execution so
+ *   align/validate calls inside capture_result() are safe without
+ *   additional locking. Falls back to a sequential loop when workers <= 1
+ *   or verbose (verbose forces sequential to avoid interleaved output).
  *
- * Sequential states (!st->parallel): single-threaded loop; on_exit fires
- *   after each component so PAGE_OFFSET discoveries propagate immediately.
- *
- * States with phase_key == NULL (setup) have no associated components; the
- * function returns immediately and on_exit fires in the caller. */
-static void run_state(const struct exec_state *st) {
-  /* Setup state: no components; fire on_exit once (PRE_COLLECTION plugins). */
-  if (!st->phase_key) {
-    fire_on_exit(st);
-    return;
-  }
-
+ * Sequential phases (!p->parallel): always a single-threaded loop. */
+#ifndef KASLD_TESTING
+static void run_phase(const struct phase *p) {
   int exp_active = experimental_mode || getenv("KASLD_EXPERIMENTAL") != NULL;
   pool_inf_n = 0;
   for (int i = 0; i < num_components; i++) {
-    if (strcmp(components[i].phase, st->phase_key) == 0 &&
+    if (strcmp(components[i].phase, p->key) == 0 &&
         (!components[i].is_experimental || exp_active) &&
         !components[i].is_filtered)
       pool_inf[pool_inf_n++] = i;
@@ -1599,19 +1523,15 @@ static void run_state(const struct exec_state *st) {
   if (pool_inf_n == 0)
     return;
 
-  if (!st->parallel) {
-    /* Sequential (probing and any future non-parallel states): fire on_exit
-     * after each component so PAGE_OFFSET discoveries propagate immediately. */
+  if (!p->parallel) {
     for (int i = 0; i < pool_inf_n; i++) {
       run_component(&components[pool_inf[i]]);
       progress_update();
-      fire_on_exit(st);
     }
+    merge_results();
     return;
   }
 
-  /* Parallel (inference): sequential fallback when workers <= 1 or verbose.
-   * verbose falls back to sequential to avoid interleaved output. */
   int workers = parallel_workers;
 #ifndef HAVE_PTHREAD
   workers = 1;
@@ -1621,8 +1541,8 @@ static void run_state(const struct exec_state *st) {
     for (int i = 0; i < pool_inf_n; i++) {
       run_component(&components[pool_inf[i]]);
       progress_update();
-      fire_on_exit(st);
     }
+    merge_results();
     return;
   }
 
@@ -1637,9 +1557,10 @@ static void run_state(const struct exec_state *st) {
     pthread_create(&threads[i], NULL, inference_worker, NULL);
   for (i = 0; i < workers; i++)
     pthread_join(threads[i], NULL);
-  fire_on_exit(st);
+  merge_results();
 #endif
 }
+#endif /* !KASLD_TESTING */
 
 /* =========================================================================
  * Post-processing: bounds validation, merging, anchor selection
@@ -1750,6 +1671,7 @@ static void provenance_add(struct result *r, const char *origin,
   if (origin && *origin && provenance_has(r, origin))
     return;
   if (r->provenance_count >= MAX_PROVENANCE) {
+    orchestrator_saturation |= ORCH_SAT_PROVENANCE_FULL;
     static int warned;
     if (!warned && !quiet) {
       fprintf(stderr,
@@ -1830,6 +1752,42 @@ static int samples_conflict(const struct result *a, const struct result *b) {
   return a->sample != b->sample;
 }
 
+/* LO-only-point conflict: two contributors are each POS_BASE-style point
+ * witnesses (LO set, HI not set) disagreeing on the address. Same rationale
+ * as samples_conflict — these are independent observations of distinct
+ * points, not refinements of a single range. Without this guard,
+ * merge_into's `max(lo)` semantics (which makes sense for intersecting
+ * extents) silently discards the lower witness, losing data. Exposed in
+ * the wild on ppc64-no-KASLR where two components legitimately emit
+ * different base witnesses for the direct map (sysfs_devicetree_memory at
+ * PAGE_OFFSET vs sysfs_memory_blocks at PAGE_OFFSET + DRAM_base). */
+static int lo_only_conflict(const struct result *a, const struct result *b) {
+  int a_point = HAS_LO(a) && !HAS_HI(a);
+  int b_point = HAS_LO(b) && !HAS_HI(b);
+  if (!a_point || !b_point)
+    return 0;
+  return a->lo != b->lo;
+}
+
+/* Sample-vs-LO clamp conflict: merging would force clamp_sample() to shift
+ * an existing sample to satisfy a contributor's lo (sample below it) or hi
+ * (sample above it). The clamp silently rewrites the sample address — the
+ * source observation's true address is then lost from the merged record
+ * AND reattributed to whichever component contributed the conflicting
+ * bound. Symmetric in (acc, b) by inspection. */
+static int sample_bound_clamp_conflict(const struct result *a,
+                                       const struct result *b) {
+  if (HAS_SAMPLE(a) && HAS_LO(b) && a->sample < b->lo)
+    return 1;
+  if (HAS_SAMPLE(a) && HAS_HI(b) && a->sample > b->hi)
+    return 1;
+  if (HAS_SAMPLE(b) && HAS_LO(a) && b->sample < a->lo)
+    return 1;
+  if (HAS_SAMPLE(b) && HAS_HI(a) && b->sample > a->hi)
+    return 1;
+  return 0;
+}
+
 static void clamp_sample(struct result *a) {
   if (HAS_SAMPLE(a)) {
     if (HAS_LO(a) && a->sample < a->lo)
@@ -1845,6 +1803,17 @@ static void clamp_sample(struct result *a) {
   }
 }
 
+/* Collapse same-(type, region, name) records into one. Called by run_phase()
+ * once after every component in the phase has finished, so compute_kaslr_info()
+ * — and the engine evidence built from results[] — see deduplicated records.
+ * The engine itself runs later, in compute_kaslr_info(); nothing infers here.
+ *
+ * IDEMPOTENT: safe to call repeatedly. The merge collapses (type, region, name)
+ * groups by keeping the highest-confidence record's sample/pos and taking the
+ * narrowest interval intersection; calling it again on the already-merged set
+ * is a no-op (every potential merge has already been applied). Test code (and
+ * the per-phase wiring in run_phase) relies on this — a future edit that
+ * introduced cross-call state would break both. */
 void merge_results(void) {
   int alive[MAX_RESULTS];
   for (int i = 0; i < num_results; i++)
@@ -1869,10 +1838,16 @@ void merge_results(void) {
         continue;
       if (strncmp(b->name, acc.name, NAME_LEN) != 0)
         continue;
-      /* Sample-conflict gate: different samples for the same merge key are
-       * almost certainly different instances of the region (two swiotlb
-       * buffers, two initrd witnesses, ...). Keep both records. */
+      /* Independent-witness gates: different samples / LO-only points /
+       * sample-vs-bound combinations for the same merge key are almost
+       * certainly different instances (two swiotlb buffers, two initrd
+       * witnesses, two base witnesses on a coupled arch) — silently
+       * collapsing them would lose data. Keep both records. */
       if (samples_conflict(&acc, b))
+        continue;
+      if (lo_only_conflict(&acc, b))
+        continue;
+      if (sample_bound_clamp_conflict(&acc, b))
         continue;
       struct result trial = acc;
       int trial_w = sample_owner_w;
@@ -1909,9 +1884,18 @@ void merge_results(void) {
  * KASLR slide and entropy analysis
  * -------------------------------------------------------------------------
  */
+/* Bits-of-entropy from a candidate count: ceil(log2(v)) for v >= 1, 0 for
+ * v == 0. CEIL (not floor) because the user-facing question is "how much
+ * brute-force work remains?" — 13 candidates is ~4 bits of worst-case
+ * work, not 3. Power-of-2 inputs are unaffected (ceil == floor). */
 static int ilog2(unsigned long v) {
+  if (v <= 1)
+    return 0;
   int r = 0;
-  while (v >>= 1)
+  unsigned long n = v;
+  while (n >>= 1)
+    r++;
+  if ((v & (v - 1)) != 0)
     r++;
   return r;
 }
@@ -1938,7 +1922,28 @@ static unsigned long derive_ptext_from_data(void) {
 #endif
 }
 
+/* The layered engine is the sole inference path: resolve every quantity from
+ * the collected evidence and write the result into `layout`, which the
+ * summary below is computed from (defined after engine_build_evidence). Guarded
+ * out of the KASLD_TESTING build, which excludes the engine entirely. */
+/* engine_sync_authoritative is compiled in every build (it is a pure
+ * projection the unit tests call); engine_resolve and its engine instance are
+ * engine-only (they drive the components + engine.c machinery). */
+static void engine_sync_authoritative(const struct engine *e);
+#ifndef KASLD_TESTING
+static void engine_resolve(struct engine *e);
+static struct engine g_auth_engine;
+#endif
+
 void compute_kaslr_info(struct summary *s) {
+#ifndef KASLD_TESTING
+  /* The layered engine is the sole inference path: resolve every quantity from
+   * the collected evidence and write the result into `layout`, which
+   * the rest of this function reads. */
+  engine_resolve(&g_auth_engine);
+  engine_sync_authoritative(&g_auth_engine);
+#endif
+
   const struct result *r_vt =
       select_anchor(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE);
   if (!r_vt)
@@ -1946,6 +1951,12 @@ void compute_kaslr_info(struct summary *s) {
   unsigned long vtext = anchor_addr(r_vt);
   if (vtext == 0)
     vtext = derive_vtext_from_data();
+  /* No result for the kernel text but the engine pinned Q_VIRT_TEXT_BASE to a
+   * point (e.g. kaslr_disabled_pin landed) → that pinned value IS the text
+   * base. engine_sync projects the resolved window onto kaslr_text_min/max,
+   * so equality of the two means "pinned". */
+  if (vtext == 0 && layout.kaslr_text_min == layout.kaslr_text_max)
+    vtext = layout.kaslr_text_min;
   s->kaslr.vtext = vtext;
 
   const struct result *r_pt =
@@ -1958,16 +1969,36 @@ void compute_kaslr_info(struct summary *s) {
   s->kaslr.ptext = ptext;
   s->kaslr.has_phys = 0;
 
-  unsigned long text_range = layout.kaslr_base_max - layout.kaslr_base_min;
-  s->kaslr.vslots = layout.kaslr_align ? text_range / layout.kaslr_align : 0;
+  /* Hole-aware slot count: route via quantity_slots() so interior C_EXCLUDE
+   * holes and any C_STRIDE residue class are reflected in the headline entropy
+   * number. Flat (hi-lo)/align is the no-constraints fallback for KASLD_TESTING
+   * builds (the engine instance is compiled out there). */
+#ifndef KASLD_TESTING
+  s->kaslr.vslots =
+      quantity_slots(Q_VIRT_TEXT_BASE, &g_auth_engine.est[Q_VIRT_TEXT_BASE],
+                     g_auth_engine.constraints, g_auth_engine.n_constraints,
+                     layout.kaslr_align);
+#else
+  {
+    unsigned long text_range = layout.kaslr_text_max - layout.kaslr_text_min;
+    s->kaslr.vslots = layout.kaslr_align ? text_range / layout.kaslr_align : 0;
+  }
+#endif
   s->kaslr.vbits = s->kaslr.vslots > 0 ? ilog2(s->kaslr.vslots) : 0;
 
 #ifdef KASLR_PHYS_MIN
   {
+#ifndef KASLD_TESTING
+    s->kaslr.pslots =
+        quantity_slots(Q_PHYS_TEXT_BASE, &g_auth_engine.est[Q_PHYS_TEXT_BASE],
+                       g_auth_engine.constraints, g_auth_engine.n_constraints,
+                       layout.phys_kaslr_align);
+#else
     unsigned long phys_range =
-        layout.phys_kaslr_base_max - layout.phys_kaslr_base_min;
+        layout.phys_kaslr_text_max - layout.phys_kaslr_text_min;
     s->kaslr.pslots =
         layout.phys_kaslr_align ? phys_range / layout.phys_kaslr_align : 0;
+#endif
     s->kaslr.pbits = s->kaslr.pslots > 0 ? ilog2(s->kaslr.pslots) : 0;
   }
 #endif
@@ -1975,11 +2006,11 @@ void compute_kaslr_info(struct summary *s) {
   if (s->kaslr.vtext) {
     s->kaslr.vslide = (long)(s->kaslr.vtext - layout.kernel_text_default);
     s->kaslr.vslot_valid =
-        (layout.kaslr_align > 0 && s->kaslr.vtext >= layout.kaslr_base_min &&
-         s->kaslr.vtext < layout.kaslr_base_max);
+        (layout.kaslr_align > 0 && s->kaslr.vtext >= layout.kaslr_text_min &&
+         s->kaslr.vtext < layout.kaslr_text_max);
     if (s->kaslr.vslot_valid)
       s->kaslr.vslot_idx =
-          (s->kaslr.vtext - layout.kaslr_base_min) / layout.kaslr_align;
+          (s->kaslr.vtext - layout.kaslr_text_min) / layout.kaslr_align;
   }
 
   if (s->kaslr.ptext) {
@@ -2000,23 +2031,23 @@ void compute_kaslr_info(struct summary *s) {
   }
 
   s->kaslr.page_offset_min =
-      (g_ctx.page_offset_min != (unsigned long)PAGE_OFFSET)
-          ? g_ctx.page_offset_min
+      (layout.page_offset_min != (unsigned long)PAGE_OFFSET)
+          ? layout.page_offset_min
           : 0;
   s->kaslr.page_offset_max =
-      (g_ctx.page_offset_max != (unsigned long)KERNEL_VAS_END)
-          ? g_ctx.page_offset_max
+      (layout.page_offset_max != (unsigned long)KERNEL_VAS_END)
+          ? layout.page_offset_max
           : 0;
   s->kaslr.vmalloc_min =
-      (g_ctx.vmalloc_base_min != 0) ? g_ctx.vmalloc_base_min : 0;
+      (layout.vmalloc_base_min != 0) ? layout.vmalloc_base_min : 0;
   s->kaslr.vmalloc_max =
-      (g_ctx.vmalloc_base_max != ULONG_MAX) ? g_ctx.vmalloc_base_max : 0;
+      (layout.vmalloc_base_max != ULONG_MAX) ? layout.vmalloc_base_max : 0;
   s->kaslr.vmemmap_min =
-      (g_ctx.vmemmap_base_min != 0) ? g_ctx.vmemmap_base_min : 0;
+      (layout.vmemmap_base_min != 0) ? layout.vmemmap_base_min : 0;
   s->kaslr.vmemmap_max =
-      (g_ctx.vmemmap_base_max != ULONG_MAX) ? g_ctx.vmemmap_base_max : 0;
+      (layout.vmemmap_base_max != ULONG_MAX) ? layout.vmemmap_base_max : 0;
 
-#if PHYS_VIRT_DECOUPLED
+#if !TEXT_TRACKS_DIRECTMAP
   /* On decoupled arches (x86_64, arm64, riscv64, s390): note when physical
    * leaks exist but no virtual text base — physical leaks don't reveal the
    * virtual text base under decoupling, so the user shouldn't assume vtext
@@ -2081,212 +2112,714 @@ void compute_component_stats(struct summary *s) {
  * -------------------------------------------------------------------------
  */
 void inject_kaslr_defaults(struct summary *s) {
+  /* "Unsupported" is a compile-time property of the arch (KASLR_SUPPORTED=0 on
+   * arm32 / ppc64 / riscv32 / sparc); no runtime signal needed. Surface it for
+   * the renderer banner, and seed the informational default address from the
+   * statically-initialised layout (= KERNEL_TEXT_DEFAULT). */
+  s->kaslr.unsupported = !KASLR_SUPPORTED;
+  s->kaslr.default_addr = layout.kernel_text_default;
+
+#if !KASLR_SUPPORTED
+  /* Surface the compile-time arch-off as the unified SF_KASLR_DISABLED scalar
+   * so the engine sees it like any runtime detector signal. Inert today on the
+   * four !KASLR_SUPPORTED arches (none satisfies KASLR_DISABLED_PINS_TEXT — all
+   * four are relocating, bootloader can still place the image), so it never
+   * injects an unsound text-base pin: the renderer's "KASLR not supported"
+   * banner + default-addr line shows, the engine refuses to pin. A future
+   * !KASLR_SUPPORTED arch that does satisfy KASLR_DISABLED_PINS_TEXT would
+   * pin correctly via the same rule path. */
+  if (num_scalar_facts < MAX_SCALAR_FACTS) {
+    struct scalar_fact_record *f = &scalar_facts[num_scalar_facts++];
+    f->fact = SF_KASLR_DISABLED;
+    f->value = 1;
+    f->conf = CONF_PARSED;
+    snprintf(f->origin, ORIGIN_LEN, "arch-no-kaslr");
+  }
+#endif
+
+  /* "Disabled" is a runtime signal from any detector that observed KASLR off
+   * (nokaslr cmdline, no CONFIG_RANDOMIZE_BASE, dmesg "KASLR disabled",
+   * hibernation override, riscv64 no FDT seed, loongarch kexec_file token,
+   * s390 elfcorehdr=, or the compile-time !KASLR_SUPPORTED scalar above). The
+   * engine's kaslr_disabled_pin rule consumes the same fact to pin
+   * Q_VIRT_TEXT_BASE under KASLR_DISABLED_PINS_TEXT + window-containment; the
+   * summary flag here drives the renderer's status line and downstream
+   * slide/slot zeroing. */
   s->kaslr.disabled = 0;
-  s->kaslr.unsupported = 0;
-  s->kaslr.default_addr = 0;
-
-  /* Marker model (see "default" component):
-   *   r->name == "unsupported"  → arch lacks KASLR support
-   *   r->name == "nokaslr" or other non-empty/non-"text" → disabled
-   *   r->name == "" or "text"   → fallback only (KASLR may be active) */
-  for (int i = 0; i < num_results; i++) {
-    const struct result *r = &results[i];
-    if (r->type != KASLD_TYPE_DEFAULT_VIRT)
-      continue;
-    s->kaslr.default_addr = HAS_LO(r) ? r->lo : (HAS_SAMPLE(r) ? r->sample : 0);
-    if (strcmp(r->name, "unsupported") == 0)
-      s->kaslr.unsupported = 1;
-    else if (r->name[0] != '\0' && strcmp(r->name, "text") != 0)
+  s->kaslr.randomization_failed = 0;
+  for (int i = 0; i < num_scalar_facts; i++) {
+    if (scalar_facts[i].fact == SF_KASLR_DISABLED && scalar_facts[i].value != 0)
       s->kaslr.disabled = 1;
-  }
-
-  /* The default component emits the compile-time KERNEL_TEXT_DEFAULT, but
-   * runtime layout adjustments (e.g. legacy riscv64 detection) may have
-   * changed layout.kernel_text_default. Use the runtime value. */
-  if (s->kaslr.default_addr)
-    s->kaslr.default_addr = layout.kernel_text_default;
-
-  /* When KASLR is disabled/unsupported, inject the default text address as a
-   * synthesised VIRT/KERNEL_TEXT result so it flows into render and
-   * downstream derivation. */
-  if ((s->kaslr.disabled || s->kaslr.unsupported) && s->kaslr.default_addr &&
-      num_results < MAX_RESULTS) {
-    struct result *r = &results[num_results++];
-    result_init(r);
-    r->type = KASLD_TYPE_VIRT;
-    r->region = REGION_KERNEL_TEXT;
-    snprintf(r->name, NAME_LEN, "nokaslr");
-    r->pos = POS_BASE;
-    r->conf = CONF_PARSED;
-    r->lo = s->kaslr.default_addr;
-    r->set_mask |= LO_SET;
-    snprintf(r->origins[0], ORIGIN_LEN, "kasld");
-    snprintf(r->methods[0], METHOD_LEN, "parsed");
-    r->provenance_count = 1;
+    else if (scalar_facts[i].fact == SF_KASLR_RANDOMIZATION_FAILED &&
+             scalar_facts[i].value != 0)
+      s->kaslr.randomization_failed = 1;
   }
 }
 
-/* Convergence detection --------------------------------------------------- */
-
-/* Snapshot of every bound the convergence loop tracks. */
-struct bounds_snap {
-  unsigned long text_min, text_max;
-  unsigned long po_min, po_max;
-  unsigned long phys_min, phys_max;
-  unsigned long vmalloc_min, vmalloc_max;
-  unsigned long vmemmap_min, vmemmap_max;
-};
-
-static void snap_bounds(struct bounds_snap *s) {
-  s->text_min = g_ctx.text_base_min;
-  s->text_max = g_ctx.text_base_max;
-  s->po_min = g_ctx.page_offset_min;
-  s->po_max = g_ctx.page_offset_max;
-  s->phys_min = g_ctx.phys_base_min;
-  s->phys_max = g_ctx.phys_base_max;
-  s->vmalloc_min = g_ctx.vmalloc_base_min;
-  s->vmalloc_max = g_ctx.vmalloc_base_max;
-  s->vmemmap_min = g_ctx.vmemmap_base_min;
-  s->vmemmap_max = g_ctx.vmemmap_base_max;
-}
-
-/* Returns 1 if any bound differs from the snapshot, 0 if stable. */
-static int bounds_changed(const struct bounds_snap *s) {
-  return g_ctx.text_base_min != s->text_min ||
-         g_ctx.text_base_max != s->text_max ||
-         g_ctx.page_offset_min != s->po_min ||
-         g_ctx.page_offset_max != s->po_max ||
-         g_ctx.phys_base_min != s->phys_min ||
-         g_ctx.phys_base_max != s->phys_max ||
-         g_ctx.vmalloc_base_min != s->vmalloc_min ||
-         g_ctx.vmalloc_base_max != s->vmalloc_max ||
-         g_ctx.vmemmap_base_min != s->vmemmap_min ||
-         g_ctx.vmemmap_base_max != s->vmemmap_max;
-}
-
-/* State on_exit actions --------------------------------------------------- */
-
-static void run_pre_collection_inference(void) {
-  unsigned long init_text_max = layout.kernel_base_max;
-  unsigned long init_phys_max = layout.phys_kaslr_base_max;
-  struct bounds_snap snap;
-
-  for (int pass = 0; pass < MAX_INFERENCE_PASSES; pass++) {
-    snap_bounds(&snap);
-    run_inference_phase(&g_ctx, KASLD_INFER_PHASE_PRE_COLLECTION);
-    sync_inference_bounds_to_layout();
-    if (!bounds_changed(&snap))
-      break;
-  }
-
-  if (verbose && !quiet && !json_output) {
-    if (layout.kernel_base_max < init_text_max)
-      printf("[layout] virt_kernel_base_max tightened: %#lx -> %#lx\n",
-             init_text_max, layout.kernel_base_max);
-    if (layout.phys_kaslr_base_max < init_phys_max)
-      printf("[layout] phys_kaslr_base_max tightened: %#lx -> %#lx\n",
-             init_phys_max, layout.phys_kaslr_base_max);
-  }
-}
-
-static void sync_inference_bounds_to_layout(void) {
-  if (g_ctx.text_base_max < layout.kernel_base_max) {
-    layout.kernel_base_max = g_ctx.text_base_max;
-    layout.kaslr_base_max = g_ctx.text_base_max;
-  }
-  if (g_ctx.text_base_min > layout.kernel_base_min) {
-    layout.kernel_base_min = g_ctx.text_base_min;
-    layout.kaslr_base_min = g_ctx.text_base_min;
-  }
-  if (g_ctx.page_offset_min > layout.kernel_vas_start)
-    layout.kernel_vas_start = g_ctx.page_offset_min;
-  if (g_ctx.page_offset_max < layout.kernel_vas_end)
-    layout.kernel_vas_end = g_ctx.page_offset_max;
-  if (g_ctx.phys_base_max < layout.phys_kaslr_base_max)
-    layout.phys_kaslr_base_max = g_ctx.phys_base_max;
-  if (g_ctx.phys_base_min > layout.phys_kaslr_base_min)
-    layout.phys_kaslr_base_min = g_ctx.phys_base_min;
-}
-
-static void run_post_collection_inference(void) {
-  struct bounds_snap snap;
-
-  /* Merge before the first inference pass so plugins see deduplicated
-   * records (one per (type, region, name)). */
-  merge_results();
-
-  /* LAYOUT_ADJUST: apply PAGE_OFFSET and VAS discoveries to layout (once).
-   * Runs before the convergence loop because it mutates layout directly
-   * rather than tightening ctx bounds; the forward sync at the start of
-   * the first POST_COLLECTION pass picks up those mutations. */
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_LAYOUT_ADJUST);
-
-  for (int pass = 0; pass < MAX_INFERENCE_PASSES; pass++) {
-    snap_bounds(&snap);
-    run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_COLLECTION);
-    sync_inference_bounds_to_layout();
-    /* Re-run merge so any derived results emitted by this pass collapse
-     * into existing same-(type, region, name) records before the next
-     * pass reads them. */
-    merge_results();
-    if (!bounds_changed(&snap))
-      break;
-  }
-}
-
-static void run_post_probing_inference(void) {
-  struct bounds_snap snap;
-
-  merge_results();
-  run_inference_phase(&g_ctx, KASLD_INFER_PHASE_LAYOUT_ADJUST);
-
-  for (int pass = 0; pass < MAX_INFERENCE_PASSES; pass++) {
-    snap_bounds(&snap);
-    run_inference_phase(&g_ctx, KASLD_INFER_PHASE_POST_PROBING);
-    sync_inference_bounds_to_layout();
-    merge_results();
-    if (!bounds_changed(&snap))
-      break;
-  }
-}
-
-/* Execution state table --------------------------------------------------- */
+/* Phase table ------------------------------------------------------------- */
 
 /* Each row is one phase. Adding a new phase = adding one row here. */
-static const struct exec_state states[] = {
-    {"setup", NULL, run_pre_collection_inference, 0},
-    {"inference", "inference", run_post_collection_inference, 1},
-    {"probing", "probing", run_post_probing_inference, 0},
+static const struct phase phases[] = {
+    {"inference", 1},
+    {"probing", 0},
 };
+
+/* A component runs only if its `phase` matches some row's key; a typo or
+ * unknown phase value would otherwise drop it silently from every phase. Warn
+ * loudly and reassign it to the first (inference) phase so a misconfigured
+ * component still runs rather than vanishing. Validated against phases[] so a
+ * newly added phase needs no second list to update. */
+#ifndef KASLD_TESTING
+static void validate_component_phases(void) {
+  const int n_phases = (int)(sizeof(phases) / sizeof(phases[0]));
+  for (int i = 0; i < num_components; i++) {
+    int known = 0;
+    for (int p = 0; p < n_phases; p++)
+      if (strcmp(components[i].phase, phases[p].key) == 0) {
+        known = 1;
+        break;
+      }
+    if (!known) {
+      fprintf(stderr,
+              "[!] component '%s' has unknown phase '%s'; running it as '%s' "
+              "(check its .kasld_meta phase: key)\n",
+              components[i].name, components[i].phase, phases[0].key);
+      snprintf(components[i].phase, sizeof(components[i].phase), "%s",
+               phases[0].key);
+    }
+  }
+}
+#endif /* !KASLD_TESTING */
 
 /* =========================================================================
  * Main
  * =========================================================================
  */
 #ifndef KASLD_TESTING
+
+/* Arch-specific normalisation of one copied result, at the ingestion boundary.
+ * Keeps the generic copy loop free of per-arch `#if` blocks. */
+static void bridge_normalize_arch(struct observation *o,
+                                  const struct result *r) {
+#if defined(__mips64) || defined(__mips64__)
+  /* MIPS64 XKPHYS: a leaked VIRT address in the XKPHYS window is really a
+   * direct physical mapping. Reclassify it to PHYS/RAM with the decoded
+   * physical address before any rule sees it, so phys_virt_synth never pairs
+   * it as a directmap VIRT leak. */
+  if (o->type == KASLD_TYPE_VIRT && kasld_addr_is_xkphys(anchor_addr(r))) {
+    o->type = KASLD_TYPE_PHYS;
+    o->region = REGION_RAM;
+    if (o->set_mask & LO_SET)
+      o->lo = kasld_xkphys_to_phys(o->lo);
+    if (o->set_mask & HI_SET)
+      o->hi = kasld_xkphys_to_phys(o->hi);
+    if (o->set_mask & SAMPLE_SET)
+      o->sample = kasld_xkphys_to_phys(o->sample);
+  }
+#else
+  (void)o;
+  (void)r;
+#endif
+}
+
+/* Build the engine's evidence set: a pure copy of what the components produced
+ * — the collected address results into address observations, and the collected
+ * scalar facts into scalar observations. The orchestrator performs no
+ * measurement itself; every fact comes from a component (meminfo-facts,
+ * firmware_memmap, riscv64-no-seed, mmap-s390-va-bits, ...). */
+static void engine_build_evidence(struct evidence_set *ev) {
+  for (int i = 0; i < num_results; i++) {
+    const struct result *r = &results[i];
+    struct observation o;
+    memset(&o, 0, sizeof(o));
+    o.value_kind = OBS_ADDRESS;
+    o.type = r->type;
+    o.region = r->region;
+    o.lo = r->lo;
+    o.hi = r->hi;
+    o.sample = r->sample;
+    o.base_align = r->base_align;
+    o.set_mask = r->set_mask;
+    o.pos = r->pos;
+    o.conf = r->conf;
+    snprintf(o.name, NAME_LEN, "%s", r->name);
+    if (r->provenance_count > 0)
+      snprintf(o.origin, ORIGIN_LEN, "%s", r->origins[0]);
+
+    bridge_normalize_arch(&o, r);
+    evidence_add(ev, &o);
+  }
+
+  /* Scalar system facts collected from component `S` records. */
+  for (int i = 0; i < num_scalar_facts; i++) {
+    struct observation o;
+    memset(&o, 0, sizeof(o));
+    o.value_kind = OBS_SCALAR;
+    o.scalar_fact = scalar_facts[i].fact;
+    o.scalar_value = scalar_facts[i].value;
+    o.conf = scalar_facts[i].conf;
+    snprintf(o.origin, ORIGIN_LEN, "%s", scalar_facts[i].origin);
+    evidence_add(ev, &o);
+  }
+}
+
+/* Resolve the engine over the bridged evidence with the full rule registry. */
+static const char *constraint_op_name(enum constraint_op op) {
+  switch (op) {
+  case C_LOWER_BOUND:
+    return ">=";
+  case C_UPPER_BOUND:
+    return "<=";
+  case C_EQUALS:
+    return "==";
+  case C_AT_LEAST_ALIGN:
+    return "align>=";
+  case C_MEMBER:
+    return "member";
+  case C_EXCLUDE:
+    return "exclude";
+  case C_STRIDE:
+    return "stride";
+  }
+  return "?";
+}
+
+/* Report constraints the resolver rejected as contradictory, so a noisy or
+ * adversarial input that drops evidence is explainable rather than silent.
+ * Diagnostic only (stderr, --verbose) — the resolved estimates are unchanged.
+ */
+static void engine_report_conflicts(const struct engine *e) {
+  for (int q = 0; q < Q__COUNT; q++) {
+    for (int c = 0; c < e->n_conflicts[q]; c++) {
+      uint32_t id = e->conflicts[q][c];
+      const struct constraint *cc = NULL;
+      for (int i = 0; i < e->n_constraints; i++)
+        if (e->constraints[i].id == id) {
+          cc = &e->constraints[i];
+          break;
+        }
+      if (cc)
+        fprintf(stderr,
+                "[engine] %s: rejected '%s 0x%lx' from %s — contradicts "
+                "higher-priority evidence\n",
+                quantities[q].name, constraint_op_name(cc->op), cc->value,
+                cc->origin[0] ? cc->origin : "rule");
+    }
+  }
+}
+
+/* Report any resolver saturation flags. None of the caps bind on realistic
+ * deduped workloads; surfacing a hit makes the dropped-info case observable
+ * rather than silent if scale ever grows. Diagnostic only (stderr, --verbose).
+ */
+static void engine_report_saturation(const struct engine *e) {
+  if (!e->saturation)
+    return;
+  if (e->saturation & ENGINE_SAT_CONSTRAINTS_FULL)
+    fprintf(stderr,
+            "[engine] saturation: ENGINE_MAX_CONSTRAINTS (%d) reached; "
+            "subsequent rule emissions in the same pass were dropped\n",
+            ENGINE_MAX_CONSTRAINTS);
+  if (e->saturation & ENGINE_SAT_RULE_EMIT_OVERFLOW)
+    fprintf(stderr,
+            "[engine] saturation: a constraint rule returned > "
+            "ENGINE_RULE_MAX_EMIT (%d); excess constraints dropped\n",
+            ENGINE_RULE_MAX_EMIT);
+  if (e->saturation & ENGINE_SAT_VRULE_EMIT_OVERFLOW)
+    fprintf(stderr,
+            "[engine] saturation: a verdict rule returned > "
+            "ENGINE_RULE_MAX_EMIT (%d); excess verdicts dropped\n",
+            ENGINE_RULE_MAX_EMIT);
+  if (e->saturation & ENGINE_SAT_ESTIMATE_WORK_FULL)
+    fprintf(stderr,
+            "[engine] saturation: ESTIMATE_MAX_WORK reached in the resolver's "
+            "per-quantity gather; constraints beyond the cap were dropped in "
+            "insertion order\n");
+  if (e->saturation & ENGINE_SAT_CONFLICTS_FULL)
+    fprintf(stderr,
+            "[engine] saturation: ESTIMATE_MAX_CONFLICTS (%d) reached; "
+            "additional rejected constraints were not recorded\n",
+            ESTIMATE_MAX_CONFLICTS);
+}
+
+/* Sibling reporter for orchestrator-side caps (results[], merged-record
+ * provenance, per-component verbose-line capture). Same diagnostic shape
+ * as engine_report_saturation; surfaces under --verbose. */
+static void orchestrator_report_saturation(void) {
+  if (!orchestrator_saturation)
+    return;
+  if (orchestrator_saturation & ORCH_SAT_RESULTS_FULL)
+    fprintf(stderr,
+            "[orchestrator] saturation: MAX_RESULTS (%d) reached; "
+            "further leak/scalar observations were dropped at capture\n",
+            MAX_RESULTS);
+  if (orchestrator_saturation & ORCH_SAT_PROVENANCE_FULL)
+    fprintf(stderr,
+            "[orchestrator] saturation: MAX_PROVENANCE (%d) reached on at "
+            "least one merged record; additional contributors were not "
+            "recorded (the record's resolved value is unaffected)\n",
+            MAX_PROVENANCE);
+  if (orchestrator_saturation & ORCH_SAT_COMPONENT_LINES_DROPPED)
+    fprintf(stderr,
+            "[orchestrator] saturation: allocation failure while capturing "
+            "component stdout for --verbose; at least one line was dropped\n");
+}
+
+static void engine_resolve(struct engine *e) {
+  int n_rules = 0, n_vrules = 0;
+  const rule_fn *rules = engine_rules(&n_rules);
+  const verdict_fn *vrules = engine_verdict_rules(&n_vrules);
+  engine_init(e);
+  engine_build_evidence(&e->ev);
+  engine_run_full(e, rules, n_rules, vrules, n_vrules);
+  if (verbose && !json_output) {
+    engine_report_conflicts(e);
+    engine_report_saturation(e);
+    orchestrator_report_saturation();
+  }
+}
+#endif /* !KASLD_TESTING (engine_resolve/build need the components+engine.c)   \
+        */
+
+/* Write the engine's resolved estimates into the bound state that
+ * compute_kaslr_info() reads (`layout`). Where a quantity is not
+ * resolved beyond its honest compile-time window the reported window is simply
+ * that window — the engine never commits to an unproven default.
+ * vmalloc/vmemmap are synced only when actually constrained (lo/hi_binding
+ * set), preserving compute_kaslr_info's unset-sentinel logic.
+ *
+ * NOT gated out of KASLD_TESTING: this is a pure projection from engine
+ * estimates (engine.h types, available everywhere) onto the layout
+ * globals — it links no engine.c symbols and can be called wherever the
+ * engine→layout contract needs pinning.
+ *
+ * Every quantity that has a reported sink must be projected here. Map of
+ * Q_* -> sink:
+ *     Q_VIRT_TEXT_BASE   -> layout.kaslr_base_* AND layout.kernel_base_*
+ *     Q_KASLR_ALIGN      -> layout.kaslr_align
+ *     Q_PAGE_OFFSET      -> layout.page_offset_* (+ layout.page_offset,
+ * decoupled) Q_PHYS_TEXT_BASE   -> layout.phys_kaslr_base_*        (decoupled
+ * arches) Q_PHYS_KASLR_ALIGN -> layout.phys_kaslr_align         (decoupled
+ * arches) Q_VMALLOC_BASE     -> layout.vmalloc_base_*            (when
+ * constrained) Q_VMEMMAP_BASE     -> layout.vmemmap_base_*            (when
+ * constrained) Q_VA_BITS          -> (none) intermediate: rules consume it to
+ * bound Q_VIRT_TEXT_BASE; it has no layout sink. The compile-time check below
+ * trips when Q__COUNT changes — forcing whoever adds a quantity to decide its
+ * sink (or document it as intermediate) and bump the count, rather than
+ * silently leaving it unprojected. */
+typedef char engine_sync_projects_every_quantity[(Q__COUNT == 8) ? 1 : -1];
+
+static void engine_sync_authoritative(const struct engine *e) {
+  const struct estimate *vt = &e->est[Q_VIRT_TEXT_BASE];
+  /* Project the resolved virtual-text window onto BOTH the KASLR window
+   * (kaslr_base_*, read by the entropy/slot math in compute_kaslr_info) and the
+   * kernel image-placement range (kernel_base_*, read by the rendered memory
+   * map). They must stay equal post-resolution or the diagram's "kernel text"
+   * band disagrees with the reported "Inferred text range". */
+  layout.kaslr_text_min = vt->lo;
+  layout.kaslr_text_max = vt->hi;
+  layout.kernel_text_min = vt->lo;
+  layout.kernel_text_max = vt->hi;
+  if (e->est[Q_KASLR_ALIGN].lo)
+    layout.kaslr_align = e->est[Q_KASLR_ALIGN].lo;
+
+#if TEXT_TRACKS_DIRECTMAP
+  /* On coupled arches phys and virt text-base KASLR offsets are locked, so
+   * the same slot granularity applies to both. Mirror the resolved virt
+   * align into the phys-side field so entropy/slot reporting on coupled
+   * arches reflects the actual CONFIG_PHYSICAL_ALIGN rather than the
+   * compile-time default. (The !TEXT_TRACKS_DIRECTMAP branch below syncs
+   * Q_PHYS_KASLR_ALIGN independently on decoupled arches.) */
+  if (e->est[Q_KASLR_ALIGN].lo)
+    layout.phys_kaslr_align = e->est[Q_KASLR_ALIGN].lo;
+#endif
+
+  layout.page_offset_min = e->est[Q_PAGE_OFFSET].lo;
+  layout.page_offset_max = e->est[Q_PAGE_OFFSET].hi;
+
+#if !TEXT_TRACKS_DIRECTMAP
+  /* On decoupled arches the direct-map base (PAGE_OFFSET) is randomised away
+   * from the compile-time floor (x86_64 RANDOMIZE_MEMORY). Anchor the rendered
+   * memory map's direct-map band at the engine's best-known base (pinned, or
+   * the proven lower bound). Gated on lo having actually been raised above the
+   * compile-time default, so we never claim more than the engine proved.
+   *
+   * Only layout.page_offset moves — NOT layout.kernel_vas_start. On a decoupled
+   * arch the direct-map base is the lowest kernel *mapping* but NOT the VAS
+   * floor: the architectural KERNEL_VAS_START (the canonical-hole top) sits far
+   * below it, and the map's bottom should show that floor with the
+   * directmap-base-uncertainty gap above it, not pretend the address space
+   * begins at the directmap base. */
+  {
+    const struct estimate *po = &e->est[Q_PAGE_OFFSET];
+    if (po->lo > (unsigned long)PAGE_OFFSET)
+      layout.page_offset = po->lo;
+  }
+
+  const struct estimate *pt = &e->est[Q_PHYS_TEXT_BASE];
+  layout.phys_kaslr_text_min = pt->lo;
+  layout.phys_kaslr_text_max = pt->hi;
+  if (e->est[Q_PHYS_KASLR_ALIGN].lo)
+    layout.phys_kaslr_align = e->est[Q_PHYS_KASLR_ALIGN].lo;
+#endif
+
+  if (e->est[Q_VMALLOC_BASE].lo_binding)
+    layout.vmalloc_base_min = e->est[Q_VMALLOC_BASE].lo;
+  if (e->est[Q_VMALLOC_BASE].hi_binding)
+    layout.vmalloc_base_max = e->est[Q_VMALLOC_BASE].hi;
+  if (e->est[Q_VMEMMAP_BASE].lo_binding)
+    layout.vmemmap_base_min = e->est[Q_VMEMMAP_BASE].lo;
+  if (e->est[Q_VMEMMAP_BASE].hi_binding)
+    layout.vmemmap_base_max = e->est[Q_VMEMMAP_BASE].hi;
+
+#if MODULES_RELATIVE_TO_TEXT
+  /* Modules region shifts with kernel text on this arch (riscv64, s390).
+   * The static layout.modules_start/end loaded at init are the wide
+   * validation range — useful to bound observations, but misleading as the
+   * rendered/JSON modules location once the engine has narrowed the text
+   * base. Project the band onto the resolved text window so the memory map
+   * shows it in its actual neighborhood.
+   *
+   * Two cases, controlled by MODULES_BELOW_TEXT_START:
+   *   - unset (riscv64, "Case A"): MODULES_END is anchored near the kernel
+   *     image's _end (≈ text + image_size). For rendering, use the text
+   *     window's *upper* edge as a usable approximation (within image_size,
+   *     a few MiB on real kernels). Band low edge = upper edge − 2 GiB.
+   *   - set (s390, "Case B"): MODULES_END sits below the image start by up
+   *     to _SEGMENT_SIZE; band high edge ≈ text_min − TEXT_OFFSET.
+   *
+   * 2 GiB is the MODULES_LEN on both arches; absent a per-arch macro, use
+   * the literal constant with this rationale. Gated on kernel_text_max
+   * being a meaningful (narrowed-or-pinned) value — we keep the static
+   * band when the engine has not narrowed text. */
+#define KASLD_MODULES_LEN (2ul * 1024 * 1024 * 1024)
+  if (vt->hi > vt->lo || vt->lo > (unsigned long)KASLR_TEXT_MIN) {
+#if MODULES_BELOW_TEXT_START
+    unsigned long band_end = vt->lo > (unsigned long)TEXT_OFFSET
+                                 ? vt->lo - (unsigned long)TEXT_OFFSET
+                                 : vt->lo;
+#else
+    unsigned long band_end = vt->hi;
+#endif
+    unsigned long band_start =
+        (band_end > KASLD_MODULES_LEN) ? (band_end - KASLD_MODULES_LEN) : 0ul;
+    layout.modules_start = band_start;
+    layout.modules_end = band_end;
+  }
+#undef KASLD_MODULES_LEN
+#endif
+
+  /* Runtime module-band anchoring (every arch).
+   *
+   * The compile-time MODULES_START/END is the validation UNION across all
+   * in-scope kernel-version layouts -- wide on purpose so no real module
+   * leak is silently rejected. When proc-modules or sysfs-module-sections
+   * have given us actual module addresses (emitted as VIRT REGION_MODULE
+   * or REGION_MODULE_REGION observations), the runtime band lives in a
+   * much smaller span. Tightening the rendered/JSON layout to that
+   * observed span makes the diagram reflect reality on this kernel, and
+   * replaces the static MODULES_START/END display for arches whose true
+   * region is a fraction of the union (currently arm64 v6.2+ at ~2 GiB
+   * within a ~128 TiB static union).
+   *
+   * Soundness: the observed bounds are clamped to the validation union;
+   * we never widen past what MODULES_START/END allows. If observations
+   * fall entirely outside the union (would indicate a kernel layout we
+   * don't yet know about), keep the static window — surfacing the
+   * discrepancy via the wider rendering is more useful than silently
+   * shrinking to a single bogus point. */
+  {
+    unsigned long obs_lo = ULONG_MAX, obs_hi = 0;
+    for (int i = 0; i < e->ev.n_obs; i++) {
+      const struct observation *o = &e->ev.obs[i];
+      if (!o->valid || o->value_kind != OBS_ADDRESS ||
+          o->eff_type != KASLD_TYPE_VIRT)
+        continue;
+      if (o->eff_region != REGION_MODULE &&
+          o->eff_region != REGION_MODULE_REGION)
+        continue;
+      if (HAS_LO(o) && o->lo < obs_lo)
+        obs_lo = o->lo;
+      if (HAS_HI(o) && o->hi > obs_hi)
+        obs_hi = o->hi;
+      /* POS_BASE without HI / interior samples still pin the anchor. */
+      unsigned long a = obs_anchor(o);
+      if (a && a < obs_lo)
+        obs_lo = a;
+      if (a > obs_hi)
+        obs_hi = a;
+    }
+    if (obs_lo != ULONG_MAX && obs_lo <= obs_hi &&
+        obs_lo >= (unsigned long)MODULES_START &&
+        obs_hi <= (unsigned long)MODULES_END) {
+      layout.modules_start = obs_lo;
+      layout.modules_end = obs_hi;
+    }
+  }
+}
+#ifndef KASLD_TESTING
+
+/* -------------------------------------------------------------------------
+ * Argument parsing: table-driven.
+ *
+ * One row per option. The handler receives the value string for arg-bearing
+ * options (NULL for flags) and returns 0 on success or non-zero (the desired
+ * process exit code) on failure. The same table drives usage(): rows are
+ * printed in registration order, grouped by `section` headings.
+ * -------------------------------------------------------------------------
+ */
+enum opt_section {
+  OPT_SECT_FORMAT = 0, /* mutually-exclusive output formats */
+  OPT_SECT_DETAIL,     /* output detail toggles */
+  OPT_SECT_COMPONENT,  /* component selection / scheduling */
+  OPT_SECT_MISC,       /* version, help */
+  OPT_SECT__COUNT,
+};
+
+static const char *const opt_section_titles[OPT_SECT__COUNT] = {
+    [OPT_SECT_FORMAT] = "Output format (mutually exclusive)",
+    [OPT_SECT_DETAIL] = "Output detail",
+    [OPT_SECT_COMPONENT] = "Component control",
+    [OPT_SECT_MISC] = "Misc",
+};
+
+/* Handlers. Each sets one or more globals, optionally consuming `val`. */
+static int set_json(const char *val) {
+  (void)val;
+  json_output = 1;
+  oneline_output = 0;
+  markdown_output = 0;
+  return 0;
+}
+static int set_oneline(const char *val) {
+  (void)val;
+  oneline_output = 1;
+  json_output = 0;
+  markdown_output = 0;
+  return 0;
+}
+static int set_markdown(const char *val) {
+  (void)val;
+  markdown_output = 1;
+  json_output = 0;
+  oneline_output = 0;
+  return 0;
+}
+static int set_color(const char *val) {
+  (void)val;
+  color_output = 1;
+  return 0;
+}
+static int set_quiet(const char *val) {
+  (void)val;
+  quiet = 1;
+  return 0;
+}
+static int set_verbose(const char *val) {
+  (void)val;
+  verbose = 1;
+  return 0;
+}
+static int set_explain(const char *val) {
+  (void)val;
+  explain_mode = 1;
+  verbose = 1; /* --explain implies --verbose */
+  return 0;
+}
+static int set_fast(const char *val) {
+  (void)val;
+  fast_mode = 1;
+  return 0;
+}
+static int set_workers(const char *val) {
+  char *end;
+  long n = strtol(val, &end, 10);
+  if (*end != '\0' || n < 0 || n > 65535) {
+    fprintf(stderr, "--workers must be a non-negative integer\n");
+    return 2;
+  }
+  parallel_workers = (int)n;
+  return 0;
+}
+static int set_experimental(const char *val) {
+  (void)val;
+  experimental_mode = 1;
+  return 0;
+}
+static int set_skip(const char *val) {
+  /* Comma-separated globs; multiple --skip flags accumulate. */
+  char buf[1024];
+  snprintf(buf, sizeof(buf), "%s", val);
+  for (char *tok = strtok(buf, ","); tok; tok = strtok(NULL, ",")) {
+    if (num_skip_patterns < MAX_SKIP_PATTERNS) {
+      strncpy(skip_patterns[num_skip_patterns], tok, 255);
+      skip_patterns[num_skip_patterns][255] = '\0';
+      num_skip_patterns++;
+    }
+  }
+  return 0;
+}
+static int set_hardening(const char *val) {
+  (void)val;
+  hardening_mode = 1;
+  return 0;
+}
+static int set_timeout(const char *val) {
+  /* strtol with end-pointer + errno check — atoi accepts trailing garbage
+   * silently (atoi("5junk") == 5), which lets a typo land a degraded value. */
+  errno = 0;
+  char *end;
+  long t = strtol(val, &end, 10);
+  if (errno || end == val || *end != '\0' || t <= 0 || t > INT_MAX) {
+    fprintf(stderr, "--timeout must be a positive integer\n");
+    return 2;
+  }
+  component_timeout = (int)t;
+  return 0;
+}
+
+/* Sentinel handlers used by main() to detect early-exit flags after the
+ * table walk; the actual --version/--help output is printed there so the
+ * usage() helper still has access to `argv[0]` for the program name. */
+static int wants_version;
+static int wants_help;
+static int set_want_version(const char *val) {
+  (void)val;
+  wants_version = 1;
+  return 0;
+}
+static int set_want_help(const char *val) {
+  (void)val;
+  wants_help = 1;
+  return 0;
+}
+
+struct opt {
+  const char *short_name; /* "-j" or NULL */
+  const char *long_name;  /* "--json" */
+  int takes_arg;          /* 1 if a value follows */
+  const char *arg_name;   /* display name in usage, e.g. "N" */
+  enum opt_section section;
+  int (*set)(const char *val); /* applies the option; returns exit code or 0 */
+  const char *help; /* one-line description (printf-style %d/%s allowed) */
+  /* Optional printf argument for `help` — only one slot, to keep the table
+   * data-driven without resorting to varargs per row. NULL means no
+   * substitution. */
+  int help_arg_int;
+  int help_has_int_arg;
+};
+
+/* The table. New flags: add a row here, nothing else changes. */
+static const struct opt opts[] = {
+    /* ── Output format (mutually exclusive) ──────────────────────────── */
+    {"-j", "--json", 0, NULL, OPT_SECT_FORMAT, set_json,
+     "Machine-readable JSON output", 0, 0},
+    {"-1", "--oneline", 0, NULL, OPT_SECT_FORMAT, set_oneline,
+     "Single-line summary output", 0, 0},
+    {"-m", "--markdown", 0, NULL, OPT_SECT_FORMAT, set_markdown,
+     "Markdown table output", 0, 0},
+
+    /* ── Output detail ───────────────────────────────────────────────── */
+    {"-v", "--verbose", 0, NULL, OPT_SECT_DETAIL, set_verbose,
+     "Show component output, KASLR analysis, memory map", 0, 0},
+    {"-e", "--explain", 0, NULL, OPT_SECT_DETAIL, set_explain,
+     "Show technique explanations before each component (implies --verbose)", 0,
+     0},
+    {"-q", "--quiet", 0, NULL, OPT_SECT_DETAIL, set_quiet,
+     "Suppress banner, progress, and warnings", 0, 0},
+    {"-c", "--color", 0, NULL, OPT_SECT_DETAIL, set_color,
+     "Colourize text output (auto-detected for TTYs)", 0, 0},
+    {"-H", "--hardening", 0, NULL, OPT_SECT_DETAIL, set_hardening,
+     "Append a hardening assessment to the report", 0, 0},
+
+    /* ── Component control ───────────────────────────────────────────── */
+    {"-x", "--experimental", 0, NULL, OPT_SECT_COMPONENT, set_experimental,
+     "Enable experimental components", 0, 0},
+    {"-s", "--skip", 1, "PATTERN", OPT_SECT_COMPONENT, set_skip,
+     "Skip matching components (glob, comma-separated; flag may repeat)", 0, 0},
+    {"-t", "--timeout", 1, "N", OPT_SECT_COMPONENT, set_timeout,
+     "Per-component timeout in seconds (default: %d)", DEFAULT_TIMEOUT_SECS, 1},
+    {"-f", "--fast", 0, NULL, OPT_SECT_COMPONENT, set_fast,
+     "Shortcut for a %ds per-component timeout (--timeout wins if both given)",
+     FAST_TIMEOUT_SECS, 1},
+    {"-w", "--workers", 1, "N", OPT_SECT_COMPONENT, set_workers,
+     "Parallel component workers (default: nproc; 0 = sequential)", 0, 0},
+
+    /* ── Misc ────────────────────────────────────────────────────────── */
+    {"-V", "--version", 0, NULL, OPT_SECT_MISC, set_want_version,
+     "Print version and exit", 0, 0},
+    {"-h", "--help", 0, NULL, OPT_SECT_MISC, set_want_help, "Show this help", 0,
+     0},
+};
+static const int n_opts = (int)(sizeof(opts) / sizeof(opts[0]));
+
+/* Render one section's worth of rows. `col` is the left-column width for
+ * the "  -x, --long ARG  " prefix; computed once before the first section
+ * so columns align across sections. */
+static void usage_print_section(enum opt_section sect, int col) {
+  int printed_heading = 0;
+  for (int i = 0; i < n_opts; i++) {
+    const struct opt *o = &opts[i];
+    if (o->section != sect)
+      continue;
+    if (!printed_heading) {
+      printf("%s:\n", opt_section_titles[sect]);
+      printed_heading = 1;
+    }
+    char prefix[64];
+    if (o->arg_name)
+      snprintf(prefix, sizeof(prefix), "  %s, %s %s", o->short_name,
+               o->long_name, o->arg_name);
+    else
+      snprintf(prefix, sizeof(prefix), "  %s, %s", o->short_name, o->long_name);
+    if (o->help_has_int_arg)
+      printf("%-*s  " /*help*/, col, prefix), printf(o->help, o->help_arg_int),
+          printf("\n");
+    else
+      printf("%-*s  %s\n", col, prefix, o->help);
+  }
+  printf("\n");
+}
+
 static void usage(const char *progname) {
-  printf(
-      "Usage: %s [OPTIONS]\n\n"
-      "Options:\n"
-      "  -j, --json          Machine-readable JSON output\n"
-      "  -1, --oneline       Single-line summary output\n"
-      "  -m, --markdown      Markdown table output\n"
-      "  -c, --color         Colorize text output (auto-detected for TTYs)\n"
-      "  -q, --quiet         Suppress banner, progress, and warnings\n"
-      "  -v, --verbose       Show component output\n"
-      "  -e, --explain       Show technique explanations before each "
-      "component\n"
-      "  -f, --fast          Use %ds per-component timeout\n"
-      "  -w, --workers N     Parallel inference workers (default: nproc; 0 = "
-      "sequential)\n"
-      "  -x, --experimental  Enable experimental components\n"
-      "  -s, --skip PATTERN  Skip matching components (glob, comma-separated;\n"
-      "                      multiple --skip flags accumulate)\n"
-      "  -H, --hardening     Show post-run hardening assessment\n"
-      "  -t, --timeout N     Per-component timeout in seconds (default: %d)\n"
-      "  -V, --version       Print version and exit\n"
-      "  -h, --help          Show this help\n",
-      progname, FAST_TIMEOUT_SECS, DEFAULT_TIMEOUT_SECS);
+  /* Compute the longest "  -x, --long ARG" prefix so all sections share
+   * one description column. */
+  int col = 0;
+  for (int i = 0; i < n_opts; i++) {
+    int len = (int)strlen("  ") + (int)strlen(opts[i].short_name) +
+              (int)strlen(", ") + (int)strlen(opts[i].long_name);
+    if (opts[i].arg_name)
+      len += 1 + (int)strlen(opts[i].arg_name);
+    if (len > col)
+      col = len;
+  }
+  printf("Usage: %s [OPTIONS]\n\n", progname);
+  for (int s = 0; s < OPT_SECT__COUNT; s++)
+    usage_print_section((enum opt_section)s, col);
+}
+
+/* Look up an option by its short or long name. Returns NULL if no match. */
+static const struct opt *opt_find(const char *arg) {
+  for (int i = 0; i < n_opts; i++) {
+    if ((opts[i].short_name && strcmp(arg, opts[i].short_name) == 0) ||
+        (opts[i].long_name && strcmp(arg, opts[i].long_name) == 0))
+      return &opts[i];
+  }
+  return NULL;
+}
+
+/* Orchestration-layer summary emit: build the summary, run resolution (stats,
+ * defaults, then the engine via compute_kaslr_info), and hand the finished
+ * summary to the renderer. Resolution lives here, not in render.c — the
+ * renderer is a pure consumer. */
+static void emit_summary(void) {
+  struct summary s = {0};
+  compute_component_stats(&s);
+  inject_kaslr_defaults(&s);
+  compute_kaslr_info(&s); /* engine resolution + sync to layout */
+  /* cross-region derivations arrive as ordinary CONF_DERIVED component results;
+   * there is no separate derive pass. */
+  render_summary(&s);
 }
 
 int main(int argc, char *argv[]) {
@@ -2296,91 +2829,49 @@ int main(int argc, char *argv[]) {
     parallel_workers = (ncpu > 1) ? (int)ncpu : 4;
   }
 
+  /* Table-driven option walk. Each match either runs the handler with the
+   * option's value (NULL for flags) or — for early-exit options like
+   * --version / --help — sets a sentinel checked after the loop. */
   for (int i = 1; i < argc; i++) {
-    if (strcmp(argv[i], "-j") == 0 || strcmp(argv[i], "--json") == 0) {
-      json_output = 1;
-      oneline_output = 0;
-      markdown_output = 0;
-    } else if (strcmp(argv[i], "-1") == 0 ||
-               strcmp(argv[i], "--oneline") == 0) {
-      oneline_output = 1;
-      json_output = 0;
-      markdown_output = 0;
-    } else if (strcmp(argv[i], "-m") == 0 ||
-               strcmp(argv[i], "--markdown") == 0) {
-      markdown_output = 1;
-      json_output = 0;
-      oneline_output = 0;
-    } else if (strcmp(argv[i], "-c") == 0 || strcmp(argv[i], "--color") == 0) {
-      color_output = 1;
-    } else if (strcmp(argv[i], "-q") == 0 || strcmp(argv[i], "--quiet") == 0) {
-      quiet = 1;
-    } else if (strcmp(argv[i], "-v") == 0 ||
-               strcmp(argv[i], "--verbose") == 0) {
-      verbose = 1;
-    } else if (strcmp(argv[i], "-e") == 0 ||
-               strcmp(argv[i], "--explain") == 0) {
-      explain_mode = 1;
-      verbose = 1; /* --explain implies --verbose */
-    } else if (strcmp(argv[i], "-f") == 0 || strcmp(argv[i], "--fast") == 0) {
-      fast_mode = 1;
-    } else if (strcmp(argv[i], "-w") == 0 ||
-               strcmp(argv[i], "--workers") == 0) {
-      if (i + 1 >= argc) {
-        fprintf(stderr, "--workers requires a value\n");
-        return 2;
-      }
-      char *workers_end;
-      long workers_val = strtol(argv[++i], &workers_end, 10);
-      if (*workers_end != '\0' || workers_val < 0 || workers_val > 65535) {
-        fprintf(stderr, "--workers must be a non-negative integer\n");
-        return 2;
-      }
-      parallel_workers = (int)workers_val;
-    } else if (strcmp(argv[i], "-x") == 0 ||
-               strcmp(argv[i], "--experimental") == 0) {
-      experimental_mode = 1;
-    } else if (strcmp(argv[i], "-s") == 0 || strcmp(argv[i], "--skip") == 0) {
-      if (i + 1 >= argc) {
-        fprintf(stderr, "--skip requires a value\n");
-        return 2;
-      }
-      char *val = argv[++i];
-      char *tok = strtok(val, ",");
-      while (tok) {
-        if (num_skip_patterns < MAX_SKIP_PATTERNS) {
-          strncpy(skip_patterns[num_skip_patterns], tok, 255);
-          skip_patterns[num_skip_patterns][255] = '\0';
-          num_skip_patterns++;
-        }
-        tok = strtok(NULL, ",");
-      }
-    } else if (strcmp(argv[i], "-H") == 0 ||
-               strcmp(argv[i], "--hardening") == 0) {
-      hardening_mode = 1;
-    } else if (strcmp(argv[i], "-t") == 0 ||
-               strcmp(argv[i], "--timeout") == 0) {
-      if (i + 1 >= argc) {
-        fprintf(stderr, "--timeout requires a value\n");
-        return 2;
-      }
-      component_timeout = atoi(argv[++i]);
-      if (component_timeout <= 0) {
-        fprintf(stderr, "--timeout must be a positive integer\n");
-        return 2;
-      }
-    } else if (strcmp(argv[i], "-V") == 0 ||
-               strcmp(argv[i], "--version") == 0) {
-      printf("kasld %s\n", VERSION);
-      return 0;
-    } else if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
-      usage(argv[0]);
-      return 0;
-    } else {
+    const struct opt *o = opt_find(argv[i]);
+    if (!o) {
       fprintf(stderr, "unknown option: %s\n", argv[i]);
       usage(argv[0]);
       return 2;
     }
+    const char *val = NULL;
+    if (o->takes_arg) {
+      if (i + 1 >= argc) {
+        fprintf(stderr, "%s requires a value\n", o->long_name);
+        return 2;
+      }
+      val = argv[++i];
+    }
+    int rc = o->set(val);
+    if (rc != 0)
+      return rc;
+  }
+
+  if (wants_version) {
+    printf("kasld %s\n", VERSION);
+    return 0;
+  }
+  if (wants_help) {
+    usage(argv[0]);
+    return 0;
+  }
+
+  /* Conflict check: at most one of the OPT_SECT_FORMAT flags may be
+   * effective. Each format setter already clears its siblings, so this is
+   * a courtesy diagnostic — surfacing "you asked for two formats" before
+   * silently going with whichever came last. */
+  if (json_output + oneline_output + markdown_output > 1) {
+    /* Unreachable today because setters clear siblings, but kept as a
+     * forward-compatible guard: if format flags ever become additive
+     * (or get other modifiers stacked on), the check fires here. */
+    fprintf(stderr, "conflicting output format flags: pick one of "
+                    "--json / --oneline / --markdown\n");
+    return 2;
   }
 
   /* Ensure line-buffered stdout so output appears in real-time */
@@ -2390,11 +2881,15 @@ int main(int argc, char *argv[]) {
   if (!color_output && plain_output())
     color_output = isatty(STDOUT_FILENO);
 
-  if (!quiet && plain_output()) {
+  /* Banner + system-config block live behind --verbose (or --hardening,
+   * which consumes the sysctl/lockdown state in its own report). The
+   * default text mode renders a tight readout instead. */
+  if (verbose && !quiet && plain_output()) {
     print_banner();
     print_system_config();
   } else {
-    /* Always read system state even when banner is suppressed */
+    /* Always read system state — the readout's "KASLR disabled" branch and
+     * the hardening report both depend on these values. */
     sysctl_kptr_restrict = read_sysctl_int("/proc/sys/kernel/kptr_restrict");
     sysctl_dmesg_restrict = read_sysctl_int("/proc/sys/kernel/dmesg_restrict");
     sysctl_perf_event_paranoid =
@@ -2406,6 +2901,7 @@ int main(int argc, char *argv[]) {
     return 2;
 
   classify_components();
+  validate_component_phases();
   apply_skip_filter();
 
   /* Verbose: list components excluded by --skip */
@@ -2437,6 +2933,18 @@ int main(int argc, char *argv[]) {
     component_timeout = FAST_TIMEOUT_SECS;
 
   if (!quiet && !verbose && plain_output()) {
+    /* Tool + target header — printed BEFORE "Running..." so the user
+     * knows what's running and against what host before the progress
+     * bar starts (header → work → results). The readout that follows
+     * the progress bar omits this block; see render_readout(). */
+    printf("%sKASLD %s%s  --  Kernel ASLR derandomisation\n", c(C_BOLD),
+           VERSION, c(C_RESET));
+    struct utsname u;
+    if (kasld_uname(&u) == 0)
+      printf("%sTarget: %s / %s%s\n", c(C_DIM), u.machine, u.release,
+             c(C_RESET));
+    printf("\n");
+
     clock_gettime(CLOCK_MONOTONIC, &progress_start);
     int exp_active =
         experimental_mode || (getenv("KASLD_EXPERIMENTAL") != NULL);
@@ -2463,45 +2971,31 @@ int main(int argc, char *argv[]) {
     fflush(stdout);
   }
 
-  /* Initialise analysis context before the first state fires on_exit. */
-  g_arch_params.kaslr_base_min = layout.kaslr_base_min;
-  g_arch_params.kaslr_base_max = layout.kaslr_base_max;
-  g_arch_params.kaslr_align = layout.kaslr_align;
-  g_arch_params.phys_kaslr_base_min = layout.phys_kaslr_base_min;
-  g_arch_params.phys_kaslr_base_max = layout.phys_kaslr_base_max;
-  g_arch_params.phys_kaslr_align = layout.phys_kaslr_align;
-  g_arch_params.phys_virt_decoupled = PHYS_VIRT_DECOUPLED;
-  g_arch_params.phys_offset = PHYS_OFFSET;
-  g_arch_params.page_offset = PAGE_OFFSET;
-  g_arch_params.text_offset = TEXT_OFFSET;
-  g_ctx.results = results;
-  g_ctx.result_count = 0;
-  g_ctx.text_base_min = layout.kaslr_base_min;
-  g_ctx.text_base_max = layout.kaslr_base_max;
-  g_ctx.page_offset_min = layout.kernel_vas_start;
-  g_ctx.page_offset_max = layout.kernel_vas_end;
-  g_ctx.phys_base_min = layout.phys_kaslr_base_min;
-  g_ctx.phys_base_max = layout.phys_kaslr_base_max;
-  g_ctx.vmalloc_base_min = 0;
-  g_ctx.vmalloc_base_max = ULONG_MAX;
-  g_ctx.vmemmap_base_min = 0;
-  g_ctx.vmemmap_base_max = ULONG_MAX;
-  g_ctx.arch = &g_arch_params;
-  g_ctx.layout = &layout;
+  /* Seed the engine-bounds carrier with the honest compile-time window.
+   * engine_sync_authoritative() (run from compute_kaslr_info) overwrites the
+   * resolved quantities; the vmalloc/vmemmap *_max sentinels (ULONG_MAX = "no
+   * upper bound known") must start set because the engine writes those edges
+   * only when actually constrained. */
+  layout.page_offset_min = layout.kernel_vas_start;
+  layout.page_offset_max = layout.kernel_vas_end;
+  layout.vmalloc_base_min = 0;
+  layout.vmalloc_base_max = ULONG_MAX;
+  layout.vmemmap_base_min = 0;
+  layout.vmemmap_base_max = ULONG_MAX;
 
-  for (int s = 0; s < (int)(sizeof(states) / sizeof(states[0])); s++)
-    run_state(&states[s]); /* on_exit is fired inside run_state() */
+  for (int p = 0; p < (int)(sizeof(phases) / sizeof(phases[0])); p++)
+    run_phase(&phases[p]); /* merges results after each phase */
 
   if (!quiet && !verbose && plain_output())
     printf("\n\n");
 
   if (num_results > 0) {
-    print_summary();
+    emit_summary();
     return 0;
   }
 
   if (json_output || oneline_output || markdown_output) {
-    print_summary(); /* valid empty structured output */
+    emit_summary(); /* valid empty structured output */
   } else {
     printf("\n---\n\nno tagged results to process\n");
   }

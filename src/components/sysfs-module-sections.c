@@ -29,7 +29,6 @@
 
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
-#include "include/kasld/internal.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
@@ -52,17 +51,19 @@ KASLD_META("method:parsed\n"
            "bypass:CAP_SYSLOG\n"
            "patch:v4.15\n");
 
-unsigned long read_module_text(char *path) {
+static unsigned long read_module_text(char *path) {
   FILE *f;
   char *endptr;
-  unsigned int buff_len = 64;
+  /* Fixed 64-byte cookie line — one hex address plus "\n". Constant-sized
+   * to keep -Wvla / -Wstack-protector silent (no runtime-sized stack). */
+  enum { buff_len = 64 };
   char buff[buff_len];
   const int addr_len = sizeof(long *) * 2;
   unsigned long addr = 0;
 
   // printf("[.] checking %s ...\n", path);
 
-  f = fopen(path, "rb");
+  f = kasld_fopen(path, "rb");
   if (f == NULL)
     return 0;
 
@@ -79,7 +80,7 @@ unsigned long read_module_text(char *path) {
 
   addr = strtoul(buff, &endptr, 16);
 
-  if (addr && addr >= MODULES_START && addr <= MODULES_END)
+  if (addr && kasld_addr_is_module_region(addr))
     return addr;
 
   return 0;
@@ -87,7 +88,7 @@ unsigned long read_module_text(char *path) {
 
 #define module_range addr_range
 
-struct module_range get_module_text_sysfs() {
+static struct module_range get_module_text_sysfs(void) {
   char d_path[1024];
   unsigned long text_addr = 0;
   const char *path = "/sys/module/";
@@ -126,7 +127,7 @@ struct module_range get_module_text_sysfs() {
 
 int main(void) {
   /* Pre-check: can we access /sys/module/? */
-  if (access("/sys/module/", R_OK) != 0)
+  if (kasld_access("/sys/module/", R_OK) != 0)
     return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM
                                                : KASLD_EXIT_UNAVAILABLE;
 

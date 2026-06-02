@@ -1,0 +1,11 @@
+absent: /sys/kernel/boot_params/setup_data
+absent: /proc/device-tree/chosen
+absent: /proc/device-tree/rtas
+absent: /sys/firmware/devicetree/base/chosen
+absent: /sys/firmware/devicetree/base/rtas
+absent: /proc/config.gz
+header: /boot/vmlinuz-6.6.13-686 (4096B prefix; full size 6093664 in sizes.txt)
+absent: /boot/Image-6.6.13-686
+absent: /boot/vmlinux-6.6.13-686
+skipped: /proc/kallsyms (use --kallsyms to include)
+unavailable: dmesg

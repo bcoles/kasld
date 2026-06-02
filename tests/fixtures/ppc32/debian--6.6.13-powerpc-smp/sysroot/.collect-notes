@@ -1,0 +1,11 @@
+absent: /sys/kernel/boot_params/data
+absent: /sys/kernel/boot_params/setup_data
+absent: /sys/firmware/memmap
+absent: /proc/device-tree/rtas
+absent: /sys/firmware/devicetree/base/rtas
+absent: /proc/config.gz
+absent: /boot/vmlinuz-6.6.13-powerpc-smp
+absent: /boot/Image-6.6.13-powerpc-smp
+skipped: /proc/kallsyms (use --kallsyms to include)
+unavailable: dmesg
+anonymized: host identity, CPU brand, UUIDs/MACs, sensitive cmdline values redacted

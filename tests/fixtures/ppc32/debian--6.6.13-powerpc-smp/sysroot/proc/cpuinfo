@@ -1,0 +1,17 @@
+processor	: 0
+cpu		: 7400, altivec supported
+temperature 	: 50-126 C (uncalibrated)
+clock		: 266.000000MHz
+revision	: 2.9 (pvr 000c 0209)
+bogomips	: 33.21
+
+total bogomips	: 33.21
+timebase	: 16605983
+platform	: PowerMac
+model		: Power Macintosh
+machine		: Power Macintosh
+motherboard	: AAPL,PowerMac G3 MacRISC
+detected as	: 49 (PowerMac G3 (Silk))
+pmac flags	: 00000000
+pmac-generation	: OldWorld
+Memory		: 1024 MB

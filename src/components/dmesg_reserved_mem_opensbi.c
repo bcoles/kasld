@@ -53,7 +53,6 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld/api.h"
-#include "include/kasld/internal.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -128,14 +127,19 @@ int main(void) {
   kasld_result_sample(KASLD_TYPE_PHYS, REGION_KERNEL_IMAGE, kernel_phys, NULL,
                       CONF_PARSED);
 
-#if !PHYS_VIRT_DECOUPLED
-  unsigned long virt = phys_to_virt(kernel_phys);
+#if defined(phys_to_directmap_virt) && TEXT_TRACKS_DIRECTMAP
+  /* The directmap projection only yields the kernel-image virt when text
+   * sits at the linear-map offset; the second gate makes that precondition
+   * explicit so a future (DIRECTMAP_STATIC=1, TEXT_TRACKS_DIRECTMAP=0) arch
+   * fails to emit rather than silently misclassifying a directmap alias as
+   * a kernel-image virt. */
+  unsigned long virt = phys_to_directmap_virt(kernel_phys);
   printf("possible kernel virtual address: 0x%016lx\n", virt);
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE, virt, NULL,
                       CONF_PARSED);
 #else
-  printf("note: phys and virt KASLR are decoupled on this arch; "
-         "cannot derive kernel text virtual address from physical leak\n");
+  printf("note: kernel text virtual address cannot be derived from phys on "
+         "this arch (text does not track the linear map)\n");
 #endif
 
   return 0;
