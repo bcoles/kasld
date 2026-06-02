@@ -114,8 +114,7 @@ END {
     printf "  %-34s %6.2f%%  of %4d lines\n", "TOTAL (end-to-end binary)",
         100 * ex / all, all
 }
-' echo "---------------------------------------------------------------------" "-" echo "coverage-e2e: built with $CC, reported via $GCOV; artifacts "
-                                                                                        "in $E2E" if command -
+' echo "---------------------------------------------------------------------" "-" echo "coverage-e2e: built with $CC, reported via $GCOV; artifacts " "in $E2E" if command -
             v lcov >
         / dev / null 2 > &1 &&
     command - v genhtml > / dev / null 2 > &1;
