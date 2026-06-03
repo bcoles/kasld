@@ -2225,8 +2225,8 @@ static void bridge_normalize_arch(struct observation *o,
 /* Build the engine's evidence set: a pure copy of what the components produced
  * — the collected address results into address observations, and the collected
  * scalar facts into scalar observations. The orchestrator performs no
- * measurement itself; every fact comes from a component (meminfo-facts,
- * firmware_memmap, riscv64-no-seed, mmap-s390-va-bits, ...). */
+ * measurement itself; every fact comes from a component (meminfo_facts,
+ * firmware_memmap, riscv64_no_seed, mmap_s390_va_bits, ...). */
 static void engine_build_evidence(struct evidence_set *ev) {
   for (int i = 0; i < num_results; i++) {
     const struct result *r = &results[i];
@@ -2513,7 +2513,7 @@ static void engine_sync_authoritative(const struct engine *e) {
    *
    * The compile-time MODULES_START/END is the validation UNION across all
    * in-scope kernel-version layouts -- wide on purpose so no real module
-   * leak is silently rejected. When proc-modules or sysfs-module-sections
+   * leak is silently rejected. When proc_modules or sysfs_module_sections
    * have given us actual module addresses (emitted as VIRT REGION_MODULE
    * or REGION_MODULE_REGION observations), the runtime band lives in a
    * much smaller span. Tightening the rendered/JSON layout to that

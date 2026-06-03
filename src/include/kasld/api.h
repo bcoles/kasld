@@ -292,7 +292,7 @@ static inline unsigned long kasld_xkphys_to_phys(unsigned long va) {
  *
  * Wraps the MODULES_START/END validation union (see CONTRACT in kasld.h).
  * Used by components that classify leaked addresses as module-region
- * (proc-modules, sysfs-module-sections, dmesg-parsers). Centralising the
+ * (proc_modules, sysfs_module_sections, dmesg-parsers). Centralising the
  * check here means the per-arch widening / future per-version handling
  * lives in one place rather than four. Pure arithmetic; safe in any TU. */
 static inline int kasld_addr_is_module_region(unsigned long va) {

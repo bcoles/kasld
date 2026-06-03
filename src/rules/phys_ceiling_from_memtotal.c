@@ -9,7 +9,7 @@
 //
 // where dram_top is the highest spanned-RAM physical address observed
 // from the system's memory map (REGION_RAM POS_TOP — emitted by
-// proc-zoneinfo from zone start_pfn + spanned, etc.).
+// proc_zoneinfo from zone start_pfn + spanned, etc.).
 //
 // Fallback to MemTotal when no REGION_RAM extent is observed:
 //
@@ -75,7 +75,7 @@ int rule_phys_ceiling_from_memtotal(const struct evidence_set *ev,
       }
       /* dram_top: highest hi we see from any REGION_RAM observation that
        * carries an extent. POS_BASE observations on REGION_RAM (from
-       * proc-zoneinfo's start_pfn) provide phys_floor only; POS_TOP
+       * proc_zoneinfo's start_pfn) provide phys_floor only; POS_TOP
        * observations provide hi only — both are needed for the span. */
       if (o->eff_region == REGION_RAM && HAS_HI(o) && o->hi > dram_top) {
         dram_top = o->hi;

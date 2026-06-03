@@ -27,7 +27,7 @@
 // unprivileged, no sysctl gate. riscv64 only.
 //
 // Caveat: RLIMIT_AS exhaustion also returns ENOMEM. Unlikely at probe time;
-// the same risk mmap-brute-vmsplit accepts.
+// the same risk mmap_brute_vmsplit accepts.
 // ---
 // <bcoles@gmail.com>
 

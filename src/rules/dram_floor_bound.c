@@ -24,7 +24,7 @@
 // Treating them as a floor wrongly excluded layouts where the kernel sits
 // below the initrd (ppc64le routinely loads text at phys 0 with the initrd
 // at e.g. 0x2c90000). REGION_RAM with POS_BASE is the canonical "physical
-// RAM starts here" marker that components like proc-zoneinfo /
+// RAM starts here" marker that components like proc_zoneinfo /
 // sysfs_devicetree_memory emit; that is what we consume.
 //
 // Only the floor is touched: an incomplete DRAM sample cannot rule out

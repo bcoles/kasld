@@ -13,7 +13,7 @@
 // (Q_PHYS_TEXT_BASE exists); the coupled-arch counterpart is
 // cmdline_mem_virt_ceiling.
 //
-// Reads SF_CMDLINE_MEM (emitted by cmdline-mem.c) + SF_IMAGE_SIZE; emits
+// Reads SF_CMDLINE_MEM (emitted by cmdline_mem.c) + SF_IMAGE_SIZE; emits
 // nothing when either is absent — sound.
 //
 // References:

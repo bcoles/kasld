@@ -389,11 +389,11 @@ because they have different implications for the inference engine:
 #### Disabled — `SF_KASLR_DISABLED`
 
 A handful of components detect a definitive opt-out and emit the scalar
-fact `SF_KASLR_DISABLED` via `kasld_emit_scalar()` — proc-cmdline (the
-`nokaslr` boot flag), boot-config / proc-config (no
-`CONFIG_RANDOMIZE_BASE`), dmesg_kaslr-disabled (the cmdline /
+fact `SF_KASLR_DISABLED` via `kasld_emit_scalar()` — proc_cmdline (the
+`nokaslr` boot flag), boot_config / proc_config (no
+`CONFIG_RANDOMIZE_BASE`), dmesg_kaslr_disabled (the cmdline /
 hibernation / loongarch "KASLR disabled" / "KASLR is disabled" lines),
-hibernation_nokaslr (LoongArch hibernation override), riscv64-no-seed
+hibernation_nokaslr (LoongArch hibernation override), riscv64_no_seed
 (FDT without `/chosen/kaslr-seed`), loongarch_kexec_file_nokaslr
 (`kexec_file` token), s390_kdump_nokaslr (`elfcorehdr=` kdump handoff).
 The orchestrator reads the scalar to set the summary's `kaslr.disabled`
@@ -422,7 +422,7 @@ memory"). The kernel was still relocated by the boot stub to a
 firmware-/boot-stub-deterministic position — *not* the link-time
 default — so this signal MUST NOT be fed to `kaslr_disabled_pin`.
 
-The dmesg_kaslr-disabled component distinguishes the two by inspecting
+The dmesg_kaslr_disabled component distinguishes the two by inspecting
 the exact reason string in the kernel's "KASLR disabled" line and emits
 the appropriate fact. The summary flag `kaslr.disabled` stays *false*
 in this state: the engine has not pinned the kernel to a known address,

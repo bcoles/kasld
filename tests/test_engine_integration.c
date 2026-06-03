@@ -185,7 +185,7 @@ static void test_full_engine_ppc64_hardened_shape(void) {
  * PRNG`. That message means the s390 boot stub skipped the random offset,
  * but the image is still relocated to a runtime-determined virt position
  * derived from physical memory layout — it does NOT imply text sits at
- * KERNEL_TEXT_DEFAULT. dmesg_kaslr-disabled emits this as
+ * KERNEL_TEXT_DEFAULT. dmesg_kaslr_disabled emits this as
  * SF_KASLR_RANDOMIZATION_FAILED (distinct from SF_KASLR_DISABLED, which
  * the kaslr_disabled_pin rule would honour); kaslr_disabled_pin
  * therefore does NOT fire, and the engine resolves Q_VIRT_TEXT_BASE to
@@ -242,7 +242,7 @@ static void test_full_engine_s390_no_prng_shape(void) {
  * via text_base_coupling_synth onto Q_VIRT_TEXT_BASE on coupled arches.
  *
  * The test plants the scalars a low-priv arm32 system emits when only
- * boot-config (PAGE_OFFSET, KASLR off) and meminfo are readable, and
+ * boot_config (PAGE_OFFSET, KASLR off) and meminfo are readable, and
  * asserts the resolved windows are non-bottom and admit the true text
  * placement. Pinned the moment any arch header introduces a 32-bit
  * overflow in its KERNEL_PHYS_MAX (or any rule that depends on it). */

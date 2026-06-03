@@ -137,7 +137,7 @@ Readable debugfs:             no
 Readable /boot/System.map:    yes
 Readable /boot/config:        yes
 
---- boot-config ---
+--- boot_config ---
 [.] checking for CONFIG_VMSPLIT_1G... 
 [.] checking for CONFIG_VMSPLIT_2G... 
 [.] checking for CONFIG_VMSPLIT_2G_OPT... 
@@ -149,7 +149,7 @@ S physical_start conf=parsed value=0x1000000
 S kernel_align conf=parsed value=0x200000
 [.] checking for CONFIG_RANDOMIZE_BASE... 
 
---- boot-params-facts ---
+--- boot_params_facts ---
 S init_size conf=parsed value=0x37ed000
 S kernel_align conf=parsed value=0x200000
 
@@ -167,24 +167,24 @@ leaked initrd physical start: 0x000000003173d000
 leaked initrd physical end:   0x0000000034b95ea8
 P initrd pos=base conf=parsed lo=0x3173d000 hi=0x34b95ea8
 
---- bootconfig-facts ---
+--- bootconfig_facts ---
 
---- cmdline-hugepages ---
+--- cmdline_hugepages ---
 [-] no `hugepages=` on /proc/cmdline
 
---- cmdline-mem ---
+--- cmdline_mem ---
 [-] no `mem=` token on /proc/cmdline
 
---- cmdline-memmap ---
+--- cmdline_memmap ---
 [-] no avoidance `memmap=` reservations on cmdline
 
---- cmdline-region ---
+--- cmdline_region ---
 P cmdline pos=base conf=parsed lo=0x8f000 hi=0x8f7fe
 
---- cpuinfo-facts ---
+--- cpuinfo_facts ---
 S phys_addr_bits conf=parsed value=0x2d
 
---- devicetree-facts ---
+--- devicetree_facts ---
 
 --- dmesg_acpi_dynamic_ssdt ---
 [.] searching dmesg for ACPI dynamic OEM table loads ...
@@ -271,7 +271,7 @@ S phys_addr_bits conf=parsed value=0x2d
 [-] fopen(/var/log/dmesg): No such file or directory
 [-] dmesg: access denied (klogctl and /var/log/dmesg both inaccessible)
 
---- dmesg_kaslr-disabled ---
+--- dmesg_kaslr_disabled ---
 [.] searching dmesg for 'KASLR disabled' or 'KASLR is disabled' ...
 [-] klogctl(SYSLOG_ACTION_SIZE_BUFFER): Operation not permitted
 [-] fopen(/var/log/dmesg): No such file or directory
@@ -321,10 +321,10 @@ S phys_addr_bits conf=parsed value=0x2d
 [-] fopen(/var/log/dmesg): No such file or directory
 [-] dmesg: access denied (klogctl and /var/log/dmesg both inaccessible)
 
---- efi-present ---
+--- efi_present ---
 S efi_present conf=parsed value=0x0
 
---- fdt-facts ---
+--- fdt_facts ---
 
 --- firmware_memmap ---
 P ram pos=base conf=parsed lo=0x100000 hi=0x7fedffff
@@ -333,7 +333,7 @@ P ram pos=base conf=parsed lo=0x0 hi=0x9e7ff
 
 --- hibernation_nokaslr ---
 
---- kernel-image-facts ---
+--- kernel_image_facts ---
 S image_size conf=parsed value=0x2861320
 
 --- kernel_notes_buildid ---
@@ -342,11 +342,11 @@ kernel.lto: 0
 kernel.build_salt: "6.12.38+deb13-amd64"
 kernel.build_id: 5783470ea1883c7d668e98f3c2928751600ccd28
 
---- meminfo-facts ---
+--- meminfo_facts ---
 S memtotal conf=parsed value=0x78fa7000
 S max_pfn conf=parsed value=0x80000
 
---- page-size ---
+--- page_size ---
 S page_size conf=parsed value=0x1000
 
 --- perf_event_open ---
@@ -354,34 +354,34 @@ S page_size conf=parsed value=0x1000
 [-] syscall(SYS_perf_event_open): Permission denied
 [-] no kernel address found via perf_event_open
 
---- proc-cmdline ---
+--- proc_cmdline ---
 [.] trying /proc/cmdline ...
 [-] Kernel was not booted with nokaslr flag.
 
---- proc-config ---
+--- proc_config ---
 [.] checking /proc/config.gz ...
 [-] Could not read /proc/config.gz
 
---- proc-cpuinfo ---
+--- proc_cpuinfo ---
 [.] checking /proc/cpuinfo ...
 [.] Address sizes: 45 bits physical, 48 bits virtual
 [.] Paging level 4: PAGE_OFFSET floor -> 0xffff800000000000
 V page_offset pos=base conf=parsed lo=0xffff800000000000
 
---- proc-iomem-kernel ---
+--- proc_iomem_kernel ---
 [-] /proc/iomem appears masked (kptr_restrict?); addresses read as 0
 
---- proc-kallsyms ---
+--- proc_kallsyms ---
 
---- proc-modules ---
+--- proc_modules ---
 [.] reading /proc/modules ...
 [-] no kernel address found in /proc/modules
 
---- proc-stat-wchan ---
+--- proc_stat_wchan ---
 [.] checking /proc/173583/stat 'wchan' field ...
 [-] no kernel address found in /proc/pid/stat wchan
 
---- proc-zoneinfo ---
+--- proc_zoneinfo ---
 [.] searching /proc/zoneinfo for zone start_pfn and spanned ...
 lowest zone start PFN:  1 (phys 0x0000000000001000)
 P ram pos=interior conf=parsed sample=0x1000
@@ -393,7 +393,7 @@ note: phys and virt KASLR are decoupled on this arch; cannot derive directmap vi
 [.] scanning /proc/timer_list for timer base addresses ...
 [-] fopen: Permission denied
 
---- qemu-tcg-iret ---
+--- qemu_tcg_iret ---
 [.] trying QEMU TCG iret leak ...
 [-] QEMU TCG IRET fault not triggered
 
@@ -403,12 +403,12 @@ IDT base:  0xfffffe0000000000
 IDT limit: 0x0fff (4096 bytes, 256 entries)
 [-] IDT is in the CPU entry area (CONFIG_PAGE_TABLE_ISOLATION=y) — no leak
 
---- sysfs-kernel-notes-xen ---
+--- sysfs_kernel_notes_xen ---
 [.] checking /sys/kernel/notes ...
 [-] Xen notes appear stale (unrelocated); discarding
 [-] no kernel addresses found in ELF notes
 
---- sysfs-module-sections ---
+--- sysfs_module_sections ---
 [.] trying /sys/modules/*/sections/.text ...
 [-] no kernel address found in /sys/module sections
 
@@ -498,13 +498,13 @@ note: phys and virt KASLR are decoupled on this arch; cannot derive directmap vi
 [-] timeout after 28672 iterations (5s); likely patched
 [-] kernel base not found in mincore info leak
 
---- mmap-arm64-va-bits ---
+--- mmap_arm64_va_bits ---
 
---- mmap-brute-vmsplit ---
+--- mmap_brute_vmsplit ---
 [.] searching 32-bit address space for kernel virtual address space start ...
 [-] Could not locate kernel virtual address space
 
---- mmap-riscv64-va-bits ---
+--- mmap_riscv64_va_bits ---
 
 --- nilfs2_ioctl ---
 [.] trying nilfs2 NILFS_IOCTL_GET_SUINFO heap leak ...
@@ -543,7 +543,7 @@ Physical DRAM / initrd [1]:
 
 ----------------------------------------
 Physical DRAM / cmdline [1]:
-  0x000000000008f000  cmdline (cmdline-region, parsed)
+  0x000000000008f000  cmdline (cmdline_region, parsed)
   ==> 0x000000000008f000  (parsed, 1 source)
 
 ----------------------------------------

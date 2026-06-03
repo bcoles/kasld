@@ -9,9 +9,9 @@
 // locked on x86-64).
 //
 // Reads SF_KERNEL_ALIGN, emitted by either source:
-//   - boot-params-facts.c — /sys/kernel/boot_params/data hdr.kernel_alignment
+//   - boot_params_facts.c — /sys/kernel/boot_params/data hdr.kernel_alignment
 //     (the kernel's runtime echo of CONFIG_PHYSICAL_ALIGN; canonical).
-//   - boot-config.c / proc-config.c — CONFIG_PHYSICAL_ALIGN= line from
+//   - boot_config.c / proc_config.c — CONFIG_PHYSICAL_ALIGN= line from
 //     /boot/config-$REL or /proc/config.gz (fallback when boot_params is
 //     unreadable, e.g. minimal containers).
 // Both sources emit CONF_PARSED; the engine's strongest-wins resolver

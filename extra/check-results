@@ -24,7 +24,7 @@
 #     sudo ./extra/check-results results.txt
 #   validate from stdin pipe:
 #     ./build/*/kasld -v 2>&1 | sudo ./extra/check-results
-#     ./build/*/components/proc-kallsyms 2>&1 | sudo ./extra/check-results -
+#     ./build/*/components/proc_kallsyms 2>&1 | sudo ./extra/check-results -
 #
 # Requires: root (for unhashed /proc/kallsyms and /proc/iomem)
 # ---

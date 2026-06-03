@@ -154,7 +154,7 @@ int main(void) {
    * regions (the kernel image's hotplug block, EFI runtime, memblock
    * reservations) are typically offline or absent. On systems where
    * firmware reserves low phys for the kernel image (the same class as
-   * dmesg_free_area_init_node / proc-zoneinfo), `lo` sits ABOVE the true
+   * dmesg_free_area_init_node / proc_zoneinfo), `lo` sits ABOVE the true
    * phys RAM floor. Emit the lowest block start as an interior SAMPLE —
    * a sound RAM witness, but not a floor pin. Authoritative phys floors
    * come from sysfs_devicetree_memory, sysfs_firmware_memmap,

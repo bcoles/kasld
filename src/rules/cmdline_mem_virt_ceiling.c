@@ -14,7 +14,7 @@
 // page_offset_from_config / a landmark), otherwise emits nothing — sound
 // under the "no-input → no-constraint" principle.
 //
-// Reads SF_CMDLINE_MEM (cmdline-mem.c) + SF_IMAGE_SIZE + Q_PAGE_OFFSET pinned;
+// Reads SF_CMDLINE_MEM (cmdline_mem.c) + SF_IMAGE_SIZE + Q_PAGE_OFFSET pinned;
 // emits nothing when any is absent.
 //
 // References:

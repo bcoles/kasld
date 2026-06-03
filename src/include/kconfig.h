@@ -3,7 +3,7 @@
 // Shared kernel config parsing helpers.
 //
 // Provides is_kconfig_set(), get_kconfig_page_offset(), and
-// kconfig_has_kaslr() for use by boot-config.c and proc-config.c.
+// kconfig_has_kaslr() for use by boot_config.c and proc_config.c.
 //
 // All functions operate on an already-opened seekable FILE* — the caller
 // is responsible for opening the config source (boot file, /proc/config.gz,

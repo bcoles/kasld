@@ -52,7 +52,8 @@ rm -rf "$E2E"; mkdir -p "$E2E"
 OBJS=""
 for s in $ROOT/src/orchestrator.c $ROOT/src/render.c $ROOT/src/region_info.c \
          $ROOT/src/estimate.c $ROOT/src/quantities.c $ROOT/src/evidence.c \
-         $ROOT/src/engine.c $ROOT/src/engine_rules.c $(echo "$ROOT"/src/rules/*.c); do
+         $ROOT/src/engine.c $ROOT/src/engine_rules.c \
+         $(echo "$ROOT"/src/render/*.c) $(echo "$ROOT"/src/rules/*.c); do
   o="$E2E/$(basename "${s%.c}").o"
   $CC $CFLAGS -c "$s" -o "$o" || { echo "coverage-e2e: compile failed: $s" >&2; exit 1; }
   OBJS="$OBJS $o"

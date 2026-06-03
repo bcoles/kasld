@@ -140,14 +140,14 @@ int main(void) {
                       CONF_PARSED);
   }
 
-  /* CONFIG_PHYSICAL_START (x86 LOAD_PHYSICAL_ADDR) — see boot-config.c. */
+  /* CONFIG_PHYSICAL_START (x86 LOAD_PHYSICAL_ADDR) — see boot_config.c. */
   unsigned long phys_start = get_kconfig_physical_start(fp);
   if (phys_start) {
     printf("[.] CONFIG_PHYSICAL_START: %#lx\n", phys_start);
     kasld_emit_scalar(SF_PHYSICAL_START, phys_start, CONF_PARSED);
   }
 
-  /* CONFIG_PHYSICAL_ALIGN — KASLR slot granularity (x86). See boot-config.c.
+  /* CONFIG_PHYSICAL_ALIGN — KASLR slot granularity (x86). See boot_config.c.
    * Fallback for systems where /sys/kernel/boot_params/data is unreadable.  */
   unsigned long phys_align = get_kconfig_physical_align(fp);
   if (phys_align) {

@@ -89,7 +89,7 @@
  * VMLINUX_LOAD_ADDRESS = PAGE_OFFSET + TEXT_OFFSET = KERNEL_TEXT_DEFAULT here.
  * Triggered by the "kexec_file" cmdline token (loongarch_kexec_file_nokaslr),
  * the resume= hibernation path (hibernation_nokaslr), nokaslr cmdline
- * (proc-cmdline), or RANDOMIZE_BASE=n (proc-config / boot-config). The pin
+ * (proc_cmdline), or RANDOMIZE_BASE=n (proc_config / boot_config). The pin
  * rule's window-containment check is the backstop for a distro-overridden
  * VMLINUX_LOAD_ADDRESS. */
 #define KASLR_DISABLED_PINS_TEXT 1

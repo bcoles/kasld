@@ -218,7 +218,7 @@ int main(void) {
      * system the Loader Code phys range sits BELOW the lowest
      * Conventional Memory entry — same shape as the ppc32 PowerMac
      * "kernel reserved below the lowest zone" case
-     * (see dmesg_free_area_init_node / proc-zoneinfo /
+     * (see dmesg_free_area_init_node / proc_zoneinfo /
      * sysfs_memory_blocks). Treating e.dram.lo as POS_BASE would feed
      * dram_floor_bound a bogus high floor and exclude the actual
      * phys text base. Emit as an interior SAMPLE — a sound RAM

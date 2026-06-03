@@ -15,7 +15,7 @@
 // [base, base+ksize) window, so it only shows up in the hole-aware slot count,
 // not the headline lo/hi.
 //
-// Reads REGION_CMDLINE (emitted as a [lo,hi] range by cmdline-region) and
+// Reads REGION_CMDLINE (emitted as a [lo,hi] range by cmdline_region) and
 // SF_IMAGE_SIZE. Decoupled arches only (Q_PHYS_TEXT_BASE exists); emits nothing
 // when either input is absent.
 // ---

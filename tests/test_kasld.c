@@ -2142,7 +2142,7 @@ static void test_render_hardening_text_rand_failed_surfaces(void) {
   scalar_facts[num_scalar_facts].value = 1;
   scalar_facts[num_scalar_facts].conf = CONF_PARSED;
   snprintf(scalar_facts[num_scalar_facts].origin, ORIGIN_LEN,
-           "dmesg_kaslr-disabled");
+           "dmesg_kaslr_disabled");
   num_scalar_facts++;
   set_render_mode(0, 0, 0);
   hardening_mode = 1;
@@ -2151,7 +2151,7 @@ static void test_render_hardening_text_rand_failed_surfaces(void) {
   /* The dedicated posture section names the state and the detector. */
   assert(strstr(render_cap, "KASLR posture") != NULL);
   assert(strstr(render_cap, "randomization failed") != NULL);
-  assert(strstr(render_cap, "dmesg_kaslr-disabled") != NULL);
+  assert(strstr(render_cap, "dmesg_kaslr_disabled") != NULL);
 }
 
 /* JSON mirror: the kaslr_posture object reports state="randomization_failed",
@@ -2166,7 +2166,7 @@ static void test_render_hardening_json_rand_failed_state(void) {
   scalar_facts[num_scalar_facts].value = 1;
   scalar_facts[num_scalar_facts].conf = CONF_PARSED;
   snprintf(scalar_facts[num_scalar_facts].origin, ORIGIN_LEN,
-           "dmesg_kaslr-disabled");
+           "dmesg_kaslr_disabled");
   num_scalar_facts++;
   set_render_mode(1, 0, 0);
   hardening_mode = 1;
@@ -2176,7 +2176,7 @@ static void test_render_hardening_json_rand_failed_state(void) {
   assert(strstr(render_cap, "\"kaslr_posture\"") != NULL);
   assert(strstr(render_cap, "\"randomization_failed\"") != NULL);
   /* The detector origin is echoed in the JSON detected_by array. */
-  assert(strstr(render_cap, "dmesg_kaslr-disabled") != NULL);
+  assert(strstr(render_cap, "dmesg_kaslr_disabled") != NULL);
 }
 
 /* Without the new scalar, the posture section must NOT appear in text mode.

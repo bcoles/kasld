@@ -300,7 +300,7 @@ and memory layout interpretation depend on knowing the correct vmsplit.
 Since KASLD is typically compiled on one system and deployed to another,
 the compile-time `PAGE_OFFSET` assumption may not match the target system.
 KASLD handles this at runtime: components that detect the actual `PAGE_OFFSET`
-(e.g. `mmap-brute-vmsplit`, `boot-config`) emit a `pageoffset` tagged result,
+(e.g. `mmap_brute_vmsplit`, `boot_config`) emit a `pageoffset` tagged result,
 and the orchestrator automatically adjusts all layout boundaries before
 performing validation and analysis.
 

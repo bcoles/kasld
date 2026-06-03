@@ -51,7 +51,7 @@ KASLD_META("method:detection\n"
            "addr:none\n");
 
 /* Open the kernel boot config at well-known paths. Returns an open FILE*
- * or NULL. Mirrors the search order used by boot-config.c. */
+ * or NULL. Mirrors the search order used by boot_config.c. */
 static FILE *open_boot_config(const char *release) {
   const char *fixed_paths[] = {"/boot/config", NULL};
   for (int i = 0; fixed_paths[i]; i++) {

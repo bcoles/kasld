@@ -62,7 +62,7 @@ KASLD_META("method:heuristic\n"
            "patch:v4.15\n");
 
 static unsigned long get_kernel_addr_mincore(void) {
-  /* Heap-allocate the page-sized cookie buffer: the runtime size from
+  /* Heap-allocate the page_sized cookie buffer: the runtime size from
    * getpagesize() would otherwise require a VLA, which conflicts with
    * -Wvla and pessimises -fstack-protector-strong on this frame. */
   size_t page = (size_t)getpagesize();

@@ -12,7 +12,7 @@
 //
 // Independent of the resume= / CONFIG_HIBERNATION path covered by
 // hibernation_nokaslr.c, and of the nokaslr cmdline path covered by
-// proc-cmdline.c — emits SF_KASLR_DISABLED, the unified off-signal the
+// proc_cmdline.c — emits SF_KASLR_DISABLED, the unified off-signal the
 // engine's kaslr_disabled_pin rule consumes.
 //
 // LoongArch only — gated at compile time so non-LoongArch builds skip via

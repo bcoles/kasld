@@ -474,7 +474,7 @@ static void test_phys_ceiling_from_memtotal(void) {
 #endif
 }
 
-/* When a REGION_RAM POS_TOP observation is available (proc-zoneinfo's
+/* When a REGION_RAM POS_TOP observation is available (proc_zoneinfo's
  * (start_pfn + spanned) emission), prefer the SPANNED DRAM extent over
  * MemTotal. On systems with large reserved regions inside DRAM, MemTotal
  * is substantially below the spanned extent and the kernel may sit
@@ -505,7 +505,7 @@ static void test_phys_ceiling_prefers_dram_top_over_memtotal(void) {
   struct observation b = mk_obs(KASLD_TYPE_PHYS, REGION_RAM, floor,
                                 LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
   /* mk_obs() does not populate o.hi; build the POS_TOP observation by
-   * hand, matching the shape proc-zoneinfo emits (HI_SET only). */
+   * hand, matching the shape proc_zoneinfo emits (HI_SET only). */
   struct observation t;
   memset(&t, 0, sizeof(t));
   t.type = KASLD_TYPE_PHYS;
@@ -2535,7 +2535,7 @@ static void test_va_bits_arm64(void) {
 
 /* KASLR alignment quantities (LK_MAXALIGN). The arch-default baseline pins the
  * minimum granularity; boot_params (x86_64) and EFI_KIMG_ALIGN (arm64) raise it
- * from config/page-size evidence. */
+ * from config/page_size evidence. */
 int rule_kaslr_align_arch_default(const struct evidence_set *ev,
                                   const struct estimate *est,
                                   struct constraint *out, int out_max);

@@ -97,7 +97,7 @@ SRC_DIR := ./src
 HDRS := $(wildcard $(SRC_DIR)/include/*.h $(SRC_DIR)/include/kasld/*.h \
                     $(SRC_DIR)/include/kasld/arch/*.h)
 
-# Detect zlib (optional, for native gzip decompression in proc-config)
+# Detect zlib (optional, for native gzip decompression in proc_config)
 HAVE_ZLIB := $(shell echo 'int main(void){return 0;}' | $(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -xc - -lz -o /dev/null 2>/dev/null && echo 1)
 
 # Detect pthread (optional, for parallel inference worker pool in orchestrator)
@@ -146,7 +146,8 @@ SRC_FILES := $(wildcard $(COMP_SRC_DIR)/*.c)
 BIN_FILES := $(patsubst $(COMP_SRC_DIR)/%.c,$(COMP_DIR)/%,$(SRC_FILES))
 
 # cc-component <cmd...>: run the compiler. Three outcomes:
-#   - Success: silent (same as today's `-cc ...` line).
+#   - Success: print `[built] <component>` so per-arch builds (especially
+#     `make cross`) make visible which components landed on this arch.
 #   - Failure caused ONLY by the arch-gate `#error "Architecture is not
 #     supported"` (and nothing else): print a single
 #     `[skip] <component> (architecture-gated)` line. The build of *this*
@@ -158,9 +159,11 @@ BIN_FILES := $(patsubst $(COMP_SRC_DIR)/%.c,$(COMP_DIR)/%,$(SRC_FILES))
 # semantic).
 define cc-component
 	@out=$$($(1) 2>&1); st=$$?; \
-	if [ $$st -ne 0 ] && \
-	   echo "$$out" | grep -q '#error.*Architecture is not supported'; then \
-	  echo "[skip] $(notdir $@) (architecture-gated)"; \
+	if [ $$st -eq 0 ]; then \
+	  echo "[built] $(notdir $@)"; \
+	  if [ -n "$$out" ]; then printf '%s\n' "$$out" >&2; fi; \
+	elif echo "$$out" | grep -q '#error.*Architecture is not supported'; then \
+	  echo "[skip]  $(notdir $@) (architecture-gated)"; \
 	elif [ -n "$$out" ]; then \
 	  printf '%s\n' "$$out" >&2; \
 	fi
@@ -187,9 +190,9 @@ check-headers: | $(COMP_DIR)
 $(COMP_DIR)/%: $(COMP_SRC_DIR)/%.c $(HDRS) | $(COMP_DIR)
 	$(call cc-component, $(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $< -o $@)
 
-# proc-config: link with zlib when available for native gzip decompression
+# proc_config: link with zlib when available for native gzip decompression
 ifeq ($(HAVE_ZLIB),1)
-$(COMP_DIR)/proc-config: $(COMP_SRC_DIR)/proc-config.c $(HDRS) | $(COMP_DIR)
+$(COMP_DIR)/proc_config: $(COMP_SRC_DIR)/proc_config.c $(HDRS) | $(COMP_DIR)
 	$(call cc-component, $(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) -DHAVE_ZLIB $< -lz -o $@)
 endif
 

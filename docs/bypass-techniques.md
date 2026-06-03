@@ -58,7 +58,7 @@ The following KASLD components read from `dmesg` and `/var/log/dmesg`:
 * [dmesg_fake_numa_init.c](../src/components/dmesg_fake_numa_init.c)
 * [dmesg_free_area_init_node.c](../src/components/dmesg_free_area_init_node.c)
 * [dmesg_free_reserved_area.c](../src/components/dmesg_free_reserved_area.c)
-* [dmesg_kaslr-disabled.c](../src/components/dmesg_kaslr-disabled.c)
+* [dmesg_kaslr_disabled.c](../src/components/dmesg_kaslr_disabled.c)
 * [dmesg_last_pfn.c](../src/components/dmesg_last_pfn.c)
 * [dmesg_mem_init_kernel_layout.c](../src/components/dmesg_mem_init_kernel_layout.c)
 * [dmesg_mmu_idmap.c](../src/components/dmesg_mmu_idmap.c)
@@ -131,12 +131,12 @@ these files are readable by unprivileged users by default.
 
 The following KASLD components read from `/proc`:
 
-* [proc-kallsyms.c](../src/components/proc-kallsyms.c) — kernel symbol addresses from `/proc/kallsyms`
-* [proc-modules.c](../src/components/proc-modules.c) — loaded module addresses from `/proc/modules`
-* [proc-zoneinfo.c](../src/components/proc-zoneinfo.c) — memory zone boundaries from `/proc/zoneinfo`
-* [proc-cpuinfo.c](../src/components/proc-cpuinfo.c) — CPU information from `/proc/cpuinfo`
-* [proc-pid-syscall.c](../src/components/proc-pid-syscall.c) — kernel stack pointer from `/proc/<pid>/syscall`
-* [proc-stat-wchan.c](../src/components/proc-stat-wchan.c) — wait channel address from `/proc/<pid>/stat`
+* [proc_kallsyms.c](../src/components/proc_kallsyms.c) — kernel symbol addresses from `/proc/kallsyms`
+* [proc_modules.c](../src/components/proc_modules.c) — loaded module addresses from `/proc/modules`
+* [proc_zoneinfo.c](../src/components/proc_zoneinfo.c) — memory zone boundaries from `/proc/zoneinfo`
+* [proc_cpuinfo.c](../src/components/proc_cpuinfo.c) — CPU information from `/proc/cpuinfo`
+* [proc_pid_syscall.c](../src/components/proc_pid_syscall.c) — kernel stack pointer from `/proc/<pid>/syscall`
+* [proc_stat_wchan.c](../src/components/proc_stat_wchan.c) — wait channel address from `/proc/<pid>/stat`
 * [proc_timer_list.c](../src/components/proc_timer_list.c) — per-CPU timer base addresses from `/proc/timer_list`
 
 The following KASLD components read from `/sys`:
@@ -154,9 +154,9 @@ The following KASLD components read from `/sys`:
 * [sysfs_firmware_memmap.c](../src/components/sysfs_firmware_memmap.c) — firmware memory map from `/sys/firmware/memmap/`
 * [sysfs_iommu_reserved_regions.c](../src/components/sysfs_iommu_reserved_regions.c) — physical DRAM addresses of IOMMU reserved regions from `/sys/kernel/iommu_groups/*/reserved_regions`
 * [sysfs_iscsi_transport_handle.c](../src/components/sysfs_iscsi_transport_handle.c) — iSCSI transport handle from `/sys/class/iscsi_transport/`
-* [sysfs-kernel-notes-xen.c](../src/components/sysfs-kernel-notes-xen.c) — Xen notes from `/sys/kernel/notes`
+* [sysfs_kernel_notes_xen.c](../src/components/sysfs_kernel_notes_xen.c) — Xen notes from `/sys/kernel/notes`
 * [sysfs_memory_blocks.c](../src/components/sysfs_memory_blocks.c) — memory block addresses from `/sys/devices/system/memory/`
-* [sysfs-module-sections.c](../src/components/sysfs-module-sections.c) — module section addresses from `/sys/module/*/sections/`
+* [sysfs_module_sections.c](../src/components/sysfs_module_sections.c) — module section addresses from `/sys/module/*/sections/`
 * [sysfs_nd_region.c](../src/components/sysfs_nd_region.c) — NVDIMM/PMem region physical start addresses from `/sys/bus/nd/devices/region*/`
 * [sysfs_nf_conntrack.c](../src/components/sysfs_nf_conntrack.c) — netfilter conntrack hash from `/sys/module/nf_conntrack/`
 * [sysfs_pci_resource.c](../src/components/sysfs_pci_resource.c) — PCI BAR addresses from `/sys/bus/pci/devices/`
@@ -174,9 +174,9 @@ enabled, the `PAGE_OFFSET` (vmsplit), and other layout-relevant settings.
 
 The following KASLD components read boot configuration:
 
-* [boot-config.c](../src/components/boot-config.c) — reads `/boot/config-*` for `CONFIG_RELOCATABLE`, `CONFIG_RANDOMIZE_BASE`, and `CONFIG_PAGE_OFFSET`
-* [proc-config.c](../src/components/proc-config.c) — reads `/proc/config.gz` for the same configuration options
-* [proc-cmdline.c](../src/components/proc-cmdline.c) — reads `/proc/cmdline` to check for `nokaslr`
+* [boot_config.c](../src/components/boot_config.c) — reads `/boot/config-*` for `CONFIG_RELOCATABLE`, `CONFIG_RANDOMIZE_BASE`, and `CONFIG_PAGE_OFFSET`
+* [proc_config.c](../src/components/proc_config.c) — reads `/proc/config.gz` for the same configuration options
+* [proc_cmdline.c](../src/components/proc_cmdline.c) — reads `/proc/cmdline` to check for `nokaslr`
 * [hibernation_nokaslr.c](../src/components/hibernation_nokaslr.c) — checks whether hibernation resume has disabled KASLR
 
 ## Side-channels
@@ -303,7 +303,7 @@ The following KASLD components exploit syscall and interface leaks:
 * [mincore.c](../src/components/mincore.c) — `mincore()` heap page disclosure via uninitialized memory (CVE-2017-16994; patched in v4.15)
 * [bcm_msg_head_struct.c](../src/components/bcm_msg_head_struct.c) — CAN BCM `bcm_msg_head` struct uninitialized 4-byte padding hole leaks kernel stack pointer via `recvmsg()` (CVE-2021-34693; patched in v5.12)
 * [pppd_kallsyms.c](../src/components/pppd_kallsyms.c) — set-uid-root `pppd` opens `/proc/kallsyms` as root, bypassing the `kptr_restrict` open-time check in pre-v4.8 kernels
-* [qemu-tcg-iret.c](../src/components/qemu-tcg-iret.c) — QEMU TCG `iret` emulation bug causes the hypervisor to read from the host kernel stack instead of the guest user stack, leaking a kernel address (patched in QEMU 9.1; not a kernel bug)
+* [qemu_tcg_iret.c](../src/components/qemu_tcg_iret.c) — QEMU TCG `iret` emulation bug causes the hypervisor to read from the host kernel stack instead of the guest user stack, leaking a kernel address (patched in QEMU 9.1; not a kernel bug)
 
 ## ioctl leaks
 
@@ -371,7 +371,7 @@ space directly, without reading any files or exploiting vulnerabilities.
 
 The following KASLD components use brute-force probing:
 
-* [mmap-brute-vmsplit.c](../src/components/mmap-brute-vmsplit.c) — determines `PAGE_OFFSET` (vmsplit) on 32-bit systems by mapping pages across the address space until failure
+* [mmap_brute_vmsplit.c](../src/components/mmap_brute_vmsplit.c) — determines `PAGE_OFFSET` (vmsplit) on 32-bit systems by mapping pages across the address space until failure
 
 ## Weak entropy
 
@@ -421,7 +421,7 @@ This state is materially different from a deliberate opt-out
   not from compile-time information.
 
 KASLD emits a distinct scalar fact for each. The
-`dmesg_kaslr-disabled` component classifies each `KASLR disabled` line
+`dmesg_kaslr_disabled` component classifies each `KASLR disabled` line
 by its reason and emits `SF_KASLR_DISABLED` (opt-out) or
 `SF_KASLR_RANDOMIZATION_FAILED` (machinery failed). Only the former
 drives the engine's `kaslr_disabled_pin` rule. See

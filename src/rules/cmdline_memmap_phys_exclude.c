@@ -3,7 +3,7 @@
 // Rule: cmdline `memmap=` reservations as physical base exclusions.
 //
 // Each `memmap=size$start` / `size!start` / `size#start` reservation (emitted
-// by cmdline-memmap as a PHYS REGION_CMDLINE_MEMMAP extent) marks an interval
+// by cmdline_memmap as a PHYS REGION_CMDLINE_MEMMAP extent) marks an interval
 // that the x86 KASLR placer refuses to overlap. The kernel image is therefore
 // forbidden in
 //

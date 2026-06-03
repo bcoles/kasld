@@ -4,7 +4,7 @@
 //
 // A REGION_PAGE_OFFSET observation
 // is a component's assertion of the directmap base / VAS origin itself —
-// CONFIG_PAGE_OFFSET from proc-config, the value derived by proc-cpuinfo, etc.
+// CONFIG_PAGE_OFFSET from proc_config, the value derived by proc_cpuinfo, etc.
 // Each such landmark pins the quantity exactly, so the rule emits a C_EQUALS
 // on Q_PAGE_OFFSET per landmark.
 //
@@ -68,7 +68,7 @@ int rule_page_offset_from_landmark(const struct evidence_set *ev,
 #if defined(__x86_64__)
     /* On x86_64 the directmap base is randomised (RANDOMIZE_MEMORY) AT OR ABOVE
      * the canonical VAS floor, so a landmark at the L4 VAS floor or the L5
-     * directmap base (what proc-cpuinfo derives from virt_bits) is a LOWER
+     * directmap base (what proc_cpuinfo derives from virt_bits) is a LOWER
      * bound, not the exact base. Pinning it would exclude the randomised base
      * above it; emit C_LOWER_BOUND so phys_virt_synth / directmap bounds can
      * reconstruct the real base within [floor, ...]. */
