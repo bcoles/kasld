@@ -1463,6 +1463,10 @@ static void progress_update(void) {
   if (verbose)
     printf("\n");
   else {
+    /* Progress bar uses \r to overwrite itself; only useful on a TTY. Sent
+     * to stderr so `kasld | grep` / `kasld > out` don't capture overwrites. */
+    if (!isatty(STDERR_FILENO))
+      return;
     int total =
         num_active_components > 0 ? num_active_components : num_components;
     int pct = total > 0 ? (done * 100) / total : 0;
@@ -1479,9 +1483,9 @@ static void progress_update(void) {
       bar[i] = i < filled ? '#' : '.';
     bar[bar_width] = '\0';
 
-    printf("\r%s[%s]%s %3d%%  %d/%d  %s%.1fs%s", c(C_DIM), bar, c(C_RESET), pct,
-           done, total, c(C_DIM), elapsed, c(C_RESET));
-    fflush(stdout);
+    fprintf(stderr, "\r%s[%s]%s %3d%%  %d/%d  %s%.1fs%s", c(C_DIM), bar,
+            c(C_RESET), pct, done, total, c(C_DIM), elapsed, c(C_RESET));
+    fflush(stderr);
   }
 }
 
