@@ -7,31 +7,33 @@
 // regions out consecutively, each separated by a random gap of at least
 // PUD_SIZE (1 GiB):
 //
-//   directmap base = page_offset_base, size = directmap_size_tb * 1 TiB
-//   vmalloc  base = page_offset_base + directmap_size_tb * 1 TiB + (>=
-//   PUD_SIZE) vmemmap  base = vmalloc_base    + VMALLOC_SIZE_TB * 1 TiB    +
+//   directmap base = virt_page_offset_base, size = directmap_size_tb * 1 TiB
+//   vmalloc  base = virt_page_offset_base + directmap_size_tb * 1 TiB + (>=
+//   PUD_SIZE) vmemmap  base = virt_vmalloc_base    + VMALLOC_SIZE_TB * 1 TiB +
 //   (>= PUD_SIZE)
 //
 // so the vmalloc base is bounded on BOTH sides — from the direct map below and
 // vmemmap above:
 //
-//   vmalloc_base >= page_offset_min + directmap_size_tb * 1 TiB + PUD_SIZE
-//   vmalloc_base <= vmemmap_base_max - VMALLOC_SIZE_TB * 1 TiB - PUD_SIZE
+//   virt_vmalloc_base >= virt_page_offset_min + directmap_size_tb * 1 TiB +
+//   PUD_SIZE virt_vmalloc_base <= virt_vmemmap_base_max - VMALLOC_SIZE_TB * 1
+//   TiB - PUD_SIZE
 //
 // where directmap_size_tb = DIV_ROUND_UP(max_pfn * PAGE_SIZE, 1 TiB) +
 // CONFIG_RANDOMIZE_MEMORY_PHYSICAL_PADDING (kernel default 10), capped at the
-// 4096 TiB architectural ceiling. max_pfn arrives as SF_MAX_PFN
+// 4096 TiB architectural ceiling. max_pfn arrives as SF_PHYS_MAX_PFN
 // (/proc/zoneinfo). The padding is a hardcoded assumption — a larger kernel
 // padding only makes the lower bound looser (still valid), never wrong.
 // VMALLOC_SIZE_TB is 32 (L4) or 12800 (L5), by paging mode.
 //
 // CROSS-QUANTITY: the lower bound reads the engine's resolved Q_PAGE_OFFSET
-// lower edge (the honest VAS floor when no landmark pinned page_offset, a point
-// when one did). The upper bound reads the resolved Q_VMEMMAP_BASE upper edge
-// and fires only once it has actually been bound (hi_binding != 0) — symmetric
-// to x86_64_vmemmap_base_bound, which derives vmemmap's lower edge from
-// vmalloc's; the engine fixpoint orders the two. The lower bound emits nothing
-// without SF_MAX_PFN — absence yields no constraint, never a wrong one.
+// lower edge (the honest VAS floor when no landmark pinned virt_page_offset, a
+// point when one did). The upper bound reads the resolved Q_VMEMMAP_BASE upper
+// edge and fires only once it has actually been bound (hi_binding != 0) —
+// symmetric to x86_64_vmemmap_base_bound, which derives vmemmap's lower edge
+// from vmalloc's; the engine fixpoint orders the two. The lower bound emits
+// nothing without SF_PHYS_MAX_PFN — absence yields no constraint, never a wrong
+// one.
 //
 // C_LOWER_BOUND + optional C_UPPER_BOUND on Q_VMALLOC_BASE. x86-64 only; inert
 // elsewhere (the quantity is never constrained on other arches).
@@ -57,13 +59,14 @@ int rule_x86_64_vmalloc_base_bound(const struct evidence_set *ev,
   if (out_max < 1)
     return 0;
 
-  /* max_pfn (SF_MAX_PFN) — required; without it directmap size is unknown. */
+  /* max_pfn (SF_PHYS_MAX_PFN) — required; without it directmap size is unknown.
+   */
   unsigned long max_pfn = 0;
   uint32_t pfn_src = 0;
   for (int i = 0; i < ev->n_obs; i++) {
     const struct observation *o = &ev->obs[i];
     if (o->valid && o->value_kind == OBS_SCALAR &&
-        o->scalar_fact == SF_MAX_PFN) {
+        o->scalar_fact == SF_PHYS_MAX_PFN) {
       max_pfn = o->scalar_value;
       pfn_src = o->id;
       break;
@@ -73,7 +76,7 @@ int rule_x86_64_vmalloc_base_bound(const struct evidence_set *ev,
     return 0;
 
   const struct estimate *po = &est[Q_PAGE_OFFSET];
-  unsigned long page_offset_min = po->lo;
+  unsigned long virt_page_offset_min = po->lo;
 
   unsigned long one_tb = 1ul << TB_SHIFT;
   unsigned long page_bytes = max_pfn << PAGE_SHIFT;
@@ -83,8 +86,8 @@ int rule_x86_64_vmalloc_base_bound(const struct evidence_set *ev,
   unsigned long pud_size = 1ul << PUD_SHIFT;
 
   unsigned long candidate =
-      page_offset_min + directmap_size_tb * one_tb + pud_size;
-  if (candidate <= page_offset_min) /* overflow / sanity */
+      virt_page_offset_min + directmap_size_tb * one_tb + pud_size;
+  if (candidate <= virt_page_offset_min) /* overflow / sanity */
     return 0;
 
   int n = 0;
@@ -103,15 +106,15 @@ int rule_x86_64_vmalloc_base_bound(const struct evidence_set *ev,
   }
 
   /* Upper bound: vmemmap sits VMALLOC_SIZE_TB + (>= PUD_SIZE) above vmalloc, so
-   * vmalloc_base <= vmemmap_base_max - VMALLOC_SIZE_TB*1TiB - PUD_SIZE. Fires
-   * only once vmemmap's upper edge is itself bound (the fixpoint sets it via
-   * x86_64_vmemmap_base_bound). */
+   * virt_vmalloc_base <= virt_vmemmap_base_max - VMALLOC_SIZE_TB*1TiB -
+   * PUD_SIZE. Fires only once vmemmap's upper edge is itself bound (the
+   * fixpoint sets it via x86_64_vmemmap_base_bound). */
   const struct estimate *vmemmap = &est[Q_VMEMMAP_BASE];
   if (vmemmap->hi_binding && n < out_max) {
-    unsigned long vmalloc_size_tb =
-        (page_offset_min != 0 && page_offset_min < X86_64_L4_VAS_START)
-            ? VMALLOC_SIZE_TB_L5
-            : VMALLOC_SIZE_TB_L4;
+    unsigned long vmalloc_size_tb = (virt_page_offset_min != 0 &&
+                                     virt_page_offset_min < X86_64_L4_VAS_START)
+                                        ? VMALLOC_SIZE_TB_L5
+                                        : VMALLOC_SIZE_TB_L4;
     unsigned long below = vmalloc_size_tb * one_tb + pud_size;
     if (vmemmap->hi > below) {
       unsigned long upper = vmemmap->hi - below;

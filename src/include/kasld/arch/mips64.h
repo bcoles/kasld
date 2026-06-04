@@ -16,7 +16,7 @@
 
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/mips/include/asm/addrspace.h#L68
 #define PAGE_OFFSET 0xffffffff80000000ul
-// CKSEG0 is fixed by the MIPS ISA — page_offset cannot vary at runtime.
+// CKSEG0 is fixed by the MIPS ISA — virt_page_offset cannot vary at runtime.
 #define PAGE_OFFSET_INVARIANT 1
 
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/mips/include/asm/mach-generic/spaces.h#L28
@@ -37,12 +37,12 @@
 // CKSEG0 / CKSSEG: 0xffffffff80000000+ (compatibility segments).
 // Both are part of the kernel VAS.
 // https://elixir.bootlin.com/linux/v6.12/source/arch/mips/include/asm/addrspace.h#L71
-#define KERNEL_VAS_START 0x8000000000000000ul
-#define KERNEL_VAS_END 0xfffffffffffffffful
+#define KERNEL_VIRT_VAS_START 0x8000000000000000ul
+#define KERNEL_VIRT_VAS_END 0xfffffffffffffffful
 
-#define KERNEL_TEXT_MIN PAGE_OFFSET
+#define KERNEL_VIRT_TEXT_MIN PAGE_OFFSET
 // Above this, addresses fall in the module region.
-#define KERNEL_TEXT_MAX 0xffffffffc0000000ul
+#define KERNEL_VIRT_TEXT_MAX 0xffffffffc0000000ul
 
 #define MODULES_START 0xffffffffc0000000ul
 #define MODULES_END 0xfffffffffffffffful
@@ -50,7 +50,7 @@
 
 // KASLR offset is shifted left 16 bits (64 KiB granularity).
 // https://elixir.bootlin.com/linux/v6.12/source/arch/mips/kernel/relocate.c#L276
-#define KERNEL_ALIGN 0x10000ul
+#define IMAGE_ALIGN 0x10000ul
 
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/mips/kernel/head.S#L67
 #define TEXT_OFFSET 0x400
@@ -64,7 +64,8 @@
 // See docs/kaslr.md "Default text base and KASLR alignment" for all
 // architectures. Kernel source: arch/mips/kernel/vmlinux.lds.S,
 // arch/mips/kernel/head.S
-#define KERNEL_TEXT_DEFAULT (KERNEL_TEXT_MIN + 0x100000ul + TEXT_OFFSET)
+#define KERNEL_VIRT_TEXT_DEFAULT                                               \
+  (KERNEL_VIRT_TEXT_MIN + 0x100000ul + TEXT_OFFSET)
 
 #define KASLR_SUPPORTED 1
 

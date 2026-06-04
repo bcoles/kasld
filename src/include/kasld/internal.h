@@ -62,35 +62,35 @@ static inline const char *c(const char *code) {
  * =========================================================================
  */
 struct kasld_layout {
-  unsigned long page_offset;
-  unsigned long kernel_vas_start;
-  unsigned long kernel_vas_end;
-  unsigned long kernel_text_min;
-  unsigned long kernel_text_max;
+  unsigned long virt_page_offset;
+  unsigned long virt_kernel_vas_start;
+  unsigned long virt_kernel_vas_end;
+  unsigned long virt_kernel_text_min;
+  unsigned long virt_kernel_text_max;
   unsigned long modules_start;
   unsigned long modules_end;
-  unsigned long kernel_align;
+  unsigned long image_align;
   unsigned long text_offset;
-  unsigned long kernel_text_default;
-  unsigned long kaslr_text_min;
-  unsigned long kaslr_text_max;
-  unsigned long kaslr_align;
+  unsigned long virt_kernel_text_default;
+  unsigned long virt_kaslr_text_min;
+  unsigned long virt_kaslr_text_max;
+  unsigned long virt_kaslr_align;
   /* Physical KASLR range (!TEXT_TRACKS_DIRECTMAP arches only; zero otherwise).
    */
   unsigned long phys_kaslr_text_min;
   unsigned long phys_kaslr_text_max;
   unsigned long phys_kaslr_align;
   /* Engine-resolved direct-map / RANDOMIZE_MEMORY region bounds. Distinct
-   * from layout.page_offset (a single rendered anchor): these are the [min,
-   * max] window the engine proved. Folded in here so the seam between
+   * from layout.virt_page_offset (a single rendered anchor): these are the
+   * [min, max] window the engine proved. Folded in here so the seam between
    * engine_sync_authoritative() and compute_kaslr_info() is one global
    * (layout) instead of two (layout + an orchestrator-private g_ctx). */
-  unsigned long page_offset_min;
-  unsigned long page_offset_max;
-  unsigned long vmalloc_base_min;
-  unsigned long vmalloc_base_max;
-  unsigned long vmemmap_base_min;
-  unsigned long vmemmap_base_max;
+  unsigned long virt_page_offset_min;
+  unsigned long virt_page_offset_max;
+  unsigned long virt_vmalloc_base_min;
+  unsigned long virt_vmalloc_base_max;
+  unsigned long virt_vmemmap_base_min;
+  unsigned long virt_vmemmap_base_max;
 };
 
 /* =========================================================================
@@ -286,7 +286,7 @@ struct kaslr_info {
    * relocated to a firmware- or boot-stub-deterministic position —
    * NOT the link-time default. Distinct from `disabled` (opt-out):
    * `default_addr` is NOT the kernel's actual position when this is
-   * set. Driven by SF_KASLR_RANDOMIZATION_FAILED. */
+   * set. Driven by SF_VIRT_KASLR_RANDOMIZATION_FAILED. */
   int randomization_failed;
   unsigned long default_addr;
   /* Virtual KASLR */
@@ -303,12 +303,12 @@ struct kaslr_info {
   int pbits;
   int has_phys;
   /* Memory KASLR (x86_64 CONFIG_RANDOMIZE_MEMORY) */
-  unsigned long page_offset_min;
-  unsigned long page_offset_max;
-  unsigned long vmalloc_min;
-  unsigned long vmalloc_max;
-  unsigned long vmemmap_min;
-  unsigned long vmemmap_max;
+  unsigned long virt_page_offset_min;
+  unsigned long virt_page_offset_max;
+  unsigned long virt_vmalloc_min;
+  unsigned long virt_vmalloc_max;
+  unsigned long virt_vmemmap_min;
+  unsigned long virt_vmemmap_max;
 };
 
 struct summary {
@@ -347,8 +347,9 @@ extern int num_comp_logs;
 
 /* Scalar system facts collected from components' `S` wire records, parallel to
  * results[]. The engine bridge copies these to OBS_SCALAR observations; the
- * orchestrator and renderer also read them directly (e.g. SF_KASLR_DISABLED
- * drives s->kaslr.disabled and the "Detected by:" list). */
+ * orchestrator and renderer also read them directly (e.g.
+ * SF_VIRT_KASLR_DISABLED drives s->kaslr.disabled and the "Detected by:" list).
+ */
 struct scalar_fact_record {
   enum kasld_scalar_fact fact;
   unsigned long value;

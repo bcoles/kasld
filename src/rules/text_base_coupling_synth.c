@@ -5,7 +5,7 @@
 // On TEXT_TRACKS_DIRECTMAP arches the kernel image is mapped at a fixed
 // offset (PAGE_OFFSET) above its physical load, so:
 //
-//   virt_text_base ≈ page_offset + (phys_text_base - PHYS_OFFSET)
+//   virt_text_base ≈ virt_page_offset + (phys_text_base - PHYS_OFFSET)
 //
 // Reads the post-narrowing estimates and propagates each side's interval
 // onto the other:
@@ -62,8 +62,9 @@ int rule_text_base_coupling_synth(const struct evidence_set *ev,
 #if TEXT_TRACKS_DIRECTMAP
   const struct estimate *po = &est[Q_PAGE_OFFSET];
   if (po->lo != po->hi)
-    return 0; /* page_offset must be pinned for the projection to be sound */
-  const unsigned long page_offset = po->lo;
+    return 0; /* virt_page_offset must be pinned for the projection to be sound
+               */
+  const unsigned long virt_page_offset = po->lo;
 
   const struct estimate *vt = &est[Q_VIRT_TEXT_BASE];
   const struct estimate *pt = &est[Q_PHYS_TEXT_BASE];
@@ -71,7 +72,7 @@ int rule_text_base_coupling_synth(const struct evidence_set *ev,
   const unsigned long text_off = (unsigned long)TEXT_OFFSET;
   /* virt_to_phys delta: PAGE_OFFSET - PHYS_OFFSET. Positive on every
    * TEXT_TRACKS_DIRECTMAP arch (kernel virt > kernel phys). */
-  const unsigned long v_minus_p = page_offset - phys_off;
+  const unsigned long v_minus_p = virt_page_offset - phys_off;
 
   int n = 0;
 

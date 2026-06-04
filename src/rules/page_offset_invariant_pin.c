@@ -1,6 +1,6 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
-// Rule: pin page_offset on arches where it is architecturally invariant.
+// Rule: pin virt_page_offset on arches where it is architecturally invariant.
 //
 // On some arches the kernel's direct-map / VAS origin is a hard architectural
 // constant that cannot vary by config, paging mode, or randomisation:

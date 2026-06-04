@@ -72,7 +72,8 @@ int rule_x86_64_efi_phys_seed_zero(const struct evidence_set *ev,
           lineage[n_lineage++] = o->id;
         if (o->conf < trigger_conf)
           trigger_conf = o->conf;
-      } else if (o->scalar_fact == SF_CMDLINE_MEM && o->scalar_value != 0) {
+      } else if (o->scalar_fact == SF_PHYS_CMDLINE_MEM &&
+                 o->scalar_value != 0) {
         has_mem = 1;
         if (n_lineage < MAX_LINEAGE)
           lineage[n_lineage++] = o->id;

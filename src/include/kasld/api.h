@@ -57,20 +57,20 @@
 #endif
 
 /* Sanity-check arch-supplied values. */
-#if KERNEL_VAS_START > KERNEL_VAS_END
-#error "Defined KERNEL_VAS_START is larger than KERNEL_VAS_END"
+#if KERNEL_VIRT_VAS_START > KERNEL_VIRT_VAS_END
+#error "Defined KERNEL_VIRT_VAS_START is larger than KERNEL_VIRT_VAS_END"
 #endif
-#if KERNEL_VAS_START > KERNEL_TEXT_MIN
-#error "Defined KERNEL_VAS_START is larger than KERNEL_TEXT_MIN"
+#if KERNEL_VIRT_VAS_START > KERNEL_VIRT_TEXT_MIN
+#error "Defined KERNEL_VIRT_VAS_START is larger than KERNEL_VIRT_TEXT_MIN"
 #endif
-#if KERNEL_TEXT_MAX > KERNEL_VAS_END
-#error "Defined KERNEL_TEXT_MAX is larger than KERNEL_VAS_END"
+#if KERNEL_VIRT_TEXT_MAX > KERNEL_VIRT_VAS_END
+#error "Defined KERNEL_VIRT_TEXT_MAX is larger than KERNEL_VIRT_VAS_END"
 #endif
-#if KERNEL_TEXT_DEFAULT > KERNEL_TEXT_MAX
-#error "Generated KERNEL_TEXT_DEFAULT is larger than KERNEL_TEXT_MAX"
+#if KERNEL_VIRT_TEXT_DEFAULT > KERNEL_VIRT_TEXT_MAX
+#error "Generated KERNEL_VIRT_TEXT_DEFAULT is larger than KERNEL_VIRT_TEXT_MAX"
 #endif
-#if KERNEL_TEXT_DEFAULT < KERNEL_TEXT_MIN
-#error "Generated KERNEL_TEXT_DEFAULT is smaller than KERNEL_TEXT_MIN"
+#if KERNEL_VIRT_TEXT_DEFAULT < KERNEL_VIRT_TEXT_MIN
+#error "Generated KERNEL_VIRT_TEXT_DEFAULT is smaller than KERNEL_VIRT_TEXT_MIN"
 #endif
 #ifdef KERNEL_PHYS_MIN
 #if KERNEL_PHYS_MIN > KERNEL_PHYS_MAX
@@ -103,10 +103,10 @@
 
 /* Conservative lower edges of Q_VIRT_TEXT_BASE / Q_PHYS_TEXT_BASE windows.
  *
- * KASLR_TEXT_MIN / KASLR_PHYS_MIN can bake in configurable Kconfig values
+ * KASLR_VIRT_TEXT_MIN / KASLR_PHYS_MIN can bake in configurable Kconfig values
  * (currently x86_64 with CONFIG_PHYSICAL_START) at their *default*. Real
  * kernels built with a smaller value place text below that floor, and the
- * engine's window then excludes truth. KASLR_TEXT_MIN_WIDE /
+ * engine's window then excludes truth. KASLR_VIRT_TEXT_MIN_WIDE /
  * KASLR_PHYS_MIN_WIDE are the *wider* variants — the smallest practical
  * value across all reasonable Kconfig choices on the arch — used by
  * quantities.c as the honest-top floor.
@@ -115,22 +115,22 @@
  * (no widening). The physical_start_lower_bound rule restores the tight
  * floor via a learned SF_PHYSICAL_START (CONF_PARSED) or the compile-time
  * default (CONF_HEURISTIC), overridable by any real evidence. */
-#ifndef KASLR_TEXT_MIN_WIDE
-#define KASLR_TEXT_MIN_WIDE KASLR_TEXT_MIN
+#ifndef KASLR_VIRT_TEXT_MIN_WIDE
+#define KASLR_VIRT_TEXT_MIN_WIDE KASLR_VIRT_TEXT_MIN
 #endif
 #if defined(KASLR_PHYS_MIN) && !defined(KASLR_PHYS_MIN_WIDE)
 #define KASLR_PHYS_MIN_WIDE KASLR_PHYS_MIN
 #endif
 
 /* KASLR randomization window defaults (override per-arch when narrower) */
-#ifndef KASLR_TEXT_MIN
-#define KASLR_TEXT_MIN KERNEL_TEXT_MIN
+#ifndef KASLR_VIRT_TEXT_MIN
+#define KASLR_VIRT_TEXT_MIN KERNEL_VIRT_TEXT_MIN
 #endif
-#ifndef KASLR_TEXT_MAX
-#define KASLR_TEXT_MAX KERNEL_TEXT_MAX
+#ifndef KASLR_VIRT_TEXT_MAX
+#define KASLR_VIRT_TEXT_MAX KERNEL_VIRT_TEXT_MAX
 #endif
-#ifndef KASLR_ALIGN
-#define KASLR_ALIGN KERNEL_ALIGN
+#ifndef KASLR_VIRT_ALIGN
+#define KASLR_VIRT_ALIGN IMAGE_ALIGN
 #endif
 
 #if defined(KERNEL_PHYS_MIN) && !defined(KERNEL_PHYS_DEFAULT)
@@ -143,7 +143,7 @@
 #define KASLR_PHYS_MAX KERNEL_PHYS_MAX
 #endif
 #ifndef KASLR_PHYS_ALIGN
-#define KASLR_PHYS_ALIGN KERNEL_ALIGN
+#define KASLR_PHYS_ALIGN IMAGE_ALIGN
 #endif
 
 #ifndef PAGE_OFFSET_RANDOMIZED
@@ -151,8 +151,9 @@
 #endif
 
 /* PAGE_OFFSET is a fixed architectural constant (per VA-bits) unless KASLR
- * slides it — only x86_64 RANDOMIZE_MEMORY does. page_offset-reconstructing
- * rules pin to a single value on fixed arches, report a window on randomized.
+ * slides it — only x86_64 RANDOMIZE_MEMORY does.
+ * virt_page_offset-reconstructing rules pin to a single value on fixed arches,
+ * report a window on randomized.
  */
 #ifndef PAGE_OFFSET_FIXED
 #define PAGE_OFFSET_FIXED (!PAGE_OFFSET_RANDOMIZED)
@@ -169,18 +170,19 @@
 #endif
 
 /* 1 iff the compile-time PAGE_OFFSET is the GUARANTEED runtime value on this
- * arch — i.e. page_offset cannot vary by config (VMSPLIT/CONFIG_PAGE_OFFSET),
- * paging mode (arm64 VA_BITS, riscv SATP), or randomisation (x86_64
- * RANDOMIZE_MEMORY, s390). Only then is pinning Q_PAGE_OFFSET to PAGE_OFFSET
- * sound with no evidence. Set per-arch (mips CKSEG0, ppc64 book3s linear base);
- * defaults to 0 (the honest window is kept until a landmark/probe resolves it).
+ * arch — i.e. virt_page_offset cannot vary by config
+ * (VMSPLIT/CONFIG_PAGE_OFFSET), paging mode (arm64 VA_BITS, riscv SATP), or
+ * randomisation (x86_64 RANDOMIZE_MEMORY, s390). Only then is pinning
+ * Q_PAGE_OFFSET to PAGE_OFFSET sound with no evidence. Set per-arch (mips
+ * CKSEG0, ppc64 book3s linear base); defaults to 0 (the honest window is kept
+ * until a landmark/probe resolves it).
  */
 #ifndef PAGE_OFFSET_INVARIANT
 #define PAGE_OFFSET_INVARIANT 0
 #endif
 
-/* 1 iff CONFIG_PAGE_OFFSET is the AUTHORITATIVE runtime page_offset on this
- * arch — i.e. page_offset is a pure compile-time constant set by the
+/* 1 iff CONFIG_PAGE_OFFSET is the AUTHORITATIVE runtime virt_page_offset on
+ * this arch — i.e. virt_page_offset is a pure compile-time constant set by the
  * config/VMSPLIT and cannot be overridden at boot. True on x86_32/arm32
  * (user/kernel split is fixed at build). NOT true on riscv64
  * (CONFIG_PAGE_OFFSET reflects the built SATP mode but the kernel may boot a
@@ -195,47 +197,48 @@
  * On arches where this is 1, the absence of KASLR (nokaslr cmdline, kernel
  * compiled without CONFIG_RANDOMIZE_BASE, or an arch-specific equivalent) means
  * the kernel sits at the address returned by `arch_default_text_base()` below.
- * The kaslr_disabled_pin rule pins Q_VIRT_TEXT_BASE to that value when a
- * KASLR-off signal (SF_KASLR_DISABLED) is present, with a window-containment
- * backstop that refuses to pin if the computed default falls outside the honest
+ * The virt_kaslr_disabled_pin rule pins Q_VIRT_TEXT_BASE to that value when
+ * SF_VIRT_KASLR_DISABLED is present, with a window-containment backstop
+ * that refuses to pin if the computed default falls outside the honest
  * window (a misconfig the arch_default_text_base() formula does not model).
  *
  * MUST stay 0 (default) on arches where the bootloader can place the kernel
  * elsewhere even without KASLR (CONFIG_RELOCATABLE in practice): x86_32,
  * arm32, ppc, mips, loongarch, s390 — pinning would be unsound there. */
-#ifndef KASLR_DISABLED_PINS_TEXT
-#define KASLR_DISABLED_PINS_TEXT 0
+#ifndef KASLR_DISABLED_PINS_VIRT_TEXT
+#define KASLR_DISABLED_PINS_VIRT_TEXT 0
 #endif
 
 /* Per-arch derivation of the no-KASLR text base. Default stub never used (the
- * rule is gated on KASLR_DISABLED_PINS_TEXT, which is 0 here). Arch headers
- * override with the actual constant. If a future arch needs to derive this from
- * engine-resolved quantities (PAGE_OFFSET, VA_BITS, CONFIG_PHYSICAL_START …),
- * extend the signature and add dependency gating to the rule then. */
+ * rule is gated on KASLR_DISABLED_PINS_VIRT_TEXT, which is 0 here). Arch
+ * headers override with the actual constant. If a future arch needs to derive
+ * this from engine-resolved quantities (PAGE_OFFSET, VA_BITS,
+ * CONFIG_PHYSICAL_START …), extend the signature and add dependency gating to
+ * the rule then. */
 #ifndef KASLD_ARCH_DEFAULT_TEXT_BASE_DEFINED
 static inline unsigned long arch_default_text_base(void) { return 0; }
 #endif
 
 /* Pin contract for the *physical* text base under KASLR-off. Parallel axis to
- * KASLR_DISABLED_PINS_TEXT and orthogonal to it: virt and phys KASLR offsets
- * are not always linked, so per-arch reality decides per-quantity.
+ * KASLR_DISABLED_PINS_VIRT_TEXT and orthogonal to it: virt and phys KASLR
+ * offsets are not always linked, so per-arch reality decides per-quantity.
  *
- * 1 (locked) on arches where SF_KASLR_DISABLED proves the kernel sits at the
- * compile-time physical default — i.e. the kernel's own decompressor/
- * relocator respects nokaslr for BOTH virt and phys:
+ * 1 (locked) on arches where SF_PHYS_KASLR_DISABLED proves the kernel sits
+ * at the compile-time physical default — i.e. the kernel's own
+ * decompressor/relocator respects nokaslr for BOTH virt and phys:
  *   x86_64 (choose_random_location returns early; image stays at
  *           CONFIG_PHYSICAL_START)
  *   loongarch64 (kaslr_disabled() short-circuits relocate.c; image stays at
  *           VMLINUX_LOAD_ADDRESS = PAGE_OFFSET + TEXT_OFFSET)
  *
  * MUST stay 0 (default) where the phys load is bootloader / platform /
- * memstart-determined and not a fixed compile-time value, even under
- * KASLR-off:
+ * memstart-determined and not a fixed compile-time value, even when
+ * SF_PHYS_KASLR_DISABLED is true:
  *   arm64 (memstart_addr from DT/EFI; no compile-time default)
  *   riscv64 (DRAM_BASE varies by platform — QEMU virt 0x80000000,
  *            StarFive 0x40000000, ...)
- *   s390 (independent __kaslr_offset_phys randomization; SF_KASLR_DISABLED
- *         is about the virt side only) */
+ *   s390 (independent __kaslr_offset_phys; the fact may be true but the
+ *         phys placement is not pinnable to a compile-time default) */
 #ifndef KASLR_DISABLED_PINS_PHYS
 #define KASLR_DISABLED_PINS_PHYS 0
 #endif
@@ -272,9 +275,9 @@ struct addr_range {
  * Attribute; bits [58:0] are the physical address (up to 2^59). A leaked
  * XKPHYS address looks like an ordinary kernel pointer but is really PHYS — the
  * observation boundary decodes it so it is never mistaken for a directmap VIRT
- * leak (which would let page_offset synthesis derive a bogus PAGE_OFFSET). Pure
- * bit math; the WHEN (mips64 only) is the caller's gate.
- * Ref: arch/mips/include/asm/addrspace.h; MIPS64 PRA Vol. III §4.3. */
+ * leak (which would let virt_page_offset synthesis derive a bogus PAGE_OFFSET).
+ * Pure bit math; the WHEN (mips64 only) is the caller's gate. Ref:
+ * arch/mips/include/asm/addrspace.h; MIPS64 PRA Vol. III §4.3. */
 static inline int kasld_addr_is_xkphys(unsigned long va) {
   /* Shift via a 64-bit type: on 32-bit arches `unsigned long` is 32 bits, where
    * XKPHYS cannot exist (a 32-bit address has no bit 63) and `va >> 62` would
@@ -377,12 +380,10 @@ enum kasld_confidence {
  *                and would collide on the `kind` argument before
  *                token-pasting if we used the bare names.
  *                  K_OPEN       — {0, ULONG_MAX}, NULL (any phys address)
- *                  K_VIRT       — {KERNEL_VAS_START, KERNEL_VAS_END}, NULL
- *                                 (kernel-VAS-bounded virtual-only regions)
- *                  K_PAGEOFFSET — {0, 0}, derive_vas_page_offset
- *                                 (PAGE_OFFSET itself; layout-derived)
- *                  K_MODULE     — coupled vs decoupled handled in
- *                                 region_info.c via #if !TEXT_TRACKS_DIRECTMAP
+ *                  K_VIRT       — {KERNEL_VIRT_VAS_START, KERNEL_VIRT_VAS_END},
+ * NULL (kernel-VAS-bounded virtual-only regions) K_PAGEOFFSET — {0, 0},
+ * derive_vas_page_offset (PAGE_OFFSET itself; layout-derived) K_MODULE     —
+ * coupled vs decoupled handled in region_info.c via #if !TEXT_TRACKS_DIRECTMAP
  *
  * Adding a region: add one row here. The enum value, the wire-name entry,
  * and the region_info[] entry all get generated. REGION__COUNT auto-sizes
@@ -428,7 +429,7 @@ enum kasld_confidence {
   X(REGION_MODULE_REGION, "module_region", "module", K_MODULE)                 \
   /* ---- Direct-map / virtual landmarks --------------------------------- */  \
   X(REGION_DIRECTMAP, "directmap", "directmap", K_VIRT)                        \
-  X(REGION_PAGE_OFFSET, "page_offset", "pageoffset", K_PAGEOFFSET)             \
+  X(REGION_PAGE_OFFSET, "virt_page_offset", "pageoffset", K_PAGEOFFSET)        \
   X(REGION_VMALLOC, "vmalloc", "directmap", K_VIRT)                            \
   X(REGION_VMEMMAP, "vmemmap", "directmap", K_VIRT)
 
@@ -509,41 +510,64 @@ static inline const char *kasld_conf_wire(enum kasld_confidence c) {
  * ========================================================================= */
 enum kasld_scalar_fact {
   SF_NONE = 0,
-  SF_MEMTOTAL,         /* total RAM bytes (/proc/meminfo)                  */
-  SF_PHYS_ADDR_BITS,   /* CPU physical-address width (/proc/cpuinfo)       */
-  SF_IMAGE_SIZE,       /* kernel image size bytes (/boot; estimate)        */
-  SF_VA_BITS,          /* virtual-address width / paging level             */
-  SF_INIT_SIZE,        /* exact in-memory kernel init_size (x86 boot_params)*/
-  SF_LOWMEM,           /* 32-bit lowmem bytes (/proc/meminfo LowTotal)     */
-  SF_FW_RESERVED_BASE, /* ppc64 firmware reserved region base (OPAL/RTAS)  */
-  SF_MAX_PFN,          /* highest spanned PFN (/proc/zoneinfo)             */
-  SF_KERNEL_ALIGN,     /* CONFIG_PHYSICAL_ALIGN slot granularity (x86)     */
-  SF_PAGE_SIZE,        /* host page size in bytes                          */
-  SF_RANDOMIZE_MAX_OFFSET, /* CONFIG_RANDOMIZE_BASE_MAX_OFFSET
+  SF_PHYS_MEMTOTAL,  /* total RAM bytes (/proc/meminfo)                  */
+  SF_PHYS_ADDR_BITS, /* CPU physical-address width (/proc/cpuinfo)       */
+  SF_IMAGE_SIZE,     /* kernel image size bytes (/boot; estimate)        */
+  SF_VIRT_ADDR_BITS, /* virtual-address width / paging level             */
+  SF_INIT_SIZE,      /* exact in-memory kernel init_size (x86 boot_params)*/
+  SF_PHYS_LOWMEM,    /* 32-bit lowmem bytes (/proc/meminfo LowTotal)     */
+  SF_PHYS_FW_RESERVED_BASE, /* ppc64 firmware reserved region base (OPAL/RTAS)
+                             */
+  SF_PHYS_MAX_PFN,      /* highest spanned PFN (/proc/zoneinfo)             */
+  SF_PHYS_KERNEL_ALIGN, /* CONFIG_PHYSICAL_ALIGN slot granularity (x86)     */
+  SF_PAGE_SIZE,         /* host page size in bytes                          */
+  SF_VIRT_RANDOMIZE_MAX_OFFSET, /* CONFIG_RANDOMIZE_BASE_MAX_OFFSET
                               (MIPS/LoongArch)*/
-  SF_CONFIG_PAGE_OFFSET, /* CONFIG_PAGE_OFFSET (VMSPLIT; authoritative arches)*/
-  SF_EFI_PRESENT,        /* 1 if /sys/firmware/efi exists (EFI boot)         */
-  SF_FDT_KASLR_SEED,     /* FDT /chosen/kaslr-seed (riscv64)                 */
-  SF_KASLR_DISABLED,     /* 1 if a detector saw KASLR-off (nokaslr / no       */
-                         /* CONFIG_RANDOMIZE_BASE / riscv64 no FDT seed).     */
-                         /* Implies kernel sits at the link-time default text */
-                         /* base on arches where KASLR_DISABLED_PINS_TEXT/PHYS*/
-                         /* hold; consumed by the kaslr_disabled_pin rule.    */
-  SF_KASLR_RANDOMIZATION_FAILED, /* 1 if the boot stub attempted KASLR but */
-  /* could not produce a random offset (arm64/riscv64  */
-  /* "lack of seed", arm64 "FDT remapping failure",    */
-  /* s390 "CPU has no PRNG" / "not enough memory").    */
-  /* Kernel was still relocated to a firmware- or      */
-  /* boot-stub-determined position — NOT the link-time */
-  /* default — so this signal does NOT pin a value via */
-  /* kaslr_disabled_pin. Consumed by: the hardening    */
-  /* report posture section (entropy downgrade);       */
-  /* efi_loader_kernel_pick (lowest-survivor pick from */
-  /* multiple EFI_LOADER_CODE entries when the stub    */
-  /* fell back to deterministic allocation); s390_text */
-  /* _no_random (low-memory upper bound on s390 phys   */
-  /* text from the boot stub's nokaslr_text_lma path). */
-  SF_CMDLINE_MEM,       /* `mem=N` cmdline cap on usable RAM (bytes; x86)   */
+  SF_VIRT_CONFIG_PAGE_OFFSET,   /* CONFIG_PAGE_OFFSET (VMSPLIT; authoritative
+                                   arches)*/
+  SF_EFI_PRESENT,         /* 1 if /sys/firmware/efi exists (EFI boot)         */
+  SF_FDT_KASLR_SEED,      /* FDT /chosen/kaslr-seed (riscv64)                 */
+  SF_VIRT_KASLR_DISABLED, /* 1 if a detector observed VIRTUAL KASLR off       */
+                          /* (nokaslr cmdline, !CONFIG_RANDOMIZE_BASE, riscv64*/
+                          /* no FDT seed, dmesg "KASLR disabled", hibernation,*/
+                          /* arch-no-kaslr synth on !KASLR_SUPPORTED). Pinned */
+  /* by virt_kaslr_disabled_pin to KERNEL_VIRT_TEXT_DEFAULT*/
+  /* on arches where KASLR_DISABLED_PINS_VIRT_TEXT holds.  */
+  SF_PHYS_KASLR_DISABLED, /* 1 if a detector observed PHYSICAL KASLR off.     */
+                          /* On most current emitters this fires together     */
+                          /* with SF_VIRT_KASLR_DISABLED (the same disable    */
+                          /* mechanism turns off both axes). Pinned by        */
+                          /* phys_kaslr_disabled_pin to the per-arch default  */
+                          /* phys text base on arches where                   */
+                          /* KASLR_DISABLED_PINS_PHYS holds (x86_64,          */
+                          /* loongarch64). A future detector that proves only */
+                          /* phys is off (e.g. EFI_RNG_PROTOCOL unavailable   */
+                          /* with virt randomisation intact via DTB) emits    */
+                          /* this fact alone.                                 */
+  SF_VIRT_KASLR_RANDOMIZATION_FAILED, /* 1 if the boot stub attempted    */
+  /* virtual KASLR but could not produce a random virt offset (current   */
+  /* emitters: arm64/riscv64 "lack of seed", arm64 "FDT remapping        */
+  /* failure", s390 "CPU has no PRNG" / "not enough memory" — all four   */
+  /* fail BOTH axes, so they emit this and SF_PHYS_KASLR_RANDOMIZATION_  */
+  /* FAILED together). Kernel was still relocated to a firmware- or      */
+  /* boot-stub-determined virt position — NOT the link-time default —    */
+  /* so this signal does NOT pin a value via virt_kaslr_disabled_pin.    */
+  /* Consumed by: the orchestrator's s->kaslr.randomization_failed flag  */
+  /* + the hardening report posture section (entropy downgrade — the     */
+  /* user-visible "0 entropy" claim is about virt text).                 */
+  SF_PHYS_KASLR_RANDOMIZATION_FAILED, /* 1 if the boot stub attempted    */
+  /* physical KASLR but could not produce a random phys offset (current  */
+  /* emitters: same as the virt variant, all four affect both axes; a    */
+  /* future detector for "EFI_RNG_PROTOCOL unavailable" on EFI arm64 /   */
+  /* riscv64 emits this alone — virt KASLR there is independent via      */
+  /* the DTB seed and may have succeeded). Kernel was relocated by the   */
+  /* EFI stub or boot-stub fallback to a deterministic phys position.    */
+  /* Consumed by: efi_loader_kernel_pick (lowest-survivor pick from      */
+  /* multiple EFI_LOADER_CODE entries when the stub fell back to         */
+  /* deterministic allocation); s390_text_no_random (low-memory upper    */
+  /* bound on s390 phys text from the boot stub's nokaslr_text_lma       */
+  /* path).                                                              */
+  SF_PHYS_CMDLINE_MEM,  /* `mem=N` cmdline cap on usable RAM (bytes; x86)   */
   SF_CMDLINE_HUGEPAGES, /* 1 if `hugepages=` on cmdline (x86 EFI)      */
   SF_CMDLINE_MEMMAP_COUNT, /* count of `memmap=size{@,$,!,#}start` with offset
                             */
@@ -556,23 +580,25 @@ enum kasld_scalar_fact {
 /* SF_* <-> wire token, single source of truth for both directions. */
 static const char *const kasld_scalar_fact_wire_table[SF__COUNT] = {
     [SF_NONE] = "none",
-    [SF_MEMTOTAL] = "memtotal",
+    [SF_PHYS_MEMTOTAL] = "phys_memtotal",
     [SF_PHYS_ADDR_BITS] = "phys_addr_bits",
     [SF_IMAGE_SIZE] = "image_size",
-    [SF_VA_BITS] = "va_bits",
+    [SF_VIRT_ADDR_BITS] = "virt_addr_bits",
     [SF_INIT_SIZE] = "init_size",
-    [SF_LOWMEM] = "lowmem",
-    [SF_FW_RESERVED_BASE] = "fw_reserved_base",
-    [SF_MAX_PFN] = "max_pfn",
-    [SF_KERNEL_ALIGN] = "kernel_align",
+    [SF_PHYS_LOWMEM] = "phys_lowmem",
+    [SF_PHYS_FW_RESERVED_BASE] = "phys_fw_reserved_base",
+    [SF_PHYS_MAX_PFN] = "phys_max_pfn",
+    [SF_PHYS_KERNEL_ALIGN] = "phys_kernel_align",
     [SF_PAGE_SIZE] = "page_size",
-    [SF_RANDOMIZE_MAX_OFFSET] = "randomize_max_offset",
-    [SF_CONFIG_PAGE_OFFSET] = "config_page_offset",
+    [SF_VIRT_RANDOMIZE_MAX_OFFSET] = "virt_randomize_max_offset",
+    [SF_VIRT_CONFIG_PAGE_OFFSET] = "virt_config_page_offset",
     [SF_EFI_PRESENT] = "efi_present",
     [SF_FDT_KASLR_SEED] = "fdt_kaslr_seed",
-    [SF_KASLR_DISABLED] = "kaslr_disabled",
-    [SF_KASLR_RANDOMIZATION_FAILED] = "kaslr_randomization_failed",
-    [SF_CMDLINE_MEM] = "cmdline_mem",
+    [SF_VIRT_KASLR_DISABLED] = "virt_kaslr_disabled",
+    [SF_PHYS_KASLR_DISABLED] = "phys_kaslr_disabled",
+    [SF_VIRT_KASLR_RANDOMIZATION_FAILED] = "virt_kaslr_randomization_failed",
+    [SF_PHYS_KASLR_RANDOMIZATION_FAILED] = "phys_kaslr_randomization_failed",
+    [SF_PHYS_CMDLINE_MEM] = "phys_cmdline_mem",
     [SF_CMDLINE_HUGEPAGES] = "cmdline_hugepages",
     [SF_CMDLINE_MEMMAP_COUNT] = "cmdline_memmap_count",
     [SF_PHYSICAL_START] = "physical_start",

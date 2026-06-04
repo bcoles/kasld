@@ -11,10 +11,10 @@
 //   TEXT_OFFSET
 //
 // Cross-quantity (uses the engine's resolved Q_PAGE_OFFSET), so it fires only
-// once page_offset is pinned. Reads SF_LOWMEM, which the bridge emits only when
-// highmem is actually present (HighTotal > 0); without highmem LowTotal ==
-// MemTotal and the MemTotal ceiling already suffices, so the bridge emits
-// nothing and this is a no-op. 64-bit / decoupled: inert.
+// once virt_page_offset is pinned. Reads SF_PHYS_LOWMEM, which the bridge emits
+// only when highmem is actually present (HighTotal > 0); without highmem
+// LowTotal == MemTotal and the MemTotal ceiling already suffices, so the bridge
+// emits nothing and this is a no-op. 64-bit / decoupled: inert.
 // ---
 // <bcoles@gmail.com>
 
@@ -39,8 +39,8 @@ int rule_highmem_32bit_bound(const struct evidence_set *ev,
 
   const struct estimate *po = &est[Q_PAGE_OFFSET];
   if (po->lo != po->hi)
-    return 0; /* page_offset not yet pinned */
-  unsigned long page_offset = po->lo;
+    return 0; /* virt_page_offset not yet pinned */
+  unsigned long virt_page_offset = po->lo;
 
   unsigned long lowmem = 0;
   enum kasld_confidence conf = CONF_UNKNOWN;
@@ -48,20 +48,21 @@ int rule_highmem_32bit_bound(const struct evidence_set *ev,
   for (int i = 0; i < ev->n_obs; i++) {
     const struct observation *o = &ev->obs[i];
     if (o->valid && o->value_kind == OBS_SCALAR &&
-        o->scalar_fact == SF_LOWMEM) {
+        o->scalar_fact == SF_PHYS_LOWMEM) {
       lowmem = o->scalar_value;
       conf = o->conf;
       src = o->id;
       break;
     }
   }
-  if (lowmem <= MIN_IMAGE_SIZE || lowmem > ULONG_MAX - page_offset)
+  if (lowmem <= MIN_IMAGE_SIZE || lowmem > ULONG_MAX - virt_page_offset)
     return 0;
 
-  unsigned long ceiling = page_offset + lowmem - MIN_IMAGE_SIZE + TEXT_OFFSET;
-  if (KASLR_ALIGN > 0)
-    ceiling &= ~(KASLR_ALIGN - 1);
-  if (ceiling <= KASLR_TEXT_MIN)
+  unsigned long ceiling =
+      virt_page_offset + lowmem - MIN_IMAGE_SIZE + TEXT_OFFSET;
+  if (KASLR_VIRT_ALIGN > 0)
+    ceiling &= ~(KASLR_VIRT_ALIGN - 1);
+  if (ceiling <= KASLR_VIRT_TEXT_MIN)
     return 0;
 
   struct constraint *c = &out[0];

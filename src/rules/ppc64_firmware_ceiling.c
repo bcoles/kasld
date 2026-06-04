@@ -6,13 +6,14 @@
 // and RTAS (pseries) occupy physically contiguous firmware regions in the
 // first few GiB; the kernel image must fit below them. On ppc64 PHYS_OFFSET =
 // TEXT_OFFSET = 0 and the base is PAGE_OFFSET (no mainline KASLR), so
-// phys_to_directmap_virt(x) = PAGE_OFFSET + x = KASLR_TEXT_MIN + x, giving:
+// phys_to_directmap_virt(x) = PAGE_OFFSET + x = KASLR_VIRT_TEXT_MIN + x,
+// giving:
 //
-//   virt_ceiling = KASLR_TEXT_MIN + fw_base - MIN_IMAGE_SIZE
+//   virt_ceiling = KASLR_VIRT_TEXT_MIN + fw_base - MIN_IMAGE_SIZE
 //
 // The kernel must fit below BOTH firmware regions, so the bridge supplies the
-// lower of the OPAL/RTAS bases (SF_FW_RESERVED_BASE); the merged ceiling equals
-// the tighter of the two bounds. C_UPPER_BOUND on Q_VIRT_TEXT_BASE.
+// lower of the OPAL/RTAS bases (SF_PHYS_FW_RESERVED_BASE); the merged ceiling
+// equals the tighter of the two bounds. C_UPPER_BOUND on Q_VIRT_TEXT_BASE.
 // ppc64 only; emits nothing when no firmware base is present.
 // ---
 // <bcoles@gmail.com>
@@ -44,7 +45,7 @@ int rule_ppc64_firmware_ceiling(const struct evidence_set *ev,
   for (int i = 0; i < ev->n_obs; i++) {
     const struct observation *o = &ev->obs[i];
     if (o->valid && o->value_kind == OBS_SCALAR &&
-        o->scalar_fact == SF_FW_RESERVED_BASE) {
+        o->scalar_fact == SF_PHYS_FW_RESERVED_BASE) {
       fw_base = o->scalar_value;
       conf = o->conf;
       src = o->id;
@@ -54,10 +55,10 @@ int rule_ppc64_firmware_ceiling(const struct evidence_set *ev,
   if (fw_base <= MIN_IMAGE_SIZE)
     return 0;
 
-  unsigned long ceiling = KASLR_TEXT_MIN + fw_base - MIN_IMAGE_SIZE;
-  if (KASLR_ALIGN > 0)
-    ceiling &= ~(KASLR_ALIGN - 1);
-  if (ceiling <= KASLR_TEXT_MIN)
+  unsigned long ceiling = KASLR_VIRT_TEXT_MIN + fw_base - MIN_IMAGE_SIZE;
+  if (KASLR_VIRT_ALIGN > 0)
+    ceiling &= ~(KASLR_VIRT_ALIGN - 1);
+  if (ceiling <= KASLR_VIRT_TEXT_MIN)
     return 0;
 
   struct constraint *c = &out[0];

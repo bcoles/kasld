@@ -95,28 +95,28 @@ static int detect_riscv_mmu(void) {
 
   printf("[.] MMU mode: %s\n", mmu);
 
-  unsigned long page_offset = 0;
+  unsigned long virt_page_offset = 0;
 
   if (strcmp(mmu, "sv39") == 0)
-    page_offset = 0xffffffd600000000ul;
+    virt_page_offset = 0xffffffd600000000ul;
   else if (strcmp(mmu, "sv48") == 0)
-    page_offset = 0xffffaf8000000000ul;
+    virt_page_offset = 0xffffaf8000000000ul;
   else if (strcmp(mmu, "sv57") == 0)
-    page_offset = 0xff60000000000000ul;
+    virt_page_offset = 0xff60000000000000ul;
   else {
     fprintf(stderr, "[-] Unknown MMU mode: %s\n", mmu);
     return 0;
   }
 
-  printf("[.] PAGE_OFFSET for %s: 0x%016lx\n", mmu, page_offset);
+  printf("[.] PAGE_OFFSET for %s: 0x%016lx\n", mmu, virt_page_offset);
 
   /* PAGE_OFFSET is already the compile-time default for sv57 */
-  if (page_offset == PAGE_OFFSET) {
+  if (virt_page_offset == PAGE_OFFSET) {
     printf("[.] Matches compile-time default; no adjustment needed.\n");
     return 0;
   }
 
-  kasld_result_base(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, page_offset, NULL,
+  kasld_result_base(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, virt_page_offset, NULL,
                     CONF_PARSED);
   return 1;
 }
@@ -128,7 +128,7 @@ static int detect_riscv_mmu(void) {
  *   48 bits -> 4-level paging (common)
  *   57 bits -> 5-level paging (la57, newer CPUs)
  *
- * CONFIG_RANDOMIZE_MEMORY randomizes page_offset_base by adding a
+ * CONFIG_RANDOMIZE_MEMORY randomizes virt_page_offset_base by adding a
  * non-negative PUD-aligned random offset to __PAGE_OFFSET_BASE_L{4,5},
  * so the directmap base is always >= the compile-time base constant.
  * Emitting the base constant as the PAGEOFFSET floor is therefore sound.
@@ -164,26 +164,26 @@ static int detect_x86_address_sizes(void) {
   printf("[.] Address sizes: %u bits physical, %u bits virtual\n", phys_bits,
          virt_bits);
 
-  unsigned long page_offset = 0;
+  unsigned long virt_page_offset = 0;
 
   if (virt_bits <= 48)
-    page_offset = 0xffff800000000000ul; /* L4 canonical half floor */
+    virt_page_offset = 0xffff800000000000ul; /* L4 canonical half floor */
   else if (virt_bits <= 57)
-    page_offset = 0xff11000000000000ul; /* __PAGE_OFFSET_BASE_L5 */
+    virt_page_offset = 0xff11000000000000ul; /* __PAGE_OFFSET_BASE_L5 */
   else {
     fprintf(stderr, "[-] Unexpected virtual address width: %u\n", virt_bits);
     return 0;
   }
 
-  if (page_offset == PAGE_OFFSET) {
+  if (virt_page_offset == PAGE_OFFSET) {
     printf("[.] Matches compile-time default; no adjustment needed.\n");
     return 0;
   }
 
   printf("[.] Paging level %s: PAGE_OFFSET floor -> 0x%016lx\n",
-         virt_bits <= 48 ? "4" : "5", page_offset);
+         virt_bits <= 48 ? "4" : "5", virt_page_offset);
 
-  kasld_result_base(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, page_offset, NULL,
+  kasld_result_base(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, virt_page_offset, NULL,
                     CONF_PARSED);
   return 1;
 }

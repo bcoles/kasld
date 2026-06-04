@@ -130,8 +130,8 @@ static int verbose = 0;
 // and overhead.
 // ---------------------------------------------------------------------------
 
-#define STEP KERNEL_ALIGN
-#define NUM_SLOTS ((KERNEL_TEXT_MAX - KERNEL_TEXT_MIN) / STEP)
+#define STEP KASLR_VIRT_ALIGN
+#define NUM_SLOTS ((KERNEL_VIRT_TEXT_MAX - KERNEL_VIRT_TEXT_MIN) / STEP)
 #define ITERATIONS 64
 #define WARMUP 3
 
@@ -144,7 +144,7 @@ static void collect_timings(uint64_t *times) {
 
   for (i = 0; i < WARMUP + ITERATIONS; i++) {
     for (idx = 0; idx < NUM_SLOTS; idx++) {
-      uint64_t target = KERNEL_TEXT_MIN + idx * STEP;
+      uint64_t target = KERNEL_VIRT_TEXT_MIN + idx * STEP;
       uint64_t t = time_prefetch(target);
 
       if (i >= WARMUP && t < times[idx])
@@ -173,11 +173,11 @@ static void collect_timings_amd(uint64_t *times) {
 
   for (i = 0; i < WARMUP; i++)
     for (idx = 0; idx < NUM_SLOTS; idx++)
-      time_prefetch(KERNEL_TEXT_MIN + idx * STEP);
+      time_prefetch(KERNEL_VIRT_TEXT_MIN + idx * STEP);
 
   for (i = 0; i < ITERATIONS; i++)
     for (idx = 0; idx < NUM_SLOTS; idx++)
-      times[idx] += time_prefetch(KERNEL_TEXT_MIN + idx * STEP);
+      times[idx] += time_prefetch(KERNEL_VIRT_TEXT_MIN + idx * STEP);
 }
 
 // ---------------------------------------------------------------------------
@@ -188,7 +188,7 @@ static void dump_timings(const uint64_t *times, const char *stat) {
   fprintf(stderr, "# slot addr %s\n", stat);
   for (idx = 0; idx < NUM_SLOTS; idx++) {
     fprintf(stderr, "%3lu 0x%lx %lu\n", idx,
-            (unsigned long)(KERNEL_TEXT_MIN + idx * STEP),
+            (unsigned long)(KERNEL_VIRT_TEXT_MIN + idx * STEP),
             (unsigned long)times[idx]);
   }
 }
@@ -209,7 +209,7 @@ static unsigned long find_base_intel(const uint64_t *times) {
     }
   }
 
-  return KERNEL_TEXT_MIN + best * STEP;
+  return KERNEL_VIRT_TEXT_MIN + best * STEP;
 }
 
 // ---------------------------------------------------------------------------
@@ -269,7 +269,7 @@ static unsigned long find_base_amd(const uint64_t *times) {
         count++;
     }
     if (count >= CONFIRM_K)
-      return KERNEL_TEXT_MIN + idx * STEP;
+      return KERNEL_VIRT_TEXT_MIN + idx * STEP;
   }
 
   return 0;
@@ -367,7 +367,7 @@ static unsigned long get_kernel_addr_prefetch(void) {
     return 0;
   }
 
-  if (addr >= KERNEL_TEXT_MIN && addr <= KERNEL_TEXT_MAX)
+  if (addr >= KERNEL_VIRT_TEXT_MIN && addr <= KERNEL_VIRT_TEXT_MAX)
     return addr;
 
   return 0;

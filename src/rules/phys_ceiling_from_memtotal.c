@@ -61,7 +61,7 @@ int rule_phys_ceiling_from_memtotal(const struct evidence_set *ev,
     const struct observation *o = &ev->obs[i];
     if (!o->valid)
       continue;
-    if (o->value_kind == OBS_SCALAR && o->scalar_fact == SF_MEMTOTAL) {
+    if (o->value_kind == OBS_SCALAR && o->scalar_fact == SF_PHYS_MEMTOTAL) {
       memtotal = o->scalar_value;
       mconf = o->conf;
       msrc = o->id;

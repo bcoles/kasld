@@ -59,8 +59,8 @@
 #define DIRECTMAP_STATIC 0
 #define TEXT_TRACKS_DIRECTMAP 0
 
-#define KERNEL_VAS_START PAGE_OFFSET
-#define KERNEL_VAS_END 0xfffffffffffffffful
+#define KERNEL_VIRT_VAS_START PAGE_OFFSET
+#define KERNEL_VIRT_VAS_END 0xfffffffffffffffful
 
 // 48 va bits (CONFIG_ARM64_VA_BITS_48) is a common configuration;
 // but an unsafe assumption since introduction of CONFIG_ARM64_VA_BITS_48_52.
@@ -68,8 +68,8 @@
 //
 // Validation range for the modern layout (compile-time default).
 // Older arm64 layouts (pre-v5.4, below _PAGE_END) fall outside this range.
-#define KERNEL_TEXT_MIN 0xffff800008000000ul
-#define KERNEL_TEXT_MAX 0xffffffffff000000ul
+#define KERNEL_VIRT_TEXT_MIN 0xffff800008000000ul
+#define KERNEL_VIRT_TEXT_MAX 0xffffffffff000000ul
 
 // _PAGE_END(48) = 0xffff800000000000 is the runtime discriminator.
 // Kernel text below this → old layout; at/above → new layout.
@@ -118,7 +118,7 @@
 // EFI_KIMG_ALIGN=128KiB For 4K/16K (the common case), EFI_KIMG_ALIGN=64KiB. Use
 // 64KiB (0x10000) by default. On 64K-page EFI systems this is conservative
 // (128KiB actual); see arm64_phys_kaslr_align.
-#define KERNEL_ALIGN 0x10000ul
+#define IMAGE_ALIGN 0x10000ul
 
 // EFI_KIMG_ALIGN is the alignment the EFI stub uses when calling
 // AllocatePages() for the kernel image (see arch/arm64/include/asm/efi.h).
@@ -151,7 +151,7 @@
 // See docs/kaslr.md "Default text base and KASLR alignment" for all
 // architectures. Kernel source: arch/arm64/kernel/vmlinux.lds.S,
 // arch/arm64/include/asm/memory.h
-#define KERNEL_TEXT_DEFAULT (KIMAGE_VADDR + TEXT_OFFSET)
+#define KERNEL_VIRT_TEXT_DEFAULT (KIMAGE_VADDR + TEXT_OFFSET)
 
 /* KASLR-off ⇒ pin contract: arm64 KIMAGE_VADDR is fixed at kernel build
  * time by CONFIG_ARM64_VA_BITS_MIN (universally 48 in practice). Without
@@ -159,10 +159,10 @@
  * runtime VA_BITS (which only affects PAGE_OFFSET / the linear map). Build
  * configs with VA_BITS_MIN != 48 land at a different address; the pin rule's
  * window-containment check rejects the pin in that case. */
-#define KASLR_DISABLED_PINS_TEXT 1
+#define KASLR_DISABLED_PINS_VIRT_TEXT 1
 #define KASLD_ARCH_DEFAULT_TEXT_BASE_DEFINED 1
 static inline unsigned long arch_default_text_base(void) {
-  return KERNEL_TEXT_DEFAULT;
+  return KERNEL_VIRT_TEXT_DEFAULT;
 }
 
 // KASLR randomization window (v4.6+):
@@ -177,9 +177,9 @@ static inline unsigned long arch_default_text_base(void) {
 //                        return range / 2 + (((__uint128_t)range * seed) >>
 //                        64);
 // https://elixir.bootlin.com/linux/v6.12/source/arch/arm64/kernel/pi/kaslr_early.c
-#define KASLR_TEXT_MIN (KIMAGE_VADDR + (1ul << 45))
-#define KASLR_TEXT_MAX (KASLR_TEXT_MIN + (1ul << 46))
-#define KASLR_ALIGN (2 * MB)
+#define KASLR_VIRT_TEXT_MIN (KIMAGE_VADDR + (1ul << 45))
+#define KASLR_VIRT_TEXT_MAX (KASLR_VIRT_TEXT_MIN + (1ul << 46))
+#define KASLR_VIRT_ALIGN (2 * MB)
 
 /* Honest-top floor for Q_VIRT_TEXT_BASE — widened down to KIMAGE_VADDR so
  * the engine's honest window admits:
@@ -189,18 +189,18 @@ static inline unsigned long arch_default_text_base(void) {
  *       KIMAGE_VADDR + (VMALLOC_END − KIMAGE_VADDR) / 4 ≈ KIMAGE_VADDR + 31.5
  * TiB — below the v4.6→v6.6 formula's floor at KIMAGE_VADDR + 32 TiB.
  *
- * Without this widening, kaslr_disabled_pin's window-containment check
- * rejects the no-KASLR default (KIMAGE_VADDR) as below the v6.6-era
- * KASLR_TEXT_MIN, leaving Q_VIRT_TEXT_BASE wide and the actual text base
+ * Without this widening, virt_/phys_kaslr_disabled_pin's window-containment
+ * check rejects the no-KASLR default (KIMAGE_VADDR) as below the v6.6-era
+ * KASLR_VIRT_TEXT_MIN, leaving Q_VIRT_TEXT_BASE wide and the actual text base
  * outside the window. The widening only widens the honest top — never
  * narrows — so it cannot eliminate a true leak; it can only stop falsely
  * excluding one.
  *
- * KASLR_TEXT_MIN is preserved for entropy / slot reporting on KASLR-on
+ * KASLR_VIRT_TEXT_MIN is preserved for entropy / slot reporting on KASLR-on
  * systems (the per-formula randomization window's narrower lower edge).
- * KASLR_TEXT_MAX is unchanged — KIMAGE_VADDR + 96 TiB already covers both
+ * KASLR_VIRT_TEXT_MAX is unchanged — KIMAGE_VADDR + 96 TiB already covers both
  * the v6.6 upper edge (96 TiB) and the v6.12+ upper edge (~94.5 TiB). */
-#define KASLR_TEXT_MIN_WIDE KIMAGE_VADDR
+#define KASLR_VIRT_TEXT_MIN_WIDE KIMAGE_VADDR
 
 #define KASLR_SUPPORTED 1
 

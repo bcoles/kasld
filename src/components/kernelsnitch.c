@@ -105,7 +105,7 @@
  * offset field is just (address & (PAGE_SIZE-1)). FUT_OFF_MMSHARED (2)
  * is only set for shared anonymous mappings, NOT for private futexes. */
 
-/* x86_64 direct-map KASLR range for page_offset_base. */
+/* x86_64 direct-map KASLR range for virt_page_offset_base. */
 #define POB_MIN 0xffff888000000000UL
 #define POB_MAX 0xffffc88000000000UL
 #define POB_ALIGN (1UL << 30) /* PUD_SIZE = 1 GiB */
@@ -480,9 +480,9 @@ static int find_collisions(unsigned long *collisions, int *num_collisions,
  * Phase 3: Brute-force search for mm_struct address
  *
  * The mm_struct virtual address lives somewhere in the direct-map region:
- *   mm = page_offset_base + slab_page_phys + k * slab_size
+ *   mm = virt_page_offset_base + slab_page_phys + k * slab_size
  * where:
- *   - page_offset_base ∈ [POB_MIN, POB_MAX), 1 GiB-aligned
+ *   - virt_page_offset_base ∈ [POB_MIN, POB_MAX), 1 GiB-aligned
  *   - slab_page_phys is page-aligned (multiple of PAGE_SIZE)
  *   - k ∈ [0, objects_per_slab)
  *

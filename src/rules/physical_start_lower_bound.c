@@ -4,7 +4,7 @@
 // widening for CONFIG_PHYSICAL_START variability (x86).
 //
 // quantities.c widens the honest-top floors of Q_VIRT_TEXT_BASE and
-// Q_PHYS_TEXT_BASE on x86_64 (KASLR_TEXT_MIN_WIDE, KASLR_PHYS_MIN_WIDE) so
+// Q_PHYS_TEXT_BASE on x86_64 (KASLR_VIRT_TEXT_MIN_WIDE, KASLR_PHYS_MIN_WIDE) so
 // kernels built with a smaller-than-default CONFIG_PHYSICAL_START remain
 // inside the engine's window — soundness across config variants. The
 // widening admits values that *most* real kernels never reach; this rule
@@ -14,15 +14,15 @@
 //   - SF_PHYSICAL_START present (parsed from /boot/config or /proc/config.gz):
 //       C_LOWER_BOUND at the *learned* value, CONF_PARSED. Tight + correct.
 //   - SF_PHYSICAL_START absent: C_LOWER_BOUND at the compile-time default
-//       (KASLR_TEXT_MIN), CONF_HEURISTIC. Same window as the pre-widening
+//       (KASLR_VIRT_TEXT_MIN), CONF_HEURISTIC. Same window as the pre-widening
 //       behaviour on default-config kernels — but overridable: a real
 //       text leak below the heuristic floor would force-bottom the
 //       heuristic, the resolver discards it (lower confidence), the leak
 //       wins. Soundness preserved.
 //
 // x86_64 only — the only arch that widens today. Other arches whose
-// KASLR_TEXT_MIN doesn't embed configurable knobs get
-// KASLR_TEXT_MIN_WIDE == KASLR_TEXT_MIN at default and this rule has
+// KASLR_VIRT_TEXT_MIN doesn't embed configurable knobs get
+// KASLR_VIRT_TEXT_MIN_WIDE == KASLR_VIRT_TEXT_MIN at default and this rule has
 // nothing to do.
 // ---
 // <bcoles@gmail.com>
@@ -63,7 +63,7 @@ int rule_physical_start_lower_bound(const struct evidence_set *ev,
   enum kasld_confidence emit_conf;
   uint32_t lineage = 0;
   if (learned) {
-    virt_floor = (unsigned long)KERNEL_TEXT_MIN + learned;
+    virt_floor = (unsigned long)KERNEL_VIRT_TEXT_MIN + learned;
     phys_floor = learned;
     emit_conf = learned_conf;
     lineage = learned_src;
@@ -71,7 +71,7 @@ int rule_physical_start_lower_bound(const struct evidence_set *ev,
     /* Heuristic fallback — same value as the pre-widening KASLR_*_MIN. A
      * real leak below this is allowed to win via the resolver's
      * confidence-priority handling of bottom-forcing constraints. */
-    virt_floor = (unsigned long)KASLR_TEXT_MIN;
+    virt_floor = (unsigned long)KASLR_VIRT_TEXT_MIN;
     phys_floor = (unsigned long)KASLR_PHYS_MIN;
     emit_conf = CONF_HEURISTIC;
   }
@@ -79,7 +79,7 @@ int rule_physical_start_lower_bound(const struct evidence_set *ev,
   int n = 0;
   /* Don't emit if the floor wouldn't actually narrow — skips the no-op
    * case where the arch never widened in the first place. */
-  if (virt_floor > (unsigned long)KASLR_TEXT_MIN_WIDE && n < out_max) {
+  if (virt_floor > (unsigned long)KASLR_VIRT_TEXT_MIN_WIDE && n < out_max) {
     struct constraint *c = &out[n++];
     memset(c, 0, sizeof(*c));
     c->q = Q_VIRT_TEXT_BASE;

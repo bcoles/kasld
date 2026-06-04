@@ -177,12 +177,12 @@ int main(void) {
         unsigned long addr;
         memcpy(&addr, desc, sizeof addr);
 
-        if (type == XEN_ELFNOTE_ENTRY && addr >= KERNEL_TEXT_MIN &&
-            addr <= KERNEL_TEXT_MAX)
+        if (type == XEN_ELFNOTE_ENTRY && addr >= KERNEL_VIRT_TEXT_MIN &&
+            addr <= KERNEL_VIRT_TEXT_MAX)
           xen_entry = addr;
 
-        if (type == XEN_ELFNOTE_HYPERCALL_PAGE && addr >= KERNEL_TEXT_MIN &&
-            addr <= KERNEL_TEXT_MAX)
+        if (type == XEN_ELFNOTE_HYPERCALL_PAGE &&
+            addr >= KERNEL_VIRT_TEXT_MIN && addr <= KERNEL_VIRT_TEXT_MAX)
           xen_hypercall = addr;
 
         if (type == XEN_ELFNOTE_PHYS32_ENTRY && addr >= KERNEL_PHYS_MIN &&
@@ -204,7 +204,7 @@ int main(void) {
       unsigned long val;
       memcpy(&val, desc, sizeof val);
 
-      if (val >= KERNEL_TEXT_MIN && val <= KERNEL_TEXT_MAX) {
+      if (val >= KERNEL_VIRT_TEXT_MIN && val <= KERNEL_VIRT_TEXT_MAX) {
         printf("[+] found kernel address in %s note (type %u): %lx\n", name,
                type, val);
         snprintf(label, sizeof label, "%.40s", name);
@@ -217,7 +217,8 @@ int main(void) {
       memcpy(vals, desc, sizeof vals);
 
       for (int i = 0; i < 2; i++) {
-        if (vals[i] >= KERNEL_TEXT_MIN && vals[i] <= KERNEL_TEXT_MAX) {
+        if (vals[i] >= KERNEL_VIRT_TEXT_MIN &&
+            vals[i] <= KERNEL_VIRT_TEXT_MAX) {
           printf("[+] found kernel address in %s note (type %u, word %d): "
                  "%lx\n",
                  name, type, i, vals[i]);
@@ -243,7 +244,7 @@ int main(void) {
    *    Values are static link-time addresses -> stale -> discard.
    *    Detected via PHYS32_ENTRY canary: pvh_start_xen sits near
    *    _text in these kernels, so PHYS32 < KERNEL_PHYS_MIN +
-   *    KERNEL_ALIGN when no KASLR slide is applied.
+   *    KASLR_VIRT_ALIGN when no KASLR slide is applied.
    *
    * 3. v6.13+ (223abe96ac0d): place-relative relocations encode
    *    entry points as build-time constants. Values look plausible
@@ -253,7 +254,7 @@ int main(void) {
   if (xen_entry || xen_hypercall || xen_phys32) {
     int stale = 0;
 
-    if (xen_phys32 && xen_phys32 < KERNEL_PHYS_MIN + KERNEL_ALIGN) {
+    if (xen_phys32 && xen_phys32 < KERNEL_PHYS_MIN + KASLR_PHYS_ALIGN) {
       stale = 1;
     } else {
       int ret = has_xen_elfnote_symbols();
@@ -284,8 +285,8 @@ int main(void) {
          * address of pvh_start_xen, which sits at or very near _stext.
          * The hardware physical load address is independently randomized
          * and is not recoverable from this note. */
-        unsigned long virt = KERNEL_TEXT_MIN + xen_phys32;
-        if (virt >= KERNEL_TEXT_MIN && virt <= KERNEL_TEXT_MAX) {
+        unsigned long virt = KERNEL_VIRT_TEXT_MIN + xen_phys32;
+        if (virt >= KERNEL_VIRT_TEXT_MIN && virt <= KERNEL_VIRT_TEXT_MAX) {
           printf("[+] Xen PHYS32_ENTRY -> virtual: %lx\n", virt);
           kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, virt,
                               "pvh_start_xen", CONF_PARSED);
@@ -301,11 +302,11 @@ int main(void) {
     printf("[-] no kernel addresses found in ELF notes\n");
 
   // NOTE: On kernels <= 5.x, hypercall_page was in .pushsection .text
-  // (at _text + 0x1000), so addr & -KERNEL_ALIGN recovered _text exactly.
+  // (at _text + 0x1000), so addr & -KASLR_VIRT_ALIGN recovered _text exactly.
   // In 6.x, hypercall_page moved to .pushsection .noinstr.text for
   // instrumentation isolation. The linker places .noinstr.text after the
   // bulk of kernel code, putting hypercall_page millions of bytes past
-  // _text. addr & -KERNEL_ALIGN then overshoots by ~16+ MiB.
+  // _text. addr & -KASLR_VIRT_ALIGN then overshoots by ~16+ MiB.
   // The orchestrator handles this correctly since it does not assume a
   // fixed symbol-to-base offset.
 

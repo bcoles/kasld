@@ -6,22 +6,23 @@
 // kernel_randomize_memory() lays the three regions out consecutively with
 // gaps ≥ PUD_SIZE (1 GiB):
 //
-//   vmalloc_base ≥ page_offset_base + directmap_size + PUD_SIZE
-//   vmemmap_base ≥ vmalloc_base    + VMALLOC_SIZE_TB·1TB + PUD_SIZE
+//   virt_vmalloc_base ≥ virt_page_offset_base + directmap_size + PUD_SIZE
+//   virt_vmemmap_base ≥ virt_vmalloc_base    + VMALLOC_SIZE_TB·1TB + PUD_SIZE
 //
 // A *witnessed* virtual address inside the vmalloc region (or vmemmap) sits
 // at or above its base, so it is an upper-bound witness on the smallest
 // possible base:
 //
-//   vmalloc_base ≤ V_va
-//   vmemmap_base ≤ V_mm
+//   virt_vmalloc_base ≤ V_va
+//   virt_vmemmap_base ≤ V_mm
 //
 // Substituting into the layout invariants and re-arranging:
 //
-//   page_offset_max ≤ V_va − directmap_size − PUD_SIZE
-//   page_offset_max ≤ V_mm − VMALLOC_SIZE_TB·1TB − directmap_size − 2·PUD_SIZE
+//   virt_page_offset_max ≤ V_va − directmap_size − PUD_SIZE
+//   virt_page_offset_max ≤ V_mm − VMALLOC_SIZE_TB·1TB − directmap_size −
+//   2·PUD_SIZE
 //
-// `directmap_size` is derived from SF_MAX_PFN with the kernel's
+// `directmap_size` is derived from SF_PHYS_MAX_PFN with the kernel's
 // RANDOMIZE_MEMORY_PHYSICAL_PADDING (default 10 TiB). `VMALLOC_SIZE_TB` is
 // 32 (L4) or 12800 (L5), discriminated from the current Q_PAGE_OFFSET lower
 // edge in the same way x86_64_vmalloc_base_bound does (the L4 floor is
@@ -65,13 +66,13 @@ int rule_x86_64_page_offset_from_vmalloc_vmemmap(const struct evidence_set *ev,
   if (out_max < 1)
     return 0;
 
-  /* SF_MAX_PFN is required to compute directmap_size. */
+  /* SF_PHYS_MAX_PFN is required to compute directmap_size. */
   unsigned long max_pfn = 0;
   uint32_t pfn_src = 0;
   for (int i = 0; i < ev->n_obs; i++) {
     const struct observation *o = &ev->obs[i];
     if (o->valid && o->value_kind == OBS_SCALAR &&
-        o->scalar_fact == SF_MAX_PFN) {
+        o->scalar_fact == SF_PHYS_MAX_PFN) {
       max_pfn = o->scalar_value;
       pfn_src = o->id;
       break;
@@ -129,7 +130,8 @@ int rule_x86_64_page_offset_from_vmalloc_vmemmap(const struct evidence_set *ev,
 
   int n = 0;
 
-  /* VMALLOC observation: page_offset ≤ V_va - directmap_size - PUD_SIZE. */
+  /* VMALLOC observation: virt_page_offset ≤ V_va - directmap_size - PUD_SIZE.
+   */
   if (va != ULONG_MAX && n < out_max) {
     unsigned long below = directmap_size + pud_size;
     if (va > below) {
@@ -149,7 +151,8 @@ int rule_x86_64_page_offset_from_vmalloc_vmemmap(const struct evidence_set *ev,
   }
 
   /* VMEMMAP observation:
-   * page_offset ≤ V_mm - VMALLOC_SIZE_TB·1TB - directmap_size - 2·PUD_SIZE. */
+   * virt_page_offset ≤ V_mm - VMALLOC_SIZE_TB·1TB - directmap_size -
+   * 2·PUD_SIZE. */
   if (mm != ULONG_MAX && n < out_max) {
     unsigned long below =
         vmalloc_size_tb * one_tb + directmap_size + 2ul * pud_size;

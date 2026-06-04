@@ -7,16 +7,16 @@
 // address pin the mode:
 //
 //   addr < 0xffff800000000000 (the L4 VAS floor)  -> L5 paging (VA_BITS=57):
-//       page_offset in [0xff11000000000000, 0xffff7fffffffffff]
+//       virt_page_offset in [0xff11000000000000, 0xffff7fffffffffff]
 //       (floor = __PAGE_OFFSET_BASE_L5; ceiling = one below the L4 VAS floor)
 //   addr >= 0xffff800000000000 (none below)       -> L4 paging (VA_BITS=48):
-//       page_offset floor raised to the L4 VAS start 0xffff800000000000
+//       virt_page_offset floor raised to the L4 VAS start 0xffff800000000000
 //   addresses from both ranges                    -> contradictory, skip
 //   no DIRECTMAP leaks                            -> nothing
 //
-// Emits a C_EQUALS on Q_VA_BITS (48 for L4, 57 for L5) plus the page_offset
-// window bound(s). Confirmatory/backup path for LA57 when
-// cpuinfo LA57 detection is unavailable; both write consistent page_offset
+// Emits a C_EQUALS on Q_VA_BITS (48 for L4, 57 for L5) plus the
+// virt_page_offset window bound(s). Confirmatory/backup path for LA57 when
+// cpuinfo LA57 detection is unavailable; both write consistent virt_page_offset
 // bounds and the engine's meet is idempotent.
 //
 // x86-64 only; inert elsewhere.
@@ -78,7 +78,8 @@ int rule_x86_64_la57_from_directmap(const struct evidence_set *ev,
   }
 
   if (have_l5) {
-    /* L5: floor = L5 page_offset base, ceiling = one below the L4 VAS floor. */
+    /* L5: floor = L5 virt_page_offset base, ceiling = one below the L4 VAS
+     * floor. */
     if (n < out_max) {
       struct constraint *c = &out[n++];
       memset(c, 0, sizeof(*c));
@@ -102,7 +103,7 @@ int rule_x86_64_la57_from_directmap(const struct evidence_set *ev,
       snprintf(c->origin, ORIGIN_LEN, "x86_64_la57_from_directmap");
     }
   } else {
-    /* L4: raise the page_offset floor to the L4 VAS start. */
+    /* L4: raise the virt_page_offset floor to the L4 VAS start. */
     if (n < out_max) {
       struct constraint *c = &out[n++];
       memset(c, 0, sizeof(*c));

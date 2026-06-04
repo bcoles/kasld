@@ -146,17 +146,17 @@ struct layout_entry {
 
 static const struct layout_entry entries[] = {
     {".text : 0x", KASLD_TYPE_VIRT, "kernel .text start", REGION_KERNEL_TEXT,
-     KERNEL_TEXT_MIN, KERNEL_TEXT_MAX, LK_BASE},
+     KERNEL_VIRT_TEXT_MIN, KERNEL_VIRT_TEXT_MAX, LK_BASE},
     {".data : 0x", KASLD_TYPE_VIRT, "kernel .data start", REGION_KERNEL_DATA,
-     KERNEL_VAS_START, KERNEL_VAS_END, LK_BASE},
+     KERNEL_VIRT_VAS_START, KERNEL_VIRT_VAS_END, LK_BASE},
     {".bss  : 0x", KASLD_TYPE_VIRT, "kernel .bss start", REGION_KERNEL_BSS,
-     KERNEL_TEXT_MIN, KERNEL_TEXT_MAX, LK_BASE},
+     KERNEL_VIRT_TEXT_MIN, KERNEL_VIRT_TEXT_MAX, LK_BASE},
     {"lowmem  : 0x", KASLD_TYPE_VIRT, "kernel lowmem start", REGION_DIRECTMAP,
-     KERNEL_VAS_START, KERNEL_VAS_END, LK_BASE},
+     KERNEL_VIRT_VAS_START, KERNEL_VIRT_VAS_END, LK_BASE},
     {"modules : 0x", KASLD_TYPE_VIRT, "kernel modules start",
      REGION_MODULE_REGION, MODULES_START, MODULES_END, LK_BASE},
     {"memory  : 0x", KASLD_TYPE_VIRT, "kernel memory start", REGION_DIRECTMAP,
-     KERNEL_VAS_START, KERNEL_VAS_END, LK_BASE},
+     KERNEL_VIRT_VAS_START, KERNEL_VIRT_VAS_END, LK_BASE},
     /* Range extractions (lo,hi). One needle per print-format dialect:
      *   "vmalloc : 0x"  — riscv/xtensa/sh/parisc print_ml() style
      *   "vmalloc area:" — s390 boot KERN_DEBUG (boot_debug)
@@ -165,11 +165,11 @@ static const struct layout_entry entries[] = {
      * "vmalloc"/"vmemmap" appears only in matching layout lines on these
      * kernels; the needle includes it explicitly). */
     {"vmalloc : 0x", KASLD_TYPE_VIRT, "vmalloc region", REGION_VMALLOC,
-     KERNEL_VAS_START, KERNEL_VAS_END, LK_RANGE},
+     KERNEL_VIRT_VAS_START, KERNEL_VIRT_VAS_END, LK_RANGE},
     {"vmalloc area:", KASLD_TYPE_VIRT, "vmalloc region", REGION_VMALLOC,
-     KERNEL_VAS_START, KERNEL_VAS_END, LK_RANGE},
+     KERNEL_VIRT_VAS_START, KERNEL_VIRT_VAS_END, LK_RANGE},
     {"vmemmap : 0x", KASLD_TYPE_VIRT, "vmemmap region", REGION_VMEMMAP,
-     KERNEL_VAS_START, KERNEL_VAS_END, LK_RANGE},
+     KERNEL_VIRT_VAS_START, KERNEL_VIRT_VAS_END, LK_RANGE},
     {NULL, 0, NULL, REGION_UNKNOWN, 0, 0, LK_BASE},
 };
 
@@ -221,12 +221,12 @@ static void emit_base(int idx, unsigned long addr) {
   printf("%s: %lx\n", entries[idx].display, addr);
 
   if (region == REGION_KERNEL_TEXT)
-    printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);
+    printf("possible kernel base: %lx\n", addr & -KASLR_VIRT_ALIGN);
 
   if ((region == REGION_DIRECTMAP || region == REGION_MODULE_REGION) &&
-      addr < (unsigned long)KERNEL_VAS_START)
-    printf("[!] warning: %s %lx below configured KERNEL_VAS_START %lx\n",
-           entries[idx].display, addr, (unsigned long)KERNEL_VAS_START);
+      addr < (unsigned long)KERNEL_VIRT_VAS_START)
+    printf("[!] warning: %s %lx below configured KERNEL_VIRT_VAS_START %lx\n",
+           entries[idx].display, addr, (unsigned long)KERNEL_VIRT_VAS_START);
 
   /* Each "kernel .text start" / ".data start" / "modules start" message
    * reports the BASE of the named region. */

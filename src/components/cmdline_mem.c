@@ -1,6 +1,6 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
-// Parse the `mem=N` cmdline token (x86) and emit it as SF_CMDLINE_MEM.
+// Parse the `mem=N` cmdline token (x86) and emit it as SF_PHYS_CMDLINE_MEM.
 //
 // Detection component — does not leak an address.
 //   Purpose: when the cmdline carries `mem=<size>`, x86's KASLR placer caps
@@ -31,7 +31,8 @@
 
 KASLD_EXPLAIN(
     "x86 only: parses the `mem=<size>` cmdline token and emits its bytes as "
-    "SF_CMDLINE_MEM. x86's KASLR placer caps the physical base at this value, "
+    "SF_PHYS_CMDLINE_MEM. x86's KASLR placer caps the physical base at this "
+    "value, "
     "so the kernel image satisfies `phys_base + image_size <= mem`. The rule "
     "cmdline_mem_{phys,virt}_ceiling consumes the scalar (with SF_IMAGE_SIZE) "
     "to bound the text base. /proc/cmdline is world-readable (0444).");
@@ -48,7 +49,7 @@ int main(void) {
     return 1;
   }
   printf("[.] cmdline mem= cap: %#lx (%lu bytes)\n", mem, mem);
-  kasld_emit_scalar(SF_CMDLINE_MEM, mem, CONF_PARSED);
+  kasld_emit_scalar(SF_PHYS_CMDLINE_MEM, mem, CONF_PARSED);
 #endif
   /* Other arches: emit nothing (mem= does not constrain KASLR placement). */
   return 0;

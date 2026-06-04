@@ -73,7 +73,7 @@ static int on_match(const char *line, void *ctx) {
 
   char *endptr;
   unsigned long addr = strtoul(p + 5, &endptr, 16);
-  if (addr && addr < KERNEL_VAS_END) {
+  if (addr && addr < KERNEL_VIRT_VAS_END) {
     *result = addr;
     return 0;
   }

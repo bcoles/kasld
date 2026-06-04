@@ -6,13 +6,16 @@
 //
 // Virtual address space layout:
 // - PAGE_OFFSET:              Start of the kernel direct-mapping (linear map).
-// - KERNEL_VAS_START:         Lowest plausible kernel virtual address (floor).
+// - KERNEL_VIRT_VAS_START:         Lowest plausible kernel virtual address
+// (floor).
 //                             Often equals PAGE_OFFSET, but may be lower on
 //                             architectures with configurable vmsplit to cover
 //                             all configs (eg. 0x40000000 on 32-bit x86/arm).
-// - KERNEL_VAS_END:           End of kernel virtual address space.
-// - KERNEL_TEXT_MIN:          Minimum plausible kernel text virtual address.
-// - KERNEL_TEXT_MAX:          Maximum plausible kernel text virtual address.
+// - KERNEL_VIRT_VAS_END:           End of kernel virtual address space.
+// - KERNEL_VIRT_TEXT_MIN:          Minimum plausible kernel text virtual
+// address.
+// - KERNEL_VIRT_TEXT_MAX:          Maximum plausible kernel text virtual
+// address.
 // - MODULES_START:            Start of kernel module virtual address range.
 // - MODULES_END:              End of kernel module virtual address range.
 //
@@ -27,9 +30,9 @@
 //   bound text); a narrower-than-truth window drops real data.
 //
 // - MODULES_RELATIVE_TO_TEXT: 1 if the module region shifts with KASLR text.
-// - KERNEL_ALIGN:             Kernel text address alignment.
+// - IMAGE_ALIGN:             Kernel text address alignment.
 // - TEXT_OFFSET:              Offset from base address to _stext.
-// - KERNEL_TEXT_DEFAULT:      Default _stext virtual address (no KASLR).
+// - KERNEL_VIRT_TEXT_DEFAULT:      Default _stext virtual address (no KASLR).
 //                             Defined per-architecture.
 //
 // Physical addresses:
@@ -148,24 +151,24 @@
   ((unsigned long)((v) - PAGE_OFFSET + PHYS_OFFSET))
 #endif
 
-#if KERNEL_VAS_START > KERNEL_VAS_END
-#error "Defined KERNEL_VAS_START is larger than KERNEL_VAS_END"
+#if KERNEL_VIRT_VAS_START > KERNEL_VIRT_VAS_END
+#error "Defined KERNEL_VIRT_VAS_START is larger than KERNEL_VIRT_VAS_END"
 #endif
 
-#if KERNEL_VAS_START > KERNEL_TEXT_MIN
-#error "Defined KERNEL_VAS_START is larger than KERNEL_TEXT_MIN"
+#if KERNEL_VIRT_VAS_START > KERNEL_VIRT_TEXT_MIN
+#error "Defined KERNEL_VIRT_VAS_START is larger than KERNEL_VIRT_TEXT_MIN"
 #endif
 
-#if KERNEL_TEXT_MAX > KERNEL_VAS_END
-#error "Defined KERNEL_TEXT_MAX is larger than KERNEL_VAS_END"
+#if KERNEL_VIRT_TEXT_MAX > KERNEL_VIRT_VAS_END
+#error "Defined KERNEL_VIRT_TEXT_MAX is larger than KERNEL_VIRT_VAS_END"
 #endif
 
-#if KERNEL_TEXT_DEFAULT > KERNEL_TEXT_MAX
-#error "Generated KERNEL_TEXT_DEFAULT is larger than KERNEL_TEXT_MAX"
+#if KERNEL_VIRT_TEXT_DEFAULT > KERNEL_VIRT_TEXT_MAX
+#error "Generated KERNEL_VIRT_TEXT_DEFAULT is larger than KERNEL_VIRT_TEXT_MAX"
 #endif
 
-#if KERNEL_TEXT_DEFAULT < KERNEL_TEXT_MIN
-#error "Generated KERNEL_TEXT_DEFAULT is smaller than KERNEL_TEXT_MIN"
+#if KERNEL_VIRT_TEXT_DEFAULT < KERNEL_VIRT_TEXT_MIN
+#error "Generated KERNEL_VIRT_TEXT_DEFAULT is smaller than KERNEL_VIRT_TEXT_MIN"
 #endif
 
 #ifdef KERNEL_PHYS_MIN
@@ -175,50 +178,47 @@
 #endif
 
 /* -----------------------------------------------------------------------------
- * KASLR randomization window (KASLR_TEXT_MIN/MAX, KASLR_ALIGN)
+ * KASLR randomization window (KASLR_VIRT_TEXT_MIN/MAX, KASLR_VIRT_ALIGN)
  *
  * Two tiers of address ranges are used:
  *
- *   KERNEL_TEXT_MIN/MAX  — the **validation range**. Any leaked virtual text
- *                          address in [MIN, MAX] is considered plausible on
- *                          this architecture. Wide enough to cover all vmsplit
- *                          configurations, non-KASLR defaults, and old kernels.
- *                          Used by validate_for_section() to accept or reject
- *                          a result.
+ *   KERNEL_VIRT_TEXT_MIN/MAX  — the **validation range**. Any leaked virtual
+ * text address in [MIN, MAX] is considered plausible on this architecture. Wide
+ * enough to cover all vmsplit configurations, non-KASLR defaults, and old
+ * kernels. Used by validate_for_section() to accept or reject a result.
  *
- *   KASLR_TEXT_MIN/MAX   — the **randomization window**. The narrower range
- *                          that the KASLR mechanism actually selects from at
- *                          boot. Used to compute the number of possible KASLR
- *                          slots and entropy bits.
+ *   KASLR_VIRT_TEXT_MIN/MAX   — the **randomization window**. The narrower
+ * range that the KASLR mechanism actually selects from at boot. Used to compute
+ * the number of possible KASLR slots and entropy bits.
  *
- *   KASLR_ALIGN           — the KASLR slot granularity.
+ *   KASLR_VIRT_ALIGN           — the KASLR slot granularity.
  *
- * On most architectures the two ranges are identical and KASLR_ALIGN equals
- * KERNEL_ALIGN, so the defaults below simply alias them. Architecture headers
- * override when the ranges differ:
+ * On most architectures the two ranges are identical and KASLR_VIRT_ALIGN
+ * equals IMAGE_ALIGN, so the defaults below simply alias them. Architecture
+ * headers override when the ranges differ:
  *
  *   x86_64:  KERNEL_TEXT = [0xffffffff80000000, 0xffffffffc0000000]  (1 GiB)
- *            KASLR_TEXT  = [KERNEL_TEXT_MIN + 16 MiB, ...]
- *            KASLR_ALIGN = KERNEL_ALIGN (2 MiB)
+ *            KASLR_TEXT  = [KERNEL_VIRT_TEXT_MIN + 16 MiB, ...]
+ *            KASLR_VIRT_ALIGN = IMAGE_ALIGN (2 MiB)
  *
  *   arm64:   KERNEL_TEXT = [0xffff800008000000, 0xffffffffff000000]  (~128 TiB)
  *            KASLR_TEXT  = [KIMAGE_VADDR + 2^45, + 2^45 + 2^46]     (~64 TiB)
- *            KASLR_ALIGN = 2 MiB (vs KERNEL_ALIGN = 64 KiB)
+ *            KASLR_VIRT_ALIGN = 2 MiB (vs IMAGE_ALIGN = 64 KiB)
  * -----------------------------------------------------------------------------
  */
-#ifndef KASLR_TEXT_MIN
-#define KASLR_TEXT_MIN KERNEL_TEXT_MIN
+#ifndef KASLR_VIRT_TEXT_MIN
+#define KASLR_VIRT_TEXT_MIN KERNEL_VIRT_TEXT_MIN
 #endif
 
-#ifndef KASLR_TEXT_MAX
-#define KASLR_TEXT_MAX KERNEL_TEXT_MAX
+#ifndef KASLR_VIRT_TEXT_MAX
+#define KASLR_VIRT_TEXT_MAX KERNEL_VIRT_TEXT_MAX
 #endif
 
-#ifndef KASLR_ALIGN
-#define KASLR_ALIGN KERNEL_ALIGN
+#ifndef KASLR_VIRT_ALIGN
+#define KASLR_VIRT_ALIGN IMAGE_ALIGN
 #endif
 
-/* KASLR_TEXT_MIN_WIDE / KASLR_PHYS_MIN_WIDE — the conservative lower edges
+/* KASLR_VIRT_TEXT_MIN_WIDE / KASLR_PHYS_MIN_WIDE — the conservative lower edges
  * of Q_VIRT_TEXT_BASE / Q_PHYS_TEXT_BASE — are defined in
  * include/kasld/api.h (where the arch headers are already pulled in), so
  * that quantities.c (which only includes the engine-side headers) can
@@ -243,7 +243,7 @@
 #endif
 
 #ifndef KASLR_PHYS_ALIGN
-#define KASLR_PHYS_ALIGN KERNEL_ALIGN
+#define KASLR_PHYS_ALIGN IMAGE_ALIGN
 #endif
 
 /* PAGE_OFFSET_RANDOMIZED: whether KASLR randomizes PAGE_OFFSET.

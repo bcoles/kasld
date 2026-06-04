@@ -166,7 +166,7 @@ static unsigned long get_kernel_addr_from_bcm_msg_head_struct(void) {
 
   addr = strtoul(addrs, &endptr, 16);
 
-  if (addr >= KERNEL_TEXT_MIN && addr <= KERNEL_TEXT_MAX)
+  if (addr >= KERNEL_VIRT_TEXT_MIN && addr <= KERNEL_VIRT_TEXT_MAX)
     return addr;
 #else
   (void)buf;
@@ -189,7 +189,7 @@ int main(void) {
   }
 
   printf("leaked stack pointer: %lx\n", addr);
-  printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);
+  printf("possible kernel base: %lx\n", addr & -KASLR_VIRT_ALIGN);
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr,
                       "bcm_msg_head_struct", CONF_HEURISTIC);
 

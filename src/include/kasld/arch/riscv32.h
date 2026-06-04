@@ -26,19 +26,19 @@
 #define DIRECTMAP_STATIC 1
 #define TEXT_TRACKS_DIRECTMAP 1
 
-#define KERNEL_VAS_START PAGE_OFFSET
-#define KERNEL_VAS_END 0xfffffffful
+#define KERNEL_VIRT_VAS_START PAGE_OFFSET
+#define KERNEL_VIRT_VAS_END 0xfffffffful
 
-#define KERNEL_TEXT_MIN PAGE_OFFSET
+#define KERNEL_VIRT_TEXT_MIN PAGE_OFFSET
 // Above this, addresses fall in the fixmap/vmalloc region.
-#define KERNEL_TEXT_MAX 0xf0000000ul
+#define KERNEL_VIRT_TEXT_MAX 0xf0000000ul
 
 #define MODULES_START PAGE_OFFSET
 #define MODULES_END 0xfffffffful
 #define MODULES_RELATIVE_TO_TEXT 0
 
 // https://elixir.bootlin.com/linux/v6.2-rc2/source/arch/riscv/include/asm/efi.h#L41
-#define KERNEL_ALIGN (4 * MB)
+#define IMAGE_ALIGN (4 * MB)
 
 // .head.text section size (8 KiB) before _stext.
 #define TEXT_OFFSET 0x2000
@@ -50,7 +50,7 @@
 // Default: 0xc0002000 (PAGE_OFFSET + 8 KiB .head.text).
 // See docs/kaslr.md "Default text base and KASLR alignment" for all
 // architectures. Kernel source: arch/riscv/kernel/vmlinux.lds.S
-#define KERNEL_TEXT_DEFAULT (KERNEL_TEXT_MIN + TEXT_OFFSET)
+#define KERNEL_VIRT_TEXT_DEFAULT (KERNEL_VIRT_TEXT_MIN + TEXT_OFFSET)
 
 // RISC-V 32-bit does not have mainline KASLR.
 #define KASLR_SUPPORTED 0

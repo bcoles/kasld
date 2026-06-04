@@ -7,7 +7,7 @@
 //   triggers (mem=, memmap=, hugepages=) that the x86 EFI stub uses to zero
 //   the physical-KASLR seed (drivers/firmware/efi/libstub/x86-stub.c
 //   parse_options() + cmdline_memmap_override). The downstream rule
-//   x86_64_efi_phys_seed_zero ORs this scalar with SF_CMDLINE_MEM and the
+//   x86_64_efi_phys_seed_zero ORs this scalar with SF_PHYS_CMDLINE_MEM and the
 //   REGION_CMDLINE_MEMMAP observation count to detect the seed-zero
 //   condition. Value-only carrier — emitted with value=1 on presence.
 //

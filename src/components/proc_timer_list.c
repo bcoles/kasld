@@ -8,7 +8,7 @@
 //   .base:       ffff88001234abcd
 //
 // This is a direct-map address pointing into per-CPU data; it bounds
-// page_offset_base. The file is world-readable (0444) and populated on
+// virt_page_offset_base. The file is world-readable (0444) and populated on
 // every kernel since timer_list was introduced.
 //
 // The '%p' → salted-hash change in v4.15 (commit ad67b74d) replaced all
@@ -48,7 +48,8 @@
 KASLD_EXPLAIN(
     "Reads per-CPU timer base pointers from /proc/timer_list '.base:' lines. "
     "The struct timer_base pointer is printed via raw '%p' and resides in the "
-    "direct-map range, bounding page_offset_base. World-readable (0444) on "
+    "direct-map range, bounding virt_page_offset_base. World-readable (0444) "
+    "on "
     "mainline. Hashed in v4.15 (commit ad67b74d); parsed values outside the "
     "kernel VA range indicate hashing is active.");
 
@@ -92,11 +93,11 @@ int main(void) {
       continue;
 
     /* Direct-map range: PAGE_OFFSET to start of kernel text.
-     * On 32-bit or coupled arches PAGE_OFFSET == KERNEL_TEXT_MIN;
+     * On 32-bit or coupled arches PAGE_OFFSET == KERNEL_VIRT_TEXT_MIN;
      * accept any kernel VA in that case. */
-    int in_dmap = (val >= PAGE_OFFSET && val < KERNEL_TEXT_MIN);
-    int in_kvas =
-        (!in_dmap && val >= KERNEL_VAS_START && val <= KERNEL_VAS_END);
+    int in_dmap = (val >= PAGE_OFFSET && val < KERNEL_VIRT_TEXT_MIN);
+    int in_kvas = (!in_dmap && val >= KERNEL_VIRT_VAS_START &&
+                   val <= KERNEL_VIRT_VAS_END);
 
     if (in_dmap || in_kvas) {
       printf("timer base address: 0x%016lx\n", val);

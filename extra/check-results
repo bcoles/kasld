@@ -17,7 +17,7 @@
 #           initrd, cmdline, cmdline_memmap, reserved_mem, swiotlb,
 #           vmcoreinfo, crashkernel, pmem, acpi_table, acpi_nvs,
 #           efi_memmap, numa_node, mmio, pci_mmio, directmap,
-#           page_offset, vmalloc, vmemmap).
+#           virt_page_offset, vmalloc, vmemmap).
 #
 # Usage:
 #   validate saved tagged lines from file:
@@ -385,7 +385,7 @@ printf '%s\n' "$tagged_lines" | while IFS= read -r line; do
       fi
       ;;
 
-    "V page_offset")
+    "V virt_page_offset")
       skip "$desc — informational (PAGE_OFFSET)"
       ;;
 

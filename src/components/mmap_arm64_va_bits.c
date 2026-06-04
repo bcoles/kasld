@@ -49,19 +49,19 @@ int main(void) {
 
   void *p = mmap(ARM64_VA_PROBE_ADDR, ARM64_VA_PROBE_LEN, PROT_READ,
                  MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
-  unsigned long page_offset;
+  unsigned long virt_page_offset;
   if (p == MAP_FAILED) {
     if (errno != ENOMEM)
-      return 0;                           /* a different failure: don't infer */
-    page_offset = ARM64_VA48_PAGE_OFFSET; /* VA_BITS <= 48 */
+      return 0; /* a different failure: don't infer */
+    virt_page_offset = ARM64_VA48_PAGE_OFFSET; /* VA_BITS <= 48 */
     printf("[.] mmap(1<<48) failed (ENOMEM): VA_BITS<=48\n");
   } else {
     munmap(p, ARM64_VA_PROBE_LEN);
-    page_offset = ARM64_VA52_PAGE_OFFSET; /* VA_BITS >= 52 */
+    virt_page_offset = ARM64_VA52_PAGE_OFFSET; /* VA_BITS >= 52 */
     printf("[.] mmap(1<<48) succeeded: VA_BITS>=52\n");
   }
-  printf("PAGE_OFFSET: %#lx\n", page_offset);
-  kasld_result_base(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, page_offset, NULL,
+  printf("PAGE_OFFSET: %#lx\n", virt_page_offset);
+  kasld_result_base(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, virt_page_offset, NULL,
                     CONF_INFERRED);
   return 0;
 #else

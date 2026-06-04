@@ -6,18 +6,20 @@
 // classes of virtual observation are misclassified by construction on x86-64
 // and are invalidated (V_INVALID):
 //
-//   - a DIRECTMAP observation at or above KERNEL_TEXT_MIN: the direct map never
+//   - a DIRECTMAP observation at or above KERNEL_VIRT_TEXT_MIN: the direct map
+//   never
 //     reaches __START_KERNEL_map, so such an address is not directmap;
-//   - a kernel-text/image observation below KERNEL_TEXT_MIN: below the kernel
+//   - a kernel-text/image observation below KERNEL_VIRT_TEXT_MIN: below the
+//   kernel
 //     image map's floor (__START_KERNEL_map), so not a valid text base.
 //
-// IMPORTANT: the text-floor check uses KERNEL_TEXT_MIN (the *validation* range
-// — the kernel image map's architectural floor), NOT KASLR_TEXT_MIN (the
-// per-build *KASLR randomization window*'s lower edge, which bakes in
+// IMPORTANT: the text-floor check uses KERNEL_VIRT_TEXT_MIN (the *validation*
+// range — the kernel image map's architectural floor), NOT KASLR_VIRT_TEXT_MIN
+// (the per-build *KASLR randomization window*'s lower edge, which bakes in
 // CONFIG_PHYSICAL_START at its compile-time default). On x86_64 a kernel built
 // with a non-default CONFIG_PHYSICAL_START legitimately places text below
-// KASLR_TEXT_MIN — using it here would invalidate that real text leak,
-// defeating the wide-floor inference (KASLR_TEXT_MIN_WIDE) downstream.
+// KASLR_VIRT_TEXT_MIN — using it here would invalidate that real text leak,
+// defeating the wide-floor inference (KASLR_VIRT_TEXT_MIN_WIDE) downstream.
 //
 // Emits verdicts rather than mutating: the engine applies them via
 // evidence_resolve() so the constraint rules see the curated evidence. The
@@ -42,10 +44,11 @@ int rule_coupling_validate(const struct evidence_set *ev, struct verdict *out,
       continue;
 
     unsigned long a = obs_anchor(o);
-    int bad = (o->eff_region == REGION_DIRECTMAP && a >= KERNEL_TEXT_MIN) ||
-              ((o->eff_region == REGION_KERNEL_TEXT ||
-                o->eff_region == REGION_KERNEL_IMAGE) &&
-               a < KERNEL_TEXT_MIN);
+    int bad =
+        (o->eff_region == REGION_DIRECTMAP && a >= KERNEL_VIRT_TEXT_MIN) ||
+        ((o->eff_region == REGION_KERNEL_TEXT ||
+          o->eff_region == REGION_KERNEL_IMAGE) &&
+         a < KERNEL_VIRT_TEXT_MIN);
     if (!bad)
       continue;
 

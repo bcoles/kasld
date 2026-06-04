@@ -91,7 +91,7 @@ static int on_match(const char *line, void *ctx) {
 
   unsigned long addr = strtoul(p + strlen(needle), &endptr, 16);
 
-  if (addr && addr >= KERNEL_TEXT_MIN && addr <= KERNEL_TEXT_MAX) {
+  if (addr && addr >= KERNEL_VIRT_TEXT_MIN && addr <= KERNEL_VIRT_TEXT_MAX) {
     if (!*lowest || addr < *lowest)
       *lowest = addr;
   }
@@ -113,7 +113,7 @@ int main(void) {
   }
 
   printf("lowest leaked address: %lx\n", addr);
-  printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);
+  printf("possible kernel base: %lx\n", addr & -KASLR_VIRT_ALIGN);
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr, NULL,
                       CONF_PARSED);
   return 0;

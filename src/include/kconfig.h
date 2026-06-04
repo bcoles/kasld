@@ -57,7 +57,7 @@ static unsigned long get_kconfig_page_offset(FILE *fp) {
   /* Fallback: check CONFIG_VMSPLIT_* choices (x86_32, arm32) */
   const struct {
     const char *config;
-    unsigned long page_offset;
+    unsigned long virt_page_offset;
   } vmsplit_map[] = {
       {"CONFIG_VMSPLIT_1G", 0x40000000ul},
       {"CONFIG_VMSPLIT_2G", 0x80000000ul},
@@ -69,7 +69,7 @@ static unsigned long get_kconfig_page_offset(FILE *fp) {
 
   for (int i = 0; vmsplit_map[i].config; i++) {
     if (is_kconfig_set(fp, vmsplit_map[i].config))
-      return vmsplit_map[i].page_offset;
+      return vmsplit_map[i].virt_page_offset;
   }
 
   return 0;
@@ -99,7 +99,7 @@ get_kconfig_physical_start(FILE *fp) {
  * Kconfig range is [0x200000, 0x1000000]. Returns the value, or 0 if not
  * found. Fallback for systems where /sys/kernel/boot_params/data is
  * unreadable; boot_params_kaslr_align consumes the value identically via
- * SF_KERNEL_ALIGN regardless of source. */
+ * SF_PHYS_KERNEL_ALIGN regardless of source. */
 static unsigned long __attribute__((unused))
 get_kconfig_physical_align(FILE *fp) {
   const char *key = "CONFIG_PHYSICAL_ALIGN=";

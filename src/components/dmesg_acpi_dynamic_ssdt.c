@@ -17,8 +17,8 @@
 //   ACPI: SSDT 0xFFFF8881010B6000 0005DC (v02 PmRef  Cpu0Ist  ...)
 //
 // These dynamic-load addresses land in the kernel direct-map region
-// (page_offset_base + phys), so they leak a direct-map virtual address
-// and bound page_offset_base to KASLR granularity (1 GiB on x86_64).
+// (virt_page_offset_base + phys), so they leak a direct-map virtual address
+// and bound virt_page_offset_base to KASLR granularity (1 GiB on x86_64).
 // The static-table lines are filtered out by range-checking the parsed
 // address against the direct-map region.
 //
@@ -29,10 +29,10 @@
 //
 // Leak primitive:
 //   Data leaked:      direct-map virtual address of a dynamically-loaded
-//                     ACPI table (bounds page_offset_base / physmap base)
+//                     ACPI table (bounds virt_page_offset_base / physmap base)
 //   Kernel subsystem: drivers/acpi/acpica — acpi_tb_print_table_header()
 //   Data structure:   ACPI SSDT (or other dynamic OEM table) header
-//   Address type:     virtual (direct-map / page_offset)
+//   Address type:     virtual (direct-map / virt_page_offset)
 //   Method:           parsed (dmesg string)
 //   Status:           unfixed (printed unconditionally when dynamic OEM
 //                     tables are loaded)
@@ -79,7 +79,7 @@ KASLD_EXPLAIN(
     "Searches dmesg for ACPI dynamic OEM table load messages. When the "
     "kernel loads dynamic tables (most commonly the four CPU P-state / "
     "C-state SSDTs on Intel systems), it prints the direct-map virtual "
-    "address of the mapped table. This bounds page_offset_base / the "
+    "address of the mapped table. This bounds virt_page_offset_base / the "
     "direct-map base to KASLR granularity. Access is gated by "
     "dmesg_restrict.");
 
@@ -107,9 +107,9 @@ static int on_match(const char *line, void *ctx) {
     return 1;
 
   /* Direct-map addresses land between PAGE_OFFSET (VAS upper-half start)
-   * and KERNEL_TEXT_MIN (start of kernel text region). Physical addresses
+   * and KERNEL_VIRT_TEXT_MIN (start of kernel text region). Physical addresses
    * printed for static tables are well below PAGE_OFFSET and get rejected. */
-  if (addr < PAGE_OFFSET || addr >= KERNEL_TEXT_MIN)
+  if (addr < PAGE_OFFSET || addr >= KERNEL_VIRT_TEXT_MIN)
     return 1;
 
   /* Capture OEM table id (e.g. "Cpu0Ist", "ApCst") for the result label.
@@ -136,7 +136,7 @@ static int on_match(const char *line, void *ctx) {
   }
 
   /* First match wins; all dynamic SSDTs live in the same direct-map
-   * region, so one address fully constrains page_offset_base. */
+   * region, so one address fully constrains virt_page_offset_base. */
   s->addr = addr;
   return 0;
 }

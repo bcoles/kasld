@@ -583,12 +583,12 @@ static void test_compute_kaslr_info_uses_kernel_image_anchor(void) {
   r->region = REGION_KERNEL_IMAGE;
   r->pos = POS_BASE;
   r->conf = CONF_PARSED;
-  r->lo = layout.kaslr_text_min + layout.kaslr_align;
+  r->lo = layout.virt_kaslr_text_min + layout.virt_kaslr_align;
   r->set_mask = LO_SET;
 
   struct summary s = {0};
   compute_kaslr_info(&s);
-  assert(s.kaslr.vtext == layout.kaslr_text_min + layout.kaslr_align);
+  assert(s.kaslr.vtext == layout.virt_kaslr_text_min + layout.virt_kaslr_align);
 }
 
 static void test_compute_kaslr_info_falls_back_to_kernel_text(void) {
@@ -598,12 +598,13 @@ static void test_compute_kaslr_info_falls_back_to_kernel_text(void) {
   r->region = REGION_KERNEL_TEXT;
   r->pos = POS_BASE;
   r->conf = CONF_PARSED;
-  r->lo = layout.kaslr_text_min + 2 * layout.kaslr_align;
+  r->lo = layout.virt_kaslr_text_min + 2 * layout.virt_kaslr_align;
   r->set_mask = LO_SET;
 
   struct summary s = {0};
   compute_kaslr_info(&s);
-  assert(s.kaslr.vtext == layout.kaslr_text_min + 2 * layout.kaslr_align);
+  assert(s.kaslr.vtext ==
+         layout.virt_kaslr_text_min + 2 * layout.virt_kaslr_align);
 }
 
 /* =========================================================================
@@ -878,8 +879,8 @@ static void test_phys_virt_linkage_stays_two_records(void) {
  * ========================================================================= */
 static void test_result_in_bounds_layout_sensitive(void) {
   /* REGION_PAGE_OFFSET deliberately uses ARCH-default kernel VAS bounds
-   * (compile-time constants), NOT layout.kernel_vas_start — using the
-   * runtime layout would create a circular dependency where a page_offset
+   * (compile-time constants), NOT layout.virt_kernel_vas_start — using the
+   * runtime layout would create a circular dependency where a virt_page_offset
    * record gets rejected because earlier inference (based on different
    * records) tightened the bound above it.
    *
@@ -895,8 +896,8 @@ static void test_result_in_bounds_layout_sensitive(void) {
   r.region = REGION_PAGE_OFFSET;
   r.pos = POS_BASE;
   r.conf = CONF_PARSED;
-  r.lo =
-      (unsigned long)PAGE_OFFSET; /* arch-default page_offset is always valid */
+  r.lo = (unsigned long)
+      PAGE_OFFSET; /* arch-default virt_page_offset is always valid */
   r.set_mask = LO_SET;
   assert(result_in_bounds(&r, &layout) == 1);
 }
@@ -943,8 +944,8 @@ static void test_compute_kaslr_info_derives_from_kernel_data(void) {
   r->region = REGION_KERNEL_DATA;
   r->pos = POS_BASE;
   r->conf = CONF_PARSED;
-  unsigned long sdata =
-      layout.kaslr_text_min + (unsigned long)DATA_OFFSET + layout.kaslr_align;
+  unsigned long sdata = layout.virt_kaslr_text_min +
+                        (unsigned long)DATA_OFFSET + layout.virt_kaslr_align;
   r->lo = sdata;
   r->set_mask = LO_SET;
 
@@ -988,7 +989,7 @@ static void test_is_phys_dram_region_includes_ram_landmarks(void) {
 
 static void test_is_phys_dram_region_includes_kernel_image(void) {
   /* The kernel is loaded into physical RAM, so its phys leaks live in
-   * DRAM. The regression that triggered the page_offset-derivation hunt
+   * DRAM. The regression that triggered the virt_page_offset-derivation hunt
    * was caused by this predicate excluding kernel_image regions. */
   assert(is_phys_dram_region(REGION_KERNEL_TEXT));
   assert(is_phys_dram_region(REGION_KERNEL_DATA));
@@ -1023,7 +1024,7 @@ static void test_is_phys_dram_region_excludes_non_dram(void) {
  * legitimately carry PHYS leaks (the kernel is loaded into RAM). The
  * regression hunt found that virt-only static_vas for these regions
  * rejected every PHYS leak — costing us the kernel_bss:cr3 record that
- * was needed to derive page_offset via phys_virt_synth.
+ * was needed to derive virt_page_offset via phys_virt_synth.
  * ========================================================================= */
 static void test_result_in_bounds_accepts_phys_kernel_image(void) {
   struct result r;
@@ -1049,8 +1050,8 @@ static void test_result_in_bounds_accepts_phys_kernel_image(void) {
  * derive_vas_page_offset uses arch constants, not runtime layout
  *
  * PAGE_OFFSET is itself a layout field; validating PAGE_OFFSET records
- * against the runtime layout.kernel_vas_start creates a circular
- * dependency where a page_offset record gets rejected because earlier
+ * against the runtime layout.virt_kernel_vas_start creates a circular
+ * dependency where a virt_page_offset record gets rejected because earlier
  * inference (based on different records) tightened the bound above it.
  * Verify the check is layout-independent.
  * ========================================================================= */
@@ -1059,19 +1060,19 @@ static void test_page_offset_in_bounds_independent_of_runtime_layout(void) {
   result_init(&r);
   r.type = KASLD_TYPE_VIRT;
   r.region = REGION_PAGE_OFFSET;
-  /* A page_offset value at the arch floor. */
+  /* A virt_page_offset value at the arch floor. */
   r.lo = (unsigned long)PAGE_OFFSET;
   r.set_mask = LO_SET;
 
   /* Default layout: accepts. */
   assert(result_in_bounds(&r, &layout) == 1);
 
-  /* Construct a synthetic layout with kernel_vas_start TIGHTENED far
-   * above the record. If derive_vas_page_offset read layout.kernel_vas_start,
-   * the record would be rejected. With arch-constant validation, it
-   * stays accepted. */
+  /* Construct a synthetic layout with virt_kernel_vas_start TIGHTENED far
+   * above the record. If derive_vas_page_offset read
+   * layout.virt_kernel_vas_start, the record would be rejected. With
+   * arch-constant validation, it stays accepted. */
   struct kasld_layout tight = layout;
-  tight.kernel_vas_start = (unsigned long)PAGE_OFFSET + (1ul << 40);
+  tight.virt_kernel_vas_start = (unsigned long)PAGE_OFFSET + (1ul << 40);
   assert(result_in_bounds(&r, &tight) == 1);
 }
 
@@ -1088,11 +1089,11 @@ static void test_select_anchor_skips_out_of_bounds(void) {
    * address outside that VAS. */
   struct result *r = push_result();
   r->type = KASLD_TYPE_VIRT;
-  r->region =
-      REGION_VMALLOC; /* has static_vas = {KERNEL_VAS_START, KERNEL_VAS_END} */
+  r->region = REGION_VMALLOC; /* has static_vas = {KERNEL_VIRT_VAS_START,
+                                 KERNEL_VIRT_VAS_END} */
   r->pos = POS_BASE;
   r->conf = CONF_PARSED;
-  r->lo = 0x1000; /* far below KERNEL_VAS_START */
+  r->lo = 0x1000; /* far below KERNEL_VIRT_VAS_START */
   r->set_mask = LO_SET;
 
   assert(result_in_bounds(r, &layout) == 0);
@@ -1348,7 +1349,7 @@ static void test_compute_kaslr_info_no_note_when_vtext_present(void) {
   v->region = REGION_KERNEL_IMAGE;
   v->pos = POS_BASE;
   v->conf = CONF_PARSED;
-  v->lo = layout.kaslr_text_min + layout.kaslr_align;
+  v->lo = layout.virt_kaslr_text_min + layout.virt_kaslr_align;
   v->set_mask = LO_SET;
 
   struct summary s = {0};
@@ -1405,44 +1406,46 @@ static void test_engine_sync_projects_all_fields(void) {
   e.est[Q_VMEMMAP_BASE].hi_binding = 1;
 
   /* The VAS floor must survive the sync untouched (second renderer bug). */
-  unsigned long vas_floor_before = layout.kernel_vas_start;
+  unsigned long vas_floor_before = layout.virt_kernel_vas_start;
 
   /* Start the targets at poison so a missing write is visibly wrong. */
-  layout.kaslr_text_min = layout.kaslr_text_max = 0;
-  layout.kernel_text_min = layout.kernel_text_max = 0;
-  layout.kaslr_align = 0;
-  layout.page_offset_min = layout.page_offset_max = 0;
-  layout.vmalloc_base_min = layout.vmalloc_base_max = 0;
-  layout.vmemmap_base_min = layout.vmemmap_base_max = 0;
+  layout.virt_kaslr_text_min = layout.virt_kaslr_text_max = 0;
+  layout.virt_kernel_text_min = layout.virt_kernel_text_max = 0;
+  layout.virt_kaslr_align = 0;
+  layout.virt_page_offset_min = layout.virt_page_offset_max = 0;
+  layout.virt_vmalloc_base_min = layout.virt_vmalloc_base_max = 0;
+  layout.virt_vmemmap_base_min = layout.virt_vmemmap_base_max = 0;
 
   engine_sync_authoritative(&e);
 
   /* Virtual text window projects onto BOTH the KASLR window and the kernel
    * image-placement range, and they must be identical (the renderer bug). */
-  assert(layout.kaslr_text_min == 0xffffffff81000000ul);
-  assert(layout.kaslr_text_max == 0xffffffff8f000000ul);
-  assert(layout.kernel_text_min == layout.kaslr_text_min);
-  assert(layout.kernel_text_max == layout.kaslr_text_max);
-  assert(layout.kaslr_align == 0x200000ul);
+  assert(layout.virt_kaslr_text_min == 0xffffffff81000000ul);
+  assert(layout.virt_kaslr_text_max == 0xffffffff8f000000ul);
+  assert(layout.virt_kernel_text_min == layout.virt_kaslr_text_min);
+  assert(layout.virt_kernel_text_max == layout.virt_kaslr_text_max);
+  assert(layout.virt_kaslr_align == 0x200000ul);
 
-  assert(layout.page_offset_min == (unsigned long)PAGE_OFFSET + 0x10000000ul);
-  assert(layout.page_offset_max == (unsigned long)PAGE_OFFSET + 0x90000000ul);
+  assert(layout.virt_page_offset_min ==
+         (unsigned long)PAGE_OFFSET + 0x10000000ul);
+  assert(layout.virt_page_offset_max ==
+         (unsigned long)PAGE_OFFSET + 0x90000000ul);
 
-  assert(layout.vmalloc_base_min == 0xffffc90000000000ul);
-  assert(layout.vmalloc_base_max == 0xffffe90000000000ul);
-  assert(layout.vmemmap_base_min == 0xffffea0000000000ul);
-  assert(layout.vmemmap_base_max == 0xffffeb0000000000ul);
+  assert(layout.virt_vmalloc_base_min == 0xffffc90000000000ul);
+  assert(layout.virt_vmalloc_base_max == 0xffffe90000000000ul);
+  assert(layout.virt_vmemmap_base_min == 0xffffea0000000000ul);
+  assert(layout.virt_vmemmap_base_max == 0xffffeb0000000000ul);
 
 #if !TEXT_TRACKS_DIRECTMAP
   /* Direct-map base moves to the proven lower bound (we set lo > PAGE_OFFSET),
-   * but the VAS floor must NOT (only layout.page_offset, never kernel_vas_start
-   * — the second renderer bug). */
-  assert(layout.page_offset == (unsigned long)PAGE_OFFSET + 0x10000000ul);
+   * but the VAS floor must NOT (only layout.virt_page_offset, never
+   * virt_kernel_vas_start — the second renderer bug). */
+  assert(layout.virt_page_offset == (unsigned long)PAGE_OFFSET + 0x10000000ul);
   assert(layout.phys_kaslr_text_min == 0x4000000ul);
   assert(layout.phys_kaslr_text_max == 0x3c000000ul);
   assert(layout.phys_kaslr_align == 0x200000ul);
 #endif
-  assert(layout.kernel_vas_start == vas_floor_before);
+  assert(layout.virt_kernel_vas_start == vas_floor_before);
 }
 
 /* engine_sync_authoritative tightens layout.modules_start/end from observed
@@ -1479,8 +1482,8 @@ static void test_engine_sync_anchors_module_band_to_observations(void) {
   e.ev.obs[e.ev.n_obs++] = o2;
 
   /* Seed the resolved estimates: just enough for the rest of sync. */
-  e.est[Q_VIRT_TEXT_BASE].lo = layout.kaslr_text_min;
-  e.est[Q_VIRT_TEXT_BASE].hi = layout.kaslr_text_max;
+  e.est[Q_VIRT_TEXT_BASE].lo = layout.virt_kaslr_text_min;
+  e.est[Q_VIRT_TEXT_BASE].hi = layout.virt_kaslr_text_max;
 
   /* Static modules_start/end (the validation union) as the pre-sync value. */
   layout.modules_start = MODULES_START;
@@ -1515,8 +1518,8 @@ static void test_engine_sync_module_band_keeps_static_on_out_of_union(void) {
   o.conf = CONF_PARSED;
   e.ev.obs[e.ev.n_obs++] = o;
 
-  e.est[Q_VIRT_TEXT_BASE].lo = layout.kaslr_text_min;
-  e.est[Q_VIRT_TEXT_BASE].hi = layout.kaslr_text_max;
+  e.est[Q_VIRT_TEXT_BASE].lo = layout.virt_kaslr_text_min;
+  e.est[Q_VIRT_TEXT_BASE].hi = layout.virt_kaslr_text_max;
 
   unsigned long ms_before = MODULES_START;
   unsigned long me_before = MODULES_END;
@@ -1707,7 +1710,7 @@ static void set_rich_render_state(struct summary *s) {
   /* Use the kasld_layout's own (compile-time) text-base default for the
    * VIRT/KERNEL_TEXT result so it lies inside whatever in_bounds() expects.
    * This makes the test arch-portable. */
-  unsigned long vt = (unsigned long)KERNEL_TEXT_DEFAULT;
+  unsigned long vt = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
 
   struct result *r1 = push_result();
   r1->type = KASLD_TYPE_VIRT;
@@ -1810,14 +1813,14 @@ static void test_render_oneline_with_rich_content(void) {
  *     promotion)
  *   - layout.phys_kaslr_text_min/max non-zero (drives render_memory_kaslr_bound
  *     and the phys-band rendering)
- *   - summary.kaslr.page_offset_min/max + vmalloc_min/max + vmemmap_min/max
- *     populated (drives the memory_kaslr block in render_text and
- *     render_memory_kaslr_bound's pinned / one-sided / both-sided branches) */
+ *   - summary.kaslr.virt_page_offset_min/max + virt_vmalloc_min/max +
+ * virt_vmemmap_min/max populated (drives the memory_kaslr block in render_text
+ * and render_memory_kaslr_bound's pinned / one-sided / both-sided branches) */
 static void set_richer_render_state(struct summary *s) {
   set_rich_render_state(s);
 
   /* CONF_DERIVED record — render_derived_text picks it up. */
-  unsigned long vt = (unsigned long)KERNEL_TEXT_DEFAULT;
+  unsigned long vt = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
   struct result *r3 = push_result();
   r3->type = KASLD_TYPE_VIRT;
   r3->region = REGION_KERNEL_DATA;
@@ -1851,12 +1854,12 @@ static void set_richer_render_state(struct summary *s) {
   /* memory_kaslr (RANDOMIZE_MEMORY) — populate all three to hit the
    * pinned branch (min == max), the one-sided branch (min only), and the
    * window branch (min < max). */
-  s->kaslr.page_offset_min = 0xffff888000000000ul;
-  s->kaslr.page_offset_max = 0xffff888000000000ul; /* pinned */
-  s->kaslr.vmalloc_min = 0xffffc90000000000ul;     /* one-sided */
-  s->kaslr.vmalloc_max = 0;
-  s->kaslr.vmemmap_min = 0xffffea0000000000ul;
-  s->kaslr.vmemmap_max = 0xffffeb0000000000ul; /* window */
+  s->kaslr.virt_page_offset_min = 0xffff888000000000ul;
+  s->kaslr.virt_page_offset_max = 0xffff888000000000ul; /* pinned */
+  s->kaslr.virt_vmalloc_min = 0xffffc90000000000ul;     /* one-sided */
+  s->kaslr.virt_vmalloc_max = 0;
+  s->kaslr.virt_vmemmap_min = 0xffffea0000000000ul;
+  s->kaslr.virt_vmemmap_max = 0xffffeb0000000000ul; /* window */
 }
 
 static void test_render_text_with_memory_kaslr_bound(void) {
@@ -1865,8 +1868,8 @@ static void test_render_text_with_memory_kaslr_bound(void) {
   set_render_mode(0, 0, 0);
   capture_stdout(wrap_render_summary, &s);
   /* The default (no-verbose) readout surfaces a narrowed direct-map base
-   * as its own row. The richer-render-state setup pins page_offset_min ==
-   * page_offset_max so the readout's lo == hi branch fires with the
+   * as its own row. The richer-render-state setup pins virt_page_offset_min ==
+   * virt_page_offset_max so the readout's lo == hi branch fires with the
    * "pinned" annotation. (Under -v the original render_memory_kaslr_bound
    * runs instead, producing "(pinned)" / ">= 0x" / "<= 0x" — covered by
    * the verbose-mode tests below.) */
@@ -1938,7 +1941,7 @@ static void test_section_consensus_lowest_among_ties(void) {
   }
   /* Make all three pass in_bounds: the directmap base lives at PAGE_OFFSET
    * by construction, all three samples are above it. */
-  layout.page_offset = (unsigned long)PAGE_OFFSET;
+  layout.virt_page_offset = (unsigned long)PAGE_OFFSET;
   assert(section_consensus(KASLD_TYPE_VIRT, "directmap", REGION_UNKNOWN) == lo);
 }
 
@@ -1948,7 +1951,8 @@ static void test_section_consensus_prefers_pos_base(void) {
    * The base observation must win despite being numerically higher,
    * because POS_BASE outranks POS_INTERIOR at the same CONF. */
   reset_results();
-  unsigned long base_addr = (unsigned long)KERNEL_TEXT_DEFAULT + 0x800000ul;
+  unsigned long base_addr =
+      (unsigned long)KERNEL_VIRT_TEXT_DEFAULT + 0x800000ul;
   unsigned long interior_addr = base_addr - 0x10000ul;
 
   struct result *r_interior = push_result();
@@ -2006,7 +2010,7 @@ static void test_section_consensus_higher_conf_wins(void) {
   snprintf(r_p->methods[0], METHOD_LEN, "parsed");
   r_p->provenance_count = 1;
 
-  layout.page_offset = (unsigned long)PAGE_OFFSET;
+  layout.virt_page_offset = (unsigned long)PAGE_OFFSET;
   assert(section_consensus(KASLD_TYPE_VIRT, "directmap", REGION_UNKNOWN) ==
          hi_parsed);
 }
@@ -2058,7 +2062,7 @@ static void test_render_json_with_memory_kaslr(void) {
   set_richer_render_state(&s);
   set_render_mode(1, 0, 0);
   capture_stdout(wrap_render_summary, &s);
-  /* memory_kaslr block emitted when at least one of page_offset/vmalloc/
+  /* memory_kaslr block emitted when at least one of virt_page_offset/vmalloc/
    * vmemmap min or max is set. */
   assert(strstr(render_cap, "memory_kaslr") != NULL);
   set_render_mode(0, 0, 0);
@@ -2072,7 +2076,7 @@ static void test_render_derived_text_range_form(void) {
   num_scalar_facts = 0;
   struct summary s;
   memset(&s, 0, sizeof(s));
-  unsigned long vt = (unsigned long)KERNEL_TEXT_DEFAULT;
+  unsigned long vt = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
   struct result *r = push_result();
   r->type = KASLD_TYPE_VIRT;
   r->region = REGION_VMALLOC;
@@ -2126,9 +2130,9 @@ static void test_render_hardening_json(void) {
          strstr(render_cap, "lockdown") != NULL);
 }
 
-/* SF_KASLR_RANDOMIZATION_FAILED surfaces in the text hardening report as a
+/* SF_VIRT_KASLR_RANDOMIZATION_FAILED surfaces in the text hardening report as a
  * dedicated posture section (entropy downgrade). The fact is distinct from
- * SF_KASLR_DISABLED — the kernel was relocated to a firmware-determined
+ * SF_VIRT_KASLR_DISABLED — the kernel was relocated to a firmware-determined
  * position, not the link-time default — so the renderer must call this out
  * with its own banner rather than reuse the opt-out banner. */
 static void test_render_hardening_text_rand_failed_surfaces(void) {
@@ -2138,7 +2142,7 @@ static void test_render_hardening_text_rand_failed_surfaces(void) {
   struct summary s;
   set_rich_render_state(&s);
   /* Plant the new scalar fact a randomization-failed boot would emit. */
-  scalar_facts[num_scalar_facts].fact = SF_KASLR_RANDOMIZATION_FAILED;
+  scalar_facts[num_scalar_facts].fact = SF_VIRT_KASLR_RANDOMIZATION_FAILED;
   scalar_facts[num_scalar_facts].value = 1;
   scalar_facts[num_scalar_facts].conf = CONF_PARSED;
   snprintf(scalar_facts[num_scalar_facts].origin, ORIGIN_LEN,
@@ -2162,7 +2166,7 @@ static void test_render_hardening_json_rand_failed_state(void) {
   num_scalar_facts = 0;
   struct summary s;
   set_rich_render_state(&s);
-  scalar_facts[num_scalar_facts].fact = SF_KASLR_RANDOMIZATION_FAILED;
+  scalar_facts[num_scalar_facts].fact = SF_VIRT_KASLR_RANDOMIZATION_FAILED;
   scalar_facts[num_scalar_facts].value = 1;
   scalar_facts[num_scalar_facts].conf = CONF_PARSED;
   snprintf(scalar_facts[num_scalar_facts].origin, ORIGIN_LEN,
@@ -2202,12 +2206,12 @@ static void test_render_hardening_text_no_rand_failed_silent(void) {
  * read layout (e.g. compute_kaslr_info coverage) start from the honest window.
  */
 static void test_init_layout_engine_bounds(void) {
-  layout.page_offset_min = layout.kernel_vas_start;
-  layout.page_offset_max = layout.kernel_vas_end;
-  layout.vmalloc_base_min = 0;
-  layout.vmalloc_base_max = ULONG_MAX;
-  layout.vmemmap_base_min = 0;
-  layout.vmemmap_base_max = ULONG_MAX;
+  layout.virt_page_offset_min = layout.virt_kernel_vas_start;
+  layout.virt_page_offset_max = layout.virt_kernel_vas_end;
+  layout.virt_vmalloc_base_min = 0;
+  layout.virt_vmalloc_base_max = ULONG_MAX;
+  layout.virt_vmemmap_base_min = 0;
+  layout.virt_vmemmap_base_max = ULONG_MAX;
 }
 
 int main(void) {

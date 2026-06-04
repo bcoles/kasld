@@ -98,7 +98,7 @@ int main(void) {
   }
 
   printf("kernel text start (_stext): 0x%lx\n", stext);
-  printf("possible kernel base: 0x%lx\n", stext & -KERNEL_ALIGN);
+  printf("possible kernel base: 0x%lx\n", stext & -KASLR_VIRT_ALIGN);
   kasld_result_base(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, stext, "_stext",
                     CONF_PARSED);
 

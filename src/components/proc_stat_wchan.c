@@ -97,7 +97,7 @@ static unsigned long get_kernel_addr_proc_stat_wchan(void) {
   while (ptr != NULL) {
     if (field == 34) {
       addr = strtoul(ptr, &endptr, 10);
-      if (addr < KERNEL_TEXT_MIN || addr > KERNEL_TEXT_MAX)
+      if (addr < KERNEL_VIRT_TEXT_MIN || addr > KERNEL_VIRT_TEXT_MAX)
         addr = 0;
       break;
     }
@@ -118,7 +118,7 @@ int main(void) {
   }
 
   printf("leaked wchan address: %lx\n", addr);
-  printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);
+  printf("possible kernel base: %lx\n", addr & -KASLR_VIRT_ALIGN);
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr, NULL,
                       CONF_PARSED);
 

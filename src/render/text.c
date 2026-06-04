@@ -369,8 +369,8 @@ static int ilog2_ul(unsigned long v) {
 }
 
 /* Print one row of the Memory KASLR (CONFIG_RANDOMIZE_MEMORY) table.
- * Each region (page_offset_base, vmalloc_base, vmemmap_base) carries a
- * (min, max) pair that compute_kaslr_info stores using 0 as the "not
+ * Each region (virt_page_offset_base, virt_vmalloc_base, virt_vmemmap_base)
+ * carries a (min, max) pair that compute_kaslr_info stores using 0 as the "not
  * tightened beyond the compile-time default" sentinel for either side.
  * Four display cases:
  *   both 0:        skip (nothing to show)
@@ -404,7 +404,8 @@ static void render_memory_kaslr_bound(const char *name, unsigned long min,
   }
   /* Bounded both sides: report the residual positional entropy of the region
    * base — how many RANDOMIZE_MEMORY_ALIGN-aligned positions remain in the
-   * window (e.g. a direct-map leak narrows page_offset_base to ~RAM/1GiB). */
+   * window (e.g. a direct-map leak narrows virt_page_offset_base to ~RAM/1GiB).
+   */
   unsigned long align = (unsigned long)RANDOMIZE_MEMORY_ALIGN;
   unsigned long slots = (align && max > min) ? (max - min) / align : 0;
   if (slots > 1)
@@ -434,10 +435,10 @@ static void render_kaslr_text(const struct summary *s) {
     /* Inference narrowed the range(s) but no concrete address was found. */
     if (s->kaslr.vslots > 0) {
       printf("  Inferred text range:  0x%016lx - 0x%016lx\n",
-             layout.kaslr_text_min, layout.kaslr_text_max);
+             layout.virt_kaslr_text_min, layout.virt_kaslr_text_max);
       printf("  Remaining slots:      %s%lu%s  (%d bits, step %#lx)\n",
              c(C_MAGENTA), s->kaslr.vslots, c(C_RESET), s->kaslr.vbits,
-             layout.kaslr_align);
+             layout.virt_kaslr_align);
     }
     if (s->kaslr.pslots > 0) {
       if (s->kaslr.vslots > 0)
@@ -457,7 +458,8 @@ static void render_kaslr_text(const struct summary *s) {
   if (s->kaslr.vtext) {
     printf("  Virtual text base:    %s0x%016lx%s\n", c(C_GREEN), s->kaslr.vtext,
            c(C_RESET));
-    printf("  Default text base:    0x%016lx\n", layout.kernel_text_default);
+    printf("  Default text base:    0x%016lx\n",
+           layout.virt_kernel_text_default);
     long abs_vslide = s->kaslr.vslide < 0 ? -s->kaslr.vslide : s->kaslr.vslide;
     printf("  KASLR slide:          %s%s0x%lx%s (%ld)\n", c(C_CYAN),
            s->kaslr.vslide < 0 ? "-" : "+", (unsigned long)abs_vslide,
@@ -465,8 +467,8 @@ static void render_kaslr_text(const struct summary *s) {
     if (s->kaslr.vslots > 0)
       printf("  KASLR text entropy:   %s%d bits%s (%lu slots of %#lx)\n",
              c(C_MAGENTA), s->kaslr.vbits, c(C_RESET), s->kaslr.vslots,
-             layout.kaslr_align);
-    else if (layout.kaslr_text_max == layout.kaslr_text_min)
+             layout.virt_kaslr_align);
+    else if (layout.virt_kaslr_text_max == layout.virt_kaslr_text_min)
       /* Engine resolved Q_VIRT_TEXT_BASE to a singleton — the leak collapsed
        * the window to one slot. Distinguish from the no-alignment fallback
        * below: the visible text base IS the only possible value. */
@@ -518,18 +520,19 @@ static void render_kaslr_text(const struct summary *s) {
   /* Memory KASLR (x86_64 CONFIG_RANDOMIZE_MEMORY): show inferred bounds on
    * the three independently-randomised memory regions when any has been
    * narrowed from the compile-time defaults. The x86_64_vmalloc_base_bound and
-   * x86_64_vmemmap_base_bound rules chain off page_offset_min to derive vmalloc
-   * and vmemmap bounds via the fixed inter-region ordering. */
-  if (s->kaslr.page_offset_min || s->kaslr.vmalloc_min ||
-      s->kaslr.vmemmap_min || s->kaslr.page_offset_max ||
-      s->kaslr.vmalloc_max || s->kaslr.vmemmap_max) {
+   * x86_64_vmemmap_base_bound rules chain off virt_page_offset_min to derive
+   * vmalloc and vmemmap bounds via the fixed inter-region ordering. */
+  if (s->kaslr.virt_page_offset_min || s->kaslr.virt_vmalloc_min ||
+      s->kaslr.virt_vmemmap_min || s->kaslr.virt_page_offset_max ||
+      s->kaslr.virt_vmalloc_max || s->kaslr.virt_vmemmap_max) {
     printf("Memory KASLR (directmap / vmalloc / vmemmap):\n");
-    render_memory_kaslr_bound("page_offset_base", s->kaslr.page_offset_min,
-                              s->kaslr.page_offset_max);
-    render_memory_kaslr_bound("vmalloc_base", s->kaslr.vmalloc_min,
-                              s->kaslr.vmalloc_max);
-    render_memory_kaslr_bound("vmemmap_base", s->kaslr.vmemmap_min,
-                              s->kaslr.vmemmap_max);
+    render_memory_kaslr_bound("virt_page_offset_base",
+                              s->kaslr.virt_page_offset_min,
+                              s->kaslr.virt_page_offset_max);
+    render_memory_kaslr_bound("virt_vmalloc_base", s->kaslr.virt_vmalloc_min,
+                              s->kaslr.virt_vmalloc_max);
+    render_memory_kaslr_bound("virt_vmemmap_base", s->kaslr.virt_vmemmap_min,
+                              s->kaslr.virt_vmemmap_max);
     printf("\n");
   }
 }
@@ -566,7 +569,7 @@ static void render_derived_text(const struct summary *s) {
     /* Range-form when both bounds present; otherwise single-address. */
     if (HAS_LO(r) && HAS_HI(r)) {
       unsigned long slots =
-          layout.kernel_align ? (r->hi - r->lo) / layout.kernel_align : 0;
+          layout.image_align ? (r->hi - r->lo) / layout.image_align : 0;
       printf("  %-24s0x%016lx - 0x%016lx  (~%lu slots, %s)%s\n", label, r->lo,
              r->hi, slots, result_method(r), in_bounds(r) ? "" : " [stale]");
     } else {
@@ -618,17 +621,18 @@ static void print_memory_map(void) {
 
   regions[n++] = (struct map_region){layout.modules_start, layout.modules_end,
                                      "modules", vmod_lo, vmod_hi};
-  regions[n++] =
-      (struct map_region){layout.kernel_text_min, layout.kernel_text_max,
-                          "kernel text", vtext_lo, vtext_hi};
+  regions[n++] = (struct map_region){layout.virt_kernel_text_min,
+                                     layout.virt_kernel_text_max, "kernel text",
+                                     vtext_lo, vtext_hi};
 
   /* Only show directmap region if it's distinct from text region.
-     Use page_offset as both start and end — we know the mapping begins
-     there but don't know its true extent. kernel_vas_end would cause
+     Use virt_page_offset as both start and end — we know the mapping begins
+     there but don't know its true extent. virt_kernel_vas_end would cause
      unsigned overflow in the gap arithmetic (end + 1 wraps to 0). */
-  if (layout.page_offset != layout.kernel_text_min) {
-    regions[n++] = (struct map_region){layout.page_offset, layout.page_offset,
-                                       "direct map", vdmap_lo, vdmap_hi};
+  if (layout.virt_page_offset != layout.virt_kernel_text_min) {
+    regions[n++] =
+        (struct map_region){layout.virt_page_offset, layout.virt_page_offset,
+                            "direct map", vdmap_lo, vdmap_hi};
   }
 
   /* Sort by start address */
@@ -645,12 +649,12 @@ static void print_memory_map(void) {
    * annotation). All output is ASCII-only for terminal portability. */
   const char *INDENT = "      ";
 
-  /* Use the highest of kernel_vas_end and all region.end values so the top
-   * label is never below a visible region boundary. kernel_vas_end can be
-   * tightened by the page_offset_max inference feedback loop (it reflects
+  /* Use the highest of virt_kernel_vas_end and all region.end values so the top
+   * label is never below a visible region boundary. virt_kernel_vas_end can be
+   * tightened by the virt_page_offset_max inference feedback loop (it reflects
    * the upper bound on PAGE_OFFSET, not the architectural VAS ceiling), so
    * we clamp it up to the highest region boundary we know about. */
-  unsigned long map_top = layout.kernel_vas_end;
+  unsigned long map_top = layout.virt_kernel_vas_end;
   for (int i = 0; i < n; i++)
     if (regions[i].end > map_top)
       map_top = regions[i].end;
@@ -692,15 +696,16 @@ static void print_memory_map(void) {
     }
   }
 
-  /* Only print kernel_vas_start as a footer when it is genuinely below the
-   * lowest visible region (i.e. the VAS extends further down than page_offset).
-   * kernel_vas_start can be raised by the page_offset_min inference feedback
-   * loop, making it larger than layout.page_offset; printing it there would
-   * produce two labels in inverted address order. */
-  if (n == 0 || layout.kernel_vas_start < regions[0].start) {
-    if (n > 0 && regions[0].start > layout.kernel_vas_start + 1) {
+  /* Only print virt_kernel_vas_start as a footer when it is genuinely below the
+   * lowest visible region (i.e. the VAS extends further down than
+   * virt_page_offset). virt_kernel_vas_start can be raised by the
+   * virt_page_offset_min inference feedback loop, making it larger than
+   * layout.virt_page_offset; printing it there would produce two labels in
+   * inverted address order. */
+  if (n == 0 || layout.virt_kernel_vas_start < regions[0].start) {
+    if (n > 0 && regions[0].start > layout.virt_kernel_vas_start + 1) {
       char hbuf[32];
-      unsigned long gap = regions[0].start - layout.kernel_vas_start;
+      unsigned long gap = regions[0].start - layout.virt_kernel_vas_start;
       printf("%s%s. . .  %s gap  . . .%s\n", INDENT, c(C_DIM),
              human_size(gap, hbuf, sizeof(hbuf)), c(C_RESET));
     }
@@ -710,8 +715,8 @@ static void print_memory_map(void) {
     const char *below = (sizeof(unsigned long) > 4)
                             ? "user space + non-canonical hole below"
                             : "user space below";
-    printf("  0x%016lx  %s(%s)%s\n", layout.kernel_vas_start, c(C_DIM), below,
-           c(C_RESET));
+    printf("  0x%016lx  %s(%s)%s\n", layout.virt_kernel_vas_start, c(C_DIM),
+           below, c(C_RESET));
   }
   printf("\n");
 
@@ -1085,7 +1090,7 @@ static void readout_bound_row(const char *label, unsigned long lo,
 
 /* List the kernel-locating leaks that drive the readout. One line per
  * (type, region) consensus pick — skipping noise (generic DRAM/MMIO
- * extents, page_offset metadata). */
+ * extents, virt_page_offset metadata). */
 static int readout_print_leaks(void) {
   /* Regions worth surfacing in the headline list. */
   struct {
@@ -1192,8 +1197,8 @@ static void render_readout(const struct summary *s) {
   /* Regular KASLR path: text base lines + memory-KASLR window lines +
    * coupling note + leaks. Each bound row is suppressed if its quantity
    * was never narrowed below the honest top — keeps the output tight. */
-  int vpin = (layout.kaslr_text_min == layout.kaslr_text_max &&
-              layout.kaslr_text_min != 0);
+  int vpin = (layout.virt_kaslr_text_min == layout.virt_kaslr_text_max &&
+              layout.virt_kaslr_text_min != 0);
   int ppin = (layout.phys_kaslr_text_min == layout.phys_kaslr_text_max &&
               layout.phys_kaslr_text_min != 0);
 
@@ -1204,9 +1209,9 @@ static void render_readout(const struct summary *s) {
            c(C_GREEN), s->kaslr.vtext, c(C_RESET), c(C_CYAN),
            s->kaslr.vslide < 0 ? "-" : "+", (unsigned long)abs_v, c(C_RESET));
   } else {
-    readout_bound_row("Virtual text base", layout.kaslr_text_min,
-                      layout.kaslr_text_max, s->kaslr.vslots, s->kaslr.vbits,
-                      layout.kaslr_align);
+    readout_bound_row("Virtual text base", layout.virt_kaslr_text_min,
+                      layout.virt_kaslr_text_max, s->kaslr.vslots,
+                      s->kaslr.vbits, layout.virt_kaslr_align);
   }
 
   if (s->kaslr.has_phys && ppin) {
@@ -1221,14 +1226,14 @@ static void render_readout(const struct summary *s) {
                       s->kaslr.pbits, layout.phys_kaslr_align);
   }
 
-  /* page_offset (direct-map base): only when both sides narrowed into a
+  /* virt_page_offset (direct-map base): only when both sides narrowed into a
    * usable range. Half-bound (only min OR only max non-zero, encoding a
-   * `>=`/`<=` claim against the unset KERNEL_VAS_END/PAGE_OFFSET sentinel)
+   * `>=`/`<=` claim against the unset KERNEL_VIRT_VAS_END/PAGE_OFFSET sentinel)
    * doesn't fit the bounded-row table format — surface those in the verbose
    * Memory-KASLR block instead. */
   {
-    unsigned long lo = s->kaslr.page_offset_min;
-    unsigned long hi = s->kaslr.page_offset_max;
+    unsigned long lo = s->kaslr.virt_page_offset_min;
+    unsigned long hi = s->kaslr.virt_page_offset_max;
     if (lo && hi && hi >= lo) {
       unsigned long align = (unsigned long)RANDOMIZE_MEMORY_ALIGN;
       unsigned long slots = (align && hi > lo) ? (hi - lo) / align : 0;
@@ -1302,12 +1307,15 @@ void render_text(const struct summary *s) {
   } else if (s->kaslr.disabled) {
     printf("%s** KASLR is disabled **%s\n\n", c(C_YELLOW), c(C_RESET));
     printf("Detected by:\n");
-    /* List components that emitted SF_KASLR_DISABLED — the unified KASLR-off
-     * signal (nokaslr cmdline, no CONFIG_RANDOMIZE_BASE, dmesg "KASLR
-     * disabled", hibernation override, riscv64 no FDT seed, !KASLR_SUPPORTED).
-     */
+    /* List components that emitted SF_VIRT_KASLR_DISABLED — the user-facing
+     * "kernel sits at default text base" status is about virt text, so the
+     * list is the virt-side emitters (nokaslr cmdline, no
+     * CONFIG_RANDOMIZE_BASE, dmesg "KASLR disabled", hibernation override,
+     * riscv64 no FDT seed, !KASLR_SUPPORTED synth). Components that also
+     * emit SF_PHYS_KASLR_DISABLED show up once via the SF_VIRT scan, not
+     * twice. */
     for (int i = 0; i < num_scalar_facts; i++) {
-      if (scalar_facts[i].fact == SF_KASLR_DISABLED &&
+      if (scalar_facts[i].fact == SF_VIRT_KASLR_DISABLED &&
           scalar_facts[i].value != 0)
         printf("  %s\n", scalar_facts[i].origin[0] ? scalar_facts[i].origin
                                                    : "(unknown)");

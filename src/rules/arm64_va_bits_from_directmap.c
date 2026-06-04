@@ -13,7 +13,7 @@
 //   addresses from both ranges                         -> contradictory, skip
 //   no DIRECTMAP leaks                                 -> nothing
 //
-// Emits a C_EQUALS on Q_VA_BITS (the resolved width) plus the page_offset
+// Emits a C_EQUALS on Q_VA_BITS (the resolved width) plus the virt_page_offset
 // window bound(s). Pure: reads DIRECTMAP observations only,
 // emits no constraint when the evidence is absent or contradictory. The
 // Explicit window-inversion guards are unnecessary here — the engine's
@@ -88,7 +88,8 @@ int rule_arm64_va_bits_from_directmap(const struct evidence_set *ev,
     c->lineage_count = src ? 1 : 0;
     snprintf(c->origin, ORIGIN_LEN, "arm64_va_bits_from_directmap");
   }
-  /* page_offset ceiling (both VA48 and VA52 pin the upper edge to PAGE_OFFSET)
+  /* virt_page_offset ceiling (both VA48 and VA52 pin the upper edge to
+   * PAGE_OFFSET)
    */
   if (n < out_max) {
     struct constraint *c = &out[n++];
@@ -101,7 +102,8 @@ int rule_arm64_va_bits_from_directmap(const struct evidence_set *ev,
     c->lineage_count = src ? 1 : 0;
     snprintf(c->origin, ORIGIN_LEN, "arm64_va_bits_from_directmap");
   }
-  /* page_offset floor (VA48 only — VA52's floor is the architectural top) */
+  /* virt_page_offset floor (VA48 only — VA52's floor is the architectural top)
+   */
   if (pin_floor && n < out_max) {
     struct constraint *c = &out[n++];
     memset(c, 0, sizeof(*c));

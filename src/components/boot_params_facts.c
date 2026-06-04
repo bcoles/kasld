@@ -1,8 +1,8 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
 // Emit x86 boot_params scalar facts: SF_INIT_SIZE (exact in-memory kernel
-// size) and SF_KERNEL_ALIGN (CONFIG_PHYSICAL_ALIGN slot granularity). x86 only;
-// the readers return 0 elsewhere.
+// size) and SF_PHYS_KERNEL_ALIGN (CONFIG_PHYSICAL_ALIGN slot granularity). x86
+// only; the readers return 0 elsewhere.
 // ---
 // <bcoles@gmail.com>
 #define _POSIX_C_SOURCE 200809L /* pread() in boot_params.h */
@@ -20,6 +20,6 @@ int main(void) {
   if ((v = kasld_read_boot_init_size()))
     kasld_emit_scalar(SF_INIT_SIZE, v, CONF_PARSED);
   if ((v = kasld_read_boot_kernel_align()))
-    kasld_emit_scalar(SF_KERNEL_ALIGN, v, CONF_PARSED);
+    kasld_emit_scalar(SF_PHYS_KERNEL_ALIGN, v, CONF_PARSED);
   return 0;
 }

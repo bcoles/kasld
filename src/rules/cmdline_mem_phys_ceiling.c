@@ -13,7 +13,7 @@
 // (Q_PHYS_TEXT_BASE exists); the coupled-arch counterpart is
 // cmdline_mem_virt_ceiling.
 //
-// Reads SF_CMDLINE_MEM (emitted by cmdline_mem.c) + SF_IMAGE_SIZE; emits
+// Reads SF_PHYS_CMDLINE_MEM (emitted by cmdline_mem.c) + SF_IMAGE_SIZE; emits
 // nothing when either is absent — sound.
 //
 // References:
@@ -46,7 +46,7 @@ int rule_cmdline_mem_phys_ceiling(const struct evidence_set *ev,
     const struct observation *o = &ev->obs[i];
     if (!o->valid || o->value_kind != OBS_SCALAR)
       continue;
-    if (o->scalar_fact == SF_CMDLINE_MEM) {
+    if (o->scalar_fact == SF_PHYS_CMDLINE_MEM) {
       mem = o->scalar_value;
       mconf = o->conf;
       msrc = o->id;

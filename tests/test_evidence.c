@@ -141,12 +141,12 @@ static void test_scalar_observation(void) {
   struct evidence_set ev;
   evidence_init(&ev);
   struct observation m =
-      mk_scalar(SF_MEMTOTAL, 12884901888ul, "proc-meminfo"); /* 12 GiB */
+      mk_scalar(SF_PHYS_MEMTOTAL, 12884901888ul, "proc-meminfo"); /* 12 GiB */
   uint32_t id = evidence_add(&ev, &m);
   evidence_resolve(&ev);
   struct observation *o = obs_by_id(&ev, id);
   assert(o->value_kind == OBS_SCALAR);
-  assert(o->scalar_fact == SF_MEMTOTAL);
+  assert(o->scalar_fact == SF_PHYS_MEMTOTAL);
   assert(o->scalar_value == 12884901888ul);
   assert(evidence_active(o));
 

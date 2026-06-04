@@ -14,8 +14,8 @@
 // page_offset_from_config / a landmark), otherwise emits nothing — sound
 // under the "no-input → no-constraint" principle.
 //
-// Reads SF_CMDLINE_MEM (cmdline_mem.c) + SF_IMAGE_SIZE + Q_PAGE_OFFSET pinned;
-// emits nothing when any is absent.
+// Reads SF_PHYS_CMDLINE_MEM (cmdline_mem.c) + SF_IMAGE_SIZE + Q_PAGE_OFFSET
+// pinned; emits nothing when any is absent.
 //
 // References:
 // https://elixir.bootlin.com/linux/v6.12/source/arch/x86/boot/compressed/kaslr.c#L260
@@ -39,11 +39,11 @@ int rule_cmdline_mem_virt_ceiling(const struct evidence_set *ev,
   if (out_max < 1)
     return 0;
 
-  /* page_offset must be pinned (VMSPLIT or landmark resolved). */
+  /* virt_page_offset must be pinned (VMSPLIT or landmark resolved). */
   const struct estimate *po = &est[Q_PAGE_OFFSET];
   if (po->lo != po->hi)
     return 0;
-  unsigned long page_offset = po->lo;
+  unsigned long virt_page_offset = po->lo;
 
   unsigned long mem = 0, ksize = 0;
   enum kasld_confidence mconf = CONF_UNKNOWN, kconf = CONF_UNKNOWN;
@@ -52,7 +52,7 @@ int rule_cmdline_mem_virt_ceiling(const struct evidence_set *ev,
     const struct observation *o = &ev->obs[i];
     if (!o->valid || o->value_kind != OBS_SCALAR)
       continue;
-    if (o->scalar_fact == SF_CMDLINE_MEM) {
+    if (o->scalar_fact == SF_PHYS_CMDLINE_MEM) {
       mem = o->scalar_value;
       mconf = o->conf;
       msrc = o->id;
@@ -66,14 +66,14 @@ int rule_cmdline_mem_virt_ceiling(const struct evidence_set *ev,
     return 0;
 
   unsigned long ceiling =
-      page_offset + mem - ksize + (unsigned long)TEXT_OFFSET;
-  /* Align to the resolved Q_KASLR_ALIGN (>= compile-time KASLR_ALIGN). */
+      virt_page_offset + mem - ksize + (unsigned long)TEXT_OFFSET;
+  /* Align to the resolved Q_KASLR_ALIGN (>= compile-time KASLR_VIRT_ALIGN). */
   unsigned long valign = est[Q_KASLR_ALIGN].lo;
-  if (valign < (unsigned long)KASLR_ALIGN)
-    valign = (unsigned long)KASLR_ALIGN;
+  if (valign < (unsigned long)KASLR_VIRT_ALIGN)
+    valign = (unsigned long)KASLR_VIRT_ALIGN;
   if (valign > 0)
     ceiling &= ~(valign - 1);
-  if (ceiling <= KASLR_TEXT_MIN)
+  if (ceiling <= KASLR_VIRT_TEXT_MIN)
     return 0;
 
   struct constraint *c = &out[0];

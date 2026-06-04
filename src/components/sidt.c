@@ -137,7 +137,7 @@ static int is_fixmap_region(unsigned long addr) {
 }
 
 static int is_kernel_text_region(unsigned long addr) {
-  return addr >= KERNEL_TEXT_MIN && addr < MODULES_START;
+  return addr >= KERNEL_VIRT_TEXT_MIN && addr < MODULES_START;
 }
 
 #else /* __i386__ */
@@ -158,7 +158,7 @@ static int is_fixmap_region(unsigned long addr) {
 }
 
 static int is_kernel_text_region(unsigned long addr) {
-  return addr >= KERNEL_TEXT_MIN && addr < KERNEL_TEXT_MAX;
+  return addr >= KERNEL_VIRT_TEXT_MIN && addr < KERNEL_VIRT_TEXT_MAX;
 }
 
 #endif
@@ -208,7 +208,7 @@ int main(void) {
   if (!addr)
     return 0;
 
-  printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);
+  printf("possible kernel base: %lx\n", addr & -KASLR_VIRT_ALIGN);
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr, NULL,
                       CONF_PARSED);
 

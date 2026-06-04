@@ -68,8 +68,8 @@ See also:
 When KASLR is disabled, the kernel loads at a fixed virtual address — the
 "default text base." This address is determined by the architecture's linker
 script, Kconfig options, or hardware memory map. When KASLR is enabled, the
-kernel is placed at `default + N × KERNEL_ALIGN`, where N is chosen randomly
-within the architecture's valid range. `KERNEL_ALIGN` is therefore the
+kernel is placed at `default + N × IMAGE_ALIGN`, where N is chosen randomly
+within the architecture's valid range. `IMAGE_ALIGN` is therefore the
 randomization granularity: each possible position is one "KASLR slot."
 
 The table is the kernel's compile-time default — the address the image
@@ -79,7 +79,7 @@ load address from the board's memory map. The table is the baseline
 against which the KASLR slide is measured, not the load address on every
 system.
 
-| Architecture | Default text base | Derivation | `KERNEL_ALIGN` | KASLR slots | Entropy |
+| Architecture | Default text base | Derivation | `IMAGE_ALIGN` | KASLR slots | Entropy |
 |---|---|---|---|---|---|
 | x86_64 | `0xffffffff81000000` | `__START_KERNEL_map` + `PHYSICAL_START` (`page_64_types.h`) | 2 MiB | 504² | ~9 bits |
 | x86_32 | `0xc0000000` | `PAGE_OFFSET` (3G/1G vmsplit default) | 2 MiB | 248² | ~8 bits |
@@ -104,17 +104,17 @@ or boot protocol). x86_64 is an exception: the kernel image virtual base
 (the direct-map base), and `PHYSICAL_START` (16 MiB) is added for
 alignment with the physical load address.
 
-¹ These architectures define a separate `KASLR_ALIGN` larger than
-`KERNEL_ALIGN` (the image alignment). The table shows the KASLR slot
-granularity. arm64: `KERNEL_ALIGN` = 64 KiB, `KASLR_ALIGN` = 2 MiB.
-PowerPC32: `KERNEL_ALIGN` = 4 KiB, `KASLR_ALIGN` = 16 KiB.
+¹ These architectures define a separate `KASLR_VIRT_ALIGN` larger than
+`IMAGE_ALIGN` (the image alignment). The table shows the KASLR slot
+granularity. arm64: `IMAGE_ALIGN` = 64 KiB, `KASLR_VIRT_ALIGN` = 2 MiB.
+PowerPC32: `IMAGE_ALIGN` = 4 KiB, `KASLR_VIRT_ALIGN` = 16 KiB.
 
 ² The slot count is an upper bound. Every architecture's KASLR placement
 code refuses positions where the image would extend past the end of the
 randomization region, so the actual available slots are:
 
 ```
-valid_slots = (range_size - kernel_size) / KERNEL_ALIGN
+valid_slots = (range_size - kernel_size) / IMAGE_ALIGN
 ```
 
 `kernel_size` is measured differently per architecture. On x86
@@ -195,9 +195,10 @@ requires inspecting the reason text. The kernel is still relocated by
 the boot stub but lands at a firmware-determined position rather than
 the link-time default, so consumers MUST NOT treat this signal as a
 pin-to-default. KASLD emits a distinct scalar fact
-(`SF_KASLR_RANDOMIZATION_FAILED` versus `SF_KASLR_DISABLED`) and
-neither sets the summary's `kaslr.disabled` flag nor pins
-`Q_VIRT_TEXT_BASE` from this signal.
+(`SF_VIRT_KASLR_RANDOMIZATION_FAILED` + `SF_PHYS_KASLR_RANDOMIZATION_FAILED` versus `SF_VIRT_KASLR_DISABLED` +
+`SF_PHYS_KASLR_DISABLED`) and neither sets the summary's
+`kaslr.disabled` flag nor pins `Q_VIRT_TEXT_BASE` or `Q_PHYS_TEXT_BASE`
+from this signal.
 
 Per-host fingerprintability: in the *randomization failed* state, the
 position is deterministic per (firmware, kernel build, hardware)
@@ -266,7 +267,7 @@ modules are either at a fixed address or a constant offset from `PAGE_OFFSET`.
 A single leak from any section is sufficient to derive the others. On
 decoupled architectures like x86_64, each section is randomized independently
 — a physical address tells you nothing about the virtual text base, and the
-direct map base (`page_offset_base`) is randomized separately.
+direct map base (`virt_page_offset_base`) is randomized separately.
 
 RISC-V64 is notable: the module region is anchored to the kernel image
 (`MODULES_VADDR = PFN_ALIGN(&_end) - SZ_2G`, `MODULES_END = PFN_ALIGN(&_start)`),

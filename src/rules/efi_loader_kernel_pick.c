@@ -33,7 +33,7 @@
 // Multiple survivors:
 //   • Default — emit nothing (matches the conservative behaviour of
 //     the previous loader_n==1 path).
-//   • SF_KASLR_RANDOMIZATION_FAILED disambiguator — when the boot stub
+//   • SF_PHYS_KASLR_RANDOMIZATION_FAILED disambiguator — when the boot stub
 //     attempted KASLR but could not produce a random offset (arm64 /
 //     riscv64 "lack of seed", FDT remap failure), the EFI stub falls
 //     back from efi_random_alloc() to a deterministic allocation. The
@@ -88,7 +88,7 @@ int rule_efi_loader_kernel_pick(const struct evidence_set *ev,
     if (o->scalar_fact == SF_IMAGE_SIZE && ksize == 0) {
       ksize = o->scalar_value;
       ksrc = o->id;
-    } else if (o->scalar_fact == SF_KASLR_RANDOMIZATION_FAILED &&
+    } else if (o->scalar_fact == SF_PHYS_KASLR_RANDOMIZATION_FAILED &&
                o->scalar_value != 0 && rand_failed_src == 0) {
       rand_failed_src = o->id;
     }
@@ -172,7 +172,7 @@ int rule_efi_loader_kernel_pick(const struct evidence_set *ev,
   }
 
   /* Multiple survivors: the only sound disambiguator is
-   * SF_KASLR_RANDOMIZATION_FAILED — the EFI stub fell back to a
+   * SF_PHYS_KASLR_RANDOMIZATION_FAILED — the EFI stub fell back to a
    * deterministic alloc that prefers low addresses. Without that
    * signal, the rule cannot pick between candidates and must emit
    * nothing. */

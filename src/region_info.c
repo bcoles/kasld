@@ -24,21 +24,21 @@
 
 static void derive_vas_page_offset(const struct kasld_layout *ly,
                                    unsigned long *lo, unsigned long *hi) {
-  /* PAGE_OFFSET is itself a layout field. Validate page_offset records
+  /* PAGE_OFFSET is itself a layout field. Validate virt_page_offset records
    * against the ARCH-default kernel VAS window (compile-time constants),
-   * NOT the runtime layout.kernel_vas_start — the latter gets tightened
+   * NOT the runtime layout.virt_kernel_vas_start — the latter gets tightened
    * by engine rules (phys_virt_synth, directmap_page_offset_bounds)
-   * which themselves derive their tightenings from page_offset records.
+   * which themselves derive their tightenings from virt_page_offset records.
    * Using the runtime layout would create a circular dependency where
-   * a page_offset record gets rejected because earlier inference (based
+   * a virt_page_offset record gets rejected because earlier inference (based
    * on different records) tightened the bound above it.
    *
-   * The compile-time KERNEL_VAS_START/END from the arch header is the
+   * The compile-time KERNEL_VIRT_VAS_START/END from the arch header is the
    * widest plausible PAGE_OFFSET range; that's the right validation
    * window. */
   (void)ly;
-  *lo = (unsigned long)KERNEL_VAS_START;
-  *hi = (unsigned long)KERNEL_VAS_END;
+  *lo = (unsigned long)KERNEL_VIRT_VAS_START;
+  *hi = (unsigned long)KERNEL_VIRT_VAS_END;
 }
 
 #if TEXT_TRACKS_DIRECTMAP
@@ -68,7 +68,7 @@ static void derive_vas_module_region_coupled(const struct kasld_layout *ly,
 /* K_VIRT: virtual-only regions bounded by the architectural kernel VAS
  * window (DIRECTMAP / VMALLOC / VMEMMAP). Sub-VAS phys leaks are
  * rejected by result_in_bounds(). */
-#define VAS_K_VIRT_STATIC {KERNEL_VAS_START, KERNEL_VAS_END}
+#define VAS_K_VIRT_STATIC {KERNEL_VIRT_VAS_START, KERNEL_VIRT_VAS_END}
 #define VAS_K_VIRT_DERIVE NULL
 
 /* K_PAGEOFFSET: PAGE_OFFSET itself, validated against the compile-time

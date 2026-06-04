@@ -85,7 +85,7 @@ static unsigned long get_kernel_addr_conntrack(void) {
 
     addr = strtoul(&substr[strlen(needle)], &endptr, 16);
 
-    if (addr >= KERNEL_VAS_START && addr <= KERNEL_VAS_END)
+    if (addr >= KERNEL_VIRT_VAS_START && addr <= KERNEL_VIRT_VAS_END)
       break;
 
     addr = 0;
@@ -112,7 +112,7 @@ int main(void) {
    * inside its module memory. Treat as a module-region leak with the
    * module name as the instance identity. */
   printf("leaked inet_net struct pointer: %lx\n", addr);
-  printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);
+  printf("possible kernel base: %lx\n", addr & -KASLR_VIRT_ALIGN);
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_MODULE, addr, "nf_conntrack",
                       CONF_PARSED);
 

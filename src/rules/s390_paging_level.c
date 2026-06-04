@@ -8,7 +8,7 @@
 //
 //   virt_text_base < 1 << VA_BITS   (aligned down to the KASLR slot)
 //
-// VA_BITS arrives as SF_VA_BITS from the in-process mmap boundary probe
+// VA_BITS arrives as SF_VIRT_ADDR_BITS from the in-process mmap boundary probe
 // (kasld_s390_va_bits, emitted by the engine bridge). On 3-level paging this
 // drops the ceiling from the 8 PiB default to 4 TiB — a 2048x reduction; on
 // 4-level it equals the architectural top (a harmless no-op). Reads the
@@ -33,7 +33,7 @@ int rule_s390_paging_level(const struct evidence_set *ev,
   for (int i = 0; i < ev->n_obs; i++) {
     const struct observation *o = &ev->obs[i];
     if (o->valid && o->value_kind == OBS_SCALAR &&
-        o->scalar_fact == SF_VA_BITS) {
+        o->scalar_fact == SF_VIRT_ADDR_BITS) {
       va_bits = o->scalar_value;
       src = o->id;
       break;
@@ -44,8 +44,8 @@ int rule_s390_paging_level(const struct evidence_set *ev,
 
   unsigned long vmax = 1ul << va_bits; /* KASLR vmax = user ASCE limit */
   unsigned long align = est[Q_KASLR_ALIGN].lo;
-  if (align < (unsigned long)KASLR_ALIGN)
-    align = (unsigned long)KASLR_ALIGN;
+  if (align < (unsigned long)KASLR_VIRT_ALIGN)
+    align = (unsigned long)KASLR_VIRT_ALIGN;
   unsigned long ceiling = align ? (vmax & ~(align - 1)) : vmax;
   if (ceiling == 0)
     return 0;

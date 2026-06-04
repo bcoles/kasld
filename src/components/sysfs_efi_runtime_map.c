@@ -8,7 +8,7 @@
 // On kernels without a dedicated EFI virtual address space (pre-~v5.14),
 // the virtual addresses passed to SetVirtualAddressMap() are placed in the
 // main kernel direct-map region. Subtracting the physical address from the
-// virtual address yields page_offset_base directly, bounding the
+// virtual address yields virt_page_offset_base directly, bounding the
 // direct-map base to KASLR granularity.
 //
 // On v5.14+ kernels with a dedicated EFI page table (CONFIG_EFI_MIXED),
@@ -57,7 +57,7 @@ KASLD_EXPLAIN(
     "kernels without a dedicated EFI virtual address space (pre-~v5.14), "
     "runtime service virtual addresses are placed in the kernel "
     "direct-map. Subtracting phys_addr from virt_addr yields "
-    "page_offset_base directly. Files are world-readable (DEVICE_ATTR_RO, "
+    "virt_page_offset_base directly. Files are world-readable (DEVICE_ATTR_RO, "
     "0444); requires CONFIG_EFI and a UEFI-booted system.");
 
 // Untested: no suitable EFI system available for testing.
@@ -116,7 +116,7 @@ int main(void) {
     /* Must be in the direct-map region: at or above PAGE_OFFSET, below
      * kernel text. Rejects physical-range values on systems where
      * SetVirtualAddressMap was never called or used identity mapping. */
-    if (virt < PAGE_OFFSET || virt >= KERNEL_TEXT_MIN)
+    if (virt < PAGE_OFFSET || virt >= KERNEL_VIRT_TEXT_MIN)
       continue;
 
     snprintf(path, sizeof(path), "%s/%s/phys_addr", base, ent->d_name);
@@ -137,16 +137,17 @@ int main(void) {
       continue;
     }
 
-    /* page_offset_base = virt - phys for any direct-map entry */
-    unsigned long page_offset = virt - phys;
-    if (page_offset < KERNEL_VAS_START || page_offset >= KERNEL_TEXT_MIN)
+    /* virt_page_offset_base = virt - phys for any direct-map entry */
+    unsigned long virt_page_offset = virt - phys;
+    if (virt_page_offset < KERNEL_VIRT_VAS_START ||
+        virt_page_offset >= KERNEL_VIRT_TEXT_MIN)
       continue;
 
     printf("EFI runtime entry %s: virt=0x%016lx phys=0x%016lx"
-           " => page_offset=0x%016lx\n",
-           ent->d_name, virt, phys, page_offset);
-    kasld_result_sample(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, page_offset, NULL,
-                        CONF_PARSED);
+           " => virt_page_offset=0x%016lx\n",
+           ent->d_name, virt, phys, virt_page_offset);
+    kasld_result_sample(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, virt_page_offset,
+                        NULL, CONF_PARSED);
     count++;
   }
   closedir(d);

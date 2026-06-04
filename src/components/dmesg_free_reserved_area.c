@@ -101,7 +101,7 @@ static int on_match(const char *line, void *ctx) {
   if (endptr == paren + 1 || addr == 0)
     return 1;
 
-  if (addr < KERNEL_VAS_START || addr > KERNEL_VAS_END)
+  if (addr < KERNEL_VIRT_VAS_START || addr > KERNEL_VIRT_VAS_END)
     return 1;
 
   /* free_reserved_area() always prints virtual addresses.
@@ -112,7 +112,7 @@ static int on_match(const char *line, void *ctx) {
    *                        messages, DIRECTMAP for everything else */
   name_len = (size_t)(name_end - name_start);
 
-  if (addr >= KERNEL_TEXT_MIN && addr <= KERNEL_TEXT_MAX) {
+  if (addr >= KERNEL_VIRT_TEXT_MIN && addr <= KERNEL_VIRT_TEXT_MAX) {
     region = REGION_KERNEL_IMAGE;
     is_directmap = 0;
   } else {

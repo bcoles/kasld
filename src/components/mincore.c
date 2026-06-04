@@ -111,7 +111,7 @@ static unsigned long get_kernel_addr_mincore(void) {
     for (n = 0; n < page / sizeof(unsigned char); n++) {
       addr = *(unsigned long *)(&buf[n]);
       /* Kernel address space */
-      if (addr >= KERNEL_TEXT_MIN && addr <= KERNEL_TEXT_MAX) {
+      if (addr >= KERNEL_VIRT_TEXT_MIN && addr <= KERNEL_VIRT_TEXT_MAX) {
         if (munmap((void *)0x66000000, len))
           perror("[-] munmap");
         free(buf);
@@ -136,7 +136,7 @@ int main(void) {
     return 0;
 
   printf("leaked address: %lx\n", addr);
-  printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);
+  printf("possible kernel base: %lx\n", addr & -KASLR_VIRT_ALIGN);
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr, NULL,
                       CONF_HEURISTIC);
 

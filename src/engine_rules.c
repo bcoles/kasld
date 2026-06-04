@@ -40,7 +40,7 @@ static const rule_fn k_rules[] = {
     rule_kernel_image_phys_bound,
     rule_highmem_32bit_bound,
 
-    /* page_offset rules */
+    /* virt_page_offset rules */
     rule_page_offset_from_landmark,
     rule_page_offset_invariant_pin,
     rule_page_offset_from_config,
@@ -65,7 +65,8 @@ static const rule_fn k_rules[] = {
     rule_base_align_cross_validate,
 
     /* KASLR-off pin */
-    rule_kaslr_disabled_pin,
+    rule_virt_kaslr_disabled_pin,
+    rule_phys_kaslr_disabled_pin,
     rule_physical_start_lower_bound,
 
     /* Module-relative text bounds */

@@ -101,7 +101,7 @@ static int on_match(const char *line, void *ctx) {
 
   unsigned long addr = strtoul(p + strlen(needle), &endptr, 16);
 
-  if (addr && addr >= KERNEL_TEXT_MIN && addr <= KERNEL_TEXT_MAX) {
+  if (addr && addr >= KERNEL_VIRT_TEXT_MIN && addr <= KERNEL_VIRT_TEXT_MAX) {
     if (!*lowest || addr < *lowest)
       *lowest = addr;
   }
@@ -124,7 +124,7 @@ int main(void) {
   }
 
   printf("leaked native_[read|write]_msr: %lx\n", addr);
-  printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);
+  printf("possible kernel base: %lx\n", addr & -KASLR_VIRT_ALIGN);
   /* The leaked address is native_read_msr or native_write_msr —
    * specific x86 helper functions in the kernel text. */
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr, "native_*_msr",

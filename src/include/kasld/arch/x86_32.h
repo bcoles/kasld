@@ -40,16 +40,17 @@
 
 // Minimum possible kernel base across all vmsplit configurations.
 // CONFIG_VMSPLIT_1G sets PAGE_OFFSET=0x40000000, the lowest possible value.
-// We use this as KERNEL_TEXT_MIN to accept kernel addresses from all vmsplits.
+// We use this as KERNEL_VIRT_TEXT_MIN to accept kernel addresses from all
+// vmsplits.
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/Kconfig#L1474
-#define KERNEL_TEXT_MIN 0x40000000ul
+#define KERNEL_VIRT_TEXT_MIN 0x40000000ul
 
 // VAS start uses the lowest possible PAGE_OFFSET to cover all vmsplit
 // configurations. The orchestrator adjusts at runtime once vmsplit is detected.
-#define KERNEL_VAS_START KERNEL_TEXT_MIN
-#define KERNEL_VAS_END 0xfffffffful
+#define KERNEL_VIRT_VAS_START KERNEL_VIRT_TEXT_MIN
+#define KERNEL_VIRT_VAS_END 0xfffffffful
 // Above this, addresses fall in the module/fixmap region.
-#define KERNEL_TEXT_MAX 0xf0000000ul
+#define KERNEL_VIRT_TEXT_MAX 0xf0000000ul
 
 // Modules placed in high memory above kernel text.
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/kernel/module.c
@@ -62,7 +63,7 @@
 // 0x20_0000 (2MiB) in increments of 0x2000 (8KiB).
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/boot/compressed/kaslr.c#L850
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/Kconfig#L2182
-#define KERNEL_ALIGN (2 * MB)
+#define IMAGE_ALIGN (2 * MB)
 
 #define TEXT_OFFSET 0
 
@@ -77,7 +78,7 @@
 // Default: 0xc0000000 (PAGE_OFFSET with 3GB vmsplit, no offset).
 // See docs/kaslr.md "Default text base and KASLR alignment" for all
 // architectures. Kernel source: arch/x86/kernel/vmlinux.lds.S
-#define KERNEL_TEXT_DEFAULT (PAGE_OFFSET + TEXT_OFFSET)
+#define KERNEL_VIRT_TEXT_DEFAULT (PAGE_OFFSET + TEXT_OFFSET)
 
 #define KASLR_SUPPORTED 1
 

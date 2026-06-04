@@ -8,7 +8,7 @@
 // Q_KASLR_ALIGN and Q_PHYS_KASLR_ALIGN (physical and virtual offsets are
 // locked on x86-64).
 //
-// Reads SF_KERNEL_ALIGN, emitted by either source:
+// Reads SF_PHYS_KERNEL_ALIGN, emitted by either source:
 //   - boot_params_facts.c — /sys/kernel/boot_params/data hdr.kernel_alignment
 //     (the kernel's runtime echo of CONFIG_PHYSICAL_ALIGN; canonical).
 //   - boot_config.c / proc_config.c — CONFIG_PHYSICAL_ALIGN= line from
@@ -40,7 +40,7 @@ int rule_boot_params_kaslr_align(const struct evidence_set *ev,
   for (int i = 0; i < ev->n_obs; i++) {
     const struct observation *o = &ev->obs[i];
     if (o->valid && o->value_kind == OBS_SCALAR &&
-        o->scalar_fact == SF_KERNEL_ALIGN) {
+        o->scalar_fact == SF_PHYS_KERNEL_ALIGN) {
       align = o->scalar_value;
       src = o->id;
       break;

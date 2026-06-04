@@ -1,15 +1,16 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
-// Rule: x86_64 page_offset from a same-origin VIRT/PHYS leak pair.
+// Rule: x86_64 virt_page_offset from a same-origin VIRT/PHYS leak pair.
 //
 // When one
 // component leaks the same kernel object in BOTH address spaces (matching
 // origin + region + name), the direct-map base is their difference:
 //
-//   page_offset == virt_anchor - phys_anchor   (the tightest possible signal)
+//   virt_page_offset == virt_anchor - phys_anchor   (the tightest possible
+//   signal)
 //
 // Emits C_EQUALS on Q_PAGE_OFFSET when the candidate is page-aligned and inside
-// the current page_offset window (the engine's meet drops it otherwise). A
+// the current virt_page_offset window (the engine's meet drops it otherwise). A
 // cross-origin heuristic (Path 2: min(directmap) - min(RAM base)) would be a
 // looser fallback; not implemented. x86_64 only; dormant offline (no paired
 // leak) — LIVE-TEST list.
@@ -44,7 +45,8 @@ int rule_randomize_memory_page_offset(const struct evidence_set *ev,
       if (va == 0 || pa == 0 || va <= pa)
         continue;
       unsigned long candidate = va - pa;
-      /* page_offset is at least PMD-aligned; reject obviously-bogus pairs. */
+      /* virt_page_offset is at least PMD-aligned; reject obviously-bogus pairs.
+       */
       if (candidate & ((2ul * 1024 * 1024) - 1))
         continue;
 
@@ -63,11 +65,12 @@ int rule_randomize_memory_page_offset(const struct evidence_set *ev,
   }
 
   /* Path 2 (no same-origin pair): cross-origin reconstruction
-   * page_offset_base = min(DIRECTMAP virt) - min(PHYS RAM base). The directmap
-   * maps physical RAM starting at PAGE_OFFSET, so the lowest direct-map address
-   * minus the lowest RAM base is the directmap base. Validated: PUD-aligned
-   * (1 GiB) and within the resolved page_offset window. Only REGION_RAM phys
-   * bases (not initrd/reserved) and REGION_DIRECTMAP virt leaks qualify. */
+   * virt_page_offset_base = min(DIRECTMAP virt) - min(PHYS RAM base). The
+   * directmap maps physical RAM starting at PAGE_OFFSET, so the lowest
+   * direct-map address minus the lowest RAM base is the directmap base.
+   * Validated: PUD-aligned (1 GiB) and within the resolved virt_page_offset
+   * window. Only REGION_RAM phys bases (not initrd/reserved) and
+   * REGION_DIRECTMAP virt leaks qualify. */
   {
     const unsigned long pud_size = 1ul << 30;
     unsigned long vdmap_min = ULONG_MAX, pram_min = ULONG_MAX;

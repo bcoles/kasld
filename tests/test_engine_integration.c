@@ -85,7 +85,7 @@ static void test_full_engine_x86_64_leaky(void) {
 #if defined(__x86_64__)
   const unsigned long T = 0xffffffff8a000000ul;  /* true virt text base   */
   const unsigned long P = 0x10000000ul;          /* true phys base (256M) */
-  const unsigned long PO = 0xffff888000000000ul; /* L4 page_offset_base   */
+  const unsigned long PO = 0xffff888000000000ul; /* L4 virt_page_offset_base */
   const unsigned long gap = 0x1400000ul;         /* 20 MiB text..data     */
 
   struct engine e;
@@ -99,10 +99,10 @@ static void test_full_engine_x86_64_leaky(void) {
   add_addr(&e, KASLD_TYPE_PHYS, REGION_RAM, 0x0ul, 0x7ffffffful, NULL);
   add_addr(&e, KASLD_TYPE_PHYS, REGION_PCI_MMIO, 0xfe000000ul, 0xfefffffful,
            NULL);
-  add_scalar(&e, SF_MEMTOTAL, 0x80000000ul); /* 2 GiB */
-  add_scalar(&e, SF_IMAGE_SIZE, gap);        /* image ~ text..data span */
+  add_scalar(&e, SF_PHYS_MEMTOTAL, 0x80000000ul); /* 2 GiB */
+  add_scalar(&e, SF_IMAGE_SIZE, gap);             /* image ~ text..data span */
   add_scalar(&e, SF_PHYS_ADDR_BITS, 46);
-  add_scalar(&e, SF_KERNEL_ALIGN, 0x200000ul);
+  add_scalar(&e, SF_PHYS_KERNEL_ALIGN, 0x200000ul);
 
   int nr = 0, nv = 0;
   const rule_fn *rules = engine_rules(&nr);
@@ -146,11 +146,12 @@ static void test_full_engine_ppc64_hardened_shape(void) {
 #if defined(__powerpc64__) || defined(__ppc64__)
   struct engine e;
   engine_init(&e);
-  add_scalar(&e, SF_KASLR_DISABLED, 0x1);
-  add_scalar(&e, SF_CONFIG_PAGE_OFFSET, 0xc000000000000000ul);
+  add_scalar(&e, SF_VIRT_KASLR_DISABLED, 0x1);
+  add_scalar(&e, SF_PHYS_KASLR_DISABLED, 0x1);
+  add_scalar(&e, SF_VIRT_CONFIG_PAGE_OFFSET, 0xc000000000000000ul);
   add_scalar(&e, SF_EFI_PRESENT, 0x0);
-  add_scalar(&e, SF_MEMTOTAL, 0x7a04d000ul);
-  add_scalar(&e, SF_MAX_PFN, 0x80000ul);
+  add_scalar(&e, SF_PHYS_MEMTOTAL, 0x7a04d000ul);
+  add_scalar(&e, SF_PHYS_MAX_PFN, 0x80000ul);
   add_scalar(&e, SF_PAGE_SIZE, 0x1000ul);
   add_addr(&e, KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, 0xc000000000000000ul, 0,
            NULL);
@@ -162,7 +163,7 @@ static void test_full_engine_ppc64_hardened_shape(void) {
   engine_run_full(&e, rules, nr, vrules, nv);
 
   /* Default ppc64le layout: text at phys 0 (image base) / virt
-   * 0xc000000000000000; page_offset at 0xc000000000000000. */
+   * 0xc000000000000000; virt_page_offset at 0xc000000000000000. */
   const unsigned long t_virt = 0xc000000000000000ul;
   const unsigned long t_phys = 0x0ul;
   const unsigned long t_po = 0xc000000000000000ul;
@@ -185,18 +186,18 @@ static void test_full_engine_ppc64_hardened_shape(void) {
  * PRNG`. That message means the s390 boot stub skipped the random offset,
  * but the image is still relocated to a runtime-determined virt position
  * derived from physical memory layout — it does NOT imply text sits at
- * KERNEL_TEXT_DEFAULT. dmesg_kaslr_disabled emits this as
- * SF_KASLR_RANDOMIZATION_FAILED (distinct from SF_KASLR_DISABLED, which
- * the kaslr_disabled_pin rule would honour); kaslr_disabled_pin
- * therefore does NOT fire, and the engine resolves Q_VIRT_TEXT_BASE to
- * a wide window that admits the runtime-relocated _stext. Were the
- * no-PRNG line miscategorised as SF_KASLR_DISABLED, the engine would
- * pin to KERNEL_TEXT_DEFAULT (0x3FFE0100000) and exclude any _stext
- * displaced by the runtime relocation (e.g. 0x3FFFE6A0000, ~8 GiB above
+ * KERNEL_VIRT_TEXT_DEFAULT. dmesg_kaslr_disabled emits this as
+ * SF_VIRT_KASLR_RANDOMIZATION_FAILED (distinct from SF_VIRT_KASLR_DISABLED,
+ * which the virt_/phys_kaslr_disabled_pin rule would honour);
+ * virt_/phys_kaslr_disabled_pin therefore does NOT fire, and the engine
+ * resolves Q_VIRT_TEXT_BASE to a wide window that admits the runtime-relocated
+ * _stext. Were the no-PRNG line miscategorised as SF_VIRT_KASLR_DISABLED, the
+ * engine would pin to KERNEL_VIRT_TEXT_DEFAULT (0x3FFE0100000) and exclude any
+ * _stext displaced by the runtime relocation (e.g. 0x3FFFE6A0000, ~8 GiB above
  * the default).
  *
  * The test plants the scalars a low-priv s390 system would emit when
- * dmesg contains the no-PRNG line (notably without SF_KASLR_DISABLED)
+ * dmesg contains the no-PRNG line (notably without SF_VIRT_KASLR_DISABLED)
  * and asserts the resolved windows admit the displaced text base. */
 static void test_full_engine_s390_no_prng_shape(void) {
 #if defined(__s390__) || defined(__s390x__)
@@ -204,10 +205,10 @@ static void test_full_engine_s390_no_prng_shape(void) {
   engine_init(&e);
   add_scalar(&e, SF_EFI_PRESENT, 0x0);
   add_scalar(&e, SF_IMAGE_SIZE, 0x126046cul);
-  add_scalar(&e, SF_MEMTOTAL, 0x7bd9e000ul);
-  add_scalar(&e, SF_MAX_PFN, 0x80000ul);
+  add_scalar(&e, SF_PHYS_MEMTOTAL, 0x7bd9e000ul);
+  add_scalar(&e, SF_PHYS_MAX_PFN, 0x80000ul);
   add_scalar(&e, SF_PAGE_SIZE, 0x1000ul);
-  add_scalar(&e, SF_VA_BITS, 0x35ul); /* 53 = s390 4-level paging */
+  add_scalar(&e, SF_VIRT_ADDR_BITS, 0x35ul); /* 53 = s390 4-level paging */
 
   int nr = 0, nv = 0;
   const rule_fn *rules = engine_rules(&nr);
@@ -225,8 +226,8 @@ static void test_full_engine_s390_no_prng_shape(void) {
 
   assert(!estimate_is_bottom(vt, &quantities[Q_VIRT_TEXT_BASE]));
   assert(!estimate_is_bottom(pt, &quantities[Q_PHYS_TEXT_BASE]));
-  /* With SF_KASLR_DISABLED erroneously emitted, vt would collapse to
-   * [KERNEL_TEXT_DEFAULT, KERNEL_TEXT_DEFAULT] and t_virt would fall
+  /* With SF_VIRT_KASLR_DISABLED erroneously emitted, vt would collapse to
+   * [KERNEL_VIRT_TEXT_DEFAULT, KERNEL_VIRT_TEXT_DEFAULT] and t_virt would fall
    * outside. The exemption keeps the signal off and the window admits
    * the displaced text base. */
   assert(vt->lo <= t_virt && t_virt <= vt->hi);
@@ -251,10 +252,11 @@ static void test_full_engine_arm32_no_kaslr_shape(void) {
   struct engine e;
   engine_init(&e);
   add_scalar(&e, SF_EFI_PRESENT, 0x0);
-  add_scalar(&e, SF_MEMTOTAL, 0xf4e4000ul); /* ~ 250 MiB */
-  add_scalar(&e, SF_MAX_PFN, 0x10000ul);
+  add_scalar(&e, SF_PHYS_MEMTOTAL, 0xf4e4000ul); /* ~ 250 MiB */
+  add_scalar(&e, SF_PHYS_MAX_PFN, 0x10000ul);
   add_scalar(&e, SF_PAGE_SIZE, 0x1000ul);
-  add_scalar(&e, SF_KASLR_DISABLED, 0x1);
+  add_scalar(&e, SF_VIRT_KASLR_DISABLED, 0x1);
+  add_scalar(&e, SF_PHYS_KASLR_DISABLED, 0x1);
   add_addr(&e, KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, 0xc0000000ul, 0, NULL);
 
   int nr = 0, nv = 0;
@@ -284,28 +286,28 @@ static void test_full_engine_arm32_no_kaslr_shape(void) {
 #endif
 }
 
-/* A typical i686 system: KASLR enabled, page_offset and CONFIG_PHYSICAL_START
- * readable from /boot/config, BIOS e820 readable from /sys/kernel/boot_params,
- * zoneinfo + firmware/memmap readable. x86_32 is coupled
- * (TEXT_TRACKS_DIRECTMAP = 1) so the resolved Q_VIRT_TEXT_BASE window tracks
- * the resolved Q_PHYS_TEXT_BASE window via the compile-time PAGE_OFFSET /
- * PHYS_OFFSET / TEXT_OFFSET projection. The test plants the scalars + phys
+/* A typical i686 system: KASLR enabled, virt_page_offset and
+ * CONFIG_PHYSICAL_START readable from /boot/config, BIOS e820 readable from
+ * /sys/kernel/boot_params, zoneinfo + firmware/memmap readable. x86_32 is
+ * coupled (TEXT_TRACKS_DIRECTMAP = 1) so the resolved Q_VIRT_TEXT_BASE window
+ * tracks the resolved Q_PHYS_TEXT_BASE window via the compile-time PAGE_OFFSET
+ * / PHYS_OFFSET / TEXT_OFFSET projection. The test plants the scalars + phys
  * extents an unprivileged i686 user reads and asserts the resolved windows
  * remain non-bottom and admit a representative KASLR slid placement
  * (phys text + 96 MiB above CONFIG_PHYSICAL_START = 16 MiB → 112 MiB
- * absolute, virt = page_offset + same). */
+ * absolute, virt = virt_page_offset + same). */
 static void test_full_engine_i686_kaslr_shape(void) {
 #if defined(__i386__) || defined(__i686__)
   struct engine e;
   engine_init(&e);
   add_scalar(&e, SF_EFI_PRESENT, 0x0);
-  add_scalar(&e, SF_CONFIG_PAGE_OFFSET, 0xc0000000ul);
-  add_scalar(&e, SF_PHYSICAL_START, 0x1000000ul); /* 16 MiB */
-  add_scalar(&e, SF_KERNEL_ALIGN, 0x1000000ul);   /* 16 MiB slot */
-  add_scalar(&e, SF_INIT_SIZE, 0x10f4000ul);      /* ~17 MiB */
-  add_scalar(&e, SF_MEMTOTAL, 0x3e4da000ul);
-  add_scalar(&e, SF_LOWMEM, 0x350f8000ul);
-  add_scalar(&e, SF_MAX_PFN, 0x3ffe0ul);
+  add_scalar(&e, SF_VIRT_CONFIG_PAGE_OFFSET, 0xc0000000ul);
+  add_scalar(&e, SF_PHYSICAL_START, 0x1000000ul);    /* 16 MiB */
+  add_scalar(&e, SF_PHYS_KERNEL_ALIGN, 0x1000000ul); /* 16 MiB slot */
+  add_scalar(&e, SF_INIT_SIZE, 0x10f4000ul);         /* ~17 MiB */
+  add_scalar(&e, SF_PHYS_MEMTOTAL, 0x3e4da000ul);
+  add_scalar(&e, SF_PHYS_LOWMEM, 0x350f8000ul);
+  add_scalar(&e, SF_PHYS_MAX_PFN, 0x3ffe0ul);
   add_scalar(&e, SF_PAGE_SIZE, 0x1000ul);
   add_scalar(&e, SF_PHYS_ADDR_BITS, 0x24ul);
   add_addr(&e, KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, 0xc0000000ul, 0, NULL);
@@ -319,7 +321,7 @@ static void test_full_engine_i686_kaslr_shape(void) {
   engine_run_full(&e, rules, nr, vrules, nv);
 
   /* Representative KASLR-slid placement. */
-  const unsigned long t_virt = 0xc6000000ul; /* page_offset + 96 MiB */
+  const unsigned long t_virt = 0xc6000000ul; /* virt_page_offset + 96 MiB */
   const unsigned long t_phys =
       0x06000000ul; /* CONFIG_PHYSICAL_START + 80 MiB slide */
   const unsigned long t_po = 0xc0000000ul;
@@ -349,7 +351,7 @@ static void test_full_engine_robust_to_outlier(void) {
   add_addr(&e, KASLD_TYPE_PHYS, REGION_RAM, 0x0ul, 0x7ffffffful, NULL);
   /* Outlier far above DRAM — a bad leak. */
   add_addr(&e, KASLD_TYPE_PHYS, REGION_KERNEL_TEXT, 0x40000000000ul, 0, "bad");
-  add_scalar(&e, SF_MEMTOTAL, 0x80000000ul);
+  add_scalar(&e, SF_PHYS_MEMTOTAL, 0x80000000ul);
 
   int nr = 0, nv = 0;
   const rule_fn *rules = engine_rules(&nr);
@@ -377,8 +379,9 @@ static void test_full_engine_ppc_kernel_end_tightens(void) {
   const unsigned long kend = 0x1800000ul; /* 24 MiB */
   struct engine e;
   engine_init(&e);
-  add_scalar(&e, SF_KASLR_DISABLED, 0x1);
-  add_scalar(&e, SF_CONFIG_PAGE_OFFSET, 0xc000000000000000ul);
+  add_scalar(&e, SF_VIRT_KASLR_DISABLED, 0x1);
+  add_scalar(&e, SF_PHYS_KASLR_DISABLED, 0x1);
+  add_scalar(&e, SF_VIRT_CONFIG_PAGE_OFFSET, 0xc000000000000000ul);
   add_addr(&e, KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, 0xc000000000000000ul, 0,
            NULL);
   add_addr_top(&e, KASLD_TYPE_PHYS, REGION_KERNEL_IMAGE, kend);
@@ -406,16 +409,17 @@ static void test_full_engine_ppc_kernel_end_tightens(void) {
  * Q_VIRT_TEXT_BASE.hi on coupled arches (ppc64 is coupled).
  *
  * Plant a 128 MiB cap on a ppc64 layout and assert Q_VIRT_TEXT_BASE.hi lands
- * below KERNEL_TEXT_DEFAULT + the cap — i.e. dram_ceiling fired and projected
- * the cap. */
+ * below KERNEL_VIRT_TEXT_DEFAULT + the cap — i.e. dram_ceiling fired and
+ * projected the cap. */
 static void test_full_engine_ppc_memory_limit_caps_dram(void) {
 #if defined(__powerpc64__) || defined(__ppc64__)
   const unsigned long limit = 0x08000000ul; /* 128 MiB */
   const unsigned long ksize = 0x00800000ul; /* 8 MiB image */
   struct engine e;
   engine_init(&e);
-  add_scalar(&e, SF_KASLR_DISABLED, 0x1);
-  add_scalar(&e, SF_CONFIG_PAGE_OFFSET, 0xc000000000000000ul);
+  add_scalar(&e, SF_VIRT_KASLR_DISABLED, 0x1);
+  add_scalar(&e, SF_PHYS_KASLR_DISABLED, 0x1);
+  add_scalar(&e, SF_VIRT_CONFIG_PAGE_OFFSET, 0xc000000000000000ul);
   add_scalar(&e, SF_IMAGE_SIZE, ksize);
   add_addr(&e, KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, 0xc000000000000000ul, 0,
            NULL);

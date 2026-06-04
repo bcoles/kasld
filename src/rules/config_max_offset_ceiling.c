@@ -10,15 +10,16 @@
 //       random_offset += ALIGN(kernel_length, 0xffff);
 //
 // — i.e. a slide that would land inside the original image is bumped past
-// the image to avoid overlap. The naive ceiling KASLR_TEXT_MIN + MAX_OFFSET
-// is therefore UNSOUND on kernels where kernel_length ≥ MAX_OFFSET (every
-// realistic kernel — typical image is 20–60 MiB, MAX_OFFSET defaults to
+// the image to avoid overlap. The naive ceiling KASLR_VIRT_TEXT_MIN +
+// MAX_OFFSET is therefore UNSOUND on kernels where kernel_length ≥ MAX_OFFSET
+// (every realistic kernel — typical image is 20–60 MiB, MAX_OFFSET defaults to
 // 16 MiB). Confirmed against arch/loongarch/kernel/relocate.c and
 // arch/mips/kernel/relocate.c on Linux 6.17 (identical formula in 6.18).
 //
 // Corrected ceiling:
 //
-//   virt_text_base ≤ KASLR_TEXT_MIN + MAX_OFFSET + ALIGN(kernel_length, 0xffff)
+//   virt_text_base ≤ KASLR_VIRT_TEXT_MIN + MAX_OFFSET + ALIGN(kernel_length,
+//   0xffff)
 //
 // `kernel_length` is extracted from observations:
 //   * Preferred: PHYS iomem extent (kernel_text.lo..kernel_bss.hi or
@@ -29,10 +30,10 @@
 //     remaining engine rules (DRAM bounds, image-size ceilings) carry
 //     the constraint set in that case.
 //
-// `KASLR_TEXT_MIN` is the KASLR window base — the offset is measured
+// `KASLR_VIRT_TEXT_MIN` is the KASLR window base — the offset is measured
 // from there, not from the engine's possibly-tightened lower edge.
 //
-// Naturally inert where SF_RANDOMIZE_MAX_OFFSET is absent (x86, arm64,
+// Naturally inert where SF_VIRT_RANDOMIZE_MAX_OFFSET is absent (x86, arm64,
 // riscv64, s390 emit no such scalar): absence yields no constraint.
 // ---
 // <bcoles@gmail.com>
@@ -112,7 +113,7 @@ int rule_config_max_offset_ceiling(const struct evidence_set *ev,
   for (int i = 0; i < ev->n_obs; i++) {
     const struct observation *o = &ev->obs[i];
     if (o->valid && o->value_kind == OBS_SCALAR &&
-        o->scalar_fact == SF_RANDOMIZE_MAX_OFFSET) {
+        o->scalar_fact == SF_VIRT_RANDOMIZE_MAX_OFFSET) {
       max_offset = o->scalar_value;
       src = o->id;
       break;
@@ -129,8 +130,8 @@ int rule_config_max_offset_ceiling(const struct evidence_set *ev,
    * grain (literal 0xffff, not SZ_64K - 1). Reproduce verbatim. */
   unsigned long aligned_kl = (kernel_length + 0xffff) & ~0xfffful;
   unsigned long ceiling =
-      (unsigned long)KASLR_TEXT_MIN + max_offset + aligned_kl;
-  if (ceiling <= (unsigned long)KASLR_TEXT_MIN) /* overflow */
+      (unsigned long)KASLR_VIRT_TEXT_MIN + max_offset + aligned_kl;
+  if (ceiling <= (unsigned long)KASLR_VIRT_TEXT_MIN) /* overflow */
     return 0;
 
   struct constraint *c = &out[0];

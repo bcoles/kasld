@@ -85,7 +85,7 @@ static int on_match(const char *line, void *ctx) {
   /* mmode_resv0@80000000 */
   unsigned long addr = strtoul(p + strlen(needle), &endptr, 16);
 
-  if (addr == 0 || addr >= KERNEL_VAS_END)
+  if (addr == 0 || addr >= KERNEL_VIRT_VAS_END)
     return 1;
 
   printf("leaked OpenSBI DRAM physical address: 0x%016lx\n", addr);
@@ -113,11 +113,11 @@ int main(void) {
    * loaded at DRAM_BASE + TEXT_OFFSET. On newer firmware, the reservation
    * may be placed at an arbitrary offset within DRAM. Only derive the
    * kernel text address if the reservation appears DRAM-base-aligned
-   * (i.e. aligned to at least KERNEL_ALIGN). */
-  if ((phys_addr & (KERNEL_ALIGN - 1)) != 0) {
+   * (i.e. aligned to at least KASLR_PHYS_ALIGN). */
+  if ((phys_addr & (KASLR_PHYS_ALIGN - 1)) != 0) {
     printf("note: mmode_resv0 at 0x%016lx is not %lu MiB aligned; "
            "skipping text derivation\n",
-           phys_addr, KERNEL_ALIGN / MB);
+           phys_addr, KASLR_PHYS_ALIGN / MB);
     return 0;
   }
 

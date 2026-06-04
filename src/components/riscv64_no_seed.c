@@ -2,8 +2,12 @@
 //
 // riscv64 KASLR-disabled detection: on a non-EFI riscv64 boot whose FDT carries
 // no /chosen/kaslr-seed, the kernel sits at the compile-time default with no
-// randomisation. Emits SF_KASLR_DISABLED; the engine's kaslr_disabled_pin rule
-// computes the per-arch default text base and pins Q_VIRT_TEXT_BASE.
+// randomisation. On riscv64 the same seed feeds both virt and phys placement
+// pre-EFI, so absence of the seed disables both axes. Emits
+// SF_VIRT_KASLR_DISABLED + SF_PHYS_KASLR_DISABLED; virt_kaslr_disabled_pin
+// pins Q_VIRT_TEXT_BASE (KASLR_DISABLED_PINS_VIRT_TEXT=1 on riscv64); the phys
+// pin is inert (KASLR_DISABLED_PINS_PHYS=0 — riscv64 phys placement is
+// firmware-determined).
 // riscv64 only — gated at compile time so non-riscv64 builds skip via the
 // Makefile's `cc-component` wrapper instead of shipping a no-op binary.
 // ---
@@ -17,12 +21,15 @@
 
 KASLD_EXPLAIN("On non-EFI riscv64 with no FDT /chosen/kaslr-seed, KASLR is off "
               "and the kernel sits at the compile-time default; emits "
-              "SF_KASLR_DISABLED for the engine pin rule. riscv64 only.");
+              "SF_VIRT_KASLR_DISABLED + SF_PHYS_KASLR_DISABLED for the "
+              "engine pin rules. riscv64 only.");
 KASLD_META("method:parsed\n"
            "phase:inference\n");
 
 int main(void) {
-  if (kasld_kaslr_disabled_text_default())
-    kasld_emit_scalar(SF_KASLR_DISABLED, 1, CONF_PARSED);
+  if (kasld_kaslr_disabled_text_default()) {
+    kasld_emit_scalar(SF_VIRT_KASLR_DISABLED, 1, CONF_PARSED);
+    kasld_emit_scalar(SF_PHYS_KASLR_DISABLED, 1, CONF_PARSED);
+  }
   return 0;
 }

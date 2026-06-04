@@ -41,14 +41,14 @@
 // XSPRANGE (0x4000000000000000) is hardware-accessible at PLV0 but unused by
 // Linux. We use XKPRANGE as the floor since no kernel address is below it.
 // https://elixir.bootlin.com/linux/v6.12/source/arch/loongarch/include/asm/addrspace.h#L107
-#define KERNEL_VAS_START 0x8000000000000000ul
-#define KERNEL_VAS_END 0xfffffffffffffffful
+#define KERNEL_VIRT_VAS_START 0x8000000000000000ul
+#define KERNEL_VIRT_VAS_END 0xfffffffffffffffful
 
 // https://elixir.bootlin.com/linux/v6.8.5/source/arch/loongarch/Kconfig#L629
-#define KERNEL_TEXT_MIN PAGE_OFFSET
+#define KERNEL_VIRT_TEXT_MIN PAGE_OFFSET
 // KASLR offset: get_random_u16() << 16, max ~4 GiB. Use 8 GiB headroom.
 // https://elixir.bootlin.com/linux/v6.12/source/arch/loongarch/kernel/relocate.c
-#define KERNEL_TEXT_MAX 0x9000000200000000ul
+#define KERNEL_VIRT_TEXT_MAX 0x9000000200000000ul
 
 // Modules are in XKVRANGE at vm_map_base + PCI_IOSIZE + 2*PAGE_SIZE.
 // vm_map_base = 0 - (1 << vabits); for 48-bit VA: 0xffff000000000000.
@@ -62,11 +62,11 @@
 // EFI_KIMG_ALIGN is SZ_2M, but KASLR offset uses << 16 = 64 KiB granularity.
 // https://elixir.bootlin.com/linux/v6.12/source/arch/loongarch/kernel/relocate.c
 // https://elixir.bootlin.com/linux/v6.12/source/arch/loongarch/include/asm/efi.h#L30
-#define KERNEL_ALIGN 0x10000ul
+#define IMAGE_ALIGN 0x10000ul
 
 // EFI_KIMG_ALIGN is the alignment the EFI stub uses when calling
 // AllocatePages() for the kernel image — SZ_2M on LoongArch per the
-// kernel header linked above. Distinct from KERNEL_ALIGN (the KASLR
+// kernel header linked above. Distinct from IMAGE_ALIGN (the KASLR
 // offset granularity, 64 KiB) which is used by KASLR_PHYS_ALIGN paths
 // elsewhere. Used by efi_loader_kernel_pick to filter multi-entry
 // EFI_LOADER_CODE memmaps.
@@ -82,20 +82,20 @@
 // See docs/kaslr.md "Default text base and KASLR alignment" for all
 // architectures. Kernel source: arch/loongarch/kernel/vmlinux.lds.S,
 // arch/loongarch/Makefile
-#define KERNEL_TEXT_DEFAULT (KERNEL_TEXT_MIN + TEXT_OFFSET)
+#define KERNEL_VIRT_TEXT_DEFAULT (KERNEL_VIRT_TEXT_MIN + TEXT_OFFSET)
 
 /* KASLR-off ⇒ pin contract: arch/loongarch/kernel/relocate.c kaslr_disabled()
  * short-circuits the relocate path and the kernel stays at the link address
- * VMLINUX_LOAD_ADDRESS = PAGE_OFFSET + TEXT_OFFSET = KERNEL_TEXT_DEFAULT here.
- * Triggered by the "kexec_file" cmdline token (loongarch_kexec_file_nokaslr),
- * the resume= hibernation path (hibernation_nokaslr), nokaslr cmdline
- * (proc_cmdline), or RANDOMIZE_BASE=n (proc_config / boot_config). The pin
- * rule's window-containment check is the backstop for a distro-overridden
- * VMLINUX_LOAD_ADDRESS. */
-#define KASLR_DISABLED_PINS_TEXT 1
+ * VMLINUX_LOAD_ADDRESS = PAGE_OFFSET + TEXT_OFFSET = KERNEL_VIRT_TEXT_DEFAULT
+ * here. Triggered by the "kexec_file" cmdline token
+ * (loongarch_kexec_file_nokaslr), the resume= hibernation path
+ * (hibernation_nokaslr), nokaslr cmdline (proc_cmdline), or RANDOMIZE_BASE=n
+ * (proc_config / boot_config). The pin rule's window-containment check is the
+ * backstop for a distro-overridden VMLINUX_LOAD_ADDRESS. */
+#define KASLR_DISABLED_PINS_VIRT_TEXT 1
 #define KASLD_ARCH_DEFAULT_TEXT_BASE_DEFINED 1
 static inline unsigned long arch_default_text_base(void) {
-  return KERNEL_TEXT_DEFAULT;
+  return KERNEL_VIRT_TEXT_DEFAULT;
 }
 
 /* KASLR-off ⇒ phys pin contract: loongarch64's relocate.c skips
@@ -111,8 +111,8 @@ static inline unsigned long arch_default_phys_text_base(void) {
 
 // KASLR randomization: offset = get_random_u16() << 16, range [0, 0xFFFF0000].
 // Virtual text = PAGE_OFFSET + TEXT_OFFSET + offset.
-#define KASLR_TEXT_MIN (PAGE_OFFSET + TEXT_OFFSET)
-#define KASLR_TEXT_MAX (PAGE_OFFSET + TEXT_OFFSET + 0x100000000ul)
+#define KASLR_VIRT_TEXT_MIN (PAGE_OFFSET + TEXT_OFFSET)
+#define KASLR_VIRT_TEXT_MAX (PAGE_OFFSET + TEXT_OFFSET + 0x100000000ul)
 
 #define KASLR_SUPPORTED 1
 

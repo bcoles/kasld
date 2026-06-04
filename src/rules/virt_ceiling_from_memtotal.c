@@ -14,11 +14,11 @@
 // rather than the compile-time PAGE_OFFSET, because the runtime value can
 // differ (e.g. x86-32 VMSPLIT). It therefore fires only once Q_PAGE_OFFSET has
 // collapsed to a point (a landmark pinned it) — the engine's fixpoint loop
-// re-runs this rule after page_offset_from_landmark resolves. If page_offset is
-// still an interval (no landmark observed), the rule emits nothing: we cannot
-// soundly map the ceiling through an unknown origin. That is correct under the
-// "a component may return nothing" principle — absence yields no constraint,
-// never a wrong one.
+// re-runs this rule after page_offset_from_landmark resolves. If
+// virt_page_offset is still an interval (no landmark observed), the rule emits
+// nothing: we cannot soundly map the ceiling through an unknown origin. That is
+// correct under the "a component may return nothing" principle — absence yields
+// no constraint, never a wrong one.
 // ---
 // <bcoles@gmail.com>
 
@@ -43,11 +43,11 @@ int rule_virt_ceiling_from_memtotal(const struct evidence_set *ev,
   if (out_max < 1)
     return 0;
 
-  /* Cross-quantity input: a pinned page_offset (lo == hi). */
+  /* Cross-quantity input: a pinned virt_page_offset (lo == hi). */
   const struct estimate *po = &est[Q_PAGE_OFFSET];
   if (po->lo != po->hi)
-    return 0; /* page_offset not yet resolved to a point */
-  unsigned long page_offset = po->lo;
+    return 0; /* virt_page_offset not yet resolved to a point */
+  unsigned long virt_page_offset = po->lo;
 
   unsigned long memtotal = 0, phys_floor = ULONG_MAX;
   enum kasld_confidence mconf = CONF_UNKNOWN, fconf = CONF_PARSED;
@@ -56,7 +56,7 @@ int rule_virt_ceiling_from_memtotal(const struct evidence_set *ev,
     const struct observation *o = &ev->obs[i];
     if (!o->valid)
       continue;
-    if (o->value_kind == OBS_SCALAR && o->scalar_fact == SF_MEMTOTAL) {
+    if (o->value_kind == OBS_SCALAR && o->scalar_fact == SF_PHYS_MEMTOTAL) {
       memtotal = o->scalar_value;
       mconf = o->conf;
       msrc = o->id;
@@ -78,15 +78,15 @@ int rule_virt_ceiling_from_memtotal(const struct evidence_set *ev,
 
   unsigned long phys_floor_offset =
       (phys_floor > PHYS_OFFSET) ? (phys_floor - PHYS_OFFSET) : 0;
-  unsigned long ceiling =
-      page_offset + phys_floor_offset + memtotal - MIN_IMAGE_SIZE + TEXT_OFFSET;
-  /* Align to the resolved Q_KASLR_ALIGN (>= compile-time KASLR_ALIGN). */
+  unsigned long ceiling = virt_page_offset + phys_floor_offset + memtotal -
+                          MIN_IMAGE_SIZE + TEXT_OFFSET;
+  /* Align to the resolved Q_KASLR_ALIGN (>= compile-time KASLR_VIRT_ALIGN). */
   unsigned long valign = est[Q_KASLR_ALIGN].lo;
-  if (valign < (unsigned long)KASLR_ALIGN)
-    valign = (unsigned long)KASLR_ALIGN;
+  if (valign < (unsigned long)KASLR_VIRT_ALIGN)
+    valign = (unsigned long)KASLR_VIRT_ALIGN;
   if (valign > 0)
     ceiling &= ~(valign - 1);
-  if (ceiling <= KASLR_TEXT_MIN)
+  if (ceiling <= KASLR_VIRT_TEXT_MIN)
     return 0;
 
   struct constraint *c = &out[0];

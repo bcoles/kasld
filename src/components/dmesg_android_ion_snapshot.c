@@ -69,7 +69,7 @@ static int on_match(const char *line, void *ctx) {
   char *endptr;
   unsigned long addr = strtoul(p + strlen(needle2), &endptr, 16);
 
-  if (addr >= KERNEL_TEXT_MIN && addr <= KERNEL_TEXT_MAX) {
+  if (addr >= KERNEL_VIRT_TEXT_MIN && addr <= KERNEL_VIRT_TEXT_MAX) {
     *result = addr;
     return 0;
   }
@@ -92,7 +92,7 @@ int main(void) {
   printf("leaked last_ion_buf: %lx\n", addr);
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr, "last_ion_buf",
                       CONF_PARSED);
-  printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);
+  printf("possible kernel base: %lx\n", addr & -KASLR_VIRT_ALIGN);
 
   return 0;
 }

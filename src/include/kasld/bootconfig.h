@@ -76,10 +76,10 @@ kasld_read_randomize_max_offset(void) {
   return kasld_config_get_ulong("CONFIG_RANDOMIZE_BASE_MAX_OFFSET=");
 }
 
-/* CONFIG_PAGE_OFFSET (the configured page_offset / VMSPLIT on arches where it
- * is a compile-time constant), or 0. Authoritative only on arches where
- * page_offset cannot be overridden at runtime — the consuming rule gates on
- * PAGE_OFFSET_FROM_CONFIG, NOT this reader. */
+/* CONFIG_PAGE_OFFSET (the configured virt_page_offset / VMSPLIT on arches where
+ * it is a compile-time constant), or 0. Authoritative only on arches where
+ * virt_page_offset cannot be overridden at runtime — the consuming rule gates
+ * on PAGE_OFFSET_FROM_CONFIG, NOT this reader. */
 __attribute__((unused)) static unsigned long
 kasld_read_config_page_offset(void) {
   return kasld_config_get_ulong("CONFIG_PAGE_OFFSET=");

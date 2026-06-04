@@ -84,19 +84,19 @@ int main(void) {
   /* --- probe 2: SV48 boundary (1<<47) --- */
   void *p2 = mmap(RISCV_TASK_SIZE_SV48, RISCV_PROBE_LEN, PROT_READ,
                   MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
-  unsigned long page_offset;
+  unsigned long virt_page_offset;
   if (p2 == MAP_FAILED) {
     if (errno != ENOMEM)
       return 0;
-    page_offset = RISCV_PAGE_OFFSET_SV48; /* SV48 */
+    virt_page_offset = RISCV_PAGE_OFFSET_SV48; /* SV48 */
     printf("[.] mmap(1<<47) failed (ENOMEM): SV48\n");
   } else {
     munmap(p2, RISCV_PROBE_LEN);
-    page_offset = RISCV_PAGE_OFFSET_SV57; /* SV57 */
+    virt_page_offset = RISCV_PAGE_OFFSET_SV57; /* SV57 */
     printf("[.] mmap(1<<47) succeeded: SV57\n");
   }
-  printf("PAGE_OFFSET: %#lx\n", page_offset);
-  kasld_result_base(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, page_offset, NULL,
+  printf("PAGE_OFFSET: %#lx\n", virt_page_offset);
+  kasld_result_base(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, virt_page_offset, NULL,
                     CONF_INFERRED);
   return 0;
 #else

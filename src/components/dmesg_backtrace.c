@@ -5,7 +5,7 @@
 // 1. Kernel text addresses from [<addr>] call trace tokens.
 // 2. Physical DRAM address from CR3 page table base register (x86).
 // 3. Directmap virtual addresses from register dump values that fall
-//    in the PAGE_OFFSET..KERNEL_TEXT_MIN range.
+//    in the PAGE_OFFSET..KERNEL_VIRT_TEXT_MIN range.
 //
 // Oops messages contain structured register dumps whose format varies
 // by architecture:
@@ -77,11 +77,11 @@ struct oops_ctx {
  * above PAGE_OFFSET but below both text and module regions.
  *
  * On arches where directmap overlaps text (arm32, x86_32), this
- * returns 0 for all values because PAGE_OFFSET >= KERNEL_TEXT_MIN. */
+ * returns 0 for all values because PAGE_OFFSET >= KERNEL_VIRT_TEXT_MIN. */
 static int in_directmap_range(unsigned long val) {
   if (val < PAGE_OFFSET)
     return 0;
-  if (val >= KERNEL_TEXT_MIN)
+  if (val >= KERNEL_VIRT_TEXT_MIN)
     return 0;
 #if MODULES_START >= PAGE_OFFSET
   if (kasld_addr_is_module_region(val))
@@ -103,7 +103,7 @@ static int on_calltrace(const char *line, void *ctx) {
     if (!addr)
       continue;
 
-    if (addr >= KERNEL_TEXT_MIN && addr <= KERNEL_TEXT_MAX) {
+    if (addr >= KERNEL_VIRT_TEXT_MIN && addr <= KERNEL_VIRT_TEXT_MAX) {
       if (!c->text || addr < c->text)
         c->text = addr;
     }
@@ -202,7 +202,7 @@ int main(void) {
 
   if (ctx.text) {
     printf("lowest leaked text address: %lx\n", ctx.text);
-    printf("possible kernel base: %lx\n", ctx.text & -KERNEL_ALIGN);
+    printf("possible kernel base: %lx\n", ctx.text & -KASLR_VIRT_ALIGN);
     /* Call-trace addresses point at specific kernel text symbols
      * (function bodies, exception handlers). The component doesn't
      * resolve the symbol name, so name is left empty. */

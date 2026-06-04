@@ -183,7 +183,7 @@ static unsigned long get_kernel_addr_perf(void) {
   if (fd > 0)
     close(fd);
 
-  if (min_addr >= KERNEL_TEXT_MIN && min_addr <= KERNEL_TEXT_MAX)
+  if (min_addr >= KERNEL_VIRT_TEXT_MIN && min_addr <= KERNEL_VIRT_TEXT_MAX)
     return min_addr;
 
   return 0;
@@ -197,7 +197,7 @@ int main(void) {
   }
 
   printf("lowest leaked address: %lx\n", addr);
-  printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);
+  printf("possible kernel base: %lx\n", addr & -KASLR_VIRT_ALIGN);
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr, NULL,
                       CONF_PARSED);
 

@@ -139,14 +139,16 @@ int main(void) {
     return 1;
   }
 
-  /* All conditions met: KASLR was disabled at boot. The kernel loaded at
-   * the compile-time default text base; the engine's kaslr_disabled_pin rule
-   * computes and pins that per-arch (gated by KASLR_DISABLED_PINS_TEXT +
-   * window-containment). */
+  /* All conditions met: KASLR was disabled at boot for the hibernation
+   * resume. The kernel loaded at the compile-time defaults; both axes are
+   * off. virt_kaslr_disabled_pin / phys_kaslr_disabled_pin each gate by
+   * its arch macro (KASLR_DISABLED_PINS_VIRT_TEXT / KASLR_DISABLED_PINS_PHYS) +
+   * window-containment. */
   printf("[.] hibernation resume detected with CONFIG_HIBERNATION=y; KASLR "
          "disabled.\n");
 
-  kasld_emit_scalar(SF_KASLR_DISABLED, 1, CONF_PARSED);
+  kasld_emit_scalar(SF_VIRT_KASLR_DISABLED, 1, CONF_PARSED);
+  kasld_emit_scalar(SF_PHYS_KASLR_DISABLED, 1, CONF_PARSED);
 
   return 0;
 }

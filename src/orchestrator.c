@@ -92,19 +92,19 @@ enum lockdown_mode sysctl_lockdown = LOCKDOWN_UNAVAILABLE;
 #endif
 
 struct kasld_layout layout = {
-    .page_offset = PAGE_OFFSET,
-    .kernel_vas_start = KERNEL_VAS_START,
-    .kernel_vas_end = KERNEL_VAS_END,
-    .kernel_text_min = KERNEL_TEXT_MIN,
-    .kernel_text_max = KERNEL_TEXT_MAX,
+    .virt_page_offset = PAGE_OFFSET,
+    .virt_kernel_vas_start = KERNEL_VIRT_VAS_START,
+    .virt_kernel_vas_end = KERNEL_VIRT_VAS_END,
+    .virt_kernel_text_min = KERNEL_VIRT_TEXT_MIN,
+    .virt_kernel_text_max = KERNEL_VIRT_TEXT_MAX,
     .modules_start = MODULES_START,
     .modules_end = MODULES_END,
-    .kernel_align = KERNEL_ALIGN,
+    .image_align = IMAGE_ALIGN,
     .text_offset = TEXT_OFFSET,
-    .kernel_text_default = KERNEL_TEXT_DEFAULT,
-    .kaslr_text_min = KASLR_TEXT_MIN,
-    .kaslr_text_max = KASLR_TEXT_MAX,
-    .kaslr_align = KASLR_ALIGN,
+    .virt_kernel_text_default = KERNEL_VIRT_TEXT_DEFAULT,
+    .virt_kaslr_text_min = KASLR_VIRT_TEXT_MIN,
+    .virt_kaslr_text_max = KASLR_VIRT_TEXT_MAX,
+    .virt_kaslr_align = KASLR_VIRT_ALIGN,
     .phys_kaslr_text_min = _PHYS_KASLR_TEXT_MIN,
     .phys_kaslr_text_max = _PHYS_KASLR_TEXT_MAX,
     .phys_kaslr_align = _PHYS_KASLR_ALIGN,
@@ -1956,11 +1956,11 @@ void compute_kaslr_info(struct summary *s) {
   if (vtext == 0)
     vtext = derive_vtext_from_data();
   /* No result for the kernel text but the engine pinned Q_VIRT_TEXT_BASE to a
-   * point (e.g. kaslr_disabled_pin landed) → that pinned value IS the text
-   * base. engine_sync projects the resolved window onto kaslr_text_min/max,
-   * so equality of the two means "pinned". */
-  if (vtext == 0 && layout.kaslr_text_min == layout.kaslr_text_max)
-    vtext = layout.kaslr_text_min;
+   * point (e.g. virt_/phys_kaslr_disabled_pin landed) → that pinned value IS
+   * the text base. engine_sync projects the resolved window onto
+   * virt_kaslr_text_min/max, so equality of the two means "pinned". */
+  if (vtext == 0 && layout.virt_kaslr_text_min == layout.virt_kaslr_text_max)
+    vtext = layout.virt_kaslr_text_min;
   s->kaslr.vtext = vtext;
 
   const struct result *r_pt =
@@ -1981,11 +1981,13 @@ void compute_kaslr_info(struct summary *s) {
   s->kaslr.vslots =
       quantity_slots(Q_VIRT_TEXT_BASE, &g_auth_engine.est[Q_VIRT_TEXT_BASE],
                      g_auth_engine.constraints, g_auth_engine.n_constraints,
-                     layout.kaslr_align);
+                     layout.virt_kaslr_align);
 #else
   {
-    unsigned long text_range = layout.kaslr_text_max - layout.kaslr_text_min;
-    s->kaslr.vslots = layout.kaslr_align ? text_range / layout.kaslr_align : 0;
+    unsigned long text_range =
+        layout.virt_kaslr_text_max - layout.virt_kaslr_text_min;
+    s->kaslr.vslots =
+        layout.virt_kaslr_align ? text_range / layout.virt_kaslr_align : 0;
   }
 #endif
   s->kaslr.vbits = s->kaslr.vslots > 0 ? ilog2(s->kaslr.vslots) : 0;
@@ -2008,13 +2010,13 @@ void compute_kaslr_info(struct summary *s) {
 #endif
 
   if (s->kaslr.vtext) {
-    s->kaslr.vslide = (long)(s->kaslr.vtext - layout.kernel_text_default);
-    s->kaslr.vslot_valid =
-        (layout.kaslr_align > 0 && s->kaslr.vtext >= layout.kaslr_text_min &&
-         s->kaslr.vtext < layout.kaslr_text_max);
+    s->kaslr.vslide = (long)(s->kaslr.vtext - layout.virt_kernel_text_default);
+    s->kaslr.vslot_valid = (layout.virt_kaslr_align > 0 &&
+                            s->kaslr.vtext >= layout.virt_kaslr_text_min &&
+                            s->kaslr.vtext < layout.virt_kaslr_text_max);
     if (s->kaslr.vslot_valid)
-      s->kaslr.vslot_idx =
-          (s->kaslr.vtext - layout.kaslr_text_min) / layout.kaslr_align;
+      s->kaslr.vslot_idx = (s->kaslr.vtext - layout.virt_kaslr_text_min) /
+                           layout.virt_kaslr_align;
   }
 
   if (s->kaslr.ptext) {
@@ -2034,22 +2036,24 @@ void compute_kaslr_info(struct summary *s) {
     s->kaslr.pbits = 0;
   }
 
-  s->kaslr.page_offset_min =
-      (layout.page_offset_min != (unsigned long)PAGE_OFFSET)
-          ? layout.page_offset_min
+  s->kaslr.virt_page_offset_min =
+      (layout.virt_page_offset_min != (unsigned long)PAGE_OFFSET)
+          ? layout.virt_page_offset_min
           : 0;
-  s->kaslr.page_offset_max =
-      (layout.page_offset_max != (unsigned long)KERNEL_VAS_END)
-          ? layout.page_offset_max
+  s->kaslr.virt_page_offset_max =
+      (layout.virt_page_offset_max != (unsigned long)KERNEL_VIRT_VAS_END)
+          ? layout.virt_page_offset_max
           : 0;
-  s->kaslr.vmalloc_min =
-      (layout.vmalloc_base_min != 0) ? layout.vmalloc_base_min : 0;
-  s->kaslr.vmalloc_max =
-      (layout.vmalloc_base_max != ULONG_MAX) ? layout.vmalloc_base_max : 0;
-  s->kaslr.vmemmap_min =
-      (layout.vmemmap_base_min != 0) ? layout.vmemmap_base_min : 0;
-  s->kaslr.vmemmap_max =
-      (layout.vmemmap_base_max != ULONG_MAX) ? layout.vmemmap_base_max : 0;
+  s->kaslr.virt_vmalloc_min =
+      (layout.virt_vmalloc_base_min != 0) ? layout.virt_vmalloc_base_min : 0;
+  s->kaslr.virt_vmalloc_max = (layout.virt_vmalloc_base_max != ULONG_MAX)
+                                  ? layout.virt_vmalloc_base_max
+                                  : 0;
+  s->kaslr.virt_vmemmap_min =
+      (layout.virt_vmemmap_base_min != 0) ? layout.virt_vmemmap_base_min : 0;
+  s->kaslr.virt_vmemmap_max = (layout.virt_vmemmap_base_max != ULONG_MAX)
+                                  ? layout.virt_vmemmap_base_max
+                                  : 0;
 
 #if !TEXT_TRACKS_DIRECTMAP
   /* On decoupled arches (x86_64, arm64, riscv64, s390): note when physical
@@ -2119,43 +2123,56 @@ void inject_kaslr_defaults(struct summary *s) {
   /* "Unsupported" is a compile-time property of the arch (KASLR_SUPPORTED=0 on
    * arm32 / ppc64 / riscv32 / sparc); no runtime signal needed. Surface it for
    * the renderer banner, and seed the informational default address from the
-   * statically-initialised layout (= KERNEL_TEXT_DEFAULT). */
+   * statically-initialised layout (= KERNEL_VIRT_TEXT_DEFAULT). */
   s->kaslr.unsupported = !KASLR_SUPPORTED;
-  s->kaslr.default_addr = layout.kernel_text_default;
+  s->kaslr.default_addr = layout.virt_kernel_text_default;
 
 #if !KASLR_SUPPORTED
-  /* Surface the compile-time arch-off as the unified SF_KASLR_DISABLED scalar
-   * so the engine sees it like any runtime detector signal. Inert today on the
-   * four !KASLR_SUPPORTED arches (none satisfies KASLR_DISABLED_PINS_TEXT — all
-   * four are relocating, bootloader can still place the image), so it never
-   * injects an unsound text-base pin: the renderer's "KASLR not supported"
-   * banner + default-addr line shows, the engine refuses to pin. A future
-   * !KASLR_SUPPORTED arch that does satisfy KASLR_DISABLED_PINS_TEXT would
-   * pin correctly via the same rule path. */
-  if (num_scalar_facts < MAX_SCALAR_FACTS) {
-    struct scalar_fact_record *f = &scalar_facts[num_scalar_facts++];
-    f->fact = SF_KASLR_DISABLED;
-    f->value = 1;
-    f->conf = CONF_PARSED;
-    snprintf(f->origin, ORIGIN_LEN, "arch-no-kaslr");
+  /* Surface the compile-time arch-off as SF_VIRT_KASLR_DISABLED +
+   * SF_PHYS_KASLR_DISABLED so the engine sees it like any runtime detector
+   * signal. Inert today on the four !KASLR_SUPPORTED arches (none satisfies
+   * KASLR_DISABLED_PINS_VIRT_TEXT/PHYS — all four are relocating, bootloader
+   * can still place the image), so no unsound text-base pin: the renderer's
+   * "KASLR not supported" banner + default-addr line shows, the engine
+   * refuses to pin. A future !KASLR_SUPPORTED arch that does satisfy one of
+   * those macros would pin correctly via the same rule path. */
+  if (num_scalar_facts + 1 < MAX_SCALAR_FACTS) {
+    struct scalar_fact_record *fv = &scalar_facts[num_scalar_facts++];
+    fv->fact = SF_VIRT_KASLR_DISABLED;
+    fv->value = 1;
+    fv->conf = CONF_PARSED;
+    snprintf(fv->origin, ORIGIN_LEN, "arch-no-kaslr");
+    struct scalar_fact_record *fp = &scalar_facts[num_scalar_facts++];
+    fp->fact = SF_PHYS_KASLR_DISABLED;
+    fp->value = 1;
+    fp->conf = CONF_PARSED;
+    snprintf(fp->origin, ORIGIN_LEN, "arch-no-kaslr");
   }
 #endif
 
-  /* "Disabled" is a runtime signal from any detector that observed KASLR off
-   * (nokaslr cmdline, no CONFIG_RANDOMIZE_BASE, dmesg "KASLR disabled",
-   * hibernation override, riscv64 no FDT seed, loongarch kexec_file token,
-   * s390 elfcorehdr=, or the compile-time !KASLR_SUPPORTED scalar above). The
-   * engine's kaslr_disabled_pin rule consumes the same fact to pin
-   * Q_VIRT_TEXT_BASE under KASLR_DISABLED_PINS_TEXT + window-containment; the
-   * summary flag here drives the renderer's status line and downstream
-   * slide/slot zeroing. */
+  /* "Disabled" is a runtime signal from any detector that observed virtual
+   * KASLR off (nokaslr cmdline, no CONFIG_RANDOMIZE_BASE, dmesg "KASLR
+   * disabled", hibernation override, riscv64 no FDT seed, loongarch
+   * kexec_file token, s390 elfcorehdr=, or the compile-time !KASLR_SUPPORTED
+   * synth above). The summary flag drives the renderer's "kernel sits at
+   * default text base" status line; that user-facing claim is about virt
+   * text, so it tracks SF_VIRT_KASLR_DISABLED specifically. A phys-only
+   * disable (e.g. EFI_RNG_PROTOCOL unavailable with virt KASLR intact via
+   * DTB seed) wouldn't set this flag — the renderer would still show "KASLR
+   * active" because virt randomisation succeeded. */
   s->kaslr.disabled = 0;
   s->kaslr.randomization_failed = 0;
   for (int i = 0; i < num_scalar_facts; i++) {
-    if (scalar_facts[i].fact == SF_KASLR_DISABLED && scalar_facts[i].value != 0)
+    if (scalar_facts[i].fact == SF_VIRT_KASLR_DISABLED &&
+        scalar_facts[i].value != 0)
       s->kaslr.disabled = 1;
-    else if (scalar_facts[i].fact == SF_KASLR_RANDOMIZATION_FAILED &&
+    else if (scalar_facts[i].fact == SF_VIRT_KASLR_RANDOMIZATION_FAILED &&
              scalar_facts[i].value != 0)
+      /* Track the virt-side failure: the renderer's "0 entropy / kernel
+       * at firmware-determined position" claim is about virt text. A
+       * phys-only randomization failure (future EFI_RNG_PROTOCOL detector)
+       * wouldn't trip this — virt KASLR via DTB seed could still have
+       * full entropy. */
       s->kaslr.randomization_failed = 1;
   }
 }
@@ -2400,8 +2417,8 @@ static void engine_resolve(struct engine *e) {
  * Every quantity that has a reported sink must be projected here. Map of
  * Q_* -> sink:
  *     Q_VIRT_TEXT_BASE   -> layout.kaslr_base_* AND layout.kernel_base_*
- *     Q_KASLR_ALIGN      -> layout.kaslr_align
- *     Q_PAGE_OFFSET      -> layout.page_offset_* (+ layout.page_offset,
+ *     Q_KASLR_ALIGN      -> layout.virt_kaslr_align
+ *     Q_PAGE_OFFSET      -> layout.page_offset_* (+ layout.virt_page_offset,
  * decoupled) Q_PHYS_TEXT_BASE   -> layout.phys_kaslr_base_*        (decoupled
  * arches) Q_PHYS_KASLR_ALIGN -> layout.phys_kaslr_align         (decoupled
  * arches) Q_VMALLOC_BASE     -> layout.vmalloc_base_*            (when
@@ -2420,12 +2437,12 @@ static void engine_sync_authoritative(const struct engine *e) {
    * kernel image-placement range (kernel_base_*, read by the rendered memory
    * map). They must stay equal post-resolution or the diagram's "kernel text"
    * band disagrees with the reported "Inferred text range". */
-  layout.kaslr_text_min = vt->lo;
-  layout.kaslr_text_max = vt->hi;
-  layout.kernel_text_min = vt->lo;
-  layout.kernel_text_max = vt->hi;
+  layout.virt_kaslr_text_min = vt->lo;
+  layout.virt_kaslr_text_max = vt->hi;
+  layout.virt_kernel_text_min = vt->lo;
+  layout.virt_kernel_text_max = vt->hi;
   if (e->est[Q_KASLR_ALIGN].lo)
-    layout.kaslr_align = e->est[Q_KASLR_ALIGN].lo;
+    layout.virt_kaslr_align = e->est[Q_KASLR_ALIGN].lo;
 
 #if TEXT_TRACKS_DIRECTMAP
   /* On coupled arches phys and virt text-base KASLR offsets are locked, so
@@ -2438,8 +2455,8 @@ static void engine_sync_authoritative(const struct engine *e) {
     layout.phys_kaslr_align = e->est[Q_KASLR_ALIGN].lo;
 #endif
 
-  layout.page_offset_min = e->est[Q_PAGE_OFFSET].lo;
-  layout.page_offset_max = e->est[Q_PAGE_OFFSET].hi;
+  layout.virt_page_offset_min = e->est[Q_PAGE_OFFSET].lo;
+  layout.virt_page_offset_max = e->est[Q_PAGE_OFFSET].hi;
 
 #if !TEXT_TRACKS_DIRECTMAP
   /* On decoupled arches the direct-map base (PAGE_OFFSET) is randomised away
@@ -2448,16 +2465,16 @@ static void engine_sync_authoritative(const struct engine *e) {
    * the proven lower bound). Gated on lo having actually been raised above the
    * compile-time default, so we never claim more than the engine proved.
    *
-   * Only layout.page_offset moves — NOT layout.kernel_vas_start. On a decoupled
-   * arch the direct-map base is the lowest kernel *mapping* but NOT the VAS
-   * floor: the architectural KERNEL_VAS_START (the canonical-hole top) sits far
-   * below it, and the map's bottom should show that floor with the
-   * directmap-base-uncertainty gap above it, not pretend the address space
+   * Only layout.virt_page_offset moves — NOT layout.virt_kernel_vas_start. On a
+   * decoupled arch the direct-map base is the lowest kernel *mapping* but NOT
+   * the VAS floor: the architectural KERNEL_VIRT_VAS_START (the canonical-hole
+   * top) sits far below it, and the map's bottom should show that floor with
+   * the directmap-base-uncertainty gap above it, not pretend the address space
    * begins at the directmap base. */
   {
     const struct estimate *po = &e->est[Q_PAGE_OFFSET];
     if (po->lo > (unsigned long)PAGE_OFFSET)
-      layout.page_offset = po->lo;
+      layout.virt_page_offset = po->lo;
   }
 
   const struct estimate *pt = &e->est[Q_PHYS_TEXT_BASE];
@@ -2468,13 +2485,13 @@ static void engine_sync_authoritative(const struct engine *e) {
 #endif
 
   if (e->est[Q_VMALLOC_BASE].lo_binding)
-    layout.vmalloc_base_min = e->est[Q_VMALLOC_BASE].lo;
+    layout.virt_vmalloc_base_min = e->est[Q_VMALLOC_BASE].lo;
   if (e->est[Q_VMALLOC_BASE].hi_binding)
-    layout.vmalloc_base_max = e->est[Q_VMALLOC_BASE].hi;
+    layout.virt_vmalloc_base_max = e->est[Q_VMALLOC_BASE].hi;
   if (e->est[Q_VMEMMAP_BASE].lo_binding)
-    layout.vmemmap_base_min = e->est[Q_VMEMMAP_BASE].lo;
+    layout.virt_vmemmap_base_min = e->est[Q_VMEMMAP_BASE].lo;
   if (e->est[Q_VMEMMAP_BASE].hi_binding)
-    layout.vmemmap_base_max = e->est[Q_VMEMMAP_BASE].hi;
+    layout.virt_vmemmap_base_max = e->est[Q_VMEMMAP_BASE].hi;
 
 #if MODULES_RELATIVE_TO_TEXT
   /* Modules region shifts with kernel text on this arch (riscv64, s390).
@@ -2493,11 +2510,11 @@ static void engine_sync_authoritative(const struct engine *e) {
    *     to _SEGMENT_SIZE; band high edge ≈ text_min − TEXT_OFFSET.
    *
    * 2 GiB is the MODULES_LEN on both arches; absent a per-arch macro, use
-   * the literal constant with this rationale. Gated on kernel_text_max
+   * the literal constant with this rationale. Gated on virt_kernel_text_max
    * being a meaningful (narrowed-or-pinned) value — we keep the static
    * band when the engine has not narrowed text. */
 #define KASLD_MODULES_LEN (2ul * 1024 * 1024 * 1024)
-  if (vt->hi > vt->lo || vt->lo > (unsigned long)KASLR_TEXT_MIN) {
+  if (vt->hi > vt->lo || vt->lo > (unsigned long)KASLR_VIRT_TEXT_MIN) {
 #if MODULES_BELOW_TEXT_START
     unsigned long band_end = vt->lo > (unsigned long)TEXT_OFFSET
                                  ? vt->lo - (unsigned long)TEXT_OFFSET
@@ -2980,12 +2997,12 @@ int main(int argc, char *argv[]) {
    * resolved quantities; the vmalloc/vmemmap *_max sentinels (ULONG_MAX = "no
    * upper bound known") must start set because the engine writes those edges
    * only when actually constrained. */
-  layout.page_offset_min = layout.kernel_vas_start;
-  layout.page_offset_max = layout.kernel_vas_end;
-  layout.vmalloc_base_min = 0;
-  layout.vmalloc_base_max = ULONG_MAX;
-  layout.vmemmap_base_min = 0;
-  layout.vmemmap_base_max = ULONG_MAX;
+  layout.virt_page_offset_min = layout.virt_kernel_vas_start;
+  layout.virt_page_offset_max = layout.virt_kernel_vas_end;
+  layout.virt_vmalloc_base_min = 0;
+  layout.virt_vmalloc_base_max = ULONG_MAX;
+  layout.virt_vmemmap_base_min = 0;
+  layout.virt_vmemmap_base_max = ULONG_MAX;
 
   for (int p = 0; p < (int)(sizeof(phases) / sizeof(phases[0])); p++)
     run_phase(&phases[p]); /* merges results after each phase */

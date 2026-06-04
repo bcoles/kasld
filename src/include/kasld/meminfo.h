@@ -64,9 +64,9 @@ __attribute__((unused)) static unsigned long kasld_read_lowmem_bytes(void) {
 
 /* Highest spanned PFN from /proc/zoneinfo: max(start_pfn + spanned) across all
  * zones. Returns 0 on failure. /proc/zoneinfo is world-readable (0444) on all
- * kernel versions. Read by the engine bridge for SF_MAX_PFN. The zone block
- * lists "spanned N" before "start_pfn: N", so we latch spanned then pair it
- * with the following start_pfn. */
+ * kernel versions. Read by the engine bridge for SF_PHYS_MAX_PFN. The zone
+ * block lists "spanned N" before "start_pfn: N", so we latch spanned then pair
+ * it with the following start_pfn. */
 __attribute__((unused)) static unsigned long kasld_read_max_pfn(void) {
   FILE *f = kasld_fopen("/proc/zoneinfo", "r");
   if (!f)

@@ -28,10 +28,10 @@
 // runtime config; conservatively we undersize them to 0. The dominant
 // terms are:
 //
-//   vmemmap_size — derived from SF_MAX_PFN × sizeof(struct page).
+//   vmemmap_size — derived from SF_PHYS_MAX_PFN × sizeof(struct page).
 //                  64 bytes is the upstream default on s390; treat as
 //                  undersized when actual struct grows in non-default
-//                  configs. Absent SF_MAX_PFN, use 0 (still sound).
+//                  configs. Absent SF_PHYS_MAX_PFN, use 0 (still sound).
 //   MODULES_LEN  — fixed 2 GiB constant.
 //
 // Companion to module_text_bound (s390 case B; MODULE → text) and
@@ -85,9 +85,9 @@ int rule_s390_text_from_vmemmap(const struct evidence_set *ev,
   if (obs_src == 0)
     return 0;
 
-  /* SF_MAX_PFN → vmemmap_size = max_pfn × sizeof(struct page) (lower bound;
-   * upstream default 64 bytes — under-estimating on configs with a larger
-   * struct keeps the derived floor sound). Absent SF_MAX_PFN, treat
+  /* SF_PHYS_MAX_PFN → vmemmap_size = max_pfn × sizeof(struct page) (lower
+   * bound; upstream default 64 bytes — under-estimating on configs with a
+   * larger struct keeps the derived floor sound). Absent SF_PHYS_MAX_PFN, treat
    * vmemmap_size as 0 (still sound, just looser). */
   unsigned long vmemmap_size = 0;
   uint32_t pfn_src = 0;
@@ -95,7 +95,7 @@ int rule_s390_text_from_vmemmap(const struct evidence_set *ev,
   for (int i = 0; i < ev->n_obs; i++) {
     const struct observation *o = &ev->obs[i];
     if (!o->valid || o->value_kind != OBS_SCALAR ||
-        o->scalar_fact != SF_MAX_PFN)
+        o->scalar_fact != SF_PHYS_MAX_PFN)
       continue;
     /* Overflow-guarded multiplication. */
     if (o->scalar_value > ULONG_MAX / S390_VMEMMAP_STRUCT_PAGE_BYTES)

@@ -81,7 +81,7 @@ int rule_s390_text_no_random(const struct evidence_set *ev,
     const struct observation *o = &ev->obs[i];
     if (!o->valid || o->value_kind != OBS_SCALAR)
       continue;
-    if (o->scalar_fact == SF_KASLR_RANDOMIZATION_FAILED &&
+    if (o->scalar_fact == SF_PHYS_KASLR_RANDOMIZATION_FAILED &&
         o->scalar_value != 0) {
       sig_id = o->id;
       sig_conf = o->conf;

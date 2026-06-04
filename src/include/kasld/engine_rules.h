@@ -51,7 +51,7 @@ R(phys_hole_filter);
 R(kernel_image_phys_bound);
 R(highmem_32bit_bound);
 
-/* page_offset rules */
+/* virt_page_offset rules */
 R(page_offset_from_landmark);
 R(page_offset_invariant_pin);
 R(page_offset_from_config);
@@ -76,7 +76,8 @@ R(config_max_offset_ceiling);
 R(base_align_cross_validate);
 
 /* KASLR-off pin + learned floor */
-R(kaslr_disabled_pin);
+R(virt_kaslr_disabled_pin);
+R(phys_kaslr_disabled_pin);
 R(physical_start_lower_bound);
 
 /* Module-relative text bounds */

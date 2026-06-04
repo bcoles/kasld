@@ -162,7 +162,7 @@ static unsigned long get_kernel_addr_pppd_kallsyms(void) {
 
   addr = strtoul(&addr_buf[1], &endptr, 16);
 
-  if (addr >= KERNEL_TEXT_MIN && addr <= KERNEL_TEXT_MAX)
+  if (addr >= KERNEL_VIRT_TEXT_MIN && addr <= KERNEL_VIRT_TEXT_MAX)
     return addr;
 
   return 0;
@@ -176,7 +176,7 @@ int main(void) {
   }
 
   printf("leaked kernel symbol: %lx\n", addr);
-  printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);
+  printf("possible kernel base: %lx\n", addr & -KASLR_VIRT_ALIGN);
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr, NULL,
                       CONF_PARSED);
 

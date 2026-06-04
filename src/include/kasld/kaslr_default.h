@@ -10,8 +10,8 @@
 //
 // riscv64: arch/riscv/mm/init.c setup_vm() randomises only when kaslr_seed !=
 // 0. On a non-EFI system whose FDT has no /chosen/kaslr-seed, the seed stays 0
-// and the kernel loads at KERNEL_LINK_ADDR (== KERNEL_TEXT_DEFAULT) with no
-// KASLR. Guards mirror riscv64_no_seed_default precisely:
+// and the kernel loads at KERNEL_LINK_ADDR (== KERNEL_VIRT_TEXT_DEFAULT) with
+// no KASLR. Guards mirror riscv64_no_seed_default precisely:
 //   EFI present                         -> skip (seed may come from EFI)
 //   no /proc/device-tree                -> skip (FDT state unknown)
 //   /chosen/kaslr-seed present          -> skip (KASLR may be active)
@@ -56,7 +56,7 @@ kasld_kaslr_disabled_text_default(void) {
     return 0; /* no FDT mounted: seed state unknown */
   if (kasld_access("/proc/device-tree/chosen/kaslr-seed", F_OK) == 0)
     return 0; /* property present: KASLR may be active */
-  return (unsigned long)KERNEL_TEXT_DEFAULT;
+  return (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
 #else
   return 0;
 #endif

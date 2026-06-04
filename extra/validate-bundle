@@ -241,8 +241,8 @@ echo
 # ---------------------------------------------------------------------------
 get() { jq -r "$1 // empty" "$JSON" 2>/dev/null; }
 
-vmin=$(get '.layout.kernel_text_min')
-vmax=$(get '.layout.kernel_text_max')
+vmin=$(get '.layout.virt_kernel_text_min')
+vmax=$(get '.layout.virt_kernel_text_max')
 vtext=$(get '.kaslr.virtual.text_base')
 
 pmin=$(get '.layout.phys_kaslr_text_min')

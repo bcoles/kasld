@@ -164,12 +164,12 @@ Key rules for cross-region derivation:
   matching `PHYS` DRAM leak from the same `origin` to compute
   `PAGE_OFFSET = V − P`. The same-`origin` pairing is the tightest
   signal: it identifies the same kernel object across both address
-  spaces. Per-origin candidates are accumulated, and `page_offset_min/max`
+  spaces. Per-origin candidates are accumulated, and `virt_page_offset_min/max`
   are tightened to the consensus when candidates agree within
-  `kaslr_align`.
+  `virt_kaslr_align`.
 
 - **`randomize_memory_page_offset`** (x86_64 only) — derives
-  `page_offset_base` (the randomized direct-map start under
+  `virt_page_offset_base` (the randomized direct-map start under
   `CONFIG_RANDOMIZE_MEMORY`) from a `VIRT/REGION_DIRECTMAP` leak and a
   `PHYS/REGION_RAM` base record, with a 1 GiB alignment check.
 
@@ -380,39 +380,54 @@ when you know exactly what's at the address — a kernel symbol
 KASLD distinguishes three distinct "KASLR is not adding entropy" states
 because they have different implications for the inference engine:
 
-| State | Scalar fact | Kernel position | Engine action |
+| State | Scalar fact(s) | Kernel position | Engine action |
 |---|---|---|---|
-| **Disabled** (user/build opt-out) | `SF_KASLR_DISABLED` | Compile-time default (link-time `KERNEL_TEXT_DEFAULT`) | `kaslr_disabled_pin` pins `Q_VIRT_TEXT_BASE` (and on coupled arches `Q_PHYS_TEXT_BASE`) on arches that set `KASLR_DISABLED_PINS_TEXT` |
-| **Unsupported** (arch never had KASLR) | `SF_KASLR_DISABLED` (origin `arch-no-kaslr`) | Bootloader-determined | Inert for inference (these arches do not set `KASLR_DISABLED_PINS_TEXT`); lights the renderer's "KASLR not supported" banner |
-| **Randomization failed** (boot stub tried, no entropy) | `SF_KASLR_RANDOMIZATION_FAILED` | Firmware-/boot-stub-deterministic, NOT the link-time default | Does not pin. Three consumers: hardening-report entropy downgrade; `efi_loader_kernel_pick` lowest-survivor disambiguation on EFI arches; `s390_text_no_random` upper bound on s390 phys_text_base |
+| **Disabled** (user/build opt-out) | `SF_VIRT_KASLR_DISABLED` + `SF_PHYS_KASLR_DISABLED` | Compile-time default (link-time `KERNEL_VIRT_TEXT_DEFAULT`) on each axis | `virt_kaslr_disabled_pin` pins `Q_VIRT_TEXT_BASE` on arches that set `KASLR_DISABLED_PINS_VIRT_TEXT`; `phys_kaslr_disabled_pin` pins `Q_PHYS_TEXT_BASE` on arches that set `KASLR_DISABLED_PINS_PHYS` |
+| **Unsupported** (arch never had KASLR) | both `SF_*_KASLR_DISABLED` synthesised with origin `arch-no-kaslr` | Bootloader-determined | Inert for inference (these arches set neither `KASLR_DISABLED_PINS_VIRT_TEXT` nor `KASLR_DISABLED_PINS_PHYS`); lights the renderer's "KASLR not supported" banner |
+| **Randomization failed** (boot stub tried, no entropy) | `SF_VIRT_KASLR_RANDOMIZATION_FAILED` + `SF_PHYS_KASLR_RANDOMIZATION_FAILED` | Firmware-/boot-stub-deterministic, NOT the link-time default | Does not pin. Three consumers: hardening-report entropy downgrade; `efi_loader_kernel_pick` lowest-survivor disambiguation on EFI arches; `s390_text_no_random` upper bound on s390 phys_text_base |
 
-#### Disabled — `SF_KASLR_DISABLED`
+#### Disabled — `SF_VIRT_KASLR_DISABLED` + `SF_PHYS_KASLR_DISABLED`
 
-A handful of components detect a definitive opt-out and emit the scalar
-fact `SF_KASLR_DISABLED` via `kasld_emit_scalar()` — proc_cmdline (the
-`nokaslr` boot flag), boot_config / proc_config (no
-`CONFIG_RANDOMIZE_BASE`), dmesg_kaslr_disabled (the cmdline /
-hibernation / loongarch "KASLR disabled" / "KASLR is disabled" lines),
-hibernation_nokaslr (LoongArch hibernation override), riscv64_no_seed
-(FDT without `/chosen/kaslr-seed`), loongarch_kexec_file_nokaslr
-(`kexec_file` token), s390_kdump_nokaslr (`elfcorehdr=` kdump handoff).
-The orchestrator reads the scalar to set the summary's `kaslr.disabled`
-flag (renderer banner + `slide`/`slot` zeroing), and the engine's
-`kaslr_disabled_pin` rule consumes the same scalar to bilaterally pin
-`Q_VIRT_TEXT_BASE` to the compile-time default on arches that set
-`KASLR_DISABLED_PINS_TEXT` (x86_64, arm64, riscv64, loongarch64, s390),
-gated by a window-containment soundness check.
+KASLD treats the virtual and physical disable signals as independent
+scalar facts because real kernels can disable one axis without the
+other. Today every emitter that observes "KASLR off" proves both at
+once and emits both facts (the same disable mechanism — `nokaslr`,
+`CONFIG_RANDOMIZE_BASE=n`, kdump, etc. — affects both axes); a future
+detector that proves only one (e.g. `EFI_RNG_PROTOCOL unavailable`
+disables only physical placement while DTB-seeded virtual placement
+still proceeds) emits only the relevant fact.
 
-#### Unsupported — synthesised `SF_KASLR_DISABLED`
+A handful of components detect a definitive opt-out and emit the pair
+via two `kasld_emit_scalar()` calls — proc_cmdline (the `nokaslr` boot
+flag), boot_config / proc_config (no `CONFIG_RANDOMIZE_BASE`),
+dmesg_kaslr_disabled (the cmdline / hibernation / loongarch
+"KASLR disabled" / "KASLR is disabled" lines, excluding the stricter
+"EFI_RNG_PROTOCOL unavailable" line that wouldn't prove virt-off),
+hibernation_nokaslr, riscv64_no_seed (FDT without
+`/chosen/kaslr-seed`), loongarch_kexec_file_nokaslr (`kexec_file`
+token), s390_kdump_nokaslr (`elfcorehdr=` kdump handoff).
+
+The orchestrator reads `SF_VIRT_KASLR_DISABLED` to set the summary's
+`kaslr.disabled` flag (which drives the renderer's "kernel sits at
+default text base" banner and `slide`/`slot` zeroing — the user-facing
+claim is about virt text, so it tracks the virt signal). The engine's
+`virt_kaslr_disabled_pin` rule consumes `SF_VIRT_KASLR_DISABLED` to
+pin `Q_VIRT_TEXT_BASE` to the compile-time default on arches that set
+`KASLR_DISABLED_PINS_VIRT_TEXT` (x86_64, arm64, riscv64, loongarch64, s390),
+gated by a window-containment soundness check; `phys_kaslr_disabled_pin`
+does the analogous job for `Q_PHYS_TEXT_BASE` on arches that set
+`KASLR_DISABLED_PINS_PHYS` (currently x86_64 and loongarch64).
+
+#### Unsupported — synthesised `SF_VIRT_KASLR_DISABLED` + `SF_PHYS_KASLR_DISABLED`
 
 "KASLR not supported" (compile-time `KASLR_SUPPORTED=0` — arm32, ppc64,
 riscv32, sparc) is surfaced the same way: synthesised by the
-orchestrator as `SF_KASLR_DISABLED` with origin `arch-no-kaslr`, inert
-for inference (none of these arches set `KASLR_DISABLED_PINS_TEXT`,
-matching the relocating reality), but lights the renderer's "KASLR not
-supported" banner.
+orchestrator as both facts with origin `arch-no-kaslr`, inert for
+inference (none of these arches set `KASLR_DISABLED_PINS_VIRT_TEXT` or
+`KASLR_DISABLED_PINS_PHYS`, matching the relocating reality), but
+lights the renderer's "KASLR not supported" banner.
 
-#### Randomization failed — `SF_KASLR_RANDOMIZATION_FAILED`
+#### Randomization failed — `SF_VIRT_KASLR_RANDOMIZATION_FAILED` + `SF_PHYS_KASLR_RANDOMIZATION_FAILED`
 
 Distinct from disabled: the KASLR machinery was enabled in the build
 and ran in the boot stub, but could not produce a random offset because
@@ -420,7 +435,7 @@ the entropy source was unavailable (arm64 / riscv64 "lack of seed",
 arm64 "FDT remapping failure", s390 "CPU has no PRNG" / "not enough
 memory"). The kernel was still relocated by the boot stub to a
 firmware-/boot-stub-deterministic position — *not* the link-time
-default — so this signal MUST NOT be fed to `kaslr_disabled_pin`.
+default — so this signal MUST NOT be fed to `virt_/phys_kaslr_disabled_pin`.
 
 The dmesg_kaslr_disabled component distinguishes the two by inspecting
 the exact reason string in the kernel's "KASLR disabled" line and emits
@@ -653,11 +668,11 @@ directly via the constants in `kasld/api.h`'s include chain):
 
 | Symbol | Purpose |
 |---|---|
-| `KERNEL_TEXT_DEFAULT` | Default (non-randomized) kernel text base |
-| `KERNEL_VAS_START`, `KERNEL_VAS_END` | Kernel virtual address space bounds |
-| `KERNEL_TEXT_MIN`, `KERNEL_TEXT_MAX` | Plausible kernel text range (validation) |
-| `KASLR_TEXT_MIN`, `KASLR_TEXT_MAX` | KASLR randomisation window (slot counting) |
-| `KASLR_TEXT_MIN_WIDE` | Conservative widened floor (admits non-default Kconfigs) |
+| `KERNEL_VIRT_TEXT_DEFAULT` | Default (non-randomized) kernel text base |
+| `KERNEL_VIRT_VAS_START`, `KERNEL_VIRT_VAS_END` | Kernel virtual address space bounds |
+| `KERNEL_VIRT_TEXT_MIN`, `KERNEL_VIRT_TEXT_MAX` | Plausible kernel text range (validation) |
+| `KASLR_VIRT_TEXT_MIN`, `KASLR_VIRT_TEXT_MAX` | KASLR randomisation window (slot counting) |
+| `KASLR_VIRT_TEXT_MIN_WIDE` | Conservative widened floor (admits non-default Kconfigs) |
 | `PAGE_OFFSET` | Direct-map base (compile-time default) |
 | `PHYS_OFFSET` | Physical RAM base address |
 | `TEXT_TRACKS_DIRECTMAP` | 1 on arches where text + directmap move together |

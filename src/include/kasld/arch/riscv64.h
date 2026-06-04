@@ -46,7 +46,7 @@
 // etc.)
 #define PHYS_OFFSET 0x80000000ul
 
-// On v5.10+, PAGE_OFFSET (= kernel_map.page_offset) and va_pa_offset are
+// On v5.10+, PAGE_OFFSET (= kernel_map.virt_page_offset) and va_pa_offset are
 // runtime-resolved; kernel text lives at KERNEL_LINK_ADDR with its OWN
 // independent va_kernel_pa_offset. The compile-time formula is NOT a sound
 // runtime directmap projection; phys_to_directmap_virt() is therefore left
@@ -61,16 +61,17 @@
 // VAS start with SV57 (5-level page tables): ~0xff1bffff_fea00000
 // VAS start with SV48 (4-level page tables): ~0xffff8d7f_fea00000
 // VAS start with SV39 (3-level page tables): ~0xffffffc6_fea00000
-#define KERNEL_VAS_START 0xff10000000000000ul
-#define KERNEL_VAS_END 0xfffffffffffffffful
+#define KERNEL_VIRT_VAS_START 0xff10000000000000ul
+#define KERNEL_VIRT_VAS_END 0xfffffffffffffffful
 
 // Kernel text region. Covers both modern and legacy layouts for validation:
-//   Legacy: _stext ≈ 0xffffffe000200000 (>= KERNEL_TEXT_MIN)
-//   Modern: _stext ≈ 0xffffffff80200000 (>= KERNEL_TEXT_MIN, < KERNEL_TEXT_MAX)
+//   Legacy: _stext ≈ 0xffffffe000200000 (>= KERNEL_VIRT_TEXT_MIN)
+//   Modern: _stext ≈ 0xffffffff80200000 (>= KERNEL_VIRT_TEXT_MIN, <
+//   KERNEL_VIRT_TEXT_MAX)
 // KASLR (v6.6+) randomizes within 1 PUD (1 GiB) from KERNEL_LINK_ADDR.
 // https://elixir.bootlin.com/linux/v6.6/source/arch/riscv/include/asm/pgtable.h#L63
-#define KERNEL_TEXT_MIN 0xffffffe000000000ul
-#define KERNEL_TEXT_MAX 0xffffffffc0000000ul
+#define KERNEL_VIRT_TEXT_MIN 0xffffffe000000000ul
+#define KERNEL_VIRT_TEXT_MAX 0xffffffffc0000000ul
 
 // Modern (v5.10+): KERNEL_LINK_ADDR = 0xffffffff80000000;
 // module region = [PFN_ALIGN(&_end) - 2G, PFN_ALIGN(&_start)], always below
@@ -94,7 +95,7 @@
 #define MODULES_END_TO_TEXT_OFFSET 0x80000000ul /* 2 GiB */
 
 // https://elixir.bootlin.com/linux/v6.6/source/arch/riscv/include/asm/efi.h#L41
-#define KERNEL_ALIGN (2 * MB)
+#define IMAGE_ALIGN (2 * MB)
 
 // EFI_KIMG_ALIGN is the alignment the EFI stub uses when calling
 // AllocatePages() for the kernel image. On riscv64 this is PMD_SIZE
@@ -118,7 +119,7 @@
 // OpenSBI loads the kernel. It does NOT apply to the virtual address:
 // the kernel maps its image starting at KERNEL_LINK_ADDR (== _start /
 // _text), with _stext at KERNEL_LINK_ADDR + RISCV64_HEAD_TEXT_OFFSET
-// (the .head.text section). Aligned to KERNEL_ALIGN (2 MiB), _stext
+// (the .head.text section). Aligned to IMAGE_ALIGN (2 MiB), _stext
 // rounds down to KERNEL_LINK_ADDR.
 #define KERNEL_LINK_ADDR 0xffffffff80000000ul
 // .head.text section length on riscv64 — the offset from the image base
@@ -131,25 +132,25 @@
 // architectures. Kernel source: arch/riscv/kernel/vmlinux.lds.S,
 // arch/riscv/include/asm/pgtable.h
 //
-// KERNEL_TEXT_DEFAULT names the default _stext virtual address (per the
+// KERNEL_VIRT_TEXT_DEFAULT names the default _stext virtual address (per the
 // kasld.h convention "Default _stext virtual address (no KASLR)"). On
 // riscv64 that is KERNEL_LINK_ADDR + the head-text offset — NOT
 // KERNEL_LINK_ADDR itself, which is _start (image base). Pinning to
-// KERNEL_LINK_ADDR alone is unsound: the engine's kaslr_disabled_pin
+// KERNEL_LINK_ADDR alone is unsound: the engine's virt_/phys_kaslr_disabled_pin
 // rule would emit a value 0x2000 below the actual _stext, excluding
 // truth from the resolved window.
-#define KERNEL_TEXT_DEFAULT (KERNEL_LINK_ADDR + RISCV64_HEAD_TEXT_OFFSET)
+#define KERNEL_VIRT_TEXT_DEFAULT (KERNEL_LINK_ADDR + RISCV64_HEAD_TEXT_OFFSET)
 
-/* Build-time check: KERNEL_TEXT_DEFAULT must include the .head.text
+/* Build-time check: KERNEL_VIRT_TEXT_DEFAULT must include the .head.text
  * offset so it names _stext (per the kasld.h convention "Default _stext
- * virtual address"), not _start. Defining KERNEL_TEXT_DEFAULT as
+ * virtual address"), not _start. Defining KERNEL_VIRT_TEXT_DEFAULT as
  * KERNEL_LINK_ADDR alone would pin Q_VIRT_TEXT_BASE 0x2000 below the
- * actual _stext via the engine's kaslr_disabled_pin rule, excluding the
- * true text base from the resolved window. __extension__ silences
+ * actual _stext via the engine's virt_/phys_kaslr_disabled_pin rule, excluding
+ * the true text base from the resolved window. __extension__ silences
  * -Wpedantic on -std=c99. */
 __extension__ _Static_assert(
-    (KERNEL_TEXT_DEFAULT - KERNEL_LINK_ADDR) == RISCV64_HEAD_TEXT_OFFSET,
-    "riscv64 KERNEL_TEXT_DEFAULT must equal KERNEL_LINK_ADDR + "
+    (KERNEL_VIRT_TEXT_DEFAULT - KERNEL_LINK_ADDR) == RISCV64_HEAD_TEXT_OFFSET,
+    "riscv64 KERNEL_VIRT_TEXT_DEFAULT must equal KERNEL_LINK_ADDR + "
     "RISCV64_HEAD_TEXT_OFFSET (it names _stext, not _start / image base)");
 
 /* KASLR-off ⇒ pin contract: modern riscv64 (v5.10+, which is where KASLR
@@ -160,16 +161,16 @@ __extension__ _Static_assert(
  * placed text in the linear map at PAGE_OFFSET; those have no KASLR support so
  * the disabled marker is moot, and the rule's window-containment check catches
  * the legacy case if the marker fires anyway. */
-#define KASLR_DISABLED_PINS_TEXT 1
+#define KASLR_DISABLED_PINS_VIRT_TEXT 1
 #define KASLD_ARCH_DEFAULT_TEXT_BASE_DEFINED 1
 static inline unsigned long arch_default_text_base(void) {
-  return KERNEL_TEXT_DEFAULT;
+  return KERNEL_VIRT_TEXT_DEFAULT;
 }
 
-// KASLR randomization window. KERNEL_TEXT_MIN is intentionally wide to
+// KASLR randomization window. KERNEL_VIRT_TEXT_MIN is intentionally wide to
 // accept legacy (pre-v5.10) addresses for validation, but the actual KASLR
 // range (v6.6+) is [KERNEL_LINK_ADDR, KERNEL_LINK_ADDR + 1 PUD) = 1 GiB.
-#define KASLR_TEXT_MIN KERNEL_LINK_ADDR
+#define KASLR_VIRT_TEXT_MIN KERNEL_LINK_ADDR
 
 // No physical KASLR on RISC-V. The kernel always loads at a fixed offset
 // (TEXT_OFFSET) from the DRAM base provided by firmware. Only the virtual

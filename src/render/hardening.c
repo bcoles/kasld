@@ -99,18 +99,23 @@ void render_hardening_text(void) {
 
   /* ---- Section 0: KASLR posture downgrade ----
    *
-   * Surfaces SF_KASLR_RANDOMIZATION_FAILED: the kernel attempted KASLR
-   * at boot but could not produce a random offset (no entropy seed, no
-   * PRNG, insufficient memory). The boot stub still relocated the
-   * image but skipped the random component, leaving the kernel at a
-   * firmware-/boot-stub-deterministic position. Effective KASLR slot
-   * entropy is 0 bits — same address on every boot of this
-   * (firmware, kernel build, hardware) tuple. Distinct from
-   * SF_KASLR_DISABLED (deliberate opt-out → kernel at link-time
-   * default), which is shown by the main results banner. */
+   * Surfaces SF_VIRT_KASLR_RANDOMIZATION_FAILED: the kernel attempted
+   * virtual KASLR at boot but could not produce a random offset (no
+   * entropy seed, no PRNG, insufficient memory). The boot stub still
+   * relocated the image but skipped the random component, leaving the
+   * kernel at a firmware-/boot-stub-deterministic virt position.
+   * Effective KASLR slot entropy is 0 bits — same address on every
+   * boot of this (firmware, kernel build, hardware) tuple. The user-
+   * visible "0 entropy" claim is about virt text, so we scan the virt
+   * variant; a phys-only randomisation failure (SF_PHYS_KASLR_
+   * RANDOMIZATION_FAILED alone) wouldn't trip this — virt KASLR via
+   * the DTB seed could still have full entropy. Components that emit
+   * both (every current emitter) show up via the virt scan. Distinct
+   * from SF_VIRT_KASLR_DISABLED (deliberate opt-out → kernel at
+   * link-time default), which is shown by the main results banner. */
   int rand_failed_origins = 0;
   for (int i = 0; i < num_scalar_facts; i++) {
-    if (scalar_facts[i].fact == SF_KASLR_RANDOMIZATION_FAILED &&
+    if (scalar_facts[i].fact == SF_VIRT_KASLR_RANDOMIZATION_FAILED &&
         scalar_facts[i].value != 0)
       rand_failed_origins++;
   }
@@ -121,7 +126,7 @@ void render_hardening_text(void) {
            c(C_YELLOW), c(C_RESET));
     printf("  Detected by:\n");
     for (int i = 0; i < num_scalar_facts; i++) {
-      if (scalar_facts[i].fact == SF_KASLR_RANDOMIZATION_FAILED &&
+      if (scalar_facts[i].fact == SF_VIRT_KASLR_RANDOMIZATION_FAILED &&
           scalar_facts[i].value != 0)
         printf("    %s\n", scalar_facts[i].origin[0] ? scalar_facts[i].origin
                                                      : "(unknown)");
@@ -514,12 +519,18 @@ void render_hardening_json(void) {
   for (int i = 0; i < num_scalar_facts; i++) {
     if (scalar_facts[i].value == 0)
       continue;
-    if (scalar_facts[i].fact == SF_KASLR_RANDOMIZATION_FAILED) {
+    if (scalar_facts[i].fact == SF_VIRT_KASLR_RANDOMIZATION_FAILED) {
+      /* Virt-side randomisation failure drives the user-facing
+       * "randomization_failed" posture: the JSON state mirrors the text
+       * banner above, both of which describe the virt KASLR slot
+       * entropy. */
       rand_failed = 1;
       if (n_rand_origins < 16)
         rand_origins[n_rand_origins++] =
             scalar_facts[i].origin[0] ? scalar_facts[i].origin : "unknown";
-    } else if (scalar_facts[i].fact == SF_KASLR_DISABLED) {
+    } else if (scalar_facts[i].fact == SF_VIRT_KASLR_DISABLED) {
+      /* Virtual disable drives the user-facing "disabled" posture; a
+       * phys-only disable would still leave virt randomisation active. */
       opt_out = 1;
     }
   }

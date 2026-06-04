@@ -9,13 +9,13 @@
 //   DIRECTMAP / PAGE_OFFSET   in [PAGE_OFFSET,    _PAGE_END(48)) = [...,
 //   0xffff800000000000) MODULE / MODULE_REGION    in [MODULES_START,
 //   MODULES_END]   (union over kernel-version layouts) KERNEL_TEXT /
-//   KERNEL_IMAGE in [KERNEL_TEXT_MIN, KERNEL_TEXT_MAX] (the validation range)
-//   VMEMMAP                   in [VMEMMAP_START,  0xffffffffc0000000) (VA48
-//   floor; ~0xfffffdffc0000000)
+//   KERNEL_IMAGE in [KERNEL_VIRT_TEXT_MIN, KERNEL_VIRT_TEXT_MAX] (the
+//   validation range) VMEMMAP                   in [VMEMMAP_START,
+//   0xffffffffc0000000) (VA48 floor; ~0xfffffdffc0000000)
 //
-// IMPORTANT: the KERNEL_TEXT / KERNEL_IMAGE check uses KERNEL_TEXT_MIN/MAX
+// IMPORTANT: the KERNEL_TEXT / KERNEL_IMAGE check uses KERNEL_VIRT_TEXT_MIN/MAX
 // (the *validation* range that covers every in-scope kernel-version layout),
-// NOT KASLR_TEXT_MIN/MAX (the narrower *per-formula KASLR randomization
+// NOT KASLR_VIRT_TEXT_MIN/MAX (the narrower *per-formula KASLR randomization
 // window* derived from kaslr_early.c at one specific kernel version). The
 // kernel's KASLR algorithm has shifted across versions (v6.6 vs v6.12);
 // pinning the validation band to one formula's window would reject legitimate
@@ -80,9 +80,9 @@ int rule_arm64_coupling_validate(const struct evidence_set *ev,
     case REGION_PAGE_OFFSET:
       /* Must be below _PAGE_END(48). The lower edge varies with VA_BITS
        * (PAGE_OFFSET = −(1<<VA_BITS)); use the widest plausible floor
-       * (VA52's, KERNEL_VAS_START) as the lower bound. */
-      bad =
-          (a >= ARM64_PAGE_END_VAMIN) || (a < (unsigned long)KERNEL_VAS_START);
+       * (VA52's, KERNEL_VIRT_VAS_START) as the lower bound. */
+      bad = (a >= ARM64_PAGE_END_VAMIN) ||
+            (a < (unsigned long)KERNEL_VIRT_VAS_START);
       break;
     case REGION_MODULE:
     case REGION_MODULE_REGION:
@@ -92,14 +92,14 @@ int rule_arm64_coupling_validate(const struct evidence_set *ev,
       break;
     case REGION_KERNEL_TEXT:
     case REGION_KERNEL_IMAGE:
-      /* Inside the *validation* range — KERNEL_TEXT_MIN/MAX (the arch's
-       * widest plausible text-base window) rather than KASLR_TEXT_MIN/MAX
+      /* Inside the *validation* range — KERNEL_VIRT_TEXT_MIN/MAX (the arch's
+       * widest plausible text-base window) rather than KASLR_VIRT_TEXT_MIN/MAX
        * (one specific KASLR formula's narrower randomization window). The
        * latter would reject legitimate text leaks from kernel versions
        * whose kaslr_early.c algorithm produces slots outside the
        * current header's modelled window. */
-      bad = (a < (unsigned long)KERNEL_TEXT_MIN) ||
-            (a > (unsigned long)KERNEL_TEXT_MAX);
+      bad = (a < (unsigned long)KERNEL_VIRT_TEXT_MIN) ||
+            (a > (unsigned long)KERNEL_VIRT_TEXT_MAX);
       break;
     case REGION_VMEMMAP:
       /* Above VA48 vmemmap floor *or* anywhere below it (VA52 territory);

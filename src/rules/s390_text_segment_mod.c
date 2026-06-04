@@ -13,7 +13,7 @@
 // from the segment boundary as text_virt. A PHYS/KERNEL_IMAGE leak (e.g.
 // the kernel image base parsed from a firmware reservation) gives that
 // anchor directly; the rule emits one C_STRIDE on Q_VIRT_TEXT_BASE collapsing
-// log2(_SEGMENT_SIZE / KERNEL_ALIGN) = log2(1 MiB / 16 KiB) = 6 bits of
+// log2(_SEGMENT_SIZE / KASLR_VIRT_ALIGN) = log2(1 MiB / 16 KiB) = 6 bits of
 // residual entropy.
 //
 // Soundness:

@@ -340,11 +340,11 @@ static unsigned long analyze_histograms(void) {
     unsigned long addr = 0xFFFFFFFF00000000UL | ((unsigned long)byte3 << 24) |
                          ((unsigned long)byte2 << 16);
 
-    /* Align to KERNEL_ALIGN (2 MiB) */
-    addr &= ~(KERNEL_ALIGN - 1);
+    /* Align to KASLR_VIRT_ALIGN (2 MiB) */
+    addr &= ~(KASLR_VIRT_ALIGN - 1);
 
     /* Validate against expected kernel text range */
-    if (addr >= KERNEL_TEXT_MIN && addr < KERNEL_TEXT_MAX)
+    if (addr >= KERNEL_VIRT_TEXT_MIN && addr < KERNEL_VIRT_TEXT_MAX)
       return addr;
   }
 

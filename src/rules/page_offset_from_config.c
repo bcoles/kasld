@@ -1,12 +1,13 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
-// Rule: pin page_offset from CONFIG_PAGE_OFFSET on VMSPLIT arches.
+// Rule: pin virt_page_offset from CONFIG_PAGE_OFFSET on VMSPLIT arches.
 //
 // On x86_32 and arm32 the user/kernel split (CONFIG_PAGE_OFFSET / VMSPLIT) is a
-// pure compile-time constant: the configured value IS the runtime page_offset,
-// with no boot-time override. So reading CONFIG_PAGE_OFFSET (bridged as
-// SF_CONFIG_PAGE_OFFSET) and pinning Q_PAGE_OFFSET to it is sound — unlike the
-// compile-time DEFAULT, which only guesses the common 3G/1G split.
+// pure compile-time constant: the configured value IS the runtime
+// virt_page_offset, with no boot-time override. So reading CONFIG_PAGE_OFFSET
+// (bridged as SF_VIRT_CONFIG_PAGE_OFFSET) and pinning Q_PAGE_OFFSET to it is
+// sound — unlike the compile-time DEFAULT, which only guesses the common 3G/1G
+// split.
 //
 // Gated on PAGE_OFFSET_FROM_CONFIG, NOT a raw arch check: the macro encodes the
 // soundness property "CONFIG_PAGE_OFFSET is authoritative here". It is
@@ -17,8 +18,9 @@
 //
 // C_EQUALS at CONF_PARSED (a parsed, authoritative config value). The engine's
 // monotone meet drops it if it would fall outside the current window. Once
-// page_offset pins, the coupled-arch cross-quantity ceilings (highmem_32bit_-
-// bound, virt_ceiling_from_memtotal, ...) fire on the next pass.
+// virt_page_offset pins, the coupled-arch cross-quantity ceilings
+// (highmem_32bit_- bound, virt_ceiling_from_memtotal, ...) fire on the next
+// pass.
 // ---
 // <bcoles@gmail.com>
 
@@ -39,7 +41,7 @@ int rule_page_offset_from_config(const struct evidence_set *ev,
   for (int i = 0; i < ev->n_obs; i++) {
     const struct observation *o = &ev->obs[i];
     if (o->valid && o->value_kind == OBS_SCALAR &&
-        o->scalar_fact == SF_CONFIG_PAGE_OFFSET) {
+        o->scalar_fact == SF_VIRT_CONFIG_PAGE_OFFSET) {
       po = o->scalar_value;
       src = o->id;
       break;

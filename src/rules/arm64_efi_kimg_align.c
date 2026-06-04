@@ -8,9 +8,10 @@
 //   4K / 16K pages: THREAD_ALIGN <= 32 KiB -> EFI_KIMG_ALIGN = 64 KiB
 //   64K pages:      THREAD_ALIGN = 128 KiB -> EFI_KIMG_ALIGN = 128 KiB
 //
-// The compile-time default (KERNEL_ALIGN = 64 KiB) is correct for 4K/16K; this
-// raises Q_PHYS_KASLR_ALIGN to 128 KiB on 64K-page kernels. Virtual KASLR_ALIGN
-// (2 MiB) is page_size independent on arm64 and is left untouched.
+// The compile-time default (KASLR_VIRT_ALIGN = 64 KiB) is correct for 4K/16K;
+// this raises Q_PHYS_KASLR_ALIGN to 128 KiB on 64K-page kernels. Virtual
+// KASLR_VIRT_ALIGN (2 MiB) is page_size independent on arm64 and is left
+// untouched.
 //
 // Reads SF_PAGE_SIZE (bridged from getpagesize). C_AT_LEAST_ALIGN; a value at
 // or below the arch baseline is dominated by kaslr_align_arch_default.

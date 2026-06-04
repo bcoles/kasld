@@ -78,7 +78,7 @@ static unsigned long get_kernel_addr_boot_config(FILE *fp) {
       "[.] Kernel appears to have been compiled without CONFIG_RANDOMIZE_BASE"
       " (KASLR not compiled in)\n");
 
-  return (unsigned long)KERNEL_TEXT_DEFAULT;
+  return (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
 }
 
 int main(void) {
@@ -87,11 +87,11 @@ int main(void) {
     return KASLD_EXIT_UNAVAILABLE;
 
   /* Detect PAGE_OFFSET (32-bit vmsplit) */
-  unsigned long page_offset = get_kconfig_page_offset(fp);
-  if (page_offset) {
-    printf("[.] CONFIG_PAGE_OFFSET: %#lx\n", page_offset);
-    kasld_result_base(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, page_offset, NULL,
-                      CONF_PARSED);
+  unsigned long virt_page_offset = get_kconfig_page_offset(fp);
+  if (virt_page_offset) {
+    printf("[.] CONFIG_PAGE_OFFSET: %#lx\n", virt_page_offset);
+    kasld_result_base(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, virt_page_offset,
+                      NULL, CONF_PARSED);
   }
 
   /* CONFIG_PHYSICAL_START (x86 LOAD_PHYSICAL_ADDR). The honest-top floors
@@ -108,19 +108,24 @@ int main(void) {
   /* CONFIG_PHYSICAL_ALIGN — KASLR slot granularity on x86. boot_params
    * exposes the same value at hdr.kernel_alignment; this is a fallback for
    * systems where /sys/kernel/boot_params/data is unreadable. Both sources
-   * emit the same SF_KERNEL_ALIGN scalar; boot_params_kaslr_align raises
+   * emit the same SF_PHYS_KERNEL_ALIGN scalar; boot_params_kaslr_align raises
    * Q_KASLR_ALIGN / Q_PHYS_KASLR_ALIGN regardless of source. */
   unsigned long phys_align = get_kconfig_physical_align(fp);
   if (phys_align) {
     printf("[.] CONFIG_PHYSICAL_ALIGN: %#lx\n", phys_align);
-    kasld_emit_scalar(SF_KERNEL_ALIGN, phys_align, CONF_PARSED);
+    kasld_emit_scalar(SF_PHYS_KERNEL_ALIGN, phys_align, CONF_PARSED);
   }
 
-  /* KASLR-off detection. The engine's kaslr_disabled_pin rule consumes
-   * SF_KASLR_DISABLED and pins the per-arch default text base (gated by
-   * KASLR_DISABLED_PINS_TEXT + window-containment). */
-  if (get_kernel_addr_boot_config(fp))
-    kasld_emit_scalar(SF_KASLR_DISABLED, 1, CONF_PARSED);
+  /* KASLR-off detection. CONFIG_RANDOMIZE_BASE=n means the kernel binary
+   * was built without KASLR support entirely — both virtual and physical
+   * placement use compile-time defaults. virt_kaslr_disabled_pin /
+   * phys_kaslr_disabled_pin each gate by its arch macro
+   * (KASLR_DISABLED_PINS_VIRT_TEXT / KASLR_DISABLED_PINS_PHYS) + window-
+   * containment to decide whether to pin. */
+  if (get_kernel_addr_boot_config(fp)) {
+    kasld_emit_scalar(SF_VIRT_KASLR_DISABLED, 1, CONF_PARSED);
+    kasld_emit_scalar(SF_PHYS_KASLR_DISABLED, 1, CONF_PARSED);
+  }
 
   fclose(fp);
 

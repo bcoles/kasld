@@ -313,19 +313,21 @@ static int interval_admits(enum kasld_quantity q, unsigned long v) {
 
 static void test_honest_tops_admit_known_values(void) {
   /* Every arch: the KASLR-off default text base must be inside the top. The
-   * virtual top is [KASLR_TEXT_MIN_WIDE, KASLR_TEXT_MAX]; the _WIDE floor is
-   * KASLR_TEXT_MIN on arches without a configurable PHYSICAL_START, and is
-   * wider on arches like x86_64 where KASLR_TEXT_MIN bakes in
-   * CONFIG_PHYSICAL_START at its compile-time default (a smaller config
-   * would otherwise leave text outside the window — soundness violation
-   * we now avoid). */
-  assert(interval_admits(Q_VIRT_TEXT_BASE, (unsigned long)KERNEL_TEXT_DEFAULT));
-  assert(interval_admits(Q_VIRT_TEXT_BASE, (unsigned long)KASLR_TEXT_MIN_WIDE));
-  assert(
-      interval_admits(Q_VIRT_TEXT_BASE, (unsigned long)KASLR_TEXT_MAX - 1ul));
-  /* And the COMPILE-TIME KASLR_TEXT_MIN (the heuristic floor) is admitted,
+   * virtual top is [KASLR_VIRT_TEXT_MIN_WIDE, KASLR_VIRT_TEXT_MAX]; the _WIDE
+   * floor is KASLR_VIRT_TEXT_MIN on arches without a configurable
+   * PHYSICAL_START, and is wider on arches like x86_64 where
+   * KASLR_VIRT_TEXT_MIN bakes in CONFIG_PHYSICAL_START at its compile-time
+   * default (a smaller config would otherwise leave text outside the window —
+   * soundness violation we now avoid). */
+  assert(interval_admits(Q_VIRT_TEXT_BASE,
+                         (unsigned long)KERNEL_VIRT_TEXT_DEFAULT));
+  assert(interval_admits(Q_VIRT_TEXT_BASE,
+                         (unsigned long)KASLR_VIRT_TEXT_MIN_WIDE));
+  assert(interval_admits(Q_VIRT_TEXT_BASE,
+                         (unsigned long)KASLR_VIRT_TEXT_MAX - 1ul));
+  /* And the COMPILE-TIME KASLR_VIRT_TEXT_MIN (the heuristic floor) is admitted,
    * sitting at-or-above the widened floor. */
-  assert(interval_admits(Q_VIRT_TEXT_BASE, (unsigned long)KASLR_TEXT_MIN));
+  assert(interval_admits(Q_VIRT_TEXT_BASE, (unsigned long)KASLR_VIRT_TEXT_MIN));
 
 #if defined(__x86_64__) || defined(__amd64__)
   /* Physical text base: the honest top must admit a HIGH load address —

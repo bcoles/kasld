@@ -1,12 +1,12 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
-// Rule: arm64 page_offset ceiling snapped to ARM64_MEMSTART_ALIGN.
+// Rule: arm64 virt_page_offset ceiling snapped to ARM64_MEMSTART_ALIGN.
 //
 // PAGE_OFFSET on arm64 is aligned
 // to ARM64_MEMSTART_ALIGN (512 MiB for 64K pages, 1 GiB for 4K/16K), and it is
 // at most the lowest leaked DIRECTMAP address, so:
 //
-//   page_offset <= align_down(min directmap leak, ARM64_MEMSTART_ALIGN)
+//   virt_page_offset <= align_down(min directmap leak, ARM64_MEMSTART_ALIGN)
 //
 // Reads SF_PAGE_SIZE (bridged from getpagesize) + VIRT DIRECTMAP leaks; emits a
 // C_UPPER_BOUND on Q_PAGE_OFFSET. arm64 only; dormant offline (no directmap

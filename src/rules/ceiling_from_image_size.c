@@ -15,12 +15,12 @@
 //
 // Reads the SF_IMAGE_SIZE / SF_INIT_SIZE scalar observations plus the resolved
 // alignment quantities. The ceiling is aligned down to the RESOLVED
-// Q_KASLR_ALIGN (resp. Q_PHYS_KASLR_ALIGN), not the compile-time KASLR_ALIGN:
-// on x86_64 boot_params_kaslr_align raises that quantity to the actual
-// CONFIG_PHYSICAL_ALIGN (e.g. 16 MiB), so the ceiling snaps to that coarser
-// boundary; with no boot_params the quantity is the arch KASLR_ALIGN.
-// This makes the rule cross-quantity (it reads est), so the fixpoint loop
-// re-runs it after the alignment rules settle.
+// Q_KASLR_ALIGN (resp. Q_PHYS_KASLR_ALIGN), not the compile-time
+// KASLR_VIRT_ALIGN: on x86_64 boot_params_kaslr_align raises that quantity to
+// the actual CONFIG_PHYSICAL_ALIGN (e.g. 16 MiB), so the ceiling snaps to that
+// coarser boundary; with no boot_params the quantity is the arch
+// KASLR_VIRT_ALIGN. This makes the rule cross-quantity (it reads est), so the
+// fixpoint loop re-runs it after the alignment rules settle.
 // ---
 // <bcoles@gmail.com>
 
@@ -32,7 +32,7 @@
  * available sound size facts — the /boot image-size estimate (SF_IMAGE_SIZE,
  * deliberately an under-estimate) and the exact x86 boot_params init_size
  * (SF_INIT_SIZE). Both are <= the true in-memory size, so the larger yields the
- * tightest still-sound ceiling (KASLR_TEXT_MAX - size); when the exact
+ * tightest still-sound ceiling (KASLR_VIRT_TEXT_MAX - size); when the exact
  * init_size is present it wins. */
 static unsigned long image_size(const struct evidence_set *ev,
                                 enum kasld_confidence *conf, uint32_t *src) {
@@ -92,12 +92,12 @@ int rule_ceiling_from_image_size(const struct evidence_set *ev,
   /* Align to the resolved alignment quantity, never below the arch default
    * (in pass 1 the quantity is still at its lattice top of 1). */
   unsigned long valign = est[Q_KASLR_ALIGN].lo;
-  if (valign < (unsigned long)KASLR_ALIGN)
-    valign = (unsigned long)KASLR_ALIGN;
+  if (valign < (unsigned long)KASLR_VIRT_ALIGN)
+    valign = (unsigned long)KASLR_VIRT_ALIGN;
 
   int n = 0;
-  n += emit_ceiling(Q_VIRT_TEXT_BASE, KASLR_TEXT_MAX, KASLR_TEXT_MIN, valign,
-                    ksize, conf, src, out, n, out_max);
+  n += emit_ceiling(Q_VIRT_TEXT_BASE, KASLR_VIRT_TEXT_MAX, KASLR_VIRT_TEXT_MIN,
+                    valign, ksize, conf, src, out, n, out_max);
 #if !TEXT_TRACKS_DIRECTMAP
   unsigned long palign = est[Q_PHYS_KASLR_ALIGN].lo;
   if (palign < (unsigned long)KASLR_PHYS_ALIGN)

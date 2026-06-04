@@ -6,10 +6,10 @@
 // top is "aligned to 1 byte" (least information) — the arch's minimum KASLR
 // granularity is a constant floor that must arrive as a constraint, not as a
 // dependent top (see §0.3). KASLR on a given arch always aligns the kernel base
-// to at least KASLR_ALIGN (KERNEL_ALIGN by default), so this is an axiomatic
-// C_AT_LEAST_ALIGN with no lineage. It establishes the arch baseline alignment;
-// config-derived rules
-// (boot_params kernel_alignment, arm64 EFI_KIMG_ALIGN) raise it further.
+// to at least KASLR_VIRT_ALIGN (KASLR_VIRT_ALIGN by default), so this is an
+// axiomatic C_AT_LEAST_ALIGN with no lineage. It establishes the arch baseline
+// alignment; config-derived rules (boot_params kernel_alignment, arm64
+// EFI_KIMG_ALIGN) raise it further.
 //
 // Physical alignment is emitted only where physical KASLR exists
 // (KASLR_PHYS_MIN defined) — matching the orchestrator's _PHYS_KASLR_ALIGN
@@ -33,7 +33,7 @@ int rule_kaslr_align_arch_default(const struct evidence_set *ev,
     memset(c, 0, sizeof(*c));
     c->q = Q_KASLR_ALIGN;
     c->op = C_AT_LEAST_ALIGN;
-    c->value = (unsigned long)KASLR_ALIGN;
+    c->value = (unsigned long)KASLR_VIRT_ALIGN;
     c->conf = CONF_PARSED; /* arch-static constant: certain */
     c->lineage_count = 0;  /* axiomatic */
     snprintf(c->origin, ORIGIN_LEN, "kaslr_align_arch_default");

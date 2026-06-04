@@ -18,7 +18,7 @@
 //
 // Per-region bands (using KASLR-invariant boundaries):
 //
-//   KERNEL_TEXT / KERNEL_IMAGE in [KERNEL_TEXT_MIN, KERNEL_TEXT_MAX]
+//   KERNEL_TEXT / KERNEL_IMAGE in [KERNEL_VIRT_TEXT_MIN, KERNEL_VIRT_TEXT_MAX]
 //     (XKPRANGE DMW1 + 8 GiB headroom for the KASLR slide)
 //   MODULE / MODULE_REGION    in [MODULES_START, MODULES_END]
 //     (the XKVRANGE module-and-vmalloc span)
@@ -28,17 +28,17 @@
 //      union)
 //   VMEMMAP                   in [MODULES_START, MODULES_END]
 //     (also XKVRANGE-resident)
-//   DIRECTMAP / PAGE_OFFSET   in [KERNEL_VAS_START, XKVRANGE)
+//   DIRECTMAP / PAGE_OFFSET   in [KERNEL_VIRT_VAS_START, XKVRANGE)
 //     (XKPRANGE span: 0x8000_..., 0xa000_..._fffffffe)
 //
 // The bands are KASLR-invariant — KASLR randomises only the kernel text
-// slot within KERNEL_TEXT_MIN/MAX; the band containers are fixed by
+// slot within KERNEL_VIRT_TEXT_MIN/MAX; the band containers are fixed by
 // hardware DMW windows or by vm_map_base which is set from cpu_vabits at
 // boot and never moves. An observation whose eff_region claims one band
 // but whose address falls in another is misclassified — typically a
 // heap pointer, percpu offset, or stack pointer mistakenly tagged.
 //
-// IMPORTANT: KERNEL_TEXT / KERNEL_IMAGE uses KERNEL_TEXT_MIN/MAX (the
+// IMPORTANT: KERNEL_TEXT / KERNEL_IMAGE uses KERNEL_VIRT_TEXT_MIN/MAX (the
 // validation range across all in-scope kernel-version layouts), not a
 // narrower per-formula KASLR-window subset — same role distinction as
 // the parallel x86_64 / arm64 / riscv64 rules. See kasld.h MODULES_*
@@ -87,8 +87,8 @@ int rule_loongarch64_coupling_validate(const struct evidence_set *ev,
     case REGION_DIRECTMAP:
     case REGION_PAGE_OFFSET:
       /* Linear map lives in XKPRANGE (hardware DMW). Below XKVRANGE floor
-       * and above KERNEL_VAS_START. */
-      bad = (a < (unsigned long)KERNEL_VAS_START) ||
+       * and above KERNEL_VIRT_VAS_START. */
+      bad = (a < (unsigned long)KERNEL_VIRT_VAS_START) ||
             (a >= LOONGARCH_XKVRANGE_FLOOR);
       break;
     case REGION_VMALLOC:
@@ -104,8 +104,8 @@ int rule_loongarch64_coupling_validate(const struct evidence_set *ev,
     case REGION_KERNEL_TEXT:
     case REGION_KERNEL_IMAGE:
       /* Inside the validation range (covers KASLR slide + headroom). */
-      bad = (a < (unsigned long)KERNEL_TEXT_MIN) ||
-            (a > (unsigned long)KERNEL_TEXT_MAX);
+      bad = (a < (unsigned long)KERNEL_VIRT_TEXT_MIN) ||
+            (a > (unsigned long)KERNEL_VIRT_TEXT_MAX);
       break;
     default:
       continue; /* no band check for this region kind */

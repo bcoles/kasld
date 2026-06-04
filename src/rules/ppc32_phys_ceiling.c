@@ -6,21 +6,22 @@
 // is drawn from [0, min(MemTotal, 512 MiB)) in 64 MiB steps, and with < 64 MiB
 // RAM the slot count is 0 so the kernel loads at the compile-time default.
 //
-//   MemTotal < 64 MiB : virt_text_base == KERNEL_TEXT_DEFAULT  (KASLR off)
-//   else              : virt_text_base <= KASLR_TEXT_MIN + min(MemTotal,512M)
+//   MemTotal < 64 MiB : virt_text_base == KERNEL_VIRT_TEXT_DEFAULT  (KASLR off)
+//   else              : virt_text_base <= KASLR_VIRT_TEXT_MIN +
+//   min(MemTotal,512M)
 //                                          - MIN_IMAGE_SIZE  (aligned)
 //
 // SCOPE: the guard matches every 32-bit PowerPC (BookE *and* BookS) because
 // BookE-vs-BookS is a runtime property, not a compile-time one — a pure rule
 // cannot distinguish them without a cpuinfo-derived fact. On BookS (no BookE
 // KASLR scheme) the ceiling is loose-but-sound: an unrandomized kernel sits at
-// KERNEL_TEXT_DEFAULT, which is <= this ceiling. (The < 64 MiB pin assumes the
-// BookE no-randomization case; a BookS server with < 64 MiB RAM is
+// KERNEL_VIRT_TEXT_DEFAULT, which is <= this ceiling. (The < 64 MiB pin assumes
+// the BookE no-randomization case; a BookS server with < 64 MiB RAM is
 // implausible.)
 //
-// Reads SF_MEMTOTAL. PAGE_OFFSET is fixed on PPC32 (no VMSPLIT), so the coupled
-// mapping uses KASLR_TEXT_MIN directly. ppc32 only; needs a live ppc32 BookE
-// host (the corpus has none) — LIVE-TEST list.
+// Reads SF_PHYS_MEMTOTAL. PAGE_OFFSET is fixed on PPC32 (no VMSPLIT), so the
+// coupled mapping uses KASLR_VIRT_TEXT_MIN directly. ppc32 only; needs a live
+// ppc32 BookE host (the corpus has none) — LIVE-TEST list.
 // ---
 // <bcoles@gmail.com>
 
@@ -45,7 +46,7 @@ int rule_ppc32_phys_ceiling(const struct evidence_set *ev,
   for (int i = 0; i < ev->n_obs; i++) {
     const struct observation *o = &ev->obs[i];
     if (o->valid && o->value_kind == OBS_SCALAR &&
-        o->scalar_fact == SF_MEMTOTAL) {
+        o->scalar_fact == SF_PHYS_MEMTOTAL) {
       mem = o->scalar_value;
       src = o->id;
       break;
@@ -65,17 +66,18 @@ int rule_ppc32_phys_ceiling(const struct evidence_set *ev,
     /* KASLR disabled: pin to the compile-time default. */
     c->q = Q_VIRT_TEXT_BASE;
     c->op = C_EQUALS;
-    c->value = (unsigned long)KERNEL_TEXT_DEFAULT;
+    c->value = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
     return 1;
   }
 
   unsigned long cap = mem < BOOKE_PHYS_KASLR_MAX ? mem : BOOKE_PHYS_KASLR_MAX;
   if (cap <= MIN_IMAGE_SIZE)
     return 0;
-  unsigned long ceiling = (unsigned long)KASLR_TEXT_MIN + cap - MIN_IMAGE_SIZE;
-  if (KASLR_ALIGN > 0)
-    ceiling &= ~((unsigned long)KASLR_ALIGN - 1);
-  if (ceiling <= (unsigned long)KASLR_TEXT_MIN)
+  unsigned long ceiling =
+      (unsigned long)KASLR_VIRT_TEXT_MIN + cap - MIN_IMAGE_SIZE;
+  if (KASLR_VIRT_ALIGN > 0)
+    ceiling &= ~((unsigned long)KASLR_VIRT_ALIGN - 1);
+  if (ceiling <= (unsigned long)KASLR_VIRT_TEXT_MIN)
     return 0;
   c->q = Q_VIRT_TEXT_BASE;
   c->op = C_UPPER_BOUND;

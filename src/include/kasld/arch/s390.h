@@ -72,8 +72,8 @@
 // 3-level paging: _REGION2_SIZE = 1 << 42 = 0x40000000000   (4 TiB)
 // 4-level paging: _REGION1_SIZE = 1 << 53 = 0x20000000000000 (8 PiB)
 // Use the 4-level limit for broadest coverage.
-#define KERNEL_VAS_START 0ul
-#define KERNEL_VAS_END 0x20000000000000ul
+#define KERNEL_VIRT_VAS_START 0ul
+#define KERNEL_VIRT_VAS_END 0x20000000000000ul
 
 // Kernel text virtual address range.
 // CONFIG_KERNEL_IMAGE_BASE:
@@ -82,8 +82,8 @@
 //   MiB)
 // With KASLR, the kernel is placed near the top of the ASCE limit within a
 // 2 GiB window (KASLR_LEN = 1 << 31).
-#define KERNEL_TEXT_MIN 0x100000ul
-#define KERNEL_TEXT_MAX 0x20000000000000ul
+#define KERNEL_VIRT_TEXT_MIN 0x100000ul
+#define KERNEL_VIRT_TEXT_MAX 0x20000000000000ul
 
 // Modules: 2 GiB (MODULES_LEN = 1 << 31) placed immediately below the kernel
 // image base. MODULES_END = round_down(__kaslr_offset, _SEGMENT_SIZE) ≈
@@ -93,15 +93,15 @@
 //   Upper bound (from minimum vmod_lo):
 //     MODULES_END = round_down(__kaslr_offset, _SEGMENT_SIZE) ≤ vmod_lo +
 //     MODULES_LEN
-//     __kaslr_offset is KERNEL_ALIGN-aligned, so the gap
-//       __kaslr_offset − MODULES_END ∈ [0, _SEGMENT_SIZE − KERNEL_ALIGN]
-//     __kaslr_offset ≤ vmod_lo + MODULES_LEN + (_SEGMENT_SIZE − KERNEL_ALIGN)
-//     _stext ≤ vmod_lo + MODULES_LEN + (_SEGMENT_SIZE − KERNEL_ALIGN) +
+//     __kaslr_offset is IMAGE_ALIGN-aligned, so the gap
+//       __kaslr_offset − MODULES_END ∈ [0, _SEGMENT_SIZE − IMAGE_ALIGN]
+//     __kaslr_offset ≤ vmod_lo + MODULES_LEN + (_SEGMENT_SIZE − IMAGE_ALIGN)
+//     _stext ≤ vmod_lo + MODULES_LEN + (_SEGMENT_SIZE − IMAGE_ALIGN) +
 //     TEXT_OFFSET
 //   Lower bound (from maximum vmod_hi):
 //     __kaslr_offset > vmod_hi  →  __kaslr_offset ≥ align_down(vmod_hi,
-//     KERNEL_ALIGN) + KERNEL_ALIGN
-//     _stext ≥ align_down(vmod_hi, KERNEL_ALIGN) + KERNEL_ALIGN + TEXT_OFFSET
+//     IMAGE_ALIGN) + IMAGE_ALIGN
+//     _stext ≥ align_down(vmod_hi, IMAGE_ALIGN) + IMAGE_ALIGN + TEXT_OFFSET
 //
 // MODULES_BELOW_TEXT_START signals that MODULES_END is anchored to the image
 // start (_stext - TEXT_OFFSET), not to image end (_end) as on riscv64. The
@@ -109,8 +109,8 @@
 // derive a lower bound on text_base from the maximum observed module address.
 //
 // MODULES_END_TO_TEXT_OFFSET: upper-bound addend in module_text_bound.c:
-//   new_max = (vmod_lo + MODULES_END_TO_TEXT_OFFSET) & ~(kaslr_align - 1)
-//   = MODULES_LEN + (_SEGMENT_SIZE − KERNEL_ALIGN) + TEXT_OFFSET
+//   new_max = (vmod_lo + MODULES_END_TO_TEXT_OFFSET) & ~(virt_kaslr_align - 1)
+//   = MODULES_LEN + (_SEGMENT_SIZE − IMAGE_ALIGN) + TEXT_OFFSET
 //   = 0x80000000 + 0xFC000 + 0x100000 = 0x801FC000
 //
 // Runtime-determined; use wide bounds for validation.
@@ -119,14 +119,14 @@
 #define MODULES_RELATIVE_TO_TEXT 1
 #define MODULES_BELOW_TEXT_START 1
 #define MODULES_END_TO_TEXT_OFFSET                                             \
-  0x801FC000ul /* MODULES_LEN + (_SEGMENT_SIZE - KERNEL_ALIGN) + TEXT_OFFSET   \
+  0x801FC000ul /* MODULES_LEN + (_SEGMENT_SIZE - IMAGE_ALIGN) + TEXT_OFFSET    \
                 */
 
 // Virtual KASLR granularity: THREAD_SIZE (16 KiB on s390, PAGE_SIZE << 2).
 // Physical placement uses _SEGMENT_SIZE (1 MiB), but virtual text addresses
 // are only THREAD_SIZE-aligned. Confirmed on real hardware: _stext on a
 // v6.18 system was 0x4000-aligned but not 1 MiB aligned.
-#define KERNEL_ALIGN 0x4000ul
+#define IMAGE_ALIGN 0x4000ul
 
 // Physical KASLR uses _SEGMENT_SIZE (1 MiB) alignment (v6.8+).
 // Pre-v6.8 physical KASLR used THREAD_SIZE alignment.
@@ -154,8 +154,8 @@
 // the maximum is vmax - image_size (boot-time, tracks the ASCE limit).
 // On 4-level systems vmax = 8 PiB, so _stext can be anywhere from
 // CONFIG_KERNEL_IMAGE_BASE up to ~8 PiB — a much wider range than 3-level.
-#define KASLR_TEXT_MIN (0x3FFE0000000ul + TEXT_OFFSET)
-#define KASLR_TEXT_MAX KERNEL_TEXT_MAX
+#define KASLR_VIRT_TEXT_MIN (0x3FFE0000000ul + TEXT_OFFSET)
+#define KASLR_VIRT_TEXT_MAX KERNEL_VIRT_TEXT_MAX
 
 // Default kernel text virtual address without KASLR.
 // CONFIG_KERNEL_IMAGE_BASE (introduced ~v6.8) default = 0x3FFE0000000
@@ -164,7 +164,7 @@
 // See docs/kaslr.md "Default text base and KASLR alignment" for all
 // architectures. Kernel source: arch/s390/kernel/vmlinux.lds.S,
 // arch/s390/boot/startup.c
-#define KERNEL_TEXT_DEFAULT 0x3FFE0100000ul
+#define KERNEL_VIRT_TEXT_DEFAULT 0x3FFE0100000ul
 
 #define KASLR_SUPPORTED 1
 
@@ -172,14 +172,14 @@
  * forces __kaslr_enabled = 0 on the kdump crash kernel (oldmem_data.start
  * non-zero, signalled by elfcorehdr= on the cmdline). The kernel then lands
  * at __NO_KASLR_START_KERNEL = CONFIG_KERNEL_IMAGE_BASE + TEXT_OFFSET, which
- * matches KERNEL_TEXT_DEFAULT for the default config. Also fires on the
- * generic SF_KASLR_DISABLED signals (nokaslr cmdline, RANDOMIZE_BASE=n).
+ * matches KERNEL_VIRT_TEXT_DEFAULT for the default config. Also fires on the
+ * generic SF_VIRT_KASLR_DISABLED signals (nokaslr cmdline, RANDOMIZE_BASE=n).
  * Distros may override CONFIG_KERNEL_IMAGE_BASE; the rule's window-
  * containment check is the soundness backstop. */
-#define KASLR_DISABLED_PINS_TEXT 1
+#define KASLR_DISABLED_PINS_VIRT_TEXT 1
 #define KASLD_ARCH_DEFAULT_TEXT_BASE_DEFINED 1
 static inline unsigned long arch_default_text_base(void) {
-  return KERNEL_TEXT_DEFAULT;
+  return KERNEL_VIRT_TEXT_DEFAULT;
 }
 
 #endif /* KASLD_S390_H */

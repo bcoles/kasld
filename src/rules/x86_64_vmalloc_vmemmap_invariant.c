@@ -7,7 +7,7 @@
 // When both a VIRT/VMALLOC observation V_va and a VIRT/VMEMMAP observation
 // V_mm are present, the kernel invariant
 //
-//   vmemmap_base ≥ vmalloc_base + VMALLOC_SIZE_TB·1TB + PUD_SIZE
+//   virt_vmemmap_base ≥ virt_vmalloc_base + VMALLOC_SIZE_TB·1TB + PUD_SIZE
 //
 // (≥ 33 TiB on L4, ≥ 12801 TiB on L5) implies, for any actual witness pair:
 //

@@ -8,10 +8,10 @@
 // is bounded by PAGE_OFFSET + 512 MiB. The VMSPLIT (3G/2G/1G) determines
 // PAGE_OFFSET, which the engine resolves as Q_PAGE_OFFSET (pinned from the
 // CONFIG_PAGE_OFFSET landmark) — so this is a cross-quantity rule reading the
-// resolved page_offset, deterministic and file-derived.
+// resolved virt_page_offset, deterministic and file-derived.
 //
-// C_UPPER_BOUND on Q_VIRT_TEXT_BASE; fires once page_offset is pinned. i386
-// only; inert elsewhere.
+// C_UPPER_BOUND on Q_VIRT_TEXT_BASE; fires once virt_page_offset is pinned.
+// i386 only; inert elsewhere.
 // ---
 // <bcoles@gmail.com>
 
@@ -30,10 +30,10 @@ int rule_x86_32_vmsplit_ceiling(const struct evidence_set *ev,
     return 0;
   const struct estimate *po = &est[Q_PAGE_OFFSET];
   if (po->lo != po->hi)
-    return 0; /* page_offset not yet pinned */
+    return 0; /* virt_page_offset not yet pinned */
 
   unsigned long ceiling = po->lo + X86_32_KERNEL_IMAGE_SIZE;
-  if (ceiling <= KASLR_TEXT_MIN)
+  if (ceiling <= KASLR_VIRT_TEXT_MIN)
     return 0;
 
   struct constraint *c = &out[0];
@@ -42,7 +42,7 @@ int rule_x86_32_vmsplit_ceiling(const struct evidence_set *ev,
   c->op = C_UPPER_BOUND;
   c->value = ceiling;
   c->conf = CONF_PARSED;
-  c->derived_from[0] = po->lo_binding; /* the page_offset landmark */
+  c->derived_from[0] = po->lo_binding; /* the virt_page_offset landmark */
   c->lineage_count = po->lo_binding ? 1 : 0;
   snprintf(c->origin, ORIGIN_LEN, "x86_32_vmsplit_ceiling");
   return 1;

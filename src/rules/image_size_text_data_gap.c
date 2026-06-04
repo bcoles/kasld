@@ -7,7 +7,7 @@
 // below (gap = max_data - min_text); the base then cannot sit so high that
 // base + gap overflows the KASLR window:
 //
-//   virt_text_base <= align_down(KASLR_TEXT_MAX - gap, kaslr_align)
+//   virt_text_base <= align_down(KASLR_VIRT_TEXT_MAX - gap, virt_kaslr_align)
 //   phys_text_base <= align_down(KASLR_PHYS_MAX - gap, phys_align)  (decoupled)
 //
 // Reads VIRT kernel TEXT/IMAGE (min) and DATA/BSS (max) leaks; aligns to the
@@ -53,14 +53,15 @@ int rule_image_size_text_data_gap(const struct evidence_set *ev,
 
   int n = 0;
   unsigned long valign = est[Q_KASLR_ALIGN].lo;
-  if (valign < (unsigned long)KASLR_ALIGN)
-    valign = (unsigned long)KASLR_ALIGN;
-  if (gap < (unsigned long)KASLR_TEXT_MAX - (unsigned long)KASLR_TEXT_MIN &&
+  if (valign < (unsigned long)KASLR_VIRT_ALIGN)
+    valign = (unsigned long)KASLR_VIRT_ALIGN;
+  if (gap < (unsigned long)KASLR_VIRT_TEXT_MAX -
+                (unsigned long)KASLR_VIRT_TEXT_MIN &&
       n < out_max) {
-    unsigned long vmax = (unsigned long)KASLR_TEXT_MAX - gap;
+    unsigned long vmax = (unsigned long)KASLR_VIRT_TEXT_MAX - gap;
     if (valign > 0)
       vmax &= ~(valign - 1);
-    if (vmax > (unsigned long)KASLR_TEXT_MIN) {
+    if (vmax > (unsigned long)KASLR_VIRT_TEXT_MIN) {
       struct constraint *c = &out[n++];
       memset(c, 0, sizeof(*c));
       c->q = Q_VIRT_TEXT_BASE;

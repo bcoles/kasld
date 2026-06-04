@@ -6,16 +6,17 @@
 // Each region in the modern (v5.10+) riscv64 VAS lives in a fixed band
 // anchored to the SATP-mode-dependent PAGE_OFFSET:
 //
-//   KERNEL_TEXT / KERNEL_IMAGE in [KERNEL_TEXT_MIN, KERNEL_TEXT_MAX]
+//   KERNEL_TEXT / KERNEL_IMAGE in [KERNEL_VIRT_TEXT_MIN, KERNEL_VIRT_TEXT_MAX]
 //     (the validation range — top 2 GiB at KERNEL_LINK_ADDR for modern,
 //      plus the wider pre-v5.10 legacy floor)
 //   MODULE / MODULE_REGION    in [MODULES_START, MODULES_END]
 //     (relative to text; static union covers both v5.10+ and legacy)
-//   VMALLOC                   in [KERNEL_VAS_START, PAGE_OFFSET_SV39_LEGACY)
-//   VMEMMAP                   in [KERNEL_VAS_START, PAGE_OFFSET_SV39_LEGACY)
+//   VMALLOC                   in [KERNEL_VIRT_VAS_START,
+//   PAGE_OFFSET_SV39_LEGACY) VMEMMAP                   in
+//   [KERNEL_VIRT_VAS_START, PAGE_OFFSET_SV39_LEGACY)
 //     (both lie immediately below PAGE_OFFSET on every SATP mode; the
 //      highest plausible PAGE_OFFSET is the strict upper bound)
-//   DIRECTMAP / PAGE_OFFSET   in [PAGE_OFFSET_SV57, KERNEL_VAS_END]
+//   DIRECTMAP / PAGE_OFFSET   in [PAGE_OFFSET_SV57, KERNEL_VIRT_VAS_END]
 //     (linear map starts at PAGE_OFFSET; the lowest plausible PAGE_OFFSET
 //      across SATP modes is SV57, giving the widest accepting floor)
 //
@@ -33,7 +34,7 @@
 // or estimate dependency. Same shape as coupling_validate / arm64_coupling_-
 // validate.
 //
-// IMPORTANT: the KERNEL_TEXT / KERNEL_IMAGE check uses KERNEL_TEXT_MIN/MAX
+// IMPORTANT: the KERNEL_TEXT / KERNEL_IMAGE check uses KERNEL_VIRT_TEXT_MIN/MAX
 // (the validation range across all in-scope kernel-version layouts), NOT a
 // per-formula KASLR-window subset — same role distinction as the parallel
 // x86_64 / arm64 rules; see kasld.h MODULES_* validation-union contract
@@ -82,8 +83,8 @@ int rule_riscv64_coupling_validate(const struct evidence_set *ev,
       /* Linear map lives at or above PAGE_OFFSET. Lowest plausible
        * PAGE_OFFSET across SATP modes (SV57) is the widest accepting
        * floor. Upper bound: kernel VAS end. */
-      bad =
-          (a < RISCV64_PAGE_OFFSET_SV57) || (a > (unsigned long)KERNEL_VAS_END);
+      bad = (a < RISCV64_PAGE_OFFSET_SV57) ||
+            (a > (unsigned long)KERNEL_VIRT_VAS_END);
       break;
     case REGION_VMALLOC:
     case REGION_VMEMMAP:
@@ -92,14 +93,14 @@ int rule_riscv64_coupling_validate(const struct evidence_set *ev,
        * strict upper bound; widest accepting lower bound is the kernel VAS
        * floor. */
       bad = (a >= RISCV64_PAGE_OFFSET_HIGHEST) ||
-            (a < (unsigned long)KERNEL_VAS_START);
+            (a < (unsigned long)KERNEL_VIRT_VAS_START);
       break;
     case REGION_KERNEL_TEXT:
     case REGION_KERNEL_IMAGE:
-      /* Inside the validation range (KERNEL_TEXT_MIN/MAX covers both modern
-       * top-2-GiB layout and pre-v5.10 linear-map text). */
-      bad = (a < (unsigned long)KERNEL_TEXT_MIN) ||
-            (a > (unsigned long)KERNEL_TEXT_MAX);
+      /* Inside the validation range (KERNEL_VIRT_TEXT_MIN/MAX covers both
+       * modern top-2-GiB layout and pre-v5.10 linear-map text). */
+      bad = (a < (unsigned long)KERNEL_VIRT_TEXT_MIN) ||
+            (a > (unsigned long)KERNEL_VIRT_TEXT_MAX);
       break;
     case REGION_MODULE:
     case REGION_MODULE_REGION:

@@ -28,12 +28,12 @@
 #define DIRECTMAP_STATIC 1
 #define TEXT_TRACKS_DIRECTMAP 1
 
-#define KERNEL_VAS_START PAGE_OFFSET
-#define KERNEL_VAS_END 0xfffffffful
+#define KERNEL_VIRT_VAS_START PAGE_OFFSET
+#define KERNEL_VIRT_VAS_END 0xfffffffful
 
-#define KERNEL_TEXT_MIN PAGE_OFFSET
+#define KERNEL_VIRT_TEXT_MIN PAGE_OFFSET
 // Above this, addresses fall in the I/O or fixmap region.
-#define KERNEL_TEXT_MAX 0xf0000000ul
+#define KERNEL_VIRT_TEXT_MAX 0xf0000000ul
 
 // Modules are located below kernel: PAGE_OFFSET - 256MiB (0x10000000)
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/include/asm/book3s/32/pgtable.h#L214
@@ -43,11 +43,11 @@
 #define MODULES_RELATIVE_TO_TEXT 0
 
 // page aligned
-#define KERNEL_ALIGN 0x1000ul
+#define IMAGE_ALIGN 0x1000ul
 
 // BookE (PPC_85xx) KASLR uses 16 KiB alignment within 64 MiB windows.
 // https://elixir.bootlin.com/linux/v6.12/source/arch/powerpc/mm/nohash/kaslr_booke.c
-#define KASLR_ALIGN 0x4000ul
+#define KASLR_VIRT_ALIGN 0x4000ul
 
 #define TEXT_OFFSET 0
 
@@ -58,7 +58,7 @@
 // Default: 0xc0000000 (PAGE_OFFSET, no text offset on PPC32).
 // See docs/kaslr.md "Default text base and KASLR alignment" for all
 // architectures. Kernel source: arch/powerpc/kernel/vmlinux.lds.S
-#define KERNEL_TEXT_DEFAULT (KERNEL_TEXT_MIN + TEXT_OFFSET)
+#define KERNEL_VIRT_TEXT_DEFAULT (KERNEL_VIRT_TEXT_MIN + TEXT_OFFSET)
 
 #define KASLR_SUPPORTED 1
 

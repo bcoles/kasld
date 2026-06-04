@@ -1,21 +1,21 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
-// Rule: synthesize page_offset from same-origin directmap + DRAM leaks.
+// Rule: synthesize virt_page_offset from same-origin directmap + DRAM leaks.
 //
 // A component that leaks both a
 // direct-map virtual address and a physical DRAM address pins the direct-map
-// base: page_offset = virt - phys + PHYS_OFFSET. Grouping by origin and taking
-// each origin's min(directmap virt) / min(phys DRAM) yields one candidate per
-// origin; when all candidates agree within one KASLR alignment slot the result
-// is trustworthy. On a fixed-PAGE_OFFSET arch (everything but x86_64) the true
-// base is a single constant, so we pin Q_PAGE_OFFSET to the cleanest (most
-// large-page-aligned) candidate; on x86_64 (randomized base) we report the
-// proven [min_cand, max_cand] window instead.
+// base: virt_page_offset = virt - phys + PHYS_OFFSET. Grouping by origin and
+// taking each origin's min(directmap virt) / min(phys DRAM) yields one
+// candidate per origin; when all candidates agree within one KASLR alignment
+// slot the result is trustworthy. On a fixed-PAGE_OFFSET arch (everything but
+// x86_64) the true base is a single constant, so we pin Q_PAGE_OFFSET to the
+// cleanest (most large-page-aligned) candidate; on x86_64 (randomized base) we
+// report the proven [min_cand, max_cand] window instead.
 //
-// This is the mechanism that reconstructs the EXACT randomized page_offset on a
-// live x86_64 (RANDOMIZE_MEMORY) host from a directmap leak — far tighter than
-// the directmap_page_offset_bounds window or the VAS-floor lower bound. Reads
-// the resolved Q_PAGE_OFFSET window (candidates must fall inside) and
+// This is the mechanism that reconstructs the EXACT randomized virt_page_offset
+// on a live x86_64 (RANDOMIZE_MEMORY) host from a directmap leak — far tighter
+// than the directmap_page_offset_bounds window or the VAS-floor lower bound.
+// Reads the resolved Q_PAGE_OFFSET window (candidates must fall inside) and
 // Q_KASLR_ALIGN (the agreement tolerance). Dormant offline without leaks —
 // LIVE-TEST list.
 // ---
@@ -107,7 +107,7 @@ int rule_phys_virt_synth(const struct evidence_set *ev,
     if (v < p)
       continue;
     unsigned long cand = v - p + (unsigned long)PHYS_OFFSET;
-    /* page_offset (the direct-map base) is large-page aligned on every
+    /* virt_page_offset (the direct-map base) is large-page aligned on every
      * supported arch — x86_64 RANDOMIZE_MEMORY aligns it to PUD_SIZE (1 GiB),
      * and every other arch's PAGE_OFFSET is at least PMD-aligned. A candidate
      * that isn't PMD-aligned is provably NOT the real base, which means the
@@ -133,8 +133,8 @@ int rule_phys_virt_synth(const struct evidence_set *ev,
     return 0;
 
   unsigned long align = est[Q_KASLR_ALIGN].lo;
-  if (align < (unsigned long)KASLR_ALIGN)
-    align = (unsigned long)KASLR_ALIGN;
+  if (align < (unsigned long)KASLR_VIRT_ALIGN)
+    align = (unsigned long)KASLR_VIRT_ALIGN;
   if (cand_hi - cand_lo > align) /* candidates disagree -> a bad pair */
     return 0;
 
@@ -157,7 +157,7 @@ int rule_phys_virt_synth(const struct evidence_set *ev,
   }
 #else
   /* Randomized PAGE_OFFSET (x86_64): report the proven window. cand_hi ==
-   * cand_lo still pins page_offset exactly via lower==upper. */
+   * cand_lo still pins virt_page_offset exactly via lower==upper. */
   if (n < out_max) {
     struct constraint *c = &out[n++];
     memset(c, 0, sizeof(*c));

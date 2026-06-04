@@ -10,7 +10,7 @@
 //   handoff token is `elfcorehdr=<addr>`, set by kexec_file_load(2) with
 //   KEXEC_FILE_ON_CRASH. The kernel then loads at the deterministic
 //   __NO_KASLR_START_KERNEL address (= CONFIG_KERNEL_IMAGE_BASE + TEXT_OFFSET
-//   = our KERNEL_TEXT_DEFAULT).
+//   = our KERNEL_VIRT_TEXT_DEFAULT).
 //
 // s390 only. x86-64 and arm64 do NOT unconditionally disable KASLR for the
 // kdump kernel — they re-run the KASLR path within the reserved crashkernel
@@ -39,9 +39,10 @@ KASLD_EXPLAIN(
     "s390 only: when running as a kdump crash kernel (elfcorehdr= present "
     "on /proc/cmdline, set by kexec_file_load with KEXEC_FILE_ON_CRASH), "
     "arch/s390/boot/startup.c forces __kaslr_enabled = 0 and the kernel "
-    "loads at CONFIG_KERNEL_IMAGE_BASE + TEXT_OFFSET. Emits SF_KASLR_DISABLED "
-    "for the engine's kaslr_disabled_pin rule. /proc/cmdline is "
-    "world-readable.");
+    "loads at CONFIG_KERNEL_IMAGE_BASE + TEXT_OFFSET. Emits "
+    "SF_VIRT_KASLR_DISABLED + SF_PHYS_KASLR_DISABLED for the engine's "
+    "virt_kaslr_disabled_pin and phys_kaslr_disabled_pin rules. "
+    "/proc/cmdline is world-readable.");
 
 KASLD_META("method:detection\n"
            "phase:inference\n"
@@ -55,6 +56,12 @@ int main(void) {
 
   printf("[.] s390 'elfcorehdr=' on /proc/cmdline — running as kdump "
          "crash kernel; __kaslr_enabled forced to 0.\n");
-  kasld_emit_scalar(SF_KASLR_DISABLED, 1, CONF_PARSED);
+  /* On s390 kdump both __kaslr_offset (virt) and __kaslr_offset_phys are
+   * forced to 0; the kernel sits at the compile-time defaults on both axes
+   * (KASLR_DISABLED_PINS_VIRT_TEXT gates the virt pin; KASLR_DISABLED_PINS_PHYS
+   * is 0 on s390 so the phys pin is inert here, but the fact is true and
+   * downstream rules may consume it). */
+  kasld_emit_scalar(SF_VIRT_KASLR_DISABLED, 1, CONF_PARSED);
+  kasld_emit_scalar(SF_PHYS_KASLR_DISABLED, 1, CONF_PARSED);
   return 0;
 }

@@ -146,12 +146,12 @@ Readable /boot/config:        yes
 [.] CONFIG_PHYSICAL_START: 0x1000000
 S physical_start conf=parsed value=0x1000000
 [.] CONFIG_PHYSICAL_ALIGN: 0x200000
-S kernel_align conf=parsed value=0x200000
+S phys_kernel_align conf=parsed value=0x200000
 [.] checking for CONFIG_RANDOMIZE_BASE... 
 
 --- boot_params_facts ---
 S init_size conf=parsed value=0x37ed000
-S kernel_align conf=parsed value=0x200000
+S phys_kernel_align conf=parsed value=0x200000
 
 --- boot_params_e820 ---
 [.] reading E820 memory map and initrd address from /sys/kernel/boot_params/data ...
@@ -366,7 +366,7 @@ S page_size conf=parsed value=0x1000
 [.] checking /proc/cpuinfo ...
 [.] Address sizes: 45 bits physical, 48 bits virtual
 [.] Paging level 4: PAGE_OFFSET floor -> 0xffff800000000000
-V page_offset pos=base conf=parsed lo=0xffff800000000000
+V virt_page_offset pos=base conf=parsed lo=0xffff800000000000
 
 --- proc_iomem_kernel ---
 [-] /proc/iomem appears masked (kptr_restrict?); addresses read as 0
@@ -569,9 +569,9 @@ KASLR analysis:
   Remaining phys slots:      367 (9 bits, step 0x200000)
 
 Memory KASLR (directmap / vmalloc / vmemmap):
-  page_offset_base     >= 0xffff800000000000
-  vmalloc_base         0xffff8b0040000000 - 0xffffdcffc0000000  (83966 candidates, 17 bits)
-  vmemmap_base         0xffffab0080000000 - 0xfffffd0000000000  (83966 candidates, 17 bits)
+  virt_page_offset_base     >= 0xffff800000000000
+  virt_vmalloc_base         0xffff8b0040000000 - 0xffffdcffc0000000  (83966 candidates, 17 bits)
+  virt_vmemmap_base         0xffffab0080000000 - 0xfffffd0000000000  (83966 candidates, 17 bits)
 
 ----------------------------------------
 Virtual memory layout (decoupled):

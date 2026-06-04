@@ -76,7 +76,7 @@ static int on_match(const char *line, void *ctx) {
   while ((ptr = strtok(NULL, " ")) != NULL) {
     unsigned long addr = strtoul(ptr, &endptr, 16);
 
-    if (addr >= KERNEL_TEXT_MIN && addr <= KERNEL_TEXT_MAX) {
+    if (addr >= KERNEL_VIRT_TEXT_MIN && addr <= KERNEL_VIRT_TEXT_MAX) {
       *result = addr;
       return 0;
     }
@@ -99,7 +99,7 @@ int main(void) {
   }
 
   printf("leaked __turn_mmu_on: %lx\n", addr);
-  printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);
+  printf("possible kernel base: %lx\n", addr & -KASLR_VIRT_ALIGN);
   /* The leaked address is __turn_mmu_on — a specific kernel symbol used
    * by the early MMU bringup code on ARM. */
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr,

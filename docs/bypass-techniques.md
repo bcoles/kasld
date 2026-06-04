@@ -206,6 +206,7 @@ The following table catalogues known side-channel KASLR attacks.
 | ThermalBleed | 2022 | Thermal side-channel operates at ms-second timescale; far too slow/noisy for KASLR (needs sub-µs resolution). | [ThermalBleed: A Practical Thermal Side-Channel Attack](https://ieeexplore.ieee.org/stamp/stamp.jsp?arnumber=9727162) (Kim & Shin, 2022) |
 | MMIO Stale Data (CVE-2022-21123, CVE-2022-21125, CVE-2022-21127, CVE-2022-21166) | 2022 | Intel x86_64; Intel CPUs from Skylake through Alder Lake. MMIO read completions propagate stale data through shared microarchitectural buffers (fill buffers, load ports, store buffers) where it can be sampled cross-privilege. Four variants: SBDR (Shared Buffer Data Read), SBDS (Shared Buffer Data Sampling), SRBDS update (Special Register Buffer), and DRPW (Device Register Partial Write). Mitigated by `VERW` in kernel entry/exit paths (same mechanism as MDS) plus microcode update. | [Processor MMIO Stale Data Vulnerabilities](https://www.intel.com/content/www/us/en/developer/articles/technical/software-security-guidance/technical-documentation/processor-mmio-stale-data-vulnerabilities.html) (Intel, 2022)<br>[kernel.org: Processor MMIO Stale Data Vulnerabilities](https://docs.kernel.org/admin-guide/hw-vuln/processor_mmio_stale_data.html) |
 | Spectre-BHB / Native BHI (CVE-2022-0001, CVE-2022-0002) | 2022 | Intel x86_64; bypasses eIBRS and Retpoline by poisoning the Branch History Buffer (BHB) from userspace before a syscall, causing indirect branches in kernel context to speculate to attacker-chosen targets. "InSpectre Gadget" (Hermans et al., 2024) provides a systematic framework for finding Native BHI gadgets in the Linux kernel and demonstrated end-to-end KASLR bypass via speculative kernel memory reads. Mitigated by `BHI_DIS_S` microcode feature and `CLEAR_BHB` instruction sequences in kernel entry/exit paths (≥v6.8). | [Branch History Injection](https://www.intel.com/content/www/us/en/developer/articles/technical/software-security-guidance/technical-documentation/branch-history-injection.html) (Intel, 2022)<br>[InSpectre Gadget: Inspecting the Residual Attack Surface of Cross-privilege Spectre v2](https://download.vusec.net/papers/inspectre_sp24.pdf) (Hermans et al., 2024) — [IEEE S&P 2024](https://www.ieee-security.org/TC/SP2024/program.html)<br>[vusec/inspectre-gadget](https://github.com/vusec/inspectre-gadget) |
+| Spectre-BHB on ARM (CVE-2022-23960) | 2022 | ARM aarch64; affects Cortex-A57, A72, A73, A75, A76, A77, A78, Cortex-X1, Cortex-X2, Neoverse-N1, Neoverse-N2. Same primitive as Intel Native BHI — userspace poisons the Branch History Buffer before a syscall so indirect branches in EL1 speculate to attacker-controlled targets, enabling speculative reads of kernel memory. Naturally-occurring gadgets in upstream Linux are sufficient (no kernel patch needed); the InSpectre-Gadget framework finds them. Mitigated by `CLEAR_BHB`-equivalent loop sequences in kernel entry/exit paths (≥v6.8) and the `CSV2`/`CSV3` ID feature reporting. Requires a userspace cycle counter; on hardened ARM64 kernels `PMUSERENR_EL0.EN` is clear by default and `pmccntr_el0` traps to SIGILL — `cntvct_el0` is too coarse (~50 ns) for the timing channel. Decode `CPU part` from `/proc/cpuinfo`: `0xd07` A57, `0xd08` A72, `0xd09` A73, `0xd0a` A75, `0xd0b` A76, `0xd0d` A77, `0xd0e` A78, `0xd44` X1, `0xd0c` N1, `0xd49` N2. | [Spectre-BHB / Branch History Injection on Arm CPUs](https://developer.arm.com/support/arm-security-updates/speculative-processor-vulnerability/downloads/branch-history-injection-and-intra-mode-branch-target-injection) (Arm, 2022)<br>[kernel.org: Spectre Side Channels](https://docs.kernel.org/admin-guide/hw-vuln/spectre.html#mitigation-control-on-the-kernel-command-line) (Arm-specific section)<br>[InSpectre Gadget: Inspecting the Residual Attack Surface of Cross-privilege Spectre v2](https://download.vusec.net/papers/inspectre_sp24.pdf) (Hermans et al., 2024) — applicable to Arm targets via the same gadget-finder framework |
 | Memory deduplication timing | 2021 | Requires KSM enabled (disabled by default on most distros); primarily a VM-to-VM attack. | [Memory deduplication as a threat to the guest OS](https://kth.diva-portal.org/smash/get/diva2:1060434/FULLTEXT01) (Suzaki et al., 2011)<br>[Breaking KASLR Using Memory Deduplication in Virtualized Environments](https://www.mdpi.com/2079-9292/10/17/2174) (Kim et al., 2021)<br>[Remote Memory-Deduplication Attacks](https://pure.tugraz.at/ws/portalfiles/portal/38441480/main.pdf) (Schwarzl et al., 2022) |
 | VDSO sidechannel | 2021 | ARM64 only; requires custom kernel gadget in VDSO; mitigated by Spectre barriers in VDSO code. | [VDSO As A Potential KASLR Oracle](https://www.longterm.io/vdso_sidechannel.html) (Pettersson & Radocea, 2021) |
 | EchoLoad | 2020 | **Implemented (experimental)**: [echoload.c](../src/components/echoload.c)<br>Intel x86_64 only; relies on Meltdown zero-return behavior. Supports TSX, speculation, and signal-handler transient modes. No signal on non-vulnerable hardware (AMD, modern Intel with in-silicon Meltdown fix). Mitigated by KPTI on patched kernels. Requires `--experimental`. | [KASLR: Break It, Fix It, Repeat](https://gruss.cc/files/kaslrbfr.pdf) (Claudio Canella, Michael Schwarz, Martin Haubenwallner, 2020)<br>[Store-to-Leak Forwarding: There and Back Again](https://i.blackhat.com/asia-20/Friday/asia-20-Canella-Store-To-Leak-Forwarding-There-And-Back-Again-wp.pdf) (Canella et al., 2020) — [Slides](https://misc0110.net/files/store2leak_blackhat_slides.pdf), [Blackhat Asia 2020](https://www.youtube.com/watch?v=Yc1AXkCu2AA)<br>[cc0x1f/store-to-leak-forwarding/echoload](https://github.com/cc0x1f/store-to-leak-forwarding-there-and-back-again/tree/master/echoload) |
@@ -376,7 +377,7 @@ The following KASLD components use brute-force probing:
 ## Weak entropy
 
 The kernel is loaded at an aligned memory address, usually between `PAGE_SIZE`
-(4 KiB) and 2 MiB on modern systems (see `KERNEL_ALIGN` definitions in
+(4 KiB) and 2 MiB on modern systems (see `IMAGE_ALIGN` definitions in
 [kasld/api.h](../src/include/kasld/api.h)).
 
 This limits the number of possible kernel locations to the values in the
@@ -385,7 +386,7 @@ This limits the number of possible kernel locations to the values in the
 The slot counts in that table are upper bounds. The kernel's KASLR placement code
 enforces `slot + kernel_size ≤ range_end`, so positions near the top of the
 randomization region where the image would overflow are never selected. Every
-additional `KERNEL_ALIGN` bytes of kernel image size removes one trailing slot.
+additional `IMAGE_ALIGN` bytes of kernel image size removes one trailing slot.
 On architectures with tight entropy budgets — x86_64 and x86_32 (~500 slots,
 ~9 bits) and RISC-V64 (~512 slots) — a typical production kernel reduces the
 effective slot count by 3–8%. On arm64 (~33M slots) and s390 (~131K slots) the
@@ -414,7 +415,7 @@ trigger conditions:
 
 This state is materially different from a deliberate opt-out
 (`nokaslr` / `CONFIG_RANDOMIZE_BASE=n` / hibernation resume):
-- Opt-out → kernel at `KERNEL_TEXT_DEFAULT`. Predictable from the
+- Opt-out → kernel at `KERNEL_VIRT_TEXT_DEFAULT`. Predictable from the
   compile-time linker layout alone.
 - Randomization failed → kernel at firmware-determined position.
   Predictable per-host (re-use a previously captured slide), but
@@ -422,22 +423,24 @@ This state is materially different from a deliberate opt-out
 
 KASLD emits a distinct scalar fact for each. The
 `dmesg_kaslr_disabled` component classifies each `KASLR disabled` line
-by its reason and emits `SF_KASLR_DISABLED` (opt-out) or
-`SF_KASLR_RANDOMIZATION_FAILED` (machinery failed). Only the former
-drives the engine's `kaslr_disabled_pin` rule. See
+by its reason and emits `SF_VIRT_KASLR_DISABLED` +
+`SF_PHYS_KASLR_DISABLED` (opt-out — both axes off) or
+`SF_VIRT_KASLR_RANDOMIZATION_FAILED` + `SF_PHYS_KASLR_RANDOMIZATION_FAILED` (machinery failed). Only the former
+pair drives the engine's `virt_kaslr_disabled_pin` and
+`phys_kaslr_disabled_pin` rules. See
 [docs/kaslr.md — KASLR runtime states](kaslr.md#kaslr-runtime-states)
 for the full state taxonomy.
 
 ### Slide baseline
 
-The renderer reports `KERNEL_TEXT_DEFAULT` (the per-arch compile-time
+The renderer reports `KERNEL_VIRT_TEXT_DEFAULT` (the per-arch compile-time
 default kernel text base) as the slide baseline, sourced from
 `layout.kernel_text_default`. When KASLR is disabled (opt-out), this
 is the kernel's actual load address on arches that set
-`KASLR_DISABLED_PINS_TEXT`; on relocating arches the bootloader may
+`KASLR_DISABLED_PINS_VIRT_TEXT`; on relocating arches the bootloader may
 still place the image elsewhere, and the rule's window-containment
 check catches that case. When KASLR randomization failed, the kernel
-is NOT at `KERNEL_TEXT_DEFAULT` — the engine resolves the actual
+is NOT at `KERNEL_VIRT_TEXT_DEFAULT` — the engine resolves the actual
 position from observable evidence rather than pinning to default.
 
 See also:
@@ -531,6 +534,10 @@ VT console font uninitialized heap leak. `con_font_get()` in `drivers/tty/vt/vt.
 AMD IBS (Instruction-Based Sampling) uninitialized perf stack leak. `perf_ibs_handle_irq()` in `arch/x86/events/amd/ibs.c` did not fully initialize the `struct perf_ibs_data` on-stack buffer before copying it to the perf ring buffer. On AMD CPUs with IBS support, stale kernel stack data (potentially containing kernel pointers) leaked to unprivileged perf readers. Affects v6.13 to v6.15 (AMD CPUs only):
 
   * [perf/x86/amd/ibs: Fix stack uninit access](https://github.com/torvalds/linux/commit/50a53b60e141b36e316dd1d1f5a4231486c8dc2d) (2025)
+
+memfd hugetlb non-zeroed folio leak. `memfd_alloc_folio()` in `mm/memfd.c` allocated hugetlb pool folios for memfds without zeroing, bypassing the page-fault path's normal `folio_zero_user()` call. Folios allocated via `memfd_pin_folios()` (currently only invoked by the `udmabuf` driver's `UDMABUF_CREATE` / `UDMABUF_CREATE_LIST` ioctls) retained whatever the prior hugetlb pool occupant left on them — up to 2 MiB of stale kernel or user data per folio, readable by any process holding the memfd via `mmap()` or `read()`. Requires `vm.nr_hugepages > 0` (root sysctl, common on KVM hosts and DPDK / SPDK servers) and `/dev/udmabuf` RW access (default mode 0600; widened by some compositor / video udev rules). Affects v6.11 to v6.18:
+
+  * [mm/memfd: fix information leak in hugetlb folios](https://github.com/torvalds/linux/commit/de8798965fd0d9a6c47fc2ac57767ec32de12b49) (2025)
 
 ## Arbitrary read
 

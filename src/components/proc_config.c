@@ -133,11 +133,11 @@ int main(void) {
     return KASLD_EXIT_UNAVAILABLE;
 
   /* Detect PAGE_OFFSET (32-bit vmsplit) */
-  unsigned long page_offset = get_kconfig_page_offset(fp);
-  if (page_offset) {
-    printf("[.] CONFIG_PAGE_OFFSET: %#lx\n", page_offset);
-    kasld_result_base(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, page_offset, NULL,
-                      CONF_PARSED);
+  unsigned long virt_page_offset = get_kconfig_page_offset(fp);
+  if (virt_page_offset) {
+    printf("[.] CONFIG_PAGE_OFFSET: %#lx\n", virt_page_offset);
+    kasld_result_base(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, virt_page_offset,
+                      NULL, CONF_PARSED);
   }
 
   /* CONFIG_PHYSICAL_START (x86 LOAD_PHYSICAL_ADDR) — see boot_config.c. */
@@ -152,14 +152,19 @@ int main(void) {
   unsigned long phys_align = get_kconfig_physical_align(fp);
   if (phys_align) {
     printf("[.] CONFIG_PHYSICAL_ALIGN: %#lx\n", phys_align);
-    kasld_emit_scalar(SF_KERNEL_ALIGN, phys_align, CONF_PARSED);
+    kasld_emit_scalar(SF_PHYS_KERNEL_ALIGN, phys_align, CONF_PARSED);
   }
 
-  /* KASLR-off detection. The engine's kaslr_disabled_pin rule consumes
-   * SF_KASLR_DISABLED and pins the per-arch default text base (gated by
-   * KASLR_DISABLED_PINS_TEXT + window-containment). */
-  if (kaslr_disabled_from_config(fp))
-    kasld_emit_scalar(SF_KASLR_DISABLED, 1, CONF_PARSED);
+  /* KASLR-off detection. CONFIG_RANDOMIZE_BASE=n in /proc/config.gz means
+   * the kernel binary was built without KASLR support — both virtual and
+   * physical placement use compile-time defaults. virt_kaslr_disabled_pin
+   * and phys_kaslr_disabled_pin each gate by its arch macro
+   * (KASLR_DISABLED_PINS_VIRT_TEXT / KASLR_DISABLED_PINS_PHYS) + window-
+   * containment. */
+  if (kaslr_disabled_from_config(fp)) {
+    kasld_emit_scalar(SF_VIRT_KASLR_DISABLED, 1, CONF_PARSED);
+    kasld_emit_scalar(SF_PHYS_KASLR_DISABLED, 1, CONF_PARSED);
+  }
 
   fclose(fp);
 

@@ -35,11 +35,14 @@ int main(void) {
 
   printf("[.] Kernel booted with nokaslr flag.\n");
 
-  /* Off-detection signal; the engine's kaslr_disabled_pin rule computes the
-   * per-arch default text base and pins Q_VIRT_TEXT_BASE (gated by
-   * KASLR_DISABLED_PINS_TEXT + window-containment). The renderer's baseline
-   * is emitted independently by the `default` component. */
-  kasld_emit_scalar(SF_KASLR_DISABLED, 1, CONF_PARSED);
+  /* `nokaslr` disables both virtual and physical KASLR axes on every arch
+   * that honours it (the kernel's boot stub treats the cmdline flag before
+   * either axis randomises). Emit both facts; virt_kaslr_disabled_pin and
+   * phys_kaslr_disabled_pin each gate by its arch macro
+   * (KASLR_DISABLED_PINS_VIRT_TEXT / KASLR_DISABLED_PINS_PHYS) + window-
+   * containment to decide whether to pin. */
+  kasld_emit_scalar(SF_VIRT_KASLR_DISABLED, 1, CONF_PARSED);
+  kasld_emit_scalar(SF_PHYS_KASLR_DISABLED, 1, CONF_PARSED);
 
   return 0;
 }

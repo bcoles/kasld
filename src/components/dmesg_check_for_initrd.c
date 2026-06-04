@@ -64,7 +64,7 @@ static int on_match(const char *line, void *ctx) {
 
   char *endptr;
   unsigned long addr = strtoul(p + strlen(needle), &endptr, 16);
-  if (addr && addr < KERNEL_VAS_END) {
+  if (addr && addr < KERNEL_VIRT_VAS_END) {
     *result = addr;
     return 0; /* stop after first match */
   }
@@ -85,7 +85,7 @@ int main(void) {
   }
 
   printf("leaked initrd start: %lx\n", addr);
-  printf("possible kernel base: %lx\n", addr & -KERNEL_ALIGN);
+  printf("possible kernel base: %lx\n", addr & -KASLR_VIRT_ALIGN);
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_INITRD, addr, NULL, CONF_PARSED);
 #ifdef directmap_virt_to_phys
   {

@@ -55,7 +55,7 @@ void render_markdown(const struct summary *s) {
       long abs_vs = s->kaslr.vslide < 0 ? -s->kaslr.vslide : s->kaslr.vslide;
       printf("| Virtual text base | `0x%016lx` |\n", s->kaslr.vtext);
       printf("| Default text base | `0x%016lx` |\n",
-             layout.kernel_text_default);
+             layout.virt_kernel_text_default);
       printf("| KASLR slide | %s0x%lx (%ld) |\n",
              s->kaslr.vslide < 0 ? "-" : "+", (unsigned long)abs_vs,
              s->kaslr.vslide);

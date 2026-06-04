@@ -153,7 +153,7 @@ int main(void) {
    * when r.lo == actual phys floor. When firmware reserves low phys for
    * the kernel image (RAM hole below r.lo), the projection lands INSIDE
    * the directmap, not at its base. Emit as a directmap SAMPLE so peer
-   * rules treat it as a witness without pinning page_offset's ceiling. */
+   * rules treat it as a witness without pinning virt_page_offset's ceiling. */
   unsigned long virt = phys_to_directmap_virt(r.lo);
   printf("possible direct-map virtual address: 0x%016lx\n", virt);
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, NULL,

@@ -158,13 +158,15 @@ void render_json(const struct summary *s) {
 
   /* layout */
   printf("  \"layout\": {\n");
-  printf("    \"page_offset\": \"0x%016lx\",\n", layout.page_offset);
-  printf("    \"kernel_text_min\": \"0x%016lx\",\n", layout.kernel_text_min);
-  printf("    \"kernel_text_max\": \"0x%016lx\",\n", layout.kernel_text_max);
-  printf("    \"kernel_align\": \"0x%lx\",\n", layout.kernel_align);
-  printf("    \"kernel_text_default\": \"0x%016lx\",\n",
-         layout.kernel_text_default);
-  /* Phys KASLR window. Symmetric with kernel_text_min/max above (which is
+  printf("    \"virt_page_offset\": \"0x%016lx\",\n", layout.virt_page_offset);
+  printf("    \"virt_kernel_text_min\": \"0x%016lx\",\n",
+         layout.virt_kernel_text_min);
+  printf("    \"virt_kernel_text_max\": \"0x%016lx\",\n",
+         layout.virt_kernel_text_max);
+  printf("    \"image_align\": \"0x%lx\",\n", layout.image_align);
+  printf("    \"virt_kernel_text_default\": \"0x%016lx\",\n",
+         layout.virt_kernel_text_default);
+  /* Phys KASLR window. Symmetric with virt_kernel_text_min/max above (which is
    * the virt window) — both are the engine-resolved [lo, hi] for the
    * corresponding text-base quantity. Coupled arches and arches without
    * phys KASLR leave both at 0; expose as JSON null so consumers can
@@ -196,7 +198,7 @@ void render_json(const struct summary *s) {
     printf(",\n    \"virtual\": {\n");
     printf("      \"text_base\": \"0x%016lx\",\n", s->kaslr.vtext);
     printf("      \"default_base\": \"0x%016lx\",\n",
-           layout.kernel_text_default);
+           layout.virt_kernel_text_default);
     printf("      \"slide_bytes\": %ld,\n", s->kaslr.vslide);
     printf("      \"entropy_bits\": %d,\n", s->kaslr.vbits);
     printf("      \"slots\": %lu", s->kaslr.vslots);
@@ -206,8 +208,8 @@ void render_json(const struct summary *s) {
   } else if (!s->kaslr.disabled && !s->kaslr.unsupported &&
              s->kaslr.vslots > 0) {
     printf(",\n    \"inferred\": {\n");
-    printf("      \"range_min\": \"0x%016lx\",\n", layout.kaslr_text_min);
-    printf("      \"range_max\": \"0x%016lx\",\n", layout.kaslr_text_max);
+    printf("      \"range_min\": \"0x%016lx\",\n", layout.virt_kaslr_text_min);
+    printf("      \"range_max\": \"0x%016lx\",\n", layout.virt_kaslr_text_max);
     printf("      \"slots\": %lu,\n", s->kaslr.vslots);
     printf("      \"entropy_bits\": %d\n", s->kaslr.vbits);
     printf("    }");
@@ -239,19 +241,21 @@ void render_json(const struct summary *s) {
    * when at least one region has been narrowed from its compile-time
    * default. Untightened sides emit JSON `null` so consumers can
    * distinguish "no bound" from "bound that happens to be zero". */
-  if (s->kaslr.page_offset_min || s->kaslr.page_offset_max ||
-      s->kaslr.vmalloc_min || s->kaslr.vmalloc_max || s->kaslr.vmemmap_min ||
-      s->kaslr.vmemmap_max) {
+  if (s->kaslr.virt_page_offset_min || s->kaslr.virt_page_offset_max ||
+      s->kaslr.virt_vmalloc_min || s->kaslr.virt_vmalloc_max ||
+      s->kaslr.virt_vmemmap_min || s->kaslr.virt_vmemmap_max) {
     printf(",\n    \"memory_kaslr\": {\n");
     int first = 1;
     struct {
       const char *name;
       unsigned long min, max;
     } regions[] = {
-        {"page_offset_base", s->kaslr.page_offset_min,
-         s->kaslr.page_offset_max},
-        {"vmalloc_base", s->kaslr.vmalloc_min, s->kaslr.vmalloc_max},
-        {"vmemmap_base", s->kaslr.vmemmap_min, s->kaslr.vmemmap_max},
+        {"virt_page_offset_base", s->kaslr.virt_page_offset_min,
+         s->kaslr.virt_page_offset_max},
+        {"virt_vmalloc_base", s->kaslr.virt_vmalloc_min,
+         s->kaslr.virt_vmalloc_max},
+        {"virt_vmemmap_base", s->kaslr.virt_vmemmap_min,
+         s->kaslr.virt_vmemmap_max},
     };
     for (size_t i = 0; i < sizeof(regions) / sizeof(regions[0]); i++) {
       if (!regions[i].min && !regions[i].max)

@@ -74,10 +74,10 @@ int main(void) {
   kasld_result_base(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, addr, NULL,
                     CONF_HEURISTIC);
 
-  if (addr < (unsigned long)KERNEL_VAS_START)
+  if (addr < (unsigned long)KERNEL_VIRT_VAS_START)
     printf("[!] warning: virtual address start %lx below configured "
-           "KERNEL_VAS_START %lx\n",
-           addr, (unsigned long)KERNEL_VAS_START);
+           "KERNEL_VIRT_VAS_START %lx\n",
+           addr, (unsigned long)KERNEL_VIRT_VAS_START);
 
   return 0;
 }

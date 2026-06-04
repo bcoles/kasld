@@ -31,8 +31,8 @@
 #define PHYS_OFFSET 0ul
 
 // On x86_64, CONFIG_RANDOMIZE_MEMORY makes the runtime PAGE_OFFSET differ
-// from the compile-time constant (= page_offset_base, randomized each boot),
-// so the compile-time (p + PAGE_OFFSET) formula is NOT a sound runtime
+// from the compile-time constant (= virt_page_offset_base, randomized each
+// boot), so the compile-time (p + PAGE_OFFSET) formula is NOT a sound runtime
 // directmap projection. phys_to_directmap_virt() is therefore left
 // undefined (see gate at end of file). Kernel text KASLR (RANDOMIZE_BASE)
 // is independent of RANDOMIZE_MEMORY, so text does not track the directmap.
@@ -47,19 +47,20 @@
 
 // RANDOMIZE_MEMORY slides PAGE_OFFSET (the direct-map base) per boot — unlike
 // every other supported arch, where PAGE_OFFSET is a fixed constant. Rules that
-// reconstruct page_offset report a window here rather than pinning a value.
+// reconstruct virt_page_offset report a window here rather than pinning a
+// value.
 #define PAGE_OFFSET_RANDOMIZED 1
 
-#define KERNEL_VAS_START PAGE_OFFSET
-#define KERNEL_VAS_END 0xfffffffffffffffful
+#define KERNEL_VIRT_VAS_START PAGE_OFFSET
+#define KERNEL_VIRT_VAS_END 0xfffffffffffffffful
 
 // Old <= 4.4 era kernels used the RANDOMIZE_BASE_MAX_OFFSET config option
 // which limited the maximum offset to 1 GiB (0x4000_0000), yielding 512
 // possible base addresses (between 0xffffffff_80000000 and
 // 0xffffffff_c0000000). The RANDOMIZE_BASE_MAX_OFFSET option was later removed.
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/include/asm/page_64_types.h#L50
-#define KERNEL_TEXT_MIN 0xffffffff80000000ul
-#define KERNEL_TEXT_MAX 0xffffffffc0000000ul
+#define KERNEL_VIRT_TEXT_MIN 0xffffffff80000000ul
+#define KERNEL_VIRT_TEXT_MAX 0xffffffffc0000000ul
 
 // MODULES_VADDR = __START_KERNEL_map + KERNEL_IMAGE_SIZE = 0xffffffffc0000000
 // MODULES_END   = 0xffffffffff000000 (or 0xfffffffffe000000 with
@@ -74,7 +75,7 @@
 // 0x20_0000 (2MiB) in increments of 0x20_0000 (2MiB).
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/boot/compressed/kaslr.c#L850
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/Kconfig#L2182
-#define KERNEL_ALIGN (2 * MB)
+#define IMAGE_ALIGN (2 * MB)
 
 // EFI_KIMG_ALIGN: the alignment the EFI stub uses when allocating pages
 // for the kernel image. On x86_64 this is CONFIG_PHYSICAL_ALIGN, whose
@@ -131,7 +132,8 @@
 // See docs/kaslr.md "Default text base and KASLR alignment" for all
 // architectures. Kernel source: arch/x86/kernel/vmlinux.lds.S,
 // arch/x86/include/asm/page_64_types.h
-#define KERNEL_TEXT_DEFAULT (KERNEL_TEXT_MIN + PHYSICAL_START + TEXT_OFFSET)
+#define KERNEL_VIRT_TEXT_DEFAULT                                               \
+  (KERNEL_VIRT_TEXT_MIN + PHYSICAL_START + TEXT_OFFSET)
 
 /* KASLR-off ⇒ pin contract: x86_64 with nokaslr loads the kernel at
  * __START_KERNEL_map + LOAD_PHYSICAL_ADDR exactly, regardless of LA48/LA57.
@@ -139,10 +141,10 @@
  * CONFIG_PHYSICAL_START, almost universally 0x1000000). The pin rule's
  * window-containment check is the backstop for a non-default
  * CONFIG_PHYSICAL_START build. */
-#define KASLR_DISABLED_PINS_TEXT 1
+#define KASLR_DISABLED_PINS_VIRT_TEXT 1
 #define KASLD_ARCH_DEFAULT_TEXT_BASE_DEFINED 1
 static inline unsigned long arch_default_text_base(void) {
-  return KERNEL_TEXT_DEFAULT;
+  return KERNEL_VIRT_TEXT_DEFAULT;
 }
 
 /* KASLR-off ⇒ phys pin contract: x86_64's choose_random_location() returns
@@ -163,10 +165,10 @@ static inline unsigned long arch_default_phys_text_base(void) {
 // Virtual KASLR range: __START_KERNEL_map + LOAD_PHYSICAL_ADDR to
 // __START_KERNEL_map + KERNEL_IMAGE_SIZE.
 // https://elixir.bootlin.com/linux/v6.12/source/arch/x86/boot/compressed/kaslr.c
-#define KASLR_TEXT_MIN (KERNEL_TEXT_MIN + PHYSICAL_START)
+#define KASLR_VIRT_TEXT_MIN (KERNEL_VIRT_TEXT_MIN + PHYSICAL_START)
 
 /* Conservative lower edges of Q_VIRT_TEXT_BASE / Q_PHYS_TEXT_BASE windows
- * on x86_64. KASLR_TEXT_MIN / KASLR_PHYS_MIN above bake in
+ * on x86_64. KASLR_VIRT_TEXT_MIN / KASLR_PHYS_MIN above bake in
  * CONFIG_PHYSICAL_START at its compile-time default (0x1000000). A kernel
  * built with a smaller CONFIG_PHYSICAL_START legitimately places text
  * below that floor, and a leak then becomes unsatisfiable against the
@@ -179,7 +181,8 @@ static inline unsigned long arch_default_phys_text_base(void) {
  * admitted. The physical_start_lower_bound rule pushes the floor back up
  * at the right confidence (CONF_PARSED when learned, CONF_HEURISTIC
  * otherwise) — so default-config kernels still see a tight window. */
-#define KASLR_TEXT_MIN_WIDE (KERNEL_TEXT_MIN + PHYSICAL_START_MIN_PRACTICAL)
+#define KASLR_VIRT_TEXT_MIN_WIDE                                               \
+  (KERNEL_VIRT_TEXT_MIN + PHYSICAL_START_MIN_PRACTICAL)
 #define KASLR_PHYS_MIN_WIDE PHYSICAL_START_MIN_PRACTICAL
 
 #endif /* KASLD_X86_64_H */

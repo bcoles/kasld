@@ -37,11 +37,11 @@
 #define DIRECTMAP_STATIC 1
 #define TEXT_TRACKS_DIRECTMAP 1
 
-#define KERNEL_VAS_START PAGE_OFFSET
-#define KERNEL_VAS_END 0xfffffffffffffffful
+#define KERNEL_VIRT_VAS_START PAGE_OFFSET
+#define KERNEL_VIRT_VAS_END 0xfffffffffffffffful
 
-#define KERNEL_TEXT_MIN PAGE_OFFSET
-#define KERNEL_TEXT_MAX 0xffffffffff000000ul
+#define KERNEL_VIRT_TEXT_MIN PAGE_OFFSET
+#define KERNEL_VIRT_TEXT_MAX 0xffffffffff000000ul
 
 // Modules are loaded in the vmalloc region, which starts at
 // PAGE_OFFSET + KERN_VIRT_SIZE (0xc008000000000000 on Book3S).
@@ -60,14 +60,14 @@
 
 // 16KiB (0x4000) aligned
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/Kconfig#L595
-#define KERNEL_ALIGN 0x4000ul
+#define IMAGE_ALIGN 0x4000ul
 
 #define TEXT_OFFSET 0
 
 // Default: 0xc000000000000000 (PAGE_OFFSET, no text offset on PPC64).
 // See docs/kaslr.md "Default text base and KASLR alignment" for all
 // architectures. Kernel source: arch/powerpc/kernel/vmlinux.lds.S
-#define KERNEL_TEXT_DEFAULT (KERNEL_TEXT_MIN + TEXT_OFFSET)
+#define KERNEL_VIRT_TEXT_DEFAULT (KERNEL_VIRT_TEXT_MIN + TEXT_OFFSET)
 
 // PPC64 does not have mainline KASLR.
 #define KASLR_SUPPORTED 0
