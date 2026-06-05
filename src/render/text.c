@@ -1112,11 +1112,12 @@ static int readout_print_leaks(void) {
   };
   int n_int = (int)(sizeof(interesting) / sizeof(interesting[0]));
 
-  /* Pre-collect (label, addr, origin) tuples so we can print a "(N)" header. */
+  /* Pre-collect (label, addr, contributing record) tuples so we can print
+   * a "(N)" header. */
   struct {
     const char *label;
     unsigned long addr;
-    const char *origin;
+    const struct result *r;
   } found[32];
   int nf = 0;
 
@@ -1141,7 +1142,7 @@ static int readout_print_leaks(void) {
       continue;
     found[nf].label = interesting[k].label;
     found[nf].addr = anchor_addr(best);
-    found[nf].origin = result_origin(best);
+    found[nf].r = best;
     nf++;
   }
 
@@ -1150,12 +1151,18 @@ static int readout_print_leaks(void) {
 
   printf("Leaks (%d):\n", nf);
   for (int i = 0; i < nf; i++) {
-    if (found[i].origin && found[i].origin[0])
-      printf("  %-19s %s0x%016lx%s   %s(%s)%s\n", found[i].label, c(C_GREEN),
-             found[i].addr, c(C_RESET), c(C_DIM), found[i].origin, c(C_RESET));
-    else
+    const struct result *r = found[i].r;
+    int pc = r ? r->provenance_count : 0;
+    if (pc == 0) {
       printf("  %-19s %s0x%016lx%s\n", found[i].label, c(C_GREEN),
              found[i].addr, c(C_RESET));
+      continue;
+    }
+    printf("  %-19s %s0x%016lx%s   %s(", found[i].label, c(C_GREEN),
+           found[i].addr, c(C_RESET), c(C_DIM));
+    for (int j = 0; j < pc; j++)
+      printf("%s%s", j ? ", " : "", r->origins[j]);
+    printf(")%s\n", c(C_RESET));
   }
   return nf;
 }

@@ -1721,11 +1721,20 @@ static void merge_into(struct result *a, const struct result *b,
       a->sample = b->sample;
       a->set_mask |= SAMPLE_SET;
       *sample_owner_w = wb;
-      /* pos is bound to whichever contributor provided the surviving
-       * sample. */
-      a->pos = b->pos;
+      /* pos follows the surviving sample owner unless a stronger claim
+       * (POS_BASE: lo IS the base) is already on the record from another
+       * contributor. POS_BASE > POS_INTERIOR; the merged record represents
+       * the strongest mutually consistent pos claim across contributors. */
+      if (a->pos != POS_BASE)
+        a->pos = b->pos;
     }
   }
+  /* Promote pos to POS_BASE when any contributor carries that claim. The
+   * lo/hi/sample fields are merged independently above; this only updates
+   * the categorical pos tag so downstream rules that gate on it (notably
+   * text_pin_from_observation) fire on the merged record. */
+  if (b->pos == POS_BASE && a->pos != POS_BASE)
+    a->pos = POS_BASE;
   if (HAS_BASE_ALIGN(b)) {
     if (!HAS_BASE_ALIGN(a) || b->base_align > a->base_align)
       a->base_align = b->base_align;
