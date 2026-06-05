@@ -61,12 +61,6 @@ const char *result_method(const struct result *r) {
   return r->methods[0];
 }
 
-const char *result_origin(const struct result *r) {
-  if (!r || r->provenance_count == 0)
-    return "";
-  return r->origins[0];
-}
-
 const char *result_section(const struct result *r) {
   if (!r)
     return "";

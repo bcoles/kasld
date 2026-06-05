@@ -20,10 +20,10 @@
  */
 const char *human_size(unsigned long bytes, char *buf, size_t bufsz);
 
-/* Result-model helpers (mirror anchor_addr() and the merged-record
- * convention: methods[0] / origins[0] are the canonical display values). */
+/* Result-model helpers (mirror anchor_addr(). methods[0] is the canonical
+ * single-value method; origins are iterated as r->origins[0..provenance_count]
+ * at the consuming renderer). */
 const char *result_method(const struct result *r);
-const char *result_origin(const struct result *r);
 const char *result_section(const struct result *r);
 int in_bounds(const struct result *r);
 

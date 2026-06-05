@@ -122,9 +122,13 @@ static void render_json_group(enum kasld_addr_type gt, const char *gs) {
     printf("          \"name\": ");
     json_print_escaped(r->name);
     printf(",\n");
-    printf("          \"origin\": ");
-    json_print_escaped(result_origin(r));
-    printf(",\n");
+    printf("          \"origins\": [");
+    for (int j = 0; j < r->provenance_count; j++) {
+      if (j)
+        printf(", ");
+      json_print_escaped(r->origins[j]);
+    }
+    printf("],\n");
     printf("          \"method\": ");
     json_print_escaped(result_method(r));
     printf(",\n");

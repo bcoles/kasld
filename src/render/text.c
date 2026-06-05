@@ -297,20 +297,23 @@ static void print_group(enum kasld_addr_type type, const char *section,
     unsigned long a = anchor_addr(r);
 
     if (!in_bounds(r)) {
-      if (verbose)
-        printf("  %s0x%016lx%s  %s %s(%s, %s, stale)%s\n", c(C_RED), a,
-               c(C_RESET), rn, c(C_DIM), result_origin(r), result_method(r),
-               c(C_RESET));
-      else
+      if (verbose) {
+        printf("  %s0x%016lx%s  %s %s(", c(C_RED), a, c(C_RESET), rn, c(C_DIM));
+        for (int j = 0; j < r->provenance_count; j++)
+          printf("%s%s", j ? ", " : "", r->origins[j]);
+        printf(", %s, stale)%s\n", result_method(r), c(C_RESET));
+      } else
         printf("  %s0x%016lx%s  %s %s(stale)%s\n", c(C_RED), a, c(C_RESET), rn,
                c(C_DIM), c(C_RESET));
       continue;
     }
 
-    if (verbose)
-      printf("  %s0x%016lx%s  %s %s(%s, %s)%s\n", c(C_GREEN), a, c(C_RESET), rn,
-             c(C_DIM), result_origin(r), result_method(r), c(C_RESET));
-    else
+    if (verbose) {
+      printf("  %s0x%016lx%s  %s %s(", c(C_GREEN), a, c(C_RESET), rn, c(C_DIM));
+      for (int j = 0; j < r->provenance_count; j++)
+        printf("%s%s", j ? ", " : "", r->origins[j]);
+      printf(", %s)%s\n", result_method(r), c(C_RESET));
+    } else
       printf("  %s0x%016lx%s  %s\n", c(C_GREEN), a, c(C_RESET), rn);
 
     int dup = 0;

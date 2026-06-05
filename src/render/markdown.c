@@ -107,10 +107,13 @@ void render_markdown(const struct summary *s) {
         for (int k = 0; k < nidx; k++) {
           struct result *r = &results[idx[k]];
           unsigned long a = anchor_addr(r);
-          printf("| %c | %s | `0x%016lx` | %s | %s | %s | %s%s |\n",
+          printf("| %c | %s | `0x%016lx` | %s | %s | ",
                  kasld_type_wire(r->type), result_section(r), a,
-                 kasld_region_wire(r->region), r->name, result_origin(r),
-                 result_method(r), in_bounds(r) ? "" : " (stale)");
+                 kasld_region_wire(r->region), r->name);
+          for (int j = 0; j < r->provenance_count; j++)
+            printf("%s%s", j ? ", " : "", r->origins[j]);
+          printf(" | %s%s |\n", result_method(r),
+                 in_bounds(r) ? "" : " (stale)");
         }
       }
     }
@@ -128,10 +131,11 @@ void render_markdown(const struct summary *s) {
       }
       if (!in_order) {
         unsigned long a = anchor_addr(r);
-        printf("| %c | %s | `0x%016lx` | %s | %s | %s%s |\n",
-               kasld_type_wire(r->type), sec, a, kasld_region_wire(r->region),
-               result_origin(r), result_method(r),
-               in_bounds(r) ? "" : " (stale)");
+        printf("| %c | %s | `0x%016lx` | %s | ", kasld_type_wire(r->type), sec,
+               a, kasld_region_wire(r->region));
+        for (int j = 0; j < r->provenance_count; j++)
+          printf("%s%s", j ? ", " : "", r->origins[j]);
+        printf(" | %s%s |\n", result_method(r), in_bounds(r) ? "" : " (stale)");
       }
     }
   } else {
