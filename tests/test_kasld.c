@@ -486,6 +486,42 @@ static void test_merge_picks_highest_conf_sample(void) {
   struct result *r = &results[0];
   assert(HAS_LO(r) && r->lo == 0xffffffff81000000ul);
   assert(HAS_SAMPLE(r) && r->sample == 0xffffffff81222222ul);
+  /* pos must NOT downgrade to POS_INTERIOR when the surviving sample's
+   * contributor was POS_INTERIOR but the merged record retains a POS_BASE
+   * claim from another contributor. Skipping this assertion let a real
+   * regression land: text_pin_from_observation gates on POS_BASE and silently
+   * skipped merged records whose pos had been overwritten. */
+  assert(r->pos == POS_BASE);
+}
+
+/* Inverse seed order of the above: POS_INTERIOR record is the merge seed,
+ * a later POS_BASE contributor must promote the merged record's pos.
+ * Without the promote branch in merge_into the result stays POS_INTERIOR
+ * and downstream text_pin_from_observation never fires. */
+static void test_merge_promotes_pos_to_base_from_later_contributor(void) {
+  reset_results();
+  struct result *sample = push_result();
+  sample->type = KASLD_TYPE_VIRT;
+  sample->region = REGION_KERNEL_IMAGE;
+  sample->pos = POS_INTERIOR;
+  sample->conf = CONF_PARSED;
+  sample->sample = 0xffffffff81333333ul;
+  sample->set_mask = SAMPLE_SET;
+
+  struct result *base = push_result();
+  base->type = KASLD_TYPE_VIRT;
+  base->region = REGION_KERNEL_IMAGE;
+  base->pos = POS_BASE;
+  base->conf = CONF_TIMING;
+  base->lo = 0xffffffff81000000ul;
+  base->set_mask = LO_SET;
+
+  merge_results();
+  assert(num_results == 1);
+  struct result *r = &results[0];
+  assert(r->pos == POS_BASE);
+  assert(HAS_LO(r) && r->lo == 0xffffffff81000000ul);
+  assert(HAS_SAMPLE(r) && r->sample == 0xffffffff81333333ul);
 }
 
 static void test_merge_samples_conflict_kept_separate(void) {
@@ -1806,6 +1842,166 @@ static void test_render_oneline_with_rich_content(void) {
   set_render_mode(0, 0, 0);
 }
 
+/* set_rich_render_state seeds a single-origin record; this overlays a second
+ * and third origin on the VIRT/KERNEL_TEXT record so the renderer tests below
+ * exercise the multi-contributor display path that text.c, markdown.c, and
+ * json.c iterate r->origins[0..provenance_count] for. */
+static void seed_multi_origin_text_result(struct summary *s) {
+  set_rich_render_state(s);
+  for (int i = 0; i < num_results; i++) {
+    struct result *r = &results[i];
+    if (r->type == KASLD_TYPE_VIRT && r->region == REGION_KERNEL_TEXT) {
+      snprintf(r->origins[0], ORIGIN_LEN, "prefetch");
+      snprintf(r->origins[1], ORIGIN_LEN, "perf_event_open");
+      snprintf(r->origins[2], ORIGIN_LEN, "perf_lbr_sampling");
+      snprintf(r->methods[0], METHOD_LEN, "timing");
+      snprintf(r->methods[1], METHOD_LEN, "parsed");
+      snprintf(r->methods[2], METHOD_LEN, "parsed");
+      r->provenance_count = 3;
+      return;
+    }
+  }
+  assert(0 && "set_rich_render_state did not seed VIRT/KERNEL_TEXT");
+}
+
+static void test_render_text_lists_all_origins(void) {
+  struct summary s;
+  seed_multi_origin_text_result(&s);
+  set_render_mode(0, 0, 0); /* text */
+  capture_stdout(wrap_render_summary, &s);
+  /* All three contributing origins must appear in the Leaks section. */
+  assert(strstr(render_cap, "prefetch") != NULL);
+  assert(strstr(render_cap, "perf_event_open") != NULL);
+  assert(strstr(render_cap, "perf_lbr_sampling") != NULL);
+}
+
+static void test_render_json_emits_origins_array(void) {
+  struct summary s;
+  seed_multi_origin_text_result(&s);
+  set_render_mode(1, 0, 0); /* json */
+  capture_stdout(wrap_render_summary, &s);
+  /* JSON must carry "origins": [...] with all three names. The deprecated
+   * single-value "origin": string field must NOT reappear. */
+  assert(strstr(render_cap, "\"origins\":") != NULL);
+  assert(strstr(render_cap, "\"prefetch\"") != NULL);
+  assert(strstr(render_cap, "\"perf_event_open\"") != NULL);
+  assert(strstr(render_cap, "\"perf_lbr_sampling\"") != NULL);
+  assert(strstr(render_cap, "\"origin\":") == NULL);
+  set_render_mode(0, 0, 0);
+}
+
+static void test_render_markdown_lists_all_origins(void) {
+  struct summary s;
+  seed_multi_origin_text_result(&s);
+  set_render_mode(0, 0, 1); /* markdown verbose to reach the detail table */
+  verbose = 1;
+  capture_stdout(wrap_render_summary, &s);
+  verbose = 0;
+  assert(strstr(render_cap, "prefetch") != NULL);
+  assert(strstr(render_cap, "perf_event_open") != NULL);
+  assert(strstr(render_cap, "perf_lbr_sampling") != NULL);
+  set_render_mode(0, 0, 0);
+}
+
+/* Defensive: when provenance_count is 0 (no contributors recorded), the
+ * renderers must still produce sensible output for the record without
+ * crashing or emitting a stray "()" empty-origin block. */
+static void seed_no_provenance_text_result(struct summary *s) {
+  set_rich_render_state(s);
+  for (int i = 0; i < num_results; i++) {
+    struct result *r = &results[i];
+    if (r->type == KASLD_TYPE_VIRT && r->region == REGION_KERNEL_TEXT) {
+      r->provenance_count = 0;
+      r->origins[0][0] = '\0';
+      r->methods[0][0] = '\0';
+      return;
+    }
+  }
+  assert(0 && "set_rich_render_state did not seed VIRT/KERNEL_TEXT");
+}
+
+static void test_render_text_leaks_no_provenance(void) {
+  struct summary s;
+  seed_no_provenance_text_result(&s);
+  set_render_mode(0, 0, 0);
+  capture_stdout(wrap_render_summary, &s);
+  /* Address must still appear; no parenthesised origin block trails the
+   * Leaks-section label line. */
+  assert(strstr(render_cap, "0x") != NULL);
+  const char *leaks = strstr(render_cap, "Leaks (");
+  assert(leaks != NULL);
+  const char *label = strstr(leaks, "virt kernel text");
+  assert(label != NULL);
+  const char *eol = strchr(label, '\n');
+  assert(eol != NULL);
+  /* Inspect just the one Leaks row: no `(` between the label and end-of-line
+   * means the empty-origins fallback fired correctly. */
+  for (const char *p = label; p < eol; p++)
+    assert(*p != '(');
+}
+
+static void test_render_json_emits_empty_origins_array(void) {
+  struct summary s;
+  seed_no_provenance_text_result(&s);
+  set_render_mode(1, 0, 0);
+  capture_stdout(wrap_render_summary, &s);
+  /* Empty array is the well-formed shape. The deprecated single-value
+   * "origin": string must not reappear. */
+  assert(strstr(render_cap, "\"origins\": []") != NULL);
+  assert(strstr(render_cap, "\"origin\":") == NULL);
+  set_render_mode(0, 0, 0);
+}
+
+/* Leaks-section count is the number of distinct (type, region) groups with
+ * a renderable record, NOT the sum of contributors across them. A
+ * multi-origin record on one group still produces one Leaks row; adding a
+ * second region adds exactly one row. */
+static void seed_two_region_groups(struct summary *s) {
+  set_rich_render_state(s);
+  /* set_rich_render_state seeds:
+   *  - VIRT/KERNEL_TEXT at KERNEL_VIRT_TEXT_DEFAULT
+   *  - PHYS/RAM (REGION_RAM is NOT in the Leaks "interesting" table)
+   * Add a VIRT/DIRECTMAP record so the Leaks section has two rows to count.
+   * Anchor it to the layout's directmap so in_bounds() accepts it. */
+  for (int i = 0; i < num_results; i++) {
+    struct result *r = &results[i];
+    if (r->type == KASLD_TYPE_VIRT && r->region == REGION_KERNEL_TEXT) {
+      snprintf(r->origins[0], ORIGIN_LEN, "origin_a");
+      snprintf(r->origins[1], ORIGIN_LEN, "origin_b");
+      snprintf(r->methods[0], METHOD_LEN, "parsed");
+      snprintf(r->methods[1], METHOD_LEN, "parsed");
+      r->provenance_count = 2;
+      break;
+    }
+  }
+  unsigned long dm = layout.virt_page_offset ? layout.virt_page_offset + 0x1000
+                                             : 0xffff800000001000ul;
+  struct result *r = push_result();
+  r->type = KASLD_TYPE_VIRT;
+  r->region = REGION_DIRECTMAP;
+  r->pos = POS_BASE;
+  r->conf = CONF_PARSED;
+  r->lo = dm;
+  r->set_mask = LO_SET;
+  snprintf(r->origins[0], ORIGIN_LEN, "synthetic_test");
+  snprintf(r->methods[0], METHOD_LEN, "parsed");
+  r->provenance_count = 1;
+}
+
+static void test_render_text_leaks_count_is_groups_not_contributors(void) {
+  struct summary s;
+  seed_two_region_groups(&s);
+  set_render_mode(0, 0, 0);
+  capture_stdout(wrap_render_summary, &s);
+  /* Two groups (virt kernel text + virt directmap), regardless of how many
+   * origins contribute to each. */
+  assert(strstr(render_cap, "Leaks (2):") != NULL);
+  assert(strstr(render_cap, "virt kernel text") != NULL);
+  assert(strstr(render_cap, "virt directmap") != NULL);
+  assert(strstr(render_cap, "origin_a") != NULL);
+  assert(strstr(render_cap, "origin_b") != NULL);
+}
+
 /* Even richer state: in addition to set_rich_render_state(), seed
  *   - a CONF_DERIVED result (drives render_derived_text)
  *   - REGION_KERNEL_DATA + REGION_KERNEL_BSS results (drives
@@ -2276,6 +2472,7 @@ int main(void) {
   RUN(test_merge_keeps_lo_only_witnesses_separate);
   RUN(test_merge_keeps_sample_above_hi_separate);
   RUN(test_merge_picks_highest_conf_sample);
+  RUN(test_merge_promotes_pos_to_base_from_later_contributor);
   RUN(test_merge_samples_conflict_kept_separate);
   RUN(test_merge_dedups_provenance);
   RUN(test_merge_caps_at_max_provenance);
@@ -2332,6 +2529,12 @@ int main(void) {
   RUN(test_render_json_with_rich_content);
   RUN(test_render_markdown_with_rich_content);
   RUN(test_render_oneline_with_rich_content);
+  RUN(test_render_text_lists_all_origins);
+  RUN(test_render_json_emits_origins_array);
+  RUN(test_render_markdown_lists_all_origins);
+  RUN(test_render_text_leaks_no_provenance);
+  RUN(test_render_json_emits_empty_origins_array);
+  RUN(test_render_text_leaks_count_is_groups_not_contributors);
   RUN(test_render_hardening_text);
   RUN(test_render_hardening_json);
   RUN(test_render_hardening_text_rand_failed_surfaces);
