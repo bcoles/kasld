@@ -47,7 +47,7 @@
 // down to the low-memory portion when only the dmesg signal is
 // available — typical for low-priv s390 leak scenarios.
 //
-// Phase: POST_COLLECTION. Gated on s390 build + SF_KASLR_RANDOMIZATION_
+// Phase: POST_COLLECTION. Gated on s390 build + SF_PHYS_KASLR_RANDOMIZATION_
 // FAILED scalar. Inert otherwise.
 //
 // References:

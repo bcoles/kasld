@@ -2,11 +2,11 @@
 //
 // In-process KASLR-disabled detection (no privileges, KASLD_SYSROOT-aware).
 //
-// Read in-process by the engine bridge (engine_build_evidence) so the
-// riscv64_kaslr_disabled_pin rule works OFFLINE: component children do not
-// execute under nested qemu-user (no binfmt) during replay, so a
-// component-emitted "nokaslr" marker is unavailable — but these access() checks
-// run in-process and replay from a captured sysroot.
+// Read in-process by the engine bridge (engine_build_evidence) so the checks
+// honour KASLD_SYSROOT redirection and replay from a captured sysroot.
+// Component children fork without access to in-process sysroot state, so a
+// component-emitted "nokaslr" marker would not be available during replay.
+// The resolved facts feed virt_kaslr_disabled_pin and phys_kaslr_disabled_pin.
 //
 // riscv64: arch/riscv/mm/init.c setup_vm() randomises only when kaslr_seed !=
 // 0. On a non-EFI system whose FDT has no /chosen/kaslr-seed, the seed stays 0

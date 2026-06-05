@@ -103,8 +103,8 @@ int rule_efi_loader_kernel_pick(const struct evidence_set *ev,
     return 0;
 
   /* Track BOTH the first survivor (used for the unique-survivor case) and
-   * the LOWEST survivor (used as a disambiguator when SF_KASLR_RANDOMIZATION_
-   * FAILED is present and multiple entries pass the filters). */
+   * the LOWEST survivor (used as a disambiguator when SF_PHYS_KASLR_RANDOMIZA-
+   * TION_FAILED is present and multiple entries pass the filters). */
   unsigned long survivor_lo = 0;
   uint32_t survivor_src = 0;
   enum kasld_confidence survivor_conf = CONF_PARSED;

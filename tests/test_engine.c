@@ -3503,11 +3503,13 @@ static void test_phys_virt_synth(void) {
   engine_init(&e);
   struct estimate top;
   quantities[Q_PAGE_OFFSET].init_top(&top);
-  /* virt_page_offset base in-window for any arch (1 GiB above the floor,
-   * PMD-aligned), and a phys address >= PHYS_OFFSET (the rule skips phys below
-   * the DRAM base). The direct-map VA of phys p is po + (p - PHYS_OFFSET); the
-   * rule reconstructs virt_page_offset = v - p + PHYS_OFFSET = po. */
-  unsigned long po = top.lo + 0x40000000ul;
+  /* virt_page_offset base in-window for any arch (a window-scaled bump above
+   * the floor, PMD-aligned so it can be a real directmap base), and a phys
+   * address >= PHYS_OFFSET (the rule skips phys below the DRAM base). The
+   * direct-map VA of phys p is po + (p - PHYS_OFFSET); the rule reconstructs
+   * virt_page_offset = v - p + PHYS_OFFSET = po. */
+  const unsigned long pmd_size = 2ul * 1024 * 1024;
+  unsigned long po = top.lo + (po_window_bump(&top) & ~(pmd_size - 1));
   unsigned long p = (unsigned long)PHYS_OFFSET + 0x4000000ul;
   unsigned long v = po + (p - (unsigned long)PHYS_OFFSET);
   struct observation vo =
@@ -3589,8 +3591,13 @@ static void test_phys_virt_synth_spread_within_align(void) {
   quantities[Q_PAGE_OFFSET].init_top(&top);
 
   const unsigned long pmd = 2ul * 1024 * 1024;
-  unsigned long po_true = top.lo + 0x40000000ul; /* +1 GiB, PMD-aligned */
-  unsigned long po_alt = po_true + pmd;          /* +2 MiB: same/less aligned */
+  /* Window-scaled bump, aligned to at least 2*pmd so po_true has strictly
+   * higher trailing-zero count than po_alt = po_true + pmd — the rule picks
+   * the most-aligned candidate via trailing_zeros_ul, and this test asserts
+   * po_true wins. Lands strictly inside the floor..top window on every
+   * arch / address width. */
+  unsigned long po_true = top.lo + (po_window_bump(&top) & ~((2 * pmd) - 1));
+  unsigned long po_alt = po_true + pmd; /* +2 MiB: less aligned */
   unsigned long p = (unsigned long)PHYS_OFFSET + 0x4000000ul; /* >= DRAM base */
 
   /* Origin A reconstructs po_true; origin B reconstructs po_alt. */

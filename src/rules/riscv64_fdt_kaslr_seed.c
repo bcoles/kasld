@@ -15,7 +15,8 @@
 //                                  PMD_SIZE
 //
 // Reads SF_FDT_KASLR_SEED (bridged binary read; 0/absent => inert — covers the
-// seed-disabled/wiped case handled by riscv64_kaslr_disabled_pin),
+// seed-disabled/wiped case handled by virt_kaslr_disabled_pin /
+// phys_kaslr_disabled_pin),
 // SF_EFI_PRESENT (non-EFI only — EFI mixes in efi_kaslr_seed), SF_IMAGE_SIZE,
 // and VIRT text/data leaks for the Path 2 gap. riscv64 only. The active path
 // needs a live system — the kernel wipes the FDT kaslr-seed cell to 0 after
