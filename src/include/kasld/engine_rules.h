@@ -104,6 +104,7 @@ R(arm64_va_bits_from_vmemmap);
 R(riscv64_non_efi_phys_base);
 R(riscv64_fdt_kaslr_seed);
 R(riscv64_page_offset_from_vmalloc_vmemmap);
+R(riscv64_va_bits_pin);
 
 /* s390-specific rules */
 R(s390_paging_level);

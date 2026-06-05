@@ -58,6 +58,12 @@
 #define DIRECTMAP_STATIC 0
 #define TEXT_TRACKS_DIRECTMAP 0
 
+/* Q_VA_BITS candidate set: SV39, SV48, SV57 (pgtable_l4_enabled /
+ * pgtable_l5_enabled at boot select one). proc_cpuinfo emits
+ * SF_VIRT_ADDR_BITS from /proc/cpuinfo "mmu" line; riscv64_va_bits_pin
+ * narrows Q_VA_BITS to the single selected value. */
+#define VA_BITS_CANDIDATES {39ul, 48ul, 57ul}
+
 // VAS start with SV57 (5-level page tables): ~0xff1bffff_fea00000
 // VAS start with SV48 (4-level page tables): ~0xffff8d7f_fea00000
 // VAS start with SV39 (3-level page tables): ~0xffffffc6_fea00000

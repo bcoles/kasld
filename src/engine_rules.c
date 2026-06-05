@@ -93,6 +93,7 @@ static const rule_fn k_rules[] = {
     rule_riscv64_non_efi_phys_base,
     rule_riscv64_fdt_kaslr_seed,
     rule_riscv64_page_offset_from_vmalloc_vmemmap,
+    rule_riscv64_va_bits_pin,
 
     /* s390-specific */
     rule_s390_paging_level,

@@ -73,17 +73,19 @@ __attribute__((unused)) static char *cpuinfo_get(const char *key, char *buf,
 }
 
 #if defined(__riscv) && __riscv_xlen == 64
-/* riscv64: /proc/cpuinfo contains "mmu : sv39" (or sv48, sv57).
- * The MMU mode determines PAGE_OFFSET on v5.10+ kernels:
- *   sv39 -> 0xffffffd600000000  (PAGE_OFFSET_L3, v6.12+)
- *           0xffffffd800000000  (PAGE_OFFSET_L3, v5.10 - v6.10)
- *   sv48 -> 0xffffaf8000000000  (PAGE_OFFSET_L4)
- *   sv57 -> 0xff60000000000000  (PAGE_OFFSET_L5)
+/* riscv64: /proc/cpuinfo contains "mmu : sv39" (or sv48, sv57). The MMU
+ * mode determines PAGE_OFFSET and the VA width:
+ *   sv39 -> PAGE_OFFSET ∈ { 0xffffffd600000000,    // 168 GiB linear (v6.12+)
+ *                           0xffffffd800000000 },  // 160 GiB linear
+ * (v5.10–v6.10) va_bits = 39 sv48 -> PAGE_OFFSET = 0xffffaf8000000000, va_bits
+ * = 48 sv57 -> PAGE_OFFSET = 0xff60000000000000, va_bits = 57
  *
- * PAGE_OFFSET_L3 for sv39 changed between v6.10 and v6.12 when the
- * SV39 linear mapping region was expanded from 160 GiB to 168 GiB.
- * We use the newer value; this may be slightly off on older kernels but
- * remains within the broader PAGE_OFFSET range so results are conservative. */
+ * The SV39 linear-mapping region was expanded from 160 GiB to 168 GiB
+ * between v6.10 and v6.12, shifting PAGE_OFFSET. The two candidates
+ * differ by 8 GiB and the project does not gate on kernel version, so
+ * SV39 is emitted as a range spanning both candidates instead of a
+ * single pin (which would be wrong on the older window). SV48 and SV57
+ * each have a single value. */
 static int detect_riscv_mmu(void) {
   char buf[256];
   char *mmu = cpuinfo_get("mmu", buf, sizeof(buf));
@@ -95,29 +97,40 @@ static int detect_riscv_mmu(void) {
 
   printf("[.] MMU mode: %s\n", mmu);
 
-  unsigned long virt_page_offset = 0;
+  unsigned long va_bits = 0;
+  unsigned long po_lo = 0, po_hi = 0;
 
-  if (strcmp(mmu, "sv39") == 0)
-    virt_page_offset = 0xffffffd600000000ul;
-  else if (strcmp(mmu, "sv48") == 0)
-    virt_page_offset = 0xffffaf8000000000ul;
-  else if (strcmp(mmu, "sv57") == 0)
-    virt_page_offset = 0xff60000000000000ul;
-  else {
+  if (strcmp(mmu, "sv39") == 0) {
+    va_bits = 39;
+    po_lo = 0xffffffd600000000ul; /* v6.12+ */
+    po_hi = 0xffffffd800000000ul; /* v5.10–v6.10 */
+  } else if (strcmp(mmu, "sv48") == 0) {
+    va_bits = 48;
+    po_lo = po_hi = 0xffffaf8000000000ul;
+  } else if (strcmp(mmu, "sv57") == 0) {
+    va_bits = 57;
+    po_lo = po_hi = 0xff60000000000000ul;
+  } else {
     fprintf(stderr, "[-] Unknown MMU mode: %s\n", mmu);
     return 0;
   }
 
-  printf("[.] PAGE_OFFSET for %s: 0x%016lx\n", mmu, virt_page_offset);
+  kasld_emit_scalar(SF_VIRT_ADDR_BITS, va_bits, CONF_PARSED);
+  printf("[.] va_bits = %lu\n", va_bits);
 
-  /* PAGE_OFFSET is already the compile-time default for sv57 */
-  if (virt_page_offset == PAGE_OFFSET) {
-    printf("[.] Matches compile-time default; no adjustment needed.\n");
-    return 0;
+  if (po_lo == po_hi) {
+    printf("[.] PAGE_OFFSET for %s: 0x%016lx\n", mmu, po_lo);
+    if (po_lo == PAGE_OFFSET) {
+      printf("[.] Matches compile-time default; no adjustment needed.\n");
+      return 1;
+    }
+    kasld_result_base(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, po_lo, NULL,
+                      CONF_PARSED);
+  } else {
+    printf("[.] PAGE_OFFSET for %s: [0x%016lx, 0x%016lx]\n", mmu, po_lo, po_hi);
+    kasld_result_range(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, po_lo, po_hi, NULL,
+                       CONF_PARSED);
   }
-
-  kasld_result_base(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, virt_page_offset, NULL,
-                    CONF_PARSED);
   return 1;
 }
 #endif /* riscv64 */

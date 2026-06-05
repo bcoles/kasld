@@ -19,13 +19,12 @@
 //                       → PAGE_OFFSET ≥ V_mm + VMALLOC_SIZE + 1
 //     VMALLOC_SIZE = KERN_VIRT_SIZE >> 1 and KERN_VIRT_SIZE = −PAGE_OFFSET, so
 //     each paging mode has a fixed VMALLOC_SIZE: ~80 GiB (SV39), ~44 TiB
-//     (SV48), ~22 PiB (SV57). riscv64 carries the paging mode in
-//     Q_PAGE_OFFSET (one discrete value per mode; the arch header does not
-//     define VA_BITS_CANDIDATES, so Q_VA_BITS is single-candidate and not the
-//     discriminator). The VMEMMAP branch reads Q_PAGE_OFFSET's current window
-//     and picks the SMALLEST plausible VMALLOC_SIZE — sound under any
-//     remaining mode ambiguity, since undersizing only loosens the derived
-//     lower bound (oversizing would push it past the true PAGE_OFFSET).
+//     (SV48), ~22 PiB (SV57). The VMEMMAP branch reads Q_PAGE_OFFSET's
+//     current window and picks the SMALLEST plausible VMALLOC_SIZE — sound
+//     under any remaining mode ambiguity, since undersizing only loosens the
+//     derived lower bound (oversizing would push it past the true
+//     PAGE_OFFSET). Q_VA_BITS is also pinned independently by
+//     riscv64_va_bits_pin when /proc/cpuinfo is available.
 //
 // Tightens Q_PAGE_OFFSET from a different direction than
 // directmap_page_offset_bounds (which gives PAGE_OFFSET ≤ V_directmap); the
@@ -134,11 +133,9 @@ int rule_riscv64_page_offset_from_vmalloc_vmemmap(const struct evidence_set *ev,
   /* VMEMMAP branch — needs VMALLOC_SIZE, which depends on the paging mode.
    *
    * On riscv64 the paging mode lives in Q_PAGE_OFFSET (one discrete value per
-   * mode; arch headers do not define VA_BITS_CANDIDATES, so Q_VA_BITS is a
-   * single-candidate FINSET and not the discriminator here). We read the
-   * current Q_PAGE_OFFSET window and pick the SMALLEST VMALLOC_SIZE among
-   * still-plausible modes — sound under any remaining ambiguity (see
-   * riscv64_vmalloc_size_from_po). */
+   * mode). We read the current Q_PAGE_OFFSET window and pick the SMALLEST
+   * VMALLOC_SIZE among still-plausible modes — sound under any remaining
+   * ambiguity (see riscv64_vmalloc_size_from_po). */
   if (mm != ULONG_MAX && n < out_max) {
     const struct estimate *po = &est[Q_PAGE_OFFSET];
     unsigned long vmalloc_size = riscv64_vmalloc_size_from_po(po->lo, po->hi);
