@@ -88,8 +88,12 @@ static unsigned long get_kernel_addr_proc_pid_syscall(void) {
 
   int i;
   for (i = 0; i < iterations; i++) {
-    // Reading with cat using popen() in a separate process
-    // leaks lower addresses than reading with fopen()
+    /* cat is the leaker, not this process. The CVE leaks stale upper
+     * bytes of 64-bit arg fields from the reading process's kernel
+     * stack at collect_syscall() time; cat's stack at read(2) is
+     * shallower and empirically yields lower (closer to _stext)
+     * addresses than an in-process fopen, whose stack carries libc
+     * startup + the KASLD emitter call chain. */
     f = popen(cmd, "r");
     if (f == NULL) {
       perror("[-] popen");
