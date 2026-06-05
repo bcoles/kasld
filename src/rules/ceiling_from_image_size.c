@@ -90,7 +90,8 @@ int rule_ceiling_from_image_size(const struct evidence_set *ev,
     return 0;
 
   /* Align to the resolved alignment quantity, never below the arch default
-   * (in pass 1 the quantity is still at its lattice top of 1). */
+   * (Q_KASLR_ALIGN starts at its lattice top of 1 before any alignment
+   * rule narrows it). */
   unsigned long valign = est[Q_KASLR_ALIGN].lo;
   if (valign < (unsigned long)KASLR_VIRT_ALIGN)
     valign = (unsigned long)KASLR_VIRT_ALIGN;

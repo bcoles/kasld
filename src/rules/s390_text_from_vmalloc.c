@@ -22,8 +22,7 @@
 // single-vmalloc-leak case here pushes the text floor up by exactly the
 // 2 GiB modules region.
 //
-// Currently DORMANT — no production s390 component emits VIRT/VMALLOC
-// today; activation tracked in the LIVE-SYSTEM TEST LIST. s390 only.
+// Inert when no s390 VIRT/VMALLOC observation is present. s390 only.
 // ---
 // <bcoles@gmail.com>
 

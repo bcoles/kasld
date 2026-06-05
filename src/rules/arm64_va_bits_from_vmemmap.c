@@ -27,10 +27,8 @@
 // the resolver's confidence-priority handles a higher-confidence
 // contradiction from a different source.
 //
-// arm64 only; inert elsewhere. Currently DORMANT — no component emits
-// VIRT/VMEMMAP observations today (see
-// x86_64_page_offset_from_vmalloc_vmemmap.c file header for the activation
-// path).
+// arm64 only; inert elsewhere. Inert when no VIRT VMEMMAP observation is
+// present.
 // ---
 // <bcoles@gmail.com>
 

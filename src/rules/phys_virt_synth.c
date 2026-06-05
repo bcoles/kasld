@@ -16,8 +16,8 @@
 // on a live x86_64 (RANDOMIZE_MEMORY) host from a directmap leak — far tighter
 // than the directmap_page_offset_bounds window or the VAS-floor lower bound.
 // Reads the resolved Q_PAGE_OFFSET window (candidates must fall inside) and
-// Q_KASLR_ALIGN (the agreement tolerance). Dormant offline without leaks —
-// LIVE-TEST list.
+// Q_KASLR_ALIGN (the agreement tolerance). Inert when no paired VIRT
+// directmap + PHYS RAM observation set with shared origin is present.
 // ---
 // <bcoles@gmail.com>
 

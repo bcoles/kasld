@@ -12,8 +12,8 @@
 //
 // Consumes the firmware-memmap RAM extents the bridge emits (origin
 // "firmware_memmap" — only the complete authoritative map, never a partial RAM
-// leak). V_INVALID. Inert without the map or without PHYS candidate leaks —
-// dormant on the leak-free corpus; LIVE-TEST list. x86 only.
+// leak). V_INVALID. Inert without the map or without PHYS candidate leaks.
+// x86 only.
 // ---
 // <bcoles@gmail.com>
 

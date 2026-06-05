@@ -44,14 +44,11 @@
 // the parallel x86_64 / arm64 / riscv64 rules. See kasld.h MODULES_*
 // validation-union contract for the underlying pattern.
 //
-// Settles in pass 1: pure function of the observation's own region and
-// anchor versus compile-time geometry — no cross-observation or estimate
-// dependency.
+// The ruling is a pure function of the observation's own region and anchor
+// versus compile-time geometry — no cross-observation or estimate dependency.
 //
-// loongarch64 only; inert elsewhere. Currently dormant — no production
-// component is known to mistag, but the rule is cheap insurance against
-// future leak sources and matches the defensive pattern already used on
-// x86_64, arm64, and riscv64.
+// loongarch64 only; inert elsewhere. Defensive insurance against a mistagged
+// observation; matches the pattern used on x86_64, arm64, and riscv64.
 //
 // References:
 // arch/loongarch/include/asm/addrspace.h  (XKPRANGE/XKVRANGE)

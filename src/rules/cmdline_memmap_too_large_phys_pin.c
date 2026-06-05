@@ -65,10 +65,9 @@ int rule_cmdline_memmap_too_large_phys_pin(const struct evidence_set *ev,
     return 0;
 
   /* Lowest PHYS kernel-image anchor (same shape as the EFI seed-zero rule).
-   * Without one we
-   * cannot derive a specific phys base — the proposal's conservative
-   * fallback (≤ LOAD_PHYSICAL_ADDR + small) is unsound when intervening
-   * reservations push the actual placement higher; defer. */
+   * Without one we cannot derive a specific phys base — a fallback of
+   * ≤ LOAD_PHYSICAL_ADDR + small is unsound when intervening reservations
+   * push the actual placement higher; defer. */
   unsigned long pin = ULONG_MAX;
   uint32_t pin_src = 0;
   enum kasld_confidence pin_conf = CONF_PARSED;

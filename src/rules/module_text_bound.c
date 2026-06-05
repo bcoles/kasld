@@ -16,9 +16,9 @@
 //     virt_kaslr_align
 //     + TEXT_OFFSET
 //
-// Reads VIRT REGION_MODULE / REGION_MODULE_REGION leaks; aligns to the resolved
-// Q_KASLR_ALIGN. Inert where MODULES_RELATIVE_TO_TEXT==0. Dormant offline (no
-// module leak) — LIVE-TEST list.
+// Reads VIRT REGION_MODULE / REGION_MODULE_REGION leaks; aligns to the
+// resolved Q_KASLR_ALIGN. Inert where MODULES_RELATIVE_TO_TEXT==0, and
+// inert when no module-region observation is present.
 // ---
 // <bcoles@gmail.com>
 

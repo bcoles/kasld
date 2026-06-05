@@ -20,8 +20,8 @@
 // implausible.)
 //
 // Reads SF_PHYS_MEMTOTAL. PAGE_OFFSET is fixed on PPC32 (no VMSPLIT), so the
-// coupled mapping uses KASLR_VIRT_TEXT_MIN directly. ppc32 only; needs a live
-// ppc32 BookE host (the corpus has none) — LIVE-TEST list.
+// coupled mapping uses KASLR_VIRT_TEXT_MIN directly. ppc32 only; the active
+// path fires on a BookE host that reports a sub-64 MiB SF_PHYS_MEMTOTAL.
 // ---
 // <bcoles@gmail.com>
 

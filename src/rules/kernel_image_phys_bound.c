@@ -29,8 +29,7 @@
 // to the lower bound's direction.
 //
 // Reads leaked PHYS (kernel-locating) + VIRT (text/data, for the BSS-gap
-// refinement) obs. Dormant offline (no leaks); exercised on a live leaking
-// host (see LIVE-TEST list).
+// refinement) observations. Inert when no such observation is present.
 // ---
 // <bcoles@gmail.com>
 

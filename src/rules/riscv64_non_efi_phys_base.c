@@ -25,8 +25,7 @@
 //
 // Reads SF_EFI_PRESENT (bridged in-process access check) — only fires on
 // non-EFI — and a RAM_BASE phys leak. Emits C_EQUALS on Q_PHYS_TEXT_BASE.
-// riscv64 only; dormant offline (needs a PHYS RAM_BASE leak) — LIVE-TEST
-// list.
+// riscv64 only; inert when no PHYS RAM_BASE observation is present.
 // ---
 // <bcoles@gmail.com>
 

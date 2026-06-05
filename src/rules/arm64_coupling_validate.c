@@ -33,13 +33,12 @@
 // DIRECTMAP would otherwise feed directmap_page_offset_bounds an unsound
 // floor).
 //
-// Settles in pass 1: the ruling is a pure function of the observation's
-// own region and anchor versus compile-time geometry — no cross-observation
-// or estimate dependency. Same shape as coupling_validate.
+// The ruling is a pure function of the observation's own region and anchor
+// versus compile-time geometry — no cross-observation or estimate dependency.
+// Same shape as coupling_validate.
 //
-// arm64 only; inert elsewhere. Currently dormant — no production component
-// is known to mistag, but the rule is cheap insurance against future leak
-// sources and matches the defensive pattern already used on x86_64.
+// arm64 only; inert elsewhere. Defensive insurance against a mistagged
+// observation; matches the pattern used on x86_64.
 //
 // References:
 // arch/arm64/include/asm/memory.h    (band constants)

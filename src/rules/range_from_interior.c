@@ -8,7 +8,8 @@
 // Emits a C_UPPER_BOUND on Q_VIRT_TEXT_BASE (virt samples) / Q_PHYS_TEXT_BASE
 // (phys samples) at the minimum interior sample observed.
 //
-// Reads only evidence (no estimates), so it is informative from pass 1.
+// Reads only evidence (no estimates); the constraint is fully determined
+// by the observation set and does not depend on any other rule having run.
 // ---
 // <bcoles@gmail.com>
 

@@ -10,8 +10,7 @@
 //
 // Reads leaked PHYS observations (DRAM landmarks + MMIO windows). Emits a
 // C_UPPER_BOUND on Q_PHYS_TEXT_BASE. Inert on coupled arches and when no
-// DRAM/MMIO pair is observed — so it is dormant on the offline corpus (no
-// leaks) and exercised on a live leaking host. See LIVE-TEST list in the plan.
+// DRAM/MMIO pair is observed.
 // ---
 // <bcoles@gmail.com>
 

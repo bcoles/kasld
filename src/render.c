@@ -85,11 +85,10 @@ int in_bounds(const struct result *r) { return result_in_bounds(r, &layout); }
  * V/INITRD sample, one P/INITRD sample via directmap_virt_to_phys()) —
  * so the heading must distinguish the two so the user doesn't see a
  * "Physical DRAM" line full of 0xc000... virt addresses on a coupled
- * arch. Phys sections (dram / mmio) historically had a single label that
- * silently mis-tagged any virt mirror as "Physical"; this is now
- * type-aware. Virt-tagged variants for dram / mmio read as "(virtual
- * mirror via direct map)" — the address IS virtual, but the underlying
- * region is the same phys instance. */
+ * arch. Phys-rooted sections (dram / mmio) carry a type-aware label so
+ * that a VIRT directmap mirror renders as "(virtual mirror via direct
+ * map)" instead of "Physical" — the address IS virtual, but the
+ * underlying region is the same phys instance. */
 const char *section_display_name(enum kasld_addr_type type,
                                  const char *section) {
   int virt = (type == KASLD_TYPE_VIRT);

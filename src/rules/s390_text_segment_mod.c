@@ -26,11 +26,8 @@
 //   * Confidence inherits the lineage minimum (set to the observation's
 //     confidence here — a single source).
 //
-// Currently DORMANT: no production component on s390 emits PHYS/KERNEL_IMAGE
-// from a phys-side anchor yet. Lands wired-but-quiet; activates the moment
-// such an observation arrives (e.g. an unmasked /proc/iomem read).
-//
-// s390 only; inert elsewhere.
+// Inert when no s390 PHYS/KERNEL_IMAGE observation from a phys-side anchor
+// (e.g. an unmasked /proc/iomem read) is present. s390 only; inert elsewhere.
 // ---
 // <bcoles@gmail.com>
 

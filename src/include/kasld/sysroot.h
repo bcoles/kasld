@@ -16,10 +16,10 @@
 // made. Only absolute paths are rewritten; a relative path is left alone.
 //
 // Not everything routes through here. Runtime-discovered objects that must
-// hit the live system regardless of any sysroot deliberately keep the raw
-// libc calls: /proc/self/exe (the real running binary), an ioctl target
-// mountpoint, set-uid leak helpers. Those are live primitives, not facts,
-// and cannot be replayed from a capture anyway.
+// observe the actual running system regardless of any sysroot deliberately
+// keep the raw libc calls: /proc/self/exe (the real running binary), an
+// ioctl target mountpoint, set-uid leak helpers. Those are runtime
+// primitives, not facts, and cannot be replayed from a capture anyway.
 // ---
 // <bcoles@gmail.com>
 

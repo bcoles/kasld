@@ -30,10 +30,9 @@ void render_oneline(const struct summary *s) {
     printf(" kaslr=on");
 
   /* Virtual text consensus + slide + residual entropy — grouped so each
-   * "slide" is unambiguously associated with the preceding text base.
-   * Previously `slide=` followed `ptext=`, making it unclear which side
-   * it applied to (especially on decoupled arches where virt and phys
-   * have independent slides). */
+   * `slide=` is unambiguously associated with the preceding text base.
+   * On decoupled arches where virt and phys have independent slides, the
+   * placement disambiguates which side the slide applies to. */
   unsigned long vtext =
       section_consensus(KASLD_TYPE_VIRT, "text", REGION_UNKNOWN);
   if (vtext)

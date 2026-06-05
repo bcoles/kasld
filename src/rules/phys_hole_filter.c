@@ -11,8 +11,7 @@
 //
 // CROSS-QUANTITY: reads the resolved Q_PHYS_TEXT_BASE upper edge and the leaked
 // DRAM extent observations (those with both lo and hi). Emits a C_UPPER_BOUND.
-// Inert on coupled arches and without DRAM extents — dormant offline (no
-// leaks), exercised on a live leaking host (see LIVE-TEST list).
+// Inert on coupled arches and when no DRAM extent observation is present.
 // ---
 // <bcoles@gmail.com>
 

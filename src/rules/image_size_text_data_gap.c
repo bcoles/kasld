@@ -11,8 +11,8 @@
 //   phys_text_base <= align_down(KASLR_PHYS_MAX - gap, phys_align)  (decoupled)
 //
 // Reads VIRT kernel TEXT/IMAGE (min) and DATA/BSS (max) leaks; aligns to the
-// resolved Q_KASLR_ALIGN / Q_PHYS_KASLR_ALIGN. Dormant offline (no leaks);
-// LIVE-TEST list.
+// resolved Q_KASLR_ALIGN / Q_PHYS_KASLR_ALIGN. Inert when no such observation
+// is present.
 // ---
 // <bcoles@gmail.com>
 

@@ -29,10 +29,9 @@
 // mistakenly tagged. The verdict rule emits V_INVALID for such observations
 // so they do not pollute downstream rules.
 //
-// Settles in pass 1: the ruling is a pure function of the observation's
-// own region and anchor versus compile-time geometry — no cross-observation
-// or estimate dependency. Same shape as coupling_validate / arm64_coupling_-
-// validate.
+// The ruling is a pure function of the observation's own region and anchor
+// versus compile-time geometry — no cross-observation or estimate dependency.
+// Same shape as coupling_validate / arm64_coupling_validate.
 //
 // IMPORTANT: the KERNEL_TEXT / KERNEL_IMAGE check uses KERNEL_VIRT_TEXT_MIN/MAX
 // (the validation range across all in-scope kernel-version layouts), NOT a
@@ -40,9 +39,8 @@
 // x86_64 / arm64 rules; see kasld.h MODULES_* validation-union contract
 // for the underlying pattern.
 //
-// riscv64 only; inert elsewhere. Currently dormant — no production component
-// is known to mistag, but the rule is cheap insurance against future leak
-// sources and matches the defensive pattern already used on x86_64 and arm64.
+// riscv64 only; inert elsewhere. Defensive insurance against a mistagged
+// observation; matches the pattern used on x86_64 and arm64.
 //
 // References:
 // arch/riscv/include/asm/page.h     (PAGE_OFFSET_L3/L4/L5)

@@ -10,7 +10,8 @@
 //
 // Reads VIRT kernel TEXT/IMAGE (min) and DATA/BSS (max) leaks; emits a
 // C_LOWER_BOUND on Q_VIRT_TEXT_BASE.
-// MIPS/LoongArch only; dormant offline (no leaks) — LIVE-TEST list.
+// MIPS/LoongArch only; inert when no VIRT TEXT/IMAGE or DATA/BSS observation
+// is present.
 // ---
 // <bcoles@gmail.com>
 

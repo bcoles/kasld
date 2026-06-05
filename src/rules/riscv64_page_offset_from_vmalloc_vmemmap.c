@@ -32,9 +32,8 @@
 // two together can pin PAGE_OFFSET exactly inside the SV39 512 MiB window
 // when mixed-region leaks land.
 //
-// Currently DORMANT — no production riscv64 component emits VIRT/VMALLOC or
-// VIRT/VMEMMAP observations today. Tracked in the LIVE-SYSTEM TEST LIST.
-// riscv64 only.
+// Inert when no riscv64 VIRT/VMALLOC or VIRT/VMEMMAP observation is
+// present. riscv64 only.
 // ---
 // <bcoles@gmail.com>
 

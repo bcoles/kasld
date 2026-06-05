@@ -12,8 +12,8 @@
 // Emits C_EQUALS on Q_PAGE_OFFSET when the candidate is page-aligned and inside
 // the current virt_page_offset window (the engine's meet drops it otherwise). A
 // cross-origin heuristic (Path 2: min(directmap) - min(RAM base)) would be a
-// looser fallback; not implemented. x86_64 only; dormant offline (no paired
-// leak) — LIVE-TEST list.
+// looser fallback; not implemented. x86_64 only; inert when no paired
+// VIRT directmap + PHYS RAM observation is present.
 // ---
 // <bcoles@gmail.com>
 

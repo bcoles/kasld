@@ -33,7 +33,7 @@
 // arches without RANDOMIZE_MEMORY_ALIGN (RANDOMIZE_MEMORY_ALIGN = 0 →
 // no-op masks).
 //
-// Dormant offline (no directmap leak) — LIVE-TEST list.
+// Inert when no VIRT directmap observation is present.
 // ---
 // <bcoles@gmail.com>
 

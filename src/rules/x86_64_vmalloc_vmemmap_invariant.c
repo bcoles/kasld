@@ -25,9 +25,7 @@
 // that prevents an unsound back-bound on Q_PAGE_OFFSET via
 // x86_64_page_offset_from_vmalloc_vmemmap.
 //
-// Currently DORMANT — no component emits these observations today (see
-// x86_64_page_offset_from_vmalloc_vmemmap.c file header). Activates once a
-// VMALLOC/VMEMMAP source materialises. x86_64 only.
+// Inert when no VIRT VMALLOC + VIRT VMEMMAP pair is present. x86_64 only.
 // ---
 // <bcoles@gmail.com>
 

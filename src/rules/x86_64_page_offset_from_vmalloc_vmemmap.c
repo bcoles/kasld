@@ -34,12 +34,10 @@
 // into Q_PAGE_OFFSET, tightening it whenever a real leak from the higher
 // regions arrives.
 //
-// Currently DORMANT on the offline corpus — no component emits VIRT/VMALLOC
-// or VIRT/VMEMMAP observations today. The rule is sound and unit-tested;
-// activation depends on a future source (e.g. /proc/vmallocinfo with read
-// access, dmesg layout dumps on arches that still print them, or a leak
-// component yielding VIRT addresses tagged with these regions). Tracked in
-// the LIVE-SYSTEM TEST LIST.
+// Inert when no VIRT observation tagged REGION_VMALLOC or REGION_VMEMMAP
+// is present. Candidate sources include /proc/vmallocinfo (with read
+// access), dmesg layout dumps on arches that still print them, or any leak
+// component yielding VIRT addresses tagged with these regions.
 //
 // x86_64 only (the chain is RANDOMIZE_MEMORY-specific).
 // ---

@@ -23,9 +23,9 @@
 //
 // Emits verdicts rather than mutating: the engine applies them via
 // evidence_resolve() so the constraint rules see the curated evidence. The
-// ruling is a pure function of each observation's own region and anchor versus
-// compile-time geometry — no cross-observation or estimate dependency — so it
-// settles in pass 1, before any bound rule consumes the bad observation.
+// ruling is a pure function of each observation's own region and anchor
+// versus compile-time geometry — no cross-observation or estimate
+// dependency.
 // ---
 // <bcoles@gmail.com>
 

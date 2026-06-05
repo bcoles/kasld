@@ -110,8 +110,9 @@ void engine_run_full(struct engine *e, const rule_fn *rules, int n_rules,
 
     /* Curation first: emit + dedup verdicts, then recompute the effective
      * view so the constraint rules below see curated evidence. Verdict rules
-     * read only (immutable) observations, so they settle in pass 1 — before
-     * any constraint is emitted from an observation they would invalidate. */
+     * read only (immutable) observations, so curation completes before any
+     * constraint rule consumes an observation that would later be invalidated.
+     */
     for (int v = 0; v < n_vrules; v++) {
       struct verdict vt[ENGINE_RULE_MAX_EMIT];
       int k = vrules[v](&e->ev, vt, ENGINE_RULE_MAX_EMIT);

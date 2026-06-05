@@ -22,11 +22,10 @@
 //   text_virt ≥ V_mm + vmemmap_size + ABS_LOWCORE_MAP_SIZE
 //                    + MEMCPY_REAL_SIZE + vmalloc_size + MODULES_LEN + 1
 //
-// Per the proposal's soundness note, undersizing any intermediate term
-// only loosens the floor (always sound). The intermediate constants
-// (ABS_LOWCORE_MAP_SIZE, MEMCPY_REAL_SIZE, vmalloc_size) depend on
-// runtime config; conservatively we undersize them to 0. The dominant
-// terms are:
+// Undersizing any intermediate term only loosens the floor (always sound).
+// The intermediate constants (ABS_LOWCORE_MAP_SIZE, MEMCPY_REAL_SIZE,
+// vmalloc_size) depend on runtime config; conservatively we undersize them
+// to 0. The dominant terms are:
 //
 //   vmemmap_size — derived from SF_PHYS_MAX_PFN × sizeof(struct page).
 //                  64 bytes is the upstream default on s390; treat as
@@ -38,9 +37,7 @@
 // s390_text_from_vmalloc (VMALLOC → text); this rule extends the same
 // pattern to the deeper VMEMMAP rung.
 //
-// Currently DORMANT — no production s390 component emits VIRT/VMEMMAP
-// observations today (paired activation with arm64_va_bits_from_vmemmap
-// and x86_64_page_offset_from_vmalloc_vmemmap). s390 only.
+// Inert when no s390 VIRT/VMEMMAP observation is present. s390 only.
 //
 // References:
 // arch/s390/boot/startup.c (the VAS layout code)

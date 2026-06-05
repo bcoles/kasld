@@ -8,9 +8,9 @@
 //
 //   virt_page_offset <= align_down(min directmap leak, ARM64_MEMSTART_ALIGN)
 //
-// Reads SF_PAGE_SIZE (bridged from getpagesize) + VIRT DIRECTMAP leaks; emits a
-// C_UPPER_BOUND on Q_PAGE_OFFSET. arm64 only; dormant offline (no directmap
-// leak) — LIVE-TEST list.
+// Reads SF_PAGE_SIZE (bridged from getpagesize) + VIRT DIRECTMAP leaks; emits
+// a C_UPPER_BOUND on Q_PAGE_OFFSET. arm64 only; inert when no VIRT directmap
+// observation is present.
 // ---
 // <bcoles@gmail.com>
 

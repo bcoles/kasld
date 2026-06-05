@@ -10,8 +10,8 @@
 //   Q_KASLR_ALIGN      >= max(base_align over VIRT observations)
 //   Q_PHYS_KASLR_ALIGN >= max(base_align over PHYS observations)  (decoupled)
 //
-// C_AT_LEAST_ALIGN; dominated by the arch baseline / boot_params when those are
-// coarser. Dormant offline (components emit base_align live) — LIVE-TEST list.
+// C_AT_LEAST_ALIGN; dominated by the arch baseline / boot_params when those
+// are coarser. Inert when no observation carries a base_align estimate.
 // ---
 // <bcoles@gmail.com>
 
