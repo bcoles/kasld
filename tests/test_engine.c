@@ -1734,7 +1734,8 @@ static void test_x86_64_po_from_vmemmap_pinned_l5(void) {
   engine_run(&e, rules, 2);
 
   /* L5 subtraction; equals po_l5 + slack. (The L4 value the rule emits on the
-   * first, un-pinned pass is ~12768 TiB larger, so this value is uniquely L5.) */
+   * first, un-pinned pass is ~12768 TiB larger, so this value is uniquely L5.)
+   */
   unsigned long expect_l5 =
       mm_witness - vmalloc_size_l5 - directmap_size - 2ul * pud;
 
@@ -1760,7 +1761,8 @@ static void test_x86_64_po_from_vmemmap_pinned_l5(void) {
  * (at/above the L4 VAS floor). The `< X86_64_L4_VAS_START` condition must keep
  * the rule on L4 — committing to the tighter L5 subtraction here would push the
  * upper bound far below the truth. The soundness assertion (every emitted bound
- * >= the pinned truth) fails iff the territory check is dropped and L5 is used. */
+ * >= the pinned truth) fails if the territory check is dropped and L5 is used.
+ */
 static void test_x86_64_po_from_vmemmap_pinned_l4_keeps_l4(void) {
 #if defined(__x86_64__)
   struct engine e;
@@ -2586,7 +2588,7 @@ static void add_directmap(struct engine *e, unsigned long addr) {
   evidence_add(&e->ev, &o);
 }
 
-/* True iff the finite-set estimate holds exactly the single candidate `value`.
+/* True if the finite-set estimate holds exactly the single candidate `value`.
  */
 static int finset_is(const struct estimate *est, unsigned long value) {
   const struct quantity_def *qd = &quantities[Q_VA_BITS];
