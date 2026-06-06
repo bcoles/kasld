@@ -72,6 +72,17 @@ static int has_mitigation_keys(const struct component_meta *m) {
   return 0;
 }
 
+/* KASLR entropy (bits) restored if the named sysctl knob is closed, from the
+ * counterfactual plan the orchestrator publishes; -1 when the plan has no entry
+ * (closing it yields no measured gain). Keyed by the bare sysctl name, matching
+ * gate.name. */
+static int hardening_bits_for(const char *sysctl_name) {
+  for (int i = 0; i < hardening_plan_count; i++)
+    if (strcmp(hardening_plan[i].knob, sysctl_name) == 0)
+      return hardening_plan[i].virt_bits + hardening_plan[i].phys_bits;
+  return -1;
+}
+
 void render_hardening_text(void) {
   printf("\n%s========================================%s\n", c(C_BOLD),
          c(C_RESET));
@@ -284,13 +295,7 @@ void render_hardening_text(void) {
         gated++;
     if (gated == 0)
       continue;
-    int bits = -1; /* match the plan knob by its display prefix */
-    size_t dlen = strlen(gates[g].display);
-    for (int p = 0; p < hardening_plan_count; p++)
-      if (strncmp(hardening_plan[p].knob, gates[g].display, dlen) == 0) {
-        bits = hardening_plan[p].virt_bits + hardening_plan[p].phys_bits;
-        break;
-      }
+    int bits = hardening_bits_for(gates[g].name);
     snprintf(sg[nsg].action, sizeof(sg[nsg].action), "Set %s = %d",
              gates[g].display, gates[g].threshold);
     snprintf(sg[nsg].detail, sizeof(sg[nsg].detail), "affects %d component%s",
@@ -757,13 +762,7 @@ void render_hardening_json(void) {
       printf(",\n");
     first_sug = 0;
 
-    int bits = -1; /* KASLR entropy restored, matched from the plan by knob */
-    size_t dlen = strlen(gates[g].display);
-    for (int p = 0; p < hardening_plan_count; p++)
-      if (strncmp(hardening_plan[p].knob, gates[g].display, dlen) == 0) {
-        bits = hardening_plan[p].virt_bits + hardening_plan[p].phys_bits;
-        break;
-      }
+    int bits = hardening_bits_for(gates[g].name);
 
     printf("      {\n");
     printf("        \"action\": \"Set %s = %d\",\n", gates[g].display,

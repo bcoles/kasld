@@ -2399,8 +2399,10 @@ static int engine_quantity_bits(const struct engine *e, enum kasld_quantity q,
   return slots > 0 ? ilog2(slots) : 0;
 }
 
-/* Map a contributing component origin to its hardening knob — the sysctl a
- * defender would restrict. Falls back to the origin itself when the component
+/* Map a contributing component origin to its hardening knob KEY — the bare
+ * sysctl name a defender would restrict (e.g. "perf_event_paranoid"), which
+ * matches the renderer's gate.name exactly, so no formatted string has to be
+ * re-parsed downstream. Falls back to the origin itself when the component
  * declares no sysctl gate (side channels, generic readers): that channel is its
  * own knob. */
 static void origin_knob(const char *origin, char *out, size_t outlen) {
@@ -2409,7 +2411,12 @@ static void origin_knob(const char *origin, char *out, size_t outlen) {
       continue;
     const char *s = meta_get(&comp_logs[i].meta, "sysctl");
     if (s && *s) {
-      snprintf(out, outlen, "kernel.%.80s", s);
+      /* meta value is "<name>>=<n>"; the key is the bare name (up to '>'). */
+      size_t n = strcspn(s, ">");
+      if (n >= outlen)
+        n = outlen - 1;
+      memcpy(out, s, n);
+      out[n] = '\0';
       return;
     }
     break;
@@ -2427,6 +2434,11 @@ static void origin_knob(const char *origin, char *out, size_t outlen) {
  * "bits restored" is exact. Per-knob with all others held open (a redundant
  * knob reads +0 until the knob dominating it is closed); diagnostic to stderr.
  */
+/* Working caps for the plan computation: distinct knobs/origins considered, and
+ * the knob-key buffer length. Safe ceilings — the published plan is capped
+ * separately at MAX_HARDENING_PLAN. */
+enum { CF_MAX_KNOBS = 256, CF_KNOB_LEN = 96 };
+
 static void engine_report_hardening_plan(const struct engine *base) {
   if (!hardening_mode)
     return;
@@ -2443,10 +2455,10 @@ static void engine_report_hardening_plan(const struct engine *base) {
 #endif
 
   /* Distinct contributing origins and the knob each maps to. */
-  static char origins[256][ORIGIN_LEN];
-  static char oknob[256][96];
+  static char origins[CF_MAX_KNOBS][ORIGIN_LEN];
+  static char oknob[CF_MAX_KNOBS][CF_KNOB_LEN];
   int no = 0;
-  for (int i = 0; i < base->ev.n_obs && no < 256; i++) {
+  for (int i = 0; i < base->ev.n_obs && no < CF_MAX_KNOBS; i++) {
     const char *o = base->ev.obs[i].origin;
     if (!o[0])
       continue;
@@ -2464,7 +2476,7 @@ static void engine_report_hardening_plan(const struct engine *base) {
   }
 
   /* Distinct knobs. */
-  static char knobs[256][96];
+  static char knobs[CF_MAX_KNOBS][CF_KNOB_LEN];
   int nk = 0;
   for (int i = 0; i < no; i++) {
     int seen = 0;
@@ -2485,7 +2497,7 @@ static void engine_report_hardening_plan(const struct engine *base) {
     const char *knob;
     int dv, dp, ncomp;
   };
-  struct cf_plan plan[256];
+  struct cf_plan plan[CF_MAX_KNOBS];
   int np = 0;
 
   for (int k = 0; k < nk; k++) {
@@ -2497,7 +2509,7 @@ static void engine_report_hardening_plan(const struct engine *base) {
     *cf = *base; /* copy evidence + state; engine_run_full re-resolves fresh */
     int w = 0;
     for (int j = 0; j < cf->ev.n_obs; j++) {
-      char kn[96];
+      char kn[CF_KNOB_LEN];
       origin_knob(cf->ev.obs[j].origin, kn, sizeof(kn));
       if (strcmp(kn, knobs[k]) == 0)
         continue; /* this knob silences this observation */
