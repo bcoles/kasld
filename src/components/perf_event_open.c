@@ -172,7 +172,15 @@ static unsigned long get_kernel_addr_perf(void) {
     if (poll(&pfd, 1, POLL_MS_PER_ROUND) <= 0)
       break;
 
-    uint64_t head = __atomic_load_n(&meta->data_head, __ATOMIC_ACQUIRE);
+    /* Volatile read of meta->data_head + explicit ACQUIRE fence, rather
+     * than __atomic_load_n on the u64: on 32-bit arches the latter emits a
+     * libatomic call (__atomic_load_8) that musl does not provide. The data
+     * value is monotonic so a torn read on 32-bit is bounded — at worst we
+     * read a value larger than the real head and the inner-loop bounds
+     * checks reject the partial record. The volatile pointer matches the
+     * struct field's exact type (__u64) so strict-aliasing rules hold. */
+    uint64_t head = *(volatile __u64 *)&meta->data_head;
+    __atomic_thread_fence(__ATOMIC_ACQUIRE);
     uint64_t tail = meta->data_tail;
 
     while (tail < head) {
@@ -200,7 +208,8 @@ static unsigned long get_kernel_addr_perf(void) {
       tail += header.size;
     }
 
-    __atomic_store_n(&meta->data_tail, tail, __ATOMIC_RELEASE);
+    __atomic_thread_fence(__ATOMIC_RELEASE);
+    *(volatile __u64 *)&meta->data_tail = tail;
   }
 
   ioctl(fd, PERF_EVENT_IOC_DISABLE, 0);

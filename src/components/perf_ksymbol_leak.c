@@ -180,7 +180,12 @@ static void ring_copy(const char *ring, size_t ring_size, uint64_t off,
 /* Drain one ring buffer; emit observations; return count of new emissions. */
 static int drain_ring(struct perf_event_mmap_page *meta, const char *ring,
                       size_t ring_size) {
-  uint64_t head = __atomic_load_n(&meta->data_head, __ATOMIC_ACQUIRE);
+  /* Volatile read + explicit ACQUIRE fence rather than __atomic_load_n on
+   * u64: 32-bit musl lacks the __atomic_load_8 libcall the latter would
+   * compile to. Tearing risk on 32-bit is bounded by the inner-loop
+   * record-size checks. */
+  uint64_t head = *(volatile __u64 *)&meta->data_head;
+  __atomic_thread_fence(__ATOMIC_ACQUIRE);
   uint64_t tail = meta->data_tail;
   int emitted = 0;
 
@@ -226,7 +231,8 @@ static int drain_ring(struct perf_event_mmap_page *meta, const char *ring,
     tail += header.size;
   }
 
-  __atomic_store_n(&meta->data_tail, tail, __ATOMIC_RELEASE);
+  __atomic_thread_fence(__ATOMIC_RELEASE);
+  *(volatile __u64 *)&meta->data_tail = tail;
   return emitted;
 }
 

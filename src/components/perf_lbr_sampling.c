@@ -230,7 +230,13 @@ int main(int argc, char *argv[]) {
     if (poll(&pfd, 1, 1000) <= 0)
       break;
 
-    uint64_t head = __atomic_load_n(&meta->data_head, __ATOMIC_ACQUIRE);
+    /* Volatile read + explicit ACQUIRE fence rather than __atomic_load_n on
+     * u64: 32-bit musl lacks the __atomic_load_8 libcall the latter would
+     * compile to. (LBR is x86_64-only at compile time, so the 32-bit path
+     * isn't exercised — kept consistent with the sibling perf components
+     * for portability.) */
+    uint64_t head = *(volatile __u64 *)&meta->data_head;
+    __atomic_thread_fence(__ATOMIC_ACQUIRE);
     uint64_t tail = meta->data_tail;
 
     while (tail < head) {
@@ -280,7 +286,8 @@ int main(int argc, char *argv[]) {
       tail += header.size;
     }
 
-    __atomic_store_n(&meta->data_tail, tail, __ATOMIC_RELEASE);
+    __atomic_thread_fence(__ATOMIC_RELEASE);
+    *(volatile __u64 *)&meta->data_tail = tail;
   }
 
 #undef CONSIDER
