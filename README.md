@@ -130,22 +130,6 @@ Build all supported cross-compilation targets (toolchains must be in `PATH`):
 make cross
 ```
 
-## Configuration
-
-Architecture-specific kernel memory layout constants are defined in
-[src/include/kasld/api.h](src/include/kasld/api.h). The defaults cover the
-common configurations; very old kernels, embedded devices, and systems with
-unusual configurations may need adjustment.
-
-Components emit addresses through typed helpers; the orchestrator handles
-merging; the inference engine handles bound tightening and consensus. When a
-component detects a non-default `PAGE_OFFSET` at runtime (for example a
-32-bit system with a 2G/2G vmsplit), `page_offset_from_landmark` pins it and
-every other quantity is resolved against the pinned value.
-
-The macro headers in [src/include/kasld/api.h](src/include/kasld/api.h)
-document each configuration option.
-
 ## License
 
 KASLD is MIT licensed. It incorporates modified third-party code
