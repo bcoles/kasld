@@ -1689,6 +1689,133 @@ static void test_x86_64_po_from_vmalloc_no_max_pfn(void) {
 #endif
 }
 
+/* x86_64_page_offset_from_vmalloc_vmemmap reads est[Q_PAGE_OFFSET] to choose
+ * the L4/L5 VMALLOC_SIZE that determines the upper bound it writes back on
+ * Q_PAGE_OFFSET.
+ * It commits to L5 (the larger subtraction, tighter bound) only when
+ * Q_PAGE_OFFSET is pinned (lo==hi) below the L4 VAS floor. When it is, the L5
+ * branch must fire and must never emit a bound below the pinned truth. The pin
+ * dominates the resolved estimate, so the L5 selection is asserted on the
+ * EMITTED constraint rather than the resolved interval. */
+static void test_x86_64_po_from_vmemmap_pinned_l5(void) {
+#if defined(__x86_64__)
+  struct engine e;
+  engine_init(&e);
+  unsigned long max_pfn = 0x100000ul; /* 4 GiB -> directmap_size 11 TiB */
+  evidence_add(&e.ev, &(struct observation){.value_kind = OBS_SCALAR,
+                                            .scalar_fact = SF_PHYS_MAX_PFN,
+                                            .scalar_value = max_pfn,
+                                            .conf = CONF_PARSED,
+                                            .valid = 1});
+
+  unsigned long one_tb = 1ul << 40;
+  unsigned long pud = 1ul << 30;
+  unsigned long directmap_size = 11ul * one_tb;
+  unsigned long vmalloc_size_l5 = 12800ul * one_tb;
+
+  /* Pin Q_PAGE_OFFSET (lo==hi) to an L5-territory base, below the L4 VAS floor
+   * 0xffff800000000000. */
+  unsigned long po_l5 = 0xff11000000000000ul;
+  struct observation pin = mk_obs(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, po_l5,
+                                  LO_SET, POS_BASE, CONF_DERIVED);
+  evidence_add(&e.ev, &pin);
+
+  unsigned long slack = 0x6400000ul; /* 100 MiB */
+  unsigned long mm_witness =
+      po_l5 + directmap_size + vmalloc_size_l5 + 2ul * pud + slack;
+  struct observation mm = mk_obs(KASLD_TYPE_VIRT, REGION_VMEMMAP, mm_witness,
+                                 LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
+  evidence_add(&e.ev, &mm);
+
+  /* Pin runs alongside the consumer; the fixpoint pins Q_PAGE_OFFSET, then the
+   * consumer re-runs seeing the L5-territory pin and switches to L5. */
+  const rule_fn rules[] = {rule_x86_64_page_offset_from_vmalloc_vmemmap,
+                           rule_pin_page_offset};
+  engine_run(&e, rules, 2);
+
+  /* L5 subtraction; equals po_l5 + slack. (The L4 value the rule emits on the
+   * first, un-pinned pass is ~12768 TiB larger, so this value is uniquely L5.) */
+  unsigned long expect_l5 =
+      mm_witness - vmalloc_size_l5 - directmap_size - 2ul * pud;
+
+  int found_l5 = 0;
+  for (int i = 0; i < e.n_constraints; i++) {
+    const struct constraint *c = &e.constraints[i];
+    if (strcmp(c->origin, "x86_64_page_offset_from_vmalloc_vmemmap") != 0 ||
+        c->op != C_UPPER_BOUND)
+      continue;
+    assert(c->value >= po_l5); /* over-narrowing guard: never below the truth */
+    if (c->value == expect_l5)
+      found_l5 = 1; /* the L5 branch fired */
+  }
+  assert(found_l5);
+
+  /* The pin dominates the resolved estimate. */
+  assert(e.est[Q_PAGE_OFFSET].lo == po_l5);
+  assert(e.est[Q_PAGE_OFFSET].hi == po_l5);
+#endif
+}
+
+/* The other half of the same self-edge gate: pinned lo==hi but in L4 territory
+ * (at/above the L4 VAS floor). The `< X86_64_L4_VAS_START` condition must keep
+ * the rule on L4 — committing to the tighter L5 subtraction here would push the
+ * upper bound far below the truth. The soundness assertion (every emitted bound
+ * >= the pinned truth) fails iff the territory check is dropped and L5 is used. */
+static void test_x86_64_po_from_vmemmap_pinned_l4_keeps_l4(void) {
+#if defined(__x86_64__)
+  struct engine e;
+  engine_init(&e);
+  unsigned long max_pfn = 0x100000ul;
+  evidence_add(&e.ev, &(struct observation){.value_kind = OBS_SCALAR,
+                                            .scalar_fact = SF_PHYS_MAX_PFN,
+                                            .scalar_value = max_pfn,
+                                            .conf = CONF_PARSED,
+                                            .valid = 1});
+
+  unsigned long one_tb = 1ul << 40;
+  unsigned long pud = 1ul << 30;
+  unsigned long directmap_size = 11ul * one_tb;
+  unsigned long vmalloc_size_l4 = 32ul * one_tb;
+
+  /* Pin at the canonical L4 base: lo==hi, but ABOVE the L4 VAS floor. */
+  unsigned long po_l4 = 0xffff888000000000ul;
+  struct observation pin = mk_obs(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, po_l4,
+                                  LO_SET, POS_BASE, CONF_DERIVED);
+  evidence_add(&e.ev, &pin);
+
+  unsigned long slack = 0x6400000ul;
+  unsigned long mm_witness =
+      po_l4 + directmap_size + vmalloc_size_l4 + 2ul * pud + slack;
+  struct observation mm = mk_obs(KASLD_TYPE_VIRT, REGION_VMEMMAP, mm_witness,
+                                 LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
+  evidence_add(&e.ev, &mm);
+
+  const rule_fn rules[] = {rule_x86_64_page_offset_from_vmalloc_vmemmap,
+                           rule_pin_page_offset};
+  engine_run(&e, rules, 2);
+
+  unsigned long expect_l4 =
+      mm_witness - vmalloc_size_l4 - directmap_size - 2ul * pud;
+
+  int found_l4 = 0;
+  for (int i = 0; i < e.n_constraints; i++) {
+    const struct constraint *c = &e.constraints[i];
+    if (strcmp(c->origin, "x86_64_page_offset_from_vmalloc_vmemmap") != 0 ||
+        c->op != C_UPPER_BOUND)
+      continue;
+    /* Over-narrowing guard: a wrongful L5 pick here lands ~12768 TiB below
+     * po_l4, tripping this. */
+    assert(c->value >= po_l4);
+    if (c->value == expect_l4)
+      found_l4 = 1;
+  }
+  assert(found_l4);
+
+  assert(e.est[Q_PAGE_OFFSET].lo == po_l4);
+  assert(e.est[Q_PAGE_OFFSET].hi == po_l4);
+#endif
+}
+
 /* x86_64_vmalloc_vmemmap_invariant: a too-close vmalloc/vmemmap pair
  * → both observations invalidated. The required gap is VMALLOC_SIZE_TB·1TB
  * + PUD_SIZE = ≥33 TiB on L4. */
@@ -4251,6 +4378,8 @@ int main(void) {
   RUN(test_x86_64_po_from_vmalloc);
   RUN(test_x86_64_po_from_vmemmap);
   RUN(test_x86_64_po_from_vmalloc_no_max_pfn);
+  RUN(test_x86_64_po_from_vmemmap_pinned_l5);
+  RUN(test_x86_64_po_from_vmemmap_pinned_l4_keeps_l4);
   RUN(test_x86_64_vmalloc_vmemmap_invariant_violation);
   RUN(test_x86_64_vmalloc_vmemmap_invariant_ok);
 #endif
