@@ -2338,6 +2338,48 @@ static void engine_report_conflicts(const struct engine *e) {
   }
 }
 
+/* Report, per quantity, how many distinct origins contributed constraints the
+ * resolver accepted — a corroboration signal orthogonal to confidence: a
+ * quantity bound by several independent sources is harder to spoof than one
+ * bound by a single (possibly forgeable) source. Counts distinct origins of
+ * accepted (non-rejected) constraints; reports only when >= 2. Diagnostic only
+ * (stderr, --verbose). */
+static void engine_report_corroboration(const struct engine *e) {
+  for (int q = 0; q < Q__COUNT; q++) {
+    const char *origins[64];
+    int n = 0;
+    for (int i = 0; i < e->n_constraints; i++) {
+      const struct constraint *cc = &e->constraints[i];
+      if ((int)cc->q != q)
+        continue;
+      int rejected = 0;
+      for (int c = 0; c < e->n_conflicts[q]; c++)
+        if (e->conflicts[q][c] == cc->id) {
+          rejected = 1;
+          break;
+        }
+      if (rejected)
+        continue;
+      const char *o = cc->origin[0] ? cc->origin : "rule";
+      int seen = 0;
+      for (int k = 0; k < n; k++)
+        if (strcmp(origins[k], o) == 0) {
+          seen = 1;
+          break;
+        }
+      if (!seen && n < (int)(sizeof(origins) / sizeof(origins[0])))
+        origins[n++] = o;
+    }
+    if (n < 2)
+      continue; /* 0 or 1 source: nothing to corroborate */
+    fprintf(stderr, "[engine] %s: constrained by %d independent sources:",
+            quantities[q].name, n);
+    for (int k = 0; k < n; k++)
+      fprintf(stderr, " %s", origins[k]);
+    fputc('\n', stderr);
+  }
+}
+
 /* Report any resolver saturation flags. None of the caps bind on realistic
  * deduped workloads; surfacing a hit makes the dropped-info case observable
  * rather than silent if scale ever grows. Diagnostic only (stderr, --verbose).
@@ -2404,6 +2446,7 @@ static void engine_resolve(struct engine *e) {
   engine_run_full(e, rules, n_rules, vrules, n_vrules);
   if (verbose && !json_output) {
     engine_report_conflicts(e);
+    engine_report_corroboration(e);
     engine_report_saturation(e);
     orchestrator_report_saturation();
   }
