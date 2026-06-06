@@ -1,0 +1,98 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-self-edges — guard against unreviewed engine "self-edge" rules.
+#
+# A self-edge rule reads its own quantity's estimate (est[Q_X]) AND emits a
+# constraint on that same Q_X. When the written bound is *computed* from
+# est[Q_X] (rather than only gating/filtering on it) the rule can narrow Q_X
+# past the truth — an unsound over-narrowing. Each self-edge must therefore be
+# reviewed and carry a soundness test proving the truth survives an
+# adversarially pre-narrowed est[Q_X].
+#
+# This check fails if a rule becomes a self-edge without being on the reviewed
+# ALLOW list below, or if an allowlisted rule is no longer a self-edge (keeps
+# the list honest). It does NOT prove soundness — only that no self-edge slips
+# in unreviewed.
+#
+# Usage: tests/check-self-edges   (also run by `make test`)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+RULES=$ROOT/src/rules
+
+# Reviewed self-edges. Each reads est[Q] and writes Q; all are either pure
+# gate/filter/selector reads (sound by construction) or value-determining with
+# a soundness test. Keep alphabetical.
+ALLOW="phys_hole_filter
+phys_kaslr_disabled_pin
+phys_virt_synth
+randomize_memory_page_offset
+riscv64_page_offset_from_vmalloc_vmemmap
+text_base_coupling_synth
+virt_kaslr_disabled_pin
+x86_64_page_offset_from_vmalloc_vmemmap"
+
+if [ -t 2 ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; RESET=
+fi
+
+# 0 if file reads est[Q] and emits a constraint on the same Q.
+is_self_edge() {
+  _reads=$(grep -oE 'est\[Q_[A-Z_]+\]' "$1" 2>/dev/null | grep -oE 'Q_[A-Z_]+' | sort -u)
+  [ -n "$_reads" ] || return 1
+  _writes=$(grep -oE '(\.|->)q = Q_[A-Z_]+' "$1" 2>/dev/null | grep -oE 'Q_[A-Z_]+' | sort -u)
+  [ -n "$_writes" ] || return 1
+  for _q in $_reads; do
+    printf '%s\n' "$_writes" | grep -qx "$_q" && return 0
+  done
+  return 1
+}
+
+contains() { # $1=needle $2=list
+  for _x in $2; do [ "$_x" = "$1" ] && return 0; done
+  return 1
+}
+
+detected=
+for f in "$RULES"/*.c; do
+  is_self_edge "$f" && detected="$detected $(basename "$f" .c)"
+done
+
+fail=0
+
+for d in $detected; do
+  if ! contains "$d" "$ALLOW"; then
+    if [ "$fail" = 0 ]; then
+      printf '%sself-edge guard: new unreviewed self-edge rule(s):%s\n' "$RED" "$RESET" >&2
+    fi
+    printf '  %s\n' "$d" >&2
+    fail=1
+  fi
+done
+if [ "$fail" = 1 ]; then
+  printf 'Each reads est[Q] and writes Q. Add a soundness test (truth survives an\n' >&2
+  printf 'adversarially pre-narrowed est[Q]), add the rule to ALLOW in\n' >&2
+  printf 'tests/check-self-edges, or drop the self-read.\n' >&2
+fi
+
+stalehdr=0
+for a in $ALLOW; do
+  if ! contains "$a" "$detected"; then
+    if [ "$stalehdr" = 0 ]; then
+      printf '%sself-edge guard: allowlisted rule(s) no longer self-edges (remove from ALLOW):%s\n' "$RED" "$RESET" >&2
+      stalehdr=1
+    fi
+    printf '  %s\n' "$a" >&2
+    fail=1
+  fi
+done
+
+[ "$fail" = 0 ] || exit 1
+
+set -- $ALLOW
+printf '%sself-edge guard: OK%s (%s reviewed self-edges, none new)\n' "$GREEN" "$RESET" "$#"

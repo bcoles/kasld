@@ -296,6 +296,7 @@ $(TEST_INT_BIN): $(TEST_DIR)/test_engine_integration.c $(ENGINE_CORE) $(ENGINE_R
 .PHONY: test
 test : $(TEST_BIN) $(TEST_EST_BIN) $(TEST_EV_BIN) $(TEST_ENG_BIN) $(TEST_INT_BIN)
 	@$(TEST_DIR)/run-all
+	@$(TEST_DIR)/check-self-edges
 
 .PHONY: test-integration
 test-integration : $(TEST_INT_BIN)
@@ -311,7 +312,7 @@ test-evidence : $(TEST_EV_BIN)
 
 # Cross-architecture engine test: runs the integration test under qemu-user for
 # each 64-bit target (exercises arch-gated rules on their arch). Needs the
-# musl-cross toolchains on PATH (see dev/AGENTS.md) + qemu-user in QEMU_DIR;
+# musl-cross toolchains on PATH + qemu-user in QEMU_DIR;
 # silently skips any target whose toolchain/qemu is absent. Not part of `make
 # test` (host-only, no qemu dependency).
 .PHONY: test-cross
