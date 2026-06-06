@@ -73,6 +73,11 @@ int sysctl_perf_event_paranoid = -1;
 /* Kernel lockdown status */
 enum lockdown_mode sysctl_lockdown = LOCKDOWN_UNAVAILABLE;
 
+/* Counterfactual hardening plan, ranked by entropy restored (see internal.h).
+ * Filled by engine_report_hardening_plan(); rendered under -H. */
+struct hardening_channel hardening_plan[MAX_HARDENING_PLAN];
+int hardening_plan_count = 0;
+
 /* True when no structured output format is selected (plain text mode) */
 #define plain_output() (!json_output && !oneline_output && !markdown_output)
 
@@ -1946,6 +1951,7 @@ static void engine_sync_authoritative(const struct engine *e);
 #ifndef KASLD_TESTING
 static void engine_resolve(struct engine *e);
 static struct engine g_auth_engine;
+static void engine_report_hardening_plan(const struct engine *e);
 #endif
 
 void compute_kaslr_info(struct summary *s) {
@@ -2016,6 +2022,10 @@ void compute_kaslr_info(struct summary *s) {
 #endif
     s->kaslr.pbits = s->kaslr.pslots > 0 ? ilog2(s->kaslr.pslots) : 0;
   }
+#endif
+
+#ifndef KASLD_TESTING
+  engine_report_hardening_plan(&g_auth_engine);
 #endif
 
   if (s->kaslr.vtext) {
@@ -2379,6 +2389,164 @@ static void engine_report_corroboration(const struct engine *e) {
     fputc('\n', stderr);
   }
 }
+
+#ifndef KASLD_TESTING
+/* Hole-aware KASLR entropy (bits) of quantity q under estimate set e. */
+static int engine_quantity_bits(const struct engine *e, enum kasld_quantity q,
+                                unsigned long align) {
+  unsigned long slots =
+      quantity_slots(q, &e->est[q], e->constraints, e->n_constraints, align);
+  return slots > 0 ? ilog2(slots) : 0;
+}
+
+/* Map a contributing component origin to its hardening knob — the sysctl a
+ * defender would restrict. Falls back to the origin itself when the component
+ * declares no sysctl gate (side channels, generic readers): that channel is its
+ * own knob. */
+static void origin_knob(const char *origin, char *out, size_t outlen) {
+  for (int i = 0; i < num_comp_logs; i++) {
+    if (strncmp(comp_logs[i].name, origin, ORIGIN_LEN) != 0)
+      continue;
+    const char *s = meta_get(&comp_logs[i].meta, "sysctl");
+    if (s && *s) {
+      snprintf(out, outlen, "kernel.%.80s", s);
+      return;
+    }
+    break;
+  }
+  snprintf(out, outlen, "%s", origin);
+}
+
+/* Counterfactual hardening plan (--hardening): group the components that
+ * supplied evidence by their hardening knob (the sysctl gating them; a channel
+ * with no sysctl is its own knob), then for each knob re-resolve with ALL of
+ * its components' observations removed and report the KASLR entropy restored on
+ * the text-base quantities — the inverse of the corroboration map, a ranked
+ * remediation list of which defender action most widens the attacker's window.
+ * Sound because the engine is monotone: removing evidence can only widen, so
+ * "bits restored" is exact. Per-knob with all others held open (a redundant
+ * knob reads +0 until the knob dominating it is closed); diagnostic to stderr.
+ */
+static void engine_report_hardening_plan(const struct engine *base) {
+  if (!hardening_mode)
+    return;
+
+  int n_rules = 0, n_vrules = 0;
+  const rule_fn *rules = engine_rules(&n_rules);
+  const verdict_fn *vrules = engine_verdict_rules(&n_vrules);
+
+  int vb0 =
+      engine_quantity_bits(base, Q_VIRT_TEXT_BASE, layout.virt_kaslr_align);
+  int pb0 = 0;
+#ifdef KASLR_PHYS_MIN
+  pb0 = engine_quantity_bits(base, Q_PHYS_TEXT_BASE, layout.phys_kaslr_align);
+#endif
+
+  /* Distinct contributing origins and the knob each maps to. */
+  static char origins[256][ORIGIN_LEN];
+  static char oknob[256][96];
+  int no = 0;
+  for (int i = 0; i < base->ev.n_obs && no < 256; i++) {
+    const char *o = base->ev.obs[i].origin;
+    if (!o[0])
+      continue;
+    int seen = 0;
+    for (int k = 0; k < no; k++)
+      if (strncmp(origins[k], o, ORIGIN_LEN) == 0) {
+        seen = 1;
+        break;
+      }
+    if (!seen) {
+      snprintf(origins[no], ORIGIN_LEN, "%s", o);
+      origin_knob(o, oknob[no], sizeof(oknob[no]));
+      no++;
+    }
+  }
+
+  /* Distinct knobs. */
+  static char knobs[256][96];
+  int nk = 0;
+  for (int i = 0; i < no; i++) {
+    int seen = 0;
+    for (int k = 0; k < nk; k++)
+      if (strcmp(knobs[k], oknob[i]) == 0) {
+        seen = 1;
+        break;
+      }
+    if (!seen)
+      snprintf(knobs[nk++], sizeof(knobs[0]), "%.95s", oknob[i]);
+  }
+
+  struct engine *cf = malloc(sizeof *cf);
+  if (!cf)
+    return;
+
+  struct cf_plan {
+    const char *knob;
+    int dv, dp, ncomp;
+  };
+  struct cf_plan plan[256];
+  int np = 0;
+
+  for (int k = 0; k < nk; k++) {
+    int ncomp = 0;
+    for (int i = 0; i < no; i++)
+      if (strcmp(oknob[i], knobs[k]) == 0)
+        ncomp++;
+
+    *cf = *base; /* copy evidence + state; engine_run_full re-resolves fresh */
+    int w = 0;
+    for (int j = 0; j < cf->ev.n_obs; j++) {
+      char kn[96];
+      origin_knob(cf->ev.obs[j].origin, kn, sizeof(kn));
+      if (strcmp(kn, knobs[k]) == 0)
+        continue; /* this knob silences this observation */
+      cf->ev.obs[w++] = cf->ev.obs[j];
+    }
+    cf->ev.n_obs = w;
+    cf->ev.n_verdicts = 0; /* re-emitted fresh by engine_run_full */
+    engine_run_full(cf, rules, n_rules, vrules, n_vrules);
+
+    int dv =
+        engine_quantity_bits(cf, Q_VIRT_TEXT_BASE, layout.virt_kaslr_align) -
+        vb0;
+    int dp = 0;
+#ifdef KASLR_PHYS_MIN
+    dp = engine_quantity_bits(cf, Q_PHYS_TEXT_BASE, layout.phys_kaslr_align) -
+         pb0;
+#endif
+    if (dv > 0 || dp > 0) {
+      plan[np].knob = knobs[k];
+      plan[np].dv = dv;
+      plan[np].dp = dp;
+      plan[np].ncomp = ncomp;
+      np++;
+    }
+  }
+  free(cf);
+
+  /* Rank by total bits restored (insertion sort; small np). */
+  for (int i = 1; i < np; i++) {
+    struct cf_plan cur = plan[i];
+    int j = i - 1;
+    while (j >= 0 && (plan[j].dv + plan[j].dp) < (cur.dv + cur.dp)) {
+      plan[j + 1] = plan[j];
+      j--;
+    }
+    plan[j + 1] = cur;
+  }
+
+  /* Publish the ranked plan for render_hardening_text(). */
+  hardening_plan_count = np < MAX_HARDENING_PLAN ? np : MAX_HARDENING_PLAN;
+  for (int i = 0; i < hardening_plan_count; i++) {
+    snprintf(hardening_plan[i].knob, sizeof(hardening_plan[i].knob), "%.95s",
+             plan[i].knob);
+    hardening_plan[i].virt_bits = plan[i].dv;
+    hardening_plan[i].phys_bits = plan[i].dp;
+    hardening_plan[i].n_components = plan[i].ncomp;
+  }
+}
+#endif /* KASLD_TESTING */
 
 /* Report any resolver saturation flags. None of the caps bind on realistic
  * deduped workloads; surfacing a hit makes the dropped-info case observable

@@ -153,9 +153,11 @@ void render_hardening_text(void) {
       continue; /* sysctl unavailable */
 
     int active = sysctl_gate_active(&gates[g]);
-    int gated = 0, blocked = 0, bypassed = 0;
+    int gated = 0, blocked = 0, bypassed = 0, nfallback = 0;
     const char *blocked_names[8];
     int nblocked_names = 0;
+    const char *bypassed_names[8];
+    int nbypassed_names = 0;
 
     for (int i = 0; i < num_comp_logs; i++) {
       if (!component_has_gate(&comp_logs[i], &gates[g]))
@@ -167,6 +169,10 @@ void render_hardening_text(void) {
           blocked_names[nblocked_names++] = comp_logs[i].name;
       } else if (comp_logs[i].outcome == OUTCOME_SUCCESS) {
         bypassed++;
+        if (nbypassed_names < 8)
+          bypassed_names[nbypassed_names++] = comp_logs[i].name;
+        if (meta_get(&comp_logs[i].meta, "fallback"))
+          nfallback++; /* succeeded via a fallback path despite the gate */
       }
     }
 
@@ -175,8 +181,13 @@ void render_hardening_text(void) {
 
     if (active) {
       any_active = 1;
-      printf("  %-34s = %-4d %s\xe2\x9c\x93%s  ", gates[g].display,
-             *gates[g].value_ptr, c(C_GREEN), c(C_RESET));
+      /* Active but every gated component still leaked = the control is set yet
+       * fully circumvented (e.g. dmesg_restrict on, but the logs are readable
+       * as files). Mark it ⚠, not ✓. */
+      int circumvented = (blocked == 0 && bypassed > 0);
+      printf("  %-34s = %-4d %s%s%s  ", gates[g].display, *gates[g].value_ptr,
+             circumvented ? c(C_YELLOW) : c(C_GREEN),
+             circumvented ? "\xe2\x9a\xa0" : "\xe2\x9c\x93", c(C_RESET));
       if (blocked > 0 && blocked <= 5) {
         printf("blocked ");
         for (int n = 0; n < nblocked_names; n++) {
@@ -190,11 +201,34 @@ void render_hardening_text(void) {
       if (bypassed > 0) {
         if (blocked > 0)
           printf("; ");
-        printf("%d bypassed (fallback?)", bypassed);
+        if (nfallback == bypassed)
+          printf("%d bypassed via fallback files", bypassed);
+        else if (nfallback > 0)
+          printf("%d bypassed (%d via fallback files)", bypassed, nfallback);
+        else
+          printf("%d bypassed", bypassed);
       }
       if (blocked == 0 && bypassed == 0)
         printf("%d gated component%s", gated, gated == 1 ? "" : "s");
       printf("\n");
+    } else if (bypassed > 0) {
+      /* Permissive gate actively bypassed — the most actionable exposure, so
+       * surface it here (as lockdown is shown even when inactive) rather than
+       * silently omit it. */
+      any_active = 1;
+      printf("  %-34s = %-4d %s\xe2\x9c\x97%s  permissive \xe2\x80\x94 ",
+             gates[g].display, *gates[g].value_ptr, c(C_YELLOW), c(C_RESET));
+      if (nbypassed_names > 0 && bypassed <= 5) {
+        for (int n = 0; n < nbypassed_names; n++) {
+          if (n > 0)
+            printf(", ");
+          printf("%s", bypassed_names[n]);
+        }
+        printf(" leak%s", bypassed == 1 ? "s" : "");
+      } else {
+        printf("%d component%s leak", bypassed, bypassed == 1 ? "" : "s");
+      }
+      printf(" (set >= %d)\n", gates[g].threshold);
     }
   }
 
@@ -224,49 +258,63 @@ void render_hardening_text(void) {
 
   printf("\n");
 
-  /* ---- Section 2: Available Hardening ---- */
+  /* ---- Section 2: Available Hardening (each action annotated with the KASLR
+   * entropy it restores, from the counterfactual plan, ranked most-first) ----
+   */
   printf("%sAvailable hardening:%s\n", c(C_BOLD), c(C_RESET));
 
-  int any_suggestions = 0;
+  /* Collect the candidate actions, each with the KASLR entropy it restores
+   * (matched to the counterfactual plan by sysctl knob; qualitative actions
+   * carry no figure), then rank measured-highest-first. */
+  struct hsugg {
+    char action[120];
+    char detail[160];
+    int bits; /* total KASLR bits restored; -1 = no measured figure */
+  };
+  struct hsugg sg[GATE__COUNT + 4];
+  int nsg = 0;
+  const int sg_max = (int)(sizeof(sg) / sizeof(sg[0]));
 
-  for (int g = 0; g < ngates; g++) {
-    if (*gates[g].value_ptr < 0)
-      continue;
-    if (sysctl_gate_active(&gates[g]))
-      continue; /* already active */
-
+  for (int g = 0; g < ngates && nsg < sg_max; g++) {
+    if (*gates[g].value_ptr < 0 || sysctl_gate_active(&gates[g]))
+      continue; /* unavailable or already active */
     int gated = 0;
-    for (int i = 0; i < num_comp_logs; i++) {
+    for (int i = 0; i < num_comp_logs; i++)
       if (component_has_gate(&comp_logs[i], &gates[g]))
         gated++;
-    }
     if (gated == 0)
       continue;
-
-    any_suggestions = 1;
-    printf("  %s\xe2\x86\x92%s Set %s = %d\n", c(C_CYAN), c(C_RESET),
-           gates[g].display, gates[g].threshold);
-    printf("    Would affect: %d component%s\n", gated, gated == 1 ? "" : "s");
+    int bits = -1; /* match the plan knob by its display prefix */
+    size_t dlen = strlen(gates[g].display);
+    for (int p = 0; p < hardening_plan_count; p++)
+      if (strncmp(hardening_plan[p].knob, gates[g].display, dlen) == 0) {
+        bits = hardening_plan[p].virt_bits + hardening_plan[p].phys_bits;
+        break;
+      }
+    snprintf(sg[nsg].action, sizeof(sg[nsg].action), "Set %s = %d",
+             gates[g].display, gates[g].threshold);
+    snprintf(sg[nsg].detail, sizeof(sg[nsg].detail), "affects %d component%s",
+             gated, gated == 1 ? "" : "s");
+    sg[nsg].bits = bits;
+    nsg++;
   }
 
-  /* Suggest lockdown if not active and any component has lockdown tag */
-  if (sysctl_lockdown < LOCKDOWN_INTEGRITY) {
+  if (sysctl_lockdown < LOCKDOWN_INTEGRITY && nsg < sg_max) {
     int lockdown_gated = 0;
-    for (int i = 0; i < num_comp_logs; i++) {
+    for (int i = 0; i < num_comp_logs; i++)
       if (meta_get(&comp_logs[i].meta, "lockdown"))
         lockdown_gated++;
-    }
     if (lockdown_gated > 0) {
-      any_suggestions = 1;
-      printf("  %s\xe2\x86\x92%s Enable kernel lockdown (integrity mode)\n",
-             c(C_CYAN), c(C_RESET));
-      printf("    Blocks klogctl() even with CAP_SYSLOG.\n");
+      snprintf(sg[nsg].action, sizeof(sg[nsg].action),
+               "Enable kernel lockdown (integrity mode)");
+      snprintf(sg[nsg].detail, sizeof(sg[nsg].detail),
+               "blocks klogctl() even with CAP_SYSLOG");
+      sg[nsg].bits = -1;
+      nsg++;
     }
   }
 
-  /* Suggest restricting fallback paths if dmesg_restrict is active
-     but dmesg components still succeeded */
-  if (sysctl_dmesg_restrict >= 1) {
+  if (sysctl_dmesg_restrict >= 1 && nsg < sg_max) {
     int fallback_bypassed = 0;
     for (int i = 0; i < num_comp_logs; i++) {
       if (comp_logs[i].outcome != OUTCOME_SUCCESS)
@@ -277,16 +325,47 @@ void render_hardening_text(void) {
         fallback_bypassed++;
     }
     if (fallback_bypassed > 0) {
-      any_suggestions = 1;
-      printf("  %s\xe2\x86\x92%s Restrict dmesg fallback files to root\n",
-             c(C_CYAN), c(C_RESET));
-      printf("    %d dmesg component%s may have succeeded via log files\n",
-             fallback_bypassed, fallback_bypassed == 1 ? "" : "s");
+      snprintf(sg[nsg].action, sizeof(sg[nsg].action),
+               "Restrict dmesg fallback files to root");
+      snprintf(sg[nsg].detail, sizeof(sg[nsg].detail),
+               "%d dmesg component%s may have succeeded via log files",
+               fallback_bypassed, fallback_bypassed == 1 ? "" : "s");
+      sg[nsg].bits = -1;
+      nsg++;
     }
   }
 
-  if (!any_suggestions)
+  /* Rank: measured-entropy actions first (highest bits), qualitative after;
+   * stable insertion sort. */
+  for (int i = 1; i < nsg; i++) {
+    struct hsugg cur = sg[i];
+    int j = i - 1;
+    while (j >= 0) {
+      int cur_first;
+      if (cur.bits >= 0 && sg[j].bits < 0)
+        cur_first = 1;
+      else if (cur.bits >= 0 && sg[j].bits >= 0)
+        cur_first = cur.bits > sg[j].bits;
+      else
+        cur_first = 0;
+      if (!cur_first)
+        break;
+      sg[j + 1] = sg[j];
+      j--;
+    }
+    sg[j + 1] = cur;
+  }
+
+  if (nsg == 0) {
     printf("  All available runtime hardening is active.\n");
+  } else {
+    for (int i = 0; i < nsg; i++) {
+      printf("  %s\xe2\x86\x92%s %s", c(C_CYAN), c(C_RESET), sg[i].action);
+      if (sg[i].bits >= 0)
+        printf("  %s(+%d bits KASLR)%s", c(C_GREEN), sg[i].bits, c(C_RESET));
+      printf("\n    %s\n", sg[i].detail);
+    }
+  }
 
   printf("\n");
 
@@ -678,10 +757,22 @@ void render_hardening_json(void) {
       printf(",\n");
     first_sug = 0;
 
+    int bits = -1; /* KASLR entropy restored, matched from the plan by knob */
+    size_t dlen = strlen(gates[g].display);
+    for (int p = 0; p < hardening_plan_count; p++)
+      if (strncmp(hardening_plan[p].knob, gates[g].display, dlen) == 0) {
+        bits = hardening_plan[p].virt_bits + hardening_plan[p].phys_bits;
+        break;
+      }
+
     printf("      {\n");
     printf("        \"action\": \"Set %s = %d\",\n", gates[g].display,
            gates[g].threshold);
     printf("        \"impact\": %d,\n", gated);
+    if (bits >= 0)
+      printf("        \"kaslr_bits_restored\": %d,\n", bits);
+    else
+      printf("        \"kaslr_bits_restored\": null,\n");
     printf("        \"detail\": \"Blocks unprivileged access for %d "
            "component%s\"\n",
            gated, gated == 1 ? "" : "s");
@@ -702,6 +793,7 @@ void render_hardening_json(void) {
       printf("        \"action\": \"Enable kernel lockdown (integrity mode)\","
              "\n");
       printf("        \"impact\": %d,\n", lockdown_gated);
+      printf("        \"kaslr_bits_restored\": null,\n");
       printf("        \"detail\": \"Blocks klogctl() even with CAP_SYSLOG\"\n");
       printf("      }");
     }

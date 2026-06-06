@@ -339,6 +339,22 @@ enum lockdown_mode {
 };
 extern enum lockdown_mode sysctl_lockdown;
 
+/* Counterfactual hardening plan (--hardening): per defender-action "knob" (a
+ * sysctl, or a channel with no sysctl), the KASLR entropy regained on the
+ * text-base quantities if that knob is closed. Filled by the orchestrator's
+ * engine bridge, rendered by render_hardening_text(). */
+#ifndef MAX_HARDENING_PLAN
+#define MAX_HARDENING_PLAN 32
+#endif
+struct hardening_channel {
+  char knob[96];
+  int virt_bits; /* bits restored on Q_VIRT_TEXT_BASE if this knob is closed */
+  int phys_bits;
+  int n_components;
+};
+extern struct hardening_channel hardening_plan[MAX_HARDENING_PLAN];
+extern int hardening_plan_count;
+
 extern struct kasld_layout layout;
 extern struct result results[MAX_RESULTS];
 extern int num_results;
