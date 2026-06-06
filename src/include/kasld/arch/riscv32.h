@@ -22,9 +22,13 @@
 #define PHYS_OFFSET 0ul
 // PAGE_OFFSET and PHYS_OFFSET are compile-time on riscv32; the directmap
 // projection is sound. No mainline KASLR — text sits at a fixed offset
-// within the linear map.
+// within the linear map. The compile-time constant is the architectural
+// guaranteed runtime value (no VMSPLIT/SATP/paging-mode dependency on
+// riscv32), so Q_PAGE_OFFSET is pinnable without evidence — same shape
+// as mips32/64 and ppc32/64. Unlocks text_base_coupling_synth.
 #define DIRECTMAP_STATIC 1
 #define TEXT_TRACKS_DIRECTMAP 1
+#define PAGE_OFFSET_INVARIANT 1
 
 #define KERNEL_VIRT_VAS_START PAGE_OFFSET
 #define KERNEL_VIRT_VAS_END 0xfffffffful

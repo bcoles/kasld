@@ -36,6 +36,14 @@
 // Directmap leaks cannot reveal the KASLR slide.
 #define PAGE_OFFSET_RANDOMIZED 0
 
+// The compile-time PAGE_OFFSET is the architectural guaranteed runtime
+// value: the kernel writes _ULCAST_(0x9) to the DMW1 CSR unconditionally
+// at boot, so Q_PAGE_OFFSET can be pinned without evidence — same
+// "architectural certainty" shape as MIPS CKSEG0 and ppc64 book3s.
+// Unlocks text_base_coupling_synth (it needs Q_PAGE_OFFSET pinned to
+// propagate Q_VIRT_TEXT_BASE ↔ Q_PHYS_TEXT_BASE).
+#define PAGE_OFFSET_INVARIANT 1
+
 // XKPRANGE starts at 0x8000000000000000 (hardware direct map windows DMW0/1/2).
 // XKVRANGE starts at 0xc000000000000000 (vmalloc, modules, vmemmap).
 // XSPRANGE (0x4000000000000000) is hardware-accessible at PLV0 but unused by

@@ -23,10 +23,14 @@
 
 // PAGE_OFFSET and PHYS_OFFSET are compile-time on ppc32 (BookE
 // CONFIG_RELOCATABLE is out of KASLD scope). Mainline ppc32 has no KASLR —
-// text sits at a fixed offset within the linear map.
+// text sits at a fixed offset within the linear map. The compile-time
+// constant is the architectural guaranteed runtime value within KASLD's
+// modelled scope, so Q_PAGE_OFFSET is pinnable without evidence (same
+// shape as mips32/64 and ppc64). Unlocks text_base_coupling_synth.
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/include/asm/page.h#L240
 #define DIRECTMAP_STATIC 1
 #define TEXT_TRACKS_DIRECTMAP 1
+#define PAGE_OFFSET_INVARIANT 1
 
 #define KERNEL_VIRT_VAS_START PAGE_OFFSET
 #define KERNEL_VIRT_VAS_END 0xfffffffful
