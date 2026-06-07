@@ -96,7 +96,7 @@ jobs:
           sha256sum "${DIR}.tar.gz" > "${DIR}.tar.gz.sha256"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: kasld-${{ matrix.arch }}
           path: |
@@ -107,7 +107,7 @@ jobs:
     needs: build-release
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v5
         with:
           merge-multiple: true
 
