@@ -1212,8 +1212,11 @@ static int handle_component_line(struct component_log *clog,
    * grown geometrically — no fixed cap, so noisy components do not silently
    * lose their tail. Non-verbose runs never enter this branch and never
    * allocate. Allocation failures degrade gracefully: the line is dropped (and
-   * counts as truncated), but capture continues for subsequent lines. */
+   * counts as truncated), but capture continues for subsequent lines. clog is
+   * per-thread, so its realloc/malloc need no lock; only the shared saturation
+   * flag does (this runs from any worker thread). */
   if (clog && verbose) {
+    int dropped = 0;
     if (clog->num_lines >= clog->lines_cap) {
       int new_cap =
           clog->lines_cap ? clog->lines_cap * 2 : COMPONENT_LINES_INITIAL_CAP;
@@ -1222,7 +1225,7 @@ static int handle_component_line(struct component_log *clog,
         clog->lines = bigger;
         clog->lines_cap = new_cap;
       } else {
-        orchestrator_saturation |= ORCH_SAT_COMPONENT_LINES_DROPPED;
+        dropped = 1;
       }
     }
     if (clog->num_lines < clog->lines_cap) {
@@ -1231,8 +1234,13 @@ static int handle_component_line(struct component_log *clog,
         snprintf(copy, MAX_LINE_LEN, "%s", line);
         clog->lines[clog->num_lines++] = copy;
       } else {
-        orchestrator_saturation |= ORCH_SAT_COMPONENT_LINES_DROPPED;
+        dropped = 1;
       }
+    }
+    if (dropped) {
+      RESULT_LOCK();
+      orchestrator_saturation |= ORCH_SAT_COMPONENT_LINES_DROPPED;
+      RESULT_UNLOCK();
     }
   }
 
