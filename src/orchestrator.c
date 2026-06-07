@@ -1188,6 +1188,62 @@ static void apply_skip_filter(void) {
 }
 #endif /* !KASLD_TESTING */
 
+/* Process one component output line (content only, no trailing newline): stream
+ * it to verbose stdout, capture it into the per-component log, and feed it to
+ * the address/scalar parser. Returns the number of records tagged (0 or 1).
+ * `content` need not be NUL-terminated; exactly `len` bytes are used. Input
+ * longer than the line buffer is truncated (the parser rejects malformed
+ * lines), so the single fixed copy never overflows. Called for each complete
+ * line, the unterminated EOF tail, and an over-long line that fills the read
+ * buffer without a newline — one place, no synthetic delimiters. */
+static int handle_component_line(struct component_log *clog,
+                                 const char *comp_method, const char *origin,
+                                 const char *content, size_t len) {
+  char line[LINE_LEN];
+  if (len >= sizeof(line))
+    len = sizeof(line) - 1;
+  memcpy(line, content, len);
+  line[len] = '\0';
+
+  if (verbose && !json_output)
+    printf("%s\n", line);
+
+  /* Capture line for verbose / JSON-with-output. Allocated on first use and
+   * grown geometrically — no fixed cap, so noisy components do not silently
+   * lose their tail. Non-verbose runs never enter this branch and never
+   * allocate. Allocation failures degrade gracefully: the line is dropped (and
+   * counts as truncated), but capture continues for subsequent lines. */
+  if (clog && verbose) {
+    if (clog->num_lines >= clog->lines_cap) {
+      int new_cap =
+          clog->lines_cap ? clog->lines_cap * 2 : COMPONENT_LINES_INITIAL_CAP;
+      char **bigger = realloc(clog->lines, (size_t)new_cap * sizeof(char *));
+      if (bigger) {
+        clog->lines = bigger;
+        clog->lines_cap = new_cap;
+      } else {
+        orchestrator_saturation |= ORCH_SAT_COMPONENT_LINES_DROPPED;
+      }
+    }
+    if (clog->num_lines < clog->lines_cap) {
+      char *copy = malloc(MAX_LINE_LEN);
+      if (copy) {
+        snprintf(copy, MAX_LINE_LEN, "%s", line);
+        clog->lines[clog->num_lines++] = copy;
+      } else {
+        orchestrator_saturation |= ORCH_SAT_COMPONENT_LINES_DROPPED;
+      }
+    }
+  }
+
+  /* Origin (provenance) is the component name — captured at the orchestrator
+   * since it owns the subprocess identity. `S` lines are scalar system facts;
+   * everything else is an address record. */
+  if (line[0] == 'S')
+    return capture_scalar(line, origin);
+  return capture_result(line, comp_method, origin);
+}
+
 static int run_component(const struct component *c) {
   /* Extract explain string before execution (if --explain active or JSON) */
   char *explain_str = NULL;
@@ -1319,95 +1375,49 @@ static int run_component(const struct component *c) {
       break;
     }
 
-    /* Read available data */
-    ssize_t n = read(pipefd[0], buf + buf_pos, sizeof(buf) - buf_pos - 1);
-    int eof_flush = 0;
+    /* Read available data into the free tail of the buffer. */
+    ssize_t n = read(pipefd[0], buf + buf_pos, sizeof(buf) - buf_pos);
     if (n <= 0) {
-      /* EOF or error. Promote any unterminated tail to a synthetic final
-       * line so it reaches the per-line handler below: capture_result /
-       * capture_scalar parse-reject malformed input cleanly (return 0),
-       * which surfaces a segfault-mid-line as a recordable parse failure
-       * rather than a silent drop. The line is also streamed to verbose
-       * stdout and captured into the per-component log, matching the
-       * normal path. The synthetic '\n' fits because the read leaves at
-       * least one byte of headroom (`sizeof(buf) - buf_pos - 1` was the
-       * read length, so buf_pos < sizeof(buf) - 1 holds). */
-      if (buf_pos == 0 || buf[buf_pos - 1] == '\n')
-        break; /* nothing to flush, or already cleanly terminated */
-      buf[buf_pos++] = '\n';
-      buf[buf_pos] = '\0';
-      eof_flush = 1; /* break out after processing this final line */
-    } else {
-      buf_pos += (size_t)n;
-      buf[buf_pos] = '\0';
+      /* EOF or error. Flush any unterminated tail as a final line so it
+       * reaches the parser — which rejects malformed input cleanly (return 0),
+       * surfacing a segfault-mid-line as a recordable parse failure rather than
+       * a silent drop — plus the verbose / per-component-log path. A cleanly
+       * terminated stream ends on a newline that the loop below already
+       * consumed, leaving buf_pos == 0 and nothing to flush. */
+      if (buf_pos > 0)
+        tagged_this_run +=
+            handle_component_line(clog, comp_method, c->name, buf, buf_pos);
+      break;
     }
+    buf_pos += (size_t)n;
 
-    /* Process complete lines */
-    char *start = buf;
+    /* Hand off each complete (newline-terminated) line; the newline itself is
+     * not part of the content. memchr is length-bounded, so buf needs no NUL
+     * terminator and an embedded NUL cannot truncate a line. */
+    size_t start = 0;
     char *nl;
-    while ((nl = strchr(start, '\n')) != NULL) {
-      *nl = '\0';
-      if (verbose && !json_output)
-        printf("%s\n", start);
+    while ((nl = memchr(buf + start, '\n', buf_pos - start)) != NULL) {
+      size_t llen = (size_t)(nl - (buf + start));
+      tagged_this_run +=
+          handle_component_line(clog, comp_method, c->name, buf + start, llen);
+      start = (size_t)(nl - buf) + 1;
+    }
+    size_t left = buf_pos - start;
 
-      /* Capture line for verbose / JSON-with-output. Allocated on first use
-       * and grown geometrically — no fixed cap, so noisy components do not
-       * silently lose their tail. Non-verbose runs never enter this branch
-       * and never allocate. Allocation failures degrade gracefully: the line
-       * is dropped (and counts as truncated), but capture continues for
-       * subsequent lines. */
-      if (clog && verbose) {
-        if (clog->num_lines >= clog->lines_cap) {
-          int new_cap = clog->lines_cap ? clog->lines_cap * 2
-                                        : COMPONENT_LINES_INITIAL_CAP;
-          char **bigger =
-              realloc(clog->lines, (size_t)new_cap * sizeof(char *));
-          if (bigger) {
-            clog->lines = bigger;
-            clog->lines_cap = new_cap;
-          } else {
-            orchestrator_saturation |= ORCH_SAT_COMPONENT_LINES_DROPPED;
-          }
-        }
-        if (clog->num_lines < clog->lines_cap) {
-          char *copy = malloc(MAX_LINE_LEN);
-          if (copy) {
-            snprintf(copy, MAX_LINE_LEN, "%s", start);
-            clog->lines[clog->num_lines++] = copy;
-          } else {
-            orchestrator_saturation |= ORCH_SAT_COMPONENT_LINES_DROPPED;
-          }
-        }
-      }
-
-      /* Re-add newline for capture (region newline stripped in capture_result)
-       */
-      *nl = '\n';
-      char line[LINE_LEN];
-      size_t llen = (size_t)(nl - start + 1);
-      if (llen < sizeof(line)) {
-        memcpy(line, start, llen);
-        line[llen] = '\0';
-        /* Origin (provenance) is the component name — captured at the
-         * orchestrator since it owns the subprocess identity. `S` lines are
-         * scalar system facts; everything else is an address record. */
-        if (line[0] == 'S')
-          tagged_this_run += capture_scalar(line, c->name);
-        else
-          tagged_this_run += capture_result(line, comp_method, c->name);
-      }
-
-      start = nl + 1;
+    /* A line longer than the whole buffer has no newline to split on — the
+     * only way `left` can reach the buffer size. Flush the buffered prefix as a
+     * (truncated) line so the reader makes progress instead of stalling on a
+     * zero-length read, then keep reading the rest of the line. */
+    if (left == sizeof(buf)) {
+      tagged_this_run +=
+          handle_component_line(clog, comp_method, c->name, buf, left);
+      left = 0;
     }
 
-    /* Shift remaining partial line to front of buffer */
-    size_t left = buf_pos - (size_t)(start - buf);
-    if (left > 0)
-      memmove(buf, start, left);
+    /* Shift any remaining partial line to the front of the buffer. */
+    if (left > 0 && start > 0)
+      memmove(buf, buf + start, left);
     buf_pos = left;
-
-    if (eof_flush)
-      break; /* EOF tail was just flushed as a synthetic final line */
   }
 
   close(pipefd[0]);
