@@ -58,7 +58,7 @@ jobs:
           # Add when available or mirror a custom-built one.
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Download musl cross-compiler
         run: |
