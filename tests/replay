@@ -5,9 +5,10 @@
 # fixtures.
 #
 # For each fixture under tests/fixtures/<arch>/<host>/, reconstruct a scratch
-# sysroot from its captured filesystem state and run `kasld -v` over it. The
-# check is that kasld RUNS to completion — parses the fixture, resolves the
-# engine, renders a summary — without crashing. There is no in-process oracle to
+# sysroot from its captured filesystem state and run `kasld -v` over it, then
+# re-run with -H / -H -m / -H -j to sweep the hardening renderers. The check is
+# that kasld RUNS to completion — parses the fixture, resolves the engine,
+# renders the summary and the hardening assessment — without crashing. There is no in-process oracle to
 # diff against and no stored golden master: the committed fixture is just
 # sysroot/ + meta.txt + sizes.txt, and nothing depends on the volatile verbose
 # output. Truth-containment and per-rule soundness are covered by the pure unit
@@ -192,16 +193,44 @@ run_fixture() {
     "$sc/replay.txt" 2>/dev/null || true)
   n_results=$(grep -cE '^[VPD] ' "$sc/replay.txt" 2>/dev/null || true)
 
+  # Hardening sweep: re-run with -H (text), -H -m (markdown) and -H -j (json).
+  # All three render the assessment through the shared build_hardening_report()
+  # model, so this is the only per-arch, real-fixture coverage of those paths —
+  # it catches an emulation crash (signal) or a relocation/codegen artifact that
+  # the host-only renderer unit tests cannot. Each must finish without a signal
+  # (rc < 128) and emit its hardening section header. Skipped if the main run
+  # already crashed.
+  hard_fail=""
+  if [ "$rc" -lt 128 ]; then
+    for hflags in "-H" "-H -m" "-H -j"; do
+      QEMU_UNAME="$release" KASLD_UNAME_RELEASE="$release" KASLD_SYSROOT="$sc/r" \
+        KASLD_COMPONENT_DIR="$comps" KASLD_EXEC_WRAPPER="$runner" \
+        $runner "$kasld" $hflags > "$sc/hard.txt" 2>/dev/null
+      hrc=$?
+      if [ "$hrc" -ge 128 ]; then
+        hard_fail="$hflags signal $((hrc - 128))"
+        break
+      fi
+      if ! grep -qE 'Hardening Assessment|"hardening"' "$sc/hard.txt"; then
+        hard_fail="$hflags no hardening section"
+        break
+      fi
+    done
+  fi
+
   if [ "$rc" -ge 128 ]; then
     printf 'FAIL  %-44s (crashed under emulation: signal %d)\n' \
       "$name" "$((rc - 128))"
     echo fail >"$st"
+  elif [ -n "$hard_fail" ]; then
+    printf 'FAIL  %-44s (hardening sweep: %s)\n' "$name" "$hard_fail"
+    echo fail >"$st"
   elif [ "$has_summary" -gt 0 ]; then
-    printf 'PASS  %-44s rc=%d, %d results, summary rendered\n' \
+    printf 'PASS  %-44s rc=%d, %d results, summary + hardening rendered\n' \
       "$name" "$rc" "$n_results"
     echo pass >"$st"
   else
-    printf 'PASS  %-44s rc=%d, no results\n' "$name" "$rc"
+    printf 'PASS  %-44s rc=%d, no results, hardening rendered\n' "$name" "$rc"
     echo pass >"$st"
   fi
 
