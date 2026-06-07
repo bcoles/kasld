@@ -9,16 +9,17 @@ on:
 jobs:
   check:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        path:
-          - 'src'
-          - 'tests'
     steps:
     - uses: actions/checkout@v6
-    - name: Run clang-format style check
+    - name: clang-format (src)
       uses: jidicula/clang-format-action@v4.18.0
       with:
         clang-format-version: '21'
-        check-path: ${{ matrix.path }}
+        check-path: src
+        only-changed-files: true
+    - name: clang-format (tests)
+      uses: jidicula/clang-format-action@v4.18.0
+      with:
+        clang-format-version: '21'
+        check-path: tests
         only-changed-files: true
