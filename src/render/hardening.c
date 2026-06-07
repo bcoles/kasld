@@ -44,7 +44,10 @@ static const struct sysctl_gate gates[GATE__COUNT] = {
 static const int ngates = GATE__COUNT;
 
 static int sysctl_gate_active(const struct sysctl_gate *g) {
-  return *g->value_ptr >= 0 && *g->value_ptr >= g->threshold;
+  /* value_ptr can be NULL if its static-PIE relocation was not applied at load
+   * (observed on riscv64 under qemu-user); treat an unreadable gate as inactive
+   * rather than dereferencing NULL. */
+  return g->value_ptr && *g->value_ptr >= 0 && *g->value_ptr >= g->threshold;
 }
 
 /* Check if a component's sysctl meta matches a given gate */
@@ -70,17 +73,6 @@ static int has_mitigation_keys(const struct component_meta *m) {
       return 1;
   }
   return 0;
-}
-
-/* KASLR entropy (bits) restored if the named sysctl knob is closed, from the
- * counterfactual plan the orchestrator publishes; -1 when the plan has no entry
- * (closing it yields no measured gain). Keyed by the bare sysctl name, matching
- * gate.name. */
-static int hardening_bits_for(const char *sysctl_name) {
-  for (int i = 0; i < hardening_plan_count; i++)
-    if (strcmp(hardening_plan[i].knob, sysctl_name) == 0)
-      return hardening_plan[i].virt_bits + hardening_plan[i].phys_bits;
-  return -1;
 }
 
 void render_hardening_text(void) {
@@ -160,7 +152,7 @@ void render_hardening_text(void) {
   int any_active = 0;
 
   for (int g = 0; g < ngates; g++) {
-    if (*gates[g].value_ptr < 0)
+    if (!gates[g].value_ptr || *gates[g].value_ptr < 0)
       continue; /* sysctl unavailable */
 
     int active = sysctl_gate_active(&gates[g]);
@@ -269,25 +261,14 @@ void render_hardening_text(void) {
 
   printf("\n");
 
-  /* ---- Section 2: Available Hardening (each action annotated with the KASLR
-   * entropy it restores, from the counterfactual plan, ranked most-first) ----
-   */
+  /* ---- Section 2: Available Hardening ---- */
   printf("%sAvailable hardening:%s\n", c(C_BOLD), c(C_RESET));
 
-  /* Collect the candidate actions, each with the KASLR entropy it restores
-   * (matched to the counterfactual plan by sysctl knob; qualitative actions
-   * carry no figure), then rank measured-highest-first. */
-  struct hsugg {
-    char action[120];
-    char detail[160];
-    int bits; /* total KASLR bits restored; -1 = no measured figure */
-  };
-  struct hsugg sg[GATE__COUNT + 4];
-  int nsg = 0;
-  const int sg_max = (int)(sizeof(sg) / sizeof(sg[0]));
+  int any_suggestions = 0;
 
-  for (int g = 0; g < ngates && nsg < sg_max; g++) {
-    if (*gates[g].value_ptr < 0 || sysctl_gate_active(&gates[g]))
+  for (int g = 0; g < ngates; g++) {
+    if (!gates[g].value_ptr || *gates[g].value_ptr < 0 ||
+        sysctl_gate_active(&gates[g]))
       continue; /* unavailable or already active */
     int gated = 0;
     for (int i = 0; i < num_comp_logs; i++)
@@ -295,31 +276,26 @@ void render_hardening_text(void) {
         gated++;
     if (gated == 0)
       continue;
-    int bits = hardening_bits_for(gates[g].name);
-    snprintf(sg[nsg].action, sizeof(sg[nsg].action), "Set %s = %d",
-             gates[g].display, gates[g].threshold);
-    snprintf(sg[nsg].detail, sizeof(sg[nsg].detail), "affects %d component%s",
-             gated, gated == 1 ? "" : "s");
-    sg[nsg].bits = bits;
-    nsg++;
+    any_suggestions = 1;
+    printf("  %s\xe2\x86\x92%s Set %s = %d\n", c(C_CYAN), c(C_RESET),
+           gates[g].display, gates[g].threshold);
+    printf("    affects %d component%s\n", gated, gated == 1 ? "" : "s");
   }
 
-  if (sysctl_lockdown < LOCKDOWN_INTEGRITY && nsg < sg_max) {
+  if (sysctl_lockdown < LOCKDOWN_INTEGRITY) {
     int lockdown_gated = 0;
     for (int i = 0; i < num_comp_logs; i++)
       if (meta_get(&comp_logs[i].meta, "lockdown"))
         lockdown_gated++;
     if (lockdown_gated > 0) {
-      snprintf(sg[nsg].action, sizeof(sg[nsg].action),
-               "Enable kernel lockdown (integrity mode)");
-      snprintf(sg[nsg].detail, sizeof(sg[nsg].detail),
-               "blocks klogctl() even with CAP_SYSLOG");
-      sg[nsg].bits = -1;
-      nsg++;
+      any_suggestions = 1;
+      printf("  %s\xe2\x86\x92%s Enable kernel lockdown (integrity mode)\n",
+             c(C_CYAN), c(C_RESET));
+      printf("    blocks klogctl() even with CAP_SYSLOG\n");
     }
   }
 
-  if (sysctl_dmesg_restrict >= 1 && nsg < sg_max) {
+  if (sysctl_dmesg_restrict >= 1) {
     int fallback_bypassed = 0;
     for (int i = 0; i < num_comp_logs; i++) {
       if (comp_logs[i].outcome != OUTCOME_SUCCESS)
@@ -330,47 +306,16 @@ void render_hardening_text(void) {
         fallback_bypassed++;
     }
     if (fallback_bypassed > 0) {
-      snprintf(sg[nsg].action, sizeof(sg[nsg].action),
-               "Restrict dmesg fallback files to root");
-      snprintf(sg[nsg].detail, sizeof(sg[nsg].detail),
-               "%d dmesg component%s may have succeeded via log files",
-               fallback_bypassed, fallback_bypassed == 1 ? "" : "s");
-      sg[nsg].bits = -1;
-      nsg++;
+      any_suggestions = 1;
+      printf("  %s\xe2\x86\x92%s Restrict dmesg fallback files to root\n",
+             c(C_CYAN), c(C_RESET));
+      printf("    %d dmesg component%s may have succeeded via log files\n",
+             fallback_bypassed, fallback_bypassed == 1 ? "" : "s");
     }
   }
 
-  /* Rank: measured-entropy actions first (highest bits), qualitative after;
-   * stable insertion sort. */
-  for (int i = 1; i < nsg; i++) {
-    struct hsugg cur = sg[i];
-    int j = i - 1;
-    while (j >= 0) {
-      int cur_first;
-      if (cur.bits >= 0 && sg[j].bits < 0)
-        cur_first = 1;
-      else if (cur.bits >= 0 && sg[j].bits >= 0)
-        cur_first = cur.bits > sg[j].bits;
-      else
-        cur_first = 0;
-      if (!cur_first)
-        break;
-      sg[j + 1] = sg[j];
-      j--;
-    }
-    sg[j + 1] = cur;
-  }
-
-  if (nsg == 0) {
+  if (!any_suggestions)
     printf("  All available runtime hardening is active.\n");
-  } else {
-    for (int i = 0; i < nsg; i++) {
-      printf("  %s\xe2\x86\x92%s %s", c(C_CYAN), c(C_RESET), sg[i].action);
-      if (sg[i].bits >= 0)
-        printf("  %s(+%d bits KASLR)%s", c(C_GREEN), sg[i].bits, c(C_RESET));
-      printf("\n    %s\n", sg[i].detail);
-    }
-  }
 
   printf("\n");
 
@@ -659,7 +604,7 @@ void render_hardening_json(void) {
   printf("    \"active_defenses\": [\n");
   int first_def = 1;
   for (int g = 0; g < ngates; g++) {
-    if (*gates[g].value_ptr < 0)
+    if (!gates[g].value_ptr || *gates[g].value_ptr < 0)
       continue;
     int active = sysctl_gate_active(&gates[g]);
 
@@ -746,7 +691,7 @@ void render_hardening_json(void) {
   printf("    \"available_hardening\": [\n");
   int first_sug = 1;
   for (int g = 0; g < ngates; g++) {
-    if (*gates[g].value_ptr < 0)
+    if (!gates[g].value_ptr || *gates[g].value_ptr < 0)
       continue;
     if (sysctl_gate_active(&gates[g]))
       continue;
@@ -762,16 +707,10 @@ void render_hardening_json(void) {
       printf(",\n");
     first_sug = 0;
 
-    int bits = hardening_bits_for(gates[g].name);
-
     printf("      {\n");
     printf("        \"action\": \"Set %s = %d\",\n", gates[g].display,
            gates[g].threshold);
     printf("        \"impact\": %d,\n", gated);
-    if (bits >= 0)
-      printf("        \"kaslr_bits_restored\": %d,\n", bits);
-    else
-      printf("        \"kaslr_bits_restored\": null,\n");
     printf("        \"detail\": \"Blocks unprivileged access for %d "
            "component%s\"\n",
            gated, gated == 1 ? "" : "s");
@@ -792,7 +731,6 @@ void render_hardening_json(void) {
       printf("        \"action\": \"Enable kernel lockdown (integrity mode)\","
              "\n");
       printf("        \"impact\": %d,\n", lockdown_gated);
-      printf("        \"kaslr_bits_restored\": null,\n");
       printf("        \"detail\": \"Blocks klogctl() even with CAP_SYSLOG\"\n");
       printf("      }");
     }

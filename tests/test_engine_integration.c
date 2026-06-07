@@ -24,7 +24,6 @@
 
 #include <assert.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 
 static void add_addr(struct engine *e, enum kasld_addr_type type,
@@ -477,125 +476,6 @@ static void test_full_engine_initrd_above_kernel_upper_bound(void) {
 #endif
 }
 
-/* ── Counterfactual "hardening plan" prototype ──────────────────────────────
- * Inverts the corroboration map: for each component origin that supplies
- * evidence, re-resolve the FULL registry with that origin's observations
- * removed and measure the KASLR entropy (bits) restored on Q_PHYS_TEXT_BASE.
- * Sound because the engine is monotone — removing evidence can only widen — so
- * "bits restored" is exact, not estimated. Demonstrates which channel is
- * load-bearing (silence it, regain entropy) vs redundant (no change while a
- * tighter source is present). */
-static void cf_add_addr(struct engine *e, enum kasld_addr_type type,
-                        enum kasld_region region, unsigned long lo,
-                        unsigned long hi, const char *name, const char *origin,
-                        const char *skip) {
-  if (skip && strcmp(origin, skip) == 0)
-    return;
-  struct observation o;
-  memset(&o, 0, sizeof(o));
-  o.value_kind = OBS_ADDRESS;
-  o.type = type;
-  o.region = region;
-  o.lo = lo;
-  o.sample = lo;
-  o.set_mask = LO_SET | SAMPLE_SET;
-  if (hi) {
-    o.hi = hi;
-    o.set_mask |= HI_SET;
-  }
-  o.pos = POS_BASE;
-  o.conf = CONF_PARSED;
-  if (name)
-    snprintf(o.name, NAME_LEN, "%s", name);
-  snprintf(o.origin, ORIGIN_LEN, "%s", origin);
-  evidence_add(&e->ev, &o);
-}
-
-static void cf_add_scalar(struct engine *e, enum kasld_scalar_fact f,
-                          unsigned long v, const char *origin,
-                          const char *skip) {
-  if (skip && strcmp(origin, skip) == 0)
-    return;
-  struct observation o;
-  memset(&o, 0, sizeof(o));
-  o.value_kind = OBS_SCALAR;
-  o.scalar_fact = f;
-  o.scalar_value = v;
-  o.conf = CONF_PARSED;
-  snprintf(o.origin, ORIGIN_LEN, "%s", origin);
-  evidence_add(&e->ev, &o);
-}
-
-/* Build a consistent x86_64 phys-leak scenario, omitting one origin's evidence
- * (skip == NULL keeps everything), and run the full registry. */
-static void cf_build(struct engine *e, const char *skip) {
-  engine_init(e);
-  const unsigned long P = 0x10000000ul; /* true phys base, 256 MiB */
-  cf_add_addr(e, KASLD_TYPE_PHYS, REGION_KERNEL_TEXT, P, 0, "_stext",
-              "proc_iomem_kernel", skip); /* the tight kernel locator */
-  cf_add_addr(e, KASLD_TYPE_PHYS, REGION_RAM, 0x0ul, 0x7ffffffful, NULL,
-              "firmware_memmap", skip);
-  cf_add_scalar(e, SF_PHYS_MEMTOTAL, 0x80000000ul, "meminfo_facts", skip);
-  cf_add_scalar(e, SF_PHYS_ADDR_BITS, 46, "cpuinfo_facts", skip);
-  /* Always-present supporting facts (never silenced in the loop below). */
-  cf_add_scalar(e, SF_IMAGE_SIZE, 0x1400000ul, "kernel_image_facts", NULL);
-  cf_add_scalar(e, SF_PHYS_KERNEL_ALIGN, 0x200000ul, "boot_params_facts", NULL);
-  int nr = 0, nv = 0;
-  const rule_fn *rules = engine_rules(&nr);
-  const verdict_fn *vrules = engine_verdict_rules(&nv);
-  engine_run_full(e, rules, nr, vrules, nv);
-}
-
-static int cf_phys_bits(const struct engine *e) {
-  unsigned long align = e->est[Q_PHYS_KASLR_ALIGN].lo;
-  unsigned long slots =
-      quantity_slots(Q_PHYS_TEXT_BASE, &e->est[Q_PHYS_TEXT_BASE],
-                     e->constraints, e->n_constraints, align);
-  int b = 0;
-  while (slots > 1) {
-    slots >>= 1;
-    b++;
-  }
-  return b;
-}
-
-static void test_full_engine_x86_64_counterfactual_hardening(void) {
-#if defined(__x86_64__)
-  struct engine e;
-  cf_build(&e, NULL);
-  int b0 = cf_phys_bits(&e);
-
-  /* Reference: same registry, zero evidence — the honest arch-default window.
-   */
-  struct engine top;
-  engine_init(&top);
-  int nr = 0, nv = 0;
-  const rule_fn *rules = engine_rules(&nr);
-  const verdict_fn *vrules = engine_verdict_rules(&nv);
-  engine_run_full(&top, rules, nr, vrules, nv);
-  int btop = cf_phys_bits(&top);
-  assert(b0 < btop); /* the leaks actually narrowed phys entropy */
-
-  const char *origins[] = {"proc_iomem_kernel", "firmware_memmap",
-                           "meminfo_facts", "cpuinfo_facts"};
-  int restored[4];
-  for (int i = 0; i < 4; i++) {
-    struct engine c;
-    cf_build(&c, origins[i]);
-    restored[i] = cf_phys_bits(&c) - b0;
-    assert(restored[i] >= 0); /* monotone: removing evidence only widens */
-    if (!getenv("TEST_QUIET"))
-      fprintf(stderr, "    [cf] silence %-18s phys_text +%d bits\n", origins[i],
-              restored[i]);
-  }
-  /* The kernel-locating channel is load-bearing; the loose ceilings are
-   * redundant while it is present. */
-  assert(restored[0] > 0);            /* proc_iomem_kernel restores entropy */
-  assert(restored[0] >= restored[2]); /* >= memtotal ceiling (redundant ~0) */
-  assert(restored[0] >= restored[3]); /* >= addr-bits ceiling (redundant ~0) */
-#endif
-}
-
 int main(void) {
   TEST_SUITE("test_engine_integration");
 
@@ -609,7 +489,6 @@ int main(void) {
   RUN(test_full_engine_ppc_kernel_end_tightens);
   RUN(test_full_engine_ppc_memory_limit_caps_dram);
   RUN(test_full_engine_initrd_above_kernel_upper_bound);
-  RUN(test_full_engine_x86_64_counterfactual_hardening);
 
   return TEST_DONE();
 }
