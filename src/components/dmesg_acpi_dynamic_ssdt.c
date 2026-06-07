@@ -109,7 +109,7 @@ static int on_match(const char *line, void *ctx) {
   /* Direct-map addresses land between PAGE_OFFSET (VAS upper-half start)
    * and KERNEL_VIRT_TEXT_MIN (start of kernel text region). Physical addresses
    * printed for static tables are well below PAGE_OFFSET and get rejected. */
-  if (addr < PAGE_OFFSET || addr >= KERNEL_VIRT_TEXT_MIN)
+  if (!kasld_addr_is_directmap(addr))
     return 1;
 
   /* Capture OEM table id (e.g. "Cpu0Ist", "ApCst") for the result label.

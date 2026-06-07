@@ -114,7 +114,7 @@ static unsigned long get_kernel_addr_iscsi_iser_transport(void) {
 
   addr = strtoul(buff, &endptr, 10);
 
-  if (addr >= KERNEL_VIRT_TEXT_MIN && addr <= KERNEL_VIRT_TEXT_MAX)
+  if (kasld_addr_is_kernel_text(addr))
     return addr;
 
   return 0;
@@ -151,7 +151,7 @@ static unsigned long get_kernel_addr_iscsi_sw_tcp_transport(void) {
 
   addr = strtoul(buff, &endptr, 10);
 
-  if (addr >= KERNEL_VIRT_VAS_START && addr <= KERNEL_VIRT_VAS_END)
+  if (kasld_addr_is_kernel_vas(addr))
     return addr;
 
   return 0;

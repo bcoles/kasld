@@ -111,7 +111,7 @@ static unsigned long get_kernel_addr_mincore(void) {
     for (n = 0; n < page / sizeof(unsigned char); n++) {
       addr = *(unsigned long *)(&buf[n]);
       /* Kernel address space */
-      if (addr >= KERNEL_VIRT_TEXT_MIN && addr <= KERNEL_VIRT_TEXT_MAX) {
+      if (kasld_addr_is_kernel_text(addr)) {
         if (munmap((void *)0x66000000, len))
           perror("[-] munmap");
         free(buf);

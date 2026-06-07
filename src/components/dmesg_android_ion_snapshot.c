@@ -69,7 +69,7 @@ static int on_match(const char *line, void *ctx) {
   char *endptr;
   unsigned long addr = strtoul(p + strlen(needle2), &endptr, 16);
 
-  if (addr >= KERNEL_VIRT_TEXT_MIN && addr <= KERNEL_VIRT_TEXT_MAX) {
+  if (kasld_addr_is_kernel_text(addr)) {
     *result = addr;
     return 0;
   }

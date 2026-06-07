@@ -103,7 +103,7 @@ static int on_calltrace(const char *line, void *ctx) {
     if (!addr)
       continue;
 
-    if (addr >= KERNEL_VIRT_TEXT_MIN && addr <= KERNEL_VIRT_TEXT_MAX) {
+    if (kasld_addr_is_kernel_text(addr)) {
       if (!c->text || addr < c->text)
         c->text = addr;
     }

@@ -162,7 +162,7 @@ static unsigned long get_kernel_addr_pppd_kallsyms(void) {
 
   addr = strtoul(&addr_buf[1], &endptr, 16);
 
-  if (addr >= KERNEL_VIRT_TEXT_MIN && addr <= KERNEL_VIRT_TEXT_MAX)
+  if (kasld_addr_is_kernel_text(addr))
     return addr;
 
   return 0;

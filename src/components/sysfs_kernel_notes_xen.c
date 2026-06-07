@@ -177,16 +177,15 @@ int main(void) {
         unsigned long addr;
         memcpy(&addr, desc, sizeof addr);
 
-        if (type == XEN_ELFNOTE_ENTRY && addr >= KERNEL_VIRT_TEXT_MIN &&
-            addr <= KERNEL_VIRT_TEXT_MAX)
+        if (type == XEN_ELFNOTE_ENTRY && kasld_addr_is_kernel_text(addr))
           xen_entry = addr;
 
         if (type == XEN_ELFNOTE_HYPERCALL_PAGE &&
-            addr >= KERNEL_VIRT_TEXT_MIN && addr <= KERNEL_VIRT_TEXT_MAX)
+            kasld_addr_is_kernel_text(addr))
           xen_hypercall = addr;
 
-        if (type == XEN_ELFNOTE_PHYS32_ENTRY && addr >= KERNEL_PHYS_MIN &&
-            addr <= KERNEL_PHYS_MAX)
+        if (type == XEN_ELFNOTE_PHYS32_ENTRY &&
+            kasld_addr_in_range(addr, KERNEL_PHYS_MIN, KERNEL_PHYS_MAX))
           xen_phys32 = addr;
       }
 
@@ -204,7 +203,7 @@ int main(void) {
       unsigned long val;
       memcpy(&val, desc, sizeof val);
 
-      if (val >= KERNEL_VIRT_TEXT_MIN && val <= KERNEL_VIRT_TEXT_MAX) {
+      if (kasld_addr_is_kernel_text(val)) {
         printf("[+] found kernel address in %s note (type %u): %lx\n", name,
                type, val);
         snprintf(label, sizeof label, "%.40s", name);
@@ -286,7 +285,7 @@ int main(void) {
          * The hardware physical load address is independently randomized
          * and is not recoverable from this note. */
         unsigned long virt = KERNEL_VIRT_TEXT_MIN + xen_phys32;
-        if (virt >= KERNEL_VIRT_TEXT_MIN && virt <= KERNEL_VIRT_TEXT_MAX) {
+        if (kasld_addr_is_kernel_text(virt)) {
           printf("[+] Xen PHYS32_ENTRY -> virtual: %lx\n", virt);
           kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, virt,
                               "pvh_start_xen", CONF_PARSED);

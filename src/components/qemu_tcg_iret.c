@@ -181,7 +181,7 @@ static uint64_t get_kernel_stack_addr_using_qemu_tcg_iret(void) {
     kaslr();
   }
 
-  if (kbase >= KERNEL_VIRT_TEXT_MIN && kbase <= KERNEL_VIRT_TEXT_MAX) {
+  if (kasld_addr_is_kernel_text(kbase)) {
     printf("leaked kernel stack address: %lx\n", kbase);
     return kbase;
   }

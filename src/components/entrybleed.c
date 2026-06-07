@@ -322,7 +322,7 @@ static uint64_t leak_syscall_entry(uint64_t offset) {
     // printf("%llx %ld\n", (SCAN_START + index * STEP), data[index]);
   }
 
-  if (addr >= KERNEL_VIRT_TEXT_MIN && addr <= KERNEL_VIRT_TEXT_MAX)
+  if (kasld_addr_is_kernel_text(addr))
     return addr - offset;
 
   return 0;
@@ -369,7 +369,7 @@ static unsigned long get_kernel_addr_entrybleed(void) {
     }
   }
 
-  if (addr >= KERNEL_VIRT_TEXT_MIN && addr <= KERNEL_VIRT_TEXT_MAX)
+  if (kasld_addr_is_kernel_text(addr))
     return addr;
 
   return 0;

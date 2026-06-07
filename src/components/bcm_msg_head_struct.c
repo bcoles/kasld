@@ -166,7 +166,7 @@ static unsigned long get_kernel_addr_from_bcm_msg_head_struct(void) {
 
   addr = strtoul(addrs, &endptr, 16);
 
-  if (addr >= KERNEL_VIRT_TEXT_MIN && addr <= KERNEL_VIRT_TEXT_MAX)
+  if (kasld_addr_is_kernel_text(addr))
     return addr;
 #else
   (void)buf;

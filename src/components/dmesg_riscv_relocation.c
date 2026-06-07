@@ -91,7 +91,7 @@ static int on_match(const char *line, void *ctx) {
 
   unsigned long addr = strtoul(p + strlen(needle), &endptr, 16);
 
-  if (addr && addr >= KERNEL_VIRT_TEXT_MIN && addr <= KERNEL_VIRT_TEXT_MAX) {
+  if (addr && kasld_addr_is_kernel_text(addr)) {
     if (!*lowest || addr < *lowest)
       *lowest = addr;
   }

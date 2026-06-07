@@ -86,7 +86,8 @@ int rule_kernel_image_phys_bound(const struct evidence_set *ev,
     if (!is_kernel_locating_region(o->eff_region))
       continue;
     unsigned long a = obs_anchor(o);
-    if (a < MIN_PLAUSIBLE_KERNEL_PHYS || a > MAX_PLAUSIBLE_KERNEL_PHYS)
+    if (!kasld_addr_in_range(a, MIN_PLAUSIBLE_KERNEL_PHYS,
+                             MAX_PLAUSIBLE_KERNEL_PHYS))
       continue;
     if (a < lo_raw)
       lo_raw = a;

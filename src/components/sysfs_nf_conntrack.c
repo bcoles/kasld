@@ -85,7 +85,7 @@ static unsigned long get_kernel_addr_conntrack(void) {
 
     addr = strtoul(&substr[strlen(needle)], &endptr, 16);
 
-    if (addr >= KERNEL_VIRT_VAS_START && addr <= KERNEL_VIRT_VAS_END)
+    if (kasld_addr_is_kernel_vas(addr))
       break;
 
     addr = 0;

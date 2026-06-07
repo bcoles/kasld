@@ -344,7 +344,7 @@ static unsigned long analyze_histograms(void) {
     addr &= ~(KASLR_VIRT_ALIGN - 1);
 
     /* Validate against expected kernel text range */
-    if (addr >= KERNEL_VIRT_TEXT_MIN && addr < KERNEL_VIRT_TEXT_MAX)
+    if (kasld_addr_is_kernel_text(addr))
       return addr;
   }
 

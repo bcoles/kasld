@@ -92,12 +92,11 @@ int main(void) {
     if (len < (ptrdiff_t)(sizeof(void *) * 2))
       continue;
 
-    /* Direct-map range: PAGE_OFFSET to start of kernel text.
-     * On 32-bit or coupled arches PAGE_OFFSET == KERNEL_VIRT_TEXT_MIN;
-     * accept any kernel VA in that case. */
-    int in_dmap = (val >= PAGE_OFFSET && val < KERNEL_VIRT_TEXT_MIN);
-    int in_kvas = (!in_dmap && val >= KERNEL_VIRT_VAS_START &&
-                   val <= KERNEL_VIRT_VAS_END);
+    /* Direct-map range: PAGE_OFFSET to start of kernel text. On 32-bit or
+     * coupled arches the window is empty (PAGE_OFFSET == KERNEL_VIRT_TEXT_MIN),
+     * so in_dmap is 0 and the in_kvas fallback accepts any kernel VA. */
+    int in_dmap = kasld_addr_is_directmap(val);
+    int in_kvas = (!in_dmap && kasld_addr_is_kernel_vas(val));
 
     if (in_dmap || in_kvas) {
       printf("timer base address: 0x%016lx\n", val);

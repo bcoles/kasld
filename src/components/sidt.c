@@ -158,7 +158,7 @@ static int is_fixmap_region(unsigned long addr) {
 }
 
 static int is_kernel_text_region(unsigned long addr) {
-  return addr >= KERNEL_VIRT_TEXT_MIN && addr < KERNEL_VIRT_TEXT_MAX;
+  return kasld_addr_is_kernel_text(addr);
 }
 
 #endif

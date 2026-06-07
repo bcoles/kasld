@@ -116,7 +116,7 @@ int main(void) {
     /* Must be in the direct-map region: at or above PAGE_OFFSET, below
      * kernel text. Rejects physical-range values on systems where
      * SetVirtualAddressMap was never called or used identity mapping. */
-    if (virt < PAGE_OFFSET || virt >= KERNEL_VIRT_TEXT_MIN)
+    if (!kasld_addr_is_directmap(virt))
       continue;
 
     snprintf(path, sizeof(path), "%s/%s/phys_addr", base, ent->d_name);
@@ -139,8 +139,9 @@ int main(void) {
 
     /* virt_page_offset_base = virt - phys for any direct-map entry */
     unsigned long virt_page_offset = virt - phys;
-    if (virt_page_offset < KERNEL_VIRT_VAS_START ||
-        virt_page_offset >= KERNEL_VIRT_TEXT_MIN)
+    if (!kasld_addr_in_window(virt_page_offset,
+                              (unsigned long)KERNEL_VIRT_VAS_START,
+                              (unsigned long)KERNEL_VIRT_TEXT_MIN))
       continue;
 
     printf("EFI runtime entry %s: virt=0x%016lx phys=0x%016lx"

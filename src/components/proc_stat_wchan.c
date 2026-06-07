@@ -97,7 +97,7 @@ static unsigned long get_kernel_addr_proc_stat_wchan(void) {
   while (ptr != NULL) {
     if (field == 34) {
       addr = strtoul(ptr, &endptr, 10);
-      if (addr < KERNEL_VIRT_TEXT_MIN || addr > KERNEL_VIRT_TEXT_MAX)
+      if (!kasld_addr_is_kernel_text(addr))
         addr = 0;
       break;
     }

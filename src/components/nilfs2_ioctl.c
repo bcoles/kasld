@@ -164,7 +164,7 @@ static unsigned long try_leak(int nilfs_fd) {
          off += sizeof(unsigned long)) {
       unsigned long val;
       memcpy(&val, entry + off, sizeof(val));
-      if (val >= KERNEL_VIRT_TEXT_MIN && val <= KERNEL_VIRT_TEXT_MAX) {
+      if (kasld_addr_is_kernel_text(val)) {
         addr = val;
         free(buf);
         return addr;

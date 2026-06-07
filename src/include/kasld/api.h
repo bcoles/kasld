@@ -291,15 +291,61 @@ static inline unsigned long kasld_xkphys_to_phys(unsigned long va) {
                                                     marker[63:62]+CCA[61:59] */
 }
 
+/* Predicate: is `addr` in the half-open window [lo, hi)? Returns 0 for an empty
+ * or inverted window (lo >= hi). Predicate: is `addr` in the closed range
+ * [lo, hi]?  Both take the bounds as parameters on purpose: a per-arch bound
+ * that folds to 0 / the type's max (e.g. PAGE_OFFSET, MODULES_START) would
+ * otherwise turn the comparison into a compile-time tautology at the call site
+ * (-Wlogical-op / -Wtype-limits). Routing the per-arch window checks through
+ * these helpers keeps them honest and centralises the empty-window degradation.
+ * Pure arithmetic; safe in any TU. */
+static inline int kasld_addr_in_window(unsigned long addr, unsigned long lo,
+                                       unsigned long hi) {
+  return lo < hi && addr >= lo && addr < hi;
+}
+static inline int kasld_addr_in_range(unsigned long addr, unsigned long lo,
+                                      unsigned long hi) {
+  return addr >= lo && addr <= hi;
+}
+
 /* Predicate: is `va` plausibly inside the kernel module region on this arch?
  *
  * Wraps the MODULES_START/END validation union (see CONTRACT in kasld.h).
  * Used by components that classify leaked addresses as module-region
  * (proc_modules, sysfs_module_sections, dmesg-parsers). Centralising the
  * check here means the per-arch widening / future per-version handling
- * lives in one place rather than four. Pure arithmetic; safe in any TU. */
+ * lives in one place rather than four. */
 static inline int kasld_addr_is_module_region(unsigned long va) {
-  return va >= (unsigned long)MODULES_START && va <= (unsigned long)MODULES_END;
+  return kasld_addr_in_range(va, (unsigned long)MODULES_START,
+                             (unsigned long)MODULES_END);
+}
+
+/* Predicate: is `va` plausibly a kernel direct-map (lowmem) address — in
+ * [PAGE_OFFSET, KERNEL_VIRT_TEXT_MIN)? On coupled/inverted arches where the
+ * direct map and kernel text meet or cross, the window is empty, so those
+ * arches naturally yield no direct-map match (they have a fixed, non-randomised
+ * page_offset and nothing to leak here). */
+static inline int kasld_addr_is_directmap(unsigned long va) {
+  return kasld_addr_in_window(va, (unsigned long)PAGE_OFFSET,
+                              (unsigned long)KERNEL_VIRT_TEXT_MIN);
+}
+
+/* Predicate: is `va` in the kernel text window [KERNEL_VIRT_TEXT_MIN,
+ * KERNEL_VIRT_TEXT_MAX]? The closed upper bound matches the "maximum plausible
+ * kernel text address" contract (kasld.h) and the module/directmap predicates:
+ * a leaked virtual address is plausibly kernel text when it lands here. */
+static inline int kasld_addr_is_kernel_text(unsigned long va) {
+  return kasld_addr_in_range(va, (unsigned long)KERNEL_VIRT_TEXT_MIN,
+                             (unsigned long)KERNEL_VIRT_TEXT_MAX);
+}
+
+/* Predicate: is `va` anywhere in the kernel virtual address space
+ * [KERNEL_VIRT_VAS_START, KERNEL_VIRT_VAS_END]? Broader than the text and
+ * direct-map windows — used to reject user-space pointers before (or in place
+ * of) finer classification. */
+static inline int kasld_addr_is_kernel_vas(unsigned long va) {
+  return kasld_addr_in_range(va, (unsigned long)KERNEL_VIRT_VAS_START,
+                             (unsigned long)KERNEL_VIRT_VAS_END);
 }
 
 /* =========================================================================

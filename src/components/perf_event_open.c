@@ -218,7 +218,7 @@ static unsigned long get_kernel_addr_perf(void) {
   kill(child, SIGKILL);
   waitpid(child, NULL, 0);
 
-  if (min_addr >= KERNEL_VIRT_TEXT_MIN && min_addr <= KERNEL_VIRT_TEXT_MAX)
+  if (kasld_addr_is_kernel_text(min_addr))
     return min_addr;
 
   return 0;
