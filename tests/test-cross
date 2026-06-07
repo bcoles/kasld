@@ -57,14 +57,22 @@ run_target() {
         -o "$d/test_integration" 2>"$d/cc.log"; then
     printf 'FAIL  %-30s (compile test_integration)\n' "$triple"; sed 's/^/      /' "$d/cc.log" | head -5; fail=$((fail+1)); return
   fi
+  # The parser / result-model / merge / engine-sync / renderer unit suite. It
+  # includes the orchestrator + render translation units directly (hence
+  # -DKASLD_TESTING and -lpthread) and derives every fixture address from the
+  # arch's own layout constants, so it runs on every width and endianness —
+  # which is how the renderer's hardening paths get exercised on each arch.
+  if ! $cc $CFLAGS -DKASLD_TESTING "$ROOT/tests/test_kasld.c" -o "$d/test_kasld" -lpthread 2>"$d/cc.log"; then
+    printf 'FAIL  %-30s (compile test_kasld)\n' "$triple"; sed 's/^/      /' "$d/cc.log" | head -5; fail=$((fail+1)); return
+  fi
   ok=1
-  for t in test_engine test_integration; do
+  for t in test_engine test_integration test_kasld; do
     if ! "$qemu" "$d/$t" >/dev/null 2>"$d/$t.run"; then
       printf 'FAIL  %-30s (%s under qemu)\n' "$triple" "$t"; tail -3 "$d/$t.run" | sed 's/^/      /'; ok=0
     fi
   done
   if [ "$ok" = 1 ]; then
-    printf 'PASS  %-30s engine + integration\n' "$triple"; pass=$((pass+1))
+    printf 'PASS  %-30s engine + integration + kasld\n' "$triple"; pass=$((pass+1))
   else
     fail=$((fail+1))
   fi

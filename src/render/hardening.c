@@ -44,9 +44,8 @@ static const struct sysctl_gate gates[GATE__COUNT] = {
 static const int ngates = GATE__COUNT;
 
 static int sysctl_gate_active(const struct sysctl_gate *g) {
-  /* value_ptr can be NULL if its static-PIE relocation was not applied at load
-   * (observed on riscv64 under qemu-user); treat an unreadable gate as inactive
-   * rather than dereferencing NULL. */
+  /* value_ptr can be NULL if its load-time relocation was not applied; treat an
+   * unreadable gate as inactive rather than dereferencing it. */
   return g->value_ptr && *g->value_ptr >= 0 && *g->value_ptr >= g->threshold;
 }
 

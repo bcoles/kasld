@@ -28,6 +28,7 @@
 #include "test_harness.h"
 
 #include <assert.h>
+#include <limits.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -49,6 +50,35 @@ static struct result *push_result(void) {
 static int parse_line(const char *line, const char *method,
                       const char *origin) {
   return capture_result(line, method, origin);
+}
+
+/* =========================================================================
+ * Portable fixture addresses
+ *
+ * These suites run on every cross target via tests/test-cross — 32- and
+ * 64-bit, big- and little-endian. A hardcoded x86_64 kernel address (e.g.
+ * 0xffffffff81000000) overflows a 32-bit `unsigned long` and falls outside
+ * other arches' parse-time VAS windows, so fixtures derive their addresses
+ * from the current arch's own layout constants. This mirrors the idiom the
+ * section_consensus tests already use (PAGE_OFFSET / KERNEL_VIRT_TEXT_DEFAULT
+ * plus a byte offset).
+ * ========================================================================= */
+
+/* Kernel-text base for the current arch. Never truncates; kernel-image
+ * regions are VAS-open so the parser admits it everywhere. */
+#define FX_TEXT ((unsigned long)KERNEL_VIRT_TEXT_DEFAULT)
+
+/* A virtual address inside `region`'s parse-time VAS window (the range
+ * capture_result() validates against) on the current arch. VAS-open and
+ * runtime-derived regions report a {0, ULONG_MAX} or {0, 0} static window;
+ * for those any kernel address is admitted, so fall back to the text base. */
+static unsigned long fx_region_addr(enum kasld_region region) {
+  unsigned long lo = region_info[region].static_vas.lo;
+  unsigned long hi = region_info[region].static_vas.hi;
+  if (lo == 0 && (hi == 0 || hi == ULONG_MAX))
+    return FX_TEXT;
+  unsigned long a = lo + 0x123456ul; /* a little above the window floor */
+  return a <= hi ? a : lo;
 }
 
 /* =========================================================================
@@ -92,21 +122,23 @@ static void test_parse_base_record(void) {
 
 static void test_parse_interior_sample(void) {
   reset_results();
-  assert(parse_line("V vmalloc pos=interior conf=heuristic "
-                    "sample=0xffffc90000123456",
-                    "heuristic", "comp") == 1);
+  unsigned long vaddr = fx_region_addr(REGION_VMALLOC);
+  char line[160];
+  snprintf(line, sizeof(line),
+           "V vmalloc pos=interior conf=heuristic sample=0x%lx", vaddr);
+  assert(parse_line(line, "heuristic", "comp") == 1);
   struct result *r = &results[0];
   assert(r->type == KASLD_TYPE_VIRT);
   assert(r->region == REGION_VMALLOC);
   assert(r->pos == POS_INTERIOR);
   assert(HAS_SAMPLE(r) && !HAS_LO(r) && !HAS_HI(r));
-  assert(r->sample == 0xffffc90000123456ul);
+  assert(r->sample == vaddr);
 }
 
 static void test_parse_named_record(void) {
   reset_results();
   assert(parse_line("V kernel_image:commit_creds pos=interior conf=parsed "
-                    "sample=0xffffffff81234000",
+                    "sample=0x1000",
                     "parsed", "kallsyms") == 1);
   struct result *r = &results[0];
   assert(strcmp(r->name, "commit_creds") == 0);
@@ -135,7 +167,7 @@ static void test_parse_sz_normalizes_to_hi(void) {
 
 static void test_parse_rejects_unknown_key(void) {
   reset_results();
-  assert(parse_line("V kernel_text pos=base conf=parsed lo=0xffffffff81000000 "
+  assert(parse_line("V kernel_text pos=base conf=parsed lo=0x1000 "
                     "bogus=0x1",
                     NULL, NULL) == 0);
   assert(num_results == 0);
@@ -143,21 +175,18 @@ static void test_parse_rejects_unknown_key(void) {
 
 static void test_parse_rejects_missing_pos(void) {
   reset_results();
-  assert(parse_line("V kernel_text conf=parsed lo=0xffffffff81000000", NULL,
-                    NULL) == 0);
+  assert(parse_line("V kernel_text conf=parsed lo=0x1000", NULL, NULL) == 0);
 }
 
 static void test_parse_rejects_missing_conf(void) {
   reset_results();
-  assert(parse_line("V kernel_text pos=base lo=0xffffffff81000000", NULL,
-                    NULL) == 0);
+  assert(parse_line("V kernel_text pos=base lo=0x1000", NULL, NULL) == 0);
 }
 
 static void test_parse_rejects_pos_base_without_lo(void) {
   reset_results();
-  assert(
-      parse_line("V kernel_text pos=base conf=parsed sample=0xffffffff81234000",
-                 NULL, NULL) == 0);
+  assert(parse_line("V kernel_text pos=base conf=parsed sample=0x1000", NULL,
+                    NULL) == 0);
 }
 
 static void test_parse_rejects_pos_top_without_hi(void) {
@@ -167,8 +196,7 @@ static void test_parse_rejects_pos_top_without_hi(void) {
 
 static void test_parse_rejects_lo_above_hi(void) {
   reset_results();
-  assert(parse_line("V kernel_text pos=base conf=parsed lo=0xffffffff90000000 "
-                    "hi=0xffffffff80000000",
+  assert(parse_line("V kernel_text pos=base conf=parsed lo=0x2000 hi=0x1000",
                     NULL, NULL) == 0);
 }
 
@@ -181,20 +209,23 @@ static void test_parse_rejects_sample_outside_extent(void) {
 
 static void test_parse_rejects_sz_overflow(void) {
   reset_results();
-  assert(parse_line("P ram pos=base conf=parsed lo=0xffffffffffffffff sz=0x2",
-                    NULL, NULL) == 0);
+  /* lo at the top of the arch's address space so lo + sz - 1 overflows. */
+  char line[96];
+  snprintf(line, sizeof(line), "P ram pos=base conf=parsed lo=0x%lx sz=0x2",
+           ULONG_MAX);
+  assert(parse_line(line, NULL, NULL) == 0);
 }
 
 static void test_parse_rejects_non_power_of_two_base_align(void) {
   reset_results();
-  assert(parse_line("V kernel_text pos=base conf=parsed lo=0xffffffff81000000 "
+  assert(parse_line("V kernel_text pos=base conf=parsed lo=0x1000 "
                     "base_align=0x3",
                     NULL, NULL) == 0);
 }
 
 static void test_parse_accepts_power_of_two_base_align(void) {
   reset_results();
-  assert(parse_line("V kernel_text pos=base conf=parsed lo=0xffffffff81000000 "
+  assert(parse_line("V kernel_text pos=base conf=parsed lo=0x1000 "
                     "base_align=0x200000",
                     NULL, NULL) == 1);
   assert(HAS_BASE_ALIGN(&results[0]));
@@ -246,7 +277,7 @@ static void test_select_anchor_prefers_no_name(void) {
   snprintf(named->name, NAME_LEN, "commit_creds");
   named->pos = POS_INTERIOR;
   named->conf = CONF_PARSED;
-  named->sample = 0xffffffff81234000ul;
+  named->sample = (FX_TEXT + 0x234000ul);
   named->set_mask = SAMPLE_SET;
 
   struct result *anchor = push_result();
@@ -254,7 +285,7 @@ static void test_select_anchor_prefers_no_name(void) {
   anchor->region = REGION_KERNEL_IMAGE;
   anchor->pos = POS_BASE;
   anchor->conf = CONF_HEURISTIC;
-  anchor->lo = 0xffffffff81000000ul;
+  anchor->lo = FX_TEXT;
   anchor->set_mask = LO_SET;
 
   const struct result *picked =
@@ -270,7 +301,7 @@ static void test_select_anchor_falls_back_to_named(void) {
   snprintf(named->name, NAME_LEN, "commit_creds");
   named->pos = POS_INTERIOR;
   named->conf = CONF_PARSED;
-  named->sample = 0xffffffff81234000ul;
+  named->sample = (FX_TEXT + 0x234000ul);
   named->set_mask = SAMPLE_SET;
 
   const struct result *picked =
@@ -362,7 +393,7 @@ static void test_merge_does_not_cross_types(void) {
   v->region = REGION_INITRD;
   v->pos = POS_BASE;
   v->conf = CONF_DERIVED;
-  v->lo = 0xffff888033000000ul;
+  v->lo = (unsigned long)PAGE_OFFSET + 0x33000000ul;
   v->set_mask = LO_SET;
 
   merge_results();
@@ -439,7 +470,7 @@ static void test_merge_keeps_lo_only_witnesses_separate(void) {
   a->region = REGION_DIRECTMAP;
   a->pos = POS_BASE;
   a->conf = CONF_PARSED;
-  a->lo = 0xc000000000000000ul;
+  a->lo = (unsigned long)PAGE_OFFSET;
   a->set_mask = LO_SET;
   a->provenance_count = 1;
   snprintf(a->origins[0], ORIGIN_LEN, "source-a");
@@ -449,7 +480,7 @@ static void test_merge_keeps_lo_only_witnesses_separate(void) {
   b->region = REGION_DIRECTMAP;
   b->pos = POS_BASE;
   b->conf = CONF_PARSED;
-  b->lo = 0xc000000040000000ul;
+  b->lo = (unsigned long)PAGE_OFFSET + 0x10000000ul;
   b->set_mask = LO_SET;
   b->provenance_count = 1;
   snprintf(b->origins[0], ORIGIN_LEN, "source-b");
@@ -470,7 +501,7 @@ static void test_merge_picks_highest_conf_sample(void) {
   no_sample->region = REGION_KERNEL_IMAGE;
   no_sample->pos = POS_BASE;
   no_sample->conf = CONF_HEURISTIC;
-  no_sample->lo = 0xffffffff81000000ul;
+  no_sample->lo = FX_TEXT;
   no_sample->set_mask = LO_SET;
 
   struct result *sample = push_result();
@@ -478,14 +509,14 @@ static void test_merge_picks_highest_conf_sample(void) {
   sample->region = REGION_KERNEL_IMAGE;
   sample->pos = POS_INTERIOR;
   sample->conf = CONF_PARSED;
-  sample->sample = 0xffffffff81222222ul;
+  sample->sample = (FX_TEXT + 0x222222ul);
   sample->set_mask = SAMPLE_SET;
 
   merge_results();
   assert(num_results == 1);
   struct result *r = &results[0];
-  assert(HAS_LO(r) && r->lo == 0xffffffff81000000ul);
-  assert(HAS_SAMPLE(r) && r->sample == 0xffffffff81222222ul);
+  assert(HAS_LO(r) && r->lo == FX_TEXT);
+  assert(HAS_SAMPLE(r) && r->sample == (FX_TEXT + 0x222222ul));
   /* pos must NOT downgrade to POS_INTERIOR when the surviving sample's
    * contributor was POS_INTERIOR but the merged record retains a POS_BASE
    * claim from another contributor. Skipping this assertion let a real
@@ -505,7 +536,7 @@ static void test_merge_promotes_pos_to_base_from_later_contributor(void) {
   sample->region = REGION_KERNEL_IMAGE;
   sample->pos = POS_INTERIOR;
   sample->conf = CONF_PARSED;
-  sample->sample = 0xffffffff81333333ul;
+  sample->sample = (FX_TEXT + 0x333333ul);
   sample->set_mask = SAMPLE_SET;
 
   struct result *base = push_result();
@@ -513,15 +544,15 @@ static void test_merge_promotes_pos_to_base_from_later_contributor(void) {
   base->region = REGION_KERNEL_IMAGE;
   base->pos = POS_BASE;
   base->conf = CONF_TIMING;
-  base->lo = 0xffffffff81000000ul;
+  base->lo = FX_TEXT;
   base->set_mask = LO_SET;
 
   merge_results();
   assert(num_results == 1);
   struct result *r = &results[0];
   assert(r->pos == POS_BASE);
-  assert(HAS_LO(r) && r->lo == 0xffffffff81000000ul);
-  assert(HAS_SAMPLE(r) && r->sample == 0xffffffff81333333ul);
+  assert(HAS_LO(r) && r->lo == FX_TEXT);
+  assert(HAS_SAMPLE(r) && r->sample == (FX_TEXT + 0x333333ul));
 }
 
 static void test_merge_samples_conflict_kept_separate(void) {
@@ -673,20 +704,21 @@ static int capture_helper(int (*emit)(void), char *buf, size_t buflen) {
 }
 
 static int emit_base_helper(void) {
-  return kasld_result_base(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT,
-                           0xffffffff81000000ul, "test_sym", CONF_PARSED);
+  return kasld_result_base(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, FX_TEXT,
+                           "test_sym", CONF_PARSED);
 }
 static int emit_range_helper(void) {
   return kasld_result_range(KASLD_TYPE_PHYS, REGION_INITRD, 0x33000000ul,
                             0x333ffffful, NULL, CONF_PARSED);
 }
 static int emit_top_helper(void) {
-  return kasld_result_top(KASLD_TYPE_PHYS, REGION_RAM, 0x100000000ul, NULL,
+  return kasld_result_top(KASLD_TYPE_PHYS, REGION_RAM, 0xf0000000ul, NULL,
                           CONF_PARSED);
 }
 static int emit_sample_helper(void) {
   return kasld_result_sample(KASLD_TYPE_VIRT, REGION_VMALLOC,
-                             0xffffc90000123456ul, NULL, CONF_HEURISTIC);
+                             fx_region_addr(REGION_VMALLOC), NULL,
+                             CONF_HEURISTIC);
 }
 static int emit_sized_helper(void) {
   return kasld_result_sized(KASLD_TYPE_PHYS, REGION_INITRD, 0x100000ul,
@@ -704,7 +736,7 @@ static void test_roundtrip_base(void) {
   assert(strcmp(r->name, "test_sym") == 0);
   assert(r->pos == POS_BASE);
   assert(r->conf == CONF_PARSED);
-  assert(HAS_LO(r) && r->lo == 0xffffffff81000000ul);
+  assert(HAS_LO(r) && r->lo == FX_TEXT);
 }
 
 static void test_roundtrip_range(void) {
@@ -730,7 +762,7 @@ static void test_roundtrip_top(void) {
   assert(r->region == REGION_RAM);
   assert(r->pos == POS_TOP);
   assert(!HAS_LO(r) && HAS_HI(r));
-  assert(r->hi == 0x100000000ul);
+  assert(r->hi == 0xf0000000ul);
 }
 
 static void test_roundtrip_sample(void) {
@@ -743,7 +775,7 @@ static void test_roundtrip_sample(void) {
   assert(r->region == REGION_VMALLOC);
   assert(r->pos == POS_INTERIOR);
   assert(r->conf == CONF_HEURISTIC);
-  assert(HAS_SAMPLE(r) && r->sample == 0xffffc90000123456ul);
+  assert(HAS_SAMPLE(r) && r->sample == fx_region_addr(REGION_VMALLOC));
 }
 
 static void test_roundtrip_sized(void) {
@@ -761,8 +793,8 @@ static void test_roundtrip_sized(void) {
  * CONF_UNKNOWN rejection at helpers
  * ========================================================================= */
 static int emit_with_conf_unknown_base(void) {
-  return kasld_result_base(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT,
-                           0xffffffff81000000ul, NULL, CONF_UNKNOWN);
+  return kasld_result_base(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, FX_TEXT, NULL,
+                           CONF_UNKNOWN);
 }
 static int emit_with_conf_unknown_sample(void) {
   return kasld_result_sample(KASLD_TYPE_PHYS, REGION_RAM, 0x1000, NULL,
@@ -770,8 +802,8 @@ static int emit_with_conf_unknown_sample(void) {
 }
 
 static int emit_with_invalid_type(void) {
-  return kasld_result_base(KASLD_TYPE_UNKNOWN, REGION_KERNEL_TEXT,
-                           0xffffffff81000000ul, NULL, CONF_PARSED);
+  return kasld_result_base(KASLD_TYPE_UNKNOWN, REGION_KERNEL_TEXT, FX_TEXT,
+                           NULL, CONF_PARSED);
 }
 
 static int emit_with_region_unknown(void) {
@@ -818,7 +850,7 @@ static void test_merge_dedups_provenance(void) {
     r->region = REGION_KERNEL_IMAGE;
     r->pos = POS_BASE;
     r->conf = CONF_HEURISTIC;
-    r->lo = 0xffffffff81000000ul;
+    r->lo = FX_TEXT;
     r->set_mask = LO_SET;
     r->provenance_count = 1;
     snprintf(r->origins[0], ORIGIN_LEN, "%s", i == 1 ? "src-b" : "src-a");
@@ -854,8 +886,7 @@ static void test_merge_caps_at_max_provenance(void) {
     r->region = REGION_KERNEL_IMAGE;
     r->pos = POS_BASE;
     r->conf = CONF_HEURISTIC;
-    r->lo =
-        0xffffffff81000000ul; /* same lo so lo_only_conflict permits merge */
+    r->lo = FX_TEXT; /* same lo so lo_only_conflict permits merge */
     r->set_mask = LO_SET;
     r->provenance_count = 1;
     snprintf(r->origins[0], ORIGIN_LEN, "src-%d", i);
@@ -896,8 +927,8 @@ static void test_phys_virt_linkage_stays_two_records(void) {
   v->region = REGION_INITRD;
   v->pos = POS_BASE;
   v->conf = CONF_DERIVED;
-  v->lo = 0xffff888033000000ul;
-  v->hi = 0xffff8880333ffffful;
+  v->lo = (unsigned long)PAGE_OFFSET + 0x33000000ul;
+  v->hi = (unsigned long)PAGE_OFFSET + 0x333ffffful;
   v->set_mask = LO_SET | HI_SET;
 
   merge_results();
@@ -951,8 +982,8 @@ static void test_synthesized_result_sets_fields_correctly(void) {
   /* name stays "" — canonical region anchor */
   r->pos = POS_BASE;
   r->conf = CONF_DERIVED;
-  r->lo = 0xffff888033000000ul;
-  r->hi = 0xffff8880333ffffful;
+  r->lo = (unsigned long)PAGE_OFFSET + 0x33000000ul;
+  r->hi = (unsigned long)PAGE_OFFSET + 0x333ffffful;
   r->set_mask = LO_SET | HI_SET;
   snprintf(r->origins[0], ORIGIN_LEN, "inference:my_plugin");
   snprintf(r->methods[0], METHOD_LEN, "derived");
@@ -1066,9 +1097,9 @@ static void test_result_in_bounds_accepts_phys_kernel_image(void) {
   struct result r;
   result_init(&r);
   r.type = KASLD_TYPE_PHYS;
-  /* A physical kernel-image leak at ~4.4 GiB (typical kernel load
-   * address on a system with phys KASLR). */
-  r.sample = 0x119446000ul;
+  /* A physical kernel-image leak at a plausible load address (kept within
+   * 32-bit so the fixture is valid on 32-bit arches too). */
+  r.sample = 0x19446000ul;
   r.set_mask = SAMPLE_SET;
 
   /* All four kernel-image regions must accept a phys sample. */
@@ -1108,7 +1139,11 @@ static void test_page_offset_in_bounds_independent_of_runtime_layout(void) {
    * layout.virt_kernel_vas_start, the record would be rejected. With
    * arch-constant validation, it stays accepted. */
   struct kasld_layout tight = layout;
-  tight.virt_kernel_vas_start = (unsigned long)PAGE_OFFSET + (1ul << 40);
+  /* Midpoint between the record's address and the top of the address space —
+   * well above the record on every word size (a fixed 1<<40 shift overflows a
+   * 32-bit unsigned long). */
+  tight.virt_kernel_vas_start =
+      (unsigned long)PAGE_OFFSET + (ULONG_MAX - (unsigned long)PAGE_OFFSET) / 2;
   assert(result_in_bounds(&r, &tight) == 1);
 }
 
@@ -1129,7 +1164,14 @@ static void test_select_anchor_skips_out_of_bounds(void) {
                                  KERNEL_VIRT_VAS_END} */
   r->pos = POS_BASE;
   r->conf = CONF_PARSED;
-  r->lo = 0x1000; /* far below KERNEL_VIRT_VAS_START */
+  /* An address just outside the region's VAS window for the current arch.
+   * Prefer one above the ceiling (some arches put the floor at 0, so
+   * "below the floor" is not always available). */
+  {
+    unsigned long vlo = region_info[REGION_VMALLOC].static_vas.lo;
+    unsigned long vhi = region_info[REGION_VMALLOC].static_vas.hi;
+    r->lo = (vhi < ULONG_MAX) ? vhi + 1 : vlo - 1;
+  }
   r->set_mask = LO_SET;
 
   assert(result_in_bounds(r, &layout) == 0);
@@ -1258,7 +1300,7 @@ static void test_merge_base_align_takes_max(void) {
   a->region = REGION_KERNEL_TEXT;
   a->pos = POS_BASE;
   a->conf = CONF_PARSED;
-  a->lo = 0xffffffff81000000ul;
+  a->lo = FX_TEXT;
   a->base_align = 0x1000; /* 4 KiB */
   a->set_mask = LO_SET | BASE_ALIGN_SET;
 
@@ -1267,7 +1309,7 @@ static void test_merge_base_align_takes_max(void) {
   b->region = REGION_KERNEL_TEXT;
   b->pos = POS_BASE;
   b->conf = CONF_PARSED;
-  b->lo = 0xffffffff81000000ul;
+  b->lo = FX_TEXT;
   b->base_align = 0x200000; /* 2 MiB */
   b->set_mask = LO_SET | BASE_ALIGN_SET;
 
@@ -1288,7 +1330,7 @@ static void test_merge_base_align_propagates_from_either_contributor(void) {
   a->region = REGION_KERNEL_TEXT;
   a->pos = POS_BASE;
   a->conf = CONF_PARSED;
-  a->lo = 0xffffffff81000000ul;
+  a->lo = FX_TEXT;
   a->set_mask = LO_SET;
 
   struct result *b = push_result();
@@ -1296,7 +1338,7 @@ static void test_merge_base_align_propagates_from_either_contributor(void) {
   b->region = REGION_KERNEL_TEXT;
   b->pos = POS_BASE;
   b->conf = CONF_PARSED;
-  b->lo = 0xffffffff81000000ul;
+  b->lo = FX_TEXT;
   b->base_align = 0x200000;
   b->set_mask = LO_SET | BASE_ALIGN_SET;
 
@@ -1424,21 +1466,21 @@ static void test_engine_sync_projects_all_fields(void) {
   /* Synthetic resolved windows — distinct, recognisable values per quantity so
    * a mis-wired field (writing the wrong source) is caught, not just a missing
    * write. */
-  e.est[Q_VIRT_TEXT_BASE].lo = 0xffffffff81000000ul;
-  e.est[Q_VIRT_TEXT_BASE].hi = 0xffffffff8f000000ul;
+  e.est[Q_VIRT_TEXT_BASE].lo = FX_TEXT;
+  e.est[Q_VIRT_TEXT_BASE].hi = (FX_TEXT + 0x0e000000ul);
   e.est[Q_KASLR_ALIGN].lo = 0x200000ul;
   e.est[Q_PAGE_OFFSET].lo = (unsigned long)PAGE_OFFSET + 0x10000000ul;
-  e.est[Q_PAGE_OFFSET].hi = (unsigned long)PAGE_OFFSET + 0x90000000ul;
+  e.est[Q_PAGE_OFFSET].hi = (unsigned long)PAGE_OFFSET + 0x30000000ul;
   e.est[Q_PHYS_TEXT_BASE].lo = 0x4000000ul;
   e.est[Q_PHYS_TEXT_BASE].hi = 0x3c000000ul;
   e.est[Q_PHYS_KASLR_ALIGN].lo = 0x200000ul;
-  e.est[Q_VMALLOC_BASE].lo = 0xffffc90000000000ul;
+  e.est[Q_VMALLOC_BASE].lo = (unsigned long)PAGE_OFFSET + 0x11000000ul;
   e.est[Q_VMALLOC_BASE].lo_binding = 1;
-  e.est[Q_VMALLOC_BASE].hi = 0xffffe90000000000ul;
+  e.est[Q_VMALLOC_BASE].hi = (unsigned long)PAGE_OFFSET + 0x12000000ul;
   e.est[Q_VMALLOC_BASE].hi_binding = 1;
-  e.est[Q_VMEMMAP_BASE].lo = 0xffffea0000000000ul;
+  e.est[Q_VMEMMAP_BASE].lo = (unsigned long)PAGE_OFFSET + 0x13000000ul;
   e.est[Q_VMEMMAP_BASE].lo_binding = 1;
-  e.est[Q_VMEMMAP_BASE].hi = 0xffffeb0000000000ul;
+  e.est[Q_VMEMMAP_BASE].hi = (unsigned long)PAGE_OFFSET + 0x14000000ul;
   e.est[Q_VMEMMAP_BASE].hi_binding = 1;
 
   /* The VAS floor must survive the sync untouched (second renderer bug). */
@@ -1456,8 +1498,8 @@ static void test_engine_sync_projects_all_fields(void) {
 
   /* Virtual text window projects onto BOTH the KASLR window and the kernel
    * image-placement range, and they must be identical (the renderer bug). */
-  assert(layout.virt_kaslr_text_min == 0xffffffff81000000ul);
-  assert(layout.virt_kaslr_text_max == 0xffffffff8f000000ul);
+  assert(layout.virt_kaslr_text_min == FX_TEXT);
+  assert(layout.virt_kaslr_text_max == (FX_TEXT + 0x0e000000ul));
   assert(layout.virt_kernel_text_min == layout.virt_kaslr_text_min);
   assert(layout.virt_kernel_text_max == layout.virt_kaslr_text_max);
   assert(layout.virt_kaslr_align == 0x200000ul);
@@ -1465,12 +1507,16 @@ static void test_engine_sync_projects_all_fields(void) {
   assert(layout.virt_page_offset_min ==
          (unsigned long)PAGE_OFFSET + 0x10000000ul);
   assert(layout.virt_page_offset_max ==
-         (unsigned long)PAGE_OFFSET + 0x90000000ul);
+         (unsigned long)PAGE_OFFSET + 0x30000000ul);
 
-  assert(layout.virt_vmalloc_base_min == 0xffffc90000000000ul);
-  assert(layout.virt_vmalloc_base_max == 0xffffe90000000000ul);
-  assert(layout.virt_vmemmap_base_min == 0xffffea0000000000ul);
-  assert(layout.virt_vmemmap_base_max == 0xffffeb0000000000ul);
+  assert(layout.virt_vmalloc_base_min ==
+         (unsigned long)PAGE_OFFSET + 0x11000000ul);
+  assert(layout.virt_vmalloc_base_max ==
+         (unsigned long)PAGE_OFFSET + 0x12000000ul);
+  assert(layout.virt_vmemmap_base_min ==
+         (unsigned long)PAGE_OFFSET + 0x13000000ul);
+  assert(layout.virt_vmemmap_base_max ==
+         (unsigned long)PAGE_OFFSET + 0x14000000ul);
 
 #if !TEXT_TRACKS_DIRECTMAP
   /* Direct-map base moves to the proven lower bound (we set lo > PAGE_OFFSET),
@@ -1532,10 +1578,11 @@ static void test_engine_sync_anchors_module_band_to_observations(void) {
   assert(layout.modules_end == obs_hi);
 }
 
-/* An out-of-union observation must NOT shrink the rendered band — the static
- * validation window stays in place, surfacing the unexpected layout instead
- * of silently committing to a single bogus point. */
-static void test_engine_sync_module_band_keeps_static_on_out_of_union(void) {
+/* An out-of-union module observation must never be adopted as the rendered
+ * band. This holds on every arch: static-module arches keep the validation
+ * window; text-relative arches (riscv64/s390) project the band onto the
+ * resolved text window. Neither commits to the bogus single point. */
+static void test_engine_sync_module_band_rejects_out_of_union(void) {
   struct engine e;
   memset(&e, 0, sizeof(e));
 
@@ -1547,9 +1594,12 @@ static void test_engine_sync_module_band_keeps_static_on_out_of_union(void) {
   o.eff_type = KASLD_TYPE_VIRT;
   o.eff_region = REGION_MODULE_REGION;
   o.pos = POS_INTERIOR;
-  /* Pick something below MODULES_START (or above MODULES_END), regardless of
-   * arch. ULONG_MAX is never inside a real union. */
-  o.sample = ~0ul;
+  /* Just below the union floor — out of the validation union on every arch
+   * (module unions never start at 0). A fixed sentinel like ULONG_MAX is not
+   * portable: on some arches MODULES_END == ULONG_MAX, so ~0ul would be a
+   * legitimate in-union address. */
+  unsigned long oob = (unsigned long)MODULES_START - 0x1000ul;
+  o.sample = oob;
   o.set_mask = SAMPLE_SET;
   o.conf = CONF_PARSED;
   e.ev.obs[e.ev.n_obs++] = o;
@@ -1557,16 +1607,15 @@ static void test_engine_sync_module_band_keeps_static_on_out_of_union(void) {
   e.est[Q_VIRT_TEXT_BASE].lo = layout.virt_kaslr_text_min;
   e.est[Q_VIRT_TEXT_BASE].hi = layout.virt_kaslr_text_max;
 
-  unsigned long ms_before = MODULES_START;
-  unsigned long me_before = MODULES_END;
-  layout.modules_start = ms_before;
-  layout.modules_end = me_before;
+  layout.modules_start = MODULES_START;
+  layout.modules_end = MODULES_END;
 
   engine_sync_authoritative(&e);
 
-  /* Out-of-union observation rejected; static window preserved. */
-  assert(layout.modules_start == ms_before);
-  assert(layout.modules_end == me_before);
+  /* The bogus sample is not adopted, and the band stays well-ordered. */
+  assert(layout.modules_start != oob);
+  assert(layout.modules_end != oob);
+  assert(layout.modules_start <= layout.modules_end);
 }
 
 /* =========================================================================
@@ -1765,7 +1814,7 @@ static void set_rich_render_state(struct summary *s) {
   r2->pos = POS_BASE;
   r2->conf = CONF_PARSED;
   r2->lo = 0x40000000ul;
-  r2->hi = 0x7fffffffful;
+  r2->hi = 0xf0000000ul;
   r2->set_mask = LO_SET | HI_SET;
   snprintf(r2->origins[0], ORIGIN_LEN, "synthetic_test");
   snprintf(r2->methods[0], METHOD_LEN, "parsed");
@@ -1974,8 +2023,9 @@ static void seed_two_region_groups(struct summary *s) {
       break;
     }
   }
-  unsigned long dm = layout.virt_page_offset ? layout.virt_page_offset + 0x1000
-                                             : 0xffff800000001000ul;
+  unsigned long dm = layout.virt_page_offset
+                         ? layout.virt_page_offset + 0x1000
+                         : (unsigned long)PAGE_OFFSET + 0x1000ul;
   struct result *r = push_result();
   r->type = KASLD_TYPE_VIRT;
   r->region = REGION_DIRECTMAP;
@@ -2050,12 +2100,15 @@ static void set_richer_render_state(struct summary *s) {
   /* memory_kaslr (RANDOMIZE_MEMORY) — populate all three to hit the
    * pinned branch (min == max), the one-sided branch (min only), and the
    * window branch (min < max). */
-  s->kaslr.virt_page_offset_min = 0xffff888000000000ul;
-  s->kaslr.virt_page_offset_max = 0xffff888000000000ul; /* pinned */
-  s->kaslr.virt_vmalloc_min = 0xffffc90000000000ul;     /* one-sided */
+  /* pinned: min == max */
+  s->kaslr.virt_page_offset_min = (unsigned long)PAGE_OFFSET + 0x01000000ul;
+  s->kaslr.virt_page_offset_max = (unsigned long)PAGE_OFFSET + 0x01000000ul;
+  /* one-sided: min only */
+  s->kaslr.virt_vmalloc_min = (unsigned long)PAGE_OFFSET + 0x11000000ul;
   s->kaslr.virt_vmalloc_max = 0;
-  s->kaslr.virt_vmemmap_min = 0xffffea0000000000ul;
-  s->kaslr.virt_vmemmap_max = 0xffffeb0000000000ul; /* window */
+  /* window: min < max */
+  s->kaslr.virt_vmemmap_min = (unsigned long)PAGE_OFFSET + 0x13000000ul;
+  s->kaslr.virt_vmemmap_max = (unsigned long)PAGE_OFFSET + 0x14000000ul;
 }
 
 static void test_render_text_with_memory_kaslr_bound(void) {
@@ -2119,9 +2172,11 @@ static void test_section_consensus_lowest_among_ties(void) {
   /* Three CONF_PARSED directmap observations, all POS_INTERIOR. Picker
    * must return the lowest. */
   reset_results();
+  /* Offsets stay within 32-bit direct-map headroom (PAGE_OFFSET is as high
+   * as 0xc0000000 on 32-bit arches) so the fixture is valid everywhere. */
   unsigned long lo = (unsigned long)PAGE_OFFSET + 0x04220000ul;
-  unsigned long mid = (unsigned long)PAGE_OFFSET + 0x802a0000ul;
-  unsigned long hi = (unsigned long)PAGE_OFFSET + 0xeffffcfful;
+  unsigned long mid = (unsigned long)PAGE_OFFSET + 0x102a0000ul;
+  unsigned long hi = (unsigned long)PAGE_OFFSET + 0x2ffffcfful;
   unsigned long addrs[3] = {hi, lo, mid}; /* insertion ≠ address order */
   for (int i = 0; i < 3; i++) {
     struct result *r = push_result();
@@ -2374,9 +2429,17 @@ static void test_render_hardening_json_rand_failed_state(void) {
   hardening_mode = 0;
   set_render_mode(0, 0, 0);
   assert(strstr(render_cap, "\"kaslr_posture\"") != NULL);
-  assert(strstr(render_cap, "\"randomization_failed\"") != NULL);
-  /* The detector origin is echoed in the JSON detected_by array. */
-  assert(strstr(render_cap, "dmesg_kaslr_disabled") != NULL);
+  /* The JSON posture state is mutually exclusive and prioritises capability:
+   * on arches without KASLR support it is "unsupported" regardless of the
+   * injected rand-failed scalar (and the detector origin is not echoed);
+   * everywhere else it is "randomization_failed". Branch on the compile-time
+   * capability so the test asserts the arch-correct state on every target
+   * without skipping. */
+  assert(strstr(render_cap, KASLR_SUPPORTED ? "\"randomization_failed\""
+                                            : "\"unsupported\"") != NULL);
+  if (KASLR_SUPPORTED)
+    /* The detector origin is echoed in the JSON detected_by array. */
+    assert(strstr(render_cap, "dmesg_kaslr_disabled") != NULL);
 }
 
 /* Without the new scalar, the posture section must NOT appear in text mode.
@@ -2510,7 +2573,7 @@ int main(void) {
   BEGIN_CATEGORY("engine_sync_authoritative");
   RUN(test_engine_sync_projects_all_fields);
   RUN(test_engine_sync_anchors_module_band_to_observations);
-  RUN(test_engine_sync_module_band_keeps_static_on_out_of_union);
+  RUN(test_engine_sync_module_band_rejects_out_of_union);
 
   BEGIN_CATEGORY("Renderer — json_print_escaped");
   RUN(test_json_print_escaped_passthrough);
