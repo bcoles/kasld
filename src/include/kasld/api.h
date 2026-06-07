@@ -298,13 +298,20 @@ static inline unsigned long kasld_xkphys_to_phys(unsigned long va) {
  * otherwise turn the comparison into a compile-time tautology at the call site
  * (-Wlogical-op / -Wtype-limits). Routing the per-arch window checks through
  * these helpers keeps them honest and centralises the empty-window degradation.
+ *
+ * Bounds are unsigned long long: a physical-address range can legitimately
+ * exceed the platform word on 32-bit arches (e.g. MAX_PLAUSIBLE_KERNEL_PHYS =
+ * 1<<50), and an `unsigned long` parameter would silently truncate it.
+ * Virtual-address callers pass `unsigned long`, which promotes losslessly.
  * Pure arithmetic; safe in any TU. */
-static inline int kasld_addr_in_window(unsigned long addr, unsigned long lo,
-                                       unsigned long hi) {
+static inline int kasld_addr_in_window(unsigned long long addr,
+                                       unsigned long long lo,
+                                       unsigned long long hi) {
   return lo < hi && addr >= lo && addr < hi;
 }
-static inline int kasld_addr_in_range(unsigned long addr, unsigned long lo,
-                                      unsigned long hi) {
+static inline int kasld_addr_in_range(unsigned long long addr,
+                                      unsigned long long lo,
+                                      unsigned long long hi) {
   return addr >= lo && addr <= hi;
 }
 

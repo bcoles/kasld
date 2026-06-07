@@ -2396,6 +2396,143 @@ static void test_render_hardening_markdown(void) {
   assert(strstr(render_cap, "### Available hardening") != NULL);
 }
 
+/* Direct coverage of the hardening model (the text/json/markdown renderers all
+ * consume build_hardening_report; this asserts its fields without going through
+ * a formatter). Seeds a representative component set + sysctl state and checks
+ * exposure, posture, per-gate counts/names, suggestions, and the vuln /
+ * surface / side-channel / no-mitigation lists. */
+static struct component_log *hr_seed_comp(const char *name,
+                                          enum component_outcome oc) {
+  struct component_log *cl = &comp_logs[num_comp_logs++];
+  memset(cl, 0, sizeof(*cl));
+  snprintf(cl->name, sizeof(cl->name), "%s", name);
+  cl->outcome = oc;
+  return cl;
+}
+static void hr_seed_meta(struct component_log *cl, const char *k,
+                         const char *v) {
+  int i = cl->meta.num_entries++;
+  snprintf(cl->meta.entries[i].key, META_KEY_LEN, "%s", k);
+  snprintf(cl->meta.entries[i].value, META_VALUE_LEN, "%s", v);
+}
+
+static void test_build_hardening_report(void) {
+  reset_results();
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+  sysctl_kptr_restrict = 1;       /* active   (threshold 1) */
+  sysctl_dmesg_restrict = 1;      /* active   (threshold 1) */
+  sysctl_perf_event_paranoid = 0; /* inactive (threshold 2) */
+  sysctl_lockdown = LOCKDOWN_NONE;
+
+  struct component_log *c;
+  c = hr_seed_comp("c_kptr_blocked", OUTCOME_ACCESS_DENIED);
+  hr_seed_meta(c, "method", "parsed");
+  hr_seed_meta(c, "sysctl", "kptr_restrict>=1");
+
+  c = hr_seed_comp("c_dmesg_bypass", OUTCOME_SUCCESS);
+  hr_seed_meta(c, "method", "parsed");
+  hr_seed_meta(c, "sysctl", "dmesg_restrict>=1");
+  hr_seed_meta(c, "fallback", "yes");
+
+  c = hr_seed_comp("c_perf_bypass", OUTCOME_SUCCESS);
+  hr_seed_meta(c, "method", "parsed");
+  hr_seed_meta(c, "sysctl", "perf_event_paranoid>=2");
+
+  c = hr_seed_comp("c_vuln", OUTCOME_SUCCESS);
+  hr_seed_meta(c, "method", "parsed");
+  hr_seed_meta(c, "cve", "CVE-2021-1234");
+  hr_seed_meta(c, "patch", "v5.10");
+
+  c = hr_seed_comp("c_surface", OUTCOME_SUCCESS);
+  hr_seed_meta(c, "method", "parsed");
+  hr_seed_meta(c, "config", "CONFIG_FOO");
+  hr_seed_meta(c, "addr", "physical");
+
+  c = hr_seed_comp("c_hw", OUTCOME_SUCCESS);
+  hr_seed_meta(c, "method", "parsed");
+  hr_seed_meta(c, "hardware", "KPTI");
+  hr_seed_meta(c, "addr", "virtual");
+
+  c = hr_seed_comp("c_nomit", OUTCOME_SUCCESS);
+  hr_seed_meta(c, "method", "parsed");
+
+  c = hr_seed_comp("c_lockdown", OUTCOME_SUCCESS);
+  hr_seed_meta(c, "method", "parsed");
+  hr_seed_meta(c, "lockdown", "yes");
+
+  c = hr_seed_comp("c_detection", OUTCOME_SUCCESS);
+  hr_seed_meta(c, "method", "detection");
+
+  scalar_facts[num_scalar_facts].fact = SF_VIRT_KASLR_RANDOMIZATION_FAILED;
+  scalar_facts[num_scalar_facts].value = 1;
+  scalar_facts[num_scalar_facts].conf = CONF_PARSED;
+  snprintf(scalar_facts[num_scalar_facts].origin, ORIGIN_LEN, "dmesg_kaslr");
+  num_scalar_facts++;
+
+  struct hardening_report rep;
+  build_hardening_report(&rep);
+
+  /* Exposure: 8 non-detection components, 7 succeeded (the blocked one did
+   * not); the detection-only component is excluded. */
+  assert(rep.total == 8);
+  assert(rep.succeeded == 7);
+
+  /* Posture: the randomization-failure witness is always collected, but the
+   * prioritised state is "unsupported" on arches without KASLR (that priority
+   * outranks randomization_failed). slot_entropy_zero holds in both cases. */
+  assert(rep.n_rand_detectors == 1);
+  assert(rep.posture == (KASLR_SUPPORTED ? HR_POSTURE_RANDOMIZATION_FAILED
+                                         : HR_POSTURE_UNSUPPORTED));
+  assert(rep.slot_entropy_zero == 1);
+
+  /* Gates: all three are gated by >= 1 component. */
+  assert(rep.n_gates == 3);
+  const struct hr_gate *gk = NULL, *gd = NULL, *gp = NULL;
+  for (int i = 0; i < rep.n_gates; i++) {
+    if (strcmp(rep.gates[i].display, "kernel.kptr_restrict") == 0)
+      gk = &rep.gates[i];
+    else if (strcmp(rep.gates[i].display, "kernel.dmesg_restrict") == 0)
+      gd = &rep.gates[i];
+    else if (strcmp(rep.gates[i].display, "kernel.perf_event_paranoid") == 0)
+      gp = &rep.gates[i];
+  }
+  assert(gk && gd && gp);
+  assert(gk->active && gk->gated == 1 && gk->blocked == 1 && gk->bypassed == 0);
+  assert(gk->n_blocked_names == 1 &&
+         strcmp(gk->blocked_names[0], "c_kptr_blocked") == 0);
+  assert(gd->active && gd->bypassed == 1 && gd->fallback == 1);
+  assert(!gp->active && gp->bypassed == 1);
+
+  /* Available hardening: the inactive perf gate is a suggestion; the
+   * dmesg-restrict-with-fallback prompts the fallback suggestion; lockdown is
+   * off with a lockdown-gated component, so suggest enabling it. */
+  assert(rep.n_gate_suggestions == 1);
+  assert(strcmp(rep.gate_suggestions[0].display,
+                "kernel.perf_event_paranoid") == 0);
+  assert(rep.gate_suggestions[0].threshold == 2);
+  assert(rep.suggest_dmesg_fallback == 1 && rep.dmesg_fallback_count == 1);
+  assert(rep.suggest_lockdown == 1 && rep.lockdown_impact == 1);
+
+  /* Lists. */
+  assert(rep.vuln_total == 1 && rep.n_vulns == 1);
+  assert(strcmp(rep.vulns[0].cve, "CVE-2021-1234") == 0);
+  assert(strcmp(rep.vulns[0].patch, "v5.10") == 0);
+  assert(rep.n_surface == 1 &&
+         strcmp(rep.surface[0].config, "CONFIG_FOO") == 0);
+  assert(rep.n_hw == 1 && rep.hw_succeeded == 1 &&
+         strcmp(rep.hw[0].hardware, "KPTI") == 0);
+  assert(rep.n_nomit == 1 && strcmp(rep.nomit[0].name, "c_nomit") == 0);
+
+  /* Restore globals so later tests see a clean sysctl state. */
+  sysctl_kptr_restrict = 0;
+  sysctl_dmesg_restrict = 0;
+  sysctl_perf_event_paranoid = 0;
+  sysctl_lockdown = LOCKDOWN_NONE;
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+}
+
 /* SF_VIRT_KASLR_RANDOMIZATION_FAILED surfaces in the text hardening report as a
  * dedicated posture section (entropy downgrade). The fact is distinct from
  * SF_VIRT_KASLR_DISABLED — the kernel was relocated to a firmware-determined
@@ -2616,6 +2753,7 @@ int main(void) {
   RUN(test_render_hardening_text);
   RUN(test_render_hardening_json);
   RUN(test_render_hardening_markdown);
+  RUN(test_build_hardening_report);
   RUN(test_render_hardening_text_rand_failed_surfaces);
   RUN(test_render_hardening_json_rand_failed_state);
   RUN(test_render_hardening_text_no_rand_failed_silent);
