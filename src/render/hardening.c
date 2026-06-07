@@ -74,6 +74,204 @@ static int has_mitigation_keys(const struct component_meta *m) {
   return 0;
 }
 
+/* Walk the component logs / scalar facts / sysctl gates once and populate the
+ * hardening model. The text/json/markdown renderers below all consume this, so
+ * the section-derivation logic lives here only. The collection order matches
+ * the source arrays (comp_logs order, gate order) so each renderer's output
+ * order is preserved. */
+void build_hardening_report(struct hardening_report *r) {
+  memset(r, 0, sizeof(*r));
+
+  /* Exposure: non-detection components carrying metadata. */
+  for (int i = 0; i < num_comp_logs; i++) {
+    const char *method = meta_get(&comp_logs[i].meta, "method");
+    if (!method || strcmp(method, "detection") == 0)
+      continue;
+    r->total++;
+    if (comp_logs[i].outcome == OUTCOME_SUCCESS)
+      r->succeeded++;
+  }
+
+  /* KASLR posture: collect randomization-failure witnesses (raw origins) and
+   * note a deliberate virt opt-out, then resolve the prioritised state
+   * (unsupported > disabled > randomization_failed > active). */
+  int opt_out = 0;
+  for (int i = 0; i < num_scalar_facts; i++) {
+    if (scalar_facts[i].value == 0)
+      continue;
+    if (scalar_facts[i].fact == SF_VIRT_KASLR_RANDOMIZATION_FAILED) {
+      if (r->n_rand_detectors < HR_NAME_MAX)
+        r->rand_detectors[r->n_rand_detectors++] = scalar_facts[i].origin;
+    } else if (scalar_facts[i].fact == SF_VIRT_KASLR_DISABLED) {
+      opt_out = 1;
+    }
+  }
+  if (!KASLR_SUPPORTED) {
+    r->posture = HR_POSTURE_UNSUPPORTED;
+    r->slot_entropy_zero = 1;
+    r->kernel_at_default = 0;
+  } else if (opt_out) {
+    r->posture = HR_POSTURE_DISABLED;
+    r->slot_entropy_zero = 1;
+    r->kernel_at_default = 1;
+  } else if (r->n_rand_detectors > 0) {
+    r->posture = HR_POSTURE_RANDOMIZATION_FAILED;
+    r->slot_entropy_zero = 1;
+    r->kernel_at_default = 0;
+  } else {
+    r->posture = HR_POSTURE_ACTIVE;
+    r->slot_entropy_zero = 0;
+    r->kernel_at_default = 0;
+  }
+
+  /* Active defenses: one row per readable gate with >= 1 gated component.
+   * Full counts and the (capped) name lists are kept separately so text can
+   * say "blocked N of M" while json dumps the arrays. */
+  for (int g = 0; g < ngates; g++) {
+    if (!gates[g].value_ptr || *gates[g].value_ptr < 0)
+      continue;
+    struct hr_gate hg;
+    memset(&hg, 0, sizeof(hg));
+    hg.display = gates[g].display;
+    hg.value = *gates[g].value_ptr;
+    hg.threshold = gates[g].threshold;
+    hg.active = sysctl_gate_active(&gates[g]);
+    for (int i = 0; i < num_comp_logs; i++) {
+      if (!component_has_gate(&comp_logs[i], &gates[g]))
+        continue;
+      hg.gated++;
+      if (hg.n_gated_names < HR_NAME_MAX)
+        hg.gated_names[hg.n_gated_names++] = comp_logs[i].name;
+      if (comp_logs[i].outcome == OUTCOME_ACCESS_DENIED) {
+        hg.blocked++;
+        if (hg.n_blocked_names < HR_NAME_MAX)
+          hg.blocked_names[hg.n_blocked_names++] = comp_logs[i].name;
+      } else if (comp_logs[i].outcome == OUTCOME_SUCCESS) {
+        hg.bypassed++;
+        if (hg.n_bypassed_names < HR_NAME_MAX)
+          hg.bypassed_names[hg.n_bypassed_names++] = comp_logs[i].name;
+        if (meta_get(&comp_logs[i].meta, "fallback"))
+          hg.fallback++;
+      }
+    }
+    if (hg.gated == 0)
+      continue;
+    if (r->n_gates < HR_GATES_MAX)
+      r->gates[r->n_gates++] = hg;
+  }
+
+  r->lockdown = sysctl_lockdown;
+
+  /* Available hardening. Gate suggestions (inactive gate with gated
+   * components), the lockdown suggestion, and the text-only dmesg-fallback
+   * suggestion. */
+  for (int i = 0; i < r->n_gates; i++) {
+    if (r->gates[i].active)
+      continue;
+    if (r->n_gate_suggestions < HR_SUGG_MAX) {
+      r->gate_suggestions[r->n_gate_suggestions].display = r->gates[i].display;
+      r->gate_suggestions[r->n_gate_suggestions].threshold =
+          r->gates[i].threshold;
+      r->gate_suggestions[r->n_gate_suggestions].impact = r->gates[i].gated;
+      r->n_gate_suggestions++;
+    }
+  }
+  if (sysctl_lockdown < LOCKDOWN_INTEGRITY) {
+    int lockdown_gated = 0;
+    for (int i = 0; i < num_comp_logs; i++)
+      if (meta_get(&comp_logs[i].meta, "lockdown"))
+        lockdown_gated++;
+    if (lockdown_gated > 0) {
+      r->suggest_lockdown = 1;
+      r->lockdown_impact = lockdown_gated;
+    }
+  }
+  if (sysctl_dmesg_restrict >= 1) {
+    int fallback_bypassed = 0;
+    for (int i = 0; i < num_comp_logs; i++) {
+      if (comp_logs[i].outcome != OUTCOME_SUCCESS)
+        continue;
+      if (!component_has_gate(&comp_logs[i], &gates[GATE_DMESG_RESTRICT]))
+        continue;
+      if (meta_get(&comp_logs[i].meta, "fallback"))
+        fallback_bypassed++;
+    }
+    if (fallback_bypassed > 0) {
+      r->suggest_dmesg_fallback = 1;
+      r->dmesg_fallback_count = fallback_bypassed;
+    }
+  }
+
+  /* Patched vulnerabilities: total vuln-tagged components + the succeeded
+   * (possibly unpatched) subset. */
+  for (int i = 0; i < num_comp_logs; i++) {
+    const char *patch = meta_get(&comp_logs[i].meta, "patch");
+    const char *cve = meta_get(&comp_logs[i].meta, "cve");
+    if (!patch && !cve)
+      continue;
+    r->vuln_total++;
+    if (comp_logs[i].outcome == OUTCOME_SUCCESS && r->n_vulns < HR_VULNS_MAX) {
+      r->vulns[r->n_vulns].name = comp_logs[i].name;
+      r->vulns[r->n_vulns].cve = cve;
+      r->vulns[r->n_vulns].patch = patch;
+      r->n_vulns++;
+    }
+  }
+
+  /* Compile-time attack surface: succeeded components with config= keys. */
+  for (int i = 0; i < num_comp_logs; i++) {
+    if (comp_logs[i].outcome != OUTCOME_SUCCESS)
+      continue;
+    const char *configs[4];
+    int ncfg = meta_get_all(&comp_logs[i].meta, "config", configs, 4);
+    if (ncfg == 0)
+      continue;
+    const char *addr = meta_get(&comp_logs[i].meta, "addr");
+    for (int j = 0; j < ncfg && r->n_surface < HR_SURFACE_MAX; j++) {
+      r->surface[r->n_surface].name = comp_logs[i].name;
+      r->surface[r->n_surface].config = configs[j];
+      r->surface[r->n_surface].addr = addr;
+      r->n_surface++;
+    }
+  }
+
+  /* Hardware side-channels: non-detection components with a hardware= key. */
+  for (int i = 0; i < num_comp_logs; i++) {
+    const char *hw = meta_get(&comp_logs[i].meta, "hardware");
+    if (!hw)
+      continue;
+    const char *method = meta_get(&comp_logs[i].meta, "method");
+    if (!method || strcmp(method, "detection") == 0)
+      continue;
+    if (r->n_hw < HR_HW_MAX) {
+      r->hw[r->n_hw].name = comp_logs[i].name;
+      r->hw[r->n_hw].hardware = hw;
+      r->hw[r->n_hw].addr = meta_get(&comp_logs[i].meta, "addr");
+      r->hw[r->n_hw].succeeded = (comp_logs[i].outcome == OUTCOME_SUCCESS);
+      r->n_hw++;
+      if (comp_logs[i].outcome == OUTCOME_SUCCESS)
+        r->hw_succeeded++;
+    }
+  }
+
+  /* No known mitigation: succeeded non-detection components with no
+   * mitigation key. */
+  for (int i = 0; i < num_comp_logs; i++) {
+    if (comp_logs[i].outcome != OUTCOME_SUCCESS)
+      continue;
+    const char *method = meta_get(&comp_logs[i].meta, "method");
+    if (!method || strcmp(method, "detection") == 0)
+      continue;
+    if (has_mitigation_keys(&comp_logs[i].meta))
+      continue;
+    if (r->n_nomit < HR_NOMIT_MAX) {
+      r->nomit[r->n_nomit].name = comp_logs[i].name;
+      r->nomit[r->n_nomit].addr = meta_get(&comp_logs[i].meta, "addr");
+      r->n_nomit++;
+    }
+  }
+}
+
 void render_hardening_text(void) {
   printf("\n%s========================================%s\n", c(C_BOLD),
          c(C_RESET));
@@ -81,22 +279,12 @@ void render_hardening_text(void) {
   printf("%s========================================%s\n\n", c(C_BOLD),
          c(C_RESET));
 
-  /* Count non-detection components with metadata */
-  int total_meta = 0, succeeded = 0;
-  for (int i = 0; i < num_comp_logs; i++) {
-    const char *method = meta_get(&comp_logs[i].meta, "method");
-    if (!method)
-      continue;
-    if (strcmp(method, "detection") == 0)
-      continue;
-    total_meta++;
-    if (comp_logs[i].outcome == OUTCOME_SUCCESS)
-      succeeded++;
-  }
+  struct hardening_report rep;
+  build_hardening_report(&rep);
 
   printf("Hardening assessment: %s%d of %d%s leak techniques succeeded "
          "against current defenses.\n\n",
-         succeeded > 0 ? c(C_YELLOW) : c(C_GREEN), succeeded, total_meta,
+         rep.succeeded > 0 ? c(C_YELLOW) : c(C_GREEN), rep.succeeded, rep.total,
          c(C_RESET));
 
   /* ---- Section 0: KASLR posture downgrade ----
@@ -107,32 +295,21 @@ void render_hardening_text(void) {
    * relocated the image but skipped the random component, leaving the
    * kernel at a firmware-/boot-stub-deterministic virt position.
    * Effective KASLR slot entropy is 0 bits — same address on every
-   * boot of this (firmware, kernel build, hardware) tuple. The user-
-   * visible "0 entropy" claim is about virt text, so we scan the virt
-   * variant; a phys-only randomisation failure (SF_PHYS_KASLR_
-   * RANDOMIZATION_FAILED alone) wouldn't trip this — virt KASLR via
-   * the DTB seed could still have full entropy. Components that emit
-   * both (every current emitter) show up via the virt scan. Distinct
-   * from SF_VIRT_KASLR_DISABLED (deliberate opt-out → kernel at
-   * link-time default), which is shown by the main results banner. */
-  int rand_failed_origins = 0;
-  for (int i = 0; i < num_scalar_facts; i++) {
-    if (scalar_facts[i].fact == SF_VIRT_KASLR_RANDOMIZATION_FAILED &&
-        scalar_facts[i].value != 0)
-      rand_failed_origins++;
-  }
-  if (rand_failed_origins > 0) {
+   * boot of this (firmware, kernel build, hardware) tuple. The banner
+   * fires whenever any witness reported the failure (build_hardening_report
+   * collects them into rep.rand_detectors), independent of the prioritised
+   * posture state json reports. Distinct from SF_VIRT_KASLR_DISABLED
+   * (deliberate opt-out → kernel at link-time default), shown by the main
+   * results banner. */
+  if (rep.n_rand_detectors > 0) {
     printf("%sKASLR posture:%s\n", c(C_BOLD), c(C_RESET));
     printf("  %s** KASLR randomization failed — random offset not applied "
            "at boot **%s\n",
            c(C_YELLOW), c(C_RESET));
     printf("  Detected by:\n");
-    for (int i = 0; i < num_scalar_facts; i++) {
-      if (scalar_facts[i].fact == SF_VIRT_KASLR_RANDOMIZATION_FAILED &&
-          scalar_facts[i].value != 0)
-        printf("    %s\n", scalar_facts[i].origin[0] ? scalar_facts[i].origin
-                                                     : "(unknown)");
-    }
+    for (int i = 0; i < rep.n_rand_detectors; i++)
+      printf("    %s\n",
+             rep.rand_detectors[i][0] ? rep.rand_detectors[i] : "(unknown)");
     printf("  Effective KASLR slot entropy: %s0 bits%s "
            "(kernel at firmware-determined position).\n",
            c(C_YELLOW), c(C_RESET));
@@ -150,52 +327,26 @@ void render_hardening_text(void) {
 
   int any_active = 0;
 
-  for (int g = 0; g < ngates; g++) {
-    if (!gates[g].value_ptr || *gates[g].value_ptr < 0)
-      continue; /* sysctl unavailable */
+  for (int gi = 0; gi < rep.n_gates; gi++) {
+    const struct hr_gate *hg = &rep.gates[gi];
+    int blocked = hg->blocked, bypassed = hg->bypassed, gated = hg->gated;
+    int nfallback = hg->fallback;
 
-    int active = sysctl_gate_active(&gates[g]);
-    int gated = 0, blocked = 0, bypassed = 0, nfallback = 0;
-    const char *blocked_names[8];
-    int nblocked_names = 0;
-    const char *bypassed_names[8];
-    int nbypassed_names = 0;
-
-    for (int i = 0; i < num_comp_logs; i++) {
-      if (!component_has_gate(&comp_logs[i], &gates[g]))
-        continue;
-      gated++;
-      if (comp_logs[i].outcome == OUTCOME_ACCESS_DENIED) {
-        blocked++;
-        if (nblocked_names < 8)
-          blocked_names[nblocked_names++] = comp_logs[i].name;
-      } else if (comp_logs[i].outcome == OUTCOME_SUCCESS) {
-        bypassed++;
-        if (nbypassed_names < 8)
-          bypassed_names[nbypassed_names++] = comp_logs[i].name;
-        if (meta_get(&comp_logs[i].meta, "fallback"))
-          nfallback++; /* succeeded via a fallback path despite the gate */
-      }
-    }
-
-    if (gated == 0)
-      continue;
-
-    if (active) {
+    if (hg->active) {
       any_active = 1;
       /* Active but every gated component still leaked = the control is set yet
        * fully circumvented (e.g. dmesg_restrict on, but the logs are readable
        * as files). Mark it ⚠, not ✓. */
       int circumvented = (blocked == 0 && bypassed > 0);
-      printf("  %-34s = %-4d %s%s%s  ", gates[g].display, *gates[g].value_ptr,
+      printf("  %-34s = %-4d %s%s%s  ", hg->display, hg->value,
              circumvented ? c(C_YELLOW) : c(C_GREEN),
              circumvented ? "\xe2\x9a\xa0" : "\xe2\x9c\x93", c(C_RESET));
       if (blocked > 0 && blocked <= 5) {
         printf("blocked ");
-        for (int n = 0; n < nblocked_names; n++) {
+        for (int n = 0; n < hg->n_blocked_names; n++) {
           if (n > 0)
             printf(", ");
-          printf("%s", blocked_names[n]);
+          printf("%s", hg->blocked_names[n]);
         }
       } else if (blocked > 0) {
         printf("blocked %d of %d gated components", blocked, gated);
@@ -219,24 +370,24 @@ void render_hardening_text(void) {
        * silently omit it. */
       any_active = 1;
       printf("  %-34s = %-4d %s\xe2\x9c\x97%s  permissive \xe2\x80\x94 ",
-             gates[g].display, *gates[g].value_ptr, c(C_YELLOW), c(C_RESET));
-      if (nbypassed_names > 0 && bypassed <= 5) {
-        for (int n = 0; n < nbypassed_names; n++) {
+             hg->display, hg->value, c(C_YELLOW), c(C_RESET));
+      if (hg->n_bypassed_names > 0 && bypassed <= 5) {
+        for (int n = 0; n < hg->n_bypassed_names; n++) {
           if (n > 0)
             printf(", ");
-          printf("%s", bypassed_names[n]);
+          printf("%s", hg->bypassed_names[n]);
         }
         printf(" leak%s", bypassed == 1 ? "s" : "");
       } else {
         printf("%d component%s leak", bypassed, bypassed == 1 ? "" : "s");
       }
-      printf(" (set >= %d)\n", gates[g].threshold);
+      printf(" (set >= %d)\n", hg->threshold);
     }
   }
 
   /* Lockdown status */
   const char *lockdown_str = NULL;
-  switch (sysctl_lockdown) {
+  switch (rep.lockdown) {
   case LOCKDOWN_INTEGRITY:
     lockdown_str = "integrity";
     break;
@@ -265,52 +416,27 @@ void render_hardening_text(void) {
 
   int any_suggestions = 0;
 
-  for (int g = 0; g < ngates; g++) {
-    if (!gates[g].value_ptr || *gates[g].value_ptr < 0 ||
-        sysctl_gate_active(&gates[g]))
-      continue; /* unavailable or already active */
-    int gated = 0;
-    for (int i = 0; i < num_comp_logs; i++)
-      if (component_has_gate(&comp_logs[i], &gates[g]))
-        gated++;
-    if (gated == 0)
-      continue;
+  for (int i = 0; i < rep.n_gate_suggestions; i++) {
     any_suggestions = 1;
     printf("  %s\xe2\x86\x92%s Set %s = %d\n", c(C_CYAN), c(C_RESET),
-           gates[g].display, gates[g].threshold);
-    printf("    affects %d component%s\n", gated, gated == 1 ? "" : "s");
+           rep.gate_suggestions[i].display, rep.gate_suggestions[i].threshold);
+    printf("    affects %d component%s\n", rep.gate_suggestions[i].impact,
+           rep.gate_suggestions[i].impact == 1 ? "" : "s");
   }
 
-  if (sysctl_lockdown < LOCKDOWN_INTEGRITY) {
-    int lockdown_gated = 0;
-    for (int i = 0; i < num_comp_logs; i++)
-      if (meta_get(&comp_logs[i].meta, "lockdown"))
-        lockdown_gated++;
-    if (lockdown_gated > 0) {
-      any_suggestions = 1;
-      printf("  %s\xe2\x86\x92%s Enable kernel lockdown (integrity mode)\n",
-             c(C_CYAN), c(C_RESET));
-      printf("    blocks klogctl() even with CAP_SYSLOG\n");
-    }
+  if (rep.suggest_lockdown) {
+    any_suggestions = 1;
+    printf("  %s\xe2\x86\x92%s Enable kernel lockdown (integrity mode)\n",
+           c(C_CYAN), c(C_RESET));
+    printf("    blocks klogctl() even with CAP_SYSLOG\n");
   }
 
-  if (sysctl_dmesg_restrict >= 1) {
-    int fallback_bypassed = 0;
-    for (int i = 0; i < num_comp_logs; i++) {
-      if (comp_logs[i].outcome != OUTCOME_SUCCESS)
-        continue;
-      if (!component_has_gate(&comp_logs[i], &gates[GATE_DMESG_RESTRICT]))
-        continue;
-      if (meta_get(&comp_logs[i].meta, "fallback"))
-        fallback_bypassed++;
-    }
-    if (fallback_bypassed > 0) {
-      any_suggestions = 1;
-      printf("  %s\xe2\x86\x92%s Restrict dmesg fallback files to root\n",
-             c(C_CYAN), c(C_RESET));
-      printf("    %d dmesg component%s may have succeeded via log files\n",
-             fallback_bypassed, fallback_bypassed == 1 ? "" : "s");
-    }
+  if (rep.suggest_dmesg_fallback) {
+    any_suggestions = 1;
+    printf("  %s\xe2\x86\x92%s Restrict dmesg fallback files to root\n",
+           c(C_CYAN), c(C_RESET));
+    printf("    %d dmesg component%s may have succeeded via log files\n",
+           rep.dmesg_fallback_count, rep.dmesg_fallback_count == 1 ? "" : "s");
   }
 
   if (!any_suggestions)
@@ -321,45 +447,23 @@ void render_hardening_text(void) {
   /* ---- Section 3: Patched Vulnerabilities ---- */
   printf("%sPatched vulnerabilities:%s\n", c(C_BOLD), c(C_RESET));
 
-  int vuln_total = 0;
-  struct {
-    const char *name;
-    const char *cve;
-    const char *patch;
-  } unpatched[16];
-  int nunpatched = 0;
-
-  for (int i = 0; i < num_comp_logs; i++) {
-    const char *patch = meta_get(&comp_logs[i].meta, "patch");
-    const char *cve = meta_get(&comp_logs[i].meta, "cve");
-    if (!patch && !cve)
-      continue;
-    vuln_total++;
-    if (comp_logs[i].outcome == OUTCOME_SUCCESS && nunpatched < 16) {
-      unpatched[nunpatched].name = comp_logs[i].name;
-      unpatched[nunpatched].cve = cve;
-      unpatched[nunpatched].patch = patch;
-      nunpatched++;
-    }
-  }
-
-  if (vuln_total == 0) {
+  if (rep.vuln_total == 0) {
     printf("  No vulnerability-based components in metadata.\n");
   } else {
     printf("  %d of %d vulnerability-based components did not leak "
            "(likely patched or blocked).\n",
-           vuln_total - nunpatched, vuln_total);
-    if (nunpatched > 0) {
+           rep.vuln_total - rep.n_vulns, rep.vuln_total);
+    if (rep.n_vulns > 0) {
       printf("  %s%d component%s succeeded%s — kernel may lack fixes for:\n",
-             c(C_YELLOW), nunpatched, nunpatched == 1 ? "" : "s", c(C_RESET));
-      for (int i = 0; i < nunpatched; i++) {
-        printf("    %s", unpatched[i].name);
-        if (unpatched[i].cve)
-          printf(" (%s", unpatched[i].cve);
-        if (unpatched[i].patch)
-          printf("%sfixed %s", unpatched[i].cve ? ", " : "(",
-                 unpatched[i].patch);
-        if (unpatched[i].cve || unpatched[i].patch)
+             c(C_YELLOW), rep.n_vulns, rep.n_vulns == 1 ? "" : "s", c(C_RESET));
+      for (int i = 0; i < rep.n_vulns; i++) {
+        printf("    %s", rep.vulns[i].name);
+        if (rep.vulns[i].cve)
+          printf(" (%s", rep.vulns[i].cve);
+        if (rep.vulns[i].patch)
+          printf("%sfixed %s", rep.vulns[i].cve ? ", " : "(",
+                 rep.vulns[i].patch);
+        if (rep.vulns[i].cve || rep.vulns[i].patch)
           printf(")");
         printf("\n");
       }
@@ -371,37 +475,13 @@ void render_hardening_text(void) {
   /* ---- Section 4: Compile-Time Attack Surface ---- */
   printf("%sCompile-time attack surface:%s\n", c(C_BOLD), c(C_RESET));
 
-  struct {
-    const char *name;
-    const char *config;
-    const char *addr;
-  } config_surface[32];
-  int nconfig = 0;
-
-  for (int i = 0; i < num_comp_logs; i++) {
-    if (comp_logs[i].outcome != OUTCOME_SUCCESS)
-      continue;
-    const char *configs[4];
-    int ncfg = meta_get_all(&comp_logs[i].meta, "config", configs, 4);
-    if (ncfg == 0)
-      continue;
-    const char *addr = meta_get(&comp_logs[i].meta, "addr");
-    for (int j = 0; j < ncfg && nconfig < 32; j++) {
-      config_surface[nconfig].name = comp_logs[i].name;
-      config_surface[nconfig].config = configs[j];
-      config_surface[nconfig].addr = addr;
-      nconfig++;
-    }
-  }
-
-  if (nconfig == 0) {
+  if (rep.n_surface == 0) {
     printf("  No compile-time surface exposed.\n");
   } else {
     /* Group by addr type */
     int phys_count = 0, virt_count = 0;
-    for (int i = 0; i < nconfig; i++) {
-      if (config_surface[i].addr &&
-          strcmp(config_surface[i].addr, "physical") == 0)
+    for (int i = 0; i < rep.n_surface; i++) {
+      if (rep.surface[i].addr && strcmp(rep.surface[i].addr, "physical") == 0)
         phys_count++;
       else
         virt_count++;
@@ -411,22 +491,18 @@ void render_hardening_text(void) {
              "features:\n",
              phys_count, phys_count == 1 ? "" : "s",
              phys_count == 1 ? "s" : "");
-    for (int i = 0; i < nconfig; i++) {
-      if (config_surface[i].addr &&
-          strcmp(config_surface[i].addr, "physical") == 0)
-        printf("    %-28s %s\n", config_surface[i].name,
-               config_surface[i].config);
+    for (int i = 0; i < rep.n_surface; i++) {
+      if (rep.surface[i].addr && strcmp(rep.surface[i].addr, "physical") == 0)
+        printf("    %-28s %s\n", rep.surface[i].name, rep.surface[i].config);
     }
     if (virt_count > 0)
       printf("  %d component%s leak%s virtual addresses via compiled-in "
              "features:\n",
              virt_count, virt_count == 1 ? "" : "s",
              virt_count == 1 ? "s" : "");
-    for (int i = 0; i < nconfig; i++) {
-      if (!config_surface[i].addr ||
-          strcmp(config_surface[i].addr, "physical") != 0)
-        printf("    %-28s %s\n", config_surface[i].name,
-               config_surface[i].config);
+    for (int i = 0; i < rep.n_surface; i++) {
+      if (!rep.surface[i].addr || strcmp(rep.surface[i].addr, "physical") != 0)
+        printf("    %-28s %s\n", rep.surface[i].name, rep.surface[i].config);
     }
     if (phys_count > 0 && sizeof(unsigned long) >= 8)
       printf("  %sNote: on 64-bit architectures with decoupled KASLR, "
@@ -440,52 +516,27 @@ void render_hardening_text(void) {
   /* ---- Section 5: Hardware Side-Channels ---- */
   printf("%sHardware side-channels:%s\n", c(C_BOLD), c(C_RESET));
 
-  struct {
-    const char *name;
-    const char *hardware;
-    const char *addr;
-    int outcome;
-  } hw_comps[32];
-  int nhw = 0, hw_succeeded = 0;
-
-  for (int i = 0; i < num_comp_logs; i++) {
-    const char *hw = meta_get(&comp_logs[i].meta, "hardware");
-    if (!hw)
-      continue;
-    const char *method = meta_get(&comp_logs[i].meta, "method");
-    if (!method || strcmp(method, "detection") == 0)
-      continue;
-    if (nhw < 32) {
-      hw_comps[nhw].name = comp_logs[i].name;
-      hw_comps[nhw].hardware = hw;
-      hw_comps[nhw].addr = meta_get(&comp_logs[i].meta, "addr");
-      hw_comps[nhw].outcome = comp_logs[i].outcome;
-      nhw++;
-      if (comp_logs[i].outcome == OUTCOME_SUCCESS)
-        hw_succeeded++;
-    }
-  }
-
-  if (nhw == 0) {
+  if (rep.n_hw == 0) {
     printf("  No hardware-mitigated components.\n");
-  } else if (hw_succeeded == 0) {
+  } else if (rep.hw_succeeded == 0) {
     printf("  %d hardware-gated component%s did not succeed (CPU mitigations "
            "active or attack not applicable).\n",
-           nhw, nhw == 1 ? "" : "s");
+           rep.n_hw, rep.n_hw == 1 ? "" : "s");
   } else {
     printf("  %s%d of %d%s hardware-gated components succeeded:\n", c(C_YELLOW),
-           hw_succeeded, nhw, c(C_RESET));
-    for (int i = 0; i < nhw; i++) {
-      if (hw_comps[i].outcome != OUTCOME_SUCCESS)
+           rep.hw_succeeded, rep.n_hw, c(C_RESET));
+    for (int i = 0; i < rep.n_hw; i++) {
+      if (!rep.hw[i].succeeded)
         continue;
-      printf("    %-28s %s", hw_comps[i].name, hw_comps[i].hardware);
-      if (hw_comps[i].addr)
-        printf(" — leaks %s address", hw_comps[i].addr);
+      printf("    %-28s %s", rep.hw[i].name, rep.hw[i].hardware);
+      if (rep.hw[i].addr)
+        printf(" — leaks %s address", rep.hw[i].addr);
       printf("\n");
     }
-    if (hw_succeeded < nhw) {
+    if (rep.hw_succeeded < rep.n_hw) {
       printf("  %d of %d hardware-gated component%s did not succeed.\n",
-             nhw - hw_succeeded, nhw, nhw - hw_succeeded == 1 ? "" : "s");
+             rep.n_hw - rep.hw_succeeded, rep.n_hw,
+             rep.n_hw - rep.hw_succeeded == 1 ? "" : "s");
     }
   }
 
@@ -494,25 +545,15 @@ void render_hardening_text(void) {
   /* ---- Section 6: No Known Mitigation ---- */
   printf("%sNo known mitigation:%s\n", c(C_BOLD), c(C_RESET));
 
-  int any_unmit = 0;
-  for (int i = 0; i < num_comp_logs; i++) {
-    if (comp_logs[i].outcome != OUTCOME_SUCCESS)
-      continue;
-    const char *method = meta_get(&comp_logs[i].meta, "method");
-    if (!method)
-      continue;
-    if (strcmp(method, "detection") == 0)
-      continue;
-    if (has_mitigation_keys(&comp_logs[i].meta))
-      continue;
-    any_unmit = 1;
-    const char *addr = meta_get(&comp_logs[i].meta, "addr");
-    printf("  %-28s %s%s%s\n", comp_logs[i].name, addr ? "leaks " : "",
-           addr ? addr : "no mitigation", addr ? " addresses" : "");
-  }
-
-  if (!any_unmit)
+  if (rep.n_nomit == 0) {
     printf("  All components have at least one mitigation key.\n");
+  } else {
+    for (int i = 0; i < rep.n_nomit; i++) {
+      const char *addr = rep.nomit[i].addr;
+      printf("  %-28s %s%s%s\n", rep.nomit[i].name, addr ? "leaks " : "",
+             addr ? addr : "no mitigation", addr ? " addresses" : "");
+    }
+  }
 
   printf("\n");
 }
@@ -520,19 +561,13 @@ void render_hardening_text(void) {
 void render_hardening_json(void) {
   printf("  \"hardening\": {\n");
 
+  struct hardening_report rep;
+  build_hardening_report(&rep);
+
   /* Exposure summary */
-  int total_meta = 0, succeeded_count = 0;
-  for (int i = 0; i < num_comp_logs; i++) {
-    const char *method = meta_get(&comp_logs[i].meta, "method");
-    if (!method || strcmp(method, "detection") == 0)
-      continue;
-    total_meta++;
-    if (comp_logs[i].outcome == OUTCOME_SUCCESS)
-      succeeded_count++;
-  }
   printf("    \"exposure\": {\n");
-  printf("      \"succeeded\": %d,\n", succeeded_count);
-  printf("      \"total\": %d,\n", total_meta);
+  printf("      \"succeeded\": %d,\n", rep.succeeded);
+  printf("      \"total\": %d,\n", rep.total);
   printf("      \"note\": \"Detection-only components excluded\"\n");
   printf("    },\n");
 
@@ -540,61 +575,36 @@ void render_hardening_json(void) {
    * disabled / unsupported. See render_hardening_text() Section 0 for
    * the rationale. The state field is mutually exclusive (priorities:
    * unsupported > disabled > randomization_failed > active) so JSON
-   * consumers can switch on it directly. */
-  int rand_failed = 0, opt_out = 0;
-  int n_rand_origins = 0;
-  const char *rand_origins[16];
-  for (int i = 0; i < num_scalar_facts; i++) {
-    if (scalar_facts[i].value == 0)
-      continue;
-    if (scalar_facts[i].fact == SF_VIRT_KASLR_RANDOMIZATION_FAILED) {
-      /* Virt-side randomisation failure drives the user-facing
-       * "randomization_failed" posture: the JSON state mirrors the text
-       * banner above, both of which describe the virt KASLR slot
-       * entropy. */
-      rand_failed = 1;
-      if (n_rand_origins < 16)
-        rand_origins[n_rand_origins++] =
-            scalar_facts[i].origin[0] ? scalar_facts[i].origin : "unknown";
-    } else if (scalar_facts[i].fact == SF_VIRT_KASLR_DISABLED) {
-      /* Virtual disable drives the user-facing "disabled" posture; a
-       * phys-only disable would still leave virt randomisation active. */
-      opt_out = 1;
-    }
-  }
-
+   * consumers can switch on it directly. detected_by lists the
+   * randomization-failure witnesses regardless of the resolved state. */
   const char *state;
-  int slot_entropy_zero;
-  int kernel_at_default;
-  if (!KASLR_SUPPORTED) {
+  switch (rep.posture) {
+  case HR_POSTURE_UNSUPPORTED:
     state = "unsupported";
-    slot_entropy_zero = 1;
-    kernel_at_default = 0;
-  } else if (opt_out) {
+    break;
+  case HR_POSTURE_DISABLED:
     state = "disabled";
-    slot_entropy_zero = 1;
-    kernel_at_default = 1;
-  } else if (rand_failed) {
+    break;
+  case HR_POSTURE_RANDOMIZATION_FAILED:
     state = "randomization_failed";
-    slot_entropy_zero = 1;
-    kernel_at_default = 0;
-  } else {
+    break;
+  default:
     state = "active";
-    slot_entropy_zero = 0;
-    kernel_at_default = 0;
+    break;
   }
 
   printf("    \"kaslr_posture\": {\n");
   printf("      \"state\": \"%s\",\n", state);
   printf("      \"slot_entropy_zero\": %s,\n",
-         slot_entropy_zero ? "true" : "false");
+         rep.slot_entropy_zero ? "true" : "false");
   printf("      \"kernel_at_link_time_default\": %s,\n",
-         kernel_at_default ? "true" : "false");
+         rep.kernel_at_default ? "true" : "false");
   printf("      \"detected_by\": [");
-  for (int i = 0; i < n_rand_origins; i++) {
+  for (int i = 0; i < rep.n_rand_detectors && i < 16; i++) {
     if (i > 0)
       printf(", ");
-    json_print_escaped(rand_origins[i]);
+    json_print_escaped(rep.rand_detectors[i][0] ? rep.rand_detectors[i]
+                                                : "unknown");
   }
   printf("]\n");
   printf("    },\n");
@@ -602,62 +612,40 @@ void render_hardening_json(void) {
   /* Active defenses */
   printf("    \"active_defenses\": [\n");
   int first_def = 1;
-  for (int g = 0; g < ngates; g++) {
-    if (!gates[g].value_ptr || *gates[g].value_ptr < 0)
-      continue;
-    int active = sysctl_gate_active(&gates[g]);
-
-    const char *gated_names[64];
-    const char *blocked_names[64];
-    const char *bypassed_names[64];
-    int ngated = 0, nblocked = 0, nbypassed = 0;
-
-    for (int i = 0; i < num_comp_logs; i++) {
-      if (!component_has_gate(&comp_logs[i], &gates[g]))
-        continue;
-      if (ngated < 64)
-        gated_names[ngated] = comp_logs[i].name;
-      ngated++;
-      if (comp_logs[i].outcome == OUTCOME_ACCESS_DENIED && nblocked < 64)
-        blocked_names[nblocked++] = comp_logs[i].name;
-      else if (comp_logs[i].outcome == OUTCOME_SUCCESS && nbypassed < 64)
-        bypassed_names[nbypassed++] = comp_logs[i].name;
-    }
-
-    if (ngated == 0)
-      continue;
+  for (int gi = 0; gi < rep.n_gates; gi++) {
+    const struct hr_gate *hg = &rep.gates[gi];
 
     if (!first_def)
       printf(",\n");
     first_def = 0;
 
     printf("      {\n");
-    printf("        \"gate\": \"%s\",\n", gates[g].display);
-    printf("        \"value\": %d,\n", *gates[g].value_ptr);
-    printf("        \"threshold\": %d,\n", gates[g].threshold);
-    printf("        \"active\": %s,\n", active ? "true" : "false");
+    printf("        \"gate\": \"%s\",\n", hg->display);
+    printf("        \"value\": %d,\n", hg->value);
+    printf("        \"threshold\": %d,\n", hg->threshold);
+    printf("        \"active\": %s,\n", hg->active ? "true" : "false");
 
     printf("        \"components_gated\": [");
-    for (int i = 0; i < ngated && i < 64; i++) {
+    for (int i = 0; i < hg->n_gated_names; i++) {
       if (i > 0)
         printf(", ");
-      json_print_escaped(gated_names[i]);
+      json_print_escaped(hg->gated_names[i]);
     }
     printf("],\n");
 
     printf("        \"components_blocked\": [");
-    for (int i = 0; i < nblocked; i++) {
+    for (int i = 0; i < hg->n_blocked_names; i++) {
       if (i > 0)
         printf(", ");
-      json_print_escaped(blocked_names[i]);
+      json_print_escaped(hg->blocked_names[i]);
     }
     printf("],\n");
 
     printf("        \"components_bypassed\": [");
-    for (int i = 0; i < nbypassed; i++) {
+    for (int i = 0; i < hg->n_bypassed_names; i++) {
       if (i > 0)
         printf(", ");
-      json_print_escaped(bypassed_names[i]);
+      json_print_escaped(hg->bypassed_names[i]);
     }
     printf("]\n");
     printf("      }");
@@ -666,7 +654,7 @@ void render_hardening_json(void) {
 
   /* Lockdown */
   const char *lockdown_str;
-  switch (sysctl_lockdown) {
+  switch (rep.lockdown) {
   case LOCKDOWN_INTEGRITY:
     lockdown_str = "integrity";
     break;
@@ -683,98 +671,57 @@ void render_hardening_json(void) {
   printf("    \"lockdown\": {\n");
   printf("      \"mode\": \"%s\",\n", lockdown_str);
   printf("      \"active\": %s\n",
-         sysctl_lockdown >= LOCKDOWN_INTEGRITY ? "true" : "false");
+         rep.lockdown >= LOCKDOWN_INTEGRITY ? "true" : "false");
   printf("    },\n");
 
-  /* Available hardening */
+  /* Available hardening (json omits the text-only dmesg-fallback suggestion) */
   printf("    \"available_hardening\": [\n");
   int first_sug = 1;
-  for (int g = 0; g < ngates; g++) {
-    if (!gates[g].value_ptr || *gates[g].value_ptr < 0)
-      continue;
-    if (sysctl_gate_active(&gates[g]))
-      continue;
-    int gated = 0;
-    for (int i = 0; i < num_comp_logs; i++) {
-      if (component_has_gate(&comp_logs[i], &gates[g]))
-        gated++;
-    }
-    if (gated == 0)
-      continue;
-
+  for (int i = 0; i < rep.n_gate_suggestions; i++) {
     if (!first_sug)
       printf(",\n");
     first_sug = 0;
-
     printf("      {\n");
-    printf("        \"action\": \"Set %s = %d\",\n", gates[g].display,
-           gates[g].threshold);
-    printf("        \"impact\": %d,\n", gated);
+    printf("        \"action\": \"Set %s = %d\",\n",
+           rep.gate_suggestions[i].display, rep.gate_suggestions[i].threshold);
+    printf("        \"impact\": %d,\n", rep.gate_suggestions[i].impact);
     printf("        \"detail\": \"Blocks unprivileged access for %d "
            "component%s\"\n",
-           gated, gated == 1 ? "" : "s");
+           rep.gate_suggestions[i].impact,
+           rep.gate_suggestions[i].impact == 1 ? "" : "s");
     printf("      }");
   }
 
-  if (sysctl_lockdown < LOCKDOWN_INTEGRITY) {
-    int lockdown_gated = 0;
-    for (int i = 0; i < num_comp_logs; i++) {
-      if (meta_get(&comp_logs[i].meta, "lockdown"))
-        lockdown_gated++;
-    }
-    if (lockdown_gated > 0) {
-      if (!first_sug)
-        printf(",\n");
-      first_sug = 0;
-      printf("      {\n");
-      printf("        \"action\": \"Enable kernel lockdown (integrity mode)\","
-             "\n");
-      printf("        \"impact\": %d,\n", lockdown_gated);
-      printf("        \"detail\": \"Blocks klogctl() even with CAP_SYSLOG\"\n");
-      printf("      }");
-    }
+  if (rep.suggest_lockdown) {
+    if (!first_sug)
+      printf(",\n");
+    first_sug = 0;
+    printf("      {\n");
+    printf("        \"action\": \"Enable kernel lockdown (integrity mode)\","
+           "\n");
+    printf("        \"impact\": %d,\n", rep.lockdown_impact);
+    printf("        \"detail\": \"Blocks klogctl() even with CAP_SYSLOG\"\n");
+    printf("      }");
   }
   printf("\n    ],\n");
 
   /* Patched vulnerabilities */
   printf("    \"patched_vulnerabilities\": {\n");
-  int vuln_total = 0;
-  struct {
-    const char *name;
-    const char *cve;
-    const char *patch;
-  } unpatched_json[16];
-  int nunpatched_json = 0;
-
-  for (int i = 0; i < num_comp_logs; i++) {
-    const char *patch = meta_get(&comp_logs[i].meta, "patch");
-    const char *cve = meta_get(&comp_logs[i].meta, "cve");
-    if (!patch && !cve)
-      continue;
-    vuln_total++;
-    if (comp_logs[i].outcome == OUTCOME_SUCCESS && nunpatched_json < 16) {
-      unpatched_json[nunpatched_json].name = comp_logs[i].name;
-      unpatched_json[nunpatched_json].cve = cve;
-      unpatched_json[nunpatched_json].patch = patch;
-      nunpatched_json++;
-    }
-  }
-
-  printf("      \"total\": %d,\n", vuln_total);
-  printf("      \"likely_patched\": %d,\n", vuln_total - nunpatched_json);
+  printf("      \"total\": %d,\n", rep.vuln_total);
+  printf("      \"likely_patched\": %d,\n", rep.vuln_total - rep.n_vulns);
   printf("      \"possibly_unpatched\": [\n");
-  for (int i = 0; i < nunpatched_json; i++) {
+  for (int i = 0; i < rep.n_vulns; i++) {
     if (i > 0)
       printf(",\n");
     printf("        {\"component\": ");
-    json_print_escaped(unpatched_json[i].name);
-    if (unpatched_json[i].cve) {
+    json_print_escaped(rep.vulns[i].name);
+    if (rep.vulns[i].cve) {
       printf(", \"cve\": ");
-      json_print_escaped(unpatched_json[i].cve);
+      json_print_escaped(rep.vulns[i].cve);
     }
-    if (unpatched_json[i].patch) {
+    if (rep.vulns[i].patch) {
       printf(", \"patch\": ");
-      json_print_escaped(unpatched_json[i].patch);
+      json_print_escaped(rep.vulns[i].patch);
     }
     printf("}");
   }
@@ -783,56 +730,228 @@ void render_hardening_json(void) {
 
   /* Compile-time surface */
   printf("    \"compile_time_surface\": [\n");
-  int first_cfg = 1;
-  for (int i = 0; i < num_comp_logs; i++) {
-    if (comp_logs[i].outcome != OUTCOME_SUCCESS)
-      continue;
-    const char *configs[4];
-    int ncfg = meta_get_all(&comp_logs[i].meta, "config", configs, 4);
-    if (ncfg == 0)
-      continue;
-    const char *addr = meta_get(&comp_logs[i].meta, "addr");
-    for (int j = 0; j < ncfg; j++) {
-      if (!first_cfg)
-        printf(",\n");
-      first_cfg = 0;
-      printf("      {\"component\": ");
-      json_print_escaped(comp_logs[i].name);
-      printf(", \"config\": ");
-      json_print_escaped(configs[j]);
-      if (addr) {
-        printf(", \"addr\": ");
-        json_print_escaped(addr);
-      }
-      printf("}");
+  for (int i = 0; i < rep.n_surface; i++) {
+    if (i > 0)
+      printf(",\n");
+    printf("      {\"component\": ");
+    json_print_escaped(rep.surface[i].name);
+    printf(", \"config\": ");
+    json_print_escaped(rep.surface[i].config);
+    if (rep.surface[i].addr) {
+      printf(", \"addr\": ");
+      json_print_escaped(rep.surface[i].addr);
     }
+    printf("}");
   }
   printf("\n    ],\n");
 
   /* No mitigation */
   printf("    \"no_mitigation\": [\n");
-  int first_nomit = 1;
-  for (int i = 0; i < num_comp_logs; i++) {
-    if (comp_logs[i].outcome != OUTCOME_SUCCESS)
-      continue;
-    const char *method = meta_get(&comp_logs[i].meta, "method");
-    if (!method || strcmp(method, "detection") == 0)
-      continue;
-    if (has_mitigation_keys(&comp_logs[i].meta))
-      continue;
-    if (!first_nomit)
+  for (int i = 0; i < rep.n_nomit; i++) {
+    if (i > 0)
       printf(",\n");
-    first_nomit = 0;
-    const char *addr = meta_get(&comp_logs[i].meta, "addr");
     printf("      {\"component\": ");
-    json_print_escaped(comp_logs[i].name);
-    if (addr) {
+    json_print_escaped(rep.nomit[i].name);
+    if (rep.nomit[i].addr) {
       printf(", \"addr\": ");
-      json_print_escaped(addr);
+      json_print_escaped(rep.nomit[i].addr);
     }
     printf("}");
   }
   printf("\n    ]\n");
 
   printf("  }\n");
+}
+
+/* Markdown flavour of the hardening assessment (-H -m). Consumes the same
+ * model as the text/json renderers; presents each section as a markdown
+ * heading with a table or list. No ANSI colour (markdown is plain text);
+ * status uses ✓ / ⚠ / ✗ glyphs as the text renderer does. */
+void render_hardening_markdown(void) {
+  struct hardening_report rep;
+  build_hardening_report(&rep);
+
+  printf("## Hardening Assessment\n\n");
+  printf("**%d of %d** leak techniques succeeded against current defenses.\n\n",
+         rep.succeeded, rep.total);
+
+  /* KASLR posture downgrade */
+  if (rep.n_rand_detectors > 0) {
+    printf("### KASLR posture\n\n");
+    printf("> **KASLR randomization failed — random offset not applied at "
+           "boot.** Effective slot entropy: **0 bits** (kernel at a "
+           "firmware-determined position).\n\n");
+    printf("Detected by:\n\n");
+    for (int i = 0; i < rep.n_rand_detectors; i++)
+      printf("- %s\n",
+             rep.rand_detectors[i][0] ? rep.rand_detectors[i] : "(unknown)");
+    printf("\n");
+  }
+
+  /* Active defenses */
+  printf("### Active defenses\n\n");
+  printf("| Gate | Value | Status | Detail |\n");
+  printf("|:-----|------:|:------:|:-------|\n");
+  for (int gi = 0; gi < rep.n_gates; gi++) {
+    const struct hr_gate *hg = &rep.gates[gi];
+    if (hg->active) {
+      int circumvented = (hg->blocked == 0 && hg->bypassed > 0);
+      printf("| `%s` | %d | %s | ", hg->display, hg->value,
+             circumvented ? "\xe2\x9a\xa0" : "\xe2\x9c\x93");
+      int wrote = 0;
+      if (hg->blocked > 0 && hg->blocked <= 5) {
+        printf("blocked ");
+        for (int n = 0; n < hg->n_blocked_names; n++)
+          printf("%s%s", n ? ", " : "", hg->blocked_names[n]);
+        wrote = 1;
+      } else if (hg->blocked > 0) {
+        printf("blocked %d of %d gated components", hg->blocked, hg->gated);
+        wrote = 1;
+      }
+      if (hg->bypassed > 0) {
+        if (wrote)
+          printf("; ");
+        if (hg->fallback == hg->bypassed)
+          printf("%d bypassed via fallback files", hg->bypassed);
+        else if (hg->fallback > 0)
+          printf("%d bypassed (%d via fallback files)", hg->bypassed,
+                 hg->fallback);
+        else
+          printf("%d bypassed", hg->bypassed);
+        wrote = 1;
+      }
+      if (!wrote)
+        printf("%d gated component%s", hg->gated, hg->gated == 1 ? "" : "s");
+      printf(" |\n");
+    } else if (hg->bypassed > 0) {
+      printf("| `%s` | %d | \xe2\x9c\x97 | permissive — ", hg->display,
+             hg->value);
+      if (hg->n_bypassed_names > 0 && hg->bypassed <= 5) {
+        for (int n = 0; n < hg->n_bypassed_names; n++)
+          printf("%s%s", n ? ", " : "", hg->bypassed_names[n]);
+        printf(" leak%s", hg->bypassed == 1 ? "s" : "");
+      } else {
+        printf("%d component%s leak", hg->bypassed,
+               hg->bypassed == 1 ? "" : "s");
+      }
+      printf(" (set >= %d) |\n", hg->threshold);
+    }
+  }
+  const char *lockdown_str = NULL;
+  switch (rep.lockdown) {
+  case LOCKDOWN_INTEGRITY:
+    lockdown_str = "integrity";
+    break;
+  case LOCKDOWN_CONFIDENTIALITY:
+    lockdown_str = "confidentiality";
+    break;
+  default:
+    break;
+  }
+  if (lockdown_str)
+    printf("| Kernel lockdown | | \xe2\x9c\x93 | %s mode |\n", lockdown_str);
+  else
+    printf("| Kernel lockdown | | \xe2\x9c\x97 | inactive |\n");
+  printf("\n");
+
+  /* Available hardening */
+  printf("### Available hardening\n\n");
+  int any_sug = 0;
+  for (int i = 0; i < rep.n_gate_suggestions; i++) {
+    any_sug = 1;
+    printf("- Set `%s = %d` — affects %d component%s\n",
+           rep.gate_suggestions[i].display, rep.gate_suggestions[i].threshold,
+           rep.gate_suggestions[i].impact,
+           rep.gate_suggestions[i].impact == 1 ? "" : "s");
+  }
+  if (rep.suggest_lockdown) {
+    any_sug = 1;
+    printf("- Enable kernel lockdown (integrity mode) — blocks klogctl() even "
+           "with CAP_SYSLOG\n");
+  }
+  if (rep.suggest_dmesg_fallback) {
+    any_sug = 1;
+    printf("- Restrict dmesg fallback files to root — %d dmesg component%s may "
+           "have succeeded via log files\n",
+           rep.dmesg_fallback_count, rep.dmesg_fallback_count == 1 ? "" : "s");
+  }
+  if (!any_sug)
+    printf("All available runtime hardening is active.\n");
+  printf("\n");
+
+  /* Patched vulnerabilities */
+  printf("### Patched vulnerabilities\n\n");
+  if (rep.vuln_total == 0) {
+    printf("No vulnerability-based components in metadata.\n\n");
+  } else {
+    printf("%d of %d vulnerability-based components did not leak (likely "
+           "patched or blocked).\n\n",
+           rep.vuln_total - rep.n_vulns, rep.vuln_total);
+    if (rep.n_vulns > 0) {
+      printf("**%d component%s succeeded** — kernel may lack fixes for:\n\n",
+             rep.n_vulns, rep.n_vulns == 1 ? "" : "s");
+      for (int i = 0; i < rep.n_vulns; i++) {
+        printf("- %s", rep.vulns[i].name);
+        if (rep.vulns[i].cve)
+          printf(" (%s", rep.vulns[i].cve);
+        if (rep.vulns[i].patch)
+          printf("%sfixed %s", rep.vulns[i].cve ? ", " : "(",
+                 rep.vulns[i].patch);
+        if (rep.vulns[i].cve || rep.vulns[i].patch)
+          printf(")");
+        printf("\n");
+      }
+      printf("\n");
+    }
+  }
+
+  /* Compile-time attack surface */
+  printf("### Compile-time attack surface\n\n");
+  if (rep.n_surface == 0) {
+    printf("No compile-time surface exposed.\n\n");
+  } else {
+    printf("| Component | Config | Address |\n");
+    printf("|:---------|:-------|:--------|\n");
+    for (int i = 0; i < rep.n_surface; i++)
+      printf("| %s | %s | %s |\n", rep.surface[i].name, rep.surface[i].config,
+             rep.surface[i].addr ? rep.surface[i].addr : "virtual");
+    printf("\n");
+  }
+
+  /* Hardware side-channels */
+  printf("### Hardware side-channels\n\n");
+  if (rep.n_hw == 0) {
+    printf("No hardware-mitigated components.\n\n");
+  } else if (rep.hw_succeeded == 0) {
+    printf("%d hardware-gated component%s did not succeed (CPU mitigations "
+           "active or attack not applicable).\n\n",
+           rep.n_hw, rep.n_hw == 1 ? "" : "s");
+  } else {
+    printf("**%d of %d** hardware-gated components succeeded:\n\n",
+           rep.hw_succeeded, rep.n_hw);
+    for (int i = 0; i < rep.n_hw; i++) {
+      if (!rep.hw[i].succeeded)
+        continue;
+      printf("- %s — %s", rep.hw[i].name, rep.hw[i].hardware);
+      if (rep.hw[i].addr)
+        printf(" (leaks %s address)", rep.hw[i].addr);
+      printf("\n");
+    }
+    printf("\n");
+  }
+
+  /* No known mitigation */
+  printf("### No known mitigation\n\n");
+  if (rep.n_nomit == 0) {
+    printf("All components have at least one mitigation key.\n\n");
+  } else {
+    for (int i = 0; i < rep.n_nomit; i++) {
+      const char *addr = rep.nomit[i].addr;
+      if (addr)
+        printf("- %s — leaks %s addresses\n", rep.nomit[i].name, addr);
+      else
+        printf("- %s — no mitigation\n", rep.nomit[i].name);
+    }
+    printf("\n");
+  }
 }

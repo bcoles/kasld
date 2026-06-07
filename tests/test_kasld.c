@@ -2381,6 +2381,21 @@ static void test_render_hardening_json(void) {
          strstr(render_cap, "lockdown") != NULL);
 }
 
+/* Markdown mode under -H appends the hardening assessment (built from the same
+ * report model as the text/json renderers), as markdown headings/sections. */
+static void test_render_hardening_markdown(void) {
+  struct summary s;
+  set_rich_render_state(&s);
+  set_render_mode(0, 0, 1);
+  hardening_mode = 1;
+  capture_stdout(wrap_render_summary, &s);
+  hardening_mode = 0;
+  set_render_mode(0, 0, 0);
+  assert(strstr(render_cap, "## Hardening Assessment") != NULL);
+  assert(strstr(render_cap, "### Active defenses") != NULL);
+  assert(strstr(render_cap, "### Available hardening") != NULL);
+}
+
 /* SF_VIRT_KASLR_RANDOMIZATION_FAILED surfaces in the text hardening report as a
  * dedicated posture section (entropy downgrade). The fact is distinct from
  * SF_VIRT_KASLR_DISABLED — the kernel was relocated to a firmware-determined
@@ -2600,6 +2615,7 @@ int main(void) {
   RUN(test_render_text_leaks_count_is_groups_not_contributors);
   RUN(test_render_hardening_text);
   RUN(test_render_hardening_json);
+  RUN(test_render_hardening_markdown);
   RUN(test_render_hardening_text_rand_failed_surfaces);
   RUN(test_render_hardening_json_rand_failed_state);
   RUN(test_render_hardening_text_no_rand_failed_silent);

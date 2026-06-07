@@ -628,7 +628,10 @@ consumes the JSON.
 ### Markdown (`-m`)
 
 `-m` (`--markdown`) formats the summary for issue trackers (GitHub /
-GitLab markdown tables).
+GitLab markdown tables). The KASLR table includes the inferred text
+range and any Memory-KASLR (directmap / vmalloc / vmemmap) bounds, and
+the leak table credits the component(s) that produced each address.
+With `-H` it also appends the hardening assessment (see below).
 
 ## Explain mode
 
@@ -700,3 +703,5 @@ where it appears in a top-level `"hardening"` object with fields
 `active` / `disabled` / `unsupported` / `randomization_failed`),
 `active_defenses`, `lockdown`, `available_hardening`,
 `patched_vulnerabilities`, `compile_time_surface`, and `no_mitigation`.
+Markdown output (`-m -H`) appends the same assessment as a
+`## Hardening Assessment` section.

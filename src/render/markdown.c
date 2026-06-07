@@ -16,6 +16,56 @@
 #include <string.h>
 #include <sys/utsname.h>
 
+/* Print the unique contributing component origins for a (type, section) group,
+ * comma-separated — the same source attribution the text readout shows inline
+ * (e.g. "(perf_event_open, prefetch)"), so the compact markdown table credits
+ * which techniques produced each leak rather than just counting them. */
+static void print_group_sources(enum kasld_addr_type type,
+                                const char *section) {
+  const char *seen[64];
+  int nseen = 0;
+  for (int i = 0; i < num_results; i++) {
+    struct result *r = &results[i];
+    if (r->type != type || strcmp(result_section(r), section) != 0 ||
+        !in_bounds(r))
+      continue;
+    for (int j = 0; j < r->provenance_count; j++) {
+      int dup = 0;
+      for (int sd = 0; sd < nseen; sd++)
+        if (strcmp(seen[sd], r->origins[j]) == 0) {
+          dup = 1;
+          break;
+        }
+      if (!dup && nseen < 64)
+        seen[nseen++] = r->origins[j];
+    }
+  }
+  for (int sd = 0; sd < nseen; sd++)
+    printf("%s%s", sd ? ", " : "", seen[sd]);
+  if (!nseen)
+    printf("-");
+}
+
+/* One Memory KASLR (CONFIG_RANDOMIZE_MEMORY) region-bound row. Mirrors the
+ * text renderer's render_memory_kaslr_bound cases (skip / >= / <= / pinned /
+ * range); the residual-candidate annotation is text-only (it needs the
+ * arch-specific RANDOMIZE_MEMORY_ALIGN, which the table omits for brevity). */
+static void md_memory_kaslr_row(const char *name, unsigned long min,
+                                unsigned long max) {
+  if (!min && !max)
+    return;
+  if (min && !max)
+    printf("| %s | >= `0x%016lx` |\n", name, min);
+  else if (!min && max)
+    printf("| %s | <= `0x%016lx` |\n", name, max);
+  else if (min > max)
+    return; /* defensive: never emit a backwards range */
+  else if (min == max)
+    printf("| %s | `0x%016lx` (pinned) |\n", name, min);
+  else
+    printf("| %s | `0x%016lx` - `0x%016lx` |\n", name, min, max);
+}
+
 void render_markdown(const struct summary *s) {
   struct utsname u;
   int have_uname = (kasld_uname(&u) == 0);
@@ -46,11 +96,34 @@ void render_markdown(const struct summary *s) {
   else if (s->kaslr.disabled)
     printf("> **KASLR is disabled**\n\n");
 
-  /* KASLR summary */
-  if (s->kaslr.vtext || s->kaslr.has_phys) {
+  /* KASLR analysis. Mirrors render_kaslr_text: shown only when there is a
+   * concrete base, a narrowed text range, or a Memory-KASLR bound — and never
+   * when KASLR is disabled/unsupported (covered by the banner above). */
+  int mem_kaslr = s->kaslr.virt_page_offset_min ||
+                  s->kaslr.virt_page_offset_max || s->kaslr.virt_vmalloc_min ||
+                  s->kaslr.virt_vmalloc_max || s->kaslr.virt_vmemmap_min ||
+                  s->kaslr.virt_vmemmap_max;
+  if (!s->kaslr.disabled && !s->kaslr.unsupported &&
+      (s->kaslr.vtext || s->kaslr.has_phys || s->kaslr.vslots > 0 ||
+       s->kaslr.pslots > 0 || mem_kaslr)) {
     printf("## KASLR Analysis\n\n");
     printf("| Metric | Value |\n");
     printf("|:-------|:------|\n");
+
+    /* No concrete base found, but inference narrowed the window. */
+    if (!s->kaslr.vtext && s->kaslr.vslots > 0) {
+      printf("| Inferred text range | `0x%016lx` - `0x%016lx` |\n",
+             layout.virt_kaslr_text_min, layout.virt_kaslr_text_max);
+      printf("| Remaining slots | %lu (%d bits) |\n", s->kaslr.vslots,
+             s->kaslr.vbits);
+    }
+    if (!s->kaslr.ptext && s->kaslr.pslots > 0) {
+      printf("| Inferred phys text range | `0x%016lx` - `0x%016lx` |\n",
+             layout.phys_kaslr_text_min, layout.phys_kaslr_text_max);
+      printf("| Remaining phys slots | %lu (%d bits) |\n", s->kaslr.pslots,
+             s->kaslr.pbits);
+    }
+
     if (s->kaslr.vtext) {
       long abs_vs = s->kaslr.vslide < 0 ? -s->kaslr.vslide : s->kaslr.vslide;
       printf("| Virtual text base | `0x%016lx` |\n", s->kaslr.vtext);
@@ -70,6 +143,15 @@ void render_markdown(const struct summary *s) {
       printf("| Physical entropy | %d bits (%lu slots) |\n", s->kaslr.pbits,
              s->kaslr.pslots);
     }
+
+    /* Memory KASLR (CONFIG_RANDOMIZE_MEMORY) region bounds. */
+    md_memory_kaslr_row("Direct map base", s->kaslr.virt_page_offset_min,
+                        s->kaslr.virt_page_offset_max);
+    md_memory_kaslr_row("vmalloc base", s->kaslr.virt_vmalloc_min,
+                        s->kaslr.virt_vmalloc_max);
+    md_memory_kaslr_row("vmemmap base", s->kaslr.virt_vmemmap_min,
+                        s->kaslr.virt_vmemmap_max);
+
     printf("\n");
   }
 
@@ -142,7 +224,7 @@ void render_markdown(const struct summary *s) {
     /* Compact: one summary row per group */
     char hbuf[32];
     printf("| Section | Address | Sources |\n");
-    printf("|:--------|:--------|--------:|\n");
+    printf("|:--------|:--------|:--------|\n");
 
     for (int t = 0; type_order[t] != KASLD_TYPE_UNKNOWN; t++) {
       for (int si = 0; section_order[si]; si++) {
@@ -167,11 +249,13 @@ void render_markdown(const struct summary *s) {
 
         if (hi && hi != lo) {
           unsigned long span = hi - lo;
-          printf("| %s | `0x%016lx` - `0x%016lx` (%s) | %d |\n", name, lo, hi,
-                 human_size(span, hbuf, sizeof(hbuf)), count);
+          printf("| %s | `0x%016lx` - `0x%016lx` (%s) | ", name, lo, hi,
+                 human_size(span, hbuf, sizeof(hbuf)));
         } else {
-          printf("| %s | `0x%016lx` | %d |\n", name, consensus, count);
+          printf("| %s | `0x%016lx` | ", name, consensus);
         }
+        print_group_sources(type_order[t], section_order[si]);
+        printf(" |\n");
       }
     }
 
@@ -222,11 +306,13 @@ void render_markdown(const struct summary *s) {
 
       if (hi && hi != lo) {
         unsigned long span = hi - lo;
-        printf("| %s | `0x%016lx` - `0x%016lx` (%s) | %d |\n", name, lo, hi,
-               human_size(span, hbuf, sizeof(hbuf)), count);
+        printf("| %s | `0x%016lx` - `0x%016lx` (%s) | ", name, lo, hi,
+               human_size(span, hbuf, sizeof(hbuf)));
       } else {
-        printf("| %s | `0x%016lx` | %d |\n", name, consensus, count);
+        printf("| %s | `0x%016lx` | ", name, consensus);
       }
+      print_group_sources(r->type, sec);
+      printf(" |\n");
     }
   }
 
@@ -257,4 +343,8 @@ void render_markdown(const struct summary *s) {
     }
     printf("\n");
   }
+
+  /* Hardening assessment (-H): same model as the text/json renderers. */
+  if (hardening_mode)
+    render_hardening_markdown();
 }
