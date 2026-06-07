@@ -28,20 +28,28 @@ ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 QEMU_DIR=${QEMU_DIR:-/home/user/qemu/build}
 OUT=$ROOT/build/tests
 CFLAGS=${CFLAGS:--std=c99 -O2 -static -I$ROOT/src}
+# Targets are independent (separate build dir + binaries each), so build/run
+# them JOBS at a time. Default to one per core; JOBS=1 restores serial order.
+JOBS=${JOBS:-$(nproc 2>/dev/null || echo 1)}
+mkdir -p "$OUT"
 
 CORE="$ROOT/src/estimate.c $ROOT/src/quantities.c $ROOT/src/evidence.c $ROOT/src/engine.c"
 RULES=$(echo "$ROOT"/src/rules/*.c)
 
 pass=0; fail=0; skip=0
 
+# run_target writes its human-readable line(s) to stdout (the caller redirects
+# this to a per-target .res file) and a single pass/fail/skip token to its .st
+# file, so invocations can run concurrently without sharing shell state.
 run_target() {
   triple=$1 qbin=$2
   cc="${triple}-gcc"; qemu="$QEMU_DIR/$qbin"
+  st="$OUT/$triple.st"
   if ! command -v "$cc" >/dev/null 2>&1; then
-    printf 'SKIP  %-30s (no toolchain: %s)\n' "$triple" "$cc"; skip=$((skip+1)); return
+    printf 'SKIP  %-30s (no toolchain: %s)\n' "$triple" "$cc"; echo skip >"$st"; return
   fi
   if [ ! -x "$qemu" ]; then
-    printf 'SKIP  %-30s (no qemu: %s)\n' "$triple" "$qbin"; skip=$((skip+1)); return
+    printf 'SKIP  %-30s (no qemu: %s)\n' "$triple" "$qbin"; echo skip >"$st"; return
   fi
   d="$OUT/$triple"; mkdir -p "$d"
   # Per-rule engine test (every rule via the wildcard) AND the full-registry
@@ -51,11 +59,11 @@ run_target() {
   # (This harness has caught real arch bugs this way: a 64-bit shift overflow
   # and PHYS_OFFSET-relative assertion errors.)
   if ! $cc $CFLAGS "$ROOT/tests/test_engine.c" $CORE $RULES -o "$d/test_engine" 2>"$d/cc.log"; then
-    printf 'FAIL  %-30s (compile test_engine)\n' "$triple"; sed 's/^/      /' "$d/cc.log" | head -5; fail=$((fail+1)); return
+    printf 'FAIL  %-30s (compile test_engine)\n' "$triple"; sed 's/^/      /' "$d/cc.log" | head -5; echo fail >"$st"; return
   fi
   if ! $cc $CFLAGS "$ROOT/tests/test_engine_integration.c" $CORE "$ROOT/src/engine_rules.c" $RULES \
         -o "$d/test_integration" 2>"$d/cc.log"; then
-    printf 'FAIL  %-30s (compile test_integration)\n' "$triple"; sed 's/^/      /' "$d/cc.log" | head -5; fail=$((fail+1)); return
+    printf 'FAIL  %-30s (compile test_integration)\n' "$triple"; sed 's/^/      /' "$d/cc.log" | head -5; echo fail >"$st"; return
   fi
   # The parser / result-model / merge / engine-sync / renderer unit suite. It
   # includes the orchestrator + render translation units directly (hence
@@ -63,7 +71,7 @@ run_target() {
   # arch's own layout constants, so it runs on every width and endianness —
   # which is how the renderer's hardening paths get exercised on each arch.
   if ! $cc $CFLAGS -DKASLD_TESTING "$ROOT/tests/test_kasld.c" -o "$d/test_kasld" -lpthread 2>"$d/cc.log"; then
-    printf 'FAIL  %-30s (compile test_kasld)\n' "$triple"; sed 's/^/      /' "$d/cc.log" | head -5; fail=$((fail+1)); return
+    printf 'FAIL  %-30s (compile test_kasld)\n' "$triple"; sed 's/^/      /' "$d/cc.log" | head -5; echo fail >"$st"; return
   fi
   ok=1
   for t in test_engine test_integration test_kasld; do
@@ -72,9 +80,9 @@ run_target() {
     fi
   done
   if [ "$ok" = 1 ]; then
-    printf 'PASS  %-30s engine + integration + kasld\n' "$triple"; pass=$((pass+1))
+    printf 'PASS  %-30s engine + integration + kasld\n' "$triple"; echo pass >"$st"
   else
-    fail=$((fail+1))
+    echo fail >"$st"
   fi
   [ "${KEEP:-0}" = 1 ] || rm -rf "$d"
 }
@@ -82,7 +90,6 @@ run_target() {
 # "<toolchain-triple> <qemu-binary>" per target. <triple>-gcc must be on
 # PATH (the same musl-cross set `make cross` uses); qemu-<arch> must be
 # in QEMU_DIR.
-# Here-doc (not a pipe) so the counters survive into the summary/exit status.
 #
 # Both 64-bit and 32-bit targets. Tests that model 64-bit-only kernel layouts
 # (x86_64 RANDOMIZE_MEMORY vmalloc/vmemmap, LA57/arm64 VA-bits, TiB-scale direct
@@ -96,9 +103,17 @@ run_target() {
 #   riscv32 -> page_offset_invariant_pin + text_base_coupling_synth active
 # The ppc32 little-endian toolchain (powerpcle-unknown-linux-musl) has no
 # 32-bit-LE qemu-user binary, so that variant stays live-test-only.
+# Launch up to JOBS targets concurrently, each writing to its own .res/.st;
+# barrier every JOBS launches (POSIX sh has no `wait -n`). The target order is
+# recorded so the summary prints deterministically regardless of finish order.
+order=""
+running=0
 while read -r triple qbin; do
   [ -z "$triple" ] && continue
-  run_target "$triple" "$qbin"
+  order="$order $triple"
+  run_target "$triple" "$qbin" >"$OUT/$triple.res" 2>&1 &
+  running=$((running + 1))
+  if [ "$running" -ge "$JOBS" ]; then wait; running=0; fi
 done <<'EOF'
 aarch64-linux-musl qemu-aarch64
 arm-unknown-linux-musleabi qemu-arm
@@ -118,7 +133,21 @@ riscv64-linux-musl qemu-riscv64
 s390x-ibm-linux-musl qemu-s390x
 x86_64-linux-musl qemu-x86_64
 EOF
+wait
+
+# Aggregate in launch order: print each target's captured output, tally its
+# status token. A missing token (a job that died before writing) counts as a
+# failure rather than vanishing.
+for triple in $order; do
+  [ -f "$OUT/$triple.res" ] && cat "$OUT/$triple.res"
+  case $(cat "$OUT/$triple.st" 2>/dev/null) in
+    pass) pass=$((pass + 1)) ;;
+    skip) skip=$((skip + 1)) ;;
+    *)    fail=$((fail + 1)) ;;
+  esac
+  rm -f "$OUT/$triple.res" "$OUT/$triple.st"
+done
 
 echo "----------------------------------------------------------------------"
-printf 'test-cross: %d pass, %d fail, %d skip\n' "$pass" "$fail" "$skip"
+printf 'test-cross: %d pass, %d fail, %d skip (JOBS=%s)\n' "$pass" "$fail" "$skip" "$JOBS"
 [ "$fail" -eq 0 ]

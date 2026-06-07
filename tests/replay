@@ -99,108 +99,145 @@ native_bindir() {
 # Pull "key:value" out of a fixture meta.txt (collect's format).
 meta() { grep -E "^$2:" "$1/meta.txt" 2>/dev/null | head -1 | sed -E 's/^[^:]*:[[:space:]]*//'; }
 
-pass=0; fail=0; skip=0; scratch_keep=""
+pass=0; fail=0; skip=0
 
+# Fixtures are independent (each gets its own mktemp scratch sysroot), so they
+# can replay JOBS at a time. The work is qemu-startup/I-O bound, not CPU bound,
+# so concurrency well above the core count still pays off. KEEP=1 (inspect the
+# scratch dir) forces serial so the kept path is unambiguous.
+JOBS=${JOBS:-$(nproc 2>/dev/null || echo 1)}
+[ "${KEEP:-0}" = 1 ] && JOBS=1
+
+# run_fixture writes its human-readable line to stdout (the caller redirects it
+# to a per-fixture .res) and a pass/fail/skip token to $st, so invocations can
+# run concurrently without sharing shell state. Uses `return` (not `continue`)
+# since it runs as a backgrounded function.
+run_fixture() {
+  d=$1 st=$2
+  name=$(echo "$d" | sed "s#$FIXROOT/##")
+
+  if [ ! -f "$d/meta.txt" ] || [ ! -f "$d/sizes.txt" ]; then
+    printf 'SKIP  %-44s (no meta.txt/sizes.txt)\n' "$name"; echo skip >"$st"; return
+  fi
+
+  machine=$(meta "$d" uname_m_raw)
+  release=$(meta "$d" kernel_release)
+
+  if [ "${KASLD_NATIVE:-0}" = 1 ]; then
+    # No qemu: only fixtures the host can run directly; binary from build/.
+    if ! native_ok "$machine"; then
+      printf 'SKIP  %-44s (native mode: non-host arch %s)\n' "$name" "$machine"; echo skip >"$st"; return
+    fi
+    bindir=$(native_bindir "$machine")
+    if [ -z "$bindir" ]; then
+      printf 'SKIP  %-44s (native mode: no host binary for %s — run make)\n' "$name" "$machine"; echo skip >"$st"; return
+    fi
+    kasld="$bindir/kasld"; comps="$bindir/components"; runner=""
+  else
+    map=$(target_for "$machine")
+    if [ -z "$map" ]; then
+      printf 'SKIP  %-44s (no target mapping for uname_m=%s)\n' "$name" "$machine"; echo skip >"$st"; return
+    fi
+    subdir=${map% *}; qbin=${map#* }
+    kasld="$BUILD_DIR/$subdir/kasld"
+    comps="$BUILD_DIR/$subdir/components"
+    if [ ! -x "$kasld" ]; then
+      printf 'SKIP  %-44s (no binary: %s — run make cross)\n' "$name" "$subdir/kasld"; echo skip >"$st"; return
+    fi
+    if [ ! -x "$QEMU_DIR/$qbin" ]; then
+      printf 'SKIP  %-44s (no qemu: %s)\n' "$name" "$qbin"; echo skip >"$st"; return
+    fi
+    runner="$QEMU_DIR/$qbin"
+  fi
+
+  # Reconstruct a scratch sysroot: copy captured facts, then materialise the
+  # /boot images as sparse files of their true size (header prefix preserved).
+  sc=$(mktemp -d)
+  cp -a "$d/sysroot" "$sc/r"
+  while read -r sz path; do
+    if [ -z "$sz" ] || [ -z "$path" ]; then continue; fi
+    mkdir -p "$sc/r$(dirname "$path")" 2>/dev/null
+    truncate -s "$sz" "$sc/r$path" 2>/dev/null
+  done < "$d/sizes.txt"
+
+  # Release handling: QEMU_UNAME sets the top-level process's uname, but is
+  # NOT honored after qemu's self-re-exec for foreign-arch component children
+  # — so KASLD_UNAME_RELEASE (read by kasld_uname(), propagated via the
+  # environment) is what actually gives every process the fixture's release
+  # for /boot path construction. Both are set; the latter is the load-bearing
+  # one.
+  #
+  # KASLD_EXEC_WRAPPER lets the orchestrator's component children execve
+  # through the host-arch qemu wrapper instead of trying to execve a guest-
+  # arch ELF directly (which the host kernel refuses with ENOEXEC unless
+  # binfmt_misc is registered). When $runner is non-empty (foreign-arch
+  # fixture) we point KASLD_EXEC_WRAPPER at it; for native-arch fixtures
+  # $runner is empty and KASLD_EXEC_WRAPPER stays unset, so the orchestrator
+  # takes the production direct-execve path.
+  QEMU_UNAME="$release" KASLD_UNAME_RELEASE="$release" KASLD_SYSROOT="$sc/r" \
+    KASLD_COMPONENT_DIR="$comps" KASLD_EXEC_WRAPPER="$runner" \
+    $runner "$kasld" -v > "$sc/replay.txt" 2>/dev/null
+  rc=$?
+
+  # Smoke verdict: the run must complete without an emulation crash. kasld
+  # exits 0 with results, 1 with no tagged results (a valid empty run);
+  # anything killed by a signal exits >= 128. A crash on any arch's calling
+  # convention is the failure this harness exists to catch.
+  #
+  # With KASLD_EXEC_WRAPPER pointed at the host qemu binary, foreign-arch
+  # component children do exec successfully under nested qemu-user — so
+  # both x86 (native) and foreign-arch fixtures should produce results and
+  # render a summary.
+  has_summary=$(grep -cE '^(========|  KASLR analysis:|Virtual memory layout)' \
+    "$sc/replay.txt" 2>/dev/null || true)
+  n_results=$(grep -cE '^[VPD] ' "$sc/replay.txt" 2>/dev/null || true)
+
+  if [ "$rc" -ge 128 ]; then
+    printf 'FAIL  %-44s (crashed under emulation: signal %d)\n' \
+      "$name" "$((rc - 128))"
+    echo fail >"$st"
+  elif [ "$has_summary" -gt 0 ]; then
+    printf 'PASS  %-44s rc=%d, %d results, summary rendered\n' \
+      "$name" "$rc" "$n_results"
+    echo pass >"$st"
+  else
+    printf 'PASS  %-44s rc=%d, no results\n' "$name" "$rc"
+    echo pass >"$st"
+  fi
+
+  if [ "${KEEP:-0}" = 1 ]; then echo "      kept scratch sysroot: $sc"; else rm -rf "$sc"; fi
+}
+
+# Launch up to JOBS fixtures concurrently, keyed by a launch index so the
+# summary prints in a stable order regardless of finish order. Barrier every
+# JOBS launches (POSIX sh has no `wait -n`).
+RESDIR=$(mktemp -d)
+n=0; running=0
 for fx in "${@:-$FIXROOT/*/*}"; do
   # Expand the default glob; skip non-dirs.
   for d in $fx; do
     [ -d "$d" ] || continue
-    name=$(echo "$d" | sed "s#$FIXROOT/##")
-
-    if [ ! -f "$d/meta.txt" ] || [ ! -f "$d/sizes.txt" ]; then
-      printf 'SKIP  %-44s (no meta.txt/sizes.txt)\n' "$name"; skip=$((skip+1)); continue
-    fi
-
-    machine=$(meta "$d" uname_m_raw)
-    release=$(meta "$d" kernel_release)
-
-    if [ "${KASLD_NATIVE:-0}" = 1 ]; then
-      # No qemu: only fixtures the host can run directly; binary from build/.
-      if ! native_ok "$machine"; then
-        printf 'SKIP  %-44s (native mode: non-host arch %s)\n' "$name" "$machine"; skip=$((skip+1)); continue
-      fi
-      bindir=$(native_bindir "$machine")
-      if [ -z "$bindir" ]; then
-        printf 'SKIP  %-44s (native mode: no host binary for %s — run make)\n' "$name" "$machine"; skip=$((skip+1)); continue
-      fi
-      kasld="$bindir/kasld"; comps="$bindir/components"; runner=""
-    else
-      map=$(target_for "$machine")
-      if [ -z "$map" ]; then
-        printf 'SKIP  %-44s (no target mapping for uname_m=%s)\n' "$name" "$machine"; skip=$((skip+1)); continue
-      fi
-      subdir=${map% *}; qbin=${map#* }
-      kasld="$BUILD_DIR/$subdir/kasld"
-      comps="$BUILD_DIR/$subdir/components"
-      if [ ! -x "$kasld" ]; then
-        printf 'SKIP  %-44s (no binary: %s — run make cross)\n' "$name" "$subdir/kasld"; skip=$((skip+1)); continue
-      fi
-      if [ ! -x "$QEMU_DIR/$qbin" ]; then
-        printf 'SKIP  %-44s (no qemu: %s)\n' "$name" "$qbin"; skip=$((skip+1)); continue
-      fi
-      runner="$QEMU_DIR/$qbin"
-    fi
-
-    # Reconstruct a scratch sysroot: copy captured facts, then materialise the
-    # /boot images as sparse files of their true size (header prefix preserved).
-    sc=$(mktemp -d)
-    cp -a "$d/sysroot" "$sc/r"
-    while read -r sz path; do
-      if [ -z "$sz" ] || [ -z "$path" ]; then continue; fi
-      mkdir -p "$sc/r$(dirname "$path")" 2>/dev/null
-      truncate -s "$sz" "$sc/r$path" 2>/dev/null
-    done < "$d/sizes.txt"
-
-    # Release handling: QEMU_UNAME sets the top-level process's uname, but is
-    # NOT honored after qemu's self-re-exec for foreign-arch component children
-    # — so KASLD_UNAME_RELEASE (read by kasld_uname(), propagated via the
-    # environment) is what actually gives every process the fixture's release
-    # for /boot path construction. Both are set; the latter is the load-bearing
-    # one.
-    #
-    # KASLD_EXEC_WRAPPER lets the orchestrator's component children execve
-    # through the host-arch qemu wrapper instead of trying to execve a guest-
-    # arch ELF directly (which the host kernel refuses with ENOEXEC unless
-    # binfmt_misc is registered). When $runner is non-empty (foreign-arch
-    # fixture) we point KASLD_EXEC_WRAPPER at it; for native-arch fixtures
-    # $runner is empty and KASLD_EXEC_WRAPPER stays unset, so the orchestrator
-    # takes the production direct-execve path.
-    QEMU_UNAME="$release" KASLD_UNAME_RELEASE="$release" KASLD_SYSROOT="$sc/r" \
-      KASLD_COMPONENT_DIR="$comps" KASLD_EXEC_WRAPPER="$runner" \
-      $runner "$kasld" -v > "$sc/replay.txt" 2>/dev/null
-    rc=$?
-
-    # Smoke verdict: the run must complete without an emulation crash. kasld
-    # exits 0 with results, 1 with no tagged results (a valid empty run);
-    # anything killed by a signal exits >= 128. A crash on any arch's calling
-    # convention is the failure this harness exists to catch.
-    #
-    # With KASLD_EXEC_WRAPPER pointed at the host qemu binary, foreign-arch
-    # component children do exec successfully under nested qemu-user — so
-    # both x86 (native) and foreign-arch fixtures should produce results and
-    # render a summary.
-    has_summary=$(grep -cE '^(========|  KASLR analysis:|Virtual memory layout)' \
-      "$sc/replay.txt" 2>/dev/null || true)
-    n_results=$(grep -cE '^[VPD] ' "$sc/replay.txt" 2>/dev/null || true)
-
-    if [ "$rc" -ge 128 ]; then
-      printf 'FAIL  %-44s (crashed under emulation: signal %d)\n' \
-        "$name" "$((rc - 128))"
-      fail=$((fail+1))
-    elif [ "$has_summary" -gt 0 ]; then
-      printf 'PASS  %-44s rc=%d, %d results, summary rendered\n' \
-        "$name" "$rc" "$n_results"
-      pass=$((pass+1))
-    else
-      printf 'PASS  %-44s rc=%d, no results\n' "$name" "$rc"
-      pass=$((pass+1))
-    fi
-
-    if [ "${KEEP:-0}" = 1 ]; then scratch_keep="$sc"; else rm -rf "$sc"; fi
+    n=$((n + 1))
+    run_fixture "$d" "$RESDIR/$n.st" >"$RESDIR/$n.res" 2>&1 &
+    running=$((running + 1))
+    if [ "$running" -ge "$JOBS" ]; then wait; running=0; fi
   done
 done
+wait
+
+# Aggregate in launch order; a missing token (job died) counts as a failure.
+i=1
+while [ "$i" -le "$n" ]; do
+  [ -f "$RESDIR/$i.res" ] && cat "$RESDIR/$i.res"
+  case $(cat "$RESDIR/$i.st" 2>/dev/null) in
+    pass) pass=$((pass + 1)) ;;
+    skip) skip=$((skip + 1)) ;;
+    *)    fail=$((fail + 1)) ;;
+  esac
+  i=$((i + 1))
+done
+rm -rf "$RESDIR"
 
 echo "----------------------------------------------------------------------"
-printf 'replay: %d pass, %d fail, %d skip\n' "$pass" "$fail" "$skip"
-[ -n "$scratch_keep" ] && echo "kept last scratch sysroot: $scratch_keep"
+printf 'replay: %d pass, %d fail, %d skip (JOBS=%s)\n' "$pass" "$fail" "$skip" "$JOBS"
 [ "$fail" -eq 0 ]
