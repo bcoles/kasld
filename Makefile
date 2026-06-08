@@ -266,6 +266,14 @@ TEST_BIN := $(TEST_OBJ_DIR)/test_kasld
 $(TEST_BIN): $(TEST_DIR)/test_kasld.c $(KASLD_SRC) $(RENDER_SRC) $(RENDER_MODE_SRCS) $(HDRS) | $(TEST_OBJ_DIR)
 	$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) $(PTHREAD_CFLAGS) -DKASLD_TESTING -I$(SRC_DIR) $(TEST_DIR)/test_kasld.c $(PTHREAD_LIBS) -o $@
 
+# Renderer unit tests (split from test_kasld.c). Same single-TU model — it
+# #includes the orchestrator + render translation units directly, hence
+# -DKASLD_TESTING + the pthread flags — but exercises render.c / render/*.c.
+TEST_RENDER_BIN := $(TEST_OBJ_DIR)/test_render
+
+$(TEST_RENDER_BIN): $(TEST_DIR)/test_render.c $(KASLD_SRC) $(RENDER_SRC) $(RENDER_MODE_SRCS) $(HDRS) | $(TEST_OBJ_DIR)
+	$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) $(PTHREAD_CFLAGS) -DKASLD_TESTING -I$(SRC_DIR) $(TEST_DIR)/test_render.c $(PTHREAD_LIBS) -o $@
+
 # Estimate-core test (Stage A): standalone, links only estimate.c + quantities.c.
 TEST_EST_BIN := $(TEST_OBJ_DIR)/test_estimate
 
@@ -294,7 +302,7 @@ $(TEST_INT_BIN): $(TEST_DIR)/test_engine_integration.c $(ENGINE_CORE) $(ENGINE_R
 	$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_engine_integration.c $(ENGINE_CORE) $(ENGINE_RULES_SRC) $(RULE_SRCS) -o $@
 
 .PHONY: test
-test : $(TEST_BIN) $(TEST_EST_BIN) $(TEST_EV_BIN) $(TEST_ENG_BIN) $(TEST_INT_BIN)
+test : $(TEST_BIN) $(TEST_RENDER_BIN) $(TEST_EST_BIN) $(TEST_EV_BIN) $(TEST_ENG_BIN) $(TEST_INT_BIN)
 	@$(TEST_DIR)/run-all
 	@$(TEST_DIR)/check-self-edges
 	@$(TEST_DIR)/check-truncation
