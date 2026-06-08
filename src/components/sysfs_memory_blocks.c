@@ -69,6 +69,13 @@ static int read_file_line(const char *path, char *buf, size_t len) {
   return 0;
 }
 
+/* Per-run extent emission for ram_map_phys_exclude. Bounded so a huge or
+ * heavily-fragmented map degrades to hull-only rather than flooding evidence or
+ * emitting a partial (unsound) set. */
+#define SMB_MAX_INDICES                                                        \
+  4096                  /* online blocks we can collect to merge into runs */
+#define SMB_MAX_RUNS 64 /* matches the exclude rule's per-map extent cap   */
+
 int main(void) {
   const char *base = "/sys/devices/system/memory";
   char path[512];
@@ -78,6 +85,8 @@ int main(void) {
   unsigned long block_size;
   unsigned long lo = ~0ul, hi = 0;
   int count = 0;
+  static unsigned long idxs[SMB_MAX_INDICES]; /* online block indices, merged */
+  int n_idx = 0, idx_overflow = 0;
 
   printf("[.] searching %s for memory block info ...\n", base);
 
@@ -138,6 +147,11 @@ int main(void) {
     if (end > hi)
       hi = end;
 
+    if (n_idx < SMB_MAX_INDICES)
+      idxs[n_idx++] = idx;
+    else
+      idx_overflow = 1;
+
     count++;
   }
   closedir(d);
@@ -166,6 +180,48 @@ int main(void) {
   if (hi) {
     printf("highest memory block end:   0x%016lx\n", hi);
     kasld_result_top(KASLD_TYPE_PHYS, REGION_RAM, hi, NULL, CONF_PARSED);
+  }
+
+  /* Per-region extents for ram_map_phys_exclude. Merge contiguous online blocks
+   * into runs and emit one range each; the non-RAM gaps between runs (absent or
+   * runtime-offlined blocks) then forbid the physical kernel base — online
+   * blocks are present RAM, and the kernel image is unmovable and never
+   * offlined, so a gap is not where the base is. Additive to the hull
+   * SAMPLE/TOP above (which feed the floor/ceiling rules).
+   *
+   * Sound only over the COMPLETE online set: if a block could not be collected
+   * (overflow) or the runs exceed what the exclude rule reads, emit nothing — a
+   * partial set would synthesise a false gap. A single contiguous run has no
+   * gap to carve, so >= 2 runs are required. */
+  if (!idx_overflow && n_idx > 0) {
+    for (int i = 1; i < n_idx; i++) { /* insertion-sort ascending */
+      unsigned long key = idxs[i];
+      int j = i - 1;
+      while (j >= 0 && idxs[j] > key) {
+        idxs[j + 1] = idxs[j];
+        j--;
+      }
+      idxs[j + 1] = key;
+    }
+    int runs = 0;
+    for (int i = 0; i < n_idx; i++)
+      if (i == 0 || idxs[i] > idxs[i - 1] + 1)
+        runs++;
+    if (runs >= 2 && runs <= SMB_MAX_RUNS) {
+      printf("emitting %d online block run(s)\n", runs);
+      unsigned long rlo_idx = idxs[0], rhi_idx = idxs[0];
+      for (int i = 1; i <= n_idx; i++) {
+        if (i == n_idx || idxs[i] > rhi_idx + 1) {
+          kasld_result_extent(KASLD_TYPE_PHYS, REGION_RAM, rlo_idx * block_size,
+                              (rhi_idx + 1) * block_size - 1, NULL,
+                              CONF_PARSED);
+          if (i < n_idx)
+            rlo_idx = rhi_idx = idxs[i];
+        } else {
+          rhi_idx = idxs[i];
+        }
+      }
+    }
   }
 
 #ifdef phys_to_directmap_virt

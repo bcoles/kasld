@@ -862,6 +862,31 @@ static inline int kasld_result_range(enum kasld_addr_type t,
   return 1;
 }
 
+/* A known [lo, hi] extent that makes NO positional claim — neither `lo` as a
+ * base/floor nor `hi` as a top. For maps whose interior extents matter (RAM-gap
+ * carving) but whose low edge is NOT the authoritative DRAM floor — e.g. the
+ * lowest ONLINE hotplug block can sit above reserved low RAM, so emitting it as
+ * pos=base would wrongly pin the floor. Consumed by the gap-exclude (which
+ * reads lo+hi regardless of pos); ignored by floor rules (they require
+ * pos=base). */
+static inline int kasld_result_extent(enum kasld_addr_type t,
+                                      enum kasld_region r, unsigned long lo,
+                                      unsigned long hi, const char *name,
+                                      enum kasld_confidence c) {
+  if (!kasld__emit_check(t, r, c, "kasld_result_extent"))
+    return 0;
+  if (lo > hi) {
+    fprintf(stderr,
+            "kasld_result_extent: lo=0x%lx > hi=0x%lx; no result emitted\n", lo,
+            hi);
+    return 0;
+  }
+  kasld__emit_prefix(t, r, name);
+  printf(" pos=unknown conf=%s lo=0x%lx hi=0x%lx\n", kasld_conf_wire(c), lo,
+         hi);
+  return 1;
+}
+
 /* `lo`+`size` known. Normalises to inclusive hi = lo + sz - 1. */
 static inline int kasld_result_sized(enum kasld_addr_type t,
                                      enum kasld_region r, unsigned long lo,

@@ -192,10 +192,11 @@ int main(void) {
 
       /* Per-region extent for ram_map_phys_exclude. The DT /memory nodes are
        * the complete RAM map (each reg is memblock_add'd), so the non-RAM gaps
-       * between them forbid the physical kernel base. Additive to the hull
-       * base/top emitted below, which feed the floor/ceiling rules. */
-      kasld_result_range(KASLD_TYPE_PHYS, REGION_RAM, base_addr, end - 1, NULL,
-                         CONF_PARSED);
+       * between them forbid the physical kernel base. A positionless extent
+       * (not pos=base): the authoritative floor/ceiling stay with the hull
+       * base/top emitted below. */
+      kasld_result_extent(KASLD_TYPE_PHYS, REGION_RAM, base_addr, end - 1, NULL,
+                          CONF_PARSED);
 
       count++;
       offset += entry_bytes;

@@ -6,7 +6,7 @@
 // A component that reads the COMPLETE physical RAM map — not a partial leak —
 // yields the full set of RAM extents; the gaps between them are places the
 // kernel image cannot be, because the boot placement code loads the image only
-// into RAM and fits it wholly within one region. Two such whole-map sources:
+// into RAM and fits it wholly within one region. Three such whole-map sources:
 //   - x86 /sys/firmware/memmap (origin "firmware_memmap"): the E820 map.
 //     arch/x86/boot/compressed/kaslr.c skips entries != E820_TYPE_RAM and bails
 //     a region when `region.size < image_size`.
@@ -15,6 +15,11 @@
 //     early_init_dt_scan_memory), i.e. the RAM the arm64 / riscv kernel places
 //     into — gaps between nodes are non-RAM. Arch-general: the DT arches have
 //     no /sys/firmware/memmap.
+//   - hotplug memory blocks (origin "sysfs_memory_blocks"): merged runs of
+//     online /sys/devices/system/memory blocks. Online = present RAM, and the
+//     image is unmovable / never offlined, so the gaps are absent or runtime-
+//     offlined blocks. Arch-general, block-coarse, and the only map that sees
+//     runtime offlining (a block the boot E820 / static DT still call RAM).
 //
 // For each gap (prev_hi, next_lo) within ONE such map:
 //   base forbidden in [prev_hi + 1 - kernel_size + 1, next_lo - 1]
@@ -62,6 +67,7 @@ struct rmpe_extent {
 static const char *const rmpe_origins[] = {
     "firmware_memmap",         /* x86 /sys/firmware/memmap (E820)        */
     "sysfs_devicetree_memory", /* arm64/riscv DT /memory -> memblock RAM */
+    "sysfs_memory_blocks",     /* /sys hotplug blocks: online = present  */
 };
 
 /* Carve the non-RAM gaps of ONE map (the extents tagged `origin`) into out[].

@@ -1265,6 +1265,19 @@ static void test_ram_map_phys_exclude(void) {
   evidence_add(&e4.ev, &b4);
   engine_run(&e4, rules, 1);
   assert(has_phys_exclude(&e4));
+
+  /* Positive 3: the hotplug memory-block map (online runs) carves the same
+   * gap — the runtime view, arch-general. */
+  struct engine e5;
+  engine_init(&e5);
+  struct observation is5 = mk_scalar(SF_IMAGE_SIZE, ksize, CONF_PARSED);
+  evidence_add(&e5.ev, &is5);
+  struct observation a5 = mk_ram(r1lo, r1hi, "sysfs_memory_blocks");
+  struct observation b5 = mk_ram(r2lo, r2hi, "sysfs_memory_blocks");
+  evidence_add(&e5.ev, &a5);
+  evidence_add(&e5.ev, &b5);
+  engine_run(&e5, rules, 1);
+  assert(has_phys_exclude(&e5));
 #endif
 }
 
