@@ -60,6 +60,8 @@ R(randomize_memory_page_offset);
 
 /* Cmdline rules (mem= / memmap= / initrd / efi-seed) */
 R(initrd_phys_exclude);
+R(phys_reservation_exclude);
+R(firmware_memmap_phys_exclude);
 R(initrd_above_kernel);
 R(cmdline_phys_exclude);
 R(cmdline_mem_phys_ceiling);
