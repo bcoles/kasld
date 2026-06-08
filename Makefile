@@ -297,6 +297,7 @@ $(TEST_INT_BIN): $(TEST_DIR)/test_engine_integration.c $(ENGINE_CORE) $(ENGINE_R
 test : $(TEST_BIN) $(TEST_EST_BIN) $(TEST_EV_BIN) $(TEST_ENG_BIN) $(TEST_INT_BIN)
 	@$(TEST_DIR)/run-all
 	@$(TEST_DIR)/check-self-edges
+	@$(TEST_DIR)/check-truncation
 
 .PHONY: test-integration
 test-integration : $(TEST_INT_BIN)

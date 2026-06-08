@@ -27,7 +27,11 @@ set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 QEMU_DIR=${QEMU_DIR:-/home/user/qemu/build}
 OUT=$ROOT/build/tests
-CFLAGS=${CFLAGS:--std=c99 -O2 -static -I$ROOT/src}
+# -Werror on the overflow/shift classes: these only manifest on a given word
+# size, so the cross (esp. 32-bit) compile is where a `1ul << 40` shift or a
+# constant overflow gets caught. Kept targeted (not full -Werror) so the test
+# TUs' pre-existing unused-static warnings don't turn fatal.
+CFLAGS=${CFLAGS:--std=c99 -O2 -static -I$ROOT/src -Werror=shift-count-overflow -Werror=overflow}
 # Targets are independent (separate build dir + binaries each), so build/run
 # them JOBS at a time. Default to one per core; JOBS=1 restores serial order.
 JOBS=${JOBS:-$(nproc 2>/dev/null || echo 1)}

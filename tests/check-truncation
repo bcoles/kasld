@@ -1,0 +1,167 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-truncation — guard against silent 64-bit -> word narrowing on 32-bit.
+#
+# kasld's value domain is the target kernel word (kasld_addr_t == unsigned
+# long; see the CONTRACT in include/kasld/api.h). A value that is WIDER than
+# the word — an `unsigned long long`: an arch-independent bound such as 1<<50,
+# or a uint64_t — assigned to or passed as that word-sized domain is silently
+# truncated on 32-bit builds. That is the class that produced the
+# MAX_PLAUSIBLE_KERNEL_PHYS (1<<50) bug: correct on 64-bit, zero on 32-bit.
+#
+# The compiler flags this under -Wconversion/-Woverflow, but those are far too
+# noisy to enable globally. So this guard compiles each translation unit for a
+# 32-bit target and fails on the NARROWING SUBSET only: `long long` -> `long`.
+# Keep wide values in the unsigned-long-long bound layer (kasld_addr_in_*),
+# which never truncates.
+#
+# A file that #errors on the 32-bit target (arch-incompatible, e.g. an
+# x86_64-only exploit) is skipped: it never builds for 32-bit, so a
+# recovery-mode warning is moot. A file that DOES build 32-bit and carries an
+# intentional narrowing (a deliberate 64 -> 2x32 pointer split) is listed in
+# ALLOW. Skips cleanly when no 32-bit cross toolchain is present.
+#
+# Usage: tests/check-truncation   (also run by `make test`)
+# Env:   JOBS (default: nproc)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+
+# Force ASCII diagnostics. GCC quotes type names with Unicode ‘ ’ under a
+# UTF-8 locale (e.g. CI's glibc toolchain) and ASCII ' ' under C — and the
+# grep below keys on the quoted type names, so without this the guard silently
+# passes wherever the locale is UTF-8. C locale makes the output deterministic.
+export LC_ALL=C
+
+# Reviewed, intentional narrowings in genuinely-32-bit translation units.
+# Keep alphabetical.
+ALLOW="proc_pid_syscall" # deliberate 64-bit register split into two 32-bit halves
+
+# Pick ONE 32-bit (ILP32, sizeof(long)==4) GCC. The narrowing this guard
+# catches is sizeof(long)-dependent and therefore identical across every 32-bit
+# arch, so a single representative compiler is sufficient — no need to sweep all
+# arches (the value-dependent overflow/shift classes are swept on every arch by
+# `make cross` / `tests/test-cross` instead). The list MUST stay 32-bit-only: a
+# 64-bit compiler would never see the narrowing, silently making the guard a
+# no-op. i686 is canonical (CI installs gcc-i686-linux-gnu); the rest are
+# fallbacks so any of our cross toolchains satisfies it. (clang is not listed:
+# its -Wconversion diagnostic spelling differs; the guard is GCC-based and skips
+# where no 32-bit GCC is found.)
+CC=
+for c in i686-unknown-linux-musl-gcc i686-linux-gnu-gcc i686-linux-musl-gcc \
+  arm-unknown-linux-musleabi-gcc armv7-unknown-linux-musleabi-gcc \
+  armeb-linux-musleabi-gcc arm-linux-gnueabihf-gcc arm-linux-gnueabi-gcc \
+  mipsel-unknown-linux-musl-gcc mips-unknown-linux-musl-gcc \
+  powerpc-linux-musl-gcc riscv32-linux-musl-gcc; do
+  command -v "$c" >/dev/null 2>&1 && {
+    CC=$c
+    break
+  }
+done
+
+if [ -t 2 ]; then
+  RED=$(printf '\033[31m')
+  GREEN=$(printf '\033[32m')
+  RESET=$(printf '\033[0m')
+else
+  RED=
+  GREEN=
+  RESET=
+fi
+
+if [ -z "$CC" ]; then
+  printf '%struncation guard: SKIP%s (no 32-bit cross toolchain)\n' "$GREEN" "$RESET"
+  exit 0
+fi
+
+CFLAGS="-std=c99 -O2 -Wall -Wextra -Wconversion -I$ROOT/src -fsyntax-only"
+JOBS=${JOBS:-$(nproc 2>/dev/null || echo 1)}
+
+# The detection, in ONE place (used by both the scan and the self-check below):
+# a 64-bit UNSIGNED value narrowed to the unsigned word, in the compiler's
+# C-locale (ASCII-quoted) diagnostics. Reads compiler output on stdin, emits the
+# matching lines. The value domain is unsigned, so signed narrowings
+# (time_t/off_t differences — small relative values) are deliberately excluded.
+narrowings() {
+  grep -E '\[-W(conversion|overflow)\]' |
+    grep 'long long unsigned int' | grep "to 'long unsigned int'"
+}
+
+# Self-check: this guard greps compiler diagnostics, which are sensitive to
+# locale (quote style), compiler, and version — a mismatch makes it pass
+# SILENTLY (as it did when GCC's UTF-8 Unicode quotes slipped the grep). So
+# before vouching, prove detection still fires on a KNOWN narrowing. This also
+# rejects an accidentally-64-bit compiler, on which 1<<50 fits the word and
+# would not narrow at all.
+if ! printf 'unsigned long f(void){unsigned long n=1ull<<50;return n;}\n' |
+  $CC $CFLAGS -x c - 2>&1 | narrowings >/dev/null; then
+  printf '%struncation guard: SELF-CHECK FAILED%s — %s did not flag a known\n' \
+    "$RED" "$RESET" "$CC" >&2
+  printf '64-bit -> word narrowing, so detection is broken (a diagnostic-format\n' >&2
+  printf 'or locale change, or a non-32-bit compiler). Refusing to report OK\n' >&2
+  printf 'rather than pass silently. See narrowings() / LC_ALL in this script.\n' >&2
+  exit 1
+fi
+
+RESDIR=$(mktemp -d)
+
+# Compile one TU; emit "<basename>\n<narrowing lines>" to its .res iff it
+# (a) builds for 32-bit (no #error) and (b) has a long-long -> word narrowing
+# that is not allowlisted.
+check_one() {
+  f=$1
+  res=$2
+  out=$($CC $CFLAGS "$f" 2>&1)
+  printf '%s\n' "$out" | grep -q "error:" && return # arch-incompatible on 32-bit
+  hits=$(printf '%s\n' "$out" | narrowings)
+  [ -n "$hits" ] || return
+  b=$(basename "$f" .c)
+  for a in $ALLOW; do [ "$a" = "$b" ] && return; done
+  {
+    printf '  %s:\n' "$b"
+    printf '%s\n' "$hits" | sed 's/^/    /'
+  } >"$res"
+}
+
+n=0
+running=0
+for f in "$ROOT"/src/*.c "$ROOT"/src/rules/*.c "$ROOT"/src/components/*.c \
+  "$ROOT"/src/render/*.c; do
+  [ -f "$f" ] || continue
+  n=$((n + 1))
+  check_one "$f" "$RESDIR/$n.res" &
+  running=$((running + 1))
+  if [ "$running" -ge "$JOBS" ]; then
+    wait
+    running=0
+  fi
+done
+wait
+
+fail=0
+i=1
+while [ "$i" -le "$n" ]; do
+  if [ -s "$RESDIR/$i.res" ]; then
+    if [ "$fail" = 0 ]; then
+      printf '%struncation guard: 64-bit -> word narrowing on 32-bit (%s):%s\n' \
+        "$RED" "$CC" "$RESET" >&2
+    fi
+    cat "$RESDIR/$i.res" >&2
+    fail=1
+  fi
+  i=$((i + 1))
+done
+rm -rf "$RESDIR"
+
+if [ "$fail" = 1 ]; then
+  printf 'A value wider than the target word is truncated on 32-bit. Keep it in the\n' >&2
+  printf 'unsigned-long-long bound layer (kasld_addr_in_*); or, if the narrowing is\n' >&2
+  printf 'intentional in a 32-bit-only TU, add it to ALLOW in tests/check-truncation.\n' >&2
+  exit 1
+fi
+
+printf '%struncation guard: OK%s (compiled for 32-bit via %s; no silent narrowing)\n' \
+  "$GREEN" "$RESET" "$CC"

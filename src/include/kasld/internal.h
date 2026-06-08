@@ -124,9 +124,9 @@ struct result {
   enum kasld_region region;
   char name[NAME_LEN]; /* "" if no specific instance */
 
-  unsigned long lo, hi;
-  unsigned long sample;
-  unsigned long base_align;
+  kasld_addr_t lo, hi;
+  kasld_addr_t sample;
+  kasld_addr_t base_align;
   uint32_t set_mask;
 
   enum kasld_position pos;

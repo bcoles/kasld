@@ -730,9 +730,9 @@ static int capture_result(const char *line, const char *method,
     /* sz requires lo — check before doing arithmetic on p.lo. */
     if (!p.seen_lo)
       return 0;
-    if (p.sz == 0 || p.sz - 1 > ULONG_MAX - p.lo)
+    /* hi = lo + sz - 1, rejecting an empty or wrapping extent in one step. */
+    if (p.sz == 0 || kasld_add_ovf(p.lo, p.sz - 1, &p.hi))
       return 0;
-    p.hi = p.lo + p.sz - 1;
     p.seen_hi = 1;
   }
 

@@ -73,7 +73,7 @@ struct observation {
   enum kasld_addr_type type;
   enum kasld_region region;
   char name[NAME_LEN]; /* "" if no specific instance */
-  unsigned long lo, hi, sample, base_align;
+  kasld_addr_t lo, hi, sample, base_align;
   uint32_t set_mask;
   enum kasld_position pos;
   /* OBS_SCALAR: */

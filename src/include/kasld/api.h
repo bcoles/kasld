@@ -19,6 +19,53 @@
 #define GB 0x40000000ul
 #define TB 0x10000000000ul
 
+/* =========================================================================
+ * kasld_addr_t — the kernel-address value domain.
+ *
+ * CONTRACT: kasld is built for, and run on, its target architecture (a cross
+ * compiler may produce the binary, but it executes on the target's kernel).
+ * So the build word == the target kernel word, and a kernel address is exactly
+ * `unsigned long`. kasld_addr_t names that domain: use it for stored addresses
+ * (result/observation lo/hi/sample/base_align, ...) so the intent is explicit
+ * and the type lives in one place.
+ *
+ * Two things deliberately do NOT use kasld_addr_t:
+ *   - values that are arch-INDEPENDENT and may exceed any word (plausibility
+ *     ceilings such as 1<<50, slot math): those are `unsigned long long`, and
+ *     are consumed by `unsigned long long`-parameter helpers (kasld_addr_in_*)
+ *     so a wide bound is never silently truncated to the word; and
+ *   - real machine pointers / syscall operands at the hardware boundary, which
+ *     are the platform's `unsigned long`/`uintptr_t`/`void *` by definition.
+ * ========================================================================= */
+typedef unsigned long kasld_addr_t;
+
+/* Overflow-checked unsigned word arithmetic. Returns 1 if a (+|*) b overflows
+ * the word — the wrapped result is still written to *out — and 0 otherwise.
+ * Prefer these to hand-rolling a `b > ULONG_MAX - a` pre-check: they compute
+ * and check in one step and can't be got subtly wrong. Uses the compiler
+ * builtin where available; the fallback is the standard wrap test. */
+#if defined(__GNUC__) || defined(__clang__)
+static inline int kasld_add_ovf(unsigned long a, unsigned long b,
+                                unsigned long *out) {
+  return __builtin_add_overflow(a, b, out);
+}
+static inline int kasld_mul_ovf(unsigned long a, unsigned long b,
+                                unsigned long *out) {
+  return __builtin_mul_overflow(a, b, out);
+}
+#else
+static inline int kasld_add_ovf(unsigned long a, unsigned long b,
+                                unsigned long *out) {
+  *out = a + b;
+  return *out < a;
+}
+static inline int kasld_mul_ovf(unsigned long a, unsigned long b,
+                                unsigned long *out) {
+  *out = a * b;
+  return a != 0 && *out / a != b;
+}
+#endif
+
 #if defined(__x86_64__) || defined(__amd64__)
 #include "arch/x86_64.h"
 #elif defined(__i386__)
@@ -76,6 +123,16 @@
 #if KERNEL_PHYS_MIN > KERNEL_PHYS_MAX
 #error "Defined KERNEL_PHYS_MIN is larger than KERNEL_PHYS_MAX"
 #endif
+/* Catch an N*GB upper bound that overflowed the word on a 32-bit arch (4*GB
+ * wraps to 0). A `#if` can't see this: the preprocessor evaluates in intmax_t
+ * (>= 64-bit), so the wrap that only happens in `unsigned long` is invisible to
+ * it — and to the relational `#if` above. _Static_assert is evaluated by the
+ * compiler in the target's own types, so it does see the wrap. (Unsigned
+ * overflow is defined behaviour, so no warning flag catches it either.) */
+__extension__ _Static_assert((unsigned long)KERNEL_PHYS_MAX >
+                                 (unsigned long)KERNEL_PHYS_MIN,
+                             "KERNEL_PHYS_MAX <= KERNEL_PHYS_MIN -- an N*GB "
+                             "constant overflowed the 32-bit word?");
 #endif
 
 /* DIRECTMAP_STATIC and TEXT_TRACKS_DIRECTMAP must be declared by every arch
