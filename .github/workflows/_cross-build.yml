@@ -1,0 +1,133 @@
+name: _cross-build
+
+# Reusable: build kasld for every supported musl architecture (the matrix below
+# fans out one job per arch). This is the SINGLE source of the released arch set
+# — build.yml (compile-gate, package=false) and release.yml (package=true)
+# both call it, so the two can't drift.
+#
+# Toolchains come from cross-tools/musl-cross GitHub Releases (musl.cc blocks
+# GitHub Actions), broad enough to cover every arch kasld targets — including
+# loongarch64, which musl.cc never provided. armeb is omitted: cross-tools/
+# musl-cross ships no big-endian-ARM toolchain.
+
+on:
+  workflow_call:
+    inputs:
+      toolchain_version:
+        description: 'cross-tools/musl-cross release tag to build against'
+        required: true
+        type: string
+      package:
+        description: 'release mode: native-test x86_64, tarball + upload artifacts'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # arch:        friendly name (job label + tarball / artifact name).
+        # musl_triple: cross-tools/musl-cross triple — the tar.xz stem, the
+        #              extracted dir name, and the <triple>-gcc prefix.
+        # The float/baseline variants (i586, armhf, armv7, mipssf, ...) compile
+        # the same kasld as their base arch, but each is a distinct shipped
+        # toolchain, so the gate builds them too.
+        include:
+          # --- x86 ---
+          - { arch: x86_64, musl_triple: x86_64-unknown-linux-musl, native_test: true }
+          - { arch: i686, musl_triple: i686-unknown-linux-musl }
+          - { arch: i586, musl_triple: i586-unknown-linux-musl }
+          # --- ARM (soft/hard float, v6/v7) ---
+          - { arch: aarch64, musl_triple: aarch64-unknown-linux-musl }
+          - { arch: arm, musl_triple: arm-unknown-linux-musleabi }
+          - { arch: armhf, musl_triple: arm-unknown-linux-musleabihf }
+          - { arch: armv7, musl_triple: armv7-unknown-linux-musleabi }
+          - { arch: armv7l, musl_triple: armv7-unknown-linux-musleabihf }
+          # --- MIPS (hard/soft float, BE/LE) ---
+          - { arch: mips, musl_triple: mips-unknown-linux-musl }
+          - { arch: mipssf, musl_triple: mips-unknown-linux-muslsf }
+          - { arch: mipsel, musl_triple: mipsel-unknown-linux-musl }
+          - { arch: mipselsf, musl_triple: mipsel-unknown-linux-muslsf }
+          - { arch: mips64, musl_triple: mips64-unknown-linux-musl }
+          - { arch: mips64el, musl_triple: mips64el-unknown-linux-musl }
+          # --- POWER (32/64, BE/LE) ---
+          - { arch: powerpc, musl_triple: powerpc-unknown-linux-musl }
+          - { arch: powerpcle, musl_triple: powerpcle-unknown-linux-musl }
+          - { arch: powerpc64, musl_triple: powerpc64-unknown-linux-musl }
+          - { arch: powerpc64le, musl_triple: powerpc64le-unknown-linux-musl }
+          # --- RISC-V (32/64) ---
+          - { arch: riscv32, musl_triple: riscv32-unknown-linux-musl }
+          - { arch: riscv64, musl_triple: riscv64-unknown-linux-musl }
+          # --- s390x ---
+          - { arch: s390x, musl_triple: s390x-ibm-linux-musl }
+          # --- LoongArch ---
+          - { arch: loongarch64, musl_triple: loongarch64-unknown-linux-musl }
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Cache toolchain
+        uses: actions/cache@v4
+        with:
+          path: ~/musl-cross/${{ matrix.musl_triple }}
+          key: musl-${{ matrix.musl_triple }}-${{ inputs.toolchain_version }}
+
+      - name: Fetch toolchain + add to PATH
+        run: |
+          set -euo pipefail
+          t="${{ matrix.musl_triple }}"
+          root="$HOME/musl-cross"; mkdir -p "$root"
+          if [ ! -d "$root/$t" ]; then
+            base="https://github.com/cross-tools/musl-cross/releases/download/${{ inputs.toolchain_version }}"
+            dl() { curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors "$1" -o "$2"; }
+            dl "${base}/${t}.tar.xz" "/tmp/${t}.tar.xz"
+            dl "${base}/${t}.tar.xz.sha256" "/tmp/${t}.sha256"
+            # The .sha256 holds only the bare digest; pair it with the filename.
+            echo "$(cut -d' ' -f1 "/tmp/${t}.sha256")  /tmp/${t}.tar.xz" | sha256sum -c -
+            tar -xJf "/tmp/${t}.tar.xz" -C "$root"
+          fi
+          echo "$root/$t/bin" >> "$GITHUB_PATH"
+
+      - name: Build
+        run: make build CC=${{ matrix.musl_triple }}-gcc
+
+      - name: Identify build directory
+        id: builddir
+        run: echo "dir=build/$(${{ matrix.musl_triple }}-gcc -dumpmachine)" >> "$GITHUB_OUTPUT"
+
+      - name: Verify static linkage
+        run: |
+          file "${{ steps.builddir.outputs.dir }}/kasld"
+          file "${{ steps.builddir.outputs.dir }}/kasld" | grep -q "statically linked"
+
+      # Release mode only: x86_64 runs natively on the runner. (PR coverage
+      # tests x86_64 via build.yml's host job, so this would be redundant there.)
+      - name: Run tests (native, x86_64)
+        if: inputs.package && matrix.native_test
+        run: make test CC=${{ matrix.musl_triple }}-gcc
+
+      - name: Package release tarball
+        if: inputs.package
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME}"
+          DIR="kasld-${TAG}-${{ matrix.arch }}"
+          mkdir -p "${DIR}"
+          # Ship the build/<arch> output (kasld + components/), minus the .o
+          # build intermediates.
+          cp -a "${{ steps.builddir.outputs.dir }}/." "${DIR}/"
+          find "${DIR}" -name '*.o' -delete
+          cp README.md LICENSE "${DIR}/"
+          tar czf "${DIR}.tar.gz" "${DIR}"
+          sha256sum "${DIR}.tar.gz" > "${DIR}.tar.gz.sha256"
+
+      - name: Upload artifact
+        if: inputs.package
+        uses: actions/upload-artifact@v5
+        with:
+          name: kasld-${{ matrix.arch }}
+          path: |
+            kasld-*-${{ matrix.arch }}.tar.gz
+            kasld-*-${{ matrix.arch }}.tar.gz.sha256
