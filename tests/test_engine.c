@@ -1121,6 +1121,139 @@ static void test_cmdline_phys_exclude(void) {
 #endif
 }
 
+/* phys_reservation_exclude: a leaked extent of a region the kernel image can't
+ * occupy (crashkernel, MMIO, ...) carves a forbidden band out of the candidate
+ * set; a plain-RAM extent of the same shape does NOT. */
+int rule_phys_reservation_exclude(const struct evidence_set *ev,
+                                  const struct estimate *est,
+                                  struct constraint *out, int out_max);
+
+static int has_phys_exclude(const struct engine *e) {
+  for (int i = 0; i < e->n_constraints; i++)
+    if (e->constraints[i].q == Q_PHYS_TEXT_BASE &&
+        e->constraints[i].op == C_EXCLUDE)
+      return 1;
+  return 0;
+}
+
+static void test_phys_reservation_exclude(void) {
+#if !TEXT_TRACKS_DIRECTMAP
+  const rule_fn rules[] = {rule_phys_reservation_exclude};
+  unsigned long ksize = 0x1000000ul;                 /* 16 MiB image */
+  unsigned long rstart = PHYS_OFFSET + 0x10000000ul; /* reserved at +256 MiB */
+  unsigned long rend = rstart + 0x4000000ul;         /* 64 MiB */
+
+  /* Positive: a crashkernel extent carves a hole; slot count drops. */
+  struct engine e;
+  engine_init(&e);
+  struct observation is = mk_scalar(SF_IMAGE_SIZE, ksize, CONF_PARSED);
+  evidence_add(&e.ev, &is);
+  struct observation crash;
+  memset(&crash, 0, sizeof(crash));
+  crash.value_kind = OBS_ADDRESS;
+  crash.type = KASLD_TYPE_PHYS;
+  crash.region = REGION_CRASHKERNEL;
+  crash.lo = rstart;
+  crash.hi = rend;
+  crash.set_mask = LO_SET | HI_SET;
+  crash.conf = CONF_PARSED;
+  evidence_add(&e.ev, &crash);
+  engine_run(&e, rules, 1);
+  assert(has_phys_exclude(&e));
+  const struct estimate *est = &e.est[Q_PHYS_TEXT_BASE];
+  assert(quantity_slots(Q_PHYS_TEXT_BASE, est, e.constraints, e.n_constraints,
+                        KASLR_PHYS_ALIGN) <
+         quantity_slots(Q_PHYS_TEXT_BASE, est, NULL, 0, KASLR_PHYS_ALIGN));
+
+  /* Negative: a NON-forbidden region (plain RAM) emits no exclude — the image
+   * CAN live in RAM. */
+  struct engine e2;
+  engine_init(&e2);
+  struct observation is2 = mk_scalar(SF_IMAGE_SIZE, ksize, CONF_PARSED);
+  evidence_add(&e2.ev, &is2);
+  struct observation ram = crash;
+  ram.region = REGION_RAM;
+  evidence_add(&e2.ev, &ram);
+  engine_run(&e2, rules, 1);
+  assert(!has_phys_exclude(&e2));
+#endif
+}
+
+/* firmware_memmap_phys_exclude: the non-RAM gaps in the authoritative System
+ * RAM map are forbidden bands. Gated to the complete "firmware_memmap" map — a
+ * partial-leak origin, or adjacent extents with no gap, emit nothing. */
+int rule_firmware_memmap_phys_exclude(const struct evidence_set *ev,
+                                      const struct estimate *est,
+                                      struct constraint *out, int out_max);
+
+static struct observation mk_ram(unsigned long lo, unsigned long hi,
+                                 const char *origin) {
+  struct observation o;
+  memset(&o, 0, sizeof(o));
+  o.value_kind = OBS_ADDRESS;
+  o.type = KASLD_TYPE_PHYS;
+  o.region = REGION_RAM;
+  o.lo = lo;
+  o.hi = hi;
+  o.set_mask = LO_SET | HI_SET;
+  o.conf = CONF_PARSED;
+  snprintf(o.origin, ORIGIN_LEN, "%s", origin);
+  return o;
+}
+
+static void test_firmware_memmap_phys_exclude(void) {
+#if !TEXT_TRACKS_DIRECTMAP
+  const rule_fn rules[] = {rule_firmware_memmap_phys_exclude};
+  unsigned long ksize = 0x1000000ul; /* 16 MiB image */
+  /* Two RAM extents with a real non-RAM gap (256 MiB .. 288 MiB). */
+  unsigned long r1lo = PHYS_OFFSET + 0x1000000ul;  /* +16 MiB  */
+  unsigned long r1hi = PHYS_OFFSET + 0x10000000ul; /* +256 MiB */
+  unsigned long r2lo = PHYS_OFFSET + 0x12000000ul; /* +288 MiB */
+  unsigned long r2hi = PHYS_OFFSET + 0x40000000ul; /* +1 GiB   */
+
+  /* Positive: gap carved, slot count drops. */
+  struct engine e;
+  engine_init(&e);
+  struct observation is = mk_scalar(SF_IMAGE_SIZE, ksize, CONF_PARSED);
+  evidence_add(&e.ev, &is);
+  struct observation a = mk_ram(r1lo, r1hi, "firmware_memmap");
+  struct observation b = mk_ram(r2lo, r2hi, "firmware_memmap");
+  evidence_add(&e.ev, &a);
+  evidence_add(&e.ev, &b);
+  engine_run(&e, rules, 1);
+  assert(has_phys_exclude(&e));
+  const struct estimate *est = &e.est[Q_PHYS_TEXT_BASE];
+  assert(quantity_slots(Q_PHYS_TEXT_BASE, est, e.constraints, e.n_constraints,
+                        KASLR_PHYS_ALIGN) <
+         quantity_slots(Q_PHYS_TEXT_BASE, est, NULL, 0, KASLR_PHYS_ALIGN));
+
+  /* Negative 1: same gap but a partial-leak origin (not the authoritative map)
+   * — the "gap" could be unobserved RAM, so nothing is excluded. */
+  struct engine e2;
+  engine_init(&e2);
+  struct observation is2 = mk_scalar(SF_IMAGE_SIZE, ksize, CONF_PARSED);
+  evidence_add(&e2.ev, &is2);
+  struct observation a2 = mk_ram(r1lo, r1hi, "proc_iomem");
+  struct observation b2 = mk_ram(r2lo, r2hi, "proc_iomem");
+  evidence_add(&e2.ev, &a2);
+  evidence_add(&e2.ev, &b2);
+  engine_run(&e2, rules, 1);
+  assert(!has_phys_exclude(&e2));
+
+  /* Negative 2: adjacent extents (no gap) emit nothing. */
+  struct engine e3;
+  engine_init(&e3);
+  struct observation is3 = mk_scalar(SF_IMAGE_SIZE, ksize, CONF_PARSED);
+  evidence_add(&e3.ev, &is3);
+  struct observation a3 = mk_ram(r1lo, r1hi, "firmware_memmap");
+  struct observation b3 = mk_ram(r1hi + 1, r2hi, "firmware_memmap");
+  evidence_add(&e3.ev, &a3);
+  evidence_add(&e3.ev, &b3);
+  engine_run(&e3, rules, 1);
+  assert(!has_phys_exclude(&e3));
+#endif
+}
+
 /* cmdline_mem_phys_ceiling: `mem=N` + SF_IMAGE_SIZE → C_UPPER_BOUND
  * on Q_PHYS_TEXT_BASE at (mem - ksize), aligned down. Decoupled arches. */
 int rule_cmdline_mem_phys_ceiling(const struct evidence_set *ev,
@@ -4300,6 +4433,8 @@ int main(void) {
 
   BEGIN_CATEGORY("Cmdline rules (mem= / memmap= / initrd / nokaslr)");
   RUN(test_initrd_phys_exclude);
+  RUN(test_phys_reservation_exclude);
+  RUN(test_firmware_memmap_phys_exclude);
   RUN(test_cmdline_phys_exclude);
   RUN(test_cmdline_mem_phys_ceiling);
   RUN(test_cmdline_mem_phys_ceiling_no_signal);
