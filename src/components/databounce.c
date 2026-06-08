@@ -78,7 +78,7 @@
  * so 101 sweeps costs ~300 ms — negligible against the 30 s timeout. */
 #define DATABOUNCE_SWEEPS 101
 
-/* Scan window: uses kasld.h defines (KERNEL_VIRT_TEXT_MIN,
+/* Scan window: uses api.h defines (KERNEL_VIRT_TEXT_MIN,
  * KERNEL_VIRT_TEXT_MAX). */
 #define SCAN_STEP (KASLR_VIRT_ALIGN)
 #define SCAN_SLOTS                                                             \
@@ -190,7 +190,7 @@ int main(void) {
   /* Run multiple sweeps and take the address that appears most often.
    * An intermittent signal may cause individual sweeps to miss, so
    * majority-vote is more robust than strict unanimity. */
-  /* `samples` (not `results`) — avoid shadowing the kasld.h `results[]`
+  /* `samples` (not `results`) — avoid shadowing the orchestrator `results[]`
    * global that components inherit through kasld/api.h. */
   unsigned long samples[DATABOUNCE_SWEEPS];
   for (int s = 0; s < DATABOUNCE_SWEEPS; s++)

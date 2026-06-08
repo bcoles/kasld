@@ -41,7 +41,7 @@
 // IMPORTANT: KERNEL_TEXT / KERNEL_IMAGE uses KERNEL_VIRT_TEXT_MIN/MAX (the
 // validation range across all in-scope kernel-version layouts), not a
 // narrower per-formula KASLR-window subset — same role distinction as
-// the parallel x86_64 / arm64 / riscv64 rules. See kasld.h MODULES_*
+// the parallel x86_64 / arm64 / riscv64 rules. See api.h MODULES_*
 // validation-union contract for the underlying pattern.
 //
 // The ruling is a pure function of the observation's own region and anchor

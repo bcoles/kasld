@@ -99,7 +99,7 @@
  * all verification sweeps exactly (entrybleed-style unanimity check). */
 #define ECHOLOAD_VERIFY 3
 
-/* Scan window: uses kasld.h defines (KERNEL_VIRT_TEXT_MIN,
+/* Scan window: uses api.h defines (KERNEL_VIRT_TEXT_MIN,
  * KERNEL_VIRT_TEXT_MAX). */
 #define SCAN_STEP (KASLR_VIRT_ALIGN)
 #define SCAN_SLOTS                                                             \

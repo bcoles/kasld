@@ -139,7 +139,7 @@
 // arch/riscv/include/asm/pgtable.h
 //
 // KERNEL_VIRT_TEXT_DEFAULT names the default _stext virtual address (per the
-// kasld.h convention "Default _stext virtual address (no KASLR)"). On
+// api.h convention "Default _stext virtual address (no KASLR)"). On
 // riscv64 that is KERNEL_LINK_ADDR + the head-text offset — NOT
 // KERNEL_LINK_ADDR itself, which is _start (image base). Pinning to
 // KERNEL_LINK_ADDR alone is unsound: the engine's virt_/phys_kaslr_disabled_pin
@@ -148,7 +148,7 @@
 #define KERNEL_VIRT_TEXT_DEFAULT (KERNEL_LINK_ADDR + RISCV64_HEAD_TEXT_OFFSET)
 
 /* Build-time check: KERNEL_VIRT_TEXT_DEFAULT must include the .head.text
- * offset so it names _stext (per the kasld.h convention "Default _stext
+ * offset so it names _stext (per the api.h convention "Default _stext
  * virtual address"), not _start. Defining KERNEL_VIRT_TEXT_DEFAULT as
  * KERNEL_LINK_ADDR alone would pin Q_VIRT_TEXT_BASE 0x2000 below the
  * actual _stext via the engine's virt_/phys_kaslr_disabled_pin rule, excluding

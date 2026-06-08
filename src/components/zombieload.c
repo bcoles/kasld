@@ -417,7 +417,7 @@ int main(void) {
   /* Run multiple independent sampling passes and majority-vote.
    * Each run collects fresh histograms at all 64 cache-line offsets
    * and produces a candidate kernel text address.
-   * `samples` (not `results`) — avoid shadowing the kasld.h `results[]`
+   * `samples` (not `results`) — avoid shadowing the orchestrator `results[]`
    * global that components inherit through kasld/api.h. */
   unsigned long samples[MDS_RUNS];
 

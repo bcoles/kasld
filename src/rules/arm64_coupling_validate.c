@@ -20,7 +20,7 @@
 // kernel's KASLR algorithm has shifted across versions (v6.6 vs v6.12);
 // pinning the validation band to one formula's window would reject legitimate
 // text leaks produced by any other version sitting inside the wider arch VAS.
-// Same shape as the modules-window union widening — see kasld.h MODULES_*
+// Same shape as the modules-window union widening — see api.h MODULES_*
 // validation-union contract.
 //
 // The bands themselves are KASLR-invariant — the kernel image's KASLR slot

@@ -66,6 +66,76 @@ static inline int kasld_mul_ovf(unsigned long a, unsigned long b,
 }
 #endif
 
+/* =========================================================================
+ * Arch-header contract: every per-arch header (arch/...) below defines these.
+ *
+ * Virtual address space layout:
+ * - PAGE_OFFSET:              Start of the kernel direct-mapping (linear map).
+ * - KERNEL_VIRT_VAS_START:    Lowest plausible kernel virtual address (floor).
+ *                             Often equals PAGE_OFFSET, but may be lower on
+ *                             arches with configurable vmsplit to cover all
+ *                             configs (e.g. 0x40000000 on 32-bit x86/arm).
+ * - KERNEL_VIRT_VAS_END:      End of kernel virtual address space.
+ * - KERNEL_VIRT_TEXT_MIN:     Minimum plausible kernel text virtual address.
+ * - KERNEL_VIRT_TEXT_MAX:     Maximum plausible kernel text virtual address.
+ * - MODULES_START / _END:     Kernel module virtual address range.
+ *
+ *   CONTRACT: MODULES_START/END is the *validation UNION* across all in-scope
+ *   kernel versions, not the snapshot of one. Narrower runtime windows are
+ *   anchored from /proc/modules / /sys/module observations
+ *   (engine_sync_authoritative); the static window must not exclude any
+ *   address a real kernel might assign to a module -- silently rejecting
+ *   legitimate module leaks is the failure mode this guards against. A
+ *   wider-than-truth window admits some non-module addresses (cosmetic on
+ *   MODULES_RELATIVE_TO_TEXT=0 arches where the module band is not used to
+ *   bound text); a narrower-than-truth window drops real data.
+ *
+ * - MODULES_RELATIVE_TO_TEXT: 1 if the module region shifts with KASLR text.
+ * - IMAGE_ALIGN:              Kernel text address alignment.
+ * - TEXT_OFFSET:              Offset from base address to _stext.
+ * - KERNEL_VIRT_TEXT_DEFAULT: Default _stext virtual address (no KASLR).
+ *
+ * Physical addresses:
+ * - PHYS_OFFSET:              Physical RAM base address.
+ * - KERNEL_PHYS_MIN / _MAX:   Min/max plausible kernel physical load address.
+ *
+ * KASLR and address derivation:
+ * - KASLR_SUPPORTED:          1 if the arch has mainline KASLR.
+ * - DIRECTMAP_STATIC:         1 if PAGE_OFFSET and PHYS_OFFSET are both
+ *                             compile-time constants at runtime, so
+ *                             phys_to_directmap_virt(p) = p - PHYS_OFFSET +
+ *                             PAGE_OFFSET yields the real runtime directmap
+ *                             virt. 0 if either offset shifts at boot (KASLR
+ *                             randomization or runtime patching), in which case
+ *                             phys_to_directmap_virt() is undefined and callers
+ *                             must rely on engine-resolved values.
+ * - TEXT_TRACKS_DIRECTMAP:    1 if kernel text sits at a fixed offset within
+ * the linear map (text moves with the directmap; KASLR cannot slide them
+ * independently). 0 if text relocates independently -- phys-DRAM ceilings /
+ *                             floors then do not propagate to virtual text
+ *                             bounds.
+ * - directmap_virt_to_phys(): Convert a directmap virtual to its physical page.
+ *                             Same gate as phys_to_directmap_virt; sound only
+ *                             when the input is a directmap address.
+ *
+ * These are deliberately WIDE: each range is the union across all in-scope
+ * kernel versions / configs (vmsplit, non-KASLR defaults, old kernels), so a
+ * real leak is never wrongly rejected; the engine narrows from observations.
+ * They are a validation contract, not per-system defaults to hand-tune.
+ *
+ * Two tiers of virtual-text ranges exist:
+ *   KERNEL_VIRT_TEXT_MIN/MAX -- the validation range: any leaked virtual text
+ *     address in [MIN, MAX] is plausible on this arch (wide enough to cover all
+ *     vmsplit configs, non-KASLR defaults, old kernels). Accepts/rejects leaks.
+ *   KASLR_VIRT_TEXT_MIN/MAX  -- the randomization window: the narrower range
+ * the KASLR mechanism actually selects from at boot. Drives slot count /
+ * entropy bits. KASLR_VIRT_ALIGN is the slot granularity. On most arches the
+ * two ranges coincide and KASLR_VIRT_ALIGN == IMAGE_ALIGN (the defaults below
+ * alias them); arch headers override when they differ, e.g. x86_64: KERNEL_TEXT
+ * [0xffffffff80000000, 0xffffffffc0000000] (1 GiB); KASLR_TEXT  [MIN + 16 MiB,
+ * ...]; KASLR_VIRT_ALIGN = 2 MiB. arm64:  KERNEL_TEXT ~128 TiB; KASLR_TEXT ~64
+ * TiB; KASLR_VIRT_ALIGN 2 MiB (vs IMAGE_ALIGN 64 KiB).
+ * ========================================================================= */
 #if defined(__x86_64__) || defined(__amd64__)
 #include "arch/x86_64.h"
 #elif defined(__i386__)
@@ -137,7 +207,8 @@ __extension__ _Static_assert((unsigned long)KERNEL_PHYS_MAX >
 
 /* DIRECTMAP_STATIC and TEXT_TRACKS_DIRECTMAP must be declared by every arch
  * header — no defaults. Forcing each arch author to make the decision
- * explicitly is the whole point. See kasld.h banner for semantics. */
+ * explicitly is the whole point. See the arch-header contract banner above
+ * for the 0/1 semantics. */
 #ifndef DIRECTMAP_STATIC
 #error "arch header must define DIRECTMAP_STATIC (0 or 1)"
 #endif
@@ -374,7 +445,8 @@ static inline int kasld_addr_in_range(unsigned long long addr,
 
 /* Predicate: is `va` plausibly inside the kernel module region on this arch?
  *
- * Wraps the MODULES_START/END validation union (see CONTRACT in kasld.h).
+ * Wraps the MODULES_START/END validation union (see the CONTRACT in the
+ * arch-header contract banner above).
  * Used by components that classify leaked addresses as module-region
  * (proc_modules, sysfs_module_sections, dmesg-parsers). Centralising the
  * check here means the per-arch widening / future per-version handling
@@ -396,7 +468,8 @@ static inline int kasld_addr_is_directmap(unsigned long va) {
 
 /* Predicate: is `va` in the kernel text window [KERNEL_VIRT_TEXT_MIN,
  * KERNEL_VIRT_TEXT_MAX]? The closed upper bound matches the "maximum plausible
- * kernel text address" contract (kasld.h) and the module/directmap predicates:
+ * kernel text address" contract (banner above) and the module/directmap
+ * predicates:
  * a leaked virtual address is plausibly kernel text when it lands here. */
 static inline int kasld_addr_is_kernel_text(unsigned long va) {
   return kasld_addr_in_range(va, (unsigned long)KERNEL_VIRT_TEXT_MIN,

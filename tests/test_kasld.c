@@ -1361,7 +1361,7 @@ static void test_region_info_table_completeness(void) {
     assert(region_info[i].wire_name != NULL);
     assert(region_info[i].wire_name[0] != '\0');
     assert(region_info[i].section_name != NULL);
-    /* wire_name in region_info must match the wire-token table in kasld.h. */
+    /* wire_name in region_info must match the wire-token table in api.h. */
     assert(strcmp(region_info[i].wire_name, kasld_region_wire_table[i]) == 0);
   }
 }

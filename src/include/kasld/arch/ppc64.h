@@ -33,7 +33,7 @@
 // offset within the linear map.
 // (The bitwise OR form of phys_to_virt used in kernel headers — equivalent to
 // addition when the bit ranges don't overlap — is subsumed by the canonical
-// (p - PHYS_OFFSET + PAGE_OFFSET) form in kasld.h.)
+// (p - PHYS_OFFSET + PAGE_OFFSET) form in api.h.)
 #define DIRECTMAP_STATIC 1
 #define TEXT_TRACKS_DIRECTMAP 1
 
