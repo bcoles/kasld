@@ -1,79 +1,119 @@
 name: release
 
-# TODO: musl.cc blocks GitHub Actions (since 2025-05). Re-enable the tag
-# trigger once toolchains are mirrored or an alternative source is set up.
-# on:
-#   push:
-#     tags:
-#       - 'v*'
+# Cross-compiled static release binaries, one per architecture.
+#
+# Toolchains come from cross-tools/musl-cross GitHub Releases
+# (https://github.com/cross-tools/musl-cross/releases): musl, fetched over
+# GitHub (musl.cc blocks GitHub Actions), and broad enough to cover every arch
+# kasld targets — including loongarch64, which musl.cc never provided.
 on:
+  push:
+    tags:
+      - 'v*'
   workflow_dispatch:
+    inputs:
+      toolchain_version:
+        description: 'cross-tools/musl-cross release tag to use (blank = latest)'
+        required: false
+        default: ''
 
 permissions:
   contents: write
 
 jobs:
+  # Resolve the toolchain release once so every arch builds against the same
+  # version. Defaults to the latest release; pin via the workflow_dispatch input
+  # to reproduce an older build.
+  resolve-toolchain:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.resolve.outputs.version }}
+    steps:
+      - name: Resolve cross-tools/musl-cross version
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_VERSION: ${{ inputs.toolchain_version }}
+        run: |
+          set -euo pipefail
+          if [ -n "${INPUT_VERSION:-}" ]; then
+            VER="${INPUT_VERSION}"
+          else
+            VER=$(gh api repos/cross-tools/musl-cross/releases/latest --jq .tag_name)
+          fi
+          echo "Using cross-tools/musl-cross ${VER}"
+          echo "version=${VER}" >> "$GITHUB_OUTPUT"
+
   build-release:
+    needs: resolve-toolchain
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
+        # arch:        friendly name, used only in the artifact / tarball name.
+        # musl_triple: cross-tools/musl-cross triple — the tar.xz stem, the
+        #              extracted directory name, and the <triple>-gcc prefix.
         include:
-          # --- Primary CTF targets ---
-          - arch: x86_64
-            musl_triple: x86_64-linux-musl
-            native_test: true
-          - arch: aarch64
-            musl_triple: aarch64-linux-musl
-          - arch: i686
-            musl_triple: i686-linux-musl
-          # --- ARM variants ---
-          - arch: arm
-            musl_triple: arm-linux-musleabi
-          - arch: armeb
-            musl_triple: armeb-linux-musleabi
-          - arch: armv7l
-            musl_triple: armv7l-linux-musleabihf
-          # --- MIPS ---
-          - arch: mips
-            musl_triple: mips-linux-musl
-          - arch: mipsel
-            musl_triple: mipsel-linux-musl
-          - arch: mips64
-            musl_triple: mips64-linux-musl
-          - arch: mips64el
-            musl_triple: mips64el-linux-musl
-          # --- POWER ---
-          - arch: powerpc64
-            musl_triple: powerpc64-linux-musl
-          - arch: powerpc64le
-            musl_triple: powerpc64le-linux-musl
-          # --- RISC-V ---
-          - arch: riscv64
-            musl_triple: riscv64-linux-musl
+          # --- x86 ---
+          - { arch: x86_64, musl_triple: x86_64-unknown-linux-musl, native_test: true }
+          - { arch: i686, musl_triple: i686-unknown-linux-musl }
+          - { arch: i586, musl_triple: i586-unknown-linux-musl } # older x86 baseline
+          # --- ARM (soft/hard float, v6/v7) ---
+          # NOTE: armeb (big-endian ARM) is intentionally omitted — cross-tools/
+          # musl-cross ships no armeb toolchain. Re-add if a source appears.
+          - { arch: aarch64, musl_triple: aarch64-unknown-linux-musl }
+          - { arch: arm, musl_triple: arm-unknown-linux-musleabi }       # v6 soft-float
+          - { arch: armhf, musl_triple: arm-unknown-linux-musleabihf }   # v6 hard-float
+          - { arch: armv7, musl_triple: armv7-unknown-linux-musleabi }   # v7 soft-float
+          - { arch: armv7l, musl_triple: armv7-unknown-linux-musleabihf } # v7 hard-float
+          # --- MIPS (hard/soft float, BE/LE) ---
+          - { arch: mips, musl_triple: mips-unknown-linux-musl }
+          - { arch: mipssf, musl_triple: mips-unknown-linux-muslsf }     # soft-float
+          - { arch: mipsel, musl_triple: mipsel-unknown-linux-musl }
+          - { arch: mipselsf, musl_triple: mipsel-unknown-linux-muslsf } # soft-float
+          - { arch: mips64, musl_triple: mips64-unknown-linux-musl }
+          - { arch: mips64el, musl_triple: mips64el-unknown-linux-musl }
+          # --- POWER (32/64, BE/LE) ---
+          - { arch: powerpc, musl_triple: powerpc-unknown-linux-musl }     # ppc32 BE
+          - { arch: powerpcle, musl_triple: powerpcle-unknown-linux-musl } # ppc32 LE
+          - { arch: powerpc64, musl_triple: powerpc64-unknown-linux-musl }
+          - { arch: powerpc64le, musl_triple: powerpc64le-unknown-linux-musl }
+          # --- RISC-V (32/64) ---
+          - { arch: riscv32, musl_triple: riscv32-unknown-linux-musl }
+          - { arch: riscv64, musl_triple: riscv64-unknown-linux-musl }
           # --- s390x ---
-          - arch: s390x
-            musl_triple: s390x-linux-musl
-          # TODO: loongarch64 — musl.cc does not provide a toolchain yet.
-          # Add when available or mirror a custom-built one.
+          - { arch: s390x, musl_triple: s390x-ibm-linux-musl }
+          # --- LoongArch ---
+          - { arch: loongarch64, musl_triple: loongarch64-unknown-linux-musl }
+
+    env:
+      TC_VERSION: ${{ needs.resolve-toolchain.outputs.version }}
 
     steps:
       - uses: actions/checkout@v6
 
-      - name: Download musl cross-compiler
+      - name: Download + verify musl cross-compiler
         run: |
-          curl -fsSL "https://musl.cc/${{ matrix.musl_triple }}-cross.tgz" \
-            | tar xz -C /opt
-          echo "/opt/${{ matrix.musl_triple }}-cross/bin" >> "$GITHUB_PATH"
+          set -euo pipefail
+          base="https://github.com/cross-tools/musl-cross/releases/download/${TC_VERSION}"
+          tarball="${{ matrix.musl_triple }}.tar.xz"
+          # Retry: the releases CDN occasionally returns a transient 5xx.
+          dl() { curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors "$1" -o "$2"; }
+          dl "${base}/${tarball}" "${tarball}"
+          dl "${base}/${tarball}.sha256" "${tarball}.sha256"
+          # The .sha256 file holds only the bare digest, so pair it with the
+          # local filename before checking.
+          echo "$(cut -d' ' -f1 "${tarball}.sha256")  ${tarball}" | sha256sum -c -
+          mkdir -p "${RUNNER_TEMP}/toolchain"
+          tar -xJf "${tarball}" -C "${RUNNER_TEMP}/toolchain"
+          echo "${RUNNER_TEMP}/toolchain/${{ matrix.musl_triple }}/bin" >> "$GITHUB_PATH"
 
       - name: Build static binaries
         run: make build CC=${{ matrix.musl_triple }}-gcc
 
       - name: Identify build directory
         id: builddir
-        run: |
-          ARCH=$(${{ matrix.musl_triple }}-gcc -dumpmachine)
-          echo "dir=build/${ARCH}" >> "$GITHUB_OUTPUT"
+        run: echo "dir=build/$(${{ matrix.musl_triple }}-gcc -dumpmachine)" >> "$GITHUB_OUTPUT"
 
       - name: Verify static linkage
         run: |
@@ -86,11 +126,14 @@ jobs:
 
       - name: Package release tarball
         run: |
+          set -euo pipefail
           TAG="${GITHUB_REF_NAME}"
           DIR="kasld-${TAG}-${{ matrix.arch }}"
           mkdir -p "${DIR}"
-          cp "${{ steps.builddir.outputs.dir }}/kasld" "${DIR}/"
-          cp -r "${{ steps.builddir.outputs.dir }}/components" "${DIR}/"
+          # Ship the build/<arch> output (kasld + components/), minus the .o
+          # build intermediates.
+          cp -a "${{ steps.builddir.outputs.dir }}/." "${DIR}/"
+          find "${DIR}" -name '*.o' -delete
           cp README.md LICENSE "${DIR}/"
           tar czf "${DIR}.tar.gz" "${DIR}"
           sha256sum "${DIR}.tar.gz" > "${DIR}.tar.gz.sha256"
@@ -105,6 +148,9 @@ jobs:
 
   create-release:
     needs: build-release
+    # Only publish a release for tag pushes; workflow_dispatch runs build the
+    # artifacts (for testing) without creating one.
+    if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v5
