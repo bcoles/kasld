@@ -34,30 +34,73 @@ jobs:
     - name: End-to-end replay (x86, native)
       run: KASLD_NATIVE=1 tests/replay tests/fixtures/x86_64/* tests/fixtures/x86_32/*
 
+  # Compile-gate every arch we release, on push/PR. Same musl toolchains
+  # release.yml ships (musl.cc blocks GitHub Actions), minus packaging — so a
+  # per-arch toolchain or arch-gated-code break is caught here, not at release.
   cross-compile:
     runs-on: ubuntu-latest
+    # Pinned for deterministic PR builds + a stable per-arch toolchain cache;
+    # bump periodically. release.yml tracks the latest cross-tools release.
+    env:
+      MUSL_CROSS_VERSION: '20260515'
+    strategy:
+      fail-fast: false
+      matrix:
+        # KEEP IN SYNC with release.yml's build-release matrix. armeb (big-endian
+        # ARM) is omitted in both — cross-tools/musl-cross ships no armeb
+        # toolchain. (The float/baseline variants compile identically to their
+        # base arch, but are built here too so every shipped toolchain is gated.)
+        include:
+          - { arch: x86_64, musl_triple: x86_64-unknown-linux-musl }
+          - { arch: i686, musl_triple: i686-unknown-linux-musl }
+          - { arch: i586, musl_triple: i586-unknown-linux-musl }
+          - { arch: aarch64, musl_triple: aarch64-unknown-linux-musl }
+          - { arch: arm, musl_triple: arm-unknown-linux-musleabi }
+          - { arch: armhf, musl_triple: arm-unknown-linux-musleabihf }
+          - { arch: armv7, musl_triple: armv7-unknown-linux-musleabi }
+          - { arch: armv7l, musl_triple: armv7-unknown-linux-musleabihf }
+          - { arch: mips, musl_triple: mips-unknown-linux-musl }
+          - { arch: mipssf, musl_triple: mips-unknown-linux-muslsf }
+          - { arch: mipsel, musl_triple: mipsel-unknown-linux-musl }
+          - { arch: mipselsf, musl_triple: mipsel-unknown-linux-muslsf }
+          - { arch: mips64, musl_triple: mips64-unknown-linux-musl }
+          - { arch: mips64el, musl_triple: mips64el-unknown-linux-musl }
+          - { arch: powerpc, musl_triple: powerpc-unknown-linux-musl }
+          - { arch: powerpcle, musl_triple: powerpcle-unknown-linux-musl }
+          - { arch: powerpc64, musl_triple: powerpc64-unknown-linux-musl }
+          - { arch: powerpc64le, musl_triple: powerpc64le-unknown-linux-musl }
+          - { arch: riscv32, musl_triple: riscv32-unknown-linux-musl }
+          - { arch: riscv64, musl_triple: riscv64-unknown-linux-musl }
+          - { arch: s390x, musl_triple: s390x-ibm-linux-musl }
+          - { arch: loongarch64, musl_triple: loongarch64-unknown-linux-musl }
     steps:
     - uses: actions/checkout@v6
 
-    - name: Install cross-compilers
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          gcc-aarch64-linux-gnu \
-          gcc-arm-linux-gnueabi \
-          gcc-arm-linux-gnueabihf \
-          gcc-i686-linux-gnu \
-          gcc-mips-linux-gnu \
-          gcc-mipsel-linux-gnu \
-          gcc-mips64-linux-gnuabi64 \
-          gcc-mips64el-linux-gnuabi64 \
-          gcc-powerpc-linux-gnu \
-          gcc-powerpc64-linux-gnu \
-          gcc-powerpc64le-linux-gnu \
-          gcc-riscv64-linux-gnu \
-          gcc-s390x-linux-gnu
-        # TODO: loongarch64 — no gcc-loongarch64-linux-gnu package in Ubuntu.
-        # TODO: armeb — no big-endian ARM package in Ubuntu.
+    - name: Cache toolchain
+      uses: actions/cache@v4
+      with:
+        path: ~/musl-cross/${{ matrix.musl_triple }}
+        key: musl-${{ matrix.musl_triple }}-${{ env.MUSL_CROSS_VERSION }}
 
-    - name: Cross-compile all targets
-      run: make cross
+    - name: Fetch toolchain + add to PATH
+      run: |
+        set -euo pipefail
+        t="${{ matrix.musl_triple }}"
+        root="$HOME/musl-cross"; mkdir -p "$root"
+        if [ ! -d "$root/$t" ]; then
+          base="https://github.com/cross-tools/musl-cross/releases/download/${MUSL_CROSS_VERSION}"
+          dl() { curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors "$1" -o "$2"; }
+          dl "${base}/${t}.tar.xz" "/tmp/${t}.tar.xz"
+          dl "${base}/${t}.tar.xz.sha256" "/tmp/${t}.sha256"
+          echo "$(cut -d' ' -f1 "/tmp/${t}.sha256")  /tmp/${t}.tar.xz" | sha256sum -c -
+          tar -xJf "/tmp/${t}.tar.xz" -C "$root"
+        fi
+        echo "$root/$t/bin" >> "$GITHUB_PATH"
+
+    - name: Compile
+      run: make build CC=${{ matrix.musl_triple }}-gcc
+
+    - name: Verify static linkage
+      run: |
+        d="build/$(${{ matrix.musl_triple }}-gcc -dumpmachine)"
+        file "$d/kasld" | grep -q "statically linked"

@@ -53,6 +53,8 @@ jobs:
         # arch:        friendly name, used only in the artifact / tarball name.
         # musl_triple: cross-tools/musl-cross triple — the tar.xz stem, the
         #              extracted directory name, and the <triple>-gcc prefix.
+        # KEEP IN SYNC with build.yml's cross-compile matrix (which gates the
+        # same arches on every push/PR). armeb has no cross-tools toolchain.
         include:
           # --- x86 ---
           - { arch: x86_64, musl_triple: x86_64-unknown-linux-musl, native_test: true }

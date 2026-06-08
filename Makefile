@@ -397,41 +397,45 @@ uninstall :
 	rm -rf "$(DESTDIR)$(PREFIX)/libexec/kasld"
 
 
-# Cross-compile for all supported architectures.
-# Expects <triple>-gcc to be in PATH for each target.
+# Cross-compile all supported architectures with `make cross` — a local,
+# musl-only mirror of the CI / release matrices. Expects <triple>-gcc on PATH;
+# absent toolchains are skipped. Both the cross-tools/musl-cross triple names and
+# the short musl-cross-make names are listed so either musl toolchain set works.
+# GNU is intentionally absent (releases are built with musl). armeb is
+# musl-cross-make-only — cross-tools/musl-cross provides no armeb toolchain.
 
 CROSS_TARGETS := \
-	aarch64-linux-musl \
-	arm-unknown-linux-musleabi armeb-linux-musleabi \
-	armv7-unknown-linux-musleabi \
-	arm-linux-gnueabihf \
+	x86_64-unknown-linux-musl x86_64-linux-musl \
 	i686-unknown-linux-musl \
-	mips-linux-gnu mipsel-linux-gnu \
+	aarch64-unknown-linux-musl aarch64-linux-musl \
+	arm-unknown-linux-musleabi armv7-unknown-linux-musleabi \
+	armeb-linux-musleabi \
 	mips-unknown-linux-musl mipsel-unknown-linux-musl \
-	mips64-linux-gnuabi64 mips64el-linux-gnuabi64 \
 	mips64-unknown-linux-musl mips64el-unknown-linux-musl \
-	loongarch64-unknown-linux-musl \
-	powerpc-linux-gnu powerpc64le-linux-gnu \
-	powerpc-linux-musl \
-	powerpc64-unknown-linux-musl powerpc64le-unknown-linux-musl \
+	powerpc-unknown-linux-musl powerpc-linux-musl \
 	powerpcle-unknown-linux-musl \
-	riscv32-linux-musl riscv64-linux-musl \
-	riscv64-linux-gnu \
-	s390x-linux-gnu s390x-ibm-linux-musl \
-	x86_64-linux-musl \
-	aarch64-linux-gnu
+	powerpc64-unknown-linux-musl powerpc64le-unknown-linux-musl \
+	riscv32-unknown-linux-musl riscv32-linux-musl \
+	riscv64-unknown-linux-musl riscv64-linux-musl \
+	s390x-ibm-linux-musl \
+	loongarch64-unknown-linux-musl
 
+# Skip targets whose toolchain is absent, but FAIL if any present target fails
+# to build (so CI is a real gate). All present targets are attempted first, so
+# a single run surfaces every breakage rather than stopping at the first.
 .PHONY: cross
 cross :
-	@for triple in $(CROSS_TARGETS); do \
+	@rc=0; for triple in $(CROSS_TARGETS); do \
 		if command -v $${triple}-gcc >/dev/null 2>&1; then \
 			echo "=== Building for $$triple ==="; \
-			$(MAKE) build CC=$${triple}-gcc || true; \
+			$(MAKE) build CC=$${triple}-gcc || { rc=1; echo "!!! FAILED: $$triple"; }; \
 			echo; \
 		else \
 			echo "=== Skipping $$triple (toolchain not found) ==="; \
 		fi; \
-	done
+	done; \
+	[ $$rc -eq 0 ] || echo "cross: one or more present targets FAILED"; \
+	exit $$rc
 
 
 .PHONY: help
