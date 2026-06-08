@@ -98,7 +98,7 @@ details, explain mode, and hardening assessment.
 | Exploit developer | [docs/exploitation.md](docs/exploitation.md) — pwntools template, `ksymoff`, function-offset patterns |
 | Component / rule author | [CONTRIBUTING.md](CONTRIBUTING.md) — writing a component or rule, emitter API, exit codes, metadata |
 | Architecture / internals | [docs/architecture.md](docs/architecture.md) — the inference engine, data-flow seams, tagged-line protocol, cross-region derivation |
-| Test runner / CI | [TESTING.md](TESTING.md) — host tests, replay fixtures, cross-arch under qemu-user, coverage |
+| Test runner / CI | [docs/testing.md](docs/testing.md) — host tests, replay fixtures, cross-arch under qemu-user, coverage |
 | KASLR primer | [docs/kaslr.md](docs/kaslr.md) — per-arch KASLR history, default text base, vmsplit, FG-KASLR |
 | Bypass techniques | [docs/bypass-techniques.md](docs/bypass-techniques.md) — filesystem leaks, side-channels, syscall / ioctl leaks, weak entropy, patched CVEs, arbitrary read |
 
