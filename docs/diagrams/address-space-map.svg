@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="620" viewBox="0 0 960 620" font-family="sans-serif">
+  <defs>
+    <style>
+      .title { font-size: 22px; font-weight: 700; fill: #263238; }
+      .sub   { font-size: 13px; fill: #546e7a; }
+      .col   { font-size: 15px; font-weight: 700; fill: #37474f; }
+      .band  { font-size: 12px; fill: #263238; }
+      .bandh { font-size: 12px; font-weight: 700; fill: #263238; }
+      .q     { font-family: monospace; font-size: 12px; font-weight: 700; }
+      .addr  { font-family: monospace; font-size: 10px; fill: #546e7a; }
+      .note  { font-size: 11.5px; fill: #607d8b; }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="100%" height="100%" fill="#ffffff"/>
+
+  <text x="32" y="40" class="title">KASLD — Kernel Address-Space Map (x86_64)</text>
+  <text x="32" y="62" class="sub">What KASLD resolves. Each Q_* quantity pins one region. Randomised bases slide per boot; fixed regions do not.</text>
+
+  <text x="200" y="92" class="col">Virtual address space (kernel half)</text>
+  <text x="730" y="92" class="col">Physical</text>
+
+  <!-- ===== VIRTUAL COLUMN x=200..640 ===== -->
+  <!-- modules (fixed) -->
+  <rect x="200" y="104" width="440" height="44" fill="#eceff1" stroke="#607d8b" stroke-width="1.5"/>
+  <text x="216" y="131" class="bandh">modules &#160;<tspan class="band" font-weight="400">(fixed, not KASLR)</tspan></text>
+
+  <!-- kernel text (KASLR) -->
+  <rect x="200" y="148" width="440" height="60" fill="#ffe0b2" stroke="#ef6c00" stroke-width="1.5"/>
+  <text x="216" y="174" class="bandh">kernel text &#160;<tspan class="band" font-weight="400">KASLR base, 2 MB align</tspan></text>
+  <text x="216" y="194" class="q" fill="#e65100">-&gt; Q_VIRT_TEXT_BASE</text>
+
+  <!-- other -->
+  <rect x="200" y="208" width="440" height="36" fill="#f5f5f5" stroke="#bdbdbd" stroke-width="1.5"/>
+  <text x="216" y="231" class="band">other kernel mappings</text>
+
+  <!-- vmemmap (randomised) -->
+  <rect x="200" y="244" width="440" height="52" fill="#ffcdd2" stroke="#c62828" stroke-width="1.5"/>
+  <text x="216" y="268" class="bandh">vmemmap &#160;<tspan class="band" font-weight="400">randomised base</tspan></text>
+  <text x="216" y="287" class="q" fill="#b71c1c">-&gt; Q_VMEMMAP_BASE</text>
+
+  <!-- vmalloc (randomised) -->
+  <rect x="200" y="296" width="440" height="52" fill="#ffcdd2" stroke="#c62828" stroke-width="1.5"/>
+  <text x="216" y="320" class="bandh">vmalloc / ioremap &#160;<tspan class="band" font-weight="400">randomised base</tspan></text>
+  <text x="216" y="339" class="q" fill="#b71c1c">-&gt; Q_VMALLOC_BASE</text>
+
+  <!-- direct map (randomised) -->
+  <rect x="200" y="348" width="440" height="150" fill="#ffcdd2" stroke="#c62828" stroke-width="1.5"/>
+  <text x="216" y="384" class="bandh">direct map (linear) &#160;<tspan class="band" font-weight="400">randomised base, 1 GiB align</tspan></text>
+  <text x="216" y="404" class="q" fill="#b71c1c">-&gt; Q_PAGE_OFFSET</text>
+  <text x="216" y="470" class="band" fill="#90a4ae">all of physical RAM mapped contiguously</text>
+
+  <!-- virtual fixed-boundary addresses (left) -->
+  <text x="195" y="108" class="addr" text-anchor="end">0xffffffffffffffff</text>
+  <text x="195" y="152" class="addr" text-anchor="end">0xffffffffc0000000</text>
+  <text x="195" y="212" class="addr" text-anchor="end">0xffffffff80000000</text>
+  <text x="195" y="502" class="addr" text-anchor="end">0xff00000000000000</text>
+
+  <!-- ===== PHYSICAL COLUMN x=730..900 ===== -->
+  <rect x="730" y="104" width="170" height="270" fill="#e3f2fd" stroke="#1976d2" stroke-width="1.5"/>
+  <text x="746" y="131" class="bandh">DRAM</text>
+  <text x="746" y="149" class="band">(RAM regions)</text>
+
+  <rect x="730" y="374" width="170" height="56" fill="#ffe0b2" stroke="#ef6c00" stroke-width="1.5"/>
+  <text x="746" y="398" class="bandh">kernel image</text>
+  <text x="746" y="416" class="q" fill="#e65100" font-size="11">-&gt; Q_PHYS_TEXT_BASE</text>
+
+  <rect x="730" y="430" width="170" height="68" fill="#f5f5f5" stroke="#bdbdbd" stroke-width="1.5"/>
+  <text x="746" y="454" class="band">low memory /</text>
+  <text x="746" y="470" class="band">reserved</text>
+
+  <!-- physical addresses (left, in the gap 640..725) -->
+  <text x="725" y="108" class="addr" text-anchor="end">2^52</text>
+  <text x="725" y="378" class="addr" text-anchor="end">0x1000000</text>
+  <text x="725" y="502" class="addr" text-anchor="end">0x0</text>
+  <text x="725" y="392" class="addr" text-anchor="end" fill="#90a4ae">~16 MiB</text>
+
+  <!-- footnotes -->
+  <rect x="32" y="520" width="896" height="86" rx="8" fill="#fafafa" stroke="#cfd8dc"/>
+  <text x="48" y="542" class="note">Schematic, not to scale. Randomised bases slide per boot on 1 GiB boundaries (RANDOMIZE_MEMORY); KASLR text steps by 2 MB.</text>
+  <text x="48" y="562" class="note">Decoupled, randomised map (both flags = 0): virtual text, physical text and PAGE_OFFSET resolve independently.</text>
+  <text x="48" y="582" class="note">Also resolved: Q_KASLR_ALIGN / Q_PHYS_KASLR_ALIGN (step sizes) and Q_VA_BITS (kernel-half width: 4-level vs 5-level).</text>
+  <text x="48" y="600" class="note">Orange = KASLR text. Red = randomised linear-map regions. Grey/blue = fixed or generic. See the coupling quadrant.</text>
+</svg>

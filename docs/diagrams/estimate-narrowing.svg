@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="580" viewBox="0 0 960 580" font-family="sans-serif">
+  <defs>
+    <pattern id="grid" width="9" height="24" patternUnits="userSpaceOnUse">
+      <rect width="9" height="24" fill="#c8e6c9"/>
+      <line x1="0" y1="0" x2="0" y2="24" stroke="#81c784" stroke-width="1"/>
+    </pattern>
+    <pattern id="hatch" width="8" height="8" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+      <rect width="8" height="8" fill="#ffffff"/>
+      <line x1="0" y1="0" x2="0" y2="8" stroke="#ef9a9a" stroke-width="1.5"/>
+    </pattern>
+    <style>
+      .title { font-size: 22px; font-weight: 700; fill: #1b5e20; }
+      .sub   { font-size: 13px; fill: #546e7a; }
+      .op    { font-family: monospace; font-size: 12.5px; fill: #1b5e20; }
+      .rule  { stroke: #cfd8dc; stroke-width: 1; stroke-dasharray: 3 3; }
+      .rlab  { font-family: monospace; font-size: 11px; fill: #607d8b; }
+      .note  { font-size: 11.5px; fill: #607d8b; }
+      .seam  { font-size: 14px; font-weight: 700; fill: #b71c1c; }
+      .small { font-family: monospace; font-size: 11px; fill: #455a64; }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="100%" height="100%" fill="#ffffff"/>
+
+  <text x="32" y="40" class="title">KASLD — Estimate Narrowing (Q_VIRT_TEXT_BASE, x86_64)</text>
+  <text x="32" y="62" class="sub">Each quantity starts at its honest arch top and only narrows: constraints raise floors, lower ceilings, snap, carve holes.</text>
+
+  <!-- ruler ticks at key addresses (x: 180,540,630,720,900) -->
+  <text x="180" y="98" class="rlab" text-anchor="middle">80000000</text>
+  <text x="540" y="98" class="rlab" text-anchor="middle">a0000000</text>
+  <text x="630" y="98" class="rlab" text-anchor="middle">a8000000</text>
+  <text x="720" y="98" class="rlab" text-anchor="middle">b0000000</text>
+  <text x="900" y="98" class="rlab" text-anchor="middle">c0000000</text>
+  <line x1="180" y1="104" x2="180" y2="498" class="rule"/>
+  <line x1="540" y1="104" x2="540" y2="498" class="rule"/>
+  <line x1="630" y1="104" x2="630" y2="498" class="rule"/>
+  <line x1="720" y1="104" x2="720" y2="498" class="rule"/>
+  <line x1="900" y1="104" x2="900" y2="498" class="rule"/>
+  <text x="32" y="84" class="note">addresses = 0xffffffff________ (ruler shows low 32 bits)</text>
+
+  <!-- Step 1: honest top -->
+  <text x="32" y="124" class="op">Q_VIRT_TEXT_BASE = honest arch top (full KASLR window)</text>
+  <rect x="180" y="130" width="720" height="22" rx="3" fill="#c8e6c9" stroke="#2e7d32"/>
+
+  <!-- Step 2: alignment -->
+  <text x="32" y="174" class="op">+ C_AT_LEAST_ALIGN 0x200000   (base sits on a 2 MB grid)</text>
+  <rect x="180" y="180" width="720" height="22" rx="3" fill="url(#grid)" stroke="#2e7d32"/>
+
+  <!-- Step 3: lower bound -->
+  <text x="32" y="224" class="op">+ C_LOWER_BOUND 0xffffffff81000000</text>
+  <rect x="180" y="230" width="720" height="22" rx="3" fill="#eeeeee" stroke="#bdbdbd"/>
+  <rect x="191" y="230" width="709" height="22" rx="3" fill="#c8e6c9" stroke="#2e7d32"/>
+
+  <!-- Step 4: upper bound -->
+  <text x="32" y="274" class="op">+ C_UPPER_BOUND 0xffffffffb0000000</text>
+  <rect x="180" y="280" width="720" height="22" rx="3" fill="#eeeeee" stroke="#bdbdbd"/>
+  <rect x="191" y="280" width="529" height="22" rx="3" fill="#c8e6c9" stroke="#2e7d32"/>
+
+  <!-- Step 5: exclude -->
+  <text x="32" y="324" class="op">+ C_EXCLUDE [0xffffffffa0000000 .. 0xffffffffa8000000)</text>
+  <rect x="180" y="330" width="720" height="22" rx="3" fill="#eeeeee" stroke="#bdbdbd"/>
+  <rect x="191" y="330" width="349" height="22" rx="3" fill="#c8e6c9" stroke="#2e7d32"/>
+  <rect x="630" y="330" width="90"  height="22" rx="3" fill="#c8e6c9" stroke="#2e7d32"/>
+  <rect x="540" y="330" width="90"  height="22" fill="url(#hatch)" stroke="#c62828" stroke-dasharray="3 2"/>
+
+  <!-- seam panel -->
+  <line x1="32" y1="372" x2="928" y2="372" stroke="#e0a0a0" stroke-width="1"/>
+  <text x="32" y="394" class="seam">Store-vs-read seam (LK_INTERVAL domain)</text>
+
+  <text x="32" y="424" class="op" fill="#b71c1c">STORED: convex hull, end-trim only</text>
+  <rect x="191" y="430" width="529" height="22" rx="3" fill="#f8d7da" stroke="#c62828"/>
+  <rect x="540" y="430" width="90"  height="22" fill="url(#hatch)" stroke="#c62828" stroke-dasharray="3 2"/>
+  <text x="735" y="445" class="small">hole stays in the hull</text>
+
+  <text x="32" y="474" class="op" fill="#b71c1c">READ via quantity_ranges(): hole carved, ranges compose</text>
+  <rect x="191" y="480" width="349" height="22" rx="3" fill="#c8e6c9" stroke="#2e7d32"/>
+  <rect x="630" y="480" width="90"  height="22" rx="3" fill="#c8e6c9" stroke="#2e7d32"/>
+  <text x="735" y="495" class="small">hole carved -&gt; two ranges</text>
+
+  <text x="32" y="534" class="note">Monotone: every step is a subset of the one above. The engine never widens; soundness means truth stays inside the green.</text>
+  <text x="32" y="552" class="note">What is stored (a single end-trimmed interval) is deliberately not what is read (holes carved at read time, and they compose).</text>
+</svg>

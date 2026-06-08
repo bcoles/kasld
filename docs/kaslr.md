@@ -232,6 +232,14 @@ a physical address leak does not directly reveal the virtual address
 | LoongArch | Coupled | v6.3 | Single relocation offset; direct-mapped windows |
 | RISC-V64 | Virtual only | v6.6 | Only virtual address randomized; physical depends on bootloader |
 
+KASLD models this relationship with two orthogonal per-architecture flags —
+`TEXT_TRACKS_DIRECTMAP` (does kernel text slide with the linear map?) and
+`DIRECTMAP_STATIC` (is the compile-time direct-map projection sound at runtime?).
+The quadrant they form decides the inference strategy, and every supported
+architecture sits on its diagonal:
+
+![Architecture coupling quadrant: DIRECTMAP_STATIC against TEXT_TRACKS_DIRECTMAP, with each architecture placed in its cell](diagrams/arch-coupling-quadrant.svg)
+
 See also:
 
 * [security things in Linux v4.8](https://outflux.net/blog/archives/2016/10/04/security-things-in-linux-v4-8/) (Kees Cook, 2016) — describes x86_64 physical/virtual decoupling and `CONFIG_RANDOMIZE_MEMORY`
@@ -245,6 +253,11 @@ direct map, etc.) mapped at different address ranges. KASLR randomizes the
 kernel text base address, but not all sections are randomized together —
 depending on the architecture, other sections may be at fixed addresses,
 use the same KASLR offset, or be randomized independently.
+
+The map below shows the x86_64 virtual and physical address spaces, with the
+KASLD quantity (`Q_*`) that resolves each region annotated alongside it:
+
+![Kernel address-space map for x86_64: virtual and physical bands with the Q_* quantity that resolves each](diagrams/address-space-map.svg)
 
 | Architecture | Text ↔ Phys | Text ↔ Direct map | Text ↔ Modules | Notes |
 |---|---|---|---|---|
@@ -273,7 +286,7 @@ RISC-V64 is notable: the module region is anchored to the kernel image
 (`MODULES_VADDR = PFN_ALIGN(&_end) - SZ_2G`, `MODULES_END = PFN_ALIGN(&_start)`),
 so modules shift with the randomized kernel rather than occupying a fixed
 region. See
-[CONTRIBUTING.md §Cross-region derivation](../CONTRIBUTING.md#cross-region-derivation)
+[architecture.md → Cross-region derivation](architecture.md#cross-region-derivation)
 for how KASLD exploits this.
 
 ## Virtual memory split (vmsplit)

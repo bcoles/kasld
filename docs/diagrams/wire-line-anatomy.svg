@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="642" viewBox="0 0 960 642" font-family="sans-serif">
+  <defs>
+    <style>
+      .title { font-size: 22px; font-weight: 700; fill: #263238; }
+      .sub   { font-size: 13px; fill: #546e7a; }
+      .line  { font-family: monospace; font-size: 16px; fill: #212121; }
+      .flab  { font-size: 11px; font-weight: 700; }
+      .panel { font-size: 13px; font-weight: 700; fill: #37474f; }
+      .key   { font-family: monospace; font-size: 12px; fill: #1a237e; }
+      .val   { font-size: 12px; fill: #455a64; }
+      .mono  { font-family: monospace; font-size: 12.5px; fill: #37474f; }
+      .note  { font-size: 11px; fill: #607d8b; }
+      .tick  { stroke-width: 1.5; fill: none; }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="100%" height="100%" fill="#ffffff"/>
+
+  <text x="32" y="40" class="title">KASLD — Wire-Line Anatomy</text>
+  <text x="32" y="62" class="sub">Components emit one tagged line per finding on stdout. The orchestrator parses these into observations. Field-by-field:</text>
+
+  <!-- token highlights (monospace, charw=9.63 @16px, x0=40) -->
+  <rect x="40"    y="100" width="20"  height="26" rx="4" fill="#e3f2fd" stroke="#1976d2"/>
+  <rect x="59.3"  y="100" width="106" height="26" rx="4" fill="#e8f5e9" stroke="#2e7d32"/>
+  <rect x="165.2" y="100" width="67"  height="26" rx="4" fill="#f3e5f5" stroke="#7b1fa2"/>
+  <rect x="242.2" y="100" width="77"  height="26" rx="4" fill="#fff3e0" stroke="#ef6c00"/>
+  <rect x="328.9" y="100" width="106" height="26" rx="4" fill="#e0f7fa" stroke="#00838f"/>
+  <rect x="444.5" y="100" width="414" height="26" rx="4" fill="#ffebee" stroke="#c62828"/>
+
+  <text x="40" y="119" class="line">V kernel_text:_stext pos=base conf=parsed lo=0xffffffff81000000 hi=0xffffffff82400000</text>
+
+  <!-- leaders + field labels -->
+  <path d="M50 126 L50 146"   class="tick" stroke="#1976d2"/>
+  <text x="50"  y="160" class="flab" fill="#1976d2" text-anchor="middle">type</text>
+  <path d="M112 126 L112 146" class="tick" stroke="#2e7d32"/>
+  <text x="112" y="160" class="flab" fill="#2e7d32" text-anchor="middle">region</text>
+  <path d="M199 126 L199 146" class="tick" stroke="#7b1fa2"/>
+  <text x="199" y="160" class="flab" fill="#7b1fa2" text-anchor="middle">name (optional)</text>
+  <path d="M281 126 L281 146" class="tick" stroke="#ef6c00"/>
+  <text x="281" y="160" class="flab" fill="#ef6c00" text-anchor="middle">position</text>
+  <path d="M382 126 L382 146" class="tick" stroke="#00838f"/>
+  <text x="382" y="160" class="flab" fill="#00838f" text-anchor="middle">confidence</text>
+  <path d="M651 126 L651 146" class="tick" stroke="#c62828"/>
+  <text x="651" y="160" class="flab" fill="#c62828" text-anchor="middle">address field(s): lo / hi (or sample)</text>
+
+  <!-- vocabulary panel -->
+  <rect x="32" y="188" width="896" height="210" rx="8" fill="#fafafa" stroke="#cfd8dc"/>
+  <text x="48" y="212" class="panel">Field vocabulary</text>
+
+  <text x="48"  y="240" class="key" fill="#1976d2">type</text>
+  <text x="150" y="240" class="val">V = virtual address &#160;|&#160; P = physical address &#160;&#160;(S = scalar fact, emitted as its own record)</text>
+  <text x="48"  y="266" class="key" fill="#2e7d32">region</text>
+  <text x="150" y="266" class="val">what is at the address: kernel_text, kernel_image, module, directmap, vmalloc, vmemmap, ram, mmio, ...</text>
+  <text x="48"  y="292" class="key" fill="#7b1fa2">name</text>
+  <text x="150" y="292" class="val">specific instance after a colon (symbol, module, ACPI table). Omitted when unknown.</text>
+  <text x="48"  y="318" class="key" fill="#ef6c00">pos</text>
+  <text x="150" y="318" class="val">base = lo edge known &#160;|&#160; top = hi edge known &#160;|&#160; interior = a sample inside, position unknown</text>
+  <text x="48"  y="344" class="key" fill="#00838f">conf</text>
+  <text x="150" y="344" class="val">parsed &gt; derived &gt; inferred &gt; heuristic &gt; timing &gt; brute &#160;&#160;(strongest wins on dedup)</text>
+  <text x="48"  y="370" class="key" fill="#c62828">addr</text>
+  <text x="150" y="370" class="val">lo= &#160; hi= &#160; sample= &#160; base_align=  &#160;&#160;(hex). A bounded extent carries both lo= and hi=.</text>
+
+  <!-- variants panel -->
+  <rect x="32" y="412" width="896" height="200" rx="8" fill="#eef3f8" stroke="#b0bec5"/>
+  <text x="48" y="436" class="panel">The five emitter outputs</text>
+  <text x="48" y="462" class="mono">kasld_result_base   &#8594;  V &lt;region&gt; pos=base conf=&lt;c&gt; lo=0x..</text>
+  <text x="48" y="484" class="mono">kasld_result_top    &#8594;  V &lt;region&gt; pos=top conf=&lt;c&gt; hi=0x..</text>
+  <text x="48" y="506" class="mono">kasld_result_range  &#8594;  V &lt;region&gt;:&lt;name&gt; pos=base conf=&lt;c&gt; lo=0x.. hi=0x..</text>
+  <text x="48" y="528" class="mono">kasld_result_sample &#8594;  V &lt;region&gt;:&lt;name&gt; pos=interior conf=&lt;c&gt; sample=0x..</text>
+  <text x="48" y="550" class="mono">kasld_emit_scalar   &#8594;  S &lt;fact&gt; conf=&lt;c&gt; value=0x..</text>
+
+  <text x="48" y="584" class="note">origin (the component name) is NOT on the wire &#8212; the orchestrator fills r-&gt;origin from the subprocess identity.</text>
+  <text x="48" y="602" class="note">kasld_result_sized takes lo + size and normalises to the same lo= / hi= form as kasld_result_range.</text>
+</svg>

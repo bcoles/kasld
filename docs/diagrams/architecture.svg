@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="800" viewBox="0 0 960 800" font-family="sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#37474f"/>
+    </marker>
+    <style>
+      .title  { font-size: 22px; font-weight: 700; fill: #1a237e; }
+      .sub    { font-size: 13px; fill: #546e7a; }
+      .lbl    { font-size: 15px; font-weight: 600; }
+      .mono   { font-family: monospace; font-size: 12px; fill: #37474f; }
+      .monos  { font-family: monospace; font-size: 11px; fill: #607d8b; }
+      .flow   { stroke: #37474f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .side   { stroke: #b0bec5; stroke-width: 1.5; fill: none; stroke-dasharray: 5 4; }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="100%" height="100%" fill="#ffffff"/>
+
+  <text x="32" y="40" class="title">KASLD — System Architecture</text>
+  <text x="32" y="62" class="sub">Unprivileged collection -&gt; evidential resolution -&gt; provenance-tagged report. Components and rules fully decoupled.</text>
+
+  <!-- Components -->
+  <rect x="120" y="92" width="720" height="92" rx="8" fill="#e3f2fd" stroke="#1976d2" stroke-width="1.5"/>
+  <text x="140" y="118" class="lbl" fill="#0d47a1">Leak Components &#160;&#183;&#160; src/components/*.c</text>
+  <text x="140" y="140" class="mono">One technique per file &#8594; standalone binary in build/&lt;arch&gt;/components/, auto-discovered.</text>
+  <text x="140" y="158" class="mono">parsed leaks | dmesg/syslog | side-channel timing | brute-force | scalar system facts</text>
+  <text x="140" y="176" class="monos">emit via typed emitters in kasld/api.h: kasld_result_base/_top/_range/_sample/_sized, kasld_emit_scalar</text>
+
+  <!-- gap 1: caption above, arrow below -->
+  <text x="140" y="204" class="monos">stdout protocol &#8212; V &lt;region&gt; pos=.. conf=.. lo=0x..&#160; |&#160; P ..&#160; |&#160; S &lt;fact&gt; value=0x..</text>
+  <path d="M480 214 L480 230" class="flow"/>
+
+  <!-- Orchestrator -->
+  <rect x="120" y="232" width="720" height="150" rx="8" fill="#fff3e0" stroke="#ef6c00" stroke-width="1.5"/>
+  <text x="140" y="258" class="lbl" fill="#e65100">Orchestrator &#160;&#183;&#160; src/orchestrator.c</text>
+  <text x="140" y="278" class="mono">Runs components, reads their stdout; fills r-&gt;origin from the subprocess (not on the wire).</text>
+
+  <rect x="150" y="294" width="300" height="72" rx="6" fill="#ffe0b2" stroke="#fb8c00"/>
+  <text x="166" y="314" class="mono" font-weight="700">phase table &#8212; phases[]</text>
+  <text x="166" y="334" class="monos">inference&#160;&#160;(parallel: pthread worker pool)</text>
+  <text x="166" y="352" class="monos">probing&#160;&#160;&#160;&#160;(sequential)</text>
+
+  <rect x="510" y="294" width="300" height="72" rx="6" fill="#ffe0b2" stroke="#fb8c00"/>
+  <text x="526" y="314" class="mono" font-weight="700">merge_results()</text>
+  <text x="526" y="334" class="monos">collapse same-(type,region,name) groups;</text>
+  <text x="526" y="352" class="monos">strongest-conf wins. Once per phase.</text>
+
+  <!-- gap 2 -->
+  <text x="140" y="402" class="monos">engine_build_evidence() &#8594; struct evidence_set&#160; (merged results + in-process scalar facts)</text>
+  <path d="M480 412 L480 428" class="flow"/>
+
+  <!-- Engine -->
+  <rect x="120" y="430" width="720" height="178" rx="8" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.5"/>
+  <text x="140" y="456" class="lbl" fill="#1b5e20">Inference Engine &#160;&#183;&#160; src/engine*.c, src/rules/*.c</text>
+  <text x="140" y="476" class="mono">Single layered resolver. Runs once, after all phases, from compute_kaslr_info().</text>
+
+  <rect x="150" y="490" width="200" height="48" rx="6" fill="#c8e6c9" stroke="#43a047"/>
+  <text x="166" y="510" class="monos" font-weight="700">L1 &#183; observations</text>
+  <text x="166" y="528" class="monos">evidence.c</text>
+
+  <rect x="380" y="490" width="200" height="48" rx="6" fill="#c8e6c9" stroke="#43a047"/>
+  <text x="396" y="510" class="monos" font-weight="700">L2 &#183; rules &#8594; constraints</text>
+  <text x="396" y="528" class="monos">rules/*.c &#183; engine_rules.c</text>
+
+  <rect x="610" y="490" width="200" height="48" rx="6" fill="#c8e6c9" stroke="#43a047"/>
+  <text x="626" y="510" class="monos" font-weight="700">L3 &#183; estimates</text>
+  <text x="626" y="528" class="monos">estimate.c &#183; quantities.c</text>
+
+  <path d="M350 514 L378 514" class="flow"/>
+  <path d="M580 514 L608 514" class="flow"/>
+  <path d="M710 540 L710 556 L260 556 L260 540" class="flow"/>
+  <text x="140" y="578" class="monos">engine_run_full() &#8212; fixpoint over the append-only constraint set; estimates narrow until stable</text>
+  <text x="140" y="596" class="monos">engine_resolve() drives the run; rule order is irrelevant</text>
+
+  <!-- gap 3 -->
+  <text x="140" y="628" class="monos">engine_sync_authoritative() &#8594; global kasld_layout + engine_bounds (g_ctx)</text>
+  <path d="M480 638 L480 654" class="flow"/>
+
+  <!-- Render -->
+  <rect x="120" y="656" width="720" height="96" rx="8" fill="#f3e5f5" stroke="#7b1fa2" stroke-width="1.5"/>
+  <text x="140" y="682" class="lbl" fill="#4a148c">Render &#160;&#183;&#160; src/render.c &#160;(driven by compute_kaslr_info())</text>
+  <text x="140" y="704" class="mono">Reads resolved layout; never re-infers. Unresolved quantity &#8594; reports its honest arch window.</text>
+  <text x="140" y="726" class="mono">output: text | json | oneline | markdown &#8212; every value carries provenance (confidence + origin)</text>
+
+  <!-- side rail -->
+  <rect x="860" y="92" width="78" height="516" rx="8" fill="#eceff1" stroke="#90a4ae"/>
+  <text x="899" y="350" class="monos" text-anchor="middle" transform="rotate(90 899 350)" font-weight="700">SYSROOT I/O wrappers (kasld_*) &#183; arch headers</text>
+  <path d="M840 138 C 856 138 856 230 860 230" class="side"/>
+  <path d="M840 490 C 856 490 856 400 860 400" class="side"/>
+</svg>

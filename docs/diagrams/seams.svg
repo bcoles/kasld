@@ -1,0 +1,127 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1020" height="900" viewBox="0 0 1020 900" font-family="sans-serif">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#37474f"/>
+    </marker>
+    <style>
+      .title { font-size: 22px; font-weight: 700; fill: #b71c1c; }
+      .sub   { font-size: 13px; fill: #546e7a; }
+      .stage { font-size: 14px; font-weight: 700; fill: #263238; }
+      .mono  { font-family: monospace; font-size: 11px; fill: #455a64; }
+      .seam  { stroke: #d32f2f; stroke-width: 2; stroke-dasharray: 8 5; fill: none; }
+      .flow  { stroke: #37474f; stroke-width: 2; fill: none; marker-end: url(#a); }
+      .snum  { font-size: 13px; font-weight: 700; fill: #fff; }
+      .ctitle{ font-size: 13px; font-weight: 700; fill: #b71c1c; }
+      .cwhat { font-family: monospace; font-size: 11px; fill: #37474f; }
+      .cinv  { font-size: 11.5px; fill: #455a64; }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="100%" height="100%" fill="#ffffff"/>
+
+  <text x="32" y="40" class="title">KASLD — Seams in the Data Flow</text>
+  <text x="32" y="62" class="sub">A seam is a boundary where data changes form, trust, or ownership. Each holds only because one invariant is enforced across it.</text>
+
+  <!-- spine geometry: stage boxes at x=60..330; seams as red dashed lines; callouts at x=400..988 -->
+
+  <!-- Stage: Components -->
+  <rect x="60" y="92" width="270" height="46" rx="7" fill="#e3f2fd" stroke="#1976d2" stroke-width="1.5"/>
+  <text x="76" y="113" class="stage">Components (in-process structs)</text>
+  <text x="76" y="130" class="mono">src/components/*.c</text>
+
+  <!-- Seam 1 -->
+  <line x1="40" y1="156" x2="392" y2="156" class="seam"/>
+  <circle cx="40" cy="156" r="13" fill="#d32f2f"/><text x="40" y="161" class="snum" text-anchor="middle">1</text>
+  <text x="408" y="146" class="ctitle">Wire / process seam</text>
+  <text x="408" y="163" class="cwhat">struct &#8594; tagged text (V/P/S lines) &#8594; reparse, across a fork+exec boundary</text>
+  <text x="408" y="179" class="cinv">Invariant: origin is NOT on the wire &#8212; orchestrator fills r-&gt;origin from subprocess identity.</text>
+  <path d="M195 138 L195 174" class="flow"/>
+
+  <!-- Stage: Orchestrator merge -->
+  <rect x="60" y="176" width="270" height="46" rx="7" fill="#fff3e0" stroke="#ef6c00" stroke-width="1.5"/>
+  <text x="76" y="197" class="stage">Merged results + scalar facts</text>
+  <text x="76" y="214" class="mono">orchestrator.c :: merge_results()</text>
+
+  <!-- Seam 2 -->
+  <line x1="40" y1="240" x2="392" y2="240" class="seam"/>
+  <circle cx="40" cy="240" r="13" fill="#d32f2f"/><text x="40" y="245" class="snum" text-anchor="middle">2</text>
+  <text x="408" y="230" class="ctitle">Bridge seam (collector -&gt; engine)</text>
+  <text x="408" y="247" class="cwhat">results + in-process probes &#8594; struct evidence_set (Layer 1 vocabulary)</text>
+  <text x="408" y="263" class="cinv">Invariant: engine_build_evidence() is the sole crossing; the engine never sees raw I/O.</text>
+  <path d="M195 222 L195 258" class="flow"/>
+
+  <!-- Stage: Evidence -->
+  <rect x="60" y="260" width="270" height="46" rx="7" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.5"/>
+  <text x="76" y="281" class="stage">L1 evidence_set</text>
+  <text x="76" y="298" class="mono">evidence.c</text>
+
+  <!-- Seam 3 -->
+  <line x1="40" y1="324" x2="392" y2="324" class="seam"/>
+  <circle cx="40" cy="324" r="13" fill="#d32f2f"/><text x="40" y="329" class="snum" text-anchor="middle">3</text>
+  <text x="408" y="314" class="ctitle">Monotone seam (rules -&gt; estimates)</text>
+  <text x="408" y="331" class="cwhat">constraints applied by lattice meet/narrow; never widen past an honest top</text>
+  <text x="408" y="347" class="cinv">Invariant: estimates only narrow. Soundness is proven per-rule in tests, not by an oracle.</text>
+  <path d="M195 306 L195 342" class="flow"/>
+
+  <!-- Stage: Estimates store -->
+  <rect x="60" y="344" width="270" height="60" rx="7" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.5"/>
+  <text x="76" y="365" class="stage">L3 estimate (STORED)</text>
+  <text x="76" y="382" class="mono">estimate.c &#8212; convex hull:</text>
+  <text x="76" y="398" class="mono">single interval, end-trim only</text>
+
+  <!-- Seam 4 (the subtle one) -->
+  <line x1="40" y1="422" x2="392" y2="422" class="seam" stroke-width="3"/>
+  <circle cx="40" cy="422" r="13" fill="#b71c1c"/><text x="40" y="427" class="snum" text-anchor="middle">4</text>
+  <text x="408" y="412" class="ctitle">Store-vs-read seam &#160;(subtle)</text>
+  <text x="408" y="429" class="cwhat">stored value = convex hull; interior C_EXCLUDE holes are NOT persisted</text>
+  <text x="408" y="445" class="cinv">Invariant: holes carved at READ time by quantity_ranges()/_slots(); they compose there.</text>
+  <text x="408" y="461" class="cinv">Risk: reading the raw interval instead of the accessors sees holes filled in.</text>
+  <path d="M195 404 L195 478" class="flow"/>
+
+  <!-- Stage: read-time access -->
+  <rect x="60" y="480" width="270" height="60" rx="7" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.5"/>
+  <text x="76" y="501" class="stage">L3 effective set (READ)</text>
+  <text x="76" y="518" class="mono">quantity_ranges() / _slots()</text>
+  <text x="76" y="534" class="mono">interval - holes &#8594; gaps</text>
+
+  <!-- Seam 5: fixpoint termination (loop-back annotation) -->
+  <line x1="40" y1="558" x2="392" y2="558" class="seam"/>
+  <circle cx="40" cy="558" r="13" fill="#d32f2f"/><text x="40" y="563" class="snum" text-anchor="middle">5</text>
+  <text x="408" y="548" class="ctitle">Termination seam (the fixpoint loop)</text>
+  <text x="408" y="565" class="cwhat">engine_run_full() re-runs every rule each pass over the append-only set</text>
+  <text x="408" y="581" class="cinv">Invariant: append-only meet + pass cap force termination; rules over-narrow, never oscillate.</text>
+  <path d="M195 540 L195 576" class="flow"/>
+
+  <!-- Stage: resolved -->
+  <rect x="60" y="578" width="270" height="46" rx="7" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.5"/>
+  <text x="76" y="599" class="stage">Resolved estimates (at fixpoint)</text>
+  <text x="76" y="616" class="mono">engine_resolve()</text>
+
+  <!-- Seam 6 -->
+  <line x1="40" y1="642" x2="392" y2="642" class="seam"/>
+  <circle cx="40" cy="642" r="13" fill="#d32f2f"/><text x="40" y="647" class="snum" text-anchor="middle">6</text>
+  <text x="408" y="632" class="ctitle">Authoritative-sync seam (engine -&gt; renderer)</text>
+  <text x="408" y="649" class="cwhat">resolved estimates projected into global kasld_layout + engine_bounds (g_ctx)</text>
+  <text x="408" y="665" class="cinv">Invariant: sync must project EVERY renderer-read field; a gap is a stale read.</text>
+  <path d="M195 624 L195 660" class="flow"/>
+
+  <!-- Stage: render -->
+  <rect x="60" y="662" width="270" height="46" rx="7" fill="#f3e5f5" stroke="#7b1fa2" stroke-width="1.5"/>
+  <text x="76" y="683" class="stage">Render (text/json/oneline/md)</text>
+  <text x="76" y="700" class="mono">render.c</text>
+
+  <!-- Seam 7: SYSROOT, spans the whole intake side -->
+  <line x1="40" y1="744" x2="988" y2="744" class="seam"/>
+  <circle cx="40" cy="744" r="13" fill="#d32f2f"/><text x="40" y="749" class="snum" text-anchor="middle">7</text>
+  <text x="60" y="734" class="ctitle">Cross-cutting seam &#8212; SYSROOT I/O</text>
+  <text x="60" y="765" class="cwhat">Every fact-read (components + in-process probes) goes through kasld_* libc wrappers, never bare fopen/access/open.</text>
+  <text x="60" y="783" class="cinv">Invariant: KASLD_SYSROOT redirects all reads to a fixture tree, so the whole pipeline above is replayable offline against captured systems.</text>
+  <text x="60" y="801" class="cinv">This seam sits under stages 1&#8211;3: it is where the toolkit touches the live (or replayed) kernel surface.</text>
+
+  <!-- legend -->
+  <rect x="60" y="826" width="900" height="52" rx="7" fill="#fafafa" stroke="#cfd8dc"/>
+  <line x1="78" y1="845" x2="118" y2="845" class="seam"/>
+  <text x="128" y="849" class="cinv">red dashed = a seam (representation / trust / ownership changes here)</text>
+  <line x1="540" y1="845" x2="578" y2="845" class="flow"/>
+  <text x="590" y="849" class="cinv">solid = data flow direction (collection -&gt; resolution -&gt; report)</text>
+  <text x="78" y="869" class="cinv">Note: seam 4 is the one most likely to surprise &#8212; what the engine stores is deliberately not what consumers read.</text>
+</svg>

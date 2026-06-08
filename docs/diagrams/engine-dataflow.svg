@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="980" height="740" viewBox="0 0 980 740" font-family="sans-serif">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#37474f"/>
+    </marker>
+    <marker id="arrg" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#2e7d32"/>
+    </marker>
+    <style>
+      .title { font-size: 22px; font-weight: 700; fill: #1b5e20; }
+      .sub   { font-size: 13px; fill: #546e7a; }
+      .lbl   { font-size: 16px; font-weight: 700; }
+      .mono  { font-family: monospace; font-size: 12px; fill: #37474f; }
+      .monos { font-family: monospace; font-size: 11px; fill: #607d8b; }
+      .chip  { font-family: monospace; font-size: 11px; fill: #1b5e20; }
+      .flow  { stroke: #37474f; stroke-width: 2; fill: none; marker-end: url(#arr); }
+      .loop  { stroke: #2e7d32; stroke-width: 2.5; fill: none; marker-end: url(#arrg); stroke-dasharray: 7 5; }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="100%" height="100%" fill="#ffffff"/>
+
+  <text x="32" y="40" class="title">KASLD — Inference Engine Data Flow</text>
+  <text x="32" y="62" class="sub">A monotone fixpoint: rules read evidence + estimates, emit constraints; estimates narrow until stable. Order-independent.</text>
+
+  <!-- Layer 1 -->
+  <rect x="40" y="92" width="900" height="118" rx="8" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.5"/>
+  <text x="60" y="120" class="lbl" fill="#1b5e20">Layer 1 &#8212; Observations</text>
+  <text x="900" y="120" class="monos" text-anchor="end">evidence.c &#183; observation.h</text>
+  <text x="60" y="144" class="mono">struct evidence_set: component results + scalar system facts, each carrying a trust level (confidence).</text>
+  <rect x="60" y="156" width="270" height="40" rx="5" fill="#c8e6c9" stroke="#43a047"/>
+  <text x="74" y="181" class="chip">observations: V / P (lo,hi,sample)</text>
+  <rect x="350" y="156" width="270" height="40" rx="5" fill="#c8e6c9" stroke="#43a047"/>
+  <text x="364" y="181" class="chip">scalar facts: SF_* (image size, MemTotal)</text>
+  <rect x="640" y="156" width="280" height="40" rx="5" fill="#c8e6c9" stroke="#43a047"/>
+  <text x="654" y="181" class="chip">conf: parsed&gt;derived&gt;inferred&gt;heuristic..</text>
+
+  <!-- gap 1 -->
+  <text x="60" y="232" class="monos">rule_fn(ev, est, out, out_max)&#160; verdict_fn(ev, out, out_max) &#8212; pure: no I/O, no globals, no side effects</text>
+  <path d="M490 240 L490 254" class="flow"/>
+
+  <!-- Layer 2 -->
+  <rect x="40" y="256" width="900" height="150" rx="8" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.5"/>
+  <text x="60" y="284" class="lbl" fill="#1b5e20">Layer 2 &#8212; Rules</text>
+  <text x="900" y="284" class="monos" text-anchor="end">src/rules/*.c &#183; registry: engine_rules.c</text>
+  <text x="60" y="308" class="mono">Pure functions read evidence + current estimates; emit constraints on quantities, or verdicts on observations.</text>
+
+  <rect x="60" y="322" width="560" height="68" rx="5" fill="#c8e6c9" stroke="#43a047"/>
+  <text x="74" y="342" class="chip" font-weight="700">constraints (narrowing ops)</text>
+  <text x="74" y="362" class="chip">C_LOWER_BOUND&#160; C_UPPER_BOUND&#160; C_EQUALS&#160; C_AT_LEAST_ALIGN</text>
+  <text x="74" y="380" class="chip">C_MEMBER&#160; C_EXCLUDE&#160; C_STRIDE</text>
+
+  <rect x="640" y="322" width="280" height="68" rx="5" fill="#c8e6c9" stroke="#43a047"/>
+  <text x="654" y="342" class="chip" font-weight="700">verdicts (curation)</text>
+  <text x="654" y="362" class="chip">V_INVALID &#8212; the only verdict kind;</text>
+  <text x="654" y="380" class="chip">drops an observation from the set.</text>
+
+  <!-- gap 2 -->
+  <text x="60" y="428" class="monos">constraints appended to the constraint set (append-only) &#8594; applied by meet/narrow to per-quantity estimates</text>
+  <path d="M490 436 L490 450" class="flow"/>
+
+  <!-- Layer 3 -->
+  <rect x="40" y="452" width="900" height="152" rx="8" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.5"/>
+  <text x="60" y="480" class="lbl" fill="#1b5e20">Layer 3 &#8212; Estimates</text>
+  <text x="900" y="480" class="monos" text-anchor="end">estimate.c &#183; quantities.c &#183; estimate.h</text>
+  <text x="60" y="504" class="mono">Each quantity starts at its honest arch-defined top and narrows monotonically. Lattice meet never widens.</text>
+  <rect x="60" y="518" width="860" height="70" rx="5" fill="#c8e6c9" stroke="#43a047"/>
+  <text x="74" y="540" class="chip">Q_VIRT_TEXT_BASE&#160; Q_PHYS_TEXT_BASE&#160; Q_PAGE_OFFSET&#160; Q_VMALLOC_BASE&#160; Q_VMEMMAP_BASE</text>
+  <text x="74" y="560" class="chip">Q_KASLR_ALIGN&#160; Q_PHYS_KASLR_ALIGN&#160; Q_VA_BITS</text>
+  <text x="74" y="580" class="chip" fill="#607d8b">lattice domains: LK_SINGLETON / LK_INTERVAL / LK_ALIGN / LK_INTERVAL_SET(future) &#8212; meet only narrows</text>
+
+  <!-- fixpoint loop -->
+  <path d="M940 528 L966 528 L966 150 L940 150" class="loop"/>
+  <text x="952" y="339" class="chip" text-anchor="middle" transform="rotate(90 952 339)" font-weight="700">engine_run_full() fixpoint</text>
+
+  <!-- gap 3 -->
+  <text x="60" y="626" class="monos">at fixpoint &#8594; engine_sync_authoritative() projects resolved estimates into kasld_layout + engine_bounds</text>
+  <path d="M490 634 L490 648" class="flow"/>
+
+  <rect x="300" y="650" width="380" height="62" rx="8" fill="#f3e5f5" stroke="#7b1fa2" stroke-width="1.5"/>
+  <text x="490" y="676" class="lbl" fill="#4a148c" text-anchor="middle">Resolved layout -&gt; Render</text>
+  <text x="490" y="698" class="monos" text-anchor="middle">read-time access via quantity_ranges() / quantity_slots()</text>
+</svg>
