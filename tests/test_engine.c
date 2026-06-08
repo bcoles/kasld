@@ -1179,12 +1179,13 @@ static void test_phys_reservation_exclude(void) {
 #endif
 }
 
-/* firmware_memmap_phys_exclude: the non-RAM gaps in the authoritative System
- * RAM map are forbidden bands. Gated to the complete "firmware_memmap" map — a
- * partial-leak origin, or adjacent extents with no gap, emit nothing. */
-int rule_firmware_memmap_phys_exclude(const struct evidence_set *ev,
-                                      const struct estimate *est,
-                                      struct constraint *out, int out_max);
+/* ram_map_phys_exclude: the non-RAM gaps in an authoritative complete System
+ * RAM map are forbidden bands. Carves each whole-map origin (firmware_memmap +
+ * device-tree); a partial-leak origin, or adjacent extents with no gap, emit
+ * nothing. */
+int rule_ram_map_phys_exclude(const struct evidence_set *ev,
+                              const struct estimate *est,
+                              struct constraint *out, int out_max);
 
 static struct observation mk_ram(unsigned long lo, unsigned long hi,
                                  const char *origin) {
@@ -1201,9 +1202,9 @@ static struct observation mk_ram(unsigned long lo, unsigned long hi,
   return o;
 }
 
-static void test_firmware_memmap_phys_exclude(void) {
+static void test_ram_map_phys_exclude(void) {
 #if !TEXT_TRACKS_DIRECTMAP
-  const rule_fn rules[] = {rule_firmware_memmap_phys_exclude};
+  const rule_fn rules[] = {rule_ram_map_phys_exclude};
   unsigned long ksize = 0x1000000ul; /* 16 MiB image */
   /* Two RAM extents with a real non-RAM gap (256 MiB .. 288 MiB). */
   unsigned long r1lo = PHYS_OFFSET + 0x1000000ul;  /* +16 MiB  */
@@ -1251,6 +1252,19 @@ static void test_firmware_memmap_phys_exclude(void) {
   evidence_add(&e3.ev, &b3);
   engine_run(&e3, rules, 1);
   assert(!has_phys_exclude(&e3));
+
+  /* Positive 2: arch-general — a device-tree /memory map (arches with no
+   * /sys/firmware/memmap) carves the same gap. */
+  struct engine e4;
+  engine_init(&e4);
+  struct observation is4 = mk_scalar(SF_IMAGE_SIZE, ksize, CONF_PARSED);
+  evidence_add(&e4.ev, &is4);
+  struct observation a4 = mk_ram(r1lo, r1hi, "sysfs_devicetree_memory");
+  struct observation b4 = mk_ram(r2lo, r2hi, "sysfs_devicetree_memory");
+  evidence_add(&e4.ev, &a4);
+  evidence_add(&e4.ev, &b4);
+  engine_run(&e4, rules, 1);
+  assert(has_phys_exclude(&e4));
 #endif
 }
 
@@ -4434,7 +4448,7 @@ int main(void) {
   BEGIN_CATEGORY("Cmdline rules (mem= / memmap= / initrd / nokaslr)");
   RUN(test_initrd_phys_exclude);
   RUN(test_phys_reservation_exclude);
-  RUN(test_firmware_memmap_phys_exclude);
+  RUN(test_ram_map_phys_exclude);
   RUN(test_cmdline_phys_exclude);
   RUN(test_cmdline_mem_phys_ceiling);
   RUN(test_cmdline_mem_phys_ceiling_no_signal);

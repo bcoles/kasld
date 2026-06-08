@@ -50,7 +50,7 @@ static const rule_fn k_rules[] = {
     /* Cmdline rules */
     rule_initrd_phys_exclude,
     rule_phys_reservation_exclude,
-    rule_firmware_memmap_phys_exclude,
+    rule_ram_map_phys_exclude,
     rule_initrd_above_kernel,
     rule_cmdline_phys_exclude,
     rule_cmdline_mem_phys_ceiling,
