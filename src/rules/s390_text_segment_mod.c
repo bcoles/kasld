@@ -31,8 +31,8 @@
 // ---
 // <bcoles@gmail.com>
 
-#include "../include/kasld/engine_rules.h"
-#include "../include/kasld/regions.h"
+#include "include/kasld/engine_rules.h"
+#include "include/kasld/regions.h"
 
 #include <string.h>
 
