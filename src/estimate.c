@@ -253,6 +253,23 @@ int estimate_is_bottom(const struct estimate *e,
   return 0;
 }
 
+int estimate_finset_value(const struct quantity_def *qd,
+                          const struct estimate *e, unsigned long *out) {
+  if (qd->lattice != LK_FINSET)
+    return 0;
+  unsigned long mask =
+      e->lo; /* live-candidate bitmask, one bit per candidate */
+  if (mask == 0 || (mask & (mask - 1)) != 0)
+    return 0; /* zero, or more than one, candidate still live */
+  for (int i = 0; i < qd->n_candidates; i++) {
+    if (mask == (1ul << i)) {
+      *out = qd->candidates[i];
+      return 1;
+    }
+  }
+  return 0;
+}
+
 /* ------------------------------------------------------------------------
  * Greedy resolver.
  * ------------------------------------------------------------------------ */

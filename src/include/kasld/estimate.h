@@ -83,6 +83,14 @@ void estimate_meet(struct estimate *e, const struct quantity_def *qd,
 /* True iff the estimate is lattice-bottom (unsatisfiable / empty). */
 int estimate_is_bottom(const struct estimate *e, const struct quantity_def *qd);
 
+/* If a finite-set (LK_FINSET) quantity's estimate has narrowed to exactly one
+ * live candidate, write its value to *out and return 1. Returns 0 when the
+ * quantity is not LK_FINSET, or zero / more than one candidate is still live.
+ * Encapsulates the live-candidate bitmask so callers (e.g. rules reading a
+ * resolved Q_VA_BITS) don't depend on the LK_FINSET representation. */
+int estimate_finset_value(const struct quantity_def *qd,
+                          const struct estimate *e, unsigned long *out);
+
 /* Resolve quantity q over the constraints in cs[0..n_cs), considering only
  * those with conf >= floor. Greedy strongest-first (conf DESC, lineage_count
  * DESC, id ASC); a constraint that would force bottom is skipped and

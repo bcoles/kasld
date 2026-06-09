@@ -17,18 +17,22 @@
 // KASAN overrides it at runtime — common on syzkaller / CTF / debug kernels.
 //
 // On a positive disable signal, pin all three bases to the paging-level default
-// (L4 = VA 48, L5 = VA 57), chosen by SF_VIRT_ADDR_BITS (proc_cpuinfo's "bits
-// virtual", which tracks the active level — leak-free, so the pin fires without
-// any direct-map leak). CONFIG_RANDOMIZE_BASE is independent of the memory
-// randomisation, so kernel TEXT stays randomised; this pins only the
+// (L4 = VA 48, L5 = VA 57). The level comes from SF_VIRT_ADDR_BITS
+// (proc_cpuinfo's "bits virtual", which tracks the active level — leak-free, so
+// the pin can fire without any direct-map leak), falling back to a resolved
+// Q_VA_BITS (e.g. x86_64_la57_from_directmap, from a directmap leak's top bits)
+// when cpuinfo is unavailable. CONFIG_RANDOMIZE_BASE is independent of the
+// memory randomisation, so kernel TEXT stays randomised; this pins only the
 // direct-map side.
 //
 // Soundness:
 //   * Fires only on a positive disable signal AND a resolved VA width.
 //   * The pinned values are exact, non-config-tunable kernel constants for the
-//     resolved level, so no window-containment read is needed — and an
-//     out-of-window C_EQUALS is dropped by the engine's meet as a conflict
-//     anyway (so no est[Q] read, no self-edge).
+//     resolved level — no window-containment read is needed, and an
+//     out-of-window C_EQUALS is dropped by the engine's meet as a conflict.
+//   * The only estimate read is est[Q_VA_BITS] (the level): cross-quantity, not
+//     a self-edge on the bases written here, and acyclic — Q_VA_BITS derives
+//     from the directmap observation, never from est[Q_PAGE_OFFSET].
 //   * A higher-confidence real direct-map leak still wins via the resolver's
 //     conflict handling.
 // ---
@@ -41,7 +45,6 @@
 int rule_directmap_kaslr_disabled_pin(const struct evidence_set *ev,
                                       const struct estimate *est,
                                       struct constraint *out, int out_max) {
-  (void)est;
 #if defined(__x86_64__) || defined(__amd64__)
   uint32_t sig_id = 0, va_id = 0;
   enum kasld_confidence sig_conf = CONF_UNKNOWN, va_conf = CONF_UNKNOWN;
@@ -63,7 +66,18 @@ int rule_directmap_kaslr_disabled_pin(const struct evidence_set *ev,
       va_conf = o->conf;
     }
   }
-  if (sig_id == 0 || va_bits == 0)
+  if (sig_id == 0)
+    return 0;
+
+  /* Paging level (L4 = VA 48 / L5 = VA 57): prefer the leak-free cpuinfo scalar
+   * (SF_VIRT_ADDR_BITS); fall back to a resolved Q_VA_BITS — e.g.
+   * x86_64_la57_from_directmap pins it from a directmap leak's top bits when
+   * cpuinfo is unavailable. Reading est[Q_VA_BITS] is cross-quantity (not a
+   * self-edge on the bases this rule writes) and acyclic — Q_VA_BITS derives
+   * from the directmap observation, never from est[Q_PAGE_OFFSET]. */
+  if (va_bits == 0)
+    estimate_finset_value(&quantities[Q_VA_BITS], &est[Q_VA_BITS], &va_bits);
+  if (va_bits == 0)
     return 0;
 
   /* Active paging level: 48-bit VA -> 4-level (L4), 57-bit -> 5-level (L5). */
@@ -84,7 +98,11 @@ int rule_directmap_kaslr_disabled_pin(const struct evidence_set *ev,
       {Q_VMEMMAP_BASE, l5 ? VMEMMAP_BASE_L5 : VMEMMAP_BASE_L4},
   };
 
-  enum kasld_confidence conf = (sig_conf < va_conf) ? sig_conf : va_conf;
+  /* When the level came from the cpuinfo scalar, corroborate with its
+   * confidence + id; when it came from the already-resolved estimate there is
+   * no observation to cite, so the pin rests on the disable signal alone. */
+  enum kasld_confidence conf =
+      va_id ? ((sig_conf < va_conf) ? sig_conf : va_conf) : sig_conf;
   int n = 0;
   for (int k = 0; k < 3 && n < out_max; k++) {
     struct constraint *c = &out[n++];
@@ -95,12 +113,13 @@ int rule_directmap_kaslr_disabled_pin(const struct evidence_set *ev,
     c->conf = conf;
     c->derived_from[0] = sig_id;
     c->derived_from[1] = va_id;
-    c->lineage_count = 2;
+    c->lineage_count = va_id ? 2 : 1;
     snprintf(c->origin, ORIGIN_LEN, "directmap_kaslr_disabled_pin");
   }
   return n;
 #else
   (void)ev;
+  (void)est;
   (void)out;
   (void)out_max;
   return 0;

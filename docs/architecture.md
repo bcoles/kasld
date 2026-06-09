@@ -250,8 +250,10 @@ Key rules for cross-region derivation:
   (`SF_KASAN_ENABLED`) or KASLR is off (`SF_VIRT_KASLR_DISABLED`) the direct-map
   randomisation is suppressed (`kaslr_memory_enabled() = kaslr_enabled() &&
   !CONFIG_KASAN`), so `Q_PAGE_OFFSET` / `Q_VMALLOC_BASE` / `Q_VMEMMAP_BASE` are
-  pinned to their compile-time L4/L5 defaults — the paging level taken from
-  `SF_VIRT_ADDR_BITS`. Kernel TEXT KASLR is independent and stays randomised.
+  pinned to their compile-time L4/L5 defaults — the paging level from
+  `SF_VIRT_ADDR_BITS` (cpuinfo, leak-free) or, when that is unavailable, a
+  resolved `Q_VA_BITS` (e.g. from a direct-map leak). Kernel TEXT KASLR is
+  independent and stays randomised.
 
 ### Coupled vs decoupled architectures
 

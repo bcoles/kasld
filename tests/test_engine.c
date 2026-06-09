@@ -3190,6 +3190,23 @@ static void test_directmap_kaslr_disabled_pin(void) {
   engine_run(&e4, rules, 1);
   assert(e4.est[Q_PAGE_OFFSET].lo == top.lo &&
          e4.est[Q_PAGE_OFFSET].hi == top.hi);
+
+  /* Fallback path: NO SF_VIRT_ADDR_BITS, but a directmap leak below the L4 VAS
+   * floor resolves Q_VA_BITS=57 via la57_from_directmap; the pin then takes the
+   * level from the estimate and still fires (here -> the L5 default). */
+  struct engine e5;
+  engine_init(&e5);
+  struct observation k5 = mk_scalar(SF_KASAN_ENABLED, 1, CONF_PARSED);
+  evidence_add(&e5.ev, &k5);
+  struct observation dm =
+      mk_obs(KASLD_TYPE_VIRT, REGION_DIRECTMAP, 0xff20000000000000ul,
+             LO_SET | SAMPLE_SET, POS_INTERIOR, CONF_PARSED);
+  evidence_add(&e5.ev, &dm);
+  const rule_fn rules_la57[] = {rule_x86_64_la57_from_directmap,
+                                rule_directmap_kaslr_disabled_pin};
+  engine_run(&e5, rules_la57, 2);
+  assert(e5.est[Q_PAGE_OFFSET].lo == PAGE_OFFSET_BASE_L5 &&
+         e5.est[Q_PAGE_OFFSET].hi == PAGE_OFFSET_BASE_L5);
 #endif
 }
 
