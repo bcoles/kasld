@@ -32,6 +32,7 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -80,7 +81,7 @@ int main(void) {
   if (ks) {
     unsigned long a;
     char type, sym[256];
-    printf("[.] scanning /proc/kallsyms for _stext and _etext ...\n");
+    kasld_info("scanning /proc/kallsyms for _stext and _etext ...");
     while (fscanf(ks, "%lx %c %255s\n", &a, &type, sym) == 3) {
       if (!stext && strcmp(sym, "_stext") == 0)
         stext = a;
@@ -93,7 +94,7 @@ int main(void) {
   }
 
   if (!stext) {
-    fprintf(stderr, "[-] _stext not found in /proc/kallsyms\n");
+    kasld_err("_stext not found in /proc/kallsyms");
     return 0;
   }
 

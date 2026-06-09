@@ -46,6 +46,7 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -88,7 +89,7 @@ static int on_reserved_pool(const char *line, void *ctx) {
 
   unsigned long addr = strtoul(p + 4, NULL, 16);
   if (addr)
-    printf("[.] Reserved memory pool at 0x%016lx\n", addr);
+    kasld_info("Reserved memory pool at 0x%016lx", addr);
 
   update_range(r, addr);
   return 1; /* continue — may be multiple pools */
@@ -108,7 +109,7 @@ static int on_cma_reserved(const char *line, void *ctx) {
   if (!addr)
     return 1;
 
-  printf("[.] CMA reservation at 0x%016lx\n", addr);
+  kasld_info("CMA reservation at 0x%016lx", addr);
 
   update_range(r, addr);
   return 1; /* continue — may be multiple reservations */
@@ -117,7 +118,7 @@ static int on_cma_reserved(const char *line, void *ctx) {
 int main(void) {
   struct range_ctx r = {0, 0};
 
-  printf("[.] searching dmesg for CMA/DMA reserved memory pools ...\n");
+  kasld_info("searching dmesg for CMA/DMA reserved memory pools ...");
 
   int ds = dmesg_search("Reserved memory: created", on_reserved_pool, &r);
   if (ds < 0)
@@ -126,7 +127,7 @@ int main(void) {
   dmesg_search("cma: Reserved", on_cma_reserved, &r);
 
   if (!r.lo) {
-    printf("[-] No CMA/DMA reserved memory pools found in dmesg\n");
+    kasld_err("No CMA/DMA reserved memory pools found in dmesg");
     return 0;
   }
 

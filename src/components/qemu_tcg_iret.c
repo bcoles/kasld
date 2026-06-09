@@ -48,6 +48,7 @@
 #endif
 
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <setjmp.h>
 #include <signal.h>
 #include <stdint.h>
@@ -137,7 +138,7 @@ static void kaslr(void) {
 }
 
 static uint64_t get_kernel_stack_addr_using_qemu_tcg_iret(void) {
-  printf("[.] trying QEMU TCG iret leak ...\n");
+  kasld_info("trying QEMU TCG iret leak ...");
 
   // Install SIGFPE handler to recover from the intentional div-by-zero
   struct sigaction sa_fpe = {0};
@@ -156,7 +157,7 @@ static uint64_t get_kernel_stack_addr_using_qemu_tcg_iret(void) {
   stack_t ss;
   ss.ss_sp = malloc(SIGSTKSZ);
   if (!ss.ss_sp) {
-    fprintf(stderr, "[-] alt-stack alloc failed; aborting\n");
+    kasld_err("alt-stack alloc failed; aborting");
     return KASLD_EXIT_UNAVAILABLE;
   }
   ss.ss_size = SIGSTKSZ;
@@ -193,7 +194,7 @@ int main(void) {
   unsigned long addr = get_kernel_stack_addr_using_qemu_tcg_iret();
 
   if (!addr) {
-    printf("[-] QEMU TCG IRET fault not triggered\n");
+    kasld_err("QEMU TCG IRET fault not triggered");
     return 0;
   }
 

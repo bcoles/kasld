@@ -39,6 +39,7 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -65,7 +66,7 @@ static unsigned long get_phys_addr_vmcoreinfo(void) {
   char *endptr;
   unsigned long addr;
 
-  printf("[.] trying %s ...\n", path);
+  kasld_info("trying %s ...", path);
 
   f = kasld_fopen(path, "r");
   if (f == NULL) {
@@ -82,7 +83,7 @@ static unsigned long get_phys_addr_vmcoreinfo(void) {
 
   addr = strtoul(buf, &endptr, 16);
   if (endptr == buf || !addr) {
-    fprintf(stderr, "[-] failed to parse physical address\n");
+    kasld_err("failed to parse physical address");
     return 0;
   }
 

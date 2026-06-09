@@ -30,6 +30,7 @@
 
 #include "include/cmdline.h"
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <stdio.h>
 
 KASLD_EXPLAIN(
@@ -47,12 +48,12 @@ KASLD_META("method:detection\n"
 
 int main(void) {
   if (!cmdline_has_word("kexec_file")) {
-    fprintf(stderr, "[-] no 'kexec_file' token on /proc/cmdline\n");
+    kasld_err("no 'kexec_file' token on /proc/cmdline");
     return 1;
   }
 
-  printf("[.] LoongArch 'kexec_file' cmdline token present — KASLR disabled "
-         "by kaslr_disabled().\n");
+  kasld_info("LoongArch 'kexec_file' cmdline token present — KASLR disabled "
+             "by kaslr_disabled().");
   /* LoongArch kexec_file disables both axes via arch/loongarch's
    * relocate.c kaslr_disabled() short-circuit; the kernel lands at
    * VMLINUX_LOAD_ADDRESS (the compile-time virt + phys default). Both

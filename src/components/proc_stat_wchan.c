@@ -36,6 +36,7 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <errno.h>
 #include <inttypes.h>
 #include <stdio.h>
@@ -67,7 +68,7 @@ static unsigned long get_kernel_addr_proc_stat_wchan(void) {
 
   snprintf(path, sizeof(path), "/proc/%d/stat", (pid_t)getppid());
 
-  printf("[.] checking %s 'wchan' field ...\n", path);
+  kasld_info("checking %s 'wchan' field ...", path);
 
   f = kasld_fopen(path, "rb");
   if (f == NULL) {
@@ -86,7 +87,7 @@ static unsigned long get_kernel_addr_proc_stat_wchan(void) {
    * wchan = field 34 = 32nd token after ')'. */
   ptr = strrchr(buff, ')');
   if (!ptr) {
-    fprintf(stderr, "[-] failed to parse stat (no comm field)\n");
+    kasld_err("failed to parse stat (no comm field)");
     fclose(f);
     return 0;
   }
@@ -113,7 +114,7 @@ static unsigned long get_kernel_addr_proc_stat_wchan(void) {
 int main(void) {
   unsigned long addr = get_kernel_addr_proc_stat_wchan();
   if (!addr) {
-    printf("[-] no kernel address found in /proc/pid/stat wchan\n");
+    kasld_err("no kernel address found in /proc/pid/stat wchan");
     return 0;
   }
 

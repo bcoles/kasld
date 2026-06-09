@@ -29,6 +29,7 @@
 
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
@@ -61,7 +62,7 @@ static unsigned long read_module_text(char *path) {
   const int addr_len = sizeof(long *) * 2;
   unsigned long addr = 0;
 
-  // printf("[.] checking %s ...\n", path);
+  // kasld_info("checking %s ...", path);
 
   f = kasld_fopen(path, "rb");
   if (f == NULL)
@@ -96,7 +97,7 @@ static struct module_range get_module_text_sysfs(void) {
   DIR *d;
   struct module_range range = {0, 0};
 
-  printf("[.] trying /sys/modules/*/sections/.text ...\n");
+  kasld_info("trying /sys/modules/*/sections/.text ...");
 
   d = opendir(path);
   if (d == NULL) {
@@ -133,7 +134,7 @@ int main(void) {
 
   struct module_range range = get_module_text_sysfs();
   if (!range.lo) {
-    printf("[-] no kernel address found in /sys/module sections\n");
+    kasld_err("no kernel address found in /sys/module sections");
     return 0;
   }
 

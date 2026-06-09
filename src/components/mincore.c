@@ -34,6 +34,7 @@
 
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -83,9 +84,13 @@ static unsigned long get_kernel_addr_mincore(void) {
   }
 
   unsigned long i;
+  /* -t SECS overrides the default give-up budget: on a vulnerable kernel the
+   * leak is found in a few thousand iterations, but on a patched one this scan
+   * runs to the deadline before concluding "likely patched". */
+  int budget_s = kasld_time_s > 0 ? (int)kasld_time_s : TIMEOUT_SECS;
   struct timespec deadline;
   clock_gettime(CLOCK_MONOTONIC, &deadline);
-  deadline.tv_sec += TIMEOUT_SECS;
+  deadline.tv_sec += budget_s;
 
   for (i = 0; i <= iterations; i++) {
     /* Check deadline every 4096 iterations to avoid clock_gettime overhead */
@@ -94,9 +99,8 @@ static unsigned long get_kernel_addr_mincore(void) {
       clock_gettime(CLOCK_MONOTONIC, &now);
       if (now.tv_sec > deadline.tv_sec ||
           (now.tv_sec == deadline.tv_sec && now.tv_nsec >= deadline.tv_nsec)) {
-        fprintf(stderr,
-                "[-] timeout after %lu iterations (%ds); likely patched\n", i,
-                TIMEOUT_SECS);
+        kasld_err("timeout after %lu iterations (%ds); likely patched", i,
+                  budget_s);
         break;
       }
     }
@@ -124,12 +128,13 @@ static unsigned long get_kernel_addr_mincore(void) {
     perror("[-] munmap");
 
   free(buf);
-  fprintf(stderr, "[-] kernel base not found in mincore info leak\n");
+  kasld_err("kernel base not found in mincore info leak");
   return 0;
 }
 
-int main(void) {
-  printf("[.] trying mincore info leak...\n");
+int main(int argc, char *argv[]) {
+  kasld_cli(argc, argv);
+  kasld_info("trying mincore info leak...");
 
   unsigned long addr = get_kernel_addr_mincore();
   if (!addr)

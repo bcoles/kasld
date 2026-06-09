@@ -38,6 +38,7 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
@@ -88,7 +89,7 @@ int main(void) {
   static unsigned long idxs[SMB_MAX_INDICES]; /* online block indices, merged */
   int n_idx = 0, idx_overflow = 0;
 
-  printf("[.] searching %s for memory block info ...\n", base);
+  kasld_info("searching %s for memory block info ...", base);
 
   /* read block size */
   snprintf(path, sizeof(path), "%s/block_size_bytes", base);
@@ -100,7 +101,7 @@ int main(void) {
 
   block_size = strtoul(buf, NULL, 16);
   if (!block_size) {
-    fprintf(stderr, "[-] invalid block size\n");
+    kasld_err("invalid block size");
     return 0;
   }
 
@@ -157,7 +158,7 @@ int main(void) {
   closedir(d);
 
   if (!count) {
-    printf("[-] no online memory blocks found\n");
+    kasld_err("no online memory blocks found");
     return 0;
   }
 

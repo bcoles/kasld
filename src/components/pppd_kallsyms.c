@@ -50,6 +50,7 @@
 
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <errno.h>
 #include <spawn.h>
 #include <stdio.h>
@@ -135,7 +136,7 @@ static unsigned long get_kernel_addr_pppd_kallsyms(void) {
   unsigned long addr = 0;
   char buf[1024];
 
-  printf("[.] trying 'pppd file /proc/kallsyms' (via posix_spawn) ...\n");
+  kasld_info("trying 'pppd file /proc/kallsyms' (via posix_spawn) ...");
 
   pid_t pid = -1;
   FILE *f = spawn_pppd(&pid);
@@ -171,7 +172,7 @@ static unsigned long get_kernel_addr_pppd_kallsyms(void) {
 int main(void) {
   unsigned long addr = get_kernel_addr_pppd_kallsyms();
   if (!addr) {
-    printf("[-] no kernel address found via pppd\n");
+    kasld_err("no kernel address found via pppd");
     return 0;
   }
 

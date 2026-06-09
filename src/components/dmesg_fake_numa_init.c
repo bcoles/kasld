@@ -44,6 +44,7 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -83,13 +84,13 @@ static int on_match(const char *line, void *ctx) {
 int main(void) {
   unsigned long addr = 0;
 
-  printf("[.] searching dmesg for fake_numa_init() info ...\n");
+  kasld_info("searching dmesg for fake_numa_init() info ...");
   int ds = dmesg_search("NUMA: Faking a node at", on_match, &addr);
 
   if (!addr) {
     if (ds < 0)
       return KASLD_EXIT_NOPERM;
-    printf("[-] fake_numa_init info not found in dmesg\n");
+    kasld_err("fake_numa_init info not found in dmesg");
     return 0;
   }
 

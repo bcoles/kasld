@@ -50,6 +50,7 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
@@ -78,7 +79,7 @@ int main(void) {
   int device_count = 0;
   int bar_count = 0;
 
-  printf("[.] searching %s for PCI device MMIO BAR addresses ...\n", base);
+  kasld_info("searching %s for PCI device MMIO BAR addresses ...", base);
 
   d = opendir(base);
   if (!d) {
@@ -125,7 +126,7 @@ int main(void) {
   closedir(d);
 
   if (!bar_count) {
-    printf("[-] no PCI memory BARs found in %s\n", base);
+    kasld_err("no PCI memory BARs found in %s", base);
     return 0;
   }
 

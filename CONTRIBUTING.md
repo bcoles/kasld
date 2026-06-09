@@ -158,6 +158,40 @@ failed to randomise) emits scalar facts via `kasld_emit_scalar()` instead of an
 address; which facts, and how the engine consumes each, are documented in
 [docs/architecture.md → KASLR runtime states](docs/architecture.md#kaslr-runtime-states).
 
+### Diagnostics and options
+
+Two channels, kept separate (`include/kasld/cli.h`):
+
+- **stdout is the machine channel** — *only* the `P`/`V`/`S` wire lines the
+  emitter helpers print. Never write a human message to stdout (so
+  `component 2>/dev/null` is clean, parseable output).
+- **stderr is the human channel** — every diagnostic, through the levelled
+  logger, never a bare `printf`/`fprintf`:
+
+  | Macro | Prefix | Use |
+  |---|---|---|
+  | `kasld_info(fmt, …)` | `[.]` | normal progress |
+  | `kasld_debug(fmt, …)` | `[.]` | firehose detail — printed only under verbose |
+  | `kasld_err(fmt, …)` | `[-]` | failure / data unavailable |
+  | `kasld_found(fmt, …)` | `[+]` | a leak was produced |
+
+  The `info`/`debug` split matters: verbose means different things per component
+  (a couple of lines for `proc_iomem`, a per-collision firehose for
+  `kernelsnitch`). Demote firehose lines to `kasld_debug` so a normal run — and
+  `kasld -v` — stay readable; they surface only under the component's own
+  verbose. `tests/check-component-output` ratchets this: a *new* component
+  printing a diagnostic to stdout fails the build.
+
+**Options** are optional and **manual** (testing/debugging — the orchestrator
+passes none and sets no env). If a component takes any, parse them with
+`kasld_cli(argc, argv)` rather than hand-rolling `argv` — it gives every
+component the same `-v` / `--verbose`, `-t SECS` / `--time` (the component's own
+probe budget, in seconds — *not* kasld's kill timeout), and `-h` / `--help`. A
+component then reads `kasld_verbose` (or `kasld_is_verbose()`) and `kasld_time_s`
+as it cares; one with no options stays `int main(void)`. `kasld_is_verbose()`
+also honours `$KASLD_VERBOSE`, so a `main(void)` component is debuggable without
+an `argc/argv` conversion.
+
 ### Exit code convention
 
 Components signal their outcome to the orchestrator via exit code:

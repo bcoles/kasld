@@ -55,6 +55,7 @@
 
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <errno.h>
 #include <limits.h>
 #include <linux/futex.h>
@@ -304,8 +305,8 @@ static int create_pileup(void) {
       (volatile char *)mmap(NULL, FUTEX_REGION_SZ, PROT_READ | PROT_WRITE,
                             MAP_ANONYMOUS | MAP_PRIVATE | MAP_NORESERVE, -1, 0);
   if (futex_region == MAP_FAILED) {
-    fprintf(stderr, "[-] kernelsnitch: mmap %lu GiB failed: %s\n",
-            (unsigned long)(FUTEX_REGION_SZ / GB), strerror(errno));
+    kasld_err("kernelsnitch: mmap %lu GiB failed: %s",
+              (unsigned long)(FUTEX_REGION_SZ / GB), strerror(errno));
     return -1;
   }
 
@@ -337,8 +338,8 @@ static int create_pileup(void) {
   /* Let threads settle into FUTEX_WAIT. */
   usleep(200000);
 
-  fprintf(stderr, "[.] pile-up: %d sleepers on bucket for addr %lx\n",
-          num_sleepers_created, pile_addr);
+  kasld_debug("pile-up: %d sleepers on bucket for addr %lx",
+              num_sleepers_created, pile_addr);
   return 0;
 }
 
@@ -414,7 +415,7 @@ static int find_collisions(unsigned long *collisions, int *num_collisions,
   uint64_t baseline = measure_wake(baseline_addr);
 
   if (baseline == 0) {
-    fprintf(stderr, "[-] kernelsnitch: baseline timing is zero\n");
+    kasld_err("kernelsnitch: baseline timing is zero");
     return -1;
   }
 
@@ -455,7 +456,7 @@ static int find_collisions(unsigned long *collisions, int *num_collisions,
       candidates[num_candidates++] = probe;
   }
 
-  fprintf(stderr, "[.] quick scan: %d candidates\n", num_candidates);
+  kasld_info("quick scan: %d candidates", num_candidates);
 
   /* Pass 2: Confirm candidates with full precision measurement
    * (cache-flush amplification + statistical filtering). */
@@ -464,8 +465,8 @@ static int find_collisions(unsigned long *collisions, int *num_collisions,
     if (t > confirm_threshold) {
       collisions[*num_collisions] = candidates[i];
       (*num_collisions)++;
-      fprintf(stderr, "[.] collision #%d: addr=%lx time=%lu\n", *num_collisions,
-              candidates[i], (unsigned long)t);
+      kasld_debug("collision #%d: addr=%lx time=%lu", *num_collisions,
+                  candidates[i], (unsigned long)t);
     }
   }
 
@@ -610,8 +611,8 @@ static void *progress_fn(void *arg) {
       break;
     unsigned long done = ctx->progress;
     unsigned long pct = ctx->total_iters ? (done * 100 / ctx->total_iters) : 0;
-    fprintf(stderr, "[.] brute-force: %lu%% (%lu/%lu M iterations)\n", pct,
-            done / (1024 * 1024), ctx->total_iters / (1024 * 1024));
+    kasld_debug("brute-force: %lu%% (%lu/%lu M iterations)", pct,
+                done / (1024 * 1024), ctx->total_iters / (1024 * 1024));
   }
   return NULL;
 }
@@ -725,7 +726,7 @@ static unsigned long detect_mm_struct_size(void) {
    * or root). */
   unsigned long sz = read_sysfs_ulong("/sys/kernel/slab/mm_struct/object_size");
   if (sz >= 512 && sz <= 4096) {
-    fprintf(stderr, "[.] mm_struct size from sysfs: %lu bytes\n", sz);
+    kasld_info("mm_struct size from sysfs: %lu bytes", sz);
     return sz;
   }
 
@@ -768,7 +769,7 @@ int main(void) {
     return KASLD_EXIT_UNAVAILABLE;
   }
 
-  printf("[.] trying KernelSnitch (futex hash timing) ...\n");
+  kasld_info("trying KernelSnitch (futex hash timing) ...");
 
   /* Check for CONFIG_FUTEX_PRIVATE_HASH mitigation. When enabled,
    * private futexes use a per-mm hash table and mm_struct is NOT part
@@ -790,7 +791,7 @@ int main(void) {
   unsigned int hashsize = roundup_pow2((unsigned int)(256 * ncpus));
   if (hashsize < 256)
     hashsize = 256;
-  fprintf(stderr, "[.] CPUs: %ld, futex hashsize: %u\n", ncpus, hashsize);
+  kasld_info("CPUs: %ld, futex hashsize: %u", ncpus, hashsize);
 
   /* Pin to core 0 for stable timing measurements (Phase 2). */
   cpu_set_t cpuset;
@@ -826,14 +827,14 @@ int main(void) {
                            (unsigned long)sysconf(_SC_PAGESIZE);
   if (phys_mem == 0)
     phys_mem = 16UL * GB;
-  fprintf(stderr, "[.] physical memory: %lu MiB\n", phys_mem / MB);
+  kasld_info("physical memory: %lu MiB", phys_mem / MB);
 
   unsigned long mm_size = detect_mm_struct_size();
   unsigned long result = 0;
 
   if (mm_size) {
     /* Known size: single search pass. */
-    fprintf(stderr, "[.] searching with mm_struct size %lu ...\n", mm_size);
+    kasld_info("searching with mm_struct size %lu ...", mm_size);
     result =
         brute_force_mm(collisions, num_collisions, hashsize, mm_size, phys_mem);
   } else {

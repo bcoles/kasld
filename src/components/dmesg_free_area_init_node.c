@@ -50,6 +50,7 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -110,7 +111,7 @@ static int on_mem_range(const char *line, void *ctx) {
 int main(void) {
   struct range_ctx r = {0, 0};
 
-  printf("[.] searching dmesg for mm_init physical memory info ...\n");
+  kasld_info("searching dmesg for mm_init physical memory info ...");
 
   /* All three needles hit lines with the same [mem 0x...-0x...] format */
   int ds = dmesg_search("Initmem setup node ", on_mem_range, &r);
@@ -126,7 +127,7 @@ int main(void) {
 
   if (r.hi == 0) {
     /* r.hi == 0 is the "no valid range seen" sentinel — see on_mem_range. */
-    printf("[-] no physical memory ranges found in dmesg\n");
+    kasld_err("no physical memory ranges found in dmesg");
     return 0;
   }
 

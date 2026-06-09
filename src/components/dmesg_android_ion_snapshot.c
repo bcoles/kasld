@@ -38,6 +38,7 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -79,13 +80,13 @@ static int on_match(const char *line, void *ctx) {
 int main(void) {
   unsigned long addr = 0;
 
-  printf("[.] searching dmesg for 'ion_snapshot: ' ...\n");
+  kasld_info("searching dmesg for 'ion_snapshot: ' ...");
   int ds = dmesg_search("ion_snapshot: ", on_match, &addr);
 
   if (!addr) {
     if (ds < 0)
       return KASLD_EXIT_NOPERM;
-    printf("[-] ion_snapshot not found in dmesg\n");
+    kasld_err("ion_snapshot not found in dmesg");
     return 0;
   }
 

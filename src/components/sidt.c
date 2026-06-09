@@ -75,6 +75,7 @@
 #endif
 
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -166,7 +167,7 @@ static int is_kernel_text_region(unsigned long addr) {
 static unsigned long get_kernel_addr_sidt(void) {
   struct idtr idt;
 
-  printf("[.] trying SIDT leak ...\n");
+  kasld_info("trying SIDT leak ...");
 
   __asm__ volatile("sidt %0" : "=m"(idt));
 
@@ -178,27 +179,27 @@ static unsigned long get_kernel_addr_sidt(void) {
 
   /* UMIP emulation returns a hardcoded dummy base with limit=0 */
   if (base == UMIP_DUMMY_IDT_BASE && idt.limit == 0) {
-    printf("[-] UMIP active — kernel returned dummy IDT value, no leak\n");
+    kasld_err("UMIP active — kernel returned dummy IDT value, no leak");
     return 0;
   }
 
   if (is_cpu_entry_area(base)) {
-    printf("[-] IDT is in the CPU entry area (CONFIG_PAGE_TABLE_ISOLATION=y) — "
-           "no leak\n");
+    kasld_err("IDT is in the CPU entry area (CONFIG_PAGE_TABLE_ISOLATION=y) — "
+              "no leak");
     return 0;
   }
 
   if (is_fixmap_region(base)) {
-    printf("[-] IDT is in the fixmap region (kernel >= ~3.10) — no leak\n");
+    kasld_err("IDT is in the fixmap region (kernel >= ~3.10) — no leak");
     return 0;
   }
 
   if (is_kernel_text_region(base)) {
-    printf("[+] IDT is in the kernel text region!\n");
+    kasld_found("IDT is in the kernel text region!");
     return base;
   }
 
-  printf("[-] IDT base 0x%lx is not in a recognized kernel region\n", base);
+  kasld_err("IDT base 0x%lx is not in a recognized kernel region", base);
   return 0;
 }
 

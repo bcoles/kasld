@@ -22,6 +22,7 @@
 
 #include "include/cmdline.h"
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <stdio.h>
 
 KASLD_EXPLAIN(
@@ -38,10 +39,10 @@ KASLD_META("method:detection\n"
 int main(void) {
 #if defined(__x86_64__) || defined(__i386__)
   if (!cmdline_has_prefix("hugepages=")) {
-    fprintf(stderr, "[-] no `hugepages=` on /proc/cmdline\n");
+    kasld_err("no `hugepages=` on /proc/cmdline");
     return 1;
   }
-  printf("[.] cmdline carries `hugepages=` (EFI stub will zero phys seed)\n");
+  kasld_info("cmdline carries `hugepages=` (EFI stub will zero phys seed)");
   kasld_emit_scalar(SF_CMDLINE_HUGEPAGES, 1, CONF_PARSED);
 #endif
   return 0;

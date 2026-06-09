@@ -94,6 +94,7 @@
 
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include "include/sidechannel.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -340,12 +341,12 @@ static unsigned long get_kernel_addr_prefetch(void) {
   bool pti = detect_kpti();
 
   if (cpu == CPU_VENDOR_UNKNOWN)
-    printf("[.] unknown CPU vendor, assuming Intel-like behavior\n");
+    kasld_info("unknown CPU vendor, assuming Intel-like behavior");
   else
-    printf("[.] %s CPU detected\n", cpu == CPU_VENDOR_AMD ? "AMD" : "Intel");
+    kasld_info("%s CPU detected", cpu == CPU_VENDOR_AMD ? "AMD" : "Intel");
 
   if (!has_rdtscp()) {
-    fprintf(stderr, "[-] rdtscp instruction not supported on this CPU\n");
+    kasld_err("rdtscp instruction not supported on this CPU");
     return 0;
   }
 
@@ -356,14 +357,14 @@ static unsigned long get_kernel_addr_prefetch(void) {
     return 0;
   }
 
-  printf("[.] KPTI is not detected\n");
+  kasld_info("KPTI is not detected");
 
   pin_cpu(0);
 
   unsigned long addr = majority_vote(cpu);
 
   if (!addr) {
-    fprintf(stderr, "[-] majority vote failed across %d passes\n", NUM_PASSES);
+    kasld_err("majority vote failed across %d passes", NUM_PASSES);
     return 0;
   }
 
@@ -374,14 +375,14 @@ static unsigned long get_kernel_addr_prefetch(void) {
 }
 
 int main(int argc, char *argv[]) {
-  if (argc > 1 && strcmp(argv[1], "-v") == 0)
-    verbose = 1;
+  kasld_cli(argc, argv);
+  verbose = kasld_is_verbose();
 
-  printf("[.] trying prefetch side-channel ...\n");
+  kasld_info("trying prefetch side-channel ...");
 
   unsigned long addr = get_kernel_addr_prefetch();
   if (!addr) {
-    printf("[-] prefetch side-channel failed (not exploitable?)\n");
+    kasld_err("prefetch side-channel failed (not exploitable?)");
     return 0;
   }
 

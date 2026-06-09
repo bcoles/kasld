@@ -43,6 +43,7 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -92,11 +93,11 @@ static int on_match(const char *line, void *ctx) {
 int main(void) {
   struct range_ctx r = {0, 0};
 
-  printf("[.] searching dmesg for NODE_DATA allocations ...\n");
+  kasld_info("searching dmesg for NODE_DATA allocations ...");
   int ds = dmesg_search("NODE_DATA(", on_match, &r);
 
   if (!r.hi) {
-    printf("[-] no NODE_DATA allocation info found in dmesg\n");
+    kasld_err("no NODE_DATA allocation info found in dmesg");
     if (ds < 0)
       return KASLD_EXIT_NOPERM;
     return 0;

@@ -71,6 +71,7 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -95,7 +96,7 @@ int main(void) {
   unsigned long cur_spanned = 0;
   int count = 0;
 
-  printf("[.] searching %s for zone start_pfn and spanned ...\n", path);
+  kasld_info("searching %s for zone start_pfn and spanned ...", path);
 
   f = kasld_fopen(path, "r");
   if (f == NULL) {
@@ -134,7 +135,7 @@ int main(void) {
   fclose(f);
 
   if (!count) {
-    printf("[-] no zone start_pfn entries found\n");
+    kasld_err("no zone start_pfn entries found");
     return 0;
   }
 

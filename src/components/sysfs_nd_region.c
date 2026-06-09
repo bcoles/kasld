@@ -64,6 +64,7 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdint.h>
@@ -94,13 +95,13 @@ int main(void) {
   char buf[64];
   int count = 0;
 
-  printf("[.] trying %s/ndregionN/resource ...\n", nd_base);
+  kasld_info("trying %s/ndregionN/resource ...", nd_base);
 
   d = opendir(nd_base);
   if (!d) {
     int saved_errno = errno;
     if (saved_errno == ENOENT || saved_errno == ENODEV)
-      printf("[-] %s not present (CONFIG_LIBNVDIMM=n or no nd bus)\n", nd_base);
+      kasld_err("%s not present (CONFIG_LIBNVDIMM=n or no nd bus)", nd_base);
     else
       perror("[-] opendir");
     return (saved_errno == EACCES || saved_errno == EPERM)
@@ -130,7 +131,7 @@ int main(void) {
     if (!f) {
       /* ENXIO = driver not bound; ENOENT = attribute hidden (no mappings) */
       if (errno != ENOENT && errno != ENXIO)
-        fprintf(stderr, "[-] failed to open %s: %s\n", path, strerror(errno));
+        kasld_err("failed to open %s: %s", path, strerror(errno));
       continue;
     }
 
@@ -162,8 +163,8 @@ int main(void) {
   closedir(d);
 
   if (!count) {
-    printf("[-] no readable ndregion resource attributes found "
-           "(no NVDIMM hardware or driver not bound)\n");
+    kasld_err("no readable ndregion resource attributes found "
+              "(no NVDIMM hardware or driver not bound)");
     return KASLD_EXIT_UNAVAILABLE;
   }
 

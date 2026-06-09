@@ -28,6 +28,7 @@
 
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -60,7 +61,7 @@ static struct module_range get_addr_proc_modules(void) {
   unsigned long module_addr = 0;
   struct module_range range = {0, 0};
 
-  printf("[.] reading %s ...\n", path);
+  kasld_info("reading %s ...", path);
 
   f = kasld_fopen(path, "r");
 
@@ -100,7 +101,7 @@ int main(void) {
 
   struct module_range range = get_addr_proc_modules();
   if (!range.lo) {
-    printf("[-] no kernel address found in /proc/modules\n");
+    kasld_err("no kernel address found in /proc/modules");
     return 0;
   }
 

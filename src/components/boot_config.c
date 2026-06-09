@@ -18,6 +18,7 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include "include/kconfig.h"
 #include <errno.h>
 #include <stdio.h>
@@ -66,7 +67,7 @@ static int open_boot_config(FILE **fpp) {
       return 0;
   }
 
-  fprintf(stderr, "[-] could not find kernel config\n");
+  kasld_err("could not find kernel config");
   return -1;
 }
 
@@ -89,7 +90,7 @@ int main(void) {
   /* Detect PAGE_OFFSET (32-bit vmsplit) */
   unsigned long virt_page_offset = get_kconfig_page_offset(fp);
   if (virt_page_offset) {
-    printf("[.] CONFIG_PAGE_OFFSET: %#lx\n", virt_page_offset);
+    kasld_info("CONFIG_PAGE_OFFSET: %#lx", virt_page_offset);
     kasld_result_base(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, virt_page_offset,
                       NULL, CONF_PARSED);
   }
@@ -101,7 +102,7 @@ int main(void) {
    * raises the floor to the precise position at CONF_PARSED. */
   unsigned long phys_start = get_kconfig_physical_start(fp);
   if (phys_start) {
-    printf("[.] CONFIG_PHYSICAL_START: %#lx\n", phys_start);
+    kasld_info("CONFIG_PHYSICAL_START: %#lx", phys_start);
     kasld_emit_scalar(SF_PHYSICAL_START, phys_start, CONF_PARSED);
   }
 
@@ -112,7 +113,7 @@ int main(void) {
    * Q_KASLR_ALIGN / Q_PHYS_KASLR_ALIGN regardless of source. */
   unsigned long phys_align = get_kconfig_physical_align(fp);
   if (phys_align) {
-    printf("[.] CONFIG_PHYSICAL_ALIGN: %#lx\n", phys_align);
+    kasld_info("CONFIG_PHYSICAL_ALIGN: %#lx", phys_align);
     kasld_emit_scalar(SF_PHYS_KERNEL_ALIGN, phys_align, CONF_PARSED);
   }
 
@@ -133,7 +134,7 @@ int main(void) {
    * with CONFIG_RANDOMIZE_MEMORY=y. Consumed by directmap_kaslr_disabled_pin.
    */
   if (is_kconfig_set(fp, "CONFIG_KASAN")) {
-    printf("[.] CONFIG_KASAN=y\n");
+    kasld_info("CONFIG_KASAN=y");
     kasld_emit_scalar(SF_KASAN_ENABLED, 1, CONF_PARSED);
   }
 

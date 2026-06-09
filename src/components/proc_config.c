@@ -29,6 +29,7 @@
 
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include "include/kconfig.h"
 #include <errno.h>
 #include <stdio.h>
@@ -62,10 +63,10 @@ static FILE *open_proc_config(void) {
   char pathbuf[KASLD_PATH_MAX];
   const char *cfg = kasld_resolve(PROC_CONFIG_GZ, pathbuf, sizeof(pathbuf));
 
-  printf("[.] checking %s ...\n", PROC_CONFIG_GZ);
+  kasld_info("checking %s ...", PROC_CONFIG_GZ);
 
   if (kasld_access(PROC_CONFIG_GZ, R_OK) != 0) {
-    fprintf(stderr, "[-] Could not read %s\n", PROC_CONFIG_GZ);
+    kasld_err("Could not read %s", PROC_CONFIG_GZ);
     return NULL;
   }
 
@@ -108,7 +109,7 @@ static FILE *open_proc_config(void) {
 
   fseek(fp, 0, SEEK_END);
   if (ftell(fp) <= 0) {
-    fprintf(stderr, "[-] Failed to decompress %s\n", PROC_CONFIG_GZ);
+    kasld_err("Failed to decompress %s", PROC_CONFIG_GZ);
     fclose(fp);
     return NULL;
   }
@@ -135,7 +136,7 @@ int main(void) {
   /* Detect PAGE_OFFSET (32-bit vmsplit) */
   unsigned long virt_page_offset = get_kconfig_page_offset(fp);
   if (virt_page_offset) {
-    printf("[.] CONFIG_PAGE_OFFSET: %#lx\n", virt_page_offset);
+    kasld_info("CONFIG_PAGE_OFFSET: %#lx", virt_page_offset);
     kasld_result_base(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, virt_page_offset,
                       NULL, CONF_PARSED);
   }
@@ -143,7 +144,7 @@ int main(void) {
   /* CONFIG_PHYSICAL_START (x86 LOAD_PHYSICAL_ADDR) — see boot_config.c. */
   unsigned long phys_start = get_kconfig_physical_start(fp);
   if (phys_start) {
-    printf("[.] CONFIG_PHYSICAL_START: %#lx\n", phys_start);
+    kasld_info("CONFIG_PHYSICAL_START: %#lx", phys_start);
     kasld_emit_scalar(SF_PHYSICAL_START, phys_start, CONF_PARSED);
   }
 
@@ -151,7 +152,7 @@ int main(void) {
    * Fallback for systems where /sys/kernel/boot_params/data is unreadable.  */
   unsigned long phys_align = get_kconfig_physical_align(fp);
   if (phys_align) {
-    printf("[.] CONFIG_PHYSICAL_ALIGN: %#lx\n", phys_align);
+    kasld_info("CONFIG_PHYSICAL_ALIGN: %#lx", phys_align);
     kasld_emit_scalar(SF_PHYS_KERNEL_ALIGN, phys_align, CONF_PARSED);
   }
 
@@ -172,7 +173,7 @@ int main(void) {
    * when CONFIG_RANDOMIZE_MEMORY=y. Consumed by directmap_kaslr_disabled_pin
    * (x86_64). The fact is arch-neutral; the rule gates on the arch. */
   if (is_kconfig_set(fp, "CONFIG_KASAN")) {
-    printf("[.] CONFIG_KASAN=y\n");
+    kasld_info("CONFIG_KASAN=y");
     kasld_emit_scalar(SF_KASAN_ENABLED, 1, CONF_PARSED);
   }
 

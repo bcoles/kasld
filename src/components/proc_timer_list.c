@@ -39,6 +39,7 @@
 
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <errno.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -63,7 +64,7 @@ int main(void) {
   char line[512];
   int count = 0;
 
-  printf("[.] scanning %s for timer base addresses ...\n", path);
+  kasld_info("scanning %s for timer base addresses ...", path);
 
   FILE *f = kasld_fopen(path, "r");
   if (!f) {
@@ -118,7 +119,7 @@ int main(void) {
   fclose(f);
 
   if (!count)
-    printf("[-] no timer base address found in %s\n", path);
+    kasld_err("no timer base address found in %s", path);
 
   return 0;
 }

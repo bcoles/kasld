@@ -45,6 +45,7 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -99,7 +100,7 @@ int main(void) {
   if (!addr) {
     if (ds < 0)
       return KASLD_EXIT_NOPERM;
-    printf("[-] early_init_dt_add_memory_arch info not found in dmesg\n");
+    kasld_err("early_init_dt_add_memory_arch info not found in dmesg");
     return 0;
   }
 

@@ -48,6 +48,7 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -91,13 +92,13 @@ static int on_match(const char *line, void *ctx) {
 int main(void) {
   unsigned long addr = 0;
 
-  printf("[.] searching dmesg for driver component ops pointers ...\n");
+  kasld_info("searching dmesg for driver component ops pointers ...");
   int ds = dmesg_search(" (ops 0x", on_match, &addr);
 
   if (!addr) {
     if (ds < 0)
       return KASLD_EXIT_NOPERM;
-    printf("[-] driver component ops pointers not found in dmesg\n");
+    kasld_err("driver component ops pointers not found in dmesg");
     return 0;
   }
 

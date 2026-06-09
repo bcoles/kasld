@@ -46,6 +46,7 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdint.h>
@@ -116,7 +117,7 @@ int main(void) {
       root = alt;
       closedir(d);
     } else {
-      printf("[-] device tree not available (not a DT platform?)\n");
+      kasld_err("device tree not available (not a DT platform?)");
       return KASLD_EXIT_UNAVAILABLE;
     }
   }
@@ -127,12 +128,12 @@ int main(void) {
   if (!d) {
     if (errno == EACCES || errno == EPERM)
       return KASLD_EXIT_NOPERM;
-    printf("[-] reserved-memory node not found in device tree\n");
+    kasld_err("reserved-memory node not found in device tree");
     return KASLD_EXIT_UNAVAILABLE;
   }
   closedir(d);
 
-  printf("[.] searching %s/reserved-memory for physical addresses ...\n", root);
+  kasld_info("searching %s/reserved-memory for physical addresses ...", root);
 
   /* Read root #address-cells and #size-cells as defaults */
   snprintf(path, sizeof(path), "%s/#address-cells", root);
@@ -225,7 +226,7 @@ int main(void) {
   closedir(d);
 
   if (!count) {
-    printf("[-] no reserved-memory regions with reg properties found\n");
+    kasld_err("no reserved-memory regions with reg properties found");
     return 0;
   }
 

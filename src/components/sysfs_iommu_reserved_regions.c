@@ -74,6 +74,7 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
@@ -132,15 +133,15 @@ int main(void) {
   int group_count = 0;
   int found = 0;
 
-  printf("[.] searching %s for IOMMU group reserved region physical addresses "
-         "...\n",
-         base);
+  kasld_info("searching %s for IOMMU group reserved region physical addresses "
+             "...",
+             base);
 
   d = opendir(base);
   if (!d) {
     if (errno == ENOENT) {
-      printf("[-] %s: not present (no active IOMMU or CONFIG_IOMMU_API=n)\n",
-             base);
+      kasld_err("%s: not present (no active IOMMU or CONFIG_IOMMU_API=n)",
+                base);
       return KASLD_EXIT_UNAVAILABLE;
     }
     perror("[-] opendir");
@@ -202,15 +203,13 @@ int main(void) {
   closedir(d);
 
   if (!group_count) {
-    printf("[-] no IOMMU groups found in %s (no active IOMMU or empty)\n",
-           base);
+    kasld_err("no IOMMU groups found in %s (no active IOMMU or empty)", base);
     return KASLD_EXIT_UNAVAILABLE;
   }
 
   if (!found) {
-    printf(
-        "[-] no DRAM-range reserved regions found across %d IOMMU group(s)\n",
-        group_count);
+    kasld_err("no DRAM-range reserved regions found across %d IOMMU group(s)",
+              group_count);
     return KASLD_EXIT_UNAVAILABLE;
   }
 

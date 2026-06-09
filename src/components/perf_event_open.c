@@ -28,6 +28,7 @@
 
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <errno.h>
 #include <linux/perf_event.h>
 #include <poll.h>
@@ -88,7 +89,7 @@ static void ring_copy(const char *ring, size_t ring_size, uint64_t off,
 }
 
 static unsigned long get_kernel_addr_perf(void) {
-  printf("[.] trying perf_event_open sampling ...\n");
+  kasld_info("trying perf_event_open sampling ...");
 
   pid_t child = fork();
   if (child == -1) {
@@ -227,7 +228,7 @@ static unsigned long get_kernel_addr_perf(void) {
 int main(void) {
   unsigned long addr = get_kernel_addr_perf();
   if (!addr) {
-    printf("[-] no kernel address found via perf_event_open\n");
+    kasld_err("no kernel address found via perf_event_open");
     return 0;
   }
 

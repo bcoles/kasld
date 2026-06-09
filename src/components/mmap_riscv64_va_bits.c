@@ -33,6 +33,7 @@
 
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <errno.h>
 #include <stdio.h>
 #include <sys/mman.h>
@@ -71,7 +72,7 @@ int main(void) {
   if (p1 == MAP_FAILED) {
     if (errno != ENOMEM)
       return 0; /* a different failure: don't infer */
-    printf("[.] mmap(1<<38) failed (ENOMEM): SV39\n");
+    kasld_info("mmap(1<<38) failed (ENOMEM): SV39");
     printf("PAGE_OFFSET: [%#lx, %#lx]\n", RISCV_PAGE_OFFSET_SV39_LO,
            RISCV_PAGE_OFFSET_SV39_HI);
     kasld_result_range(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET,
@@ -89,11 +90,11 @@ int main(void) {
     if (errno != ENOMEM)
       return 0;
     virt_page_offset = RISCV_PAGE_OFFSET_SV48; /* SV48 */
-    printf("[.] mmap(1<<47) failed (ENOMEM): SV48\n");
+    kasld_info("mmap(1<<47) failed (ENOMEM): SV48");
   } else {
     munmap(p2, RISCV_PROBE_LEN);
     virt_page_offset = RISCV_PAGE_OFFSET_SV57; /* SV57 */
-    printf("[.] mmap(1<<47) succeeded: SV57\n");
+    kasld_info("mmap(1<<47) succeeded: SV57");
   }
   printf("PAGE_OFFSET: %#lx\n", virt_page_offset);
   kasld_result_base(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, virt_page_offset, NULL,

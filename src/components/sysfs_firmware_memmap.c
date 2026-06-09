@@ -43,6 +43,7 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
@@ -85,7 +86,7 @@ int main(void) {
   unsigned long lo = ~0ul, hi = 0;
   int count = 0;
 
-  printf("[.] searching %s for System RAM entries ...\n", base);
+  kasld_info("searching %s for System RAM entries ...", base);
 
   d = opendir(base);
   if (!d) {
@@ -135,7 +136,7 @@ int main(void) {
   closedir(d);
 
   if (!count) {
-    printf("[-] no System RAM entries found in %s\n", base);
+    kasld_err("no System RAM entries found in %s", base);
     return 0;
   }
 

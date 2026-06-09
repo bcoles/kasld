@@ -45,6 +45,7 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -114,13 +115,13 @@ static int on_match(const char *line, void *ctx) {
 int main(void) {
   struct e820_ctx e = {0, 0};
 
-  printf("[.] searching dmesg for e820 physical memory map ...\n");
+  kasld_info("searching dmesg for e820 physical memory map ...");
   int ds = dmesg_search("e820", on_match, &e);
 
   if (!e.lo && !e.hi) {
     if (ds < 0)
       return KASLD_EXIT_NOPERM;
-    printf("[-] e820 memory map not found in dmesg\n");
+    kasld_err("e820 memory map not found in dmesg");
     return 0;
   }
 

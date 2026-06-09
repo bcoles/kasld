@@ -46,6 +46,7 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -184,7 +185,7 @@ static const char *reg_needles[] = {NULL};
 int main(void) {
   struct oops_ctx ctx = {0, 0, 0};
 
-  printf("[.] searching dmesg for kernel oops information ...\n");
+  kasld_info("searching dmesg for kernel oops information ...");
 
   int ds = dmesg_search("[<", on_calltrace, &ctx);
   if (ds < 0)
@@ -196,7 +197,7 @@ int main(void) {
     dmesg_search(reg_needles[i], on_regdump, &ctx);
 
   if (!ctx.text && !ctx.directmap && !ctx.phys) {
-    printf("[-] no kernel oops information found in dmesg\n");
+    kasld_err("no kernel oops information found in dmesg");
     return 0;
   }
 

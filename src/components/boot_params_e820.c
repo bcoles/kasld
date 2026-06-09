@@ -59,6 +59,7 @@
 
 #define _POSIX_C_SOURCE 200809L
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <stdint.h>
@@ -127,8 +128,8 @@ static inline uint64_t read_le64(const uint8_t *p) {
 int main(void) {
   static uint8_t buf[BOOT_PARAMS_SIZE];
 
-  printf("[.] reading E820 memory map and initrd address from " BOOT_PARAMS_PATH
-         " ...\n");
+  kasld_info("reading E820 memory map and initrd address from " BOOT_PARAMS_PATH
+             " ...");
 
   int fd = kasld_open(BOOT_PARAMS_PATH, O_RDONLY);
   if (fd < 0) {
@@ -143,9 +144,8 @@ int main(void) {
   close(fd);
 
   if (n != (ssize_t)sizeof(buf)) {
-    fprintf(stderr,
-            "[-] short read from " BOOT_PARAMS_PATH " (%zd of %u bytes)\n", n,
-            BOOT_PARAMS_SIZE);
+    kasld_err("short read from " BOOT_PARAMS_PATH " (%zd of %u bytes)", n,
+              BOOT_PARAMS_SIZE);
     return KASLD_EXIT_UNAVAILABLE;
   }
 
@@ -159,7 +159,7 @@ int main(void) {
     e820_entries = E820_MAX_ENTRIES;
 
   if (e820_entries == 0) {
-    printf("[-] E820 table is empty\n");
+    kasld_err("E820 table is empty");
   } else {
     unsigned long lo = ~0ul;
     unsigned long hi = 0;
@@ -193,7 +193,7 @@ int main(void) {
     }
 
     if (ram_count == 0) {
-      printf("[-] no E820 RAM entries found\n");
+      kasld_err("no E820 RAM entries found");
     } else {
       if (lo != ~0ul) {
         printf("leaked E820 DRAM low:  0x%016lx\n", lo);
@@ -243,7 +243,7 @@ int main(void) {
   uint64_t initrd_size = ((uint64_t)hi_sz << 32) | lo_sz;
 
   if (!initrd_start || !initrd_size) {
-    printf("[-] no initrd found in boot_params\n");
+    kasld_err("no initrd found in boot_params");
     return 0;
   }
 

@@ -40,6 +40,7 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -118,11 +119,11 @@ static int on_match(const char *line, void *ctx) {
 }
 
 int main(void) {
-  printf("[.] searching dmesg for RAMDISK physical addresses ...\n");
+  kasld_info("searching dmesg for RAMDISK physical addresses ...");
   int found = dmesg_search("RAMDISK", on_match, NULL);
   if (found < 0)
     return KASLD_EXIT_NOPERM;
   if (!found)
-    printf("[-] RAMDISK info not found in dmesg\n");
+    kasld_err("RAMDISK info not found in dmesg");
   return 0;
 }

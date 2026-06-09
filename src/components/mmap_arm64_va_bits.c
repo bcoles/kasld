@@ -25,6 +25,7 @@
 
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <errno.h>
 #include <stdio.h>
 #include <sys/mman.h>
@@ -54,11 +55,11 @@ int main(void) {
     if (errno != ENOMEM)
       return 0; /* a different failure: don't infer */
     virt_page_offset = ARM64_VA48_PAGE_OFFSET; /* VA_BITS <= 48 */
-    printf("[.] mmap(1<<48) failed (ENOMEM): VA_BITS<=48\n");
+    kasld_info("mmap(1<<48) failed (ENOMEM): VA_BITS<=48");
   } else {
     munmap(p, ARM64_VA_PROBE_LEN);
     virt_page_offset = ARM64_VA52_PAGE_OFFSET; /* VA_BITS >= 52 */
-    printf("[.] mmap(1<<48) succeeded: VA_BITS>=52\n");
+    kasld_info("mmap(1<<48) succeeded: VA_BITS>=52");
   }
   printf("PAGE_OFFSET: %#lx\n", virt_page_offset);
   kasld_result_base(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, virt_page_offset, NULL,

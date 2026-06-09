@@ -32,6 +32,7 @@
 
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -51,8 +52,8 @@ KASLD_META("method:heuristic\n"
 
 static unsigned long find_kernel_address_space_start(void) {
   unsigned long i;
-  printf("[.] searching 32-bit address space for kernel virtual address space "
-         "start ...\n");
+  kasld_info("searching 32-bit address space for kernel virtual address space "
+             "start ...");
 
   for (i = 0x10000000; i < 0xf0000000; i += 0x10000000) {
     if (mmap((void *)i, PAGE_SIZE, PROT_READ,
@@ -61,7 +62,7 @@ static unsigned long find_kernel_address_space_start(void) {
     munmap((void *)i, PAGE_SIZE);
   }
 
-  fprintf(stderr, "[-] Could not locate kernel virtual address space\n");
+  kasld_err("Could not locate kernel virtual address space");
   return 0;
 }
 
@@ -75,9 +76,9 @@ int main(void) {
                     CONF_HEURISTIC);
 
   if (addr < (unsigned long)KERNEL_VIRT_VAS_START)
-    printf("[!] warning: virtual address start %lx below configured "
-           "KERNEL_VIRT_VAS_START %lx\n",
-           addr, (unsigned long)KERNEL_VIRT_VAS_START);
+    kasld_err("warning: virtual address start %lx below configured "
+              "KERNEL_VIRT_VAS_START %lx",
+              addr, (unsigned long)KERNEL_VIRT_VAS_START);
 
   return 0;
 }

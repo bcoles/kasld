@@ -53,6 +53,7 @@
 
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <errno.h>
 #include <inttypes.h>
 #include <stdio.h>
@@ -84,7 +85,7 @@ static unsigned long get_kernel_addr_proc_pid_syscall(void) {
   char *ptr;
   char *endptr;
 
-  printf("[.] checking /proc/self/syscall argument registers ...\n");
+  kasld_info("checking /proc/self/syscall argument registers ...");
 
   int i;
   for (i = 0; i < iterations; i++) {
@@ -194,7 +195,7 @@ static unsigned long get_kernel_addr_proc_pid_syscall(void) {
 int main(void) {
   unsigned long addr = get_kernel_addr_proc_pid_syscall();
   if (!addr) {
-    printf("[-] no kernel address found in /proc/pid/syscall\n");
+    kasld_err("no kernel address found in /proc/pid/syscall");
     return 0;
   }
 

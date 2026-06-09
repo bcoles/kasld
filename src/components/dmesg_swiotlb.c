@@ -43,6 +43,7 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -122,7 +123,7 @@ static int on_placing(const char *line, void *ctx) {
 int main(void) {
   struct range_ctx r = {0, 0};
 
-  printf("[.] searching dmesg for SWIOTLB bounce buffer info ...\n");
+  kasld_info("searching dmesg for SWIOTLB bounce buffer info ...");
 
   /* Try modern format first */
   int ds = dmesg_search("software IO TLB: mapped", on_mapped, &r);
@@ -134,7 +135,7 @@ int main(void) {
     dmesg_search("Placing software IO TLB between", on_placing, &r);
 
   if (!r.lo) {
-    printf("[-] SWIOTLB not found in dmesg (may not be enabled)\n");
+    kasld_err("SWIOTLB not found in dmesg (may not be enabled)");
     return 0;
   }
 

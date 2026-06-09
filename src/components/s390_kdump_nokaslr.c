@@ -33,6 +33,7 @@
 
 #include "include/cmdline.h"
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <stdio.h>
 
 KASLD_EXPLAIN(
@@ -50,12 +51,12 @@ KASLD_META("method:detection\n"
 
 int main(void) {
   if (!cmdline_has_prefix("elfcorehdr=")) {
-    fprintf(stderr, "[-] no 'elfcorehdr=' on /proc/cmdline\n");
+    kasld_err("no 'elfcorehdr=' on /proc/cmdline");
     return 1;
   }
 
-  printf("[.] s390 'elfcorehdr=' on /proc/cmdline — running as kdump "
-         "crash kernel; __kaslr_enabled forced to 0.\n");
+  kasld_info("s390 'elfcorehdr=' on /proc/cmdline — running as kdump "
+             "crash kernel; __kaslr_enabled forced to 0.");
   /* On s390 kdump both __kaslr_offset (virt) and __kaslr_offset_phys are
    * forced to 0; the kernel sits at the compile-time defaults on both axes
    * (KASLR_DISABLED_PINS_VIRT_TEXT gates the virt pin; KASLR_DISABLED_PINS_PHYS

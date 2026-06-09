@@ -49,6 +49,7 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -137,7 +138,7 @@ static int on_reserving(const char *line, void *ctx) {
 int main(void) {
   struct range_ctx r = {0, 0};
 
-  printf("[.] searching dmesg for crashkernel reservation ...\n");
+  kasld_info("searching dmesg for crashkernel reservation ...");
 
   /* Try modern hex format first */
   int ds = dmesg_search("crashkernel reserved:", on_reserved, &r);
@@ -151,7 +152,7 @@ int main(void) {
     dmesg_search("for crashkernel", on_reserving, &r);
 
   if (!r.lo) {
-    printf("[-] crashkernel reservation not found in dmesg\n");
+    kasld_err("crashkernel reservation not found in dmesg");
     return 0;
   }
 

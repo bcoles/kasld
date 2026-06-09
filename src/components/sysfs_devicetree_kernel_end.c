@@ -27,6 +27,7 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include "include/kasld/devicetree.h"
 
 KASLD_EXPLAIN(
@@ -52,7 +53,7 @@ int main(void) {
   for (int i = 0; bases[i]; i++) {
     snprintf(path, sizeof(path), "%s/linux,kernel-end", bases[i]);
     if (kasld_dt_read_be_auto(path, &kend)) {
-      printf("[.] %s = 0x%lx\n", path, kend);
+      kasld_info("%s = 0x%lx", path, kend);
       found = 1;
       break;
     }
@@ -64,7 +65,7 @@ int main(void) {
     return KASLD_EXIT_UNAVAILABLE;
   }
   if (kend == 0) {
-    fprintf(stderr, "[-] linux,kernel-end is zero\n");
+    kasld_err("linux,kernel-end is zero");
     return 0;
   }
 

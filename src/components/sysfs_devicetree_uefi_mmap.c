@@ -53,6 +53,7 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -116,25 +117,24 @@ int main(void) {
   }
 
   if (!chosen) {
-    printf("[-] device tree chosen node not found or no linux,uefi-mmap-start "
-           "property\n");
+    kasld_err("device tree chosen node not found or no linux,uefi-mmap-start "
+              "property");
     return KASLD_EXIT_UNAVAILABLE;
   }
 
-  printf("[.] trying %s/linux,uefi-mmap-start ...\n", chosen);
+  kasld_info("trying %s/linux,uefi-mmap-start ...", chosen);
 
   /* Read linux,uefi-mmap-start — always 8 bytes (u64 BE) */
   snprintf(path, sizeof(path), "%s/linux,uefi-mmap-start", chosen);
   n = read_binary(path, buf, sizeof(buf));
   if (n != 8) {
-    fprintf(stderr, "[-] failed to read %s (got %d bytes, expected 8)\n", path,
-            n);
+    kasld_err("failed to read %s (got %d bytes, expected 8)", path, n);
     return 0;
   }
 
   uint64_t mmap_phys = read_be64(buf);
   if (!mmap_phys) {
-    fprintf(stderr, "[-] linux,uefi-mmap-start is zero\n");
+    kasld_err("linux,uefi-mmap-start is zero");
     return 0;
   }
 

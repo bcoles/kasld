@@ -33,6 +33,7 @@
 
 #include "include/cmdline.h"
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -98,19 +99,18 @@ int main(void) {
   return KASLD_EXIT_UNAVAILABLE;
 #endif
 
-  printf("[.] checking for hibernation-disabled KASLR ...\n");
+  kasld_info("checking for hibernation-disabled KASLR ...");
 
   /* "resume=" must be present — this is the hibernation resume path. */
   if (!cmdline_has_prefix("resume=")) {
-    fprintf(stderr, "[-] resume= not found on cmdline.\n");
+    kasld_err("resume= not found on cmdline.");
     return 1;
   }
 
   /* "nohibernate" or "noresume" on the cmdline cancels hibernation,
    * restoring normal KASLR. */
   if (cmdline_has_word("nohibernate") || cmdline_has_word("noresume")) {
-    fprintf(stderr,
-            "[-] nohibernate/noresume present; hibernation cancelled.\n");
+    kasld_err("nohibernate/noresume present; hibernation cancelled.");
     return 1;
   }
 
@@ -118,24 +118,22 @@ int main(void) {
    * resume=. Without it the parameter is ignored and KASLR is not affected. */
   struct utsname uts;
   if (kasld_uname(&uts) != 0) {
-    fprintf(stderr, "[-] kasld_uname() failed.\n");
+    kasld_err("kasld_uname() failed.");
     return 1;
   }
 
   FILE *fp = open_boot_config(uts.release);
   if (!fp) {
-    fprintf(stderr, "[-] could not open boot config.\n");
+    kasld_err("could not open boot config.");
     return KASLD_EXIT_UNAVAILABLE;
   }
 
-  printf("[.] checking for CONFIG_HIBERNATION ...\n");
+  kasld_info("checking for CONFIG_HIBERNATION ...");
   int has_hib = config_has_hibernation(fp);
   fclose(fp);
 
   if (!has_hib) {
-    fprintf(
-        stderr,
-        "[-] CONFIG_HIBERNATION=y not set; resume= has no effect on KASLR.\n");
+    kasld_err("CONFIG_HIBERNATION=y not set; resume= has no effect on KASLR.");
     return 1;
   }
 
@@ -144,8 +142,8 @@ int main(void) {
    * off. virt_kaslr_disabled_pin / phys_kaslr_disabled_pin each gate by
    * its arch macro (KASLR_DISABLED_PINS_VIRT_TEXT / KASLR_DISABLED_PINS_PHYS) +
    * window-containment. */
-  printf("[.] hibernation resume detected with CONFIG_HIBERNATION=y; KASLR "
-         "disabled.\n");
+  kasld_info("hibernation resume detected with CONFIG_HIBERNATION=y; KASLR "
+             "disabled.");
 
   kasld_emit_scalar(SF_VIRT_KASLR_DISABLED, 1, CONF_PARSED);
   kasld_emit_scalar(SF_PHYS_KASLR_DISABLED, 1, CONF_PARSED);

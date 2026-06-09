@@ -69,6 +69,7 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -112,14 +113,14 @@ static int on_match(const char *line, void *ctx) {
 int main(void) {
   unsigned long addr = 0;
 
-  printf(
-      "[.] searching dmesg for native_[read|write]_msr function pointer ...\n");
+  kasld_info(
+      "searching dmesg for native_[read|write]_msr function pointer ...");
   int ds = dmesg_search(" at rIP: 0x", on_match, &addr);
 
   if (!addr) {
     if (ds < 0)
       return KASLD_EXIT_NOPERM;
-    printf("[-] ex_handler_msr function pointer not found in dmesg\n");
+    kasld_err("ex_handler_msr function pointer not found in dmesg");
     return 0;
   }
 

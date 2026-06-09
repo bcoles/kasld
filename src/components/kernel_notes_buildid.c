@@ -83,6 +83,7 @@
 
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -165,7 +166,7 @@ int main(void) {
   int seen_lto = 0;
   int seen_fdo = 0;
 
-  printf("[.] reading %s ...\n", path);
+  kasld_info("reading %s ...", path);
 
   fd = kasld_open(path, O_RDONLY);
   if (fd < 0) {
@@ -247,7 +248,7 @@ int main(void) {
   close(fd);
 
   if (!seen_buildid && !seen_salt && !seen_lto && !seen_fdo) {
-    printf("[-] no recognised fingerprint notes in %s\n", path);
+    kasld_err("no recognised fingerprint notes in %s", path);
     return 0;
   }
 

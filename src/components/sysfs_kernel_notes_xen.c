@@ -70,6 +70,7 @@
 
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <stdint.h>
@@ -138,7 +139,7 @@ int main(void) {
   unsigned long xen_hypercall = 0; /* type 2: hypercall_page VA */
   unsigned long xen_phys32 = 0;    /* type 18: physical entry offset */
 
-  printf("[.] checking /sys/kernel/notes ...\n");
+  kasld_info("checking /sys/kernel/notes ...");
 
   fd = kasld_open("/sys/kernel/notes", O_RDONLY);
   if (fd < 0) {
@@ -204,8 +205,8 @@ int main(void) {
       memcpy(&val, desc, sizeof val);
 
       if (kasld_addr_is_kernel_text(val)) {
-        printf("[+] found kernel address in %s note (type %u): %lx\n", name,
-               type, val);
+        kasld_found("found kernel address in %s note (type %u): %lx", name,
+                    type, val);
         snprintf(label, sizeof label, "%.40s", name);
         kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, val, label,
                             CONF_PARSED);
@@ -218,9 +219,9 @@ int main(void) {
       for (int i = 0; i < 2; i++) {
         if (vals[i] >= KERNEL_VIRT_TEXT_MIN &&
             vals[i] <= KERNEL_VIRT_TEXT_MAX) {
-          printf("[+] found kernel address in %s note (type %u, word %d): "
-                 "%lx\n",
-                 name, type, i, vals[i]);
+          kasld_found("found kernel address in %s note (type %u, word %d): "
+                      "%lx",
+                      name, type, i, vals[i]);
           snprintf(label, sizeof label, "%.40s", name);
           kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, vals[i],
                               label, CONF_PARSED);
@@ -265,13 +266,13 @@ int main(void) {
 
     if (!stale) {
       if (xen_entry) {
-        printf("[+] Xen entry (startup_xen): %lx\n", xen_entry);
+        kasld_found("Xen entry (startup_xen): %lx", xen_entry);
         kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, xen_entry,
                             "startup_xen", CONF_PARSED);
         found++;
       }
       if (xen_hypercall) {
-        printf("[+] Xen hypercall_page: %lx\n", xen_hypercall);
+        kasld_found("Xen hypercall_page: %lx", xen_hypercall);
         kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, xen_hypercall,
                             "hypercall_page", CONF_PARSED);
         found++;
@@ -286,19 +287,19 @@ int main(void) {
          * and is not recoverable from this note. */
         unsigned long virt = KERNEL_VIRT_TEXT_MIN + xen_phys32;
         if (kasld_addr_is_kernel_text(virt)) {
-          printf("[+] Xen PHYS32_ENTRY -> virtual: %lx\n", virt);
+          kasld_found("Xen PHYS32_ENTRY -> virtual: %lx", virt);
           kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, virt,
                               "pvh_start_xen", CONF_PARSED);
           found++;
         }
       }
     } else {
-      printf("[-] Xen notes appear stale (unrelocated); discarding\n");
+      kasld_err("Xen notes appear stale (unrelocated); discarding");
     }
   }
 
   if (!found)
-    printf("[-] no kernel addresses found in ELF notes\n");
+    kasld_err("no kernel addresses found in ELF notes");
 
   // NOTE: On kernels <= 5.x, hypercall_page was in .pushsection .text
   // (at _text + 0x1000), so addr & -KASLR_VIRT_ALIGN recovered _text exactly.

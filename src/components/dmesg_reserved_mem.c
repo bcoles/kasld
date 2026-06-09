@@ -46,6 +46,7 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -99,11 +100,11 @@ static int on_match(const char *line, void *ctx) {
 int main(void) {
   struct range_ctx r = {0, 0};
 
-  printf("[.] searching dmesg for device tree reserved memory regions ...\n");
+  kasld_info("searching dmesg for device tree reserved memory regions ...");
   int ds = dmesg_search("OF: reserved mem:", on_match, &r);
 
   if (!r.lo) {
-    printf("[-] no device tree reserved memory regions found in dmesg\n");
+    kasld_err("no device tree reserved memory regions found in dmesg");
     if (ds < 0)
       return KASLD_EXIT_NOPERM;
     return 0;

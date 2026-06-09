@@ -46,6 +46,7 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdint.h>
@@ -115,12 +116,12 @@ int main(void) {
       root = alt;
       closedir(d);
     } else {
-      printf("[-] device tree not available (not a DT platform?)\n");
+      kasld_err("device tree not available (not a DT platform?)");
       return KASLD_EXIT_UNAVAILABLE;
     }
   }
 
-  printf("[.] searching %s for memory node physical addresses ...\n", root);
+  kasld_info("searching %s for memory node physical addresses ...", root);
 
   /* Read #address-cells from root node (default: 1) */
   snprintf(path, sizeof(path), "%s/#address-cells", root);
@@ -205,7 +206,7 @@ int main(void) {
   closedir(d);
 
   if (!count) {
-    printf("[-] no memory nodes found in device tree\n");
+    kasld_err("no memory nodes found in device tree");
     return 0;
   }
 

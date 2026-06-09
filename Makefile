@@ -306,6 +306,7 @@ test : $(TEST_BIN) $(TEST_RENDER_BIN) $(TEST_EST_BIN) $(TEST_EV_BIN) $(TEST_ENG_
 	@$(TEST_DIR)/run-all
 	@$(TEST_DIR)/check-self-edges
 	@$(TEST_DIR)/check-truncation
+	@$(TEST_DIR)/check-component-output
 
 .PHONY: test-integration
 test-integration : $(TEST_INT_BIN)

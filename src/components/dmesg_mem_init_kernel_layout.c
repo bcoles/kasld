@@ -96,6 +96,7 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -225,8 +226,8 @@ static void emit_base(int idx, unsigned long addr) {
 
   if ((region == REGION_DIRECTMAP || region == REGION_MODULE_REGION) &&
       addr < (unsigned long)KERNEL_VIRT_VAS_START)
-    printf("[!] warning: %s %lx below configured KERNEL_VIRT_VAS_START %lx\n",
-           entries[idx].display, addr, (unsigned long)KERNEL_VIRT_VAS_START);
+    kasld_err("warning: %s %lx below configured KERNEL_VIRT_VAS_START %lx",
+              entries[idx].display, addr, (unsigned long)KERNEL_VIRT_VAS_START);
 
   /* Each "kernel .text start" / ".data start" / "modules start" message
    * reports the BASE of the named region. */
@@ -307,13 +308,13 @@ int main(void) {
    * "0x" to catch the s390 boot_debug format "vmalloc area:        0x..."
    * (multiple spaces between colon and address) alongside the
    * single-space riscv/xtensa/sh/parisc form "vmalloc : 0x...". */
-  printf("[.] searching dmesg for kernel memory layout sections ...\n");
+  kasld_info("searching dmesg for kernel memory layout sections ...");
   int ds = dmesg_search("0x", on_match, &ctx);
 
   if (!ctx.found_mask) {
     if (ds < 0)
       return KASLD_EXIT_NOPERM;
-    printf("[-] kernel memory layout sections not found in dmesg\n");
+    kasld_err("kernel memory layout sections not found in dmesg");
   }
 
   return 0;

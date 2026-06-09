@@ -14,6 +14,7 @@
 
 #include "include/cmdline.h"
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <stdio.h>
 
 KASLD_EXPLAIN(
@@ -26,14 +27,14 @@ KASLD_META("method:detection\n"
            "addr:none\n");
 
 int main(void) {
-  printf("[.] trying /proc/cmdline ...\n");
+  kasld_info("trying /proc/cmdline ...");
 
   if (!cmdline_has_word("nokaslr")) {
-    fprintf(stderr, "[-] Kernel was not booted with nokaslr flag.\n");
+    kasld_err("Kernel was not booted with nokaslr flag.");
     return 1;
   }
 
-  printf("[.] Kernel booted with nokaslr flag.\n");
+  kasld_info("Kernel booted with nokaslr flag.");
 
   /* `nokaslr` disables both virtual and physical KASLR axes on every arch
    * that honours it (the kernel's boot stub treats the cmdline flag before

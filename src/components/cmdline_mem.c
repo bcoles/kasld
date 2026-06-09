@@ -27,6 +27,7 @@
 
 #include "include/cmdline.h"
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <stdio.h>
 
 KASLD_EXPLAIN(
@@ -45,10 +46,10 @@ int main(void) {
 #if defined(__x86_64__) || defined(__i386__)
   unsigned long mem = 0;
   if (!cmdline_get_memparse("mem=", &mem) || mem == 0) {
-    fprintf(stderr, "[-] no `mem=` token on /proc/cmdline\n");
+    kasld_err("no `mem=` token on /proc/cmdline");
     return 1;
   }
-  printf("[.] cmdline mem= cap: %#lx (%lu bytes)\n", mem, mem);
+  kasld_info("cmdline mem= cap: %#lx (%lu bytes)", mem, mem);
   kasld_emit_scalar(SF_PHYS_CMDLINE_MEM, mem, CONF_PARSED);
 #endif
   /* Other arches: emit nothing (mem= does not constrain KASLR placement). */

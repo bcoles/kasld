@@ -38,6 +38,7 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <errno.h>
 #include <inttypes.h>
 #include <linux/netlink.h>
@@ -93,7 +94,7 @@ static unsigned long get_kernel_addr_iscsi_iser_transport(void) {
     sleep(1);
   }
 
-  printf("[.] checking %s ...\n", path);
+  kasld_info("checking %s ...", path);
 
   f = kasld_fopen(path, "rb");
   if (f == NULL) {
@@ -130,7 +131,7 @@ static unsigned long get_kernel_addr_iscsi_sw_tcp_transport(void) {
   enum { buff_len = 1024 };
   char buff[buff_len];
 
-  printf("[.] checking %s ...\n", path);
+  kasld_info("checking %s ...", path);
 
   f = kasld_fopen(path, "rb");
   if (f == NULL) {

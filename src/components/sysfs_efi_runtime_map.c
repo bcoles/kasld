@@ -45,6 +45,7 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
@@ -89,8 +90,8 @@ int main(void) {
   char buf[64];
   int count = 0;
 
-  printf("[.] searching %s for EFI runtime service virtual addresses ...\n",
-         base);
+  kasld_info("searching %s for EFI runtime service virtual addresses ...",
+             base);
 
   d = opendir(base);
   if (!d) {
@@ -154,8 +155,8 @@ int main(void) {
   closedir(d);
 
   if (!count) {
-    printf("[-] no EFI runtime map entries with direct-map virtual addresses"
-           " found\n");
+    kasld_err("no EFI runtime map entries with direct-map virtual addresses"
+              " found");
     return 0;
   }
 

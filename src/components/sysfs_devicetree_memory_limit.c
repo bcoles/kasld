@@ -23,6 +23,7 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include "include/kasld/devicetree.h"
 
 KASLD_EXPLAIN(
@@ -47,7 +48,7 @@ int main(void) {
   for (int i = 0; bases[i]; i++) {
     snprintf(path, sizeof(path), "%s/linux,memory-limit", bases[i]);
     if (kasld_dt_read_be_auto(path, &limit)) {
-      printf("[.] %s = 0x%lx\n", path, limit);
+      kasld_info("%s = 0x%lx", path, limit);
       found = 1;
       break;
     }
@@ -60,7 +61,7 @@ int main(void) {
   }
   /* A zero value means "no limit imposed" — emit nothing. */
   if (limit == 0) {
-    printf("[.] linux,memory-limit is 0 (no RAM cap imposed)\n");
+    kasld_info("linux,memory-limit is 0 (no RAM cap imposed)");
     return 0;
   }
 

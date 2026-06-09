@@ -53,6 +53,7 @@
 
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include "include/sidechannel.h"
 #include <errno.h>
 #include <stdio.h>
@@ -254,7 +255,7 @@ static struct utsname get_kernel_version(void) {
   struct utsname u;
   int rv = kasld_uname(&u);
   if (rv != 0) {
-    fprintf(stderr, "[-] kasld_uname()\n");
+    kasld_err("kasld_uname()");
     exit(KASLD_EXIT_UNAVAILABLE);
   }
   return u;
@@ -270,7 +271,7 @@ static int detect_kernel_version(void) {
   u = get_kernel_version();
 
   if (strstr(u.machine, "64") == NULL) {
-    fprintf(stderr, "[-] system is not using a 64-bit kernel\n");
+    kasld_err("system is not using a 64-bit kernel");
     exit(KASLD_EXIT_UNAVAILABLE);
   }
 
@@ -280,12 +281,12 @@ static int detect_kernel_version(void) {
   unsigned long i;
   for (i = 0; i < ARRAY_SIZE(offsets); i++) {
     if (strcmp(kernel_version, offsets[i].kernel_version) == 0) {
-      printf("[.] kernel version '%s' detected\n", offsets[i].kernel_version);
+      kasld_info("kernel version '%s' detected", offsets[i].kernel_version);
       return i;
     }
   }
 
-  fprintf(stderr, "[-] kernel version '%s' not recognized\n", kernel_version);
+  kasld_err("kernel version '%s' not recognized", kernel_version);
   return -1;
 }
 
@@ -332,19 +333,17 @@ static unsigned long get_kernel_addr_entrybleed(void) {
   int cpu = detect_cpu_vendor();
 
   if (cpu == CPU_VENDOR_UNKNOWN) {
-    fprintf(stderr, "[-] Unknown CPU vendor\n");
+    kasld_err("Unknown CPU vendor");
     return 0;
   }
 
   bool pti = detect_kpti();
 
-  printf("[.] %s CPU with KPTI %s\n", (cpu == CPU_VENDOR_AMD ? "AMD" : "Intel"),
-         (pti ? "enabled" : "disabled"));
+  kasld_info("%s CPU with KPTI %s", (cpu == CPU_VENDOR_AMD ? "AMD" : "Intel"),
+             (pti ? "enabled" : "disabled"));
 
   if (cpu == CPU_VENDOR_AMD && pti) {
-    fprintf(
-        stderr,
-        "[-] AMD systems with KPTI enabled are not affected by EntryBleed\n");
+    kasld_err("AMD systems with KPTI enabled are not affected by EntryBleed");
     return 0;
   }
 
@@ -364,7 +363,7 @@ static unsigned long get_kernel_addr_entrybleed(void) {
   for (i = 0; i < iterations; i++) {
     if (addr != leak_syscall_entry(offset)) {
       addr = 0;
-      fprintf(stderr, "[-] Inconsistent results. Aborting ...\n");
+      kasld_err("Inconsistent results. Aborting ...");
       break;
     }
   }
@@ -376,11 +375,11 @@ static unsigned long get_kernel_addr_entrybleed(void) {
 }
 
 int main(void) {
-  printf("[.] trying EntryBleed (CVE-2022-4543) ...\n");
+  kasld_info("trying EntryBleed (CVE-2022-4543) ...");
 
   unsigned long addr = get_kernel_addr_entrybleed();
   if (!addr) {
-    printf("[-] EntryBleed (CVE-2022-4543) not exploitable\n");
+    kasld_err("EntryBleed (CVE-2022-4543) not exploitable");
     return 0;
   }
 

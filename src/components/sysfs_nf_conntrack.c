@@ -34,6 +34,7 @@
 
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
@@ -64,7 +65,7 @@ static unsigned long get_kernel_addr_conntrack(void) {
   struct dirent *dir;
   DIR *d;
 
-  printf("[.] trying %snf_contrack_* ...\n", path);
+  kasld_info("trying %snf_contrack_* ...", path);
 
   d = opendir(path);
   if (d == NULL) {
@@ -104,7 +105,7 @@ int main(void) {
 
   unsigned long addr = get_kernel_addr_conntrack();
   if (!addr) {
-    printf("[-] no kernel address found in sysfs nf_conntrack\n");
+    kasld_err("no kernel address found in sysfs nf_conntrack");
     return 0;
   }
 

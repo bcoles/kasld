@@ -35,6 +35,7 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -74,13 +75,13 @@ static int on_match(const char *line, void *ctx) {
 int main(void) {
   unsigned long addr = 0;
 
-  printf("[.] searching dmesg for check_for_initrd() info ...\n");
+  kasld_info("searching dmesg for check_for_initrd() info ...");
   int ds = dmesg_search(needle, on_match, &addr);
 
   if (!addr) {
     if (ds < 0)
       return KASLD_EXIT_NOPERM;
-    printf("[-] check_for_initrd info not found in dmesg\n");
+    kasld_err("check_for_initrd info not found in dmesg");
     return 0;
   }
 

@@ -52,6 +52,7 @@
 
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <errno.h>
 #include <linux/perf_event.h>
 #include <poll.h>
@@ -129,7 +130,8 @@ static int is_kernel_va(unsigned long a) {
 }
 
 int main(int argc, char *argv[]) {
-  int verbose = (argc > 1 && strcmp(argv[1], "-v") == 0);
+  kasld_cli(argc, argv);
+  int verbose = kasld_is_verbose();
 
   long page_size = sysconf(_SC_PAGESIZE);
   if (page_size <= 0)
@@ -137,7 +139,7 @@ int main(int argc, char *argv[]) {
   size_t ring_size = (size_t)page_size * DATA_PAGES;
   size_t map_size = (size_t)page_size + ring_size;
 
-  printf("[.] trying perf LBR sampling on a busy-syscall child ...\n");
+  kasld_info("trying perf LBR sampling on a busy-syscall child ...");
 
   pid_t child = fork();
   if (child == -1) {
@@ -178,7 +180,7 @@ int main(int argc, char *argv[]) {
       return KASLD_EXIT_NOPERM;
     }
     if (e == ENOENT || e == EOPNOTSUPP) {
-      fprintf(stderr, "[-] LBR not available on this CPU\n");
+      kasld_err("LBR not available on this CPU");
       return KASLD_EXIT_UNAVAILABLE;
     }
     errno = e;
@@ -221,7 +223,7 @@ int main(int argc, char *argv[]) {
       if (_a < min_addr)                                                       \
         min_addr = _a;                                                         \
       if (verbose)                                                             \
-        printf("[v] 0x%lx\n", _a);                                             \
+        kasld_debug("0x%lx", _a);                                              \
     }                                                                          \
   } while (0)
 
@@ -299,7 +301,7 @@ int main(int argc, char *argv[]) {
   waitpid(child, NULL, 0);
 
   if (n_kaddrs == 0) {
-    printf("[-] no kernel branch addresses captured\n");
+    kasld_err("no kernel branch addresses captured");
     return KASLD_EXIT_UNAVAILABLE;
   }
 
@@ -314,8 +316,8 @@ int main(int argc, char *argv[]) {
    * shadowing other sources (prefetch, kallsyms) whose values are already
    * properly aligned. */
   unsigned long emit_addr = min_addr & -(unsigned long)KASLR_VIRT_ALIGN;
-  printf("[+] %lu kernel address(es) considered across %d sample(s)\n",
-         n_kaddrs, n_samples);
+  kasld_found("%lu kernel address(es) considered across %d sample(s)", n_kaddrs,
+              n_samples);
   printf("    lowest: 0x%lx  emit (aligned): 0x%lx\n", min_addr, emit_addr);
 
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, emit_addr, NULL,

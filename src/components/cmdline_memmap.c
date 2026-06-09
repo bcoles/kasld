@@ -36,6 +36,7 @@
 
 #include "include/cmdline.h"
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <stdio.h>
 
 KASLD_EXPLAIN(
@@ -82,7 +83,7 @@ int main(void) {
 #if defined(__x86_64__) || defined(__i386__)
   FILE *f = kasld_fopen("/proc/cmdline", "r");
   if (!f) {
-    fprintf(stderr, "[-] /proc/cmdline unavailable\n");
+    kasld_err("/proc/cmdline unavailable");
     return 1;
   }
   char buf[2048];
@@ -108,7 +109,7 @@ int main(void) {
         if (is_avoid) {
           char name[16];
           snprintf(name, sizeof(name), "memmap%c", sep);
-          printf("[.] cmdline %s -> [%#lx, %#lx]\n", name, lo, hi);
+          kasld_info("cmdline %s -> [%#lx, %#lx]", name, lo, hi);
           kasld_result_range(KASLD_TYPE_PHYS, REGION_CMDLINE_MEMMAP, lo, hi,
                              name, CONF_PARSED);
           emitted_avoid++;
@@ -124,7 +125,7 @@ int main(void) {
   if (with_offset > 0)
     kasld_emit_scalar(SF_CMDLINE_MEMMAP_COUNT, with_offset, CONF_PARSED);
   if (emitted_avoid == 0 && with_offset == 0)
-    fprintf(stderr, "[-] no avoidance `memmap=` reservations on cmdline\n");
+    kasld_err("no avoidance `memmap=` reservations on cmdline");
 #endif
   /* Other arches: emit nothing. */
   return 0;

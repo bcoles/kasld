@@ -22,6 +22,7 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -91,11 +92,11 @@ static int detect_riscv_mmu(void) {
   char *mmu = cpuinfo_get("mmu", buf, sizeof(buf));
 
   if (!mmu) {
-    fprintf(stderr, "[-] Could not read mmu field from %s\n", CPUINFO_PATH);
+    kasld_err("Could not read mmu field from %s", CPUINFO_PATH);
     return 0;
   }
 
-  printf("[.] MMU mode: %s\n", mmu);
+  kasld_info("MMU mode: %s", mmu);
 
   unsigned long va_bits = 0;
   unsigned long po_lo = 0, po_hi = 0;
@@ -111,23 +112,23 @@ static int detect_riscv_mmu(void) {
     va_bits = 57;
     po_lo = po_hi = 0xff60000000000000ul;
   } else {
-    fprintf(stderr, "[-] Unknown MMU mode: %s\n", mmu);
+    kasld_err("Unknown MMU mode: %s", mmu);
     return 0;
   }
 
   kasld_emit_scalar(SF_VIRT_ADDR_BITS, va_bits, CONF_PARSED);
-  printf("[.] va_bits = %lu\n", va_bits);
+  kasld_info("va_bits = %lu", va_bits);
 
   if (po_lo == po_hi) {
-    printf("[.] PAGE_OFFSET for %s: 0x%016lx\n", mmu, po_lo);
+    kasld_info("PAGE_OFFSET for %s: 0x%016lx", mmu, po_lo);
     if (po_lo == PAGE_OFFSET) {
-      printf("[.] Matches compile-time default; no adjustment needed.\n");
+      kasld_info("Matches compile-time default; no adjustment needed.");
       return 1;
     }
     kasld_result_base(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, po_lo, NULL,
                       CONF_PARSED);
   } else {
-    printf("[.] PAGE_OFFSET for %s: [0x%016lx, 0x%016lx]\n", mmu, po_lo, po_hi);
+    kasld_info("PAGE_OFFSET for %s: [0x%016lx, 0x%016lx]", mmu, po_lo, po_hi);
     kasld_result_range(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, po_lo, po_hi, NULL,
                        CONF_PARSED);
   }
@@ -163,19 +164,19 @@ static int detect_x86_address_sizes(void) {
   char *val = cpuinfo_get("address sizes", buf, sizeof(buf));
 
   if (!val) {
-    fprintf(stderr, "[-] Could not read address sizes from %s\n", CPUINFO_PATH);
+    kasld_err("Could not read address sizes from %s", CPUINFO_PATH);
     return 0;
   }
 
   unsigned int phys_bits = 0, virt_bits = 0;
   if (sscanf(val, "%u bits physical, %u bits virtual", &phys_bits,
              &virt_bits) != 2) {
-    fprintf(stderr, "[-] Could not parse address sizes: %s\n", val);
+    kasld_err("Could not parse address sizes: %s", val);
     return 0;
   }
 
-  printf("[.] Address sizes: %u bits physical, %u bits virtual\n", phys_bits,
-         virt_bits);
+  kasld_info("Address sizes: %u bits physical, %u bits virtual", phys_bits,
+             virt_bits);
 
   unsigned long virt_page_offset = 0;
 
@@ -184,17 +185,17 @@ static int detect_x86_address_sizes(void) {
   else if (virt_bits <= 57)
     virt_page_offset = 0xff11000000000000ul; /* __PAGE_OFFSET_BASE_L5 */
   else {
-    fprintf(stderr, "[-] Unexpected virtual address width: %u\n", virt_bits);
+    kasld_err("Unexpected virtual address width: %u", virt_bits);
     return 0;
   }
 
   if (virt_page_offset == PAGE_OFFSET) {
-    printf("[.] Matches compile-time default; no adjustment needed.\n");
+    kasld_info("Matches compile-time default; no adjustment needed.");
     return 0;
   }
 
-  printf("[.] Paging level %s: PAGE_OFFSET floor -> 0x%016lx\n",
-         virt_bits <= 48 ? "4" : "5", virt_page_offset);
+  kasld_info("Paging level %s: PAGE_OFFSET floor -> 0x%016lx",
+             virt_bits <= 48 ? "4" : "5", virt_page_offset);
 
   kasld_result_base(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, virt_page_offset, NULL,
                     CONF_PARSED);
@@ -205,7 +206,7 @@ static int detect_x86_address_sizes(void) {
 int main(void) {
   int found = 0;
 
-  printf("[.] checking %s ...\n", CPUINFO_PATH);
+  kasld_info("checking %s ...", CPUINFO_PATH);
 
 #if defined(__riscv) && __riscv_xlen == 64
   found |= detect_riscv_mmu();
@@ -216,7 +217,7 @@ int main(void) {
 #endif
 
   if (!found) {
-    printf("[-] No actionable cpuinfo data found for this architecture.\n");
+    kasld_err("No actionable cpuinfo data found for this architecture.");
     return 0;
   }
 

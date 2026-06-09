@@ -78,6 +78,7 @@
 
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <errno.h>
 #include <linux/perf_event.h>
 #include <poll.h>
@@ -218,9 +219,9 @@ static int drain_ring(struct perf_event_mmap_page *meta, const char *ring,
       sanitise_name(name_copy, sizeof(name_copy));
 
       if (!(k->flags & KSYM_FLAG_UNREGISTER) && k->addr != 0) {
-        printf("[+] ksymbol: addr=0x%lx len=%u type=%u name=%s\n",
-               (unsigned long)k->addr, k->len, k->ksym_type,
-               name_copy[0] ? name_copy : "(anon)");
+        kasld_found("ksymbol: addr=0x%lx len=%u type=%u name=%s",
+                    (unsigned long)k->addr, k->len, k->ksym_type,
+                    name_copy[0] ? name_copy : "(anon)");
         kasld_result_sample(KASLD_TYPE_VIRT, REGION_MODULE_REGION,
                             (unsigned long)k->addr,
                             name_copy[0] ? name_copy : NULL, CONF_PARSED);
@@ -237,18 +238,12 @@ static int drain_ring(struct perf_event_mmap_page *meta, const char *ring,
 }
 
 int main(int argc, char *argv[]) {
+  kasld_cli(argc, argv);
+  /* -t SECS overrides the default poll budget (POLL_MS); clamp to 600 s so a
+   * stray large value can't wedge the poll loop. */
   int poll_ms = POLL_MS;
-  if (argc > 1) {
-    char *endptr;
-    long v = strtol(argv[1], &endptr, 10);
-    if (*endptr != 0 || v < 100 || v > 600000) {
-      fprintf(stderr,
-              "usage: %s [poll_ms]   (default %d, valid range 100..600000)\n",
-              argv[0], POLL_MS);
-      return KASLD_EXIT_UNAVAILABLE;
-    }
-    poll_ms = (int)v;
-  }
+  if (kasld_time_s > 0)
+    poll_ms = (kasld_time_s > 600) ? 600000 : (int)(kasld_time_s * 1000);
 
   long page_size = sysconf(_SC_PAGESIZE);
   if (page_size <= 0)
@@ -316,19 +311,18 @@ int main(int argc, char *argv[]) {
                  ? KASLD_EXIT_NOPERM
                  : KASLD_EXIT_UNAVAILABLE;
     if (first_err == EACCES || first_err == EPERM)
-      fprintf(stderr, "[-] perf_event_open EACCES — perf_event_paranoid > 0\n");
+      kasld_err("perf_event_open EACCES — perf_event_paranoid > 0");
     else
-      fprintf(stderr, "[-] perf_event_open failed on every cpu: %s\n",
-              strerror(first_err));
+      kasld_err("perf_event_open failed on every cpu: %s", strerror(first_err));
     free(fds);
     free(maps);
     free(pfds);
     return rc;
   }
 
-  printf("[.] subscribed to PERF_RECORD_KSYMBOL on %d cpu(s); polling %d ms "
-         "...\n",
-         opened, poll_ms);
+  kasld_info("subscribed to PERF_RECORD_KSYMBOL on %d cpu(s); polling %d ms "
+             "...",
+             opened, poll_ms);
 
   poll(pfds, (nfds_t)opened, poll_ms);
 
@@ -348,10 +342,10 @@ int main(int argc, char *argv[]) {
   free(pfds);
 
   if (emitted == 0) {
-    printf("[-] no ksymbol events arrived in the polling window\n");
+    kasld_err("no ksymbol events arrived in the polling window");
     return KASLD_EXIT_UNAVAILABLE;
   }
 
-  printf("[+] %d ksymbol observation(s) emitted\n", emitted);
+  kasld_found("%d ksymbol observation(s) emitted", emitted);
   return 0;
 }

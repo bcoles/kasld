@@ -65,6 +65,7 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -168,7 +169,7 @@ int main(void) {
       count++;
     }
   } else if (n > 0) {
-    fprintf(stderr, "[-] linux,elfcorehdr: expected >= 16 bytes, got %d\n", n);
+    kasld_err("linux,elfcorehdr: expected >= 16 bytes, got %d", n);
   }
 
   /* --- linux,usable-memory-range: array of <u64 base> <u64 size> pairs --- */
@@ -200,12 +201,11 @@ int main(void) {
       count++;
     }
   } else if (n > 0) {
-    fprintf(stderr,
-            "[-] linux,usable-memory-range: expected >= 16 bytes, got %d\n", n);
+    kasld_err("linux,usable-memory-range: expected >= 16 bytes, got %d", n);
   }
 
   if (!count) {
-    printf("[-] no physical addresses found in crash kernel DT chosen node\n");
+    kasld_err("no physical addresses found in crash kernel DT chosen node");
     return KASLD_EXIT_UNAVAILABLE;
   }
 

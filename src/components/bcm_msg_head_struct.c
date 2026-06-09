@@ -32,6 +32,7 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <fcntl.h>
 #include <linux/can.h>
 #include <linux/can/bcm.h>
@@ -106,7 +107,7 @@ static unsigned long get_kernel_addr_from_bcm_msg_head_struct(void) {
   char *endptr;
   unsigned long addr = 0;
 
-  printf("[.] trying bcm_msg_head struct stack pointer leak ...\n");
+  kasld_info("trying bcm_msg_head struct stack pointer leak ...");
 
   sock = socket(AF_CAN, SOCK_DGRAM, CAN_BCM);
 
@@ -173,7 +174,7 @@ static unsigned long get_kernel_addr_from_bcm_msg_head_struct(void) {
   (void)addrs;
   (void)endptr;
   (void)addr;
-  printf("[-] BCM bcm_msg_head leak shape targets a 64-bit kernel; skipping\n");
+  kasld_err("BCM bcm_msg_head leak shape targets a 64-bit kernel; skipping");
 #endif
 
   return 0;
@@ -184,7 +185,7 @@ static unsigned long get_kernel_addr_from_bcm_msg_head_struct(void) {
 int main(void) {
   unsigned long addr = get_kernel_addr_from_bcm_msg_head_struct();
   if (!addr) {
-    printf("[-] no kernel address leaked via BCM socket\n");
+    kasld_err("no kernel address leaked via BCM socket");
     return 0;
   }
 

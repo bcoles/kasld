@@ -64,6 +64,7 @@
 #define _GNU_SOURCE
 #include "include/dmesg.h"
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -144,12 +145,12 @@ static int on_match(const char *line, void *ctx) {
 int main(void) {
   struct ssdt_ctx s = {0, {0}};
 
-  printf("[.] searching dmesg for ACPI dynamic OEM table loads ...\n");
+  kasld_info("searching dmesg for ACPI dynamic OEM table loads ...");
   int ds = dmesg_search("ACPI: SSDT 0x", on_match, &s);
 
   if (!s.addr) {
-    printf("[-] no ACPI dynamic OEM table load with a direct-map virtual "
-           "address found in dmesg\n");
+    kasld_err("no ACPI dynamic OEM table load with a direct-map virtual "
+              "address found in dmesg");
     if (ds < 0)
       return KASLD_EXIT_NOPERM;
     return 0;

@@ -38,6 +38,7 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include "include/kasld/sysroot.h"
 #include <stdio.h>
 #include <string.h>
@@ -80,7 +81,7 @@ static int region_from_label(const char *label, enum kasld_region *r,
 int main(void) {
   FILE *f = kasld_fopen("/proc/iomem", "r");
   if (!f) {
-    fprintf(stderr, "[-] /proc/iomem unavailable\n");
+    kasld_err("/proc/iomem unavailable");
     return 1;
   }
 
@@ -123,13 +124,12 @@ int main(void) {
     const char *name_wire;
     if (!region_from_label(label, &region, &name_wire))
       continue;
-    printf("[.] iomem %s -> phys [%#lx, %#lx]\n", label, lo, hi);
+    kasld_info("iomem %s -> phys [%#lx, %#lx]", label, lo, hi);
     kasld_result_range(KASLD_TYPE_PHYS, region, lo, hi, name_wire, CONF_PARSED);
     emitted++;
   }
   fclose(f);
   if (emitted == 0)
-    fprintf(stderr,
-            "[-] no Kernel code/data/bss entries found in /proc/iomem\n");
+    kasld_err("no Kernel code/data/bss entries found in /proc/iomem");
   return 0;
 }
