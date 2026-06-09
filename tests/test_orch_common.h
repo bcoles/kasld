@@ -17,7 +17,8 @@
 /* Seed the engine-bounds carrier the same way orchestrator's main() does.
  * Under KASLD_TESTING the orchestrator's main() is excluded, so suites that
  * read layout (compute_kaslr_info coverage, the renderer's derived paths) must
- * start it from the honest window themselves. Call once at the top of main(). */
+ * start it from the honest window themselves. Call once at the top of main().
+ */
 static void test_init_layout_engine_bounds(void) {
   layout.virt_page_offset_min = layout.virt_kernel_vas_start;
   layout.virt_page_offset_max = layout.virt_kernel_vas_end;

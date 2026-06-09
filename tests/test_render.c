@@ -30,7 +30,6 @@
 #include <string.h>
 #include <unistd.h>
 
-
 /* =========================================================================
  * Renderer unit tests.
  *
@@ -1024,7 +1023,6 @@ static void test_render_hardening_text_no_rand_failed_silent(void) {
    * substring). Asserting absence of the posture heading. */
   assert(strstr(render_cap, "KASLR posture") == NULL);
 }
-
 
 int main(void) {
   TEST_SUITE("render — renderer unit suite");

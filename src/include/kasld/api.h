@@ -757,6 +757,12 @@ enum kasld_scalar_fact {
   SF_PHYSICAL_START, /* CONFIG_PHYSICAL_START (kernel's LOAD_PHYSICAL_ADDR  */
                      /* / pref_address; x86). Used to raise the Q_*_TEXT   */
                      /* honest-top floors above their conservative default.*/
+  SF_KASAN_ENABLED,  /* 1 if CONFIG_KASAN=y. On x86_64 KASAN forces        */
+                     /* kaslr_memory_enabled()=false (= kaslr_enabled() && */
+                     /* !IS_ENABLED(CONFIG_KASAN)), so the direct map /    */
+                     /* vmalloc / vmemmap bases stay at their compile-time */
+                     /* defaults even when CONFIG_RANDOMIZE_MEMORY=y.      */
+                     /* Pinned by directmap_kaslr_disabled_pin.            */
   SF__COUNT,
 };
 
@@ -785,6 +791,7 @@ static const char *const kasld_scalar_fact_wire_table[SF__COUNT] = {
     [SF_CMDLINE_HUGEPAGES] = "cmdline_hugepages",
     [SF_CMDLINE_MEMMAP_COUNT] = "cmdline_memmap_count",
     [SF_PHYSICAL_START] = "physical_start",
+    [SF_KASAN_ENABLED] = "kasan_enabled",
 };
 /* Adding an SF_* without a wire token shrinks this below SF__COUNT -> error. */
 typedef char kasld_sf_wire_table_complete

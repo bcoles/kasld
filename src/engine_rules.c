@@ -68,6 +68,7 @@ static const rule_fn k_rules[] = {
 
     /* KASLR-off pin */
     rule_virt_kaslr_disabled_pin,
+    rule_directmap_kaslr_disabled_pin,
     rule_phys_kaslr_disabled_pin,
     rule_physical_start_lower_bound,
 

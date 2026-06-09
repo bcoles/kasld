@@ -51,6 +51,21 @@
 // value.
 #define PAGE_OFFSET_RANDOMIZED 1
 
+// Compile-time default region bases — the values page_offset_base /
+// vmalloc_base / vmemmap_base are initialised to (head64.c) and KEEP whenever
+// kernel_randomize_memory() returns early, i.e. when KASLR is off OR
+// CONFIG_KASAN=y (kaslr_memory_enabled() = kaslr_enabled() && !KASAN). On
+// x86_64 __PAGE_OFFSET / VMALLOC_START / VMEMMAP_START are unconditionally
+// these variables (page_64_types.h, pgtable_64_types.h), so under the disabled
+// gate the runtime base IS the constant. Selected by paging level: L4 = 4-level
+// (VA 48), L5 = 5-level (VA 57). Consumed by directmap_kaslr_disabled_pin.
+#define PAGE_OFFSET_BASE_L4 0xffff888000000000ul
+#define PAGE_OFFSET_BASE_L5 0xff11000000000000ul
+#define VMALLOC_BASE_L4 0xffffc90000000000ul
+#define VMALLOC_BASE_L5 0xffa0000000000000ul
+#define VMEMMAP_BASE_L4 0xffffea0000000000ul
+#define VMEMMAP_BASE_L5 0xffd4000000000000ul
+
 #define KERNEL_VIRT_VAS_START PAGE_OFFSET
 #define KERNEL_VIRT_VAS_END 0xfffffffffffffffful
 

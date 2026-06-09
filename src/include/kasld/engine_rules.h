@@ -79,6 +79,7 @@ R(base_align_cross_validate);
 
 /* KASLR-off pin + learned floor */
 R(virt_kaslr_disabled_pin);
+R(directmap_kaslr_disabled_pin);
 R(phys_kaslr_disabled_pin);
 R(physical_start_lower_bound);
 

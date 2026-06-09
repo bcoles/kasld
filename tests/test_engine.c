@@ -3134,6 +3134,65 @@ static void test_virt_kaslr_disabled_pin_no_signal_no_pin(void) {
   assert(e.est[Q_VIRT_TEXT_BASE].hi == top.hi);
 }
 
+/* directmap_kaslr_disabled_pin: KASAN (or nokaslr) leaves page_offset / vmalloc
+ * / vmemmap at their compile-time L4/L5 defaults; the level comes from
+ * SF_VIRT_ADDR_BITS. x86_64 only. */
+int rule_directmap_kaslr_disabled_pin(const struct evidence_set *ev,
+                                      const struct estimate *est,
+                                      struct constraint *out, int out_max);
+
+static void test_directmap_kaslr_disabled_pin(void) {
+#if defined(__x86_64__)
+  const rule_fn rules[] = {rule_directmap_kaslr_disabled_pin};
+  struct estimate top;
+  quantities[Q_PAGE_OFFSET].init_top(&top);
+
+  /* KASAN + 4-level (VA 48): all three bases pinned to the L4 defaults. */
+  struct engine e;
+  engine_init(&e);
+  struct observation k = mk_scalar(SF_KASAN_ENABLED, 1, CONF_PARSED);
+  struct observation vb = mk_scalar(SF_VIRT_ADDR_BITS, 48, CONF_PARSED);
+  evidence_add(&e.ev, &k);
+  evidence_add(&e.ev, &vb);
+  engine_run(&e, rules, 1);
+  assert(e.est[Q_PAGE_OFFSET].lo == PAGE_OFFSET_BASE_L4 &&
+         e.est[Q_PAGE_OFFSET].hi == PAGE_OFFSET_BASE_L4);
+  assert(e.est[Q_VMALLOC_BASE].lo == VMALLOC_BASE_L4 &&
+         e.est[Q_VMALLOC_BASE].hi == VMALLOC_BASE_L4);
+  assert(e.est[Q_VMEMMAP_BASE].lo == VMEMMAP_BASE_L4 &&
+         e.est[Q_VMEMMAP_BASE].hi == VMEMMAP_BASE_L4);
+
+  /* nokaslr + 5-level (VA 57): page_offset pinned to the L5 default. */
+  struct engine e2;
+  engine_init(&e2);
+  struct observation d = mk_scalar(SF_VIRT_KASLR_DISABLED, 1, CONF_PARSED);
+  struct observation vb2 = mk_scalar(SF_VIRT_ADDR_BITS, 57, CONF_PARSED);
+  evidence_add(&e2.ev, &d);
+  evidence_add(&e2.ev, &vb2);
+  engine_run(&e2, rules, 1);
+  assert(e2.est[Q_PAGE_OFFSET].lo == PAGE_OFFSET_BASE_L5 &&
+         e2.est[Q_PAGE_OFFSET].hi == PAGE_OFFSET_BASE_L5);
+
+  /* Negative: VA width but no disable signal — no pin. */
+  struct engine e3;
+  engine_init(&e3);
+  struct observation vb3 = mk_scalar(SF_VIRT_ADDR_BITS, 48, CONF_PARSED);
+  evidence_add(&e3.ev, &vb3);
+  engine_run(&e3, rules, 1);
+  assert(e3.est[Q_PAGE_OFFSET].lo == top.lo &&
+         e3.est[Q_PAGE_OFFSET].hi == top.hi);
+
+  /* Negative: disable signal but no VA width — no pin (can't pick L4/L5). */
+  struct engine e4;
+  engine_init(&e4);
+  struct observation k4 = mk_scalar(SF_KASAN_ENABLED, 1, CONF_PARSED);
+  evidence_add(&e4.ev, &k4);
+  engine_run(&e4, rules, 1);
+  assert(e4.est[Q_PAGE_OFFSET].lo == top.lo &&
+         e4.est[Q_PAGE_OFFSET].hi == top.hi);
+#endif
+}
+
 /* SF_PHYS_KASLR_DISABLED pins Q_PHYS_TEXT_BASE on arches where the kernel's
  * decompressor/relocator keeps the image at its compile-time physical default
  * under nokaslr (KASLR_DISABLED_PINS_PHYS=1). Per-quantity window-containment
@@ -4485,6 +4544,7 @@ int main(void) {
   BEGIN_CATEGORY("KASLR-off pin");
   RUN(test_virt_kaslr_disabled_pin);
   RUN(test_virt_kaslr_disabled_pin_no_signal_no_pin);
+  RUN(test_directmap_kaslr_disabled_pin);
   RUN(test_phys_kaslr_disabled_pin);
   RUN(test_phys_kaslr_disabled_pin_defers_to_real_leak);
   RUN(test_phys_kaslr_disabled_pin_inert_on_decoupled);
