@@ -137,6 +137,11 @@ helper — "exact" was a precision conflation; precision lives in trust
 | `kasld_result_top(type, region, hi, name, conf)` | Upper bound known, lower unknown |
 | `kasld_result_sample(type, region, addr, name, conf)` | A representative interior point — no extent claim |
 
+A `range` variant, `kasld_result_extent(type, region, lo, hi, name, conf)`,
+emits the same `lo`+`hi` but as `pos=unknown` — for an extent whose `lo` is NOT a
+DRAM floor (e.g. a per-run RAM extent for gap carving that may start above the
+true floor), so the floor rules don't treat its `lo` as a base.
+
 All helpers return `1` on emit, `0` on rejection (with a stderr
 warning). Rejection happens for: `CONF_UNKNOWN`, invalid type, invalid
 region, helper-specific preconditions (e.g. `_sized` overflow,

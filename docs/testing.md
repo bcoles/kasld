@@ -45,7 +45,8 @@ only the orchestrator binary and the `components/` subdirectory).
 | `test_evidence` | observation store + verdict application | `evidence.c` |
 | `test_engine` | every rule in `src/rules/` over synthetic evidence | engine core + all rules |
 | `test_engine_integration` | the full production rule registry against leak-bearing evidence | engine core + `engine_rules.c` + all rules |
-| `test_kasld` | orchestrator internals (parse, merge, anchor select), the engine→layout projection, region_info, renderers | `orchestrator.c` / `render.c` / `region_info.c` under `-DKASLD_TESTING` |
+| `test_kasld` | orchestrator internals (parse, merge, anchor select), the engine→layout projection, region_info | `orchestrator.c` / `region_info.c` under `-DKASLD_TESTING` |
+| `test_render` | the renderers (text / json / markdown / oneline / hardening) — split out of `test_kasld` | `render.c` / `render/*.c` under `-DKASLD_TESTING` |
 
 Run one driver in isolation:
 
@@ -119,8 +120,9 @@ self-built qemu can live anywhere.
 make test-cross        # or: tests/test-cross
 ```
 
-Compiles `test_engine` + `test_engine_integration` with each cross toolchain
-and runs them under qemu-user, so arch-gated rule bodies
+Compiles `test_engine`, `test_engine_integration`, `test_kasld` and
+`test_render` with each cross toolchain and runs them under qemu-user, so
+arch-gated rule bodies
 (`#if defined(__aarch64__)` …) execute on their own architecture instead of
 compiling to no-ops on the host. The engine tests are pure, syscall-free C, so
 this is sound under emulation.
