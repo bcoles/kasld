@@ -87,7 +87,7 @@ Running 77 components (10 experimental skipped; use -x to enable)...
 [####################] 100%  77/77  10.5s
 
   Virtual text base   0xffffffffa7a00000   slide +0x26a00000
-  Physical text base  not derandomized                                    9 bits
+  Physical text base  not derandomized     ~9 bits
                       0x0000000001000000 - 0x000000002eedbce0   (367 x 2.0 MiB)
   Direct map base     >= 0xffff800000000000
 

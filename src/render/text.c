@@ -1070,14 +1070,13 @@ static void readout_bound_row(const char *label, unsigned long lo,
     return;
   }
 
-  /* Two-line form: header with "not derandomized" + entropy on the right,
-   * then range + slot-grain on the next line indented to the value column. */
+  /* Two-line form: status + entropy on the first line — the entropy sits in
+   * the same column as the "slide ±X" of a fully-resolved row, so the third
+   * column reads consistently ("slide" when pinned, "~N bits" when not) — then
+   * range + slot-grain on the next line, indented to the value column. */
   if (slots > 0 && bits >= 0) {
-    char ent[32];
-    snprintf(ent, sizeof(ent), "%d bits", bits);
-    printf("  %-19s %snot derandomized%s%*s%s%s%s\n", label, c(C_YELLOW),
-           c(C_RESET), (int)(58 - 16 - (int)strlen(ent)), "", c(C_MAGENTA), ent,
-           c(C_RESET));
+    printf("  %-19s %s%-18s%s   %s~%d bits%s\n", label, c(C_YELLOW),
+           "not derandomized", c(C_RESET), c(C_MAGENTA), bits, c(C_RESET));
     char hbuf[32];
     if (align)
       printf("  %-19s 0x%016lx - 0x%016lx   (%lu x %s)\n", "", lo, hi, slots,
@@ -1154,17 +1153,45 @@ static int readout_print_leaks(void) {
 
   printf("Leaks (%d):\n", nf);
   for (int i = 0; i < nf; i++) {
-    const struct result *r = found[i].r;
-    int pc = r ? r->provenance_count : 0;
-    if (pc == 0) {
+    /* Credit every component that found this (type, region), not just the one
+     * highest-confidence record: results merge by (type, region, NAME), so the
+     * same address tagged under different symbol names (e.g. _stext from
+     * proc_kallsyms vs an unnamed text leak) lands in separate merged records.
+     * Aggregate provenance across all in-bounds records of this (type, region),
+     * de-duplicated, so the bracket lists the full set of contributors. */
+    char seen[24][ORIGIN_LEN];
+    int ns = 0, more = 0;
+    for (int j = 0; j < num_results; j++) {
+      const struct result *r = &results[j];
+      if (r->type != found[i].r->type || r->region != found[i].r->region ||
+          !in_bounds(r))
+        continue;
+      for (int p = 0; p < r->provenance_count; p++) {
+        int dup = 0;
+        for (int idx = 0; idx < ns; idx++)
+          if (strncmp(seen[idx], r->origins[p], ORIGIN_LEN) == 0) {
+            dup = 1;
+            break;
+          }
+        if (dup)
+          continue;
+        if (ns < (int)(sizeof(seen) / sizeof(seen[0])))
+          snprintf(seen[ns++], ORIGIN_LEN, "%s", r->origins[p]);
+        else
+          more++;
+      }
+    }
+    if (ns == 0) {
       printf("  %-19s %s0x%016lx%s\n", found[i].label, c(C_GREEN),
              found[i].addr, c(C_RESET));
       continue;
     }
     printf("  %-19s %s0x%016lx%s   %s(", found[i].label, c(C_GREEN),
            found[i].addr, c(C_RESET), c(C_DIM));
-    for (int j = 0; j < pc; j++)
-      printf("%s%s", j ? ", " : "", r->origins[j]);
+    for (int idx = 0; idx < ns; idx++)
+      printf("%s%s", idx ? ", " : "", seen[idx]);
+    if (more)
+      printf(", +%d more", more);
     printf(")%s\n", c(C_RESET));
   }
   return nf;

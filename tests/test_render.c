@@ -336,6 +336,43 @@ static void test_render_text_lists_all_origins(void) {
   assert(strstr(render_cap, "perf_lbr_sampling") != NULL);
 }
 
+/* The leaks bracket must aggregate provenance across SEPARATE merged records of
+ * the same (type, region): results merge by (type, region, NAME), so the same
+ * address tagged under a different symbol name (proc_kallsyms's _stext vs an
+ * unnamed/side-channel text leak) lands in a distinct record. Every contributor
+ * must surface, not just the single highest-confidence record's. */
+static void test_render_text_leaks_aggregates_across_records(void) {
+  struct summary s;
+  seed_multi_origin_text_result(&s); /* rich state + one VIRT/KERNEL_TEXT rec */
+
+  /* A second VIRT/KERNEL_TEXT record under a different name, in bounds (reuse
+   * the first record's address), as proc_kallsyms's _stext would form. */
+  unsigned long addr = 0;
+  for (int i = 0; i < num_results; i++)
+    if (results[i].type == KASLD_TYPE_VIRT &&
+        results[i].region == REGION_KERNEL_TEXT) {
+      addr = anchor_addr(&results[i]);
+      break;
+    }
+  struct result *r = push_result();
+  r->type = KASLD_TYPE_VIRT;
+  r->region = REGION_KERNEL_TEXT;
+  r->lo = addr;
+  r->set_mask = LO_SET;
+  r->pos = POS_BASE;
+  r->conf = CONF_PARSED;
+  snprintf(r->name, NAME_LEN, "_stext");
+  snprintf(r->origins[0], ORIGIN_LEN, "proc_kallsyms");
+  r->provenance_count = 1;
+
+  set_render_mode(0, 0, 0); /* text */
+  capture_stdout(wrap_render_summary, &s);
+
+  /* The separate record's origin appears alongside the first record's. */
+  assert(strstr(render_cap, "proc_kallsyms") != NULL);
+  assert(strstr(render_cap, "prefetch") != NULL);
+}
+
 static void test_render_json_emits_origins_array(void) {
   struct summary s;
   seed_multi_origin_text_result(&s);
@@ -1046,6 +1083,7 @@ int main(void) {
   RUN(test_render_markdown_with_rich_content);
   RUN(test_render_oneline_with_rich_content);
   RUN(test_render_text_lists_all_origins);
+  RUN(test_render_text_leaks_aggregates_across_records);
   RUN(test_render_json_emits_origins_array);
   RUN(test_render_markdown_lists_all_origins);
   RUN(test_render_text_leaks_no_provenance);
