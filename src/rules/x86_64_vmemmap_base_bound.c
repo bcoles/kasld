@@ -94,13 +94,36 @@ int rule_x86_64_vmemmap_base_bound(const struct evidence_set *ev,
       break;
     }
   }
+
+  /* sizeof(struct page): exact from BTF (SF_STRUCT_PAGE_BYTES) when present,
+   * else the common 64-byte default. A larger struct page means a larger
+   * vmemmap, i.e. a tighter (lower) upper bound; the default under-estimates,
+   * keeping the bound sound. */
+  unsigned long struct_page_bytes = 64ul;
+  uint32_t sp_src = 0;
+  enum kasld_confidence sp_conf = CONF_UNKNOWN;
+  for (int i = 0; i < ev->n_obs; i++) {
+    const struct observation *o = &ev->obs[i];
+    if (o->valid && o->value_kind == OBS_SCALAR &&
+        o->scalar_fact == SF_STRUCT_PAGE_BYTES && o->scalar_value >= 1 &&
+        o->scalar_value <= (1ul << 20)) {
+      struct_page_bytes = o->scalar_value;
+      sp_src = o->id;
+      sp_conf = o->conf;
+      break;
+    }
+  }
   if (max_pfn && n < out_max) {
     unsigned long page_bytes = max_pfn << PAGE_SHIFT;
     unsigned long memory_tb =
         (page_bytes + one_tb - 1) / one_tb + RANDOMIZE_MEMORY_PHYSICAL_PADDING;
     unsigned long directmap_size_tb = memory_tb < 4096ul ? memory_tb : 4096ul;
-    /* vmemmap_size = directmap_size_tb * 16 GiB = directmap_size_tb << 34. */
-    unsigned long vmemmap_size_bytes = directmap_size_tb * (1ul << 34);
+    /* vmemmap_size = directmap_size_tb * (one TiB of 4 KiB-page structs) =
+     * directmap_size_tb * (1 TiB / 4 KiB) * struct_page_bytes =
+     * directmap_size_tb * ((1 << 28) * struct_page_bytes). With the 64-byte
+     * default this is the original 16 GiB (<< 34). */
+    unsigned long vmemmap_size_bytes =
+        directmap_size_tb * ((1ul << 28) * struct_page_bytes);
     unsigned long vmemmap_size_tb = (vmemmap_size_bytes + one_tb - 1) / one_tb;
     if (vmemmap_size_tb == 0)
       vmemmap_size_tb = 1;
@@ -115,6 +138,12 @@ int rule_x86_64_vmemmap_base_bound(const struct evidence_set *ev,
       c->conf = CONF_INFERRED;
       c->derived_from[0] = pfn_src;
       c->lineage_count = 1;
+      /* The bound scales with sizeof(struct page); record a BTF source. */
+      if (sp_src != 0) {
+        c->derived_from[c->lineage_count++] = sp_src;
+        if (sp_conf < c->conf)
+          c->conf = sp_conf;
+      }
       snprintf(c->origin, ORIGIN_LEN, "x86_64_vmemmap_base_bound");
     }
   }

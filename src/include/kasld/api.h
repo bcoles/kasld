@@ -763,6 +763,11 @@ enum kasld_scalar_fact {
                      /* vmalloc / vmemmap bases stay at their compile-time */
                      /* defaults even when CONFIG_RANDOMIZE_MEMORY=y.      */
                      /* Pinned by directmap_kaslr_disabled_pin.            */
+  SF_STRUCT_PAGE_BYTES, /* exact sizeof(struct page)
+                           (/sys/kernel/btf/vmlinux).*/
+                        /* vmemmap_size = max_pfn * this; the s390/x86_64/    */
+                        /* arm64 vmemmap rules consume it, falling back to 64 */
+                        /* (the common value) when BTF is unavailable.        */
   SF__COUNT,
 };
 
@@ -792,6 +797,7 @@ static const char *const kasld_scalar_fact_wire_table[SF__COUNT] = {
     [SF_CMDLINE_MEMMAP_COUNT] = "cmdline_memmap_count",
     [SF_PHYSICAL_START] = "physical_start",
     [SF_KASAN_ENABLED] = "kasan_enabled",
+    [SF_STRUCT_PAGE_BYTES] = "struct_page_bytes",
 };
 /* Adding an SF_* without a wire token shrinks this below SF__COUNT -> error. */
 typedef char kasld_sf_wire_table_complete

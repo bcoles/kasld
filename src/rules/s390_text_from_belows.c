@@ -62,7 +62,7 @@
 #include <string.h>
 
 #define S390_MODULES_LEN 0x80000000ul       /* SZ_2G */
-#define S390_VMEMMAP_STRUCT_PAGE_BYTES 64ul /* upstream default */
+#define S390_STRUCT_PAGE_BYTES_DEFAULT 64ul /* common sizeof(struct page) */
 
 /* One below-text rung: the region, its constant cumulative offset to text, and
  * whether the runtime vmemmap_size term applies (only the VMEMMAP rung). */
@@ -80,10 +80,27 @@ int rule_s390_text_from_belows(const struct evidence_set *ev,
   if (out_max < 1)
     return 0;
 
-  /* vmemmap_size = SF_PHYS_MAX_PFN × sizeof(struct page) (lower bound; the
-   * upstream s390 default is 64 bytes — under-estimating on a larger struct
-   * only loosens the floor). Absent SF_PHYS_MAX_PFN, treat as 0 (still sound).
-   */
+  /* sizeof(struct page): exact from BTF (SF_STRUCT_PAGE_BYTES) when present,
+   * else the common 64-byte default. The exact value is the real vmemmap-per-
+   * frame size; the default under-estimates on a larger struct page, which only
+   * loosens the floor (still sound). */
+  unsigned long struct_page_bytes = S390_STRUCT_PAGE_BYTES_DEFAULT;
+  uint32_t sp_src = 0;
+  enum kasld_confidence sp_conf = CONF_UNKNOWN;
+  for (int i = 0; i < ev->n_obs; i++) {
+    const struct observation *o = &ev->obs[i];
+    if (o->valid && o->value_kind == OBS_SCALAR &&
+        o->scalar_fact == SF_STRUCT_PAGE_BYTES && o->scalar_value >= 1 &&
+        o->scalar_value <= (1ul << 20)) {
+      struct_page_bytes = o->scalar_value;
+      sp_src = o->id;
+      sp_conf = o->conf;
+      break;
+    }
+  }
+
+  /* vmemmap_size = SF_PHYS_MAX_PFN × struct_page_bytes. Absent SF_PHYS_MAX_PFN,
+   * treat as 0 (still sound). */
   unsigned long vmemmap_size = 0;
   uint32_t pfn_src = 0;
   enum kasld_confidence pfn_conf = CONF_UNKNOWN;
@@ -92,10 +109,10 @@ int rule_s390_text_from_belows(const struct evidence_set *ev,
     if (!o->valid || o->value_kind != OBS_SCALAR ||
         o->scalar_fact != SF_PHYS_MAX_PFN)
       continue;
-    if (o->scalar_value > ULONG_MAX / S390_VMEMMAP_STRUCT_PAGE_BYTES)
+    if (o->scalar_value > ULONG_MAX / struct_page_bytes)
       vmemmap_size = ULONG_MAX;
     else
-      vmemmap_size = o->scalar_value * S390_VMEMMAP_STRUCT_PAGE_BYTES;
+      vmemmap_size = o->scalar_value * struct_page_bytes;
     pfn_src = o->id;
     pfn_conf = o->conf;
     break;
@@ -166,8 +183,14 @@ int rule_s390_text_from_belows(const struct evidence_set *ev,
   c->derived_from[0] = best_src;
   c->lineage_count = 1;
   if (best_uses_pfn) {
-    c->derived_from[1] = pfn_src;
-    c->lineage_count = 2;
+    c->derived_from[c->lineage_count++] = pfn_src;
+    /* The VMEMMAP rung's floor scales with sizeof(struct page); when that came
+     * from BTF, record it as a contributor and bound conf by it. */
+    if (sp_src != 0) {
+      c->derived_from[c->lineage_count++] = sp_src;
+      if (sp_conf < c->conf)
+        c->conf = sp_conf;
+    }
   }
   snprintf(c->origin, ORIGIN_LEN, "s390_text_from_belows");
   return 1;

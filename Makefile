@@ -308,8 +308,14 @@ TEST_DMESG_BIN := $(TEST_OBJ_DIR)/test_dmesg_layout
 $(TEST_DMESG_BIN): $(TEST_DIR)/test_dmesg_layout.c $(SRC_DIR)/components/dmesg_mem_init_kernel_layout.c $(HDRS) | $(TEST_OBJ_DIR)
 	$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_dmesg_layout.c -o $@
 
+# BTF reader parser test: btf_struct_page_size's struct-size parser, exercised
+# by #including the component (its main renamed) against hand-built BTF blobs.
+TEST_BTF_BIN := $(TEST_OBJ_DIR)/test_btf
+$(TEST_BTF_BIN): $(TEST_DIR)/test_btf.c $(SRC_DIR)/components/btf_struct_page_size.c $(HDRS) | $(TEST_OBJ_DIR)
+	$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_btf.c -o $@
+
 .PHONY: test
-test : $(TEST_BIN) $(TEST_RENDER_BIN) $(TEST_EST_BIN) $(TEST_EV_BIN) $(TEST_ENG_BIN) $(TEST_INT_BIN) $(TEST_DMESG_BIN)
+test : $(TEST_BIN) $(TEST_RENDER_BIN) $(TEST_EST_BIN) $(TEST_EV_BIN) $(TEST_ENG_BIN) $(TEST_INT_BIN) $(TEST_DMESG_BIN) $(TEST_BTF_BIN)
 	@$(TEST_DIR)/run-all
 	@$(TEST_DIR)/check-self-edges
 	@$(TEST_DIR)/check-truncation
@@ -331,6 +337,10 @@ test-evidence : $(TEST_EV_BIN)
 .PHONY: test-dmesg-layout
 test-dmesg-layout : $(TEST_DMESG_BIN)
 	$(TEST_DMESG_BIN)
+
+.PHONY: test-btf
+test-btf : $(TEST_BTF_BIN)
+	$(TEST_BTF_BIN)
 
 # Cross-architecture engine test: runs the integration test under qemu-user for
 # each 64-bit target (exercises arch-gated rules on their arch). Needs the
@@ -378,7 +388,7 @@ test-engine : $(TEST_ENG_BIN)
 FUZZ_CC      ?= clang
 FUZZ_CFLAGS  ?= -O1 -g -fsanitize=fuzzer,address,undefined -DKASLD_TESTING -I src
 FUZZ_OUT     := $(BUILD_DIR)/fuzz
-FUZZ_TARGETS := fuzz_parse_hex fuzz_capture_result fuzz_capture_scalar fuzz_parse_meta
+FUZZ_TARGETS := fuzz_parse_hex fuzz_capture_result fuzz_capture_scalar fuzz_parse_meta fuzz_btf
 FUZZ_BINS    := $(addprefix $(FUZZ_OUT)/,$(FUZZ_TARGETS))
 
 $(FUZZ_OUT)/% : tests/fuzz/%.c

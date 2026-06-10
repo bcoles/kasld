@@ -2171,6 +2171,38 @@ static void test_s390_text_from_vmemmap_with_max_pfn(void) {
 #endif
 }
 
+/* SF_STRUCT_PAGE_BYTES, when present, replaces the 64-byte default: the VMEMMAP
+ * rung's floor uses the exact vmemmap-per-frame size and is strictly tighter.
+ */
+static void test_s390_text_from_belows_uses_struct_page_fact(void) {
+  struct engine e;
+  engine_init(&e);
+  unsigned long v_mm = 0x3FE0000000000ul;
+  unsigned long max_pfn = 0x100000ul;
+  unsigned long sp = 80ul; /* exact sizeof(struct page) from BTF, != 64 */
+  struct observation o = mk_obs(KASLD_TYPE_VIRT, REGION_VMEMMAP, v_mm,
+                                LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
+  struct observation pf = mk_scalar(SF_PHYS_MAX_PFN, max_pfn, CONF_PARSED);
+  struct observation sb = mk_scalar(SF_STRUCT_PAGE_BYTES, sp, CONF_PARSED);
+  evidence_add(&e.ev, &o);
+  evidence_add(&e.ev, &pf);
+  evidence_add(&e.ev, &sb);
+
+  const rule_fn rules[] = {rule_s390_text_from_belows};
+  engine_run(&e, rules, 1);
+
+#if defined(__s390__) || defined(__s390x__)
+  unsigned long expect = v_mm + (max_pfn * sp) + 0x80000000ul + 1ul;
+  unsigned long fallback = v_mm + (max_pfn * 64ul) + 0x80000000ul + 1ul;
+  assert(e.est[Q_VIRT_TEXT_BASE].lo >= expect);  /* uses the exact 80 bytes */
+  assert(e.est[Q_VIRT_TEXT_BASE].lo > fallback); /* tighter than the default */
+#else
+  struct estimate top;
+  quantities[Q_VIRT_TEXT_BASE].init_top(&top);
+  assert(e.est[Q_VIRT_TEXT_BASE].lo == top.lo);
+#endif
+}
+
 /* No SF_PHYS_MAX_PFN: rule still fires with vmemmap_size=0, giving the looser
  * (still sound) bound V_mm + MODULES_LEN + 1. */
 static void test_s390_text_from_vmemmap_no_max_pfn(void) {
@@ -4642,6 +4674,7 @@ int main(void) {
   RUN(test_s390_text_from_vmalloc_lo_bound);
   RUN(test_s390_text_from_vmalloc_no_obs);
   RUN(test_s390_text_from_vmemmap_with_max_pfn);
+  RUN(test_s390_text_from_belows_uses_struct_page_fact);
   RUN(test_s390_text_from_vmemmap_no_max_pfn);
   RUN(test_s390_text_from_vmemmap_no_obs);
   RUN(test_s390_text_segment_mod_fires);

@@ -15,17 +15,17 @@
 //               so VMEMMAP_START is far below the VA_BITS=48 floor.
 //
 // Inference: a VIRT/VMEMMAP observation V_mm at an address strictly below
-// ARM64_VA48_VMEMMAP_START (0xfffffdffc0000000) cannot lie in VA_BITS=48's
-// vmemmap region, so the kernel must be VA_BITS=52. Pin Q_VA_BITS=52 + the
-// matching Q_PAGE_OFFSET ceiling at the VA52 floor.
+// VMEMMAP_START(VA48) cannot lie in VA_BITS=48's vmemmap region, so the kernel
+// must be VA_BITS=52. Pin Q_VA_BITS=52 + the matching Q_PAGE_OFFSET ceiling at
+// the VA52 floor.
 //
-// The opposite branch (V_mm ≥ ARM64_VA48_VMEMMAP_START) is *consistent with
-// both* paging modes and so does not discriminate — the rule emits nothing
-// for that case. The threshold itself is sensitive to sizeof(struct page);
-// rare kernel configs (large-page page_ext, hugetlb tracking variants) can
-// shift it by a constant. The chosen value matches the upstream default and
-// the resolver's confidence-priority handles a higher-confidence
-// contradiction from a different source.
+// The opposite branch (V_mm ≥ VMEMMAP_START(VA48)) is *consistent with both*
+// paging modes and so does not discriminate — the rule emits nothing for that
+// case. The threshold is VMEMMAP_END - (128 TiB / 4 KiB) * sizeof(struct page);
+// it is sensitive to sizeof(struct page), which SF_STRUCT_PAGE_BYTES supplies
+// exactly (from BTF) when present, else the common 64-byte default
+// (0xfffffdffc0000000). The resolver's confidence-priority handles a
+// higher-confidence contradiction from a different source.
 //
 // arm64 only; inert elsewhere. Inert when no VIRT VMEMMAP observation is
 // present.
@@ -36,7 +36,7 @@
 
 #include <string.h>
 
-#define ARM64_VA48_VMEMMAP_START 0xfffffdffc0000000ul
+#define ARM64_VMEMMAP_END 0xffffffffc0000000ul /* -SZ_1G; VA_BITS-invariant */
 #define ARM64_VA52_PAGE_OFFSET 0xfff0000000000000ul
 
 int rule_arm64_va_bits_from_vmemmap(const struct evidence_set *ev,
@@ -66,7 +66,30 @@ int rule_arm64_va_bits_from_vmemmap(const struct evidence_set *ev,
       src = o->id;
     }
   }
-  if (src == 0 || lowest >= ARM64_VA48_VMEMMAP_START)
+  /* sizeof(struct page): exact from BTF (SF_STRUCT_PAGE_BYTES) when present,
+   * else 64. A larger struct page lowers VMEMMAP_START(VA48) — i.e. lowers the
+   * discrimination threshold — so an observation just below the 64-based line
+   * is no longer mis-pinned to VA52. */
+  unsigned long struct_page_bytes = 64ul;
+  uint32_t sp_src = 0;
+  enum kasld_confidence sp_conf = CONF_UNKNOWN;
+  for (int i = 0; i < ev->n_obs; i++) {
+    const struct observation *o = &ev->obs[i];
+    if (o->valid && o->value_kind == OBS_SCALAR &&
+        o->scalar_fact == SF_STRUCT_PAGE_BYTES && o->scalar_value >= 1 &&
+        o->scalar_value <= (1ul << 20)) {
+      struct_page_bytes = o->scalar_value;
+      sp_src = o->id;
+      sp_conf = o->conf;
+      break;
+    }
+  }
+  /* VMEMMAP_START(VA48) = VMEMMAP_END - (128 TiB / 4 KiB) * struct_page_bytes;
+   * with the 64-byte default this is 0xfffffdffc0000000. */
+  unsigned long va48_vmemmap_start =
+      ARM64_VMEMMAP_END - (1ul << 35) * struct_page_bytes;
+
+  if (src == 0 || lowest >= va48_vmemmap_start)
     return 0; /* no leak, or consistent with both modes (no discrimination) */
 
   int n = 0;
@@ -79,6 +102,11 @@ int rule_arm64_va_bits_from_vmemmap(const struct evidence_set *ev,
     c->conf = conf;
     c->derived_from[0] = src;
     c->lineage_count = 1;
+    if (sp_src != 0) {
+      c->derived_from[c->lineage_count++] = sp_src;
+      if (sp_conf < c->conf)
+        c->conf = sp_conf;
+    }
     snprintf(c->origin, ORIGIN_LEN, "arm64_va_bits_from_vmemmap");
   }
   /* Q_PAGE_OFFSET upper bound at the VA52 floor (PAGE_OFFSET = -(1 << 52)). */
@@ -91,6 +119,11 @@ int rule_arm64_va_bits_from_vmemmap(const struct evidence_set *ev,
     c->conf = conf;
     c->derived_from[0] = src;
     c->lineage_count = 1;
+    if (sp_src != 0) {
+      c->derived_from[c->lineage_count++] = sp_src;
+      if (sp_conf < c->conf)
+        c->conf = sp_conf;
+    }
     snprintf(c->origin, ORIGIN_LEN, "arm64_va_bits_from_vmemmap");
   }
   return n;
