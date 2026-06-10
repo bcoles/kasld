@@ -337,6 +337,11 @@ static unsigned long majority_vote(int cpu_vendor) {
 // Main entry point.
 // ---------------------------------------------------------------------------
 static unsigned long get_kernel_addr_prefetch(void) {
+  if (geteuid() != 0) {
+    kasld_err("prefetch side-channel requires root privileges");
+    return 0;
+  }
+
   int cpu = detect_cpu_vendor();
   bool pti = detect_kpti();
 
