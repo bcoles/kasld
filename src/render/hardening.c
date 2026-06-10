@@ -30,6 +30,7 @@ enum {
   GATE_KPTR_RESTRICT = 0,
   GATE_DMESG_RESTRICT,
   GATE_PERF_EVENT_PARANOID,
+  GATE_HASHED_POINTERS,
   GATE__COUNT,
 };
 static const struct sysctl_gate gates[GATE__COUNT] = {
@@ -40,6 +41,11 @@ static const struct sysctl_gate gates[GATE__COUNT] = {
     [GATE_PERF_EVENT_PARANOID] = {"perf_event_paranoid",
                                   "kernel.perf_event_paranoid",
                                   &sysctl_perf_event_paranoid, 2},
+    /* Not a /proc/sys knob — boot-time (no_hash_pointers) — but the same gate
+     * plumbing fits: a runtime-readable mitigation that gates %pK address
+     * leaks (hashed by default => low-priv readers get an id, not the addr). */
+    [GATE_HASHED_POINTERS] = {"hashed_pointers", "kernel pointer hashing (%pK)",
+                              &hashed_pointers, 1},
 };
 static const int ngates = GATE__COUNT;
 

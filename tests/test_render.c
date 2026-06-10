@@ -982,6 +982,52 @@ static void test_build_hardening_report(void) {
   num_scalar_facts = 0;
 }
 
+/* The pointer-hashing gate: a %pK leak tagged sysctl:hashed_pointers is gated
+ * by kernel pointer hashing. With hashing on (the modern default) the gate is
+ * active, the leak yields nothing (hashed ids fail the kernel-VAS filter), and
+ * an active gate is not re-offered as available hardening. */
+static void test_render_hardening_pointer_hashing_gate(void) {
+  reset_results();
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+  /* Isolate the pointer-hashing gate — make the three sysctl gates unreadable
+   * so only it can surface. */
+  sysctl_kptr_restrict = -1;
+  sysctl_dmesg_restrict = -1;
+  sysctl_perf_event_paranoid = -1;
+  sysctl_lockdown = LOCKDOWN_NONE;
+  hashed_pointers = 1; /* hashing on => gate active */
+
+  struct component_log *c = hr_seed_comp("c_pk_leak", OUTCOME_NO_RESULT);
+  hr_seed_meta(c, "method", "parsed");
+  hr_seed_meta(c, "sysctl", "hashed_pointers>=1");
+
+  struct hardening_report rep;
+  build_hardening_report(&rep);
+
+  /* The leak ran but pointer hashing blocked it: counted, did not succeed. */
+  assert(rep.total == 1 && rep.succeeded == 0);
+
+  /* Exactly the pointer-hashing gate surfaces, active, gating the one leak,
+   * with neither a blocked (access-denied) nor bypassed (success) outcome. */
+  assert(rep.n_gates == 1);
+  const struct hr_gate *g = &rep.gates[0];
+  assert(strcmp(g->display, "kernel pointer hashing (%pK)") == 0);
+  assert(g->active && g->value == 1);
+  assert(g->gated == 1 && g->n_gated_names == 1 &&
+         strcmp(g->gated_names[0], "c_pk_leak") == 0);
+  assert(g->blocked == 0 && g->bypassed == 0);
+
+  /* An active gate is not offered as available hardening. */
+  assert(rep.n_gate_suggestions == 0);
+
+  /* Restore globals so later tests see a clean state. */
+  hashed_pointers = -1;
+  sysctl_lockdown = LOCKDOWN_NONE;
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+}
+
 /* SF_VIRT_KASLR_RANDOMIZATION_FAILED surfaces in the text hardening report as a
  * dedicated posture section (entropy downgrade). The fact is distinct from
  * SF_VIRT_KASLR_DISABLED — the kernel was relocated to a firmware-determined
@@ -1093,6 +1139,7 @@ int main(void) {
   RUN(test_render_hardening_json);
   RUN(test_render_hardening_markdown);
   RUN(test_build_hardening_report);
+  RUN(test_render_hardening_pointer_hashing_gate);
   RUN(test_render_hardening_text_rand_failed_surfaces);
   RUN(test_render_hardening_json_rand_failed_state);
   RUN(test_render_hardening_text_no_rand_failed_silent);

@@ -70,6 +70,11 @@ int sysctl_kptr_restrict = -1;
 int sysctl_dmesg_restrict = -1;
 int sysctl_perf_event_paranoid = -1;
 
+/* Kernel pointer hashing: 1 = %p/%pK hashed (the default — mitigating), 0 =
+ * no_hash_pointers / hash_pointers=never on the boot cmdline (raw addresses),
+ * -1 = /proc/cmdline unreadable. */
+int hashed_pointers = -1;
+
 /* Kernel lockdown status */
 enum lockdown_mode sysctl_lockdown = LOCKDOWN_UNAVAILABLE;
 
@@ -346,6 +351,22 @@ static int read_sysctl_int(const char *path) {
   return val;
 }
 
+/* Detect kernel pointer hashing from /proc/cmdline. %pK (and %p) print a hashed
+ * id unless no_hash_pointers / hash_pointers=never is on the boot cmdline.
+ * Returns 1 (hashed — the default), 0 (raw), or -1 (cmdline unreadable). */
+static int read_pointer_hashing(void) {
+  FILE *f = kasld_fopen("/proc/cmdline", "r");
+  if (!f)
+    return -1;
+  char buf[4096];
+  size_t n = fread(buf, 1, sizeof(buf) - 1, f);
+  fclose(f);
+  buf[n] = '\0';
+  if (strstr(buf, "no_hash_pointers") || strstr(buf, "hash_pointers=never"))
+    return 0;
+  return 1;
+}
+
 /* Read /sys/kernel/security/lockdown and parse the active mode.
  * Format: "none [integrity] confidentiality" — bracketed word is active. */
 static enum lockdown_mode read_lockdown(void) {
@@ -413,6 +434,7 @@ static void print_system_config(void) {
   sysctl_perf_event_paranoid =
       read_sysctl_int("/proc/sys/kernel/perf_event_paranoid");
   sysctl_lockdown = read_lockdown();
+  hashed_pointers = read_pointer_hashing();
 
   printf("\n");
   read_proc_value("kernel.kptr_restrict:", "/proc/sys/kernel/kptr_restrict");
@@ -2986,6 +3008,7 @@ int main(int argc, char *argv[]) {
     sysctl_perf_event_paranoid =
         read_sysctl_int("/proc/sys/kernel/perf_event_paranoid");
     sysctl_lockdown = read_lockdown();
+    hashed_pointers = read_pointer_hashing();
   }
 
   if (discover_components() < 0)

@@ -39,8 +39,9 @@ build/<arch>/
 ```
 
 Modern fully-patched systems with `kernel.dmesg_restrict=1`,
-`kernel.kptr_restrict=1`, and `kernel.perf_event_paranoid=2` (or higher)
-are expected to return limited results. For testing purposes, the
+`kernel.kptr_restrict=1`, `kernel.perf_event_paranoid=2` (or higher), and
+`%pK` pointer hashing (on by default) are expected to return limited results.
+For testing purposes, the
 [extra/weaken-kernel-hardening](../extra/weaken-kernel-hardening) script
 can temporarily relax these settings (requires root).
 
@@ -673,8 +674,8 @@ their machine-readable metadata. The assessment has seven sections:
    when KASLR is healthy or opted out.
 
 2. **Active defenses** — runtime security settings detected on the system
-   (`dmesg_restrict`, `kptr_restrict`, `perf_event_paranoid`, lockdown mode)
-   and their current values.
+   (`dmesg_restrict`, `kptr_restrict`, `perf_event_paranoid`, `%pK` pointer
+   hashing, lockdown mode) and their current values.
 
 3. **Available hardening** — actionable suggestions for settings that are
    not currently active but would block one or more successful components
