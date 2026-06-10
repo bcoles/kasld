@@ -301,8 +301,15 @@ TEST_INT_BIN := $(TEST_OBJ_DIR)/test_engine_integration
 $(TEST_INT_BIN): $(TEST_DIR)/test_engine_integration.c $(ENGINE_CORE) $(ENGINE_RULES_SRC) $(RULE_SRCS) $(HDRS) | $(TEST_OBJ_DIR)
 	$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_engine_integration.c $(ENGINE_CORE) $(ENGINE_RULES_SRC) $(RULE_SRCS) -o $@
 
+# Component parser test: dmesg_mem_init_kernel_layout's layout-dump parser,
+# exercised by #including the component (its main renamed). No extra link inputs
+# — the component pulls its helpers from headers.
+TEST_DMESG_BIN := $(TEST_OBJ_DIR)/test_dmesg_layout
+$(TEST_DMESG_BIN): $(TEST_DIR)/test_dmesg_layout.c $(SRC_DIR)/components/dmesg_mem_init_kernel_layout.c $(HDRS) | $(TEST_OBJ_DIR)
+	$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_dmesg_layout.c -o $@
+
 .PHONY: test
-test : $(TEST_BIN) $(TEST_RENDER_BIN) $(TEST_EST_BIN) $(TEST_EV_BIN) $(TEST_ENG_BIN) $(TEST_INT_BIN)
+test : $(TEST_BIN) $(TEST_RENDER_BIN) $(TEST_EST_BIN) $(TEST_EV_BIN) $(TEST_ENG_BIN) $(TEST_INT_BIN) $(TEST_DMESG_BIN)
 	@$(TEST_DIR)/run-all
 	@$(TEST_DIR)/check-self-edges
 	@$(TEST_DIR)/check-truncation
@@ -320,6 +327,10 @@ test-estimate : $(TEST_EST_BIN)
 .PHONY: test-evidence
 test-evidence : $(TEST_EV_BIN)
 	$(TEST_EV_BIN)
+
+.PHONY: test-dmesg-layout
+test-dmesg-layout : $(TEST_DMESG_BIN)
+	$(TEST_DMESG_BIN)
 
 # Cross-architecture engine test: runs the integration test under qemu-user for
 # each 64-bit target (exercises arch-gated rules on their arch). Needs the

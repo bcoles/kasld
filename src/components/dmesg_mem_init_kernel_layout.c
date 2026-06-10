@@ -21,7 +21,7 @@
 //
 // On riscv64 the vmalloc/vmemmap range lines feed the engine's
 // riscv64_page_offset_from_vmalloc_vmemmap rule (tightens Q_PAGE_OFFSET).
-// On s390 the "vmalloc area:" range line feeds s390_text_from_vmalloc
+// On s390 the "vmalloc area:" range line feeds s390_text_from_belows
 // (tightens Q_VIRT_TEXT_BASE lower bound). On other arches with these prints
 // the observations are still recorded — they cost nothing if no rule consumes
 // them, and unlock future rules.
@@ -151,6 +151,12 @@ static const struct layout_entry entries[] = {
     {".data : 0x", KASLD_TYPE_VIRT, "kernel .data start", REGION_KERNEL_DATA,
      KERNEL_VIRT_VAS_START, KERNEL_VIRT_VAS_END, LK_BASE},
     {".bss  : 0x", KASLD_TYPE_VIRT, "kernel .bss start", REGION_KERNEL_BSS,
+     KERNEL_VIRT_TEXT_MIN, KERNEL_VIRT_TEXT_MAX, LK_BASE},
+    /* riscv print_vm_layout() prints the kernel image span as
+     * "kernel : 0x<virt_addr> - 0x<end>"; the low edge is kernel_map.virt_addr
+     * (where _start/_stext land) — a direct text pin. LK_BASE takes that first
+     * address; the high edge (ADDRESS_SPACE_END) is a fixed VAS bound. */
+    {"kernel : 0x", KASLD_TYPE_VIRT, "kernel image start", REGION_KERNEL_TEXT,
      KERNEL_VIRT_TEXT_MIN, KERNEL_VIRT_TEXT_MAX, LK_BASE},
     {"lowmem  : 0x", KASLD_TYPE_VIRT, "kernel lowmem start", REGION_DIRECTMAP,
      KERNEL_VIRT_VAS_START, KERNEL_VIRT_VAS_END, LK_BASE},

@@ -28,7 +28,7 @@ else
 fi
 
 # Suite binaries (smallest first).
-SUITES="test_evidence test_estimate test_engine_integration test_kasld test_render test_engine"
+SUITES="test_evidence test_estimate test_engine_integration test_kasld test_render test_engine test_dmesg_layout"
 
 total_pass=0
 total_count=0
