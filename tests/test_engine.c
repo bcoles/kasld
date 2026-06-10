@@ -2104,9 +2104,9 @@ static void test_arm64_va_bits_from_vmemmap_above_floor_inert(void) {
 
 /* s390_text_from_vmalloc: a VIRT/VMALLOC observation pushes the text
  * base lower bound up by exactly MODULES_LEN (= SZ_2G) + 1. */
-int rule_s390_text_from_vmalloc(const struct evidence_set *ev,
-                                const struct estimate *est,
-                                struct constraint *out, int out_max);
+int rule_s390_text_from_belows(const struct evidence_set *ev,
+                               const struct estimate *est,
+                               struct constraint *out, int out_max);
 
 static void test_s390_text_from_vmalloc_lo_bound(void) {
   struct engine e;
@@ -2116,7 +2116,7 @@ static void test_s390_text_from_vmalloc_lo_bound(void) {
                                 LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
   evidence_add(&e.ev, &o);
 
-  const rule_fn rules[] = {rule_s390_text_from_vmalloc};
+  const rule_fn rules[] = {rule_s390_text_from_belows};
   engine_run(&e, rules, 1);
 
 #if defined(__s390__) || defined(__s390x__)
@@ -2134,7 +2134,7 @@ static void test_s390_text_from_vmalloc_lo_bound(void) {
 static void test_s390_text_from_vmalloc_no_obs(void) {
   struct engine e;
   engine_init(&e);
-  const rule_fn rules[] = {rule_s390_text_from_vmalloc};
+  const rule_fn rules[] = {rule_s390_text_from_belows};
   engine_run(&e, rules, 1);
   struct estimate top;
   quantities[Q_VIRT_TEXT_BASE].init_top(&top);
@@ -2145,10 +2145,6 @@ static void test_s390_text_from_vmalloc_no_obs(void) {
  * a VIRT/VMEMMAP observation pushes Q_VIRT_TEXT_BASE.lo up by at least
  * vmemmap_size + MODULES_LEN + 1, where vmemmap_size is derived from
  * SF_PHYS_MAX_PFN × 64 (upstream default struct page bytes). */
-int rule_s390_text_from_vmemmap(const struct evidence_set *ev,
-                                const struct estimate *est,
-                                struct constraint *out, int out_max);
-
 static void test_s390_text_from_vmemmap_with_max_pfn(void) {
   struct engine e;
   engine_init(&e);
@@ -2160,7 +2156,7 @@ static void test_s390_text_from_vmemmap_with_max_pfn(void) {
   evidence_add(&e.ev, &o);
   evidence_add(&e.ev, &s);
 
-  const rule_fn rules[] = {rule_s390_text_from_vmemmap};
+  const rule_fn rules[] = {rule_s390_text_from_belows};
   engine_run(&e, rules, 1);
 
 #if defined(__s390__) || defined(__s390x__)
@@ -2184,7 +2180,7 @@ static void test_s390_text_from_vmemmap_no_max_pfn(void) {
   struct observation o = mk_obs(KASLD_TYPE_VIRT, REGION_VMEMMAP, v_mm,
                                 LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
   evidence_add(&e.ev, &o);
-  const rule_fn rules[] = {rule_s390_text_from_vmemmap};
+  const rule_fn rules[] = {rule_s390_text_from_belows};
   engine_run(&e, rules, 1);
 #if defined(__s390__) || defined(__s390x__)
   unsigned long expect = v_mm + 0x80000000ul + 1ul;
@@ -2200,7 +2196,7 @@ static void test_s390_text_from_vmemmap_no_max_pfn(void) {
 static void test_s390_text_from_vmemmap_no_obs(void) {
   struct engine e;
   engine_init(&e);
-  const rule_fn rules[] = {rule_s390_text_from_vmemmap};
+  const rule_fn rules[] = {rule_s390_text_from_belows};
   engine_run(&e, rules, 1);
   struct estimate top;
   quantities[Q_VIRT_TEXT_BASE].init_top(&top);

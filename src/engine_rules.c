@@ -100,8 +100,7 @@ static const rule_fn k_rules[] = {
 
     /* s390-specific */
     rule_s390_paging_level,
-    rule_s390_text_from_vmalloc,
-    rule_s390_text_from_vmemmap,
+    rule_s390_text_from_belows,
     rule_s390_text_segment_mod,
     rule_s390_text_no_random,
 

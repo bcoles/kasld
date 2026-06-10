@@ -111,8 +111,7 @@ R(riscv64_va_bits_pin);
 
 /* s390-specific rules */
 R(s390_paging_level);
-R(s390_text_from_vmalloc);
-R(s390_text_from_vmemmap);
+R(s390_text_from_belows);
 R(s390_text_segment_mod);
 R(s390_text_no_random);
 
