@@ -1,0 +1,54 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-component-meta — every component must declare KASLD_META.
+#
+# KASLD_META(...) emits the .kasld_meta ELF section the orchestrator reads in
+# classify_components(): the method/phase/addr keys classify the component, and
+# the sysctl/config/bypass/cve/... keys drive the -H hardening assessment. A
+# component without it still runs, but is invisible to classification and the
+# hardening report — so the metadata block is mandatory.
+#
+# This check FAILS if any src/components/*.c lacks a KASLD_META(...) declaration,
+# or carries one with no method: key (the field that classifies the component).
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+COMP="$ROOT/src/components"
+
+if [ -t 2 ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; RESET=
+fi
+
+rc=0
+missing=""
+nomethod=""
+n=0
+for f in "$COMP"/*.c; do
+  n=$((n + 1))
+  base=$(basename "$f")
+  if ! grep -qE 'KASLD_META[[:space:]]*\(' "$f"; then
+    missing="$missing $base"
+    rc=1
+  elif ! grep -qE 'method:' "$f"; then
+    nomethod="$nomethod $base"
+    rc=1
+  fi
+done
+
+if [ -n "$missing" ]; then
+  printf '%scheck-component-meta: FAIL%s — missing KASLD_META:\n' "$RED" "$RESET"
+  for c in $missing; do printf '  %s\n' "$c"; done
+fi
+if [ -n "$nomethod" ]; then
+  printf '%scheck-component-meta: FAIL%s — KASLD_META without a method: key:\n' "$RED" "$RESET"
+  for c in $nomethod; do printf '  %s\n' "$c"; done
+fi
+if [ "$rc" -eq 0 ]; then
+  printf '%scheck-component-meta: OK%s (%d components, all declare KASLD_META with a method: key)\n' "$GREEN" "$RESET" "$n"
+fi
+exit $rc
