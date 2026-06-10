@@ -16,6 +16,15 @@
 //   no /proc/device-tree                -> skip (FDT state unknown)
 //   /chosen/kaslr-seed present          -> skip (KASLR may be active)
 // Only the property-absent + non-EFI + FDT-present case asserts KASLR off.
+//
+// arm64: arch/arm64/kernel/pi/kaslr_early.c reads /chosen/kaslr-seed and zeroes
+// it in place (property kept), so an absent property means no seed was supplied
+// and map_kernel.c leaves kaslr_offset = 0 (virtual KASLR off). When the FDT
+// seed is absent the kernel falls back to the RNDR instruction, so the same
+// riscv64 guards apply PLUS a /proc/cpuinfo 'rng' (FEAT_RNG) check: only the
+// property-absent + non-EFI + FDT-present + no-RNDR case asserts KASLR off, and
+// only the virtual axis (arm64 physical placement is
+// EFI/bootloader-determined).
 // ---
 // <bcoles@gmail.com>
 
@@ -25,6 +34,8 @@
 #include "sysroot.h"
 
 #include <stdint.h>
+#include <stdio.h>
+#include <string.h>
 #include <unistd.h>
 
 /* FDT /chosen/kaslr-seed as a big-endian u64, or 0 if absent/short/wiped.
@@ -44,6 +55,36 @@ __attribute__((unused)) static uint64_t kasld_read_fdt_kaslr_seed(void) {
          ((uint64_t)b[6] << 8) | (uint64_t)b[7];
 }
 
+#if defined(__aarch64__)
+/* arm64 only: 1 if the 'rng' hwcap (FEAT_RNG / RNDR) is present in
+ * /proc/cpuinfo, OR if cpuinfo cannot be read (conservative — when in doubt,
+ * assume RNDR could have seeded KASLR, so do not assert KASLR off).
+ * Sysroot-redirected via kasld_fopen so it replays from a captured sysroot. */
+__attribute__((unused)) static int kasld_cpu_feature_rng_present(void) {
+  FILE *fp = kasld_fopen("/proc/cpuinfo", "r");
+  if (!fp)
+    return 1; /* unknown -> assume present */
+  char line[8192];
+  int present = 0;
+  while (fgets(line, sizeof(line), fp)) {
+    if (strncmp(line, "Features", 8) != 0)
+      continue;
+    char *colon = strchr(line, ':');
+    char *tok = strtok(colon ? colon + 1 : line, " \t\n");
+    while (tok) {
+      if (strcmp(tok, "rng") == 0) {
+        present = 1;
+        break;
+      }
+      tok = strtok(NULL, " \t\n");
+    }
+    break; /* only the Features line carries hwcaps */
+  }
+  fclose(fp);
+  return present;
+}
+#endif
+
 /* Returns the default kernel-text virtual base when KASLR is detected disabled
  * for this arch, or 0 when KASLR may be active / detection is not applicable.
  */
@@ -56,6 +97,17 @@ kasld_kaslr_disabled_text_default(void) {
     return 0; /* no FDT mounted: seed state unknown */
   if (kasld_access("/proc/device-tree/chosen/kaslr-seed", F_OK) == 0)
     return 0; /* property present: KASLR may be active */
+  return (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
+#elif defined(__aarch64__)
+  if (kasld_access("/sys/firmware/efi", F_OK) == 0)
+    return 0; /* EFI seed path not confirmed visible in FDT: skip (conservative)
+               */
+  if (kasld_access("/proc/device-tree", F_OK) != 0)
+    return 0; /* ACPI boot: no FDT signal */
+  if (kasld_access("/proc/device-tree/chosen/kaslr-seed", F_OK) == 0)
+    return 0; /* property present: a seed existed, KASLR may be active */
+  if (kasld_cpu_feature_rng_present())
+    return 0; /* RNDR may have seeded KASLR despite the absent FDT seed */
   return (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
 #else
   return 0;
