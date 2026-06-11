@@ -203,7 +203,7 @@ int main(void) {
 
   if (ctx.text) {
     printf("lowest leaked text address: %lx\n", ctx.text);
-    printf("possible kernel base: %lx\n", ctx.text & -KASLR_VIRT_ALIGN);
+    printf("possible kernel base: %lx\n", kasld_floor_text_base(ctx.text));
     /* Call-trace addresses point at specific kernel text symbols
      * (function bodies, exception handlers). The component doesn't
      * resolve the symbol name, so name is left empty. */

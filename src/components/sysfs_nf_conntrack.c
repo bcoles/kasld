@@ -113,7 +113,8 @@ int main(void) {
    * inside its module memory. Treat as a module-region leak with the
    * module name as the instance identity. */
   printf("leaked inet_net struct pointer: %lx\n", addr);
-  printf("possible kernel base: %lx\n", addr & -KASLR_VIRT_ALIGN);
+  /* Module-region pointer, not kernel text — no text-base hint (a text-align
+   * floor would mislabel a module address as a kernel base). */
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_MODULE, addr, "nf_conntrack",
                       CONF_PARSED);
 

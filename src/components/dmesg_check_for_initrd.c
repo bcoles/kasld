@@ -86,7 +86,7 @@ int main(void) {
   }
 
   printf("leaked initrd start: %lx\n", addr);
-  printf("possible kernel base: %lx\n", addr & -KASLR_VIRT_ALIGN);
+  printf("possible kernel base: %lx\n", kasld_floor_text_base(addr));
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_INITRD, addr, NULL, CONF_PARSED);
 #ifdef directmap_virt_to_phys
   {

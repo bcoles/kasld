@@ -485,6 +485,39 @@ static inline int kasld_addr_is_kernel_vas(unsigned long va) {
                              (unsigned long)KERNEL_VIRT_VAS_END);
 }
 
+/* Given an interior virtual kernel-text address `addr` (so text_base <= addr),
+ * return the tightest sound aligned upper bound on the text base.
+ *
+ * The base is KASLR_VIRT_ALIGN-aligned only *up to a fixed sub-offset*: a KASLR
+ * slide is a whole multiple of KASLR_VIRT_ALIGN, so the base's low bits always
+ * equal KERNEL_VIRT_TEXT_DEFAULT mod KASLR_VIRT_ALIGN (0 on x86_64/arm64/ppc;
+ * 0x2000 on riscv64; TEXT_OFFSET on arm32; 1 MiB on s390; ...). A plain
+ * `addr & -KASLR_VIRT_ALIGN` drops *below* the real base on the sub-offset
+ * arches — an UNSOUND upper bound that wrongly rejects the true base. This
+ * returns the largest value <= addr carrying the correct sub-offset (which is
+ * exactly the floor when the sub-offset is 0). It is the single sanctioned way
+ * to align a leaked text pointer to a base estimate — components must not roll
+ * their own `& -ALIGN` (enforced by tests/check-text-floor). */
+/* Pure, parameterised core: the largest value <= addr that is congruent to
+ * (default_base mod align) modulo align. `align` must be a non-zero power of
+ * two. Split out so the sub-offset arithmetic can be unit-tested against every
+ * arch's (align, default_base) pair on a single host — see tests/test_align.c.
+ * Callers should use kasld_floor_text_base(), which binds the arch macros. */
+static inline unsigned long
+kasld_floor_aligned_suboffset(unsigned long addr, unsigned long align,
+                              unsigned long default_base) {
+  unsigned long sub = default_base & (align - 1);
+  unsigned long v = (addr & ~(align - 1)) + sub;
+  if (v > addr)
+    v -= align;
+  return v;
+}
+
+static inline unsigned long kasld_floor_text_base(unsigned long addr) {
+  return kasld_floor_aligned_suboffset(addr, (unsigned long)KASLR_VIRT_ALIGN,
+                                       (unsigned long)KERNEL_VIRT_TEXT_DEFAULT);
+}
+
 /* =========================================================================
  * Result model: (extent, position, confidence) over a typed region
  * =========================================================================

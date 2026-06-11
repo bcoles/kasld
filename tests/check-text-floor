@@ -1,0 +1,50 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-text-floor — guard against components rolling their own text-base floor.
+#
+# Aligning a leaked kernel-text pointer DOWN to KASLR_VIRT_ALIGN to estimate the
+# text base (`addr & -KASLR_VIRT_ALIGN`) is UNSOUND on arches where the base is
+# not KASLR_VIRT_ALIGN-aligned: riscv64 (+0x2000), arm32 (+TEXT_OFFSET), s390
+# (+1 MiB), loongarch64, ... The floored value drops *below* the real base — an
+# upper bound that wrongly rejects the truth (this caused riscv64 / armv7 virt
+# text to exclude `_text`). The single sanctioned way to turn a leaked text
+# pointer into a base estimate is kasld_floor_text_base() in api.h, which
+# preserves the base's sub-alignment offset (== the plain floor when it is 0).
+#
+# This check fails if any component aligns a text pointer to KASLR_VIRT_ALIGN by
+# hand instead of using the helper. Explanatory comments that name the banned
+# idiom are ignored (only code is scanned). It does not check the physical axis
+# (KASLR_PHYS_ALIGN), whose default does not carry a usable sub-offset.
+#
+# Usage: tests/check-text-floor   (also run by `make test`)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+COMP=$ROOT/src/components
+
+if [ -t 2 ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; RESET=
+fi
+
+# Hand-rolled floor idioms: `X & -KASLR_VIRT_ALIGN` or `X & ~(KASLR_VIRT_ALIGN
+# - 1)`. Drop // and block-comment (`*`) lines so the comments that name the
+# banned idiom (in perf_event_open / perf_lbr_sampling / sysfs_kernel_notes_xen)
+# do not trip the guard.
+hits=$(grep -rnE '&[[:space:]]*[-~].*KASLR_VIRT_ALIGN' "$COMP" 2>/dev/null \
+       | grep -vE ':[0-9]+:[[:space:]]*(//|\*)')
+
+if [ -n "$hits" ]; then
+  printf '%scheck-text-floor: FAIL%s — component(s) align a text pointer to\n' "$RED" "$RESET" >&2
+  echo "KASLR_VIRT_ALIGN by hand. Use kasld_floor_text_base() (api.h) instead;" >&2
+  echo "a plain floor is unsound on sub-offset arches (riscv64/arm32/s390/...):" >&2
+  echo "$hits" >&2
+  exit 1
+fi
+
+printf '%scheck-text-floor: OK%s (no hand-rolled text-base floors in components)\n' \
+  "$GREEN" "$RESET"

@@ -305,17 +305,13 @@ int main(int argc, char *argv[]) {
     return KASLD_EXIT_UNAVAILABLE;
   }
 
-  /* Floor the captured minimum to KASLR_VIRT_ALIGN before emitting. The
-   * captured branch address sits at text_base + offset; we don't know the
-   * offset, only that it is non-negative. Floor(min, KASLR_VIRT_ALIGN) is
-   * still a sound upper bound on text_base (text_base is itself
-   * KASLR_VIRT_ALIGN-aligned), and it is tighter than the raw value because
-   * the engine's C_AT_LEAST_ALIGN constraint only raises the resolver's
-   * lower bound, not the upper bound. Emitting raw would put a CONF_PARSED
-   * upper bound at e.g. text_base+0x4a3040 instead of text_base+0x400000,
-   * shadowing other sources (prefetch, kallsyms) whose values are already
-   * properly aligned. */
-  unsigned long emit_addr = min_addr & -(unsigned long)KASLR_VIRT_ALIGN;
+  /* The captured branch address sits at text_base + offset (offset >= 0), a
+   * sound interior witness (text_base <= min_addr). Tighten it to the sound
+   * aligned base estimate via the shared helper, which preserves the base's
+   * sub-alignment offset (a plain `& -KASLR_VIRT_ALIGN` would drop below the
+   * base on the sub-offset arches; LBR is x86-only today, where the sub-offset
+   * is 0, but the helper keeps this correct by construction). */
+  unsigned long emit_addr = kasld_floor_text_base(min_addr);
   kasld_found("%lu kernel address(es) considered across %d sample(s)", n_kaddrs,
               n_samples);
   printf("    lowest: 0x%lx  emit (aligned): 0x%lx\n", min_addr, emit_addr);

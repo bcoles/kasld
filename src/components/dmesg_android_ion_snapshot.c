@@ -93,7 +93,7 @@ int main(void) {
   printf("leaked last_ion_buf: %lx\n", addr);
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr, "last_ion_buf",
                       CONF_PARSED);
-  printf("possible kernel base: %lx\n", addr & -KASLR_VIRT_ALIGN);
+  printf("possible kernel base: %lx\n", kasld_floor_text_base(addr));
 
   return 0;
 }

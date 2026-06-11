@@ -25,6 +25,13 @@
 //
 // Sound only where text == PAGE_OFFSET + TEXT_OFFSET deterministically, hence
 // the !KASLR_SUPPORTED gate and the per-arch VMSPLIT_PAGE_OFFSETS opt-in.
+//
+// NOT the same as api.h's kasld_floor_text_base(), and deliberately not built
+// on it: this snaps to the 1 GiB VMSPLIT boundary to *determine PAGE_OFFSET*
+// and emit an exact C_EQUALS pin, whereas the helper floors to KASLR_VIRT_ALIGN
+// (2 MiB on arm32) to produce an interior-derived upper *bound*. The coarser
+// boundary is essential here (a 2 MiB floor cannot tell which VMSPLIT is in
+// use, and undershoots the boundary for a leak >2 MiB above the base).
 // ---
 // <bcoles@gmail.com>
 

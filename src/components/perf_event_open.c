@@ -232,16 +232,12 @@ int main(void) {
     return 0;
   }
 
-  /* Floor the captured minimum to KASLR_VIRT_ALIGN before emitting. The
-   * sample IP sits at text_base + offset; we don't know the offset, only
-   * that it is non-negative. Floor(min, KASLR_VIRT_ALIGN) is still a sound
-   * upper bound on text_base (text_base is itself KASLR_VIRT_ALIGN-aligned),
-   * and it is tighter than the raw value because the engine's
-   * C_AT_LEAST_ALIGN constraint only raises the resolver's lower bound, not
-   * the upper bound. Emitting raw would put a CONF_PARSED upper bound at
-   * an instruction-granularity address, shadowing other sources whose
-   * values are already properly aligned. */
-  unsigned long emit_addr = addr & -(unsigned long)KASLR_VIRT_ALIGN;
+  /* The sample IP sits at text_base + offset (offset >= 0), so the leaked
+   * value is a sound interior witness (text_base <= addr). Tighten it to the
+   * sound aligned base estimate — kasld_floor_text_base preserves the base's
+   * sub-alignment offset, so it stays a valid upper bound on every arch (a
+   * plain `& -KASLR_VIRT_ALIGN` would drop below the base on riscv64/arm32). */
+  unsigned long emit_addr = kasld_floor_text_base(addr);
   printf("lowest leaked address: %lx  emit (aligned): %lx\n", addr, emit_addr);
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, emit_addr, NULL,
                       CONF_PARSED);

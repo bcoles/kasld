@@ -286,6 +286,13 @@ TEST_EV_BIN := $(TEST_OBJ_DIR)/test_evidence
 $(TEST_EV_BIN): $(TEST_DIR)/test_evidence.c $(EVIDENCE_SRC) $(HDRS) | $(TEST_OBJ_DIR)
 	$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_evidence.c $(EVIDENCE_SRC) -o $@
 
+# Align-helper test (header-only): exercises kasld_floor_text_base() and its
+# pure core against every arch's sub-offset on the host. No .c sources to link.
+TEST_ALIGN_BIN := $(TEST_OBJ_DIR)/test_align
+
+$(TEST_ALIGN_BIN): $(TEST_DIR)/test_align.c $(HDRS) | $(TEST_OBJ_DIR)
+	$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_align.c -o $@
+
 # Engine test (Stage C/D): links the engine core + ALL ported rules. Linking the
 # whole rules/ wildcard (rather than a hand-maintained subset) means adding a
 # rule + its test needs no Makefile edit, and a rule can never be silently left
@@ -315,12 +322,13 @@ $(TEST_BTF_BIN): $(TEST_DIR)/test_btf.c $(SRC_DIR)/components/btf_struct_page_si
 	$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_btf.c -o $@
 
 .PHONY: test
-test : $(TEST_BIN) $(TEST_RENDER_BIN) $(TEST_EST_BIN) $(TEST_EV_BIN) $(TEST_ENG_BIN) $(TEST_INT_BIN) $(TEST_DMESG_BIN) $(TEST_BTF_BIN)
+test : $(TEST_BIN) $(TEST_RENDER_BIN) $(TEST_EST_BIN) $(TEST_EV_BIN) $(TEST_ALIGN_BIN) $(TEST_ENG_BIN) $(TEST_INT_BIN) $(TEST_DMESG_BIN) $(TEST_BTF_BIN)
 	@$(TEST_DIR)/run-all
 	@$(TEST_DIR)/check-self-edges
 	@$(TEST_DIR)/check-truncation
 	@$(TEST_DIR)/check-component-output
 	@$(TEST_DIR)/check-component-meta
+	@$(TEST_DIR)/check-text-floor
 
 .PHONY: test-integration
 test-integration : $(TEST_INT_BIN)

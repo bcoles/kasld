@@ -196,7 +196,7 @@ int main(void) {
     if (addr) {
       close(fd);
       printf("leaked possible kernel pointer: %lx\n", addr);
-      printf("possible kernel base: %lx\n", addr & -KASLR_VIRT_ALIGN);
+      printf("possible kernel base: %lx\n", kasld_floor_text_base(addr));
       kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr, NULL,
                           CONF_HEURISTIC);
       return 0;

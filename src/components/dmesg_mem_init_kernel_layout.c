@@ -228,7 +228,7 @@ static void emit_base(int idx, unsigned long addr) {
   printf("%s: %lx\n", entries[idx].display, addr);
 
   if (region == REGION_KERNEL_TEXT)
-    printf("possible kernel base: %lx\n", addr & -KASLR_VIRT_ALIGN);
+    printf("possible kernel base: %lx\n", kasld_floor_text_base(addr));
 
   if ((region == REGION_DIRECTMAP || region == REGION_MODULE_REGION) &&
       addr < (unsigned long)KERNEL_VIRT_VAS_START)
