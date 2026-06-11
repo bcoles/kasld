@@ -27,6 +27,18 @@
 // VMSPLIT (CONFIG_PAGE_OFFSET) is a compile-time constant, fixed at boot.
 #define PAGE_OFFSET_FROM_CONFIG 1
 
+// The runtime PAGE_OFFSET is one of the VMSPLIT boundaries (arch/arm/Kconfig:
+// VMSPLIT_3G / 3G_OPT / 2G / 1G), listed high→low for snap-down. arm32 has no
+// KASLR, so the kernel image sits at PAGE_OFFSET + TEXT_OFFSET: any observed
+// kernel virtual text address V therefore pins PAGE_OFFSET (the largest
+// boundary <= V) and hence the exact image base. Consumed by the
+// vmsplit_text_base engine rule. The 0xc0000000 default above is only the
+// render fallback when no virtual text address is observed.
+// https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm/Kconfig#L1116
+#define HAVE_VMSPLIT_PAGE_OFFSET 1
+#define VMSPLIT_PAGE_OFFSETS                                                   \
+  {0xc0000000ul, 0xb0000000ul, 0x80000000ul, 0x40000000ul}
+
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm/Kconfig#L276
 #define PHYS_OFFSET 0ul
 

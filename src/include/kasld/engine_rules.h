@@ -41,6 +41,7 @@ R(virt_ceiling_from_memtotal);
 R(phys_bits_ceiling);
 R(image_size_text_data_gap);
 R(min_offset_from_image_size);
+R(vmsplit_text_base);
 R(range_from_interior);
 
 /* DRAM bounds (MMIO ceilings, holes, kernel-image phys gap, firmware) */

@@ -2550,6 +2550,17 @@ static void engine_sync_authoritative(const struct engine *e) {
   layout.virt_page_offset_min = e->est[Q_PAGE_OFFSET].lo;
   layout.virt_page_offset_max = e->est[Q_PAGE_OFFSET].hi;
 
+  /* Project the resolved direct-map base onto the rendered singular field
+   * whenever the engine has pinned it. On coupled arches PAGE_OFFSET equals
+   * the compile-time default on the common configuration, so this is normally
+   * a no-op — but a runtime-detected VMSPLIT (arm32 vmsplit_text_base) can pin
+   * it to a different boundary, and the render must follow the engine rather
+   * than show the compile-time seed. (The decoupled, possibly-unpinned
+   * RANDOMIZE_MEMORY case is handled by the block below.) */
+  if (e->est[Q_PAGE_OFFSET].lo == e->est[Q_PAGE_OFFSET].hi &&
+      e->est[Q_PAGE_OFFSET].lo != 0)
+    layout.virt_page_offset = e->est[Q_PAGE_OFFSET].lo;
+
 #if !TEXT_TRACKS_DIRECTMAP
   /* On decoupled arches the direct-map base (PAGE_OFFSET) is randomised away
    * from the compile-time floor (x86_64 RANDOMIZE_MEMORY). Anchor the rendered
