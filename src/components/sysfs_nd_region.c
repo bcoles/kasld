@@ -147,13 +147,13 @@ int main(void) {
     if (end == buf || addr == 0)
       continue;
 
-    printf("%s resource: 0x%016lx\n", ent->d_name, addr);
+    kasld_info("%s resource: 0x%016lx", ent->d_name, addr);
     kasld_result_sample(KASLD_TYPE_PHYS, REGION_PMEM, addr, ent->d_name,
                         CONF_PARSED);
 
 #ifdef phys_to_directmap_virt
     unsigned long virt = phys_to_directmap_virt(addr);
-    printf("possible direct-map virtual address: 0x%016lx\n", virt);
+    kasld_info("possible direct-map virtual address: 0x%016lx", virt);
     kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, ent->d_name,
                         CONF_PARSED);
 #endif

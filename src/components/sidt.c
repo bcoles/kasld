@@ -173,9 +173,9 @@ static unsigned long get_kernel_addr_sidt(void) {
 
   unsigned long base = (unsigned long)idt.base;
 
-  printf("IDT base:  0x%016lx\n", base);
-  printf("IDT limit: 0x%04x (%u bytes, %u entries)\n", idt.limit,
-         (unsigned)(idt.limit + 1), (unsigned)((idt.limit + 1) / 16));
+  kasld_info("IDT base:  0x%016lx", base);
+  kasld_info("IDT limit: 0x%04x (%u bytes, %u entries)", idt.limit,
+             (unsigned)(idt.limit + 1), (unsigned)((idt.limit + 1) / 16));
 
   /* UMIP emulation returns a hardcoded dummy base with limit=0 */
   if (base == UMIP_DUMMY_IDT_BASE && idt.limit == 0) {
@@ -209,7 +209,7 @@ int main(void) {
   if (!addr)
     return 0;
 
-  printf("possible kernel base: %lx\n", kasld_floor_text_base(addr));
+  kasld_info("possible kernel base: %lx", kasld_floor_text_base(addr));
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr, NULL,
                       CONF_PARSED);
 

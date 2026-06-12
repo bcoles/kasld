@@ -386,7 +386,7 @@ int main(int argc, char *argv[]) {
     return 0;
   }
 
-  printf("possible kernel base: %lx\n", addr);
+  kasld_info("possible kernel base: %lx", addr);
   kasld_result_base(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr, NULL,
                     CONF_TIMING);
 

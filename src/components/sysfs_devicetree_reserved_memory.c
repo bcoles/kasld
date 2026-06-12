@@ -168,8 +168,8 @@ int main(void) {
 
   int entry_bytes = (addr_cells + size_cells) * 4;
 
-  printf("device tree: #address-cells=%d, #size-cells=%d\n", addr_cells,
-         size_cells);
+  kasld_info("device tree: #address-cells=%d, #size-cells=%d", addr_cells,
+             size_cells);
 
   /* Scan all children of reserved-memory/ for reg properties */
   snprintf(path, sizeof(path), "%s/reserved-memory", root);
@@ -204,8 +204,8 @@ int main(void) {
         continue;
       }
 
-      printf("reserved-memory %s: base=0x%016lx size=0x%lx\n", ent->d_name,
-             base_addr, size);
+      kasld_info("reserved-memory %s: base=0x%016lx size=0x%lx", ent->d_name,
+                 base_addr, size);
 
       /* Use the DT node name to identify the specific reservation
        * (e.g. "linux,cma", "optee@a0000000", "video_reserved@...") */
@@ -214,7 +214,7 @@ int main(void) {
 
 #ifdef phys_to_directmap_virt
       unsigned long virt = phys_to_directmap_virt(base_addr);
-      printf("  possible direct-map virtual address: 0x%016lx\n", virt);
+      kasld_info("  possible direct-map virtual address: 0x%016lx", virt);
       kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, ent->d_name,
                           CONF_PARSED);
 #endif
@@ -231,8 +231,8 @@ int main(void) {
   }
 
 #ifndef phys_to_directmap_virt
-  printf("note: phys and virt KASLR are decoupled on this arch; "
-         "cannot derive directmap virtual address from physical leak\n");
+  kasld_info("note: phys and virt KASLR are decoupled on this arch; "
+             "cannot derive directmap virtual address from physical leak");
 #endif
 
   return 0;

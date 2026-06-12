@@ -73,8 +73,8 @@ int main(void) {
     if (errno != ENOMEM)
       return 0; /* a different failure: don't infer */
     kasld_info("mmap(1<<38) failed (ENOMEM): SV39");
-    printf("PAGE_OFFSET: [%#lx, %#lx]\n", RISCV_PAGE_OFFSET_SV39_LO,
-           RISCV_PAGE_OFFSET_SV39_HI);
+    kasld_info("PAGE_OFFSET: [%#lx, %#lx]", RISCV_PAGE_OFFSET_SV39_LO,
+               RISCV_PAGE_OFFSET_SV39_HI);
     kasld_result_range(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET,
                        RISCV_PAGE_OFFSET_SV39_LO, RISCV_PAGE_OFFSET_SV39_HI,
                        NULL, CONF_INFERRED);
@@ -96,7 +96,7 @@ int main(void) {
     virt_page_offset = RISCV_PAGE_OFFSET_SV57; /* SV57 */
     kasld_info("mmap(1<<47) succeeded: SV57");
   }
-  printf("PAGE_OFFSET: %#lx\n", virt_page_offset);
+  kasld_info("PAGE_OFFSET: %#lx", virt_page_offset);
   kasld_result_base(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, virt_page_offset, NULL,
                     CONF_INFERRED);
   return 0;

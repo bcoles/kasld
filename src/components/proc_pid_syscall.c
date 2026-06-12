@@ -107,8 +107,6 @@ static unsigned long get_kernel_addr_proc_pid_syscall(void) {
       return 0;
     }
 
-    // printf("/proc/self/syscall: %s", buff);
-
     pclose(f);
 
     /* Lazy implementation. In practice we only want data after the first 24
@@ -182,7 +180,7 @@ static unsigned long get_kernel_addr_proc_pid_syscall(void) {
                              ? PAGE_OFFSET
                              : (unsigned long)KERNEL_VIRT_TEXT_MIN;
       if (leaked_addr >= lo && leaked_addr <= KERNEL_VIRT_TEXT_MAX) {
-        // printf("Found kernel pointer: %lx\n", leaked_addr);
+        // kasld_info("Found kernel pointer: %lx", leaked_addr);
         if (!addr || leaked_addr < addr)
           addr = leaked_addr;
       }
@@ -199,8 +197,8 @@ int main(void) {
     return 0;
   }
 
-  printf("lowest leaked address: %lx\n", addr);
-  printf("possible kernel base: %lx\n", kasld_floor_text_base(addr));
+  kasld_info("lowest leaked address: %lx", addr);
+  kasld_info("possible kernel base: %lx", kasld_floor_text_base(addr));
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr, NULL,
                       CONF_PARSED);
 

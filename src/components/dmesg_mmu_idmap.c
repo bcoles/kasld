@@ -111,8 +111,8 @@ int main(void) {
     return 0;
   }
 
-  printf("leaked idmap text (physical): %lx\n", addr);
-  printf("possible physical kernel base: %lx\n", addr & -KASLR_PHYS_ALIGN);
+  kasld_found("leaked idmap text (physical): %lx", addr);
+  kasld_info("possible physical kernel base: %lx", addr & -KASLR_PHYS_ALIGN);
   /* The logged address is the PHYSICAL idmap text start (virt_to_phys of
    * __idmap_text, which contains __turn_mmu_on) — an interior point of the
    * kernel image in physical memory, corroborating Q_PHYS_TEXT_BASE. */

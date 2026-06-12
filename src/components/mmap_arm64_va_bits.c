@@ -61,7 +61,7 @@ int main(void) {
     virt_page_offset = ARM64_VA52_PAGE_OFFSET; /* VA_BITS >= 52 */
     kasld_info("mmap(1<<48) succeeded: VA_BITS>=52");
   }
-  printf("PAGE_OFFSET: %#lx\n", virt_page_offset);
+  kasld_info("PAGE_OFFSET: %#lx", virt_page_offset);
   kasld_result_base(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, virt_page_offset, NULL,
                     CONF_INFERRED);
   return 0;

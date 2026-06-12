@@ -179,7 +179,7 @@ Two channels, kept separate (`include/kasld/cli.h`):
   (a couple of lines for `proc_iomem`, a per-collision firehose for
   `kernelsnitch`). Demote firehose lines to `kasld_debug` so a normal run — and
   `kasld -v` — stay readable; they surface only under the component's own
-  verbose. `tests/check-component-output` ratchets this: a *new* component
+  verbose. `tests/check-component-output` enforces this: any component
   printing a diagnostic to stdout fails the build.
 
 **Options** are optional and **manual** (testing/debugging — the orchestrator

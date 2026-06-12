@@ -320,7 +320,7 @@ static uint64_t leak_syscall_entry(uint64_t offset) {
       min = data[index];
       addr = SCAN_START + index * STEP;
     }
-    // printf("%llx %ld\n", (SCAN_START + index * STEP), data[index]);
+    // kasld_info("%llx %ld", (SCAN_START + index * STEP), data[index]);
   }
 
   if (kasld_addr_is_kernel_text(addr))
@@ -383,7 +383,7 @@ int main(void) {
     return 0;
   }
 
-  printf("possible kernel base: %lx\n", addr);
+  kasld_info("possible kernel base: %lx", addr);
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr, NULL,
                       CONF_TIMING);
 

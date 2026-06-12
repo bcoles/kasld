@@ -23,6 +23,7 @@ int dmesg_layout_component_main(void);
 #include "test_harness.h"
 
 #include <assert.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -35,11 +36,23 @@ static void parse_capture(const char *line, char *buf, size_t bufsz) {
   FILE *tmp = tmpfile();
   assert(saved >= 0 && tmp);
   dup2(fileno(tmp), STDOUT_FILENO);
+  /* Silence the component's stderr diagnostics (the kasld_info/_found
+   * data-echo) for the duration of the call so they don't leak into the test
+   * runner; we assert only on the stdout wire line. */
+  fflush(stderr);
+  int saved_err = dup(STDERR_FILENO);
+  int devnull = open("/dev/null", O_WRONLY);
+  assert(saved_err >= 0 && devnull >= 0);
+  dup2(devnull, STDERR_FILENO);
   struct search_ctx ctx = {0};
   on_match(line, &ctx);
   fflush(stdout);
   dup2(saved, STDOUT_FILENO);
   close(saved);
+  fflush(stderr);
+  dup2(saved_err, STDERR_FILENO);
+  close(saved_err);
+  close(devnull);
   rewind(tmp);
   size_t n = fread(buf, 1, bufsz - 1, tmp);
   buf[n] = '\0';

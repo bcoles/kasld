@@ -113,8 +113,8 @@ int main(void) {
     return 0;
   }
 
-  printf("lowest leaked address: %lx\n", addr);
-  printf("possible kernel base: %lx\n", kasld_floor_text_base(addr));
+  kasld_info("lowest leaked address: %lx", addr);
+  kasld_info("possible kernel base: %lx", kasld_floor_text_base(addr));
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr, NULL,
                       CONF_PARSED);
   return 0;

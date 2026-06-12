@@ -238,7 +238,8 @@ int main(void) {
    * sub-alignment offset, so it stays a valid upper bound on every arch (a
    * plain `& -KASLR_VIRT_ALIGN` would drop below the base on riscv64/arm32). */
   unsigned long emit_addr = kasld_floor_text_base(addr);
-  printf("lowest leaked address: %lx  emit (aligned): %lx\n", addr, emit_addr);
+  kasld_info("lowest leaked address: %lx  emit (aligned): %lx", addr,
+             emit_addr);
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, emit_addr, NULL,
                       CONF_PARSED);
 

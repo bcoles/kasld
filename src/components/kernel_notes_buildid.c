@@ -128,10 +128,12 @@ KASLD_META("method:parsed\n"
  * without separators to match `readelf -n` and debuginfod lookup keys). */
 static void print_hex_desc(const char *label, const unsigned char *p,
                            size_t n) {
-  printf("%s: ", label);
-  for (size_t i = 0; i < n; i++)
-    printf("%02x", p[i]);
-  putchar('\n');
+  char buf[2 * KNB_MAX_DESC + 1];
+  size_t o = 0;
+  for (size_t i = 0; i < n && o + 2 < sizeof buf; i++)
+    o += (size_t)snprintf(buf + o, sizeof buf - o, "%02x", p[i]);
+  buf[o] = '\0';
+  kasld_info("%s: %s", label, buf);
 }
 
 /* Print a string descriptor with safe display: escape control characters
@@ -140,19 +142,21 @@ static void print_str_desc(const char *label, const char *p, size_t n) {
   /* Trim any trailing NULs from the descriptor (BUILD_SALT is
    * NUL-terminated and 4-byte aligned, so a 14-byte payload comes back
    * with 2 trailing NULs). */
+  char buf[4 * KNB_MAX_DESC + 1];
+  size_t o = 0;
   while (n > 0 && p[n - 1] == '\0')
     n--;
-  printf("%s: \"", label);
-  for (size_t i = 0; i < n; i++) {
+  for (size_t i = 0; i < n && o + 4 < sizeof buf; i++) {
     unsigned char c = (unsigned char)p[i];
     if (c == '\\' || c == '"')
-      printf("\\%c", c);
+      o += (size_t)snprintf(buf + o, sizeof buf - o, "\\%c", c);
     else if (c >= 0x20 && c < 0x7f)
-      putchar(c);
+      buf[o++] = (char)c;
     else
-      printf("\\x%02x", c);
+      o += (size_t)snprintf(buf + o, sizeof buf - o, "\\x%02x", c);
   }
-  printf("\"\n");
+  buf[o] = '\0';
+  kasld_info("%s: \"%s\"", label, buf);
 }
 
 int main(void) {
@@ -227,7 +231,7 @@ int main(void) {
       if (type == LINUX_ELFNOTE_LTO_INFO && descsz == 4) {
         uint32_t lto;
         memcpy(&lto, descbuf, sizeof lto);
-        printf("kernel.lto: %u\n", lto);
+        kasld_info("kernel.lto: %u", lto);
         seen_lto = 1;
         continue;
       }

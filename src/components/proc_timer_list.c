@@ -100,13 +100,13 @@ int main(void) {
     int in_kvas = (!in_dmap && kasld_addr_is_kernel_vas(val));
 
     if (in_dmap || in_kvas) {
-      printf("timer base address: 0x%016lx\n", val);
+      kasld_info("timer base address: 0x%016lx", val);
       kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, val, NULL,
                           CONF_PARSED);
 #ifdef directmap_virt_to_phys
       {
         unsigned long phys = directmap_virt_to_phys(val);
-        printf("  possible physical address: 0x%016lx\n", phys);
+        kasld_info("  possible physical address: 0x%016lx", phys);
         kasld_result_sample(KASLD_TYPE_PHYS, REGION_DIRECTMAP, phys, NULL,
                             CONF_PARSED);
       }

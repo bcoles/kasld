@@ -202,13 +202,13 @@ int main(void) {
 
   if (!e.dram.lo && !e.mmio.lo) {
     kasld_err("EFI memory map not found in dmesg");
-    printf("    (requires efi=debug kernel boot parameter)\n");
+    kasld_info("    (requires efi=debug kernel boot parameter)");
     return 0;
   }
 
   if (e.dram.lo) {
-    printf("lowest EFI RAM address:  0x%016lx\n", e.dram.lo);
-    printf("highest EFI RAM address: 0x%016lx\n", e.dram.hi);
+    kasld_info("lowest EFI RAM address:  0x%016lx", e.dram.lo);
+    kasld_info("highest EFI RAM address: 0x%016lx", e.dram.hi);
 
     /* Soundness: EFI memmap entries are typed — Conventional Memory
      * (user-allocatable RAM), Loader Code (the running kernel image),
@@ -236,8 +236,8 @@ int main(void) {
   }
 
   if (e.mmio.lo) {
-    printf("lowest EFI MMIO address:  0x%016lx\n", e.mmio.lo);
-    printf("highest EFI MMIO address: 0x%016lx\n", e.mmio.hi);
+    kasld_info("lowest EFI MMIO address:  0x%016lx", e.mmio.lo);
+    kasld_info("highest EFI MMIO address: 0x%016lx", e.mmio.hi);
 
     kasld_result_sample(KASLD_TYPE_PHYS, REGION_MMIO, e.mmio.lo, NULL,
                         CONF_PARSED);
@@ -264,12 +264,12 @@ int main(void) {
      * not emitted. */
     int emit_n = e.loader_n < EFI_LOADER_MAX ? e.loader_n : EFI_LOADER_MAX;
     if (e.loader_n > EFI_LOADER_MAX)
-      printf("note: %d EFI Loader Code entries (cap %d); emitting first %d\n",
-             e.loader_n, EFI_LOADER_MAX, emit_n);
+      kasld_info("note: %d EFI Loader Code entries (cap %d); emitting first %d",
+                 e.loader_n, EFI_LOADER_MAX, emit_n);
     for (int i = 0; i < emit_n; i++) {
       unsigned long lo = e.loader[i].lo;
       unsigned long hi = e.loader[i].hi;
-      printf("EFI Loader Code image #%d: 0x%016lx-0x%016lx\n", i, lo, hi);
+      kasld_info("EFI Loader Code image #%d: 0x%016lx-0x%016lx", i, lo, hi);
       /* The EFI memmap end is an inclusive last-byte address (matches
        * dmesg's `[lo-hi]` rendering), so size = hi - lo + 1. */
       if (hi >= lo)
@@ -286,13 +286,13 @@ int main(void) {
      * range, e.dram.lo is interior to the directmap, not its base.
      * Emit as a directmap sample. */
     unsigned long virt = phys_to_directmap_virt(e.dram.lo);
-    printf("possible direct-map virtual address: 0x%016lx\n", virt);
+    kasld_info("possible direct-map virtual address: 0x%016lx", virt);
     kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, NULL,
                         CONF_PARSED);
   }
 #else
-  printf("note: phys and virt KASLR are decoupled on this arch; "
-         "cannot derive kernel text virtual address from physical leak\n");
+  kasld_info("note: phys and virt KASLR are decoupled on this arch; "
+             "cannot derive kernel text virtual address from physical leak");
 #endif
 
   return 0;

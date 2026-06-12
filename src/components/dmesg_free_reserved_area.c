@@ -123,12 +123,12 @@ static int on_match(const char *line, void *ctx) {
     is_directmap = 1;
   }
 
-  printf("leaked address: %lx\n", addr);
+  kasld_found("leaked address: %lx", addr);
   kasld_result_sample(KASLD_TYPE_VIRT, region, addr, NULL, CONF_PARSED);
 #ifdef directmap_virt_to_phys
   if (is_directmap) {
     unsigned long phys = directmap_virt_to_phys(addr);
-    printf("  possible physical address: 0x%016lx\n", phys);
+    kasld_info("  possible physical address: 0x%016lx", phys);
     kasld_result_sample(KASLD_TYPE_PHYS, region, phys, NULL, CONF_PARSED);
   }
 #else

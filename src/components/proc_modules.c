@@ -109,12 +109,12 @@ int main(void) {
    * The component aggregates them into a min/max range — both endpoints
    * are within the module region. (A future version could enumerate
    * each module by name with kasld_result().) */
-  printf("lowest leaked module address:  %lx\n", range.lo);
+  kasld_info("lowest leaked module address:  %lx", range.lo);
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_MODULE_REGION, range.lo, NULL,
                       CONF_PARSED);
 
   if (range.hi != range.lo) {
-    printf("highest leaked module address: %lx\n", range.hi);
+    kasld_info("highest leaked module address: %lx", range.hi);
     kasld_result_sample(KASLD_TYPE_VIRT, REGION_MODULE_REGION, range.hi, NULL,
                         CONF_PARSED);
   }

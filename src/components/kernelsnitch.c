@@ -869,13 +869,13 @@ int main(void) {
 
   /* The brute-forced address is the current task's mm_struct, allocated
    * via kmalloc and thus living in the kernel direct-map region. */
-  printf("leaked mm_struct address: %lx\n", result);
+  kasld_found("leaked mm_struct address: %lx", result);
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, result, "mm_struct",
                       CONF_TIMING);
 #ifdef directmap_virt_to_phys
   {
     unsigned long phys = directmap_virt_to_phys(result);
-    printf("  possible physical address: 0x%016lx\n", phys);
+    kasld_info("  possible physical address: 0x%016lx", phys);
     kasld_result_sample(KASLD_TYPE_PHYS, REGION_DIRECTMAP, phys, "mm_struct",
                         CONF_TIMING);
   }

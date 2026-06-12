@@ -124,8 +124,8 @@ int main(void) {
     return 0;
   }
 
-  printf("leaked native_[read|write]_msr: %lx\n", addr);
-  printf("possible kernel base: %lx\n", kasld_floor_text_base(addr));
+  kasld_found("leaked native_[read|write]_msr: %lx", addr);
+  kasld_info("possible kernel base: %lx", kasld_floor_text_base(addr));
   /* The leaked address is native_read_msr or native_write_msr —
    * specific x86 helper functions in the kernel text. */
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr, "native_*_msr",

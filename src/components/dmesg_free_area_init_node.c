@@ -141,11 +141,11 @@ int main(void) {
    * floor pin. Authoritative floors come from sysfs_devicetree_memory and
    * peer components that read the full memory map. r.hi IS sound as a TOP
    * bound (the highest published zone end ≤ true top of RAM). */
-  printf("lowest physical address:  0x%016lx\n", r.lo);
+  kasld_info("lowest physical address:  0x%016lx", r.lo);
   kasld_result_sample(KASLD_TYPE_PHYS, REGION_RAM, r.lo, NULL, CONF_PARSED);
 
   if (r.hi && r.hi != r.lo) {
-    printf("highest physical address: 0x%016lx\n", r.hi);
+    kasld_info("highest physical address: 0x%016lx", r.hi);
     kasld_result_top(KASLD_TYPE_PHYS, REGION_RAM, r.hi, NULL, CONF_PARSED);
   }
 
@@ -156,12 +156,12 @@ int main(void) {
    * the directmap, not at its base. Emit as a directmap SAMPLE so peer
    * rules treat it as a witness without pinning virt_page_offset's ceiling. */
   unsigned long virt = phys_to_directmap_virt(r.lo);
-  printf("possible direct-map virtual address: 0x%016lx\n", virt);
+  kasld_info("possible direct-map virtual address: 0x%016lx", virt);
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, NULL,
                       CONF_PARSED);
 #else
-  printf("note: phys and virt KASLR are decoupled on this arch; "
-         "cannot derive kernel text virtual address from physical leak\n");
+  kasld_info("note: phys and virt KASLR are decoupled on this arch; "
+             "cannot derive kernel text virtual address from physical leak");
 #endif
 
   return 0;

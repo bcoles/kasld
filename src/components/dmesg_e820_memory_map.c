@@ -126,31 +126,31 @@ int main(void) {
   }
 
   if (e.lo) {
-    printf("leaked e820 DRAM low:  0x%016lx\n", e.lo);
+    kasld_found("leaked e820 DRAM low:  0x%016lx", e.lo);
     kasld_result_base(KASLD_TYPE_PHYS, REGION_RAM, e.lo, NULL, CONF_PARSED);
   }
 
   if (e.hi) {
-    printf("leaked e820 DRAM high: 0x%016lx\n", e.hi);
+    kasld_found("leaked e820 DRAM high: 0x%016lx", e.hi);
     kasld_result_top(KASLD_TYPE_PHYS, REGION_RAM, e.hi, NULL, CONF_PARSED);
   }
 
 #ifdef phys_to_directmap_virt
   if (e.lo) {
     unsigned long virt = phys_to_directmap_virt(e.lo);
-    printf("possible direct-map virtual address (low):  0x%016lx\n", virt);
+    kasld_info("possible direct-map virtual address (low):  0x%016lx", virt);
     kasld_result_base(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, NULL,
                       CONF_PARSED);
   }
   if (e.hi) {
     unsigned long virt = phys_to_directmap_virt(e.hi);
-    printf("possible direct-map virtual address (high): 0x%016lx\n", virt);
+    kasld_info("possible direct-map virtual address (high): 0x%016lx", virt);
     kasld_result_top(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, NULL,
                      CONF_PARSED);
   }
 #else
-  printf("note: phys and virt KASLR are decoupled on this arch; "
-         "cannot derive kernel text virtual address from physical leak\n");
+  kasld_info("note: phys and virt KASLR are decoupled on this arch; "
+             "cannot derive kernel text virtual address from physical leak");
 #endif
 
   return 0;

@@ -156,10 +156,12 @@ int main(void) {
     return 0;
   }
 
-  printf("ACPI dynamic SSDT direct-map virtual address: 0x%016lx", s.addr);
   if (s.label[0])
-    printf(" (%s)", s.label);
-  printf("\n");
+    kasld_info("ACPI dynamic SSDT direct-map virtual address: 0x%016lx (%s)",
+               s.addr, s.label);
+  else
+    kasld_info("ACPI dynamic SSDT direct-map virtual address: 0x%016lx",
+               s.addr);
 
   /* Pass the OEM table id (e.g. "Cpu0Ist", "ApIst") as the specific
    * instance name so the table reads "acpi_table:Cpu0Ist". */
@@ -168,7 +170,7 @@ int main(void) {
 #ifdef directmap_virt_to_phys
   {
     unsigned long phys = directmap_virt_to_phys(s.addr);
-    printf("  possible physical address: 0x%016lx\n", phys);
+    kasld_info("  possible physical address: 0x%016lx", phys);
     kasld_result_sample(KASLD_TYPE_PHYS, REGION_ACPI_TABLE, phys, s.label,
                         CONF_PARSED);
   }

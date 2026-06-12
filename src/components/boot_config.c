@@ -76,9 +76,9 @@ static unsigned long get_kernel_addr_boot_config(FILE *fp) {
   if (kconfig_has_kaslr(fp))
     return 0;
 
-  printf(
+  kasld_info(
       "[.] Kernel appears to have been compiled without CONFIG_RANDOMIZE_BASE"
-      " (KASLR not compiled in)\n");
+      " (KASLR not compiled in)");
 
   return (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
 }

@@ -103,20 +103,20 @@ int main(void) {
     return 0;
   }
 
-  printf("lowest NODE_DATA physical address:  0x%016lx\n", r.lo);
-  printf("highest NODE_DATA physical address: 0x%016lx\n", r.hi);
+  kasld_info("lowest NODE_DATA physical address:  0x%016lx", r.lo);
+  kasld_info("highest NODE_DATA physical address: 0x%016lx", r.hi);
 
   kasld_result_sample(KASLD_TYPE_PHYS, REGION_NUMA_NODE, r.hi, NULL,
                       CONF_PARSED);
 
 #ifdef phys_to_directmap_virt
   unsigned long virt = phys_to_directmap_virt(r.hi);
-  printf("possible direct-map virtual address: 0x%016lx\n", virt);
+  kasld_info("possible direct-map virtual address: 0x%016lx", virt);
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, NULL,
                       CONF_PARSED);
 #else
-  printf("note: phys and virt KASLR are decoupled on this arch; "
-         "cannot derive kernel text virtual address from physical leak\n");
+  kasld_info("note: phys and virt KASLR are decoupled on this arch; "
+             "cannot derive kernel text virtual address from physical leak");
 #endif
 
   return 0;

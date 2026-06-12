@@ -140,8 +140,8 @@ int main(int argc, char *argv[]) {
   if (!addr)
     return 0;
 
-  printf("leaked address: %lx\n", addr);
-  printf("possible kernel base: %lx\n", kasld_floor_text_base(addr));
+  kasld_found("leaked address: %lx", addr);
+  kasld_info("possible kernel base: %lx", kasld_floor_text_base(addr));
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr, NULL,
                       CONF_HEURISTIC);
 

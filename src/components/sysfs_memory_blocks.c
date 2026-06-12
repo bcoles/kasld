@@ -105,8 +105,8 @@ int main(void) {
     return 0;
   }
 
-  printf("memory block size: %#lx (%lu MB)\n", block_size,
-         block_size / (1024 * 1024));
+  kasld_info("memory block size: %#lx (%lu MB)", block_size,
+             block_size / (1024 * 1024));
 
   d = opendir(base);
   if (!d) {
@@ -162,7 +162,7 @@ int main(void) {
     return 0;
   }
 
-  printf("memory blocks: %d online\n", count);
+  kasld_info("memory blocks: %d online", count);
 
   /* `lo` is the start of the lowest ONLINE memory block. A block becomes
    * online once memory hotplug attaches it to a zone; reserved-during-boot
@@ -175,11 +175,11 @@ int main(void) {
    * come from sysfs_devicetree_memory, sysfs_firmware_memmap,
    * boot_params_e820 and peers that read the full memory map. The
    * highest block end IS sound as a TOP bound. */
-  printf("lowest memory block start:  0x%016lx\n", lo);
+  kasld_info("lowest memory block start:  0x%016lx", lo);
   kasld_result_sample(KASLD_TYPE_PHYS, REGION_RAM, lo, NULL, CONF_PARSED);
 
   if (hi) {
-    printf("highest memory block end:   0x%016lx\n", hi);
+    kasld_info("highest memory block end:   0x%016lx", hi);
     kasld_result_top(KASLD_TYPE_PHYS, REGION_RAM, hi, NULL, CONF_PARSED);
   }
 
@@ -209,7 +209,7 @@ int main(void) {
       if (i == 0 || idxs[i] > idxs[i - 1] + 1)
         runs++;
     if (runs >= 2 && runs <= SMB_MAX_RUNS) {
-      printf("emitting %d online block run(s)\n", runs);
+      kasld_info("emitting %d online block run(s)", runs);
       unsigned long rlo_idx = idxs[0], rhi_idx = idxs[0];
       for (int i = 1; i <= n_idx; i++) {
         if (i == n_idx || idxs[i] > rhi_idx + 1) {
@@ -229,12 +229,12 @@ int main(void) {
   /* Same caveat: phys_to_directmap_virt(lo) lands at the directmap base
    * ONLY when lo is the actual phys floor. Emit as a directmap sample. */
   unsigned long virt = phys_to_directmap_virt(lo);
-  printf("possible direct-map virtual address: 0x%016lx\n", virt);
+  kasld_info("possible direct-map virtual address: 0x%016lx", virt);
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, NULL,
                       CONF_PARSED);
 #else
-  printf("note: phys and virt KASLR are decoupled on this arch; "
-         "cannot derive directmap virtual address from physical leak\n");
+  kasld_info("note: phys and virt KASLR are decoupled on this arch; "
+             "cannot derive directmap virtual address from physical leak");
 #endif
 
   return 0;

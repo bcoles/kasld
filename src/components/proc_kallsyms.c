@@ -98,13 +98,13 @@ int main(void) {
     return 0;
   }
 
-  printf("kernel text start (_stext): 0x%lx\n", stext);
-  printf("possible kernel base: 0x%lx\n", kasld_floor_text_base(stext));
+  kasld_info("kernel text start (_stext): 0x%lx", stext);
+  kasld_info("possible kernel base: 0x%lx", kasld_floor_text_base(stext));
   kasld_result_base(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, stext, "_stext",
                     CONF_PARSED);
 
   if (etext)
-    printf("kernel text end   (_etext): 0x%lx\n", etext);
+    kasld_info("kernel text end   (_etext): 0x%lx", etext);
 
   return 0;
 }

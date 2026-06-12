@@ -156,24 +156,24 @@ int main(void) {
     return 0;
   }
 
-  printf("crashkernel start: 0x%016lx\n", r.lo);
+  kasld_info("crashkernel start: 0x%016lx", r.lo);
   kasld_result_sample(KASLD_TYPE_PHYS, REGION_CRASHKERNEL, r.lo, NULL,
                       CONF_PARSED);
 
   if (r.hi && r.hi != r.lo) {
-    printf("crashkernel end:   0x%016lx\n", r.hi);
+    kasld_info("crashkernel end:   0x%016lx", r.hi);
     kasld_result_sample(KASLD_TYPE_PHYS, REGION_CRASHKERNEL, r.hi, NULL,
                         CONF_PARSED);
   }
 
 #ifdef phys_to_directmap_virt
   unsigned long virt = phys_to_directmap_virt(r.lo);
-  printf("possible direct-map virtual address: 0x%016lx\n", virt);
+  kasld_info("possible direct-map virtual address: 0x%016lx", virt);
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, NULL,
                       CONF_PARSED);
 #else
-  printf("note: phys and virt KASLR are decoupled on this arch; "
-         "cannot derive directmap virtual address from physical leak\n");
+  kasld_info("note: phys and virt KASLR are decoupled on this arch; "
+             "cannot derive directmap virtual address from physical leak");
 #endif
 
   return 0;

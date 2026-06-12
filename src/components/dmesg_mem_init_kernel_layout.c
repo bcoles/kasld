@@ -225,10 +225,10 @@ static int extract_range(const char *s, unsigned long *lo, unsigned long *hi) {
 
 static void emit_base(int idx, unsigned long addr) {
   enum kasld_region region = entries[idx].region;
-  printf("%s: %lx\n", entries[idx].display, addr);
+  kasld_info("%s: %lx", entries[idx].display, addr);
 
   if (region == REGION_KERNEL_TEXT)
-    printf("possible kernel base: %lx\n", kasld_floor_text_base(addr));
+    kasld_info("possible kernel base: %lx", kasld_floor_text_base(addr));
 
   if ((region == REGION_DIRECTMAP || region == REGION_MODULE_REGION) &&
       addr < (unsigned long)KERNEL_VIRT_VAS_START)
@@ -241,7 +241,7 @@ static void emit_base(int idx, unsigned long addr) {
 #ifdef directmap_virt_to_phys
   if (region == REGION_DIRECTMAP) {
     unsigned long phys = directmap_virt_to_phys(addr);
-    printf("  possible physical address: 0x%016lx\n", phys);
+    kasld_info("  possible physical address: 0x%016lx", phys);
     kasld_result_base(KASLD_TYPE_PHYS, region, phys, NULL, CONF_PARSED);
   }
 #endif
@@ -255,7 +255,7 @@ static void emit_base(int idx, unsigned long addr) {
    * ARM32 and x86_32 (the only arches that print a ".bss  :" line). */
   if (region == REGION_KERNEL_BSS) {
     unsigned long phys = directmap_virt_to_phys(addr);
-    printf("  possible physical address: 0x%016lx\n", phys);
+    kasld_info("  possible physical address: 0x%016lx", phys);
     kasld_result_base(KASLD_TYPE_PHYS, REGION_KERNEL_BSS, phys, NULL,
                       CONF_PARSED);
   }
@@ -263,7 +263,7 @@ static void emit_base(int idx, unsigned long addr) {
 }
 
 static void emit_range(int idx, unsigned long lo, unsigned long hi) {
-  printf("%s: 0x%lx - 0x%lx\n", entries[idx].display, lo, hi);
+  kasld_info("%s: 0x%lx - 0x%lx", entries[idx].display, lo, hi);
   kasld_result_range(entries[idx].type, entries[idx].region, lo, hi, NULL,
                      CONF_PARSED);
 }

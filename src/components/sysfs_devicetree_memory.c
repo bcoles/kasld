@@ -147,8 +147,8 @@ int main(void) {
 
   int entry_bytes = (addr_cells + size_cells) * 4;
 
-  printf("device tree: #address-cells=%d, #size-cells=%d\n", addr_cells,
-         size_cells);
+  kasld_info("device tree: #address-cells=%d, #size-cells=%d", addr_cells,
+             size_cells);
 
   /* Scan for memory@* directories */
   d = opendir(root);
@@ -210,23 +210,23 @@ int main(void) {
     return 0;
   }
 
-  printf("device tree: %d memory region(s)\n", count);
+  kasld_info("device tree: %d memory region(s)", count);
 
-  printf("lowest DRAM start:  0x%016lx\n", lo);
+  kasld_info("lowest DRAM start:  0x%016lx", lo);
   kasld_result_base(KASLD_TYPE_PHYS, REGION_RAM, lo, NULL, CONF_PARSED);
 
   if (hi && hi != lo) {
-    printf("highest DRAM end:   0x%016lx\n", hi);
+    kasld_info("highest DRAM end:   0x%016lx", hi);
     kasld_result_top(KASLD_TYPE_PHYS, REGION_RAM, hi, NULL, CONF_PARSED);
   }
 
 #ifdef phys_to_directmap_virt
   unsigned long virt = phys_to_directmap_virt(lo);
-  printf("possible direct-map virtual address: 0x%016lx\n", virt);
+  kasld_info("possible direct-map virtual address: 0x%016lx", virt);
   kasld_result_base(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, NULL, CONF_PARSED);
 #else
-  printf("note: phys and virt KASLR are decoupled on this arch; "
-         "cannot derive directmap virtual address from physical leak\n");
+  kasld_info("note: phys and virt KASLR are decoupled on this arch; "
+             "cannot derive directmap virtual address from physical leak");
 #endif
 
   return 0;

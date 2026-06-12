@@ -135,10 +135,10 @@ int main(void) {
   }
 
   if (!chosen) {
-    printf(
+    kasld_info(
         "[-] device tree chosen node not found or no kdump crash kernel "
         "properties (linux,elfcorehdr / linux,usable-memory-range) present\n"
-        "    (this component only works in the kdump crash kernel context)\n");
+        "    (this component only works in the kdump crash kernel context)");
     return KASLD_EXIT_UNAVAILABLE;
   }
 
@@ -149,8 +149,8 @@ int main(void) {
     uint64_t ehdr_addr = read_be64(buf);
     uint64_t ehdr_size = read_be64(buf + 8);
     if (ehdr_addr) {
-      printf("linux,elfcorehdr address: 0x%016llx  size: 0x%llx\n",
-             (unsigned long long)ehdr_addr, (unsigned long long)ehdr_size);
+      kasld_info("linux,elfcorehdr address: 0x%016llx  size: 0x%llx",
+                 (unsigned long long)ehdr_addr, (unsigned long long)ehdr_size);
       if (ehdr_size) {
         kasld_result_sized(KASLD_TYPE_PHYS, REGION_CRASHKERNEL,
                            (unsigned long)ehdr_addr, (unsigned long)ehdr_size,
@@ -162,7 +162,7 @@ int main(void) {
       }
 #ifdef phys_to_directmap_virt
       unsigned long virt = phys_to_directmap_virt((unsigned long)ehdr_addr);
-      printf("possible direct-map virtual address: 0x%016lx\n", virt);
+      kasld_info("possible direct-map virtual address: 0x%016lx", virt);
       kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, "elfcorehdr",
                           CONF_PARSED);
 #endif
@@ -182,8 +182,8 @@ int main(void) {
       uint64_t size = read_be64(buf + i * 16 + 8);
       if (!base)
         continue;
-      printf("linux,usable-memory-range[%d]: base=0x%016llx  size=0x%llx\n", i,
-             (unsigned long long)base, (unsigned long long)size);
+      kasld_info("linux,usable-memory-range[%d]: base=0x%016llx  size=0x%llx",
+                 i, (unsigned long long)base, (unsigned long long)size);
       if (size) {
         kasld_result_sized(KASLD_TYPE_PHYS, REGION_CRASHKERNEL,
                            (unsigned long)base, (unsigned long)size,
@@ -194,7 +194,7 @@ int main(void) {
       }
 #ifdef phys_to_directmap_virt
       unsigned long virt = phys_to_directmap_virt((unsigned long)base);
-      printf("possible direct-map virtual address: 0x%016lx\n", virt);
+      kasld_info("possible direct-map virtual address: 0x%016lx", virt);
       kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt,
                           "usable-memory", CONF_PARSED);
 #endif

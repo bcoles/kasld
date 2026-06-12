@@ -202,8 +202,8 @@ int main(void) {
   }
 
   if (ctx.text) {
-    printf("lowest leaked text address: %lx\n", ctx.text);
-    printf("possible kernel base: %lx\n", kasld_floor_text_base(ctx.text));
+    kasld_info("lowest leaked text address: %lx", ctx.text);
+    kasld_info("possible kernel base: %lx", kasld_floor_text_base(ctx.text));
     /* Call-trace addresses point at specific kernel text symbols
      * (function bodies, exception handlers). The component doesn't
      * resolve the symbol name, so name is left empty. */
@@ -212,7 +212,7 @@ int main(void) {
   }
 
   if (ctx.phys) {
-    printf("leaked physical address (CR3): %lx\n", ctx.phys);
+    kasld_found("leaked physical address (CR3): %lx", ctx.phys);
     /* CR3 is the active PGD's physical address at the point of the oops.
      * Tagging trade-off (intentional KERNEL_BSS choice):
      *
@@ -241,14 +241,14 @@ int main(void) {
      * BSS virtual address; in the user case it's just a generic directmap
      * landmark. Tag KERNEL_BSS for symmetry with the phys side. */
     unsigned long virt = phys_to_directmap_virt(ctx.phys);
-    printf("possible direct-map virtual address: %lx\n", virt);
+    kasld_info("possible direct-map virtual address: %lx", virt);
     kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_BSS, virt, "cr3",
                         CONF_PARSED);
 #endif
   }
 
   if (ctx.directmap) {
-    printf("leaked directmap virtual address: %lx\n", ctx.directmap);
+    kasld_found("leaked directmap virtual address: %lx", ctx.directmap);
     /* Generic directmap point recovered from a register dump — we know
      * it's *somewhere* in directmap but not what kernel object it points
      * to. Fall back to the address-space landmark. */

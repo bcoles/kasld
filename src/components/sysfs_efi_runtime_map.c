@@ -122,7 +122,7 @@ int main(void) {
 
     snprintf(path, sizeof(path), "%s/%s/phys_addr", base, ent->d_name);
     if (read_file_line(path, buf, sizeof(buf)) < 0) {
-      printf("EFI runtime entry %s: virt=0x%016lx\n", ent->d_name, virt);
+      kasld_info("EFI runtime entry %s: virt=0x%016lx", ent->d_name, virt);
       kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, NULL,
                           CONF_PARSED);
       count++;
@@ -131,7 +131,7 @@ int main(void) {
 
     unsigned long phys = strtoul(buf, &endptr, 16);
     if (endptr == buf || phys > virt) {
-      printf("EFI runtime entry %s: virt=0x%016lx\n", ent->d_name, virt);
+      kasld_info("EFI runtime entry %s: virt=0x%016lx", ent->d_name, virt);
       kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, NULL,
                           CONF_PARSED);
       count++;
@@ -145,9 +145,9 @@ int main(void) {
                               (unsigned long)KERNEL_VIRT_TEXT_MIN))
       continue;
 
-    printf("EFI runtime entry %s: virt=0x%016lx phys=0x%016lx"
-           " => virt_page_offset=0x%016lx\n",
-           ent->d_name, virt, phys, virt_page_offset);
+    kasld_info("EFI runtime entry %s: virt=0x%016lx phys=0x%016lx"
+               " => virt_page_offset=0x%016lx",
+               ent->d_name, virt, phys, virt_page_offset);
     kasld_result_sample(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, virt_page_offset,
                         NULL, CONF_PARSED);
     count++;

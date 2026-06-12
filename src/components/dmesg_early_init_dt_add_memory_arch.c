@@ -82,7 +82,7 @@ static int on_match(const char *line, void *ctx) {
     return 1;
 
   if (addr) {
-    printf("leaked DRAM physical address: 0x%016lx\n", addr);
+    kasld_found("leaked DRAM physical address: 0x%016lx", addr);
     *result = addr;
     return 0;
   }
@@ -92,9 +92,9 @@ static int on_match(const char *line, void *ctx) {
 int main(void) {
   unsigned long addr = 0;
 
-  printf(
+  kasld_info(
       "[.] searching dmesg for early_init_dt_add_memory_arch() ignored memory "
-      "ranges ...\n");
+      "ranges ...");
   int ds = dmesg_search("OF: fdt: Ignoring memory range 0x", on_match, &addr);
 
   if (!addr) {
@@ -104,16 +104,16 @@ int main(void) {
     return 0;
   }
 
-  printf("possible PAGE_OFFSET physical address: 0x%016lx\n", addr);
+  kasld_info("possible PAGE_OFFSET physical address: 0x%016lx", addr);
   kasld_result_base(KASLD_TYPE_PHYS, REGION_RAM, addr, NULL, CONF_PARSED);
 
 #ifdef phys_to_directmap_virt
   unsigned long virt = phys_to_directmap_virt(addr);
-  printf("possible direct-map virtual address: 0x%016lx\n", virt);
+  kasld_info("possible direct-map virtual address: 0x%016lx", virt);
   kasld_result_base(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, NULL, CONF_PARSED);
 #else
-  printf("note: phys and virt KASLR are decoupled on this arch; "
-         "cannot derive kernel text virtual address from physical leak\n");
+  kasld_info("note: phys and virt KASLR are decoupled on this arch; "
+             "cannot derive kernel text virtual address from physical leak");
 #endif
 
   return 0;

@@ -151,14 +151,14 @@ int main(void) {
    * currently aggregates across zones rather than reporting per-zone
    * DMA_TOP / DMA32_TOP — finer-grained reporting is a future
    * enhancement. */
-  printf("lowest zone start PFN:  %lu (phys 0x%016lx)\n", lo_pfn, lo);
+  kasld_info("lowest zone start PFN:  %lu (phys 0x%016lx)", lo_pfn, lo);
   kasld_result_sample(KASLD_TYPE_PHYS, REGION_RAM, lo, NULL, CONF_PARSED);
 
   if (hi_use != lo_pfn) {
     if (hi_end_pfn > hi_pfn)
-      printf("highest zone end PFN:   %lu (phys 0x%016lx)\n", hi_use, hi);
+      kasld_info("highest zone end PFN:   %lu (phys 0x%016lx)", hi_use, hi);
     else
-      printf("highest zone start PFN: %lu (phys 0x%016lx)\n", hi_use, hi);
+      kasld_info("highest zone start PFN: %lu (phys 0x%016lx)", hi_use, hi);
     kasld_result_top(KASLD_TYPE_PHYS, REGION_RAM, hi, NULL, CONF_PARSED);
   }
 
@@ -168,12 +168,12 @@ int main(void) {
    * phys for the kernel image, lo is interior to the directmap, not its
    * base. Emit as a directmap sample. */
   unsigned long virt = phys_to_directmap_virt(lo);
-  printf("possible direct-map virtual address: 0x%016lx\n", virt);
+  kasld_info("possible direct-map virtual address: 0x%016lx", virt);
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, NULL,
                       CONF_PARSED);
 #else
-  printf("note: phys and virt KASLR are decoupled on this arch; "
-         "cannot derive directmap virtual address from physical leak\n");
+  kasld_info("note: phys and virt KASLR are decoupled on this arch; "
+             "cannot derive directmap virtual address from physical leak");
 #endif
 
   return 0;

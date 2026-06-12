@@ -92,7 +92,8 @@ static int on_match(const char *line, void *ctx) {
    * DMA32_TOP The ordering is stable; the first match is the meaningful one. */
   enum kasld_region region = (match_count == 1) ? REGION_RAM : REGION_DMA32;
 
-  printf("leaked last_pfn: %#lx (last valid byte: 0x%016lx)\n", pfn, last_byte);
+  kasld_found("leaked last_pfn: %#lx (last valid byte: 0x%016lx)", pfn,
+              last_byte);
   kasld_result_top(KASLD_TYPE_PHYS, region, last_byte, NULL, CONF_PARSED);
 
   return 1; /* keep scanning for second line */

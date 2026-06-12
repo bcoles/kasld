@@ -112,7 +112,7 @@ static int on_match(const char *line, void *ctx) {
   if (!addr)
     return 1;
 
-  printf("leaked RAMDISK physical address: 0x%016lx\n", addr);
+  kasld_found("leaked RAMDISK physical address: 0x%016lx", addr);
   kasld_result_sample(KASLD_TYPE_PHYS, REGION_INITRD, addr, NULL, CONF_PARSED);
 
   return 1; /* keep scanning for more lines */

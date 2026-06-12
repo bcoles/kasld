@@ -145,10 +145,10 @@ int main(void) {
     return 0;
   }
 
-  printf("initrd physical start: 0x%016lx\n", start);
+  kasld_info("initrd physical start: 0x%016lx", start);
 
   if (end && end > start) {
-    printf("initrd physical end:   0x%016lx\n", end);
+    kasld_info("initrd physical end:   0x%016lx", end);
     kasld_result_range(KASLD_TYPE_PHYS, REGION_INITRD, start, end, NULL,
                        CONF_PARSED);
   } else {
@@ -157,12 +157,12 @@ int main(void) {
 
 #ifdef phys_to_directmap_virt
   unsigned long virt = phys_to_directmap_virt(start);
-  printf("possible direct-map virtual address: 0x%016lx\n", virt);
+  kasld_info("possible direct-map virtual address: 0x%016lx", virt);
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, NULL,
                       CONF_PARSED);
 #else
-  printf("note: phys and virt KASLR are decoupled on this arch; "
-         "cannot derive directmap virtual address from physical leak\n");
+  kasld_info("note: phys and virt KASLR are decoupled on this arch; "
+             "cannot derive directmap virtual address from physical leak");
 #endif
 
   return 0;

@@ -112,7 +112,7 @@ int main(void) {
   /* nf_conntrack is a loadable module — the leaked struct pointer is
    * inside its module memory. Treat as a module-region leak with the
    * module name as the instance identity. */
-  printf("leaked inet_net struct pointer: %lx\n", addr);
+  kasld_found("leaked inet_net struct pointer: %lx", addr);
   /* Module-region pointer, not kernel text — no text-base hint (a text-align
    * floor would mislabel a module address as a kernel base). */
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_MODULE, addr, "nf_conntrack",

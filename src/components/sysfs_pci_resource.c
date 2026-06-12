@@ -130,14 +130,14 @@ int main(void) {
     return 0;
   }
 
-  printf("PCI devices: %d, memory BARs: %d\n", device_count, bar_count);
+  kasld_info("PCI devices: %d, memory BARs: %d", device_count, bar_count);
 
-  printf("lowest PCI MMIO start:  0x%016lx\n", lo_mmio);
+  kasld_info("lowest PCI MMIO start:  0x%016lx", lo_mmio);
   kasld_result_sample(KASLD_TYPE_PHYS, REGION_PCI_MMIO, lo_mmio, NULL,
                       CONF_PARSED);
 
   if (hi_mmio && hi_mmio != lo_mmio) {
-    printf("highest PCI MMIO end:   0x%016lx\n", hi_mmio);
+    kasld_info("highest PCI MMIO end:   0x%016lx", hi_mmio);
     kasld_result_sample(KASLD_TYPE_PHYS, REGION_PCI_MMIO, hi_mmio, NULL,
                         CONF_PARSED);
   }

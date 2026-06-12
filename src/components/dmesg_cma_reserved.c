@@ -133,24 +133,24 @@ int main(void) {
 
   /* CMA pools are firmware/kernel-reserved memory carved out of DRAM —
    * they collapse to the standard RESERVED_MEM region. */
-  printf("lowest reserved pool:  0x%016lx\n", r.lo);
+  kasld_info("lowest reserved pool:  0x%016lx", r.lo);
   kasld_result_sample(KASLD_TYPE_PHYS, REGION_RESERVED_MEM, r.lo, NULL,
                       CONF_PARSED);
 
   if (r.hi && r.hi != r.lo) {
-    printf("highest reserved pool: 0x%016lx\n", r.hi);
+    kasld_info("highest reserved pool: 0x%016lx", r.hi);
     kasld_result_sample(KASLD_TYPE_PHYS, REGION_RESERVED_MEM, r.hi, NULL,
                         CONF_PARSED);
   }
 
 #ifdef phys_to_directmap_virt
   unsigned long virt = phys_to_directmap_virt(r.lo);
-  printf("possible direct-map virtual address: 0x%016lx\n", virt);
+  kasld_info("possible direct-map virtual address: 0x%016lx", virt);
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, NULL,
                       CONF_PARSED);
 #else
-  printf("note: phys and virt KASLR are decoupled on this arch; "
-         "cannot derive kernel text virtual address from physical leak\n");
+  kasld_info("note: phys and virt KASLR are decoupled on this arch; "
+             "cannot derive kernel text virtual address from physical leak");
 #endif
 
   return 0;

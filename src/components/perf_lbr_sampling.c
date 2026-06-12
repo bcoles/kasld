@@ -314,7 +314,7 @@ int main(int argc, char *argv[]) {
   unsigned long emit_addr = kasld_floor_text_base(min_addr);
   kasld_found("%lu kernel address(es) considered across %d sample(s)", n_kaddrs,
               n_samples);
-  printf("    lowest: 0x%lx  emit (aligned): 0x%lx\n", min_addr, emit_addr);
+  kasld_info("    lowest: 0x%lx  emit (aligned): 0x%lx", min_addr, emit_addr);
 
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, emit_addr, NULL,
                       CONF_PARSED);

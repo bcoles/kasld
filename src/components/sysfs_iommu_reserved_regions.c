@@ -187,8 +187,8 @@ int main(void) {
         continue;
 
       found++;
-      printf("iommu_group %s: %s 0x%016llx - 0x%016llx\n", ent->d_name, type,
-             start, end_addr);
+      kasld_info("iommu_group %s: %s 0x%016llx - 0x%016llx", ent->d_name, type,
+                 start, end_addr);
 
       kasld_result_sample(KASLD_TYPE_PHYS, REGION_RESERVED_MEM,
                           (unsigned long)start, ent->d_name, CONF_PARSED);

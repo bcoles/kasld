@@ -12,8 +12,7 @@
 //   * stderr is the HUMAN channel — every diagnostic, via the macros below.
 //   * options are MANUAL (testing / debugging); the orchestrator passes none
 //     and sets no env. A component's -t budget is its own; it is deliberately
-//     NOT kasld's per-component kill timeout (different roles — see the
-//     dev/proposals note).
+//     NOT kasld's per-component kill timeout (different roles).
 // ---
 // <bcoles@gmail.com>
 

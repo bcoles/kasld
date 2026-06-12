@@ -71,7 +71,7 @@ int main(void) {
   if (!addr)
     return 0;
 
-  printf("kernel virtual address start: %lx\n", addr);
+  kasld_info("kernel virtual address start: %lx", addr);
   kasld_result_base(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, addr, NULL,
                     CONF_HEURISTIC);
 

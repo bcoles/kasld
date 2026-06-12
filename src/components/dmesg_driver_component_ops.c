@@ -102,8 +102,8 @@ int main(void) {
     return 0;
   }
 
-  printf("lowest leaked address: %lx\n", addr);
-  printf("possible kernel base: %lx\n", kasld_floor_text_base(addr));
+  kasld_info("lowest leaked address: %lx", addr);
+  kasld_info("possible kernel base: %lx", kasld_floor_text_base(addr));
   /* The leaked address is a struct component_ops function pointer
    * (driver bind/unbind) — within kernel text but the specific symbol
    * varies by driver. */

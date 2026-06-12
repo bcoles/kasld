@@ -89,7 +89,7 @@ static int on_match(const char *line, void *ctx) {
   if (addr == 0 || addr >= KERNEL_VIRT_VAS_END)
     return 1;
 
-  printf("leaked OpenSBI DRAM physical address: 0x%016lx\n", addr);
+  kasld_found("leaked OpenSBI DRAM physical address: 0x%016lx", addr);
   *result = addr;
   return 0;
 }
@@ -116,15 +116,15 @@ int main(void) {
    * kernel text address if the reservation appears DRAM-base-aligned
    * (i.e. aligned to at least KASLR_PHYS_ALIGN). */
   if ((phys_addr & (KASLR_PHYS_ALIGN - 1)) != 0) {
-    printf("note: mmode_resv0 at 0x%016lx is not %lu MiB aligned; "
-           "skipping text derivation\n",
-           phys_addr, KASLR_PHYS_ALIGN / MB);
+    kasld_info("note: mmode_resv0 at 0x%016lx is not %lu MiB aligned; "
+               "skipping text derivation",
+               phys_addr, KASLR_PHYS_ALIGN / MB);
     return 0;
   }
 
   unsigned long kernel_phys = phys_addr + TEXT_OFFSET;
 
-  printf("possible kernel physical address: 0x%016lx\n", kernel_phys);
+  kasld_info("possible kernel physical address: 0x%016lx", kernel_phys);
   kasld_result_sample(KASLD_TYPE_PHYS, REGION_KERNEL_IMAGE, kernel_phys, NULL,
                       CONF_PARSED);
 
@@ -135,12 +135,12 @@ int main(void) {
    * fails to emit rather than silently misclassifying a directmap alias as
    * a kernel-image virt. */
   unsigned long virt = phys_to_directmap_virt(kernel_phys);
-  printf("possible kernel virtual address: 0x%016lx\n", virt);
+  kasld_info("possible kernel virtual address: 0x%016lx", virt);
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE, virt, NULL,
                       CONF_PARSED);
 #else
-  printf("note: kernel text virtual address cannot be derived from phys on "
-         "this arch (text does not track the linear map)\n");
+  kasld_info("note: kernel text virtual address cannot be derived from phys on "
+             "this arch (text does not track the linear map)");
 #endif
 
   return 0;

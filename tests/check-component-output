@@ -1,26 +1,21 @@
 #!/bin/sh
 # This file is part of KASLD - https://github.com/bcoles/kasld
 #
-# check-component-output — stream-rule ratchet.
+# check-component-output — stdout-is-the-machine-channel gate.
 #
-# The standard (dev/proposals/component-cli-and-output-standard.md, and
-# CONTRIBUTING): a component's stdout is the MACHINE channel — only the P/V/S
-# wire lines emitted by the kasld_result_* / kasld_emit_scalar helpers. Human
-# diagnostics go to STDERR via the kasld_info / kasld_err / kasld_found /
-# kasld_debug helpers in include/kasld/cli.h.
+# The standard (see CONTRIBUTING): a component's stdout is the MACHINE channel —
+# only the P/V/S wire lines emitted by the kasld_result_* / kasld_emit_scalar
+# helpers. Human diagnostics go to STDERR via the kasld_info / kasld_err /
+# kasld_found / kasld_debug helpers in include/kasld/cli.h.
 #
-# The bracketed status lines ([.]/[-]/[+]) are fully on the logger. The files
-# still listed in tests/component-output-baseline carry the older non-bracketed
-# data-echo style ("leaked X: 0x...") and are swept opportunistically. This
-# check FAILS only when a component NOT in the baseline prints ANY raw line to
-# stdout (a new regression), and notes baseline entries that have since been
-# cleaned so they can be dropped.
+# The wire helpers never use a bare printf, so a \bprintf( in a component .c is
+# always a human diagnostic on the machine channel. This check FAILS if any
+# component contains one.
 # ---
 # <bcoles@gmail.com>
 
 set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
-BASELINE="$ROOT/tests/component-output-baseline"
 COMP="$ROOT/src/components"
 
 if [ -t 2 ]; then
@@ -29,36 +24,16 @@ else
   RED=; GREEN=; RESET=
 fi
 
-# Components that emit anything to stdout via a raw printf. The wire helpers
-# (kasld_result_* / kasld_emit_scalar) never use a bare printf, so a \bprintf(
-# in a component .c is always a human diagnostic on the machine channel.
-current=$(grep -lE '\bprintf\(' "$COMP"/*.c 2>/dev/null | xargs -n1 basename | sort -u)
+offenders=$(cd "$COMP" && grep -lE '\bprintf\(' ./*.c 2>/dev/null | sed 's#^\./##' | sort -u)
 
-rc=0
-new=""
-for f in $current; do
-  grep -qxF "$f" "$BASELINE" 2>/dev/null || new="$new $f"
-done
-
-stale=""
-while IFS= read -r f; do
-  [ -n "$f" ] || continue
-  printf '%s\n' $current | grep -qxF "$f" || stale="$stale $f"
-done < "$BASELINE"
-
-if [ -n "$new" ]; then
-  printf '%scheck-component-output: FAIL%s — new stdout diagnostics; route them to\n' "$RED" "$RESET" >&2
-  echo "  stderr via kasld_info / kasld_err / kasld_found (include/kasld/cli.h):"     >&2
-  for f in $new; do echo "    $f" >&2; done
-  rc=1
-fi
-if [ -n "$stale" ]; then
-  echo "check-component-output: note — now clean, drop from the baseline:"            >&2
-  for f in $stale; do echo "    $f" >&2; done
+if [ -n "$offenders" ]; then
+  printf '%scheck-component-output: FAIL%s — stdout diagnostics; route them to\n' "$RED" "$RESET" >&2
+  echo "  stderr via kasld_info / kasld_err / kasld_found (include/kasld/cli.h):" >&2
+  for f in $offenders; do echo "    $f" >&2; done
+  exit 1
 fi
 
-if [ "$rc" = 0 ]; then
-  printf '%scheck-component-output: OK%s (%s baselined, no new stdout diagnostics)\n' \
-    "$GREEN" "$RESET" "$(grep -c . "$BASELINE")"
-fi
-exit $rc
+set -- "$COMP"/*.c
+printf '%scheck-component-output: OK%s (%s components, stdout is wire-only)\n' \
+  "$GREEN" "$RESET" "$#"
+exit 0

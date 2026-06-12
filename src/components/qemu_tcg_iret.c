@@ -183,7 +183,7 @@ static uint64_t get_kernel_stack_addr_using_qemu_tcg_iret(void) {
   }
 
   if (kasld_addr_is_kernel_text(kbase)) {
-    printf("leaked kernel stack address: %lx\n", kbase);
+    kasld_found("leaked kernel stack address: %lx", kbase);
     return kbase;
   }
 
@@ -198,7 +198,7 @@ int main(void) {
     return 0;
   }
 
-  printf("possible kernel base: %lx\n", kasld_floor_text_base(addr));
+  kasld_info("possible kernel base: %lx", kasld_floor_text_base(addr));
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr, NULL,
                       CONF_PARSED);
 

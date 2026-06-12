@@ -163,14 +163,14 @@ int main(void) {
 
   addr = get_kernel_addr_iscsi_iser_transport();
   if (addr) {
-    printf("leaked iscsi_iser_transport address: %lx\n", addr);
+    kasld_found("leaked iscsi_iser_transport address: %lx", addr);
     kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_DATA, addr,
                         "iscsi_iser_transport", CONF_PARSED);
   }
 
   addr = get_kernel_addr_iscsi_sw_tcp_transport();
   if (addr) {
-    printf("leaked iscsi_sw_tcp_transport address: %lx\n", addr);
+    kasld_found("leaked iscsi_sw_tcp_transport address: %lx", addr);
     kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_DATA, addr,
                         "iscsi_sw_tcp_transport", CONF_PARSED);
   }
