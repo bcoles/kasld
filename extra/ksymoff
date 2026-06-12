@@ -48,6 +48,16 @@
 #   ksymoff --from commit_creds=0xffffffff82345678 -s vmlinux \
 #           prepare_kernel_cred init_cred modprobe_path
 #
+# Caveat: assumes a SINGLE KASLR slide — i.e. canonical (source/link-order)
+# function layout, where every symbol sits at a fixed offset from the text base.
+# This is FALSE on reordered-text kernels: under FG-KASLR each function is moved
+# independently per boot (no single slide — one leak pins only that one symbol),
+# and under LTO / AutoFDO / Propeller the offsets come from that exact build only
+# (a generic version-level System.map mis-resolves). Check first with
+# `kasld -H` ("Function layout" / "symbol resolution") or the `text_order` field
+# in `kasld -H -j`: proceed only for `canonical`; for a static reorder use the
+# build_id-matched map; for per-boot do not use ksymoff for chaining at all.
+#
 # Options
 # -------
 #   -b, --base BASE       Runtime text base (hex, with or without 0x).

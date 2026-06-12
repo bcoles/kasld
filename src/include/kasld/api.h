@@ -719,6 +719,20 @@ static inline const char *kasld_conf_wire(enum kasld_confidence c) {
   }
 }
 
+/* Kernel-text function ordering class, carried as the value of SF_TEXT_ORDER.
+ * A traditional -O2 kernel lays functions out in source/link order (canonical);
+ * LTO/AutoFDO/Propeller reorder deterministically per build (static, single
+ * KASLR slide, needs the exact-build System.map); FG-KASLR reorders per boot
+ * (dynamic, per-function offsets, no static map resolves). The value gates
+ * symbol-offset propagation: a generic version-level map is sound only on
+ * `canonical`. Values start at 1 (0 == fact absent in the scalar pipeline). */
+enum kasld_text_order {
+  TEXT_ORDER_CANONICAL = 1, /* source/link order; generic System.map OK */
+  TEXT_ORDER_STATIC,  /* LTO/AutoFDO/Propeller; needs exact-build map     */
+  TEXT_ORDER_DYNAMIC, /* FG-KASLR / per-boot; no static map resolves      */
+  TEXT_ORDER_UNKNOWN, /* could not be determined                          */
+};
+
 /* =========================================================================
  * Scalar system facts (non-address). A component emits these as `S` wire
  * records via kasld_emit_scalar(); the engine consumes them as OBS_SCALAR.
@@ -801,6 +815,10 @@ enum kasld_scalar_fact {
                         /* vmemmap_size = max_pfn * this; the s390/x86_64/    */
                         /* arm64 vmemmap rules consume it, falling back to 64 */
                         /* (the common value) when BTF is unavailable.        */
+  SF_TEXT_ORDER,        /* kernel-text function ordering class                */
+                        /* (enum kasld_text_order). Gates whether a generic   */
+                        /* System.map can resolve symbols from the slide;     */
+                        /* informational — no engine pin rule consumes it.    */
   SF__COUNT,
 };
 
@@ -831,6 +849,7 @@ static const char *const kasld_scalar_fact_wire_table[SF__COUNT] = {
     [SF_PHYSICAL_START] = "physical_start",
     [SF_KASAN_ENABLED] = "kasan_enabled",
     [SF_STRUCT_PAGE_BYTES] = "struct_page_bytes",
+    [SF_TEXT_ORDER] = "text_order",
 };
 /* Adding an SF_* without a wire token shrinks this below SF__COUNT -> error. */
 typedef char kasld_sf_wire_table_complete

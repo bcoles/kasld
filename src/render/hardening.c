@@ -130,6 +130,10 @@ void build_hardening_report(struct hardening_report *r) {
     r->kernel_at_default = 0;
   }
 
+  /* Kernel-text function ordering: highest-confidence SF_TEXT_ORDER wins
+   * (config supersedes the kallsyms heuristic); 0 if neither fired. */
+  r->text_order = resolve_text_order(&r->text_order_conf);
+
   /* Active defenses: one row per readable gate with >= 1 gated component.
    * Full counts and the (capped) name lists are kept separately so text can
    * say "blocked N of M" while json dumps the arrays. */
@@ -278,6 +282,64 @@ void build_hardening_report(struct hardening_report *r) {
   }
 }
 
+/* Kernel-text function-ordering labels (shared by the text/json renderers). */
+static const char *text_order_label(enum kasld_text_order o) {
+  switch (o) {
+  case TEXT_ORDER_CANONICAL:
+    return "canonical";
+  case TEXT_ORDER_STATIC:
+    return "reordered (static)";
+  case TEXT_ORDER_DYNAMIC:
+    return "reordered (per-boot)";
+  default:
+    return "unknown";
+  }
+}
+/* The actionable consequence: whether a System.map resolves symbols from the
+ * KASLR slide, and which map. This is what extra/ksymoff keys on. */
+static const char *symbol_resolution_label(enum kasld_text_order o) {
+  switch (o) {
+  case TEXT_ORDER_CANONICAL:
+    return "generic System.map OK";
+  case TEXT_ORDER_STATIC:
+    return "needs this build's System.map";
+  case TEXT_ORDER_DYNAMIC:
+    return "no static System.map resolves (one leak pins one symbol)";
+  default:
+    return "unknown";
+  }
+}
+/* Provenance from the resolved confidence: config is definitive, the kallsyms
+ * heuristic is the config-locked fallback. */
+static const char *text_order_source(enum kasld_confidence c) {
+  return c == CONF_HEURISTIC ? "kallsyms heuristic" : "config";
+}
+/* JSON-token forms of the two facts (machine consumers / extra/ksymoff). */
+static const char *text_order_json_class(enum kasld_text_order o) {
+  switch (o) {
+  case TEXT_ORDER_CANONICAL:
+    return "canonical";
+  case TEXT_ORDER_STATIC:
+    return "reordered_static";
+  case TEXT_ORDER_DYNAMIC:
+    return "reordered_dynamic";
+  default:
+    return "unknown";
+  }
+}
+static const char *symbol_resolution_json(enum kasld_text_order o) {
+  switch (o) {
+  case TEXT_ORDER_CANONICAL:
+    return "generic_ok";
+  case TEXT_ORDER_STATIC:
+    return "exact_build_only";
+  case TEXT_ORDER_DYNAMIC:
+    return "none";
+  default:
+    return "unknown";
+  }
+}
+
 void render_hardening_text(void) {
   printf("\n%s========================================%s\n", c(C_BOLD),
          c(C_RESET));
@@ -325,6 +387,18 @@ void render_hardening_text(void) {
            "this machine can re-use it on subsequent boots without "
            "re-leaking.%s\n",
            c(C_DIM), c(C_RESET));
+    printf("\n");
+  }
+
+  /* Kernel-text function ordering + what it means for symbol resolution.
+   * Shown only when determined; absence means "be conservative". */
+  if (rep.text_order) {
+    printf("%sFunction layout:%s\n", c(C_BOLD), c(C_RESET));
+    printf("  text ordering:      %-30s [%s]\n",
+           text_order_label(rep.text_order),
+           text_order_source(rep.text_order_conf));
+    printf("  symbol resolution:  %s\n",
+           symbol_resolution_label(rep.text_order));
     printf("\n");
   }
 
@@ -577,6 +651,15 @@ void render_hardening_json(void) {
   printf("      \"note\": \"Detection-only components excluded\"\n");
   printf("    },\n");
 
+  /* Kernel-text function ordering — gates System.map symbol resolution. */
+  printf("    \"text_order\": {\n");
+  printf("      \"class\": \"%s\",\n", text_order_json_class(rep.text_order));
+  printf("      \"source\": \"%s\",\n",
+         rep.text_order ? text_order_source(rep.text_order_conf) : "none");
+  printf("      \"symbol_resolution\": \"%s\"\n",
+         symbol_resolution_json(rep.text_order));
+  printf("    },\n");
+
   /* KASLR posture: distinguishes randomization-failed from active /
    * disabled / unsupported. See render_hardening_text() Section 0 for
    * the rationale. The state field is mutually exclusive (priorities:
@@ -792,6 +875,15 @@ void render_hardening_markdown(void) {
       printf("- %s\n",
              rep.rand_detectors[i][0] ? rep.rand_detectors[i] : "(unknown)");
     printf("\n");
+  }
+
+  /* Kernel-text function ordering + symbol-resolution consequence. */
+  if (rep.text_order) {
+    printf("### Function layout\n\n");
+    printf("- **text ordering:** %s (%s)\n", text_order_label(rep.text_order),
+           text_order_source(rep.text_order_conf));
+    printf("- **symbol resolution:** %s\n\n",
+           symbol_resolution_label(rep.text_order));
   }
 
   /* Active defenses */

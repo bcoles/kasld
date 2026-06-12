@@ -1293,6 +1293,27 @@ static void render_readout(const struct summary *s) {
 
   readout_print_leaks();
 
+  /* If the kernel-text function order is non-canonical, a leaked address does
+   * not generalise — warn here (the headline) before an operator applies a
+   * System.map; -H carries the full detail. Resolved by max confidence (config
+   * supersedes the kallsyms heuristic); shown only when reordered. */
+  {
+    enum kasld_text_order to = resolve_text_order(NULL);
+    if (to == TEXT_ORDER_DYNAMIC) {
+      printf("\n  %-19s %sfunction order is per-boot randomised — a leak pins "
+             "only\n",
+             "Caution", c(C_YELLOW));
+      printf("  %-19s that symbol; no static System.map resolves the rest "
+             "(-H).%s\n",
+             "", c(C_RESET));
+    } else if (to == TEXT_ORDER_STATIC) {
+      printf("\n  %-19s %snon-canonical function order — use this build's "
+             "exact\n",
+             "Caution", c(C_YELLOW));
+      printf("  %-19s System.map, not a generic one (-H).%s\n", "", c(C_RESET));
+    }
+  }
+
   printf("\n[-v: detailed results, memory map, system info]  "
          "[-H: hardening assessment]\n");
 }

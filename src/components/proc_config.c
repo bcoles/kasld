@@ -31,6 +31,7 @@
 #include "include/kasld/api.h"
 #include "include/kasld/cli.h"
 #include "include/kconfig.h"
+#include "include/text_order.h"
 #include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -176,6 +177,11 @@ int main(void) {
     kasld_info("CONFIG_KASAN=y");
     kasld_emit_scalar(SF_KASAN_ENABLED, 1, CONF_PARSED);
   }
+
+  /* Kernel-text function ordering (canonical / static-reorder / FG-KASLR) —
+   * gates whether a generic System.map can resolve symbols. See text_order.h.
+   */
+  emit_text_order_from_kconfig(fp);
 
   fclose(fp);
 

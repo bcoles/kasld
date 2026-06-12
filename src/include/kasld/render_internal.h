@@ -152,7 +152,35 @@ struct hardening_report {
 
   struct hr_nomit nomit[HR_NOMIT_MAX];
   int n_nomit;
+
+  /* Kernel-text function ordering (SF_TEXT_ORDER, resolved by max confidence:
+   * config CONF_PARSED supersedes the kallsyms heuristic CONF_HEURISTIC).
+   * text_order == 0 means undetermined. Gates whether a generic System.map can
+   * resolve symbols from the slide (see render of the two rows). */
+  enum kasld_text_order text_order;
+  enum kasld_confidence text_order_conf;
 };
+
+/* Resolve SF_TEXT_ORDER from the scalar facts by max confidence (config
+ * CONF_PARSED supersedes the kallsyms heuristic CONF_HEURISTIC). Returns the
+ * class (0 = undetermined); writes the winning confidence to *conf_out if set.
+ * Shared by the hardening report and the main text readout. */
+static inline enum kasld_text_order
+resolve_text_order(enum kasld_confidence *conf_out) {
+  enum kasld_text_order best = 0;
+  enum kasld_confidence bc = 0;
+  for (int i = 0; i < num_scalar_facts; i++) {
+    if (scalar_facts[i].fact != SF_TEXT_ORDER || scalar_facts[i].value == 0)
+      continue;
+    if (!best || scalar_facts[i].conf > bc) {
+      best = (enum kasld_text_order)scalar_facts[i].value;
+      bc = scalar_facts[i].conf;
+    }
+  }
+  if (conf_out)
+    *conf_out = bc;
+  return best;
+}
 
 /* Build the model from the global component logs / scalar facts / gates. */
 void build_hardening_report(struct hardening_report *r);
