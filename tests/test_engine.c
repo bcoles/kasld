@@ -59,8 +59,11 @@ static void test_engine_interior_ceiling(void) {
   const rule_fn rules[] = {rule_range_from_interior};
   engine_run(&e, rules, 1);
 
-  /* text base must be <= the interior sample. */
-  assert(e.est[Q_VIRT_TEXT_BASE].hi == sample);
+  /* text base <= the interior sample, floored to the slot alignment: the base
+   * is slot-aligned, so the ceiling tightens to floor(sample, align). With no
+   * alignment rule in this run, align resolves to the arch default. */
+  unsigned long align = (unsigned long)KASLR_VIRT_ALIGN;
+  assert(e.est[Q_VIRT_TEXT_BASE].hi == (sample & ~(align - 1)));
   assert(e.est[Q_VIRT_TEXT_BASE].lo == top.lo); /* floor unchanged */
 }
 
@@ -2433,7 +2436,7 @@ static void test_physical_start_lower_bound_leak_below_heuristic(void) {
   /* Sample below the default KASLR_VIRT_TEXT_MIN — simulates a kernel built
    * with CONFIG_PHYSICAL_START < default. */
   unsigned long below = (unsigned long)KASLR_VIRT_TEXT_MIN -
-                        0x10000ul; /* one 64 KiB step below */
+                        (unsigned long)KASLR_VIRT_ALIGN; /* one slot below */
   struct observation o = mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE, below,
                                 SAMPLE_SET, POS_INTERIOR, CONF_PARSED);
   evidence_add(&e.ev, &o);
