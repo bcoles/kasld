@@ -93,6 +93,31 @@ get_field() {
     awk -F= -v k="$2" '$1 == k { print $2; exit }'
 }
 
+# Validate a rendered "Inferred ... text range" window against ground truth: the
+# real kernel base must fall inside the inferred candidate window. Catches
+# resolved-inference errors that no single leaked result reveals.
+# Usage: validate_inferred LABEL TRUTH16 RENDERED_LINE
+validate_inferred() {
+  _label="$1"; _truth="$2"; _line="$3"
+  [ -n "$_line" ] || return # window not rendered (base leaked/pinned)
+  if [ -z "$_truth" ]; then
+    skip "$_label — no ground truth"
+    return
+  fi
+  _rlo=$(printf '%s' "$_line" | grep -oE '0x[0-9a-fA-F]+' | sed -n '1p')
+  _rhi=$(printf '%s' "$_line" | grep -oE '0x[0-9a-fA-F]+' | sed -n '2p')
+  if [ -z "$_rlo" ] || [ -z "$_rhi" ]; then
+    skip "$_label — unparsable range"
+    return
+  fi
+  _rlo=$(hex16 "$_rlo"); _rhi=$(hex16 "$_rhi")
+  if hex_in_range "$_truth" "$_rlo" "$_rhi"; then
+    pass "$_label — real base 0x$_truth within inferred [0x$_rlo - 0x$_rhi]"
+  else
+    fail "$_label — real base 0x$_truth NOT in inferred [0x$_rlo - 0x$_rhi]"
+  fi
+}
+
 # -------------------------------------------------------------------------
 # Root check
 # -------------------------------------------------------------------------
@@ -117,7 +142,8 @@ else
 fi
 
 # Filter to tagged lines only (drops `[infer]`, `[parser]`, banner, etc.)
-tagged_lines=$(printf '%s\n' "$tagged_lines" | grep '^[VPD] ' || true)
+raw_input="$tagged_lines" # full input, incl. the rendered summary lines
+tagged_lines=$(printf '%s\n' "$raw_input" | grep '^[VPDS] ' || true)
 
 if [ -z "$tagged_lines" ]; then
   echo "error: no tagged lines found" >&2
@@ -259,6 +285,30 @@ printf '%sResults:%s\n' "$BOLD" "$RESET"
 printf '%s\n' "$tagged_lines" | while IFS= read -r line; do
   type=$(printf '%s' "$line" | awk '{ print $1 }')
   region_name=$(printf '%s' "$line" | awk '{ print $2 }')
+
+  # Scalar facts (S <fact> ... value=<hex>): validate where ground truth exists.
+  # A kernel image cannot exceed the RAM it lives in, so /proc/iomem's RAM
+  # ceiling is a reliable plausibility bound for image_size.
+  if [ "$type" = "S" ]; then
+    value=$(get_field "$line" value)
+    case "$region_name" in
+      image_size)
+        if [ -z "$value" ] || [ "$value" = "0x0" ] || [ "$value" = "0" ]; then
+          skip "S image_size — zero/absent"
+        elif [ -z "$truth_ram_hi" ]; then
+          skip "S image_size=$value — no /proc/iomem System RAM ground truth"
+        elif hex_le "$(hex16 "$value")" "$truth_ram_hi"; then
+          pass "S image_size=$value — within RAM (top 0x$truth_ram_hi)"
+        else
+          fail "S image_size=$value — exceeds all RAM (top 0x$truth_ram_hi); bogus"
+        fi
+        ;;
+      *)
+        skip "S $region_name=$value — no scalar validator"
+        ;;
+    esac
+    continue
+  fi
 
   # Split region[:name] on the FIRST colon only — names can contain `:`
   # (e.g. PCI BDF "0000:00:14.0"). The parser convention is documented in
@@ -478,6 +528,17 @@ printf '%s\n' "$tagged_lines" | while IFS= read -r line; do
       ;;
   esac
 done
+
+# -------------------------------------------------------------------------
+# Validate the engine's RESOLVED text windows (rendered summary), not just the
+# per-component leaks: the real kernel base must fall inside the inferred
+# candidate window. Present in --verbose output when the base is inferred
+# rather than leaked/pinned; absent otherwise (the call no-ops).
+# -------------------------------------------------------------------------
+virt_win=$(printf '%s\n' "$raw_input" | grep 'Inferred text range:' | head -1)
+phys_win=$(printf '%s\n' "$raw_input" | grep 'Inferred phys text range:' | head -1)
+validate_inferred "Inferred virt text window" "$truth_stext" "$virt_win"
+validate_inferred "Inferred phys text window" "$truth_ptext_lo" "$phys_win"
 
 # -------------------------------------------------------------------------
 # Summary
