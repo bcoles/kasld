@@ -20,9 +20,9 @@
  */
 const char *human_size(unsigned long bytes, char *buf, size_t bufsz);
 
-/* Result-model helpers (mirror anchor_addr(). methods[0] is the canonical
- * single-value method; origins are iterated as r->origins[0..provenance_count]
- * at the consuming renderer). */
+/* Result-model helpers (mirror anchor_addr(). result_method returns the
+ * strongest method in the record's method_set; origins are iterated as
+ * r->origins[0..provenance_count] at the consuming renderer). */
 const char *result_method(const struct result *r);
 const char *result_section(const struct result *r);
 int in_bounds(const struct result *r);

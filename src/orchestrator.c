@@ -164,8 +164,6 @@ int num_comp_logs;
  */
 enum orchestrator_saturation {
   ORCH_SAT_RESULTS_FULL = 1u << 0, /* MAX_RESULTS hit; drops new records */
-  ORCH_SAT_PROVENANCE_FULL =
-      1u << 1, /* MAX_PROVENANCE hit; drops later contributors */
   ORCH_SAT_COMPONENT_LINES_DROPPED =
       1u << 2, /* alloc failure during verbose-line capture */
 };
@@ -560,6 +558,30 @@ static enum kasld_confidence conf_from_wire(const char *s) {
   return CONF_UNKNOWN;
 }
 
+/* Map a method: meta value to its bit in struct result.method_set (0 if the
+ * value is empty or unrecognised). Mirrors the closed set in enum kasld_method.
+ */
+static uint16_t method_bit(const char *s) {
+  int m = -1;
+  if (!s || !*s)
+    return 0;
+  if (strcmp(s, "parsed") == 0)
+    m = KM_PARSED;
+  else if (strcmp(s, "derived") == 0)
+    m = KM_DERIVED;
+  else if (strcmp(s, "inferred") == 0)
+    m = KM_INFERRED;
+  else if (strcmp(s, "heuristic") == 0)
+    m = KM_HEURISTIC;
+  else if (strcmp(s, "timing") == 0)
+    m = KM_TIMING;
+  else if (strcmp(s, "brute") == 0)
+    m = KM_BRUTE;
+  else if (strcmp(s, "detection") == 0)
+    m = KM_DETECTION;
+  return m < 0 ? 0u : (uint16_t)(1u << m);
+}
+
 /* Power-of-two test, allowing v=0 to mean "no constraint" but the caller
  * gates on v != 0 separately. */
 static int is_pow2(unsigned long v) { return v && !(v & (v - 1)); }
@@ -879,11 +901,7 @@ static int capture_result(const char *line, const char *method,
     memcpy(r->origins[0], origin, ol);
     r->origins[0][ol] = '\0';
   }
-  if (method && *method) {
-    size_t ml = strnlen(method, METHOD_LEN - 1);
-    memcpy(r->methods[0], method, ml);
-    r->methods[0][ml] = '\0';
-  }
+  r->method_set = method_bit(method);
   r->provenance_count = 1;
   return 1;
 }
@@ -1710,22 +1728,14 @@ static int provenance_has(const struct result *r, const char *s) {
   return 0;
 }
 
-static void provenance_add(struct result *r, const char *origin,
-                           const char *method) {
+static void provenance_add(struct result *r, const char *origin) {
   if (origin && *origin && provenance_has(r, origin))
     return;
-  if (r->provenance_count >= MAX_PROVENANCE) {
-    orchestrator_saturation |= ORCH_SAT_PROVENANCE_FULL;
-    static int warned;
-    if (!warned && !quiet) {
-      fprintf(stderr,
-              "warning: merged record provenance capped at MAX_PROVENANCE=%d; "
-              "later contributors dropped\n",
-              MAX_PROVENANCE);
-      warned = 1;
-    }
+  /* Distinct origins <= number of components <= MAX_PROVENANCE, so this guard
+   * never binds; it only keeps the write in-bounds if that invariant changes.
+   */
+  if (r->provenance_count >= MAX_PROVENANCE)
     return;
-  }
   int slot = r->provenance_count++;
   if (origin && *origin) {
     size_t ol = strnlen(origin, ORIGIN_LEN - 1);
@@ -1733,13 +1743,6 @@ static void provenance_add(struct result *r, const char *origin,
     r->origins[slot][ol] = '\0';
   } else {
     r->origins[slot][0] = '\0';
-  }
-  if (method && *method) {
-    size_t ml = strnlen(method, METHOD_LEN - 1);
-    memcpy(r->methods[slot], method, ml);
-    r->methods[slot][ml] = '\0';
-  } else {
-    r->methods[slot][0] = '\0';
   }
 }
 
@@ -1782,8 +1785,9 @@ static void merge_into(struct result *a, const struct result *b,
   }
   if (conf_weight(b->conf) > conf_weight(a->conf))
     a->conf = b->conf;
+  a->method_set |= b->method_set;
   for (int i = 0; i < b->provenance_count; i++)
-    provenance_add(a, b->origins[i], b->methods[i]);
+    provenance_add(a, b->origins[i]);
 }
 
 static int merge_consistent(const struct result *a) {
@@ -2454,9 +2458,9 @@ static void engine_report_saturation(const struct engine *e) {
             ESTIMATE_MAX_CONFLICTS);
 }
 
-/* Sibling reporter for orchestrator-side caps (results[], merged-record
- * provenance, per-component verbose-line capture). Same diagnostic shape
- * as engine_report_saturation; surfaces under --verbose. */
+/* Sibling reporter for orchestrator-side caps (results[], per-component
+ * verbose-line capture). Same diagnostic shape as engine_report_saturation;
+ * surfaces under --verbose. */
 static void orchestrator_report_saturation(void) {
   if (!orchestrator_saturation)
     return;
@@ -2465,12 +2469,6 @@ static void orchestrator_report_saturation(void) {
             "[orchestrator] saturation: MAX_RESULTS (%d) reached; "
             "further leak/scalar observations were dropped at capture\n",
             MAX_RESULTS);
-  if (orchestrator_saturation & ORCH_SAT_PROVENANCE_FULL)
-    fprintf(stderr,
-            "[orchestrator] saturation: MAX_PROVENANCE (%d) reached on at "
-            "least one merged record; additional contributors were not "
-            "recorded (the record's resolved value is unaffected)\n",
-            MAX_PROVENANCE);
   if (orchestrator_saturation & ORCH_SAT_COMPONENT_LINES_DROPPED)
     fprintf(stderr,
             "[orchestrator] saturation: allocation failure while capturing "

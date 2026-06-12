@@ -24,7 +24,9 @@
 
 #include <stdint.h>
 
-/* Cap on lineage entries per constraint (matches MAX_PROVENANCE in spirit). */
+/* Cap on lineage entries per constraint: an engine-side termination bound on
+ * per-constraint provenance depth. Independent of the display-side
+ * MAX_PROVENANCE (which now equals MAX_COMPONENTS). */
 #ifndef MAX_LINEAGE
 #define MAX_LINEAGE 8
 #endif

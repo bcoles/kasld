@@ -28,8 +28,10 @@
 #define MAX_RESULTS 4096
 #define NAME_LEN 48   /* specific instance: kernel symbol, ACPI ID, BDF, ... */
 #define ORIGIN_LEN 64 /* component name (orchestrator-filled) */
-#define METHOD_LEN 16 /* method: meta value */
-#define MAX_PROVENANCE 8 /* cap on merged-record contributors */
+/* A merged record can be corroborated by at most every component, so size its
+ * provenance to the structural maximum — overflow is impossible by
+ * construction. */
+#define MAX_PROVENANCE MAX_COMPONENTS
 /* Captured-stdout lines are kept only for --verbose / --json output. The log
  * is grown geometrically on demand from this initial capacity; there is no
  * hard cap (the previous fixed cap of 64 silently truncated noisy components).
@@ -119,6 +121,72 @@ enum kasld_set_bits {
 };
 #endif
 
+/* Analytical method a component claims for a leak (the `method:` meta value).
+ * Closed set, ordered weakest->strongest so the strongest member of a set is
+ * the highest bit. A merged record stores the union of its contributors'
+ * methods as a bitmask (method_set); this is the only place the names live. */
+enum kasld_method {
+  KM_DETECTION = 0,
+  KM_BRUTE,
+  KM_TIMING,
+  KM_HEURISTIC,
+  KM_INFERRED,
+  KM_DERIVED,
+  KM_PARSED,
+  KM_COUNT
+};
+
+static inline const char *kasld_method_name(enum kasld_method m) {
+  switch (m) {
+  case KM_DETECTION:
+    return "detection";
+  case KM_BRUTE:
+    return "brute";
+  case KM_TIMING:
+    return "timing";
+  case KM_HEURISTIC:
+    return "heuristic";
+  case KM_INFERRED:
+    return "inferred";
+  case KM_DERIVED:
+    return "derived";
+  case KM_PARSED:
+    return "parsed";
+  case KM_COUNT:
+    break;
+  }
+  return "unknown";
+}
+
+/* Strongest method present in a set, as a display string ("unknown" if empty).
+ */
+static inline const char *kasld_method_set_strongest(uint16_t set) {
+  for (int m = KM_COUNT - 1; m >= 0; m--)
+    if (set & (1u << m))
+      return kasld_method_name((enum kasld_method)m);
+  return "unknown";
+}
+
+/* Format a method set strongest-first as "parsed+timing" into buf ("unknown" if
+ * empty). Surfaces method diversity where a single line has room (verbose). */
+static inline void kasld_method_set_str(uint16_t set, char *buf, size_t sz) {
+  if (sz == 0)
+    return;
+  buf[0] = '\0';
+  size_t o = 0;
+  for (int m = KM_COUNT - 1; m >= 0; m--) {
+    if (!(set & (1u << m)))
+      continue;
+    int w = snprintf(buf + o, sz - o, "%s%s", o ? "+" : "",
+                     kasld_method_name((enum kasld_method)m));
+    if (w < 0 || (size_t)w >= sz - o)
+      break;
+    o += (size_t)w;
+  }
+  if (o == 0)
+    snprintf(buf, sz, "unknown");
+}
+
 struct result {
   enum kasld_addr_type type;
   enum kasld_region region;
@@ -132,9 +200,11 @@ struct result {
   enum kasld_position pos;
   enum kasld_confidence conf;
 
-  /* Provenance — earliest contributor at index 0. */
+  /* Provenance: the components that corroborate this record (origins[0] is the
+   * earliest contributor) and method_set, the union of their methods. Sized to
+   * the structural max (MAX_COMPONENTS) so it can never overflow. */
   char origins[MAX_PROVENANCE][ORIGIN_LEN];
-  char methods[MAX_PROVENANCE][METHOD_LEN];
+  uint16_t method_set; /* bitmask over enum kasld_method */
   uint8_t provenance_count;
 };
 

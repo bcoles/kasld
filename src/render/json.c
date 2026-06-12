@@ -130,8 +130,20 @@ static void render_json_group(enum kasld_addr_type gt, const char *gs) {
     }
     printf("],\n");
     printf("          \"method\": ");
-    json_print_escaped(result_method(r));
+    json_print_escaped(
+        result_method(r)); /* single strongest, for compatibility */
     printf(",\n");
+    printf("          \"methods\": [");
+    {
+      int firstm = 1;
+      for (int m = 0; m < KM_COUNT; m++)
+        if (r->method_set & (1u << m)) {
+          printf(firstm ? "" : ", ");
+          json_print_escaped(kasld_method_name((enum kasld_method)m));
+          firstm = 0;
+        }
+    }
+    printf("],\n");
     printf("          \"valid\": %s\n", in_bounds(r) ? "true" : "false");
     printf("        }");
   }

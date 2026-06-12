@@ -217,7 +217,7 @@ static void set_rich_render_state(struct summary *s) {
   r1->lo = vt;
   r1->set_mask = LO_SET;
   snprintf(r1->origins[0], ORIGIN_LEN, "synthetic_test");
-  snprintf(r1->methods[0], METHOD_LEN, "parsed");
+  r1->method_set = 1u << KM_PARSED;
   r1->provenance_count = 1;
 
   struct result *r2 = push_result();
@@ -229,7 +229,7 @@ static void set_rich_render_state(struct summary *s) {
   r2->hi = 0xf0000000ul;
   r2->set_mask = LO_SET | HI_SET;
   snprintf(r2->origins[0], ORIGIN_LEN, "synthetic_test");
-  snprintf(r2->methods[0], METHOD_LEN, "parsed");
+  r2->method_set = 1u << KM_PARSED;
   r2->provenance_count = 1;
 
   /* A component log with the metadata shape render_hardening_* reads. */
@@ -315,9 +315,9 @@ static void seed_multi_origin_text_result(struct summary *s) {
       snprintf(r->origins[0], ORIGIN_LEN, "prefetch");
       snprintf(r->origins[1], ORIGIN_LEN, "perf_event_open");
       snprintf(r->origins[2], ORIGIN_LEN, "perf_lbr_sampling");
-      snprintf(r->methods[0], METHOD_LEN, "timing");
-      snprintf(r->methods[1], METHOD_LEN, "parsed");
-      snprintf(r->methods[2], METHOD_LEN, "parsed");
+      r->method_set = 1u << KM_TIMING;
+      r->method_set |= 1u << KM_PARSED;
+      r->method_set |= 1u << KM_PARSED;
       r->provenance_count = 3;
       return;
     }
@@ -340,7 +340,8 @@ static void test_render_text_lists_all_origins(void) {
  * the same (type, region): results merge by (type, region, NAME), so the same
  * address tagged under a different symbol name (proc_kallsyms's _stext vs an
  * unnamed/side-channel text leak) lands in a distinct record. Every contributor
- * must surface, not just the single highest-confidence record's. */
+ * must surface — named in verbose, and counted (via "+N more") in the clamped
+ * default line — not just the single highest-confidence record's. */
 static void test_render_text_leaks_aggregates_across_records(void) {
   struct summary s;
   seed_multi_origin_text_result(&s); /* rich state + one VIRT/KERNEL_TEXT rec */
@@ -365,10 +366,20 @@ static void test_render_text_leaks_aggregates_across_records(void) {
   snprintf(r->origins[0], ORIGIN_LEN, "proc_kallsyms");
   r->provenance_count = 1;
 
+  /* Default text clamps the name list to the first few + "+N more". The first
+   * record already supplies 3 origins, so the separate record's contributor is
+   * aggregated as a later one and surfaces in the "+N more" count — proving the
+   * bracket reaches across records rather than listing one record's set. */
   set_render_mode(0, 0, 0); /* text */
   capture_stdout(wrap_render_summary, &s);
+  assert(strstr(render_cap, "prefetch") != NULL);
+  assert(strstr(render_cap, "more)") != NULL);
 
-  /* The separate record's origin appears alongside the first record's. */
+  /* Verbose lists every aggregated contributor by name, including the one from
+   * the separate record. */
+  verbose = 1;
+  capture_stdout(wrap_render_summary, &s);
+  verbose = 0;
   assert(strstr(render_cap, "proc_kallsyms") != NULL);
   assert(strstr(render_cap, "prefetch") != NULL);
 }
@@ -385,7 +396,24 @@ static void test_render_json_emits_origins_array(void) {
   assert(strstr(render_cap, "\"perf_event_open\"") != NULL);
   assert(strstr(render_cap, "\"perf_lbr_sampling\"") != NULL);
   assert(strstr(render_cap, "\"origin\":") == NULL);
+  /* The methods array surfaces the full diversity: prefetch contributes
+   * "timing", perf_event_open "parsed". */
+  assert(strstr(render_cap, "\"methods\":") != NULL);
+  assert(strstr(render_cap, "\"timing\"") != NULL);
+  assert(strstr(render_cap, "\"parsed\"") != NULL);
   set_render_mode(0, 0, 0);
+}
+
+/* result_method returns the strongest method in the record's set (consistent
+ * with the resolved confidence), not the earliest contributor's. */
+static void test_result_method_returns_strongest(void) {
+  struct result r = {0};
+  r.method_set = (1u << KM_TIMING) | (1u << KM_PARSED);
+  assert(strcmp(result_method(&r), "parsed") == 0);
+  r.method_set = 1u << KM_TIMING;
+  assert(strcmp(result_method(&r), "timing") == 0);
+  r.method_set = 0;
+  assert(strcmp(result_method(&r), "unknown") == 0);
 }
 
 static void test_render_markdown_lists_all_origins(void) {
@@ -411,7 +439,7 @@ static void seed_no_provenance_text_result(struct summary *s) {
     if (r->type == KASLD_TYPE_VIRT && r->region == REGION_KERNEL_TEXT) {
       r->provenance_count = 0;
       r->origins[0][0] = '\0';
-      r->methods[0][0] = '\0';
+      r->method_set = 0;
       return;
     }
   }
@@ -466,8 +494,8 @@ static void seed_two_region_groups(struct summary *s) {
     if (r->type == KASLD_TYPE_VIRT && r->region == REGION_KERNEL_TEXT) {
       snprintf(r->origins[0], ORIGIN_LEN, "origin_a");
       snprintf(r->origins[1], ORIGIN_LEN, "origin_b");
-      snprintf(r->methods[0], METHOD_LEN, "parsed");
-      snprintf(r->methods[1], METHOD_LEN, "parsed");
+      r->method_set = 1u << KM_PARSED;
+      r->method_set |= 1u << KM_PARSED;
       r->provenance_count = 2;
       break;
     }
@@ -483,7 +511,7 @@ static void seed_two_region_groups(struct summary *s) {
   r->lo = dm;
   r->set_mask = LO_SET;
   snprintf(r->origins[0], ORIGIN_LEN, "synthetic_test");
-  snprintf(r->methods[0], METHOD_LEN, "parsed");
+  r->method_set = 1u << KM_PARSED;
   r->provenance_count = 1;
 }
 
@@ -524,7 +552,7 @@ static void set_richer_render_state(struct summary *s) {
   r3->lo = vt + 0x800000ul;
   r3->set_mask = LO_SET;
   snprintf(r3->origins[0], ORIGIN_LEN, "synthetic_test");
-  snprintf(r3->methods[0], METHOD_LEN, "derived");
+  r3->method_set = 1u << KM_DERIVED;
   r3->provenance_count = 1;
 
   /* REGION_KERNEL_BSS sibling — gives collect_kernel_regions multiple
@@ -538,7 +566,7 @@ static void set_richer_render_state(struct summary *s) {
   r4->lo = vt + 0x900000ul;
   r4->set_mask = LO_SET;
   snprintf(r4->origins[0], ORIGIN_LEN, "synthetic_test");
-  snprintf(r4->methods[0], METHOD_LEN, "parsed");
+  r4->method_set = 1u << KM_PARSED;
   r4->provenance_count = 1;
 
   /* Phys-side band so render_text's phys map has something to draw and
@@ -636,7 +664,7 @@ static void test_section_consensus_lowest_among_ties(void) {
     r->sample = addrs[i];
     r->set_mask = SAMPLE_SET;
     snprintf(r->origins[0], ORIGIN_LEN, "synth");
-    snprintf(r->methods[0], METHOD_LEN, "parsed");
+    r->method_set = 1u << KM_PARSED;
     r->provenance_count = 1;
   }
   /* Make all three pass in_bounds: the directmap base lives at PAGE_OFFSET
@@ -663,7 +691,7 @@ static void test_section_consensus_prefers_pos_base(void) {
   r_interior->sample = interior_addr;
   r_interior->set_mask = SAMPLE_SET;
   snprintf(r_interior->origins[0], ORIGIN_LEN, "synth");
-  snprintf(r_interior->methods[0], METHOD_LEN, "parsed");
+  r_interior->method_set = 1u << KM_PARSED;
   r_interior->provenance_count = 1;
 
   struct result *r_base = push_result();
@@ -674,7 +702,7 @@ static void test_section_consensus_prefers_pos_base(void) {
   r_base->lo = base_addr;
   r_base->set_mask = LO_SET;
   snprintf(r_base->origins[0], ORIGIN_LEN, "synth");
-  snprintf(r_base->methods[0], METHOD_LEN, "parsed");
+  r_base->method_set = 1u << KM_PARSED;
   r_base->provenance_count = 1;
 
   assert(section_consensus(KASLD_TYPE_VIRT, "text", REGION_UNKNOWN) ==
@@ -696,7 +724,7 @@ static void test_section_consensus_higher_conf_wins(void) {
   r_h->sample = lo_heuristic;
   r_h->set_mask = SAMPLE_SET;
   snprintf(r_h->origins[0], ORIGIN_LEN, "synth");
-  snprintf(r_h->methods[0], METHOD_LEN, "heuristic");
+  r_h->method_set = 1u << KM_HEURISTIC;
   r_h->provenance_count = 1;
 
   struct result *r_p = push_result();
@@ -707,7 +735,7 @@ static void test_section_consensus_higher_conf_wins(void) {
   r_p->sample = hi_parsed;
   r_p->set_mask = SAMPLE_SET;
   snprintf(r_p->origins[0], ORIGIN_LEN, "synth");
-  snprintf(r_p->methods[0], METHOD_LEN, "parsed");
+  r_p->method_set = 1u << KM_PARSED;
   r_p->provenance_count = 1;
 
   layout.virt_page_offset = (unsigned long)PAGE_OFFSET;
@@ -786,7 +814,7 @@ static void test_render_derived_text_range_form(void) {
   r->hi = vt + 0x2000000ul;
   r->set_mask = LO_SET | HI_SET;
   snprintf(r->origins[0], ORIGIN_LEN, "synth");
-  snprintf(r->methods[0], METHOD_LEN, "derived");
+  r->method_set = 1u << KM_DERIVED;
   r->provenance_count = 1;
   s.stats.total = 1;
   set_render_mode(0, 0, 0);
@@ -1131,6 +1159,7 @@ int main(void) {
   RUN(test_render_text_lists_all_origins);
   RUN(test_render_text_leaks_aggregates_across_records);
   RUN(test_render_json_emits_origins_array);
+  RUN(test_result_method_returns_strongest);
   RUN(test_render_markdown_lists_all_origins);
   RUN(test_render_text_leaks_no_provenance);
   RUN(test_render_json_emits_empty_origins_array);

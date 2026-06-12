@@ -49,16 +49,17 @@ const char *human_size(unsigned long bytes, char *buf, size_t bufsz) {
  * Result-model helpers
  *
  * Mirror the orchestrator's anchor_addr() and the result_in_bounds()
- * convention. methods[0]/origins[0] are the earliest contributor for a
- * merged record; for the renderer this is the canonical display value.
+ * convention. A merged record carries method_set (the union of its
+ * contributors' methods); the single display value is the strongest method
+ * present, which stays consistent with the record's resolved confidence.
  * -------------------------------------------------------------------------
  */
 /* anchor_addr() is defined as a static inline in kasld/internal.h. */
 
 const char *result_method(const struct result *r) {
-  if (!r || r->provenance_count == 0 || r->methods[0][0] == '\0')
+  if (!r)
     return "unknown";
-  return r->methods[0];
+  return kasld_method_set_strongest(r->method_set);
 }
 
 const char *result_section(const struct result *r) {

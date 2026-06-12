@@ -298,10 +298,12 @@ static void print_group(enum kasld_addr_type type, const char *section,
 
     if (!in_bounds(r)) {
       if (verbose) {
+        char mbuf[64];
+        kasld_method_set_str(r->method_set, mbuf, sizeof mbuf);
         printf("  %s0x%016lx%s  %s %s(", c(C_RED), a, c(C_RESET), rn, c(C_DIM));
         for (int j = 0; j < r->provenance_count; j++)
           printf("%s%s", j ? ", " : "", r->origins[j]);
-        printf(", %s, stale)%s\n", result_method(r), c(C_RESET));
+        printf(", %s, stale)%s\n", mbuf, c(C_RESET));
       } else
         printf("  %s0x%016lx%s  %s %s(stale)%s\n", c(C_RED), a, c(C_RESET), rn,
                c(C_DIM), c(C_RESET));
@@ -309,10 +311,12 @@ static void print_group(enum kasld_addr_type type, const char *section,
     }
 
     if (verbose) {
+      char mbuf[64];
+      kasld_method_set_str(r->method_set, mbuf, sizeof mbuf);
       printf("  %s0x%016lx%s  %s %s(", c(C_GREEN), a, c(C_RESET), rn, c(C_DIM));
       for (int j = 0; j < r->provenance_count; j++)
         printf("%s%s", j ? ", " : "", r->origins[j]);
-      printf(", %s)%s\n", result_method(r), c(C_RESET));
+      printf(", %s)%s\n", mbuf, c(C_RESET));
     } else
       printf("  %s0x%016lx%s  %s\n", c(C_GREEN), a, c(C_RESET), rn);
 
@@ -1158,9 +1162,11 @@ static int readout_print_leaks(void) {
      * same address tagged under different symbol names (e.g. _stext from
      * proc_kallsyms vs an unnamed text leak) lands in separate merged records.
      * Aggregate provenance across all in-bounds records of this (type, region),
-     * de-duplicated, so the bracket lists the full set of contributors. */
-    char seen[24][ORIGIN_LEN];
-    int ns = 0, more = 0;
+     * de-duplicated. seen[] is sized to the structural max so the distinct
+     * count is exact; the line shows the first few and folds the rest into
+     * "+N more" (verbose lists them all). */
+    char seen[MAX_COMPONENTS][ORIGIN_LEN];
+    int ns = 0;
     for (int j = 0; j < num_results; j++) {
       const struct result *r = &results[j];
       if (r->type != found[i].r->type || r->region != found[i].r->region ||
@@ -1173,12 +1179,8 @@ static int readout_print_leaks(void) {
             dup = 1;
             break;
           }
-        if (dup)
-          continue;
-        if (ns < (int)(sizeof(seen) / sizeof(seen[0])))
+        if (!dup && ns < (int)(sizeof(seen) / sizeof(seen[0])))
           snprintf(seen[ns++], ORIGIN_LEN, "%s", r->origins[p]);
-        else
-          more++;
       }
     }
     if (ns == 0) {
@@ -1186,12 +1188,14 @@ static int readout_print_leaks(void) {
              found[i].addr, c(C_RESET));
       continue;
     }
+    /* Names that fit a default ~80-col line; the rest fold into "+N more". */
+    const int shown = ns < 3 ? ns : 3;
     printf("  %-19s %s0x%016lx%s   %s(", found[i].label, c(C_GREEN),
            found[i].addr, c(C_RESET), c(C_DIM));
-    for (int idx = 0; idx < ns; idx++)
+    for (int idx = 0; idx < shown; idx++)
       printf("%s%s", idx ? ", " : "", seen[idx]);
-    if (more)
-      printf(", +%d more", more);
+    if (ns > shown)
+      printf(", +%d more", ns - shown);
     printf(")%s\n", c(C_RESET));
   }
   return nf;

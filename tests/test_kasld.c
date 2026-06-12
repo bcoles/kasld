@@ -845,7 +845,7 @@ static void test_helpers_reject_conf_unknown(void) {
 }
 
 /* =========================================================================
- * Provenance dedup + MAX_PROVENANCE truncation
+ * Provenance dedup + full retention (the cap no longer binds)
  * ========================================================================= */
 static void test_merge_dedups_provenance(void) {
   reset_results();
@@ -863,7 +863,7 @@ static void test_merge_dedups_provenance(void) {
     r->set_mask = LO_SET;
     r->provenance_count = 1;
     snprintf(r->origins[0], ORIGIN_LEN, "%s", i == 1 ? "src-b" : "src-a");
-    snprintf(r->methods[0], METHOD_LEN, "heuristic");
+    r->method_set = 1u << KM_HEURISTIC;
   }
   merge_results();
   assert(num_results == 1);
@@ -881,15 +881,14 @@ static void test_merge_dedups_provenance(void) {
   assert(seen_a == 1 && seen_b == 1);
 }
 
-static void test_merge_caps_at_max_provenance(void) {
+static void test_merge_keeps_all_contributors(void) {
   reset_results();
-  /* MAX_PROVENANCE + 2 contributors with distinct origins. Merge must keep
-   * the first MAX_PROVENANCE and drop the rest. */
-  int saved = dup(fileno(stderr));
-  FILE *devnull = fopen("/dev/null", "w");
-  dup2(fileno(devnull), fileno(stderr));
-
-  for (int i = 0; i < MAX_PROVENANCE + 2; i++) {
+  /* Many distinct-origin contributors at the same lo. Provenance is sized to
+   * the structural max (MAX_COMPONENTS), so the merged record keeps every one:
+   * the cap can no longer bind at any realistic contributor count (here well
+   * above the old cap of 8, well under MAX_COMPONENTS). */
+  const int n = 40;
+  for (int i = 0; i < n; i++) {
     struct result *r = push_result();
     r->type = KASLD_TYPE_VIRT;
     r->region = REGION_KERNEL_IMAGE;
@@ -902,12 +901,8 @@ static void test_merge_caps_at_max_provenance(void) {
   }
   merge_results();
 
-  dup2(saved, fileno(stderr));
-  close(saved);
-  fclose(devnull);
-
   assert(num_results == 1);
-  assert(results[0].provenance_count == MAX_PROVENANCE);
+  assert(results[0].provenance_count == n); /* all kept, none truncated */
 }
 
 /* =========================================================================
@@ -995,7 +990,7 @@ static void test_synthesized_result_sets_fields_correctly(void) {
   r->hi = (unsigned long)PAGE_OFFSET + 0x333ffffful;
   r->set_mask = LO_SET | HI_SET;
   snprintf(r->origins[0], ORIGIN_LEN, "inference:my_plugin");
-  snprintf(r->methods[0], METHOD_LEN, "derived");
+  r->method_set = 1u << KM_DERIVED;
   r->provenance_count = 1;
 
   /* Round-trip through result_in_bounds and select_anchor. */
@@ -1692,7 +1687,7 @@ int main(void) {
   RUN(test_merge_promotes_pos_to_base_from_later_contributor);
   RUN(test_merge_samples_conflict_kept_separate);
   RUN(test_merge_dedups_provenance);
-  RUN(test_merge_caps_at_max_provenance);
+  RUN(test_merge_keeps_all_contributors);
   RUN(test_merge_is_idempotent);
   RUN(test_merge_base_align_takes_max);
   RUN(test_merge_base_align_propagates_from_either_contributor);
