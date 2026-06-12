@@ -78,6 +78,7 @@ static int carve_map_gaps(const struct evidence_set *ev, const char *origin,
                           int out_max) {
   struct rmpe_extent ext[RMPE_MAX_EXTENTS];
   int ne = 0;
+  unsigned long map_ceiling = 0; /* highest RAM address in this map */
   enum kasld_confidence mconf = CONF_PARSED;
   for (int i = 0; i < ev->n_obs; i++) {
     const struct observation *o = &ev->obs[i];
@@ -90,12 +91,23 @@ static int carve_map_gaps(const struct evidence_set *ev, const char *origin,
     ext[ne].lo = o->lo;
     ext[ne].hi = o->hi;
     ext[ne].id = o->id;
+    if (o->hi > map_ceiling)
+      map_ceiling = o->hi;
     if (o->conf < mconf)
       mconf = o->conf;
     ne++;
   }
   if (ne < 2)
     return 0; /* need at least two extents for a gap between them. */
+
+  /* Safety: a kernel image cannot exceed the RAM it lives in. An implausible
+   * ksize (e.g. a garbage SF_IMAGE_SIZE leak) would otherwise underflow the
+   * size backoff below — gap_lo > ksize fails, hole_lo collapses to 0, and a
+   * single high gap excludes ALL of low memory. The map itself is the reliable
+   * RAM-size reference here, so cap against it (no dependence on a separate,
+   * possibly-absent memtotal fact). */
+  if (ksize > map_ceiling)
+    return 0;
 
   /* Insertion-sort by low edge. */
   for (int i = 1; i < ne; i++) {

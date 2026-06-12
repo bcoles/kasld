@@ -1281,6 +1281,21 @@ static void test_ram_map_phys_exclude(void) {
   evidence_add(&e5.ev, &b5);
   engine_run(&e5, rules, 1);
   assert(has_phys_exclude(&e5));
+
+  /* Negative 3 (safety): a garbage ksize larger than all of RAM must not
+   * over-exclude. Without the map-ceiling guard the size backoff underflows
+   * (hole_lo -> 0) and a single high gap excludes all of low memory. */
+  struct engine e6;
+  engine_init(&e6);
+  struct observation is6 =
+      mk_scalar(SF_IMAGE_SIZE, 0x20ac0040befcfbe4ul, CONF_PARSED);
+  evidence_add(&e6.ev, &is6);
+  struct observation a6 = mk_ram(r1lo, r1hi, "firmware_memmap");
+  struct observation b6 = mk_ram(r2lo, r2hi, "firmware_memmap");
+  evidence_add(&e6.ev, &a6);
+  evidence_add(&e6.ev, &b6);
+  engine_run(&e6, rules, 1);
+  assert(!has_phys_exclude(&e6));
 #endif
 }
 

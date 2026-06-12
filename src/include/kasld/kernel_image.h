@@ -46,10 +46,12 @@
 #define MIN_VMLINUZ_BYTES (512UL * 1024)
 #define MIN_SYSMAP_BYTES (256UL * 1024)
 
-/* Read exact image_size from an EFI/PE-style Image header (riscv64, arm64).
- * The header layout (arch/riscv/include/asm/image.h,
- * arch/arm64/include/asm/image.h) places image_size as a u64 LE field at
- * byte offset 16, preceded by MZ magic at offset 0. Returns 0 on failure. */
+/* Read exact image_size from a Linux EFI/PE Image header (arm64, riscv64).
+ * The header (arch/arm64/include/asm/image.h, arch/riscv/include/asm/image.h)
+ * places image_size as a u64 LE field at byte offset 16, with "MZ" at offset 0
+ * and an arch magic at offset 56 ("ARM\x64" / "RSC\x05"). An x86 bzImage also
+ * starts with "MZ" but has a different layout, so the offset-56 magic is
+ * required before trusting offset 16. Returns 0 on failure. */
 __attribute__((unused)) static unsigned long
 kasld_image_size_from_header(const char *release) {
   const char *const paths[] = {
@@ -58,7 +60,7 @@ kasld_image_size_from_header(const char *release) {
       NULL,
   };
   char path[256];
-  uint8_t hdr[24];
+  uint8_t hdr[60];
 
   for (int i = 0; paths[i] != NULL; i++) {
     snprintf(path, sizeof(path), paths[i], release);
@@ -70,7 +72,16 @@ kasld_image_size_from_header(const char *release) {
 
     if (n < sizeof(hdr))
       continue;
-    if (hdr[0] != 0x4d || hdr[1] != 0x5a)
+    if (hdr[0] != 0x4d || hdr[1] != 0x5a) /* "MZ" */
+      continue;
+
+    /* Require a Linux Image magic at offset 56 (arm64 "ARM\x64" = 0x644d5241,
+     * riscv "RSC\x05" = 0x05435352). An x86 bzImage carries "MZ" too, but its
+     * offset-16 bytes are not image_size; the magic gate rejects it so the
+     * estimate falls back to the vmlinuz/System.map sizing below. */
+    uint32_t magic = (uint32_t)hdr[56] | ((uint32_t)hdr[57] << 8) |
+                     ((uint32_t)hdr[58] << 16) | ((uint32_t)hdr[59] << 24);
+    if (magic != 0x644d5241u && magic != 0x05435352u)
       continue;
 
     uint64_t image_size =
