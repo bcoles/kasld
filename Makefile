@@ -434,13 +434,18 @@ clean :
 install : build
 	install -d "$(DESTDIR)$(PREFIX)/bin"
 	install -m 755 $(KASLD_BIN) "$(DESTDIR)$(PREFIX)/bin/kasld"
+	install -m 755 extra/ksymoff "$(DESTDIR)$(PREFIX)/bin/ksymoff"
 	install -d "$(DESTDIR)$(PREFIX)/libexec/kasld"
 	install -m 755 $(COMP_DIR)/* "$(DESTDIR)$(PREFIX)/libexec/kasld/"
+	install -d "$(DESTDIR)$(PREFIX)/share/doc/kasld"
+	cp -R docs README.md LICENSE "$(DESTDIR)$(PREFIX)/share/doc/kasld/"
 
 .PHONY: uninstall
 uninstall :
 	rm -f "$(DESTDIR)$(PREFIX)/bin/kasld"
+	rm -f "$(DESTDIR)$(PREFIX)/bin/ksymoff"
 	rm -rf "$(DESTDIR)$(PREFIX)/libexec/kasld"
+	rm -rf "$(DESTDIR)$(PREFIX)/share/doc/kasld"
 
 
 # Cross-compile all supported architectures with `make cross` — a local,

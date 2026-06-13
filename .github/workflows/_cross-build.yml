@@ -120,6 +120,11 @@ jobs:
           cp -a "${{ steps.builddir.outputs.dir }}/." "${DIR}/"
           find "${DIR}" -name '*.o' -delete
           cp README.md LICENSE "${DIR}/"
+          # Companion symbol-offset tool (arch-independent) + the docs, so the
+          # tarball matches `make install` and the README's doc links resolve.
+          mkdir -p "${DIR}/extra"
+          cp extra/ksymoff "${DIR}/extra/"
+          cp -a docs "${DIR}/docs"
           tar czf "${DIR}.tar.gz" "${DIR}"
           sha256sum "${DIR}.tar.gz" > "${DIR}.tar.gz.sha256"
 
