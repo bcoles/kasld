@@ -1205,6 +1205,22 @@ static struct observation mk_ram(unsigned long lo, unsigned long hi,
   return o;
 }
 
+/* Add one extent of a complete RAM map (a covering). The map rules read
+ * ev->coverings[], never obs[] — pos=extent is the wire contract that routes a
+ * whole-map source here, bypassing the cross-source merge. */
+static uint32_t add_ram_covering(struct evidence_set *ev, unsigned long lo,
+                                 unsigned long hi, const char *origin) {
+  struct covering c;
+  memset(&c, 0, sizeof(c));
+  c.type = KASLD_TYPE_PHYS;
+  c.region = REGION_RAM;
+  c.lo = lo;
+  c.hi = hi;
+  c.conf = CONF_PARSED;
+  snprintf(c.origin, ORIGIN_LEN, "%s", origin);
+  return evidence_add_covering(ev, &c);
+}
+
 static void test_ram_map_phys_exclude(void) {
 #if !TEXT_TRACKS_DIRECTMAP
   const rule_fn rules[] = {rule_ram_map_phys_exclude};
@@ -1220,10 +1236,8 @@ static void test_ram_map_phys_exclude(void) {
   engine_init(&e);
   struct observation is = mk_scalar(SF_IMAGE_SIZE, ksize, CONF_PARSED);
   evidence_add(&e.ev, &is);
-  struct observation a = mk_ram(r1lo, r1hi, "firmware_memmap");
-  struct observation b = mk_ram(r2lo, r2hi, "firmware_memmap");
-  evidence_add(&e.ev, &a);
-  evidence_add(&e.ev, &b);
+  add_ram_covering(&e.ev, r1lo, r1hi, "firmware_memmap");
+  add_ram_covering(&e.ev, r2lo, r2hi, "firmware_memmap");
   engine_run(&e, rules, 1);
   assert(has_phys_exclude(&e));
   const struct estimate *est = &e.est[Q_PHYS_TEXT_BASE];
@@ -1231,8 +1245,10 @@ static void test_ram_map_phys_exclude(void) {
                         KASLR_PHYS_ALIGN) <
          quantity_slots(Q_PHYS_TEXT_BASE, est, NULL, 0, KASLR_PHYS_ALIGN));
 
-  /* Negative 1: same gap but a partial-leak origin (not the authoritative map)
-   * — the "gap" could be unobserved RAM, so nothing is excluded. */
+  /* Negative 1 (contract): the same two extents as ATOMIC RAM observations
+   * (obs[], not coverings) carve nothing. A partial RAM leak emits atomic
+   * bounds, never pos=extent, so the rule — which reads only ev->coverings[] —
+   * ignores it: a "gap" between two partial extents could be unobserved RAM. */
   struct engine e2;
   engine_init(&e2);
   struct observation is2 = mk_scalar(SF_IMAGE_SIZE, ksize, CONF_PARSED);
@@ -1249,10 +1265,8 @@ static void test_ram_map_phys_exclude(void) {
   engine_init(&e3);
   struct observation is3 = mk_scalar(SF_IMAGE_SIZE, ksize, CONF_PARSED);
   evidence_add(&e3.ev, &is3);
-  struct observation a3 = mk_ram(r1lo, r1hi, "firmware_memmap");
-  struct observation b3 = mk_ram(r1hi + 1, r2hi, "firmware_memmap");
-  evidence_add(&e3.ev, &a3);
-  evidence_add(&e3.ev, &b3);
+  add_ram_covering(&e3.ev, r1lo, r1hi, "firmware_memmap");
+  add_ram_covering(&e3.ev, r1hi + 1, r2hi, "firmware_memmap");
   engine_run(&e3, rules, 1);
   assert(!has_phys_exclude(&e3));
 
@@ -1262,10 +1276,8 @@ static void test_ram_map_phys_exclude(void) {
   engine_init(&e4);
   struct observation is4 = mk_scalar(SF_IMAGE_SIZE, ksize, CONF_PARSED);
   evidence_add(&e4.ev, &is4);
-  struct observation a4 = mk_ram(r1lo, r1hi, "sysfs_devicetree_memory");
-  struct observation b4 = mk_ram(r2lo, r2hi, "sysfs_devicetree_memory");
-  evidence_add(&e4.ev, &a4);
-  evidence_add(&e4.ev, &b4);
+  add_ram_covering(&e4.ev, r1lo, r1hi, "sysfs_devicetree_memory");
+  add_ram_covering(&e4.ev, r2lo, r2hi, "sysfs_devicetree_memory");
   engine_run(&e4, rules, 1);
   assert(has_phys_exclude(&e4));
 
@@ -1275,10 +1287,8 @@ static void test_ram_map_phys_exclude(void) {
   engine_init(&e5);
   struct observation is5 = mk_scalar(SF_IMAGE_SIZE, ksize, CONF_PARSED);
   evidence_add(&e5.ev, &is5);
-  struct observation a5 = mk_ram(r1lo, r1hi, "sysfs_memory_blocks");
-  struct observation b5 = mk_ram(r2lo, r2hi, "sysfs_memory_blocks");
-  evidence_add(&e5.ev, &a5);
-  evidence_add(&e5.ev, &b5);
+  add_ram_covering(&e5.ev, r1lo, r1hi, "sysfs_memory_blocks");
+  add_ram_covering(&e5.ev, r2lo, r2hi, "sysfs_memory_blocks");
   engine_run(&e5, rules, 1);
   assert(has_phys_exclude(&e5));
 
@@ -1290,12 +1300,31 @@ static void test_ram_map_phys_exclude(void) {
   struct observation is6 =
       mk_scalar(SF_IMAGE_SIZE, 0x20ac0040befcfbe4ul, CONF_PARSED);
   evidence_add(&e6.ev, &is6);
-  struct observation a6 = mk_ram(r1lo, r1hi, "firmware_memmap");
-  struct observation b6 = mk_ram(r2lo, r2hi, "firmware_memmap");
-  evidence_add(&e6.ev, &a6);
-  evidence_add(&e6.ev, &b6);
+  add_ram_covering(&e6.ev, r1lo, r1hi, "firmware_memmap");
+  add_ram_covering(&e6.ev, r2lo, r2hi, "firmware_memmap");
   engine_run(&e6, rules, 1);
   assert(!has_phys_exclude(&e6));
+
+  /* Positive 4: two maps from DIFFERENT sources, where one firmware_memmap
+   * extent overlaps a sysfs_memory_blocks extent. The old code merged
+   * observations by (type, region, name) and re-attributed the overlapping
+   * firmware_memmap extent away from its origin, dropping it from the
+   * reconstructed map and synthesising a false giant gap. Coverings are
+   * per-source and never merged, so each map carves only its own real gap. */
+  struct engine e7;
+  engine_init(&e7);
+  struct observation is7 = mk_scalar(SF_IMAGE_SIZE, ksize, CONF_PARSED);
+  evidence_add(&e7.ev, &is7);
+  /* firmware_memmap: a complete map with NO gap (adjacent extents). */
+  add_ram_covering(&e7.ev, r1lo, r1hi, "firmware_memmap");
+  add_ram_covering(&e7.ev, r1hi + 1, r2hi, "firmware_memmap");
+  /* sysfs_memory_blocks: overlaps the firmware_memmap low extent. If the two
+   * sources were merged, the firmware_memmap map would lose an extent. */
+  add_ram_covering(&e7.ev, r1lo, r1hi, "sysfs_memory_blocks");
+  add_ram_covering(&e7.ev, r1hi + 1, r2hi, "sysfs_memory_blocks");
+  engine_run(&e7, rules, 1);
+  /* Neither complete map has a gap, so nothing is excluded — no false gap. */
+  assert(!has_phys_exclude(&e7));
 #endif
 }
 
@@ -3839,19 +3868,8 @@ static void test_firmware_memmap_holes(void) {
 #if defined(__x86_64__)
   struct engine e;
   engine_init(&e);
-  /* Authoritative System RAM extent [16M, 2G]. */
-  struct observation ram;
-  memset(&ram, 0, sizeof(ram));
-  ram.value_kind = OBS_ADDRESS;
-  ram.type = KASLD_TYPE_PHYS;
-  ram.region = REGION_RAM;
-  ram.lo = 0x1000000ul;
-  ram.hi = 0x80000000ul;
-  ram.set_mask = LO_SET | HI_SET;
-  ram.pos = POS_BASE;
-  ram.conf = CONF_PARSED;
-  snprintf(ram.origin, ORIGIN_LEN, "firmware_memmap");
-  evidence_add(&e.ev, &ram);
+  /* Authoritative System RAM map [16M, 2G] — a covering, not an observation. */
+  add_ram_covering(&e.ev, 0x1000000ul, 0x80000000ul, "firmware_memmap");
   /* Candidate inside RAM (kept) and one above RAM (dropped). */
   struct observation in =
       mk_obs(KASLD_TYPE_PHYS, REGION_KERNEL_TEXT, 0x10000000ul,

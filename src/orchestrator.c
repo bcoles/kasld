@@ -534,6 +534,8 @@ static enum kasld_position pos_from_wire(const char *s) {
     return POS_TOP;
   if (strcmp(s, "interior") == 0)
     return POS_INTERIOR;
+  if (strcmp(s, "extent") == 0)
+    return POS_EXTENT;
   if (strcmp(s, "unknown") == 0)
     return POS_UNKNOWN;
   /* Unrecognised input also returns POS_UNKNOWN. The caller disambiguates
@@ -802,6 +804,13 @@ static int capture_result(const char *line, const char *method,
     break;
   case POS_INTERIOR:
     if (!p.seen_sample)
+      return 0;
+    break;
+  case POS_EXTENT:
+    /* A covering member is a closed extent — both edges required. The value
+     * lives in the gaps between extents, so a half-open extent is meaningless
+     * to the map rules that consume it. */
+    if (!p.seen_lo || !p.seen_hi)
       return 0;
     break;
   case POS_UNKNOWN:
@@ -1879,6 +1888,15 @@ void merge_results(void) {
   for (int i = 0; i < num_results; i++) {
     if (!alive[i])
       continue;
+    /* Covering members (pos=extent) bypass the merge: they belong to a
+     * complete, single-source map whose value lives in the gaps between
+     * extents (see struct covering). Collapsing them by (type, region, name)
+     * would mix two sources' maps or melt adjacent extents of one map,
+     * destroying the gaps the map rules depend on. They are routed to the
+     * engine's coverings[] at evidence build; here they pass through untouched
+     * as neither anchor nor candidate. */
+    if (results[i].pos == POS_EXTENT)
+      continue;
     int merged_any = 0;
     struct result acc = results[i];
     int sample_owner_w =
@@ -1891,6 +1909,8 @@ void merge_results(void) {
       if (!alive[j])
         continue;
       const struct result *b = &results[j];
+      if (b->pos == POS_EXTENT)
+        continue; /* covering members never merge — see the anchor guard */
       if (b->type != acc.type || b->region != acc.region)
         continue;
       if (strncmp(b->name, acc.name, NAME_LEN) != 0)
@@ -2304,6 +2324,26 @@ static void bridge_normalize_arch(struct observation *o,
 static void engine_build_evidence(struct evidence_set *ev) {
   for (int i = 0; i < num_results; i++) {
     const struct result *r = &results[i];
+
+    /* Covering members (pos=extent) are routed to the engine's coverings[],
+     * not obs[]: they are complete single-source maps that bypass the
+     * cross-source merge (see struct covering and merge_results). They keep
+     * their own origin (provenance_count is 1 — the merge never touched them),
+     * which is exactly what the map rules group on. */
+    if (r->pos == POS_EXTENT) {
+      struct covering cv;
+      memset(&cv, 0, sizeof(cv));
+      cv.type = r->type;
+      cv.region = r->region;
+      cv.lo = r->lo;
+      cv.hi = r->hi;
+      cv.conf = r->conf;
+      if (r->provenance_count > 0)
+        snprintf(cv.origin, ORIGIN_LEN, "%s", r->origins[0]);
+      evidence_add_covering(ev, &cv);
+      continue;
+    }
+
     struct observation o;
     memset(&o, 0, sizeof(o));
     o.value_kind = OBS_ADDRESS;

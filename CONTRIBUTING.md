@@ -138,9 +138,14 @@ helper — "exact" was a precision conflation; precision lives in trust
 | `kasld_result_sample(type, region, addr, name, conf)` | A representative interior point — no extent claim |
 
 A `range` variant, `kasld_result_extent(type, region, lo, hi, name, conf)`,
-emits the same `lo`+`hi` but as `pos=unknown` — for an extent whose `lo` is NOT a
-DRAM floor (e.g. a per-run RAM extent for gap carving that may start above the
-true floor), so the floor rules don't treat its `lo` as a base.
+emits the same `lo`+`hi` but as `pos=extent` — one member of a **complete,
+single-source covering** of the region (a whole RAM map: every E820 / device-tree
+`/memory` / online hotplug extent). The value lives in the *gaps* between
+extents, so it makes no positional claim: floor rules ignore it (they require
+`pos=base`), and the orchestrator routes it out of the cross-source merge into
+the engine's `coverings[]` so the map stays faithful and per-source. Only emit it
+from a source that reads the **whole** map — a partial map would synthesise false
+gaps, which `tests/check-extent-callers` guards against.
 
 All helpers return `1` on emit, `0` on rejection (with a stderr
 warning). Rejection happens for: `CONF_UNKNOWN`, invalid type, invalid

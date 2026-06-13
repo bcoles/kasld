@@ -6,7 +6,10 @@
 // A component that reads the COMPLETE physical RAM map — not a partial leak —
 // yields the full set of RAM extents; the gaps between them are places the
 // kernel image cannot be, because the boot placement code loads the image only
-// into RAM and fits it wholly within one region. Three such whole-map sources:
+// into RAM and fits it wholly within one region. Such whole-map sources emit
+// their extents as coverings (pos=extent → ev->coverings[]); the wire marker IS
+// the contract, so this rule trusts every covering as a complete map and needs
+// no per-component allowlist. The known emitters today:
 //   - x86 /sys/firmware/memmap (origin "firmware_memmap"): the E820 map.
 //     arch/x86/boot/compressed/kaslr.c skips entries != E820_TYPE_RAM and bails
 //     a region when `region.size < image_size`.
@@ -34,11 +37,12 @@
 //     disagree (a runtime-offlined block is RAM in the boot E820 but a hole in
 //     a hotplug view); unioning would lose one map's holes or, worse,
 //     synthesise a false gap. Each map is independently complete for its own
-//     substrate.
-//   * Requires the COMPLETE map (the listed origins are whole-map readers,
-//   never
-//     partial leaks). If a map holds more extents than the buffer, BAIL — a
-//     dropped middle extent would synthesise a false gap.
+//     substrate. Coverings carry their single emitting origin (they bypass the
+//     cross-source merge), so grouping by origin is the per-map split.
+//   * Requires the COMPLETE map. Coverings are emitted only by whole-map
+//     readers (enforced by the pos=extent contract + the check-extent-callers
+//     guard), never partial leaks. If a map holds more extents than the buffer,
+//     BAIL — a dropped middle extent would synthesise a false gap.
 //   * kernel_size is SF_IMAGE_SIZE, a deliberate UNDER-estimate, so the
 //   low-edge
 //     widening can only under-exclude, never drop a valid base.
@@ -60,17 +64,7 @@ struct rmpe_extent {
   uint32_t id;
 };
 
-/* Authoritative COMPLETE RAM maps — whole-map readers, so the gaps between
- * their extents are genuinely non-RAM. (A partial leak — a single /proc/iomem
- * region, say — is deliberately NOT listed: a "gap" between two partial extents
- * could be unobserved RAM, and excluding it would drop the truth.) */
-static const char *const rmpe_origins[] = {
-    "firmware_memmap",         /* x86 /sys/firmware/memmap (E820)        */
-    "sysfs_devicetree_memory", /* arm64/riscv DT /memory -> memblock RAM */
-    "sysfs_memory_blocks",     /* /sys hotplug blocks: online = present  */
-};
-
-/* Carve the non-RAM gaps of ONE map (the extents tagged `origin`) into out[].
+/* Carve the non-RAM gaps of ONE map (the coverings tagged `origin`) into out[].
  * Returns the count of C_EXCLUDE constraints emitted. */
 static int carve_map_gaps(const struct evidence_set *ev, const char *origin,
                           unsigned long ksize, uint32_t ksrc,
@@ -80,21 +74,20 @@ static int carve_map_gaps(const struct evidence_set *ev, const char *origin,
   int ne = 0;
   unsigned long map_ceiling = 0; /* highest RAM address in this map */
   enum kasld_confidence mconf = CONF_PARSED;
-  for (int i = 0; i < ev->n_obs; i++) {
-    const struct observation *o = &ev->obs[i];
-    if (!o->valid || o->value_kind != OBS_ADDRESS ||
-        o->eff_type != KASLD_TYPE_PHYS || !HAS_LO(o) || !HAS_HI(o) ||
-        o->hi < o->lo || strcmp(o->origin, origin) != 0)
+  for (int i = 0; i < ev->n_coverings; i++) {
+    const struct covering *c = &ev->coverings[i];
+    if (c->type != KASLD_TYPE_PHYS || c->hi < c->lo ||
+        strcmp(c->origin, origin) != 0)
       continue;
     if (ne >= RMPE_MAX_EXTENTS)
       return 0; /* map larger than the buffer — bail rather than fake a gap. */
-    ext[ne].lo = o->lo;
-    ext[ne].hi = o->hi;
-    ext[ne].id = o->id;
-    if (o->hi > map_ceiling)
-      map_ceiling = o->hi;
-    if (o->conf < mconf)
-      mconf = o->conf;
+    ext[ne].lo = c->lo;
+    ext[ne].hi = c->hi;
+    ext[ne].id = c->id;
+    if (c->hi > map_ceiling)
+      map_ceiling = c->hi;
+    if (c->conf < mconf)
+      mconf = c->conf;
     ne++;
   }
   if (ne < 2)
@@ -179,12 +172,26 @@ int rule_ram_map_phys_exclude(const struct evidence_set *ev,
   if (ksize == 0)
     return 0;
 
+  /* Process each map separately, identified by its single covering origin.
+   * Carve once per distinct origin: skip a covering whose origin already
+   * appeared earlier in the array (that map was carved on its first member). */
   int n = 0;
-  for (size_t m = 0; m < sizeof(rmpe_origins) / sizeof(rmpe_origins[0]); m++) {
-    if (n >= out_max)
-      break;
-    n += carve_map_gaps(ev, rmpe_origins[m], ksize, ksrc, kconf, out + n,
-                        out_max - n);
+  for (int i = 0; i < ev->n_coverings && n < out_max; i++) {
+    const struct covering *c = &ev->coverings[i];
+    if (c->type != KASLD_TYPE_PHYS)
+      continue;
+    int seen = 0;
+    for (int j = 0; j < i; j++) {
+      if (ev->coverings[j].type == KASLD_TYPE_PHYS &&
+          strcmp(ev->coverings[j].origin, c->origin) == 0) {
+        seen = 1;
+        break;
+      }
+    }
+    if (seen)
+      continue;
+    n +=
+        carve_map_gaps(ev, c->origin, ksize, ksrc, kconf, out + n, out_max - n);
   }
   return n;
 #endif

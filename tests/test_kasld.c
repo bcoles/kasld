@@ -125,23 +125,34 @@ static void test_parse_interior_sample(void) {
   assert(r->sample == vaddr);
 }
 
-static void test_parse_pos_unknown_extent(void) {
+static void test_parse_pos_extent(void) {
   reset_results();
-  /* kasld_result_extent's wire form: a positionless [lo,hi] RAM extent (used
-   * by the RAM-gap carving). Must parse to POS_UNKNOWN with both edges set —
-   * the gap-exclude reads lo+hi, and floor rules (which require pos=base) must
-   * NOT treat lo as the DRAM floor. */
+  /* kasld_result_extent's wire form: a [lo,hi] member of a complete RAM map
+   * (a covering). Must parse to POS_EXTENT with both edges set — the map rules
+   * read lo+hi, and floor rules (which require pos=base) must NOT treat lo as
+   * the DRAM floor. The orchestrator routes POS_EXTENT records to coverings[],
+   * out of the cross-source merge. */
   int ok =
-      parse_line("P ram pos=unknown conf=parsed lo=0x10000000 hi=0x1fffffff",
+      parse_line("P ram pos=extent conf=parsed lo=0x10000000 hi=0x1fffffff",
                  "parsed", "sysfs_memory_blocks");
   assert(ok == 1);
   struct result *r = &results[0];
   assert(r->type == KASLD_TYPE_PHYS);
   assert(r->region == REGION_RAM);
-  assert(r->pos == POS_UNKNOWN);
+  assert(r->pos == POS_EXTENT);
   assert(HAS_LO(r) && HAS_HI(r));
   assert(r->lo == 0x10000000ul);
   assert(r->hi == 0x1ffffffful);
+}
+
+static void test_parse_extent_requires_both_edges(void) {
+  reset_results();
+  /* A covering member is a closed extent; a half-open pos=extent is rejected.
+   */
+  assert(parse_line("P ram pos=extent conf=parsed lo=0x10000000", NULL, NULL) ==
+         0);
+  assert(parse_line("P ram pos=extent conf=parsed hi=0x1fffffff", NULL, NULL) ==
+         0);
 }
 
 static void test_parse_named_record(void) {
@@ -1635,7 +1646,8 @@ int main(void) {
   BEGIN_CATEGORY("Wire parser");
   RUN(test_parse_base_record);
   RUN(test_parse_interior_sample);
-  RUN(test_parse_pos_unknown_extent);
+  RUN(test_parse_pos_extent);
+  RUN(test_parse_extent_requires_both_edges);
   RUN(test_parse_named_record);
   RUN(test_parse_name_with_colons);
   RUN(test_parse_sz_normalizes_to_hi);

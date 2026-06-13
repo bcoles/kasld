@@ -25,6 +25,31 @@
 #ifndef MAX_VERDICTS
 #define MAX_VERDICTS 256
 #endif
+#ifndef MAX_COVERINGS
+#define MAX_COVERINGS 256
+#endif
+
+/* One extent of a COMPLETE, single-source covering of a region — an entry in a
+ * whole RAM map (an E820 region, a device-tree /memory node, a hotplug block
+ * run). A covering is a fundamentally different kind of evidence from an
+ * observation:
+ *   - NOT corroboratable / NOT merged. Two sources' maps must never be mixed:
+ *     a runtime-offlined block is RAM in the boot E820 but a hole in a hotplug
+ *     view, so unioning would melt a real gap or synthesise a false one. Each
+ *     map is independently complete for its own substrate.
+ *   - The VALUE is in the GAPS between extents, not at any single edge — which
+ *     is why covering members carry no positional claim (pos=extent).
+ * Observations flow through the cross-source merge (merge_results); coverings
+ * bypass it entirely and live here, attributed to the single emitting `origin`.
+ * Map rules (ram_map_phys_exclude, firmware_memmap_holes) read coverings[]. */
+struct covering {
+  uint32_t id;             /* lineage handle; shares the obs id space */
+  char origin[ORIGIN_LEN]; /* the single source that emitted this whole map */
+  enum kasld_addr_type type;
+  enum kasld_region region;
+  unsigned long lo, hi; /* inclusive extent */
+  enum kasld_confidence conf;
+};
 
 /* Curation verdict. Currently only invalidation; the enum is kept so a future
  * curation kind is an additive change. (A region/type *relabel* was considered
@@ -48,6 +73,8 @@ struct evidence_set {
   int n_obs;
   struct verdict verdicts[MAX_VERDICTS];
   int n_verdicts;
+  struct covering coverings[MAX_COVERINGS];
+  int n_coverings;
   uint32_t next_id; /* monotonic id source; never recycles */
 };
 
@@ -57,6 +84,13 @@ void evidence_init(struct evidence_set *ev);
 /* Append an observation (copied). Assigns and returns a fresh id; sets the
  * effective view to the source and valid=1. Returns 0 if full. */
 uint32_t evidence_add(struct evidence_set *ev, const struct observation *src);
+
+/* Append a covering extent (copied). Assigns and returns a fresh id from the
+ * same id space as observations. Coverings carry no effective view or valid
+ * bit — they are not curated, only grouped by origin and read by map rules.
+ * Returns 0 if full. */
+uint32_t evidence_add_covering(struct evidence_set *ev,
+                               const struct covering *src);
 
 /* Append a verdict (copied). Returns 1 on success, 0 if full. */
 int evidence_add_verdict(struct evidence_set *ev, const struct verdict *v);

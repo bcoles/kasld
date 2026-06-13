@@ -168,7 +168,7 @@ Components communicate results to the orchestrator via tagged lines on stdout:
 | `type` | Single char: `P` or `V` | `P` = physical, `V` = virtual |
 | `region` | Wire name from the `kasld_region` enum (snake_case) | What kind of kernel memory is at the address — closed vocabulary; see [Regions](../CONTRIBUTING.md#regions) |
 | `name` | Optional, after the first `:` | The specific instance, when known (kernel symbol, ACPI OEM ID, module name, PCI BDF). Names may legitimately contain `:` (e.g. PCI BDF `0000:00:14.0`); the split is on the first `:` only |
-| `pos` | `base` / `top` / `interior` / `unknown` | What `sample` represents within the region's extent. `base` requires `lo`, `top` requires `hi`, `interior` requires `sample`. `unknown` requires at least one of the address keys. |
+| `pos` | `base` / `top` / `interior` / `extent` / `unknown` | What the address keys represent within the region. `base` requires `lo`, `top` requires `hi`, `interior` requires `sample`, `extent` requires both `lo` and `hi`. `unknown` requires at least one of the address keys. |
 | `conf` | `parsed` / `derived` / `inferred` / `heuristic` / `timing` / `brute` | How reliable the source is. Strict trust ordering — see [Confidence](../CONTRIBUTING.md#confidence). |
 | `lo` / `hi` | `0x`-prefixed hex | Inclusive extent bounds. Either may be absent. |
 | `sz` | `0x`-prefixed hex | Mutually exclusive with `hi`. Parser normalises to `hi = lo + sz - 1`. Rejected on overflow or `sz == 0`. |
@@ -176,13 +176,17 @@ Components communicate results to the orchestrator via tagged lines on stdout:
 | `base_align` | `0x`-prefixed hex, power of two | Declared alignment of the extent base. Optional. |
 
 A bounded extent is emitted as `pos=base` carrying both `lo` and `hi`; there is
-no literal `pos=range` token on the wire. Example emissions:
+no literal `pos=range` token on the wire. `pos=extent` is reserved for one member
+of a *complete, single-source covering* of a region — a whole RAM map — whose
+value lives in the gaps between extents (see [Coverings](#coverings-vs-observations)
+below). Example emissions:
 
 ```
 P initrd pos=base conf=parsed lo=0x33000000 hi=0x333fffff
 V kernel_image:commit_creds pos=interior conf=parsed sample=0xffffffff81234000
 P ram pos=top conf=parsed hi=0x100000000
 V vmalloc pos=interior conf=heuristic sample=0xffffc90000123456
+P ram pos=extent conf=parsed lo=0x100000 hi=0x7fedffff
 ```
 
 The orchestrator ignores any line that does not begin with `P` or `V` followed
@@ -191,6 +195,35 @@ zero, one, or multiple tagged lines, and it never writes the format by hand — 
 calls one of the five emitter helpers (see
 [Emitter API](../CONTRIBUTING.md#emitter-api)), which produce the correct shape
 and reject malformed inputs at the source.
+
+---
+
+## Coverings vs observations
+
+Most tagged lines are **observations**: independent witnesses of a point or a
+bound (`pos=base`/`top`/`interior`/`unknown`). Two observations of the same
+`(type, region, name)` *corroborate* — the orchestrator's merge pass collapses
+them into one record, intersecting bounds and unioning provenance.
+
+A `pos=extent` line is different in kind. It is one member of a **complete,
+single-source covering** of a region — a whole RAM map, where every E820 /
+device-tree `/memory` / online hotplug extent is emitted and the kernel-relevant
+value is in the **gaps between** extents (a gap is known non-RAM, so the image
+cannot start there). A covering is therefore:
+
+- **Not corroboratable, never merged.** Two sources' maps must not be mixed: a
+  runtime-offlined block is RAM in the boot E820 but a hole in a hotplug view, so
+  unioning would melt a real gap or synthesise a false one. Each map is
+  independently complete for its own substrate.
+- **Routed out-of-band.** The orchestrator sends `pos=extent` records to a
+  dedicated `coverings[]` store on the evidence set, **bypassing the merge**, and
+  tags each with its single emitting `origin`. The map rules
+  (`ram_map_phys_exclude`, `firmware_memmap_holes`) read `coverings[]` grouped by
+  origin; no other rule sees them.
+
+The wire marker `pos=extent` is the whole contract — there is no per-component
+allowlist. Because a *partial* map would carve false gaps, only whole-map sources
+may emit it, enforced by `tests/check-extent-callers`.
 
 ---
 

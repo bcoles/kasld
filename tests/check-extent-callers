@@ -1,0 +1,89 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-extent-callers — guard the completeness contract of covering sources.
+#
+# kasld_result_extent() emits a pos=extent record: one member of a COMPLETE,
+# single-source RAM map (a covering). The map rules ram_map_phys_exclude and
+# firmware_memmap_holes treat the GAPS between a source's extents as known
+# non-RAM. That is only sound if the source emits its WHOLE map — a partial map
+# would synthesise a false gap and wrongly exclude real RAM (or drop a true
+# kernel-base candidate).
+#
+# So every component that calls kasld_result_extent must be reviewed to confirm
+# it reads a complete authoritative map, never a partial leak. This check fails
+# if a component calls kasld_result_extent without being on the reviewed ALLOW
+# list below, or if an allowlisted component no longer calls it (keeps the list
+# honest). It does NOT prove completeness — only that no new covering source
+# slips in unreviewed.
+#
+# Usage: tests/check-extent-callers   (also run by `make test`)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+COMPONENTS=$ROOT/src/components
+
+# Reviewed covering sources. Each reads a COMPLETE authoritative RAM map:
+#   firmware_memmap        x86 /sys/firmware/memmap (the full E820 map)
+#   sysfs_devicetree_memory  arm64/riscv DT /memory nodes (all memblock RAM)
+#   sysfs_memory_blocks    /sys hotplug blocks (every online block)
+# Keep alphabetical.
+ALLOW="firmware_memmap
+sysfs_devicetree_memory
+sysfs_memory_blocks"
+
+if [ -t 2 ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; RESET=
+fi
+
+contains() { # $1=needle $2=list
+  for _x in $2; do [ "$_x" = "$1" ] && return 0; done
+  return 1
+}
+
+# Components that call kasld_result_extent (ignore comment lines).
+detected=
+for f in "$COMPONENTS"/*.c; do
+  if grep -E '^[^/]*kasld_result_extent[[:space:]]*\(' "$f" >/dev/null 2>&1; then
+    detected="$detected $(basename "$f" .c)"
+  fi
+done
+
+fail=0
+
+for d in $detected; do
+  if ! contains "$d" "$ALLOW"; then
+    if [ "$fail" = 0 ]; then
+      printf '%sextent-caller guard: new unreviewed covering source(s):%s\n' "$RED" "$RESET" >&2
+    fi
+    printf '  %s\n' "$d" >&2
+    fail=1
+  fi
+done
+if [ "$fail" = 1 ]; then
+  printf 'kasld_result_extent emits a member of a COMPLETE single-source map; the\n' >&2
+  printf 'map rules treat the gaps between extents as non-RAM. Confirm the component\n' >&2
+  printf 'reads the WHOLE map (not a partial leak), then add it to ALLOW in\n' >&2
+  printf 'tests/check-extent-callers — or emit atomic bounds instead.\n' >&2
+fi
+
+stalehdr=0
+for a in $ALLOW; do
+  if ! contains "$a" "$detected"; then
+    if [ "$stalehdr" = 0 ]; then
+      printf '%sextent-caller guard: allowlisted source(s) no longer call kasld_result_extent (remove from ALLOW):%s\n' "$RED" "$RESET" >&2
+      stalehdr=1
+    fi
+    printf '  %s\n' "$a" >&2
+    fail=1
+  fi
+done
+
+[ "$fail" = 0 ] || exit 1
+
+set -- $ALLOW
+printf '%sextent-caller guard: OK%s (%s reviewed covering sources, none new)\n' "$GREEN" "$RESET" "$#"

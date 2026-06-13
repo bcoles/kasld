@@ -558,6 +558,12 @@ enum kasld_position {
   POS_BASE,
   POS_TOP,
   POS_INTERIOR,
+  /* Member of a COMPLETE, single-source covering of the region (a map) — e.g.
+   * one E820 / device-tree / hotplug-block RAM extent. Makes no positional
+   * claim; its value is in the SET (the gaps between extents). The orchestrator
+   * routes these out-of-band of the cross-source merge into the engine's
+   * coverings[] so the map stays faithful and attributable. */
+  POS_EXTENT,
 };
 
 /* Confidence: how reliable is the source of this claim?
@@ -695,6 +701,8 @@ static inline const char *kasld_pos_wire(enum kasld_position p) {
     return "top";
   case POS_INTERIOR:
     return "interior";
+  case POS_EXTENT:
+    return "extent";
   default:
     return "unknown";
   }
@@ -927,13 +935,17 @@ static inline int kasld_result_range(enum kasld_addr_type t,
   return 1;
 }
 
-/* A known [lo, hi] extent that makes NO positional claim — neither `lo` as a
- * base/floor nor `hi` as a top. For maps whose interior extents matter (RAM-gap
- * carving) but whose low edge is NOT the authoritative DRAM floor — e.g. the
- * lowest ONLINE hotplug block can sit above reserved low RAM, so emitting it as
- * pos=base would wrongly pin the floor. Consumed by the gap-exclude (which
- * reads lo+hi regardless of pos); ignored by floor rules (they require
- * pos=base). */
+/* One [lo, hi] member of a COMPLETE, single-source covering of the region — a
+ * map. CONTRACT: the caller emits its WHOLE map (every extent); the gaps
+ * between extents are then known-empty, which is what gap-carving rules rely
+ * on. Emit pos=extent, never base/top: it makes no positional claim (the lowest
+ * online hotplug block can sit above reserved low RAM, so pos=base would
+ * wrongly pin the floor), and its value is in the SET, not any one edge.
+ *
+ * These records are NOT merged with other sources' evidence: the orchestrator
+ * routes them out-of-band into the engine's coverings[], keeping each source's
+ * map faithful and attributable (a partial map would make gap-carving unsound,
+ * which is why a make-test guard reviews every new caller of this helper). */
 static inline int kasld_result_extent(enum kasld_addr_type t,
                                       enum kasld_region r, unsigned long lo,
                                       unsigned long hi, const char *name,
@@ -947,8 +959,7 @@ static inline int kasld_result_extent(enum kasld_addr_type t,
     return 0;
   }
   kasld__emit_prefix(t, r, name);
-  printf(" pos=unknown conf=%s lo=0x%lx hi=0x%lx\n", kasld_conf_wire(c), lo,
-         hi);
+  printf(" pos=extent conf=%s lo=0x%lx hi=0x%lx\n", kasld_conf_wire(c), lo, hi);
   return 1;
 }
 

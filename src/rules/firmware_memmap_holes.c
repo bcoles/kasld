@@ -10,8 +10,8 @@
 //   for each PHYS kernel-base candidate W:
 //     drop W if no System RAM interval contains [W, W + MIN_IMAGE_SIZE)
 //
-// Consumes the firmware-memmap RAM extents the bridge emits (origin
-// "firmware_memmap" — only the complete authoritative map, never a partial RAM
+// Consumes the firmware-memmap RAM map from ev->coverings[] (origin
+// "firmware_memmap" — a complete single-source covering, never a partial RAM
 // leak). V_INVALID. Inert without the map or without PHYS candidate leaks.
 // x86 only.
 // ---
@@ -27,12 +27,10 @@
 int rule_firmware_memmap_holes(const struct evidence_set *ev,
                                struct verdict *out, int out_max) {
 #if defined(__x86_64__) || defined(__i386__)
-  /* Gather the authoritative System RAM extents (bridge-tagged). */
+  /* The authoritative System RAM map is a covering tagged "firmware_memmap". */
   int have_map = 0;
-  for (int i = 0; i < ev->n_obs; i++) {
-    const struct observation *o = &ev->obs[i];
-    if (o->valid && o->value_kind == OBS_ADDRESS && HAS_LO(o) && HAS_HI(o) &&
-        strcmp(o->origin, "firmware_memmap") == 0) {
+  for (int i = 0; i < ev->n_coverings; i++) {
+    if (strcmp(ev->coverings[i].origin, "firmware_memmap") == 0) {
       have_map = 1;
       break;
     }
@@ -58,10 +56,9 @@ int rule_firmware_memmap_holes(const struct evidence_set *ev,
 
     /* Does some System RAM extent contain [a, a + MIN_IMAGE_SIZE)? */
     int fits = 0;
-    for (int j = 0; j < ev->n_obs; j++) {
-      const struct observation *m = &ev->obs[j];
-      if (!m->valid || m->value_kind != OBS_ADDRESS || !HAS_LO(m) ||
-          !HAS_HI(m) || strcmp(m->origin, "firmware_memmap") != 0)
+    for (int j = 0; j < ev->n_coverings; j++) {
+      const struct covering *m = &ev->coverings[j];
+      if (strcmp(m->origin, "firmware_memmap") != 0)
         continue;
       unsigned long last = (a > m->hi - (FMH_MIN_IMAGE_SIZE - 1))
                                ? a /* avoid overflow; straddle check below */

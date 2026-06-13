@@ -331,6 +331,7 @@ $(TEST_BTF_BIN): $(TEST_DIR)/test_btf.c $(SRC_DIR)/components/btf_struct_page_si
 test : $(TEST_BIN) $(TEST_RENDER_BIN) $(TEST_EST_BIN) $(TEST_EV_BIN) $(TEST_ALIGN_BIN) $(TEST_TEXT_ORDER_BIN) $(TEST_ENG_BIN) $(TEST_INT_BIN) $(TEST_DMESG_BIN) $(TEST_BTF_BIN)
 	@$(TEST_DIR)/run-all
 	@$(TEST_DIR)/check-self-edges
+	@$(TEST_DIR)/check-extent-callers
 	@$(TEST_DIR)/check-truncation
 	@$(TEST_DIR)/check-component-output
 	@$(TEST_DIR)/check-component-meta

@@ -12,6 +12,7 @@
 void evidence_init(struct evidence_set *ev) {
   ev->n_obs = 0;
   ev->n_verdicts = 0;
+  ev->n_coverings = 0;
   ev->next_id = 1; /* 0 is reserved as "no observation" */
 }
 
@@ -28,6 +29,16 @@ uint32_t evidence_add(struct evidence_set *ev, const struct observation *src) {
   o->eff_region = o->region;
   o->valid = 1;
   return o->id;
+}
+
+uint32_t evidence_add_covering(struct evidence_set *ev,
+                               const struct covering *src) {
+  if (ev->n_coverings >= MAX_COVERINGS)
+    return 0;
+  struct covering *c = &ev->coverings[ev->n_coverings++];
+  *c = *src;
+  c->id = ev->next_id++;
+  return c->id;
 }
 
 int evidence_add_verdict(struct evidence_set *ev, const struct verdict *v) {
