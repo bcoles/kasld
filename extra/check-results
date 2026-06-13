@@ -89,7 +89,7 @@ hex_in_range() { hex_ge "$1" "$2" && hex_le "$1" "$3"; }
 # covered_by_merged RLO RHI  (merged disjoint runs "lo hi\n..." on stdin)
 # → return 0 (true) if some single run contains [RLO, RHI]. Inputs are decimal
 # integers; addresses fit in awk's exact-integer range (< 2^53). Because the
-# runs are merged-maximal and disjoint, [RLO,RHI] lies in the union iff one run
+# runs are merged-maximal and disjoint, [RLO,RHI] lies in the union if one run
 # contains it — a span crossing two runs has a real gap between them.
 covered_by_merged() {
   awk -v rlo="$1" -v rhi="$2" '$1 <= rlo && $2 >= rhi { f = 1 } END { exit !f }'
@@ -100,6 +100,19 @@ covered_by_merged() {
 get_field() {
   printf '%s' "$1" | tr ' ' '\n' | \
     awk -F= -v k="$2" '$1 == k { print $2; exit }'
+}
+
+# Echo $1 if it is an integer literal — hex (optional 0x prefix) or decimal —
+# else echo nothing. SECURITY: this tool can run as root over untrusted input
+# (`sudo check-results results.txt`, `<component> | sudo check-results -`), and
+# bash arithmetic `$(( x ))` evaluates embedded command substitutions / array
+# subscripts. A value like `a[$(cmd)]` from a `lo=`/`hi=`/`value=` field would
+# run `cmd` as root. So EVERY value that reaches `$(( ))` must pass through
+# numeric() first; anything with a non-[0-9a-fx] character is rejected to empty
+# (treated as an absent field by the callers' existing `[ -n ]` checks).
+numeric() {
+  printf '%s' "$1" | grep -qiE '^(0x)?[0-9a-f]+$' && printf '%s' "$1"
+  return 0 # never fail the substitution (a rejected value is just empty output)
 }
 
 # Validate a rendered "Inferred ... text range" window against ground truth: the
@@ -251,7 +264,7 @@ fi
 # it is block-rounded (sound), anything beyond is a genuine out-of-RAM leak.
 block_ram_ceiling=""
 if [ -n "$truth_ram_hi" ]; then
-  _bs=$(tr -d ' \n' < /sys/devices/system/memory/block_size_bytes 2>/dev/null || true)
+  _bs=$(numeric "$(tr -d ' \n' < /sys/devices/system/memory/block_size_bytes 2>/dev/null || true)")
   if [ -n "$_bs" ] && [ "0x$_bs" != "0x0" ]; then
     _bc=$(( ( (0x$truth_ram_hi / 0x$_bs) + 1 ) * 0x$_bs - 1 ))
     block_ram_ceiling=$(hex16 "$(printf '%x' "$_bc")")
@@ -333,16 +346,12 @@ printf '%s\n' "$tagged_lines" | while IFS= read -r line; do
   # A kernel image cannot exceed the RAM it lives in, so /proc/iomem's RAM
   # ceiling is a reliable plausibility bound for image_size.
   if [ "$type" = "S" ]; then
-    value=$(get_field "$line" value)
+    # numeric() both validates (a non-numeric value would make $(( value ))
+    # error under set -e — or inject, as this can run as root) and gates the
+    # arithmetic below; a malformed or absent value collapses to empty here.
+    value=$(numeric "$(get_field "$line" value)")
     if [ -z "$value" ]; then
-      skip "S $region_name — no value field"
-      continue
-    fi
-    # Guard the arithmetic below: a malformed value (e.g. "0xZZ") would make
-    # $(( value )) error and, under `set -e`, abort the whole validation. The
-    # wire is hex per api.h; reject anything else rather than die mid-run.
-    if ! printf '%s' "$value" | grep -qiE '^0x[0-9a-f]+$|^[0-9]+$'; then
-      skip "S $region_name=$value — malformed value (not hex)"
+      skip "S $region_name — no/invalid value field"
       continue
     fi
     case "$region_name" in
@@ -460,10 +469,12 @@ printf '%s\n' "$tagged_lines" | while IFS= read -r line; do
   esac
 
   pos=$(get_field "$line" pos)
-  lo=$(get_field "$line" lo)
-  hi=$(get_field "$line" hi)
-  sz=$(get_field "$line" sz)
-  sample=$(get_field "$line" sample)
+  # numeric() on every extracted field: these feed $(( )) (the sz→hi path) and
+  # hex16; a non-numeric field collapses to empty (treated as absent below).
+  lo=$(numeric "$(get_field "$line" lo)")
+  hi=$(numeric "$(get_field "$line" hi)")
+  sz=$(numeric "$(get_field "$line" sz)")
+  sample=$(numeric "$(get_field "$line" sample)")
 
   # Derive hi from sz if hi absent (parser does this too, but the wire form
   # may carry either spelling). sz arithmetic kept simple: we mostly care
@@ -713,8 +724,10 @@ elif [ -z "$truth_ram_lo" ]; then
 else
   # Covering extents as decimal "lo hi", sorted by lo.
   cov_intervals=$(printf '%s\n' "$coverings" | while IFS= read -r cl; do
-    clo=$(get_field "$cl" lo); chi=$(get_field "$cl" hi); csz=$(get_field "$cl" sz)
-    # get_field yields the 0x-prefixed value, so use it directly in $(( )).
+    clo=$(numeric "$(get_field "$cl" lo)")
+    chi=$(numeric "$(get_field "$cl" hi)")
+    csz=$(numeric "$(get_field "$cl" sz)")
+    # numeric()-validated and 0x-prefixed, so safe to use directly in $(( )).
     [ -n "$clo" ] || continue
     if [ -z "$chi" ] && [ -n "$csz" ]; then chi=$(printf '0x%x' $(( clo + csz - 1 ))); fi
     [ -n "$chi" ] || continue
@@ -730,8 +743,8 @@ else
   printf '%s\n' "$iomem_ram" | while IFS= read -r row; do
     [ -n "$row" ] || continue
     range=$(printf '%s' "$row" | sed 's/^ *//' | awk '{ print $1 }')
-    rlo_h=$(printf '%s' "$range" | cut -d- -f1)
-    rhi_h=$(printf '%s' "$range" | cut -d- -f2)
+    rlo_h=$(numeric "$(printf '%s' "$range" | cut -d- -f1)")
+    rhi_h=$(numeric "$(printf '%s' "$range" | cut -d- -f2)")
     if [ -z "$rlo_h" ] || [ -z "$rhi_h" ]; then continue; fi
     if printf '%s\n' "$merged" | covered_by_merged "$(( 0x$rlo_h ))" "$(( 0x$rhi_h ))"; then
       pass "RAM coverage — System RAM [0x$rlo_h-0x$rhi_h] within covering map"
