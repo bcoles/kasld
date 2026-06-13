@@ -2424,6 +2424,47 @@ static void engine_report_corroboration(const struct engine *e) {
   }
 }
 
+/* Per-constraint dump: every constraint on each quantity, with its op,
+ * operand(s), emitting rule, and whether the resolver rejected it. Shows WHAT
+ * each source bounds, not just that it does — the way to see which rule pins a
+ * quantity's lo/hi. Opt-in via KASLD_DEBUG_CONSTRAINTS so normal --verbose
+ * stays uncluttered. Diagnostic only (stderr). */
+static void engine_report_constraints(const struct engine *e) {
+  if (!getenv("KASLD_DEBUG_CONSTRAINTS"))
+    return;
+  for (int q = 0; q < Q__COUNT; q++) {
+    int header = 0;
+    for (int i = 0; i < e->n_constraints; i++) {
+      const struct constraint *cc = &e->constraints[i];
+      if ((int)cc->q != q)
+        continue;
+      int rejected = 0;
+      for (int c = 0; c < e->n_conflicts[q]; c++)
+        if (e->conflicts[q][c] == cc->id) {
+          rejected = 1;
+          break;
+        }
+      if (!header) {
+        fprintf(stderr, "[engine] %s constraints:\n", quantities[q].name);
+        header = 1;
+      }
+      const char *o = cc->origin[0] ? cc->origin : "rule";
+      const char *tag = rejected ? " [rejected]" : "";
+      /* Two-operand ops carry a range / modulus; the rest are a single value
+       * against the op symbol from constraint_op_name(). */
+      if (cc->op == C_EXCLUDE)
+        fprintf(stderr, "[engine]   exclude [0x%016lx, 0x%016lx]  (%s)%s\n",
+                cc->value, cc->value2, o, tag);
+      else if (cc->op == C_STRIDE)
+        fprintf(stderr, "[engine]   stride %lu mod %lu  (%s)%s\n", cc->value,
+                cc->value2, o, tag);
+      else
+        fprintf(stderr, "[engine]   %s 0x%016lx  (%s)%s\n",
+                constraint_op_name(cc->op), cc->value, o, tag);
+    }
+  }
+}
+
 /* Report any resolver saturation flags. None of the caps bind on realistic
  * deduped workloads; surfacing a hit makes the dropped-info case observable
  * rather than silent if scale ever grows. Diagnostic only (stderr, --verbose).
@@ -2488,6 +2529,7 @@ static void engine_resolve(struct engine *e) {
     engine_report_saturation(e);
     orchestrator_report_saturation();
   }
+  engine_report_constraints(e); /* opt-in via KASLD_DEBUG_CONSTRAINTS */
 }
 #endif /* !KASLD_TESTING (engine_resolve/build need the components+engine.c)   \
         */
