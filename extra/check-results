@@ -86,6 +86,15 @@ hex_ge() { awk -v a="$1" -v b="$2" 'BEGIN { exit !(a >= b) }'; }
 # hex_in_range ADDR LO HI → return 0 (true) if LO <= ADDR <= HI
 hex_in_range() { hex_ge "$1" "$2" && hex_le "$1" "$3"; }
 
+# covered_by_merged RLO RHI  (merged disjoint runs "lo hi\n..." on stdin)
+# → return 0 (true) if some single run contains [RLO, RHI]. Inputs are decimal
+# integers; addresses fit in awk's exact-integer range (< 2^53). Because the
+# runs are merged-maximal and disjoint, [RLO,RHI] lies in the union iff one run
+# contains it — a span crossing two runs has a real gap between them.
+covered_by_merged() {
+  awk -v rlo="$1" -v rhi="$2" '$1 <= rlo && $2 >= rhi { f = 1 } END { exit !f }'
+}
+
 # Extract the value of a `key=value` token from a tagged line.
 # Usage: get_field LINE KEY → echoes VALUE (without 0x), empty if absent.
 get_field() {
@@ -235,6 +244,40 @@ if [ -n "$iomem_ram" ]; then
   truth_ram_hi=$(hex16 "$(printf '%s' "$last_ram" | sed 's/^ *//' | cut -d'-' -f2 | cut -d' ' -f1 | tr -d ' ')")
 fi
 
+# Hotplug memory-block size. sysfs_memory_blocks reports RAM at this
+# granularity, so its highest online block legitimately rounds the RAM top up to
+# the next block boundary — which sits above the fine-grained /proc/iomem top.
+# block_ram_ceiling is that boundary; a P ram address between truth_ram_hi and
+# it is block-rounded (sound), anything beyond is a genuine out-of-RAM leak.
+block_ram_ceiling=""
+if [ -n "$truth_ram_hi" ]; then
+  _bs=$(tr -d ' \n' < /sys/devices/system/memory/block_size_bytes 2>/dev/null || true)
+  if [ -n "$_bs" ] && [ "0x$_bs" != "0x0" ]; then
+    _bc=$(( ( (0x$truth_ram_hi / 0x$_bs) + 1 ) * 0x$_bs - 1 ))
+    block_ram_ceiling=$(hex16 "$(printf '%x' "$_bc")")
+  fi
+fi
+
+# -------------------------------------------------------------------------
+# Scalar-fact ground truth (for the S <fact> validators below). Each source is
+# root-cheap and arch-portable: absent fields leave the truth empty, and the
+# validator SKIPs rather than fails. These facts now drive the inference
+# (phys_addr_bits -> phys_bits_ceiling, phys_memtotal -> ceiling, virt_addr_bits
+# / page_size -> paging level), so a wrong leak silently mis-bounds the window.
+# -------------------------------------------------------------------------
+# CPU address sizes (x86: "address sizes : N bits physical, M bits virtual").
+gt_phys_bits=""
+gt_virt_bits=""
+_as=$(grep -m1 'address sizes' /proc/cpuinfo 2>/dev/null || true)
+if [ -n "$_as" ]; then
+  gt_phys_bits=$(printf '%s' "$_as" | sed -n 's/.*: *\([0-9]\{1,\}\) bits physical.*/\1/p')
+  gt_virt_bits=$(printf '%s' "$_as" | sed -n 's/.*physical, *\([0-9]\{1,\}\) bits virtual.*/\1/p')
+fi
+# Page size (universal).
+gt_page_size=$(getconf PAGESIZE 2>/dev/null || getconf PAGE_SIZE 2>/dev/null || true)
+# EFI presence.
+if [ -d /sys/firmware/efi ]; then gt_efi=1; else gt_efi=0; fi
+
 # -------------------------------------------------------------------------
 # Print ground truth
 # -------------------------------------------------------------------------
@@ -291,16 +334,113 @@ printf '%s\n' "$tagged_lines" | while IFS= read -r line; do
   # ceiling is a reliable plausibility bound for image_size.
   if [ "$type" = "S" ]; then
     value=$(get_field "$line" value)
+    if [ -z "$value" ]; then
+      skip "S $region_name — no value field"
+      continue
+    fi
+    # Guard the arithmetic below: a malformed value (e.g. "0xZZ") would make
+    # $(( value )) error and, under `set -e`, abort the whole validation. The
+    # wire is hex per api.h; reject anything else rather than die mid-run.
+    if ! printf '%s' "$value" | grep -qiE '^0x[0-9a-f]+$|^[0-9]+$'; then
+      skip "S $region_name=$value — malformed value (not hex)"
+      continue
+    fi
     case "$region_name" in
-      image_size)
-        if [ -z "$value" ] || [ "$value" = "0x0" ] || [ "$value" = "0" ]; then
-          skip "S image_size — zero/absent"
+      image_size|init_size)
+        # A kernel image (or its init region) cannot exceed the RAM it lives in.
+        if [ "$value" = "0x0" ] || [ "$value" = "0" ]; then
+          skip "S $region_name — zero"
         elif [ -z "$truth_ram_hi" ]; then
-          skip "S image_size=$value — no /proc/iomem System RAM ground truth"
+          skip "S $region_name=$value — no /proc/iomem System RAM ground truth"
         elif hex_le "$(hex16 "$value")" "$truth_ram_hi"; then
-          pass "S image_size=$value — within RAM (top 0x$truth_ram_hi)"
+          pass "S $region_name=$value — within RAM (top 0x$truth_ram_hi)"
         else
-          fail "S image_size=$value — exceeds all RAM (top 0x$truth_ram_hi); bogus"
+          fail "S $region_name=$value — exceeds all RAM (top 0x$truth_ram_hi); bogus"
+        fi
+        ;;
+      phys_addr_bits)
+        if [ -z "$gt_phys_bits" ]; then
+          skip "S phys_addr_bits=$value — no cpuinfo 'address sizes' ground truth"
+        elif [ "$(( value ))" = "$gt_phys_bits" ]; then
+          pass "S phys_addr_bits=$value — matches cpuinfo ($gt_phys_bits bits physical)"
+        else
+          fail "S phys_addr_bits=$value ($(( value ))) — cpuinfo says $gt_phys_bits bits physical"
+        fi
+        ;;
+      virt_addr_bits)
+        if [ -z "$gt_virt_bits" ]; then
+          skip "S virt_addr_bits=$value — no cpuinfo 'address sizes' ground truth"
+        elif [ "$(( value ))" = "$gt_virt_bits" ]; then
+          pass "S virt_addr_bits=$value — matches cpuinfo ($gt_virt_bits bits virtual)"
+        else
+          fail "S virt_addr_bits=$value ($(( value ))) — cpuinfo says $gt_virt_bits bits virtual"
+        fi
+        ;;
+      page_size)
+        if [ -z "$gt_page_size" ]; then
+          skip "S page_size=$value — getconf unavailable"
+        elif [ "$(( value ))" = "$gt_page_size" ]; then
+          pass "S page_size=$value — matches getconf PAGESIZE ($gt_page_size)"
+        else
+          fail "S page_size=$value ($(( value ))) — getconf PAGESIZE is $gt_page_size"
+        fi
+        ;;
+      efi_present)
+        if [ "$(( value ))" = "$gt_efi" ]; then
+          pass "S efi_present=$value — matches /sys/firmware/efi presence ($gt_efi)"
+        else
+          fail "S efi_present=$value — /sys/firmware/efi presence is $gt_efi"
+        fi
+        ;;
+      phys_max_pfn)
+        if [ -z "$truth_ram_hi" ]; then
+          skip "S phys_max_pfn=$value — no /proc/iomem System RAM"
+        else
+          _pfn_ram=$(( (0x$truth_ram_hi + 1) >> 12 ))
+          if [ "$(( value ))" = "$_pfn_ram" ]; then
+            pass "S phys_max_pfn=$value — matches RAM-top PFN"
+          elif [ "$(( value ))" -ge "$_pfn_ram" ]; then
+            pass "S phys_max_pfn=$value — at/above RAM-top PFN (reserved above RAM)"
+          else
+            fail "S phys_max_pfn=$value — below RAM-top PFN (0x$(printf '%x' "$_pfn_ram")); under-counts RAM"
+          fi
+        fi
+        ;;
+      phys_memtotal)
+        if [ -z "$truth_ram_lo" ]; then
+          skip "S phys_memtotal=$value — no /proc/iomem System RAM"
+        else
+          # Usable RAM cannot exceed the physical RAM span (a too-LOW value only
+          # under-bounds the ceiling, which is conservative — so bound above only).
+          _ramspan=$(( 0x$truth_ram_hi - 0x$truth_ram_lo + 1 ))
+          if [ "$(( value ))" -le "$_ramspan" ]; then
+            pass "S phys_memtotal=$value — within physical RAM span"
+          else
+            fail "S phys_memtotal=$value — exceeds physical RAM span (0x$(printf '%x' "$_ramspan"))"
+          fi
+        fi
+        ;;
+      physical_start)
+        # The real phys base sits at physical_start + KASLR offset, so the
+        # configured minimum start can never exceed the real base.
+        if [ -z "$truth_ptext_lo" ]; then
+          skip "S physical_start=$value — no /proc/iomem Kernel code base"
+        elif hex_le "$(hex16 "$value")" "$truth_ptext_lo"; then
+          pass "S physical_start=$value — at/below real phys base (0x$truth_ptext_lo)"
+        else
+          fail "S physical_start=$value — above real phys base (0x$truth_ptext_lo)"
+        fi
+        ;;
+      phys_kernel_align)
+        # The real phys base must be a multiple of the KASLR physical alignment.
+        if [ -z "$truth_ptext_lo" ]; then
+          skip "S phys_kernel_align=$value — no /proc/iomem Kernel code base"
+        elif [ "$(( value ))" -eq 0 ]; then
+          skip "S phys_kernel_align=$value — zero"
+        elif [ "$(( 0x$truth_ptext_lo % value ))" -eq 0 ]; then
+          pass "S phys_kernel_align=$value — real phys base is $value-aligned"
+        else
+          fail "S phys_kernel_align=$value — real phys base 0x$truth_ptext_lo not $value-aligned"
         fi
         ;;
       *)
@@ -487,6 +627,14 @@ printf '%s\n' "$tagged_lines" | while IFS= read -r line; do
       fi
       if hex_in_range "$addr" "$truth_ram_lo" "$truth_ram_hi"; then
         pass "$desc — within System RAM"
+      elif [ "$region" = "ram" ] && [ -n "$block_ram_ceiling" ] && \
+           hex_ge "$addr" "$truth_ram_hi" && \
+           hex_le "$addr" "$block_ram_ceiling"; then
+        # The hotplug-block map (sysfs_memory_blocks) is block-coarse: its top
+        # online block rounds the RAM top up to the next block boundary, above
+        # the fine /proc/iomem top. Sound — the extra slice carries no real RAM
+        # and is never excluded — so accept up to the block boundary.
+        pass "$desc — block-rounded RAM top (hotplug-block granularity)"
       else
         # Some regions (efi_memmap, acpi_*) may sit in reserved holes
         # outside the System RAM extents. Don't fail those — skip with a
@@ -539,6 +687,59 @@ virt_win=$(printf '%s\n' "$raw_input" | grep 'Inferred text range:' | head -1)
 phys_win=$(printf '%s\n' "$raw_input" | grep 'Inferred phys text range:' | head -1)
 validate_inferred "Inferred virt text window" "$truth_stext" "$virt_win"
 validate_inferred "Inferred phys text window" "$truth_ptext_lo" "$phys_win"
+
+# -------------------------------------------------------------------------
+# RAM-map coverage. A `pos=extent` line is one member of a COMPLETE single-source
+# RAM map (a covering); the gaps between a source's extents are what
+# ram_map_phys_exclude carves as non-RAM. So every /proc/iomem System RAM extent
+# MUST lie within the union of the coverings — a hole here means a covering map
+# is incomplete, which would carve a false non-RAM gap (the failure this whole
+# mechanism guards against).
+#
+# Coverage is one-directional (RAM ⊆ union): coverings may extend ABOVE real RAM
+# (the block-coarse hotplug map rounds up) — that only adds slack.
+#
+# The wire carries no origin, so a full `kasld -v` validates the AGGREGATE map.
+# To validate ONE source's completeness, pipe that component alone, e.g.:
+#   ./build/*/components/firmware_memmap | sudo ./extra/check-results -
+# then every pos=extent line belongs to that single origin.
+# -------------------------------------------------------------------------
+coverings=$(printf '%s\n' "$tagged_lines" | awk '$1 == "P" && $2 == "ram"' \
+  | grep 'pos=extent' || true)
+if [ -z "$coverings" ]; then
+  : # no covering sources in this input — nothing to check
+elif [ -z "$truth_ram_lo" ]; then
+  skip "RAM coverage — no /proc/iomem System RAM ground truth"
+else
+  # Covering extents as decimal "lo hi", sorted by lo.
+  cov_intervals=$(printf '%s\n' "$coverings" | while IFS= read -r cl; do
+    clo=$(get_field "$cl" lo); chi=$(get_field "$cl" hi); csz=$(get_field "$cl" sz)
+    # get_field yields the 0x-prefixed value, so use it directly in $(( )).
+    [ -n "$clo" ] || continue
+    if [ -z "$chi" ] && [ -n "$csz" ]; then chi=$(printf '0x%x' $(( clo + csz - 1 ))); fi
+    [ -n "$chi" ] || continue
+    printf '%d %d\n' "$(( clo ))" "$(( chi ))"
+  done | sort -n)
+  # Merge into disjoint maximal runs (touching/overlapping coalesced).
+  merged=$(printf '%s\n' "$cov_intervals" | awk '
+    NR == 1 { lo = $1; hi = $2; next }
+    { if ($1 <= hi + 1) { if ($2 > hi) hi = $2 }
+      else { print lo, hi; lo = $1; hi = $2 } }
+    END { if (NR > 0) print lo, hi }')
+  # Each System RAM extent must sit inside one merged covering run.
+  printf '%s\n' "$iomem_ram" | while IFS= read -r row; do
+    [ -n "$row" ] || continue
+    range=$(printf '%s' "$row" | sed 's/^ *//' | awk '{ print $1 }')
+    rlo_h=$(printf '%s' "$range" | cut -d- -f1)
+    rhi_h=$(printf '%s' "$range" | cut -d- -f2)
+    if [ -z "$rlo_h" ] || [ -z "$rhi_h" ]; then continue; fi
+    if printf '%s\n' "$merged" | covered_by_merged "$(( 0x$rlo_h ))" "$(( 0x$rhi_h ))"; then
+      pass "RAM coverage — System RAM [0x$rlo_h-0x$rhi_h] within covering map"
+    else
+      fail "RAM coverage — System RAM [0x$rlo_h-0x$rhi_h] NOT covered (covering map incomplete)"
+    fi
+  done
+fi
 
 # -------------------------------------------------------------------------
 # Summary
