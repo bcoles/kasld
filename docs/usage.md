@@ -612,6 +612,16 @@ Physical memory layout:
 
 </details>
 
+The slot and bit figures in the KASLR-analysis block are computed as
+`slots = range / alignment-step` and `bits = ceil(log2(slots))` — the count of
+alignment-aligned positions spanning the inferred range, and the rounded-up
+base-2 logarithm of that count. The bits are an **upper bound on residual
+entropy**: they assume every surviving slot is equally likely, whereas real KASLR
+placement is slightly non-uniform (see
+[bypass-techniques.md — Weak entropy](bypass-techniques.md#weak-entropy)), so the
+true entropy is marginally lower. `0 bits` (a single surviving slot) means the
+value is fully recovered.
+
 ### Oneline (`-1`)
 
 `-1` (`--oneline`) produces a single shell-pipeable line:

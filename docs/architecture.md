@@ -21,6 +21,7 @@ mechanics of adding a component or rule, see
   - [Phases](#phases)
 - [The inference engine](#the-inference-engine)
   - [Three layers](#three-layers)
+  - [Soundness, monotonicity, and termination](#soundness-monotonicity-and-termination)
   - [Estimate narrowing and the store-vs-read seam](#estimate-narrowing-and-the-store-vs-read-seam)
   - [Design invariants: seams in the data flow](#design-invariants-seams-in-the-data-flow)
 - [The tagged-line protocol](#the-tagged-line-protocol)
@@ -115,14 +116,40 @@ estimates then drive the reported summary, slot counts, and entropy. Every rule
 is listed once in `../src/engine_rules.c`, the single registry shared by the
 orchestrator and the test suite.
 
+### Soundness, monotonicity, and termination
+
+Three properties make that fixpoint well-defined and the result trustworthy:
+
+- **Monotonicity.** An estimate is the *meet* (intersection) of an append-only
+  set of constraints, so adding a constraint can only ever narrow it — never
+  widen it, and never depend on the order constraints arrive in. That is why rule
+  order is irrelevant.
+- **Termination.** A value that only shrinks, fed by a constraint set that only
+  grows, cannot oscillate; the resolver re-runs all rules until a pass changes
+  nothing, with a hard pass cap (`ENGINE_MAX_PASSES`) as a backstop. Termination
+  is *structural* — it does not depend on any rule being well-behaved.
+- **Soundness.** The single invariant is that the true value must never leave the
+  estimate. Because each rule is a pure function (no I/O, no shared state), this
+  is checkable in isolation: a rule is sound iff every constraint it emits holds
+  under *every* still-possible configuration (paging level, endianness,
+  unresolved Kconfig). An unsound rule can only over-narrow — risking exclusion
+  of the truth — it can never make the fixpoint oscillate or hang. Rule
+  soundness is exercised by the engine test suite and the replay corpus, with a
+  guard that rejects unreviewed self-referential constraints.
+
+So "soundness is provable in isolation" above means exactly this: termination and
+monotonicity are guaranteed by the engine's structure, leaving each rule with a
+single, locally-checkable obligation — *do not exclude the truth*.
+
 ### Estimate narrowing and the store-vs-read seam
 
 Each quantity starts at the widest value its architecture could produce — its
 *honest top* — and every constraint narrows it. Rules raise floors
 (`C_LOWER_BOUND`), lower ceilings (`C_UPPER_BOUND`), snap to alignment
 (`C_AT_LEAST_ALIGN`), pin a value (`C_EQUALS`), or carve out a forbidden
-sub-range (`C_EXCLUDE`). Because every step is a subset of the one before,
-soundness reduces to one property: the true value must never leave the estimate.
+sub-range (`C_EXCLUDE`). Because every step is a subset of the one before, the
+soundness obligation above falls on each constraint individually: narrow toward
+the truth, never past it.
 
 ![A quantity narrowing on an address axis as each constraint applies, then the convex-hull store versus the hole-carving read](diagrams/estimate-narrowing.svg)
 
