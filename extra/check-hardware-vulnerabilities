@@ -14,13 +14,13 @@
 # <bcoles@gmail.com>
 
 echo "[.] CPU:"
-echo "$(grep 'model name' /proc/cpuinfo | uniq)"
-echo "$(grep 'cpu cores' /proc/cpuinfo | uniq)"
+grep 'model name' /proc/cpuinfo | uniq
+grep 'cpu cores' /proc/cpuinfo | uniq
 echo "total cores	: $(nproc)"
 echo
 
 echo "[.] Checking /proc/cpuinfo bugs ..."
-echo "$(grep 'bugs' /proc/cpuinfo | uniq)"
+grep 'bugs' /proc/cpuinfo | uniq
 echo
 
 echo "[.] Checking /sys/devices/system/cpu/vulnerabilities mitigations ..."
