@@ -13,7 +13,9 @@ jobs:
     - uses: actions/checkout@v6
 
     - name: Install dependencies
-      run: sudo apt-get update && sudo apt-get install -y zlib1g-dev gcc-i686-linux-gnu
+      # shellcheck lets `make check`'s lint guards run tests/check-shellcheck
+      # over the extra/ helper scripts (it soft-skips when absent).
+      run: sudo apt-get update && sudo apt-get install -y zlib1g-dev gcc-i686-linux-gnu shellcheck
 
     - name: Build
       run: make

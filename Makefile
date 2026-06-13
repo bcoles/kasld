@@ -330,12 +330,21 @@ $(TEST_BTF_BIN): $(TEST_DIR)/test_btf.c $(SRC_DIR)/components/btf_struct_page_si
 .PHONY: test
 test : $(TEST_BIN) $(TEST_RENDER_BIN) $(TEST_EST_BIN) $(TEST_EV_BIN) $(TEST_ALIGN_BIN) $(TEST_TEXT_ORDER_BIN) $(TEST_ENG_BIN) $(TEST_INT_BIN) $(TEST_DMESG_BIN) $(TEST_BTF_BIN)
 	@$(TEST_DIR)/run-all
+	@$(MAKE) --no-print-directory lint
+
+# Static guards ("lint"): source-invariant greps, the 32-bit narrowing check,
+# and shellcheck over the shipped extra/ scripts — no compiled unit-test
+# binaries. Run after the unit tests by `make test`, and standalone by
+# `make lint`. Each guard exits non-zero on failure; make halts on the first.
+.PHONY: lint
+lint :
 	@$(TEST_DIR)/check-self-edges
 	@$(TEST_DIR)/check-extent-callers
 	@$(TEST_DIR)/check-truncation
 	@$(TEST_DIR)/check-component-output
 	@$(TEST_DIR)/check-component-meta
 	@$(TEST_DIR)/check-text-floor
+	@$(TEST_DIR)/check-shellcheck
 
 .PHONY: test-integration
 test-integration : $(TEST_INT_BIN)

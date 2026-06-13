@@ -1,0 +1,63 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-shellcheck — run shellcheck on the shipped shell scripts in extra/.
+#
+# extra/ holds the operator-facing helper scripts (check-results, collect,
+# validate-bundle, check-hardware-vulnerabilities, ...). They are not compiled
+# and not covered by the unit tests, so shellcheck is their only automated guard
+# against quoting / portability / set -e bugs.
+#
+# Soft dependency: if shellcheck is not installed this SKIPs (exit 0) so a local
+# `make test` still works without it. CI installs shellcheck, so the check
+# actually runs there.
+#
+# Scope is extra/ only: those scripts are shellcheck-clean today, so this guard
+# keeps them that way. (The tests/ guards carry some pre-existing findings; add
+# them here once cleaned.)
+#
+# Usage: tests/check-shellcheck   (also run by `make lint` / `make test`)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+EXTRA=$ROOT/extra
+
+if [ -t 1 ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m')
+  YELLOW=$(printf '\033[33m'); RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; YELLOW=; RESET=
+fi
+
+if ! command -v shellcheck >/dev/null 2>&1; then
+  printf '%sshellcheck guard: SKIP%s (shellcheck not installed)\n' "$YELLOW" "$RESET"
+  exit 0
+fi
+
+# Shell scripts in extra/, detected by shebang (a #! line mentioning sh/bash/...).
+# Dialect (sh vs bash) is auto-detected per file from its shebang.
+scripts=
+for f in "$EXTRA"/*; do
+  [ -f "$f" ] || continue
+  case "$(head -1 "$f" 2>/dev/null)" in
+    '#!'*sh*) scripts="$scripts $f" ;;
+  esac
+done
+
+if [ -z "$scripts" ]; then
+  printf '%sshellcheck guard: SKIP%s (no shell scripts in extra/)\n' "$YELLOW" "$RESET"
+  exit 0
+fi
+
+# Intentional word-split of the file list into shellcheck's argv (repo paths
+# carry no spaces).
+# shellcheck disable=SC2086
+if shellcheck $scripts; then
+  set -- $scripts
+  printf '%sshellcheck guard: OK%s (%s extra/ scripts clean)\n' "$GREEN" "$RESET" "$#"
+else
+  printf '%sshellcheck guard: shellcheck reported issues above%s\n' "$RED" "$RESET" >&2
+  exit 1
+fi
