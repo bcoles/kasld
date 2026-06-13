@@ -2,7 +2,8 @@
 
 KASLD has six test layers, in increasing order of setup cost:
 
-1. **Host unit + integration tests** — pure C over synthetic evidence. No deps
+1. **Host unit + integration tests + static guards** — pure C over synthetic
+   evidence, plus grep/shellcheck source-invariant guards (`make lint`). No deps
    beyond a C compiler. This is the primary safety net.
 2. **End-to-end replay** — runs the real `kasld` binary over captured filesystem
    trees. Native (no qemu) for the host arch; qemu-user for foreign arches.
@@ -30,7 +31,8 @@ KASLD_NATIVE=1 tests/replay tests/fixtures/x86_64/* tests/fixtures/x86_32/*
 
 ```sh
 make check          # runs `make test` then prints "OK: host test suite passed."
-make test           # build + run all five drivers
+make test           # build + run all ten test drivers, then the lint guards
+make lint           # just the static guards (no test-binary build)
 ```
 
 Each driver is a standalone binary in `build/tests/`. Test binaries (this
@@ -47,6 +49,10 @@ only the orchestrator binary and the `components/` subdirectory).
 | `test_engine_integration` | the full production rule registry against leak-bearing evidence | engine core + `engine_rules.c` + all rules |
 | `test_kasld` | orchestrator internals (parse, merge, anchor select), the engine→layout projection, region_info | `orchestrator.c` / `region_info.c` under `-DKASLD_TESTING` |
 | `test_render` | the renderers (text / json / markdown / oneline / hardening) — split out of `test_kasld` | `render.c` / `render/*.c` under `-DKASLD_TESTING` |
+| `test_align` | the text-base floor helpers (`kasld_floor_aligned_suboffset` / `kasld_floor_text_base`) | `api.h` (header-only) |
+| `test_text_order` | the kernel-text ordering classifier (`classify_text_order`) | `text_order.h` (header-only) |
+| `test_dmesg_layout` | the riscv `print_vm_layout` dump parser | `components/dmesg_mem_init_kernel_layout.c` (`#include`d, `main` renamed) |
+| `test_btf` | the BTF struct-size reader behind `btf_struct_page_size` | `components/btf_struct_page_size.c` (`#include`d, `main` renamed) |
 
 Run one driver in isolation:
 
@@ -55,6 +61,8 @@ make test-estimate
 make test-evidence
 make test-engine
 make test-integration
+make test-dmesg-layout
+make test-btf
 ```
 
 `test_kasld` is built with `-DKASLD_TESTING`, which compiles out `main()`, the
@@ -63,6 +71,28 @@ collect → bridge → resolve → render path — are exercised only by replay 
 
 Compiler / flags: `make test CC=clang`, `CFLAGS=...` as usual. pthread is used
 when available (`HAVE_PTHREAD`), matching the normal build.
+
+### Static guards (`make lint`)
+
+`make test` finishes by running `make lint` — static-analysis guards that assert
+source invariants the unit tests can't, with no compiled test binary. Run them
+alone with `make lint` (fast; no driver build). Each exits non-zero on failure,
+and `make` halts on the first.
+
+| Guard | Asserts |
+|-------|---------|
+| `check-self-edges` | no engine rule reads `est[Q]` and writes `Q` (a "self-edge") outside the reviewed allowlist — each such rule needs a soundness test |
+| `check-extent-callers` | only reviewed whole-map components call `kasld_result_extent` (the covering-completeness contract; a partial map would carve a false gap) |
+| `check-truncation` | no silent 64-bit→word narrowing when compiled for 32-bit (compiles a TU with `i686-linux-gnu-gcc`) |
+| `check-component-output` | components write only wire lines to stdout (stdout is the machine channel; diagnostics go to stderr) |
+| `check-component-meta` | every component declares `KASLD_META` with a `method:` key |
+| `check-text-floor` | no component rolls its own text-base floor — they must use the `api.h` helper |
+| `check-shellcheck` | shellcheck over the `extra/` helper scripts |
+
+`check-truncation` needs `i686-linux-gnu-gcc` and `check-shellcheck` needs
+`shellcheck`; both **skip cleanly** (exit 0) when their tool is absent, so
+`make lint` works with just a host compiler. CI installs both, so there they run
+for real.
 
 ---
 
@@ -224,7 +254,9 @@ and are not installed by `make install` (the install glob covers only
 ## Prerequisites
 
 - **Layer 1** (`make check`): a C compiler (`cc` / gcc / clang) and `make`.
-  Nothing else.
+  Nothing else for the unit tests. The `make lint` guards optionally use
+  `i686-linux-gnu-gcc` (`check-truncation`) and `shellcheck`
+  (`check-shellcheck`); both skip cleanly when absent.
 - **Layers 2–3** (qemu paths): musl-cross toolchains on `PATH` (any source —
   [musl.cc](https://musl.cc/) prebuilt sets, distribution packages, or a local
   build all work; KASLD targets the standard `<arch>-linux-musl-gcc` triples),
@@ -241,8 +273,10 @@ and are not installed by `make install` (the install glob covers only
 
 `.github/workflows/build.yml`:
 
-- **build** job: `make` → `make check` (layer 1) → build i686 → native replay
-  over the x86_64 + x86_32 fixtures (layer 2, no qemu).
+- **build** job: `make` → `make check` (layer 1, including the `make lint`
+  guards) → build i686 → native replay over the x86_64 + x86_32 fixtures
+  (layer 2, no qemu). The job installs `gcc-i686-linux-gnu` and `shellcheck`, so
+  `check-truncation` and `check-shellcheck` run for real rather than skipping.
 - **cross-compile** job: `make cross` — build-only across the gnu cross
   toolchains (no execution, no qemu).
 
