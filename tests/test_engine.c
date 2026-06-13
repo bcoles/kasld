@@ -1232,7 +1232,10 @@ static void test_ram_map_phys_exclude(void) {
   unsigned long r2hi = PHYS_OFFSET + 0x40000000ul; /* +1 GiB   */
 
   /* Positive: gap carved, slot count drops. */
-  struct engine e;
+  /* struct engine is ~1.3 MiB (it embeds the full evidence_set), so these
+   * per-scenario engines are static — seven on the stack would overflow it.
+   * engine_init() fully resets each before use, so reuse is safe. */
+  static struct engine e;
   engine_init(&e);
   struct observation is = mk_scalar(SF_IMAGE_SIZE, ksize, CONF_PARSED);
   evidence_add(&e.ev, &is);
@@ -1249,7 +1252,7 @@ static void test_ram_map_phys_exclude(void) {
    * (obs[], not coverings) carve nothing. A partial RAM leak emits atomic
    * bounds, never pos=extent, so the rule — which reads only ev->coverings[] —
    * ignores it: a "gap" between two partial extents could be unobserved RAM. */
-  struct engine e2;
+  static struct engine e2;
   engine_init(&e2);
   struct observation is2 = mk_scalar(SF_IMAGE_SIZE, ksize, CONF_PARSED);
   evidence_add(&e2.ev, &is2);
@@ -1261,7 +1264,7 @@ static void test_ram_map_phys_exclude(void) {
   assert(!has_phys_exclude(&e2));
 
   /* Negative 2: adjacent extents (no gap) emit nothing. */
-  struct engine e3;
+  static struct engine e3;
   engine_init(&e3);
   struct observation is3 = mk_scalar(SF_IMAGE_SIZE, ksize, CONF_PARSED);
   evidence_add(&e3.ev, &is3);
@@ -1272,7 +1275,7 @@ static void test_ram_map_phys_exclude(void) {
 
   /* Positive 2: arch-general — a device-tree /memory map (arches with no
    * /sys/firmware/memmap) carves the same gap. */
-  struct engine e4;
+  static struct engine e4;
   engine_init(&e4);
   struct observation is4 = mk_scalar(SF_IMAGE_SIZE, ksize, CONF_PARSED);
   evidence_add(&e4.ev, &is4);
@@ -1283,7 +1286,7 @@ static void test_ram_map_phys_exclude(void) {
 
   /* Positive 3: the hotplug memory-block map (online runs) carves the same
    * gap — the runtime view, arch-general. */
-  struct engine e5;
+  static struct engine e5;
   engine_init(&e5);
   struct observation is5 = mk_scalar(SF_IMAGE_SIZE, ksize, CONF_PARSED);
   evidence_add(&e5.ev, &is5);
@@ -1295,7 +1298,7 @@ static void test_ram_map_phys_exclude(void) {
   /* Negative 3 (safety): a garbage ksize larger than all of RAM must not
    * over-exclude. Without the map-ceiling guard the size backoff underflows
    * (hole_lo -> 0) and a single high gap excludes all of low memory. */
-  struct engine e6;
+  static struct engine e6;
   engine_init(&e6);
   struct observation is6 =
       mk_scalar(SF_IMAGE_SIZE, 0x20ac0040befcfbe4ul, CONF_PARSED);
@@ -1311,7 +1314,7 @@ static void test_ram_map_phys_exclude(void) {
    * firmware_memmap extent away from its origin, dropping it from the
    * reconstructed map and synthesising a false giant gap. Coverings are
    * per-source and never merged, so each map carves only its own real gap. */
-  struct engine e7;
+  static struct engine e7;
   engine_init(&e7);
   struct observation is7 = mk_scalar(SF_IMAGE_SIZE, ksize, CONF_PARSED);
   evidence_add(&e7.ev, &is7);
@@ -3223,7 +3226,9 @@ static void test_directmap_kaslr_disabled_pin(void) {
   quantities[Q_PAGE_OFFSET].init_top(&top);
 
   /* KASAN + 4-level (VA 48): all three bases pinned to the L4 defaults. */
-  struct engine e;
+  /* static: struct engine is ~1.3 MiB; five on the stack would overflow it.
+   * engine_init() resets each before use. */
+  static struct engine e;
   engine_init(&e);
   struct observation k = mk_scalar(SF_KASAN_ENABLED, 1, CONF_PARSED);
   struct observation vb = mk_scalar(SF_VIRT_ADDR_BITS, 48, CONF_PARSED);
@@ -3238,7 +3243,7 @@ static void test_directmap_kaslr_disabled_pin(void) {
          e.est[Q_VMEMMAP_BASE].hi == VMEMMAP_BASE_L4);
 
   /* nokaslr + 5-level (VA 57): page_offset pinned to the L5 default. */
-  struct engine e2;
+  static struct engine e2;
   engine_init(&e2);
   struct observation d = mk_scalar(SF_VIRT_KASLR_DISABLED, 1, CONF_PARSED);
   struct observation vb2 = mk_scalar(SF_VIRT_ADDR_BITS, 57, CONF_PARSED);
@@ -3249,7 +3254,7 @@ static void test_directmap_kaslr_disabled_pin(void) {
          e2.est[Q_PAGE_OFFSET].hi == PAGE_OFFSET_BASE_L5);
 
   /* Negative: VA width but no disable signal — no pin. */
-  struct engine e3;
+  static struct engine e3;
   engine_init(&e3);
   struct observation vb3 = mk_scalar(SF_VIRT_ADDR_BITS, 48, CONF_PARSED);
   evidence_add(&e3.ev, &vb3);
@@ -3258,7 +3263,7 @@ static void test_directmap_kaslr_disabled_pin(void) {
          e3.est[Q_PAGE_OFFSET].hi == top.hi);
 
   /* Negative: disable signal but no VA width — no pin (can't pick L4/L5). */
-  struct engine e4;
+  static struct engine e4;
   engine_init(&e4);
   struct observation k4 = mk_scalar(SF_KASAN_ENABLED, 1, CONF_PARSED);
   evidence_add(&e4.ev, &k4);
@@ -3269,7 +3274,7 @@ static void test_directmap_kaslr_disabled_pin(void) {
   /* Fallback path: NO SF_VIRT_ADDR_BITS, but a directmap leak below the L4 VAS
    * floor resolves Q_VA_BITS=57 via la57_from_directmap; the pin then takes the
    * level from the estimate and still fires (here -> the L5 default). */
-  struct engine e5;
+  static struct engine e5;
   engine_init(&e5);
   struct observation k5 = mk_scalar(SF_KASAN_ENABLED, 1, CONF_PARSED);
   evidence_add(&e5.ev, &k5);
