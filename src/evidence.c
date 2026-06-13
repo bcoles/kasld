@@ -33,6 +33,9 @@ uint32_t evidence_add(struct evidence_set *ev, const struct observation *src) {
 
 uint32_t evidence_add_covering(struct evidence_set *ev,
                                const struct covering *src) {
+  /* Defensive: MAX_COVERINGS == MAX_OBSERVATIONS >= the result count coverings
+   * are drawn from, so this never trips in practice. Kept so a covering is
+   * dropped rather than overflowing the store if those bounds ever diverge. */
   if (ev->n_coverings >= MAX_COVERINGS)
     return 0;
   struct covering *c = &ev->coverings[ev->n_coverings++];

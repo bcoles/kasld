@@ -25,8 +25,13 @@
 #ifndef MAX_VERDICTS
 #define MAX_VERDICTS 256
 #endif
+/* Coverings are a projection of results[] (one per pos=extent result), so they
+ * are bounded by the same stream as observations. Size the store to match
+ * MAX_OBSERVATIONS so a covering can never be truncated — dropping a map extent
+ * would carve a false gap. results[] saturates upstream long before this is
+ * reached, making evidence_add_covering's drop-guard defensive only. */
 #ifndef MAX_COVERINGS
-#define MAX_COVERINGS 256
+#define MAX_COVERINGS MAX_OBSERVATIONS
 #endif
 
 /* One extent of a COMPLETE, single-source covering of a region — an entry in a
