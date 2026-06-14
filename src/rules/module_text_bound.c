@@ -81,9 +81,11 @@ int rule_module_text_bound(const struct evidence_set *ev,
     c->lineage_count = 1;
     snprintf(c->origin, ORIGIN_LEN, "module_text_bound");
   }
-  unsigned long new_min = /* C_LOWER_BOUND; head re-added below */
-      (vmod_hi & ~(valign - 1)) + valign +
-      (unsigned long)TEXT_OFFSET; /* virt-floor-ok */
+  /* C_LOWER_BOUND: the slot above the highest module, plus the head. Flooring
+   * vmod_hi down is sound for a lower bound; the head (TEXT_OFFSET) is
+   * re-added. */
+  unsigned long mod_slot = vmod_hi & ~(valign - 1); /* virt-floor-ok */
+  unsigned long new_min = mod_slot + valign + (unsigned long)TEXT_OFFSET;
   if (new_min > (unsigned long)KASLR_VIRT_TEXT_MIN && n < out_max) {
     struct constraint *c = &out[n++];
     memset(c, 0, sizeof(*c));
