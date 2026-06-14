@@ -33,7 +33,7 @@
 //     authoritative-whole-map precondition is needed (unlike the RAM-gap rule).
 //
 // Reads is_phys_kernel_forbidden_region PHYS observations + SF_IMAGE_SIZE; both
-// already in evidence. Decoupled arches only (Q_PHYS_TEXT_BASE); emits nothing
+// already in evidence. Decoupled arches only (Q_PHYS_IMAGE_BASE); emits nothing
 // without a size fact or a forbidden extent — sound.
 // ---
 // <bcoles@gmail.com>
@@ -87,7 +87,7 @@ int rule_phys_reservation_exclude(const struct evidence_set *ev,
 
     struct constraint *c = &out[n++];
     memset(c, 0, sizeof(*c));
-    c->q = Q_PHYS_TEXT_BASE;
+    c->q = Q_PHYS_IMAGE_BASE;
     c->op = C_EXCLUDE;
     c->value = hole_lo;
     c->value2 = hole_hi;

@@ -49,7 +49,7 @@ static void test_engine_interior_ceiling(void) {
   engine_init(&e);
 
   struct estimate top;
-  quantities[Q_VIRT_TEXT_BASE].init_top(&top);
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
   unsigned long sample = top.lo + 0x1234000ul; /* inside the window */
 
   struct observation o = mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE, sample,
@@ -63,8 +63,8 @@ static void test_engine_interior_ceiling(void) {
    * does NOT floor to alignment: the text base is _stext, which is not
    * alignment-aligned on sub-offset arches, so flooring would drop the ceiling
    * below the truth. The raw sample is always a sound upper bound. */
-  assert(e.est[Q_VIRT_TEXT_BASE].hi == sample);
-  assert(e.est[Q_VIRT_TEXT_BASE].lo == top.lo); /* lower bound unchanged */
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi == sample);
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo == top.lo); /* lower bound unchanged */
 }
 
 /* ========================================================================
@@ -181,7 +181,7 @@ static void test_engine_converges_and_is_stable(void) {
   struct engine e;
   engine_init(&e);
   struct estimate top;
-  quantities[Q_VIRT_TEXT_BASE].init_top(&top);
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
   struct observation o =
       mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE, top.lo + 0x800000ul,
              SAMPLE_SET, POS_INTERIOR, CONF_PARSED);
@@ -196,7 +196,7 @@ static void test_engine_converges_and_is_stable(void) {
   engine_init(&e2);
   evidence_add(&e2.ev, &o);
   engine_run(&e2, rules, 1);
-  assert(e2.est[Q_VIRT_TEXT_BASE].hi == e.est[Q_VIRT_TEXT_BASE].hi);
+  assert(e2.est[Q_VIRT_IMAGE_BASE].hi == e.est[Q_VIRT_IMAGE_BASE].hi);
   /* Re-emitted identical constraints do not grow the store unboundedly. */
   assert(e.n_constraints <= 4);
 }
@@ -206,7 +206,7 @@ static void test_engine_saturation_clean(void) {
   struct engine e;
   engine_init(&e);
   struct estimate top;
-  quantities[Q_VIRT_TEXT_BASE].init_top(&top);
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
   struct observation o =
       mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE, top.lo + 0x800000ul,
              SAMPLE_SET, POS_INTERIOR, CONF_PARSED);
@@ -230,7 +230,7 @@ static int sat_fresh_emit_rule(const struct evidence_set *ev,
   while (n < out_max) {
     struct constraint *c = &out[n++];
     memset(c, 0, sizeof(*c));
-    c->q = Q_VIRT_TEXT_BASE;
+    c->q = Q_VIRT_IMAGE_BASE;
     c->op = C_UPPER_BOUND;
     c->value =
         0xffffffffc0000000ul - (unsigned long)sat_fresh_emit_counter * 0x100ul;
@@ -262,9 +262,9 @@ static void test_engine_saturation_constraints_full(void) {
   /* Soundness under cap: the resolved estimate must be a valid (non-bottom)
    * range — the cap drops late-arriving constraints, it cannot corrupt
    * already-meet'd ones. */
-  assert(!estimate_is_bottom(&e.est[Q_VIRT_TEXT_BASE],
-                             &quantities[Q_VIRT_TEXT_BASE]));
-  assert(e.est[Q_VIRT_TEXT_BASE].lo <= e.est[Q_VIRT_TEXT_BASE].hi);
+  assert(!estimate_is_bottom(&e.est[Q_VIRT_IMAGE_BASE],
+                             &quantities[Q_VIRT_IMAGE_BASE]));
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo <= e.est[Q_VIRT_IMAGE_BASE].hi);
 }
 
 /* Force ESTIMATE_MAX_WORK by handing estimate_resolve more than
@@ -275,21 +275,21 @@ static void test_engine_saturation_estimate_work_full(void) {
   struct constraint many[ESTIMATE_MAX_WORK + 4];
   for (int i = 0; i < ESTIMATE_MAX_WORK + 4; i++) {
     memset(&many[i], 0, sizeof(many[i]));
-    many[i].q = Q_VIRT_TEXT_BASE;
+    many[i].q = Q_VIRT_IMAGE_BASE;
     many[i].op = C_UPPER_BOUND;
     many[i].value = 0xffffffffc0000000ul - (unsigned long)i * 0x1000ul;
     many[i].conf = CONF_HEURISTIC;
     many[i].id = (uint32_t)(i + 1);
   }
   struct resolve_result r;
-  estimate_resolve(Q_VIRT_TEXT_BASE, CONF_BRUTE, many, ESTIMATE_MAX_WORK + 4,
+  estimate_resolve(Q_VIRT_IMAGE_BASE, CONF_BRUTE, many, ESTIMATE_MAX_WORK + 4,
                    &r);
   assert(r.saturation & ESTIMATE_SAT_WORK_FULL);
   /* Soundness: even with the gather truncated, the resolved estimate is
    * a valid non-bottom interval. The resolver sorts by confidence /
    * lineage before the greedy meet (see estimate.c), so dropping items
    * past the cap can only widen — never corrupt — the resolved window. */
-  assert(!estimate_is_bottom(&r.est, &quantities[Q_VIRT_TEXT_BASE]));
+  assert(!estimate_is_bottom(&r.est, &quantities[Q_VIRT_IMAGE_BASE]));
   assert(r.est.lo <= r.est.hi);
 }
 
@@ -306,7 +306,7 @@ static int sat_rule_lies_about_emit(const struct evidence_set *ev,
   (void)est;
   if (out_max > 0) {
     memset(&out[0], 0, sizeof(out[0]));
-    out[0].q = Q_VIRT_TEXT_BASE;
+    out[0].q = Q_VIRT_IMAGE_BASE;
     out[0].op = C_UPPER_BOUND;
     /* Vacuous upper bound (always-true on any address width). The test
      * asserts on the saturation flag, not on the resolved value, so any
@@ -327,9 +327,9 @@ static void test_engine_saturation_rule_emit_overflow(void) {
   assert(e.saturation & ENGINE_SAT_RULE_EMIT_OVERFLOW);
   /* Estimate remains sound: the one actually-filled constraint was
    * applied; everything else was clamped before reaching the store. */
-  assert(!estimate_is_bottom(&e.est[Q_VIRT_TEXT_BASE],
-                             &quantities[Q_VIRT_TEXT_BASE]));
-  assert(e.est[Q_VIRT_TEXT_BASE].lo <= e.est[Q_VIRT_TEXT_BASE].hi);
+  assert(!estimate_is_bottom(&e.est[Q_VIRT_IMAGE_BASE],
+                             &quantities[Q_VIRT_IMAGE_BASE]));
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo <= e.est[Q_VIRT_IMAGE_BASE].hi);
   assert(e.n_constraints <= ENGINE_RULE_MAX_EMIT); /* clamp held */
 }
 
@@ -374,7 +374,7 @@ static void test_engine_saturation_conflicts_full(void) {
    * would truncate on 32-bit targets and miss the window). The saturation
    * logic is arch-neutral; only the values need to land inside the window. */
   struct estimate top;
-  quantities[Q_VIRT_TEXT_BASE].init_top(&top);
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
   const unsigned long lb_val = top.lo + 0x10000ul;
   const unsigned long ub_base = top.lo + 0x1000ul; /* below lb_val */
 
@@ -382,7 +382,7 @@ static void test_engine_saturation_conflicts_full(void) {
   struct constraint cs[1 + N_CONFLICTING];
   int n = 0;
   memset(&cs[n], 0, sizeof(cs[n]));
-  cs[n].q = Q_VIRT_TEXT_BASE;
+  cs[n].q = Q_VIRT_IMAGE_BASE;
   cs[n].op = C_LOWER_BOUND;
   cs[n].value = lb_val;
   cs[n].conf = CONF_PARSED; /* highest conf — accepted first */
@@ -390,7 +390,7 @@ static void test_engine_saturation_conflicts_full(void) {
   n++;
   for (int i = 0; i < N_CONFLICTING; i++) {
     memset(&cs[n], 0, sizeof(cs[n]));
-    cs[n].q = Q_VIRT_TEXT_BASE;
+    cs[n].q = Q_VIRT_IMAGE_BASE;
     cs[n].op = C_UPPER_BOUND;
     cs[n].value = ub_base - (unsigned long)i * 4ul; /* each below lb_val */
     cs[n].conf = CONF_HEURISTIC;
@@ -398,13 +398,13 @@ static void test_engine_saturation_conflicts_full(void) {
     n++;
   }
   struct resolve_result r;
-  estimate_resolve(Q_VIRT_TEXT_BASE, CONF_BRUTE, cs, n, &r);
+  estimate_resolve(Q_VIRT_IMAGE_BASE, CONF_BRUTE, cs, n, &r);
   assert(r.saturation & ESTIMATE_SAT_CONFLICTS_FULL);
   assert(r.n_conflicts == ESTIMATE_MAX_CONFLICTS); /* recorded up to the cap */
   /* Soundness: the lower bound was accepted; the conflicting upper bounds
    * were rejected; the resolved estimate carries the accepted lower bound
    * against the honest top. Must remain non-bottom with lo <= hi. */
-  assert(!estimate_is_bottom(&r.est, &quantities[Q_VIRT_TEXT_BASE]));
+  assert(!estimate_is_bottom(&r.est, &quantities[Q_VIRT_IMAGE_BASE]));
   assert(r.est.lo <= r.est.hi);
   assert(r.est.lo >= lb_val);
 }
@@ -469,12 +469,12 @@ static void test_phys_ceiling_from_memtotal(void) {
   engine_run(&e, rules, 1);
 
   struct estimate top;
-  quantities[Q_PHYS_TEXT_BASE].init_top(&top);
+  quantities[Q_PHYS_IMAGE_BASE].init_top(&top);
   unsigned long ceiling = (floor + mem - (4ul << 20)) & ~(KASLR_PHYS_ALIGN - 1);
   if (ceiling > (unsigned long)KASLR_PHYS_MIN)
-    assert(e.est[Q_PHYS_TEXT_BASE].hi == min_ul(ceiling, top.hi)); /* fired */
+    assert(e.est[Q_PHYS_IMAGE_BASE].hi == min_ul(ceiling, top.hi)); /* fired */
   else
-    assert(e.est[Q_PHYS_TEXT_BASE].hi ==
+    assert(e.est[Q_PHYS_IMAGE_BASE].hi ==
            top.hi); /* below KASLR_PHYS_MIN: inert */
 #endif
 }
@@ -529,7 +529,7 @@ static void test_phys_ceiling_prefers_dram_top_over_memtotal(void) {
   /* The dram_top-derived ceiling must admit kernel_phys; the MemTotal-
    * derived ceiling would have rejected it (floor + memtotal = floor +
    * 0xd2eb0000 < kernel_phys = floor + 0xf18b0000). */
-  assert(kernel_phys <= e.est[Q_PHYS_TEXT_BASE].hi);
+  assert(kernel_phys <= e.est[Q_PHYS_IMAGE_BASE].hi);
 #endif
 }
 
@@ -549,7 +549,7 @@ static void test_phys_ceiling_no_dram_floor(void) {
   unsigned long expect =
       (PHYS_OFFSET + mem - (4ul << 20)) & ~(KASLR_PHYS_ALIGN - 1);
   if (expect > KASLR_PHYS_MIN)
-    assert(e.est[Q_PHYS_TEXT_BASE].hi == expect);
+    assert(e.est[Q_PHYS_IMAGE_BASE].hi == expect);
 #endif
 }
 
@@ -566,18 +566,18 @@ static void test_ceiling_from_image_size(void) {
   engine_run(&e, rules, 1);
 
   struct estimate top;
-  quantities[Q_VIRT_TEXT_BASE].init_top(&top);
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
   unsigned long expect =
       min_ul((KASLR_VIRT_TEXT_MAX - ksize) & ~(KASLR_VIRT_ALIGN - 1), top.hi);
-  assert(e.est[Q_VIRT_TEXT_BASE].hi == expect);
-  assert(e.est[Q_VIRT_TEXT_BASE].hi < top.hi); /* the rule actually fired */
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi == expect);
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi < top.hi); /* the rule actually fired */
 
 #if !TEXT_TRACKS_DIRECTMAP
   struct estimate ptop;
-  quantities[Q_PHYS_TEXT_BASE].init_top(&ptop);
+  quantities[Q_PHYS_IMAGE_BASE].init_top(&ptop);
   unsigned long pexpect =
       min_ul((KASLR_PHYS_MAX - ksize) & ~(KASLR_PHYS_ALIGN - 1), ptop.hi);
-  assert(e.est[Q_PHYS_TEXT_BASE].hi == pexpect);
+  assert(e.est[Q_PHYS_IMAGE_BASE].hi == pexpect);
 #endif
 }
 
@@ -597,10 +597,10 @@ static void test_ceiling_prefers_exact_init_size(void) {
   engine_run(&e, rules, 1);
 
   struct estimate top;
-  quantities[Q_VIRT_TEXT_BASE].init_top(&top);
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
   unsigned long expect = min_ul(
       (KASLR_VIRT_TEXT_MAX - init_size) & ~(KASLR_VIRT_ALIGN - 1), top.hi);
-  assert(e.est[Q_VIRT_TEXT_BASE].hi == expect); /* exact init_size wins */
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi == expect); /* exact init_size wins */
 }
 
 /* No image-size observation -> no ceiling constraint -> estimate stays at top.
@@ -611,8 +611,8 @@ static void test_ceiling_no_evidence(void) {
   const rule_fn rules[] = {rule_ceiling_from_image_size};
   engine_run(&e, rules, 1);
   struct estimate top;
-  quantities[Q_VIRT_TEXT_BASE].init_top(&top);
-  assert(e.est[Q_VIRT_TEXT_BASE].hi == top.hi);
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi == top.hi);
 }
 
 /* An image larger than the whole window cannot constrain the base (soundness:
@@ -625,8 +625,8 @@ static void test_ceiling_oversized_image(void) {
   const rule_fn rules[] = {rule_ceiling_from_image_size};
   engine_run(&e, rules, 1);
   struct estimate top;
-  quantities[Q_VIRT_TEXT_BASE].init_top(&top);
-  assert(e.est[Q_VIRT_TEXT_BASE].hi == top.hi);
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi == top.hi);
 }
 
 /* dram_floor_bound rule (Stage D): min phys DRAM -> a lower bound on the
@@ -651,18 +651,20 @@ static void test_dram_floor_bound(void) {
   unsigned long expect =
       (floor + KASLR_PHYS_ALIGN - 1) & ~(KASLR_PHYS_ALIGN - 1);
   if (expect > KASLR_PHYS_MIN) {
-    assert(e.est[Q_PHYS_TEXT_BASE].lo == expect);
+    assert(e.est[Q_PHYS_IMAGE_BASE].lo == expect);
     struct estimate top;
-    quantities[Q_PHYS_TEXT_BASE].init_top(&top);
-    assert(e.est[Q_PHYS_TEXT_BASE].lo > top.lo); /* the rule raised the floor */
+    quantities[Q_PHYS_IMAGE_BASE].init_top(&top);
+    assert(e.est[Q_PHYS_IMAGE_BASE].lo >
+           top.lo); /* the rule raised the floor */
   }
 #else
   /* Virtual floor via the compile-time conversion, rounded DOWN. */
   if (floor >= PHYS_OFFSET) {
-    unsigned long expect = (floor - PHYS_OFFSET + PAGE_OFFSET + TEXT_OFFSET) &
-                           ~(KASLR_VIRT_ALIGN - 1);
+    unsigned long expect =
+        (floor - PHYS_OFFSET + PAGE_OFFSET + IMAGE_BASE_OFFSET) &
+        ~(KASLR_VIRT_ALIGN - 1);
     if (expect > KASLR_VIRT_TEXT_MIN)
-      assert(e.est[Q_VIRT_TEXT_BASE].lo == expect);
+      assert(e.est[Q_VIRT_IMAGE_BASE].lo == expect);
   }
 #endif
 }
@@ -675,8 +677,8 @@ static void test_dram_floor_no_dram(void) {
   const rule_fn rules[] = {rule_dram_floor_bound};
   engine_run(&e, rules, 1);
   struct estimate vtop;
-  quantities[Q_VIRT_TEXT_BASE].init_top(&vtop);
-  assert(e.est[Q_VIRT_TEXT_BASE].lo ==
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&vtop);
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo ==
          vtop.lo); /* no DRAM -> floor untouched */
 }
 
@@ -696,7 +698,7 @@ static void test_dram_floor_ignores_non_ram_dram_regions(void) {
   engine_init(&e);
   /* High-address phys initrd — well above any plausible kernel-text floor.
    * If the rule incorrectly used this as a floor it would push
-   * Q_PHYS_TEXT_BASE.lo (decoupled) or Q_VIRT_TEXT_BASE.lo (coupled) up to
+   * Q_PHYS_IMAGE_BASE.lo (decoupled) or Q_VIRT_IMAGE_BASE.lo (coupled) up to
    * around 0x40000000. */
   struct observation initrd =
       mk_obs(KASLD_TYPE_PHYS, REGION_INITRD, 0x40000000ul, LO_SET, POS_BASE,
@@ -706,11 +708,11 @@ static void test_dram_floor_ignores_non_ram_dram_regions(void) {
   engine_run(&e, rules, 1);
 
   struct estimate vtop, ptop;
-  quantities[Q_VIRT_TEXT_BASE].init_top(&vtop);
-  quantities[Q_PHYS_TEXT_BASE].init_top(&ptop);
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&vtop);
+  quantities[Q_PHYS_IMAGE_BASE].init_top(&ptop);
   /* Both axes must remain at their honest tops — the rule emitted nothing. */
-  assert(e.est[Q_VIRT_TEXT_BASE].lo == vtop.lo);
-  assert(e.est[Q_PHYS_TEXT_BASE].lo == ptop.lo);
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo == vtop.lo);
+  assert(e.est[Q_PHYS_IMAGE_BASE].lo == ptop.lo);
 }
 
 /* page_offset_from_landmark rule (Stage F, pulled forward). */
@@ -797,7 +799,7 @@ int rule_virt_ceiling_from_memtotal(const struct evidence_set *ev,
                                     struct constraint *out, int out_max);
 
 /* page_offset_from_landmark pins Q_PAGE_OFFSET, then (on a coupled arch)
- * virt_ceiling_from_memtotal reads that pinned value to bound Q_VIRT_TEXT_BASE
+ * virt_ceiling_from_memtotal reads that pinned value to bound Q_VIRT_IMAGE_BASE
  * — exercising cross-quantity dependency through the fixpoint loop. On a
  * decoupled arch (e.g. the x86_64 host) the coupled rule is inert. */
 static void test_virt_ceiling_from_memtotal(void) {
@@ -834,15 +836,15 @@ static void test_virt_ceiling_from_memtotal(void) {
   assert(e.est[Q_PAGE_OFFSET].hi == po);
 
   struct estimate vtop;
-  quantities[Q_VIRT_TEXT_BASE].init_top(&vtop);
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&vtop);
 #if !TEXT_TRACKS_DIRECTMAP
-  assert(e.est[Q_VIRT_TEXT_BASE].hi == vtop.hi); /* coupled rule inert here */
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi == vtop.hi); /* coupled rule inert here */
 #else
   /* phys_floor == PHYS_OFFSET so the offset term is zero. */
   unsigned long expect =
-      (po + mem - (4ul << 20) + TEXT_OFFSET) & ~(KASLR_VIRT_ALIGN - 1);
+      (po + mem - (4ul << 20) + IMAGE_BASE_OFFSET) & ~(KASLR_VIRT_ALIGN - 1);
   if (expect > KASLR_VIRT_TEXT_MIN && expect < vtop.hi)
-    assert(e.est[Q_VIRT_TEXT_BASE].hi == expect);
+    assert(e.est[Q_VIRT_IMAGE_BASE].hi == expect);
 #endif
 }
 
@@ -871,17 +873,17 @@ static void test_phys_bits_ceiling(void) {
   unsigned long expect =
       ((1UL << bits) - (4ul << 20)) & ~(KASLR_PHYS_ALIGN - 1);
   struct estimate top;
-  quantities[Q_PHYS_TEXT_BASE].init_top(&top);
+  quantities[Q_PHYS_IMAGE_BASE].init_top(&top);
   if (expect > KASLR_PHYS_MIN && expect < top.hi)
-    assert(e.est[Q_PHYS_TEXT_BASE].hi == expect);
+    assert(e.est[Q_PHYS_IMAGE_BASE].hi == expect);
 #else
-  unsigned long expect = (PAGE_OFFSET + TEXT_OFFSET +
+  unsigned long expect = (PAGE_OFFSET + IMAGE_BASE_OFFSET +
                           ((1UL << bits) - (4ul << 20)) - PHYS_OFFSET) &
                          ~(KASLR_VIRT_ALIGN - 1);
   struct estimate vtop;
-  quantities[Q_VIRT_TEXT_BASE].init_top(&vtop);
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&vtop);
   if (expect > KASLR_VIRT_TEXT_MIN && expect < vtop.hi)
-    assert(e.est[Q_VIRT_TEXT_BASE].hi == expect);
+    assert(e.est[Q_VIRT_IMAGE_BASE].hi == expect);
 #endif
 #endif /* __SIZEOF_LONG__ >= 8 */
 }
@@ -893,8 +895,8 @@ static void test_phys_bits_absent(void) {
   const rule_fn rules[] = {rule_phys_bits_ceiling};
   engine_run(&e, rules, 1);
   struct estimate ptop;
-  quantities[Q_PHYS_TEXT_BASE].init_top(&ptop);
-  assert(e.est[Q_PHYS_TEXT_BASE].hi == ptop.hi);
+  quantities[Q_PHYS_IMAGE_BASE].init_top(&ptop);
+  assert(e.est[Q_PHYS_IMAGE_BASE].hi == ptop.hi);
 }
 
 /* dram_ceiling (Stage D, coupled): top-of-RAM ceiling, cross-quantity. */
@@ -939,15 +941,15 @@ static void test_dram_ceiling(void) {
   engine_run(&e, rules, 2);
 
   struct estimate vtop;
-  quantities[Q_VIRT_TEXT_BASE].init_top(&vtop);
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&vtop);
 #if !TEXT_TRACKS_DIRECTMAP
-  assert(e.est[Q_VIRT_TEXT_BASE].hi == vtop.hi); /* inert on decoupled */
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi == vtop.hi); /* inert on decoupled */
 #else
   unsigned long expect =
-      (((dram_top - ksize) - PHYS_OFFSET) + po + TEXT_OFFSET) &
+      (((dram_top - ksize) - PHYS_OFFSET) + po + IMAGE_BASE_OFFSET) &
       ~(KASLR_VIRT_ALIGN - 1);
   if (expect > KASLR_VIRT_TEXT_MIN && expect < vtop.hi)
-    assert(e.est[Q_VIRT_TEXT_BASE].hi == expect);
+    assert(e.est[Q_VIRT_IMAGE_BASE].hi == expect);
 #endif
 }
 
@@ -1030,7 +1032,7 @@ static void test_text_cluster_filter(void) {
 }
 
 /* initrd_phys_exclude (Stage E): the first C_EXCLUDE rule — carves the initrd
- * forbidden zone out of Q_PHYS_TEXT_BASE's candidate set. */
+ * forbidden zone out of Q_PHYS_IMAGE_BASE's candidate set. */
 int rule_initrd_phys_exclude(const struct evidence_set *ev,
                              const struct estimate *est, struct constraint *out,
                              int out_max);
@@ -1058,28 +1060,28 @@ static void test_initrd_phys_exclude(void) {
   const rule_fn rules[] = {rule_initrd_phys_exclude};
   engine_run(&e, rules, 1);
 
-  /* A C_EXCLUDE constraint on Q_PHYS_TEXT_BASE was emitted. */
+  /* A C_EXCLUDE constraint on Q_PHYS_IMAGE_BASE was emitted. */
   int found = 0;
   for (int i = 0; i < e.n_constraints; i++)
-    if (e.constraints[i].q == Q_PHYS_TEXT_BASE &&
+    if (e.constraints[i].q == Q_PHYS_IMAGE_BASE &&
         e.constraints[i].op == C_EXCLUDE)
       found = 1;
   assert(found);
 
   /* The hole is interior (edges unchanged) but removes candidate positions:
    * slots with the carved hole < slots over the bare interval. */
-  const struct estimate *est = &e.est[Q_PHYS_TEXT_BASE];
-  unsigned long with = quantity_slots(Q_PHYS_TEXT_BASE, est, e.constraints,
+  const struct estimate *est = &e.est[Q_PHYS_IMAGE_BASE];
+  unsigned long with = quantity_slots(Q_PHYS_IMAGE_BASE, est, e.constraints,
                                       e.n_constraints, KASLR_PHYS_ALIGN);
   unsigned long bare =
-      quantity_slots(Q_PHYS_TEXT_BASE, est, NULL, 0, KASLR_PHYS_ALIGN);
+      quantity_slots(Q_PHYS_IMAGE_BASE, est, NULL, 0, KASLR_PHYS_ALIGN);
   assert(with < bare);
 #endif
 }
 
 /* cmdline_phys_exclude: the kernel placement code refuses to overlap the
  * bootloader cmdline buffer, so its phys range is a forbidden band in
- * Q_PHYS_TEXT_BASE — same C_EXCLUDE mechanism as the initrd hole. */
+ * Q_PHYS_IMAGE_BASE — same C_EXCLUDE mechanism as the initrd hole. */
 int rule_cmdline_phys_exclude(const struct evidence_set *ev,
                               const struct estimate *est,
                               struct constraint *out, int out_max);
@@ -1109,17 +1111,17 @@ static void test_cmdline_phys_exclude(void) {
 
   int found = 0;
   for (int i = 0; i < e.n_constraints; i++)
-    if (e.constraints[i].q == Q_PHYS_TEXT_BASE &&
+    if (e.constraints[i].q == Q_PHYS_IMAGE_BASE &&
         e.constraints[i].op == C_EXCLUDE)
       found = 1;
   assert(found);
 
   /* Interior hole: edges unchanged, hole-aware slot count strictly smaller. */
-  const struct estimate *est = &e.est[Q_PHYS_TEXT_BASE];
-  unsigned long with = quantity_slots(Q_PHYS_TEXT_BASE, est, e.constraints,
+  const struct estimate *est = &e.est[Q_PHYS_IMAGE_BASE];
+  unsigned long with = quantity_slots(Q_PHYS_IMAGE_BASE, est, e.constraints,
                                       e.n_constraints, KASLR_PHYS_ALIGN);
   unsigned long bare =
-      quantity_slots(Q_PHYS_TEXT_BASE, est, NULL, 0, KASLR_PHYS_ALIGN);
+      quantity_slots(Q_PHYS_IMAGE_BASE, est, NULL, 0, KASLR_PHYS_ALIGN);
   assert(with < bare);
 #endif
 }
@@ -1133,7 +1135,7 @@ int rule_phys_reservation_exclude(const struct evidence_set *ev,
 
 static int has_phys_exclude(const struct engine *e) {
   for (int i = 0; i < e->n_constraints; i++)
-    if (e->constraints[i].q == Q_PHYS_TEXT_BASE &&
+    if (e->constraints[i].q == Q_PHYS_IMAGE_BASE &&
         e->constraints[i].op == C_EXCLUDE)
       return 1;
   return 0;
@@ -1163,10 +1165,10 @@ static void test_phys_reservation_exclude(void) {
   evidence_add(&e.ev, &crash);
   engine_run(&e, rules, 1);
   assert(has_phys_exclude(&e));
-  const struct estimate *est = &e.est[Q_PHYS_TEXT_BASE];
-  assert(quantity_slots(Q_PHYS_TEXT_BASE, est, e.constraints, e.n_constraints,
+  const struct estimate *est = &e.est[Q_PHYS_IMAGE_BASE];
+  assert(quantity_slots(Q_PHYS_IMAGE_BASE, est, e.constraints, e.n_constraints,
                         KASLR_PHYS_ALIGN) <
-         quantity_slots(Q_PHYS_TEXT_BASE, est, NULL, 0, KASLR_PHYS_ALIGN));
+         quantity_slots(Q_PHYS_IMAGE_BASE, est, NULL, 0, KASLR_PHYS_ALIGN));
 
   /* Negative: a NON-forbidden region (plain RAM) emits no exclude — the image
    * CAN live in RAM. */
@@ -1243,10 +1245,10 @@ static void test_ram_map_phys_exclude(void) {
   add_ram_covering(&e.ev, r2lo, r2hi, "firmware_memmap");
   engine_run(&e, rules, 1);
   assert(has_phys_exclude(&e));
-  const struct estimate *est = &e.est[Q_PHYS_TEXT_BASE];
-  assert(quantity_slots(Q_PHYS_TEXT_BASE, est, e.constraints, e.n_constraints,
+  const struct estimate *est = &e.est[Q_PHYS_IMAGE_BASE];
+  assert(quantity_slots(Q_PHYS_IMAGE_BASE, est, e.constraints, e.n_constraints,
                         KASLR_PHYS_ALIGN) <
-         quantity_slots(Q_PHYS_TEXT_BASE, est, NULL, 0, KASLR_PHYS_ALIGN));
+         quantity_slots(Q_PHYS_IMAGE_BASE, est, NULL, 0, KASLR_PHYS_ALIGN));
 
   /* Negative 1 (contract): the same two extents as ATOMIC RAM observations
    * (obs[], not coverings) carve nothing. A partial RAM leak emits atomic
@@ -1332,7 +1334,7 @@ static void test_ram_map_phys_exclude(void) {
 }
 
 /* cmdline_mem_phys_ceiling: `mem=N` + SF_IMAGE_SIZE → C_UPPER_BOUND
- * on Q_PHYS_TEXT_BASE at (mem - ksize), aligned down. Decoupled arches. */
+ * on Q_PHYS_IMAGE_BASE at (mem - ksize), aligned down. Decoupled arches. */
 int rule_cmdline_mem_phys_ceiling(const struct evidence_set *ev,
                                   const struct estimate *est,
                                   struct constraint *out, int out_max);
@@ -1353,11 +1355,11 @@ static void test_cmdline_mem_phys_ceiling(void) {
 
   unsigned long expect = (mem - ksize) & ~(KASLR_PHYS_ALIGN - 1);
   struct estimate top;
-  quantities[Q_PHYS_TEXT_BASE].init_top(&top);
+  quantities[Q_PHYS_IMAGE_BASE].init_top(&top);
   if (expect > (unsigned long)KASLR_PHYS_MIN)
-    assert(e.est[Q_PHYS_TEXT_BASE].hi == min_ul(expect, top.hi));
+    assert(e.est[Q_PHYS_IMAGE_BASE].hi == min_ul(expect, top.hi));
   else
-    assert(e.est[Q_PHYS_TEXT_BASE].hi == top.hi); /* below floor: inert */
+    assert(e.est[Q_PHYS_IMAGE_BASE].hi == top.hi); /* below floor: inert */
 #endif
 }
 
@@ -1373,13 +1375,13 @@ static void test_cmdline_mem_phys_ceiling_no_signal(void) {
   engine_run(&e, rules, 1);
 
   struct estimate top;
-  quantities[Q_PHYS_TEXT_BASE].init_top(&top);
-  assert(e.est[Q_PHYS_TEXT_BASE].hi == top.hi);
+  quantities[Q_PHYS_IMAGE_BASE].init_top(&top);
+  assert(e.est[Q_PHYS_IMAGE_BASE].hi == top.hi);
 #endif
 }
 
 /* cmdline_memmap_phys_exclude: each PHYS REGION_CMDLINE_MEMMAP extent
- * + SF_IMAGE_SIZE → C_EXCLUDE on Q_PHYS_TEXT_BASE over the inclusive hole.
+ * + SF_IMAGE_SIZE → C_EXCLUDE on Q_PHYS_IMAGE_BASE over the inclusive hole.
  * Iterates ALL reservations (up to engine cap). */
 int rule_cmdline_memmap_phys_exclude(const struct evidence_set *ev,
                                      const struct estimate *est,
@@ -1413,20 +1415,20 @@ static void test_cmdline_memmap_phys_exclude(void) {
   const rule_fn rules[] = {rule_cmdline_memmap_phys_exclude};
   engine_run(&e, rules, 1);
 
-  /* At least two C_EXCLUDE constraints on Q_PHYS_TEXT_BASE. */
+  /* At least two C_EXCLUDE constraints on Q_PHYS_IMAGE_BASE. */
   int n_excl = 0;
   for (int i = 0; i < e.n_constraints; i++)
-    if (e.constraints[i].q == Q_PHYS_TEXT_BASE &&
+    if (e.constraints[i].q == Q_PHYS_IMAGE_BASE &&
         e.constraints[i].op == C_EXCLUDE)
       n_excl++;
   assert(n_excl >= 2);
 
   /* Interior holes: hole-aware slot count strictly lower than bare. */
-  const struct estimate *est = &e.est[Q_PHYS_TEXT_BASE];
-  unsigned long with = quantity_slots(Q_PHYS_TEXT_BASE, est, e.constraints,
+  const struct estimate *est = &e.est[Q_PHYS_IMAGE_BASE];
+  unsigned long with = quantity_slots(Q_PHYS_IMAGE_BASE, est, e.constraints,
                                       e.n_constraints, KASLR_PHYS_ALIGN);
   unsigned long bare =
-      quantity_slots(Q_PHYS_TEXT_BASE, est, NULL, 0, KASLR_PHYS_ALIGN);
+      quantity_slots(Q_PHYS_IMAGE_BASE, est, NULL, 0, KASLR_PHYS_ALIGN);
   assert(with < bare);
 #endif
 }
@@ -1461,7 +1463,7 @@ static void test_cmdline_memmap_no_image_size(void) {
 /* x86_64_efi_phys_seed_zero: when EFI is present AND the cmdline
  * carries a memory-rewriting trigger (mem= / memmap= / hugepages=) AND a PHYS
  * kernel_image observation is in evidence (single-Loader-Code-entry path),
- * pin Q_PHYS_TEXT_BASE to the kernel_image lo. x86_64-only. */
+ * pin Q_PHYS_IMAGE_BASE to the kernel_image lo. x86_64-only. */
 int rule_x86_64_efi_phys_seed_zero(const struct evidence_set *ev,
                                    const struct estimate *est,
                                    struct constraint *out, int out_max);
@@ -1515,8 +1517,8 @@ static void test_x86_64_efi_phys_seed_zero_mem(void) {
   const rule_fn rules[] = {rule_x86_64_efi_phys_seed_zero};
   engine_run(&e, rules, 1);
   /* Bilateral pin at base. */
-  assert(e.est[Q_PHYS_TEXT_BASE].lo == base);
-  assert(e.est[Q_PHYS_TEXT_BASE].hi == base);
+  assert(e.est[Q_PHYS_IMAGE_BASE].lo == base);
+  assert(e.est[Q_PHYS_IMAGE_BASE].hi == base);
 #endif
 }
 
@@ -1530,8 +1532,8 @@ static void test_x86_64_efi_phys_seed_zero_memmap(void) {
   seed_zero_setup(&e, base, 0, 1, 0); /* memmap= trigger only */
   const rule_fn rules[] = {rule_x86_64_efi_phys_seed_zero};
   engine_run(&e, rules, 1);
-  assert(e.est[Q_PHYS_TEXT_BASE].lo == base);
-  assert(e.est[Q_PHYS_TEXT_BASE].hi == base);
+  assert(e.est[Q_PHYS_IMAGE_BASE].lo == base);
+  assert(e.est[Q_PHYS_IMAGE_BASE].hi == base);
 #endif
 }
 
@@ -1545,8 +1547,8 @@ static void test_x86_64_efi_phys_seed_zero_hugepages(void) {
   seed_zero_setup(&e, base, 0, 0, 1); /* hugepages= trigger only */
   const rule_fn rules[] = {rule_x86_64_efi_phys_seed_zero};
   engine_run(&e, rules, 1);
-  assert(e.est[Q_PHYS_TEXT_BASE].lo == base);
-  assert(e.est[Q_PHYS_TEXT_BASE].hi == base);
+  assert(e.est[Q_PHYS_IMAGE_BASE].lo == base);
+  assert(e.est[Q_PHYS_IMAGE_BASE].hi == base);
 #endif
 }
 
@@ -1562,8 +1564,8 @@ static void test_x86_64_efi_phys_seed_zero_no_trigger(void) {
   const rule_fn rules[] = {rule_x86_64_efi_phys_seed_zero};
   engine_run(&e, rules, 1);
   /* Window stays wider than the bilateral pin. */
-  assert(!(e.est[Q_PHYS_TEXT_BASE].lo == base &&
-           e.est[Q_PHYS_TEXT_BASE].hi == base));
+  assert(!(e.est[Q_PHYS_IMAGE_BASE].lo == base &&
+           e.est[Q_PHYS_IMAGE_BASE].hi == base));
 #endif
 }
 
@@ -1585,8 +1587,8 @@ static void test_x86_64_efi_phys_seed_zero_no_efi(void) {
   evidence_add(&e.ev, &m);
   const rule_fn rules[] = {rule_x86_64_efi_phys_seed_zero};
   engine_run(&e, rules, 1);
-  assert(!(e.est[Q_PHYS_TEXT_BASE].lo == base &&
-           e.est[Q_PHYS_TEXT_BASE].hi == base));
+  assert(!(e.est[Q_PHYS_IMAGE_BASE].lo == base &&
+           e.est[Q_PHYS_IMAGE_BASE].hi == base));
 #endif
 }
 
@@ -1603,10 +1605,10 @@ static void test_x86_64_efi_phys_seed_zero_no_kernel_image(void) {
   const rule_fn rules[] = {rule_x86_64_efi_phys_seed_zero};
   engine_run(&e, rules, 1);
   struct estimate top;
-  quantities[Q_PHYS_TEXT_BASE].init_top(&top);
+  quantities[Q_PHYS_IMAGE_BASE].init_top(&top);
   /* No pin: window unchanged. */
-  assert(e.est[Q_PHYS_TEXT_BASE].lo == top.lo);
-  assert(e.est[Q_PHYS_TEXT_BASE].hi == top.hi);
+  assert(e.est[Q_PHYS_IMAGE_BASE].lo == top.lo);
+  assert(e.est[Q_PHYS_IMAGE_BASE].hi == top.hi);
 #endif
 }
 
@@ -1636,17 +1638,19 @@ static void test_highmem_32bit_bound(void) {
                            rule_highmem_32bit_bound};
   engine_run(&e, rules, 2);
   struct estimate vtop;
-  quantities[Q_VIRT_TEXT_BASE].init_top(&vtop);
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&vtop);
 #if !TEXT_TRACKS_DIRECTMAP
-  assert(e.est[Q_VIRT_TEXT_BASE].hi == vtop.hi); /* inert on decoupled */
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi == vtop.hi); /* inert on decoupled */
 #else
   if (sizeof(unsigned long) == 4) {
-    unsigned long expect = (po + 0x20000000ul - (4ul << 20) + TEXT_OFFSET) &
-                           ~(KASLR_VIRT_ALIGN - 1);
+    unsigned long expect =
+        (po + 0x20000000ul - (4ul << 20) + IMAGE_BASE_OFFSET) &
+        ~(KASLR_VIRT_ALIGN - 1);
     if (expect > KASLR_VIRT_TEXT_MIN && expect < vtop.hi)
-      assert(e.est[Q_VIRT_TEXT_BASE].hi == expect);
+      assert(e.est[Q_VIRT_IMAGE_BASE].hi == expect);
   } else {
-    assert(e.est[Q_VIRT_TEXT_BASE].hi == vtop.hi); /* inert on 64-bit coupled */
+    assert(e.est[Q_VIRT_IMAGE_BASE].hi ==
+           vtop.hi); /* inert on 64-bit coupled */
   }
 #endif
 }
@@ -1661,14 +1665,14 @@ static void test_ppc64_firmware_ceiling(void) {
   const rule_fn rules[] = {rule_ppc64_firmware_ceiling};
   engine_run(&e, rules, 1);
   struct estimate vtop;
-  quantities[Q_VIRT_TEXT_BASE].init_top(&vtop);
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&vtop);
 #if defined(__powerpc64__)
   unsigned long expect =
       (KASLR_VIRT_TEXT_MIN + fw - (16ul << 20)) & ~(KASLR_VIRT_ALIGN - 1);
   if (expect > KASLR_VIRT_TEXT_MIN && expect < vtop.hi)
-    assert(e.est[Q_VIRT_TEXT_BASE].hi == expect);
+    assert(e.est[Q_VIRT_IMAGE_BASE].hi == expect);
 #else
-  assert(e.est[Q_VIRT_TEXT_BASE].hi == vtop.hi); /* inert off ppc64 */
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi == vtop.hi); /* inert off ppc64 */
 #endif
 }
 
@@ -1692,13 +1696,13 @@ static void test_x86_32_vmsplit_ceiling(void) {
                            rule_x86_32_vmsplit_ceiling};
   engine_run(&e, rules, 2);
   struct estimate vtop;
-  quantities[Q_VIRT_TEXT_BASE].init_top(&vtop);
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&vtop);
 #if defined(__i386__)
   unsigned long expect = po + (512UL * 1024 * 1024);
   if (expect > KASLR_VIRT_TEXT_MIN && expect < vtop.hi)
-    assert(e.est[Q_VIRT_TEXT_BASE].hi == expect);
+    assert(e.est[Q_VIRT_IMAGE_BASE].hi == expect);
 #else
-  assert(e.est[Q_VIRT_TEXT_BASE].hi == vtop.hi); /* inert off i386 */
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi == vtop.hi); /* inert off i386 */
 #endif
 }
 
@@ -2171,12 +2175,12 @@ static void test_s390_text_from_vmalloc_lo_bound(void) {
 
 #if defined(__s390__) || defined(__s390x__)
   unsigned long expect = v_va + 0x80000000ul + 1ul;
-  /* Q_VIRT_TEXT_BASE lo is at least expect. */
-  assert(e.est[Q_VIRT_TEXT_BASE].lo >= expect);
+  /* Q_VIRT_IMAGE_BASE lo is at least expect. */
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo >= expect);
 #else
   struct estimate top;
-  quantities[Q_VIRT_TEXT_BASE].init_top(&top);
-  assert(e.est[Q_VIRT_TEXT_BASE].lo == top.lo);
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo == top.lo);
 #endif
 }
 
@@ -2187,12 +2191,12 @@ static void test_s390_text_from_vmalloc_no_obs(void) {
   const rule_fn rules[] = {rule_s390_text_from_belows};
   engine_run(&e, rules, 1);
   struct estimate top;
-  quantities[Q_VIRT_TEXT_BASE].init_top(&top);
-  assert(e.est[Q_VIRT_TEXT_BASE].lo == top.lo);
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo == top.lo);
 }
 
 /* s390_text_from_vmemmap, VMEMMAP rung of the below-text cascade):
- * a VIRT/VMEMMAP observation pushes Q_VIRT_TEXT_BASE.lo up by at least
+ * a VIRT/VMEMMAP observation pushes Q_VIRT_IMAGE_BASE.lo up by at least
  * vmemmap_size + MODULES_LEN + 1, where vmemmap_size is derived from
  * SF_PHYS_MAX_PFN × 64 (upstream default struct page bytes). */
 static void test_s390_text_from_vmemmap_with_max_pfn(void) {
@@ -2213,11 +2217,11 @@ static void test_s390_text_from_vmemmap_with_max_pfn(void) {
   /* expect ≥ V_mm + vmemmap_size + MODULES_LEN + 1
    *        = V_mm + 64 MiB + 2 GiB + 1 */
   unsigned long expect = v_mm + (max_pfn * 64ul) + 0x80000000ul + 1ul;
-  assert(e.est[Q_VIRT_TEXT_BASE].lo >= expect);
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo >= expect);
 #else
   struct estimate top;
-  quantities[Q_VIRT_TEXT_BASE].init_top(&top);
-  assert(e.est[Q_VIRT_TEXT_BASE].lo == top.lo);
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo == top.lo);
 #endif
 }
 
@@ -2244,12 +2248,12 @@ static void test_s390_text_from_belows_uses_struct_page_fact(void) {
 #if defined(__s390__) || defined(__s390x__)
   unsigned long expect = v_mm + (max_pfn * sp) + 0x80000000ul + 1ul;
   unsigned long fallback = v_mm + (max_pfn * 64ul) + 0x80000000ul + 1ul;
-  assert(e.est[Q_VIRT_TEXT_BASE].lo >= expect);  /* uses the exact 80 bytes */
-  assert(e.est[Q_VIRT_TEXT_BASE].lo > fallback); /* tighter than the default */
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo >= expect);  /* uses the exact 80 bytes */
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo > fallback); /* tighter than the default */
 #else
   struct estimate top;
-  quantities[Q_VIRT_TEXT_BASE].init_top(&top);
-  assert(e.est[Q_VIRT_TEXT_BASE].lo == top.lo);
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo == top.lo);
 #endif
 }
 
@@ -2266,11 +2270,11 @@ static void test_s390_text_from_vmemmap_no_max_pfn(void) {
   engine_run(&e, rules, 1);
 #if defined(__s390__) || defined(__s390x__)
   unsigned long expect = v_mm + 0x80000000ul + 1ul;
-  assert(e.est[Q_VIRT_TEXT_BASE].lo >= expect);
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo >= expect);
 #else
   struct estimate top;
-  quantities[Q_VIRT_TEXT_BASE].init_top(&top);
-  assert(e.est[Q_VIRT_TEXT_BASE].lo == top.lo);
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo == top.lo);
 #endif
 }
 
@@ -2281,12 +2285,12 @@ static void test_s390_text_from_vmemmap_no_obs(void) {
   const rule_fn rules[] = {rule_s390_text_from_belows};
   engine_run(&e, rules, 1);
   struct estimate top;
-  quantities[Q_VIRT_TEXT_BASE].init_top(&top);
-  assert(e.est[Q_VIRT_TEXT_BASE].lo == top.lo);
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo == top.lo);
 }
 
 /* s390_text_segment_mod: a PHYS/KERNEL_IMAGE observation pins
- * Q_VIRT_TEXT_BASE's stride class to (phys mod 1 MiB). */
+ * Q_VIRT_IMAGE_BASE's stride class to (phys mod 1 MiB). */
 int rule_s390_text_segment_mod(const struct evidence_set *ev,
                                const struct estimate *est,
                                struct constraint *out, int out_max);
@@ -2302,14 +2306,14 @@ static void test_s390_text_segment_mod_fires(void) {
   const rule_fn rules[] = {rule_s390_text_segment_mod};
   engine_run(&e, rules, 1);
 #if defined(__s390__) || defined(__s390x__)
-  assert(e.est[Q_VIRT_TEXT_BASE].stride == 0x100000ul);
-  assert(e.est[Q_VIRT_TEXT_BASE].stride_offset == (phys_anchor % 0x100000ul));
-  assert(!estimate_is_bottom(&e.est[Q_VIRT_TEXT_BASE],
-                             &quantities[Q_VIRT_TEXT_BASE]));
+  assert(e.est[Q_VIRT_IMAGE_BASE].stride == 0x100000ul);
+  assert(e.est[Q_VIRT_IMAGE_BASE].stride_offset == (phys_anchor % 0x100000ul));
+  assert(!estimate_is_bottom(&e.est[Q_VIRT_IMAGE_BASE],
+                             &quantities[Q_VIRT_IMAGE_BASE]));
 #else
   /* Inert off s390 — the rule's #if guard returns 0 and the estimate's
    * stride stays at its top (= 0). */
-  assert(e.est[Q_VIRT_TEXT_BASE].stride == 0);
+  assert(e.est[Q_VIRT_IMAGE_BASE].stride == 0);
 #endif
 }
 
@@ -2319,12 +2323,12 @@ static void test_s390_text_segment_mod_no_anchor(void) {
   /* No PHYS/KERNEL_IMAGE observation — rule should not fire. */
   const rule_fn rules[] = {rule_s390_text_segment_mod};
   engine_run(&e, rules, 1);
-  assert(e.est[Q_VIRT_TEXT_BASE].stride == 0);
+  assert(e.est[Q_VIRT_IMAGE_BASE].stride == 0);
 }
 
 /* s390_text_no_random: when SF_PHYS_KASLR_RANDOMIZATION_FAILED is present on
  * s390, the boot stub places the kernel image at low physical memory
- * (TEXT_OFFSET on pre-v6.8, or ALIGN(mem_safe_offset, 1MiB) on v6.8+).
+ * (IMAGE_BASE_OFFSET on pre-v6.8, or ALIGN(mem_safe_offset, 1MiB) on v6.8+).
  * The rule emits a 256 MiB upper bound at CONF_HEURISTIC. */
 int rule_s390_text_no_random(const struct evidence_set *ev,
                              const struct estimate *est, struct constraint *out,
@@ -2341,7 +2345,7 @@ static void test_s390_text_no_random_fires_with_signal(void) {
   const rule_fn rules[] = {rule_s390_text_no_random};
   engine_run(&e, rules, 1);
   /* Upper bound at 256 MiB; lower bound stays at the honest floor. */
-  assert(e.est[Q_PHYS_TEXT_BASE].hi == 256ul * 1024ul * 1024ul);
+  assert(e.est[Q_PHYS_IMAGE_BASE].hi == 256ul * 1024ul * 1024ul);
 #endif
 }
 
@@ -2353,11 +2357,11 @@ static void test_s390_text_no_random_inert_without_signal(void) {
   engine_init(&e);
   /* No SF_PHYS_KASLR_RANDOMIZATION_FAILED. */
   struct estimate top;
-  quantities[Q_PHYS_TEXT_BASE].init_top(&top);
+  quantities[Q_PHYS_IMAGE_BASE].init_top(&top);
 
   const rule_fn rules[] = {rule_s390_text_no_random};
   engine_run(&e, rules, 1);
-  assert(e.est[Q_PHYS_TEXT_BASE].hi == top.hi);
+  assert(e.est[Q_PHYS_IMAGE_BASE].hi == top.hi);
 #endif
 }
 
@@ -2376,14 +2380,14 @@ static void test_s390_text_no_random_admits_empirical_phys(void) {
   const rule_fn rules[] = {rule_s390_text_no_random};
   engine_run(&e, rules, 1);
   const unsigned long empirical_phys = 0xaa0000ul;
-  assert(empirical_phys <= e.est[Q_PHYS_TEXT_BASE].hi);
-  assert(empirical_phys >= e.est[Q_PHYS_TEXT_BASE].lo);
+  assert(empirical_phys <= e.est[Q_PHYS_IMAGE_BASE].hi);
+  assert(empirical_phys >= e.est[Q_PHYS_IMAGE_BASE].lo);
 #endif
 }
 
 /* cmdline_memmap_too_large_phys_pin: cmdline carries 5+ memmap=
  * tokens with offset → SF_CMDLINE_MEMMAP_COUNT > 4 + a PHYS kernel_image
- * observation pins Q_PHYS_TEXT_BASE bilaterally. */
+ * observation pins Q_PHYS_IMAGE_BASE bilaterally. */
 int rule_cmdline_memmap_too_large_phys_pin(const struct evidence_set *ev,
                                            const struct estimate *est,
                                            struct constraint *out, int out_max);
@@ -2407,8 +2411,8 @@ static void test_cmdline_memmap_too_large_phys_pin(void) {
   const rule_fn rules[] = {rule_cmdline_memmap_too_large_phys_pin};
   engine_run(&e, rules, 1);
   /* Bilateral pin. */
-  assert(e.est[Q_PHYS_TEXT_BASE].lo == base);
-  assert(e.est[Q_PHYS_TEXT_BASE].hi == base);
+  assert(e.est[Q_PHYS_IMAGE_BASE].lo == base);
+  assert(e.est[Q_PHYS_IMAGE_BASE].hi == base);
 #endif
 }
 
@@ -2429,13 +2433,13 @@ static void test_cmdline_memmap_too_large_phys_pin_under_threshold(void) {
   const rule_fn rules[] = {rule_cmdline_memmap_too_large_phys_pin};
   engine_run(&e, rules, 1);
   /* Window not narrowed to a point. */
-  assert(!(e.est[Q_PHYS_TEXT_BASE].lo == base &&
-           e.est[Q_PHYS_TEXT_BASE].hi == base));
+  assert(!(e.est[Q_PHYS_IMAGE_BASE].lo == base &&
+           e.est[Q_PHYS_IMAGE_BASE].hi == base));
 #endif
 }
 
 /* physical_start_lower_bound (1.1 fix): when SF_PHYSICAL_START is learned,
- * push Q_VIRT_TEXT_BASE.lo + Q_PHYS_TEXT_BASE.lo to the precise floor at
+ * push Q_VIRT_IMAGE_BASE.lo + Q_PHYS_IMAGE_BASE.lo to the precise floor at
  * CONF_PARSED; without the scalar, fall back to compile-time
  * KASLR_VIRT_TEXT_MIN at CONF_HEURISTIC (overridable by any real evidence). */
 int rule_physical_start_lower_bound(const struct evidence_set *ev,
@@ -2451,11 +2455,11 @@ static void test_physical_start_lower_bound_learned(void) {
   evidence_add(&e.ev, &o);
   const rule_fn rules[] = {rule_physical_start_lower_bound};
   engine_run(&e, rules, 1);
-  /* Q_VIRT_TEXT_BASE.lo raised to KERNEL_VIRT_TEXT_MIN + learned. */
-  assert(e.est[Q_VIRT_TEXT_BASE].lo ==
+  /* Q_VIRT_IMAGE_BASE.lo raised to KERNEL_VIRT_TEXT_MIN + learned. */
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo ==
          (unsigned long)KERNEL_VIRT_TEXT_MIN + learned);
-  /* Q_PHYS_TEXT_BASE.lo raised to learned. */
-  assert(e.est[Q_PHYS_TEXT_BASE].lo == learned);
+  /* Q_PHYS_IMAGE_BASE.lo raised to learned. */
+  assert(e.est[Q_PHYS_IMAGE_BASE].lo == learned);
 #endif
 }
 
@@ -2468,8 +2472,8 @@ static void test_physical_start_lower_bound_heuristic(void) {
   engine_init(&e);
   const rule_fn rules[] = {rule_physical_start_lower_bound};
   engine_run(&e, rules, 1);
-  assert(e.est[Q_VIRT_TEXT_BASE].lo == (unsigned long)KASLR_VIRT_TEXT_MIN);
-  assert(e.est[Q_PHYS_TEXT_BASE].lo == (unsigned long)KASLR_PHYS_MIN);
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo == (unsigned long)KASLR_VIRT_TEXT_MIN);
+  assert(e.est[Q_PHYS_IMAGE_BASE].lo == (unsigned long)KASLR_PHYS_MIN);
 #endif
 }
 
@@ -2492,8 +2496,8 @@ static void test_physical_start_lower_bound_leak_below_heuristic(void) {
   engine_run(&e, rules, 2);
   /* The CONF_PARSED leak upper bound (text ≤ below) must coexist with the
    * window — i.e. the resolved window admits `below`. */
-  assert(e.est[Q_VIRT_TEXT_BASE].lo <= below);
-  assert(e.est[Q_VIRT_TEXT_BASE].hi == below);
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo <= below);
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi == below);
 #endif
 }
 
@@ -3011,11 +3015,11 @@ static void test_ceiling_uses_resolved_align(void) {
   engine_run(&e, rules, 3);
 
   struct estimate top;
-  quantities[Q_VIRT_TEXT_BASE].init_top(&top);
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
   unsigned long expect =
       min_ul((KASLR_VIRT_TEXT_MAX - init_size) & ~(kalign - 1), top.hi);
   assert(e.est[Q_VIRT_KASLR_ALIGN].lo == kalign);
-  assert(e.est[Q_VIRT_TEXT_BASE].hi ==
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi ==
          expect); /* snapped to 16 MiB, not 2 MiB */
   /* And strictly tighter than the compile-time-align ceiling would be. */
   assert(expect <= ((KASLR_VIRT_TEXT_MAX - init_size) &
@@ -3068,18 +3072,18 @@ static void test_config_max_offset_ceiling(void) {
   engine_run(&e, rules, 1);
 
   struct estimate top;
-  quantities[Q_VIRT_TEXT_BASE].init_top(&top);
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
 #if defined(__mips__) || defined(__loongarch__)
   unsigned long kl = bs.hi - tx.lo + 1;
   unsigned long aligned_kl = (kl + 0xffff) & ~0xfffful;
   unsigned long ceiling =
       (unsigned long)KASLR_VIRT_TEXT_MIN + max_offset + aligned_kl;
   if (ceiling < top.hi)
-    assert(e.est[Q_VIRT_TEXT_BASE].hi == ceiling);
+    assert(e.est[Q_VIRT_IMAGE_BASE].hi == ceiling);
 #else
   /* Inert off MIPS/LoongArch — estimate stays at top regardless of the
    * scalar. */
-  assert(e.est[Q_VIRT_TEXT_BASE].hi == top.hi);
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi == top.hi);
 #endif
 }
 
@@ -3090,8 +3094,8 @@ static void test_config_max_offset_absent(void) {
   const rule_fn rules[] = {rule_config_max_offset_ceiling};
   engine_run(&e, rules, 1);
   struct estimate top;
-  quantities[Q_VIRT_TEXT_BASE].init_top(&top);
-  assert(e.est[Q_VIRT_TEXT_BASE].hi == top.hi);
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi == top.hi);
 }
 
 /* page_offset_invariant_pin: on arches where PAGE_OFFSET is architecturally
@@ -3150,7 +3154,7 @@ static void test_page_offset_from_config(void) {
 }
 
 /* virt_kaslr_disabled_pin: SF_VIRT_KASLR_DISABLED + the arch's compile-time
- * default text base pins Q_VIRT_TEXT_BASE on arches where
+ * default text base pins Q_VIRT_IMAGE_BASE on arches where
  * KASLR_DISABLED_PINS_VIRT_TEXT==1 (x86_64, arm64, riscv64); inert elsewhere.
  * The window-containment check guards against a computed default outside the
  * honest top. */
@@ -3165,7 +3169,7 @@ static void test_virt_kaslr_disabled_pin(void) {
   struct engine e;
   engine_init(&e);
   struct estimate top;
-  quantities[Q_VIRT_TEXT_BASE].init_top(&top);
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
   unsigned long def = arch_default_text_base();
 
   struct observation sig = mk_scalar(SF_VIRT_KASLR_DISABLED, 1, CONF_PARSED);
@@ -3177,18 +3181,19 @@ static void test_virt_kaslr_disabled_pin(void) {
 #if KASLR_DISABLED_PINS_VIRT_TEXT
   /* Pinned to the per-arch default if it lies in the honest window. */
   if (def >= top.lo && def <= top.hi) {
-    assert(e.est[Q_VIRT_TEXT_BASE].lo == def);
-    assert(e.est[Q_VIRT_TEXT_BASE].hi == def);
+    assert(e.est[Q_VIRT_IMAGE_BASE].lo == def);
+    assert(e.est[Q_VIRT_IMAGE_BASE].hi == def);
   } else {
     /* Window-containment backstop: a default we cannot place leaves the
      * window intact rather than pinning to a wrong value. */
-    assert(e.est[Q_VIRT_TEXT_BASE].lo == top.lo);
-    assert(e.est[Q_VIRT_TEXT_BASE].hi == top.hi);
+    assert(e.est[Q_VIRT_IMAGE_BASE].lo == top.lo);
+    assert(e.est[Q_VIRT_IMAGE_BASE].hi == top.hi);
   }
 #else
   (void)def;
-  assert(e.est[Q_VIRT_TEXT_BASE].lo == top.lo); /* inert on relocating arches */
-  assert(e.est[Q_VIRT_TEXT_BASE].hi == top.hi);
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo ==
+         top.lo); /* inert on relocating arches */
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi == top.hi);
 #endif
 }
 
@@ -3200,7 +3205,7 @@ static void test_virt_kaslr_disabled_pin_no_signal_no_pin(void) {
   struct engine e;
   engine_init(&e);
   struct estimate top;
-  quantities[Q_VIRT_TEXT_BASE].init_top(&top);
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
   unsigned long def = top.lo;
   struct observation o = mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, def,
                                 LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
@@ -3208,8 +3213,8 @@ static void test_virt_kaslr_disabled_pin_no_signal_no_pin(void) {
 
   const rule_fn rules[] = {rule_virt_kaslr_disabled_pin};
   engine_run(&e, rules, 1);
-  assert(e.est[Q_VIRT_TEXT_BASE].lo == top.lo);
-  assert(e.est[Q_VIRT_TEXT_BASE].hi == top.hi);
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo == top.lo);
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi == top.hi);
 }
 
 /* directmap_kaslr_disabled_pin: KASAN (or nokaslr) leaves page_offset / vmalloc
@@ -3290,7 +3295,7 @@ static void test_directmap_kaslr_disabled_pin(void) {
 #endif
 }
 
-/* SF_PHYS_KASLR_DISABLED pins Q_PHYS_TEXT_BASE on arches where the kernel's
+/* SF_PHYS_KASLR_DISABLED pins Q_PHYS_IMAGE_BASE on arches where the kernel's
  * decompressor/relocator keeps the image at its compile-time physical default
  * under nokaslr (KASLR_DISABLED_PINS_PHYS=1). Per-quantity window-containment
  * applies independently. */
@@ -3298,7 +3303,7 @@ static void test_phys_kaslr_disabled_pin(void) {
   struct engine e;
   engine_init(&e);
   struct estimate top_p;
-  quantities[Q_PHYS_TEXT_BASE].init_top(&top_p);
+  quantities[Q_PHYS_IMAGE_BASE].init_top(&top_p);
 
   struct observation sig = mk_scalar(SF_PHYS_KASLR_DISABLED, 1, CONF_PARSED);
   evidence_add(&e.ev, &sig);
@@ -3309,20 +3314,20 @@ static void test_phys_kaslr_disabled_pin(void) {
 #if KASLR_DISABLED_PINS_PHYS
   unsigned long def = arch_default_phys_text_base();
   if (def != 0 && def >= top_p.lo && def <= top_p.hi) {
-    assert(e.est[Q_PHYS_TEXT_BASE].lo == def);
-    assert(e.est[Q_PHYS_TEXT_BASE].hi == def);
+    assert(e.est[Q_PHYS_IMAGE_BASE].lo == def);
+    assert(e.est[Q_PHYS_IMAGE_BASE].hi == def);
   } else {
     /* Window-containment: a default outside the window leaves it intact. */
-    assert(e.est[Q_PHYS_TEXT_BASE].lo == top_p.lo);
-    assert(e.est[Q_PHYS_TEXT_BASE].hi == top_p.hi);
+    assert(e.est[Q_PHYS_IMAGE_BASE].lo == top_p.lo);
+    assert(e.est[Q_PHYS_IMAGE_BASE].hi == top_p.hi);
   }
 #else
   /* Inert on arches where phys placement is bootloader/platform-determined
    * (arm64 memstart_addr, riscv64 DRAM_BASE, s390 __kaslr_offset_phys).
    * Even though SF_PHYS_KASLR_DISABLED is true, the rule refuses to pin
    * because arch_default_phys_text_base() doesn't model truth there. */
-  assert(e.est[Q_PHYS_TEXT_BASE].lo == top_p.lo);
-  assert(e.est[Q_PHYS_TEXT_BASE].hi == top_p.hi);
+  assert(e.est[Q_PHYS_IMAGE_BASE].lo == top_p.lo);
+  assert(e.est[Q_PHYS_IMAGE_BASE].hi == top_p.hi);
 #endif
 }
 
@@ -3333,7 +3338,7 @@ static void test_phys_kaslr_disabled_pin_defers_to_real_leak(void) {
   struct engine e;
   engine_init(&e);
   struct estimate top_p;
-  quantities[Q_PHYS_TEXT_BASE].init_top(&top_p);
+  quantities[Q_PHYS_IMAGE_BASE].init_top(&top_p);
   unsigned long def = arch_default_phys_text_base();
   unsigned long real = def + 0x200000ul; /* one slot above the default */
   if (def == 0 || real > top_p.hi || real < top_p.lo)
@@ -3344,8 +3349,8 @@ static void test_phys_kaslr_disabled_pin_defers_to_real_leak(void) {
 
   const rule_fn rules[] = {rule_phys_kaslr_disabled_pin};
   engine_run(&e, rules, 1);
-  assert(e.est[Q_PHYS_TEXT_BASE].lo == def);
-  assert(e.est[Q_PHYS_TEXT_BASE].hi == def);
+  assert(e.est[Q_PHYS_IMAGE_BASE].lo == def);
+  assert(e.est[Q_PHYS_IMAGE_BASE].hi == def);
 #endif
 }
 
@@ -3358,7 +3363,7 @@ static void test_phys_kaslr_disabled_pin_inert_on_decoupled(void) {
   struct engine e;
   engine_init(&e);
   struct estimate top_p;
-  quantities[Q_PHYS_TEXT_BASE].init_top(&top_p);
+  quantities[Q_PHYS_IMAGE_BASE].init_top(&top_p);
 
   /* Emit BOTH facts (matches every current emitter) and run only the phys
    * rule to isolate its behavior. */
@@ -3371,8 +3376,8 @@ static void test_phys_kaslr_disabled_pin_inert_on_decoupled(void) {
   engine_run(&e, rules, 1);
 
   /* Phys left wide — KASLR_DISABLED_PINS_PHYS=0 short-circuits the rule. */
-  assert(e.est[Q_PHYS_TEXT_BASE].lo == top_p.lo);
-  assert(e.est[Q_PHYS_TEXT_BASE].hi == top_p.hi);
+  assert(e.est[Q_PHYS_IMAGE_BASE].lo == top_p.lo);
+  assert(e.est[Q_PHYS_IMAGE_BASE].hi == top_p.hi);
 #endif
 }
 
@@ -3419,7 +3424,7 @@ static void test_mmio_floor_phys_ceiling(void) {
   const rule_fn rules[] = {rule_mmio_floor_phys_ceiling};
   engine_run(&e, rules, 1);
 #if !TEXT_TRACKS_DIRECTMAP
-  assert(e.est[Q_PHYS_TEXT_BASE].hi == P + 0x90000000ul - 1);
+  assert(e.est[Q_PHYS_IMAGE_BASE].hi == P + 0x90000000ul - 1);
 #else
   (void)e;
 #endif
@@ -3436,7 +3441,7 @@ static void test_phys_hole_filter(void) {
   const rule_fn rules[] = {rule_phys_hole_filter};
   engine_run(&e, rules, 1);
 #if !TEXT_TRACKS_DIRECTMAP
-  assert(e.est[Q_PHYS_TEXT_BASE].hi == P + 0x4000000ul); /* highest DRAM hi */
+  assert(e.est[Q_PHYS_IMAGE_BASE].hi == P + 0x4000000ul); /* highest DRAM hi */
 #else
   (void)e;
 #endif
@@ -3453,15 +3458,15 @@ static void test_kernel_image_phys_bound(void) {
   const rule_fn rules[] = {rule_kernel_image_phys_bound};
   engine_run(&e, rules, 1);
   /* phys base ≤ witness, aligned down to the phys KASLR slot. The rule
-   * emits Q_PHYS_TEXT_BASE on every arch now (the cross-side projection
+   * emits Q_PHYS_IMAGE_BASE on every arch now (the cross-side projection
    * lives in text_base_coupling_synth on coupled arches). */
-  assert(e.est[Q_PHYS_TEXT_BASE].hi <= w);
-  assert(e.est[Q_PHYS_TEXT_BASE].hi >= w - (unsigned long)KASLR_PHYS_ALIGN);
+  assert(e.est[Q_PHYS_IMAGE_BASE].hi <= w);
+  assert(e.est[Q_PHYS_IMAGE_BASE].hi >= w - (unsigned long)KASLR_PHYS_ALIGN);
 }
 
 /* kernel_image_phys_bound's high-witness path: when the highest PHYS
  * kernel-image witness sits above MAX_KERNEL_IMAGE_SIZE, the rule emits
- * a LOWER bound on Q_PHYS_TEXT_BASE = hi - MAX + 1 (independent of arch
+ * a LOWER bound on Q_PHYS_IMAGE_BASE = hi - MAX + 1 (independent of arch
  * coupling — relies only on the image-size cap). The spread between
  * witnesses is kept well under MAX so both bounds coexist consistently. */
 static void test_kernel_image_phys_bound_lower_from_high_witness(void) {
@@ -3481,9 +3486,9 @@ static void test_kernel_image_phys_bound_lower_from_high_witness(void) {
   const rule_fn rules[] = {rule_kernel_image_phys_bound};
   engine_run(&e, rules, 1);
   unsigned long expected_pmin_raw = hi_w - (256ul * 1024 * 1024) + 1;
-  assert(e.est[Q_PHYS_TEXT_BASE].lo >= expected_pmin_raw);
-  assert(e.est[Q_PHYS_TEXT_BASE].hi <= lo_w);
-  assert(e.est[Q_PHYS_TEXT_BASE].lo <= e.est[Q_PHYS_TEXT_BASE].hi);
+  assert(e.est[Q_PHYS_IMAGE_BASE].lo >= expected_pmin_raw);
+  assert(e.est[Q_PHYS_IMAGE_BASE].hi <= lo_w);
+  assert(e.est[Q_PHYS_IMAGE_BASE].lo <= e.est[Q_PHYS_IMAGE_BASE].hi);
 }
 
 int rule_efi_loader_kernel_pick(const struct evidence_set *ev,
@@ -3502,14 +3507,14 @@ static struct observation mk_efi_loader_entry(unsigned long lo,
 }
 
 /* Single Loader Code entry, aligned at EFI_KIMG_ALIGN, size exactly
- * SF_IMAGE_SIZE → unique survivor → Q_PHYS_TEXT_BASE pinned to entry.lo. */
+ * SF_IMAGE_SIZE → unique survivor → Q_PHYS_IMAGE_BASE pinned to entry.lo. */
 static void test_efi_loader_kernel_pick_single_aligned(void) {
 #if defined(EFI_KIMG_ALIGN)
   const unsigned long P = (unsigned long)PHYS_OFFSET;
   const unsigned long ksize = 0x800000ul; /* 8 MiB */
   /* +1 GiB above PHYS_OFFSET is a multiple of every plausible
    * EFI_KIMG_ALIGN (64 KiB / 128 KiB / 2 MiB / …), keeps the candidate
-   * inside every arch's Q_PHYS_TEXT_BASE honest top. */
+   * inside every arch's Q_PHYS_IMAGE_BASE honest top. */
   const unsigned long entry_lo = P + 0x40000000ul;
   const unsigned long entry_hi = entry_lo + ksize - 1;
   struct engine e;
@@ -3522,8 +3527,8 @@ static void test_efi_loader_kernel_pick_single_aligned(void) {
   const rule_fn rules[] = {rule_efi_loader_kernel_pick};
   engine_run(&e, rules, 1);
   /* Window collapsed to the pin. */
-  assert(e.est[Q_PHYS_TEXT_BASE].lo == entry_lo);
-  assert(e.est[Q_PHYS_TEXT_BASE].hi == entry_lo);
+  assert(e.est[Q_PHYS_IMAGE_BASE].lo == entry_lo);
+  assert(e.est[Q_PHYS_IMAGE_BASE].hi == entry_lo);
 #endif
 }
 
@@ -3548,8 +3553,8 @@ static void test_efi_loader_kernel_pick_multi_one_survives(void) {
 
   const rule_fn rules[] = {rule_efi_loader_kernel_pick};
   engine_run(&e, rules, 1);
-  assert(e.est[Q_PHYS_TEXT_BASE].lo == kernel_lo);
-  assert(e.est[Q_PHYS_TEXT_BASE].hi == kernel_lo);
+  assert(e.est[Q_PHYS_IMAGE_BASE].lo == kernel_lo);
+  assert(e.est[Q_PHYS_IMAGE_BASE].hi == kernel_lo);
 #endif
 }
 
@@ -3574,20 +3579,20 @@ static void test_efi_loader_kernel_pick_multi_ambiguous_inert(void) {
 
   /* Capture honest top so we can confirm the rule was inert. */
   struct estimate top;
-  quantities[Q_PHYS_TEXT_BASE].init_top(&top);
+  quantities[Q_PHYS_IMAGE_BASE].init_top(&top);
 
   const rule_fn rules[] = {rule_efi_loader_kernel_pick};
   engine_run(&e, rules, 1);
   /* Estimate stays at the honest top — no pin emitted. */
-  assert(e.est[Q_PHYS_TEXT_BASE].lo == top.lo);
-  assert(e.est[Q_PHYS_TEXT_BASE].hi == top.hi);
+  assert(e.est[Q_PHYS_IMAGE_BASE].lo == top.lo);
+  assert(e.est[Q_PHYS_IMAGE_BASE].hi == top.hi);
 #endif
 }
 
 /* With SF_PHYS_KASLR_RANDOMIZATION_FAILED present, two surviving entries are
  * disambiguated by "firmware picks the lowest aligned slot" — the EFI stub
  * fell back from efi_random_alloc to a deterministic allocation that orders
- * memmap entries by physical address. Pin Q_PHYS_TEXT_BASE to the LOWER
+ * memmap entries by physical address. Pin Q_PHYS_IMAGE_BASE to the LOWER
  * survivor's lo at CONF_HEURISTIC (deferred to by any CONF_PARSED leak). */
 static void test_efi_loader_kernel_pick_multi_rand_failed_picks_lowest(void) {
 #if defined(EFI_KIMG_ALIGN)
@@ -3611,8 +3616,8 @@ static void test_efi_loader_kernel_pick_multi_rand_failed_picks_lowest(void) {
   const rule_fn rules[] = {rule_efi_loader_kernel_pick};
   engine_run(&e, rules, 1);
   /* Pinned to lower survivor, regardless of insertion order. */
-  assert(e.est[Q_PHYS_TEXT_BASE].lo == a_lo);
-  assert(e.est[Q_PHYS_TEXT_BASE].hi == a_lo);
+  assert(e.est[Q_PHYS_IMAGE_BASE].lo == a_lo);
+  assert(e.est[Q_PHYS_IMAGE_BASE].hi == a_lo);
 #endif
 }
 
@@ -3636,12 +3641,12 @@ static void test_efi_loader_kernel_pick_multi_without_signal_still_inert(void) {
   evidence_add(&e.ev, &b);
 
   struct estimate top;
-  quantities[Q_PHYS_TEXT_BASE].init_top(&top);
+  quantities[Q_PHYS_IMAGE_BASE].init_top(&top);
 
   const rule_fn rules[] = {rule_efi_loader_kernel_pick};
   engine_run(&e, rules, 1);
-  assert(e.est[Q_PHYS_TEXT_BASE].lo == top.lo);
-  assert(e.est[Q_PHYS_TEXT_BASE].hi == top.hi);
+  assert(e.est[Q_PHYS_IMAGE_BASE].lo == top.lo);
+  assert(e.est[Q_PHYS_IMAGE_BASE].hi == top.hi);
 #endif
 }
 
@@ -3659,12 +3664,12 @@ static void test_efi_loader_kernel_pick_no_image_size_inert(void) {
   evidence_add(&e.ev, &o);
 
   struct estimate top;
-  quantities[Q_PHYS_TEXT_BASE].init_top(&top);
+  quantities[Q_PHYS_IMAGE_BASE].init_top(&top);
 
   const rule_fn rules[] = {rule_efi_loader_kernel_pick};
   engine_run(&e, rules, 1);
-  assert(e.est[Q_PHYS_TEXT_BASE].lo == top.lo);
-  assert(e.est[Q_PHYS_TEXT_BASE].hi == top.hi);
+  assert(e.est[Q_PHYS_IMAGE_BASE].lo == top.lo);
+  assert(e.est[Q_PHYS_IMAGE_BASE].hi == top.hi);
 #endif
 }
 
@@ -3685,12 +3690,12 @@ static void test_efi_loader_kernel_pick_size_above_tolerance_inert(void) {
   evidence_add(&e.ev, &o);
 
   struct estimate top;
-  quantities[Q_PHYS_TEXT_BASE].init_top(&top);
+  quantities[Q_PHYS_IMAGE_BASE].init_top(&top);
 
   const rule_fn rules[] = {rule_efi_loader_kernel_pick};
   engine_run(&e, rules, 1);
-  assert(e.est[Q_PHYS_TEXT_BASE].lo == top.lo);
-  assert(e.est[Q_PHYS_TEXT_BASE].hi == top.hi);
+  assert(e.est[Q_PHYS_IMAGE_BASE].lo == top.lo);
+  assert(e.est[Q_PHYS_IMAGE_BASE].hi == top.hi);
 #endif
 }
 
@@ -3705,7 +3710,7 @@ static void test_image_size_text_data_gap(void) {
   struct engine e;
   engine_init(&e);
   struct estimate top;
-  quantities[Q_VIRT_TEXT_BASE].init_top(&top);
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
   unsigned long text = top.lo;
   unsigned long gap = 0x800000ul; /* 8 MiB text..data */
   struct observation t = mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, text,
@@ -3719,7 +3724,7 @@ static void test_image_size_text_data_gap(void) {
   unsigned long expect = ((unsigned long)KASLR_VIRT_TEXT_MAX - gap) &
                          ~((unsigned long)KASLR_VIRT_ALIGN - 1);
   if (expect < top.hi)
-    assert(e.est[Q_VIRT_TEXT_BASE].hi == expect);
+    assert(e.est[Q_VIRT_IMAGE_BASE].hi == expect);
 }
 
 /* 64-bit-only: these model a randomized direct map with TiB-scale offsets and
@@ -4119,16 +4124,16 @@ static void test_s390_paging_level(void) {
   engine_run(&e, rules, 2);
 
   struct estimate top;
-  quantities[Q_VIRT_TEXT_BASE].init_top(&top);
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
 #if defined(__s390x__) || defined(__zarch__)
   unsigned long align = e.est[Q_VIRT_KASLR_ALIGN].lo;
   if (align < (unsigned long)KASLR_VIRT_ALIGN)
     align = (unsigned long)KASLR_VIRT_ALIGN;
   unsigned long ceiling = (1ul << 42) & ~(align - 1);
   if (ceiling < top.hi)
-    assert(e.est[Q_VIRT_TEXT_BASE].hi == ceiling); /* dropped to ~4 TiB */
+    assert(e.est[Q_VIRT_IMAGE_BASE].hi == ceiling); /* dropped to ~4 TiB */
 #else
-  assert(e.est[Q_VIRT_TEXT_BASE].hi == top.hi); /* inert off s390 */
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi == top.hi); /* inert off s390 */
 #endif
 }
 
@@ -4181,13 +4186,13 @@ static void test_arm64_memstart_align(void) {
 #endif
 }
 
-/* mips/loongarch: VIRT text + data leaks -> Q_VIRT_TEXT_BASE lower bound at
+/* mips/loongarch: VIRT text + data leaks -> Q_VIRT_IMAGE_BASE lower bound at
  * KASLR_VIRT_TEXT_MIN + (max_data - min_text). */
 static void test_min_offset_from_image_size(void) {
   struct engine e;
   engine_init(&e);
   struct estimate top;
-  quantities[Q_VIRT_TEXT_BASE].init_top(&top);
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
   unsigned long gap = 0x100000ul;
   struct observation t = mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, 0x100000ul,
                                 LO_SET | SAMPLE_SET, POS_INTERIOR, CONF_PARSED);
@@ -4201,10 +4206,10 @@ static void test_min_offset_from_image_size(void) {
 #if defined(__mips__) || defined(__loongarch__)
   unsigned long expect = (unsigned long)KASLR_VIRT_TEXT_MIN + gap;
   if (expect > top.lo && expect <= top.hi)
-    assert(e.est[Q_VIRT_TEXT_BASE].lo == expect);
+    assert(e.est[Q_VIRT_IMAGE_BASE].lo == expect);
 #else
-  assert(e.est[Q_VIRT_TEXT_BASE].lo == top.lo &&
-         e.est[Q_VIRT_TEXT_BASE].hi == top.hi);
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo == top.lo &&
+         e.est[Q_VIRT_IMAGE_BASE].hi == top.hi);
 #endif
 }
 
@@ -4215,7 +4220,7 @@ static void test_module_text_bound(void) {
   struct engine e;
   engine_init(&e);
   struct estimate top;
-  quantities[Q_VIRT_TEXT_BASE].init_top(&top);
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
   unsigned long vmod = top.lo + 0x100000ul;
   struct observation m = mk_obs(KASLD_TYPE_VIRT, REGION_MODULE, vmod,
                                 LO_SET | SAMPLE_SET, POS_INTERIOR, CONF_PARSED);
@@ -4224,18 +4229,18 @@ static void test_module_text_bound(void) {
                            rule_module_text_bound};
   engine_run(&e, rules, 2);
 #if MODULES_RELATIVE_TO_TEXT
-  assert(e.est[Q_VIRT_TEXT_BASE].lo >= top.lo &&
-         e.est[Q_VIRT_TEXT_BASE].hi <=
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo >= top.lo &&
+         e.est[Q_VIRT_IMAGE_BASE].hi <=
              top.hi); /* narrowed-or-equal, never wider */
 #else
-  assert(e.est[Q_VIRT_TEXT_BASE].lo == top.lo &&
-         e.est[Q_VIRT_TEXT_BASE].hi == top.hi); /* inert */
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo == top.lo &&
+         e.est[Q_VIRT_IMAGE_BASE].hi == top.hi); /* inert */
 #endif
 }
 
 /* text_pin_from_observation: a POS_BASE VIRT/KERNEL_TEXT observation pins
- * Q_VIRT_TEXT_BASE; a POS_BASE PHYS/KERNEL_TEXT observation pins
- * Q_PHYS_TEXT_BASE. Arch-independent. */
+ * Q_VIRT_IMAGE_BASE; a POS_BASE PHYS/KERNEL_TEXT observation pins
+ * Q_PHYS_IMAGE_BASE. Arch-independent. */
 int rule_text_pin_from_observation(const struct evidence_set *ev,
                                    const struct estimate *est,
                                    struct constraint *out, int out_max);
@@ -4244,30 +4249,30 @@ static void test_text_pin_from_observation_virt(void) {
   struct engine e;
   engine_init(&e);
   struct estimate top;
-  quantities[Q_VIRT_TEXT_BASE].init_top(&top);
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
   unsigned long stext = top.lo + 0x2680000ul; /* inside the window */
   struct observation o = mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, stext,
                                 LO_SET, POS_BASE, CONF_PARSED);
   evidence_add(&e.ev, &o);
   const rule_fn rules[] = {rule_text_pin_from_observation};
   engine_run(&e, rules, 1);
-  assert(e.est[Q_VIRT_TEXT_BASE].lo == stext);
-  assert(e.est[Q_VIRT_TEXT_BASE].hi == stext);
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo == stext);
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi == stext);
 }
 
 static void test_text_pin_from_observation_phys(void) {
   struct engine e;
   engine_init(&e);
   struct estimate top;
-  quantities[Q_PHYS_TEXT_BASE].init_top(&top);
+  quantities[Q_PHYS_IMAGE_BASE].init_top(&top);
   unsigned long ptext = top.lo + 0x2660000ul;
   struct observation o = mk_obs(KASLD_TYPE_PHYS, REGION_KERNEL_TEXT, ptext,
                                 LO_SET, POS_BASE, CONF_PARSED);
   evidence_add(&e.ev, &o);
   const rule_fn rules[] = {rule_text_pin_from_observation};
   engine_run(&e, rules, 1);
-  assert(e.est[Q_PHYS_TEXT_BASE].lo == ptext);
-  assert(e.est[Q_PHYS_TEXT_BASE].hi == ptext);
+  assert(e.est[Q_PHYS_IMAGE_BASE].lo == ptext);
+  assert(e.est[Q_PHYS_IMAGE_BASE].hi == ptext);
 }
 
 static void test_text_pin_from_observation_kernel_image_region(void) {
@@ -4275,15 +4280,15 @@ static void test_text_pin_from_observation_kernel_image_region(void) {
   struct engine e;
   engine_init(&e);
   struct estimate top;
-  quantities[Q_VIRT_TEXT_BASE].init_top(&top);
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
   unsigned long stext = top.lo + 0x800000ul;
   struct observation o = mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE, stext,
                                 LO_SET, POS_BASE, CONF_PARSED);
   evidence_add(&e.ev, &o);
   const rule_fn rules[] = {rule_text_pin_from_observation};
   engine_run(&e, rules, 1);
-  assert(e.est[Q_VIRT_TEXT_BASE].lo == stext);
-  assert(e.est[Q_VIRT_TEXT_BASE].hi == stext);
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo == stext);
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi == stext);
 }
 
 static void test_text_pin_from_observation_pos_interior_inert(void) {
@@ -4291,15 +4296,15 @@ static void test_text_pin_from_observation_pos_interior_inert(void) {
   struct engine e;
   engine_init(&e);
   struct estimate top;
-  quantities[Q_VIRT_TEXT_BASE].init_top(&top);
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
   unsigned long sample = top.lo + 0x100000ul;
   struct observation o = mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, sample,
                                 LO_SET | SAMPLE_SET, POS_INTERIOR, CONF_PARSED);
   evidence_add(&e.ev, &o);
   const rule_fn rules[] = {rule_text_pin_from_observation};
   engine_run(&e, rules, 1);
-  assert(e.est[Q_VIRT_TEXT_BASE].lo == top.lo); /* unchanged */
-  assert(e.est[Q_VIRT_TEXT_BASE].hi == top.hi);
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo == top.lo); /* unchanged */
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi == top.hi);
 }
 
 static void test_text_pin_from_observation_data_region_ignored(void) {
@@ -4307,26 +4312,26 @@ static void test_text_pin_from_observation_data_region_ignored(void) {
   struct engine e;
   engine_init(&e);
   struct estimate top;
-  quantities[Q_PHYS_TEXT_BASE].init_top(&top);
+  quantities[Q_PHYS_IMAGE_BASE].init_top(&top);
   unsigned long data_lo = top.lo + 0x3530000ul;
   struct observation o = mk_obs(KASLD_TYPE_PHYS, REGION_KERNEL_DATA, data_lo,
                                 LO_SET, POS_BASE, CONF_PARSED);
   evidence_add(&e.ev, &o);
   const rule_fn rules[] = {rule_text_pin_from_observation};
   engine_run(&e, rules, 1);
-  assert(e.est[Q_PHYS_TEXT_BASE].lo == top.lo); /* unchanged */
-  assert(e.est[Q_PHYS_TEXT_BASE].hi == top.hi);
+  assert(e.est[Q_PHYS_IMAGE_BASE].lo == top.lo); /* unchanged */
+  assert(e.est[Q_PHYS_IMAGE_BASE].hi == top.hi);
 }
 
 static void test_text_pin_from_observation_no_obs_inert(void) {
   struct engine e;
   engine_init(&e);
   struct estimate top;
-  quantities[Q_VIRT_TEXT_BASE].init_top(&top);
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
   const rule_fn rules[] = {rule_text_pin_from_observation};
   engine_run(&e, rules, 1);
-  assert(e.est[Q_VIRT_TEXT_BASE].lo == top.lo);
-  assert(e.est[Q_VIRT_TEXT_BASE].hi == top.hi);
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo == top.lo);
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi == top.hi);
 }
 
 /* text_base_coupling_synth: on TEXT_TRACKS_DIRECTMAP arches with
@@ -4338,14 +4343,14 @@ int rule_text_base_coupling_synth(const struct evidence_set *ev,
 /* rule_page_offset_invariant_pin prototype already declared above. */
 
 static void test_text_base_coupling_synth_virt_to_phys(void) {
-  /* Pin Q_VIRT_TEXT_BASE via text_pin_from_observation, pin Q_PAGE_OFFSET
-   * via page_offset_invariant_pin, and assert Q_PHYS_TEXT_BASE is now
+  /* Pin Q_VIRT_IMAGE_BASE via text_pin_from_observation, pin Q_PAGE_OFFSET
+   * via page_offset_invariant_pin, and assert Q_PHYS_IMAGE_BASE is now
    * narrowed by the coupling. */
   struct engine e;
   engine_init(&e);
   struct estimate vtop, ptop;
-  quantities[Q_VIRT_TEXT_BASE].init_top(&vtop);
-  quantities[Q_PHYS_TEXT_BASE].init_top(&ptop);
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&vtop);
+  quantities[Q_PHYS_IMAGE_BASE].init_top(&ptop);
   /* Pick a vtext known to be inside the arch's KASLR window. */
   unsigned long vtext = vtop.lo + 0x2680000ul;
   struct observation v = mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, vtext,
@@ -4357,13 +4362,13 @@ static void test_text_base_coupling_synth_virt_to_phys(void) {
   engine_run(&e, rules, 3);
 #if TEXT_TRACKS_DIRECTMAP && PAGE_OFFSET_INVARIANT
   /* Coupling fires. The phys estimate must have narrowed from its top. */
-  assert(e.est[Q_PHYS_TEXT_BASE].lo > ptop.lo ||
-         e.est[Q_PHYS_TEXT_BASE].hi < ptop.hi);
+  assert(e.est[Q_PHYS_IMAGE_BASE].lo > ptop.lo ||
+         e.est[Q_PHYS_IMAGE_BASE].hi < ptop.hi);
 #else
   /* Inert on decoupled or non-invariant-PAGE_OFFSET arches. The host
    * build is x86_64 (decoupled), so this is the actively-tested branch. */
-  assert(e.est[Q_PHYS_TEXT_BASE].lo == ptop.lo);
-  assert(e.est[Q_PHYS_TEXT_BASE].hi == ptop.hi);
+  assert(e.est[Q_PHYS_IMAGE_BASE].lo == ptop.lo);
+  assert(e.est[Q_PHYS_IMAGE_BASE].hi == ptop.hi);
 #endif
 }
 
@@ -4371,8 +4376,8 @@ static void test_text_base_coupling_synth_phys_to_virt(void) {
   struct engine e;
   engine_init(&e);
   struct estimate vtop, ptop;
-  quantities[Q_VIRT_TEXT_BASE].init_top(&vtop);
-  quantities[Q_PHYS_TEXT_BASE].init_top(&ptop);
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&vtop);
+  quantities[Q_PHYS_IMAGE_BASE].init_top(&ptop);
   unsigned long ptext = ptop.lo + 0x2660000ul;
   struct observation p = mk_obs(KASLD_TYPE_PHYS, REGION_KERNEL_TEXT, ptext,
                                 LO_SET, POS_BASE, CONF_PARSED);
@@ -4382,11 +4387,11 @@ static void test_text_base_coupling_synth_phys_to_virt(void) {
                            rule_text_base_coupling_synth};
   engine_run(&e, rules, 3);
 #if TEXT_TRACKS_DIRECTMAP && PAGE_OFFSET_INVARIANT
-  assert(e.est[Q_VIRT_TEXT_BASE].lo > vtop.lo ||
-         e.est[Q_VIRT_TEXT_BASE].hi < vtop.hi);
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo > vtop.lo ||
+         e.est[Q_VIRT_IMAGE_BASE].hi < vtop.hi);
 #else
-  assert(e.est[Q_VIRT_TEXT_BASE].lo == vtop.lo);
-  assert(e.est[Q_VIRT_TEXT_BASE].hi == vtop.hi);
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo == vtop.lo);
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi == vtop.hi);
 #endif
 }
 
@@ -4396,7 +4401,7 @@ static void test_text_base_coupling_synth_no_page_offset_pin_inert(void) {
   struct engine e;
   engine_init(&e);
   struct estimate ptop;
-  quantities[Q_PHYS_TEXT_BASE].init_top(&ptop);
+  quantities[Q_PHYS_IMAGE_BASE].init_top(&ptop);
   unsigned long vtext = (unsigned long)KASLR_VIRT_TEXT_MIN + 0x800000ul;
   struct observation v = mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, vtext,
                                 LO_SET, POS_BASE, CONF_PARSED);
@@ -4405,8 +4410,8 @@ static void test_text_base_coupling_synth_no_page_offset_pin_inert(void) {
   const rule_fn rules[] = {rule_text_pin_from_observation,
                            rule_text_base_coupling_synth};
   engine_run(&e, rules, 2);
-  assert(e.est[Q_PHYS_TEXT_BASE].lo == ptop.lo);
-  assert(e.est[Q_PHYS_TEXT_BASE].hi == ptop.hi);
+  assert(e.est[Q_PHYS_IMAGE_BASE].lo == ptop.lo);
+  assert(e.est[Q_PHYS_IMAGE_BASE].hi == ptop.hi);
 }
 
 static void test_text_base_coupling_synth_no_obs_soundness(void) {
@@ -4416,22 +4421,22 @@ static void test_text_base_coupling_synth_no_obs_soundness(void) {
   struct engine e;
   engine_init(&e);
   struct estimate vtop, ptop;
-  quantities[Q_VIRT_TEXT_BASE].init_top(&vtop);
-  quantities[Q_PHYS_TEXT_BASE].init_top(&ptop);
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&vtop);
+  quantities[Q_PHYS_IMAGE_BASE].init_top(&ptop);
   const rule_fn rules[] = {rule_page_offset_invariant_pin,
                            rule_text_base_coupling_synth};
   engine_run(&e, rules, 2);
   /* Either side is allowed to narrow (when coupled), but neither may go
    * bottom and the resulting range must remain valid (lo <= hi). */
-  assert(e.est[Q_VIRT_TEXT_BASE].lo <= e.est[Q_VIRT_TEXT_BASE].hi);
-  assert(e.est[Q_PHYS_TEXT_BASE].lo <= e.est[Q_PHYS_TEXT_BASE].hi);
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo <= e.est[Q_VIRT_IMAGE_BASE].hi);
+  assert(e.est[Q_PHYS_IMAGE_BASE].lo <= e.est[Q_PHYS_IMAGE_BASE].hi);
 #if !(TEXT_TRACKS_DIRECTMAP && PAGE_OFFSET_INVARIANT)
   /* On decoupled or non-invariant-PAGE_OFFSET host build, no projection
    * occurs; estimates stay at their honest tops. */
-  assert(e.est[Q_VIRT_TEXT_BASE].lo == vtop.lo);
-  assert(e.est[Q_VIRT_TEXT_BASE].hi == vtop.hi);
-  assert(e.est[Q_PHYS_TEXT_BASE].lo == ptop.lo);
-  assert(e.est[Q_PHYS_TEXT_BASE].hi == ptop.hi);
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo == vtop.lo);
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi == vtop.hi);
+  assert(e.est[Q_PHYS_IMAGE_BASE].lo == ptop.lo);
+  assert(e.est[Q_PHYS_IMAGE_BASE].hi == ptop.hi);
 #endif
 }
 
@@ -4442,18 +4447,18 @@ static void test_ppc32_phys_ceiling(void) {
   struct engine e;
   engine_init(&e);
   struct estimate top;
-  quantities[Q_VIRT_TEXT_BASE].init_top(&top);
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
   struct observation m =
       mk_scalar(SF_PHYS_MEMTOTAL, 0x40000000ul, CONF_PARSED); /* 1 GiB */
   evidence_add(&e.ev, &m);
   const rule_fn rules[] = {rule_ppc32_phys_ceiling};
   engine_run(&e, rules, 1);
 #if defined(__powerpc__) && !defined(__powerpc64__)
-  assert(e.est[Q_VIRT_TEXT_BASE].lo >= top.lo &&
-         e.est[Q_VIRT_TEXT_BASE].hi <= top.hi); /* narrowed-or-equal */
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo >= top.lo &&
+         e.est[Q_VIRT_IMAGE_BASE].hi <= top.hi); /* narrowed-or-equal */
 #else
-  assert(e.est[Q_VIRT_TEXT_BASE].lo == top.lo &&
-         e.est[Q_VIRT_TEXT_BASE].hi == top.hi); /* inert */
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo == top.lo &&
+         e.est[Q_VIRT_IMAGE_BASE].hi == top.hi); /* inert */
 #endif
 }
 
@@ -4463,7 +4468,7 @@ static void test_riscv64_fdt_kaslr_seed(void) {
   struct engine e;
   engine_init(&e);
   struct estimate top;
-  quantities[Q_VIRT_TEXT_BASE].init_top(&top);
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
   /* Any nonzero seed pins the base (the test asserts lo==hi, not a value); use
    * a 32-bit-safe constant so it does not truncate on 32-bit builds. */
   struct observation seed =
@@ -4477,17 +4482,18 @@ static void test_riscv64_fdt_kaslr_seed(void) {
   const rule_fn rules[] = {rule_riscv64_fdt_kaslr_seed};
   engine_run(&e, rules, 1);
 #if (defined(__riscv) || defined(__riscv__)) && __riscv_xlen == 64
-  assert(e.est[Q_VIRT_TEXT_BASE].lo == e.est[Q_VIRT_TEXT_BASE].hi); /* pinned */
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo ==
+         e.est[Q_VIRT_IMAGE_BASE].hi); /* pinned */
 #else
-  assert(e.est[Q_VIRT_TEXT_BASE].lo == top.lo &&
-         e.est[Q_VIRT_TEXT_BASE].hi == top.hi); /* inert */
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo == top.lo &&
+         e.est[Q_VIRT_IMAGE_BASE].hi == top.hi); /* inert */
 #endif
 }
 
 /* riscv64 non-EFI: a PHYS DRAM floor + EFI-absent pins the physical text
- * base to pdram_lo + TEXT_OFFSET + RISCV64_HEAD_TEXT_OFFSET — the
+ * base to pdram_lo + IMAGE_BASE_OFFSET + RISCV64_HEAD_TEXT_OFFSET — the
  * +RISCV64_HEAD_TEXT_OFFSET term is what makes the pin land at `_stext`
- * (per the kasld convention that Q_PHYS_TEXT_BASE names `_stext`-phys)
+ * (per the kasld convention that Q_PHYS_IMAGE_BASE names `_stext`-phys)
  * rather than `_start` / image base. Omitting it lands the pin 0x2000
  * below the iomem "Kernel code" entry and the resolved window excludes
  * the actual phys text base. */
@@ -4496,7 +4502,7 @@ static void test_riscv64_non_efi_phys_base(void) {
   engine_init(&e);
 #if defined(KASLR_PHYS_MIN)
   struct estimate top;
-  quantities[Q_PHYS_TEXT_BASE].init_top(&top);
+  quantities[Q_PHYS_IMAGE_BASE].init_top(&top);
   unsigned long pdram = (unsigned long)KASLR_PHYS_MIN;
   struct observation efi = mk_scalar(SF_EFI_PRESENT, 0ul, CONF_PARSED);
   struct observation ram =
@@ -4506,16 +4512,16 @@ static void test_riscv64_non_efi_phys_base(void) {
   const rule_fn rules[] = {rule_riscv64_non_efi_phys_base};
   engine_run(&e, rules, 1);
 #if (defined(__riscv) || defined(__riscv__)) && __riscv_xlen == 64
-  unsigned long expect = pdram + (unsigned long)TEXT_OFFSET +
+  unsigned long expect = pdram + (unsigned long)IMAGE_BASE_OFFSET +
                          (unsigned long)RISCV64_HEAD_TEXT_OFFSET;
   if (expect >= (unsigned long)KASLR_PHYS_MIN && expect >= top.lo &&
       expect <= top.hi) {
-    assert(e.est[Q_PHYS_TEXT_BASE].lo == expect);
-    assert(e.est[Q_PHYS_TEXT_BASE].hi == expect);
+    assert(e.est[Q_PHYS_IMAGE_BASE].lo == expect);
+    assert(e.est[Q_PHYS_IMAGE_BASE].hi == expect);
   }
 #else
-  assert(e.est[Q_PHYS_TEXT_BASE].lo == top.lo &&
-         e.est[Q_PHYS_TEXT_BASE].hi == top.hi); /* inert */
+  assert(e.est[Q_PHYS_IMAGE_BASE].lo == top.lo &&
+         e.est[Q_PHYS_IMAGE_BASE].hi == top.hi); /* inert */
 #endif
 #else
   (void)e; /* arch has no physical KASLR quantity */

@@ -1,7 +1,7 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
 // Rule: pick the running-kernel EFI_LOADER_CODE entry from a multi-entry
-// EFI memmap and pin Q_PHYS_TEXT_BASE to its start.
+// EFI memmap and pin Q_PHYS_IMAGE_BASE to its start.
 //
 // On an EFI stub boot the kernel's PE/COFF image occupies an
 // EFI_LOADER_CODE memmap entry. Bootloader and EFI driver images still
@@ -26,7 +26,7 @@
 //      (firmware drivers are far smaller; bootloader images are
 //      typically well under 1× SF_IMAGE_SIZE).
 //
-// Exactly one survivor → emit C_EQUALS on Q_PHYS_TEXT_BASE at its lo at
+// Exactly one survivor → emit C_EQUALS on Q_PHYS_IMAGE_BASE at its lo at
 // CONF_PARSED. The image is contiguous and the EFI stub adds no header
 // gap before _text/_stext, so the entry's lo IS the phys text base.
 //
@@ -156,7 +156,7 @@ int rule_efi_loader_kernel_pick(const struct evidence_set *ev,
 
   struct constraint *c = &out[0];
   memset(c, 0, sizeof(*c));
-  c->q = Q_PHYS_TEXT_BASE;
+  c->q = Q_PHYS_IMAGE_BASE;
   c->op = C_EQUALS;
   c->derived_from[1] = ksrc;
   snprintf(c->origin, ORIGIN_LEN, "efi_loader_kernel_pick");

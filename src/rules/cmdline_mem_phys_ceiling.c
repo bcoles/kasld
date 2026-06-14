@@ -8,9 +8,9 @@
 //
 //   phys_base + image_size <= cmdline_mem
 //
-// → C_UPPER_BOUND on Q_PHYS_TEXT_BASE at `cmdline_mem - image_size`, aligned
+// → C_UPPER_BOUND on Q_PHYS_IMAGE_BASE at `cmdline_mem - image_size`, aligned
 // down to the resolved physical KASLR granularity. Decoupled arches only
-// (Q_PHYS_TEXT_BASE exists); the coupled-arch counterpart is
+// (Q_PHYS_IMAGE_BASE exists); the coupled-arch counterpart is
 // cmdline_mem_virt_ceiling.
 //
 // Reads SF_PHYS_CMDLINE_MEM (emitted by cmdline_mem.c) + SF_IMAGE_SIZE; emits
@@ -71,7 +71,7 @@ int rule_cmdline_mem_phys_ceiling(const struct evidence_set *ev,
 
   struct constraint *c = &out[0];
   memset(c, 0, sizeof(*c));
-  c->q = Q_PHYS_TEXT_BASE;
+  c->q = Q_PHYS_IMAGE_BASE;
   c->op = C_UPPER_BOUND;
   c->value = ceiling;
   c->conf = (mconf < kconf) ? mconf : kconf;

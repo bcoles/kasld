@@ -1,7 +1,7 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
 // Rule: s390 below-text cascade — any VIRT observation in a region packed
-// below text_virt floors Q_VIRT_TEXT_BASE. Consolidates the per-region rungs
+// below text_virt floors Q_VIRT_IMAGE_BASE. Consolidates the per-region rungs
 // (formerly s390_text_from_vmalloc + s390_text_from_vmemmap) into one
 // table-driven cascade, and is structured so a deeper rung is one table row
 // once its KASLD_REGION_* tag and a collector component exist.
@@ -176,7 +176,7 @@ int rule_s390_text_from_belows(const struct evidence_set *ev,
 
   struct constraint *c = &out[0];
   memset(c, 0, sizeof(*c));
-  c->q = Q_VIRT_TEXT_BASE;
+  c->q = Q_VIRT_IMAGE_BASE;
   c->op = C_LOWER_BOUND;
   c->value = best_lower;
   c->conf = (best_uses_pfn && pfn_conf < best_conf) ? pfn_conf : best_conf;

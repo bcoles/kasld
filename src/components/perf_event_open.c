@@ -232,8 +232,8 @@ int main(void) {
     return 0;
   }
 
-  /* The sample IP sits at text_base + offset (offset >= 0), so the leaked
-   * value is a sound interior witness (text_base <= addr). Tighten it to the
+  /* The sample IP sits at image_base + offset (offset >= 0), so the leaked
+   * value is a sound interior witness (image_base <= addr). Tighten it to the
    * sound aligned base estimate — kasld_floor_text_base preserves the base's
    * sub-alignment offset, so it stays a valid upper bound on every arch (a
    * plain `& -KASLR_VIRT_ALIGN` would drop below the base on riscv64/arm32). */

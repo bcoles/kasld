@@ -8,13 +8,13 @@
 //
 //   Decoupled (x86-64, arm64, riscv64, s390): the RAM floor, rounded UP
 //   to a slot, is a direct floor on the physical base — C_LOWER_BOUND on
-//   Q_PHYS_TEXT_BASE.
+//   Q_PHYS_IMAGE_BASE.
 //
 //   Coupled (x86-32, MIPS, PPC32 BookE, LoongArch): phys_to_directmap_virt()
 //   links DRAM to virtual text, so the floor maps (via the compile-time
-//   PAGE_OFFSET / PHYS_OFFSET / TEXT_OFFSET — not a runtime-detected value,
-//   so no Q_PAGE_OFFSET dependency) to a virtual floor, rounded DOWN to
-//   stay conservative — C_LOWER_BOUND on Q_VIRT_TEXT_BASE.
+//   PAGE_OFFSET / PHYS_OFFSET / IMAGE_BASE_OFFSET — not a runtime-detected
+//   value, so no Q_PAGE_OFFSET dependency) to a virtual floor, rounded DOWN to
+//   stay conservative — C_LOWER_BOUND on Q_VIRT_IMAGE_BASE.
 //
 // IMPORTANT: only POS_BASE observations on REGION_RAM count as the floor.
 // An earlier version of this rule walked every region in the "dram" section
@@ -85,7 +85,7 @@ int rule_dram_floor_bound(const struct evidence_set *ev,
     floor = (floor + KASLR_PHYS_ALIGN - 1) & ~(KASLR_PHYS_ALIGN - 1);
   if (floor <= KASLR_PHYS_MIN)
     return 0;
-  c->q = Q_PHYS_TEXT_BASE;
+  c->q = Q_PHYS_IMAGE_BASE;
   c->value = floor;
   return 1;
 #else
@@ -93,13 +93,14 @@ int rule_dram_floor_bound(const struct evidence_set *ev,
    * DOWN to a slot to stay a guaranteed lower bound. */
   if (pdram_lo < PHYS_OFFSET)
     return 0;
-  unsigned long virt_lo = pdram_lo - PHYS_OFFSET + PAGE_OFFSET + TEXT_OFFSET;
+  unsigned long virt_lo =
+      pdram_lo - PHYS_OFFSET + PAGE_OFFSET + IMAGE_BASE_OFFSET;
   /* C_LOWER_BOUND: flooring down is sound (a lower bound only weakens). */
   if (KASLR_VIRT_ALIGN > 0)
     virt_lo &= ~(KASLR_VIRT_ALIGN - 1); /* virt-floor-ok */
   if (virt_lo <= KASLR_VIRT_TEXT_MIN)
     return 0;
-  c->q = Q_VIRT_TEXT_BASE;
+  c->q = Q_VIRT_IMAGE_BASE;
   c->value = virt_lo;
   return 1;
 #endif

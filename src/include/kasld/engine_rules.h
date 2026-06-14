@@ -87,7 +87,7 @@ R(physical_start_lower_bound);
 /* Module-relative text bounds */
 R(module_text_bound);
 
-/* Multi-entry EFI_LOADER_CODE → Q_PHYS_TEXT_BASE pin (arm64/riscv64/x86_64) */
+/* Multi-entry EFI_LOADER_CODE → Q_PHYS_IMAGE_BASE pin (arm64/riscv64/x86_64) */
 R(efi_loader_kernel_pick);
 
 /* Text-base pin from POS_BASE kernel-image observation */

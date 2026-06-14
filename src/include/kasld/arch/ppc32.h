@@ -53,7 +53,7 @@
 // https://elixir.bootlin.com/linux/v6.12/source/arch/powerpc/mm/nohash/kaslr_booke.c
 #define KASLR_VIRT_ALIGN 0x4000ul
 
-#define TEXT_OFFSET 0
+#define IMAGE_BASE_OFFSET 0
 
 // Plausible physical address range for kernel image
 #define KERNEL_PHYS_MIN 0ul
@@ -62,7 +62,7 @@
 // Default: 0xc0000000 (PAGE_OFFSET, no text offset on PPC32).
 // See docs/kaslr.md "Default text base and KASLR alignment" for all
 // architectures. Kernel source: arch/powerpc/kernel/vmlinux.lds.S
-#define KERNEL_VIRT_TEXT_DEFAULT (KERNEL_VIRT_TEXT_MIN + TEXT_OFFSET)
+#define KERNEL_VIRT_TEXT_DEFAULT (KERNEL_VIRT_TEXT_MIN + IMAGE_BASE_OFFSET)
 
 #define KASLR_SUPPORTED 1
 

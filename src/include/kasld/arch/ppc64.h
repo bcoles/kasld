@@ -62,12 +62,12 @@
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/Kconfig#L595
 #define IMAGE_ALIGN 0x4000ul
 
-#define TEXT_OFFSET 0
+#define IMAGE_BASE_OFFSET 0
 
 // Default: 0xc000000000000000 (PAGE_OFFSET, no text offset on PPC64).
 // See docs/kaslr.md "Default text base and KASLR alignment" for all
 // architectures. Kernel source: arch/powerpc/kernel/vmlinux.lds.S
-#define KERNEL_VIRT_TEXT_DEFAULT (KERNEL_VIRT_TEXT_MIN + TEXT_OFFSET)
+#define KERNEL_VIRT_TEXT_DEFAULT (KERNEL_VIRT_TEXT_MIN + IMAGE_BASE_OFFSET)
 
 // PPC64 does not have mainline KASLR.
 #define KASLR_SUPPORTED 0

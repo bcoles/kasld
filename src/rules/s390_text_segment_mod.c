@@ -12,7 +12,7 @@
 // for any phys leak that points at a kernel-image byte at the SAME offset
 // from the segment boundary as text_virt. A PHYS/KERNEL_IMAGE leak (e.g.
 // the kernel image base parsed from a firmware reservation) gives that
-// anchor directly; the rule emits one C_STRIDE on Q_VIRT_TEXT_BASE collapsing
+// anchor directly; the rule emits one C_STRIDE on Q_VIRT_IMAGE_BASE collapsing
 // log2(_SEGMENT_SIZE / KASLR_VIRT_ALIGN) = log2(1 MiB / 16 KiB) = 6 bits of
 // residual entropy.
 //
@@ -75,7 +75,7 @@ int rule_s390_text_segment_mod(const struct evidence_set *ev,
 
   struct constraint *c = &out[0];
   memset(c, 0, sizeof(*c));
-  c->q = Q_VIRT_TEXT_BASE;
+  c->q = Q_VIRT_IMAGE_BASE;
   c->op = C_STRIDE;
   c->value = phys_anchor % S390_SEGMENT_SIZE; /* residue */
   c->value2 = S390_SEGMENT_SIZE;              /* modulus */

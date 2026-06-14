@@ -6,10 +6,10 @@
 // kernel base is at least the image size above the window floor, because the
 // placement code bumps the base past the image when the draw would overlap it:
 //
-//   virt_text_base >= KASLR_VIRT_TEXT_MIN + (max_data - min_text)
+//   virt_image_base >= KASLR_VIRT_TEXT_MIN + (max_data - min_text)
 //
 // Reads VIRT kernel TEXT/IMAGE (min) and DATA/BSS (max) leaks; emits a
-// C_LOWER_BOUND on Q_VIRT_TEXT_BASE.
+// C_LOWER_BOUND on Q_VIRT_IMAGE_BASE.
 // MIPS/LoongArch only; inert when no VIRT TEXT/IMAGE or DATA/BSS observation
 // is present.
 // ---
@@ -61,7 +61,7 @@ int rule_min_offset_from_image_size(const struct evidence_set *ev,
 
   struct constraint *c = &out[0];
   memset(c, 0, sizeof(*c));
-  c->q = Q_VIRT_TEXT_BASE;
+  c->q = Q_VIRT_IMAGE_BASE;
   c->op = C_LOWER_BOUND;
   c->value = new_min;
   c->conf = CONF_INFERRED;

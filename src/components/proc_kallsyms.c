@@ -1,6 +1,6 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
-// Retrieve kernel _stext symbol from /proc/kallsyms
+// Retrieve kernel _text (image base) and _stext symbols from /proc/kallsyms
 //
 // Based on original code by spender:
 // https://grsecurity.net/~spender/exploits/exploit.txt
@@ -75,19 +75,21 @@ int main(void) {
   if (all_zero)
     return KASLD_EXIT_NOPERM;
 
-  unsigned long stext = 0, etext = 0;
+  unsigned long text = 0, stext = 0, etext = 0;
 
   FILE *ks = kasld_fopen("/proc/kallsyms", "r");
   if (ks) {
     unsigned long a;
     char type, sym[256];
-    kasld_info("scanning /proc/kallsyms for _stext and _etext ...");
+    kasld_info("scanning /proc/kallsyms for _text, _stext and _etext ...");
     while (fscanf(ks, "%lx %c %255s\n", &a, &type, sym) == 3) {
-      if (!stext && strcmp(sym, "_stext") == 0)
+      if (!text && strcmp(sym, "_text") == 0)
+        text = a;
+      else if (!stext && strcmp(sym, "_stext") == 0)
         stext = a;
       else if (!etext && strcmp(sym, "_etext") == 0)
         etext = a;
-      if (stext && etext)
+      if (text && stext && etext)
         break;
     }
     fclose(ks);
@@ -96,6 +98,16 @@ int main(void) {
   if (!stext) {
     kasld_err("_stext not found in /proc/kallsyms");
     return 0;
+  }
+
+  /* _text IS the kernel image base — emit it directly (KERNEL_IMAGE) so the
+   * engine anchors the image base on the real symbol, with no reliance on the
+   * compile-time head gap. _stext is also reported (KERNEL_TEXT) for provenance
+   * and as the source for arches/sources that only expose _stext. */
+  if (text) {
+    kasld_info("kernel image base (_text): 0x%lx", text);
+    kasld_result_base(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE, text, "_text",
+                      CONF_PARSED);
   }
 
   kasld_info("kernel text start (_stext): 0x%lx", stext);

@@ -6,7 +6,7 @@
 // built without CONFIG_RANDOMIZE_BASE, riscv64 FDT with no kaslr-seed,
 // dmesg "KASLR disabled", hibernation override, !KASLR_SUPPORTED synth,
 // …) the kernel's virtual text base sits at the compile-time default for
-// the arch. Pin Q_VIRT_TEXT_BASE to arch_default_text_base().
+// the arch. Pin Q_VIRT_IMAGE_BASE to arch_default_text_base().
 //
 // Per-arch enable:
 //   KASLR_DISABLED_PINS_VIRT_TEXT — 1 on arches where no-KASLR provably implies
@@ -60,13 +60,13 @@ int rule_virt_kaslr_disabled_pin(const struct evidence_set *ev,
     return 0;
 
   unsigned long v = arch_default_text_base();
-  const struct estimate *vt = &est[Q_VIRT_TEXT_BASE];
+  const struct estimate *vt = &est[Q_VIRT_IMAGE_BASE];
   if (v == 0 || v < vt->lo || v > vt->hi)
     return 0;
 
   struct constraint *c = &out[0];
   memset(c, 0, sizeof(*c));
-  c->q = Q_VIRT_TEXT_BASE;
+  c->q = Q_VIRT_IMAGE_BASE;
   c->op = C_EQUALS;
   c->value = v;
   c->conf = sig_conf;

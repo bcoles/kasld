@@ -218,7 +218,7 @@ int main(void) {
      *
      *   Kernel-thread context — CR3 = swapper_pg_dir, which lives in the
      *   kernel .bss section. kernel_image_phys_bound's BSS-gap refinement
-     *   then yields a TIGHT upper bound on phys_text_base (offset of
+     *   then yields a TIGHT upper bound on phys_image_base (offset of
      *   swapper from _stext is small — ~38 MiB on stock x86_64).
      *
      *   User-process context — CR3 = task's PGD, allocated by the buddy

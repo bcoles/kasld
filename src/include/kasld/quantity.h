@@ -22,14 +22,15 @@
 
 /* The unknowns the engine resolves. Closed enum; Q__COUNT sizes the tables. */
 enum kasld_quantity {
-  Q_VIRT_TEXT_BASE = 0, /* kernel text base, virtual                  */
-  Q_PHYS_TEXT_BASE,     /* kernel text base, physical (decoupled arch)*/
-  Q_PAGE_OFFSET,        /* direct-map base / VAS origin               */
-  Q_VMALLOC_BASE,       /* x86_64 RANDOMIZE_MEMORY vmalloc base       */
-  Q_VMEMMAP_BASE,       /* x86_64 RANDOMIZE_MEMORY vmemmap base       */
-  Q_VIRT_KASLR_ALIGN,   /* virtual KASLR step (alignment)             */
-  Q_PHYS_KASLR_ALIGN,   /* physical KASLR step                        */
-  Q_VA_BITS,            /* paging level / VA width (finite set)       */
+  Q_VIRT_IMAGE_BASE =
+      0,              /* kernel image base (_text), virt; _stext=+STEXT_OFFSET*/
+  Q_PHYS_IMAGE_BASE,  /* kernel image base (_text), phys (decoupled arch)    */
+  Q_PAGE_OFFSET,      /* direct-map base / VAS origin               */
+  Q_VMALLOC_BASE,     /* x86_64 RANDOMIZE_MEMORY vmalloc base       */
+  Q_VMEMMAP_BASE,     /* x86_64 RANDOMIZE_MEMORY vmemmap base       */
+  Q_VIRT_KASLR_ALIGN, /* virtual KASLR step (alignment)             */
+  Q_PHYS_KASLR_ALIGN, /* physical KASLR step                        */
+  Q_VA_BITS,          /* paging level / VA width (finite set)       */
   Q__COUNT,
 };
 

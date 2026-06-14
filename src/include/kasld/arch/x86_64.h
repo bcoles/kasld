@@ -141,14 +141,14 @@
 #define VA_BITS_DEFAULT 48ul
 
 // x86_64 kernel text starts at the base address (no offset from _stext).
-#define TEXT_OFFSET 0
+#define IMAGE_BASE_OFFSET 0
 
 // Default: 0xffffffff81000000 (base + 16 MiB PHYSICAL_START).
 // See docs/kaslr.md "Default text base and KASLR alignment" for all
 // architectures. Kernel source: arch/x86/kernel/vmlinux.lds.S,
 // arch/x86/include/asm/page_64_types.h
 #define KERNEL_VIRT_TEXT_DEFAULT                                               \
-  (KERNEL_VIRT_TEXT_MIN + PHYSICAL_START + TEXT_OFFSET)
+  (KERNEL_VIRT_TEXT_MIN + PHYSICAL_START + IMAGE_BASE_OFFSET)
 
 /* KASLR-off ⇒ pin contract: x86_64 with nokaslr loads the kernel at
  * __START_KERNEL_map + LOAD_PHYSICAL_ADDR exactly, regardless of LA48/LA57.
@@ -182,7 +182,7 @@ static inline unsigned long arch_default_phys_text_base(void) {
 // https://elixir.bootlin.com/linux/v6.12/source/arch/x86/boot/compressed/kaslr.c
 #define KASLR_VIRT_TEXT_MIN (KERNEL_VIRT_TEXT_MIN + PHYSICAL_START)
 
-/* Conservative lower edges of Q_VIRT_TEXT_BASE / Q_PHYS_TEXT_BASE windows
+/* Conservative lower edges of Q_VIRT_IMAGE_BASE / Q_PHYS_IMAGE_BASE windows
  * on x86_64. KASLR_VIRT_TEXT_MIN / KASLR_PHYS_MIN above bake in
  * CONFIG_PHYSICAL_START at its compile-time default (0x1000000). A kernel
  * built with a smaller CONFIG_PHYSICAL_START legitimately places text

@@ -7,7 +7,7 @@
 // !KASLR_SUPPORTED synth, or a future detector that proves only physical
 // KASLR is off — e.g. EFI_RNG_PROTOCOL unavailable with virt KASLR intact
 // via the DTB seed) the kernel's physical text base sits at the compile-
-// time default for the arch. Pin Q_PHYS_TEXT_BASE to
+// time default for the arch. Pin Q_PHYS_IMAGE_BASE to
 // arch_default_phys_text_base().
 //
 // Per-arch enable:
@@ -64,13 +64,13 @@ int rule_phys_kaslr_disabled_pin(const struct evidence_set *ev,
     return 0;
 
   unsigned long p = arch_default_phys_text_base();
-  const struct estimate *pt = &est[Q_PHYS_TEXT_BASE];
+  const struct estimate *pt = &est[Q_PHYS_IMAGE_BASE];
   if (p == 0 || p < pt->lo || p > pt->hi)
     return 0;
 
   struct constraint *c = &out[0];
   memset(c, 0, sizeof(*c));
-  c->q = Q_PHYS_TEXT_BASE;
+  c->q = Q_PHYS_IMAGE_BASE;
   c->op = C_EQUALS;
   c->value = p;
   c->conf = sig_conf;

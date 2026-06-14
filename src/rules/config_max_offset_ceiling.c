@@ -18,7 +18,7 @@
 //
 // Corrected ceiling:
 //
-//   virt_text_base ≤ KASLR_VIRT_TEXT_MIN + MAX_OFFSET + ALIGN(kernel_length,
+//   virt_image_base ≤ KASLR_VIRT_TEXT_MIN + MAX_OFFSET + ALIGN(kernel_length,
 //   0xffff)
 //
 // `kernel_length` is extracted from observations:
@@ -136,7 +136,7 @@ int rule_config_max_offset_ceiling(const struct evidence_set *ev,
 
   struct constraint *c = &out[0];
   memset(c, 0, sizeof(*c));
-  c->q = Q_VIRT_TEXT_BASE;
+  c->q = Q_VIRT_IMAGE_BASE;
   c->op = C_UPPER_BOUND;
   c->value = ceiling;
   c->conf = CONF_PARSED;

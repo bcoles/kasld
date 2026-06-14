@@ -71,10 +71,6 @@
 #define KERNEL_VIRT_TEXT_MIN 0xffff800008000000ul
 #define KERNEL_VIRT_TEXT_MAX 0xffffffffff000000ul
 
-// _PAGE_END(48) = 0xffff800000000000 is the runtime discriminator.
-// Kernel text below this → old layout; at/above → new layout.
-#define ARM64_LEGACY_LAYOUT_BOUNDARY 0xffff800000000000ul
-
 // Module region — VALIDATION UNION across all in-scope kernel versions.
 //
 //   pre-v5.4 layout:   [0xffff000000000000, 0xffff000007fffffful]  (128 MiB at
@@ -91,7 +87,7 @@
 // that gap can be misclassified as REGION_MODULE_REGION by sources that
 // guess region purely by address (dmesg parsers). Mitigated downstream:
 // module_text_bound is inert on arm64 (MODULES_RELATIVE_TO_TEXT=0), so the
-// admission does not pollute Q_VIRT_TEXT_BASE. The runtime band rendered to
+// admission does not pollute Q_VIRT_IMAGE_BASE. The runtime band rendered to
 // the user comes from observed module addresses when available
 // (engine_sync), not the wide validation window.
 // https://elixir.bootlin.com/linux/v6.6/source/arch/arm64/include/asm/memory.h
@@ -130,10 +126,18 @@
 // the filter stays sound (just slightly less selective).
 #define EFI_KIMG_ALIGN 0x10000ul
 
-// TEXT_OFFSET was changed from 0x80000 to zero in 2020 from kernel v5.8 onwards
-// https://elixir.bootlin.com/linux/v5.8/source/arch/arm64/Makefile
+// IMAGE_BASE_OFFSET is the alignment residue (where _text sits within the KASLR
+// granule); _text == KIMAGE_VADDR is 2 MiB-aligned, so it is 0. (The kernel's
+// historical 0x80000 TEXT_OFFSET, dropped in v5.8, was the *physical* load
+// offset from the start of RAM — a different quantity, not the _text alignment
+// residue.)
 // https://lore.kernel.org/all/20200428134119.GI6791@willie-the-truck/T/
-#define TEXT_OFFSET 0
+#define IMAGE_BASE_OFFSET 0
+
+// Head gap _stext - _text: arm64 places .head.text (EFI header + early vectors)
+// before _stext, so _stext = _text + 0x10000. The engine solves the image base
+// (_text); _stext is projected from it with STEXT_OFFSET.
+#define STEXT_OFFSET 0x10000ul
 
 // Plausible physical address range for kernel image
 #define KERNEL_PHYS_MIN 0ul
@@ -143,7 +147,7 @@
 //   v5.4:  _PAGE_END(48) + SZ_128M  = 0xffff800008000000
 //   v5.0:  _PAGE_END(48) + SZ_256M  = 0xffff800010000000
 //   v6.2+: _PAGE_END(48) + SZ_2G    = 0xffff800080000000
-// (Old layout used VA_START(48) + SZ_128M = 0xffff000008000000; see LEGACY_*)
+// (Old pre-v5.4 layout used VA_START(48) + SZ_128M = 0xffff000008000000.)
 // https://elixir.bootlin.com/linux/v6.12/source/arch/arm64/include/asm/memory.h#L46
 // Use v6.2+ value (2G module region, current default).
 #define KIMAGE_VADDR 0xffff800080000000ul
@@ -151,11 +155,11 @@
 // See docs/kaslr.md "Default text base and KASLR alignment" for all
 // architectures. Kernel source: arch/arm64/kernel/vmlinux.lds.S,
 // arch/arm64/include/asm/memory.h
-#define KERNEL_VIRT_TEXT_DEFAULT (KIMAGE_VADDR + TEXT_OFFSET)
+#define KERNEL_VIRT_TEXT_DEFAULT (KIMAGE_VADDR + IMAGE_BASE_OFFSET)
 
 /* KASLR-off ⇒ pin contract: arm64 KIMAGE_VADDR is fixed at kernel build
  * time by CONFIG_ARM64_VA_BITS_MIN (universally 48 in practice). Without
- * KASLR the kernel lands at KIMAGE_VADDR + TEXT_OFFSET regardless of the
+ * KASLR the kernel lands at KIMAGE_VADDR + IMAGE_BASE_OFFSET regardless of the
  * runtime VA_BITS (which only affects PAGE_OFFSET / the linear map). Build
  * configs with VA_BITS_MIN != 48 land at a different address; the pin rule's
  * window-containment check rejects the pin in that case. */
@@ -181,7 +185,7 @@ static inline unsigned long arch_default_text_base(void) {
 #define KASLR_VIRT_TEXT_MAX (KASLR_VIRT_TEXT_MIN + (1ul << 46))
 #define KASLR_VIRT_ALIGN (2 * MB)
 
-/* Honest-top floor for Q_VIRT_TEXT_BASE — widened down to KIMAGE_VADDR so
+/* Honest-top floor for Q_VIRT_IMAGE_BASE — widened down to KIMAGE_VADDR so
  * the engine's honest window admits:
  *   (a) the no-KASLR case, where text sits at KIMAGE_VADDR exactly
  *       (CONFIG_RANDOMIZE_BASE=n, or `nokaslr` cmdline);
@@ -191,7 +195,7 @@ static inline unsigned long arch_default_text_base(void) {
  *
  * Without this widening, virt_/phys_kaslr_disabled_pin's window-containment
  * check rejects the no-KASLR default (KIMAGE_VADDR) as below the v6.6-era
- * KASLR_VIRT_TEXT_MIN, leaving Q_VIRT_TEXT_BASE wide and the actual text base
+ * KASLR_VIRT_TEXT_MIN, leaving Q_VIRT_IMAGE_BASE wide and the actual text base
  * outside the window. The widening only widens the honest top — never
  * narrows — so it cannot eliminate a true leak; it can only stop falsely
  * excluding one.
@@ -203,22 +207,5 @@ static inline unsigned long arch_default_text_base(void) {
 #define KASLR_VIRT_TEXT_MIN_WIDE KIMAGE_VADDR
 
 #define KASLR_SUPPORTED 1
-
-// Legacy layout overrides (pre-v5.4 arm64 VAS).
-// Kernel image at VA_START(48) + SZ_128M, below _PAGE_END(48).
-// All values are static constants (decoupled, like the modern layout).
-// The pre-v5.4 module range is covered by the unified MODULES_START/END
-// validation union above.
-#define LEGACY_LAYOUT_BOUNDARY ARM64_LEGACY_LAYOUT_BOUNDARY
-#define LEGACY_PAGE_OFFSET 0xffff800000000000ul
-#define LEGACY_KERNEL_VAS_START 0xffff000000000000ul
-#define LEGACY_TEXT_OFFSET 0x80000ul
-#define LEGACY_KIMAGE_VADDR 0xffff000008000000ul
-#define LEGACY_KERNEL_TEXT_DEFAULT (LEGACY_KIMAGE_VADDR + LEGACY_TEXT_OFFSET)
-#define LEGACY_KERNEL_TEXT_MIN LEGACY_KIMAGE_VADDR
-// Old KASLR (v4.6): offset = BIT(VA_BITS-2) + (seed & mask), VA_BITS=48
-// So offset ∈ [BIT(46), BIT(47)), range = BIT(46), aligned to SZ_2M.
-#define LEGACY_KASLR_TEXT_MIN (LEGACY_KERNEL_TEXT_DEFAULT + (1ul << 46))
-#define LEGACY_KASLR_TEXT_MAX (LEGACY_KASLR_TEXT_MIN + (1ul << 46))
 
 #endif /* KASLD_ARM64_H */

@@ -6,8 +6,8 @@
 // is drawn from [0, min(MemTotal, 512 MiB)) in 64 MiB steps, and with < 64 MiB
 // RAM the slot count is 0 so the kernel loads at the compile-time default.
 //
-//   MemTotal < 64 MiB : virt_text_base == KERNEL_VIRT_TEXT_DEFAULT  (KASLR off)
-//   else              : virt_text_base <= KASLR_VIRT_TEXT_MIN +
+//   MemTotal < 64 MiB : virt_image_base == KERNEL_VIRT_TEXT_DEFAULT  (KASLR
+//   off) else              : virt_image_base <= KASLR_VIRT_TEXT_MIN +
 //   min(MemTotal,512M)
 //                                          - MIN_IMAGE_SIZE  (aligned)
 //
@@ -64,7 +64,7 @@ int rule_ppc32_phys_ceiling(const struct evidence_set *ev,
 
   if (mem < BOOKE_KASLR_MIN_RAM) {
     /* KASLR disabled: pin to the compile-time default. */
-    c->q = Q_VIRT_TEXT_BASE;
+    c->q = Q_VIRT_IMAGE_BASE;
     c->op = C_EQUALS;
     c->value = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
     return 1;
@@ -79,7 +79,7 @@ int rule_ppc32_phys_ceiling(const struct evidence_set *ev,
       kasld_floor_virt_text_bound(ceiling, (unsigned long)KASLR_VIRT_ALIGN);
   if (ceiling <= (unsigned long)KASLR_VIRT_TEXT_MIN)
     return 0;
-  c->q = Q_VIRT_TEXT_BASE;
+  c->q = Q_VIRT_IMAGE_BASE;
   c->op = C_UPPER_BOUND;
   c->value = ceiling;
   return 1;

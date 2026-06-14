@@ -112,11 +112,11 @@ static void test_full_engine_x86_64_leaky(void) {
   const struct quantity_def *qd = quantities;
 
   /* Soundness: every interval quantity is non-bottom and still admits truth. */
-  const struct estimate *vt = &e.est[Q_VIRT_TEXT_BASE];
-  const struct estimate *pt = &e.est[Q_PHYS_TEXT_BASE];
+  const struct estimate *vt = &e.est[Q_VIRT_IMAGE_BASE];
+  const struct estimate *pt = &e.est[Q_PHYS_IMAGE_BASE];
   const struct estimate *po = &e.est[Q_PAGE_OFFSET];
-  assert(!estimate_is_bottom(vt, &qd[Q_VIRT_TEXT_BASE]));
-  assert(!estimate_is_bottom(pt, &qd[Q_PHYS_TEXT_BASE]));
+  assert(!estimate_is_bottom(vt, &qd[Q_VIRT_IMAGE_BASE]));
+  assert(!estimate_is_bottom(pt, &qd[Q_PHYS_IMAGE_BASE]));
   assert(!estimate_is_bottom(po, &qd[Q_PAGE_OFFSET]));
   assert(contains(vt, T)); /* must not over-tighten past the true text base */
   assert(contains(pt, P)); /* ... nor the true phys base */
@@ -125,9 +125,9 @@ static void test_full_engine_x86_64_leaky(void) {
   /* Liveness: the rules fired and narrowed each quantity from its honest top.
    */
   struct estimate top;
-  qd[Q_VIRT_TEXT_BASE].init_top(&top);
+  qd[Q_VIRT_IMAGE_BASE].init_top(&top);
   assert(vt->hi < top.hi); /* image_size_text_data_gap ceiling */
-  qd[Q_PHYS_TEXT_BASE].init_top(&top);
+  qd[Q_PHYS_IMAGE_BASE].init_top(&top);
   assert(pt->hi < top.hi); /* kernel_image_phys_bound / mmio / memtotal */
   qd[Q_PAGE_OFFSET].init_top(&top);
   assert(po->hi < top.hi); /* directmap_page_offset_bounds */
@@ -140,7 +140,7 @@ static void test_full_engine_x86_64_leaky(void) {
  * the lowest-address dram-section observation does NOT mark the RAM
  * floor when it comes from a non-RAM region. dram_floor_bound must
  * scope its floor scan to REGION_RAM observations only; widening it to
- * is_phys_dram_region(...) would pin Q_PHYS_TEXT_BASE.lo to 0x2c90000
+ * is_phys_dram_region(...) would pin Q_PHYS_IMAGE_BASE.lo to 0x2c90000
  * and exclude the actual kernel-at-phys-0 placement. */
 static void test_full_engine_ppc64_hardened_shape(void) {
 #if defined(__powerpc64__) || defined(__ppc64__)
@@ -168,12 +168,12 @@ static void test_full_engine_ppc64_hardened_shape(void) {
   const unsigned long t_phys = 0x0ul;
   const unsigned long t_po = 0xc000000000000000ul;
 
-  const struct estimate *vt = &e.est[Q_VIRT_TEXT_BASE];
-  const struct estimate *pt = &e.est[Q_PHYS_TEXT_BASE];
+  const struct estimate *vt = &e.est[Q_VIRT_IMAGE_BASE];
+  const struct estimate *pt = &e.est[Q_PHYS_IMAGE_BASE];
   const struct estimate *po = &e.est[Q_PAGE_OFFSET];
 
-  assert(!estimate_is_bottom(vt, &quantities[Q_VIRT_TEXT_BASE]));
-  assert(!estimate_is_bottom(pt, &quantities[Q_PHYS_TEXT_BASE]));
+  assert(!estimate_is_bottom(vt, &quantities[Q_VIRT_IMAGE_BASE]));
+  assert(!estimate_is_bottom(pt, &quantities[Q_PHYS_IMAGE_BASE]));
   assert(!estimate_is_bottom(po, &quantities[Q_PAGE_OFFSET]));
 
   assert(vt->lo <= t_virt && t_virt <= vt->hi);
@@ -190,7 +190,7 @@ static void test_full_engine_ppc64_hardened_shape(void) {
  * SF_VIRT_KASLR_RANDOMIZATION_FAILED (distinct from SF_VIRT_KASLR_DISABLED,
  * which the virt_/phys_kaslr_disabled_pin rule would honour);
  * virt_/phys_kaslr_disabled_pin therefore does NOT fire, and the engine
- * resolves Q_VIRT_TEXT_BASE to a wide window that admits the runtime-relocated
+ * resolves Q_VIRT_IMAGE_BASE to a wide window that admits the runtime-relocated
  * _stext. Were the no-PRNG line miscategorised as SF_VIRT_KASLR_DISABLED, the
  * engine would pin to KERNEL_VIRT_TEXT_DEFAULT (0x3FFE0100000) and exclude any
  * _stext displaced by the runtime relocation (e.g. 0x3FFFE6A0000, ~8 GiB above
@@ -221,11 +221,11 @@ static void test_full_engine_s390_no_prng_shape(void) {
   const unsigned long t_virt = 0x3fffe6a0000ul;
   const unsigned long t_phys = 0xaa0000ul;
 
-  const struct estimate *vt = &e.est[Q_VIRT_TEXT_BASE];
-  const struct estimate *pt = &e.est[Q_PHYS_TEXT_BASE];
+  const struct estimate *vt = &e.est[Q_VIRT_IMAGE_BASE];
+  const struct estimate *pt = &e.est[Q_PHYS_IMAGE_BASE];
 
-  assert(!estimate_is_bottom(vt, &quantities[Q_VIRT_TEXT_BASE]));
-  assert(!estimate_is_bottom(pt, &quantities[Q_PHYS_TEXT_BASE]));
+  assert(!estimate_is_bottom(vt, &quantities[Q_VIRT_IMAGE_BASE]));
+  assert(!estimate_is_bottom(pt, &quantities[Q_PHYS_IMAGE_BASE]));
   /* With SF_VIRT_KASLR_DISABLED erroneously emitted, vt would collapse to
    * [KERNEL_VIRT_TEXT_DEFAULT, KERNEL_VIRT_TEXT_DEFAULT] and t_virt would fall
    * outside. The exemption keeps the signal off and the window admits
@@ -236,11 +236,11 @@ static void test_full_engine_s390_no_prng_shape(void) {
 }
 
 /* A no-KASLR arm32 system (CONFIG_RANDOMIZE_BASE is not available on
- * arm32; the kernel always loads at PAGE_OFFSET + TEXT_OFFSET + head).
+ * arm32; the kernel always loads at PAGE_OFFSET + IMAGE_BASE_OFFSET + head).
  * On any 32-bit arch, expressions like `4 * GB` in the arch header
- * overflow an `unsigned long` to 0 and collapse Q_PHYS_TEXT_BASE's
+ * overflow an `unsigned long` to 0 and collapse Q_PHYS_IMAGE_BASE's
  * honest-top to a bottom interval (lo > hi). The bottom then propagates
- * via text_base_coupling_synth onto Q_VIRT_TEXT_BASE on coupled arches.
+ * via text_base_coupling_synth onto Q_VIRT_IMAGE_BASE on coupled arches.
  *
  * The test plants the scalars a low-priv arm32 system emits when only
  * boot_config (PAGE_OFFSET, KASLR off) and meminfo are readable, and
@@ -264,20 +264,20 @@ static void test_full_engine_arm32_no_kaslr_shape(void) {
   const verdict_fn *vrules = engine_verdict_rules(&nv);
   engine_run_full(&e, rules, nr, vrules, nv);
 
-  /* Default arm32 layout: _stext sits at PAGE_OFFSET + TEXT_OFFSET + head
-   * (a small head-asm offset), phys text at TEXT_OFFSET above RAM_BASE
+  /* Default arm32 layout: _stext sits at PAGE_OFFSET + IMAGE_BASE_OFFSET + head
+   * (a small head-asm offset), phys text at IMAGE_BASE_OFFSET above RAM_BASE
    * (= 0x8000 on the standard layout). The resolved windows must remain
    * non-bottom and admit these. */
   const unsigned long t_virt = 0xc0008220ul;
   const unsigned long t_phys = 0x8000ul;
   const unsigned long t_po = 0xc0000000ul;
 
-  const struct estimate *vt = &e.est[Q_VIRT_TEXT_BASE];
-  const struct estimate *pt = &e.est[Q_PHYS_TEXT_BASE];
+  const struct estimate *vt = &e.est[Q_VIRT_IMAGE_BASE];
+  const struct estimate *pt = &e.est[Q_PHYS_IMAGE_BASE];
   const struct estimate *po = &e.est[Q_PAGE_OFFSET];
 
-  assert(!estimate_is_bottom(vt, &quantities[Q_VIRT_TEXT_BASE]));
-  assert(!estimate_is_bottom(pt, &quantities[Q_PHYS_TEXT_BASE]));
+  assert(!estimate_is_bottom(vt, &quantities[Q_VIRT_IMAGE_BASE]));
+  assert(!estimate_is_bottom(pt, &quantities[Q_PHYS_IMAGE_BASE]));
   assert(!estimate_is_bottom(po, &quantities[Q_PAGE_OFFSET]));
 
   assert(vt->lo <= t_virt && t_virt <= vt->hi);
@@ -289,10 +289,10 @@ static void test_full_engine_arm32_no_kaslr_shape(void) {
 /* A typical i686 system: KASLR enabled, virt_page_offset and
  * CONFIG_PHYSICAL_START readable from /boot/config, BIOS e820 readable from
  * /sys/kernel/boot_params, zoneinfo + firmware/memmap readable. x86_32 is
- * coupled (TEXT_TRACKS_DIRECTMAP = 1) so the resolved Q_VIRT_TEXT_BASE window
- * tracks the resolved Q_PHYS_TEXT_BASE window via the compile-time PAGE_OFFSET
- * / PHYS_OFFSET / TEXT_OFFSET projection. The test plants the scalars + phys
- * extents an unprivileged i686 user reads and asserts the resolved windows
+ * coupled (TEXT_TRACKS_DIRECTMAP = 1) so the resolved Q_VIRT_IMAGE_BASE window
+ * tracks the resolved Q_PHYS_IMAGE_BASE window via the compile-time PAGE_OFFSET
+ * / PHYS_OFFSET / IMAGE_BASE_OFFSET projection. The test plants the scalars +
+ * phys extents an unprivileged i686 user reads and asserts the resolved windows
  * remain non-bottom and admit a representative KASLR slid placement
  * (phys text + 96 MiB above CONFIG_PHYSICAL_START = 16 MiB → 112 MiB
  * absolute, virt = virt_page_offset + same). */
@@ -326,12 +326,12 @@ static void test_full_engine_i686_kaslr_shape(void) {
       0x06000000ul; /* CONFIG_PHYSICAL_START + 80 MiB slide */
   const unsigned long t_po = 0xc0000000ul;
 
-  const struct estimate *vt = &e.est[Q_VIRT_TEXT_BASE];
-  const struct estimate *pt = &e.est[Q_PHYS_TEXT_BASE];
+  const struct estimate *vt = &e.est[Q_VIRT_IMAGE_BASE];
+  const struct estimate *pt = &e.est[Q_PHYS_IMAGE_BASE];
   const struct estimate *po = &e.est[Q_PAGE_OFFSET];
 
-  assert(!estimate_is_bottom(vt, &quantities[Q_VIRT_TEXT_BASE]));
-  assert(!estimate_is_bottom(pt, &quantities[Q_PHYS_TEXT_BASE]));
+  assert(!estimate_is_bottom(vt, &quantities[Q_VIRT_IMAGE_BASE]));
+  assert(!estimate_is_bottom(pt, &quantities[Q_PHYS_IMAGE_BASE]));
   assert(!estimate_is_bottom(po, &quantities[Q_PAGE_OFFSET]));
 
   assert(vt->lo <= t_virt && t_virt <= vt->hi);
@@ -358,8 +358,8 @@ static void test_full_engine_robust_to_outlier(void) {
   const verdict_fn *vrules = engine_verdict_rules(&nv);
   engine_run_full(&e, rules, nr, vrules, nv);
 
-  const struct estimate *pt = &e.est[Q_PHYS_TEXT_BASE];
-  assert(!estimate_is_bottom(pt, &quantities[Q_PHYS_TEXT_BASE]));
+  const struct estimate *pt = &e.est[Q_PHYS_IMAGE_BASE];
+  assert(!estimate_is_bottom(pt, &quantities[Q_PHYS_IMAGE_BASE]));
   assert(pt->lo <= P && P <= pt->hi); /* truth survives the outlier */
 #endif
 }
@@ -368,10 +368,10 @@ static void test_full_engine_robust_to_outlier(void) {
  * loaded kernel image). The sysfs_devicetree_kernel_end component emits it as
  * `P REGION_KERNEL_IMAGE pos=top hi=<kend>`; kernel_image_phys_bound then uses
  * obs_anchor() (which returns hi for a top-only observation) to tighten
- * Q_PHYS_TEXT_BASE.hi.
+ * Q_PHYS_IMAGE_BASE.hi.
  *
  * Plant a low kernel-end (24 MiB) on a ppc64 layout and assert the upper
- * bound lands at or below that — the engine's honest top for Q_PHYS_TEXT_BASE
+ * bound lands at or below that — the engine's honest top for Q_PHYS_IMAGE_BASE
  * is far higher, so the rule firing on this signal is the only path that can
  * produce hi <= 24 MiB. */
 static void test_full_engine_ppc_kernel_end_tightens(void) {
@@ -391,8 +391,8 @@ static void test_full_engine_ppc_kernel_end_tightens(void) {
   const verdict_fn *vrules = engine_verdict_rules(&nv);
   engine_run_full(&e, rules, nr, vrules, nv);
 
-  const struct estimate *pt = &e.est[Q_PHYS_TEXT_BASE];
-  assert(!estimate_is_bottom(pt, &quantities[Q_PHYS_TEXT_BASE]));
+  const struct estimate *pt = &e.est[Q_PHYS_IMAGE_BASE];
+  assert(!estimate_is_bottom(pt, &quantities[Q_PHYS_IMAGE_BASE]));
   /* phys text base sits at or before the kernel image's last-byte witness. */
   assert(pt->hi <= kend);
   /* And the true placement (phys 0 for the ppc64 default layout) is admitted.
@@ -406,9 +406,9 @@ static void test_full_engine_ppc_kernel_end_tightens(void) {
  * sysfs_devicetree_memory_limit component emits it as
  * `P REGION_RAM pos=top hi=limit-1`; dram_ceiling reads max(o->hi) across RAM
  * observations and projects it through SF_IMAGE_SIZE to tighten
- * Q_VIRT_TEXT_BASE.hi on coupled arches (ppc64 is coupled).
+ * Q_VIRT_IMAGE_BASE.hi on coupled arches (ppc64 is coupled).
  *
- * Plant a 128 MiB cap on a ppc64 layout and assert Q_VIRT_TEXT_BASE.hi lands
+ * Plant a 128 MiB cap on a ppc64 layout and assert Q_VIRT_IMAGE_BASE.hi lands
  * below KERNEL_VIRT_TEXT_DEFAULT + the cap — i.e. dram_ceiling fired and
  * projected the cap. */
 static void test_full_engine_ppc_memory_limit_caps_dram(void) {
@@ -431,10 +431,11 @@ static void test_full_engine_ppc_memory_limit_caps_dram(void) {
   const verdict_fn *vrules = engine_verdict_rules(&nv);
   engine_run_full(&e, rules, nr, vrules, nv);
 
-  const struct estimate *vt = &e.est[Q_VIRT_TEXT_BASE];
-  assert(!estimate_is_bottom(vt, &quantities[Q_VIRT_TEXT_BASE]));
+  const struct estimate *vt = &e.est[Q_VIRT_IMAGE_BASE];
+  assert(!estimate_is_bottom(vt, &quantities[Q_VIRT_IMAGE_BASE]));
   /* dram_ceiling: phys_ceiling = (limit-1) - ksize; virt_ceiling = that +
-   * PAGE_OFFSET + TEXT_OFFSET. The resolved hi must be at or below that. */
+   * PAGE_OFFSET + IMAGE_BASE_OFFSET. The resolved hi must be at or below that.
+   */
   const unsigned long virt_ceiling = (limit - 1 - ksize) + 0xc000000000000000ul;
   assert(vt->hi <= virt_ceiling);
   /* And the true text base (phys 0 / virt 0xc00...000) is still admitted. */
@@ -447,10 +448,10 @@ static void test_full_engine_ppc_memory_limit_caps_dram(void) {
  * except s390's top-down placement). With SF_IMAGE_SIZE and an initrd-start
  * phys observation, initrd_above_kernel emits
  *   phys_text_base + image_size <= initrd_start
- * as a C_UPPER_BOUND on Q_PHYS_TEXT_BASE.
+ * as a C_UPPER_BOUND on Q_PHYS_IMAGE_BASE.
  *
  * Plant a high SF_IMAGE_SIZE and a tight initrd_start on an x86_64 layout
- * and assert Q_PHYS_TEXT_BASE.hi <= initrd_start - image_size. (Gated to
+ * and assert Q_PHYS_IMAGE_BASE.hi <= initrd_start - image_size. (Gated to
  * x86_64 since this is where the integration harness compiles by default.) */
 static void test_full_engine_initrd_above_kernel_upper_bound(void) {
 #if defined(__x86_64__)
@@ -469,8 +470,8 @@ static void test_full_engine_initrd_above_kernel_upper_bound(void) {
   const verdict_fn *vrules = engine_verdict_rules(&nv);
   engine_run_full(&e, rules, nr, vrules, nv);
 
-  const struct estimate *pt = &e.est[Q_PHYS_TEXT_BASE];
-  assert(!estimate_is_bottom(pt, &quantities[Q_PHYS_TEXT_BASE]));
+  const struct estimate *pt = &e.est[Q_PHYS_IMAGE_BASE];
+  assert(!estimate_is_bottom(pt, &quantities[Q_PHYS_IMAGE_BASE]));
   /* phys text base + image must fit at or below initrd start. */
   assert(pt->hi <= istart - ksize);
 #endif

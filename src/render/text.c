@@ -463,10 +463,12 @@ static void render_kaslr_text(const struct summary *s) {
   }
 
   if (s->kaslr.vtext) {
-    printf("  Virtual text base:    %s0x%016lx%s\n", c(C_GREEN), s->kaslr.vtext,
+    printf("  Virtual image base:   %s0x%016lx%s\n", c(C_GREEN), s->kaslr.vtext,
            c(C_RESET));
-    printf("  Default text base:    0x%016lx\n",
-           layout.virt_kernel_text_default);
+    if (s->kaslr.vstext && s->kaslr.vstext != s->kaslr.vtext)
+      printf("  Virtual _stext:       0x%016lx\n", s->kaslr.vstext);
+    printf("  Default image base:   0x%016lx\n",
+           layout.virt_image_base_default);
     long abs_vslide = s->kaslr.vslide < 0 ? -s->kaslr.vslide : s->kaslr.vslide;
     printf("  KASLR slide:          %s%s0x%lx%s (%ld)\n", c(C_CYAN),
            s->kaslr.vslide < 0 ? "-" : "+", (unsigned long)abs_vslide,
@@ -476,7 +478,7 @@ static void render_kaslr_text(const struct summary *s) {
              c(C_MAGENTA), s->kaslr.vbits, c(C_RESET), s->kaslr.vslots,
              layout.virt_kaslr_align);
     else if (layout.virt_kaslr_text_max == layout.virt_kaslr_text_min)
-      /* Engine resolved Q_VIRT_TEXT_BASE to a singleton — the leak collapsed
+      /* Engine resolved Q_VIRT_IMAGE_BASE to a singleton — the leak collapsed
        * the window to one slot. Distinguish from the no-alignment fallback
        * below: the visible text base IS the only possible value. */
       printf("  KASLR text entropy:   %s0 bits%s (pinned)\n", c(C_DIM),
@@ -491,8 +493,10 @@ static void render_kaslr_text(const struct summary *s) {
   }
 
   if (s->kaslr.has_phys) {
-    printf("  Physical text base:   %s0x%016lx%s\n", c(C_GREEN), s->kaslr.ptext,
+    printf("  Physical image base:  %s0x%016lx%s\n", c(C_GREEN), s->kaslr.ptext,
            c(C_RESET));
+    if (s->kaslr.pstext && s->kaslr.pstext != s->kaslr.ptext)
+      printf("  Physical _stext:      0x%016lx\n", s->kaslr.pstext);
 #ifdef KERNEL_PHYS_DEFAULT
     printf("  Default phys base:    0x%016lx\n",
            (unsigned long)KERNEL_PHYS_DEFAULT);
@@ -628,15 +632,15 @@ static void print_memory_map(void) {
 
   regions[n++] = (struct map_region){layout.modules_start, layout.modules_end,
                                      "modules", vmod_lo, vmod_hi};
-  regions[n++] = (struct map_region){layout.virt_kernel_text_min,
-                                     layout.virt_kernel_text_max, "kernel text",
+  regions[n++] = (struct map_region){layout.virt_image_base_min,
+                                     layout.virt_image_base_max, "kernel text",
                                      vtext_lo, vtext_hi};
 
   /* Only show directmap region if it's distinct from text region.
      Use virt_page_offset as both start and end — we know the mapping begins
      there but don't know its true extent. virt_kernel_vas_end would cause
      unsigned overflow in the gap arithmetic (end + 1 wraps to 0). */
-  if (layout.virt_page_offset != layout.virt_kernel_text_min) {
+  if (layout.virt_page_offset != layout.virt_image_base_min) {
     regions[n++] =
         (struct map_region){layout.virt_page_offset, layout.virt_page_offset,
                             "direct map", vdmap_lo, vdmap_hi};
@@ -1214,7 +1218,8 @@ static void render_readout(const struct summary *s) {
     printf("KASLR not supported on this architecture.\n\n");
     if (s->kaslr.default_addr)
       printf("  %-19s %s0x%016lx%s   arch default (no randomisation)\n",
-             "Kernel text base", c(C_GREEN), s->kaslr.default_addr, c(C_RESET));
+             "Kernel image base", c(C_GREEN), s->kaslr.default_addr,
+             c(C_RESET));
     printf("\n");
     readout_print_leaks();
     printf("\n[-v: detailed results, memory map, system info]  "
@@ -1227,7 +1232,8 @@ static void render_readout(const struct summary *s) {
            c(C_YELLOW), c(C_RESET));
     if (s->kaslr.default_addr)
       printf("  %-19s %s0x%016lx%s   compile-time default (no slide)\n",
-             "Kernel text base", c(C_GREEN), s->kaslr.default_addr, c(C_RESET));
+             "Kernel image base", c(C_GREEN), s->kaslr.default_addr,
+             c(C_RESET));
     printf("\n");
     readout_print_leaks();
     printf("\n[-v: detailed results, memory map, system info]  "
@@ -1246,23 +1252,29 @@ static void render_readout(const struct summary *s) {
   if (s->kaslr.vtext && vpin) {
     /* Fully derandomised — show address + slide instead of range. */
     long abs_v = s->kaslr.vslide < 0 ? -s->kaslr.vslide : s->kaslr.vslide;
-    printf("  %-19s %s0x%016lx%s   slide %s%s0x%lx%s\n", "Virtual text base",
+    printf("  %-19s %s0x%016lx%s   slide %s%s0x%lx%s\n", "Virtual image base",
            c(C_GREEN), s->kaslr.vtext, c(C_RESET), c(C_CYAN),
            s->kaslr.vslide < 0 ? "-" : "+", (unsigned long)abs_v, c(C_RESET));
+    if (s->kaslr.vstext && s->kaslr.vstext != s->kaslr.vtext)
+      printf("  %-19s %s0x%016lx%s\n", "Virtual _stext", c(C_GREEN),
+             s->kaslr.vstext, c(C_RESET));
   } else {
-    readout_bound_row("Virtual text base", layout.virt_kaslr_text_min,
+    readout_bound_row("Virtual image base", layout.virt_kaslr_text_min,
                       layout.virt_kaslr_text_max, s->kaslr.vslots,
                       s->kaslr.vbits, layout.virt_kaslr_align);
   }
 
   if (s->kaslr.has_phys && ppin) {
     long abs_p = s->kaslr.pslide < 0 ? -s->kaslr.pslide : s->kaslr.pslide;
-    printf("  %-19s %s0x%016lx%s   slide %s%s0x%lx%s\n", "Physical text base",
+    printf("  %-19s %s0x%016lx%s   slide %s%s0x%lx%s\n", "Physical image base",
            c(C_GREEN), s->kaslr.ptext, c(C_RESET), c(C_CYAN),
            s->kaslr.pslide < 0 ? "-" : "+", (unsigned long)abs_p, c(C_RESET));
+    if (s->kaslr.pstext && s->kaslr.pstext != s->kaslr.ptext)
+      printf("  %-19s %s0x%016lx%s\n", "Physical _stext", c(C_GREEN),
+             s->kaslr.pstext, c(C_RESET));
   } else if (s->kaslr.pslots > 0 ||
              (layout.phys_kaslr_text_min || layout.phys_kaslr_text_max)) {
-    readout_bound_row("Physical text base", layout.phys_kaslr_text_min,
+    readout_bound_row("Physical image base", layout.phys_kaslr_text_min,
                       layout.phys_kaslr_text_max, s->kaslr.pslots,
                       s->kaslr.pbits, layout.phys_kaslr_align);
   }
@@ -1364,7 +1376,7 @@ void render_text(const struct summary *s) {
     printf("%s** KASLR is not supported on this architecture **%s\n\n",
            c(C_YELLOW), c(C_RESET));
     if (s->kaslr.default_addr)
-      printf("Kernel text base: %s0x%016lx%s (default for arch)\n\n",
+      printf("Kernel image base: %s0x%016lx%s (default for arch)\n\n",
              c(C_GREEN), s->kaslr.default_addr, c(C_RESET));
   } else if (s->kaslr.disabled) {
     printf("%s** KASLR is disabled **%s\n\n", c(C_YELLOW), c(C_RESET));
@@ -1385,7 +1397,7 @@ void render_text(const struct summary *s) {
     printf("\n");
     if (s->kaslr.default_addr)
       printf(
-          "Likely kernel text base: %s0x%016lx%s (assumes default config)\n\n",
+          "Likely kernel image base: %s0x%016lx%s (assumes default config)\n\n",
           c(C_GREEN), s->kaslr.default_addr, c(C_RESET));
   }
 

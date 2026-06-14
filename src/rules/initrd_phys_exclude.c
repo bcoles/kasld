@@ -9,7 +9,7 @@
 //   (initrd_start - kernel_size, initrd_end)   i.e. the inclusive integer hole
 //   [initrd_start - kernel_size + 1, initrd_end - 1]
 //
-// emitted as a C_EXCLUDE on Q_PHYS_TEXT_BASE. Rather than invalidating leaked
+// emitted as a C_EXCLUDE on Q_PHYS_IMAGE_BASE. Rather than invalidating leaked
 // results that land in the initrd, it removes the forbidden band from the
 // candidate set itself. The hole shows up only in the
 // hole-aware slot count, not the headline lo/hi (an interior C_EXCLUDE does not
@@ -17,7 +17,7 @@
 //
 // Reads REGION_INITRD (emitted as a [lo,hi] range by boot_params_e820 /
 // devicetree) + SF_IMAGE_SIZE; both already in evidence. Decoupled arches only
-// (Q_PHYS_TEXT_BASE); emits nothing when either input is absent — sound.
+// (Q_PHYS_IMAGE_BASE); emits nothing when either input is absent — sound.
 // ---
 // <bcoles@gmail.com>
 
@@ -74,7 +74,7 @@ int rule_initrd_phys_exclude(const struct evidence_set *ev,
 
   struct constraint *c = &out[0];
   memset(c, 0, sizeof(*c));
-  c->q = Q_PHYS_TEXT_BASE;
+  c->q = Q_PHYS_IMAGE_BASE;
   c->op = C_EXCLUDE;
   c->value = hole_lo;
   c->value2 = hole_hi;

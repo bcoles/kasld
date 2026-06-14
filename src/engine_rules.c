@@ -76,7 +76,7 @@ static const rule_fn k_rules[] = {
     /* Module-relative text bounds */
     rule_module_text_bound,
 
-    /* Multi-entry EFI_LOADER_CODE → Q_PHYS_TEXT_BASE pin */
+    /* Multi-entry EFI_LOADER_CODE → Q_PHYS_IMAGE_BASE pin */
     rule_efi_loader_kernel_pick,
 
     /* Text-base pin from POS_BASE kernel-image observation */

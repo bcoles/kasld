@@ -10,7 +10,7 @@
 // CONFIG_PAGE_OFFSET landmark) — so this is a cross-quantity rule reading the
 // resolved virt_page_offset, deterministic and file-derived.
 //
-// C_UPPER_BOUND on Q_VIRT_TEXT_BASE; fires once virt_page_offset is pinned.
+// C_UPPER_BOUND on Q_VIRT_IMAGE_BASE; fires once virt_page_offset is pinned.
 // i386 only; inert elsewhere.
 // ---
 // <bcoles@gmail.com>
@@ -38,7 +38,7 @@ int rule_x86_32_vmsplit_ceiling(const struct evidence_set *ev,
 
   struct constraint *c = &out[0];
   memset(c, 0, sizeof(*c));
-  c->q = Q_VIRT_TEXT_BASE;
+  c->q = Q_VIRT_IMAGE_BASE;
   c->op = C_UPPER_BOUND;
   c->value = ceiling;
   c->conf = CONF_PARSED;

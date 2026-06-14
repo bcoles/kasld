@@ -8,7 +8,7 @@
 //   handle_mem_options() + find_random_phys_addr()): the kernel image must
 //   satisfy `phys_base + image_size <= mem`. The cmdline_mem_phys_ceiling /
 //   cmdline_mem_virt_ceiling rules consume the emitted scalar (plus
-//   SF_IMAGE_SIZE) to bound Q_PHYS_TEXT_BASE or Q_VIRT_TEXT_BASE.
+//   SF_IMAGE_SIZE) to bound Q_PHYS_IMAGE_BASE or Q_VIRT_IMAGE_BASE.
 //
 // /proc/cmdline is world-readable (0444), so the token is observable without
 // privileges. The kernel-side parser is `memparse` (lib/cmdline.c): optional

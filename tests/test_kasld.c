@@ -1014,28 +1014,8 @@ static void test_synthesized_result_sets_fields_correctly(void) {
 }
 
 /* =========================================================================
- * compute_kaslr_info: derive_*_anchor terminal case and all-NULL
+ * compute_kaslr_info: all-NULL anchor case
  * ========================================================================= */
-#ifdef DATA_OFFSET
-static void test_compute_kaslr_info_derives_from_kernel_data(void) {
-  reset_results();
-  /* No KERNEL_IMAGE or KERNEL_TEXT anchor — only KERNEL_DATA with HAS_LO.
-   * derive_vtext_from_data must fire. */
-  struct result *r = push_result();
-  r->type = KASLD_TYPE_VIRT;
-  r->region = REGION_KERNEL_DATA;
-  r->pos = POS_BASE;
-  r->conf = CONF_PARSED;
-  unsigned long sdata = layout.virt_kaslr_text_min +
-                        (unsigned long)DATA_OFFSET + layout.virt_kaslr_align;
-  r->lo = sdata;
-  r->set_mask = LO_SET;
-
-  struct summary s = {0};
-  compute_kaslr_info(&s);
-  assert(s.kaslr.vtext == sdata - (unsigned long)DATA_OFFSET);
-}
-#endif
 
 static void test_compute_kaslr_info_no_anchors_yields_zero_vtext(void) {
   reset_results();
@@ -1471,7 +1451,7 @@ static void test_compute_kaslr_info_no_note_without_phys_landmark(void) {
  * inferred range. Build a synthetic resolved engine and assert EVERY edge it is
  * responsible for lands where compute_kaslr_info()/render expect it.
  *
- * Crucially pins kaslr_base_* == kernel_base_* == Q_VIRT_TEXT_BASE: those must
+ * Crucially pins kaslr_base_* == kernel_base_* == Q_VIRT_IMAGE_BASE: those must
  * stay equal post-resolution (the "kernel text" band vs the reported "Inferred
  * text range"), which is the exact invariant the original bug violated. */
 static void test_engine_sync_projects_all_fields(void) {
@@ -1481,13 +1461,13 @@ static void test_engine_sync_projects_all_fields(void) {
   /* Synthetic resolved windows — distinct, recognisable values per quantity so
    * a mis-wired field (writing the wrong source) is caught, not just a missing
    * write. */
-  e.est[Q_VIRT_TEXT_BASE].lo = FX_TEXT;
-  e.est[Q_VIRT_TEXT_BASE].hi = (FX_TEXT + 0x0e000000ul);
+  e.est[Q_VIRT_IMAGE_BASE].lo = FX_TEXT;
+  e.est[Q_VIRT_IMAGE_BASE].hi = (FX_TEXT + 0x0e000000ul);
   e.est[Q_VIRT_KASLR_ALIGN].lo = 0x200000ul;
   e.est[Q_PAGE_OFFSET].lo = (unsigned long)PAGE_OFFSET + 0x10000000ul;
   e.est[Q_PAGE_OFFSET].hi = (unsigned long)PAGE_OFFSET + 0x30000000ul;
-  e.est[Q_PHYS_TEXT_BASE].lo = 0x4000000ul;
-  e.est[Q_PHYS_TEXT_BASE].hi = 0x3c000000ul;
+  e.est[Q_PHYS_IMAGE_BASE].lo = 0x4000000ul;
+  e.est[Q_PHYS_IMAGE_BASE].hi = 0x3c000000ul;
   e.est[Q_PHYS_KASLR_ALIGN].lo = 0x200000ul;
   e.est[Q_VMALLOC_BASE].lo = (unsigned long)PAGE_OFFSET + 0x11000000ul;
   e.est[Q_VMALLOC_BASE].lo_binding = 1;
@@ -1503,7 +1483,7 @@ static void test_engine_sync_projects_all_fields(void) {
 
   /* Start the targets at poison so a missing write is visibly wrong. */
   layout.virt_kaslr_text_min = layout.virt_kaslr_text_max = 0;
-  layout.virt_kernel_text_min = layout.virt_kernel_text_max = 0;
+  layout.virt_image_base_min = layout.virt_image_base_max = 0;
   layout.virt_kaslr_align = 0;
   layout.virt_page_offset_min = layout.virt_page_offset_max = 0;
   layout.virt_vmalloc_base_min = layout.virt_vmalloc_base_max = 0;
@@ -1515,8 +1495,8 @@ static void test_engine_sync_projects_all_fields(void) {
    * image-placement range, and they must be identical (the renderer bug). */
   assert(layout.virt_kaslr_text_min == FX_TEXT);
   assert(layout.virt_kaslr_text_max == (FX_TEXT + 0x0e000000ul));
-  assert(layout.virt_kernel_text_min == layout.virt_kaslr_text_min);
-  assert(layout.virt_kernel_text_max == layout.virt_kaslr_text_max);
+  assert(layout.virt_image_base_min == layout.virt_kaslr_text_min);
+  assert(layout.virt_image_base_max == layout.virt_kaslr_text_max);
   assert(layout.virt_kaslr_align == 0x200000ul);
 
   assert(layout.virt_page_offset_min ==
@@ -1579,8 +1559,8 @@ static void test_engine_sync_anchors_module_band_to_observations(void) {
   e.ev.obs[e.ev.n_obs++] = o2;
 
   /* Seed the resolved estimates: just enough for the rest of sync. */
-  e.est[Q_VIRT_TEXT_BASE].lo = layout.virt_kaslr_text_min;
-  e.est[Q_VIRT_TEXT_BASE].hi = layout.virt_kaslr_text_max;
+  e.est[Q_VIRT_IMAGE_BASE].lo = layout.virt_kaslr_text_min;
+  e.est[Q_VIRT_IMAGE_BASE].hi = layout.virt_kaslr_text_max;
 
   /* Static modules_start/end (the validation union) as the pre-sync value. */
   layout.modules_start = MODULES_START;
@@ -1619,8 +1599,8 @@ static void test_engine_sync_module_band_rejects_out_of_union(void) {
   o.conf = CONF_PARSED;
   e.ev.obs[e.ev.n_obs++] = o;
 
-  e.est[Q_VIRT_TEXT_BASE].lo = layout.virt_kaslr_text_min;
-  e.est[Q_VIRT_TEXT_BASE].hi = layout.virt_kaslr_text_max;
+  e.est[Q_VIRT_IMAGE_BASE].lo = layout.virt_kaslr_text_min;
+  e.est[Q_VIRT_IMAGE_BASE].hi = layout.virt_kaslr_text_max;
 
   layout.modules_start = MODULES_START;
   layout.modules_end = MODULES_END;
@@ -1722,9 +1702,6 @@ int main(void) {
   RUN(test_compute_kaslr_info_uses_kernel_image_anchor);
   RUN(test_compute_kaslr_info_falls_back_to_kernel_text);
   RUN(test_compute_kaslr_info_no_anchors_yields_zero_vtext);
-#ifdef DATA_OFFSET
-  RUN(test_compute_kaslr_info_derives_from_kernel_data);
-#endif
 #if !TEXT_TRACKS_DIRECTMAP
   RUN(test_compute_kaslr_info_sets_decoupled_note);
   RUN(test_compute_kaslr_info_no_note_when_vtext_present);

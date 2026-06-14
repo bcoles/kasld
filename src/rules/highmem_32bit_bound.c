@@ -8,7 +8,7 @@
 // ceiling on a coupled arch:
 //
 //   virt_ceiling = PAGE_OFFSET_runtime + LowTotal - MIN_IMAGE_SIZE +
-//   TEXT_OFFSET
+//   IMAGE_BASE_OFFSET
 //
 // Cross-quantity (uses the engine's resolved Q_PAGE_OFFSET), so it fires only
 // once virt_page_offset is pinned. Reads SF_PHYS_LOWMEM, which the bridge emits
@@ -59,7 +59,7 @@ int rule_highmem_32bit_bound(const struct evidence_set *ev,
     return 0;
 
   unsigned long ceiling =
-      virt_page_offset + lowmem - MIN_IMAGE_SIZE + TEXT_OFFSET;
+      virt_page_offset + lowmem - MIN_IMAGE_SIZE + IMAGE_BASE_OFFSET;
   ceiling =
       kasld_floor_virt_text_bound(ceiling, (unsigned long)KASLR_VIRT_ALIGN);
   if (ceiling <= KASLR_VIRT_TEXT_MIN)
@@ -67,7 +67,7 @@ int rule_highmem_32bit_bound(const struct evidence_set *ev,
 
   struct constraint *c = &out[0];
   memset(c, 0, sizeof(*c));
-  c->q = Q_VIRT_TEXT_BASE;
+  c->q = Q_VIRT_IMAGE_BASE;
   c->op = C_UPPER_BOUND;
   c->value = ceiling;
   c->conf = conf;

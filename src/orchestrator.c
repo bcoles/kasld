@@ -100,13 +100,12 @@ struct kasld_layout layout = {
     .virt_page_offset = PAGE_OFFSET,
     .virt_kernel_vas_start = KERNEL_VIRT_VAS_START,
     .virt_kernel_vas_end = KERNEL_VIRT_VAS_END,
-    .virt_kernel_text_min = KERNEL_VIRT_TEXT_MIN,
-    .virt_kernel_text_max = KERNEL_VIRT_TEXT_MAX,
+    .virt_image_base_min = KERNEL_VIRT_TEXT_MIN,
+    .virt_image_base_max = KERNEL_VIRT_TEXT_MAX,
     .modules_start = MODULES_START,
     .modules_end = MODULES_END,
     .image_align = IMAGE_ALIGN,
-    .text_offset = TEXT_OFFSET,
-    .virt_kernel_text_default = KERNEL_VIRT_TEXT_DEFAULT,
+    .virt_image_base_default = KERNEL_VIRT_TEXT_DEFAULT,
     .virt_kaslr_text_min = KASLR_VIRT_TEXT_MIN,
     .virt_kaslr_text_max = KASLR_VIRT_TEXT_MAX,
     .virt_kaslr_align = KASLR_VIRT_ALIGN,
@@ -1977,28 +1976,6 @@ static int ilog2(unsigned long v) {
   return r;
 }
 
-static unsigned long derive_vtext_from_data(void) {
-#ifdef DATA_OFFSET
-  const struct result *r = select_anchor(KASLD_TYPE_VIRT, REGION_KERNEL_DATA);
-  if (!r || !HAS_LO(r) || r->lo < (unsigned long)DATA_OFFSET)
-    return 0;
-  return r->lo - (unsigned long)DATA_OFFSET;
-#else
-  return 0;
-#endif
-}
-
-static unsigned long derive_ptext_from_data(void) {
-#ifdef DATA_OFFSET
-  const struct result *r = select_anchor(KASLD_TYPE_PHYS, REGION_KERNEL_DATA);
-  if (!r || !HAS_LO(r) || r->lo < (unsigned long)DATA_OFFSET)
-    return 0;
-  return r->lo - (unsigned long)DATA_OFFSET;
-#else
-  return 0;
-#endif
-}
-
 /* The layered engine is the sole inference path: resolve every quantity from
  * the collected evidence and write the result into `layout`, which the
  * summary below is computed from (defined after engine_build_evidence). Guarded
@@ -2012,6 +1989,37 @@ static void engine_resolve(struct engine *e);
 static struct engine g_auth_engine;
 #endif
 
+/* The reported text base is the IMAGE BASE (_text). A KERNEL_IMAGE anchor is
+ * the image base directly; a KERNEL_TEXT anchor is _stext, normalised down by
+ * the head gap (no-op where the gap is 0, i.e. every arch but
+ * arm64/loongarch64). Returns 0 when no kernel-image/text base anchor exists.
+ */
+static unsigned long anchor_image_base(enum kasld_addr_type type) {
+  const struct result *r = select_anchor(type, REGION_KERNEL_IMAGE);
+  int is_stext = 0;
+  if (!r) {
+    r = select_anchor(type, REGION_KERNEL_TEXT);
+    is_stext = 1;
+  }
+  return kasld_image_base_from(anchor_addr(r), is_stext);
+}
+
+/* _stext for display: prefer the real observed KERNEL_TEXT base witness
+ * (/proc/kallsyms _stext, /proc/iomem "Kernel code"); else project from the
+ * image base with the compile-time head gap. select_anchor() is unusable here —
+ * it prefers unnamed results, so an unnamed interior kernel_text sample would
+ * shadow the _stext base; scan for the base witness directly. */
+static unsigned long observed_stext_base(enum kasld_addr_type type,
+                                         unsigned long image_base) {
+  for (int i = 0; i < num_results; i++) {
+    const struct result *r = &results[i];
+    if (r->type == type && r->region == REGION_KERNEL_TEXT &&
+        r->pos == POS_BASE && HAS_LO(r))
+      return r->lo;
+  }
+  return image_base ? image_base + (unsigned long)STEXT_OFFSET : 0;
+}
+
 void compute_kaslr_info(struct summary *s) {
 #ifndef KASLD_TESTING
   /* The layered engine is the sole inference path: resolve every quantity from
@@ -2021,30 +2029,20 @@ void compute_kaslr_info(struct summary *s) {
   engine_sync_authoritative(&g_auth_engine);
 #endif
 
-  const struct result *r_vt =
-      select_anchor(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE);
-  if (!r_vt)
-    r_vt = select_anchor(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT);
-  unsigned long vtext = anchor_addr(r_vt);
-  if (vtext == 0)
-    vtext = derive_vtext_from_data();
-  /* No result for the kernel text but the engine pinned Q_VIRT_TEXT_BASE to a
-   * point (e.g. virt_/phys_kaslr_disabled_pin landed) → that pinned value IS
-   * the text base. engine_sync projects the resolved window onto
-   * virt_kaslr_text_min/max, so equality of the two means "pinned". */
+  /* Virtual image base (_text). Fall back to the engine's pinned singleton
+   * (virt_kaslr_disabled_pin etc. land there — engine_sync projects the
+   * resolved window onto virt_kaslr_text_min/max, so min==max means "pinned").
+   */
+  unsigned long vtext = anchor_image_base(KASLD_TYPE_VIRT);
   if (vtext == 0 && layout.virt_kaslr_text_min == layout.virt_kaslr_text_max)
     vtext = layout.virt_kaslr_text_min;
   s->kaslr.vtext = vtext;
+  s->kaslr.vstext = observed_stext_base(KASLD_TYPE_VIRT, vtext);
 
-  const struct result *r_pt =
-      select_anchor(KASLD_TYPE_PHYS, REGION_KERNEL_IMAGE);
-  if (!r_pt)
-    r_pt = select_anchor(KASLD_TYPE_PHYS, REGION_KERNEL_TEXT);
-  unsigned long ptext = anchor_addr(r_pt);
-  if (ptext == 0)
-    ptext = derive_ptext_from_data();
+  unsigned long ptext = anchor_image_base(KASLD_TYPE_PHYS);
   s->kaslr.ptext = ptext;
   s->kaslr.has_phys = 0;
+  s->kaslr.pstext = observed_stext_base(KASLD_TYPE_PHYS, ptext);
 
   /* Hole-aware slot count: route via quantity_slots() so interior C_EXCLUDE
    * holes and any C_STRIDE residue class are reflected in the headline entropy
@@ -2052,7 +2050,7 @@ void compute_kaslr_info(struct summary *s) {
    * builds (the engine instance is compiled out there). */
 #ifndef KASLD_TESTING
   s->kaslr.vslots =
-      quantity_slots(Q_VIRT_TEXT_BASE, &g_auth_engine.est[Q_VIRT_TEXT_BASE],
+      quantity_slots(Q_VIRT_IMAGE_BASE, &g_auth_engine.est[Q_VIRT_IMAGE_BASE],
                      g_auth_engine.constraints, g_auth_engine.n_constraints,
                      layout.virt_kaslr_align);
 #else
@@ -2069,7 +2067,7 @@ void compute_kaslr_info(struct summary *s) {
   {
 #ifndef KASLD_TESTING
     s->kaslr.pslots =
-        quantity_slots(Q_PHYS_TEXT_BASE, &g_auth_engine.est[Q_PHYS_TEXT_BASE],
+        quantity_slots(Q_PHYS_IMAGE_BASE, &g_auth_engine.est[Q_PHYS_IMAGE_BASE],
                        g_auth_engine.constraints, g_auth_engine.n_constraints,
                        layout.phys_kaslr_align);
 #else
@@ -2083,7 +2081,7 @@ void compute_kaslr_info(struct summary *s) {
 #endif
 
   if (s->kaslr.vtext) {
-    s->kaslr.vslide = (long)(s->kaslr.vtext - layout.virt_kernel_text_default);
+    s->kaslr.vslide = (long)(s->kaslr.vtext - layout.virt_image_base_default);
     s->kaslr.vslot_valid = (layout.virt_kaslr_align > 0 &&
                             s->kaslr.vtext >= layout.virt_kaslr_text_min &&
                             s->kaslr.vtext < layout.virt_kaslr_text_max);
@@ -2198,7 +2196,7 @@ void inject_kaslr_defaults(struct summary *s) {
    * the renderer banner, and seed the informational default address from the
    * statically-initialised layout (= KERNEL_VIRT_TEXT_DEFAULT). */
   s->kaslr.unsupported = !KASLR_SUPPORTED;
-  s->kaslr.default_addr = layout.virt_kernel_text_default;
+  s->kaslr.default_addr = layout.virt_image_base_default;
 
 #if !KASLR_SUPPORTED
   /* Surface the compile-time arch-off as SF_VIRT_KASLR_DISABLED +
@@ -2588,22 +2586,22 @@ static void engine_resolve(struct engine *e) {
  *
  * Every quantity that has a reported sink must be projected here. Map of
  * Q_* -> sink:
- *     Q_VIRT_TEXT_BASE   -> layout.kaslr_base_* AND layout.kernel_base_*
+ *     Q_VIRT_IMAGE_BASE   -> layout.kaslr_base_* AND layout.kernel_base_*
  *     Q_VIRT_KASLR_ALIGN -> layout.virt_kaslr_align
  *     Q_PAGE_OFFSET      -> layout.page_offset_* (+ layout.virt_page_offset,
- * decoupled) Q_PHYS_TEXT_BASE   -> layout.phys_kaslr_base_*        (decoupled
+ * decoupled) Q_PHYS_IMAGE_BASE   -> layout.phys_kaslr_base_*        (decoupled
  * arches) Q_PHYS_KASLR_ALIGN -> layout.phys_kaslr_align         (decoupled
  * arches) Q_VMALLOC_BASE     -> layout.vmalloc_base_*            (when
  * constrained) Q_VMEMMAP_BASE     -> layout.vmemmap_base_*            (when
  * constrained) Q_VA_BITS          -> (none) intermediate: rules consume it to
- * bound Q_VIRT_TEXT_BASE; it has no layout sink. The compile-time check below
+ * bound Q_VIRT_IMAGE_BASE; it has no layout sink. The compile-time check below
  * trips when Q__COUNT changes — forcing whoever adds a quantity to decide its
  * sink (or document it as intermediate) and bump the count, rather than
  * silently leaving it unprojected. */
 typedef char engine_sync_projects_every_quantity[(Q__COUNT == 8) ? 1 : -1];
 
 static void engine_sync_authoritative(const struct engine *e) {
-  const struct estimate *vt = &e->est[Q_VIRT_TEXT_BASE];
+  const struct estimate *vt = &e->est[Q_VIRT_IMAGE_BASE];
   /* Project the resolved virtual-text window onto BOTH the KASLR window
    * (kaslr_base_*, read by the entropy/slot math in compute_kaslr_info) and the
    * kernel image-placement range (kernel_base_*, read by the rendered memory
@@ -2611,8 +2609,8 @@ static void engine_sync_authoritative(const struct engine *e) {
    * band disagrees with the reported "Inferred text range". */
   layout.virt_kaslr_text_min = vt->lo;
   layout.virt_kaslr_text_max = vt->hi;
-  layout.virt_kernel_text_min = vt->lo;
-  layout.virt_kernel_text_max = vt->hi;
+  layout.virt_image_base_min = vt->lo;
+  layout.virt_image_base_max = vt->hi;
   if (e->est[Q_VIRT_KASLR_ALIGN].lo)
     layout.virt_kaslr_align = e->est[Q_VIRT_KASLR_ALIGN].lo;
 
@@ -2660,7 +2658,7 @@ static void engine_sync_authoritative(const struct engine *e) {
       layout.virt_page_offset = po->lo;
   }
 
-  const struct estimate *pt = &e->est[Q_PHYS_TEXT_BASE];
+  const struct estimate *pt = &e->est[Q_PHYS_IMAGE_BASE];
   layout.phys_kaslr_text_min = pt->lo;
   layout.phys_kaslr_text_max = pt->hi;
   if (e->est[Q_PHYS_KASLR_ALIGN].lo)
@@ -2690,17 +2688,17 @@ static void engine_sync_authoritative(const struct engine *e) {
    *     window's *upper* edge as a usable approximation (within image_size,
    *     a few MiB on real kernels). Band low edge = upper edge − 2 GiB.
    *   - set (s390, "Case B"): MODULES_END sits below the image start by up
-   *     to _SEGMENT_SIZE; band high edge ≈ text_min − TEXT_OFFSET.
+   *     to _SEGMENT_SIZE; band high edge ≈ text_min − IMAGE_BASE_OFFSET.
    *
    * 2 GiB is the MODULES_LEN on both arches; absent a per-arch macro, use
-   * the literal constant with this rationale. Gated on virt_kernel_text_max
+   * the literal constant with this rationale. Gated on virt_image_base_max
    * being a meaningful (narrowed-or-pinned) value — we keep the static
    * band when the engine has not narrowed text. */
 #define KASLD_MODULES_LEN (2ul * 1024 * 1024 * 1024)
   if (vt->hi > vt->lo || vt->lo > (unsigned long)KASLR_VIRT_TEXT_MIN) {
 #if MODULES_BELOW_TEXT_START
-    unsigned long band_end = vt->lo > (unsigned long)TEXT_OFFSET
-                                 ? vt->lo - (unsigned long)TEXT_OFFSET
+    unsigned long band_end = vt->lo > (unsigned long)IMAGE_BASE_OFFSET
+                                 ? vt->lo - (unsigned long)IMAGE_BASE_OFFSET
                                  : vt->lo;
 #else
     unsigned long band_end = vt->hi;

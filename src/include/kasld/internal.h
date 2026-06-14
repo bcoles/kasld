@@ -67,13 +67,12 @@ struct kasld_layout {
   unsigned long virt_page_offset;
   unsigned long virt_kernel_vas_start;
   unsigned long virt_kernel_vas_end;
-  unsigned long virt_kernel_text_min;
-  unsigned long virt_kernel_text_max;
+  unsigned long virt_image_base_min;
+  unsigned long virt_image_base_max;
   unsigned long modules_start;
   unsigned long modules_end;
   unsigned long image_align;
-  unsigned long text_offset;
-  unsigned long virt_kernel_text_default;
+  unsigned long virt_image_base_default;
   unsigned long virt_kaslr_text_min;
   unsigned long virt_kaslr_text_max;
   unsigned long virt_kaslr_align;
@@ -360,14 +359,18 @@ struct kaslr_info {
   int randomization_failed;
   unsigned long default_addr;
   /* Virtual KASLR */
-  unsigned long vtext;
+  unsigned long vtext; /* image base (_text) */
+  unsigned long
+      vstext; /* _stext for display: observed symbol, else _text + head gap */
   long vslide;
   unsigned long vslots;
   int vbits;
   unsigned long vslot_idx;
   int vslot_valid;
   /* Physical KASLR */
-  unsigned long ptext;
+  unsigned long ptext;  /* phys image base (_text) */
+  unsigned long pstext; /* phys _stext for display: observed symbol, else _text
+                           + head gap */
   long pslide;
   unsigned long pslots;
   int pbits;

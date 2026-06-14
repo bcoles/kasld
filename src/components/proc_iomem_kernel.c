@@ -7,7 +7,7 @@
 //   labeled "Kernel code", "Kernel data", and "Kernel bss". Each is the
 //   exact physical range the corresponding ELF section was loaded at.
 //   Emitting them as PHYS REGION_KERNEL_TEXT / KERNEL_DATA / KERNEL_BSS
-//   gives the engine the tightest possible bound on Q_PHYS_TEXT_BASE
+//   gives the engine the tightest possible bound on Q_PHYS_IMAGE_BASE
 //   (pinned exactly by text_pin_from_observation when the KERNEL_TEXT
 //   range arrives as a POS_BASE record; the upper edge of the image is
 //   absorbed by kernel_image_phys_bound's image-size constraints) — much

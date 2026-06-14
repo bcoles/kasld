@@ -7,13 +7,13 @@
 // and the text section starts at the head-text offset above the image base,
 // so the SF_PHYS_TEXT_BASE-equivalent (== iomem "Kernel code" start) is:
 //
-//   phys_text_base == DRAM_BASE + RISCV_PHYS_LOAD_OFFSET + TEXT_OFFSET
+//   phys_image_base == DRAM_BASE + RISCV_PHYS_LOAD_OFFSET + IMAGE_BASE_OFFSET
 //
-// The +TEXT_OFFSET term (.head.text length, 0x2000 on v5.10+) is what makes
-// Q_PHYS_TEXT_BASE refer to `_stext` rather than `_start` (the image base /
-// first byte of `_text`). Omitting it lands the pin 0x2000 below the actual
-// phys `_stext` and the resolved window excludes the true text base. On a
-// default-config riscv64 build, kallsyms reports `_stext = _start + 0x2000`
+// The +IMAGE_BASE_OFFSET term (.head.text length, 0x2000 on v5.10+) is what
+// makes Q_PHYS_IMAGE_BASE refer to `_stext` rather than `_start` (the image
+// base / first byte of `_text`). Omitting it lands the pin 0x2000 below the
+// actual phys `_stext` and the resolved window excludes the true text base. On
+// a default-config riscv64 build, kallsyms reports `_stext = _start + 0x2000`
 // and the iomem "Kernel code" entry begins at DRAM_BASE +
 // RISCV_PHYS_LOAD_OFFSET + 0x2000 (the bytes of `.head.text` precede it).
 //
@@ -24,7 +24,7 @@
 // dram_floor_bound.
 //
 // Reads SF_EFI_PRESENT (bridged in-process access check) — only fires on
-// non-EFI — and a RAM_BASE phys leak. Emits C_EQUALS on Q_PHYS_TEXT_BASE.
+// non-EFI — and a RAM_BASE phys leak. Emits C_EQUALS on Q_PHYS_IMAGE_BASE.
 // riscv64 only; inert when no PHYS RAM_BASE observation is present.
 // ---
 // <bcoles@gmail.com>
@@ -73,13 +73,14 @@ int rule_riscv64_non_efi_phys_base(const struct evidence_set *ev,
     return 0;
 
   /* phys _stext = DRAM base + firmware placement + image head. */
-  unsigned long phys_exact = pdram_lo + RISCV_PHYS_LOAD_OFFSET + TEXT_OFFSET;
+  unsigned long phys_exact =
+      pdram_lo + RISCV_PHYS_LOAD_OFFSET + IMAGE_BASE_OFFSET;
   if (phys_exact < (unsigned long)KASLR_PHYS_MIN)
     return 0;
 
   struct constraint *c = &out[0];
   memset(c, 0, sizeof(*c));
-  c->q = Q_PHYS_TEXT_BASE;
+  c->q = Q_PHYS_IMAGE_BASE;
   c->op = C_EQUALS;
   c->value = phys_exact;
   c->conf = CONF_INFERRED;

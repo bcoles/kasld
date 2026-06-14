@@ -9,10 +9,10 @@
 //
 //   phys_base <= (1 << phys_bits) - MIN_IMAGE_SIZE
 //
-// Decoupled arches (x86-64): a C_UPPER_BOUND on Q_PHYS_TEXT_BASE.
+// Decoupled arches (x86-64): a C_UPPER_BOUND on Q_PHYS_IMAGE_BASE.
 // Coupled arches that expose the field (LoongArch): map through the
 // compile-time PAGE_OFFSET — which is a fixed hardware constant there, so no
-// Q_PAGE_OFFSET dependency — to a C_UPPER_BOUND on Q_VIRT_TEXT_BASE.
+// Q_PAGE_OFFSET dependency — to a C_UPPER_BOUND on Q_VIRT_IMAGE_BASE.
 //
 // A hypervisor may restrict phys_bits below installed RAM, making this tighter
 // than the MemTotal ceiling. Arches that don't expose the field, and 32-bit
@@ -70,18 +70,19 @@ int rule_phys_bits_ceiling(const struct evidence_set *ev,
     ceiling &= ~(KASLR_PHYS_ALIGN - 1);
   if (ceiling <= KASLR_PHYS_MIN)
     return 0;
-  c->q = Q_PHYS_TEXT_BASE;
+  c->q = Q_PHYS_IMAGE_BASE;
   c->value = ceiling;
   return 1;
 #else
-  /* text_base = PAGE_OFFSET + (phys_base - PHYS_OFFSET) + TEXT_OFFSET. */
-  unsigned long ceiling =
-      PAGE_OFFSET + TEXT_OFFSET + (phys_ceiling - MIN_IMAGE_SIZE) - PHYS_OFFSET;
+  /* image_base = PAGE_OFFSET + (phys_base - PHYS_OFFSET) + IMAGE_BASE_OFFSET.
+   */
+  unsigned long ceiling = PAGE_OFFSET + IMAGE_BASE_OFFSET +
+                          (phys_ceiling - MIN_IMAGE_SIZE) - PHYS_OFFSET;
   ceiling =
       kasld_floor_virt_text_bound(ceiling, (unsigned long)KASLR_VIRT_ALIGN);
   if (ceiling <= KASLR_VIRT_TEXT_MIN)
     return 0;
-  c->q = Q_VIRT_TEXT_BASE;
+  c->q = Q_VIRT_IMAGE_BASE;
   c->value = ceiling;
   return 1;
 #endif

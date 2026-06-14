@@ -5,7 +5,7 @@
 #
 # Aligning a leaked kernel-text pointer DOWN to KASLR_VIRT_ALIGN to estimate the
 # text base (`addr & -KASLR_VIRT_ALIGN`) is UNSOUND on arches where the base is
-# not KASLR_VIRT_ALIGN-aligned: riscv64 (+0x2000), arm32 (+TEXT_OFFSET), s390
+# not KASLR_VIRT_ALIGN-aligned: riscv64 (+0x2000), arm32 (+IMAGE_BASE_OFFSET), s390
 # (+1 MiB), loongarch64, ... The floored value drops *below* the real base — an
 # upper bound that wrongly rejects the truth (this caused riscv64 / armv7 virt
 # text to exclude `_text`). The single sanctioned way to turn a leaked text
@@ -72,14 +72,14 @@ fi
 # Quarantine arch-specific firmware/loader placement constants to their own arch
 # files. RISCV_PHYS_LOAD_OFFSET (the OpenSBI DRAM placement) must never leak into
 # generic cross-arch code — that conflation (it used to be mislabeled
-# TEXT_OFFSET) is what made generic virt rules pick up riscv64's 2 MiB. Allowed
+# IMAGE_BASE_OFFSET) is what made generic virt rules pick up riscv64's 2 MiB. Allowed
 # only in riscv64 / opensbi files.
 phits=$(grep -rln 'RISCV_PHYS_LOAD_OFFSET' "$ROOT/src" 2>/dev/null \
         | grep -vE 'riscv64|opensbi|api\.h')
 if [ -n "$phits" ]; then
   printf '%scheck-text-floor: FAIL%s — RISCV_PHYS_LOAD_OFFSET (a riscv64 firmware\n' "$RED" "$RESET" >&2
   echo "placement constant) is referenced in generic code. Keep it in riscv64 /" >&2
-  echo "opensbi files; generic rules use TEXT_OFFSET (the image->_stext head):" >&2
+  echo "opensbi files; generic rules use IMAGE_BASE_OFFSET (the image->_stext head):" >&2
   echo "$phits" >&2
   exit 1
 fi

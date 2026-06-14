@@ -8,7 +8,7 @@
 //
 //   phys_ceiling = dram_top - kernel_size
 //   virt_ceiling = (phys_ceiling - PHYS_OFFSET) + PAGE_OFFSET_runtime
-//                  + TEXT_OFFSET                (aligned down)
+//                  + IMAGE_BASE_OFFSET                (aligned down)
 //
 // Cross-quantity (reads the engine's resolved Q_PAGE_OFFSET) like
 // virt_ceiling_from_memtotal, so it fires only once virt_page_offset is pinned.
@@ -72,7 +72,7 @@ int rule_dram_ceiling(const struct evidence_set *ev, const struct estimate *est,
 
   unsigned long phys_ceiling = dram_top - kernel_size;
   unsigned long ceiling =
-      (phys_ceiling - PHYS_OFFSET) + virt_page_offset + TEXT_OFFSET;
+      (phys_ceiling - PHYS_OFFSET) + virt_page_offset + IMAGE_BASE_OFFSET;
   ceiling =
       kasld_floor_virt_text_bound(ceiling, (unsigned long)KASLR_VIRT_ALIGN);
   if (ceiling <= KASLR_VIRT_TEXT_MIN)
@@ -80,7 +80,7 @@ int rule_dram_ceiling(const struct evidence_set *ev, const struct estimate *est,
 
   struct constraint *c = &out[0];
   memset(c, 0, sizeof(*c));
-  c->q = Q_VIRT_TEXT_BASE;
+  c->q = Q_VIRT_IMAGE_BASE;
   c->op = C_UPPER_BOUND;
   c->value = ceiling;
   c->conf = (kconf < tconf) ? kconf : tconf;

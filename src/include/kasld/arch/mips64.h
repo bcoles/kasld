@@ -53,7 +53,7 @@
 #define IMAGE_ALIGN 0x10000ul
 
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/mips/kernel/head.S#L67
-#define TEXT_OFFSET 0x400
+#define IMAGE_BASE_OFFSET 0x400
 
 // Plausible physical address range for kernel image
 #define KERNEL_PHYS_MIN 0ul
@@ -65,7 +65,7 @@
 // architectures. Kernel source: arch/mips/kernel/vmlinux.lds.S,
 // arch/mips/kernel/head.S
 #define KERNEL_VIRT_TEXT_DEFAULT                                               \
-  (KERNEL_VIRT_TEXT_MIN + 0x100000ul + TEXT_OFFSET)
+  (KERNEL_VIRT_TEXT_MIN + 0x100000ul + IMAGE_BASE_OFFSET)
 
 #define KASLR_SUPPORTED 1
 

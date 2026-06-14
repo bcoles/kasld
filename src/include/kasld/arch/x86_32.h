@@ -65,7 +65,7 @@
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/Kconfig#L2182
 #define IMAGE_ALIGN (2 * MB)
 
-#define TEXT_OFFSET 0
+#define IMAGE_BASE_OFFSET 0
 
 // Plausible physical address range for kernel image.
 // KASLR ceiling is KERNEL_IMAGE_SIZE = 512 MB
@@ -78,7 +78,7 @@
 // Default: 0xc0000000 (PAGE_OFFSET with 3GB vmsplit, no offset).
 // See docs/kaslr.md "Default text base and KASLR alignment" for all
 // architectures. Kernel source: arch/x86/kernel/vmlinux.lds.S
-#define KERNEL_VIRT_TEXT_DEFAULT (PAGE_OFFSET + TEXT_OFFSET)
+#define KERNEL_VIRT_TEXT_DEFAULT (PAGE_OFFSET + IMAGE_BASE_OFFSET)
 
 #define KASLR_SUPPORTED 1
 

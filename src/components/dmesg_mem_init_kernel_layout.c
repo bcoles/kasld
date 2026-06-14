@@ -22,7 +22,7 @@
 // On riscv64 the vmalloc/vmemmap range lines feed the engine's
 // riscv64_page_offset_from_vmalloc_vmemmap rule (tightens Q_PAGE_OFFSET).
 // On s390 the "vmalloc area:" range line feeds s390_text_from_belows
-// (tightens Q_VIRT_TEXT_BASE lower bound). On other arches with these prints
+// (tightens Q_VIRT_IMAGE_BASE lower bound). On other arches with these prints
 // the observations are still recorded — they cost nothing if no rule consumes
 // them, and unlock future rules.
 //

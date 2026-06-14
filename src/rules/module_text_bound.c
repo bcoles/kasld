@@ -9,12 +9,12 @@
 //   Case A (riscv64, MODULES_END ~= _end): module area sits just past the
 //   image,
 //     so _end ~= vmod_lo + MODULES_END_TO_TEXT_OFFSET and
-//     text_base <= align_down(_end - MIN_KERNEL_IMAGE_SIZE, virt_kaslr_align).
+//     image_base <= align_down(_end - MIN_KERNEL_IMAGE_SIZE, virt_kaslr_align).
 //   Case B (s390, MODULES_END below __kaslr_offset):
-//     text_base <= align_down(vmod_lo + MODULES_END_TO_TEXT_OFFSET,
-//     virt_kaslr_align) text_base >= align_down(vmod_hi, virt_kaslr_align) +
+//     image_base <= align_down(vmod_lo + MODULES_END_TO_TEXT_OFFSET,
+//     virt_kaslr_align) image_base >= align_down(vmod_hi, virt_kaslr_align) +
 //     virt_kaslr_align
-//     + TEXT_OFFSET
+//     + IMAGE_BASE_OFFSET
 //
 // Reads VIRT REGION_MODULE / REGION_MODULE_REGION leaks; aligns to the
 // resolved Q_VIRT_KASLR_ALIGN. Inert where MODULES_RELATIVE_TO_TEXT==0, and
@@ -73,7 +73,7 @@ int rule_module_text_bound(const struct evidence_set *ev,
   if (new_max > (unsigned long)KASLR_VIRT_TEXT_MIN && n < out_max) {
     struct constraint *c = &out[n++];
     memset(c, 0, sizeof(*c));
-    c->q = Q_VIRT_TEXT_BASE;
+    c->q = Q_VIRT_IMAGE_BASE;
     c->op = C_UPPER_BOUND;
     c->value = new_max;
     c->conf = CONF_INFERRED;
@@ -82,14 +82,14 @@ int rule_module_text_bound(const struct evidence_set *ev,
     snprintf(c->origin, ORIGIN_LEN, "module_text_bound");
   }
   /* C_LOWER_BOUND: the slot above the highest module, plus the head. Flooring
-   * vmod_hi down is sound for a lower bound; the head (TEXT_OFFSET) is
+   * vmod_hi down is sound for a lower bound; the head (IMAGE_BASE_OFFSET) is
    * re-added. */
   unsigned long mod_slot = vmod_hi & ~(valign - 1); /* virt-floor-ok */
-  unsigned long new_min = mod_slot + valign + (unsigned long)TEXT_OFFSET;
+  unsigned long new_min = mod_slot + valign + (unsigned long)IMAGE_BASE_OFFSET;
   if (new_min > (unsigned long)KASLR_VIRT_TEXT_MIN && n < out_max) {
     struct constraint *c = &out[n++];
     memset(c, 0, sizeof(*c));
-    c->q = Q_VIRT_TEXT_BASE;
+    c->q = Q_VIRT_IMAGE_BASE;
     c->op = C_LOWER_BOUND;
     c->value = new_min;
     c->conf = CONF_INFERRED;
@@ -106,7 +106,7 @@ int rule_module_text_bound(const struct evidence_set *ev,
     if (new_max > (unsigned long)KASLR_VIRT_TEXT_MIN && n < out_max) {
       struct constraint *c = &out[n++];
       memset(c, 0, sizeof(*c));
-      c->q = Q_VIRT_TEXT_BASE;
+      c->q = Q_VIRT_IMAGE_BASE;
       c->op = C_UPPER_BOUND;
       c->value = new_max;
       c->conf = CONF_INFERRED;

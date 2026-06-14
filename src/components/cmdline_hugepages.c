@@ -29,7 +29,7 @@ KASLD_EXPLAIN(
     "x86 only: emits SF_CMDLINE_HUGEPAGES=1 if `hugepages=` is on "
     "/proc/cmdline. Combined with SF_EFI_PRESENT and the other cmdline "
     "triggers (mem=/memmap=), the EFI stub zeroes the physical-KASLR seed; "
-    "x86_64_efi_phys_seed_zero pins Q_PHYS_TEXT_BASE accordingly. "
+    "x86_64_efi_phys_seed_zero pins Q_PHYS_IMAGE_BASE accordingly. "
     "/proc/cmdline is world-readable (0444).");
 
 KASLD_META("method:detection\n"

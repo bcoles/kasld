@@ -30,8 +30,9 @@
 //
 // Engine fit: emitted as REGION_MMIO PHYS windows (range when a length is
 // known, else a base), which mmio_floor_phys_ceiling uses to ceiling
-// Q_PHYS_TEXT_BASE (the image must sit in DRAM below the lowest MMIO above it).
-// Decoupled arches only; loose, and additive mainly when /proc/iomem is masked.
+// Q_PHYS_IMAGE_BASE (the image must sit in DRAM below the lowest MMIO above
+// it). Decoupled arches only; loose, and additive mainly when /proc/iomem is
+// masked.
 //
 // Mitigations:
 //   CONFIG_FB=n / CONFIG_SERIAL_CORE=n remove the respective source; tightening

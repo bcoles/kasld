@@ -33,10 +33,16 @@ void render_oneline(const struct summary *s) {
    * `slide=` is unambiguously associated with the preceding text base.
    * On decoupled arches where virt and phys have independent slides, the
    * placement disambiguates which side the slide applies to. */
+  /* Image base (_text), matching the other renderers; fall back to the raw text
+   * consensus only if the engine produced no single value. */
   unsigned long vtext =
-      section_consensus(KASLD_TYPE_VIRT, "text", REGION_UNKNOWN);
+      s->kaslr.vtext
+          ? s->kaslr.vtext
+          : section_consensus(KASLD_TYPE_VIRT, "text", REGION_UNKNOWN);
   if (vtext)
     printf(" text=0x%lx", vtext);
+  if (s->kaslr.vstext && s->kaslr.vstext != vtext)
+    printf(" stext=0x%lx", s->kaslr.vstext);
   if (s->kaslr.vtext) {
     long abs_vs = s->kaslr.vslide < 0 ? -s->kaslr.vslide : s->kaslr.vslide;
     printf(" slide=%s0x%lx(%ld)", s->kaslr.vslide < 0 ? "-" : "+",
@@ -45,11 +51,15 @@ void render_oneline(const struct summary *s) {
   if (s->kaslr.vtext && s->kaslr.vbits > 0)
     printf(" entropy=%dbits", s->kaslr.vbits);
 
-  /* Physical text consensus + slide + residual entropy — sibling block. */
+  /* Physical image base + slide + residual entropy — sibling block. */
   unsigned long ptext =
-      section_consensus(KASLD_TYPE_PHYS, "text", REGION_UNKNOWN);
+      s->kaslr.ptext
+          ? s->kaslr.ptext
+          : section_consensus(KASLD_TYPE_PHYS, "text", REGION_UNKNOWN);
   if (ptext)
     printf(" ptext=0x%lx", ptext);
+  if (s->kaslr.pstext && s->kaslr.pstext != ptext)
+    printf(" pstext=0x%lx", s->kaslr.pstext);
   if (s->kaslr.has_phys && s->kaslr.ptext) {
     long abs_ps = s->kaslr.pslide < 0 ? -s->kaslr.pslide : s->kaslr.pslide;
     printf(" pslide=%s0x%lx(%ld)", s->kaslr.pslide < 0 ? "-" : "+",

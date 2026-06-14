@@ -5,26 +5,26 @@
 // On TEXT_TRACKS_DIRECTMAP arches the kernel image is mapped at a fixed
 // offset (PAGE_OFFSET) above its physical load, so:
 //
-//   virt_text_base ≈ virt_page_offset + (phys_text_base - PHYS_OFFSET)
+//   virt_image_base ≈ virt_page_offset + (phys_image_base - PHYS_OFFSET)
 //
 // Reads the post-narrowing estimates and propagates each side's interval
 // onto the other:
 //
-//   est[Q_VIRT_TEXT_BASE]  → bounds on Q_PHYS_TEXT_BASE
-//   est[Q_PHYS_TEXT_BASE]  → bounds on Q_VIRT_TEXT_BASE
+//   est[Q_VIRT_IMAGE_BASE]  → bounds on Q_PHYS_IMAGE_BASE
+//   est[Q_PHYS_IMAGE_BASE]  → bounds on Q_VIRT_IMAGE_BASE
 //
 // This complements:
 //   * text_pin_from_observation, which only fires when a direct text-base
 //     witness exists on the target side.
 //   * kernel_image_phys_bound, which projects raw phys observations onto
-//     Q_VIRT_TEXT_BASE but never the other direction, and reads raw
+//     Q_VIRT_IMAGE_BASE but never the other direction, and reads raw
 //     observations (not the post-narrowing estimate).
 //
 // Net effect: any narrowing of either text base — by an iomem/kallsyms
 // pin, by image-size ceilings, by module-relative bounds, by DRAM bounds,
 // or by upstream coupling — is now propagated symmetrically. The
 // dominant win is on a coupled arch with only a virt leak (kallsyms but
-// no iomem): Q_PHYS_TEXT_BASE collapses from its honest top to a small
+// no iomem): Q_PHYS_IMAGE_BASE collapses from its honest top to a small
 // window around the implied phys base.
 //
 // Soundness:
@@ -33,7 +33,7 @@
 //     paired directmap+DRAM leaks) or page_offset_invariant_pin (on the
 //     architecturally-fixed subset). Without that pin we cannot project
 //     symbols across the boundary.
-//   * The TEXT_OFFSET safety margin accounts for the image header /
+//   * The IMAGE_BASE_OFFSET safety margin accounts for the image header /
 //     EFI-stub slack between the linker-defined _text base and what
 //     components actually observe (e.g. kallsyms _stext vs iomem
 //     "Kernel code" — empirically a 128 KiB gap on LoongArch6.18). Same
@@ -66,10 +66,10 @@ int rule_text_base_coupling_synth(const struct evidence_set *ev,
                */
   const unsigned long virt_page_offset = po->lo;
 
-  const struct estimate *vt = &est[Q_VIRT_TEXT_BASE];
-  const struct estimate *pt = &est[Q_PHYS_TEXT_BASE];
+  const struct estimate *vt = &est[Q_VIRT_IMAGE_BASE];
+  const struct estimate *pt = &est[Q_PHYS_IMAGE_BASE];
   const unsigned long phys_off = (unsigned long)PHYS_OFFSET;
-  const unsigned long text_off = (unsigned long)TEXT_OFFSET;
+  const unsigned long text_off = (unsigned long)IMAGE_BASE_OFFSET;
   /* virt_to_phys delta: PAGE_OFFSET - PHYS_OFFSET. Positive on every
    * TEXT_TRACKS_DIRECTMAP arch (kernel virt > kernel phys). */
   const unsigned long v_minus_p = virt_page_offset - phys_off;
@@ -83,12 +83,13 @@ int rule_text_base_coupling_synth(const struct evidence_set *ev,
    * addition silently produce nonsense bounds. */
   int vplus_off_safe = (v_minus_p <= ULONG_MAX - text_off);
 
-  /* virt → phys: phys ∈ [vt.lo - v_minus_p - TEXT_OFFSET,  vt.hi - v_minus_p]
+  /* virt → phys: phys ∈ [vt.lo - v_minus_p - IMAGE_BASE_OFFSET,  vt.hi -
+   * v_minus_p]
    */
   if (vplus_off_safe && vt->lo > v_minus_p + text_off && n < out_max) {
     struct constraint *c = &out[n++];
     memset(c, 0, sizeof(*c));
-    c->q = Q_PHYS_TEXT_BASE;
+    c->q = Q_PHYS_IMAGE_BASE;
     c->op = C_LOWER_BOUND;
     c->value = vt->lo - v_minus_p - text_off;
     c->conf = CONF_DERIVED;
@@ -98,7 +99,7 @@ int rule_text_base_coupling_synth(const struct evidence_set *ev,
   if (vt->hi > v_minus_p && n < out_max) {
     struct constraint *c = &out[n++];
     memset(c, 0, sizeof(*c));
-    c->q = Q_PHYS_TEXT_BASE;
+    c->q = Q_PHYS_IMAGE_BASE;
     c->op = C_UPPER_BOUND;
     c->value = vt->hi - v_minus_p;
     c->conf = CONF_DERIVED;
@@ -106,12 +107,13 @@ int rule_text_base_coupling_synth(const struct evidence_set *ev,
     snprintf(c->origin, ORIGIN_LEN, "text_base_coupling_synth");
   }
 
-  /* phys → virt: virt ∈ [pt.lo + v_minus_p,  pt.hi + v_minus_p + TEXT_OFFSET]
+  /* phys → virt: virt ∈ [pt.lo + v_minus_p,  pt.hi + v_minus_p +
+   * IMAGE_BASE_OFFSET]
    */
   if (pt->lo <= ULONG_MAX - v_minus_p && n < out_max) {
     struct constraint *c = &out[n++];
     memset(c, 0, sizeof(*c));
-    c->q = Q_VIRT_TEXT_BASE;
+    c->q = Q_VIRT_IMAGE_BASE;
     c->op = C_LOWER_BOUND;
     c->value = pt->lo + v_minus_p;
     c->conf = CONF_DERIVED;
@@ -122,7 +124,7 @@ int rule_text_base_coupling_synth(const struct evidence_set *ev,
       n < out_max) {
     struct constraint *c = &out[n++];
     memset(c, 0, sizeof(*c));
-    c->q = Q_VIRT_TEXT_BASE;
+    c->q = Q_VIRT_IMAGE_BASE;
     c->op = C_UPPER_BOUND;
     c->value = pt->hi + v_minus_p + text_off;
     c->conf = CONF_DERIVED;

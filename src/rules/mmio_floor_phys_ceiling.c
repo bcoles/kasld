@@ -6,10 +6,10 @@
 // kernel image must fit entirely in DRAM, so the physical base cannot reach the
 // lowest MMIO window that sits above DRAM:
 //
-//   phys_text_base <= (lowest MMIO lo strictly above the highest DRAM lo) - 1
+//   phys_image_base <= (lowest MMIO lo strictly above the highest DRAM lo) - 1
 //
 // Reads leaked PHYS observations (DRAM landmarks + MMIO windows). Emits a
-// C_UPPER_BOUND on Q_PHYS_TEXT_BASE. Inert on coupled arches and when no
+// C_UPPER_BOUND on Q_PHYS_IMAGE_BASE. Inert on coupled arches and when no
 // DRAM/MMIO pair is observed.
 // ---
 // <bcoles@gmail.com>
@@ -78,7 +78,7 @@ int rule_mmio_floor_phys_ceiling(const struct evidence_set *ev,
 
   struct constraint *c = &out[0];
   memset(c, 0, sizeof(*c));
-  c->q = Q_PHYS_TEXT_BASE;
+  c->q = Q_PHYS_IMAGE_BASE;
   c->op = C_UPPER_BOUND;
   c->value = ceiling;
   c->conf = CONF_INFERRED;

@@ -3,9 +3,9 @@
 // Rule: restore the Q_*_TEXT_BASE floor after the conservative honest-top
 // widening for CONFIG_PHYSICAL_START variability (x86).
 //
-// quantities.c widens the honest-top floors of Q_VIRT_TEXT_BASE and
-// Q_PHYS_TEXT_BASE on x86_64 (KASLR_VIRT_TEXT_MIN_WIDE, KASLR_PHYS_MIN_WIDE) so
-// kernels built with a smaller-than-default CONFIG_PHYSICAL_START remain
+// quantities.c widens the honest-top floors of Q_VIRT_IMAGE_BASE and
+// Q_PHYS_IMAGE_BASE on x86_64 (KASLR_VIRT_TEXT_MIN_WIDE, KASLR_PHYS_MIN_WIDE)
+// so kernels built with a smaller-than-default CONFIG_PHYSICAL_START remain
 // inside the engine's window — soundness across config variants. The
 // widening admits values that *most* real kernels never reach; this rule
 // pushes the floor back up via a constraint, at confidence reflecting how
@@ -82,7 +82,7 @@ int rule_physical_start_lower_bound(const struct evidence_set *ev,
   if (virt_floor > (unsigned long)KASLR_VIRT_TEXT_MIN_WIDE && n < out_max) {
     struct constraint *c = &out[n++];
     memset(c, 0, sizeof(*c));
-    c->q = Q_VIRT_TEXT_BASE;
+    c->q = Q_VIRT_IMAGE_BASE;
     c->op = C_LOWER_BOUND;
     c->value = virt_floor;
     c->conf = emit_conf;
@@ -93,7 +93,7 @@ int rule_physical_start_lower_bound(const struct evidence_set *ev,
   if (phys_floor > (unsigned long)KASLR_PHYS_MIN_WIDE && n < out_max) {
     struct constraint *c = &out[n++];
     memset(c, 0, sizeof(*c));
-    c->q = Q_PHYS_TEXT_BASE;
+    c->q = Q_PHYS_IMAGE_BASE;
     c->op = C_LOWER_BOUND;
     c->value = phys_floor;
     c->conf = emit_conf;

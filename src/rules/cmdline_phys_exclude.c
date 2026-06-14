@@ -11,13 +11,13 @@
 //   i.e. the inclusive integer hole
 //   [cmd_line_ptr - kernel_size + 1, cmd_line_ptr + cmdline_size - 1]
 //
-// emitted as a C_EXCLUDE on Q_PHYS_TEXT_BASE. The hole is interior to the
+// emitted as a C_EXCLUDE on Q_PHYS_IMAGE_BASE. The hole is interior to the
 // [base, base+ksize) window, so it only shows up in the hole-aware slot count,
 // not the headline lo/hi.
 //
 // Reads REGION_CMDLINE (emitted as a [lo,hi] range by cmdline_region) and
-// SF_IMAGE_SIZE. Decoupled arches only (Q_PHYS_TEXT_BASE exists); emits nothing
-// when either input is absent.
+// SF_IMAGE_SIZE. Decoupled arches only (Q_PHYS_IMAGE_BASE exists); emits
+// nothing when either input is absent.
 // ---
 // <bcoles@gmail.com>
 
@@ -74,7 +74,7 @@ int rule_cmdline_phys_exclude(const struct evidence_set *ev,
 
   struct constraint *c = &out[0];
   memset(c, 0, sizeof(*c));
-  c->q = Q_PHYS_TEXT_BASE;
+  c->q = Q_PHYS_IMAGE_BASE;
   c->op = C_EXCLUDE;
   c->value = hole_lo;
   c->value2 = hole_hi;

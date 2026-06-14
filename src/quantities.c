@@ -44,7 +44,7 @@ static void top_interval(struct estimate *e, unsigned long lo,
   e->stride_binding = 0;
 }
 
-static void top_virt_text_base(struct estimate *e) {
+static void top_virt_image_base(struct estimate *e) {
   /* The virtual kernel-text base lives in the virtual KASLR window
    * [KASLR_VIRT_TEXT_MIN_WIDE, KASLR_VIRT_TEXT_MAX] — fixed per-arch by the
    * kernel's VA layout (unlike the physical base, this does not depend on DRAM
@@ -63,9 +63,9 @@ static void top_virt_text_base(struct estimate *e) {
                (unsigned long)KASLR_VIRT_TEXT_MAX);
 }
 
-static void top_phys_text_base(struct estimate *e) {
+static void top_phys_image_base(struct estimate *e) {
   /* Floor: the arch's minimum physical load address. Same widening
-   * rationale as top_virt_text_base — KASLR_PHYS_MIN_WIDE is the
+   * rationale as top_virt_image_base — KASLR_PHYS_MIN_WIDE is the
    * conservative variant of KASLR_PHYS_MIN. */
 #if defined(KASLR_PHYS_MIN_WIDE)
   unsigned long lo = (unsigned long)KASLR_PHYS_MIN_WIDE;
@@ -136,10 +136,10 @@ static void top_va_bits(struct estimate *e) {
  * NULL `init_top`, LK_INTERVAL by default) and surfaced as a NULL-deref on
  * the first access. */
 #define KASLD_QUANTITY_LIST(X)                                                 \
-  X(Q_VIRT_TEXT_BASE, "virt_text_base", LK_INTERVAL, top_virt_text_base, NULL, \
-    0)                                                                         \
-  X(Q_PHYS_TEXT_BASE, "phys_text_base", LK_INTERVAL, top_phys_text_base, NULL, \
-    0)                                                                         \
+  X(Q_VIRT_IMAGE_BASE, "virt_image_base", LK_INTERVAL, top_virt_image_base,    \
+    NULL, 0)                                                                   \
+  X(Q_PHYS_IMAGE_BASE, "phys_image_base", LK_INTERVAL, top_phys_image_base,    \
+    NULL, 0)                                                                   \
   X(Q_PAGE_OFFSET, "virt_page_offset", LK_INTERVAL, top_page_offset, NULL, 0)  \
   X(Q_VMALLOC_BASE, "virt_vmalloc_base", LK_INTERVAL, top_kernel_vas_window,   \
     NULL, 0)                                                                   \

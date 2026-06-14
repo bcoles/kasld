@@ -92,8 +92,15 @@ static inline int kasld_mul_ovf(unsigned long a, unsigned long b,
  *
  * - MODULES_RELATIVE_TO_TEXT: 1 if the module region shifts with KASLR text.
  * - IMAGE_ALIGN:              Kernel text address alignment.
- * - TEXT_OFFSET:              Offset from base address to _stext.
- * - KERNEL_VIRT_TEXT_DEFAULT: Default _stext virtual address (no KASLR).
+ * - IMAGE_BASE_OFFSET:              _text's alignment residue (its offset
+ * within the KASLR granule); used only by the residue-aware floor. NOT the
+ * _stext head gap (see STEXT_OFFSET).
+ * - STEXT_OFFSET:             Head gap _stext - _text (0 unless a fixed header
+ *                             precedes _stext, e.g. arm64 0x10000); see its
+ *                             definition below — a fallback, resolved at
+ * runtime from the real _text symbol where possible.
+ * - KERNEL_VIRT_TEXT_DEFAULT: Default image base (_text) virtual address (no
+ * KASLR).
  *
  * Physical addresses:
  * - PHYS_OFFSET:              Physical RAM base address.
@@ -229,7 +236,7 @@ __extension__ _Static_assert((unsigned long)KERNEL_PHYS_MAX >
   ((unsigned long)((v) - PAGE_OFFSET + PHYS_OFFSET))
 #endif
 
-/* Conservative lower edges of Q_VIRT_TEXT_BASE / Q_PHYS_TEXT_BASE windows.
+/* Conservative lower edges of Q_VIRT_IMAGE_BASE / Q_PHYS_IMAGE_BASE windows.
  *
  * KASLR_VIRT_TEXT_MIN / KASLR_PHYS_MIN can bake in configurable Kconfig values
  * (currently x86_64 with CONFIG_PHYSICAL_START) at their *default*. Real
@@ -271,7 +278,7 @@ __extension__ _Static_assert((unsigned long)KERNEL_PHYS_MAX >
 #endif
 
 #if defined(KERNEL_PHYS_MIN) && !defined(KERNEL_PHYS_DEFAULT)
-#define KERNEL_PHYS_DEFAULT (KERNEL_PHYS_MIN + TEXT_OFFSET)
+#define KERNEL_PHYS_DEFAULT (KERNEL_PHYS_MIN + IMAGE_BASE_OFFSET)
 #endif
 #if !defined(KASLR_PHYS_MIN) && defined(KERNEL_PHYS_DEFAULT)
 #define KASLR_PHYS_MIN KERNEL_PHYS_DEFAULT
@@ -294,6 +301,25 @@ __extension__ _Static_assert((unsigned long)KERNEL_PHYS_MAX >
  */
 #ifndef PAGE_OFFSET_FIXED
 #define PAGE_OFFSET_FIXED (!PAGE_OFFSET_RANDOMIZED)
+#endif
+
+/* STEXT_OFFSET — the head gap: _stext - _text (image base). The engine's one
+ * virtual text quantity is the IMAGE BASE (_text); _stext is a projection,
+ * _stext = _text + STEXT_OFFSET. This is distinct from IMAGE_BASE_OFFSET (the
+ * alignment residue: where _text sits within its KASLR-alignment granule, used
+ * only by the residue-aware floor). Zero on every arch where _text == _stext;
+ * non-zero only where a fixed header precedes _stext (arm64 .head.text =
+ * 0x10000).
+ *
+ * This compile-time constant is a FALLBACK. When the real _text symbol is
+ * observable (proc_kallsyms emits it as a KERNEL_IMAGE base), the engine
+ * anchors the image base on that symbol at runtime and STEXT_OFFSET is never
+ * consulted — version-proof. The constant only bridges the gap for _stext-only
+ * sources (e.g. /proc/iomem "Kernel code") and the _stext display projection
+ * when no _text leak exists. Used at two edges: kasld_image_base_from() (IN),
+ * _stext display (OUT). */
+#ifndef STEXT_OFFSET
+#define STEXT_OFFSET 0ul
 #endif
 
 /* Alignment granularity the kernel randomizes the CONFIG_RANDOMIZE_MEMORY
@@ -334,7 +360,7 @@ __extension__ _Static_assert((unsigned long)KERNEL_PHYS_MAX >
  * On arches where this is 1, the absence of KASLR (nokaslr cmdline, kernel
  * compiled without CONFIG_RANDOMIZE_BASE, or an arch-specific equivalent) means
  * the kernel sits at the address returned by `arch_default_text_base()` below.
- * The virt_kaslr_disabled_pin rule pins Q_VIRT_TEXT_BASE to that value when
+ * The virt_kaslr_disabled_pin rule pins Q_VIRT_IMAGE_BASE to that value when
  * SF_VIRT_KASLR_DISABLED is present, with a window-containment backstop
  * that refuses to pin if the computed default falls outside the honest
  * window (a misconfig the arch_default_text_base() formula does not model).
@@ -366,7 +392,7 @@ static inline unsigned long arch_default_text_base(void) { return 0; }
  *   x86_64 (choose_random_location returns early; image stays at
  *           CONFIG_PHYSICAL_START)
  *   loongarch64 (kaslr_disabled() short-circuits relocate.c; image stays at
- *           VMLINUX_LOAD_ADDRESS = PAGE_OFFSET + TEXT_OFFSET)
+ *           VMLINUX_LOAD_ADDRESS = PAGE_OFFSET + IMAGE_BASE_OFFSET)
  *
  * MUST stay 0 (default) where the phys load is bootloader / platform /
  * memstart-determined and not a fixed compile-time value, even when
@@ -494,13 +520,13 @@ static inline int kasld_addr_is_kernel_vas(unsigned long va) {
                              (unsigned long)KERNEL_VIRT_VAS_END);
 }
 
-/* Given an interior virtual kernel-text address `addr` (so text_base <= addr),
+/* Given an interior virtual kernel-text address `addr` (so image_base <= addr),
  * return the tightest sound aligned upper bound on the text base.
  *
  * The base is KASLR_VIRT_ALIGN-aligned only *up to a fixed sub-offset*: a KASLR
  * slide is a whole multiple of KASLR_VIRT_ALIGN, so the base's low bits always
  * equal KERNEL_VIRT_TEXT_DEFAULT mod KASLR_VIRT_ALIGN (0 on x86_64/arm64/ppc;
- * 0x2000 on riscv64; TEXT_OFFSET on arm32; 1 MiB on s390; ...). A plain
+ * 0x2000 on riscv64; IMAGE_BASE_OFFSET on arm32; 1 MiB on s390; ...). A plain
  * `addr & -KASLR_VIRT_ALIGN` drops *below* the real base on the sub-offset
  * arches — an UNSOUND upper bound that wrongly rejects the true base. This
  * returns the largest value <= addr carrying the correct sub-offset (which is
@@ -527,20 +553,38 @@ static inline unsigned long kasld_floor_text_base(unsigned long addr) {
                                        (unsigned long)KERNEL_VIRT_TEXT_DEFAULT);
 }
 
-/* Engine-rule variant: floor a bound on the VIRTUAL kernel text base to the
- * RESOLVED alignment `align` (Q_VIRT_KASLR_ALIGN, which boot_params can raise),
- * preserving the sub-alignment head offset so the result never drops below
- * _stext on sub-offset arches (riscv64 +0x2000, arm32 +0x8000, ...). This is
- * the single sanctioned way for a rule to floor a virt text-base bound; a bare
- * `& ~(align - 1)` is unsound there (enforced by tests/check-text-floor). It is
- * a no-op floor where the head offset is align-aligned (residue 0). The phys
- * axis needs no equivalent: the phys base carries no usable sub-offset. */
+/* Engine-rule variant: floor a bound on the VIRTUAL kernel image base (_text)
+ * to the RESOLVED alignment `align` (Q_VIRT_KASLR_ALIGN, which boot_params can
+ * raise), preserving _text's alignment residue (IMAGE_BASE_OFFSET) so the
+ * result never drops below _text on arches where _text isn't granule-aligned
+ * (riscv64 residue +0x2000, arm32 +0x8000, ...). This is the single sanctioned
+ * way for a rule to floor a virt text-base bound; a bare `& ~(align - 1)` is
+ * unsound there (enforced by tests/check-text-floor). A no-op floor where the
+ * residue is 0. The phys axis needs no equivalent: the phys base carries no
+ * usable residue. */
 static inline unsigned long kasld_floor_virt_text_bound(unsigned long v,
                                                         unsigned long align) {
   if (align == 0)
     return v;
   return kasld_floor_aligned_suboffset(v, align,
                                        (unsigned long)KERNEL_VIRT_TEXT_DEFAULT);
+}
+
+/* Normalise an observed kernel-base address to the IMAGE BASE (_text), the
+ * engine's one virtual/physical text quantity. A KERNEL_TEXT base witness is
+ * _stext (e.g. /proc/kallsyms _stext, /proc/iomem "Kernel code"), so subtract
+ * the head gap; a KERNEL_IMAGE base witness already is the image base. The
+ * single IN edge for STEXT_OFFSET (a no-op where the gap is 0). */
+static inline unsigned long kasld_image_base_from(unsigned long base,
+                                                  int base_is_stext) {
+  if (!base_is_stext)
+    return base;
+  /* Compute then check the subtraction did not wrap. Doing it this way (rather
+   * than `base >= STEXT_OFFSET`) keeps it warning-clean where STEXT_OFFSET is
+   * 0, which would otherwise be an `unsigned >= 0` tautology (-Wtype-limits).
+   */
+  unsigned long img = base - (unsigned long)STEXT_OFFSET;
+  return img <= base ? img : base;
 }
 
 /* =========================================================================

@@ -10,7 +10,7 @@
 //   [start - image_size + 1, start + size - 1]
 //
 // the same inclusive integer hole shape as initrd_phys_exclude /
-// cmdline_phys_exclude. Emitted as C_EXCLUDE on Q_PHYS_TEXT_BASE — interior
+// cmdline_phys_exclude. Emitted as C_EXCLUDE on Q_PHYS_IMAGE_BASE — interior
 // holes do not move the headline lo/hi; they show up in the hole-aware slot
 // count.
 //
@@ -75,7 +75,7 @@ int rule_cmdline_memmap_phys_exclude(const struct evidence_set *ev,
 
     struct constraint *c = &out[n++];
     memset(c, 0, sizeof(*c));
-    c->q = Q_PHYS_TEXT_BASE;
+    c->q = Q_PHYS_IMAGE_BASE;
     c->op = C_EXCLUDE;
     c->value = hole_lo;
     c->value2 = hole_hi;

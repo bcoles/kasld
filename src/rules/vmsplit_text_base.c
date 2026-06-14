@@ -4,13 +4,14 @@
 //
 // On an architecture whose PAGE_OFFSET is a compile-time VMSPLIT choice and
 // which has no KASLR (ARM32: arch/arm/Kconfig VMSPLIT_3G/3G_OPT/2G/1G), the
-// kernel image base is fixed at PAGE_OFFSET + TEXT_OFFSET. Therefore ANY
+// kernel image base is fixed at PAGE_OFFSET + IMAGE_BASE_OFFSET. Therefore ANY
 // observed kernel virtual text address V determines the whole virtual layout:
 //
 //   PAGE_OFFSET     = largest VMSPLIT boundary <= V   (V lies in the image,
-//                     which spans [PAGE_OFFSET + TEXT_OFFSET, PAGE_OFFSET +
-//                     1G))
-//   virt text base  = PAGE_OFFSET + TEXT_OFFSET        (== _text, exactly)
+//                     which spans [PAGE_OFFSET + IMAGE_BASE_OFFSET, PAGE_OFFSET
+//                     + 1G))
+//   virt text base  = PAGE_OFFSET + IMAGE_BASE_OFFSET        (== _text,
+//   exactly)
 //
 // This is the runtime "vmsplit adjustment" the arm32 header promises. Without
 // it the engine keeps the compile-time PAGE_OFFSET (0xc0000000) default, which
@@ -23,8 +24,8 @@
 // an agreeing set of leaks outranks a single raw _stext pin in the resolver
 // (estimate.c prio_before: confidence DESC, then lineage_count DESC).
 //
-// Sound only where text == PAGE_OFFSET + TEXT_OFFSET deterministically, hence
-// the !KASLR_SUPPORTED gate and the per-arch VMSPLIT_PAGE_OFFSETS opt-in.
+// Sound only where text == PAGE_OFFSET + IMAGE_BASE_OFFSET deterministically,
+// hence the !KASLR_SUPPORTED gate and the per-arch VMSPLIT_PAGE_OFFSETS opt-in.
 //
 // NOT the same as api.h's kasld_floor_text_base(), and deliberately not built
 // on it: this snaps to the 1 GiB VMSPLIT boundary to *determine PAGE_OFFSET*
@@ -124,9 +125,9 @@ int rule_vmsplit_text_base(const struct evidence_set *ev,
 
   struct constraint *vt = &out[n++];
   memset(vt, 0, sizeof(*vt));
-  vt->q = Q_VIRT_TEXT_BASE;
+  vt->q = Q_VIRT_IMAGE_BASE;
   vt->op = C_EQUALS;
-  vt->value = best_po + (unsigned long)TEXT_OFFSET;
+  vt->value = best_po + (unsigned long)IMAGE_BASE_OFFSET;
   vt->conf = best_conf;
   for (int i = 0; i < best_nsrc; i++)
     vt->derived_from[i] = best_src[i];

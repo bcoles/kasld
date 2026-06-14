@@ -8,7 +8,8 @@
 // maps to a virtual upper bound:
 //
 //   virt_ceiling = PAGE_OFFSET_runtime + (phys_floor - PHYS_OFFSET)
-//                  + MemTotal - MIN_IMAGE_SIZE + TEXT_OFFSET   (aligned down)
+//                  + MemTotal - MIN_IMAGE_SIZE + IMAGE_BASE_OFFSET   (aligned
+//                  down)
 //
 // This is a CROSS-QUANTITY rule: it uses the engine's resolved Q_PAGE_OFFSET
 // rather than the compile-time PAGE_OFFSET, because the runtime value can
@@ -79,7 +80,7 @@ int rule_virt_ceiling_from_memtotal(const struct evidence_set *ev,
   unsigned long phys_floor_offset =
       (phys_floor > PHYS_OFFSET) ? (phys_floor - PHYS_OFFSET) : 0;
   unsigned long ceiling = virt_page_offset + phys_floor_offset + memtotal -
-                          MIN_IMAGE_SIZE + TEXT_OFFSET;
+                          MIN_IMAGE_SIZE + IMAGE_BASE_OFFSET;
   /* Align to the resolved Q_VIRT_KASLR_ALIGN (>= compile-time
    * KASLR_VIRT_ALIGN). */
   unsigned long valign = est[Q_VIRT_KASLR_ALIGN].lo;
@@ -91,7 +92,7 @@ int rule_virt_ceiling_from_memtotal(const struct evidence_set *ev,
 
   struct constraint *c = &out[0];
   memset(c, 0, sizeof(*c));
-  c->q = Q_VIRT_TEXT_BASE;
+  c->q = Q_VIRT_IMAGE_BASE;
   c->op = C_UPPER_BOUND;
   c->value = ceiling;
   c->conf = (mconf < fconf) ? mconf : fconf;

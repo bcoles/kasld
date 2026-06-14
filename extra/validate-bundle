@@ -241,13 +241,13 @@ echo
 # ---------------------------------------------------------------------------
 get() { jq -r "$1 // empty" "$JSON" 2>/dev/null; }
 
-vmin=$(get '.layout.virt_kernel_text_min')
-vmax=$(get '.layout.virt_kernel_text_max')
-vtext=$(get '.kaslr.virtual.text_base')
+vmin=$(get '.layout.virt_image_base_min')
+vmax=$(get '.layout.virt_image_base_max')
+vtext=$(get '.kaslr.virtual.image_base')
 
 pmin=$(get '.layout.phys_kaslr_text_min')
 pmax=$(get '.layout.phys_kaslr_text_max')
-ptext=$(get '.kaslr.physical.text_base')
+ptext=$(get '.kaslr.physical.image_base')
 
 [ -n "$vmin" ]  && vmin=$(hex16 "$vmin")
 [ -n "$vmax" ]  && vmax=$(hex16 "$vmax")
@@ -279,14 +279,14 @@ fi
 # Virt text-base resolved point (when a leak pinned it)
 if [ -n "$vtext" ] && [ -n "$truth_vtext" ]; then
   if [ "$vtext" = "$truth_vtext" ]; then
-    pass "virt text_base"    "exact match 0x$vtext"
+    pass "virt image_base"    "exact match 0x$vtext"
   elif [ -n "$truth_end" ] && hex_in "$vtext" "$truth_vtext" "$truth_end"; then
-    pass "virt text_base"    "0x$vtext within kernel image [0x$truth_vtext, 0x$truth_end]"
+    pass "virt image_base"    "0x$vtext within kernel image [0x$truth_vtext, 0x$truth_end]"
   else
-    fail "virt text_base"    "resolved 0x$vtext ≠ truth 0x$truth_vtext"
+    fail "virt image_base"    "resolved 0x$vtext ≠ truth 0x$truth_vtext"
   fi
 elif [ -n "$vtext" ]; then
-  nare "virt text_base"    "resolved 0x$vtext (no truth)"
+  nare "virt image_base"    "resolved 0x$vtext (no truth)"
 fi
 
 # Phys KASLR window
@@ -307,18 +307,18 @@ fi
 # Phys text-base resolved point
 if [ -n "$ptext" ] && [ -n "$truth_ptext" ]; then
   if [ "$ptext" = "$truth_ptext" ]; then
-    pass "phys text_base"    "exact match 0x$ptext"
+    pass "phys image_base"    "exact match 0x$ptext"
   else
     # An aligned-down base sitting at-or-just-below iomem 'Kernel code' start
     # is acceptable (KASLR aligns to PHYSICAL_ALIGN; _stext can be offset).
     if hex_le "$ptext" "$truth_ptext"; then
-      pass "phys text_base"    "0x$ptext ≤ truth 0x$truth_ptext (aligned base)"
+      pass "phys image_base"    "0x$ptext ≤ truth 0x$truth_ptext (aligned base)"
     else
-      fail "phys text_base"    "resolved 0x$ptext ≠ truth 0x$truth_ptext"
+      fail "phys image_base"    "resolved 0x$ptext ≠ truth 0x$truth_ptext"
     fi
   fi
 elif [ -n "$ptext" ]; then
-  nare "phys text_base"    "resolved 0x$ptext (no truth)"
+  nare "phys image_base"    "resolved 0x$ptext (no truth)"
 fi
 
 echo

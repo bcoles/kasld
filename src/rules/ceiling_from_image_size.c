@@ -63,7 +63,7 @@ static int emit_ceiling(enum kasld_quantity q, unsigned long window_max,
   if (window_max <= window_min || kernel_size >= window_max - window_min)
     return 0;
   unsigned long ceiling = window_max - kernel_size;
-  if (q == Q_VIRT_TEXT_BASE)
+  if (q == Q_VIRT_IMAGE_BASE)
     ceiling = kasld_floor_virt_text_bound(
         ceiling, align); /* sound on sub-offset arches */
   else if (align > 0)
@@ -100,13 +100,13 @@ int rule_ceiling_from_image_size(const struct evidence_set *ev,
     valign = (unsigned long)KASLR_VIRT_ALIGN;
 
   int n = 0;
-  n += emit_ceiling(Q_VIRT_TEXT_BASE, KASLR_VIRT_TEXT_MAX, KASLR_VIRT_TEXT_MIN,
+  n += emit_ceiling(Q_VIRT_IMAGE_BASE, KASLR_VIRT_TEXT_MAX, KASLR_VIRT_TEXT_MIN,
                     valign, ksize, conf, src, out, n, out_max);
 #if !TEXT_TRACKS_DIRECTMAP
   unsigned long palign = est[Q_PHYS_KASLR_ALIGN].lo;
   if (palign < (unsigned long)KASLR_PHYS_ALIGN)
     palign = (unsigned long)KASLR_PHYS_ALIGN;
-  n += emit_ceiling(Q_PHYS_TEXT_BASE, KASLR_PHYS_MAX, KASLR_PHYS_MIN, palign,
+  n += emit_ceiling(Q_PHYS_IMAGE_BASE, KASLR_PHYS_MAX, KASLR_PHYS_MIN, palign,
                     ksize, conf, src, out, n, out_max);
 #endif
   return n;

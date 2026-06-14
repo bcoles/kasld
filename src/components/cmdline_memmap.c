@@ -11,7 +11,7 @@
 //   it. The cmdline_memmap_phys_exclude rule consumes the emitted extents
 //   (with SF_IMAGE_SIZE) to widen each into the inclusive forbidden hole
 //   `[start - image_size + 1, start + size - 1]` and emits C_EXCLUDE on
-//   Q_PHYS_TEXT_BASE — mirroring initrd_phys_exclude / cmdline_phys_exclude.
+//   Q_PHYS_IMAGE_BASE — mirroring initrd_phys_exclude / cmdline_phys_exclude.
 //
 // Syntax (mirrors lib/cmdline.c memparse + the kernel's @$!# delimiters):
 //   memmap=<size>@<start>   usable RAM (NO avoidance — size=0 in mem_avoid)
@@ -44,7 +44,7 @@ KASLD_EXPLAIN(
     "reservations from /proc/cmdline and emits each as a PHYS "
     "REGION_CMDLINE_MEMMAP extent. The kernel placer refuses to overlap "
     "these intervals; cmdline_memmap_phys_exclude turns each into a "
-    "forbidden zone on Q_PHYS_TEXT_BASE. /proc/cmdline is world-readable.");
+    "forbidden zone on Q_PHYS_IMAGE_BASE. /proc/cmdline is world-readable.");
 
 KASLD_META("method:detection\n"
            "phase:inference\n"

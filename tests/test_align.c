@@ -6,8 +6,8 @@
 // The helper turns a leaked *interior* virtual text pointer (text_base <= addr)
 // into a sound aligned estimate of the base. The base is KASLR_VIRT_ALIGN-
 // aligned only up to a fixed sub-offset (KERNEL_VIRT_TEXT_DEFAULT mod align):
-// 0 on x86_64/arm64/ppc, 0x2000 on riscv64, TEXT_OFFSET on arm32, 1 MiB on
-// s390. A plain `addr & -align` drops below the real base on the sub-offset
+// 0 on x86_64/arm64/ppc, 0x2000 on riscv64, IMAGE_BASE_OFFSET on arm32, 1 MiB
+// on s390. A plain `addr & -align` drops below the real base on the sub-offset
 // arches — the bug these tests pin shut. We drive the pure parameterised core
 // with each arch's (align, default_base) on one host so the sub-offset cases
 // are covered without cross-compiling.
@@ -51,7 +51,7 @@ static void test_riscv64_suboffset(void) {
         0xffffffff80002000ul);
 }
 
-/* Real armv7 (2G/2G VMSPLIT) case: base = PAGE_OFFSET + TEXT_OFFSET (sub
+/* Real armv7 (2G/2G VMSPLIT) case: base = PAGE_OFFSET + IMAGE_BASE_OFFSET (sub
  * 0x8000), leak 0x8010ce7c. Plain floor -> 0x80000000 (below _text). */
 static void test_arm32_suboffset(void) {
   check(0x8010ce7cul, 0x200000ul, 0xc0008000ul, 0x80008000ul);

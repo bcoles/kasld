@@ -41,7 +41,7 @@
 // at boot, so Q_PAGE_OFFSET can be pinned without evidence — same
 // "architectural certainty" shape as MIPS CKSEG0 and ppc64 book3s.
 // Unlocks text_base_coupling_synth (it needs Q_PAGE_OFFSET pinned to
-// propagate Q_VIRT_TEXT_BASE ↔ Q_PHYS_TEXT_BASE).
+// propagate Q_VIRT_IMAGE_BASE ↔ Q_PHYS_IMAGE_BASE).
 #define PAGE_OFFSET_INVARIANT 1
 
 // XKPRANGE starts at 0x8000000000000000 (hardware direct map windows DMW0/1/2).
@@ -80,8 +80,17 @@
 // EFI_LOADER_CODE memmaps.
 #define EFI_KIMG_ALIGN (2 * MB)
 
+// IMAGE_BASE_OFFSET here is the load offset of _text from the DMW1 base (the
+// kernel's VMLINUX_LOAD_ADDRESS offset), i.e. the alignment residue.
 // https://elixir.bootlin.com/linux/v6.8.5/source/arch/loongarch/Makefile#L99
-#define TEXT_OFFSET 0x200000
+#define IMAGE_BASE_OFFSET 0x200000
+
+// Head gap _stext - _text: loongarch64 places a header before _stext, so
+// _stext = _text + 0x20000 (observed on the v6.18 lts kernel). The engine
+// solves the image base (_text); _stext is projected from it with STEXT_OFFSET
+// (a fallback — the real _text symbol is used at runtime when kallsyms is
+// readable).
+#define STEXT_OFFSET 0x20000ul
 
 // Plausible physical address range for kernel image
 #define KERNEL_PHYS_MIN 0ul
@@ -90,12 +99,12 @@
 // See docs/kaslr.md "Default text base and KASLR alignment" for all
 // architectures. Kernel source: arch/loongarch/kernel/vmlinux.lds.S,
 // arch/loongarch/Makefile
-#define KERNEL_VIRT_TEXT_DEFAULT (KERNEL_VIRT_TEXT_MIN + TEXT_OFFSET)
+#define KERNEL_VIRT_TEXT_DEFAULT (KERNEL_VIRT_TEXT_MIN + IMAGE_BASE_OFFSET)
 
 /* KASLR-off ⇒ pin contract: arch/loongarch/kernel/relocate.c kaslr_disabled()
  * short-circuits the relocate path and the kernel stays at the link address
- * VMLINUX_LOAD_ADDRESS = PAGE_OFFSET + TEXT_OFFSET = KERNEL_VIRT_TEXT_DEFAULT
- * here. Triggered by the "kexec_file" cmdline token
+ * VMLINUX_LOAD_ADDRESS = PAGE_OFFSET + IMAGE_BASE_OFFSET =
+ * KERNEL_VIRT_TEXT_DEFAULT here. Triggered by the "kexec_file" cmdline token
  * (loongarch_kexec_file_nokaslr), the resume= hibernation path
  * (hibernation_nokaslr), nokaslr cmdline (proc_cmdline), or RANDOMIZE_BASE=n
  * (proc_config / boot_config). The pin rule's window-containment check is the
@@ -108,19 +117,19 @@ static inline unsigned long arch_default_text_base(void) {
 
 /* KASLR-off ⇒ phys pin contract: loongarch64's relocate.c skips
  * relocation when kaslr_disabled(), so the kernel stays at its build-time
- * physical load address VMLINUX_LOAD_ADDRESS = PAGE_OFFSET + TEXT_OFFSET in
- * the virtual mapping; the physical equivalent is TEXT_OFFSET above the RAM
- * base. With PHYS_OFFSET=0 that collapses to TEXT_OFFSET. */
+ * physical load address VMLINUX_LOAD_ADDRESS = PAGE_OFFSET + IMAGE_BASE_OFFSET
+ * in the virtual mapping; the physical equivalent is IMAGE_BASE_OFFSET above
+ * the RAM base. With PHYS_OFFSET=0 that collapses to IMAGE_BASE_OFFSET. */
 #define KASLR_DISABLED_PINS_PHYS 1
 #define KASLD_ARCH_DEFAULT_PHYS_TEXT_BASE_DEFINED 1
 static inline unsigned long arch_default_phys_text_base(void) {
-  return (unsigned long)TEXT_OFFSET;
+  return (unsigned long)IMAGE_BASE_OFFSET;
 }
 
 // KASLR randomization: offset = get_random_u16() << 16, range [0, 0xFFFF0000].
-// Virtual text = PAGE_OFFSET + TEXT_OFFSET + offset.
-#define KASLR_VIRT_TEXT_MIN (PAGE_OFFSET + TEXT_OFFSET)
-#define KASLR_VIRT_TEXT_MAX (PAGE_OFFSET + TEXT_OFFSET + 0x100000000ul)
+// Virtual text = PAGE_OFFSET + IMAGE_BASE_OFFSET + offset.
+#define KASLR_VIRT_TEXT_MIN (PAGE_OFFSET + IMAGE_BASE_OFFSET)
+#define KASLR_VIRT_TEXT_MAX (PAGE_OFFSET + IMAGE_BASE_OFFSET + 0x100000000ul)
 
 #define KASLR_SUPPORTED 1
 

@@ -7,7 +7,8 @@
 // physical DRAM to the virtual text window, so the kernel-image-fits-`mem` cap
 // maps to
 //
-//   virt_ceiling = PAGE_OFFSET_runtime + cmdline_mem - image_size + TEXT_OFFSET
+//   virt_ceiling = PAGE_OFFSET_runtime + cmdline_mem - image_size +
+//   IMAGE_BASE_OFFSET
 //
 // aligned down to the resolved virtual KASLR granularity. Cross-quantity:
 // fires only once Q_PAGE_OFFSET has collapsed to a point (VMSPLIT resolved by
@@ -66,7 +67,7 @@ int rule_cmdline_mem_virt_ceiling(const struct evidence_set *ev,
     return 0;
 
   unsigned long ceiling =
-      virt_page_offset + mem - ksize + (unsigned long)TEXT_OFFSET;
+      virt_page_offset + mem - ksize + (unsigned long)IMAGE_BASE_OFFSET;
   /* Align to the resolved Q_VIRT_KASLR_ALIGN (>= compile-time
    * KASLR_VIRT_ALIGN). */
   unsigned long valign = est[Q_VIRT_KASLR_ALIGN].lo;
@@ -78,7 +79,7 @@ int rule_cmdline_mem_virt_ceiling(const struct evidence_set *ev,
 
   struct constraint *c = &out[0];
   memset(c, 0, sizeof(*c));
-  c->q = Q_VIRT_TEXT_BASE;
+  c->q = Q_VIRT_IMAGE_BASE;
   c->op = C_UPPER_BOUND;
   c->value = ceiling;
   c->conf = (mconf < kconf) ? mconf : kconf;

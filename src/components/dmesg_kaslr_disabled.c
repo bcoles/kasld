@@ -12,8 +12,8 @@
 //     path on loongarch, etc.). The boot stub honoured the request and
 //     skipped relocation entirely.
 //     Wire fact: SF_VIRT_KASLR_DISABLED.
-//     Engine effect: virt_/phys_kaslr_disabled_pin pins Q_VIRT_TEXT_BASE (and
-//     on coupled arches, Q_PHYS_TEXT_BASE) to the arch's compile-time default.
+//     Engine effect: virt_/phys_kaslr_disabled_pin pins Q_VIRT_IMAGE_BASE (and
+//     on coupled arches, Q_PHYS_IMAGE_BASE) to the arch's compile-time default.
 //
 //   x86/x86_64:
 //     KASLR disabled: 'kaslr' not on cmdline (hibernation selected).
@@ -36,7 +36,7 @@
 //     Engine effect: hardening-report entropy downgrade (consumes
 //     SF_VIRT, since the user-visible "0 entropy" claim is about
 //     virt text), EFI loader-pool disambiguation tightening on EFI
-//     arches (consumes SF_PHYS), s390-specific phys_text_base
+//     arches (consumes SF_PHYS), s390-specific phys_image_base
 //     inference (consumes SF_PHYS).
 //
 //   ARM64 (arch/arm64/kernel/setup.c / kaslr.c — EFI stub):

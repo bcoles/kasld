@@ -8,22 +8,22 @@
 // kernel version:
 //
 //   Pre-v6.8 (identity-mapped layout):
-//     phys_text = TEXT_OFFSET = 0x100000 (1 MiB exactly).
+//     phys_text = IMAGE_BASE_OFFSET = 0x100000 (1 MiB exactly).
 //     KASLR-off keeps the IPL-loaded image at the link-time LMA.
 //
 //   v6.8 → v6.10 (arch/s390/boot/startup.c uses nokaslr_offset_phys):
 //     nokaslr_offset_phys = ALIGN(mem_safe_offset(), _SEGMENT_SIZE)
-//     phys_text = nokaslr_offset_phys + TEXT_OFFSET (effectively
+//     phys_text = nokaslr_offset_phys + IMAGE_BASE_OFFSET (effectively
 //     ALIGN(decompressor_heap_end, 1 MiB)).
 //
 //   v6.12+ (nokaslr_text_lma renamed, same algorithm):
 //     text_lma = nokaslr_text_lma = ALIGN(mem_safe_offset(), _SEGMENT_SIZE)
-//     __kaslr_offset_phys = text_lma − TEXT_OFFSET
+//     __kaslr_offset_phys = text_lma − IMAGE_BASE_OFFSET
 //     phys_text base = text_lma (with kaslr_large_page_offset OR'd in,
 //     which is 0 when kaslr is off).
 //
 // In every case the kernel sits in the LOW portion of physical memory:
-// either at TEXT_OFFSET (pre-v6.8) or immediately above the decompressor
+// either at IMAGE_BASE_OFFSET (pre-v6.8) or immediately above the decompressor
 // heap (v6.8+). Worst-case decompressor heap is bounded by the compressor
 // choice:
 //   gzip:  ~64 KiB
@@ -33,7 +33,7 @@
 // S390_NO_RAND_PHYS_TEXT_MAX = 256 MiB is a conservative upper bound
 // that admits every configuration the algorithm can produce, with a
 // safety margin:
-//   • Pre-v6.8 case (kernel at TEXT_OFFSET = 1 MiB)
+//   • Pre-v6.8 case (kernel at IMAGE_BASE_OFFSET = 1 MiB)
 //   • Typical compressed kernels (decompressor heap end ~10 MiB
 //     after init)
 //   • Worst-case zstd-compressed (~128 MiB peak heap)
@@ -43,7 +43,7 @@
 // CONF_HEURISTIC: the bound is sound by construction for known
 // algorithms, but any CONF_PARSED leak (kallsyms, an iomem text pin,
 // dmesg backtrace) overrides this. The rule's purpose is to narrow the
-// otherwise-vast Q_PHYS_TEXT_BASE window (KERNEL_PHYS_MIN .. 64 GiB)
+// otherwise-vast Q_PHYS_IMAGE_BASE window (KERNEL_PHYS_MIN .. 64 GiB)
 // down to the low-memory portion when only the dmesg signal is
 // available — typical for low-priv s390 leak scenarios.
 //
@@ -63,7 +63,7 @@
 
 #if defined(__s390__) || defined(__s390x__)
 
-/* Upper bound on phys_text_base when randomization failed. 256 MiB
+/* Upper bound on phys_image_base when randomization failed. 256 MiB
  * covers every algorithm variant (pre-v6.8 fixed at 1 MiB; v6.8+
  * bounded by decompressor heap end aligned to 1 MiB). */
 #define S390_NO_RAND_PHYS_TEXT_MAX (256ul * 1024ul * 1024ul)
@@ -93,7 +93,7 @@ int rule_s390_text_no_random(const struct evidence_set *ev,
 
   struct constraint *c = &out[0];
   memset(c, 0, sizeof(*c));
-  c->q = Q_PHYS_TEXT_BASE;
+  c->q = Q_PHYS_IMAGE_BASE;
   c->op = C_UPPER_BOUND;
   c->value = S390_NO_RAND_PHYS_TEXT_MAX;
   /* CONF_HEURISTIC: deferred to by any CONF_PARSED leak. Take the

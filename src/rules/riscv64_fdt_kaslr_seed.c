@@ -7,9 +7,9 @@
 // the kernel picks slot (seed % nr_pos) of PMD_SIZE within a PUD, where
 // nr_pos = (PUD_SIZE - image_size) / PMD_SIZE.
 //
-//   Path 1 (image_size known): text_base == KERNEL_LINK_ADDR
+//   Path 1 (image_size known): image_base == KERNEL_LINK_ADDR
 //                                          + (seed % nr_pos) * PMD_SIZE  (pin)
-//   Path 2 (image_size unknown): text_base <= max over i in [1,nr_pos_max] of
+//   Path 2 (image_size unknown): image_base <= max over i in [1,nr_pos_max] of
 //                                  KERNEL_LINK_ADDR + (seed % i) * PMD_SIZE
 //                                  with nr_pos_max = (PUD_SIZE - gap) /
 //                                  PMD_SIZE
@@ -85,7 +85,7 @@ int rule_riscv64_fdt_kaslr_seed(const struct evidence_set *ev,
       unsigned long candidate = (unsigned long)KERNEL_LINK_ADDR + off;
       struct constraint *c = &out[0];
       memset(c, 0, sizeof(*c));
-      c->q = Q_VIRT_TEXT_BASE;
+      c->q = Q_VIRT_IMAGE_BASE;
       c->op = C_EQUALS;
       c->value = candidate;
       c->conf = CONF_INFERRED;
@@ -116,7 +116,7 @@ int rule_riscv64_fdt_kaslr_seed(const struct evidence_set *ev,
     return 0;
   struct constraint *c = &out[0];
   memset(c, 0, sizeof(*c));
-  c->q = Q_VIRT_TEXT_BASE;
+  c->q = Q_VIRT_IMAGE_BASE;
   c->op = C_UPPER_BOUND;
   c->value = max_cand;
   c->conf = CONF_INFERRED;

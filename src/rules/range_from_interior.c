@@ -2,12 +2,12 @@
 //
 // Rule: bound the text base from interior kernel-image samples.
 //
-// Any address inside the kernel image satisfies sample = text_base + offset
-// with offset >= 0, so text_base <= sample regardless of which symbol the
+// Any address inside the kernel image satisfies sample = image_base + offset
+// with offset >= 0, so image_base <= sample regardless of which symbol the
 // offset belongs to. The raw sample is therefore always a SOUND upper bound on
 // the text base, independent of alignment assumptions (mirrors the documented
 // approach in kernel_image_phys_bound). Emits a C_UPPER_BOUND on
-// Q_VIRT_TEXT_BASE (virt samples) / Q_PHYS_TEXT_BASE (phys samples) at the
+// Q_VIRT_IMAGE_BASE (virt samples) / Q_PHYS_IMAGE_BASE (phys samples) at the
 // minimum interior sample observed.
 //
 // It deliberately does NOT floor the ceiling to the KASLR alignment. The text
@@ -67,7 +67,7 @@ int rule_range_from_interior(const struct evidence_set *ev,
   (void)
       est; /* no longer reads the alignment quantities — raw sample is sound */
 
-  n += emit_min_sample(ev, KASLD_TYPE_VIRT, Q_VIRT_TEXT_BASE, out, n, out_max);
-  n += emit_min_sample(ev, KASLD_TYPE_PHYS, Q_PHYS_TEXT_BASE, out, n, out_max);
+  n += emit_min_sample(ev, KASLD_TYPE_VIRT, Q_VIRT_IMAGE_BASE, out, n, out_max);
+  n += emit_min_sample(ev, KASLD_TYPE_PHYS, Q_PHYS_IMAGE_BASE, out, n, out_max);
   return n;
 }

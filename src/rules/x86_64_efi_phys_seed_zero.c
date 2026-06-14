@@ -18,7 +18,7 @@
 //      — that entry IS the kernel's physical extent. With the seed-zero
 //      trigger confirmed, the placement is no longer "≤ loader.lo" (an upper
 //      bound) but exactly loader.lo (a bilateral pin): emit C_EQUALS on
-//      Q_PHYS_TEXT_BASE at the lowest PHYS kernel_image lo.
+//      Q_PHYS_IMAGE_BASE at the lowest PHYS kernel_image lo.
 //
 //   2. FALLBACK (no kernel_image observation): the EFI memory map is not
 //      readable from userspace (dmesg restricted or memmap not emitted). The
@@ -28,7 +28,7 @@
 //      arbitrarily higher). Live-host validation may revisit.
 //
 // Only the *physical* placement seed is zeroed; `virt_addr` uses seed[1],
-// unaffected. The constraint is strictly on Q_PHYS_TEXT_BASE.
+// unaffected. The constraint is strictly on Q_PHYS_IMAGE_BASE.
 //
 // References:
 // https://elixir.bootlin.com/linux/v6.12/source/drivers/firmware/efi/libstub/x86-stub.c#L815
@@ -135,7 +135,7 @@ int rule_x86_64_efi_phys_seed_zero(const struct evidence_set *ev,
 
   struct constraint *c = &out[0];
   memset(c, 0, sizeof(*c));
-  c->q = Q_PHYS_TEXT_BASE;
+  c->q = Q_PHYS_IMAGE_BASE;
   c->op = C_EQUALS;
   c->value = pin;
   /* Confidence: weaker of (kernel_image observation) and (the trigger set).

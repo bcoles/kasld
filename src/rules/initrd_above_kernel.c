@@ -9,16 +9,16 @@
 // own relocator never picks a base whose image overlaps the initrd. So
 // when a leaked initrd start is available:
 //
-//   phys_text_base + image_size <= initrd_start
+//   phys_image_base + image_size <= initrd_start
 //
-// emits as a C_UPPER_BOUND on Q_PHYS_TEXT_BASE. When SF_IMAGE_SIZE is
+// emits as a C_UPPER_BOUND on Q_PHYS_IMAGE_BASE. When SF_IMAGE_SIZE is
 // known the bound is tight; otherwise a conservative MIN_IMAGE_SIZE keeps
 // the bound sound. The complementary "kernel doesn't overlap initrd"
 // constraint (the exclusion hole IN [start - image_size, end - 1]) is
 // already emitted by initrd_phys_exclude.c on decoupled arches; this
 // rule is the strict-upper-bound version that fires on both coupling
 // models — and on coupled arches the text_base_coupling_synth rule
-// then projects the bound onto Q_VIRT_TEXT_BASE.
+// then projects the bound onto Q_VIRT_IMAGE_BASE.
 //
 // Confidence: CONF_INFERRED. Any higher-confidence evidence (kallsyms
 // _stext via text_pin_from_observation, iomem Kernel code via
@@ -95,7 +95,7 @@ int rule_initrd_above_kernel(const struct evidence_set *ev,
 
   struct constraint *c = &out[0];
   memset(c, 0, sizeof(*c));
-  c->q = Q_PHYS_TEXT_BASE;
+  c->q = Q_PHYS_IMAGE_BASE;
   c->op = C_UPPER_BOUND;
   c->value = upper;
   /* The bound inherits the WEAKER of the two contributing observations'

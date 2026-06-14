@@ -5,7 +5,7 @@
 // OPAL (PowerNV)
 // and RTAS (pseries) occupy physically contiguous firmware regions in the
 // first few GiB; the kernel image must fit below them. On ppc64 PHYS_OFFSET =
-// TEXT_OFFSET = 0 and the base is PAGE_OFFSET (no mainline KASLR), so
+// IMAGE_BASE_OFFSET = 0 and the base is PAGE_OFFSET (no mainline KASLR), so
 // phys_to_directmap_virt(x) = PAGE_OFFSET + x = KASLR_VIRT_TEXT_MIN + x,
 // giving:
 //
@@ -13,7 +13,7 @@
 //
 // The kernel must fit below BOTH firmware regions, so the bridge supplies the
 // lower of the OPAL/RTAS bases (SF_PHYS_FW_RESERVED_BASE); the merged ceiling
-// equals the tighter of the two bounds. C_UPPER_BOUND on Q_VIRT_TEXT_BASE.
+// equals the tighter of the two bounds. C_UPPER_BOUND on Q_VIRT_IMAGE_BASE.
 // ppc64 only; emits nothing when no firmware base is present.
 // ---
 // <bcoles@gmail.com>
@@ -63,7 +63,7 @@ int rule_ppc64_firmware_ceiling(const struct evidence_set *ev,
 
   struct constraint *c = &out[0];
   memset(c, 0, sizeof(*c));
-  c->q = Q_VIRT_TEXT_BASE;
+  c->q = Q_VIRT_IMAGE_BASE;
   c->op = C_UPPER_BOUND;
   c->value = ceiling;
   c->conf = conf;

@@ -9,12 +9,12 @@
 // On a system where the property is present, it is a hard upper bound on
 // where the kernel image's last byte sits, so:
 //
-//   phys_text_base + image_size <= linux,kernel-end
+//   phys_image_base + image_size <= linux,kernel-end
 //
 // emits as a PHYS REGION_KERNEL_IMAGE observation with the TOP edge set
 // (HAS_HI). The existing kernel_image_phys_bound rule consumes phys
-// kernel-image observations to bound Q_PHYS_TEXT_BASE, and the
-// text_base_coupling_synth rule projects the result onto Q_VIRT_TEXT_BASE
+// kernel-image observations to bound Q_PHYS_IMAGE_BASE, and the
+// text_base_coupling_synth rule projects the result onto Q_VIRT_IMAGE_BASE
 // on coupled arches. No new rule needed.
 //
 // Origin: arch/powerpc/kernel/prom.c sets the property from
@@ -35,7 +35,7 @@ KASLD_EXPLAIN(
     "physical address one byte past the loaded kernel image, set by "
     "PowerPC firmware on its handoff. Emits a PHYS kernel_image "
     "observation with the TOP edge; kernel_image_phys_bound consumes it "
-    "to derive a tight upper bound on Q_PHYS_TEXT_BASE. World-readable; "
+    "to derive a tight upper bound on Q_PHYS_IMAGE_BASE. World-readable; "
     "no sysctl gates it.");
 
 KASLD_META("method:parsed\n"
@@ -71,7 +71,7 @@ int main(void) {
 
   /* Emit as the TOP edge of the kernel image. kernel_image_phys_bound
    * reads phys kernel-image observations with HAS_HI and derives a
-   * tight upper bound on Q_PHYS_TEXT_BASE. */
+   * tight upper bound on Q_PHYS_IMAGE_BASE. */
   kasld_result_top(KASLD_TYPE_PHYS, REGION_KERNEL_IMAGE, kend, NULL,
                    CONF_PARSED);
   return 0;

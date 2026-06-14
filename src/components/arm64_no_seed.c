@@ -3,7 +3,7 @@
 // arm64 KASLR-disabled detection: on a non-EFI, device-tree-booted arm64 system
 // whose FDT carries no /chosen/kaslr-seed and whose CPU lacks FEAT_RNG (RNDR),
 // virtual KASLR is off and the kernel sits at KERNEL_VIRT_TEXT_DEFAULT
-// (KIMAGE_VADDR + TEXT_OFFSET).
+// (KIMAGE_VADDR + IMAGE_BASE_OFFSET).
 //
 // arch/arm64/kernel/pi/kaslr_early.c get_kaslr_seed() reads /chosen/kaslr-seed
 // via fdt_getprop_w and zeroes it in place (`*prop = 0`), keeping the property
@@ -14,7 +14,7 @@
 //
 // Emits SF_VIRT_KASLR_DISABLED only — single axis. arm64 physical placement is
 // EFI/bootloader-determined and independent of the virtual seed, so the phys
-// axis is left unconstrained. virt_kaslr_disabled_pin pins Q_VIRT_TEXT_BASE
+// axis is left unconstrained. virt_kaslr_disabled_pin pins Q_VIRT_IMAGE_BASE
 // (KASLR_DISABLED_PINS_VIRT_TEXT=1 on arm64).
 //
 // Conservative: EFI present, ACPI boot (no /proc/device-tree), a present seed

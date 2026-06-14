@@ -6,7 +6,7 @@
 // the user ASCE limit = 1 << VA_BITS (4 TiB for 3-level paging, 8 PiB for
 // 4-level). The kernel text base lies below vmax, so:
 //
-//   virt_text_base < 1 << VA_BITS   (aligned down to the KASLR slot)
+//   virt_image_base < 1 << VA_BITS   (aligned down to the KASLR slot)
 //
 // VA_BITS arrives as SF_VIRT_ADDR_BITS from the in-process mmap boundary probe
 // (kasld_s390_va_bits, emitted by the engine bridge). On 3-level paging this
@@ -53,7 +53,7 @@ int rule_s390_paging_level(const struct evidence_set *ev,
 
   struct constraint *c = &out[0];
   memset(c, 0, sizeof(*c));
-  c->q = Q_VIRT_TEXT_BASE;
+  c->q = Q_VIRT_IMAGE_BASE;
   c->op = C_UPPER_BOUND;
   c->value = ceiling;
   c->conf = CONF_INFERRED;

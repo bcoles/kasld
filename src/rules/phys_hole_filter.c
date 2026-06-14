@@ -6,12 +6,13 @@
 // if the current physical ceiling lands in a gap between known DRAM extents, it
 // can be dropped to the top of the highest DRAM extent strictly below it.
 //
-//   if phys_text_base hi lies in no DRAM extent:
-//     phys_text_base <= hi of the highest DRAM extent below it
+//   if phys_image_base hi lies in no DRAM extent:
+//     phys_image_base <= hi of the highest DRAM extent below it
 //
-// CROSS-QUANTITY: reads the resolved Q_PHYS_TEXT_BASE upper edge and the leaked
-// DRAM extent observations (those with both lo and hi). Emits a C_UPPER_BOUND.
-// Inert on coupled arches and when no DRAM extent observation is present.
+// CROSS-QUANTITY: reads the resolved Q_PHYS_IMAGE_BASE upper edge and the
+// leaked DRAM extent observations (those with both lo and hi). Emits a
+// C_UPPER_BOUND. Inert on coupled arches and when no DRAM extent observation is
+// present.
 // ---
 // <bcoles@gmail.com>
 
@@ -70,7 +71,7 @@ int rule_phys_hole_filter(const struct evidence_set *ev,
     }
   }
 
-  unsigned long ceiling = est[Q_PHYS_TEXT_BASE].hi;
+  unsigned long ceiling = est[Q_PHYS_IMAGE_BASE].hi;
 
   /* If the ceiling already sits inside a DRAM extent, nothing to do. */
   for (int i = 0; i < m; i++)
@@ -90,7 +91,7 @@ int rule_phys_hole_filter(const struct evidence_set *ev,
 
   struct constraint *c = &out[0];
   memset(c, 0, sizeof(*c));
-  c->q = Q_PHYS_TEXT_BASE;
+  c->q = Q_PHYS_IMAGE_BASE;
   c->op = C_UPPER_BOUND;
   c->value = new_max;
   c->conf = CONF_INFERRED;

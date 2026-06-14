@@ -7,8 +7,8 @@
 // below (gap = max_data - min_text); the base then cannot sit so high that
 // base + gap overflows the KASLR window:
 //
-//   virt_text_base <= align_down(KASLR_VIRT_TEXT_MAX - gap, virt_kaslr_align)
-//   phys_text_base <= align_down(KASLR_PHYS_MAX - gap, phys_align)  (decoupled)
+//   virt_image_base <= align_down(KASLR_VIRT_TEXT_MAX - gap, virt_kaslr_align)
+//   phys_image_base <= align_down(KASLR_PHYS_MAX - gap, phys_align) (decoupled)
 //
 // Reads VIRT kernel TEXT/IMAGE (min) and DATA/BSS (max) leaks; aligns to the
 // resolved Q_VIRT_KASLR_ALIGN / Q_PHYS_KASLR_ALIGN. Inert when no such
@@ -63,7 +63,7 @@ int rule_image_size_text_data_gap(const struct evidence_set *ev,
     if (vmax > (unsigned long)KASLR_VIRT_TEXT_MIN) {
       struct constraint *c = &out[n++];
       memset(c, 0, sizeof(*c));
-      c->q = Q_VIRT_TEXT_BASE;
+      c->q = Q_VIRT_IMAGE_BASE;
       c->op = C_UPPER_BOUND;
       c->value = vmax;
       c->conf = CONF_INFERRED;
@@ -85,7 +85,7 @@ int rule_image_size_text_data_gap(const struct evidence_set *ev,
     if (pmax > (unsigned long)KASLR_PHYS_MIN) {
       struct constraint *c = &out[n++];
       memset(c, 0, sizeof(*c));
-      c->q = Q_PHYS_TEXT_BASE;
+      c->q = Q_PHYS_IMAGE_BASE;
       c->op = C_UPPER_BOUND;
       c->value = pmax;
       c->conf = CONF_INFERRED;

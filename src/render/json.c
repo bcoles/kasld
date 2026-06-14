@@ -175,14 +175,14 @@ void render_json(const struct summary *s) {
   /* layout */
   printf("  \"layout\": {\n");
   printf("    \"virt_page_offset\": \"0x%016lx\",\n", layout.virt_page_offset);
-  printf("    \"virt_kernel_text_min\": \"0x%016lx\",\n",
-         layout.virt_kernel_text_min);
-  printf("    \"virt_kernel_text_max\": \"0x%016lx\",\n",
-         layout.virt_kernel_text_max);
+  printf("    \"virt_image_base_min\": \"0x%016lx\",\n",
+         layout.virt_image_base_min);
+  printf("    \"virt_image_base_max\": \"0x%016lx\",\n",
+         layout.virt_image_base_max);
   printf("    \"image_align\": \"0x%lx\",\n", layout.image_align);
-  printf("    \"virt_kernel_text_default\": \"0x%016lx\",\n",
-         layout.virt_kernel_text_default);
-  /* Phys KASLR window. Symmetric with virt_kernel_text_min/max above (which is
+  printf("    \"virt_image_base_default\": \"0x%016lx\",\n",
+         layout.virt_image_base_default);
+  /* Phys KASLR window. Symmetric with virt_image_base_min/max above (which is
    * the virt window) — both are the engine-resolved [lo, hi] for the
    * corresponding text-base quantity. Coupled arches and arches without
    * phys KASLR leave both at 0; expose as JSON null so consumers can
@@ -212,9 +212,11 @@ void render_json(const struct summary *s) {
 
   if (s->kaslr.vtext) {
     printf(",\n    \"virtual\": {\n");
-    printf("      \"text_base\": \"0x%016lx\",\n", s->kaslr.vtext);
+    printf("      \"image_base\": \"0x%016lx\",\n", s->kaslr.vtext);
+    if (s->kaslr.vstext && s->kaslr.vstext != s->kaslr.vtext)
+      printf("      \"stext\": \"0x%016lx\",\n", s->kaslr.vstext);
     printf("      \"default_base\": \"0x%016lx\",\n",
-           layout.virt_kernel_text_default);
+           layout.virt_image_base_default);
     printf("      \"slide_bytes\": %ld,\n", s->kaslr.vslide);
     printf("      \"entropy_bits\": %d,\n", s->kaslr.vbits);
     printf("      \"slots\": %lu", s->kaslr.vslots);
@@ -233,7 +235,9 @@ void render_json(const struct summary *s) {
 
   if (s->kaslr.has_phys) {
     printf(",\n    \"physical\": {\n");
-    printf("      \"text_base\": \"0x%016lx\",\n", s->kaslr.ptext);
+    printf("      \"image_base\": \"0x%016lx\",\n", s->kaslr.ptext);
+    if (s->kaslr.pstext && s->kaslr.pstext != s->kaslr.ptext)
+      printf("      \"stext\": \"0x%016lx\",\n", s->kaslr.pstext);
 #ifdef KERNEL_PHYS_DEFAULT
     printf("      \"default_base\": \"0x%016lx\",\n",
            (unsigned long)KERNEL_PHYS_DEFAULT);

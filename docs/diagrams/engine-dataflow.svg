@@ -64,7 +64,7 @@
   <text x="900" y="480" class="monos" text-anchor="end">estimate.c &#183; quantities.c &#183; estimate.h</text>
   <text x="60" y="504" class="mono">Each quantity starts at its honest arch-defined top and narrows monotonically. Lattice meet never widens.</text>
   <rect x="60" y="518" width="860" height="70" rx="5" fill="#c8e6c9" stroke="#43a047"/>
-  <text x="74" y="540" class="chip">Q_VIRT_TEXT_BASE&#160; Q_PHYS_TEXT_BASE&#160; Q_PAGE_OFFSET&#160; Q_VMALLOC_BASE&#160; Q_VMEMMAP_BASE</text>
+  <text x="74" y="540" class="chip">Q_VIRT_IMAGE_BASE&#160; Q_PHYS_IMAGE_BASE&#160; Q_PAGE_OFFSET&#160; Q_VMALLOC_BASE&#160; Q_VMEMMAP_BASE</text>
   <text x="74" y="560" class="chip">Q_KASLR_ALIGN&#160; Q_PHYS_KASLR_ALIGN&#160; Q_VA_BITS</text>
   <text x="74" y="580" class="chip" fill="#607d8b">lattice domains: LK_SINGLETON / LK_INTERVAL / LK_ALIGN / LK_INTERVAL_SET(future) &#8212; meet only narrows</text>
 

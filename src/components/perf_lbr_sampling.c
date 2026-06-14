@@ -305,8 +305,8 @@ int main(int argc, char *argv[]) {
     return KASLD_EXIT_UNAVAILABLE;
   }
 
-  /* The captured branch address sits at text_base + offset (offset >= 0), a
-   * sound interior witness (text_base <= min_addr). Tighten it to the sound
+  /* The captured branch address sits at image_base + offset (offset >= 0), a
+   * sound interior witness (image_base <= min_addr). Tighten it to the sound
    * aligned base estimate via the shared helper, which preserves the base's
    * sub-alignment offset (a plain `& -KASLR_VIRT_ALIGN` would drop below the
    * base on the sub-offset arches; LBR is x86-only today, where the sub-offset

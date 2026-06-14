@@ -79,6 +79,15 @@ load address from the board's memory map. The table is the baseline
 against which the KASLR slide is measured, not the load address on every
 system.
 
+The "default text base" here is the **image base** (`_text`) — the start of
+the kernel image, which is what KASLR aligns and what kasld reports. The
+familiar `_stext` (start of the code section) sits a fixed *head gap* above
+`_text`: zero on most architectures (so `_text == _stext`), but non-zero where
+a header precedes the code (arm64's `.head.text`, `0x10000`). kasld solves the
+image base and shows `_stext` as a derived line only when the two differ; a
+leaked `_stext` (e.g. from `/proc/kallsyms`) is normalised back to the image
+base when it is consumed, so the slide is always measured against `_text`.
+
 | Architecture | Default text base | Derivation | `IMAGE_ALIGN` | KASLR slots | Entropy |
 |---|---|---|---|---|---|
 | x86_64 | `0xffffffff81000000` | `__START_KERNEL_map` + `PHYSICAL_START` (`page_64_types.h`) | 2 MiB | 504² | ~9 bits |
@@ -197,7 +206,7 @@ the link-time default, so consumers MUST NOT treat this signal as a
 pin-to-default. KASLD emits a distinct scalar fact
 (`SF_VIRT_KASLR_RANDOMIZATION_FAILED` + `SF_PHYS_KASLR_RANDOMIZATION_FAILED` versus `SF_VIRT_KASLR_DISABLED` +
 `SF_PHYS_KASLR_DISABLED`) and neither sets the summary's
-`kaslr.disabled` flag nor pins `Q_VIRT_TEXT_BASE` or `Q_PHYS_TEXT_BASE`
+`kaslr.disabled` flag nor pins `Q_VIRT_IMAGE_BASE` or `Q_PHYS_IMAGE_BASE`
 from this signal.
 
 Per-host fingerprintability: in the *randomization failed* state, the

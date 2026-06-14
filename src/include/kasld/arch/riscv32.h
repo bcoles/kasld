@@ -45,7 +45,7 @@
 #define IMAGE_ALIGN (4 * MB)
 
 // .head.text section size (8 KiB) before _stext.
-#define TEXT_OFFSET 0x2000
+#define IMAGE_BASE_OFFSET 0x2000
 
 // Plausible physical address range for kernel image
 #define KERNEL_PHYS_MIN 0ul
@@ -54,7 +54,7 @@
 // Default: 0xc0002000 (PAGE_OFFSET + 8 KiB .head.text).
 // See docs/kaslr.md "Default text base and KASLR alignment" for all
 // architectures. Kernel source: arch/riscv/kernel/vmlinux.lds.S
-#define KERNEL_VIRT_TEXT_DEFAULT (KERNEL_VIRT_TEXT_MIN + TEXT_OFFSET)
+#define KERNEL_VIRT_TEXT_DEFAULT (KERNEL_VIRT_TEXT_MIN + IMAGE_BASE_OFFSET)
 
 // RISC-V 32-bit does not have mainline KASLR.
 #define KASLR_SUPPORTED 0

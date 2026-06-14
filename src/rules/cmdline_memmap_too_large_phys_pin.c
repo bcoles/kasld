@@ -13,11 +13,11 @@
 // complements the EFI-only seed-zero rule.
 //
 // When a PHYS REGION_KERNEL_IMAGE observation is present (dmesg_efi_memmap's
-// single-Loader-Code-entry path), pin Q_PHYS_TEXT_BASE to that address.
+// single-Loader-Code-entry path), pin Q_PHYS_IMAGE_BASE to that address.
 // Alignment + min-bound sanity checks are the same as the seed-zero rule.
 //
 // x86_64 only (x86_32 has no phys KASLR window to collapse — its
-// Q_PHYS_TEXT_BASE quantity is inert). Dormant until a cmdline carries 5+
+// Q_PHYS_IMAGE_BASE quantity is inert). Dormant until a cmdline carries 5+
 // memmap=offset tokens; cheap when absent.
 //
 // References:
@@ -98,7 +98,7 @@ int rule_cmdline_memmap_too_large_phys_pin(const struct evidence_set *ev,
 
   struct constraint *c = &out[0];
   memset(c, 0, sizeof(*c));
-  c->q = Q_PHYS_TEXT_BASE;
+  c->q = Q_PHYS_IMAGE_BASE;
   c->op = C_EQUALS;
   c->value = pin;
   c->conf = (pin_conf < trig_conf) ? pin_conf : trig_conf;

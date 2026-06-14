@@ -29,9 +29,9 @@
 
 // The runtime PAGE_OFFSET is one of the VMSPLIT boundaries (arch/arm/Kconfig:
 // VMSPLIT_3G / 3G_OPT / 2G / 1G), listed high→low for snap-down. arm32 has no
-// KASLR, so the kernel image sits at PAGE_OFFSET + TEXT_OFFSET: any observed
-// kernel virtual text address V therefore pins PAGE_OFFSET (the largest
-// boundary <= V) and hence the exact image base. Consumed by the
+// KASLR, so the kernel image sits at PAGE_OFFSET + IMAGE_BASE_OFFSET: any
+// observed kernel virtual text address V therefore pins PAGE_OFFSET (the
+// largest boundary <= V) and hence the exact image base. Consumed by the
 // vmsplit_text_base engine rule. The 0xc0000000 default above is only the
 // render fallback when no virtual text address is observed.
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm/Kconfig#L1116
@@ -76,24 +76,24 @@
 #define IMAGE_ALIGN (2 * MB)
 
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm/Makefile#L145
-#define TEXT_OFFSET 0x8000
+#define IMAGE_BASE_OFFSET 0x8000
 
 // Plausible physical address range for kernel image. KERNEL_PHYS_MAX is
 // the highest 32-bit-addressable byte (~4 GiB - 1) rather than `4 * GB`
 // — the latter expression evaluates to 0x100000000 which OVERFLOWS the
 // 32-bit `unsigned long` on this arch and silently produces 0, collapsing
-// the honest top of Q_PHYS_TEXT_BASE to a bottom interval. LPAE permits
+// the honest top of Q_PHYS_IMAGE_BASE to a bottom interval. LPAE permits
 // up to 40-bit phys addresses, but the kernel image's early-boot MMU
 // setup requires the image be in the lower 32-bit-addressable window,
 // so 0xFFFFFFFF is a sound ceiling.
 #define KERNEL_PHYS_MIN 0ul
 #define KERNEL_PHYS_MAX 0xFFFFFFFFul
 
-// Default: 0xc0008000 (PAGE_OFFSET + 32 KiB TEXT_OFFSET).
+// Default: 0xc0008000 (PAGE_OFFSET + 32 KiB IMAGE_BASE_OFFSET).
 // See docs/kaslr.md "Default text base and KASLR alignment" for all
 // architectures. Kernel source: arch/arm/kernel/vmlinux.lds.S,
 // arch/arm/Makefile
-#define KERNEL_VIRT_TEXT_DEFAULT (PAGE_OFFSET + TEXT_OFFSET)
+#define KERNEL_VIRT_TEXT_DEFAULT (PAGE_OFFSET + IMAGE_BASE_OFFSET)
 
 #define KASLR_SUPPORTED 0
 

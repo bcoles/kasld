@@ -49,7 +49,8 @@
 //   * Overlapping / adjacent extents are merged (running max); RAM extents are
 //     inclusive [lo, hi].
 //
-// Decoupled arches only (Q_PHYS_TEXT_BASE); inert without a map or a size fact.
+// Decoupled arches only (Q_PHYS_IMAGE_BASE); inert without a map or a size
+// fact.
 // ---
 // <bcoles@gmail.com>
 
@@ -127,7 +128,7 @@ static int carve_map_gaps(const struct evidence_set *ev, const char *origin,
       if (gap_hi >= hole_lo) {
         struct constraint *c = &out[n++];
         memset(c, 0, sizeof(*c));
-        c->q = Q_PHYS_TEXT_BASE;
+        c->q = Q_PHYS_IMAGE_BASE;
         c->op = C_EXCLUDE;
         c->value = hole_lo;
         c->value2 = gap_hi;

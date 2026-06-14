@@ -5,7 +5,7 @@
 // The kernel image must fit entirely within physical RAM. The cleanest
 // statement of that on a decoupled arch is:
 //
-//   phys_text_base <= dram_top - kernel_size
+//   phys_image_base <= dram_top - kernel_size
 //
 // where dram_top is the highest spanned-RAM physical address observed
 // from the system's memory map (REGION_RAM POS_TOP — emitted by
@@ -13,7 +13,7 @@
 //
 // Fallback to MemTotal when no REGION_RAM extent is observed:
 //
-//   phys_text_base <= phys_floor + MemTotal - MIN_IMAGE_SIZE
+//   phys_image_base <= phys_floor + MemTotal - MIN_IMAGE_SIZE
 //
 // The MemTotal fallback is sound ONLY when DRAM is contiguous from
 // phys_floor (no large reserved regions between phys_floor and the
@@ -124,7 +124,7 @@ int rule_phys_ceiling_from_memtotal(const struct evidence_set *ev,
 
   struct constraint *c = &out[0];
   memset(c, 0, sizeof(*c));
-  c->q = Q_PHYS_TEXT_BASE;
+  c->q = Q_PHYS_IMAGE_BASE;
   c->op = C_UPPER_BOUND;
   c->value = ceiling;
   c->conf = cconf;
