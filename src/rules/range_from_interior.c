@@ -1,18 +1,22 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
-// Rule: tighten text-base ceilings from interior samples.
+// Rule: bound the text base from interior kernel-image samples.
 //
-// Any address inside the kernel
-// image satisfies sample = text_base + offset with offset >= 0, so
-// text_base <= sample regardless of which symbol the offset belongs to.
-// Because the base is itself slot-aligned, the bound tightens further to
-// text_base <= floor(sample, align). Emits a C_UPPER_BOUND on Q_VIRT_TEXT_BASE
-// (virt samples) / Q_PHYS_TEXT_BASE (phys samples) at the aligned minimum
-// interior sample observed.
+// Any address inside the kernel image satisfies sample = text_base + offset
+// with offset >= 0, so text_base <= sample regardless of which symbol the
+// offset belongs to. The raw sample is therefore always a SOUND upper bound on
+// the text base, independent of alignment assumptions (mirrors the documented
+// approach in kernel_image_phys_bound). Emits a C_UPPER_BOUND on
+// Q_VIRT_TEXT_BASE (virt samples) / Q_PHYS_TEXT_BASE (phys samples) at the
+// minimum interior sample observed.
 //
-// Aligns down to the RESOLVED alignment quantity, never below the arch default
-// (mirrors ceiling_from_image_size); the engine's fixpoint loop re-runs this
-// after the alignment rules settle.
+// It deliberately does NOT floor the ceiling to the KASLR alignment. The text
+// base is _stext (KERNEL_VIRT_TEXT_DEFAULT names _stext, not the image base),
+// and on sub-offset arches (riscv64 +0x2000, arm32 +0x8000, s390 +0x100000)
+// _stext is not alignment-aligned, so floor(sample, align) drops the ceiling
+// BELOW the truth — an unsoundness that previously rejected the real kallsyms
+// pin on riscv64. Sound alignment-tightening belongs on the aligned image base,
+// not on _stext.
 // ---
 // <bcoles@gmail.com>
 
@@ -24,8 +28,7 @@
 
 static int emit_min_sample(const struct evidence_set *ev,
                            enum kasld_addr_type type, enum kasld_quantity q,
-                           unsigned long align, struct constraint *out,
-                           int slot, int out_max) {
+                           struct constraint *out, int slot, int out_max) {
   unsigned long min_sample = ULONG_MAX;
   enum kasld_confidence conf = CONF_UNKNOWN;
   uint32_t src = 0;
@@ -43,9 +46,7 @@ static int emit_min_sample(const struct evidence_set *ev,
   }
   if (min_sample == ULONG_MAX || slot >= out_max)
     return 0;
-  /* The base is slot-aligned, so floor the interior-sample ceiling to align. */
-  if (align > 0)
-    min_sample &= ~(align - 1);
+  /* No alignment floor: the raw sample is the sound ceiling (see header). */
 
   struct constraint *c = &out[slot];
   memset(c, 0, sizeof(*c));
@@ -63,23 +64,10 @@ int rule_range_from_interior(const struct evidence_set *ev,
                              const struct estimate *est, struct constraint *out,
                              int out_max) {
   int n = 0;
+  (void)
+      est; /* no longer reads the alignment quantities — raw sample is sound */
 
-  /* Align to the resolved alignment, never below the arch default
-   * (Q_KASLR_ALIGN starts at its lattice top of 1 before the alignment rules
-   * narrow it). */
-  unsigned long valign = est[Q_KASLR_ALIGN].lo;
-  if (valign < (unsigned long)KASLR_VIRT_ALIGN)
-    valign = (unsigned long)KASLR_VIRT_ALIGN;
-  n += emit_min_sample(ev, KASLD_TYPE_VIRT, Q_VIRT_TEXT_BASE, valign, out, n,
-                       out_max);
-
-  unsigned long palign = 0;
-#if !TEXT_TRACKS_DIRECTMAP
-  palign = est[Q_PHYS_KASLR_ALIGN].lo;
-  if (palign < (unsigned long)KASLR_PHYS_ALIGN)
-    palign = (unsigned long)KASLR_PHYS_ALIGN;
-#endif
-  n += emit_min_sample(ev, KASLD_TYPE_PHYS, Q_PHYS_TEXT_BASE, palign, out, n,
-                       out_max);
+  n += emit_min_sample(ev, KASLD_TYPE_VIRT, Q_VIRT_TEXT_BASE, out, n, out_max);
+  n += emit_min_sample(ev, KASLD_TYPE_PHYS, Q_PHYS_TEXT_BASE, out, n, out_max);
   return n;
 }

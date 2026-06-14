@@ -56,8 +56,8 @@ int rule_ppc64_firmware_ceiling(const struct evidence_set *ev,
     return 0;
 
   unsigned long ceiling = KASLR_VIRT_TEXT_MIN + fw_base - MIN_IMAGE_SIZE;
-  if (KASLR_VIRT_ALIGN > 0)
-    ceiling &= ~(KASLR_VIRT_ALIGN - 1);
+  ceiling =
+      kasld_floor_virt_text_bound(ceiling, (unsigned long)KASLR_VIRT_ALIGN);
   if (ceiling <= KASLR_VIRT_TEXT_MIN)
     return 0;
 

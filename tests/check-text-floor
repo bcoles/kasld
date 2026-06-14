@@ -24,6 +24,7 @@
 set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 COMP=$ROOT/src/components
+RULES=$ROOT/src/rules
 
 if [ -t 2 ]; then
   RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); RESET=$(printf '\033[0m')
@@ -46,5 +47,42 @@ if [ -n "$hits" ]; then
   exit 1
 fi
 
-printf '%scheck-text-floor: OK%s (no hand-rolled text-base floors in components)\n' \
+# Rules: the same idiom on the RESOLVED virt-align variable (`valign`) or the
+# macro. The sanctioned floor is kasld_floor_virt_text_bound() (api.h), which
+# preserves the sub-alignment head offset. A bare `& ~(valign - 1)` floor of a
+# virt text-base UPPER bound drops below _stext on sub-offset arches (this
+# caused the riscv64 unsoundness). Lines that floor a C_LOWER_BOUND or a
+# non-text quantity carry a `virt-floor-ok` marker and are exempt, as are
+# comment lines. (The phys axis is sound — its base carries no usable
+# sub-offset — so palign / KASLR_PHYS_ALIGN floors are not checked.)
+rhits=$(grep -rnE '&=?[[:space:]]*~\([^)]*(valign|KASLR_VIRT_ALIGN)[^)]*-[[:space:]]*1\)|&=?[[:space:]]*-[[:space:]]*KASLR_VIRT_ALIGN' "$RULES" 2>/dev/null \
+        | grep -vE ':[0-9]+:[[:space:]]*(//|\*)' \
+        | grep -v 'virt-floor-ok')
+
+if [ -n "$rhits" ]; then
+  printf '%scheck-text-floor: FAIL%s — rule(s) floor a virt text-base bound to\n' "$RED" "$RESET" >&2
+  echo "alignment by hand. Use kasld_floor_virt_text_bound() (api.h); a plain" >&2
+  echo "floor drops below _stext on sub-offset arches. If the floor is genuinely" >&2
+  echo "sound (a C_LOWER_BOUND, or a non-text quantity), append a /* virt-floor-ok */" >&2
+  echo "marker explaining why:" >&2
+  echo "$rhits" >&2
+  exit 1
+fi
+
+# Quarantine arch-specific firmware/loader placement constants to their own arch
+# files. RISCV_PHYS_LOAD_OFFSET (the OpenSBI DRAM placement) must never leak into
+# generic cross-arch code — that conflation (it used to be mislabeled
+# TEXT_OFFSET) is what made generic virt rules pick up riscv64's 2 MiB. Allowed
+# only in riscv64 / opensbi files.
+phits=$(grep -rln 'RISCV_PHYS_LOAD_OFFSET' "$ROOT/src" 2>/dev/null \
+        | grep -vE 'riscv64|opensbi|api\.h')
+if [ -n "$phits" ]; then
+  printf '%scheck-text-floor: FAIL%s — RISCV_PHYS_LOAD_OFFSET (a riscv64 firmware\n' "$RED" "$RESET" >&2
+  echo "placement constant) is referenced in generic code. Keep it in riscv64 /" >&2
+  echo "opensbi files; generic rules use TEXT_OFFSET (the image->_stext head):" >&2
+  echo "$phits" >&2
+  exit 1
+fi
+
+printf '%scheck-text-floor: OK%s (text-base floors clean; firmware placement quarantined)\n' \
   "$GREEN" "$RESET"

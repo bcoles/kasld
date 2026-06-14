@@ -5,7 +5,7 @@
 // CONFIG_PHYSICAL_ALIGN is the actual physical KASLR slot granularity —
 // default 2 MiB, Kconfig range [2 MiB, 16 MiB]. When it exceeds the arch
 // default the slot count is proportionally smaller, so raise both
-// Q_KASLR_ALIGN and Q_PHYS_KASLR_ALIGN (physical and virtual offsets are
+// Q_VIRT_KASLR_ALIGN and Q_PHYS_KASLR_ALIGN (physical and virtual offsets are
 // locked on x86-64).
 //
 // Reads SF_PHYS_KERNEL_ALIGN, emitted by either source:
@@ -53,7 +53,7 @@ int rule_boot_params_kaslr_align(const struct evidence_set *ev,
     return 0;
 
   int n = 0;
-  const enum kasld_quantity qs[] = {Q_KASLR_ALIGN, Q_PHYS_KASLR_ALIGN};
+  const enum kasld_quantity qs[] = {Q_VIRT_KASLR_ALIGN, Q_PHYS_KASLR_ALIGN};
   for (size_t i = 0; i < sizeof(qs) / sizeof(qs[0]) && n < out_max; i++) {
     struct constraint *c = &out[n++];
     memset(c, 0, sizeof(*c));

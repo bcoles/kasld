@@ -111,7 +111,7 @@ int main(void) {
    * exposes the same value at hdr.kernel_alignment; this is a fallback for
    * systems where /sys/kernel/boot_params/data is unreadable. Both sources
    * emit the same SF_PHYS_KERNEL_ALIGN scalar; boot_params_kaslr_align raises
-   * Q_KASLR_ALIGN / Q_PHYS_KASLR_ALIGN regardless of source. */
+   * Q_VIRT_KASLR_ALIGN / Q_PHYS_KASLR_ALIGN regardless of source. */
   unsigned long phys_align = get_kconfig_physical_align(fp);
   if (phys_align) {
     kasld_info("CONFIG_PHYSICAL_ALIGN: %#lx", phys_align);

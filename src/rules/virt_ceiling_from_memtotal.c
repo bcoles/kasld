@@ -80,12 +80,12 @@ int rule_virt_ceiling_from_memtotal(const struct evidence_set *ev,
       (phys_floor > PHYS_OFFSET) ? (phys_floor - PHYS_OFFSET) : 0;
   unsigned long ceiling = virt_page_offset + phys_floor_offset + memtotal -
                           MIN_IMAGE_SIZE + TEXT_OFFSET;
-  /* Align to the resolved Q_KASLR_ALIGN (>= compile-time KASLR_VIRT_ALIGN). */
-  unsigned long valign = est[Q_KASLR_ALIGN].lo;
+  /* Align to the resolved Q_VIRT_KASLR_ALIGN (>= compile-time
+   * KASLR_VIRT_ALIGN). */
+  unsigned long valign = est[Q_VIRT_KASLR_ALIGN].lo;
   if (valign < (unsigned long)KASLR_VIRT_ALIGN)
     valign = (unsigned long)KASLR_VIRT_ALIGN;
-  if (valign > 0)
-    ceiling &= ~(valign - 1);
+  ceiling = kasld_floor_virt_text_bound(ceiling, valign);
   if (ceiling <= KASLR_VIRT_TEXT_MIN)
     return 0;
 

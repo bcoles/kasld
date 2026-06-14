@@ -27,7 +27,7 @@ enum kasld_quantity {
   Q_PAGE_OFFSET,        /* direct-map base / VAS origin               */
   Q_VMALLOC_BASE,       /* x86_64 RANDOMIZE_MEMORY vmalloc base       */
   Q_VMEMMAP_BASE,       /* x86_64 RANDOMIZE_MEMORY vmemmap base       */
-  Q_KASLR_ALIGN,        /* virtual KASLR step (alignment)             */
+  Q_VIRT_KASLR_ALIGN,   /* virtual KASLR step (alignment)             */
   Q_PHYS_KASLR_ALIGN,   /* physical KASLR step                        */
   Q_VA_BITS,            /* paging level / VA width (finite set)       */
   Q__COUNT,

@@ -111,10 +111,10 @@ int main(void) {
                       CONF_PARSED);
 
   /* On older firmware, mmode_resv0 started at DRAM_BASE and the kernel
-   * loaded at DRAM_BASE + TEXT_OFFSET. On newer firmware, the reservation
-   * may be placed at an arbitrary offset within DRAM. Only derive the
-   * kernel text address if the reservation appears DRAM-base-aligned
-   * (i.e. aligned to at least KASLR_PHYS_ALIGN). */
+   * loaded at DRAM_BASE + RISCV_PHYS_LOAD_OFFSET. On newer firmware, the
+   * reservation may be placed at an arbitrary offset within DRAM. Only derive
+   * the kernel text address if the reservation appears DRAM-base-aligned (i.e.
+   * aligned to at least KASLR_PHYS_ALIGN). */
   if ((phys_addr & (KASLR_PHYS_ALIGN - 1)) != 0) {
     kasld_info("note: mmode_resv0 at 0x%016lx is not %lu MiB aligned; "
                "skipping text derivation",
@@ -122,7 +122,7 @@ int main(void) {
     return 0;
   }
 
-  unsigned long kernel_phys = phys_addr + TEXT_OFFSET;
+  unsigned long kernel_phys = phys_addr + RISCV_PHYS_LOAD_OFFSET;
 
   kasld_info("possible kernel physical address: 0x%016lx", kernel_phys);
   kasld_result_sample(KASLD_TYPE_PHYS, REGION_KERNEL_IMAGE, kernel_phys, NULL,

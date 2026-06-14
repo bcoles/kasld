@@ -77,8 +77,8 @@ int rule_phys_bits_ceiling(const struct evidence_set *ev,
   /* text_base = PAGE_OFFSET + (phys_base - PHYS_OFFSET) + TEXT_OFFSET. */
   unsigned long ceiling =
       PAGE_OFFSET + TEXT_OFFSET + (phys_ceiling - MIN_IMAGE_SIZE) - PHYS_OFFSET;
-  if (KASLR_VIRT_ALIGN > 0)
-    ceiling &= ~(KASLR_VIRT_ALIGN - 1);
+  ceiling =
+      kasld_floor_virt_text_bound(ceiling, (unsigned long)KASLR_VIRT_ALIGN);
   if (ceiling <= KASLR_VIRT_TEXT_MIN)
     return 0;
   c->q = Q_VIRT_TEXT_BASE;

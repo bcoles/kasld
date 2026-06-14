@@ -7,7 +7,7 @@
 // to); the greatest such hint is a sound lower bound on the KASLR slot
 // granularity:
 //
-//   Q_KASLR_ALIGN      >= max(base_align over VIRT observations)
+//   Q_VIRT_KASLR_ALIGN      >= max(base_align over VIRT observations)
 //   Q_PHYS_KASLR_ALIGN >= max(base_align over PHYS observations)  (decoupled)
 //
 // C_AT_LEAST_ALIGN; dominated by the arch baseline / boot_params when those
@@ -46,7 +46,7 @@ int rule_base_align_cross_validate(const struct evidence_set *ev,
   if (v > 1 && n < out_max) {
     struct constraint *c = &out[n++];
     memset(c, 0, sizeof(*c));
-    c->q = Q_KASLR_ALIGN;
+    c->q = Q_VIRT_KASLR_ALIGN;
     c->op = C_AT_LEAST_ALIGN;
     c->value = v;
     c->conf = CONF_INFERRED;

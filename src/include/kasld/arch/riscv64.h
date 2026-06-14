@@ -109,9 +109,12 @@
 // to filter multi-entry EFI_LOADER_CODE memmaps.
 #define EFI_KIMG_ALIGN (2 * MB)
 
-// OpenSBI loads the kernel at DRAM_BASE + 2MiB by default.
-// The kernel requires PMD-aligned (2MiB) placement.
-#define TEXT_OFFSET (2 * MB)
+// OpenSBI loads the kernel at DRAM_BASE + 2MiB by default (PMD-aligned).
+// This is a PHYSICAL FIRMWARE-PLACEMENT offset (DRAM base -> phys image base),
+// NOT the image->_stext head (that is TEXT_OFFSET, below). riscv64-only: keep
+// it out of generic code (a leak into cross-arch rules is the bug this naming
+// prevents). Used only by riscv64's KERNEL_PHYS_DEFAULT + riscv64 phys rules.
+#define RISCV_PHYS_LOAD_OFFSET (2 * MB)
 
 // Plausible physical address range for kernel image
 #define KERNEL_PHYS_MIN PHYS_OFFSET
@@ -121,19 +124,22 @@
 // KASLR only exists on v6.6+ which always uses the modern layout.
 // On legacy kernels, default is PAGE_OFFSET (text in linear map, no KASLR).
 //
-// NOTE: TEXT_OFFSET (2 MiB) is the *physical* offset from DRAM base where
-// OpenSBI loads the kernel. It does NOT apply to the virtual address:
-// the kernel maps its image starting at KERNEL_LINK_ADDR (== _start /
-// _text), with _stext at KERNEL_LINK_ADDR + RISCV64_HEAD_TEXT_OFFSET
-// (the .head.text section). Aligned to IMAGE_ALIGN (2 MiB), _stext
-// rounds down to KERNEL_LINK_ADDR.
+// NOTE: RISCV_PHYS_LOAD_OFFSET (2 MiB) is the *physical* offset from DRAM base
+// where OpenSBI loads the kernel; it does NOT apply to the virtual address.
+// The kernel maps its image starting at KERNEL_LINK_ADDR (== _start), with
+// _stext at KERNEL_LINK_ADDR + TEXT_OFFSET (the .head.text section). The
+// aligned image base (IMAGE_ALIGN = 2 MiB) is KERNEL_LINK_ADDR; _stext is
+// 0x2000 above.
 #define KERNEL_LINK_ADDR 0xffffffff80000000ul
-// .head.text section length on riscv64 — the offset from the image base
-// (_start) to _stext. Stable across v5.10+ kernels: the head holds the EFI
-// PE/COFF header + SBI entry stub + paging-mode handoff, sized to a 0x2000
-// page boundary. arch/riscv/kernel/head.S + arch/riscv/kernel/vmlinux.lds.S.
-// See `_stext - _start` in kallsyms on any default-config riscv64 boot.
-#define RISCV64_HEAD_TEXT_OFFSET 0x2000ul
+// TEXT_OFFSET: the offset from the image base (_start) to _stext — the arch's
+// .head.text section length. This is the ONE offset that is the SAME in virtual
+// and physical space (it is an image-internal layout fact), so generic code
+// uses it on both axes. NOT the OpenSBI physical placement
+// (RISCV_PHYS_LOAD_OFFSET, above). Stable across v5.10+ kernels: the head holds
+// the EFI PE/COFF header + SBI entry stub + paging-mode handoff, sized to a
+// 0x2000 page boundary. arch/riscv/kernel/head.S + vmlinux.lds.S; see `_stext -
+// _start` in kallsyms.
+#define TEXT_OFFSET 0x2000ul
 // See docs/kaslr.md "Default text base and KASLR alignment" for all
 // architectures. Kernel source: arch/riscv/kernel/vmlinux.lds.S,
 // arch/riscv/include/asm/pgtable.h
@@ -145,7 +151,17 @@
 // KERNEL_LINK_ADDR alone is unsound: the engine's virt_/phys_kaslr_disabled_pin
 // rule would emit a value 0x2000 below the actual _stext, excluding
 // truth from the resolved window.
-#define KERNEL_VIRT_TEXT_DEFAULT (KERNEL_LINK_ADDR + RISCV64_HEAD_TEXT_OFFSET)
+#define KERNEL_VIRT_TEXT_DEFAULT (KERNEL_LINK_ADDR + TEXT_OFFSET)
+
+// Phys default. riscv64 is decoupled, and OpenSBI places the image at
+// DRAM + RISCV_PHYS_LOAD_OFFSET. Defined explicitly because api.h would
+// otherwise auto-define KERNEL_PHYS_DEFAULT = KERNEL_PHYS_MIN + TEXT_OFFSET,
+// which (post-rename) would use the head, not the firmware placement. This
+// preserves the prior value exactly (KERNEL_PHYS_MIN + 2 MiB).
+// NOTE: this is the phys image base, not phys _stext (no +TEXT_OFFSET head) —
+// a pre-existing asymmetry vs KERNEL_VIRT_TEXT_DEFAULT, left as-is here; it is
+// sound as a phys lower bound. Revisit when the phys side is reviewed.
+#define KERNEL_PHYS_DEFAULT (KERNEL_PHYS_MIN + RISCV_PHYS_LOAD_OFFSET)
 
 /* Build-time check: KERNEL_VIRT_TEXT_DEFAULT must include the .head.text
  * offset so it names _stext (per the api.h convention "Default _stext
@@ -155,9 +171,9 @@
  * the true text base from the resolved window. __extension__ silences
  * -Wpedantic on -std=c99. */
 __extension__ _Static_assert(
-    (KERNEL_VIRT_TEXT_DEFAULT - KERNEL_LINK_ADDR) == RISCV64_HEAD_TEXT_OFFSET,
+    (KERNEL_VIRT_TEXT_DEFAULT - KERNEL_LINK_ADDR) == TEXT_OFFSET,
     "riscv64 KERNEL_VIRT_TEXT_DEFAULT must equal KERNEL_LINK_ADDR + "
-    "RISCV64_HEAD_TEXT_OFFSET (it names _stext, not _start / image base)");
+    "TEXT_OFFSET (it names _stext, not _start / image base)");
 
 /* KASLR-off ⇒ pin contract: modern riscv64 (v5.10+, which is where KASLR
  * exists) puts the kernel image at KERNEL_LINK_ADDR — the top 2 GiB of VA,

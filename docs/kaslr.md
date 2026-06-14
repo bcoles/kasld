@@ -91,7 +91,7 @@ system.
 | PowerPC32 | `0xc0000000` | `PAGE_OFFSET` (3G/1G default); BookE only | 16 KiB¹ | varies | varies |
 | PowerPC64 | `0xc000000000000000` | `PAGE_OFFSET` (Kconfig) | — | — | No KASLR |
 | LoongArch | `0x9000000000200000` | DMW1 (`0x9000000000000000`) + `TEXT_OFFSET` (2 MiB, from `Makefile`) | 64 KiB | varies | varies |
-| RISC-V64 | `0xffffffff80000000` | `KERNEL_LINK_ADDR` (top 2 GiB of VA) | 2 MiB | 512² | ~9 bits |
+| RISC-V64 | `0xffffffff80002000` | `KERNEL_LINK_ADDR` (top 2 GiB of VA) + `TEXT_OFFSET` (`0x2000`, `.head.text`) | 2 MiB | 512² | ~9 bits |
 | RISC-V32 | `0xc0002000` | `PAGE_OFFSET` + `TEXT_OFFSET` (`0x2000`) | — | — | No KASLR |
 
 The "Derivation" column shows where each default address comes from. On

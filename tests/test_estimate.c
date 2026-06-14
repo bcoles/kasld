@@ -88,24 +88,24 @@ static void test_interval_meet_equals_and_bottom(void) {
  * ======================================================================== */
 static void test_maxalign_meet(void) {
   struct estimate e;
-  quantities[Q_KASLR_ALIGN].init_top(&e);
+  quantities[Q_VIRT_KASLR_ALIGN].init_top(&e);
   assert(e.lo == 1ul);
 
   struct constraint a1 =
-      mk(Q_KASLR_ALIGN, C_AT_LEAST_ALIGN, 0x1000ul, CONF_INFERRED, 1);
-  estimate_meet(&e, &quantities[Q_KASLR_ALIGN], &a1);
+      mk(Q_VIRT_KASLR_ALIGN, C_AT_LEAST_ALIGN, 0x1000ul, CONF_INFERRED, 1);
+  estimate_meet(&e, &quantities[Q_VIRT_KASLR_ALIGN], &a1);
   assert(e.lo == 0x1000ul);
 
   struct constraint a2 =
-      mk(Q_KASLR_ALIGN, C_AT_LEAST_ALIGN, 0x200000ul, CONF_INFERRED, 2);
-  estimate_meet(&e, &quantities[Q_KASLR_ALIGN], &a2);
+      mk(Q_VIRT_KASLR_ALIGN, C_AT_LEAST_ALIGN, 0x200000ul, CONF_INFERRED, 2);
+  estimate_meet(&e, &quantities[Q_VIRT_KASLR_ALIGN], &a2);
   assert(e.lo == 0x200000ul); /* max */
 
   struct constraint a3 =
-      mk(Q_KASLR_ALIGN, C_AT_LEAST_ALIGN, 0x1000ul, CONF_INFERRED, 3);
-  estimate_meet(&e, &quantities[Q_KASLR_ALIGN], &a3);
+      mk(Q_VIRT_KASLR_ALIGN, C_AT_LEAST_ALIGN, 0x1000ul, CONF_INFERRED, 3);
+  estimate_meet(&e, &quantities[Q_VIRT_KASLR_ALIGN], &a3);
   assert(e.lo == 0x200000ul); /* unchanged; max stays */
-  assert(!estimate_is_bottom(&e, &quantities[Q_KASLR_ALIGN]));
+  assert(!estimate_is_bottom(&e, &quantities[Q_VIRT_KASLR_ALIGN]));
 }
 
 /* ========================================================================
@@ -296,9 +296,9 @@ static void test_quantity_ranges_finset(void) {
 
 static void test_quantity_ranges_maxalign_empty(void) {
   struct estimate e;
-  quantities[Q_KASLR_ALIGN].init_top(&e);
+  quantities[Q_VIRT_KASLR_ALIGN].init_top(&e);
   struct range out[4];
-  int n = quantity_ranges(Q_KASLR_ALIGN, &e, NULL, 0, out, 4);
+  int n = quantity_ranges(Q_VIRT_KASLR_ALIGN, &e, NULL, 0, out, 4);
   assert(n == 0); /* an alignment is not an address set */
 }
 

@@ -60,8 +60,8 @@ int rule_highmem_32bit_bound(const struct evidence_set *ev,
 
   unsigned long ceiling =
       virt_page_offset + lowmem - MIN_IMAGE_SIZE + TEXT_OFFSET;
-  if (KASLR_VIRT_ALIGN > 0)
-    ceiling &= ~(KASLR_VIRT_ALIGN - 1);
+  ceiling =
+      kasld_floor_virt_text_bound(ceiling, (unsigned long)KASLR_VIRT_ALIGN);
   if (ceiling <= KASLR_VIRT_TEXT_MIN)
     return 0;
 

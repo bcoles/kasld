@@ -2589,7 +2589,7 @@ static void engine_resolve(struct engine *e) {
  * Every quantity that has a reported sink must be projected here. Map of
  * Q_* -> sink:
  *     Q_VIRT_TEXT_BASE   -> layout.kaslr_base_* AND layout.kernel_base_*
- *     Q_KASLR_ALIGN      -> layout.virt_kaslr_align
+ *     Q_VIRT_KASLR_ALIGN -> layout.virt_kaslr_align
  *     Q_PAGE_OFFSET      -> layout.page_offset_* (+ layout.virt_page_offset,
  * decoupled) Q_PHYS_TEXT_BASE   -> layout.phys_kaslr_base_*        (decoupled
  * arches) Q_PHYS_KASLR_ALIGN -> layout.phys_kaslr_align         (decoupled
@@ -2613,8 +2613,8 @@ static void engine_sync_authoritative(const struct engine *e) {
   layout.virt_kaslr_text_max = vt->hi;
   layout.virt_kernel_text_min = vt->lo;
   layout.virt_kernel_text_max = vt->hi;
-  if (e->est[Q_KASLR_ALIGN].lo)
-    layout.virt_kaslr_align = e->est[Q_KASLR_ALIGN].lo;
+  if (e->est[Q_VIRT_KASLR_ALIGN].lo)
+    layout.virt_kaslr_align = e->est[Q_VIRT_KASLR_ALIGN].lo;
 
 #if TEXT_TRACKS_DIRECTMAP
   /* On coupled arches phys and virt text-base KASLR offsets are locked, so
@@ -2623,8 +2623,8 @@ static void engine_sync_authoritative(const struct engine *e) {
    * arches reflects the actual CONFIG_PHYSICAL_ALIGN rather than the
    * compile-time default. (The !TEXT_TRACKS_DIRECTMAP branch below syncs
    * Q_PHYS_KASLR_ALIGN independently on decoupled arches.) */
-  if (e->est[Q_KASLR_ALIGN].lo)
-    layout.phys_kaslr_align = e->est[Q_KASLR_ALIGN].lo;
+  if (e->est[Q_VIRT_KASLR_ALIGN].lo)
+    layout.phys_kaslr_align = e->est[Q_VIRT_KASLR_ALIGN].lo;
 #endif
 
   layout.virt_page_offset_min = e->est[Q_PAGE_OFFSET].lo;

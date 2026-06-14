@@ -17,7 +17,7 @@
 //     + TEXT_OFFSET
 //
 // Reads VIRT REGION_MODULE / REGION_MODULE_REGION leaks; aligns to the
-// resolved Q_KASLR_ALIGN. Inert where MODULES_RELATIVE_TO_TEXT==0, and
+// resolved Q_VIRT_KASLR_ALIGN. Inert where MODULES_RELATIVE_TO_TEXT==0, and
 // inert when no module-region observation is present.
 // ---
 // <bcoles@gmail.com>
@@ -37,7 +37,7 @@ int rule_module_text_bound(const struct evidence_set *ev,
   if (out_max < 1)
     return 0;
 
-  unsigned long valign = est[Q_KASLR_ALIGN].lo;
+  unsigned long valign = est[Q_VIRT_KASLR_ALIGN].lo;
   if (valign < (unsigned long)KASLR_VIRT_ALIGN)
     valign = (unsigned long)KASLR_VIRT_ALIGN;
   if (valign == 0)
@@ -68,8 +68,8 @@ int rule_module_text_bound(const struct evidence_set *ev,
   int n = 0;
 #if MODULES_BELOW_TEXT_START
   /* Case B (s390): upper + lower bound. */
-  unsigned long new_max =
-      (vmod_lo + (unsigned long)MODULES_END_TO_TEXT_OFFSET) & ~(valign - 1);
+  unsigned long new_max = kasld_floor_virt_text_bound(
+      vmod_lo + (unsigned long)MODULES_END_TO_TEXT_OFFSET, valign);
   if (new_max > (unsigned long)KASLR_VIRT_TEXT_MIN && n < out_max) {
     struct constraint *c = &out[n++];
     memset(c, 0, sizeof(*c));
@@ -81,8 +81,9 @@ int rule_module_text_bound(const struct evidence_set *ev,
     c->lineage_count = 1;
     snprintf(c->origin, ORIGIN_LEN, "module_text_bound");
   }
-  unsigned long new_min =
-      (vmod_hi & ~(valign - 1)) + valign + (unsigned long)TEXT_OFFSET;
+  unsigned long new_min = /* C_LOWER_BOUND; head re-added below */
+      (vmod_hi & ~(valign - 1)) + valign +
+      (unsigned long)TEXT_OFFSET; /* virt-floor-ok */
   if (new_min > (unsigned long)KASLR_VIRT_TEXT_MIN && n < out_max) {
     struct constraint *c = &out[n++];
     memset(c, 0, sizeof(*c));
@@ -98,8 +99,8 @@ int rule_module_text_bound(const struct evidence_set *ev,
   /* Case A (riscv64): MODULES_END ~= _end. */
   unsigned long end_est = vmod_lo + (unsigned long)MODULES_END_TO_TEXT_OFFSET;
   if (end_est > MTB_MIN_KERNEL_IMAGE_SIZE) {
-    unsigned long new_max =
-        (end_est - MTB_MIN_KERNEL_IMAGE_SIZE) & ~(valign - 1);
+    unsigned long new_max = kasld_floor_virt_text_bound(
+        end_est - MTB_MIN_KERNEL_IMAGE_SIZE, valign);
     if (new_max > (unsigned long)KASLR_VIRT_TEXT_MIN && n < out_max) {
       struct constraint *c = &out[n++];
       memset(c, 0, sizeof(*c));

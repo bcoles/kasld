@@ -3,19 +3,19 @@
 // Rule: riscv64 non-EFI physical text base.
 //
 // On a non-EFI (OpenSBI) riscv64 boot the kernel image is placed at
-//   image_phys_base == DRAM_BASE + TEXT_OFFSET   (OpenSBI default)
+//   image_phys_base == DRAM_BASE + RISCV_PHYS_LOAD_OFFSET   (OpenSBI default)
 // and the text section starts at the head-text offset above the image base,
 // so the SF_PHYS_TEXT_BASE-equivalent (== iomem "Kernel code" start) is:
 //
-//   phys_text_base == DRAM_BASE + TEXT_OFFSET + RISCV64_HEAD_TEXT_OFFSET
+//   phys_text_base == DRAM_BASE + RISCV_PHYS_LOAD_OFFSET + TEXT_OFFSET
 //
-// The +RISCV64_HEAD_TEXT_OFFSET term (.head.text length, 0x2000 on v5.10+)
-// is what makes Q_PHYS_TEXT_BASE refer to `_stext` rather than `_start`
-// (the image base / first byte of `_text`). Omitting it lands the pin
-// 0x2000 below the actual phys `_stext` and the resolved window excludes
-// the true text base. On a default-config riscv64 build, kallsyms reports
-// `_stext = _start + 0x2000` and the iomem "Kernel code" entry begins at
-// DRAM_BASE + TEXT_OFFSET + 0x2000 (the bytes of `.head.text` precede it).
+// The +TEXT_OFFSET term (.head.text length, 0x2000 on v5.10+) is what makes
+// Q_PHYS_TEXT_BASE refer to `_stext` rather than `_start` (the image base /
+// first byte of `_text`). Omitting it lands the pin 0x2000 below the actual
+// phys `_stext` and the resolved window excludes the true text base. On a
+// default-config riscv64 build, kallsyms reports `_stext = _start + 0x2000`
+// and the iomem "Kernel code" entry begins at DRAM_BASE +
+// RISCV_PHYS_LOAD_OFFSET + 0x2000 (the bytes of `.head.text` precede it).
 //
 // DRAM_BASE is taken from the canonical RAM_BASE marker (REGION_RAM with
 // POS_BASE) only — observations on other dram-section regions (initrd,
@@ -72,7 +72,8 @@ int rule_riscv64_non_efi_phys_base(const struct evidence_set *ev,
   if (pdram_lo == ULONG_MAX)
     return 0;
 
-  unsigned long phys_exact = pdram_lo + TEXT_OFFSET + RISCV64_HEAD_TEXT_OFFSET;
+  /* phys _stext = DRAM base + firmware placement + image head. */
+  unsigned long phys_exact = pdram_lo + RISCV_PHYS_LOAD_OFFSET + TEXT_OFFSET;
   if (phys_exact < (unsigned long)KASLR_PHYS_MIN)
     return 0;
 

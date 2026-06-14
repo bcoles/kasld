@@ -15,7 +15,7 @@
 //
 // Reads the SF_IMAGE_SIZE / SF_INIT_SIZE scalar observations plus the resolved
 // alignment quantities. The ceiling is aligned down to the RESOLVED
-// Q_KASLR_ALIGN (resp. Q_PHYS_KASLR_ALIGN), not the compile-time
+// Q_VIRT_KASLR_ALIGN (resp. Q_PHYS_KASLR_ALIGN), not the compile-time
 // KASLR_VIRT_ALIGN: on x86_64 boot_params_kaslr_align raises that quantity to
 // the actual CONFIG_PHYSICAL_ALIGN (e.g. 16 MiB), so the ceiling snaps to that
 // coarser boundary; with no boot_params the quantity is the arch
@@ -63,8 +63,11 @@ static int emit_ceiling(enum kasld_quantity q, unsigned long window_max,
   if (window_max <= window_min || kernel_size >= window_max - window_min)
     return 0;
   unsigned long ceiling = window_max - kernel_size;
-  if (align > 0)
-    ceiling &= ~(align - 1);
+  if (q == Q_VIRT_TEXT_BASE)
+    ceiling = kasld_floor_virt_text_bound(
+        ceiling, align); /* sound on sub-offset arches */
+  else if (align > 0)
+    ceiling &= ~(align - 1); /* phys base carries no usable sub-offset */
   if (ceiling <= window_min || slot >= out_max)
     return 0;
 
@@ -90,9 +93,9 @@ int rule_ceiling_from_image_size(const struct evidence_set *ev,
     return 0;
 
   /* Align to the resolved alignment quantity, never below the arch default
-   * (Q_KASLR_ALIGN starts at its lattice top of 1 before any alignment
+   * (Q_VIRT_KASLR_ALIGN starts at its lattice top of 1 before any alignment
    * rule narrows it). */
-  unsigned long valign = est[Q_KASLR_ALIGN].lo;
+  unsigned long valign = est[Q_VIRT_KASLR_ALIGN].lo;
   if (valign < (unsigned long)KASLR_VIRT_ALIGN)
     valign = (unsigned long)KASLR_VIRT_ALIGN;
 

@@ -11,8 +11,8 @@
 //   phys_text_base <= align_down(KASLR_PHYS_MAX - gap, phys_align)  (decoupled)
 //
 // Reads VIRT kernel TEXT/IMAGE (min) and DATA/BSS (max) leaks; aligns to the
-// resolved Q_KASLR_ALIGN / Q_PHYS_KASLR_ALIGN. Inert when no such observation
-// is present.
+// resolved Q_VIRT_KASLR_ALIGN / Q_PHYS_KASLR_ALIGN. Inert when no such
+// observation is present.
 // ---
 // <bcoles@gmail.com>
 
@@ -52,15 +52,14 @@ int rule_image_size_text_data_gap(const struct evidence_set *ev,
   unsigned long gap = max_data - min_text;
 
   int n = 0;
-  unsigned long valign = est[Q_KASLR_ALIGN].lo;
+  unsigned long valign = est[Q_VIRT_KASLR_ALIGN].lo;
   if (valign < (unsigned long)KASLR_VIRT_ALIGN)
     valign = (unsigned long)KASLR_VIRT_ALIGN;
   if (gap < (unsigned long)KASLR_VIRT_TEXT_MAX -
                 (unsigned long)KASLR_VIRT_TEXT_MIN &&
       n < out_max) {
     unsigned long vmax = (unsigned long)KASLR_VIRT_TEXT_MAX - gap;
-    if (valign > 0)
-      vmax &= ~(valign - 1);
+    vmax = kasld_floor_virt_text_bound(vmax, valign);
     if (vmax > (unsigned long)KASLR_VIRT_TEXT_MIN) {
       struct constraint *c = &out[n++];
       memset(c, 0, sizeof(*c));

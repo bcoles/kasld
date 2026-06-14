@@ -1483,7 +1483,7 @@ static void test_engine_sync_projects_all_fields(void) {
    * write. */
   e.est[Q_VIRT_TEXT_BASE].lo = FX_TEXT;
   e.est[Q_VIRT_TEXT_BASE].hi = (FX_TEXT + 0x0e000000ul);
-  e.est[Q_KASLR_ALIGN].lo = 0x200000ul;
+  e.est[Q_VIRT_KASLR_ALIGN].lo = 0x200000ul;
   e.est[Q_PAGE_OFFSET].lo = (unsigned long)PAGE_OFFSET + 0x10000000ul;
   e.est[Q_PAGE_OFFSET].hi = (unsigned long)PAGE_OFFSET + 0x30000000ul;
   e.est[Q_PHYS_TEXT_BASE].lo = 0x4000000ul;

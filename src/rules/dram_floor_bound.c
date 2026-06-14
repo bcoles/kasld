@@ -95,7 +95,8 @@ int rule_dram_floor_bound(const struct evidence_set *ev,
     return 0;
   unsigned long virt_lo = pdram_lo - PHYS_OFFSET + PAGE_OFFSET + TEXT_OFFSET;
   if (KASLR_VIRT_ALIGN > 0)
-    virt_lo &= ~(KASLR_VIRT_ALIGN - 1);
+    virt_lo &= ~(KASLR_VIRT_ALIGN -
+                 1); /* virt-floor-ok: C_LOWER_BOUND, flooring down is sound */
   if (virt_lo <= KASLR_VIRT_TEXT_MIN)
     return 0;
   c->q = Q_VIRT_TEXT_BASE;

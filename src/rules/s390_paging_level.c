@@ -12,8 +12,9 @@
 // (kasld_s390_va_bits, emitted by the engine bridge). On 3-level paging this
 // drops the ceiling from the 8 PiB default to 4 TiB — a 2048x reduction; on
 // 4-level it equals the architectural top (a harmless no-op). Reads the
-// resolved Q_KASLR_ALIGN for the slot granularity. s390 only; inert elsewhere.
-// Under qemu the probe reports qemu's paging mode, not the captured kernel's.
+// resolved Q_VIRT_KASLR_ALIGN for the slot granularity. s390 only; inert
+// elsewhere. Under qemu the probe reports qemu's paging mode, not the captured
+// kernel's.
 // ---
 // <bcoles@gmail.com>
 
@@ -43,10 +44,10 @@ int rule_s390_paging_level(const struct evidence_set *ev,
     return 0;
 
   unsigned long vmax = 1ul << va_bits; /* KASLR vmax = user ASCE limit */
-  unsigned long align = est[Q_KASLR_ALIGN].lo;
+  unsigned long align = est[Q_VIRT_KASLR_ALIGN].lo;
   if (align < (unsigned long)KASLR_VIRT_ALIGN)
     align = (unsigned long)KASLR_VIRT_ALIGN;
-  unsigned long ceiling = align ? (vmax & ~(align - 1)) : vmax;
+  unsigned long ceiling = kasld_floor_virt_text_bound(vmax, align);
   if (ceiling == 0)
     return 0;
 

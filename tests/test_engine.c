@@ -59,12 +59,12 @@ static void test_engine_interior_ceiling(void) {
   const rule_fn rules[] = {rule_range_from_interior};
   engine_run(&e, rules, 1);
 
-  /* text base <= the interior sample, floored to the slot alignment: the base
-   * is slot-aligned, so the ceiling tightens to floor(sample, align). With no
-   * alignment rule in this run, align resolves to the arch default. */
-  unsigned long align = (unsigned long)KASLR_VIRT_ALIGN;
-  assert(e.est[Q_VIRT_TEXT_BASE].hi == (sample & ~(align - 1)));
-  assert(e.est[Q_VIRT_TEXT_BASE].lo == top.lo); /* floor unchanged */
+  /* text base <= the interior sample (raw). range_from_interior deliberately
+   * does NOT floor to alignment: the text base is _stext, which is not
+   * alignment-aligned on sub-offset arches, so flooring would drop the ceiling
+   * below the truth. The raw sample is always a sound upper bound. */
+  assert(e.est[Q_VIRT_TEXT_BASE].hi == sample);
+  assert(e.est[Q_VIRT_TEXT_BASE].lo == top.lo); /* lower bound unchanged */
 }
 
 /* ========================================================================
@@ -2931,7 +2931,7 @@ static void test_kaslr_align_arch_default(void) {
   const rule_fn rules[] = {rule_kaslr_align_arch_default};
   engine_run(&e, rules, 1);
   /* Baseline equals the arch KASLR_VIRT_ALIGN floor. */
-  assert(e.est[Q_KASLR_ALIGN].lo == (unsigned long)KASLR_VIRT_ALIGN);
+  assert(e.est[Q_VIRT_KASLR_ALIGN].lo == (unsigned long)KASLR_VIRT_ALIGN);
 #if defined(KASLR_PHYS_MIN)
   assert(e.est[Q_PHYS_KASLR_ALIGN].lo == (unsigned long)KASLR_PHYS_ALIGN);
 #endif
@@ -2950,10 +2950,10 @@ static void test_boot_params_kaslr_align(void) {
   /* Both x86_64 (boot_params live) and x86_32 (CONFIG_PHYSICAL_ALIGN from
    * /boot/config via the same SF_PHYS_KERNEL_ALIGN scalar) get the same
    * treatment — physical and virtual offsets are locked on both. */
-  assert(e.est[Q_KASLR_ALIGN].lo == big);
+  assert(e.est[Q_VIRT_KASLR_ALIGN].lo == big);
   assert(e.est[Q_PHYS_KASLR_ALIGN].lo == big);
 #else
-  assert(e.est[Q_KASLR_ALIGN].lo ==
+  assert(e.est[Q_VIRT_KASLR_ALIGN].lo ==
          (unsigned long)KASLR_VIRT_ALIGN); /* inert */
 #endif
 }
@@ -2968,7 +2968,7 @@ static void test_boot_params_kaslr_align_subdefault(void) {
                            rule_boot_params_kaslr_align};
   engine_run(&e, rules, 2);
   /* max-align never drops below the baseline. */
-  assert(e.est[Q_KASLR_ALIGN].lo == (unsigned long)KASLR_VIRT_ALIGN);
+  assert(e.est[Q_VIRT_KASLR_ALIGN].lo == (unsigned long)KASLR_VIRT_ALIGN);
 }
 
 static void test_arm64_efi_kimg_align(void) {
@@ -2989,11 +2989,11 @@ static void test_arm64_efi_kimg_align(void) {
 #endif
 }
 
-/* ceiling_from_image_size aligns the ceiling to the RESOLVED Q_KASLR_ALIGN:
- * when boot_params raises the alignment to a coarser CONFIG_PHYSICAL_ALIGN, the
- * ceiling snaps to that boundary (matching legacy boot_params_align), tighter
- * than the compile-time KASLR_VIRT_ALIGN would give. Cross-quantity +
- * multi-pass. */
+/* ceiling_from_image_size aligns the ceiling to the RESOLVED
+ * Q_VIRT_KASLR_ALIGN: when boot_params raises the alignment to a coarser
+ * CONFIG_PHYSICAL_ALIGN, the ceiling snaps to that boundary (matching legacy
+ * boot_params_align), tighter than the compile-time KASLR_VIRT_ALIGN would
+ * give. Cross-quantity + multi-pass. */
 static void test_ceiling_uses_resolved_align(void) {
 #if defined(__x86_64__)
   struct engine e;
@@ -3014,7 +3014,7 @@ static void test_ceiling_uses_resolved_align(void) {
   quantities[Q_VIRT_TEXT_BASE].init_top(&top);
   unsigned long expect =
       min_ul((KASLR_VIRT_TEXT_MAX - init_size) & ~(kalign - 1), top.hi);
-  assert(e.est[Q_KASLR_ALIGN].lo == kalign);
+  assert(e.est[Q_VIRT_KASLR_ALIGN].lo == kalign);
   assert(e.est[Q_VIRT_TEXT_BASE].hi ==
          expect); /* snapped to 16 MiB, not 2 MiB */
   /* And strictly tighter than the compile-time-align ceiling would be. */
@@ -3835,7 +3835,7 @@ static void test_base_align_cross_validate(void) {
   evidence_add(&e.ev, &o);
   const rule_fn rules[] = {rule_base_align_cross_validate};
   engine_run(&e, rules, 1);
-  assert(e.est[Q_KASLR_ALIGN].lo >= 0x400000ul);
+  assert(e.est[Q_VIRT_KASLR_ALIGN].lo >= 0x400000ul);
 }
 
 static void test_randomize_memory_page_offset(void) {
@@ -4060,8 +4060,8 @@ static void test_phys_virt_synth_spread_within_align(void) {
   engine_run(&e, rules, 1);
 
   /* The rule's agreement tolerance is max(resolved virt_kaslr_align,
-   * KASLR_VIRT_ALIGN); Q_KASLR_ALIGN is unset in this isolated run, so it is
-   * KASLR_VIRT_ALIGN. */
+   * KASLR_VIRT_ALIGN); Q_VIRT_KASLR_ALIGN is unset in this isolated run, so it
+   * is KASLR_VIRT_ALIGN. */
   unsigned long align = (unsigned long)KASLR_VIRT_ALIGN;
   if (po_alt <= top.hi && pmd <= align) {
 #if PAGE_OFFSET_FIXED
@@ -4121,7 +4121,7 @@ static void test_s390_paging_level(void) {
   struct estimate top;
   quantities[Q_VIRT_TEXT_BASE].init_top(&top);
 #if defined(__s390x__) || defined(__zarch__)
-  unsigned long align = e.est[Q_KASLR_ALIGN].lo;
+  unsigned long align = e.est[Q_VIRT_KASLR_ALIGN].lo;
   if (align < (unsigned long)KASLR_VIRT_ALIGN)
     align = (unsigned long)KASLR_VIRT_ALIGN;
   unsigned long ceiling = (1ul << 42) & ~(align - 1);

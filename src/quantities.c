@@ -145,7 +145,8 @@ static void top_va_bits(struct estimate *e) {
     NULL, 0)                                                                   \
   X(Q_VMEMMAP_BASE, "virt_vmemmap_base", LK_INTERVAL, top_kernel_vas_window,   \
     NULL, 0)                                                                   \
-  X(Q_KASLR_ALIGN, "virt_kaslr_align", LK_MAXALIGN, top_maxalign, NULL, 0)     \
+  X(Q_VIRT_KASLR_ALIGN, "virt_kaslr_align", LK_MAXALIGN, top_maxalign, NULL,   \
+    0)                                                                         \
   X(Q_PHYS_KASLR_ALIGN, "phys_kaslr_align", LK_MAXALIGN, top_maxalign, NULL,   \
     0)                                                                         \
   X(Q_VA_BITS, "va_bits", LK_FINSET, top_va_bits, va_bits_candidates, N_VA_BITS)

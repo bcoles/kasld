@@ -261,6 +261,15 @@ __extension__ _Static_assert((unsigned long)KERNEL_PHYS_MAX >
 #define KASLR_VIRT_ALIGN IMAGE_ALIGN
 #endif
 
+/* Physical firmware load offset (DRAM base -> phys image base). 0 where
+ * firmware loads the image at the DRAM base; riscv64 overrides to 2 MiB
+ * (OpenSBI). Defined here so the OpenSBI component (compiled for every arch)
+ * builds everywhere; only riscv64 code uses a nonzero value, and generic rules
+ * must not reference it (enforced by tests/check-text-floor). */
+#ifndef RISCV_PHYS_LOAD_OFFSET
+#define RISCV_PHYS_LOAD_OFFSET 0ul
+#endif
+
 #if defined(KERNEL_PHYS_MIN) && !defined(KERNEL_PHYS_DEFAULT)
 #define KERNEL_PHYS_DEFAULT (KERNEL_PHYS_MIN + TEXT_OFFSET)
 #endif
@@ -515,6 +524,22 @@ kasld_floor_aligned_suboffset(unsigned long addr, unsigned long align,
 
 static inline unsigned long kasld_floor_text_base(unsigned long addr) {
   return kasld_floor_aligned_suboffset(addr, (unsigned long)KASLR_VIRT_ALIGN,
+                                       (unsigned long)KERNEL_VIRT_TEXT_DEFAULT);
+}
+
+/* Engine-rule variant: floor a bound on the VIRTUAL kernel text base to the
+ * RESOLVED alignment `align` (Q_VIRT_KASLR_ALIGN, which boot_params can raise),
+ * preserving the sub-alignment head offset so the result never drops below
+ * _stext on sub-offset arches (riscv64 +0x2000, arm32 +0x8000, ...). This is
+ * the single sanctioned way for a rule to floor a virt text-base bound; a bare
+ * `& ~(align - 1)` is unsound there (enforced by tests/check-text-floor). It is
+ * a no-op floor where the head offset is align-aligned (residue 0). The phys
+ * axis needs no equivalent: the phys base carries no usable sub-offset. */
+static inline unsigned long kasld_floor_virt_text_bound(unsigned long v,
+                                                        unsigned long align) {
+  if (align == 0)
+    return v;
+  return kasld_floor_aligned_suboffset(v, align,
                                        (unsigned long)KERNEL_VIRT_TEXT_DEFAULT);
 }
 

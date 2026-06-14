@@ -16,7 +16,7 @@
 // on a live x86_64 (RANDOMIZE_MEMORY) host from a directmap leak — far tighter
 // than the directmap_page_offset_bounds window or the VAS-floor lower bound.
 // Reads the resolved Q_PAGE_OFFSET window (candidates must fall inside) and
-// Q_KASLR_ALIGN (the agreement tolerance). Inert when no paired VIRT
+// Q_VIRT_KASLR_ALIGN (the agreement tolerance). Inert when no paired VIRT
 // directmap + PHYS RAM observation set with shared origin is present.
 // ---
 // <bcoles@gmail.com>
@@ -132,7 +132,7 @@ int rule_phys_virt_synth(const struct evidence_set *ev,
   if (cand_lo == ULONG_MAX)
     return 0;
 
-  unsigned long align = est[Q_KASLR_ALIGN].lo;
+  unsigned long align = est[Q_VIRT_KASLR_ALIGN].lo;
   if (align < (unsigned long)KASLR_VIRT_ALIGN)
     align = (unsigned long)KASLR_VIRT_ALIGN;
   if (cand_hi - cand_lo > align) /* candidates disagree -> a bad pair */
