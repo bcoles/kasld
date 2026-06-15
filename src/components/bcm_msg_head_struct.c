@@ -43,6 +43,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <sys/time.h>
 #include <unistd.h>
 
 KASLD_EXPLAIN(
@@ -110,6 +111,14 @@ static unsigned long get_kernel_addr_from_bcm_msg_head_struct(void) {
   kasld_info("trying bcm_msg_head struct stack pointer leak ...");
 
   sock = socket(AF_CAN, SOCK_DGRAM, CAN_BCM);
+
+  /* Bound the blocking recvfrom() below. On kernels where the RX_SETUP reply
+   * never arrives — CAN_BCM absent, or a 32-bit layout mismatch so the kernel
+   * rejects the message — the read would otherwise block forever. A short
+   * timeout keeps the probe live but non-hanging; a vulnerable kernel's
+   * SETTIMER reply lands well within it. Harmless if sock < 0. */
+  struct timeval rcvtv = {.tv_sec = 2, .tv_usec = 0};
+  setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &rcvtv, sizeof(rcvtv));
 
   sa.can_family = AF_CAN;
   sa.can_ifindex = 0;
