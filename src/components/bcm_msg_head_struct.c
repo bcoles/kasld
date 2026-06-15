@@ -192,6 +192,15 @@ static unsigned long get_kernel_addr_from_bcm_msg_head_struct(void) {
 #pragma GCC diagnostic pop
 
 int main(void) {
+  /* Live socket probe: opens a CAN BCM socket and recvfrom()s a reply, reading
+   * no captured state. Under KASLD_SYSROOT replay there is nothing live to
+   * probe, so skip it (also keeps offline replay from touching live sockets).
+   */
+  if (kasld_sysroot()) {
+    kasld_info("skipping live CAN BCM probe under KASLD_SYSROOT replay");
+    return 0;
+  }
+
   unsigned long addr = get_kernel_addr_from_bcm_msg_head_struct();
   if (!addr) {
     kasld_err("no kernel address leaked via BCM socket");

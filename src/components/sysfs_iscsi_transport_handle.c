@@ -73,25 +73,32 @@ static unsigned long get_kernel_addr_iscsi_iser_transport(void) {
   enum { buff_len = 1024 };
   char buff[buff_len];
 
-  // Try to load the scsi_transport_iscsi and ib_iser modules
-  sock_fd = socket(PF_NETLINK, SOCK_DGRAM, NETLINK_RDMA);
-  if (sock_fd >= 0)
+  /* The NETLINK_ISCSI socket autoloads the module on a live system, and the
+   * poll below waits up to 5s for the sysfs attribute to appear. Under
+   * KASLD_SYSROOT replay there is no live module to load and the captured tree
+   * is already complete, so skip the trigger + wait and read the captured
+   * attribute directly (the read below is KASLD_SYSROOT-aware). */
+  if (!kasld_sysroot()) {
+    // Try to load the scsi_transport_iscsi and ib_iser modules
+    sock_fd = socket(PF_NETLINK, SOCK_DGRAM, NETLINK_RDMA);
+    if (sock_fd >= 0)
+      close(sock_fd);
+
+    sock_fd = socket(PF_NETLINK, SOCK_RAW, NETLINK_ISCSI);
+    if (sock_fd < 0) {
+      perror("[-] Failed to get a NETLINK_ISCSI socket");
+      return 0;
+    }
+
     close(sock_fd);
 
-  sock_fd = socket(PF_NETLINK, SOCK_RAW, NETLINK_ISCSI);
-  if (sock_fd < 0) {
-    perror("[-] Failed to get a NETLINK_ISCSI socket");
-    return 0;
-  }
-
-  close(sock_fd);
-
-  /* Wait for the module to load and sysfs entries to appear.
-   * Poll once per second for up to 5 seconds. */
-  for (int wait = 0; wait < 5; wait++) {
-    if (kasld_access(path, R_OK) == 0)
-      break;
-    sleep(1);
+    /* Wait for the module to load and sysfs entries to appear.
+     * Poll once per second for up to 5 seconds. */
+    for (int wait = 0; wait < 5; wait++) {
+      if (kasld_access(path, R_OK) == 0)
+        break;
+      sleep(1);
+    }
   }
 
   kasld_info("checking %s ...", path);

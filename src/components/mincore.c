@@ -134,6 +134,16 @@ static unsigned long get_kernel_addr_mincore(void) {
 
 int main(int argc, char *argv[]) {
   kasld_cli(argc, argv);
+
+  /* Live timing side-channel: this probes the running kernel through mincore()
+   * and reads no captured state. Under KASLD_SYSROOT replay there is nothing
+   * live to probe, so skip the multi-second scan rather than run it to the
+   * give-up deadline against the host kernel. */
+  if (kasld_sysroot()) {
+    kasld_info("skipping live mincore probe under KASLD_SYSROOT replay");
+    return 0;
+  }
+
   kasld_info("trying mincore info leak...");
 
   unsigned long addr = get_kernel_addr_mincore();
