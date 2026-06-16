@@ -36,10 +36,13 @@ if ! command -v shellcheck >/dev/null 2>&1; then
   exit 0
 fi
 
-# Shell scripts in extra/, detected by shebang (a #! line mentioning sh/bash/...).
-# Dialect (sh vs bash) is auto-detected per file from its shebang.
+# Shipped shell scripts, detected by shebang (a #! line mentioning sh/bash/...):
+# everything in extra/, plus the tests/vm live-validation driver (also user-
+# facing and shellcheck-clean — kept that way here). The rest of tests/ carries
+# pre-existing findings and stays out of scope; add scripts individually as they
+# are cleaned.
 scripts=
-for f in "$EXTRA"/*; do
+for f in "$EXTRA"/* "$ROOT/tests/vm/run" "$ROOT/tests/run-all"; do
   [ -f "$f" ] || continue
   case "$(head -1 "$f" 2>/dev/null)" in
     '#!'*sh*) scripts="$scripts $f" ;;
@@ -47,7 +50,7 @@ for f in "$EXTRA"/*; do
 done
 
 if [ -z "$scripts" ]; then
-  printf '%sshellcheck guard: SKIP%s (no shell scripts in extra/)\n' "$YELLOW" "$RESET"
+  printf '%sshellcheck guard: SKIP%s (no shell scripts found)\n' "$YELLOW" "$RESET"
   exit 0
 fi
 
@@ -56,7 +59,7 @@ fi
 # shellcheck disable=SC2086
 if shellcheck $scripts; then
   set -- $scripts
-  printf '%sshellcheck guard: OK%s (%s extra/ scripts clean)\n' "$GREEN" "$RESET" "$#"
+  printf '%sshellcheck guard: OK%s (%s shell scripts clean)\n' "$GREEN" "$RESET" "$#"
 else
   printf '%sshellcheck guard: shellcheck reported issues above%s\n' "$RED" "$RESET" >&2
   exit 1

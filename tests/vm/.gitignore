@@ -1,0 +1,4 @@
+# Artifacts produced by ./run — fetched kernels, initramfs, boot logs, staged
+# rootfs. The tracked recipe is just run, init.c, README.md and this file.
+.cache/
+/*/

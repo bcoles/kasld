@@ -1,0 +1,315 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# tests/vm/run — reproducible cross-architecture LIVE soundness check.
+#
+# For each architecture, this boots a real, publicly-fetchable kernel under
+# qemu-system, captures the kernel's ground-truth text base, runs the
+# cross-built kasld against the running kernel, and verifies the soundness
+# invariant the whole tool rests on:
+#
+#     truth ∈ [virt_image_base_min, virt_image_base_max]
+#
+# Unlike tests/replay (offline, over captured fixtures), this exercises kasld
+# end to end against a live kernel — the same check a user can run on their own
+# machine with extra/collect + extra/validate-bundle, generalised across arches.
+#
+# Prerequisites:
+#   - `make cross` already run (build/<triple>/kasld + components), with the
+#     same cross toolchains on PATH (used here to build the tiny init).
+#   - qemu-system-<arch> on PATH (the host's qemu packages, e.g. Debian/Ubuntu
+#     qemu-system-x86 / -arm / -misc). Guest kernels are fetched from Alpine.
+#   - curl, cpio, gzip.
+#
+# Usage:
+#   tests/vm/run                 # every supported arch, default profile
+#   tests/vm/run <arch>          # one arch, default profile
+#   tests/vm/run <arch> <mode>   # mode: default | hide | hardened | nokaslr
+#   tests/vm/run all <mode>      # every arch in a given mode
+#   tests/vm/run table           # render the results matrix (markdown) from the
+#                                # boot logs left by previous runs
+#
+# Modes:
+#   default   root, kptr_restrict=0 — kasld may read kallsyms (the easy case)
+#   hide      root, kptr_restrict=2 — pin must come from inference
+#   hardened  uid 1000 + kptr=2/dmesg_restrict=1/perf=3 — unprivileged floor
+#   nokaslr   boot with `nokaslr` — verifies the KASLR-disabled pin
+#
+# Env overrides:
+#   QEMU_DIR        directory holding qemu-system-* (default: search PATH)
+#   ALPINE_VER      Alpine release for netboot kernels (default: 3.21)
+#   ALPINE_MIRROR   mirror base URL
+#   BUILD_DIR       kasld build root (default: ./build)
+#   LOONGARCH_BIOS  path to edk2 loongarch firmware (loongarch64 needs UEFI)
+#   TIMEOUT         per-boot timeout seconds (default: 240)
+# ---
+# <bcoles@gmail.com>
+set -u
+
+HERE=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+ROOT=$(CDPATH='' cd -- "$HERE/../.." && pwd)
+BUILD_DIR=${BUILD_DIR:-$ROOT/build}
+QEMU_DIR=${QEMU_DIR:-}
+ALPINE_VER=${ALPINE_VER:-3.21}
+ALPINE_MIRROR=${ALPINE_MIRROR:-https://dl-cdn.alpinelinux.org/alpine}
+TIMEOUT=${TIMEOUT:-600}
+CACHE=$HERE/.cache
+
+# name | alpine-arch | flavor | build-prefix | qemu-suffix | machine | console
+#   flavor: a netboot kernel name (virt/lts) or "apk" (extract vmlinuz from the
+#   linux-lts apk — for ports with no netboot image, e.g. riscv64/loongarch64).
+TABLE='
+x86_64      | x86_64      | virt | x86_64       | x86_64      | -M q35 -cpu max        | ttyS0
+i686        | x86         | lts  | i686         | i386        | -M pc -cpu max         | ttyS0
+aarch64     | aarch64     | virt | aarch64      | aarch64     | -M virt -cpu max       | ttyAMA0
+armv7       | armv7       | lts  | armv7        | arm         | -M virt -cpu max       | ttyAMA0
+riscv64     | riscv64     | apk  | riscv64      | riscv64     | -M virt                | ttyS0
+loongarch64 | loongarch64 | apk  | loongarch64  | loongarch64 | -M virt                | ttyS0
+ppc64le     | ppc64le     | lts  | powerpc64le  | ppc64       | -M pseries -cpu power9 | hvc0
+s390x       | s390x       | lts  | s390x        | s390x       | -M s390-ccw-virtio     | ttysclp0
+'
+
+trim() { echo "$1" | xargs; }
+
+# True if ELF $1 has no dynamic interpreter (static / static-pie) — the minimal
+# initramfs carries no loader or shared libs, so only static binaries run.
+is_static() {
+  if command -v readelf >/dev/null 2>&1; then
+    ! readelf -l "$1" 2>/dev/null | grep -q 'INTERP'
+  else
+    ! file -L "$1" 2>/dev/null | grep -q 'dynamically linked'
+  fi
+}
+
+# Echo "<build-dir> <cc>" for build-prefix $1: the first build/<prefix>-*/ whose
+# kasld is present AND static (the host gnu build is dynamic; `make cross` musl
+# builds are static-pie) AND whose <triple>-gcc is on PATH (the toolchain that
+# built it, reused here to cross-compile init.c). Empty if none.
+resolve_target() {
+  for d in "$BUILD_DIR/$1"-*; do
+    [ -x "$d/kasld" ] || continue
+    [ -d "$d/components" ] || continue
+    is_static "$d/kasld" || continue
+    t=$(basename "$d")
+    if command -v "$t-gcc" >/dev/null 2>&1; then echo "$d $t-gcc"; return; fi
+  done
+}
+
+# qemu binary for suffix $1, from QEMU_DIR if set else PATH. Empty if absent.
+resolve_qemu() {
+  if [ -n "$QEMU_DIR" ]; then
+    [ -x "$QEMU_DIR/qemu-system-$1" ] && echo "$QEMU_DIR/qemu-system-$1"
+  else
+    command -v "qemu-system-$1" 2>/dev/null
+  fi
+}
+
+# Fetch (and cache) the kernel for one arch. Args: name alpine-arch flavor dest
+fetch_kernel() {
+  _name=$1 _aarch=$2 _flavor=$3 _dest=$4
+  [ -f "$_dest" ] && return 0
+  mkdir -p "$(dirname "$_dest")"
+  if [ "$_flavor" = apk ]; then
+    _repo="$ALPINE_MIRROR/edge/main/$_aarch"
+    _apk=$(curl -fsSL "$_repo/" | grep -oE 'linux-lts-[0-9][^"<]*\.apk' | sort -V | tail -1)
+    [ -n "$_apk" ] || { echo "  !! no linux-lts apk for $_aarch"; return 1; }
+    _tmp=$(mktemp -d)
+    curl -fsSL -o "$_tmp/k.apk" "$_repo/$_apk" || { rm -rf "$_tmp"; return 1; }
+    # An apk is concatenated gzip streams; -i reads across the control segment.
+    (cd "$_tmp" && tar -xzif k.apk boot/vmlinuz-lts 2>/dev/null)
+    [ -f "$_tmp/boot/vmlinuz-lts" ] || { echo "  !! no vmlinuz in $_apk"; rm -rf "$_tmp"; return 1; }
+    # Some ports ship the image gzip-compressed; qemu -kernel wants it raw.
+    if gzip -t "$_tmp/boot/vmlinuz-lts" 2>/dev/null; then
+      gunzip -c "$_tmp/boot/vmlinuz-lts" >"$_dest"
+    else
+      cp "$_tmp/boot/vmlinuz-lts" "$_dest"
+    fi
+    rm -rf "$_tmp"
+  else
+    _url="$ALPINE_MIRROR/v$ALPINE_VER/releases/$_aarch/netboot/vmlinuz-$_flavor"
+    echo "  [*] fetching $_url"
+    curl -fsSL -o "$_dest" "$_url" || { echo "  !! kernel download failed"; rm -f "$_dest"; return 1; }
+  fi
+}
+
+# --- soundness verdict from a boot log (adapted from the matrix extractor) ---
+norm() { v=$(printf '%s' "$1" | sed 's/^0x//' | tr 'A-F' 'a-f'); [ -n "$v" ] || return 0; printf '%016s' "$v" | tr ' ' 0; }
+hexle() { [ "$1" = "$2" ] && return 0; [ "$(printf '%s\n%s\n' "$1" "$2" | LC_ALL=C sort | head -1)" = "$1" ]; }
+
+# verdict <log>: prints "PASS|FAIL|N/A  <detail>" and returns 0 only on PASS/NA.
+verdict() {
+  _log=$1
+  grep -aq 'KASLD VM DONE' "$_log" || { echo "INCOMPLETE  (boot did not finish; see $_log)"; return 1; }
+  _truth=$(awk '/ _text$/{print $1; exit}' "$_log")
+  [ -n "$_truth" ] || _truth=$(awk '/ _stext$/{print $1; exit}' "$_log")
+  _min=$(grep -am1 -oE '"virt_image_base_min": *"0x[0-9a-fA-F]+"' "$_log" | grep -oE '0x[0-9a-fA-F]+')
+  _max=$(grep -am1 -oE '"virt_image_base_max": *"0x[0-9a-fA-F]+"' "$_log" | grep -oE '0x[0-9a-fA-F]+')
+  _disabled=$(grep -am1 -oE '"disabled": *(true|false)' "$_log" | awk '{print $2}')
+  _t=$(norm "$_truth"); _lo=$(norm "$_min"); _hi=$(norm "$_max")
+  if [ -z "$_t" ] || [ -z "$_lo" ] || [ -z "$_hi" ]; then
+    echo "N/A   truth=${_truth:--} window=[${_min:--},${_max:--}] disabled=${_disabled:-?}"
+    return 0
+  fi
+  if hexle "$_lo" "$_t" && hexle "$_t" "$_hi"; then
+    _rec=N; [ "$_lo" = "$_hi" ] && _rec=Y
+    echo "PASS  truth=$_truth ∈ [$_min,$_max] recovered=$_rec"
+    return 0
+  fi
+  echo "FAIL  truth=$_truth OUTSIDE [$_min,$_max] — soundness violation"
+  return 1
+}
+
+# Build + boot one arch in one mode. Returns the verdict's status.
+run_one() {
+  name=$1 mode=$2
+  row=$(echo "$TABLE" | grep -E "^[[:space:]]*${name}[[:space:]]*\|")
+  [ -n "$row" ] || { echo "$name: unknown arch"; return 2; }
+  IFS='|' read -r _ aarch flavor prefix qsuf machine console <<EOF
+$row
+EOF
+  aarch=$(trim "$aarch"); flavor=$(trim "$flavor"); prefix=$(trim "$prefix")
+  qsuf=$(trim "$qsuf"); machine=$(trim "$machine"); console=$(trim "$console")
+
+  echo "=================== $name ($mode) ==================="
+  tc=$(resolve_target "$prefix")
+  [ -n "$tc" ] || { echo "  SKIP  no build/$prefix-*/kasld with toolchain on PATH (run make cross)"; return 3; }
+  bdir=${tc% *}; cc=${tc#* }
+  qemu=$(resolve_qemu "$qsuf")
+  [ -n "$qemu" ] || { echo "  SKIP  qemu-system-$qsuf not found"; return 3; }
+
+  work=$HERE/$name
+  mkdir -p "$work"
+  fetch_kernel "$name" "$aarch" "$flavor" "$CACHE/$name-vmlinuz" || { echo "  SKIP  no kernel"; return 3; }
+
+  "$cc" -O2 -static -o "$work/init.bin" "$HERE/init.c" || { echo "  !! init build failed ($cc)"; return 2; }
+
+  rm -rf "$work/root"
+  mkdir -p "$work/root/proc" "$work/root/sys" "$work/root/dev" "$work/root/tmp" "$work/root/components"
+  cp "$work/init.bin" "$work/root/init"
+  cp "$bdir/kasld" "$work/root/kasld"
+  cp "$CACHE/$name-vmlinuz" "$work/root/kernel-image"
+  cp "$bdir"/components/* "$work/root/components/" 2>/dev/null || true
+  chmod +x "$work/root/init" "$work/root/kasld" "$work/root/components/"* 2>/dev/null || true
+  (cd "$work/root" && find . -print0 | cpio --null -o --format=newc 2>/dev/null | gzip -9 >"$work/initramfs.cpio.gz")
+
+  # loongarch64 boots via UEFI: its kernel is an EFI PE that needs firmware.
+  # Use $LOONGARCH_BIOS if set, else look for an edk2 image next to the resolved
+  # qemu binary (a from-source build keeps it in pc-bios/) or in the usual system
+  # share dirs. Note the firmware must match the qemu that loads it.
+  bios=""
+  if [ "$name" = loongarch64 ]; then
+    fw=${LOONGARCH_BIOS:-}
+    if [ -z "$fw" ]; then
+      for c in "$(dirname "$qemu")/pc-bios/edk2-loongarch64-code.fd" \
+               /usr/share/qemu/edk2-loongarch64-code.fd \
+               /usr/share/edk2/loongarch64/QEMU_EFI.fd; do
+        [ -f "$c" ] && { fw=$c; break; }
+      done
+    fi
+    [ -n "$fw" ] && bios="-bios $fw"
+  fi
+
+  # Opportunistic hardware acceleration: when the guest matches the host arch and
+  # /dev/kvm is usable, KVM makes the boot near-native and immune to host load.
+  # Foreign arches stay on TCG emulation (slow but correct). KVM is happy with
+  # the table's `-cpu max`.
+  accel=""
+  if [ -w /dev/kvm ]; then
+    case "$qsuf:$(uname -m)" in
+      x86_64:x86_64 | i386:x86_64 | i386:i686 | aarch64:aarch64) accel="-enable-kvm" ;;
+    esac
+  fi
+
+  append="console=$console panic=-1 quiet"
+  case "$mode" in
+    default)  ;;
+    hide)     append="$append hidekptr" ;;
+    hardened) append="$append hardened" ;;
+    nokaslr)  append="$append nokaslr" ;;
+    *) echo "  unknown mode: $mode"; return 2 ;;
+  esac
+
+  log="$work/boot-$mode.log"
+  echo "  [*] booting $qemu ($machine) -> $log"
+  # shellcheck disable=SC2086
+  timeout "$TIMEOUT" $qemu $machine $accel -smp 1 -m 1024 $bios \
+    -kernel "$CACHE/$name-vmlinuz" -initrd "$work/initramfs.cpio.gz" \
+    -nographic -no-reboot -append "$append" >"$log" 2>&1 || true
+  # Strip CR and NUL bytes: early console output can contain binary noise that
+  # makes grep treat the log as binary and skip matches.
+  tr -d '\r\000' <"$log" >"$log.clean" && mv "$log.clean" "$log"
+
+  printf '  %-11s ' "$name"
+  verdict "$log"
+}
+
+# Virtual-side KASLR residual entropy from a boot log's -j JSON, or empty.
+# entropy_bits appears in both the virt and phys kaslr sub-objects; take the
+# virt one (before the physical/memory markers).
+bits_of() {
+  awk '/"kaslr": *\{/{ink=1}
+       ink && /"(physical|inferred_physical|memory_kaslr)":/{ink=0}
+       ink && /"entropy_bits":/{gsub(/[^0-9]/,""); print; exit}' "$1"
+}
+
+# Render the results matrix (markdown) from the boot logs left by previous runs.
+# One row per existing boot-<scenario>.log: arch, kernel release, scenario, KASLR
+# state, whether the base was fully recovered, residual entropy, and soundness.
+cmd_table() {
+  printf '| arch | release | scenario | KASLR | recovered | residual bits | sound |\n'
+  printf '|------|---------|----------|-------|-----------|---------------|-------|\n'
+  for a in $arches; do
+    for scen in default hide hardened nokaslr; do
+      log="$HERE/$a/boot-$scen.log"
+      [ -f "$log" ] || continue
+      rel=$(grep -am1 'Linux version' "$log" | sed -E 's/.*Linux version ([^ ]+).*/\1/')
+      [ -n "$rel" ] || rel='?'
+      if ! grep -aq 'KASLD VM DONE' "$log"; then
+        printf '| %s | %s | %s | — | — | — | incomplete |\n' "$a" "$rel" "$scen"
+        continue
+      fi
+      truth=$(awk '/ _text$/{print $1; exit}' "$log")
+      [ -n "$truth" ] || truth=$(awk '/ _stext$/{print $1; exit}' "$log")
+      min=$(grep -am1 -oE '"virt_image_base_min": *"0x[0-9a-fA-F]+"' "$log" | grep -oE '0x[0-9a-fA-F]+')
+      max=$(grep -am1 -oE '"virt_image_base_max": *"0x[0-9a-fA-F]+"' "$log" | grep -oE '0x[0-9a-fA-F]+')
+      disabled=$(grep -am1 -oE '"disabled": *(true|false)' "$log" | awk '{print $2}')
+      bits=$(bits_of "$log"); [ -n "$bits" ] || bits='—'
+      t=$(norm "$truth"); lo=$(norm "$min"); hi=$(norm "$max")
+      kas=on; [ "$disabled" = true ] && kas=off
+      if [ -z "$t" ] || [ -z "$lo" ] || [ -z "$hi" ]; then
+        printf '| %s | %s | %s | %s | — | — | n/a |\n' "$a" "$rel" "$scen" "$kas"
+        continue
+      fi
+      rec=no; [ "$lo" = "$hi" ] && rec=yes
+      if hexle "$lo" "$t" && hexle "$t" "$hi"; then snd=yes; else snd=NO; fi
+      [ "$rec" = yes ] && bits=0
+      printf '| %s | %s | %s | %s | %s | %s | %s |\n' "$a" "$rel" "$scen" "$kas" "$rec" "$bits" "$snd"
+    done
+  done
+}
+
+# ---- dispatch ----
+arches=$(echo "$TABLE" | awk -F'|' 'NF>1{gsub(/ /,"",$1); print $1}')
+
+case "${1:-}" in
+  table | --table) cmd_table; exit 0 ;;
+esac
+
+sel=${1:-all}; mode=${2:-default}
+[ "$sel" = all ] || mode=${2:-default}
+
+rc=0; pass=0; fail=0; skip=0
+list=$arches
+[ "$sel" != all ] && list=$sel
+for a in $list; do
+  run_one "$a" "$mode"; st=$?
+  case $st in
+    0) pass=$((pass+1)) ;;
+    3) skip=$((skip+1)) ;;
+    *) fail=$((fail+1)); rc=1 ;;
+  esac
+done
+
+echo "----------------------------------------------------------------------"
+echo "vm: $pass ok, $fail fail, $skip skip  (mode=$mode)"
+exit $rc
