@@ -288,7 +288,7 @@ a physical address reveals the virtual text base via
 modules are either at a fixed address or a constant offset from `PAGE_OFFSET`.
 A single leak from any section is sufficient to derive the others. On
 decoupled architectures like x86_64, each section is randomized independently
-— a physical address tells you nothing about the virtual text base, and the
+— a physical address reveals nothing about the virtual text base, and the
 direct map base (`virt_page_offset_base`) is randomized separately.
 
 RISC-V64 is notable: the module region is anchored to the kernel image

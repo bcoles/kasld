@@ -10,10 +10,9 @@ KASLD has six test layers, in increasing order of setup cost:
 3. **Cross-arch engine tests** — the unit tests run on each architecture under
    qemu-user, so arch-gated rule bodies execute their real path.
 4. **Coverage reports** — optional, gcov-based.
-5. **Bundle soundness check** (`extra/validate-bundle`) — runs the arch-correct
-   `kasld` over a captured bundle's sysroot and asserts every engine-resolved
-   range contains the ground truth read from the bundle's own kallsyms /
-   `/proc/iomem`.
+5. **Live cross-architecture validation** (`tests/vm/run`) — boots real Alpine
+   kernels under `qemu-system` and checks the inferred range contains the live
+   kernel's true base, across arches and privilege profiles.
 6. **Parser fuzz harnesses** (`tests/fuzz/`) — libFuzzer harnesses for the four
    pure string→struct parsers in `src/orchestrator.c`. Opt-in (`make fuzz`),
    not part of CI.
@@ -99,9 +98,27 @@ for real.
 ## 2. End-to-end replay (`tests/replay`)
 
 Reconstructs a scratch sysroot from each fixture under
-`tests/fixtures/<arch>/<host>/` and runs the real `kasld -v` over it, checking
-it parses, resolves, and renders a summary without crashing. There is no golden
-master — a crash (signal) is the only failure; "no results" is informational.
+`tests/fixtures/<arch>/<host>/` and runs the real `kasld` over it in every output
+mode — verbose text (`-v`), oneline (`-1`), and the hardening report in
+text / markdown / json (`-H`, `-H -m`, `-H -j`) — checking each parses, resolves,
+and renders without crashing. There is no golden master — a crash (signal) is the
+only failure; "no results" is informational. The multi-mode sweep is per-arch
+crash coverage of every renderer, which the host-only render unit tests cannot
+reach.
+
+Fixtures are **real `extra/collect` captures** from real kernels (validated with
+`extra/validate-bundle` on ingest), not hand-authored inputs — the corpus
+exercises kasld against reality. Synthetic inputs live in the unit tests
+(layer 1).
+
+This is a **structural / regression** check, not a soundness check: it confirms
+kasld survives real captured kernel state across many architectures and versions,
+but it does not verify the inferred range against a ground truth (a static
+fixture carries none). Soundness on a *captured* system is checked by
+`extra/validate-bundle` when the bundle is ingested; soundness on a *live* kernel
+is layer 5 (`tests/vm/run`). Replay overlaps those in architecture breadth but answers a
+different question — *does the binary run cleanly?* rather than *is the result
+sound?*
 
 ### Native mode (no qemu) — host arch only
 
@@ -119,7 +136,7 @@ build a 32-bit binary first, e.g. `make build CC=i686-linux-gnu-gcc`
 ### Full mode (qemu-user) — all arches
 
 ```sh
-# musl-cross toolchains on PATH, qemu-user binaries in QEMU_DIR:
+# musl-cross toolchains + qemu-user binaries on PATH:
 make cross                             # build every arch's binary + components
 tests/replay                           # all fixtures, foreign arches under qemu
 ```
@@ -133,20 +150,20 @@ Env:
 | Var | Default | Meaning |
 |-----|---------|---------|
 | `KASLD_NATIVE` | unset | `1` = run host-arch fixtures directly, no qemu |
-| `QEMU_DIR` | (user-specific; see `tests/replay`) | location of `qemu-<arch>` user binaries |
+| `QEMU_DIR` | search `PATH` | directory of `qemu-<arch>` user binaries (override only if not on `PATH`) |
 | `BUILD_DIR` | `./build` | where the per-arch binaries live |
 | `KEEP` | `0` | `1` = keep the last scratch sysroot for inspection |
 
-Set `QEMU_DIR` to whatever directory holds your `qemu-<arch>` binaries —
-distribution-installed qemu-user is typically already on `PATH`, but a
-self-built qemu can live anywhere.
+The `qemu-<arch>` user binaries are resolved from `PATH` by default
+(distribution qemu-user installs there). Set `QEMU_DIR` only when they live
+elsewhere, such as a self-built qemu in a non-standard prefix.
 
 ---
 
 ## 3. Cross-arch engine tests (`make test-cross`)
 
 ```sh
-# musl-cross toolchains on PATH, qemu-user binaries in QEMU_DIR:
+# musl-cross toolchains + qemu-user binaries on PATH:
 make test-cross        # or: tests/test-cross
 ```
 
@@ -157,15 +174,23 @@ arch-gated rule bodies
 compiling to no-ops on the host. The engine tests are pure, syscall-free C, so
 this is sound under emulation.
 
-Covers 13 targets: the nine 64-bit arches (aarch64, riscv64, s390x, mips64,
-mips64el, ppc64, ppc64le, loongarch64, x86_64) plus four 32-bit (i686, armv7,
-mips, mipsel). 64-bit-only tests are `#if __SIZEOF_LONG__ >= 8`-guarded and
-skip on the 32-bit targets. Targets whose toolchain or qemu binary is absent
-are skipped; exit status is non-zero only if a present target fails.
+Covers 17 targets: nine 64-bit (aarch64, riscv64, s390x, mips64, mips64el,
+ppc64, ppc64le, loongarch64, x86_64) and eight 32-bit (i686, arm, armv7, armeb,
+mips, mipsel, riscv32, powerpc — ppc32 big-endian). 64-bit-only tests are
+`#if __SIZEOF_LONG__ >= 8`-guarded and skip on the 32-bit targets. Targets whose
+toolchain or qemu-user binary is absent are skipped; exit status is non-zero only
+if a present target fails.
 
-ppc32's active path is not automated here (only a little-endian musl toolchain
-is generally available and there is no 32-bit-LE `qemu-user` binary); it is
-validated manually on real hardware or a full ppc32-BE VM.
+The one variant not automated here is **ppc32 little-endian**: the `powerpcle`
+musl toolchain exists, but there is no 32-bit-LE `qemu-user` binary to run it
+under, so it is validated manually on real hardware or a full ppc32-LE VM.
+
+This runs **per-push in CI**: the cross-compile matrix (`build.yml` →
+`_cross-build.yml` with `run_test_cross`) invokes `tests/test-cross <triple>` for
+each arch under qemu-user, so a broken arch-gated assertion fails the push that
+introduces it — the cross-*compile* job alone would not catch it. With no
+arguments `tests/test-cross` runs the full local set; with triples it runs just
+those (one per CI matrix job).
 
 ---
 
@@ -197,7 +222,13 @@ Env: `CC` (default `cc`), `GCOV` (default `gcov`), `CFLAGS_EXTRA`.
 
 ---
 
-## 5. Bundle soundness check (`extra/validate-bundle`)
+## Validating captured bundles
+
+`extra/validate-bundle` is not a test layer — it is the validation step for
+*ingesting* a bundle. When a bundle is captured from a real system (a bug report,
+an external VM), this confirms kasld is sound on it and decides whether it earns
+a place as a replay fixture (layer 2, which is what then exercises it on every
+run). It is a one-shot ingest check, not part of the recurring suite or CI.
 
 ```sh
 extra/collect --kallsyms             # capture a bundle on the target
@@ -216,6 +247,15 @@ the truth. The only legitimate outcomes are PASS (range admits the truth,
 possibly wide) or N/A (no truth available, e.g. an `--anonymize`-stripped
 bundle). Tightness is a separate concern.
 
+Bundles are captured from real systems — the machine under test, a
+system attached to a bug report, or an external test VM — so a PASS is
+evidence kasld was sound on a real kernel. The data's provenance is the
+point: a validated bundle can be committed under `tests/fixtures/` as a
+replay fixture (layer 2), so the fixture corpus is **real captures only**.
+Synthetic inputs belong in the unit tests (layer 1, e.g. `test_engine`
+for rules, `test_dmesg_layout` / `test_btf` for component parsers), never
+in a bundle or fixture — keeping "this ran on a real kernel" meaningful.
+
 Complements the per-leak validator `extra/check-results`, which runs on
 the live system as root and compares each emitted record against live
 `/proc/{kallsyms,iomem,modules}`. `validate-bundle` validates the
@@ -224,6 +264,37 @@ engine's *resolved windows*; `check-results` validates each component's
 
 Dependencies: `jq`, plus the cross toolchain + qemu-user binaries for
 foreign-arch bundles (same setup as layers 2–3).
+
+---
+
+## 5. Live cross-architecture validation (`tests/vm/run`)
+
+```sh
+make cross                 # build the per-arch binaries
+tests/vm/run               # boot each supported arch, default profile
+tests/vm/run all hardened  # repeat under the unprivileged floor
+```
+
+Boots a real, publicly-fetchable kernel per architecture under
+`qemu-system` (with KVM where the guest matches the host), runs the
+cross-built `kasld` against the running kernel, and checks that the
+inferred range contains the kernel's true text base. Where
+`extra/validate-bundle` validates a single captured system offline, this
+validates live kernels
+across architectures and reader-privilege profiles
+(`default` / `hide` / `hardened` / `nokaslr`).
+
+Unlike replay (layer 2) — which runs offline over captured fixtures and
+only checks that kasld parses and runs — this boots a real kernel, so it
+*knows* the true base and checks soundness: that the inferred range
+contains it.
+
+Needs `qemu-system-<arch>` and the cross toolchains on PATH; an arch is
+skipped (not failed) when either is missing. After running the scenarios,
+`tests/vm/run table` renders the `arch × scenario → recovered / residual bits /
+sound` matrix from the boot logs; the published snapshot is in
+[reproducibility.md](reproducibility.md). See
+[tests/vm/README.md](../tests/vm/README.md) for the full arch list and options.
 
 ---
 
@@ -260,25 +331,55 @@ and are not installed by `make install` (the install glob covers only
 - **Layers 2–3** (qemu paths): musl-cross toolchains on `PATH` (any source —
   [musl.cc](https://musl.cc/) prebuilt sets, distribution packages, or a local
   build all work; KASLD targets the standard `<arch>-linux-musl-gcc` triples),
-  and qemu-user binaries in `$QEMU_DIR`. Native replay (layer 2) needs neither.
+  and `qemu-<arch>` user binaries on `PATH` (or in `$QEMU_DIR`). Native replay
+  (layer 2) needs neither.
 - **Layer 4**: gcc + `gcov`, or clang + `llvm-cov gcov`; `lcov` + `genhtml`
   optional for HTML.
-- **Layer 5**: `jq`. Foreign-arch bundles additionally need the cross
-  toolchains and qemu-user binaries from layers 2–3.
+- **Layer 5**: `qemu-system-<arch>` for the guest arches, plus the cross
+  toolchains, `curl`, `cpio`. The guest *kernels* are fetched from Alpine
+  automatically by `tests/vm/run`; the Debian/Ubuntu names are only the **host**
+  package to install qemu itself (`apt install qemu-system-x86 qemu-system-arm
+  qemu-system-misc`). Uses KVM automatically when the guest matches the host.
 - **Layer 6**: clang (or any toolchain shipping `-fsanitize=fuzzer`).
   The `make fuzz` target builds against libFuzzer directly; no further
   dependencies.
+- **`extra/validate-bundle`** (bundle-validation tool, not a layer): `jq`;
+  foreign-arch bundles also need the cross toolchains + qemu-user from
+  layers 2–3.
 
 ## CI
 
-`.github/workflows/build.yml`:
+Per-push, `.github/workflows/build.yml`:
 
 - **build** job: `make` → `make check` (layer 1, including the `make lint`
   guards) → build i686 → native replay over the x86_64 + x86_32 fixtures
   (layer 2, no qemu). The job installs `gcc-i686-linux-gnu` and `shellcheck`, so
   `check-truncation` and `check-shellcheck` run for real rather than skipping.
-- **cross-compile** job: `make cross` — build-only across the gnu cross
-  toolchains (no execution, no qemu).
+- **cross-compile** job: calls the reusable `_cross-build.yml` — one job per
+  arch, fetching the cross-tools/musl-cross toolchain, running `make build` with
+  a static-linkage check, then (`run_test_cross`) installing `qemu-user` and
+  running the engine tests for that arch (`tests/test-cross <triple>`, layer 3)
+  under emulation. So every push *verifies* arch-gated rule bodies, not just that
+  they compile.
 
-`.github/workflows/clang-format.yml` runs the style check. CI does not use
-qemu, so `make test-cross` and full (qemu) replay are local / manual only.
+Manual, `.github/workflows/replay.yml`:
+
+- Reuses `_cross-build.yml` with `run_replay: true`, so each per-arch job
+  installs `qemu-user` and runs `tests/replay` right after building — extending
+  the native x86 replay to every foreign arch under emulation (layer 2, full).
+  Manual because cross-compiling every arch and emulating it is minutes, not a
+  per-push cost.
+
+`.github/workflows/clang-format.yml` runs the style check.
+
+Every layer's CI status, for completeness:
+
+| layer | in CI? | where / why not |
+|-------|--------|-----------------|
+| 1 — host unit + integration + lint | ✅ per-push | `build` job (`make check`) |
+| 2 — end-to-end replay | ✅ partial | native x86 per-push (`build` job); full qemu-user is manual (`replay.yml`) |
+| 3 — cross-arch engine tests | ✅ per-push | `cross-compile` matrix runs `tests/test-cross` per arch under qemu-user |
+| 4 — coverage | ❌ | local, on-demand (`make coverage`); a report, not a gate |
+| 5 — live VM matrix | ❌ | full-system qemu with kernels outside the repo (no `/dev/kvm` on hosted runners); local/manual |
+| 6 — parser fuzz | ❌ | opt-in `make fuzz`; bounded fuzzing is a scheduled/local task, not a per-push gate |
+
