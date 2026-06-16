@@ -690,8 +690,12 @@ static void test_compute_kaslr_info_falls_back_to_kernel_text(void) {
 
   struct summary s = {0};
   compute_kaslr_info(&s);
-  assert(s.kaslr.vtext ==
-         layout.virt_kaslr_text_min + 2 * layout.virt_kaslr_align);
+  /* A KERNEL_TEXT (_stext) fallback resolves vtext to the image base, i.e. down
+   * by the head gap (STEXT_OFFSET): 0 on most arches, nonzero on arm64
+   * (0x10000) and loongarch64 (0x20000). */
+  unsigned long stext =
+      layout.virt_kaslr_text_min + 2 * layout.virt_kaslr_align;
+  assert(s.kaslr.vtext == kasld_image_base_from(stext, 1));
 }
 
 /* =========================================================================

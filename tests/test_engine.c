@@ -567,8 +567,13 @@ static void test_ceiling_from_image_size(void) {
 
   struct estimate top;
   quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
+  /* The rule floors the ceiling through kasld_floor_virt_text_bound (residue-
+   * aware), so match that here rather than a plain alignment mask — they differ
+   * on arches whose default text base carries a sub-alignment offset. */
   unsigned long expect =
-      min_ul((KASLR_VIRT_TEXT_MAX - ksize) & ~(KASLR_VIRT_ALIGN - 1), top.hi);
+      min_ul(kasld_floor_virt_text_bound(KASLR_VIRT_TEXT_MAX - ksize,
+                                         KASLR_VIRT_ALIGN),
+             top.hi);
   assert(e.est[Q_VIRT_IMAGE_BASE].hi == expect);
   assert(e.est[Q_VIRT_IMAGE_BASE].hi < top.hi); /* the rule actually fired */
 
@@ -598,8 +603,10 @@ static void test_ceiling_prefers_exact_init_size(void) {
 
   struct estimate top;
   quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
-  unsigned long expect = min_ul(
-      (KASLR_VIRT_TEXT_MAX - init_size) & ~(KASLR_VIRT_ALIGN - 1), top.hi);
+  unsigned long expect =
+      min_ul(kasld_floor_virt_text_bound(KASLR_VIRT_TEXT_MAX - init_size,
+                                         KASLR_VIRT_ALIGN),
+             top.hi);
   assert(e.est[Q_VIRT_IMAGE_BASE].hi == expect); /* exact init_size wins */
 }
 
@@ -841,8 +848,8 @@ static void test_virt_ceiling_from_memtotal(void) {
   assert(e.est[Q_VIRT_IMAGE_BASE].hi == vtop.hi); /* coupled rule inert here */
 #else
   /* phys_floor == PHYS_OFFSET so the offset term is zero. */
-  unsigned long expect =
-      (po + mem - (4ul << 20) + IMAGE_BASE_OFFSET) & ~(KASLR_VIRT_ALIGN - 1);
+  unsigned long expect = kasld_floor_virt_text_bound(
+      po + mem - (4ul << 20) + IMAGE_BASE_OFFSET, KASLR_VIRT_ALIGN);
   if (expect > KASLR_VIRT_TEXT_MIN && expect < vtop.hi)
     assert(e.est[Q_VIRT_IMAGE_BASE].hi == expect);
 #endif
@@ -945,9 +952,9 @@ static void test_dram_ceiling(void) {
 #if !TEXT_TRACKS_DIRECTMAP
   assert(e.est[Q_VIRT_IMAGE_BASE].hi == vtop.hi); /* inert on decoupled */
 #else
-  unsigned long expect =
-      (((dram_top - ksize) - PHYS_OFFSET) + po + IMAGE_BASE_OFFSET) &
-      ~(KASLR_VIRT_ALIGN - 1);
+  unsigned long expect = kasld_floor_virt_text_bound(
+      ((dram_top - ksize) - PHYS_OFFSET) + po + IMAGE_BASE_OFFSET,
+      KASLR_VIRT_ALIGN);
   if (expect > KASLR_VIRT_TEXT_MIN && expect < vtop.hi)
     assert(e.est[Q_VIRT_IMAGE_BASE].hi == expect);
 #endif
@@ -1643,9 +1650,8 @@ static void test_highmem_32bit_bound(void) {
   assert(e.est[Q_VIRT_IMAGE_BASE].hi == vtop.hi); /* inert on decoupled */
 #else
   if (sizeof(unsigned long) == 4) {
-    unsigned long expect =
-        (po + 0x20000000ul - (4ul << 20) + IMAGE_BASE_OFFSET) &
-        ~(KASLR_VIRT_ALIGN - 1);
+    unsigned long expect = kasld_floor_virt_text_bound(
+        po + 0x20000000ul - (4ul << 20) + IMAGE_BASE_OFFSET, KASLR_VIRT_ALIGN);
     if (expect > KASLR_VIRT_TEXT_MIN && expect < vtop.hi)
       assert(e.est[Q_VIRT_IMAGE_BASE].hi == expect);
   } else {
@@ -1667,8 +1673,8 @@ static void test_ppc64_firmware_ceiling(void) {
   struct estimate vtop;
   quantities[Q_VIRT_IMAGE_BASE].init_top(&vtop);
 #if defined(__powerpc64__)
-  unsigned long expect =
-      (KASLR_VIRT_TEXT_MIN + fw - (16ul << 20)) & ~(KASLR_VIRT_ALIGN - 1);
+  unsigned long expect = kasld_floor_virt_text_bound(
+      KASLR_VIRT_TEXT_MIN + fw - (16ul << 20), KASLR_VIRT_ALIGN);
   if (expect > KASLR_VIRT_TEXT_MIN && expect < vtop.hi)
     assert(e.est[Q_VIRT_IMAGE_BASE].hi == expect);
 #else
@@ -3721,8 +3727,8 @@ static void test_image_size_text_data_gap(void) {
   evidence_add(&e.ev, &d);
   const rule_fn rules[] = {rule_image_size_text_data_gap};
   engine_run(&e, rules, 1);
-  unsigned long expect = ((unsigned long)KASLR_VIRT_TEXT_MAX - gap) &
-                         ~((unsigned long)KASLR_VIRT_ALIGN - 1);
+  unsigned long expect = kasld_floor_virt_text_bound(
+      (unsigned long)KASLR_VIRT_TEXT_MAX - gap, KASLR_VIRT_ALIGN);
   if (expect < top.hi)
     assert(e.est[Q_VIRT_IMAGE_BASE].hi == expect);
 }
@@ -4256,8 +4262,12 @@ static void test_text_pin_from_observation_virt(void) {
   evidence_add(&e.ev, &o);
   const rule_fn rules[] = {rule_text_pin_from_observation};
   engine_run(&e, rules, 1);
-  assert(e.est[Q_VIRT_IMAGE_BASE].lo == stext);
-  assert(e.est[Q_VIRT_IMAGE_BASE].hi == stext);
+  /* A KERNEL_TEXT (_stext) witness normalises down to the image base by the
+   * head gap (STEXT_OFFSET): 0 on most arches, 0x10000 on arm64, 0x20000 on
+   * loongarch64. */
+  unsigned long base = kasld_image_base_from(stext, 1);
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo == base);
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi == base);
 }
 
 static void test_text_pin_from_observation_phys(void) {
@@ -4271,8 +4281,11 @@ static void test_text_pin_from_observation_phys(void) {
   evidence_add(&e.ev, &o);
   const rule_fn rules[] = {rule_text_pin_from_observation};
   engine_run(&e, rules, 1);
-  assert(e.est[Q_PHYS_IMAGE_BASE].lo == ptext);
-  assert(e.est[Q_PHYS_IMAGE_BASE].hi == ptext);
+  /* A KERNEL_TEXT (_stext) witness normalises down to the image base by the
+   * head gap (STEXT_OFFSET), on the physical axis as on the virtual. */
+  unsigned long pbase = kasld_image_base_from(ptext, 1);
+  assert(e.est[Q_PHYS_IMAGE_BASE].lo == pbase);
+  assert(e.est[Q_PHYS_IMAGE_BASE].hi == pbase);
 }
 
 static void test_text_pin_from_observation_kernel_image_region(void) {
@@ -4490,13 +4503,11 @@ static void test_riscv64_fdt_kaslr_seed(void) {
 #endif
 }
 
-/* riscv64 non-EFI: a PHYS DRAM floor + EFI-absent pins the physical text
- * base to pdram_lo + IMAGE_BASE_OFFSET + RISCV64_HEAD_TEXT_OFFSET — the
- * +RISCV64_HEAD_TEXT_OFFSET term is what makes the pin land at `_stext`
- * (per the kasld convention that Q_PHYS_IMAGE_BASE names `_stext`-phys)
- * rather than `_start` / image base. Omitting it lands the pin 0x2000
- * below the iomem "Kernel code" entry and the resolved window excludes
- * the actual phys text base. */
+/* riscv64 non-EFI: a PHYS DRAM-base leak + EFI-absent pins the physical text
+ * base to pdram_lo + RISCV_PHYS_LOAD_OFFSET + IMAGE_BASE_OFFSET — the OpenSBI
+ * firmware placement (2 MiB) plus the .head.text length (0x2000), which lands
+ * the pin at phys `_stext`. Omitting IMAGE_BASE_OFFSET would land it 0x2000
+ * below the iomem "Kernel code" entry, excluding the true phys text base. */
 static void test_riscv64_non_efi_phys_base(void) {
   struct engine e;
   engine_init(&e);
@@ -4512,8 +4523,8 @@ static void test_riscv64_non_efi_phys_base(void) {
   const rule_fn rules[] = {rule_riscv64_non_efi_phys_base};
   engine_run(&e, rules, 1);
 #if (defined(__riscv) || defined(__riscv__)) && __riscv_xlen == 64
-  unsigned long expect = pdram + (unsigned long)IMAGE_BASE_OFFSET +
-                         (unsigned long)RISCV64_HEAD_TEXT_OFFSET;
+  unsigned long expect = pdram + (unsigned long)RISCV_PHYS_LOAD_OFFSET +
+                         (unsigned long)IMAGE_BASE_OFFSET;
   if (expect >= (unsigned long)KASLR_PHYS_MIN && expect >= top.lo &&
       expect <= top.hi) {
     assert(e.est[Q_PHYS_IMAGE_BASE].lo == expect);
