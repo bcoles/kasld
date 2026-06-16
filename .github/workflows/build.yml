@@ -36,8 +36,10 @@ jobs:
     - name: End-to-end replay (x86, native)
       run: KASLD_NATIVE=1 tests/replay tests/fixtures/x86_64/* tests/fixtures/x86_32/*
 
-  # Compile-gate every released arch on push/PR (matrix + steps in
+  # Compile- and test-gate every released arch on push/PR (matrix + steps in
   # _cross-build.yml, shared with release.yml so the arch set can't drift).
+  # run_test_cross runs the engine tests for each arch under qemu-user, so
+  # arch-gated rule bodies are verified — not just compiled — on every push.
   # Pinned for deterministic PR builds + a stable cache; bump periodically.
   # release.yml tracks the latest cross-tools release instead.
   cross-compile:
@@ -45,3 +47,4 @@ jobs:
     with:
       toolchain_version: '20260515'
       package: false
+      run_test_cross: true

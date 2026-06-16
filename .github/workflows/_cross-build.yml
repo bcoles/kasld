@@ -22,6 +22,16 @@ on:
         required: false
         default: false
         type: boolean
+      run_replay:
+        description: 'after building, replay this arch''s fixtures under qemu-user'
+        required: false
+        default: false
+        type: boolean
+      run_test_cross:
+        description: 'after building, run the engine tests for this arch under qemu-user'
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   build:
@@ -101,6 +111,28 @@ jobs:
         run: |
           file "${{ steps.builddir.outputs.dir }}/kasld"
           file "${{ steps.builddir.outputs.dir }}/kasld" | grep -q "statically linked"
+
+      # qemu-user provides the qemu-<arch> binaries on PATH that tests/replay and
+      # tests/test-cross resolve. Shared by both modes below.
+      - name: Install qemu-user
+        if: inputs.run_replay || inputs.run_test_cross
+        run: sudo apt-get update && sudo apt-get install -y qemu-user
+
+      # Per-push (via build.yml): execute the engine tests for this arch under
+      # qemu-user, so its arch-gated rule bodies and assertions run their real
+      # path — the cross-compile above only proves they compile. Self-contained
+      # (no fixtures); compiles the test binaries with this arch's toolchain.
+      - name: Cross-arch engine tests (qemu-user)
+        if: inputs.run_test_cross
+        run: tests/test-cross "${{ matrix.musl_triple }}"
+
+      # Replay mode (manual, via replay.yml): run the real binary just built here
+      # over the captured fixtures. Each matrix job runs the whole corpus but only
+      # this arch's fixtures have a matching binary — the rest skip — so the matrix
+      # covers every fixture exactly once.
+      - name: End-to-end replay (qemu-user)
+        if: inputs.run_replay
+        run: tests/replay
 
       # Release mode only: x86_64 runs natively on the runner. (PR coverage
       # tests x86_64 via build.yml's host job, so this would be redundant there.)

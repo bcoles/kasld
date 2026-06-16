@@ -1,0 +1,31 @@
+name: replay
+
+# Manual end-to-end replay across all architectures under qemu-user.
+#
+# Heavier than the per-push gate (cross-compiles every arch, then runs the real
+# binary over the captured fixtures under emulation), so it is manual: trigger it
+# periodically from the Actions tab ("Run workflow"), not on every push. The
+# per-push CI already runs the host suite + native x86 replay; this extends that
+# to every foreign arch.
+#
+# It reuses _cross-build.yml — the single source of the arch matrix and the
+# toolchain fetch — with run_replay=true, so the build and the replay happen in
+# the same per-arch job (no artifact shuffling) and the arch set can't drift from
+# the release build.
+
+on:
+  workflow_dispatch:
+    inputs:
+      toolchain_version:
+        description: 'cross-tools/musl-cross release tag to build against'
+        required: false
+        default: '20260515'
+        type: string
+
+jobs:
+  replay:
+    uses: ./.github/workflows/_cross-build.yml
+    with:
+      toolchain_version: ${{ inputs.toolchain_version }}
+      package: false
+      run_replay: true
