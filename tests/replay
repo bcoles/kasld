@@ -6,14 +6,19 @@
 #
 # For each fixture under tests/fixtures/<arch>/<host>/, reconstruct a scratch
 # sysroot from its captured filesystem state and run `kasld -v` over it, then
-# re-run with -H / -H -m / -H -j to sweep the hardening renderers. The check is
-# that kasld RUNS to completion — parses the fixture, resolves the engine,
-# renders the summary and the hardening assessment — without crashing. There is no in-process oracle to
+# sweep the remaining output modes (-j json, -m markdown, -1 oneline, and -H
+# text/markdown/json with the hardening section). The check is that kasld RUNS to
+# completion in EVERY output mode — parses the fixture, resolves the engine, and
+# renders that mode — without crashing. The sweep is per-arch crash coverage of
+# every renderer (codegen / relocation / calling-convention faults the host-only
+# render unit tests cannot reach), not a hardening-specific check. There is no in-process oracle to
 # diff against and no stored golden master: the committed fixture is just
 # sysroot/ + meta.txt + sizes.txt, and nothing depends on the volatile verbose
-# output. Truth-containment and per-rule soundness are covered by the pure unit
-# tests (make check / test_engine / test_engine_integration); this is the
-# end-to-end "does the real binary run on real captured layouts" check.
+# output. Truth-containment / soundness is covered elsewhere: by the pure unit
+# tests (make check / test_engine / test_engine_integration), offline against a
+# captured bundle by extra/validate-bundle, and on live kernels by tests/vm/run.
+# This harness is purely the end-to-end "does the real binary run on real
+# captured layouts" check across architectures.
 #
 # Two modes:
 #   - Native (KASLD_NATIVE=1): run host-arch fixtures directly, no qemu. CI runs
@@ -27,7 +32,7 @@
 # emulation, and whether a leak/probe component fires is environment-dependent.
 #
 # Usage:  tests/replay [FIXTURE_DIR ...]      (default: all under tests/fixtures)
-# Env:    QEMU_DIR      (default /home/user/qemu/build)
+# Env:    QEMU_DIR      (default: resolve qemu-<arch> from PATH)
 #         BUILD_DIR     (default ./build)
 #         KASLD_NATIVE=1  run host-arch fixtures directly, no qemu (CI mode).
 #                       Foreign-arch fixtures are skipped; the binary is taken
@@ -39,9 +44,19 @@
 set -u
 
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
-QEMU_DIR=${QEMU_DIR:-/home/user/qemu/build}
+QEMU_DIR=${QEMU_DIR:-}   # empty: resolve qemu-<arch> from PATH
 BUILD_DIR=${BUILD_DIR:-$ROOT/build}
 FIXROOT=$ROOT/tests/fixtures
+
+# qemu-user binary for $1 (e.g. qemu-aarch64): from QEMU_DIR if set, else PATH.
+# Empty if not found.
+resolve_qemu() {
+  if [ -n "$QEMU_DIR" ]; then
+    [ -x "$QEMU_DIR/$1" ] && echo "$QEMU_DIR/$1"
+  else
+    command -v "$1" 2>/dev/null
+  fi
+}
 
 # Map a raw `uname -m` to "<build-subdir> <qemu-binary>". Endianness lives in
 # the raw machine string (mips vs mipsel, ppc64 vs ppc64le), which is why this
@@ -140,15 +155,21 @@ run_fixture() {
       printf 'SKIP  %-44s (no target mapping for uname_m=%s)\n' "$name" "$machine"; echo skip >"$st"; return
     fi
     subdir=${map% *}; qbin=${map#* }
-    kasld="$BUILD_DIR/$subdir/kasld"
-    comps="$BUILD_DIR/$subdir/components"
-    if [ ! -x "$kasld" ]; then
-      printf 'SKIP  %-44s (no binary: %s — run make cross)\n' "$name" "$subdir/kasld"; echo skip >"$st"; return
+    # Resolve the build dir by arch glob, not the exact triple: `make cross`
+    # (dev) and the cross-tools/musl-cross CI toolchains spell the triple
+    # differently (e.g. aarch64-linux-musl vs aarch64-unknown-linux-musl) but
+    # share the leading arch component, so glob build/<arch>-* for the binary.
+    kasld=""; comps=""
+    for bd in "$BUILD_DIR/${subdir%%-*}"-*; do
+      [ -x "$bd/kasld" ] && { kasld="$bd/kasld"; comps="$bd/components"; break; }
+    done
+    if [ -z "$kasld" ]; then
+      printf 'SKIP  %-44s (no binary: %s-*/kasld — run make cross)\n' "$name" "${subdir%%-*}"; echo skip >"$st"; return
     fi
-    if [ ! -x "$QEMU_DIR/$qbin" ]; then
+    runner=$(resolve_qemu "$qbin")
+    if [ -z "$runner" ]; then
       printf 'SKIP  %-44s (no qemu: %s)\n' "$name" "$qbin"; echo skip >"$st"; return
     fi
-    runner="$QEMU_DIR/$qbin"
   fi
 
   # Reconstruct a scratch sysroot: copy captured facts, then materialise the
@@ -193,44 +214,54 @@ run_fixture() {
     "$sc/replay.txt" 2>/dev/null || true)
   n_results=$(grep -cE '^[VPD] ' "$sc/replay.txt" 2>/dev/null || true)
 
-  # Hardening sweep: re-run with -H (text), -H -m (markdown) and -H -j (json).
-  # All three render the assessment through the shared build_hardening_report()
-  # model, so this is the only per-arch, real-fixture coverage of those paths —
-  # it catches an emulation crash (signal) or a relocation/codegen artifact that
-  # the host-only renderer unit tests cannot. Each must finish without a signal
-  # (rc < 128) and emit its hardening section header. Skipped if the main run
-  # already crashed.
-  hard_fail=""
+  # Output-mode sweep: re-run the binary in each remaining output mode and
+  # confirm it renders without an emulation crash (signal) and emits that mode's
+  # marker. This is per-arch crash coverage of every renderer, which the
+  # host-only render unit tests cannot reach. The five renderers are covered by
+  # four sweep runs plus the -v main run above: -1 (oneline), and -H / -H -m /
+  # -H -j (the hardening detail toggle, which renders the FULL analysis in
+  # text / markdown / json *plus* the hardening section — so it also exercises
+  # the json and markdown analysis renderers). Bare -j / -m are therefore
+  # redundant and omitted, saving two pipeline runs per fixture. Each line is
+  # "flags<TAB>marker the mode must emit". Skipped if the main run already
+  # crashed; read in-shell (heredoc, not a pipe) so the failure flag survives.
+  mode_fail=""
   if [ "$rc" -lt 128 ]; then
-    for hflags in "-H" "-H -m" "-H -j"; do
+    while IFS="$(printf '\t')" read -r mflags marker; do
+      [ -n "$mflags" ] || continue
       QEMU_UNAME="$release" KASLD_UNAME_RELEASE="$release" KASLD_SYSROOT="$sc/r" \
         KASLD_COMPONENT_DIR="$comps" KASLD_EXEC_WRAPPER="$runner" \
-        $runner "$kasld" $hflags > "$sc/hard.txt" 2>/dev/null
-      hrc=$?
-      if [ "$hrc" -ge 128 ]; then
-        hard_fail="$hflags signal $((hrc - 128))"
+        $runner "$kasld" $mflags > "$sc/mode.txt" 2>/dev/null
+      mrc=$?
+      if [ "$mrc" -ge 128 ]; then
+        mode_fail="'$mflags' signal $((mrc - 128))"
         break
       fi
-      if ! grep -qE 'Hardening Assessment|"hardening"' "$sc/hard.txt"; then
-        hard_fail="$hflags no hardening section"
+      if ! grep -qE "$marker" "$sc/mode.txt"; then
+        mode_fail="'$mflags' rendered no output ($marker)"
         break
       fi
-    done
+    done <<EOF
+-1	arch=
+-H	Hardening Assessment
+-H -m	Hardening Assessment|"hardening"
+-H -j	"hardening"
+EOF
   fi
 
   if [ "$rc" -ge 128 ]; then
     printf 'FAIL  %-44s (crashed under emulation: signal %d)\n' \
       "$name" "$((rc - 128))"
     echo fail >"$st"
-  elif [ -n "$hard_fail" ]; then
-    printf 'FAIL  %-44s (hardening sweep: %s)\n' "$name" "$hard_fail"
+  elif [ -n "$mode_fail" ]; then
+    printf 'FAIL  %-44s (output mode %s)\n' "$name" "$mode_fail"
     echo fail >"$st"
   elif [ "$has_summary" -gt 0 ]; then
-    printf 'PASS  %-44s rc=%d, %d results, summary + hardening rendered\n' \
+    printf 'PASS  %-44s rc=%d, %d results, all output modes ok\n' \
       "$name" "$rc" "$n_results"
     echo pass >"$st"
   else
-    printf 'PASS  %-44s rc=%d, no results, hardening rendered\n' "$name" "$rc"
+    printf 'PASS  %-44s rc=%d, no results, all output modes ok\n' "$name" "$rc"
     echo pass >"$st"
   fi
 
