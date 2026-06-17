@@ -10,9 +10,9 @@ KASLD has six test layers, in increasing order of setup cost:
 3. **Cross-arch engine tests** — the unit tests run on each architecture under
    qemu-user, so arch-gated rule bodies execute their real path.
 4. **Coverage reports** — optional, gcov-based.
-5. **Live cross-architecture validation** (`tests/vm/run`) — boots real Alpine
-   kernels under `qemu-system` and checks the inferred range contains the live
-   kernel's true base, across arches and privilege profiles.
+5. **Live cross-architecture validation** (`tests/vm/run`) — boots real
+   publicly-fetchable kernels under `qemu-system` and checks the inferred range
+   contains the live kernel's true base, across arches and privilege profiles.
 6. **Parser fuzz harnesses** (`tests/fuzz/`) — libFuzzer harnesses for the four
    pure string→struct parsers in `src/orchestrator.c`. Opt-in (`make fuzz`),
    not part of CI.
@@ -295,6 +295,21 @@ skipped (not failed) when either is missing. After running the scenarios,
 sound` matrix from the boot logs; the published snapshot is in
 [reproducibility.md](reproducibility.md). See
 [tests/vm/README.md](../tests/vm/README.md) for the full arch list and options.
+
+Architectures Alpine does not port (`mips`, `mipsel`, `riscv32`, `ppc32`) are
+built from a pinned kernel.org source by `tests/vm/build-kernel` — a stock
+upstream defconfig plus a fixed endianness/devtmpfs overlay — then booted by
+`tests/vm/run` the same way:
+
+```sh
+tests/vm/build-kernel mipsel   # download source + cross-build -> cache (slow)
+tests/vm/run mipsel            # boot it, verdict
+```
+
+This is manual and slow; the arch-gated rule *logic* is covered per-push by
+`make test-cross`. `armeb` is not validated: the only
+big-endian arm toolchain in the cross set is ARMv5 BE32, which can neither run on
+an ARMv7 BE8 kernel nor boot a BE32 kernel under qemu.
 
 ---
 

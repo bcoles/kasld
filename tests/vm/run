@@ -67,6 +67,11 @@ riscv64     | riscv64     | apk  | riscv64      | riscv64     | -M virt         
 loongarch64 | loongarch64 | apk  | loongarch64  | loongarch64 | -M virt                | ttyS0
 ppc64le     | ppc64le     | lts  | powerpc64le  | ppc64       | -M pseries -cpu power9 | hvc0
 s390x       | s390x       | lts  | s390x        | s390x       | -M s390-ccw-virtio     | ttysclp0
+mips        | -           | local| mips         | mips        | -M malta               | ttyS0
+mipsel      | -           | local| mipsel       | mipsel      | -M malta               | ttyS0
+riscv32     | -           | local| riscv32      | riscv32     | -M virt                | ttyS0
+ppc32       | -           | local| powerpc      | ppc         | -M g3beige             | ttyS0
+armeb       | -           | local| armeb        | arm         | -M virt                | ttyAMA0
 '
 
 trim() { echo "$1" | xargs; }
@@ -95,10 +100,12 @@ resolve_target() {
   done
 }
 
-# qemu binary for suffix $1, from QEMU_DIR if set else PATH. Empty if absent.
+# qemu binary for suffix $1: prefer QEMU_DIR, else fall back to PATH. Empty if
+# neither has it. The preference (not exclusive) lets one run mix a locally built
+# qemu (e.g. qemu-system-ppc) with the system qemu for the other arches.
 resolve_qemu() {
-  if [ -n "$QEMU_DIR" ]; then
-    [ -x "$QEMU_DIR/qemu-system-$1" ] && echo "$QEMU_DIR/qemu-system-$1"
+  if [ -n "$QEMU_DIR" ] && [ -x "$QEMU_DIR/qemu-system-$1" ]; then
+    echo "$QEMU_DIR/qemu-system-$1"
   else
     command -v "qemu-system-$1" 2>/dev/null
   fi
@@ -109,7 +116,14 @@ fetch_kernel() {
   _name=$1 _aarch=$2 _flavor=$3 _dest=$4
   [ -f "$_dest" ] && return 0
   mkdir -p "$(dirname "$_dest")"
-  if [ "$_flavor" = apk ]; then
+  if [ "$_flavor" = local ]; then
+    # Gap arch with no Alpine port: the kernel is supplied locally, not fetched.
+    # Produce one with tests/vm/build-kernel, or drop a stock kernel (e.g. from a
+    # Debian qemu image) at this path. Absent -> skip, never a false download.
+    echo "  !! no kernel at $_dest — build it (tests/vm/build-kernel $_name) or"
+    echo "     copy a stock kernel for this arch there, then re-run"
+    return 1
+  elif [ "$_flavor" = apk ]; then
     _repo="$ALPINE_MIRROR/edge/main/$_aarch"
     _apk=$(curl -fsSL "$_repo/" | grep -oE 'linux-lts-[0-9][^"<]*\.apk' | sort -V | tail -1)
     [ -n "$_apk" ] || { echo "  !! no linux-lts apk for $_aarch"; return 1; }
@@ -170,6 +184,9 @@ EOF
   aarch=$(trim "$aarch"); flavor=$(trim "$flavor"); prefix=$(trim "$prefix")
   qsuf=$(trim "$qsuf"); machine=$(trim "$machine"); console=$(trim "$console")
 
+  # Guest RAM. Default 1 GiB; the qemu malta board (mips) caps at 256 MiB.
+  mem=1024; case "$name" in mips | mipsel | mips64 | mips64el) mem=256 ;; esac
+
   echo "=================== $name ($mode) ==================="
   tc=$(resolve_target "$prefix")
   [ -n "$tc" ] || { echo "  SKIP  no build/$prefix-*/kasld with toolchain on PATH (run make cross)"; return 3; }
@@ -192,10 +209,12 @@ EOF
   chmod +x "$work/root/init" "$work/root/kasld" "$work/root/components/"* 2>/dev/null || true
   (cd "$work/root" && find . -print0 | cpio --null -o --format=newc 2>/dev/null | gzip -9 >"$work/initramfs.cpio.gz")
 
-  # loongarch64 boots via UEFI: its kernel is an EFI PE that needs firmware.
-  # Use $LOONGARCH_BIOS if set, else look for an edk2 image next to the resolved
-  # qemu binary (a from-source build keeps it in pc-bios/) or in the usual system
-  # share dirs. Note the firmware must match the qemu that loads it.
+  # Some boards need firmware the qemu binary does not bundle. Discover it next to
+  # the resolved qemu (a from-source build keeps it in pc-bios/), in the usual
+  # system share dirs, or in the distro's cross opensbi package — overridable per
+  # arch. The firmware must match the qemu that loads it.
+  #   loongarch64 — boots via UEFI; its kernel is an EFI PE needing an edk2 image.
+  #   riscv32     — qemu ships only the riscv64 OpenSBI; supply the 32-bit one.
   bios=""
   if [ "$name" = loongarch64 ]; then
     fw=${LOONGARCH_BIOS:-}
@@ -203,6 +222,16 @@ EOF
       for c in "$(dirname "$qemu")/pc-bios/edk2-loongarch64-code.fd" \
                /usr/share/qemu/edk2-loongarch64-code.fd \
                /usr/share/edk2/loongarch64/QEMU_EFI.fd; do
+        [ -f "$c" ] && { fw=$c; break; }
+      done
+    fi
+    [ -n "$fw" ] && bios="-bios $fw"
+  elif [ "$name" = riscv32 ]; then
+    fw=${RISCV32_BIOS:-}
+    if [ -z "$fw" ]; then
+      for c in "$(dirname "$qemu")/pc-bios/opensbi-riscv32-generic-fw_dynamic.bin" \
+               /usr/share/qemu/opensbi-riscv32-generic-fw_dynamic.bin \
+               /usr/lib/riscv32-linux-gnu/opensbi/generic/fw_dynamic.bin; do
         [ -f "$c" ] && { fw=$c; break; }
       done
     fi
@@ -232,7 +261,7 @@ EOF
   log="$work/boot-$mode.log"
   echo "  [*] booting $qemu ($machine) -> $log"
   # shellcheck disable=SC2086
-  timeout "$TIMEOUT" $qemu $machine $accel -smp 1 -m 1024 $bios \
+  timeout "$TIMEOUT" $qemu $machine $accel -smp 1 -m "$mem" $bios \
     -kernel "$CACHE/$name-vmlinuz" -initrd "$work/initramfs.cpio.gz" \
     -nographic -no-reboot -append "$append" >"$log" 2>&1 || true
   # Strip CR and NUL bytes: early console output can contain binary noise that
@@ -258,6 +287,7 @@ bits_of() {
 cmd_table() {
   printf '| arch | release | scenario | KASLR | recovered | residual bits | sound |\n'
   printf '|------|---------|----------|-------|-----------|---------------|-------|\n'
+  timing_seen=
   for a in $arches; do
     for scen in default hide hardened nokaslr; do
       log="$HERE/$a/boot-$scen.log"
@@ -273,6 +303,9 @@ cmd_table() {
       min=$(grep -am1 -oE '"virt_image_base_min": *"0x[0-9a-fA-F]+"' "$log" | grep -oE '0x[0-9a-fA-F]+')
       max=$(grep -am1 -oE '"virt_image_base_max": *"0x[0-9a-fA-F]+"' "$log" | grep -oE '0x[0-9a-fA-F]+')
       disabled=$(grep -am1 -oE '"disabled": *(true|false)' "$log" | awk '{print $2}')
+      # How the resolved base was reached. "timing" means a timing side-channel
+      # (e.g. prefetch) — environment-dependent, so the cell is flagged.
+      method=$(grep -am1 -oE '"consensus_method": *"[a-z]+"' "$log" | grep -oE '[a-z]+"$' | tr -d '"')
       bits=$(bits_of "$log"); [ -n "$bits" ] || bits='—'
       t=$(norm "$truth"); lo=$(norm "$min"); hi=$(norm "$max")
       kas=on; [ "$disabled" = true ] && kas=off
@@ -282,10 +315,18 @@ cmd_table() {
       fi
       rec=no; [ "$lo" = "$hi" ] && rec=yes
       if hexle "$lo" "$t" && hexle "$t" "$hi"; then snd=yes; else snd=NO; fi
+      # Residual KASLR entropy: 0 when there is none left — KASLR off (no entropy
+      # to begin with) or a randomized base fully recovered. A '—' survives only
+      # when KASLR is on, the window is not a point, AND the arch emits no virtual
+      # entropy figure (so the count is unavailable, not zero).
       [ "$rec" = yes ] && bits=0
-      printf '| %s | %s | %s | %s | %s | %s | %s |\n' "$a" "$rel" "$scen" "$kas" "$rec" "$bits" "$snd"
+      [ "$kas" = off ] && bits=0
+      recmark=; [ "$method" = timing ] && { recmark=' *'; timing_seen=1; }
+      printf '| %s | %s | %s | %s | %s%s | %s | %s |\n' "$a" "$rel" "$scen" "$kas" "$rec" "$recmark" "$bits" "$snd"
     done
   done
+  # shellcheck disable=SC2016  # backticks are literal markdown, not a subshell
+  [ -n "$timing_seen" ] && printf '\n`*` reached via a timing side-channel (e.g. prefetch) — hardware/KVM-dependent, not available under pure emulation.\n'
 }
 
 # ---- dispatch ----

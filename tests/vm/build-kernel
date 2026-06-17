@@ -1,0 +1,128 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# tests/vm/build-kernel — build a bootable kernel from kernel.org source for the
+# gap architectures Alpine does not ship (the tests/vm `flavor=local` set: mips,
+# mipsel, riscv32, ppc32, armeb). Output is staged to tests/vm/.cache/<arch>-vmlinuz,
+# which tests/vm/run then boots with the same init.c initramfs as the Alpine
+# flavors. Alpine stays the default for every arch it ports; this only fills gaps.
+#
+# Reproducible: a pinned kernel.org source tarball + a stock upstream defconfig +
+# a fixed overlay (endianness where the target byte order differs from the base
+# defconfig — e.g. mips forces BE over malta's LE default — plus devtmpfs so the
+# initramfs init gets a console). No config content is maintained here. Slow;
+# run manually.
+#
+# Prereqs: the arch's cross toolchain on PATH (the same set `make cross` uses,
+# located via build/<prefix>-*), a host C toolchain + the kernel build deps
+# (bison flex bc libelf/elfutils openssl), and curl + xz.
+#
+# Usage:  tests/vm/build-kernel [arch...]   (default: the bootable gap arches)
+# Env:    LINUX_VERSION  pinned source version (default below)
+#         LINUX_MIRROR   kernel.org mirror base
+#         BUILD_DIR      kasld build root (to find the cross toolchain triple)
+#         JOBS           parallel make jobs
+# ---
+# <bcoles@gmail.com>
+set -u
+
+HERE=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+ROOT=$(CDPATH='' cd -- "$HERE/../.." && pwd)
+CACHE=$HERE/.cache
+BUILD_DIR=${BUILD_DIR:-$ROOT/build}
+# 6.15.x: the 6.12 LTS source does not build with a C23-default compiler (gcc 15
+# treats true/false/bool as keywords, which the pre-6.13 MIPS vdso clashes with);
+# 6.15 is C23-clean across the gap-arch trees here.
+LINUX_VERSION=${LINUX_VERSION:-6.15.6}
+LINUX_MIRROR=${LINUX_MIRROR:-https://cdn.kernel.org/pub/linux/kernel}
+JOBS=${JOBS:-$(nproc 2>/dev/null || echo 1)}
+
+# Default build set: the gap arches that boot and validate here. armeb has a spec
+# (below) but is excluded — the cross set's only big-endian arm toolchain is ARMv5
+# BE32, which can neither run on an ARMv7 BE8 kernel nor boot a BE32 kernel under
+# qemu; building it would stage a kernel `tests/vm/run` cannot validate. Build it
+# explicitly (`build-kernel armeb`) if a BE8-capable armv7 toolchain is added.
+ALL_ARCHES="mips mipsel riscv32 ppc32"
+
+# arch -> "tc-prefix kernel-ARCH defconfig image endian"
+#   tc-prefix : build/<prefix>-* dir whose triple gives CROSS_COMPILE
+#   image     : make target; staged from <O>/vmlinux or <O>/arch/<ARCH>/boot/<img>
+#   endian    : - (use defconfig as-is), le, or be (one-line overlay)
+spec_for() {
+  case "$1" in
+  mips)    echo "mips     mips    malta_defconfig    vmlinux be" ;;
+  mipsel)  echo "mipsel   mips    malta_defconfig    vmlinux le" ;;
+  riscv32) echo "riscv32  riscv   rv32_defconfig     Image   -" ;;
+  ppc32)   echo "powerpc  powerpc pmac32_defconfig   vmlinux -" ;;
+  armeb)   echo "armeb    arm     multi_v7_defconfig zImage  be" ;;
+  *)       echo "" ;;
+  esac
+}
+
+# tc-prefix -> "triple-" for CROSS_COMPILE (the make-cross triple whose gcc is on
+# PATH); empty if none. Naming-agnostic, like tests/run and tests/test-cross.
+cross_for() {
+  for d in "$BUILD_DIR/$1"-*; do
+    [ -d "$d" ] || continue
+    t=$(basename "$d")
+    command -v "${t}-gcc" >/dev/null 2>&1 && { echo "${t}-"; return; }
+  done
+}
+
+src=$CACHE/linux-$LINUX_VERSION
+
+fetch_src() {
+  [ -d "$src" ] && return 0
+  mkdir -p "$CACHE"
+  maj=${LINUX_VERSION%%.*}
+  url="$LINUX_MIRROR/v${maj}.x/linux-$LINUX_VERSION.tar.xz"
+  echo "[*] fetching $url"
+  curl -fSL "$url" | tar -xJ -C "$CACHE" || { echo "!! source fetch failed"; return 1; }
+}
+
+build_one() {
+  arch=$1
+  spec=$(spec_for "$arch")
+  [ -n "$spec" ] || { echo "SKIP  $arch (no build spec)"; return 0; }
+  # shellcheck disable=SC2086  # spec fields are space-separated by construction
+  set -- $spec
+  tcp=$1 ka=$2 defc=$3 image=$4 endian=$5
+  cc=$(cross_for "$tcp")
+  [ -n "$cc" ] || { echo "SKIP  $arch (no $tcp toolchain on PATH — run make cross)"; return 0; }
+
+  bdir=$CACHE/kbuild-$arch
+  echo "=== $arch: ARCH=$ka $defc  CROSS_COMPILE=$cc  (endian=$endian) ==="
+  make -C "$src" O="$bdir" ARCH="$ka" CROSS_COMPILE="$cc" "$defc" >/dev/null ||
+    { echo "  !! $defc failed"; return 1; }
+  # Config overlay. (1) Endianness, where the target order differs from the base
+  # defconfig. (2) devtmpfs + auto-mount, so the kernel creates /dev/console
+  # before exec'ing init — some defconfigs (e.g. pmac32) omit devtmpfs, leaving
+  # the initramfs init with no console and no captured output. Harmless where on.
+  case "$endian" in
+  le) "$src/scripts/config" --file "$bdir/.config" -d CPU_BIG_ENDIAN -e CPU_LITTLE_ENDIAN ;;
+  be) "$src/scripts/config" --file "$bdir/.config" -d CPU_LITTLE_ENDIAN -e CPU_BIG_ENDIAN ;;
+  esac
+  "$src/scripts/config" --file "$bdir/.config" -e DEVTMPFS -e DEVTMPFS_MOUNT
+  make -C "$src" O="$bdir" ARCH="$ka" CROSS_COMPILE="$cc" olddefconfig >/dev/null
+  make -C "$src" O="$bdir" ARCH="$ka" CROSS_COMPILE="$cc" -j"$JOBS" "$image" ||
+    { echo "  !! build failed"; return 1; }
+
+  case "$image" in
+  vmlinux) img="$bdir/vmlinux" ;;
+  *)       img="$bdir/arch/$ka/boot/$image" ;;
+  esac
+  [ -f "$img" ] || { echo "  !! no image at $img"; return 1; }
+  cp "$img" "$CACHE/$arch-vmlinuz"
+  echo "  [ok] staged $CACHE/$arch-vmlinuz  (boot it: tests/vm/run $arch)"
+}
+
+fetch_src || exit 1
+
+if [ "$#" -eq 0 ]; then
+  # shellcheck disable=SC2086  # intentional word-split of the default set
+  set -- $ALL_ARCHES
+fi
+
+rc=0
+for a in "$@"; do build_one "$a" || rc=1; done
+exit $rc
