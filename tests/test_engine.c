@@ -1387,6 +1387,120 @@ static void test_cmdline_mem_phys_ceiling_no_signal(void) {
 #endif
 }
 
+/* ------------------------------------------------------------------------
+ * Isolated unit tests for arch-gated rules: each asserts the active behaviour
+ * on its own arch and stays inert (emits no constraint) elsewhere, so it is
+ * meaningfully exercised under make test-cross rather than only on the host.
+ * ------------------------------------------------------------------------ */
+
+int rule_cmdline_mem_virt_ceiling(const struct evidence_set *ev,
+                                  const struct estimate *est,
+                                  struct constraint *out, int out_max);
+
+/* cmdline_mem_virt_ceiling (coupled arches): `mem=N` + SF_IMAGE_SIZE + a pinned
+ * Q_PAGE_OFFSET -> C_UPPER_BOUND on Q_VIRT_IMAGE_BASE at
+ * floor(page_offset + mem - image_size + IMAGE_BASE_OFFSET, valign). */
+static void test_cmdline_mem_virt_ceiling(void) {
+  struct engine e;
+  engine_init(&e);
+  struct estimate potop;
+  quantities[Q_PAGE_OFFSET].init_top(&potop);
+  unsigned long po = potop.lo + 0x10000000ul; /* a plausible VMSPLIT offset */
+  unsigned long ksize = 0x1000000ul;          /* 16 MiB image */
+  unsigned long mem = 0x20000000ul;           /* 512 MiB mem= cap (> image) */
+
+  struct observation pl = mk_obs(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, po,
+                                 LO_SET, POS_BASE, CONF_PARSED);
+  struct observation m = mk_scalar(SF_PHYS_CMDLINE_MEM, mem, CONF_PARSED);
+  struct observation k = mk_scalar(SF_IMAGE_SIZE, ksize, CONF_PARSED);
+  evidence_add(&e.ev, &pl);
+  evidence_add(&e.ev, &m);
+  evidence_add(&e.ev, &k);
+
+  const rule_fn rules[] = {rule_page_offset_from_landmark,
+                           rule_cmdline_mem_virt_ceiling};
+  engine_run(&e, rules, 2);
+
+  struct estimate vtop;
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&vtop);
+#if TEXT_TRACKS_DIRECTMAP
+  /* Compute the bound from the page_offset actually pinned by the landmark, so
+   * the check holds whatever value the coupled arch resolves it to. */
+  if (e.est[Q_PAGE_OFFSET].lo == e.est[Q_PAGE_OFFSET].hi) {
+    struct estimate vatop;
+    quantities[Q_VIRT_KASLR_ALIGN].init_top(&vatop);
+    unsigned long valign = vatop.lo < (unsigned long)KASLR_VIRT_ALIGN
+                               ? (unsigned long)KASLR_VIRT_ALIGN
+                               : vatop.lo;
+    unsigned long pin = e.est[Q_PAGE_OFFSET].lo;
+    unsigned long expect = kasld_floor_virt_text_bound(
+        pin + mem - ksize + (unsigned long)IMAGE_BASE_OFFSET, valign);
+    if (expect > (unsigned long)KASLR_VIRT_TEXT_MIN && expect < vtop.hi)
+      assert(e.est[Q_VIRT_IMAGE_BASE].hi == expect);
+  }
+#else
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi == vtop.hi); /* inert off coupled arches */
+#endif
+}
+
+int rule_riscv64_va_bits_pin(const struct evidence_set *ev,
+                             const struct estimate *est, struct constraint *out,
+                             int out_max);
+
+/* riscv64_va_bits_pin: SF_VIRT_ADDR_BITS (mmu : svN) -> C_EQUALS Q_VA_BITS. */
+static void test_riscv64_va_bits_pin(void) {
+  struct engine e;
+  engine_init(&e);
+  struct observation o = mk_scalar(SF_VIRT_ADDR_BITS, 48, CONF_PARSED);
+  evidence_add(&e.ev, &o);
+  const rule_fn rules[] = {rule_riscv64_va_bits_pin};
+  engine_run(&e, rules, 1);
+#if defined(__riscv) && __riscv_xlen == 64
+  int found = 0;
+  for (int i = 0; i < e.n_constraints; i++)
+    if (e.constraints[i].q == Q_VA_BITS && e.constraints[i].op == C_EQUALS &&
+        e.constraints[i].value == 48)
+      found = 1;
+  assert(found);
+#else
+  for (int i = 0; i < e.n_constraints; i++)
+    assert(e.constraints[i].q != Q_VA_BITS); /* inert off riscv64 */
+#endif
+}
+
+int rule_vmsplit_text_base(const struct evidence_set *ev,
+                           const struct estimate *est, struct constraint *out,
+                           int out_max);
+
+/* vmsplit_text_base (arm32, no KASLR): a virtual kernel-text witness snaps to
+ * its 1 GiB VMSPLIT boundary, pinning Q_PAGE_OFFSET to that boundary and
+ * Q_VIRT_IMAGE_BASE to boundary + IMAGE_BASE_OFFSET. */
+static void test_vmsplit_text_base(void) {
+  struct engine e;
+  engine_init(&e);
+  /* _text for a 2G/2G split: PAGE_OFFSET 0x80000000 (an arm32 VMSPLIT
+   * candidate) + IMAGE_BASE_OFFSET. */
+  unsigned long boundary = 0x80000000ul;
+  unsigned long witness = boundary + (unsigned long)IMAGE_BASE_OFFSET;
+  struct observation o = mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, witness,
+                                LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
+  evidence_add(&e.ev, &o);
+  const rule_fn rules[] = {rule_vmsplit_text_base};
+  engine_run(&e, rules, 1);
+#if defined(HAVE_VMSPLIT_PAGE_OFFSET) && !KASLR_SUPPORTED
+  assert(e.est[Q_PAGE_OFFSET].lo == boundary &&
+         e.est[Q_PAGE_OFFSET].hi == boundary);
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo == witness &&
+         e.est[Q_VIRT_IMAGE_BASE].hi == witness);
+#else
+  struct estimate potop, vtop;
+  quantities[Q_PAGE_OFFSET].init_top(&potop);
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&vtop);
+  assert(e.est[Q_PAGE_OFFSET].lo == potop.lo); /* inert off arm32 */
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi == vtop.hi);
+#endif
+}
+
 /* cmdline_memmap_phys_exclude: each PHYS REGION_CMDLINE_MEMMAP extent
  * + SF_IMAGE_SIZE → C_EXCLUDE on Q_PHYS_IMAGE_BASE over the inclusive hole.
  * Iterates ALL reservations (up to engine cap). */
@@ -4627,6 +4741,9 @@ int main(void) {
   RUN(test_cmdline_phys_exclude);
   RUN(test_cmdline_mem_phys_ceiling);
   RUN(test_cmdline_mem_phys_ceiling_no_signal);
+  RUN(test_cmdline_mem_virt_ceiling);
+  RUN(test_riscv64_va_bits_pin);
+  RUN(test_vmsplit_text_base);
   RUN(test_cmdline_memmap_phys_exclude);
   RUN(test_cmdline_memmap_no_image_size);
 #if defined(__x86_64__)
