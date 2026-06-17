@@ -109,11 +109,12 @@ __attribute__((unused)) static DIR *kasld_opendir(const char *path) {
  * release-named /boot paths (vmlinuz-<rel>, config-<rel>, System.map-<rel>)
  * from uname().release, so when reading a copied tree the release must match
  * that tree, not the host's. KASLD_SYSROOT redirects the path; this supplies
- * the release in it. The override is needed because it propagates to subprocesses
- * via the environment, whereas qemu-user's QEMU_UNAME is not honored after the
- * self-re-exec qemu performs for a foreign-arch child. Unset (normal runs) =>
- * exact uname() pass-through. Only .release is overridden; .machine is the
- * emulated arch (already correct under qemu) and compile-time on native. */
+ * the release in it. The override is needed because it propagates to
+ * subprocesses via the environment, whereas qemu-user's QEMU_UNAME is not
+ * honored after the self-re-exec qemu performs for a foreign-arch child. Unset
+ * (normal runs) => exact uname() pass-through. Only .release is overridden;
+ * .machine is the emulated arch (already correct under qemu) and compile-time
+ * on native. */
 __attribute__((unused)) static int kasld_uname(struct utsname *u) {
   int rc = uname(u);
   if (rc == 0) {
