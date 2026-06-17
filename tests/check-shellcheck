@@ -1,20 +1,17 @@
 #!/bin/sh
 # This file is part of KASLD - https://github.com/bcoles/kasld
 #
-# check-shellcheck — run shellcheck on the shipped shell scripts in extra/.
+# check-shellcheck — run shellcheck on every shipped shell script.
 #
-# extra/ holds the operator-facing helper scripts (check-results, collect,
-# validate-bundle, check-hardware-vulnerabilities, ...). They are not compiled
-# and not covered by the unit tests, so shellcheck is their only automated guard
-# against quoting / portability / set -e bugs.
+# Covers the operator-facing helpers in extra/ (check-results, collect, ...) and
+# the build/lint/replay drivers under tests/ (check-*, replay, test-cross,
+# coverage, vm/run, vm/build-kernel, fuzz/seed-from-fixtures.sh, ...). None are
+# compiled or covered by the unit tests, so shellcheck is their only automated
+# guard against quoting / portability / set -e bugs.
 #
 # Soft dependency: if shellcheck is not installed this SKIPs (exit 0) so a local
 # `make test` still works without it. CI installs shellcheck, so the check
 # actually runs there.
-#
-# Scope is extra/ only: those scripts are shellcheck-clean today, so this guard
-# keeps them that way. (The tests/ guards carry some pre-existing findings; add
-# them here once cleaned.)
 #
 # Usage: tests/check-shellcheck   (also run by `make lint` / `make test`)
 # ---
@@ -36,13 +33,13 @@ if ! command -v shellcheck >/dev/null 2>&1; then
   exit 0
 fi
 
-# Shipped shell scripts, detected by shebang (a #! line mentioning sh/bash/...):
-# everything in extra/, plus the tests/vm live-validation driver (also user-
-# facing and shellcheck-clean — kept that way here). The rest of tests/ carries
-# pre-existing findings and stays out of scope; add scripts individually as they
-# are cleaned.
+# Every shipped shell script, detected by shebang (a #! line mentioning
+# sh/bash/...): the operator helpers in extra/ and the build/lint/replay drivers
+# under tests/. Globs are one level deep per directory, so the gitignored
+# kernel-source cache (tests/vm/.cache) and the binary fuzz corpora are not
+# walked. All are shellcheck-clean; this guard keeps them so.
 scripts=
-for f in "$EXTRA"/* "$ROOT/tests/vm/run" "$ROOT/tests/run-all"; do
+for f in "$EXTRA"/* "$ROOT"/tests/* "$ROOT"/tests/vm/* "$ROOT"/tests/fuzz/*; do
   [ -f "$f" ] || continue
   case "$(head -1 "$f" 2>/dev/null)" in
     '#!'*sh*) scripts="$scripts $f" ;;

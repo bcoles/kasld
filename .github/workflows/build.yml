@@ -14,7 +14,7 @@ jobs:
 
     - name: Install dependencies
       # shellcheck lets `make check`'s lint guards run tests/check-shellcheck
-      # over the extra/ helper scripts (it soft-skips when absent).
+      # over all shipped shell scripts (extra/ + tests/); it soft-skips when absent.
       run: sudo apt-get update && sudo apt-get install -y zlib1g-dev gcc-i686-linux-gnu shellcheck
 
     - name: Build

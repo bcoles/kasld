@@ -94,5 +94,6 @@ done
 
 [ "$fail" = 0 ] || exit 1
 
+# shellcheck disable=SC2086  # word-split the allowlist into argv to count via $#
 set -- $ALLOW
 printf '%sself-edge guard: OK%s (%s reviewed self-edges, none new)\n' "$GREEN" "$RESET" "$#"

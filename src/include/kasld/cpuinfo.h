@@ -3,7 +3,7 @@
 // CPU physical-address-width reader (/proc/cpuinfo), without privileges.
 //
 // Read by the engine bridge. Reads route through the kasld_* wrappers, so it is
-// KASLD_SYSROOT-aware (replayable).
+// KASLD_SYSROOT-aware.
 // ---
 // <bcoles@gmail.com>
 

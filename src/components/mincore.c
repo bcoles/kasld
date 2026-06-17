@@ -136,11 +136,11 @@ int main(int argc, char *argv[]) {
   kasld_cli(argc, argv);
 
   /* Live timing side-channel: this probes the running kernel through mincore()
-   * and reads no captured state. Under KASLD_SYSROOT replay there is nothing
-   * live to probe, so skip the multi-second scan rather than run it to the
-   * give-up deadline against the host kernel. */
+   * and reads no files. When KASLD_SYSROOT redirects reads to a copied tree
+   * there is no live kernel to probe, so skip the multi-second scan rather than
+   * run it to the give-up deadline against the host kernel. */
   if (kasld_sysroot()) {
-    kasld_info("skipping live mincore probe under KASLD_SYSROOT replay");
+    kasld_info("skipping live mincore probe under KASLD_SYSROOT");
     return 0;
   }
 

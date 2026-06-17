@@ -1,15 +1,15 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
-// KASLD_SYSROOT: optional path-redirection layer for offline replay.
+// KASLD_SYSROOT: optional path-redirection layer for offline analysis.
 //
 // When the environment variable KASLD_SYSROOT names a non-empty directory,
 // every kernel-fact path kasld reads (/proc, /sys, /boot, /var/log, ...) is
 // transparently rewritten to "<KASLD_SYSROOT><path>", so the analysis runs
-// against a captured filesystem tree instead of the live kernel. Inference
-// is a pure function of these inputs, so a faithful capture replays to the
-// same bounds offline — and to a foreign-arch capture under qemu-user with
-// the matching cross-built kasld binary. See extra/collect for the capture
-// tool that produces these trees.
+// against a copy of those files taken from another system instead of the live
+// kernel. Inference is a pure function of these inputs, so the same files yield
+// the same bounds offline — including a foreign-arch copy under qemu-user with
+// the matching cross-built kasld binary. See extra/collect for the tool that
+// gathers such a tree.
 //
 // When KASLD_SYSROOT is unset (the normal case), these wrappers are exact
 // pass-throughs: kasld_resolve() returns the original pointer and no copy is
@@ -19,7 +19,7 @@
 // observe the actual running system regardless of any sysroot deliberately
 // keep the raw libc calls: /proc/self/exe (the real running binary), an
 // ioctl target mountpoint, set-uid leak helpers. Those are runtime
-// primitives, not facts, and cannot be replayed from a capture anyway.
+// primitives, not facts, and have no meaning when read from a copied tree.
 // ---
 // <bcoles@gmail.com>
 
@@ -105,11 +105,11 @@ __attribute__((unused)) static DIR *kasld_opendir(const char *path) {
   return opendir(kasld_resolve(path, buf, sizeof(buf)));
 }
 
-/* uname(2) with a replay override of the kernel release. Components build
+/* uname(2) with an override of the kernel release. Components build
  * release-named /boot paths (vmlinuz-<rel>, config-<rel>, System.map-<rel>)
- * from uname().release, so a capture must present its captured release, not
- * the host's. KASLD_SYSROOT redirects the path; this supplies the release in
- * it. The override is needed because it propagates to component subprocesses
+ * from uname().release, so when reading a copied tree the release must match
+ * that tree, not the host's. KASLD_SYSROOT redirects the path; this supplies
+ * the release in it. The override is needed because it propagates to subprocesses
  * via the environment, whereas qemu-user's QEMU_UNAME is not honored after the
  * self-re-exec qemu performs for a foreign-arch child. Unset (normal runs) =>
  * exact uname() pass-through. Only .release is overridden; .machine is the

@@ -11,7 +11,7 @@
 // only eliminates positions certainly in the forbidden band.
 //
 // Read by the ceiling rule. Reads route through the kasld_* wrappers, so it is
-// KASLD_SYSROOT-aware (replayable).
+// KASLD_SYSROOT-aware.
 // ---
 // <bcoles@gmail.com>
 

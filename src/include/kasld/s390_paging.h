@@ -14,9 +14,9 @@
 // (42 or 53); a rule turns that into the text-base ceiling (text < vmax).
 //
 // Read in-process by the engine bridge (engine_build_evidence): an active mmap
-// probe with no addressable result has no wire form. Like the
-// riscv64 kaslr-disabled / FDT detectors here, it replays from the host's own
-// address space; under qemu it reports qemu's mode, not the captured kernel's.
+// probe with no addressable result has no wire form. It measures the running
+// CPU's own address space; under emulation that is the emulator's paging mode,
+// not the guest kernel's.
 //
 // References:
 //   arch/s390/boot/startup.c: vmax = adjust_to_uv_max(asce_limit)

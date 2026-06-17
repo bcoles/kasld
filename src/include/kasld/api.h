@@ -272,7 +272,7 @@ __extension__ _Static_assert((unsigned long)KERNEL_PHYS_MAX >
  * firmware loads the image at the DRAM base; riscv64 overrides to 2 MiB
  * (OpenSBI). Defined here so the OpenSBI component (compiled for every arch)
  * builds everywhere; only riscv64 code uses a nonzero value, and generic rules
- * must not reference it (enforced by tests/check-text-floor). */
+ * must not reference it. */
 #ifndef RISCV_PHYS_LOAD_OFFSET
 #define RISCV_PHYS_LOAD_OFFSET 0ul
 #endif
@@ -419,8 +419,8 @@ static inline unsigned long arch_default_phys_text_base(void) { return 0; }
 #include <stdio.h>
 #include <string.h>
 
-/* Filesystem-fact reads route through the KASLD_SYSROOT redirection layer so
- * captured filesystem trees replay offline. api.h is kasld's universal
+/* Filesystem-fact reads route through the KASLD_SYSROOT redirection layer so a
+ * copied filesystem tree can be analysed offline. api.h is kasld's universal
  * include root, so pulling it here makes the wrappers visible in every
  * translation unit. */
 #include "sysroot.h"
@@ -532,11 +532,11 @@ static inline int kasld_addr_is_kernel_vas(unsigned long va) {
  * returns the largest value <= addr carrying the correct sub-offset (which is
  * exactly the floor when the sub-offset is 0). It is the single sanctioned way
  * to align a leaked text pointer to a base estimate — components must not roll
- * their own `& -ALIGN` (enforced by tests/check-text-floor). */
+ * their own `& -ALIGN`. */
 /* Pure, parameterised core: the largest value <= addr that is congruent to
  * (default_base mod align) modulo align. `align` must be a non-zero power of
- * two. Split out so the sub-offset arithmetic can be unit-tested against every
- * arch's (align, default_base) pair on a single host — see tests/test_align.c.
+ * two. Split out as a pure function of (align, default_base) so the sub-offset
+ * arithmetic is independent of the arch macros.
  * Callers should use kasld_floor_text_base(), which binds the arch macros. */
 static inline unsigned long
 kasld_floor_aligned_suboffset(unsigned long addr, unsigned long align,
@@ -559,9 +559,8 @@ static inline unsigned long kasld_floor_text_base(unsigned long addr) {
  * result never drops below _text on arches where _text isn't granule-aligned
  * (riscv64 residue +0x2000, arm32 +0x8000, ...). This is the single sanctioned
  * way for a rule to floor a virt text-base bound; a bare `& ~(align - 1)` is
- * unsound there (enforced by tests/check-text-floor). A no-op floor where the
- * residue is 0. The phys axis needs no equivalent: the phys base carries no
- * usable residue. */
+ * unsound there. A no-op floor where the residue is 0. The phys axis needs no
+ * equivalent: the phys base carries no usable residue. */
 static inline unsigned long kasld_floor_virt_text_bound(unsigned long v,
                                                         unsigned long align) {
   if (align == 0)

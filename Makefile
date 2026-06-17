@@ -333,8 +333,8 @@ test : $(TEST_BIN) $(TEST_RENDER_BIN) $(TEST_EST_BIN) $(TEST_EV_BIN) $(TEST_ALIG
 	@$(MAKE) --no-print-directory lint
 
 # Static guards ("lint"): source-invariant greps, the 32-bit narrowing check,
-# and shellcheck over the shipped extra/ scripts — no compiled unit-test
-# binaries. Run after the unit tests by `make test`, and standalone by
+# and shellcheck over all shipped shell scripts (extra/ + tests/) — no compiled
+# unit-test binaries. Run after the unit tests by `make test`, and standalone by
 # `make lint`. Each guard exits non-zero on failure; make halts on the first.
 .PHONY: lint
 lint :

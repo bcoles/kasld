@@ -20,6 +20,9 @@
 # ---
 # <bcoles@gmail.com>
 
+# This is a build script: $CC/$CFLAGS hold a command and flag list that must
+# word-split into argv on every compile and link line.
+# shellcheck disable=SC2086
 set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 CC=${CC:-cc}
@@ -69,7 +72,7 @@ if KASLD_COMPONENT_DIR="$COMP" "$E2E/kasld" -v >/dev/null 2>&1; then runs=$((run
 #     drive deterministic file-fact paths (config, boot_params, iomem, ...).
 meta() { grep -E "^$2:" "$1/meta.txt" 2>/dev/null | head -1 | sed -E 's/^[^:]*:[[:space:]]*//'; }
 for d in "$FIX"/x86_64/*/ "$FIX"/i686/*/; do
-  [ -d "$d" ] && [ -f "$d/meta.txt" ] && [ -f "$d/sizes.txt" ] || continue
+  { [ -d "$d" ] && [ -f "$d/meta.txt" ] && [ -f "$d/sizes.txt" ]; } || continue
   case "$(meta "$d" uname_m_raw)" in x86_64|i686|i386) ;; *) continue ;; esac
   rel=$(meta "$d" kernel_release)
   sc=$(mktemp -d); cp -a "$d/sysroot" "$sc/r"
@@ -90,7 +93,7 @@ done
 
 echo "----------------------------------------------------------------------"
 echo "coverage-e2e: $runs runs (1 live + x86 fixtures), real binary"
-( cd "$E2E" && $GCOV -n *.gcno 2>/dev/null ) | awk '
+( cd "$E2E" && $GCOV -n ./*.gcno 2>/dev/null ) | awk '
   /^File / { f=$0; sub(/^File \047/,"",f); sub(/\047.*/,"",f);
              keep = (f ~ /(^|\/)src\/.*\.c$/) }
   /^Lines executed:/ {

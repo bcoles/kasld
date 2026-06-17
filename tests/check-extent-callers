@@ -85,5 +85,6 @@ done
 
 [ "$fail" = 0 ] || exit 1
 
+# shellcheck disable=SC2086  # word-split the allowlist into argv to count via $#
 set -- $ALLOW
 printf '%sextent-caller guard: OK%s (%s reviewed covering sources, none new)\n' "$GREEN" "$RESET" "$#"

@@ -4,7 +4,7 @@
 // privileges.
 //
 // Read by the engine bridge. Reads route through the kasld_* wrappers, so it is
-// KASLD_SYSROOT-aware (replayable). Search order mirrors boot_config.c.
+// KASLD_SYSROOT-aware. Search order mirrors boot_config.c.
 // ---
 // <bcoles@gmail.com>
 

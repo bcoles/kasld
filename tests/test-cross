@@ -72,9 +72,11 @@ run_target() {
   # quantity tops / PHYS_OFFSET, so they are portable across 64-bit arches.
   # (This harness has caught real arch bugs this way: a 64-bit shift overflow
   # and PHYS_OFFSET-relative assertion errors.)
+  # shellcheck disable=SC2086  # $cc/$CFLAGS/$CORE/$RULES are command + flag/file lists, split intentionally
   if ! $cc $CFLAGS "$ROOT/tests/test_engine.c" $CORE $RULES -o "$d/test_engine" 2>"$d/cc.log"; then
     printf 'FAIL  %-30s (compile test_engine)\n' "$triple"; sed 's/^/      /' "$d/cc.log" | head -5; echo fail >"$st"; return
   fi
+  # shellcheck disable=SC2086  # $cc/$CFLAGS/$CORE/$RULES are command + flag/file lists, split intentionally
   if ! $cc $CFLAGS "$ROOT/tests/test_engine_integration.c" $CORE "$ROOT/src/engine_rules.c" $RULES \
         -o "$d/test_integration" 2>"$d/cc.log"; then
     printf 'FAIL  %-30s (compile test_integration)\n' "$triple"; sed 's/^/      /' "$d/cc.log" | head -5; echo fail >"$st"; return
@@ -84,10 +86,12 @@ run_target() {
   # translation units directly (hence -DKASLD_TESTING and -lpthread) and derives
   # every fixture address from the arch's own layout constants, so it runs on
   # every width and endianness.
+  # shellcheck disable=SC2086  # $cc/$CFLAGS are command + flag list, split intentionally
   if ! $cc $CFLAGS -DKASLD_TESTING "$ROOT/tests/test_kasld.c" -o "$d/test_kasld" -lpthread 2>"$d/cc.log"; then
     printf 'FAIL  %-30s (compile test_kasld)\n' "$triple"; sed 's/^/      /' "$d/cc.log" | head -5; echo fail >"$st"; return
   fi
   # The renderer unit suite (split from test_kasld); same single-TU model.
+  # shellcheck disable=SC2086  # $cc/$CFLAGS are command + flag list, split intentionally
   if ! $cc $CFLAGS -DKASLD_TESTING "$ROOT/tests/test_render.c" -o "$d/test_render" -lpthread 2>"$d/cc.log"; then
     printf 'FAIL  %-30s (compile test_render)\n' "$triple"; sed 's/^/      /' "$d/cc.log" | head -5; echo fail >"$st"; return
   fi

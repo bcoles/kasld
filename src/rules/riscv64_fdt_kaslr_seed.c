@@ -19,9 +19,9 @@
 // phys_kaslr_disabled_pin),
 // SF_EFI_PRESENT (non-EFI only — EFI mixes in efi_kaslr_seed), SF_IMAGE_SIZE,
 // and VIRT text/data leaks for the Path 2 gap. riscv64 only. The active path
-// requires a running kernel that has not yet consumed the FDT kaslr-seed
-// cell — the kernel wipes the cell to 0 after consuming it, so no offline
-// replay carries a usable seed.
+// requires a kernel that has not yet consumed the FDT kaslr-seed cell — the
+// kernel wipes the cell to 0 once it has used it, so a usable seed is visible
+// only before that point.
 // ---
 // <bcoles@gmail.com>
 

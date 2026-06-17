@@ -229,6 +229,7 @@ run_fixture() {
   if [ "$rc" -lt 128 ]; then
     while IFS="$(printf '\t')" read -r mflags marker; do
       [ -n "$mflags" ] || continue
+      # shellcheck disable=SC2086  # $runner (may be empty) and $mflags (flag list) split intentionally
       QEMU_UNAME="$release" KASLD_UNAME_RELEASE="$release" KASLD_SYSROOT="$sc/r" \
         KASLD_COMPONENT_DIR="$comps" KASLD_EXEC_WRAPPER="$runner" \
         $runner "$kasld" $mflags > "$sc/mode.txt" 2>/dev/null

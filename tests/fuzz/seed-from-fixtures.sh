@@ -20,8 +20,8 @@ mkdir -p "$CORPUS_DIR/parse_hex" \
 # Hash-named seed: write to <dir>/<sha1>.txt; idempotent across runs.
 seed() {
   dir=$1
-  echo -n "$2" | (
-    cd "$dir"
+  (
+    cd "$dir" || exit 1
     h=$(printf '%s' "$2" | sha1sum | cut -c1-12)
     printf '%s' "$2" > "${h}.txt"
   )
@@ -64,6 +64,6 @@ seed "$CORPUS_DIR/parse_meta" "$(printf 'sysctl:dmesg_restrict>=1\nsysctl:kptr_r
 
 echo "Seeded corpora:"
 for d in parse_hex capture_result capture_scalar parse_meta; do
-  count=$(ls "$CORPUS_DIR/$d" 2>/dev/null | wc -l)
+  count=$(find "$CORPUS_DIR/$d" -maxdepth 1 -type f 2>/dev/null | wc -l)
   printf '  %-20s  %s entries\n' "$d" "$count"
 done

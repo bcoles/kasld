@@ -18,7 +18,7 @@ constraint set is rarely empty. The inference engine combines parsed
 bootloader artifacts, `dmesg` landmarks, `/proc` and `/sys` facts, and
 architectural invariants to narrow the kernel's possible placement to a
 residual window, reported as the surviving slot count and bits of
-entropy. On architectures without KASLR, the engine derandomises the
+entropy. On architectures without KASLR, the engine locates the
 bootloader-chosen load address.
 
 Supports:
@@ -64,8 +64,8 @@ The default text mode prints an answer-first overview:
 KASLD 0.2.0  --  Kernel ASLR derandomisation
 Target: x86_64 / 6.12.38+deb13-amd64
 
-Running 77 components (10 experimental skipped; use -x to enable)...
-[####################] 100%  77/77  10.5s
+Running 83 components (10 experimental skipped; use -x to enable)...
+[####################] 100%  83/83  10.5s
 
   Virtual text base   0xffffffffa7a00000   slide +0x26a00000
   Physical text base  not derandomized     ~9 bits

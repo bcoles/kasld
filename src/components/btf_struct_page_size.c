@@ -13,8 +13,8 @@
 // BTF layout: a fixed header, a type section (btf_type records, each optionally
 // followed by kind-specific trailing data), and a string section. We scan for a
 // BTF_KIND_STRUCT named "page" with a non-zero size. Native-endian only: the
-// running kernel's BTF matches host byte order, so a magic mismatch (e.g. a
-// cross-endian replay fixture) is treated as unavailable rather than parsed.
+// running kernel's BTF matches host byte order, so a magic mismatch (a blob in
+// the opposite byte order) is treated as unavailable rather than parsed.
 // ---
 // <bcoles@gmail.com>
 

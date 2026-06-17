@@ -50,8 +50,8 @@
 // EFI_KIMG_ALIGN constant. Gated to arches that define EFI_KIMG_ALIGN
 // (arm64, riscv64, x86_64, loongarch64); inert otherwise.
 //
-// Reproducible offline: pure constraint over evidence; no I/O. Replays
-// from a captured `efi=debug` sysroot.
+// A pure constraint over evidence: no I/O. The underlying addresses come from
+// an `efi=debug` dmesg dump parsed elsewhere.
 // ---
 // <bcoles@gmail.com>
 

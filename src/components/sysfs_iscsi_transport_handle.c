@@ -74,10 +74,10 @@ static unsigned long get_kernel_addr_iscsi_iser_transport(void) {
   char buff[buff_len];
 
   /* The NETLINK_ISCSI socket autoloads the module on a live system, and the
-   * poll below waits up to 5s for the sysfs attribute to appear. Under
-   * KASLD_SYSROOT replay there is no live module to load and the captured tree
-   * is already complete, so skip the trigger + wait and read the captured
-   * attribute directly (the read below is KASLD_SYSROOT-aware). */
+   * poll below waits up to 5s for the sysfs attribute to appear. When
+   * KASLD_SYSROOT redirects reads to a copied tree there is no live module to
+   * load and the attribute is already present, so skip the trigger + wait and
+   * read it directly (the read below honours KASLD_SYSROOT). */
   if (!kasld_sysroot()) {
     // Try to load the scsi_transport_iscsi and ib_iser modules
     sock_fd = socket(PF_NETLINK, SOCK_DGRAM, NETLINK_RDMA);

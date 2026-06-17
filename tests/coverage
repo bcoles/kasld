@@ -28,6 +28,9 @@
 # ---
 # <bcoles@gmail.com>
 
+# This is a build script: $CC/$CFLAGS/$OBJS/$PTH_* hold a command and flag/file
+# lists that must word-split into argv on every compile and link line.
+# shellcheck disable=SC2086
 set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 CC=${CC:-cc}
@@ -93,7 +96,7 @@ $CC $CFLAGS "$COV/test_kasld.drv.o" $PTH_L -o "$COV/test_kasld" \
 # .c is covered by exactly one .gcno (its object, or test_kasld's TU for
 # orchestrator/render/region_info), so no double-counting.
 echo "----------------------------------------------------------------------"
-( cd "$COV" && $GCOV -n *.gcno 2>/dev/null ) | awk '
+( cd "$COV" && $GCOV -n ./*.gcno 2>/dev/null ) | awk '
   # Keep our src/*.c only (abs path from gcc, relative from llvm-cov); this
   # excludes included headers and the test drivers (tests/*.c).
   /^File / { f=$0; sub(/^File \047/,"",f); sub(/\047.*/,"",f);

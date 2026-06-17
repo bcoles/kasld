@@ -40,9 +40,9 @@
 //     substrate. Coverings carry their single emitting origin (they bypass the
 //     cross-source merge), so grouping by origin is the per-map split.
 //   * Requires the COMPLETE map. Coverings are emitted only by whole-map
-//     readers (enforced by the pos=extent contract + the check-extent-callers
-//     guard), never partial leaks. If a map holds more extents than the buffer,
-//     BAIL — a dropped middle extent would synthesise a false gap.
+//     readers (the pos=extent contract), never partial leaks. If a map holds
+//     more extents than the buffer, BAIL — a dropped middle extent would
+//     synthesise a false gap.
 //   * kernel_size is SF_IMAGE_SIZE, a deliberate UNDER-estimate, so the
 //   low-edge
 //     widening can only under-exclude, never drop a valid base.

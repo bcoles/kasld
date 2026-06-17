@@ -1981,8 +1981,8 @@ static int ilog2(unsigned long v) {
  * summary below is computed from (defined after engine_build_evidence). Guarded
  * out of the KASLD_TESTING build, which excludes the engine entirely. */
 /* engine_sync_authoritative is compiled in every build (it is a pure
- * projection the unit tests call); engine_resolve and its engine instance are
- * engine-only (they drive the components + engine.c machinery). */
+ * projection with no engine dependencies); engine_resolve and its engine
+ * instance are engine-only (they drive the components + engine.c machinery). */
 static void engine_sync_authoritative(const struct engine *e);
 #ifndef KASLD_TESTING
 static void engine_resolve(struct engine *e);

@@ -5,7 +5,7 @@
 // Each /sys/firmware/memmap/<n>/ has type/start/end files. We collect the
 // "System RAM" entries as inclusive [start, end] physical extents. All reads go
 // through the kasld_* sysroot wrappers (directory enumerated via kasld_opendir,
-// fields via kasld_fopen), so it replays from a captured filesystem tree.
+// fields via kasld_fopen), so they honour KASLD_SYSROOT redirection.
 //
 // Read by the engine bridge, which emits these as PHYS RAM extents that the
 // firmware_memmap_holes verdict consumes.

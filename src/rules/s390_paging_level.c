@@ -13,8 +13,8 @@
 // drops the ceiling from the 8 PiB default to 4 TiB — a 2048x reduction; on
 // 4-level it equals the architectural top (a harmless no-op). Reads the
 // resolved Q_VIRT_KASLR_ALIGN for the slot granularity. s390 only; inert
-// elsewhere. Under qemu the probe reports qemu's paging mode, not the captured
-// kernel's.
+// elsewhere. The paging mode comes from an in-process probe of the running
+// CPU; under emulation that reflects the emulator, not the guest kernel.
 // ---
 // <bcoles@gmail.com>
 

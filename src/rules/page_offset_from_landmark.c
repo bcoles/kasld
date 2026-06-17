@@ -13,8 +13,7 @@
 // `heuristic` derivation); a contradicting landmark would invert the interval
 // and is skipped and recorded as a conflict.
 //
-// Reproducible offline: these landmarks are file-derived (kernel config), so
-// they replay from a captured sysroot. Reads only evidence.
+// A pure constraint over evidence: reads only the evidence set, no I/O.
 // ---
 // <bcoles@gmail.com>
 

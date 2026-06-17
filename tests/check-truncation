@@ -96,6 +96,7 @@ narrowings() {
 # before vouching, prove detection still fires on a KNOWN narrowing. This also
 # rejects an accidentally-64-bit compiler, on which 1<<50 fits the word and
 # would not narrow at all.
+# shellcheck disable=SC2086  # $CC + $CFLAGS are a command and flag list, split intentionally
 if ! printf 'unsigned long f(void){unsigned long n=1ull<<50;return n;}\n' |
   $CC $CFLAGS -x c - 2>&1 | narrowings >/dev/null; then
   printf '%struncation guard: SELF-CHECK FAILED%s — %s did not flag a known\n' \
@@ -114,6 +115,7 @@ RESDIR=$(mktemp -d)
 check_one() {
   f=$1
   res=$2
+  # shellcheck disable=SC2086  # $CC + $CFLAGS are a command and flag list, split intentionally
   out=$($CC $CFLAGS "$f" 2>&1)
   printf '%s\n' "$out" | grep -q "error:" && return # arch-incompatible on 32-bit
   hits=$(printf '%s\n' "$out" | narrowings)
