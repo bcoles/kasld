@@ -153,8 +153,12 @@ int main(void) {
    *               inference (exercises the engine, not the kallsyms shortcut).
    *   hardened  — drop to uid 1000 with kptr_restrict=2, dmesg_restrict=1,
    *               perf_event_paranoid=3: the realistic unprivileged-attacker
-   *               floor, where only file-derived facts survive. */
-  int hide = 0, hardened = 0;
+   *               floor, where only file-derived facts survive.
+   *   stock     — drop to uid 1000 but leave every sysctl at its kernel default
+   *               (kptr_restrict=0, dmesg_restrict=0, perf_event_paranoid=2):
+   *               an unprivileged user on an out-of-the-box kernel, neither
+   *               weakened nor hardened by us. */
+  int hide = 0, hardened = 0, stock = 0;
   {
     int cf = open("/proc/cmdline", O_RDONLY);
     char cb[512];
@@ -167,6 +171,8 @@ int main(void) {
           hide = 1;
         if (strstr(cb, "hardened"))
           hardened = 1;
+        if (strstr(cb, "stock"))
+          stock = 1;
       }
       close(cf);
     }
@@ -203,6 +209,15 @@ int main(void) {
   } else if (hide) {
     write_file("/proc/sys/kernel/kptr_restrict", "2\n");
     printf("=== profile: hide — root, kptr_restrict=2 (no kallsyms) ===\n");
+  } else if (stock) {
+    /* Kernel-default sysctls, nothing weakened or hardened by us: vanilla
+     * defaults are kptr_restrict=0, dmesg_restrict=0, perf_event_paranoid=2.
+     * Reset perf from the -1 used for the ground-truth dump; leave kptr and
+     * dmesg at their defaults. Run unprivileged. */
+    write_file("/proc/sys/kernel/perf_event_paranoid", "2\n");
+    uid = 1000;
+    printf("=== profile: stock — uid=1000, kernel-default sysctls "
+           "(kptr_restrict=0, dmesg_restrict=0, perf_event_paranoid=2) ===\n");
   } else {
     printf("=== profile: default — root, kptr_restrict=0 ===\n");
   }

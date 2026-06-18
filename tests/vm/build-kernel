@@ -37,11 +37,13 @@ LINUX_VERSION=${LINUX_VERSION:-6.15.6}
 LINUX_MIRROR=${LINUX_MIRROR:-https://cdn.kernel.org/pub/linux/kernel}
 JOBS=${JOBS:-$(nproc 2>/dev/null || echo 1)}
 
-# Default build set: the gap arches that boot and validate here. armeb has a spec
-# (below) but is excluded — the cross set's only big-endian arm toolchain is ARMv5
-# BE32, which can neither run on an ARMv7 BE8 kernel nor boot a BE32 kernel under
-# qemu; building it would stage a kernel `tests/vm/run` cannot validate. Build it
-# explicitly (`build-kernel armeb`) if a BE8-capable armv7 toolchain is added.
+# Default build set: the gap arches that boot and validate here. Two specs below
+# are excluded from the default and built only on request:
+#   armeb          — the cross set's only big-endian arm toolchain is ARMv5 BE32,
+#                    which can neither run on an ARMv7 BE8 kernel nor boot a BE32
+#                    kernel under qemu, so the staged kernel cannot be validated.
+#   x86_64-vanilla — Alpine already ships x86_64; this is a neutral upstream build
+#                    for reference/documentation, not a gap to fill.
 ALL_ARCHES="mips mipsel riscv32 ppc32"
 
 # arch -> "tc-prefix kernel-ARCH defconfig image endian"
@@ -55,6 +57,10 @@ spec_for() {
   riscv32) echo "riscv32  riscv   rv32_defconfig     Image   -" ;;
   ppc32)   echo "powerpc  powerpc pmac32_defconfig   vmlinux -" ;;
   armeb)   echo "armeb    arm     multi_v7_defconfig zImage  be" ;;
+  # Not a gap arch — Alpine ships x86_64. This is a vanilla upstream-defconfig
+  # x86_64 kept for a neutral reference build (e.g. documentation samples),
+  # staged under its own name so it never shadows the Alpine matrix kernel.
+  x86_64-vanilla) echo "x86_64   x86     x86_64_defconfig   bzImage -" ;;
   *)       echo "" ;;
   esac
 }

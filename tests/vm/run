@@ -72,6 +72,7 @@ mipsel      | -           | local| mipsel       | mipsel      | -M malta        
 riscv32     | -           | local| riscv32      | riscv32     | -M virt                | ttyS0
 ppc32       | -           | local| powerpc      | ppc         | -M g3beige             | ttyS0
 armeb       | -           | local| armeb        | arm         | -M virt                | ttyAMA0
+x86_64-vanilla | -        | local| x86_64       | x86_64      | -M q35 -cpu max        | ttyS0
 '
 
 trim() { echo "$1" | xargs; }
@@ -254,6 +255,7 @@ EOF
     default)  ;;
     hide)     append="$append hidekptr" ;;
     hardened) append="$append hardened" ;;
+    stock)    append="$append stock" ;;
     nokaslr)  append="$append nokaslr" ;;
     *) echo "  unknown mode: $mode"; return 2 ;;
   esac

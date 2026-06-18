@@ -58,6 +58,7 @@ it is wider but still contains the truth — the correct outcome under restricti
 | `default`  | root, `kptr_restrict=0` | the easy case — kallsyms readable |
 | `hide`     | root, `kptr_restrict=2` | the pin must come from inference |
 | `hardened` | uid 1000, `kptr=2` + `dmesg_restrict=1` + `perf=3` | the realistic unprivileged floor (file-derived facts only) |
+| `stock`    | uid 1000, kernel-default sysctls (`kptr=0`, `dmesg_restrict=0`, `perf=2`) | an unprivileged user on an out-of-the-box kernel — nothing weakened or hardened |
 | `nokaslr`  | `nokaslr` on the cmdline | the KASLR-disabled pin |
 
 ## Architectures
