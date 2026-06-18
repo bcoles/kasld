@@ -394,7 +394,7 @@ On architectures with tight entropy budgets — x86_64 and x86_32 (~500 slots,
 effective slot count by 3–8%. On arm64 (~33M slots) and s390 (~131K slots) the
 reduction is negligible.
 
-Weaknesses in randomisation can decrease entropy, further limiting the possible kernel
+Weaknesses in randomization can decrease entropy, further limiting the possible kernel
 locations in memory and making the kernel easier to locate.
 
 ### Randomization failure at boot

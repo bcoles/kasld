@@ -201,7 +201,7 @@ int main(void) {
 
     /* Read the descriptor, bounded by KNB_MAX_DESC. Anything larger is
      * skipped (lseek over the padded body) so we can continue the scan
-     * — distros may add notes we do not recognise. */
+     * — distros may add notes we do not recognize. */
     if (desc_padded > KNB_MAX_DESC) {
       if (lseek(fd, (off_t)desc_padded, SEEK_CUR) == (off_t)-1)
         break;
@@ -252,7 +252,7 @@ int main(void) {
   close(fd);
 
   if (!seen_buildid && !seen_salt && !seen_lto && !seen_fdo) {
-    kasld_err("no recognised fingerprint notes in %s", path);
+    kasld_err("no recognized fingerprint notes in %s", path);
     return 0;
   }
 

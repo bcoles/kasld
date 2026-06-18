@@ -65,10 +65,10 @@ int rule_page_offset_from_landmark(const struct evidence_set *ev,
 
     enum constraint_op op = C_EQUALS;
 #if defined(__x86_64__)
-    /* On x86_64 the directmap base is randomised (RANDOMIZE_MEMORY) AT OR ABOVE
+    /* On x86_64 the directmap base is randomized (RANDOMIZE_MEMORY) AT OR ABOVE
      * the canonical VAS floor, so a landmark at the L4 VAS floor or the L5
      * directmap base (what proc_cpuinfo derives from virt_bits) is a LOWER
-     * bound, not the exact base. Pinning it would exclude the randomised base
+     * bound, not the exact base. Pinning it would exclude the randomized base
      * above it; emit C_LOWER_BOUND so phys_virt_synth / directmap bounds can
      * reconstruct the real base within [floor, ...]. */
     if (val == 0xffff800000000000ul || val == 0xff11000000000000ul)

@@ -2,7 +2,7 @@
 //
 // riscv64 KASLR-disabled detection: on a non-EFI riscv64 boot whose FDT carries
 // no /chosen/kaslr-seed, the kernel sits at the compile-time default with no
-// randomisation. On riscv64 the same seed feeds both virt and phys placement
+// randomization. On riscv64 the same seed feeds both virt and phys placement
 // pre-EFI, so absence of the seed disables both axes. Emits
 // SF_VIRT_KASLR_DISABLED + SF_PHYS_KASLR_DISABLED; virt_kaslr_disabled_pin
 // pins Q_VIRT_IMAGE_BASE (KASLR_DISABLED_PINS_VIRT_TEXT=1 on riscv64); the phys

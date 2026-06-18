@@ -14,7 +14,7 @@ CC = cc
 CFLAGS = -g -O2 -Wall -Wextra -pedantic
 
 # Diagnostics layer. Each flag is probed against $(CC) at make-time via
-# cc-option; flags the compiler doesn't recognise simply drop out instead
+# cc-option; flags the compiler doesn't recognize simply drop out instead
 # of generating per-file noise. This keeps the build portable across:
 #   - older gcc (pre-6 lacks -Wnull-dereference, -Wduplicated-cond,
 #     -Wrestrict; pre-7 lacks -Wduplicated-branches, -Walloca; pre-4.9

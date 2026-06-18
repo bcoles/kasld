@@ -537,7 +537,7 @@ static enum kasld_position pos_from_wire(const char *s) {
     return POS_EXTENT;
   if (strcmp(s, "unknown") == 0)
     return POS_UNKNOWN;
-  /* Unrecognised input also returns POS_UNKNOWN. The caller disambiguates
+  /* Unrecognized input also returns POS_UNKNOWN. The caller disambiguates
    * via `strcmp(val, "unknown") != 0` immediately after this call —
    * that guard must be kept co-located with any new call site. */
   return POS_UNKNOWN;
@@ -560,7 +560,7 @@ static enum kasld_confidence conf_from_wire(const char *s) {
 }
 
 /* Map a method: meta value to its bit in struct result.method_set (0 if the
- * value is empty or unrecognised). Mirrors the closed set in enum kasld_method.
+ * value is empty or unrecognized). Mirrors the closed set in enum kasld_method.
  */
 static uint16_t method_bit(const char *s) {
   int m = -1;
@@ -619,7 +619,7 @@ static int parse_hex(const char *s, unsigned long *out) {
  * Two-stage:
  *   (1) sscanf the positional prefix "<type> <region>[:<name>]"
  *   (2) tokenise the tail with strtok_r, collecting key/value pairs into a
- *       local struct, then apply sz→hi normalisation and cross-key
+ *       local struct, then apply sz→hi normalization and cross-key
  *       validation in a second step.
  *
  * Returns 1 on accept (record appended to results[]), 0 on reject.
@@ -689,7 +689,7 @@ static int capture_result(const char *line, const char *method,
   if (region == REGION_UNKNOWN)
     return 0;
 
-  /* --- Tail pass: collect all keys first, then normalise + validate. --- */
+  /* --- Tail pass: collect all keys first, then normalize + validate. --- */
   struct {
     int seen_pos, seen_conf, seen_lo, seen_hi, seen_sz, seen_sample;
     int seen_base_align;
@@ -728,7 +728,7 @@ static int capture_result(const char *line, const char *method,
       p.seen_pos = 1;
       p.pos = pos_from_wire(val);
       /* pos_from_wire returns POS_UNKNOWN for both unknown literal and
-       * unrecognised — distinguish: only "unknown" string is valid here. */
+       * unrecognized — distinguish: only "unknown" string is valid here. */
       if (p.pos == POS_UNKNOWN && strcmp(val, "unknown") != 0)
         return 0;
     } else if (strcmp(key, "conf") == 0) {
@@ -770,7 +770,7 @@ static int capture_result(const char *line, const char *method,
   if (!p.seen_pos || !p.seen_conf)
     return 0;
 
-  /* sz → hi normalisation. */
+  /* sz → hi normalization. */
   if (p.seen_sz) {
     /* sz requires lo — check before doing arithmetic on p.lo. */
     if (!p.seen_lo)
@@ -1990,7 +1990,7 @@ static struct engine g_auth_engine;
 #endif
 
 /* The reported text base is the IMAGE BASE (_text). A KERNEL_IMAGE anchor is
- * the image base directly; a KERNEL_TEXT anchor is _stext, normalised down by
+ * the image base directly; a KERNEL_TEXT anchor is _stext, normalized down by
  * the head gap (no-op where the gap is 0, i.e. every arch but
  * arm64/loongarch64). Returns 0 when no kernel-image/text base anchor exists.
  */
@@ -2230,7 +2230,7 @@ void inject_kaslr_defaults(struct summary *s) {
    * text, so it tracks SF_VIRT_KASLR_DISABLED specifically. A phys-only
    * disable (e.g. EFI_RNG_PROTOCOL unavailable with virt KASLR intact via
    * DTB seed) wouldn't set this flag — the renderer would still show "KASLR
-   * active" because virt randomisation succeeded. */
+   * active" because virt randomization succeeded. */
   s->kaslr.disabled = 0;
   s->kaslr.randomization_failed = 0;
   for (int i = 0; i < num_scalar_facts; i++) {
@@ -2289,7 +2289,7 @@ static void validate_component_phases(void) {
  */
 #ifndef KASLD_TESTING
 
-/* Arch-specific normalisation of one copied result, at the ingestion boundary.
+/* Arch-specific normalization of one copied result, at the ingestion boundary.
  * Keeps the generic copy loop free of per-arch `#if` blocks. */
 static void bridge_normalize_arch(struct observation *o,
                                   const struct result *r) {
@@ -2640,7 +2640,7 @@ static void engine_sync_authoritative(const struct engine *e) {
     layout.virt_page_offset = e->est[Q_PAGE_OFFSET].lo;
 
 #if !TEXT_TRACKS_DIRECTMAP
-  /* On decoupled arches the direct-map base (PAGE_OFFSET) is randomised away
+  /* On decoupled arches the direct-map base (PAGE_OFFSET) is randomized away
    * from the compile-time floor (x86_64 RANDOMIZE_MEMORY). Anchor the rendered
    * memory map's direct-map band at the engine's best-known base (pinned, or
    * the proven lower bound). Gated on lo having actually been raised above the
@@ -3140,7 +3140,7 @@ int main(int argc, char *argv[]) {
      * knows what's running and against what host before the progress
      * bar starts (header → work → results). The readout that follows
      * the progress bar omits this block; see render_readout(). */
-    printf("%sKASLD %s%s  --  Kernel ASLR derandomisation\n", c(C_BOLD),
+    printf("%sKASLD %s%s  --  Kernel ASLR derandomization\n", c(C_BOLD),
            VERSION, c(C_RESET));
     struct utsname u;
     if (kasld_uname(&u) == 0)

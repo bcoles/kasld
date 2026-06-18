@@ -69,5 +69,5 @@
   <text x="48" y="550" class="mono">kasld_emit_scalar   &#8594;  S &lt;fact&gt; conf=&lt;c&gt; value=0x..</text>
 
   <text x="48" y="584" class="note">origin (the component name) is NOT on the wire &#8212; the orchestrator fills r-&gt;origin from the subprocess identity.</text>
-  <text x="48" y="602" class="note">kasld_result_sized takes lo + size and normalises to the same lo= / hi= form as kasld_result_range.</text>
+  <text x="48" y="602" class="note">kasld_result_sized takes lo + size and normalizes to the same lo= / hi= form as kasld_result_range.</text>
 </svg>

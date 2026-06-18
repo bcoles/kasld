@@ -38,7 +38,7 @@ int main(void) {
 
   /* `nokaslr` disables both virtual and physical KASLR axes on every arch
    * that honours it (the kernel's boot stub treats the cmdline flag before
-   * either axis randomises). Emit both facts; virt_kaslr_disabled_pin and
+   * either axis randomizes). Emit both facts; virt_kaslr_disabled_pin and
    * phys_kaslr_disabled_pin each gate by its arch macro
    * (KASLR_DISABLED_PINS_VIRT_TEXT / KASLR_DISABLED_PINS_PHYS) + window-
    * containment to decide whether to pin. */

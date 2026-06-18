@@ -13,7 +13,7 @@
 // x86_64 __PAGE_OFFSET / VMALLOC_START / VMEMMAP_START ARE those variables
 // unconditionally (page_64_types.h, pgtable_64_types.h), so the runtime base
 // equals the constant. The non-obvious case is KASAN with
-// CONFIG_RANDOMIZE_MEMORY=y: the config advertises a randomised direct map but
+// CONFIG_RANDOMIZE_MEMORY=y: the config advertises a randomized direct map but
 // KASAN overrides it at runtime — common on syzkaller / CTF / debug kernels.
 //
 // On a positive disable signal, pin all three bases to the paging-level default
@@ -22,7 +22,7 @@
 // the pin can fire without any direct-map leak), falling back to a resolved
 // Q_VA_BITS (e.g. x86_64_la57_from_directmap, from a directmap leak's top bits)
 // when cpuinfo is unavailable. CONFIG_RANDOMIZE_BASE is independent of the
-// memory randomisation, so kernel TEXT stays randomised; this pins only the
+// memory randomization, so kernel TEXT stays randomized; this pins only the
 // direct-map side.
 //
 // Soundness:

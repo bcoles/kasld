@@ -73,7 +73,7 @@ static int emit_pin(const struct evidence_set *ev, enum kasld_addr_type type,
     return 0;
 
   /* The engine's text quantity is the IMAGE BASE (_text). A KERNEL_TEXT witness
-   * is _stext, so normalise it down by the head gap; a KERNEL_IMAGE witness is
+   * is _stext, so normalize it down by the head gap; a KERNEL_IMAGE witness is
    * already the image base. No-op where the head gap is 0 (every arch but
    * arm64). */
   base = kasld_image_base_from(base, base_is_stext);

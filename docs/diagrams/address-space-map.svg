@@ -33,19 +33,19 @@
   <rect x="200" y="208" width="440" height="36" fill="#f5f5f5" stroke="#bdbdbd" stroke-width="1.5"/>
   <text x="216" y="231" class="band">other kernel mappings</text>
 
-  <!-- vmemmap (randomised) -->
+  <!-- vmemmap (randomized) -->
   <rect x="200" y="244" width="440" height="52" fill="#ffcdd2" stroke="#c62828" stroke-width="1.5"/>
-  <text x="216" y="268" class="bandh">vmemmap &#160;<tspan class="band" font-weight="400">randomised base</tspan></text>
+  <text x="216" y="268" class="bandh">vmemmap &#160;<tspan class="band" font-weight="400">randomized base</tspan></text>
   <text x="216" y="287" class="q" fill="#b71c1c">-&gt; Q_VMEMMAP_BASE</text>
 
-  <!-- vmalloc (randomised) -->
+  <!-- vmalloc (randomized) -->
   <rect x="200" y="296" width="440" height="52" fill="#ffcdd2" stroke="#c62828" stroke-width="1.5"/>
-  <text x="216" y="320" class="bandh">vmalloc / ioremap &#160;<tspan class="band" font-weight="400">randomised base</tspan></text>
+  <text x="216" y="320" class="bandh">vmalloc / ioremap &#160;<tspan class="band" font-weight="400">randomized base</tspan></text>
   <text x="216" y="339" class="q" fill="#b71c1c">-&gt; Q_VMALLOC_BASE</text>
 
-  <!-- direct map (randomised) -->
+  <!-- direct map (randomized) -->
   <rect x="200" y="348" width="440" height="150" fill="#ffcdd2" stroke="#c62828" stroke-width="1.5"/>
-  <text x="216" y="384" class="bandh">direct map (linear) &#160;<tspan class="band" font-weight="400">randomised base, 1 GiB align</tspan></text>
+  <text x="216" y="384" class="bandh">direct map (linear) &#160;<tspan class="band" font-weight="400">randomized base, 1 GiB align</tspan></text>
   <text x="216" y="404" class="q" fill="#b71c1c">-&gt; Q_PAGE_OFFSET</text>
   <text x="216" y="470" class="band" fill="#90a4ae">all of physical RAM mapped contiguously</text>
 
@@ -77,7 +77,7 @@
   <!-- footnotes -->
   <rect x="32" y="520" width="896" height="86" rx="8" fill="#fafafa" stroke="#cfd8dc"/>
   <text x="48" y="542" class="note">Schematic, not to scale. Randomised bases slide per boot on 1 GiB boundaries (RANDOMIZE_MEMORY); KASLR text steps by 2 MB.</text>
-  <text x="48" y="562" class="note">Decoupled, randomised map (both flags = 0): virtual text, physical text and PAGE_OFFSET resolve independently.</text>
+  <text x="48" y="562" class="note">Decoupled, randomized map (both flags = 0): virtual text, physical text and PAGE_OFFSET resolve independently.</text>
   <text x="48" y="582" class="note">Also resolved: Q_KASLR_ALIGN / Q_PHYS_KASLR_ALIGN (step sizes) and Q_VA_BITS (kernel-half width: 4-level vs 5-level).</text>
-  <text x="48" y="600" class="note">Orange = KASLR text. Red = randomised linear-map regions. Grey/blue = fixed or generic. See the coupling quadrant.</text>
+  <text x="48" y="600" class="note">Orange = KASLR text. Red = randomized linear-map regions. Grey/blue = fixed or generic. See the coupling quadrant.</text>
 </svg>

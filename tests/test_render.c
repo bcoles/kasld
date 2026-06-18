@@ -632,7 +632,7 @@ static void test_render_text_kernel_region_promotion(void) {
    * conditions (collect_kernel_regions returning matching results that pass
    * in_bounds against the test's layout state); under set_richer_render_state
    * the records may be in-bounds-rejected because we touch layout fields the
-   * test setup didn't fully normalise. Hitting the wider "Results" /
+   * test setup didn't fully normalize. Hitting the wider "Results" /
    * "KASLR analysis" / "Memory KASLR" / "Derived addresses" / "Virtual
    * memory layout" branches is the test's value — pulls render_text to
    * substantially higher coverage even when promotion is filtered. */

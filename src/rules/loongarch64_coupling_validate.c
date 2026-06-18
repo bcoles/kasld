@@ -31,7 +31,7 @@
 //   DIRECTMAP / PAGE_OFFSET   in [KERNEL_VIRT_VAS_START, XKVRANGE)
 //     (XKPRANGE span: 0x8000_..., 0xa000_..._fffffffe)
 //
-// The bands are KASLR-invariant — KASLR randomises only the kernel text
+// The bands are KASLR-invariant — KASLR randomizes only the kernel text
 // slot within KERNEL_VIRT_TEXT_MIN/MAX; the band containers are fixed by
 // hardware DMW windows or by vm_map_base which is set from cpu_vabits at
 // boot and never moves. An observation whose eff_region claims one band

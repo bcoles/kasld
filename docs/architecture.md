@@ -198,7 +198,7 @@ Components communicate results to the orchestrator via tagged lines on stdout:
 | `pos` | `base` / `top` / `interior` / `extent` / `unknown` | What the address keys represent within the region. `base` requires `lo`, `top` requires `hi`, `interior` requires `sample`, `extent` requires both `lo` and `hi`. `unknown` requires at least one of the address keys. |
 | `conf` | `parsed` / `derived` / `inferred` / `heuristic` / `timing` / `brute` | How reliable the source is. Strict trust ordering — see [Confidence](../CONTRIBUTING.md#confidence). |
 | `lo` / `hi` | `0x`-prefixed hex | Inclusive extent bounds. Either may be absent. |
-| `sz` | `0x`-prefixed hex | Mutually exclusive with `hi`. Parser normalises to `hi = lo + sz - 1`. Rejected on overflow or `sz == 0`. |
+| `sz` | `0x`-prefixed hex | Mutually exclusive with `hi`. Parser normalizes to `hi = lo + sz - 1`. Rejected on overflow or `sz == 0`. |
 | `sample` | `0x`-prefixed hex | A representative interior point. |
 | `base_align` | `0x`-prefixed hex, power of two | Declared alignment of the extent base. Optional. |
 
@@ -240,7 +240,7 @@ cannot start there). A covering is therefore:
 
 - **Not corroboratable, never merged.** Two sources' maps must not be mixed: a
   runtime-offlined block is RAM in the boot E820 but a hole in a hotplug view, so
-  unioning would melt a real gap or synthesise a false one. Each map is
+  unioning would melt a real gap or synthesize a false one. Each map is
   independently complete for its own substrate.
 - **Routed out-of-band.** The orchestrator sends `pos=extent` records to a
   dedicated `coverings[]` store on the evidence set, **bypassing the merge**, and
@@ -268,7 +268,7 @@ derived records during the fixpoint loop after collecting all leaked results.
 Components that leak a physical address can convert it to a direct-map virtual
 address using `phys_to_directmap_virt(p)`, guarded by
 `#ifdef phys_to_directmap_virt` so the derivation is compiled out on arches where
-the projection is unsound (x86_64 `CONFIG_RANDOMIZE_MEMORY` randomises the
+the projection is unsound (x86_64 `CONFIG_RANDOMIZE_MEMORY` randomizes the
 direct-map base; arm64 / riscv64 / s390 keep text and direct map at independent
 runtime offsets). The component emits two records — one `PHYS`, one `VIRT` — both
 with the same `(region, name)`. The merge pass keeps them as separate records
@@ -308,12 +308,12 @@ Key rules for cross-region derivation:
   how a runtime vmsplit propagates on coupled architectures.
 - **`directmap_kaslr_disabled_pin`** (x86_64) — when `CONFIG_KASAN=y`
   (`SF_KASAN_ENABLED`) or KASLR is off (`SF_VIRT_KASLR_DISABLED`) the direct-map
-  randomisation is suppressed (`kaslr_memory_enabled() = kaslr_enabled() &&
+  randomization is suppressed (`kaslr_memory_enabled() = kaslr_enabled() &&
   !CONFIG_KASAN`), so `Q_PAGE_OFFSET` / `Q_VMALLOC_BASE` / `Q_VMEMMAP_BASE` are
   pinned to their compile-time L4/L5 defaults — the paging level from
   `SF_VIRT_ADDR_BITS` (cpuinfo, leak-free) or, when that is unavailable, a
   resolved `Q_VA_BITS` (e.g. from a direct-map leak). Kernel TEXT KASLR is
-  independent and stays randomised.
+  independent and stays randomized.
 
 ### Coupled vs decoupled architectures
 
@@ -329,7 +329,7 @@ compile-time `PAGE_OFFSET`, `PHYS_OFFSET`, and `TEXT_OFFSET` constants (with
 default).
 
 On **decoupled** architectures (x86_64, arm64, riscv64, s390), physical and
-virtual KASLR are randomised independently, so physical results cannot derive
+virtual KASLR are randomized independently, so physical results cannot derive
 virtual text directly. The summary prints a note when physical results exist that
 would have been derivable on a coupled system.
 
@@ -348,8 +348,8 @@ they have different implications for the inference engine:
 | State | Scalar fact(s) | Kernel position | Engine action |
 |---|---|---|---|
 | **Disabled** (user/build opt-out) | `SF_VIRT_KASLR_DISABLED` + `SF_PHYS_KASLR_DISABLED` | Compile-time default on each axis | `virt_kaslr_disabled_pin` pins `Q_VIRT_IMAGE_BASE` on arches that set `KASLR_DISABLED_PINS_VIRT_TEXT`; `phys_kaslr_disabled_pin` pins `Q_PHYS_IMAGE_BASE` on arches that set `KASLR_DISABLED_PINS_PHYS`; on x86_64 `directmap_kaslr_disabled_pin` also pins the direct-map bases |
-| **Direct map unrandomised** (x86_64 `CONFIG_KASAN`) | `SF_KASAN_ENABLED` | TEXT still randomised; `page_offset` / `vmalloc` / `vmemmap` at their L4/L5 defaults | `directmap_kaslr_disabled_pin` pins the three direct-map quantities — `kaslr_memory_enabled() = kaslr_enabled() && !CONFIG_KASAN`, so KASAN suppresses `RANDOMIZE_MEMORY` even when it is configured |
-| **Unsupported** (arch never had KASLR) | both `SF_*_KASLR_DISABLED` synthesised with origin `arch-no-kaslr` | Bootloader-determined | Inert for inference (these arches set neither pin flag); lights the renderer's "KASLR not supported" banner |
+| **Direct map unrandomized** (x86_64 `CONFIG_KASAN`) | `SF_KASAN_ENABLED` | TEXT still randomized; `page_offset` / `vmalloc` / `vmemmap` at their L4/L5 defaults | `directmap_kaslr_disabled_pin` pins the three direct-map quantities — `kaslr_memory_enabled() = kaslr_enabled() && !CONFIG_KASAN`, so KASAN suppresses `RANDOMIZE_MEMORY` even when it is configured |
+| **Unsupported** (arch never had KASLR) | both `SF_*_KASLR_DISABLED` synthesized with origin `arch-no-kaslr` | Bootloader-determined | Inert for inference (these arches set neither pin flag); lights the renderer's "KASLR not supported" banner |
 | **Randomization failed** (boot stub tried, no entropy) | `SF_VIRT_KASLR_RANDOMIZATION_FAILED` + `SF_PHYS_KASLR_RANDOMIZATION_FAILED` | Firmware-/boot-stub-deterministic, NOT the link-time default | Does not pin. Drives the hardening-report entropy downgrade, `efi_loader_kernel_pick` lowest-survivor disambiguation, and the `s390_text_no_random` upper bound |
 
 **Disabled.** KASLD treats the virtual and physical disable signals as
@@ -367,7 +367,7 @@ riscv64, loongarch64, s390), gated by a window-containment soundness check;
 that set `KASLR_DISABLED_PINS_PHYS` (currently x86_64 and loongarch64).
 
 **Unsupported.** "KASLR not supported" (compile-time `KASLR_SUPPORTED=0` — arm32,
-ppc64, riscv32, sparc) is synthesised by the orchestrator as both facts with
+ppc64, riscv32, sparc) is synthesized by the orchestrator as both facts with
 origin `arch-no-kaslr`, inert for inference, but lights the renderer's "KASLR not
 supported" banner.
 

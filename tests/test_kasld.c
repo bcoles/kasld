@@ -1250,7 +1250,7 @@ static void test_merge_is_idempotent(void) {
  * Parser: key order is irrelevant
  *
  * Spec rule: tail keys may appear in any order. The two-stage parser
- * collects all keys before sz→hi normalisation, so `sz` before `lo` must
+ * collects all keys before sz→hi normalization, so `sz` before `lo` must
  * work the same as `lo` before `sz`.
  * ========================================================================= */
 static void test_parse_key_order_independent(void) {
@@ -1276,7 +1276,7 @@ static void test_parse_key_order_independent(void) {
 static void test_parse_sz_before_lo_normalizes(void) {
   /* Critical: sz needs lo to compute hi. If the parser were streaming, sz
    * before lo would fail (lo unknown yet). The two-stage design must
-   * collect both keys before normalising. */
+   * collect both keys before normalizing. */
   reset_results();
   assert(parse_line("P initrd pos=base conf=parsed sz=0x10000 lo=0x100000",
                     NULL, NULL) == 1);
@@ -1462,7 +1462,7 @@ static void test_engine_sync_projects_all_fields(void) {
   struct engine e;
   memset(&e, 0, sizeof(e));
 
-  /* Synthetic resolved windows — distinct, recognisable values per quantity so
+  /* Synthetic resolved windows — distinct, recognizable values per quantity so
    * a mis-wired field (writing the wrong source) is caught, not just a missing
    * write. */
   e.est[Q_VIRT_IMAGE_BASE].lo = FX_TEXT;

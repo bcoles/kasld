@@ -24,7 +24,7 @@
 // validation-union contract.
 //
 // The bands themselves are KASLR-invariant — the kernel image's KASLR slot
-// inside the KASLR window is the only randomised position; the band
+// inside the KASLR window is the only randomized position; the band
 // containers are fixed. An observation whose eff_region claims one band
 // but whose address falls in a different band's range is misclassified —
 // typically a heap pointer, percpu offset, or stack pointer mistakenly

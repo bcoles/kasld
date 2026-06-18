@@ -108,11 +108,11 @@ reach.
 
 Fixtures are **real `extra/collect` captures** from real kernels (validated with
 `extra/validate-bundle` on ingest), not hand-authored inputs — the corpus
-exercises kasld against reality. Synthetic inputs live in the unit tests
+exercises KASLD against reality. Synthetic inputs live in the unit tests
 (layer 1).
 
 This is a **structural / regression** check, not a soundness check: it confirms
-kasld survives real captured kernel state across many architectures and versions,
+KASLD survives real captured kernel state across many architectures and versions,
 but it does not verify the inferred range against a ground truth (a static
 fixture carries none). Soundness on a *captured* system is checked by
 `extra/validate-bundle` when the bundle is ingested; soundness on a *live* kernel
@@ -226,7 +226,7 @@ Env: `CC` (default `cc`), `GCOV` (default `gcov`), `CFLAGS_EXTRA`.
 
 `extra/validate-bundle` is not a test layer — it is the validation step for
 *ingesting* a bundle. When a bundle is captured from a real system (a bug report,
-an external VM), this confirms kasld is sound on it and decides whether it earns
+an external VM), this confirms KASLD is sound on it and decides whether it earns
 a place as a replay fixture (layer 2, which is what then exercises it on every
 run). It is a one-shot ingest check, not part of the recurring suite or CI.
 
@@ -249,7 +249,7 @@ bundle). Tightness is a separate concern.
 
 Bundles are captured from real systems — the machine under test, a
 system attached to a bug report, or an external test VM — so a PASS is
-evidence kasld was sound on a real kernel. The data's provenance is the
+evidence KASLD was sound on a real kernel. The data's provenance is the
 point: a validated bundle can be committed under `tests/fixtures/` as a
 replay fixture (layer 2), so the fixture corpus is **real captures only**.
 Synthetic inputs belong in the unit tests (layer 1, e.g. `test_engine`
@@ -285,7 +285,7 @@ across architectures and reader-privilege profiles
 (`default` / `hide` / `hardened` / `nokaslr`).
 
 Unlike replay (layer 2) — which runs offline over captured fixtures and
-only checks that kasld parses and runs — this boots a real kernel, so it
+only checks that KASLD parses and runs — this boots a real kernel, so it
 *knows* the true base and checks soundness: that the inferred range
 contains it.
 

@@ -7,7 +7,7 @@
 # single-source RAM map (a covering). The map rules ram_map_phys_exclude and
 # firmware_memmap_holes treat the GAPS between a source's extents as known
 # non-RAM. That is only sound if the source emits its WHOLE map — a partial map
-# would synthesise a false gap and wrongly exclude real RAM (or drop a true
+# would synthesize a false gap and wrongly exclude real RAM (or drop a true
 # kernel-base candidate).
 #
 # So every component that calls kasld_result_extent must be reviewed to confirm

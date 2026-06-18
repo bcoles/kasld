@@ -15,7 +15,7 @@
 //     path (decompressor / relocate.c) keeps the image at its compile-time
 //     physical default under nokaslr (currently x86_64, loongarch64). 0
 //     on arches where phys placement is bootloader / DT / memstart-
-//     determined (arm64, riscv64, s390) or independently randomised. Even
+//     determined (arm64, riscv64, s390) or independently randomized. Even
 //     when SF_PHYS_KASLR_DISABLED is true on those arches, no pin fires
 //     because the address isn't predictable from compile-time data.
 //

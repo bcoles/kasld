@@ -529,7 +529,7 @@ static void render_kaslr_text(const struct summary *s) {
   }
 
   /* Memory KASLR (x86_64 CONFIG_RANDOMIZE_MEMORY): show inferred bounds on
-   * the three independently-randomised memory regions when any has been
+   * the three independently-randomized memory regions when any has been
    * narrowed from the compile-time defaults. The x86_64_vmalloc_base_bound and
    * x86_64_vmemmap_base_bound rules chain off virt_page_offset_min to derive
    * vmalloc and vmemmap bounds via the fixed inter-region ordering. */
@@ -1217,7 +1217,7 @@ static void render_readout(const struct summary *s) {
   if (s->kaslr.unsupported) {
     printf("KASLR not supported on this architecture.\n\n");
     if (s->kaslr.default_addr)
-      printf("  %-19s %s0x%016lx%s   arch default (no randomisation)\n",
+      printf("  %-19s %s0x%016lx%s   arch default (no randomization)\n",
              "Kernel image base", c(C_GREEN), s->kaslr.default_addr,
              c(C_RESET));
     printf("\n");
@@ -1250,7 +1250,7 @@ static void render_readout(const struct summary *s) {
               layout.phys_kaslr_text_min != 0);
 
   if (s->kaslr.vtext && vpin) {
-    /* Fully derandomised — show address + slide instead of range. */
+    /* Fully derandomized — show address + slide instead of range. */
     long abs_v = s->kaslr.vslide < 0 ? -s->kaslr.vslide : s->kaslr.vslide;
     printf("  %-19s %s0x%016lx%s   slide %s%s0x%lx%s\n", "Virtual image base",
            c(C_GREEN), s->kaslr.vtext, c(C_RESET), c(C_CYAN),
@@ -1316,7 +1316,7 @@ static void render_readout(const struct summary *s) {
   {
     enum kasld_text_order to = resolve_text_order(NULL);
     if (to == TEXT_ORDER_DYNAMIC) {
-      printf("\n  %-19s %sfunction order is per-boot randomised — a leak pins "
+      printf("\n  %-19s %sfunction order is per-boot randomized — a leak pins "
              "only\n",
              "Caution", c(C_YELLOW));
       printf("  %-19s that symbol; no static System.map resolves the rest "

@@ -7,7 +7,7 @@
 // bypasses, so the gaps between extents are preserved faithfully. Both rules
 // key on this component's origin, so the binary name ("firmware_memmap") is
 // load-bearing. As a covering source the WHOLE map must be emitted: a partial
-// map would synthesise false gaps between extents.
+// map would synthesize false gaps between extents.
 // ---
 // <bcoles@gmail.com>
 #include "include/kasld/firmware_memmap.h"

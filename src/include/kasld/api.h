@@ -177,7 +177,7 @@ static inline int kasld_mul_ovf(unsigned long a, unsigned long b,
 #elif defined(__sparc__)
 #include "arch/sparc.h"
 #else
-#error "Unrecognised architecture!"
+#error "Unrecognized architecture!"
 #endif
 
 /* Sanity-check arch-supplied values. */
@@ -335,7 +335,7 @@ __extension__ _Static_assert((unsigned long)KERNEL_PHYS_MAX >
 /* 1 iff the compile-time PAGE_OFFSET is the GUARANTEED runtime value on this
  * arch — i.e. virt_page_offset cannot vary by config
  * (VMSPLIT/CONFIG_PAGE_OFFSET), paging mode (arm64 VA_BITS, riscv SATP), or
- * randomisation (x86_64 RANDOMIZE_MEMORY, s390). Only then is pinning
+ * randomization (x86_64 RANDOMIZE_MEMORY, s390). Only then is pinning
  * Q_PAGE_OFFSET to PAGE_OFFSET sound with no evidence. Set per-arch (mips
  * CKSEG0, ppc64 book3s linear base); defaults to 0 (the honest window is kept
  * until a landmark/probe resolves it).
@@ -420,7 +420,7 @@ static inline unsigned long arch_default_phys_text_base(void) { return 0; }
 #include <string.h>
 
 /* Filesystem-fact reads route through the KASLD_SYSROOT redirection layer so a
- * copied filesystem tree can be analysed offline. api.h is kasld's universal
+ * copied filesystem tree can be analyzed offline. api.h is kasld's universal
  * include root, so pulling it here makes the wrappers visible in every
  * translation unit. */
 #include "sysroot.h"
@@ -494,7 +494,7 @@ static inline int kasld_addr_is_module_region(unsigned long va) {
 /* Predicate: is `va` plausibly a kernel direct-map (lowmem) address — in
  * [PAGE_OFFSET, KERNEL_VIRT_TEXT_MIN)? On coupled/inverted arches where the
  * direct map and kernel text meet or cross, the window is empty, so those
- * arches naturally yield no direct-map match (they have a fixed, non-randomised
+ * arches naturally yield no direct-map match (they have a fixed, non-randomized
  * page_offset and nothing to leak here). */
 static inline int kasld_addr_is_directmap(unsigned long va) {
   return kasld_addr_in_window(va, (unsigned long)PAGE_OFFSET,
@@ -848,7 +848,7 @@ enum kasld_scalar_fact {
                           /* KASLR_DISABLED_PINS_PHYS holds (x86_64,          */
                           /* loongarch64). A future detector that proves only */
                           /* phys is off (e.g. EFI_RNG_PROTOCOL unavailable   */
-                          /* with virt randomisation intact via DTB) emits    */
+                          /* with virt randomization intact via DTB) emits    */
                           /* this fact alone.                                 */
   SF_VIRT_KASLR_RANDOMIZATION_FAILED, /* 1 if the boot stub attempted    */
   /* virtual KASLR but could not produce a random virt offset (current   */

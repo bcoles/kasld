@@ -3,7 +3,7 @@
 // Rule: pin virt_page_offset on arches where it is architecturally invariant.
 //
 // On some arches the kernel's direct-map / VAS origin is a hard architectural
-// constant that cannot vary by config, paging mode, or randomisation:
+// constant that cannot vary by config, paging mode, or randomization:
 //   MIPS  — PAGE_OFFSET is CKSEG0, fixed by the ISA.
 //   ppc64 — book3s64 linear-mapping base 0xc000000000000000, not configurable.
 // On such arches (PAGE_OFFSET_INVARIANT == 1) the compile-time PAGE_OFFSET is
@@ -12,7 +12,7 @@
 // evidence. Applied ONLY where the commit is provably correct.
 //
 // Deliberately inert where PAGE_OFFSET is config/mode-dependent (x86_32/arm32
-// VMSPLIT, arm64 VA_BITS, riscv64 SATP, x86_64/s390 randomisation): there the
+// VMSPLIT, arm64 VA_BITS, riscv64 SATP, x86_64/s390 randomization): there the
 // compile-time default is a guess the runtime can contradict (e.g. a riscv64
 // kernel built CONFIG_PAGE_OFFSET=SV57 but booted SV48), so the engine keeps
 // the honest window and defers to a landmark/probe. C_EQUALS; emits nothing

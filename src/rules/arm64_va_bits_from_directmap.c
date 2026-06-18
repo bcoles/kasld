@@ -3,7 +3,7 @@
 // Rule: arm64 VA_BITS discrimination from DIRECTMAP leak addresses.
 //
 // On arm64 PAGE_OFFSET is
-// -(1UL << VA_BITS) and is not randomised, so the top bits of any leaked
+// -(1UL << VA_BITS) and is not randomized, so the top bits of any leaked
 // DIRECTMAP virtual address pin the paging configuration:
 //
 //   addr in [0xfff0000000000000, 0xffff000000000000)  -> VA_BITS=52,

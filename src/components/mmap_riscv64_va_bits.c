@@ -17,7 +17,7 @@
 //     ENOMEM  -> SV48: PAGE_OFFSET = 0xffffaf8000000000 exactly.
 //     success -> SV57: PAGE_OFFSET = 0xff60000000000000 exactly.
 //
-// PAGE_OFFSET is not randomised on riscv64, so the SV48/SV57 values are exact;
+// PAGE_OFFSET is not randomized on riscv64, so the SV48/SV57 values are exact;
 // the engine pins Q_PAGE_OFFSET to them (page_offset_from_landmark), and treats
 // the SV39 range as a [lower, upper] bound. It is a PROBING component: the
 // engine reads component results, and an active probe belongs behind the
@@ -44,7 +44,7 @@ KASLD_EXPLAIN(
     "the SATP mode: ENOMEM at 1<<38 means SV39 (PAGE_OFFSET window "
     "[0xffffffd600000000, 0xffffffd800000000]); ENOMEM at 1<<47 means "
     "SV48 (PAGE_OFFSET 0xffffaf8000000000); success at both means SV57 "
-    "(PAGE_OFFSET 0xff60000000000000). PAGE_OFFSET is not randomised "
+    "(PAGE_OFFSET 0xff60000000000000). PAGE_OFFSET is not randomized "
     "on riscv64, so SV48/SV57 are exact. riscv64 only; unprivileged.");
 
 KASLD_META("method:heuristic\n"

@@ -8,7 +8,7 @@
   <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"/>
 </p>
 
-KASLD derandomises the Linux kernel's virtual and physical memory layout
+KASLD derandomizes the Linux kernel's virtual and physical memory layout
 as an unprivileged local user. It recovers the kernel text base where a
 leak or side channel allows, and otherwise reduces it to the smallest set
 of placements the available evidence supports. On a fully-patched modern
@@ -61,22 +61,22 @@ can temporarily relax these settings (requires root).
 The default text mode prints an answer-first overview:
 
 ```
-KASLD 0.2.0  --  Kernel ASLR derandomisation
-Target: x86_64 / 6.12.38+deb13-amd64
+KASLD 0.2.1-dev  --  Kernel ASLR derandomization
+Target: x86_64 / 6.15.6
 
 Running 83 components (10 experimental skipped; use -x to enable)...
-[####################] 100%  83/83  10.5s
+[####################] 100%  83/83  5.3s
 
-  Virtual text base   0xffffffffa7a00000   slide +0x26a00000
-  Physical text base  not derandomized     ~9 bits
-                      0x0000000001000000 - 0x000000002eedbce0   (367 x 2.0 MiB)
+  Virtual image base  0xffffffff83800000   slide +0x2800000
+  Physical image base not derandomized     ~9 bits
+                      0x0000000001000000 - 0x000000003c20ca00   (473 x 2.0 MiB)
   Direct map base     >= 0xffff800000000000
 
   Coupling            virt and phys text are independent on this arch.
                       A phys leak does NOT reveal the virt text base.
 
 Leaks (1):
-  virt kernel text    0xffffffffa7a00000   (prefetch)
+  virt kernel text    0xffffffff83800000   (prefetch)
 
 [-v: detailed results, memory map, system info]  [-H: hardening assessment]
 ```

@@ -192,7 +192,7 @@ int main(void) {
    *
    * Sound only over the COMPLETE online set: if a block could not be collected
    * (overflow) or the runs exceed what the exclude rule reads, emit nothing — a
-   * partial set would synthesise a false gap. A single contiguous run has no
+   * partial set would synthesize a false gap. A single contiguous run has no
    * gap to carve, so >= 2 runs are required. */
   if (!idx_overflow && n_idx > 0) {
     for (int i = 1; i < n_idx; i++) { /* insertion-sort ascending */

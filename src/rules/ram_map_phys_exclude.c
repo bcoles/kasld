@@ -36,13 +36,13 @@
 //   * Each map is processed SEPARATELY — never mix two maps' extents. They can
 //     disagree (a runtime-offlined block is RAM in the boot E820 but a hole in
 //     a hotplug view); unioning would lose one map's holes or, worse,
-//     synthesise a false gap. Each map is independently complete for its own
+//     synthesize a false gap. Each map is independently complete for its own
 //     substrate. Coverings carry their single emitting origin (they bypass the
 //     cross-source merge), so grouping by origin is the per-map split.
 //   * Requires the COMPLETE map. Coverings are emitted only by whole-map
 //     readers (the pos=extent contract), never partial leaks. If a map holds
 //     more extents than the buffer, BAIL — a dropped middle extent would
-//     synthesise a false gap.
+//     synthesize a false gap.
 //   * kernel_size is SF_IMAGE_SIZE, a deliberate UNDER-estimate, so the
 //   low-edge
 //     widening can only under-exclude, never drop a valid base.

@@ -23,7 +23,7 @@
 
   <!-- y ticks -->
   <text x="70" y="245" class="tick" text-anchor="middle" transform="rotate(-90 70 245)">1 = static map</text>
-  <text x="70" y="455" class="tick" text-anchor="middle" transform="rotate(-90 70 455)">0 = randomised</text>
+  <text x="70" y="455" class="tick" text-anchor="middle" transform="rotate(-90 70 455)">0 = randomized</text>
   <!-- x ticks -->
   <text x="360" y="612" class="tick" text-anchor="middle">1 = coupled</text>
   <text x="720" y="612" class="tick" text-anchor="middle">0 = decoupled</text>
@@ -43,7 +43,7 @@
   <rect x="540" y="140" width="360" height="210" rx="8" fill="#f5f5f5" stroke="#bdbdbd" stroke-width="1.5" stroke-dasharray="6 4"/>
   <text x="560" y="166" class="empty">(no supported arch)</text>
   <text x="560" y="196" class="imp">Linear map fixed at compile time, but kernel</text>
-  <text x="560" y="212" class="imp">text randomised independently of it.</text>
+  <text x="560" y="212" class="imp">text randomized independently of it.</text>
   <text x="560" y="236" class="imp">Possible in principle; no Linux arch here</text>
   <text x="560" y="252" class="imp">does this.</text>
 
@@ -51,14 +51,14 @@
   <rect x="180" y="350" width="360" height="210" rx="8" fill="#f5f5f5" stroke="#bdbdbd" stroke-width="1.5" stroke-dasharray="6 4"/>
   <text x="200" y="376" class="empty">(no supported arch)</text>
   <text x="200" y="406" class="imp">Text pinned at a fixed offset inside a</text>
-  <text x="200" y="422" class="imp">randomised linear map (they slide together).</text>
+  <text x="200" y="422" class="imp">randomized linear map (they slide together).</text>
   <text x="200" y="446" class="imp">Possible in principle; unused.</text>
 
   <!-- BR: DS=0, TT=0  (populated) -->
   <rect x="540" y="350" width="360" height="210" rx="8" fill="#ffebee" stroke="#c62828" stroke-width="1.5"/>
-  <text x="560" y="376" class="ch" fill="#b71c1c">Decoupled + randomised map</text>
+  <text x="560" y="376" class="ch" fill="#b71c1c">Decoupled + randomized map</text>
   <text x="560" y="400" class="arch">x86_64  arm64  riscv64  s390</text>
-  <text x="560" y="428" class="imp">PAGE_OFFSET / PHYS_OFFSET randomised, AND text</text>
+  <text x="560" y="428" class="imp">PAGE_OFFSET / PHYS_OFFSET randomized, AND text</text>
   <text x="560" y="444" class="imp">slides independently of the linear map.</text>
   <text x="560" y="468" class="imp">Resolve text and map separately; the static</text>
   <text x="560" y="484" class="imp">formula is unsound.</text>

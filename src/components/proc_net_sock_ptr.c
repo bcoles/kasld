@@ -18,7 +18,7 @@
 // Every kmalloc'd sock lives in the linear/direct map (page_offset + phys), so
 // a leaked sock pointer is an interior VIRT/DIRECTMAP observation. It bounds
 // Q_PAGE_OFFSET from above (page_offset ≤ addr) — useful on x86_64 where the
-// direct map is randomised (CONFIG_RANDOMIZE_MEMORY); a no-op where page_offset
+// direct map is randomized (CONFIG_RANDOMIZE_MEMORY); a no-op where page_offset
 // is fixed. Fed to directmap_page_offset_bounds.
 //
 // /proc/net/unix and /proc/net/netlink are chosen because the sock pointer is
@@ -46,7 +46,7 @@ KASLD_EXPLAIN(
     "printed with %pK: real for a CAP_SYSLOG reader under kptr_restrict=1, or "
     "for anyone when the kernel runs no_hash_pointers; otherwise it is hashed "
     "to a 32-bit id and discarded by the kernel-address filter. Mainly useful "
-    "on x86_64, where the direct map is randomised.");
+    "on x86_64, where the direct map is randomized.");
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"

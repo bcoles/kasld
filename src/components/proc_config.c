@@ -168,7 +168,7 @@ int main(void) {
     kasld_emit_scalar(SF_PHYS_KASLR_DISABLED, 1, CONF_PARSED);
   }
 
-  /* CONFIG_KASAN=y forces the direct-map randomisation off at runtime —
+  /* CONFIG_KASAN=y forces the direct-map randomization off at runtime —
    * kaslr_memory_enabled() = kaslr_enabled() && !IS_ENABLED(CONFIG_KASAN) —
    * so page_offset / vmalloc / vmemmap stay at their compile-time defaults even
    * when CONFIG_RANDOMIZE_MEMORY=y. Consumed by directmap_kaslr_disabled_pin

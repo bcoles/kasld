@@ -10,7 +10,7 @@
 //   0xffff000000000000 probe at 1<<48 succeeds:       VA_BITS >= 52  ->
 //   PAGE_OFFSET 0xfff0000000000000
 //
-// PAGE_OFFSET is not randomised on arm64, so the detected value is exact; the
+// PAGE_OFFSET is not randomized on arm64, so the detected value is exact; the
 // engine pins Q_PAGE_OFFSET to it (page_offset_from_landmark). It is a PROBING
 // component: the engine reads component results, and an active probe belongs
 // behind the subprocess boundary.
@@ -34,7 +34,7 @@
 KASLD_EXPLAIN(
     "Probes mmap(MAP_FIXED) at 1<<48 on arm64: ENOMEM means VA_BITS<=48 "
     "(PAGE_OFFSET 0xffff000000000000), success means VA_BITS>=52 "
-    "(PAGE_OFFSET 0xfff0000000000000). PAGE_OFFSET is not randomised "
+    "(PAGE_OFFSET 0xfff0000000000000). PAGE_OFFSET is not randomized "
     "on arm64, so the value is exact. arm64 only; unprivileged.");
 
 KASLD_META("method:heuristic\n"

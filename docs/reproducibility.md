@@ -1,7 +1,7 @@
 # Reproducibility
 
-kasld's results can be checked, not just trusted. The core property to verify is
-that the range kasld infers for the kernel image base contains the real value:
+KASLD's results can be checked, not just trusted. The core property to verify is
+that the range KASLD infers for the kernel image base contains the real value:
 
 ```
 truth ∈ [virt_image_base_min, virt_image_base_max]
@@ -12,12 +12,12 @@ not (it just means less was recovered). There are three ways to verify this, in
 increasing order of how close they run to a real system. All are runnable from a
 clean checkout.
 
-These overlap in breadth — several run kasld across many architectures — but each
+These overlap in breadth — several run KASLD across many architectures — but each
 answers a different question, so they are complementary, not redundant:
 
 | check | runs against | answers | cost |
 |-------|--------------|---------|------|
-| [`tests/replay`](#3-offline-over-a-captured-corpus) | captured fixtures, offline | *does kasld parse and run cleanly over real kernel state?* (no ground truth — a regression / robustness check) | seconds, every commit |
+| [`tests/replay`](#3-offline-over-a-captured-corpus) | captured fixtures, offline | *does KASLD parse and run cleanly over real kernel state?* (no ground truth — a regression / robustness check) | seconds, every commit |
 | [`extra/validate-bundle`](#1-on-the-local-kernel) | one captured bundle, offline | *does the inferred range contain that system's truth?* | seconds |
 | [`tests/vm/run`](#2-live-across-architectures) | a live kernel booted under qemu | *does the inferred range contain a live kernel's truth, across arches and privilege levels?* | minutes |
 
@@ -38,8 +38,8 @@ extra/collect --kallsyms              # capture a self-contained bundle
 extra/validate-bundle kasld-bundle-*  # run kasld over it, check the truth
 ```
 
-`collect` writes a path-preserving copy of the files kasld reads plus the
-kernel's real symbol addresses. `validate-bundle` runs the matching kasld binary
+`collect` writes a path-preserving copy of the files KASLD reads plus the
+kernel's real symbol addresses. `validate-bundle` runs the matching `kasld` binary
 over that bundle offline and checks every inferred range against the captured
 ground truth. It exits non-zero if any range excludes the truth. No root needed.
 
@@ -51,7 +51,7 @@ compare against.
 ## 2. Live, across architectures
 
 [`tests/vm/run`](../tests/vm) boots real, publicly-fetchable kernels under
-`qemu-system`, runs kasld against the running kernel, and applies the same check
+`qemu-system`, runs KASLD against the running kernel, and applies the same check
 across architectures and attacker profiles:
 
 ```sh
@@ -62,7 +62,7 @@ tests/vm/run all hardened   # repeat under the unprivileged floor
 
 It needs `qemu-system-<arch>` and the cross toolchains on PATH; an architecture
 is skipped (not failed) when either is missing. The reader profiles (the
-`scenario` column of the matrix) escalate how little kasld is allowed to read:
+`scenario` column of the matrix) escalate how little KASLD is allowed to read:
 
 - `default` — root, `kptr_restrict=0`: kallsyms and everything else readable.
 - `hide` — root, but `kptr_restrict=2`: kernel pointers are *hidden*, so kallsyms
@@ -167,16 +167,16 @@ is `0` whenever KASLR is off — there was no entropy to start with. `recovered`
 whether the window collapsed to a single address. A KASLR-`off` row that is
 `recovered=no` (e.g. `ppc64le` or `riscv32` under `hardened`) therefore shows
 `0` residual but a non-point window: the base is fixed (0 entropy), yet from
-file-only facts kasld can only *bound* it — between the true base and that base
+file-only facts KASLD can only *bound* it — between the true base and that base
 plus the image-base offset — rather than read it exactly. That width is inference
 uncertainty, not entropy. It still contains the truth, which is the property
 being checked.
 
 Several architectures show KASLR `off` outside the `nokaslr` column: under the
 default qemu machine they receive no KASLR seed (or the port has no text KASLR),
-so the kernel boots unrandomized and kasld bounds or pins the base via the
+so the kernel boots unrandomized and KASLD bounds or pins the base via the
 disabled-base path — a soundness case, not a gap. Where that disabled base is a
-fixed constant (e.g. seedless `riscv64` under `-M virt`), kasld pins it exactly
+fixed constant (e.g. seedless `riscv64` under `-M virt`), KASLD pins it exactly
 from arch constants plus the world-readable device-tree, so `recovered=yes` holds
 even under `hardened` — no kallsyms or leak is needed when there is no randomness
 to recover.
@@ -201,7 +201,7 @@ make check            # unit + integration tests (the per-rule checks)
 tests/replay          # run kasld over every captured fixture
 ```
 
-`tests/replay` confirms kasld parses and runs cleanly on each snapshot;
+`tests/replay` confirms KASLD parses and runs cleanly on each snapshot;
 `make check` runs the per-rule unit tests, including the soundness checks. The
 corpus spans 10 architecture families (Alpine, Debian, Ubuntu/Raspbian) and
 kernels from 4.19 to 7.0:

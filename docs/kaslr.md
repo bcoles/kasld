@@ -1,6 +1,6 @@
 # KASLR and Kernel Memory Layout
 
-Reference material on how Linux KASLR works, what it randomises, and how
+Reference material on how Linux KASLR works, what it randomizes, and how
 the kernel virtual address space is laid out across architectures.
 
 ## Table of Contents
@@ -37,7 +37,7 @@ Even where KASLR is unsupported, disabled, or failed to randomize, the
 kernel's load address may still vary across boots: a bootloader
 (U-Boot, GRUB, the EFI stub, Coreboot, etc.) is free to place the image
 at whatever physical address suits the board's memory map. The kernel
-is not actively randomising in that case, but the base is still unknown
+is not actively randomizing in that case, but the base is still unknown
 to an unprivileged user a priori. KASLD treats this case identically —
 the same inference engine narrows the bootloader-chosen base from
 observable evidence (`dmesg` landmarks, `/proc/iomem`, `/sys` facts,
@@ -80,12 +80,12 @@ against which the KASLR slide is measured, not the load address on every
 system.
 
 The "default text base" here is the **image base** (`_text`) — the start of
-the kernel image, which is what KASLR aligns and what kasld reports. The
+the kernel image, which is what KASLR aligns and what KASLD reports. The
 familiar `_stext` (start of the code section) sits a fixed *head gap* above
 `_text`: zero on most architectures (so `_text == _stext`), but non-zero where
-a header precedes the code (arm64's `.head.text`, `0x10000`). kasld solves the
+a header precedes the code (arm64's `.head.text`, `0x10000`). KASLD solves the
 image base and shows `_stext` as a derived line only when the two differ; a
-leaked `_stext` (e.g. from `/proc/kallsyms`) is normalised back to the image
+leaked `_stext` (e.g. from `/proc/kallsyms`) is normalized back to the image
 base when it is consumed, so the slide is always measured against `_text`.
 
 | Architecture | Default text base | Derivation | `IMAGE_ALIGN` | KASLR slots | Entropy |
@@ -154,7 +154,7 @@ and KASLD reports them distinctly:
 
 | State | Where the kernel landed | Slot entropy | Bootloader entropy |
 |---|---|---|---|
-| **Active** | One of `valid_slots` positions chosen uniformly | Full (`log2(valid_slots)`) | Subsumed by KASLR — placement is randomised within the bootloader-determined range |
+| **Active** | One of `valid_slots` positions chosen uniformly | Full (`log2(valid_slots)`) | Subsumed by KASLR — placement is randomized within the bootloader-determined range |
 | **Disabled** | The arch's compile-time default text base, exactly | 0 bits — fully predictable | None — opt-out is honoured before the bootloader chooses |
 | **Unsupported** | Bootloader-determined physical address; virtual address is hardware-fixed (e.g. `PAGE_OFFSET + TEXT_OFFSET` on arm32) | 0 bits — arch has no KASLR machinery | Whatever entropy the bootloader's placement policy provides — often per-boot deterministic |
 | **Randomization failed** | Boot-stub- or firmware-deterministic, *not* the link-time default | 0 bits — boot stub skipped the random offset | Whatever entropy the deterministic fallback path provides — typically the lowest aligned slot the firmware allocator returns, identical across boots on the same hardware |

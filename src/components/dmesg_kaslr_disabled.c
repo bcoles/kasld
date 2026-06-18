@@ -176,7 +176,7 @@ int main(void) {
     kasld_info("Kernel was booted with KASLR disabled");
     /* The dmesg "KASLR disabled" / "KASLR is disabled" lines fire from the
      * boot stub's nokaslr path (or equivalent), which disables both virtual
-     * and physical randomisation on every arch that emits them. */
+     * and physical randomization on every arch that emits them. */
     kasld_emit_scalar(SF_VIRT_KASLR_DISABLED, 1, CONF_PARSED);
     kasld_emit_scalar(SF_PHYS_KASLR_DISABLED, 1, CONF_PARSED);
   }
@@ -201,7 +201,7 @@ int main(void) {
         "EFI stub could not get random bytes from EFI_RNG_PROTOCOL "
         "(physical placement is PE/COFF-loader-determined; virtual KASLR "
         "may have succeeded independently via DTB seed or arch RNG)");
-    /* Phys-only randomisation failure: emit SF_PHYS_KASLR_RANDOMIZATION_FAILED
+    /* Phys-only randomization failure: emit SF_PHYS_KASLR_RANDOMIZATION_FAILED
      * alone. virt-side facts are NOT emitted — virt KASLR on EFI arm64 /
      * riscv64 / loongarch64 is independent of EFI_RNG_PROTOCOL and may have
      * succeeded via the DTB seed. Consumed by efi_loader_kernel_pick (which

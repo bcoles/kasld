@@ -1321,7 +1321,7 @@ static void test_ram_map_phys_exclude(void) {
    * extent overlaps a sysfs_memory_blocks extent. The old code merged
    * observations by (type, region, name) and re-attributed the overlapping
    * firmware_memmap extent away from its origin, dropping it from the
-   * reconstructed map and synthesising a false giant gap. Coverings are
+   * reconstructed map and synthesizing a false giant gap. Coverings are
    * per-source and never merged, so each map carves only its own real gap. */
   static struct engine e7;
   engine_init(&e7);
@@ -4376,7 +4376,7 @@ static void test_text_pin_from_observation_virt(void) {
   evidence_add(&e.ev, &o);
   const rule_fn rules[] = {rule_text_pin_from_observation};
   engine_run(&e, rules, 1);
-  /* A KERNEL_TEXT (_stext) witness normalises down to the image base by the
+  /* A KERNEL_TEXT (_stext) witness normalizes down to the image base by the
    * head gap (STEXT_OFFSET): 0 on most arches, 0x10000 on arm64, 0x20000 on
    * loongarch64. */
   unsigned long base = kasld_image_base_from(stext, 1);
@@ -4395,7 +4395,7 @@ static void test_text_pin_from_observation_phys(void) {
   evidence_add(&e.ev, &o);
   const rule_fn rules[] = {rule_text_pin_from_observation};
   engine_run(&e, rules, 1);
-  /* A KERNEL_TEXT (_stext) witness normalises down to the image base by the
+  /* A KERNEL_TEXT (_stext) witness normalizes down to the image base by the
    * head gap (STEXT_OFFSET), on the physical axis as on the virtual. */
   unsigned long pbase = kasld_image_base_from(ptext, 1);
   assert(e.est[Q_PHYS_IMAGE_BASE].lo == pbase);

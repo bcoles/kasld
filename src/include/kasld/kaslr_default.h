@@ -8,7 +8,7 @@
 // sysroot state. The resolved facts feed virt_kaslr_disabled_pin and
 // phys_kaslr_disabled_pin.
 //
-// riscv64: arch/riscv/mm/init.c setup_vm() randomises only when kaslr_seed !=
+// riscv64: arch/riscv/mm/init.c setup_vm() randomizes only when kaslr_seed !=
 // 0. On a non-EFI system whose FDT has no /chosen/kaslr-seed, the seed stays 0
 // and the kernel loads at KERNEL_LINK_ADDR (== KERNEL_VIRT_TEXT_DEFAULT) with
 // no KASLR. Guards mirror riscv64_no_seed_default precisely:

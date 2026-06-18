@@ -1,10 +1,17 @@
 # Usage
 
-Each component in `src/components/` is a standalone leak component using
-a different technique to retrieve or infer kernel addresses. The `kasld`
-orchestrator discovers and executes all components, displays results in
-real-time, and produces a section-aware summary with validated addresses
-grouped by kernel section (text, modules, direct map, …).
+`kasld` recovers a running kernel's memory layout — primarily the kernel text
+base — for an unprivileged local user. Run it with no arguments and it prints an
+answer: the recovered (or narrowed) virtual and physical image base, the direct
+map base, and the leaks the answer was derived from.
+
+Underneath, `kasld` gathers evidence from many small leak components (each a
+standalone technique that probes one source) and feeds it to an inference engine
+that narrows the layout to the smallest set of placements the evidence supports,
+reporting every value with its provenance and any residual entropy. In normal use
+that machinery is invisible — a single invocation prints the result. This
+document covers the output modes and command-line options; for how the pieces fit
+together see [architecture.md](architecture.md).
 
 ## Table of Contents
 
@@ -81,22 +88,22 @@ derived from, and a hint about the verbose mode. No banner, no system
 config, no memory-layout diagram.
 
 ```
-KASLD 0.2.0  --  Kernel ASLR derandomisation
-Target: x86_64 / 6.12.38+deb13-amd64
+KASLD 0.2.1-dev  --  Kernel ASLR derandomization
+Target: x86_64 / 6.15.6
 
 Running 83 components (10 experimental skipped; use -x to enable)...
-[####################] 100%  83/83  10.5s
+[####################] 100%  83/83  5.3s
 
-  Virtual text base   0xffffffffa7a00000   slide +0x26a00000
-  Physical text base  not derandomized     ~9 bits
-                      0x0000000001000000 - 0x000000002eedbce0   (367 x 2.0 MiB)
+  Virtual image base  0xffffffff83800000   slide +0x2800000
+  Physical image base not derandomized     ~9 bits
+                      0x0000000001000000 - 0x000000003c20ca00   (473 x 2.0 MiB)
   Direct map base     >= 0xffff800000000000
 
   Coupling            virt and phys text are independent on this arch.
                       A phys leak does NOT reveal the virt text base.
 
 Leaks (1):
-  virt kernel text    0xffffffffa7a00000   (prefetch)
+  virt kernel text    0xffffffff83800000   (prefetch)
 
 [-v: detailed results, memory map, system info]  [-H: hardening assessment]
 ```
@@ -119,56 +126,49 @@ and a compact bracket-format virtual + physical memory layout:
     ███▐██▄     ███    ███          ███ ███       ███    ███
     ███ ▀███▄   ███    ███    ▄█    ███ ███▌    ▄ ███   ▄███
     ███   ▀█▀   ███    █▀   ▄████████▀  █████▄▄██ ████████▀
-    ▀                                   ▀ v0.2.0
+    ▀                                   ▀ v0.2.1-dev
 
-Kernel release:               6.12.38+deb13-amd64
-Kernel version:               #1 SMP PREEMPT_DYNAMIC Debian 6.12.38-1 (2025-07-16)
+Kernel release:               6.15.6
+Kernel version:               #1 SMP PREEMPT_DYNAMIC Wed Jun 17 13:04:17 EDT 2026
 Kernel arch:                  x86_64
 
 kernel.kptr_restrict:         0
-kernel.dmesg_restrict:        1
+kernel.dmesg_restrict:        0
 kernel.panic_on_oops:         0
-kernel.perf_event_paranoid:   3
-Kernel lockdown:              none
+kernel.perf_event_paranoid:   2
+Kernel lockdown:              (unavailable)
 
 Readable /var/log/dmesg:      no
 Readable /var/log/kern.log:   no
 Readable /var/log/syslog:     no
-Readable debugfs:             no
-Readable /boot/System.map:    yes
-Readable /boot/config:        yes
+Readable debugfs:             yes
+Readable /boot/System.map:    no
+Readable /boot/config:        no
 
 --- boot_config ---
-[.] checking for CONFIG_VMSPLIT_1G... 
-[.] checking for CONFIG_VMSPLIT_2G... 
-[.] checking for CONFIG_VMSPLIT_2G_OPT... 
-[.] checking for CONFIG_VMSPLIT_3G... 
-[.] checking for CONFIG_VMSPLIT_3G_OPT... 
-[.] CONFIG_PHYSICAL_START: 0x1000000
-S physical_start conf=parsed value=0x1000000
-[.] CONFIG_PHYSICAL_ALIGN: 0x200000
-S phys_kernel_align conf=parsed value=0x200000
-[.] checking for CONFIG_RANDOMIZE_BASE... 
-
---- boot_params_facts ---
-S init_size conf=parsed value=0x37ed000
-S phys_kernel_align conf=parsed value=0x200000
+[-] could not find kernel config
 
 --- boot_params_e820 ---
 [.] reading E820 memory map and initrd address from /sys/kernel/boot_params/data ...
-E820 RAM: 0x0000000000000000 - 0x000000000009e7ff
-E820 RAM: 0x0000000000100000 - 0x000000007fedffff
-E820 RAM: 0x000000007ff00000 - 0x000000007fffffff
-leaked E820 DRAM low:  0x0000000000100000
+[.] E820 RAM: 0x0000000000000000 - 0x000000000009fbff
+[.] E820 RAM: 0x0000000000100000 - 0x000000003ffdefff
+[+] leaked E820 DRAM low:  0x0000000000100000
 P ram pos=base conf=parsed lo=0x100000
-leaked E820 DRAM high: 0x000000007fffffff
-P ram pos=top conf=parsed hi=0x7fffffff
-note: phys and virt KASLR are decoupled on this arch; cannot derive kernel text virtual address from physical leak
-leaked initrd physical start: 0x000000003173d000
-leaked initrd physical end:   0x0000000034b95ea8
-P initrd pos=base conf=parsed lo=0x3173d000 hi=0x34b95ea8
+[+] leaked E820 DRAM high: 0x000000003ffdefff
+P ram pos=top conf=parsed hi=0x3ffdefff
+[.] note: phys and virt KASLR are decoupled on this arch; cannot derive kernel text virtual address from physical leak
+[+] leaked initrd physical start: 0x000000003eff3000
+[+] leaked initrd physical end:   0x000000003ffcf651
+P initrd pos=base conf=parsed lo=0x3eff3000 hi=0x3ffcf651
+
+--- boot_params_facts ---
+S init_size conf=parsed value=0x288d000
+S phys_kernel_align conf=parsed value=0x200000
 
 --- bootconfig_facts ---
+
+--- btf_struct_page_size ---
+[-] /sys/kernel/btf/vmlinux unavailable (no CONFIG_DEBUG_INFO_BTF?)
 
 --- cmdline_hugepages ---
 [-] no `hugepages=` on /proc/cmdline
@@ -180,7 +180,7 @@ P initrd pos=base conf=parsed lo=0x3173d000 hi=0x34b95ea8
 [-] no avoidance `memmap=` reservations on cmdline
 
 --- cmdline_region ---
-P cmdline pos=base conf=parsed lo=0x8f000 hi=0x8f7fe
+P cmdline pos=base conf=parsed lo=0x20000 hi=0x207fe
 
 --- cpuinfo_facts ---
 S phys_addr_bits conf=parsed value=0x2d
@@ -189,138 +189,105 @@ S phys_addr_bits conf=parsed value=0x2d
 
 --- dmesg_acpi_dynamic_ssdt ---
 [.] searching dmesg for ACPI dynamic OEM table loads ...
-[-] klogctl(SYSLOG_ACTION_SIZE_BUFFER): Operation not permitted
-[-] fopen(/var/log/dmesg): No such file or directory
-[-] dmesg: access denied (klogctl and /var/log/dmesg both inaccessible)
 [-] no ACPI dynamic OEM table load with a direct-map virtual address found in dmesg
 
 --- dmesg_android_ion_snapshot ---
 [.] searching dmesg for 'ion_snapshot: ' ...
-[-] klogctl(SYSLOG_ACTION_SIZE_BUFFER): Operation not permitted
-[-] fopen(/var/log/dmesg): No such file or directory
-[-] dmesg: access denied (klogctl and /var/log/dmesg both inaccessible)
+[-] ion_snapshot not found in dmesg
 
 --- dmesg_backtrace ---
 [.] searching dmesg for kernel oops information ...
-[-] klogctl(SYSLOG_ACTION_SIZE_BUFFER): Operation not permitted
-[-] fopen(/var/log/dmesg): No such file or directory
-[-] dmesg: access denied (klogctl and /var/log/dmesg both inaccessible)
+[-] no kernel oops information found in dmesg
 
 --- dmesg_check_for_initrd ---
 [.] searching dmesg for check_for_initrd() info ...
-[-] klogctl(SYSLOG_ACTION_SIZE_BUFFER): Operation not permitted
-[-] fopen(/var/log/dmesg): No such file or directory
-[-] dmesg: access denied (klogctl and /var/log/dmesg both inaccessible)
+[-] check_for_initrd info not found in dmesg
 
 --- dmesg_cma_reserved ---
 [.] searching dmesg for CMA/DMA reserved memory pools ...
-[-] klogctl(SYSLOG_ACTION_SIZE_BUFFER): Operation not permitted
-[-] fopen(/var/log/dmesg): No such file or directory
-[-] dmesg: access denied (klogctl and /var/log/dmesg both inaccessible)
+[-] No CMA/DMA reserved memory pools found in dmesg
 
 --- dmesg_crashkernel ---
 [.] searching dmesg for crashkernel reservation ...
-[-] klogctl(SYSLOG_ACTION_SIZE_BUFFER): Operation not permitted
-[-] fopen(/var/log/dmesg): No such file or directory
-[-] dmesg: access denied (klogctl and /var/log/dmesg both inaccessible)
+[-] crashkernel reservation not found in dmesg
 
 --- dmesg_driver_component_ops ---
 [.] searching dmesg for driver component ops pointers ...
-[-] klogctl(SYSLOG_ACTION_SIZE_BUFFER): Operation not permitted
-[-] fopen(/var/log/dmesg): No such file or directory
-[-] dmesg: access denied (klogctl and /var/log/dmesg both inaccessible)
+[-] driver component ops pointers not found in dmesg
 
 --- dmesg_e820_memory_map ---
 [.] searching dmesg for e820 physical memory map ...
-[-] klogctl(SYSLOG_ACTION_SIZE_BUFFER): Operation not permitted
-[-] fopen(/var/log/dmesg): No such file or directory
-[-] dmesg: access denied (klogctl and /var/log/dmesg both inaccessible)
+[+] leaked e820 DRAM low:  0x000000000009fc00
+P ram pos=base conf=parsed lo=0x9fc00
+[+] leaked e820 DRAM high: 0x000000003fffffff
+P ram pos=top conf=parsed hi=0x3fffffff
+[.] note: phys and virt KASLR are decoupled on this arch; cannot derive kernel text virtual address from physical leak
 
 --- dmesg_early_init_dt_add_memory_arch ---
-[.] searching dmesg for early_init_dt_add_memory_arch() ignored memory ranges ...
-[-] klogctl(SYSLOG_ACTION_SIZE_BUFFER): Operation not permitted
-[-] fopen(/var/log/dmesg): No such file or directory
-[-] dmesg: access denied (klogctl and /var/log/dmesg both inaccessible)
+[.] [.] searching dmesg for early_init_dt_add_memory_arch() ignored memory ranges ...
+[-] early_init_dt_add_memory_arch info not found in dmesg
 
 --- dmesg_efi_memmap ---
 [.] searching dmesg for EFI memory map (requires efi=debug) ...
-[-] klogctl(SYSLOG_ACTION_SIZE_BUFFER): Operation not permitted
-[-] fopen(/var/log/dmesg): No such file or directory
-[-] dmesg: access denied (klogctl and /var/log/dmesg both inaccessible)
+[-] EFI memory map not found in dmesg
+[.]     (requires efi=debug kernel boot parameter)
 
 --- dmesg_ex_handler_msr ---
 [.] searching dmesg for native_[read|write]_msr function pointer ...
-[-] klogctl(SYSLOG_ACTION_SIZE_BUFFER): Operation not permitted
-[-] fopen(/var/log/dmesg): No such file or directory
-[-] dmesg: access denied (klogctl and /var/log/dmesg both inaccessible)
+[-] ex_handler_msr function pointer not found in dmesg
 
 --- dmesg_fake_numa_init ---
 [.] searching dmesg for fake_numa_init() info ...
-[-] klogctl(SYSLOG_ACTION_SIZE_BUFFER): Operation not permitted
-[-] fopen(/var/log/dmesg): No such file or directory
-[-] dmesg: access denied (klogctl and /var/log/dmesg both inaccessible)
+[-] fake_numa_init info not found in dmesg
 
 --- dmesg_free_area_init_node ---
 [.] searching dmesg for mm_init physical memory info ...
-[-] klogctl(SYSLOG_ACTION_SIZE_BUFFER): Operation not permitted
-[-] fopen(/var/log/dmesg): No such file or directory
-[-] dmesg: access denied (klogctl and /var/log/dmesg both inaccessible)
+[.] lowest physical address:  0x0000000000001000
+P ram pos=interior conf=parsed sample=0x1000
+[.] highest physical address: 0x000000003ffdefff
+P ram pos=top conf=parsed hi=0x3ffdefff
+[.] note: phys and virt KASLR are decoupled on this arch; cannot derive kernel text virtual address from physical leak
 
 --- dmesg_free_reserved_area ---
 [.] searching dmesg for free_reserved_area() info ...
-[-] klogctl(SYSLOG_ACTION_SIZE_BUFFER): Operation not permitted
-[-] fopen(/var/log/dmesg): No such file or directory
-[-] dmesg: access denied (klogctl and /var/log/dmesg both inaccessible)
 
 --- dmesg_kaslr_disabled ---
 [.] searching dmesg for 'KASLR disabled' or 'KASLR is disabled' ...
-[-] klogctl(SYSLOG_ACTION_SIZE_BUFFER): Operation not permitted
-[-] fopen(/var/log/dmesg): No such file or directory
-[-] dmesg: access denied (klogctl and /var/log/dmesg both inaccessible)
+[.] searching dmesg for 'EFI_RNG_PROTOCOL unavailable' ...
+[-] KASLR disabled indicator not found in dmesg
 
 --- dmesg_last_pfn ---
 [.] searching dmesg for last_pfn ...
-[-] klogctl(SYSLOG_ACTION_SIZE_BUFFER): Operation not permitted
-[-] fopen(/var/log/dmesg): No such file or directory
-[-] dmesg: access denied (klogctl and /var/log/dmesg both inaccessible)
+[+] leaked last_pfn: 0x3ffdf (last valid byte: 0x000000003ffdefff)
+P ram pos=top conf=parsed hi=0x3ffdefff
 
 --- dmesg_mem_init_kernel_layout ---
 [.] searching dmesg for kernel memory layout sections ...
-[-] klogctl(SYSLOG_ACTION_SIZE_BUFFER): Operation not permitted
-[-] fopen(/var/log/dmesg): No such file or directory
-[-] dmesg: access denied (klogctl and /var/log/dmesg both inaccessible)
+[-] kernel memory layout sections not found in dmesg
 
 --- dmesg_mmu_idmap ---
 [.] searching dmesg for ' static identity map for ' ...
-[-] klogctl(SYSLOG_ACTION_SIZE_BUFFER): Operation not permitted
-[-] fopen(/var/log/dmesg): No such file or directory
-[-] dmesg: access denied (klogctl and /var/log/dmesg both inaccessible)
+[-] MMU identity map info not found in dmesg
 
 --- dmesg_node_data ---
 [.] searching dmesg for NODE_DATA allocations ...
-[-] klogctl(SYSLOG_ACTION_SIZE_BUFFER): Operation not permitted
-[-] fopen(/var/log/dmesg): No such file or directory
-[-] dmesg: access denied (klogctl and /var/log/dmesg both inaccessible)
-[-] no NODE_DATA allocation info found in dmesg
+[.] lowest NODE_DATA physical address:  0x000000003ffdb800
+[.] highest NODE_DATA physical address: 0x000000003ffdefff
+P numa_node pos=interior conf=parsed sample=0x3ffdefff
+[.] note: phys and virt KASLR are decoupled on this arch; cannot derive kernel text virtual address from physical leak
 
 --- dmesg_ramdisk ---
 [.] searching dmesg for RAMDISK physical addresses ...
-[-] klogctl(SYSLOG_ACTION_SIZE_BUFFER): Operation not permitted
-[-] fopen(/var/log/dmesg): No such file or directory
-[-] dmesg: access denied (klogctl and /var/log/dmesg both inaccessible)
+[+] leaked RAMDISK physical address: 0x000000003eff3000
+P initrd pos=interior conf=parsed sample=0x3eff3000
 
 --- dmesg_reserved_mem ---
 [.] searching dmesg for device tree reserved memory regions ...
-[-] klogctl(SYSLOG_ACTION_SIZE_BUFFER): Operation not permitted
-[-] fopen(/var/log/dmesg): No such file or directory
-[-] dmesg: access denied (klogctl and /var/log/dmesg both inaccessible)
 [-] no device tree reserved memory regions found in dmesg
 
 --- dmesg_swiotlb ---
 [.] searching dmesg for SWIOTLB bounce buffer info ...
-[-] klogctl(SYSLOG_ACTION_SIZE_BUFFER): Operation not permitted
-[-] fopen(/var/log/dmesg): No such file or directory
-[-] dmesg: access denied (klogctl and /var/log/dmesg both inaccessible)
+[-] SWIOTLB not found in dmesg (may not be enabled)
 
 --- efi_present ---
 S efi_present conf=parsed value=0x0
@@ -328,32 +295,45 @@ S efi_present conf=parsed value=0x0
 --- fdt_facts ---
 
 --- firmware_memmap ---
-P ram pos=base conf=parsed lo=0x100000 hi=0x7fedffff
-P ram pos=base conf=parsed lo=0x7ff00000 hi=0x7fffffff
-P ram pos=base conf=parsed lo=0x0 hi=0x9e7ff
+P ram pos=extent conf=parsed lo=0x100000 hi=0x3ffdefff
+P ram pos=extent conf=parsed lo=0x0 hi=0x9fbff
+
+--- function_order_fingerprint ---
+[.] function order: kernel/sys.c span 0.1% below 30% threshold; abstaining (not a canonical-order assertion)
 
 --- hibernation_nokaslr ---
 
+--- ioctl_mmio_phys ---
+[.] querying framebuffer / serial ioctls for physical MMIO bases ...
+[-] no MMIO bases from fb/serial ioctls (no accessible device, or port-I/O only)
+
 --- kernel_image_facts ---
-S image_size conf=parsed value=0x2861320
+S image_size conf=parsed value=0x2de6600
 
 --- kernel_notes_buildid ---
 [.] reading /sys/kernel/notes ...
-kernel.lto: 0
-kernel.build_salt: "6.12.38+deb13-amd64"
-kernel.build_id: 5783470ea1883c7d668e98f3c2928751600ccd28
+[.] kernel.lto: 0
+[.] kernel.build_salt: ""
+[.] kernel.build_id: 4b471aa7689b36a0c9ad6d7fff278fdc2dd94dcb
 
 --- meminfo_facts ---
-S memtotal conf=parsed value=0x78fa7000
-S max_pfn conf=parsed value=0x80000
+S phys_memtotal conf=parsed value=0x3cb40000
+S phys_max_pfn conf=parsed value=0x3ffdf
 
 --- page_size ---
 S page_size conf=parsed value=0x1000
 
 --- perf_event_open ---
 [.] trying perf_event_open sampling ...
-[-] syscall(SYS_perf_event_open): Permission denied
+[-] perf_event_open: Permission denied
 [-] no kernel address found via perf_event_open
+
+--- perf_ksymbol_leak ---
+[-] perf_event_open EACCES — perf_event_paranoid > 0
+
+--- perf_lbr_sampling ---
+[.] trying perf LBR sampling on a busy-syscall child ...
+[-] perf_event_open EACCES — needs perf_event_paranoid<=1 or CAP_PERFMON
 
 --- proc_cmdline ---
 [.] trying /proc/cmdline ...
@@ -378,21 +358,26 @@ V virt_page_offset pos=base conf=parsed lo=0xffff800000000000
 [.] reading /proc/modules ...
 [-] no kernel address found in /proc/modules
 
---- proc_stat_wchan ---
-[.] checking /proc/173583/stat 'wchan' field ...
-[-] no kernel address found in /proc/pid/stat wchan
+--- proc_net_sock_ptr ---
+[.] scanning /proc/net/unix for direct-map sock pointers ...
+[.] scanning /proc/net/netlink for direct-map sock pointers ...
+[-] no real sock pointers in /proc/net/* (pointers hashed, or kptr_restrict denies the value)
 
---- proc_zoneinfo ---
-[.] searching /proc/zoneinfo for zone start_pfn and spanned ...
-lowest zone start PFN:  1 (phys 0x0000000000001000)
-P ram pos=interior conf=parsed sample=0x1000
-highest zone end PFN:   524288 (phys 0x000000007fffffff)
-P ram pos=top conf=parsed hi=0x7fffffff
-note: phys and virt KASLR are decoupled on this arch; cannot derive directmap virtual address from physical leak
+--- proc_stat_wchan ---
+[.] checking /proc/159/stat 'wchan' field ...
+[-] no kernel address found in /proc/pid/stat wchan
 
 --- proc_timer_list ---
 [.] scanning /proc/timer_list for timer base addresses ...
 [-] fopen: Permission denied
+
+--- proc_zoneinfo ---
+[.] searching /proc/zoneinfo for zone start_pfn and spanned ...
+[.] lowest zone start PFN:  1 (phys 0x0000000000001000)
+P ram pos=interior conf=parsed sample=0x1000
+[.] highest zone end PFN:   262111 (phys 0x000000003ffdefff)
+P ram pos=top conf=parsed hi=0x3ffdefff
+[.] note: phys and virt KASLR are decoupled on this arch; cannot derive directmap virtual address from physical leak
 
 --- qemu_tcg_iret ---
 [.] trying QEMU TCG iret leak ...
@@ -400,18 +385,9 @@ note: phys and virt KASLR are decoupled on this arch; cannot derive directmap vi
 
 --- sidt ---
 [.] trying SIDT leak ...
-IDT base:  0xfffffe0000000000
-IDT limit: 0x0fff (4096 bytes, 256 entries)
-[-] IDT is in the CPU entry area (CONFIG_PAGE_TABLE_ISOLATION=y) — no leak
-
---- sysfs_kernel_notes_xen ---
-[.] checking /sys/kernel/notes ...
-[-] Xen notes appear stale (unrelocated); discarding
-[-] no kernel addresses found in ELF notes
-
---- sysfs_module_sections ---
-[.] trying /sys/modules/*/sections/.text ...
-[-] no kernel address found in /sys/module sections
+[.] IDT base:  0xffffffffffff0000
+[.] IDT limit: 0x0000 (1 bytes, 0 entries)
+[-] UMIP active — kernel returned dummy IDT value, no leak
 
 --- sysfs_devicetree_initrd ---
 [-] device tree chosen node not found or no initrd properties
@@ -433,28 +409,29 @@ IDT limit: 0x0fff (4096 bytes, 256 entries)
 
 --- sysfs_firmware_memmap ---
 [.] searching /sys/firmware/memmap for System RAM entries ...
-firmware memmap: 2 System RAM entries
-lowest System RAM start:  0x0000000000100000
+[.] firmware memmap: 1 System RAM entries
+[.] lowest System RAM start:  0x0000000000100000
 P ram pos=base conf=parsed lo=0x100000
-highest System RAM end:   0x000000007fffffff
-P ram pos=top conf=parsed hi=0x7fffffff
-note: phys and virt KASLR are decoupled on this arch; cannot derive directmap virtual address from physical leak
+[.] highest System RAM end:   0x000000003ffdefff
+P ram pos=top conf=parsed hi=0x3ffdefff
+[.] note: phys and virt KASLR are decoupled on this arch; cannot derive directmap virtual address from physical leak
 
 --- sysfs_iscsi_transport_handle ---
-[.] checking /sys/class/iscsi_transport/iser/handle ...
-[-] fopen: No such file or directory
+[-] Failed to get a NETLINK_ISCSI socket: Protocol not supported
 [.] checking /sys/class/iscsi_transport/tcp/handle ...
 [-] fopen: No such file or directory
 
+--- sysfs_kernel_notes_xen ---
+[.] checking /sys/kernel/notes ...
+[-] no kernel addresses found in ELF notes
+
 --- sysfs_memory_blocks ---
 [.] searching /sys/devices/system/memory for memory block info ...
-memory block size: 0x8000000 (128 MB)
-memory blocks: 16 online
-lowest memory block start:  0x0000000000000000
-P ram pos=interior conf=parsed sample=0x0
-highest memory block end:   0x000000007fffffff
-P ram pos=top conf=parsed hi=0x7fffffff
-note: phys and virt KASLR are decoupled on this arch; cannot derive directmap virtual address from physical leak
+[-] cannot read block_size_bytes: No such file or directory
+
+--- sysfs_module_sections ---
+[.] trying /sys/modules/*/sections/.text ...
+[-] no kernel address found in /sys/module sections
 
 --- sysfs_nd_region ---
 [.] trying /sys/bus/nd/devices/ndregionN/resource ...
@@ -466,20 +443,20 @@ note: phys and virt KASLR are decoupled on this arch; cannot derive directmap vi
 
 --- sysfs_pci_resource ---
 [.] searching /sys/bus/pci/devices for PCI device MMIO BAR addresses ...
-PCI devices: 46, memory BARs: 79
-lowest PCI MMIO start:  0x00000000000c0000
+[.] PCI devices: 6, memory BARs: 8
+[.] lowest PCI MMIO start:  0x00000000000c0000
 P pci_mmio pos=interior conf=parsed sample=0xc0000
-highest PCI MMIO end:   0x00000000febfffff
-P pci_mmio pos=interior conf=parsed sample=0xfebfffff
+[.] highest PCI MMIO end:   0x00000000febd5fff
+P pci_mmio pos=interior conf=parsed sample=0xfebd5fff
 
 --- sysfs_uio_map ---
 [.] searching /sys/class/uio for UIO device map addresses ...
 
 --- sysfs_vmcoreinfo ---
 [.] trying /sys/kernel/vmcoreinfo ...
-vmcoreinfo_note physical address: 0x000000007c944000
-P vmcoreinfo pos=interior conf=parsed sample=0x7c944000
-note: phys and virt KASLR are decoupled on this arch; cannot derive directmap virtual address from physical leak
+[.] vmcoreinfo_note physical address: 0x00000000011ee000
+P vmcoreinfo pos=interior conf=parsed sample=0x11ee000
+[.] note: phys and virt KASLR are decoupled on this arch; cannot derive directmap virtual address from physical leak
 
 --- bcm_msg_head_struct ---
 [.] trying bcm_msg_head struct stack pointer leak ...
@@ -491,7 +468,7 @@ note: phys and virt KASLR are decoupled on this arch; cannot derive directmap vi
 --- entrybleed ---
 [.] trying EntryBleed (CVE-2022-4543) ...
 [.] AMD CPU with KPTI disabled
-[-] kernel version '6.12.38+deb13-amd64 #1 SMP PREEMPT_DYNAMIC Debian 6.12.38-1 (2025-07-16)' not recognized
+[-] kernel version '6.15.6 #1 SMP PREEMPT_DYNAMIC Wed Jun 17 13:04:17 EDT 2026' not recognized
 [-] EntryBleed (CVE-2022-4543) not exploitable
 
 --- mincore ---
@@ -515,64 +492,73 @@ note: phys and virt KASLR are decoupled on this arch; cannot derive directmap vi
 [.] trying prefetch side-channel ...
 [.] AMD CPU detected
 [.] KPTI is not detected
-possible kernel base: ffffffffa7a00000
-V kernel_text pos=base conf=timing lo=0xffffffffa7a00000
+[.] possible kernel base: ffffffff83800000
+V kernel_text pos=base conf=timing lo=0xffffffff83800000
 
-Components: 77 total, 17 succeeded, 11 unavailable, 24 access denied, 25 no result
+[engine] virt_image_base: constrained by 3 independent sources: ceiling_from_image_size physical_start_lower_bound text_pin_from_observation
+[engine] phys_image_base: constrained by 9 independent sources: ceiling_from_image_size phys_ceiling_from_memtotal phys_bits_ceiling phys_hole_filter initrd_phys_exclude ram_map_phys_exclude initrd_above_kernel cmdline_phys_exclude physical_start_lower_bound
+[engine] virt_kaslr_align: constrained by 2 independent sources: kaslr_align_arch_default boot_params_kaslr_align
+[engine] phys_kaslr_align: constrained by 2 independent sources: kaslr_align_arch_default boot_params_kaslr_align
+Components: 83 total, 20 succeeded, 14 unavailable, 4 access denied, 45 no result
 
 ========================================
  Results
 ========================================
 
 Kernel text (virtual) / kernel_text [1]:
-  0xffffffffa7a00000  kernel_text (prefetch, timing)
-  ==> 0xffffffffa7a00000  (timing, 1 source)
+  0xffffffff83800000  kernel_text (prefetch, timing)
+  ==> 0xffffffff83800000  (timing, 1 source)
 
 ----------------------------------------
 Physical DRAM / ram [4]:
-  0x0000000000000000  ram (sysfs_memory_blocks, parsed)
-  0x0000000000001000  ram (firmware_memmap, parsed)
-  0x0000000000100000  ram (boot_params_e820, parsed)
-  0x000000007ff00000  ram (firmware_memmap, parsed)
-  ==> 0x0000000000100000  (parsed, 1 source, 3 conflicts)
-      range: 0x0000000000000000 - 0x000000007ff00000  (2.0 GiB)
+  0x0000000000000000  ram (firmware_memmap, parsed)
+  0x0000000000001000  ram (dmesg_free_area_init_node, proc_zoneinfo, parsed)
+  0x0000000000100000  ram (firmware_memmap, parsed)
+  0x0000000000100000  ram (boot_params_e820, dmesg_e820_memory_map, dmesg_free_area_init_node, dmesg_last_pfn, proc_zoneinfo, sysfs_firmware_memmap, parsed)
+  ==> 0x0000000000100000  (parsed, 2 sources, 2 conflicts)
+      range: 0x0000000000000000 - 0x0000000000100000  (1.0 MiB)
 
 ----------------------------------------
 Physical DRAM / initrd [1]:
-  0x000000003173d000  initrd (boot_params_e820, parsed)
-  ==> 0x000000003173d000  (parsed, 1 source)
+  0x000000003eff3000  initrd (boot_params_e820, dmesg_ramdisk, parsed)
+  ==> 0x000000003eff3000  (parsed, 1 source)
 
 ----------------------------------------
 Physical DRAM / cmdline [1]:
-  0x000000000008f000  cmdline (cmdline_region, parsed)
-  ==> 0x000000000008f000  (parsed, 1 source)
+  0x0000000000020000  cmdline (cmdline_region, parsed)
+  ==> 0x0000000000020000  (parsed, 1 source)
+
+----------------------------------------
+Physical DRAM / numa_node [1]:
+  0x000000003ffdefff  numa_node (dmesg_node_data, parsed)
+  ==> 0x000000003ffdefff  (parsed, 1 source)
 
 ----------------------------------------
 Physical DRAM / vmcoreinfo [1]:
-  0x000000007c944000  vmcoreinfo (sysfs_vmcoreinfo, parsed)
-  ==> 0x000000007c944000  (parsed, 1 source)
+  0x00000000011ee000  vmcoreinfo (sysfs_vmcoreinfo, parsed)
+  ==> 0x00000000011ee000  (parsed, 1 source)
 
 ----------------------------------------
 Physical MMIO / pci_mmio [2]:
   0x00000000000c0000  pci_mmio (sysfs_pci_resource, parsed)
-  0x00000000febfffff  pci_mmio (sysfs_pci_resource, parsed)
+  0x00000000febd5fff  pci_mmio (sysfs_pci_resource, parsed)
   ==> 0x00000000000c0000  (parsed, 1 source, 1 conflict)
-      range: 0x00000000000c0000 - 0x00000000febfffff  (4.0 GiB)
+      range: 0x00000000000c0000 - 0x00000000febd5fff  (4.0 GiB)
 
 ----------------------------------------
 KASLR analysis:
-  Virtual text base:    0xffffffffa7a00000
-  Default text base:    0xffffffff81000000
-  KASLR slide:          +0x26a00000 (648019968)
+  Virtual image base:   0xffffffff83800000
+  Default image base:   0xffffffff81000000
+  KASLR slide:          +0x2800000 (41943040)
   KASLR text entropy:   0 bits (pinned)
 
-  Inferred phys text range:  0x0000000001000000 - 0x000000002eedbce0
-  Remaining phys slots:      367 (9 bits, step 0x200000)
+  Inferred phys text range:  0x0000000001000000 - 0x000000003c20ca00
+  Remaining phys slots:      473 (9 bits, step 0x200000)
 
 Memory KASLR (directmap / vmalloc / vmemmap):
-  virt_page_offset_base     >= 0xffff800000000000
-  virt_vmalloc_base         0xffff8b0040000000 - 0xffffdcffc0000000  (83966 candidates, 17 bits)
-  virt_vmemmap_base         0xffffab0080000000 - 0xfffffd0000000000  (83966 candidates, 17 bits)
+  virt_page_offset_base >= 0xffff800000000000
+  virt_vmalloc_base    0xffff8b0040000000 - 0xffffdcffc0000000  (83966 candidates, 17 bits)
+  virt_vmemmap_base    0xffffab0080000000 - 0xfffffd0000000000  (83966 candidates, 17 bits)
 
 ----------------------------------------
 Virtual memory layout (decoupled):
@@ -580,10 +566,10 @@ Virtual memory layout (decoupled):
   0xffffffffffffffff
       modules (no leak)
   0xffffffffc0000000
-      . . .  390.0 MiB gap  . . .
-  0xffffffffa7a00000
-      kernel text (pinned) -- leak 0xffffffffa7a00000
-  0xffffffffa7a00000
+      . . .  968.0 MiB gap  . . .
+  0xffffffff83800000
+      kernel text (pinned) -- leak 0xffffffff83800000
+  0xffffffff83800000
       . . .  128.0 TiB gap  . . .
   0xffff800000000000
       direct map (pinned)
@@ -593,20 +579,20 @@ Virtual memory layout (decoupled):
 
 Physical memory layout:
 
-  0x000000007fffffff
+  0x000000003ffdefff
       above DRAM
-        0x00000000febfffff  [mmio] pci_mmio
-  0x000000007fffffff
+        0x00000000febd5fff  [mmio] pci_mmio
+  0x000000003ffdefff
       in DRAM
-        0x000000007c944000  [dram] vmcoreinfo
-        0x000000003173d000  [dram] initrd
-  0x000000002eedbce0
+        0x000000003eff3000  [dram] initrd
+  0x000000003c20ca00
       phys kernel text
         (no leak)
   0x0000000001000000
       in DRAM
         0x00000000000c0000  [mmio] pci_mmio
-        0x000000000008f000  [dram] cmdline
+        0x0000000000020000  [dram] cmdline
+        0x0000000000001000  [dram] ram
   0x0000000000000000
 ```
 
@@ -627,7 +613,7 @@ value is fully recovered.
 `-1` (`--oneline`) produces a single shell-pipeable line:
 
 ```
-arch=x86_64 kaslr=on text=0xffffffffa7a00000 slide=+0x26a00000(648019968) results=11
+arch=x86_64 kaslr=on text=0xffffffff83800000 slide=+0x2800000(41943040) results=12
 ```
 
 ### JSON (`-j`)

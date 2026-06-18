@@ -21,7 +21,7 @@
 //      across SATP modes is SV57, giving the widest accepting floor)
 //
 // The bands themselves are KASLR-invariant — the kernel image's KASLR slot
-// inside the KASLR window is the only randomised position; the band
+// inside the KASLR window is the only randomized position; the band
 // containers are fixed (modulo SATP mode, which the bands above absorb by
 // using the widest plausible edges). An observation whose eff_region claims
 // one band but whose address falls in a different band's range is

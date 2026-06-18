@@ -144,7 +144,7 @@ single-source covering** of the region (a whole RAM map: every E820 / device-tre
 extents, so it makes no positional claim: floor rules ignore it (they require
 `pos=base`), and the orchestrator routes it out of the cross-source merge into
 the engine's `coverings[]` so the map stays faithful and per-source. Only emit it
-from a source that reads the **whole** map — a partial map would synthesise false
+from a source that reads the **whole** map — a partial map would synthesize false
 gaps, which `tests/check-extent-callers` guards against.
 
 All helpers return `1` on emit, `0` on rejection (with a stderr
@@ -159,7 +159,7 @@ when you know exactly what's at the address — a kernel symbol
 (`nf_conntrack`), a device (`0000:00:14.0`).
 
 A component that detects KASLR being switched off (or unsupported, or having
-failed to randomise) emits scalar facts via `kasld_emit_scalar()` instead of an
+failed to randomize) emits scalar facts via `kasld_emit_scalar()` instead of an
 address; which facts, and how the engine consumes each, are documented in
 [docs/architecture.md → KASLR runtime states](docs/architecture.md#kaslr-runtime-states).
 
@@ -294,7 +294,7 @@ kasld_result_range(KASLD_TYPE_VIRT, REGION_INITRD,
 
 The `#ifdef` guard compiles the derivation out on arches where the
 direct-map projection is unsound at compile time — x86_64 with
-`CONFIG_RANDOMIZE_MEMORY` (direct-map base randomised), arm64 / riscv64
+`CONFIG_RANDOMIZE_MEMORY` (direct-map base randomized), arm64 / riscv64
 / s390 (text and direct map at independent runtime offsets). On those
 arches the macro is undefined, so forgetting the guard fails to compile
 rather than silently emitting a wrong observation. See
@@ -441,7 +441,7 @@ directly via the constants in `kasld/api.h`'s include chain):
 | `KERNEL_VIRT_TEXT_DEFAULT` | Default (non-randomized) kernel text base |
 | `KERNEL_VIRT_VAS_START`, `KERNEL_VIRT_VAS_END` | Kernel virtual address space bounds |
 | `KERNEL_VIRT_TEXT_MIN`, `KERNEL_VIRT_TEXT_MAX` | Plausible kernel text range (validation) |
-| `KASLR_VIRT_TEXT_MIN`, `KASLR_VIRT_TEXT_MAX` | KASLR randomisation window (slot counting) |
+| `KASLR_VIRT_TEXT_MIN`, `KASLR_VIRT_TEXT_MAX` | KASLR randomization window (slot counting) |
 | `KASLR_VIRT_TEXT_MIN_WIDE` | Conservative widened floor (admits non-default Kconfigs) |
 | `PAGE_OFFSET` | Direct-map base (compile-time default) |
 | `PHYS_OFFSET` | Physical RAM base address |

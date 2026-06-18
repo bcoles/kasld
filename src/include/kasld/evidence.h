@@ -40,7 +40,7 @@
  * observation:
  *   - NOT corroboratable / NOT merged. Two sources' maps must never be mixed:
  *     a runtime-offlined block is RAM in the boot E820 but a hole in a hotplug
- *     view, so unioning would melt a real gap or synthesise a false one. Each
+ *     view, so unioning would melt a real gap or synthesize a false one. Each
  *     map is independently complete for its own substrate.
  *   - The VALUE is in the GAPS between extents, not at any single edge — which
  *     is why covering members carry no positional claim (pos=extent).
