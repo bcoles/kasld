@@ -88,7 +88,7 @@ derived from, and a hint about the verbose mode. No banner, no system
 config, no memory-layout diagram.
 
 ```
-KASLD 0.2.1-dev  --  Kernel ASLR derandomization
+KASLD 0.3.0  --  Kernel ASLR derandomization
 Target: x86_64 / 6.15.6
 
 Running 83 components (10 experimental skipped; use -x to enable)...
@@ -126,7 +126,7 @@ and a compact bracket-format virtual + physical memory layout:
     ███▐██▄     ███    ███          ███ ███       ███    ███
     ███ ▀███▄   ███    ███    ▄█    ███ ███▌    ▄ ███   ▄███
     ███   ▀█▀   ███    █▀   ▄████████▀  █████▄▄██ ████████▀
-    ▀                                   ▀ v0.2.1-dev
+    ▀                                   ▀ v0.3.0
 
 Kernel release:               6.15.6
 Kernel version:               #1 SMP PREEMPT_DYNAMIC Wed Jun 17 13:04:17 EDT 2026

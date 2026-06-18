@@ -61,7 +61,7 @@ can temporarily relax these settings (requires root).
 The default text mode prints an answer-first overview:
 
 ```
-KASLD 0.2.1-dev  --  Kernel ASLR derandomization
+KASLD 0.3.0  --  Kernel ASLR derandomization
 Target: x86_64 / 6.15.6
 
 Running 83 components (10 experimental skipped; use -x to enable)...
