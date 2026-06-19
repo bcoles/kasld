@@ -49,7 +49,7 @@
 //   Kernel subsystem: arch/x86 — SIDT instruction (unprivileged)
 //   Data structure:   IDTR (Interrupt Descriptor Table Register)
 //   Address type:     virtual
-//   Method:           exact (CPU instruction)
+//   Method:           parsed (CPU instruction)
 //   Patched:          v3.10 (commit 4eefbe792bae; IDT moved to fixmap)
 //   Status:           fixed in v3.10 (predates KASLR v3.14)
 //   Access check:     none (unprivileged CPU instruction); UMIP traps with #GP

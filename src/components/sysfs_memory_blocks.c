@@ -108,7 +108,7 @@ int main(void) {
   kasld_info("memory block size: %#lx (%lu MB)", block_size,
              block_size / (1024 * 1024));
 
-  d = opendir(base);
+  d = kasld_opendir(base);
   if (!d) {
     perror("[-] opendir");
     return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM

@@ -1,9 +1,14 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
 // Read EFI runtime service virtual and physical addresses from
-// /sys/firmware/efi/runtime-map/. Each numbered entry exposes five
-// DEVICE_ATTR_RO (0444) sysfs files: phys_addr, virt_addr, num_pages,
-// attribute, and type. No capability check; world-readable.
+// /sys/firmware/efi/runtime-map/. Each numbered entry exposes five sysfs
+// files: phys_addr, virt_addr, num_pages, attribute, and type. On current
+// kernels these are created with __ATTR_RO_MODE(.., 0400) — root-only; an
+// unprivileged user cannot read them (older kernels exposed them 0444).
+//
+// CONFIG_EFI_RUNTIME_MAP, which creates this directory, is an x86 option
+// (arch/x86/Kconfig, selected when KEXEC_CORE is enabled); the sysfs
+// interface is x86-only.
 //
 // On kernels without a dedicated EFI virtual address space (pre-~v5.14),
 // the virtual addresses passed to SetVirtualAddressMap() are placed in the
@@ -18,19 +23,21 @@
 //
 // Leak primitive:
 //   Data leaked:      EFI runtime service virtual and physical addresses
-//   Kernel subsystem: drivers/firmware/efi/runtime-map.c
+//   Kernel subsystem: arch/x86/platform/efi/runtime-map.c (x86-only)
 //   Data structure:   EFI memory map descriptors (efi_memory_desc_t)
 //   Address type:     virtual (direct-map, pre-v5.14)
 //   Method:           parsed (sysfs text files)
 //   Status:           unfixed (information exposure by design)
-//   Access check:     none (DEVICE_ATTR_RO, mode 0444)
+//   Access check:     root-only (__ATTR_RO_MODE(.., 0400)) on current kernels
 //   Source:
-//   https://elixir.bootlin.com/linux/v6.12/source/drivers/firmware/efi/runtime-map.c
+//   https://elixir.bootlin.com/linux/latest/source/arch/x86/platform/efi/runtime-map.c
 //
 // Mitigations:
-//   None at runtime. World-readable; no sysctl restricts access.
+//   On current kernels the sysfs files are mode 0400 (root-only), so an
+//   unprivileged user cannot read them; the technique requires root or an
+//   older kernel that exposed them world-readable.
 //   Utility reduced on v5.14+ kernels with dedicated EFI VA space.
-//   CONFIG_EFI=n removes the sysfs entries entirely.
+//   CONFIG_EFI_RUNTIME_MAP=n removes the sysfs entries entirely.
 //
 // Requires:
 // - CONFIG_EFI
@@ -39,7 +46,7 @@
 // - UEFI-booted system (/sys/firmware/efi/runtime-map/ must exist)
 //
 // References:
-// https://elixir.bootlin.com/linux/v6.12/source/drivers/firmware/efi/runtime-map.c
+// https://elixir.bootlin.com/linux/latest/source/arch/x86/platform/efi/runtime-map.c
 // https://www.kernel.org/doc/Documentation/ABI/testing/sysfs-firmware-efi-runtime-map
 // ---
 // <bcoles@gmail.com>
@@ -58,14 +65,14 @@ KASLD_EXPLAIN(
     "kernels without a dedicated EFI virtual address space (pre-~v5.14), "
     "runtime service virtual addresses are placed in the kernel "
     "direct-map. Subtracting phys_addr from virt_addr yields "
-    "virt_page_offset_base directly. Files are world-readable (DEVICE_ATTR_RO, "
-    "0444); requires CONFIG_EFI and a UEFI-booted system.");
+    "virt_page_offset_base directly. On current kernels these files are mode "
+    "0400 (root-only via __ATTR_RO_MODE), so an unprivileged user cannot read "
+    "them; older kernels exposed them world-readable (0444). The interface is "
+    "x86-only (CONFIG_EFI_RUNTIME_MAP) and requires a UEFI-booted system.");
 
-// Untested: no suitable EFI system available for testing.
 KASLD_META("method:parsed\n"
            "phase:inference\n"
            "addr:virtual\n"
-           "status:experimental\n"
            "config:CONFIG_EFI\n"
            "config:CONFIG_KEXEC_CORE\n");
 
@@ -93,7 +100,7 @@ int main(void) {
   kasld_info("searching %s for EFI runtime service virtual addresses ...",
              base);
 
-  d = opendir(base);
+  d = kasld_opendir(base);
   if (!d) {
     int e = errno;
     perror("[-] opendir");

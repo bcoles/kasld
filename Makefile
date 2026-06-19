@@ -327,8 +327,24 @@ TEST_BTF_BIN := $(TEST_OBJ_DIR)/test_btf
 $(TEST_BTF_BIN): $(TEST_DIR)/test_btf.c $(SRC_DIR)/components/btf_struct_page_size.c $(HDRS) | $(TEST_OBJ_DIR)
 	$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_btf.c -o $@
 
+# sysfs / ACPI / DT leak-parser tests: each component #included (main renamed)
+# and driven over a staged KASLD_SYSROOT fixture tree reproducing the kernel ABI.
+TEST_PARSERS_SRCS := $(SRC_DIR)/components/sysfs_efi_runtime_map.c \
+	$(SRC_DIR)/components/acpi_mrrm.c \
+	$(SRC_DIR)/components/sysfs_cbmem_address.c \
+	$(SRC_DIR)/components/sysfs_cxl_region.c \
+	$(SRC_DIR)/components/sysfs_qcom_rmtfs_mem.c \
+	$(SRC_DIR)/components/sysfs_iommu_reserved_regions.c \
+	$(SRC_DIR)/components/sysfs_devicetree_elfcorehdr.c \
+	$(SRC_DIR)/components/sysfs_nd_region.c \
+	$(SRC_DIR)/components/sysfs_uio_map.c \
+	$(SRC_DIR)/components/sysfs_iscsi_transport_handle.c
+TEST_PARSERS_BIN := $(TEST_OBJ_DIR)/test_sysfs_parsers
+$(TEST_PARSERS_BIN): $(TEST_DIR)/test_sysfs_parsers.c $(TEST_PARSERS_SRCS) $(HDRS) | $(TEST_OBJ_DIR)
+	$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_sysfs_parsers.c -o $@
+
 .PHONY: test
-test : $(TEST_BIN) $(TEST_RENDER_BIN) $(TEST_EST_BIN) $(TEST_EV_BIN) $(TEST_ALIGN_BIN) $(TEST_TEXT_ORDER_BIN) $(TEST_ENG_BIN) $(TEST_INT_BIN) $(TEST_DMESG_BIN) $(TEST_BTF_BIN)
+test : $(TEST_BIN) $(TEST_RENDER_BIN) $(TEST_EST_BIN) $(TEST_EV_BIN) $(TEST_ALIGN_BIN) $(TEST_TEXT_ORDER_BIN) $(TEST_ENG_BIN) $(TEST_INT_BIN) $(TEST_DMESG_BIN) $(TEST_BTF_BIN) $(TEST_PARSERS_BIN)
 	@$(TEST_DIR)/run-all
 	@$(MAKE) --no-print-directory lint
 
@@ -365,6 +381,10 @@ test-dmesg-layout : $(TEST_DMESG_BIN)
 .PHONY: test-btf
 test-btf : $(TEST_BTF_BIN)
 	$(TEST_BTF_BIN)
+
+.PHONY: test-sysfs-parsers
+test-sysfs-parsers : $(TEST_PARSERS_BIN)
+	$(TEST_PARSERS_BIN)
 
 # Cross-architecture engine test: runs the integration test under qemu-user for
 # each 64-bit target (exercises arch-gated rules on their arch). Needs the

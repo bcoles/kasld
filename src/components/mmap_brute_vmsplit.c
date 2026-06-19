@@ -12,7 +12,7 @@
 //   (CONFIG_PAGE_OFFSET) Kernel subsystem: mm — mmap syscall (virtual address
 //   space probing) Data structure:   kernel virtual address space boundary
 //   Address type:     virtual (kernel VAS start)
-//   Method:           heuristic (mmap brute-force across 32-bit address space)
+//   Method:           brute (mmap sweep across the 32-bit address space)
 //   Status:           unfixed (fundamental to 32-bit VM split design)
 //   Access check:     none (mmap syscall, unprivileged)
 //   Source:           N/A (architectural inference — no specific kernel
@@ -46,7 +46,7 @@ KASLD_EXPLAIN("Probes the 32-bit address space by attempting mmap at 256 MiB "
               "32-bit only. No privilege or sysctl gate; the split is a "
               "fundamental architectural property.");
 
-KASLD_META("method:heuristic\n"
+KASLD_META("method:brute\n"
            "phase:probing\n"
            "addr:virtual\n");
 

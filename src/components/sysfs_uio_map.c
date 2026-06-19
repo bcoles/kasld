@@ -148,7 +148,7 @@ int main(void) {
 
   fprintf(stderr, "[.] searching %s for UIO device map addresses ...\n", base);
 
-  d_uio = opendir(base);
+  d_uio = kasld_opendir(base);
   if (!d_uio) {
     if (errno == EACCES || errno == EPERM)
       return KASLD_EXIT_NOPERM;
@@ -163,7 +163,7 @@ int main(void) {
     /* Each UIO device has a maps/ subdirectory */
     snprintf(path, sizeof(path), "%s/%s/maps", base, ent_uio->d_name);
 
-    d_maps = opendir(path);
+    d_maps = kasld_opendir(path);
     if (!d_maps)
       continue;
 

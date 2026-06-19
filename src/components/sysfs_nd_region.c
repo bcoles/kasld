@@ -97,7 +97,7 @@ int main(void) {
 
   kasld_info("trying %s/ndregionN/resource ...", nd_base);
 
-  d = opendir(nd_base);
+  d = kasld_opendir(nd_base);
   if (!d) {
     int saved_errno = errno;
     if (saved_errno == ENOENT || saved_errno == ENODEV)

@@ -19,7 +19,7 @@
 //   Kernel subsystem: kernel/kallsyms — /proc/kallsyms
 //   Data structure:   kernel symbol table (struct kallsym_iter)
 //   Address type:     virtual (kernel text / data)
-//   Method:           exact (symbol table read)
+//   Method:           parsed (symbol table read)
 //   Status:           gated by design (kptr_restrict)
 //   Access check:     kallsyms_show_value() checks kptr_restrict + CAP_SYSLOG
 //   Source: https://elixir.bootlin.com/linux/v6.12/source/kernel/kallsyms.c

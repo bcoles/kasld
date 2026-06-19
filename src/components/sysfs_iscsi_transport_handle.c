@@ -11,7 +11,7 @@
 //   Kernel subsystem: drivers/scsi — /sys/class/iscsi_transport/*/handle
 //   Data structure:   struct iscsi_transport (module data pointer)
 //   Address type:     virtual (kernel module data)
-//   Method:           exact (sysfs file read)
+//   Method:           parsed (sysfs file read)
 //   CVE:              CVE-2021-27363
 //   Patched:          v5.12 (multiple commits)
 //   Status:           fixed in v5.12

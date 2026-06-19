@@ -24,7 +24,7 @@
 //   Kernel subsystem: QEMU TCG — iret instruction emulation bug
 //   Data structure:   kernel exception stack frame (return address)
 //   Address type:     virtual (kernel stack)
-//   Method:           exact (QEMU reads kernel stack instead of user stack)
+//   Method:           parsed (QEMU reads kernel stack instead of user stack)
 //   Patched:          QEMU v9.1 (commit 0bd385e7)
 //   Status:           fixed in QEMU v9.1 (not a kernel bug)
 //   Access check:     N/A (QEMU TCG emulation bug; not a kernel vulnerability)

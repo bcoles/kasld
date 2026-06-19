@@ -26,6 +26,7 @@ end-user material, see [README.md](README.md) and
   - [Exit code convention](#exit-code-convention)
   - [Minimal component](#minimal-component)
   - [Component metadata](#component-metadata)
+  - [Testing a component](#testing-a-component)
 - [Writing a rule](#writing-a-rule)
 - [API reference](#api-reference)
 
@@ -334,7 +335,7 @@ Supported metadata keys:
 
 | Key | Description | Example |
 |---|---|---|
-| `method` | Technique category, used by the hardening report | `parsed`, `heuristic`, `timing`, `brute` |
+| `method` | Technique category, used by the hardening report | `parsed`, `heuristic`, `timing`, `brute`, `detection` |
 | `phase` | Scheduling phase | `inference` (default when omitted), `probing` |
 | `addr` | Address type leaked | `virtual`, `physical`, `both` |
 | `sysctl` | Runtime sysctl gate | `dmesg_restrict>=1`, `kptr_restrict>=1` |
@@ -344,6 +345,7 @@ Supported metadata keys:
 | `config` | Kernel compile-time config dependency | `CONFIG_E820_TABLE` |
 | `cve` | Associated CVE identifier | `CVE-2022-4543` |
 | `patch` | Kernel version where the leak was patched | `v4.10`, `v6.2` |
+| `status` | Opt-in gate; the component runs only with `-x` | `experimental` |
 
 Each component should also include structured comment blocks in its file
 header documenting the leak primitive and mitigations:
@@ -359,6 +361,49 @@ header documenting the leak primitive and mitigations:
 // Mitigations:
 //   Removed in v4.10. Access gated by dmesg_restrict.
 ```
+
+---
+
+### Testing a component
+
+The inference engine is the unit-tested core (`tests/test_engine.c`,
+`tests/test_engine_integration.c`, and the estimate/evidence suites).
+Components are thin parse-and-emit shims, and most are covered end to end by
+running the real binary over captured real systems:
+
+- `tests/replay` runs each architecture's `kasld` over the captured
+  `/proc`+`/sys` trees in `tests/fixtures/` — crash coverage of the parse and
+  render paths on real data.
+- `extra/validate-bundle` runs offline against a captured bundle and asserts the
+  engine's resolved ranges contain the ground truth (soundness).
+
+A component therefore does **not** get its own unit test by default. Add a
+hermetic parser test **only when the component is fixture-unreachable** — when
+its input cannot appear in a captured tree:
+
+- it requires specific hardware or firmware a normal capture will not have
+  (CXL, coreboot, an active IOMMU, NVDIMM, UIO, a Qualcomm modem, …), or
+- its input is too large or absent on the build host (e.g. the multi-megabyte
+  `/sys/kernel/btf/vmlinux`).
+
+Such parsers must route their reads through the `kasld_*` wrappers
+(`kasld_opendir`, `kasld_fopen`, …) so a test can stage a `KASLD_SYSROOT`
+fixture in place of the live system. The test then `#include`s the component
+with its `main` renamed, drives it over hand-built fixture files reproducing the
+exact kernel ABI (text format, units, endianness), and checks the emitted wire
+line. `tests/test_sysfs_parsers.c` is the pattern; `tests/test_btf.c` covers the
+oversized-input case.
+
+Hermetic tests are regression guards against parser *code* changes, not a way to
+detect kernel-side ABI drift — a frozen fixture cannot track a moving kernel.
+Drift is caught by widening the real-capture corpus under `tests/fixtures/` and
+by source review against new kernel releases.
+
+> One component carries a hermetic test for a different reason:
+> `dmesg_mem_init_kernel_layout` (`tests/test_dmesg_layout.c`) is reachable via
+> the dmesg captures, but its test exists to validate the parser across every
+> width and endianness under `tests/test-cross`. That is a deliberate exception
+> to the fixture-reachability rule above.
 
 ---
 

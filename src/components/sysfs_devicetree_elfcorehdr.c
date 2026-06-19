@@ -85,8 +85,7 @@ KASLD_META("method:parsed\n"
            "phase:inference\n"
            "addr:physical\n"
            "config:CONFIG_OF\n"
-           "config:CONFIG_CRASH_DUMP\n"
-           "status:experimental\n");
+           "config:CONFIG_CRASH_DUMP\n");
 
 /* Read raw binary content from a sysfs file. Returns bytes read, or -1. */
 static int read_binary(const char *path, unsigned char *buf, size_t len) {

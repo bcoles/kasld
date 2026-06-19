@@ -1135,8 +1135,8 @@ typedef int make_iso_compilers_happy;
 
 /* Machine-readable metadata in a dedicated ELF section. Newline-delimited
  * key:value pairs. Recognised keys:
- *   method:  Technique description for the hardening report.
- *            Common values: parsed, timing, heuristic, brute-force.
+ *   method:  Technique category for the hardening report.
+ *            Values: parsed, heuristic, timing, brute, detection.
  *   phase:   "inference" (default) or "probing".
  *   addr:    "virtual" or "physical".
  *   status:  "experimental" — opt-in via -x.

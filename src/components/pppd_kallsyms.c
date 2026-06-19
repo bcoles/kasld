@@ -11,7 +11,7 @@
 //   Kernel subsystem: net/ppp + fs/proc — pppd reads /proc/kallsyms via set-uid
 //   Data structure:   /proc/kallsyms first line (kernel startup symbol address)
 //   Address type:     virtual (kernel text)
-//   Method:           exact
+//   Method:           parsed
 //   Patched:          v4.8 (commit ef0010a30935; kptr_restrict moved to open())
 //   Status:           fixed in v4.8
 //   Access check:     kptr_restrict checked at read() pre-v4.8; set-uid pppd

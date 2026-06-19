@@ -106,12 +106,12 @@ int main(void) {
   int addr_cells = 1, size_cells = 1;
 
   /* Try sysfs first, then /proc/device-tree symlink */
-  d = opendir(base);
+  d = kasld_opendir(base);
   if (d) {
     root = base;
     closedir(d);
   } else {
-    d = opendir(alt);
+    d = kasld_opendir(alt);
     if (d) {
       root = alt;
       closedir(d);
@@ -151,7 +151,7 @@ int main(void) {
              size_cells);
 
   /* Scan for memory@* directories */
-  d = opendir(root);
+  d = kasld_opendir(root);
   if (!d) {
     perror("[-] opendir");
     return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM

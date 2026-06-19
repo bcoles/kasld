@@ -65,7 +65,7 @@
 //   Kernel subsystem: kernel/events — perf side-band PERF_RECORD_KSYMBOL
 //   Data structure:   perf_ksymbol_event (addr, len, ksym_type, name)
 //   Address type:     virtual (kernel module region)
-//   Method:           exact (perf record stream)
+//   Method:           parsed (perf record stream)
 //   Status:           gated by design (perf_event_paranoid)
 //   Access check:     perf_allow_cpu() requires paranoid<=0 unprivileged
 //   Source: https://elixir.bootlin.com/linux/v6.12/source/kernel/events/core.c

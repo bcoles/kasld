@@ -11,35 +11,34 @@
 //
 //   0x<start_16hex> 0x<end_16hex> <type>
 //
-// Types are: "Direct", "Relaxed direct", "Reserved", "MSI", "softmap MSI"
-//   (from iommu_group_resv_type_string[] in drivers/iommu/iommu.c).
+// Types are lowercase: "direct", "direct-relaxable", "reserved", "msi"
+//   (from iommu_group_resv_type_string[] in drivers/iommu/iommu.c;
+//   IOMMU_RESV_SW_MSI also renders as "msi").
 //
 // On Intel VT-d systems with Reserved Memory Region Reporting (RMRR),
 // firmware (via the DMAR ACPI table) declares physical DRAM ranges that
 // hardware — USB 2.0 controllers, integrated GPUs, Intel ME — require for
 // DMA. The VT-d driver fetches these from the DMAR table
 // (intel_iommu_get_resv_regions → iommu_alloc_resv_region) and registers
-// them as IOMMU_RESV_RESERVED ("Reserved") entries. These are physical DRAM
+// them as IOMMU_RESV_RESERVED ("reserved") entries. These are physical DRAM
 // addresses, not MMIO: a DMA region must be in system RAM.
 //
-// "Direct" entries (IOMMU_RESV_DIRECT) mark regions that are identity-mapped
+// "direct" entries (IOMMU_RESV_DIRECT) mark regions that are identity-mapped
 // through the IOMMU; they may also include pre-allocated DRAM buffers (e.g.
 // display stolen memory).
 //
-// Both "Reserved" and "Direct" entries with addresses in plausible DRAM ranges
+// Both "reserved" and "direct" entries with addresses in plausible DRAM ranges
 // are emitted as P/dram witnesses to bound the system's physical memory layout.
-// "MSI" and "softmap MSI" entries are always MMIO (interrupt delivery ranges)
-// and are skipped.
+// "msi" entries are always MMIO (interrupt delivery ranges) and are skipped.
 //
-// The attribute is created with S_IRUGO (0444):
+// The attribute is created world-readable, no capability check, not gated by
+// kptr_restrict:
 //
-//   static IOMMU_GROUP_ATTR(reserved_regions, S_IRUGO, ...)
-//
-// No capability check. Not gated by kptr_restrict.
+//   static IOMMU_GROUP_ATTR(reserved_regions, 0444, ...)
 //
 // Typical output on an Intel VT-d system with USB RMRR:
 //
-//   iommu_group 0: Reserved 0x000000007e300000 - 0x000000007e31ffff
+//   iommu_group 0: reserved 0x000000007e300000 - 0x000000007e31ffff
 //   P dram 0x000000007e300000 reserved_mem:0
 //   P dram 0x000000007e31ffff reserved_mem:0
 //
@@ -80,6 +79,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 KASLD_EXPLAIN(
     "Reads physical DRAM addresses from IOMMU group reserved regions at "
@@ -96,7 +96,6 @@ KASLD_EXPLAIN(
 KASLD_META("method:parsed\n"
            "phase:inference\n"
            "addr:physical\n"
-           "status:experimental\n"
            "config:CONFIG_IOMMU_API\n");
 
 /* Physical DRAM range heuristic.
@@ -137,7 +136,7 @@ int main(void) {
              "...",
              base);
 
-  d = opendir(base);
+  d = kasld_opendir(base);
   if (!d) {
     if (errno == ENOENT) {
       kasld_err("%s: not present (no active IOMMU or CONFIG_IOMMU_API=n)",
@@ -177,11 +176,14 @@ int main(void) {
       if (!start || !end_addr)
         continue;
 
-      /* Skip MSI / softmap MSI entries — always interrupt-delivery MMIO. */
-      if (strncmp(type, "MSI", 3) == 0 || strncmp(type, "softmap", 7) == 0)
+      /* Skip "msi" entries — always interrupt-delivery MMIO. The kernel
+       * emits the type string in lowercase (IOMMU_RESV_MSI and
+       * IOMMU_RESV_SW_MSI both render as "msi"); match case-insensitively
+       * so older capitalised spellings are also caught. */
+      if (strncasecmp(type, "msi", 3) == 0)
         continue;
 
-      /* Accept "Direct", "Relaxed direct", and "Reserved" entries that
+      /* Accept "direct", "direct-relaxable", and "reserved" entries that
        * pass the DRAM plausibility check. */
       if (!is_likely_dram(start))
         continue;

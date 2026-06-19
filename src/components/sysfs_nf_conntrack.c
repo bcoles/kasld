@@ -13,7 +13,7 @@
 //   Kernel subsystem: net/netfilter — /sys/kernel/slab/ directory names
 //   Data structure:   slab cache name containing raw kernel pointer
 //   Address type:     virtual (kernel data)
-//   Method:           exact (sysfs directory name parsing)
+//   Method:           parsed (sysfs directory name parsing)
 //   Patched:          v4.6 (commit 31b0b385f69d)
 //   Status:           fixed in v4.6 (still present in RHEL 7.7)
 //   Access check:     none (world-readable slab cache name in
@@ -67,7 +67,7 @@ static unsigned long get_kernel_addr_conntrack(void) {
 
   kasld_info("trying %snf_contrack_* ...", path);
 
-  d = opendir(path);
+  d = kasld_opendir(path);
   if (d == NULL) {
     perror("[-] opendir");
     return 0;

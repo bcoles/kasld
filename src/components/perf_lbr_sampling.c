@@ -31,7 +31,7 @@
 //   Kernel subsystem: kernel/events + arch/x86/events — Last Branch Record
 //   Data structure:   perf_branch_entry { from, to, flags }
 //   Address type:     virtual (kernel text)
-//   Method:           exact (CPU hardware branch trace)
+//   Method:           parsed (CPU hardware branch trace)
 //   Access check:     perf_allow_kernel() — paranoid<=1 or CAP_PERFMON
 //   Source:
 //     https://elixir.bootlin.com/linux/v6.12/source/kernel/events/core.c

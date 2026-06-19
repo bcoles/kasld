@@ -13,7 +13,7 @@
 //   Kernel subsystem: kernel/module — /proc/modules
 //   Data structure:   struct module → module_core (base address)
 //   Address type:     virtual (kernel module text)
-//   Method:           exact (proc file read)
+//   Method:           parsed (proc file read)
 //   Status:           gated by design (kptr_restrict)
 //   Access check:     m_show() checks kptr_restrict via restricted_pointer();
 //                     requires CAP_SYSLOG

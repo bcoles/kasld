@@ -81,7 +81,7 @@ int main(void) {
 
   kasld_info("searching %s for PCI device MMIO BAR addresses ...", base);
 
-  d = opendir(base);
+  d = kasld_opendir(base);
   if (!d) {
     perror("[-] opendir");
     return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM

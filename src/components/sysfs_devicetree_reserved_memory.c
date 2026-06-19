@@ -107,12 +107,12 @@ int main(void) {
   int addr_cells = 1, size_cells = 1;
 
   /* Try sysfs first, then /proc/device-tree symlink */
-  d = opendir(base);
+  d = kasld_opendir(base);
   if (d) {
     root = base;
     closedir(d);
   } else {
-    d = opendir(alt);
+    d = kasld_opendir(alt);
     if (d) {
       root = alt;
       closedir(d);
@@ -124,7 +124,7 @@ int main(void) {
 
   /* Check that the reserved-memory node exists */
   snprintf(path, sizeof(path), "%s/reserved-memory", root);
-  d = opendir(path);
+  d = kasld_opendir(path);
   if (!d) {
     if (errno == EACCES || errno == EPERM)
       return KASLD_EXIT_NOPERM;
@@ -173,7 +173,7 @@ int main(void) {
 
   /* Scan all children of reserved-memory/ for reg properties */
   snprintf(path, sizeof(path), "%s/reserved-memory", root);
-  d = opendir(path);
+  d = kasld_opendir(path);
   if (!d) {
     int e = errno;
     perror("[-] opendir");

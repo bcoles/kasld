@@ -69,7 +69,6 @@ KASLD_EXPLAIN(
 KASLD_META("method:parsed\n"
            "phase:inference\n"
            "addr:physical\n"
-           "status:experimental\n"
            "config:CONFIG_QCOM_RMTFS_MEM\n");
 
 static int read_file_line(const char *path, char *buf, size_t len) {
@@ -99,7 +98,7 @@ int main(void) {
           "addresses ...\n",
           base);
 
-  d = opendir(base);
+  d = kasld_opendir(base);
   if (!d) {
     if (errno == EACCES || errno == EPERM)
       return KASLD_EXIT_NOPERM;

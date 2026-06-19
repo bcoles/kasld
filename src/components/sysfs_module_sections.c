@@ -13,7 +13,7 @@
 //   Kernel subsystem: kernel/module — /sys/module/*/sections/.text
 //   Data structure:   struct module_sect_attr → address
 //   Address type:     virtual (kernel module text)
-//   Method:           exact (sysfs file read)
+//   Method:           parsed (sysfs file read)
 //   Patched:          v4.15 (commit 277642dcca76; permissions restricted)
 //   Status:           gated since v4.15 (kptr_restrict)
 //   Access check:     module_sect_show() checks kptr_restrict since v4.15;
@@ -99,7 +99,7 @@ static struct module_range get_module_text_sysfs(void) {
 
   kasld_info("trying /sys/modules/*/sections/.text ...");
 
-  d = opendir(path);
+  d = kasld_opendir(path);
   if (d == NULL) {
     perror("[-] opendir");
     return range;
