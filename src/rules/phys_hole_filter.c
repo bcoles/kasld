@@ -19,6 +19,7 @@
 #include "include/kasld/engine_rules.h"
 #include "include/kasld/regions.h"
 
+#include <limits.h>
 #include <string.h>
 
 #define MAX_DRAM_EXTENTS 32
@@ -61,7 +62,11 @@ int rule_phys_hole_filter(const struct evidence_set *ev,
   }
   int m = 0;
   for (int i = 0; i < n; i++) {
-    if (m > 0 && lo[i] <= hi[m - 1] + 1) {
+    /* Coalesce overlapping/adjacent extents. When the running extent already
+     * spans to ULONG_MAX it contains everything above lo[i], so absorb it —
+     * checking explicitly avoids the hi[m-1] + 1 wrap to 0 (crafted/corrupt
+     * map), which would otherwise split it into a spurious separate extent. */
+    if (m > 0 && (hi[m - 1] == ULONG_MAX || lo[i] <= hi[m - 1] + 1)) {
       if (hi[i] > hi[m - 1])
         hi[m - 1] = hi[i];
     } else {

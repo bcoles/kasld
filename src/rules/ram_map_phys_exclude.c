@@ -56,6 +56,7 @@
 
 #include "include/kasld/engine_rules.h"
 
+#include <limits.h>
 #include <string.h>
 
 #define RMPE_MAX_EXTENTS 64
@@ -120,7 +121,11 @@ static int carve_map_gaps(const struct evidence_set *ev, const char *origin,
   uint32_t cur_hi_id = ext[0].id;
   enum kasld_confidence econf = (kconf < mconf) ? kconf : mconf;
   for (int i = 1; i < ne && n < out_max; i++) {
-    if (ext[i].lo > cur_hi + 1) {
+    /* cur_hi == ULONG_MAX means RAM covers up to the top of the address
+     * space, so no non-RAM gap exists above it. Guard before cur_hi + 1 to
+     * avoid the wrap to 0, which would otherwise fabricate a gap at [0, ...]
+     * and exclude low memory containing the true base (crafted/corrupt map). */
+    if (cur_hi != ULONG_MAX && ext[i].lo > cur_hi + 1) {
       /* non-RAM gap [cur_hi + 1, ext[i].lo - 1] (both inclusive). */
       unsigned long gap_lo = cur_hi + 1;
       unsigned long gap_hi = ext[i].lo - 1;
