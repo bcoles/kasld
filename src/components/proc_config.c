@@ -87,7 +87,13 @@ static FILE *open_proc_config(void) {
   }
 #endif
 
-  /* Fallback: decompress via zcat and buffer into a seekable tmpfile. */
+  /* Fallback when zlib is not linked (e.g. the static cross builds): decompress
+   * via zcat and buffer into a seekable tmpfile. Interpolating `cfg` into the
+   * shell command is safe: it is the fixed literal "/proc/config.gz", or that
+   * literal under the KASLD_SYSROOT prefix — an environment variable set by the
+   * same user who runs kasld. kasld is never setuid, so no privilege boundary
+   * is crossed and the double-quoting is sufficient (no untrusted input reaches
+   * the shell). */
   char cmd[KASLD_PATH_MAX + 16];
   snprintf(cmd, sizeof(cmd), "zcat \"%s\"", cfg);
   FILE *proc = popen(cmd, "r");
