@@ -178,7 +178,9 @@ static void test_engine_cross_quantity_fixpoint(void) {
  * Termination: convergence on stable input
  * ======================================================================== */
 static void test_engine_converges_and_is_stable(void) {
-  struct engine e;
+  /* static: struct engine is ~1.3 MiB and this test stacks two; engine_init()
+   * fully resets each before use, so reuse is safe. */
+  static struct engine e;
   engine_init(&e);
   struct estimate top;
   quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
@@ -192,7 +194,7 @@ static void test_engine_converges_and_is_stable(void) {
   assert(e.passes <= ENGINE_MAX_PASSES);
 
   /* A second run from scratch yields identical estimates (determinism). */
-  struct engine e2;
+  static struct engine e2;
   engine_init(&e2);
   evidence_add(&e2.ev, &o);
   engine_run(&e2, rules, 1);
@@ -1155,8 +1157,10 @@ static void test_phys_reservation_exclude(void) {
   unsigned long rstart = PHYS_OFFSET + 0x10000000ul; /* reserved at +256 MiB */
   unsigned long rend = rstart + 0x4000000ul;         /* 64 MiB */
 
-  /* Positive: a crashkernel extent carves a hole; slot count drops. */
-  struct engine e;
+  /* Positive: a crashkernel extent carves a hole; slot count drops.
+   * static: struct engine is ~1.3 MiB and this test stacks two; engine_init()
+   * fully resets each before use, so reuse is safe. */
+  static struct engine e;
   engine_init(&e);
   struct observation is = mk_scalar(SF_IMAGE_SIZE, ksize, CONF_PARSED);
   evidence_add(&e.ev, &is);
@@ -1179,7 +1183,7 @@ static void test_phys_reservation_exclude(void) {
 
   /* Negative: a NON-forbidden region (plain RAM) emits no exclude — the image
    * CAN live in RAM. */
-  struct engine e2;
+  static struct engine e2;
   engine_init(&e2);
   struct observation is2 = mk_scalar(SF_IMAGE_SIZE, ksize, CONF_PARSED);
   evidence_add(&e2.ev, &is2);

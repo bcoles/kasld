@@ -63,8 +63,15 @@ KASLD_WARN_FLAGS_WANTED := \
     -Werror=implicit-function-declaration \
     -Werror=incompatible-pointer-types \
     -Werror=return-type \
-    -Werror=format-security
+    -Werror=format-security \
+    -Werror=frame-larger-than=2097152
 KASLD_HARDEN_FLAGS_WANTED := -fstack-protector-strong -D_FORTIFY_SOURCE=2
+
+# 2 MiB frame cap: a single ~1.35 MiB `struct engine` on the stack is fine, but
+# two or more (a multi-engine test) would overflow — those must be `static`
+# (engine_init() resets each before use). Catches the engine, and any other
+# oversized stack frame, at compile time. Dropped by cc-option on toolchains
+# that lack the flag.
 
 KASLD_WARN_FLAGS   := $(foreach f,$(KASLD_WARN_FLAGS_WANTED),$(call cc-option,$(f)))
 KASLD_HARDEN_FLAGS := $(foreach f,$(KASLD_HARDEN_FLAGS_WANTED),$(call cc-option,$(f)))
