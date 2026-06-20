@@ -334,6 +334,12 @@ TEST_BTF_BIN := $(TEST_OBJ_DIR)/test_btf
 $(TEST_BTF_BIN): $(TEST_DIR)/test_btf.c $(SRC_DIR)/components/btf_struct_page_size.c $(HDRS) | $(TEST_OBJ_DIR)
 	$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_btf.c -o $@
 
+# dmesg_backtrace block parser: #includes the component (main renamed), driven
+# over a staged KASLD_SYSROOT /var/log/dmesg covering the CR3 context tagging.
+TEST_BACKTRACE_BIN := $(TEST_OBJ_DIR)/test_dmesg_backtrace
+$(TEST_BACKTRACE_BIN): $(TEST_DIR)/test_dmesg_backtrace.c $(SRC_DIR)/components/dmesg_backtrace.c $(HDRS) | $(TEST_OBJ_DIR)
+	$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_dmesg_backtrace.c -o $@
+
 # sysfs / ACPI / DT leak-parser tests: each component #included (main renamed)
 # and driven over a staged KASLD_SYSROOT fixture tree reproducing the kernel ABI.
 TEST_PARSERS_SRCS := $(SRC_DIR)/components/sysfs_efi_runtime_map.c \
@@ -351,7 +357,7 @@ $(TEST_PARSERS_BIN): $(TEST_DIR)/test_sysfs_parsers.c $(TEST_PARSERS_SRCS) $(HDR
 	$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_sysfs_parsers.c -o $@
 
 .PHONY: test
-test : $(TEST_BIN) $(TEST_RENDER_BIN) $(TEST_EST_BIN) $(TEST_EV_BIN) $(TEST_ALIGN_BIN) $(TEST_TEXT_ORDER_BIN) $(TEST_ENG_BIN) $(TEST_INT_BIN) $(TEST_DMESG_BIN) $(TEST_BTF_BIN) $(TEST_PARSERS_BIN)
+test : $(TEST_BIN) $(TEST_RENDER_BIN) $(TEST_EST_BIN) $(TEST_EV_BIN) $(TEST_ALIGN_BIN) $(TEST_TEXT_ORDER_BIN) $(TEST_ENG_BIN) $(TEST_INT_BIN) $(TEST_DMESG_BIN) $(TEST_BACKTRACE_BIN) $(TEST_BTF_BIN) $(TEST_PARSERS_BIN)
 	@$(TEST_DIR)/run-all
 	@$(MAKE) --no-print-directory lint
 

