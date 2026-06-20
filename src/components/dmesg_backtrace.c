@@ -338,20 +338,17 @@ static void on_line(char *line, void *vctx) {
 
 /* Walk every line of the kernel log in order, calling fn(line, ctx) per line.
  *
- * A single source is used so line order — hence dump-block structure — is
- * preserved: under KASLD_SYSROOT the captured /var/log/dmesg (klogctl would
- * read the live host, not the analysed tree); otherwise klogctl, with the file
- * as fallback. The mapping is left to be reclaimed at process exit — these
- * components are one-shot (the same convention as the shared dmesg helper).
- * Returns 0 on success, -1 if no source is accessible. */
+ * mmap_syslog gives a single ordered source so line order — hence dump-block
+ * structure — is preserved: klogctl on a live system, or the captured
+ * /var/log/dmesg under KASLD_SYSROOT (mmap_syslog handles that redirect). The
+ * mapping is left to be reclaimed at process exit — these components are
+ * one-shot. Returns 0 on success, -1 if no source is accessible. */
 typedef void (*line_fn)(char *line, void *ctx);
 static int foreach_dmesg_line(line_fn fn, void *ctx) {
   char *buf;
   int size;
 
-  int rc = kasld_sysroot() ? read_dmesg_log_file(&buf, &size)
-                           : mmap_syslog(&buf, &size);
-  if (rc != 0 || size <= 0)
+  if (mmap_syslog(&buf, &size) != 0 || size <= 0)
     return -1;
 
   /* The mmap allocation is page-rounded strictly above `size`, so buf[size] is

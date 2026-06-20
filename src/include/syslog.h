@@ -73,6 +73,14 @@ static int read_dmesg_log_file(char **buffer, int *size) {
 static int mmap_syslog(char **buffer, int *size) {
   int alloc;
 
+  /* Offline analysis: under KASLD_SYSROOT, klogctl() would read the live HOST
+   * kernel log, not the analysed tree, so read the captured /var/log/dmesg
+   * instead. With no sysroot set (the normal case) this falls through to the
+   * klogctl-first path below (the live ring buffer is authoritative; the file
+   * is only the fallback when klogctl is denied). */
+  if (kasld_sysroot())
+    return read_dmesg_log_file(buffer, size);
+
   *size = klogctl(SYSLOG_ACTION_SIZE_BUFFER, 0, 0);
   if (*size == -1) {
     perror("[-] klogctl(SYSLOG_ACTION_SIZE_BUFFER)");

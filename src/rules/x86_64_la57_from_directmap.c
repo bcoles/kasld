@@ -103,7 +103,12 @@ int rule_x86_64_la57_from_directmap(const struct evidence_set *ev,
       snprintf(c->origin, ORIGIN_LEN, "x86_64_la57_from_directmap");
     }
   } else {
-    /* L4: raise the virt_page_offset floor to the L4 VAS start. */
+    /* L4: raise the virt_page_offset floor to the L4 VAS start. Deliberately
+     * the canonical half floor (0xffff800000000000), NOT __PAGE_OFFSET_BASE_L4
+     * (0xffff888000000000): the PTI LDT remap sits at 0xffff880000000000, and
+     * pre-v4.17 kernels based the directmap at 0xffff880000000000 — a higher
+     * floor would reject legitimate / older-kernel bases. Do not "tighten" this
+     * to __PAGE_OFFSET_BASE_L4; see proc_cpuinfo.c for the full rationale. */
     if (n < out_max) {
       struct constraint *c = &out[n++];
       memset(c, 0, sizeof(*c));
