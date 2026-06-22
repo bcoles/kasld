@@ -157,12 +157,25 @@
 // arch/arm64/include/asm/memory.h
 #define KERNEL_VIRT_TEXT_DEFAULT (KIMAGE_VADDR + IMAGE_BASE_OFFSET)
 
-/* KASLR-off ⇒ pin contract: arm64 KIMAGE_VADDR is fixed at kernel build
- * time by CONFIG_ARM64_VA_BITS_MIN (universally 48 in practice). Without
- * KASLR the kernel lands at KIMAGE_VADDR + IMAGE_BASE_OFFSET regardless of the
- * runtime VA_BITS (which only affects PAGE_OFFSET / the linear map). Build
- * configs with VA_BITS_MIN != 48 land at a different address; the pin rule's
- * window-containment check rejects the pin in that case. */
+/* KASLR-off ⇒ pin contract.
+ *
+ * SCOPE: KASLD models arm64 only for VA_BITS_MIN == 48 — the {48, 52} configs
+ * (4K/16K 4-level, plus 52-bit LVA, whose VA_BITS_MIN is still 48). On those,
+ * no-KASLR text sits at KIMAGE_VADDR + IMAGE_BASE_OFFSET = the 48-bit default
+ * below, independent of the runtime VA_BITS (which only moves PAGE_OFFSET / the
+ * linear map), so this pin is correct.
+ *
+ * Sub-48 builds land at a DIFFERENT KIMAGE_VADDR and are NOT supported:
+ *   4K  3-level → VA_BITS 39 (common on Android), KIMAGE_VADDR
+ * 0xffffffc080000000 64K 2-level → VA_BITS 42 16K 3-level → VA_BITS 47,
+ * KIMAGE_VADDR 0xffffc00080000000 KASLD cannot even detect them:
+ * mmap_arm64_va_bits probes only 1<<48 (so every VA_BITS <= 48 reads as 48) and
+ * Q_VA_BITS models only {48, 52}. And the pin's window-containment backstop
+ * does NOT catch the mismatch — the 48-bit default coincides with the
+ * honest-top floor (KASLR_VIRT_TEXT_MIN_WIDE == KIMAGE_VADDR), so it is always
+ * "in window." A sub-48 no-KASLR kernel therefore mis-pins (and its window is
+ * wrong regardless of KASLR). Real support is a VA_BITS overhaul: see
+ * dev/research/arm64-va-bits-min.md. */
 #define KASLR_DISABLED_PINS_VIRT_TEXT 1
 #define KASLD_ARCH_DEFAULT_TEXT_BASE_DEFINED 1
 static inline unsigned long arch_default_text_base(void) {

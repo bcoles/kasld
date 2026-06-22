@@ -25,9 +25,13 @@
 //   1. Fires only on a positive SF_VIRT_KASLR_DISABLED signal (no spurious
 //   pin).
 //   2. Window-containment check: the computed default must lie within the
-//      current honest window — if not, arch_default_text_base() doesn't model
-//      this kernel build (e.g. non-default CONFIG_ARM64_VA_BITS_MIN on arm64)
-//      and the wider window is kept rather than pinning to the wrong value.
+//      CURRENT honest window — if other evidence (a real leak or bound) has
+//      already narrowed the window past the compile-time default, the default
+//      is dropped and the narrowed window kept rather than pinning to a value
+//      the evidence excludes. NB this does NOT catch an arch whose default is
+//      itself wrong but still inside the window (e.g. sub-48 VA_BITS_MIN on
+//      arm64, where the default coincides with the floor — see arm64.h SCOPE
+//      note).
 //   3. Inferred confidence (above): any real text leak overrides the pin.
 // ---
 // <bcoles@gmail.com>
