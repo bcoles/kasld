@@ -826,6 +826,39 @@ static void test_render_derived_text_range_form(void) {
   assert(strstr(render_cap, "Derived addresses") != NULL);
 }
 
+/* A KASLR-disabled kernel whose text base resolves to a *range* rather than a
+ * single pinned address (legacy riscv64: linear-map text at a non-randomized,
+ * build-specific offset). KASLR is off, so the readout shows a plain range with
+ * NO slot/entropy count — there is no randomization to quantify. The renderer
+ * is arch-agnostic: it branches only on disabled + range-vs-pin, never on the
+ * arch. */
+static void test_render_readout_disabled_range_no_entropy(void) {
+  reset_results();
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+  struct summary s;
+  memset(&s, 0, sizeof(s));
+  unsigned long vt = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
+  s.kaslr.disabled = 1;
+  s.kaslr.vslots =
+      0; /* KASLR off ⇒ no entropy, as compute_kaslr_info sets it */
+  s.kaslr.vbits = 0;
+  unsigned long saved_min = layout.virt_kaslr_text_min;
+  unsigned long saved_max = layout.virt_kaslr_text_max;
+  layout.virt_kaslr_text_min = vt;
+  layout.virt_kaslr_text_max = vt + 0x402000ul; /* range, min != max */
+  set_render_mode(0, 0, 0);                     /* default text (readout) */
+  capture_stdout(wrap_render_summary, &s);
+  layout.virt_kaslr_text_min = saved_min;
+  layout.virt_kaslr_text_max = saved_max;
+  /* Plain range, no fabricated entropy: a hex range but no "bits"/"candidates".
+   */
+  assert(strstr(render_cap, "Kernel image base") != NULL);
+  assert(strstr(render_cap, " - ") != NULL);
+  assert(strstr(render_cap, "bits") == NULL);
+  assert(strstr(render_cap, "candidates") == NULL);
+}
+
 /* Exercise render_hardening_text and render_hardening_json by toggling
  * hardening_mode. The synthetic component log set up in set_rich_render_state
  * carries method/sysctl/addr metadata so classify_components has something
@@ -1178,6 +1211,7 @@ int main(void) {
   RUN(test_render_text_with_memory_kaslr_bound);
   RUN(test_render_derived_text);
   RUN(test_render_derived_text_range_form);
+  RUN(test_render_readout_disabled_range_no_entropy);
   RUN(test_render_text_kernel_region_promotion);
   RUN(test_section_consensus_per_subgroup_scope);
   RUN(test_section_consensus_lowest_among_ties);

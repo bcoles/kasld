@@ -48,11 +48,41 @@ static void add_addr(struct engine *e, enum kasld_addr_type type,
   evidence_add(&e->ev, &o);
 }
 
+/* add_addr with an explicit confidence — for exercising confidence-ordered
+ * conflict resolution (a parsed source must beat an inferred one regardless of
+ * which is captured first). Used only by arch-gated tests, so unused on hosts
+ * whose arch compiles none of them out. */
+__attribute__((unused)) static void
+add_addr_conf(struct engine *e, enum kasld_addr_type type,
+              enum kasld_region region, unsigned long lo, unsigned long hi,
+              enum kasld_confidence conf, const char *name) {
+  struct observation o;
+  memset(&o, 0, sizeof(o));
+  o.value_kind = OBS_ADDRESS;
+  o.type = type;
+  o.region = region;
+  o.lo = lo;
+  o.sample = lo;
+  o.set_mask = LO_SET | SAMPLE_SET;
+  if (hi) {
+    o.hi = hi;
+    o.set_mask |= HI_SET;
+  }
+  o.pos = POS_BASE;
+  o.conf = conf;
+  if (name)
+    snprintf(o.name, NAME_LEN, "%s", name);
+  evidence_add(&e->ev, &o);
+}
+
 /* Top-edge twin of add_addr: emits an observation with pos=top and only the
  * upper extent set (HI_SET, no LO/SAMPLE). Used to model firmware-style
- * ceiling signals — linux,kernel-end and linux,memory-limit. */
-static void add_addr_top(struct engine *e, enum kasld_addr_type type,
-                         enum kasld_region region, unsigned long hi) {
+ * ceiling signals — linux,kernel-end and linux,memory-limit. Used only by
+ * arch-gated tests (ppc64/riscv64), so unused on other hosts. */
+__attribute__((unused)) static void add_addr_top(struct engine *e,
+                                                 enum kasld_addr_type type,
+                                                 enum kasld_region region,
+                                                 unsigned long hi) {
   struct observation o;
   memset(&o, 0, sizeof(o));
   o.value_kind = OBS_ADDRESS;
@@ -477,6 +507,109 @@ static void test_full_engine_initrd_above_kernel_upper_bound(void) {
 #endif
 }
 
+/* riscv64 legacy (pre-v5.13) no-KASLR: text in the linear map at PAGE_OFFSET
+ * (MAXPHYSMEM_128GB = 0xffffffe000000000). Replicates MilkV board behavior:
+ * CONFIG_PAGE_OFFSET landmark, modern sv39 cpuinfo PAGE_OFFSET range (which the
+ * resolver must reject in favour of the higher CONFIG landmark), module leak,
+ * DRAM extents, disabled markers. Real _stext = 0xffffffe000229000. */
+static void test_full_engine_riscv64_legacy_no_kaslr(void) {
+#if (defined(__riscv) || defined(__riscv__)) && __riscv_xlen == 64
+  struct engine e;
+  engine_init(&e);
+  add_scalar(&e, SF_EFI_PRESENT, 0x0);
+  add_scalar(&e, SF_PHYS_MEMTOTAL, 0x13cd4000ul);
+  add_scalar(&e, SF_PHYS_MAX_PFN, 0x9fe00ul);
+  add_scalar(&e, SF_PAGE_SIZE, 0x1000ul);
+  add_scalar(&e, SF_VIRT_ADDR_BITS, 39ul);
+  add_scalar(&e, SF_VIRT_KASLR_DISABLED, 0x1);
+  add_scalar(&e, SF_PHYS_KASLR_DISABLED, 0x1);
+  /* PAGE_OFFSET evidence, in the order parallel execution produces on the
+   * board: proc_cpuinfo (fast) lands its DERIVED modern-sv39 range FIRST
+   * (CONF_INFERRED), then proc_config (slow gzip) lands the authoritative
+   * CONFIG_PAGE_OFFSET (CONF_PARSED). The two contradict; confidence — not
+   * capture order — must decide, so the legacy parsed value has to win despite
+   * being added second. Reverting proc_cpuinfo's confidence to parsed would
+   * make this resolve to the wrong (modern) value, failing the po->lo assertion
+   * below. */
+  add_addr_conf(&e, KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, 0xffffffd600000000ul,
+                0xffffffd800000000ul, CONF_INFERRED, NULL);
+  add_addr(&e, KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, 0xffffffe000000000ul, 0,
+           NULL);
+  /* module-region leaks (~2 GiB below text). */
+  add_addr(&e, KASLD_TYPE_VIRT, REGION_MODULE_REGION, 0xffffffdf80922000ul, 0,
+           NULL);
+  add_addr(&e, KASLD_TYPE_VIRT, REGION_MODULE_REGION, 0xffffffdf80d99000ul, 0,
+           NULL);
+  /* DRAM. */
+  add_addr(&e, KASLD_TYPE_PHYS, REGION_RAM, 0x80000000ul, 0, NULL);
+  add_addr_top(&e, KASLD_TYPE_PHYS, REGION_RAM, 0x9fe00000ul);
+
+  int nr = 0, nv = 0;
+  const rule_fn *rules = engine_rules(&nr);
+  const verdict_fn *vrules = engine_verdict_rules(&nv);
+  engine_run_full(&e, rules, nr, vrules, nv);
+
+  const struct estimate *vt = &e.est[Q_VIRT_IMAGE_BASE];
+  const struct estimate *po = &e.est[Q_PAGE_OFFSET];
+  unsigned long t_virt = 0xffffffe000229000ul; /* real _stext on the board */
+
+  assert(!estimate_is_bottom(vt, &quantities[Q_VIRT_IMAGE_BASE]));
+  /* PAGE_OFFSET resolves to the legacy value (the higher CONFIG landmark beats
+   * the modern cpuinfo range). */
+  assert(po->lo == 0xffffffe000000000ul);
+  /* The window contains the real _stext, is in the legacy linear-map region
+   * (NOT the 128 GiB-high modern KERNEL_LINK default), and module_text_bound
+   * makes it tight. */
+  assert(vt->lo <= t_virt && t_virt <= vt->hi);
+  /* rule_riscv64_text_base's legacy branch raises lo to PAGE_OFFSET + the head
+   * gap (sound: _text sits above _start = PAGE_OFFSET). */
+  assert(vt->lo == 0xffffffe000000000ul + IMAGE_BASE_OFFSET);
+  assert(vt->hi < 0xffffffe040000000ul); /* tight (< PAGE_OFFSET + 1 GiB) */
+  assert(vt->lo != vt->hi ||             /* not falsely pinned... */
+         vt->lo == t_virt);              /* ...unless exactly at truth */
+  assert(vt->hi < (unsigned long)KERNEL_LINK_ADDR); /* not the modern default */
+#endif
+}
+
+/* riscv64 legacy MAXPHYSMEM_2GB (CMODEL_MEDLOW): text in the linear map at
+ * PAGE_OFFSET = 0xffffffff80000000 — which coincides with the modern
+ * KERNEL_LINK_ADDR. No loadable modules (medlow), hence no module leak. The
+ * resolved window must use the (high) legacy PAGE_OFFSET as its floor, not the
+ * lowest-legacy WIDE floor — the case the `== legacy` match used to miss. */
+static void test_full_engine_riscv64_legacy_2gb(void) {
+#if (defined(__riscv) || defined(__riscv__)) && __riscv_xlen == 64
+  struct engine e;
+  engine_init(&e);
+  add_scalar(&e, SF_EFI_PRESENT, 0x0);
+  add_scalar(&e, SF_PAGE_SIZE, 0x1000ul);
+  add_scalar(&e, SF_VIRT_ADDR_BITS, 39ul);
+  add_scalar(&e, SF_VIRT_KASLR_DISABLED, 0x1);
+  /* cpuinfo's DERIVED modern sv39 range (CONF_INFERRED) captured first, then
+   * the authoritative CONFIG_PAGE_OFFSET (CONF_PARSED): the resolver must
+   * reject the modern range in favour of the higher parsed CONFIG landmark by
+   * confidence, not capture order. */
+  add_addr_conf(&e, KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, 0xffffffd600000000ul,
+                0xffffffd800000000ul, CONF_INFERRED, NULL);
+  add_addr(&e, KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, 0xffffffff80000000ul, 0,
+           NULL);
+  add_addr(&e, KASLD_TYPE_PHYS, REGION_RAM, 0x80000000ul, 0, NULL);
+
+  int nr = 0, nv = 0;
+  const rule_fn *rules = engine_rules(&nr);
+  const verdict_fn *vrules = engine_verdict_rules(&nv);
+  engine_run_full(&e, rules, nr, vrules, nv);
+
+  const struct estimate *vt = &e.est[Q_VIRT_IMAGE_BASE];
+  unsigned long t_virt = 0xffffffff80202000ul; /* representative 2 GiB _stext */
+  assert(!estimate_is_bottom(vt, &quantities[Q_VIRT_IMAGE_BASE]));
+  /* Floor is the RESOLVED (high) PAGE_OFFSET + head — the `== 0xffffffe0...`
+   * match would have left lo at the lowest-legacy WIDE floor (a 2 GiB-too-low,
+   * useless window). */
+  assert(vt->lo == 0xffffffff80000000ul + (unsigned long)IMAGE_BASE_OFFSET);
+  assert(vt->lo <= t_virt && t_virt <= vt->hi);
+#endif
+}
+
 int main(void) {
   TEST_SUITE("test_engine_integration");
 
@@ -485,6 +618,8 @@ int main(void) {
   RUN(test_full_engine_ppc64_hardened_shape);
   RUN(test_full_engine_s390_no_prng_shape);
   RUN(test_full_engine_arm32_no_kaslr_shape);
+  RUN(test_full_engine_riscv64_legacy_no_kaslr);
+  RUN(test_full_engine_riscv64_legacy_2gb);
   RUN(test_full_engine_i686_kaslr_shape);
   RUN(test_full_engine_robust_to_outlier);
   RUN(test_full_engine_ppc_kernel_end_tightens);

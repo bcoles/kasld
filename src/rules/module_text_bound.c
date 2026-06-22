@@ -70,7 +70,7 @@ int rule_module_text_bound(const struct evidence_set *ev,
   /* Case B (s390): upper + lower bound. */
   unsigned long new_max = kasld_floor_virt_text_bound(
       vmod_lo + (unsigned long)MODULES_END_TO_TEXT_OFFSET, valign);
-  if (new_max > (unsigned long)KASLR_VIRT_TEXT_MIN && n < out_max) {
+  if (new_max > (unsigned long)KASLR_VIRT_TEXT_MIN_WIDE && n < out_max) {
     struct constraint *c = &out[n++];
     memset(c, 0, sizeof(*c));
     c->q = Q_VIRT_IMAGE_BASE;
@@ -86,7 +86,7 @@ int rule_module_text_bound(const struct evidence_set *ev,
    * re-added. */
   unsigned long mod_slot = vmod_hi & ~(valign - 1); /* virt-floor-ok */
   unsigned long new_min = mod_slot + valign + (unsigned long)IMAGE_BASE_OFFSET;
-  if (new_min > (unsigned long)KASLR_VIRT_TEXT_MIN && n < out_max) {
+  if (new_min > (unsigned long)KASLR_VIRT_TEXT_MIN_WIDE && n < out_max) {
     struct constraint *c = &out[n++];
     memset(c, 0, sizeof(*c));
     c->q = Q_VIRT_IMAGE_BASE;
@@ -98,12 +98,16 @@ int rule_module_text_bound(const struct evidence_set *ev,
     snprintf(c->origin, ORIGIN_LEN, "module_text_bound");
   }
 #else
-  /* Case A (riscv64): MODULES_END ~= _end. */
+  /* Case A (riscv64): MODULES_END ~= _end. The sanity floor is the WIDE
+   * minimum (KASLR_VIRT_TEXT_MIN_WIDE), not KASLR_VIRT_TEXT_MIN: on an arch
+   * with more than one text layout (riscv64 legacy linear-map vs modern
+   * KERNEL_LINK_ADDR) the narrow min is the modern floor and would discard a
+   * legitimate legacy-region bound. */
   unsigned long end_est = vmod_lo + (unsigned long)MODULES_END_TO_TEXT_OFFSET;
   if (end_est > MTB_MIN_KERNEL_IMAGE_SIZE) {
     unsigned long new_max = kasld_floor_virt_text_bound(
         end_est - MTB_MIN_KERNEL_IMAGE_SIZE, valign);
-    if (new_max > (unsigned long)KASLR_VIRT_TEXT_MIN && n < out_max) {
+    if (new_max > (unsigned long)KASLR_VIRT_TEXT_MIN_WIDE && n < out_max) {
       struct constraint *c = &out[n++];
       memset(c, 0, sizeof(*c));
       c->q = Q_VIRT_IMAGE_BASE;

@@ -19,15 +19,20 @@
 //     when SF_PHYS_KASLR_DISABLED is true on those arches, no pin fires
 //     because the address isn't predictable from compile-time data.
 //
+// The pinned value is the arch's *assumed* standard-config default, not a fact
+// read from the kernel, so it is emitted at CONF_INFERRED (capped to the
+// disabled signal's own confidence). A real phys-text leak (parsed/derived)
+// thus outranks it by confidence and wins deterministically, independent of the
+// order evidence happens to be captured in.
+//
 // Soundness backstops:
-//   1. Fires only on positive SF_PHYS_KASLR_DISABLED signal.
+//   1. Fires only on a positive SF_PHYS_KASLR_DISABLED signal.
 //   2. Window-containment check: the computed default must lie within the
 //      current honest window — if not, arch_default_phys_text_base()
 //      doesn't model this kernel build (e.g. non-default
 //      CONFIG_PHYSICAL_START on x86_64; the physical_start_lower_bound
 //      rule's learned value covers that case).
-//   3. The resolver's conflict handling defers to a higher-confidence
-//      real phys-text observation if one exists.
+//   3. Inferred confidence (above): any real phys-text leak overrides the pin.
 // ---
 // <bcoles@gmail.com>
 
@@ -73,7 +78,10 @@ int rule_phys_kaslr_disabled_pin(const struct evidence_set *ev,
   c->q = Q_PHYS_IMAGE_BASE;
   c->op = C_EQUALS;
   c->value = p;
-  c->conf = sig_conf;
+  /* Assumed standard-config default, not a parsed fact: cap at inferred, and
+   * never above the disabled signal's own confidence. A real phys-text leak
+   * then outranks it by confidence rather than by capture order. */
+  c->conf = sig_conf < CONF_INFERRED ? sig_conf : CONF_INFERRED;
   c->derived_from[0] = sig_id;
   c->lineage_count = 1;
   snprintf(c->origin, ORIGIN_LEN, "phys_kaslr_disabled_pin");

@@ -3279,15 +3279,18 @@ static void test_page_offset_from_config(void) {
 
 /* virt_kaslr_disabled_pin: SF_VIRT_KASLR_DISABLED + the arch's compile-time
  * default text base pins Q_VIRT_IMAGE_BASE on arches where
- * KASLR_DISABLED_PINS_VIRT_TEXT==1 (x86_64, arm64, riscv64); inert elsewhere.
- * The window-containment check guards against a computed default outside the
- * honest top. */
+ * KASLR_DISABLED_PINS_VIRT_TEXT==1 (x86_64, arm64, loongarch64, s390); inert
+ * elsewhere. The window-containment check guards against a computed default
+ * outside the honest top. */
 int rule_virt_kaslr_disabled_pin(const struct evidence_set *ev,
                                  const struct estimate *est,
                                  struct constraint *out, int out_max);
 int rule_phys_kaslr_disabled_pin(const struct evidence_set *ev,
                                  const struct estimate *est,
                                  struct constraint *out, int out_max);
+int rule_text_pin_from_observation(const struct evidence_set *ev,
+                                   const struct estimate *est,
+                                   struct constraint *out, int out_max);
 
 static void test_virt_kaslr_disabled_pin(void) {
   struct engine e;
@@ -3307,6 +3310,18 @@ static void test_virt_kaslr_disabled_pin(void) {
   if (def >= top.lo && def <= top.hi) {
     assert(e.est[Q_VIRT_IMAGE_BASE].lo == def);
     assert(e.est[Q_VIRT_IMAGE_BASE].hi == def);
+    /* The default is an assumed standard-config value, so the pin is emitted at
+     * CONF_INFERRED even from this parsed signal — a real text leak then
+     * outranks it by confidence rather than by capture order. */
+    int found = 0;
+    for (int i = 0; i < e.n_constraints; i++) {
+      const struct constraint *c = &e.constraints[i];
+      if (c->q == Q_VIRT_IMAGE_BASE && c->op == C_EQUALS && c->value == def) {
+        found = 1;
+        assert(c->conf == CONF_INFERRED);
+      }
+    }
+    assert(found);
   } else {
     /* Window-containment backstop: a default we cannot place leaves the
      * window intact rather than pinning to a wrong value. */
@@ -3440,6 +3455,18 @@ static void test_phys_kaslr_disabled_pin(void) {
   if (def != 0 && def >= top_p.lo && def <= top_p.hi) {
     assert(e.est[Q_PHYS_IMAGE_BASE].lo == def);
     assert(e.est[Q_PHYS_IMAGE_BASE].hi == def);
+    /* Assumed standard-config default → pin emitted at CONF_INFERRED even from
+     * this parsed signal, so a real phys-text leak outranks it by confidence.
+     */
+    int found = 0;
+    for (int i = 0; i < e.n_constraints; i++) {
+      const struct constraint *c = &e.constraints[i];
+      if (c->q == Q_PHYS_IMAGE_BASE && c->op == C_EQUALS && c->value == def) {
+        found = 1;
+        assert(c->conf == CONF_INFERRED);
+      }
+    }
+    assert(found);
   } else {
     /* Window-containment: a default outside the window leaves it intact. */
     assert(e.est[Q_PHYS_IMAGE_BASE].lo == top_p.lo);
@@ -3455,8 +3482,13 @@ static void test_phys_kaslr_disabled_pin(void) {
 #endif
 }
 
-/* The phys pin uses the signal's confidence; with the signal at CONF_PARSED
- * and no competing constraint, the heuristic default fires. */
+/* A real phys-text leak (parsed) outranks the disabled pin (the assumed
+ * default, now emitted at CONF_INFERRED) by confidence, so the engine resolves
+ * Q_PHYS_IMAGE_BASE to the leak — deterministically, regardless of capture
+ * order. The disabled signal is captured FIRST so that, were the pin still at
+ * the signal's parsed confidence, its C_EQUALS would win the resulting tie by
+ * order and this would resolve to `def` — i.e. this guards the confidence cap.
+ */
 static void test_phys_kaslr_disabled_pin_defers_to_real_leak(void) {
 #if KASLR_DISABLED_PINS_PHYS
   struct engine e;
@@ -3470,11 +3502,15 @@ static void test_phys_kaslr_disabled_pin_defers_to_real_leak(void) {
 
   struct observation sig = mk_scalar(SF_PHYS_KASLR_DISABLED, 1, CONF_PARSED);
   evidence_add(&e.ev, &sig);
+  struct observation leak = mk_obs(KASLD_TYPE_PHYS, REGION_KERNEL_IMAGE, real,
+                                   LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
+  evidence_add(&e.ev, &leak);
 
-  const rule_fn rules[] = {rule_phys_kaslr_disabled_pin};
-  engine_run(&e, rules, 1);
-  assert(e.est[Q_PHYS_IMAGE_BASE].lo == def);
-  assert(e.est[Q_PHYS_IMAGE_BASE].hi == def);
+  const rule_fn rules[] = {rule_phys_kaslr_disabled_pin,
+                           rule_text_pin_from_observation};
+  engine_run(&e, rules, 2);
+  assert(e.est[Q_PHYS_IMAGE_BASE].lo == real); /* leak wins over the pin */
+  assert(e.est[Q_PHYS_IMAGE_BASE].hi == real);
 #endif
 }
 
@@ -4362,13 +4398,9 @@ static void test_module_text_bound(void) {
 #endif
 }
 
-/* text_pin_from_observation: a POS_BASE VIRT/KERNEL_TEXT observation pins
- * Q_VIRT_IMAGE_BASE; a POS_BASE PHYS/KERNEL_TEXT observation pins
- * Q_PHYS_IMAGE_BASE. Arch-independent. */
-int rule_text_pin_from_observation(const struct evidence_set *ev,
-                                   const struct estimate *est,
-                                   struct constraint *out, int out_max);
-
+/* text_pin_from_observation (declared above): a POS_BASE VIRT/KERNEL_TEXT
+ * observation pins Q_VIRT_IMAGE_BASE; a POS_BASE PHYS/KERNEL_TEXT observation
+ * pins Q_PHYS_IMAGE_BASE. Arch-independent. */
 static void test_text_pin_from_observation_virt(void) {
   struct engine e;
   engine_init(&e);
@@ -4657,6 +4689,141 @@ static void test_riscv64_non_efi_phys_base(void) {
 #endif
 }
 
+int rule_riscv64_text_base(const struct evidence_set *ev,
+                           const struct estimate *est, struct constraint *out,
+                           int out_max);
+
+/* Test helper: LOWER-bound Q_PAGE_OFFSET from a REGION_PAGE_OFFSET base
+ * observation (C_LOWER_BOUND). This mirrors how the real CONFIG_PAGE_OFFSET
+ * landmark resolves (`pos=base` => lo only): the resolved estimate is
+ * [value, top], lo == value but NOT pinned. The legacy branch of
+ * rule_riscv64_text_base must fire on the lower bound, not a full pin — a
+ * pin-only test masked a 128 GiB-high mispin on real hardware.
+ * Guarded: its sole user (test_riscv64_text_base_legacy) is riscv64-only, so
+ * elsewhere it would be an unused static. */
+#if defined(__riscv) && __riscv_xlen == 64
+static int rule_lobound_page_offset(const struct evidence_set *ev,
+                                    const struct estimate *est,
+                                    struct constraint *out, int out_max) {
+  (void)est;
+  for (int i = 0; i < ev->n_obs; i++) {
+    const struct observation *o = &ev->obs[i];
+    if (!o->valid || o->eff_region != REGION_PAGE_OFFSET || !HAS_LO(o))
+      continue;
+    if (out_max < 1)
+      return 0;
+    memset(&out[0], 0, sizeof(out[0]));
+    out[0].q = Q_PAGE_OFFSET;
+    out[0].op = C_LOWER_BOUND;
+    out[0].value = o->lo;
+    out[0].conf = o->conf;
+    out[0].derived_from[0] = o->id;
+    out[0].lineage_count = 1;
+    snprintf(out[0].origin, ORIGIN_LEN, "lobound_page_offset");
+    return 1;
+  }
+  return 0;
+}
+#endif
+
+/* riscv64_text_base, LEGACY layout: PAGE_OFFSET resolved (as a LOWER bound, the
+ * realistic CONFIG_PAGE_OFFSET shape) to the MAXPHYSMEM_128GB value => text in
+ * the linear map. The rule emits a SOUND lower bound (PAGE_OFFSET + head) and
+ * must NOT pin to the modern KERNEL_LINK default (the bug this fixes pinned
+ * 128 GiB high). The resolved window contains a legacy _stext. */
+static void test_riscv64_text_base_legacy(void) {
+  /* Whole body guarded: the 64-bit PAGE_OFFSET literals overflow a 32-bit
+   * unsigned long, and the rule is riscv64-only anyway. */
+#if defined(__riscv) && __riscv_xlen == 64
+  struct engine e;
+  engine_init(&e);
+  unsigned long legacy_po = (unsigned long)RISCV_LEGACY_PAGE_OFFSET;
+  struct observation po = mk_obs(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, legacy_po,
+                                 LO_SET, POS_BASE, CONF_PARSED);
+  evidence_add(&e.ev, &po);
+  /* KASLR-disabled signal MUST be present — it is on a legacy kernel, and it is
+   * what the modern branch keys on. Without it the modern branch never runs and
+   * the test can't catch the fixpoint-ordering bug (a premature modern C_EQUALS
+   * emitted in the pass before PAGE_OFFSET resolves to legacy). */
+  struct observation sig = mk_scalar(SF_VIRT_KASLR_DISABLED, 1ul, CONF_PARSED);
+  evidence_add(&e.ev, &sig);
+  /* A leaked module-region address ~2 GiB below text — module_text_bound must
+   * tighten the upper edge to a usable window. Its sanity floor must admit a
+   * legacy-region bound (the WIDE min), or the window stays uselessly wide. */
+  unsigned long vmod = legacy_po - 0x7f6de000ul; /* ~just under 2 GiB below */
+  struct observation mod =
+      mk_obs(KASLD_TYPE_VIRT, REGION_MODULE_REGION, vmod, LO_SET | SAMPLE_SET,
+             POS_INTERIOR, CONF_PARSED);
+  evidence_add(&e.ev, &mod);
+  const rule_fn rules[] = {rule_lobound_page_offset, rule_riscv64_text_base,
+                           rule_module_text_bound};
+  engine_run(&e, rules, 3);
+  assert(e.est[Q_PAGE_OFFSET].lo ==
+         legacy_po); /* resolved to the legacy value */
+  int floor_found = 0, modern_pin = 0;
+  unsigned long want_floor = (unsigned long)RISCV_LEGACY_PAGE_OFFSET +
+                             (unsigned long)IMAGE_BASE_OFFSET;
+  for (int i = 0; i < e.n_constraints; i++) {
+    const struct constraint *c = &e.constraints[i];
+    if (c->q != Q_VIRT_IMAGE_BASE)
+      continue;
+    if (c->op == C_LOWER_BOUND && c->value == want_floor)
+      floor_found = 1;
+    if (c->op == C_EQUALS &&
+        c->value == (unsigned long)KERNEL_VIRT_TEXT_DEFAULT)
+      modern_pin = 1;
+  }
+  assert(floor_found); /* legacy floor emitted */
+  assert(!modern_pin); /* did NOT pin to the wrong modern default */
+  /* The resolved window contains a legacy _stext (PAGE_OFFSET + load offset)
+   * AND is tight: module_text_bound caps the upper edge near PAGE_OFFSET, not
+   * at the far modern KASLR ceiling. */
+  unsigned long legacy_truth = legacy_po + 0x229000ul;
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo <= legacy_truth &&
+         legacy_truth <= e.est[Q_VIRT_IMAGE_BASE].hi);
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi < legacy_po + 0x40000000ul); /* tight */
+#endif
+}
+
+/* riscv64_text_base, MODERN layout: KASLR reported off and PAGE_OFFSET resolved
+ * strictly below the legacy value => pin to the compile-time KERNEL_LINK
+ * default (the contract the generic virt_kaslr_disabled_pin provided, now
+ * scoped to the correct layout). The modern branch only fires once PAGE_OFFSET
+ * is resolved below legacy, so the test must establish that (a modern sv39
+ * PAGE_OFFSET). */
+static void test_riscv64_text_base_modern(void) {
+#if defined(__riscv) && __riscv_xlen == 64
+  struct engine e;
+  engine_init(&e);
+  struct observation sig = mk_scalar(SF_VIRT_KASLR_DISABLED, 1ul, CONF_PARSED);
+  evidence_add(&e.ev, &sig);
+  /* Modern sv39 PAGE_OFFSET (0xffffffd8...) — upper-bounds Q_PAGE_OFFSET below
+   * the legacy value, which is what the modern branch's ordering guard waits
+   * for. cap_page_offset turns the REGION_PAGE_OFFSET landmark into the bound.
+   */
+  struct observation po =
+      mk_obs(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, 0xffffffd800000000ul, LO_SET,
+             POS_BASE, CONF_PARSED);
+  evidence_add(&e.ev, &po);
+  const rule_fn rules[] = {rule_cap_page_offset, rule_riscv64_text_base};
+  engine_run(&e, rules, 2);
+  assert(e.est[Q_PAGE_OFFSET].hi < (unsigned long)RISCV_LEGACY_PAGE_OFFSET);
+  int pinned = 0;
+  for (int i = 0; i < e.n_constraints; i++) {
+    const struct constraint *c = &e.constraints[i];
+    if (c->q == Q_VIRT_IMAGE_BASE && c->op == C_EQUALS &&
+        c->value == (unsigned long)KERNEL_VIRT_TEXT_DEFAULT) {
+      pinned = 1;
+      /* The default is an assumed standard-config value, so even from a PARSED
+       * disabled signal the pin is emitted at CONF_INFERRED — a real text leak
+       * then outranks it by confidence. */
+      assert(c->conf == CONF_INFERRED);
+    }
+  }
+  assert(pinned); /* modern: pins to the compile-time default */
+#endif
+}
+
 int main(void) {
   TEST_SUITE("test_engine");
 
@@ -4844,6 +5011,8 @@ int main(void) {
   BEGIN_CATEGORY("riscv64-specific rules");
   RUN(test_riscv64_fdt_kaslr_seed);
   RUN(test_riscv64_non_efi_phys_base);
+  RUN(test_riscv64_text_base_legacy);
+  RUN(test_riscv64_text_base_modern);
   RUN(test_riscv64_po_from_vmalloc);
   RUN(test_riscv64_po_from_vmemmap_default_window_uses_sv39);
   RUN(test_riscv64_po_from_vmemmap_pinned_sv48);

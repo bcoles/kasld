@@ -2098,6 +2098,11 @@ void compute_kaslr_info(struct summary *s) {
   }
 
   if (s->kaslr.disabled || s->kaslr.unsupported) {
+    /* KASLR off: no slide, and no slot/entropy count even when the base
+     * resolves to a *range* rather than a single address (legacy riscv64:
+     * linear-map text at a build-specific, non-randomized offset). A candidate
+     * count there would dress KASLD's uncertainty about a deterministic offset
+     * up as brute-force entropy it does not have. The range is still shown. */
     s->kaslr.vslide = 0;
     s->kaslr.vslots = 0;
     s->kaslr.vbits = 0;

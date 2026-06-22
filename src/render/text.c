@@ -1230,7 +1230,23 @@ static void render_readout(const struct summary *s) {
     printf("%sKASLR is disabled on this kernel%s "
            "(nokaslr / RANDOMIZE_BASE=n / hibernation).\n\n",
            c(C_YELLOW), c(C_RESET));
-    if (s->kaslr.default_addr)
+    /* Prefer the engine-RESOLVED image base over the compile-time default.
+     * On every arch where the disabled-pin applies, the engine pins the base
+     * to that default (min == max), so this prints the identical line. But
+     * where the no-KASLR text base is layout-dependent (legacy riscv64: text
+     * in the linear map at a load offset we can't pin), it resolves to a
+     * narrowed *window* instead — showing the static default there would
+     * misreport the base (it can sit in an entirely different mapping). */
+    if (layout.virt_kaslr_text_min == layout.virt_kaslr_text_max &&
+        layout.virt_kaslr_text_min != 0)
+      printf("  %-19s %s0x%016lx%s   compile-time default (no slide)\n",
+             "Kernel image base", c(C_GREEN), layout.virt_kaslr_text_min,
+             c(C_RESET));
+    else if (layout.virt_kaslr_text_min || layout.virt_kaslr_text_max)
+      readout_bound_row("Kernel image base", layout.virt_kaslr_text_min,
+                        layout.virt_kaslr_text_max, s->kaslr.vslots,
+                        s->kaslr.vbits, layout.virt_kaslr_align);
+    else if (s->kaslr.default_addr)
       printf("  %-19s %s0x%016lx%s   compile-time default (no slide)\n",
              "Kernel image base", c(C_GREEN), s->kaslr.default_addr,
              c(C_RESET));
@@ -1395,7 +1411,23 @@ void render_text(const struct summary *s) {
                                                    : "(unknown)");
     }
     printf("\n");
-    if (s->kaslr.default_addr)
+    /* Prefer the engine-RESOLVED base over the compile-time default. On arches
+     * where "disabled" pins the base, the resolved value equals that default,
+     * so this is unchanged; but where the no-KASLR base is layout-dependent
+     * (legacy riscv64: text in the linear map at an unpinnable load offset) it
+     * resolves to a narrowed *window*, which the static default would misreport
+     * (by 128 GiB, in a different mapping entirely). */
+    if (layout.virt_kaslr_text_min == layout.virt_kaslr_text_max &&
+        layout.virt_kaslr_text_min != 0)
+      printf(
+          "Likely kernel image base: %s0x%016lx%s (assumes default config)\n\n",
+          c(C_GREEN), layout.virt_kaslr_text_min, c(C_RESET));
+    else if (layout.virt_kaslr_text_min || layout.virt_kaslr_text_max)
+      printf("Kernel image base: %s0x%016lx - 0x%016lx%s "
+             "(KASLR off; base not pinned to a single default)\n\n",
+             c(C_GREEN), layout.virt_kaslr_text_min, layout.virt_kaslr_text_max,
+             c(C_RESET));
+    else if (s->kaslr.default_addr)
       printf(
           "Likely kernel image base: %s0x%016lx%s (assumes default config)\n\n",
           c(C_GREEN), s->kaslr.default_addr, c(C_RESET));

@@ -119,6 +119,14 @@ static int detect_riscv_mmu(void) {
   kasld_emit_scalar(SF_VIRT_ADDR_BITS, va_bits, CONF_PARSED);
   kasld_info("va_bits = %lu", va_bits);
 
+  /* PAGE_OFFSET here is DERIVED — the standard linear-map base assumed for the
+   * detected SATP mode — not read from any PAGE_OFFSET field. Confidence tracks
+   * provenance, so this is CONF_INFERRED, not CONF_PARSED, on ANY kernel:
+   * a value assumed from the paging layout is lower-confidence than a direct
+   * read, independent of whether the assumption happens to be correct this run.
+   * Reserve CONF_PARSED for a direct read (proc_config's CONFIG_PAGE_OFFSET) or
+   * for a sound architectural *bound* rather than an assumed point (e.g. the
+   * x86_64 canonical floor below, emitted as a lower bound). */
   if (po_lo == po_hi) {
     kasld_info("PAGE_OFFSET for %s: 0x%016lx", mmu, po_lo);
     if (po_lo == PAGE_OFFSET) {
@@ -126,11 +134,11 @@ static int detect_riscv_mmu(void) {
       return 1;
     }
     kasld_result_base(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, po_lo, NULL,
-                      CONF_PARSED);
+                      CONF_INFERRED);
   } else {
     kasld_info("PAGE_OFFSET for %s: [0x%016lx, 0x%016lx]", mmu, po_lo, po_hi);
     kasld_result_range(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, po_lo, po_hi, NULL,
-                       CONF_PARSED);
+                       CONF_INFERRED);
   }
   return 1;
 }

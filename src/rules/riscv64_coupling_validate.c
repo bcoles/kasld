@@ -11,11 +11,11 @@
 //      plus the wider pre-v5.10 legacy floor)
 //   MODULE / MODULE_REGION    in [MODULES_START, MODULES_END]
 //     (relative to text; static union covers both v5.10+ and legacy)
-//   VMALLOC                   in [KERNEL_VIRT_VAS_START,
-//   PAGE_OFFSET_SV39_LEGACY) VMEMMAP                   in
-//   [KERNEL_VIRT_VAS_START, PAGE_OFFSET_SV39_LEGACY)
-//     (both lie immediately below PAGE_OFFSET on every SATP mode; the
-//      highest plausible PAGE_OFFSET is the strict upper bound)
+//   VMALLOC / VMEMMAP         in
+//   [KERNEL_VIRT_VAS_START, RISCV_LEGACY_PAGE_OFFSET)
+//     (both lie immediately below PAGE_OFFSET on every SATP mode; the highest
+//      plausible PAGE_OFFSET — the legacy SV39 linear-map base — is the strict
+//      upper bound)
 //   DIRECTMAP / PAGE_OFFSET   in [PAGE_OFFSET_SV57, KERNEL_VIRT_VAS_END]
 //     (linear map starts at PAGE_OFFSET; the lowest plausible PAGE_OFFSET
 //      across SATP modes is SV57, giving the widest accepting floor)
@@ -52,13 +52,9 @@
 
 #include <string.h>
 
-/* PAGE_OFFSET values across SATP modes. Sorted ascending. */
+/* Lowest plausible PAGE_OFFSET across SATP modes (SV57 PAGE_OFFSET_L5) — the
+ * widest accepting floor for "linear map lives at or above PAGE_OFFSET". */
 #define RISCV64_PAGE_OFFSET_SV57 0xff60000000000000ul /* PAGE_OFFSET_L5 */
-/* Highest plausible PAGE_OFFSET across SATP modes and kernel versions:
- * SV39 PAGE_OFFSET_L3 was 0xffffffd800000000 pre-v6.12, then moved to
- * 0xffffffd600000000 v6.12+. The legacy (higher) value gives the wider
- * accepting upper bound for "must be below PAGE_OFFSET" checks. */
-#define RISCV64_PAGE_OFFSET_HIGHEST 0xffffffd800000000ul
 
 int rule_riscv64_coupling_validate(const struct evidence_set *ev,
                                    struct verdict *out, int out_max) {
@@ -87,10 +83,12 @@ int rule_riscv64_coupling_validate(const struct evidence_set *ev,
     case REGION_VMALLOC:
     case REGION_VMEMMAP:
       /* Both regions sit immediately below PAGE_OFFSET on every SATP mode.
-       * The highest plausible PAGE_OFFSET across modes/versions is the
-       * strict upper bound; widest accepting lower bound is the kernel VAS
-       * floor. */
-      bad = (a >= RISCV64_PAGE_OFFSET_HIGHEST) ||
+       * The highest plausible PAGE_OFFSET is the strict upper bound: the legacy
+       * SV39 linear-map base (RISCV_LEGACY_PAGE_OFFSET) — every modern
+       * SATP-mode PAGE_OFFSET is below it, so it is the widest accepting
+       * ceiling and never invalidates a legacy linear-map-adjacent leak. Widest
+       * accepting lower bound is the kernel VAS floor. */
+      bad = (a >= (unsigned long)RISCV_LEGACY_PAGE_OFFSET) ||
             (a < (unsigned long)KERNEL_VIRT_VAS_START);
       break;
     case REGION_KERNEL_TEXT:

@@ -365,9 +365,13 @@ __extension__ _Static_assert((unsigned long)KERNEL_PHYS_MAX >
  * that refuses to pin if the computed default falls outside the honest
  * window (a misconfig the arch_default_text_base() formula does not model).
  *
- * MUST stay 0 (default) on arches where the bootloader can place the kernel
- * elsewhere even without KASLR (CONFIG_RELOCATABLE in practice): x86_32,
- * arm32, ppc, mips, loongarch, s390 — pinning would be unsound there. */
+ * MUST stay 0 (default) where pinning to a single compile-time default would be
+ * wrong: arches whose bootloader can relocate the image even without KASLR
+ * (CONFIG_RELOCATABLE in practice — x86_32, arm32, ppc, mips), and arches whose
+ * no-KASLR base is layout-dependent and resolved by a bespoke rule instead
+ * (riscv64: linear-map vs KERNEL_LINK_ADDR text — see rule_riscv64_text_base).
+ * The 1-arches (x86_64, arm64, loongarch64, s390) carry their own per-header
+ * rationale. */
 #ifndef KASLR_DISABLED_PINS_VIRT_TEXT
 #define KASLR_DISABLED_PINS_VIRT_TEXT 0
 #endif

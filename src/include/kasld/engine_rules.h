@@ -105,6 +105,7 @@ R(arm64_va_bits_from_directmap);
 R(arm64_va_bits_from_vmemmap);
 
 /* riscv64-specific rules */
+R(riscv64_text_base);
 R(riscv64_non_efi_phys_base);
 R(riscv64_fdt_kaslr_seed);
 R(riscv64_page_offset_from_vmalloc_vmemmap);

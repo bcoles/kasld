@@ -132,6 +132,16 @@
 // aligned image base (IMAGE_ALIGN = 2 MiB) is KERNEL_LINK_ADDR; _stext is
 // 0x2000 above.
 #define KERNEL_LINK_ADDR 0xffffffff80000000ul
+// Legacy/modern PAGE_OFFSET boundary, and the lowest legacy PAGE_OFFSET value.
+// Before v5.13 ("riscv: Move kernel mapping outside of linear mapping") kernel
+// text lived in the linear map at PAGE_OFFSET; arch/riscv/Kconfig set
+// CONFIG_PAGE_OFFSET to 0xffffffe000000000 (MAXPHYSMEM_128GB) or
+// 0xffffffff80000000 (MAXPHYSMEM_2GB). From v5.13 PAGE_OFFSET became a runtime
+// value strictly below this (PAGE_OFFSET_L3/L4/L5: 0xffffffd6.../0xffffaf8.../
+// 0xff60...) and text moved to KERNEL_LINK_ADDR. So a resolved Q_PAGE_OFFSET
+// >= this value is the version-free signal that text is in the linear map
+// (legacy); below it means modern. Consumed by rule_riscv64_text_base.
+#define RISCV_LEGACY_PAGE_OFFSET 0xffffffe000000000ul
 // IMAGE_BASE_OFFSET: the offset from the image base (_start) to _stext — the
 // arch's .head.text section length. This is the ONE offset that is the SAME in
 // virtual and physical space (it is an image-internal layout fact), so generic
@@ -178,24 +188,35 @@ __extension__ _Static_assert(
     "IMAGE_BASE_OFFSET (the default is _stext = _start + 0x2000 .head.text, "
     "not _start itself)");
 
-/* KASLR-off ⇒ pin contract: modern riscv64 (v5.10+, which is where KASLR
- * exists) puts the kernel image at KERNEL_LINK_ADDR — the top 2 GiB of VA,
- * fixed regardless of SATP mode (SV39/SV48/SV57). The mode-dependent address
- * is PAGE_OFFSET (the linear map base), NOT the kernel image VA, so the default
- * does not depend on any runtime-resolved quantity here. Pre-v5.10 kernels
- * placed text in the linear map at PAGE_OFFSET; those have no KASLR support so
- * the disabled marker is moot, and the rule's window-containment check catches
- * the legacy case if the marker fires anyway. */
-#define KASLR_DISABLED_PINS_VIRT_TEXT 1
+/* KASLR-off text base is LAYOUT-DEPENDENT on riscv64, so the generic
+ * virt_kaslr_disabled_pin (which pins to a single compile-time default) is the
+ * wrong tool here and is opted OUT. rule_riscv64_text_base owns it instead:
+ *   - modern (v5.13+): text at KERNEL_LINK_ADDR (top 2 GiB, SATP-mode
+ *     independent) — pinned to KERNEL_VIRT_TEXT_DEFAULT.
+ *   - legacy (pre-v5.13, PAGE_OFFSET >= RISCV_LEGACY_PAGE_OFFSET): text in the
+ *     linear map at PAGE_OFFSET + load_offset — bounded, not pinned.
+ * The generic pin's window-containment backstop does NOT catch the legacy case:
+ * KERNEL_VIRT_TEXT_MIN/MAX intentionally spans both layouts, so the modern
+ * default sits inside the legacy window and would be pinned 128 GiB high. */
+#define KASLR_DISABLED_PINS_VIRT_TEXT 0
 #define KASLD_ARCH_DEFAULT_TEXT_BASE_DEFINED 1
 static inline unsigned long arch_default_text_base(void) {
   return KERNEL_VIRT_TEXT_DEFAULT;
 }
 
 // KASLR randomization window. KERNEL_VIRT_TEXT_MIN is intentionally wide to
-// accept legacy (pre-v5.10) addresses for validation, but the actual KASLR
+// accept legacy (pre-v5.13) addresses for validation, but the actual KASLR
 // range (v6.6+) is [KERNEL_LINK_ADDR, KERNEL_LINK_ADDR + 1 PUD) = 1 GiB.
 #define KASLR_VIRT_TEXT_MIN KERNEL_LINK_ADDR
+
+// Honest-top floor for the Q_VIRT_IMAGE_BASE quantity. riscv64 has TWO text
+// layouts (see top of file): legacy text in the linear map at PAGE_OFFSET
+// (KERNEL_VIRT_TEXT_MIN) and modern text at KERNEL_LINK_ADDR. The quantity top
+// must span BOTH so the engine can resolve a legacy base — using the modern
+// KASLR_VIRT_TEXT_MIN as the floor would clamp away any legacy bound
+// (rule_riscv64_text_base). The layout is then narrowed from real evidence
+// (resolved PAGE_OFFSET → rule_riscv64_text_base).
+#define KASLR_VIRT_TEXT_MIN_WIDE KERNEL_VIRT_TEXT_MIN
 
 // No physical KASLR on RISC-V. The kernel always loads at a fixed offset
 // (IMAGE_BASE_OFFSET) from the DRAM base provided by firmware. Only the virtual
