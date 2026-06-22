@@ -26,11 +26,13 @@ ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 COMPONENTS=$ROOT/src/components
 
 # Reviewed covering sources. Each reads a COMPLETE authoritative RAM map:
+#   boot_params_e820       x86 zero-page E820 table (hard-capped, never partial)
 #   firmware_memmap        x86 /sys/firmware/memmap (the full E820 map)
 #   sysfs_devicetree_memory  arm64/riscv DT /memory nodes (all memblock RAM)
 #   sysfs_memory_blocks    /sys hotplug blocks (every online block)
 # Keep alphabetical.
-ALLOW="firmware_memmap
+ALLOW="boot_params_e820
+firmware_memmap
 sysfs_devicetree_memory
 sysfs_memory_blocks"
 

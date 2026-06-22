@@ -13,6 +13,11 @@
 //   - x86 /sys/firmware/memmap (origin "firmware_memmap"): the E820 map.
 //     arch/x86/boot/compressed/kaslr.c skips entries != E820_TYPE_RAM and bails
 //     a region when `region.size < image_size`.
+//   - x86 boot_params zero-page E820 table (origin "boot_params_e820"): the
+//   same
+//     E820 map from a different source — available when
+//     CONFIG_FIRMWARE_MEMMAP=n hides /sys/firmware/memmap. Hard-capped at
+//     E820_MAX_ENTRIES, never partial.
 //   - device-tree /memory nodes (origin "sysfs_devicetree_memory"): each `reg`
 //     (addr,size) is passed to memblock_add() (drivers/of/fdt.c
 //     early_init_dt_scan_memory), i.e. the RAM the arm64 / riscv kernel places

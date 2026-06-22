@@ -164,6 +164,7 @@ int main(void) {
     unsigned long lo = ~0ul;
     unsigned long hi = 0;
     unsigned int ram_count = 0;
+    int covering_ok = 1; /* clears if any RAM entry exceeds unsigned long */
 
     for (unsigned int i = 0; i < (unsigned int)e820_entries; i++) {
       const uint8_t *entry = buf + OFF_E820_TABLE + i * E820_BYTES_PER_ENTRY;
@@ -179,6 +180,12 @@ int main(void) {
         continue;
 
       uint64_t end = start + size - 1; /* inclusive last byte */
+
+      /* A covering extent silently truncated to unsigned long (32-bit / PAE)
+       * would fabricate a false gap; if any RAM entry would truncate, suppress
+       * the covering entirely (an incomplete map is worse than none). */
+      if ((unsigned long)start != start || (unsigned long)end != end)
+        covering_ok = 0;
 
       kasld_info("E820 RAM: 0x%016llx - 0x%016llx", (unsigned long long)start,
                  (unsigned long long)end);
@@ -202,6 +209,32 @@ int main(void) {
       if (hi) {
         kasld_found("leaked E820 DRAM high: 0x%016lx", hi);
         kasld_result_top(KASLD_TYPE_PHYS, REGION_RAM, hi, NULL, CONF_PARSED);
+      }
+
+      /* Emit the whole RAM map as a covering: each E820 type-RAM entry is one
+       * RAM extent, and the gaps between a source's extents are non-RAM the
+       * kernel image cannot occupy (ram_map_phys_exclude /
+       * firmware_memmap_holes carve them). boot_params holds the complete,
+       * authoritative E820 table — the zero-page is hard-capped at
+       * E820_MAX_ENTRIES, so it is never a partial leak — making this a sound
+       * covering, and the only one available when CONFIG_FIRMWARE_MEMMAP=n
+       * hides /sys/firmware/memmap. Every RAM entry must be emitted (including
+       * any at address 0): a skipped extent would synthesize a false gap. The
+       * covering goes out-of-band into coverings[] (pos=extent), complementing
+       * the base/top envelope above. */
+      if (covering_ok) {
+        for (unsigned int i = 0; i < (unsigned int)e820_entries; i++) {
+          const uint8_t *e = buf + OFF_E820_TABLE + i * E820_BYTES_PER_ENTRY;
+          if (read_le32(e + E820_OFF_TYPE) != E820_TYPE_RAM)
+            continue;
+          uint64_t start = read_le64(e + E820_OFF_ADDR);
+          uint64_t size = read_le64(e + E820_OFF_SIZE);
+          if (size == 0)
+            continue;
+          kasld_result_extent(KASLD_TYPE_PHYS, REGION_RAM, (unsigned long)start,
+                              (unsigned long)(start + size - 1), NULL,
+                              CONF_PARSED);
+        }
       }
 
 #ifdef phys_to_directmap_virt
