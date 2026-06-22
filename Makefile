@@ -351,7 +351,8 @@ TEST_PARSERS_SRCS := $(SRC_DIR)/components/sysfs_efi_runtime_map.c \
 	$(SRC_DIR)/components/sysfs_devicetree_elfcorehdr.c \
 	$(SRC_DIR)/components/sysfs_nd_region.c \
 	$(SRC_DIR)/components/sysfs_uio_map.c \
-	$(SRC_DIR)/components/sysfs_iscsi_transport_handle.c
+	$(SRC_DIR)/components/sysfs_iscsi_transport_handle.c \
+	$(SRC_DIR)/components/sysfs_devicetree_mmio.c
 TEST_PARSERS_BIN := $(TEST_OBJ_DIR)/test_sysfs_parsers
 $(TEST_PARSERS_BIN): $(TEST_DIR)/test_sysfs_parsers.c $(TEST_PARSERS_SRCS) $(HDRS) | $(TEST_OBJ_DIR)
 	$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_sysfs_parsers.c -o $@

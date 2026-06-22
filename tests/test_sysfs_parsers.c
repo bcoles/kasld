@@ -51,6 +51,7 @@ int dt_main(void);
 int nd_main(void);
 int uio_main(void);
 int iscsi_main(void);
+int mmio_main(int argc, char **argv); /* this one parses CLI; see mmio_run() */
 
 #define main efi_main
 #define read_file_line efi_read_file_line
@@ -104,6 +105,10 @@ int iscsi_main(void);
 #include "../src/components/sysfs_iscsi_transport_handle.c"
 #undef main
 
+#define main mmio_main
+#include "../src/components/sysfs_devicetree_mmio.c"
+#undef main
+
 #include "test_harness.h"
 
 #include <assert.h>
@@ -151,6 +156,27 @@ static void stage_text(const char *rel, const char *text) {
 static void put_be64(unsigned char *p, uint64_t v) {
   for (int i = 0; i < 8; i++)
     p[i] = (unsigned char)(v >> (56 - 8 * i));
+}
+
+/* Stage a device-tree property holding `n` big-endian 32-bit cells. */
+static void stage_cells(const char *rel, const uint32_t *cells, int n) {
+  unsigned char b[64];
+  assert(n * 4 <= (int)sizeof(b));
+  for (int i = 0; i < n; i++) {
+    b[i * 4 + 0] = (unsigned char)(cells[i] >> 24);
+    b[i * 4 + 1] = (unsigned char)(cells[i] >> 16);
+    b[i * 4 + 2] = (unsigned char)(cells[i] >> 8);
+    b[i * 4 + 3] = (unsigned char)(cells[i]);
+  }
+  stage(rel, b, (size_t)n * 4);
+}
+
+/* mmio_main parses CLI (-v etc.); the harness invokes parsers as fn(void), so
+ * wrap it with a safe argv (argc=1 => no option parsing). */
+static int mmio_run(void) {
+  char arg0[] = "sysfs_devicetree_mmio";
+  char *av[] = {arg0, NULL};
+  return mmio_main(1, av);
 }
 
 /* Run a renamed component main(), capturing its stdout (the wire channel) into
@@ -305,6 +331,63 @@ static void test_iscsi_transport_handle(void) {
   assert(strstr(cap, want) != NULL);
 }
 
+/* --- device-tree MMIO harvester: per-device "reg" (address+size cells)
+ * decoded in CPU-physical space. Verifies the four soundness paths on one tree:
+ * real MMIO below DRAM is emitted; a carveout inside the /memory range, an i2c
+ * child (non-CPU child address space), and a CPU hartid (#size-cells 0) are all
+ * excluded. -------------------------------------------------------------- */
+static void test_devicetree_mmio(void) {
+#define DTB "/sys/firmware/devicetree/base"
+  uint32_t two = 2, one = 1, zero = 0;
+  stage_cells(DTB "/#address-cells", &two, 1);
+  stage_cells(DTB "/#size-cells", &two, 1);
+
+  /* /memory@80000000 device_type=memory reg=0x80000000 size 0x20000000 */
+  stage_text(DTB "/memory@80000000/device_type", "memory");
+  uint32_t mem[] = {0, 0x80000000u, 0, 0x20000000u};
+  stage_cells(DTB "/memory@80000000/reg", mem, 4);
+
+  /* /soc: identity bus (empty ranges), 2/2 child cells */
+  stage(DTB "/soc/ranges", "", 0);
+  stage_cells(DTB "/soc/#address-cells", &two, 1);
+  stage_cells(DTB "/soc/#size-cells", &two, 1);
+
+  /* real MMIO below DRAM -> MUST emit */
+  uint32_t uart[] = {0, 0x10000000u, 0, 0x1000u};
+  stage_cells(DTB "/soc/uart@10000000/reg", uart, 4);
+
+  /* i2c controller (own MMIO emitted) with a child in i2c address space */
+  uint32_t i2c[] = {0, 0x10010000u, 0, 0x1000u};
+  stage_cells(DTB "/soc/i2c@10010000/reg", i2c, 4);
+  stage_cells(DTB "/soc/i2c@10010000/#address-cells", &one, 1);
+  stage_cells(DTB "/soc/i2c@10010000/#size-cells", &zero, 1); /* no ranges */
+  uint32_t eep[] = {0x50};
+  stage_cells(DTB "/soc/i2c@10010000/eeprom@50/reg", eep, 1);
+
+  /* carveout INSIDE the DRAM range -> MUST be excluded */
+  uint32_t cz[] = {0, 0x90000000u, 0, 0x1000u};
+  stage_cells(DTB "/carveout@90000000/reg", cz, 4);
+
+  /* /cpus: hartids (#size-cells 0, no ranges) -> MUST be excluded */
+  stage_cells(DTB "/cpus/#address-cells", &one, 1);
+  stage_cells(DTB "/cpus/#size-cells", &zero, 1);
+  uint32_t hart0[] = {0};
+  stage_cells(DTB "/cpus/cpu@0/reg", hart0, 1);
+
+  run_capture(mmio_run);
+
+  /* emitted: real device MMIO (controller reg included) */
+  assert(strstr(cap, "P mmio:uart@10000000") != NULL);
+  assert(strstr(cap, "lo=0x10000000 hi=0x10000fff") != NULL);
+  assert(strstr(cap, "P mmio:i2c@10010000") != NULL);
+  /* excluded: i2c child, in-DRAM carveout, CPU hartid */
+  assert(strstr(cap, "eeprom") == NULL);
+  assert(strstr(cap, "carveout") == NULL);
+  assert(strstr(cap, "0x90000000") == NULL);
+  assert(strstr(cap, "cpu@0") == NULL);
+#undef DTB
+}
+
 int main(void) {
   /* One sysroot for the whole suite: each parser reads a distinct path, and
    * kasld_sysroot() caches its value process-wide, so a single root must be
@@ -327,5 +410,6 @@ int main(void) {
   RUN(test_nd_region);
   RUN(test_uio_map);
   RUN(test_iscsi_transport_handle);
+  RUN(test_devicetree_mmio);
   return TEST_DONE();
 }
