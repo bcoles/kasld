@@ -77,6 +77,44 @@ static void update_range(struct range_ctx *r, unsigned long addr) {
     r->hi = addr;
 }
 
+/* Parse a "<num> MiB" size token at `s` to bytes. These kernel messages always
+ * print the pool size in MiB (contiguous.c / cma.c hardcode the unit); return 0
+ * (size unknown) for any other unit or on overflow, so the caller falls back to
+ * a base-only sample rather than fabricating a wrong extent. */
+static unsigned long parse_mib_bytes(const char *s) {
+  char *e;
+  unsigned long mib = strtoul(s, &e, 10);
+  if (e == s)
+    return 0;
+  while (*e == ' ')
+    e++;
+  if (strncmp(e, "MiB", 3) != 0)
+    return 0;
+  unsigned long bytes;
+  if (kasld_mul_ovf(mib, MB, &bytes))
+    return 0;
+  return bytes;
+}
+
+/* Each pool is one contiguous reservation [addr, addr + size - 1]; emit it as a
+ * bounded range when the size is known so the engine excludes the whole
+ * forbidden band, else a base-only sample. Pools are sparse — the gaps between
+ * them are NOT known-empty — so range, never a covering extent. */
+static void emit_pool(struct range_ctx *r, unsigned long addr,
+                      unsigned long bytes) {
+  if (!addr)
+    return;
+  update_range(r, addr);
+
+  unsigned long end;
+  if (bytes && !kasld_add_ovf(addr, bytes - 1, &end))
+    kasld_result_range(KASLD_TYPE_PHYS, REGION_RESERVED_MEM, addr, end, NULL,
+                       CONF_PARSED);
+  else
+    kasld_result_sample(KASLD_TYPE_PHYS, REGION_RESERVED_MEM, addr, NULL,
+                        CONF_PARSED);
+}
+
 /* "Reserved memory: created CMA memory pool at 0x..., size N MiB"
  * "Reserved memory: created DMA memory pool at 0x..., size N MiB"
  * "Reserved memory: created restricted DMA pool at 0x..., size N MiB" */
@@ -88,10 +126,14 @@ static int on_reserved_pool(const char *line, void *ctx) {
     return 1;
 
   unsigned long addr = strtoul(p + 4, NULL, 16);
-  if (addr)
-    kasld_info("Reserved memory pool at 0x%016lx", addr);
+  if (!addr)
+    return 1;
 
-  update_range(r, addr);
+  const char *s = strstr(p, ", size ");
+  unsigned long bytes = s ? parse_mib_bytes(s + 7) : 0;
+
+  kasld_info("Reserved memory pool at 0x%016lx", addr);
+  emit_pool(r, addr, bytes);
   return 1; /* continue — may be multiple pools */
 }
 
@@ -109,9 +151,11 @@ static int on_cma_reserved(const char *line, void *ctx) {
   if (!addr)
     return 1;
 
-  kasld_info("CMA reservation at 0x%016lx", addr);
+  const char *sz = strstr(line, "Reserved ");
+  unsigned long bytes = sz ? parse_mib_bytes(sz + 9) : 0;
 
-  update_range(r, addr);
+  kasld_info("CMA reservation at 0x%016lx", addr);
+  emit_pool(r, addr, bytes);
   return 1; /* continue — may be multiple reservations */
 }
 
@@ -132,16 +176,11 @@ int main(void) {
   }
 
   /* CMA pools are firmware/kernel-reserved memory carved out of DRAM —
-   * they collapse to the standard RESERVED_MEM region. */
+   * each is emitted as its own RESERVED_MEM band in the parse callbacks. The
+   * directmap projection below derives one virtual landmark from the lowest. */
   kasld_info("lowest reserved pool:  0x%016lx", r.lo);
-  kasld_result_sample(KASLD_TYPE_PHYS, REGION_RESERVED_MEM, r.lo, NULL,
-                      CONF_PARSED);
-
-  if (r.hi && r.hi != r.lo) {
+  if (r.hi && r.hi != r.lo)
     kasld_info("highest reserved pool: 0x%016lx", r.hi);
-    kasld_result_sample(KASLD_TYPE_PHYS, REGION_RESERVED_MEM, r.hi, NULL,
-                        CONF_PARSED);
-  }
 
 #ifdef phys_to_directmap_virt
   unsigned long virt = phys_to_directmap_virt(r.lo);

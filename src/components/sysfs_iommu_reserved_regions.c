@@ -192,13 +192,20 @@ int main(void) {
       kasld_info("iommu_group %s: %s 0x%016llx - 0x%016llx", ent->d_name, type,
                  start, end_addr);
 
-      kasld_result_sample(KASLD_TYPE_PHYS, REGION_RESERVED_MEM,
-                          (unsigned long)start, ent->d_name, CONF_PARSED);
-
-      if (end_addr != start) {
+      /* Each reserved_regions line is one contiguous reserved range fully
+       * spanning [start, end_addr], so emit it as a bounded range: the engine
+       * can then exclude the whole forbidden band (phys_reservation_exclude),
+       * which two disconnected interior points cannot drive (each point has
+       * hi==lo and is skipped). Not a covering — these are forbidden bands, not
+       * a RAM map, so the gaps between them are NOT known-empty: range, not
+       * extent. */
+      if (end_addr > start)
+        kasld_result_range(KASLD_TYPE_PHYS, REGION_RESERVED_MEM,
+                           (unsigned long)start, (unsigned long)end_addr,
+                           ent->d_name, CONF_PARSED);
+      else
         kasld_result_sample(KASLD_TYPE_PHYS, REGION_RESERVED_MEM,
-                            (unsigned long)end_addr, ent->d_name, CONF_PARSED);
-      }
+                            (unsigned long)start, ent->d_name, CONF_PARSED);
     }
     fclose(f);
   }

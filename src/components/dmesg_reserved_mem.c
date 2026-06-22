@@ -94,6 +94,16 @@ static int on_match(const char *line, void *ctx) {
   if (end > r->hi)
     r->hi = end;
 
+  /* Each "OF: reserved mem:" line is one contiguous reserved region fully
+   * spanning [start, end] (end is the inclusive last address), so emit it as a
+   * bounded range: the engine can then exclude the whole forbidden band
+   * (phys_reservation_exclude), which a pair of disconnected interior points
+   * cannot drive. Reserved regions are sparse — the gaps between them are NOT
+   * known-empty — so this is a range, never a covering extent. */
+  if (end > start)
+    kasld_result_range(KASLD_TYPE_PHYS, REGION_RESERVED_MEM, start, end, NULL,
+                       CONF_PARSED);
+
   return 1; /* continue — multiple regions */
 }
 
@@ -113,12 +123,8 @@ int main(void) {
   kasld_info("lowest reserved mem physical address:  0x%016lx", r.lo);
   kasld_info("highest reserved mem physical address: 0x%016lx", r.hi);
 
-  kasld_result_sample(KASLD_TYPE_PHYS, REGION_RESERVED_MEM, r.lo, NULL,
-                      CONF_PARSED);
-
-  if (r.hi && r.hi != r.lo)
-    kasld_result_sample(KASLD_TYPE_PHYS, REGION_RESERVED_MEM, r.hi, NULL,
-                        CONF_PARSED);
+  /* Per-region forbidden bands are emitted in on_match(); the directmap
+   * projection below derives one virtual landmark from the lowest region. */
 
 #ifdef phys_to_directmap_virt
   unsigned long virt = phys_to_directmap_virt(r.lo);

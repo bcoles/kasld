@@ -99,6 +99,14 @@ static int on_reserved(const char *line, void *ctx) {
   if (end > r->hi)
     r->hi = end;
 
+  /* The high and low crashkernel reservations are TWO disjoint regions; emit
+   * each line's [start, end] as its own bounded range rather than collapsing
+   * to one [min, max] span (which would wrongly forbid the usable RAM in the
+   * gap between them). Each band drives phys_reservation_exclude on its own. */
+  if (start && end > start)
+    kasld_result_range(KASLD_TYPE_PHYS, REGION_CRASHKERNEL, start, end, NULL,
+                       CONF_PARSED);
+
   return 1; /* keep scanning for low-memory variant */
 }
 
@@ -132,6 +140,12 @@ static int on_reserving(const char *line, void *ctx) {
   if (end > r->hi)
     r->hi = end;
 
+  /* Per-region band (memory + low-memory variants are disjoint); see
+   * on_reserved() for why each line is emitted separately, not collapsed. */
+  if (start && end > start)
+    kasld_result_range(KASLD_TYPE_PHYS, REGION_CRASHKERNEL, start, end, NULL,
+                       CONF_PARSED);
+
   return 1;
 }
 
@@ -157,14 +171,11 @@ int main(void) {
   }
 
   kasld_info("crashkernel start: 0x%016lx", r.lo);
-  kasld_result_sample(KASLD_TYPE_PHYS, REGION_CRASHKERNEL, r.lo, NULL,
-                      CONF_PARSED);
-
-  if (r.hi && r.hi != r.lo) {
+  if (r.hi && r.hi != r.lo)
     kasld_info("crashkernel end:   0x%016lx", r.hi);
-    kasld_result_sample(KASLD_TYPE_PHYS, REGION_CRASHKERNEL, r.hi, NULL,
-                        CONF_PARSED);
-  }
+
+  /* Per-region forbidden bands are emitted in the parse callbacks; the
+   * directmap projection below derives one virtual landmark from the lowest. */
 
 #ifdef phys_to_directmap_virt
   unsigned long virt = phys_to_directmap_virt(r.lo);

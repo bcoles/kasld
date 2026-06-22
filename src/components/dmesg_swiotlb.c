@@ -140,11 +140,19 @@ int main(void) {
   }
 
   kasld_info("SWIOTLB start: 0x%016lx", r.lo);
-  kasld_result_sample(KASLD_TYPE_PHYS, REGION_SWIOTLB, r.lo, NULL, CONF_PARSED);
 
-  if (r.hi && r.hi != r.lo) {
+  /* The SWIOTLB pool is a single contiguous reservation (the search stops at
+   * the first match), so emit [start, end] as one bounded range: the engine
+   * excludes the whole forbidden band (phys_reservation_exclude), which a pair
+   * of disconnected interior points cannot drive. Not a covering — this lone
+   * reservation says nothing about the surrounding RAM, so range, not extent.
+   */
+  if (r.hi && r.hi > r.lo) {
     kasld_info("SWIOTLB end:   0x%016lx", r.hi);
-    kasld_result_sample(KASLD_TYPE_PHYS, REGION_SWIOTLB, r.hi, NULL,
+    kasld_result_range(KASLD_TYPE_PHYS, REGION_SWIOTLB, r.lo, r.hi, NULL,
+                       CONF_PARSED);
+  } else {
+    kasld_result_sample(KASLD_TYPE_PHYS, REGION_SWIOTLB, r.lo, NULL,
                         CONF_PARSED);
   }
 

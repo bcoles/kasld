@@ -120,6 +120,16 @@ int main(void) {
         lo_mmio = (unsigned long)start;
       if ((unsigned long)end > hi_mmio)
         hi_mmio = (unsigned long)end;
+
+      /* Each BAR is one contiguous MMIO window [start, end]; emit it as its own
+       * bounded range so the engine excludes every forbidden BAR band, not just
+       * the lowest. BARs are scattered across the address space, so collapsing
+       * them to one [min, max] span would wrongly forbid the DRAM between them
+       * — range per BAR, never a covering extent. */
+      if ((unsigned long)end > (unsigned long)start)
+        kasld_result_range(KASLD_TYPE_PHYS, REGION_PCI_MMIO,
+                           (unsigned long)start, (unsigned long)end,
+                           ent->d_name, CONF_PARSED);
     }
     fclose(f);
   }
@@ -132,15 +142,10 @@ int main(void) {
 
   kasld_info("PCI devices: %d, memory BARs: %d", device_count, bar_count);
 
+  /* Per-BAR forbidden bands are emitted in the scan loop above. */
   kasld_info("lowest PCI MMIO start:  0x%016lx", lo_mmio);
-  kasld_result_sample(KASLD_TYPE_PHYS, REGION_PCI_MMIO, lo_mmio, NULL,
-                      CONF_PARSED);
-
-  if (hi_mmio && hi_mmio != lo_mmio) {
+  if (hi_mmio && hi_mmio != lo_mmio)
     kasld_info("highest PCI MMIO end:   0x%016lx", hi_mmio);
-    kasld_result_sample(KASLD_TYPE_PHYS, REGION_PCI_MMIO, hi_mmio, NULL,
-                        CONF_PARSED);
-  }
 
   return 0;
 }

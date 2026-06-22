@@ -52,6 +52,7 @@ int nd_main(void);
 int uio_main(void);
 int iscsi_main(void);
 int mmio_main(int argc, char **argv); /* this one parses CLI; see mmio_run() */
+int pci_main(void);
 
 #define main efi_main
 #define read_file_line efi_read_file_line
@@ -107,6 +108,10 @@ int mmio_main(int argc, char **argv); /* this one parses CLI; see mmio_run() */
 
 #define main mmio_main
 #include "../src/components/sysfs_devicetree_mmio.c"
+#undef main
+
+#define main pci_main
+#include "../src/components/sysfs_pci_resource.c"
 #undef main
 
 #include "test_harness.h"
@@ -248,15 +253,17 @@ static void test_qcom_rmtfs(void) {
 }
 
 /* --- IOMMU reserved_regions: "0x%016llx 0x%016llx <type>" lines.
- * "msi" entries are skipped by type (even at a DRAM address); "reserved"
- * entries in plausible DRAM are emitted. ---------------------------------- */
+ * "msi" entries are skipped by type (even at a DRAM address); a "reserved"
+ * entry in plausible DRAM is emitted as a single bounded range over its whole
+ * contiguous span (each line is one fully-reserved region). --------------- */
 static void test_iommu_reserved_regions(void) {
   stage_text("/sys/kernel/iommu_groups/0/reserved_regions",
              "0x0000000100000000 0x000000010000ffff msi\n"
              "0x0000000200000000 0x000000020000ffff reserved\n");
   run_capture(iommu_main);
-  /* the reserved DRAM range is emitted (start and end) */
-  assert(strstr(cap, "sample=0x200000000") != NULL);
+  /* the reserved range is emitted as one bounded range [start, end], not two
+   * disconnected interior points */
+  assert(strstr(cap, "lo=0x200000000 hi=0x20000ffff") != NULL);
   /* the msi range is skipped despite its DRAM address */
   assert(strstr(cap, "0x100000000") == NULL);
 }
@@ -388,6 +395,30 @@ static void test_devicetree_mmio(void) {
 #undef DTB
 }
 
+/* --- PCI BARs: /sys/bus/pci/devices/<BDF>/resource — "start end flags" per
+ * line. Each memory BAR is emitted as its own PCI_MMIO range named by BDF; the
+ * BARs are scattered, so they must stay per-BAR ranges (never one [min,max]
+ * span). I/O-port BARs (flag bit 0x100) and unallocated (0/0) BARs are skipped.
+ */
+static void test_pci_resource_per_bar(void) {
+  /* dev A: one 8 MiB memory BAR + an unallocated BAR (0 0 0, skipped) */
+  stage_text("/sys/bus/pci/devices/0000:00:02.0/resource",
+             "0x00000000fb000000 0x00000000fb7fffff 0x0000000000040200\n"
+             "0x0000000000000000 0x0000000000000000 0x0000000000000000\n");
+  /* dev B: one 64 KiB memory BAR + an I/O-port BAR (flag 0x...101, skipped) */
+  stage_text("/sys/bus/pci/devices/0000:00:14.0/resource",
+             "0x00000000fe000000 0x00000000fe00ffff 0x0000000000040200\n"
+             "0x000000000000c000 0x000000000000c0ff 0x0000000000040101\n");
+  run_capture(pci_main);
+  /* each memory BAR -> its own BDF-named PCI_MMIO range */
+  assert(strstr(cap, "pci_mmio:0000:00:02.0 pos=base conf=parsed lo=0xfb000000 "
+                     "hi=0xfb7fffff") != NULL);
+  assert(strstr(cap, "pci_mmio:0000:00:14.0 pos=base conf=parsed lo=0xfe000000 "
+                     "hi=0xfe00ffff") != NULL);
+  /* the I/O-port BAR is skipped (not emitted as a band) */
+  assert(strstr(cap, "0xc000") == NULL);
+}
+
 int main(void) {
   /* One sysroot for the whole suite: each parser reads a distinct path, and
    * kasld_sysroot() caches its value process-wide, so a single root must be
@@ -411,5 +442,6 @@ int main(void) {
   RUN(test_uio_map);
   RUN(test_iscsi_transport_handle);
   RUN(test_devicetree_mmio);
+  RUN(test_pci_resource_per_bar);
   return TEST_DONE();
 }

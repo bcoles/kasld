@@ -204,13 +204,19 @@ int main(void) {
         continue;
       }
 
+      unsigned long res_hi = base_addr + size - 1;
+
       kasld_info("reserved-memory %s: base=0x%016lx size=0x%lx", ent->d_name,
                  base_addr, size);
 
-      /* Use the DT node name to identify the specific reservation
-       * (e.g. "linux,cma", "optee@a0000000", "video_reserved@...") */
-      kasld_result_sample(KASLD_TYPE_PHYS, REGION_RESERVED_MEM, base_addr,
-                          ent->d_name, CONF_PARSED);
+      /* Emit the full [base, base+size-1] extent, not just the base point, so
+       * phys_reservation_exclude carves this in-RAM reservation as a forbidden
+       * hole for the physical image base (reserved-memory pools are memblock
+       * carve-outs from DRAM, disjoint from the loaded image). The DT node name
+       * identifies the reservation (e.g. "linux,cma", "optee@a0000000"). */
+      if (res_hi >= base_addr)
+        kasld_result_range(KASLD_TYPE_PHYS, REGION_RESERVED_MEM, base_addr,
+                           res_hi, ent->d_name, CONF_PARSED);
 
 #ifdef phys_to_directmap_virt
       unsigned long virt = phys_to_directmap_virt(base_addr);
