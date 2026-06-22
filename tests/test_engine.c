@@ -1192,6 +1192,19 @@ static void test_phys_reservation_exclude(void) {
   evidence_add(&e2.ev, &ram);
   engine_run(&e2, rules, 1);
   assert(!has_phys_exclude(&e2));
+
+  /* Bridge: the exact boot_params init_size (SF_INIT_SIZE) alone — with no
+   * /boot estimate (SF_IMAGE_SIZE) — still drives the exclusion via
+   * evidence_image_size(). Before the bridge this rule scanned SF_IMAGE_SIZE
+   * only and went dark when /boot was unreadable but boot_params was not. */
+  static struct engine e3;
+  engine_init(&e3);
+  struct observation init = mk_scalar(SF_INIT_SIZE, ksize, CONF_PARSED);
+  evidence_add(&e3.ev, &init);
+  struct observation crash3 = crash;
+  evidence_add(&e3.ev, &crash3);
+  engine_run(&e3, rules, 1);
+  assert(has_phys_exclude(&e3));
 #endif
 }
 

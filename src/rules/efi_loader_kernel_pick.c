@@ -85,7 +85,8 @@ int rule_efi_loader_kernel_pick(const struct evidence_set *ev,
     const struct observation *o = &ev->obs[i];
     if (!o->valid || o->value_kind != OBS_SCALAR)
       continue;
-    if (o->scalar_fact == SF_IMAGE_SIZE && ksize == 0) {
+    if ((o->scalar_fact == SF_IMAGE_SIZE || o->scalar_fact == SF_INIT_SIZE) &&
+        o->scalar_value > ksize) { /* exact init_size wins; both <= true */
       ksize = o->scalar_value;
       ksrc = o->id;
     } else if (o->scalar_fact == SF_PHYS_KASLR_RANDOMIZATION_FAILED &&
@@ -94,7 +95,7 @@ int rule_efi_loader_kernel_pick(const struct evidence_set *ev,
     }
   }
   if (ksize == 0)
-    return 0; /* no SF_IMAGE_SIZE → size filter cannot apply */
+    return 0; /* no image-size fact → size filter cannot apply */
 
   const unsigned long palign = (unsigned long)EFI_KIMG_ALIGN;
   const unsigned long size_max = ksize * (unsigned long)ELKP_SIZE_MAX_MULT;

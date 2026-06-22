@@ -67,10 +67,13 @@ int rule_initrd_above_kernel(const struct evidence_set *ev,
     const struct observation *o = &ev->obs[i];
     if (!o->valid)
       continue;
-    if (o->value_kind == OBS_SCALAR && o->scalar_fact == SF_IMAGE_SIZE) {
-      ksize = o->scalar_value;
-      kconf = o->conf;
-      ksrc = o->id;
+    if (o->value_kind == OBS_SCALAR &&
+        (o->scalar_fact == SF_IMAGE_SIZE || o->scalar_fact == SF_INIT_SIZE)) {
+      if (o->scalar_value > ksize) { /* exact init_size wins; both <= true */
+        ksize = o->scalar_value;
+        kconf = o->conf;
+        ksrc = o->id;
+      }
     } else if (o->value_kind == OBS_ADDRESS && o->eff_type == KASLD_TYPE_PHYS &&
                o->eff_region == REGION_INITRD && HAS_LO(o)) {
       /* Lowest initrd-start across all sources; one observation is

@@ -51,10 +51,14 @@ int rule_dram_ceiling(const struct evidence_set *ev, const struct estimate *est,
     const struct observation *o = &ev->obs[i];
     if (!o->valid)
       continue;
-    if (o->value_kind == OBS_SCALAR && o->scalar_fact == SF_IMAGE_SIZE) {
-      kernel_size = o->scalar_value;
-      kconf = o->conf;
-      ksrc = o->id;
+    if (o->value_kind == OBS_SCALAR &&
+        (o->scalar_fact == SF_IMAGE_SIZE || o->scalar_fact == SF_INIT_SIZE)) {
+      if (o->scalar_value >
+          kernel_size) { /* exact init_size wins; both <= true */
+        kernel_size = o->scalar_value;
+        kconf = o->conf;
+        ksrc = o->id;
+      }
     } else if (o->value_kind == OBS_ADDRESS && o->eff_type == KASLD_TYPE_PHYS &&
                o->eff_region == REGION_RAM && HAS_HI(o)) {
       if (o->hi > dram_top) {

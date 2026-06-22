@@ -42,20 +42,9 @@ int rule_cmdline_memmap_phys_exclude(const struct evidence_set *ev,
   (void)out_max;
   return 0;
 #else
-  unsigned long ksize = 0;
   enum kasld_confidence kconf = CONF_UNKNOWN;
   uint32_t ksrc = 0;
-  for (int i = 0; i < ev->n_obs; i++) {
-    const struct observation *o = &ev->obs[i];
-    if (!o->valid)
-      continue;
-    if (o->value_kind == OBS_SCALAR && o->scalar_fact == SF_IMAGE_SIZE) {
-      ksize = o->scalar_value;
-      kconf = o->conf;
-      ksrc = o->id;
-      break;
-    }
-  }
+  unsigned long ksize = evidence_image_size(ev, &kconf, &ksrc);
   if (ksize == 0)
     return 0;
 

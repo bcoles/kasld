@@ -50,10 +50,13 @@ int rule_cmdline_mem_phys_ceiling(const struct evidence_set *ev,
       mem = o->scalar_value;
       mconf = o->conf;
       msrc = o->id;
-    } else if (o->scalar_fact == SF_IMAGE_SIZE) {
-      ksize = o->scalar_value;
-      kconf = o->conf;
-      ksrc = o->id;
+    } else if (o->scalar_fact == SF_IMAGE_SIZE ||
+               o->scalar_fact == SF_INIT_SIZE) {
+      if (o->scalar_value > ksize) { /* exact init_size wins; both <= true */
+        ksize = o->scalar_value;
+        kconf = o->conf;
+        ksrc = o->id;
+      }
     }
   }
   if (mem == 0 || ksize == 0 || ksize >= mem)

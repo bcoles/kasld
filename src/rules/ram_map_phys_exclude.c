@@ -48,9 +48,9 @@
 //     readers (the pos=extent contract), never partial leaks. If a map holds
 //     more extents than the buffer, BAIL — a dropped middle extent would
 //     synthesize a false gap.
-//   * kernel_size is SF_IMAGE_SIZE, a deliberate UNDER-estimate, so the
-//   low-edge
-//     widening can only under-exclude, never drop a valid base.
+//   * kernel_size is evidence_image_size() (the larger of the /boot estimate
+//     and the exact boot_params init_size; both <= the true footprint), so the
+//     low-edge widening can only under-exclude, never drop a valid base.
 //   * Overlapping / adjacent extents are merged (running max); RAM extents are
 //     inclusive [lo, hi].
 //
@@ -63,6 +63,11 @@
 
 #include <limits.h>
 #include <string.h>
+
+/* The gap-carving machinery is used only on decoupled arches; the rule body
+ * below early-returns when TEXT_TRACKS_DIRECTMAP. Guard it under the same
+ * predicate so it is not a defined-but-unused function on coupled arches. */
+#if !TEXT_TRACKS_DIRECTMAP
 
 #define RMPE_MAX_EXTENTS 64
 
@@ -157,6 +162,8 @@ static int carve_map_gaps(const struct evidence_set *ev, const char *origin,
   return n;
 }
 
+#endif /* !TEXT_TRACKS_DIRECTMAP */
+
 int rule_ram_map_phys_exclude(const struct evidence_set *ev,
                               const struct estimate *est,
                               struct constraint *out, int out_max) {
@@ -167,19 +174,9 @@ int rule_ram_map_phys_exclude(const struct evidence_set *ev,
   (void)out_max;
   return 0;
 #else
-  unsigned long ksize = 0;
   enum kasld_confidence kconf = CONF_UNKNOWN;
   uint32_t ksrc = 0;
-  for (int i = 0; i < ev->n_obs; i++) {
-    const struct observation *o = &ev->obs[i];
-    if (o->valid && o->value_kind == OBS_SCALAR &&
-        o->scalar_fact == SF_IMAGE_SIZE) {
-      ksize = o->scalar_value;
-      kconf = o->conf;
-      ksrc = o->id;
-      break;
-    }
-  }
+  unsigned long ksize = evidence_image_size(ev, &kconf, &ksrc);
   if (ksize == 0)
     return 0;
 

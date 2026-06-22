@@ -28,30 +28,6 @@
 
 #include <string.h>
 
-/* The kernel image size as measured (0 if none). Takes the LARGEST of the
- * available sound size facts — the /boot image-size estimate (SF_IMAGE_SIZE,
- * deliberately an under-estimate) and the exact x86 boot_params init_size
- * (SF_INIT_SIZE). Both are <= the true in-memory size, so the larger yields the
- * tightest still-sound ceiling (KASLR_VIRT_TEXT_MAX - size); when the exact
- * init_size is present it wins. */
-static unsigned long image_size(const struct evidence_set *ev,
-                                enum kasld_confidence *conf, uint32_t *src) {
-  unsigned long best = 0;
-  for (int i = 0; i < ev->n_obs; i++) {
-    const struct observation *o = &ev->obs[i];
-    if (!o->valid || o->value_kind != OBS_SCALAR)
-      continue;
-    if (o->scalar_fact != SF_IMAGE_SIZE && o->scalar_fact != SF_INIT_SIZE)
-      continue;
-    if (o->scalar_value > best) {
-      best = o->scalar_value;
-      *conf = o->conf;
-      *src = o->id;
-    }
-  }
-  return best;
-}
-
 /* Emit an aligned upper-bound ceiling for one quantity, given the window's
  * [min, max) and slot alignment. Returns the number of constraints written
  * (0 or 1). */
@@ -88,7 +64,7 @@ int rule_ceiling_from_image_size(const struct evidence_set *ev,
                                  struct constraint *out, int out_max) {
   enum kasld_confidence conf = CONF_UNKNOWN;
   uint32_t src = 0;
-  unsigned long ksize = image_size(ev, &conf, &src);
+  unsigned long ksize = evidence_image_size(ev, &conf, &src);
   if (ksize == 0)
     return 0;
 

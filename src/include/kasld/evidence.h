@@ -110,4 +110,44 @@ static inline int evidence_active(const struct observation *o) {
   return o->valid;
 }
 
+/* The kernel image footprint in bytes from the evidence, or 0 if none.
+ *
+ * Takes the LARGEST of the available size facts: the /boot image-size estimate
+ * (SF_IMAGE_SIZE, a deliberate under-estimate) and the exact x86 boot_params
+ * init_size (SF_INIT_SIZE). Both are <= the true in-memory footprint the kernel
+ * reserves, so the larger is the tightest still-sound value — a valid lower
+ * bound for the exclusion rules and the right size for the ceiling rules — and
+ * the exact init_size wins when present. Taking the max (not the first match)
+ * is also order-independent, and lets a rule fire from boot_params alone when
+ * /boot is unreadable (the common world-readable-sysfs-only case). *conf / *src
+ * (each may be NULL) receive the winning observation's confidence and id for
+ * constraint lineage. Prefer this for a standalone size lookup; a rule that
+ * folds size collection into a larger evidence loop must likewise accept BOTH
+ * SF_IMAGE_SIZE and SF_INIT_SIZE and take the max — never an SF_IMAGE_SIZE-only
+ * scan. */
+static inline unsigned long evidence_image_size(const struct evidence_set *ev,
+                                                enum kasld_confidence *conf,
+                                                uint32_t *src) {
+  unsigned long best = 0;
+  enum kasld_confidence c = CONF_UNKNOWN;
+  uint32_t s = 0;
+  for (int i = 0; i < ev->n_obs; i++) {
+    const struct observation *o = &ev->obs[i];
+    if (!o->valid || o->value_kind != OBS_SCALAR)
+      continue;
+    if (o->scalar_fact != SF_IMAGE_SIZE && o->scalar_fact != SF_INIT_SIZE)
+      continue;
+    if (o->scalar_value > best) {
+      best = o->scalar_value;
+      c = o->conf;
+      s = o->id;
+    }
+  }
+  if (conf)
+    *conf = c;
+  if (src)
+    *src = s;
+  return best;
+}
+
 #endif /* KASLD_EVIDENCE_H */

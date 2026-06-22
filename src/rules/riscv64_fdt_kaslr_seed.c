@@ -57,8 +57,10 @@ int rule_riscv64_fdt_kaslr_seed(const struct evidence_set *ev,
         src = o->id;
       } else if (o->scalar_fact == SF_EFI_PRESENT)
         efi_present = (o->scalar_value != 0);
-      else if (o->scalar_fact == SF_IMAGE_SIZE)
-        image_size = o->scalar_value;
+      else if ((o->scalar_fact == SF_IMAGE_SIZE ||
+                o->scalar_fact == SF_INIT_SIZE) &&
+               o->scalar_value > image_size)
+        image_size = o->scalar_value; /* exact init_size wins; both <= true */
       continue;
     }
     if (o->eff_type == KASLD_TYPE_VIRT) {
