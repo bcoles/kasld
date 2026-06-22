@@ -54,6 +54,7 @@ int iscsi_main(void);
 int mmio_main(int argc, char **argv); /* this one parses CLI; see mmio_run() */
 int pci_main(void);
 int printk_main(int argc, char **argv); /* parses CLI; see printk_run() */
+int rm_main(void); /* reserved-memory; (void) main, called directly */
 
 #define main efi_main
 #define read_file_line efi_read_file_line
@@ -117,6 +118,18 @@ int printk_main(int argc, char **argv); /* parses CLI; see printk_run() */
 
 #define main pci_main
 #include "../src/components/sysfs_pci_resource.c"
+#undef main
+
+/* reserved_memory shares read_be32/read_cells names with the mmio component
+ * already in this TU; rename on include to avoid static-symbol collisions. */
+#define main rm_main
+#define read_be32 rm_read_be32
+#define read_cells rm_read_cells
+#define read_binary rm_read_binary
+#include "../src/components/sysfs_devicetree_reserved_memory.c"
+#undef read_binary
+#undef read_cells
+#undef read_be32
 #undef main
 
 #include "test_harness.h"
@@ -406,6 +419,26 @@ static void test_devicetree_mmio(void) {
 #undef DTB
 }
 
+/* --- device-tree reserved-memory: each /reserved-memory child's reg is emitted
+ * as a [base, base+size-1] RESERVED_MEM range (an in-RAM forbidden hole), not a
+ * bare base point — so phys_reservation_exclude can carve it. -------------- */
+static void test_devicetree_reserved_memory(void) {
+#define RMB "/sys/firmware/devicetree/base"
+  uint32_t two = 2;
+  stage_cells(RMB "/#address-cells", &two, 1);
+  stage_cells(RMB "/#size-cells", &two, 1);
+  stage_cells(RMB "/reserved-memory/#address-cells", &two, 1);
+  stage_cells(RMB "/reserved-memory/#size-cells", &two, 1);
+  stage(RMB "/reserved-memory/ranges", "", 0);
+  uint32_t reg[] = {0, 0x80000000u, 0, 0x40000u}; /* base 0x80000000, 256 KiB */
+  stage_cells(RMB "/reserved-memory/mmode_resv0@80000000/reg", reg, 4);
+  run_capture(rm_main);
+  assert(strstr(cap, "P reserved_mem:mmode_resv0@80000000") != NULL);
+  /* full extent, not just the base point */
+  assert(strstr(cap, "lo=0x80000000 hi=0x8003ffff") != NULL);
+#undef RMB
+}
+
 /* --- tracefs printk_formats: "0x<addr> : \"<fmt>\"" lines. The address is a
  * bare 0x%lx (no kptr_restrict gate). Kernel-text addresses are emitted as
  * interior witnesses; userspace addresses are skipped. Lowest+highest only. */
@@ -471,6 +504,7 @@ int main(void) {
   RUN(test_uio_map);
   RUN(test_iscsi_transport_handle);
   RUN(test_devicetree_mmio);
+  RUN(test_devicetree_reserved_memory);
   RUN(test_pci_resource_per_bar);
   RUN(test_tracefs_printk_formats);
   return TEST_DONE();

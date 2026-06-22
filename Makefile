@@ -351,6 +351,12 @@ TEST_DMESG_RESV_BIN := $(TEST_OBJ_DIR)/test_dmesg_reservations
 $(TEST_DMESG_RESV_BIN): $(TEST_DIR)/test_dmesg_reservations.c $(TEST_DMESG_RESV_SRCS) $(HDRS) | $(TEST_OBJ_DIR)
 	$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_dmesg_reservations.c -o $@
 
+# boot_params_e820 RAM-covering test: the component #included (main renamed) and
+# driven over a staged KASLD_SYSROOT zero-page; asserts the per-RAM-entry extents.
+TEST_BPE820_BIN := $(TEST_OBJ_DIR)/test_boot_params_e820
+$(TEST_BPE820_BIN): $(TEST_DIR)/test_boot_params_e820.c $(SRC_DIR)/components/boot_params_e820.c $(HDRS) | $(TEST_OBJ_DIR)
+	$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_boot_params_e820.c -o $@
+
 # sysfs / ACPI / DT leak-parser tests: each component #included (main renamed)
 # and driven over a staged KASLD_SYSROOT fixture tree reproducing the kernel ABI.
 TEST_PARSERS_SRCS := $(SRC_DIR)/components/sysfs_efi_runtime_map.c \
@@ -365,13 +371,14 @@ TEST_PARSERS_SRCS := $(SRC_DIR)/components/sysfs_efi_runtime_map.c \
 	$(SRC_DIR)/components/sysfs_iscsi_transport_handle.c \
 	$(SRC_DIR)/components/sysfs_devicetree_mmio.c \
 	$(SRC_DIR)/components/sysfs_pci_resource.c \
-	$(SRC_DIR)/components/tracefs_printk_formats.c
+	$(SRC_DIR)/components/tracefs_printk_formats.c \
+	$(SRC_DIR)/components/sysfs_devicetree_reserved_memory.c
 TEST_PARSERS_BIN := $(TEST_OBJ_DIR)/test_sysfs_parsers
 $(TEST_PARSERS_BIN): $(TEST_DIR)/test_sysfs_parsers.c $(TEST_PARSERS_SRCS) $(HDRS) | $(TEST_OBJ_DIR)
 	$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_sysfs_parsers.c -o $@
 
 .PHONY: test
-test : $(TEST_BIN) $(TEST_RENDER_BIN) $(TEST_EST_BIN) $(TEST_EV_BIN) $(TEST_ALIGN_BIN) $(TEST_TEXT_ORDER_BIN) $(TEST_ENG_BIN) $(TEST_INT_BIN) $(TEST_DMESG_BIN) $(TEST_BACKTRACE_BIN) $(TEST_BTF_BIN) $(TEST_DMESG_RESV_BIN) $(TEST_PARSERS_BIN)
+test : $(TEST_BIN) $(TEST_RENDER_BIN) $(TEST_EST_BIN) $(TEST_EV_BIN) $(TEST_ALIGN_BIN) $(TEST_TEXT_ORDER_BIN) $(TEST_ENG_BIN) $(TEST_INT_BIN) $(TEST_DMESG_BIN) $(TEST_BACKTRACE_BIN) $(TEST_BTF_BIN) $(TEST_DMESG_RESV_BIN) $(TEST_BPE820_BIN) $(TEST_PARSERS_BIN)
 	@$(TEST_DIR)/run-all
 	@$(MAKE) --no-print-directory lint
 
@@ -412,6 +419,10 @@ test-btf : $(TEST_BTF_BIN)
 .PHONY: test-dmesg-reservations
 test-dmesg-reservations : $(TEST_DMESG_RESV_BIN)
 	$(TEST_DMESG_RESV_BIN)
+
+.PHONY: test-boot-params-e820
+test-boot-params-e820 : $(TEST_BPE820_BIN)
+	$(TEST_BPE820_BIN)
 
 .PHONY: test-sysfs-parsers
 test-sysfs-parsers : $(TEST_PARSERS_BIN)
