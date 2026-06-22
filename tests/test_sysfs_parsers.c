@@ -53,6 +53,7 @@ int uio_main(void);
 int iscsi_main(void);
 int mmio_main(int argc, char **argv); /* this one parses CLI; see mmio_run() */
 int pci_main(void);
+int printk_main(int argc, char **argv); /* parses CLI; see printk_run() */
 
 #define main efi_main
 #define read_file_line efi_read_file_line
@@ -108,6 +109,10 @@ int pci_main(void);
 
 #define main mmio_main
 #include "../src/components/sysfs_devicetree_mmio.c"
+#undef main
+
+#define main printk_main
+#include "../src/components/tracefs_printk_formats.c"
 #undef main
 
 #define main pci_main
@@ -182,6 +187,12 @@ static int mmio_run(void) {
   char arg0[] = "sysfs_devicetree_mmio";
   char *av[] = {arg0, NULL};
   return mmio_main(1, av);
+}
+
+static int printk_run(void) {
+  char arg0[] = "tracefs_printk_formats";
+  char *av[] = {arg0, NULL};
+  return printk_main(1, av);
 }
 
 /* Run a renamed component main(), capturing its stdout (the wire channel) into
@@ -395,6 +406,24 @@ static void test_devicetree_mmio(void) {
 #undef DTB
 }
 
+/* --- tracefs printk_formats: "0x<addr> : \"<fmt>\"" lines. The address is a
+ * bare 0x%lx (no kptr_restrict gate). Kernel-text addresses are emitted as
+ * interior witnesses; userspace addresses are skipped. Lowest+highest only. */
+static void test_tracefs_printk_formats(void) {
+  unsigned long ktext = 0xffffffff81000040UL; /* host kernel-text window */
+  if (!kasld_addr_is_kernel_text(ktext))
+    return;
+  stage_text("/sys/kernel/tracing/printk_formats",
+             "0xffffffff81000040 : \"alloc %d bytes\\n\"\n"
+             "0xffffffff81234560 : \"hello %s\\n\"\n"
+             "0x00007f0012340000 : \"userspace bogus\\n\"\n");
+  run_capture(printk_run);
+  assert(strstr(cap, "V kernel_text:printk_fmt") != NULL);
+  assert(strstr(cap, "sample=0xffffffff81000040") != NULL); /* lowest */
+  assert(strstr(cap, "sample=0xffffffff81234560") != NULL); /* highest */
+  assert(strstr(cap, "0x00007f0012340000") == NULL);        /* user skipped */
+}
+
 /* --- PCI BARs: /sys/bus/pci/devices/<BDF>/resource — "start end flags" per
  * line. Each memory BAR is emitted as its own PCI_MMIO range named by BDF; the
  * BARs are scattered, so they must stay per-BAR ranges (never one [min,max]
@@ -443,5 +472,6 @@ int main(void) {
   RUN(test_iscsi_transport_handle);
   RUN(test_devicetree_mmio);
   RUN(test_pci_resource_per_bar);
+  RUN(test_tracefs_printk_formats);
   return TEST_DONE();
 }
