@@ -612,11 +612,15 @@ static void test_ceiling_from_image_size(void) {
 
   struct estimate top;
   quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
-  /* The rule floors the ceiling through kasld_floor_virt_text_bound (residue-
-   * aware), so match that here rather than a plain alignment mask — they differ
-   * on arches whose default text base carries a sub-alignment offset. */
+  /* The ceiling is derived from the WIDE honest top (KASLR_VIRT_TEXT_MAX_WIDE),
+   * not the raw 48-bit KASLR_VIRT_TEXT_MAX: on arm64 sub-48 VA_BITS the true
+   * text base sits above the raw MAX, so a raw-MAX ceiling would exclude it.
+   * The two are equal where the arch window already spans every layout
+   * (x86_64), so this assertion is unchanged there and pins the arm64 fix. The
+   * rule floors through kasld_floor_virt_text_bound (residue-aware), so match
+   * that. */
   unsigned long expect =
-      min_ul(kasld_floor_virt_text_bound(KASLR_VIRT_TEXT_MAX - ksize,
+      min_ul(kasld_floor_virt_text_bound(KASLR_VIRT_TEXT_MAX_WIDE - ksize,
                                          KASLR_VIRT_ALIGN),
              top.hi);
   assert(e.est[Q_VIRT_IMAGE_BASE].hi == expect);
@@ -649,7 +653,7 @@ static void test_ceiling_prefers_exact_init_size(void) {
   struct estimate top;
   quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
   unsigned long expect =
-      min_ul(kasld_floor_virt_text_bound(KASLR_VIRT_TEXT_MAX - init_size,
+      min_ul(kasld_floor_virt_text_bound(KASLR_VIRT_TEXT_MAX_WIDE - init_size,
                                          KASLR_VIRT_ALIGN),
              top.hi);
   assert(e.est[Q_VIRT_IMAGE_BASE].hi == expect); /* exact init_size wins */
@@ -3938,7 +3942,7 @@ static void test_image_size_text_data_gap(void) {
   const rule_fn rules[] = {rule_image_size_text_data_gap};
   engine_run(&e, rules, 1);
   unsigned long expect = kasld_floor_virt_text_bound(
-      (unsigned long)KASLR_VIRT_TEXT_MAX - gap, KASLR_VIRT_ALIGN);
+      (unsigned long)KASLR_VIRT_TEXT_MAX_WIDE - gap, KASLR_VIRT_ALIGN);
   if (expect < top.hi)
     assert(e.est[Q_VIRT_IMAGE_BASE].hi == expect);
 }

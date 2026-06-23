@@ -76,8 +76,17 @@ int rule_ceiling_from_image_size(const struct evidence_set *ev,
     valign = (unsigned long)KASLR_VIRT_ALIGN;
 
   int n = 0;
-  n += emit_ceiling(Q_VIRT_IMAGE_BASE, KASLR_VIRT_TEXT_MAX, KASLR_VIRT_TEXT_MIN,
-                    valign, ksize, conf, src, out, n, out_max);
+  /* Use the WIDE window edges — the honest top/floor of Q_VIRT_IMAGE_BASE (see
+   * quantities.c top_virt_image_base) — NOT the raw KASLR_VIRT_TEXT_MIN/MAX.
+   * The raw MAX bakes in the 48-bit formula's window top and is too low for
+   * arm64 sub-48 VA_BITS configs (e.g. 39-bit KIMAGE_VADDR = 0xffffffc080000000
+   * sits ~30 TiB above KASLR_VIRT_TEXT_MAX); using it as window_max would cap
+   * the ceiling below the true sub-48 text base and exclude it. The _WIDE
+   * variants equal the raw values on arches where the KASLR window already
+   * spans every layout (x86_64, ...), so this only changes arm64. */
+  n += emit_ceiling(Q_VIRT_IMAGE_BASE, KASLR_VIRT_TEXT_MAX_WIDE,
+                    KASLR_VIRT_TEXT_MIN_WIDE, valign, ksize, conf, src, out, n,
+                    out_max);
 #if !TEXT_TRACKS_DIRECTMAP
   unsigned long palign = est[Q_PHYS_KASLR_ALIGN].lo;
   if (palign < (unsigned long)KASLR_PHYS_ALIGN)

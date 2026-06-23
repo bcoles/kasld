@@ -55,12 +55,17 @@ int rule_image_size_text_data_gap(const struct evidence_set *ev,
   unsigned long valign = est[Q_VIRT_KASLR_ALIGN].lo;
   if (valign < (unsigned long)KASLR_VIRT_ALIGN)
     valign = (unsigned long)KASLR_VIRT_ALIGN;
-  if (gap < (unsigned long)KASLR_VIRT_TEXT_MAX -
-                (unsigned long)KASLR_VIRT_TEXT_MIN &&
+  /* WIDE honest top/floor, not the raw 48-bit KASLR_VIRT_TEXT_MAX/MIN: the raw
+   * MAX is below an arm64 sub-48 VA_BITS text base, so a raw-MAX ceiling would
+   * exclude the true base. Equal to the raw values on arches whose KASLR window
+   * already spans every layout (x86_64). Same fix as ceiling_from_image_size.
+   */
+  if (gap < (unsigned long)KASLR_VIRT_TEXT_MAX_WIDE -
+                (unsigned long)KASLR_VIRT_TEXT_MIN_WIDE &&
       n < out_max) {
-    unsigned long vmax = (unsigned long)KASLR_VIRT_TEXT_MAX - gap;
+    unsigned long vmax = (unsigned long)KASLR_VIRT_TEXT_MAX_WIDE - gap;
     vmax = kasld_floor_virt_text_bound(vmax, valign);
-    if (vmax > (unsigned long)KASLR_VIRT_TEXT_MIN) {
+    if (vmax > (unsigned long)KASLR_VIRT_TEXT_MIN_WIDE) {
       struct constraint *c = &out[n++];
       memset(c, 0, sizeof(*c));
       c->q = Q_VIRT_IMAGE_BASE;
