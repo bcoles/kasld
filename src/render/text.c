@@ -1059,8 +1059,8 @@ static void print_memory_map(void) {
  */
 static const char *coupling_descr(void) {
   return TEXT_TRACKS_DIRECTMAP
-             ? "virt and phys text move together (coupled)"
-             : "virt and phys text are independent on this arch";
+             ? "physical and virtual text move together (coupled)"
+             : "physical and virtual text randomize independently";
 }
 
 /* Emit one bound row of the readout. `label` is the left column; the
@@ -1317,10 +1317,12 @@ static void render_readout(const struct summary *s) {
     }
   }
 
-  printf("\n  %-19s %s.\n", "Coupling", coupling_descr());
-#if !TEXT_TRACKS_DIRECTMAP
-  printf("  %-19s A phys leak does NOT reveal the virt text base.\n", "");
-#endif
+  /* Coupling closes the bounds table as a single dim line: it is a static
+   * arch property (not a measured quantity), so it recedes from the green/
+   * magenta measured rows and explains why physical and virtual bases resolve
+   * as separate (or shared) quantities above. */
+  printf("  %-19s %s%s%s\n", "Phys/Virt coupling", c(C_DIM), coupling_descr(),
+         c(C_RESET));
   printf("\n");
 
   readout_print_leaks();
