@@ -136,6 +136,28 @@ static void test_boot_params_e820_covering(void) {
   assert(strstr(cap, "ram pos=top conf=parsed hi=0x13fffffff") != NULL);
 }
 
+/* ACPI data (type 3) and ACPI NVS (type 4) entries are emitted as forbidden
+ * bands (REGION_ACPI_TABLE / REGION_ACPI_NVS). A band entirely below
+ * KASLR_PHYS_MIN is skipped: the image is never placed that low, so it would
+ * exclude nothing and is the only band that could perturb a DRAM floor. */
+static void test_boot_params_e820_acpi_bands(void) {
+  memset(zp, 0, sizeof(zp));
+  e820_set(0, 0x1000, 0xbffdf000, E820_TYPE_RAM);   /* RAM low             */
+  e820_set(1, 0xbffe0000, 0x20000, E820_TYPE_ACPI); /* -> ACPI_TABLE       */
+  e820_set(2, 0xbf000000, 0x10000, E820_TYPE_NVS);  /* -> ACPI_NVS         */
+  e820_set(3, 0x1000, 0x1000, E820_TYPE_ACPI);      /* below floor: skipped*/
+  stage_zeropage(4);
+  run_capture(bpe820_main);
+
+  assert(strstr(cap, "acpi_table pos=base conf=parsed lo=0xbffe0000 "
+                     "hi=0xbfffffff") != NULL);
+  assert(strstr(cap,
+                "acpi_nvs pos=base conf=parsed lo=0xbf000000 hi=0xbf00ffff") !=
+         NULL);
+  /* the sub-KASLR_PHYS_MIN ACPI band is not emitted */
+  assert(strstr(cap, "lo=0x1000 hi=0x1fff") == NULL);
+}
+
 int main(void) {
   char tmpl[] = "/tmp/kasld_bpe820_rootXXXXXX";
   char *r = mkdtemp(tmpl);
@@ -146,6 +168,7 @@ int main(void) {
   TEST_SUITE("test_boot_params_e820");
   BEGIN_CATEGORY("boot_params E820 RAM covering");
   RUN(test_boot_params_e820_covering);
+  RUN(test_boot_params_e820_acpi_bands);
   return TEST_DONE();
 }
 

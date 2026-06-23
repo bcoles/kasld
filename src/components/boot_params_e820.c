@@ -103,8 +103,12 @@ KASLD_META("method:parsed\n"
                                 */
 #define OFF_E820_TABLE 0x2d0ul /* boot_e820_entry[128]: E820 memory map */
 
-/* E820 region type for usable RAM (E820_TYPE_RAM). */
+/* E820 region types. RAM is where the kernel image loads; ACPI data / ACPI NVS
+ * are firmware-reserved DRAM the image provably cannot occupy (the boot KASLR
+ * code places the image only in E820_TYPE_RAM). */
 #define E820_TYPE_RAM 1u
+#define E820_TYPE_ACPI 3u /* "ACPI Tables" — reclaimable ACPI data */
+#define E820_TYPE_NVS 4u  /* "ACPI Non-volatile Storage" */
 
 /* struct boot_e820_entry { u64 addr; u64 size; u32 type; } __packed;
  * Byte offsets within each 20-byte table entry: */
@@ -123,6 +127,32 @@ static inline uint32_t read_le32(const uint8_t *p) {
 
 static inline uint64_t read_le64(const uint8_t *p) {
   return (uint64_t)read_le32(p) | ((uint64_t)read_le32(p + 4) << 32);
+}
+
+/* Emit an ACPI data / NVS E820 entry as a forbidden physical band so
+ * phys_reservation_exclude carves it from the candidate base set (the image
+ * never loads outside E820_TYPE_RAM). Skipped when: size is zero or one byte;
+ * the band is not representable in unsigned long (32-bit / PAE truncation would
+ * corrupt it); or it lies entirely below KASLR_PHYS_MIN — the image is never
+ * that low, so such a band excludes nothing and is the only one that could
+ * perturb a memtotal-derived DRAM floor. ACPI regions are firmware-reserved
+ * DRAM at high addresses, so this never lowers a DRAM floor below the true RAM
+ * base. A forbidden band, not a RAM-map member: range, never a covering. */
+static void emit_acpi_band(uint32_t type, uint64_t start, uint64_t size) {
+  if (size == 0)
+    return;
+  uint64_t end = start + size - 1; /* inclusive last byte */
+  if ((unsigned long)start != start || (unsigned long)end != end)
+    return;
+  /* `<=` not `<`: a band ending at-or-below the floor is equally useless to
+   * carve, and `<=` avoids a -Wtype-limits tautology on arch headers where
+   * KASLR_PHYS_MIN folds to 0 (x86_32). */
+  if (end <= start || end <= (uint64_t)KASLR_PHYS_MIN)
+    return;
+  enum kasld_region region =
+      (type == E820_TYPE_NVS) ? REGION_ACPI_NVS : REGION_ACPI_TABLE;
+  kasld_result_range(KASLD_TYPE_PHYS, region, (unsigned long)start,
+                     (unsigned long)end, NULL, CONF_PARSED);
 }
 
 int main(void) {
@@ -169,6 +199,12 @@ int main(void) {
     for (unsigned int i = 0; i < (unsigned int)e820_entries; i++) {
       const uint8_t *entry = buf + OFF_E820_TABLE + i * E820_BYTES_PER_ENTRY;
       uint32_t type = read_le32(entry + E820_OFF_TYPE);
+
+      if (type == E820_TYPE_ACPI || type == E820_TYPE_NVS) {
+        emit_acpi_band(type, read_le64(entry + E820_OFF_ADDR),
+                       read_le64(entry + E820_OFF_SIZE));
+        continue;
+      }
 
       if (type != E820_TYPE_RAM)
         continue;
