@@ -295,6 +295,49 @@ static void test_engine_saturation_estimate_work_full(void) {
   assert(r.est.lo <= r.est.hi);
 }
 
+/* The resolver tie-break must be capture-order-independent: two conflicting
+ * C_EQUALS with equal confidence and lineage must resolve to the SAME estimate
+ * regardless of their emission ids (which under parallel execution reflect
+ * non-deterministic component capture order). Guards prio_before's intrinsic
+ * value-then-op tie-break — with the old id-only tie-break the two orders below
+ * resolve to different values. */
+static void test_resolve_equal_conf_conflict_order_independent(void) {
+  struct estimate top;
+  quantities[Q_PAGE_OFFSET].init_top(&top);
+  unsigned long v_small = top.lo + 0x1000000ul;
+  unsigned long v_large = top.lo + 0x2000000ul;
+
+  struct constraint a, b;
+  memset(&a, 0, sizeof(a));
+  memset(&b, 0, sizeof(b));
+  a.q = b.q = Q_PAGE_OFFSET;
+  a.op = b.op = C_EQUALS;
+  a.conf = b.conf = CONF_PARSED;
+  a.lineage_count = b.lineage_count = 1;
+  a.value = v_small;
+  b.value = v_large;
+
+  /* Order 1: smaller value emitted first (a.id < b.id). */
+  a.id = 1;
+  b.id = 2;
+  struct constraint cs1[2] = {a, b};
+  struct resolve_result r1;
+  estimate_resolve(Q_PAGE_OFFSET, CONF_BRUTE, cs1, 2, &r1);
+
+  /* Order 2: larger value emitted first (b.id < a.id) — the parallel-execution
+   * flip the id tie-break was sensitive to. */
+  a.id = 2;
+  b.id = 1;
+  struct constraint cs2[2] = {a, b};
+  struct resolve_result r2;
+  estimate_resolve(Q_PAGE_OFFSET, CONF_BRUTE, cs2, 2, &r2);
+
+  /* Same resolved estimate either way; value-ASC tie-break picks the smaller.
+   */
+  assert(r1.est.lo == r2.est.lo && r1.est.hi == r2.est.hi);
+  assert(r1.est.lo == v_small && r1.est.hi == v_small);
+}
+
 /* A test-local constraint rule that LIES about its emission count: it fills
  * the buffer with one valid harmless constraint and returns
  * ENGINE_RULE_MAX_EMIT + 1 — the engine should clamp the count to the cap
@@ -4851,6 +4894,7 @@ int main(void) {
   RUN(test_engine_saturation_rule_emit_overflow);
   RUN(test_engine_saturation_vrule_emit_overflow);
   RUN(test_engine_saturation_estimate_work_full);
+  RUN(test_resolve_equal_conf_conflict_order_independent);
   RUN(test_engine_saturation_conflicts_full);
 
   BEGIN_CATEGORY("Address helpers (XKPHYS / s390 paging)");

@@ -275,15 +275,29 @@ int estimate_finset_value(const struct quantity_def *qd,
  * ------------------------------------------------------------------------ */
 
 /* Priority order for greedy acceptance: confidence DESC, then independent
- * corroboration (lineage_count) DESC, then id ASC for determinism.
+ * corroboration (lineage_count) DESC, then intrinsic content (value ASC, op)
+ * for capture-order-independent determinism, with id as the final tiebreak.
  * Returns <0 if a should come before b. */
 static int prio_before(const struct constraint *a, const struct constraint *b) {
   if (a->conf != b->conf)
     return (int)b->conf - (int)a->conf; /* higher conf first */
   if (a->lineage_count != b->lineage_count)
     return (int)b->lineage_count - (int)a->lineage_count; /* more sources */
+  /* Tie-break on intrinsic content, NOT emission id: id reflects component
+   * capture order, which is non-deterministic under parallel execution — so an
+   * equal-(conf,lineage) conflict would otherwise resolve differently between a
+   * parallel run and a sequential (--verbose) one. value-then-op is a total,
+   * capture-order-independent order; the direction is arbitrary (equal-
+   * confidence conflicts have no more-correct side — confidence is the real
+   * lever), but it makes the resolved estimate a pure function of the
+   * constraint SET. id remains the final fallback for otherwise-identical
+   * duplicates. */
+  if (a->value != b->value)
+    return (a->value < b->value) ? -1 : 1;
+  if (a->op != b->op)
+    return (int)a->op - (int)b->op;
   if (a->id != b->id)
-    return (a->id < b->id) ? -1 : 1; /* stable */
+    return (a->id < b->id) ? -1 : 1;
   return 0;
 }
 
