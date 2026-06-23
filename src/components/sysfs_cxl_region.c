@@ -126,9 +126,29 @@ int main(void) {
      * The region directory name (e.g. "region0") identifies which one. */
     snprintf(label, sizeof(label), "%.32s", ent->d_name);
 
-    fprintf(stderr, "[+] sysfs_cxl_region %s: phys = 0x%016llx\n", label, addr);
-    kasld_result_sample(KASLD_TYPE_PHYS, REGION_PMEM, (unsigned long)addr,
-                        label, CONF_PARSED);
+    /* The sibling size attribute (same %#llx "0x<hex>" format) gives the region
+     * extent: emit the whole band so the engine can exclude it
+     * (phys_reservation_exclude), not just a single interior point. Parse it
+     * strictly as hex; if the attribute is absent, unparseable, zero, or the
+     * extent is not representable in the word, fall back to a base-only sample
+     * (a wrong-format size can never widen the band). */
+    unsigned long long size = 0;
+    snprintf(path, sizeof(path), "%s/%s/size", base, ent->d_name);
+    if (read_file_line(path, buf, sizeof(buf)) == 0)
+      (void)sscanf(buf, "0x%llx", &size);
+    unsigned long long end = addr + size - 1; /* inclusive last byte */
+
+    if (size && end > addr && (unsigned long)end == end) {
+      fprintf(stderr, "[+] sysfs_cxl_region %s: phys = 0x%016llx - 0x%016llx\n",
+              label, addr, end);
+      kasld_result_range(KASLD_TYPE_PHYS, REGION_PMEM, (unsigned long)addr,
+                         (unsigned long)end, label, CONF_PARSED);
+    } else {
+      fprintf(stderr, "[+] sysfs_cxl_region %s: phys = 0x%016llx\n", label,
+              addr);
+      kasld_result_sample(KASLD_TYPE_PHYS, REGION_PMEM, (unsigned long)addr,
+                          label, CONF_PARSED);
+    }
     count++;
 
 #ifdef phys_to_directmap_virt

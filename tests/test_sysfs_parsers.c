@@ -249,31 +249,43 @@ static void test_acpi_mrrm_base(void) {
   assert(strstr(cap, "sample=0x100000000") != NULL);
 }
 
-/* --- coreboot CBMEM: address is "0x%llx" text --------------------------- */
+/* --- coreboot CBMEM: address + sibling size ("0x%llx") -> reserved range. */
 static void test_cbmem_address(void) {
   stage_text("/sys/bus/coreboot/devices/cbmem-00000abc/address",
              "0x100000000\n");
+  stage_text("/sys/bus/coreboot/devices/cbmem-00000abc/size", "0x10000\n");
   run_capture(cbmem_main);
-  assert(strstr(cap, "P reserved_mem:cbmem-00000abc") != NULL);
-  assert(strstr(cap, "sample=0x100000000") != NULL);
+  assert(strstr(cap, "reserved_mem:cbmem-00000abc pos=base conf=parsed "
+                     "lo=0x100000000 hi=0x10000ffff") != NULL);
 }
 
-/* --- CXL region: resource is "%#llx" text; -1 means unallocated ---------- */
+/* --- CXL region: resource + sibling size ("%#llx") -> pmem range; -1 means
+ * unallocated and is skipped. ------------------------------------------------
+ */
 static void test_cxl_region(void) {
   stage_text("/sys/bus/cxl/devices/region0/resource", "0x100000000\n");
+  stage_text("/sys/bus/cxl/devices/region0/size", "0x40000000\n");
   /* An unallocated region reports 0xff..ff and must be skipped. */
   stage_text("/sys/bus/cxl/devices/region1/resource", "0xffffffffffffffff\n");
   run_capture(cxl_main);
-  assert(strstr(cap, "sample=0x100000000") != NULL);
+  assert(strstr(cap, "pmem:region0 pos=base conf=parsed lo=0x100000000 "
+                     "hi=0x13fffffff") != NULL);
   assert(strstr(cap, "ffffffffffffffff") == NULL);
 }
 
-/* --- Qualcomm RMTFS: phys_addr is "%pa" text ("0x%llx") ------------------ */
+/* --- Qualcomm RMTFS: phys_addr + sibling size ("%pa" = "0x%llx") -> reserved
+ * range; a region with no size attribute falls back to a base-only sample. --
+ */
 static void test_qcom_rmtfs(void) {
   stage_text("/sys/class/rmtfs/qcom_rmtfs_mem0/phys_addr", "0x100000000\n");
+  stage_text("/sys/class/rmtfs/qcom_rmtfs_mem0/size", "0x200000\n");
+  stage_text("/sys/class/rmtfs/qcom_rmtfs_mem1/phys_addr", "0x200000000\n");
   run_capture(qcom_main);
-  assert(strstr(cap, "P reserved_mem:qcom_rmtfs_mem0") != NULL);
-  assert(strstr(cap, "sample=0x100000000") != NULL);
+  assert(strstr(cap, "reserved_mem:qcom_rmtfs_mem0 pos=base conf=parsed "
+                     "lo=0x100000000 hi=0x1001fffff") != NULL);
+  /* no size sibling -> base-only sample (degrades to the prior behavior) */
+  assert(strstr(cap, "reserved_mem:qcom_rmtfs_mem1 pos=interior conf=parsed "
+                     "sample=0x200000000") != NULL);
 }
 
 /* --- IOMMU reserved_regions: "0x%016llx 0x%016llx <type>" lines.
