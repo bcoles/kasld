@@ -31,6 +31,7 @@ mechanics of adding a component or rule, see
   - [Coupled vs decoupled architectures](#coupled-vs-decoupled-architectures)
 - [KASLR runtime states](#kaslr-runtime-states)
 - [Kernel version detection](#kernel-version-detection)
+- [Glossary](#glossary)
 
 ---
 
@@ -412,3 +413,54 @@ or exit with no output, which the orchestrator handles gracefully. This design
 means KASLD is correct on any kernel — mainline, distro, custom, or embedded —
 without maintaining per-component version ranges that would be inaccurate for
 most real-world deployments.
+
+---
+
+## Glossary
+
+KASLD's engine and tool vocabulary. For KASLR and kernel-memory-layout terms
+(slide, vmsplit, directmap, vmemmap, …), see
+[kaslr.md → Glossary](kaslr.md#glossary).
+
+- **observation** — a single tagged-line witness of a point or bound
+  (`pos=base`/`top`/`interior`/`unknown`). Observations of the same
+  `(type, region, name)` corroborate and merge. See
+  [Coverings vs observations](#coverings-vs-observations).
+- **covering** — a complete, single-source map of a region (e.g. a whole RAM map)
+  emitted as `pos=extent`. Never merged, routed out-of-band; the kernel-relevant
+  value lives in the gaps between extents. See
+  [Coverings vs observations](#coverings-vs-observations).
+- **quantity** — a kernel-layout unknown the engine resolves: `Q_VIRT_TEXT_BASE`,
+  `Q_PHYS_TEXT_BASE`, `Q_PAGE_OFFSET`, `Q_VA_BITS`, … See
+  [Three layers](#three-layers).
+- **estimate** — the current resolved value of a quantity: an interval that only
+  ever narrows. See
+  [Estimate narrowing](#estimate-narrowing-and-the-store-vs-read-seam).
+- **honest top (honest bound)** — a quantity's widest starting value, the most its
+  architecture could produce, before any constraint applies. See
+  [Estimate narrowing](#estimate-narrowing-and-the-store-vs-read-seam).
+- **constraint** — a bound a rule emits on a quantity: `C_LOWER_BOUND`,
+  `C_UPPER_BOUND`, `C_EQUALS`, `C_AT_LEAST_ALIGN`, `C_MEMBER`, `C_EXCLUDE`,
+  `C_STRIDE`. See [Three layers](#three-layers).
+- **rule** — a pure function reading the evidence and current estimates and
+  emitting constraints or verdicts. No I/O, no state, order-independent. See
+  [Three layers](#three-layers).
+- **verdict** — a rule output that invalidates an observation (`V_INVALID`) rather
+  than bounding a quantity. See [Three layers](#three-layers).
+- **meet** — the intersection that folds an append-only constraint set into an
+  estimate; the basis of monotonicity. See
+  [Soundness, monotonicity, and termination](#soundness-monotonicity-and-termination).
+- **fixpoint** — the resolver re-running every rule until a pass narrows nothing.
+  See [The inference engine](#the-inference-engine).
+- **pinned** — a quantity narrowed to a single value (`lo == hi`); reported as a
+  resolved address rather than a range. See
+  [Estimate narrowing](#estimate-narrowing-and-the-store-vs-read-seam).
+- **store-vs-read seam** — the engine stores a single convex-hull interval, while
+  the accessors carve interior `C_EXCLUDE` holes at read time. See
+  [Estimate narrowing and the store-vs-read seam](#estimate-narrowing-and-the-store-vs-read-seam).
+- **`pos` / `conf` / `region`** — the wire-line fields: position within a region /
+  confidence (`parsed > derived > inferred > heuristic > timing > brute`) /
+  region vocabulary. See [The tagged-line protocol](#the-tagged-line-protocol).
+- **`TEXT_TRACKS_DIRECTMAP` / `DIRECTMAP_STATIC`** — the two orthogonal per-arch
+  flags that name the coupled/decoupled relationship. See
+  [Coupled vs decoupled architectures](#coupled-vs-decoupled-architectures).

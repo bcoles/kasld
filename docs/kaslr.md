@@ -12,6 +12,7 @@ the kernel virtual address space is laid out across architectures.
 - [Kernel sections](#kernel-sections)
 - [Virtual memory split (vmsplit)](#virtual-memory-split-vmsplit)
 - [Function Granular KASLR (FG-KASLR)](#function-granular-kaslr-fg-kaslr)
+- [Glossary](#glossary)
 
 ## Linux KASLR history and implementation
 
@@ -388,3 +389,44 @@ See also:
 * [[PATCH v10 00/15] Function Granular KASLR](https://lore.kernel.org/lkml/20220209185752.1226407-1-alexandr.lobakin@intel.com/)
 * [CONFIG_FG_KASLR](https://patchwork.kernel.org/project/linux-hardening/patch/20211223002209.1092165-8-alexandr.lobakin@intel.com/)
 * [FGKASLR - CTF Wiki](https://ctf-wiki.org/pwn/linux/kernel-mode/defense/randomization/fgkaslr/)
+
+## Glossary
+
+KASLR and kernel-memory-layout terms used across the docs and in KASLD's output.
+For KASLD's own engine and tool vocabulary (quantity, estimate, covering, rule,
+…), see [architecture.md → Glossary](architecture.md#glossary).
+
+- **slide** — the per-boot offset between the kernel's compile-time default base
+  and where it actually loaded. The quantity KASLR randomizes; reported as
+  `slide +0x…`. See [Default text base](#default-text-base-and-kaslr-alignment).
+- **default text base** — the fixed virtual address the kernel image loads at when
+  KASLR is disabled; the baseline the slide is measured against. See
+  [Default text base](#default-text-base-and-kaslr-alignment).
+- **image base (`_text`)** — the start of the kernel image: the address KASLR
+  aligns and KASLD solves. `_stext` (code-section start) sits a fixed *head gap*
+  above it, zero on most architectures. See
+  [Default text base](#default-text-base-and-kaslr-alignment).
+- **`IMAGE_ALIGN` / KASLR slot** — the randomization granularity. The kernel lands
+  at `default + N × IMAGE_ALIGN`; each candidate position is one slot. See
+  [Default text base](#default-text-base-and-kaslr-alignment).
+- **entropy** — the number of random bits in the placement, `log2(slots)`; shown
+  as `~N bits`. See [Default text base](#default-text-base-and-kaslr-alignment).
+- **runtime state** — which of four conditions a KASLR-capable boot is in
+  (randomized, disabled, …). See [KASLR runtime states](#kaslr-runtime-states).
+- **`PAGE_OFFSET`** — the start of the kernel virtual address space; on 32-bit, the
+  user/kernel boundary (the vmsplit). See
+  [vmsplit](#virtual-memory-split-vmsplit).
+- **vmsplit** — the division of a 32-bit address space between userspace and
+  kernel, set by `PAGE_OFFSET`. See [vmsplit](#virtual-memory-split-vmsplit).
+- **directmap (direct / linear map)** — the contiguous 1:1 mapping of physical RAM
+  into the kernel virtual address space. See [Kernel sections](#kernel-sections).
+- **vmemmap** — the virtual region holding the `struct page` array. See
+  [Kernel sections](#kernel-sections).
+- **coupled / decoupled** — whether physical and virtual KASLR share one offset
+  (coupled — either leak reveals the other) or use independent offsets
+  (decoupled). KASLD names this with two per-arch flags; see
+  [architecture.md → Glossary](architecture.md#glossary) and
+  [Physical and virtual KASLR](#physical-and-virtual-kaslr).
+- **FG-KASLR** — Function Granular KASLR: per-function reordering, so a single leak
+  no longer implies a constant offset to other functions. See
+  [FG-KASLR](#function-granular-kaslr-fg-kaslr).
