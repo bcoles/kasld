@@ -26,7 +26,8 @@ RULES=$ROOT/src/rules
 # Reviewed self-edges. Each reads est[Q] and writes Q; all are either pure
 # gate/filter/selector reads (sound by construction) or value-determining with
 # a soundness test. Keep alphabetical.
-ALLOW="phys_hole_filter
+ALLOW="arm64_text_base
+phys_hole_filter
 phys_kaslr_disabled_pin
 phys_virt_synth
 randomize_memory_page_offset

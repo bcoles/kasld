@@ -46,10 +46,15 @@ static void top_interval(struct estimate *e, unsigned long lo,
 
 static void top_virt_image_base(struct estimate *e) {
   /* The virtual kernel-text base lives in the virtual KASLR window
-   * [KASLR_VIRT_TEXT_MIN_WIDE, KASLR_VIRT_TEXT_MAX] — fixed per-arch by the
-   * kernel's VA layout (unlike the physical base, this does not depend on DRAM
-   * placement), so it is a sound and tighter honest top than the raw
+   * [KASLR_VIRT_TEXT_MIN_WIDE, KASLR_VIRT_TEXT_MAX_WIDE] — fixed per-arch by
+   * the kernel's VA layout (unlike the physical base, this does not depend on
+   * DRAM placement), so it is a sound and tighter honest top than the raw
    * mapping-region bounds KERNEL_VIRT_TEXT_MIN/MAX.
+   *
+   * Both edges are the conservative (_WIDE) variants: same value as
+   * KASLR_VIRT_TEXT_MIN/MAX where the arch's KASLR window already spans every
+   * layout, wider where it does not (x86_64 CONFIG_PHYSICAL_START at the floor;
+   * arm64 sub-48 VA_BITS at the ceiling).
    *
    * The _WIDE floor is the conservative variant of KASLR_VIRT_TEXT_MIN — same
    * value where the arch's KASLR_VIRT_TEXT_MIN does not bake in a configurable
@@ -60,7 +65,7 @@ static void top_virt_image_base(struct estimate *e) {
    * CONF_HEURISTIC from the compile-time default — overridable by any
    * real evidence). */
   top_interval(e, (unsigned long)KASLR_VIRT_TEXT_MIN_WIDE,
-               (unsigned long)KASLR_VIRT_TEXT_MAX);
+               (unsigned long)KASLR_VIRT_TEXT_MAX_WIDE);
 }
 
 static void top_phys_image_base(struct estimate *e) {

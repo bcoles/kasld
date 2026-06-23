@@ -100,6 +100,7 @@ R(text_base_coupling_synth);
 R(phys_virt_synth);
 
 /* arm64-specific rules */
+R(arm64_text_base);
 R(arm64_memstart_align);
 R(arm64_va_bits_from_directmap);
 R(arm64_va_bits_from_vmemmap);

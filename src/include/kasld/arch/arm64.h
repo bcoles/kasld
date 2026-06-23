@@ -46,9 +46,26 @@
 #define PAGE_OFFSET 0xfff0000000000000ul
 #define PHYS_OFFSET 0ul
 
-// VA_BITS candidates for Q_VA_BITS (finite-set lattice). 48 and 52 are the two
-// configurations whose PAGE_OFFSET the directmap-range rule discriminates.
-#define VA_BITS_CANDIDATES {48ul, 52ul}
+// VA_BITS candidates for Q_VA_BITS (finite-set lattice), smallest first. Each
+// arm64 paging config has its own VA_BITS (hence its own PAGE_OFFSET /
+// KIMAGE_VADDR geometry): 4K 3-level=39 (common on Android), 64K 2-level=42,
+// 16K 3-level=47, 4K/16K 4-level=48, and 52-bit LVA (VA_BITS_MIN still 48).
+#define VA_BITS_CANDIDATES {39ul, 42ul, 47ul, 48ul, 52ul}
+// Smallest supported VA_BITS — gives the highest (widest-accepting) linear-map
+// ceiling for region validation.
+#define ARM64_VA_BITS_MIN_SUPPORTED 39ul
+
+// VA_BITS-derived geometry, kept in one place so the layout math is not
+// duplicated across mmap_arm64_va_bits, arm64_coupling_validate, and
+// arm64_va_bits_from_directmap. arm64 PAGE_OFFSET = -(1<<VA_BITS); the linear
+// map occupies [PAGE_OFFSET, _PAGE_END), _PAGE_END = -(1<<(VA_BITS-1)). Pure
+// functions of VA_BITS, not randomized.
+static inline unsigned long arm64_page_offset_for(unsigned long va_bits) {
+  return -(1UL << va_bits);
+}
+static inline unsigned long arm64_page_end_for(unsigned long va_bits) {
+  return -(1UL << (va_bits - 1));
+}
 
 // On arm64, PHYS_OFFSET is runtime (= memstart_addr, randomized at boot), so
 // the compile-time formula is NOT a sound runtime directmap projection;
@@ -151,32 +168,29 @@
 // https://elixir.bootlin.com/linux/v6.12/source/arch/arm64/include/asm/memory.h#L46
 // Use v6.2+ value (2G module region, current default).
 #define KIMAGE_VADDR 0xffff800080000000ul
+// Module-region size (KIMAGE_VADDR = _PAGE_END(VA_BITS_MIN) + this). v6.2+ uses
+// SZ_2G; older kernels used 128M/256M. rule_arm64_text_base derives
+// KIMAGE_VADDR for the resolved VA_BITS_MIN as arm64_page_end_for(VA_BITS_MIN)
+// + this — for VA_BITS_MIN=48 that reproduces KIMAGE_VADDR above. The version
+// spread is the pin's residual imprecision (inferred confidence; a real leak
+// overrides).
+#define ARM64_MODULE_REGION_SIZE (2ul * GB)
 
 // See docs/kaslr.md "Default text base and KASLR alignment" for all
 // architectures. Kernel source: arch/arm64/kernel/vmlinux.lds.S,
 // arch/arm64/include/asm/memory.h
 #define KERNEL_VIRT_TEXT_DEFAULT (KIMAGE_VADDR + IMAGE_BASE_OFFSET)
 
-/* KASLR-off ⇒ pin contract.
- *
- * SCOPE: KASLD models arm64 only for VA_BITS_MIN == 48 — the {48, 52} configs
- * (4K/16K 4-level, plus 52-bit LVA, whose VA_BITS_MIN is still 48). On those,
- * no-KASLR text sits at KIMAGE_VADDR + IMAGE_BASE_OFFSET = the 48-bit default
- * below, independent of the runtime VA_BITS (which only moves PAGE_OFFSET / the
- * linear map), so this pin is correct.
- *
- * Sub-48 builds land at a DIFFERENT KIMAGE_VADDR and are NOT supported:
- *   4K  3-level → VA_BITS 39 (common on Android), KIMAGE_VADDR
- * 0xffffffc080000000 64K 2-level → VA_BITS 42 16K 3-level → VA_BITS 47,
- * KIMAGE_VADDR 0xffffc00080000000 KASLD cannot even detect them:
- * mmap_arm64_va_bits probes only 1<<48 (so every VA_BITS <= 48 reads as 48) and
- * Q_VA_BITS models only {48, 52}. And the pin's window-containment backstop
- * does NOT catch the mismatch — the 48-bit default coincides with the
- * honest-top floor (KASLR_VIRT_TEXT_MIN_WIDE == KIMAGE_VADDR), so it is always
- * "in window." A sub-48 no-KASLR kernel therefore mis-pins (and its window is
- * wrong regardless of KASLR). Real support is a VA_BITS overhaul: see
- * dev/research/arm64-va-bits-min.md. */
-#define KASLR_DISABLED_PINS_VIRT_TEXT 1
+/* KASLR-off pin is LAYOUT-DEPENDENT on arm64: KIMAGE_VADDR varies with
+ * VA_BITS_MIN (= min(VA_BITS, 48)), so the no-KASLR text base is not a single
+ * compile-time constant. The generic virt_kaslr_disabled_pin (one fixed
+ * default) is therefore opted OUT; rule_arm64_text_base owns the text base,
+ * deriving VA_BITS_MIN from the resolved PAGE_OFFSET and narrowing/pinning to
+ * KIMAGE_VADDR(VA_BITS_MIN) — correct for VA_BITS 39/42/47/48/52, not just 48.
+ * Same shape as rule_riscv64_text_base. When PAGE_OFFSET is unresolved (no
+ * probe result, no leak) it does not pin — the honest window stays wide
+ * (sound). */
+#define KASLR_DISABLED_PINS_VIRT_TEXT 0
 #define KASLD_ARCH_DEFAULT_TEXT_BASE_DEFINED 1
 static inline unsigned long arch_default_text_base(void) {
   return KERNEL_VIRT_TEXT_DEFAULT;
@@ -218,6 +232,14 @@ static inline unsigned long arch_default_text_base(void) {
  * KASLR_VIRT_TEXT_MAX is unchanged — KIMAGE_VADDR + 96 TiB already covers both
  * the v6.6 upper edge (96 TiB) and the v6.12+ upper edge (~94.5 TiB). */
 #define KASLR_VIRT_TEXT_MIN_WIDE KIMAGE_VADDR
+
+/* Honest-top CEILING for Q_VIRT_IMAGE_BASE. KASLR_VIRT_TEXT_MAX is the 48-bit
+ * formula's window top (kept for entropy/slot reporting); it is too low for
+ * sub-48 configs, whose KIMAGE_VADDR is HIGHER (39-bit → 0xffffffc080000000).
+ * Widen the honest top to the validation ceiling KERNEL_VIRT_TEXT_MAX, which
+ * admits every supported VA_BITS_MIN's text base, so a sub-48 text leak is not
+ * falsely excluded. Widen-only, never-narrow — same discipline as the floor. */
+#define KASLR_VIRT_TEXT_MAX_WIDE KERNEL_VIRT_TEXT_MAX
 
 #define KASLR_SUPPORTED 1
 

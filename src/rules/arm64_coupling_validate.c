@@ -50,9 +50,15 @@
 
 #include <string.h>
 
-/* VA_BITS_MIN=48 anchored constants — see arm64.h for derivations. */
-#define ARM64_PAGE_END_VAMIN 0xffff800000000000ul /* _PAGE_END(48) */
-#define ARM64_VMEMMAP_END 0xffffffffc0000000ul    /* −SZ_1G */
+/* The linear map sits in [PAGE_OFFSET, _PAGE_END), both functions of VA_BITS.
+ * The widest accepting ceiling is _PAGE_END of the SMALLEST supported VA_BITS
+ * (highest _PAGE_END) — arm64_page_end_for(ARM64_VA_BITS_MIN_SUPPORTED) — so a
+ * sub-48 PAGE_OFFSET (e.g. 39-bit 0xffffff8000000000) is admitted, not flagged
+ * as out-of-band. Trade-off: the gap between the 48-bit and smallest-VA_BITS
+ * _PAGE_END values is no longer policed pre-resolution (a 48-bit heap pointer
+ * mistagged DIRECTMAP there is admitted); the directmap consumers narrow once
+ * PAGE_OFFSET resolves. */
+#define ARM64_VMEMMAP_END 0xffffffffc0000000ul /* −SZ_1G */
 /* VA_BITS=48 VMEMMAP floor; conservative for both VA48 and VA52 (VA52's
  * VMEMMAP extends further down, so any address < VA48 floor is consistent
  * with VA52 vmemmap — we don't invalidate it). Matches the threshold the
@@ -77,10 +83,11 @@ int rule_arm64_coupling_validate(const struct evidence_set *ev,
     switch (o->eff_region) {
     case REGION_DIRECTMAP:
     case REGION_PAGE_OFFSET:
-      /* Must be below _PAGE_END(48). The lower edge varies with VA_BITS
-       * (PAGE_OFFSET = −(1<<VA_BITS)); use the widest plausible floor
-       * (VA52's, KERNEL_VIRT_VAS_START) as the lower bound. */
-      bad = (a >= ARM64_PAGE_END_VAMIN) ||
+      /* Linear map lives in [PAGE_OFFSET, _PAGE_END), both VA_BITS-dependent.
+       * Widest accepting bounds: floor at the lowest PAGE_OFFSET (VA52's,
+       * KERNEL_VIRT_VAS_START); ceiling at the highest _PAGE_END (smallest
+       * supported VA_BITS). */
+      bad = (a >= arm64_page_end_for(ARM64_VA_BITS_MIN_SUPPORTED)) ||
             (a < (unsigned long)KERNEL_VIRT_VAS_START);
       break;
     case REGION_MODULE:

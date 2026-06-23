@@ -610,6 +610,123 @@ static void test_full_engine_riscv64_legacy_2gb(void) {
 #endif
 }
 
+/* arm64 sub-48 VA_BITS soundness (B Phase 1). A 4K-3level (VA_BITS=39, common
+ * on Android) kernel: PAGE_OFFSET and KIMAGE_VADDR are HIGHER than the 48-bit
+ * defaults. One test guards all three Phase-1 fixes:
+ *   - arm64_coupling_validate must ADMIT the sub-48 directmap leak (its old
+ *     ceiling _PAGE_END(48) rejected anything >= 0xffff800000000000);
+ *   - arm64_va_bits_from_directmap must classify it as VA_BITS=39 and pin the
+ *     exact PAGE_OFFSET (it used to collapse everything >= 0xffff000000000000
+ *     to VA_BITS=48);
+ *   - the widened Q_VIRT_IMAGE_BASE honest top must ADMIT the sub-48 text base
+ *     (the old KASLR_VIRT_TEXT_MAX ceiling excluded it).
+ * Reverting any one of the three fails an assertion below. */
+static void test_full_engine_arm64_va39_sub48(void) {
+#if defined(__aarch64__)
+  struct engine e;
+  engine_init(&e);
+  add_scalar(&e, SF_EFI_PRESENT, 0x0);
+  unsigned long po39 = arm64_page_offset_for(39ul); /* 0xffffff8000000000 */
+  /* A 39-bit DIRECTMAP leak (within [PAGE_OFFSET(39), _PAGE_END(39))). */
+  add_addr(&e, KASLD_TYPE_VIRT, REGION_DIRECTMAP, po39 + 0x1000000ul, 0, NULL);
+  /* A real 39-bit kernel-text leak (_stext), KASLR on (no disabled signal).
+   * The engine solves the image base _text = _stext - STEXT_OFFSET. */
+  unsigned long t_stext = arm64_page_end_for(39ul) + 0x80000000ul + 0x202000ul;
+  unsigned long t_text = t_stext - (unsigned long)STEXT_OFFSET;
+  add_addr(&e, KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, t_stext, 0, "_stext");
+
+  int nr = 0, nv = 0;
+  const rule_fn *rules = engine_rules(&nr);
+  const verdict_fn *vrules = engine_verdict_rules(&nv);
+  engine_run_full(&e, rules, nr, vrules, nv);
+
+  const struct estimate *vt = &e.est[Q_VIRT_IMAGE_BASE];
+  const struct estimate *po = &e.est[Q_PAGE_OFFSET];
+  /* PAGE_OFFSET resolves to the exact 39-bit value (admitted + classified). */
+  assert(po->lo == po39 && po->hi == po39);
+  /* The image base resolves to the sub-48 _text — which sits ABOVE the old
+   * 48-bit honest-top ceiling (KASLR_VIRT_TEXT_MAX), so only the widened
+   * KASLR_VIRT_TEXT_MAX_WIDE admits it. */
+  assert(t_text > (unsigned long)KASLR_VIRT_TEXT_MAX);
+  assert(vt->lo == t_text && vt->hi == t_text);
+#endif
+}
+
+/* B Phase 2: rule_arm64_text_base pins the no-KASLR base at the correct
+ * KIMAGE_VADDR for the resolved VA_BITS_MIN. A 39-bit (4K 3-level) no-KASLR
+ * kernel must pin to KIMAGE_VADDR(39) = _PAGE_END(39) + 2G =
+ * 0xffffffc080000000, not the 48-bit default the generic pin used to force. */
+static void test_full_engine_arm64_va39_no_kaslr(void) {
+#if defined(__aarch64__)
+  struct engine e;
+  engine_init(&e);
+  add_scalar(&e, SF_EFI_PRESENT, 0x0);
+  add_scalar(&e, SF_VIRT_KASLR_DISABLED, 0x1);
+  /* PAGE_OFFSET as the probe / a directmap leak resolves it (39-bit). */
+  add_addr_conf(&e, KASLD_TYPE_VIRT, REGION_PAGE_OFFSET,
+                arm64_page_offset_for(39ul), 0, CONF_INFERRED, NULL);
+
+  int nr = 0, nv = 0;
+  const rule_fn *rules = engine_rules(&nr);
+  const verdict_fn *vrules = engine_verdict_rules(&nv);
+  engine_run_full(&e, rules, nr, vrules, nv);
+
+  const struct estimate *vt = &e.est[Q_VIRT_IMAGE_BASE];
+  unsigned long kimg39 =
+      arm64_page_end_for(39ul) + 0x80000000ul; /* 0xffffffc080000000 */
+  assert(vt->lo == kimg39 && vt->hi == kimg39);
+#endif
+}
+
+/* Regression guard for the common 48-bit case (matches a real Allwinner board):
+ * a 48-bit no-KASLR kernel must still pin to KERNEL_VIRT_TEXT_DEFAULT
+ * (0xffff800080000000) — the behaviour the generic pin gave before arm64 was
+ * opted out, now reproduced by rule_arm64_text_base. */
+static void test_full_engine_arm64_va48_no_kaslr(void) {
+#if defined(__aarch64__)
+  struct engine e;
+  engine_init(&e);
+  add_scalar(&e, SF_EFI_PRESENT, 0x0);
+  add_scalar(&e, SF_VIRT_KASLR_DISABLED, 0x1);
+  add_addr_conf(&e, KASLD_TYPE_VIRT, REGION_PAGE_OFFSET,
+                arm64_page_offset_for(48ul), 0, CONF_INFERRED, NULL);
+
+  int nr = 0, nv = 0;
+  const rule_fn *rules = engine_rules(&nr);
+  const verdict_fn *vrules = engine_verdict_rules(&nv);
+  engine_run_full(&e, rules, nr, vrules, nv);
+
+  const struct estimate *vt = &e.est[Q_VIRT_IMAGE_BASE];
+  assert(vt->lo == (unsigned long)KERNEL_VIRT_TEXT_DEFAULT &&
+         vt->hi == (unsigned long)KERNEL_VIRT_TEXT_DEFAULT);
+#endif
+}
+
+/* 48-bit KASLR-ON with no text leak: rule_arm64_text_base re-narrows the
+ * (union, Phase-1-widened) honest top back to the tight 48-bit KASLR band
+ * [KIMAGE_VADDR, KASLR_VIRT_TEXT_MAX] once PAGE_OFFSET resolves — undoing the
+ * ceiling-widening's precision cost for the common case. */
+static void test_full_engine_arm64_va48_kaslr_window(void) {
+#if defined(__aarch64__)
+  struct engine e;
+  engine_init(&e);
+  add_scalar(&e, SF_EFI_PRESENT, 0x0); /* KASLR on: no disabled signal */
+  add_addr_conf(&e, KASLD_TYPE_VIRT, REGION_PAGE_OFFSET,
+                arm64_page_offset_for(48ul), 0, CONF_INFERRED, NULL);
+
+  int nr = 0, nv = 0;
+  const rule_fn *rules = engine_rules(&nr);
+  const verdict_fn *vrules = engine_verdict_rules(&nv);
+  engine_run_full(&e, rules, nr, vrules, nv);
+
+  const struct estimate *vt = &e.est[Q_VIRT_IMAGE_BASE];
+  assert(vt->lo == (unsigned long)KIMAGE_VADDR);
+  assert(vt->hi == (unsigned long)KASLR_VIRT_TEXT_MAX);
+  /* Proves the narrowing happened: the union ceiling is strictly higher. */
+  assert(vt->hi < (unsigned long)KASLR_VIRT_TEXT_MAX_WIDE);
+#endif
+}
+
 int main(void) {
   TEST_SUITE("test_engine_integration");
 
@@ -620,6 +737,10 @@ int main(void) {
   RUN(test_full_engine_arm32_no_kaslr_shape);
   RUN(test_full_engine_riscv64_legacy_no_kaslr);
   RUN(test_full_engine_riscv64_legacy_2gb);
+  RUN(test_full_engine_arm64_va39_sub48);
+  RUN(test_full_engine_arm64_va39_no_kaslr);
+  RUN(test_full_engine_arm64_va48_no_kaslr);
+  RUN(test_full_engine_arm64_va48_kaslr_window);
   RUN(test_full_engine_i686_kaslr_shape);
   RUN(test_full_engine_robust_to_outlier);
   RUN(test_full_engine_ppc_kernel_end_tightens);

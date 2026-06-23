@@ -89,6 +89,7 @@ static const rule_fn k_rules[] = {
     rule_phys_virt_synth,
 
     /* arm64-specific */
+    rule_arm64_text_base,
     rule_arm64_memstart_align,
     rule_arm64_va_bits_from_directmap,
     rule_arm64_va_bits_from_vmemmap,

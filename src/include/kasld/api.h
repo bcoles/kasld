@@ -253,6 +253,12 @@ __extension__ _Static_assert((unsigned long)KERNEL_PHYS_MAX >
 #ifndef KASLR_VIRT_TEXT_MIN_WIDE
 #define KASLR_VIRT_TEXT_MIN_WIDE KASLR_VIRT_TEXT_MIN
 #endif
+/* Honest-top ceiling counterpart: defaults to the KASLR window top; an arch
+ * whose honest top must span more than one text-base layout (arm64 sub-48
+ * VA_BITS) widens it. Widen-only — never below KASLR_VIRT_TEXT_MAX. */
+#ifndef KASLR_VIRT_TEXT_MAX_WIDE
+#define KASLR_VIRT_TEXT_MAX_WIDE KASLR_VIRT_TEXT_MAX
+#endif
 #if defined(KASLR_PHYS_MIN) && !defined(KASLR_PHYS_MIN_WIDE)
 #define KASLR_PHYS_MIN_WIDE KASLR_PHYS_MIN
 #endif
