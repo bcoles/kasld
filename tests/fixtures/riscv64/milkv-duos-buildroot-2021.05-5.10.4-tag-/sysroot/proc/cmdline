@@ -1,0 +1,1 @@
+root=[redacted] rootwait rw console=ttyS0,115200 earlycon=sbi riscv.fwsz=0x80000 loglevel=9

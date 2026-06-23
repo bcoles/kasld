@@ -1,0 +1,15 @@
+absent: /proc/sys/kernel/perf_event_paranoid
+absent: /sys/kernel/security/lockdown
+absent: /sys/kernel/boot_params/data
+absent: /sys/kernel/boot_params/setup_data
+absent: /sys/firmware/memmap
+absent: /proc/device-tree/rtas
+absent: /sys/firmware/devicetree/base/rtas
+WARNING: captured /sys/firmware/fdt may contain board-identifying data (serial number, MAC address). Run extra/anonymize-fdt on it before sharing or committing this capture.
+absent: /boot/config-5.10.4-tag-
+absent: /boot/vmlinuz-5.10.4-tag-
+absent: /boot/Image-5.10.4-tag-
+absent: /boot/vmlinux-5.10.4-tag-
+absent: /boot/System.map-5.10.4-tag-
+skipped: /proc/kallsyms (use --kallsyms to include)
+anonymized: host identity, CPU brand, UUIDs/MACs, sensitive cmdline values redacted
