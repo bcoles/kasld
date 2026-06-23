@@ -229,44 +229,66 @@ follow the `<sysexits.h>` convention (`EX_UNAVAILABLE` = 69,
 
 ### Minimal component
 
+A complete, real component. It searches the kernel log for the
+`free_reserved_area()` messages that pre-v4.10 kernels printed when freeing init
+memory, parses the leaked address, and emits it. The shape — find a line, parse
+an address, emit one tagged result — is the one most components share.
+
 ```c
-// src/components/my-leak.c
+// src/components/freeing.c — free_reserved_area() leak (pre-v4.10 kernels)
+#define _GNU_SOURCE
+#include "include/dmesg.h"
 #include "include/kasld/api.h"
-#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
+
+/* dmesg_search() invokes this for every log line containing "Freeing".
+ * Old kernels print:
+ *   Freeing unused kernel memory: 1476K (ffffffff81f41000 - ffffffff820b2000)
+ * The address inside the parentheses lies within the kernel image. */
+static int on_match(const char *line, void *ctx) {
+  (void)ctx;
+  const char *paren = strchr(line, '(');
+  if (paren == NULL)
+    return 1; /* v4.10+ prints no address — keep scanning */
+
+  unsigned long addr = strtoul(paren + 1, NULL, 16);
+  if (!kasld_addr_is_kernel_text(addr))
+    return 1;
+
+  /* The exact position within the image is unknown (an interior point), and
+   * the value is parsed from a structured log line: pos=interior, conf=parsed. */
+  kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE, addr, NULL,
+                      CONF_PARSED);
+  return 1; /* keep scanning for further "Freeing" lines */
+}
 
 int main(void) {
-  unsigned long addr;
-
-  /* ... probe a data source ... */
-  addr = 0; /* replace with actual leak logic */
-
-  if (!addr) {
-    printf("[-] no kernel address found via my-leak\n");
-    return 0;
-  }
-
-  printf("leaked kernel text address: 0x%lx\n", addr);
-  /* Leak gives a precise symbol address — interior of the kernel image,
-   * confidently parsed from a structured source. */
-  kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE, addr,
-                      "my_symbol", CONF_PARSED);
+  if (dmesg_search("Freeing ", on_match, NULL) < 0)
+    return KASLD_EXIT_NOPERM; /* dmesg_restrict blocked the read */
   return 0;
 }
 ```
 
 Place the file in `src/components/`. Run `make` — the build system
-automatically discovers all `.c` files in that directory and compiles each
-into a standalone binary under `build/<arch>/components/`. No Makefile
-edits required.
+automatically discovers every `.c` file in that directory and compiles each
+into a standalone binary under `build/<arch>/components/`. No Makefile edits
+required.
 
-The component can also be run directly:
+Run it directly to see the tagged result it prints to stdout:
 
 ```
-$ ./build/x86_64-linux-musl/components/my-leak
-leaked kernel text address: 0xffffffff81000000
-V kernel_image:my_symbol pos=interior conf=parsed sample=0xffffffff81000000
+$ ./build/x86_64-linux-musl/components/freeing
+V kernel_image pos=interior conf=parsed sample=0xffffffff81f41000
 ```
+
+That single `V …` line is the component's entire contract with the engine — the
+orchestrator reads it from stdout and the rest is automatic. KASLD ships a fuller
+version of this technique as `dmesg_free_reserved_area.c`, which additionally
+classifies the address by range and derives the physical address on coupled
+architectures. To see this exact result flow through a rule, the engine, and the
+rendered output, follow
+[the end-to-end walkthrough](../docs/architecture.md#a-leak-from-end-to-end).
 
 Components that leak a physical address with a known extent (e.g. a
 `/proc/iomem` region) should use `kasld_result_range` to convey both

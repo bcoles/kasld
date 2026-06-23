@@ -16,6 +16,7 @@ mechanics of adding a component or rule, see
 
 ## Table of Contents
 
+- [A leak from end to end](#a-leak-from-end-to-end)
 - [Components and the orchestrator](#components-and-the-orchestrator)
   - [Component model](#component-model)
   - [Phases](#phases)
@@ -32,6 +33,89 @@ mechanics of adding a component or rule, see
 - [KASLR runtime states](#kaslr-runtime-states)
 - [Kernel version detection](#kernel-version-detection)
 - [Glossary](#glossary)
+
+---
+
+## A leak from end to end
+
+One concrete example, traced through every stage, to make the rest of this
+document legible. It uses a classic leak: the `free_reserved_area()` kernel-log
+message that pre-v4.10 kernels printed when freeing init memory. Upstream removed
+the message in v4.10, so it appears here for clarity, not because it still fires
+on a current kernel — but every stage after the first is leak-agnostic, so a live
+leak on a modern kernel (`perf_event_open`, a side-channel probe, …) travels the
+identical path. Only the front-end component differs.
+
+**1. The source** — a kernel log line, read from the syslog ring buffer via
+`klogctl()`:
+
+```
+Freeing unused kernel memory: 1476K (ffffffff81f41000 - ffffffff820b2000)
+```
+
+**2. The component** (`dmesg_free_reserved_area`, shown minimally in
+[CONTRIBUTING → Minimal component](../CONTRIBUTING.md#minimal-component)) finds
+the line, parses the start address, recognises it as an address inside the kernel
+image, and prints one tagged line to stdout:
+
+```
+V kernel_image pos=interior conf=parsed sample=0xffffffff81f41000
+```
+
+`V` = virtual; `kernel_image` = the region; `pos=interior` = a point somewhere
+inside it, exact position unknown; `conf=parsed` = read from a structured source.
+The component knows nothing about the engine — it just prints this line. See
+[the tagged-line protocol](#the-tagged-line-protocol).
+
+**3. The orchestrator** reads that line from the component's stdout, stamps it
+with the component's identity (`origin`), and — once every component has finished
+— bridges all collected lines into the engine's *evidence set* (the pool of
+collected facts the engine reasons over), where each line becomes an
+*observation*.
+
+**4. A rule consumes it.** A *rule* is a pure function that reads the evidence and
+emits bounds; the engine re-runs every rule until nothing narrows further (a
+*fixpoint*). On one of those passes `range_from_interior` reads the observation
+and reasons that the image base (`_text`) cannot sit *above* an address known to
+be inside the image. It emits a single constraint:
+
+```
+Q_VIRT_IMAGE_BASE  <=  0xffffffff81f41000      (C_UPPER_BOUND, conf=parsed)
+```
+
+That is the honest contribution of one interior leak: a *ceiling*, not an exact
+answer. A `pos=base` witness instead — `_stext` from `/proc/kallsyms`, say —
+would pin the value outright via `text_pin_from_observation`. Most leaks bound
+rather than pin, and bounds compose.
+
+**5. The engine narrows.** The *estimate* for `Q_VIRT_IMAGE_BASE` — the running
+range of values the image base could still take — began at its *honest top*, the
+widest window the architecture allows (here the full x86_64 KASLR text range).
+Meeting the new upper bound lowers its ceiling; on the same passes other rules
+raise the floor (DRAM bounds) and the 2 MiB `IMAGE_ALIGN` slot grid is applied.
+With only this one leak the result is still a window — several slots wide:
+
+```
+  Virtual image base   not derandomized     ~3 bits
+                       0xffffffff81000000 - 0xffffffff81f41000   (7 x 2.0 MiB)
+```
+
+A second observation — a `_stext` base witness, a DRAM floor, or the
+image-size gap (`image_size_text_data_gap`) — meets with this ceiling and
+collapses the window toward a single slot. See
+[Estimate narrowing](#estimate-narrowing-and-the-store-vs-read-seam).
+
+**6. The renderer** reports the resolved estimate with its provenance — the
+narrowed window above, or, once the constraints collapse to one slot, the pinned
+base and its slide:
+
+```
+  Virtual image base   0xffffffff81e00000   slide +0xe00000
+```
+
+That is the whole path: a log line becomes an observation, a rule turns it into a
+bound, the engine narrows a quantity, the renderer prints it. Every component
+plugs in at stage 2; every rule at stage 4; nothing between them changes.
 
 ---
 
