@@ -176,6 +176,15 @@ run_fixture() {
   # /boot images as sparse files of their true size (header prefix preserved).
   sc=$(mktemp -d)
   cp -a "$d/sysroot" "$sc/r"
+  # If the fixture carries a flattened device tree blob (collect grabs the one
+  # ~tens-of-KB /sys/firmware/fdt rather than the hundreds of files under
+  # /proc/device-tree), expand it into the /sys/firmware/devicetree/base layout
+  # the DT components read. Soft: skips if python3 is absent (DT components then
+  # just report UNAVAILABLE — still a valid no-crash run).
+  if [ -f "$sc/r/sys/firmware/fdt" ] && command -v python3 >/dev/null 2>&1; then
+    python3 "$ROOT/tests/fdt-unflatten" "$sc/r/sys/firmware/fdt" \
+      "$sc/r/sys/firmware/devicetree/base" 2>/dev/null || true
+  fi
   while read -r sz path; do
     if [ -z "$sz" ] || [ -z "$path" ]; then continue; fi
     mkdir -p "$sc/r$(dirname "$path")" 2>/dev/null

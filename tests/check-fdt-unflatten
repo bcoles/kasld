@@ -1,0 +1,86 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-fdt-unflatten — round-trip test for tests/fdt-unflatten (the replay
+# helper that expands a flattened device tree into the /proc/device-tree
+# directory layout). Build a known DTB with dtc, expand it, and assert the node
+# structure, a property value (reg) and a string property survive intact.
+#
+# Soft dependency: SKIPs (exit 0) if dtc or python3 is unavailable, so a local
+# `make test` still works without them. CI has both.
+#
+# Usage: tests/check-fdt-unflatten   (also run by `make lint` / `make test`)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+
+if [ -t 1 ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m')
+  YELLOW=$(printf '\033[33m'); RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; YELLOW=; RESET=
+fi
+
+if ! command -v dtc >/dev/null 2>&1 || ! command -v python3 >/dev/null 2>&1; then
+  printf '%sfdt-unflatten guard: SKIP%s (dtc/python3 not installed)\n' \
+    "$YELLOW" "$RESET"
+  exit 0
+fi
+
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT INT TERM
+
+cat > "$tmp/t.dts" <<'EOF'
+/dts-v1/;
+/ {
+	#address-cells = <2>;
+	#size-cells = <2>;
+	compatible = "test,board";
+	memory@80000000 {
+		device_type = "memory";
+		reg = <0x0 0x80000000 0x0 0x10000000>;
+	};
+	soc {
+		ranges;
+		uart@10000000 {
+			reg = <0x0 0x10000000 0x0 0x1000>;
+		};
+	};
+};
+EOF
+
+dtc -I dts -O dtb -o "$tmp/t.dtb" "$tmp/t.dts" 2>/dev/null
+mkdir -p "$tmp/base"
+python3 "$ROOT/tests/fdt-unflatten" "$tmp/t.dtb" "$tmp/base"
+
+fail=0
+miss() { printf '%s  FAIL%s %s\n' "$RED" "$RESET" "$1" >&2; fail=1; }
+
+[ -f "$tmp/base/compatible" ]            || miss "root 'compatible' property missing"
+[ -d "$tmp/base/memory@80000000" ]       || miss "memory@80000000 node missing"
+[ -f "$tmp/base/memory@80000000/reg" ]   || miss "memory reg missing"
+[ -d "$tmp/base/soc/uart@10000000" ]     || miss "nested soc/uart node missing"
+[ -f "$tmp/base/soc/ranges" ]            || miss "empty 'ranges' property missing"
+
+# reg value fidelity: 0x10000000 / 0x1000 as 2+2 big-endian cells (16 bytes).
+reg=$tmp/base/soc/uart@10000000/reg
+sz=$(stat -c %s "$reg" 2>/dev/null || stat -f %z "$reg" 2>/dev/null)
+[ "$sz" = 16 ] || miss "uart reg is $sz bytes, want 16"
+hex=$(od -An -tx1 "$reg" 2>/dev/null | tr -d ' \n')
+[ "$hex" = "00000000100000000000000000001000" ] || miss "uart reg bytes: $hex"
+
+# string property preserved (with its trailing NUL).
+case "$(cat "$tmp/base/compatible" 2>/dev/null)" in
+  test,board*) : ;;
+  *) miss "compatible string not preserved" ;;
+esac
+
+if [ "$fail" = 0 ]; then
+  printf '%sfdt-unflatten guard: OK%s (round-trip: nodes, reg value, string preserved)\n' \
+    "$GREEN" "$RESET"
+else
+  printf '%sfdt-unflatten guard: FAILED%s\n' "$RED" "$RESET" >&2
+fi
+exit "$fail"

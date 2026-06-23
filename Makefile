@@ -394,6 +394,7 @@ lint :
 	@$(TEST_DIR)/check-component-output
 	@$(TEST_DIR)/check-component-meta
 	@$(TEST_DIR)/check-text-floor
+	@$(TEST_DIR)/check-fdt-unflatten
 	@$(TEST_DIR)/check-shellcheck
 
 .PHONY: test-integration

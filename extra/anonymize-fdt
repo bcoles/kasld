@@ -1,0 +1,76 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# anonymize-fdt — strip board-identifying properties from a captured flattened
+# device tree before committing it to a shared replay fixture.
+#
+# The blob grabbed by extra/collect (sysroot/sys/firmware/fdt) can carry a board
+# serial number and MAC addresses. These identify the specific device/owner, so
+# they are removed wherever they appear in the tree.
+#
+# Deliberately KEPT: chosen/kaslr-seed and chosen/rng-seed. They are random,
+# non-identifying values (the kernel zeroes them after boot anyway), and KASLD
+# *reads* kaslr-seed to infer the KASLR state (fdt_facts / riscv64_no_seed /
+# riscv64_fdt_kaslr_seed) — scrubbing it would falsify the fixture's ground
+# truth. Existing committed fixtures keep chosen/kaslr-seed as-is.
+#
+# Requires `dtc`. Edits each .dtb in place, keeping a <file>.orig backup. Run on
+# the dev host (the target usually has no dtc), then review the diff before
+# committing:  dtc -I dtb -O dts <file> | less
+#
+# Usage:  extra/anonymize-fdt <fdt.dtb> [more.dtb ...]
+# ---
+# <bcoles@gmail.com>
+set -eu
+
+# Property names removed wherever they occur (board/owner-identifying only).
+SCRUB='serial-number local-mac-address mac-address'
+
+command -v dtc >/dev/null 2>&1 || {
+  echo "anonymize-fdt: dtc not found (install device-tree-compiler)" >&2
+  exit 1
+}
+[ "$#" -ge 1 ] || {
+  echo "usage: extra/anonymize-fdt <fdt.dtb> [more.dtb ...]" >&2
+  exit 2
+}
+
+for dtb in "$@"; do
+  if [ ! -f "$dtb" ]; then
+    echo "skip (not a file): $dtb" >&2
+    continue
+  fi
+  cp -f "$dtb" "$dtb.orig"
+  dts=$(mktemp)
+  clean=$(mktemp)
+  dtc -I dtb -O dts -o "$dts" "$dtb" 2>/dev/null
+
+  # Drop any property assignment whose name is in SCRUB, handling values that
+  # span multiple lines (keep dropping until the terminating ';'). Names of the
+  # removed properties (and a trailing count) go to the report on stderr.
+  report="$clean.report"
+  awk -v scrub="$SCRUB" '
+    BEGIN { n = split(scrub, a, " "); for (i = 1; i <= n; i++) deny[a[i]] = 1 }
+    skip { if ($0 ~ /;[[:space:]]*$/) skip = 0; next }
+    {
+      name = $0
+      sub(/^[[:space:]]+/, "", name)
+      sub(/[[:space:]]*=.*/, "", name)
+      if (name in deny) {
+        print "  removed: " name > "/dev/stderr"
+        if ($0 !~ /;[[:space:]]*$/) skip = 1
+        count++
+        next
+      }
+      print
+    }
+    END { print count + 0 > "/dev/stderr" }
+  ' "$dts" >"$clean" 2>"$report"
+
+  dtc -I dts -O dtb -o "$dtb" "$clean" 2>/dev/null
+  n=$(tail -n1 "$report")
+  grep '^  removed:' "$report" >&2 || true
+  echo "$dtb: removed ${n} identifying propert$([ "$n" = 1 ] && echo y || echo ies); backup at $dtb.orig"
+  echo "  review: dtc -I dtb -O dts $dtb | less"
+  rm -f "$dts" "$clean" "$report"
+done

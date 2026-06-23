@@ -1,0 +1,74 @@
+#!/usr/bin/env python3
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# fdt-unflatten — expand a flattened device tree (.dtb) into the
+# /proc/device-tree directory layout: each node becomes a directory, each
+# property a file holding the property's raw bytes. This is exactly the form the
+# kernel exposes at /sys/firmware/devicetree/base, so a replay fixture can carry
+# the whole tree as ONE small blob (sysroot/sys/firmware/fdt) instead of the
+# hundreds of tiny files an unflattened capture would commit. tests/replay calls
+# this to reconstruct sysroot/sys/firmware/devicetree/base before running kasld.
+#
+# Pure stdlib, no libfdt. DTB format: a 40-byte big-endian header, a struct
+# block of tokens (BEGIN_NODE/END_NODE/PROP/NOP/END), and a strings block of
+# null-terminated property names.
+#
+# Usage: tests/fdt-unflatten <fdt.dtb> <dest-dir>
+# ---
+# <bcoles@gmail.com>
+import os
+import struct
+import sys
+
+FDT_BEGIN_NODE, FDT_END_NODE, FDT_PROP, FDT_NOP, FDT_END = 1, 2, 3, 4, 9
+
+
+def main():
+    if len(sys.argv) != 3:
+        sys.exit("usage: fdt-unflatten <fdt.dtb> <dest-dir>")
+    dtb, dest = sys.argv[1], sys.argv[2]
+    with open(dtb, "rb") as f:
+        d = f.read()
+    if len(d) < 40:
+        sys.exit("fdt-unflatten: file too small to be a DTB")
+    magic, _total, off_struct, off_strings = struct.unpack(">IIII", d[:16])
+    if magic != 0xD00DFEED:
+        sys.exit("fdt-unflatten: bad magic %#x (not a DTB)" % magic)
+
+    p = off_struct
+    stack = [dest]  # directory for the current node nesting
+    while p + 4 <= len(d):
+        (tok,) = struct.unpack(">I", d[p:p + 4])
+        p += 4
+        if tok == FDT_BEGIN_NODE:
+            end = d.index(b"\0", p)
+            name = d[p:end].decode("ascii", "replace")
+            p = (end + 4) & ~3  # past name + NUL, 4-byte aligned
+            # the root node has an empty name and maps to dest itself
+            cur = stack[-1] if name == "" else os.path.join(stack[-1], name)
+            os.makedirs(cur, exist_ok=True)
+            stack.append(cur)
+        elif tok == FDT_END_NODE:
+            if len(stack) > 1:
+                stack.pop()
+        elif tok == FDT_PROP:
+            length, nameoff = struct.unpack(">II", d[p:p + 8])
+            p += 8
+            val = d[p:p + length]
+            p = (p + length + 3) & ~3
+            nend = d.index(b"\0", off_strings + nameoff)
+            pname = d[off_strings + nameoff:nend].decode("ascii", "replace")
+            if "/" in pname or pname in (".", ".."):
+                continue  # DT property names never contain these; be safe
+            with open(os.path.join(stack[-1], pname), "wb") as pf:
+                pf.write(val)
+        elif tok == FDT_NOP:
+            continue
+        elif tok == FDT_END:
+            break
+        else:
+            sys.exit("fdt-unflatten: bad token %d at offset %d" % (tok, p - 4))
+
+
+if __name__ == "__main__":
+    main()

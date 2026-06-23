@@ -247,6 +247,21 @@ grab_tree /proc/device-tree/chosen
 grab_tree /proc/device-tree/rtas
 grab_tree /sys/firmware/devicetree/base/chosen
 grab_tree /sys/firmware/devicetree/base/rtas
+# Full flattened device tree: one ~tens-of-KB blob (vs the hundreds of tiny
+# files under /proc/device-tree). Feeds the DT components that need the whole
+# tree (sysfs_devicetree_mmio / _memory / _reserved_memory); the replay harness
+# unflattens it into sysroot/sys/firmware/devicetree/base/ at setup time.
+# NOTE: before committing a shared fixture, scrub board-identifying properties
+# (serial-number, local-mac-address) with extra/anonymize-fdt. The kaslr-seed /
+# rng-seed are deliberately kept (random, non-identifying, and read by KASLD).
+grab /sys/firmware/fdt
+if [ -s "$OUT/sysroot/sys/firmware/fdt" ]; then
+  w="WARNING: captured /sys/firmware/fdt may contain board-identifying data \
+(serial number, MAC address). Run extra/anonymize-fdt on it before sharing or \
+committing this capture."
+  echo "$w" >&2
+  echo "$w" >> "$NOTES"
+fi
 [ -e /sys/firmware/efi ] && echo "present: /sys/firmware/efi" >> "$NOTES"
 
 # /boot: copy the config (small), mirror the big images as sparse placeholders.
