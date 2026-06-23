@@ -452,8 +452,94 @@ single registry line:
 
 Estimates only narrow — never emit a constraint that would widen a quantity past
 its honest top. The fixpoint re-runs every rule, so depend only on `ev` and
-`est`, never on rule order. The engine model and the existing rule catalogue are
-described in
+`est`, never on rule order.
+
+### A minimal rule
+
+This complete rule turns an interior leak into a sound ceiling on the kernel
+image base — the rule the
+[end-to-end walkthrough](docs/architecture.md#a-leak-from-end-to-end) traces.
+(The shipped `range_from_interior` is this plus the parallel physical quantity.)
+
+```c
+// src/rules/text_ceiling_from_interior.c
+#include "include/kasld/engine_rules.h"
+#include "include/kasld/regions.h"
+#include <limits.h>
+#include <string.h>
+
+int rule_text_ceiling_from_interior(const struct evidence_set *ev,
+                                    const struct estimate *est,
+                                    struct constraint *out, int out_max) {
+  (void)est; /* depends only on the evidence, not the current estimate */
+
+  /* Lowest virtual address seen inside the kernel image. _text cannot lie
+   * above it, so it is a sound upper bound on the image base. */
+  unsigned long ceil = ULONG_MAX;
+  uint32_t src = 0;
+  enum kasld_confidence conf = CONF_UNKNOWN;
+  for (int i = 0; i < ev->n_obs; i++) {
+    const struct observation *o = &ev->obs[i];
+    if (!o->valid || o->eff_type != KASLD_TYPE_VIRT)
+      continue;
+    if (o->eff_region != REGION_KERNEL_IMAGE || !HAS_SAMPLE(o))
+      continue;
+    if (o->sample < ceil) {
+      ceil = o->sample;
+      src = o->id;
+      conf = o->conf;
+    }
+  }
+  if (ceil == ULONG_MAX || out_max < 1)
+    return 0; /* no qualifying observation — emit nothing */
+
+  memset(&out[0], 0, sizeof(out[0]));
+  out[0].q = Q_VIRT_IMAGE_BASE;
+  out[0].op = C_UPPER_BOUND; /* image base <= ceil */
+  out[0].value = ceil;
+  out[0].conf = conf;
+  out[0].derived_from[0] = src;
+  out[0].lineage_count = 1;
+  snprintf(out[0].origin, ORIGIN_LEN, "text_ceiling_from_interior");
+  return 1;
+}
+```
+
+The reasoning *is* the soundness argument: `_text` cannot lie above an address
+known to be inside the image, so the lowest such sample is a valid upper bound.
+The rule reads only `ev`, ignores `est`, and emits one `C_UPPER_BOUND` — so it is
+order-independent and can only narrow.
+
+### Constraint operations
+
+A constraint names a quantity, an op, a `value` (and `value2` for the ranged
+ops), and a confidence. Pick the op for what the evidence actually proves:
+
+| Op | Meaning | Emit when |
+|---|---|---|
+| `C_LOWER_BOUND` | `q >= value` | a floor — the quantity cannot be below `value` |
+| `C_UPPER_BOUND` | `q <= value` | a ceiling — the quantity cannot be above `value` |
+| `C_EQUALS` | `q == value` | a pin — the exact value is known |
+| `C_AT_LEAST_ALIGN` | `q` divisible by `value` | the quantity is known to be at least `value`-aligned |
+| `C_MEMBER` | `q` in a bitmask | the quantity is one of a small finite set |
+| `C_EXCLUDE` | `q` not in `[value, value2]` | a forbidden sub-range |
+| `C_STRIDE` | `q ≡ value (mod value2)` | the quantity lands on a fixed grid |
+
+`C_EXCLUDE` and `C_STRIDE` carry a second bound in `value2`; the others use
+`value` alone. Interior `C_EXCLUDE` holes are carved at read time, not stored —
+see
+[Estimate narrowing and the store-vs-read seam](docs/architecture.md#estimate-narrowing-and-the-store-vs-read-seam).
+
+### Proving soundness
+
+The per-rule unit test is what guarantees the engine never excludes the truth.
+For the rule above, `test_engine_interior_ceiling` in `tests/test_engine.c` is
+the pattern: seed one interior observation, run the rule through the engine, and
+assert the estimate's ceiling lands exactly on the sample (truth retained) while
+the floor is untouched. A complete test also adds an adversarial observation and
+shows it cannot push the estimate past the truth.
+
+The engine model and the existing rule catalogue are described in
 [docs/architecture.md → The inference engine](docs/architecture.md#the-inference-engine)
 and [Cross-region derivation](docs/architecture.md#cross-region-derivation).
 
