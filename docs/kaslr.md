@@ -92,7 +92,7 @@ base when it is consumed, so the slide is always measured against `_text`.
 |---|---|---|---|---|---|
 | x86_64 | `0xffffffff81000000` | `__START_KERNEL_map` + `PHYSICAL_START` (`page_64_types.h`) | 2 MiB | 504² | ~9 bits |
 | x86_32 | `0xc0000000` | `PAGE_OFFSET` (3G/1G vmsplit default) | 2 MiB | 248² | ~8 bits |
-| arm64 | `0xffff800080000000` | `KIMAGE_VADDR` (`memory.h`); module region size determines offset from `_PAGE_END` | 2 MiB¹ | ~33M | ~25 bits |
+| arm64 | `0xffff800080000000`³ | `KIMAGE_VADDR` = `_PAGE_END(VA_BITS_MIN)` + module-region size (`memory.h`) | 2 MiB¹ | ~33M | ~25 bits |
 | arm32 | `0xc0008000` | `PAGE_OFFSET` + `TEXT_OFFSET` (`0x8000`, from `arch/arm/Makefile`) | — | — | No KASLR |
 | MIPS32 | `0x80100400` | KSEG0 (`0x80000000`) + 1 MiB + `TEXT_OFFSET` (`0x400`, from `head.S`) | 64 KiB | varies | varies |
 | MIPS64 | `0xffffffff80100400` | CKSEG0 (`0xffffffff80000000`) + 1 MiB + `TEXT_OFFSET` (`0x400`) | 64 KiB | varies | varies |
@@ -133,6 +133,15 @@ final loaded kernel size. On RISC-V (`arch/riscv/mm/init.c`), it is
 `_end − _start` — the actual in-memory kernel size with no overhead.
 On x86, `MODULES_VADDR` is defined as `__START_KERNEL_map +
 KERNEL_IMAGE_SIZE` with no gap, so the ceiling is hard.
+
+³ The arm64 row is the `VA_BITS_MIN = 48` case (4K/16K 4-level, plus 52-bit LVA)
+— the common one. Sub-48 configs place the image higher and randomize over a
+smaller window, since `KIMAGE_VADDR = _PAGE_END(VA_BITS_MIN) + module-region
+size` and `_PAGE_END = -(1 << (VA_BITS_MIN − 1))`: 4K 3-level (`VA_BITS = 39`,
+common on Android) → `0xffffffc080000000`, 64K 2-level (42), 16K 3-level (47).
+KASLD detects the running `VA_BITS` with an mmap boundary probe
+(`mmap_arm64_va_bits`) and resolves the per-config text band and entropy
+accordingly.
 
 | Architecture | Max slots | Approx. `kernel_size` | Typical runtime slots | Reduction |
 |---|---|---|---|---|
