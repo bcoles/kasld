@@ -241,11 +241,13 @@ static void run_capture(int (*fn)(void)) {
   unlink(tmpl);
 }
 
-/* --- ACPI MRRM: base is "0x%llx" text ----------------------------------- */
+/* --- ACPI MRRM: base is "0x%llx" text. MRRM ranges are addressable system
+ * memory (the image can live there), so they are a RAM landmark, never a
+ * forbidden region. ------------------------------------------------------- */
 static void test_acpi_mrrm_base(void) {
   stage_text("/sys/firmware/acpi/memory_ranges/range0/base", "0x100000000\n");
   run_capture(acpi_main);
-  assert(strstr(cap, "P pmem:range0") != NULL);
+  assert(strstr(cap, "P ram:range0") != NULL);
   assert(strstr(cap, "sample=0x100000000") != NULL);
 }
 

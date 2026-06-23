@@ -120,14 +120,21 @@ int main(void) {
     if (!addr)
       continue;
 
-    /* Each MRRM entry describes a memory range (typically CXL/HBM-backed
-     * persistent memory or special DRAM); the directory name (e.g.
-     * "range_0") identifies which entry we leaked. */
+    /* Each MRRM entry describes a range of addressable SYSTEM MEMORY tagged
+     * for bandwidth monitoring (RDT-style region IDs) — ordinary DRAM the
+     * kernel runs in, on tiered-memory / CXL platforms. It is NOT persistent
+     * memory, and the image CAN occupy it, so tag it REGION_RAM (a DRAM
+     * landmark), never a forbidden region: a forbidden tag here would let a
+     * future range conversion carve valid RAM out of the candidate base set.
+     * Emitted as an interior sample (not a range): an MRRM hi could be high
+     * CXL memory, which as a REGION_RAM extent would loosen dram_top; a sample
+     * only contributes the base to the phys floor. The directory name (e.g.
+     * "range0") identifies which entry we leaked. */
     snprintf(label, sizeof(label), "%.32s", ent->d_name);
 
     fprintf(stderr, "[+] acpi_mrrm %s: phys = 0x%016llx\n", label, addr);
-    kasld_result_sample(KASLD_TYPE_PHYS, REGION_PMEM, (unsigned long)addr,
-                        label, CONF_PARSED);
+    kasld_result_sample(KASLD_TYPE_PHYS, REGION_RAM, (unsigned long)addr, label,
+                        CONF_PARSED);
     count++;
 
 #ifdef phys_to_directmap_virt
