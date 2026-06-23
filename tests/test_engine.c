@@ -1993,6 +1993,40 @@ static void test_x86_64_vmalloc_no_max_pfn(void) {
   assert(e.est[Q_VMEMMAP_BASE].lo == vmtop.lo);
 }
 
+/* Regression: with page_offset UNRESOLVED (no landmark) Q_PAGE_OFFSET stays at
+ * its floor (0xff00..., below X86_64_L4_VAS_START). The vmalloc UPPER bound
+ * must NOT mis-read that floor as L5 paging — it must use the conservative L4
+ * vmalloc size (32 TiB). Using L5 (12800 TiB) here would place the ceiling
+ * ~12768 TiB below the true vmalloc base and exclude it on ordinary L4 systems.
+ */
+static void test_x86_64_vmalloc_upper_l4_when_po_unresolved(void) {
+  struct engine e;
+  engine_init(&e);
+  unsigned long max_pfn = 0x100000ul; /* 1M pages = 4 GiB */
+  struct observation mp = mk_scalar(SF_PHYS_MAX_PFN, max_pfn, CONF_PARSED);
+  evidence_add(&e.ev, &mp);
+
+  const rule_fn rules[] = {rule_page_offset_from_landmark,
+                           rule_x86_64_vmalloc_base_bound,
+                           rule_x86_64_vmemmap_base_bound};
+  engine_run(&e, rules, 3);
+
+#if defined(__x86_64__)
+  struct estimate potop;
+  quantities[Q_PAGE_OFFSET].init_top(&potop);
+  assert(e.est[Q_PAGE_OFFSET].lo == potop.lo);                /* still floor */
+  assert(e.est[Q_PAGE_OFFSET].lo != e.est[Q_PAGE_OFFSET].hi); /* unresolved */
+
+  assert(e.est[Q_VMALLOC_BASE].hi_binding != 0); /* the upper bound fired */
+  unsigned long one_tb = 1ul << 40, pud = 1ul << 30;
+  unsigned long vmemmap_hi = e.est[Q_VMEMMAP_BASE].hi;
+  unsigned long expect_l4 = vmemmap_hi - 32ul * one_tb - pud;
+  unsigned long would_be_l5 = vmemmap_hi - 12800ul * one_tb - pud;
+  assert(e.est[Q_VMALLOC_BASE].hi == expect_l4);   /* sound L4 size */
+  assert(e.est[Q_VMALLOC_BASE].hi != would_be_l5); /* not the L5 mis-pick */
+#endif
+}
+
 /* x86_64_page_offset_from_vmalloc_vmemmap, backward chain): a leaked
  * VMALLOC virtual address bounds Q_PAGE_OFFSET from above by the directmap
  * size + PUD gap. */
@@ -3271,6 +3305,42 @@ static void test_config_max_offset_ceiling(void) {
 #endif
 }
 
+/* Regression: VIRT kernel-image POINT leaks (samples, no lo/hi extent) must NOT
+ * drive the ceiling. The span between scattered symbol leaks under-estimates
+ * kernel_length, and the kernel adds ALIGN(kernel_length, 0xffff) to the slide,
+ * so an under-sized kernel_length puts the ceiling below the true base. Only a
+ * genuine text..bss EXTENT may drive the rule; with anchors only it emits
+ * nothing (estimate stays at top). On the old code this produced an unsound
+ * ceiling on MIPS/LoongArch. */
+static void test_config_max_offset_virt_anchors_no_ceiling(void) {
+  struct engine e;
+  engine_init(&e);
+  struct observation s =
+      mk_scalar(SF_VIRT_RANDOMIZE_MAX_OFFSET, 0x1000000ul, CONF_PARSED);
+  evidence_add(&e.ev, &s);
+  struct estimate top;
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
+  /* two VIRT kernel-image leaks as bare interior samples (no LO/HI extent) */
+  struct observation a, b;
+  memset(&a, 0, sizeof(a));
+  a.value_kind = OBS_ADDRESS;
+  a.type = KASLD_TYPE_VIRT;
+  a.region = REGION_KERNEL_TEXT;
+  a.sample = top.lo;
+  a.set_mask = SAMPLE_SET;
+  a.pos = POS_INTERIOR;
+  a.conf = CONF_PARSED;
+  b = a;
+  b.sample = top.lo + 0x40000ul;
+  evidence_add(&e.ev, &a);
+  evidence_add(&e.ev, &b);
+
+  const rule_fn rules[] = {rule_config_max_offset_ceiling};
+  engine_run(&e, rules, 1);
+  /* no extent -> no (unsound) ceiling, on every arch */
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi == top.hi);
+}
+
 /* No SF_VIRT_RANDOMIZE_MAX_OFFSET -> inert (estimate stays at top). */
 static void test_config_max_offset_absent(void) {
   struct engine e;
@@ -3709,6 +3779,42 @@ static void test_kernel_image_phys_bound_lower_from_high_witness(void) {
   assert(e.est[Q_PHYS_IMAGE_BASE].lo >= expected_pmin_raw);
   assert(e.est[Q_PHYS_IMAGE_BASE].hi <= lo_w);
   assert(e.est[Q_PHYS_IMAGE_BASE].lo <= e.est[Q_PHYS_IMAGE_BASE].hi);
+}
+
+/* Regression: the lower bound's alignment round-up must be CONF_HEURISTIC
+ * (overridable), with the alignment-free raw bound at CONF_INFERRED. A base
+ * that is not palign-aligned (non-KASLR / finer-granularity loader) must not be
+ * excluded at inferred confidence. The old code rounded up at CONF_INFERRED. */
+static void test_kernel_image_phys_bound_lower_conf(void) {
+  struct engine e;
+  engine_init(&e);
+  unsigned long P = (unsigned long)PHYS_OFFSET;
+  unsigned long lo_w = P + (200ul * 1024 * 1024);
+  unsigned long hi_w =
+      P + (280ul * 1024 * 1024); /* raw pmin = P + 24 MiB + 1 */
+  struct observation o_lo = mk_obs(KASLD_TYPE_PHYS, REGION_KERNEL_TEXT, lo_w,
+                                   LO_SET, POS_BASE, CONF_PARSED);
+  struct observation o_hi = mk_obs(KASLD_TYPE_PHYS, REGION_KERNEL_BSS, hi_w,
+                                   LO_SET, POS_BASE, CONF_PARSED);
+  evidence_add(&e.ev, &o_lo);
+  evidence_add(&e.ev, &o_hi);
+  const rule_fn rules[] = {rule_kernel_image_phys_bound};
+  engine_run(&e, rules, 1);
+
+  unsigned long raw = hi_w - (256ul * 1024 * 1024) + 1;
+  int seen_inferred_raw = 0;
+  for (int i = 0; i < e.n_constraints; i++) {
+    const struct constraint *c = &e.constraints[i];
+    if (c->q != Q_PHYS_IMAGE_BASE || c->op != C_LOWER_BOUND)
+      continue;
+    /* every INFERRED lower bound must be the alignment-free raw value — never a
+     * rounded-up value (which the old code emitted at INFERRED). */
+    if (c->conf == CONF_INFERRED) {
+      assert(c->value == raw);
+      seen_inferred_raw = 1;
+    }
+  }
+  assert(seen_inferred_raw);
 }
 
 int rule_efi_loader_kernel_pick(const struct evidence_set *ev,
@@ -4928,6 +5034,7 @@ int main(void) {
   RUN(test_phys_hole_filter);
   RUN(test_kernel_image_phys_bound);
   RUN(test_kernel_image_phys_bound_lower_from_high_witness);
+  RUN(test_kernel_image_phys_bound_lower_conf);
   RUN(test_highmem_32bit_bound);
   RUN(test_firmware_memmap_holes);
 
@@ -4990,6 +5097,7 @@ int main(void) {
   RUN(test_arm64_efi_kimg_align);
   RUN(test_ceiling_uses_resolved_align);
   RUN(test_config_max_offset_ceiling);
+  RUN(test_config_max_offset_virt_anchors_no_ceiling);
   RUN(test_config_max_offset_absent);
   RUN(test_base_align_cross_validate);
 
@@ -5050,6 +5158,7 @@ int main(void) {
 #if __SIZEOF_LONG__ >= 8 /* 64-bit-only block (vmalloc/vmemmap + va_bits) */
   RUN(test_x86_64_vmalloc_vmemmap_chain);
   RUN(test_x86_64_vmalloc_no_max_pfn);
+  RUN(test_x86_64_vmalloc_upper_l4_when_po_unresolved);
 #if defined(__x86_64__)
   RUN(test_x86_64_po_from_vmalloc);
   RUN(test_x86_64_po_from_vmemmap);

@@ -69,7 +69,14 @@ config_max_offset_ceiling__kernel_length(const struct evidence_set *ev) {
   if (pmin != ULONG_MAX && pmax > pmin)
     return pmax - pmin + 1;
 
-  /* VIRT path: same shape, but anchors only (no hi typically). */
+  /* VIRT path: same shape as PHYS — measure a real text..bss EXTENT via
+   * HAS_LO/HAS_HI, NOT obs_anchor point samples. kernel_length must be an
+   * OVER-estimate of the true _end - _text for the ceiling to stay sound (the
+   * kernel adds ALIGN(kernel_length, 0xffff) to the slide; under-sizing it puts
+   * the ceiling below the true base). A span between two scattered point leaks
+   * (the old obs_anchor min..max) is a severe under-estimate, so require
+   * genuine extents; absence yields 0 → emit nothing rather than an unsound
+   * guess. */
   unsigned long vmin = ULONG_MAX, vmax = 0;
   for (int i = 0; i < ev->n_obs; i++) {
     const struct observation *o = &ev->obs[i];
@@ -81,16 +88,13 @@ config_max_offset_ceiling__kernel_length(const struct evidence_set *ev) {
         o->eff_region != REGION_KERNEL_DATA &&
         o->eff_region != REGION_KERNEL_BSS)
       continue;
-    unsigned long a = obs_anchor(o);
-    if (a == 0)
-      continue;
-    if (a < vmin)
-      vmin = a;
-    if (a > vmax)
-      vmax = a;
+    if (HAS_LO(o) && o->lo < vmin)
+      vmin = o->lo;
+    if (HAS_HI(o) && o->hi > vmax)
+      vmax = o->hi;
   }
   if (vmin != ULONG_MAX && vmax > vmin)
-    return vmax - vmin;
+    return vmax - vmin + 1;
   return 0;
 }
 #endif

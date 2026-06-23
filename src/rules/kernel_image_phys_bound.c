@@ -157,11 +157,10 @@ int rule_kernel_image_phys_bound(const struct evidence_set *ev,
 
   /* Lower bound: when hi is high enough that even a max-sized image leaves
    * the base above zero, phys_image_base ≥ hi - MAX_KERNEL_IMAGE_SIZE + 1.
-   * Independent of arch coupling — relies only on image-size bounding. */
+   * Independent of arch coupling — relies only on image-size bounding. The raw
+   * bound is alignment-free and sound. */
   if (hi >= MAX_KERNEL_IMAGE_SIZE && n < out_max) {
     unsigned long pmin = hi - MAX_KERNEL_IMAGE_SIZE + 1;
-    if (palign > 0)
-      pmin = (pmin + palign - 1) & ~(palign - 1);
     if (pmin > (unsigned long)KASLR_PHYS_MIN) {
       struct constraint *c = &out[n++];
       memset(c, 0, sizeof(*c));
@@ -172,6 +171,28 @@ int rule_kernel_image_phys_bound(const struct evidence_set *ev,
       c->derived_from[0] = src;
       c->lineage_count = src ? 1 : 0;
       snprintf(c->origin, ORIGIN_LEN, "kernel_image_phys_bound");
+    }
+
+    /* Tighter heuristic: round the lower bound UP to palign. Sound ONLY when
+     * the base is palign-aligned — the same assumption the upper-bound round
+     * above makes, and not a hard invariant (a non-KASLR / finer-granularity
+     * loader places text below palign granularity). So emit at CONF_HEURISTIC
+     * (mirroring the upper bound), not CONF_INFERRED: a higher-confidence
+     * text-pin overrides it cleanly and the sound raw bound above still holds.
+     * Only when it actually tightens (pmin isn't already palign-aligned). */
+    if (palign > 0 && (pmin & (palign - 1)) != 0 && n < out_max) {
+      unsigned long pmin_a = (pmin + palign - 1) & ~(palign - 1);
+      if (pmin_a > (unsigned long)KASLR_PHYS_MIN) {
+        struct constraint *c = &out[n++];
+        memset(c, 0, sizeof(*c));
+        c->q = Q_PHYS_IMAGE_BASE;
+        c->op = C_LOWER_BOUND;
+        c->value = pmin_a;
+        c->conf = CONF_HEURISTIC;
+        c->derived_from[0] = src;
+        c->lineage_count = src ? 1 : 0;
+        snprintf(c->origin, ORIGIN_LEN, "kernel_image_phys_bound");
+      }
     }
   }
   return n;

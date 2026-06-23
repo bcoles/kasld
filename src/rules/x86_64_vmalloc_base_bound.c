@@ -111,10 +111,19 @@ int rule_x86_64_vmalloc_base_bound(const struct evidence_set *ev,
    * fixpoint sets it via x86_64_vmemmap_base_bound). */
   const struct estimate *vmemmap = &est[Q_VMEMMAP_BASE];
   if (vmemmap->hi_binding && n < out_max) {
-    unsigned long vmalloc_size_tb = (virt_page_offset_min != 0 &&
-                                     virt_page_offset_min < X86_64_L4_VAS_START)
-                                        ? VMALLOC_SIZE_TB_L5
-                                        : VMALLOC_SIZE_TB_L4;
+    /* Default to the L4 (smaller) vmalloc size: for an UPPER bound the smaller
+     * size yields the larger, looser, always-sound ceiling (on an L5 system it
+     * over-estimates the ceiling — sound; on L4 it is exact). Use the L5 size
+     * ONLY when page_offset is RESOLVED to a point in the L5 region. Testing
+     * the floor alone is wrong: the unresolved Q_PAGE_OFFSET floor
+     * (KERNEL_VIRT_VAS_START = 0xff00…, spanning L5) is itself <
+     * X86_64_L4_VAS_START, so on an ordinary L4 box it would mis-select L5 and
+     * push the ceiling ~12768 TiB below the true vmalloc base, excluding it. A
+     * resolved page_offset < L4_VAS_START is genuinely L5 (L4 bases randomize
+     * up from __PAGE_OFFSET_BASE_L4 > L4_VAS_START). */
+    unsigned long vmalloc_size_tb = VMALLOC_SIZE_TB_L4;
+    if (po->lo == po->hi && po->lo != 0 && po->lo < X86_64_L4_VAS_START)
+      vmalloc_size_tb = VMALLOC_SIZE_TB_L5;
     unsigned long below = vmalloc_size_tb * one_tb + pud_size;
     if (vmemmap->hi > below) {
       unsigned long upper = vmemmap->hi - below;
