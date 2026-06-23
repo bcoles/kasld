@@ -727,6 +727,33 @@ static void test_full_engine_arm64_va48_kaslr_window(void) {
 #endif
 }
 
+/* A sub-48 (39-bit) KASLR-on kernel resolves to its own text band
+ * [KIMAGE_VADDR(39), KIMAGE_VADDR(39) + max-KASLR-offset(39)] — narrower than
+ * and disjoint from the 48-bit window. compute_kaslr_info derives the
+ * entropy/slot count from this resolved band, so reporting is VA_BITS-correct
+ * for free; this guards that the band itself is right. */
+static void test_full_engine_arm64_va39_kaslr_window(void) {
+#if defined(__aarch64__)
+  struct engine e;
+  engine_init(&e);
+  add_scalar(&e, SF_EFI_PRESENT, 0x0); /* KASLR on: no disabled signal */
+  add_addr_conf(&e, KASLD_TYPE_VIRT, REGION_PAGE_OFFSET,
+                arm64_page_offset_for(39ul), 0, CONF_INFERRED, NULL);
+
+  int nr = 0, nv = 0;
+  const rule_fn *rules = engine_rules(&nr);
+  const verdict_fn *vrules = engine_verdict_rules(&nv);
+  engine_run_full(&e, rules, nr, vrules, nv);
+
+  unsigned long kimg39 = arm64_page_end_for(39ul) + 0x80000000ul;
+  unsigned long ceiling39 = kimg39 + (1ul << 36) + (1ul << 37);
+  const struct estimate *vt = &e.est[Q_VIRT_IMAGE_BASE];
+  assert(vt->lo == kimg39 && vt->hi == ceiling39);
+  /* Disjoint from the 48-bit window — its own narrower band. */
+  assert(vt->lo > (unsigned long)KASLR_VIRT_TEXT_MAX);
+#endif
+}
+
 int main(void) {
   TEST_SUITE("test_engine_integration");
 
@@ -741,6 +768,7 @@ int main(void) {
   RUN(test_full_engine_arm64_va39_no_kaslr);
   RUN(test_full_engine_arm64_va48_no_kaslr);
   RUN(test_full_engine_arm64_va48_kaslr_window);
+  RUN(test_full_engine_arm64_va39_kaslr_window);
   RUN(test_full_engine_i686_kaslr_shape);
   RUN(test_full_engine_robust_to_outlier);
   RUN(test_full_engine_ppc_kernel_end_tightens);
