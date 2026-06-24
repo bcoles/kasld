@@ -386,9 +386,15 @@ int main(int argc, char *argv[]) {
     return 0;
   }
 
-  kasld_info("possible kernel base: %lx", addr);
-  kasld_result_base(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr, NULL,
-                    CONF_TIMING);
+  kasld_info("possible kernel text address: %lx", addr);
+  /* Interior sample, not a base pin: the prefetch latency scan is a noisy
+   * measurement that can land a KASLR_VIRT_ALIGN slot off the true _stext. A
+   * POS_BASE record would become a C_EQUALS pin (text_pin_from_observation),
+   * which a wrong-by-one-slot reading turns into an excluded truth. As an
+   * interior sample it only yields a sound C_UPPER_BOUND (image_base <= addr),
+   * matching every other timing oracle (entrybleed, echoload, sidt, ...). */
+  kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr, NULL,
+                      CONF_TIMING);
 
   return 0;
 }
