@@ -88,7 +88,7 @@ derived from, and a hint about the verbose mode. No banner, no system
 config, no memory-layout diagram.
 
 ```
-KASLD 0.3.0  --  Kernel ASLR derandomization
+KASLD 0.3.1-dev  --  Kernel ASLR derandomization
 Target: x86_64 / 6.15.6
 
 Running 83 components (10 experimental skipped; use -x to enable)...
@@ -98,15 +98,18 @@ Running 83 components (10 experimental skipped; use -x to enable)...
   Physical image base not derandomized     ~9 bits
                       0x0000000001000000 - 0x000000003c20ca00   (473 x 2.0 MiB)
   Direct map base     >= 0xffff800000000000
-
-  Coupling            virt and phys text are independent on this arch.
-                      A phys leak does NOT reveal the virt text base.
+  Phys/Virt Coupling  physical and virtual text randomize independently
 
 Leaks (1):
   virt kernel text    0xffffffff83800000   (prefetch)
 
 [-v: detailed results, memory map, system info]  [-H: hardening assessment]
 ```
+
+Terms in this readout (slide, directmap, coupling, slot/entropy) are defined in
+the [kaslr.md glossary](kaslr.md#glossary); the engine vocabulary behind them
+(quantity, estimate, honest top) is in the
+[architecture.md glossary](architecture.md#glossary).
 
 ### Verbose (`-v`)
 
@@ -126,7 +129,7 @@ and a compact bracket-format virtual + physical memory layout:
     ███▐██▄     ███    ███          ███ ███       ███    ███
     ███ ▀███▄   ███    ███    ▄█    ███ ███▌    ▄ ███   ▄███
     ███   ▀█▀   ███    █▀   ▄████████▀  █████▄▄██ ████████▀
-    ▀                                   ▀ v0.3.0
+    ▀                                   ▀ v0.3.1-dev
 
 Kernel release:               6.15.6
 Kernel version:               #1 SMP PREEMPT_DYNAMIC Wed Jun 17 13:04:17 EDT 2026
@@ -666,8 +669,10 @@ their machine-readable metadata. The assessment has seven sections:
    no PRNG, insufficient memory). The kernel still relocates but lands
    at a firmware-/boot-stub-deterministic position rather than the
    link-time default — meaningfully different from a deliberate
-   opt-out, which the main results banner already reports. Omitted
-   when KASLR is healthy or opted out.
+   opt-out, which the main results banner already reports. The full set
+   of runtime states is catalogued in
+   [kaslr.md — KASLR runtime states](kaslr.md#kaslr-runtime-states).
+   Omitted when KASLR is healthy or opted out.
 
 2. **Active defenses** — runtime security settings detected on the system
    (`dmesg_restrict`, `kptr_restrict`, `perf_event_paranoid`, `%pK` pointer
@@ -693,6 +698,15 @@ their machine-readable metadata. The assessment has seven sections:
    gate, lockdown restriction, CVE, or kernel config dependency. These
    represent leak vectors that cannot be blocked by runtime hardening
    alone.
+
+When the kernel-text function order can be determined, the assessment also
+prints a **Function layout** block above these sections: `text ordering`
+(canonical, or reordered static / per-boot) and `symbol resolution` (whether a
+generic `System.map` resolves symbols, or only this build's does). Reordered
+text is the [FG-KASLR / reordered-text class](kaslr.md#function-granular-kaslr-fg-kaslr)
+(LTO, AutoFDO, Propeller, or FG-KASLR): functions no longer sit at a constant
+offset from `_text`, so a leaked address pins only its own symbol and a generic
+`System.map` no longer locates the rest.
 
 The hardening assessment is also available in JSON output (`-j -H`),
 where it appears in a top-level `"hardening"` object with fields

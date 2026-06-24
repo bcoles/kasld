@@ -288,7 +288,7 @@ version of this technique as `dmesg_free_reserved_area.c`, which additionally
 classifies the address by range and derives the physical address on coupled
 architectures. To see this exact result flow through a rule, the engine, and the
 rendered output, follow
-[the end-to-end walkthrough](../docs/architecture.md#a-leak-from-end-to-end).
+[the end-to-end walkthrough](docs/architecture.md#a-leak-from-end-to-end).
 
 Components that leak a physical address with a known extent (e.g. a
 `/proc/iomem` region) should use `kasld_result_range` to convey both

@@ -22,6 +22,7 @@ mechanics of adding a component or rule, see
   - [Phases](#phases)
 - [The inference engine](#the-inference-engine)
   - [Three layers](#three-layers)
+  - [A constraint feeding the next pass](#a-constraint-feeding-the-next-pass)
   - [Soundness, monotonicity, and termination](#soundness-monotonicity-and-termination)
   - [Estimate narrowing and the store-vs-read seam](#estimate-narrowing-and-the-store-vs-read-seam)
   - [Design invariants: seams in the data flow](#design-invariants-seams-in-the-data-flow)
@@ -200,6 +201,38 @@ The resolver re-runs every rule to a fixpoint, so a constraint one rule derives
 estimates then drive the reported summary, slot counts, and entropy. Every rule
 is listed once in `../src/engine_rules.c`, the single registry shared by the
 orchestrator and the test suite.
+
+### A constraint feeding the next pass
+
+The fixpoint earns its keep when one quantity's estimate is *input* to another
+rule. A worked example on x86_64, where the `vmalloc` base floor depends on the
+direct-map base (`Q_PAGE_OFFSET`):
+
+**Pass 1** — `randomize_memory_page_offset` reads a direct-map leak and a RAM
+base record and resolves `Q_PAGE_OFFSET`:
+
+```
+Q_PAGE_OFFSET    full VAS window  ->  0xffff8a0000000000
+Q_VMALLOC_BASE   unchanged — its rule has no tight PAGE_OFFSET to read yet
+```
+
+**Pass 2** — `x86_64_vmalloc_base_bound` now reads the tightened `Q_PAGE_OFFSET`
+plus `max_pfn` (the direct-map span, from physical memory size) and raises the
+`vmalloc` floor to `PAGE_OFFSET + directmap_span + PUD_SIZE`:
+
+```
+Q_VMALLOC_BASE   >= 0xffff8a0000000000 + 0x10000000000 + 0x40000000
+                 =  0xffff8b0040000000      (C_LOWER_BOUND, conf=inferred)
+```
+
+**Pass 3** — every rule re-runs; nothing narrows further, so the engine stops.
+
+The `vmalloc` floor could not have been computed in pass 1: its rule reads
+`est[Q_PAGE_OFFSET]`, which was still the full window until pass 1 tightened it.
+That is why the resolver iterates — and why rule order is irrelevant. Had the
+`vmalloc` rule run first, it would have read the wide `PAGE_OFFSET`, emitted a
+weak bound, and re-emitted the tight one on the next pass once `PAGE_OFFSET`
+resolved. Because estimates only narrow, re-emission can never undo progress.
 
 ### Soundness, monotonicity, and termination
 

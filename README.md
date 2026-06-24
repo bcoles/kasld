@@ -8,18 +8,20 @@
   <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"/>
 </p>
 
-KASLD derandomizes the Linux kernel's virtual and physical memory layout
-as an unprivileged local user. It recovers the kernel text base where a
-leak or side channel allows, and otherwise reduces it to the smallest set
-of placements the available evidence supports. On a fully-patched modern
+KASLD answers a practical question: **how effective is KASLR on this
+system, against an unprivileged local attacker?** It derandomizes the
+Linux kernel's virtual and physical memory layout from an unprivileged
+local process — recovering the kernel text base outright where a leak or
+side channel allows, and otherwise narrowing it to the smallest set of
+placements the available evidence supports. The inference engine fuses
+evidence from dozens of independent techniques with the architecture's
+known invariants, narrowing the kernel's placement to a residual window —
+reported as the surviving slot count and bits of entropy: a measure of
+how much protection KASLR actually retains. On a fully-patched modern
 kernel — where x86-64 side channels are mitigated and no direct
 kernel-text leak survives — full recovery is often impossible, but the
-constraint set is rarely empty. The inference engine combines parsed
-bootloader artifacts, `dmesg` landmarks, `/proc` and `/sys` facts, and
-architectural invariants to narrow the kernel's possible placement to a
-residual window, reported as the surviving slot count and bits of
-entropy. On architectures without KASLR, the engine locates the
-bootloader-chosen load address.
+constraint set is rarely empty. On architectures without KASLR, the
+engine locates the bootloader-chosen load address.
 
 Supports:
 
@@ -61,7 +63,7 @@ can temporarily relax these settings (requires root).
 The default text mode prints an answer-first overview:
 
 ```
-KASLD 0.3.0  --  Kernel ASLR derandomization
+KASLD 0.3.1-dev  --  Kernel ASLR derandomization
 Target: x86_64 / 6.15.6
 
 Running 83 components (10 experimental skipped; use -x to enable)...
@@ -71,9 +73,7 @@ Running 83 components (10 experimental skipped; use -x to enable)...
   Physical image base not derandomized     ~9 bits
                       0x0000000001000000 - 0x000000003c20ca00   (473 x 2.0 MiB)
   Direct map base     >= 0xffff800000000000
-
-  Coupling            virt and phys text are independent on this arch.
-                      A phys leak does NOT reveal the virt text base.
+  Phys/Virt Coupling  physical and virtual text randomize independently
 
 Leaks (1):
   virt kernel text    0xffffffff83800000   (prefetch)
@@ -91,6 +91,12 @@ See [docs/usage.md](docs/usage.md) for the full CLI, output-mode
 details, explain mode, and hardening assessment.
 
 ## Documentation
+
+New to KASLD? Read in order: [docs/kaslr.md](docs/kaslr.md) (what KASLR is and
+what it randomizes) → [docs/architecture.md → A leak from end to
+end](docs/architecture.md#a-leak-from-end-to-end) (how KASLD turns one leak into
+an answer) → [CONTRIBUTING.md](CONTRIBUTING.md) (add a leak component or
+inference rule). The table below is the per-audience reference.
 
 | Audience | Document |
 |---|---|
