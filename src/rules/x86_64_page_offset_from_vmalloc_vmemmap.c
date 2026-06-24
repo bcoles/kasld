@@ -22,11 +22,16 @@
 //   virt_page_offset_max ≤ V_mm − VMALLOC_SIZE_TB·1TB − directmap_size −
 //   2·PUD_SIZE
 //
-// `directmap_size` is derived from SF_PHYS_MAX_PFN with the kernel's
-// RANDOMIZE_MEMORY_PHYSICAL_PADDING (default 10 TiB). `VMALLOC_SIZE_TB` is
-// 32 (L4) or 12800 (L5), discriminated from the current Q_PAGE_OFFSET lower
-// edge in the same way x86_64_vmalloc_base_bound does (the L4 floor is
-// 0xffff800000000000; below that is L5 territory).
+// `directmap_size` is derived from SF_PHYS_MAX_PFN with the MINIMUM
+// RANDOMIZE_MEMORY_PHYSICAL_PADDING (0): a larger real padding enlarges the real
+// directmap, which only lowers the real page_offset, so subtracting the minimum
+// directmap keeps this UPPER bound sound (assuming 10 was unsound on no-hotplug
+// kernels, whose default padding is 0). `VMALLOC_SIZE_TB` is 32 (L4) or 12800
+// (L5); since the vmemmap-derived bound SUBTRACTS it from the witness, a bigger
+// (L5) value is a tighter, unsound-under-uncertainty guess. So default to L4 and
+// commit to L5 only when Q_PAGE_OFFSET is RESOLVED to a point (lo == hi) below
+// the L4 VAS floor (0xffff800000000000) — genuine L5. (Same discipline as the
+// fixed x86_64_vmalloc_base_bound upper bound.)
 //
 // The forward chain rules (x86_64_vmalloc_base_bound /
 // x86_64_vmemmap_base_bound) already propagate Q_PAGE_OFFSET → Q_VMALLOC_BASE
@@ -51,7 +56,7 @@
 #define TB_SHIFT 40
 #define PUD_SHIFT 30
 #define PAGE_SHIFT 12
-#define RANDOMIZE_MEMORY_PHYSICAL_PADDING 10ul
+#define RANDOMIZE_MEMORY_PHYSICAL_PADDING 0ul /* minimum; see header */
 #define VMALLOC_SIZE_TB_L4 32ul
 #define VMALLOC_SIZE_TB_L5 12800ul
 #define X86_64_L4_VAS_START 0xffff800000000000ul

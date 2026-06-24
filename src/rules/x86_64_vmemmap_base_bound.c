@@ -32,7 +32,13 @@
 #define TB_SHIFT 40
 #define PUD_SHIFT 30
 #define PAGE_SHIFT 12
-#define RANDOMIZE_MEMORY_PHYSICAL_PADDING 10ul
+/* Minimum CONFIG_RANDOMIZE_MEMORY_PHYSICAL_PADDING (0). A larger real padding
+ * enlarges the real directmap, hence the real vmemmap_size, which would only
+ * LOWER the real vmemmap base — so the upper bound (CPU_ENTRY_AREA_BASE -
+ * vmemmap_size) stays sound when computed with the minimum padding. Assuming 10
+ * over-sized vmemmap_size and pushed the ceiling below the truth on no-hotplug
+ * kernels (default padding 0). */
+#define RANDOMIZE_MEMORY_PHYSICAL_PADDING 0ul
 
 /* CPU_ENTRY_AREA_BASE = -4 << P4D_SHIFT = 0xfffffe0000000000 (L4 and L5). */
 #define CPU_ENTRY_AREA_BASE 0xfffffe0000000000ul

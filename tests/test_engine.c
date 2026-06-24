@@ -1932,7 +1932,7 @@ static void test_x86_64_vmalloc_vmemmap_chain(void) {
   unsigned long one_tb = 1ul << 40;
   unsigned long pud = 1ul << 30;
   unsigned long page_bytes = max_pfn << 12;
-  unsigned long memory_tb = (page_bytes + one_tb - 1) / one_tb + 10ul;
+  unsigned long memory_tb = (page_bytes + one_tb - 1) / one_tb + 0ul; /* min pad */
   unsigned long directmap_tb = memory_tb < 4096ul ? memory_tb : 4096ul;
 
   unsigned long vmalloc_lo = po + directmap_tb * one_tb + pud;
@@ -2046,10 +2046,10 @@ static void test_x86_64_po_from_vmalloc(void) {
                                             .conf = CONF_PARSED,
                                             .valid = 1});
 
-  /* directmap_size = (4 GiB rounded-to-1-TiB) + 10 TiB padding = 11 TiB. */
+  /* directmap_size = (4 GiB rounded-to-1-TiB) + 0 TiB (min padding) = 1 TiB. */
   unsigned long one_tb = 1ul << 40;
   unsigned long pud = 1ul << 30;
-  unsigned long directmap_size = 11ul * one_tb;
+  unsigned long directmap_size = 1ul * one_tb; /* 4 GiB->1 TiB + 0 padding */
   /* Pick a vmalloc witness that yields a non-trivial bound: base + 100 MiB. */
   unsigned long po_truth = 0xffff888000000000ul;
   unsigned long va_witness = po_truth + directmap_size + pud + 0x6400000ul;
@@ -2084,7 +2084,7 @@ static void test_x86_64_po_from_vmemmap(void) {
 
   unsigned long one_tb = 1ul << 40;
   unsigned long pud = 1ul << 30;
-  unsigned long directmap_size = 11ul * one_tb;
+  unsigned long directmap_size = 1ul * one_tb; /* 4 GiB->1 TiB + 0 padding */
   unsigned long vmalloc_size = 32ul * one_tb; /* L4 default */
   unsigned long po_truth = 0xffff888000000000ul;
   unsigned long mm_witness =
@@ -2133,7 +2133,7 @@ static void test_x86_64_po_from_vmemmap_pinned_l5(void) {
 #if defined(__x86_64__)
   struct engine e;
   engine_init(&e);
-  unsigned long max_pfn = 0x100000ul; /* 4 GiB -> directmap_size 11 TiB */
+  unsigned long max_pfn = 0x100000ul; /* 4 GiB -> directmap_size 1 TiB */
   evidence_add(&e.ev, &(struct observation){.value_kind = OBS_SCALAR,
                                             .scalar_fact = SF_PHYS_MAX_PFN,
                                             .scalar_value = max_pfn,
@@ -2142,7 +2142,7 @@ static void test_x86_64_po_from_vmemmap_pinned_l5(void) {
 
   unsigned long one_tb = 1ul << 40;
   unsigned long pud = 1ul << 30;
-  unsigned long directmap_size = 11ul * one_tb;
+  unsigned long directmap_size = 1ul * one_tb; /* 4 GiB->1 TiB + 0 padding */
   unsigned long vmalloc_size_l5 = 12800ul * one_tb;
 
   /* Pin Q_PAGE_OFFSET (lo==hi) to an L5-territory base, below the L4 VAS floor
@@ -2208,7 +2208,7 @@ static void test_x86_64_po_from_vmemmap_pinned_l4_keeps_l4(void) {
 
   unsigned long one_tb = 1ul << 40;
   unsigned long pud = 1ul << 30;
-  unsigned long directmap_size = 11ul * one_tb;
+  unsigned long directmap_size = 1ul * one_tb; /* 4 GiB->1 TiB + 0 padding */
   unsigned long vmalloc_size_l4 = 32ul * one_tb;
 
   /* Pin at the canonical L4 base: lo==hi, but ABOVE the L4 VAS floor. */

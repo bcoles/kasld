@@ -20,10 +20,13 @@
 //   TiB - PUD_SIZE
 //
 // where directmap_size_tb = DIV_ROUND_UP(max_pfn * PAGE_SIZE, 1 TiB) +
-// CONFIG_RANDOMIZE_MEMORY_PHYSICAL_PADDING (kernel default 10), capped at the
-// 4096 TiB architectural ceiling. max_pfn arrives as SF_PHYS_MAX_PFN
-// (/proc/zoneinfo). The padding is a hardcoded assumption — a larger kernel
-// padding only makes the lower bound looser (still valid), never wrong.
+// CONFIG_RANDOMIZE_MEMORY_PHYSICAL_PADDING, capped at the 4096 TiB
+// architectural ceiling. max_pfn arrives as SF_PHYS_MAX_PFN (/proc/zoneinfo).
+// The padding is assumed to be its MINIMUM (0): the kernel default is 0xa only
+// with CONFIG_MEMORY_HOTPLUG, else 0 (range 0..0x40). A larger real padding
+// only ENLARGES the real directmap, which raises the real vmalloc base — so a
+// 0 assumption keeps this lower bound sound (looser) for every config.
+// (Assuming 10 was unsound on no-hotplug / sub-10-padding kernels.)
 // VMALLOC_SIZE_TB is 32 (L4) or 12800 (L5), by paging mode.
 //
 // CROSS-QUANTITY: the lower bound reads the engine's resolved Q_PAGE_OFFSET
@@ -47,7 +50,9 @@
 #define TB_SHIFT 40
 #define PUD_SHIFT 30
 #define PAGE_SHIFT 12
-#define RANDOMIZE_MEMORY_PHYSICAL_PADDING 10ul
+/* Minimum CONFIG_RANDOMIZE_MEMORY_PHYSICAL_PADDING (0); see the header — the
+ * real padding only enlarges the real directmap, so 0 keeps the bound sound. */
+#define RANDOMIZE_MEMORY_PHYSICAL_PADDING 0ul
 #define VMALLOC_SIZE_TB_L4 32ul
 #define VMALLOC_SIZE_TB_L5 12800ul
 #define X86_64_L4_VAS_START 0xffff800000000000ul
@@ -97,7 +102,7 @@ int rule_x86_64_vmalloc_base_bound(const struct evidence_set *ev,
     c->q = Q_VMALLOC_BASE;
     c->op = C_LOWER_BOUND;
     c->value = candidate;
-    c->conf = CONF_INFERRED; /* assumes default PHYSICAL_PADDING */
+    c->conf = CONF_INFERRED; /* minimum-padding model; sound for any config */
     c->lineage_count = 0;
     c->derived_from[c->lineage_count++] = pfn_src;
     if (po->lo_binding)
