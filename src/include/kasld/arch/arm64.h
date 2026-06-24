@@ -168,13 +168,18 @@ static inline unsigned long arm64_page_end_for(unsigned long va_bits) {
 // https://elixir.bootlin.com/linux/v6.12/source/arch/arm64/include/asm/memory.h#L46
 // Use v6.2+ value (2G module region, current default).
 #define KIMAGE_VADDR 0xffff800080000000ul
-// Module-region size (KIMAGE_VADDR = _PAGE_END(VA_BITS_MIN) + this). v6.2+ uses
-// SZ_2G; older kernels used 128M/256M. rule_arm64_text_base derives
-// KIMAGE_VADDR for the resolved VA_BITS_MIN as arm64_page_end_for(VA_BITS_MIN)
-// + this — for VA_BITS_MIN=48 that reproduces KIMAGE_VADDR above. The version
-// spread is the pin's residual imprecision (inferred confidence; a real leak
-// overrides).
+// Module-region size (KIMAGE_VADDR = _PAGE_END(VA_BITS_MIN) + this). It varies
+// by version: v5.4 used SZ_128M, a v5.x variant SZ_256M, v6.2+ SZ_2G. The size
+// is not runtime-discoverable and cannot be keyed on a version number, so
+// rule_arm64_text_base brackets KIMAGE_VADDR across the whole spread:
+//   * the image-base FLOOR uses _MIN (SZ_128M, the lowest KIMAGE_VADDR), so the
+//     window admits a 5.4..6.1 (128M-region) kernel whose text sits at
+//     _PAGE_END+128M — using the 2G value here excludes it (unsound);
+//   * the KASLR ceiling and the no-KASLR cap use the _MAX (SZ_2G, the highest
+//     KIMAGE_VADDR), so the window admits a v6.2+ kernel's higher base.
+// KIMAGE_VADDR above is the _MAX value (= _PAGE_END(48) + SZ_2G).
 #define ARM64_MODULE_REGION_SIZE (2ul * GB)
+#define ARM64_MODULE_REGION_SIZE_MIN (128ul * MB)
 
 // See docs/kaslr.md "Default text base and KASLR alignment" for all
 // architectures. Kernel source: arch/arm64/kernel/vmlinux.lds.S,

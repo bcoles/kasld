@@ -652,10 +652,11 @@ static void test_full_engine_arm64_va39_sub48(void) {
 #endif
 }
 
-/* B Phase 2: rule_arm64_text_base pins the no-KASLR base at the correct
- * KIMAGE_VADDR for the resolved VA_BITS_MIN. A 39-bit (4K 3-level) no-KASLR
- * kernel must pin to KIMAGE_VADDR(39) = _PAGE_END(39) + 2G =
- * 0xffffffc080000000, not the 48-bit default the generic pin used to force. */
+/* B Phase 2: rule_arm64_text_base brackets the no-KASLR base across the
+ * module-region spread for the resolved VA_BITS_MIN. A 39-bit (4K 3-level)
+ * no-KASLR kernel's KIMAGE_VADDR(39) is one of {_PAGE_END(39)+128M, +256M,
+ * +2G}; the size is unknown, so the window is the tight range [+128M, +2G], NOT
+ * the 48-bit default the generic pin used to force. */
 static void test_full_engine_arm64_va39_no_kaslr(void) {
 #if defined(__aarch64__)
   struct engine e;
@@ -672,16 +673,19 @@ static void test_full_engine_arm64_va39_no_kaslr(void) {
   engine_run_full(&e, rules, nr, vrules, nv);
 
   const struct estimate *vt = &e.est[Q_VIRT_IMAGE_BASE];
-  unsigned long kimg39 =
-      arm64_page_end_for(39ul) + 0x80000000ul; /* 0xffffffc080000000 */
-  assert(vt->lo == kimg39 && vt->hi == kimg39);
+  unsigned long pe39 = arm64_page_end_for(39ul);
+  assert(vt->lo == pe39 + 0x8000000ul);  /* +128M (smallest region) */
+  assert(vt->hi == pe39 + 0x80000000ul); /* +2G   (largest region)  */
+  /* Admits both a 128M-region (5.4..6.1) and a 2G-region no-KASLR text base. */
+  assert(vt->lo <= pe39 + 0x8000000ul && pe39 + 0x80000000ul <= vt->hi);
 #endif
 }
 
-/* Regression guard for the common 48-bit case (matches a real Allwinner board):
- * a 48-bit no-KASLR kernel must still pin to KERNEL_VIRT_TEXT_DEFAULT
- * (0xffff800080000000) — the behaviour the generic pin gave before arm64 was
- * opted out, now reproduced by rule_arm64_text_base. */
+/* 48-bit no-KASLR: the base is KIMAGE_VADDR(48), one of {_PAGE_END+128M, +256M,
+ * +2G}. The window brackets the spread to [_PAGE_END+128M, _PAGE_END+2G] =
+ * [0xffff800008000000, 0xffff800080000000]. The lower edge admits a 5.4..6.1
+ * (128M-region) kernel's text — the bug this guards against pinned to the 2G
+ * value (KERNEL_VIRT_TEXT_DEFAULT) and excluded the real low base. */
 static void test_full_engine_arm64_va48_no_kaslr(void) {
 #if defined(__aarch64__)
   struct engine e;
@@ -697,15 +701,20 @@ static void test_full_engine_arm64_va48_no_kaslr(void) {
   engine_run_full(&e, rules, nr, vrules, nv);
 
   const struct estimate *vt = &e.est[Q_VIRT_IMAGE_BASE];
-  assert(vt->lo == (unsigned long)KERNEL_VIRT_TEXT_DEFAULT &&
-         vt->hi == (unsigned long)KERNEL_VIRT_TEXT_DEFAULT);
+  assert(vt->lo == 0xffff800008000000ul); /* _PAGE_END(48) + 128M */
+  assert(vt->hi == (unsigned long)KERNEL_VIRT_TEXT_DEFAULT); /* +2G */
+  /* Both the 128M-region truth and the 2G default sit inside the window. */
+  assert(vt->lo <= 0xffff800008000000ul && 0xffff800008000000ul <= vt->hi);
+  assert(vt->lo <= (unsigned long)KERNEL_VIRT_TEXT_DEFAULT &&
+         (unsigned long)KERNEL_VIRT_TEXT_DEFAULT <= vt->hi);
 #endif
 }
 
 /* 48-bit KASLR-ON with no text leak: rule_arm64_text_base re-narrows the
- * (union, Phase-1-widened) honest top back to the tight 48-bit KASLR band
- * [KIMAGE_VADDR, KASLR_VIRT_TEXT_MAX] once PAGE_OFFSET resolves — undoing the
- * ceiling-widening's precision cost for the common case. */
+ * (union, Phase-1-widened) honest top back to the 48-bit KASLR band once
+ * PAGE_OFFSET resolves. The floor uses the smallest module region
+ * (_PAGE_END(48)+128M) so a 5.4..6.1 kernel's lower text base is admitted; the
+ * ceiling is still the 2G-region KASLR-window top (KASLR_VIRT_TEXT_MAX). */
 static void test_full_engine_arm64_va48_kaslr_window(void) {
 #if defined(__aarch64__)
   struct engine e;
@@ -720,18 +729,19 @@ static void test_full_engine_arm64_va48_kaslr_window(void) {
   engine_run_full(&e, rules, nr, vrules, nv);
 
   const struct estimate *vt = &e.est[Q_VIRT_IMAGE_BASE];
-  assert(vt->lo == (unsigned long)KIMAGE_VADDR);
+  assert(vt->lo == arm64_page_end_for(48ul) + 0x8000000ul); /* +128M floor */
   assert(vt->hi == (unsigned long)KASLR_VIRT_TEXT_MAX);
   /* Proves the narrowing happened: the union ceiling is strictly higher. */
   assert(vt->hi < (unsigned long)KASLR_VIRT_TEXT_MAX_WIDE);
 #endif
 }
 
-/* A sub-48 (39-bit) KASLR-on kernel resolves to its own text band
- * [KIMAGE_VADDR(39), KIMAGE_VADDR(39) + max-KASLR-offset(39)] — narrower than
- * and disjoint from the 48-bit window. compute_kaslr_info derives the
- * entropy/slot count from this resolved band, so reporting is VA_BITS-correct
- * for free; this guards that the band itself is right. */
+/* A sub-48 (39-bit) KASLR-on kernel resolves to its own text band — floor at
+ * the smallest-region KIMAGE_VADDR(39) (_PAGE_END(39)+128M), ceiling at the
+ * largest-region base plus the max KASLR offset — narrower than and disjoint
+ * from the 48-bit window. compute_kaslr_info derives the entropy/slot count
+ * from this resolved band, so reporting is VA_BITS-correct for free; this
+ * guards that the band itself is right. */
 static void test_full_engine_arm64_va39_kaslr_window(void) {
 #if defined(__aarch64__)
   struct engine e;
@@ -745,10 +755,11 @@ static void test_full_engine_arm64_va39_kaslr_window(void) {
   const verdict_fn *vrules = engine_verdict_rules(&nv);
   engine_run_full(&e, rules, nr, vrules, nv);
 
-  unsigned long kimg39 = arm64_page_end_for(39ul) + 0x80000000ul;
-  unsigned long ceiling39 = kimg39 + (1ul << 36) + (1ul << 37);
+  unsigned long pe39 = arm64_page_end_for(39ul);
+  unsigned long ceiling39 = pe39 + 0x80000000ul + (1ul << 36) + (1ul << 37);
   const struct estimate *vt = &e.est[Q_VIRT_IMAGE_BASE];
-  assert(vt->lo == kimg39 && vt->hi == ceiling39);
+  assert(vt->lo == pe39 + 0x8000000ul); /* +128M floor */
+  assert(vt->hi == ceiling39);          /* +2G base + max offset */
   /* Disjoint from the 48-bit window — its own narrower band. */
   assert(vt->lo > (unsigned long)KASLR_VIRT_TEXT_MAX);
 #endif
