@@ -20,7 +20,9 @@
 //
 // linux,usable-memory-range contains one or more (base, size) u64 pairs
 //   describing the physical memory ranges the crash kernel may use.
-//   These are DRAM ranges within the crash kernel's memory reservation.
+//   These are DRAM ranges the crash kernel is capped to and that its own
+//   image occupies, so they are emitted as REGION_RAM (image-occupiable),
+//   NOT as a forbidden reservation.
 //
 // All device tree sysfs properties are world-readable (0444); no capability
 // check is performed. These properties are NOT sanitized after boot (unlike
@@ -183,13 +185,20 @@ int main(void) {
         continue;
       kasld_info("linux,usable-memory-range[%d]: base=0x%016llx  size=0x%llx",
                  i, (unsigned long long)base, (unsigned long long)size);
+      /* usable-memory-range is the DRAM the crash kernel is capped to
+       * (memblock_cap_memory_range) — the RAM the running (crash) kernel image
+       * itself OCCUPIES, so it is REGION_RAM, NOT a forbidden reservation. The
+       * crash kernel's physical base lies inside this range; tagging it
+       * REGION_CRASHKERNEL (an is_phys_kernel_forbidden_region) would make
+       * phys_reservation_exclude carve out the true base. (linux,elfcorehdr
+       * above is a genuine memblock_reserve the image won't overlap, so it
+       * stays REGION_CRASHKERNEL.) */
       if (size) {
-        kasld_result_sized(KASLD_TYPE_PHYS, REGION_CRASHKERNEL,
-                           (unsigned long)base, (unsigned long)size,
-                           "usable-memory", CONF_PARSED);
+        kasld_result_sized(KASLD_TYPE_PHYS, REGION_RAM, (unsigned long)base,
+                           (unsigned long)size, "usable-memory", CONF_PARSED);
       } else {
-        kasld_result_sample(KASLD_TYPE_PHYS, REGION_CRASHKERNEL,
-                            (unsigned long)base, "usable-memory", CONF_PARSED);
+        kasld_result_sample(KASLD_TYPE_PHYS, REGION_RAM, (unsigned long)base,
+                            "usable-memory", CONF_PARSED);
       }
 #ifdef phys_to_directmap_virt
       unsigned long virt = phys_to_directmap_virt((unsigned long)base);
