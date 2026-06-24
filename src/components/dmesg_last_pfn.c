@@ -77,24 +77,37 @@ static int on_match(const char *line, void *ctx) {
     return 1;
 
   char *endptr;
-  unsigned long pfn = strtoul(p + strlen("last_pfn = "), &endptr, 16);
+  unsigned long long pfn = strtoull(p + strlen("last_pfn = "), &endptr, 16);
   if (endptr == p + strlen("last_pfn = ") || pfn == 0)
     return 1;
 
-  /* last_pfn is the first invalid PFN (one past the end of RAM).
-   * Subtract 1 to get the last valid byte address. */
-  unsigned long last_byte = pfn * PAGE_SIZE - 1;
+  /* last_pfn is the first invalid PFN (one past the end of RAM); subtract 1 for
+   * the last valid byte. Compute in 64-bit: on i386 (PAE) pfn * PAGE_SIZE can
+   * exceed 32 bits. */
+  unsigned long long last_byte = pfn * (unsigned long long)PAGE_SIZE - 1;
 
   match_count++;
   /* The kernel prints two "last_pfn = ..." lines at boot:
    *   #1 — e820__end_of_ram_pfn()     — true top of usable RAM → RAM_TOP
    *   #2 — e820__end_of_low_ram_pfn() — ceiling of memory below 4 GiB →
-   * DMA32_TOP The ordering is stable; the first match is the meaningful one. */
+   * DMA32_TOP The ordering is stable; the first match is the meaningful one.
+   * (Increment before any skip so the RAM/DMA32 labeling stays aligned.) */
   enum kasld_region region = (match_count == 1) ? REGION_RAM : REGION_DMA32;
 
-  kasld_found("leaked last_pfn: %#lx (last valid byte: 0x%016lx)", pfn,
+  /* The wire value is unsigned long; on i386 that is 32-bit. A >4 GiB ceiling
+   * would truncate to a wrong (and possibly too-low → unsound, since this is a
+   * C_UPPER_BOUND on RAM/DMA32 top) value, so emit nothing rather than a
+   * corrupt ceiling. On x86_64 unsigned long is 64-bit, so this never triggers.
+   */
+  if ((unsigned long)last_byte != last_byte) {
+    kasld_info("last_pfn %#llx ceiling exceeds 32-bit wire; not emitting", pfn);
+    return 1;
+  }
+
+  kasld_found("leaked last_pfn: %#llx (last valid byte: 0x%016llx)", pfn,
               last_byte);
-  kasld_result_top(KASLD_TYPE_PHYS, region, last_byte, NULL, CONF_PARSED);
+  kasld_result_top(KASLD_TYPE_PHYS, region, (unsigned long)last_byte, NULL,
+                   CONF_PARSED);
 
   return 1; /* keep scanning for second line */
 }

@@ -78,19 +78,28 @@ static int on_match(const char *line, void *ctx) {
   struct e820_ctx *e = ctx;
 
   /*
-   * Two formats:
-   *   BIOS-e820: [mem 0x...-0x...] usable     (pr_info, type-tagged)
-   *   e820: reserve RAM buffer [mem 0x...-0x...] (KERN_DEBUG, always RAM)
-   *
-   * For BIOS-e820 lines, only "usable" entries are actual DRAM.
-   * The "reserve RAM buffer" lines are derived from RAM entries in the kernel
-   * (e820.c only processes E820_TYPE_RAM), so they are always DRAM-relevant.
+   * Only two e820 line shapes denote usable DRAM:
+   *   BIOS-e820:/modified:/user: [mem ...] usable  (type-tagged usable RAM)
+   *   e820: reserve RAM buffer [mem ...]           (derived from an
+   *                                                 E820_TYPE_RAM entry)
+   * Every other e820 line names a NON-RAM range — e.g.
+   *   e820: update [mem ...] usable ==> reserved
+   *   e820: remove [mem ...]
+   * and a type-tagged line whose type is not "usable" (reserved, ACPI, ...).
+   * Folding any of those into REGION_RAM pollutes the map (a stray low range
+   * lowers the RAM base; a stray high range raises the RAM top), so accept only
+   * the two RAM shapes and reject everything else.
    */
-  int is_bios_line = strstr(line, "BIOS-e820:") != NULL ||
-                     strstr(line, "modified:") != NULL ||
-                     strstr(line, "user:") != NULL;
-  if (is_bios_line && !strstr(line, "usable"))
+  int is_tagged = strstr(line, "BIOS-e820:") != NULL ||
+                  strstr(line, "modified:") != NULL ||
+                  strstr(line, "user:") != NULL;
+  int is_ram_buffer = strstr(line, "reserve RAM buffer") != NULL;
+  if (is_tagged) {
+    if (!strstr(line, "usable"))
+      return 1;
+  } else if (!is_ram_buffer) {
     return 1;
+  }
 
   const char *p = strstr(line, "[mem ");
   if (!p)
