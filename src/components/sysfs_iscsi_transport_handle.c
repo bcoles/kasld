@@ -122,7 +122,9 @@ static unsigned long get_kernel_addr_iscsi_iser_transport(void) {
 
   addr = strtoul(buff, &endptr, 10);
 
-  if (kasld_addr_is_kernel_text(addr))
+  /* Accept any kernel-VAS pointer (reject userspace/NULL); the image-vs-module
+   * classification happens at emit time in emit_iscsi_transport. */
+  if (kasld_addr_is_kernel_vas(addr))
     return addr;
 
   return 0;
@@ -165,21 +167,35 @@ static unsigned long get_kernel_addr_iscsi_sw_tcp_transport(void) {
   return 0;
 }
 
+/* The struct iscsi_transport lives in MODULE memory when the driver is built as
+ * a module (the usual case — the iscsi_tcp / ib_iser modules are autoloaded
+ * above), or in the kernel image .data section when built in. Classify by range
+ * so a module pointer is tagged REGION_MODULE_REGION, not an image region: a
+ * KERNEL_DATA tag on a module pointer feeds image_size_text_data_gap a bogus
+ * (>1 GiB) text..data gap, which pushes the Q_VIRT_IMAGE_BASE ceiling below the
+ * true base and excludes it. */
+static void emit_iscsi_transport(unsigned long addr, const char *name) {
+  if (kasld_addr_is_module_region(addr))
+    kasld_result_sample(KASLD_TYPE_VIRT, REGION_MODULE_REGION, addr, name,
+                        CONF_PARSED);
+  else if (kasld_addr_is_kernel_text(addr))
+    kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_DATA, addr, name,
+                        CONF_PARSED);
+}
+
 int main(void) {
   unsigned long addr;
 
   addr = get_kernel_addr_iscsi_iser_transport();
   if (addr) {
     kasld_found("leaked iscsi_iser_transport address: %lx", addr);
-    kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_DATA, addr,
-                        "iscsi_iser_transport", CONF_PARSED);
+    emit_iscsi_transport(addr, "iscsi_iser_transport");
   }
 
   addr = get_kernel_addr_iscsi_sw_tcp_transport();
   if (addr) {
     kasld_found("leaked iscsi_sw_tcp_transport address: %lx", addr);
-    kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_DATA, addr,
-                        "iscsi_sw_tcp_transport", CONF_PARSED);
+    emit_iscsi_transport(addr, "iscsi_sw_tcp_transport");
   }
 
   return 0;
