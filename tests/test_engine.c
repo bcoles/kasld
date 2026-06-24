@@ -1932,7 +1932,8 @@ static void test_x86_64_vmalloc_vmemmap_chain(void) {
   unsigned long one_tb = 1ul << 40;
   unsigned long pud = 1ul << 30;
   unsigned long page_bytes = max_pfn << 12;
-  unsigned long memory_tb = (page_bytes + one_tb - 1) / one_tb + 0ul; /* min pad */
+  unsigned long memory_tb =
+      (page_bytes + one_tb - 1) / one_tb + 0ul; /* min pad */
   unsigned long directmap_tb = memory_tb < 4096ul ? memory_tb : 4096ul;
 
   unsigned long vmalloc_lo = po + directmap_tb * one_tb + pud;
@@ -2085,7 +2086,7 @@ static void test_x86_64_po_from_vmemmap(void) {
   unsigned long one_tb = 1ul << 40;
   unsigned long pud = 1ul << 30;
   unsigned long directmap_size = 1ul * one_tb; /* 4 GiB->1 TiB + 0 padding */
-  unsigned long vmalloc_size = 32ul * one_tb; /* L4 default */
+  unsigned long vmalloc_size = 32ul * one_tb;  /* L4 default */
   unsigned long po_truth = 0xffff888000000000ul;
   unsigned long mm_witness =
       po_truth + directmap_size + vmalloc_size + 2ul * pud + 0x6400000ul;

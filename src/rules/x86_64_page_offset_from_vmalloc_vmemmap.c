@@ -23,15 +23,15 @@
 //   2·PUD_SIZE
 //
 // `directmap_size` is derived from SF_PHYS_MAX_PFN with the MINIMUM
-// RANDOMIZE_MEMORY_PHYSICAL_PADDING (0): a larger real padding enlarges the real
-// directmap, which only lowers the real page_offset, so subtracting the minimum
-// directmap keeps this UPPER bound sound (assuming 10 was unsound on no-hotplug
-// kernels, whose default padding is 0). `VMALLOC_SIZE_TB` is 32 (L4) or 12800
-// (L5); since the vmemmap-derived bound SUBTRACTS it from the witness, a bigger
-// (L5) value is a tighter, unsound-under-uncertainty guess. So default to L4 and
-// commit to L5 only when Q_PAGE_OFFSET is RESOLVED to a point (lo == hi) below
-// the L4 VAS floor (0xffff800000000000) — genuine L5. (Same discipline as the
-// fixed x86_64_vmalloc_base_bound upper bound.)
+// RANDOMIZE_MEMORY_PHYSICAL_PADDING (0): a larger real padding enlarges the
+// real directmap, which only lowers the real page_offset, so subtracting the
+// minimum directmap keeps this UPPER bound sound (assuming 10 was unsound on
+// no-hotplug kernels, whose default padding is 0). `VMALLOC_SIZE_TB` is 32 (L4)
+// or 12800 (L5); since the vmemmap-derived bound SUBTRACTS it from the witness,
+// a bigger (L5) value is a tighter, unsound-under-uncertainty guess. So default
+// to L4 and commit to L5 only when Q_PAGE_OFFSET is RESOLVED to a point (lo ==
+// hi) below the L4 VAS floor (0xffff800000000000) — genuine L5. (Same
+// discipline as the fixed x86_64_vmalloc_base_bound upper bound.)
 //
 // The forward chain rules (x86_64_vmalloc_base_bound /
 // x86_64_vmemmap_base_bound) already propagate Q_PAGE_OFFSET → Q_VMALLOC_BASE
