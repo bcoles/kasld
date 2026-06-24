@@ -1538,7 +1538,8 @@ int rule_vmsplit_text_base(const struct evidence_set *ev,
 
 /* vmsplit_text_base (arm32, no KASLR): a virtual kernel-text witness snaps to
  * its 1 GiB VMSPLIT boundary, pinning Q_PAGE_OFFSET to that boundary and
- * Q_VIRT_IMAGE_BASE to boundary + IMAGE_BASE_OFFSET. */
+ * FLOORING Q_VIRT_IMAGE_BASE at boundary + IMAGE_BASE_OFFSET (a lower bound,
+ * not an exact pin — TEXT_OFFSET varies by config). */
 static void test_vmsplit_text_base(void) {
   struct engine e;
   engine_init(&e);
@@ -1551,17 +1552,56 @@ static void test_vmsplit_text_base(void) {
   evidence_add(&e.ev, &o);
   const rule_fn rules[] = {rule_vmsplit_text_base};
   engine_run(&e, rules, 1);
+  struct estimate vtop;
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&vtop);
 #if defined(HAVE_VMSPLIT_PAGE_OFFSET) && !KASLR_SUPPORTED
   assert(e.est[Q_PAGE_OFFSET].lo == boundary &&
          e.est[Q_PAGE_OFFSET].hi == boundary);
-  assert(e.est[Q_VIRT_IMAGE_BASE].lo == witness &&
-         e.est[Q_VIRT_IMAGE_BASE].hi == witness);
+  /* Lower bound at boundary + IMAGE_BASE_OFFSET; the top is not pinned. */
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo ==
+         boundary + (unsigned long)IMAGE_BASE_OFFSET);
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi == vtop.hi);
 #else
-  struct estimate potop, vtop;
+  struct estimate potop;
   quantities[Q_PAGE_OFFSET].init_top(&potop);
-  quantities[Q_VIRT_IMAGE_BASE].init_top(&vtop);
   assert(e.est[Q_PAGE_OFFSET].lo == potop.lo); /* inert off arm32 */
   assert(e.est[Q_VIRT_IMAGE_BASE].hi == vtop.hi);
+#endif
+}
+
+/* Regression: a kernel whose TEXT_OFFSET exceeds IMAGE_BASE_OFFSET (0x208000,
+ * as on the Alpine arm32 kernels) must NOT be snapped down to PAGE_OFFSET +
+ * 0x8000. vmsplit_text_base only floors (lower bound), so the resolved window
+ * admits the real _text — alone it stays sound, and with
+ * text_pin_from_observation the observed base pins it exactly (the bug pinned
+ * 0x...08000 and excluded truth). */
+int rule_text_pin_from_observation(const struct evidence_set *ev,
+                                   const struct estimate *est,
+                                   struct constraint *out, int out_max);
+
+static void test_vmsplit_text_base_nondefault_offset(void) {
+  struct engine e;
+  engine_init(&e);
+  unsigned long boundary = 0x80000000ul;
+  unsigned long real_text = boundary + 0x208000ul; /* TEXT_OFFSET = 0x208000 */
+  /* KERNEL_IMAGE POS_BASE = the image base (_text), as kallsyms reports it. */
+  struct observation o = mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE, real_text,
+                                LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
+  evidence_add(&e.ev, &o);
+  const rule_fn rules[] = {rule_vmsplit_text_base,
+                           rule_text_pin_from_observation};
+  engine_run(&e, rules, 2);
+#if defined(HAVE_VMSPLIT_PAGE_OFFSET) && !KASLR_SUPPORTED
+  assert(e.est[Q_PAGE_OFFSET].lo ==
+         boundary); /* PAGE_OFFSET still determined */
+  /* The real _text is admitted and pinned — NOT excluded down to +0x8000. */
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo <= real_text &&
+         real_text <= e.est[Q_VIRT_IMAGE_BASE].hi);
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo == real_text &&
+         e.est[Q_VIRT_IMAGE_BASE].hi == real_text);
+#else
+  (void)boundary;
+  (void)real_text;
 #endif
 }
 
@@ -5155,6 +5195,7 @@ int main(void) {
   RUN(test_cmdline_mem_virt_ceiling);
   RUN(test_riscv64_va_bits_pin);
   RUN(test_vmsplit_text_base);
+  RUN(test_vmsplit_text_base_nondefault_offset);
   RUN(test_cmdline_memmap_phys_exclude);
   RUN(test_cmdline_memmap_no_image_size);
 #if defined(__x86_64__)

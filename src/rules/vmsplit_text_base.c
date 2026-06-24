@@ -4,33 +4,37 @@
 //
 // On an architecture whose PAGE_OFFSET is a compile-time VMSPLIT choice and
 // which has no KASLR (ARM32: arch/arm/Kconfig VMSPLIT_3G/3G_OPT/2G/1G), the
-// kernel image base is fixed at PAGE_OFFSET + IMAGE_BASE_OFFSET. Therefore ANY
-// observed kernel virtual text address V determines the whole virtual layout:
+// kernel image sits at PAGE_OFFSET + TEXT_OFFSET, with TEXT_OFFSET >=
+// IMAGE_BASE_OFFSET (the classic 0x8000 minimum; some configs/platforms/loaders
+// place it higher, e.g. 0x208000 on the Alpine multi-platform kernels). The
+// exact TEXT_OFFSET is not reliably knowable unprivileged, so this rule does
+// NOT pin the text base — it determines PAGE_OFFSET (the valuable part) and
+// floors the image base. ANY observed kernel virtual text address V gives:
 //
 //   PAGE_OFFSET     = largest VMSPLIT boundary <= V   (V lies in the image,
-//                     which spans [PAGE_OFFSET + IMAGE_BASE_OFFSET, PAGE_OFFSET
-//                     + 1G))
-//   virt text base  = PAGE_OFFSET + IMAGE_BASE_OFFSET        (== _text,
-//   exactly)
+//                     which spans [PAGE_OFFSET + TEXT_OFFSET, PAGE_OFFSET +
+//                     1G))
+//   virt text base >= PAGE_OFFSET + IMAGE_BASE_OFFSET  (lower bound; the exact
+//                     base comes from an observed text witness via
+//                     text_pin_from_observation)
 //
 // This is the runtime "vmsplit adjustment" the arm32 header promises. Without
 // it the engine keeps the compile-time PAGE_OFFSET (0xc0000000) default, which
-// on a non-3G/1G kernel (e.g. a 2G/2G distro build) is wrong — and the raw
-// _stext pin overshoots the real _text by the head/init sections.
+// on a non-3G/1G kernel (e.g. a 2G/2G distro build) is wrong.
 //
 // We gather every virtual kernel-text witness, snap each to its boundary, and
 // take the boundary with the strongest support (highest confidence, then most
-// independent witnesses). The witness count becomes the constraint lineage, so
-// an agreeing set of leaks outranks a single raw _stext pin in the resolver
-// (estimate.c prio_before: confidence DESC, then lineage_count DESC).
+// independent witnesses). The witness count becomes the PAGE_OFFSET pin's
+// lineage. Pinning the text base to PAGE_OFFSET + IMAGE_BASE_OFFSET would be
+// UNSOUND on a kernel whose TEXT_OFFSET exceeds 0x8000 (it excludes the real
+// _text); a lower bound at that value is sound for every TEXT_OFFSET.
 //
-// Sound only where text == PAGE_OFFSET + IMAGE_BASE_OFFSET deterministically,
-// hence the !KASLR_SUPPORTED gate and the per-arch VMSPLIT_PAGE_OFFSETS opt-in.
+// Sound for any TEXT_OFFSET >= IMAGE_BASE_OFFSET, hence the !KASLR_SUPPORTED
+// gate and the per-arch VMSPLIT_PAGE_OFFSETS opt-in.
 //
 // NOT the same as api.h's kasld_floor_text_base(), and deliberately not built
-// on it: this snaps to the 1 GiB VMSPLIT boundary to *determine PAGE_OFFSET*
-// and emit an exact C_EQUALS pin, whereas the helper floors to KASLR_VIRT_ALIGN
-// (2 MiB on arm32) to produce an interior-derived upper *bound*. The coarser
+// on it: this snaps to the 1 GiB VMSPLIT boundary to *determine PAGE_OFFSET*,
+// whereas the helper floors to KASLR_VIRT_ALIGN (2 MiB on arm32). The coarser
 // boundary is essential here (a 2 MiB floor cannot tell which VMSPLIT is in
 // use, and undershoots the boundary for a leak >2 MiB above the base).
 // ---
@@ -123,10 +127,15 @@ int rule_vmsplit_text_base(const struct evidence_set *ev,
   po->lineage_count = best_nsrc;
   snprintf(po->origin, ORIGIN_LEN, "vmsplit_text_base");
 
+  /* Floor the image base at PAGE_OFFSET + IMAGE_BASE_OFFSET (the smallest
+   * TEXT_OFFSET). A lower bound, NOT an exact pin: TEXT_OFFSET varies by
+   * config/platform and pinning the minimum would exclude a kernel placed
+   * higher. The exact base is supplied by text_pin_from_observation from the
+   * observed _text/_stext witness; this only guarantees a sound floor. */
   struct constraint *vt = &out[n++];
   memset(vt, 0, sizeof(*vt));
   vt->q = Q_VIRT_IMAGE_BASE;
-  vt->op = C_EQUALS;
+  vt->op = C_LOWER_BOUND;
   vt->value = best_po + (unsigned long)IMAGE_BASE_OFFSET;
   vt->conf = best_conf;
   for (int i = 0; i < best_nsrc; i++)
