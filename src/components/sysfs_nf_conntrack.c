@@ -109,14 +109,20 @@ int main(void) {
     return 0;
   }
 
-  /* nf_conntrack is a loadable module — the leaked struct pointer is
-   * inside its module memory. Treat as a module-region leak with the
-   * module name as the instance identity. */
-  kasld_found("leaked inet_net struct pointer: %lx", addr);
-  /* Module-region pointer, not kernel text — no text-base hint (a text-align
-   * floor would mislabel a module address as a kernel base). */
-  kasld_result_sample(KASLD_TYPE_VIRT, REGION_MODULE, addr, "nf_conntrack",
-                      CONF_PARSED);
+  kasld_found("leaked net struct pointer: %lx", addr);
+  /* The leaked value is a `struct net *` (the per-namespace network struct):
+   * init_net is static in the kernel image (.data/.bss), other namespaces are
+   * kmalloc'd in the direct map. It is NEVER module memory, so do not tag it
+   * REGION_MODULE — on MODULES_RELATIVE_TO_TEXT arches (s390, riscv64) that
+   * would feed module_text_bound a bogus text-base bound from a non-module
+   * address. Classify by range; drop anything that is neither image nor direct
+   * map rather than mistag it. */
+  if (kasld_addr_is_kernel_text(addr))
+    kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_DATA, addr,
+                        "nf_conntrack", CONF_PARSED);
+  else if (kasld_addr_is_directmap(addr))
+    kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, addr, "nf_conntrack",
+                        CONF_PARSED);
 
   return 0;
 }
