@@ -144,6 +144,17 @@ int main(void) {
    */
   emit_text_order_from_kconfig(fp);
 
+  /* s390 image-base layout discriminator — see proc_config.c. CONFIG_S390=y
+   * with CONFIG_KERNEL_IMAGE_BASE present (value > 0) selects the modern high
+   * separate-kernel-mapping layout; absent (value 0) selects the pre-v6.8
+   * identity-mapped layout. Consumed by s390_image_base_from_config. */
+  if (is_kconfig_set(fp, "CONFIG_S390")) {
+    unsigned long s390_image_base = get_kconfig_kernel_image_base(fp);
+    kasld_info("CONFIG_KERNEL_IMAGE_BASE: %#lx%s", s390_image_base,
+               s390_image_base ? "" : " (absent: identity-mapped layout)");
+    kasld_emit_scalar(SF_VIRT_KERNEL_IMAGE_BASE, s390_image_base, CONF_PARSED);
+  }
+
   fclose(fp);
 
   return 0;

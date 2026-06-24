@@ -106,6 +106,7 @@ static const rule_fn k_rules[] = {
     rule_s390_text_from_belows,
     rule_s390_text_segment_mod,
     rule_s390_text_no_random,
+    rule_s390_image_base_from_config,
 
     /* ppc-specific */
     rule_ppc32_phys_ceiling,

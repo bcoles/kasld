@@ -2604,6 +2604,77 @@ static void test_s390_text_no_random_admits_empirical_phys(void) {
 #endif
 }
 
+/* s390_image_base_from_config: a parsed kernel config (CONFIG_S390=y) resolves
+ * the s390 text layout via SF_VIRT_KERNEL_IMAGE_BASE without trusting version
+ * numbers — a positive value (CONFIG_KERNEL_IMAGE_BASE) floors the image base
+ * at the modern high layout; 0 (knob absent) caps it at the top of RAM for the
+ * pre-v6.8 identity-mapped layout. */
+int rule_s390_image_base_from_config(const struct evidence_set *ev,
+                                     const struct estimate *est,
+                                     struct constraint *out, int out_max);
+
+/* Modern: CONFIG_KERNEL_IMAGE_BASE > 0 floors Q_VIRT_IMAGE_BASE at that value,
+ * recovering tightness lost to the historical-layout honest floor (0) while
+ * still admitting a real modern _text above it. */
+static void test_s390_image_base_from_config_modern_floor(void) {
+#if defined(__s390__) || defined(__s390x__)
+  struct engine e;
+  engine_init(&e);
+  const unsigned long cfg =
+      0x3FFE0000000ul; /* CONFIG_KERNEL_IMAGE_BASE default */
+  struct observation s = mk_scalar(SF_VIRT_KERNEL_IMAGE_BASE, cfg, CONF_PARSED);
+  evidence_add(&e.ev, &s);
+
+  const rule_fn rules[] = {rule_s390_image_base_from_config};
+  engine_run(&e, rules, 1);
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo == cfg);
+  const unsigned long t_modern = 0x3fffe774000ul; /* real slid _text */
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo <= t_modern &&
+         t_modern <= e.est[Q_VIRT_IMAGE_BASE].hi);
+#endif
+}
+
+/* Identity-mapped: value 0 caps Q_VIRT_IMAGE_BASE at the top of spanned RAM
+ * (max_pfn), far below the architectural vmax, while admitting the low
+ * identity-mapped _text. */
+static void test_s390_image_base_from_config_identity_ceiling(void) {
+#if defined(__s390__) || defined(__s390x__)
+  struct engine e;
+  engine_init(&e);
+  struct observation sel = mk_scalar(SF_VIRT_KERNEL_IMAGE_BASE, 0, CONF_PARSED);
+  struct observation pfn =
+      mk_scalar(SF_PHYS_MAX_PFN, 0x80000ul, CONF_PARSED); /* 2 GiB of RAM */
+  struct observation ps = mk_scalar(SF_PAGE_SIZE, 0x1000ul, CONF_PARSED);
+  evidence_add(&e.ev, &sel);
+  evidence_add(&e.ev, &pfn);
+  evidence_add(&e.ev, &ps);
+
+  const rule_fn rules[] = {rule_s390_image_base_from_config};
+  engine_run(&e, rules, 1);
+  const unsigned long ram_top = (0x80000ul + 1ul) * 0x1000ul;
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi == ram_top);
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo <= 0x200ul && 0x200ul <= ram_top);
+  struct estimate top;
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
+  assert(ram_top < top.hi); /* genuinely tighter than the architectural vmax */
+#endif
+}
+
+/* No selector fact (config unreadable) → inert; the window stays at the honest
+ * top, preserving the sound historical-layout-spanning behaviour. */
+static void test_s390_image_base_from_config_inert_without_fact(void) {
+#if defined(__s390__) || defined(__s390x__)
+  struct engine e;
+  engine_init(&e);
+  struct estimate top;
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
+  const rule_fn rules[] = {rule_s390_image_base_from_config};
+  engine_run(&e, rules, 1);
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo == top.lo);
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi == top.hi);
+#endif
+}
+
 /* cmdline_memmap_too_large_phys_pin: cmdline carries 5+ memmap=
  * tokens with offset → SF_CMDLINE_MEMMAP_COUNT > 4 + a PHYS kernel_image
  * observation pins Q_PHYS_IMAGE_BASE bilaterally. */
@@ -5201,6 +5272,9 @@ int main(void) {
   RUN(test_s390_text_no_random_fires_with_signal);
   RUN(test_s390_text_no_random_inert_without_signal);
   RUN(test_s390_text_no_random_admits_empirical_phys);
+  RUN(test_s390_image_base_from_config_modern_floor);
+  RUN(test_s390_image_base_from_config_identity_ceiling);
+  RUN(test_s390_image_base_from_config_inert_without_fact);
 #endif
 
   BEGIN_CATEGORY("ppc-specific rules");

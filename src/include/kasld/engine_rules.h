@@ -117,6 +117,7 @@ R(s390_paging_level);
 R(s390_text_from_belows);
 R(s390_text_segment_mod);
 R(s390_text_no_random);
+R(s390_image_base_from_config);
 
 /* ppc-specific rules */
 R(ppc32_phys_ceiling);
