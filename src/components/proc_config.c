@@ -140,13 +140,20 @@ int main(void) {
   if (!fp)
     return KASLD_EXIT_UNAVAILABLE;
 
-  /* Detect PAGE_OFFSET (32-bit vmsplit) */
+#if PAGE_OFFSET_FROM_CONFIG
+  /* Detect PAGE_OFFSET (32-bit vmsplit). CONFIG_PAGE_OFFSET equals the runtime
+   * page_offset only on PAGE_OFFSET_FROM_CONFIG arches (x86_32, arm32); pinning
+   * Q_PAGE_OFFSET to it via page_offset_from_landmark's C_EQUALS would exclude
+   * the truth on arches whose CONFIG_PAGE_OFFSET differs from the running base.
+   * (The properly gated scalar path is bootconfig_facts ->
+   * page_offset_from_config.) */
   unsigned long virt_page_offset = get_kconfig_page_offset(fp);
   if (virt_page_offset) {
     kasld_info("CONFIG_PAGE_OFFSET: %#lx", virt_page_offset);
     kasld_result_base(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, virt_page_offset,
                       NULL, CONF_PARSED);
   }
+#endif
 
   /* CONFIG_PHYSICAL_START (x86 LOAD_PHYSICAL_ADDR) — see boot_config.c. */
   unsigned long phys_start = get_kconfig_physical_start(fp);

@@ -38,8 +38,10 @@ static int is_kconfig_set(FILE *fp, const char *config) {
 
 /* Search for CONFIG_PAGE_OFFSET=0x... in the kernel config.
  * Falls back to CONFIG_VMSPLIT_* choices (x86_32, arm32).
- * Returns the value, or 0 if not found. */
-static unsigned long get_kconfig_page_offset(FILE *fp) {
+ * Returns the value, or 0 if not found.
+ * __attribute__((unused)): callers gate use on PAGE_OFFSET_FROM_CONFIG, so this
+ * is unreferenced on arches where CONFIG_PAGE_OFFSET != runtime page_offset. */
+__attribute__((unused)) static unsigned long get_kconfig_page_offset(FILE *fp) {
   const char *key = "CONFIG_PAGE_OFFSET=";
   size_t keylen = strlen(key);
   char buf[BUFSIZ];
