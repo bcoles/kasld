@@ -21,8 +21,13 @@ KASLD_META("method:parsed\n"
            "phase:inference\n");
 
 int main(void) {
-  struct kasld_ram_extent ext[64];
-  int n = kasld_load_ram_extents(ext, 64);
+  struct kasld_ram_extent ext[128];
+  int n = kasld_load_ram_extents(ext, 128);
+  /* n < 0: the map could not be captured completely (overflow, parse failure,
+   * or word truncation). A partial covering would fabricate false gaps that
+   * gap-carving rules turn into unsound exclusions, so emit nothing. */
+  if (n < 0)
+    return 0;
   for (int i = 0; i < n; i++)
     kasld_result_extent(KASLD_TYPE_PHYS, REGION_RAM, ext[i].lo, ext[i].hi, NULL,
                         CONF_PARSED);
