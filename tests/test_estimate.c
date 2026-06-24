@@ -330,6 +330,21 @@ static void test_honest_tops_admit_known_values(void) {
   assert(
       interval_admits(Q_VIRT_IMAGE_BASE, (unsigned long)KASLR_VIRT_TEXT_MIN));
 
+#if defined(__aarch64__)
+  /* Pre-v5.4 arm64 layout: the kernel image sits LOW, below _PAGE_END, at
+   * VA_START(48) + 128 MiB module region; _text a TEXT_OFFSET above it (v4.14
+   * real value 0xffff000008080000). The honest top must admit it, or an
+   * unprivileged report on a pre-v5.4 kernel excludes the true text base. */
+  assert(interval_admits(Q_VIRT_IMAGE_BASE, 0xffff000008080000ul));
+#endif
+#if defined(__s390__) || defined(__s390x__)
+  /* Pre-v6.8 s390 runs identity-mapped: kernel text near address 0 (image base
+   * at the bottom of RAM, _stext at IMAGE_BASE_OFFSET). The honest top must
+   * admit the low identity-mapped text base. */
+  assert(interval_admits(Q_VIRT_IMAGE_BASE, (unsigned long)IMAGE_BASE_OFFSET));
+  assert(interval_admits(Q_VIRT_IMAGE_BASE, 0x200ul));
+#endif
+
 #if defined(__x86_64__) || defined(__amd64__)
   /* Physical text base: the honest top must admit a HIGH load address —
    * the whole point of demoting the 16 GiB KERNEL_PHYS_MAX heuristic.

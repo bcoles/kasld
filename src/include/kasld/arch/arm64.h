@@ -212,26 +212,32 @@ static inline unsigned long arch_default_text_base(void) {
 #define KASLR_VIRT_TEXT_MAX (KASLR_VIRT_TEXT_MIN + (1ul << 46))
 #define KASLR_VIRT_ALIGN (2 * MB)
 
-/* Honest-top floor for Q_VIRT_IMAGE_BASE — widened down to KIMAGE_VADDR so
- * the engine's honest window admits:
- *   (a) the no-KASLR case, where text sits at KIMAGE_VADDR exactly
- *       (CONFIG_RANDOMIZE_BASE=n, or `nokaslr` cmdline);
- *   (b) the v6.12+ KASLR formula's lower edge at
+/* Honest-top floor for Q_VIRT_IMAGE_BASE — widened down to the OLD (pre-v5.4)
+ * layout's image base so the engine's honest window admits every in-scope
+ * arm64 text placement:
+ *   (a) the pre-v5.4 layout, where the kernel image sits LOW — below _PAGE_END,
+ *       at VA_START(48) + module-region (128 MiB) = 0xffff000008000000, with
+ *       _text a TEXT_OFFSET above that (e.g. v4.14: 0xffff000008080000). This
+ *       is the lowest text base across layouts (48-bit VA gives the lowest
+ *       VA_START; sub-48 old layouts and all modern layouts sit higher);
+ *   (b) the modern (v5.4+) no-KASLR case, where text sits at KIMAGE_VADDR;
+ *   (c) the v6.12+ KASLR formula's lower edge at
  *       KIMAGE_VADDR + (VMALLOC_END − KIMAGE_VADDR) / 4 ≈ KIMAGE_VADDR + 31.5
- * TiB — below the v4.6→v6.6 formula's floor at KIMAGE_VADDR + 32 TiB.
+ *       TiB — below the v4.6→v6.6 formula's floor at KIMAGE_VADDR + 32 TiB.
  *
- * Without this widening, virt_/phys_kaslr_disabled_pin's window-containment
- * check rejects the no-KASLR default (KIMAGE_VADDR) as below the v6.6-era
- * KASLR_VIRT_TEXT_MIN, leaving Q_VIRT_IMAGE_BASE wide and the actual text base
- * outside the window. The widening only widens the honest top — never
- * narrows — so it cannot eliminate a true leak; it can only stop falsely
- * excluding one.
+ * Without this widening the honest window floors at KIMAGE_VADDR
+ * (0xffff800080000000), so on a pre-v5.4 kernel with no narrowing leak
+ * (the unprivileged/hardened case) Q_VIRT_IMAGE_BASE stays at a window that
+ * EXCLUDES the real low text base — an unsound report. The widening only
+ * widens the honest top — never narrows — so it cannot eliminate a true leak;
+ * it can only stop falsely excluding one. When PAGE_OFFSET resolves,
+ * rule_arm64_text_base re-narrows to the tight per-VA_BITS band.
  *
  * KASLR_VIRT_TEXT_MIN is preserved for entropy / slot reporting on KASLR-on
  * systems (the per-formula randomization window's narrower lower edge).
  * KASLR_VIRT_TEXT_MAX is unchanged — KIMAGE_VADDR + 96 TiB already covers both
  * the v6.6 upper edge (96 TiB) and the v6.12+ upper edge (~94.5 TiB). */
-#define KASLR_VIRT_TEXT_MIN_WIDE KIMAGE_VADDR
+#define KASLR_VIRT_TEXT_MIN_WIDE 0xffff000008000000ul
 
 /* Honest-top CEILING for Q_VIRT_IMAGE_BASE. KASLR_VIRT_TEXT_MAX is the 48-bit
  * formula's window top (kept for entropy/slot reporting); it is too low for

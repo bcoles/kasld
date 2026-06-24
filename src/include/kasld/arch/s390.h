@@ -162,6 +162,21 @@
 #define KASLR_VIRT_TEXT_MIN (0x3FFE0000000ul + IMAGE_BASE_OFFSET)
 #define KASLR_VIRT_TEXT_MAX KERNEL_VIRT_TEXT_MAX
 
+/* Honest-top floor for Q_VIRT_IMAGE_BASE. KASLR_VIRT_TEXT_MIN is the modern
+ * (v6.8+ CONFIG_KERNEL_IMAGE_BASE) high-kernel KASLR floor (~4 TiB). Pre-v6.8
+ * kernels run identity-mapped: kernel text lives near address 0 (image base at
+ * the bottom of RAM, _stext at IMAGE_BASE_OFFSET = 0x100000). With no narrowing
+ * leak (the unprivileged/hardened case) flooring Q_VIRT_IMAGE_BASE at the
+ * modern KASLR_VIRT_TEXT_MIN would report a window EXCLUDING that low
+ * identity-mapped text base — unsound. Widen the floor to 0 (the identity-map
+ * base) so the honest window admits both the identity-mapped and the high
+ * relocated layouts. Widen-only — never narrows — so it cannot eliminate a true
+ * leak; a real text or module leak narrows Q_VIRT_IMAGE_BASE back up. The
+ * trade-off is a very loose unresolved window ([0, ASCE limit]); soundness
+ * across kernels without trusting version numbers takes priority over
+ * tightness. */
+#define KASLR_VIRT_TEXT_MIN_WIDE 0ul
+
 // Default kernel text virtual address without KASLR.
 // CONFIG_KERNEL_IMAGE_BASE (introduced ~v6.8) default = 0x3FFE0000000
 // (+ IMAGE_BASE_OFFSET for _stext). Pre-v6.8 kernels used identity mapping with

@@ -754,6 +754,58 @@ static void test_full_engine_arm64_va39_kaslr_window(void) {
 #endif
 }
 
+/* Pre-v5.4 arm64 layout (e.g. v4.14): the kernel image sits LOW, below
+ * _PAGE_END, at VA_START(48) + 128 MiB module region; _text a TEXT_OFFSET above
+ * (real v4.14 value 0xffff000008080000). On the unprivileged/hardened profile
+ * no leak resolves PAGE_OFFSET, so rule_arm64_text_base does not re-narrow and
+ * Q_VIRT_IMAGE_BASE stays at its honest top — which must admit the real low
+ * text base. Guards the KASLR_VIRT_TEXT_MIN_WIDE floor end-to-end through the
+ * full registry; without the widened floor the window starts at KIMAGE_VADDR
+ * (0xffff800080000000) and excludes the truth. */
+static void test_full_engine_arm64_old_layout_sound(void) {
+#if defined(__aarch64__)
+  struct engine e;
+  engine_init(&e);
+  add_scalar(&e, SF_EFI_PRESENT, 0x0); /* file-only floor: no narrowing leak */
+
+  int nr = 0, nv = 0;
+  const rule_fn *rules = engine_rules(&nr);
+  const verdict_fn *vrules = engine_verdict_rules(&nv);
+  engine_run_full(&e, rules, nr, vrules, nv);
+
+  const unsigned long t_text = 0xffff000008080000ul; /* v4.14 _text */
+  const struct estimate *vt = &e.est[Q_VIRT_IMAGE_BASE];
+  assert(!estimate_is_bottom(vt, &quantities[Q_VIRT_IMAGE_BASE]));
+  assert(vt->lo <= t_text && t_text <= vt->hi);
+#endif
+}
+
+/* Pre-v6.8 s390 runs identity-mapped: kernel text near address 0 (image base at
+ * the bottom of RAM, _stext at IMAGE_BASE_OFFSET = 0x100000). With no text /
+ * module leak (the hardened file-only floor) Q_VIRT_IMAGE_BASE stays at its
+ * honest top, which must admit that low base. Guards the s390
+ * KASLR_VIRT_TEXT_MIN_WIDE=0 floor; without it the window floors at the modern
+ * ~4 TiB KASLR_VIRT_TEXT_MIN and excludes the identity-mapped text base. */
+static void test_full_engine_s390_old_identity_map_sound(void) {
+#if defined(__s390__) || defined(__s390x__)
+  struct engine e;
+  engine_init(&e);
+  add_scalar(&e, SF_EFI_PRESENT, 0x0); /* file-only floor: no narrowing leak */
+
+  int nr = 0, nv = 0;
+  const rule_fn *rules = engine_rules(&nr);
+  const verdict_fn *vrules = engine_verdict_rules(&nv);
+  engine_run_full(&e, rules, nr, vrules, nv);
+
+  const struct estimate *vt = &e.est[Q_VIRT_IMAGE_BASE];
+  assert(!estimate_is_bottom(vt, &quantities[Q_VIRT_IMAGE_BASE]));
+  /* _text near 0 (real v4.14 value 0x200) and _stext at IMAGE_BASE_OFFSET. */
+  assert(vt->lo <= 0x200ul && 0x200ul <= vt->hi);
+  assert(vt->lo <= (unsigned long)IMAGE_BASE_OFFSET &&
+         (unsigned long)IMAGE_BASE_OFFSET <= vt->hi);
+#endif
+}
+
 int main(void) {
   TEST_SUITE("test_engine_integration");
 
@@ -769,6 +821,8 @@ int main(void) {
   RUN(test_full_engine_arm64_va48_no_kaslr);
   RUN(test_full_engine_arm64_va48_kaslr_window);
   RUN(test_full_engine_arm64_va39_kaslr_window);
+  RUN(test_full_engine_arm64_old_layout_sound);
+  RUN(test_full_engine_s390_old_identity_map_sound);
   RUN(test_full_engine_i686_kaslr_shape);
   RUN(test_full_engine_robust_to_outlier);
   RUN(test_full_engine_ppc_kernel_end_tightens);
