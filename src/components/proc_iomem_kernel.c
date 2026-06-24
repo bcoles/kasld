@@ -6,12 +6,13 @@
 //   Purpose: x86 /proc/iomem nests three top-level "System RAM" sub-entries
 //   labeled "Kernel code", "Kernel data", and "Kernel bss". Each is the
 //   exact physical range the corresponding ELF section was loaded at.
-//   Emitting them as PHYS REGION_KERNEL_TEXT / KERNEL_DATA / KERNEL_BSS
-//   gives the engine the tightest possible bound on Q_PHYS_IMAGE_BASE
-//   (pinned exactly by text_pin_from_observation when the KERNEL_TEXT
-//   range arrives as a POS_BASE record; the upper edge of the image is
-//   absorbed by kernel_image_phys_bound's image-size constraints) — much
-//   tighter than the wide arch ceiling.
+//   "Kernel code" starts at __pa_symbol(_text) (the image base), so it is
+//   emitted as PHYS REGION_KERNEL_IMAGE; "Kernel data"/"Kernel bss" as
+//   KERNEL_DATA / KERNEL_BSS. This gives the engine the tightest possible
+//   bound on Q_PHYS_IMAGE_BASE (pinned exactly by text_pin_from_observation
+//   when the KERNEL_IMAGE range arrives as a POS_BASE record; the upper edge
+//   of the image is absorbed by kernel_image_phys_bound's image-size
+//   constraints) — much tighter than the wide arch ceiling.
 //
 // Access: /proc/iomem is world-readable but the addresses are masked to 0
 //   under kptr_restrict >= 1 unless the caller has CAP_SYS_ADMIN. Detect
@@ -46,7 +47,7 @@
 KASLD_EXPLAIN(
     "Parses /proc/iomem for the kernel-image sub-entries (\"Kernel code\", "
     "\"Kernel data\", \"Kernel bss\") and emits each as a PHYS extent on "
-    "REGION_KERNEL_TEXT / KERNEL_DATA / KERNEL_BSS. These are the "
+    "REGION_KERNEL_IMAGE / KERNEL_DATA / KERNEL_BSS. These are the "
     "authoritative physical placement of the running kernel image. x86 and "
     "s390 emit these labels in their setup code; harmless on arches that "
     "don't (no matching line → no emission). /proc/iomem requires "
@@ -57,11 +58,20 @@ KASLD_META("method:parsed\n"
            "addr:phys-extent\n"
            "sysctl:kptr_restrict>=1 (mask)\n");
 
-/* Map one of the kernel-image iomem labels to its KASLD region. */
+/* Map one of the kernel-image iomem labels to its KASLD region.
+ *
+ * "Kernel code" starts at __pa_symbol(_text) — the IMAGE BASE (_text), not
+ * _stext (x86 setup.c, s390 setup.c, arm64 setup.c all set
+ * code_resource.start = __pa_symbol(_text)). So it must be REGION_KERNEL_IMAGE,
+ * which text_pin_from_observation pins as _text directly — NOT
+ * REGION_KERNEL_TEXT, which it treats as _stext and normalizes down by
+ * STEXT_OFFSET. On x86/s390 STEXT_OFFSET is 0 so the two are equivalent, but on
+ * arm64 it is 0x10000, and a KERNEL_TEXT tag would pin the phys base 64 KiB
+ * below the truth. */
 static int region_from_label(const char *label, enum kasld_region *r,
                              const char **wire) {
   if (strcmp(label, "Kernel code") == 0) {
-    *r = REGION_KERNEL_TEXT;
+    *r = REGION_KERNEL_IMAGE;
     *wire = "kernel_code";
     return 1;
   }
