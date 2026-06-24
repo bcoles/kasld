@@ -15,7 +15,10 @@
 //   EFI present                         -> skip (seed may come from EFI)
 //   no /proc/device-tree                -> skip (FDT state unknown)
 //   /chosen/kaslr-seed present          -> skip (KASLR may be active)
-// Only the property-absent + non-EFI + FDT-present case asserts KASLR off.
+//   'zkr' ISA extension present         -> skip (Zkr CSR may have seeded KASLR)
+// setup_vm() seeds from the Zkr `seed` CSR first and only falls back to the FDT
+// property when Zkr returns 0, so an absent FDT seed alone is not sufficient.
+// Only the property-absent + non-EFI + FDT-present + no-Zkr case asserts off.
 //
 // arm64: arch/arm64/kernel/pi/kaslr_early.c reads /chosen/kaslr-seed and zeroes
 // it in place (property kept), so an absent property means no seed was supplied
@@ -54,6 +57,41 @@ __attribute__((unused)) static uint64_t kasld_read_fdt_kaslr_seed(void) {
          ((uint64_t)b[4] << 24) | ((uint64_t)b[5] << 16) |
          ((uint64_t)b[6] << 8) | (uint64_t)b[7];
 }
+
+#if defined(__riscv) && __riscv_xlen == 64
+/* riscv64 only: 1 if the 'zkr' ISA extension (Zkr entropy-source CSR) is
+ * present in any /proc/cpuinfo 'isa' line, OR if cpuinfo cannot be read
+ * (conservative — when in doubt, assume Zkr could have seeded KASLR, so do not
+ * assert KASLR off). setup_vm() seeds KASLR from the Zkr `seed` CSR FIRST and
+ * only falls back to the FDT /chosen/kaslr-seed when Zkr returns 0, so an
+ * absent FDT seed alone does not mean KASLR is off on a Zkr-capable CPU.
+ * Multi-letter RISC-V ISA extensions are underscore-delimited, so 'zkr' is its
+ * own token. Read via kasld_fopen so it honours KASLD_SYSROOT redirection. */
+__attribute__((unused)) static int kasld_cpu_feature_zkr_present(void) {
+  FILE *fp = kasld_fopen("/proc/cpuinfo", "r");
+  if (!fp)
+    return 1; /* unknown -> assume present */
+  char line[8192];
+  int present = 0;
+  while (fgets(line, sizeof(line), fp)) {
+    if (strncmp(line, "isa", 3) != 0)
+      continue;
+    char *colon = strchr(line, ':');
+    char *tok = strtok(colon ? colon + 1 : line, " \t\n_");
+    while (tok) {
+      if (strcmp(tok, "zkr") == 0) {
+        present = 1;
+        break;
+      }
+      tok = strtok(NULL, " \t\n_");
+    }
+    if (present)
+      break;
+  }
+  fclose(fp);
+  return present;
+}
+#endif
 
 #if defined(__aarch64__)
 /* arm64 only: 1 if the 'rng' hwcap (FEAT_RNG / RNDR) is present in
@@ -97,6 +135,9 @@ kasld_kaslr_disabled_text_default(void) {
     return 0; /* no FDT mounted: seed state unknown */
   if (kasld_access("/proc/device-tree/chosen/kaslr-seed", F_OK) == 0)
     return 0; /* property present: KASLR may be active */
+  if (kasld_cpu_feature_zkr_present())
+    return 0; /* Zkr seed CSR may have seeded KASLR despite the absent FDT seed
+               */
   return (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
 #elif defined(__aarch64__)
   if (kasld_access("/sys/firmware/efi", F_OK) == 0)
