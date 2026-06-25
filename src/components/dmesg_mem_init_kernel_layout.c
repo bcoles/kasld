@@ -154,9 +154,13 @@ static const struct layout_entry entries[] = {
      KERNEL_VIRT_TEXT_MIN, KERNEL_VIRT_TEXT_MAX, LK_BASE},
     /* riscv print_vm_layout() prints the kernel image span as
      * "kernel : 0x<virt_addr> - 0x<end>"; the low edge is kernel_map.virt_addr
-     * (where _start/_stext land) — a direct text pin. LK_BASE takes that first
-     * address; the high edge (ADDRESS_SPACE_END) is a fixed VAS bound. */
-    {"kernel : 0x", KASLD_TYPE_VIRT, "kernel image start", REGION_KERNEL_TEXT,
+     * where _start/_text land — the IMAGE base, not _stext. So it is
+     * REGION_KERNEL_IMAGE (a direct image-base pin), NOT REGION_KERNEL_TEXT:
+     * the latter would make text_pin_from_observation subtract STEXT_OFFSET
+     * (the head gap) and land below _text on a head-gap arch. LK_BASE takes
+     * that first address; the high edge (ADDRESS_SPACE_END) is a fixed VAS
+     * bound. */
+    {"kernel : 0x", KASLD_TYPE_VIRT, "kernel image start", REGION_KERNEL_IMAGE,
      KERNEL_VIRT_TEXT_MIN, KERNEL_VIRT_TEXT_MAX, LK_BASE},
     {"lowmem  : 0x", KASLD_TYPE_VIRT, "kernel lowmem start", REGION_DIRECTMAP,
      KERNEL_VIRT_VAS_START, KERNEL_VIRT_VAS_END, LK_BASE},

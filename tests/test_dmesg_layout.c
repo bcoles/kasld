@@ -70,7 +70,10 @@ static void test_kernel_line_pins_text_base(void) {
   snprintf(line, sizeof(line),
            "      kernel : 0x%lx - 0xffffffffffffffff   (   2 GB)", base);
   parse_capture(line, cap, sizeof(cap));
-  assert(strstr(cap, "V kernel_text pos=base") != NULL);
+  /* The "kernel :" line is the image base (_text), so it is
+   * REGION_KERNEL_IMAGE, not KERNEL_TEXT (which the engine treats as _stext and
+   * shifts down by the head gap). */
+  assert(strstr(cap, "V kernel_image pos=base") != NULL);
   snprintf(want, sizeof(want), "lo=0x%lx", base);
   assert(strstr(cap, want) != NULL);
 }
