@@ -28,13 +28,11 @@ RULES=$ROOT/src/rules
 # a soundness test. Keep alphabetical.
 ALLOW="arm64_text_base
 phys_hole_filter
-phys_kaslr_disabled_pin
 phys_virt_synth
 randomize_memory_page_offset
 riscv64_page_offset_from_vmalloc_vmemmap
 riscv64_text_base
 text_base_coupling_synth
-virt_kaslr_disabled_pin
 x86_64_page_offset_from_vmalloc_vmemmap"
 
 if [ -t 2 ]; then
