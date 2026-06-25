@@ -49,6 +49,7 @@
 
 #include "include/kasld/api.h"
 #include "include/kasld/cli.h"
+#include "include/kasld/devicetree.h"
 #include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -68,31 +69,15 @@ KASLD_META("method:parsed\n"
            "config:CONFIG_OF\n"
            "config:CONFIG_BLK_DEV_INITRD\n");
 
-/* Read raw binary content from a sysfs file. Returns bytes read, or -1. */
-static int read_binary(const char *path, unsigned char *buf, size_t len) {
-  FILE *f = kasld_fopen(path, "rb");
-  if (!f)
-    return -1;
-  int n = (int)fread(buf, 1, len, f);
-  fclose(f);
-  return n;
-}
-
-/* Read a big-endian 32-bit cell from raw bytes. */
-static uint32_t read_be32(const unsigned char *p) {
-  return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
-         ((uint32_t)p[2] << 8) | (uint32_t)p[3];
-}
-
 /* Read a big-endian value of 4 or 8 bytes into unsigned long. */
 static unsigned long read_addr(const unsigned char *buf, int len) {
   if (len == 8) {
-    uint64_t hi = read_be32(buf);
-    uint64_t lo = read_be32(buf + 4);
+    uint64_t hi = kasld_dt_be32(buf);
+    uint64_t lo = kasld_dt_be32(buf + 4);
     return (unsigned long)((hi << 32) | lo);
   }
   if (len == 4) {
-    return (unsigned long)read_be32(buf);
+    return (unsigned long)kasld_dt_be32(buf);
   }
   return 0;
 }
@@ -124,7 +109,7 @@ int main(void) {
 
   /* Read linux,initrd-start */
   snprintf(path, sizeof(path), "%s/linux,initrd-start", chosen);
-  n = read_binary(path, buf, sizeof(buf));
+  n = kasld_dt_read_blob(path, buf, sizeof(buf));
   if (n != 4 && n != 8) {
     kasld_err("failed to read %s (got %d bytes)", path, n);
     return 0;
@@ -134,7 +119,7 @@ int main(void) {
 
   /* Read linux,initrd-end */
   snprintf(path, sizeof(path), "%s/linux,initrd-end", chosen);
-  n = read_binary(path, buf, sizeof(buf));
+  n = kasld_dt_read_blob(path, buf, sizeof(buf));
   unsigned long end = 0;
   if (n == 4 || n == 8) {
     end = read_addr(buf, n);

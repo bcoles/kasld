@@ -20,7 +20,39 @@
 
 #include <fcntl.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <unistd.h>
+
+/* Read a raw device-tree property blob (e.g. a node's `reg`) into buf. Returns
+ * the byte count read, or -1 on open failure. Route through kasld_fopen so the
+ * KASLD_SYSROOT replay layer applies. */
+__attribute__((unused)) static int
+kasld_dt_read_blob(const char *path, unsigned char *buf, size_t len) {
+  FILE *f = kasld_fopen(path, "rb");
+  if (!f)
+    return -1;
+  int n = (int)fread(buf, 1, len, f);
+  fclose(f);
+  return n;
+}
+
+/* Decode a big-endian 32-bit cell from a property blob at p. */
+__attribute__((unused)) static uint32_t kasld_dt_be32(const unsigned char *p) {
+  return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
+         ((uint32_t)p[2] << 8) | (uint32_t)p[3];
+}
+
+/* Decode a 1- or 2-cell big-endian value (per #address-cells / #size-cells)
+ * from a property blob at p into a host ulong. */
+__attribute__((unused)) static unsigned long
+kasld_dt_cells(const unsigned char *p, int ncells) {
+  if (ncells == 2) {
+    uint64_t hi = kasld_dt_be32(p);
+    uint64_t lo = kasld_dt_be32(p + 4);
+    return (unsigned long)((hi << 32) | lo);
+  }
+  return (unsigned long)kasld_dt_be32(p);
+}
 
 /* Read a big-endian device-tree integer (4 or 8 bytes) into a host ulong.
  * Returns 0 on failure. width must be 4 or 8. */

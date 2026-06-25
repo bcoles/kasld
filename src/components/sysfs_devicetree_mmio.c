@@ -45,6 +45,7 @@
 
 #include "include/kasld/api.h"
 #include "include/kasld/cli.h"
+#include "include/kasld/devicetree.h"
 #include <dirent.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -74,20 +75,6 @@ static int g_count;
  * ceiling the physical image base if it sits below the kernel. */
 static unsigned long g_dram_lo = ~0UL, g_dram_hi;
 
-static uint32_t read_be32(const unsigned char *p) {
-  return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
-         ((uint32_t)p[2] << 8) | (uint32_t)p[3];
-}
-
-static unsigned long read_cells(const unsigned char *p, int ncells) {
-  if (ncells == 2) {
-    uint64_t hi = read_be32(p);
-    uint64_t lo = read_be32(p + 4);
-    return (unsigned long)((hi << 32) | lo);
-  }
-  return (unsigned long)read_be32(p);
-}
-
 /* Read up to `cap` bytes of a node property; returns byte count, or -1. */
 static int read_prop(const char *node, const char *prop, unsigned char *buf,
                      size_t cap) {
@@ -104,7 +91,7 @@ static int read_prop(const char *node, const char *prop, unsigned char *buf,
 static int read_cell_prop(const char *node, const char *prop, int dflt) {
   unsigned char b[4];
   if (read_prop(node, prop, b, 4) == 4)
-    return (int)read_be32(b);
+    return (int)kasld_dt_be32(b);
   return dflt;
 }
 
@@ -132,8 +119,8 @@ static void emit_node_reg(const char *node, const char *name, int addr_cells,
   if (n <= 0 || size_cells < 1 || entry <= 0)
     return;
   for (int off = 0; off + entry <= n && g_count < MAX_EMIT; off += entry) {
-    unsigned long addr = read_cells(reg + off, addr_cells);
-    unsigned long size = read_cells(reg + off + addr_cells * 4, size_cells);
+    unsigned long addr = kasld_dt_cells(reg + off, addr_cells);
+    unsigned long size = kasld_dt_cells(reg + off + addr_cells * 4, size_cells);
     if (addr == 0 || size == 0)
       continue;
     unsigned long hi = addr + size - 1;
@@ -217,8 +204,8 @@ static void find_dram(const char *root) {
     int n = read_prop(node, "reg", reg, sizeof(reg));
     int entry = (ac + sc) * 4;
     for (int off = 0; off + entry <= n; off += entry) {
-      unsigned long base = read_cells(reg + off, ac);
-      unsigned long size = read_cells(reg + off + ac * 4, sc);
+      unsigned long base = kasld_dt_cells(reg + off, ac);
+      unsigned long size = kasld_dt_cells(reg + off + ac * 4, sc);
       if (!size)
         continue;
       unsigned long end = base + size - 1;

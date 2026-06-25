@@ -68,6 +68,7 @@
 
 #include "include/kasld/api.h"
 #include "include/kasld/cli.h"
+#include "include/kasld/devicetree.h"
 #include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -88,16 +89,6 @@ KASLD_META("method:parsed\n"
            "addr:physical\n"
            "config:CONFIG_OF\n"
            "config:CONFIG_CRASH_DUMP\n");
-
-/* Read raw binary content from a sysfs file. Returns bytes read, or -1. */
-static int read_binary(const char *path, unsigned char *buf, size_t len) {
-  FILE *f = kasld_fopen(path, "rb");
-  if (!f)
-    return -1;
-  int n = (int)fread(buf, 1, len, f);
-  fclose(f);
-  return n;
-}
 
 /* Read a big-endian 64-bit value from raw bytes. */
 static uint64_t read_be64(const unsigned char *p) {
@@ -145,7 +136,7 @@ int main(void) {
 
   /* --- linux,elfcorehdr: <u64 address> <u64 size> --- */
   snprintf(path, sizeof(path), "%s/linux,elfcorehdr", chosen);
-  n = read_binary(path, buf, sizeof(buf));
+  n = kasld_dt_read_blob(path, buf, sizeof(buf));
   if (n >= 16) {
     uint64_t ehdr_addr = read_be64(buf);
     uint64_t ehdr_size = read_be64(buf + 8);
@@ -175,7 +166,7 @@ int main(void) {
 
   /* --- linux,usable-memory-range: array of <u64 base> <u64 size> pairs --- */
   snprintf(path, sizeof(path), "%s/linux,usable-memory-range", chosen);
-  n = read_binary(path, buf, sizeof(buf));
+  n = kasld_dt_read_blob(path, buf, sizeof(buf));
   if (n >= 16) {
     int npairs = n / 16;
     for (int i = 0; i < npairs && i * 16 + 15 < n; i++) {

@@ -47,6 +47,7 @@
 
 #include "include/kasld/api.h"
 #include "include/kasld/cli.h"
+#include "include/kasld/devicetree.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdint.h>
@@ -65,32 +66,6 @@ KASLD_META("method:parsed\n"
            "phase:inference\n"
            "addr:physical\n"
            "config:CONFIG_OF\n");
-
-/* Read raw binary content from a sysfs file. Returns bytes read, or -1. */
-static int read_binary(const char *path, unsigned char *buf, size_t len) {
-  FILE *f = kasld_fopen(path, "rb");
-  if (!f)
-    return -1;
-  int n = (int)fread(buf, 1, len, f);
-  fclose(f);
-  return n;
-}
-
-/* Read a big-endian 32-bit cell from raw bytes. */
-static uint32_t read_be32(const unsigned char *p) {
-  return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
-         ((uint32_t)p[2] << 8) | (uint32_t)p[3];
-}
-
-/* Read a multi-cell big-endian value (1 or 2 cells). */
-static unsigned long read_cells(const unsigned char *p, int ncells) {
-  if (ncells == 2) {
-    uint64_t hi = read_be32(p);
-    uint64_t lo = read_be32(p + 4);
-    return (unsigned long)((hi << 32) | lo);
-  }
-  return (unsigned long)read_be32(p);
-}
 
 int main(void) {
   const char *base = "/sys/firmware/devicetree/base";
@@ -125,16 +100,16 @@ int main(void) {
 
   /* Read #address-cells from root node (default: 1) */
   snprintf(path, sizeof(path), "%s/#address-cells", root);
-  n = read_binary(path, buf, sizeof(buf));
+  n = kasld_dt_read_blob(path, buf, sizeof(buf));
   if (n == 4) {
-    addr_cells = (int)read_be32(buf);
+    addr_cells = (int)kasld_dt_be32(buf);
   }
 
   /* Read #size-cells from root node (default: 1) */
   snprintf(path, sizeof(path), "%s/#size-cells", root);
-  n = read_binary(path, buf, sizeof(buf));
+  n = kasld_dt_read_blob(path, buf, sizeof(buf));
   if (n == 4) {
-    size_cells = (int)read_be32(buf);
+    size_cells = (int)kasld_dt_be32(buf);
   }
 
   if (addr_cells < 1 || addr_cells > 2 || size_cells < 1 || size_cells > 2) {
@@ -167,7 +142,7 @@ int main(void) {
       continue;
 
     snprintf(path, sizeof(path), "%s/%s/reg", root, ent->d_name);
-    n = read_binary(path, buf, sizeof(buf));
+    n = kasld_dt_read_blob(path, buf, sizeof(buf));
     if (n < entry_bytes)
       continue;
 
@@ -175,9 +150,9 @@ int main(void) {
      * There may be multiple entries for multi-bank systems. */
     int offset = 0;
     while (offset + entry_bytes <= n) {
-      unsigned long base_addr = read_cells(buf + offset, addr_cells);
+      unsigned long base_addr = kasld_dt_cells(buf + offset, addr_cells);
       unsigned long size =
-          read_cells(buf + offset + addr_cells * 4, size_cells);
+          kasld_dt_cells(buf + offset + addr_cells * 4, size_cells);
 
       if (!size) {
         offset += entry_bytes;

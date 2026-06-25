@@ -54,6 +54,7 @@
 
 #include "include/kasld/api.h"
 #include "include/kasld/cli.h"
+#include "include/kasld/devicetree.h"
 #include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -74,26 +75,10 @@ KASLD_META("method:parsed\n"
            "config:CONFIG_OF\n"
            "config:CONFIG_EFI\n");
 
-/* Read raw binary content from a sysfs file. Returns bytes read, or -1. */
-static int read_binary(const char *path, unsigned char *buf, size_t len) {
-  FILE *f = kasld_fopen(path, "rb");
-  if (!f)
-    return -1;
-  int n = (int)fread(buf, 1, len, f);
-  fclose(f);
-  return n;
-}
-
-/* Read a big-endian 32-bit cell from raw bytes. */
-static uint32_t read_be32(const unsigned char *p) {
-  return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
-         ((uint32_t)p[2] << 8) | (uint32_t)p[3];
-}
-
 /* Read a big-endian 64-bit value from raw bytes. */
 static uint64_t read_be64(const unsigned char *p) {
-  uint64_t hi = read_be32(p);
-  uint64_t lo = read_be32(p + 4);
+  uint64_t hi = kasld_dt_be32(p);
+  uint64_t lo = kasld_dt_be32(p + 4);
   return (hi << 32) | lo;
 }
 
@@ -126,7 +111,7 @@ int main(void) {
 
   /* Read linux,uefi-mmap-start — always 8 bytes (u64 BE) */
   snprintf(path, sizeof(path), "%s/linux,uefi-mmap-start", chosen);
-  n = read_binary(path, buf, sizeof(buf));
+  n = kasld_dt_read_blob(path, buf, sizeof(buf));
   if (n != 8) {
     kasld_err("failed to read %s (got %d bytes, expected 8)", path, n);
     return 0;
@@ -141,9 +126,9 @@ int main(void) {
   /* Optionally read size for display context */
   uint32_t mmap_size = 0;
   snprintf(path, sizeof(path), "%s/linux,uefi-mmap-size", chosen);
-  n = read_binary(path, buf, 4);
+  n = kasld_dt_read_blob(path, buf, 4);
   if (n == 4)
-    mmap_size = read_be32(buf);
+    mmap_size = kasld_dt_be32(buf);
 
   kasld_info("EFI memmap physical address: 0x%016llx",
              (unsigned long long)mmap_phys);
