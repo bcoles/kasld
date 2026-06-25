@@ -610,107 +610,68 @@ static int parse_hex(const char *s, unsigned long *out) {
   return 1;
 }
 
-/* Parse a new-format tagged line into a struct result.
- *
- * Wire format:
- *   <type> <region>[:<name>] pos=<pos> conf=<conf> \
- *       [lo=<hex>] [hi=<hex>|sz=<hex>] [sample=<hex>] [base_align=<hex>]
- *
- * Two-stage:
- *   (1) sscanf the positional prefix "<type> <region>[:<name>]"
- *   (2) tokenise the tail with strtok_r, collecting key/value pairs into a
- *       local struct, then apply sz→hi normalization and cross-key
- *       validation in a second step.
- *
- * Returns 1 on accept (record appended to results[]), 0 on reject.
- */
-static int capture_result(const char *line, const char *method,
-                          const char *origin) {
-  /* Quick prefix filter. */
-  if (line[0] != 'P' && line[0] != 'V')
-    return 0;
-  if (line[1] != ' ')
-    return 0;
+/* Collected key/value fields from a tagged line's tail (pos= conf= lo= hi=
+ * sz= sample= base_align=), after sz→hi normalization. Filled by
+ * parse_result_tail(); consumed by the VAS check and the slot append. */
+struct parsed_tail {
+  int seen_pos, seen_conf, seen_lo, seen_hi, seen_sz, seen_sample;
+  int seen_base_align;
+  enum kasld_position pos;
+  enum kasld_confidence conf;
+  unsigned long lo, hi, sz, sample, base_align;
+};
 
-  /* region_field holds the "region[:name]" token. Sized to hold the
-   * longest plausible name (NAME_LEN - 1) plus the longest region wire
-   * string (~16) plus the separator. Width-restricted sscanf matches the
-   * buffer size exactly. */
-#define REGION_FIELD_CAP (NAME_LEN + 32)
-  char type_ch;
-  char region_field[REGION_FIELD_CAP];
-  int prefix_consumed = 0;
-  /* sscanf width must be strictly less than buffer size — sscanf writes
-   * an implicit terminator. NAME_LEN + 31 here for REGION_FIELD_CAP = 80. */
-  if (sscanf(line, "%c %79s %n", &type_ch, region_field, &prefix_consumed) <
-          2 ||
-      prefix_consumed == 0)
-    return 0;
-
-  enum kasld_addr_type type = type_from_wire(type_ch);
-  if (type == KASLD_TYPE_UNKNOWN)
-    return 0;
-
-  /* Split region[:name] on FIRST `:` only. Names may legitimately contain
-   * subsequent colons (e.g. PCI BDF "0000:00:14.0"). Region wire names
-   * are short identifiers (longest current: "module_region" = 13) and
-   * never contain ':', so the split is unambiguous. */
+/* Split a "region[:name]" wire token into a resolved region + name_buf (sized
+ * NAME_LEN). The split is on the FIRST `:` only — names may contain subsequent
+ * colons (e.g. PCI BDF "0000:00:14.0"); region wire names are short
+ * identifiers without ':' (longest "module_region" = 13). Returns
+ * REGION_UNKNOWN on a malformed, over-length, or unrecognized token. */
+static enum kasld_region parse_region_field(const char *region_field,
+                                            char *name_buf) {
   char region_str[32];
-  char name_buf[NAME_LEN];
   name_buf[0] = '\0';
-  {
-    char *colon = strchr(region_field, ':');
-    if (colon) {
-      size_t rlen = (size_t)(colon - region_field);
-      /* Over-length region string indicates a malformed line. */
-      if (rlen >= sizeof(region_str))
-        return 0;
-      memcpy(region_str, region_field, rlen);
-      region_str[rlen] = '\0';
+  const char *colon = strchr(region_field, ':');
+  if (colon) {
+    size_t rlen = (size_t)(colon - region_field);
+    if (rlen >= sizeof(region_str)) /* over-length region = malformed line */
+      return REGION_UNKNOWN;
+    memcpy(region_str, region_field, rlen);
+    region_str[rlen] = '\0';
 
-      const char *name_src = colon + 1;
-      size_t nlen = strlen(name_src);
-      /* Spec: over-length names reject the line (no silent truncation). */
-      if (nlen > NAME_LEN - 1)
-        return 0;
-      memcpy(name_buf, name_src, nlen);
-      name_buf[nlen] = '\0';
-    } else {
-      size_t rlen = strlen(region_field);
-      if (rlen >= sizeof(region_str))
-        return 0;
-      memcpy(region_str, region_field, rlen);
-      region_str[rlen] = '\0';
-    }
+    const char *name_src = colon + 1;
+    size_t nlen = strlen(name_src);
+    if (nlen >
+        NAME_LEN - 1) /* over-length name rejects (no silent truncation) */
+      return REGION_UNKNOWN;
+    memcpy(name_buf, name_src, nlen);
+    name_buf[nlen] = '\0';
+  } else {
+    size_t rlen = strlen(region_field);
+    if (rlen >= sizeof(region_str))
+      return REGION_UNKNOWN;
+    memcpy(region_str, region_field, rlen);
+    region_str[rlen] = '\0';
   }
-#undef REGION_FIELD_CAP
+  return region_from_wire(region_str);
+}
 
-  enum kasld_region region = region_from_wire(region_str);
-  if (region == REGION_UNKNOWN)
-    return 0;
-
-  /* --- Tail pass: collect all keys first, then normalize + validate. --- */
-  struct {
-    int seen_pos, seen_conf, seen_lo, seen_hi, seen_sz, seen_sample;
-    int seen_base_align;
-    enum kasld_position pos;
-    enum kasld_confidence conf;
-    unsigned long lo, hi, sz, sample, base_align;
-  } p = {0};
-  p.pos = POS_UNKNOWN;
-  p.conf = CONF_UNKNOWN;
+/* Tokenise the key=value tail (everything after "<type> <region>[:<name>] ")
+ * into *p, then apply sz→hi normalization plus cross-key and
+ * pos-requires-field validation. Returns 1 if the tail is well-formed and
+ * self-consistent, 0 to reject the line. */
+static int parse_result_tail(const char *tail_start, struct parsed_tail *p) {
+  memset(p, 0, sizeof(*p));
+  p->pos = POS_UNKNOWN;
+  p->conf = CONF_UNKNOWN;
 
   char tail[MAX_LINE_LEN];
-  {
-    const char *t = line + prefix_consumed;
-    size_t tl = strlen(t);
-    if (tl >= sizeof(tail))
-      return 0;
-    memcpy(tail, t, tl + 1);
-    /* Strip trailing newline. */
-    if (tl > 0 && tail[tl - 1] == '\n')
-      tail[tl - 1] = '\0';
-  }
+  size_t tl = strlen(tail_start);
+  if (tl >= sizeof(tail))
+    return 0;
+  memcpy(tail, tail_start, tl + 1);
+  /* Strip trailing newline. */
+  if (tl > 0 && tail[tl - 1] == '\n')
+    tail[tl - 1] = '\0';
 
   char *save = NULL;
   for (char *tok = strtok_r(tail, " \t", &save); tok;
@@ -723,43 +684,43 @@ static int capture_result(const char *line, const char *method,
     const char *val = eq + 1;
 
     if (strcmp(key, "pos") == 0) {
-      if (p.seen_pos)
+      if (p->seen_pos)
         return 0;
-      p.seen_pos = 1;
-      p.pos = pos_from_wire(val);
+      p->seen_pos = 1;
+      p->pos = pos_from_wire(val);
       /* pos_from_wire returns POS_UNKNOWN for both unknown literal and
        * unrecognized — distinguish: only "unknown" string is valid here. */
-      if (p.pos == POS_UNKNOWN && strcmp(val, "unknown") != 0)
+      if (p->pos == POS_UNKNOWN && strcmp(val, "unknown") != 0)
         return 0;
     } else if (strcmp(key, "conf") == 0) {
-      if (p.seen_conf)
+      if (p->seen_conf)
         return 0;
-      p.seen_conf = 1;
-      p.conf = conf_from_wire(val);
-      if (p.conf == CONF_UNKNOWN)
+      p->seen_conf = 1;
+      p->conf = conf_from_wire(val);
+      if (p->conf == CONF_UNKNOWN)
         return 0;
     } else if (strcmp(key, "lo") == 0) {
-      if (p.seen_lo || !parse_hex(val, &p.lo))
+      if (p->seen_lo || !parse_hex(val, &p->lo))
         return 0;
-      p.seen_lo = 1;
+      p->seen_lo = 1;
     } else if (strcmp(key, "hi") == 0) {
-      if (p.seen_hi || p.seen_sz || !parse_hex(val, &p.hi))
+      if (p->seen_hi || p->seen_sz || !parse_hex(val, &p->hi))
         return 0;
-      p.seen_hi = 1;
+      p->seen_hi = 1;
     } else if (strcmp(key, "sz") == 0) {
-      if (p.seen_sz || p.seen_hi || !parse_hex(val, &p.sz))
+      if (p->seen_sz || p->seen_hi || !parse_hex(val, &p->sz))
         return 0;
-      p.seen_sz = 1;
+      p->seen_sz = 1;
     } else if (strcmp(key, "sample") == 0) {
-      if (p.seen_sample || !parse_hex(val, &p.sample))
+      if (p->seen_sample || !parse_hex(val, &p->sample))
         return 0;
-      p.seen_sample = 1;
+      p->seen_sample = 1;
     } else if (strcmp(key, "base_align") == 0) {
-      if (p.seen_base_align || !parse_hex(val, &p.base_align))
+      if (p->seen_base_align || !parse_hex(val, &p->base_align))
         return 0;
-      if (!is_pow2(p.base_align))
+      if (!is_pow2(p->base_align))
         return 0;
-      p.seen_base_align = 1;
+      p->seen_base_align = 1;
     } else {
       /* Unknown key rejects the line (spec: no forward-compat silence). */
       return 0;
@@ -767,95 +728,105 @@ static int capture_result(const char *line, const char *method,
   }
 
   /* Mandatory fields. */
-  if (!p.seen_pos || !p.seen_conf)
+  if (!p->seen_pos || !p->seen_conf)
     return 0;
 
   /* sz → hi normalization. */
-  if (p.seen_sz) {
-    /* sz requires lo — check before doing arithmetic on p.lo. */
-    if (!p.seen_lo)
+  if (p->seen_sz) {
+    /* sz requires lo — check before doing arithmetic on p->lo. */
+    if (!p->seen_lo)
       return 0;
     /* hi = lo + sz - 1, rejecting an empty or wrapping extent in one step. */
-    if (p.sz == 0 || kasld_add_ovf(p.lo, p.sz - 1, &p.hi))
+    if (p->sz == 0 || kasld_add_ovf(p->lo, p->sz - 1, &p->hi))
       return 0;
-    p.seen_hi = 1;
+    p->seen_hi = 1;
   }
 
   /* Cross-key constraints. */
-  if (p.seen_lo && p.seen_hi && p.lo > p.hi)
+  if (p->seen_lo && p->seen_hi && p->lo > p->hi)
     return 0;
-  if (p.seen_sample) {
-    if (p.seen_lo && p.sample < p.lo)
+  if (p->seen_sample) {
+    if (p->seen_lo && p->sample < p->lo)
       return 0;
-    if (p.seen_hi && p.sample > p.hi)
+    if (p->seen_hi && p->sample > p->hi)
       return 0;
   }
 
   /* pos-requires-field. */
-  switch (p.pos) {
+  switch (p->pos) {
   case POS_BASE:
-    if (!p.seen_lo)
+    if (!p->seen_lo)
       return 0;
     break;
   case POS_TOP:
-    if (!p.seen_hi)
+    if (!p->seen_hi)
       return 0;
     break;
   case POS_INTERIOR:
-    if (!p.seen_sample)
+    if (!p->seen_sample)
       return 0;
     break;
   case POS_EXTENT:
     /* A covering member is a closed extent — both edges required. The value
      * lives in the gaps between extents, so a half-open extent is meaningless
      * to the map rules that consume it. */
-    if (!p.seen_lo || !p.seen_hi)
+    if (!p->seen_lo || !p->seen_hi)
       return 0;
     break;
   case POS_UNKNOWN:
-    if (!p.seen_lo && !p.seen_hi && !p.seen_sample)
+    if (!p->seen_lo && !p->seen_hi && !p->seen_sample)
       return 0;
     break;
   }
+  return 1;
+}
 
-  /* Parse-time VAS validation against region_info[region].static_vas.
-   * Layout-derived regions (derive_vas != NULL) skip parse-time validation
-   * — they're validated at runtime via result_in_bounds.
-   *
-   * Rejections are surfaced under --verbose so a developer porting a
-   * component to a new architecture sees the drop instead of a silent
-   * "ran but produced nothing". The reject reason names the offending
-   * field for actionable triage. */
+/* Parse-time VAS validation against region_info[region].static_vas. Returns 1
+ * if in-bounds (or the region is runtime-derived / has no static window), 0 to
+ * reject. Layout-derived regions (derive_vas != NULL) are validated at runtime
+ * via result_in_bounds instead. A rejection is surfaced under --verbose so a
+ * developer porting a component to a new arch sees the drop (naming the
+ * offending field) rather than a silent "ran but produced nothing". */
+static int result_vas_ok(enum kasld_region region, const struct parsed_tail *p,
+                         enum kasld_addr_type type, const char *name_buf,
+                         const char *origin) {
   const struct region_info *ri = &region_info[region];
-  if (ri->derive_vas == NULL &&
-      (ri->static_vas.lo != 0 || ri->static_vas.hi != 0)) {
-    unsigned long vlo = ri->static_vas.lo;
-    unsigned long vhi = ri->static_vas.hi;
-    const char *vas_field = NULL;
-    unsigned long vas_val = 0;
-    if (p.seen_lo && (p.lo < vlo || p.lo > vhi)) {
-      vas_field = "lo";
-      vas_val = p.lo;
-    } else if (p.seen_hi && (p.hi < vlo || p.hi > vhi)) {
-      vas_field = "hi";
-      vas_val = p.hi;
-    } else if (p.seen_sample && (p.sample < vlo || p.sample > vhi)) {
-      vas_field = "sample";
-      vas_val = p.sample;
-    }
-    if (vas_field) {
-      if (verbose && !quiet)
-        fprintf(stderr,
-                "[parser] dropped %c %s%s%s: %s=%#lx out of VAS [%#lx, %#lx]"
-                " (origin=%s)\n",
-                kasld_type_wire(type), kasld_region_wire(region),
-                name_buf[0] ? ":" : "", name_buf[0] ? name_buf : "", vas_field,
-                vas_val, vlo, vhi, origin && *origin ? origin : "?");
-      return 0;
-    }
-  }
+  if (ri->derive_vas != NULL ||
+      (ri->static_vas.lo == 0 && ri->static_vas.hi == 0))
+    return 1;
 
-  /* Claim a slot. */
+  unsigned long vlo = ri->static_vas.lo;
+  unsigned long vhi = ri->static_vas.hi;
+  const char *vas_field = NULL;
+  unsigned long vas_val = 0;
+  if (p->seen_lo && (p->lo < vlo || p->lo > vhi)) {
+    vas_field = "lo";
+    vas_val = p->lo;
+  } else if (p->seen_hi && (p->hi < vlo || p->hi > vhi)) {
+    vas_field = "hi";
+    vas_val = p->hi;
+  } else if (p->seen_sample && (p->sample < vlo || p->sample > vhi)) {
+    vas_field = "sample";
+    vas_val = p->sample;
+  }
+  if (!vas_field)
+    return 1;
+
+  if (verbose && !quiet)
+    fprintf(stderr,
+            "[parser] dropped %c %s%s%s: %s=%#lx out of VAS [%#lx, %#lx]"
+            " (origin=%s)\n",
+            kasld_type_wire(type), kasld_region_wire(region),
+            name_buf[0] ? ":" : "", name_buf[0] ? name_buf : "", vas_field,
+            vas_val, vlo, vhi, origin && *origin ? origin : "?");
+  return 0;
+}
+
+/* Claim a results[] slot and populate it from the validated line. Returns 1 on
+ * success, 0 if the result table is full (warning emitted once). */
+static int append_result(enum kasld_addr_type type, enum kasld_region region,
+                         const char *name_buf, const struct parsed_tail *p,
+                         const char *method, const char *origin) {
   RESULT_LOCK();
   if (num_results >= MAX_RESULTS) {
     orchestrator_saturation |= ORCH_SAT_RESULTS_FULL;
@@ -885,22 +856,22 @@ static int capture_result(const char *line, const char *method,
     memcpy(r->name, name_buf, nl);
     r->name[nl] = '\0';
   }
-  r->pos = p.pos;
-  r->conf = p.conf;
-  if (p.seen_lo) {
-    r->lo = p.lo;
+  r->pos = p->pos;
+  r->conf = p->conf;
+  if (p->seen_lo) {
+    r->lo = p->lo;
     r->set_mask |= LO_SET;
   }
-  if (p.seen_hi) {
-    r->hi = p.hi;
+  if (p->seen_hi) {
+    r->hi = p->hi;
     r->set_mask |= HI_SET;
   }
-  if (p.seen_sample) {
-    r->sample = p.sample;
+  if (p->seen_sample) {
+    r->sample = p->sample;
     r->set_mask |= SAMPLE_SET;
   }
-  if (p.seen_base_align) {
-    r->base_align = p.base_align;
+  if (p->seen_base_align) {
+    r->base_align = p->base_align;
     r->set_mask |= BASE_ALIGN_SET;
   }
   /* Provenance: this is the first contributor. */
@@ -912,6 +883,61 @@ static int capture_result(const char *line, const char *method,
   r->method_set = method_bit(method);
   r->provenance_count = 1;
   return 1;
+}
+
+/* Parse a new-format tagged line into a struct result and append it.
+ *
+ * Wire format:
+ *   <type> <region>[:<name>] pos=<pos> conf=<conf> \
+ *       [lo=<hex>] [hi=<hex>|sz=<hex>] [sample=<hex>] [base_align=<hex>]
+ *
+ * Pipeline: sscanf the positional prefix, then parse_region_field (region +
+ * name), parse_result_tail (key/value tail + normalization + validation),
+ * result_vas_ok (static-VAS bounds), append_result (slot claim + populate).
+ *
+ * Returns 1 on accept (record appended to results[]), 0 on reject.
+ */
+static int capture_result(const char *line, const char *method,
+                          const char *origin) {
+  /* Quick prefix filter. */
+  if (line[0] != 'P' && line[0] != 'V')
+    return 0;
+  if (line[1] != ' ')
+    return 0;
+
+  /* region_field holds the "region[:name]" token. Sized to hold the
+   * longest plausible name (NAME_LEN - 1) plus the longest region wire
+   * string (~16) plus the separator. Width-restricted sscanf matches the
+   * buffer size exactly. */
+#define REGION_FIELD_CAP (NAME_LEN + 32)
+  char type_ch;
+  char region_field[REGION_FIELD_CAP];
+  int prefix_consumed = 0;
+  /* sscanf width must be strictly less than buffer size — sscanf writes
+   * an implicit terminator. NAME_LEN + 31 here for REGION_FIELD_CAP = 80. */
+  if (sscanf(line, "%c %79s %n", &type_ch, region_field, &prefix_consumed) <
+          2 ||
+      prefix_consumed == 0)
+    return 0;
+#undef REGION_FIELD_CAP
+
+  enum kasld_addr_type type = type_from_wire(type_ch);
+  if (type == KASLD_TYPE_UNKNOWN)
+    return 0;
+
+  char name_buf[NAME_LEN];
+  enum kasld_region region = parse_region_field(region_field, name_buf);
+  if (region == REGION_UNKNOWN)
+    return 0;
+
+  struct parsed_tail p;
+  if (!parse_result_tail(line + prefix_consumed, &p))
+    return 0;
+
+  if (!result_vas_ok(region, &p, type, name_buf, origin))
+    return 0;
+
+  return append_result(type, region, name_buf, &p, method, origin);
 }
 
 /* Parse one `S <fact> conf=<c> value=0x<hex>` scalar-fact wire record into
