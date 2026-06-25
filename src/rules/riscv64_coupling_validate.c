@@ -56,71 +56,48 @@
  * widest accepting floor for "linear map lives at or above PAGE_OFFSET". */
 #define RISCV64_PAGE_OFFSET_SV57 0xff60000000000000ul /* PAGE_OFFSET_L5 */
 
+#if (defined(__riscv) || defined(__riscv__)) && __riscv_xlen == 64
+static int riscv64_va_band_bad(enum kasld_region region, unsigned long a) {
+  switch (region) {
+  case REGION_DIRECTMAP:
+  case REGION_PAGE_OFFSET:
+    /* Linear map lives at or above PAGE_OFFSET. Lowest plausible PAGE_OFFSET
+     * across SATP modes (SV57) is the widest accepting floor. Upper bound:
+     * kernel VAS end. */
+    return (a < RISCV64_PAGE_OFFSET_SV57) ||
+           (a > (unsigned long)KERNEL_VIRT_VAS_END);
+  case REGION_VMALLOC:
+  case REGION_VMEMMAP:
+    /* Both regions sit immediately below PAGE_OFFSET on every SATP mode. The
+     * highest plausible PAGE_OFFSET is the strict upper bound: the legacy SV39
+     * linear-map base (RISCV_LEGACY_PAGE_OFFSET) — every modern SATP-mode
+     * PAGE_OFFSET is below it, so it is the widest accepting ceiling and never
+     * invalidates a legacy linear-map-adjacent leak. Widest accepting lower
+     * bound is the kernel VAS floor. */
+    return (a >= (unsigned long)RISCV_LEGACY_PAGE_OFFSET) ||
+           (a < (unsigned long)KERNEL_VIRT_VAS_START);
+  case REGION_KERNEL_TEXT:
+  case REGION_KERNEL_IMAGE:
+    /* Inside the validation range (KERNEL_VIRT_TEXT_MIN/MAX covers both modern
+     * top-2-GiB layout and pre-v5.10 linear-map text). */
+    return (a < (unsigned long)KERNEL_VIRT_TEXT_MIN) ||
+           (a > (unsigned long)KERNEL_VIRT_TEXT_MAX);
+  case REGION_MODULE:
+  case REGION_MODULE_REGION:
+    /* Inside the module-band union (modern relative-to-text + legacy). */
+    return (a < (unsigned long)MODULES_START) ||
+           (a > (unsigned long)MODULES_END);
+  default:
+    return 0; /* no band check for this region kind */
+  }
+}
+#endif
+
 int rule_riscv64_coupling_validate(const struct evidence_set *ev,
                                    struct verdict *out, int out_max) {
 #if (defined(__riscv) || defined(__riscv__)) && __riscv_xlen == 64
-  int n = 0;
-  for (int i = 0; i < ev->n_obs && n < out_max; i++) {
-    const struct observation *o = &ev->obs[i];
-    if (!o->valid || o->value_kind != OBS_ADDRESS ||
-        o->eff_type != KASLD_TYPE_VIRT)
-      continue;
-
-    unsigned long a = obs_anchor(o);
-    if (a == 0)
-      continue;
-
-    int bad = 0;
-    switch (o->eff_region) {
-    case REGION_DIRECTMAP:
-    case REGION_PAGE_OFFSET:
-      /* Linear map lives at or above PAGE_OFFSET. Lowest plausible
-       * PAGE_OFFSET across SATP modes (SV57) is the widest accepting
-       * floor. Upper bound: kernel VAS end. */
-      bad = (a < RISCV64_PAGE_OFFSET_SV57) ||
-            (a > (unsigned long)KERNEL_VIRT_VAS_END);
-      break;
-    case REGION_VMALLOC:
-    case REGION_VMEMMAP:
-      /* Both regions sit immediately below PAGE_OFFSET on every SATP mode.
-       * The highest plausible PAGE_OFFSET is the strict upper bound: the legacy
-       * SV39 linear-map base (RISCV_LEGACY_PAGE_OFFSET) — every modern
-       * SATP-mode PAGE_OFFSET is below it, so it is the widest accepting
-       * ceiling and never invalidates a legacy linear-map-adjacent leak. Widest
-       * accepting lower bound is the kernel VAS floor. */
-      bad = (a >= (unsigned long)RISCV_LEGACY_PAGE_OFFSET) ||
-            (a < (unsigned long)KERNEL_VIRT_VAS_START);
-      break;
-    case REGION_KERNEL_TEXT:
-    case REGION_KERNEL_IMAGE:
-      /* Inside the validation range (KERNEL_VIRT_TEXT_MIN/MAX covers both
-       * modern top-2-GiB layout and pre-v5.10 linear-map text). */
-      bad = (a < (unsigned long)KERNEL_VIRT_TEXT_MIN) ||
-            (a > (unsigned long)KERNEL_VIRT_TEXT_MAX);
-      break;
-    case REGION_MODULE:
-    case REGION_MODULE_REGION:
-      /* Inside the module-band union (modern relative-to-text + legacy). */
-      bad = (a < (unsigned long)MODULES_START) ||
-            (a > (unsigned long)MODULES_END);
-      break;
-    default:
-      continue; /* no band check for this region kind */
-    }
-
-    if (!bad)
-      continue;
-
-    struct verdict *v = &out[n++];
-    memset(v, 0, sizeof(*v));
-    v->observation_id = o->id;
-    v->kind = V_INVALID;
-    v->conf = o->conf;
-    v->derived_from[0] = o->id;
-    v->lineage_count = 1;
-    snprintf(v->origin, ORIGIN_LEN, "riscv64_coupling_validate");
-  }
-  return n;
+  return kasld_emit_va_band_verdicts(ev, out, out_max, riscv64_va_band_bad,
+                                     "riscv64_coupling_validate");
 #else
   (void)ev;
   (void)out;

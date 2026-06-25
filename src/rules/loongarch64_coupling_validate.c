@@ -65,62 +65,40 @@
  * XKVRANGE (paged kernel virtual range: vmalloc/modules/vmemmap). */
 #define LOONGARCH_XKVRANGE_FLOOR 0xc000000000000000ul
 
+#if defined(__loongarch__) && __loongarch_grlen == 64
+static int loongarch64_va_band_bad(enum kasld_region region, unsigned long a) {
+  switch (region) {
+  case REGION_DIRECTMAP:
+  case REGION_PAGE_OFFSET:
+    /* Linear map lives in XKPRANGE (hardware DMW). Below XKVRANGE floor and
+     * above KERNEL_VIRT_VAS_START. */
+    return (a < (unsigned long)KERNEL_VIRT_VAS_START) ||
+           (a >= LOONGARCH_XKVRANGE_FLOOR);
+  case REGION_VMALLOC:
+  case REGION_VMEMMAP:
+  case REGION_MODULE:
+  case REGION_MODULE_REGION:
+    /* All XKVRANGE-resident; share the modules-band union as a conservative
+     * bound (the exact per-cpu_vabits split between modules/vmalloc/vmemmap is
+     * not statically known). */
+    return (a < (unsigned long)MODULES_START) ||
+           (a > (unsigned long)MODULES_END);
+  case REGION_KERNEL_TEXT:
+  case REGION_KERNEL_IMAGE:
+    /* Inside the validation range (covers KASLR slide + headroom). */
+    return (a < (unsigned long)KERNEL_VIRT_TEXT_MIN) ||
+           (a > (unsigned long)KERNEL_VIRT_TEXT_MAX);
+  default:
+    return 0; /* no band check for this region kind */
+  }
+}
+#endif
+
 int rule_loongarch64_coupling_validate(const struct evidence_set *ev,
                                        struct verdict *out, int out_max) {
 #if defined(__loongarch__) && __loongarch_grlen == 64
-  int n = 0;
-  for (int i = 0; i < ev->n_obs && n < out_max; i++) {
-    const struct observation *o = &ev->obs[i];
-    if (!o->valid || o->value_kind != OBS_ADDRESS ||
-        o->eff_type != KASLD_TYPE_VIRT)
-      continue;
-
-    unsigned long a = obs_anchor(o);
-    if (a == 0)
-      continue;
-
-    int bad = 0;
-    switch (o->eff_region) {
-    case REGION_DIRECTMAP:
-    case REGION_PAGE_OFFSET:
-      /* Linear map lives in XKPRANGE (hardware DMW). Below XKVRANGE floor
-       * and above KERNEL_VIRT_VAS_START. */
-      bad = (a < (unsigned long)KERNEL_VIRT_VAS_START) ||
-            (a >= LOONGARCH_XKVRANGE_FLOOR);
-      break;
-    case REGION_VMALLOC:
-    case REGION_VMEMMAP:
-    case REGION_MODULE:
-    case REGION_MODULE_REGION:
-      /* All XKVRANGE-resident; share the modules-band union as a
-       * conservative bound (the exact per-cpu_vabits split between
-       * modules/vmalloc/vmemmap is not statically known). */
-      bad = (a < (unsigned long)MODULES_START) ||
-            (a > (unsigned long)MODULES_END);
-      break;
-    case REGION_KERNEL_TEXT:
-    case REGION_KERNEL_IMAGE:
-      /* Inside the validation range (covers KASLR slide + headroom). */
-      bad = (a < (unsigned long)KERNEL_VIRT_TEXT_MIN) ||
-            (a > (unsigned long)KERNEL_VIRT_TEXT_MAX);
-      break;
-    default:
-      continue; /* no band check for this region kind */
-    }
-
-    if (!bad)
-      continue;
-
-    struct verdict *v = &out[n++];
-    memset(v, 0, sizeof(*v));
-    v->observation_id = o->id;
-    v->kind = V_INVALID;
-    v->conf = o->conf;
-    v->derived_from[0] = o->id;
-    v->lineage_count = 1;
-    snprintf(v->origin, ORIGIN_LEN, "loongarch64_coupling_validate");
-  }
-  return n;
+  return kasld_emit_va_band_verdicts(ev, out, out_max, loongarch64_va_band_bad,
+                                     "loongarch64_coupling_validate");
 #else
   (void)ev;
   (void)out;

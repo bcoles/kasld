@@ -16,11 +16,50 @@
 
 #include "engine.h"
 
+#include <stdio.h>
+#include <string.h>
+
 /* Constraint rules, in registry order. *n is set to the count. */
 const rule_fn *engine_rules(int *n);
 
 /* Curation (verdict) rules, in registry order. *n is set to the count. */
 const verdict_fn *engine_verdict_rules(int *n);
+
+/* Shared skeleton for the per-arch `*_coupling_validate` verdict rules. Each
+ * such rule emits V_INVALID for every VIRT address observation whose anchor
+ * falls outside its region's fixed VA band — the band layout is the only
+ * arch-specific part, supplied as `is_bad(region, anchor)`. This folds the
+ * identical scan + verdict-emission boilerplate the four rules used to repeat.
+ * An anchor of 0 (no usable address) is never flagged. */
+typedef int (*kasld_va_band_check)(enum kasld_region region,
+                                   unsigned long anchor);
+
+static inline int kasld_emit_va_band_verdicts(const struct evidence_set *ev,
+                                              struct verdict *out, int out_max,
+                                              kasld_va_band_check is_bad,
+                                              const char *origin) {
+  int n = 0;
+  for (int i = 0; i < ev->n_obs && n < out_max; i++) {
+    const struct observation *o = &ev->obs[i];
+    if (!o->valid || o->value_kind != OBS_ADDRESS ||
+        o->eff_type != KASLD_TYPE_VIRT)
+      continue;
+    unsigned long a = obs_anchor(o);
+    if (a == 0)
+      continue;
+    if (!is_bad(o->eff_region, a))
+      continue;
+    struct verdict *v = &out[n++];
+    memset(v, 0, sizeof(*v));
+    v->observation_id = o->id;
+    v->kind = V_INVALID;
+    v->conf = o->conf;
+    v->derived_from[0] = o->id;
+    v->lineage_count = 1;
+    snprintf(v->origin, ORIGIN_LEN, "%s", origin);
+  }
+  return n;
+}
 
 /* ─────────────────────────────────────────────────────────────────────────
  * Rule prototypes — grouped by family to mirror the registry layout in
@@ -41,6 +80,7 @@ R(virt_ceiling_from_memtotal);
 R(phys_bits_ceiling);
 R(image_size_text_data_gap);
 R(min_offset_from_image_size);
+R(image_floor_from_init_size);
 R(vmsplit_text_base);
 R(range_from_interior);
 

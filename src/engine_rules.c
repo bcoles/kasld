@@ -30,6 +30,7 @@ static const rule_fn k_rules[] = {
     rule_phys_bits_ceiling,
     rule_image_size_text_data_gap,
     rule_min_offset_from_image_size,
+    rule_image_floor_from_init_size,
     rule_vmsplit_text_base,
     rule_range_from_interior,
 

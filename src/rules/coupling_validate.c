@@ -33,35 +33,23 @@
 
 #include <string.h>
 
+#if defined(__x86_64__)
+/* The direct map never reaches __START_KERNEL_map, and the kernel image map's
+ * floor is KERNEL_VIRT_TEXT_MIN (the validation range — see file header for why
+ * NOT KASLR_VIRT_TEXT_MIN). */
+static int x86_64_va_band_bad(enum kasld_region region, unsigned long a) {
+  return (region == REGION_DIRECTMAP &&
+          a >= (unsigned long)KERNEL_VIRT_TEXT_MIN) ||
+         ((region == REGION_KERNEL_TEXT || region == REGION_KERNEL_IMAGE) &&
+          a < (unsigned long)KERNEL_VIRT_TEXT_MIN);
+}
+#endif
+
 int rule_coupling_validate(const struct evidence_set *ev, struct verdict *out,
                            int out_max) {
 #if defined(__x86_64__)
-  int n = 0;
-  for (int i = 0; i < ev->n_obs && n < out_max; i++) {
-    const struct observation *o = &ev->obs[i];
-    if (!o->valid || o->value_kind != OBS_ADDRESS ||
-        o->eff_type != KASLD_TYPE_VIRT)
-      continue;
-
-    unsigned long a = obs_anchor(o);
-    int bad =
-        (o->eff_region == REGION_DIRECTMAP && a >= KERNEL_VIRT_TEXT_MIN) ||
-        ((o->eff_region == REGION_KERNEL_TEXT ||
-          o->eff_region == REGION_KERNEL_IMAGE) &&
-         a < KERNEL_VIRT_TEXT_MIN);
-    if (!bad)
-      continue;
-
-    struct verdict *v = &out[n++];
-    memset(v, 0, sizeof(*v));
-    v->observation_id = o->id;
-    v->kind = V_INVALID;
-    v->conf = o->conf;
-    v->derived_from[0] = o->id;
-    v->lineage_count = 1;
-    snprintf(v->origin, ORIGIN_LEN, "coupling_validate");
-  }
-  return n;
+  return kasld_emit_va_band_verdicts(ev, out, out_max, x86_64_va_band_bad,
+                                     "coupling_validate");
 #else
   (void)ev;
   (void)out;

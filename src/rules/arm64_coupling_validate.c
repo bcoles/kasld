@@ -65,72 +65,49 @@
  * arm64_va_bits_from_vmemmap rule uses. */
 #define ARM64_VA48_VMEMMAP_START 0xfffffdffc0000000ul
 
+#if defined(__aarch64__)
+static int arm64_va_band_bad(enum kasld_region region, unsigned long a) {
+  switch (region) {
+  case REGION_DIRECTMAP:
+  case REGION_PAGE_OFFSET:
+    /* Linear map lives in [PAGE_OFFSET, _PAGE_END), both VA_BITS-dependent.
+     * Widest accepting bounds: floor at the lowest PAGE_OFFSET (VA52's,
+     * KERNEL_VIRT_VAS_START); ceiling at the highest _PAGE_END (smallest
+     * supported VA_BITS). */
+    return (a >= arm64_page_end_for(ARM64_VA_BITS_MIN_SUPPORTED)) ||
+           (a < (unsigned long)KERNEL_VIRT_VAS_START);
+  case REGION_MODULE:
+  case REGION_MODULE_REGION:
+    /* Modules sit in the fixed [MODULES_START, MODULES_END] band. */
+    return (a < (unsigned long)MODULES_START) ||
+           (a > (unsigned long)MODULES_END);
+  case REGION_KERNEL_TEXT:
+  case REGION_KERNEL_IMAGE:
+    /* Inside the *validation* range — KERNEL_VIRT_TEXT_MIN/MAX (the arch's
+     * widest plausible text-base window) rather than KASLR_VIRT_TEXT_MIN/MAX
+     * (one specific KASLR formula's narrower randomization window). The latter
+     * would reject legitimate text leaks from kernel versions whose
+     * kaslr_early.c algorithm produces slots outside the current header's
+     * modelled window. */
+    return (a < (unsigned long)KERNEL_VIRT_TEXT_MIN) ||
+           (a > (unsigned long)KERNEL_VIRT_TEXT_MAX);
+  case REGION_VMEMMAP:
+    /* Above VA48 vmemmap floor *or* anywhere below it (VA52 territory); either
+     * way, must be below VMEMMAP_END (= −SZ_1G). The arm64 va_bits-from-vmemmap
+     * rule cares about the *floor* discriminator; this verdict only rejects the
+     * unambiguously-out-of-range case. */
+    return (a >= ARM64_VMEMMAP_END);
+  default:
+    return 0; /* no band check for this region kind */
+  }
+}
+#endif
+
 int rule_arm64_coupling_validate(const struct evidence_set *ev,
                                  struct verdict *out, int out_max) {
 #if defined(__aarch64__)
-  int n = 0;
-  for (int i = 0; i < ev->n_obs && n < out_max; i++) {
-    const struct observation *o = &ev->obs[i];
-    if (!o->valid || o->value_kind != OBS_ADDRESS ||
-        o->eff_type != KASLD_TYPE_VIRT)
-      continue;
-
-    unsigned long a = obs_anchor(o);
-    if (a == 0)
-      continue;
-
-    int bad = 0;
-    switch (o->eff_region) {
-    case REGION_DIRECTMAP:
-    case REGION_PAGE_OFFSET:
-      /* Linear map lives in [PAGE_OFFSET, _PAGE_END), both VA_BITS-dependent.
-       * Widest accepting bounds: floor at the lowest PAGE_OFFSET (VA52's,
-       * KERNEL_VIRT_VAS_START); ceiling at the highest _PAGE_END (smallest
-       * supported VA_BITS). */
-      bad = (a >= arm64_page_end_for(ARM64_VA_BITS_MIN_SUPPORTED)) ||
-            (a < (unsigned long)KERNEL_VIRT_VAS_START);
-      break;
-    case REGION_MODULE:
-    case REGION_MODULE_REGION:
-      /* Modules sit in the fixed [MODULES_START, MODULES_END] band. */
-      bad = (a < (unsigned long)MODULES_START) ||
-            (a > (unsigned long)MODULES_END);
-      break;
-    case REGION_KERNEL_TEXT:
-    case REGION_KERNEL_IMAGE:
-      /* Inside the *validation* range — KERNEL_VIRT_TEXT_MIN/MAX (the arch's
-       * widest plausible text-base window) rather than KASLR_VIRT_TEXT_MIN/MAX
-       * (one specific KASLR formula's narrower randomization window). The
-       * latter would reject legitimate text leaks from kernel versions
-       * whose kaslr_early.c algorithm produces slots outside the
-       * current header's modelled window. */
-      bad = (a < (unsigned long)KERNEL_VIRT_TEXT_MIN) ||
-            (a > (unsigned long)KERNEL_VIRT_TEXT_MAX);
-      break;
-    case REGION_VMEMMAP:
-      /* Above VA48 vmemmap floor *or* anywhere below it (VA52 territory);
-       * either way, must be below VMEMMAP_END (= −SZ_1G). The arm64
-       * va_bits-from-vmemmap rule cares about the *floor* discriminator;
-       * this verdict only rejects the unambiguously-out-of-range case. */
-      bad = (a >= ARM64_VMEMMAP_END);
-      break;
-    default:
-      continue; /* no band check for this region kind */
-    }
-
-    if (!bad)
-      continue;
-
-    struct verdict *v = &out[n++];
-    memset(v, 0, sizeof(*v));
-    v->observation_id = o->id;
-    v->kind = V_INVALID;
-    v->conf = o->conf;
-    v->derived_from[0] = o->id;
-    v->lineage_count = 1;
-    snprintf(v->origin, ORIGIN_LEN, "arm64_coupling_validate");
-  }
-  return n;
+  return kasld_emit_va_band_verdicts(ev, out, out_max, arm64_va_band_bad,
+                                     "arm64_coupling_validate");
 #else
   (void)ev;
   (void)out;

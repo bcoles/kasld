@@ -4651,6 +4651,72 @@ static void test_min_offset_from_image_size(void) {
 #endif
 }
 
+/* image_floor_from_init_size: a high in-image VIRT leak + SF_INIT_SIZE floors
+ * Q_VIRT_IMAGE_BASE at (leak - init_size), the lower-bound complement to the
+ * interior upper bound. Arch-independent (fires wherever SF_INIT_SIZE exists).
+ */
+int rule_image_floor_from_init_size(const struct evidence_set *,
+                                    const struct estimate *,
+                                    struct constraint *, int);
+
+static void test_image_floor_from_init_size(void) {
+  struct estimate top;
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
+  const unsigned long init_size = 0x2000000ul; /* 32 MiB */
+  const rule_fn rules[] = {rule_image_floor_from_init_size};
+
+  /* (1) A high in-image leak floors the base at leak - init_size. */
+  {
+    unsigned long leak = top.lo + 0x6000000ul; /* 96 MiB into the window */
+    if (leak <= top.hi) {
+      struct engine e;
+      engine_init(&e);
+      struct observation s = mk_scalar(SF_INIT_SIZE, init_size, CONF_PARSED);
+      struct observation a =
+          mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, leak, LO_SET | SAMPLE_SET,
+                 POS_INTERIOR, CONF_PARSED);
+      evidence_add(&e.ev, &s);
+      evidence_add(&e.ev, &a);
+      engine_run(&e, rules, 1);
+      assert(e.est[Q_VIRT_IMAGE_BASE].lo == leak - init_size);
+      assert(e.est[Q_VIRT_IMAGE_BASE].lo < leak); /* floor below the witness */
+    }
+  }
+  /* (2) No SF_INIT_SIZE -> inert (SF_IMAGE_SIZE is deliberately NOT used). */
+  {
+    struct engine e;
+    engine_init(&e);
+    struct observation a =
+        mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, top.lo + 0x6000000ul,
+               LO_SET | SAMPLE_SET, POS_INTERIOR, CONF_PARSED);
+    evidence_add(&e.ev, &a);
+    engine_run(&e, rules, 1);
+    assert(e.est[Q_VIRT_IMAGE_BASE].lo == top.lo);
+  }
+  /* (3) Self-consistency guard: a high outlier inconsistent with the low
+   * witness (a_max - a_min > init_size) is dropped — no unsound floor. */
+  {
+    unsigned long a_min = top.lo + 0x1000ul;
+    unsigned long a_max = a_min + init_size + 0x100000ul;
+    if (a_max <= top.hi) {
+      struct engine e;
+      engine_init(&e);
+      struct observation s = mk_scalar(SF_INIT_SIZE, init_size, CONF_PARSED);
+      struct observation lo_obs =
+          mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, a_min,
+                 LO_SET | SAMPLE_SET, POS_INTERIOR, CONF_PARSED);
+      struct observation hi_obs =
+          mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, a_max,
+                 LO_SET | SAMPLE_SET, POS_INTERIOR, CONF_PARSED);
+      evidence_add(&e.ev, &s);
+      evidence_add(&e.ev, &lo_obs);
+      evidence_add(&e.ev, &hi_obs);
+      engine_run(&e, rules, 1);
+      assert(e.est[Q_VIRT_IMAGE_BASE].lo == top.lo);
+    }
+  }
+}
+
 /* MODULES_RELATIVE_TO_TEXT (riscv64/s390): a VIRT module leak bounds the text
  * base. The exact value is arch-specific (two cases); assert the monotone
  * invariant — the rule narrows within the window and never widens. */
@@ -5136,6 +5202,7 @@ int main(void) {
   RUN(test_phys_bits_absent);
   RUN(test_image_size_text_data_gap);
   RUN(test_min_offset_from_image_size);
+  RUN(test_image_floor_from_init_size);
 
   BEGIN_CATEGORY("DRAM bounds");
   RUN(test_dram_floor_bound);
