@@ -620,7 +620,9 @@ static int region_cmp(const void *a, const void *b) {
   return 0;
 }
 
-static void print_memory_map(void) {
+/* Render the virtual half of the memory map: kernel text / modules / direct-map
+ * regions, the gaps between them, and the VAS-floor annotation. */
+static void print_virtual_layout(void) {
   unsigned long vtext_lo, vtext_hi, vmod_lo, vmod_hi, vdmap_lo, vdmap_hi;
   section_range(KASLD_TYPE_VIRT, "text", &vtext_lo, &vtext_hi);
   section_range(KASLD_TYPE_VIRT, "module", &vmod_lo, &vmod_hi);
@@ -730,6 +732,12 @@ static void print_memory_map(void) {
            below, c(C_RESET));
   }
   printf("\n");
+}
+
+/* Render the physical half of the memory map: DRAM buckets, the phys text-base
+ * window split, and any above/below-DRAM buckets. */
+static void print_physical_layout(void) {
+  const char *INDENT = "      ";
 
   /* Physical memory map — unified view of all physical leaks */
   unsigned long ptext =
@@ -1042,6 +1050,12 @@ static void print_memory_map(void) {
   }
 
   printf("\n");
+}
+
+/* Render the kernel memory map: virtual layout above, physical layout below. */
+static void print_memory_map(void) {
+  print_virtual_layout();
+  print_physical_layout();
 }
 
 /* -------------------------------------------------------------------------
