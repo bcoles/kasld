@@ -232,16 +232,19 @@ int main(void) {
     return 0;
   }
 
-  /* The sample IP sits at image_base + offset (offset >= 0), so the leaked
-   * value is a sound interior witness (image_base <= addr). Tighten it to the
-   * sound aligned base estimate — kasld_floor_text_base preserves the base's
-   * sub-alignment offset, so it stays a valid upper bound on every arch (a
-   * plain `& -KASLR_VIRT_ALIGN` would drop below the base on riscv64/arm32). */
+  /* The lowest sampled IP sits at image_base + offset (offset >= 0); aligning
+   * it down to the KASLR granule yields the kernel text BASE estimate, so it
+   * reports a base claim (POS_BASE) and leaves reconciliation to the engine.
+   * CONF_DERIVED, not CONF_PARSED: the raw IP is parsed-certain, but concluding
+   * the aligned slot IS the base is a derived inference, so a parsed
+   * ground-truth base still overrides it. kasld_floor_text_base preserves the
+   * sub-alignment residue so the value stays valid on every arch (a plain `&
+   * -KASLR_VIRT_ALIGN` would drop below the base on riscv64/arm32). */
   unsigned long emit_addr = kasld_floor_text_base(addr);
-  kasld_info("lowest leaked address: %lx  emit (aligned): %lx", addr,
+  kasld_info("lowest leaked address: %lx  kernel base (aligned): %lx", addr,
              emit_addr);
-  kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, emit_addr, NULL,
-                      CONF_PARSED);
+  kasld_result_base(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, emit_addr, NULL,
+                    CONF_DERIVED);
 
   return 0;
 }
