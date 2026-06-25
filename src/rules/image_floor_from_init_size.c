@@ -4,9 +4,9 @@
 //
 // Any leaked kernel-image virtual address `a` (text / image / data / bss) lies
 // within [image_base, image_base + init_size], where init_size is the kernel's
-// exact in-memory footprint (x86 boot_params hdr.init_size, SF_INIT_SIZE;
-// init_size >= _end - _text, so it bounds the offset of any in-image symbol
-// from the base). Therefore:
+// exact in-memory footprint (SF_INIT_SIZE: x86 boot_params init_size, or the
+// arm64/riscv64 EFI Image header image_size; init_size >= _end - _text, so it
+// bounds the offset of any in-image symbol from the base). Therefore:
 //
 //   image_base >= a - init_size
 //
@@ -29,8 +29,8 @@
 // excluding truth.
 //
 // Inert when no SF_INIT_SIZE fact or no in-image virtual observation is
-// present. Arch-independent; fires wherever a SF_INIT_SIZE fact exists (x86
-// today).
+// present. Arch-independent; fires wherever a SF_INIT_SIZE fact exists (x86 via
+// boot_params; arm64/riscv64 when a readable, uncompressed Image is present).
 // ---
 // <bcoles@gmail.com>
 

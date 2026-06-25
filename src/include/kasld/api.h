@@ -830,7 +830,9 @@ enum kasld_scalar_fact {
   SF_PHYS_ADDR_BITS, /* CPU physical-address width (/proc/cpuinfo)       */
   SF_IMAGE_SIZE,     /* kernel image size bytes (/boot; estimate)        */
   SF_VIRT_ADDR_BITS, /* virtual-address width / paging level             */
-  SF_INIT_SIZE,      /* exact in-memory kernel init_size (x86 boot_params)*/
+  SF_INIT_SIZE,      /* exact in-memory image size (>= _end - _text): x86    */
+                     /* boot_params init_size, or arm64/riscv64 EFI Image    */
+                     /* header image_size                                    */
   SF_PHYS_LOWMEM,    /* 32-bit lowmem bytes (/proc/meminfo LowTotal)     */
   SF_PHYS_FW_RESERVED_BASE, /* ppc64 firmware reserved region base (OPAL/RTAS)
                              */
