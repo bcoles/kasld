@@ -233,17 +233,21 @@ int main(void) {
   }
 
   /* The lowest sampled IP sits at image_base + offset (offset >= 0); aligning
-   * it down to the KASLR granule yields the kernel text BASE estimate, so it
-   * reports a base claim (POS_BASE) and leaves reconciliation to the engine.
-   * CONF_DERIVED, not CONF_PARSED: the raw IP is parsed-certain, but concluding
-   * the aligned slot IS the base is a derived inference, so a parsed
-   * ground-truth base still overrides it. kasld_floor_text_base preserves the
-   * sub-alignment residue so the value stays valid on every arch (a plain `&
+   * it down to the KASLR granule yields the kernel image BASE estimate (_text),
+   * so it reports a base claim (POS_BASE) and leaves reconciliation to the
+   * engine. Region KERNEL_IMAGE, not KERNEL_TEXT: the value is the image base,
+   * and text_pin_from_observation treats a KERNEL_TEXT base as _stext and
+   * subtracts STEXT_OFFSET (the head gap) — which would push the base below
+   * _text on arches where _stext != _text (arm64, loongarch64). CONF_DERIVED,
+   * not CONF_PARSED: the raw IP is parsed-certain, but concluding the aligned
+   * slot IS the base is a derived inference, so a parsed ground-truth base
+   * still overrides it. kasld_floor_text_base preserves the sub-alignment
+   * residue so the value stays valid on every arch (a plain `&
    * -KASLR_VIRT_ALIGN` would drop below the base on riscv64/arm32). */
   unsigned long emit_addr = kasld_floor_text_base(addr);
   kasld_info("lowest leaked address: %lx  kernel base (aligned): %lx", addr,
              emit_addr);
-  kasld_result_base(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, emit_addr, NULL,
+  kasld_result_base(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE, emit_addr, NULL,
                     CONF_DERIVED);
 
   return 0;

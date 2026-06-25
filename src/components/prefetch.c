@@ -387,13 +387,16 @@ int main(int argc, char *argv[]) {
   }
 
   kasld_info("possible kernel base: %lx", addr);
-  /* The prefetch latency scan locates the kernel text BASE (the lowest mapped
-   * kernel page), so it reports a base claim (POS_BASE) and leaves
-   * reconciliation to the engine. The scan is a cache-timing measurement that
-   * can sit a KASLR slot off the true base, so it emits at CONF_TIMING — the
-   * weakest pin: a higher-confidence (parsed) base overrides it, and an
-   * agreeing base corroborates it. */
-  kasld_result_base(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr, NULL,
+  /* The prefetch latency scan locates the kernel image BASE (the lowest mapped
+   * kernel page, _text), so it reports a base claim (POS_BASE) and leaves
+   * reconciliation to the engine. Region KERNEL_IMAGE, not KERNEL_TEXT: the
+   * value is the image base, and text_pin_from_observation reads a KERNEL_TEXT
+   * base as _stext and subtracts the head gap (no-op on x86_64 where _stext ==
+   * _text, but wrong on STEXT_OFFSET arches). The scan is a cache-timing
+   * measurement that can sit a KASLR slot off the true base, so it emits at
+   * CONF_TIMING — the weakest pin: a higher-confidence (parsed) base overrides
+   * it, and an agreeing base corroborates it. */
+  kasld_result_base(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE, addr, NULL,
                     CONF_TIMING);
 
   return 0;
