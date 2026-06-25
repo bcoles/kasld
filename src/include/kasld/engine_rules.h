@@ -61,6 +61,50 @@ static inline int kasld_emit_va_band_verdicts(const struct evidence_set *ev,
   return n;
 }
 
+/* Shared skeleton for the virt/phys KASLR-disabled text pins. On a positive
+ * `signal` scalar, pin quantity `q` to the arch default `dflt` — an assumed
+ * standard-config value, not a parsed fact, so emitted at <= CONF_INFERRED
+ * (capped to the signal's own confidence) and only when `dflt` lies inside the
+ * quantity's current honest window (so a leak that already narrowed past it
+ * wins). Returns 1 if a pin was emitted, 0 otherwise. */
+static inline int kasld_emit_kaslr_disabled_pin(
+    const struct evidence_set *ev, const struct estimate *est,
+    struct constraint *out, int out_max, enum kasld_scalar_fact signal,
+    enum kasld_quantity q, unsigned long dflt, const char *origin) {
+  if (out_max < 1)
+    return 0;
+
+  uint32_t sig_id = 0;
+  enum kasld_confidence sig_conf = CONF_UNKNOWN;
+  for (int i = 0; i < ev->n_obs; i++) {
+    const struct observation *o = &ev->obs[i];
+    if (!o->valid || o->value_kind != OBS_SCALAR)
+      continue;
+    if (o->scalar_fact == signal && o->scalar_value != 0) {
+      sig_id = o->id;
+      sig_conf = o->conf;
+      break;
+    }
+  }
+  if (sig_id == 0)
+    return 0;
+
+  const struct estimate *e = &est[q];
+  if (dflt == 0 || dflt < e->lo || dflt > e->hi)
+    return 0;
+
+  struct constraint *c = &out[0];
+  memset(c, 0, sizeof(*c));
+  c->q = q;
+  c->op = C_EQUALS;
+  c->value = dflt;
+  c->conf = sig_conf < CONF_INFERRED ? sig_conf : CONF_INFERRED;
+  c->derived_from[0] = sig_id;
+  c->lineage_count = 1;
+  snprintf(c->origin, ORIGIN_LEN, "%s", origin);
+  return 1;
+}
+
 /* ─────────────────────────────────────────────────────────────────────────
  * Rule prototypes — grouped by family to mirror the registry layout in
  * engine_rules.c. The R(...) / V(...) macros expand to the long

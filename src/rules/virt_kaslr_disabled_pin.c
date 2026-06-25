@@ -50,41 +50,8 @@ int rule_virt_kaslr_disabled_pin(const struct evidence_set *ev,
   (void)out_max;
   return 0;
 #else
-  if (out_max < 1)
-    return 0;
-
-  uint32_t sig_id = 0;
-  enum kasld_confidence sig_conf = CONF_UNKNOWN;
-  for (int i = 0; i < ev->n_obs; i++) {
-    const struct observation *o = &ev->obs[i];
-    if (!o->valid || o->value_kind != OBS_SCALAR)
-      continue;
-    if (o->scalar_fact == SF_VIRT_KASLR_DISABLED && o->scalar_value != 0) {
-      sig_id = o->id;
-      sig_conf = o->conf;
-      break;
-    }
-  }
-  if (sig_id == 0)
-    return 0;
-
-  unsigned long v = arch_default_text_base();
-  const struct estimate *vt = &est[Q_VIRT_IMAGE_BASE];
-  if (v == 0 || v < vt->lo || v > vt->hi)
-    return 0;
-
-  struct constraint *c = &out[0];
-  memset(c, 0, sizeof(*c));
-  c->q = Q_VIRT_IMAGE_BASE;
-  c->op = C_EQUALS;
-  c->value = v;
-  /* Assumed standard-config default, not a parsed fact: cap at inferred, and
-   * never above the disabled signal's own confidence. A real text leak then
-   * outranks it by confidence rather than by capture order. */
-  c->conf = sig_conf < CONF_INFERRED ? sig_conf : CONF_INFERRED;
-  c->derived_from[0] = sig_id;
-  c->lineage_count = 1;
-  snprintf(c->origin, ORIGIN_LEN, "virt_kaslr_disabled_pin");
-  return 1;
+  return kasld_emit_kaslr_disabled_pin(
+      ev, est, out, out_max, SF_VIRT_KASLR_DISABLED, Q_VIRT_IMAGE_BASE,
+      arch_default_text_base(), "virt_kaslr_disabled_pin");
 #endif
 }
