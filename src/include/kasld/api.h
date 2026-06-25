@@ -721,6 +721,12 @@ enum kasld_confidence {
   /* ---- Kernel image (legitimately exists in both phys and virt) ------- */  \
   /* K_OPEN keeps PHYS leaks visible alongside VIRT — per-type narrowing   */  \
   /* lives in the parser / inference layer, not the region table.          */  \
+  /* BASE semantics (POS_BASE): KERNEL_TEXT base == _stext (.text start);  */  \
+  /* text_pin_from_observation subtracts STEXT_OFFSET (the head gap) to    */  \
+  /* recover the image base. KERNEL_IMAGE base == _text (the image base)   */  \
+  /* itself, used directly. Report the IMAGE BASE as KERNEL_IMAGE, never   */  \
+  /* KERNEL_TEXT — mis-tagging it KERNEL_TEXT lands the base a head gap    */  \
+  /* below _text on arm64/loongarch64 (checked by tests/check-text-region).*/  \
   X(REGION_KERNEL_TEXT, "kernel_text", "text", K_OPEN)                         \
   X(REGION_KERNEL_DATA, "kernel_data", "data", K_OPEN)                         \
   X(REGION_KERNEL_BSS, "kernel_bss", "bss", K_OPEN)                            \

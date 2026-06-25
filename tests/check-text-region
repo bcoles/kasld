@@ -1,0 +1,71 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-text-region — guard the KERNEL_TEXT-vs-KERNEL_IMAGE base contract.
+#
+# A POS_BASE observation in REGION_KERNEL_TEXT means _stext (the .text start):
+# text_pin_from_observation subtracts STEXT_OFFSET (the head gap) from it to
+# recover the image base. A component that reports the IMAGE base (_text) must
+# therefore use REGION_KERNEL_IMAGE — tagging it KERNEL_TEXT makes the engine
+# subtract the head gap and land below _text on arches where _stext != _text
+# (arm64 +0x10000, loongarch64 +0x20000), excluding the truth. This exact
+# mistake hit perf_event_open / prefetch and a riscv dmesg "kernel :" entry.
+#
+# Fails if a component emits a KERNEL_TEXT *base* (kasld_result_base /
+# kasld_result_sized, or an LK_BASE table entry) outside the reviewed allowlist
+# of components whose KERNEL_TEXT base genuinely is _stext. A new such emitter
+# forces the author to confirm the value is _stext (allowlist it) or switch to
+# REGION_KERNEL_IMAGE. Interior samples (kasld_result_sample) are unaffected —
+# they are not bases, so text_pin ignores them.
+#
+# Usage: tests/check-text-region   (also run by `make test`)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+COMP=$ROOT/src/components
+
+if [ -t 2 ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; RESET=
+fi
+
+# Components whose REGION_KERNEL_TEXT base is genuinely _stext (reviewed):
+#   proc_kallsyms                 — emits _stext (and _text as KERNEL_IMAGE)
+#   dmesg_mem_init_kernel_layout  — the ".text : 0x" line is _stext
+ALLOW="proc_kallsyms dmesg_mem_init_kernel_layout"
+
+# Literal base emission tagged KERNEL_TEXT (drop // and block-comment lines so a
+# comment naming the region does not trip the guard).
+lit=$(grep -rnE 'kasld_result_(base|sized)\(.*REGION_KERNEL_TEXT' "$COMP" 2>/dev/null \
+      | grep -vE ':[0-9]+:[[:space:]]*(//|\*)' \
+      | sed 's/:.*//')
+
+# Table-driven base: a file with an LK_BASE entry table that also references
+# REGION_KERNEL_TEXT (the dmesg_mem_init_kernel_layout style).
+tab=$(grep -rl 'LK_BASE' "$COMP" 2>/dev/null | while read -r f; do
+  grep -q 'REGION_KERNEL_TEXT' "$f" && printf '%s\n' "$f"
+done)
+
+bad=$(printf '%s\n%s\n' "$lit" "$tab" | sed '/^$/d' | sort -u | while read -r f; do
+  name=$(basename "$f" .c)
+  case " $ALLOW " in
+  *" $name "*) ;;          # reviewed _stext emitter
+  *) printf '%s\n' "$f" ;; # unreviewed KERNEL_TEXT base
+  esac
+done)
+
+if [ -n "$bad" ]; then
+  printf '%scheck-text-region: FAIL%s — component(s) emit a REGION_KERNEL_TEXT\n' "$RED" "$RESET" >&2
+  echo "base. A KERNEL_TEXT base is read as _stext and shifted down by STEXT_OFFSET" >&2
+  echo "(the head gap) to recover the image base. If the value is the IMAGE base" >&2
+  echo "(_text), use REGION_KERNEL_IMAGE instead; if it genuinely is _stext, add the" >&2
+  echo "component to ALLOW in tests/check-text-region with a note:" >&2
+  printf '%s\n' "$bad" | sed 's/^/  /' >&2
+  exit 1
+fi
+
+printf '%scheck-text-region: OK%s (KERNEL_TEXT bases are reviewed _stext emitters)\n' \
+  "$GREEN" "$RESET"
