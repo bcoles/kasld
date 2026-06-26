@@ -16,8 +16,8 @@
 // move the edges).
 //
 // Reads REGION_INITRD (emitted as a [lo,hi] range by boot_params_e820 /
-// devicetree) + SF_IMAGE_SIZE; both already in evidence. Decoupled arches only
-// (Q_PHYS_IMAGE_BASE); emits nothing when either input is absent — sound.
+// devicetree) + SF_IMAGE_SIZE_MIN; both already in evidence. Decoupled arches
+// only (Q_PHYS_IMAGE_BASE); emits nothing when either input is absent — sound.
 // ---
 // <bcoles@gmail.com>
 
@@ -39,23 +39,17 @@ int rule_initrd_phys_exclude(const struct evidence_set *ev,
   if (out_max < 1)
     return 0;
 
-  unsigned long ksize = 0, istart = 0, iend = 0;
+  unsigned long istart = 0, iend = 0;
   enum kasld_confidence kconf = CONF_UNKNOWN, iconf = CONF_PARSED;
   uint32_t ksrc = 0, isrc = 0;
+  unsigned long ksize = evidence_image_size_min(ev, &kconf, &ksrc);
   for (int i = 0; i < ev->n_obs; i++) {
     const struct observation *o = &ev->obs[i];
     if (!o->valid)
       continue;
-    if (o->value_kind == OBS_SCALAR &&
-        (o->scalar_fact == SF_IMAGE_SIZE || o->scalar_fact == SF_INIT_SIZE)) {
-      if (o->scalar_value > ksize) { /* exact init_size wins; both <= true */
-        ksize = o->scalar_value;
-        kconf = o->conf;
-        ksrc = o->id;
-      }
-    } else if (o->value_kind == OBS_ADDRESS && o->eff_type == KASLD_TYPE_PHYS &&
-               o->eff_region == REGION_INITRD && HAS_LO(o) && HAS_HI(o) &&
-               o->hi > o->lo) {
+    if (o->value_kind == OBS_ADDRESS && o->eff_type == KASLD_TYPE_PHYS &&
+        o->eff_region == REGION_INITRD && HAS_LO(o) && HAS_HI(o) &&
+        o->hi > o->lo) {
       /* Lowest initrd interval seen (deterministic if several). */
       if (isrc == 0 || o->lo < istart) {
         istart = o->lo;

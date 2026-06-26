@@ -165,7 +165,8 @@ P ram pos=top conf=parsed hi=0x3ffdefff
 P initrd pos=base conf=parsed lo=0x3eff3000 hi=0x3ffcf651
 
 --- boot_params_facts ---
-S init_size conf=parsed value=0x288d000
+S image_size_min conf=parsed value=0x288d000
+S image_size_max conf=parsed value=0x288d000
 S phys_kernel_align conf=parsed value=0x200000
 
 --- bootconfig_facts ---
@@ -311,7 +312,8 @@ P ram pos=extent conf=parsed lo=0x0 hi=0x9fbff
 [-] no MMIO bases from fb/serial ioctls (no accessible device, or port-I/O only)
 
 --- kernel_image_facts ---
-S image_size conf=parsed value=0x2de6600
+S image_size_min conf=parsed value=0x288d000
+S image_size_max conf=parsed value=0x288d000
 
 --- kernel_notes_buildid ---
 [.] reading /sys/kernel/notes ...

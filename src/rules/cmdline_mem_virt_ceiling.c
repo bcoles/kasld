@@ -15,7 +15,7 @@
 // page_offset_from_config / a landmark), otherwise emits nothing — sound
 // under the "no-input → no-constraint" principle.
 //
-// Reads SF_PHYS_CMDLINE_MEM (cmdline_mem.c) + SF_IMAGE_SIZE + Q_PAGE_OFFSET
+// Reads SF_PHYS_CMDLINE_MEM (cmdline_mem.c) + SF_IMAGE_SIZE_MIN + Q_PAGE_OFFSET
 // pinned; emits nothing when any is absent.
 //
 // References:
@@ -46,9 +46,10 @@ int rule_cmdline_mem_virt_ceiling(const struct evidence_set *ev,
     return 0;
   unsigned long virt_page_offset = po->lo;
 
-  unsigned long mem = 0, ksize = 0;
+  unsigned long mem = 0;
   enum kasld_confidence mconf = CONF_UNKNOWN, kconf = CONF_UNKNOWN;
   uint32_t msrc = 0, ksrc = 0;
+  unsigned long ksize = evidence_image_size_min(ev, &kconf, &ksrc);
   for (int i = 0; i < ev->n_obs; i++) {
     const struct observation *o = &ev->obs[i];
     if (!o->valid || o->value_kind != OBS_SCALAR)
@@ -57,13 +58,6 @@ int rule_cmdline_mem_virt_ceiling(const struct evidence_set *ev,
       mem = o->scalar_value;
       mconf = o->conf;
       msrc = o->id;
-    } else if (o->scalar_fact == SF_IMAGE_SIZE ||
-               o->scalar_fact == SF_INIT_SIZE) {
-      if (o->scalar_value > ksize) { /* exact init_size wins; both <= true */
-        ksize = o->scalar_value;
-        kconf = o->conf;
-        ksrc = o->id;
-      }
     }
   }
   if (mem == 0 || ksize == 0 || ksize >= mem)

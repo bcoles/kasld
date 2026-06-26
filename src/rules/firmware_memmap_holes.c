@@ -8,7 +8,7 @@
 // interval cannot be the real base and is curated out:
 //
 //   for each PHYS kernel-base candidate W:
-//     drop W if no System RAM interval contains [W, W + MIN_IMAGE_SIZE)
+//     drop W if no System RAM interval contains [W, W + min_image)
 //
 // Consumes the firmware-memmap RAM map from ev->coverings[] (origin
 // "firmware_memmap" — a complete single-source covering, never a partial RAM
@@ -21,8 +21,6 @@
 #include "include/kasld/regions.h"
 
 #include <string.h>
-
-#define FMH_MIN_IMAGE_SIZE (4ul * 1024 * 1024)
 
 int rule_firmware_memmap_holes(const struct evidence_set *ev,
                                struct verdict *out, int out_max) {
@@ -38,6 +36,7 @@ int rule_firmware_memmap_holes(const struct evidence_set *ev,
   if (!have_map)
     return 0;
 
+  const unsigned long min_image = evidence_image_size_min_or_floor(ev);
   int n = 0;
   for (int i = 0; i < ev->n_obs && n < out_max; i++) {
     const struct observation *c = &ev->obs[i];
@@ -54,15 +53,15 @@ int rule_firmware_memmap_holes(const struct evidence_set *ev,
     if (a == 0)
       continue;
 
-    /* Does some System RAM extent contain [a, a + MIN_IMAGE_SIZE)? */
+    /* Does some System RAM extent contain [a, a + min_image)? */
     int fits = 0;
     for (int j = 0; j < ev->n_coverings; j++) {
       const struct covering *m = &ev->coverings[j];
       if (strcmp(m->origin, "firmware_memmap") != 0)
         continue;
-      unsigned long last = (a > m->hi - (FMH_MIN_IMAGE_SIZE - 1))
+      unsigned long last = (a > m->hi - (min_image - 1))
                                ? a /* avoid overflow; straddle check below */
-                               : a + FMH_MIN_IMAGE_SIZE - 1;
+                               : a + min_image - 1;
       if (a >= m->lo && last <= m->hi) {
         fits = 1;
         break;

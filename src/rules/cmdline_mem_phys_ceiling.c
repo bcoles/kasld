@@ -13,8 +13,8 @@
 // (Q_PHYS_IMAGE_BASE exists); the coupled-arch counterpart is
 // cmdline_mem_virt_ceiling.
 //
-// Reads SF_PHYS_CMDLINE_MEM (emitted by cmdline_mem.c) + SF_IMAGE_SIZE; emits
-// nothing when either is absent — sound.
+// Reads SF_PHYS_CMDLINE_MEM (emitted by cmdline_mem.c) + SF_IMAGE_SIZE_MIN;
+// emits nothing when either is absent — sound.
 //
 // References:
 // https://elixir.bootlin.com/linux/v6.12/source/arch/x86/boot/compressed/kaslr.c#L260
@@ -39,9 +39,10 @@ int rule_cmdline_mem_phys_ceiling(const struct evidence_set *ev,
   if (out_max < 1)
     return 0;
 
-  unsigned long mem = 0, ksize = 0;
+  unsigned long mem = 0;
   enum kasld_confidence mconf = CONF_UNKNOWN, kconf = CONF_UNKNOWN;
   uint32_t msrc = 0, ksrc = 0;
+  unsigned long ksize = evidence_image_size_min(ev, &kconf, &ksrc);
   for (int i = 0; i < ev->n_obs; i++) {
     const struct observation *o = &ev->obs[i];
     if (!o->valid || o->value_kind != OBS_SCALAR)
@@ -50,13 +51,6 @@ int rule_cmdline_mem_phys_ceiling(const struct evidence_set *ev,
       mem = o->scalar_value;
       mconf = o->conf;
       msrc = o->id;
-    } else if (o->scalar_fact == SF_IMAGE_SIZE ||
-               o->scalar_fact == SF_INIT_SIZE) {
-      if (o->scalar_value > ksize) { /* exact init_size wins; both <= true */
-        ksize = o->scalar_value;
-        kconf = o->conf;
-        ksrc = o->id;
-      }
     }
   }
   if (mem == 0 || ksize == 0 || ksize >= mem)

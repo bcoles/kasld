@@ -1,37 +1,58 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
-// Emit SF_IMAGE_SIZE: the kernel image size estimate (from /boot artifacts),
-// which bounds how high the randomized base can sit within the KASLR window.
+// Emit the kernel image size, read from the running kernel's /boot artefacts.
+// The footprint is a two-ended interval; what each source proves decides which
+// fact(s) it emits:
+//   exact source (Image header / x86 bzImage / ELF / System.map) — the exact
+//     in-memory footprint (_end - _text); sound in both directions, so emits
+//     BOTH SF_IMAGE_SIZE_MIN (ceiling) and SF_IMAGE_SIZE_MAX (floor).
+//   lower-bound source (gzip ISIZE / compressed vmlinuz size) — below the
+//     footprint (excludes BSS), so emits SF_IMAGE_SIZE_MIN only.
+// x86 also supplies both facts from boot_params (boot_params_facts.c).
 // ---
 // <bcoles@gmail.com>
 #include "include/kasld/api.h"
 #include "include/kasld/kernel_image.h"
 
-KASLD_EXPLAIN("Estimates the kernel image size from /boot (PE header / vmlinuz "
-              "/ System.map) and emits it as a scalar fact that bounds the "
-              "KASLR ceiling. No privileges.");
+KASLD_EXPLAIN(
+    "Reads the kernel image size from /boot (EFI/PE Image header, x86 "
+    "bzImage setup header, ELF vmlinux, System.map, or a gzip ISIZE "
+    "trailer) and emits it as a scalar fact bounding the KASLR window. "
+    "No privileges.");
 KASLD_META("method:parsed\n"
            "phase:inference\n");
 
 int main(void) {
-  unsigned long sz = kasld_estimate_kernel_size();
-  if (sz)
-    kasld_emit_scalar(SF_IMAGE_SIZE, sz, CONF_PARSED);
-
-  /* The arm64/riscv64 EFI Image header carries the exact in-memory image size
-   * (image_size = _end - _text, including BSS) — the same quantity x86 exposes
-   * via boot_params init_size. Emit it as SF_INIT_SIZE so the rules that need a
-   * size guaranteed >= the in-memory extent (image_floor_from_init_size, and
-   * the image-fits ceilings) get a sound value on these arches too, rather than
-   * the SF_IMAGE_SIZE estimate which can fall back to the compressed file size.
-   * Only fires on a readable, uncompressed Image: the header magic gate rejects
-   * gzip and x86 bzImages (x86 already supplies SF_INIT_SIZE from boot_params).
-   */
   struct utsname uts;
-  if (kasld_uname(&uts) == 0) {
-    unsigned long memsz = kasld_image_size_from_header(uts.release);
-    if (memsz)
-      kasld_emit_scalar(SF_INIT_SIZE, memsz, CONF_PARSED);
+  if (kasld_uname(&uts) != 0)
+    return 0;
+  const char *rel = uts.release;
+
+  /* Exact footprint (_end - _text, includes BSS) from whichever artefact
+   * exposes it. Exact → sound in both directions → emit MIN and MAX. */
+  unsigned long exact = kasld_image_size_from_header(rel);
+  if (!exact)
+    exact = kasld_image_size_from_bzimage(rel);
+  if (!exact)
+    exact = kasld_image_size_from_elf(rel);
+  if (!exact)
+    exact = kasld_image_size_from_sysmap(rel);
+  if (exact) {
+    /* Exact footprint: a sound bound in BOTH directions, so it feeds the
+     * ceiling (MIN) and the floor (MAX). */
+    kasld_emit_scalar(SF_IMAGE_SIZE_MIN, exact, CONF_PARSED);
+    kasld_emit_scalar(SF_IMAGE_SIZE_MAX, exact, CONF_PARSED);
+    return 0;
   }
+
+  /* No exact source: fall back to a lower bound (MIN, ceiling side) only.
+   * Prefer a gzip stream's ISIZE (decompressed size, tighter) over the raw
+   * vmlinuz file size (compressed, looser); both exclude BSS / under-count, so
+   * they bound the footprint from below but never above (no MAX). */
+  unsigned long lb = kasld_image_size_from_gzip(rel);
+  if (!lb)
+    lb = kasld_image_size_from_vmlinuz(rel);
+  if (lb)
+    kasld_emit_scalar(SF_IMAGE_SIZE_MIN, lb, CONF_PARSED);
   return 0;
 }

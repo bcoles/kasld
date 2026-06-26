@@ -9,7 +9,7 @@
 //   mem_avoid_memmap() add each reservation interval to mem_avoid[] so
 //   find_random_phys_addr() refuses to place the kernel image overlapping
 //   it. The cmdline_memmap_phys_exclude rule consumes the emitted extents
-//   (with SF_IMAGE_SIZE) to widen each into the inclusive forbidden hole
+//   (with SF_IMAGE_SIZE_MIN) to widen each into the inclusive forbidden hole
 //   `[start - image_size + 1, start + size - 1]` and emits C_EXCLUDE on
 //   Q_PHYS_IMAGE_BASE — mirroring initrd_phys_exclude / cmdline_phys_exclude.
 //

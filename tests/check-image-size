@@ -1,0 +1,46 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-image-size — enforce the kernel image-size access contract.
+#
+# The kernel image footprint is a two-ended interval. A rule reads it ONLY
+# through the two accessors in kasld/evidence.h:
+#   evidence_image_size_min()  — proven LOWER bound (ceiling / exclusion / match)
+#   evidence_image_size_max()  — proven UPPER bound on the in-image extent
+#                                (the image-base floor rule)
+# A rule that scans the raw SF_IMAGE_SIZE_MIN / SF_IMAGE_SIZE_MAX facts itself
+# re-derives "which end is sound here" per-rule — exactly how the size logic
+# drifted before. Fail if any rule references those facts directly; route it
+# through an accessor instead. The emitters (src/components) and the accessors
+# (src/include) legitimately name the facts and are out of scope here.
+#
+# Usage: tests/check-image-size   (also run by `make test`)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+RULES=$ROOT/src/rules
+
+if [ -t 2 ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; RESET=
+fi
+
+# Direct fact references in rule code. Drop comment lines (//, /* ..., and block
+# continuation * ...) so a comment naming the fact does not trip the guard.
+bad=$(grep -rnE 'SF_IMAGE_SIZE_(MIN|MAX)' "$RULES" 2>/dev/null \
+      | grep -vE ':[0-9]+:[[:space:]]*(//|/?\*)')
+
+if [ -n "$bad" ]; then
+  printf '%scheck-image-size: FAIL%s — rule(s) read a raw SF_IMAGE_SIZE_* fact\n' \
+    "$RED" "$RESET" >&2
+  echo "directly. Read size via evidence_image_size_min() (ceiling/exclusion/" >&2
+  echo "match) or evidence_image_size_max() (image-base floor) instead:" >&2
+  printf '%s\n' "$bad" | sed 's/^/  /' >&2
+  exit 1
+fi
+
+printf '%scheck-image-size: OK%s (size read only via the evidence accessors)\n' \
+  "$GREEN" "$RESET"

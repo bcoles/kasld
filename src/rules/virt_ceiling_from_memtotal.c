@@ -8,7 +8,7 @@
 // maps to a virtual upper bound:
 //
 //   virt_ceiling = PAGE_OFFSET_runtime + (phys_floor - PHYS_OFFSET)
-//                  + MemTotal - MIN_IMAGE_SIZE + IMAGE_BASE_OFFSET   (aligned
+//                  + MemTotal - min_image + IMAGE_BASE_OFFSET   (aligned
 //                  down)
 //
 // This is a CROSS-QUANTITY rule: it uses the engine's resolved Q_PAGE_OFFSET
@@ -28,8 +28,6 @@
 
 #include <limits.h>
 #include <string.h>
-
-#define MIN_IMAGE_SIZE (4UL * 1024 * 1024)
 
 int rule_virt_ceiling_from_memtotal(const struct evidence_set *ev,
                                     const struct estimate *est,
@@ -53,6 +51,7 @@ int rule_virt_ceiling_from_memtotal(const struct evidence_set *ev,
   unsigned long memtotal = 0, phys_floor = ULONG_MAX;
   enum kasld_confidence mconf = CONF_UNKNOWN, fconf = CONF_PARSED;
   uint32_t msrc = 0, fsrc = 0;
+  const unsigned long min_image = evidence_image_size_min_or_floor(ev);
   for (int i = 0; i < ev->n_obs; i++) {
     const struct observation *o = &ev->obs[i];
     if (!o->valid)
@@ -72,7 +71,7 @@ int rule_virt_ceiling_from_memtotal(const struct evidence_set *ev,
     }
   }
 
-  if (memtotal == 0 || memtotal <= MIN_IMAGE_SIZE)
+  if (memtotal == 0 || memtotal <= min_image)
     return 0;
   if (phys_floor == ULONG_MAX)
     phys_floor = PHYS_OFFSET;
@@ -80,7 +79,7 @@ int rule_virt_ceiling_from_memtotal(const struct evidence_set *ev,
   unsigned long phys_floor_offset =
       (phys_floor > PHYS_OFFSET) ? (phys_floor - PHYS_OFFSET) : 0;
   unsigned long ceiling = virt_page_offset + phys_floor_offset + memtotal -
-                          MIN_IMAGE_SIZE + IMAGE_BASE_OFFSET;
+                          min_image + IMAGE_BASE_OFFSET;
   /* Align to the resolved Q_VIRT_KASLR_ALIGN (>= compile-time
    * KASLR_VIRT_ALIGN). */
   unsigned long valign = est[Q_VIRT_KASLR_ALIGN].lo;

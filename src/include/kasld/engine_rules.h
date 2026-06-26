@@ -117,7 +117,7 @@ static inline int kasld_emit_kaslr_disabled_pin(
 #define V(name)                                                                \
   int rule_##name(const struct evidence_set *, struct verdict *, int)
 
-/* Image-size ceilings (CONFIG_KERNEL_IMAGE_SIZE / SF_IMAGE_SIZE etc.) */
+/* Image-size ceilings (CONFIG_KERNEL_IMAGE_SIZE / SF_IMAGE_SIZE_MIN etc.) */
 R(ceiling_from_image_size);
 R(phys_ceiling_from_memtotal);
 R(virt_ceiling_from_memtotal);

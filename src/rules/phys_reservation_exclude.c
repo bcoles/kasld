@@ -24,7 +24,8 @@
 // lowest.
 //
 // Soundness:
-//   * kernel_size is evidence_image_size() (the larger of the /boot estimate
+//   * kernel_size is evidence_image_size_min() (the larger of the /boot
+//   estimate
 //     and the exact boot_params init_size; both <= the true footprint), so the
 //     low-edge widening can only under-exclude — never drop a valid base.
 //   * hi - 1 is sound under both the inclusive and the half-open [lo,hi]
@@ -33,9 +34,9 @@
 //   * each forbidden extent is disjoint from the image individually, so no
 //     authoritative-whole-map precondition is needed (unlike the RAM-gap rule).
 //
-// Reads is_phys_kernel_forbidden_region PHYS observations + SF_IMAGE_SIZE; both
-// already in evidence. Decoupled arches only (Q_PHYS_IMAGE_BASE); emits nothing
-// without a size fact or a forbidden extent — sound.
+// Reads is_phys_kernel_forbidden_region PHYS observations + SF_IMAGE_SIZE_MIN;
+// both already in evidence. Decoupled arches only (Q_PHYS_IMAGE_BASE); emits
+// nothing without a size fact or a forbidden extent — sound.
 // ---
 // <bcoles@gmail.com>
 
@@ -56,7 +57,7 @@ int rule_phys_reservation_exclude(const struct evidence_set *ev,
 #else
   enum kasld_confidence kconf = CONF_UNKNOWN;
   uint32_t ksrc = 0;
-  unsigned long ksize = evidence_image_size(ev, &kconf, &ksrc);
+  unsigned long ksize = evidence_image_size_min(ev, &kconf, &ksrc);
   if (ksize == 0)
     return 0;
 

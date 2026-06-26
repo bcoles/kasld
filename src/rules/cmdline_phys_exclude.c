@@ -16,7 +16,7 @@
 // not the headline lo/hi.
 //
 // Reads REGION_CMDLINE (emitted as a [lo,hi] range by cmdline_region) and
-// SF_IMAGE_SIZE. Decoupled arches only (Q_PHYS_IMAGE_BASE exists); emits
+// SF_IMAGE_SIZE_MIN. Decoupled arches only (Q_PHYS_IMAGE_BASE exists); emits
 // nothing when either input is absent.
 // ---
 // <bcoles@gmail.com>
@@ -39,23 +39,17 @@ int rule_cmdline_phys_exclude(const struct evidence_set *ev,
   if (out_max < 1)
     return 0;
 
-  unsigned long ksize = 0, cstart = 0, cend = 0;
+  unsigned long cstart = 0, cend = 0;
   enum kasld_confidence kconf = CONF_UNKNOWN, cconf = CONF_PARSED;
   uint32_t ksrc = 0, csrc = 0;
+  unsigned long ksize = evidence_image_size_min(ev, &kconf, &ksrc);
   for (int i = 0; i < ev->n_obs; i++) {
     const struct observation *o = &ev->obs[i];
     if (!o->valid)
       continue;
-    if (o->value_kind == OBS_SCALAR &&
-        (o->scalar_fact == SF_IMAGE_SIZE || o->scalar_fact == SF_INIT_SIZE)) {
-      if (o->scalar_value > ksize) { /* exact init_size wins; both <= true */
-        ksize = o->scalar_value;
-        kconf = o->conf;
-        ksrc = o->id;
-      }
-    } else if (o->value_kind == OBS_ADDRESS && o->eff_type == KASLD_TYPE_PHYS &&
-               o->eff_region == REGION_CMDLINE && HAS_LO(o) && HAS_HI(o) &&
-               o->hi >= o->lo) {
+    if (o->value_kind == OBS_ADDRESS && o->eff_type == KASLD_TYPE_PHYS &&
+        o->eff_region == REGION_CMDLINE && HAS_LO(o) && HAS_HI(o) &&
+        o->hi >= o->lo) {
       /* Lowest cmdline interval seen (deterministic if several). */
       if (csrc == 0 || o->lo < cstart) {
         cstart = o->lo;

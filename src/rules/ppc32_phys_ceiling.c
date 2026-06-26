@@ -9,7 +9,7 @@
 //   MemTotal < 64 MiB : virt_image_base == KERNEL_VIRT_TEXT_DEFAULT  (KASLR
 //   off) else              : virt_image_base <= KASLR_VIRT_TEXT_MIN +
 //   min(MemTotal,512M)
-//                                          - MIN_IMAGE_SIZE  (aligned)
+//                                          - min_image  (aligned)
 //
 // SCOPE: the guard matches every 32-bit PowerPC (BookE *and* BookS) because
 // BookE-vs-BookS is a runtime property, not a compile-time one — a pure rule
@@ -31,7 +31,6 @@
 
 #define BOOKE_KASLR_MIN_RAM (64ul * 1024 * 1024)
 #define BOOKE_PHYS_KASLR_MAX (512ul * 1024 * 1024)
-#define MIN_IMAGE_SIZE (4ul * 1024 * 1024)
 
 int rule_ppc32_phys_ceiling(const struct evidence_set *ev,
                             const struct estimate *est, struct constraint *out,
@@ -43,6 +42,7 @@ int rule_ppc32_phys_ceiling(const struct evidence_set *ev,
 
   unsigned long mem = 0;
   uint32_t src = 0;
+  const unsigned long min_image = evidence_image_size_min_or_floor(ev);
   for (int i = 0; i < ev->n_obs; i++) {
     const struct observation *o = &ev->obs[i];
     if (o->valid && o->value_kind == OBS_SCALAR &&
@@ -71,10 +71,9 @@ int rule_ppc32_phys_ceiling(const struct evidence_set *ev,
   }
 
   unsigned long cap = mem < BOOKE_PHYS_KASLR_MAX ? mem : BOOKE_PHYS_KASLR_MAX;
-  if (cap <= MIN_IMAGE_SIZE)
+  if (cap <= min_image)
     return 0;
-  unsigned long ceiling =
-      (unsigned long)KASLR_VIRT_TEXT_MIN + cap - MIN_IMAGE_SIZE;
+  unsigned long ceiling = (unsigned long)KASLR_VIRT_TEXT_MIN + cap - min_image;
   ceiling =
       kasld_floor_virt_text_bound(ceiling, (unsigned long)KASLR_VIRT_ALIGN);
   if (ceiling <= (unsigned long)KASLR_VIRT_TEXT_MIN)

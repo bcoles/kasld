@@ -20,11 +20,11 @@
 //      = 2 MiB; x86_64 = CONFIG_PHYSICAL_ALIGN = 2 MiB default;
 //      loongarch64 = 2 MiB.
 //
-//   2. SIZE — `entry.size ∈ [1.0×, 2.0×] × SF_IMAGE_SIZE`. The EFI
+//   2. SIZE — `entry.size ∈ [1.0×, 2.0×] × SF_IMAGE_SIZE_MIN`. The EFI
 //      allocator rounds the image size up to a page count. A 2×
 //      tolerance accepts that rounding and rejects unrelated images
 //      (firmware drivers are far smaller; bootloader images are
-//      typically well under 1× SF_IMAGE_SIZE).
+//      typically well under 1× SF_IMAGE_SIZE_MIN).
 //
 // Exactly one survivor → emit C_EQUALS on Q_PHYS_IMAGE_BASE at its lo at
 // CONF_PARSED. The image is contiguous and the EFI stub adds no header
@@ -46,7 +46,7 @@
 //
 // Zero survivors → emit nothing.
 //
-// Phase: POST_COLLECTION. Needs SF_IMAGE_SIZE and the per-arch
+// Phase: POST_COLLECTION. Needs SF_IMAGE_SIZE_MIN and the per-arch
 // EFI_KIMG_ALIGN constant. Gated to arches that define EFI_KIMG_ALIGN
 // (arm64, riscv64, x86_64, loongarch64); inert otherwise.
 //
@@ -64,10 +64,10 @@
 #if defined(EFI_KIMG_ALIGN)
 
 /* Size tolerance: a candidate's range size must lie in
- *   [SF_IMAGE_SIZE, ELKP_SIZE_MAX_MULT × SF_IMAGE_SIZE].
+ *   [SF_IMAGE_SIZE_MIN, ELKP_SIZE_MAX_MULT × SF_IMAGE_SIZE_MIN].
  * The EFI allocator rounds the image up to a page count; a 2× ceiling
  * catches the rounding without admitting bootloader images far larger
- * or smaller than the kernel. Floor at exactly SF_IMAGE_SIZE — the
+ * or smaller than the kernel. Floor at exactly SF_IMAGE_SIZE_MIN — the
  * range cannot legitimately be smaller than the image itself. */
 #define ELKP_SIZE_MAX_MULT 2
 
@@ -78,19 +78,15 @@ int rule_efi_loader_kernel_pick(const struct evidence_set *ev,
   if (out_max < 1)
     return 0;
 
-  unsigned long ksize = 0;
   uint32_t ksrc = 0;
   uint32_t rand_failed_src = 0;
+  unsigned long ksize = evidence_image_size_min(ev, NULL, &ksrc);
   for (int i = 0; i < ev->n_obs; i++) {
     const struct observation *o = &ev->obs[i];
     if (!o->valid || o->value_kind != OBS_SCALAR)
       continue;
-    if ((o->scalar_fact == SF_IMAGE_SIZE || o->scalar_fact == SF_INIT_SIZE) &&
-        o->scalar_value > ksize) { /* exact init_size wins; both <= true */
-      ksize = o->scalar_value;
-      ksrc = o->id;
-    } else if (o->scalar_fact == SF_PHYS_KASLR_RANDOMIZATION_FAILED &&
-               o->scalar_value != 0 && rand_failed_src == 0) {
+    if (o->scalar_fact == SF_PHYS_KASLR_RANDOMIZATION_FAILED &&
+        o->scalar_value != 0 && rand_failed_src == 0) {
       rand_failed_src = o->id;
     }
   }
@@ -99,7 +95,8 @@ int rule_efi_loader_kernel_pick(const struct evidence_set *ev,
 
   const unsigned long palign = (unsigned long)EFI_KIMG_ALIGN;
   const unsigned long size_max = ksize * (unsigned long)ELKP_SIZE_MAX_MULT;
-  /* Guard against the multiply overflowing on pathological SF_IMAGE_SIZE. */
+  /* Guard against the multiply overflowing on pathological SF_IMAGE_SIZE_MIN.
+   */
   if (size_max < ksize)
     return 0;
 
@@ -141,7 +138,7 @@ int rule_efi_loader_kernel_pick(const struct evidence_set *ev,
       survivor_src = o->id;
       /* Inherit the weaker of the two contributing observations'
        * confidence (same convention as initrd_above_kernel and the
-       * compound-evidence rules generally). SF_IMAGE_SIZE and the
+       * compound-evidence rules generally). SF_IMAGE_SIZE_MIN and the
        * entry observation are typically both CONF_PARSED. */
       survivor_conf = (o->conf < survivor_conf) ? o->conf : survivor_conf;
     }

@@ -157,12 +157,52 @@ static void test_scalar_observation(void) {
   assert(!evidence_active(o));
 }
 
+/* The two-ended image-size interval: min = max-over-lower-bounds (ceiling),
+ * max = min-over-upper-bounds (floor), and the floored convenience. */
+static void test_image_size_accessors(void) {
+  struct evidence_set ev;
+  evidence_init(&ev);
+
+  /* No size facts: both ends 0; or_floor returns the conservative floor. */
+  assert(evidence_image_size_min(&ev, NULL, NULL) == 0);
+  assert(evidence_image_size_max(&ev, NULL, NULL) == 0);
+  assert(evidence_image_size_min_or_floor(&ev) == KASLD_MIN_IMAGE_SIZE);
+
+  /* Two lower bounds: min takes the LARGEST (tightest sound ceiling input). */
+  struct observation lo1 = mk_scalar(SF_IMAGE_SIZE_MIN, 0x1000000ul, "a");
+  struct observation lo2 = mk_scalar(SF_IMAGE_SIZE_MIN, 0x3000000ul, "b");
+  evidence_add(&ev, &lo1);
+  evidence_add(&ev, &lo2);
+  evidence_resolve(&ev);
+  assert(evidence_image_size_min(&ev, NULL, NULL) == 0x3000000ul);
+  /* A MIN-only fact never feeds the MAX (floor) accessor. */
+  assert(evidence_image_size_max(&ev, NULL, NULL) == 0);
+  assert(evidence_image_size_min_or_floor(&ev) == 0x3000000ul);
+
+  /* Two upper bounds: max takes the SMALLEST (tightest sound floor input). */
+  struct observation hi1 = mk_scalar(SF_IMAGE_SIZE_MAX, 0x4000000ul, "c");
+  struct observation hi2 = mk_scalar(SF_IMAGE_SIZE_MAX, 0x3000000ul, "d");
+  evidence_add(&ev, &hi1);
+  evidence_add(&ev, &hi2);
+  evidence_resolve(&ev);
+  assert(evidence_image_size_max(&ev, NULL, NULL) == 0x3000000ul);
+
+  /* or_floor never drops below the floor even with a tiny observed min. */
+  evidence_init(&ev);
+  struct observation tiny = mk_scalar(SF_IMAGE_SIZE_MIN, 0x100000ul, "e");
+  evidence_add(&ev, &tiny);
+  evidence_resolve(&ev);
+  assert(evidence_image_size_min(&ev, NULL, NULL) == 0x100000ul);
+  assert(evidence_image_size_min_or_floor(&ev) == KASLD_MIN_IMAGE_SIZE);
+}
+
 int main(void) {
   TEST_SUITE("test_evidence");
 
   BEGIN_CATEGORY("Observation store");
   RUN(test_add_assigns_monotonic_ids);
   RUN(test_scalar_observation);
+  RUN(test_image_size_accessors);
 
   BEGIN_CATEGORY("Verdict resolution");
   RUN(test_resolve_no_verdicts_all_active);

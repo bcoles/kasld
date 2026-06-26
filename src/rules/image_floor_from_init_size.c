@@ -3,34 +3,34 @@
 // Rule: virtual image-base FLOOR from the in-memory kernel size.
 //
 // Any leaked kernel-image virtual address `a` (text / image / data / bss) lies
-// within [image_base, image_base + init_size], where init_size is the kernel's
-// exact in-memory footprint (SF_INIT_SIZE: x86 boot_params init_size, or the
-// arm64/riscv64 EFI Image header image_size; init_size >= _end - _text, so it
-// bounds the offset of any in-image symbol from the base). Therefore:
+// within [image_base, image_base + size], where size is an UPPER bound on the
+// in-image extent: evidence_image_size_max() (SF_IMAGE_SIZE_MAX), the tightest
+// value no in-image leak can exceed (>= _end - _text). Therefore:
 //
-//   image_base >= a - init_size
+//   image_base >= a - size
 //
 // The HIGHEST in-image observation gives the tightest sound floor. This is the
 // lower-bound complement to the interior/timing oracles (which give the
 // image_base <= a upper bound): a single high interior leak then brackets the
 // base to a tight window even with no base-claiming source.
 //
-// Deliberately consumes SF_INIT_SIZE, NOT SF_IMAGE_SIZE: the latter is a /boot
-// estimate that can fall back to the COMPRESSED vmlinuz file size, which is
-// SMALLER than the in-memory extent. As a lower-bound subtrahend an
-// under-estimate would push the floor ABOVE the true base and exclude it.
-// init_size over-estimates the extent, so the floor is always sound.
+// Consumes the MAX accessor, NOT the MIN: the ceiling-side lower bound can be a
+// decompressed/compressed size that EXCLUDES BSS, SMALLER than the in-memory
+// extent. As a lower-bound subtrahend an under-estimate would push the floor
+// ABOVE the true base and exclude it. Only EXACT sources emit SF_IMAGE_SIZE_MAX
+// (>= _end - _text), so the floor is always sound.
 //
 // Self-consistency guard: the highest and lowest in-image witnesses must fit
-// inside one image of size init_size (a_max - a_min <= init_size). A stray
-// high outlier (a non-image pointer mis-tagged into a kernel-image region and
-// not caught by coupling_validate) would otherwise yield a floor above the true
-// base; the guard drops the emission in that ambiguous case rather than risk
-// excluding truth.
+// inside one image of that size (a_max - a_min <= size). A stray high outlier
+// (a non-image pointer mis-tagged into a kernel-image region and not caught by
+// coupling_validate) would otherwise yield a floor above the true base; the
+// guard drops the emission in that ambiguous case rather than risk excluding
+// truth.
 //
-// Inert when no SF_INIT_SIZE fact or no in-image virtual observation is
-// present. Arch-independent; fires wherever a SF_INIT_SIZE fact exists (x86 via
-// boot_params; arm64/riscv64 when a readable, uncompressed Image is present).
+// Inert when no SF_IMAGE_SIZE_MAX fact or no in-image virtual observation is
+// present. Arch-independent; fires wherever an exact size exists (x86 via
+// boot_params or the bzImage setup header; any arch with a readable Image
+// header, ELF vmlinux, or System.map in /boot).
 // ---
 // <bcoles@gmail.com>
 
@@ -52,17 +52,8 @@ int rule_image_floor_from_init_size(const struct evidence_set *ev,
   if (out_max < 1)
     return 0;
 
-  unsigned long init_size = 0;
   uint32_t size_src = 0;
-  for (int i = 0; i < ev->n_obs; i++) {
-    const struct observation *o = &ev->obs[i];
-    if (o->valid && o->value_kind == OBS_SCALAR &&
-        o->scalar_fact == SF_INIT_SIZE) {
-      init_size = o->scalar_value;
-      size_src = o->id;
-      break;
-    }
-  }
+  unsigned long init_size = evidence_image_size_max(ev, NULL, &size_src);
   if (init_size == 0)
     return 0;
 

@@ -7,7 +7,7 @@
 // address space independent of installed RAM, so the kernel image must fit
 // below it:
 //
-//   phys_base <= (1 << phys_bits) - MIN_IMAGE_SIZE
+//   phys_base <= (1 << phys_bits) - min_image
 //
 // Decoupled arches (x86-64): a C_UPPER_BOUND on Q_PHYS_IMAGE_BASE.
 // Coupled arches that expose the field (LoongArch): map through the
@@ -24,14 +24,13 @@
 
 #include <string.h>
 
-#define MIN_IMAGE_SIZE (4UL * 1024 * 1024)
-
 int rule_phys_bits_ceiling(const struct evidence_set *ev,
                            const struct estimate *est, struct constraint *out,
                            int out_max) {
   (void)est;
   if (out_max < 1)
     return 0;
+  const unsigned long min_image = evidence_image_size_min_or_floor(ev);
 
   int phys_bits = 0;
   enum kasld_confidence conf = CONF_UNKNOWN;
@@ -53,7 +52,7 @@ int rule_phys_bits_ceiling(const struct evidence_set *ev,
   if (phys_bits <= 0 || phys_bits >= (int)(sizeof(unsigned long) * 8))
     return 0;
   unsigned long phys_ceiling = 1UL << phys_bits;
-  if (phys_ceiling <= MIN_IMAGE_SIZE)
+  if (phys_ceiling <= min_image)
     return 0;
 
   struct constraint *c = &out[0];
@@ -65,7 +64,7 @@ int rule_phys_bits_ceiling(const struct evidence_set *ev,
   snprintf(c->origin, ORIGIN_LEN, "phys_bits_ceiling");
 
 #if !TEXT_TRACKS_DIRECTMAP
-  unsigned long ceiling = phys_ceiling - MIN_IMAGE_SIZE;
+  unsigned long ceiling = phys_ceiling - min_image;
   if (KASLR_PHYS_ALIGN > 0)
     ceiling &= ~(KASLR_PHYS_ALIGN - 1);
   if (ceiling <= KASLR_PHYS_MIN)
@@ -77,7 +76,7 @@ int rule_phys_bits_ceiling(const struct evidence_set *ev,
   /* image_base = PAGE_OFFSET + (phys_base - PHYS_OFFSET) + IMAGE_BASE_OFFSET.
    */
   unsigned long ceiling = PAGE_OFFSET + IMAGE_BASE_OFFSET +
-                          (phys_ceiling - MIN_IMAGE_SIZE) - PHYS_OFFSET;
+                          (phys_ceiling - min_image) - PHYS_OFFSET;
   ceiling =
       kasld_floor_virt_text_bound(ceiling, (unsigned long)KASLR_VIRT_ALIGN);
   if (ceiling <= KASLR_VIRT_TEXT_MIN)

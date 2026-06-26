@@ -110,32 +110,27 @@ static inline int evidence_active(const struct observation *o) {
   return o->valid;
 }
 
-/* The kernel image footprint in bytes from the evidence, or 0 if none.
+/* The kernel image footprint is a two-ended interval [size_min, size_max].
+ * These two accessors are the ONLY sanctioned way for a rule to read size; the
+ * raw SF_IMAGE_SIZE_MIN / SF_IMAGE_SIZE_MAX facts are never scanned in a rule
+ * (enforced by tests/check-image-size). See kasld/kernel_image.h for the
+ * sources and which end each one feeds.
  *
- * Takes the LARGEST of the available size facts: the /boot image-size estimate
- * (SF_IMAGE_SIZE, a deliberate under-estimate) and the exact x86 boot_params
- * init_size (SF_INIT_SIZE). Both are <= the true in-memory footprint the kernel
- * reserves, so the larger is the tightest still-sound value — a valid lower
- * bound for the exclusion rules and the right size for the ceiling rules — and
- * the exact init_size wins when present. Taking the max (not the first match)
- * is also order-independent, and lets a rule fire from boot_params alone when
- * /boot is unreadable (the common world-readable-sysfs-only case). *conf / *src
- * (each may be NULL) receive the winning observation's confidence and id for
- * constraint lineage. Prefer this for a standalone size lookup; a rule that
- * folds size collection into a larger evidence loop must likewise accept BOTH
- * SF_IMAGE_SIZE and SF_INIT_SIZE and take the max — never an SF_IMAGE_SIZE-only
- * scan. */
-static inline unsigned long evidence_image_size(const struct evidence_set *ev,
-                                                enum kasld_confidence *conf,
-                                                uint32_t *src) {
+ * evidence_image_size_min — the tightest proven LOWER bound on the footprint
+ * (max over SF_IMAGE_SIZE_MIN), or 0 if none. The ceiling / exclusion / match
+ * rules subtract size from a window edge, so they need a value <= the true
+ * footprint; the largest such value is tightest and still sound. *conf / *src
+ * (each may be NULL) receive the winning observation's confidence and id. */
+static inline unsigned long
+evidence_image_size_min(const struct evidence_set *ev,
+                        enum kasld_confidence *conf, uint32_t *src) {
   unsigned long best = 0;
   enum kasld_confidence c = CONF_UNKNOWN;
   uint32_t s = 0;
   for (int i = 0; i < ev->n_obs; i++) {
     const struct observation *o = &ev->obs[i];
-    if (!o->valid || o->value_kind != OBS_SCALAR)
-      continue;
-    if (o->scalar_fact != SF_IMAGE_SIZE && o->scalar_fact != SF_INIT_SIZE)
+    if (!o->valid || o->value_kind != OBS_SCALAR ||
+        o->scalar_fact != SF_IMAGE_SIZE_MIN)
       continue;
     if (o->scalar_value > best) {
       best = o->scalar_value;
@@ -148,6 +143,51 @@ static inline unsigned long evidence_image_size(const struct evidence_set *ev,
   if (src)
     *src = s;
   return best;
+}
+
+/* evidence_image_size_max — the tightest proven UPPER bound on the in-image
+ * extent (min over SF_IMAGE_SIZE_MAX), or 0 if none. The image-base floor rule
+ * needs a value no in-image leak can exceed (>= _end - _text); the smallest
+ * such value gives the tightest sound floor. Only EXACT sources emit this. */
+static inline unsigned long
+evidence_image_size_max(const struct evidence_set *ev,
+                        enum kasld_confidence *conf, uint32_t *src) {
+  unsigned long best = 0;
+  enum kasld_confidence c = CONF_UNKNOWN;
+  uint32_t s = 0;
+  for (int i = 0; i < ev->n_obs; i++) {
+    const struct observation *o = &ev->obs[i];
+    if (!o->valid || o->value_kind != OBS_SCALAR ||
+        o->scalar_fact != SF_IMAGE_SIZE_MAX)
+      continue;
+    if (best == 0 || o->scalar_value < best) {
+      best = o->scalar_value;
+      c = o->conf;
+      s = o->id;
+    }
+  }
+  if (conf)
+    *conf = c;
+  if (src)
+    *src = s;
+  return best;
+}
+
+/* Minimum plausible kernel image size in bytes: every real kernel image is at
+ * least this large, so it is always a sound lower bound on the footprint — the
+ * conservative floor used when nothing tighter was observed. */
+#define KASLD_MIN_IMAGE_SIZE (4UL * 1024 * 1024)
+
+/* evidence_image_size_min(), floored at KASLD_MIN_IMAGE_SIZE. For ceiling rules
+ * that subtract a kernel-size lower bound from a window edge: returns the
+ * observed lower bound when present (tighter), the conservative floor
+ * otherwise, so the rule fires soundly even with no size fact. Always
+ * >= KASLD_MIN_IMAGE_SIZE. Rules that must distinguish observed-vs-assumed (for
+ * confidence or to skip entirely) call evidence_image_size_min() instead. */
+static inline unsigned long
+evidence_image_size_min_or_floor(const struct evidence_set *ev) {
+  unsigned long v = evidence_image_size_min(ev, NULL, NULL);
+  return v > KASLD_MIN_IMAGE_SIZE ? v : KASLD_MIN_IMAGE_SIZE;
 }
 
 #endif /* KASLD_EVIDENCE_H */

@@ -134,8 +134,8 @@ int main(void) {
   /* Stage the kernel image where kasld's kernel_image_facts expects it:
    * /boot/vmlinuz-<release>, keyed by uname -r. The initramfs carries the image
    * at /kernel-image; we cannot know the release until boot, so symlink it
-   * here. Without this, SF_IMAGE_SIZE (and the rules needing it) cannot fire,
-   * since these VMs boot vmlinuz via -kernel with no /boot. */
+   * here. Without this, the image-size facts (and the rules needing them)
+   * cannot fire, since these VMs boot vmlinuz via -kernel with no /boot. */
   {
     struct utsname u;
     if (access("/kernel-image", F_OK) == 0 && uname(&u) == 0) {

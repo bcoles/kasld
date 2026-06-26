@@ -48,7 +48,8 @@
 //     readers (the pos=extent contract), never partial leaks. If a map holds
 //     more extents than the buffer, BAIL — a dropped middle extent would
 //     synthesize a false gap.
-//   * kernel_size is evidence_image_size() (the larger of the /boot estimate
+//   * kernel_size is evidence_image_size_min() (the larger of the /boot
+//   estimate
 //     and the exact boot_params init_size; both <= the true footprint), so the
 //     low-edge widening can only under-exclude, never drop a valid base.
 //   * Overlapping / adjacent extents are merged (running max); RAM extents are
@@ -106,7 +107,7 @@ static int carve_map_gaps(const struct evidence_set *ev, const char *origin,
     return 0; /* need at least two extents for a gap between them. */
 
   /* Safety: a kernel image cannot exceed the RAM it lives in. An implausible
-   * ksize (e.g. a garbage SF_IMAGE_SIZE leak) would otherwise underflow the
+   * ksize (e.g. a garbage SF_IMAGE_SIZE_MIN leak) would otherwise underflow the
    * size backoff below — gap_lo > ksize fails, hole_lo collapses to 0, and a
    * single high gap excludes ALL of low memory. The map itself is the reliable
    * RAM-size reference here, so cap against it (no dependence on a separate,
@@ -176,7 +177,7 @@ int rule_ram_map_phys_exclude(const struct evidence_set *ev,
 #else
   enum kasld_confidence kconf = CONF_UNKNOWN;
   uint32_t ksrc = 0;
-  unsigned long ksize = evidence_image_size(ev, &kconf, &ksrc);
+  unsigned long ksize = evidence_image_size_min(ev, &kconf, &ksrc);
   if (ksize == 0)
     return 0;
 

@@ -12,7 +12,7 @@
 //
 // Cross-quantity (reads the engine's resolved Q_PAGE_OFFSET) like
 // virt_ceiling_from_memtotal, so it fires only once virt_page_offset is pinned.
-// As a pure rule it takes kernel_size from the SF_IMAGE_SIZE observation
+// As a pure rule it takes kernel_size from evidence_image_size_min()
 // (emitted by the bridge / a component), never by reading /boot itself.
 // dram_top is the max `hi` of any RAM-region address observation.
 //
@@ -24,8 +24,6 @@
 #include "include/kasld/regions.h"
 
 #include <string.h>
-
-#define MIN_IMAGE_SIZE (4UL * 1024 * 1024)
 
 int rule_dram_ceiling(const struct evidence_set *ev, const struct estimate *est,
                       struct constraint *out, int out_max) {
@@ -44,23 +42,16 @@ int rule_dram_ceiling(const struct evidence_set *ev, const struct estimate *est,
     return 0; /* virt_page_offset not yet pinned */
   unsigned long virt_page_offset = po->lo;
 
-  unsigned long kernel_size = 0, dram_top = 0;
+  unsigned long dram_top = 0;
   enum kasld_confidence kconf = CONF_UNKNOWN, tconf = CONF_PARSED;
   uint32_t ksrc = 0, tsrc = 0;
+  unsigned long kernel_size = evidence_image_size_min(ev, &kconf, &ksrc);
   for (int i = 0; i < ev->n_obs; i++) {
     const struct observation *o = &ev->obs[i];
     if (!o->valid)
       continue;
-    if (o->value_kind == OBS_SCALAR &&
-        (o->scalar_fact == SF_IMAGE_SIZE || o->scalar_fact == SF_INIT_SIZE)) {
-      if (o->scalar_value >
-          kernel_size) { /* exact init_size wins; both <= true */
-        kernel_size = o->scalar_value;
-        kconf = o->conf;
-        ksrc = o->id;
-      }
-    } else if (o->value_kind == OBS_ADDRESS && o->eff_type == KASLD_TYPE_PHYS &&
-               o->eff_region == REGION_RAM && HAS_HI(o)) {
+    if (o->value_kind == OBS_ADDRESS && o->eff_type == KASLD_TYPE_PHYS &&
+        o->eff_region == REGION_RAM && HAS_HI(o)) {
       if (o->hi > dram_top) {
         dram_top = o->hi;
         tconf = o->conf;
@@ -69,7 +60,7 @@ int rule_dram_ceiling(const struct evidence_set *ev, const struct estimate *est,
     }
   }
 
-  if (kernel_size == 0 || kernel_size < MIN_IMAGE_SIZE || dram_top == 0)
+  if (kernel_size == 0 || kernel_size < KASLD_MIN_IMAGE_SIZE || dram_top == 0)
     return 0;
   if (dram_top <= PHYS_OFFSET || dram_top - PHYS_OFFSET <= kernel_size)
     return 0;

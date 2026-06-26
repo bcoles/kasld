@@ -130,7 +130,7 @@ static void test_full_engine_x86_64_leaky(void) {
   add_addr(&e, KASLD_TYPE_PHYS, REGION_PCI_MMIO, 0xfe000000ul, 0xfefffffful,
            NULL);
   add_scalar(&e, SF_PHYS_MEMTOTAL, 0x80000000ul); /* 2 GiB */
-  add_scalar(&e, SF_IMAGE_SIZE, gap);             /* image ~ text..data span */
+  add_scalar(&e, SF_IMAGE_SIZE_MIN, gap);         /* image ~ text..data span */
   add_scalar(&e, SF_PHYS_ADDR_BITS, 46);
   add_scalar(&e, SF_PHYS_KERNEL_ALIGN, 0x200000ul);
 
@@ -234,7 +234,7 @@ static void test_full_engine_s390_no_prng_shape(void) {
   struct engine e;
   engine_init(&e);
   add_scalar(&e, SF_EFI_PRESENT, 0x0);
-  add_scalar(&e, SF_IMAGE_SIZE, 0x126046cul);
+  add_scalar(&e, SF_IMAGE_SIZE_MIN, 0x126046cul);
   add_scalar(&e, SF_PHYS_MEMTOTAL, 0x7bd9e000ul);
   add_scalar(&e, SF_PHYS_MAX_PFN, 0x80000ul);
   add_scalar(&e, SF_PAGE_SIZE, 0x1000ul);
@@ -334,7 +334,8 @@ static void test_full_engine_i686_kaslr_shape(void) {
   add_scalar(&e, SF_VIRT_CONFIG_PAGE_OFFSET, 0xc0000000ul);
   add_scalar(&e, SF_PHYSICAL_START, 0x1000000ul);    /* 16 MiB */
   add_scalar(&e, SF_PHYS_KERNEL_ALIGN, 0x1000000ul); /* 16 MiB slot */
-  add_scalar(&e, SF_INIT_SIZE, 0x10f4000ul);         /* ~17 MiB */
+  add_scalar(&e, SF_IMAGE_SIZE_MIN, 0x10f4000ul); /* ~17 MiB (exact source: */
+  add_scalar(&e, SF_IMAGE_SIZE_MAX, 0x10f4000ul); /* emits both MIN and MAX) */
   add_scalar(&e, SF_PHYS_MEMTOTAL, 0x3e4da000ul);
   add_scalar(&e, SF_PHYS_LOWMEM, 0x350f8000ul);
   add_scalar(&e, SF_PHYS_MAX_PFN, 0x3ffe0ul);
@@ -435,7 +436,7 @@ static void test_full_engine_ppc_kernel_end_tightens(void) {
  * kernel, set by mem= cmdline cap or firmware override). The
  * sysfs_devicetree_memory_limit component emits it as
  * `P REGION_RAM pos=top hi=limit-1`; dram_ceiling reads max(o->hi) across RAM
- * observations and projects it through SF_IMAGE_SIZE to tighten
+ * observations and projects it through SF_IMAGE_SIZE_MIN to tighten
  * Q_VIRT_IMAGE_BASE.hi on coupled arches (ppc64 is coupled).
  *
  * Plant a 128 MiB cap on a ppc64 layout and assert Q_VIRT_IMAGE_BASE.hi lands
@@ -450,7 +451,7 @@ static void test_full_engine_ppc_memory_limit_caps_dram(void) {
   add_scalar(&e, SF_VIRT_KASLR_DISABLED, 0x1);
   add_scalar(&e, SF_PHYS_KASLR_DISABLED, 0x1);
   add_scalar(&e, SF_VIRT_CONFIG_PAGE_OFFSET, 0xc000000000000000ul);
-  add_scalar(&e, SF_IMAGE_SIZE, ksize);
+  add_scalar(&e, SF_IMAGE_SIZE_MIN, ksize);
   add_addr(&e, KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, 0xc000000000000000ul, 0,
            NULL);
   /* The memory-limit emission as the component shapes it. */
@@ -475,12 +476,12 @@ static void test_full_engine_ppc_memory_limit_caps_dram(void) {
 }
 
 /* The kernel-below-initrd convention (universal on every common boot path
- * except s390's top-down placement). With SF_IMAGE_SIZE and an initrd-start
+ * except s390's top-down placement). With SF_IMAGE_SIZE_MIN and an initrd-start
  * phys observation, initrd_above_kernel emits
  *   phys_text_base + image_size <= initrd_start
  * as a C_UPPER_BOUND on Q_PHYS_IMAGE_BASE.
  *
- * Plant a high SF_IMAGE_SIZE and a tight initrd_start on an x86_64 layout
+ * Plant a high SF_IMAGE_SIZE_MIN and a tight initrd_start on an x86_64 layout
  * and assert Q_PHYS_IMAGE_BASE.hi <= initrd_start - image_size. (Gated to
  * x86_64 since this is where the integration harness compiles by default.) */
 static void test_full_engine_initrd_above_kernel_upper_bound(void) {
@@ -489,7 +490,7 @@ static void test_full_engine_initrd_above_kernel_upper_bound(void) {
   const unsigned long ksize = 0x01000000ul;  /* 16 MiB */
   struct engine e;
   engine_init(&e);
-  add_scalar(&e, SF_IMAGE_SIZE, ksize);
+  add_scalar(&e, SF_IMAGE_SIZE_MIN, ksize);
   add_addr(&e, KASLD_TYPE_PHYS, REGION_INITRD, istart, 0, NULL);
   /* DRAM extent so the engine has a sensible RAM context but no kernel
    * leaks — initrd_above_kernel is the only rule that produces the bound. */

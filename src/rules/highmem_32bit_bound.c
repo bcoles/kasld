@@ -7,7 +7,7 @@
 // the physical base is bounded by LowTotal, not MemTotal. Mapped to a virtual
 // ceiling on a coupled arch:
 //
-//   virt_ceiling = PAGE_OFFSET_runtime + LowTotal - MIN_IMAGE_SIZE +
+//   virt_ceiling = PAGE_OFFSET_runtime + LowTotal - min_image +
 //   IMAGE_BASE_OFFSET
 //
 // Cross-quantity (uses the engine's resolved Q_PAGE_OFFSET), so it fires only
@@ -21,8 +21,6 @@
 #include "include/kasld/engine_rules.h"
 
 #include <string.h>
-
-#define MIN_IMAGE_SIZE (4UL * 1024 * 1024)
 
 int rule_highmem_32bit_bound(const struct evidence_set *ev,
                              const struct estimate *est, struct constraint *out,
@@ -45,6 +43,7 @@ int rule_highmem_32bit_bound(const struct evidence_set *ev,
   unsigned long lowmem = 0;
   enum kasld_confidence conf = CONF_UNKNOWN;
   uint32_t src = 0;
+  const unsigned long min_image = evidence_image_size_min_or_floor(ev);
   for (int i = 0; i < ev->n_obs; i++) {
     const struct observation *o = &ev->obs[i];
     if (o->valid && o->value_kind == OBS_SCALAR &&
@@ -55,11 +54,11 @@ int rule_highmem_32bit_bound(const struct evidence_set *ev,
       break;
     }
   }
-  if (lowmem <= MIN_IMAGE_SIZE || lowmem > ULONG_MAX - virt_page_offset)
+  if (lowmem <= min_image || lowmem > ULONG_MAX - virt_page_offset)
     return 0;
 
   unsigned long ceiling =
-      virt_page_offset + lowmem - MIN_IMAGE_SIZE + IMAGE_BASE_OFFSET;
+      virt_page_offset + lowmem - min_image + IMAGE_BASE_OFFSET;
   ceiling =
       kasld_floor_virt_text_bound(ceiling, (unsigned long)KASLR_VIRT_ALIGN);
   if (ceiling <= KASLR_VIRT_TEXT_MIN)

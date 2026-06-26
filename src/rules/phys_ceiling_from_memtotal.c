@@ -13,7 +13,7 @@
 //
 // Fallback to MemTotal when no REGION_RAM extent is observed:
 //
-//   phys_image_base <= phys_floor + MemTotal - MIN_IMAGE_SIZE
+//   phys_image_base <= phys_floor + MemTotal - min_image
 //
 // The MemTotal fallback is sound ONLY when DRAM is contiguous from
 // phys_floor (no large reserved regions between phys_floor and the
@@ -38,10 +38,6 @@
 #include <limits.h>
 #include <string.h>
 
-/* Conservative lower bound on any production kernel image; keeps the ceiling
- * sound (never excludes the true base). */
-#define MIN_IMAGE_SIZE (4UL * 1024 * 1024)
-
 int rule_phys_ceiling_from_memtotal(const struct evidence_set *ev,
                                     const struct estimate *est,
                                     struct constraint *out, int out_max) {
@@ -56,6 +52,7 @@ int rule_phys_ceiling_from_memtotal(const struct evidence_set *ev,
   enum kasld_confidence mconf = CONF_UNKNOWN, fconf = CONF_PARSED;
   enum kasld_confidence tconf = CONF_UNKNOWN;
   uint32_t msrc = 0, fsrc = 0, tsrc = 0;
+  const unsigned long min_image = evidence_image_size_min_or_floor(ev);
 
   for (int i = 0; i < ev->n_obs; i++) {
     const struct observation *o = &ev->obs[i];
@@ -93,20 +90,20 @@ int rule_phys_ceiling_from_memtotal(const struct evidence_set *ev,
     /* Preferred path: spanned DRAM extent. Sound regardless of reserved
      * regions inside DRAM (kernel can be placed anywhere up to dram_top
      * minus its own size). */
-    if (dram_top <= MIN_IMAGE_SIZE)
+    if (dram_top <= min_image)
       return 0;
-    ceiling = dram_top - MIN_IMAGE_SIZE + 1; /* hi is inclusive */
+    ceiling = dram_top - min_image + 1; /* hi is inclusive */
     src_a = tsrc;
     cconf = tconf;
   } else {
     /* Fallback: MemTotal-based. Sound only when DRAM is contiguous from
      * phys_floor — see header for the soundness caveat. Better than
      * nothing on low-priv runs that cannot read zoneinfo / iomem. */
-    if (memtotal == 0 || memtotal <= MIN_IMAGE_SIZE)
+    if (memtotal == 0 || memtotal <= min_image)
       return 0;
     if (phys_floor == ULONG_MAX)
       phys_floor = PHYS_OFFSET; /* no observed DRAM: compile-time fallback */
-    ceiling = phys_floor + memtotal - MIN_IMAGE_SIZE;
+    ceiling = phys_floor + memtotal - min_image;
     src_a = msrc;
     src_b = fsrc;
     cconf = (mconf < fconf) ? mconf : fconf;

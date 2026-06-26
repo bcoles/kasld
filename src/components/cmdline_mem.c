@@ -8,7 +8,7 @@
 //   handle_mem_options() + find_random_phys_addr()): the kernel image must
 //   satisfy `phys_base + image_size <= mem`. The cmdline_mem_phys_ceiling /
 //   cmdline_mem_virt_ceiling rules consume the emitted scalar (plus
-//   SF_IMAGE_SIZE) to bound Q_PHYS_IMAGE_BASE or Q_VIRT_IMAGE_BASE.
+//   SF_IMAGE_SIZE_MIN) to bound Q_PHYS_IMAGE_BASE or Q_VIRT_IMAGE_BASE.
 //
 // /proc/cmdline is world-readable (0444), so the token is observable without
 // privileges. The kernel-side parser is `memparse` (lib/cmdline.c): optional
@@ -35,7 +35,8 @@ KASLD_EXPLAIN(
     "SF_PHYS_CMDLINE_MEM. x86's KASLR placer caps the physical base at this "
     "value, "
     "so the kernel image satisfies `phys_base + image_size <= mem`. The rule "
-    "cmdline_mem_{phys,virt}_ceiling consumes the scalar (with SF_IMAGE_SIZE) "
+    "cmdline_mem_{phys,virt}_ceiling consumes the scalar (with "
+    "SF_IMAGE_SIZE_MIN) "
     "to bound the text base. /proc/cmdline is world-readable (0444).");
 
 KASLD_META("method:detection\n"

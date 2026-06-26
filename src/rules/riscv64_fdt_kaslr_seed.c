@@ -17,11 +17,11 @@
 // Reads SF_FDT_KASLR_SEED (bridged binary read; 0/absent => inert — covers the
 // seed-disabled/wiped case handled by virt_kaslr_disabled_pin /
 // phys_kaslr_disabled_pin),
-// SF_EFI_PRESENT (non-EFI only — EFI mixes in efi_kaslr_seed), SF_IMAGE_SIZE,
-// and VIRT text/data leaks for the Path 2 gap. riscv64 only. The active path
-// requires a kernel that has not yet consumed the FDT kaslr-seed cell — the
-// kernel wipes the cell to 0 once it has used it, so a usable seed is visible
-// only before that point.
+// SF_EFI_PRESENT (non-EFI only — EFI mixes in efi_kaslr_seed),
+// SF_IMAGE_SIZE_MIN, and VIRT text/data leaks for the Path 2 gap. riscv64 only.
+// The active path requires a kernel that has not yet consumed the FDT
+// kaslr-seed cell — the kernel wipes the cell to 0 once it has used it, so a
+// usable seed is visible only before that point.
 // ---
 // <bcoles@gmail.com>
 
@@ -44,9 +44,10 @@ int rule_riscv64_fdt_kaslr_seed(const struct evidence_set *ev,
   const unsigned long pmd_size = 2ul * 1024 * 1024;
 
   uint64_t seed = 0;
-  unsigned long image_size = 0, min_text = ULONG_MAX, max_data = 0;
+  unsigned long min_text = ULONG_MAX, max_data = 0;
   int efi_present = 0;
   uint32_t src = 0;
+  unsigned long image_size = evidence_image_size_min(ev, NULL, NULL);
   for (int i = 0; i < ev->n_obs; i++) {
     const struct observation *o = &ev->obs[i];
     if (!o->valid)
@@ -57,10 +58,6 @@ int rule_riscv64_fdt_kaslr_seed(const struct evidence_set *ev,
         src = o->id;
       } else if (o->scalar_fact == SF_EFI_PRESENT)
         efi_present = (o->scalar_value != 0);
-      else if ((o->scalar_fact == SF_IMAGE_SIZE ||
-                o->scalar_fact == SF_INIT_SIZE) &&
-               o->scalar_value > image_size)
-        image_size = o->scalar_value; /* exact init_size wins; both <= true */
       continue;
     }
     if (o->eff_type == KASLD_TYPE_VIRT) {

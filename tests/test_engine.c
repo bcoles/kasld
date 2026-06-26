@@ -466,7 +466,7 @@ static struct observation mk_image_size(unsigned long bytes,
   struct observation o;
   memset(&o, 0, sizeof(o));
   o.value_kind = OBS_SCALAR;
-  o.scalar_fact = SF_IMAGE_SIZE;
+  o.scalar_fact = SF_IMAGE_SIZE_MIN;
   o.scalar_value = bytes;
   o.conf = conf;
   return o;
@@ -642,8 +642,8 @@ static void test_ceiling_prefers_exact_init_size(void) {
   engine_init(&e);
   unsigned long est_size = 0x1000000ul;  /* 16 MiB estimate (under) */
   unsigned long init_size = 0x3000000ul; /* 48 MiB exact (larger) */
-  struct observation a = mk_scalar(SF_IMAGE_SIZE, est_size, CONF_PARSED);
-  struct observation b = mk_scalar(SF_INIT_SIZE, init_size, CONF_PARSED);
+  struct observation a = mk_scalar(SF_IMAGE_SIZE_MIN, est_size, CONF_PARSED);
+  struct observation b = mk_scalar(SF_IMAGE_SIZE_MIN, init_size, CONF_PARSED);
   evidence_add(&e.ev, &a);
   evidence_add(&e.ev, &b);
 
@@ -964,7 +964,7 @@ static void test_dram_ceiling(void) {
   engine_init(&e);
   unsigned long ksize = 0x1000000ul;                   /* 16 MiB image */
   unsigned long dram_top = PHYS_OFFSET + 0x40000000ul; /* 1 GiB of RAM */
-  struct observation is = mk_scalar(SF_IMAGE_SIZE, ksize, CONF_PARSED);
+  struct observation is = mk_scalar(SF_IMAGE_SIZE_MIN, ksize, CONF_PARSED);
   evidence_add(&e.ev, &is);
 
   struct estimate potop;
@@ -1100,7 +1100,7 @@ static void test_initrd_phys_exclude(void) {
   unsigned long ksize = 0x1000000ul;                 /* 16 MiB image */
   unsigned long istart = PHYS_OFFSET + 0x10000000ul; /* initrd at +256 MiB */
   unsigned long iend = istart + 0x1000000ul;         /* 16 MiB initrd */
-  struct observation is = mk_scalar(SF_IMAGE_SIZE, ksize, CONF_PARSED);
+  struct observation is = mk_scalar(SF_IMAGE_SIZE_MIN, ksize, CONF_PARSED);
   evidence_add(&e.ev, &is);
   struct observation initrd;
   memset(&initrd, 0, sizeof(initrd));
@@ -1149,7 +1149,7 @@ static void test_cmdline_phys_exclude(void) {
   unsigned long ksize = 0x1000000ul;                 /* 16 MiB image */
   unsigned long cstart = PHYS_OFFSET + 0x10000000ul; /* cmdline at +256 MiB */
   unsigned long cend = cstart + 0x800ul - 1;         /* 2 KiB cmdline */
-  struct observation is = mk_scalar(SF_IMAGE_SIZE, ksize, CONF_PARSED);
+  struct observation is = mk_scalar(SF_IMAGE_SIZE_MIN, ksize, CONF_PARSED);
   evidence_add(&e.ev, &is);
   struct observation cmdline;
   memset(&cmdline, 0, sizeof(cmdline));
@@ -1209,7 +1209,7 @@ static void test_phys_reservation_exclude(void) {
    * fully resets each before use, so reuse is safe. */
   static struct engine e;
   engine_init(&e);
-  struct observation is = mk_scalar(SF_IMAGE_SIZE, ksize, CONF_PARSED);
+  struct observation is = mk_scalar(SF_IMAGE_SIZE_MIN, ksize, CONF_PARSED);
   evidence_add(&e.ev, &is);
   struct observation crash;
   memset(&crash, 0, sizeof(crash));
@@ -1232,7 +1232,7 @@ static void test_phys_reservation_exclude(void) {
    * CAN live in RAM. */
   static struct engine e2;
   engine_init(&e2);
-  struct observation is2 = mk_scalar(SF_IMAGE_SIZE, ksize, CONF_PARSED);
+  struct observation is2 = mk_scalar(SF_IMAGE_SIZE_MIN, ksize, CONF_PARSED);
   evidence_add(&e2.ev, &is2);
   struct observation ram = crash;
   ram.region = REGION_RAM;
@@ -1240,13 +1240,12 @@ static void test_phys_reservation_exclude(void) {
   engine_run(&e2, rules, 1);
   assert(!has_phys_exclude(&e2));
 
-  /* Bridge: the exact boot_params init_size (SF_INIT_SIZE) alone — with no
-   * /boot estimate (SF_IMAGE_SIZE) — still drives the exclusion via
-   * evidence_image_size(). Before the bridge this rule scanned SF_IMAGE_SIZE
-   * only and went dark when /boot was unreadable but boot_params was not. */
+  /* Bridge: the exact init_size, emitted as SF_IMAGE_SIZE_MIN, alone — with no
+   * other size fact — still drives the exclusion via evidence_image_size_min().
+   */
   static struct engine e3;
   engine_init(&e3);
-  struct observation init = mk_scalar(SF_INIT_SIZE, ksize, CONF_PARSED);
+  struct observation init = mk_scalar(SF_IMAGE_SIZE_MIN, ksize, CONF_PARSED);
   evidence_add(&e3.ev, &init);
   struct observation crash3 = crash;
   evidence_add(&e3.ev, &crash3);
@@ -1310,7 +1309,7 @@ static void test_ram_map_phys_exclude(void) {
    * engine_init() fully resets each before use, so reuse is safe. */
   static struct engine e;
   engine_init(&e);
-  struct observation is = mk_scalar(SF_IMAGE_SIZE, ksize, CONF_PARSED);
+  struct observation is = mk_scalar(SF_IMAGE_SIZE_MIN, ksize, CONF_PARSED);
   evidence_add(&e.ev, &is);
   add_ram_covering(&e.ev, r1lo, r1hi, "firmware_memmap");
   add_ram_covering(&e.ev, r2lo, r2hi, "firmware_memmap");
@@ -1327,7 +1326,7 @@ static void test_ram_map_phys_exclude(void) {
    * ignores it: a "gap" between two partial extents could be unobserved RAM. */
   static struct engine e2;
   engine_init(&e2);
-  struct observation is2 = mk_scalar(SF_IMAGE_SIZE, ksize, CONF_PARSED);
+  struct observation is2 = mk_scalar(SF_IMAGE_SIZE_MIN, ksize, CONF_PARSED);
   evidence_add(&e2.ev, &is2);
   struct observation a2 = mk_ram(r1lo, r1hi, "proc_iomem");
   struct observation b2 = mk_ram(r2lo, r2hi, "proc_iomem");
@@ -1339,7 +1338,7 @@ static void test_ram_map_phys_exclude(void) {
   /* Negative 2: adjacent extents (no gap) emit nothing. */
   static struct engine e3;
   engine_init(&e3);
-  struct observation is3 = mk_scalar(SF_IMAGE_SIZE, ksize, CONF_PARSED);
+  struct observation is3 = mk_scalar(SF_IMAGE_SIZE_MIN, ksize, CONF_PARSED);
   evidence_add(&e3.ev, &is3);
   add_ram_covering(&e3.ev, r1lo, r1hi, "firmware_memmap");
   add_ram_covering(&e3.ev, r1hi + 1, r2hi, "firmware_memmap");
@@ -1350,7 +1349,7 @@ static void test_ram_map_phys_exclude(void) {
    * /sys/firmware/memmap) carves the same gap. */
   static struct engine e4;
   engine_init(&e4);
-  struct observation is4 = mk_scalar(SF_IMAGE_SIZE, ksize, CONF_PARSED);
+  struct observation is4 = mk_scalar(SF_IMAGE_SIZE_MIN, ksize, CONF_PARSED);
   evidence_add(&e4.ev, &is4);
   add_ram_covering(&e4.ev, r1lo, r1hi, "sysfs_devicetree_memory");
   add_ram_covering(&e4.ev, r2lo, r2hi, "sysfs_devicetree_memory");
@@ -1361,7 +1360,7 @@ static void test_ram_map_phys_exclude(void) {
    * gap — the runtime view, arch-general. */
   static struct engine e5;
   engine_init(&e5);
-  struct observation is5 = mk_scalar(SF_IMAGE_SIZE, ksize, CONF_PARSED);
+  struct observation is5 = mk_scalar(SF_IMAGE_SIZE_MIN, ksize, CONF_PARSED);
   evidence_add(&e5.ev, &is5);
   add_ram_covering(&e5.ev, r1lo, r1hi, "sysfs_memory_blocks");
   add_ram_covering(&e5.ev, r2lo, r2hi, "sysfs_memory_blocks");
@@ -1374,7 +1373,7 @@ static void test_ram_map_phys_exclude(void) {
   static struct engine e6;
   engine_init(&e6);
   struct observation is6 =
-      mk_scalar(SF_IMAGE_SIZE, 0x20ac0040befcfbe4ul, CONF_PARSED);
+      mk_scalar(SF_IMAGE_SIZE_MIN, 0x20ac0040befcfbe4ul, CONF_PARSED);
   evidence_add(&e6.ev, &is6);
   add_ram_covering(&e6.ev, r1lo, r1hi, "firmware_memmap");
   add_ram_covering(&e6.ev, r2lo, r2hi, "firmware_memmap");
@@ -1389,7 +1388,7 @@ static void test_ram_map_phys_exclude(void) {
    * per-source and never merged, so each map carves only its own real gap. */
   static struct engine e7;
   engine_init(&e7);
-  struct observation is7 = mk_scalar(SF_IMAGE_SIZE, ksize, CONF_PARSED);
+  struct observation is7 = mk_scalar(SF_IMAGE_SIZE_MIN, ksize, CONF_PARSED);
   evidence_add(&e7.ev, &is7);
   /* firmware_memmap: a complete map with NO gap (adjacent extents). */
   add_ram_covering(&e7.ev, r1lo, r1hi, "firmware_memmap");
@@ -1404,7 +1403,7 @@ static void test_ram_map_phys_exclude(void) {
 #endif
 }
 
-/* cmdline_mem_phys_ceiling: `mem=N` + SF_IMAGE_SIZE → C_UPPER_BOUND
+/* cmdline_mem_phys_ceiling: `mem=N` + SF_IMAGE_SIZE_MIN → C_UPPER_BOUND
  * on Q_PHYS_IMAGE_BASE at (mem - ksize), aligned down. Decoupled arches. */
 int rule_cmdline_mem_phys_ceiling(const struct evidence_set *ev,
                                   const struct estimate *est,
@@ -1416,7 +1415,7 @@ static void test_cmdline_mem_phys_ceiling(void) {
   engine_init(&e);
   unsigned long ksize = 0x1000000ul; /* 16 MiB image */
   unsigned long mem = 0x40000000ul;  /* 1 GiB mem= cap */
-  struct observation k = mk_scalar(SF_IMAGE_SIZE, ksize, CONF_PARSED);
+  struct observation k = mk_scalar(SF_IMAGE_SIZE_MIN, ksize, CONF_PARSED);
   struct observation m = mk_scalar(SF_PHYS_CMDLINE_MEM, mem, CONF_PARSED);
   evidence_add(&e.ev, &k);
   evidence_add(&e.ev, &m);
@@ -1439,7 +1438,7 @@ static void test_cmdline_mem_phys_ceiling_no_signal(void) {
 #if !TEXT_TRACKS_DIRECTMAP
   struct engine e;
   engine_init(&e);
-  struct observation k = mk_scalar(SF_IMAGE_SIZE, 0x1000000ul, CONF_PARSED);
+  struct observation k = mk_scalar(SF_IMAGE_SIZE_MIN, 0x1000000ul, CONF_PARSED);
   evidence_add(&e.ev, &k);
 
   const rule_fn rules[] = {rule_cmdline_mem_phys_ceiling};
@@ -1461,8 +1460,8 @@ int rule_cmdline_mem_virt_ceiling(const struct evidence_set *ev,
                                   const struct estimate *est,
                                   struct constraint *out, int out_max);
 
-/* cmdline_mem_virt_ceiling (coupled arches): `mem=N` + SF_IMAGE_SIZE + a pinned
- * Q_PAGE_OFFSET -> C_UPPER_BOUND on Q_VIRT_IMAGE_BASE at
+/* cmdline_mem_virt_ceiling (coupled arches): `mem=N` + SF_IMAGE_SIZE_MIN + a
+ * pinned Q_PAGE_OFFSET -> C_UPPER_BOUND on Q_VIRT_IMAGE_BASE at
  * floor(page_offset + mem - image_size + IMAGE_BASE_OFFSET, valign). */
 static void test_cmdline_mem_virt_ceiling(void) {
   struct engine e;
@@ -1476,7 +1475,7 @@ static void test_cmdline_mem_virt_ceiling(void) {
   struct observation pl = mk_obs(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, po,
                                  LO_SET, POS_BASE, CONF_PARSED);
   struct observation m = mk_scalar(SF_PHYS_CMDLINE_MEM, mem, CONF_PARSED);
-  struct observation k = mk_scalar(SF_IMAGE_SIZE, ksize, CONF_PARSED);
+  struct observation k = mk_scalar(SF_IMAGE_SIZE_MIN, ksize, CONF_PARSED);
   evidence_add(&e.ev, &pl);
   evidence_add(&e.ev, &m);
   evidence_add(&e.ev, &k);
@@ -1606,7 +1605,7 @@ static void test_vmsplit_text_base_nondefault_offset(void) {
 }
 
 /* cmdline_memmap_phys_exclude: each PHYS REGION_CMDLINE_MEMMAP extent
- * + SF_IMAGE_SIZE → C_EXCLUDE on Q_PHYS_IMAGE_BASE over the inclusive hole.
+ * + SF_IMAGE_SIZE_MIN → C_EXCLUDE on Q_PHYS_IMAGE_BASE over the inclusive hole.
  * Iterates ALL reservations (up to engine cap). */
 int rule_cmdline_memmap_phys_exclude(const struct evidence_set *ev,
                                      const struct estimate *est,
@@ -1617,7 +1616,7 @@ static void test_cmdline_memmap_phys_exclude(void) {
   struct engine e;
   engine_init(&e);
   unsigned long ksize = 0x1000000ul;
-  struct observation k = mk_scalar(SF_IMAGE_SIZE, ksize, CONF_PARSED);
+  struct observation k = mk_scalar(SF_IMAGE_SIZE_MIN, ksize, CONF_PARSED);
   evidence_add(&e.ev, &k);
 
   /* Two reservations: cmdline_memmap_phys_exclude should emit two excludes. */
@@ -1658,7 +1657,7 @@ static void test_cmdline_memmap_phys_exclude(void) {
 #endif
 }
 
-/* No SF_IMAGE_SIZE → no exclusion possible (rule needs both inputs). */
+/* No SF_IMAGE_SIZE_MIN → no exclusion possible (rule needs both inputs). */
 static void test_cmdline_memmap_no_image_size(void) {
 #if !TEXT_TRACKS_DIRECTMAP
   struct engine e;
@@ -3334,7 +3333,7 @@ static void test_ceiling_uses_resolved_align(void) {
   engine_init(&e);
   unsigned long init_size = 0x1ae7000ul; /* ~27 MiB (as in the fixture) */
   unsigned long kalign = 0x1000000ul;    /* 16 MiB CONFIG_PHYSICAL_ALIGN */
-  struct observation a = mk_scalar(SF_INIT_SIZE, init_size, CONF_PARSED);
+  struct observation a = mk_scalar(SF_IMAGE_SIZE_MIN, init_size, CONF_PARSED);
   struct observation b = mk_scalar(SF_PHYS_KERNEL_ALIGN, kalign, CONF_PARSED);
   evidence_add(&e.ev, &a);
   evidence_add(&e.ev, &b);
@@ -3945,7 +3944,8 @@ static struct observation mk_efi_loader_entry(unsigned long lo,
 }
 
 /* Single Loader Code entry, aligned at EFI_KIMG_ALIGN, size exactly
- * SF_IMAGE_SIZE → unique survivor → Q_PHYS_IMAGE_BASE pinned to entry.lo. */
+ * SF_IMAGE_SIZE_MIN → unique survivor → Q_PHYS_IMAGE_BASE pinned to entry.lo.
+ */
 static void test_efi_loader_kernel_pick_single_aligned(void) {
 #if defined(EFI_KIMG_ALIGN)
   const unsigned long P = (unsigned long)PHYS_OFFSET;
@@ -3957,7 +3957,7 @@ static void test_efi_loader_kernel_pick_single_aligned(void) {
   const unsigned long entry_hi = entry_lo + ksize - 1;
   struct engine e;
   engine_init(&e);
-  struct observation is = mk_scalar(SF_IMAGE_SIZE, ksize, CONF_PARSED);
+  struct observation is = mk_scalar(SF_IMAGE_SIZE_MIN, ksize, CONF_PARSED);
   evidence_add(&e.ev, &is);
   struct observation o = mk_efi_loader_entry(entry_lo, entry_hi);
   evidence_add(&e.ev, &o);
@@ -3981,7 +3981,7 @@ static void test_efi_loader_kernel_pick_multi_one_survives(void) {
       P + 0x10000000ul + 0x1000ul; /* +4K → unaligned */
   struct engine e;
   engine_init(&e);
-  struct observation is = mk_scalar(SF_IMAGE_SIZE, ksize, CONF_PARSED);
+  struct observation is = mk_scalar(SF_IMAGE_SIZE_MIN, ksize, CONF_PARSED);
   evidence_add(&e.ev, &is);
   struct observation k = mk_efi_loader_entry(kernel_lo, kernel_lo + ksize - 1);
   struct observation b =
@@ -4008,7 +4008,7 @@ static void test_efi_loader_kernel_pick_multi_ambiguous_inert(void) {
   const unsigned long b_lo = P + 0x80000000ul;
   struct engine e;
   engine_init(&e);
-  struct observation is = mk_scalar(SF_IMAGE_SIZE, ksize, CONF_PARSED);
+  struct observation is = mk_scalar(SF_IMAGE_SIZE_MIN, ksize, CONF_PARSED);
   evidence_add(&e.ev, &is);
   struct observation a = mk_efi_loader_entry(a_lo, a_lo + ksize - 1);
   struct observation b = mk_efi_loader_entry(b_lo, b_lo + ksize - 1);
@@ -4040,7 +4040,7 @@ static void test_efi_loader_kernel_pick_multi_rand_failed_picks_lowest(void) {
   const unsigned long b_lo = P + 0x80000000ul; /* higher entry */
   struct engine e;
   engine_init(&e);
-  struct observation is = mk_scalar(SF_IMAGE_SIZE, ksize, CONF_PARSED);
+  struct observation is = mk_scalar(SF_IMAGE_SIZE_MIN, ksize, CONF_PARSED);
   evidence_add(&e.ev, &is);
   struct observation rf =
       mk_scalar(SF_PHYS_KASLR_RANDOMIZATION_FAILED, 1, CONF_PARSED);
@@ -4070,7 +4070,7 @@ static void test_efi_loader_kernel_pick_multi_without_signal_still_inert(void) {
   const unsigned long b_lo = P + 0x80000000ul;
   struct engine e;
   engine_init(&e);
-  struct observation is = mk_scalar(SF_IMAGE_SIZE, ksize, CONF_PARSED);
+  struct observation is = mk_scalar(SF_IMAGE_SIZE_MIN, ksize, CONF_PARSED);
   evidence_add(&e.ev, &is);
   /* No SF_PHYS_KASLR_RANDOMIZATION_FAILED. */
   struct observation a = mk_efi_loader_entry(a_lo, a_lo + ksize - 1);
@@ -4088,7 +4088,7 @@ static void test_efi_loader_kernel_pick_multi_without_signal_still_inert(void) {
 #endif
 }
 
-/* No SF_IMAGE_SIZE evidence → the size filter cannot apply → rule emits
+/* No SF_IMAGE_SIZE_MIN evidence → the size filter cannot apply → rule emits
  * nothing (sound by construction; we never want to pin on alignment alone
  * when the rule's contract requires both filters to succeed). */
 static void test_efi_loader_kernel_pick_no_image_size_inert(void) {
@@ -4111,7 +4111,7 @@ static void test_efi_loader_kernel_pick_no_image_size_inert(void) {
 #endif
 }
 
-/* Entry size exceeds 2× SF_IMAGE_SIZE → size filter rejects → no survivor →
+/* Entry size exceeds 2× SF_IMAGE_SIZE_MIN → size filter rejects → no survivor →
  * rule inert. */
 static void test_efi_loader_kernel_pick_size_above_tolerance_inert(void) {
 #if defined(EFI_KIMG_ALIGN)
@@ -4121,7 +4121,7 @@ static void test_efi_loader_kernel_pick_size_above_tolerance_inert(void) {
   const unsigned long entry_size = 3 * ksize; /* > 2× tolerance */
   struct engine e;
   engine_init(&e);
-  struct observation is = mk_scalar(SF_IMAGE_SIZE, ksize, CONF_PARSED);
+  struct observation is = mk_scalar(SF_IMAGE_SIZE_MIN, ksize, CONF_PARSED);
   evidence_add(&e.ev, &is);
   struct observation o =
       mk_efi_loader_entry(entry_lo, entry_lo + entry_size - 1);
@@ -4651,9 +4651,10 @@ static void test_min_offset_from_image_size(void) {
 #endif
 }
 
-/* image_floor_from_init_size: a high in-image VIRT leak + SF_INIT_SIZE floors
- * Q_VIRT_IMAGE_BASE at (leak - init_size), the lower-bound complement to the
- * interior upper bound. Arch-independent (fires wherever SF_INIT_SIZE exists).
+/* image_floor_from_init_size: a high in-image VIRT leak + SF_IMAGE_SIZE_MAX
+ * floors Q_VIRT_IMAGE_BASE at (leak - init_size), the lower-bound complement to
+ * the interior upper bound. Arch-independent (fires wherever SF_IMAGE_SIZE_MAX
+ * exists).
  */
 int rule_image_floor_from_init_size(const struct evidence_set *,
                                     const struct estimate *,
@@ -4671,7 +4672,8 @@ static void test_image_floor_from_init_size(void) {
     if (leak <= top.hi) {
       struct engine e;
       engine_init(&e);
-      struct observation s = mk_scalar(SF_INIT_SIZE, init_size, CONF_PARSED);
+      struct observation s =
+          mk_scalar(SF_IMAGE_SIZE_MAX, init_size, CONF_PARSED);
       struct observation a =
           mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, leak, LO_SET | SAMPLE_SET,
                  POS_INTERIOR, CONF_PARSED);
@@ -4682,7 +4684,8 @@ static void test_image_floor_from_init_size(void) {
       assert(e.est[Q_VIRT_IMAGE_BASE].lo < leak); /* floor below the witness */
     }
   }
-  /* (2) No SF_INIT_SIZE -> inert (SF_IMAGE_SIZE is deliberately NOT used). */
+  /* (2) No SF_IMAGE_SIZE_MAX -> inert (SF_IMAGE_SIZE_MIN is deliberately NOT
+   * used). */
   {
     struct engine e;
     engine_init(&e);
@@ -4701,7 +4704,8 @@ static void test_image_floor_from_init_size(void) {
     if (a_max <= top.hi) {
       struct engine e;
       engine_init(&e);
-      struct observation s = mk_scalar(SF_INIT_SIZE, init_size, CONF_PARSED);
+      struct observation s =
+          mk_scalar(SF_IMAGE_SIZE_MAX, init_size, CONF_PARSED);
       struct observation lo_obs =
           mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, a_min,
                  LO_SET | SAMPLE_SET, POS_INTERIOR, CONF_PARSED);
@@ -4982,7 +4986,7 @@ static void test_riscv64_fdt_kaslr_seed(void) {
       mk_scalar(SF_FDT_KASLR_SEED, 0x12345678ul, CONF_PARSED);
   struct observation efi = mk_scalar(SF_EFI_PRESENT, 0ul, CONF_PARSED);
   struct observation isz =
-      mk_scalar(SF_IMAGE_SIZE, 0x1800000ul, CONF_PARSED); /* 24 MiB */
+      mk_scalar(SF_IMAGE_SIZE_MIN, 0x1800000ul, CONF_PARSED); /* 24 MiB */
   evidence_add(&e.ev, &seed);
   evidence_add(&e.ev, &efi);
   evidence_add(&e.ev, &isz);

@@ -59,7 +59,7 @@ KASLD_EXPLAIN(
     "observation with its full [start, end] extent — the running kernel is "
     "one of these entries on an EFI stub boot, with bootloader/driver "
     "images claiming the others. efi_loader_kernel_pick filters by EFI stub "
-    "alignment + SF_IMAGE_SIZE match to identify the running-kernel entry. "
+    "alignment + SF_IMAGE_SIZE_MIN match to identify the running-kernel entry. "
     "Access is gated by dmesg_restrict.");
 
 KASLD_META("method:parsed\n"
@@ -254,10 +254,10 @@ int main(void) {
      * driver images claim the others. The component cannot tell which
      * entry is the kernel from address/size alone — that's the
      * efi_loader_kernel_pick rule's job, which applies the per-arch
-     * EFI_KIMG_ALIGN start-alignment filter and the SF_IMAGE_SIZE size-
+     * EFI_KIMG_ALIGN start-alignment filter and the SF_IMAGE_SIZE_MIN size-
      * tolerance filter. Separation of concerns: this component surfaces
      * raw EFI memmap entries; the rule performs the alignment/size
-     * arithmetic that depends on arch constants and SF_IMAGE_SIZE.
+     * arithmetic that depends on arch constants and SF_IMAGE_SIZE_MIN.
      *
      * Cap at EFI_LOADER_MAX — beyond that the rule's per-entry scan would
      * not find more candidates anyway; the extra entries are noted but

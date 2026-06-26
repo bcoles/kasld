@@ -9,7 +9,7 @@
 // phys_to_directmap_virt(x) = PAGE_OFFSET + x = KASLR_VIRT_TEXT_MIN + x,
 // giving:
 //
-//   virt_ceiling = KASLR_VIRT_TEXT_MIN + fw_base - MIN_IMAGE_SIZE
+//   virt_ceiling = KASLR_VIRT_TEXT_MIN + fw_base - min_image
 //
 // The kernel must fit below BOTH firmware regions, so the bridge supplies the
 // lower of the OPAL/RTAS bases (SF_PHYS_FW_RESERVED_BASE); the merged ceiling
@@ -21,10 +21,6 @@
 #include "include/kasld/engine_rules.h"
 
 #include <string.h>
-
-/* Conservative lower bound on the kernel image size; keeps the ceiling sound.
- */
-#define MIN_IMAGE_SIZE (16UL * 1024 * 1024)
 
 int rule_ppc64_firmware_ceiling(const struct evidence_set *ev,
                                 const struct estimate *est,
@@ -42,6 +38,7 @@ int rule_ppc64_firmware_ceiling(const struct evidence_set *ev,
   unsigned long fw_base = 0;
   enum kasld_confidence conf = CONF_UNKNOWN;
   uint32_t src = 0;
+  const unsigned long min_image = evidence_image_size_min_or_floor(ev);
   for (int i = 0; i < ev->n_obs; i++) {
     const struct observation *o = &ev->obs[i];
     if (o->valid && o->value_kind == OBS_SCALAR &&
@@ -52,10 +49,10 @@ int rule_ppc64_firmware_ceiling(const struct evidence_set *ev,
       break;
     }
   }
-  if (fw_base <= MIN_IMAGE_SIZE)
+  if (fw_base <= min_image)
     return 0;
 
-  unsigned long ceiling = KASLR_VIRT_TEXT_MIN + fw_base - MIN_IMAGE_SIZE;
+  unsigned long ceiling = KASLR_VIRT_TEXT_MIN + fw_base - min_image;
   ceiling =
       kasld_floor_virt_text_bound(ceiling, (unsigned long)KASLR_VIRT_ALIGN);
   if (ceiling <= KASLR_VIRT_TEXT_MIN)

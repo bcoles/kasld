@@ -13,8 +13,8 @@
 // it is folded into the C_UPPER_BOUND value rather than tracked as a separate
 // alignment quantity.
 //
-// Reads the SF_IMAGE_SIZE / SF_INIT_SIZE scalar observations plus the resolved
-// alignment quantities. The ceiling is aligned down to the RESOLVED
+// Reads the image-size lower bound via evidence_image_size_min() plus the
+// resolved alignment quantities. The ceiling is aligned down to the RESOLVED
 // Q_VIRT_KASLR_ALIGN (resp. Q_PHYS_KASLR_ALIGN), not the compile-time
 // KASLR_VIRT_ALIGN: on x86_64 boot_params_kaslr_align raises that quantity to
 // the actual CONFIG_PHYSICAL_ALIGN (e.g. 16 MiB), so the ceiling snaps to that
@@ -64,7 +64,7 @@ int rule_ceiling_from_image_size(const struct evidence_set *ev,
                                  struct constraint *out, int out_max) {
   enum kasld_confidence conf = CONF_UNKNOWN;
   uint32_t src = 0;
-  unsigned long ksize = evidence_image_size(ev, &conf, &src);
+  unsigned long ksize = evidence_image_size_min(ev, &conf, &src);
   if (ksize == 0)
     return 0;
 

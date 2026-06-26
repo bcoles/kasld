@@ -20,7 +20,7 @@
 // The output array is bounded by ENGINE_RULE_MAX_EMIT; we cap silently if a
 // pathological cmdline produces more than the engine accepts.
 //
-// Reads PHYS REGION_CMDLINE_MEMMAP observations + SF_IMAGE_SIZE; emits
+// Reads PHYS REGION_CMDLINE_MEMMAP observations + SF_IMAGE_SIZE_MIN; emits
 // nothing when either is absent. Decoupled arches only (x86_64).
 //
 // References:
@@ -44,7 +44,7 @@ int rule_cmdline_memmap_phys_exclude(const struct evidence_set *ev,
 #else
   enum kasld_confidence kconf = CONF_UNKNOWN;
   uint32_t ksrc = 0;
-  unsigned long ksize = evidence_image_size(ev, &kconf, &ksrc);
+  unsigned long ksize = evidence_image_size_min(ev, &kconf, &ksrc);
   if (ksize == 0)
     return 0;
 

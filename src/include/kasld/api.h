@@ -713,7 +713,7 @@ enum kasld_confidence {
   /* kernel is exactly one of these on an EFI stub boot; bootloader / driver   \
    */                                                                          \
   /* images claim the others. efi_loader_kernel_pick filters by alignment + */ \
-  /* SF_IMAGE_SIZE size match to identify the running-kernel entry. */         \
+  /* SF_IMAGE_SIZE_MIN size match to identify the running-kernel entry. */     \
   X(REGION_EFI_LOADER_IMAGE, "efi_loader_image", "dram", K_OPEN)               \
   X(REGION_NUMA_NODE, "numa_node", "dram", K_OPEN)                             \
   X(REGION_MMIO, "mmio", "mmio", K_OPEN)                                       \
@@ -834,11 +834,17 @@ enum kasld_scalar_fact {
   SF_NONE = 0,
   SF_PHYS_MEMTOTAL,  /* total RAM bytes (/proc/meminfo)                  */
   SF_PHYS_ADDR_BITS, /* CPU physical-address width (/proc/cpuinfo)       */
-  SF_IMAGE_SIZE,     /* kernel image size bytes (/boot; estimate)        */
+  SF_IMAGE_SIZE_MIN, /* proven LOWER bound on the image footprint, bytes. The */
+                     /* ceiling/exclusion/match rules subtract it from a      */
+                     /* window edge, so it must be <= the true footprint.     */
+                     /* Emitted by EVERY size source (exact and compressed/   */
+                     /* lower-bound alike). Read via evidence_image_size_min. */
   SF_VIRT_ADDR_BITS, /* virtual-address width / paging level             */
-  SF_INIT_SIZE,      /* exact in-memory image size (>= _end - _text): x86    */
-                     /* boot_params init_size, or arm64/riscv64 EFI Image    */
-                     /* header image_size                                    */
+  SF_IMAGE_SIZE_MAX, /* proven UPPER bound on the in-image extent (>= _end -  */
+                     /* _text), bytes. The image-base floor rule needs a      */
+                     /* value no in-image leak can exceed. Emitted only by    */
+                     /* EXACT sources (which also emit SF_IMAGE_SIZE_MIN).    */
+                     /* Read via evidence_image_size_max.                     */
   SF_PHYS_LOWMEM,    /* 32-bit lowmem bytes (/proc/meminfo LowTotal)     */
   SF_PHYS_FW_RESERVED_BASE, /* ppc64 firmware reserved region base (OPAL/RTAS)
                              */
@@ -934,9 +940,9 @@ static const char *const kasld_scalar_fact_wire_table[SF__COUNT] = {
     [SF_NONE] = "none",
     [SF_PHYS_MEMTOTAL] = "phys_memtotal",
     [SF_PHYS_ADDR_BITS] = "phys_addr_bits",
-    [SF_IMAGE_SIZE] = "image_size",
+    [SF_IMAGE_SIZE_MIN] = "image_size_min",
     [SF_VIRT_ADDR_BITS] = "virt_addr_bits",
-    [SF_INIT_SIZE] = "init_size",
+    [SF_IMAGE_SIZE_MAX] = "image_size_max",
     [SF_PHYS_LOWMEM] = "phys_lowmem",
     [SF_PHYS_FW_RESERVED_BASE] = "phys_fw_reserved_base",
     [SF_PHYS_MAX_PFN] = "phys_max_pfn",

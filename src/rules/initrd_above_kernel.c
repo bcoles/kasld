@@ -11,8 +11,8 @@
 //
 //   phys_image_base + image_size <= initrd_start
 //
-// emits as a C_UPPER_BOUND on Q_PHYS_IMAGE_BASE. When SF_IMAGE_SIZE is
-// known the bound is tight; otherwise a conservative MIN_IMAGE_SIZE keeps
+// emits as a C_UPPER_BOUND on Q_PHYS_IMAGE_BASE. When SF_IMAGE_SIZE_MIN is
+// known the bound is tight; otherwise a conservative KASLD_MIN_IMAGE_SIZE keeps
 // the bound sound. The complementary "kernel doesn't overlap initrd"
 // constraint (the exclusion hole IN [start - image_size, end - 1]) is
 // already emitted by initrd_phys_exclude.c on decoupled arches; this
@@ -40,13 +40,6 @@
 #include <limits.h>
 #include <string.h>
 
-/* Conservative floor for the kernel image size in bytes (4 MiB). Used as
- * the bound's right-hand-side when SF_IMAGE_SIZE has not been observed —
- * any real kernel image is at least this large, so subtracting it from
- * initrd_start keeps the upper bound sound. Matches the constant used by
- * the sibling rules phys_bits_ceiling and highmem_32bit_bound. */
-#define IAK_MIN_IMAGE_SIZE (4UL * 1024 * 1024)
-
 int rule_initrd_above_kernel(const struct evidence_set *ev,
                              const struct estimate *est, struct constraint *out,
                              int out_max) {
@@ -60,22 +53,16 @@ int rule_initrd_above_kernel(const struct evidence_set *ev,
   if (out_max < 1)
     return 0;
 
-  unsigned long ksize = 0, istart = ULONG_MAX;
+  unsigned long istart = ULONG_MAX;
   enum kasld_confidence kconf = CONF_UNKNOWN, iconf = CONF_PARSED;
   uint32_t ksrc = 0, isrc = 0;
+  unsigned long ksize = evidence_image_size_min(ev, &kconf, &ksrc);
   for (int i = 0; i < ev->n_obs; i++) {
     const struct observation *o = &ev->obs[i];
     if (!o->valid)
       continue;
-    if (o->value_kind == OBS_SCALAR &&
-        (o->scalar_fact == SF_IMAGE_SIZE || o->scalar_fact == SF_INIT_SIZE)) {
-      if (o->scalar_value > ksize) { /* exact init_size wins; both <= true */
-        ksize = o->scalar_value;
-        kconf = o->conf;
-        ksrc = o->id;
-      }
-    } else if (o->value_kind == OBS_ADDRESS && o->eff_type == KASLD_TYPE_PHYS &&
-               o->eff_region == REGION_INITRD && HAS_LO(o)) {
+    if (o->value_kind == OBS_ADDRESS && o->eff_type == KASLD_TYPE_PHYS &&
+        o->eff_region == REGION_INITRD && HAS_LO(o)) {
       /* Lowest initrd-start across all sources; one observation is
        * enough, but if several emit the lowest is the binding edge. */
       if (o->lo < istart) {
@@ -89,9 +76,9 @@ int rule_initrd_above_kernel(const struct evidence_set *ev,
   if (isrc == 0 || istart == ULONG_MAX || istart == 0)
     return 0;
 
-  /* image_size known → tight; otherwise conservative MIN_IMAGE_SIZE. */
+  /* image_size known → tight; otherwise the conservative shared floor. */
   unsigned long subtrahend =
-      ksize > 0 ? ksize : (unsigned long)IAK_MIN_IMAGE_SIZE;
+      ksize > 0 ? ksize : (unsigned long)KASLD_MIN_IMAGE_SIZE;
   if (istart <= subtrahend)
     return 0;
   unsigned long upper = istart - subtrahend;
@@ -105,7 +92,7 @@ int rule_initrd_above_kernel(const struct evidence_set *ev,
    * confidence — matches the convention in initrd_phys_exclude and the
    * other compound-evidence rules. When ksize wasn't observed (kconf =
    * UNKNOWN), defer to the initrd-start confidence; the bound is then
-   * "sound but loose" via the MIN_IMAGE_SIZE fallback. */
+   * "sound but loose" via the KASLD_MIN_IMAGE_SIZE fallback. */
   if (ksrc != 0) {
     c->conf = (kconf < iconf) ? kconf : iconf;
     c->derived_from[0] = isrc;
@@ -113,7 +100,7 @@ int rule_initrd_above_kernel(const struct evidence_set *ev,
     c->lineage_count = 2;
   } else {
     /* Heuristic-grade upper bound from initrd alone — sound (uses
-     * MIN_IMAGE_SIZE) but loose. Any real text leak overrides. */
+     * KASLD_MIN_IMAGE_SIZE) but loose. Any real text leak overrides. */
     c->conf = CONF_HEURISTIC;
     c->derived_from[0] = isrc;
     c->lineage_count = 1;
