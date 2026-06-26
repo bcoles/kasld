@@ -1879,22 +1879,49 @@ static void test_highmem_32bit_bound(void) {
 }
 
 static void test_ppc64_firmware_ceiling(void) {
-  struct engine e;
-  engine_init(&e);
-  unsigned long fw = 0x10000000ul; /* 256 MiB firmware base */
-  struct observation o = mk_scalar(SF_PHYS_FW_RESERVED_BASE, fw, CONF_PARSED);
-  evidence_add(&e.ev, &o);
-
+  const unsigned long fw = 0x10000000ul; /* 256 MiB firmware base */
   const rule_fn rules[] = {rule_ppc64_firmware_ceiling};
-  engine_run(&e, rules, 1);
   struct estimate vtop;
   quantities[Q_VIRT_IMAGE_BASE].init_top(&vtop);
+
 #if defined(__powerpc64__)
-  unsigned long expect = kasld_floor_virt_text_bound(
-      KASLR_VIRT_TEXT_MIN + fw - (16ul << 20), KASLR_VIRT_ALIGN);
-  if (expect > KASLR_VIRT_TEXT_MIN && expect < vtop.hi)
-    assert(e.est[Q_VIRT_IMAGE_BASE].hi == expect);
+  /* (1) No image-size fact: the rule subtracts the conservative shared floor
+   * (KASLD_MIN_IMAGE_SIZE) via evidence_image_size_min_or_floor(). */
+  {
+    struct engine e;
+    engine_init(&e);
+    struct observation o = mk_scalar(SF_PHYS_FW_RESERVED_BASE, fw, CONF_PARSED);
+    evidence_add(&e.ev, &o);
+    engine_run(&e, rules, 1);
+    unsigned long expect = kasld_floor_virt_text_bound(
+        KASLR_VIRT_TEXT_MIN + fw - KASLD_MIN_IMAGE_SIZE, KASLR_VIRT_ALIGN);
+    if (expect > KASLR_VIRT_TEXT_MIN && expect < vtop.hi)
+      assert(e.est[Q_VIRT_IMAGE_BASE].hi == expect);
+  }
+
+  /* (2) Image-size known: the rule uses the real (larger) size -> a tighter,
+   * still-sound ceiling. This is the Phase-2 improvement over the old fixed
+   * 16 MiB constant. */
+  {
+    struct engine e;
+    engine_init(&e);
+    struct observation o = mk_scalar(SF_PHYS_FW_RESERVED_BASE, fw, CONF_PARSED);
+    evidence_add(&e.ev, &o);
+    const unsigned long ksize = 0x2000000ul; /* 32 MiB (> the 4 MiB floor) */
+    struct observation s = mk_scalar(SF_IMAGE_SIZE_MIN, ksize, CONF_PARSED);
+    evidence_add(&e.ev, &s);
+    engine_run(&e, rules, 1);
+    unsigned long expect = kasld_floor_virt_text_bound(
+        KASLR_VIRT_TEXT_MIN + fw - ksize, KASLR_VIRT_ALIGN);
+    if (expect > KASLR_VIRT_TEXT_MIN && expect < vtop.hi)
+      assert(e.est[Q_VIRT_IMAGE_BASE].hi == expect);
+  }
 #else
+  struct engine e;
+  engine_init(&e);
+  struct observation o = mk_scalar(SF_PHYS_FW_RESERVED_BASE, fw, CONF_PARSED);
+  evidence_add(&e.ev, &o);
+  engine_run(&e, rules, 1);
   assert(e.est[Q_VIRT_IMAGE_BASE].hi == vtop.hi); /* inert off ppc64 */
 #endif
 }
