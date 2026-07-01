@@ -10,10 +10,11 @@
 //
 // Per-arch enable:
 //   KASLR_DISABLED_PINS_VIRT_TEXT — 1 on arches where no-KASLR implies the
-//     compile-time virt default (x86_64, arm64, loongarch64, s390). 0
-//     elsewhere: where the bootloader can still relocate the image (x86_32,
-//     arm32, ppc, mips), or where the no-KASLR base is layout-dependent and
-//     owned by a bespoke rule (riscv64 — see rule_riscv64_text_base).
+//     compile-time virt default (x86_64, loongarch64). 0 elsewhere: where the
+//     bootloader can still relocate the image (x86_32, arm32, ppc, mips), or
+//     where the no-KASLR base is layout-dependent and owned by a bespoke rule
+//     (arm64 -> rule_arm64_text_base, riscv64 -> rule_riscv64_text_base, s390
+//     -> rule_s390_image_base_from_config).
 //
 // The pinned value is the arch's *assumed* standard-config default, not a fact
 // read from the kernel, so it is emitted at CONF_INFERRED (capped to the

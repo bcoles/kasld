@@ -14,7 +14,11 @@
 //     arch/s390/boot/startup.c). Floor Q_VIRT_IMAGE_BASE at that value. The
 //     value is the image-base floor itself (not _stext); flooring at it without
 //     adding IMAGE_BASE_OFFSET stays at or below the true _text under either
-//     image-base/_stext modeling, so it cannot exclude truth.
+//     image-base/_stext modeling, so it cannot exclude truth. When
+//     SF_VIRT_KASLR_DISABLED is also present the base does not slide, so the
+//     floor becomes an exact PIN — this rule owns the s390 no-KASLR base (s390
+//     opts out of the generic compile-time-default disabled-pin; see s390.h),
+//     pinning the layout-correct PARSED value rather than an assumed default.
 //
 //   value == 0 — config is an s390 config that LACKS the knob: the pre-v6.8
 //     identity-mapped layout (__identity_base = 0, no RANDOMIZE_IDENTITY_BASE),
@@ -40,7 +44,8 @@ int rule_s390_image_base_from_config(const struct evidence_set *ev,
 
   int have_sel = 0;
   unsigned long image_base = 0, max_pfn = 0, memtotal = 0, page_size = 0;
-  uint32_t sel_src = 0;
+  uint32_t sel_src = 0, kaslr_off_id = 0;
+  enum kasld_confidence kaslr_off_conf = CONF_UNKNOWN;
   for (int i = 0; i < ev->n_obs; i++) {
     const struct observation *o = &ev->obs[i];
     if (!o->valid || o->value_kind != OBS_SCALAR)
@@ -50,6 +55,12 @@ int rule_s390_image_base_from_config(const struct evidence_set *ev,
       have_sel = 1;
       image_base = o->scalar_value;
       sel_src = o->id;
+      break;
+    case SF_VIRT_KASLR_DISABLED:
+      if (o->scalar_value != 0) {
+        kaslr_off_id = o->id;
+        kaslr_off_conf = o->conf;
+      }
       break;
     case SF_PHYS_MAX_PFN:
       max_pfn = o->scalar_value;
@@ -76,12 +87,26 @@ int rule_s390_image_base_from_config(const struct evidence_set *ev,
   snprintf(c->origin, ORIGIN_LEN, "s390_image_base_from_config");
 
   if (image_base > 0) {
-    /* Modern layout: floor the image base at CONFIG_KERNEL_IMAGE_BASE. Guard
-     * against an implausible value pushing the floor past the window top. */
+    /* Modern layout. Guard against an implausible value pushing past the top.
+     */
     if (image_base >= (unsigned long)KERNEL_VIRT_TEXT_MAX)
       return 0;
-    c->op = C_LOWER_BOUND;
     c->value = image_base;
+    if (kaslr_off_id) {
+      /* KASLR confirmed off + parsed modern base ⇒ the image base IS
+       * CONFIG_KERNEL_IMAGE_BASE exactly (no slide): PIN it. This is the sound,
+       * layout-correct replacement for the generic compile-time-default
+       * disabled-pin (s390 opts that out — see s390.h). Confidence is the
+       * weaker of the parsed config and the off-signal: a parsed off-signal
+       * keeps the pin in the guaranteed window; a weaker detector lands it in
+       * likely. */
+      c->op = C_EQUALS;
+      c->conf = kasld_conf_min(CONF_PARSED, kaslr_off_conf);
+      c->derived_from[c->lineage_count++] = kaslr_off_id;
+    } else {
+      /* KASLR may slide the base up from this floor. */
+      c->op = C_LOWER_BOUND;
+    }
     return 1;
   }
 

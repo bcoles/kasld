@@ -7,10 +7,15 @@
 // base: virt_page_offset = virt - phys + PHYS_OFFSET. Grouping by origin and
 // taking each origin's min(directmap virt) / min(phys DRAM) yields one
 // candidate per origin; when all candidates agree within one KASLR alignment
-// slot the result is trustworthy. On a fixed-PAGE_OFFSET arch (everything but
-// x86_64) the true base is a single constant, so we pin Q_PAGE_OFFSET to the
-// cleanest (most large-page-aligned) candidate; on x86_64 (randomized base) we
-// report the proven [min_cand, max_cand] window instead.
+// slot the result is trustworthy. On a static-direct-map arch
+// (PAGE_OFFSET_FIXED
+// == DIRECTMAP_STATIC: the linear-map base is a compile-time constant) the true
+// base IS that single constant, so Q_PAGE_OFFSET pins to the cleanest (most
+// large-page-aligned) candidate. Where the base is runtime-variable — x86_64
+// (RANDOMIZE_MEMORY) and the decoupled arches whose base tracks RAM/firmware
+// placement (arm64 memstart_addr, riscv64 kernel_map.page_offset, s390
+// __identity_base) — the cleanest candidate is NOT guaranteed to be the base,
+// so the proven [min_cand, max_cand] window is reported instead.
 //
 // This is the mechanism that reconstructs the EXACT randomized virt_page_offset
 // on a live x86_64 (RANDOMIZE_MEMORY) host from a directmap leak — far tighter
@@ -29,11 +34,13 @@
 
 #define SYNTH_MAX_ORIGINS 16
 
-/* PAGE_OFFSET_FIXED (from api.h): 1 on every arch whose direct-map base is a
- * fixed constant, 0 on x86_64 where RANDOMIZE_MEMORY slides it. On a fixed arch
- * a within-align spread across origin candidates is pairing noise, not genuine
- * uncertainty about a single true value — so we pin to the cleanest candidate
- * rather than leaving a window. */
+/* PAGE_OFFSET_FIXED (from api.h, defined as DIRECTMAP_STATIC): 1 on every arch
+ * whose direct-map base is a compile-time constant, 0 where it is runtime-
+ * variable (x86_64 RANDOMIZE_MEMORY; arm64/riscv64/s390 RAM-/firmware-shifted).
+ * On a fixed arch a within-align spread across origin candidates is pairing
+ * noise, not uncertainty about a single true value, so the cleanest candidate
+ * is the base; on a variable arch a mispaired candidate can be cleaner than the
+ * true base, so only the spanning window is sound. */
 
 /* Count of trailing zero bits = log2 of the largest power of two dividing v;
  * the cleanest (most large-page-aligned) candidate is the true direct-map base,

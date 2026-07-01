@@ -68,12 +68,14 @@ int rule_x86_64_vmalloc_base_bound(const struct evidence_set *ev,
    */
   unsigned long max_pfn = 0;
   uint32_t pfn_src = 0;
+  enum kasld_confidence pfn_conf = CONF_PARSED;
   for (int i = 0; i < ev->n_obs; i++) {
     const struct observation *o = &ev->obs[i];
     if (o->valid && o->value_kind == OBS_SCALAR &&
         o->scalar_fact == SF_PHYS_MAX_PFN) {
       max_pfn = o->scalar_value;
       pfn_src = o->id;
+      pfn_conf = o->conf;
       break;
     }
   }
@@ -102,7 +104,11 @@ int rule_x86_64_vmalloc_base_bound(const struct evidence_set *ev,
     c->q = Q_VMALLOC_BASE;
     c->op = C_LOWER_BOUND;
     c->value = candidate;
-    c->conf = CONF_INFERRED; /* minimum-padding model; sound for any config */
+    /* minimum-padding model is sound for any config, but no more trustworthy
+     * than the page_offset edge + max_pfn it rests on (confidence propagation)
+     */
+    c->conf = kasld_conf_min(
+        CONF_INFERRED, kasld_conf_min(pfn_conf, kasld_edge_conf(po->lo_conf)));
     c->lineage_count = 0;
     c->derived_from[c->lineage_count++] = pfn_src;
     if (po->lo_binding)
@@ -138,7 +144,8 @@ int rule_x86_64_vmalloc_base_bound(const struct evidence_set *ev,
         c->q = Q_VMALLOC_BASE;
         c->op = C_UPPER_BOUND;
         c->value = upper;
-        c->conf = CONF_INFERRED;
+        c->conf =
+            kasld_conf_min(CONF_INFERRED, kasld_edge_conf(vmemmap->hi_conf));
         c->derived_from[0] = vmemmap->hi_binding;
         c->lineage_count = 1;
         snprintf(c->origin, ORIGIN_LEN, "x86_64_vmalloc_base_bound");

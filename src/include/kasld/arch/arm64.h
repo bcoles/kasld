@@ -130,7 +130,7 @@ static inline unsigned long arm64_page_end_for(unsigned long va_bits) {
 // - 64K pages (PAGE_SHIFT=16): THREAD_SHIFT=16, THREAD_ALIGN=128KiB,
 // EFI_KIMG_ALIGN=128KiB For 4K/16K (the common case), EFI_KIMG_ALIGN=64KiB. Use
 // 64KiB (0x10000) by default. On 64K-page EFI systems this is conservative
-// (128KiB actual); see arm64_phys_kaslr_align.
+// (128KiB actual) but still a multiple of 64 KiB, so the alignment stays sound.
 #define IMAGE_ALIGN 0x10000ul
 
 // EFI_KIMG_ALIGN is the alignment the EFI stub uses when calling

@@ -375,6 +375,18 @@ struct kaslr_info {
   unsigned long pslots;
   int pbits;
   int has_phys;
+  /* Speculative "likely" window: the engine resolved a second time with ALL
+   * signals, including those below the sound floor (timing/heuristic/brute).
+   * It is a subset of the guaranteed window in the vtext/ptext fields above and
+   * MAY be wrong. Each window's presence is signalled by its own *_max != 0
+   * sentinel (set only when clamped strictly tighter than guaranteed);
+   * renderers gate per-window on that. */
+  unsigned long vlikely_min, vlikely_max;
+  unsigned long vlikely_slots;
+  int vlikely_bits;
+  unsigned long plikely_min, plikely_max;
+  unsigned long plikely_slots;
+  int plikely_bits;
   /* Memory KASLR (x86_64 CONFIG_RANDOMIZE_MEMORY) */
   unsigned long virt_page_offset_min;
   unsigned long virt_page_offset_max;
@@ -382,6 +394,13 @@ struct kaslr_info {
   unsigned long virt_vmalloc_max;
   unsigned long virt_vmemmap_min;
   unsigned long virt_vmemmap_max;
+  /* Speculative "likely" sub-windows for the memory-KASLR regions above, from
+   * the all-signals snapshot (engine_resolve). Each is a subset of its region's
+   * guaranteed min/max and MAY be wrong. 0/0 = none (no sub-floor signal
+   * narrowed the region beyond its guaranteed window). */
+  unsigned long virt_page_offset_likely_min, virt_page_offset_likely_max;
+  unsigned long virt_vmalloc_likely_min, virt_vmalloc_likely_max;
+  unsigned long virt_vmemmap_likely_min, virt_vmemmap_likely_max;
 };
 
 struct summary {

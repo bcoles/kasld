@@ -23,6 +23,10 @@
 // below the spanned DRAM extent, and the MemTotal-based ceiling can
 // exclude the kernel's true position. dram_top sidesteps this by
 // using the spanned extent, which is what bounds kernel placement.
+// So the two emissions carry different confidence: the dram_top ceiling
+// is a fact (observation confidence, reaches the guaranteed window); the
+// MemTotal fallback is a contiguity convention (CONF_HEURISTIC, likely
+// window only).
 //
 // The coupled-arch virtual ceiling from MemTotal is handled separately
 // by virt_ceiling_from_memtotal, which maps through the resolved
@@ -96,9 +100,14 @@ int rule_phys_ceiling_from_memtotal(const struct evidence_set *ev,
     src_a = tsrc;
     cconf = tconf;
   } else {
-    /* Fallback: MemTotal-based. Sound only when DRAM is contiguous from
-     * phys_floor — see header for the soundness caveat. Better than
-     * nothing on low-priv runs that cannot read zoneinfo / iomem. */
+    /* Fallback: MemTotal-based. Better than nothing on low-priv runs that
+     * cannot read zoneinfo / iomem. MemTotal counts USABLE pages, so
+     * phys_floor + MemTotal under-counts the spanned extent whenever holes or
+     * reserved regions sit inside the DRAM span (arm64 EFI crashkernel /
+     * runtime services / DMA pools) — the ceiling can then fall BELOW the true
+     * base. So it is a convention, not a fact: capped at CONF_HEURISTIC so it
+     * shapes the LIKELY window only, never the guaranteed one (the sound
+     * dram_top path above keeps observation confidence). */
     if (memtotal == 0 || memtotal <= min_image)
       return 0;
     if (phys_floor == ULONG_MAX)
@@ -106,7 +115,7 @@ int rule_phys_ceiling_from_memtotal(const struct evidence_set *ev,
     ceiling = phys_floor + memtotal - min_image;
     src_a = msrc;
     src_b = fsrc;
-    cconf = (mconf < fconf) ? mconf : fconf;
+    cconf = kasld_conf_min(CONF_HEURISTIC, (mconf < fconf) ? mconf : fconf);
   }
   /* Align to the RESOLVED Q_PHYS_KASLR_ALIGN (>= compile-time
    * KASLR_PHYS_ALIGN), which boot_params_kaslr_align raises to the actual

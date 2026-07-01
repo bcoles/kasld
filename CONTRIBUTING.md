@@ -122,6 +122,24 @@ component produced the address:
 The orchestrator weights conflicting claims by `conf`: a parsed address
 beats a timing address when they disagree.
 
+**Confidence and the two windows.** The engine resolves twice: a *guaranteed*
+window from signals at or above a sound floor (`CONF_INFERRED`), and a *likely*
+window from all signals (see
+[Two-window resolution](docs/architecture.md#two-window-resolution-guaranteed-and-likely)).
+So the level chosen decides which window an emission can reach. Before picking
+one, classify the value:
+
+- A **fact** — derived from an observation (a parsed address, a value computed
+  from one) — is `CONF_INFERRED` or higher and may shape the guaranteed window.
+- A **guess** — a bootloader convention, a standard-config default, a
+  fingerprint, a timing estimate — is `CONF_HEURISTIC` or lower, so it refines
+  only the speculative likely window.
+
+Emitting a guess at `CONF_INFERRED` or above puts it in the guaranteed window,
+where a wrong guess excludes the truth on a legitimate non-default kernel — the
+one thing that window must never do. A value not computed from an observation is
+a guess; when in doubt, emit it below the floor.
+
 ### Emitter API
 
 Components emit results via five intent-revealing helpers from

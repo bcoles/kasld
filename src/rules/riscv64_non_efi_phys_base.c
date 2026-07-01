@@ -1,21 +1,30 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
-// Rule: riscv64 non-EFI physical text base.
+// Rule: riscv64 non-EFI physical text base (speculative OpenSBI-default guess).
 //
-// On a non-EFI (OpenSBI) riscv64 boot the kernel image is placed at
-//   image_phys_base == DRAM_BASE + RISCV_PHYS_LOAD_OFFSET   (OpenSBI default)
-// and the text section starts at the head-text offset above the image base,
-// so the SF_PHYS_TEXT_BASE-equivalent (== iomem "Kernel code" start) is:
+// The stock OpenSBI non-EFI boot places the kernel image at
+//   image_phys_base == DRAM_BASE + RISCV_PHYS_LOAD_OFFSET   (OpenSBI occupies
+// the first 2 MiB of DRAM and the image follows), with the text section a
+// head-text offset above the image base, so phys `_stext` (== iomem "Kernel
+// code" start) is:
 //
 //   phys_image_base == DRAM_BASE + RISCV_PHYS_LOAD_OFFSET + IMAGE_BASE_OFFSET
 //
-// The +IMAGE_BASE_OFFSET term (.head.text length, 0x2000 on v5.10+) is what
-// makes Q_PHYS_IMAGE_BASE refer to `_stext` rather than `_start` (the image
-// base / first byte of `_text`). Omitting it lands the pin 0x2000 below the
-// actual phys `_stext` and the resolved window excludes the true text base. On
-// a default-config riscv64 build, kallsyms reports `_stext = _start + 0x2000`
-// and the iomem "Kernel code" entry begins at DRAM_BASE +
-// RISCV_PHYS_LOAD_OFFSET + 0x2000 (the bytes of `.head.text` precede it).
+// The +IMAGE_BASE_OFFSET term (.head.text length, 0x2000 on v5.10+) makes
+// Q_PHYS_IMAGE_BASE refer to `_stext` rather than `_start`; omitting it lands
+// the value 0x2000 below the iomem "Kernel code" entry.
+//
+// This is a firmware CONVENTION, NOT a fact, so it is emitted at CONF_HEURISTIC
+// and shapes the LIKELY window only. RISC-V has NO physical KASLR — the
+// physical base is pure firmware/bootloader placement, which "is not fixed
+// across hardware" (riscv64.h) — so unlike the VIRTUAL sibling
+// riscv64_text_base, no KASLR-off signal recovers soundness here:
+// SF_VIRT_KASLR_DISABLED concerns the randomized VIRTUAL mapping and says
+// nothing about physical placement, and the SBI implementation id is not
+// reachable from unprivileged userspace. A non- default OpenSBI next-stage
+// address, or a U-Boot stage between firmware and kernel, places the image
+// elsewhere; pinning it would exclude the true base. The sound floor (phys_base
+// >= DRAM_BASE) is already covered by dram_floor_bound.
 //
 // DRAM_BASE is taken from the canonical RAM_BASE marker (REGION_RAM with
 // POS_BASE) only — observations on other dram-section regions (initrd,
@@ -83,7 +92,10 @@ int rule_riscv64_non_efi_phys_base(const struct evidence_set *ev,
   c->q = Q_PHYS_IMAGE_BASE;
   c->op = C_EQUALS;
   c->value = phys_exact;
-  c->conf = CONF_INFERRED;
+  /* CONF_HEURISTIC: the OpenSBI-default offset is a firmware convention, not a
+   * fact (physical placement is not KASLR-randomized and no signal establishes
+   * it), so the pin shapes the likely window only, never the guaranteed one. */
+  c->conf = CONF_HEURISTIC;
   c->derived_from[0] = src;
   c->lineage_count = src ? 1 : 0;
   snprintf(c->origin, ORIGIN_LEN, "riscv64_non_efi_phys_base");

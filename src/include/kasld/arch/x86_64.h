@@ -45,12 +45,6 @@
 // (window / 1 GiB) candidate positions of residual entropy.
 #define RANDOMIZE_MEMORY_ALIGN (1ul << 30)
 
-// RANDOMIZE_MEMORY slides PAGE_OFFSET (the direct-map base) per boot — unlike
-// every other supported arch, where PAGE_OFFSET is a fixed constant. Rules that
-// reconstruct virt_page_offset report a window here rather than pinning a
-// value.
-#define PAGE_OFFSET_RANDOMIZED 1
-
 // Compile-time default region bases — the values page_offset_base /
 // vmalloc_base / vmemmap_base are initialised to (head64.c) and KEEP whenever
 // kernel_randomize_memory() returns early, i.e. when KASLR is off OR
@@ -138,7 +132,6 @@
 // (57-bit). The finite-set lattice narrows to the actual level as evidence
 // arrives. Must list every level the kernel can run.
 #define VA_BITS_CANDIDATES {48ul, 57ul}
-#define VA_BITS_DEFAULT 48ul
 
 // x86_64 kernel text starts at the base address (no offset from _stext).
 #define IMAGE_BASE_OFFSET 0

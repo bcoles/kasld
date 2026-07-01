@@ -1,6 +1,8 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
-// Infer kernel base by sampling kernel events and taking the lowest address
+// Upper-bound the kernel image base by sampling kernel instruction pointers:
+// the lowest sampled text address is >= _text, so it is a sound ceiling on the
+// base (emitted as an interior sample; range_from_interior derives the bound)
 //
 // Largely based on original code by lizzie:
 // https://blog.lizzie.io/kaslr-and-perf.html
@@ -232,23 +234,38 @@ int main(void) {
     return 0;
   }
 
-  /* The lowest sampled IP sits at image_base + offset (offset >= 0); aligning
-   * it down to the KASLR granule yields the kernel image BASE estimate (_text),
-   * so it reports a base claim (POS_BASE) and leaves reconciliation to the
-   * engine. Region KERNEL_IMAGE, not KERNEL_TEXT: the value is the image base,
-   * and text_pin_from_observation treats a KERNEL_TEXT base as _stext and
-   * subtracts STEXT_OFFSET (the head gap) — which would push the base below
-   * _text on arches where _stext != _text (arm64, loongarch64). CONF_DERIVED,
-   * not CONF_PARSED: the raw IP is parsed-certain, but concluding the aligned
-   * slot IS the base is a derived inference, so a parsed ground-truth base
-   * still overrides it. kasld_floor_text_base preserves the sub-alignment
-   * residue so the value stays valid on every arch (a plain `&
-   * -KASLR_VIRT_ALIGN` would drop below the base on riscv64/arm32). */
-  unsigned long emit_addr = kasld_floor_text_base(addr);
-  kasld_info("lowest leaked address: %lx  kernel base (aligned): %lx", addr,
-             emit_addr);
-  kasld_result_base(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE, emit_addr, NULL,
-                    CONF_DERIVED);
+  /* The lowest sampled IP is an address INSIDE the kernel text, not the image
+   * base: it equals image_base + offset with offset >= 0 (the offset of
+   * whatever function the syscall path happened to touch lowest). So it is a
+   * SOUND upper bound on the base — image_base <= sample — on EVERY arch. Emit
+   * it as an interior sample; range_from_interior turns the raw sample into a
+   * sound C_UPPER_BOUND on Q_VIRT_IMAGE_BASE. CONF_PARSED: the IP is a
+   * parsed-certain kernel-text address. */
+  kasld_info("lowest leaked kernel-text address: %lx (upper bound on base)",
+             addr);
+  kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr, NULL,
+                      CONF_PARSED);
+
+  /* On large-page arches the lowest sampled IP also yields a speculative base
+   * GUESS: flooring it to KASLR_VIRT_ALIGN lands on the image base whenever the
+   * lowest sampled function sits in the base's own slot — the common case on a
+   * busy system, where low text executes constantly. It overshoots by one slot
+   * only when the base's slot holds nothing the sampler caught (un-executed
+   * head/entry text on an idle, freshly booted kernel). So emit it as a base
+   * pin, but at CONF_HEURISTIC: "the floored slot is the base" is a heuristic,
+   * so the pin sits BELOW the sound floor and shapes the speculative LIKELY
+   * window only — never the guaranteed one, which keeps the sound interior
+   * upper bound above. Region KERNEL_IMAGE so the value is read as _text
+   * directly, with no _stext head-gap subtraction. kasld_floor_text_base
+   * preserves the sub-alignment residue so the floor never drops below _text.
+   *
+   * Gated to KASLR_VIRT_ALIGN >= 2 MiB: on fine-granule arches the lowest
+   * sampled IP can sit many slots above the base, so flooring it is not a
+   * within-one-slot guess; there the interior upper bound is the only claim. */
+#if KASLR_VIRT_ALIGN >= 2 * MB
+  kasld_result_base(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE,
+                    kasld_floor_text_base(addr), NULL, CONF_HEURISTIC);
+#endif
 
   return 0;
 }

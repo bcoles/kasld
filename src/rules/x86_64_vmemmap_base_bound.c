@@ -81,7 +81,8 @@ int rule_x86_64_vmemmap_base_bound(const struct evidence_set *ev,
     c->q = Q_VMEMMAP_BASE;
     c->op = C_LOWER_BOUND;
     c->value = lower;
-    c->conf = CONF_INFERRED;
+    /* No more trustworthy than the vmalloc edge it chains off. */
+    c->conf = kasld_conf_min(CONF_INFERRED, kasld_edge_conf(vmalloc->lo_conf));
     c->derived_from[0] = vmalloc->lo_binding;
     c->lineage_count = 1;
     snprintf(c->origin, ORIGIN_LEN, "x86_64_vmemmap_base_bound");
@@ -91,12 +92,14 @@ int rule_x86_64_vmemmap_base_bound(const struct evidence_set *ev,
    */
   unsigned long max_pfn = 0;
   uint32_t pfn_src = 0;
+  enum kasld_confidence pfn_conf = CONF_PARSED;
   for (int i = 0; i < ev->n_obs; i++) {
     const struct observation *o = &ev->obs[i];
     if (o->valid && o->value_kind == OBS_SCALAR &&
         o->scalar_fact == SF_PHYS_MAX_PFN) {
       max_pfn = o->scalar_value;
       pfn_src = o->id;
+      pfn_conf = o->conf;
       break;
     }
   }
@@ -141,7 +144,8 @@ int rule_x86_64_vmemmap_base_bound(const struct evidence_set *ev,
       c->q = Q_VMEMMAP_BASE;
       c->op = C_UPPER_BOUND;
       c->value = upper;
-      c->conf = CONF_INFERRED;
+      /* Rests on max_pfn (the struct-page size only ever loosens it). */
+      c->conf = kasld_conf_min(CONF_INFERRED, pfn_conf);
       c->derived_from[0] = pfn_src;
       c->lineage_count = 1;
       /* The bound scales with sizeof(struct page); record a BTF source. */

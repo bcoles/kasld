@@ -2012,7 +2012,50 @@ static int ilog2(unsigned long v) {
 static void engine_sync_authoritative(const struct engine *e);
 #ifndef KASLD_TESTING
 static void engine_resolve(struct engine *e);
-static struct engine g_auth_engine;
+static struct engine
+    g_auth_engine; /* holds the GUARANTEED (primary) resolution */
+
+/* Sound floor for the guaranteed window: inputs below this are out of scope, so
+ * the window is derived purely from >= floor signals. CONF_INFERRED admits
+ * parsed/derived/inferred (proven); heuristic/timing/brute reach the likely
+ * window only. The two-window POLICY (which floors, what they mean) lives here;
+ * the engine is floor-agnostic. */
+#define KASLD_SOUND_FLOOR CONF_INFERRED
+
+/* Snapshot of the LIKELY resolution (floor CONF_BRUTE — all signals): the est +
+ * constraints quantity_slots() needs, plus the resolver's rejected-constraint
+ * (conflict) set so the likely window's conflicts can be reported symmetrically
+ * with the guaranteed window's (the floored run overwrites the engine's own
+ * copy). g_auth_engine holds the guaranteed resolution after engine_resolve();
+ * this holds likely so compute_kaslr_info can report the speculative window
+ * alongside it. */
+struct engine_resolution {
+  struct estimate est[Q__COUNT];
+  struct constraint constraints[ENGINE_MAX_CONSTRAINTS];
+  int n_constraints;
+  int n_conflicts[Q__COUNT];
+  uint32_t conflicts[Q__COUNT][ESTIMATE_MAX_CONFLICTS];
+};
+static struct engine_resolution g_likely;
+static int g_have_likely;
+
+/* Fill a memory-KASLR region's speculative "likely" sub-window from the
+ * all-signals snapshot. Emits only when the region's guaranteed row is shown
+ * (`shown`) AND the likely estimate is strictly tighter than the guaranteed
+ * engine window [g_lo, g_hi] — otherwise there is nothing to add. Mirrors the
+ * vtext/ptext likely gating; likely is a subset of guaranteed by construction.
+ * Returns 1 if a likely window was set. */
+static int fill_mem_likely(const struct estimate *l, unsigned long g_lo,
+                           unsigned long g_hi, int shown, unsigned long *out_lo,
+                           unsigned long *out_hi) {
+  *out_lo = 0;
+  *out_hi = 0;
+  if (!shown || l->lo > l->hi) /* no guaranteed row, or a bottom estimate */
+    return 0;
+  /* Clamp into the guaranteed region window so likely ⊆ guaranteed holds
+   * structurally; reports only when non-empty and strictly tighter. */
+  return kasld_clamp_likely_window(l->lo, l->hi, g_lo, g_hi, out_lo, out_hi);
+}
 #endif
 
 /* The reported text base is the IMAGE BASE (_text). A KERNEL_IMAGE anchor is
@@ -2062,10 +2105,26 @@ void compute_kaslr_info(struct summary *s) {
   unsigned long vtext = anchor_image_base(KASLD_TYPE_VIRT);
   if (vtext == 0 && layout.virt_kaslr_text_min == layout.virt_kaslr_text_max)
     vtext = layout.virt_kaslr_text_min;
+  unsigned long ptext = anchor_image_base(KASLD_TYPE_PHYS);
+#ifndef KASLD_TESTING
+  /* The raw anchor scan above is verdict-blind (it reads results[], not the
+   * curated evidence set); reconcile it with the engine so the headline base is
+   * never one a verdict rejected. The engine's pinned singleton wins; a raw
+   * pick outside the all-signals window is dropped. */
+  {
+    const struct estimate *gv = &g_auth_engine.est[Q_VIRT_IMAGE_BASE];
+    const struct estimate *lv = &g_likely.est[Q_VIRT_IMAGE_BASE];
+    vtext = kasld_reconcile_concrete_base(vtext, gv->lo, gv->hi, g_have_likely,
+                                          lv->lo, lv->hi);
+    const struct estimate *gp = &g_auth_engine.est[Q_PHYS_IMAGE_BASE];
+    const struct estimate *lp = &g_likely.est[Q_PHYS_IMAGE_BASE];
+    ptext = kasld_reconcile_concrete_base(ptext, gp->lo, gp->hi, g_have_likely,
+                                          lp->lo, lp->hi);
+  }
+#endif
   s->kaslr.vtext = vtext;
   s->kaslr.vstext = observed_stext_base(KASLD_TYPE_VIRT, vtext);
 
-  unsigned long ptext = anchor_image_base(KASLD_TYPE_PHYS);
   s->kaslr.ptext = ptext;
   s->kaslr.has_phys = 0;
   s->kaslr.pstext = observed_stext_base(KASLD_TYPE_PHYS, ptext);
@@ -2138,6 +2197,50 @@ void compute_kaslr_info(struct summary *s) {
     s->kaslr.pbits = 0;
   }
 
+#ifndef KASLD_TESTING
+  /* Speculative "likely" window from the all-signals snapshot (engine_resolve).
+   * The guaranteed window above is layout.{virt,phys}_kaslr_text_{min,max}
+   * (g_auth_engine = the sound resolution). likely is clamped INTO guaranteed
+   * at this boundary so likely ⊆ guaranteed holds structurally (not merely "by
+   * construction" assuming rule monotonicity); the clamp also gates on the
+   * result being non-empty and strictly tighter than guaranteed. */
+  if (g_have_likely && !s->kaslr.disabled && !s->kaslr.unsupported) {
+    unsigned long clo, chi;
+    if (kasld_clamp_likely_window(g_likely.est[Q_VIRT_IMAGE_BASE].lo,
+                                  g_likely.est[Q_VIRT_IMAGE_BASE].hi,
+                                  layout.virt_kaslr_text_min,
+                                  layout.virt_kaslr_text_max, &clo, &chi)) {
+      struct estimate lv = g_likely.est[Q_VIRT_IMAGE_BASE]; /* clamped copy */
+      lv.lo = clo;
+      lv.hi = chi;
+      s->kaslr.vlikely_min = clo;
+      s->kaslr.vlikely_max = chi;
+      s->kaslr.vlikely_slots =
+          quantity_slots(Q_VIRT_IMAGE_BASE, &lv, g_likely.constraints,
+                         g_likely.n_constraints, layout.virt_kaslr_align);
+      s->kaslr.vlikely_bits =
+          s->kaslr.vlikely_slots > 0 ? ilog2(s->kaslr.vlikely_slots) : 0;
+    }
+#ifdef KASLR_PHYS_MIN
+    if (kasld_clamp_likely_window(g_likely.est[Q_PHYS_IMAGE_BASE].lo,
+                                  g_likely.est[Q_PHYS_IMAGE_BASE].hi,
+                                  layout.phys_kaslr_text_min,
+                                  layout.phys_kaslr_text_max, &clo, &chi)) {
+      struct estimate lp = g_likely.est[Q_PHYS_IMAGE_BASE]; /* clamped copy */
+      lp.lo = clo;
+      lp.hi = chi;
+      s->kaslr.plikely_min = clo;
+      s->kaslr.plikely_max = chi;
+      s->kaslr.plikely_slots =
+          quantity_slots(Q_PHYS_IMAGE_BASE, &lp, g_likely.constraints,
+                         g_likely.n_constraints, layout.phys_kaslr_align);
+      s->kaslr.plikely_bits =
+          s->kaslr.plikely_slots > 0 ? ilog2(s->kaslr.plikely_slots) : 0;
+    }
+#endif
+  }
+#endif
+
   s->kaslr.virt_page_offset_min =
       (layout.virt_page_offset_min != (unsigned long)PAGE_OFFSET)
           ? layout.virt_page_offset_min
@@ -2156,6 +2259,36 @@ void compute_kaslr_info(struct summary *s) {
   s->kaslr.virt_vmemmap_max = (layout.virt_vmemmap_base_max != ULONG_MAX)
                                   ? layout.virt_vmemmap_base_max
                                   : 0;
+
+#ifndef KASLD_TESTING
+  /* Speculative "likely" sub-windows for the memory-KASLR regions: the engine's
+   * all-signals snapshot may narrow a region below the sound floor (a future
+   * directmap/vmalloc side-channel). Gated on the guaranteed row being shown so
+   * the likely line is always a refinement of a displayed window, never an
+   * orphan. The guaranteed engine windows are the layout.virt_*_base_{min,max}
+   * that engine_sync_authoritative wrote from g_auth_engine. */
+  if (g_have_likely && !s->kaslr.disabled && !s->kaslr.unsupported) {
+    /* Each region's likely sub-window is signalled by its own *_likely_max != 0
+     * (set by fill_mem_likely only when clamped strictly tighter); renderers
+     * gate per-region on that. */
+    fill_mem_likely(&g_likely.est[Q_PAGE_OFFSET], layout.virt_page_offset_min,
+                    layout.virt_page_offset_max,
+                    s->kaslr.virt_page_offset_min ||
+                        s->kaslr.virt_page_offset_max,
+                    &s->kaslr.virt_page_offset_likely_min,
+                    &s->kaslr.virt_page_offset_likely_max);
+    fill_mem_likely(&g_likely.est[Q_VMALLOC_BASE], layout.virt_vmalloc_base_min,
+                    layout.virt_vmalloc_base_max,
+                    s->kaslr.virt_vmalloc_min || s->kaslr.virt_vmalloc_max,
+                    &s->kaslr.virt_vmalloc_likely_min,
+                    &s->kaslr.virt_vmalloc_likely_max);
+    fill_mem_likely(&g_likely.est[Q_VMEMMAP_BASE], layout.virt_vmemmap_base_min,
+                    layout.virt_vmemmap_base_max,
+                    s->kaslr.virt_vmemmap_min || s->kaslr.virt_vmemmap_max,
+                    &s->kaslr.virt_vmemmap_likely_min,
+                    &s->kaslr.virt_vmemmap_likely_max);
+  }
+#endif
 
 #if !TEXT_TRACKS_DIRECTMAP
   /* On decoupled arches (x86_64, arm64, riscv64, s390): note when physical
@@ -2427,28 +2560,47 @@ static const char *constraint_op_name(enum constraint_op op) {
   return "?";
 }
 
-/* Report constraints the resolver rejected as contradictory, so a noisy or
- * adversarial input that drops evidence is explainable rather than silent.
+/* Print one rejected constraint, tagged with its window (guaranteed / likely).
+ */
+static void report_one_conflict(const char *window, int q,
+                                const struct constraint *cc) {
+  fprintf(stderr,
+          "[engine %s] %s: rejected '%s 0x%lx' from %s — contradicts "
+          "higher-priority evidence\n",
+          window, quantities[q].name, constraint_op_name(cc->op), cc->value,
+          cc->origin[0] ? cc->origin : "rule");
+}
+
+/* Report the constraints each window's resolver rejected as contradictory, so a
+ * noisy or adversarial input that drops evidence is explainable rather than
+ * silent. Both windows are reported, labeled: a GUARANTEED conflict is
+ * soundness-critical (two at-or-above-floor facts disagree); a LIKELY conflict
+ * is usually the resolver correctly overruling a speculative signal with a
+ * stronger one. The floored (guaranteed) run overwrites the engine's own
+ * conflict set, so the likely window's is read from the g_likely snapshot.
  * Diagnostic only (stderr, --verbose) — the resolved estimates are unchanged.
  */
 static void engine_report_conflicts(const struct engine *e) {
-  for (int q = 0; q < Q__COUNT; q++) {
+  for (int q = 0; q < Q__COUNT; q++)
     for (int c = 0; c < e->n_conflicts[q]; c++) {
       uint32_t id = e->conflicts[q][c];
-      const struct constraint *cc = NULL;
       for (int i = 0; i < e->n_constraints; i++)
         if (e->constraints[i].id == id) {
-          cc = &e->constraints[i];
+          report_one_conflict("guaranteed", q, &e->constraints[i]);
           break;
         }
-      if (cc)
-        fprintf(stderr,
-                "[engine] %s: rejected '%s 0x%lx' from %s — contradicts "
-                "higher-priority evidence\n",
-                quantities[q].name, constraint_op_name(cc->op), cc->value,
-                cc->origin[0] ? cc->origin : "rule");
     }
-  }
+  if (!g_have_likely)
+    return;
+  for (int q = 0; q < Q__COUNT; q++)
+    for (int c = 0; c < g_likely.n_conflicts[q]; c++) {
+      uint32_t id = g_likely.conflicts[q][c];
+      for (int i = 0; i < g_likely.n_constraints; i++)
+        if (g_likely.constraints[i].id == id) {
+          report_one_conflict("likely", q, &g_likely.constraints[i]);
+          break;
+        }
+    }
 }
 
 /* Report, per quantity, how many distinct origins contributed constraints the
@@ -2591,7 +2743,34 @@ static void engine_resolve(struct engine *e) {
   const verdict_fn *vrules = engine_verdict_rules(&n_vrules);
   engine_init(e);
   engine_build_evidence(&e->ev);
+
+  /* Two resolutions are computed from one evidence build (below). Both are pure
+   * rule evaluation over the already-collected evidence — no component re-runs,
+   * no I/O — so the doubled fixpoint cost is negligible beside the one-shot
+   * component execution that produced the evidence. Keep rules cheap: a future
+   * rule doing heavy per-pass work would pay that cost twice.
+   *
+   * Likely window: all signals, floor CONF_BRUTE (the primary resolution).
+   * Snapshot its est + constraints for the speculative report. */
   engine_run_full(e, rules, n_rules, vrules, n_vrules);
+  memcpy(g_likely.est, e->est, sizeof(g_likely.est));
+  g_likely.n_constraints = e->n_constraints;
+  memcpy(g_likely.constraints, e->constraints,
+         (size_t)e->n_constraints * sizeof(e->constraints[0]));
+  /* Capture the likely run's conflicts now, before the guaranteed run below
+   * overwrites the engine's own n_conflicts/conflicts. */
+  memcpy(g_likely.n_conflicts, e->n_conflicts, sizeof(g_likely.n_conflicts));
+  memcpy(g_likely.conflicts, e->conflicts, sizeof(g_likely.conflicts));
+  g_have_likely = 1;
+
+  /* Guaranteed window (primary): re-resolve at the sound floor. Clear the
+   * likely run's curation first so each run curates only from its own in-scope
+   * evidence. Leaves e (= g_auth_engine) holding the guaranteed resolution that
+   * engine_sync_authoritative() and compute_kaslr_info() read. */
+  e->ev.n_verdicts = 0;
+  engine_run_full_floored(e, KASLD_SOUND_FLOOR, rules, n_rules, vrules,
+                          n_vrules);
+
   if (verbose && !json_output) {
     engine_report_conflicts(e);
     engine_report_corroboration(e);

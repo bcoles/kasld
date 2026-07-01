@@ -35,12 +35,10 @@
 // projection is sound. Kernel text lives in CKSEG0 at a fixed offset, so
 // text tracks the directmap.
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/mips/include/asm/page.h#L199
+// PAGE_OFFSET is fixed by the KSEG0 hardware mapping, so the compile-time
+// direct-map formula is exact (DIRECTMAP_STATIC) and text tracks the directmap.
 #define DIRECTMAP_STATIC 1
 #define TEXT_TRACKS_DIRECTMAP 1
-
-// PAGE_OFFSET is fixed by KSEG0 hardware mapping;
-// Directmap leaks cannot reveal the KASLR slide.
-#define PAGE_OFFSET_RANDOMIZED 0
 
 #define KERNEL_VIRT_VAS_START PAGE_OFFSET
 #define KERNEL_VIRT_VAS_END 0xfffffffful
@@ -65,7 +63,9 @@
 #define KERNEL_PHYS_MAX (512ul * MB)
 
 // Default: 0x80100400 (kseg0 + 1 MiB standard load offset + head.S entry).
-// 0x100000: standard MIPS kernel load offset (load-y in arch/mips/Makefile).
+// 0x100000: standard MIPS kernel load offset (load-y in arch/mips/Makefile);
+// identical in mips64.h — the arch headers are standalone (no shared include),
+// so the value is mirrored, not factored. Keep the two in sync.
 // See docs/kaslr.md "Default text base and KASLR alignment" for all
 // architectures. Kernel source: arch/mips/kernel/vmlinux.lds.S,
 // arch/mips/kernel/head.S

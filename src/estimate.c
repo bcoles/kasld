@@ -231,6 +231,15 @@ void estimate_meet(struct estimate *e, const struct quantity_def *qd,
     }
     break;
   }
+
+  /* Propagate the binding constraint's confidence to whichever edge it just set
+   * (ids are monotonic from 1, so this only matches an edge this call bound;
+   * an edge left pointing at an earlier constraint keeps that one's conf).
+   * Lets cross-quantity rules cap a derived constraint at its input's trust. */
+  if (e->lo_binding == c->id)
+    e->lo_conf = c->conf;
+  if (e->hi_binding == c->id)
+    e->hi_conf = c->conf;
 }
 
 int estimate_is_bottom(const struct estimate *e,
@@ -459,7 +468,14 @@ unsigned long quantity_slots(enum kasld_quantity q, const struct estimate *e,
         continue;
       slots += (rs[i].hi - first) / e->stride + 1;
     } else {
-      slots += (rs[i].hi - rs[i].lo) / step;
+      /* Whole-slot span. A non-empty range narrower than one slot still
+       * occupies one slot (the base sits inside it) — so it counts as 1
+       * candidate (0 bits), not 0. Without this a sub-slot window would report
+       * "0 slots" and be indistinguishable from an empty result. */
+      unsigned long w = (rs[i].hi - rs[i].lo) / step;
+      if (w == 0 && rs[i].hi > rs[i].lo)
+        w = 1;
+      slots += w;
     }
   }
   return slots;

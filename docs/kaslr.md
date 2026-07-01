@@ -246,7 +246,7 @@ a physical address leak does not directly reveal the virtual address
 | arm64 | Decoupled | v4.6 | EFI stub randomizes physical; `kaslr_early_init` randomizes virtual; linear map has limited entropy |
 | MIPS32/64 | Coupled | v4.7 | Single relocation offset; fixed kseg0 virt-to-phys mapping |
 | x86_64 | Decoupled | v4.8 | Separate `find_random_phys_addr` / `find_random_virt_addr`; also `CONFIG_RANDOMIZE_MEMORY` for memory sections |
-| s390 | Coupled (identity) | v5.2 | 1:1 virtual = physical mapping |
+| s390 | Decoupled | v5.2 | Identity-mapped (virt = phys) through v6.7; v6.8+ moves kernel text to a separate high mapping and randomizes the identity base independently, so KASLD models it decoupled (`TEXT_TRACKS_DIRECTMAP=0`) |
 | PowerPC32 | Coupled | v5.5 | Same offset applied to both addresses |
 | LoongArch | Coupled | v6.3 | Single relocation offset; direct-mapped windows |
 | RISC-V64 | Virtual only | v6.6 | Only virtual address randomized; physical depends on bootloader |

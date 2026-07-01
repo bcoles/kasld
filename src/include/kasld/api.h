@@ -296,18 +296,17 @@ __extension__ _Static_assert((unsigned long)KERNEL_PHYS_MAX >
 #define KASLR_PHYS_ALIGN IMAGE_ALIGN
 #endif
 
-#ifndef PAGE_OFFSET_RANDOMIZED
-#define PAGE_OFFSET_RANDOMIZED 0
-#endif
-
-/* PAGE_OFFSET is a fixed architectural constant (per VA-bits) unless KASLR
- * slides it — only x86_64 RANDOMIZE_MEMORY does.
- * virt_page_offset-reconstructing rules pin to a single value on fixed arches,
- * report a window on randomized.
- */
-#ifndef PAGE_OFFSET_FIXED
-#define PAGE_OFFSET_FIXED (!PAGE_OFFSET_RANDOMIZED)
-#endif
+/* PAGE_OFFSET_FIXED — 1 when the direct-map base is a compile-time
+ * architectural constant, so a virt_page_offset reconstructed from a direct-map
+ * leak may be pinned to a single value; 0 when that base is runtime-variable
+ * and such a reconstruction must stay a window. The base is variable on x86_64
+ * (RANDOMIZE_MEMORY slides it) and on the decoupled arches whose linear-map
+ * base tracks RAM/firmware placement (arm64 memstart_addr, riscv64
+ * kernel_map.page_offset, s390 __identity_base). That predicate is exactly
+ * DIRECTMAP_STATIC (the compile-time direct-map formula is sound iff
+ * PAGE_OFFSET and PHYS_OFFSET are the runtime constants), so PAGE_OFFSET_FIXED
+ * IS DIRECTMAP_STATIC — one source of truth; two flags would drift. */
+#define PAGE_OFFSET_FIXED DIRECTMAP_STATIC
 
 /* STEXT_OFFSET — the head gap: _stext - _text (image base). The engine's one
  * virtual text quantity is the IMAGE BASE (_text); _stext is a projection,

@@ -63,11 +63,6 @@
 #define DIRECTMAP_STATIC 0
 #define TEXT_TRACKS_DIRECTMAP 0
 
-// Identity mapping base is NOT randomized by default.
-// CONFIG_RANDOMIZE_IDENTITY_BASE depends on RANDOMIZE_BASE and defaults to
-// DEBUG_VM (typically off in production).
-#define PAGE_OFFSET_RANDOMIZED 0
-
 // Kernel VAS: entire address space up to the ASCE limit.
 // 3-level paging: _REGION2_SIZE = 1 << 42 = 0x40000000000   (4 TiB)
 // 4-level paging: _REGION1_SIZE = 1 << 53 = 0x20000000000000 (8 PiB)
@@ -188,15 +183,26 @@
 
 #define KASLR_SUPPORTED 1
 
-/* KASLR-off ⇒ pin contract: arch/s390/boot/startup.c setup_ident_map_size()
- * forces __kaslr_enabled = 0 on the kdump crash kernel (oldmem_data.start
- * non-zero, signalled by elfcorehdr= on the cmdline). The kernel then lands
- * at __NO_KASLR_START_KERNEL = CONFIG_KERNEL_IMAGE_BASE + IMAGE_BASE_OFFSET,
- * which matches KERNEL_VIRT_TEXT_DEFAULT for the default config. Also fires on
- * the generic SF_VIRT_KASLR_DISABLED signals (nokaslr cmdline,
- * RANDOMIZE_BASE=n). Distros may override CONFIG_KERNEL_IMAGE_BASE; the rule's
- * window- containment check is the soundness backstop. */
-#define KASLR_DISABLED_PINS_VIRT_TEXT 1
+/* s390 opts OUT of the generic compile-time-default disabled-pin: the no-KASLR
+ * image base is LAYOUT-DEPENDENT (modern high CONFIG_KERNEL_IMAGE_BASE vs
+ * pre-v6.8 low identity-mapped, ~4 TiB apart) and CONFIG_KERNEL_IMAGE_BASE is
+ * itself configurable, so the compile-time KERNEL_VIRT_TEXT_DEFAULT is not a
+ * sound pin — a wrong default still lies inside the historical-layout-spanning
+ * [low, ASCE] window, and the disabled-pin's window-containment backstop cannot
+ * reject a wrong-but-in-window value.
+ *
+ * Instead s390_image_base_from_config owns the no-KASLR base: with a readable
+ * config it resolves the layout (parsed, version-number-free) and PINS the
+ * modern base from the PARSED CONFIG_KERNEL_IMAGE_BASE on a positive
+ * SF_VIRT_KASLR_DISABLED — layout-correct where the compile-time default is
+ * not. With no config the layout is genuinely ambiguous, so it pins nothing and
+ * the sound wide window stands. (Mirrors riscv64, whose layout-dependent
+ * no-KASLR base is owned by riscv64_text_base.)
+ *
+ * KASLR-off signal sources: kdump (arch/s390/boot/startup.c forces
+ * __kaslr_enabled = 0 when oldmem_data.start is set, signalled by elfcorehdr=),
+ * nokaslr cmdline, RANDOMIZE_BASE=n. */
+#define KASLR_DISABLED_PINS_VIRT_TEXT 0
 #define KASLD_ARCH_DEFAULT_TEXT_BASE_DEFINED 1
 static inline unsigned long arch_default_text_base(void) {
   return KERNEL_VIRT_TEXT_DEFAULT;

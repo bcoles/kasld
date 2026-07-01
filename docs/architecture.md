@@ -24,6 +24,7 @@ mechanics of adding a component or rule, see
   - [Three layers](#three-layers)
   - [A constraint feeding the next pass](#a-constraint-feeding-the-next-pass)
   - [Soundness, monotonicity, and termination](#soundness-monotonicity-and-termination)
+  - [Two-window resolution: guaranteed and likely](#two-window-resolution-guaranteed-and-likely)
   - [Estimate narrowing and the store-vs-read seam](#estimate-narrowing-and-the-store-vs-read-seam)
   - [Design invariants: seams in the data flow](#design-invariants-seams-in-the-data-flow)
 - [The tagged-line protocol](#the-tagged-line-protocol)
@@ -259,6 +260,65 @@ So "soundness is provable in isolation" above means exactly this: termination an
 monotonicity are guaranteed by the engine's structure, leaving each rule with a
 single, locally-checkable obligation — *do not exclude the truth*.
 
+### Two-window resolution: guaranteed and likely
+
+Historically a leak pinned the kernel base outright. Those leaks are now rare, so
+the engine usually bounds the base rather than locating it — and reports how
+firmly. It resolves two windows. The **guaranteed** window is resolved at a *sound
+floor* (`CONF_INFERRED`): only observations and constraints at or above the floor
+are in scope, so it rests purely on proven signals. The **likely** window is the
+same resolution with *every* signal admitted (floor `CONF_BRUTE`), including the
+sub-floor ones — timing side-channels, fingerprint heuristics, best-guess
+defaults.
+
+Confidence (`parsed > derived > inferred > heuristic > timing > brute`) is a
+*trust* ordering, and the floor turns it into a policy. A **fact** — a value
+derived from an observation — is emitted at or above `CONF_INFERRED` and shapes
+the guaranteed window; a **guess** — a bootloader convention, a standard-config
+default, a timing estimate — is emitted at `CONF_HEURISTIC` or below and refines
+the likely window only. This is how a common-case default informs the result
+without hard-coding it: the default is a speculative refinement that can never
+exclude a legitimate non-default layout.
+
+Three invariants hold the split together:
+
+- **Guaranteed contains the truth.** The floored run reads only at-or-above-floor
+  inputs, so every constraint it applies rests on proven signals; the per-rule
+  soundness obligation (never narrow past the truth) then guarantees the window.
+- **A sub-floor signal never moves the guaranteed window.** Below-floor
+  observations are out of scope in the floored run, so a wrong timing guess or a
+  broken heuristic can shrink *likely* toward the wrong slot but cannot touch
+  guaranteed. The safety is structural, not a property of any rule being careful.
+- **Likely is a subset of guaranteed.** The speculative window is intersected with
+  the guaranteed one at the report boundary, so it is always a refinement of it,
+  never a contradiction.
+
+Confidence propagates so the floor cannot be evaded transitively: a constraint
+derived from another quantity's resolved edge is capped at that edge's trust (the
+lesser of the rule's own grade and the input edge's `lo_conf` / `hi_conf`), so a
+chain of derivations rooted in a guess stays sub-floor and cannot surface in the
+guaranteed window. The renderer owns the vocabulary — `inferred` / "Guaranteed
+range" for the sound window, `likely` / "speculative" for the other (see
+[Output formats](usage.md)).
+
+Both windows are **build-agnostic**: the engine never assumes which kernel image
+it is looking at, and never trusts a version string or fingerprint to pin a base,
+so it reports the widest window that is *sound* (guaranteed) and, beneath it, the
+widest that is *plausible* (likely), across every configuration the architecture
+admits. Each rule works the same way — it extracts only the build-agnostic content
+of a leak: the relationship that holds on *any* build (this pointer lies in region
+Y; this value is at least the region base). A leak often carries more: on one
+specific kernel it sits a fixed, known number of bytes from its region (or from
+`_text`), enough to pin the quantity. That offset shifts from build to build,
+though, so a rule that used it would be wrong on every other build — it is
+deliberately left out, and the window is reported instead. The window is therefore
+the tightest answer a build-agnostic tool can give. On a known target it could in
+principle be narrowed further, even to a single base, from that build's own fixed
+offsets — but that is reasoning done externally, by hand, against KASLD's output:
+the engine has no mechanism to take a build-specific offset as input, applies
+none, and none is planned. ("likely" is not that mechanism — it is still KASLD's
+own signals applied *without* assuming a build.)
+
 ### Estimate narrowing and the store-vs-read seam
 
 Each quantity starts at the widest value its architecture could produce — its
@@ -479,8 +539,11 @@ loongarch_kexec_file_nokaslr, s390_kdump_nokaslr. The orchestrator reads
 `SF_VIRT_KASLR_DISABLED` to set the summary's `kaslr.disabled` flag (driving the
 "kernel sits at default text base" banner and `slide`/`slot` zeroing). The
 engine's `virt_kaslr_disabled_pin` pins `Q_VIRT_IMAGE_BASE` to the compile-time
-default on arches that set `KASLR_DISABLED_PINS_VIRT_TEXT` (x86_64, arm64,
-riscv64, loongarch64, s390), gated by a window-containment soundness check;
+default on arches that set `KASLR_DISABLED_PINS_VIRT_TEXT` (x86_64, loongarch64),
+gated by a window-containment soundness check. The other randomized arches set it
+to 0 and own their no-KASLR base in a bespoke rule, because it is layout-dependent
+there: `arm64_text_base`, `riscv64_text_base`, and `s390_image_base_from_config`
+(which pins the parsed `CONFIG_KERNEL_IMAGE_BASE` on a KASLR-off signal).
 `phys_kaslr_disabled_pin` does the analogous job for `Q_PHYS_IMAGE_BASE` on arches
 that set `KASLR_DISABLED_PINS_PHYS` (currently x86_64 and loongarch64).
 

@@ -28,13 +28,11 @@
 // projection is sound. Kernel text lives in XKPRANGE at a fixed offset, so
 // text tracks the directmap.
 // https://elixir.bootlin.com/linux/v6.8.5/source/arch/loongarch/include/asm/page.h#L81
+// PAGE_OFFSET is fixed by DMW hardware (CSR_DMW1_VSEG << DMW_PABITS) — KASLR
+// randomizes only the physical load address — so the compile-time direct-map
+// formula is exact (DIRECTMAP_STATIC) and text tracks the directmap.
 #define DIRECTMAP_STATIC 1
 #define TEXT_TRACKS_DIRECTMAP 1
-
-// PAGE_OFFSET is fixed by DMW hardware (CSR_DMW1_VSEG << DMW_PABITS);
-// KASLR randomizes only the physical load address.
-// Directmap leaks cannot reveal the KASLR slide.
-#define PAGE_OFFSET_RANDOMIZED 0
 
 // The compile-time PAGE_OFFSET is the architectural guaranteed runtime
 // value: the kernel writes _ULCAST_(0x9) to the DMW1 CSR unconditionally

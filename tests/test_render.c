@@ -283,6 +283,134 @@ static void test_render_json_with_rich_content(void) {
   set_render_mode(0, 0, 0);
 }
 
+/* The speculative "likely" window renders as a sub-line under the guaranteed
+ * (inferred) text range in -v text, and as a "likely" object with
+ * "speculative": true in -j JSON. Set up the no-concrete-base case (guaranteed
+ * is a range) with a tighter likely window. */
+static void test_render_likely_window(void) {
+  struct summary s;
+  reset_results();
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+  memset(&s, 0, sizeof(s));
+  extern int verbose;
+
+  /* Guaranteed window is a range (no concrete vtext/ptext) with a tighter
+   * speculative likely window. The likely sub-line/JSON read only s->kaslr,
+   * not layout, so this mutates no global but verbose. */
+  s.kaslr.vslots = 60;
+  s.kaslr.vbits = 6;
+  s.kaslr.vlikely_min = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT + 0x19000000ul;
+  s.kaslr.vlikely_max = s.kaslr.vlikely_min; /* a single slot */
+  s.kaslr.vlikely_slots = 1;
+  s.kaslr.vlikely_bits = 0;
+
+  verbose = 1; /* the KASLR analysis block shows in the verbose text flow */
+  set_render_mode(0, 0, 0); /* text */
+  capture_stdout(wrap_render_summary, &s);
+  assert(strstr(render_cap, "likely (speculative)") != NULL);
+  /* A single surviving slot renders as a pinned best-guess in the verbose
+   * analysis, not a degenerate "0xX - 0xX (1 slots, 0 bits)" range. */
+  assert(strstr(render_cap, "(pinned)") != NULL);
+  assert(strstr(render_cap, "1 slots") == NULL);
+
+  verbose = 0; /* DEFAULT (compact readout) must also show the likely line */
+  capture_stdout(wrap_render_summary, &s);
+  assert(strstr(render_cap, "likely (speculative)") != NULL);
+
+  set_render_mode(1, 0, 0); /* json */
+  capture_stdout(wrap_render_summary, &s);
+  assert(strstr(render_cap, "\"likely\"") != NULL);
+  assert(strstr(render_cap, "\"speculative\": true") != NULL);
+  set_render_mode(0, 0, 0);
+}
+
+/* A concrete vtext while the guaranteed window is a RANGE is a speculative
+ * best-guess: -v labels it "(likely; speculative)" and shows the guaranteed
+ * range; -j marks the virtual object speculative and still emits the inferred
+ * (guaranteed) range. */
+static void test_render_vtext_speculative(void) {
+  struct summary s;
+  reset_results();
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+  memset(&s, 0, sizeof(s));
+  extern int verbose;
+  unsigned long sv_lo = layout.virt_kaslr_text_min,
+                sv_hi = layout.virt_kaslr_text_max,
+                sv_al = layout.virt_kaslr_align;
+
+  s.kaslr.vtext = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT + 0x10000000ul;
+  s.kaslr.vslots = 60;
+  s.kaslr.vbits = 6;
+  layout.virt_kaslr_text_min = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
+  layout.virt_kaslr_text_max =
+      (unsigned long)KERNEL_VIRT_TEXT_DEFAULT + 0x3c000000ul;
+  layout.virt_kaslr_align = 0x1000000ul;
+
+  verbose = 1;
+  set_render_mode(0, 0, 0); /* text */
+  capture_stdout(wrap_render_summary, &s);
+  verbose = 0;
+  assert(strstr(render_cap, "(likely; speculative)") != NULL);
+  assert(strstr(render_cap, "Guaranteed range") != NULL);
+
+  set_render_mode(1, 0,
+                  0); /* json: virtual marked speculative + inferred range */
+  capture_stdout(wrap_render_summary, &s);
+  assert(strstr(render_cap, "\"speculative\": true") != NULL);
+  assert(strstr(render_cap, "\"inferred\"") != NULL);
+  set_render_mode(0, 0, 0);
+
+  layout.virt_kaslr_text_min = sv_lo;
+  layout.virt_kaslr_text_max = sv_hi;
+  layout.virt_kaslr_align = sv_al;
+}
+
+/* Memory-KASLR regions (directmap/vmalloc/vmemmap) carry their own speculative
+ * "likely" sub-windows. A guaranteed region range plus a tighter likely sub-
+ * range must surface in the verbose Memory KASLR block, the default direct-map
+ * readout, JSON, and markdown. Reads only s->kaslr (mutates no global). */
+static void test_render_memory_likely_window(void) {
+  struct summary s;
+  reset_results();
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+  memset(&s, 0, sizeof(s));
+  extern int verbose;
+
+  s.kaslr.vslots = 60; /* keep render_kaslr_text from early-returning */
+  s.kaslr.vbits = 6;
+  /* Guaranteed direct-map (page_offset) range with a tighter pinned likely
+   * best-guess. Based on the arch PAGE_OFFSET macro so the constants fit
+   * `unsigned long` on 32-bit arches too (matches set_richer_render_state). */
+  s.kaslr.virt_page_offset_min = (unsigned long)PAGE_OFFSET + 0x01000000ul;
+  s.kaslr.virt_page_offset_max = (unsigned long)PAGE_OFFSET + 0x09000000ul;
+  s.kaslr.virt_page_offset_likely_min =
+      (unsigned long)PAGE_OFFSET + 0x03000000ul;
+  s.kaslr.virt_page_offset_likely_max = s.kaslr.virt_page_offset_likely_min;
+
+  verbose = 1;              /* verbose Memory KASLR block */
+  set_render_mode(0, 0, 0); /* text */
+  capture_stdout(wrap_render_summary, &s);
+  assert(strstr(render_cap, "likely (speculative)") != NULL);
+
+  verbose = 0; /* DEFAULT readout direct-map likely line */
+  capture_stdout(wrap_render_summary, &s);
+  assert(strstr(render_cap, "likely (speculative)") != NULL);
+
+  set_render_mode(1, 0, 0); /* json */
+  capture_stdout(wrap_render_summary, &s);
+  assert(strstr(render_cap, "\"likely\"") != NULL);
+  assert(strstr(render_cap, "\"speculative\": true") != NULL);
+
+  set_render_mode(0, 0, 1); /* markdown */
+  capture_stdout(wrap_render_summary, &s);
+  assert(strstr(render_cap, "(likely)") != NULL);
+  assert(strstr(render_cap, "speculative") != NULL);
+  set_render_mode(0, 0, 0);
+}
+
 static void test_render_markdown_with_rich_content(void) {
   struct summary s;
   set_rich_render_state(&s);
@@ -1219,6 +1347,9 @@ int main(void) {
   RUN(test_section_consensus_higher_conf_wins);
   RUN(test_section_consensus_empty);
   RUN(test_render_json_with_memory_kaslr);
+  RUN(test_render_likely_window);
+  RUN(test_render_vtext_speculative);
+  RUN(test_render_memory_likely_window);
 
   return TEST_DONE();
 }

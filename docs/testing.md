@@ -282,7 +282,7 @@ inferred range contains the kernel's true text base. Where
 `extra/validate-bundle` validates a single captured system offline, this
 validates live kernels
 across architectures and reader-privilege profiles
-(`default` / `hide` / `hardened` / `nokaslr`).
+(`default` / `hidden` / `hardened` / `nokaslr`).
 
 Unlike replay (layer 2) — which runs offline over captured fixtures and
 only checks that KASLD parses and runs — this boots a real kernel, so it

@@ -72,12 +72,14 @@ int rule_x86_64_page_offset_from_vmalloc_vmemmap(const struct evidence_set *ev,
   /* SF_PHYS_MAX_PFN is required to compute directmap_size. */
   unsigned long max_pfn = 0;
   uint32_t pfn_src = 0;
+  enum kasld_confidence pfn_conf = CONF_PARSED;
   for (int i = 0; i < ev->n_obs; i++) {
     const struct observation *o = &ev->obs[i];
     if (o->valid && o->value_kind == OBS_SCALAR &&
         o->scalar_fact == SF_PHYS_MAX_PFN) {
       max_pfn = o->scalar_value;
       pfn_src = o->id;
+      pfn_conf = o->conf;
       break;
     }
   }
@@ -144,7 +146,11 @@ int rule_x86_64_page_offset_from_vmalloc_vmemmap(const struct evidence_set *ev,
       c->q = Q_PAGE_OFFSET;
       c->op = C_UPPER_BOUND;
       c->value = upper;
-      c->conf = va_conf;
+      /* Caps at CONF_INFERRED like the sibling RANDOMIZE_MEMORY bounds: this is
+       * a minimum-padding structural-model bound, not a parsed fact, however
+       * parsed the witness/max_pfn inputs are. */
+      c->conf =
+          kasld_conf_min(CONF_INFERRED, kasld_conf_min(va_conf, pfn_conf));
       c->derived_from[0] = va_src;
       c->derived_from[1] = pfn_src;
       c->lineage_count = 2;
@@ -166,7 +172,8 @@ int rule_x86_64_page_offset_from_vmalloc_vmemmap(const struct evidence_set *ev,
       c->q = Q_PAGE_OFFSET;
       c->op = C_UPPER_BOUND;
       c->value = upper;
-      c->conf = mm_conf;
+      c->conf =
+          kasld_conf_min(CONF_INFERRED, kasld_conf_min(mm_conf, pfn_conf));
       c->derived_from[0] = mm_src;
       c->derived_from[1] = pfn_src;
       c->lineage_count = 2;

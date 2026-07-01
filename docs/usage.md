@@ -98,10 +98,10 @@ Running 83 components (10 experimental skipped; use -x to enable)...
   Physical image base not derandomized     ~9 bits
                       0x0000000001000000 - 0x000000003c20ca00   (473 x 2.0 MiB)
   Direct map base     >= 0xffff800000000000
-  Phys/Virt Coupling  physical and virtual text randomize independently
+  Phys/Virt coupling  physical and virtual text randomize independently
 
 Leaks (1):
-  virt kernel text    0xffffffff83800000   (prefetch)
+  virt kernel text    0xffffffff83800000   (proc_kallsyms)
 
 [-v: detailed results, memory map, system info]  [-H: hardening assessment]
 ```
@@ -498,7 +498,7 @@ P vmcoreinfo pos=interior conf=parsed sample=0x11ee000
 [.] AMD CPU detected
 [.] KPTI is not detected
 [.] possible kernel base: ffffffff83800000
-V kernel_text pos=base conf=timing lo=0xffffffff83800000
+V kernel_image pos=base conf=timing lo=0xffffffff83800000
 
 [engine] virt_image_base: constrained by 3 independent sources: ceiling_from_image_size physical_start_lower_bound text_pin_from_observation
 [engine] phys_image_base: constrained by 9 independent sources: ceiling_from_image_size phys_ceiling_from_memtotal phys_bits_ceiling phys_hole_filter initrd_phys_exclude ram_map_phys_exclude initrd_above_kernel cmdline_phys_exclude physical_start_lower_bound
@@ -562,8 +562,8 @@ KASLR analysis:
 
 Memory KASLR (directmap / vmalloc / vmemmap):
   virt_page_offset_base >= 0xffff800000000000
-  virt_vmalloc_base    0xffff8b0040000000 - 0xffffdcffc0000000  (83966 candidates, 17 bits)
-  virt_vmemmap_base    0xffffab0080000000 - 0xfffffd0000000000  (83966 candidates, 17 bits)
+  virt_vmalloc_base     0xffff8b0040000000 - 0xffffdcffc0000000  (83966 candidates, 17 bits)
+  virt_vmemmap_base     0xffffab0080000000 - 0xfffffd0000000000  (83966 candidates, 17 bits)
 
 ----------------------------------------
 Virtual memory layout (decoupled):
@@ -626,6 +626,20 @@ arch=x86_64 kaslr=on text=0xffffffff83800000 slide=+0x2800000(41943040) results=
 `-j` (`--json`) emits the full structured summary. See
 [docs/exploitation.md](exploitation.md) for a pwntools template that
 consumes the JSON.
+
+The KASLR object reports two windows plus a headline base. The key names
+differ from the text labels; the mapping is:
+
+| Concept | JSON key | Text label |
+| --- | --- | --- |
+| Guaranteed window (sound floor; contains the true base) | `inferred` / `inferred_physical` | "Inferred text range" / "Guaranteed range" |
+| Likely window (all signals; a subset of the guaranteed window; may be wrong) | `likely` / `likely_physical` (with `"speculative": true`) | "likely (speculative)" |
+| Headline concrete base | `virtual` / `physical` → `image_base` | "Virtual / Physical image base" |
+
+So `inferred*` is the guaranteed window and `likely*` is the speculative
+best-guess, always contained within it. Memory-KASLR regions
+(`memory_kaslr`) carry the same guaranteed `min`/`max` and an optional
+nested `likely` object.
 
 ### Markdown (`-m`)
 

@@ -77,6 +77,7 @@ int rule_phys_hole_filter(const struct evidence_set *ev,
   }
 
   unsigned long ceiling = est[Q_PHYS_IMAGE_BASE].hi;
+  enum kasld_confidence ceiling_conf = est[Q_PHYS_IMAGE_BASE].hi_conf;
 
   /* If the ceiling already sits inside a DRAM extent, nothing to do. */
   for (int i = 0; i < m; i++)
@@ -99,7 +100,9 @@ int rule_phys_hole_filter(const struct evidence_set *ev,
   c->q = Q_PHYS_IMAGE_BASE;
   c->op = C_UPPER_BOUND;
   c->value = new_max;
-  c->conf = CONF_INFERRED;
+  /* The snapped ceiling is only as trustworthy as the phys_image_base edge that
+   * selected the DRAM extent (confidence propagation). */
+  c->conf = kasld_conf_min(CONF_INFERRED, kasld_edge_conf(ceiling_conf));
   c->lineage_count = 0; /* derived from the merged DRAM topology */
   snprintf(c->origin, ORIGIN_LEN, "phys_hole_filter");
   return 1;

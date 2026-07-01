@@ -158,7 +158,7 @@ int main(void) {
    *               (kptr_restrict=0, dmesg_restrict=0, perf_event_paranoid=2):
    *               an unprivileged user on an out-of-the-box kernel, neither
    *               weakened nor hardened by us. */
-  int hide = 0, hardened = 0, stock = 0;
+  int hidden = 0, hardened = 0, stock = 0;
   {
     int cf = open("/proc/cmdline", O_RDONLY);
     char cb[512];
@@ -168,7 +168,7 @@ int main(void) {
       if (cn > 0) {
         cb[cn] = 0;
         if (strstr(cb, "hidekptr"))
-          hide = 1;
+          hidden = 1;
         if (strstr(cb, "hardened"))
           hardened = 1;
         if (strstr(cb, "stock"))
@@ -179,7 +179,7 @@ int main(void) {
   }
 
   /* Always capture ground truth first, as root with kallsyms readable — even in
-   * hide/hardened runs (the comparison baseline comes from the same boot). */
+   * hidden/hardened runs (the comparison baseline comes from the same boot). */
   write_file("/proc/sys/kernel/kptr_restrict", "0\n");
   write_file("/proc/sys/kernel/perf_event_paranoid", "-1\n");
 
@@ -206,9 +206,9 @@ int main(void) {
     uid = 1000;
     printf("=== profile: HARDENED — uid=1000, kptr_restrict=2, "
            "dmesg_restrict=1, perf_event_paranoid=3 (file-only floor) ===\n");
-  } else if (hide) {
+  } else if (hidden) {
     write_file("/proc/sys/kernel/kptr_restrict", "2\n");
-    printf("=== profile: hide — root, kptr_restrict=2 (no kallsyms) ===\n");
+    printf("=== profile: hidden — root, kptr_restrict=2 (no kallsyms) ===\n");
   } else if (stock) {
     /* Kernel-default sysctls, nothing weakened or hardened by us: vanilla
      * defaults are kptr_restrict=0, dmesg_restrict=0, perf_event_paranoid=2.

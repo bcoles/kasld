@@ -365,11 +365,13 @@ static void test_honest_tops_admit_known_values(void) {
   assert(interval_admits(Q_PAGE_OFFSET, (unsigned long)PAGE_OFFSET));
   assert(interval_admits(Q_PAGE_OFFSET, 0xffff888000000000ul)); /* 4-level */
 
-  /* VA_BITS default is a candidate admitted by the top. */
+  /* The Q_VA_BITS top admits every architectural VA-bits candidate. */
   {
     struct estimate e;
     quantities[Q_VA_BITS].init_top(&e);
-    assert(finset_has(Q_VA_BITS, &e, VA_BITS_DEFAULT));
+    static const unsigned long cands[] = VA_BITS_CANDIDATES;
+    for (size_t i = 0; i < sizeof(cands) / sizeof(cands[0]); i++)
+      assert(finset_has(Q_VA_BITS, &e, cands[i]));
   }
 #endif
 }

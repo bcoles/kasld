@@ -164,6 +164,162 @@ static void test_full_engine_x86_64_leaky(void) {
 #endif
 }
 
+/* Two-window resolution (engine layer): a speculative (timing) base leak
+ * tightens the LIKELY window (floor CONF_BRUTE, today's engine_run_full) but is
+ * filtered out of the GUARANTEED window (floor CONF_INFERRED), which stays
+ * sound. A sub-floor base claim is a floored dense-probe guess, so the engine
+ * models it as a +/-1-slot WINDOW (text_pin_from_observation), not an exact
+ * pin. Demonstrates both the value (a correct guess brackets likely to one
+ * slot) and the safety (a wrong guess can't poison guaranteed). */
+static void test_full_engine_two_window(void) {
+#if defined(__x86_64__)
+  int nr = 0, nv = 0;
+  const rule_fn *rules = engine_rules(&nr);
+  const verdict_fn *vrules = engine_verdict_rules(&nv);
+  const unsigned long T =
+      0xffffffff8a000000ul; /* a valid, 2 MiB-aligned base */
+
+  const unsigned long ALIGN = 0x200000ul; /* x86_64 KASLR_VIRT_ALIGN (2 MiB) */
+
+  /* (1) Correct speculative leak -> likely brackets T to a one-slot window
+   * [T-align, T] (T at the upper edge); guaranteed brackets it more loosely. */
+  {
+    struct engine e;
+    engine_init(&e);
+    add_addr_conf(&e, KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, T, 0, CONF_TIMING,
+                  "_stext");
+    struct estimate g[Q__COUNT];
+    engine_run_full_floored(&e, CONF_INFERRED, rules, nr, vrules, nv);
+    memcpy(g, e.est, sizeof(g));
+    engine_run_full(&e, rules, nr, vrules, nv); /* likely = floor CONF_BRUTE */
+    const struct estimate *L = &e.est[Q_VIRT_IMAGE_BASE];
+    const struct estimate *G = &g[Q_VIRT_IMAGE_BASE];
+    assert(contains(G, T)); /* guaranteed holds the truth */
+    assert(G->lo < G->hi);  /* timing leak filtered: unpinned */
+    assert(L->lo == T - ALIGN && L->hi == T); /* +/-1-slot likely window */
+    assert(contains(L, T));                   /* ... which brackets the truth */
+    assert(G->lo <= L->lo && L->hi <= G->hi); /* likely subset of guaranteed */
+  }
+
+  /* (2) WRONG speculative leak (a far slot) -> the +/-1-slot likely window sits
+   * around W and still excludes the true T, but guaranteed holds it: safety. */
+  {
+    const unsigned long W = T + 0x2000000ul; /* a different valid slot */
+    struct engine e;
+    engine_init(&e);
+    add_addr_conf(&e, KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, W, 0, CONF_TIMING,
+                  "_stext");
+    struct estimate g[Q__COUNT];
+    engine_run_full_floored(&e, CONF_INFERRED, rules, nr, vrules, nv);
+    memcpy(g, e.est, sizeof(g));
+    engine_run_full(&e, rules, nr, vrules, nv);
+    const struct estimate *L = &e.est[Q_VIRT_IMAGE_BASE];
+    const struct estimate *G = &g[Q_VIRT_IMAGE_BASE];
+    assert(L->lo == W - ALIGN &&
+           L->hi == W);      /* likely window around the guess */
+    assert(!contains(L, T)); /* ... excluding the truth */
+    assert(contains(G, T));  /* but guaranteed still holds it */
+  }
+#endif
+}
+
+#if defined(__x86_64__)
+/* A bounded-but-not-located x86_64 scenario: phys DRAM + MMIO + scalars narrow
+ * the physical base and page_offset, and no kernel-text leak is present, so the
+ * virtual image base stays at its honest top. This is the realistic
+ * post-leak-drought shape, and it leaves each localizing quantity with room for
+ * an injected signal to (try to) narrow it. */
+static void build_x86_64_floor_baseline(struct engine *e) {
+  engine_init(e);
+  add_addr(e, KASLD_TYPE_PHYS, REGION_RAM, 0x0ul, 0x7ffffffful, NULL);
+  add_addr(e, KASLD_TYPE_PHYS, REGION_PCI_MMIO, 0xfe000000ul, 0xfefffffful,
+           NULL);
+  add_addr(e, KASLD_TYPE_VIRT, REGION_DIRECTMAP,
+           0xffff888000000000ul + 0x10000000ul, 0, NULL);
+  add_scalar(e, SF_PHYS_MEMTOTAL, 0x80000000ul);
+  add_scalar(e, SF_IMAGE_SIZE_MIN, 0x1400000ul);
+  add_scalar(e, SF_PHYS_ADDR_BITS, 46);
+  add_scalar(e, SF_PHYS_KERNEL_ALIGN, 0x200000ul);
+}
+#endif
+
+/* Registry-wide floor invariant. Generalizes test_full_engine_two_window from
+ * one planted timing leak to a property over the WHOLE rule registry: NO
+ * below-floor signal may move the GUARANTEED window. Guaranteed resolves at
+ * CONF_INFERRED, so a sub-floor observation is out of scope there — a wrong
+ * guess can shrink LIKELY toward the wrong slot but must never touch
+ * guaranteed. For a battery of adversarial image-base pins (one per axis),
+ * injected at every sub-floor confidence, the guaranteed estimate of EVERY
+ * quantity is byte- identical (value fields) to the no-injection baseline. A
+ * positive control asserts the SAME signal at CONF_PARSED DOES move guaranteed,
+ * proving each injection is live (not vacuously ignored for an unrelated
+ * reason). Catches a rule that reads a below-floor observation into an
+ * at-or-above-floor constraint — e.g. a forgotten `if (!o->valid) continue`
+ * guard. x86_64 host only (the planted layout is x86_64); the gating mechanism
+ * it exercises is arch-agnostic. */
+static void test_full_engine_floor_invariant(void) {
+#if defined(__x86_64__)
+  int nr = 0, nv = 0;
+  const rule_fn *rules = engine_rules(&nr);
+  const verdict_fn *vrules = engine_verdict_rules(&nv);
+
+  /* Baseline guaranteed window (floor CONF_INFERRED), no injection. */
+  struct estimate g0[Q__COUNT];
+  {
+    struct engine e;
+    build_x86_64_floor_baseline(&e);
+    engine_run_full_floored(&e, CONF_INFERRED, rules, nr, vrules, nv);
+    memcpy(g0, e.est, sizeof(g0));
+  }
+
+  /* Wrong-but-in-window _stext pins on each axis: values inside the baseline
+   * window, so at CONF_PARSED they narrow it (they do not bottom-force). */
+  struct inj {
+    enum kasld_addr_type type;
+    unsigned long value;
+    enum kasld_quantity q;
+  };
+  static const struct inj injs[] = {
+      {KASLD_TYPE_VIRT, 0xffffffff8a000000ul, Q_VIRT_IMAGE_BASE},
+      {KASLD_TYPE_PHYS, 0x10000000ul, Q_PHYS_IMAGE_BASE},
+  };
+  static const enum kasld_confidence subfloor[] = {CONF_HEURISTIC, CONF_TIMING,
+                                                   CONF_BRUTE};
+
+  for (size_t i = 0; i < sizeof(injs) / sizeof(injs[0]); i++) {
+    /* Positive control: at CONF_PARSED the same signal MUST move guaranteed,
+     * proving the injection is live. */
+    {
+      struct engine e;
+      build_x86_64_floor_baseline(&e);
+      add_addr_conf(&e, injs[i].type, REGION_KERNEL_TEXT, injs[i].value, 0,
+                    CONF_PARSED, "_stext");
+      engine_run_full_floored(&e, CONF_INFERRED, rules, nr, vrules, nv);
+      const struct estimate *g = &e.est[injs[i].q];
+      const struct estimate *b = &g0[injs[i].q];
+      assert(g->lo != b->lo || g->hi != b->hi); /* live: it moved guaranteed */
+      assert(contains(g, injs[i].value)); /* ... toward the planted value */
+    }
+    /* Invariance: at every sub-floor level the whole guaranteed window equals
+     * g0.
+     */
+    for (size_t c = 0; c < sizeof(subfloor) / sizeof(subfloor[0]); c++) {
+      struct engine e;
+      build_x86_64_floor_baseline(&e);
+      add_addr_conf(&e, injs[i].type, REGION_KERNEL_TEXT, injs[i].value, 0,
+                    subfloor[c], "_stext");
+      engine_run_full_floored(&e, CONF_INFERRED, rules, nr, vrules, nv);
+      for (int q = 0; q < Q__COUNT; q++) {
+        assert(e.est[q].lo == g0[q].lo);
+        assert(e.est[q].hi == g0[q].hi);
+        assert(e.est[q].stride == g0[q].stride);
+        assert(e.est[q].stride_offset == g0[q].stride_offset);
+      }
+    }
+  }
+#endif
+}
+
 /* A hardened ppc64le system with KASLR disabled and no /proc/iomem leak:
  * the only phys observation is `P initrd pos=base lo=0x2c90000` (from
  * devicetree). The kernel sits at phys 0 (well below the initrd) —
@@ -475,36 +631,49 @@ static void test_full_engine_ppc_memory_limit_caps_dram(void) {
 #endif
 }
 
-/* The kernel-below-initrd convention (universal on every common boot path
- * except s390's top-down placement). With SF_IMAGE_SIZE_MIN and an initrd-start
- * phys observation, initrd_above_kernel emits
- *   phys_text_base + image_size <= initrd_start
- * as a C_UPPER_BOUND on Q_PHYS_IMAGE_BASE.
+/* The kernel-below-initrd ordering is a bootloader CONVENTION, not a fact:
+ * physical KASLR (x86) can place the kernel above a low-loaded initrd. So
+ * initrd_above_kernel's bound (phys_text_base + image_size <= initrd_start) is
+ * CONF_HEURISTIC — it must shape the LIKELY window but NOT the guaranteed one.
  *
  * Plant a high SF_IMAGE_SIZE_MIN and a tight initrd_start on an x86_64 layout
- * and assert Q_PHYS_IMAGE_BASE.hi <= initrd_start - image_size. (Gated to
- * x86_64 since this is where the integration harness compiles by default.) */
+ * with a DRAM extent but no kernel leak (initrd_above_kernel is the only rule
+ * that produces the bound). Assert: the all-signals run applies it
+ * (hi <= initrd_start - image_size), the sound-floor run does NOT (the bound is
+ * below CONF_INFERRED, so the DRAM ceiling — not the convention — binds, and
+ * the true base may legitimately sit above initrd_start). (Gated to x86_64
+ * since this is where the integration harness compiles by default.) */
 static void test_full_engine_initrd_above_kernel_upper_bound(void) {
 #if defined(__x86_64__)
   const unsigned long istart = 0x40000000ul; /*  1 GiB */
   const unsigned long ksize = 0x01000000ul;  /* 16 MiB */
+  int nr = 0, nv = 0;
+  const rule_fn *rules = engine_rules(&nr);
+  const verdict_fn *vrules = engine_verdict_rules(&nv);
+
+  /* One engine, re-resolved twice on the same evidence (a second on-stack
+   * engine blows the frame-size limit). */
   struct engine e;
   engine_init(&e);
   add_scalar(&e, SF_IMAGE_SIZE_MIN, ksize);
   add_addr(&e, KASLD_TYPE_PHYS, REGION_INITRD, istart, 0, NULL);
-  /* DRAM extent so the engine has a sensible RAM context but no kernel
-   * leaks — initrd_above_kernel is the only rule that produces the bound. */
   add_addr(&e, KASLD_TYPE_PHYS, REGION_RAM, 0x0ul, 0x7ffffffful, NULL);
 
-  int nr = 0, nv = 0;
-  const rule_fn *rules = engine_rules(&nr);
-  const verdict_fn *vrules = engine_verdict_rules(&nv);
+  /* LIKELY (all signals): the convention bound applies. */
   engine_run_full(&e, rules, nr, vrules, nv);
+  assert(!estimate_is_bottom(&e.est[Q_PHYS_IMAGE_BASE],
+                             &quantities[Q_PHYS_IMAGE_BASE]));
+  assert(e.est[Q_PHYS_IMAGE_BASE].hi <= istart - ksize);
 
-  const struct estimate *pt = &e.est[Q_PHYS_IMAGE_BASE];
-  assert(!estimate_is_bottom(pt, &quantities[Q_PHYS_IMAGE_BASE]));
-  /* phys text base + image must fit at or below initrd start. */
-  assert(pt->hi <= istart - ksize);
+  /* GUARANTEED (sound floor): the convention bound is out of scope, so it does
+   * NOT cap the base below initrd_start - image_size — a kernel physical KASLR
+   * placed above the initrd stays inside the window. The DRAM ceiling binds. */
+  e.ev.n_verdicts =
+      0; /* clear curation between runs, as the orchestrator does */
+  engine_run_full_floored(&e, CONF_INFERRED, rules, nr, vrules, nv);
+  assert(!estimate_is_bottom(&e.est[Q_PHYS_IMAGE_BASE],
+                             &quantities[Q_PHYS_IMAGE_BASE]));
+  assert(e.est[Q_PHYS_IMAGE_BASE].hi > istart - ksize);
 #endif
 }
 
@@ -823,6 +992,8 @@ int main(void) {
 
   BEGIN_CATEGORY("Full registry against planted leaks");
   RUN(test_full_engine_x86_64_leaky);
+  RUN(test_full_engine_two_window);
+  RUN(test_full_engine_floor_invariant);
   RUN(test_full_engine_ppc64_hardened_shape);
   RUN(test_full_engine_s390_no_prng_shape);
   RUN(test_full_engine_arm32_no_kaslr_shape);

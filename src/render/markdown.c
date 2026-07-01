@@ -51,19 +51,27 @@ static void print_group_sources(enum kasld_addr_type type,
  * range); the residual-candidate annotation is text-only (it needs the
  * arch-specific RANDOMIZE_MEMORY_ALIGN, which the table omits for brevity). */
 static void md_memory_kaslr_row(const char *name, unsigned long min,
-                                unsigned long max) {
+                                unsigned long max, unsigned long lmin,
+                                unsigned long lmax) {
   if (!min && !max)
     return;
+  if (min && max && min > max)
+    return; /* defensive: never emit a backwards range */
   if (min && !max)
     printf("| %s | >= `0x%016lx` |\n", name, min);
   else if (!min && max)
     printf("| %s | <= `0x%016lx` |\n", name, max);
-  else if (min > max)
-    return; /* defensive: never emit a backwards range */
   else if (min == max)
     printf("| %s | `0x%016lx` (pinned) |\n", name, min);
   else
     printf("| %s | `0x%016lx` - `0x%016lx` |\n", name, min, max);
+  /* Speculative sub-window from the all-signals snapshot (subset of the row
+   * above; may be wrong). Absent unless a sub-floor signal narrowed it. */
+  if (lmin == lmax && lmin)
+    printf("| %s (likely) | `0x%016lx` (speculative) |\n", name, lmin);
+  else if (lmax && lmin <= lmax)
+    printf("| %s (likely) | `0x%016lx` - `0x%016lx` (speculative) |\n", name,
+           lmin, lmax);
 }
 
 void render_markdown(const struct summary *s) {
@@ -110,14 +118,21 @@ void render_markdown(const struct summary *s) {
     printf("| Metric | Value |\n");
     printf("|:-------|:------|\n");
 
-    /* No concrete base found, but inference narrowed the window. */
-    if (!s->kaslr.vtext && s->kaslr.vslots > 0) {
+    /* A concrete base while the guaranteed window is still a range = the base
+     * came from a sub-sound-floor leak: speculative, not proven. Show the
+     * guaranteed (inferred) range too, and mark the base speculative. */
+    int v_spec = s->kaslr.vtext &&
+                 layout.virt_kaslr_text_max != layout.virt_kaslr_text_min;
+    int p_spec = s->kaslr.has_phys &&
+                 layout.phys_kaslr_text_max != layout.phys_kaslr_text_min;
+
+    if ((v_spec || !s->kaslr.vtext) && s->kaslr.vslots > 0) {
       printf("| Inferred text range | `0x%016lx` - `0x%016lx` |\n",
              layout.virt_kaslr_text_min, layout.virt_kaslr_text_max);
       printf("| Remaining slots | %lu (%d bits) |\n", s->kaslr.vslots,
              s->kaslr.vbits);
     }
-    if (!s->kaslr.ptext && s->kaslr.pslots > 0) {
+    if ((p_spec || !s->kaslr.ptext) && s->kaslr.pslots > 0) {
       printf("| Inferred phys text range | `0x%016lx` - `0x%016lx` |\n",
              layout.phys_kaslr_text_min, layout.phys_kaslr_text_max);
       printf("| Remaining phys slots | %lu (%d bits) |\n", s->kaslr.pslots,
@@ -126,7 +141,8 @@ void render_markdown(const struct summary *s) {
 
     if (s->kaslr.vtext) {
       long abs_vs = s->kaslr.vslide < 0 ? -s->kaslr.vslide : s->kaslr.vslide;
-      printf("| Virtual image base | `0x%016lx` |\n", s->kaslr.vtext);
+      printf("| Virtual image base | `0x%016lx`%s |\n", s->kaslr.vtext,
+             v_spec ? " (likely; speculative)" : "");
       if (s->kaslr.vstext && s->kaslr.vstext != s->kaslr.vtext)
         printf("| Virtual _stext | `0x%016lx` |\n", s->kaslr.vstext);
       printf("| Default image base | `0x%016lx` |\n",
@@ -141,7 +157,8 @@ void render_markdown(const struct summary *s) {
                s->kaslr.vslots);
     }
     if (s->kaslr.has_phys) {
-      printf("| Physical image base | `0x%016lx` |\n", s->kaslr.ptext);
+      printf("| Physical image base | `0x%016lx`%s |\n", s->kaslr.ptext,
+             p_spec ? " (likely; speculative)" : "");
       if (s->kaslr.pstext && s->kaslr.pstext != s->kaslr.ptext)
         printf("| Physical _stext | `0x%016lx` |\n", s->kaslr.pstext);
       printf("| Physical entropy | %d bits (%lu slots) |\n", s->kaslr.pbits,
@@ -150,11 +167,15 @@ void render_markdown(const struct summary *s) {
 
     /* Memory KASLR (CONFIG_RANDOMIZE_MEMORY) region bounds. */
     md_memory_kaslr_row("Direct map base", s->kaslr.virt_page_offset_min,
-                        s->kaslr.virt_page_offset_max);
-    md_memory_kaslr_row("vmalloc base", s->kaslr.virt_vmalloc_min,
-                        s->kaslr.virt_vmalloc_max);
-    md_memory_kaslr_row("vmemmap base", s->kaslr.virt_vmemmap_min,
-                        s->kaslr.virt_vmemmap_max);
+                        s->kaslr.virt_page_offset_max,
+                        s->kaslr.virt_page_offset_likely_min,
+                        s->kaslr.virt_page_offset_likely_max);
+    md_memory_kaslr_row(
+        "vmalloc base", s->kaslr.virt_vmalloc_min, s->kaslr.virt_vmalloc_max,
+        s->kaslr.virt_vmalloc_likely_min, s->kaslr.virt_vmalloc_likely_max);
+    md_memory_kaslr_row(
+        "vmemmap base", s->kaslr.virt_vmemmap_min, s->kaslr.virt_vmemmap_max,
+        s->kaslr.virt_vmemmap_likely_min, s->kaslr.virt_vmemmap_likely_max);
 
     printf("\n");
   }

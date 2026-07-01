@@ -24,14 +24,14 @@
 # Usage:
 #   tests/vm/run                 # every supported arch, default profile
 #   tests/vm/run <arch>          # one arch, default profile
-#   tests/vm/run <arch> <mode>   # mode: default | hide | hardened | nokaslr
+#   tests/vm/run <arch> <mode>   # mode: default | hidden | hardened | nokaslr
 #   tests/vm/run all <mode>      # every arch in a given mode
 #   tests/vm/run table           # render the results matrix (markdown) from the
 #                                # boot logs left by previous runs
 #
 # Modes:
 #   default   root, kptr_restrict=0 — kasld may read kallsyms (the easy case)
-#   hide      root, kptr_restrict=2 — pin must come from inference
+#   hidden    root, kptr_restrict=2 — pin must come from inference
 #   hardened  uid 1000 + kptr=2/dmesg_restrict=1/perf=3 — unprivileged floor
 #   nokaslr   boot with `nokaslr` — verifies the KASLR-disabled pin
 #
@@ -253,7 +253,7 @@ EOF
   append="console=$console panic=-1 quiet"
   case "$mode" in
     default)  ;;
-    hide)     append="$append hidekptr" ;;
+    hidden)   append="$append hidekptr" ;;
     hardened) append="$append hardened" ;;
     stock)    append="$append stock" ;;
     nokaslr)  append="$append nokaslr" ;;
@@ -284,58 +284,93 @@ bits_of() {
 }
 
 # Render the results matrix (markdown) from the boot logs left by previous runs.
-# One row per existing boot-<scenario>.log: arch, kernel release, scenario, KASLR
-# state, whether the base was fully recovered, residual entropy, and soundness.
+# One row per existing boot-<scenario>.log. Every column describes the GUARANTEED
+# window — the one resolved at the sound floor, which must contain the truth.
+# `residual` is the only result column: how much of the base KASLD could not pin
+# down (i.e. how effectively KASLR was defeated).
 cmd_table() {
-  printf '| arch | release | scenario | KASLR | recovered | residual bits | sound |\n'
-  printf '|------|---------|----------|-------|-----------|---------------|-------|\n'
-  timing_seen=
+  nl='
+'
+  bad=    # cells that are NOT verified sound (gate); refusing to emit if any
+  body=
   for a in $arches; do
-    for scen in default hide hardened nokaslr; do
+    # Matrix label is the real architecture. A reference kernel staged under a
+    # "<arch>-vanilla" name (e.g. x86_64-vanilla) is the SAME arch as its distro
+    # sibling — the `source` column carries the distro-vs-mainline split — so
+    # strip the suffix rather than print a non-arch name.
+    arch_disp=${a%-vanilla}
+    for scen in default hidden hardened nokaslr; do
       log="$HERE/$a/boot-$scen.log"
-      [ -f "$log" ] || continue
+      [ -f "$log" ] || continue   # arch not built (no kernel) — simply omitted
       rel=$(grep -am1 'Linux version' "$log" | sed -E 's/.*Linux version ([^ ]+).*/\1/')
       [ -n "$rel" ] || rel='?'
       if ! grep -aq 'KASLD VM DONE' "$log"; then
-        printf '| %s | %s | %s | — | — | — | incomplete |\n' "$a" "$rel" "$scen"
-        continue
+        bad="${bad}  $a/$scen: boot did not finish${nl}"; continue
       fi
       truth=$(awk '/ _text$/{print $1; exit}' "$log")
       [ -n "$truth" ] || truth=$(awk '/ _stext$/{print $1; exit}' "$log")
       min=$(grep -am1 -oE '"virt_image_base_min": *"0x[0-9a-fA-F]+"' "$log" | grep -oE '0x[0-9a-fA-F]+')
       max=$(grep -am1 -oE '"virt_image_base_max": *"0x[0-9a-fA-F]+"' "$log" | grep -oE '0x[0-9a-fA-F]+')
       disabled=$(grep -am1 -oE '"disabled": *(true|false)' "$log" | awk '{print $2}')
-      # How the resolved base was reached. "timing" means a timing side-channel
-      # (e.g. prefetch) — environment-dependent, so the cell is flagged.
-      method=$(grep -am1 -oE '"consensus_method": *"[a-z]+"' "$log" | grep -oE '[a-z]+"$' | tr -d '"')
       bits=$(bits_of "$log"); [ -n "$bits" ] || bits='—'
       t=$(norm "$truth"); lo=$(norm "$min"); hi=$(norm "$max")
-      kas=on; [ "$disabled" = true ] && kas=off
       if [ -z "$t" ] || [ -z "$lo" ] || [ -z "$hi" ]; then
-        printf '| %s | %s | %s | %s | — | — | n/a |\n' "$a" "$rel" "$scen" "$kas"
+        bad="${bad}  $a/$scen: could not extract truth/window${nl}"; continue
+      fi
+      # SOUNDNESS GATE: the guaranteed window MUST contain the truth. A cell that
+      # fails this is a bug, never something to publish — so it is collected as a
+      # violation and the whole table is withheld (see below), not printed.
+      if hexle "$lo" "$t" && hexle "$t" "$hi"; then :; else
+        bad="${bad}  $a/$scen: truth $truth OUTSIDE [$min,$max] — soundness violation${nl}"
         continue
       fi
-      rec=no; [ "$lo" = "$hi" ] && rec=yes
-      if hexle "$lo" "$t" && hexle "$t" "$hi"; then snd=yes; else snd=NO; fi
-      # Residual KASLR entropy: 0 when there is none left — KASLR off (no entropy
-      # to begin with) or a randomized base fully recovered. A '—' survives only
-      # when KASLR is on, the window is not a point, AND the arch emits no virtual
-      # entropy figure (so the count is unavailable, not zero).
-      [ "$rec" = yes ] && bits=0
-      [ "$kas" = off ] && bits=0
-      recmark=; [ "$method" = timing ] && { recmark=' *'; timing_seen=1; }
-      printf '| %s | %s | %s | %s | %s%s | %s | %s |\n' "$a" "$rel" "$scen" "$kas" "$rec" "$recmark" "$bits" "$snd"
+      kas=on; [ "$disabled" = true ] && kas=off
+      # Kernel source: a vanilla kernel.org build (TABLE flavor "local") vs an
+      # Alpine distro kernel.
+      flavor=$(printf '%s' "$TABLE" | awk -F'|' -v a="$a" 'NF>1{gsub(/ /,"",$1); if ($1==a) {gsub(/ /,"",$3); print $3; exit}}')
+      src=alpine; [ "$flavor" = local ] && src=mainline
+      # Residual: how much KASLR entropy KASLD could NOT strip from the base.
+      #   exact    : base recovered — KASLR defeated. A byte-exact pin and a
+      #              sub-slot window (below KASLR granularity) are the same
+      #              outcome here: the randomized slot is known.
+      #   <n> bits : KASLR-randomized, n bits of the slot still unknown.
+      #   —        : KASLR off — no randomization to defeat.
+      if [ "$kas" = off ]; then
+        residual='—'
+      elif [ "$lo" = "$hi" ] || [ "$bits" = 0 ] || [ "$bits" = '—' ]; then
+        residual=exact
+      elif [ "$bits" = 1 ]; then
+        residual='1 bit'
+      else
+        residual="$bits bits"
+      fi
+      # nokaslr is a control (KASLR forced off → always "—"); it carries no
+      # per-arch signal, so it is gate-checked above like every other cell but
+      # kept out of the rendered matrix.
+      [ "$scen" = nokaslr ] || body="${body}| $arch_disp | $rel | $src | $scen | $kas | $residual |${nl}"
     done
   done
+
+  # Soundness is a GATE, not a column: if any cell is not verified sound, refuse
+  # to emit the matrix (and report which cells), so an unsound or unverifiable
+  # result can never be published.
+  if [ -n "$bad" ]; then
+    printf 'SOUNDNESS GATE FAILED — refusing to emit the matrix. Cells not verified sound:\n%s' "$bad" >&2
+    return 1
+  fi
+
+  printf '| arch | release | source | scenario | KASLR | residual |\n'
+  printf '|------|---------|--------|----------|-------|----------|\n'
+  printf '%s' "$body"
   # shellcheck disable=SC2016  # backticks are literal markdown, not a subshell
-  [ -n "$timing_seen" ] && printf '\n`*` reached via a timing side-channel (e.g. prefetch) — hardware/KVM-dependent, not available under pure emulation.\n'
+  printf '\nEvery cell is sound: the true base lies inside the guaranteed window. `source` = `alpine` (distro kernel) or `mainline` (vanilla kernel.org build). `residual` = how much KASLR entropy KASLD could not strip from the base: `exact` = base recovered, KASLR defeated (a byte-exact pin and a below-granularity sub-slot window are the same outcome — the randomized slot is known); `<n> bits` = KASLR-randomized, n bits of the slot still unknown; `—` = KASLR off, no randomization to defeat.\n'
 }
 
 # ---- dispatch ----
 arches=$(echo "$TABLE" | awk -F'|' 'NF>1{gsub(/ /,"",$1); print $1}')
 
 case "${1:-}" in
-  table | --table) cmd_table; exit 0 ;;
+  table | --table) cmd_table; exit $? ;;
 esac
 
 sel=${1:-all}; mode=${2:-default}

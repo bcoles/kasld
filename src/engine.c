@@ -36,10 +36,10 @@ static int already_have(const struct engine *e, const struct constraint *c) {
   return 0;
 }
 
-static void resolve_all(struct engine *e) {
+static void resolve_all(struct engine *e, enum kasld_confidence floor) {
   for (int q = 0; q < Q__COUNT; q++) {
     struct resolve_result r;
-    estimate_resolve((enum kasld_quantity)q, CONF_BRUTE, e->constraints,
+    estimate_resolve((enum kasld_quantity)q, floor, e->constraints,
                      e->n_constraints, &r);
     e->est[q] = r.est;
     /* Retain the rejected-constraint ids for --verbose explainability. The
@@ -53,6 +53,23 @@ static void resolve_all(struct engine *e) {
     if (r.saturation & ESTIMATE_SAT_CONFLICTS_FULL)
       e->saturation |= ENGINE_SAT_CONFLICTS_FULL;
   }
+}
+
+/* evidence_resolve() plus a confidence-floor gate on observations: an
+ * observation is in scope for this run only if its confidence is at or above
+ * `floor`. Marking a below-floor observation invalid (the same bit verdicts
+ * use) makes the pure rules skip it with no rule changes; the next
+ * evidence_resolve resets `valid`, so the gate is re-applied every pass.
+ * floor == CONF_BRUTE gates nothing — identical to an unfiltered resolve. This
+ * is the structural soundness mechanism for a floored run: a rule can only ever
+ * read >= floor facts, so whatever it emits was derived purely from >= floor
+ * inputs, regardless of how the rule labels its output. */
+static void resolve_evidence(struct engine *e, enum kasld_confidence floor) {
+  evidence_resolve(&e->ev);
+  if (floor > CONF_BRUTE)
+    for (int i = 0; i < e->ev.n_obs; i++)
+      if ((int)e->ev.obs[i].conf < (int)floor)
+        e->ev.obs[i].valid = 0;
 }
 
 /* Estimates compare by value only — binding ids change as constraints get
@@ -85,9 +102,10 @@ static int already_have_verdict(const struct evidence_set *ev,
   return 0;
 }
 
-void engine_run_full(struct engine *e, const rule_fn *rules, int n_rules,
-                     const verdict_fn *vrules, int n_vrules) {
-  evidence_resolve(&e->ev);
+void engine_run_full_floored(struct engine *e, enum kasld_confidence floor,
+                             const rule_fn *rules, int n_rules,
+                             const verdict_fn *vrules, int n_vrules) {
+  resolve_evidence(e, floor);
   e->n_constraints = 0;
   /* Reset diagnostic state. engine_init() also clears these, but callers may
    * re-drive an engine without re-init when only evidence has changed;
@@ -101,7 +119,7 @@ void engine_run_full(struct engine *e, const rule_fn *rules, int n_rules,
    * a second engine_run_full on the same engine would otherwise carry the
    * previous run's resolved estimates into the first pass's convergence
    * snapshot, breaking the estimates_equal early-exit. */
-  resolve_all(e);
+  resolve_all(e, floor);
 
   uint32_t next_id = 1;
   for (int pass = 0; pass < ENGINE_MAX_PASSES; pass++) {
@@ -124,7 +142,7 @@ void engine_run_full(struct engine *e, const rule_fn *rules, int n_rules,
         if (!already_have_verdict(&e->ev, &vt[i]))
           evidence_add_verdict(&e->ev, &vt[i]);
     }
-    evidence_resolve(&e->ev);
+    resolve_evidence(e, floor);
 
     for (int r = 0; r < n_rules; r++) {
       struct constraint tmp[ENGINE_RULE_MAX_EMIT];
@@ -145,11 +163,20 @@ void engine_run_full(struct engine *e, const rule_fn *rules, int n_rules,
       }
     }
 
-    resolve_all(e);
+    resolve_all(e, floor);
     e->passes = pass + 1;
     if (estimates_equal(snap, e->est))
       break;
   }
+}
+
+/* The unfiltered run (floor = CONF_BRUTE): every observation is in scope and
+ * resolution admits every constraint — the engine's primary "likely" result.
+ * A floored run (floor > CONF_BRUTE) is the sound-window computation; the
+ * orchestrator owns the policy of which floors to run and what to call them. */
+void engine_run_full(struct engine *e, const rule_fn *rules, int n_rules,
+                     const verdict_fn *vrules, int n_vrules) {
+  engine_run_full_floored(e, CONF_BRUTE, rules, n_rules, vrules, n_vrules);
 }
 
 void engine_run(struct engine *e, const rule_fn *rules, int n_rules) {

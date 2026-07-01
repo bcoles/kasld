@@ -1,36 +1,33 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
-// Rule: kernel-below-initrd convention → phys text upper bound.
+// Rule: kernel-below-initrd convention → speculative phys text upper bound.
 //
-// On every common boot path (GRUB on x86, U-Boot / EFI stub on arm + arm64
-// + mips, OpenSBI / U-Boot on riscv64, Open Firmware on PowerPC), the
-// bootloader loads the initrd at a higher physical address than the
-// kernel image: kernel goes low, initrd goes above it, and the kernel's
-// own relocator never picks a base whose image overlaps the initrd. So
-// when a leaked initrd start is available:
+// On the common boot path the bootloader loads the initrd at a HIGHER physical
+// address than the kernel image (kernel low, initrd above it), so a leaked
+// initrd start gives
 //
 //   phys_image_base + image_size <= initrd_start
 //
-// emits as a C_UPPER_BOUND on Q_PHYS_IMAGE_BASE. When SF_IMAGE_SIZE_MIN is
-// known the bound is tight; otherwise a conservative KASLD_MIN_IMAGE_SIZE keeps
-// the bound sound. The complementary "kernel doesn't overlap initrd"
-// constraint (the exclusion hole IN [start - image_size, end - 1]) is
-// already emitted by initrd_phys_exclude.c on decoupled arches; this
-// rule is the strict-upper-bound version that fires on both coupling
-// models — and on coupled arches the text_base_coupling_synth rule
-// then projects the bound onto Q_VIRT_IMAGE_BASE.
+// emitted as a C_UPPER_BOUND on Q_PHYS_IMAGE_BASE. This is a CONVENTION, not an
+// architectural law: physical KASLR (x86 CONFIG_RANDOMIZE_BASE) picks a random
+// slot that merely AVOIDS OVERLAPPING the initrd and may land the kernel ABOVE
+// it — a placement this strict "entirely below" bound would wrongly exclude. So
+// the bound is CONF_HEURISTIC and shapes the speculative LIKELY window only,
+// never the guaranteed one.
 //
-// Confidence: CONF_INFERRED. Any higher-confidence evidence (kallsyms
-// _stext via text_pin_from_observation, iomem Kernel code via
-// kernel_image_phys_bound) overrides at the resolver. If a future
-// architecture or bootloader genuinely loads the kernel ABOVE the
-// initrd, this rule's heuristic value gets discarded as bottom-forcing
-// against the real leak.
+// The genuinely SOUND half of the same observation — the kernel does not
+// OVERLAP the initrd — is the C_EXCLUDE hole [start - image_size + 1, end - 1]
+// emitted by initrd_phys_exclude (decoupled arches), a fact kept at observation
+// confidence. This rule adds the weaker "entirely below" guess on both coupling
+// models; on coupled arches text_base_coupling_synth projects it (at the same
+// heuristic confidence) onto Q_VIRT_IMAGE_BASE.
 //
-// Arch scope: gated to exclude s390. The s390 boot stub uses top-down
-// physmem allocation and may legitimately place the kernel above
-// firmware-supplied initrd regions; the convention this rule encodes
-// does not apply there.
+// When SF_IMAGE_SIZE_MIN is known the subtrahend is exact; otherwise the shared
+// KASLD_MIN_IMAGE_SIZE keeps it conservative (never under-subtracts).
+//
+// Arch scope: gated to exclude s390, whose boot stub uses top-down physmem
+// allocation and routinely places the kernel above firmware-supplied initrd
+// regions — the convention does not hold there even as a heuristic.
 // ---
 // <bcoles@gmail.com>
 
@@ -54,7 +51,7 @@ int rule_initrd_above_kernel(const struct evidence_set *ev,
     return 0;
 
   unsigned long istart = ULONG_MAX;
-  enum kasld_confidence kconf = CONF_UNKNOWN, iconf = CONF_PARSED;
+  enum kasld_confidence kconf = CONF_UNKNOWN;
   uint32_t ksrc = 0, isrc = 0;
   unsigned long ksize = evidence_image_size_min(ev, &kconf, &ksrc);
   for (int i = 0; i < ev->n_obs; i++) {
@@ -67,7 +64,6 @@ int rule_initrd_above_kernel(const struct evidence_set *ev,
        * enough, but if several emit the lowest is the binding edge. */
       if (o->lo < istart) {
         istart = o->lo;
-        iconf = o->conf;
         isrc = o->id;
       }
     }
@@ -88,23 +84,16 @@ int rule_initrd_above_kernel(const struct evidence_set *ev,
   c->q = Q_PHYS_IMAGE_BASE;
   c->op = C_UPPER_BOUND;
   c->value = upper;
-  /* The bound inherits the WEAKER of the two contributing observations'
-   * confidence — matches the convention in initrd_phys_exclude and the
-   * other compound-evidence rules. When ksize wasn't observed (kconf =
-   * UNKNOWN), defer to the initrd-start confidence; the bound is then
-   * "sound but loose" via the KASLD_MIN_IMAGE_SIZE fallback. */
-  if (ksrc != 0) {
-    c->conf = (kconf < iconf) ? kconf : iconf;
-    c->derived_from[0] = isrc;
-    c->derived_from[1] = ksrc;
-    c->lineage_count = 2;
-  } else {
-    /* Heuristic-grade upper bound from initrd alone — sound (uses
-     * KASLD_MIN_IMAGE_SIZE) but loose. Any real text leak overrides. */
-    c->conf = CONF_HEURISTIC;
-    c->derived_from[0] = isrc;
-    c->lineage_count = 1;
-  }
+  /* CONF_HEURISTIC regardless of how parsed the inputs are: the "entirely
+   * below" ordering is a bootloader convention, not a fact, so however certain
+   * the initrd start and image size, concluding the kernel sits below the
+   * initrd is a guess. Below the sound floor, it shapes the LIKELY window only.
+   * (The derivation is still recorded for --verbose lineage.) */
+  c->conf = CONF_HEURISTIC;
+  c->derived_from[0] = isrc;
+  c->lineage_count = 1;
+  if (ksrc != 0)
+    c->derived_from[c->lineage_count++] = ksrc;
   snprintf(c->origin, ORIGIN_LEN, "initrd_above_kernel");
   return 1;
 #endif

@@ -25,6 +25,21 @@ const rule_fn *engine_rules(int *n);
 /* Curation (verdict) rules, in registry order. *n is set to the count. */
 const verdict_fn *engine_verdict_rules(int *n);
 
+/* Confidence propagation for cross-quantity derived constraints. A bound
+ * derived from another quantity's resolved edge is no more trustworthy than
+ * that edge: a rule caps its emitted conf at kasld_conf_min(own_grade,
+ * edge_conf). kasld_edge_conf normalizes a zero-initialized estimate (lo_conf/
+ * hi_conf == CONF_UNKNOWN, e.g. a hand-built test estimate) to the axiom
+ * default CONF_PARSED, matching the honest top set by init_top. */
+static inline enum kasld_confidence kasld_conf_min(enum kasld_confidence a,
+                                                   enum kasld_confidence b) {
+  return (int)a < (int)b ? a : b;
+}
+static inline enum kasld_confidence
+kasld_edge_conf(enum kasld_confidence edge) {
+  return edge == CONF_UNKNOWN ? CONF_PARSED : edge;
+}
+
 /* Shared skeleton for the per-arch `*_coupling_validate` verdict rules. Each
  * such rule emits V_INVALID for every VIRT address observation whose anchor
  * falls outside its region's fixed VA band — the band layout is the only

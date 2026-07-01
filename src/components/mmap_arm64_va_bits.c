@@ -40,7 +40,7 @@ KASLD_EXPLAIN(
     "PAGE_OFFSET = -(1<<VA_BITS) (not randomized on arm64). arm64 only; "
     "unprivileged.");
 
-KASLD_META("method:heuristic\n"
+KASLD_META("method:inferred\n"
            "phase:probing\n"
            "addr:virtual\n");
 

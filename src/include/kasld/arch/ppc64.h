@@ -51,9 +51,6 @@
 #define MODULES_END 0xc009fffffffffffful
 #define MODULES_RELATIVE_TO_TEXT 0
 
-// https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/Kconfig#L1270
-#define PHYSICAL_START 0ul
-
 // Plausible physical address range for kernel image
 #define KERNEL_PHYS_MIN 0ul
 #define KERNEL_PHYS_MAX (64ul * GB)

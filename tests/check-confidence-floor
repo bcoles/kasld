@@ -1,0 +1,116 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-confidence-floor — guard against a guess pinning the GUARANTEED window.
+#
+# The engine resolves two windows: a GUARANTEED one, admitting only signals at
+# or above the sound floor (CONF_INFERRED), and a speculative LIKELY one. A
+# C_EQUALS constraint collapses a quantity to a single value; emitted at an
+# at-or-above-floor confidence it reaches the guaranteed window. That is sound
+# ONLY when the pinned value is derived from an observation (a witnessed leak, a
+# structural computation). Pinning a *default* or *convention* there — an
+# assumed load offset, a compile-time default, a "most common" layout — can
+# exclude the truth on a legitimate non-default kernel, the one thing the
+# guaranteed window must never do. Such a value belongs at CONF_HEURISTIC or
+# below, where it refines LIKELY only. (See docs/architecture.md, "Two-window
+# resolution", and CONTRIBUTING.md, "Confidence and the two windows".)
+#
+# This check flags every rule that emits a C_EQUALS pin at an at-or-above-floor
+# confidence written as a bare literal (CONF_INFERRED / CONF_DERIVED /
+# CONF_PARSED). A pin whose confidence is capped to its input via
+# kasld_conf_min() / kasld_edge_conf() is the disciplined form and is not
+# flagged; nor is a pin that inherits an observation's own confidence (its value
+# IS the observed fact). Each flagged rule must be reviewed — is the pinned value
+# a derived fact, not a default/convention? — and added to the ALLOW list below.
+#
+# Scope: engine rules only. A component emitting a kernel-image base at
+# at-or-above-floor confidence is emitting an observed leak; that axis is guarded
+# by check-text-region. This check does NOT prove soundness — only that no
+# at-or-above-floor pin slips in unreviewed.
+#
+# Usage: tests/check-confidence-floor   (also run by `make test`)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+RULES=$ROOT/src/rules
+
+# Reviewed at-or-above-floor C_EQUALS pins. Each pins a value DERIVED from
+# evidence or a firmware/structural fact, not a bare default/convention — the
+# review that admits an entry here. Keep alphabetical.
+#   page_offset_from_config        parsed CONFIG_PAGE_OFFSET (a read fact)
+#   phys_virt_synth                page_offset = virt - phys from a leak pair
+#   ppc32_phys_ceiling             BookE no-KASLR (deterministic sub-threshold RAM)
+#   randomize_memory_page_offset   page_offset reconstructed from a directmap leak
+#   riscv64_fdt_kaslr_seed         gated on the observed fdt KASLR seed
+#   riscv64_text_base              gated on a KASLR-disabled signal, conf-capped
+#   s390_image_base_from_config    parsed CONFIG_KERNEL_IMAGE_BASE on KASLR-off
+ALLOW="page_offset_from_config
+phys_virt_synth
+ppc32_phys_ceiling
+randomize_memory_page_offset
+riscv64_fdt_kaslr_seed
+riscv64_text_base
+s390_image_base_from_config"
+
+if [ -t 2 ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; RESET=
+fi
+
+# 0 if the file emits a C_EQUALS pin at an at-or-above-floor confidence LITERAL
+# (a bare `conf = CONF_INFERRED/_DERIVED/_PARSED`, not a kasld_conf_min/
+# kasld_edge_conf cap and not a comment).
+is_guaranteed_pin() {
+  grep -qE '(\.|->)op = C_EQUALS' "$1" 2>/dev/null || return 1
+  grep -vE '^[[:space:]]*(//|\*)' "$1" 2>/dev/null \
+    | grep -qE '(\.|->)conf = CONF_(INFERRED|DERIVED|PARSED)'
+}
+
+contains() { # $1=needle $2=list
+  for _x in $2; do [ "$_x" = "$1" ] && return 0; done
+  return 1
+}
+
+detected=
+for f in "$RULES"/*.c; do
+  is_guaranteed_pin "$f" && detected="$detected $(basename "$f" .c)"
+done
+
+fail=0
+
+for d in $detected; do
+  if ! contains "$d" "$ALLOW"; then
+    if [ "$fail" = 0 ]; then
+      printf '%sconfidence-floor guard: new unreviewed at-or-above-floor pin(s):%s\n' "$RED" "$RESET" >&2
+    fi
+    printf '  %s\n' "$d" >&2
+    fail=1
+  fi
+done
+if [ "$fail" = 1 ]; then
+  printf 'Each emits a C_EQUALS pin at CONF_INFERRED/_DERIVED/_PARSED, reaching the\n' >&2
+  printf 'guaranteed window. Confirm the pinned value is derived from evidence (not a\n' >&2
+  printf 'default/convention) and add it to ALLOW in tests/check-confidence-floor; cap\n' >&2
+  printf 'it at its input via kasld_conf_min(); or demote it to CONF_HEURISTIC.\n' >&2
+fi
+
+stalehdr=0
+for a in $ALLOW; do
+  if ! contains "$a" "$detected"; then
+    if [ "$stalehdr" = 0 ]; then
+      printf '%sconfidence-floor guard: allowlisted rule(s) no longer at-or-above-floor pins (remove from ALLOW):%s\n' "$RED" "$RESET" >&2
+      stalehdr=1
+    fi
+    printf '  %s\n' "$a" >&2
+    fail=1
+  fi
+done
+
+[ "$fail" = 0 ] || exit 1
+
+# shellcheck disable=SC2086  # word-split the allowlist into argv to count via $#
+set -- $ALLOW
+printf '%sconfidence-floor guard: OK%s (%s reviewed at-or-above-floor pins, none new)\n' "$GREEN" "$RESET" "$#"

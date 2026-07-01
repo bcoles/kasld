@@ -205,11 +205,39 @@ void render_json(const struct summary *s) {
   printf("    \"directmap_static\": %s\n", DIRECTMAP_STATIC ? "true" : "false");
   printf("  },\n");
 
-  /* kaslr */
+  /* kaslr.
+   *
+   * Two-window vocabulary mapping (the SINGLE authoritative reference; text and
+   * markdown render the same two concepts under different surface labels):
+   *
+   *   concept              JSON key(s)                  text label
+   *   -------------------  ---------------------------  ---------------------
+   *   guaranteed window    "inferred"/"inferred_phys-   "Inferred text range"
+   *   (sound floor; truth   ical"; range_min/max,        / "Guaranteed range"
+   *    is contained)        slots, entropy_bits
+   *   likely window        "likely"/"likely_physical";  "likely (speculative)"
+   *   (all signals, subset  + "speculative": true
+   *    of guaranteed, may
+   *    be wrong)
+   *   concrete base        "virtual"/"physical".        "Virtual/Physical
+   *   (headline address)    image_base (+ "speculat-     image base"
+   *                         ive": true when the sound
+   *                         window is only a range)
+   *
+   * So a consumer reads: inferred* == guaranteed, likely* == speculative
+   * best-guess (always ⊆ inferred*), virtual/physical == the single headline
+   * base. memory_kaslr regions carry the same guaranteed min/max + optional
+   * nested "likely" (see below). */
   printf("  \"kaslr\": {\n");
   printf("    \"disabled\": %s,\n", s->kaslr.disabled ? "true" : "false");
   printf("    \"unsupported\": %s", s->kaslr.unsupported ? "true" : "false");
 
+  /* A concrete vtext while the guaranteed window is still a RANGE means the
+   * base came from a sub-sound-floor leak: it is a speculative best-guess, not
+   * proven. Mark it, and ALSO emit the guaranteed range (inferred) so consumers
+   * still get the sound window. */
+  int v_spec = s->kaslr.vtext &&
+               layout.virt_kaslr_text_max != layout.virt_kaslr_text_min;
   if (s->kaslr.vtext) {
     printf(",\n    \"virtual\": {\n");
     printf("      \"image_base\": \"0x%016lx\",\n", s->kaslr.vtext);
@@ -222,9 +250,12 @@ void render_json(const struct summary *s) {
     printf("      \"slots\": %lu", s->kaslr.vslots);
     if (s->kaslr.vslot_valid)
       printf(",\n      \"slot_index\": %lu", s->kaslr.vslot_idx);
+    if (v_spec)
+      printf(",\n      \"speculative\": true");
     printf("\n    }");
-  } else if (!s->kaslr.disabled && !s->kaslr.unsupported &&
-             s->kaslr.vslots > 0) {
+  }
+  if (!s->kaslr.disabled && !s->kaslr.unsupported && s->kaslr.vslots > 0 &&
+      (v_spec || !s->kaslr.vtext)) {
     printf(",\n    \"inferred\": {\n");
     printf("      \"range_min\": \"0x%016lx\",\n", layout.virt_kaslr_text_min);
     printf("      \"range_max\": \"0x%016lx\",\n", layout.virt_kaslr_text_max);
@@ -233,6 +264,21 @@ void render_json(const struct summary *s) {
     printf("    }");
   }
 
+  /* Speculative "likely" window: a subset of the guaranteed (inferred/virtual)
+   * window above, narrowed by sub-sound-floor signals; may be wrong. Emitted
+   * only when actually tighter than guaranteed. */
+  if (s->kaslr.vlikely_max != 0) {
+    printf(",\n    \"likely\": {\n");
+    printf("      \"range_min\": \"0x%016lx\",\n", s->kaslr.vlikely_min);
+    printf("      \"range_max\": \"0x%016lx\",\n", s->kaslr.vlikely_max);
+    printf("      \"slots\": %lu,\n", s->kaslr.vlikely_slots);
+    printf("      \"entropy_bits\": %d,\n", s->kaslr.vlikely_bits);
+    printf("      \"speculative\": true\n");
+    printf("    }");
+  }
+
+  int p_spec = s->kaslr.has_phys &&
+               layout.phys_kaslr_text_max != layout.phys_kaslr_text_min;
   if (s->kaslr.has_phys) {
     printf(",\n    \"physical\": {\n");
     printf("      \"image_base\": \"0x%016lx\",\n", s->kaslr.ptext);
@@ -244,15 +290,28 @@ void render_json(const struct summary *s) {
 #endif
     printf("      \"slide_bytes\": %ld,\n", s->kaslr.pslide);
     printf("      \"entropy_bits\": %d,\n", s->kaslr.pbits);
-    printf("      \"slots\": %lu\n", s->kaslr.pslots);
-    printf("    }");
-  } else if (!s->kaslr.disabled && !s->kaslr.unsupported &&
-             s->kaslr.pslots > 0) {
+    printf("      \"slots\": %lu", s->kaslr.pslots);
+    if (p_spec)
+      printf(",\n      \"speculative\": true");
+    printf("\n    }");
+  }
+  if (!s->kaslr.disabled && !s->kaslr.unsupported && s->kaslr.pslots > 0 &&
+      (p_spec || !s->kaslr.has_phys)) {
     printf(",\n    \"inferred_physical\": {\n");
     printf("      \"range_min\": \"0x%016lx\",\n", layout.phys_kaslr_text_min);
     printf("      \"range_max\": \"0x%016lx\",\n", layout.phys_kaslr_text_max);
     printf("      \"slots\": %lu,\n", s->kaslr.pslots);
     printf("      \"entropy_bits\": %d\n", s->kaslr.pbits);
+    printf("    }");
+  }
+
+  if (s->kaslr.plikely_max != 0) {
+    printf(",\n    \"likely_physical\": {\n");
+    printf("      \"range_min\": \"0x%016lx\",\n", s->kaslr.plikely_min);
+    printf("      \"range_max\": \"0x%016lx\",\n", s->kaslr.plikely_max);
+    printf("      \"slots\": %lu,\n", s->kaslr.plikely_slots);
+    printf("      \"entropy_bits\": %d,\n", s->kaslr.plikely_bits);
+    printf("      \"speculative\": true\n");
     printf("    }");
   }
 
@@ -268,14 +327,17 @@ void render_json(const struct summary *s) {
     int first = 1;
     struct {
       const char *name;
-      unsigned long min, max;
+      unsigned long min, max, lmin, lmax;
     } regions[] = {
         {"virt_page_offset_base", s->kaslr.virt_page_offset_min,
-         s->kaslr.virt_page_offset_max},
+         s->kaslr.virt_page_offset_max, s->kaslr.virt_page_offset_likely_min,
+         s->kaslr.virt_page_offset_likely_max},
         {"virt_vmalloc_base", s->kaslr.virt_vmalloc_min,
-         s->kaslr.virt_vmalloc_max},
+         s->kaslr.virt_vmalloc_max, s->kaslr.virt_vmalloc_likely_min,
+         s->kaslr.virt_vmalloc_likely_max},
         {"virt_vmemmap_base", s->kaslr.virt_vmemmap_min,
-         s->kaslr.virt_vmemmap_max},
+         s->kaslr.virt_vmemmap_max, s->kaslr.virt_vmemmap_likely_min,
+         s->kaslr.virt_vmemmap_likely_max},
     };
     for (size_t i = 0; i < sizeof(regions) / sizeof(regions[0]); i++) {
       if (!regions[i].min && !regions[i].max)
@@ -291,6 +353,13 @@ void render_json(const struct summary *s) {
         printf("\"0x%016lx\"", regions[i].max);
       else
         printf("null");
+      /* Speculative sub-window from the all-signals snapshot; subset of
+       * [min, max] and may be wrong. Absent unless a sub-floor signal narrowed
+       * the region. */
+      if (regions[i].lmax || regions[i].lmin)
+        printf(", \"likely\": { \"min\": \"0x%016lx\", \"max\": \"0x%016lx\", "
+               "\"speculative\": true }",
+               regions[i].lmin, regions[i].lmax);
       printf(" }");
       first = 0;
     }

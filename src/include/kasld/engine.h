@@ -96,6 +96,17 @@ void engine_init(struct engine *e);
 void engine_run_full(struct engine *e, const rule_fn *rules, int n_rules,
                      const verdict_fn *vrules, int n_vrules);
 
+/* As engine_run_full, but resolves at a confidence `floor`: observations below
+ * `floor` are out of scope (rules never see them) and only constraints at/above
+ * `floor` are admitted. floor == CONF_BRUTE is exactly engine_run_full. A
+ * higher floor (e.g. CONF_INFERRED) yields a window derived purely from >=
+ * floor inputs — sound by construction. The engine is floor-agnostic: it does
+ * not name these windows; the orchestrator chooses the floors and the policy
+ * names. */
+void engine_run_full_floored(struct engine *e, enum kasld_confidence floor,
+                             const rule_fn *rules, int n_rules,
+                             const verdict_fn *vrules, int n_vrules);
+
 /* Convenience: constraint rules only, no curation. */
 void engine_run(struct engine *e, const rule_fn *rules, int n_rules);
 

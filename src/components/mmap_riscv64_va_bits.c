@@ -47,7 +47,7 @@ KASLD_EXPLAIN(
     "(PAGE_OFFSET 0xff60000000000000). PAGE_OFFSET is not randomized "
     "on riscv64, so SV48/SV57 are exact. riscv64 only; unprivileged.");
 
-KASLD_META("method:heuristic\n"
+KASLD_META("method:inferred\n"
            "phase:probing\n"
            "addr:virtual\n");
 

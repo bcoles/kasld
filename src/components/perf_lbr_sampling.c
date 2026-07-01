@@ -306,17 +306,34 @@ int main(int argc, char *argv[]) {
   }
 
   /* The captured branch address sits at image_base + offset (offset >= 0), a
-   * sound interior witness (image_base <= min_addr). Tighten it to the sound
-   * aligned base estimate via the shared helper, which preserves the base's
-   * sub-alignment offset (a plain `& -KASLR_VIRT_ALIGN` would drop below the
-   * base on the sub-offset arches; LBR is x86-only today, where the sub-offset
-   * is 0, but the helper keeps this correct by construction). */
-  unsigned long emit_addr = kasld_floor_text_base(min_addr);
+   * sound interior witness: image_base <= min_addr on every arch. Emit it RAW
+   * as the interior sample; range_from_interior turns the raw sample into a
+   * sound C_UPPER_BOUND on Q_VIRT_IMAGE_BASE. Do NOT floor the sample here:
+   * flooring an interior witness can drop the ceiling below the truth on
+   * sub-offset arches, and any sound alignment tightening belongs on the
+   * aligned image base in the engine, not on a text-region witness (see
+   * rules/range_from_interior.c). */
   kasld_found("%lu kernel address(es) considered across %d sample(s)", n_kaddrs,
               n_samples);
-  kasld_info("    lowest: 0x%lx  emit (aligned): 0x%lx", min_addr, emit_addr);
-
-  kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, emit_addr, NULL,
+  kasld_info(
+      "    lowest leaked kernel-text address: 0x%lx (upper bound on base)",
+      min_addr);
+  kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, min_addr, NULL,
                       CONF_PARSED);
+
+  /* On large-page arches the lowest sample also yields a speculative base
+   * GUESS: flooring it to the base grid lands on the image base whenever the
+   * lowest sampled branch sits in the base's own slot. Emit it as a base pin at
+   * CONF_HEURISTIC so it shapes only the speculative LIKELY window, never the
+   * guaranteed one (which keeps the sound interior upper bound above). Region
+   * KERNEL_IMAGE so the value is read as _text directly; kasld_floor_text_base
+   * preserves the sub-alignment residue so the floor never drops below _text.
+   * LBR is x86-only today (KASLR_VIRT_ALIGN = 2 MiB, so the gate always holds);
+   * the gate keeps this correct-by-construction should LBR ever gain a finer
+   * target, where flooring the lowest sample is not a within-one-slot guess. */
+#if KASLR_VIRT_ALIGN >= 2 * MB
+  kasld_result_base(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE,
+                    kasld_floor_text_base(min_addr), NULL, CONF_HEURISTIC);
+#endif
   return 0;
 }

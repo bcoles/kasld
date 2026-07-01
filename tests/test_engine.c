@@ -338,6 +338,84 @@ static void test_resolve_equal_conf_conflict_order_independent(void) {
   assert(r1.est.lo == v_small && r1.est.hi == v_small);
 }
 
+/* Confidence propagation: a resolved edge carries the conf of the constraint
+ * that bound it (CONF_PARSED for an unbound axiom-top edge). This is the state
+ * a cross-quantity rule reads to cap a derived constraint at its input's trust
+ * (kasld_conf_min/kasld_edge_conf; the x86_64 memory-base rules). */
+static void test_resolve_edge_conf_propagation(void) {
+  struct estimate top;
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
+  assert(top.lo_conf == CONF_PARSED && top.hi_conf == CONF_PARSED); /* axiom */
+
+  struct constraint c;
+  memset(&c, 0, sizeof(c));
+  c.q = Q_VIRT_IMAGE_BASE;
+  c.op = C_LOWER_BOUND;
+  c.value = top.lo + 0x1000ul; /* above the top floor so it binds, below hi */
+  c.conf = CONF_BRUTE;
+  c.lineage_count = 1;
+  c.id = 1;
+
+  /* At the BRUTE floor the constraint is in scope, binds lo, and its confidence
+   * rides onto the lo edge; the untouched hi keeps the axiom conf. */
+  struct resolve_result r;
+  estimate_resolve(Q_VIRT_IMAGE_BASE, CONF_BRUTE, &c, 1, &r);
+  assert(r.est.lo_binding == 1);
+  assert(r.est.lo_conf == CONF_BRUTE);
+  assert(r.est.hi_conf == CONF_PARSED);
+
+  /* At a higher floor the sub-floor constraint is filtered out, so lo falls
+   * back to the axiom top (unbound, CONF_PARSED) — a rule reading it sees an
+   * axiom, not a phantom BRUTE edge. */
+  struct resolve_result r2;
+  estimate_resolve(Q_VIRT_IMAGE_BASE, CONF_INFERRED, &c, 1, &r2);
+  assert(r2.est.lo_binding == 0);
+  assert(r2.est.lo_conf == CONF_PARSED);
+}
+
+/* #2: likely is clamped INTO guaranteed at the report boundary, so the
+ * likely ⊆ guaranteed invariant holds structurally — not merely "by
+ * construction" assuming every rule is monotone in the observation set. */
+static void test_clamp_likely_window(void) {
+  unsigned long lo = 0, hi = 0;
+  /* Genuinely tighter on both sides -> reported unchanged. */
+  assert(kasld_clamp_likely_window(20, 80, 10, 100, &lo, &hi));
+  assert(lo == 20 && hi == 80);
+  /* lo pokes below guaranteed but hi is tighter -> lo clamped up to the
+   * guaranteed floor (subset holds), still reported because hi is tighter. */
+  assert(kasld_clamp_likely_window(5, 80, 10, 100, &lo, &hi));
+  assert(lo == 10 && hi == 80);
+  /* likely straddles guaranteed on both sides -> clamps to exactly guaranteed
+   * -> nothing to add. */
+  assert(!kasld_clamp_likely_window(5, 200, 10, 100, &lo, &hi));
+  /* likely disjoint (entirely above guaranteed) -> dropped, never reported. */
+  assert(!kasld_clamp_likely_window(200, 300, 10, 100, &lo, &hi));
+  /* exactly equal to guaranteed -> nothing to add. */
+  assert(!kasld_clamp_likely_window(10, 100, 10, 100, &lo, &hi));
+}
+
+/* #3: the displayed concrete base is reconciled with the engine, so it can
+ * never be a base the engine's verdicts rejected. */
+static void test_reconcile_concrete_base(void) {
+  /* A sound (guaranteed) pin wins outright, even over a divergent raw pick. */
+  assert(kasld_reconcile_concrete_base(0xdead, 0x1000, 0x1000, 1, 0x1000,
+                                       0x1000) == 0x1000);
+  /* No sound pin, but likely pinned -> use the curation-aware likely pin. */
+  assert(kasld_reconcile_concrete_base(0xdead, 0x1000, 0x9000, 1, 0x2000,
+                                       0x2000) == 0x2000);
+  /* likely is a range and the raw pick lies inside -> kept (speculative base).
+   */
+  assert(kasld_reconcile_concrete_base(0x3000, 0x1000, 0x9000, 1, 0x2000,
+                                       0x5000) == 0x3000);
+  /* likely is a range and the raw pick is OUTSIDE it -> the engine excluded it;
+   * suppress rather than surface a rejected base. */
+  assert(kasld_reconcile_concrete_base(0x8000, 0x1000, 0x9000, 1, 0x2000,
+                                       0x5000) == 0);
+  /* No likely window computed -> raw kept (only a sound pin could override). */
+  assert(kasld_reconcile_concrete_base(0x8000, 0x1000, 0x9000, 0, 0, 0) ==
+         0x8000);
+}
+
 /* A test-local constraint rule that LIES about its emission count: it fills
  * the buffer with one valid harmless constraint and returns
  * ENGINE_RULE_MAX_EMIT + 1 — the engine should clamp the count to the cap
@@ -575,6 +653,72 @@ static void test_phys_ceiling_prefers_dram_top_over_memtotal(void) {
    * derived ceiling would have rejected it (floor + memtotal = floor +
    * 0xd2eb0000 < kernel_phys = floor + 0xf18b0000). */
   assert(kernel_phys <= e.est[Q_PHYS_IMAGE_BASE].hi);
+#endif
+}
+
+/* Partial demotion: the MemTotal-contiguity FALLBACK is CONF_HEURISTIC, so it
+ * caps the ceiling in the all-signals (likely) run but is out of scope at the
+ * sound floor — a kernel above floor+MemTotal (reserved-region host) is not
+ * excluded from the guaranteed window. */
+static void test_phys_ceiling_memtotal_fallback_likely_only(void) {
+#if !TEXT_TRACKS_DIRECTMAP
+  struct engine e;
+  engine_init(&e);
+  unsigned long mem = 0x40000000ul; /* 1 GiB */
+  unsigned long floor = (unsigned long)PHYS_OFFSET + 0x8000000ul;
+  struct observation m = mk_scalar(SF_PHYS_MEMTOTAL, mem, CONF_PARSED);
+  struct observation d = mk_obs(KASLD_TYPE_PHYS, REGION_RAM, floor,
+                                LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
+  evidence_add(&e.ev, &m);
+  evidence_add(&e.ev, &d);
+  const rule_fn rules[] = {rule_phys_ceiling_from_memtotal};
+
+  struct estimate top;
+  quantities[Q_PHYS_IMAGE_BASE].init_top(&top);
+  unsigned long ceiling = (floor + mem - (4ul << 20)) & ~(KASLR_PHYS_ALIGN - 1);
+  if (ceiling > (unsigned long)KASLR_PHYS_MIN && ceiling < top.hi) {
+    /* LIKELY: the convention fallback caps the ceiling. */
+    engine_run(&e, rules, 1);
+    assert(e.est[Q_PHYS_IMAGE_BASE].hi == ceiling);
+    /* GUARANTEED: below the sound floor, it does not cap. */
+    e.ev.n_verdicts = 0;
+    engine_run_full_floored(&e, CONF_INFERRED, rules, 1, NULL, 0);
+    assert(e.est[Q_PHYS_IMAGE_BASE].hi == top.hi);
+  }
+#endif
+}
+
+/* The SOUND dram_top path keeps observation confidence: its spanned-extent
+ * ceiling binds even at the sound floor (it reaches the guaranteed window). */
+static void test_phys_ceiling_dram_top_stays_guaranteed(void) {
+#if !TEXT_TRACKS_DIRECTMAP
+  struct engine e;
+  engine_init(&e);
+  const unsigned long P = (unsigned long)PHYS_OFFSET;
+  const unsigned long floor = P + 0x40000000ul;
+  const unsigned long top_dram = floor + 0x80000000ul - 1ul; /* spanned hi */
+  struct observation b = mk_obs(KASLD_TYPE_PHYS, REGION_RAM, floor,
+                                LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
+  struct observation t;
+  memset(&t, 0, sizeof(t));
+  t.type = KASLD_TYPE_PHYS;
+  t.region = REGION_RAM;
+  t.hi = top_dram;
+  t.set_mask = HI_SET;
+  t.pos = POS_TOP;
+  t.conf = CONF_PARSED;
+  evidence_add(&e.ev, &b);
+  evidence_add(&e.ev, &t);
+  const rule_fn rules[] = {rule_phys_ceiling_from_memtotal};
+
+  struct estimate top;
+  quantities[Q_PHYS_IMAGE_BASE].init_top(&top);
+  unsigned long ceiling =
+      (top_dram - (4ul << 20) + 1ul) & ~(KASLR_PHYS_ALIGN - 1);
+  engine_run_full_floored(&e, CONF_INFERRED, rules, 1, NULL, 0);
+  if (ceiling > (unsigned long)KASLR_PHYS_MIN && ceiling < top.hi)
+    assert(e.est[Q_PHYS_IMAGE_BASE].hi ==
+           ceiling); /* sound: reaches guaranteed */
 #endif
 }
 
@@ -2700,6 +2844,35 @@ static void test_s390_image_base_from_config_modern_floor(void) {
 #endif
 }
 
+/* Modern + KASLR off: s390 owns its no-KASLR base here (the generic
+ * compile-time-default disabled-pin is opted out). With the layout resolved by
+ * the PARSED config and the base confirmed non-sliding, the floor becomes an
+ * exact pin — and at a parsed off-signal it is sound, reaching the guaranteed
+ * window. */
+static void test_s390_image_base_from_config_modern_pin_when_kaslr_off(void) {
+#if defined(__s390__) || defined(__s390x__)
+  struct engine e;
+  engine_init(&e);
+  const unsigned long cfg = 0x3FFE0000000ul;
+  struct observation s = mk_scalar(SF_VIRT_KERNEL_IMAGE_BASE, cfg, CONF_PARSED);
+  struct observation off = mk_scalar(SF_VIRT_KASLR_DISABLED, 1, CONF_PARSED);
+  evidence_add(&e.ev, &s);
+  evidence_add(&e.ev, &off);
+  const rule_fn rules[] = {rule_s390_image_base_from_config};
+
+  /* All signals: pinned to the parsed config base (no slide). */
+  engine_run(&e, rules, 1);
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo == cfg);
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi == cfg);
+
+  /* Sound floor: a PARSED off-signal keeps the pin in the guaranteed window. */
+  e.ev.n_verdicts = 0;
+  engine_run_full_floored(&e, CONF_INFERRED, rules, 1, NULL, 0);
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo == cfg);
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi == cfg);
+#endif
+}
+
 /* Identity-mapped: value 0 caps Q_VIRT_IMAGE_BASE at the top of spanned RAM
  * (max_pfn), far below the architectural vmax, while admitting the low
  * identity-mapped _text. */
@@ -3547,9 +3720,10 @@ static void test_page_offset_from_config(void) {
 
 /* virt_kaslr_disabled_pin: SF_VIRT_KASLR_DISABLED + the arch's compile-time
  * default text base pins Q_VIRT_IMAGE_BASE on arches where
- * KASLR_DISABLED_PINS_VIRT_TEXT==1 (x86_64, arm64, loongarch64, s390); inert
- * elsewhere. The window-containment check guards against a computed default
- * outside the honest top. */
+ * KASLR_DISABLED_PINS_VIRT_TEXT==1 (x86_64, loongarch64); inert elsewhere
+ * (arm64/riscv64/s390 own their layout-dependent no-KASLR base in a bespoke
+ * rule). The window-containment check guards against a computed default outside
+ * the honest top. */
 int rule_virt_kaslr_disabled_pin(const struct evidence_set *ev,
                                  const struct estimate *est,
                                  struct constraint *out, int out_max);
@@ -4549,6 +4723,68 @@ static void test_phys_virt_synth_spread_within_align(void) {
   }
 }
 
+/* Soundness guard for the PAGE_OFFSET_FIXED == DIRECTMAP_STATIC unification: on
+ * a runtime-variable direct-map arch (x86_64/arm64/riscv64/s390) the true base
+ * may be only PMD-aligned while a MISPAIRED candidate one slot up is more
+ * aligned. The old "fixed everything but x86_64" pin snapped to the cleaner
+ * (higher) candidate and EXCLUDED the true lower base; the window branch must
+ * contain it. Inert (no assertion) on a static-direct-map arch, where the
+ * cleaner candidate is provably the constant base and pinning is sound. */
+static void test_phys_virt_synth_decoupled_window_contains_lower_truth(void) {
+#if !PAGE_OFFSET_FIXED
+  struct engine e;
+  engine_init(&e);
+  struct estimate top;
+  quantities[Q_PAGE_OFFSET].init_top(&top);
+
+  const unsigned long pmd = 2ul * 1024 * 1024;
+  unsigned long align = (unsigned long)KASLR_VIRT_ALIGN;
+  /* base2 = a 2*PMD boundary strictly inside the window. */
+  unsigned long base2 =
+      (top.lo + po_window_bump(&top) + (2 * pmd - 1)) & ~((2 * pmd) - 1);
+  unsigned long truth =
+      base2 + pmd; /* PMD-aligned, odd multiple: LESS aligned */
+  unsigned long mispair =
+      base2 + 2 * pmd; /* 2*PMD-aligned: MORE aligned, +1 slot */
+  unsigned long p = (unsigned long)PHYS_OFFSET + 0x4000000ul;
+
+  if (pmd > align ||
+      mispair > top.hi) /* arch window/align can't host it: skip */
+    return;
+
+  /* origin A reconstructs the true (lower, less-aligned) base; origin B a
+   * cleaner mispair one slot above. */
+  struct observation va =
+      mk_obs(KASLD_TYPE_VIRT, REGION_DIRECTMAP,
+             truth + (p - (unsigned long)PHYS_OFFSET), LO_SET | SAMPLE_SET,
+             POS_INTERIOR, CONF_PARSED);
+  snprintf(va.origin, ORIGIN_LEN, "origA");
+  struct observation pa =
+      mk_obs(KASLD_TYPE_PHYS, REGION_RAM, p, LO_SET, POS_BASE, CONF_PARSED);
+  snprintf(pa.origin, ORIGIN_LEN, "origA");
+  struct observation vb =
+      mk_obs(KASLD_TYPE_VIRT, REGION_DIRECTMAP,
+             mispair + (p - (unsigned long)PHYS_OFFSET), LO_SET | SAMPLE_SET,
+             POS_INTERIOR, CONF_PARSED);
+  snprintf(vb.origin, ORIGIN_LEN, "origB");
+  struct observation pb =
+      mk_obs(KASLD_TYPE_PHYS, REGION_RAM, p, LO_SET, POS_BASE, CONF_PARSED);
+  snprintf(pb.origin, ORIGIN_LEN, "origB");
+  evidence_add(&e.ev, &va);
+  evidence_add(&e.ev, &pa);
+  evidence_add(&e.ev, &vb);
+  evidence_add(&e.ev, &pb);
+
+  const rule_fn rules[] = {rule_phys_virt_synth};
+  engine_run(&e, rules, 1);
+
+  /* The proven window spans both candidates; the lower (true) base is its
+   * floor, NOT excluded by a snap up to the cleaner mispair. */
+  assert(e.est[Q_PAGE_OFFSET].lo == truth);
+  assert(e.est[Q_PAGE_OFFSET].hi == mispair);
+#endif
+}
+
 /* MIPS64 XKPHYS decode (applied at the observation boundary on mips64): an
  * address with bits [63:62] == 0b10 is a direct physical mapping; bits [58:0]
  * are the physical address. A normal kernel VA (bits 11) must NOT match. */
@@ -5052,8 +5288,16 @@ static void test_riscv64_non_efi_phys_base(void) {
                          (unsigned long)IMAGE_BASE_OFFSET;
   if (expect >= (unsigned long)KASLR_PHYS_MIN && expect >= top.lo &&
       expect <= top.hi) {
+    /* LIKELY (all signals): the OpenSBI-default convention pins the base. */
     assert(e.est[Q_PHYS_IMAGE_BASE].lo == expect);
     assert(e.est[Q_PHYS_IMAGE_BASE].hi == expect);
+
+    /* GUARANTEED (sound floor): the convention is CONF_HEURISTIC, below the
+     * floor, so it does NOT pin — the quantity stays at its honest top (a
+     * non-default firmware placement is not excluded). */
+    engine_run_full_floored(&e, CONF_INFERRED, rules, 1, NULL, 0);
+    assert(e.est[Q_PHYS_IMAGE_BASE].lo == top.lo);
+    assert(e.est[Q_PHYS_IMAGE_BASE].hi == top.hi);
   }
 #else
   assert(e.est[Q_PHYS_IMAGE_BASE].lo == top.lo &&
@@ -5214,6 +5458,9 @@ int main(void) {
   RUN(test_engine_saturation_vrule_emit_overflow);
   RUN(test_engine_saturation_estimate_work_full);
   RUN(test_resolve_equal_conf_conflict_order_independent);
+  RUN(test_resolve_edge_conf_propagation);
+  RUN(test_clamp_likely_window);
+  RUN(test_reconcile_concrete_base);
   RUN(test_engine_saturation_conflicts_full);
 
   BEGIN_CATEGORY("Address helpers (XKPHYS / s390 paging)");
@@ -5226,6 +5473,8 @@ int main(void) {
   RUN(test_ceiling_no_evidence);
   RUN(test_ceiling_oversized_image);
   RUN(test_phys_ceiling_from_memtotal);
+  RUN(test_phys_ceiling_memtotal_fallback_likely_only);
+  RUN(test_phys_ceiling_dram_top_stays_guaranteed);
   RUN(test_phys_ceiling_prefers_dram_top_over_memtotal);
   RUN(test_phys_ceiling_no_dram_floor);
   RUN(test_virt_ceiling_from_memtotal);
@@ -5355,6 +5604,7 @@ int main(void) {
   RUN(test_phys_virt_synth);
   RUN(test_phys_virt_synth_rejects_misaligned_pair);
   RUN(test_phys_virt_synth_spread_within_align);
+  RUN(test_phys_virt_synth_decoupled_window_contains_lower_truth);
 
   BEGIN_CATEGORY("x86_64-specific rules");
   RUN(test_x86_32_vmsplit_ceiling);
@@ -5412,6 +5662,7 @@ int main(void) {
   RUN(test_s390_text_no_random_inert_without_signal);
   RUN(test_s390_text_no_random_admits_empirical_phys);
   RUN(test_s390_image_base_from_config_modern_floor);
+  RUN(test_s390_image_base_from_config_modern_pin_when_kaslr_off);
   RUN(test_s390_image_base_from_config_identity_ceiling);
   RUN(test_s390_image_base_from_config_inert_without_fact);
 #endif
