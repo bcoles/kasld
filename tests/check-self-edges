@@ -27,6 +27,7 @@ RULES=$ROOT/src/rules
 # gate/filter/selector reads (sound by construction) or value-determining with
 # a soundness test. Keep alphabetical.
 ALLOW="arm64_text_base
+image_base_ceiling_align
 phys_hole_filter
 phys_virt_synth
 randomize_memory_page_offset

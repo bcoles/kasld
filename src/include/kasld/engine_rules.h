@@ -142,6 +142,7 @@ R(min_offset_from_image_size);
 R(image_floor_from_init_size);
 R(vmsplit_text_base);
 R(range_from_interior);
+R(image_base_ceiling_align);
 
 /* DRAM bounds (MMIO ceilings, holes, kernel-image phys gap, firmware) */
 R(dram_floor_bound);

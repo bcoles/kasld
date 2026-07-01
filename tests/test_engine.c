@@ -22,6 +22,9 @@
 int rule_range_from_interior(const struct evidence_set *ev,
                              const struct estimate *est, struct constraint *out,
                              int out_max);
+int rule_image_base_ceiling_align(const struct evidence_set *ev,
+                                  const struct estimate *est,
+                                  struct constraint *out, int out_max);
 
 static struct observation mk_obs(enum kasld_addr_type type,
                                  enum kasld_region region, unsigned long addr,
@@ -65,6 +68,90 @@ static void test_engine_interior_ceiling(void) {
    * below the truth. The raw sample is always a sound upper bound. */
   assert(e.est[Q_VIRT_IMAGE_BASE].hi == sample);
   assert(e.est[Q_VIRT_IMAGE_BASE].lo == top.lo); /* lower bound unchanged */
+}
+
+/* ========================================================================
+ * image_base_ceiling_align: floor the resolved _text ceiling to the KASLR grid
+ * ======================================================================== */
+
+/* Estimate array at its honest tops with Q_VIRT_IMAGE_BASE overridden to a real
+ * [lo, hi] interval whose ceiling is a genuine bound (hi_binding != 0). */
+static void mk_est_virt_base(struct estimate est[Q__COUNT], unsigned long lo,
+                             unsigned long hi, enum kasld_confidence hc) {
+  for (int q = 0; q < Q__COUNT; q++)
+    quantities[q].init_top(&est[q]);
+  est[Q_VIRT_IMAGE_BASE].kind = LK_INTERVAL;
+  est[Q_VIRT_IMAGE_BASE].lo = lo;
+  est[Q_VIRT_IMAGE_BASE].hi = hi;
+  est[Q_VIRT_IMAGE_BASE].hi_binding = 1; /* a real ceiling, not the top */
+  est[Q_VIRT_IMAGE_BASE].hi_conf = hc;
+}
+
+/* SOUNDNESS (self-edge review): an adversarially narrow ceiling just above a
+ * grid-aligned _text must floor back to _text, never below it. `text` carries
+ * the arch's residue (kasld_floor_text_base preserves
+ * KERNEL_VIRT_TEXT_DEFAULT's sub-alignment offset), so under `make test-cross`
+ * this exercises the sub-offset arches (riscv64 +0x2000, arm32 +0x8000, s390
+ * +0x100000, mips +0x400) where a plain floor(sample, align) would drop below
+ * the truth. */
+static void test_image_base_ceiling_align_sound(void) {
+  struct estimate top;
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
+  unsigned long text =
+      kasld_floor_text_base(top.lo + 0x2000000ul); /* on grid */
+
+  struct estimate est[Q__COUNT];
+  mk_est_virt_base(est, top.lo, text + 7ul, CONF_INFERRED); /* 7B above _text */
+
+  struct constraint out[4];
+  int n = rule_image_base_ceiling_align(NULL, est, out, 4);
+  assert(n == 1);
+  assert(out[0].q == Q_VIRT_IMAGE_BASE && out[0].op == C_UPPER_BOUND);
+  assert(out[0].value == text);         /* floored back to _text ... */
+  assert(out[0].value >= text);         /* ... never below the truth */
+  assert(out[0].conf == CONF_INFERRED); /* carries the ceiling's confidence */
+}
+
+/* FUNCTIONAL end-to-end: with the raw interior-sample ceiling as the tightest
+ * bound, the rule sharpens the resolved window down to the grid. */
+static void test_image_base_ceiling_align_tightens(void) {
+  struct engine e;
+  engine_init(&e);
+
+  struct estimate top;
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
+  unsigned long grid = kasld_floor_text_base(top.lo + 0x2000000ul);
+  unsigned long sample = grid + 1ul; /* off-grid interior sample */
+
+  struct observation o = mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE, sample,
+                                SAMPLE_SET, POS_INTERIOR, CONF_PARSED);
+  evidence_add(&e.ev, &o);
+
+  const rule_fn rules[] = {rule_range_from_interior,
+                           rule_image_base_ceiling_align};
+  engine_run(&e, rules, 2);
+
+  assert(grid < sample);                         /* the sample was off-grid */
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi == grid);   /* ceiling snapped down */
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi >= top.lo); /* still sound, non-empty */
+}
+
+/* NO-OP: an already-aligned ceiling, and the honest top (hi_binding == 0), both
+ * emit nothing. */
+static void test_image_base_ceiling_align_noop(void) {
+  struct estimate top;
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
+  unsigned long text = kasld_floor_text_base(top.lo + 0x2000000ul);
+
+  struct constraint out[4];
+  struct estimate est[Q__COUNT];
+
+  mk_est_virt_base(est, top.lo, text, CONF_INFERRED); /* already on grid */
+  assert(rule_image_base_ceiling_align(NULL, est, out, 4) == 0);
+
+  mk_est_virt_base(est, top.lo, text + 7ul, CONF_INFERRED);
+  est[Q_VIRT_IMAGE_BASE].hi_binding = 0; /* honest top: no real ceiling */
+  assert(rule_image_base_ceiling_align(NULL, est, out, 4) == 0);
 }
 
 /* ========================================================================
@@ -5448,6 +5535,9 @@ int main(void) {
 
   BEGIN_CATEGORY("Engine core (pilot, convergence, saturation)");
   RUN(test_engine_interior_ceiling);
+  RUN(test_image_base_ceiling_align_sound);
+  RUN(test_image_base_ceiling_align_tightens);
+  RUN(test_image_base_ceiling_align_noop);
 #if __SIZEOF_LONG__ >= 8
   RUN(test_engine_cross_quantity_fixpoint); /* 64-bit-only (see definition) */
 #endif
