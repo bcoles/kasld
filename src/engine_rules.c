@@ -33,7 +33,7 @@ static const rule_fn k_rules[] = {
     rule_image_floor_from_init_size,
     rule_vmsplit_text_base,
     rule_range_from_interior,
-    rule_image_base_ceiling_align,
+    rule_image_base_grid_align,
 
     /* DRAM bounds */
     rule_dram_floor_bound,

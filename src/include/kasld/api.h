@@ -562,6 +562,24 @@ static inline unsigned long kasld_floor_text_base(unsigned long addr) {
                                        (unsigned long)KERNEL_VIRT_TEXT_DEFAULT);
 }
 
+/* Mirror of kasld_floor_aligned_suboffset: the SMALLEST value >= addr congruent
+ * to (default_base mod align) modulo align. Used to raise a lower bound on the
+ * image base up to the first grid position >= it — sound because _text is on
+ * that grid, so any grid candidate >= addr is also >= this result. */
+static inline unsigned long
+kasld_ceil_aligned_suboffset(unsigned long addr, unsigned long align,
+                             unsigned long default_base) {
+  unsigned long v = kasld_floor_aligned_suboffset(addr, align, default_base);
+  if (v < addr)
+    v += align;
+  return v;
+}
+
+static inline unsigned long kasld_ceil_text_base(unsigned long addr) {
+  return kasld_ceil_aligned_suboffset(addr, (unsigned long)KASLR_VIRT_ALIGN,
+                                      (unsigned long)KERNEL_VIRT_TEXT_DEFAULT);
+}
+
 /* Engine-rule variant: floor a bound on the VIRTUAL kernel image base (_text)
  * to the RESOLVED alignment `align` (Q_VIRT_KASLR_ALIGN, which boot_params can
  * raise), preserving _text's alignment residue (IMAGE_BASE_OFFSET) so the
