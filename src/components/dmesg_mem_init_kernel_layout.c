@@ -234,10 +234,12 @@ static void emit_base(int idx, unsigned long addr) {
   if (region == REGION_KERNEL_TEXT)
     kasld_info("possible kernel base: %lx", kasld_floor_text_base(addr));
 
+#if KERNEL_VIRT_VAS_START /* vacuous where VAS_START is 0 (s390) */
   if ((region == REGION_DIRECTMAP || region == REGION_MODULE_REGION) &&
       addr < (unsigned long)KERNEL_VIRT_VAS_START)
     kasld_err("warning: %s %lx below configured KERNEL_VIRT_VAS_START %lx",
               entries[idx].display, addr, (unsigned long)KERNEL_VIRT_VAS_START);
+#endif
 
   /* Each "kernel .text start" / ".data start" / "modules start" message
    * reports the BASE of the named region. */

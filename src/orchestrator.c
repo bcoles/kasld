@@ -2961,9 +2961,15 @@ static void engine_sync_authoritative(const struct engine *e) {
       if (a > obs_hi)
         obs_hi = a;
     }
-    if (obs_lo != ULONG_MAX && obs_lo <= obs_hi &&
-        obs_lo >= (unsigned long)MODULES_START &&
-        obs_hi <= (unsigned long)MODULES_END) {
+    /* MODULES_START == 0 on arches with no bounded module sub-region (s390):
+     * the lower-bound clause is then vacuous, so gate it out — keeps the check
+     * meaningful and quiets -Wtype-limits (obs_lo >= 0 always true) there. */
+    int in_modules = obs_lo != ULONG_MAX && obs_lo <= obs_hi &&
+                     obs_hi <= (unsigned long)MODULES_END;
+#if MODULES_START
+    in_modules = in_modules && obs_lo >= (unsigned long)MODULES_START;
+#endif
+    if (in_modules) {
       layout.modules_start = obs_lo;
       layout.modules_end = obs_hi;
     }

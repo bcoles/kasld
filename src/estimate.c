@@ -171,8 +171,14 @@ void estimate_meet(struct estimate *e, const struct quantity_def *qd,
        * exceed the safe extended-Euclidean range or are zero. */
       unsigned long m = c->value2;
       unsigned long r = c->value;
-      if (m == 0 || m > 0xffffffffful)
+      if (m == 0)
         break;
+#if __SIZEOF_LONG__ >= 8
+      /* Reject moduli beyond the safe extended-Euclidean range. Only reachable
+       * on 64-bit: 0xf_ffff_ffff exceeds a 32-bit unsigned long. */
+      if (m > 0xffffffffful)
+        break;
+#endif
       if (e->stride == 0) {
         e->stride = m;
         e->stride_offset = r % m;

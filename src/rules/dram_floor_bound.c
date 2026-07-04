@@ -91,8 +91,13 @@ int rule_dram_floor_bound(const struct evidence_set *ev,
 #else
   /* Coupled: map to a virtual floor via the compile-time conversion, round
    * DOWN to a slot to stay a guaranteed lower bound. */
+#if PHYS_OFFSET
+  /* Guard the pdram_lo - PHYS_OFFSET subtraction against underflow. Vacuous
+   * where PHYS_OFFSET is 0 (e.g. mips: no phys/virt offset), so compile it only
+   * where it can fire — keeps the guard and quiets -Wtype-limits there. */
   if (pdram_lo < PHYS_OFFSET)
     return 0;
+#endif
   unsigned long virt_lo =
       pdram_lo - PHYS_OFFSET + PAGE_OFFSET + IMAGE_BASE_OFFSET;
   /* C_LOWER_BOUND: flooring down is sound (a lower bound only weakens). */

@@ -75,10 +75,12 @@ int main(void) {
   kasld_result_base(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, addr, NULL,
                     CONF_HEURISTIC);
 
+#if KERNEL_VIRT_VAS_START /* vacuous where VAS_START is 0 (s390) */
   if (addr < (unsigned long)KERNEL_VIRT_VAS_START)
     kasld_err("warning: virtual address start %lx below configured "
               "KERNEL_VIRT_VAS_START %lx",
               addr, (unsigned long)KERNEL_VIRT_VAS_START);
+#endif
 
   return 0;
 }

@@ -98,8 +98,10 @@ struct btctx {
  * false — correctly, those arches expose no separable direct-map window here.
  */
 static int in_directmap_range(unsigned long val) {
-  if (val < PAGE_OFFSET)
+#if PAGE_OFFSET
+  if (val < PAGE_OFFSET) /* vacuous where PAGE_OFFSET is 0 (s390) */
     return 0;
+#endif
   if (val >= KERNEL_VIRT_TEXT_MIN)
     return 0;
 #if MODULES_START >= PAGE_OFFSET
