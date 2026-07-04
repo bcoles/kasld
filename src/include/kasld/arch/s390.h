@@ -7,8 +7,8 @@
 // ASCEs, identity mapping as directmap). Many KASLD components will
 // produce no useful results on s390x.
 //
-// KASLR support added in commit b2d24b97b2a9691351920e700bfda4368c177232 in
-// kernel v5.2-rc1~186^2~14 on 2019-02-03.
+// KASLR support added in commit b2d24b97b2a9691351920e700bfda4368c177232,
+// merged 2019-04-29, first released in kernel v5.2.
 //
 // s390x memory layout (arch/s390/mm documentation):
 //   - Identity mapping at __identity_base: virt = phys + __identity_base
