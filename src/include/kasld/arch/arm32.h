@@ -95,6 +95,16 @@
 // arch/arm/Makefile
 #define KERNEL_VIRT_TEXT_DEFAULT (PAGE_OFFSET + IMAGE_BASE_OFFSET)
 
+// STEXT_OFFSET is deliberately left at its 0 default (so _stext is modelled as
+// _text) even though _stext sits ~1 MiB above _text on ARM (e.g. _text
+// 0x80008000, _stext 0x80100000). That gap is _text padded up to ARM's 1 MiB
+// section-mapping boundary, not a fixed architectural constant a single
+// STEXT_OFFSET could carry across configs. It is also unused here: ARM has no
+// text KASLR (the base is the compile-time default), and where kallsyms is
+// readable it yields _text and _stext directly — so the _stext -> _text
+// projection via STEXT_OFFSET is never taken. Contrast arm64/loongarch64,
+// which do model a fixed head gap.
+
 #define KASLR_SUPPORTED 0
 
 #endif /* KASLD_ARM32_H */
