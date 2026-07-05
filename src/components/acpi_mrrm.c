@@ -67,19 +67,6 @@ KASLD_META("method:parsed\n"
            "addr:physical\n"
            "config:CONFIG_ACPI_MRRM\n");
 
-static int read_file_line(const char *path, char *buf, size_t len) {
-  FILE *f = kasld_fopen(path, "r");
-  if (!f)
-    return -1;
-  if (fgets(buf, (int)len, f) == NULL) {
-    fclose(f);
-    return -1;
-  }
-  fclose(f);
-  buf[strcspn(buf, "\n")] = '\0';
-  return 0;
-}
-
 int main(void) {
   const char *base = "/sys/firmware/acpi/memory_ranges";
   DIR *d;
@@ -110,7 +97,7 @@ int main(void) {
 
     snprintf(path, sizeof(path), "%s/%s/base", base, ent->d_name);
 
-    if (read_file_line(path, buf, sizeof(buf)) < 0)
+    if (kasld_read_file_line(path, buf, sizeof(buf)) < 0)
       continue;
 
     unsigned long long addr = 0;

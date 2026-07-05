@@ -78,19 +78,6 @@ KASLD_META("method:parsed\n"
            "addr:physical\n"
            "config:CONFIG_UIO\n");
 
-static int read_file_line(const char *path, char *buf, size_t len) {
-  FILE *f = kasld_fopen(path, "r");
-  if (!f)
-    return -1;
-  if (fgets(buf, (int)len, f) == NULL) {
-    fclose(f);
-    return -1;
-  }
-  fclose(f);
-  buf[strcspn(buf, "\n")] = '\0';
-  return 0;
-}
-
 /* UIO maps can back onto either true device MMIO (PCI BAR space) or DRAM
  * the driver has exposed for userspace (DMA-coherent buffers, reserved
  * memory, hugepages, ...). The sysfs interface exposes the address but
@@ -177,7 +164,7 @@ int main(void) {
       snprintf(path, sizeof(path), "%s/%s/maps/%s/addr", base, ent_uio->d_name,
                ent_map->d_name);
 
-      if (read_file_line(path, buf, sizeof(buf)) < 0)
+      if (kasld_read_file_line(path, buf, sizeof(buf)) < 0)
         continue;
 
       unsigned long long addr = 0;
@@ -190,7 +177,8 @@ int main(void) {
       /* Read optional region name for the label */
       snprintf(path, sizeof(path), "%s/%s/maps/%s/name", base, ent_uio->d_name,
                ent_map->d_name);
-      if (read_file_line(path, name, sizeof(name)) < 0 || name[0] == '\0') {
+      if (kasld_read_file_line(path, name, sizeof(name)) < 0 ||
+          name[0] == '\0') {
         memcpy(name, ent_map->d_name, sizeof(name) - 1);
         name[sizeof(name) - 1] = '\0';
       }

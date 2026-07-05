@@ -63,20 +63,6 @@ KASLD_META("method:parsed\n"
            "addr:physical\n"
            "config:CONFIG_FIRMWARE_MEMMAP\n");
 
-static int read_file_line(const char *path, char *buf, size_t len) {
-  FILE *f = kasld_fopen(path, "r");
-  if (!f)
-    return -1;
-  if (fgets(buf, (int)len, f) == NULL) {
-    fclose(f);
-    return -1;
-  }
-  fclose(f);
-  /* strip trailing newline */
-  buf[strcspn(buf, "\n")] = '\0';
-  return 0;
-}
-
 int main(void) {
   const char *base = "/sys/firmware/memmap";
   DIR *d;
@@ -102,7 +88,7 @@ int main(void) {
 
     /* read type */
     snprintf(path, sizeof(path), "%s/%s/type", base, ent->d_name);
-    if (read_file_line(path, buf, sizeof(buf)) < 0)
+    if (kasld_read_file_line(path, buf, sizeof(buf)) < 0)
       continue;
 
     if (strcmp(buf, "System RAM") != 0)
@@ -110,7 +96,7 @@ int main(void) {
 
     /* read start */
     snprintf(path, sizeof(path), "%s/%s/start", base, ent->d_name);
-    if (read_file_line(path, buf, sizeof(buf)) < 0)
+    if (kasld_read_file_line(path, buf, sizeof(buf)) < 0)
       continue;
 
     char *endptr;
@@ -120,7 +106,7 @@ int main(void) {
 
     /* read end */
     snprintf(path, sizeof(path), "%s/%s/end", base, ent->d_name);
-    if (read_file_line(path, buf, sizeof(buf)) < 0)
+    if (kasld_read_file_line(path, buf, sizeof(buf)) < 0)
       continue;
 
     unsigned long end = strtoul(buf, &endptr, 16);

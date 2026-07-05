@@ -71,19 +71,6 @@ KASLD_META("method:parsed\n"
            "addr:physical\n"
            "config:CONFIG_QCOM_RMTFS_MEM\n");
 
-static int read_file_line(const char *path, char *buf, size_t len) {
-  FILE *f = kasld_fopen(path, "r");
-  if (!f)
-    return -1;
-  if (fgets(buf, (int)len, f) == NULL) {
-    fclose(f);
-    return -1;
-  }
-  fclose(f);
-  buf[strcspn(buf, "\n")] = '\0';
-  return 0;
-}
-
 int main(void) {
   const char *base = "/sys/class/rmtfs";
   DIR *d;
@@ -113,7 +100,7 @@ int main(void) {
 
     snprintf(path, sizeof(path), "%s/%s/phys_addr", base, ent->d_name);
 
-    if (read_file_line(path, buf, sizeof(buf)) < 0)
+    if (kasld_read_file_line(path, buf, sizeof(buf)) < 0)
       continue;
 
     unsigned long long addr = 0;
@@ -138,7 +125,7 @@ int main(void) {
      * (a wrong-format size can never widen the band). */
     unsigned long long size = 0;
     snprintf(path, sizeof(path), "%s/%s/size", base, ent->d_name);
-    if (read_file_line(path, buf, sizeof(buf)) == 0)
+    if (kasld_read_file_line(path, buf, sizeof(buf)) == 0)
       (void)sscanf(buf, "0x%llx", &size);
     unsigned long long end = addr + size - 1; /* inclusive last byte */
 

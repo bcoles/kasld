@@ -76,19 +76,6 @@ KASLD_META("method:parsed\n"
            "config:CONFIG_EFI\n"
            "config:CONFIG_KEXEC_CORE\n");
 
-static int read_file_line(const char *path, char *buf, size_t len) {
-  FILE *f = kasld_fopen(path, "r");
-  if (!f)
-    return -1;
-  if (fgets(buf, (int)len, f) == NULL) {
-    fclose(f);
-    return -1;
-  }
-  fclose(f);
-  buf[strcspn(buf, "\n")] = '\0';
-  return 0;
-}
-
 int main(void) {
   const char *base = "/sys/firmware/efi/runtime-map";
   DIR *d;
@@ -113,7 +100,7 @@ int main(void) {
       continue;
 
     snprintf(path, sizeof(path), "%s/%s/virt_addr", base, ent->d_name);
-    if (read_file_line(path, buf, sizeof(buf)) < 0)
+    if (kasld_read_file_line(path, buf, sizeof(buf)) < 0)
       continue;
 
     char *endptr;
@@ -128,7 +115,7 @@ int main(void) {
       continue;
 
     snprintf(path, sizeof(path), "%s/%s/phys_addr", base, ent->d_name);
-    if (read_file_line(path, buf, sizeof(buf)) < 0) {
+    if (kasld_read_file_line(path, buf, sizeof(buf)) < 0) {
       kasld_info("EFI runtime entry %s: virt=0x%016lx", ent->d_name, virt);
       kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, NULL,
                           CONF_PARSED);

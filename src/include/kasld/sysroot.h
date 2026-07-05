@@ -105,6 +105,24 @@ __attribute__((unused)) static DIR *kasld_opendir(const char *path) {
   return opendir(kasld_resolve(path, buf, sizeof(buf)));
 }
 
+/* Read the first line of a fact file into buf: NUL-terminated, trailing
+ * newline stripped. A generic convenience over kasld_fopen (so it honors
+ * KASLD_SYSROOT); callers parse the resulting string themselves. Returns 0 on
+ * success, -1 if the file cannot be opened or the first line cannot be read. */
+__attribute__((unused)) static int kasld_read_file_line(const char *path,
+                                                        char *buf, size_t len) {
+  FILE *f = kasld_fopen(path, "r");
+  if (!f)
+    return -1;
+  if (fgets(buf, (int)len, f) == NULL) {
+    fclose(f);
+    return -1;
+  }
+  fclose(f);
+  buf[strcspn(buf, "\n")] = '\0';
+  return 0;
+}
+
 /* uname(2) with an override of the kernel release. Components build
  * release-named /boot paths (vmlinuz-<rel>, config-<rel>, System.map-<rel>)
  * from uname().release, so when reading a copied tree the release must match

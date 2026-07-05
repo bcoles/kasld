@@ -57,19 +57,6 @@ KASLD_META("method:parsed\n"
            "addr:physical\n"
            "config:CONFIG_MEMORY_HOTPLUG\n");
 
-static int read_file_line(const char *path, char *buf, size_t len) {
-  FILE *f = kasld_fopen(path, "r");
-  if (!f)
-    return -1;
-  if (fgets(buf, (int)len, f) == NULL) {
-    fclose(f);
-    return -1;
-  }
-  fclose(f);
-  buf[strcspn(buf, "\n")] = '\0';
-  return 0;
-}
-
 /* Per-run extent emission for ram_map_phys_exclude. Bounded so a huge or
  * heavily-fragmented map degrades to hull-only rather than flooding evidence or
  * emitting a partial (unsound) set. */
@@ -93,7 +80,7 @@ int main(void) {
 
   /* read block size */
   snprintf(path, sizeof(path), "%s/block_size_bytes", base);
-  if (read_file_line(path, buf, sizeof(buf)) < 0) {
+  if (kasld_read_file_line(path, buf, sizeof(buf)) < 0) {
     perror("[-] cannot read block_size_bytes");
     return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM
                                                : KASLD_EXIT_UNAVAILABLE;
@@ -125,14 +112,14 @@ int main(void) {
 
     /* check state — only consider online blocks */
     snprintf(path, sizeof(path), "%s/%s/state", base, ent->d_name);
-    if (read_file_line(path, buf, sizeof(buf)) < 0)
+    if (kasld_read_file_line(path, buf, sizeof(buf)) < 0)
       continue;
     if (strcmp(buf, "online") != 0)
       continue;
 
     /* read phys_index */
     snprintf(path, sizeof(path), "%s/%s/phys_index", base, ent->d_name);
-    if (read_file_line(path, buf, sizeof(buf)) < 0)
+    if (kasld_read_file_line(path, buf, sizeof(buf)) < 0)
       continue;
 
     unsigned long idx = strtoul(buf, NULL, 16);
