@@ -250,9 +250,8 @@ static inline unsigned long anchor_addr(const struct result *r) {
  * ranges. Compiled per-arch via the arch header pattern.
  * ========================================================================= */
 struct region_info {
-  const char *wire_name;       /* token on the wire (also kasld_region_wire) */
-  const char *section_name;    /* render grouping; "" allowed */
-  unsigned long default_align; /* 0 = no default */
+  const char *wire_name;    /* token on the wire (also kasld_region_wire) */
+  const char *section_name; /* render grouping; "" allowed */
   /* VAS resolution. derive_vas != NULL → use it; else use static_vas.
    * REGION_UNKNOWN: both zero/NULL — result_in_bounds short-circuits. */
   struct {

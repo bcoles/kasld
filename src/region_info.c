@@ -1,7 +1,7 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
-// region_info[] — per-region wire name, render section, default alignment,
-// and VAS-bound resolver. Generated from the KASLD_REGION_LIST X-macro in
+// region_info[] — per-region wire name, render section, and VAS-bound
+// resolver. Generated from the KASLD_REGION_LIST X-macro in
 // kasld/api.h so the enum, wire table, and this descriptor table all stay
 // in sync from a single source row.
 //
@@ -106,7 +106,6 @@ const struct region_info region_info[REGION__COUNT] = {
         {
             .wire_name = "unknown",
             .section_name = "",
-            .default_align = 0,
             .static_vas = {0, 0},
             .derive_vas = NULL,
         },
@@ -115,7 +114,6 @@ const struct region_info region_info[REGION__COUNT] = {
   [name] = {                                                                   \
       .wire_name = wire,                                                       \
       .section_name = sec,                                                     \
-      .default_align = 0,                                                      \
       .static_vas = VAS_STATIC(kind),                                          \
       .derive_vas = VAS_DERIVE(kind),                                          \
   },

@@ -2044,17 +2044,18 @@ static int g_have_likely;
  * (`shown`) AND the likely estimate is strictly tighter than the guaranteed
  * engine window [g_lo, g_hi] — otherwise there is nothing to add. Mirrors the
  * vtext/ptext likely gating; likely is a subset of guaranteed by construction.
- * Returns 1 if a likely window was set. */
-static int fill_mem_likely(const struct estimate *l, unsigned long g_lo,
-                           unsigned long g_hi, int shown, unsigned long *out_lo,
-                           unsigned long *out_hi) {
+ * A set window is signalled to callers via out_lo and out_hi (both 0 = none).
+ */
+static void fill_mem_likely(const struct estimate *l, unsigned long g_lo,
+                            unsigned long g_hi, int shown,
+                            unsigned long *out_lo, unsigned long *out_hi) {
   *out_lo = 0;
   *out_hi = 0;
   if (!shown || l->lo > l->hi) /* no guaranteed row, or a bottom estimate */
-    return 0;
+    return;
   /* Clamp into the guaranteed region window so likely ⊆ guaranteed holds
    * structurally; reports only when non-empty and strictly tighter. */
-  return kasld_clamp_likely_window(l->lo, l->hi, g_lo, g_hi, out_lo, out_hi);
+  kasld_clamp_likely_window(l->lo, l->hi, g_lo, g_hi, out_lo, out_hi);
 }
 #endif
 
