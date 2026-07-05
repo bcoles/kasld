@@ -42,7 +42,6 @@ enum constraint_op {
   C_UPPER_BOUND,     /* q <= value            (interval: lower hi)        */
   C_EQUALS,          /* q == value            (collapse to a point)       */
   C_AT_LEAST_ALIGN,  /* q divisible by value  (max-align: raise alignment)*/
-  C_MEMBER,          /* q in value (bitmask)  (finite-set: intersect)     */
   C_EXCLUDE,         /* q not in [value,value2] (interval: end-trim only) */
   C_STRIDE,          /* q ≡ value (mod value2) (interval: stride annot;   *
                       *                         CRT combines repeats)     */
@@ -54,7 +53,6 @@ struct constraint {
   unsigned long value;  /* primary operand. op-specific role:
                          *   C_LOWER_BOUND / C_UPPER_BOUND / C_EQUALS: the value
                          *   C_AT_LEAST_ALIGN: the required alignment
-                         *   C_MEMBER: the bitmask
                          *   C_EXCLUDE: range lo (paired with value2)
                          *   C_STRIDE: the residue r in q ≡ r (mod m) */
   unsigned long value2; /* op-specific second operand:

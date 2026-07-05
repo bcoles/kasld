@@ -2551,8 +2551,6 @@ static const char *constraint_op_name(enum constraint_op op) {
     return "==";
   case C_AT_LEAST_ALIGN:
     return "align>=";
-  case C_MEMBER:
-    return "member";
   case C_EXCLUDE:
     return "exclude";
   case C_STRIDE:

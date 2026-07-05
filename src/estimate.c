@@ -216,13 +216,7 @@ void estimate_meet(struct estimate *e, const struct quantity_def *qd,
     break;
 
   case LK_FINSET:
-    if (c->op == C_MEMBER) {
-      unsigned long narrowed = e->lo & c->value;
-      if (narrowed != e->lo) {
-        e->lo = narrowed;
-        e->lo_binding = c->id;
-      }
-    } else if (c->op == C_EQUALS) {
+    if (c->op == C_EQUALS) {
       /* Pin to the candidate whose value == c->value; if no candidate
        * matches, the intersection is empty (bottom). */
       unsigned long mask = 0;
