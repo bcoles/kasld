@@ -333,7 +333,7 @@ static void render_kaslr_text(const struct summary *s) {
      * the LIKELY best-guess, not a proven address. Label it and show the
      * guaranteed range it sits inside instead of a misleading entropy/slot
      * count for a single value. */
-    int v_spec = layout.virt_kaslr_text_max != layout.virt_kaslr_text_min;
+    int v_spec = kaslr_virt_is_window();
     printf("  Virtual image base:   %s0x%016lx%s%s\n", c(C_GREEN),
            s->kaslr.vtext, c(C_RESET), v_spec ? "  (likely; speculative)" : "");
     if (s->kaslr.vstext && s->kaslr.vstext != s->kaslr.vtext)
@@ -365,7 +365,7 @@ static void render_kaslr_text(const struct summary *s) {
   }
 
   if (s->kaslr.has_phys) {
-    int p_spec = layout.phys_kaslr_text_max != layout.phys_kaslr_text_min;
+    int p_spec = kaslr_phys_is_window();
     printf("  Physical image base:  %s0x%016lx%s%s\n", c(C_GREEN),
            s->kaslr.ptext, c(C_RESET), p_spec ? "  (likely; speculative)" : "");
     if (s->kaslr.pstext && s->kaslr.pstext != s->kaslr.ptext)
@@ -404,9 +404,7 @@ static void render_kaslr_text(const struct summary *s) {
    * narrowed from the compile-time defaults. The x86_64_vmalloc_base_bound and
    * x86_64_vmemmap_base_bound rules chain off virt_page_offset_min to derive
    * vmalloc and vmemmap bounds via the fixed inter-region ordering. */
-  if (s->kaslr.virt_page_offset_min || s->kaslr.virt_vmalloc_min ||
-      s->kaslr.virt_vmemmap_min || s->kaslr.virt_page_offset_max ||
-      s->kaslr.virt_vmalloc_max || s->kaslr.virt_vmemmap_max) {
+  if (summary_has_memory_kaslr(s)) {
     printf("Memory KASLR (directmap / vmalloc / vmemmap):\n");
     render_memory_kaslr_bound(
         "virt_page_offset_base", s->kaslr.virt_page_offset_min,
@@ -1343,8 +1341,7 @@ void render_text(const struct summary *s) {
   }
 
   /* Print each (type, section) group in a defined order */
-  const char *section_order[] = {"text", "module", "directmap", "data",
-                                 "bss",  "dram",   "mmio",      NULL};
+  const char *const *section_order = kasld_render_sections;
   enum kasld_addr_type type_order[] = {KASLD_TYPE_VIRT, KASLD_TYPE_PHYS,
                                        KASLD_TYPE_UNKNOWN};
 

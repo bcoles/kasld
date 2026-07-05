@@ -45,6 +45,7 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
@@ -76,10 +77,7 @@ int main(void) {
   char label[128];
   int count = 0;
 
-  fprintf(stderr,
-          "[.] searching %s for MRRM physical memory range "
-          "addresses ...\n",
-          base);
+  kasld_info("searching %s for MRRM physical memory range addresses ...", base);
 
   d = kasld_opendir(base);
   if (!d) {
@@ -119,14 +117,14 @@ int main(void) {
      * "range0") identifies which entry we leaked. */
     snprintf(label, sizeof(label), "%.32s", ent->d_name);
 
-    fprintf(stderr, "[+] acpi_mrrm %s: phys = 0x%016llx\n", label, addr);
+    kasld_found("acpi_mrrm %s: phys = 0x%016llx", label, addr);
     kasld_result_sample(KASLD_TYPE_PHYS, REGION_RAM, (unsigned long)addr, label,
                         CONF_PARSED);
     count++;
 
 #ifdef phys_to_directmap_virt
     unsigned long virt = phys_to_directmap_virt((unsigned long)addr);
-    fprintf(stderr, "[+] acpi_mrrm %s: directmap va = 0x%016lx\n", label, virt);
+    kasld_found("acpi_mrrm %s: directmap va = 0x%016lx", label, virt);
     kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, label,
                         CONF_PARSED);
 #endif
@@ -134,10 +132,7 @@ int main(void) {
   closedir(d);
 
   if (!count) {
-    fprintf(stderr,
-            "[-] no non-zero MRRM memory range entries found in "
-            "%s\n",
-            base);
+    kasld_err("no non-zero MRRM memory range entries found in %s", base);
     return KASLD_EXIT_UNAVAILABLE;
   }
 

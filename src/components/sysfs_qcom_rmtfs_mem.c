@@ -49,6 +49,7 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
@@ -80,10 +81,7 @@ int main(void) {
   char label[128];
   int count = 0;
 
-  fprintf(stderr,
-          "[.] searching %s for RMTFS physical memory "
-          "addresses ...\n",
-          base);
+  kasld_info("searching %s for RMTFS physical memory addresses ...", base);
 
   d = kasld_opendir(base);
   if (!d) {
@@ -130,15 +128,13 @@ int main(void) {
     unsigned long long end = addr + size - 1; /* inclusive last byte */
 
     if (size && end > addr && (unsigned long)end == end) {
-      fprintf(stderr,
-              "[+] sysfs_qcom_rmtfs_mem %s: phys = 0x%016llx - 0x%016llx\n",
-              label, addr, end);
+      kasld_found("sysfs_qcom_rmtfs_mem %s: phys = 0x%016llx - 0x%016llx",
+                  label, addr, end);
       kasld_result_range(KASLD_TYPE_PHYS, REGION_RESERVED_MEM,
                          (unsigned long)addr, (unsigned long)end, label,
                          CONF_PARSED);
     } else {
-      fprintf(stderr, "[+] sysfs_qcom_rmtfs_mem %s: phys = 0x%016llx\n", label,
-              addr);
+      kasld_found("sysfs_qcom_rmtfs_mem %s: phys = 0x%016llx", label, addr);
       kasld_result_sample(KASLD_TYPE_PHYS, REGION_RESERVED_MEM,
                           (unsigned long)addr, label, CONF_PARSED);
     }
@@ -146,8 +142,8 @@ int main(void) {
 
 #ifdef phys_to_directmap_virt
     unsigned long virt = phys_to_directmap_virt((unsigned long)addr);
-    fprintf(stderr, "[+] sysfs_qcom_rmtfs_mem %s: directmap va = 0x%016lx\n",
-            label, virt);
+    kasld_found("sysfs_qcom_rmtfs_mem %s: directmap va = 0x%016lx", label,
+                virt);
     kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, label,
                         CONF_PARSED);
 #endif
@@ -155,7 +151,7 @@ int main(void) {
   closedir(d);
 
   if (!count) {
-    fprintf(stderr, "[-] no RMTFS memory entries found in %s\n", base);
+    kasld_err("no RMTFS memory entries found in %s", base);
     return KASLD_EXIT_UNAVAILABLE;
   }
 

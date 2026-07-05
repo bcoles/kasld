@@ -57,6 +57,7 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
@@ -133,7 +134,7 @@ int main(void) {
   int device_count = 0;
   int map_count = 0;
 
-  fprintf(stderr, "[.] searching %s for UIO device map addresses ...\n", base);
+  kasld_info("searching %s for UIO device map addresses ...", base);
 
   d_uio = kasld_opendir(base);
   if (!d_uio) {
@@ -192,9 +193,8 @@ int main(void) {
                ent_map->d_name);
 
       enum kasld_region region = classify_uio_addr((unsigned long)addr);
-      fprintf(stderr,
-              "[+] sysfs_uio_map %s [%.64s]: phys = 0x%016llx (region=%s)\n",
-              label, name, addr, kasld_region_wire(region));
+      kasld_found("sysfs_uio_map %s [%.64s]: phys = 0x%016llx (region=%s)",
+                  label, name, addr, kasld_region_wire(region));
       kasld_result_sample(KASLD_TYPE_PHYS, region, (unsigned long)addr, label,
                           CONF_PARSED);
 
@@ -202,8 +202,7 @@ int main(void) {
 
 #ifdef phys_to_directmap_virt
       unsigned long virt = phys_to_directmap_virt((unsigned long)addr);
-      fprintf(stderr, "[+] sysfs_uio_map %s: directmap va = 0x%016lx\n", label,
-              virt);
+      kasld_found("sysfs_uio_map %s: directmap va = 0x%016lx", label, virt);
       kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, label,
                           CONF_PARSED);
 #endif
@@ -214,12 +213,10 @@ int main(void) {
 
   if (!map_count) {
     if (!device_count)
-      fprintf(stderr, "[-] no UIO devices found in %s\n", base);
+      kasld_err("no UIO devices found in %s", base);
     else
-      fprintf(stderr,
-              "[-] %d UIO device(s) found but no non-zero map "
-              "addresses\n",
-              device_count);
+      kasld_err("%d UIO device(s) found but no non-zero map addresses",
+                device_count);
     return KASLD_EXIT_UNAVAILABLE;
   }
 

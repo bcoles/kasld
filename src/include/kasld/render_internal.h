@@ -51,6 +51,18 @@ void section_range(enum kasld_addr_type type, const char *section,
 /* JSON string escaper — used by json.c and hardening.c. */
 void json_print_escaped(const char *s);
 
+/* Canonical section iteration order (NULL-terminated), shared by all modes. */
+extern const char *const kasld_render_sections[];
+
+/* Window-vs-pin test for the guaranteed image-base window (1 = still a range,
+ * so a shown concrete base is speculative). Single source of truth. */
+int kaslr_virt_is_window(void);
+int kaslr_phys_is_window(void);
+
+/* 1 when any memory-KASLR region (page_offset/vmalloc/vmemmap) has a narrowed
+ * edge — the gate for emitting the Memory-KASLR section. */
+int summary_has_memory_kaslr(const struct summary *s);
+
 /* -------------------------------------------------------------------------
  * Per-mode entry points — each is defined in one src/render/<mode>.c file.
  * render_summary() in render.c dispatches to these based on the output flags.

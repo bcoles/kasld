@@ -70,6 +70,31 @@ const char *result_section(const struct result *r) {
 
 int in_bounds(const struct result *r) { return result_in_bounds(r, &layout); }
 
+/* Canonical section iteration order shared by every renderer's per-(type,
+ * section) grouping. NULL-terminated. type_order stays per-mode (markdown
+ * lists physical first), so only the section list is shared here. */
+const char *const kasld_render_sections[] = {
+    "text", "module", "directmap", "data", "bss", "dram", "mmio", NULL};
+
+/* The guaranteed image-base window is still a range, not pinned to one value —
+ * so a concrete base presented against it is speculative, not proven. The
+ * single authoritative test of the window-vs-pin distinction for renderers. */
+int kaslr_virt_is_window(void) {
+  return layout.virt_kaslr_text_max != layout.virt_kaslr_text_min;
+}
+int kaslr_phys_is_window(void) {
+  return layout.phys_kaslr_text_max != layout.phys_kaslr_text_min;
+}
+
+/* A memory-KASLR region (page_offset / vmalloc / vmemmap) has a narrowed edge:
+ * the gate every renderer uses to decide whether to emit the Memory-KASLR
+ * section. Pure read of the resolved summary. */
+int summary_has_memory_kaslr(const struct summary *s) {
+  return s->kaslr.virt_page_offset_min || s->kaslr.virt_page_offset_max ||
+         s->kaslr.virt_vmalloc_min || s->kaslr.virt_vmalloc_max ||
+         s->kaslr.virt_vmemmap_min || s->kaslr.virt_vmemmap_max;
+}
+
 /* -------------------------------------------------------------------------
  * Output helpers
  * -------------------------------------------------------------------------

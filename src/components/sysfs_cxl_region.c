@@ -47,6 +47,7 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include <dirent.h>
 #include <errno.h>
 #include <stdio.h>
@@ -78,7 +79,7 @@ int main(void) {
   int device_count = 0;
   int count = 0;
 
-  fprintf(stderr, "[.] searching %s for CXL region HPA addresses ...\n", base);
+  kasld_info("searching %s for CXL region HPA addresses ...", base);
 
   d = kasld_opendir(base);
   if (!d) {
@@ -126,13 +127,12 @@ int main(void) {
     unsigned long long end = addr + size - 1; /* inclusive last byte */
 
     if (size && end > addr && (unsigned long)end == end) {
-      fprintf(stderr, "[+] sysfs_cxl_region %s: phys = 0x%016llx - 0x%016llx\n",
-              label, addr, end);
+      kasld_found("sysfs_cxl_region %s: phys = 0x%016llx - 0x%016llx", label,
+                  addr, end);
       kasld_result_range(KASLD_TYPE_PHYS, REGION_PMEM, (unsigned long)addr,
                          (unsigned long)end, label, CONF_PARSED);
     } else {
-      fprintf(stderr, "[+] sysfs_cxl_region %s: phys = 0x%016llx\n", label,
-              addr);
+      kasld_found("sysfs_cxl_region %s: phys = 0x%016llx", label, addr);
       kasld_result_sample(KASLD_TYPE_PHYS, REGION_PMEM, (unsigned long)addr,
                           label, CONF_PARSED);
     }
@@ -140,8 +140,7 @@ int main(void) {
 
 #ifdef phys_to_directmap_virt
     unsigned long virt = phys_to_directmap_virt((unsigned long)addr);
-    fprintf(stderr, "[+] sysfs_cxl_region %s: directmap va = 0x%016lx\n", label,
-            virt);
+    kasld_found("sysfs_cxl_region %s: directmap va = 0x%016lx", label, virt);
     kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, label,
                         CONF_PARSED);
 #endif
@@ -150,12 +149,10 @@ int main(void) {
 
   if (!count) {
     if (!device_count)
-      fprintf(stderr, "[-] no CXL region devices found in %s\n", base);
+      kasld_err("no CXL region devices found in %s", base);
     else
-      fprintf(stderr,
-              "[-] %d CXL region(s) found but no allocated "
-              "resource addresses\n",
-              device_count);
+      kasld_err("%d CXL region(s) found but no allocated resource addresses",
+                device_count);
     return KASLD_EXIT_UNAVAILABLE;
   }
 

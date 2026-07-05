@@ -107,10 +107,7 @@ void render_markdown(const struct summary *s) {
   /* KASLR analysis. Mirrors render_kaslr_text: shown only when there is a
    * concrete base, a narrowed text range, or a Memory-KASLR bound — and never
    * when KASLR is disabled/unsupported (covered by the banner above). */
-  int mem_kaslr = s->kaslr.virt_page_offset_min ||
-                  s->kaslr.virt_page_offset_max || s->kaslr.virt_vmalloc_min ||
-                  s->kaslr.virt_vmalloc_max || s->kaslr.virt_vmemmap_min ||
-                  s->kaslr.virt_vmemmap_max;
+  int mem_kaslr = summary_has_memory_kaslr(s);
   if (!s->kaslr.disabled && !s->kaslr.unsupported &&
       (s->kaslr.vtext || s->kaslr.has_phys || s->kaslr.vslots > 0 ||
        s->kaslr.pslots > 0 || mem_kaslr)) {
@@ -121,10 +118,8 @@ void render_markdown(const struct summary *s) {
     /* A concrete base while the guaranteed window is still a range = the base
      * came from a sub-sound-floor leak: speculative, not proven. Show the
      * guaranteed (inferred) range too, and mark the base speculative. */
-    int v_spec = s->kaslr.vtext &&
-                 layout.virt_kaslr_text_max != layout.virt_kaslr_text_min;
-    int p_spec = s->kaslr.has_phys &&
-                 layout.phys_kaslr_text_max != layout.phys_kaslr_text_min;
+    int v_spec = s->kaslr.vtext && kaslr_virt_is_window();
+    int p_spec = s->kaslr.has_phys && kaslr_phys_is_window();
 
     if ((v_spec || !s->kaslr.vtext) && s->kaslr.vslots > 0) {
       printf("| Inferred text range | `0x%016lx` - `0x%016lx` |\n",
@@ -181,8 +176,7 @@ void render_markdown(const struct summary *s) {
   }
 
   /* Result groups */
-  const char *section_order[] = {"text", "module", "directmap", "data",
-                                 "bss",  "dram",   "mmio",      NULL};
+  const char *const *section_order = kasld_render_sections;
   enum kasld_addr_type type_order[] = {KASLD_TYPE_PHYS, KASLD_TYPE_VIRT,
                                        KASLD_TYPE_UNKNOWN};
 

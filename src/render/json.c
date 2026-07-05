@@ -236,8 +236,7 @@ void render_json(const struct summary *s) {
    * base came from a sub-sound-floor leak: it is a speculative best-guess, not
    * proven. Mark it, and ALSO emit the guaranteed range (inferred) so consumers
    * still get the sound window. */
-  int v_spec = s->kaslr.vtext &&
-               layout.virt_kaslr_text_max != layout.virt_kaslr_text_min;
+  int v_spec = s->kaslr.vtext && kaslr_virt_is_window();
   if (s->kaslr.vtext) {
     printf(",\n    \"virtual\": {\n");
     printf("      \"image_base\": \"0x%016lx\",\n", s->kaslr.vtext);
@@ -277,8 +276,7 @@ void render_json(const struct summary *s) {
     printf("    }");
   }
 
-  int p_spec = s->kaslr.has_phys &&
-               layout.phys_kaslr_text_max != layout.phys_kaslr_text_min;
+  int p_spec = s->kaslr.has_phys && kaslr_phys_is_window();
   if (s->kaslr.has_phys) {
     printf(",\n    \"physical\": {\n");
     printf("      \"image_base\": \"0x%016lx\",\n", s->kaslr.ptext);
@@ -320,9 +318,7 @@ void render_json(const struct summary *s) {
    * when at least one region has been narrowed from its compile-time
    * default. Untightened sides emit JSON `null` so consumers can
    * distinguish "no bound" from "bound that happens to be zero". */
-  if (s->kaslr.virt_page_offset_min || s->kaslr.virt_page_offset_max ||
-      s->kaslr.virt_vmalloc_min || s->kaslr.virt_vmalloc_max ||
-      s->kaslr.virt_vmemmap_min || s->kaslr.virt_vmemmap_max) {
+  if (summary_has_memory_kaslr(s)) {
     printf(",\n    \"memory_kaslr\": {\n");
     int first = 1;
     struct {
@@ -369,8 +365,7 @@ void render_json(const struct summary *s) {
   printf("\n  },\n");
 
   /* groups — build ordered list of unique (type, section) keys */
-  const char *section_order[] = {"text", "module", "directmap", "data",
-                                 "bss",  "dram",   "mmio",      NULL};
+  const char *const *section_order = kasld_render_sections;
   enum kasld_addr_type type_order[] = {KASLD_TYPE_VIRT, KASLD_TYPE_PHYS,
                                        KASLD_TYPE_UNKNOWN};
 
