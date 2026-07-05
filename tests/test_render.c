@@ -468,6 +468,25 @@ static void test_render_oneline_dmap_is_base_not_interior(void) {
   assert(strstr(render_cap, "12345ab000") == NULL);
 }
 
+/* oneline `text=` presents the engine-resolved image base only, never a raw
+ * leak consensus. set_rich_render_state seeds an in-bounds VIRT text base leak
+ * (which the old consensus fallback would surface); with the engine reporting
+ * no resolved base (vtext==0), `text=` must be omitted — an unresolved base is
+ * not backfilled from a leak (sibling of the dmap= base/interior rule). */
+static void test_render_oneline_text_omits_when_engine_unresolved(void) {
+  struct summary s;
+  set_rich_render_state(&s);
+  s.kaslr.vtext = 0; /* engine resolved no concrete base */
+  s.kaslr.vstext = 0;
+
+  set_render_mode(0, 1, 0);
+  capture_stdout(wrap_render_summary, &s);
+  set_render_mode(0, 0, 0);
+
+  /* Leading space matches oneline's " text=" and avoids matching " stext=". */
+  assert(strstr(render_cap, " text=") == NULL);
+}
+
 /* set_rich_render_state seeds a single-origin record; this overlays a second
  * and third origin on the VIRT/KERNEL_TEXT record so the renderer tests below
  * exercise the multi-contributor display path that text.c, markdown.c, and
@@ -1355,6 +1374,7 @@ int main(void) {
   RUN(test_render_markdown_with_rich_content);
   RUN(test_render_oneline_with_rich_content);
   RUN(test_render_oneline_dmap_is_base_not_interior);
+  RUN(test_render_oneline_text_omits_when_engine_unresolved);
   RUN(test_render_text_lists_all_origins);
   RUN(test_render_text_leaks_aggregates_across_records);
   RUN(test_render_json_emits_origins_array);

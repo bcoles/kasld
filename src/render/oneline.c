@@ -33,15 +33,12 @@ void render_oneline(const struct summary *s) {
    * `slide=` is unambiguously associated with the preceding text base.
    * On decoupled arches where virt and phys have independent slides, the
    * placement disambiguates which side the slide applies to. */
-  /* Image base (_text), matching the other renderers; fall back to the raw text
-   * consensus only if the engine produced no single value. */
-  unsigned long vtext =
-      s->kaslr.vtext
-          ? s->kaslr.vtext
-          : section_consensus(KASLD_TYPE_VIRT, "text", REGION_UNKNOWN);
-  if (vtext)
-    printf(" text=0x%lx", vtext);
-  if (s->kaslr.vstext && s->kaslr.vstext != vtext)
+  /* Image base (_text): the engine-resolved base (a pin, or a concrete base
+   * reconciled against the likely window) — never a raw leak consensus, so an
+   * interior text sample cannot surface as the base. Omit when unresolved. */
+  if (s->kaslr.vtext)
+    printf(" text=0x%lx", s->kaslr.vtext);
+  if (s->kaslr.vtext && s->kaslr.vstext && s->kaslr.vstext != s->kaslr.vtext)
     printf(" stext=0x%lx", s->kaslr.vstext);
   if (s->kaslr.vtext) {
     long abs_vs = s->kaslr.vslide < 0 ? -s->kaslr.vslide : s->kaslr.vslide;
@@ -51,14 +48,11 @@ void render_oneline(const struct summary *s) {
   if (s->kaslr.vtext && s->kaslr.vbits > 0)
     printf(" entropy=%dbits", s->kaslr.vbits);
 
-  /* Physical image base + slide + residual entropy — sibling block. */
-  unsigned long ptext =
-      s->kaslr.ptext
-          ? s->kaslr.ptext
-          : section_consensus(KASLD_TYPE_PHYS, "text", REGION_UNKNOWN);
-  if (ptext)
-    printf(" ptext=0x%lx", ptext);
-  if (s->kaslr.pstext && s->kaslr.pstext != ptext)
+  /* Physical image base + slide + residual entropy — sibling block. Same rule:
+   * the engine-resolved base only, never a leak consensus. */
+  if (s->kaslr.ptext)
+    printf(" ptext=0x%lx", s->kaslr.ptext);
+  if (s->kaslr.ptext && s->kaslr.pstext && s->kaslr.pstext != s->kaslr.ptext)
     printf(" pstext=0x%lx", s->kaslr.pstext);
   if (s->kaslr.has_phys && s->kaslr.ptext) {
     long abs_ps = s->kaslr.pslide < 0 ? -s->kaslr.pslide : s->kaslr.pslide;
