@@ -57,9 +57,9 @@ int oneline_output;
 int markdown_output;
 int color_output;
 int explain_mode;
-int fast_mode;
+static int fast_mode;
 int hardening_mode;
-int experimental_mode;
+static int experimental_mode;
 
 #define MAX_SKIP_PATTERNS 64
 static char skip_patterns[MAX_SKIP_PATTERNS][256];
@@ -116,7 +116,6 @@ struct kasld_layout layout = {
 
 /* Constants used only by the orchestrator */
 #define KASLD_PATH_MAX 4096
-#define LINE_LEN 512
 #define DEFAULT_TIMEOUT_SECS 30
 #define FAST_TIMEOUT_SECS 2
 static int component_timeout = DEFAULT_TIMEOUT_SECS;
@@ -164,7 +163,7 @@ int num_comp_logs;
 enum orchestrator_saturation {
   ORCH_SAT_RESULTS_FULL = 1u << 0, /* MAX_RESULTS hit; drops new records */
   ORCH_SAT_COMPONENT_LINES_DROPPED =
-      1u << 2, /* alloc failure during verbose-line capture */
+      1u << 1, /* alloc failure during verbose-line capture */
 };
 static unsigned int orchestrator_saturation;
 
@@ -1273,7 +1272,7 @@ static void apply_skip_filter(void) {
 static int handle_component_line(struct component_log *clog,
                                  const char *comp_method, const char *origin,
                                  const char *content, size_t len) {
-  char line[LINE_LEN];
+  char line[MAX_LINE_LEN];
   if (len >= sizeof(line))
     len = sizeof(line) - 1;
   memcpy(line, content, len);
@@ -1434,7 +1433,7 @@ static int run_component(const struct component *c) {
 
   /* Non-blocking read with poll() timeout */
   struct pollfd pfd = {.fd = pipefd[0], .events = POLLIN};
-  char buf[LINE_LEN];
+  char buf[MAX_LINE_LEN];
   size_t buf_pos = 0;
   int timed_out = 0;
   int tagged_this_run = 0;
