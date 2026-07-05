@@ -439,9 +439,10 @@ static void test_render_oneline_dmap_is_base_not_interior(void) {
   struct summary s;
   set_rich_render_state(&s);
 
-  const unsigned long base = 0xffff8e0000000000ul; /* aligned directmap base */
-  const unsigned long interior =
-      0xffff8f12345ab000ul; /* interior leak, not base */
+  /* Values fit unsigned long on 32- and 64-bit arches; the render logic under
+   * test is arch-independent. */
+  const unsigned long base = 0xc0000000ul;     /* aligned directmap base */
+  const unsigned long interior = 0xc1a2b000ul; /* interior leak, not base */
   struct result *r = push_result();
   r->type = KASLD_TYPE_VIRT;
   r->region = REGION_DIRECTMAP;
@@ -464,8 +465,8 @@ static void test_render_oneline_dmap_is_base_not_interior(void) {
   set_render_mode(0, 0, 0);
   layout.virt_page_offset = saved;
 
-  assert(strstr(render_cap, "dmap=0xffff8e0000000000") != NULL);
-  assert(strstr(render_cap, "12345ab000") == NULL);
+  assert(strstr(render_cap, "dmap=0xc0000000") != NULL);
+  assert(strstr(render_cap, "c1a2b000") == NULL);
 }
 
 /* oneline `text=` presents the engine-resolved image base only, never a raw
