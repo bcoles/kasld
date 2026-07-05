@@ -431,6 +431,43 @@ static void test_render_oneline_with_rich_content(void) {
   set_render_mode(0, 0, 0);
 }
 
+/* The oneline `dmap=` field reports the direct-map BASE (PAGE_OFFSET, from the
+ * engine-resolved layout.virt_page_offset), never an interior linear-map
+ * sample. Seed an interior directmap leak alongside a resolved base and assert
+ * the base — not the leak — is what `dmap=` prints. */
+static void test_render_oneline_dmap_is_base_not_interior(void) {
+  struct summary s;
+  set_rich_render_state(&s);
+
+  const unsigned long base = 0xffff8e0000000000ul; /* aligned directmap base */
+  const unsigned long interior =
+      0xffff8f12345ab000ul; /* interior leak, not base */
+  struct result *r = push_result();
+  r->type = KASLD_TYPE_VIRT;
+  r->region = REGION_DIRECTMAP;
+  r->pos = POS_INTERIOR;
+  r->conf = CONF_PARSED;
+  r->lo = interior;
+  r->set_mask = LO_SET;
+  snprintf(r->origins[0], ORIGIN_LEN, "synthetic_test");
+  r->method_set = 1u << KM_PARSED;
+  r->provenance_count = 1;
+
+  /* Engine-resolved base: virt_page_offset_min signals it, layout carries the
+   * rendered anchor. */
+  s.kaslr.virt_page_offset_min = base;
+  unsigned long saved = layout.virt_page_offset;
+  layout.virt_page_offset = base;
+
+  set_render_mode(0, 1, 0);
+  capture_stdout(wrap_render_summary, &s);
+  set_render_mode(0, 0, 0);
+  layout.virt_page_offset = saved;
+
+  assert(strstr(render_cap, "dmap=0xffff8e0000000000") != NULL);
+  assert(strstr(render_cap, "12345ab000") == NULL);
+}
+
 /* set_rich_render_state seeds a single-origin record; this overlays a second
  * and third origin on the VIRT/KERNEL_TEXT record so the renderer tests below
  * exercise the multi-contributor display path that text.c, markdown.c, and
@@ -1317,6 +1354,7 @@ int main(void) {
   RUN(test_render_json_with_rich_content);
   RUN(test_render_markdown_with_rich_content);
   RUN(test_render_oneline_with_rich_content);
+  RUN(test_render_oneline_dmap_is_base_not_interior);
   RUN(test_render_text_lists_all_origins);
   RUN(test_render_text_leaks_aggregates_across_records);
   RUN(test_render_json_emits_origins_array);

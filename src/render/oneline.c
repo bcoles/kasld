@@ -68,11 +68,17 @@ void render_oneline(const struct summary *s) {
   if (s->kaslr.has_phys && s->kaslr.ptext && s->kaslr.pbits > 0)
     printf(" pentropy=%dbits", s->kaslr.pbits);
 
-  /* Direct map */
-  unsigned long vdmap =
-      section_consensus(KASLD_TYPE_VIRT, "directmap", REGION_UNKNOWN);
-  if (vdmap)
-    printf(" dmap=0x%lx", vdmap);
+  /* Direct-map base (PAGE_OFFSET): the engine-resolved base — a pinned value
+   * or the proven aligned floor — not an interior linear-map sample. On
+   * randomized arches show it once the engine has established it (via a
+   * directmap leak); where the base is architecturally fixed, a directmap leak
+   * confirms the linear map and the base is the compile-time PAGE_OFFSET. */
+  int have_dmap =
+      s->kaslr.virt_page_offset_min ||
+      (DIRECTMAP_STATIC &&
+       section_consensus(KASLD_TYPE_VIRT, "directmap", REGION_UNKNOWN));
+  if (have_dmap && layout.virt_page_offset)
+    printf(" dmap=0x%lx", layout.virt_page_offset);
 
   /* Physical DRAM range */
   unsigned long pdram_lo, pdram_hi;
