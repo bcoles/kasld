@@ -19,183 +19,6 @@
 #include <sys/utsname.h>
 #include <unistd.h>
 
-/* is_kernel_locating_region is shared from kasld/regions.h (via internal.h):
- * leaks that directly disclose where the kernel image sits in memory. They
- * typically arrive tagged with a generic section (e.g. PHYS/DRAM for a CR3
- * read) but the region pinpoints them as kernel-base evidence. The compact
- * Results renderer promotes these to their own line so the prize isn't buried
- * inside a generic "Physical DRAM" range that also covers ram_base, ram_top,
- * initrd, swiotlb, etc. */
-
-/* Display label for a kernel-locating region presented inline as its own
- * Results line. Only relevant when the underlying section is generic
- * (DRAM / MMIO); for sections that already imply kernel scope (text, data,
- * module) the section label is sufficient. */
-static const char *kernel_region_display_name(enum kasld_addr_type type,
-                                              enum kasld_region region) {
-  int phys = (type == KASLD_TYPE_PHYS);
-  switch (region) {
-  case REGION_KERNEL_IMAGE:
-    return phys ? "Kernel image (physical)" : "Kernel image (virtual)";
-  case REGION_KERNEL_TEXT:
-    return phys ? "Kernel text (physical)" : "Kernel text (virtual)";
-  case REGION_KERNEL_DATA:
-    return phys ? "Kernel data (physical)" : "Kernel data (virtual)";
-  case REGION_KERNEL_BSS:
-    return phys ? "Kernel BSS (physical)" : "Kernel BSS (virtual)";
-  default:
-    return NULL;
-  }
-}
-
-/* Predicate matching the Results-renderer subgroup filter.
- *   include_region == REGION_UNKNOWN && exclude_kernel_locating == 0: all
- *     in-bounds results for (type, section).
- *   include_region == REGION_UNKNOWN && exclude_kernel_locating == 1: skip
- *     kernel-locating regions (used for the catch-all line when
- *     kernel-locating regions have been promoted to dedicated lines).
- *   include_region != REGION_UNKNOWN: only that exact region. */
-static int subgroup_match(const struct result *r, enum kasld_addr_type type,
-                          const char *section, enum kasld_region include_region,
-                          int exclude_kernel_locating) {
-  if (r->type != type || strcmp(result_section(r), section) != 0 ||
-      !in_bounds(r))
-    return 0;
-  if (include_region != REGION_UNKNOWN)
-    return r->region == include_region;
-  if (exclude_kernel_locating && is_kernel_locating_region(r->region))
-    return 0;
-  return 1;
-}
-
-/* Compute and print one compact-mode Results line for a (type, section)
- * subgroup filtered by region. Mirrors the format used by the original
- * single-group renderer. Silently no-ops when no results match. */
-static void print_compact_subgroup(const char *display_name,
-                                   enum kasld_addr_type type,
-                                   const char *section,
-                                   enum kasld_region include_region,
-                                   int exclude_kernel_locating) {
-  unsigned long lo = 0, hi = 0;
-  int count = 0;
-  int found = 0;
-
-  /* Aligned-address scoreboard for consensus selection (conf_weight). */
-  unsigned long addrs[MAX_RESULTS];
-  int scores[MAX_RESULTS];
-  int hits[MAX_RESULTS];
-  int n_addrs = 0;
-
-  for (int i = 0; i < num_results; i++) {
-    const struct result *r = &results[i];
-    if (!subgroup_match(r, type, section, include_region,
-                        exclude_kernel_locating))
-      continue;
-
-    unsigned long a = anchor_addr(r);
-    if (!found || a < lo)
-      lo = a;
-    if (a > hi)
-      hi = a;
-    found = 1;
-    count++;
-
-    int w = conf_weight(r->conf);
-    int seen = 0;
-    for (int j = 0; j < n_addrs; j++) {
-      if (addrs[j] == a) {
-        scores[j] += w;
-        hits[j]++;
-        seen = 1;
-        break;
-      }
-    }
-    if (!seen && n_addrs < MAX_RESULTS) {
-      addrs[n_addrs] = a;
-      scores[n_addrs] = w;
-      hits[n_addrs] = 1;
-      n_addrs++;
-    }
-  }
-
-  if (count == 0)
-    return;
-
-  /* Pick consensus: highest score; ties → most hits; ties → lowest addr. */
-  int best = 0;
-  for (int i = 1; i < n_addrs; i++) {
-    if (scores[i] > scores[best] ||
-        (scores[i] == scores[best] && hits[i] > hits[best]) ||
-        (scores[i] == scores[best] && hits[i] == hits[best] &&
-         addrs[i] < addrs[best]))
-      best = i;
-  }
-  unsigned long consensus = addrs[best];
-
-  /* Method label and conflict count over the filtered subset. */
-  const char *top_method = NULL;
-  int top_weight = 0;
-  int sources_at_consensus = 0;
-  int conflicts = 0;
-  for (int i = 0; i < num_results; i++) {
-    const struct result *r = &results[i];
-    if (!subgroup_match(r, type, section, include_region,
-                        exclude_kernel_locating))
-      continue;
-    if (anchor_addr(r) == consensus) {
-      sources_at_consensus++;
-      int w = conf_weight(r->conf);
-      if (w > top_weight) {
-        top_weight = w;
-        top_method = result_method(r);
-      }
-    } else {
-      conflicts++;
-    }
-  }
-  if (!top_method)
-    top_method = "unknown";
-
-  char hbuf[32];
-  printf("  %-26s", display_name);
-  if (lo != hi) {
-    unsigned long span = hi - lo;
-    printf("%s0x%016lx - 0x%016lx%s  (%s, %d source%s, %d conflict%s, %s)\n",
-           c(C_GREEN), lo, hi, c(C_RESET), human_size(span, hbuf, sizeof(hbuf)),
-           sources_at_consensus, sources_at_consensus == 1 ? "" : "s",
-           conflicts, conflicts == 1 ? "" : "s", top_method);
-  } else {
-    printf("%s0x%016lx%s  (%d source%s)\n", c(C_GREEN), consensus, c(C_RESET),
-           count, count == 1 ? "" : "s");
-  }
-}
-
-/* Enumerate distinct kernel-locating regions present in this (type, section)
- * subgroup. Returns the count; up to MAX_RESULTS entries written into out. */
-static int collect_kernel_regions(enum kasld_addr_type type,
-                                  const char *section,
-                                  enum kasld_region out[]) {
-  int n = 0;
-  for (int i = 0; i < num_results; i++) {
-    const struct result *r = &results[i];
-    if (r->type != type || strcmp(result_section(r), section) != 0 ||
-        !in_bounds(r))
-      continue;
-    if (!is_kernel_locating_region(r->region))
-      continue;
-    int dup = 0;
-    for (int j = 0; j < n; j++) {
-      if (out[j] == r->region) {
-        dup = 1;
-        break;
-      }
-    }
-    if (!dup && n < MAX_RESULTS)
-      out[n++] = r->region;
-  }
-  return n;
-}
-
 /* Group key for "already printed" tracking. Sections are short, fixed
  * strings from region_info[].section_name — copy by pointer (those are
  * static literals owned by region_info.c). */
@@ -1450,9 +1273,8 @@ void render_text(const struct summary *s) {
     return;
   }
 
-  /* Verbose mode below: original full output (component tally, per-(type,
-   * section, region) blocks, KASLR analysis, derived addresses, layout
-   * maps). */
+  /* Verbose mode below: full output (component tally, per-(type, section,
+   * region) blocks, KASLR analysis, derived addresses, layout maps). */
   /* Component outcome summary (skip in quiet mode) */
   if (!quiet && s->stats.total > 0) {
     printf("%sComponents: %d total", c(C_DIM), s->stats.total);
@@ -1526,134 +1348,63 @@ void render_text(const struct summary *s) {
   enum kasld_addr_type type_order[] = {KASLD_TYPE_VIRT, KASLD_TYPE_PHYS,
                                        KASLD_TYPE_UNKNOWN};
 
-  if (verbose) {
-    /* Verbose: one block per (type, section, region) — cross-source
-     * confirmations of the same memory landmark collapse into a single
-     * block, making it obvious which regions have multiple agreeing sources. */
-    for (int t = 0; type_order[t] != KASLD_TYPE_UNKNOWN; t++) {
-      for (int si = 0; section_order[si]; si++) {
-        if (group_already_printed(type_order[t], section_order[si]))
-          continue;
-
-        /* Enumerate distinct regions in this (type, section) group. */
-        enum kasld_region seen[MAX_RESULTS];
-        int nseen = 0;
-        for (int i = 0; i < num_results; i++) {
-          struct result *r = &results[i];
-          if (r->type != type_order[t] ||
-              strcmp(result_section(r), section_order[si]) != 0)
-            continue;
-          int dup = 0;
-          for (int j = 0; j < nseen; j++)
-            if (seen[j] == r->region) {
-              dup = 1;
-              break;
-            }
-          if (!dup && nseen < MAX_RESULTS)
-            seen[nseen++] = r->region;
-        }
-        for (int j = 0; j < nseen; j++)
-          print_group(type_order[t], section_order[si], seen[j]);
-
-        mark_group_printed(type_order[t], section_order[si]);
-      }
-    }
-
-    /* Print any remaining groups not in the predefined order */
-    for (int i = 0; i < num_results; i++) {
-      struct result *r = &results[i];
-      const char *sec = result_section(r);
-      if (group_already_printed(r->type, sec))
+  /* One block per (type, section, region) — cross-source confirmations of the
+   * same memory landmark collapse into a single block, making it obvious which
+   * regions have multiple agreeing sources. */
+  for (int t = 0; type_order[t] != KASLD_TYPE_UNKNOWN; t++) {
+    for (int si = 0; section_order[si]; si++) {
+      if (group_already_printed(type_order[t], section_order[si]))
         continue;
 
-      enum kasld_region seen2[MAX_RESULTS];
-      int nseen2 = 0;
-      for (int j = 0; j < num_results; j++) {
-        struct result *r2 = &results[j];
-        if (r2->type != r->type || strcmp(result_section(r2), sec) != 0)
+      /* Enumerate distinct regions in this (type, section) group. */
+      enum kasld_region seen[MAX_RESULTS];
+      int nseen = 0;
+      for (int i = 0; i < num_results; i++) {
+        struct result *r = &results[i];
+        if (r->type != type_order[t] ||
+            strcmp(result_section(r), section_order[si]) != 0)
           continue;
         int dup = 0;
-        for (int k = 0; k < nseen2; k++)
-          if (seen2[k] == r2->region) {
+        for (int j = 0; j < nseen; j++)
+          if (seen[j] == r->region) {
             dup = 1;
             break;
           }
-        if (!dup && nseen2 < MAX_RESULTS)
-          seen2[nseen2++] = r2->region;
+        if (!dup && nseen < MAX_RESULTS)
+          seen[nseen++] = r->region;
       }
-      for (int j = 0; j < nseen2; j++)
-        print_group(r->type, sec, seen2[j]);
-      mark_group_printed(r->type, sec);
+      for (int j = 0; j < nseen; j++)
+        print_group(type_order[t], section_order[si], seen[j]);
+
+      mark_group_printed(type_order[t], section_order[si]);
     }
-  } else {
-    /* Compact: one line per (type, section) for non-kernel-locating
-     * regions, plus one line per kernel-locating region (kernel_image,
-     * kernel_text, kernel_data, kernel_bss) so direct kernel-base
-     * disclosures are not buried inside a generic "Physical DRAM" /
-     * "Physical MMIO" range. */
-    for (int t = 0; type_order[t] != KASLD_TYPE_UNKNOWN; t++) {
-      for (int si = 0; section_order[si]; si++) {
-        if (group_already_printed(type_order[t], section_order[si]))
-          continue;
+  }
 
-        const char *catchall_name =
-            section_display_name(type_order[t], section_order[si]);
-        if (!catchall_name)
-          continue;
+  /* Print any remaining groups not in the predefined order */
+  for (int i = 0; i < num_results; i++) {
+    struct result *r = &results[i];
+    const char *sec = result_section(r);
+    if (group_already_printed(r->type, sec))
+      continue;
 
-        /* Promote each kernel-locating region present in this subgroup to
-         * its own line. Print these before the catch-all so the prize is
-         * visible at the top. */
-        enum kasld_region kr_seen[MAX_RESULTS];
-        int nkr =
-            collect_kernel_regions(type_order[t], section_order[si], kr_seen);
-        for (int k = 0; k < nkr; k++) {
-          const char *kr_name =
-              kernel_region_display_name(type_order[t], kr_seen[k]);
-          if (!kr_name)
-            kr_name = catchall_name;
-          print_compact_subgroup(kr_name, type_order[t], section_order[si],
-                                 kr_seen[k], 0);
+    enum kasld_region seen2[MAX_RESULTS];
+    int nseen2 = 0;
+    for (int j = 0; j < num_results; j++) {
+      struct result *r2 = &results[j];
+      if (r2->type != r->type || strcmp(result_section(r2), sec) != 0)
+        continue;
+      int dup = 0;
+      for (int k = 0; k < nseen2; k++)
+        if (seen2[k] == r2->region) {
+          dup = 1;
+          break;
         }
-
-        /* Catch-all line covers the rest. When kernel-locating regions
-         * were promoted, exclude them from the catch-all so its lo/hi
-         * span reflects only background landmarks (ram_base, ram_top,
-         * initrd, etc.). When no kernel-locating regions were present,
-         * this is identical to the original "all results" behaviour. */
-        print_compact_subgroup(catchall_name, type_order[t], section_order[si],
-                               REGION_UNKNOWN, nkr > 0);
-
-        mark_group_printed(type_order[t], section_order[si]);
-      }
+      if (!dup && nseen2 < MAX_RESULTS)
+        seen2[nseen2++] = r2->region;
     }
-
-    /* Any remaining groups not in predefined order — same kernel-locating
-     * promotion as the predefined-order pass above. */
-    for (int i = 0; i < num_results; i++) {
-      struct result *r = &results[i];
-      const char *sec = result_section(r);
-      if (group_already_printed(r->type, sec))
-        continue;
-
-      const char *catchall_name = section_display_name(r->type, sec);
-      if (!catchall_name)
-        continue;
-
-      enum kasld_region kr_seen[MAX_RESULTS];
-      int nkr = collect_kernel_regions(r->type, sec, kr_seen);
-      for (int k = 0; k < nkr; k++) {
-        const char *kr_name = kernel_region_display_name(r->type, kr_seen[k]);
-        if (!kr_name)
-          kr_name = catchall_name;
-        print_compact_subgroup(kr_name, r->type, sec, kr_seen[k], 0);
-      }
-      print_compact_subgroup(catchall_name, r->type, sec, REGION_UNKNOWN,
-                             nkr > 0);
-
-      mark_group_printed(r->type, sec);
-    }
-    printf("\n");
+    for (int j = 0; j < nseen2; j++)
+      print_group(r->type, sec, seen2[j]);
+    mark_group_printed(r->type, sec);
   }
 
   render_kaslr_text(s);
