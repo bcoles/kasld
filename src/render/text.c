@@ -212,7 +212,8 @@ static int ilog2_ul(unsigned long v) {
  * unlabeled name column) directly under the region's guaranteed row. lmin/lmax
  * are 0/0 when there is no likely window. A single value (lmin == lmax) is a
  * pinned best-guess; otherwise a tighter sub-range. */
-static void render_memory_kaslr_likely(unsigned long lmin, unsigned long lmax) {
+static void render_memory_kaslr_likely(unsigned long lmin, unsigned long lmax,
+                                       unsigned long slots) {
   if (!lmin && !lmax)
     return;
   if (lmin > lmax)
@@ -222,8 +223,6 @@ static void render_memory_kaslr_likely(unsigned long lmin, unsigned long lmax) {
            c(C_DIM), lmin, c(C_RESET));
     return;
   }
-  unsigned long align = (unsigned long)RANDOMIZE_MEMORY_ALIGN;
-  unsigned long slots = (align && lmax > lmin) ? (lmax - lmin) / align : 0;
   if (slots > 1)
     printf("  %-21s %s0x%016lx - 0x%016lx  likely (speculative; %lu cand)%s\n",
            "", c(C_DIM), lmin, lmax, slots, c(C_RESET));
@@ -233,8 +232,9 @@ static void render_memory_kaslr_likely(unsigned long lmin, unsigned long lmax) {
 }
 
 static void render_memory_kaslr_bound(const char *name, unsigned long min,
-                                      unsigned long max, unsigned long lmin,
-                                      unsigned long lmax) {
+                                      unsigned long max, unsigned long slots,
+                                      unsigned long lmin, unsigned long lmax,
+                                      unsigned long likely_slots) {
   if (!min && !max)
     return;
   /* Defensive: a bottom estimate (lo > hi) would print a backwards range to
@@ -253,18 +253,16 @@ static void render_memory_kaslr_bound(const char *name, unsigned long min,
            c(C_RESET));
   else {
     /* Bounded both sides: report the residual positional entropy of the region
-     * base — how many RANDOMIZE_MEMORY_ALIGN-aligned positions remain in the
-     * window (e.g. a direct-map leak narrows virt_page_offset_base to
-     * ~RAM/1GiB). */
-    unsigned long align = (unsigned long)RANDOMIZE_MEMORY_ALIGN;
-    unsigned long slots = (align && max > min) ? (max - min) / align : 0;
+     * base — the hole-aware slot count the engine resolved (quantity_slots in
+     * compute_kaslr_info), e.g. a direct-map leak narrows virt_page_offset_base
+     * to ~RAM/1GiB. */
     if (slots > 1)
       printf("  %-21s 0x%016lx - 0x%016lx  (%s%lu%s candidates, %d bits)\n",
              name, min, max, c(C_MAGENTA), slots, c(C_RESET), ilog2_ul(slots));
     else
       printf("  %-21s 0x%016lx - 0x%016lx\n", name, min, max);
   }
-  render_memory_kaslr_likely(lmin, lmax);
+  render_memory_kaslr_likely(lmin, lmax, likely_slots);
 }
 
 /* One verbose-analysis "likely (speculative)" sub-line under an inferred text
@@ -408,16 +406,20 @@ static void render_kaslr_text(const struct summary *s) {
     printf("Memory KASLR (directmap / vmalloc / vmemmap):\n");
     render_memory_kaslr_bound(
         "virt_page_offset_base", s->kaslr.virt_page_offset_min,
-        s->kaslr.virt_page_offset_max, s->kaslr.virt_page_offset_likely_min,
-        s->kaslr.virt_page_offset_likely_max);
-    render_memory_kaslr_bound("virt_vmalloc_base", s->kaslr.virt_vmalloc_min,
-                              s->kaslr.virt_vmalloc_max,
-                              s->kaslr.virt_vmalloc_likely_min,
-                              s->kaslr.virt_vmalloc_likely_max);
-    render_memory_kaslr_bound("virt_vmemmap_base", s->kaslr.virt_vmemmap_min,
-                              s->kaslr.virt_vmemmap_max,
-                              s->kaslr.virt_vmemmap_likely_min,
-                              s->kaslr.virt_vmemmap_likely_max);
+        s->kaslr.virt_page_offset_max, s->kaslr.virt_page_offset_slots,
+        s->kaslr.virt_page_offset_likely_min,
+        s->kaslr.virt_page_offset_likely_max,
+        s->kaslr.virt_page_offset_likely_slots);
+    render_memory_kaslr_bound(
+        "virt_vmalloc_base", s->kaslr.virt_vmalloc_min,
+        s->kaslr.virt_vmalloc_max, s->kaslr.virt_vmalloc_slots,
+        s->kaslr.virt_vmalloc_likely_min, s->kaslr.virt_vmalloc_likely_max,
+        s->kaslr.virt_vmalloc_likely_slots);
+    render_memory_kaslr_bound(
+        "virt_vmemmap_base", s->kaslr.virt_vmemmap_min,
+        s->kaslr.virt_vmemmap_max, s->kaslr.virt_vmemmap_slots,
+        s->kaslr.virt_vmemmap_likely_min, s->kaslr.virt_vmemmap_likely_max,
+        s->kaslr.virt_vmemmap_likely_slots);
     printf("\n");
   }
 }
@@ -1208,10 +1210,10 @@ static void render_readout(const struct summary *s) {
     unsigned long lo = s->kaslr.virt_page_offset_min;
     unsigned long hi = s->kaslr.virt_page_offset_max;
     if (lo && hi && hi >= lo) {
-      unsigned long align = (unsigned long)RANDOMIZE_MEMORY_ALIGN;
-      unsigned long slots = (align && hi > lo) ? (hi - lo) / align : 0;
+      unsigned long slots = s->kaslr.virt_page_offset_slots;
       int bits = slots > 0 ? ilog2_ul(slots) : 0;
-      readout_bound_row("Direct map base", lo, hi, slots, bits, align);
+      readout_bound_row("Direct map base", lo, hi, slots, bits,
+                        (unsigned long)RANDOMIZE_MEMORY_ALIGN);
     } else if (lo && !hi) {
       printf("  %-19s >= %s0x%016lx%s\n", "Direct map base", c(C_CYAN), lo,
              c(C_RESET));
@@ -1326,18 +1328,16 @@ void render_text(const struct summary *s) {
      * (by 128 GiB, in a different mapping entirely). */
     if (layout.virt_kaslr_text_min == layout.virt_kaslr_text_max &&
         layout.virt_kaslr_text_min != 0)
-      printf(
-          "Likely kernel image base: %s0x%016lx%s (assumes default config)\n\n",
-          c(C_GREEN), layout.virt_kaslr_text_min, c(C_RESET));
+      printf("Kernel image base: %s0x%016lx%s (KASLR off)\n\n", c(C_GREEN),
+             layout.virt_kaslr_text_min, c(C_RESET));
     else if (layout.virt_kaslr_text_min || layout.virt_kaslr_text_max)
       printf("Kernel image base: %s0x%016lx - 0x%016lx%s "
              "(KASLR off; base not pinned to a single default)\n\n",
              c(C_GREEN), layout.virt_kaslr_text_min, layout.virt_kaslr_text_max,
              c(C_RESET));
     else if (s->kaslr.default_addr)
-      printf(
-          "Likely kernel image base: %s0x%016lx%s (assumes default config)\n\n",
-          c(C_GREEN), s->kaslr.default_addr, c(C_RESET));
+      printf("Kernel image base: %s0x%016lx%s (assumes default config)\n\n",
+             c(C_GREEN), s->kaslr.default_addr, c(C_RESET));
   }
 
   /* Print each (type, section) group in a defined order */

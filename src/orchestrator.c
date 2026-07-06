@@ -2260,6 +2260,50 @@ void compute_kaslr_info(struct summary *s) {
                                   ? layout.virt_vmemmap_base_max
                                   : 0;
 
+  /* Hole-aware residual slot counts for the memory-KASLR regions, mirroring the
+   * headline vslots/pslots: routed through quantity_slots() so interior
+   * C_EXCLUDE holes (and any stride class) are reflected in the entropy the
+   * renderer prints, rather than a hole-blind (max-min)/align. Flat division is
+   * the KASLD_TESTING fallback (the engine instance is compiled out there).
+   * Only the both-sided window displays a slot count, so gate on min && max. */
+#ifndef KASLD_TESTING
+  s->kaslr.virt_page_offset_slots =
+      (s->kaslr.virt_page_offset_min && s->kaslr.virt_page_offset_max)
+          ? quantity_slots(Q_PAGE_OFFSET, &g_auth_engine.est[Q_PAGE_OFFSET],
+                           g_auth_engine.constraints,
+                           g_auth_engine.n_constraints, RANDOMIZE_MEMORY_ALIGN)
+          : 0;
+  s->kaslr.virt_vmalloc_slots =
+      (s->kaslr.virt_vmalloc_min && s->kaslr.virt_vmalloc_max)
+          ? quantity_slots(Q_VMALLOC_BASE, &g_auth_engine.est[Q_VMALLOC_BASE],
+                           g_auth_engine.constraints,
+                           g_auth_engine.n_constraints, RANDOMIZE_MEMORY_ALIGN)
+          : 0;
+  s->kaslr.virt_vmemmap_slots =
+      (s->kaslr.virt_vmemmap_min && s->kaslr.virt_vmemmap_max)
+          ? quantity_slots(Q_VMEMMAP_BASE, &g_auth_engine.est[Q_VMEMMAP_BASE],
+                           g_auth_engine.constraints,
+                           g_auth_engine.n_constraints, RANDOMIZE_MEMORY_ALIGN)
+          : 0;
+#else
+  {
+    unsigned long a = (unsigned long)RANDOMIZE_MEMORY_ALIGN;
+    s->kaslr.virt_page_offset_slots =
+        (a && s->kaslr.virt_page_offset_max > s->kaslr.virt_page_offset_min)
+            ? (s->kaslr.virt_page_offset_max - s->kaslr.virt_page_offset_min) /
+                  a
+            : 0;
+    s->kaslr.virt_vmalloc_slots =
+        (a && s->kaslr.virt_vmalloc_max > s->kaslr.virt_vmalloc_min)
+            ? (s->kaslr.virt_vmalloc_max - s->kaslr.virt_vmalloc_min) / a
+            : 0;
+    s->kaslr.virt_vmemmap_slots =
+        (a && s->kaslr.virt_vmemmap_max > s->kaslr.virt_vmemmap_min)
+            ? (s->kaslr.virt_vmemmap_max - s->kaslr.virt_vmemmap_min) / a
+            : 0;
+  }
+#endif
+
 #ifndef KASLD_TESTING
   /* Speculative "likely" sub-windows for the memory-KASLR regions: the engine's
    * all-signals snapshot may narrow a region below the sound floor (a future
@@ -2287,6 +2331,34 @@ void compute_kaslr_info(struct summary *s) {
                     s->kaslr.virt_vmemmap_min || s->kaslr.virt_vmemmap_max,
                     &s->kaslr.virt_vmemmap_likely_min,
                     &s->kaslr.virt_vmemmap_likely_max);
+
+    /* Hole-aware slot count for each likely sub-window: count over the
+     * all-signals estimate clamped to the region's likely [min, max]
+     * (quantity_ranges carves holes against that clamped interval). */
+    if (s->kaslr.virt_page_offset_likely_max) {
+      struct estimate le = g_likely.est[Q_PAGE_OFFSET];
+      le.lo = s->kaslr.virt_page_offset_likely_min;
+      le.hi = s->kaslr.virt_page_offset_likely_max;
+      s->kaslr.virt_page_offset_likely_slots =
+          quantity_slots(Q_PAGE_OFFSET, &le, g_likely.constraints,
+                         g_likely.n_constraints, RANDOMIZE_MEMORY_ALIGN);
+    }
+    if (s->kaslr.virt_vmalloc_likely_max) {
+      struct estimate le = g_likely.est[Q_VMALLOC_BASE];
+      le.lo = s->kaslr.virt_vmalloc_likely_min;
+      le.hi = s->kaslr.virt_vmalloc_likely_max;
+      s->kaslr.virt_vmalloc_likely_slots =
+          quantity_slots(Q_VMALLOC_BASE, &le, g_likely.constraints,
+                         g_likely.n_constraints, RANDOMIZE_MEMORY_ALIGN);
+    }
+    if (s->kaslr.virt_vmemmap_likely_max) {
+      struct estimate le = g_likely.est[Q_VMEMMAP_BASE];
+      le.lo = s->kaslr.virt_vmemmap_likely_min;
+      le.hi = s->kaslr.virt_vmemmap_likely_max;
+      s->kaslr.virt_vmemmap_likely_slots =
+          quantity_slots(Q_VMEMMAP_BASE, &le, g_likely.constraints,
+                         g_likely.n_constraints, RANDOMIZE_MEMORY_ALIGN);
+    }
   }
 #endif
 

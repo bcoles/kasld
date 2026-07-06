@@ -400,6 +400,13 @@ struct kaslr_info {
   unsigned long virt_page_offset_likely_min, virt_page_offset_likely_max;
   unsigned long virt_vmalloc_likely_min, virt_vmalloc_likely_max;
   unsigned long virt_vmemmap_likely_min, virt_vmemmap_likely_max;
+  /* Hole-aware residual slot counts for the memory-KASLR regions above, from
+   * quantity_slots() over the resolved estimates (so interior C_EXCLUDE holes
+   * are excluded, matching the headline vslots/pslots). Renderers derive bits
+   * via ilog2. 0 when the region is unresolved / not a both-sided window. */
+  unsigned long virt_page_offset_slots, virt_page_offset_likely_slots;
+  unsigned long virt_vmalloc_slots, virt_vmalloc_likely_slots;
+  unsigned long virt_vmemmap_slots, virt_vmemmap_likely_slots;
 };
 
 struct summary {

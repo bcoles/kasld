@@ -411,6 +411,62 @@ static void test_render_memory_likely_window(void) {
   set_render_mode(0, 0, 0);
 }
 
+/* The verbose Memory-KASLR candidate count comes from the engine's hole-aware
+ * slot field (s->kaslr.virt_page_offset_slots), NOT a renderer-local
+ * (max-min)/align. Set a slot count the naive formula could never produce for
+ * this window and assert it is what renders. */
+static void test_render_memory_kaslr_uses_stored_slots(void) {
+  struct summary s;
+  reset_results();
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+  memset(&s, 0, sizeof(s));
+  extern int verbose;
+
+  s.kaslr.vslots = 60; /* keep render_kaslr_text from early-returning */
+  s.kaslr.vbits = 6;
+  /* Both-sided direct-map window (portable constants). */
+  s.kaslr.virt_page_offset_min = (unsigned long)PAGE_OFFSET + 0x01000000ul;
+  s.kaslr.virt_page_offset_max = (unsigned long)PAGE_OFFSET + 0x09000000ul;
+  s.kaslr.virt_page_offset_slots = 7; /* engine-supplied; naive width gives 0 */
+
+  verbose = 1;
+  set_render_mode(0, 0, 0);
+  capture_stdout(wrap_render_summary, &s);
+  verbose = 0;
+  set_render_mode(0, 0, 0);
+
+  assert(strstr(render_cap, "7 candidates") != NULL);
+}
+
+/* A KASLR-disabled base is a proven pin, not a speculative "likely" value: the
+ * word "Likely" must not prefix the kernel image base (spec P3/§6). */
+static void test_render_disabled_base_not_labeled_likely(void) {
+  struct summary s;
+  reset_results();
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+  memset(&s, 0, sizeof(s));
+  extern int verbose;
+
+  s.kaslr.disabled = 1;
+  unsigned long vt = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
+  unsigned long smin = layout.virt_kaslr_text_min;
+  unsigned long smax = layout.virt_kaslr_text_max;
+  layout.virt_kaslr_text_min = vt; /* engine pin: min == max != 0 */
+  layout.virt_kaslr_text_max = vt;
+
+  verbose = 1;
+  set_render_mode(0, 0, 0);
+  capture_stdout(wrap_render_summary, &s);
+  verbose = 0;
+  layout.virt_kaslr_text_min = smin;
+  layout.virt_kaslr_text_max = smax;
+
+  assert(strstr(render_cap, "Kernel image base") != NULL);
+  assert(strstr(render_cap, "Likely kernel image base") == NULL);
+}
+
 static void test_render_markdown_with_rich_content(void) {
   struct summary s;
   set_rich_render_state(&s);
@@ -1409,6 +1465,8 @@ int main(void) {
   RUN(test_render_likely_window);
   RUN(test_render_vtext_speculative);
   RUN(test_render_memory_likely_window);
+  RUN(test_render_memory_kaslr_uses_stored_slots);
+  RUN(test_render_disabled_base_not_labeled_likely);
 
   return TEST_DONE();
 }
