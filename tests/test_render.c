@@ -280,6 +280,8 @@ static void test_render_json_with_rich_content(void) {
   assert(render_cap[0] == '{');
   assert(strstr(render_cap, "\"results\"") != NULL ||
          strstr(render_cap, "\"groups\"") != NULL);
+  /* Each leak result discloses its extent-position (P5). */
+  assert(strstr(render_cap, "\"pos\": \"base\"") != NULL);
   set_render_mode(0, 0, 0);
 }
 
@@ -354,6 +356,10 @@ static void test_render_vtext_speculative(void) {
   verbose = 0;
   assert(strstr(render_cap, "(likely; speculative)") != NULL);
   assert(strstr(render_cap, "Guaranteed range") != NULL);
+  /* The slide is a best-guess for a windowed (unpinned) base, so it inherits
+   * the likely grade (#6). ")  (likely)" is the slide tail; the base line uses
+   * "(likely; speculative)", so this substring matches only the slide. */
+  assert(strstr(render_cap, ")  (likely)") != NULL);
 
   set_render_mode(1, 0,
                   0); /* json: virtual marked speculative + inferred range */
@@ -467,13 +473,46 @@ static void test_render_disabled_base_not_labeled_likely(void) {
   assert(strstr(render_cap, "Likely kernel image base") == NULL);
 }
 
+/* A leaked interior sample must self-disclose "[interior]" in the leak rows so
+ * a reader never mistakes it for the region base (spec P5). A lone in-bounds
+ * interior kernel-text sample is the best record for its region, so the readout
+ * Leaks list surfaces it. */
+static void test_render_leak_discloses_interior(void) {
+  struct summary s;
+  reset_results();
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+  memset(&s, 0, sizeof(s));
+
+  struct result *r = push_result();
+  r->type = KASLD_TYPE_VIRT;
+  r->region = REGION_KERNEL_TEXT;
+  r->pos = POS_INTERIOR;
+  r->conf = CONF_PARSED;
+  r->lo = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
+  r->set_mask = LO_SET;
+  snprintf(r->origins[0], ORIGIN_LEN, "synthetic_test");
+  r->method_set = 1u << KM_PARSED;
+  r->provenance_count = 1;
+
+  set_render_mode(0, 0, 0); /* readout */
+  capture_stdout(wrap_render_summary, &s);
+
+  assert(strstr(render_cap, "[interior]") != NULL);
+}
+
 static void test_render_markdown_with_rich_content(void) {
   struct summary s;
   set_rich_render_state(&s);
+  extern int verbose;
+  verbose = 1; /* per-record Leak Results table (with the Pos column) */
   set_render_mode(0, 0, 1);
   capture_stdout(wrap_render_summary, &s);
-  /* Markdown should produce a table row. */
+  verbose = 0;
+  /* Markdown produces a table and discloses each leak's extent-position. */
   assert(strstr(render_cap, "|") != NULL);
+  assert(strstr(render_cap, "| Pos |") != NULL);
+  assert(strstr(render_cap, "| base |") != NULL);
   set_render_mode(0, 0, 0);
 }
 
@@ -575,6 +614,8 @@ static void test_render_text_lists_all_origins(void) {
   assert(strstr(render_cap, "prefetch") != NULL);
   assert(strstr(render_cap, "perf_event_open") != NULL);
   assert(strstr(render_cap, "perf_lbr_sampling") != NULL);
+  /* The base leak self-discloses its position, not just interior/top (P5). */
+  assert(strstr(render_cap, "[base]") != NULL);
 }
 
 /* The leaks bracket must aggregate provenance across SEPARATE merged records of
@@ -1467,6 +1508,7 @@ int main(void) {
   RUN(test_render_memory_likely_window);
   RUN(test_render_memory_kaslr_uses_stored_slots);
   RUN(test_render_disabled_base_not_labeled_likely);
+  RUN(test_render_leak_discloses_interior);
 
   return TEST_DONE();
 }

@@ -116,6 +116,7 @@ static void render_json_group(enum kasld_addr_type gt, const char *gs) {
     printf("        {\n");
     printf("          \"raw\": \"0x%016lx\",\n", a);
     printf("          \"aligned\": \"0x%016lx\",\n", a);
+    printf("          \"pos\": \"%s\",\n", kasld_pos_wire(r->pos));
     printf("          \"region\": ");
     json_print_escaped(kasld_region_wire(r->region));
     printf(",\n");
@@ -454,6 +455,7 @@ void render_json(const struct summary *s) {
     }
     printf(",\n      \"label\": ");
     json_print_escaped(kasld_region_wire(r->region));
+    printf(",\n      \"pos\": \"%s\"", kasld_pos_wire(r->pos));
     printf(",\n      \"via\": ");
     json_print_escaped(result_method(r));
     printf("\n    }");

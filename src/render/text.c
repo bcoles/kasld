@@ -48,6 +48,25 @@ static void mark_group_printed(enum kasld_addr_type type, const char *section) {
   }
 }
 
+/* Extent-position disclosure for a leaked address. Every leak row states
+ * whether the address is the region base, an interior sample, or the top edge,
+ * so none is ambiguous and the base (the prize) is called out, not left
+ * implicit (spec P5). All three positions are reachable in these rows. Empty
+ * only for the shouldn't-reach-here extent/unknown. The caller pads to a fixed
+ * width (`%-11s`, the width of " [interior]") where a column follows. */
+static const char *pos_note(const struct result *r) {
+  switch (r->pos) {
+  case POS_BASE:
+    return " [base]";
+  case POS_INTERIOR:
+    return " [interior]";
+  case POS_TOP:
+    return " [top]";
+  default:
+    return "";
+  }
+}
+
 /* Render one validation block.
  *
  * region_filter: when != REGION_UNKNOWN, only include results whose
@@ -123,25 +142,28 @@ static void print_group(enum kasld_addr_type type, const char *section,
       if (verbose) {
         char mbuf[64];
         kasld_method_set_str(r->method_set, mbuf, sizeof mbuf);
-        printf("  %s0x%016lx%s  %s %s(", c(C_RED), a, c(C_RESET), rn, c(C_DIM));
+        printf("  %s0x%016lx%s  %s%s %s(", c(C_RED), a, c(C_RESET), rn,
+               pos_note(r), c(C_DIM));
         for (int j = 0; j < r->provenance_count; j++)
           printf("%s%s", j ? ", " : "", r->origins[j]);
         printf(", %s, stale)%s\n", mbuf, c(C_RESET));
       } else
-        printf("  %s0x%016lx%s  %s %s(stale)%s\n", c(C_RED), a, c(C_RESET), rn,
-               c(C_DIM), c(C_RESET));
+        printf("  %s0x%016lx%s  %s%s %s(stale)%s\n", c(C_RED), a, c(C_RESET),
+               rn, pos_note(r), c(C_DIM), c(C_RESET));
       continue;
     }
 
     if (verbose) {
       char mbuf[64];
       kasld_method_set_str(r->method_set, mbuf, sizeof mbuf);
-      printf("  %s0x%016lx%s  %s %s(", c(C_GREEN), a, c(C_RESET), rn, c(C_DIM));
+      printf("  %s0x%016lx%s  %s%s %s(", c(C_GREEN), a, c(C_RESET), rn,
+             pos_note(r), c(C_DIM));
       for (int j = 0; j < r->provenance_count; j++)
         printf("%s%s", j ? ", " : "", r->origins[j]);
       printf(", %s)%s\n", mbuf, c(C_RESET));
     } else
-      printf("  %s0x%016lx%s  %s\n", c(C_GREEN), a, c(C_RESET), rn);
+      printf("  %s0x%016lx%s  %s%s\n", c(C_GREEN), a, c(C_RESET), rn,
+             pos_note(r));
 
     int dup = 0;
     for (int j = 0; j < n_addrs; j++) {
@@ -339,9 +361,11 @@ static void render_kaslr_text(const struct summary *s) {
     printf("  Default image base:   0x%016lx\n",
            layout.virt_image_base_default);
     long abs_vslide = s->kaslr.vslide < 0 ? -s->kaslr.vslide : s->kaslr.vslide;
-    printf("  KASLR slide:          %s%s0x%lx%s (%ld)\n", c(C_CYAN),
+    /* A slide is exact only for a proven pin; when the base is the likely
+     * best-guess inside a range, the slide inherits that grade. */
+    printf("  KASLR slide:          %s%s0x%lx%s (%ld)%s\n", c(C_CYAN),
            s->kaslr.vslide < 0 ? "-" : "+", (unsigned long)abs_vslide,
-           c(C_RESET), s->kaslr.vslide);
+           c(C_RESET), s->kaslr.vslide, v_spec ? "  (likely)" : "");
     if (v_spec)
       printf("  Guaranteed range:     0x%016lx - 0x%016lx  (%s%lu%s slots, "
              "%d bits)\n",
@@ -372,9 +396,9 @@ static void render_kaslr_text(const struct summary *s) {
     printf("  Default phys base:    0x%016lx\n",
            (unsigned long)KERNEL_PHYS_DEFAULT);
     long abs_pslide = s->kaslr.pslide < 0 ? -s->kaslr.pslide : s->kaslr.pslide;
-    printf("  Physical KASLR slide: %s%s0x%lx%s (%ld)\n", c(C_CYAN),
+    printf("  Physical KASLR slide: %s%s0x%lx%s (%ld)%s\n", c(C_CYAN),
            s->kaslr.pslide < 0 ? "-" : "+", (unsigned long)abs_pslide,
-           c(C_RESET), s->kaslr.pslide);
+           c(C_RESET), s->kaslr.pslide, p_spec ? "  (likely)" : "");
     if (p_spec)
       printf("  Guaranteed phys range: 0x%016lx - 0x%016lx  (%s%lu%s slots, "
              "%d bits)\n",
@@ -461,8 +485,8 @@ static void render_derived_text(const struct summary *s) {
              r->hi, slots, result_method(r), in_bounds(r) ? "" : " [stale]");
     } else {
       unsigned long a = anchor_addr(r);
-      printf("  %-24s0x%016lx  (%s)%s\n", label, a, result_method(r),
-             in_bounds(r) ? "" : " [stale]");
+      printf("  %-24s0x%016lx%s  (%s)%s\n", label, a, pos_note(r),
+             result_method(r), in_bounds(r) ? "" : " [stale]");
     }
   }
 
@@ -484,6 +508,9 @@ struct map_region {
   const char *label;
   unsigned long leak_lo; /* 0 = no leak for this region */
   unsigned long leak_hi; /* 0 = only one leak (or none) */
+  int base_only;         /* 1 = start is a known base but the extent is
+                          * unknown (start==end is a drawing convenience, not a
+                          * genuine zero-size pin) */
 };
 
 static int region_cmp(const void *a, const void *b) {
@@ -508,20 +535,26 @@ static void print_virtual_layout(void) {
   struct map_region regions[8];
   int n = 0;
 
-  regions[n++] = (struct map_region){layout.modules_start, layout.modules_end,
-                                     "modules", vmod_lo, vmod_hi};
+  regions[n++] = (struct map_region){
+      layout.modules_start, layout.modules_end, "modules", vmod_lo, vmod_hi, 0};
   regions[n++] = (struct map_region){layout.virt_image_base_min,
-                                     layout.virt_image_base_max, "kernel text",
-                                     vtext_lo, vtext_hi};
+                                     layout.virt_image_base_max,
+                                     "kernel text",
+                                     vtext_lo,
+                                     vtext_hi,
+                                     0};
 
   /* Only show directmap region if it's distinct from text region.
      Use virt_page_offset as both start and end — we know the mapping begins
      there but don't know its true extent. virt_kernel_vas_end would cause
      unsigned overflow in the gap arithmetic (end + 1 wraps to 0). */
   if (layout.virt_page_offset != layout.virt_image_base_min) {
-    regions[n++] =
-        (struct map_region){layout.virt_page_offset, layout.virt_page_offset,
-                            "direct map", vdmap_lo, vdmap_hi};
+    regions[n++] = (struct map_region){layout.virt_page_offset,
+                                       layout.virt_page_offset,
+                                       "direct map",
+                                       vdmap_lo,
+                                       vdmap_hi,
+                                       1};
   }
 
   /* Sort by start address */
@@ -553,6 +586,12 @@ static void print_virtual_layout(void) {
   for (int i = n - 1; i >= 0; i--) {
     struct map_region *r = &regions[i];
     int pinned = (r->start == r->end);
+    /* A base-only anchor (direct map) is drawn start==end but its extent is
+     * unknown, so it is NOT a pinned single value — reserve "(pinned)" for a
+     * genuine zero-extent point. */
+    const char *point_tail = r->base_only ? " (base; extent unknown)"
+                             : pinned     ? " (pinned)"
+                                          : "";
 
     /* Region label line(s). Leak addresses, if any, fold inline.
      * Pinned regions (start == end) are a single known point — the
@@ -560,15 +599,15 @@ static void print_virtual_layout(void) {
      * the redundant "(no leak)" tail in that case. */
     if (r->leak_lo) {
       if (r->leak_hi && r->leak_hi != r->leak_lo) {
-        printf("%s%s%s\n", INDENT, r->label, pinned ? " (pinned)" : "");
+        printf("%s%s%s\n", INDENT, r->label, point_tail);
         printf("%s  leak hi: 0x%016lx\n", INDENT, r->leak_hi);
         printf("%s  leak lo: 0x%016lx\n", INDENT, r->leak_lo);
       } else {
-        printf("%s%s%s -- leak 0x%016lx\n", INDENT, r->label,
-               pinned ? " (pinned)" : "", r->leak_lo);
+        printf("%s%s%s -- leak 0x%016lx\n", INDENT, r->label, point_tail,
+               r->leak_lo);
       }
     } else if (pinned) {
-      printf("%s%s (pinned)\n", INDENT, r->label);
+      printf("%s%s%s\n", INDENT, r->label, point_tail);
     } else {
       printf("%s%s %s(no leak)%s\n", INDENT, r->label, c(C_DIM), c(C_RESET));
     }
@@ -797,10 +836,12 @@ static void print_physical_layout(void) {
   if (nppts > 0 && ppts[0].addr > ram_end)
     ram_end = ppts[0].addr;
 
-  /* Top label: ram_top if known (DRAM edge), else the sysconf estimate. */
+  /* Top label: a leaked DRAM edge (ram_top) is measured; the sysconf figure is
+   * an estimate — mark it so the reader can tell an observed edge from a
+   * derived one. */
   unsigned long top_label = have_ram_top ? ram_top : ram_end;
   if (top_label)
-    printf("  0x%016lx\n", top_label);
+    printf("  0x%016lx%s\n", top_label, have_ram_top ? "" : "  (estimated)");
   else
     printf("  0x????????????????  (end of RAM unknown)\n");
 
@@ -1078,14 +1119,15 @@ static int readout_print_leaks(void) {
       }
     }
     if (ns == 0) {
-      printf("  %-19s %s0x%016lx%s\n", found[i].label, c(C_GREEN),
-             found[i].addr, c(C_RESET));
+      printf("  %-19s %s0x%016lx%s%s\n", found[i].label, c(C_GREEN),
+             found[i].addr, c(C_RESET), pos_note(found[i].r));
       continue;
     }
     /* Names that fit a default ~80-col line; the rest fold into "+N more". */
     const int shown = ns < 3 ? ns : 3;
-    printf("  %-19s %s0x%016lx%s   %s(", found[i].label, c(C_GREEN),
-           found[i].addr, c(C_RESET), c(C_DIM));
+    /* Pad the position field so the origins column lines up across rows. */
+    printf("  %-19s %s0x%016lx%s%-11s   %s(", found[i].label, c(C_GREEN),
+           found[i].addr, c(C_RESET), pos_note(found[i].r), c(C_DIM));
     for (int idx = 0; idx < shown; idx++)
       printf("%s%s", idx ? ", " : "", seen[idx]);
     if (ns > shown)

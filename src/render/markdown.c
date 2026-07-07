@@ -142,9 +142,9 @@ void render_markdown(const struct summary *s) {
         printf("| Virtual _stext | `0x%016lx` |\n", s->kaslr.vstext);
       printf("| Default image base | `0x%016lx` |\n",
              layout.virt_image_base_default);
-      printf("| KASLR slide | %s0x%lx (%ld) |\n",
+      printf("| KASLR slide | %s0x%lx (%ld)%s |\n",
              s->kaslr.vslide < 0 ? "-" : "+", (unsigned long)abs_vs,
-             s->kaslr.vslide);
+             s->kaslr.vslide, v_spec ? " (likely)" : "");
       printf("| Virtual entropy | %d bits (%lu slots) |\n", s->kaslr.vbits,
              s->kaslr.vslots);
       if (s->kaslr.vslot_valid)
@@ -184,8 +184,10 @@ void render_markdown(const struct summary *s) {
 
   if (verbose) {
     /* Verbose: individual result rows */
-    printf("| Type | Section | Address | Region | Name | Origin | Method |\n");
-    printf("|:-----|:--------|:--------|:-------|:-----|:-------|:-------|\n");
+    printf("| Type | Section | Address | Pos | Region | Name | Origin | Method "
+           "|\n");
+    printf("|:-----|:--------|:--------|:----|:-------|:-----|:-------|:-------"
+           "|\n");
 
     for (int t = 0; type_order[t] != KASLD_TYPE_UNKNOWN; t++) {
       for (int si = 0; section_order[si]; si++) {
@@ -208,9 +210,9 @@ void render_markdown(const struct summary *s) {
         for (int k = 0; k < nidx; k++) {
           struct result *r = &results[idx[k]];
           unsigned long a = anchor_addr(r);
-          printf("| %c | %s | `0x%016lx` | %s | %s | ",
+          printf("| %c | %s | `0x%016lx` | %s | %s | %s | ",
                  kasld_type_wire(r->type), result_section(r), a,
-                 kasld_region_wire(r->region), r->name);
+                 kasld_pos_wire(r->pos), kasld_region_wire(r->region), r->name);
           for (int j = 0; j < r->provenance_count; j++)
             printf("%s%s", j ? ", " : "", r->origins[j]);
           printf(" | %s%s |\n", result_method(r),
@@ -232,8 +234,8 @@ void render_markdown(const struct summary *s) {
       }
       if (!in_order) {
         unsigned long a = anchor_addr(r);
-        printf("| %c | %s | `0x%016lx` | %s | ", kasld_type_wire(r->type), sec,
-               a, kasld_region_wire(r->region));
+        printf("| %c | %s | `0x%016lx` | %s | %s | ", kasld_type_wire(r->type),
+               sec, a, kasld_pos_wire(r->pos), kasld_region_wire(r->region));
         for (int j = 0; j < r->provenance_count; j++)
           printf("%s%s", j ? ", " : "", r->origins[j]);
         printf(" | %s%s |\n", result_method(r), in_bounds(r) ? "" : " (stale)");
@@ -341,8 +343,8 @@ void render_markdown(const struct summary *s) {
   int n_derived = count_derived();
   if (n_derived > 0) {
     printf("## Derived Addresses\n\n");
-    printf("| Address | Label | Via |\n");
-    printf("|:--------|:------|:----|\n");
+    printf("| Address | Pos | Label | Via |\n");
+    printf("|:--------|:----|:------|:----|\n");
     for (int i = 0; i < num_results; i++) {
       const struct result *r = &results[i];
       if (r->conf != CONF_DERIVED)
@@ -354,11 +356,11 @@ void render_markdown(const struct summary *s) {
       else
         snprintf(label, sizeof(label), "%s", kasld_region_wire(r->region));
       if (HAS_LO(r) && HAS_HI(r))
-        printf("| `0x%016lx` - `0x%016lx` | %s | %s |\n", r->lo, r->hi, label,
-               result_method(r));
+        printf("| `0x%016lx` - `0x%016lx` | %s | %s | %s |\n", r->lo, r->hi,
+               kasld_pos_wire(r->pos), label, result_method(r));
       else
-        printf("| `0x%016lx` | %s | %s |\n", anchor_addr(r), label,
-               result_method(r));
+        printf("| `0x%016lx` | %s | %s | %s |\n", anchor_addr(r),
+               kasld_pos_wire(r->pos), label, result_method(r));
     }
     printf("\n");
   }
