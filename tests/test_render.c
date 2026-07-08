@@ -280,7 +280,7 @@ static void test_render_json_with_rich_content(void) {
   assert(render_cap[0] == '{');
   assert(strstr(render_cap, "\"results\"") != NULL ||
          strstr(render_cap, "\"groups\"") != NULL);
-  /* Each leak result discloses its extent-position (P5). */
+  /* Each leak result discloses its extent-position. */
   assert(strstr(render_cap, "\"pos\": \"base\"") != NULL);
   set_render_mode(0, 0, 0);
 }
@@ -446,7 +446,7 @@ static void test_render_memory_kaslr_uses_stored_slots(void) {
 }
 
 /* A KASLR-disabled base is a proven pin, not a speculative "likely" value: the
- * word "Likely" must not prefix the kernel image base (spec P3/§6). */
+ * word "Likely" must not prefix the kernel image base. */
 static void test_render_disabled_base_not_labeled_likely(void) {
   struct summary s;
   reset_results();
@@ -474,7 +474,7 @@ static void test_render_disabled_base_not_labeled_likely(void) {
 }
 
 /* A leaked interior sample must self-disclose "[interior]" in the leak rows so
- * a reader never mistakes it for the region base (spec P5). A lone in-bounds
+ * a reader never mistakes it for the region base. A lone in-bounds
  * interior kernel-text sample is the best record for its region, so the readout
  * Leaks list surfaces it. */
 static void test_render_leak_discloses_interior(void) {
@@ -614,7 +614,7 @@ static void test_render_text_lists_all_origins(void) {
   assert(strstr(render_cap, "prefetch") != NULL);
   assert(strstr(render_cap, "perf_event_open") != NULL);
   assert(strstr(render_cap, "perf_lbr_sampling") != NULL);
-  /* The base leak self-discloses its position, not just interior/top (P5). */
+  /* The base leak self-discloses its position, not just interior/top. */
   assert(strstr(render_cap, "[base]") != NULL);
 }
 

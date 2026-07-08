@@ -47,7 +47,7 @@
   <rect x="60" y="322" width="560" height="68" rx="5" fill="#c8e6c9" stroke="#43a047"/>
   <text x="74" y="342" class="chip" font-weight="700">constraints (narrowing ops)</text>
   <text x="74" y="362" class="chip">C_LOWER_BOUND&#160; C_UPPER_BOUND&#160; C_EQUALS&#160; C_AT_LEAST_ALIGN</text>
-  <text x="74" y="380" class="chip">C_MEMBER&#160; C_EXCLUDE&#160; C_STRIDE</text>
+  <text x="74" y="380" class="chip">C_EXCLUDE&#160; C_STRIDE</text>
 
   <rect x="640" y="322" width="280" height="68" rx="5" fill="#c8e6c9" stroke="#43a047"/>
   <text x="654" y="342" class="chip" font-weight="700">verdicts (curation)</text>
@@ -65,8 +65,8 @@
   <text x="60" y="504" class="mono">Each quantity starts at its honest arch-defined top and narrows monotonically. Lattice meet never widens.</text>
   <rect x="60" y="518" width="860" height="70" rx="5" fill="#c8e6c9" stroke="#43a047"/>
   <text x="74" y="540" class="chip">Q_VIRT_IMAGE_BASE&#160; Q_PHYS_IMAGE_BASE&#160; Q_PAGE_OFFSET&#160; Q_VMALLOC_BASE&#160; Q_VMEMMAP_BASE</text>
-  <text x="74" y="560" class="chip">Q_KASLR_ALIGN&#160; Q_PHYS_KASLR_ALIGN&#160; Q_VA_BITS</text>
-  <text x="74" y="580" class="chip" fill="#607d8b">lattice domains: LK_SINGLETON / LK_INTERVAL / LK_ALIGN / LK_INTERVAL_SET(future) &#8212; meet only narrows</text>
+  <text x="74" y="560" class="chip">Q_VIRT_KASLR_ALIGN&#160; Q_PHYS_KASLR_ALIGN&#160; Q_VA_BITS</text>
+  <text x="74" y="580" class="chip" fill="#607d8b">lattice domains: LK_INTERVAL / LK_MAXALIGN / LK_FINSET &#8212; meet only narrows</text>
 
   <!-- fixpoint loop -->
   <path d="M940 528 L966 528 L966 150 L940 150" class="loop"/>

@@ -27,7 +27,10 @@
 #   tests/vm/run <arch> <mode>   # mode: default | hidden | hardened | nokaslr
 #   tests/vm/run all <mode>      # every arch in a given mode
 #   tests/vm/run table           # render the results matrix (markdown) from the
-#                                # boot logs left by previous runs
+#                                # boot logs, followed by the speculative-
+#                                # narrowing table
+#   tests/vm/run spec-table      # render only the speculative-narrowing table
+#                                # (cells where the likely window beats guaranteed)
 #
 # Modes:
 #   default   root, kptr_restrict=0 — kasld may read kallsyms (the easy case)
@@ -283,6 +286,104 @@ bits_of() {
        ink && /"entropy_bits":/{gsub(/[^0-9]/,""); print; exit}' "$1"
 }
 
+# Format an entropy-bit count as a residual cell: 0 -> exact, 1 -> "1 bit",
+# n -> "n bits", empty -> em dash.
+fmt_bits() {
+  case "$1" in
+    0)      echo exact ;;
+    1)      echo '1 bit' ;;
+    '' | —) echo '—' ;;
+    *)      echo "$1 bits" ;;
+  esac
+}
+
+# Virtual-side speculative-narrowing fields from a boot log, or nothing when the
+# likely window does not diverge from guaranteed. The engine emits the `likely`
+# object only when it is strictly tighter than guaranteed, so its presence IS the
+# divergence. `via`/`method` are attributed to the `groups` entry whose consensus
+# edge (lo/hi/consensus) coincides with a likely-window edge — the leak or timing
+# signal that pinned the speculative base; for coupled arches with no text leak
+# this resolves to the directmap/dram base whose image-size ceiling narrowed it.
+# Prints one pipe-delimited record: gbits|lbits|lmin|lmax|method|via
+likely_of() {
+  awk '
+    function val(s){ sub(/^[^:]*:[ \t]*/,"",s); gsub(/[",]/,"",s);
+                     gsub(/^[ \t]+|[ \t]+$/,"",s); return s }
+    function orig(s){ sub(/^[^:]*:[ \t]*\[/,"",s); sub(/\].*/,"",s);
+                      gsub(/[" ]/,"",s); gsub(/,/," + ",s); return s }
+    function match_edge(target,   i){
+      for(i=1;i<=gi;i++) if(glo[i]==target||ghi[i]==target||gcons[i]==target){
+        method=gcm[i]; via=gorg[i]; return 1 } return 0 }
+    /"kaslr":[ \t]*\{/{ ink=1 }
+    ink && /"inferred":[ \t]*\{/{ blk="inf" }
+    ink && /"likely":[ \t]*\{/{ blk="lik" }
+    ink && /"inferred_physical":/{ blk=""; ink=0 }
+    blk=="inf" && /"entropy_bits":/{ gbits=val($0) }
+    blk=="lik" && /"range_min":/{ lmin=val($0) }
+    blk=="lik" && /"range_max":/{ lmax=val($0) }
+    blk=="lik" && /"entropy_bits":/{ lbits=val($0); blk="" }
+    /"likely_physical":[ \t]*\{/{ lpk=1 }
+    lpk && /"range_min":/{ lpmin=val($0) }
+    lpk && /"range_max":/{ lpmax=val($0); lpk=0 }
+    /"groups":[ \t]*\[/{ ing=1 }
+    ing && /"type":/{ gi++; gorg[gi]="" }
+    ing && gi>0 && /"consensus":/{ gcons[gi]=val($0) }
+    ing && gi>0 && /"consensus_method":/{ gcm[gi]=val($0) }
+    ing && gi>0 && /"lo":/{ glo[gi]=val($0) }
+    ing && gi>0 && /"hi":/{ ghi[gi]=val($0) }
+    ing && gi>0 && /"origins":/{ if(gorg[gi]=="") gorg[gi]=orig($0) }
+    END{
+      if(lmax==""){ exit }        # no likely block -> no divergence
+      method="?"; via="?"
+      if(!match_edge(lmax) && !match_edge(lmin) && lpmax!="")
+        if(!match_edge(lpmax)) match_edge(lpmin)
+      printf "%s|%s|%s|%s|%s|%s\n", gbits, lbits, lmin, lmax, method, via
+    }' "$1"
+}
+
+# Render the speculative-narrowing table (markdown): the cells where the likely
+# best-guess window is tighter than the guaranteed one, the signal that drove it,
+# and whether that guess contained the truth. Unlike the matrix this is NOT gated
+# — a likely miss is disclosed here, never withheld, because the soundness gate is
+# on the guaranteed matrix. Emits nothing but a note when no cell diverges.
+cmd_spec_table() {
+  nl='
+'
+  body=
+  for a in $arches; do
+    arch_disp=${a%-vanilla}
+    for scen in default hidden hardened; do
+      log="$HERE/$a/boot-$scen.log"
+      [ -f "$log" ] || continue
+      grep -aq 'KASLD VM DONE' "$log" || continue
+      row=$(likely_of "$log"); [ -n "$row" ] || continue   # likely == guaranteed
+      IFS='|' read -r gbits lbits lmin lmax method via <<EOF
+$row
+EOF
+      truth=$(awk '/ _text$/{print $1; exit}' "$log")
+      [ -n "$truth" ] || truth=$(awk '/ _stext$/{print $1; exit}' "$log")
+      t=$(norm "$truth"); lo=$(norm "$lmin"); hi=$(norm "$lmax")
+      hit='—'
+      if [ -n "$t" ] && [ -n "$lo" ] && [ -n "$hi" ]; then
+        if hexle "$lo" "$t" && hexle "$t" "$hi"; then hit=yes; else hit='**NO**'; fi
+      fi
+      flavor=$(printf '%s' "$TABLE" | awk -F'|' -v a="$a" 'NF>1{gsub(/ /,"",$1); if ($1==a) {gsub(/ /,"",$3); print $3; exit}}')
+      src=alpine; [ "$flavor" = local ] && src=mainline
+      body="${body}| $arch_disp | $src | $scen | $(fmt_bits "$gbits") | $(fmt_bits "$lbits") | \`$via\` | $method | $hit |${nl}"
+    done
+  done
+
+  if [ -z "$body" ]; then
+    printf 'No speculative narrowing: the likely window equals guaranteed on every cell.\n'
+    return 0
+  fi
+  printf '| arch | source | scenario | guaranteed | likely | via | method | truth ∈ likely |\n'
+  printf '|------|--------|----------|------------|--------|-----|--------|:---:|\n'
+  printf '%s' "$body"
+  # shellcheck disable=SC2016  # backticks are literal markdown, not a subshell
+  printf '\n`via`/`method` = the sub-floor signal that narrowed the base past the sound floor; `truth ∈ likely` = whether that best-guess window still contained the real base. A `**NO**` is disclosed, not withheld — the soundness gate is on the guaranteed matrix above, which contains the truth regardless. Every other KASLR-on cell: likely equals guaranteed.\n'
+}
+
 # Render the results matrix (markdown) from the boot logs left by previous runs.
 # One row per existing boot-<scenario>.log. Every column describes the GUARANTEED
 # window — the one resolved at the sound floor, which must contain the truth.
@@ -364,13 +465,19 @@ cmd_table() {
   printf '%s' "$body"
   # shellcheck disable=SC2016  # backticks are literal markdown, not a subshell
   printf '\nEvery cell is sound: the true base lies inside the guaranteed window. `source` = `alpine` (distro kernel) or `mainline` (vanilla kernel.org build). `residual` = how much KASLR entropy KASLD could not strip from the base: `exact` = base recovered, KASLR defeated (a byte-exact pin and a below-granularity sub-slot window are the same outcome — the randomized slot is known); `<n> bits` = KASLR-randomized, n bits of the slot still unknown; `—` = KASLR off, no randomization to defeat.\n'
+
+  # The matrix reports the guaranteed window; the speculative-narrowing table
+  # discloses where the likely best-guess window beats it, and by what signal.
+  printf '\n'
+  cmd_spec_table
 }
 
 # ---- dispatch ----
 arches=$(echo "$TABLE" | awk -F'|' 'NF>1{gsub(/ /,"",$1); print $1}')
 
 case "${1:-}" in
-  table | --table) cmd_table; exit $? ;;
+  table | --table)           cmd_table; exit $? ;;
+  spec-table | --spec-table) cmd_spec_table; exit $? ;;
 esac
 
 sel=${1:-all}; mode=${2:-default}

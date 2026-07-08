@@ -5,7 +5,7 @@
 // The Q_VIRT_KASLR_ALIGN / Q_PHYS_KASLR_ALIGN lattices are LK_MAXALIGN, whose
 // honest top is "aligned to 1 byte" (least information) — the arch's minimum
 // KASLR granularity is a constant floor that must arrive as a constraint, not
-// as a dependent top (see §0.3). KASLR on a given arch always aligns the kernel
+// as a dependent top. KASLR on a given arch always aligns the kernel
 // base to at least KASLR_VIRT_ALIGN (KASLR_VIRT_ALIGN by default), so this is
 // an axiomatic C_AT_LEAST_ALIGN with no lineage. It establishes the arch
 // baseline alignment; config-derived rules (boot_params kernel_alignment, arm64

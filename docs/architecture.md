@@ -610,8 +610,8 @@ KASLD's engine and tool vocabulary. For KASLR and kernel-memory-layout terms
   emitted as `pos=extent`. Never merged, routed out-of-band; the kernel-relevant
   value lives in the gaps between extents. See
   [Coverings vs observations](#coverings-vs-observations).
-- **quantity** — a kernel-layout unknown the engine resolves: `Q_VIRT_TEXT_BASE`,
-  `Q_PHYS_TEXT_BASE`, `Q_PAGE_OFFSET`, `Q_VA_BITS`, … See
+- **quantity** — a kernel-layout unknown the engine resolves: `Q_VIRT_IMAGE_BASE`,
+  `Q_PHYS_IMAGE_BASE`, `Q_PAGE_OFFSET`, `Q_VA_BITS`, … See
   [Three layers](#three-layers).
 - **estimate** — the current resolved value of a quantity: an interval that only
   ever narrows. See
@@ -620,7 +620,7 @@ KASLD's engine and tool vocabulary. For KASLR and kernel-memory-layout terms
   architecture could produce, before any constraint applies. See
   [Estimate narrowing](#estimate-narrowing-and-the-store-vs-read-seam).
 - **constraint** — a bound a rule emits on a quantity: `C_LOWER_BOUND`,
-  `C_UPPER_BOUND`, `C_EQUALS`, `C_AT_LEAST_ALIGN`, `C_MEMBER`, `C_EXCLUDE`,
+  `C_UPPER_BOUND`, `C_EQUALS`, `C_AT_LEAST_ALIGN`, `C_EXCLUDE`,
   `C_STRIDE`. See [Three layers](#three-layers).
 - **rule** — a pure function reading the evidence and current estimates and
   emitting constraints or verdicts. No I/O, no state, order-independent. See

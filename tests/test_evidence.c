@@ -123,7 +123,7 @@ static void test_stale_verdict_ignored(void) {
   assert(evidence_active(obs_by_id(&ev, id)));
 }
 
-/* Scalar observations (§0.8): a component emits a non-address measurement
+/* Scalar observations: a component emits a non-address measurement
  * (MemTotal here). It stores, survives resolve, and can be invalidated. */
 static struct observation mk_scalar(enum kasld_scalar_fact fact,
                                     unsigned long value, const char *origin) {

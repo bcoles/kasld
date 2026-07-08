@@ -51,7 +51,7 @@ static void mark_group_printed(enum kasld_addr_type type, const char *section) {
 /* Extent-position disclosure for a leaked address. Every leak row states
  * whether the address is the region base, an interior sample, or the top edge,
  * so none is ambiguous and the base (the prize) is called out, not left
- * implicit (spec P5). All three positions are reachable in these rows. Empty
+ * implicit. All three positions are reachable in these rows. Empty
  * only for the shouldn't-reach-here extent/unknown. The caller pads to a fixed
  * width (`%-11s`, the width of " [interior]") where a column follows. */
 static const char *pos_note(const struct result *r) {

@@ -234,7 +234,7 @@ static void test_estimate_at_trust_floor(void) {
 }
 
 /* ========================================================================
- * quantity_ranges — set-ready consumer value-access (§0.7)
+ * quantity_ranges — interval-set value-access for consumers
  * ======================================================================== */
 static void test_quantity_ranges_interval_plain(void) {
   struct estimate e;

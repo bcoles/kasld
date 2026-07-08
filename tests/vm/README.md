@@ -33,14 +33,17 @@ tests/vm/run                 # every supported arch, default profile
 tests/vm/run aarch64         # one arch
 tests/vm/run aarch64 hardened
 tests/vm/run all hardened    # every arch in one profile
-tests/vm/run table           # render the results matrix from the boot logs
+tests/vm/run table           # results matrix + speculative-narrowing table
+tests/vm/run spec-table      # only the speculative-narrowing table
 ```
 
 Each run prints a per-arch verdict and a summary; the exit status is non-zero if
 any arch produced an unsound or incomplete result. After running the scenarios,
 `tests/vm/run table` reads the boot logs and emits a markdown matrix
-(arch × scenario → recovered / residual bits / sound) — the published table in
-[docs/reproducibility.md](../../docs/reproducibility.md) is generated this way.
+(arch × scenario → recovered / residual bits / sound), then a
+speculative-narrowing table showing the cells where the likely best-guess window
+beats the guaranteed one and what signal drove it — both published tables in
+[docs/reproducibility.md](../../docs/reproducibility.md) are generated this way.
 
 ```
 aarch64     PASS  truth=0xffff800080000000 ∈ [0x...,0x...] recovered=Y

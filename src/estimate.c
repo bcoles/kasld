@@ -365,7 +365,7 @@ void estimate_resolve(enum kasld_quantity q, enum kasld_confidence floor,
 }
 
 /* ------------------------------------------------------------------------
- * quantity_ranges — set-ready consumer value-access (§0.7).
+ * quantity_ranges — interval-set value-access for consumers.
  * ------------------------------------------------------------------------ */
 int quantity_ranges(enum kasld_quantity q, const struct estimate *e,
                     const struct constraint *cs, int n_cs, struct range *out,

@@ -78,6 +78,6 @@
   <rect x="32" y="520" width="896" height="86" rx="8" fill="#fafafa" stroke="#cfd8dc"/>
   <text x="48" y="542" class="note">Schematic, not to scale. Randomised bases slide per boot on 1 GiB boundaries (RANDOMIZE_MEMORY); KASLR text steps by 2 MB.</text>
   <text x="48" y="562" class="note">Decoupled, randomized map (both flags = 0): virtual text, physical text and PAGE_OFFSET resolve independently.</text>
-  <text x="48" y="582" class="note">Also resolved: Q_KASLR_ALIGN / Q_PHYS_KASLR_ALIGN (step sizes) and Q_VA_BITS (kernel-half width: 4-level vs 5-level).</text>
+  <text x="48" y="582" class="note">Also resolved: Q_VIRT_KASLR_ALIGN / Q_PHYS_KASLR_ALIGN (step sizes) and Q_VA_BITS (kernel-half width: 4-level vs 5-level).</text>
   <text x="48" y="600" class="note">Orange = KASLR text. Red = randomized linear-map regions. Grey/blue = fixed or generic. See the coupling quadrant.</text>
 </svg>

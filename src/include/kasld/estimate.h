@@ -115,7 +115,7 @@ struct range {
   unsigned long lo, hi;
 };
 
-/* Consumer value-access seam (§0.7): yield the valid address sub-ranges of
+/* Interval-set value-access seam: yield the valid address sub-ranges of
  * quantity q's resolved estimate `e`, with interior `C_EXCLUDE` holes (from
  * cs) carved out. Writes up to out_max ranges, returns the count.
  *
@@ -135,7 +135,7 @@ int quantity_ranges(enum kasld_quantity q, const struct estimate *e,
  * the sum over quantity_ranges() of (span / align), span = hi - lo per range.
  * With no excludes this is (hi - lo) / align; each interior C_EXCLUDE hole
  * strictly reduces it. Returns 0 for align == 0 or a non-interval lattice. This
- * is the §0.7 terminal consumer over the set-ready range iterator — the basis
+ * is the terminal consumer over the range iterator above — the basis
  * for hole-aware slot/entropy reporting, and the only place interior holes
  * affect a headline number. */
 unsigned long quantity_slots(enum kasld_quantity q, const struct estimate *e,

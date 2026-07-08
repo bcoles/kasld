@@ -539,7 +539,6 @@ ops), and a confidence. Pick the op for what the evidence actually proves:
 | `C_UPPER_BOUND` | `q <= value` | a ceiling — the quantity cannot be above `value` |
 | `C_EQUALS` | `q == value` | a pin — the exact value is known |
 | `C_AT_LEAST_ALIGN` | `q` divisible by `value` | the quantity is known to be at least `value`-aligned |
-| `C_MEMBER` | `q` in a bitmask | the quantity is one of a small finite set |
 | `C_EXCLUDE` | `q` not in `[value, value2]` | a forbidden sub-range |
 | `C_STRIDE` | `q ≡ value (mod value2)` | the quantity lands on a fixed grid |
 
