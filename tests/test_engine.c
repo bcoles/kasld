@@ -4508,7 +4508,10 @@ static void test_directmap_page_offset_bounds(void) {
 /* With SF_PHYS_MAX_PFN the directmap leak also yields a sound lower bound:
  * virt_page_offset >= V - (max_pfn*PAGE_SIZE - PHYS_OFFSET). This is what
  * narrows the randomized direct-map base to ~RAM/1GiB candidates from a single
- * leak. */
+ * leak. Checked in the GUARANTEED window (floored at the sound floor) — the
+ * quantity this bound belongs to; the speculative base edge lives below the
+ * floor and is excluded here (see test_directmap_page_offset_base_likely_edge).
+ */
 static void test_directmap_page_offset_lower_bound_from_max_pfn(void) {
   struct engine e;
   engine_init(&e);
@@ -4522,7 +4525,7 @@ static void test_directmap_page_offset_lower_bound_from_max_pfn(void) {
   evidence_add(&e.ev, &o);
   evidence_add(&e.ev, &mp);
   const rule_fn rules[] = {rule_directmap_page_offset_bounds};
-  engine_run(&e, rules, 1);
+  engine_run_full_floored(&e, CONF_INFERRED, rules, 1, NULL, 0);
   unsigned long reach = max_pfn * PAGE_SIZE - (unsigned long)PHYS_OFFSET;
   unsigned long expect_lo = vd - reach;
   assert(e.est[Q_PAGE_OFFSET].hi == vd); /* base <= leak */
@@ -4530,6 +4533,50 @@ static void test_directmap_page_offset_lower_bound_from_max_pfn(void) {
          expect_lo); /* base >= leak - directmap span */
   /* The window must be exactly the direct-map span — no wider, no narrower. */
   assert(e.est[Q_PAGE_OFFSET].hi - e.est[Q_PAGE_OFFSET].lo == reach);
+}
+
+/* A POS_BASE directmap observation (prefetch_directmap's located left edge)
+ * adds a speculative likely edge base - align: the LIKELY window (ungated)
+ * brackets the base to one PUD slot, while the GUARANTEED window (floored)
+ * keeps the full max_pfn span — the edge is capped below the sound floor, so it
+ * cannot move the guaranteed bound. Models the real merged record (prefetch
+ * base folded with a parsed interior sample), which presents as POS_BASE at
+ * CONF_PARSED; the cap must still hold it below the floor. */
+static void test_directmap_page_offset_base_likely_edge(void) {
+  struct estimate top;
+  quantities[Q_PAGE_OFFSET].init_top(&top);
+  unsigned long vd = top.lo + 0x11000000000ul; /* PUD-aligned base in-window */
+  unsigned long max_pfn = 0x340000ul;          /* ~13 GiB direct-mapped RAM */
+  unsigned long reach = max_pfn * PAGE_SIZE - (unsigned long)PHYS_OFFSET;
+  const unsigned long align = (unsigned long)RANDOMIZE_MEMORY_ALIGN;
+  const rule_fn rules[] = {rule_directmap_page_offset_bounds};
+  struct observation o = mk_obs(KASLD_TYPE_VIRT, REGION_DIRECTMAP, vd,
+                                LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
+  struct observation mp = mk_scalar(SF_PHYS_MAX_PFN, max_pfn, CONF_PARSED);
+
+  /* LIKELY (ungated): the base edge narrows the lower bound to base - align
+   * where the arch randomizes the direct map (align >= 2 MiB); elsewhere the
+   * edge is inert and the max_pfn span stands. */
+  struct engine e;
+  engine_init(&e);
+  evidence_add(&e.ev, &o);
+  evidence_add(&e.ev, &mp);
+  engine_run(&e, rules, 1);
+  assert(e.est[Q_PAGE_OFFSET].hi == vd);
+  if (align >= 2ul * 1024 * 1024)
+    assert(e.est[Q_PAGE_OFFSET].lo == vd - align);
+  else
+    assert(e.est[Q_PAGE_OFFSET].lo == vd - reach);
+
+  /* GUARANTEED (floored at the sound floor): the below-floor edge is excluded,
+   * so the window is the full max_pfn span regardless of arch — the edge can
+   * never move it. */
+  engine_init(&e);
+  evidence_add(&e.ev, &o);
+  evidence_add(&e.ev, &mp);
+  engine_run_full_floored(&e, CONF_INFERRED, rules, 1, NULL, 0);
+  assert(e.est[Q_PAGE_OFFSET].hi == vd);
+  assert(e.est[Q_PAGE_OFFSET].lo == vd - reach); /* unchanged by the edge */
 }
 
 /* virt_page_offset_base on x86_64 RANDOMIZE_MEMORY is PUD-aligned (1 GiB) by
@@ -4557,7 +4604,9 @@ static void test_directmap_page_offset_bounds_pud_aligned(void) {
   evidence_add(&e.ev, &o);
   evidence_add(&e.ev, &mp);
   const rule_fn rules[] = {rule_directmap_page_offset_bounds};
-  engine_run(&e, rules, 1);
+  /* Guaranteed window: the sound aligned bounds, without the below-floor base
+   * edge (which would narrow the lower edge past the max_pfn span). */
+  engine_run_full_floored(&e, CONF_INFERRED, rules, 1, NULL, 0);
   /* Upper aligned DOWN: low PUD bits cleared. */
   assert((e.est[Q_PAGE_OFFSET].hi & (pud - 1)) == 0);
   assert(e.est[Q_PAGE_OFFSET].hi <= vd);
@@ -5628,6 +5677,7 @@ int main(void) {
 #if __SIZEOF_LONG__ >= 8
   RUN(test_directmap_page_offset_bounds);
   RUN(test_directmap_page_offset_lower_bound_from_max_pfn);
+  RUN(test_directmap_page_offset_base_likely_edge);
   RUN(test_directmap_page_offset_bounds_pud_aligned);
   RUN(test_randomize_memory_page_offset);
   RUN(test_randomize_memory_page_offset_path2);
