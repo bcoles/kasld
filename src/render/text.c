@@ -355,7 +355,7 @@ static void render_kaslr_text(const struct summary *s) {
      * count for a single value. */
     int v_spec = kaslr_virt_is_window();
     printf("  Virtual image base:   %s0x%016lx%s%s\n", c(C_GREEN),
-           s->kaslr.vtext, c(C_RESET), v_spec ? "  (likely; speculative)" : "");
+           s->kaslr.vtext, c(C_RESET), v_spec ? "  likely (speculative)" : "");
     if (s->kaslr.vstext && s->kaslr.vstext != s->kaslr.vtext)
       printf("  Virtual _stext:       0x%016lx\n", s->kaslr.vstext);
     printf("  Default image base:   0x%016lx\n",
@@ -389,7 +389,7 @@ static void render_kaslr_text(const struct summary *s) {
   if (s->kaslr.has_phys) {
     int p_spec = kaslr_phys_is_window();
     printf("  Physical image base:  %s0x%016lx%s%s\n", c(C_GREEN),
-           s->kaslr.ptext, c(C_RESET), p_spec ? "  (likely; speculative)" : "");
+           s->kaslr.ptext, c(C_RESET), p_spec ? "  likely (speculative)" : "");
     if (s->kaslr.pstext && s->kaslr.pstext != s->kaslr.ptext)
       printf("  Physical _stext:      0x%016lx\n", s->kaslr.pstext);
 #ifdef KERNEL_PHYS_DEFAULT
@@ -1151,6 +1151,45 @@ static void readout_likely_row(unsigned long lo, unsigned long hi) {
            c(C_DIM), lo, hi, c(C_RESET));
 }
 
+/* The proven [lo,hi] window a concrete LIKELY base sits inside, shown beneath
+ * it as the honest floor — dim-labelled "guaranteed" with residual entropy, so
+ * the speculative headline base is always paired with what is actually proven.
+ */
+static void readout_guaranteed_window_row(unsigned long lo, unsigned long hi,
+                                          unsigned long slots, int bits,
+                                          unsigned long align) {
+  char hbuf[32];
+  if (align)
+    printf(
+        "  %-19s 0x%016lx - 0x%016lx   %sguaranteed%s  (~%d bits, %lu x %s)\n",
+        "", lo, hi, c(C_DIM), c(C_RESET), bits, slots,
+        human_size(align, hbuf, sizeof(hbuf)));
+  else
+    printf("  %-19s 0x%016lx - 0x%016lx   %sguaranteed%s  (~%d bits, %lu "
+           "candidates)\n",
+           "", lo, hi, c(C_DIM), c(C_RESET), bits, slots);
+}
+
+/* A concrete LIKELY base: the best-guess address, its slide (base - default,
+ * inheriting the point's speculative grade), and the "likely (speculative)"
+ * label. The label is right-padded so it lands in the same column as
+ * "guaranteed" on the window row that follows: both rows share the
+ * "  <label> 0x<addr>" prefix, and this row's "   slide " runs 15 columns short
+ * of where the window row's " - 0x<addr>   " puts "guaranteed", so pad the
+ * slide value out to width 15. */
+static void readout_likely_base_row(const char *label, unsigned long base,
+                                    long slide) {
+  unsigned long mag = slide < 0 ? (unsigned long)-slide : (unsigned long)slide;
+  char sb[24];
+  int sn = snprintf(sb, sizeof(sb), "%s0x%lx", slide < 0 ? "-" : "+", mag);
+  int pad = 15 - sn;
+  if (pad < 1)
+    pad = 1; /* keep one space if the slide is unexpectedly wide */
+  printf("  %-19s %s0x%016lx%s   slide %s%s%s%*s%slikely (speculative)%s\n",
+         label, c(C_GREEN), base, c(C_RESET), c(C_CYAN), sb, c(C_RESET), pad,
+         "", c(C_DIM), c(C_RESET));
+}
+
 static void render_readout(const struct summary *s) {
   /* Tool + target header is printed by orchestrator.c BEFORE the "Running
    * N components" line and progress bar — conventional CLI ordering
@@ -1211,6 +1250,13 @@ static void render_readout(const struct summary *s) {
   int ppin = (layout.phys_kaslr_text_min == layout.phys_kaslr_text_max &&
               layout.phys_kaslr_text_min != 0);
 
+  /* Three forms: a pinned base shows the address + slide; a concrete likely
+   * base (guaranteed window not pinned) shows that address graded "likely" with
+   * the guaranteed window beneath; a bare window shows the range + a likely
+   * sub-window. When a concrete likely base is shown it IS the speculative
+   * answer, so the separate likely-window row is suppressed (it would only
+   * restate it). */
+  int v_likely_base = (s->kaslr.vtext && !vpin);
   if (s->kaslr.vtext && vpin) {
     /* Fully derandomized — show address + slide instead of range. */
     long abs_v = s->kaslr.vslide < 0 ? -s->kaslr.vslide : s->kaslr.vslide;
@@ -1220,13 +1266,26 @@ static void render_readout(const struct summary *s) {
     if (s->kaslr.vstext && s->kaslr.vstext != s->kaslr.vtext)
       printf("  %-19s %s0x%016lx%s\n", "Virtual _stext", c(C_GREEN),
              s->kaslr.vstext, c(C_RESET));
+  } else if (v_likely_base) {
+    /* Concrete base + its slide, both graded likely; the proven window follows
+     * on the guaranteed row beneath. */
+    readout_likely_base_row("Virtual image base", s->kaslr.vtext,
+                            s->kaslr.vslide);
+    if (s->kaslr.vstext && s->kaslr.vstext != s->kaslr.vtext)
+      printf("  %-19s %s0x%016lx%s   %slikely%s\n", "Virtual _stext",
+             c(C_GREEN), s->kaslr.vstext, c(C_RESET), c(C_DIM), c(C_RESET));
+    readout_guaranteed_window_row(layout.virt_kaslr_text_min,
+                                  layout.virt_kaslr_text_max, s->kaslr.vslots,
+                                  s->kaslr.vbits, layout.virt_kaslr_align);
   } else {
     readout_bound_row("Virtual image base", layout.virt_kaslr_text_min,
                       layout.virt_kaslr_text_max, s->kaslr.vslots,
                       s->kaslr.vbits, layout.virt_kaslr_align);
   }
-  readout_likely_row(s->kaslr.vlikely_min, s->kaslr.vlikely_max);
+  if (!v_likely_base)
+    readout_likely_row(s->kaslr.vlikely_min, s->kaslr.vlikely_max);
 
+  int p_likely_base = (s->kaslr.has_phys && s->kaslr.ptext && !ppin);
   if (s->kaslr.has_phys && ppin) {
     long abs_p = s->kaslr.pslide < 0 ? -s->kaslr.pslide : s->kaslr.pslide;
     printf("  %-19s %s0x%016lx%s   slide %s%s0x%lx%s\n", "Physical image base",
@@ -1235,13 +1294,23 @@ static void render_readout(const struct summary *s) {
     if (s->kaslr.pstext && s->kaslr.pstext != s->kaslr.ptext)
       printf("  %-19s %s0x%016lx%s\n", "Physical _stext", c(C_GREEN),
              s->kaslr.pstext, c(C_RESET));
+  } else if (p_likely_base) {
+    readout_likely_base_row("Physical image base", s->kaslr.ptext,
+                            s->kaslr.pslide);
+    if (s->kaslr.pstext && s->kaslr.pstext != s->kaslr.ptext)
+      printf("  %-19s %s0x%016lx%s   %slikely%s\n", "Physical _stext",
+             c(C_GREEN), s->kaslr.pstext, c(C_RESET), c(C_DIM), c(C_RESET));
+    readout_guaranteed_window_row(layout.phys_kaslr_text_min,
+                                  layout.phys_kaslr_text_max, s->kaslr.pslots,
+                                  s->kaslr.pbits, layout.phys_kaslr_align);
   } else if (s->kaslr.pslots > 0 ||
              (layout.phys_kaslr_text_min || layout.phys_kaslr_text_max)) {
     readout_bound_row("Physical image base", layout.phys_kaslr_text_min,
                       layout.phys_kaslr_text_max, s->kaslr.pslots,
                       s->kaslr.pbits, layout.phys_kaslr_align);
   }
-  readout_likely_row(s->kaslr.plikely_min, s->kaslr.plikely_max);
+  if (!p_likely_base)
+    readout_likely_row(s->kaslr.plikely_min, s->kaslr.plikely_max);
 
   /* virt_page_offset (direct-map base): only when both sides narrowed into a
    * usable range. Half-bound (only min OR only max non-zero, encoding a

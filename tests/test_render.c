@@ -328,9 +328,11 @@ static void test_render_likely_window(void) {
 }
 
 /* A concrete vtext while the guaranteed window is a RANGE is a speculative
- * best-guess: -v labels it "(likely; speculative)" and shows the guaranteed
- * range; -j marks the virtual object speculative and still emits the inferred
- * (guaranteed) range. */
+ * best-guess. EVERY format surfaces the concrete base graded "likely
+ * (speculative)": the DEFAULT compact readout as a headline point + the
+ * guaranteed window beneath; -v the same with "Guaranteed range"; -j the
+ * virtual object marked speculative alongside the inferred range. The word
+ * "likely" appears only for this speculative grade. */
 static void test_render_vtext_speculative(void) {
   struct summary s;
   reset_results();
@@ -343,6 +345,7 @@ static void test_render_vtext_speculative(void) {
                 sv_al = layout.virt_kaslr_align;
 
   s.kaslr.vtext = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT + 0x10000000ul;
+  s.kaslr.vslide = 0x10000000l;
   s.kaslr.vslots = 60;
   s.kaslr.vbits = 6;
   layout.virt_kaslr_text_min = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
@@ -353,19 +356,36 @@ static void test_render_vtext_speculative(void) {
   verbose = 1;
   set_render_mode(0, 0, 0); /* text */
   capture_stdout(wrap_render_summary, &s);
-  verbose = 0;
-  assert(strstr(render_cap, "(likely; speculative)") != NULL);
+  assert(strstr(render_cap, "likely (speculative)") != NULL);
   assert(strstr(render_cap, "Guaranteed range") != NULL);
   /* The slide is a best-guess for a windowed (unpinned) base, so it inherits
-   * the likely grade (#6). ")  (likely)" is the slide tail; the base line uses
-   * "(likely; speculative)", so this substring matches only the slide. */
+   * the likely grade (#6): ")  (likely)" is the slide tail. */
   assert(strstr(render_cap, ")  (likely)") != NULL);
+
+  /* DEFAULT compact readout: the concrete base is the headline, graded
+   * speculative, with its slide alongside and the proven window shown as
+   * "guaranteed" beneath — never buried as "not derandomized" alone. */
+  verbose = 0;
+  capture_stdout(wrap_render_summary, &s);
+  assert(strstr(render_cap, "likely (speculative)") != NULL);
+  assert(strstr(render_cap, "guaranteed") != NULL);
+  /* A concrete best-guess base carries its slide, graded likely. */
+  assert(strstr(render_cap, "slide +0x10000000") != NULL);
+  {
+    char base_hex[32];
+    snprintf(base_hex, sizeof(base_hex), "0x%016lx", s.kaslr.vtext);
+    assert(strstr(render_cap, base_hex) != NULL);
+  }
 
   set_render_mode(1, 0,
                   0); /* json: virtual marked speculative + inferred range */
   capture_stdout(wrap_render_summary, &s);
   assert(strstr(render_cap, "\"speculative\": true") != NULL);
   assert(strstr(render_cap, "\"inferred\"") != NULL);
+
+  set_render_mode(0, 0, 1); /* markdown: concrete base graded likely */
+  capture_stdout(wrap_render_summary, &s);
+  assert(strstr(render_cap, "likely (speculative)") != NULL);
   set_render_mode(0, 0, 0);
 
   layout.virt_kaslr_text_min = sv_lo;

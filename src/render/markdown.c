@@ -137,7 +137,7 @@ void render_markdown(const struct summary *s) {
     if (s->kaslr.vtext) {
       long abs_vs = s->kaslr.vslide < 0 ? -s->kaslr.vslide : s->kaslr.vslide;
       printf("| Virtual image base | `0x%016lx`%s |\n", s->kaslr.vtext,
-             v_spec ? " (likely; speculative)" : "");
+             v_spec ? " likely (speculative)" : "");
       if (s->kaslr.vstext && s->kaslr.vstext != s->kaslr.vtext)
         printf("| Virtual _stext | `0x%016lx` |\n", s->kaslr.vstext);
       printf("| Default image base | `0x%016lx` |\n",
@@ -153,7 +153,7 @@ void render_markdown(const struct summary *s) {
     }
     if (s->kaslr.has_phys) {
       printf("| Physical image base | `0x%016lx`%s |\n", s->kaslr.ptext,
-             p_spec ? " (likely; speculative)" : "");
+             p_spec ? " likely (speculative)" : "");
       if (s->kaslr.pstext && s->kaslr.pstext != s->kaslr.ptext)
         printf("| Physical _stext | `0x%016lx` |\n", s->kaslr.pstext);
       printf("| Physical entropy | %d bits (%lu slots) |\n", s->kaslr.pbits,
