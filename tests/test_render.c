@@ -437,6 +437,85 @@ static void test_render_memory_likely_window(void) {
   set_render_mode(0, 0, 0);
 }
 
+/* A concrete likely direct-map base — a POS_BASE timing pin
+ * (prefetch_directmap) narrowed the likely window to a single-slot bracket at
+ * the base — is promoted in the default readout to a graded headline (the base
+ * address graded "likely (speculative)") with the guaranteed window beneath it
+ * ("guaranteed"), the same form as the image bases, rather than a bound row +
+ * dim sub-line. The "guaranteed" label is unique to that promoted window row,
+ * so its presence proves the promotion fired. RANDOMIZE_MEMORY arches only
+ * (align > 0). */
+static void test_render_directmap_base_promoted(void) {
+#if RANDOMIZE_MEMORY_ALIGN > 0
+  struct summary s;
+  reset_results();
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+  memset(&s, 0, sizeof(s));
+
+  s.kaslr.vslots = 60; /* keep the regular KASLR readout path */
+  s.kaslr.vbits = 6;
+  /* Base above the un-randomized direct-map base (PAGE_OFFSET_BASE_L4), so the
+   * displayed offset is the realistic small positive value it always is on a
+   * live kernel (page_offset_base >= PAGE_OFFSET_BASE_L4). */
+  unsigned long align = (unsigned long)RANDOMIZE_MEMORY_ALIGN;
+  unsigned long base = (unsigned long)PAGE_OFFSET_BASE_L4 + 20ul * align;
+  s.kaslr.virt_page_offset_min = (unsigned long)PAGE_OFFSET_BASE_L4;
+  s.kaslr.virt_page_offset_max = base; /* guaranteed window top */
+  s.kaslr.virt_page_offset_slots = 21;
+  s.kaslr.virt_page_offset_likely_min = base - align; /* one-slot bracket */
+  s.kaslr.virt_page_offset_likely_max = base;         /* best-guess base */
+
+  set_render_mode(0, 0, 0); /* default text readout */
+  capture_stdout(wrap_render_summary, &s);
+  char hex[32], off[32];
+  snprintf(hex, sizeof(hex), "0x%016lx", base);
+  snprintf(off, sizeof(off), "off +0x%lx", 20ul * align); /* base - default */
+  assert(strstr(render_cap, hex) != NULL);                /* headline base */
+  assert(strstr(render_cap, off) != NULL);                /* RM offset */
+  assert(strstr(render_cap, "likely (speculative)") != NULL); /* graded */
+  assert(strstr(render_cap, "guaranteed") != NULL); /* window beneath */
+  set_render_mode(0, 0, 0);
+#endif
+}
+
+/* The Phys/Virt coupling note relates the physical and virtual text bases. On a
+ * decoupled arch it is gated on a physical image base row actually being
+ * present — shown when one is, suppressed when there is nothing to relate to.
+ * (Coupled arches always show it; this checks the decoupled gate.) */
+static void test_render_coupling_gated(void) {
+#if !TEXT_TRACKS_DIRECTMAP
+  struct summary s;
+  unsigned long sp_lo = layout.phys_kaslr_text_min;
+  unsigned long sp_hi = layout.phys_kaslr_text_max;
+
+  reset_results();
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+  memset(&s, 0, sizeof(s));
+  s.kaslr.vslots = 60; /* keep the regular KASLR readout path */
+  s.kaslr.vbits = 6;
+  set_render_mode(0, 0, 0);
+
+  /* No physical base anywhere → the coupling note is suppressed. */
+  layout.phys_kaslr_text_min = 0;
+  layout.phys_kaslr_text_max = 0;
+  s.kaslr.pslots = 0;
+  capture_stdout(wrap_render_summary, &s);
+  assert(strstr(render_cap, "Phys/Virt coupling") == NULL);
+
+  /* A physical image base row present → the note is shown. */
+  layout.phys_kaslr_text_min = 0x01000000ul;
+  layout.phys_kaslr_text_max = 0x10000000ul;
+  capture_stdout(wrap_render_summary, &s);
+  assert(strstr(render_cap, "Phys/Virt coupling") != NULL);
+
+  layout.phys_kaslr_text_min = sp_lo;
+  layout.phys_kaslr_text_max = sp_hi;
+  set_render_mode(0, 0, 0);
+#endif
+}
+
 /* The verbose Memory-KASLR candidate count comes from the engine's hole-aware
  * slot field (s->kaslr.virt_page_offset_slots), NOT a renderer-local
  * (max-min)/align. Set a slot count the naive formula could never produce for
@@ -1526,6 +1605,8 @@ int main(void) {
   RUN(test_render_likely_window);
   RUN(test_render_vtext_speculative);
   RUN(test_render_memory_likely_window);
+  RUN(test_render_directmap_base_promoted);
+  RUN(test_render_coupling_gated);
   RUN(test_render_memory_kaslr_uses_stored_slots);
   RUN(test_render_disabled_base_not_labeled_likely);
   RUN(test_render_leak_discloses_interior);

@@ -19,6 +19,14 @@
 #include <sys/utsname.h>
 #include <unistd.h>
 
+/* Un-randomized direct-map base — the reference for the direct map's
+ * RANDOMIZE_MEMORY offset in the readout. x86_64-only; 0 elsewhere, where the
+ * direct-map base promotion that uses it never fires (gated on
+ * RANDOMIZE_MEMORY_ALIGN > 0). */
+#ifndef PAGE_OFFSET_BASE_L4
+#define PAGE_OFFSET_BASE_L4 0ul
+#endif
+
 /* Group key for "already printed" tracking. Sections are short, fixed
  * strings from region_info[].section_name — copy by pointer (those are
  * static literals owned by region_info.c). */
@@ -1170,24 +1178,25 @@ static void readout_guaranteed_window_row(unsigned long lo, unsigned long hi,
            "", lo, hi, c(C_DIM), c(C_RESET), bits, slots);
 }
 
-/* A concrete LIKELY base: the best-guess address, its slide (base - default,
- * inheriting the point's speculative grade), and the "likely (speculative)"
- * label. The label is right-padded so it lands in the same column as
- * "guaranteed" on the window row that follows: both rows share the
- * "  <label> 0x<addr>" prefix, and this row's "   slide " runs 15 columns short
- * of where the window row's " - 0x<addr>   " puts "guaranteed", so pad the
- * slide value out to width 15. */
+/* A concrete LIKELY base graded "likely (speculative)", annotated with its
+ * displacement from the un-randomized base: `disp` labelled `disp_label`
+ * ("slide" for the kernel image bases; "off" for the direct map's independent
+ * RANDOMIZE_MEMORY offset). The "   <label> <value>" field is a fixed 24
+ * visible columns (the value padded to fill), so "likely (speculative)" lands
+ * in the column shared with "guaranteed" on the window row beneath — both rows
+ * share the "  <label> 0x<addr>" prefix, and 24 columns matches where the
+ * window row's " - 0x<addr>   " puts "guaranteed". */
 static void readout_likely_base_row(const char *label, unsigned long base,
-                                    long slide) {
-  unsigned long mag = slide < 0 ? (unsigned long)-slide : (unsigned long)slide;
-  char sb[24];
-  int sn = snprintf(sb, sizeof(sb), "%s0x%lx", slide < 0 ? "-" : "+", mag);
-  int pad = 15 - sn;
+                                    const char *disp_label, long disp) {
+  unsigned long mag = disp < 0 ? (unsigned long)-disp : (unsigned long)disp;
+  char vb[24];
+  int vn = snprintf(vb, sizeof(vb), "%s0x%lx", disp < 0 ? "-" : "+", mag);
+  int pad = 20 - (int)strlen(disp_label) - vn; /* "   <label> " + value == 24 */
   if (pad < 1)
-    pad = 1; /* keep one space if the slide is unexpectedly wide */
-  printf("  %-19s %s0x%016lx%s   slide %s%s%s%*s%slikely (speculative)%s\n",
-         label, c(C_GREEN), base, c(C_RESET), c(C_CYAN), sb, c(C_RESET), pad,
-         "", c(C_DIM), c(C_RESET));
+    pad = 1; /* keep one space if the value is unexpectedly wide */
+  printf("  %-19s %s0x%016lx%s   %s %s%s%s%*s%slikely (speculative)%s\n", label,
+         c(C_GREEN), base, c(C_RESET), disp_label, c(C_CYAN), vb, c(C_RESET),
+         pad, "", c(C_DIM), c(C_RESET));
 }
 
 static void render_readout(const struct summary *s) {
@@ -1269,7 +1278,7 @@ static void render_readout(const struct summary *s) {
   } else if (v_likely_base) {
     /* Concrete base + its slide, both graded likely; the proven window follows
      * on the guaranteed row beneath. */
-    readout_likely_base_row("Virtual image base", s->kaslr.vtext,
+    readout_likely_base_row("Virtual image base", s->kaslr.vtext, "slide",
                             s->kaslr.vslide);
     if (s->kaslr.vstext && s->kaslr.vstext != s->kaslr.vtext)
       printf("  %-19s %s0x%016lx%s   %slikely%s\n", "Virtual _stext",
@@ -1295,7 +1304,7 @@ static void render_readout(const struct summary *s) {
       printf("  %-19s %s0x%016lx%s\n", "Physical _stext", c(C_GREEN),
              s->kaslr.pstext, c(C_RESET));
   } else if (p_likely_base) {
-    readout_likely_base_row("Physical image base", s->kaslr.ptext,
+    readout_likely_base_row("Physical image base", s->kaslr.ptext, "slide",
                             s->kaslr.pslide);
     if (s->kaslr.pstext && s->kaslr.pstext != s->kaslr.ptext)
       printf("  %-19s %s0x%016lx%s   %slikely%s\n", "Physical _stext",
@@ -1320,28 +1329,52 @@ static void render_readout(const struct summary *s) {
   {
     unsigned long lo = s->kaslr.virt_page_offset_min;
     unsigned long hi = s->kaslr.virt_page_offset_max;
-    if (lo && hi && hi >= lo) {
-      unsigned long slots = s->kaslr.virt_page_offset_slots;
-      int bits = slots > 0 ? ilog2_ul(slots) : 0;
-      readout_bound_row("Direct map base", lo, hi, slots, bits,
-                        (unsigned long)RANDOMIZE_MEMORY_ALIGN);
-    } else if (lo && !hi) {
-      printf("  %-19s >= %s0x%016lx%s\n", "Direct map base", c(C_CYAN), lo,
-             c(C_RESET));
-    } else if (!lo && hi) {
-      printf("  %-19s <= %s0x%016lx%s\n", "Direct map base", c(C_CYAN), hi,
-             c(C_RESET));
+    unsigned long llo = s->kaslr.virt_page_offset_likely_min;
+    unsigned long lhi = s->kaslr.virt_page_offset_likely_max;
+    unsigned long align = (unsigned long)RANDOMIZE_MEMORY_ALIGN;
+    unsigned long slots = s->kaslr.virt_page_offset_slots;
+    int bits = slots > 0 ? ilog2_ul(slots) : 0;
+    /* A concrete likely base — a POS_BASE timing pin (prefetch_directmap)
+     * narrowed the likely window to a single-slot bracket at the base — is
+     * promoted to a graded headline with the guaranteed window beneath, the
+     * same form as the image bases. The best-guess base is the bracket's top
+     * (lhi); the slide-less row is used since the direct map has no default to
+     * slide from. A wider likely narrowing is not a base pin and stays a dim
+     * range sub-line under the plain bounded row. */
+    int likely_base =
+        lo && hi && hi >= lo && lhi && align && (lhi - llo) <= align;
+    if (likely_base) {
+      readout_likely_base_row("Direct map base", lhi, "off",
+                              (long)(lhi - PAGE_OFFSET_BASE_L4));
+      readout_guaranteed_window_row(lo, hi, slots, bits, align);
+    } else {
+      if (lo && hi && hi >= lo)
+        readout_bound_row("Direct map base", lo, hi, slots, bits, align);
+      else if (lo && !hi)
+        printf("  %-19s >= %s0x%016lx%s\n", "Direct map base", c(C_CYAN), lo,
+               c(C_RESET));
+      else if (!lo && hi)
+        printf("  %-19s <= %s0x%016lx%s\n", "Direct map base", c(C_CYAN), hi,
+               c(C_RESET));
+      readout_likely_row(llo, lhi);
     }
-    readout_likely_row(s->kaslr.virt_page_offset_likely_min,
-                       s->kaslr.virt_page_offset_likely_max);
   }
 
   /* Coupling closes the bounds table as a single dim line: it is a static
    * arch property (not a measured quantity), so it recedes from the green/
    * magenta measured rows and explains why physical and virtual bases resolve
-   * as separate (or shared) quantities above. */
-  printf("  %-19s %s%s%s\n", "Phys/Virt coupling", c(C_DIM), coupling_descr(),
-         c(C_RESET));
+   * as separate (or shared) quantities above. Its job is to relate the physical
+   * and virtual text bases, so it only earns its place when there is a physical
+   * dimension to relate to: always on coupled arches (where one leak yields
+   * both — the exploitation-relevant case), and on decoupled arches only when a
+   * physical image base row was actually rendered. Suppressed where no physical
+   * base is shown, so it never asserts a relationship the reader can't see. */
+  int phys_row_shown = (s->kaslr.has_phys && ppin) || p_likely_base ||
+                       s->kaslr.pslots > 0 || layout.phys_kaslr_text_min ||
+                       layout.phys_kaslr_text_max;
+  if (TEXT_TRACKS_DIRECTMAP || phys_row_shown)
+    printf("  %-19s %s%s%s\n", "Phys/Virt coupling", c(C_DIM), coupling_descr(),
+           c(C_RESET));
   printf("\n");
 
   readout_print_leaks();
