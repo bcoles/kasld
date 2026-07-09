@@ -105,6 +105,36 @@ __attribute__((unused)) static bool detect_kpti(void) {
 }
 
 /* =========================================================================
+ * Paging-level detection
+ * =========================================================================
+ */
+
+/* 5-level paging (LA57) active. The kernel exports the "la57" flag in
+ * /proc/cpuinfo only when it is actually using 5-level paging (it clears the
+ * feature otherwise, even on capable CPUs), so this reflects the live VA layout
+ * — which selects between the L4 and L5 kernel region bases. */
+__attribute__((unused)) static bool detect_la57(void) {
+  FILE *f = kasld_fopen("/proc/cpuinfo", "r");
+  if (!f)
+    return false;
+
+  char *line = NULL;
+  size_t len = 0;
+  bool la57 = false;
+  while (getline(&line, &len, f) != -1) {
+    if (strstr(line, "flags") == NULL)
+      continue;
+    if (strstr(line, " la57") != NULL) {
+      la57 = true;
+      break;
+    }
+  }
+  free(line);
+  fclose(f);
+  return la57;
+}
+
+/* =========================================================================
  * CPU feature checks (CPUID)
  * =========================================================================
  */
