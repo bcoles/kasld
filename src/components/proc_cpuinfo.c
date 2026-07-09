@@ -32,8 +32,9 @@
 KASLD_EXPLAIN(
     "Reads /proc/cpuinfo (world-readable 0444) for architecture info: "
     "on x86_64, the virtual address width determines 4-level vs 5-level "
-    "paging; on RISC-V, the MMU mode (sv39/sv48/sv57) determines "
-    "PAGE_OFFSET. This constrains the kernel virtual address layout.");
+    "paging; on RISC-V, the MMU mode (sv39/sv48/sv57) constrains "
+    "PAGE_OFFSET (a single value for sv48/sv57, a two-candidate range for "
+    "sv39). This constrains the kernel virtual address layout.");
 
 KASLD_META("method:detection\n"
            "phase:inference\n"

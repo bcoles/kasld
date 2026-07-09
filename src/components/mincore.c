@@ -52,8 +52,9 @@
 KASLD_EXPLAIN(
     "Exploits CVE-2017-16994: the mincore() syscall, when querying "
     "unbacked MAP_NORESERVE MAP_HUGETLB pages, left the output vector "
-    "uninitialised, leaking kernel slab data (including heap pointers "
-    "from the buddy allocator) to userspace. Fixed in v4.15 by zeroing "
+    "uninitialised, leaking stale kernel memory to userspace; the scan "
+    "keeps values in the kernel-text range and reports the lowest as a "
+    "kernel-text base sample. Fixed in v4.15 by zeroing "
     "the output vector for unmapped huge-page ranges.");
 
 KASLD_META("method:heuristic\n"

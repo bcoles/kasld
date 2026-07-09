@@ -58,10 +58,11 @@
 
 KASLD_EXPLAIN(
     "Inside a QEMU TCG (software-emulated) x86_64 guest, the iret "
-    "instruction was not fully emulated: TCG stored the kernel stack "
-    "pointer in a guest-accessible register during the iret sequence. "
-    "Executing iret from a user-mode code segment leaks the host "
-    "kernel stack address into the guest. Fixed in QEMU v9.1.");
+    "instruction is mis-emulated: when ring-3 code executes iret to stay "
+    "in ring 3 with new cs/ss, TCG reads the iret frame from the kernel "
+    "stack instead of the user stack. This leaks an adjacent kernel "
+    "address into the guest; values in the kernel-text range are kept as "
+    "a base sample. Fixed in QEMU v9.1.");
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"

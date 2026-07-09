@@ -58,7 +58,7 @@
 KASLD_EXPLAIN(
     "Searches dmesg for raw function pointer values printed by the "
     "driver component framework (ops 0x...). When CONFIG_KALLSYMS is "
-    "disabled, the kernel prints raw %p pointers instead of symbolized "
+    "disabled, the %ps format prints raw pointers instead of symbolized "
     "names. These pointers are kernel text or module virtual addresses. "
     "Access is gated by dmesg_restrict.");
 

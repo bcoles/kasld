@@ -53,8 +53,9 @@
 KASLD_EXPLAIN(
     "Reads the firmware-provided physical memory map from "
     "/sys/firmware/memmap/*/start and /sys/firmware/memmap/*/end. These "
-    "world-readable files expose E820 or EFI memory map entries showing "
-    "physical DRAM and reserved region addresses. Entries starting at "
+    "world-readable files expose E820 or EFI memory map entries; only "
+    "'System RAM' entries are used, yielding the lowest RAM start and "
+    "highest RAM end as physical DRAM bounds. Entries starting at "
     "address 0 are skipped (trivially known; no KASLR information). "
     "x86 only; requires CONFIG_FIRMWARE_MEMMAP.");
 

@@ -45,9 +45,12 @@
 #define PROC_CONFIG_GZ "/proc/config.gz"
 
 KASLD_EXPLAIN(
-    "Reads /proc/config.gz (requires CONFIG_IKCONFIG_PROC) to check "
-    "CONFIG_RANDOMIZE_BASE and CONFIG_PAGE_OFFSET. Determines whether "
-    "KASLR is compiled in and the 32-bit user/kernel address split.");
+    "Reads /proc/config.gz (requires CONFIG_IKCONFIG_PROC) to determine "
+    "whether KASLR is compiled in (CONFIG_RANDOMIZE_BASE) and to extract "
+    "layout-constraining config values: the 32-bit user/kernel split "
+    "(CONFIG_PAGE_OFFSET), CONFIG_PHYSICAL_START, CONFIG_PHYSICAL_ALIGN, "
+    "CONFIG_KASAN, kernel-text function ordering, and (on s390) "
+    "CONFIG_KERNEL_IMAGE_BASE.");
 
 KASLD_META("method:detection\n"
            "phase:inference\n"

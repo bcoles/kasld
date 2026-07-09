@@ -70,7 +70,7 @@ KASLD_EXPLAIN(
     "confidence; below that it abstains (a low span does not certify canonical "
     "order -- link-time reordering like ThinLTO reads <1% yet still needs a "
     "build-specific System.map). Uses name order, so it survives "
-    "kptr_restrict.");
+    "kptr_restrict<=1 (addresses zeroed, names and order intact).");
 /* method:detection — this detects a hardening *property* (text ordering); it
  * leaks no address, so it is excluded from the exposure/leak accounting. The
  * emitted fact's confidence is CONF_HEURISTIC (separate from the method). */

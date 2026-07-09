@@ -77,9 +77,10 @@
 #include <unistd.h>
 
 KASLD_EXPLAIN(
-    "Searches dmesg for x86 MSR exception handler messages that print "
-    "the faulting RIP as a raw hex address (unchecked_isa_dma RIP: "
-    "0x...). When CONFIG_KALLSYMS is off, the kernel uses %%lx instead "
+    "Searches dmesg for x86 unchecked-MSR-access error messages that "
+    "print the faulting instruction pointer as a raw hex address "
+    "(unchecked MSR access error: ... at rIP: 0x...). When CONFIG_KALLSYMS "
+    "is off, the kernel uses %%lx instead "
     "of %%pS, exposing raw kernel text pointers. Access is gated by "
     "dmesg_restrict.");
 

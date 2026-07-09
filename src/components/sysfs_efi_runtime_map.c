@@ -63,9 +63,10 @@ KASLD_EXPLAIN(
     "Reads EFI runtime service virtual and physical addresses from "
     "/sys/firmware/efi/runtime-map/N/virt_addr and /phys_addr. On "
     "kernels without a dedicated EFI virtual address space (pre-~v5.14), "
-    "runtime service virtual addresses are placed in the kernel "
-    "direct-map. Subtracting phys_addr from virt_addr yields "
-    "virt_page_offset_base directly. On current kernels these files are mode "
+    "runtime service virtual addresses fall in the kernel direct-map and "
+    "are emitted as direct-map witnesses; where phys_addr is also "
+    "readable, subtracting it from virt_addr yields virt_page_offset_base. "
+    "On current kernels these files are mode "
     "0400 (root-only via __ATTR_RO_MODE), so an unprivileged user cannot read "
     "them; older kernels exposed them world-readable (0444). The interface is "
     "x86-only (CONFIG_EFI_RUNTIME_MAP) and requires a UEFI-booted system.");

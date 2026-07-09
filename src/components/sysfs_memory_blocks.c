@@ -48,8 +48,9 @@
 KASLD_EXPLAIN(
     "Reads physical memory block addresses from "
     "/sys/devices/system/memory/memory*/phys_index. Each world-readable "
-    "(0444) entry reports the physical page frame number of a memory "
-    "block (typically 128 MiB). Enumerating all blocks maps the "
+    "(0444) entry reports the section index of a memory block (typically "
+    "128 MiB); the index times the block size gives the block's physical "
+    "base address. Enumerating all blocks maps the "
     "physical DRAM layout. Requires CONFIG_MEMORY_HOTPLUG.");
 
 KASLD_META("method:parsed\n"

@@ -112,7 +112,7 @@ KASLD_EXPLAIN("EchoLoad exploits the Meltdown vulnerability's zero-return "
               "whether the speculative load produced a zero byte, the attack "
               "distinguishes mapped from unmapped kernel pages, revealing the "
               "KASLR text base. Requires Meltdown-vulnerable hardware (pre-Ice "
-              "Lake Intel);.");
+              "Lake Intel).");
 
 KASLD_META("method:timing\n"
            "phase:probing\n"

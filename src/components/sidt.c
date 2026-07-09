@@ -94,8 +94,10 @@ KASLD_EXPLAIN(
     "Executes the unprivileged SIDT instruction to read the Interrupt "
     "Descriptor Table (IDT) base virtual address. Before v3.10, the IDT "
     "lived in the kernel BSS at a fixed offset from the text base. Since "
-    "v3.10 (predating KASLR v3.14), the IDT was moved to a per-CPU "
-    "fixmap page, making SIDT return a constant address. Intel UMIP "
+    "v3.10 (predating KASLR v3.14), the IDT was moved into the fixmap "
+    "region at a constant read-only address, making SIDT return a fixed "
+    "value; KPTI (v4.15) further relocates it into the per-CPU entry "
+    "area. Intel UMIP "
     "(User-Mode Instruction Prevention) faults on SIDT from ring 3.");
 
 KASLD_META("method:parsed\n"

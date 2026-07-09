@@ -87,7 +87,7 @@ KASLD_EXPLAIN(
     "Reserved Memory Region Reporting (RMRR), firmware declares physical DRAM "
     "ranges that USB controllers, integrated GPUs, and similar hardware "
     "require "
-    "for DMA. These appear as 'Reserved' (RMRR) or 'Direct' (identity-mapped "
+    "for DMA. These appear as 'reserved' (RMRR) or 'direct' (identity-mapped "
     "DMA) entries and bound the physical RAM layout. The attribute is "
     "world-readable (S_IRUGO, 0444) with no capability check. Requires "
     "CONFIG_IOMMU_API and an active IOMMU with populated reserved regions.");

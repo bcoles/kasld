@@ -47,12 +47,12 @@
 #include <unistd.h>
 
 KASLD_EXPLAIN(
-    "Exploits CVE-2021-34693: the CAN BCM bcm_msg_head struct has a "
-    "4-byte padding hole between the count and ival1 fields that was "
-    "not zeroed when copied to userspace. Reading back a BCM RX_SETUP "
-    "message via recvmsg() leaked 4 bytes of kernel stack data, which "
-    "often contains kernel text or stack virtual addresses. Fixed in "
-    "v5.12.");
+    "Exploits CVE-2021-34693: the CAN BCM RX_SETUP handler built its "
+    "reply bcm_msg_head on the kernel stack and copied the ival1, ival2, "
+    "and can_id fields to userspace without zeroing them. Reading the "
+    "reply back via recvfrom() returns uninitialised kernel-stack bytes "
+    "in the high half of ival2.tv_sec, which often holds a kernel text "
+    "or stack virtual address. Fixed in v5.12.");
 
 KASLD_META("method:heuristic\n"
            "phase:probing\n"

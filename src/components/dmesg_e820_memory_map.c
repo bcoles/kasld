@@ -59,8 +59,9 @@
 KASLD_EXPLAIN(
     "Parses the x86 BIOS-provided E820 physical memory map from dmesg. "
     "This boot-time table shows all usable RAM and reserved physical "
-    "address ranges. The lowest usable entry gives the physical DRAM "
-    "base. x86 only. Access is gated by dmesg_restrict.");
+    "address ranges. The lowest and highest usable entries bound the "
+    "physical DRAM base and top. x86 only. Access is gated by "
+    "dmesg_restrict.");
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"

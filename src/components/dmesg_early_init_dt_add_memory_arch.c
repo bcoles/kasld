@@ -54,11 +54,11 @@
 
 KASLD_EXPLAIN(
     "Searches dmesg for 'Ignoring memory range' messages from the FDT "
-    "(flattened device tree) memory setup. These messages print the "
-    "physical address of memory ranges that exceed the kernel's "
-    "addressable limit. Common on ARM/ARM64/RISC-V systems with more "
-    "RAM than the virtual address space can map. Access is gated by "
-    "dmesg_restrict.");
+    "(flattened device tree) memory setup. These print the boundary of a "
+    "memory range that falls below the kernel's usable DRAM start, "
+    "revealing the physical DRAM base (PAGE_OFFSET). Common on "
+    "ARM/ARM64/RISC-V systems where firmware reserves memory below the "
+    "DRAM start. Access is gated by dmesg_restrict.");
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"

@@ -50,9 +50,16 @@
 KASLD_EXPLAIN(
     "Uses the perf_event_open() syscall to sample kernel instruction "
     "pointers during system calls. Each sample reports a raw kernel "
-    "text virtual address. Gated by kernel.perf_event_paranoid: values "
-    "below 2 allow kernel profiling. Requires CAP_PERFMON (v5.8+) or "
-    "CAP_SYS_ADMIN when paranoid >= 2.");
+    "text virtual address and is a sound upper bound on the image base. "
+    "On large-page architectures (KASLR alignment >= 2 MiB), flooring the "
+    "lowest sample to the KASLR grid yields a speculative base guess: it "
+    "hits the true base when the sampler caught the base slot, or sits one "
+    "slot (2 MiB) high when it did not (the brief entry-text stub is "
+    "sampled far less often than the kernel body), so the true base is "
+    "that value or one slot below. This guess feeds the speculative "
+    "(likely) result only, never the guaranteed range. Gated by "
+    "kernel.perf_event_paranoid: values below 2 allow kernel profiling. "
+    "Requires CAP_PERFMON (v5.8+) or CAP_SYS_ADMIN when paranoid >= 2.");
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"

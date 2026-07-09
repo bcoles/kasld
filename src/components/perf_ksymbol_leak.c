@@ -92,11 +92,12 @@
 
 KASLD_EXPLAIN(
     "Subscribes to perf side-band PERF_RECORD_KSYMBOL events with pid=-1, "
-    "cpu=0, ksymbol=1. Each notification carries the kernel virtual address "
-    "and name of a registered ksymbol (BPF program, BPF trampoline, kernel "
-    "module). Gated by kernel.perf_event_paranoid: the system-wide path "
+    "one event per online CPU, ksymbol=1. Each notification carries the "
+    "kernel virtual address and name of a registered ksymbol (BPF program, "
+    "BPF trampoline, kprobe or ftrace trampoline page). Gated by "
+    "kernel.perf_event_paranoid: the system-wide path "
     "needs paranoid<=0 (or CAP_PERFMON). Notification-driven: yields nothing "
-    "if no module/BPF activity occurs during the polling window.");
+    "if no BPF, kprobe, or ftrace activity occurs during the polling window.");
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"
