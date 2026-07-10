@@ -1341,12 +1341,23 @@ static void render_readout(const struct summary *s) {
      * (lhi); the slide-less row is used since the direct map has no default to
      * slide from. A wider likely narrowing is not a base pin and stays a dim
      * range sub-line under the plain bounded row. */
-    int likely_base =
-        lo && hi && hi >= lo && lhi && align && (lhi - llo) <= align;
-    if (likely_base) {
+    int concrete_likely =
+        llo && lhi && lhi >= llo && align && (lhi - llo) <= align;
+    if (concrete_likely && lo) {
+      /* Promote the concrete likely base to a graded headline with whatever is
+       * proven beneath it. A sound upper bound on page_offset is rare (nothing
+       * usually bounds it from above — a timing directmap recovery is filtered
+       * out of the guaranteed window), so unlike the image bases the row
+       * beneath is normally just the floor (>= lo). The promotion must NOT
+       * require a bounded guaranteed window, or it never fires for the direct
+       * map. */
       readout_likely_base_row("Direct map base", lhi, "off",
                               (long)(lhi - PAGE_OFFSET_BASE_L4));
-      readout_guaranteed_window_row(lo, hi, slots, bits, align);
+      if (hi && hi >= lo)
+        readout_guaranteed_window_row(lo, hi, slots, bits, align);
+      else
+        printf("  %-19s >= %s0x%016lx%s   %sguaranteed%s\n", "", c(C_CYAN), lo,
+               c(C_RESET), c(C_DIM), c(C_RESET));
     } else {
       if (lo && hi && hi >= lo)
         readout_bound_row("Direct map base", lo, hi, slots, bits, align);

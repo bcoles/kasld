@@ -479,6 +479,44 @@ static void test_render_directmap_base_promoted(void) {
 #endif
 }
 
+/* The realistic direct-map recovery: a timing directmap base narrows only the
+ * LIKELY window (it is filtered out of the guaranteed floor), so page_offset
+ * has NO sound upper bound — the guaranteed window is unbounded above
+ * (virt_page_offset_max == 0). The concrete likely base must still be promoted
+ * to a headline, with the guaranteed floor (">=") shown beneath it, not fall
+ * back to a bare ">= floor" row that hides the recovery. Regression guard for
+ * the promotion gate that previously required a bounded guaranteed window. */
+static void test_render_directmap_base_promoted_unbounded(void) {
+#if RANDOMIZE_MEMORY_ALIGN > 0
+  struct summary s;
+  reset_results();
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+  memset(&s, 0, sizeof(s));
+
+  s.kaslr.vslots = 60;
+  s.kaslr.vbits = 6;
+  unsigned long align = (unsigned long)RANDOMIZE_MEMORY_ALIGN;
+  unsigned long base = (unsigned long)PAGE_OFFSET_BASE_L4 + 20ul * align;
+  s.kaslr.virt_page_offset_min = (unsigned long)PAGE_OFFSET_BASE_L4; /* floor */
+  s.kaslr.virt_page_offset_max = 0; /* UNBOUNDED above (no sound ceiling) */
+  s.kaslr.virt_page_offset_likely_min = base - align; /* one-slot bracket */
+  s.kaslr.virt_page_offset_likely_max = base;         /* best-guess base */
+
+  set_render_mode(0, 0, 0); /* default text readout */
+  capture_stdout(wrap_render_summary, &s);
+  char hex[32], off[32];
+  snprintf(hex, sizeof(hex), "0x%016lx", base);
+  snprintf(off, sizeof(off), "off +0x%lx", 20ul * align);
+  assert(strstr(render_cap, hex) != NULL); /* headline base */
+  assert(strstr(render_cap, off) != NULL); /* RM offset */
+  assert(strstr(render_cap, "likely (speculative)") != NULL); /* graded */
+  assert(strstr(render_cap, "guaranteed") !=
+         NULL); /* floor beneath, labelled */
+  set_render_mode(0, 0, 0);
+#endif
+}
+
 /* The Phys/Virt coupling note relates the physical and virtual text bases. On a
  * decoupled arch it is gated on a physical image base row actually being
  * present — shown when one is, suppressed when there is nothing to relate to.
@@ -1606,6 +1644,7 @@ int main(void) {
   RUN(test_render_vtext_speculative);
   RUN(test_render_memory_likely_window);
   RUN(test_render_directmap_base_promoted);
+  RUN(test_render_directmap_base_promoted_unbounded);
   RUN(test_render_coupling_gated);
   RUN(test_render_memory_kaslr_uses_stored_slots);
   RUN(test_render_disabled_base_not_labeled_likely);
