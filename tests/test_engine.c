@@ -286,6 +286,53 @@ static void test_resolved_grid_align_noop(void) {
   assert(rule_image_base_resolved_grid_align(NULL, est, out, 4) == 0);
 }
 
+#if !TEXT_TRACKS_DIRECTMAP
+/* PHYSICAL axis (decoupled arches): residue 0, no sub-offset. A phys interior
+ * leak plus a phys floor, with a coarse resolved phys align, collapses to a pin
+ * the same way the virtual axis does — the symmetric completion of the virt
+ * snap, mirroring ceiling_from_image_size's both-axis handling. */
+static void test_resolved_grid_align_phys(void) {
+  unsigned long align = (unsigned long)KASLR_PHYS_ALIGN * RESOLVED_ALIGN_MULT;
+
+  struct estimate top;
+  quantities[Q_PHYS_IMAGE_BASE].init_top(&top);
+  unsigned long g0 = (top.lo + align) & ~(align - 1); /* a coarse grid point */
+  unsigned long g1 = g0 + align;
+
+  struct estimate est[Q__COUNT];
+  struct constraint out[4];
+  for (int q = 0; q < Q__COUNT; q++)
+    quantities[q].init_top(&est[q]);
+  est[Q_PHYS_IMAGE_BASE].kind = LK_INTERVAL;
+  est[Q_PHYS_IMAGE_BASE].lo =
+      g0 + 7ul; /* straddles exactly one grid point g1 */
+  est[Q_PHYS_IMAGE_BASE].hi = g1 + 7ul;
+  est[Q_PHYS_IMAGE_BASE].lo_binding = 1;
+  est[Q_PHYS_IMAGE_BASE].hi_binding = 1;
+  est[Q_PHYS_IMAGE_BASE].lo_conf = CONF_INFERRED;
+  est[Q_PHYS_IMAGE_BASE].hi_conf = CONF_INFERRED;
+  est[Q_PHYS_KASLR_ALIGN].lo = align;
+
+  int n = rule_image_base_resolved_grid_align(NULL, est, out, 4);
+  int saw_lo = 0, saw_hi = 0;
+  for (int i = 0; i < n; i++) {
+    if (out[i].q != Q_PHYS_IMAGE_BASE)
+      continue;
+    assert(out[i].value == g1);                /* both edges snap to the pin */
+    assert((out[i].value & (align - 1)) == 0); /* phys residue is 0 */
+    if (out[i].op == C_LOWER_BOUND)
+      saw_lo = 1;
+    if (out[i].op == C_UPPER_BOUND)
+      saw_hi = 1;
+  }
+  assert(saw_lo && saw_hi); /* collapsed to a single-address pin */
+
+  /* No-op at the compile-time granule. */
+  est[Q_PHYS_KASLR_ALIGN].lo = (unsigned long)KASLR_PHYS_ALIGN;
+  assert(rule_image_base_resolved_grid_align(NULL, est, out, 4) == 0);
+}
+#endif
+
 /* ========================================================================
  * Cross-quantity fixpoint: virt_page_offset -> vmalloc
  * ======================================================================== */
@@ -5763,6 +5810,9 @@ int main(void) {
   RUN(test_image_base_grid_align_noop);
   RUN(test_resolved_grid_align_sound);
   RUN(test_resolved_grid_align_noop);
+#if !TEXT_TRACKS_DIRECTMAP
+  RUN(test_resolved_grid_align_phys);
+#endif
 #if __SIZEOF_LONG__ >= 8
   RUN(test_engine_cross_quantity_fixpoint); /* 64-bit-only (see definition) */
 #endif
