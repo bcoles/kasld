@@ -23,8 +23,10 @@
 //   value == 0 — config is an s390 config that LACKS the knob: the pre-v6.8
 //     identity-mapped layout (__identity_base = 0, no RANDOMIZE_IDENTITY_BASE),
 //     where virt == phys and kernel text lives in low physical RAM. Cap
-//     Q_VIRT_IMAGE_BASE at the top of spanned RAM (max_pfn, else MemTotal):
-//     a RAM-resident address cannot exceed it.
+//     Q_VIRT_IMAGE_BASE at the top of spanned RAM: max_pfn (host-true zoneinfo)
+//     at CONF_PARSED, else MemTotal capped at CONF_HEURISTIC — MemTotal is
+//     /proc/meminfo-sourced and container-fakeable, so it never reaches the
+//     guaranteed window.
 //
 // s390 only; inert elsewhere and when no config was readable.
 // ---
@@ -115,10 +117,17 @@ int rule_s390_image_base_from_config(const struct evidence_set *ev,
   if (page_size == 0)
     page_size = 0x1000ul;
   unsigned long ram_top = 0;
-  if (max_pfn > 0 && max_pfn < (~0ul / page_size))
+  if (max_pfn > 0 && max_pfn < (~0ul / page_size)) {
     ram_top = (max_pfn + 1ul) * page_size; /* last RAM byte < this */
-  else if (memtotal > 0)
+  } else if (memtotal > 0) {
+    /* MemTotal fallback: /proc/meminfo is container-fakeable (lxcfs reports the
+     * cgroup limit, not host RAM), so a faked-small value would drop this
+     * ceiling below the true base. Cap it below the sound floor — it shapes the
+     * likely window only. The max_pfn path above is host-true (zoneinfo) and
+     * keeps CONF_PARSED. */
     ram_top = memtotal;
+    c->conf = kasld_conf_min(CONF_HEURISTIC, c->conf);
+  }
   if (ram_top == 0)
     return 0;
   c->op = C_UPPER_BOUND;
