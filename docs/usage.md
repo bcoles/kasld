@@ -91,20 +91,21 @@ config, no memory-layout diagram.
 KASLD 0.3.1-dev  --  Kernel ASLR derandomization
 Target: x86_64 / 6.15.6
 
-Running 93 components (3 experimental skipped; use -x to enable)...
-[####################] 100%  93/93  8.6s
+Running 94 components (3 experimental skipped; use -x to enable)...
+[####################] 100%  94/94  13.9s
 
-  Virtual image base  0xffffffff97e00000   slide +0x16e00000
-  Physical image base 0x000000001ba00000   slide +0x1aa00000
+  Virtual image base  0xffffffff8fe00000   slide +0xee00000
+  Physical image base 0x0000000034600000   slide +0x33600000
   Direct map base     >= 0xffff800000000000
   Phys/Virt coupling  physical and virtual text randomize independently
 
-Leaks (5):
-  virt kernel text    0xffffffff9809657c [interior]   (perf_event_open, proc_kallsyms)
-  virt kernel image   0xffffffff97e00000 [base]       (perf_event_open, prefetch, proc_kallsyms)
-  phys kernel image   0x000000001ba00000 [base]       (proc_iomem_kernel)
-  phys kernel data    0x000000001d400000 [base]       (proc_iomem_kernel)
-  phys kernel BSS     0x000000001df34000 [base]       (proc_iomem_kernel)
+Leaks (6):
+  virt kernel text    0xffffffff8ff04104 [interior]   (perf_event_open, proc_kallsyms)
+  virt kernel image   0xffffffff8fe00000 [base]       (perf_event_open, prefetch, proc_kallsyms)
+  virt directmap      0xffff9eeb80000000 [base]       (prefetch_directmap)
+  phys kernel image   0x0000000034600000 [base]       (proc_iomem_kernel)
+  phys kernel data    0x0000000036000000 [base]       (proc_iomem_kernel)
+  phys kernel BSS     0x0000000036b34000 [base]       (proc_iomem_kernel)
 
 [-v: detailed results, memory map, system info]  [-H: hardening assessment]
 ```
@@ -157,39 +158,39 @@ Readable /boot/config:        no
 [engine] phys_image_base: constrained by 13 independent sources: ceiling_from_image_size phys_ceiling_from_memtotal phys_bits_ceiling mmio_floor_phys_ceiling phys_hole_filter kernel_image_phys_bound initrd_phys_exclude phys_reservation_exclude ram_map_phys_exclude initrd_above_kernel cmdline_phys_exclude physical_start_lower_bound text_pin_from_observation
 [engine] virt_kaslr_align: constrained by 2 independent sources: kaslr_align_arch_default boot_params_kaslr_align
 [engine] phys_kaslr_align: constrained by 2 independent sources: kaslr_align_arch_default boot_params_kaslr_align
-Components: 93 total, 23 succeeded, 26 unavailable, 44 no result
+Components: 94 total, 24 succeeded, 26 unavailable, 44 no result
 
 ========================================
  Results
 ========================================
 
 Kernel text (virtual) / kernel_text [2]:
-  0xffffffff97e00000  kernel_text:_stext [base] (proc_kallsyms, parsed)
-  0xffffffff97f04104  kernel_text [interior] (perf_event_open, parsed)
-  ==> 0xffffffff97e00000  (parsed, 1 source, 1 conflict)
-      range: 0xffffffff97e00000 - 0xffffffff97f04104  (1.0 MiB)
+  0xffffffff8fe00000  kernel_text:_stext [base] (proc_kallsyms, parsed)
+  0xffffffff900a9fc9  kernel_text [interior] (perf_event_open, parsed)
+  ==> 0xffffffff8fe00000  (parsed, 1 source, 1 conflict)
+      range: 0xffffffff8fe00000 - 0xffffffff900a9fc9  (2.7 MiB)
 
 Kernel text (virtual) / kernel_image [3]:
-  0xffffffff97e00000  kernel_image [base] (perf_event_open, parsed)
-  0xffffffff97e00000  kernel_image:_text [base] (proc_kallsyms, parsed)
-  0xffffffff98000000  kernel_image [base] (prefetch, timing)
-  ==> 0xffffffff97e00000  (parsed, 2 sources, 1 conflict)
-      range: 0xffffffff97e00000 - 0xffffffff98000000  (2.0 MiB)
+  0xffffffff8fe00000  kernel_image:_text [base] (proc_kallsyms, parsed)
+  0xffffffff8fe00000  kernel_image [base] (prefetch, timing)
+  0xffffffff90000000  kernel_image [base] (perf_event_open, parsed)
+  ==> 0xffffffff8fe00000  (parsed, 2 sources, 1 conflict)
+      range: 0xffffffff8fe00000 - 0xffffffff90000000  (2.0 MiB)
 
 ----------------------------------------
 Kernel text (physical) / kernel_image [1]:
-  0x000000001ba00000  kernel_image:kernel_code [base] (proc_iomem_kernel, parsed)
-  ==> 0x000000001ba00000  (parsed, 1 source)
+  0x0000000034600000  kernel_image:kernel_code [base] (proc_iomem_kernel, parsed)
+  ==> 0x0000000034600000  (parsed, 1 source)
 
 ----------------------------------------
 Kernel data (physical) / kernel_data [1]:
-  0x000000001d400000  kernel_data:kernel_data [base] (proc_iomem_kernel, parsed)
-  ==> 0x000000001d400000  (parsed, 1 source)
+  0x0000000036000000  kernel_data:kernel_data [base] (proc_iomem_kernel, parsed)
+  ==> 0x0000000036000000  (parsed, 1 source)
 
 ----------------------------------------
 Kernel BSS (physical) / kernel_bss [1]:
-  0x000000001df34000  kernel_bss:kernel_bss [base] (proc_iomem_kernel, parsed)
-  ==> 0x000000001df34000  (parsed, 1 source)
+  0x0000000036b34000  kernel_bss:kernel_bss [base] (proc_iomem_kernel, parsed)
+  ==> 0x0000000036b34000  (parsed, 1 source)
 
 ----------------------------------------
 Physical DRAM / ram [6]:
@@ -204,8 +205,8 @@ Physical DRAM / ram [6]:
 
 ----------------------------------------
 Physical DRAM / initrd [1]:
-  0x000000003efcd000  initrd [base] (boot_params_e820, dmesg_ramdisk, parsed)
-  ==> 0x000000003efcd000  (parsed, 1 source)
+  0x000000003efc2000  initrd [base] (boot_params_e820, dmesg_ramdisk, parsed)
+  ==> 0x000000003efc2000  (parsed, 1 source)
 
 ----------------------------------------
 Physical DRAM / cmdline [1]:
@@ -237,14 +238,14 @@ Physical MMIO / pci_mmio [8]:
 
 ----------------------------------------
 KASLR analysis:
-  Virtual image base:   0xffffffff97e00000
+  Virtual image base:   0xffffffff8fe00000
   Default image base:   0xffffffff81000000
-  KASLR slide:          +0x16e00000 (383778816)
+  KASLR slide:          +0xee00000 (249561088)
   KASLR text entropy:   0 bits (pinned)
 
-  Physical image base:  0x000000001ba00000
+  Physical image base:  0x0000000034600000
   Default phys base:    0x0000000001000000
-  Physical KASLR slide: +0x1aa00000 (446693376)
+  Physical KASLR slide: +0x33600000 (861929472)
   Physical KASLR entropy: 0 bits (pinned)
 
 Memory KASLR (directmap / vmalloc / vmemmap):
@@ -258,12 +259,12 @@ Virtual memory layout (decoupled):
   0xffffffffffffffff
       modules (no leak)
   0xffffffffc0000000
-      . . .  642.0 MiB gap  . . .
-  0xffffffff97e00000
+      . . .  770.0 MiB gap  . . .
+  0xffffffff8fe00000
       kernel text (pinned)
-        leak hi: 0xffffffff98000000
-        leak lo: 0xffffffff97e00000
-  0xffffffff97e00000
+        leak hi: 0xffffffff900a9fc9
+        leak lo: 0xffffffff8fe00000
+  0xffffffff8fe00000
       . . .  128.0 TiB gap  . . .
   0xffff800000000000
       direct map (base; extent unknown)
@@ -284,16 +285,15 @@ Physical memory layout:
         0x00000000fd000000  [mmio] pci_mmio:0000:00:01.0
   0x000000003ffdefff
       in DRAM
-        0x000000003efcd000  [dram] initrd
-        0x000000001df34000  [bss] kernel_bss:kernel_bss
-        0x000000001d400000  [data] kernel_data:kernel_data
-        0x000000001ba00000  [text] kernel
+        0x000000003efc2000  [dram] initrd
+        0x0000000036b34000  [bss] kernel_bss:kernel_bss
+        0x0000000036000000  [data] kernel_data:kernel_data
+        0x0000000034600000  [text] kernel
         0x00000000011ee000  [dram] vmcoreinfo
         0x00000000000c0000  [mmio] pci_mmio:0000:00:01.0
         0x0000000000020000  [dram] cmdline
         0x0000000000001000  [dram] ram
   0x0000000000000000
-
 ```
 
 </details>
@@ -313,7 +313,7 @@ value is fully recovered.
 `-1` (`--oneline`) produces a single shell-pipeable line:
 
 ```
-arch=x86_64 kaslr=on text=0xffffffff97e00000 slide=+0x16e00000(383778816) ptext=0x1ba00000 pslide=+0x1aa00000(446693376) dmap=0xffff800000000000 results=26
+arch=x86_64 kaslr=on text=0xffffffff8fe00000 slide=+0xee00000(249561088) ptext=0x34600000 pslide=+0x33600000(861929472) dmap=0xffff800000000000 results=27
 ```
 
 ### JSON (`-j`)

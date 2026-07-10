@@ -66,17 +66,21 @@ The default text mode prints an answer-first overview:
 KASLD 0.3.1-dev  --  Kernel ASLR derandomization
 Target: x86_64 / 6.15.6
 
-Running 83 components (10 experimental skipped; use -x to enable)...
-[####################] 100%  83/83  5.3s
+Running 94 components (3 experimental skipped; use -x to enable)...
+[####################] 100%  94/94  13.9s
 
-  Virtual image base  0xffffffff83800000   slide +0x2800000
-  Physical image base not derandomized     ~9 bits
-                      0x0000000001000000 - 0x000000003c20ca00   (473 x 2.0 MiB)
+  Virtual image base  0xffffffff8fe00000   slide +0xee00000
+  Physical image base 0x0000000034600000   slide +0x33600000
   Direct map base     >= 0xffff800000000000
-  Phys/Virt Coupling  physical and virtual text randomize independently
+  Phys/Virt coupling  physical and virtual text randomize independently
 
-Leaks (1):
-  virt kernel text    0xffffffff83800000   (prefetch)
+Leaks (6):
+  virt kernel text    0xffffffff8ff04104 [interior]   (perf_event_open, proc_kallsyms)
+  virt kernel image   0xffffffff8fe00000 [base]       (perf_event_open, prefetch, proc_kallsyms)
+  virt directmap      0xffff9eeb80000000 [base]       (prefetch_directmap)
+  phys kernel image   0x0000000034600000 [base]       (proc_iomem_kernel)
+  phys kernel data    0x0000000036000000 [base]       (proc_iomem_kernel)
+  phys kernel BSS     0x0000000036b34000 [base]       (proc_iomem_kernel)
 
 [-v: detailed results, memory map, system info]  [-H: hardening assessment]
 ```
