@@ -162,11 +162,39 @@ __attribute__((unused)) static int has_rtm(void) {
  * =========================================================================
  */
 
-__attribute__((unused)) static void pin_cpu(int cpu) {
-  cpu_set_t set;
-  CPU_ZERO(&set);
-  CPU_SET(cpu, &set);
-  sched_setaffinity(0, sizeof(set), &set);
+/* Pin the calling thread to a single CPU for stable timing. `pref` is the
+ * caller's preferred CPU; if it is not in the process's allowed affinity mask
+ * — e.g. a cgroup cpuset or `taskset` excludes it — fall back to the lowest
+ * allowed CPU. The old code hardcoded `pref` and ignored the failure, so under
+ * such a cpuset the affinity was left unchanged and the probe ran across
+ * several CPUs (noisy). Best-effort: on any error the affinity is left as-is.
+ * Returns the CPU pinned to, or -1 (callers may note a -1 as "unpinned"). */
+__attribute__((unused)) static int pin_cpu(int pref) {
+  cpu_set_t allowed;
+  CPU_ZERO(&allowed);
+  if (sched_getaffinity(0, sizeof(allowed), &allowed) != 0)
+    return -1;
+
+  int target = -1;
+  if (pref >= 0 && pref < CPU_SETSIZE && CPU_ISSET(pref, &allowed)) {
+    target = pref; /* preference is allowed — keep it */
+  } else {
+    for (int c = 0; c < CPU_SETSIZE; c++) {
+      if (CPU_ISSET(c, &allowed)) {
+        target = c; /* lowest allowed CPU */
+        break;
+      }
+    }
+  }
+  if (target < 0)
+    return -1;
+
+  cpu_set_t one;
+  CPU_ZERO(&one);
+  CPU_SET(target, &one);
+  if (sched_setaffinity(0, sizeof(one), &one) != 0)
+    return -1;
+  return target;
 }
 
 #endif /* KASLD_CPU_H */

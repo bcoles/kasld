@@ -311,6 +311,13 @@ TEST_PREFETCH_SCAN_BIN := $(TEST_OBJ_DIR)/test_prefetch_scan
 $(TEST_PREFETCH_SCAN_BIN): $(TEST_DIR)/test_prefetch_scan.c $(HDRS) | $(TEST_OBJ_DIR)
 	$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_prefetch_scan.c -o $@
 
+# pin_cpu() cpuset-aware affinity test (header-only, x86_64-only cpu.h; inert
+# elsewhere). No .c sources to link.
+TEST_CPU_BIN := $(TEST_OBJ_DIR)/test_cpu
+
+$(TEST_CPU_BIN): $(TEST_DIR)/test_cpu.c $(HDRS) | $(TEST_OBJ_DIR)
+	$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_cpu.c -o $@
+
 # Text-order classifier test (header-only): exercises classify_text_order().
 TEST_TEXT_ORDER_BIN := $(TEST_OBJ_DIR)/test_text_order
 
@@ -397,7 +404,7 @@ $(TEST_PARSERS_BIN): $(TEST_DIR)/test_sysfs_parsers.c $(TEST_PARSERS_SRCS) $(HDR
 	$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_sysfs_parsers.c -o $@
 
 .PHONY: test
-test : $(TEST_BIN) $(TEST_RENDER_BIN) $(TEST_EST_BIN) $(TEST_EV_BIN) $(TEST_ALIGN_BIN) $(TEST_PREFETCH_SCAN_BIN) $(TEST_TEXT_ORDER_BIN) $(TEST_KIMG_BIN) $(TEST_ENG_BIN) $(TEST_INT_BIN) $(TEST_DMESG_BIN) $(TEST_BACKTRACE_BIN) $(TEST_BTF_BIN) $(TEST_DMESG_RESV_BIN) $(TEST_BPE820_BIN) $(TEST_PARSERS_BIN)
+test : $(TEST_BIN) $(TEST_RENDER_BIN) $(TEST_EST_BIN) $(TEST_EV_BIN) $(TEST_ALIGN_BIN) $(TEST_PREFETCH_SCAN_BIN) $(TEST_CPU_BIN) $(TEST_TEXT_ORDER_BIN) $(TEST_KIMG_BIN) $(TEST_ENG_BIN) $(TEST_INT_BIN) $(TEST_DMESG_BIN) $(TEST_BACKTRACE_BIN) $(TEST_BTF_BIN) $(TEST_DMESG_RESV_BIN) $(TEST_BPE820_BIN) $(TEST_PARSERS_BIN)
 	@$(TEST_DIR)/run-all
 	@$(MAKE) --no-print-directory lint
 
