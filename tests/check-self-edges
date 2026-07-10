@@ -28,6 +28,7 @@ RULES=$ROOT/src/rules
 # a soundness test. Keep alphabetical.
 ALLOW="arm64_text_base
 image_base_grid_align
+image_base_resolved_grid_align
 phys_hole_filter
 phys_virt_synth
 randomize_memory_page_offset

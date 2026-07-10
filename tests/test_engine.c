@@ -25,6 +25,9 @@ int rule_range_from_interior(const struct evidence_set *ev,
 int rule_image_base_grid_align(const struct evidence_set *ev,
                                const struct estimate *est,
                                struct constraint *out, int out_max);
+int rule_image_base_resolved_grid_align(const struct evidence_set *ev,
+                                        const struct estimate *est,
+                                        struct constraint *out, int out_max);
 
 static struct observation mk_obs(enum kasld_addr_type type,
                                  enum kasld_region region, unsigned long addr,
@@ -184,6 +187,103 @@ static void test_image_base_grid_align_noop(void) {
   est[Q_VIRT_IMAGE_BASE].lo_binding = 0; /* honest tops: no real bounds */
   est[Q_VIRT_IMAGE_BASE].hi_binding = 0;
   assert(rule_image_base_grid_align(NULL, est, out, 4) == 0);
+}
+
+/* ========================================================================
+ * image_base_resolved_grid_align: snap the window to the RESOLVED (coarser)
+ * KASLR grid — the step image_base_grid_align leaves to this rule.
+ * ======================================================================== */
+
+/* A coarser granule than the compile-time one, guaranteed to differ on every
+ * arch (a whole power-of-two multiple keeps the residue arithmetic exact). */
+#define RESOLVED_ALIGN_MULT 8ul
+
+/* SOUNDNESS (self-edge review): with a coarser resolved granule, the ceiling
+ * floors DOWN to a coarse-grid point >= _text and the floor raises UP to a
+ * coarse-grid point <= _text — neither crosses the truth. A window straddling a
+ * single coarse-grid point therefore collapses to that point, which IS the
+ * base. Grid points carry KERNEL_VIRT_TEXT_DEFAULT's residue, so this exercises
+ * the sub-offset arches under `make test-cross`. */
+static void test_resolved_grid_align_sound(void) {
+  unsigned long align = (unsigned long)KASLR_VIRT_ALIGN * RESOLVED_ALIGN_MULT;
+  unsigned long def = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
+
+  struct estimate top;
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
+  /* Two adjacent coarse-grid points well inside the honest window. */
+  unsigned long g0 = kasld_ceil_aligned_suboffset(top.lo + align, align, def);
+  unsigned long g1 = g0 + align;
+  assert(g0 < g1);
+
+  struct estimate est[Q__COUNT];
+  struct constraint out[4];
+  int n, i, saw_lo, saw_hi;
+
+  /* Ceiling edge only: hi 7B above g1 floors back to g1, never below. */
+  mk_est_virt_base(est, g0, g1 + 7ul, CONF_INFERRED);
+  est[Q_VIRT_KASLR_ALIGN].lo = align;
+  n = rule_image_base_resolved_grid_align(NULL, est, out, 4);
+  assert(n == 1 && out[0].op == C_UPPER_BOUND);
+  assert(out[0].value == g1);           /* floored to the coarse grid */
+  assert(out[0].conf == CONF_INFERRED); /* carries the edge's confidence */
+
+  /* Floor edge only: lo 7B below g1 ceils up to it, never above. */
+  mk_est_virt_base(est, g1 - 7ul, g1 + align, CONF_INFERRED);
+  est[Q_VIRT_KASLR_ALIGN].lo = align;
+  n = rule_image_base_resolved_grid_align(NULL, est, out, 4);
+  assert(n == 1 && out[0].op == C_LOWER_BOUND);
+  assert(out[0].value == g1);
+
+  /* Straddling exactly one coarse-grid point (g1): both edges snap to g1 — the
+   * window collapses to a single-address pin (the "~0 bits / 1 candidate" case
+   * the coarse slot count already reports). */
+  mk_est_virt_base(est, g0 + 7ul, g1 + 7ul, CONF_INFERRED);
+  est[Q_VIRT_KASLR_ALIGN].lo = align;
+  n = rule_image_base_resolved_grid_align(NULL, est, out, 4);
+  assert(n == 2);
+  saw_lo = saw_hi = 0;
+  for (i = 0; i < n; i++) {
+    assert(out[i].value == g1); /* both edges land on the lone grid point */
+    assert((out[i].value & (align - 1)) ==
+           (def & (align - 1))); /* residue preserved */
+    if (out[i].op == C_LOWER_BOUND)
+      saw_lo = 1;
+    if (out[i].op == C_UPPER_BOUND)
+      saw_hi = 1;
+  }
+  assert(saw_lo && saw_hi);
+}
+
+/* NO-OP guards: compile-time granule (nothing coarser to snap), a
+ * candidate-free window (never fabricate a base), and honest tops. */
+static void test_resolved_grid_align_noop(void) {
+  unsigned long align = (unsigned long)KASLR_VIRT_ALIGN * RESOLVED_ALIGN_MULT;
+  unsigned long def = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
+
+  struct estimate top;
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
+  unsigned long g0 = kasld_ceil_aligned_suboffset(top.lo + align, align, def);
+
+  struct estimate est[Q__COUNT];
+  struct constraint out[4];
+
+  /* Resolved granule == compile-time granule: image_base_grid_align's job. */
+  mk_est_virt_base(est, g0 + 7ul, g0 + align + 7ul, CONF_INFERRED);
+  est[Q_VIRT_KASLR_ALIGN].lo = (unsigned long)KASLR_VIRT_ALIGN;
+  assert(rule_image_base_resolved_grid_align(NULL, est, out, 4) == 0);
+
+  /* Candidate-free window: (g0, g0+align) holds no coarse-grid point — emit
+   * nothing rather than invert the window. */
+  mk_est_virt_base(est, g0 + 1ul, g0 + align - 1ul, CONF_INFERRED);
+  est[Q_VIRT_KASLR_ALIGN].lo = align;
+  assert(rule_image_base_resolved_grid_align(NULL, est, out, 4) == 0);
+
+  /* Honest tops (binding == 0): no real bounds to sharpen. */
+  mk_est_virt_base(est, g0 + 7ul, g0 + align + 7ul, CONF_INFERRED);
+  est[Q_VIRT_KASLR_ALIGN].lo = align;
+  est[Q_VIRT_IMAGE_BASE].lo_binding = 0;
+  est[Q_VIRT_IMAGE_BASE].hi_binding = 0;
+  assert(rule_image_base_resolved_grid_align(NULL, est, out, 4) == 0);
 }
 
 /* ========================================================================
@@ -3573,6 +3673,9 @@ int rule_kaslr_align_arch_default(const struct evidence_set *ev,
 int rule_boot_params_kaslr_align(const struct evidence_set *ev,
                                  const struct estimate *est,
                                  struct constraint *out, int out_max);
+int rule_image_floor_from_init_size(const struct evidence_set *ev,
+                                    const struct estimate *est,
+                                    struct constraint *out, int out_max);
 int rule_arm64_efi_kimg_align(const struct evidence_set *ev,
                               const struct estimate *est,
                               struct constraint *out, int out_max);
@@ -3672,6 +3775,49 @@ static void test_ceiling_uses_resolved_align(void) {
   /* And strictly tighter than the compile-time-align ceiling would be. */
   assert(expect <= ((KASLR_VIRT_TEXT_MAX - init_size) &
                     ~((unsigned long)KASLR_VIRT_ALIGN - 1)));
+#endif
+}
+
+/* FUNCTIONAL end-to-end (x86_64): the reported Alpine case. An interior kernel
+ * leak 8 KiB into _text (no pos=base anchor) gives the upper bound; an exact
+ * image size gives a floor one 2 MiB slot below the base. With
+ * CONFIG_PHYSICAL_ALIGN parsed to 16 MiB, the only 16 MiB grid position left in
+ * the bracket is the base — image_base_resolved_grid_align collapses the window
+ * to that pin, where the compile-time-granule image_base_grid_align could not.
+ */
+static void test_resolved_grid_align_pins_x86_64(void) {
+#if defined(__x86_64__)
+  struct estimate top;
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
+  unsigned long kalign = 0x1000000ul; /* 16 MiB CONFIG_PHYSICAL_ALIGN */
+  unsigned long base = kasld_ceil_aligned_suboffset(
+      top.lo + 0x10000000ul, kalign, (unsigned long)KERNEL_VIRT_TEXT_DEFAULT);
+  unsigned long sample = base + 0x2000ul; /* interior leak 8 KiB into _text */
+  /* Exact size so the floor (sample - size) lands 2 MiB below the base: inside
+   * the same 16 MiB slot, so the lone 16 MiB candidate in the bracket is base.
+   */
+  unsigned long ksize = 0x2000ul + 0x200000ul;
+
+  struct engine e;
+  engine_init(&e);
+  struct observation leak = mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE, sample,
+                                   SAMPLE_SET, POS_INTERIOR, CONF_PARSED);
+  struct observation sz = mk_scalar(SF_IMAGE_SIZE_MAX, ksize, CONF_PARSED);
+  struct observation al = mk_scalar(SF_PHYS_KERNEL_ALIGN, kalign, CONF_PARSED);
+  evidence_add(&e.ev, &leak);
+  evidence_add(&e.ev, &sz);
+  evidence_add(&e.ev, &al);
+
+  const rule_fn rules[] = {
+      rule_kaslr_align_arch_default, rule_boot_params_kaslr_align,
+      rule_range_from_interior,      rule_image_floor_from_init_size,
+      rule_image_base_grid_align,    rule_image_base_resolved_grid_align};
+  engine_run(&e, rules, (int)(sizeof(rules) / sizeof(rules[0])));
+
+  assert(e.est[Q_VIRT_KASLR_ALIGN].lo == kalign);
+  /* Collapsed to the single 16 MiB candidate — a pin at the true base. */
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo == base);
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi == base);
 #endif
 }
 
@@ -5085,12 +5231,8 @@ static void test_min_offset_from_image_size(void) {
 /* image_floor_from_init_size: a high in-image VIRT leak + SF_IMAGE_SIZE_MAX
  * floors Q_VIRT_IMAGE_BASE at (leak - init_size), the lower-bound complement to
  * the interior upper bound. Arch-independent (fires wherever SF_IMAGE_SIZE_MAX
- * exists).
+ * exists). Prototype declared earlier (shared with the resolved-grid test).
  */
-int rule_image_floor_from_init_size(const struct evidence_set *,
-                                    const struct estimate *,
-                                    struct constraint *, int);
-
 static void test_image_floor_from_init_size(void) {
   struct estimate top;
   quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
@@ -5619,6 +5761,8 @@ int main(void) {
   RUN(test_image_base_grid_align_sound);
   RUN(test_image_base_grid_align_tightens);
   RUN(test_image_base_grid_align_noop);
+  RUN(test_resolved_grid_align_sound);
+  RUN(test_resolved_grid_align_noop);
 #if __SIZEOF_LONG__ >= 8
   RUN(test_engine_cross_quantity_fixpoint); /* 64-bit-only (see definition) */
 #endif
@@ -5728,6 +5872,7 @@ int main(void) {
   RUN(test_boot_params_kaslr_align_subdefault);
   RUN(test_arm64_efi_kimg_align);
   RUN(test_ceiling_uses_resolved_align);
+  RUN(test_resolved_grid_align_pins_x86_64);
   RUN(test_config_max_offset_ceiling);
   RUN(test_config_max_offset_virt_anchors_no_ceiling);
   RUN(test_config_max_offset_absent);
