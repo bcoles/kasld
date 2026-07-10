@@ -5,11 +5,22 @@
 // The coupled-arch counterpart to phys_ceiling_from_memtotal. On a coupled arch
 // (x86-32, MIPS, PPC32 BookE, LoongArch) phys_to_directmap_virt() links
 // physical DRAM to the virtual text window, so the RAM-fits-the-image ceiling
-// maps to a virtual upper bound:
+// maps to a virtual upper bound. It carries the SAME dram_top-vs-MemTotal
+// discipline as phys_ceiling_from_memtotal:
 //
-//   virt_ceiling = PAGE_OFFSET_runtime + (phys_floor - PHYS_OFFSET)
-//                  + MemTotal - min_image + IMAGE_BASE_OFFSET   (aligned
-//                  down)
+//   preferred:  virt_ceiling = PAGE_OFFSET_runtime + (dram_top - PHYS_OFFSET)
+//                              - min_image + IMAGE_BASE_OFFSET
+//               from the spanned DRAM extent (zoneinfo REGION_RAM POS_TOP),
+//               at observation confidence — reaches the guaranteed window.
+//   fallback:   PAGE_OFFSET_runtime + (phys_floor - PHYS_OFFSET) + MemTotal
+//                              - min_image + IMAGE_BASE_OFFSET
+//               when no DRAM extent is observed, capped at CONF_HEURISTIC.
+//
+// The MemTotal fallback is a convention, not a fact: MemTotal under-counts the
+// spanned extent (reserved regions) AND is virtualisable inside a container /
+// cgroup (lxcfs reports the cgroup limit, not host RAM), so a MemTotal-derived
+// ceiling can fall below the true base. Capping it below the sound floor keeps
+// a faked or under-counted value out of the guaranteed window.
 //
 // This is a CROSS-QUANTITY rule: it uses the engine's resolved Q_PAGE_OFFSET
 // rather than the compile-time PAGE_OFFSET, because the runtime value can
@@ -48,9 +59,10 @@ int rule_virt_ceiling_from_memtotal(const struct evidence_set *ev,
     return 0; /* virt_page_offset not yet resolved to a point */
   unsigned long virt_page_offset = po->lo;
 
-  unsigned long memtotal = 0, phys_floor = ULONG_MAX;
-  enum kasld_confidence mconf = CONF_UNKNOWN, fconf = CONF_PARSED;
-  uint32_t msrc = 0, fsrc = 0;
+  unsigned long memtotal = 0, phys_floor = ULONG_MAX, dram_top = 0;
+  enum kasld_confidence mconf = CONF_UNKNOWN, fconf = CONF_PARSED,
+                        tconf = CONF_UNKNOWN;
+  uint32_t msrc = 0, fsrc = 0, tsrc = 0;
   const unsigned long min_image = evidence_image_size_min_or_floor(ev);
   for (int i = 0; i < ev->n_obs; i++) {
     const struct observation *o = &ev->obs[i];
@@ -68,18 +80,52 @@ int rule_virt_ceiling_from_memtotal(const struct evidence_set *ev,
         fconf = o->conf;
         fsrc = o->id;
       }
+      /* Spanned DRAM extent top (REGION_RAM POS_TOP, from zoneinfo). */
+      if (o->eff_region == REGION_RAM && HAS_HI(o) && o->hi > dram_top) {
+        dram_top = o->hi;
+        tconf = o->conf;
+        tsrc = o->id;
+      }
     }
   }
 
-  if (memtotal == 0 || memtotal <= min_image)
-    return 0;
-  if (phys_floor == ULONG_MAX)
-    phys_floor = PHYS_OFFSET;
+  unsigned long ceiling;
+  uint32_t src_a = 0, src_b = 0;
+  enum kasld_confidence cconf;
 
-  unsigned long phys_floor_offset =
-      (phys_floor > PHYS_OFFSET) ? (phys_floor - PHYS_OFFSET) : 0;
-  unsigned long ceiling = virt_page_offset + phys_floor_offset + memtotal -
-                          min_image + IMAGE_BASE_OFFSET;
+  if (dram_top != 0) {
+    /* Preferred: the spanned DRAM extent (host-true zoneinfo), mapped through
+     * the resolved page_offset. Sound regardless of reserved regions inside
+     * DRAM or a container-virtualised MemTotal. Observation confidence, so it
+     * reaches the guaranteed window. */
+    if (dram_top <= (unsigned long)PHYS_OFFSET)
+      return 0;
+    unsigned long virt_top =
+        virt_page_offset + (dram_top - (unsigned long)PHYS_OFFSET);
+    if (virt_top <= min_image)
+      return 0;
+    ceiling = virt_top - min_image + IMAGE_BASE_OFFSET;
+    src_a = tsrc;
+    cconf = tconf;
+  } else {
+    /* Fallback: MemTotal. It counts USABLE pages, so it under-counts the
+     * spanned extent when holes/reserved regions sit inside DRAM, AND it is
+     * virtualisable inside a container/cgroup (lxcfs reports the cgroup limit).
+     * Either way the ceiling can fall BELOW the true base, so it is a
+     * convention, not a fact: capped at CONF_HEURISTIC to shape the LIKELY
+     * window only, never the guaranteed one. */
+    if (memtotal == 0 || memtotal <= min_image)
+      return 0;
+    if (phys_floor == ULONG_MAX)
+      phys_floor = PHYS_OFFSET;
+    unsigned long phys_floor_offset =
+        (phys_floor > PHYS_OFFSET) ? (phys_floor - PHYS_OFFSET) : 0;
+    ceiling = virt_page_offset + phys_floor_offset + memtotal - min_image +
+              IMAGE_BASE_OFFSET;
+    src_a = msrc;
+    src_b = fsrc;
+    cconf = kasld_conf_min(CONF_HEURISTIC, (mconf < fconf) ? mconf : fconf);
+  }
   /* Align to the resolved Q_VIRT_KASLR_ALIGN (>= compile-time
    * KASLR_VIRT_ALIGN). */
   unsigned long valign = est[Q_VIRT_KASLR_ALIGN].lo;
@@ -94,11 +140,11 @@ int rule_virt_ceiling_from_memtotal(const struct evidence_set *ev,
   c->q = Q_VIRT_IMAGE_BASE;
   c->op = C_UPPER_BOUND;
   c->value = ceiling;
-  c->conf = (mconf < fconf) ? mconf : fconf;
-  c->derived_from[0] = msrc;
+  c->conf = cconf;
+  c->derived_from[0] = src_a;
   c->lineage_count = 1;
-  if (fsrc) {
-    c->derived_from[1] = fsrc;
+  if (src_b) {
+    c->derived_from[1] = src_b;
     c->lineage_count = 2;
   }
   snprintf(c->origin, ORIGIN_LEN, "virt_ceiling_from_memtotal");

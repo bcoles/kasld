@@ -15,6 +15,16 @@
 // only when highmem is actually present (HighTotal > 0); without highmem
 // LowTotal == MemTotal and the MemTotal ceiling already suffices, so the bridge
 // emits nothing and this is a no-op. 64-bit / decoupled: inert.
+//
+// SF_PHYS_LOWMEM comes from /proc/meminfo LowTotal, which is virtualisable
+// inside a container / cgroup (lxcfs reports the cgroup limit, not host RAM) —
+// a faked-small LowTotal would drop this ceiling below the true base. Unlike
+// the MemTotal ceilings there is no non-fakeable substitute (zoneinfo's
+// REGION_RAM extent spans all RAM, not ZONE_NORMAL), so the bound is capped at
+// CONF_HEURISTIC: it shapes the LIKELY window only, never the guaranteed one. A
+// zoneinfo-derived ZONE_NORMAL top could restore a sound guaranteed ceiling
+// (future work); until then soundness beats the lost precision on a genuine
+// 32-bit highmem host.
 // ---
 // <bcoles@gmail.com>
 
@@ -69,7 +79,9 @@ int rule_highmem_32bit_bound(const struct evidence_set *ev,
   c->q = Q_VIRT_IMAGE_BASE;
   c->op = C_UPPER_BOUND;
   c->value = ceiling;
-  c->conf = conf;
+  /* LowTotal is /proc/meminfo-sourced (container-fakeable); keep it below the
+   * sound floor so it never reaches the guaranteed window. */
+  c->conf = kasld_conf_min(CONF_HEURISTIC, conf);
   c->derived_from[0] = src;
   c->lineage_count = 1;
   snprintf(c->origin, ORIGIN_LEN, "highmem_32bit_bound");
