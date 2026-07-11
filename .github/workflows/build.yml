@@ -15,7 +15,8 @@ jobs:
     - name: Install dependencies
       # shellcheck lets `make check`'s lint guards run tests/check-shellcheck
       # over all shipped shell scripts (extra/ + tests/); it soft-skips when absent.
-      run: sudo apt-get update && sudo apt-get install -y zlib1g-dev gcc-i686-linux-gnu shellcheck
+      # jq lets tests/validate-fixtures run extra/validate-bundle; it soft-skips too.
+      run: sudo apt-get update && sudo apt-get install -y zlib1g-dev gcc-i686-linux-gnu shellcheck jq
 
     - name: Build
       run: make
@@ -36,15 +37,29 @@ jobs:
     - name: End-to-end replay (x86, native)
       run: KASLD_NATIVE=1 tests/replay tests/fixtures/x86_64/* tests/fixtures/x86_32/*
 
+    # Offline soundness gate: assert the resolved window contains the real base
+    # for the truth-bearing x86 fixtures (truth ∈ window). Native, no qemu — the
+    # x86_64 host binary matches validate-bundle's build subdir; x86_32 and every
+    # foreign arch skip here and are covered by the cross job.
+    - name: Fixture soundness (x86, native)
+      run: tests/validate-fixtures tests/fixtures/x86_64/* tests/fixtures/x86_32/*
+
   # Compile- and test-gate every released arch on push/PR (matrix + steps in
   # _cross-build.yml, shared with release.yml so the arch set can't drift).
   # run_test_cross runs the engine tests for each arch under qemu-user, so
   # arch-gated rule bodies are verified — not just compiled — on every push.
   # Pinned for deterministic PR builds + a stable cache; bump periodically.
   # release.yml tracks the latest cross-tools release instead.
+  #
+  # Gated on `build`: the slow 22-arch qemu matrix only runs once the fast host
+  # job (unit + integration + lint + native x86 replay/soundness) has passed —
+  # fastest-first, bail out before the expensive emulation if a quick check
+  # already failed. clang-format runs as its own workflow, ungated by design.
   cross-compile:
+    needs: build
     uses: ./.github/workflows/_cross-build.yml
     with:
       toolchain_version: '20260515'
       package: false
       run_test_cross: true
+      run_validate_fixtures: true

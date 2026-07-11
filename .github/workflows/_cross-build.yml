@@ -32,6 +32,11 @@ on:
         required: false
         default: false
         type: boolean
+      run_validate_fixtures:
+        description: 'after building, assert truth is in the resolved window for this arch''s fixtures'
+        required: false
+        default: false
+        type: boolean
 
 jobs:
   build:
@@ -112,11 +117,12 @@ jobs:
           file "${{ steps.builddir.outputs.dir }}/kasld"
           file "${{ steps.builddir.outputs.dir }}/kasld" | grep -q "statically linked"
 
-      # qemu-user provides the qemu-<arch> binaries on PATH that tests/replay and
-      # tests/test-cross resolve. Shared by both modes below.
+      # qemu-user provides the qemu-<arch> binaries (resolved from PATH by
+      # tests/replay, tests/test-cross and extra/validate-bundle). jq is for
+      # extra/validate-bundle (fixture soundness). Shared by the modes below.
       - name: Install qemu-user
-        if: inputs.run_replay || inputs.run_test_cross
-        run: sudo apt-get update && sudo apt-get install -y qemu-user
+        if: inputs.run_replay || inputs.run_test_cross || inputs.run_validate_fixtures
+        run: sudo apt-get update && sudo apt-get install -y qemu-user jq
 
       # Per-push (via build.yml): execute the engine tests for this arch under
       # qemu-user, so its arch-gated rule bodies and assertions run their real
@@ -133,6 +139,15 @@ jobs:
       - name: End-to-end replay (qemu-user)
         if: inputs.run_replay
         run: tests/replay
+
+      # Offline soundness gate (via build.yml, per push): assert the resolved
+      # window contains the real base for this arch's truth-bearing fixtures.
+      # Runs the whole corpus but only this arch's fixtures resolve a binary —
+      # the rest skip — so the matrix covers every fixture once. Complements the
+      # crash-smoke replay: "does it run?" vs "is the window sound?".
+      - name: Fixture soundness (qemu-user)
+        if: inputs.run_validate_fixtures
+        run: tests/validate-fixtures
 
       # Release mode only: x86_64 runs natively on the runner. (PR coverage
       # tests x86_64 via build.yml's host job, so this would be redundant there.)

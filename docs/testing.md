@@ -113,12 +113,12 @@ exercises KASLD against reality. Synthetic inputs live in the unit tests
 
 This is a **structural / regression** check, not a soundness check: it confirms
 KASLD survives real captured kernel state across many architectures and versions,
-but it does not verify the inferred range against a ground truth (a static
-fixture carries none). Soundness on a *captured* system is checked by
-`extra/validate-bundle` when the bundle is ingested; soundness on a *live* kernel
-is layer 5 (`tests/vm/run`). Replay overlaps those in architecture breadth but answers a
-different question — *does the binary run cleanly?* rather than *is the result
-sound?*
+but does not verify the inferred range against a ground truth. Soundness over the
+fixtures that *carry* a truth — the subset captured with real kallsyms/iomem
+(`anonymized: 0`) — is a separate offline layer, `make test-fixtures` (see
+[Validating captured bundles](#validating-captured-bundles)); soundness on a
+*live* kernel is layer 5 (`tests/vm/run`). Replay answers a different question
+from both — *does the binary run cleanly?* rather than *is the result sound?*
 
 ### Native mode (no qemu) — host arch only
 
@@ -224,23 +224,32 @@ Env: `CC` (default `cc`), `GCOV` (default `gcov`), `CFLAGS_EXTRA`.
 
 ## Validating captured bundles
 
-`extra/validate-bundle` is not a test layer — it is the validation step for
-*ingesting* a bundle. When a bundle is captured from a real system (a bug report,
-an external VM), this confirms KASLD is sound on it and decides whether it earns
-a place as a replay fixture (layer 2, which is what then exercises it on every
-run). It is a one-shot ingest check, not part of the recurring suite or CI.
+`extra/validate-bundle` runs the arch-correct `kasld` (under qemu-user for
+foreign arches) over a bundle's `sysroot/`, then asserts the engine-resolved
+range for every reported quantity contains the ground truth captured alongside
+it — virtual text base from `proc/kallsyms` (when captured with `--kallsyms`),
+physical text base from `proc/iomem`. Reports PASS / FAIL / N/A per quantity.
+It serves two roles:
 
-```sh
-extra/collect --kallsyms             # capture a bundle on the target
-extra/validate-bundle kasld-bundle-* # run kasld over it, check the truth
-```
+- **Ingest** — when a bundle arrives from a real system (a bug report, an
+  external VM), a one-shot `extra/validate-bundle <bundle>` confirms KASLD is
+  sound on it and decides whether it earns a place in the fixture corpus.
 
-Runs the arch-correct `kasld` binary (under qemu-user for foreign arches)
-over the bundle's `sysroot/`, then asserts the engine-resolved range for
-every reported quantity contains the ground truth captured in the same
-bundle — virtual text base from `proc/kallsyms` (when the bundle was
-captured with `--kallsyms`), physical text base from `proc/iomem`. Reports
-PASS / FAIL / N/A per quantity.
+  ```sh
+  extra/collect --kallsyms             # capture a bundle on the target
+  extra/validate-bundle kasld-bundle-* # run kasld over it, check the truth
+  ```
+
+- **Recurring soundness gate** — `make test-fixtures` (`tests/validate-fixtures`)
+  runs `validate-bundle` over every *truth-bearing* fixture (`anonymized: 0`) in
+  the corpus, failing on any resolved window that excludes the real base. This is
+  the reproducible, boot-free complement to `tests/vm/run` (layer 5): it catches
+  the *window-excludes-truth* soundness class in CI without a live boot. Native
+  arches validate directly; foreign arches replay under qemu-user (`QEMU_DIR` or
+  PATH). Truth-bearing fixtures come from `extra/collect --kallsyms` captures or
+  from `tests/vm/run capture <arch>` (a live boot that frames the fact-set back
+  over the serial console). It is `jq`-gated and skips arches whose binary or
+  qemu-user is absent, so it degrades cleanly.
 
 A FAIL is a soundness violation — the engine's resolved window excluded
 the truth. The only legitimate outcomes are PASS (range admits the truth,
@@ -368,14 +377,20 @@ Per-push, `.github/workflows/build.yml`:
 
 - **build** job: `make` → `make check` (layer 1, including the `make lint`
   guards) → build i686 → native replay over the x86_64 + x86_32 fixtures
-  (layer 2, no qemu). The job installs `gcc-i686-linux-gnu` and `shellcheck`, so
-  `check-truncation` and `check-shellcheck` run for real rather than skipping.
-- **cross-compile** job: calls the reusable `_cross-build.yml` — one job per
-  arch, fetching the cross-tools/musl-cross toolchain, running `make build` with
-  a static-linkage check, then (`run_test_cross`) installing `qemu-user` and
-  running the engine tests for that arch (`tests/test-cross <triple>`, layer 3)
-  under emulation. So every push *verifies* arch-gated rule bodies, not just that
-  they compile.
+  (layer 2, no qemu) → native fixture soundness over the same (`make test-fixtures`
+  equivalent, x86). The job installs `gcc-i686-linux-gnu`, `shellcheck` and `jq`,
+  so `check-truncation`, `check-shellcheck` and `validate-fixtures` run for real
+  rather than skipping. Steps bail on the first failure — fastest checks first.
+- **cross-compile** job (`needs: build`, so the slow emulation only runs once the
+  fast host job passes): calls the reusable `_cross-build.yml` — one job per arch,
+  fetching the cross-tools/musl-cross toolchain, running `make build` with a
+  static-linkage check, then under `qemu-user`: the engine tests for that arch
+  (`run_test_cross` → `tests/test-cross <triple>`, layer 3) and the fixture
+  soundness gate (`run_validate_fixtures` → `tests/validate-fixtures`) over that
+  arch's truth-bearing fixtures. So every push *verifies* arch-gated rule bodies
+  and *asserts the resolved window contains the real base*, not just that they
+  compile. `clang-format.yml` runs independently and ungated (style, not
+  correctness).
 
 Manual, `.github/workflows/replay.yml`:
 
@@ -394,7 +409,44 @@ Every layer's CI status, for completeness:
 | 1 — host unit + integration + lint | ✅ per-push | `build` job (`make check`) |
 | 2 — end-to-end replay | ✅ partial | native x86 per-push (`build` job); full qemu-user is manual (`replay.yml`) |
 | 3 — cross-arch engine tests | ✅ per-push | `cross-compile` matrix runs `tests/test-cross` per arch under qemu-user |
+| fixture soundness (`make test-fixtures`) | ✅ per-push | native x86 in the `build` job; foreign arches in the `cross-compile` matrix under qemu-user |
 | 4 — coverage | ❌ | local, on-demand (`make coverage`); a report, not a gate |
 | 5 — live VM matrix | ❌ | full-system qemu with kernels outside the repo (no `/dev/kvm` on hosted runners); local/manual |
 | 6 — parser fuzz | ❌ | opt-in `make fuzz`; bounded fuzzing is a scheduled/local task, not a per-push gate |
+
+---
+
+## Architecture coverage
+
+The layers cover different arch widths, by design:
+
+| layer | arches | proves |
+|-------|--------|--------|
+| cross-build + test-cross (per-push) | all shipped toolchain variants, incl. float/endian (i586, armhf, armv7l, mipssf, mipselsf, powerpcle) | every released binary compiles + its arch-gated rule bodies run |
+| replay + `make test-fixtures` | the canonical arches with a distinct code path | runs on real captures / window contains the truth |
+| `tests/vm/run` (live boot) | same, minus the unbuildable | live-kernel soundness |
+
+The float/endian **variants** compile the *identical* kasld as their base arch
+(armhf ≡ armv7, mipssf ≡ mips, i586 ≡ i686, powerpcle ≡ powerpc) — the
+cross-build matrix builds them to gate the *toolchain*, not new inference logic,
+so they carry **no fixtures**: the base-arch fixture already exercises every code
+path. Fixtures exist only where the code path genuinely differs — 32- vs 64-bit,
+big- vs little-endian, a per-arch header. `armeb` is listed in the VM table but
+is unbuildable (the cross set's only big-endian ARM toolchain is ARMv5 BE32,
+which can neither run on an ARMv7 BE8 kernel nor boot as a BE32 kernel under
+qemu).
+
+## Adding a fixture for a new arch
+
+1. Build a static binary: `make cross` (or `make CC=<triple>-gcc`).
+2. If the arch has no Alpine port, add a TABLE row to `tests/vm/run`
+   (`flavor=local`) and a `spec_for` entry to `tests/vm/build-kernel` (a stock
+   upstream defconfig plus any endianness / width overlay), then build the
+   kernel: `tests/vm/build-kernel <arch>`.
+3. Capture a truth-bearing fixture from a live boot:
+   `tests/vm/run <arch> capture` — reconstructs `tests/fixtures/<arch>/<host>/`
+   with host identity scrubbed.
+4. Validate: `extra/validate-bundle tests/fixtures/<arch>/<host>` (window ∋
+   truth) and `tests/replay <dir>` (crash-smoke).
+5. Commit the fixture — `make test-fixtures` and CI pick it up automatically.
 

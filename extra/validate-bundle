@@ -108,7 +108,7 @@ ARCH=$(awk -F: '/^uname_m_raw:/ { gsub(/[ \t]/, "", $2); print $2 }' "$BUNDLE/me
 REL=$(awk -F: '/^kernel_release:/ { gsub(/[ \t]/, "", $2); print $2 }' "$BUNDLE/meta.txt")
 DISTRO=$(awk -F: '/^distro:/ { gsub(/[ \t]/, "", $2); print $2 }' "$BUNDLE/meta.txt")
 HOST_ARCH=$(uname -m)
-QEMU_DIR=${QEMU_DIR:-/home/user/qemu/build}
+QEMU_DIR=${QEMU_DIR:-}   # empty: resolve qemu-<arch> from PATH (as tests/replay)
 
 # Reuse the same uname_m_raw → "<build-subdir> <qemu-binary>" mapping as
 # tests/replay, so behaviour stays consistent.
@@ -132,8 +132,15 @@ case "$ARCH" in
   loongarch64)         SUB=loongarch64-unknown-linux-musl; QBIN=qemu-loongarch64 ;;
   *)                   die "no build-subdir mapping for arch '$ARCH'" ;;
 esac
-BIN=$ROOT/build/$SUB/kasld
-[ -x "$BIN" ] || die "kasld binary missing: $BIN (run 'make cross')"
+# Resolve the binary by arch glob, not the exact triple: `make cross` (musl) and
+# CI's cross-tools toolchains produce different full triples for the same arch
+# (riscv32-linux-musl vs riscv32-unknown-linux-musl) that share the leading arch
+# component. Mirrors tests/replay's build-dir resolution.
+BIN=""
+for _bd in "$ROOT/build/${SUB%%-*}"-*; do
+  [ -x "$_bd/kasld" ] && { BIN=$_bd/kasld; break; }
+done
+[ -n "$BIN" ] || die "kasld binary missing: build/${SUB%%-*}-*/kasld (run 'make cross')"
 
 # Decide: native (host can run it directly) or qemu-user (foreign arch).
 native_ok=0
@@ -147,9 +154,14 @@ if [ "$native_ok" = 1 ]; then
   RUNNER=""
 else
   [ -n "$QBIN" ] || die "no qemu-user binary exists for arch '$ARCH'; validate this bundle natively on a matching host"
-  QPATH="$QEMU_DIR/$QBIN"
-  [ -x "$QPATH" ] || die "foreign-arch bundle ($ARCH) and qemu-user not found at $QPATH"
-  RUNNER=$QPATH
+  # Prefer QEMU_DIR, fall back to PATH (CI installs qemu-user there, not in a
+  # QEMU_DIR) — same resolution as tests/replay.
+  if [ -x "$QEMU_DIR/$QBIN" ]; then
+    RUNNER="$QEMU_DIR/$QBIN"
+  else
+    RUNNER=$(command -v "$QBIN" 2>/dev/null)
+  fi
+  [ -n "$RUNNER" ] || die "foreign-arch bundle ($ARCH): qemu-user '$QBIN' not found (QEMU_DIR=$QEMU_DIR or PATH)"
   QEMU_NOTE="qemu-user replay; component subprocesses don't exec under nested qemu — engine sees no leaks, windows reflect static arch tops"
 fi
 

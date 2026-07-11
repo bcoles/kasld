@@ -475,6 +475,15 @@ test-sysfs-parsers : $(TEST_PARSERS_BIN)
 test-cross :
 	$(TEST_DIR)/test-cross
 
+# Offline soundness gate: run extra/validate-bundle over the truth-bearing
+# fixtures (meta anonymized: 0) and assert the resolved window contains the real
+# base. Standalone (needs jq, the per-arch binaries from `make cross`, and
+# qemu-user in QEMU_DIR for foreign arches) — the reproducible, boot-free
+# complement to tests/vm/run.
+.PHONY: test-fixtures
+test-fixtures :
+	$(TEST_DIR)/validate-fixtures
+
 # Optional line-coverage report for the engine + rules (build/coverage/). Uses
 # --coverage (gcc and clang) + the compiler's own gcov — no extra package for
 # the text summary; HTML appears only if lcov+genhtml are installed. The normal
