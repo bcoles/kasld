@@ -177,6 +177,165 @@ verdict() {
   return 1
 }
 
+# Canonical arch dir name under tests/fixtures/ (kasld's arch naming, which
+# differs from uname_m_raw: aarch64 -> arm64, ppc64le -> ppc64, ...). Keyed on
+# the build prefix, which is deterministic per TABLE row.
+fixture_arch() {
+  case "$1" in
+    x86_64)                 echo x86_64 ;;
+    i686|i386|x86)          echo x86_32 ;;
+    aarch64)                echo arm64 ;;
+    armv7|armeb|arm)        echo arm32 ;;
+    riscv64)                echo riscv64 ;;
+    riscv32)                echo riscv32 ;;
+    mips)                   echo mips32 ;;
+    mipsel)                 echo mips32el ;;
+    powerpc64le|powerpc64|ppc64le|ppc64) echo ppc64 ;;
+    powerpc|ppc)            echo ppc32 ;;
+    s390x)                  echo s390 ;;
+    loongarch64)            echo loongarch64 ;;
+    *)                      echo "$1" ;;
+  esac
+}
+
+# Remove host/build identity the capture inherits from the machine it ran on:
+# qemu `-cpu max` passes the host CPU brand into /proc/cpuinfo, and a locally
+# built kernel embeds "builduser@buildhost" in /proc/version. Strip only those
+# identifying strings — the addresses (truth), CPU flags and "address sizes"
+# (which the inference reads) are kept. Distro kernels' version build-tags
+# (e.g. Alpine's buildozer@...) are non-sensitive but scrubbed uniformly.
+scrub_host_identity() {
+  _s=$1
+  # /proc/cpuinfo under qemu `-cpu max` is a host CPU fingerprint (brand,
+  # vendor, family/model/stepping, flags, MHz, cache). The inference reads only
+  # "address sizes"; keep that plus the structural "processor" index and drop
+  # the rest. Arch-generic: on arches without "address sizes" (arm64/riscv/...)
+  # this leaves the processor lines, which the analysis reads nothing from.
+  _ci="$_s/proc/cpuinfo"
+  if [ -f "$_ci" ]; then
+    grep -iE '^(processor|address sizes)[[:space:]]*:' "$_ci" > "$_ci.t" 2>/dev/null
+    if [ -s "$_ci.t" ]; then mv "$_ci.t" "$_ci"; else rm -f "$_ci.t"; fi
+  fi
+  _hn=$(hostname 2>/dev/null)
+  for _f in "$_s/proc/version" "$_s/proc/cmdline"; do
+    [ -f "$_f" ] || continue
+    sed -E 's/\([^ ()@]+@[^ ()@]+\)/(builder@host)/g' "$_f" > "$_f.t" 2>/dev/null &&
+      mv "$_f.t" "$_f"
+    [ -n "$_hn" ] && { sed "s/$_hn/host/g" "$_f" > "$_f.t" 2>/dev/null && mv "$_f.t" "$_f"; }
+  done
+
+  # Device tree (arm/ppc/riscv/mips): the captured flattened blob can carry a
+  # board serial-number / MAC. Scrub via extra/anonymize-fdt, which round-trips
+  # through dtc and preserves the kaslr-seed the inference reads. Abort the
+  # fixture rather than commit an unscrubbed blob if dtc is missing.
+  _fdt="$_s/sys/firmware/fdt"
+  if [ -f "$_fdt" ]; then
+    if command -v dtc >/dev/null 2>&1; then
+      "$ROOT/extra/anonymize-fdt" "$_fdt" >/dev/null 2>&1 || true
+      rm -f "$_fdt.orig"
+    else
+      echo "  !! dtc not found — refusing to keep an unscrubbed /sys/firmware/fdt" >&2
+      rm -f "$_fdt"
+      return 1
+    fi
+  fi
+}
+
+# capture: reconstruct a truth-bearing fixture from a capture-mode boot log.
+# Args: name flavor prefix log kimg
+# Decodes the guest's KCAPv1 frames into a path-preserving sysroot mirror, adds
+# meta.txt + sizes.txt (+ the boot image's size and 4 KiB header, taken
+# host-side from the cached vmlinuz), and installs it under
+# tests/fixtures/<canonical-arch>/<distro>-<release>/. Unlike the committed
+# corpus these carry real kallsyms + iomem (captured as root, kptr=0), so
+# extra/validate-bundle can check truth ∈ resolved window.
+reconstruct_fixture() {
+  _name=$1 _flavor=$2 _prefix=$3 _log=$4 _kimg=$5
+  grep -aq 'KCAPv1 DONE' "$_log" || {
+    echo "  CAPTURE FAIL  (no KCAPv1 DONE marker; see $_log)"; return 1; }
+
+  _tmp=$(mktemp -d) || return 1
+  _sr="$_tmp/sysroot"; mkdir -p "$_sr"
+
+  # Split the framed capture into per-file base64 blobs + a manifest
+  # ("<idx> <nbytes> <path>"), and pull the META release/machine lines.
+  awk -v dir="$_tmp" '
+    /^KCAPv1 META release / { print $4 > (dir "/release"); next }
+    /^KCAPv1 META machine / { print $4 > (dir "/machine"); next }
+    /^KCAPv1 BEGIN / { path=$3; n++; f=sprintf("%s/f%04d.b64", dir, n); printf "" > f; next }
+    /^KCAPv1 END /   { printf "%04d %s %s\n", n, $4, path >> (dir "/manifest"); close(f); path=""; next }
+    /^KCAPv1 DONE/   { exit }
+    path != ""       { print > f }
+  ' "$_log"
+
+  [ -s "$_tmp/manifest" ] || {
+    echo "  CAPTURE FAIL  (no frames parsed from $_log)"; rm -rf "$_tmp"; return 1; }
+
+  # Decode each frame into the sysroot, verifying the byte count.
+  _ok=0; _bad=0
+  while read -r idx nbytes path; do
+    dst="$_sr$path"
+    mkdir -p "$(dirname "$dst")" || continue
+    if base64 -d "$_tmp/f$idx.b64" > "$dst" 2>/dev/null; then
+      got=$(wc -c < "$dst" | tr -d ' ')
+      if [ "$got" = "$nbytes" ]; then _ok=$((_ok + 1)); else
+        echo "  !! size mismatch $path: got $got want $nbytes"; _bad=$((_bad + 1)); fi
+    else
+      echo "  !! decode failed $path"; rm -f "$dst"; _bad=$((_bad + 1)); fi
+  done < "$_tmp/manifest"
+
+  scrub_host_identity "$_sr"
+
+  _rel=$(cat "$_tmp/release" 2>/dev/null)
+  _mach=$(cat "$_tmp/machine" 2>/dev/null)
+  [ -n "$_rel" ] || { echo "  CAPTURE FAIL  (no kernel release captured)"; rm -rf "$_tmp"; return 1; }
+
+  # flavor=local => a vanilla kernel.org build; else an Alpine distro kernel.
+  _canon=$(fixture_arch "$_prefix")
+  if [ "$_flavor" = local ]; then _distro="mainline"; else _distro="alpine-$ALPINE_VER"; fi
+  _fid=$(printf '%s-%s' "$_distro" "$_rel" | sed 's/[^A-Za-z0-9._-]/-/g')
+
+  # Boot image: size (sizes.txt) + 4 KiB header prefix, taken host-side from the
+  # kernel we booted — mirrors extra/collect's boot_image "hdr" mode.
+  if [ -f "$_kimg" ]; then
+    _isz=$(stat -c %s "$_kimg" 2>/dev/null || stat -f %z "$_kimg" 2>/dev/null)
+    printf '%s /boot/vmlinuz-%s\n' "$_isz" "$_rel" > "$_tmp/sizes.txt"
+    mkdir -p "$_sr/boot"
+    dd if="$_kimg" of="$_sr/boot/vmlinuz-$_rel" bs=4096 count=1 2>/dev/null || true
+  else
+    : > "$_tmp/sizes.txt"
+  fi
+
+  _kbin=""
+  for _c in "$BUILD_DIR/$_prefix"-*/kasld; do [ -x "$_c" ] && { _kbin=$_c; break; }; done
+  _kid=unknown
+  [ -n "$_kbin" ] && _kid=$("$_kbin" --version 2>/dev/null | head -1)
+  {
+    echo "collect_version:  1"
+    echo "collected_utc:    $(date -u 2>/dev/null || echo unknown)"
+    echo "uname_m_raw:      ${_mach:-$_prefix}"
+    echo "arch_canonical:   $_canon"
+    echo "kernel_release:   $_rel"
+    echo "distro:           $_distro"
+    echo "kasld:            $_kid"
+    echo "suggested_fixture: tests/fixtures/$_canon/$_fid/"
+    echo "anonymized:       0"
+    echo "host_scrubbed:    1"
+    echo "kallsyms:         1"
+    echo "source:           vm ($_name)"
+  } > "$_tmp/meta.txt"
+
+  dest="$ROOT/tests/fixtures/$_canon/$_fid"
+  rm -rf "$dest"; mkdir -p "$dest"
+  mv "$_sr" "$dest/sysroot"
+  mv "$_tmp/meta.txt" "$dest/meta.txt"
+  mv "$_tmp/sizes.txt" "$dest/sizes.txt"
+  rm -rf "$_tmp"
+  printf '  %-11s CAPTURE %s files (%s bad) -> tests/fixtures/%s/%s/\n' \
+    "$_name" "$_ok" "$_bad" "$_canon" "$_fid"
+  [ "$_bad" = 0 ]
+}
+
 # Build + boot one arch in one mode. Returns the verdict's status.
 run_one() {
   name=$1 mode=$2
@@ -260,6 +419,7 @@ EOF
     hardened) append="$append hardened" ;;
     stock)    append="$append stock" ;;
     nokaslr)  append="$append nokaslr" ;;
+    capture)  append="$append capture" ;;
     *) echo "  unknown mode: $mode"; return 2 ;;
   esac
 
@@ -272,6 +432,11 @@ EOF
   # Strip CR and NUL bytes: early console output can contain binary noise that
   # makes grep treat the log as binary and skip matches.
   tr -d '\r\000' <"$log" >"$log.clean" && mv "$log.clean" "$log"
+
+  if [ "$mode" = capture ]; then
+    reconstruct_fixture "$name" "$flavor" "$prefix" "$log" "$CACHE/$name-vmlinuz"
+    return $?
+  fi
 
   printf '  %-11s ' "$name"
   verdict "$log"

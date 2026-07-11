@@ -16,6 +16,7 @@
 // ---
 // <bcoles@gmail.com>
 #define _GNU_SOURCE
+#include <dirent.h>
 #include <fcntl.h>
 #include <linux/reboot.h>
 #include <stdio.h>
@@ -89,6 +90,207 @@ static void dump_iomem_kernel(void) {
   printf("\n");
 }
 
+/* ------------------------------------------------------------------------
+ * Bundle capture (capture mode only).
+ *
+ * Emit the same /proc, /sys and /boot facts extra/collect gathers, framed on
+ * the serial console so tests/vm/run can reconstruct a truth-bearing fixture
+ * (real kallsyms + iomem — captured here as root with kptr_restrict=0) without
+ * a shell or 9p in the guest. Each file is base64-encoded (binary-safe over
+ * serial; the alphabet has no CR/NUL the harness strips):
+ *
+ *     KCAPv1 BEGIN <path>
+ *     <base64 lines>
+ *     KCAPv1 END <path> <nbytes>
+ *
+ * An absent/unreadable file emits nothing (the harness treats a missing frame
+ * as absent, matching collect). /proc reports st_size 0, so the byte count is
+ * carried on the END line (counted while streaming), not up front.
+ * ------------------------------------------------------------------------ */
+static const char B64[] =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+/* Encode n (1..3) input bytes to one base64 quantum, wrapping at 76 columns. */
+static void b64_quantum(const unsigned char *in, int n, int *col) {
+  unsigned char o[4];
+  o[0] = (unsigned char)B64[in[0] >> 2];
+  o[1] = (unsigned char)B64[((in[0] & 0x3) << 4) | (n > 1 ? in[1] >> 4 : 0)];
+  o[2] =
+      n > 1
+          ? (unsigned char)B64[((in[1] & 0xf) << 2) | (n > 2 ? in[2] >> 6 : 0)]
+          : (unsigned char)'=';
+  o[3] = n > 2 ? (unsigned char)B64[in[2] & 0x3f] : (unsigned char)'=';
+  fwrite(o, 1, 4, stdout);
+  *col += 4;
+  if (*col >= 76) {
+    putchar('\n');
+    *col = 0;
+  }
+}
+
+static void capture_file(const char *path) {
+  int fd = open(path, O_RDONLY);
+  if (fd < 0)
+    return; /* absent/unreadable: emit no frame */
+  printf("KCAPv1 BEGIN %s\n", path);
+  unsigned char buf[4096], carry[3];
+  int cn = 0, col = 0;
+  unsigned long total = 0;
+  ssize_t r;
+  while ((r = read(fd, buf, sizeof buf)) > 0) {
+    total += (unsigned long)r;
+    for (ssize_t i = 0; i < r; i++) {
+      carry[cn++] = buf[i];
+      if (cn == 3) {
+        b64_quantum(carry, 3, &col);
+        cn = 0;
+      }
+    }
+  }
+  if (cn > 0)
+    b64_quantum(carry, cn, &col); /* final partial quantum, padded */
+  if (col)
+    putchar('\n');
+  close(fd);
+  printf("KCAPv1 END %s %lu\n", path, total);
+  fflush(stdout);
+}
+
+/* Emit an in-memory buffer as a KCAPv1 frame (base64, byte-count on END). */
+static void emit_frame(const char *path, const unsigned char *data,
+                       unsigned long len) {
+  printf("KCAPv1 BEGIN %s\n", path);
+  int col = 0;
+  unsigned long i = 0;
+  for (; i + 3 <= len; i += 3)
+    b64_quantum(data + i, 3, &col);
+  if (i < len)
+    b64_quantum(data + i, (int)(len - i), &col);
+  if (col)
+    putchar('\n');
+  printf("KCAPv1 END %s %lu\n", path, len);
+  fflush(stdout);
+}
+
+/* /proc/kallsyms is multi-MB (one line per symbol) but the offline analysis
+ * reads only a handful of image-boundary landmarks (proc_kallsyms scans _text/
+ * _stext/_etext; validate-bundle takes _text/_stext/_end as ground truth).
+ * Capturing the full table would bloat the committed fixture and overrun the
+ * serial link; emit only the landmark lines, which carry the same real
+ * addresses (the truth). */
+static int kallsyms_landmark(const char *sym) {
+  static const char *const keep[] = {
+      "_text",      "_stext",          "_etext",        "_sinittext",
+      "_einittext", "_sdata",          "_edata",        "__bss_start",
+      "__bss_stop", "__start_rodata",  "__end_rodata",  "__init_begin",
+      "__init_end", "__per_cpu_start", "__per_cpu_end", "startup_64",
+      "_end"};
+  for (unsigned i = 0; i < sizeof keep / sizeof keep[0]; i++)
+    if (strcmp(sym, keep[i]) == 0)
+      return 1;
+  return 0;
+}
+
+static void capture_kallsyms(void) {
+  FILE *f = fopen("/proc/kallsyms", "r");
+  if (!f)
+    return;
+  static unsigned char out[8192]; /* landmark subset: a few hundred bytes */
+  unsigned long n = 0;
+  char line[512];
+  while (fgets(line, sizeof line, f)) {
+    /* "ADDR TYPE SYMBOL [MODULE]\n" — isolate the 3rd field. */
+    char *p = line;
+    while (*p && *p != ' ')
+      p++; /* addr */
+    while (*p == ' ')
+      p++;
+    while (*p && *p != ' ')
+      p++; /* type */
+    while (*p == ' ')
+      p++;
+    char *sym = p;
+    while (*p && *p != ' ' && *p != '\n')
+      p++;
+    char saved = *p;
+    *p = '\0';
+    int keep = kallsyms_landmark(sym);
+    *p = saved;
+    if (keep) {
+      unsigned long ll = strlen(line);
+      if (n + ll < sizeof out) {
+        memcpy(out + n, line, ll);
+        n += ll;
+      }
+    }
+  }
+  fclose(f);
+  emit_frame("/proc/kallsyms", out, n);
+}
+
+/* Recurse a small kernel-exposed tree, capturing regular files (device-tree,
+ * firmware/memmap). Bounded by the tree's own size. */
+static void capture_tree(const char *dir) {
+  DIR *d = opendir(dir);
+  if (!d)
+    return;
+  struct dirent *e;
+  while ((e = readdir(d))) {
+    if (e->d_name[0] == '.' &&
+        (e->d_name[1] == '\0' || (e->d_name[1] == '.' && e->d_name[2] == '\0')))
+      continue;
+    char p[1024];
+    snprintf(p, sizeof p, "%s/%s", dir, e->d_name);
+    struct stat st;
+    if (lstat(p, &st) != 0)
+      continue;
+    if (S_ISDIR(st.st_mode))
+      capture_tree(p);
+    else if (S_ISREG(st.st_mode))
+      capture_file(p);
+  }
+  closedir(d);
+}
+
+/* Emit every fact the offline analysis reads, mirroring extra/collect's list.
+ * Arch-generic: device-tree / firmware paths absent on a given arch emit
+ * nothing. Runs as root with kptr_restrict=0, so kallsyms and iomem carry the
+ * real ground truth the reconstructed fixture is validated against. */
+static void capture_bundle(void) {
+  struct utsname u;
+  if (uname(&u) == 0) {
+    printf("KCAPv1 META release %s\n", u.release);
+    printf("KCAPv1 META machine %s\n", u.machine);
+  }
+  static const char *const files[] = {"/proc/meminfo",
+                                      "/proc/cpuinfo",
+                                      "/proc/zoneinfo",
+                                      "/proc/cmdline",
+                                      "/proc/iomem",
+                                      "/proc/modules",
+                                      "/proc/version",
+                                      "/proc/sys/kernel/kptr_restrict",
+                                      "/proc/sys/kernel/dmesg_restrict",
+                                      "/proc/sys/kernel/perf_event_paranoid",
+                                      "/proc/sys/kernel/randomize_va_space",
+                                      "/sys/kernel/security/lockdown",
+                                      "/sys/kernel/boot_params/data",
+                                      "/sys/kernel/boot_params/setup_data",
+                                      "/sys/kernel/notes",
+                                      "/proc/config.gz"};
+  for (unsigned i = 0; i < sizeof files / sizeof files[0]; i++)
+    capture_file(files[i]);
+  capture_kallsyms(); /* landmark lines only (see capture_kallsyms) */
+  capture_tree("/sys/firmware/memmap");
+  capture_tree("/proc/device-tree/chosen");
+  capture_tree("/proc/device-tree/rtas");
+  capture_tree("/sys/firmware/devicetree/base/chosen");
+  capture_tree("/sys/firmware/devicetree/base/rtas");
+  capture_file("/sys/firmware/fdt");
+  printf("KCAPv1 DONE\n");
+  fflush(stdout);
+}
+
 /* Run `path` and wait. If uid != 0 drop to that uid/gid first (gid before uid,
  * while still privileged) so the child runs fully unprivileged — the realistic
  * attacker identity. chdir to /tmp (the only world-writable mount). */
@@ -158,7 +360,7 @@ int main(void) {
    *               (kptr_restrict=0, dmesg_restrict=0, perf_event_paranoid=2):
    *               an unprivileged user on an out-of-the-box kernel, neither
    *               weakened nor hardened by us. */
-  int hidden = 0, hardened = 0, stock = 0;
+  int hidden = 0, hardened = 0, stock = 0, capture = 0;
   {
     int cf = open("/proc/cmdline", O_RDONLY);
     char cb[512];
@@ -173,6 +375,8 @@ int main(void) {
           hardened = 1;
         if (strstr(cb, "stock"))
           stock = 1;
+        if (strstr(cb, "capture"))
+          capture = 1;
       }
       close(cf);
     }
@@ -196,6 +400,22 @@ int main(void) {
          access("/proc/device-tree", F_OK) == 0,
          access("/proc/device-tree/chosen/kaslr-seed", F_OK) == 0);
   fflush(stdout);
+
+  /* Capture mode: emit the fact bundle (still root, kptr_restrict=0 → real
+   * kallsyms/iomem truth) framed on serial for tests/vm/run to reconstruct a
+   * fixture, then power off. No kasld run and no restriction profile — the
+   * fixture is validated offline. */
+  if (capture) {
+    printf("\n==================== KASLD VM CAPTURE ====================\n");
+    capture_bundle();
+    printf("\n==================== KASLD VM DONE ====================\n");
+    sync();
+    sleep(1);
+    reboot(LINUX_REBOOT_CMD_POWER_OFF);
+    for (;;)
+      pause();
+    return 0;
+  }
 
   /* Apply the requested restriction profile before running kasld. */
   uid_t uid = 0;
