@@ -72,8 +72,10 @@ ppc64le     | ppc64le     | lts  | powerpc64le  | ppc64       | -M pseries -cpu 
 s390x       | s390x       | lts  | s390x        | s390x       | -M s390-ccw-virtio     | ttysclp0
 mips        | -           | local| mips         | mips        | -M malta               | ttyS0
 mipsel      | -           | local| mipsel       | mipsel      | -M malta               | ttyS0
+mips64el    | -           | local| mips64el     | mips64el    | -M malta -cpu MIPS64R2-generic | ttyS0
 riscv32     | -           | local| riscv32      | riscv32     | -M virt                | ttyS0
 ppc32       | -           | local| powerpc      | ppc         | -M g3beige             | ttyS0
+powerpc64   | -           | local| powerpc64    | ppc64       | -M pseries -cpu power9 | hvc0
 armeb       | -           | local| armeb        | arm         | -M virt                | ttyAMA0
 x86_64-vanilla | -        | local| x86_64       | x86_64      | -M q35 -cpu max        | ttyS0
 '
@@ -290,6 +292,15 @@ reconstruct_fixture() {
   _mach=$(cat "$_tmp/machine" 2>/dev/null)
   [ -n "$_rel" ] || { echo "  CAPTURE FAIL  (no kernel release captured)"; rm -rf "$_tmp"; return 1; }
 
+  # uname -m on MIPS carries no endianness — BE and LE both report `mips` /
+  # `mips64` — so validate-bundle and replay would resolve the wrong-endian
+  # binary. The build prefix does encode it (mips / mipsel / mips64el) and
+  # matches their arch keys; use it for MIPS.
+  _uname=${_mach:-$_prefix}
+  case "$_prefix" in
+  mips | mipsel | mips64 | mips64el) _uname=$_prefix ;;
+  esac
+
   # flavor=local => a vanilla kernel.org build; else an Alpine distro kernel.
   _canon=$(fixture_arch "$_prefix")
   if [ "$_flavor" = local ]; then _distro="mainline"; else _distro="alpine-$ALPINE_VER"; fi
@@ -313,7 +324,7 @@ reconstruct_fixture() {
   {
     echo "collect_version:  1"
     echo "collected_utc:    $(date -u 2>/dev/null || echo unknown)"
-    echo "uname_m_raw:      ${_mach:-$_prefix}"
+    echo "uname_m_raw:      $_uname"
     echo "arch_canonical:   $_canon"
     echo "kernel_release:   $_rel"
     echo "distro:           $_distro"

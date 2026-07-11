@@ -1,0 +1,99 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# validate-fixtures — offline soundness gate over the truth-bearing fixtures.
+#
+# Runs extra/validate-bundle over every committed fixture that carries ground
+# truth (meta `anonymized: 0` — real kallsyms + iomem), asserting the engine's
+# resolved window contains the real base:  truth ∈ [image_base_min, max]. The
+# anonymized corpus (`anonymized: 1`, no truth) is skipped — validate-bundle
+# only returns N/A there. Native-arch fixtures validate directly; foreign arches
+# replay under qemu-user (QEMU_DIR).
+#
+# This is the reproducible, boot-free complement to the live tests/vm/run
+# soundness check and to tests/replay (which only proves kasld does not crash):
+# it proves the resolved window still CONTAINS the truth, and catches the
+# "window excludes the real base" class of soundness bug in CI without a VM.
+#
+# Soft dependency: validate-bundle needs `jq`; if absent this SKIPs (exit 0) so
+# a bare box still builds. Per fixture, a missing arch binary (run `make cross`)
+# or missing qemu-user is a SKIP; a soundness violation is a FAIL.
+#
+# Usage:  tests/validate-fixtures [FIXTURE_DIR ...]   (default: all truth-bearing)
+#         make test-fixtures
+# Env:    QEMU_DIR, BUILD_DIR   (as extra/validate-bundle)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+VB=$ROOT/extra/validate-bundle
+
+if [ -t 2 ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m')
+  YELLOW=$(printf '\033[33m'); BOLD=$(printf '\033[1m'); RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; YELLOW=; BOLD=; RESET=
+fi
+
+if ! command -v jq >/dev/null 2>&1; then
+  printf '%svalidate-fixtures: SKIP%s (jq not installed; extra/validate-bundle needs it)\n' \
+    "$YELLOW" "$RESET"
+  exit 0
+fi
+
+# Fixture list: explicit args, else every truth-bearing fixture (meta
+# `anonymized: 0`).
+if [ "$#" -gt 0 ]; then
+  FIXTURES=$*
+else
+  FIXTURES=
+  for meta in "$ROOT"/tests/fixtures/*/*/meta.txt; do
+    [ -f "$meta" ] || continue
+    anon=$(awk -F: '/^anonymized:/ { gsub(/[ \t]/, "", $2); print $2 }' "$meta")
+    [ "$anon" = 0 ] && FIXTURES="$FIXTURES ${meta%/meta.txt}"
+  done
+fi
+
+if [ -z "${FIXTURES# }" ]; then
+  printf '%svalidate-fixtures: no truth-bearing fixtures found%s\n' "$YELLOW" "$RESET"
+  exit 0
+fi
+
+pass=0; fail=0; skip=0; na=0
+for d in $FIXTURES; do
+  name=${d#"$ROOT"/tests/fixtures/}
+  out=$("$VB" "$d" 2>&1); rc=$?
+  if [ "$rc" -eq 1 ]; then
+    fail=$((fail + 1))
+    printf '  %sFAIL%s  %s\n' "$RED" "$RESET" "$name" >&2
+    printf '%s\n' "$out" | grep -E 'FAIL|∌' | sed 's/^/        /' >&2
+  elif [ "$rc" -ne 0 ]; then
+    # exit 2: arch binary absent (run `make cross`), qemu-user missing, or a
+    # malformed bundle — a skip, surfacing the reason.
+    skip=$((skip + 1))
+    reason=$(printf '%s\n' "$out" | grep -iE 'not a directory|missing|not found|no build|malformed' | head -1)
+    printf '  %sSKIP%s  %s  (%s)\n' "$YELLOW" "$RESET" "$name" "${reason:-unavailable}"
+  else
+    # exit 0 spans a real containment PASS and an all-N/A bundle (no truth in
+    # this capture). Count only fixtures with >=1 real PASS as "sound"; report
+    # the truthless ones as N/A so the sound count means real checks.
+    npass=$(printf '%s\n' "$out" | grep -oE '[0-9]+ PASS' | grep -oE '[0-9]+')
+    if [ "${npass:-0}" -gt 0 ]; then
+      pass=$((pass + 1))
+      printf '  %sPASS%s  %s\n' "$GREEN" "$RESET" "$name"
+    else
+      na=$((na + 1))
+      printf '  %sN/A %s  %s  (no ground truth in capture)\n' "$YELLOW" "$RESET" "$name"
+    fi
+  fi
+done
+
+printf '%s' "$BOLD"
+if [ "$fail" -eq 0 ]; then
+  printf '%svalidate-fixtures: %d sound, %d N/A, %d skip%s\n' "$GREEN" "$pass" "$na" "$skip" "$RESET"
+  exit 0
+else
+  printf '%svalidate-fixtures: %d sound, %d FAIL, %d N/A, %d skip%s\n' "$RED" "$pass" "$fail" "$na" "$skip" "$RESET" >&2
+  exit 1
+fi

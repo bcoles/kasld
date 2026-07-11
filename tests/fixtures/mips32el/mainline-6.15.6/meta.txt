@@ -1,6 +1,6 @@
 collect_version:  1
 collected_utc:    Sat Jul 11 01:23:52 AM UTC 2026
-uname_m_raw:      mips
+uname_m_raw:      mipsel
 arch_canonical:   mips32el
 kernel_release:   6.15.6
 distro:           mainline

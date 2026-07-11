@@ -44,7 +44,7 @@ JOBS=${JOBS:-$(nproc 2>/dev/null || echo 1)}
 #                    kernel under qemu, so the staged kernel cannot be validated.
 #   x86_64-vanilla — Alpine already ships x86_64; this is a neutral upstream build
 #                    for reference/documentation, not a gap to fill.
-ALL_ARCHES="mips mipsel riscv32 ppc32"
+ALL_ARCHES="mips mipsel mips64el riscv32 ppc32 powerpc64"
 
 # arch -> "tc-prefix kernel-ARCH defconfig image endian"
 #   tc-prefix : build/<prefix>-* dir whose triple gives CROSS_COMPILE
@@ -54,8 +54,10 @@ spec_for() {
   case "$1" in
   mips)    echo "mips     mips    malta_defconfig    vmlinux be" ;;
   mipsel)  echo "mipsel   mips    malta_defconfig    vmlinux le" ;;
+  mips64el) echo "mips64el mips   malta_defconfig    vmlinux le" ;;
   riscv32) echo "riscv32  riscv   rv32_defconfig     Image   -" ;;
   ppc32)   echo "powerpc  powerpc pmac32_defconfig   vmlinux -" ;;
+  powerpc64) echo "powerpc64 powerpc ppc64_defconfig vmlinux -" ;;
   armeb)   echo "armeb    arm     multi_v7_defconfig zImage  be" ;;
   # Not a gap arch — Alpine ships x86_64. This is a vanilla upstream-defconfig
   # x86_64 kept for a neutral reference build (e.g. documentation samples),
@@ -107,6 +109,13 @@ build_one() {
   case "$endian" in
   le) "$src/scripts/config" --file "$bdir/.config" -d CPU_BIG_ENDIAN -e CPU_LITTLE_ENDIAN ;;
   be) "$src/scripts/config" --file "$bdir/.config" -d CPU_LITTLE_ENDIAN -e CPU_BIG_ENDIAN ;;
+  esac
+  # 64-bit MIPS on the malta board: the stock malta_defconfig is 32-bit, so
+  # promote its CPU to MIPS64 (selects 64BIT) for the mips64* targets.
+  case "$arch" in
+  mips64 | mips64el)
+    "$src/scripts/config" --file "$bdir/.config" \
+      -d CPU_MIPS32_R2 -e CPU_MIPS64_R2 -e 64BIT -d 32BIT ;;
   esac
   "$src/scripts/config" --file "$bdir/.config" -e DEVTMPFS -e DEVTMPFS_MOUNT
   make -C "$src" O="$bdir" ARCH="$ka" CROSS_COMPILE="$cc" olddefconfig >/dev/null

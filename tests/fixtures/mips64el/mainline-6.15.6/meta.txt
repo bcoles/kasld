@@ -1,0 +1,12 @@
+collect_version:  1
+collected_utc:    Sat Jul 11 05:02:28 AM UTC 2026
+uname_m_raw:      mips64el
+arch_canonical:   mips64el
+kernel_release:   6.15.6
+distro:           mainline
+kasld:            
+suggested_fixture: tests/fixtures/mips64el/mainline-6.15.6/
+anonymized:       0
+host_scrubbed:    1
+kallsyms:         1
+source:           vm (mips64el)

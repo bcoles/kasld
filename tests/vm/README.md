@@ -35,7 +35,16 @@ tests/vm/run aarch64 hardened
 tests/vm/run all hardened    # every arch in one profile
 tests/vm/run table           # results matrix + speculative-narrowing table
 tests/vm/run spec-table      # only the speculative-narrowing table
+tests/vm/run aarch64 capture # build a truth-bearing fixture from a live boot
 ```
+
+The `capture` mode is a maintainer workflow, not a validation profile: it boots
+the kernel as root with `kptr_restrict=0`, frames the real `/proc` + `/sys` +
+`/boot` fact-set (kallsyms landmarks + iomem = ground truth) back over the serial
+console, and reconstructs a fixture under `tests/fixtures/<arch>/<host>/` — host
+identity (CPU brand, build tag, device-tree serial/MAC) scrubbed. Those fixtures
+are then checked offline by `make test-fixtures` (see
+[docs/testing.md](../../docs/testing.md)).
 
 Each run prints a per-arch verdict and a summary; the exit status is non-zero if
 any arch produced an unsound or incomplete result. After running the scenarios,
