@@ -30,6 +30,7 @@
 #include "include/kasld/api.h"
 #include "include/kasld/cli.h"
 
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -81,7 +82,8 @@ int main(void) {
   FILE *f = kasld_fopen("/proc/kallsyms", "r");
   if (!f) {
     kasld_err("kallsyms unreadable; cannot fingerprint function order");
-    return 0;
+    return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM
+                                               : KASLD_EXIT_UNAVAILABLE;
   }
 
   char full[NPROBE][64];

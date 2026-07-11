@@ -97,7 +97,8 @@ static void ring_copy(const char *ring, size_t ring_size, uint64_t off,
   }
 }
 
-static unsigned long get_kernel_addr_perf(void) {
+static unsigned long get_kernel_addr_perf(int *exit_hint) {
+  *exit_hint = 0;
   kasld_info("trying perf_event_open sampling ...");
 
   pid_t child = fork();
@@ -139,6 +140,11 @@ static unsigned long get_kernel_addr_perf(void) {
     waitpid(child, NULL, 0);
     errno = e;
     perror("[-] perf_event_open");
+    /* EACCES/EPERM = perf_event_paranoid or a seccomp ERRNO filter denied the
+     * syscall — report it as an access denial, not a bare no-result. Any other
+     * errno (perf not built, no PMU) is a genuine unavailability. */
+    *exit_hint = (e == EACCES || e == EPERM) ? KASLD_EXIT_NOPERM
+                                             : KASLD_EXIT_UNAVAILABLE;
     return 0;
   }
 
@@ -235,10 +241,14 @@ static unsigned long get_kernel_addr_perf(void) {
 }
 
 int main(void) {
-  unsigned long addr = get_kernel_addr_perf();
+  int exit_hint = 0;
+  unsigned long addr = get_kernel_addr_perf(&exit_hint);
   if (!addr) {
-    kasld_err("no kernel address found via perf_event_open");
-    return 0;
+    if (exit_hint == KASLD_EXIT_NOPERM)
+      kasld_err("perf_event_open denied — perf_event_paranoid or seccomp");
+    else
+      kasld_err("no kernel address found via perf_event_open");
+    return exit_hint; /* 0 = no_result; else NOPERM/UNAVAILABLE */
   }
 
   /* The lowest sampled IP is an address INSIDE the kernel text, not the image

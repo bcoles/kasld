@@ -37,6 +37,7 @@
 #include "include/cmdline.h"
 #include "include/kasld/api.h"
 #include "include/kasld/cli.h"
+#include <errno.h>
 #include <stdio.h>
 
 KASLD_EXPLAIN(
@@ -84,7 +85,8 @@ int main(void) {
   FILE *f = kasld_fopen("/proc/cmdline", "r");
   if (!f) {
     kasld_err("/proc/cmdline unavailable");
-    return 1;
+    return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM
+                                               : KASLD_EXIT_UNAVAILABLE;
   }
   char buf[2048];
   if (!fgets(buf, sizeof(buf), f)) {

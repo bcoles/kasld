@@ -41,6 +41,7 @@
 #include "include/kasld/api.h"
 #include "include/kasld/cli.h"
 #include "include/kasld/sysroot.h"
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -92,7 +93,8 @@ int main(void) {
   FILE *f = kasld_fopen("/proc/iomem", "r");
   if (!f) {
     kasld_err("/proc/iomem unavailable");
-    return 1;
+    return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM
+                                               : KASLD_EXIT_UNAVAILABLE;
   }
 
   /* Detect kptr_restrict masking by scanning a few lines for a real address.
