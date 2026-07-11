@@ -1515,16 +1515,26 @@ static int run_component(const struct component *c) {
 
   int had_tagged = (tagged_this_run > 0);
   int rc = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+  /* A component killed by SIGSYS was denied a syscall by a seccomp filter
+   * (SCMP_ACT_KILL) — the container-strict analogue of the EPERM that
+   * SCMP_ACT_ERRNO returns. Same denial, so report it the same way
+   * (ACCESS_DENIED), not as a bare signal death (NO_RESULT). Without this a
+   * seccomp-blocked oracle looks like "ran, found nothing" instead of
+   * "denied".*/
+  int denied_by_seccomp = WIFSIGNALED(status) && WTERMSIG(status) == SIGSYS;
 
   /* Classify outcome from exit code. Components signal their own status:
    *   exit 0  = ran successfully (results determined by tagged output)
    *   exit 69 = feature/hardware unavailable (EX_UNAVAILABLE)
-   *   exit 77 = access denied (EX_NOPERM) */
+   *   exit 77 = access denied (EX_NOPERM)
+   * A SIGSYS death is also an access denial (seccomp), handled above rc. */
   if (clog) {
     if (had_tagged)
       clog->outcome = OUTCOME_SUCCESS;
     else if (timed_out)
       clog->outcome = OUTCOME_TIMEOUT;
+    else if (denied_by_seccomp)
+      clog->outcome = OUTCOME_ACCESS_DENIED;
     else if (rc == KASLD_EXIT_NOPERM)
       clog->outcome = OUTCOME_ACCESS_DENIED;
     else if (rc == KASLD_EXIT_UNAVAILABLE)
