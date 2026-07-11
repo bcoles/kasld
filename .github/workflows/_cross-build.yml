@@ -162,10 +162,14 @@ jobs:
           TAG="${GITHUB_REF_NAME}"
           DIR="kasld-${TAG}-${{ matrix.arch }}"
           mkdir -p "${DIR}"
-          # Ship the build/<arch> output (kasld + components/), minus the .o
-          # build intermediates.
+          # Ship the build/<arch> output (kasld + components/), minus the obj/
+          # build-intermediates subdir. Arch-gated components leave a
+          # non-executable stamp in components/ (so make skips their failing
+          # compile on rebuild); drop those too, matching `make install`, which
+          # copies only executable component binaries.
           cp -a "${{ steps.builddir.outputs.dir }}/." "${DIR}/"
-          find "${DIR}" -name '*.o' -delete
+          rm -rf "${DIR}/obj"
+          find "${DIR}/components" -type f ! -perm -u+x -delete
           cp README.md LICENSE "${DIR}/"
           # Companion symbol-offset tool (arch-independent) + the docs, so the
           # tarball matches `make install` and the README's doc links resolve.
