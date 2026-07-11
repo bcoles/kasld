@@ -47,9 +47,17 @@
 // .head.text section size (8 KiB) before _stext.
 #define IMAGE_BASE_OFFSET 0x2000
 
-// Plausible physical address range for kernel image
+// Plausible physical address range for the kernel image. On the standard
+// RISC-V platform layout DRAM begins at 0x80000000 (firmware/MMIO occupy the
+// space below) and the kernel loads at DRAM base + a firmware-sized offset
+// (e.g. 0x80400000 after OpenSBI), so a real riscv32 image sits high in the
+// 32-bit physical space; the ceiling spans to the top of it. riscv32 has no
+// KASLR, so this is the honest validation window, not an entropy range. The
+// floor is 0 (== PHYS_OFFSET, the linear-map anchor): conservative but sound,
+// and consistent with the KERNEL_PHYS_MIN == PHYS_OFFSET invariant. Runtime
+// iomem/DRAM bounds narrow the window to the real range.
 #define KERNEL_PHYS_MIN 0ul
-#define KERNEL_PHYS_MAX (1ul * GB)
+#define KERNEL_PHYS_MAX 0xfffff000ul
 
 // Default: 0xc0002000 (PAGE_OFFSET + 8 KiB .head.text).
 // See docs/kaslr.md "Default text base and KASLR alignment" for all
