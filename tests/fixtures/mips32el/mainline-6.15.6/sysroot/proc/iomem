@@ -1,0 +1,13 @@
+00000000-0fffffff : System RAM
+  00100000-008c5e6f : Kernel code
+  008c5e70-00a82c3f : Kernel data
+  00ad0000-00b068ff : Kernel bss
+10000000-17ffffff : GT-64120 PCI MEM
+  10000000-11ffffff : 0000:00:12.0
+    10000000-11ffffff : cirrusfb
+  12000000-1203ffff : 0000:00:0b.0
+  12040000-1204ffff : 0000:00:12.0
+  12050000-12050fff : 0000:00:12.0
+    12050000-12050fff : cirrusfb
+  12051000-1205101f : 0000:00:0b.0
+1f000900-1f00093f : serial

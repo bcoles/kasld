@@ -1,0 +1,12 @@
+collect_version:  1
+collected_utc:    Sat Jul 11 12:47:01 AM UTC 2026
+uname_m_raw:      i686
+arch_canonical:   x86_32
+kernel_release:   6.12.81-0-lts
+distro:           alpine-3.21
+kasld:            kasld 0.3.1-dev
+suggested_fixture: tests/fixtures/x86_32/alpine-3.21-6.12.81-0-lts/
+anonymized:       0
+host_scrubbed:    1
+kallsyms:         1
+source:           vm (i686)

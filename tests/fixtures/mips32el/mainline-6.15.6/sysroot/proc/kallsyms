@@ -1,0 +1,6 @@
+80100400 T _stext
+808c5e70 T _etext
+808c8000 D __start_rodata
+80a84000 T _sinittext
+80a84000 T __init_begin
+80ab59cc T _einittext

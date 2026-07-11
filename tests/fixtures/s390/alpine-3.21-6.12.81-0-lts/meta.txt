@@ -1,0 +1,12 @@
+collect_version:  1
+collected_utc:    Sat Jul 11 12:47:58 AM UTC 2026
+uname_m_raw:      s390x
+arch_canonical:   s390
+kernel_release:   6.12.81-0-lts
+distro:           alpine-3.21
+kasld:            
+suggested_fixture: tests/fixtures/s390/alpine-3.21-6.12.81-0-lts/
+anonymized:       0
+host_scrubbed:    1
+kallsyms:         1
+source:           vm (s390x)

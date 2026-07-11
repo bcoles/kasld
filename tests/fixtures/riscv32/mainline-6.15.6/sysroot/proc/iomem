@@ -1,0 +1,20 @@
+00101000-00101fff : 101000.rtc rtc@101000
+10000000-100000ff : serial
+30000000-3fffffff : PCI ECAM
+40000000-7fffffff : pci@30000000
+80400000-bfffffff : System RAM
+  80400000-80401fff : Reserved
+  80402000-8211d587 : Kernel image
+    80402000-80cfed59 : Kernel code
+    81800000-81bfffff : Kernel rodata
+    82000000-820cb1ff : Kernel data
+    820cc000-8211d587 : Kernel bss
+  8211d588-8211dfff : Reserved
+  a0400000-a1325fff : Reserved
+  bf400000-bfe01fff : Reserved
+  bfe29000-bfee9fff : Reserved
+  bfeea000-bfefafff : Reserved
+  bfefd000-bfefdfff : Reserved
+  bfefe000-bff00fff : Reserved
+  bff01000-bfffffff : Reserved
+c03ff000-ffffffff : Reserved

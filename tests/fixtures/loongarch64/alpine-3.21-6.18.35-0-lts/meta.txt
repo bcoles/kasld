@@ -1,0 +1,12 @@
+collect_version:  1
+collected_utc:    Sat Jul 11 12:47:32 AM UTC 2026
+uname_m_raw:      loongarch64
+arch_canonical:   loongarch64
+kernel_release:   6.18.35-0-lts
+distro:           alpine-3.21
+kasld:            
+suggested_fixture: tests/fixtures/loongarch64/alpine-3.21-6.18.35-0-lts/
+anonymized:       0
+host_scrubbed:    1
+kallsyms:         1
+source:           vm (loongarch64)

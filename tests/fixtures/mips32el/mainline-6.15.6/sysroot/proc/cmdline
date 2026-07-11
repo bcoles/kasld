@@ -1,0 +1,1 @@
+rd_start=0xffffffff8f6e0000 rd_size=9481928 console=ttyS0 panic=-1 quiet capture

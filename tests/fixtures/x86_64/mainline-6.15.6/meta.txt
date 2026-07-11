@@ -1,0 +1,12 @@
+collect_version:  1
+collected_utc:    Fri Jul 10 05:19:07 PM UTC 2026
+uname_m_raw:      x86_64
+arch_canonical:   x86_64
+kernel_release:   6.15.6
+distro:           mainline
+kasld:            kasld 0.3.1-dev
+suggested_fixture: tests/fixtures/x86_64/mainline-6.15.6/
+anonymized:       0
+host_scrubbed:    1
+kallsyms:         1
+source:           vm (x86_64-vanilla)

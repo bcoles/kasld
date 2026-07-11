@@ -1,0 +1,17 @@
+ffffffffb6400000 T _stext
+ffffffffb6400000 T _text
+ffffffffb759bb10 T startup_64
+ffffffffb759bf22 T _etext
+ffffffffb7600000 D __start_rodata
+ffffffffb7cff000 T __end_rodata
+ffffffffb7e00000 T _sdata
+ffffffffb80ceb80 T _edata
+ffffffffb8663000 T _sinittext
+ffffffffb8663000 B __init_begin
+ffffffffb86e894f T _einittext
+ffffffffb88fc000 D __per_cpu_start
+ffffffffb8925c98 D __per_cpu_end
+ffffffffb8926000 R __init_end
+ffffffffb8934000 B __bss_start
+ffffffffb8a00000 B __bss_stop
+ffffffffb8a30000 B _end

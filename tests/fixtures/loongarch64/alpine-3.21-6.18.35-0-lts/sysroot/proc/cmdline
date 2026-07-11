@@ -1,0 +1,1 @@
+console=ttyS0 panic=-1 quiet capture initrd=initrd

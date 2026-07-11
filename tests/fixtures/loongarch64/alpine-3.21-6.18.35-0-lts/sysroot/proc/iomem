@@ -1,0 +1,44 @@
+00000000-0c0bffff : System RAM
+  00000000-001fffff : Reserved
+  00200000-002c3fff : Reserved
+  022f0000-02fbffff : Kernel code
+  02fc0000-03bb0dff : Kernel data
+  03bb0e00-03cab91f : Kernel bss
+  03cab920-03caffff : Reserved
+  03cb0000-07caffff : Reserved
+  0a0c0000-0ae83fff : Reserved
+0c0d0000-0db7ffff : System RAM
+0dd90000-0ddeffff : System RAM
+0df10000-0dfaffff : System RAM
+0e140000-0e14ffff : System RAM
+  0e140000-0e143fff : Reserved
+  0e144000-0e147fff : Reserved
+  0e148000-0e14ffff : Reserved
+0e330000-0f3affff : System RAM
+0f400000-0fffffff : System RAM
+1c000000-1cffffff : LNRO0015:00
+1d000000-1dffffff : LNRO0015:01
+1fe001e0-1fe002df : serial
+1fe002e0-1fe003df : serial
+1fe003e0-1fe004df : serial
+1fe004e0-1fe005df : serial
+20000000-27ffffff : PCI ECAM
+40000000-7fffffff : PCI Bus 0000:00
+  40000000-4003ffff : 0000:00:01.0
+  40040000-40043fff : 0000:00:01.0
+  40044000-40044fff : 0000:00:01.0
+80000000-afffffff : System RAM
+  a8000000-a9ffffff : Reserved
+  ac000000-ac017fff : Reserved
+  afe48000-affd3fff : Reserved
+  affd4000-affd7fff : Reserved
+  affd8000-affdbfff : Reserved
+  affdc000-affdffff : Reserved
+  affe0000-affe3fff : Reserved
+  affe4000-affe7fff : Reserved
+  affe8000-affebfff : Reserved
+  affec000-affeffff : Reserved
+  afff0000-afff3fff : Reserved
+  afff4000-afff7fff : Reserved
+  afff8000-afffbfff : Reserved
+  afffc000-afffffff : Reserved

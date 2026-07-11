@@ -1,0 +1,1 @@
+console=ttyAMA0 panic=-1 quiet capture

@@ -1,0 +1,16 @@
+ca000000 T _stext
+ca000000 T _text
+ca9c7f13 T _etext
+ca9c8000 D __start_rodata
+cad74000 D _sdata
+cad74000 D __end_rodata
+cae69240 D _edata
+cae82000 T _sinittext
+cae82000 D __init_begin
+caf0885b T _einittext
+caf89000 D __per_cpu_start
+cafa3f0c D __per_cpu_end
+cafa4000 R __init_end
+cafad000 B __bss_start
+cb1a6000 B __bss_stop
+cb2cc000 B _end
