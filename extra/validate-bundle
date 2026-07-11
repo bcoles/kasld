@@ -157,6 +157,15 @@ fi
 # Run kasld over the bundle's sysroot, capture the JSON.
 # ---------------------------------------------------------------------------
 JSON=$TMP/kasld.json
+# Live-kernel probes (perf / timing side-channels / SIDT / mincore / ioctl
+# leaks) obtain their address from the RUNNING kernel via a syscall or
+# instruction, not from a file — so KASLD_SYSROOT cannot redirect them. On a
+# native-arch replay they therefore describe the HOST kernel, not the captured
+# bundle, and their leaks can push the engine's window off the bundle's true
+# base. Skip them so validation is pure file-based inference: deterministic,
+# host-independent, and sound for a bundle captured on a different machine.
+# (Under qemu-user these never exec anyway — the flag is a harmless no-op.)
+SKIP_PROBES='perf_*,prefetch*,mmap_*,databounce,echoload,entrybleed,zombieload,kernelsnitch,mincore,sidt,qemu_tcg_iret,function_order_fingerprint,proc_pid_syscall,proc_stat_wchan,nilfs2_ioctl,bcm_msg_head_struct'
 # Don't gate on exit code: kasld returns the count of failed component
 # subprocesses (sometimes >0 even on a healthy bundle — collect_kasld_results
 # in orchestrator.c maps "no_result"/"unavailable"/"timed_out" through to
@@ -164,10 +173,10 @@ JSON=$TMP/kasld.json
 # fails to exec). The output JSON is what matters.
 if [ -n "$RUNNER" ]; then
   KASLD_SYSROOT="$BUNDLE/sysroot" KASLD_UNAME_RELEASE="$REL" \
-    "$RUNNER" "$BIN" -j -q > "$JSON" 2>"$TMP/err"
+    "$RUNNER" "$BIN" -j -q --skip "$SKIP_PROBES" > "$JSON" 2>"$TMP/err"
 else
   KASLD_SYSROOT="$BUNDLE/sysroot" KASLD_UNAME_RELEASE="$REL" \
-    "$BIN" -j -q > "$JSON" 2>"$TMP/err"
+    "$BIN" -j -q --skip "$SKIP_PROBES" > "$JSON" 2>"$TMP/err"
 fi
 if [ ! -s "$JSON" ]; then
   echo "$PROG: kasld produced empty JSON" >&2
