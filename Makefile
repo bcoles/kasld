@@ -430,6 +430,14 @@ lint :
 test-integration : $(TEST_INT_BIN)
 	$(TEST_INT_BIN)
 
+# Container / cgroup execution harness (opt-in: snapshots the live host and runs
+# live cpuset probes, so it is not part of the hermetic `make test`). The x86_32
+# coupled-arch soundness case needs the i686 cross binary (`make cross`); it
+# skips cleanly if absent.
+.PHONY: test-container
+test-container : build
+	@$(TEST_DIR)/container/run
+
 .PHONY: test-estimate
 test-estimate : $(TEST_EST_BIN)
 	$(TEST_EST_BIN)

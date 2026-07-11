@@ -1,0 +1,155 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# tests/container/run — container / cgroup execution test harness.
+#
+# The loop: theorise a container scenario -> encode it as a check here -> the
+# harness runs kasld under it and asserts an invariant -> fix the code -> re-run
+# (backtest). Checks accumulate as regressions.
+#
+# Substrates:
+#   SYSROOT   A container-shaped copy of a fact snapshot, replayed via
+#             KASLD_SYSROOT (hermetic, zero privilege). Strict replay: a file
+#             omitted from the copy reads as absent, exactly like a container
+#             masking that source. Tests file-derived inference.
+#   LIVE      The real binary wrapped (e.g. `taskset -c`) against the live
+#             kernel. Tests runtime behaviour (CPU pinning) a replay cannot.
+#
+# CORE SOUNDNESS INVARIANT (truth-free). The two-window model says the
+# GUARANTEED window depends only on trusted (>= sound-floor) inputs, so a
+# container-FAKED input (a shrunk /proc/meminfo) must NOT move it — only the
+# speculative LIKELY window may change. A guaranteed-window change under a fake
+# means a fakeable value reached the guaranteed window: a soundness bug. No
+# ground truth needed. kallsyms is removed first (as a container restricts it)
+# so the base is a window bounded by the ceiling, not a pin that would mask the
+# ceiling by conflict-dropping it.
+#
+# Substrates covered: the host (native), and the x86_32 fixture (coupled arch,
+# native i686 on an x86_64 runner) which is where the MemTotal-ceiling rules
+# live.
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/../.." && pwd)
+WORK=$(mktemp -d); trap 'rm -rf "$WORK"' EXIT INT TERM
+
+# The soundness invariant needs a PURE FUNCTION OF THE FILES. Skip every
+# component that reads live hardware/kernel state SYSROOT cannot redirect:
+# side-channels + perf sampling + mmap/cpuid probes (their run-to-run jitter,
+# e.g. perf's lowest sampled IP wobbling a byte, masquerades as a meminfo
+# effect), and the live per-process leaks (proc_pid_syscall / proc_stat_wchan /
+# function_order_fingerprint) which read the running process, not the fixture,
+# and so vary every run. With these skipped the replay is deterministic.
+SKIP='prefetch*,perf*,mmap*,databounce,echoload,entrybleed,zombieload,kernelsnitch,page_size,sidt,proc_pid_syscall,proc_stat_wchan,function_order_fingerprint'
+
+# Native (host-arch) build dir + binary; KASLD_BIN overrides the binary.
+HOSTDIR=$ROOT/build/$(uname -m)-linux-gnu
+HOSTBIN=${KASLD_BIN:-$HOSTDIR/kasld}
+
+if [ -t 1 ]; then RED=$(printf '\033[31m'); GRN=$(printf '\033[32m'); YEL=$(printf '\033[33m'); RST=$(printf '\033[0m'); else RED=; GRN=; YEL=; RST=; fi
+PASS=0; FAIL=0
+pass() { PASS=$((PASS+1)); printf '  %sPASS%s %s\n' "$GRN" "$RST" "$1"; }
+fail() { FAIL=$((FAIL+1)); printf '  %sFAIL%s %s\n' "$RED" "$RST" "$1"; }
+note() { printf '  %snote%s %s\n' "$YEL" "$RST" "$1"; }
+
+# Canonical GUARANTEED bounds (arch-general: the layout min/max the renderer
+# treats as the sound window). Tolerant of missing keys.
+guaranteed_sig() {
+  python3 - "$1" <<'PY'
+import json,sys
+try: d=json.load(open(sys.argv[1]))
+except Exception as e: print("PARSE-ERROR:%s"%e); sys.exit(0)
+l=d.get("layout",{}) if isinstance(d,dict) else {}
+keys=("virt_image_base_min","virt_image_base_max","phys_kaslr_text_min",
+      "phys_kaslr_text_max","virt_page_offset_min","virt_page_offset_max")
+vals=[(k,l.get(k)) for k in keys]
+# EMPTY (not an all-None string) when no guaranteed window resolved, so the
+# caller can treat it as inconclusive rather than compare two identical blanks.
+print("EMPTY" if all(v is None for _,v in vals) else
+      "|".join("%s=%s"%(k,v) for k,v in vals))
+PY
+}
+
+# meminfo_invariant NAME SYSROOT BIN
+# Remove kallsyms (container restricts it), then compare the guaranteed window
+# with real vs shrunk MemTotal/LowTotal — they MUST match. Two guards protect
+# the verdict: an unparseable/empty window is inconclusive (never a silent pass,
+# since real==faked would be trivially true), and the real sysroot is run TWICE
+# to confirm the replay is deterministic — if it isn't, a live component is
+# missing from SKIP and the invariant would be unreliable, so say so rather than
+# blame meminfo.
+meminfo_invariant() {
+  name=$1; src=$2; bin=$3
+  R="$WORK/${name}-real"; F="$WORK/${name}-fake"
+  rm -rf "$R" "$F"; cp -a "$src" "$R"
+  rm -f "$R/proc/kallsyms"           # base becomes a window bounded by the ceiling
+  cp -a "$R" "$F"
+  sed -i -E 's/^(MemTotal:) *[0-9]+/\1          65536/; s/^(LowTotal:) *[0-9]+/\1          65536/' "$F/proc/meminfo" 2>/dev/null || true
+  KASLD_SYSROOT="$R" "$bin" -s "$SKIP" -j >"$WORK/$name.r1.json" 2>/dev/null; r1=$?
+  KASLD_SYSROOT="$R" "$bin" -s "$SKIP" -j >"$WORK/$name.r2.json" 2>/dev/null; r2=$?
+  KASLD_SYSROOT="$F" "$bin" -s "$SKIP" -j >"$WORK/$name.f.json"  2>/dev/null; fr=$?
+  if [ "$r1" -ne 0 ] || [ "$r2" -ne 0 ] || [ "$fr" -ne 0 ]; then
+    fail "$name: kasld crashed (rc $r1/$r2/$fr)"; return; fi
+  s1=$(guaranteed_sig "$WORK/$name.r1.json")
+  s2=$(guaranteed_sig "$WORK/$name.r2.json")
+  sf=$(guaranteed_sig "$WORK/$name.f.json")
+  case "$s1" in
+    EMPTY | PARSE-ERROR*)
+      fail "$name: INCONCLUSIVE — no guaranteed window resolved ($s1); cannot test soundness"
+      return ;;
+  esac
+  if [ "$s1" != "$s2" ]; then
+    fail "$name: NON-DETERMINISTIC replay — a live component is missing from SKIP; invariant unreliable"
+    printf '        run1: %s\n        run2: %s\n' "$s1" "$s2"; return; fi
+  if [ "$s1" = "$sf" ]; then pass "$name: guaranteed window unchanged under faked meminfo (sound)"
+  else fail "$name: GUARANTEED WINDOW MOVED under faked meminfo (unsound — fakeable input reached the guaranteed window)"
+       printf '        real:  %s\n        faked: %s\n' "$s1" "$sf"; fi
+}
+
+echo "== soundness: meminfo-ceiling invariant =="
+# host snapshot (native) — x86_64 is decoupled, uses the safe phys_ceiling
+echo "-- host ($(uname -m)) --"
+if "$ROOT/extra/collect" -o "$WORK/base" >/dev/null 2>&1 && [ -d "$WORK/base/sysroot" ]; then
+  meminfo_invariant "host" "$WORK/base/sysroot" "$HOSTBIN"
+else note "host: snapshot (extra/collect) failed — skipped"; fi
+
+# x86_32 fixture (coupled arch) — where virt_ceiling_from_memtotal lives.
+# Native i686 on an x86_64 runner (no qemu); skip if unavailable.
+echo "-- x86_32 fixture (coupled) --"
+X32BIN="$ROOT/build/i686-unknown-linux-musl/kasld"
+X32FIX=$(find "$ROOT/tests/fixtures/x86_32" -maxdepth 2 -name sysroot -type d 2>/dev/null | head -1)
+if [ -x "$X32BIN" ] && [ -n "$X32FIX" ] && "$X32BIN" -h >/dev/null 2>&1; then
+  meminfo_invariant "x86_32" "$X32FIX" "$X32BIN"
+else note "x86_32: i686 binary/fixture unavailable or won't run natively — skipped (run 'make cross')"; fi
+
+echo
+echo "== degradation: masked privileged sources must not crash =="
+if [ -d "$WORK/base/sysroot" ]; then
+  D="$WORK/docker"; cp -a "$WORK/base/sysroot" "$D"
+  rm -f "$D/proc/kcore" "$D/proc/iomem" "$D/proc/kallsyms" "$D/proc/modules"
+  if KASLD_SYSROOT="$D" "$HOSTBIN" -s "$SKIP" -j >"$WORK/docker.json" 2>/dev/null; then
+    pass "docker-default: no crash under masked kcore/iomem/kallsyms/modules"
+  else
+    fail "docker-default: kasld crashed on a masked source"
+  fi
+fi
+
+echo
+echo "== operational: CPU pinning under a restricted cpuset (LIVE) =="
+NCPU=$(nproc 2>/dev/null || echo 1)
+DM="$HOSTDIR/components/prefetch_directmap"
+# pin_cpu's cpuset fallback is asserted deterministically by tests/test_cpu;
+# this is a live smoke run under a cpuset that excludes the preferred CPU 0.
+if command -v taskset >/dev/null 2>&1 && [ "$NCPU" -ge 2 ] && [ -x "$DM" ]; then
+  A="1-$((NCPU-1))"   # a mask excluding the hardcoded pin preference (CPU 0)
+  if taskset -c "$A" "$DM" 2>&1 | grep -q 'page_offset_base'; then
+    note "cpuset(-c $A, excludes CPU 0): prefetch_directmap produced a base — pin_cpu falls back to an allowed CPU (see tests/test_cpu)"
+  else
+    note "cpuset(-c $A): no base (host-signal dependent; not a pinning failure)"
+  fi
+else note "cpuset: taskset/<2 CPUs/binary unavailable — skipped"; fi
+
+echo
+printf '== summary: %d pass, %d fail ==\n' "$PASS" "$FAIL"
+[ "$FAIL" -eq 0 ]
