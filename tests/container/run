@@ -136,6 +136,43 @@ if [ -d "$WORK/base/sysroot" ]; then
 fi
 
 echo
+echo "== degradation: every component fails closed under an empty /proc =="
+# The aggregate check above runs the orchestrator; this sweeps each component
+# binary directly against an EMPTY sysroot (every file read → ENOENT, the
+# maximally-restricted container). A privileged component must fail CLOSED — a
+# clean exit (no result / unavailable / access-denied), never a crash (a signal
+# death: segfault/abort on a missing or truncated file). rc >= 128 = killed by
+# signal; 124 = timeout (a slow live probe, not a crash — accepted). The live
+# hardware probes read no files, so an empty sysroot doesn't exercise them;
+# skip the slow ones to bound the sweep.
+skip_heavy() {
+  case "$1" in
+    prefetch*|perf*|mmap*|databounce|echoload|entrybleed|zombieload|\
+    kernelsnitch|sidt) return 0 ;;
+  esac
+  return 1
+}
+if [ -d "$HOSTDIR/components" ]; then
+  E="$WORK/empty"; mkdir -p "$E/proc"
+  crashed=""; nsweep=0
+  for comp in "$HOSTDIR"/components/*; do
+    [ -x "$comp" ] || continue
+    cn=$(basename "$comp")
+    skip_heavy "$cn" && continue
+    nsweep=$((nsweep+1))
+    KASLD_SYSROOT="$E" timeout 5 "$comp" >/dev/null 2>&1; rc=$?
+    [ "$rc" -ge 128 ] && crashed="$crashed $cn(sig$((rc-128)))"
+  done
+  if [ -z "$crashed" ]; then
+    pass "fail-closed: $nsweep components exit cleanly under an empty /proc (no crash)"
+  else
+    fail "fail-closed: components crashed under an empty /proc:$crashed"
+  fi
+else
+  note "fail-closed: component dir unavailable ($HOSTDIR/components) — skipped"
+fi
+
+echo
 echo "== operational: CPU pinning under a restricted cpuset (LIVE) =="
 NCPU=$(nproc 2>/dev/null || echo 1)
 DM="$HOSTDIR/components/prefetch_directmap"
@@ -149,6 +186,135 @@ if command -v taskset >/dev/null 2>&1 && [ "$NCPU" -ge 2 ] && [ -x "$DM" ]; then
     note "cpuset(-c $A): no base (host-signal dependent; not a pinning failure)"
   fi
 else note "cpuset: taskset/<2 CPUs/binary unavailable — skipped"; fi
+
+echo
+echo "== robustness: seccomp syscall gate (LIVE) =="
+# A container confines syscalls with a seccomp filter; its ACTION decides what
+# the caller sees — ERRNO (docker default: perf_event_open fails EPERM) or KILL
+# (SIGSYS terminates the caller). kasld forks each component, so a SIGSYS kills
+# only the child; the orchestrator must (1) survive and emit valid JSON, and
+# (2) report the block the SAME way it reports the EPERM case — a denied oracle,
+# not "ran, found nothing". perf_ksymbol_leak calls perf_event_open on every CPU
+# unconditionally, so it hits the gate deterministically regardless of the
+# host's perf_event_paranoid; the other perf components fork a pipe-holding
+# child (would only add a timeout) and are skipped. LIVE, x86_64-only helper.
+SE=${SECCOMP_EXEC:-$ROOT/build/tests/seccomp-exec}
+SC_SKIP='perf_event_open,perf_lbr_sampling,prefetch*,mmap*,databounce,echoload,entrybleed,zombieload,kernelsnitch,sidt,proc_pid_syscall,proc_stat_wchan,function_order_fingerprint'
+comp_outcome() {  # FILE COMPONENT -> outcome | ABSENT | PARSE-ERROR
+  python3 - "$1" "$2" <<'PY'
+import json,sys
+try: d=json.load(open(sys.argv[1]))
+except Exception: print("PARSE-ERROR"); sys.exit(0)
+print(next((c.get("outcome") for c in d.get("components",[])
+            if c.get("name")==sys.argv[2]), "ABSENT"))
+PY
+}
+if [ "$(uname -m)" != x86_64 ]; then
+  note "seccomp: x86_64-only helper — skipped on $(uname -m)"
+elif [ ! -x "$SE" ]; then
+  note "seccomp: helper not built ($SE) — skipped (run 'make test-container')"
+else
+  "$SE" errno "$HOSTBIN" -v -j -t 3 -s "$SC_SKIP" >"$WORK/sc.errno.json" 2>/dev/null
+  "$SE" kill  "$HOSTBIN" -v -j -t 3 -s "$SC_SKIP" >"$WORK/sc.kill.json"  2>/dev/null
+  oe=$(comp_outcome "$WORK/sc.errno.json" perf_ksymbol_leak)
+  ok=$(comp_outcome "$WORK/sc.kill.json"  perf_ksymbol_leak)
+  case "$oe|$ok" in
+    *PARSE-ERROR*)
+      fail "seccomp: no/invalid JSON under the filter — orchestrator did not survive" ;;
+    *ABSENT*)
+      note "seccomp: perf_ksymbol_leak absent (not built?) — skipped" ;;
+    success\|*|*\|success)
+      note "seccomp: perf_event_open not filtered (helper inactive) — inconclusive" ;;
+    *)
+      # ERRNO control: a denied syscall is reported as access_denied.
+      if [ "$oe" = access_denied ]; then
+        pass "seccomp(errno): denied perf_event_open reported access_denied"
+      else
+        note "seccomp(errno): perf_ksymbol_leak=$oe (expected access_denied)"
+      fi
+      # KILL: the SIGSYS death MUST classify like the EPERM case, not no_result.
+      if [ "$ok" = access_denied ]; then
+        pass "seccomp(kill): SIGSYS classified access_denied (matches errno; orchestrator survived)"
+      else
+        fail "seccomp(kill): SIGSYS misclassified as '$ok' (expected access_denied, as errno) — a denied oracle looks like 'ran, found nothing'"
+      fi ;;
+  esac
+fi
+
+echo
+echo "== robustness: real masked /proc + namespace (LIVE) =="
+# The docker-default degradation check above deletes files from a SYSROOT copy
+# (open → ENOENT). A real runtime masks differently: docker bind-mounts
+# /dev/null over /proc/kcore, /proc/iomem, etc., so the files are readable-but-
+# EMPTY (open succeeds, read hits EOF). This reproduces that exactly in an
+# unprivileged user+mount+pid namespace — a genuine masked /proc, not a fixture.
+# kasld must survive it: no crash, valid JSON. (The masked components then read
+# empty and report unavailable/no_result — the readable-but-zeroed data-denial
+# class — which is expected here, not asserted.)
+if ! command -v unshare >/dev/null 2>&1; then
+  note "masked-proc: unshare unavailable — skipped"
+elif ! unshare -Ur true 2>/dev/null; then
+  note "masked-proc: unprivileged user namespaces disabled — skipped"
+else
+  unshare -Urmpf --mount-proc sh -c '
+    for p in kcore iomem kallsyms modules; do
+      [ -e "/proc/$p" ] && mount --bind /dev/null "/proc/$p" 2>/dev/null
+    done
+    exec "$1" -j -f
+  ' _ "$HOSTBIN" >"$WORK/maskns.json" 2>/dev/null
+  if python3 -c "import json,sys; json.load(open('$WORK/maskns.json'))" 2>/dev/null; then
+    pass "masked-proc(ns): no crash, valid JSON under bind-masked kcore/iomem/kallsyms/modules"
+  else
+    fail "masked-proc(ns): invalid/empty JSON — kasld did not survive a real masked /proc"
+  fi
+fi
+
+echo
+echo "== robustness: fork starvation / pids limit (LIVE) =="
+# A container with a pids cgroup limit (docker --pids-limit, k8s pids.max) makes
+# fork() return EAGAIN once the task count is hit. The orchestrator forks one
+# subprocess per component; a failed fork must skip that component and continue
+# — not hang, crash, or emit invalid JSON. fork-fail.so (LD_PRELOAD) injects
+# EAGAIN on a fraction of fork()s deterministically, without a real cgroup.
+FF=${FORK_FAIL_LIB:-$ROOT/build/tests/fork-fail.so}
+if [ ! -f "$FF" ]; then
+  note "fork-starve: shim not built ($FF) — skipped (run 'make test-container')"
+else
+  FORK_FAIL_EVERY=3 LD_PRELOAD="$FF" timeout 90 "$HOSTBIN" -j -f -w 0 \
+    >"$WORK/forkstarve.json" 2>"$WORK/forkstarve.err"; rc=$?
+  if [ "$rc" -eq 124 ]; then
+    fail "fork-starve: kasld hung under injected fork() EAGAIN (timed out)"
+  elif ! python3 -c "import json,sys; json.load(open('$WORK/forkstarve.json'))" 2>/dev/null; then
+    fail "fork-starve: invalid/empty JSON — orchestrator not coherent under fork() EAGAIN"
+  elif ! grep -q fork "$WORK/forkstarve.err" 2>/dev/null; then
+    note "fork-starve: no fork failures observed — shim inactive? inconclusive"
+  else
+    pass "fork-starve: coherent under injected fork() EAGAIN (valid JSON, no hang, failed components skipped)"
+  fi
+fi
+
+echo
+echo "== robustness: memory cgroup / MemoryMax (LIVE) =="
+# A container memory limit (docker --memory, k8s limits.memory) caps the cgroup's
+# RSS; exceeding it OOM-kills the process. Verify kasld fits a tight, realistic
+# budget without OOM — a clean run with valid JSON under a 32M cap (kasld's
+# working set is far smaller). Needs systemd --user with the memory controller
+# delegated to the user cgroup; note-skip otherwise (e.g. a CI runner without a
+# user session). The soundness of a cgroup-shrunk MemTotal is covered separately
+# by the meminfo invariant + test-fixtures-perturb; this is the OOM-robustness
+# axis only.
+memcg_ctrls=/sys/fs/cgroup/user.slice/user-$(id -u).slice/user@$(id -u).service/cgroup.controllers
+if command -v systemd-run >/dev/null 2>&1 && grep -qw memory "$memcg_ctrls" 2>/dev/null; then
+  if out=$(systemd-run --user --scope -p MemoryMax=32M -q -- \
+             timeout 60 "$HOSTBIN" -j -f -w 0 -s "$SKIP" 2>/dev/null) &&
+     printf '%s' "$out" | python3 -c 'import json,sys; json.load(sys.stdin)' 2>/dev/null; then
+    pass "memcg(MemoryMax=32M): kasld completes with valid JSON (no OOM under a tight container budget)"
+  else
+    fail "memcg(MemoryMax=32M): kasld failed or was OOM-killed under a 32M cgroup limit"
+  fi
+else
+  note "memcg: systemd --user / delegated memory controller unavailable — skipped"
+fi
 
 echo
 printf '== summary: %d pass, %d fail ==\n' "$PASS" "$FAIL"

@@ -149,6 +149,15 @@ jobs:
         if: inputs.run_validate_fixtures
         run: tests/validate-fixtures
 
+      # Truth-free complement (see build.yml): no container-fakeable input may
+      # move the guaranteed window. Whole corpus, both anonymized states; only
+      # this arch's fixtures resolve a binary — the rest skip — so the matrix
+      # covers every fixture once. This is where the coupled arches
+      # (arm32/mips/ppc/loongarch/riscv32) get their ceiling-rule coverage.
+      - name: Fixture perturbation (qemu-user)
+        if: inputs.run_validate_fixtures
+        run: tests/validate-fixtures --perturb
+
       # Release mode only: x86_64 runs natively on the runner. (PR coverage
       # tests x86_64 via build.yml's host job, so this would be redundant there.)
       - name: Run tests (native, x86_64)

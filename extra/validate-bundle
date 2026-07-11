@@ -36,12 +36,30 @@ ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 
 die() { echo "$PROG: $*" >&2; exit 2; }
 
+PERTURB=0
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --perturb) PERTURB=1; shift ;;
+    --) shift; break ;;
+    -*) die "unknown option '$1'" ;;
+    *) break ;;
+  esac
+done
+
 if [ "$#" -ne 1 ]; then
   cat <<EOF >&2
-Usage: $PROG <bundle-dir>
+Usage: $PROG [--perturb] <bundle-dir>
 
 Compare a kasld bundle's engine-resolved ranges against the ground truth
 captured in the bundle's sysroot. Reports PASS/FAIL/N_A per quantity.
+
+--perturb  Truth-free mode: instead of truth-containment, assert the GUARANTEED
+           window does not move when a container-fakeable input is spoofed — a
+           container-faked value must not reach the guaranteed window. The fake
+           set is enumerated from the source audit (currently MemTotal/LowTotal,
+           the cgroup-reported memory size), exercised both with the trusted DRAM
+           extent present and masked. Needs no ground truth, so it runs on
+           anonymized bundles too.
 EOF
   exit 2
 fi
@@ -178,6 +196,108 @@ JSON=$TMP/kasld.json
 # host-independent, and sound for a bundle captured on a different machine.
 # (Under qemu-user these never exec anyway — the flag is a harmless no-op.)
 SKIP_PROBES='perf_*,prefetch*,mmap_*,databounce,echoload,entrybleed,zombieload,kernelsnitch,mincore,sidt,qemu_tcg_iret,function_order_fingerprint,proc_pid_syscall,proc_stat_wchan,nilfs2_ioctl,bcm_msg_head_struct'
+# run_kasld_sysroot SYSROOT OUT — run the arch-correct binary (native or under
+# qemu-user) over an arbitrary sysroot, same skip set as the main run.
+run_kasld_sysroot() {
+  if [ -n "$RUNNER" ]; then
+    KASLD_SYSROOT="$1" KASLD_UNAME_RELEASE="$REL" \
+      "$RUNNER" "$BIN" -j -q --skip "$SKIP_PROBES" > "$2" 2>/dev/null
+  else
+    KASLD_SYSROOT="$1" KASLD_UNAME_RELEASE="$REL" \
+      "$BIN" -j -q --skip "$SKIP_PROBES" > "$2" 2>/dev/null
+  fi
+}
+
+# guaranteed_sig JSON — the sound-window layout fields as a stable signature,
+# or EMPTY (no window resolved) / PARSE-ERROR (bad JSON).
+guaranteed_sig() {
+  jq -e . "$1" >/dev/null 2>&1 || { printf 'PARSE-ERROR\n'; return; }
+  s=$(jq -r '(.layout // {})
+             | [.virt_image_base_min, .virt_image_base_max,
+                .phys_kaslr_text_min, .phys_kaslr_text_max,
+                .virt_page_offset_min, .virt_page_offset_max]
+             | map(if . == null then "." else tostring end) | join("|")' "$1")
+  case "$s" in
+    '.|.|.|.|.|.') printf 'EMPTY\n' ;;
+    *) printf '%s\n' "$s" ;;
+  esac
+}
+
+# The container-fakeable input set: files a container / lxcfs / cgroup can spoof
+# AND that kasld reads into its inference. The source audit found MemTotal /
+# LowTotal (a cgroup memory limit reports through them) is the ONLY one that can
+# reach the GUARANTEED window — the other virtualised inputs are host-true where
+# kasld uses them (cpuinfo flags select the VA layout; the cpu COUNT is not read
+# into any bound) or feed only worker count / affinity, never a layout bound. So
+# the fake set is {meminfo}, exercised on both paths a container can present it
+# (see the two cases below). A future rule that reads another spoofable file into
+# the window drops in here as another fake_* mutator + perturb_case.
+
+# fake_meminfo DIR — shrink MemTotal/LowTotal, as a small memory cgroup reports.
+fake_meminfo() {
+  sed -i -E 's/^(MemTotal:)[[:space:]]*[0-9]+/\1          65536/;
+             s/^(LowTotal:)[[:space:]]*[0-9]+/\1          65536/' \
+    "$1/proc/meminfo" 2>/dev/null || true
+}
+
+# perturb_case NAME REAL FAKE — run both sysroots and assert the guaranteed
+# window is byte-identical. REAL and FAKE must differ ONLY in fakeable inputs, so
+# any movement is a fakeable value reaching the guaranteed window (a soundness
+# bug), not the legitimate widening of losing a trusted source.
+perturb_case() {
+  pc_name=$1
+  run_kasld_sysroot "$2" "$TMP/pc-real.json"
+  run_kasld_sysroot "$3" "$TMP/pc-fake.json"
+  pc_sr=$(guaranteed_sig "$TMP/pc-real.json")
+  pc_sf=$(guaranteed_sig "$TMP/pc-fake.json")
+  case "$pc_sr" in
+    PARSE-ERROR) nare "$pc_name" "kasld produced no/invalid JSON on the real run" ;;
+    EMPTY)       nare "$pc_name" "no guaranteed window resolved — nothing to move" ;;
+    *)
+      if [ "$pc_sr" = "$pc_sf" ]; then
+        pass "$pc_name" "guaranteed window unchanged under the fake"
+      else
+        fail "$pc_name" "guaranteed window MOVED under the fake"
+        printf '        real:  %s\n        faked: %s\n' "$pc_sr" "$pc_sf" >&2
+      fi ;;
+  esac
+}
+
+# --perturb: truth-free soundness — NO container-fakeable input may reach the
+# GUARANTEED window (two-window model: it depends only on trusted, >= sound-floor
+# inputs). kallsyms is removed first so the base is a window bounded by the
+# ceiling (a pin would conflict-drop the bad ceiling and mask the bug). No ground
+# truth needed — runs on anonymized bundles too. SKIP_PROBES excludes the
+# live/jittery components, so each run is a deterministic function of the files.
+if [ "$PERTURB" = 1 ]; then
+  printf '%sPerturbation:%s no container-fakeable input may move the guaranteed window\n' \
+    "$BOLD" "$RESET"
+  if ! grep -qE '^(MemTotal|LowTotal):' "$BUNDLE/sysroot/proc/meminfo" 2>/dev/null; then
+    nare "container fakes" "no MemTotal/LowTotal in bundle — nothing to fake"
+  else
+    # Case 1: fake meminfo with the trusted DRAM extent (zoneinfo) PRESENT — the
+    # ceiling rule must prefer it and ignore the faked meminfo.
+    R1=$TMP/c1-real; F1=$TMP/c1-fake
+    cp -a "$BUNDLE/sysroot" "$R1" || die "cp sysroot failed"
+    rm -f "$R1/proc/kallsyms"
+    cp -a "$R1" "$F1"; fake_meminfo "$F1"
+    perturb_case "fake meminfo" "$R1" "$F1"
+
+    # Case 2: fake meminfo with the trusted DRAM extent (zoneinfo) ALSO masked, as
+    # a stricter container might — forcing the meminfo fallback, which must stay
+    # likely-only (below the sound floor) so the guaranteed window still holds.
+    # Both sides lose zoneinfo equally, so the only difference remains meminfo.
+    R2=$TMP/c2-real; F2=$TMP/c2-fake
+    cp -a "$R1" "$R2"; rm -f "$R2/proc/zoneinfo"
+    cp -a "$R2" "$F2"; fake_meminfo "$F2"
+    perturb_case "fake meminfo (dram extent masked)" "$R2" "$F2"
+  fi
+  read -r p f s < "$TMP/counts"
+  printf '%sSummary: %d PASS, %d FAIL, %d N/A%s\n' "$BOLD" "$p" "$f" "$s" "$RESET"
+  [ "$f" -gt 0 ] && exit 1
+  exit 0
+fi
+
 # Don't gate on exit code: kasld returns the count of failed component
 # subprocesses (sometimes >0 even on a healthy bundle — collect_kasld_results
 # in orchestrator.c maps "no_result"/"unavailable"/"timed_out" through to

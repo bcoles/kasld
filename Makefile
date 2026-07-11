@@ -423,6 +423,34 @@ $(TEST_CPU_BIN): $(TEST_DIR)/test_cpu.c $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
 	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_cpu.c -o $@
 
+# Component outcome classifier test (header-only): exercises
+# kasld_classify_outcome() (outcome.h) — the reaped-status -> outcome mapping,
+# incl. the SIGSYS-denial and exit-77/69 paths. No .c sources to link.
+TEST_OUTCOME_BIN := $(TEST_OBJ_DIR)/test_outcome
+
+$(TEST_OUTCOME_BIN): $(TEST_DIR)/test_outcome.c $(HDRS) | $(TEST_OBJ_DIR)
+	$(call ccv,CCLD,$@)
+	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_outcome.c -o $@
+
+# seccomp-exec: installs a minimal seccomp-BPF filter then execs its argv, so
+# tests/container/run can run kasld under a container-shaped syscall gate
+# (perf_event_open → EPERM or SIGSYS) without a container runtime. Standalone
+# helper, no kasld sources to link.
+SECCOMP_EXEC_BIN := $(TEST_OBJ_DIR)/seccomp-exec
+
+$(SECCOMP_EXEC_BIN): $(TEST_DIR)/container/seccomp-exec.c | $(TEST_OBJ_DIR)
+	$(call ccv,CCLD,$@)
+	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) $(TEST_DIR)/container/seccomp-exec.c -o $@
+
+# fork-fail.so: LD_PRELOAD shim that fails a fraction of fork() calls with
+# EAGAIN, so tests/container/run can verify kasld stays coherent under a pids
+# cgroup limit (docker --pids-limit / k8s pids.max) without a real cgroup.
+FORK_FAIL_LIB := $(TEST_OBJ_DIR)/fork-fail.so
+
+$(FORK_FAIL_LIB): $(TEST_DIR)/container/fork-fail.c | $(TEST_OBJ_DIR)
+	$(call ccv,CCLD,$@)
+	$(Q)$(CC) -O2 -fPIC -shared $(TEST_DIR)/container/fork-fail.c -o $@ -ldl
+
 # Text-order classifier test (header-only): exercises classify_text_order().
 TEST_TEXT_ORDER_BIN := $(TEST_OBJ_DIR)/test_text_order
 
@@ -519,7 +547,7 @@ $(TEST_PARSERS_BIN): $(TEST_DIR)/test_sysfs_parsers.c $(TEST_PARSERS_SRCS) $(HDR
 	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_sysfs_parsers.c -o $@
 
 .PHONY: test
-test : $(TEST_BIN) $(TEST_RENDER_BIN) $(TEST_EST_BIN) $(TEST_EV_BIN) $(TEST_ALIGN_BIN) $(TEST_PREFETCH_SCAN_BIN) $(TEST_CPU_BIN) $(TEST_TEXT_ORDER_BIN) $(TEST_KIMG_BIN) $(TEST_ENG_BIN) $(TEST_INT_BIN) $(TEST_DMESG_BIN) $(TEST_BACKTRACE_BIN) $(TEST_BTF_BIN) $(TEST_DMESG_RESV_BIN) $(TEST_BPE820_BIN) $(TEST_PARSERS_BIN)
+test : $(TEST_BIN) $(TEST_RENDER_BIN) $(TEST_EST_BIN) $(TEST_EV_BIN) $(TEST_ALIGN_BIN) $(TEST_PREFETCH_SCAN_BIN) $(TEST_CPU_BIN) $(TEST_OUTCOME_BIN) $(TEST_TEXT_ORDER_BIN) $(TEST_KIMG_BIN) $(TEST_ENG_BIN) $(TEST_INT_BIN) $(TEST_DMESG_BIN) $(TEST_BACKTRACE_BIN) $(TEST_BTF_BIN) $(TEST_DMESG_RESV_BIN) $(TEST_BPE820_BIN) $(TEST_PARSERS_BIN)
 	@$(TEST_DIR)/run-all
 	@$(MAKE) --no-print-directory lint
 
@@ -550,8 +578,8 @@ test-integration : $(TEST_INT_BIN)
 # coupled-arch soundness case needs the i686 cross binary (`make cross`); it
 # skips cleanly if absent.
 .PHONY: test-container
-test-container : build
-	@$(TEST_DIR)/container/run
+test-container : build $(SECCOMP_EXEC_BIN) $(FORK_FAIL_LIB)
+	@SECCOMP_EXEC=$(SECCOMP_EXEC_BIN) FORK_FAIL_LIB=$(FORK_FAIL_LIB) $(TEST_DIR)/container/run
 
 .PHONY: test-estimate
 test-estimate : $(TEST_EST_BIN)
@@ -598,6 +626,14 @@ test-cross :
 .PHONY: test-fixtures
 test-fixtures :
 	$(TEST_DIR)/validate-fixtures
+
+# Truth-free complement: assert the GUARANTEED window does not move when a
+# fakeable input (MemTotal/LowTotal) is shrunk, across the WHOLE fixture corpus
+# (incl. anonymized) — catches the "container-faked value reaches the guaranteed
+# window" class on every coupled arch, not just the truth-bearing captures.
+.PHONY: test-fixtures-perturb
+test-fixtures-perturb :
+	$(TEST_DIR)/validate-fixtures --perturb
 
 # Optional line-coverage report for the engine + rules (build/coverage/). Uses
 # --coverage (gcc and clang) + the compiler's own gcov — no extra package for
@@ -738,14 +774,22 @@ help:
 	@echo "  Targets:"
 	@echo "      build           Build kasld and all components (default)"
 	@echo "      run             Build and run kasld"
-	@echo "      test            Build and run unit tests"
-	@echo "      check           Alias for test"
 	@echo "      cross           Cross-compile for all supported architectures"
 	@echo "      coverage        Host unit-test coverage report (gcov)"
 	@echo "      coverage-e2e    End-to-end coverage over x86 fixtures (gcov)"
 	@echo "      install         Install to PREFIX (default: /usr/local)"
 	@echo "      uninstall       Remove installed files"
 	@echo "      clean           Remove build directory"
+	@echo
+	@echo "  Test targets:"
+	@echo "      test                   Build and run the unit suite + lint"
+	@echo "      check                  Alias for test"
+	@echo "      lint                   Static guards (shellcheck, self-edge, floors, ...)"
+	@echo "      test-integration       End-to-end integration test"
+	@echo "      test-cross             Arch-gated engine tests under qemu-user (QEMU_DIR)"
+	@echo "      test-fixtures          Offline soundness: resolved window contains truth"
+	@echo "      test-fixtures-perturb  Truth-free soundness: window stable vs faked container inputs"
+	@echo "      test-container         Container/cgroup execution checks (live; seccomp/ns/cpuset)"
 	@echo
 	@echo "  Options:"
 	@echo "      CC=compiler     Compiler executable"

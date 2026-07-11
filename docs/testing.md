@@ -251,6 +251,19 @@ It serves two roles:
   over the serial console). It is `jq`-gated and skips arches whose binary or
   qemu-user is absent, so it degrades cleanly.
 
+- **Truth-free perturbation gate** — `make test-fixtures-perturb`
+  (`tests/validate-fixtures --perturb`, `extra/validate-bundle --perturb`) is the
+  complementary invariant: instead of "does the window contain the truth", it
+  asserts *no container-fakeable input may move the GUARANTEED window*. It runs
+  kasld over two copies of a bundle that differ only in a container-fakeable
+  input (the cgroup-reported `MemTotal`/`LowTotal`, faked with the DRAM extent
+  present and masked) and fails if the guaranteed window shifts. Needing no
+  ground truth, it runs over the **whole** corpus — including the anonymized
+  fixtures the containment gate skips — so every coupled arch's ceiling rules get
+  covered, not just the truth-bearing captures. This is what catches the
+  *fakeable-value-reaches-the-guaranteed-window* soundness class (e.g. the
+  `MemTotal`-ceiling bug on the 32-bit and other coupled arches).
+
 A FAIL is a soundness violation — the engine's resolved window excluded
 the truth. The only legitimate outcomes are PASS (range admits the truth,
 possibly wide) or N/A (no truth available, e.g. an `--anonymize`-stripped
@@ -343,6 +356,34 @@ corpus-guided fuzzing wants hours of runtime per harness, which doesn't
 fit a per-commit CI budget. The harness binaries land in `build/fuzz/`
 and are not installed by `make install` (the install glob covers only
 `build/<arch>/` per-arch artifacts).
+
+---
+
+## 7. Container / cgroup execution (`make test-container`)
+
+Checks how kasld behaves when run inside a container or cgroup-constrained
+namespace — the kernel is the **host's**, but `/proc`/`/sys` are masked or
+virtualized, syscalls may be filtered, and cpu/memory/pids are capped. Two
+invariant families:
+
+- **Soundness (truth-free)** — a restricted or faked input must not corrupt the
+  GUARANTEED window. The live host + x86_32 fixture meminfo check here is the
+  spot-check; `make test-fixtures-perturb` is the arch-general, CI version.
+- **Robustness** — a blocked syscall, killed child, failed fork, masked file, or
+  memory limit must not crash, hang, or silently mis-degrade. Covers: seccomp
+  (`perf_event_open` blocked with `SCMP_ACT_ERRNO` (EPERM) and `SCMP_ACT_KILL`
+  (SIGSYS) — must report `access_denied`, not "found nothing"), a real masked
+  `/proc` via `unshare -Urmpf --mount-proc`, fork starvation via an LD_PRELOAD
+  `EAGAIN` shim (a pids cgroup analogue), a `systemd-run` memory cgroup, the
+  cpuset `pin_cpu` fallback, and a per-component "fail closed under an empty
+  `/proc`" sweep.
+
+Opt-in (`make test-container`, not part of hermetic `make test`): it snapshots
+the live host and runs live restrictions. Each LIVE check note-skips cleanly when
+its facility (seccomp, unprivileged userns, `systemd --user`, ≥2 CPUs) is
+unavailable. The one behaviour worth guarding hermetically — the reaped-status →
+outcome classification, incl. the SIGSYS→`access_denied` mapping — is unit-tested
+in `test_outcome` (layer 1). See `tests/container/README.md`.
 
 ---
 

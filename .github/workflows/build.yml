@@ -44,6 +44,14 @@ jobs:
     - name: Fixture soundness (x86, native)
       run: tests/validate-fixtures tests/fixtures/x86_64/* tests/fixtures/x86_32/*
 
+    # Truth-free complement: no container-fakeable input may move the GUARANTEED
+    # window (currently the cgroup-reported MemTotal/LowTotal, faked with the
+    # DRAM extent present and masked). Runs on anonymized captures too (no truth
+    # needed); x86_32 is coupled (ceiling rules fire), x86_64 the decoupled
+    # negative control.
+    - name: Fixture perturbation (x86, native)
+      run: tests/validate-fixtures --perturb tests/fixtures/x86_64/* tests/fixtures/x86_32/*
+
   # Compile- and test-gate every released arch on push/PR (matrix + steps in
   # _cross-build.yml, shared with release.yml so the arch set can't drift).
   # run_test_cross runs the engine tests for each arch under qemu-user, so

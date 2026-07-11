@@ -20,7 +20,10 @@
 # or missing qemu-user is a SKIP; a soundness violation is a FAIL.
 #
 # Usage:  tests/validate-fixtures [FIXTURE_DIR ...]   (default: all truth-bearing)
-#         make test-fixtures
+#         tests/validate-fixtures --perturb [FIXTURE_DIR ...]  (truth-free sweep,
+#           whole corpus: no container-fakeable input may move the guaranteed
+#           window — see extra/validate-bundle --perturb)
+#         make test-fixtures  /  make test-fixtures-perturb
 # Env:    QEMU_DIR, BUILD_DIR   (as extra/validate-bundle)
 # ---
 # <bcoles@gmail.com>
@@ -28,6 +31,13 @@
 set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 VB=$ROOT/extra/validate-bundle
+
+# --perturb: truth-free soundness sweep (the GUARANTEED window must not move
+# under a faked MemTotal/LowTotal) over the WHOLE corpus, including anonymized
+# fixtures — the complement of the default truth-containment pass, which only
+# covers truth-bearing (anonymized: 0) fixtures. See extra/validate-bundle.
+PERTURB=0
+if [ "${1:-}" = --perturb ]; then PERTURB=1; shift; fi
 
 if [ -t 2 ]; then
   RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m')
@@ -42,28 +52,36 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 0
 fi
 
-# Fixture list: explicit args, else every truth-bearing fixture (meta
-# `anonymized: 0`).
+# Fixture list: explicit args, else the corpus — every truth-bearing fixture
+# (meta `anonymized: 0`) by default, or ALL fixtures under --perturb (truth-free).
 if [ "$#" -gt 0 ]; then
   FIXTURES=$*
 else
   FIXTURES=
   for meta in "$ROOT"/tests/fixtures/*/*/meta.txt; do
     [ -f "$meta" ] || continue
-    anon=$(awk -F: '/^anonymized:/ { gsub(/[ \t]/, "", $2); print $2 }' "$meta")
-    [ "$anon" = 0 ] && FIXTURES="$FIXTURES ${meta%/meta.txt}"
+    if [ "$PERTURB" = 1 ]; then
+      FIXTURES="$FIXTURES ${meta%/meta.txt}"
+    else
+      anon=$(awk -F: '/^anonymized:/ { gsub(/[ \t]/, "", $2); print $2 }' "$meta")
+      [ "$anon" = 0 ] && FIXTURES="$FIXTURES ${meta%/meta.txt}"
+    fi
   done
 fi
 
 if [ -z "${FIXTURES# }" ]; then
-  printf '%svalidate-fixtures: no truth-bearing fixtures found%s\n' "$YELLOW" "$RESET"
+  printf '%svalidate-fixtures: no fixtures found%s\n' "$YELLOW" "$RESET"
   exit 0
 fi
+
+[ "$PERTURB" = 1 ] && printf '%sperturbation sweep (truth-free): no container-fakeable input may move the guaranteed window%s\n' \
+  "$BOLD" "$RESET"
 
 pass=0; fail=0; skip=0; na=0
 for d in $FIXTURES; do
   name=${d#"$ROOT"/tests/fixtures/}
-  out=$("$VB" "$d" 2>&1); rc=$?
+  if [ "$PERTURB" = 1 ]; then out=$("$VB" --perturb "$d" 2>&1); else out=$("$VB" "$d" 2>&1); fi
+  rc=$?
   if [ "$rc" -eq 1 ]; then
     fail=$((fail + 1))
     printf '  %sFAIL%s  %s\n' "$RED" "$RESET" "$name" >&2
@@ -84,7 +102,8 @@ for d in $FIXTURES; do
       printf '  %sPASS%s  %s\n' "$GREEN" "$RESET" "$name"
     else
       na=$((na + 1))
-      printf '  %sN/A %s  %s  (no ground truth in capture)\n' "$YELLOW" "$RESET" "$name"
+      if [ "$PERTURB" = 1 ]; then reason="no window/meminfo to perturb"; else reason="no ground truth in capture"; fi
+      printf '  %sN/A %s  %s  (%s)\n' "$YELLOW" "$RESET" "$name" "$reason"
     fi
   fi
 done

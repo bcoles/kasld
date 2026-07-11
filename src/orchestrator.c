@@ -25,6 +25,7 @@
 #include "include/kasld/engine.h"
 #include "include/kasld/engine_rules.h"
 #include "include/kasld/internal.h"
+#include "include/kasld/outcome.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -1515,32 +1516,13 @@ static int run_component(const struct component *c) {
 
   int had_tagged = (tagged_this_run > 0);
   int rc = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
-  /* A component killed by SIGSYS was denied a syscall by a seccomp filter
-   * (SCMP_ACT_KILL) — the container-strict analogue of the EPERM that
-   * SCMP_ACT_ERRNO returns. Same denial, so report it the same way
-   * (ACCESS_DENIED), not as a bare signal death (NO_RESULT). Without this a
-   * seccomp-blocked oracle looks like "ran, found nothing" instead of
-   * "denied".*/
-  int denied_by_seccomp = WIFSIGNALED(status) && WTERMSIG(status) == SIGSYS;
 
-  /* Classify outcome from exit code. Components signal their own status:
-   *   exit 0  = ran successfully (results determined by tagged output)
-   *   exit 69 = feature/hardware unavailable (EX_UNAVAILABLE)
-   *   exit 77 = access denied (EX_NOPERM)
-   * A SIGSYS death is also an access denial (seccomp), handled above rc. */
+  /* Classify the reaped component. See kasld_classify_outcome (outcome.h) for
+   * the precedence (tagged > timeout > SIGSYS-denial > exit 77/69 > no result),
+   * factored out as a pure function so it is unit-tested (tests/test_outcome).
+   * exit_code keeps the raw exit code (-1 for a signal death). */
   if (clog) {
-    if (had_tagged)
-      clog->outcome = OUTCOME_SUCCESS;
-    else if (timed_out)
-      clog->outcome = OUTCOME_TIMEOUT;
-    else if (denied_by_seccomp)
-      clog->outcome = OUTCOME_ACCESS_DENIED;
-    else if (rc == KASLD_EXIT_NOPERM)
-      clog->outcome = OUTCOME_ACCESS_DENIED;
-    else if (rc == KASLD_EXIT_UNAVAILABLE)
-      clog->outcome = OUTCOME_UNAVAILABLE;
-    else
-      clog->outcome = OUTCOME_NO_RESULT;
+    clog->outcome = kasld_classify_outcome(status, timed_out, had_tagged);
     clog->exit_code = rc;
   }
 
