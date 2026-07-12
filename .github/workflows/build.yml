@@ -33,7 +33,9 @@ jobs:
     # End-to-end over the REAL binary on the x86 fixtures, run NATIVELY (no
     # qemu): the only CI coverage of main() + the engine bridge + the renderers,
     # which `make check` compiles out under -DKASLD_TESTING. Foreign-arch
-    # fixtures need qemu and are skipped here (the cross job build-checks them).
+    # fixtures need qemu and are skipped here (the cross job replays them under
+    # qemu-user via run_replay). x86 stays native so the common-case renderer
+    # regression fails fast, before the slow cross matrix.
     - name: End-to-end replay (x86, native)
       run: KASLD_NATIVE=1 tests/replay tests/fixtures/x86_64/* tests/fixtures/x86_32/*
 
@@ -54,8 +56,10 @@ jobs:
 
   # Compile- and test-gate every released arch on push/PR (matrix + steps in
   # _cross-build.yml, shared with release.yml so the arch set can't drift).
-  # run_test_cross runs the engine tests for each arch under qemu-user, so
-  # arch-gated rule bodies are verified — not just compiled — on every push.
+  # Under qemu-user each arch runs its engine tests (run_test_cross — arch-gated
+  # rule bodies verified, not just compiled), an end-to-end crash-smoke replay of
+  # its fixtures (run_replay), and the fixture soundness + perturbation gates
+  # (run_validate_fixtures) — all on every push.
   # Pinned for deterministic PR builds + a stable cache; bump periodically.
   # release.yml tracks the latest cross-tools release instead.
   #
@@ -69,5 +73,6 @@ jobs:
     with:
       toolchain_version: '20260515'
       package: false
+      run_replay: true
       run_test_cross: true
       run_validate_fixtures: true
