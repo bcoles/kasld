@@ -88,10 +88,7 @@ static void render_environment_markdown(void) {
   printf("| Container | %s |\n", v.container ? v.container : "none");
   if (kasld_vantage_confined(&v)) {
     if (v.seccomp >= 0)
-      printf("| Seccomp | %s |\n", v.seccomp == 0   ? "none"
-                                   : v.seccomp == 1 ? "strict"
-                                   : v.seccomp == 2 ? "filter"
-                                                    : "unknown");
+      printf("| Seccomp | %s |\n", kasld_vantage_seccomp_str(v.seccomp));
     char capbuf[24];
     const char *caps = kasld_vantage_caps(&v, capbuf, sizeof(capbuf));
     if (caps)

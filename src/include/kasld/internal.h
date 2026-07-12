@@ -457,12 +457,14 @@ struct kasld_vantage {
   int oracle_readable[KASLD_N_ORACLES]; /* per kasld_oracle_paths[] */
 };
 void kasld_gather_vantage(struct kasld_vantage *v);
-/* Confined = the confinement detail is meaningful (else the values are just
+/* Confined = the confinement detail is meaningful (else the values are the
  * unprivileged defaults). Renderers use this to suppress a misleading block. */
 int kasld_vantage_confined(const struct kasld_vantage *v);
 /* Format cap_eff as "none"/"full"/"0x…"; out must hold >= 19 bytes. */
 const char *kasld_vantage_caps(const struct kasld_vantage *v, char *out,
                                size_t outsz);
+/* seccomp mode 0/1/2 → "none"/"strict"/"filter" (else "unknown"). */
+const char *kasld_vantage_seccomp_str(int seccomp);
 
 extern struct kasld_layout layout;
 extern struct result results[MAX_RESULTS];

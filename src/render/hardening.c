@@ -204,7 +204,11 @@ void build_hardening_report(struct hardening_report *r) {
    * permissive perf_event_paranoid) blocked — the honest "what blocked this
    * here" that the report otherwise lacks. Raising perf_event_paranoid stays a
    * valid *host*-hardening suggestion; only the current-run attribution was
-   * wrong. */
+   * wrong. Such a component is still counted in the paranoid gate's `gated`
+   * total (so the "set perf_event_paranoid=2" impact includes it) — intended:
+   * on the host, raising paranoid would also block it. It is only omitted from
+   * the paranoid gate's *blocked* credit (above), so no component is double-
+   * counted as blocked. */
   if (vant.seccomp > 0) {
     struct hr_gate sg;
     memset(&sg, 0, sizeof(sg));
@@ -473,7 +477,15 @@ void render_hardening_text(void) {
        * fully circumvented (e.g. dmesg_restrict on, but the logs are readable
        * as files). Mark it ⚠, not ✓. */
       int circumvented = (blocked == 0 && bypassed > 0);
-      printf("  %-34s = %-4d %s%s%s  ", hg->display, hg->value,
+      /* Sysctl gates show "= N" (the knob value vs its threshold); the
+       * synthetic seccomp gate has no such level (threshold 0) so its value
+       * column is blank rather than a meaningless mode number. */
+      char vcol[12];
+      if (hg->threshold > 0)
+        snprintf(vcol, sizeof(vcol), "= %-4d", hg->value);
+      else
+        snprintf(vcol, sizeof(vcol), "%-6s", "");
+      printf("  %-34s %s %s%s%s  ", hg->display, vcol,
              circumvented ? c(C_YELLOW) : c(C_GREEN),
              circumvented ? "\xe2\x9a\xa0" : "\xe2\x9c\x93", c(C_RESET));
       if (blocked > 0 && blocked <= 5) {
@@ -949,7 +961,13 @@ void render_hardening_markdown(void) {
     const struct hr_gate *hg = &rep.gates[gi];
     if (hg->active) {
       int circumvented = (hg->blocked == 0 && hg->bypassed > 0);
-      printf("| `%s` | %d | %s | ", hg->display, hg->value,
+      /* Synthetic gate (threshold 0, e.g. seccomp) has no knob value. */
+      char vcol[16];
+      if (hg->threshold > 0)
+        snprintf(vcol, sizeof(vcol), "%d", hg->value);
+      else
+        snprintf(vcol, sizeof(vcol), "\xe2\x80\x94"); /* em dash */
+      printf("| `%s` | %s | %s | ", hg->display, vcol,
              circumvented ? "\xe2\x9a\xa0" : "\xe2\x9c\x93");
       int wrote = 0;
       if (hg->blocked > 0 && hg->blocked <= 5) {

@@ -421,6 +421,9 @@ static const char *detect_container(void) {
     size_t n = fread(buf, 1, sizeof(buf) - 1, f);
     fclose(f);
     buf[n] = '\0';
+    /* Substring scan of the whole cgroup file (covers both v1 multi-line and
+     * v2's single "0::/…" line). Order is deliberate: most-specific runtime
+     * markers first. Best-effort labelling only — never a security decision. */
     if (strstr(buf, "kubepods"))
       return "kubernetes";
     if (strstr(buf, "docker"))
@@ -497,6 +500,13 @@ const char *kasld_vantage_caps(const struct kasld_vantage *v, char *out,
   return out;
 }
 
+const char *kasld_vantage_seccomp_str(int seccomp) {
+  return seccomp == 0   ? "none"
+         : seccomp == 1 ? "strict"
+         : seccomp == 2 ? "filter"
+                        : "unknown";
+}
+
 #ifndef KASLD_TESTING
 static void print_banner(void) {
   struct utsname u;
@@ -529,28 +539,20 @@ static void print_banner(void) {
  * host their values (Seccomp: none, caps: none, no_new_privs: no) are the
  * DEFAULTS, not restrictions — printing them there reads as "you are confined"
  * when you are not, so we suppress them and show just the container status. */
-static void print_confinement(void) {
-  struct kasld_vantage v;
-  kasld_gather_vantage(&v);
-
-  printf("%-30s%s\n", "Container:", v.container ? v.container : "none");
-  if (!kasld_vantage_confined(&v))
+static void print_confinement(const struct kasld_vantage *v) {
+  printf("%-30s%s\n", "Container:", v->container ? v->container : "none");
+  if (!kasld_vantage_confined(v))
     return; /* unconfined host — the defaults below are not restrictions */
 
-  if (v.seccomp >= 0) {
-    const char *s = v.seccomp == 0   ? "none"
-                    : v.seccomp == 1 ? "strict"
-                    : v.seccomp == 2 ? "filter"
-                                     : "unknown";
-    printf("%-30s%s\n", "Seccomp:", s);
-  }
+  if (v->seccomp >= 0)
+    printf("%-30s%s\n", "Seccomp:", kasld_vantage_seccomp_str(v->seccomp));
   char capbuf[24];
-  const char *caps = kasld_vantage_caps(&v, capbuf, sizeof(capbuf));
+  const char *caps = kasld_vantage_caps(v, capbuf, sizeof(capbuf));
   if (caps)
     printf("%-30s%s\n", "Effective capabilities:", caps);
-  if (v.no_new_privs >= 0)
+  if (v->no_new_privs >= 0)
     printf("%-30s%s\n",
-           "No new privileges:", v.no_new_privs == 1 ? "yes" : "no");
+           "No new privileges:", v->no_new_privs == 1 ? "yes" : "no");
 }
 
 static void print_system_config(void) {
@@ -603,8 +605,14 @@ static void print_system_config(void) {
              c(C_RESET));
   }
 
+  /* One vantage gather feeds both the confinement lines and the oracle rows
+   * (and the JSON/markdown environment block gathers the same way), so text
+   * cannot disagree with the other formats. */
+  struct kasld_vantage vant;
+  kasld_gather_vantage(&vant);
+
   printf("\n");
-  print_confinement();
+  print_confinement(&vant);
 
   printf("\n");
 
@@ -612,7 +620,7 @@ static void print_system_config(void) {
    * vantage; shared list with the JSON/markdown environment block), then the
    * log/debug/boot sources. */
   for (int i = 0; i < KASLD_N_ORACLES; i++) {
-    int readable = kasld_access(kasld_oracle_paths[i], R_OK) == 0;
+    int readable = vant.oracle_readable[i];
     printf("%-30s%s%s%s\n", kasld_oracle_labels[i],
            readable ? c(C_GREEN) : c(C_DIM), readable ? "yes" : "no",
            c(C_RESET));

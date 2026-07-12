@@ -171,10 +171,7 @@ static void render_environment_json(void) {
   if (v.seccomp < 0)
     printf("null");
   else
-    json_print_escaped(v.seccomp == 0   ? "none"
-                       : v.seccomp == 1 ? "strict"
-                       : v.seccomp == 2 ? "filter"
-                                        : "unknown");
+    json_print_escaped(kasld_vantage_seccomp_str(v.seccomp));
 
   printf(",\n    \"capabilities\": ");
   char capbuf[24];
