@@ -77,7 +77,13 @@ riscv32     | -           | local| riscv32      | riscv32     | -M virt         
 ppc32       | -           | local| powerpc      | ppc         | -M g3beige             | ttyS0
 powerpc64   | -           | local| powerpc64    | ppc64       | -M pseries -cpu power9 | hvc0
 armeb       | -           | local| armeb        | arm         | -M virt                | ttyAMA0
-x86_64-vanilla | -        | local| x86_64       | x86_64      | -M q35 -cpu max        | ttyS0
+x86_64-mainline  | -        | local| x86_64       | x86_64      | -M q35 -cpu max        | ttyS0
+aarch64-mainline | -        | local| aarch64      | aarch64     | -M virt -cpu max       | ttyAMA0
+armv7-mainline   | -        | local| armv7        | arm         | -M virt -cpu max       | ttyAMA0
+i686-mainline    | -        | local| i686         | i386        | -M pc -cpu max         | ttyS0
+s390x-mainline   | -        | local| s390x        | s390x       | -M s390-ccw-virtio     | ttysclp0
+riscv64-mainline | -        | local| riscv64      | riscv64     | -M virt                | ttyS0
+ppc64le-mainline | -        | local| powerpc64le  | ppc64       | -M pseries -cpu power9 | hvc0
 '
 
 trim() { echo "$1" | xargs; }
@@ -301,7 +307,7 @@ reconstruct_fixture() {
   mips | mipsel | mips64 | mips64el) _uname=$_prefix ;;
   esac
 
-  # flavor=local => a vanilla kernel.org build; else an Alpine distro kernel.
+  # flavor=local => a mainline kernel.org build; else an Alpine distro kernel.
   _canon=$(fixture_arch "$_prefix")
   if [ "$_flavor" = local ]; then _distro="mainline"; else _distro="alpine-$ALPINE_VER"; fi
   _fid=$(printf '%s-%s' "$_distro" "$_rel" | sed 's/[^A-Za-z0-9._-]/-/g')
@@ -527,7 +533,7 @@ cmd_spec_table() {
 '
   body=
   for a in $arches; do
-    arch_disp=${a%-vanilla}
+    arch_disp=${a%-mainline}
     for scen in default hidden hardened; do
       log="$HERE/$a/boot-$scen.log"
       [ -f "$log" ] || continue
@@ -572,10 +578,10 @@ cmd_table() {
   body=
   for a in $arches; do
     # Matrix label is the real architecture. A reference kernel staged under a
-    # "<arch>-vanilla" name (e.g. x86_64-vanilla) is the SAME arch as its distro
+    # "<arch>-mainline" name (e.g. x86_64-mainline) is the SAME arch as its distro
     # sibling — the `source` column carries the distro-vs-mainline split — so
     # strip the suffix rather than print a non-arch name.
-    arch_disp=${a%-vanilla}
+    arch_disp=${a%-mainline}
     for scen in default hidden hardened nokaslr; do
       log="$HERE/$a/boot-$scen.log"
       [ -f "$log" ] || continue   # arch not built (no kernel) — simply omitted
@@ -602,7 +608,7 @@ cmd_table() {
         continue
       fi
       kas=on; [ "$disabled" = true ] && kas=off
-      # Kernel source: a vanilla kernel.org build (TABLE flavor "local") vs an
+      # Kernel source: a mainline kernel.org build (TABLE flavor "local") vs an
       # Alpine distro kernel.
       flavor=$(printf '%s' "$TABLE" | awk -F'|' -v a="$a" 'NF>1{gsub(/ /,"",$1); if ($1==a) {gsub(/ /,"",$3); print $3; exit}}')
       src=alpine; [ "$flavor" = local ] && src=mainline
@@ -640,7 +646,7 @@ cmd_table() {
   printf '|------|---------|--------|----------|-------|----------|\n'
   printf '%s' "$body"
   # shellcheck disable=SC2016  # backticks are literal markdown, not a subshell
-  printf '\nEvery cell is sound: the true base lies inside the guaranteed window. `source` = `alpine` (distro kernel) or `mainline` (vanilla kernel.org build). `residual` = how much KASLR entropy KASLD could not strip from the base: `exact` = base recovered, KASLR defeated (a byte-exact pin and a below-granularity sub-slot window are the same outcome — the randomized slot is known); `<n> bits` = KASLR-randomized, n bits of the slot still unknown; `—` = KASLR off, no randomization to defeat.\n'
+  printf '\nEvery cell is sound: the true base lies inside the guaranteed window. `source` = `alpine` (distro kernel) or `mainline` (mainline kernel.org build). `residual` = how much KASLR entropy KASLD could not strip from the base: `exact` = base recovered, KASLR defeated (a byte-exact pin and a below-granularity sub-slot window are the same outcome — the randomized slot is known); `<n> bits` = KASLR-randomized, n bits of the slot still unknown; `—` = KASLR off, no randomization to defeat.\n'
 
   # The matrix reports the guaranteed window; the speculative-narrowing table
   # discloses where the likely best-guess window beats it, and by what signal.

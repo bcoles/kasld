@@ -117,7 +117,7 @@ tests/vm/run mipsel             # boot it, verdict
 |------|-------------------------|------|
 | mips | `mips` / `malta_defconfig` + BE | `qemu-system-mips -M malta` |
 | mipsel | `mips` / `malta_defconfig` (LE) | `qemu-system-mipsel -M malta` |
-| riscv32 | `riscv` / `rv32_defconfig` | `qemu-system-riscv32 -M virt` |
+| riscv32 | `riscv` / `defconfig` + `32-bit.config` | `qemu-system-riscv32 -M virt` |
 | ppc32 | `powerpc` / `pmac32_defconfig` (BE) | `qemu-system-ppc -M g3beige` |
 | armeb (blocked) | `arm` / `multi_v7_defconfig` + BE | `qemu-system-arm -M virt` |
 
@@ -144,9 +144,32 @@ cache, so the Alpine arches are unaffected. Stock upstream defconfigs are used
 throughout; fall back to a Buildroot `qemu_*` defconfig if a vanilla one won't
 boot.
 
-The pinned source is a 6.15.x tarball: the 6.12 LTS tree does not build with a
-C23-default compiler (gcc 15 makes `true`/`false`/`bool` keywords, which the
-pre-6.13 MIPS vdso clashes with). Override with `LINUX_VERSION` if needed.
+The pinned source is current mainline (7.0): it builds clean with a C23-default
+compiler (gcc 15), unlike the 6.12 LTS tree whose pre-6.13 MIPS vdso clashed with
+`true`/`false`/`bool` becoming keywords. riscv32 has no standalone `rv32_defconfig`
+on this tree (removed after 6.15); it is configured from `defconfig` plus the
+`32-bit.config` fragment. Override the version with `LINUX_VERSION` if needed.
+
+### Two kernel versions per arch (the `-mainline` cells)
+
+Each arch Alpine ships gets a second cell, `<arch>-mainline`, that boots a mainline
+(kernel.org) build of the same arch instead of the Alpine distro kernel — so the
+matrix carries an older distro kernel **and** current mainline per arch, the axis
+that surfaced most historical soundness bugs (VA-layout floors, module-region
+size, `TEXT_OFFSET`). The Alpine cell (`<arch>`) and the mainline cell
+(`<arch>-mainline`) render under the same arch in `run table`, distinguished by the
+`source` column (`alpine` vs `mainline`); the exact version is the captured
+`kernel_release`. Build and boot a mainline cell like any gap arch:
+
+```sh
+tests/vm/build-kernel aarch64-mainline   # mainline build -> cache (slow)
+tests/vm/run aarch64-mainline            # boot it, verdict
+```
+
+Wired for `x86_64`, `aarch64`, `armv7`, `i686`, `s390x`, `riscv64`, `ppc64le`.
+`ppc64le` has no `ppc64le_defconfig` on this tree, so it builds `ppc64_defconfig`
+with the little-endian overlay (`CPU_LITTLE_ENDIAN`, which selects the ELF v2 ABI).
+The mainline cells are built on request, never part of the default gap set.
 
 ## Notes and limitations
 
