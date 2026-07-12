@@ -393,6 +393,58 @@ static void test_render_vtext_speculative(void) {
   layout.virt_kaslr_align = sv_al;
 }
 
+/* A windowed image base (no concrete text pinned) with a tighter likely window
+ * renders, in the default readout, as the "not derandomized" headline, then the
+ * speculative likely window, then the guaranteed range labelled "guaranteed" —
+ * the same likely-over-guaranteed order a concrete base uses. Regression for
+ * the bare-window path that printed the unlabelled guaranteed range first and
+ * the likely line after it. Exercised on the physical base to isolate the row.
+ */
+static void test_render_windowed_base_likely_order(void) {
+  struct summary s;
+  reset_results();
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+  memset(&s, 0, sizeof(s));
+  unsigned long sv_vlo = layout.virt_kaslr_text_min,
+                sv_vhi = layout.virt_kaslr_text_max,
+                sv_plo = layout.phys_kaslr_text_min,
+                sv_phi = layout.phys_kaslr_text_max,
+                sv_pal = layout.phys_kaslr_align;
+
+  /* Isolate the physical row: no virtual window to render. */
+  layout.virt_kaslr_text_min = 0;
+  layout.virt_kaslr_text_max = 0;
+
+  /* Guaranteed phys window is a range (no concrete ptext) with a tighter likely
+   * window (same low edge, lower top) and a slot grain. */
+  s.kaslr.has_phys = 1;
+  s.kaslr.pslots = 1391;
+  s.kaslr.pbits = 11;
+  layout.phys_kaslr_text_min = 0x01000000ul;
+  layout.phys_kaslr_text_max = 0xbffffffful;
+  layout.phys_kaslr_align = 0x200000ul; /* 2 MiB */
+  s.kaslr.plikely_min = 0x01000000ul;
+  s.kaslr.plikely_max = 0x2a447000ul;
+
+  set_render_mode(0, 0, 0); /* default compact readout */
+  capture_stdout(wrap_render_summary, &s);
+  assert(strstr(render_cap, "not derandomized") != NULL);
+  {
+    const char *lk = strstr(render_cap, "likely (speculative)");
+    const char *gt = strstr(render_cap, "guaranteed");
+    assert(lk != NULL); /* speculative window shown */
+    assert(gt != NULL); /* range graded "guaranteed" like the virt form */
+    assert(lk < gt);    /* likely line sits ABOVE the guaranteed range */
+  }
+
+  layout.virt_kaslr_text_min = sv_vlo;
+  layout.virt_kaslr_text_max = sv_vhi;
+  layout.phys_kaslr_text_min = sv_plo;
+  layout.phys_kaslr_text_max = sv_phi;
+  layout.phys_kaslr_align = sv_pal;
+}
+
 /* Memory-KASLR regions (directmap/vmalloc/vmemmap) carry their own speculative
  * "likely" sub-windows. A guaranteed region range plus a tighter likely sub-
  * range must surface in the verbose Memory KASLR block, the default direct-map
@@ -1642,6 +1694,7 @@ int main(void) {
   RUN(test_render_json_with_memory_kaslr);
   RUN(test_render_likely_window);
   RUN(test_render_vtext_speculative);
+  RUN(test_render_windowed_base_likely_order);
   RUN(test_render_memory_likely_window);
   RUN(test_render_directmap_base_promoted);
   RUN(test_render_directmap_base_promoted_unbounded);

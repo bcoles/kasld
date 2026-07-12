@@ -1152,10 +1152,10 @@ static void readout_likely_row(unsigned long lo, unsigned long hi) {
   if (hi == 0)
     return;
   if (lo == hi)
-    printf("  %-19s %s0x%016lx%s   likely (speculative)\n", "", c(C_DIM), lo,
+    printf("  %-19s %s0x%016lx   likely (speculative)%s\n", "", c(C_DIM), lo,
            c(C_RESET));
   else
-    printf("  %-19s %s0x%016lx - 0x%016lx%s   likely (speculative)\n", "",
+    printf("  %-19s %s0x%016lx - 0x%016lx   likely (speculative)%s\n", "",
            c(C_DIM), lo, hi, c(C_RESET));
 }
 
@@ -1197,6 +1197,45 @@ static void readout_likely_base_row(const char *label, unsigned long base,
   printf("  %-19s %s0x%016lx%s   %s %s%s%s%*s%slikely (speculative)%s\n", label,
          c(C_GREEN), base, c(C_RESET), disp_label, c(C_CYAN), vb, c(C_RESET),
          pad, "", c(C_DIM), c(C_RESET));
+}
+
+/* Windowed image-base readout (no concrete base was pinned): the entropy
+ * headline, then the speculative likely window ABOVE the guaranteed range — the
+ * same likely-over-guaranteed ordering the concrete-base form uses
+ * (readout_likely_base_row over readout_guaranteed_window_row). The guaranteed
+ * range is labelled "guaranteed" only when a likely line accompanies it, so the
+ * label always contrasts a speculative line rather than standing alone. Entropy
+ * stays on the headline; the range carries only the slot grain. Pinned or
+ * slot-less forms have no pair to reorder and defer to the plain rows. */
+static void readout_windowed_base_row(const char *label, unsigned long lo,
+                                      unsigned long hi, unsigned long llo,
+                                      unsigned long lhi, unsigned long slots,
+                                      int bits, unsigned long align) {
+  if (lo == hi || slots == 0 || bits < 0) {
+    readout_bound_row(label, lo, hi, slots, bits, align);
+    readout_likely_row(llo, lhi);
+    return;
+  }
+  printf("  %-19s %s%-18s%s   %s~%d bits%s\n", label, c(C_YELLOW),
+         "not derandomized", c(C_RESET), c(C_MAGENTA), bits, c(C_RESET));
+  readout_likely_row(llo, lhi);
+  char hbuf[32];
+  if (lhi) { /* a likely line was emitted above — grade the range "guaranteed"
+              */
+    if (align)
+      printf("  %-19s 0x%016lx - 0x%016lx   %sguaranteed%s  (%lu x %s)\n", "",
+             lo, hi, c(C_DIM), c(C_RESET), slots,
+             human_size(align, hbuf, sizeof(hbuf)));
+    else
+      printf("  %-19s 0x%016lx - 0x%016lx   %sguaranteed%s  (%lu candidates)\n",
+             "", lo, hi, c(C_DIM), c(C_RESET), slots);
+  } else if (align) {
+    printf("  %-19s 0x%016lx - 0x%016lx   (%lu x %s)\n", "", lo, hi, slots,
+           human_size(align, hbuf, sizeof(hbuf)));
+  } else {
+    printf("  %-19s 0x%016lx - 0x%016lx   (%lu candidates)\n", "", lo, hi,
+           slots);
+  }
 }
 
 static void render_readout(const struct summary *s) {
@@ -1287,12 +1326,11 @@ static void render_readout(const struct summary *s) {
                                   layout.virt_kaslr_text_max, s->kaslr.vslots,
                                   s->kaslr.vbits, layout.virt_kaslr_align);
   } else {
-    readout_bound_row("Virtual image base", layout.virt_kaslr_text_min,
-                      layout.virt_kaslr_text_max, s->kaslr.vslots,
-                      s->kaslr.vbits, layout.virt_kaslr_align);
+    readout_windowed_base_row("Virtual image base", layout.virt_kaslr_text_min,
+                              layout.virt_kaslr_text_max, s->kaslr.vlikely_min,
+                              s->kaslr.vlikely_max, s->kaslr.vslots,
+                              s->kaslr.vbits, layout.virt_kaslr_align);
   }
-  if (!v_likely_base)
-    readout_likely_row(s->kaslr.vlikely_min, s->kaslr.vlikely_max);
 
   int p_likely_base = (s->kaslr.has_phys && s->kaslr.ptext && !ppin);
   if (s->kaslr.has_phys && ppin) {
@@ -1314,12 +1352,11 @@ static void render_readout(const struct summary *s) {
                                   s->kaslr.pbits, layout.phys_kaslr_align);
   } else if (s->kaslr.pslots > 0 ||
              (layout.phys_kaslr_text_min || layout.phys_kaslr_text_max)) {
-    readout_bound_row("Physical image base", layout.phys_kaslr_text_min,
-                      layout.phys_kaslr_text_max, s->kaslr.pslots,
-                      s->kaslr.pbits, layout.phys_kaslr_align);
+    readout_windowed_base_row("Physical image base", layout.phys_kaslr_text_min,
+                              layout.phys_kaslr_text_max, s->kaslr.plikely_min,
+                              s->kaslr.plikely_max, s->kaslr.pslots,
+                              s->kaslr.pbits, layout.phys_kaslr_align);
   }
-  if (!p_likely_base)
-    readout_likely_row(s->kaslr.plikely_min, s->kaslr.plikely_max);
 
   /* virt_page_offset (direct-map base): only when both sides narrowed into a
    * usable range. Half-bound (only min OR only max non-zero, encoding a
