@@ -438,6 +438,32 @@ enum lockdown_mode {
 };
 extern enum lockdown_mode sysctl_lockdown;
 
+/* Recon vantage / container-confinement facts, gathered once and shared by the
+ * text (verbose system-config block), JSON, and markdown renderers so they
+ * can't diverge. All fields are unprivileged /proc reads
+ * (SYSROOT-redirectable). */
+#define KASLD_N_ORACLES 4
+extern const char *const
+    kasld_oracle_paths[KASLD_N_ORACLES]; /* /proc/kallsyms… */
+extern const char *const
+    kasld_oracle_labels[KASLD_N_ORACLES]; /* "Readable …:" */
+
+struct kasld_vantage {
+  const char *container; /* runtime name, or NULL if not containerized */
+  int seccomp;           /* -1 unknown; 0 none, 1 strict, 2 filter */
+  int no_new_privs;      /* -1 unknown; 0/1 */
+  int have_caps;         /* 1 if cap_eff/cap_bnd are valid */
+  unsigned long long cap_eff, cap_bnd;
+  int oracle_readable[KASLD_N_ORACLES]; /* per kasld_oracle_paths[] */
+};
+void kasld_gather_vantage(struct kasld_vantage *v);
+/* Confined = the confinement detail is meaningful (else the values are just
+ * unprivileged defaults). Renderers use this to suppress a misleading block. */
+int kasld_vantage_confined(const struct kasld_vantage *v);
+/* Format cap_eff as "none"/"full"/"0x…"; out must hold >= 19 bytes. */
+const char *kasld_vantage_caps(const struct kasld_vantage *v, char *out,
+                               size_t outsz);
+
 extern struct kasld_layout layout;
 extern struct result results[MAX_RESULTS];
 extern int num_results;

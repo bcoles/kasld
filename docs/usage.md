@@ -119,7 +119,10 @@ the [kaslr.md glossary](kaslr.md#glossary); the engine vocabulary behind them
 
 `-v` (`--verbose`) restores the full banner, system-config block,
 per-component logs, per-region "Results" table, KASLR analysis section,
-and a compact bracket-format virtual + physical memory layout:
+and a compact bracket-format virtual + physical memory layout. The
+system-config block reports the recon vantage: whether the process is
+containerized, and — when it is confined — its seccomp / capability /
+no-new-privs state, plus which `/proc` leak oracles are readable here:
 
 <details>
 <summary>Click to expand verbose example</summary>
@@ -145,6 +148,12 @@ kernel.panic_on_oops:         0
 kernel.perf_event_paranoid:   -1
 Kernel lockdown:              (unavailable)
 
+Container:                    none
+
+Readable /proc/kallsyms:      yes
+Readable /proc/kcore:         no
+Readable /proc/iomem:         yes
+Readable /proc/modules:       yes
 Readable /var/log/dmesg:      no
 Readable /var/log/kern.log:   no
 Readable /var/log/syslog:     no
@@ -336,13 +345,21 @@ best-guess, always contained within it. Memory-KASLR regions
 (`memory_kaslr`) carry the same guaranteed `min`/`max` and an optional
 nested `likely` object.
 
+The JSON also carries an `environment` object — the recon vantage:
+`container`, `seccomp`, `capabilities`, `no_new_privs`, and a
+`readable_oracles` map for the `/proc` leak sources. Unlike the text
+block, every field is always present (a `null` or enum), so a consumer
+keys on presence.
+
 ### Markdown (`-m`)
 
 `-m` (`--markdown`) formats the summary for issue trackers (GitHub /
 GitLab markdown tables). The KASLR table includes the inferred text
 range and any Memory-KASLR (directmap / vmalloc / vmemmap) bounds, and
-the leak table credits the component(s) that produced each address.
-With `-H` it also appends the hardening assessment (see below).
+the leak table credits the component(s) that produced each address. An
+`## Environment` section reports the recon vantage (container /
+confinement / readable oracles). With `-H` it also appends the hardening
+assessment (see below).
 
 ## Explain mode
 

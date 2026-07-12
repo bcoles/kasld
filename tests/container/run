@@ -317,5 +317,71 @@ else
 fi
 
 echo
+echo "== vantage: environment / confinement detection (LIVE + fixture) =="
+# The verbose system-config block reports the recon vantage — am I contained,
+# what confines me, which /proc oracles survive. Assert it reads the confinement
+# state correctly under a real seccomp filter (LIVE) and a container-shaped
+# sysroot (fixture — proving the whole block is SYSROOT-redirectable).
+if [ "$(uname -m)" = x86_64 ] && [ -x "$SE" ]; then
+  "$SE" errno "$HOSTBIN" -v -f -s "$SKIP" >"$WORK/vantage.se.txt" 2>&1 || true
+  if grep -qE '^Seccomp:[[:space:]]+filter' "$WORK/vantage.se.txt"; then
+    pass "vantage(seccomp): block reports 'Seccomp: filter' under a real filter"
+  else
+    fail "vantage(seccomp): block did not report the seccomp filter"
+  fi
+else
+  note "vantage(seccomp): x86_64 seccomp-exec unavailable — skipped"
+fi
+CV="$WORK/vantage-ctr"; mkdir -p "$CV/proc/self"
+printf '0::/docker/deadbeefcafe\n' >"$CV/proc/self/cgroup"
+printf 'Name:\tx\nSeccomp:\t2\nCapEff:\t0000000000000000\nCapBnd:\t000001ffffffffff\nNoNewPrivs:\t1\n' \
+  >"$CV/proc/self/status"
+KASLD_SYSROOT="$CV" "$HOSTBIN" -v -f -s "$SKIP" >"$WORK/vantage.fx.txt" 2>&1 || true
+if grep -qE '^Container:[[:space:]]+docker' "$WORK/vantage.fx.txt" &&
+   grep -qE '^Seccomp:[[:space:]]+filter' "$WORK/vantage.fx.txt"; then
+  pass "vantage(fixture): container sysroot → 'Container: docker' + 'Seccomp: filter'"
+else
+  fail "vantage(fixture): container/confinement not detected from the sysroot"
+fi
+# JSON environment object carries the same facts (proves the renderer).
+KASLD_SYSROOT="$CV" "$HOSTBIN" -j -f -s "$SKIP" >"$WORK/vantage.fx.json" 2>/dev/null || true
+if python3 - "$WORK/vantage.fx.json" <<'PY'
+import json,sys
+try: e=json.load(open(sys.argv[1])).get("environment",{})
+except Exception: sys.exit(1)
+sys.exit(0 if e.get("container")=="docker" and e.get("seccomp")=="filter"
+         and e.get("readable_oracles",{}).get("/proc/kallsyms") is False else 1)
+PY
+then
+  pass "vantage(json): -j environment object → container=docker, seccomp=filter, oracles masked"
+else
+  fail "vantage(json): -j environment object missing/incorrect"
+fi
+# Hardening attribution: under a real seccomp filter, a perf denial that a
+# permissive perf_event_paranoid would NOT have blocked must be credited to the
+# seccomp filter, not to perf_event_paranoid. Only meaningful when the host's
+# perf_event_paranoid < 2 (else paranoid is the blocker); note-skip otherwise.
+pep=$(cat /proc/sys/kernel/perf_event_paranoid 2>/dev/null || echo 2)
+case "$pep" in ''|*[!0-9]*) pep=2 ;; esac
+if [ "$(uname -m)" = x86_64 ] && [ -x "$SE" ] && [ "$pep" -lt 2 ]; then
+  HSK='prefetch*,mmap*,ioctl*,sidt,databounce,echoload,entrybleed,zombieload,kernelsnitch'
+  "$SE" errno "$HOSTBIN" -H -j -f -s "$HSK" >"$WORK/vantage.hard.json" 2>/dev/null || true
+  if python3 - "$WORK/vantage.hard.json" <<'PY'
+import json,sys
+try: g=json.load(open(sys.argv[1]))["hardening"]["active_defenses"]
+except Exception: sys.exit(1)
+sec=[x for x in g if "seccomp" in x.get("gate","")]
+sys.exit(0 if sec and any("perf" in n for n in sec[0].get("components_blocked",[])) else 1)
+PY
+  then
+    pass "vantage(hardening): seccomp filter credited for a perf denial (not perf_event_paranoid)"
+  else
+    fail "vantage(hardening): seccomp attribution missing under a real filter"
+  fi
+else
+  note "vantage(hardening): perf_event_paranoid>=2 or helper unavailable — seccomp attribution N/A"
+fi
+
+echo
 printf '== summary: %d pass, %d fail ==\n' "$PASS" "$FAIL"
 [ "$FAIL" -eq 0 ]

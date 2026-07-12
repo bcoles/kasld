@@ -85,8 +85,33 @@ static int has_mitigation_keys(const struct component_meta *m) {
  * the section-derivation logic lives here only. The collection order matches
  * the source arrays (comp_logs order, gate order) so each renderer's output
  * order is preserved. */
+/* Attribute a perf denial to a seccomp filter rather than perf_event_paranoid:
+ * the component was access-denied and declares a `perf_event_paranoid>=N` gate,
+ * a seccomp filter is active, and the host paranoid value is below N — so
+ * paranoid would NOT have blocked it (the filter did). Uses the real host
+ * paranoid value because each perf component has its own threshold (>=1 / >=2),
+ * finer than the gate's single "active" level. */
+static int seccomp_blocked_perf(const struct component_log *cl, int seccomp,
+                                int host_paranoid) {
+  if (cl->outcome != OUTCOME_ACCESS_DENIED || seccomp <= 0 || host_paranoid < 0)
+    return 0;
+  const char *vals[8];
+  int n = meta_get_all(&cl->meta, "sysctl", vals, 8);
+  for (int i = 0; i < n; i++) {
+    int thr;
+    if (sscanf(vals[i], "perf_event_paranoid>=%d", &thr) == 1)
+      return host_paranoid < thr;
+  }
+  return 0;
+}
+
 void build_hardening_report(struct hardening_report *r) {
   memset(r, 0, sizeof(*r));
+
+  /* Container confinement, for attributing perf denials to seccomp (below). */
+  struct kasld_vantage vant;
+  kasld_gather_vantage(&vant);
+  int host_paranoid = sysctl_perf_event_paranoid;
 
   /* Exposure: non-detection components carrying metadata. */
   for (int i = 0; i < num_comp_logs; i++) {
@@ -152,7 +177,12 @@ void build_hardening_report(struct hardening_report *r) {
       hg.gated++;
       if (hg.n_gated_names < HR_NAME_MAX)
         hg.gated_names[hg.n_gated_names++] = comp_logs[i].name;
-      if (comp_logs[i].outcome == OUTCOME_ACCESS_DENIED) {
+      if (comp_logs[i].outcome == OUTCOME_ACCESS_DENIED &&
+          !(g == GATE_PERF_EVENT_PARANOID &&
+            seccomp_blocked_perf(&comp_logs[i], vant.seccomp, host_paranoid))) {
+        /* Credit perf_event_paranoid only when it actually blocked the perf
+         * component; a seccomp-blocked perf denial is credited to the seccomp
+         * gate below instead of blamed on a permissive paranoid setting. */
         hg.blocked++;
         if (hg.n_blocked_names < HR_NAME_MAX)
           hg.blocked_names[hg.n_blocked_names++] = comp_logs[i].name;
@@ -168,6 +198,31 @@ void build_hardening_report(struct hardening_report *r) {
       continue;
     if (r->n_gates < HR_GATES_MAX)
       r->gates[r->n_gates++] = hg;
+  }
+
+  /* Seccomp: credit the syscall filter for each perf component it (not a
+   * permissive perf_event_paranoid) blocked — the honest "what blocked this
+   * here" that the report otherwise lacks. Raising perf_event_paranoid stays a
+   * valid *host*-hardening suggestion; only the current-run attribution was
+   * wrong. */
+  if (vant.seccomp > 0) {
+    struct hr_gate sg;
+    memset(&sg, 0, sizeof(sg));
+    sg.display = "seccomp syscall filter";
+    sg.active = 1;
+    sg.value = vant.seccomp;
+    for (int i = 0; i < num_comp_logs; i++) {
+      if (!seccomp_blocked_perf(&comp_logs[i], vant.seccomp, host_paranoid))
+        continue;
+      sg.gated++;
+      sg.blocked++;
+      if (sg.n_gated_names < HR_NAME_MAX)
+        sg.gated_names[sg.n_gated_names++] = comp_logs[i].name;
+      if (sg.n_blocked_names < HR_NAME_MAX)
+        sg.blocked_names[sg.n_blocked_names++] = comp_logs[i].name;
+    }
+    if (sg.gated > 0 && r->n_gates < HR_GATES_MAX)
+      r->gates[r->n_gates++] = sg;
   }
 
   r->lockdown = sysctl_lockdown;

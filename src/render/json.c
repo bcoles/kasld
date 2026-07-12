@@ -152,6 +152,55 @@ static void render_json_group(enum kasld_addr_type gt, const char *gs) {
   printf("    }");
 }
 
+/* environment — the recon vantage: container / confinement / which /proc leak
+ * oracles are readable here. Shared gather with the text + markdown renderers.
+ */
+static void render_environment_json(void) {
+  struct kasld_vantage v;
+  kasld_gather_vantage(&v);
+
+  printf("  \"environment\": {\n");
+
+  printf("    \"container\": ");
+  if (v.container)
+    json_print_escaped(v.container);
+  else
+    printf("null");
+
+  printf(",\n    \"seccomp\": ");
+  if (v.seccomp < 0)
+    printf("null");
+  else
+    json_print_escaped(v.seccomp == 0   ? "none"
+                       : v.seccomp == 1 ? "strict"
+                       : v.seccomp == 2 ? "filter"
+                                        : "unknown");
+
+  printf(",\n    \"capabilities\": ");
+  char capbuf[24];
+  const char *caps = kasld_vantage_caps(&v, capbuf, sizeof(capbuf));
+  if (caps)
+    json_print_escaped(caps);
+  else
+    printf("null");
+
+  printf(",\n    \"no_new_privs\": ");
+  if (v.no_new_privs < 0)
+    printf("null");
+  else
+    printf(v.no_new_privs ? "true" : "false");
+
+  printf(",\n    \"readable_oracles\": {\n");
+  for (int i = 0; i < KASLD_N_ORACLES; i++) {
+    printf("      ");
+    json_print_escaped(kasld_oracle_paths[i]);
+    printf(": %s%s\n", v.oracle_readable[i] ? "true" : "false",
+           i + 1 < KASLD_N_ORACLES ? "," : "");
+  }
+  printf("    }\n");
+  printf("  },\n");
+}
+
 void render_json(const struct summary *s) {
   struct utsname u;
   int have_uname = (kasld_uname(&u) == 0);
@@ -172,6 +221,8 @@ void render_json(const struct summary *s) {
     printf("\n");
   }
   printf("  },\n");
+
+  render_environment_json();
 
   /* layout */
   printf("  \"layout\": {\n");

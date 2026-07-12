@@ -392,6 +392,111 @@ static enum lockdown_mode read_lockdown(void) {
   return LOCKDOWN_NONE;
 }
 
+/* ---- Recon vantage: container + confinement facts, shared by all renderers
+ * (text verbose block, JSON, markdown) so they can't diverge. Outside the
+ * KASLD_TESTING guard because the render modules link against these. ------- */
+
+const char *const kasld_oracle_paths[KASLD_N_ORACLES] = {
+    "/proc/kallsyms", "/proc/kcore", "/proc/iomem", "/proc/modules"};
+const char *const kasld_oracle_labels[KASLD_N_ORACLES] = {
+    "Readable /proc/kallsyms:", "Readable /proc/kcore:",
+    "Readable /proc/iomem:", "Readable /proc/modules:"};
+
+/* Detect whether we run inside a container and, if so, the runtime. All reads
+ * are unprivileged and SYSROOT-redirectable. Returns a runtime name or NULL
+ * (not containerized / undetectable). Marker files are most reliable; cgroup
+ * path patterns catch the rest. */
+static const char *detect_container(void) {
+  if (kasld_access("/.dockerenv", F_OK) == 0)
+    return "docker";
+  if (kasld_access("/run/.containerenv", F_OK) == 0)
+    return "podman";
+
+  const char *paths[] = {"/proc/self/cgroup", "/proc/1/cgroup"};
+  for (int i = 0; i < 2; i++) {
+    FILE *f = kasld_fopen(paths[i], "r");
+    if (!f)
+      continue;
+    char buf[4096];
+    size_t n = fread(buf, 1, sizeof(buf) - 1, f);
+    fclose(f);
+    buf[n] = '\0';
+    if (strstr(buf, "kubepods"))
+      return "kubernetes";
+    if (strstr(buf, "docker"))
+      return "docker";
+    if (strstr(buf, "libpod"))
+      return "podman";
+    if (strstr(buf, "/lxc"))
+      return "lxc";
+    if (strstr(buf, "machine.slice"))
+      return "systemd-nspawn";
+  }
+  return NULL;
+}
+
+/* Copy the value of a named /proc/self/status field (e.g. "Seccomp", "CapEff")
+ * into out. Returns 0 on success, -1 if the field or file is unavailable. */
+static int read_status_field(const char *field, char *out, size_t outsz) {
+  FILE *f = kasld_fopen("/proc/self/status", "r");
+  if (!f)
+    return -1;
+  char line[256];
+  size_t flen = strlen(field);
+  int found = -1;
+  while (fgets(line, sizeof(line), f)) {
+    if (strncmp(line, field, flen) == 0 && line[flen] == ':') {
+      const char *v = line + flen + 1;
+      while (*v == ' ' || *v == '\t')
+        v++;
+      snprintf(out, outsz, "%s", v);
+      out[strcspn(out, "\n")] = '\0';
+      found = 0;
+      break;
+    }
+  }
+  fclose(f);
+  return found;
+}
+
+void kasld_gather_vantage(struct kasld_vantage *v) {
+  memset(v, 0, sizeof(*v));
+  v->container = detect_container();
+  char sc[32], nnp[32], eff[32], bnd[32];
+  v->seccomp =
+      read_status_field("Seccomp", sc, sizeof(sc)) == 0 ? atoi(sc) : -1;
+  v->no_new_privs =
+      read_status_field("NoNewPrivs", nnp, sizeof(nnp)) == 0 ? atoi(nnp) : -1;
+  if (read_status_field("CapEff", eff, sizeof(eff)) == 0) {
+    v->have_caps = 1;
+    v->cap_eff = strtoull(eff, NULL, 16);
+    v->cap_bnd = read_status_field("CapBnd", bnd, sizeof(bnd)) == 0
+                     ? strtoull(bnd, NULL, 16)
+                     : 0;
+  }
+  for (int i = 0; i < KASLD_N_ORACLES; i++)
+    v->oracle_readable[i] = kasld_access(kasld_oracle_paths[i], R_OK) == 0;
+}
+
+/* Confined = the confinement detail is meaningful; otherwise the values are
+ * unprivileged defaults, not restrictions (see print_confinement). */
+int kasld_vantage_confined(const struct kasld_vantage *v) {
+  return v->container != NULL || v->seccomp > 0 || v->no_new_privs == 1;
+}
+
+const char *kasld_vantage_caps(const struct kasld_vantage *v, char *out,
+                               size_t outsz) {
+  if (!v->have_caps)
+    return NULL;
+  if (v->cap_eff == 0)
+    snprintf(out, outsz, "none");
+  else if (v->cap_eff == v->cap_bnd)
+    snprintf(out, outsz, "full");
+  else
+    snprintf(out, outsz, "0x%llx", v->cap_eff);
+  return out;
+}
+
 #ifndef KASLD_TESTING
 static void print_banner(void) {
   struct utsname u;
@@ -412,6 +517,40 @@ static void print_banner(void) {
          "    ███   ▀█▀   ███    █▀   ▄████████▀  █████▄▄██ ████████▀\n"
          "    ▀                                   ▀ v%s\n\n",
          VERSION);
+}
+
+/* Print the container / confinement lines: whether we are containerized, and
+ * the seccomp / capability / no-new-privs state that decides which oracles are
+ * reachable here. Descriptive — the offensive-recon complement to the sysctl
+ * block above.
+ *
+ * The detail lines are printed ONLY when the process is actually confined
+ * (containerized, a seccomp filter, or no_new_privs). On a bare unprivileged
+ * host their values (Seccomp: none, caps: none, no_new_privs: no) are the
+ * DEFAULTS, not restrictions — printing them there reads as "you are confined"
+ * when you are not, so we suppress them and show just the container status. */
+static void print_confinement(void) {
+  struct kasld_vantage v;
+  kasld_gather_vantage(&v);
+
+  printf("%-30s%s\n", "Container:", v.container ? v.container : "none");
+  if (!kasld_vantage_confined(&v))
+    return; /* unconfined host — the defaults below are not restrictions */
+
+  if (v.seccomp >= 0) {
+    const char *s = v.seccomp == 0   ? "none"
+                    : v.seccomp == 1 ? "strict"
+                    : v.seccomp == 2 ? "filter"
+                                     : "unknown";
+    printf("%-30s%s\n", "Seccomp:", s);
+  }
+  char capbuf[24];
+  const char *caps = kasld_vantage_caps(&v, capbuf, sizeof(capbuf));
+  if (caps)
+    printf("%-30s%s\n", "Effective capabilities:", caps);
+  if (v.no_new_privs >= 0)
+    printf("%-30s%s\n",
+           "No new privileges:", v.no_new_privs == 1 ? "yes" : "no");
 }
 
 static void print_system_config(void) {
@@ -465,6 +604,19 @@ static void print_system_config(void) {
   }
 
   printf("\n");
+  print_confinement();
+
+  printf("\n");
+
+  /* Leak-oracle sources first — the /proc files a container masks (the recon
+   * vantage; shared list with the JSON/markdown environment block), then the
+   * log/debug/boot sources. */
+  for (int i = 0; i < KASLD_N_ORACLES; i++) {
+    int readable = kasld_access(kasld_oracle_paths[i], R_OK) == 0;
+    printf("%-30s%s%s%s\n", kasld_oracle_labels[i],
+           readable ? c(C_GREEN) : c(C_DIM), readable ? "yes" : "no",
+           c(C_RESET));
+  }
 
   const char *check_files[][2] = {
       {"Readable /var/log/dmesg:", "/var/log/dmesg"},

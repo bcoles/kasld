@@ -74,6 +74,42 @@ static void md_memory_kaslr_row(const char *name, unsigned long min,
            lmin, lmax);
 }
 
+/* Environment / recon vantage — same gather + confined-gating as the text
+ * block: the confinement rows appear only when actually confined (otherwise the
+ * values are unprivileged defaults, not restrictions). Oracle readability
+ * always shown, as it is the core recon context of a report. */
+static void render_environment_markdown(void) {
+  struct kasld_vantage v;
+  kasld_gather_vantage(&v);
+
+  printf("## Environment\n\n");
+  printf("| Property | Value |\n");
+  printf("|:---------|:------|\n");
+  printf("| Container | %s |\n", v.container ? v.container : "none");
+  if (kasld_vantage_confined(&v)) {
+    if (v.seccomp >= 0)
+      printf("| Seccomp | %s |\n", v.seccomp == 0   ? "none"
+                                   : v.seccomp == 1 ? "strict"
+                                   : v.seccomp == 2 ? "filter"
+                                                    : "unknown");
+    char capbuf[24];
+    const char *caps = kasld_vantage_caps(&v, capbuf, sizeof(capbuf));
+    if (caps)
+      printf("| Effective capabilities | %s |\n", caps);
+    if (v.no_new_privs >= 0)
+      printf("| No new privileges | %s |\n", v.no_new_privs ? "yes" : "no");
+  }
+  printf("\n");
+
+  printf("Readable leak oracles:\n\n");
+  printf("| Source | Readable |\n");
+  printf("|:-------|:---------|\n");
+  for (int i = 0; i < KASLD_N_ORACLES; i++)
+    printf("| `%s` | %s |\n", kasld_oracle_paths[i],
+           v.oracle_readable[i] ? "yes" : "no");
+  printf("\n");
+}
+
 void render_markdown(const struct summary *s) {
   struct utsname u;
   int have_uname = (kasld_uname(&u) == 0);
@@ -364,6 +400,8 @@ void render_markdown(const struct summary *s) {
     }
     printf("\n");
   }
+
+  render_environment_markdown();
 
   /* Hardening assessment (-H): same model as the text/json renderers. */
   if (hardening_mode)

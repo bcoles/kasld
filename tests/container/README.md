@@ -41,6 +41,11 @@ silently mis-degrade).
 - **Memory cgroup (LIVE).** `systemd-run --user -p MemoryMax=32M` — kasld must
   fit a tight container memory budget without OOM (gated on a delegated
   controller).
+- **Vantage / confinement detection (LIVE + fixture).** The verbose
+  system-config block and the JSON `environment` object must report the recon
+  vantage: `Container:` / `Seccomp:` state (validated under a real filter and a
+  container-shaped sysroot), and the hardening report must credit a seccomp
+  filter — not `perf_event_paranoid` — for a perf denial it caused.
 - **Operational (LIVE).** A restricted cpuset (`taskset -c`) that excludes the
   preferred pin CPU — exercises `pin_cpu`'s fallback.
 
