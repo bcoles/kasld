@@ -259,9 +259,10 @@ __extension__ _Static_assert((unsigned long)KERNEL_PHYS_MAX >
 #ifndef KASLR_VIRT_TEXT_MAX_WIDE
 #define KASLR_VIRT_TEXT_MAX_WIDE KASLR_VIRT_TEXT_MAX
 #endif
-#if defined(KASLR_PHYS_MIN) && !defined(KASLR_PHYS_MIN_WIDE)
-#define KASLR_PHYS_MIN_WIDE KASLR_PHYS_MIN
-#endif
+/* KASLR_PHYS_MIN_WIDE's default is deferred until after KASLR_PHYS_MIN is
+ * resolved below — its guard tests defined(KASLR_PHYS_MIN), and most arches
+ * only acquire KASLR_PHYS_MIN via the KERNEL_PHYS_DEFAULT chain further down.
+ */
 
 /* KASLR randomization window defaults (override per-arch when narrower) */
 #ifndef KASLR_VIRT_TEXT_MIN
@@ -288,6 +289,16 @@ __extension__ _Static_assert((unsigned long)KERNEL_PHYS_MAX >
 #endif
 #if !defined(KASLR_PHYS_MIN) && defined(KERNEL_PHYS_DEFAULT)
 #define KASLR_PHYS_MIN KERNEL_PHYS_DEFAULT
+#endif
+/* Conservative lower edge of the Q_PHYS_IMAGE_BASE window (see the virtual
+ * counterpart above). Must follow the KASLR_PHYS_MIN derivation: the guard is
+ * evaluated eagerly, so placing it earlier would silently skip on every arch
+ * that gets KASLR_PHYS_MIN from KERNEL_PHYS_DEFAULT, leaving the macro
+ * undefined. Arches needing a wider floor (x86_64 CONFIG_PHYSICAL_START, s390
+ * identity map) define KASLR_PHYS_MIN_WIDE themselves; the rest default to
+ * KASLR_PHYS_MIN. */
+#if defined(KASLR_PHYS_MIN) && !defined(KASLR_PHYS_MIN_WIDE)
+#define KASLR_PHYS_MIN_WIDE KASLR_PHYS_MIN
 #endif
 #if !defined(KASLR_PHYS_MAX) && defined(KERNEL_PHYS_MAX)
 #define KASLR_PHYS_MAX KERNEL_PHYS_MAX
