@@ -73,12 +73,25 @@ static int stride_crt(unsigned long r1, unsigned long m1, unsigned long r2,
       (unsigned long long)m1 / (unsigned long long)g * (unsigned long long)m2;
   if (lcm > (unsigned long long)ULONG_MAX)
     return 0;
-  /* R = r1 + m1 * (diff/g * x)   mod lcm. */
-  long long step = (diff / g) % (long long)(m2 / (unsigned long long)g);
-  long long R = (long long)r1 + (long long)m1 * step * x;
-  R %= (long long)lcm;
-  if (R < 0)
-    R += (long long)lcm;
+  /* R = (r1 + m1 * ((diff/g) * x mod (m2/g))) mod lcm.
+   *
+   * Reduce (diff/g)*x modulo n = m2/g BEFORE multiplying by m1: that keeps
+   * every intermediate below lcm. The naive r1 + m1*(diff/g)*x multiplies three
+   * cofactors each up to the modulus cap (~2^96 at the 2^32 cap), overflowing
+   * 64 bits; the reduced form never exceeds m1 * (m2/g) = lcm. */
+  unsigned long long n = m2 / (unsigned long long)g;
+  long long dg = diff / g;
+  /* a, b in [0, n): (diff/g) and x reduced mod n, normalized non-negative. */
+  unsigned long long a =
+      (unsigned long long)(((dg % (long long)n) + (long long)n) % (long long)n);
+  unsigned long long b =
+      (unsigned long long)(((x % (long long)n) + (long long)n) % (long long)n);
+  unsigned long long k = (a * b) % n; /* a,b < n: a*b fits u64 */
+  unsigned long long mk = (unsigned long long)m1 * k; /* < m1*(m2/g) = lcm */
+  unsigned long long r1m = (unsigned long long)r1 % lcm;
+  /* R = (mk + r1m) mod lcm, computed without overflowing (both operands
+   * < lcm). */
+  unsigned long long R = (mk >= lcm - r1m) ? mk - (lcm - r1m) : mk + r1m;
   *out_r = (unsigned long)R;
   *out_m = (unsigned long)lcm;
   return 1;
@@ -154,11 +167,22 @@ void estimate_meet(struct estimate *e, const struct quantity_def *qd,
       }
       break;
     case C_EXCLUDE:
-      /* Single-interval lattice cannot represent a hole. Carve only when
-       * the excluded range [value, value2] covers an end of [lo, hi]; an
-       * interior hole is left uncarved (a known, documented limitation —
-       * the value remains sound, just looser). */
-      if (c->value <= e->lo && c->value2 >= e->lo && c->value2 < e->hi) {
+      /* Single-interval lattice cannot represent an interior hole. Handle the
+       * cases the interval CAN express; a strictly interior hole is left
+       * uncarved (a documented limitation — the value stays sound, just looser;
+       * carved at read time by quantity_ranges).
+       *  - covers all of [lo, hi]  -> empty: drive to bottom so the resolver
+       *    rejects it as a conflict, rather than silently accepting a no-op
+       * that removes every value while estimate_is_bottom stays false (this
+       * also keeps estimate_is_bottom in step with the empty set
+       * quantity_ranges reports for the same input);
+       *  - covers exactly one end  -> trim that edge. */
+      if (c->value <= e->lo && c->value2 >= e->hi) {
+        e->lo = 1; /* lo > hi is the standard bottom signal */
+        e->hi = 0;
+        e->lo_binding = c->id;
+        e->hi_binding = c->id;
+      } else if (c->value <= e->lo && c->value2 >= e->lo && c->value2 < e->hi) {
         e->lo = c->value2 + 1;
         e->lo_binding = c->id;
       } else if (c->value2 >= e->hi && c->value <= e->hi && c->value > e->lo) {

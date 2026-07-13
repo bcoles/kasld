@@ -261,6 +261,38 @@ static void test_quantity_ranges_interval_with_interior_hole(void) {
   assert(out[1].lo == base + 0x2000000ul && out[1].hi == e.hi);
 }
 
+/* A C_EXCLUDE spanning the whole interval empties it. estimate_meet drives the
+ * estimate to bottom (so a full-cover exclude is a resolver conflict, not a
+ * silent no-op), and quantity_ranges reports zero ranges for the same input —
+ * the two notions of "empty" agree. */
+static void test_exclude_full_cover_is_bottom(void) {
+  const struct quantity_def *qd = &quantities[Q_VIRT_IMAGE_BASE];
+  struct estimate e;
+  qd->init_top(&e);
+  e.lo = 0x1000000ul;
+  e.hi = 0x2000000ul;
+
+  /* Exclude [lo, hi] exactly. */
+  struct constraint c = mk(Q_VIRT_IMAGE_BASE, C_EXCLUDE, e.lo, CONF_DERIVED, 1);
+  c.value2 = e.hi;
+  struct estimate m = e;
+  estimate_meet(&m, qd, &c);
+  assert(estimate_is_bottom(&m, qd));
+
+  struct range out[8];
+  assert(quantity_ranges(Q_VIRT_IMAGE_BASE, &e, CONF_BRUTE, &c, 1, out, 8) ==
+         0);
+
+  /* A cover that overhangs both edges (value < lo, value2 > hi) is also bottom.
+   */
+  struct estimate m2 = e;
+  struct constraint c2 =
+      mk(Q_VIRT_IMAGE_BASE, C_EXCLUDE, e.lo - 0x1000ul, CONF_DERIVED, 2);
+  c2.value2 = e.hi + 0x1000ul;
+  estimate_meet(&m2, qd, &c2);
+  assert(estimate_is_bottom(&m2, qd));
+}
+
 static void test_quantity_slots_hole_aware(void) {
   struct estimate e;
   quantities[Q_VIRT_IMAGE_BASE].init_top(&e);
@@ -541,6 +573,36 @@ static void test_stride_crt_inconsistent_bottom(void) {
   assert(estimate_is_bottom(&e, &quantities[Q_VIRT_IMAGE_BASE]));
 }
 
+/* CRT of two large coprime moduli whose lcm just fits in unsigned long. The
+ * naive combiner (r1 + m1 * (diff/g) * x) multiplies three ~2^32 cofactors and
+ * overflows 64-bit signed here; verify the reduced combiner is correct via the
+ * defining congruences. 64-bit only: on a 32-bit unsigned long the lcm exceeds
+ * ULONG_MAX and the pair does not combine (that path is covered above). */
+static void test_stride_crt_large_moduli_no_overflow(void) {
+#if __SIZEOF_LONG__ >= 8
+  struct estimate e;
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&e);
+  /* Widen the interval to the whole address space: the combined class has
+   * stride lcm ~= 2^64, so its one in-range member (the residue R itself) only
+   * lands inside a maximally wide window — this test targets the CRT
+   * arithmetic, not interval intersection. */
+  e.lo = 0;
+  e.hi = ~0ul;
+  const unsigned long m1 = 0xFFFFFFFBul; /* 2^32 - 5 */
+  const unsigned long m2 =
+      0xFFFFFFFDul; /* 2^32 - 3; coprime with m1 (diff 2) */
+  const unsigned long r1 = 0x12345ul, r2 = 0x67890ul;
+  struct constraint c1 = mk_stride(Q_VIRT_IMAGE_BASE, r1, m1, 1);
+  struct constraint c2 = mk_stride(Q_VIRT_IMAGE_BASE, r2, m2, 2);
+  estimate_meet(&e, &quantities[Q_VIRT_IMAGE_BASE], &c1);
+  estimate_meet(&e, &quantities[Q_VIRT_IMAGE_BASE], &c2);
+  assert(!estimate_is_bottom(&e, &quantities[Q_VIRT_IMAGE_BASE]));
+  assert(e.stride == m1 * m2);        /* coprime -> lcm = m1*m2 */
+  assert(e.stride_offset % m1 == r1); /* combined class satisfies both */
+  assert(e.stride_offset % m2 == r2); /* defining congruences */
+#endif
+}
+
 /* Stride with no residue-class member in the interval → bottom. */
 static void test_stride_no_intersection_with_interval_bottom(void) {
   struct estimate e;
@@ -588,6 +650,7 @@ int main(void) {
   RUN(test_stride_same_modulus_disagreeing_residues_bottom);
   RUN(test_stride_crt_combines_to_lcm);
   RUN(test_stride_crt_inconsistent_bottom);
+  RUN(test_stride_crt_large_moduli_no_overflow);
   RUN(test_stride_no_intersection_with_interval_bottom);
   RUN(test_quantity_slots_with_stride);
 
@@ -600,6 +663,7 @@ int main(void) {
   BEGIN_CATEGORY("Consumer value-access (quantity_ranges/slots)");
   RUN(test_quantity_ranges_interval_plain);
   RUN(test_quantity_ranges_interval_with_interior_hole);
+  RUN(test_exclude_full_cover_is_bottom);
   RUN(test_quantity_slots_hole_aware);
   RUN(test_quantity_slots_floor_gates_holes);
   RUN(test_quantity_ranges_finset);
