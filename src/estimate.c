@@ -368,8 +368,8 @@ void estimate_resolve(enum kasld_quantity q, enum kasld_confidence floor,
  * quantity_ranges — interval-set value-access for consumers.
  * ------------------------------------------------------------------------ */
 int quantity_ranges(enum kasld_quantity q, const struct estimate *e,
-                    const struct constraint *cs, int n_cs, struct range *out,
-                    int out_max) {
+                    enum kasld_confidence floor, const struct constraint *cs,
+                    int n_cs, struct range *out, int out_max) {
   const struct quantity_def *qd = &quantities[q];
 
   if (qd->lattice == LK_MAXALIGN)
@@ -387,13 +387,17 @@ int quantity_ranges(enum kasld_quantity q, const struct estimate *e,
   }
 
   /* LK_INTERVAL: carve interior C_EXCLUDE holes out of [lo, hi]. Gather the
-   * holes for q, clamp to the interval, sort by lo, then sweep emitting the
-   * gaps between them. Edge holes were already applied by the lattice
-   * (estimate_meet), so carving them here is an idempotent no-op. */
+   * holes for q at conf >= floor, clamp to the interval, sort by lo, then sweep
+   * emitting the gaps between them. The floor gate matches estimate_resolve's:
+   * a sub-floor exclude never reached the estimate's edges, so it must not
+   * carve the interior either, or the carved set could drop the true value from
+   * a floored (guaranteed) window. Edge holes at/above floor were already
+   * applied by the lattice (estimate_meet), so re-carving them here is an
+   * idempotent no-op. */
   struct range holes[ESTIMATE_MAX_WORK];
   int nh = 0;
   for (int i = 0; i < n_cs && nh < ESTIMATE_MAX_WORK; i++) {
-    if (cs[i].q != q || cs[i].op != C_EXCLUDE)
+    if (cs[i].q != q || cs[i].op != C_EXCLUDE || (int)cs[i].conf < (int)floor)
       continue;
     unsigned long a = cs[i].value, b = cs[i].value2;
     if (b < e->lo || a > e->hi)
@@ -444,12 +448,13 @@ int quantity_ranges(enum kasld_quantity q, const struct estimate *e,
 }
 
 unsigned long quantity_slots(enum kasld_quantity q, const struct estimate *e,
+                             enum kasld_confidence floor,
                              const struct constraint *cs, int n_cs,
                              unsigned long align) {
   if (align == 0)
     return 0;
   struct range rs[ESTIMATE_MAX_WORK];
-  int n = quantity_ranges(q, e, cs, n_cs, rs, ESTIMATE_MAX_WORK);
+  int n = quantity_ranges(q, e, floor, cs, n_cs, rs, ESTIMATE_MAX_WORK);
 
   /* Effective slot pitch: when a stride annotation is present and is a
    * multiple of the requested align, slots step by `stride` (each stride

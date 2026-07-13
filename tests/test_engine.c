@@ -1537,10 +1537,11 @@ static void test_initrd_phys_exclude(void) {
   /* The hole is interior (edges unchanged) but removes candidate positions:
    * slots with the carved hole < slots over the bare interval. */
   const struct estimate *est = &e.est[Q_PHYS_IMAGE_BASE];
-  unsigned long with = quantity_slots(Q_PHYS_IMAGE_BASE, est, e.constraints,
-                                      e.n_constraints, KASLR_PHYS_ALIGN);
-  unsigned long bare =
-      quantity_slots(Q_PHYS_IMAGE_BASE, est, NULL, 0, KASLR_PHYS_ALIGN);
+  unsigned long with =
+      quantity_slots(Q_PHYS_IMAGE_BASE, est, CONF_BRUTE, e.constraints,
+                     e.n_constraints, KASLR_PHYS_ALIGN);
+  unsigned long bare = quantity_slots(Q_PHYS_IMAGE_BASE, est, CONF_BRUTE, NULL,
+                                      0, KASLR_PHYS_ALIGN);
   assert(with < bare);
 #endif
 }
@@ -1584,10 +1585,11 @@ static void test_cmdline_phys_exclude(void) {
 
   /* Interior hole: edges unchanged, hole-aware slot count strictly smaller. */
   const struct estimate *est = &e.est[Q_PHYS_IMAGE_BASE];
-  unsigned long with = quantity_slots(Q_PHYS_IMAGE_BASE, est, e.constraints,
-                                      e.n_constraints, KASLR_PHYS_ALIGN);
-  unsigned long bare =
-      quantity_slots(Q_PHYS_IMAGE_BASE, est, NULL, 0, KASLR_PHYS_ALIGN);
+  unsigned long with =
+      quantity_slots(Q_PHYS_IMAGE_BASE, est, CONF_BRUTE, e.constraints,
+                     e.n_constraints, KASLR_PHYS_ALIGN);
+  unsigned long bare = quantity_slots(Q_PHYS_IMAGE_BASE, est, CONF_BRUTE, NULL,
+                                      0, KASLR_PHYS_ALIGN);
   assert(with < bare);
 #endif
 }
@@ -1634,9 +1636,10 @@ static void test_phys_reservation_exclude(void) {
   engine_run(&e, rules, 1);
   assert(has_phys_exclude(&e));
   const struct estimate *est = &e.est[Q_PHYS_IMAGE_BASE];
-  assert(quantity_slots(Q_PHYS_IMAGE_BASE, est, e.constraints, e.n_constraints,
-                        KASLR_PHYS_ALIGN) <
-         quantity_slots(Q_PHYS_IMAGE_BASE, est, NULL, 0, KASLR_PHYS_ALIGN));
+  assert(quantity_slots(Q_PHYS_IMAGE_BASE, est, CONF_BRUTE, e.constraints,
+                        e.n_constraints, KASLR_PHYS_ALIGN) <
+         quantity_slots(Q_PHYS_IMAGE_BASE, est, CONF_BRUTE, NULL, 0,
+                        KASLR_PHYS_ALIGN));
 
   /* Negative: a NON-forbidden region (plain RAM) emits no exclude — the image
    * CAN live in RAM. */
@@ -1726,9 +1729,10 @@ static void test_ram_map_phys_exclude(void) {
   engine_run(&e, rules, 1);
   assert(has_phys_exclude(&e));
   const struct estimate *est = &e.est[Q_PHYS_IMAGE_BASE];
-  assert(quantity_slots(Q_PHYS_IMAGE_BASE, est, e.constraints, e.n_constraints,
-                        KASLR_PHYS_ALIGN) <
-         quantity_slots(Q_PHYS_IMAGE_BASE, est, NULL, 0, KASLR_PHYS_ALIGN));
+  assert(quantity_slots(Q_PHYS_IMAGE_BASE, est, CONF_BRUTE, e.constraints,
+                        e.n_constraints, KASLR_PHYS_ALIGN) <
+         quantity_slots(Q_PHYS_IMAGE_BASE, est, CONF_BRUTE, NULL, 0,
+                        KASLR_PHYS_ALIGN));
 
   /* Negative 1 (contract): the same two extents as ATOMIC RAM observations
    * (obs[], not coverings) carve nothing. A partial RAM leak emits atomic
@@ -2059,10 +2063,11 @@ static void test_cmdline_memmap_phys_exclude(void) {
 
   /* Interior holes: hole-aware slot count strictly lower than bare. */
   const struct estimate *est = &e.est[Q_PHYS_IMAGE_BASE];
-  unsigned long with = quantity_slots(Q_PHYS_IMAGE_BASE, est, e.constraints,
-                                      e.n_constraints, KASLR_PHYS_ALIGN);
-  unsigned long bare =
-      quantity_slots(Q_PHYS_IMAGE_BASE, est, NULL, 0, KASLR_PHYS_ALIGN);
+  unsigned long with =
+      quantity_slots(Q_PHYS_IMAGE_BASE, est, CONF_BRUTE, e.constraints,
+                     e.n_constraints, KASLR_PHYS_ALIGN);
+  unsigned long bare = quantity_slots(Q_PHYS_IMAGE_BASE, est, CONF_BRUTE, NULL,
+                                      0, KASLR_PHYS_ALIGN);
   assert(with < bare);
 #endif
 }

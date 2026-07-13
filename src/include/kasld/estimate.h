@@ -123,22 +123,33 @@ struct range {
  *  - LK_FINSET:   one degenerate range [v, v] per live candidate.
  *  - LK_MAXALIGN: zero ranges (an alignment is not an address set).
  *
+ * `floor` gates which excludes carve: a hole from a constraint with
+ * conf < floor is ignored, exactly as estimate_resolve() gates the edge-setting
+ * constraints. Pass the SAME floor `e` was resolved at, so the carved range set
+ * is derived purely from >= floor evidence and stays consistent with the
+ * estimate's edges — a sub-floor exclude cannot narrow the set below what the
+ * estimate itself admits. floor == CONF_BRUTE carves every exclude (the
+ * all-signals view). This is the structural guard that keeps the guaranteed
+ * (floored) window's carved set from ever depending on a below-floor claim.
+ *
  * This is the set-ready interface every consumer (slot/entropy counter,
  * renderer, range-reading rules) uses, so a future LK_INTERVAL_SET changes
  * only how ranges are produced, not the consumers. The single-interval
  * lattice still narrows; holes are carved here at read time. */
 int quantity_ranges(enum kasld_quantity q, const struct estimate *e,
-                    const struct constraint *cs, int n_cs, struct range *out,
-                    int out_max);
+                    enum kasld_confidence floor, const struct constraint *cs,
+                    int n_cs, struct range *out, int out_max);
 
 /* Hole-aware count of aligned candidate positions for q's resolved estimate:
  * the sum over quantity_ranges() of (span / align), span = hi - lo per range.
- * With no excludes this is (hi - lo) / align; each interior C_EXCLUDE hole
- * strictly reduces it. Returns 0 for align == 0 or a non-interval lattice. This
- * is the terminal consumer over the range iterator above — the basis
- * for hole-aware slot/entropy reporting, and the only place interior holes
- * affect a headline number. */
+ * With no excludes this is (hi - lo) / align; each interior C_EXCLUDE hole at
+ * conf >= floor strictly reduces it. Returns 0 for align == 0 or a non-interval
+ * lattice. `floor` has the same meaning and requirement as in quantity_ranges:
+ * pass the floor `e` was resolved at. This is the terminal consumer over the
+ * range iterator above — the basis for hole-aware slot/entropy reporting, and
+ * the only place interior holes affect a headline number. */
 unsigned long quantity_slots(enum kasld_quantity q, const struct estimate *e,
+                             enum kasld_confidence floor,
                              const struct constraint *cs, int n_cs,
                              unsigned long align);
 

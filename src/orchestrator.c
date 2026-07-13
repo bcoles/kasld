@@ -2341,8 +2341,8 @@ void compute_kaslr_info(struct summary *s) {
 #ifndef KASLD_TESTING
   s->kaslr.vslots =
       quantity_slots(Q_VIRT_IMAGE_BASE, &g_auth_engine.est[Q_VIRT_IMAGE_BASE],
-                     g_auth_engine.constraints, g_auth_engine.n_constraints,
-                     layout.virt_kaslr_align);
+                     KASLD_SOUND_FLOOR, g_auth_engine.constraints,
+                     g_auth_engine.n_constraints, layout.virt_kaslr_align);
 #else
   {
     unsigned long text_range =
@@ -2358,8 +2358,8 @@ void compute_kaslr_info(struct summary *s) {
 #ifndef KASLD_TESTING
     s->kaslr.pslots =
         quantity_slots(Q_PHYS_IMAGE_BASE, &g_auth_engine.est[Q_PHYS_IMAGE_BASE],
-                       g_auth_engine.constraints, g_auth_engine.n_constraints,
-                       layout.phys_kaslr_align);
+                       KASLD_SOUND_FLOOR, g_auth_engine.constraints,
+                       g_auth_engine.n_constraints, layout.phys_kaslr_align);
 #else
     unsigned long phys_range =
         layout.phys_kaslr_text_max - layout.phys_kaslr_text_min;
@@ -2420,9 +2420,9 @@ void compute_kaslr_info(struct summary *s) {
       lv.hi = chi;
       s->kaslr.vlikely_min = clo;
       s->kaslr.vlikely_max = chi;
-      s->kaslr.vlikely_slots =
-          quantity_slots(Q_VIRT_IMAGE_BASE, &lv, g_likely.constraints,
-                         g_likely.n_constraints, layout.virt_kaslr_align);
+      s->kaslr.vlikely_slots = quantity_slots(
+          Q_VIRT_IMAGE_BASE, &lv, CONF_BRUTE, g_likely.constraints,
+          g_likely.n_constraints, layout.virt_kaslr_align);
       s->kaslr.vlikely_bits =
           s->kaslr.vlikely_slots > 0 ? ilog2(s->kaslr.vlikely_slots) : 0;
     }
@@ -2436,9 +2436,9 @@ void compute_kaslr_info(struct summary *s) {
       lp.hi = chi;
       s->kaslr.plikely_min = clo;
       s->kaslr.plikely_max = chi;
-      s->kaslr.plikely_slots =
-          quantity_slots(Q_PHYS_IMAGE_BASE, &lp, g_likely.constraints,
-                         g_likely.n_constraints, layout.phys_kaslr_align);
+      s->kaslr.plikely_slots = quantity_slots(
+          Q_PHYS_IMAGE_BASE, &lp, CONF_BRUTE, g_likely.constraints,
+          g_likely.n_constraints, layout.phys_kaslr_align);
       s->kaslr.plikely_bits =
           s->kaslr.plikely_slots > 0 ? ilog2(s->kaslr.plikely_slots) : 0;
     }
@@ -2475,19 +2475,19 @@ void compute_kaslr_info(struct summary *s) {
   s->kaslr.virt_page_offset_slots =
       (s->kaslr.virt_page_offset_min && s->kaslr.virt_page_offset_max)
           ? quantity_slots(Q_PAGE_OFFSET, &g_auth_engine.est[Q_PAGE_OFFSET],
-                           g_auth_engine.constraints,
+                           KASLD_SOUND_FLOOR, g_auth_engine.constraints,
                            g_auth_engine.n_constraints, RANDOMIZE_MEMORY_ALIGN)
           : 0;
   s->kaslr.virt_vmalloc_slots =
       (s->kaslr.virt_vmalloc_min && s->kaslr.virt_vmalloc_max)
           ? quantity_slots(Q_VMALLOC_BASE, &g_auth_engine.est[Q_VMALLOC_BASE],
-                           g_auth_engine.constraints,
+                           KASLD_SOUND_FLOOR, g_auth_engine.constraints,
                            g_auth_engine.n_constraints, RANDOMIZE_MEMORY_ALIGN)
           : 0;
   s->kaslr.virt_vmemmap_slots =
       (s->kaslr.virt_vmemmap_min && s->kaslr.virt_vmemmap_max)
           ? quantity_slots(Q_VMEMMAP_BASE, &g_auth_engine.est[Q_VMEMMAP_BASE],
-                           g_auth_engine.constraints,
+                           KASLD_SOUND_FLOOR, g_auth_engine.constraints,
                            g_auth_engine.n_constraints, RANDOMIZE_MEMORY_ALIGN)
           : 0;
 #else
@@ -2545,7 +2545,7 @@ void compute_kaslr_info(struct summary *s) {
       le.lo = s->kaslr.virt_page_offset_likely_min;
       le.hi = s->kaslr.virt_page_offset_likely_max;
       s->kaslr.virt_page_offset_likely_slots =
-          quantity_slots(Q_PAGE_OFFSET, &le, g_likely.constraints,
+          quantity_slots(Q_PAGE_OFFSET, &le, CONF_BRUTE, g_likely.constraints,
                          g_likely.n_constraints, RANDOMIZE_MEMORY_ALIGN);
     }
     if (s->kaslr.virt_vmalloc_likely_max) {
@@ -2553,7 +2553,7 @@ void compute_kaslr_info(struct summary *s) {
       le.lo = s->kaslr.virt_vmalloc_likely_min;
       le.hi = s->kaslr.virt_vmalloc_likely_max;
       s->kaslr.virt_vmalloc_likely_slots =
-          quantity_slots(Q_VMALLOC_BASE, &le, g_likely.constraints,
+          quantity_slots(Q_VMALLOC_BASE, &le, CONF_BRUTE, g_likely.constraints,
                          g_likely.n_constraints, RANDOMIZE_MEMORY_ALIGN);
     }
     if (s->kaslr.virt_vmemmap_likely_max) {
@@ -2561,7 +2561,7 @@ void compute_kaslr_info(struct summary *s) {
       le.lo = s->kaslr.virt_vmemmap_likely_min;
       le.hi = s->kaslr.virt_vmemmap_likely_max;
       s->kaslr.virt_vmemmap_likely_slots =
-          quantity_slots(Q_VMEMMAP_BASE, &le, g_likely.constraints,
+          quantity_slots(Q_VMEMMAP_BASE, &le, CONF_BRUTE, g_likely.constraints,
                          g_likely.n_constraints, RANDOMIZE_MEMORY_ALIGN);
     }
   }

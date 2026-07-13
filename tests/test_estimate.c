@@ -240,7 +240,7 @@ static void test_quantity_ranges_interval_plain(void) {
   struct estimate e;
   quantities[Q_VIRT_IMAGE_BASE].init_top(&e);
   struct range out[8];
-  int n = quantity_ranges(Q_VIRT_IMAGE_BASE, &e, NULL, 0, out, 8);
+  int n = quantity_ranges(Q_VIRT_IMAGE_BASE, &e, CONF_BRUTE, NULL, 0, out, 8);
   assert(n == 1);
   assert(out[0].lo == e.lo && out[0].hi == e.hi);
 }
@@ -255,7 +255,7 @@ static void test_quantity_ranges_interval_with_interior_hole(void) {
   cs[0].value2 = base + 0x1fffffful; /* hole [base+16M, base+32M-1] */
 
   struct range out[8];
-  int n = quantity_ranges(Q_VIRT_IMAGE_BASE, &e, cs, 1, out, 8);
+  int n = quantity_ranges(Q_VIRT_IMAGE_BASE, &e, CONF_BRUTE, cs, 1, out, 8);
   assert(n == 2);
   assert(out[0].lo == base && out[0].hi == base + 0x1000000ul - 1);
   assert(out[1].lo == base + 0x2000000ul && out[1].hi == e.hi);
@@ -269,18 +269,65 @@ static void test_quantity_slots_hole_aware(void) {
   unsigned long align = 0x1000000ul; /* 16 MiB slots */
 
   /* No holes: (hi - lo) / align. */
-  unsigned long full = quantity_slots(Q_VIRT_IMAGE_BASE, &e, NULL, 0, align);
+  unsigned long full =
+      quantity_slots(Q_VIRT_IMAGE_BASE, &e, CONF_BRUTE, NULL, 0, align);
   assert(full == (e.hi - e.lo) / align);
 
   /* An interior hole strictly reduces the count. */
   struct constraint cs[1];
   cs[0] = mk(Q_VIRT_IMAGE_BASE, C_EXCLUDE, base + 0x1000000ul, CONF_DERIVED, 1);
   cs[0].value2 = base + 0x1fffffful; /* hole [base+16M, base+32M-1] */
-  unsigned long holed = quantity_slots(Q_VIRT_IMAGE_BASE, &e, cs, 1, align);
+  unsigned long holed =
+      quantity_slots(Q_VIRT_IMAGE_BASE, &e, CONF_BRUTE, cs, 1, align);
   assert(holed < full);
 
   /* align 0 is defined as 0 slots (no division). */
-  assert(quantity_slots(Q_VIRT_IMAGE_BASE, &e, NULL, 0, 0) == 0);
+  assert(quantity_slots(Q_VIRT_IMAGE_BASE, &e, CONF_BRUTE, NULL, 0, 0) == 0);
+}
+
+/* The floor gates which C_EXCLUDE holes carve, exactly as estimate_resolve
+ * gates the edge-setting constraints: a hole from a below-floor constraint must
+ * not shrink a floored (guaranteed) window, or the carved candidate set could
+ * drop the true value the >= floor evidence still admits. A hole at/above the
+ * floor still carves. This is the read-time half of the two-window soundness
+ * guarantee — the estimate's edges and its interior holes come from the same
+ * trust level. */
+static void test_quantity_slots_floor_gates_holes(void) {
+  struct estimate e;
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&e);
+  unsigned long base = e.lo;
+  e.hi = base + 0x4000000ul;         /* 64 MiB span */
+  unsigned long align = 0x1000000ul; /* 16 MiB slots */
+  unsigned long full =
+      quantity_slots(Q_VIRT_IMAGE_BASE, &e, CONF_INFERRED, NULL, 0, align);
+
+  /* A sub-floor (CONF_HEURISTIC) interior exclude. */
+  struct constraint cs[1];
+  cs[0] =
+      mk(Q_VIRT_IMAGE_BASE, C_EXCLUDE, base + 0x1000000ul, CONF_HEURISTIC, 1);
+  cs[0].value2 = base + 0x1fffffful; /* hole [base+16M, base+32M-1] */
+
+  /* Guaranteed floor (CONF_INFERRED): the sub-floor hole is ignored — every
+   * candidate the >= floor evidence admits survives, and the interval is not
+   * split. */
+  assert(quantity_slots(Q_VIRT_IMAGE_BASE, &e, CONF_INFERRED, cs, 1, align) ==
+         full);
+  {
+    struct range out[8];
+    int n =
+        quantity_ranges(Q_VIRT_IMAGE_BASE, &e, CONF_INFERRED, cs, 1, out, 8);
+    assert(n == 1);
+    assert(out[0].lo == e.lo && out[0].hi == e.hi);
+  }
+
+  /* All-signals floor (CONF_BRUTE): the same hole DOES carve. */
+  assert(quantity_slots(Q_VIRT_IMAGE_BASE, &e, CONF_BRUTE, cs, 1, align) <
+         full);
+
+  /* A hole at/above the floor carves even at the guaranteed floor. */
+  cs[0].conf = CONF_PARSED;
+  assert(quantity_slots(Q_VIRT_IMAGE_BASE, &e, CONF_INFERRED, cs, 1, align) <
+         full);
 }
 
 static void test_quantity_ranges_finset(void) {
@@ -288,7 +335,7 @@ static void test_quantity_ranges_finset(void) {
   struct estimate e;
   qd->init_top(&e); /* all candidates live */
   struct range out[16];
-  int n = quantity_ranges(Q_VA_BITS, &e, NULL, 0, out, 16);
+  int n = quantity_ranges(Q_VA_BITS, &e, CONF_BRUTE, NULL, 0, out, 16);
   assert(n == qd->n_candidates);
   for (int i = 0; i < n; i++)
     assert(out[i].lo == out[i].hi); /* degenerate point per candidate */
@@ -298,7 +345,7 @@ static void test_quantity_ranges_maxalign_empty(void) {
   struct estimate e;
   quantities[Q_VIRT_KASLR_ALIGN].init_top(&e);
   struct range out[4];
-  int n = quantity_ranges(Q_VIRT_KASLR_ALIGN, &e, NULL, 0, out, 4);
+  int n = quantity_ranges(Q_VIRT_KASLR_ALIGN, &e, CONF_BRUTE, NULL, 0, out, 4);
   assert(n == 0); /* an alignment is not an address set */
 }
 
@@ -488,8 +535,8 @@ static void test_quantity_slots_with_stride(void) {
   e.hi = 0x10000000ul + 0x800000ul; /* 8 MiB window */
   /* With align = 16 KiB: 8 MiB / 16 KiB = 512 align-slots, but only
    * 8 MiB / 1 MiB = 8 stride-class slots. */
-  unsigned long slots =
-      quantity_slots(Q_VIRT_IMAGE_BASE, &e, cs, 1, 0x4000ul /* 16 KiB */);
+  unsigned long slots = quantity_slots(Q_VIRT_IMAGE_BASE, &e, CONF_BRUTE, cs, 1,
+                                       0x4000ul /* 16 KiB */);
   assert(slots == 8 || slots == 9); /* off-by-one at edge tolerable */
 }
 
@@ -521,6 +568,7 @@ int main(void) {
   RUN(test_quantity_ranges_interval_plain);
   RUN(test_quantity_ranges_interval_with_interior_hole);
   RUN(test_quantity_slots_hole_aware);
+  RUN(test_quantity_slots_floor_gates_holes);
   RUN(test_quantity_ranges_finset);
   RUN(test_quantity_ranges_maxalign_empty);
 
