@@ -1513,6 +1513,27 @@ static int handle_component_line(struct component_log *clog,
   return capture_result(line, comp_method, origin);
 }
 
+/* Verbose: open a component's output block with a labelled rule, so its
+ * header + explanation + streamed lines read as one unit rather than being
+ * set off only by "--- name ---". The component's own lines stay at column 0
+ * (the echoed V/P/S wire lines are a documented interface parsed by
+ * extra/check-results); the rule alone delimits the block. */
+static void print_component_banner(const char *name, const char *method) {
+  const int width = 64;
+  int cols = 3 + (int)strlen(name); /* "── " + name */
+  printf("\n%s──%s %s%s%s", c(C_DIM), c(C_RESET), c(C_BOLD), name, c(C_RESET));
+  if (method && *method) {
+    printf(" %s·%s %s%s%s", c(C_DIM), c(C_RESET), c(C_DIM), method, c(C_RESET));
+    cols += 3 + (int)strlen(method); /* " · " + method */
+  }
+  putchar(' ');
+  cols += 1;
+  printf("%s", c(C_DIM));
+  for (; cols < width; cols++)
+    printf("─");
+  printf("%s\n", c(C_RESET));
+}
+
 static int run_component(const struct component *c) {
   /* Extract explain string before execution (if --explain active or JSON) */
   char *explain_str = NULL;
@@ -1530,10 +1551,15 @@ static int run_component(const struct component *c) {
   const char *comp_method = method_val ? method_val : "parsed";
 
   if (verbose && !json_output)
-    printf("--- %s ---\n", c->name);
+    print_component_banner(c->name, comp_method);
 
-  if (explain_mode && explain_str && !json_output)
-    printf("  %s\n\n", explain_str);
+  if (explain_mode && explain_str && !json_output) {
+    /* `c` names the component parameter in this function, shadowing the c()
+     * colour helper, so reference the colour codes directly. */
+    const char *dim = color_output ? C_DIM : "";
+    const char *rst = color_output ? C_RESET : "";
+    printf("%s  %s%s\n\n", dim, explain_str, rst);
+  }
 
   /* Always allocate a log slot for outcome tracking */
   struct component_log *clog = NULL;
