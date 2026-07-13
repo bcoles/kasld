@@ -557,6 +557,7 @@ test : $(TEST_BIN) $(TEST_RENDER_BIN) $(TEST_EST_BIN) $(TEST_EV_BIN) $(TEST_ALIG
 # `make lint`. Each guard exits non-zero on failure; make halts on the first.
 .PHONY: lint
 lint :
+	@$(TEST_DIR)/check-rule-registry
 	@$(TEST_DIR)/check-self-edges
 	@$(TEST_DIR)/check-extent-callers
 	@$(TEST_DIR)/check-truncation

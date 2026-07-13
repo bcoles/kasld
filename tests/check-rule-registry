@@ -1,0 +1,119 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-rule-registry — every engine rule is registered exactly once, and tested.
+#
+# Two properties the compiler does NOT enforce, both load-bearing for the
+# engine's soundness story:
+#
+#   1. Registration. Every src/rules/<name>.c must be wired into the registry
+#      in src/engine_rules.c (k_rules[] for constraint rules, k_vrules[] for
+#      verdict rules) as rule_<name>. A rule file that is never registered
+#      compiles clean and is simply never run — the live engine ignores it while
+#      its own unit test (if any) passes in isolation, so the gap is invisible.
+#
+#   2. A dedicated test. A rule with no test goes green. The per-rule soundness
+#      test — not the integration oracle — is what the project leans on, so each
+#      rule must be exercised by name.
+#
+# Fails if:
+#   - a rule file has no matching rule_<name> registry entry, or a registry
+#     entry names no rule file, or a file is registered more than once (keeps the
+#     file set and the registry in exact bijection);
+#   - a rule is neither referenced by name (rule_<name>) in tests/test_engine.c
+#     nor listed on the INTEGRATION allowlist below. Allowlisted rules are those
+#     whose dedicated coverage lives in tests/test_engine_integration.c (an
+#     end-to-end test over the full registry rather than a by-name unit test).
+#     The allowlist is kept honest: an entry must be a real rule, must be absent
+#     from test_engine.c (else it is unit-tested — drop it), and must be
+#     referenced in test_engine_integration.c (else the claim is empty).
+#
+# It does NOT judge test quality — only that a dedicated test exists.
+#
+# Usage: tests/check-rule-registry   (also run by `make test`)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+RULES=$ROOT/src/rules
+REG=$ROOT/src/engine_rules.c
+UNIT=$ROOT/tests/test_engine.c
+INTEG=$ROOT/tests/test_engine_integration.c
+
+# Rules whose dedicated soundness test lives in test_engine_integration.c
+# (exercised end-to-end over the full registry) rather than a by-name unit test
+# in test_engine.c. Keep alphabetical.
+INTEGRATION="arm64_text_base
+initrd_above_kernel"
+
+if [ -t 2 ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; RESET=
+fi
+
+contains() { # $1=needle $2=list (whitespace/newline separated)
+  for _x in $2; do [ "$_x" = "$1" ] && return 0; done
+  return 1
+}
+
+hdr_shown=0
+fail() { # $1=message
+  if [ "$hdr_shown" = 0 ]; then
+    printf '%scheck-rule-registry: FAIL%s\n' "$RED" "$RESET" >&2
+    hdr_shown=1
+  fi
+  printf '  %s\n' "$1" >&2
+}
+
+# Registry entry names: the `    rule_<name>,` array elements in k_rules[] /
+# k_vrules[]. The rule_fn / verdict_fn typedefs and the engine_rules() accessors
+# never appear as a trailing-comma array element, so they are not matched.
+entries=$(grep -oE '^[[:space:]]*rule_[a-z0-9_]+,' "$REG" | tr -d ' ,' \
+          | sed 's/^rule_//' | sort)
+# Rule files (basenames without .c).
+files=$(for f in "$RULES"/*.c; do basename "$f" .c; done | sort)
+
+# 1. Bijection between rule files and registry entries.
+for n in $files; do
+  contains "$n" "$entries" ||
+    fail "unregistered: src/rules/$n.c — add rule_$n to k_rules[]/k_vrules[]"
+done
+for n in $entries; do
+  contains "$n" "$files" ||
+    fail "orphan registry entry rule_$n — no src/rules/$n.c"
+done
+dupes=$(printf '%s\n' "$entries" | uniq -d)
+for n in $dupes; do
+  fail "rule_$n registered more than once in engine_rules.c"
+done
+
+# 2. Every rule is tested: by name in test_engine.c, or integration-allowlisted.
+for n in $files; do
+  grep -qE "\\brule_$n\\b" "$UNIT" && continue
+  contains "$n" "$INTEGRATION" && continue
+  fail "untested: rule_$n — add a test naming it to test_engine.c, or (if covered
+  end-to-end) list $n in INTEGRATION in tests/check-rule-registry"
+done
+
+# 3. Keep the INTEGRATION allowlist honest.
+for a in $INTEGRATION; do
+  contains "$a" "$files" ||
+    fail "INTEGRATION lists $a but src/rules/$a.c does not exist"
+  if grep -qE "\\brule_$a\\b" "$UNIT"; then
+    fail "$a is unit-tested in test_engine.c — remove it from INTEGRATION"
+  fi
+  grep -qF "$a" "$INTEG" ||
+    fail "$a is on INTEGRATION but not referenced in test_engine_integration.c"
+done
+
+[ "$hdr_shown" = 0 ] || {
+  printf 'The engine ignores an unregistered rule and never runs an untested one.\n' >&2
+  exit 1
+}
+
+nfiles=$(printf '%s\n' "$files" | grep -c .)
+nint=$(printf '%s\n' "$INTEGRATION" | grep -c .)
+printf '%scheck-rule-registry: OK%s (%s rules, all registered once and tested; %s integration-covered)\n' \
+  "$GREEN" "$RESET" "$nfiles" "$nint"
