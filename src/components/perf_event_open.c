@@ -63,6 +63,7 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"
+           "live:1\n"
            "addr:virtual\n"
            "sysctl:perf_event_paranoid>=2\n"
            "bypass:CAP_PERFMON\n"
@@ -241,6 +242,8 @@ static unsigned long get_kernel_addr_perf(int *exit_hint) {
 }
 
 int main(void) {
+  if (kasld_skip_live_probe("perf_event_open"))
+    return 0;
   int exit_hint = 0;
   unsigned long addr = get_kernel_addr_perf(&exit_hint);
   if (!addr) {

@@ -190,6 +190,7 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:timing\n"
            "phase:probing\n"
+           "live:1\n"
            "addr:virtual\n"
            "status:experimental\n"
            "config:CONFIG_FUTEX_PRIVATE_HASH\n"
@@ -763,6 +764,8 @@ static unsigned long detect_mm_struct_size(void) {
  */
 
 int main(void) {
+  if (kasld_skip_live_probe("kernelsnitch"))
+    return 0;
   if (!getenv("KASLD_EXPERIMENTAL")) {
     fprintf(stderr, "[-] kernelsnitch: experimental component; "
                     "set KASLD_EXPERIMENTAL=1 to enable\n");

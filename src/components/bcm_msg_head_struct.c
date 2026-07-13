@@ -56,6 +56,7 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:heuristic\n"
            "phase:probing\n"
+           "live:1\n"
            "addr:virtual\n"
            "cve:CVE-2021-34693\n"
            "patch:v5.12\n"
@@ -192,14 +193,9 @@ static unsigned long get_kernel_addr_from_bcm_msg_head_struct(void) {
 #pragma GCC diagnostic pop
 
 int main(void) {
-  /* Live socket probe: opens a CAN BCM socket and recvfrom()s a reply, reading
-   * no files. When KASLD_SYSROOT redirects reads to a copied tree there is no
-   * live kernel to probe, so skip it (and avoid touching live sockets). */
-  if (kasld_sysroot()) {
-    kasld_info("skipping live CAN BCM probe under KASLD_SYSROOT");
+  if (kasld_skip_live_probe("CAN BCM"))
     return 0;
-  }
-
+  /* Live socket probe: opens a CAN BCM socket and recvfrom()s a reply. */
   unsigned long addr = get_kernel_addr_from_bcm_msg_head_struct();
   if (!addr) {
     kasld_err("no kernel address leaked via BCM socket");

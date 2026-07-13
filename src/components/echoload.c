@@ -58,6 +58,7 @@
 
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include "include/sidechannel.h"
 #include <memory.h>
 #include <setjmp.h>
@@ -116,6 +117,7 @@ KASLD_EXPLAIN("EchoLoad exploits the Meltdown vulnerability's zero-return "
 
 KASLD_META("method:timing\n"
            "phase:probing\n"
+           "live:1\n"
            "addr:virtual\n"
            "status:experimental\n"
            "hardware:Meltdown-vulnerable CPU required\n");
@@ -218,6 +220,8 @@ static unsigned long echoload_sweep(int use_tsx) {
  * =========================================================================
  */
 int main(void) {
+  if (kasld_skip_live_probe("echoload"))
+    return 0;
   if (!getenv("KASLD_EXPERIMENTAL")) {
     fprintf(stderr, "[-] echoload: experimental component; "
                     "set KASLD_EXPERIMENTAL=1 to enable\n");

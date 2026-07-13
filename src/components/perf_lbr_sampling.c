@@ -77,6 +77,7 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"
+           "live:1\n"
            "addr:virtual\n"
            "sysctl:perf_event_paranoid>=2\n"
            "bypass:CAP_PERFMON\n"
@@ -131,6 +132,8 @@ static int is_kernel_va(unsigned long a) {
 
 int main(int argc, char *argv[]) {
   kasld_cli(argc, argv);
+  if (kasld_skip_live_probe("perf LBR"))
+    return 0;
   int verbose = kasld_is_verbose();
 
   long page_size = sysconf(_SC_PAGESIZE);

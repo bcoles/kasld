@@ -102,6 +102,7 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"
+           "live:1\n"
            "addr:virtual\n"
            "patch:v3.10\n"
            "hardware:UMIP\n");
@@ -206,6 +207,8 @@ static unsigned long get_kernel_addr_sidt(void) {
 }
 
 int main(void) {
+  if (kasld_skip_live_probe("SIDT"))
+    return 0;
   unsigned long addr = get_kernel_addr_sidt();
 
   if (!addr)

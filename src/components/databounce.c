@@ -55,6 +55,7 @@
 
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include "include/sidechannel.h"
 #include <memory.h>
 #include <stdio.h>
@@ -100,6 +101,7 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:timing\n"
            "phase:probing\n"
+           "live:1\n"
            "addr:virtual\n"
            "hardware:TSX required (mitigated by tsx=off)\n");
 
@@ -164,6 +166,8 @@ static unsigned long databounce_sweep(void) {
  * =========================================================================
  */
 int main(void) {
+  if (kasld_skip_live_probe("databounce"))
+    return 0;
   if (!is_intel_cpu()) {
     fprintf(stderr,
             "[-] databounce: not an Intel CPU; attack not applicable\n");

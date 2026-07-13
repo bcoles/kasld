@@ -378,6 +378,7 @@ Supported metadata keys:
 | `method` | Technique category, used by the hardening report | `parsed`, `heuristic`, `timing`, `brute`, `detection` |
 | `phase` | Scheduling phase | `inference` (default when omitted), `probing` |
 | `addr` | Address type leaked | `virtual`, `physical`, `both` |
+| `live` | Result comes from live runtime state, not a captured file — skipped offline | `1` |
 | `sysctl` | Runtime sysctl gate | `dmesg_restrict>=1`, `kptr_restrict>=1` |
 | `bypass` | Condition that bypasses the gate | `CAP_SYSLOG`, `adm group` |
 | `fallback` | Alternative data source | `/var/log/dmesg` |
@@ -433,6 +434,17 @@ with its `main` renamed, drives it over hand-built fixture files reproducing the
 exact kernel ABI (text format, units, endianness), and checks the emitted wire
 line. `tests/test_sysfs_parsers.c` is the pattern; `tests/test_btf.c` covers the
 oversized-input case.
+
+**Live probes.** A component whose result comes from live runtime state of the
+executing kernel/CPU — a perf syscall, a CPU instruction, a timing side-channel,
+a set-uid helper, or a self-referential `/proc/self` pseudo-file — cannot be
+reproduced from a captured tree: under `KASLD_SYSROOT` it would describe the
+analysis host, not the target. Such a component must (1) declare `live:1` in
+`KASLD_META`, so the orchestrator filters it under `KASLD_SYSROOT`, and (2) call
+`kasld_skip_live_probe("<name>")` at the top of `main()` (returning when it
+returns non-zero), so a direct standalone run skips itself too. The
+`tests/check-live-probes` guard fails the build if a live probe is missing
+either. A component that only reads capturable files needs neither.
 
 Hermetic tests are regression guards against parser *code* changes, not a way to
 detect kernel-side ABI drift — a frozen fixture cannot track a moving kernel.

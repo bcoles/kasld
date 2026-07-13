@@ -1,0 +1,117 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-live-probes — keep three things in sync for every component that probes
+# live runtime state: it is DETECTED as live, TAGGED live:1 in KASLD_META, and
+# GUARDED by a kasld_skip_live_probe() call in main().
+#
+# A live probe derives its result from the live runtime state of the executing
+# kernel/CPU — a perf syscall, a CPU instruction, a timing side-channel, a
+# set-uid helper, or a self-referential /proc/self pseudo-file — so it cannot be
+# reproduced from a captured tree. Two independent mechanisms keep it from
+# running offline against the analysis host:
+#   - live:1 in KASLD_META             — the orchestrator filters it under
+#                                        KASLD_SYSROOT (it never forks), and
+#   - kasld_skip_live_probe() in main() — the component skips itself when run as
+#                                        a standalone binary (no orchestrator).
+# Both are needed: components run both ways. This guard makes a missing tag or a
+# missing self-guard loud at build time.
+#
+# Detection is structural: a component is "live" if its source matches a live
+# primitive signature (SIG below) OR is a reviewed live probe whose liveness is
+# not greppable (NAME_ALLOW — mmap VA-boundary sweeps, the iret CPU probe).
+#
+# The check FAILS if, for any component, DETECTED / TAGGED / GUARDED disagree:
+#   - a detected live probe missing live:1 (would run offline via the
+#     orchestrator) or missing kasld_skip_live_probe() (would run offline when
+#     invoked directly), or
+#   - a tagged/guarded component that is NOT detected (stale tag/guard, or a new
+#     un-greppable probe that must be reviewed into NAME_ALLOW).
+# It does NOT prove a tagged component is unsound offline — only that detection,
+# the tag, and the self-guard do not drift apart.
+#
+# Usage: tests/check-live-probes   (also run by `make lint`)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+COMP=$ROOT/src/components
+
+# Live primitive signatures: a source hit means the component reads live
+# executing-kernel/CPU state. Kept deliberately specific to avoid false hits.
+#   perf_event_open / SYS_/__NR_  — perf ksymbol/LBR/event leaks
+#   rdtsc                          — timing side-channels (matches rdtsc/rdtscp)
+#   sidechannel.h                  — the shared Flush+Reload / timing helpers
+#   mincore(                       — mincore() residency oracle
+#   sidt                           — SIDT instruction (IDT register)
+#   /proc/self/syscall, getppid(   — self/parent pseudo-files (host-live)
+#   PF_CAN / AF_CAN                — CAN BCM socket leak
+#   NILFS_IOCTL                    — nilfs2 ioctl uninitialised-page leak
+#   pppd                           — set-uid pppd helper leak
+SIG='perf_event_open|SYS_perf_event_open|__NR_perf_event_open|rdtsc|sidechannel\.h|mincore[[:space:]]*\(|sidt|/proc/self/syscall|getppid[[:space:]]*\(|PF_CAN|AF_CAN|NILFS_IOCTL|pppd'
+
+# Reviewed live probes whose liveness is not greppable: mmap VA-boundary sweeps
+# (mmap alone is too common a call to signature on) and the iret CPU probe. Keep
+# alphabetical.
+NAME_ALLOW="mmap_arm64_va_bits
+mmap_brute_vmsplit
+mmap_riscv64_va_bits
+mmap_s390_va_bits
+qemu_tcg_iret"
+
+if [ -t 2 ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; RESET=
+fi
+
+contains() { # $1=needle $2=list
+  for _x in $2; do [ "$_x" = "$1" ] && return 0; done
+  return 1
+}
+
+emit_fail() { # $1 = message header (printed once)
+  [ "$fail" = 0 ] && printf '%slive-probe guard: %s%s\n' "$RED" "$1" "$RESET" >&2
+}
+
+fail=0
+ndetected=0
+for f in "$COMP"/*.c; do
+  b=$(basename "$f" .c)
+  detected=1
+  if ! grep -qE "$SIG" "$f" && ! contains "$b" "$NAME_ALLOW"; then
+    detected=0
+  fi
+  tagged=0
+  grep -q '"live:1' "$f" && tagged=1
+  guarded=0
+  grep -q 'kasld_skip_live_probe(' "$f" && guarded=1
+
+  if [ "$detected" = 1 ]; then
+    ndetected=$((ndetected + 1))
+    if [ "$tagged" = 0 ]; then
+      emit_fail 'live probe(s) missing live:1 in KASLD_META:'
+      printf '  %s\n' "$b" >&2; fail=1
+    fi
+    if [ "$guarded" = 0 ]; then
+      emit_fail 'live probe(s) missing kasld_skip_live_probe() in main():'
+      printf '  %s\n' "$b" >&2; fail=1
+    fi
+  elif [ "$tagged" = 1 ] || [ "$guarded" = 1 ]; then
+    emit_fail 'live:1 tag / self-guard with no live-primitive evidence:'
+    printf '  %s\n' "$b" >&2; fail=1
+  fi
+done
+
+if [ "$fail" = 1 ]; then
+  printf 'A live probe must (1) carry "live:1\\n" in its KASLD_META so the\n' >&2
+  printf 'orchestrator skips it under KASLD_SYSROOT, and (2) call\n' >&2
+  printf 'kasld_skip_live_probe() at the top of main() so a direct standalone run\n' >&2
+  printf 'skips itself too. If a tagged/guarded component is not detected, add it\n' >&2
+  printf 'to NAME_ALLOW in tests/check-live-probes (after review) or drop it.\n' >&2
+  exit 1
+fi
+
+printf '%slive-probe guard: OK%s (%d live probes, all tagged live:1 and self-guarded)\n' \
+  "$GREEN" "$RESET" "$ndetected"

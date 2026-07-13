@@ -70,6 +70,7 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"
+           "live:1\n"
            "addr:virtual\n"
            "cve:CVE-2020-28588\n"
            "patch:v5.10\n"
@@ -191,6 +192,10 @@ static unsigned long get_kernel_addr_proc_pid_syscall(void) {
 }
 
 int main(void) {
+  if (kasld_skip_live_probe("/proc/self/syscall"))
+    return 0;
+  /* Live probe: spawns `cat /proc/self/syscall` and parses the reading
+   * process's leaked kernel-stack residue — dynamic per-process state. */
   unsigned long addr = get_kernel_addr_proc_pid_syscall();
   if (!addr) {
     kasld_err("no kernel address found in /proc/pid/syscall");

@@ -62,6 +62,7 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:heuristic\n"
            "phase:probing\n"
+           "live:1\n"
            "addr:virtual\n"
            "patch:v6.3\n"
            "config:CONFIG_NILFS2_FS\n");
@@ -178,6 +179,8 @@ static unsigned long try_leak(int nilfs_fd) {
 }
 
 int main(void) {
+  if (kasld_skip_live_probe("nilfs2 ioctl"))
+    return 0;
   int fd;
   unsigned long addr;
 

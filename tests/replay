@@ -30,6 +30,11 @@
 # summary is informational: foreign-arch component children do not exec under
 # nested qemu-user, so those fixtures legitimately produce nothing under
 # emulation, and whether a leak/probe component fires is environment-dependent.
+# Live probes (live:1 in .kasld_meta — perf, timing side-channels, mmap VA
+# sweeps, ioctl/socket leaks, /proc/self) are skipped by the binary itself
+# because KASLD_SYSROOT is set: their result would describe the analysis host,
+# not the captured target. So this harness exercises the orchestrator, engine
+# and renderers over the captured facts, not the live-probe binaries.
 #
 # Usage:  tests/replay [FIXTURE_DIR ...]      (default: all under tests/fixtures)
 # Env:    QEMU_DIR      (default: resolve qemu-<arch> from PATH)

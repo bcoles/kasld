@@ -68,6 +68,7 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:timing\n"
            "phase:probing\n"
+           "live:1\n"
            "addr:virtual\n"
            "hardware:KPTI\n"
            "config:RANDOMIZE_MEMORY\n");
@@ -229,6 +230,8 @@ static unsigned long get_directmap_base_prefetch(void) {
 
 int main(int argc, char *argv[]) {
   kasld_cli(argc, argv);
+  if (kasld_skip_live_probe("prefetch directmap"))
+    return 0;
   verbose = kasld_is_verbose();
 
   kasld_info("trying prefetch direct-map side-channel ...");

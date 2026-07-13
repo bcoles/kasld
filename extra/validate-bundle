@@ -187,24 +187,24 @@ fi
 # Run kasld over the bundle's sysroot, capture the JSON.
 # ---------------------------------------------------------------------------
 JSON=$TMP/kasld.json
-# Live-kernel probes (perf / timing side-channels / SIDT / mincore / ioctl
-# leaks) obtain their address from the RUNNING kernel via a syscall or
-# instruction, not from a file — so KASLD_SYSROOT cannot redirect them. On a
-# native-arch replay they therefore describe the HOST kernel, not the captured
-# bundle, and their leaks can push the engine's window off the bundle's true
-# base. Skip them so validation is pure file-based inference: deterministic,
-# host-independent, and sound for a bundle captured on a different machine.
-# (Under qemu-user these never exec anyway — the flag is a harmless no-op.)
-SKIP_PROBES='perf_*,prefetch*,mmap_*,databounce,echoload,entrybleed,zombieload,kernelsnitch,mincore,sidt,qemu_tcg_iret,function_order_fingerprint,proc_pid_syscall,proc_stat_wchan,nilfs2_ioctl,bcm_msg_head_struct'
+# Live-kernel probes (perf / timing side-channels / SIDT / mincore / mmap-brute
+# / ioctl leaks, /proc/self, ...) obtain their result from the RUNNING kernel,
+# not from a captured file, so on a native-arch replay they describe the HOST
+# kernel and could push the engine's window off the bundle's true base. The
+# binary excludes every such probe under KASLD_SYSROOT (they carry live:1 in
+# .kasld_meta and the orchestrator filters them), which this tool always sets —
+# so no --skip is needed. Every remaining component is a pure function of the
+# captured files: deterministic, host-independent, and sound for a bundle
+# captured on a different machine.
 # run_kasld_sysroot SYSROOT OUT — run the arch-correct binary (native or under
-# qemu-user) over an arbitrary sysroot, same skip set as the main run.
+# qemu-user) over an arbitrary sysroot.
 run_kasld_sysroot() {
   if [ -n "$RUNNER" ]; then
     KASLD_SYSROOT="$1" KASLD_UNAME_RELEASE="$REL" \
-      "$RUNNER" "$BIN" -j -q --skip "$SKIP_PROBES" > "$2" 2>/dev/null
+      "$RUNNER" "$BIN" -j -q > "$2" 2>/dev/null
   else
     KASLD_SYSROOT="$1" KASLD_UNAME_RELEASE="$REL" \
-      "$BIN" -j -q --skip "$SKIP_PROBES" > "$2" 2>/dev/null
+      "$BIN" -j -q > "$2" 2>/dev/null
   fi
 }
 
@@ -267,8 +267,9 @@ perturb_case() {
 # GUARANTEED window (two-window model: it depends only on trusted, >= sound-floor
 # inputs). kallsyms is removed first so the base is a window bounded by the
 # ceiling (a pin would conflict-drop the bad ceiling and mask the bug). No ground
-# truth needed — runs on anonymized bundles too. SKIP_PROBES excludes the
-# live/jittery components, so each run is a deterministic function of the files.
+# truth needed — runs on anonymized bundles too. The binary skips live probes
+# under KASLD_SYSROOT (live:1 in .kasld_meta), so each run is a deterministic
+# function of the captured files.
 if [ "$PERTURB" = 1 ]; then
   printf '%sPerturbation:%s no container-fakeable input may move the guaranteed window\n' \
     "$BOLD" "$RESET"
@@ -305,10 +306,10 @@ fi
 # fails to exec). The output JSON is what matters.
 if [ -n "$RUNNER" ]; then
   KASLD_SYSROOT="$BUNDLE/sysroot" KASLD_UNAME_RELEASE="$REL" \
-    "$RUNNER" "$BIN" -j -q --skip "$SKIP_PROBES" > "$JSON" 2>"$TMP/err"
+    "$RUNNER" "$BIN" -j -q > "$JSON" 2>"$TMP/err"
 else
   KASLD_SYSROOT="$BUNDLE/sysroot" KASLD_UNAME_RELEASE="$REL" \
-    "$BIN" -j -q --skip "$SKIP_PROBES" > "$JSON" 2>"$TMP/err"
+    "$BIN" -j -q > "$JSON" 2>"$TMP/err"
 fi
 if [ ! -s "$JSON" ]; then
   echo "$PROG: kasld produced empty JSON" >&2

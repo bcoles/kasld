@@ -119,6 +119,7 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:timing\n"
            "phase:probing\n"
+           "live:1\n"
            "addr:virtual\n"
            "hardware:KPTI\n");
 
@@ -258,6 +259,8 @@ static unsigned long get_kernel_addr_prefetch(void) {
 
 int main(int argc, char *argv[]) {
   kasld_cli(argc, argv);
+  if (kasld_skip_live_probe("prefetch"))
+    return 0;
   verbose = kasld_is_verbose();
 
   kasld_info("trying prefetch side-channel ...");

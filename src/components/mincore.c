@@ -59,6 +59,7 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:heuristic\n"
            "phase:probing\n"
+           "live:1\n"
            "addr:virtual\n"
            "cve:CVE-2017-16994\n"
            "patch:v4.15\n");
@@ -135,16 +136,10 @@ static unsigned long get_kernel_addr_mincore(void) {
 
 int main(int argc, char *argv[]) {
   kasld_cli(argc, argv);
-
-  /* Live timing side-channel: this probes the running kernel through mincore()
-   * and reads no files. When KASLD_SYSROOT redirects reads to a copied tree
-   * there is no live kernel to probe, so skip the multi-second scan rather than
-   * run it to the give-up deadline against the host kernel. */
-  if (kasld_sysroot()) {
-    kasld_info("skipping live mincore probe under KASLD_SYSROOT");
+  if (kasld_skip_live_probe("mincore"))
     return 0;
-  }
 
+  /* Live timing side-channel: probes the running kernel through mincore(). */
   kasld_info("trying mincore info leak...");
 
   unsigned long addr = get_kernel_addr_mincore();

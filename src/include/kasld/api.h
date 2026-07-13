@@ -1194,6 +1194,12 @@ typedef int make_iso_compilers_happy;
  *            Values: parsed, heuristic, timing, brute, detection.
  *   phase:   "inference" (default) or "probing".
  *   addr:    "virtual" or "physical".
+ *   live:    "1" — the result derives from live runtime state of the
+ *            executing kernel/CPU (a syscall, a CPU instruction, a timing
+ *            measurement, a setuid helper, or a self-referential /proc/self
+ *            pseudo-file) rather than a static captured fact, so it cannot be
+ *            reproduced from a copied tree. The orchestrator skips such
+ *            components when KASLD_SYSROOT is set (offline analysis).
  *   status:  "experimental" — opt-in via -x.
  *   sysctl:  Mitigating sysctl.
  *   bypass:  Capability that bypasses the mitigation.

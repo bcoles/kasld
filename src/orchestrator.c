@@ -179,7 +179,12 @@ struct component {
                         * Set from "phase:" in .kasld_meta; falls back to
                         * method-based inference when "phase:" is absent. */
   int is_experimental; /* set from status:experimental in .kasld_meta */
-  int is_filtered;     /* set by apply_skip_filter() from --skip patterns */
+  int is_live;         /* set from live:1 in .kasld_meta — result comes from
+                        * live runtime state of the executing kernel/CPU, so it
+                        * cannot be reproduced from a captured tree. */
+  int is_filtered;     /* set by apply_skip_filter() from --skip patterns, or by
+                        * apply_sysroot_filter() for live probes under
+                        * KASLD_SYSROOT */
 };
 
 static struct component components[MAX_COMPONENTS];
@@ -1403,6 +1408,10 @@ static void classify_components(void) {
     const char *status = meta_get(&m, "status");
     if (status && strcmp(status, "experimental") == 0)
       components[i].is_experimental = 1;
+
+    const char *live = meta_get(&m, "live");
+    if (live && strcmp(live, "1") == 0)
+      components[i].is_live = 1;
   }
 }
 
@@ -1418,6 +1427,24 @@ static void apply_skip_filter(void) {
         break;
       }
     }
+  }
+}
+
+/* Under KASLD_SYSROOT (offline analysis against a captured tree), filter out
+ * components tagged live:1 in .kasld_meta. Their result comes from live
+ * runtime state of the executing kernel/CPU — a syscall, a CPU instruction, a
+ * timing measurement, a setuid helper, or a self-referential /proc/self
+ * pseudo-file — so against a copied tree it describes the wrong (host) kernel
+ * or cannot be produced at all. Reusing is_filtered excludes them from
+ * scheduling and accounting exactly as --skip does. No-op on a live system
+ * (KASLD_SYSROOT unset). Called after apply_skip_filter(). */
+static void apply_sysroot_filter(void) {
+  const char *root = getenv("KASLD_SYSROOT");
+  if (!root || !*root)
+    return;
+  for (int i = 0; i < num_components; i++) {
+    if (components[i].is_live)
+      components[i].is_filtered = 1;
   }
 }
 #endif /* !KASLD_TESTING */
@@ -3544,11 +3571,21 @@ int main(int argc, char *argv[]) {
   classify_components();
   validate_component_phases();
   apply_skip_filter();
+  apply_sysroot_filter();
 
-  /* Verbose: list components excluded by --skip */
-  if (verbose && num_skip_patterns > 0 && !json_output) {
+  /* Verbose: list components excluded by --skip or, under KASLD_SYSROOT, by the
+   * offline live-probe filter (apply_sysroot_filter). */
+  if (verbose && !json_output) {
+    const char *sysroot = getenv("KASLD_SYSROOT");
+    int offline = sysroot && *sysroot;
     for (int i = 0; i < num_components; i++) {
-      if (components[i].is_filtered)
+      if (!components[i].is_filtered)
+        continue;
+      if (offline && components[i].is_live)
+        printf("[.] skipping %s (live probe, not replayable under "
+               "KASLD_SYSROOT)\n",
+               components[i].name);
+      else
         printf("[.] skipping %s (matched --skip filter)\n", components[i].name);
     }
   }
@@ -3596,13 +3633,18 @@ int main(int argc, char *argv[]) {
       else if (components[i].is_experimental && !exp_active)
         ne++;
     }
+    /* Under KASLD_SYSROOT the filtered set also includes live probes skipped
+     * for offline analysis (not just --skip), so word the count neutrally. */
+    const char *sysroot = getenv("KASLD_SYSROOT");
+    const char *skipped_by =
+        (sysroot && *sysroot) ? "skipped" : "skipped by --skip";
     if (nf > 0 && ne > 0)
-      printf("Running %d components (%d skipped by --skip, %d experimental "
+      printf("Running %d components (%d %s, %d experimental "
              "skipped; use -x to enable)...\n",
-             num_active_components, nf, ne);
+             num_active_components, nf, skipped_by, ne);
     else if (nf > 0)
-      printf("Running %d components (%d skipped by --skip)...\n",
-             num_active_components, nf);
+      printf("Running %d components (%d %s)...\n", num_active_components, nf,
+             skipped_by);
     else if (ne > 0)
       printf("Running %d components (%d experimental skipped; "
              "use -x to enable)...\n",

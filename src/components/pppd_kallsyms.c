@@ -71,6 +71,7 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"
+           "live:1\n"
            "addr:virtual\n"
            "sysctl:kptr_restrict>=1\n"
            "patch:v4.8\n");
@@ -170,6 +171,10 @@ static unsigned long get_kernel_addr_pppd_kallsyms(void) {
 }
 
 int main(void) {
+  if (kasld_skip_live_probe("pppd"))
+    return 0;
+  /* Live probe: spawns set-uid pppd and reads its leaked kernel pointer from
+   * the running kernel. */
   unsigned long addr = get_kernel_addr_pppd_kallsyms();
   if (!addr) {
     kasld_err("no kernel address found via pppd");

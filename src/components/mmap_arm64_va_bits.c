@@ -42,9 +42,13 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:inferred\n"
            "phase:probing\n"
+           "live:1\n"
            "addr:virtual\n");
 
 int main(void) {
+  if (kasld_skip_live_probe("VA_BITS mmap"))
+    return 0;
+  /* Live mmap boundary probe of the running VA space. */
 #if defined(__aarch64__)
   /* VA_BITS candidates, largest first (must match VA_BITS_CANDIDATES). */
   static const unsigned long cands[] = {52ul, 48ul, 47ul, 42ul, 39ul};

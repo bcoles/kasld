@@ -54,6 +54,7 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"
+           "live:1\n"
            "addr:virtual\n"
            "patch:v4.4\n");
 
@@ -112,6 +113,8 @@ static unsigned long get_kernel_addr_proc_stat_wchan(void) {
 }
 
 int main(void) {
+  if (kasld_skip_live_probe("wchan"))
+    return 0;
   unsigned long addr = get_kernel_addr_proc_stat_wchan();
   if (!addr) {
     kasld_err("no kernel address found in /proc/pid/stat wchan");

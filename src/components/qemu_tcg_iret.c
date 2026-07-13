@@ -66,6 +66,7 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"
+           "live:1\n"
            "addr:virtual\n"
            "patch:QEMU v9.1\n");
 
@@ -192,6 +193,8 @@ static uint64_t get_kernel_stack_addr_using_qemu_tcg_iret(void) {
 }
 
 int main(void) {
+  if (kasld_skip_live_probe("iret"))
+    return 0;
   unsigned long addr = get_kernel_stack_addr_using_qemu_tcg_iret();
 
   if (!addr) {

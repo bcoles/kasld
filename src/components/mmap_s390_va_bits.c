@@ -13,15 +13,20 @@
 #endif
 
 #include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include "include/kasld/s390_paging.h"
 
 KASLD_EXPLAIN("Probes the s390 user-address-space limit with a single "
               "mmap(MAP_FIXED) at 1<<42 and emits the detected VA-bit width as "
               "SF_VIRT_ADDR_BITS. Unprivileged, no sysctl gate. s390x only.");
 KASLD_META("method:inferred\n"
-           "phase:probing\n");
+           "phase:probing\n"
+           "live:1\n");
 
 int main(void) {
+  if (kasld_skip_live_probe("VA_BITS mmap"))
+    return 0;
+  /* Live mmap boundary probe of the running VA space. */
   int va = kasld_s390_va_bits();
   /* Inferred from an mmap boundary probe, not parsed from an authoritative
    * source: CONF_INFERRED (at the sound floor), not CONF_PARSED. */

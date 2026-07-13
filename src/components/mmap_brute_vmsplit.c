@@ -48,6 +48,7 @@ KASLD_EXPLAIN("Probes the 32-bit address space by attempting mmap at 256 MiB "
 
 KASLD_META("method:brute\n"
            "phase:probing\n"
+           "live:1\n"
            "addr:virtual\n");
 
 static unsigned long find_kernel_address_space_start(void) {
@@ -67,6 +68,9 @@ static unsigned long find_kernel_address_space_start(void) {
 }
 
 int main(void) {
+  if (kasld_skip_live_probe("VMSPLIT mmap"))
+    return 0;
+  /* Live mmap probe of the running VA space. */
   unsigned long addr = find_kernel_address_space_start();
   if (!addr)
     return 0;

@@ -72,6 +72,7 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:timing\n"
            "phase:probing\n"
+           "live:1\n"
            "addr:virtual\n"
            "cve:CVE-2022-4543\n"
            "patch:v6.2\n"
@@ -375,6 +376,8 @@ static unsigned long get_kernel_addr_entrybleed(void) {
 }
 
 int main(void) {
+  if (kasld_skip_live_probe("entrybleed"))
+    return 0;
   kasld_info("trying EntryBleed (CVE-2022-4543) ...");
 
   unsigned long addr = get_kernel_addr_entrybleed();

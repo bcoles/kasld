@@ -562,6 +562,7 @@ lint :
 	@$(TEST_DIR)/check-truncation
 	@$(TEST_DIR)/check-component-output
 	@$(TEST_DIR)/check-component-meta
+	@$(TEST_DIR)/check-live-probes
 	@$(TEST_DIR)/check-text-floor
 	@$(TEST_DIR)/check-text-region
 	@$(TEST_DIR)/check-confidence-floor

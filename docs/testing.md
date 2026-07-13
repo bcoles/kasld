@@ -85,6 +85,7 @@ and `make` halts on the first.
 | `check-truncation` | no silent 64-bit→word narrowing when compiled for 32-bit (compiles a TU with `i686-linux-gnu-gcc`) |
 | `check-component-output` | components write only wire lines to stdout (stdout is the machine channel; diagnostics go to stderr) |
 | `check-component-meta` | every component declares `KASLD_META` with a `method:` key |
+| `check-live-probes` | every live probe (reads live kernel/CPU state) is tagged `live:1` and self-guards with `kasld_skip_live_probe()`, so it never runs offline against the analysis host |
 | `check-text-floor` | no component rolls its own text-base floor — they must use the `api.h` helper |
 | `check-shellcheck` | shellcheck over the `extra/` helper scripts |
 

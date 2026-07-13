@@ -101,6 +101,7 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"
+           "live:1\n"
            "addr:virtual\n"
            "sysctl:perf_event_paranoid>=1\n"
            "bypass:CAP_PERFMON\n"
@@ -240,6 +241,8 @@ static int drain_ring(struct perf_event_mmap_page *meta, const char *ring,
 
 int main(int argc, char *argv[]) {
   kasld_cli(argc, argv);
+  if (kasld_skip_live_probe("perf ksymbol"))
+    return 0;
   /* -t SECS overrides the default poll budget (POLL_MS); clamp to 600 s so a
    * stray large value can't wedge the poll loop. */
   int poll_ms = POLL_MS;
