@@ -172,6 +172,21 @@
  * tightness. */
 #define KASLR_VIRT_TEXT_MIN_WIDE 0ul
 
+/* Honest-top floor for Q_PHYS_IMAGE_BASE. Without an explicit floor the generic
+ * chain sets KASLR_PHYS_MIN = KERNEL_PHYS_MIN + IMAGE_BASE_OFFSET = 0x100000 —
+ * that is the minimum physical _stext, but Q_PHYS_IMAGE_BASE solves the
+ * physical IMAGE base (_text = __kaslr_offset_phys), which sits
+ * IMAGE_BASE_OFFSET below _stext and can be as low as KERNEL_PHYS_MIN (0). A
+ * pre-v6.8 identity-mapped kernel loads the image at the bottom of RAM
+ * (physical _text near 0; a real 4.14 boot shows iomem "Kernel code" starting
+ * at 0x200), below 0x100000 — flooring Q_PHYS_IMAGE_BASE at 0x100000 reports a
+ * window EXCLUDING that base, and rejects the parsed low-base pin, unsound.
+ * Widen the floor to KERNEL_PHYS_MIN so the honest window admits the low
+ * identity-mapped image base. Widen-only — a real physical leak (iomem "Kernel
+ * code", firmware reservation) narrows Q_PHYS_IMAGE_BASE back up. Mirrors
+ * KASLR_VIRT_TEXT_MIN_WIDE on the virtual side. */
+#define KASLR_PHYS_MIN_WIDE KERNEL_PHYS_MIN
+
 // Default kernel text virtual address without KASLR.
 // CONFIG_KERNEL_IMAGE_BASE (introduced ~v6.8) default = 0x3FFE0000000
 // (+ IMAGE_BASE_OFFSET for _stext). Pre-v6.8 kernels used identity mapping with

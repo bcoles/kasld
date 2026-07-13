@@ -390,6 +390,14 @@ static void test_honest_tops_admit_known_values(void) {
    * admit the low identity-mapped text base. */
   assert(interval_admits(Q_VIRT_IMAGE_BASE, (unsigned long)IMAGE_BASE_OFFSET));
   assert(interval_admits(Q_VIRT_IMAGE_BASE, 0x200ul));
+  /* The PHYSICAL image base (_text = __kaslr_offset_phys) is identity-mapped
+   * low too — as low as KERNEL_PHYS_MIN, IMAGE_BASE_OFFSET below _stext. A
+   * real 4.14 boot shows iomem "Kernel code" starting at phys 0x200. The honest
+   * top must admit it; the derived KASLR_PHYS_MIN (= _stext floor, 0x100000)
+   * would exclude it and reject the parsed low-base pin — an unsound phys
+   * window. */
+  assert(interval_admits(Q_PHYS_IMAGE_BASE, (unsigned long)KERNEL_PHYS_MIN));
+  assert(interval_admits(Q_PHYS_IMAGE_BASE, 0x200ul));
 #endif
 
 #if defined(__x86_64__) || defined(__amd64__)

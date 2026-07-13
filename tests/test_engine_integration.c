@@ -963,10 +963,13 @@ static void test_full_engine_arm64_old_layout_sound(void) {
 
 /* Pre-v6.8 s390 runs identity-mapped: kernel text near address 0 (image base at
  * the bottom of RAM, _stext at IMAGE_BASE_OFFSET = 0x100000). With no text /
- * module leak (the hardened file-only floor) Q_VIRT_IMAGE_BASE stays at its
- * honest top, which must admit that low base. Guards the s390
- * KASLR_VIRT_TEXT_MIN_WIDE=0 floor; without it the window floors at the modern
- * ~4 TiB KASLR_VIRT_TEXT_MIN and excludes the identity-mapped text base. */
+ * module leak (the hardened file-only floor) Q_VIRT_IMAGE_BASE and
+ * Q_PHYS_IMAGE_BASE stay at their honest tops, which must admit that low base.
+ * Guards both s390 identity-map floors: KASLR_VIRT_TEXT_MIN_WIDE=0 on the
+ * virtual side (else the window floors at the modern ~4 TiB
+ * KASLR_VIRT_TEXT_MIN) and KASLR_PHYS_MIN_WIDE=KERNEL_PHYS_MIN on the physical
+ * side (else it floors at the derived KASLR_PHYS_MIN = _stext floor 0x100000
+ * and excludes the true image base, rejecting the parsed low-base pin). */
 static void test_full_engine_s390_old_identity_map_sound(void) {
 #if defined(__s390__) || defined(__s390x__)
   struct engine e;
@@ -984,6 +987,14 @@ static void test_full_engine_s390_old_identity_map_sound(void) {
   assert(vt->lo <= 0x200ul && 0x200ul <= vt->hi);
   assert(vt->lo <= (unsigned long)IMAGE_BASE_OFFSET &&
          (unsigned long)IMAGE_BASE_OFFSET <= vt->hi);
+
+  /* Physical image base (_text = __kaslr_offset_phys) is identity-mapped low
+   * too: a real v4.14 boot shows iomem "Kernel code" starting at phys 0x200. */
+  const struct estimate *pt = &e.est[Q_PHYS_IMAGE_BASE];
+  assert(!estimate_is_bottom(pt, &quantities[Q_PHYS_IMAGE_BASE]));
+  assert(pt->lo <= 0x200ul && 0x200ul <= pt->hi);
+  assert(pt->lo <= (unsigned long)KERNEL_PHYS_MIN &&
+         (unsigned long)KERNEL_PHYS_MIN <= pt->hi);
 #endif
 }
 
