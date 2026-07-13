@@ -383,6 +383,31 @@ static void test_honest_tops_admit_known_values(void) {
    * real value 0xffff000008080000). The honest top must admit it, or an
    * unprivileged report on a pre-v5.4 kernel excludes the true text base. */
   assert(interval_admits(Q_VIRT_IMAGE_BASE, 0xffff000008080000ul));
+  /* Physical image base: memstart_addr can place DRAM (and the image) anywhere,
+   * and IMAGE_BASE_OFFSET is 0, so the honest top spans [DRAM base,
+   * KERNEL_PHYS_MAX] with no sub-offset floor gap. Admit the low DRAM-base
+   * floor and a realistic ~1 GiB load (a real aarch64 boot loads at
+   * 0x40200000); reject only above the ceiling. */
+  assert(
+      interval_admits(Q_PHYS_IMAGE_BASE, (unsigned long)KASLR_PHYS_MIN_WIDE));
+  assert(interval_admits(Q_PHYS_IMAGE_BASE, 0x40200000ul));
+  assert(!interval_admits(Q_PHYS_IMAGE_BASE,
+                          (unsigned long)KERNEL_PHYS_MAX + 1ul));
+#endif
+#if (defined(__riscv) || defined(__riscv__)) && __riscv_xlen == 64
+  /* Physical image base: OpenSBI loads the kernel at DRAM base +
+   * RISCV_PHYS_LOAD_OFFSET (2 MiB), so the honest top floors at that convention
+   * (KASLR_PHYS_MIN_WIDE == KERNEL_PHYS_DEFAULT) and spans to KERNEL_PHYS_MAX.
+   * Admit the firmware base and a mid-range load; reject below the floor (the
+   * OpenSBI-reserved head of DRAM) and above the ceiling. */
+  assert(
+      interval_admits(Q_PHYS_IMAGE_BASE, (unsigned long)KASLR_PHYS_MIN_WIDE));
+  assert(interval_admits(Q_PHYS_IMAGE_BASE,
+                         (unsigned long)KERNEL_PHYS_MIN + 0x40000000ul));
+  assert(!interval_admits(Q_PHYS_IMAGE_BASE,
+                          (unsigned long)KASLR_PHYS_MIN_WIDE - 1ul));
+  assert(!interval_admits(Q_PHYS_IMAGE_BASE,
+                          (unsigned long)KERNEL_PHYS_MAX + 1ul));
 #endif
 #if defined(__s390__) || defined(__s390x__)
   /* Pre-v6.8 s390 runs identity-mapped: kernel text near address 0 (image base

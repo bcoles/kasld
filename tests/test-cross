@@ -95,14 +95,23 @@ run_target() {
   if ! $cc $CFLAGS -DKASLD_TESTING "$ROOT/tests/test_render.c" -o "$d/test_render" -lpthread 2>"$d/cc.log"; then
     printf 'FAIL  %-30s (compile test_render)\n' "$triple"; sed 's/^/      /' "$d/cc.log" | head -5; echo fail >"$st"; return
   fi
+  # The estimate-algebra + honest-top soundness suite (links only estimate.c +
+  # quantities.c). Its arch-gated interval_admits() asserts validate each arch's
+  # honest-top floor/ceiling on its own arch — dormant on the x86_64 host, live
+  # here, so a phys/virt floor that excludes a valid base fails on the arch it
+  # affects.
+  # shellcheck disable=SC2086  # $cc/$CFLAGS are command + flag list, split intentionally
+  if ! $cc $CFLAGS "$ROOT/tests/test_estimate.c" "$ROOT/src/estimate.c" "$ROOT/src/quantities.c" -o "$d/test_estimate" 2>"$d/cc.log"; then
+    printf 'FAIL  %-30s (compile test_estimate)\n' "$triple"; sed 's/^/      /' "$d/cc.log" | head -5; echo fail >"$st"; return
+  fi
   ok=1
-  for t in test_engine test_integration test_kasld test_render; do
+  for t in test_engine test_integration test_estimate test_kasld test_render; do
     if ! "$qemu" "$d/$t" >/dev/null 2>"$d/$t.run"; then
       printf 'FAIL  %-30s (%s under qemu)\n' "$triple" "$t"; tail -3 "$d/$t.run" | sed 's/^/      /'; ok=0
     fi
   done
   if [ "$ok" = 1 ]; then
-    printf 'PASS  %-30s engine + integration + kasld + render\n' "$triple"; echo pass >"$st"
+    printf 'PASS  %-30s engine + integration + estimate + kasld + render\n' "$triple"; echo pass >"$st"
   else
     echo fail >"$st"
   fi
