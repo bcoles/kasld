@@ -162,7 +162,28 @@ fetch_kernel() {
 norm() { v=$(printf '%s' "$1" | sed 's/^0x//' | tr 'A-F' 'a-f'); [ -n "$v" ] || return 0; printf '%016s' "$v" | tr ' ' 0; }
 hexle() { [ "$1" = "$2" ] && return 0; [ "$(printf '%s\n%s\n' "$1" "$2" | LC_ALL=C sort | head -1)" = "$1" ]; }
 
+# Physical soundness for a boot log, echoed as one word: Y / N / NA.
+# Truth = the lowest "Kernel code" address in the root-captured /proc/iomem dump
+# (raw "START-END : Kernel code" format). Window = the -j phys_kaslr_text_min/max.
+# Only meaningful on DECOUPLED arches: where text tracks the direct map (coupled)
+# the phys base is a projection of the virt base and the window is the wide honest
+# top, so a phys verdict is trivially-sound noise -> NA.
+phys_verdict() {
+  _plog=$1
+  _dec=$(grep -am1 -oE '"text_tracks_directmap": *(true|false)' "$_plog" | awk '{print $2}')
+  [ "$_dec" = false ] || { echo NA; return; }
+  _pt=$(grep -am1 -aE '[0-9a-fA-F]+-[0-9a-fA-F]+ : Kernel code' "$_plog" \
+        | sed -E 's/^[[:space:]]*([0-9a-fA-F]+)-.*/\1/')
+  _pmin=$(grep -am1 -oE '"phys_kaslr_text_min": *"0x[0-9a-fA-F]+"' "$_plog" | grep -oE '0x[0-9a-fA-F]+')
+  _pmax=$(grep -am1 -oE '"phys_kaslr_text_max": *"0x[0-9a-fA-F]+"' "$_plog" | grep -oE '0x[0-9a-fA-F]+')
+  _pt=$(norm "$_pt"); _plo=$(norm "$_pmin"); _phi=$(norm "$_pmax")
+  if [ -z "$_pt" ] || [ -z "$_plo" ] || [ -z "$_phi" ]; then echo NA; return; fi
+  if hexle "$_plo" "$_pt" && hexle "$_pt" "$_phi"; then echo Y; else echo N; fi
+}
+
 # verdict <log>: prints "PASS|FAIL|N/A  <detail>" and returns 0 only on PASS/NA.
+# Gates on BOTH axes: the virtual text base AND (on decoupled arches) the physical
+# image base must lie inside their resolved windows.
 verdict() {
   _log=$1
   grep -aq 'KASLD VM DONE' "$_log" || { echo "INCOMPLETE  (boot did not finish; see $_log)"; return 1; }
@@ -172,17 +193,24 @@ verdict() {
   _max=$(grep -am1 -oE '"virt_image_base_max": *"0x[0-9a-fA-F]+"' "$_log" | grep -oE '0x[0-9a-fA-F]+')
   _disabled=$(grep -am1 -oE '"disabled": *(true|false)' "$_log" | awk '{print $2}')
   _t=$(norm "$_truth"); _lo=$(norm "$_min"); _hi=$(norm "$_max")
+  _pv=$(phys_verdict "$_log")
   if [ -z "$_t" ] || [ -z "$_lo" ] || [ -z "$_hi" ]; then
-    echo "N/A   truth=${_truth:--} window=[${_min:--},${_max:--}] disabled=${_disabled:-?}"
+    echo "N/A   truth=${_truth:--} window=[${_min:--},${_max:--}] disabled=${_disabled:-?} phys=$_pv"
     return 0
   fi
-  if hexle "$_lo" "$_t" && hexle "$_t" "$_hi"; then
-    _rec=N; [ "$_lo" = "$_hi" ] && _rec=Y
-    echo "PASS  truth=$_truth ∈ [$_min,$_max] recovered=$_rec"
-    return 0
+  # Check virt first so the phys-FAIL message below can accurately state that
+  # virt is sound (it is only reached once the virt window is verified).
+  if hexle "$_lo" "$_t" && hexle "$_t" "$_hi"; then :; else
+    echo "FAIL  truth=$_truth OUTSIDE [$_min,$_max] — soundness violation (phys=$_pv)"
+    return 1
   fi
-  echo "FAIL  truth=$_truth OUTSIDE [$_min,$_max] — soundness violation"
-  return 1
+  if [ "$_pv" = N ]; then
+    echo "FAIL  phys base OUTSIDE resolved window — soundness violation (virt truth=$_truth ∈ [$_min,$_max])"
+    return 1
+  fi
+  _rec=N; [ "$_lo" = "$_hi" ] && _rec=Y
+  echo "PASS  truth=$_truth ∈ [$_min,$_max] recovered=$_rec phys=$_pv"
+  return 0
 }
 
 # Canonical arch dir name under tests/fixtures/ (kasld's arch naming, which
@@ -468,6 +496,14 @@ bits_of() {
        ink && /"entropy_bits":/{gsub(/[^0-9]/,""); print; exit}' "$1"
 }
 
+# Physical-side KASLR residual entropy: the entropy_bits inside the phys sub-tree
+# ("physical" / "inferred_physical"), or empty when absent.
+phys_bits_of() {
+  awk '/"(physical|inferred_physical)": *\{/{inp=1}
+       inp && /"(likely_physical|memory_kaslr)":/{inp=0}
+       inp && /"entropy_bits":/{gsub(/[^0-9]/,""); print; exit}' "$1"
+}
+
 # Format an entropy-bit count as a residual cell: 0 -> exact, 1 -> "1 bit",
 # n -> "n bits", empty -> em dash.
 fmt_bits() {
@@ -600,11 +636,19 @@ cmd_table() {
       if [ -z "$t" ] || [ -z "$lo" ] || [ -z "$hi" ]; then
         bad="${bad}  $a/$scen: could not extract truth/window${nl}"; continue
       fi
-      # SOUNDNESS GATE: the guaranteed window MUST contain the truth. A cell that
-      # fails this is a bug, never something to publish — so it is collected as a
-      # violation and the whole table is withheld (see below), not printed.
+      # SOUNDNESS GATE (virtual): the guaranteed window MUST contain the truth. A
+      # cell that fails this is a bug, never something to publish — so it is
+      # collected as a violation and the whole table is withheld (see below).
       if hexle "$lo" "$t" && hexle "$t" "$hi"; then :; else
-        bad="${bad}  $a/$scen: truth $truth OUTSIDE [$min,$max] — soundness violation${nl}"
+        bad="${bad}  $a/$scen: virt truth $truth OUTSIDE [$min,$max] — soundness violation${nl}"
+        continue
+      fi
+      # SOUNDNESS GATE (physical): on decoupled arches the phys image base must
+      # lie inside its resolved window too. phys_verdict returns NA where the
+      # check does not apply (coupled arch / no phys window / no iomem truth).
+      pv=$(phys_verdict "$log")
+      if [ "$pv" = N ]; then
+        bad="${bad}  $a/$scen: phys base OUTSIDE resolved window — soundness violation${nl}"
         continue
       fi
       kas=on; [ "$disabled" = true ] && kas=off
@@ -627,10 +671,27 @@ cmd_table() {
       else
         residual="$bits bits"
       fi
+      # Physical residual — the same measure for the independently-resolved
+      # physical image base. "—" where phys is not an independent quantity
+      # (coupled arch, phys_verdict=NA) or KASLR is off; otherwise exact / n bits
+      # from the resolved phys window and its entropy.
+      pmin=$(grep -am1 -oE '"phys_kaslr_text_min": *"0x[0-9a-fA-F]+"' "$log" | grep -oE '0x[0-9a-fA-F]+')
+      pmax=$(grep -am1 -oE '"phys_kaslr_text_max": *"0x[0-9a-fA-F]+"' "$log" | grep -oE '0x[0-9a-fA-F]+')
+      pbits=$(phys_bits_of "$log"); [ -n "$pbits" ] || pbits='—'
+      plo=$(norm "$pmin"); phi=$(norm "$pmax")
+      if [ "$pv" = NA ] || [ "$kas" = off ]; then
+        phys_residual='—'
+      elif { [ -n "$plo" ] && [ "$plo" = "$phi" ]; } || [ "$pbits" = 0 ] || [ "$pbits" = '—' ]; then
+        phys_residual=exact
+      elif [ "$pbits" = 1 ]; then
+        phys_residual='1 bit'
+      else
+        phys_residual="$pbits bits"
+      fi
       # nokaslr is a control (KASLR forced off → always "—"); it carries no
       # per-arch signal, so it is gate-checked above like every other cell but
       # kept out of the rendered matrix.
-      [ "$scen" = nokaslr ] || body="${body}| $arch_disp | $rel | $src | $scen | $kas | $residual |${nl}"
+      [ "$scen" = nokaslr ] || body="${body}| $arch_disp | $rel | $src | $scen | $kas | $residual | $phys_residual |${nl}"
     done
   done
 
@@ -642,11 +703,11 @@ cmd_table() {
     return 1
   fi
 
-  printf '| arch | release | source | scenario | KASLR | residual |\n'
-  printf '|------|---------|--------|----------|-------|----------|\n'
+  printf '| arch | release | source | scenario | KASLR | virt residual | phys residual |\n'
+  printf '|------|---------|--------|----------|-------|---------------|---------------|\n'
   printf '%s' "$body"
   # shellcheck disable=SC2016  # backticks are literal markdown, not a subshell
-  printf '\nEvery cell is sound: the true base lies inside the guaranteed window. `source` = `alpine` (distro kernel) or `mainline` (mainline kernel.org build). `residual` = how much KASLR entropy KASLD could not strip from the base: `exact` = base recovered, KASLR defeated (a byte-exact pin and a below-granularity sub-slot window are the same outcome — the randomized slot is known); `<n> bits` = KASLR-randomized, n bits of the slot still unknown; `—` = KASLR off, no randomization to defeat.\n'
+  printf '\nEvery cell is sound: the true base lies inside the guaranteed window, on BOTH the virtual and (where independently resolved) the physical axis. `source` = `alpine` (distro kernel) or `mainline` (mainline kernel.org build). `virt residual` / `phys residual` = how much KASLR entropy KASLD could not strip from the virtual text base / physical image base: `exact` = base recovered, KASLR defeated (a byte-exact pin and a below-granularity sub-slot window are the same outcome — the randomized slot is known); `<n> bits` = KASLR-randomized, n bits of the slot still unknown; `—` = KASLR off, or (phys) an arch where the physical base is not randomized independently of the virtual text base.\n'
 
   # The matrix reports the guaranteed window; the speculative-narrowing table
   # discloses where the likely best-guess window beats it, and by what signal.
