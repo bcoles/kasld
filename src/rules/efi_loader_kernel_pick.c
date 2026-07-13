@@ -26,9 +26,12 @@
 //      (firmware drivers are far smaller; bootloader images are
 //      typically well under 1× SF_IMAGE_SIZE_MIN).
 //
-// Exactly one survivor → emit C_EQUALS on Q_PHYS_IMAGE_BASE at its lo at
-// CONF_PARSED. The image is contiguous and the EFI stub adds no header
-// gap before _text/_stext, so the entry's lo IS the phys text base.
+// Exactly one survivor → emit C_EQUALS on Q_PHYS_IMAGE_BASE at its lo. The
+// image is contiguous and the EFI stub adds no header gap before _text/_stext,
+// so the entry's lo IS the phys text base. Confidence is capped by the inputs
+// and held below the sound floor unless an UPPER image-size bound
+// (SF_IMAGE_SIZE_MAX) proves the true kernel entry could not have been filtered
+// out by the size ceiling.
 //
 // Multiple survivors:
 //   • Default — emit nothing (matches the conservative behaviour of
@@ -46,7 +49,8 @@
 //
 // Zero survivors → emit nothing.
 //
-// Phase: POST_COLLECTION. Needs SF_IMAGE_SIZE_MIN and the per-arch
+// Phase: POST_COLLECTION. Needs SF_IMAGE_SIZE_MIN (SF_IMAGE_SIZE_MAX, when
+// present, sharpens the pin into the sound band) and the per-arch
 // EFI_KIMG_ALIGN constant. Gated to arches that define EFI_KIMG_ALIGN
 // (arm64, riscv64, x86_64, loongarch64); inert otherwise.
 //
@@ -80,7 +84,12 @@ int rule_efi_loader_kernel_pick(const struct evidence_set *ev,
 
   uint32_t ksrc = 0;
   uint32_t rand_failed_src = 0;
-  unsigned long ksize = evidence_image_size_min(ev, NULL, &ksrc);
+  enum kasld_confidence ksize_conf = CONF_UNKNOWN;
+  unsigned long ksize = evidence_image_size_min(ev, &ksize_conf, &ksrc);
+  enum kasld_confidence ksize_max_conf = CONF_UNKNOWN;
+  uint32_t ksize_max_src = 0;
+  unsigned long ksize_max =
+      evidence_image_size_max(ev, &ksize_max_conf, &ksize_max_src);
   for (int i = 0; i < ev->n_obs; i++) {
     const struct observation *o = &ev->obs[i];
     if (!o->valid || o->value_kind != OBS_SCALAR)
@@ -94,10 +103,19 @@ int rule_efi_loader_kernel_pick(const struct evidence_set *ev,
     return 0; /* no image-size fact → size filter cannot apply */
 
   const unsigned long palign = (unsigned long)EFI_KIMG_ALIGN;
-  const unsigned long size_max = ksize * (unsigned long)ELKP_SIZE_MAX_MULT;
-  /* Guard against the multiply overflowing on pathological SF_IMAGE_SIZE_MIN.
-   */
-  if (size_max < ksize)
+  /* Size-filter ceiling. The true kernel entry (a page-rounded PE image) must
+   * always pass the filter, else a filtered-out kernel could leave a non-kernel
+   * entry as the sole survivor and be wrongly pinned. The floor (ksize, a lower
+   * bound) is always <= the true entry, so it never excludes it — the ceiling
+   * is the risk. Anchor the ceiling to an UPPER bound on the image size when
+   * one is available (evidence_image_size_max, exact sources only) so 2x it
+   * provably exceeds the true entry; the lower-bound ksize alone cannot bound
+   * the entry from above, so a pin made without an upper bound is held below
+   * the sound floor (see the survivors==1 branch). */
+  const unsigned long size_basis = ksize_max ? ksize_max : ksize;
+  const unsigned long range_hi = size_basis * (unsigned long)ELKP_SIZE_MAX_MULT;
+  /* Guard against the multiply overflowing on a pathological size fact. */
+  if (range_hi < size_basis)
     return 0;
 
   /* Track BOTH the first survivor (used for the unique-survivor case) and
@@ -129,7 +147,7 @@ int rule_efi_loader_kernel_pick(const struct evidence_set *ev,
     if (o->hi < o->lo)
       continue;
     unsigned long range_sz = o->hi - o->lo + 1;
-    if (range_sz < ksize || range_sz > size_max)
+    if (range_sz < ksize || range_sz > range_hi)
       continue;
 
     survivors++;
@@ -160,12 +178,22 @@ int rule_efi_loader_kernel_pick(const struct evidence_set *ev,
   snprintf(c->origin, ORIGIN_LEN, "efi_loader_kernel_pick");
 
   if (survivors == 1) {
-    /* Unique survivor: alignment+size filters are tight enough to be
-     * effectively a pin. CONF_PARSED. */
+    /* Unique survivor: with an upper size bound the true kernel entry always
+     * clears the filter, so the sole survivor IS the kernel — an effective pin.
+     * Confidence is capped by every input it rests on (the entry and both size
+     * bounds). Without an upper bound the ceiling may have excluded the true
+     * entry, so the pin cannot enter the sound band: hold it at CONF_HEURISTIC
+     * (a speculative, likely-window-only pin, deferred to by any real leak). */
+    enum kasld_confidence conf = kasld_conf_min(survivor_conf, ksize_conf);
+    if (ksize_max)
+      conf = kasld_conf_min(conf, ksize_max_conf);
+    else
+      conf = kasld_conf_min(conf, CONF_HEURISTIC);
     c->value = survivor_lo;
-    c->conf = survivor_conf;
+    c->conf = conf;
     c->derived_from[0] = survivor_src;
-    c->lineage_count = 2;
+    c->derived_from[2] = ksize_max_src; /* 0 when no upper bound */
+    c->lineage_count = ksize_max ? 3 : 2;
     return 1;
   }
 

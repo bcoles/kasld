@@ -7,9 +7,12 @@
 // the kernel picks slot (seed % nr_pos) of PMD_SIZE within a PUD, where
 // nr_pos = (PUD_SIZE - image_size) / PMD_SIZE.
 //
-//   Path 1 (image_size known): image_base == KERNEL_LINK_ADDR
-//                                          + (seed % nr_pos) * PMD_SIZE  (pin)
-//   Path 2 (image_size unknown): image_base <= max over i in [1,nr_pos_max] of
+//   Path 1 (kernel size bracketed to one slot): image_base == KERNEL_LINK_ADDR
+//                                  + (seed % nr_pos) * PMD_SIZE  (pin), fired
+//                                  only when a sound [min, max] size bracket
+//                                  determines nr_pos uniquely (see below)
+//   Path 2 (size not bracketed):   image_base <= max over i in [1,nr_pos_max]
+//   of
 //                                  KERNEL_LINK_ADDR + (seed % i) * PMD_SIZE
 //                                  with nr_pos_max = (PUD_SIZE - gap) /
 //                                  PMD_SIZE
@@ -18,7 +21,8 @@
 // seed-disabled/wiped case handled by virt_kaslr_disabled_pin /
 // phys_kaslr_disabled_pin),
 // SF_EFI_PRESENT (non-EFI only — EFI mixes in efi_kaslr_seed),
-// SF_IMAGE_SIZE_MIN, and VIRT text/data leaks for the Path 2 gap. riscv64 only.
+// SF_IMAGE_SIZE_MIN / SF_IMAGE_SIZE_MAX (the Path 1 nr_pos bracket), and VIRT
+// text/data leaks for the Path 2 gap. riscv64 only.
 // The active path requires a kernel that has not yet consumed the FDT
 // kaslr-seed cell — the kernel wipes the cell to 0 once it has used it, so a
 // usable seed is visible only before that point.
@@ -47,7 +51,14 @@ int rule_riscv64_fdt_kaslr_seed(const struct evidence_set *ev,
   unsigned long min_text = ULONG_MAX, max_data = 0;
   int efi_present = 0;
   uint32_t src = 0;
-  unsigned long image_size = evidence_image_size_min(ev, NULL, NULL);
+  enum kasld_confidence seed_conf = CONF_UNKNOWN;
+  enum kasld_confidence size_min_conf = CONF_UNKNOWN,
+                        size_max_conf = CONF_UNKNOWN;
+  uint32_t size_min_src = 0, size_max_src = 0;
+  unsigned long image_size =
+      evidence_image_size_min(ev, &size_min_conf, &size_min_src);
+  unsigned long size_max_fp =
+      evidence_image_size_max(ev, &size_max_conf, &size_max_src);
   for (int i = 0; i < ev->n_obs; i++) {
     const struct observation *o = &ev->obs[i];
     if (!o->valid)
@@ -56,6 +67,7 @@ int rule_riscv64_fdt_kaslr_seed(const struct evidence_set *ev,
       if (o->scalar_fact == SF_FDT_KASLR_SEED) {
         seed = o->scalar_value;
         src = o->id;
+        seed_conf = o->conf;
       } else if (o->scalar_fact == SF_EFI_PRESENT)
         efi_present = (o->scalar_value != 0);
       continue;
@@ -76,22 +88,54 @@ int rule_riscv64_fdt_kaslr_seed(const struct evidence_set *ev,
   if (seed == 0 || efi_present)
     return 0;
 
-  /* Path 1: exact slot count from image_size -> pin. */
-  if (image_size > 0 && image_size < pud_size) {
-    unsigned long nr_pos = (pud_size - image_size) / pmd_size;
-    if (nr_pos > 0) {
-      unsigned long off = (unsigned long)((seed % (uint64_t)nr_pos) * pmd_size);
-      unsigned long candidate = (unsigned long)KERNEL_LINK_ADDR + off;
-      struct constraint *c = &out[0];
-      memset(c, 0, sizeof(*c));
-      c->q = Q_VIRT_IMAGE_BASE;
-      c->op = C_EQUALS;
-      c->value = candidate;
-      c->conf = CONF_INFERRED;
-      c->derived_from[0] = src;
-      c->lineage_count = 1;
-      snprintf(c->origin, ORIGIN_LEN, "riscv64_fdt_kaslr_seed");
-      return 1;
+  /* Path 1: pin the exact slot the boot code chose — but only when the slot
+   * index nr_pos is UNIQUELY determined by sound bounds on the kernel size.
+   *
+   * The boot code computes nr_pos = (PUD_SIZE - kernel_size) / PMD_SIZE with
+   * kernel_size = _end - _start (exact) and selects slot (seed % nr_pos).
+   * seed % nr_pos is not monotone in nr_pos, so a merely lower-bounded size
+   * cannot reconstruct the slot: an over-estimated nr_pos selects a different
+   * residue, giving a wrong pin. Bracket kernel_size with a sound [lo, hi] and
+   * pin only when both ends land in one PMD bucket (a single nr_pos):
+   *   lo = evidence_image_size_min: a footprint lower bound; every footprint
+   *        origin (_start/_text/_stext) is >= _start, so lo <= _end - _start.
+   *   hi = evidence_image_size_max + IMAGE_BASE_OFFSET: image_size_max upper-
+   *        bounds _end - _text; IMAGE_BASE_OFFSET is the _start -> _stext
+   *        .head.text gap (riscv64.h), and _text == _stext on riscv64, so
+   *        adding it lifts the bound to _end - _start exactly.
+   * nr_pos is monotone-decreasing in kernel_size, so the smallest size gives
+   * the largest nr_pos and vice versa. With no proven upper bound the bracket
+   * cannot collapse, so Path 1 stays silent and only Path 2's ceiling fires. */
+  if (image_size > 0 && size_max_fp > 0) {
+    unsigned long size_hi = size_max_fp + (unsigned long)IMAGE_BASE_OFFSET;
+    if (size_hi >= size_max_fp /* addition did not wrap */ &&
+        size_hi < pud_size && image_size <= size_hi) {
+      unsigned long nr_pos_hi =
+          (pud_size - image_size) / pmd_size;                    /* min size */
+      unsigned long nr_pos_lo = (pud_size - size_hi) / pmd_size; /* max size */
+      if (nr_pos_lo > 0 && nr_pos_lo == nr_pos_hi) {
+        unsigned long nr_pos = nr_pos_lo;
+        unsigned long off =
+            (unsigned long)((seed % (uint64_t)nr_pos) * pmd_size);
+        unsigned long candidate = (unsigned long)KERNEL_LINK_ADDR + off;
+        /* No more trustworthy than the least-certain input it rests on. */
+        enum kasld_confidence conf = CONF_INFERRED;
+        conf = kasld_conf_min(conf, seed_conf);
+        conf = kasld_conf_min(conf, size_min_conf);
+        conf = kasld_conf_min(conf, size_max_conf);
+        struct constraint *c = &out[0];
+        memset(c, 0, sizeof(*c));
+        c->q = Q_VIRT_IMAGE_BASE;
+        c->op = C_EQUALS;
+        c->value = candidate;
+        c->conf = conf;
+        c->derived_from[0] = src;
+        c->derived_from[1] = size_min_src;
+        c->derived_from[2] = size_max_src;
+        c->lineage_count = 3;
+        snprintf(c->origin, ORIGIN_LEN, "riscv64_fdt_kaslr_seed");
+        return 1;
+      }
     }
   }
 

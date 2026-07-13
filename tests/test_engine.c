@@ -4655,6 +4655,65 @@ static void test_efi_loader_kernel_pick_size_above_tolerance_inert(void) {
 #endif
 }
 
+/* Exact image size (SF_IMAGE_SIZE_MIN == SF_IMAGE_SIZE_MAX) bounds the true
+ * kernel entry from above, so the size ceiling cannot have filtered it out: a
+ * unique aligned survivor is a sound pin that holds in the guaranteed (floored)
+ * window, not just the all-signals one. */
+static void test_efi_loader_kernel_pick_exact_size_sound(void) {
+#if defined(EFI_KIMG_ALIGN)
+  const unsigned long P = (unsigned long)PHYS_OFFSET;
+  const unsigned long ksize = 0x800000ul; /* 8 MiB */
+  const unsigned long entry_lo = P + 0x40000000ul;
+  const unsigned long entry_hi = entry_lo + ksize - 1;
+  static struct engine e;
+  engine_init(&e);
+  struct observation smin = mk_scalar(SF_IMAGE_SIZE_MIN, ksize, CONF_PARSED);
+  struct observation smax = mk_scalar(SF_IMAGE_SIZE_MAX, ksize, CONF_PARSED);
+  evidence_add(&e.ev, &smin);
+  evidence_add(&e.ev, &smax);
+  struct observation o = mk_efi_loader_entry(entry_lo, entry_hi);
+  evidence_add(&e.ev, &o);
+
+  const rule_fn rules[] = {rule_efi_loader_kernel_pick};
+  engine_run_full_floored(&e, CONF_INFERRED, rules, 1, NULL, 0);
+  assert(e.est[Q_PHYS_IMAGE_BASE].lo == entry_lo);
+  assert(e.est[Q_PHYS_IMAGE_BASE].hi == entry_lo);
+#endif
+}
+
+/* Only a lower-bound size (no SF_IMAGE_SIZE_MAX): the ceiling could have
+ * filtered out the true kernel entry, so a unique survivor is only speculative.
+ * It applies in the all-signals (likely) window but is held below the sound
+ * floor, so the guaranteed window keeps its honest top. */
+static void test_efi_loader_kernel_pick_lowerbound_below_floor(void) {
+#if defined(EFI_KIMG_ALIGN)
+  const unsigned long P = (unsigned long)PHYS_OFFSET;
+  const unsigned long ksize = 0x800000ul;
+  const unsigned long entry_lo = P + 0x40000000ul;
+  const unsigned long entry_hi = entry_lo + ksize - 1;
+  static struct engine e;
+  engine_init(&e);
+  struct observation smin = mk_scalar(SF_IMAGE_SIZE_MIN, ksize, CONF_PARSED);
+  evidence_add(&e.ev, &smin); /* no SF_IMAGE_SIZE_MAX */
+  struct observation o = mk_efi_loader_entry(entry_lo, entry_hi);
+  evidence_add(&e.ev, &o);
+  const rule_fn rules[] = {rule_efi_loader_kernel_pick};
+
+  struct estimate top;
+  quantities[Q_PHYS_IMAGE_BASE].init_top(&top);
+
+  /* Likely (all signals): the speculative pin applies. */
+  engine_run(&e, rules, 1);
+  assert(e.est[Q_PHYS_IMAGE_BASE].lo == entry_lo);
+  assert(e.est[Q_PHYS_IMAGE_BASE].hi == entry_lo);
+
+  /* Guaranteed (sound floor): CONF_HEURISTIC is below the floor → no pin. */
+  engine_run_full_floored(&e, CONF_INFERRED, rules, 1, NULL, 0);
+  assert(e.est[Q_PHYS_IMAGE_BASE].lo == top.lo);
+  assert(e.est[Q_PHYS_IMAGE_BASE].hi == top.hi);
+#endif
+}
+
 int rule_image_size_text_data_gap(const struct evidence_set *ev,
                                   const struct estimate *est,
                                   struct constraint *out, int out_max);
@@ -5601,29 +5660,86 @@ static void test_ppc32_phys_ceiling(void) {
 /* riscv64 non-EFI: FDT kaslr-seed + image size pins the text base (Path 1).
  * Assert it pins within [KERNEL_LINK_ADDR, +1 GiB). */
 static void test_riscv64_fdt_kaslr_seed(void) {
-  struct engine e;
-  engine_init(&e);
   struct estimate top;
   quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
-  /* Any nonzero seed pins the base (the test asserts lo==hi, not a value); use
-   * a 32-bit-safe constant so it does not truncate on 32-bit builds. */
-  struct observation seed =
-      mk_scalar(SF_FDT_KASLR_SEED, 0x12345678ul, CONF_PARSED);
+  /* 32-bit-safe seed. 25 MiB is deliberately NOT a PMD multiple of the PUD
+   * remainder, so the .head.text head does not straddle a bucket boundary and
+   * the [min, max] bracket collapses to one nr_pos. */
+  const unsigned long seed_val = 0x12345678ul;
+  const unsigned long ksize = 0x1900000ul; /* 25 MiB */
+  const rule_fn rules[] = {rule_riscv64_fdt_kaslr_seed};
+
+  /* Exact size (min == max) → nr_pos uniquely determined → Path 1 pins the
+   * slot at CONF_INFERRED, which is at the sound floor and so holds in the
+   * guaranteed window too. */
+  static struct engine e;
+  engine_init(&e);
+  struct observation seed = mk_scalar(SF_FDT_KASLR_SEED, seed_val, CONF_PARSED);
   struct observation efi = mk_scalar(SF_EFI_PRESENT, 0ul, CONF_PARSED);
-  struct observation isz =
-      mk_scalar(SF_IMAGE_SIZE_MIN, 0x1800000ul, CONF_PARSED); /* 24 MiB */
+  struct observation smin = mk_scalar(SF_IMAGE_SIZE_MIN, ksize, CONF_PARSED);
+  struct observation smax = mk_scalar(SF_IMAGE_SIZE_MAX, ksize, CONF_PARSED);
   evidence_add(&e.ev, &seed);
   evidence_add(&e.ev, &efi);
-  evidence_add(&e.ev, &isz);
-  const rule_fn rules[] = {rule_riscv64_fdt_kaslr_seed};
+  evidence_add(&e.ev, &smin);
+  evidence_add(&e.ev, &smax);
   engine_run(&e, rules, 1);
 #if (defined(__riscv) || defined(__riscv__)) && __riscv_xlen == 64
-  assert(e.est[Q_VIRT_IMAGE_BASE].lo ==
-         e.est[Q_VIRT_IMAGE_BASE].hi); /* pinned */
+  {
+    unsigned long pud = 1ul << 30, pmd = 2ul * 1024 * 1024;
+    unsigned long nr_pos =
+        (pud - (ksize + (unsigned long)IMAGE_BASE_OFFSET)) / pmd;
+    unsigned long expect =
+        (unsigned long)KERNEL_LINK_ADDR + (seed_val % nr_pos) * pmd;
+    if (expect >= top.lo && expect <= top.hi) {
+      assert(e.est[Q_VIRT_IMAGE_BASE].lo == expect);
+      assert(e.est[Q_VIRT_IMAGE_BASE].hi == expect);
+      engine_run_full_floored(&e, CONF_INFERRED, rules, 1, NULL, 0);
+      assert(e.est[Q_VIRT_IMAGE_BASE].lo == expect);
+      assert(e.est[Q_VIRT_IMAGE_BASE].hi == expect);
+    }
+  }
 #else
   assert(e.est[Q_VIRT_IMAGE_BASE].lo == top.lo &&
-         e.est[Q_VIRT_IMAGE_BASE].hi == top.hi); /* inert */
+         e.est[Q_VIRT_IMAGE_BASE].hi == top.hi); /* inert off-arch */
 #endif
+
+  /* Lower-bound size only (no SF_IMAGE_SIZE_MAX) → nr_pos is NOT uniquely
+   * determined, so the wrong-slot pin is suppressed. With no text/data leak
+   * Path 2's ceiling is inert too, so the estimate stays at its honest top.
+   * (Holds on every arch: off-riscv64 the rule is inert.) */
+  static struct engine e2;
+  engine_init(&e2);
+  struct observation seed2 =
+      mk_scalar(SF_FDT_KASLR_SEED, seed_val, CONF_PARSED);
+  struct observation efi2 = mk_scalar(SF_EFI_PRESENT, 0ul, CONF_PARSED);
+  struct observation smin2 = mk_scalar(SF_IMAGE_SIZE_MIN, ksize, CONF_PARSED);
+  evidence_add(&e2.ev, &seed2);
+  evidence_add(&e2.ev, &efi2);
+  evidence_add(&e2.ev, &smin2);
+  engine_run(&e2, rules, 1);
+  assert(e2.est[Q_VIRT_IMAGE_BASE].lo == top.lo &&
+         e2.est[Q_VIRT_IMAGE_BASE].hi == top.hi); /* not pinned */
+
+  /* Exact size (min == max) but on a PMD-bucket boundary (24 MiB): the
+   * .head.text head lifts the upper end into the next bucket, so nr_pos is
+   * ambiguous and Path 1 still refuses to pin. This is the bracket's whole
+   * point — an exact footprint is not enough; nr_pos must be provably unique.
+   * (Holds on every arch: off-riscv64 the rule is inert.) */
+  static struct engine e3;
+  engine_init(&e3);
+  const unsigned long bsize = 0x1800000ul; /* 24 MiB, a PMD-bucket boundary */
+  struct observation seed3 =
+      mk_scalar(SF_FDT_KASLR_SEED, seed_val, CONF_PARSED);
+  struct observation efi3 = mk_scalar(SF_EFI_PRESENT, 0ul, CONF_PARSED);
+  struct observation smin3 = mk_scalar(SF_IMAGE_SIZE_MIN, bsize, CONF_PARSED);
+  struct observation smax3 = mk_scalar(SF_IMAGE_SIZE_MAX, bsize, CONF_PARSED);
+  evidence_add(&e3.ev, &seed3);
+  evidence_add(&e3.ev, &efi3);
+  evidence_add(&e3.ev, &smin3);
+  evidence_add(&e3.ev, &smax3);
+  engine_run(&e3, rules, 1);
+  assert(e3.est[Q_VIRT_IMAGE_BASE].lo == top.lo &&
+         e3.est[Q_VIRT_IMAGE_BASE].hi == top.hi); /* boundary → no pin */
 }
 
 /* riscv64 non-EFI: a PHYS DRAM-base leak + EFI-absent pins the physical text
@@ -5957,6 +6073,8 @@ int main(void) {
   RUN(test_efi_loader_kernel_pick_multi_without_signal_still_inert);
   RUN(test_efi_loader_kernel_pick_no_image_size_inert);
   RUN(test_efi_loader_kernel_pick_size_above_tolerance_inert);
+  RUN(test_efi_loader_kernel_pick_exact_size_sound);
+  RUN(test_efi_loader_kernel_pick_lowerbound_below_floor);
 
   BEGIN_CATEGORY("Text-base pin from observation");
   RUN(test_text_pin_from_observation_virt);
