@@ -3076,29 +3076,28 @@ static void engine_resolve(struct engine *e) {
  * globals — it links no engine.c symbols and can be called wherever the
  * engine→layout contract needs pinning.
  *
- * Every quantity that has a reported sink must be projected here. Map of
- * Q_* -> sink:
- *     Q_VIRT_IMAGE_BASE   -> layout.kaslr_base_* AND layout.kernel_base_*
- *     Q_VIRT_KASLR_ALIGN -> layout.virt_kaslr_align
- *     Q_PAGE_OFFSET      -> layout.page_offset_* (+ layout.virt_page_offset,
- * decoupled) Q_PHYS_IMAGE_BASE   -> layout.phys_kaslr_base_*        (decoupled
- * arches) Q_PHYS_KASLR_ALIGN -> layout.phys_kaslr_align         (decoupled
- * arches) Q_VMALLOC_BASE     -> layout.vmalloc_base_*            (when
- * constrained) Q_VMEMMAP_BASE     -> layout.vmemmap_base_*            (when
- * constrained) Q_VA_BITS          -> (none) intermediate: rules consume it to
- * bound Q_VIRT_IMAGE_BASE; it has no layout sink. The compile-time check below
- * trips when Q__COUNT changes — forcing whoever adds a quantity to decide its
- * sink (or document it as intermediate) and bump the count, rather than
- * silently leaving it unprojected. */
+ * Every quantity with a reported sink must be projected here. Map of Q_* ->
+ * sink (all fields of the global `layout`):
+ *   Q_VIRT_IMAGE_BASE  -> virt_kaslr_text_* and virt_image_base_*
+ *   Q_VIRT_KASLR_ALIGN -> virt_kaslr_align
+ *   Q_PAGE_OFFSET      -> virt_page_offset_* (and virt_page_offset)
+ *   Q_PHYS_IMAGE_BASE  -> phys_kaslr_text_*   (decoupled arches)
+ *   Q_PHYS_KASLR_ALIGN -> phys_kaslr_align    (decoupled arches)
+ *   Q_VMALLOC_BASE     -> virt_vmalloc_base_* (when constrained)
+ *   Q_VMEMMAP_BASE     -> virt_vmemmap_base_* (when constrained)
+ *   Q_VA_BITS          -> none (intermediate; bounds Q_VIRT_IMAGE_BASE)
+ * The compile-time check below trips when Q__COUNT changes — forcing whoever
+ * adds a quantity to decide its sink (or document it as intermediate) and bump
+ * the count, rather than silently leaving it unprojected. */
 typedef char engine_sync_projects_every_quantity[(Q__COUNT == 8) ? 1 : -1];
 
 static void engine_sync_authoritative(const struct engine *e) {
   const struct estimate *vt = &e->est[Q_VIRT_IMAGE_BASE];
   /* Project the resolved virtual-text window onto BOTH the KASLR window
-   * (kaslr_base_*, read by the entropy/slot math in compute_kaslr_info) and the
-   * kernel image-placement range (kernel_base_*, read by the rendered memory
-   * map). They must stay equal post-resolution or the diagram's "kernel text"
-   * band disagrees with the reported "Inferred text range". */
+   * (virt_kaslr_text_*, read by the entropy/slot math in compute_kaslr_info)
+   * and the kernel image-placement range (virt_image_base_*, read by the
+   * rendered memory map). They must stay equal post-resolution or the diagram's
+   * "kernel text" band disagrees with the reported "Inferred text range". */
   layout.virt_kaslr_text_min = vt->lo;
   layout.virt_kaslr_text_max = vt->hi;
   layout.virt_image_base_min = vt->lo;
