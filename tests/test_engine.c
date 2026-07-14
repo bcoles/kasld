@@ -189,6 +189,56 @@ static void test_image_base_grid_align_noop(void) {
   assert(rule_image_base_grid_align(NULL, est, out, 4) == 0);
 }
 
+/* REGRESSION (arm64): the virtual _text base is aligned to IMAGE_ALIGN
+ * (EFI_KIMG_ALIGN, 64 KiB), NOT the 2 MiB seed step — the EFI stub loads the
+ * image at 64 KiB and the kernel grafts the physical low bits into the virtual
+ * KASLR displacement, so _text can land off the 2 MiB grid. The base-window
+ * snap (kasld_floor_text_base / image_base_grid_align) must therefore use
+ * IMAGE_ALIGN; a real _text off the 2 MiB grid but on the 64 KiB grid must stay
+ * inside the guaranteed window. Restoring KASLR_VIRT_ALIGN = 2 MiB would floor
+ * the guaranteed ceiling below such a base (an unsound exclusion) — both
+ * assertions here catch that. arm64 only; inert elsewhere (its granule already
+ * == the seed step). Mirrors the live EFI + KASLR boot where _text sat at a
+ * 0x110000 residue and the window contained it. */
+static void test_arm64_text_base_off_2mib_stays_in_window(void) {
+#if defined(__aarch64__)
+  /* The fix in one line: the _text grid is the image alignment, finer than the
+   * 2 MiB seed step that only governs the KASLR displacement's high bits. */
+  assert((unsigned long)KASLR_VIRT_ALIGN == (unsigned long)IMAGE_ALIGN);
+  assert((unsigned long)IMAGE_ALIGN < 0x200000ul);
+
+  struct engine e;
+  engine_init(&e);
+
+  struct estimate top;
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
+
+  /* A real _text one IMAGE_ALIGN step above a 2 MiB grid point: 64 KiB-aligned
+   * (a position the EFI graft can produce) but NOT 2 MiB-aligned. */
+  unsigned long g2 = kasld_floor_text_base(top.lo + 0x4000000ul) & ~0x1ffffful;
+  unsigned long true_text = g2 + (unsigned long)IMAGE_ALIGN;
+  assert((true_text & 0x1ffffful) != 0); /* off 2 MiB grid */
+  assert((true_text & ((unsigned long)IMAGE_ALIGN - 1)) ==
+         0); /* on 64 KiB grid */
+  assert(true_text >= top.lo && true_text <= top.hi);
+
+  /* One interior kernel-image leak just above _text (parsed => guaranteed). */
+  unsigned long sample = true_text + 0x1000ul;
+  struct observation o = mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE, sample,
+                                SAMPLE_SET, POS_INTERIOR, CONF_PARSED);
+  evidence_add(&e.ev, &o);
+
+  const rule_fn rules[] = {rule_range_from_interior,
+                           rule_image_base_grid_align};
+  engine_run(&e, rules, 2);
+
+  /* Guaranteed window still contains the off-2 MiB _text. With a 2 MiB snap the
+   * ceiling would floor to g2 < true_text and exclude it. */
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo <= true_text);
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi >= true_text);
+#endif
+}
+
 /* ========================================================================
  * image_base_resolved_grid_align: snap the window to the RESOLVED (coarser)
  * KASLR grid — the step image_base_grid_align leaves to this rule.
@@ -5932,6 +5982,7 @@ int main(void) {
   RUN(test_image_base_grid_align_sound);
   RUN(test_image_base_grid_align_tightens);
   RUN(test_image_base_grid_align_noop);
+  RUN(test_arm64_text_base_off_2mib_stays_in_window);
   RUN(test_resolved_grid_align_sound);
   RUN(test_resolved_grid_align_noop);
 #if !TEXT_TRACKS_DIRECTMAP
