@@ -59,31 +59,41 @@ TIMEOUT=${TIMEOUT:-600}
 CACHE=$HERE/.cache
 
 # name | alpine-arch | flavor | build-prefix | qemu-suffix | machine | console
+#   name:   <arch>-<distro>-<kernel maj.minor>. <arch> is the display arch (it
+#           carries no '-', so it is recovered as the leading dash-component);
+#           <distro> is alpine (a distro netboot/apk kernel) or mainline (a
+#           kernel.org build via build-kernel); <kernel maj.minor> is the guest
+#           kernel line. An arch may appear under several (distro, version) cells.
 #   flavor: a netboot kernel name (virt/lts) or "apk" (extract vmlinuz from the
-#   linux-lts apk — for ports with no netboot image, e.g. riscv64/loongarch64).
+#           linux-lts apk — for ports with no netboot image, e.g. riscv64/
+#           loongarch64), or "local" (built from kernel.org by build-kernel).
 TABLE='
-x86_64      | x86_64      | virt | x86_64       | x86_64      | -M q35 -cpu max        | ttyS0
-i686        | x86         | lts  | i686         | i386        | -M pc -cpu max         | ttyS0
-aarch64     | aarch64     | virt | aarch64      | aarch64     | -M virt -cpu max       | ttyAMA0
-armv7       | armv7       | lts  | armv7        | arm         | -M virt -cpu max       | ttyAMA0
-riscv64     | riscv64     | apk  | riscv64      | riscv64     | -M virt                | ttyS0
-loongarch64 | loongarch64 | apk  | loongarch64  | loongarch64 | -M virt                | ttyS0
-ppc64le     | ppc64le     | lts  | powerpc64le  | ppc64       | -M pseries -cpu power9 | hvc0
-s390x       | s390x       | lts  | s390x        | s390x       | -M s390-ccw-virtio     | ttysclp0
-mips        | -           | local| mips         | mips        | -M malta               | ttyS0
-mipsel      | -           | local| mipsel       | mipsel      | -M malta               | ttyS0
-mips64el    | -           | local| mips64el     | mips64el    | -M malta -cpu MIPS64R2-generic | ttyS0
-riscv32     | -           | local| riscv32      | riscv32     | -M virt                | ttyS0
-ppc32       | -           | local| powerpc      | ppc         | -M g3beige             | ttyS0
-powerpc64   | -           | local| powerpc64    | ppc64       | -M pseries -cpu power9 | hvc0
-armeb       | -           | local| armeb        | arm         | -M virt                | ttyAMA0
-x86_64-mainline  | -        | local| x86_64       | x86_64      | -M q35 -cpu max        | ttyS0
-aarch64-mainline | -        | local| aarch64      | aarch64     | -M virt -cpu max       | ttyAMA0
-armv7-mainline   | -        | local| armv7        | arm         | -M virt -cpu max       | ttyAMA0
-i686-mainline    | -        | local| i686         | i386        | -M pc -cpu max         | ttyS0
-s390x-mainline   | -        | local| s390x        | s390x       | -M s390-ccw-virtio     | ttysclp0
-riscv64-mainline | -        | local| riscv64      | riscv64     | -M virt                | ttyS0
-ppc64le-mainline | -        | local| powerpc64le  | ppc64       | -M pseries -cpu power9 | hvc0
+x86_64-alpine-6.12      | x86_64      | virt | x86_64       | x86_64      | -M q35 -cpu max        | ttyS0
+i686-alpine-6.12        | x86         | lts  | i686         | i386        | -M pc -cpu max         | ttyS0
+aarch64-alpine-6.12     | aarch64     | virt | aarch64      | aarch64     | -M virt -cpu max       | ttyAMA0
+armv7-alpine-6.12       | armv7       | lts  | armv7        | arm         | -M virt -cpu max       | ttyAMA0
+riscv64-alpine-6.18     | riscv64     | apk  | riscv64      | riscv64     | -M virt                | ttyS0
+loongarch64-alpine-6.18 | loongarch64 | apk  | loongarch64  | loongarch64 | -M virt                | ttyS0
+ppc64le-alpine-6.12     | ppc64le     | lts  | powerpc64le  | ppc64       | -M pseries -cpu power9 | hvc0
+s390x-alpine-6.12       | s390x       | lts  | s390x        | s390x       | -M s390-ccw-virtio     | ttysclp0
+mips-mainline-7.0       | -           | local| mips         | mips        | -M malta               | ttyS0
+mipsel-mainline-7.0     | -           | local| mipsel       | mipsel      | -M malta               | ttyS0
+mips64el-mainline-7.0   | -           | local| mips64el     | mips64el    | -M malta -cpu MIPS64R2-generic | ttyS0
+riscv32-mainline-7.0    | -           | local| riscv32      | riscv32     | -M virt                | ttyS0
+ppc32-mainline-7.0      | -           | local| powerpc      | ppc         | -M g3beige             | ttyS0
+mips-mainline-6.15      | -           | local| mips         | mips        | -M malta               | ttyS0
+mipsel-mainline-6.15    | -           | local| mipsel       | mipsel      | -M malta               | ttyS0
+riscv32-mainline-6.15   | -           | local| riscv32      | riscv32     | -M virt                | ttyS0
+ppc32-mainline-6.15     | -           | local| powerpc      | ppc         | -M g3beige             | ttyS0
+powerpc64-mainline-7.0  | -           | local| powerpc64    | ppc64       | -M pseries -cpu power9 | hvc0
+armeb-mainline-7.0      | -           | local| armeb        | arm         | -M virt                | ttyAMA0
+x86_64-mainline-7.0     | -           | local| x86_64       | x86_64      | -M q35 -cpu max        | ttyS0
+aarch64-mainline-7.0    | -           | local| aarch64      | aarch64     | -M virt -cpu max       | ttyAMA0
+armv7-mainline-7.0      | -           | local| armv7        | arm         | -M virt -cpu max       | ttyAMA0
+i686-mainline-7.0       | -           | local| i686         | i386        | -M pc -cpu max         | ttyS0
+s390x-mainline-7.0      | -           | local| s390x        | s390x       | -M s390-ccw-virtio     | ttysclp0
+riscv64-mainline-7.0    | -           | local| riscv64      | riscv64     | -M virt                | ttyS0
+ppc64le-mainline-7.0    | -           | local| powerpc64le  | ppc64       | -M pseries -cpu power9 | hvc0
 '
 
 trim() { echo "$1" | xargs; }
@@ -569,7 +579,7 @@ cmd_spec_table() {
 '
   body=
   for a in $arches; do
-    arch_disp=${a%-mainline}
+    arch_disp=${a%%-*}
     for scen in default hidden hardened; do
       log="$HERE/$a/boot-$scen.log"
       [ -f "$log" ] || continue
@@ -613,11 +623,10 @@ cmd_table() {
   bad=    # cells that are NOT verified sound (gate); refusing to emit if any
   body=
   for a in $arches; do
-    # Matrix label is the real architecture. A reference kernel staged under a
-    # "<arch>-mainline" name (e.g. x86_64-mainline) is the SAME arch as its distro
-    # sibling — the `source` column carries the distro-vs-mainline split — so
-    # strip the suffix rather than print a non-arch name.
-    arch_disp=${a%-mainline}
+    # Matrix label is the real architecture — the leading dash-component of the
+    # cell name (<arch>-<distro>-<version>). The same arch appears under several
+    # cells (distro/version); the `source` and `release` columns carry that split.
+    arch_disp=${a%%-*}
     for scen in default hidden hardened nokaslr; do
       log="$HERE/$a/boot-$scen.log"
       [ -f "$log" ] || continue   # arch not built (no kernel) — simply omitted

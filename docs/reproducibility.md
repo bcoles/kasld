@@ -151,21 +151,39 @@ The axis is architecture × reader profile; a kernel-config axis is out of scope
 | s390x | 6.12.81-0-lts | alpine | default | on | exact | exact |
 | s390x | 6.12.81-0-lts | alpine | hidden | on | 22 bits | exact |
 | s390x | 6.12.81-0-lts | alpine | hardened | on | 39 bits | 10 bits |
+| mips | 6.15.6 | mainline | default | on | exact | — |
+| mips | 6.15.6 | mainline | hidden | on | exact | — |
+| mips | 6.15.6 | mainline | hardened | on | 11 bits | — |
 | mips | 7.0.0 | mainline | default | on | exact | — |
 | mips | 7.0.0 | mainline | hidden | on | exact | — |
 | mips | 7.0.0 | mainline | hardened | on | 10 bits | — |
+| mipsel | 6.15.6 | mainline | default | on | exact | — |
+| mipsel | 6.15.6 | mainline | hidden | on | exact | — |
+| mipsel | 6.15.6 | mainline | hardened | on | 11 bits | — |
 | mipsel | 7.0.0 | mainline | default | on | exact | — |
 | mipsel | 7.0.0 | mainline | hidden | on | exact | — |
 | mipsel | 7.0.0 | mainline | hardened | on | 10 bits | — |
+| riscv32 | 6.15.6 | mainline | default | off | — | — |
+| riscv32 | 6.15.6 | mainline | hidden | off | — | — |
+| riscv32 | 6.15.6 | mainline | hardened | off | — | — |
 | riscv32 | 7.0.0 | mainline | default | off | — | — |
 | riscv32 | 7.0.0 | mainline | hidden | off | — | — |
 | riscv32 | 7.0.0 | mainline | hardened | off | — | — |
+| ppc32 | 6.15.6 | mainline | default | on | exact | — |
+| ppc32 | 6.15.6 | mainline | hidden | on | 2 bits | — |
+| ppc32 | 6.15.6 | mainline | hardened | on | 15 bits | — |
 | ppc32 | 7.0.0 | mainline | default | on | exact | — |
 | ppc32 | 7.0.0 | mainline | hidden | on | 2 bits | — |
 | ppc32 | 7.0.0 | mainline | hardened | on | 15 bits | — |
 | x86_64 | 7.0.0 | mainline | default | on | exact | exact |
 | x86_64 | 7.0.0 | mainline | hidden | on | 5 bits | exact |
 | x86_64 | 7.0.0 | mainline | hardened | on | 9 bits | 9 bits |
+| aarch64 | 7.0.0 | mainline | default | on | exact | exact |
+| aarch64 | 7.0.0 | mainline | hidden | on | 5 bits | exact |
+| aarch64 | 7.0.0 | mainline | hardened | on | 26 bits | 14 bits |
+| s390x | 7.0.0 | mainline | default | on | exact | exact |
+| s390x | 7.0.0 | mainline | hidden | on | 22 bits | exact |
+| s390x | 7.0.0 | mainline | hardened | on | 39 bits | 10 bits |
 
 Under `hidden`/`hardened`, `residual` usually widens to `<n> bits`: kallsyms —
 the pin the `default` column relies on — is gone, so the base stays `exact` only

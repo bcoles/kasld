@@ -3,9 +3,10 @@
 #
 # tests/vm/build-kernel — build a bootable kernel from kernel.org source for the
 # gap architectures Alpine does not ship (the tests/vm `flavor=local` set: mips,
-# mipsel, riscv32, ppc32, armeb). Output is staged to tests/vm/.cache/<arch>-vmlinuz,
-# which tests/vm/run then boots with the same init.c initramfs as the Alpine
-# flavors. Alpine stays the default for every arch it ports; this only fills gaps.
+# mipsel, riscv32, ppc32, armeb). Output is staged to
+# tests/vm/.cache/<cell>-vmlinuz (cell = <arch>-mainline-<version>), which
+# tests/vm/run then boots with the same init.c initramfs as the Alpine flavors.
+# Alpine stays the default for every arch it ports; this only fills gaps.
 #
 # Reproducible: a pinned kernel.org source tarball + a stock upstream defconfig +
 # a fixed overlay (endianness where the target byte order differs from the base
@@ -39,44 +40,50 @@ LINUX_VERSION=${LINUX_VERSION:-7.0}
 LINUX_MIRROR=${LINUX_MIRROR:-https://cdn.kernel.org/pub/linux/kernel}
 JOBS=${JOBS:-$(nproc 2>/dev/null || echo 1)}
 
-# Default build set: the gap arches that boot and validate here. The specs below
-# are excluded from the default and built only on request:
-#   armeb          — the cross set's only big-endian arm toolchain is ARMv5 BE32,
-#                    which can neither run on an ARMv7 BE8 kernel nor boot a BE32
-#                    kernel under qemu, so the staged kernel cannot be validated.
-#   *-mainline      — a mainline (kernel.org) build of an arch Alpine already
-#                    ships. These are the second kernel version in the tests/vm
-#                    matrix (Alpine distro kernel + mainline), giving every arch a
-#                    6.x-and-7.x pair; built on request, not part of the gap set.
-ALL_ARCHES="mips mipsel mips64el riscv32 ppc32 powerpc64"
+# Cells are named <arch>-<distro>-<kernel maj.minor>; build-kernel only ever
+# builds the `mainline` (kernel.org) cells. Default build set: the gap arches
+# with no Alpine port, at the current 7.0 pin. Everything else is built only on
+# request (pass the cell name):
+#   armeb-*         — the cross set's only big-endian arm toolchain is ARMv5 BE32,
+#                     which can neither run on an ARMv7 BE8 kernel nor boot a BE32
+#                     kernel under qemu, so the staged kernel cannot be validated.
+#   <arch>-mainline-<ver> for arches Alpine already ships — the second kernel
+#                     line in the matrix (Alpine distro kernel + mainline), giving
+#                     every arch a 6.x-and-7.x pair.
+#   <gap>-mainline-6.15  — an older-6.x twin of a gap arch; pass the matching
+#                     LINUX_VERSION (e.g. LINUX_VERSION=6.15.6). The version in the
+#                     name is a label; the caller sets the source version.
+ALL_ARCHES="mips-mainline-7.0 mipsel-mainline-7.0 mips64el-mainline-7.0
+riscv32-mainline-7.0 ppc32-mainline-7.0 powerpc64-mainline-7.0"
 
 # arch -> "tc-prefix kernel-ARCH defconfig image endian"
 #   tc-prefix : build/<prefix>-* dir whose triple gives CROSS_COMPILE
 #   image     : make target; staged from <O>/vmlinux or <O>/arch/<ARCH>/boot/<img>
 #   endian    : - (use defconfig as-is), le, or be (one-line overlay)
 spec_for() {
+  # The build recipe depends only on the arch, so key on the leading
+  # dash-component of the <arch>-<distro>-<version> cell name. (Alpine cells never
+  # reach here — only kernel.org 'local' cells are built.) ppc64le has no
+  # ppc64le_defconfig on this tree, so it builds ppc64_defconfig with the `le`
+  # overlay (CPU_LITTLE_ENDIAN, selecting the ELF v2 ABI); its toolchain prefix is
+  # powerpc64le, distinct from the BE powerpc64 gap arch.
+  set -- "${1%%-*}"
   case "$1" in
-  mips)    echo "mips     mips    malta_defconfig    vmlinux be" ;;
-  mipsel)  echo "mipsel   mips    malta_defconfig    vmlinux le" ;;
-  mips64el) echo "mips64el mips   malta_defconfig    vmlinux le" ;;
-  riscv32) echo "riscv32  riscv   defconfig          Image   -" ;;
-  ppc32)   echo "powerpc  powerpc pmac32_defconfig   vmlinux -" ;;
-  powerpc64) echo "powerpc64 powerpc ppc64_defconfig vmlinux -" ;;
-  armeb)   echo "armeb    arm     multi_v7_defconfig zImage  be" ;;
-  # Mainline (kernel.org) builds of arches Alpine already ships — the second
-  # kernel version in the matrix, staged under a `-mainline` name so they never
-  # shadow the Alpine cell. ppc64le has no ppc64le_defconfig on this tree, so it
-  # builds ppc64_defconfig with the `le` overlay (CPU_LITTLE_ENDIAN, which selects
-  # the ELF v2 ABI); its toolchain prefix is powerpc64le, distinct from the BE
-  # powerpc64 gap arch.
-  x86_64-mainline)  echo "x86_64   x86     x86_64_defconfig   bzImage -" ;;
-  aarch64-mainline) echo "aarch64  arm64   defconfig          Image   -" ;;
-  armv7-mainline)   echo "armv7    arm     multi_v7_defconfig zImage  -" ;;
-  i686-mainline)    echo "i686     x86     i386_defconfig     bzImage -" ;;
-  s390x-mainline)   echo "s390x    s390    defconfig          bzImage -" ;;
-  riscv64-mainline) echo "riscv64  riscv   defconfig          Image   -" ;;
-  ppc64le-mainline) echo "powerpc64le powerpc ppc64_defconfig vmlinux le" ;;
-  *)       echo "" ;;
+  mips)      echo "mips     mips    malta_defconfig    vmlinux be" ;;
+  mipsel)    echo "mipsel   mips    malta_defconfig    vmlinux le" ;;
+  mips64el)  echo "mips64el mips    malta_defconfig    vmlinux le" ;;
+  riscv32)   echo "riscv32  riscv   defconfig          Image   -" ;;
+  ppc32)     echo "powerpc  powerpc pmac32_defconfig   vmlinux -" ;;
+  powerpc64) echo "powerpc64 powerpc ppc64_defconfig  vmlinux -" ;;
+  armeb)     echo "armeb    arm     multi_v7_defconfig zImage  be" ;;
+  x86_64)    echo "x86_64   x86     x86_64_defconfig   bzImage -" ;;
+  aarch64)   echo "aarch64  arm64   defconfig          Image   -" ;;
+  armv7)     echo "armv7    arm     multi_v7_defconfig zImage  -" ;;
+  i686)      echo "i686     x86     i386_defconfig     bzImage -" ;;
+  s390x)     echo "s390x    s390    defconfig          bzImage -" ;;
+  riscv64)   echo "riscv64  riscv   defconfig          Image   -" ;;
+  ppc64le)   echo "powerpc64le powerpc ppc64_defconfig vmlinux le" ;;
+  *)         echo "" ;;
   esac
 }
 
@@ -103,6 +110,7 @@ fetch_src() {
 
 build_one() {
   arch=$1
+  base=${arch%%-*}   # <arch>-<distro>-<version> -> <arch>, for arch-specific tweaks
   spec=$(spec_for "$arch")
   [ -n "$spec" ] || { echo "SKIP  $arch (no build spec)"; return 0; }
   # shellcheck disable=SC2086  # spec fields are space-separated by construction
@@ -125,14 +133,14 @@ build_one() {
   esac
   # 64-bit MIPS on the malta board: the stock malta_defconfig is 32-bit, so
   # promote its CPU to MIPS64 (selects 64BIT) for the mips64* targets.
-  case "$arch" in
+  case "$base" in
   mips64 | mips64el)
     "$src/scripts/config" --file "$bdir/.config" \
       -d CPU_MIPS32_R2 -e CPU_MIPS64_R2 -e 64BIT -d 32BIT ;;
   esac
   # riscv32 has no standalone rv32_defconfig (removed after 6.15); derive the
   # 32-bit config by merging the arch's 32-bit.config fragment onto defconfig.
-  case "$arch" in
+  case "$base" in
   riscv32)
     make -C "$src" O="$bdir" ARCH="$ka" CROSS_COMPILE="$cc" 32-bit.config >/dev/null ||
       { echo "  !! 32-bit.config merge failed"; return 1; } ;;
@@ -142,8 +150,8 @@ build_one() {
   # supported". Disable 32-bit userspace compat — the minimal 64-bit init needs
   # no 32-bit ABI. (The big-endian powerpc64 gap arch uses a biarch toolchain and
   # is unaffected.)
-  case "$arch" in
-  ppc64le-mainline)
+  case "$base" in
+  ppc64le)
     "$src/scripts/config" --file "$bdir/.config" -d COMPAT ;;
   esac
   "$src/scripts/config" --file "$bdir/.config" -e DEVTMPFS -e DEVTMPFS_MOUNT

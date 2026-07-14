@@ -28,14 +28,17 @@ throwaway VM.
 
 ## Usage
 
+Cells are named `<arch>-<distro>-<kernel maj.minor>` (e.g. `aarch64-alpine-6.12`,
+`aarch64-mainline-7.0`); `run` with no cell lists them.
+
 ```sh
-tests/vm/run                 # every supported arch, default profile
-tests/vm/run aarch64         # one arch
-tests/vm/run aarch64 hardened
-tests/vm/run all hardened    # every arch in one profile
-tests/vm/run table           # results matrix + speculative-narrowing table
-tests/vm/run spec-table      # only the speculative-narrowing table
-tests/vm/run aarch64 capture # build a truth-bearing fixture from a live boot
+tests/vm/run                          # every supported cell, default profile
+tests/vm/run aarch64-alpine-6.12      # one cell
+tests/vm/run aarch64-alpine-6.12 hardened
+tests/vm/run all hardened             # every cell in one profile
+tests/vm/run table                    # results matrix + speculative-narrowing table
+tests/vm/run spec-table               # only the speculative-narrowing table
+tests/vm/run aarch64-alpine-6.12 capture # build a truth-bearing fixture from a live boot
 ```
 
 The `capture` mode is a maintainer workflow, not a validation profile: it boots
@@ -109,8 +112,8 @@ slow; run it once per arch, manually. The arch-gated rule logic is covered
 per-push by `tests/test-cross`.
 
 ```sh
-tests/vm/build-kernel mipsel    # download source + cross-build -> cache (slow)
-tests/vm/run mipsel             # boot it, verdict
+tests/vm/build-kernel mipsel-mainline-7.0  # download source + cross-build -> cache (slow)
+tests/vm/run mipsel-mainline-7.0           # boot it, verdict
 ```
 
 | arch | kernel-ARCH / defconfig | qemu |
@@ -152,18 +155,18 @@ on this tree (removed after 6.15); it is configured from `defconfig` plus the
 
 ### Two kernel versions per arch (the `-mainline` cells)
 
-Each arch Alpine ships gets a second cell, `<arch>-mainline`, that boots a mainline
-(kernel.org) build of the same arch instead of the Alpine distro kernel — so the
-matrix carries an older distro kernel **and** current mainline per arch, the axis
-that surfaced most historical soundness bugs (VA-layout floors, module-region
-size, `TEXT_OFFSET`). The Alpine cell (`<arch>`) and the mainline cell
-(`<arch>-mainline`) render under the same arch in `run table`, distinguished by the
-`source` column (`alpine` vs `mainline`); the exact version is the captured
-`kernel_release`. Build and boot a mainline cell like any gap arch:
+Each arch Alpine ships gets a second cell, `<arch>-mainline-<version>`, that boots a
+mainline (kernel.org) build of the same arch instead of the Alpine distro kernel —
+so the matrix carries an older distro kernel **and** current mainline per arch, the
+axis that surfaced most historical soundness bugs (VA-layout floors, module-region
+size, `TEXT_OFFSET`). The Alpine cell (`<arch>-alpine-<version>`) and the mainline
+cell (`<arch>-mainline-<version>`) render under the same arch in `run table`,
+distinguished by the `source` and `release` columns. Build and boot a mainline cell
+like any gap arch:
 
 ```sh
-tests/vm/build-kernel aarch64-mainline   # mainline build -> cache (slow)
-tests/vm/run aarch64-mainline            # boot it, verdict
+tests/vm/build-kernel aarch64-mainline-7.0  # mainline build -> cache (slow)
+tests/vm/run aarch64-mainline-7.0           # boot it, verdict
 ```
 
 Wired for `x86_64`, `aarch64`, `armv7`, `i686`, `s390x`, `riscv64`, `ppc64le`.
