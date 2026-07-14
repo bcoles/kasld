@@ -116,6 +116,30 @@ static void test_json_print_escaped_empty(void) {
  * every call site in render.c pre-checks and emits literal "null" itself
  * for the null case. Testing NULL would just segfault on dereference.) */
 
+static void wrap_md_print_cell(void *arg) { md_print_cell((const char *)arg); }
+
+/* md_print_cell escapes the markdown column separator '|' and a literal '\' (so
+ * it can't escape the following byte), and collapses control bytes to a space,
+ * so a wire-supplied name/origin cannot break the table layout. Ordinary names
+ * pass through unchanged. */
+static void test_md_print_cell_escaping(void) {
+  char in1[] = "foo|bar";
+  capture_stdout(wrap_md_print_cell, in1);
+  assert(strcmp(render_cap, "foo\\|bar") == 0);
+
+  char in2[] = "a\\b"; /* literal backslash doubled */
+  capture_stdout(wrap_md_print_cell, in2);
+  assert(strcmp(render_cap, "a\\\\b") == 0);
+
+  char in3[] = {'x', 0x09, 'y', 0}; /* TAB (control) -> space */
+  capture_stdout(wrap_md_print_cell, in3);
+  assert(strcmp(render_cap, "x y") == 0);
+
+  char in4[] = "proc_kallsyms"; /* ordinary name/origin: unchanged */
+  capture_stdout(wrap_md_print_cell, in4);
+  assert(strcmp(render_cap, "proc_kallsyms") == 0);
+}
+
 /* render_summary dispatcher: a synthetic minimal summary should hit one of
  * render_text / render_json / render_oneline / render_markdown depending on
  * the global mode flags. Verifies the dispatch + minimal banner output. */
@@ -1648,6 +1672,7 @@ int main(void) {
   RUN(test_json_print_escaped_all_named_escapes);
   RUN(test_json_print_escaped_other_control);
   RUN(test_json_print_escaped_empty);
+  RUN(test_md_print_cell_escaping);
 
   BEGIN_CATEGORY("Renderer — dispatcher (minimal summary)");
   RUN(test_render_summary_text_mode_minimal);

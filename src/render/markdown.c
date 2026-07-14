@@ -16,6 +16,24 @@
 #include <string.h>
 #include <sys/utsname.h>
 
+/* Print a string as a markdown table-cell body. Escapes the column separator
+ * '|' (and a preceding '\' so it cannot escape our escape) so a wire-supplied
+ * name — length-checked but not character-validated on the way in — cannot
+ * break the table layout. A control byte (which a whitespace-tokenised wire
+ * field should never carry) collapses to a space. */
+static void md_print_cell(const char *s) {
+  for (; *s; s++) {
+    unsigned char c = (unsigned char)*s;
+    if (c < 0x20) {
+      putchar(' ');
+    } else {
+      if (c == '\\' || c == '|')
+        putchar('\\');
+      putchar((char)c);
+    }
+  }
+}
+
 /* Print the unique contributing component origins for a (type, section) group,
  * comma-separated — the same source attribution the text readout shows inline
  * (e.g. "(perf_event_open, prefetch)"), so the compact markdown table credits
@@ -40,8 +58,11 @@ static void print_group_sources(enum kasld_addr_type type,
         seen[nseen++] = r->origins[j];
     }
   }
-  for (int sd = 0; sd < nseen; sd++)
-    printf("%s%s", sd ? ", " : "", seen[sd]);
+  for (int sd = 0; sd < nseen; sd++) {
+    if (sd)
+      printf(", ");
+    md_print_cell(seen[sd]);
+  }
   if (!nseen)
     printf("-");
 }
@@ -243,11 +264,16 @@ void render_markdown(const struct summary *s) {
         for (int k = 0; k < nidx; k++) {
           struct result *r = &results[idx[k]];
           unsigned long a = anchor_addr(r);
-          printf("| %c | %s | `0x%016lx` | %s | %s | %s | ",
+          printf("| %c | %s | `0x%016lx` | %s | %s | ",
                  kasld_type_wire(r->type), result_section(r), a,
-                 kasld_pos_wire(r->pos), kasld_region_wire(r->region), r->name);
-          for (int j = 0; j < r->provenance_count; j++)
-            printf("%s%s", j ? ", " : "", r->origins[j]);
+                 kasld_pos_wire(r->pos), kasld_region_wire(r->region));
+          md_print_cell(r->name);
+          printf(" | ");
+          for (int j = 0; j < r->provenance_count; j++) {
+            if (j)
+              printf(", ");
+            md_print_cell(r->origins[j]);
+          }
           printf(" | %s%s |\n", result_method(r),
                  in_bounds(r) ? "" : " (stale)");
         }
@@ -269,8 +295,11 @@ void render_markdown(const struct summary *s) {
         unsigned long a = anchor_addr(r);
         printf("| %c | %s | `0x%016lx` | %s | %s | ", kasld_type_wire(r->type),
                sec, a, kasld_pos_wire(r->pos), kasld_region_wire(r->region));
-        for (int j = 0; j < r->provenance_count; j++)
-          printf("%s%s", j ? ", " : "", r->origins[j]);
+        for (int j = 0; j < r->provenance_count; j++) {
+          if (j)
+            printf(", ");
+          md_print_cell(r->origins[j]);
+        }
         printf(" | %s%s |\n", result_method(r), in_bounds(r) ? "" : " (stale)");
       }
     }
