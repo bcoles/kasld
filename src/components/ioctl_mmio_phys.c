@@ -63,6 +63,7 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"
+           "live:1\n"
            "addr:physical\n");
 
 /* Emit one MMIO window as a PHYS landmark: a range when a length is known, else
@@ -126,6 +127,11 @@ static int scan_serial(void) {
 
 int main(int argc, char **argv) {
   kasld_cli(argc, argv);
+  /* Live host probe: the device ioctls read the executing machine's hardware
+   * MMIO layout, which is not reproducible from a captured tree — skip under a
+   * KASLD_SYSROOT replay so it never reports the analysis host's addresses. */
+  if (kasld_skip_live_probe("ioctl_mmio_phys"))
+    return 0;
 
   kasld_info(
       "querying framebuffer / serial ioctls for physical MMIO bases ...");

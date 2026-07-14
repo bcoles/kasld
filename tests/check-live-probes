@@ -48,8 +48,9 @@ COMP=$ROOT/src/components
 #   /proc/self/syscall, getppid(   — self/parent pseudo-files (host-live)
 #   PF_CAN / AF_CAN                — CAN BCM socket leak
 #   NILFS_IOCTL                    — nilfs2 ioctl uninitialised-page leak
+#   FBIOGET_FSCREENINFO/TIOCGSERIAL— fb / serial device-MMIO ioctl leaks
 #   pppd                           — set-uid pppd helper leak
-SIG='perf_event_open|SYS_perf_event_open|__NR_perf_event_open|rdtsc|sidechannel\.h|mincore[[:space:]]*\(|sidt|/proc/self/syscall|getppid[[:space:]]*\(|PF_CAN|AF_CAN|NILFS_IOCTL|pppd'
+SIG='perf_event_open|SYS_perf_event_open|__NR_perf_event_open|rdtsc|sidechannel\.h|mincore[[:space:]]*\(|sidt|/proc/self/syscall|getppid[[:space:]]*\(|PF_CAN|AF_CAN|NILFS_IOCTL|FBIOGET_FSCREENINFO|TIOCGSERIAL|pppd'
 
 # Reviewed live probes whose liveness is not greppable: mmap VA-boundary sweeps
 # (mmap alone is too common a call to signature on) and the iret CPU probe. Keep
