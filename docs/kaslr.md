@@ -93,7 +93,7 @@ base when it is consumed, so the slide is always measured against `_text`.
 |---|---|---|---|---|---|
 | x86_64 | `0xffffffff81000000` | `__START_KERNEL_map` + `PHYSICAL_START` (`page_64_types.h`) | 2 MiB | 504² | ~9 bits |
 | x86_32 | `0xc0000000` | `PAGE_OFFSET` (3G/1G vmsplit default) | 2 MiB | 248² | ~8 bits |
-| arm64 | `0xffff800080000000`³ | `KIMAGE_VADDR` = `_PAGE_END(VA_BITS_MIN)` + module-region size (`memory.h`) | 2 MiB¹ | ~33M | ~25 bits |
+| arm64 | `0xffff800080000000`³ | `KIMAGE_VADDR` = `_PAGE_END(VA_BITS_MIN)` + module-region size (`memory.h`) | 64 KiB⁴ | ~1073M | ~30 bits |
 | arm32 | `0xc0008000` | `PAGE_OFFSET` + `TEXT_OFFSET` (`0x8000`, from `arch/arm/Makefile`) | — | — | No KASLR |
 | MIPS32 | `0x80100400` | KSEG0 (`0x80000000`) + 1 MiB + `TEXT_OFFSET` (`0x400`, from `head.S`) | 64 KiB | varies | varies |
 | MIPS64 | `0xffffffff80100400` | CKSEG0 (`0xffffffff80000000`) + 1 MiB + `TEXT_OFFSET` (`0x400`) | 64 KiB | varies | varies |
@@ -114,10 +114,10 @@ or boot protocol). x86_64 is an exception: the kernel image virtual base
 (the direct-map base), and `PHYSICAL_START` (16 MiB) is added for
 alignment with the physical load address.
 
-¹ These architectures define a separate `KASLR_VIRT_ALIGN` larger than
-`IMAGE_ALIGN` (the image alignment). The table shows the KASLR slot
-granularity. arm64: `IMAGE_ALIGN` = 64 KiB, `KASLR_VIRT_ALIGN` = 2 MiB.
-PowerPC32: `IMAGE_ALIGN` = 4 KiB, `KASLR_VIRT_ALIGN` = 16 KiB.
+¹ PowerPC32 defines a `KASLR_VIRT_ALIGN` (16 KiB) larger than its
+`IMAGE_ALIGN` (4 KiB): BookE KASLR places the text base on the 16 KiB grid,
+so 16 KiB is the KASLR slot granularity while 4 KiB is only the page
+alignment.
 
 ² The slot count is an upper bound. Every architecture's KASLR placement
 code refuses positions where the image would extend past the end of the
@@ -144,13 +144,22 @@ KASLD detects the running `VA_BITS` with an mmap boundary probe
 (`mmap_arm64_va_bits`) and resolves the per-config text band and entropy
 accordingly.
 
+⁴ The arm64 text base is aligned to `EFI_KIMG_ALIGN` (64 KiB on 4K/16K pages,
+128 KiB on 64K pages), NOT the 2 MiB seed step. Under KASLR the EFI stub loads
+the image at 64 KiB alignment (weaker than the 2 MiB boot protocol), and the
+kernel grafts the low 2 MiB bits of that physical address into the virtual
+KASLR displacement so text can still be mapped with 2 MiB blocks. The result is
+a virtual text base that steps by 64 KiB, not 2 MiB, so 64 KiB is the alignment
+of `_text` (the slot count divides the window by 64 KiB). The 2 MiB seed step
+governs only the high bits of the displacement.
+
 | Architecture | Max slots | Approx. `kernel_size` | Typical runtime slots | Reduction |
 |---|---|---|---|---|
 | x86_64 | 504 | `init_size` ≈ 70 MiB | ~469 | ~7% |
 | x86_32 | 248 | `init_size` ≈ 40 MiB | ~228 | ~8% |
 | RISC-V64 | 512 | `_end−_start` ≈ 30 MiB | ~497 | ~3% |
 | s390 | ~131K | ≈ 70 MiB | ~127K | ~3% |
-| arm64 | ~33M | ≈ 50 MiB | ~33M | <0.01% |
+| arm64 | ~1073M | ≈ 50 MiB | ~1073M | <0.01% |
 
 On x86 and RISC-V, where total entropy is ~9 bits (~500 slots), a 3–8%
 reduction is material. On s390 (~17 bits) and arm64 (~25 bits) the

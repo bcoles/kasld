@@ -3787,7 +3787,10 @@ static void test_arm64_efi_kimg_align(void) {
                            rule_arm64_efi_kimg_align};
   engine_run(&e, rules, 2);
 #if defined(__aarch64__)
-  assert(e.est[Q_PHYS_KASLR_ALIGN].lo == 131072ul); /* 128 KiB for 64K pages */
+  /* 64K pages -> EFI_KIMG_ALIGN 128 KiB on BOTH text bases (the phys graft ties
+   * the virtual text grid to the physical one). */
+  assert(e.est[Q_PHYS_KASLR_ALIGN].lo == 131072ul);
+  assert(e.est[Q_VIRT_KASLR_ALIGN].lo == 131072ul);
 #else
   /* Inert off arm64: phys align stays at the arch baseline. */
 #if defined(KASLR_PHYS_MIN)

@@ -144,10 +144,11 @@ static inline unsigned long arm64_page_end_for(unsigned long va_bits) {
 #define EFI_KIMG_ALIGN 0x10000ul
 
 // IMAGE_BASE_OFFSET is the alignment residue (where _text sits within the KASLR
-// granule); _text == KIMAGE_VADDR is 2 MiB-aligned, so it is 0. (The kernel's
-// historical 0x80000 TEXT_OFFSET, dropped in v5.8, was the *physical* load
-// offset from the start of RAM — a different quantity, not the _text alignment
-// residue.)
+// granule = KASLR_VIRT_ALIGN = EFI_KIMG_ALIGN, 64 KiB). _text is placed on the
+// EFI_KIMG_ALIGN grid (both the seed slot and the phys-grafted low bits are
+// multiples of it), so the residue is 0. (The kernel's historical 0x80000
+// TEXT_OFFSET, dropped in v5.8, was the *physical* load offset from the start
+// of RAM — a different quantity, not the _text alignment residue.)
 // https://lore.kernel.org/all/20200428134119.GI6791@willie-the-truck/T/
 #define IMAGE_BASE_OFFSET 0
 
@@ -204,8 +205,6 @@ static inline unsigned long arch_default_text_base(void) {
 // KASLR randomization window (v4.6+):
 // The KASLR offset from KIMAGE_VADDR is in [BIT(45), BIT(45)+BIT(46)).
 // VA_BITS_MIN is always 48 (4K pages), so the offset range is constant.
-// Aligned to SZ_2M (explicitly masked in v5.10; page-table granularity in
-// v6.2+). Entropy: BIT(46) / SZ_2M = BIT(25) = 33554432 slots (25 bits).
 //
 // v6.6   kaslr_early.c: return BIT(VA_BITS_MIN-3) + (seed &
 // GENMASK(VA_BITS_MIN-3,0)); v6.12  kaslr_early.c: range = (VMALLOC_END -
@@ -215,7 +214,39 @@ static inline unsigned long arch_default_text_base(void) {
 // https://elixir.bootlin.com/linux/v6.12/source/arch/arm64/kernel/pi/kaslr_early.c
 #define KASLR_VIRT_TEXT_MIN (KIMAGE_VADDR + (1ul << 45))
 #define KASLR_VIRT_TEXT_MAX (KASLR_VIRT_TEXT_MIN + (1ul << 46))
-#define KASLR_VIRT_ALIGN (2 * MB)
+
+// KASLR_VIRT_ALIGN is the alignment of the *_text address*: the finest grid the
+// virtual text base can land on, used both to snap the guaranteed base window
+// (kasld_floor_text_base and the align_down virtual ceilings) and to count
+// KASLR slots. On arm64 that grid is EFI_KIMG_ALIGN (= IMAGE_ALIGN, 64 KiB on
+// 4K/16K pages; 128 KiB on 64K pages, raised at runtime by
+// arm64_efi_kimg_align), NOT the 2 MiB seed step. The virtual text base is 64
+// KiB-granular, not 2 MiB- aligned, because arm64 builds _text from two
+// independently-randomised parts:
+//
+//   virt_text = KIMAGE_VADDR
+//             + (seed & ~(MIN_KIMG_ALIGN-1))   // high bits: a 2 MiB seed slot
+//             + (phys_text & (MIN_KIMG_ALIGN-1))// low bits: grafted from phys
+//
+// The low log2(MIN_KIMG_ALIGN)=21 bits of the KASLR displacement are copied
+// from the *physical* load address so kernel text can be mapped with 2 MiB
+// blocks (arch/arm64/kernel/head.S `and x23,x23,MIN_KIMG_ALIGN-1` + `orr
+// x23,x23,x0`, present since v4.8; moved to arch/arm64/kernel/pi/map_kernel.c
+// in v6.9). Under KASLR the EFI stub allocates the image at EFI_KIMG_ALIGN = 64
+// KiB, weaker than the 2 MiB boot protocol (arch/arm64/include/asm/efi.h
+// efi_get_kimg_min_align() returns EFI_KIMG_ALIGN unless efi_nokaslr; added
+// v4.14). So phys_text — and therefore virt_text's low 2 MiB bits — is 64
+// KiB-granular and non-zero in general. The 2 MiB seed step governs only the
+// high bits; it is NOT the alignment of _text and must not be used to snap the
+// base window (doing so floors a guaranteed ceiling below a real off-2 MiB-grid
+// _text — an unsound exclusion). Only under nokaslr does the stub fall back to
+// 2 MiB alignment; a 64 KiB grid still contains a 2 MiB-aligned base, so the
+// window stays sound.
+//
+// Slot count (upper bound on entropy): (BIT(46)) / 64 KiB. The realisable
+// entropy is smaller, bounded by the DTB/RNDR seed and the EFI RNG that place
+// the two parts.
+#define KASLR_VIRT_ALIGN IMAGE_ALIGN
 
 /* Honest-top floor for Q_VIRT_IMAGE_BASE — widened down to the OLD (pre-v5.4)
  * layout's image base so the engine's honest window admits every in-scope

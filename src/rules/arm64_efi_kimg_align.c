@@ -1,17 +1,20 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
-// Rule: arm64 physical KASLR granularity = EFI_KIMG_ALIGN, from page size.
+// Rule: arm64 kernel-image alignment = EFI_KIMG_ALIGN, from page size.
 //
-// On arm64 the physical KASLR
-// slot granularity is EFI_KIMG_ALIGN = max(THREAD_ALIGN, SEGMENT_ALIGN=64 KiB):
+// On arm64 the KASLR image-placement granularity is EFI_KIMG_ALIGN =
+// max(THREAD_ALIGN, SEGMENT_ALIGN=64 KiB):
 //
 //   4K / 16K pages: THREAD_ALIGN <= 32 KiB -> EFI_KIMG_ALIGN = 64 KiB
 //   64K pages:      THREAD_ALIGN = 128 KiB -> EFI_KIMG_ALIGN = 128 KiB
 //
-// The compile-time default (KASLR_VIRT_ALIGN = 64 KiB) is correct for 4K/16K;
-// this raises Q_PHYS_KASLR_ALIGN to 128 KiB on 64K-page kernels. Virtual
-// KASLR_VIRT_ALIGN (2 MiB) is page_size independent on arm64 and is left
-// untouched.
+// This applies to BOTH the physical and virtual text base. The EFI stub
+// allocates the image physically at EFI_KIMG_ALIGN; the low bits of that
+// physical address are grafted into the virtual KASLR displacement (see
+// KASLR_VIRT_ALIGN in arch/arm64.h), so virtual _text carries the same
+// EFI_KIMG_ALIGN granularity. The compile-time baseline (IMAGE_ALIGN = 64 KiB)
+// covers 4K/16K pages for both quantities; this rule raises Q_PHYS_KASLR_ALIGN
+// and Q_VIRT_KASLR_ALIGN to 128 KiB on 64K-page kernels.
 //
 // Reads SF_PAGE_SIZE (bridged from getpagesize). C_AT_LEAST_ALIGN; a value at
 // or below the arch baseline is dominated by kaslr_align_arch_default.
@@ -29,7 +32,7 @@ int rule_arm64_efi_kimg_align(const struct evidence_set *ev,
                               struct constraint *out, int out_max) {
   (void)est;
 #if defined(__aarch64__)
-  if (out_max < 1)
+  if (out_max < 2)
     return 0;
 
   unsigned long pagesize = 0;
@@ -52,16 +55,22 @@ int rule_arm64_efi_kimg_align(const struct evidence_set *ev,
   else
     return 0; /* unknown/absent page size */
 
-  struct constraint *c = &out[0];
-  memset(c, 0, sizeof(*c));
-  c->q = Q_PHYS_KASLR_ALIGN;
-  c->op = C_AT_LEAST_ALIGN;
-  c->value = efi_kimg_align;
-  c->conf = CONF_PARSED;
-  c->derived_from[0] = src;
-  c->lineage_count = src ? 1 : 0;
-  snprintf(c->origin, ORIGIN_LEN, "arm64_efi_kimg_align");
-  return 1;
+  /* The graft ties virtual and physical text to the same EFI_KIMG_ALIGN grid,
+   * so both quantities carry it. */
+  const enum kasld_quantity qs[] = {Q_PHYS_KASLR_ALIGN, Q_VIRT_KASLR_ALIGN};
+  int n = 0;
+  for (int i = 0; i < 2; i++) {
+    struct constraint *c = &out[n++];
+    memset(c, 0, sizeof(*c));
+    c->q = qs[i];
+    c->op = C_AT_LEAST_ALIGN;
+    c->value = efi_kimg_align;
+    c->conf = CONF_PARSED;
+    c->derived_from[0] = src;
+    c->lineage_count = src ? 1 : 0;
+    snprintf(c->origin, ORIGIN_LEN, "arm64_efi_kimg_align");
+  }
+  return n;
 #else
   (void)ev;
   (void)out;
