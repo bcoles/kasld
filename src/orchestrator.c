@@ -1852,10 +1852,17 @@ static void run_phase(const struct phase *p) {
 
 #ifdef HAVE_PTHREAD
   pthread_t threads[MAX_COMPONENTS];
-  int i;
-  for (i = 0; i < workers; i++)
-    pthread_create(&threads[i], NULL, inference_worker, NULL);
-  for (i = 0; i < workers; i++)
+  int started = 0;
+  for (int i = 0; i < workers; i++)
+    if (pthread_create(&threads[started], NULL, inference_worker, NULL) == 0)
+      started++;
+  /* On a create failure, only the threads that started are valid to join.
+   * Work-stealing (each worker claims from the shared pool_next) means any
+   * single started worker drains every remaining component, so no work is
+   * lost. If none started, drain the queue on this thread. */
+  if (started == 0)
+    inference_worker(NULL);
+  for (int i = 0; i < started; i++)
     pthread_join(threads[i], NULL);
   merge_results();
 #endif

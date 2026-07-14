@@ -92,10 +92,19 @@ static void scan_sock_file(const char *path, struct sock_range *r) {
 int main(int argc, char *argv[]) {
   kasld_cli(argc, argv);
 
-  if (kasld_access("/proc/net/unix", R_OK) != 0 &&
-      kasld_access("/proc/net/netlink", R_OK) != 0)
-    return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM
-                                               : KASLD_EXIT_UNAVAILABLE;
+  int unix_rc = kasld_access("/proc/net/unix", R_OK);
+  int unix_errno = errno;
+  int nl_rc = kasld_access("/proc/net/netlink", R_OK);
+  int nl_errno = errno;
+  if (unix_rc != 0 && nl_rc != 0) {
+    /* Both sources are inaccessible. Report access-denied if EITHER failed on a
+     * permission error — a denied source means the data exists but is hidden
+     * (more actionable than "absent"). Classifying on the residual errno alone
+     * would let an absent second source mask a denied first one. */
+    int denied = (unix_errno == EACCES || unix_errno == EPERM ||
+                  nl_errno == EACCES || nl_errno == EPERM);
+    return denied ? KASLD_EXIT_NOPERM : KASLD_EXIT_UNAVAILABLE;
+  }
 
   struct sock_range r = {0, 0, 0};
   scan_sock_file("/proc/net/unix", &r);
