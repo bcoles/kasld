@@ -230,10 +230,30 @@ __extension__ _Static_assert((unsigned long)KERNEL_PHYS_MAX >
  * silently emitting a wrong observation. Both macros are bijective on a
  * static linear map and share the same gate. */
 #if DIRECTMAP_STATIC
+/* A directmap virtual address is by construction >= PAGE_OFFSET. A projection
+ * where (p - PHYS_OFFSET) underflows or (+ PAGE_OFFSET) wraps the word -- a
+ * high physical reserved region on a 32-bit arch -- is therefore not a
+ * directmap address; it is discarded (0) so the VAS parser drops it rather than
+ * admitting a below-PAGE_OFFSET phantom that could reject a true text leak. The
+ * bijection holds only for a real linear-map input, so directmap_virt_to_phys
+ * rejects any virtual below PAGE_OFFSET the same way. Kept as function-like
+ * macros so the
+ * `#ifdef phys_to_directmap_virt` gate at call sites still selects them. */
+static inline unsigned long kasld__phys_to_directmap_virt(unsigned long p) {
+  unsigned long v = (unsigned long)(p - PHYS_OFFSET + PAGE_OFFSET);
+  if (p < (unsigned long)PHYS_OFFSET || v < (unsigned long)PAGE_OFFSET)
+    return 0;
+  return v;
+}
+static inline unsigned long kasld__directmap_virt_to_phys(unsigned long v) {
+  if (v < (unsigned long)PAGE_OFFSET)
+    return 0;
+  return (unsigned long)(v - PAGE_OFFSET + PHYS_OFFSET);
+}
 #define phys_to_directmap_virt(p)                                              \
-  ((unsigned long)((p) - PHYS_OFFSET + PAGE_OFFSET))
+  kasld__phys_to_directmap_virt((unsigned long)(p))
 #define directmap_virt_to_phys(v)                                              \
-  ((unsigned long)((v) - PAGE_OFFSET + PHYS_OFFSET))
+  kasld__directmap_virt_to_phys((unsigned long)(v))
 #endif
 
 /* Conservative lower edges of Q_VIRT_IMAGE_BASE / Q_PHYS_IMAGE_BASE windows.

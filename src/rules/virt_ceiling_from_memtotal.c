@@ -100,8 +100,16 @@ int rule_virt_ceiling_from_memtotal(const struct evidence_set *ev,
      * reaches the guaranteed window. */
     if (dram_top <= (unsigned long)PHYS_OFFSET)
       return 0;
-    unsigned long virt_top =
-        virt_page_offset + (dram_top - (unsigned long)PHYS_OFFSET);
+    unsigned long dram_span = dram_top - (unsigned long)PHYS_OFFSET;
+    /* A 32-bit highmem kernel linearly maps only lowmem; a DRAM top that lies
+     * in highmem projects above the address space, so the sum wraps. A wrapped
+     * ceiling sits below the real text and would wrongly reject it -- emit no
+     * ceiling instead, leaving the lowmem-aware highmem_32bit_bound to shape
+     * the likely window. Inert on 64-bit coupled arches, where the sum never
+     * wraps. */
+    if (dram_span > ULONG_MAX - virt_page_offset)
+      return 0;
+    unsigned long virt_top = virt_page_offset + dram_span;
     if (virt_top <= min_image)
       return 0;
     ceiling = virt_top - min_image + IMAGE_BASE_OFFSET;
@@ -120,8 +128,15 @@ int rule_virt_ceiling_from_memtotal(const struct evidence_set *ev,
       phys_floor = PHYS_OFFSET;
     unsigned long phys_floor_offset =
         (phys_floor > PHYS_OFFSET) ? (phys_floor - PHYS_OFFSET) : 0;
-    ceiling = virt_page_offset + phys_floor_offset + memtotal - min_image +
-              IMAGE_BASE_OFFSET;
+    /* Same highmem wrap guard as the preferred path: a lowmem base or spanned
+     * total that projects past the top of the address space yields no sound
+     * ceiling. */
+    if (phys_floor_offset > ULONG_MAX - virt_page_offset)
+      return 0;
+    unsigned long lowmem_base = virt_page_offset + phys_floor_offset;
+    if (memtotal > ULONG_MAX - lowmem_base)
+      return 0;
+    ceiling = lowmem_base + memtotal - min_image + IMAGE_BASE_OFFSET;
     src_a = msrc;
     src_b = fsrc;
     cconf = kasld_conf_min(CONF_HEURISTIC, (mconf < fconf) ? mconf : fconf);
