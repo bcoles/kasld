@@ -109,6 +109,7 @@ static const rule_fn k_rules[] = {
     rule_s390_paging_level,
     rule_s390_text_from_belows,
     rule_s390_text_segment_mod,
+    rule_s390_phys_segment_mod,
     rule_s390_text_no_random,
     rule_s390_image_base_from_config,
 

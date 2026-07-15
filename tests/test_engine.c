@@ -3153,6 +3153,59 @@ static void test_arm64_text_phys_residue_no_anchor(void) {
   assert(e.est[Q_VIRT_IMAGE_BASE].stride == 0);
 }
 
+/* s390_phys_segment_mod: a VIRT KERNEL_IMAGE base pins Q_PHYS_IMAGE_BASE's
+ * stride class to (virt_text mod 1 MiB) — the reverse of s390_text_segment_mod.
+ */
+int rule_s390_phys_segment_mod(const struct evidence_set *ev,
+                               const struct estimate *est,
+                               struct constraint *out, int out_max);
+
+static void test_s390_phys_segment_mod_fires(void) {
+  struct engine e;
+  engine_init(&e);
+  /* virt _text: 16 KiB-granular, off the 1 MiB grid (a real s390 placement). */
+  unsigned long virt_text = 0x3fffe774000ul; /* mod 1 MiB = 0x74000 */
+  struct observation img =
+      mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE, virt_text,
+             LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
+  evidence_add(&e.ev, &img);
+  const rule_fn rules[] = {rule_s390_phys_segment_mod};
+  engine_run(&e, rules, 1);
+#if defined(__s390__) || defined(__s390x__)
+  assert(e.est[Q_PHYS_IMAGE_BASE].stride == 0x100000ul);
+  assert(e.est[Q_PHYS_IMAGE_BASE].stride_offset == (virt_text % 0x100000ul));
+  /* SOUNDNESS: the residue class is non-empty within the phys window, so the
+   * stride does not force bottom / exclude the coupling-consistent phys _text.
+   */
+  assert(!estimate_is_bottom(&e.est[Q_PHYS_IMAGE_BASE],
+                             &quantities[Q_PHYS_IMAGE_BASE]));
+#else
+  assert(e.est[Q_PHYS_IMAGE_BASE].stride == 0);
+#endif
+}
+
+/* A virt anchor not on the IMAGE_ALIGN (16 KiB) grid is a bad witness; skip it
+ * rather than emit a stride that would leave no candidate and force bottom. */
+static void test_s390_phys_segment_mod_unaligned_skipped(void) {
+  struct engine e;
+  engine_init(&e);
+  unsigned long bad = 0x3fffe771000ul; /* 4 KiB-aligned, not 16 KiB */
+  struct observation o = mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE, bad,
+                                LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
+  evidence_add(&e.ev, &o);
+  const rule_fn rules[] = {rule_s390_phys_segment_mod};
+  engine_run(&e, rules, 1);
+  assert(e.est[Q_PHYS_IMAGE_BASE].stride == 0); /* skipped on every arch */
+}
+
+static void test_s390_phys_segment_mod_no_anchor(void) {
+  struct engine e;
+  engine_init(&e);
+  const rule_fn rules[] = {rule_s390_phys_segment_mod};
+  engine_run(&e, rules, 1);
+  assert(e.est[Q_PHYS_IMAGE_BASE].stride == 0);
+}
+
 /* s390_text_no_random: when SF_PHYS_KASLR_RANDOMIZATION_FAILED is present on
  * s390, the boot stub places the kernel image at low physical memory
  * (IMAGE_BASE_OFFSET on pre-v6.8, or ALIGN(mem_safe_offset, 1MiB) on v6.8+).
@@ -6283,6 +6336,9 @@ int main(void) {
   RUN(test_arm64_text_phys_residue_stext_normalized);
   RUN(test_arm64_text_phys_residue_unaligned_skipped);
   RUN(test_arm64_text_phys_residue_no_anchor);
+  RUN(test_s390_phys_segment_mod_fires);
+  RUN(test_s390_phys_segment_mod_unaligned_skipped);
+  RUN(test_s390_phys_segment_mod_no_anchor);
   RUN(test_s390_text_no_random_fires_with_signal);
   RUN(test_s390_text_no_random_inert_without_signal);
   RUN(test_s390_text_no_random_admits_empirical_phys);
