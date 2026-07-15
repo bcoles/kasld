@@ -220,31 +220,33 @@ static int find_func_btf_ids(uint32_t *ids, const char **why) {
     return 0;
   }
 
-  struct btf_hdr *h = (struct btf_hdr *)b;
+  struct btf_hdr h; /* copy out — b is byte-aligned, so no aliasing cast */
+  memcpy(&h, b, sizeof(h));
   *why = "parse BTF header";
-  if (h->magic != 0xeb9f) {
+  if (h.magic != 0xeb9f) {
     free(b);
     return 0;
   }
-  unsigned long tbase = (unsigned long)h->hdr_len + h->type_off;
-  unsigned long sbase = (unsigned long)h->hdr_len + h->str_off;
-  if (tbase + h->type_len > (unsigned long)n ||
-      sbase + h->str_len > (unsigned long)n) {
+  unsigned long tbase = (unsigned long)h.hdr_len + h.type_off;
+  unsigned long sbase = (unsigned long)h.hdr_len + h.str_off;
+  if (tbase + h.type_len > (unsigned long)n ||
+      sbase + h.str_len > (unsigned long)n) {
     free(b);
     return 0;
   }
-  uint8_t *p = b + tbase, *end = p + h->type_len;
+  uint8_t *p = b + tbase, *end = p + h.type_len;
   const char *strs = (const char *)(b + sbase);
   uint32_t id = 0;
   int count = 0;
   *why = "find resolvable KIND_FUNC entries in BTF";
   while (p + 12 <= end && count < MAX_FUNCS) {
-    uint32_t name_off = *(uint32_t *)p;
-    uint32_t info = *(uint32_t *)(p + 4);
+    uint32_t name_off, info;
+    memcpy(&name_off, p, 4);
+    memcpy(&info, p + 4, 4);
     uint32_t kind = (info >> 24) & 0x1f;
     uint32_t vlen = info & 0xffffff;
     id++;
-    if (kind == 12 && name_off < h->str_len) { /* BTF_KIND_FUNC */
+    if (kind == 12 && name_off < h.str_len) { /* BTF_KIND_FUNC */
       const char *name = strs + name_off;
       for (int i = 0; k_funcs[i]; i++) {
         if (strcmp(name, k_funcs[i]) == 0) {
