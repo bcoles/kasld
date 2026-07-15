@@ -50,7 +50,9 @@ COMP=$ROOT/src/components
 #   NILFS_IOCTL                    — nilfs2 ioctl uninitialised-page leak
 #   FBIOGET_FSCREENINFO/TIOCGSERIAL— fb / serial device-MMIO ioctl leaks
 #   pppd                           — set-uid pppd helper leak
-SIG='perf_event_open|SYS_perf_event_open|__NR_perf_event_open|rdtsc|sidechannel\.h|mincore[[:space:]]*\(|sidt|/proc/self/syscall|getppid[[:space:]]*\(|PF_CAN|AF_CAN|NILFS_IOCTL|FBIOGET_FSCREENINFO|TIOCGSERIAL|pppd'
+#   SYS_bpf / BPF_PROG_LOAD        — bpf verifier-log pointer leak (loads a
+#                                    program into the running kernel)
+SIG='perf_event_open|SYS_perf_event_open|__NR_perf_event_open|rdtsc|sidechannel\.h|mincore[[:space:]]*\(|sidt|/proc/self/syscall|getppid[[:space:]]*\(|PF_CAN|AF_CAN|NILFS_IOCTL|FBIOGET_FSCREENINFO|TIOCGSERIAL|pppd|SYS_bpf|BPF_PROG_LOAD'
 
 # Reviewed live probes whose liveness is not greppable: mmap VA-boundary sweeps
 # (mmap alone is too common a call to signature on) and the iret CPU probe. Keep
