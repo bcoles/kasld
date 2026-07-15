@@ -19,12 +19,18 @@
 // SF_PHYS_LOWMEM comes from /proc/meminfo LowTotal, which is virtualisable
 // inside a container / cgroup (lxcfs reports the cgroup limit, not host RAM) —
 // a faked-small LowTotal would drop this ceiling below the true base. Unlike
-// the MemTotal ceilings there is no non-fakeable substitute (zoneinfo's
-// REGION_RAM extent spans all RAM, not ZONE_NORMAL), so the bound is capped at
-// CONF_HEURISTIC: it shapes the LIKELY window only, never the guaranteed one. A
-// zoneinfo-derived ZONE_NORMAL top could restore a sound guaranteed ceiling
-// (future work); until then soundness beats the lost precision on a genuine
-// 32-bit highmem host.
+// the MemTotal ceilings there is no non-fakeable substitute wired up today
+// (zoneinfo's REGION_RAM extent spans ALL RAM, highmem included, so it does not
+// bound lowmem), so the bound is capped at CONF_HEURISTIC: it shapes the LIKELY
+// window only, never the guaranteed one. The non-fakeable signal that could
+// restore a sound guaranteed ceiling is the lowmem/highmem boundary
+// (max_low_pfn) from zoneinfo — the ZONE_HIGHMEM start, i.e. the top of the
+// highest non-highmem zone — NOT a "ZONE_NORMAL top": ZONE_NORMAL is commonly
+// empty on ARM (lowmem sits in ZONE_DMA), so keying on it finds nothing.
+// Extracting that boundary needs per-zone-name parsing in proc_zoneinfo (future
+// work); until then soundness beats the lost precision on a genuine 32-bit
+// highmem host. On typical VMSPLIT configs high_memory already sits at ~the
+// arch KERNEL_VIRT_TEXT_MAX, so the gain is real only on small-lowmem boards.
 // ---
 // <bcoles@gmail.com>
 
