@@ -1,0 +1,2 @@
+31172608 /boot/vmlinux-6.12.94+deb13-riscv64
+83 /boot/System.map-6.12.94+deb13-riscv64

@@ -1,0 +1,29 @@
+09000000-09000fff : pl011@9000000
+  09000000-09000fff : 9000000.pl011 pl011@9000000
+09010000-09010fff : pl031@9010000
+  09010000-09010fff : rtc-pl031
+09020000-09020017 : fw_cfg_mem
+09030000-09030fff : pl061@9030000
+  09030000-09030fff : 9030000.pl061 pl061@9030000
+0a003e00-0a003fff : a003e00.virtio_mmio virtio_mmio@a003e00
+10000000-3efeffff : pcie@10000000
+  10000000-10000fff : 0000:00:01.0
+40000000-bfffffff : System RAM
+  40200000-41f1ffff : Kernel code
+  41f20000-4221ffff : reserved
+  42220000-426dffff : Kernel data
+  48000000-4a2bffff : reserved
+  4a400000-4a4fffff : reserved
+  b9400000-bf7fffff : reserved
+  bf8cd000-bf8d2fff : reserved
+  bf8d3000-bf9d3fff : reserved
+  bf9d4000-bf9f5fff : reserved
+  bf9f7000-bf9f7fff : reserved
+  bf9f8000-bf9fafff : reserved
+  bf9fb000-bfbfffff : reserved
+  bfc00000-bfc09fff : reserved
+  bfc0a000-bfffffff : reserved
+4010000000-401fffffff : PCI ECAM
+8000000000-ffffffffff : pcie@10000000
+  8000000000-8000003fff : 0000:00:01.0
+    8000000000-8000003fff : virtio-pci-modern

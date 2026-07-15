@@ -1,0 +1,11 @@
+absent: /sys/kernel/boot_params/setup_data
+absent: /proc/device-tree/chosen
+absent: /proc/device-tree/rtas
+absent: /sys/firmware/devicetree/base/chosen
+absent: /sys/firmware/devicetree/base/rtas
+absent: /sys/firmware/fdt
+absent: /proc/config.gz
+header: /boot/vmlinuz-6.12.94+deb13-amd64 (4096B prefix; full size 12122048 in sizes.txt)
+absent: /boot/Image-6.12.94+deb13-amd64
+absent: /boot/vmlinux-6.12.94+deb13-amd64
+anonymized: host identity, CPU brand, UUIDs/MACs, sensitive cmdline values redacted

@@ -1,0 +1,10 @@
+processor	: 0
+BogoMIPS	: 125.00
+Features	: half thumb fastmult vfp edsp thumbee neon vfpv3 tls vfpv4 idiva idivt vfpd32 lpae evtstrm 
+CPU implementer	: 0x41
+CPU architecture: 7
+CPU variant	: 0x4
+CPU part	: 0xc0f
+CPU revision	: 0
+
+Revision	: 0000

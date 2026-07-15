@@ -1,0 +1,2 @@
+12122048 /boot/vmlinuz-6.12.94+deb13-amd64
+83 /boot/System.map-6.12.94+deb13-amd64

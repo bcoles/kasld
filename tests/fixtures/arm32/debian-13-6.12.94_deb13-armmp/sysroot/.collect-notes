@@ -1,0 +1,11 @@
+absent: /sys/kernel/boot_params/data
+absent: /sys/kernel/boot_params/setup_data
+absent: /sys/firmware/memmap
+absent: /proc/device-tree/rtas
+absent: /sys/firmware/devicetree/base/rtas
+WARNING: captured /sys/firmware/fdt may contain board-identifying data (serial number, MAC address). Run extra/anonymize-fdt on it before sharing or committing this capture.
+absent: /proc/config.gz
+header: /boot/vmlinuz-6.12.94+deb13-armmp (4096B prefix; full size 6033920 in sizes.txt)
+absent: /boot/Image-6.12.94+deb13-armmp
+absent: /boot/vmlinux-6.12.94+deb13-armmp
+anonymized: host identity, CPU brand, UUIDs/MACs, sensitive cmdline values redacted

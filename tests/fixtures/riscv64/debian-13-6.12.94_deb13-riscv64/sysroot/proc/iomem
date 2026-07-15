@@ -1,0 +1,27 @@
+00101000-00101fff : 101000.rtc rtc@101000
+10000000-100000ff : serial
+10008000-10008fff : 10008000.virtio_mmio virtio_mmio@10008000
+10100000-10100017 : fw_cfg_mem
+30000000-3fffffff : PCI ECAM
+40000000-7fffffff : pci@30000000
+  40000000-40000fff : 0000:00:01.0
+80000000-8005ffff : Reserved
+80060000-ffffffff : System RAM
+  80200000-80201fff : Reserved
+  80202000-82069727 : Kernel image
+    80202000-80c7d563 : Kernel code
+    81200000-81bfffff : Kernel rodata
+    81e00000-81fba7ff : Kernel data
+    81fbb000-82069727 : Kernel bss
+  82069728-821fffff : Reserved
+  a0200000-a2a1dfff : Reserved
+  fb800000-ffe01fff : Reserved
+  ffec1000-ffec6fff : Reserved
+  ffec7000-fffc7fff : Reserved
+  fffc8000-fffe7fff : Reserved
+  fffea000-fffedfff : Reserved
+  fffee000-ffff0fff : Reserved
+  ffff1000-ffffffff : Reserved
+400000000-7ffffffff : pci@30000000
+  400000000-400003fff : 0000:00:01.0
+    400000000-400003fff : virtio-pci-modern

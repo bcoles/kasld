@@ -1,0 +1,8 @@
+absent: /sys/kernel/boot_params/data
+absent: /sys/kernel/boot_params/setup_data
+absent: /sys/firmware/memmap
+WARNING: captured /sys/firmware/fdt may contain board-identifying data (serial number, MAC address). Run extra/anonymize-fdt on it before sharing or committing this capture.
+absent: /proc/config.gz
+absent: /boot/vmlinuz-6.12.94+deb13-powerpc64le
+absent: /boot/Image-6.12.94+deb13-powerpc64le
+anonymized: host identity, CPU brand, UUIDs/MACs, sensitive cmdline values redacted

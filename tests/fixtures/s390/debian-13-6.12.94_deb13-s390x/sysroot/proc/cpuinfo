@@ -1,0 +1,20 @@
+vendor_id       : IBM/S390
+# processors    : 1
+bogomips per cpu: 9223372036854774.80
+max thread id   : 0
+features	: esan3 zarch stfle msa ldisp eimm etf3eh highgprs vx vxe vxe2 
+facilities      : 0 1 2 3 4 7 9 16 17 18 19 21 22 24 25 27 30 31 32 33 34 35 37 40 41 45 49 51 52 53 57 58 61 69 71 72 75 76 77 129 130 131 135 138 146 148
+processor 0: version = 00,  identification = 000000,  machine = 8561
+
+cpu number      : 0
+physical id     : 0
+core id         : 0
+book id         : 0
+drawer id       : 0
+dedicated       : 0
+address         : 0
+siblings        : 1
+cpu cores       : 1
+version         : 00
+identification  : 000000
+machine         : 8561

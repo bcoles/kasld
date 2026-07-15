@@ -1,0 +1,341 @@
+[    0.000000] Booting Linux on physical CPU 0x0000000000 [0x000f0510]
+[    0.000000] Linux version 6.12.94+deb13-arm64 (debian-kernel@lists.debian.org) (aarch64-linux-gnu-gcc-14 (Debian 14.2.0-19) 14.2.0, GNU ld (GNU Binutils for Debian) 2.44) #1 SMP Debian 6.12.94-1 (2026-06-20)
+[    0.000000] KASLR enabled
+[    0.000000] random: crng init done
+[    0.000000] Machine model: linux,dummy-virt
+[    0.000000] efi: UEFI not found.
+[    0.000000] OF: reserved mem: Reserved memory: No reserved-memory node in the DT
+[    0.000000] NUMA: Faking a node at [mem 0x0000000040000000-0x00000000bfffffff]
+[    0.000000] NODE_DATA(0) allocated [mem 0xbfbfc140-0xbfbff87f]
+[    0.000000] Zone ranges:
+[    0.000000]   DMA      [mem 0x0000000040000000-0x00000000bfffffff]
+[    0.000000]   DMA32    empty
+[    0.000000]   Normal   empty
+[    0.000000]   Device   empty
+[    0.000000] Movable zone start for each node
+[    0.000000] Early memory node ranges
+[    0.000000]   node   0: [mem 0x0000000040000000-0x00000000bfffffff]
+[    0.000000] Initmem setup node 0 [mem 0x0000000040000000-0x00000000bfffffff]
+[    0.000000] cma: Reserved 64 MiB at 0x00000000b9800000 on node -1
+[    0.000000] psci: probing for conduit method from DT.
+[    0.000000] psci: PSCIv1.1 detected in firmware.
+[    0.000000] psci: Using standard PSCI v0.2 function IDs
+[    0.000000] psci: Trusted OS migration not required
+[    0.000000] psci: SMC Calling Convention v1.0
+[    0.000000] percpu: Embedded 34 pages/cpu s101528 r8192 d29544 u139264
+[    0.000000] pcpu-alloc: s101528 r8192 d29544 u139264 alloc=34*4096
+[    0.000000] pcpu-alloc: [0] 0 
+[    0.000000] Detected PIPT I-cache on CPU0
+[    0.000000] CPU features: detected: Address authentication (IMP DEF algorithm)
+[    0.000000] CPU features: detected: HCRX_EL2 register
+[    0.000000] CPU features: detected: 52-bit Virtual Addressing (LPA2)
+[    0.000000] CPU features: detected: Spectre-v4
+[    0.000000] alternatives: applying boot alternatives
+[    0.000000] Kernel command line: root=[redacted] console=ttyAMA0 rw
+[    0.000000] Dentry cache hash table entries: 262144 (order: 9, 2097152 bytes, linear)
+[    0.000000] Inode-cache hash table entries: 131072 (order: 8, 1048576 bytes, linear)
+[    0.000000] Fallback order for Node 0: 0 
+[    0.000000] Built 1 zonelists, mobility grouping on.  Total pages: 524288
+[    0.000000] Policy zone: DMA
+[    0.000000] mem auto-init: stack:all(zero), heap alloc:on, heap free:off
+[    0.000000] software IO TLB: SWIOTLB bounce buffer size adjusted to 2MB
+[    0.000000] software IO TLB: area num 1.
+[    0.000000] software IO TLB: mapped [mem 0x00000000b9400000-0x00000000b9600000] (2MB)
+[    0.000000] SLUB: HWalign=64, Order=0-3, MinObjects=0, CPUs=1, Nodes=1
+[    0.000000] ftrace: allocating 50860 entries in 199 pages
+[    0.000000] ftrace: allocated 199 pages with 5 groups
+[    0.000000] rcu: Hierarchical RCU implementation.
+[    0.000000] rcu: 	RCU restricting CPUs from NR_CPUS=512 to nr_cpu_ids=1.
+[    0.000000] 	Rude variant of Tasks RCU enabled.
+[    0.000000] 	Tracing variant of Tasks RCU enabled.
+[    0.000000] rcu: RCU calculated value of scheduler-enlistment delay is 25 jiffies.
+[    0.000000] rcu: Adjusting geometry for rcu_fanout_leaf=16, nr_cpu_ids=1
+[    0.000000] RCU Tasks Rude: Setting shift to 0 and lim to 1 rcu_task_cb_adjust=1 rcu_task_cpu_ids=1.
+[    0.000000] RCU Tasks Trace: Setting shift to 0 and lim to 1 rcu_task_cb_adjust=1 rcu_task_cpu_ids=1.
+[    0.000000] NR_IRQS: 64, nr_irqs: 64, preallocated irqs: 0
+[    0.000000] Root IRQ handler: gic_handle_irq
+[    0.000000] GICv2m: range[mem 0x08020000-0x08020fff], SPI[80:143]
+[    0.000000] rcu: srcu_init: Setting srcu_struct sizes based on contention.
+[    0.000000] arch_timer: cp15 timer(s) running at 1000.00MHz (virt).
+[    0.000000] clocksource: arch_sys_counter: mask: 0x1fffffffffffffff max_cycles: 0x1cd42e4dffb, max_idle_ns: 881590591483 ns
+[    0.000051] sched_clock: 61 bits at 1000MHz, resolution 1ns, wraps every 4398046511103ns
+[    0.015648] Console: colour dummy device 80x25
+[    0.022115] Calibrating delay loop (skipped), value calculated using timer frequency.. 2000.00 BogoMIPS (lpj=4000000)
+[    0.022880] pid_max: default: 32768 minimum: 301
+[    0.025364] LSM: initializing lsm=lockdown,capability,landlock,yama,apparmor,tomoyo,bpf,ipe,ima,evm
+[    0.027044] landlock: Up and running.
+[    0.027070] Yama: disabled by default; enable with sysctl kernel.yama.*
+[    0.031056] AppArmor: AppArmor initialized
+[    0.031344] TOMOYO Linux initialized
+[    0.033755] LSM support for eBPF active
+[    0.037560] Mount-cache hash table entries: 4096 (order: 3, 32768 bytes, linear)
+[    0.037680] Mountpoint-cache hash table entries: 4096 (order: 3, 32768 bytes, linear)
+[    0.077083] cacheinfo: Unable to detect cache hierarchy for CPU 0
+[    0.094817] rcu: Hierarchical SRCU implementation.
+[    0.094891] rcu: 	Max phase no-delay instances is 1000.
+[    0.105902] EFI services will not be available.
+[    0.107594] smp: Bringing up secondary CPUs ...
+[    0.109036] smp: Brought up 1 node, 1 CPU
+[    0.109073] SMP: Total of 1 processors activated.
+[    0.109102] CPU: All CPU(s) started at EL1
+[    0.109414] CPU features: detected: Branch Target Identification
+[    0.109480] CPU features: detected: 32-bit EL0 Support
+[    0.109503] CPU features: detected: 32-bit EL1 Support
+[    0.109512] CPU features: detected: ARMv8.4 Translation Table Level
+[    0.109531] CPU features: detected: Instruction cache invalidation not required for I/D coherence
+[    0.109547] CPU features: detected: Data cache clean to the PoU not required for I/D coherence
+[    0.109602] CPU features: detected: Common not Private translations
+[    0.109611] CPU features: detected: CRC32 instructions
+[    0.109618] CPU features: detected: Data cache clean to Point of Deep Persistence
+[    0.109625] CPU features: detected: Data cache clean to Point of Persistence
+[    0.109632] CPU features: detected: Data independent timing control (DIT)
+[    0.109639] CPU features: detected: E0PD
+[    0.109646] CPU features: detected: Enhanced Counter Virtualization
+[    0.109653] CPU features: detected: Enhanced Counter Virtualization (CNTPOFF)
+[    0.109660] CPU features: detected: Enhanced Privileged Access Never
+[    0.109667] CPU features: detected: Enhanced Virtualization Traps
+[    0.109675] CPU features: detected: Fine Grained Traps
+[    0.109748] CPU features: detected: Generic authentication (IMP DEF algorithm)
+[    0.109821] CPU features: detected: RCpc load-acquire (LDAPR)
+[    0.109886] CPU features: detected: 52-bit Virtual Addressing for KVM (LPA2)
+[    0.109897] CPU features: detected: LSE atomic instructions
+[    0.109904] CPU features: detected: Memory Copy and Memory Set instructions
+[    0.109912] CPU features: detected: Privileged Access Never
+[    0.109918] CPU features: detected: RAS Extension Support
+[    0.109925] CPU features: detected: Random Number Generator
+[    0.109932] CPU features: detected: Speculation barrier (SB)
+[    0.109939] CPU features: detected: Stage-2 Force Write-Back
+[    0.109946] CPU features: detected: Trap EL0 IMPLEMENTATION DEFINED functionality
+[    0.109953] CPU features: detected: TLB range maintenance instructions
+[    0.109960] CPU features: detected: WFx with timeout
+[    0.109999] CPU features: detected: Speculative Store Bypassing Safe (SSBS)
+[    0.110008] CPU features: detected: Scalable Vector Extension
+[    0.122765] alternatives: applying system-wide alternatives
+[    0.139532] CPU features: detected: Hardware dirty bit management on CPU0
+[    0.140537] SVE: maximum available vector length 256 bytes per vector
+[    0.140701] SVE: default vector length 64 bytes per vector
+[    0.210138] node 0 deferred pages initialised in 40ms
+[    0.211008] Memory: 1909964K/2097152K available (15680K kernel code, 3826K rwdata, 13964K rodata, 3072K init, 940K bss, 118600K reserved, 65536K cma-reserved)
+[    0.242152] devtmpfs: initialized
+[    0.271106] clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 7645041785100000 ns
+[    0.271641] futex hash table entries: 256 (order: 2, 16384 bytes, linear)
+[    0.275968] 2G module region forced by RANDOMIZE_MODULE_REGION_FULL
+[    0.276011] 0 pages in range for non-PLT usage
+[    0.276063] 514848 pages in range for PLT usage
+[    0.280426] pinctrl core: initialized pinctrl subsystem
+[    0.294770] DMI not present or invalid.
+[    0.319832] NET: Registered PF_NETLINK/PF_ROUTE protocol family
+[    0.343189] DMA: preallocated 256 KiB GFP_KERNEL pool for atomic allocations
+[    0.345727] DMA: preallocated 256 KiB GFP_KERNEL|GFP_DMA pool for atomic allocations
+[    0.347239] DMA: preallocated 256 KiB GFP_KERNEL|GFP_DMA32 pool for atomic allocations
+[    0.348533] audit: initializing netlink subsys (disabled)
+[    0.354875] audit: type=2000 audit(0.300:1): state=initialized audit_enabled=0 res=1
+[    0.371526] thermal_sys: Registered thermal governor 'fair_share'
+[    0.371728] thermal_sys: Registered thermal governor 'bang_bang'
+[    0.371791] thermal_sys: Registered thermal governor 'step_wise'
+[    0.371800] thermal_sys: Registered thermal governor 'user_space'
+[    0.371808] thermal_sys: Registered thermal governor 'power_allocator'
+[    0.373445] cpuidle: using governor ladder
+[    0.373835] cpuidle: using governor menu
+[    0.375200] hw-breakpoint: found 6 breakpoint and 4 watchpoint registers.
+[    0.375747] ASID allocator initialised with 65536 entries
+[    0.382401] Serial: AMBA PL011 UART driver
+[    0.463543] 9000000.pl011: ttyAMA0 at MMIO 0x9000000 (irq = 13, base_baud = 0) is a PL011 rev1
+[    0.466176] printk: legacy console [ttyAMA0] enabled
+[    1.949102] HugeTLB: registered 1.00 GiB page size, pre-allocated 0 pages
+[    1.962041] HugeTLB: 0 KiB vmemmap can be freed for a 1.00 GiB page
+[    1.974094] HugeTLB: registered 32.0 MiB page size, pre-allocated 0 pages
+[    1.987184] HugeTLB: 0 KiB vmemmap can be freed for a 32.0 MiB page
+[    1.998609] HugeTLB: registered 2.00 MiB page size, pre-allocated 0 pages
+[    2.012113] HugeTLB: 0 KiB vmemmap can be freed for a 2.00 MiB page
+[    2.023076] HugeTLB: registered 64.0 KiB page size, pre-allocated 0 pages
+[    2.034433] HugeTLB: 0 KiB vmemmap can be freed for a 64.0 KiB page
+[    2.147846] ACPI: Interpreter disabled.
+[    2.161749] iommu: Default domain type: Translated
+[    2.172962] iommu: DMA domain TLB invalidation policy: strict mode
+[    2.197028] pps_core: LinuxPPS API ver. 1 registered
+[    2.207605] pps_core: Software ver. 5.3.6 - Copyright 2005-2007 Rodolfo Giometti <giometti@linux.it>
+[    2.223911] PTP clock support registered
+[    2.231788] EDAC MC: Ver: 3.0.0
+[    2.241241] scmi_core: SCMI protocol bus registered
+[    2.266551] NetLabel: Initializing
+[    2.273528] NetLabel:  domain hash size = 128
+[    2.280391] NetLabel:  protocols = UNLABELED CIPSOv4 CALIPSO
+[    2.291028] NetLabel:  unlabeled traffic allowed by default
+[    2.303708] vgaarb: loaded
+[    2.313799] clocksource: Switched to clocksource arch_sys_counter
+[    2.340536] VFS: Disk quotas dquot_6.6.0
+[    2.348716] VFS: Dquot-cache hash table entries: 512 (order 0, 4096 bytes)
+[    2.368848] AppArmor: AppArmor Filesystem Enabled
+[    2.378309] pnp: PnP ACPI: disabled
+[    2.416878] NET: Registered PF_INET protocol family
+[    2.427156] IP idents hash table entries: 32768 (order: 6, 262144 bytes, linear)
+[    2.560275] tcp_listen_portaddr_hash hash table entries: 1024 (order: 2, 16384 bytes, linear)
+[    2.574866] Table-perturb hash table entries: 65536 (order: 6, 262144 bytes, linear)
+[    2.587224] TCP established hash table entries: 16384 (order: 5, 131072 bytes, linear)
+[    2.600323] TCP bind hash table entries: 16384 (order: 7, 524288 bytes, linear)
+[    2.612255] TCP: Hash tables configured (established 16384 bind 16384)
+[    2.625181] MPTCP token hash table entries: 2048 (order: 4, 49152 bytes, linear)
+[    2.637094] UDP hash table entries: 1024 (order: 3, 32768 bytes, linear)
+[    2.647257] UDP-Lite hash table entries: 1024 (order: 3, 32768 bytes, linear)
+[    2.660263] NET: Registered PF_UNIX/PF_LOCAL protocol family
+[    2.670990] NET: Registered PF_XDP protocol family
+[    2.678935] PCI: CLS 0 bytes, default 64
+[    2.690309] kvm [1]: HYP mode not available
+[    2.700135] Trying to unpack rootfs image as initramfs...
+[    2.715203] Initialise system trusted keyrings
+[    2.731994] Key type blacklist registered
+[    2.748413] workingset: timestamp_bits=42 max_order=19 bucket_order=0
+[    2.774342] zbud: loaded
+[    2.790530] fuse: init (API version 7.41)
+[    2.809754] integrity: Platform Keyring initialized
+[    2.830251] integrity: Machine keyring initialized
+[    3.070572] Key type asymmetric registered
+[    3.086547] Asymmetric key parser 'x509' registered
+[    3.924724] Freeing initrd memory: 35580K
+[    4.130399] Block layer SCSI generic (bsg) driver version 0.4 loaded (major 245)
+[    4.146915] io scheduler mq-deadline registered
+[    4.195748] pl061_gpio 9030000.pl061: PL061 GPIO chip registered
+[    4.211702] ledtrig-cpu: registered to indicate activity on CPUs
+[    4.224869] shpchp: Standard Hot Plug PCI Controller Driver version: 0.4
+[    4.240805] pci-host-generic 4010000000.pcie: host bridge /pcie@10000000 ranges:
+[    4.255881] pci-host-generic 4010000000.pcie:       IO 0x003eff0000..0x003effffff -> 0x0000000000
+[    4.274159] pci-host-generic 4010000000.pcie:      MEM 0x0010000000..0x003efeffff -> 0x0010000000
+[    4.292295] pci-host-generic 4010000000.pcie:      MEM 0x8000000000..0xffffffffff -> 0x8000000000
+[    4.311820] pci-host-generic 4010000000.pcie: Memory resource size exceeds max for 32 bits
+[    4.331258] pci-host-generic 4010000000.pcie: ECAM at [mem 0x4010000000-0x401fffffff] for [bus 00-ff]
+[    4.353217] pci-host-generic 4010000000.pcie: PCI host bridge to bus 0000:00
+[    4.368414] pci_bus 0000:00: root bus resource [bus 00-ff]
+[    4.378818] pci_bus 0000:00: root bus resource [io  0x0000-0xffff]
+[    4.390909] pci_bus 0000:00: root bus resource [mem 0x10000000-0x3efeffff]
+[    4.404549] pci_bus 0000:00: root bus resource [mem 0x8000000000-0xffffffffff]
+[    4.421246] pci 0000:00:00.0: [1b36:0008] type 00 class 0x060000 conventional PCI endpoint
+[    4.443628] pci 0000:00:01.0: [1af4:1001] type 00 class 0x010000 conventional PCI endpoint
+[    4.459838] pci 0000:00:01.0: BAR 0 [io  0x0000-0x007f]
+[    4.470406] pci 0000:00:01.0: BAR 1 [mem 0x00000000-0x00000fff]
+[    4.482305] pci 0000:00:01.0: BAR 4 [mem 0x00000000-0x00003fff 64bit pref]
+[    4.501408] pci 0000:00:01.0: BAR 4 [mem 0x8000000000-0x8000003fff 64bit pref]: assigned
+[    4.519402] pci 0000:00:01.0: BAR 1 [mem 0x10000000-0x10000fff]: assigned
+[    4.535025] pci 0000:00:01.0: BAR 0 [io  0x1000-0x107f]: assigned
+[    4.550720] pci_bus 0000:00: resource 4 [io  0x0000-0xffff]
+[    4.566676] pci_bus 0000:00: resource 5 [mem 0x10000000-0x3efeffff]
+[    4.580522] pci_bus 0000:00: resource 6 [mem 0x8000000000-0xffffffffff]
+[    4.643915] virtio-pci 0000:00:01.0: enabling device (0000 -> 0003)
+[    4.666598] Serial: 8250/16550 driver, 4 ports, IRQ sharing enabled
+[    4.689005] Serial: AMBA driver
+[    4.696958] msm_serial: driver initialized
+[    4.706893] SuperH (H)SCI(F) driver initialized
+[    4.731171] mousedev: PS/2 mouse device common for all mice
+[    4.749720] rtc-pl031 9010000.pl031: registered as rtc0
+[    4.760919] rtc-pl031 9010000.pl031: setting system clock to 2026-07-13T00:57:00 UTC (1783904220)
+[    4.814397] hw perfevents: enabled with armv8_pmuv3 PMU driver, 7 (0,8000003f) counters available
+[    4.849253] NET: Registered PF_INET6 protocol family
+[    4.987654] Segment Routing with IPv6
+[    5.003703] In-situ OAM (IOAM) with IPv6
+[    5.018794] mip6: Mobile IPv6
+[    5.029934] NET: Registered PF_PACKET protocol family
+[    5.046069] mpls_gso: MPLS GSO support
+[    5.105622] registered taskstats version 1
+[    5.123190] Loading compiled-in X.509 certificates
+[    5.293076] Loaded X.509 cert 'Build time autogenerated kernel key: 3f09b375e8d2d562e2a3808cdf65e52339e5a933'
+[    5.361131] Demotion targets for Node 0: null
+[    5.377852] Key type .fscrypt registered
+[    5.385878] Key type fscrypt-provisioning registered
+[    5.868699] Key type encrypted registered
+[    5.877964] AppArmor: AppArmor sha256 policy hashing enabled
+[    5.889244] ima: No TPM chip found, activating TPM-bypass!
+[    5.899158] ima: Allocated hash algorithm: sha256
+[    5.909944] ima: No architecture policies found
+[    5.918211] evm: Initialising EVM extended attributes:
+[    5.926492] evm: security.selinux
+[    5.932549] evm: security.SMACK64 (disabled)
+[    5.940074] evm: security.SMACK64EXEC (disabled)
+[    5.949056] evm: security.SMACK64TRANSMUTE (disabled)
+[    5.958749] evm: security.SMACK64MMAP (disabled)
+[    5.969132] evm: security.apparmor
+[    5.976913] evm: security.ima
+[    5.982619] evm: security.capability
+[    5.989878] evm: HMAC attrs: 0x1
+[    6.842608] clk: Disabling unused clocks
+[    6.878584] PM: genpd: Disabling unused power domains
+[    6.999510] Freeing unused kernel memory: 3072K
+[    7.230381] Checked W+X mappings: passed, no W+X pages found
+[    7.359302] Run /init as init process
+[    7.366507]   with arguments:
+[    7.366590]     /init
+[    7.366626]   with environment:
+[    7.366650]     HOME=/
+[    7.366675]     TERM=linux
+[   12.197767] virtio_blk virtio0: 1/0/0 default/read/poll queues
+[   12.578574] virtio_blk virtio0: [vda] 5859375 512-byte logical blocks (3.00 GB/2.79 GiB)
+[   12.920038]  vda: vda1
+[   13.092284] input: gpio-keys as /devices/platform/gpio-keys/input/input0
+[   14.654372] EXT4-fs (vda1): mounted filesystem [uuid] r/w with ordered data mode. Quota mode: none.
+[   15.609287] Not activating Mandatory Access Control as /sbin/tomoyo-init does not exist.
+[   16.236856] systemd[1]: Inserted module 'autofs4'
+[   16.477744] systemd[1]: systemd 257.13-1~deb13u1 running in system mode (+PAM +AUDIT +SELINUX +APPARMOR +IMA +IPE +SMACK +SECCOMP +GCRYPT -GNUTLS +OPENSSL +ACL +BLKID +CURL +ELFUTILS +FIDO2 +IDN2 -IDN +IPTC +KMOD +LIBCRYPTSETUP +LIBCRYPTSETUP_PLUGINS +LIBFDISK +PCRE2 +PWQUALITY +P11KIT +QRENCODE +TPM2 +BZIP2 +LZ4 +XZ +ZLIB +ZSTD +BPF_FRAMEWORK +BTF -XKBCOMMON -UTMP +SYSVINIT +LIBARCHIVE)
+[   16.535297] systemd[1]: Detected virtualization qemu.
+[   16.544794] systemd[1]: Detected architecture arm64.
+[   16.591365] systemd[1]: Hostname set to <HOST>.
+[   18.018933] systemd[1]: bpf-restrict-fs: LSM BPF program attached
+[   19.447421] NET: Registered PF_VSOCK protocol family
+[   19.545868] systemd-ssh-generator[212]: Failed to query local AF_VSOCK CID: Cannot assign requested address
+[   19.575705] (sd-exec-[204]: /usr/lib/systemd/system-generators/systemd-ssh-generator failed with exit status 1.
+[   21.108513] systemd[1]: Queued start job for default target graphical.target.
+[   21.258030] systemd[1]: Created slice system-getty.slice - Slice /system/getty.
+[   21.299272] systemd[1]: Created slice system-modprobe.slice - Slice /system/modprobe.
+[   21.336200] systemd[1]: Created slice system-serial\x2dgetty.slice - Slice /system/serial-getty.
+[   21.378240] systemd[1]: Created slice user.slice - User and Session Slice.
+[   21.407805] systemd[1]: Started systemd-ask-password-console.path - Dispatch Password Requests to Console Directory Watch.
+[   21.446734] systemd[1]: Started systemd-ask-password-wall.path - Forward Password Requests to Wall Directory Watch.
+[   21.491069] systemd[1]: Set up automount proc-sys-fs-binfmt_misc.automount - Arbitrary Executable File Formats File System Automount Point.
+[   21.530713] systemd[1]: Expecting device dev-ttyAMA0.device - /dev/ttyAMA0...
+[   21.554672] systemd[1]: Expecting device dev-ttyS0.device - /dev/ttyS0...
+[   21.578851] systemd[1]: Reached target paths.target - Path Units.
+[   21.602240] systemd[1]: Reached target remote-fs.target - Remote File Systems.
+[   21.628971] systemd[1]: Reached target slices.target - Slice Units.
+[   21.653868] systemd[1]: Reached target swap.target - Swaps.
+[   21.698688] systemd[1]: Listening on systemd-creds.socket - Credential Encryption/Decryption.
+[   21.740417] systemd[1]: Listening on systemd-initctl.socket - initctl Compatibility Named Pipe.
+[   21.780184] systemd[1]: Listening on systemd-journald-dev-log.socket - Journal Socket (/dev/log).
+[   21.825059] systemd[1]: Listening on systemd-journald.socket - Journal Sockets.
+[   21.864510] systemd[1]: Listening on systemd-networkd.socket - Network Service Netlink Socket.
+[   21.903705] systemd[1]: systemd-pcrextend.socket - TPM PCR Measurements skipped, unmet condition check ConditionSecurity=measured-uki
+[   21.928307] systemd[1]: systemd-pcrlock.socket - Make TPM PCR Policy skipped, unmet condition check ConditionSecurity=measured-uki
+[   21.954988] systemd[1]: Listening on systemd-udevd-control.socket - udev Control Socket.
+[   21.992586] systemd[1]: Listening on systemd-udevd-kernel.socket - udev Kernel Socket.
+[   22.062180] systemd[1]: Mounting dev-hugepages.mount - Huge Pages File System...
+[   22.146387] systemd[1]: Mounting dev-mqueue.mount - POSIX Message Queue File System...
+[   22.294651] systemd[1]: Mounting run-lock.mount - Legacy Locks Directory /run/lock...
+[   22.560636] systemd[1]: Mounting sys-kernel-debug.mount - Kernel Debug File System...
+[   22.908786] systemd[1]: Mounting sys-kernel-tracing.mount - Kernel Trace File System...
+[   23.141170] systemd[1]: Mounting tmp.mount - Temporary Directory /tmp...
+[   23.343483] systemd[1]: Starting kmod-static-nodes.service - Create List of Static Device Nodes...
+[   23.537210] systemd[1]: Starting modprobe@configfs.service - Load Kernel Module configfs...
+[   23.768210] systemd[1]: Starting modprobe@drm.service - Load Kernel Module drm...
+[   23.952702] systemd[1]: Starting modprobe@efi_pstore.service - Load Kernel Module efi_pstore...
+[   24.233035] systemd[1]: Starting modprobe@fuse.service - Load Kernel Module fuse...
+[   24.424176] systemd[1]: systemd-hibernate-clear.service - Clear Stale Hibernate Storage Info skipped, unmet condition check ConditionPathExists=/sys/firmware/efi/efivars/HibernateLocation-[uuid]
+[   24.761516] systemd[1]: Starting systemd-journald.service - Journal Service...
+[   24.937399] systemd[1]: Starting systemd-modules-load.service - Load Kernel Modules...
+[   25.112418] systemd[1]: Starting systemd-network-generator.service - Generate Network Units from Kernel Command Line...
+[   25.274759] systemd[1]: systemd-pcrmachine.service - TPM PCR Machine ID Measurement skipped, unmet condition check ConditionSecurity=measured-uki
+[   25.504607] systemd[1]: Starting systemd-remount-fs.service - Remount Root and Kernel File Systems...
+[   25.699255] systemd[1]: systemd-tpm2-setup-early.service - Early TPM SRK Setup skipped, unmet condition check ConditionSecurity=measured-uki
+[   25.856900] systemd-journald[230]: Collecting audit messages is disabled.
+[   25.881363] systemd[1]: Starting systemd-udev-load-credentials.service - Load udev Rules from Credentials...
+[   26.196965] systemd[1]: Starting systemd-udev-trigger.service - Coldplug All udev Devices...
+[   26.242134] EXT4-fs (vda1): re-mounted [uuid].
+[   26.727390] systemd[1]: Mounted dev-hugepages.mount - Huge Pages File System.
+[   26.824172] systemd[1]: Started systemd-journald.service - Journal Service.
+[   29.916380] systemd-journald[230]: Received client request to flush runtime journal.
+[   39.826995] cfg80211: Loading compiled-in X.509 certificates for regulatory database
+[   39.951021] Loaded X.509 cert 'benh@debian.org: 577e021cb980e0e820821ba7b54b4961b8b4fadf'
+[   40.007651] Loaded X.509 cert 'romain.perier@gmail.com: 3abbc6ec146e09d1b6016ab9d6cf71dd233f0328'
+[   40.055386] Loaded X.509 cert 'sforshee: 00b28ddf47aef9cea7'
+[   40.095985] Loaded X.509 cert 'wens: 61c038651aabdcf94bd0ac7ff06c7248db18c600'
+[   40.140031] platform regulatory.0: firmware: failed to load regulatory.db (-2)
+[   40.202325] platform regulatory.0: firmware: failed to load regulatory.db (-2)
+[   40.274470] platform regulatory.0: firmware: failed to load regulatory.db (-2)
+[   40.289782] platform regulatory.0: Direct firmware load for regulatory.db failed with error -2
+[   40.422131] cfg80211: failed to load regulatory.db

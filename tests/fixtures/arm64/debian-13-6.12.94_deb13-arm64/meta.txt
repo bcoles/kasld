@@ -1,0 +1,10 @@
+collect_version:  1
+collected_utc:    Mon Jul 13 00:57:59 UTC 2026
+uname_m_raw:      aarch64
+arch_canonical:   arm64
+kernel_release:   6.12.94+deb13-arm64
+distro:           debian-13
+kasld:            not-run
+suggested_fixture: tests/fixtures/arm64/debian-13-6.12.94_deb13-arm64/
+anonymized:       1
+kallsyms:         1

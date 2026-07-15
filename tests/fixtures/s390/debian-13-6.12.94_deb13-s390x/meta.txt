@@ -1,0 +1,10 @@
+collect_version:  1
+collected_utc:    Tue Jul 14 13:29:57 UTC 2026
+uname_m_raw:      s390x
+arch_canonical:   s390
+kernel_release:   6.12.94+deb13-s390x
+distro:           debian-13
+kasld:            not-run
+suggested_fixture: tests/fixtures/s390/debian-13-6.12.94_deb13-s390x/
+anonymized:       1
+kallsyms:         1

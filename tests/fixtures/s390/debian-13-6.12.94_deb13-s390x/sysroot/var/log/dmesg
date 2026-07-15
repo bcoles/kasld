@@ -1,0 +1,225 @@
+[    1.525478] Linux version 6.12.94+deb13-s390x (debian-kernel@lists.debian.org) (s390x-linux-gnu-gcc-14 (Debian 14.2.0-19) 14.2.0, GNU ld (GNU Binutils for Debian) 2.44) #1 SMP Debian 6.12.94-1 (2026-06-20)
+[    1.527102] setup: Linux is running under KVM in 64-bit mode
+[    1.545250] setup: The maximum memory size is 2048MB
+[    1.545758] setup: Relocating AMODE31 section of size 0x00003000
+[    1.553523] cpu: 1 configured CPUs, 0 standby CPUs
+[    1.627840] Write protected kernel read-only data: 19656k
+[    1.634637] Zone ranges:
+[    1.634685]   DMA      [mem 0x0000000000000000-0x000000007fffffff]
+[    1.635372]   Normal   empty
+[    1.635410] Movable zone start for each node
+[    1.635436] Early memory node ranges
+[    1.635459]   node   0: [mem 0x0000000000000000-0x000000007fffffff]
+[    1.635795] Initmem setup node 0 [mem 0x0000000000000000-0x000000007fffffff]
+[    1.672430] percpu: Embedded 31 pages/cpu s86272 r8192 d32512 u126976
+[    1.673138] pcpu-alloc: s86272 r8192 d32512 u126976 alloc=31*4096
+[    1.673309] pcpu-alloc: [0] 0 
+[    1.679751] Kernel command line: root=[redacted] console=ttysclp0 rw
+[    1.689085] random: crng init done
+[    1.695476] Dentry cache hash table entries: 262144 (order: 9, 2097152 bytes, linear)
+[    1.697021] Inode-cache hash table entries: 131072 (order: 8, 1048576 bytes, linear)
+[    1.701327] Built 1 zonelists, mobility grouping on.  Total pages: 524288
+[    1.701856] mem auto-init: stack:all(zero), heap alloc:on, heap free:off
+[    1.763394] SLUB: HWalign=256, Order=0-3, MinObjects=0, CPUs=1, Nodes=1
+[    1.767752] ftrace: allocating 33586 entries in 132 pages
+[    1.911106] ftrace: allocated 132 pages with 2 groups
+[    1.921453] rcu: Hierarchical RCU implementation.
+[    1.921501] rcu: 	RCU restricting CPUs from NR_CPUS=256 to nr_cpu_ids=1.
+[    1.921639] 	Rude variant of Tasks RCU enabled.
+[    1.921655] 	Tracing variant of Tasks RCU enabled.
+[    1.921752] rcu: RCU calculated value of scheduler-enlistment delay is 25 jiffies.
+[    1.921784] rcu: Adjusting geometry for rcu_fanout_leaf=16, nr_cpu_ids=1
+[    1.923363] RCU Tasks Rude: Setting shift to 0 and lim to 1 rcu_task_cb_adjust=1 rcu_task_cpu_ids=1.
+[    1.923433] RCU Tasks Trace: Setting shift to 0 and lim to 1 rcu_task_cb_adjust=1 rcu_task_cpu_ids=1.
+[    1.974999] NR_IRQS: 3, nr_irqs: 3, preallocated irqs: 3
+[    1.986126] rcu: srcu_init: Setting srcu_struct sizes based on contention.
+[    1.987681] clocksource: tod: mask: 0xffffffffffffffff max_cycles: 0x3b0a9be803b, max_idle_ns: 440795202126 ns
+[    2.029215] Console: colour dummy device 80x25
+[    2.040145] printk: legacy console [ttysclp0] enabled
+[    2.046555] Calibrating delay loop (skipped)... 9223372036854774.80 BogoMIPS preset
+[    2.046675] pid_max: default: 32768 minimum: 301
+[    2.052238] LSM: initializing lsm=capability,landlock,lockdown,yama,apparmor,tomoyo,ipe,ima,evm
+[    2.053472] landlock: Up and running.
+[    2.053552] Yama: disabled by default; enable with sysctl kernel.yama.*
+[    2.062788] AppArmor: AppArmor initialized
+[    2.063121] TOMOYO Linux initialized
+[    2.069125] Mount-cache hash table entries: 4096 (order: 3, 32768 bytes, linear)
+[    2.069269] Mountpoint-cache hash table entries: 4096 (order: 3, 32768 bytes, linear)
+[    2.216779] rcu: Hierarchical SRCU implementation.
+[    2.216942] rcu: 	Max phase no-delay instances is 1000.
+[    2.249948] smp: Bringing up secondary CPUs ...
+[    2.250819] smp: Brought up 1 node, 1 CPU
+[    2.481386] node 0 deferred pages initialised in 216ms
+[    2.482301] Memory: 2004240K/2097152K available (12120K kernel code, 1964K rwdata, 7536K rodata, 1160K init, 772K bss, 90196K reserved, 0K cma-reserved)
+[    2.541051] devtmpfs: initialized
+[    2.567748] clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 7645041785100000 ns
+[    2.568256] futex hash table entries: 256 (order: 4, 65536 bytes, linear)
+[    2.599986] NET: Registered PF_NETLINK/PF_ROUTE protocol family
+[    2.607288] audit: initializing netlink subsys (disabled)
+[    2.613536] audit: type=2000 audit(1784035621.507:1): state=initialized audit_enabled=0 res=1
+[    2.628627] thermal_sys: Registered thermal governor 'fair_share'
+[    2.628756] thermal_sys: Registered thermal governor 'bang_bang'
+[    2.628823] thermal_sys: Registered thermal governor 'step_wise'
+[    2.628840] thermal_sys: Registered thermal governor 'user_space'
+[    2.799846] iommu: Default domain type: Translated
+[    2.800017] iommu: DMA domain TLB invalidation policy: lazy mode
+[    2.805749] pps_core: LinuxPPS API ver. 1 registered
+[    2.805831] pps_core: Software ver. 5.3.6 - Copyright 2005-2007 Rodolfo Giometti <giometti@linux.it>
+[    2.806006] PTP clock support registered
+[    3.077354] NetLabel: Initializing
+[    3.077468] NetLabel:  domain hash size = 128
+[    3.077490] NetLabel:  protocols = UNLABELED CIPSOv4 CALIPSO
+[    3.099344] NetLabel:  unlabeled traffic allowed by default
+[    3.296098] VFS: Disk quotas dquot_6.6.0
+[    3.299459] VFS: Dquot-cache hash table entries: 512 (order 0, 4096 bytes)
+[    3.305136] hugetlbfs: disabling because there are no supported hugepage sizes
+[    3.311539] AppArmor: AppArmor Filesystem Enabled
+[    3.460658] NET: Registered PF_INET protocol family
+[    3.464873] IP idents hash table entries: 32768 (order: 6, 262144 bytes, linear)
+[    3.591945] tcp_listen_portaddr_hash hash table entries: 1024 (order: 2, 16384 bytes, linear)
+[    3.592376] Table-perturb hash table entries: 65536 (order: 6, 262144 bytes, linear)
+[    3.593015] TCP established hash table entries: 16384 (order: 5, 131072 bytes, linear)
+[    3.593792] TCP bind hash table entries: 16384 (order: 7, 524288 bytes, linear)
+[    3.594321] TCP: Hash tables configured (established 16384 bind 16384)
+[    3.601520] MPTCP token hash table entries: 2048 (order: 4, 49152 bytes, linear)
+[    3.601994] UDP hash table entries: 1024 (order: 3, 32768 bytes, linear)
+[    3.602297] UDP-Lite hash table entries: 1024 (order: 3, 32768 bytes, linear)
+[    3.613630] NET: Registered PF_UNIX/PF_LOCAL protocol family
+[    3.614671] NET: Registered PF_XDP protocol family
+[    3.638854] hypfs: The hardware system does not support hypfs
+[    3.650933] Trying to unpack rootfs image as initramfs...
+[    3.671408] Initialise system trusted keyrings
+[    3.685640] Key type blacklist registered
+[    3.689555] workingset: timestamp_bits=46 max_order=19 bucket_order=0
+[    3.690058] zbud: loaded
+[    3.701249] fuse: init (API version 7.41)
+[    3.740992] integrity: Platform Keyring initialized
+[    5.230117] Key type asymmetric registered
+[    5.230383] Asymmetric key parser 'x509' registered
+[    5.902168] Freeing initrd memory: 25624K
+[    6.343292] Block layer SCSI generic (bsg) driver version 0.4 loaded (major 249)
+[    6.345523] io scheduler mq-deadline registered
+[    6.384175] ledtrig-cpu: registered to indicate activity on CPUs
+[    6.387242] hvc_iucv: The z/VM IUCV HVC device driver cannot be used without z/VM
+[    6.410093] mousedev: PS/2 mouse device common for all mice
+[    6.413759] cio: Channel measurement facility initialized using format extended (mode autodetected)
+[    6.418392] ap: The hardware system does not support AP instructions
+[    6.430322] NET: Registered PF_INET6 protocol family
+[    6.883007] Segment Routing with IPv6
+[    6.883472] In-situ OAM (IOAM) with IPv6
+[    6.887010] mip6: Mobile IPv6
+[    6.887442] NET: Registered PF_PACKET protocol family
+[    6.891321] mpls_gso: MPLS GSO support
+[    6.989086] registered taskstats version 1
+[    6.993728] Loading compiled-in X.509 certificates
+[    7.507836] Loaded X.509 cert 'Build time autogenerated kernel key: 8aac0af018a7768289a5c13f776fba35396c3f68'
+[    7.598105] Key type .fscrypt registered
+[    7.598231] Key type fscrypt-provisioning registered
+[    9.322203] Key type encrypted registered
+[    9.322469] AppArmor: AppArmor sha256 policy hashing enabled
+[    9.323546] ima: No TPM chip found, activating TPM-bypass!
+[    9.323707] ima: Allocated hash algorithm: sha256
+[    9.327455] ima: No architecture policies found
+[    9.328293] evm: Initialising EVM extended attributes:
+[    9.328381] evm: security.selinux
+[    9.328890] evm: security.SMACK64 (disabled)
+[    9.328942] evm: security.SMACK64EXEC (disabled)
+[    9.328957] evm: security.SMACK64TRANSMUTE (disabled)
+[    9.328970] evm: security.SMACK64MMAP (disabled)
+[    9.328983] evm: security.apparmor
+[    9.328994] evm: security.ima
+[    9.329006] evm: security.capability
+[    9.329084] evm: HMAC attrs: 0x1
+[   10.305319] Freeing unused kernel image (initmem) memory: 1160K
+[   10.422346] Write protected read-only-after-init data: 228k
+[   10.422717] Run /init as init process
+[   10.422811]   with arguments:
+[   10.422923]     /init
+[   10.422957]   with environment:
+[   10.423124]     HOME=/
+[   10.423157]     TERM=linux
+[   19.353237] virtio_blk virtio0: 1/0/0 default/read/poll queues
+[   19.478297] virtio_blk virtio0: [vda] 5859375 512-byte logical blocks (3.00 GB/2.79 GiB)
+[   19.626324]  vda: vda1
+[   21.191273] virtio_net virtio1 enc0: renamed from eth0
+[   23.294303] SCSI subsystem initialized
+[   25.654504] EXT4-fs (vda1): mounted filesystem [uuid] r/w with ordered data mode. Quota mode: none.
+[   27.747581] Not activating Mandatory Access Control as /sbin/tomoyo-init does not exist.
+[   29.803492] systemd[1]: Inserted module 'autofs4'
+[   30.799645] systemd[1]: systemd 257.13-1~deb13u1 running in system mode (+PAM +AUDIT +SELINUX +APPARMOR +IMA +IPE +SMACK +SECCOMP +GCRYPT -GNUTLS +OPENSSL +ACL +BLKID +CURL +ELFUTILS +FIDO2 +IDN2 -IDN +IPTC +KMOD +LIBCRYPTSETUP +LIBCRYPTSETUP_PLUGINS +LIBFDISK +PCRE2 +PWQUALITY +P11KIT +QRENCODE +TPM2 +BZIP2 +LZ4 +XZ +ZLIB +ZSTD +BPF_FRAMEWORK +BTF -XKBCOMMON -UTMP +SYSVINIT +LIBARCHIVE)
+[   30.800236] systemd[1]: Detected virtualization kvm.
+[   30.804889] systemd[1]: Detected architecture s390x.
+[   30.882359] systemd[1]: Hostname set to <HOST>.
+[   33.186782] systemd[1]: bpf-restrict-fs: BPF LSM hook not enabled in the kernel, BPF LSM not supported.
+[   36.637726] NET: Registered PF_VSOCK protocol family
+[   36.885237] systemd-ssh-generator[214]: Failed to query local AF_VSOCK CID: Cannot assign requested address
+[   36.905217] (sd-exec-[206]: /usr/lib/systemd/system-generators/systemd-ssh-generator failed with exit status 1.
+[   41.415431] systemd[1]: Queued start job for default target graphical.target.
+[   41.728817] systemd[1]: Created slice system-getty.slice - Slice /system/getty.
+[   41.750677] systemd[1]: Created slice system-modprobe.slice - Slice /system/modprobe.
+[   41.788468] systemd[1]: Created slice system-serial\x2dgetty.slice - Slice /system/serial-getty.
+[   41.825880] systemd[1]: Created slice user.slice - User and Session Slice.
+[   41.835492] systemd[1]: Started systemd-ask-password-console.path - Dispatch Password Requests to Console Directory Watch.
+[   41.850076] systemd[1]: Started systemd-ask-password-wall.path - Forward Password Requests to Wall Directory Watch.
+[   41.868743] systemd[1]: Set up automount proc-sys-fs-binfmt_misc.automount - Arbitrary Executable File Formats File System Automount Point.
+[   41.906717] systemd[1]: Expecting device dev-ttyS0.device - /dev/ttyS0...
+[   41.943786] systemd[1]: Expecting device dev-ttysclp0.device - /dev/ttysclp0...
+[   41.960270] systemd[1]: Reached target paths.target - Path Units.
+[   41.971607] systemd[1]: Reached target remote-fs.target - Remote File Systems.
+[   41.991894] systemd[1]: Reached target slices.target - Slice Units.
+[   42.023519] systemd[1]: Reached target swap.target - Swaps.
+[   42.065695] systemd[1]: Listening on systemd-creds.socket - Credential Encryption/Decryption.
+[   42.097919] systemd[1]: Listening on systemd-initctl.socket - initctl Compatibility Named Pipe.
+[   42.138280] systemd[1]: Listening on systemd-journald-dev-log.socket - Journal Socket (/dev/log).
+[   42.153242] systemd[1]: Listening on systemd-journald.socket - Journal Sockets.
+[   42.187496] systemd[1]: Listening on systemd-networkd.socket - Network Service Netlink Socket.
+[   42.220850] systemd[1]: Listening on systemd-udevd-control.socket - udev Control Socket.
+[   42.242957] systemd[1]: Listening on systemd-udevd-kernel.socket - udev Kernel Socket.
+[   42.263565] systemd[1]: dev-hugepages.mount - Huge Pages File System skipped, unmet condition check ConditionPathExists=/sys/kernel/mm/hugepages
+[   42.367636] systemd[1]: Mounting dev-mqueue.mount - POSIX Message Queue File System...
+[   42.489964] systemd[1]: Mounting run-lock.mount - Legacy Locks Directory /run/lock...
+[   42.770251] systemd[1]: Mounting sys-kernel-debug.mount - Kernel Debug File System...
+[   43.072172] systemd[1]: Mounting sys-kernel-tracing.mount - Kernel Trace File System...
+[   43.398553] systemd[1]: Mounting tmp.mount - Temporary Directory /tmp...
+[   43.987586] systemd[1]: Starting kmod-static-nodes.service - Create List of Static Device Nodes...
+[   44.454741] systemd[1]: Starting modprobe@configfs.service - Load Kernel Module configfs...
+[   45.147269] systemd[1]: Starting modprobe@drm.service - Load Kernel Module drm...
+[   45.691436] systemd[1]: Starting modprobe@efi_pstore.service - Load Kernel Module efi_pstore...
+[   46.433518] systemd[1]: Starting modprobe@fuse.service - Load Kernel Module fuse...
+[   46.551510] systemd[1]: systemd-hibernate-clear.service - Clear Stale Hibernate Storage Info skipped, unmet condition check ConditionPathExists=/sys/firmware/efi/efivars/HibernateLocation-[uuid]
+[   48.269654] systemd[1]: Starting systemd-journald.service - Journal Service...
+[   49.025221] systemd[1]: Starting systemd-modules-load.service - Load Kernel Modules...
+[   49.811984] systemd[1]: Starting systemd-network-generator.service - Generate Network Units from Kernel Command Line...
+[   50.627410] systemd[1]: Starting systemd-remount-fs.service - Remount Root and Kernel File Systems...
+[   51.563230] systemd[1]: Starting systemd-udev-load-credentials.service - Load udev Rules from Credentials...
+[   52.046447] systemd[1]: Starting systemd-udev-trigger.service - Coldplug All udev Devices...
+[   55.402679] systemd[1]: Mounted dev-mqueue.mount - POSIX Message Queue File System.
+[   55.580015] systemd[1]: Mounted run-lock.mount - Legacy Locks Directory /run/lock.
+[   56.017603] systemd[1]: Mounted sys-kernel-debug.mount - Kernel Debug File System.
+[   56.072257] systemd[1]: Mounted sys-kernel-tracing.mount - Kernel Trace File System.
+[   56.167782] systemd[1]: Mounted tmp.mount - Temporary Directory /tmp.
+[   56.355570] EXT4-fs (vda1): re-mounted [uuid].
+[   56.646569] systemd[1]: Finished kmod-static-nodes.service - Create List of Static Device Nodes.
+[   57.054139] systemd[1]: modprobe@configfs.service: Deactivated successfully.
+[   57.175985] systemd[1]: Finished modprobe@configfs.service - Load Kernel Module configfs.
+[   57.379276] systemd[1]: modprobe@drm.service: Deactivated successfully.
+[   57.529101] systemd[1]: Finished modprobe@drm.service - Load Kernel Module drm.
+[   57.785856] systemd[1]: modprobe@efi_pstore.service: Deactivated successfully.
+[   57.923448] systemd[1]: Finished modprobe@efi_pstore.service - Load Kernel Module efi_pstore.
+[   58.165155] systemd[1]: modprobe@fuse.service: Deactivated successfully.
+[   58.197940] systemd[1]: Finished modprobe@fuse.service - Load Kernel Module fuse.
+[   58.355634] systemd[1]: Finished systemd-modules-load.service - Load Kernel Modules.
+[   58.405721] systemd-journald[231]: Collecting audit messages is disabled.
+[   58.557707] systemd[1]: Finished systemd-network-generator.service - Generate Network Units from Kernel Command Line.
+[   58.805323] systemd[1]: Finished systemd-remount-fs.service - Remount Root and Kernel File Systems.
+[   58.997947] systemd[1]: Finished systemd-udev-load-credentials.service - Load udev Rules from Credentials.
+[   59.348495] systemd[1]: Reached target network-pre.target - Preparation for Network.
+[   59.728779] systemd[1]: Mounting sys-fs-fuse-connections.mount - FUSE Control File System...
+[   60.232379] systemd[1]: Mounting sys-kernel-config.mount - Kernel Configuration File System...
+[   60.391987] systemd[1]: systemd-hwdb-update.service - Rebuild Hardware Database skipped, no trigger condition checks were met.
+[   60.498134] systemd[1]: systemd-pstore.service - Platform Persistent Storage Archival skipped, unmet condition check ConditionDirectoryNotEmpty=/sys/fs/pstore
+[   61.199414] systemd[1]: Starting systemd-random-seed.service - Load/Save OS Random Seed...
+[   61.920075] systemd[1]: Starting systemd-sysctl.service - Apply Kernel Variables...
+[   62.789070] systemd[1]: Starting systemd-tmpfiles-setup-dev-early.service - Create Static Device Nodes in /dev gracefully...
+[   63.106453] systemd[1]: Started systemd-journald.service - Journal Service.
+[   75.334529] systemd-journald[231]: Received client request to flush runtime journal.
