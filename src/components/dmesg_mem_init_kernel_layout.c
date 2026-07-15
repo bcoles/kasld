@@ -154,12 +154,13 @@ static const struct layout_entry entries[] = {
      KERNEL_VIRT_TEXT_MIN, KERNEL_VIRT_TEXT_MAX, LK_BASE},
     /* riscv print_vm_layout() prints the kernel image span as
      * "kernel : 0x<virt_addr> - 0x<end>"; the low edge is kernel_map.virt_addr
-     * where _start/_text land — the IMAGE base, not _stext. So it is
-     * REGION_KERNEL_IMAGE (a direct image-base pin), NOT REGION_KERNEL_TEXT:
-     * the latter would make text_pin_from_observation subtract STEXT_OFFSET
-     * (the head gap) and land below _text on a head-gap arch. LK_BASE takes
-     * that first address; the high edge (ADDRESS_SPACE_END) is a fixed VAS
-     * bound. */
+     * = _start (KERNEL_LINK_ADDR, the image LOAD address), which on riscv sits
+     * IMAGE_BASE_OFFSET (the .head.text) BELOW _text. The engine's image base
+     * is _text (see image-base model), so emit_base() projects this _start up
+     * to _text via IMAGE_BASE_OFFSET before pinning it as REGION_KERNEL_IMAGE —
+     * without that, the pin lands 0x2000 low and excludes the true base.
+     * LK_BASE takes the first address; the high edge (ADDRESS_SPACE_END) is a
+     * fixed VAS bound. */
     {"kernel : 0x", KASLD_TYPE_VIRT, "kernel image start", REGION_KERNEL_IMAGE,
      KERNEL_VIRT_TEXT_MIN, KERNEL_VIRT_TEXT_MAX, LK_BASE},
     {"lowmem  : 0x", KASLD_TYPE_VIRT, "kernel lowmem start", REGION_DIRECTMAP,
@@ -229,6 +230,17 @@ static int extract_range(const char *s, unsigned long *lo, unsigned long *hi) {
 
 static void emit_base(int idx, unsigned long addr) {
   enum kasld_region region = entries[idx].region;
+
+  /* The only REGION_KERNEL_IMAGE needle ("kernel : 0x...", riscv/xtensa)
+   * reports _start = kernel_map.virt_addr, the image LOAD address. The solved
+   * image base is _text, which sits IMAGE_BASE_OFFSET above _start on a
+   * head-gap arch
+   * (_start is granule-aligned, so the offset is exactly the .head.text).
+   * Project up so the pin is the image base, not _start. No-op where
+   * IMAGE_BASE_OFFSET is 0 (every arch whose dmesg lacks this line). */
+  if (region == REGION_KERNEL_IMAGE)
+    addr += (unsigned long)IMAGE_BASE_OFFSET;
+
   kasld_info("%s: %lx", entries[idx].display, addr);
 
   if (region == REGION_KERNEL_TEXT)

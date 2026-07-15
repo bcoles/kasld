@@ -61,20 +61,23 @@ static void parse_capture(const char *line, char *buf, size_t bufsz) {
 
 static char cap[8192];
 
-/* The "kernel" line pins the text base: the low edge becomes a pos=base
- * KERNEL_TEXT result (the high edge, a fixed VAS end, is ignored by LK_BASE).
+/* The "kernel" line reports _start (kernel_map.virt_addr, the image LOAD
+ * address). The engine's image base is _text, IMAGE_BASE_OFFSET above _start on
+ * a head-gap arch, so the emitted pos=base KERNEL_IMAGE value is projected up
+ * by IMAGE_BASE_OFFSET (a no-op on arches where it is 0, e.g. the x86_64 host).
  */
 static void test_kernel_line_pins_text_base(void) {
-  unsigned long base = (unsigned long)KERNEL_VIRT_TEXT_MIN;
+  unsigned long start = (unsigned long)KERNEL_VIRT_TEXT_MIN;
+  unsigned long image_base = start + (unsigned long)IMAGE_BASE_OFFSET;
   char line[256], want[64];
   snprintf(line, sizeof(line),
-           "      kernel : 0x%lx - 0xffffffffffffffff   (   2 GB)", base);
+           "      kernel : 0x%lx - 0xffffffffffffffff   (   2 GB)", start);
   parse_capture(line, cap, sizeof(cap));
-  /* The "kernel :" line is the image base (_text), so it is
-   * REGION_KERNEL_IMAGE, not KERNEL_TEXT (which the engine treats as _stext and
+  /* REGION_KERNEL_IMAGE, not KERNEL_TEXT (which the engine treats as _stext and
    * shifts down by the head gap). */
   assert(strstr(cap, "V kernel_image pos=base") != NULL);
-  snprintf(want, sizeof(want), "lo=0x%lx", base);
+  snprintf(want, sizeof(want), "lo=0x%lx",
+           image_base); /* _start + head = _text */
   assert(strstr(cap, want) != NULL);
 }
 
