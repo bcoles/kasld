@@ -107,4 +107,13 @@
 
 #define KASLR_SUPPORTED 0
 
+// _text's offset within the 2 MiB KASLR_VIRT_ALIGN grid is NOT an architectural
+// constant: ARM's TEXT_OFFSET is config-dependent (0x8000 default, 0x208000 and
+// larger on other platforms/configs) and _stext is padded up to the 1 MiB
+// section boundary, so the residue varies by kernel (a multi_v7 build links
+// _stext at PAGE_OFFSET + 0x300000, residue 0x100000, not 0x8000). Disable
+// image_base_grid_align's grid-snap, which would otherwise floor an
+// interior-sample ceiling below the true base on such a kernel.
+#define IMAGE_BASE_RESIDUE_FIXED 0
+
 #endif /* KASLD_ARM32_H */

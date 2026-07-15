@@ -295,6 +295,19 @@ static inline unsigned long kasld__directmap_virt_to_phys(unsigned long v) {
 #define KASLR_VIRT_ALIGN IMAGE_ALIGN
 #endif
 
+/* image_base_grid_align soundness gate. The rule snaps a resolved virtual
+ * image-base bound to the KASLR grid, which is sound only if _text's residue
+ * modulo KASLR_VIRT_ALIGN is an architectural constant (=
+ * KERNEL_VIRT_TEXT_DEFAULT mod KASLR_VIRT_ALIGN) across every in-scope kernel:
+ * true where KASLR places the base on the grid, or a fixed linker offset
+ * guarantees it. 0 where the offset is config-dependent (arm32: TEXT_OFFSET
+ * varies by config and _stext is padded to the section boundary), so snapping
+ * could floor a bound below the true base. Default 1 (the residue is fixed);
+ * arches whose residue is not fixed set 0. */
+#ifndef IMAGE_BASE_RESIDUE_FIXED
+#define IMAGE_BASE_RESIDUE_FIXED 1
+#endif
+
 /* Physical firmware load offset (DRAM base -> phys image base). 0 where
  * firmware loads the image at the DRAM base; riscv64 overrides to 2 MiB
  * (OpenSBI). Defined here so the OpenSBI component (compiled for every arch)

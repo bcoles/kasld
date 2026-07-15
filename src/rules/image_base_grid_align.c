@@ -32,6 +32,11 @@
 // ceiling rules already capture the escalation win where it is sound (x86_64,
 // residue 0).
 //
+// Gated on IMAGE_BASE_RESIDUE_FIXED: the snap is sound only where _text's
+// residue modulo KASLR_VIRT_ALIGN is an architectural constant. On arm32 the
+// residue is config-dependent (variable TEXT_OFFSET / section-map padding), so
+// the rule is inert there — snapping would floor a bound below the true base.
+//
 // Self-edge (reads est[Q_VIRT_IMAGE_BASE], writes the same quantity): reviewed
 // in tests/check-self-edges; soundness test in tests/test_engine.c. Idempotent
 // — floor/ceil of an already-grid value is itself — so it reaches a fixpoint in
@@ -60,6 +65,14 @@ int rule_image_base_grid_align(const struct evidence_set *ev,
                                const struct estimate *est,
                                struct constraint *out, int out_max) {
   (void)ev; /* reads only the resolved estimate, never raw evidence */
+#if !IMAGE_BASE_RESIDUE_FIXED
+  /* _text's grid residue is not architecturally fixed on this arch; snapping a
+   * bound to the assumed grid could cross the true base. Inert. */
+  (void)est;
+  (void)out;
+  (void)out_max;
+  return 0;
+#else
 
   const struct estimate *e = &est[Q_VIRT_IMAGE_BASE];
   if (e->kind != LK_INTERVAL)
@@ -87,4 +100,5 @@ int rule_image_base_grid_align(const struct evidence_set *ev,
   }
 
   return n;
+#endif
 }

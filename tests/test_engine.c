@@ -101,6 +101,18 @@ static void mk_est_virt_base(struct estimate est[Q__COUNT], unsigned long lo,
  * sub-offset arches (riscv64 +0x2000, arm32 +0x8000, s390 +0x100000, mips
  * +0x400) where a plain floor/ceil(v, align) would cross the truth. */
 static void test_image_base_grid_align_sound(void) {
+#if !IMAGE_BASE_RESIDUE_FIXED
+  /* Residue not architecturally fixed (arm32): the rule is inert — snapping a
+   * bound to the assumed grid could cross the true base. */
+  struct estimate est_off[Q__COUNT];
+  struct constraint out_off[4];
+  struct estimate top_off;
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top_off);
+  mk_est_virt_base(est_off, top_off.lo + 7ul, top_off.lo + 0x3000007ul,
+                   CONF_INFERRED);
+  assert(rule_image_base_grid_align(NULL, est_off, out_off, 4) == 0);
+  return;
+#else
   struct estimate top;
   quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
   unsigned long lo_g =
@@ -144,10 +156,13 @@ static void test_image_base_grid_align_sound(void) {
     }
   }
   assert(saw_lo && saw_hi);
+#endif
 }
 
 /* FUNCTIONAL end-to-end: with the raw interior-sample ceiling as the tightest
- * bound, the rule snaps the resolved ceiling down to the grid. */
+ * bound, the rule snaps the resolved ceiling down to the grid — except where
+ * the residue is not architecturally fixed (arm32), where it leaves the raw
+ * ceiling untouched (snapping would be unsound). */
 static void test_image_base_grid_align_tightens(void) {
   struct engine e;
   engine_init(&e);
@@ -165,9 +180,13 @@ static void test_image_base_grid_align_tightens(void) {
                            rule_image_base_grid_align};
   engine_run(&e, rules, 2);
 
-  assert(grid < sample);                         /* the sample was off-grid */
+  assert(grid < sample); /* the sample was off-grid */
+#if IMAGE_BASE_RESIDUE_FIXED
   assert(e.est[Q_VIRT_IMAGE_BASE].hi == grid);   /* ceiling snapped down */
   assert(e.est[Q_VIRT_IMAGE_BASE].hi >= top.lo); /* still sound, non-empty */
+#else
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi == sample); /* inert: raw ceiling kept */
+#endif
 }
 
 /* NO-OP: already-grid edges, and honest tops (binding == 0), emit nothing. */
