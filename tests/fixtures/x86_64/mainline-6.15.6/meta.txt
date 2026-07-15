@@ -9,4 +9,4 @@ suggested_fixture: tests/fixtures/x86_64/mainline-6.15.6/
 anonymized:       0
 host_scrubbed:    1
 kallsyms:         1
-source:           vm (x86_64-vanilla)
+source:           vm (x86_64-mainline-6.15.6)
