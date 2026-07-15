@@ -47,12 +47,12 @@ JOBS=${JOBS:-$(nproc 2>/dev/null || echo 1)}
 #   armeb-*         — the cross set's only big-endian arm toolchain is ARMv5 BE32,
 #                     which can neither run on an ARMv7 BE8 kernel nor boot a BE32
 #                     kernel under qemu, so the staged kernel cannot be validated.
-#   <arch>-mainline-<ver> for arches Alpine already ships — the second kernel
-#                     line in the matrix (Alpine distro kernel + mainline), giving
-#                     every arch a 6.x-and-7.x pair.
-#   <gap>-mainline-6.15  — an older-6.x twin of a gap arch; pass the matching
-#                     LINUX_VERSION (e.g. LINUX_VERSION=6.15.6). The version in the
-#                     name is a label; the caller sets the source version.
+#   <arch>-mainline-<ver>  — mainline is the primary matrix: every arch spans a
+#                     set of kernel lines (currently 5.15 LTS, 6.6 LTS, 7.0), so
+#                     each has one cell per version. Pass the matching
+#                     LINUX_VERSION (e.g. LINUX_VERSION=6.6.144 for a `-6.6` cell):
+#                     the version in the name is a label; the caller sets the
+#                     source version. Alpine cells are a bonus, not built here.
 ALL_ARCHES="mips-mainline-7.0 mipsel-mainline-7.0 mips64el-mainline-7.0
 riscv32-mainline-7.0 ppc32-mainline-7.0 powerpc64-mainline-7.0"
 
@@ -83,6 +83,7 @@ spec_for() {
   s390x)     echo "s390x    s390    defconfig          bzImage -" ;;
   riscv64)   echo "riscv64  riscv   defconfig          Image   -" ;;
   ppc64le)   echo "powerpc64le powerpc ppc64_defconfig vmlinux le" ;;
+  loongarch64) echo "loongarch64 loongarch defconfig  vmlinuz.efi -" ;;
   *)         echo "" ;;
   esac
 }
@@ -138,12 +139,18 @@ build_one() {
     "$src/scripts/config" --file "$bdir/.config" \
       -d CPU_MIPS32_R2 -e CPU_MIPS64_R2 -e 64BIT -d 32BIT ;;
   esac
-  # riscv32 has no standalone rv32_defconfig (removed after 6.15); derive the
-  # 32-bit config by merging the arch's 32-bit.config fragment onto defconfig.
+  # riscv32: use the standalone rv32_defconfig where the tree still ships it
+  # (<= 6.15); on newer trees it was removed, so merge the `32-bit.config`
+  # fragment onto the plain `defconfig` (already applied above) instead.
   case "$base" in
   riscv32)
-    make -C "$src" O="$bdir" ARCH="$ka" CROSS_COMPILE="$cc" 32-bit.config >/dev/null ||
-      { echo "  !! 32-bit.config merge failed"; return 1; } ;;
+    if [ -f "$src/arch/riscv/configs/rv32_defconfig" ]; then
+      make -C "$src" O="$bdir" ARCH="$ka" CROSS_COMPILE="$cc" rv32_defconfig >/dev/null ||
+        { echo "  !! rv32_defconfig failed"; return 1; }
+    else
+      make -C "$src" O="$bdir" ARCH="$ka" CROSS_COMPILE="$cc" 32-bit.config >/dev/null ||
+        { echo "  !! 32-bit.config merge failed"; return 1; }
+    fi ;;
   esac
   # ppc64le: the little-endian powerpc musl toolchain is pure 64-bit, so the
   # 32-bit compat VDSO (built under CONFIG_COMPAT) fails with "-m32 not
@@ -154,7 +161,22 @@ build_one() {
   ppc64le)
     "$src/scripts/config" --file "$bdir/.config" -d COMPAT ;;
   esac
-  "$src/scripts/config" --file "$bdir/.config" -e DEVTMPFS -e DEVTMPFS_MOUNT
+  # ppc32 (pmac g3beige): older pmac32_defconfig ships the pmac zilog UART as a
+  # module with no console (5.15: SERIAL_PMACZILOG=m, _CONSOLE unset), so the
+  # minimal initramfs boot has no /dev/console ("unable to open an initial
+  # console" -> power down). Force the driver + its console built-in; TTYS puts
+  # it in the ttyS namespace the run recipe uses (console=ttyS0).
+  case "$base" in
+  ppc32)
+    "$src/scripts/config" --file "$bdir/.config" \
+      -e SERIAL_PMACZILOG -e SERIAL_PMACZILOG_TTYS -e SERIAL_PMACZILOG_CONSOLE ;;
+  esac
+  # devtmpfs (console at init-exec) + initramfs support. BLK_DEV_INITRD/RD_GZIP
+  # are absent from some older defconfigs (mips/ppc32 malta at 5.15), so the
+  # kernel cannot unpack the gzipped initramfs and panics "unable to mount root
+  # fs". Forced on so every version boots the same -initrd; harmless where on.
+  "$src/scripts/config" --file "$bdir/.config" \
+    -e DEVTMPFS -e DEVTMPFS_MOUNT -e BLK_DEV_INITRD -e RD_GZIP
   make -C "$src" O="$bdir" ARCH="$ka" CROSS_COMPILE="$cc" olddefconfig >/dev/null
   make -C "$src" O="$bdir" ARCH="$ka" CROSS_COMPILE="$cc" -j"$JOBS" "$image" ||
     { echo "  !! build failed"; return 1; }

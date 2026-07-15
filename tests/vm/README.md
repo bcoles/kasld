@@ -120,19 +120,25 @@ tests/vm/run mipsel-mainline-7.0           # boot it, verdict
 |------|-------------------------|------|
 | mips | `mips` / `malta_defconfig` + BE | `qemu-system-mips -M malta` |
 | mipsel | `mips` / `malta_defconfig` (LE) | `qemu-system-mipsel -M malta` |
+| mips64el | `mips` / `malta_defconfig` + 64-bit (LE) | `qemu-system-mips64el -M malta` |
 | riscv32 | `riscv` / `defconfig` + `32-bit.config` | `qemu-system-riscv32 -M virt` |
 | ppc32 | `powerpc` / `pmac32_defconfig` (BE) | `qemu-system-ppc -M g3beige` |
+| powerpc64 | `powerpc` / `ppc64_defconfig` (BE) | `qemu-system-ppc64 -M pseries` |
 | armeb (blocked) | `arm` / `multi_v7_defconfig` + BE | `qemu-system-arm -M virt` |
 
 Validation status of the gap arches (built fresh from kernel.org, booted here):
 
-- `mips`, `mipsel`, `riscv32`, `ppc32` — verified end-to-end, boots PASS, base
-  recovered exactly. `malta_defconfig` is little-endian, so `mips` exercises the
-  big-endian overlay (and `mipsel` boots the native byte order); `riscv32` is
-  staged as the flat `Image` (the `virt` board rejects the raw `vmlinux` ELF) and
-  needs the 32-bit OpenSBI firmware (auto-discovered, see below); `ppc32` needs
-  `qemu-system-ppc` (the `qemu-system-misc`/`-ppc` package) and its console is
-  `ttyS0` (pmac zilog registers in the `ttyS` namespace).
+- `mips`, `mipsel`, `mips64el`, `riscv32`, `ppc32` — verified end-to-end, boots
+  PASS, base recovered exactly. `malta_defconfig` is little-endian, so `mips`
+  exercises the big-endian overlay (and `mipsel` boots the native byte order);
+  `mips64el` promotes the same board to a 64-bit CPU (`MIPS64R2-generic`);
+  `riscv32` is staged as the flat `Image` (the `virt` board rejects the raw
+  `vmlinux` ELF) and needs the 32-bit OpenSBI firmware (auto-discovered, see
+  below); `ppc32` needs `qemu-system-ppc` (the `qemu-system-misc`/`-ppc` package)
+  and its console is `ttyS0` (pmac zilog registers in the `ttyS` namespace).
+- `powerpc64` — boots PASS on `-M pseries` (`power9`, console `hvc0`), but the
+  board delivers no KASLR seed, so the kernel boots unrandomized; the base is
+  pinned via the disabled-base path, not a KASLR defeat.
 - `armeb` — blocked on both ends, by the toolchain and by qemu, not the recipe.
   The only big-endian arm toolchain `make cross` provides
   (`armeb-linux-musleabi`) emits **ARMv5 BE32** code, so: against an ARMv7 **BE8**

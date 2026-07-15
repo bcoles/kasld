@@ -80,14 +80,18 @@ is skipped (not failed) when either is missing. The reader profiles (the
 Under the tighter profiles the window may widen but must still contain the truth.
 See [tests/vm/README.md](../tests/vm/README.md) for the full arch list and options.
 
-Eight architectures boot from publicly-fetchable Alpine kernels. Four more that
-Alpine does not port — `mips`, `mipsel`, `riscv32`, `ppc32` — are built from a
-pinned kernel.org source by `tests/vm/build-kernel` (a stock upstream defconfig
-plus a fixed endianness/devtmpfs overlay) and booted the same way:
+Every architecture is booted on mainline kernel.org kernels — the LTS lines 5.15
+and 6.6 and current 7.0 — cross-built from pinned source by `tests/vm/build-kernel`
+(a stock upstream defconfig plus a fixed endianness/devtmpfs overlay). Eight of
+them additionally boot a publicly-fetchable Alpine distro kernel; the other six —
+`mips`, `mipsel`, `mips64el`, `powerpc64`, `ppc32`, `riscv32` — have no Alpine
+port, so mainline is their only source. Cells are named `<arch>-<distro>-<line>`;
+for a mainline cell the version in the name is a label and `LINUX_VERSION` sets
+the source:
 
 ```sh
-tests/vm/build-kernel mips mipsel riscv32 ppc32   # cross-build -> cache (slow)
-tests/vm/run mips                                 # boot it, verdict
+LINUX_VERSION=5.15.211 tests/vm/build-kernel ppc32-mainline-5.15  # cross-build -> cache (slow)
+tests/vm/run ppc32-mainline-5.15                                  # boot it, verdict
 ```
 
 `armeb` is not covered: the only big-endian arm toolchain in the cross set emits
@@ -122,20 +126,24 @@ on each axis:
 Soundness is gated on both axes: a cell whose physical window excludes the true
 physical base is withheld exactly like a virtual violation, never published.
 
-The axis is architecture × reader profile; a kernel-config axis is out of scope
-(see Scope below).
+The axes are architecture × kernel line × reader profile: each architecture is
+booted on the mainline LTS lines 5.15 and 6.6 and on current 7.0 — plus an Alpine
+distro kernel where a port exists — under each of the three reader profiles
+(`default`, `hidden`, `hardened`). An architecture predating a line carries no
+cell there (LoongArch, mainlined in 6.1, has no 5.15 row). A kernel-config axis
+is out of scope (see Scope below).
 
 | arch | release | source | scenario | KASLR | virt residual | phys residual |
 |------|---------|--------|----------|-------|---------------|---------------|
 | x86_64 | 6.12.81-0-virt | alpine | default | on | exact | exact |
-| x86_64 | 6.12.81-0-virt | alpine | hidden | on | 1 bit | exact |
+| x86_64 | 6.12.81-0-virt | alpine | hidden | on | exact | exact |
 | x86_64 | 6.12.81-0-virt | alpine | hardened | on | 6 bits | 6 bits |
 | i686 | 6.12.81-0-lts | alpine | default | on | exact | — |
 | i686 | 6.12.81-0-lts | alpine | hidden | on | exact | — |
 | i686 | 6.12.81-0-lts | alpine | hardened | on | 5 bits | — |
 | aarch64 | 6.12.81-0-virt | alpine | default | on | exact | exact |
-| aarch64 | 6.12.81-0-virt | alpine | hidden | on | 10 bits | exact |
-| aarch64 | 6.12.81-0-virt | alpine | hardened | on | 26 bits | 14 bits |
+| aarch64 | 6.12.81-0-virt | alpine | hidden | on | 27 bits | exact |
+| aarch64 | 6.12.81-0-virt | alpine | hardened | on | 31 bits | 14 bits |
 | armv7 | 6.12.81-0-lts | alpine | default | off | — | — |
 | armv7 | 6.12.81-0-lts | alpine | hidden | off | — | — |
 | armv7 | 6.12.81-0-lts | alpine | hardened | off | — | — |
@@ -151,39 +159,129 @@ The axis is architecture × reader profile; a kernel-config axis is out of scope
 | s390x | 6.12.81-0-lts | alpine | default | on | exact | exact |
 | s390x | 6.12.81-0-lts | alpine | hidden | on | 22 bits | exact |
 | s390x | 6.12.81-0-lts | alpine | hardened | on | 39 bits | 10 bits |
-| mips | 6.15.6 | mainline | default | on | exact | — |
-| mips | 6.15.6 | mainline | hidden | on | exact | — |
-| mips | 6.15.6 | mainline | hardened | on | 11 bits | — |
-| mips | 7.0.0 | mainline | default | on | exact | — |
-| mips | 7.0.0 | mainline | hidden | on | exact | — |
-| mips | 7.0.0 | mainline | hardened | on | 10 bits | — |
-| mipsel | 6.15.6 | mainline | default | on | exact | — |
-| mipsel | 6.15.6 | mainline | hidden | on | exact | — |
-| mipsel | 6.15.6 | mainline | hardened | on | 11 bits | — |
-| mipsel | 7.0.0 | mainline | default | on | exact | — |
-| mipsel | 7.0.0 | mainline | hidden | on | exact | — |
-| mipsel | 7.0.0 | mainline | hardened | on | 10 bits | — |
-| riscv32 | 6.15.6 | mainline | default | off | — | — |
-| riscv32 | 6.15.6 | mainline | hidden | off | — | — |
-| riscv32 | 6.15.6 | mainline | hardened | off | — | — |
-| riscv32 | 7.0.0 | mainline | default | off | — | — |
-| riscv32 | 7.0.0 | mainline | hidden | off | — | — |
-| riscv32 | 7.0.0 | mainline | hardened | off | — | — |
-| ppc32 | 6.15.6 | mainline | default | on | exact | — |
-| ppc32 | 6.15.6 | mainline | hidden | on | 2 bits | — |
-| ppc32 | 6.15.6 | mainline | hardened | on | 15 bits | — |
-| ppc32 | 7.0.0 | mainline | default | on | exact | — |
-| ppc32 | 7.0.0 | mainline | hidden | on | 2 bits | — |
-| ppc32 | 7.0.0 | mainline | hardened | on | 15 bits | — |
+| x86_64 | 5.15.211 | mainline | default | on | exact | exact |
+| x86_64 | 5.15.211 | mainline | hidden | on | 5 bits | exact |
+| x86_64 | 5.15.211 | mainline | hardened | on | 9 bits | 9 bits |
+| x86_64 | 6.6.144 | mainline | default | on | exact | exact |
+| x86_64 | 6.6.144 | mainline | hidden | on | 5 bits | exact |
+| x86_64 | 6.6.144 | mainline | hardened | on | 9 bits | 9 bits |
 | x86_64 | 7.0.0 | mainline | default | on | exact | exact |
 | x86_64 | 7.0.0 | mainline | hidden | on | 5 bits | exact |
 | x86_64 | 7.0.0 | mainline | hardened | on | 9 bits | 9 bits |
+| i686 | 5.15.211 | mainline | default | on | exact | — |
+| i686 | 5.15.211 | mainline | hidden | on | exact | — |
+| i686 | 5.15.211 | mainline | hardened | on | 8 bits | — |
+| i686 | 6.6.144 | mainline | default | on | exact | — |
+| i686 | 6.6.144 | mainline | hidden | on | exact | — |
+| i686 | 6.6.144 | mainline | hardened | on | 8 bits | — |
+| i686 | 7.0.0 | mainline | default | on | exact | — |
+| i686 | 7.0.0 | mainline | hidden | on | exact | — |
+| i686 | 7.0.0 | mainline | hardened | on | 8 bits | — |
+| aarch64 | 5.15.211 | mainline | default | on | 5 bits | exact |
+| aarch64 | 5.15.211 | mainline | hidden | on | 5 bits | exact |
+| aarch64 | 5.15.211 | mainline | hardened | on | 31 bits | 14 bits |
+| aarch64 | 6.6.144 | mainline | default | on | 5 bits | exact |
+| aarch64 | 6.6.144 | mainline | hidden | on | 5 bits | exact |
+| aarch64 | 6.6.144 | mainline | hardened | on | 31 bits | 14 bits |
 | aarch64 | 7.0.0 | mainline | default | on | exact | exact |
 | aarch64 | 7.0.0 | mainline | hidden | on | 5 bits | exact |
-| aarch64 | 7.0.0 | mainline | hardened | on | 26 bits | 14 bits |
+| aarch64 | 7.0.0 | mainline | hardened | on | 31 bits | 14 bits |
+| armv7 | 5.15.211 | mainline | default | off | — | — |
+| armv7 | 5.15.211 | mainline | hidden | off | — | — |
+| armv7 | 5.15.211 | mainline | hardened | off | — | — |
+| armv7 | 6.6.144 | mainline | default | off | — | — |
+| armv7 | 6.6.144 | mainline | hidden | off | — | — |
+| armv7 | 6.6.144 | mainline | hardened | off | — | — |
+| armv7 | 7.0.0 | mainline | default | off | — | — |
+| armv7 | 7.0.0 | mainline | hidden | off | — | — |
+| armv7 | 7.0.0 | mainline | hardened | off | — | — |
+| riscv64 | 5.15.211 | mainline | default | off | — | — |
+| riscv64 | 5.15.211 | mainline | hidden | off | — | — |
+| riscv64 | 5.15.211 | mainline | hardened | off | — | — |
+| riscv64 | 6.6.144 | mainline | default | off | — | — |
+| riscv64 | 6.6.144 | mainline | hidden | off | — | — |
+| riscv64 | 6.6.144 | mainline | hardened | off | — | — |
+| riscv64 | 7.0.0 | mainline | default | off | — | — |
+| riscv64 | 7.0.0 | mainline | hidden | off | — | — |
+| riscv64 | 7.0.0 | mainline | hardened | off | — | — |
+| loongarch64 | 6.6.144 | mainline | default | on | exact | — |
+| loongarch64 | 6.6.144 | mainline | hidden | on | 3 bits | — |
+| loongarch64 | 6.6.144 | mainline | hardened | on | 14 bits | — |
+| loongarch64 | 7.0.0 | mainline | default | on | exact | — |
+| loongarch64 | 7.0.0 | mainline | hidden | on | 3 bits | — |
+| loongarch64 | 7.0.0 | mainline | hardened | on | 14 bits | — |
+| ppc64le | 5.15.211 | mainline | default | off | — | — |
+| ppc64le | 5.15.211 | mainline | hidden | off | — | — |
+| ppc64le | 5.15.211 | mainline | hardened | off | — | — |
+| ppc64le | 6.6.144 | mainline | default | off | — | — |
+| ppc64le | 6.6.144 | mainline | hidden | off | — | — |
+| ppc64le | 6.6.144 | mainline | hardened | off | — | — |
+| ppc64le | 7.0.0 | mainline | default | off | — | — |
+| ppc64le | 7.0.0 | mainline | hidden | off | — | — |
+| ppc64le | 7.0.0 | mainline | hardened | off | — | — |
+| s390x | 5.15.211 | mainline | default | on | exact | exact |
+| s390x | 5.15.211 | mainline | hidden | on | exact | exact |
+| s390x | 5.15.211 | mainline | hardened | on | 39 bits | 10 bits |
+| s390x | 6.6.144 | mainline | default | on | exact | exact |
+| s390x | 6.6.144 | mainline | hidden | on | exact | exact |
+| s390x | 6.6.144 | mainline | hardened | on | 39 bits | 10 bits |
 | s390x | 7.0.0 | mainline | default | on | exact | exact |
 | s390x | 7.0.0 | mainline | hidden | on | 22 bits | exact |
 | s390x | 7.0.0 | mainline | hardened | on | 39 bits | 10 bits |
+| mips | 5.15.211 | mainline | default | on | exact | — |
+| mips | 5.15.211 | mainline | hidden | on | exact | — |
+| mips | 5.15.211 | mainline | hardened | on | 11 bits | — |
+| mips | 6.6.144 | mainline | default | on | exact | — |
+| mips | 6.6.144 | mainline | hidden | on | exact | — |
+| mips | 6.6.144 | mainline | hardened | on | 11 bits | — |
+| mips | 7.0.0 | mainline | default | on | exact | — |
+| mips | 7.0.0 | mainline | hidden | on | exact | — |
+| mips | 7.0.0 | mainline | hardened | on | 11 bits | — |
+| mipsel | 5.15.211 | mainline | default | on | exact | — |
+| mipsel | 5.15.211 | mainline | hidden | on | exact | — |
+| mipsel | 5.15.211 | mainline | hardened | on | 11 bits | — |
+| mipsel | 6.6.144 | mainline | default | on | exact | — |
+| mipsel | 6.6.144 | mainline | hidden | on | exact | — |
+| mipsel | 6.6.144 | mainline | hardened | on | 11 bits | — |
+| mipsel | 7.0.0 | mainline | default | on | exact | — |
+| mipsel | 7.0.0 | mainline | hidden | on | exact | — |
+| mipsel | 7.0.0 | mainline | hardened | on | 11 bits | — |
+| mips64el | 5.15.211 | mainline | default | on | exact | — |
+| mips64el | 5.15.211 | mainline | hidden | on | exact | — |
+| mips64el | 5.15.211 | mainline | hardened | on | 14 bits | — |
+| mips64el | 6.6.144 | mainline | default | on | exact | — |
+| mips64el | 6.6.144 | mainline | hidden | on | exact | — |
+| mips64el | 6.6.144 | mainline | hardened | on | 14 bits | — |
+| mips64el | 7.0.0 | mainline | default | on | exact | — |
+| mips64el | 7.0.0 | mainline | hidden | on | exact | — |
+| mips64el | 7.0.0 | mainline | hardened | on | 14 bits | — |
+| riscv32 | 5.15.211 | mainline | default | off | — | — |
+| riscv32 | 5.15.211 | mainline | hidden | off | — | — |
+| riscv32 | 5.15.211 | mainline | hardened | off | — | — |
+| riscv32 | 6.6.144 | mainline | default | off | — | — |
+| riscv32 | 6.6.144 | mainline | hidden | off | — | — |
+| riscv32 | 6.6.144 | mainline | hardened | off | — | — |
+| riscv32 | 7.0.0 | mainline | default | off | — | — |
+| riscv32 | 7.0.0 | mainline | hidden | off | — | — |
+| riscv32 | 7.0.0 | mainline | hardened | off | — | — |
+| ppc32 | 5.15.211 | mainline | default | on | exact | — |
+| ppc32 | 5.15.211 | mainline | hidden | on | 2 bits | — |
+| ppc32 | 5.15.211 | mainline | hardened | on | 15 bits | — |
+| ppc32 | 6.6.144 | mainline | default | on | exact | — |
+| ppc32 | 6.6.144 | mainline | hidden | on | 2 bits | — |
+| ppc32 | 6.6.144 | mainline | hardened | on | 15 bits | — |
+| ppc32 | 7.0.0 | mainline | default | on | exact | — |
+| ppc32 | 7.0.0 | mainline | hidden | on | 2 bits | — |
+| ppc32 | 7.0.0 | mainline | hardened | on | 15 bits | — |
+| powerpc64 | 5.15.211 | mainline | default | off | — | — |
+| powerpc64 | 5.15.211 | mainline | hidden | off | — | — |
+| powerpc64 | 5.15.211 | mainline | hardened | off | — | — |
+| powerpc64 | 6.6.144 | mainline | default | off | — | — |
+| powerpc64 | 6.6.144 | mainline | hidden | off | — | — |
+| powerpc64 | 6.6.144 | mainline | hardened | off | — | — |
+| powerpc64 | 7.0.0 | mainline | default | off | — | — |
+| powerpc64 | 7.0.0 | mainline | hidden | off | — | — |
+| powerpc64 | 7.0.0 | mainline | hardened | off | — | — |
 
 Under `hidden`/`hardened`, `residual` usually widens to `<n> bits`: kallsyms —
 the pin the `default` column relies on — is gone, so the base stays `exact` only
@@ -212,32 +310,42 @@ gated to contain the truth. It surfaces in `-j` JSON as the `likely` /
 `likely_physical` objects, emitted only when strictly tighter than guaranteed.
 
 On the matrix boots, the likely window equals guaranteed on every cell except the
-six below, where a sub-floor signal narrows the base past the sound floor
+ten below, where a sub-floor signal narrows the base past the sound floor
 (generated by `tests/vm/run spec-table`):
 
-| arch | source | scenario | guaranteed | likely | via | method | truth ∈ likely |
-|------|--------|----------|------------|--------|-----|--------|:---:|
-| x86_64 | alpine | hidden | 1 bit | exact | `perf_event_open` | parsed | yes |
-| x86_64 | alpine | hardened | 6 bits | exact | `prefetch` | timing | yes |
-| aarch64 | alpine | hidden | 10 bits | exact | `perf_event_open` | parsed | yes |
-| ppc32 | mainline | hardened | 15 bits | 11 bits | `proc_zoneinfo + sysfs_devicetree_memory` | parsed | yes |
-| x86_64 | mainline | hidden | 5 bits | exact | `perf_event_open` | parsed | yes |
-| x86_64 | mainline | hardened | 9 bits | exact | `prefetch` | timing | yes |
+| arch | release | source | scenario | guaranteed | likely | via | method | truth ∈ likely |
+|------|---------|--------|----------|------------|--------|-----|--------|:---:|
+| x86_64 | 6.12.81-0-virt | alpine | hardened | 6 bits | exact | `prefetch` | timing | yes |
+| x86_64 | 5.15.211 | mainline | hidden | 5 bits | exact | `perf_event_open` | parsed | yes |
+| x86_64 | 5.15.211 | mainline | hardened | 9 bits | exact | `prefetch` | timing | yes |
+| x86_64 | 6.6.144 | mainline | hidden | 5 bits | exact | `perf_event_open` | parsed | yes |
+| x86_64 | 6.6.144 | mainline | hardened | 9 bits | exact | `prefetch` | timing | yes |
+| x86_64 | 7.0.0 | mainline | hidden | 5 bits | exact | `perf_event_open` | parsed | yes |
+| x86_64 | 7.0.0 | mainline | hardened | 9 bits | exact | `prefetch` | timing | yes |
+| ppc32 | 5.15.211 | mainline | hardened | 15 bits | 11 bits | `proc_zoneinfo + sysfs_devicetree_memory` | parsed | yes |
+| ppc32 | 6.6.144 | mainline | hardened | 15 bits | 11 bits | `proc_zoneinfo + sysfs_devicetree_memory` | parsed | yes |
+| ppc32 | 7.0.0 | mainline | hardened | 15 bits | 11 bits | `proc_zoneinfo + sysfs_devicetree_memory` | parsed | yes |
 
-The split follows the reader profile. `hardened` sets `perf_event_paranoid=3`, so
-`perf_event_open` is blocked; where a timing oracle survives that floor (`x86_64`
-`prefetch`) it still pins the base, and where none exists (`aarch64`, `s390x`, …)
-the likely window collapses back onto guaranteed. `hidden` leaves perf usable, so
-`perf_event_open` leaks a symbol pointer — a parsed best-guess base — which is why
-`aarch64` narrows under `hidden` but not `hardened`. `ppc32` uses neither: its
-narrowing is a memory-map heuristic from `/proc/zoneinfo` and the device-tree.
+The split follows the reader profile and the arch's surviving sub-floor signals.
+Under `hidden`, `perf_event_open` is still permitted, so on `x86_64` it leaks a
+symbol pointer — a parsed best-guess base — that collapses the likely window to
+`exact`. Under `hardened`, `perf_event_paranoid=3` blocks it; where a timing
+oracle survives that floor (`x86_64` `prefetch`) the base is still pinned, and
+where none does the likely window collapses back onto guaranteed. `ppc32` uses
+neither: under `hardened` its narrowing is a memory-map heuristic from
+`/proc/zoneinfo` and the device-tree, trimming 15 bits to 11. Every other
+KASLR-on cell leaves likely equal to guaranteed — including `x86_64` under Alpine
+`hidden`, where a sound `bpf_verifier_ksym` leak already pins the guaranteed base
+`exact`, so there is nothing left for a speculative signal to narrow.
 
-Every likely window on this run contained the truth (6 / 6). That is a per-run
-property for the two `timing` rows — `prefetch` is a probabilistic oracle and can
-miss on another boot, in which case the likely base is wrong while the guaranteed
-window still holds. The four `parsed` (`perf_event_open`) rows do not depend on
-timing. A likely miss is never a soundness violation: the gate is on guaranteed,
-which contains the truth in every cell regardless.
+Every likely window on this run contained the truth (10 / 10). That is a per-run
+property for the four `timing` rows (`x86_64` `prefetch`, one Alpine plus three
+mainline lines) — `prefetch` is a probabilistic oracle and can miss on another
+boot, in which case the likely base is wrong while the guaranteed window still
+holds. The six `parsed` rows (`perf_event_open` on `x86_64`, the `/proc/zoneinfo`
+heuristic on `ppc32`) do not depend on timing. A likely miss is never a soundness
+violation: the gate is on guaranteed, which contains the truth in every cell
+regardless.
 
 ## 3. Offline, over a captured corpus
 

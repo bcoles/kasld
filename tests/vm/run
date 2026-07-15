@@ -68,32 +68,58 @@ CACHE=$HERE/.cache
 #           linux-lts apk — for ports with no netboot image, e.g. riscv64/
 #           loongarch64), or "local" (built from kernel.org by build-kernel).
 TABLE='
-x86_64-alpine-6.12      | x86_64      | virt | x86_64       | x86_64      | -M q35 -cpu max        | ttyS0
-i686-alpine-6.12        | x86         | lts  | i686         | i386        | -M pc -cpu max         | ttyS0
-aarch64-alpine-6.12     | aarch64     | virt | aarch64      | aarch64     | -M virt -cpu max       | ttyAMA0
-armv7-alpine-6.12       | armv7       | lts  | armv7        | arm         | -M virt -cpu max       | ttyAMA0
-riscv64-alpine-6.18     | riscv64     | apk  | riscv64      | riscv64     | -M virt                | ttyS0
-loongarch64-alpine-6.18 | loongarch64 | apk  | loongarch64  | loongarch64 | -M virt                | ttyS0
-ppc64le-alpine-6.12     | ppc64le     | lts  | powerpc64le  | ppc64       | -M pseries -cpu power9 | hvc0
-s390x-alpine-6.12       | s390x       | lts  | s390x        | s390x       | -M s390-ccw-virtio     | ttysclp0
-mips-mainline-7.0       | -           | local| mips         | mips        | -M malta               | ttyS0
-mipsel-mainline-7.0     | -           | local| mipsel       | mipsel      | -M malta               | ttyS0
-mips64el-mainline-7.0   | -           | local| mips64el     | mips64el    | -M malta -cpu MIPS64R2-generic | ttyS0
-riscv32-mainline-7.0    | -           | local| riscv32      | riscv32     | -M virt                | ttyS0
-ppc32-mainline-7.0      | -           | local| powerpc      | ppc         | -M g3beige             | ttyS0
-mips-mainline-6.15      | -           | local| mips         | mips        | -M malta               | ttyS0
-mipsel-mainline-6.15    | -           | local| mipsel       | mipsel      | -M malta               | ttyS0
-riscv32-mainline-6.15   | -           | local| riscv32      | riscv32     | -M virt                | ttyS0
-ppc32-mainline-6.15     | -           | local| powerpc      | ppc         | -M g3beige             | ttyS0
-powerpc64-mainline-7.0  | -           | local| powerpc64    | ppc64       | -M pseries -cpu power9 | hvc0
-armeb-mainline-7.0      | -           | local| armeb        | arm         | -M virt                | ttyAMA0
+x86_64-alpine-6.12      | x86_64      | virt| x86_64       | x86_64      | -M q35 -cpu max        | ttyS0
+i686-alpine-6.12        | x86         | lts | i686         | i386        | -M pc -cpu max         | ttyS0
+aarch64-alpine-6.12     | aarch64     | virt| aarch64      | aarch64     | -M virt -cpu max       | ttyAMA0
+armv7-alpine-6.12       | armv7       | lts | armv7        | arm         | -M virt -cpu max       | ttyAMA0
+riscv64-alpine-6.18     | riscv64     | apk | riscv64      | riscv64     | -M virt                | ttyS0
+loongarch64-alpine-6.18 | loongarch64 | apk | loongarch64  | loongarch64 | -M virt                | ttyS0
+ppc64le-alpine-6.12     | ppc64le     | lts | powerpc64le  | ppc64       | -M pseries -cpu power9 | hvc0
+s390x-alpine-6.12       | s390x       | lts | s390x        | s390x       | -M s390-ccw-virtio     | ttysclp0
+x86_64-mainline-5.15    | -           | local| x86_64       | x86_64      | -M q35 -cpu max        | ttyS0
+x86_64-mainline-6.6     | -           | local| x86_64       | x86_64      | -M q35 -cpu max        | ttyS0
 x86_64-mainline-7.0     | -           | local| x86_64       | x86_64      | -M q35 -cpu max        | ttyS0
-aarch64-mainline-7.0    | -           | local| aarch64      | aarch64     | -M virt -cpu max       | ttyAMA0
-armv7-mainline-7.0      | -           | local| armv7        | arm         | -M virt -cpu max       | ttyAMA0
+i686-mainline-5.15      | -           | local| i686         | i386        | -M pc -cpu max         | ttyS0
+i686-mainline-6.6       | -           | local| i686         | i386        | -M pc -cpu max         | ttyS0
 i686-mainline-7.0       | -           | local| i686         | i386        | -M pc -cpu max         | ttyS0
-s390x-mainline-7.0      | -           | local| s390x        | s390x       | -M s390-ccw-virtio     | ttysclp0
+aarch64-mainline-5.15   | -           | local| aarch64      | aarch64     | -M virt -cpu max       | ttyAMA0
+aarch64-mainline-6.6    | -           | local| aarch64      | aarch64     | -M virt -cpu max       | ttyAMA0
+aarch64-mainline-7.0    | -           | local| aarch64      | aarch64     | -M virt -cpu max       | ttyAMA0
+armv7-mainline-5.15     | -           | local| armv7        | arm         | -M virt -cpu max       | ttyAMA0
+armv7-mainline-6.6      | -           | local| armv7        | arm         | -M virt -cpu max       | ttyAMA0
+armv7-mainline-7.0      | -           | local| armv7        | arm         | -M virt -cpu max       | ttyAMA0
+riscv64-mainline-5.15   | -           | local| riscv64      | riscv64     | -M virt                | ttyS0
+riscv64-mainline-6.6    | -           | local| riscv64      | riscv64     | -M virt                | ttyS0
 riscv64-mainline-7.0    | -           | local| riscv64      | riscv64     | -M virt                | ttyS0
+loongarch64-mainline-6.6| -           | local| loongarch64  | loongarch64 | -M virt                | ttyS0
+loongarch64-mainline-7.0| -           | local| loongarch64  | loongarch64 | -M virt                | ttyS0
+ppc64le-mainline-5.15   | -           | local| powerpc64le  | ppc64       | -M pseries -cpu power9 | hvc0
+ppc64le-mainline-6.6    | -           | local| powerpc64le  | ppc64       | -M pseries -cpu power9 | hvc0
 ppc64le-mainline-7.0    | -           | local| powerpc64le  | ppc64       | -M pseries -cpu power9 | hvc0
+s390x-mainline-5.15     | -           | local| s390x        | s390x       | -M s390-ccw-virtio     | ttysclp0
+s390x-mainline-6.6      | -           | local| s390x        | s390x       | -M s390-ccw-virtio     | ttysclp0
+s390x-mainline-7.0      | -           | local| s390x        | s390x       | -M s390-ccw-virtio     | ttysclp0
+mips-mainline-5.15      | -           | local| mips         | mips        | -M malta               | ttyS0
+mips-mainline-6.6       | -           | local| mips         | mips        | -M malta               | ttyS0
+mips-mainline-7.0       | -           | local| mips         | mips        | -M malta               | ttyS0
+mipsel-mainline-5.15    | -           | local| mipsel       | mipsel      | -M malta               | ttyS0
+mipsel-mainline-6.6     | -           | local| mipsel       | mipsel      | -M malta               | ttyS0
+mipsel-mainline-7.0     | -           | local| mipsel       | mipsel      | -M malta               | ttyS0
+mips64el-mainline-5.15  | -           | local| mips64el     | mips64el    | -M malta -cpu MIPS64R2-generic | ttyS0
+mips64el-mainline-6.6   | -           | local| mips64el     | mips64el    | -M malta -cpu MIPS64R2-generic | ttyS0
+mips64el-mainline-7.0   | -           | local| mips64el     | mips64el    | -M malta -cpu MIPS64R2-generic | ttyS0
+riscv32-mainline-5.15   | -           | local| riscv32      | riscv32     | -M virt                | ttyS0
+riscv32-mainline-6.6    | -           | local| riscv32      | riscv32     | -M virt                | ttyS0
+riscv32-mainline-7.0    | -           | local| riscv32      | riscv32     | -M virt                | ttyS0
+ppc32-mainline-5.15     | -           | local| powerpc      | ppc         | -M g3beige             | ttyS0
+ppc32-mainline-6.6      | -           | local| powerpc      | ppc         | -M g3beige             | ttyS0
+ppc32-mainline-7.0      | -           | local| powerpc      | ppc         | -M g3beige             | ttyS0
+powerpc64-mainline-5.15 | -           | local| powerpc64    | ppc64       | -M pseries -cpu power9 | hvc0
+powerpc64-mainline-6.6  | -           | local| powerpc64    | ppc64       | -M pseries -cpu power9 | hvc0
+powerpc64-mainline-7.0  | -           | local| powerpc64    | ppc64       | -M pseries -cpu power9 | hvc0
+armeb-mainline-5.15     | -           | local| armeb        | arm         | -M virt                | ttyAMA0
+armeb-mainline-6.6      | -           | local| armeb        | arm         | -M virt                | ttyAMA0
+armeb-mainline-7.0      | -           | local| armeb        | arm         | -M virt                | ttyAMA0
 '
 
 trim() { echo "$1" | xargs; }
@@ -434,7 +460,7 @@ EOF
   #   loongarch64 — boots via UEFI; its kernel is an EFI PE needing an edk2 image.
   #   riscv32     — qemu ships only the riscv64 OpenSBI; supply the 32-bit one.
   bios=""
-  if [ "$name" = loongarch64 ]; then
+  if [ "${name%%-*}" = loongarch64 ]; then
     fw=${LOONGARCH_BIOS:-}
     if [ -z "$fw" ]; then
       for c in "$(dirname "$qemu")/pc-bios/edk2-loongarch64-code.fd" \
@@ -444,7 +470,7 @@ EOF
       done
     fi
     [ -n "$fw" ] && bios="-bios $fw"
-  elif [ "$name" = riscv32 ]; then
+  elif [ "${name%%-*}" = riscv32 ]; then
     fw=${RISCV32_BIOS:-}
     if [ -z "$fw" ]; then
       for c in "$(dirname "$qemu")/pc-bios/opensbi-riscv32-generic-fw_dynamic.bin" \
@@ -588,6 +614,12 @@ cmd_spec_table() {
       IFS='|' read -r gbits lbits lmin lmax method via <<EOF
 $row
 EOF
+      # The engine emits a `likely` block whenever it trims the raw guaranteed
+      # interval, but the matrix (and this table) score the window by entropy
+      # bits. Where a sound leak already pins guaranteed to a single candidate
+      # (entropy 0), a `likely` block that only shaves a non-grid interval edge
+      # adds no bit — skip it, so the table lists real speculative narrowing.
+      [ "$gbits" != "$lbits" ] || continue
       truth=$(awk '/ _text$/{print $1; exit}' "$log")
       [ -n "$truth" ] || truth=$(awk '/ _stext$/{print $1; exit}' "$log")
       t=$(norm "$truth"); lo=$(norm "$lmin"); hi=$(norm "$lmax")
@@ -597,7 +629,9 @@ EOF
       fi
       flavor=$(printf '%s' "$TABLE" | awk -F'|' -v a="$a" 'NF>1{gsub(/ /,"",$1); if ($1==a) {gsub(/ /,"",$3); print $3; exit}}')
       src=alpine; [ "$flavor" = local ] && src=mainline
-      body="${body}| $arch_disp | $src | $scen | $(fmt_bits "$gbits") | $(fmt_bits "$lbits") | \`$via\` | $method | $hit |${nl}"
+      rel=$(grep -am1 'Linux version' "$log" | sed -E 's/.*Linux version ([^ ]+).*/\1/')
+      [ -n "$rel" ] || rel='?'
+      body="${body}| $arch_disp | $rel | $src | $scen | $(fmt_bits "$gbits") | $(fmt_bits "$lbits") | \`$via\` | $method | $hit |${nl}"
     done
   done
 
@@ -605,8 +639,8 @@ EOF
     printf 'No speculative narrowing: the likely window equals guaranteed on every cell.\n'
     return 0
   fi
-  printf '| arch | source | scenario | guaranteed | likely | via | method | truth ∈ likely |\n'
-  printf '|------|--------|----------|------------|--------|-----|--------|:---:|\n'
+  printf '| arch | release | source | scenario | guaranteed | likely | via | method | truth ∈ likely |\n'
+  printf '|------|---------|--------|----------|------------|--------|-----|--------|:---:|\n'
   printf '%s' "$body"
   # shellcheck disable=SC2016  # backticks are literal markdown, not a subshell
   printf '\n`via`/`method` = the sub-floor signal that narrowed the base past the sound floor; `truth ∈ likely` = whether that best-guess window still contained the real base. A `**NO**` is disclosed, not withheld — the soundness gate is on the guaranteed matrix above, which contains the truth regardless. Every other KASLR-on cell: likely equals guaranteed.\n'
