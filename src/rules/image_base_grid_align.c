@@ -48,6 +48,9 @@
 
 #include <string.h>
 
+/* Only used on arches with a fixed _text residue; guarded so the inert-arch
+ * build (which compiles out the caller below) does not warn it unused. */
+#if IMAGE_BASE_RESIDUE_FIXED
 static void emit_bound(struct constraint *c, enum constraint_op op,
                        unsigned long value, enum kasld_confidence conf,
                        uint32_t from) {
@@ -60,6 +63,7 @@ static void emit_bound(struct constraint *c, enum constraint_op op,
   c->lineage_count = 1;
   snprintf(c->origin, ORIGIN_LEN, "image_base_grid_align");
 }
+#endif
 
 int rule_image_base_grid_align(const struct evidence_set *ev,
                                const struct estimate *est,
