@@ -241,7 +241,7 @@ __extension__ _Static_assert((unsigned long)KERNEL_PHYS_MAX >
  * `#ifdef phys_to_directmap_virt` gate at call sites still selects them. */
 static inline unsigned long kasld__phys_to_directmap_virt(unsigned long p) {
   unsigned long v = (unsigned long)(p - PHYS_OFFSET + PAGE_OFFSET);
-  if (p < (unsigned long)PHYS_OFFSET || v < (unsigned long)PAGE_OFFSET)
+  if (v < (unsigned long)PAGE_OFFSET) /* wrapped below the linear-map base */
     return 0;
   return v;
 }
