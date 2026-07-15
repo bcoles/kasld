@@ -4,11 +4,14 @@
 # validate-fixtures — offline soundness gate over the truth-bearing fixtures.
 #
 # Runs extra/validate-bundle over every committed fixture that carries ground
-# truth (meta `anonymized: 0` — real kallsyms + iomem), asserting the engine's
-# resolved window contains the real base:  truth ∈ [image_base_min, max]. The
-# anonymized corpus (`anonymized: 1`, no truth) is skipped — validate-bundle
-# only returns N/A there. Native-arch fixtures validate directly; foreign arches
-# replay under qemu-user (QEMU_DIR).
+# truth, asserting the engine's resolved window contains the real base:
+# truth ∈ [image_base_min, max]. "Carries truth" is a real (non-zero) kallsyms
+# _text/_stext or an iomem "Kernel code" line — NOT the anonymized flag:
+# --anonymize scrubs host identity but never touches kallsyms, so an
+# `anonymized: 1` capture can still be truth-bearing (the Debian debos corpus
+# is). Truthless captures are skipped (validate-bundle only returns N/A there).
+# Native-arch fixtures validate directly; foreign arches replay under qemu-user
+# (QEMU_DIR).
 #
 # This is the reproducible, boot-free complement to the live tests/vm/run
 # soundness check and to tests/replay (which only proves kasld does not crash):
@@ -52,8 +55,8 @@ if ! command -v jq >/dev/null 2>&1; then
   exit 0
 fi
 
-# Fixture list: explicit args, else the corpus — every truth-bearing fixture
-# (meta `anonymized: 0`) by default, or ALL fixtures under --perturb (truth-free).
+# Fixture list: explicit args, else the corpus — every truth-bearing fixture by
+# default, or ALL fixtures under --perturb (truth-free).
 if [ "$#" -gt 0 ]; then
   FIXTURES=$*
 else
@@ -62,9 +65,25 @@ else
     [ -f "$meta" ] || continue
     if [ "$PERTURB" = 1 ]; then
       FIXTURES="$FIXTURES ${meta%/meta.txt}"
-    else
-      anon=$(awk -F: '/^anonymized:/ { gsub(/[ \t]/, "", $2); print $2 }' "$meta")
-      [ "$anon" = 0 ] && FIXTURES="$FIXTURES ${meta%/meta.txt}"
+      continue
+    fi
+    # Select fixtures that carry ground truth. `anonymized: 0` is the historical
+    # marker, but collect never scrubs kallsyms, so a PII-anonymized
+    # (`anonymized: 1`) capture can still hold the real kernel base. Also admit
+    # any fixture whose sysroot exposes a real (non-zero) kallsyms _text/_stext
+    # or an iomem "Kernel code" line — the same truth validate-bundle derives.
+    # Additive, so no previously-selected fixture drops; false positives are
+    # harmless (validate-bundle returns N/A). The pre-filter only avoids
+    # qemu-user startup on truthless captures.
+    anon=$(awk -F: '/^anonymized:/ { gsub(/[ \t]/, "", $2); print $2 }' "$meta")
+    sr="${meta%meta.txt}sysroot"
+    if [ "$anon" = 0 ] ||
+      awk '($3 == "_text" || $3 == "_stext") && $1 ~ /[1-9a-f]/ { ok = 1 }
+           END { exit !ok }' "$sr/proc/kallsyms" 2>/dev/null ||
+      awk 'tolower($0) ~ /kernel code/ &&
+           $0 ~ /^[[:space:]]*0*[1-9a-fA-F]/ { ok = 1 }
+           END { exit !ok }' "$sr/proc/iomem" 2>/dev/null; then
+      FIXTURES="$FIXTURES ${meta%/meta.txt}"
     fi
   done
 fi
