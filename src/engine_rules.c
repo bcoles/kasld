@@ -97,6 +97,7 @@ static const rule_fn k_rules[] = {
     rule_arm64_va_bits_from_directmap,
     rule_arm64_va_bits_from_vmemmap,
     rule_arm64_text_phys_residue,
+    rule_arm64_phys_text_residue,
 
     /* riscv64-specific */
     rule_riscv64_text_base,

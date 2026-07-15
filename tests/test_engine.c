@@ -3172,6 +3172,84 @@ static void test_arm64_text_phys_residue_no_anchor(void) {
   assert(e.est[Q_VIRT_IMAGE_BASE].stride == 0);
 }
 
+/* arm64_phys_text_residue: a VIRT KERNEL_IMAGE base pins Q_PHYS_IMAGE_BASE's
+ * stride class to (virt_text mod 2 MiB) — the reverse of
+ * arm64_text_phys_residue and the arm64 mirror of s390_phys_segment_mod. */
+int rule_arm64_phys_text_residue(const struct evidence_set *ev,
+                                 const struct estimate *est,
+                                 struct constraint *out, int out_max);
+
+static void test_arm64_phys_text_residue_image_base(void) {
+  struct engine e;
+  engine_init(&e);
+  /* A real arm64 placement: virt _text off the 2 MiB grid, on the 64 KiB grid.
+   */
+  unsigned long virt_text = 0xffff9ea2fd110000ul; /* mod 2 MiB = 0x110000 */
+  struct observation img =
+      mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE, virt_text,
+             LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
+  evidence_add(&e.ev, &img);
+  const rule_fn rules[] = {rule_arm64_phys_text_residue};
+  engine_run(&e, rules, 1);
+#if defined(__aarch64__)
+  assert(e.est[Q_PHYS_IMAGE_BASE].stride == 0x200000ul);
+  assert(e.est[Q_PHYS_IMAGE_BASE].stride_offset == (virt_text % 0x200000ul));
+  /* SOUNDNESS: the residue class is non-empty within the phys window, so the
+   * stride does not force bottom / exclude the coupling-consistent phys _text.
+   */
+  assert(!estimate_is_bottom(&e.est[Q_PHYS_IMAGE_BASE],
+                             &quantities[Q_PHYS_IMAGE_BASE]));
+#else
+  /* Inert off arm64. */
+  assert(e.est[Q_PHYS_IMAGE_BASE].stride == 0);
+#endif
+}
+
+/* A KERNEL_TEXT witness is _stext = _text + STEXT_OFFSET; on arm64 STEXT_OFFSET
+ * (64 KiB) is NOT a multiple of the 2 MiB modulus, so the residue must come
+ * from the normalized image base (_text), not the raw _stext. */
+static void test_arm64_phys_text_residue_stext_normalized(void) {
+  struct engine e;
+  engine_init(&e);
+  unsigned long virt_text = 0xffff9ea2fd110000ul;   /* mod 2 MiB = 0x110000 */
+  unsigned long virt_stext = virt_text + 0x10000ul; /* + arm64 STEXT_OFFSET */
+  struct observation t = mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, virt_stext,
+                                LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
+  evidence_add(&e.ev, &t);
+  const rule_fn rules[] = {rule_arm64_phys_text_residue};
+  engine_run(&e, rules, 1);
+#if defined(__aarch64__)
+  assert(e.est[Q_PHYS_IMAGE_BASE].stride == 0x200000ul);
+  assert(e.est[Q_PHYS_IMAGE_BASE].stride_offset == (virt_text % 0x200000ul));
+  assert(e.est[Q_PHYS_IMAGE_BASE].stride_offset != (virt_stext % 0x200000ul));
+#else
+  (void)virt_text;
+  assert(e.est[Q_PHYS_IMAGE_BASE].stride == 0);
+#endif
+}
+
+/* A virt anchor NOT on the image-alignment (64 KiB) grid is a bad witness; the
+ * rule skips it rather than emit a stride that would force bottom. */
+static void test_arm64_phys_text_residue_unaligned_skipped(void) {
+  struct engine e;
+  engine_init(&e);
+  unsigned long bad = 0xffff9ea2fd111000ul; /* 4 KiB-aligned, not 64 KiB */
+  struct observation o = mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE, bad,
+                                LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
+  evidence_add(&e.ev, &o);
+  const rule_fn rules[] = {rule_arm64_phys_text_residue};
+  engine_run(&e, rules, 1);
+  assert(e.est[Q_PHYS_IMAGE_BASE].stride == 0); /* skipped on every arch */
+}
+
+static void test_arm64_phys_text_residue_no_anchor(void) {
+  struct engine e;
+  engine_init(&e);
+  const rule_fn rules[] = {rule_arm64_phys_text_residue};
+  engine_run(&e, rules, 1);
+  assert(e.est[Q_PHYS_IMAGE_BASE].stride == 0);
+}
+
 /* s390_phys_segment_mod: a VIRT KERNEL_IMAGE base pins Q_PHYS_IMAGE_BASE's
  * stride class to (virt_text mod 1 MiB) — the reverse of s390_text_segment_mod.
  */
@@ -6355,6 +6433,10 @@ int main(void) {
   RUN(test_arm64_text_phys_residue_stext_normalized);
   RUN(test_arm64_text_phys_residue_unaligned_skipped);
   RUN(test_arm64_text_phys_residue_no_anchor);
+  RUN(test_arm64_phys_text_residue_image_base);
+  RUN(test_arm64_phys_text_residue_stext_normalized);
+  RUN(test_arm64_phys_text_residue_unaligned_skipped);
+  RUN(test_arm64_phys_text_residue_no_anchor);
   RUN(test_s390_phys_segment_mod_fires);
   RUN(test_s390_phys_segment_mod_unaligned_skipped);
   RUN(test_s390_phys_segment_mod_no_anchor);

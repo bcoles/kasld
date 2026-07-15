@@ -206,6 +206,7 @@ R(arm64_memstart_align);
 R(arm64_va_bits_from_directmap);
 R(arm64_va_bits_from_vmemmap);
 R(arm64_text_phys_residue);
+R(arm64_phys_text_residue);
 
 /* riscv64-specific rules */
 R(riscv64_text_base);
