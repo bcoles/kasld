@@ -76,10 +76,14 @@ static int component_has_gate(const struct component_log *cl,
   return 0;
 }
 
-/* Check if a component has any mitigation keys */
+/* Check if a component has any mitigation key — a known way the leak is gated.
+ * "bypass" (a required capability, e.g. bypass:CAP_SYS_ADMIN) counts: a
+ * capability-gated leak is mitigated by not granting that capability, so it is
+ * not a "no known mitigation" vector even though no sysctl blocks it. */
 static int has_mitigation_keys(const struct component_meta *m) {
-  static const char *mitigation_keys[] = {
-      "sysctl", "config", "patch", "cve", "hardware", "lockdown", NULL};
+  static const char *mitigation_keys[] = {"sysctl", "config",   "patch",
+                                          "cve",    "hardware", "lockdown",
+                                          "bypass", NULL};
   for (int k = 0; mitigation_keys[k]; k++) {
     if (meta_get(m, mitigation_keys[k]))
       return 1;

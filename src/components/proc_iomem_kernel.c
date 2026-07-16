@@ -14,10 +14,12 @@
 //   of the image is absorbed by kernel_image_phys_bound's image-size
 //   constraints) — much tighter than the wide arch ceiling.
 //
-// Access: /proc/iomem is world-readable but the addresses are masked to 0
-//   under kptr_restrict >= 1 unless the caller has CAP_SYS_ADMIN. Detect
-//   masking (first valid line reads as 00000000-00000000) and emit nothing
-//   in that case — the alternative would be to emit a "phys text at 0"
+// Access: /proc/iomem is world-readable but the physical addresses are masked
+//   to 0 unless the caller has CAP_SYS_ADMIN (file_ns_capable(CAP_SYS_ADMIN) in
+//   the kernel's r_show()). This is independent of kptr_restrict — the
+//   addresses stay masked for an unprivileged reader even at kptr_restrict = 0.
+//   Detect masking (first valid line reads as 00000000-00000000) and emit
+//   nothing in that case — the alternative would be to emit a "phys text at 0"
 //   bound, which is harmful nonsense.
 //
 // Format (one line per range, indentation indicates nesting):
@@ -57,7 +59,7 @@ KASLD_EXPLAIN(
 KASLD_META("method:parsed\n"
            "phase:inference\n"
            "addr:phys-extent\n"
-           "sysctl:kptr_restrict>=1 (mask)\n");
+           "bypass:CAP_SYS_ADMIN\n");
 
 /* Map one of the kernel-image iomem labels to its KASLD region.
  *
