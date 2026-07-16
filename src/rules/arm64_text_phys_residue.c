@@ -42,8 +42,6 @@
 #include "include/kasld/engine_rules.h"
 #include "include/kasld/regions.h"
 
-#include <string.h>
-
 #define ARM64_KIMG_ALIGN                                                       \
   0x200000ul /* MIN_KIMG_ALIGN (2 MiB): the granule the */
              /* kernel-image virt-phys offset is aligned */
@@ -54,54 +52,10 @@ int rule_arm64_text_phys_residue(const struct evidence_set *ev,
                                  struct constraint *out, int out_max) {
   (void)est;
 #if defined(__aarch64__)
-  if (out_max < 1)
-    return 0;
-
-  /* Lowest PHYS kernel-image base, normalised to the image base (_text). */
-  unsigned long img_base = 0;
-  enum kasld_confidence conf = CONF_UNKNOWN;
-  uint32_t src = 0;
-  int found = 0;
-  for (int i = 0; i < ev->n_obs; i++) {
-    const struct observation *o = &ev->obs[i];
-    if (!o->valid || o->value_kind != OBS_ADDRESS ||
-        o->eff_type != KASLD_TYPE_PHYS)
-      continue;
-    if (o->eff_region != REGION_KERNEL_IMAGE &&
-        o->eff_region != REGION_KERNEL_TEXT)
-      continue;
-    if (o->pos != POS_BASE || !HAS_LO(o))
-      continue;
-    unsigned long base = obs_anchor(o);
-    if (base == 0)
-      continue;
-    unsigned long img =
-        kasld_image_base_from(base, o->eff_region == REGION_KERNEL_TEXT);
-    if (!found || img < img_base) {
-      img_base = img;
-      conf = o->conf;
-      src = o->id;
-      found = 1;
-    }
-  }
-  if (!found)
-    return 0;
-
-  unsigned long residue = img_base % ARM64_KIMG_ALIGN;
-  if (residue & ((unsigned long)IMAGE_ALIGN - 1))
-    return 0; /* not on the image-alignment grid: bad anchor, skip */
-
-  struct constraint *c = &out[0];
-  memset(c, 0, sizeof(*c));
-  c->q = Q_VIRT_IMAGE_BASE;
-  c->op = C_STRIDE;
-  c->value = residue;           /* virt_text ≡ residue ... */
-  c->value2 = ARM64_KIMG_ALIGN; /* ... (mod 2 MiB) */
-  c->conf = conf;
-  c->derived_from[0] = src;
-  c->lineage_count = 1;
-  snprintf(c->origin, ORIGIN_LEN, "arm64_text_phys_residue");
-  return 1;
+  /* PHYS kernel-image base → Q_VIRT_IMAGE_BASE residue (mod 2 MiB). */
+  return kasld_emit_text_residue(ev, out, out_max, KASLD_TYPE_PHYS,
+                                 Q_VIRT_IMAGE_BASE, ARM64_KIMG_ALIGN,
+                                 "arm64_text_phys_residue");
 #else
   (void)ev;
   (void)out;

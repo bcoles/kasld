@@ -3095,6 +3095,39 @@ static void test_s390_text_segment_mod_no_anchor(void) {
   assert(e.est[Q_VIRT_IMAGE_BASE].stride == 0);
 }
 
+/* SOUNDNESS: a non-base PHYS kernel-image sample (interior, at an unknown
+ * offset from _text) must NOT drive the residue — its low bits differ from the
+ * true base's, so emitting a stride would exclude the true virt _text from the
+ * residue class. The POS_BASE guard skips it. */
+static void test_s390_text_segment_mod_interior_skipped(void) {
+  struct engine e;
+  engine_init(&e);
+  /* Interior sample 0x4000 above a 1 MiB-aligned base: the residue (0x4000) is
+   * itself IMAGE_ALIGN-aligned, so only the POS_BASE guard — not the grid
+   * check — can reject this witness. */
+  struct observation o =
+      mk_obs(KASLD_TYPE_PHYS, REGION_KERNEL_TEXT, 0x1004000ul, SAMPLE_SET,
+             POS_INTERIOR, CONF_PARSED);
+  evidence_add(&e.ev, &o);
+  const rule_fn rules[] = {rule_s390_text_segment_mod};
+  engine_run(&e, rules, 1);
+  assert(e.est[Q_VIRT_IMAGE_BASE].stride == 0); /* skipped on every arch */
+}
+
+/* A POS_BASE anchor off the IMAGE_ALIGN (16 KiB) grid is a bad witness; the
+ * rule skips it rather than emit a stride that would force bottom. */
+static void test_s390_text_segment_mod_unaligned_skipped(void) {
+  struct engine e;
+  engine_init(&e);
+  unsigned long bad = 0x1001000ul; /* 4 KiB-aligned, not 16 KiB */
+  struct observation o = mk_obs(KASLD_TYPE_PHYS, REGION_KERNEL_IMAGE, bad,
+                                LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
+  evidence_add(&e.ev, &o);
+  const rule_fn rules[] = {rule_s390_text_segment_mod};
+  engine_run(&e, rules, 1);
+  assert(e.est[Q_VIRT_IMAGE_BASE].stride == 0); /* skipped on every arch */
+}
+
 /* arm64_text_phys_residue: a PHYS KERNEL_IMAGE base pins Q_VIRT_IMAGE_BASE's
  * stride class to (phys_text mod 2 MiB) — the arm64 virt/phys text coupling. */
 int rule_arm64_text_phys_residue(const struct evidence_set *ev,
@@ -6471,6 +6504,8 @@ int main(void) {
   RUN(test_s390_text_from_vmemmap_no_obs);
   RUN(test_s390_text_segment_mod_fires);
   RUN(test_s390_text_segment_mod_no_anchor);
+  RUN(test_s390_text_segment_mod_interior_skipped);
+  RUN(test_s390_text_segment_mod_unaligned_skipped);
   RUN(test_arm64_text_phys_residue_image_base);
   RUN(test_arm64_text_phys_residue_stext_normalized);
   RUN(test_arm64_text_phys_residue_unaligned_skipped);

@@ -120,11 +120,85 @@ static inline int kasld_emit_kaslr_disabled_pin(
   return 1;
 }
 
+/* Shared skeleton for the per-arch virt↔phys text-residue coupling rules
+ * (arm64 and s390, each direction). On an arch where the kernel-image
+ * virt→phys offset is `modulus`-aligned, virt_text and phys_text share their
+ * low log2(modulus) bits, so a kernel-image *base* observation of one side
+ * pins the other side's residue class mod `modulus`. `want_type` selects which
+ * address-type's base to read (the source); `q` is the coupled quantity being
+ * pinned (the target).
+ *
+ * Soundness (the reason all four rules share one body rather than repeat it):
+ *   * Only a POS_BASE kernel-image / kernel-text observation is used — a
+ *     residue is well defined only for the image base; an interior sample sits
+ *     at an unknown offset from _text, so its residue would be wrong.
+ *   * The anchor is normalised to _text with kasld_image_base_from (a
+ *     KERNEL_TEXT witness is _stext = _text + STEXT_OFFSET).
+ *   * A real _text is IMAGE_ALIGN-aligned, so its residue is too; a residue off
+ *     the IMAGE_ALIGN grid signals a bad anchor and is skipped rather than
+ *     emitted (an unaligned residue would leave no IMAGE_ALIGN-aligned base in
+ *     the class and force bottom).
+ * Emits one C_STRIDE at the source observation's confidence. Returns 1 if a
+ * stride was emitted, 0 otherwise. */
+static inline int kasld_emit_text_residue(const struct evidence_set *ev,
+                                          struct constraint *out, int out_max,
+                                          enum kasld_addr_type want_type,
+                                          enum kasld_quantity q,
+                                          unsigned long modulus,
+                                          const char *origin) {
+  if (out_max < 1)
+    return 0;
+
+  unsigned long img_base = 0;
+  enum kasld_confidence conf = CONF_UNKNOWN;
+  uint32_t src = 0;
+  int found = 0;
+  for (int i = 0; i < ev->n_obs; i++) {
+    const struct observation *o = &ev->obs[i];
+    if (!o->valid || o->value_kind != OBS_ADDRESS || o->eff_type != want_type)
+      continue;
+    if (o->eff_region != REGION_KERNEL_IMAGE &&
+        o->eff_region != REGION_KERNEL_TEXT)
+      continue;
+    if (o->pos != POS_BASE || !HAS_LO(o))
+      continue;
+    unsigned long base = obs_anchor(o);
+    if (base == 0)
+      continue;
+    unsigned long img =
+        kasld_image_base_from(base, o->eff_region == REGION_KERNEL_TEXT);
+    if (!found || img < img_base) {
+      img_base = img;
+      conf = o->conf;
+      src = o->id;
+      found = 1;
+    }
+  }
+  if (!found)
+    return 0;
+
+  unsigned long residue = img_base % modulus;
+  if (residue & ((unsigned long)IMAGE_ALIGN - 1))
+    return 0; /* not on the image-alignment grid: bad anchor, skip */
+
+  struct constraint *c = &out[0];
+  memset(c, 0, sizeof(*c));
+  c->q = q;
+  c->op = C_STRIDE;
+  c->value = residue;
+  c->value2 = modulus;
+  c->conf = conf;
+  c->derived_from[0] = src;
+  c->lineage_count = 1;
+  snprintf(c->origin, ORIGIN_LEN, "%s", origin);
+  return 1;
+}
+
 /* ─────────────────────────────────────────────────────────────────────────
  * Rule prototypes — grouped by family to mirror the registry layout in
  * engine_rules.c. The R(...) / V(...) macros expand to the long
  * rule_fn / verdict_fn signatures from engine.h.
- * ─────────────────────────────────────────────────────────────────────── */
+ * ─────────────────────────────────────────────────────────────────── */
 
 #define R(name)                                                                \
   int rule_##name(const struct evidence_set *, const struct estimate *,        \
