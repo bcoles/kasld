@@ -16,16 +16,9 @@
 #ifndef KASLD_OBSERVATION_H
 #define KASLD_OBSERVATION_H
 
-#include "api.h"
+#include "api.h" /* NAME_LEN, ORIGIN_LEN wire-field widths */
 
 #include <stdint.h>
-
-#ifndef NAME_LEN
-#define NAME_LEN 48
-#endif
-#ifndef ORIGIN_LEN
-#define ORIGIN_LEN 64
-#endif
 
 /* Which extent fields carry meaning (optionality via flags, never sentinel
  * values — lo=0 and hi=ULONG_MAX are both legitimate addresses). */

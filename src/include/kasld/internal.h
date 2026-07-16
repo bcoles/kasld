@@ -26,8 +26,7 @@
  */
 #define MAX_COMPONENTS 128
 #define MAX_RESULTS 4096
-#define NAME_LEN 48   /* specific instance: kernel symbol, ACPI ID, BDF, ... */
-#define ORIGIN_LEN 64 /* component name (orchestrator-filled) */
+/* NAME_LEN / ORIGIN_LEN are the wire-field widths, defined once in api.h. */
 /* A merged record can be corroborated by at most every component, so size its
  * provenance to the structural maximum — overflow is impossible by
  * construction. */

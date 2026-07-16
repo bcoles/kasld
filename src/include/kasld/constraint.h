@@ -31,11 +31,7 @@
 #define MAX_LINEAGE 8
 #endif
 
-/* Length of the emitting-rule name. #ifndef-guarded so it coexists with the
- * orchestrator's ORIGIN_LEN (same value). */
-#ifndef ORIGIN_LEN
-#define ORIGIN_LEN 64
-#endif
+/* ORIGIN_LEN (the emitting-rule name width) is defined once in api.h. */
 
 enum constraint_op {
   C_LOWER_BOUND = 0, /* q >= value            (interval: raise lo)        */

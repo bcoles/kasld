@@ -18,6 +18,7 @@
 #define MB 0x100000ul
 #define GB 0x40000000ul
 #define TB 0x10000000000ul
+#define PB 0x4000000000000ul
 
 /* =========================================================================
  * kasld_addr_t — the kernel-address value domain.
@@ -698,6 +699,14 @@ static inline unsigned long kasld_image_base_from(unsigned long base,
  * accidentally over-claim. There is no `_exact` helper — "exact" was a
  * precision conflation; precision lives in trust (`conf`) + bounds width.
  * ========================================================================= */
+
+/* Wire-field widths — the single source of truth for the name/origin field
+ * sizes, shared by every layer that carries them (result records, observations,
+ * constraints). Defined here in the common ancestor header so the two sides of
+ * the wire protocol cannot skew: a change here propagates everywhere, rather
+ * than being silently first-include-wins across separate #ifndef copies. */
+#define NAME_LEN 48   /* specific instance: kernel symbol, ACPI ID, BDF, ... */
+#define ORIGIN_LEN 64 /* emitting component / rule name */
 
 /* Address type. */
 enum kasld_addr_type {
