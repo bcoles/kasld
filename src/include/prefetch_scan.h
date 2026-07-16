@@ -92,17 +92,87 @@ static int prefetch_scan_cmp_u64(const void *a, const void *b) {
 }
 
 // ---------------------------------------------------------------------------
+// Median absolute deviation of times[0..n) about `center`: the robust spread
+// of the unmapped baseline. Robust to <50% outliers, so the mapped plateau and
+// isolated timing spikes do not inflate it. Returns 0 on allocation failure
+// (callers floor it).
+// ---------------------------------------------------------------------------
+static uint64_t prefetch_scan_mad(const uint64_t *times, size_t n,
+                                  uint64_t center) {
+  uint64_t *dev = (uint64_t *)malloc(n * sizeof(uint64_t));
+  if (!dev)
+    return 0;
+  size_t i;
+  for (i = 0; i < n; i++)
+    dev[i] = times[i] > center ? times[i] - center : center - times[i];
+  qsort(dev, n, sizeof(uint64_t), prefetch_scan_cmp_u64);
+  uint64_t mad = dev[n / 2];
+  free(dev);
+  return mad;
+}
+
+// ---------------------------------------------------------------------------
+// AMD cluster search: leftmost slot above `threshold` with >= confirm_k of the
+// next confirm_m slots also above it (rejects isolated outliers and short
+// boundary artifacts), then walk that cluster's left edge out to the looser
+// `edge_bound` (recovers a base slot weaker than the region body). Returns the
+// left-edge slot index, or -1 if no confirmed cluster.
+// ---------------------------------------------------------------------------
+static long prefetch_scan_amd_cluster(const uint64_t *times, size_t n,
+                                      uint64_t threshold, uint64_t edge_bound,
+                                      int confirm_k, int confirm_m) {
+  size_t idx;
+  for (idx = 0; confirm_m > 0 && idx + (size_t)confirm_m <= n; idx++) {
+    if (times[idx] <= threshold)
+      continue;
+    int count = 0, j;
+    for (j = 0; j < confirm_m; j++)
+      if (times[idx + j] > threshold)
+        count++;
+    if (count >= confirm_k) {
+      while (idx > 0 && times[idx - 1] > edge_bound)
+        idx--;
+      return (long)idx;
+    }
+  }
+  return -1;
+}
+
+// Minimum plateau width (in slots) the low-amplitude AMD fallback requires
+// before it will accept a mapped run as kernel text. It must clear the
+// page-table boundary bands (~7 slots) with margin: those sit ABOVE the
+// fallback's threshold (they are taller than a low-amplitude kernel plateau),
+// so width is the only feature that separates them from the kernel image.
+// Widening it rejects leaner kernel images as ambiguous; narrowing it toward
+// the boundary-band width raises the false-positive risk.
+#ifndef PREFETCH_MIN_PLATEAU_SLOTS
+#define PREFETCH_MIN_PLATEAU_SLOTS 12
+#endif
+
+// ---------------------------------------------------------------------------
 // Index of the mapped region's LEFT EDGE (base slot) in times[0..n), or -1 if
 // no mapped region is found. The median of the slots is the unmapped baseline
 // (most slots are unmapped).
 //
-// AMD (sums, mapped reads HIGHER): the leftmost slot above a strict 1.5x-median
-// threshold with >= confirm_k of the next confirm_m slots also above it — the
-// confirmation window rejects isolated scheduler outliers and page-table
-// boundary artifacts — then walk that cluster's left edge out to a looser
-// 1.25x-median bound (the strict threshold is body-tuned and can drop the
-// weaker base slot; unmapped slots sit at ~1.0x and never cross 1.25x, so the
-// walk recovers the base and never lands below it). Returns -1 if no cluster.
+// AMD (sums, mapped reads HIGHER) runs two tiers:
+//   Tier 1 (high amplitude): the leftmost slot above a strict 1.5x-median
+//   threshold with >= confirm_k of the next confirm_m slots also above it — the
+//   confirmation window rejects isolated scheduler outliers and page-table
+//   boundary artifacts — then walk that cluster's left edge out to a looser
+//   1.25x-median bound (the strict threshold is body-tuned and can drop the
+//   weaker base slot; unmapped slots sit at ~1.0x and never cross 1.25x, so the
+//   walk recovers the base and never lands below it).
+//
+//   Tier 2 (low amplitude, only when tier 1 finds nothing): some CPUs — notably
+//   virtualized AMD guests — produce a mapped/unmapped differential far below
+//   1.5x (a few percent) yet spatially coherent across the whole kernel image.
+//   The threshold there is scaled to the baseline dispersion (median + K*MAD),
+//   not a fixed multiple, so a low-amplitude plateau still clears it. Because
+//   the page-table boundary bands are TALLER than such a plateau, amplitude
+//   cannot separate them; the fallback requires the confirmed run to be at
+//   least PREFETCH_MIN_PLATEAU_SLOTS wide (the boundary bands are only a few
+//   slots), and reports nothing for a kernel image narrower than that.
+//   Returns -1 if neither tier confirms a cluster.
 //
 // Intel / unknown (mins, mapped reads FASTER): the global minimum is a seed
 // guaranteed to lie inside the mapped region (min-over-iterations removes
@@ -125,23 +195,29 @@ prefetch_scan_find_edge(const uint64_t *times, size_t n, int vendor,
   free(sorted);
 
   if (vendor == CPU_VENDOR_AMD) {
-    uint64_t threshold = median + median / 2;
-    uint64_t edge_bound = median + median / 4;
-    size_t idx;
-    for (idx = 0; confirm_m > 0 && idx + (size_t)confirm_m <= n; idx++) {
-      if (times[idx] <= threshold)
-        continue;
-      int count = 0, j;
-      for (j = 0; j < confirm_m; j++)
-        if (times[idx + j] > threshold)
-          count++;
-      if (count >= confirm_k) {
-        while (idx > 0 && times[idx - 1] > edge_bound)
-          idx--;
-        return (long)idx;
-      }
-    }
-    return -1;
+    /* Tier 1: strict high-amplitude cluster. */
+    long edge =
+        prefetch_scan_amd_cluster(times, n, median + median / 2,
+                                  median + median / 4, confirm_k, confirm_m);
+    if (edge >= 0)
+      return edge;
+
+    /* Tier 2: low-amplitude wide-plateau fallback. Threshold scales to the
+     * baseline dispersion; a MAD floor guards against coarse rdtscp
+     * quantization collapsing MAD to ~0. The confirmation window is the full
+     * minimum plateau width, requiring ~3/4 of it above threshold so a few
+     * baseline dips or steal-event spikes inside the plateau are tolerated
+     * while the narrow boundary bands cannot qualify. */
+    uint64_t mad = prefetch_scan_mad(times, n, median);
+    uint64_t mad_floor = median >> 8;
+    if (mad < mad_floor)
+      mad = mad_floor;
+    uint64_t threshold = median + 4 * mad;
+    uint64_t edge_bound = median + 2 * mad;
+    int wide_m = PREFETCH_MIN_PLATEAU_SLOTS;
+    int wide_k = (wide_m * 3 + 3) / 4;
+    return prefetch_scan_amd_cluster(times, n, threshold, edge_bound, wide_k,
+                                     wide_m);
   }
 
   uint64_t min_time = ~(uint64_t)0;

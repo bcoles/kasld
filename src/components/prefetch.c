@@ -53,6 +53,16 @@
 //   to the baseline transition with a looser 1.25x bound to recover the weaker
 //   base slot.
 //
+//   A virtualized AMD guest can produce a mapped/unmapped differential of only
+//   a few percent — well below 1.5x — yet coherent across the whole kernel
+//   image. When the 1.5x cluster search finds nothing, a fallback scales the
+//   threshold to the baseline dispersion (median absolute deviation) so a
+//   low-amplitude plateau still clears it. The boundary bands are taller than
+//   such a plateau, so amplitude cannot separate them; the fallback instead
+//   requires the confirmed run to be many slots wide, which the few-slot bands
+//   cannot satisfy. A kernel image narrower than that width is reported as no
+//   signal rather than guessed.
+//
 // Limitations:
 //   - Requires KPTI to be disabled (no signal through KPTI page tables).
 //   - Timing resolution depends on rdtscp granularity, which varies

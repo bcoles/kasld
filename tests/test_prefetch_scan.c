@@ -62,6 +62,53 @@ static void test_amd_base_below_strict_walk_recovers(void) {
   assert(prefetch_scan_find_edge(t, N, CPU_VENDOR_AMD, 5, 8) == (long)B);
 }
 
+/* AMD low-amplitude fallback: a virtualized AMD guest can produce a mapped
+ * plateau only a few percent above baseline — far below the strict 1.5x tier-1
+ * threshold — yet spatially coherent across the whole kernel image. Tier 1
+ * finds nothing; tier 2 (MAD-scaled threshold + minimum width) recovers the
+ * plateau's left edge. A page-table boundary band is TALLER than the plateau
+ * but only a few slots wide, so width — not amplitude — separates them. A dip
+ * back to baseline and a steal-event spike inside the plateau are tolerated. */
+static void test_amd_low_amplitude_wide_plateau(void) {
+  uint64_t t[N];
+  size_t B = 40, i;
+  fill_baseline(t, 19800, 300); /* ~1.5x tier-1 threshold ~29900 */
+  for (i = 0; i < 27; i++)
+    t[B + i] = 21200; /* ~1.07x plateau: below tier-1, above median+4*MAD */
+  t[B + 16] = 19850;  /* a baseline dip inside the plateau */
+  t[B + 8] = 40000;   /* a vCPU steal-event spike inside the plateau */
+  for (i = 0; i < 7; i++)
+    t[100 + i] = 23800; /* boundary band: taller than the plateau, 7 wide */
+  t[150] = 41000;       /* isolated spike */
+  assert(prefetch_scan_find_edge(t, N, CPU_VENDOR_AMD, 5, 8) == (long)B);
+}
+
+/* AMD low-amplitude fallback: a boundary band and isolated spikes with NO wide
+ * plateau must yield -1. The band clears the MAD-scaled threshold (it is taller
+ * than baseline) but is narrower than PREFETCH_MIN_PLATEAU_SLOTS, so the width
+ * requirement rejects it rather than reporting a false base. */
+static void test_amd_low_amplitude_narrow_band_rejected(void) {
+  uint64_t t[N];
+  size_t i;
+  fill_baseline(t, 19800, 300);
+  for (i = 0; i < 7; i++)
+    t[100 + i] = 23800;
+  t[50] = 41000;
+  t[200] = 39000;
+  assert(prefetch_scan_find_edge(t, N, CPU_VENDOR_AMD, 5, 8) == -1);
+}
+
+/* AMD low-amplitude fallback boundary: a plateau exactly PREFETCH_MIN_PLATEAU_
+ * SLOTS wide is accepted (its left edge is the base). Locks the width knob. */
+static void test_amd_low_amplitude_min_width_accepted(void) {
+  uint64_t t[N];
+  size_t B = 40, i;
+  fill_baseline(t, 19800, 300);
+  for (i = 0; i < (size_t)PREFETCH_MIN_PLATEAU_SLOTS; i++)
+    t[B + i] = 21200;
+  assert(prefetch_scan_find_edge(t, N, CPU_VENDOR_AMD, 5, 8) == (long)B);
+}
+
 /* AMD: baseline plus isolated outliers, no contiguous cluster -> -1. */
 static void test_amd_no_cluster(void) {
   uint64_t t[N];
@@ -109,6 +156,9 @@ int main(void) {
   BEGIN_CATEGORY("AMD (sums, mapped higher)");
   RUN(test_amd_marginal_base);
   RUN(test_amd_base_below_strict_walk_recovers);
+  RUN(test_amd_low_amplitude_wide_plateau);
+  RUN(test_amd_low_amplitude_narrow_band_rejected);
+  RUN(test_amd_low_amplitude_min_width_accepted);
   RUN(test_amd_no_cluster);
   RUN(test_amd_edge_at_zero);
   BEGIN_CATEGORY("Intel (mins, mapped faster)");
