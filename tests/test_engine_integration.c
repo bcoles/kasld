@@ -177,6 +177,45 @@ struct prop_check {
  * (sound-floor) windows, that every checked quantity is non-bottom and still
  * contains its truth (interval + C_EXCLUDE holes via truth_in_ranges). Aborts
  * with the reproducing seed on the first violation. */
+/* Distinct rule origins the property suite has exercised (any constraint it
+ * emitted, at any confidence). A coverage guard asserts this stays healthy, so
+ * the generators can't silently stop triggering rules and leave the suite
+ * validating nothing. */
+static char prop_seen[128][ORIGIN_LEN];
+static int prop_seen_n;
+static void prop_note_origin(const char *o) {
+  if (o[0] == '\0')
+    return;
+  for (int i = 0; i < prop_seen_n; i++)
+    if (strcmp(prop_seen[i], o) == 0)
+      return;
+  if (prop_seen_n < 128)
+    snprintf(prop_seen[prop_seen_n++], ORIGIN_LEN, "%s", o);
+}
+
+/* Does the truth satisfy this constraint? A constraint is a claim about its
+ * quantity; on faithful evidence a sound rule only emits claims the truth
+ * meets. An at-floor constraint the truth violates is a rule over-narrowing
+ * (Phase 3 per-constraint soundness). */
+static int prop_constraint_holds(const struct constraint *c,
+                                 unsigned long truth) {
+  switch (c->op) {
+  case C_LOWER_BOUND:
+    return c->value <= truth;
+  case C_UPPER_BOUND:
+    return c->value >= truth;
+  case C_EQUALS:
+    return c->value == truth;
+  case C_AT_LEAST_ALIGN:
+    return c->value == 0 || (truth % c->value) == 0;
+  case C_EXCLUDE:
+    return truth < c->value || truth > c->value2;
+  case C_STRIDE:
+    return c->value2 == 0 || (truth % c->value2) == (c->value % c->value2);
+  }
+  return 1;
+}
+
 static void prop_check_containment(struct engine *e, const rule_fn *rules,
                                    int nr, const verdict_fn *vrules, int nv,
                                    const struct prop_check *chk, int nchk,
@@ -194,6 +233,40 @@ static void prop_check_containment(struct engine *e, const rule_fn *rules,
       floor = CONF_INFERRED;
       wname = "guaranteed";
     }
+    /* Phase 3: per-constraint soundness on the all-signals store. Every
+     * at-floor constraint on a checked quantity must be a true claim about the
+     * truth; one that is not is a rule over-narrowing, named by its origin.
+     * Checked first (before the window check below) because it is the sharper
+     * diagnostic — it localizes the culprit rule and catches even an unsound
+     * constraint the resolver ended up rejecting (which the window check,
+     * seeing only the resolved edges, would miss). Sub-floor constraints are
+     * exempt: the likely window admits guesses. */
+    if (pass == 0) {
+      for (int ci = 0; ci < e->n_constraints; ci++) {
+        const struct constraint *c = &e->constraints[ci];
+        prop_note_origin(c->origin); /* coverage: this rule fired */
+        if ((int)c->conf < (int)CONF_INFERRED)
+          continue;
+        int ti = -1;
+        for (int k = 0; k < nchk; k++)
+          if (chk[k].q == c->q) {
+            ti = k;
+            break;
+          }
+        if (ti < 0)
+          continue; /* no truth generated for this quantity */
+        if (!prop_constraint_holds(c, chk[ti].truth)) {
+          fprintf(stderr,
+                  "\nPROPERTY CONSTRAINT %s: rule '%s' emitted an at-floor "
+                  "constraint excluding the truth seed=%lu q=%d op=%d "
+                  "value=0x%lx value2=0x%lx truth=0x%lx\n",
+                  arch, c->origin, seed, (int)c->q, (int)c->op, c->value,
+                  c->value2, chk[ti].truth);
+          assert(0 && "constraint: at-floor rule output excludes the truth");
+        }
+      }
+    }
+
     for (int k = 0; k < nchk; k++) {
       const struct estimate *est = &e->est[chk[k].q];
       if (estimate_is_bottom(est, &qd[chk[k].q]) ||
@@ -1359,15 +1432,19 @@ static void test_full_engine_property_arm64(void) {
         (1ul + prop_rand(&r) % 16ul) * 0x100000ul; /* 1..16 MiB */
     unsigned long image =
         gap + (prop_rand(&r) % 16ul) * 0x100000ul; /* >= gap */
+    /* arm64 couples the virt/phys text residues mod MIN_KIMG_ALIGN (2 MiB) —
+     * the granule the kernel image is mapped with; arm64_text_phys_residue pins
+     * virt's residue to phys's. Generate both 2 MiB-aligned (residue 0): a
+     * faithful placement (real arm64 bases are MIN_KIMG_ALIGN-aligned) that
+     * satisfies the coupling. A finer-aligned truth violates that C_STRIDE —
+     * invisible to the interval containment check, caught by Phase 3. (phys
+     * floor at 2 MiB rather than 0: a phys base of 0 is not realistic.) */
+    const unsigned long kimg = 0x200000ul; /* MIN_KIMG_ALIGN */
     unsigned long virt =
         prop_aligned(&r, (unsigned long)KASLR_VIRT_TEXT_MIN,
-                     (unsigned long)KASLR_VIRT_TEXT_MAX - image,
-                     (unsigned long)KASLR_VIRT_ALIGN);
-    /* phys floor at one align unit (KASLR_PHYS_MIN is 0 on arm64; a phys base
-     * of 0 is not a realistic placement). */
-    unsigned long phys = prop_aligned(&r, (unsigned long)KASLR_PHYS_ALIGN,
-                                      (unsigned long)KASLR_PHYS_MAX - image,
-                                      (unsigned long)KASLR_PHYS_ALIGN);
+                     (unsigned long)KASLR_VIRT_TEXT_MAX - image, kimg);
+    unsigned long phys =
+        prop_aligned(&r, kimg, (unsigned long)KASLR_PHYS_MAX - image, kimg);
     unsigned long memtotal = phys + image +
                              (unsigned long)(prop_rand(&r) % 0x40000000ull) +
                              0x10000000ul;
@@ -1476,10 +1553,14 @@ static void test_full_engine_property_s390(void) {
 
     unsigned long gap = (1ul + prop_rand(&r) % 16ul) * 0x100000ul;
     unsigned long image = gap + (prop_rand(&r) % 16ul) * 0x100000ul;
+    /* s390 couples text_virt ≡ phys_anchor mod _SEGMENT_SIZE (1 MiB). phys is
+     * already 1 MiB-aligned (KASLR_PHYS_ALIGN), so generate virt 1 MiB-aligned
+     * too (residue 0) to satisfy s390_text_segment_mod's C_STRIDE — which the
+     * interval containment check can't see, but Phase 3 does. */
+    const unsigned long seg = 0x100000ul; /* _SEGMENT_SIZE */
     unsigned long virt =
         prop_aligned(&r, (unsigned long)KASLR_VIRT_TEXT_MIN,
-                     (unsigned long)KASLR_VIRT_TEXT_MAX - image,
-                     (unsigned long)KASLR_VIRT_ALIGN);
+                     (unsigned long)KASLR_VIRT_TEXT_MAX - image, seg);
     unsigned long phys = prop_aligned(&r, (unsigned long)KASLR_PHYS_MIN,
                                       (unsigned long)KASLR_PHYS_MAX - image,
                                       (unsigned long)KASLR_PHYS_ALIGN);
@@ -1711,6 +1792,19 @@ static void test_full_engine_property_x86_32_floor(void) {
 #endif
 }
 
+/* Coverage guard: the property tests above must have exercised a healthy set of
+ * distinct rules. Catches a generator regression that stops triggering rules
+ * (which would leave the whole property suite validating almost nothing).
+ * Threshold is conservative — every arch's property tests clear it. */
+static void test_full_engine_property_coverage(void) {
+#ifdef KASLD_PROP_ARCH
+  /* Silent: any output here would interleave between the RUN macro's padded
+   * test name and its status mark, breaking the aligned column. The assert is
+   * the guard; on failure it names this file/line. */
+  assert(prop_seen_n >= 8);
+#endif
+}
+
 int main(void) {
   TEST_SUITE("test_engine_integration");
 
@@ -1728,6 +1822,7 @@ int main(void) {
   RUN(test_full_engine_property_riscv64);
   RUN(test_full_engine_property_s390);
   RUN(test_full_engine_property_x86_32);
+  RUN(test_full_engine_property_coverage);
   RUN(test_full_engine_ppc64_hardened_shape);
   RUN(test_full_engine_s390_no_prng_shape);
   RUN(test_full_engine_arm32_no_kaslr_shape);
