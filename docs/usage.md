@@ -409,6 +409,18 @@ their machine-readable metadata. The assessment has seven sections:
 3. **Available hardening** — actionable suggestions for settings that are
    not currently active but would block one or more successful components
    (e.g. "Set `kernel.dmesg_restrict` = 1" if dmesg-based leaks succeeded).
+   When the engine resolves a guaranteed base window, each suggestion is
+   scored by re-resolving it: the section anchors on the current versus
+   fully-hardened residual entropy, then reports, per suggestion, how much
+   of that gap it is load-bearing for. The verdicts are *load-bearing —
+   omitting forfeits N bits* (closing the others is not enough without this
+   one), *recovers nothing* (the gate governs components but none leak the
+   base), *speculative window only* (the leaks do not narrow the guaranteed
+   base — the honest reading on a host whose guaranteed posture is already
+   maxed), and *not required* (the base is recoverable, but the remaining
+   suggestions already reach the same guaranteed posture). The numbers are
+   deliberately non-additive: redundant leaks each read as load-bearing
+   because closing any single one still leaves the base pinned.
 
 4. **Patched vulnerabilities** — components that target known CVEs. Shows
    how many are patched (returned no result or unavailable) versus unpatched
@@ -442,5 +454,10 @@ where it appears in a top-level `"hardening"` object with fields
 `active` / `disabled` / `unsupported` / `randomization_failed`),
 `active_defenses`, `lockdown`, `available_hardening`,
 `patched_vulnerabilities`, `compile_time_surface`, and `no_mitigation`.
+When the engine resolves a guaranteed base window, each `available_hardening`
+entry also carries `silences` (base-leaks it removes) and a `projected`
+object (the residual entropy with every other suggestion applied, and the
+bits forfeited by omitting this one), and a top-level `projected_posture`
+reports the `current` and `all_suggestions_applied` postures.
 Markdown output (`-m -H`) appends the same assessment as a
 `## Hardening Assessment` section.

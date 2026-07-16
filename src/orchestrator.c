@@ -2794,14 +2794,32 @@ static void bridge_normalize_arch(struct observation *o,
 #endif
 }
 
+/* True if `origin` is in the exclude list (used by the counterfactual posture
+ * projection to drop a set of components' leaks). exclude may be NULL. */
+static int origin_excluded(const char *origin, const char *const *exclude,
+                           int n_exclude) {
+  if (!origin || !exclude)
+    return 0;
+  for (int i = 0; i < n_exclude; i++)
+    if (exclude[i] && strcmp(origin, exclude[i]) == 0)
+      return 1;
+  return 0;
+}
+
 /* Build the engine's evidence set: a pure copy of what the components produced
  * — the collected address results into address observations, and the collected
  * scalar facts into scalar observations. The orchestrator performs no
  * measurement itself; every fact comes from a component (meminfo_facts,
- * firmware_memmap, riscv64_no_seed, mmap_s390_va_bits, ...). */
-static void engine_build_evidence(struct evidence_set *ev) {
+ * firmware_memmap, riscv64_no_seed, mmap_s390_va_bits, ...). Observations whose
+ * producing component is in `exclude` are dropped — the hardening advisor's
+ * "what if this leak were closed" projection; pass NULL/0 for the full set. */
+static void engine_build_evidence(struct evidence_set *ev,
+                                  const char *const *exclude, int n_exclude) {
   for (int i = 0; i < num_results; i++) {
     const struct result *r = &results[i];
+    const char *origin = r->provenance_count > 0 ? r->origins[0] : NULL;
+    if (origin_excluded(origin, exclude, n_exclude))
+      continue;
 
     /* Covering members (pos=extent) are routed to the engine's coverings[],
      * not obs[]: they are complete single-source maps that bypass the
@@ -2844,6 +2862,8 @@ static void engine_build_evidence(struct evidence_set *ev) {
 
   /* Scalar system facts collected from component `S` records. */
   for (int i = 0; i < num_scalar_facts; i++) {
+    if (origin_excluded(scalar_facts[i].origin, exclude, n_exclude))
+      continue;
     struct observation o;
     memset(&o, 0, sizeof(o));
     o.value_kind = OBS_SCALAR;
@@ -3056,7 +3076,7 @@ static void engine_resolve(struct engine *e) {
   const rule_fn *rules = engine_rules(&n_rules);
   const verdict_fn *vrules = engine_verdict_rules(&n_vrules);
   engine_init(e);
-  engine_build_evidence(&e->ev);
+  engine_build_evidence(&e->ev, NULL, 0);
 
   /* Two resolutions are computed from one evidence build (below). Both are pure
    * rule evaluation over the already-collected evidence — no component re-runs,
@@ -3093,8 +3113,79 @@ static void engine_resolve(struct engine *e) {
   }
   engine_report_constraints(e); /* opt-in via KASLD_DEBUG_CONSTRAINTS */
 }
+
+/* Counterfactual posture for the hardening advisor: re-resolve the guaranteed
+ * window over the collected evidence minus the excluded components' leaks, and
+ * report the residual entropy. Pure fixpoint re-run (no component
+ * re-execution). The engine is ~1.3 MiB — static rather than on the stack; the
+ * caller is single-threaded and engine_init() fully resets it each call. Uses
+ * the same aligns as the live headline, so kasld_project_posture(NULL, 0)
+ * reproduces the displayed current entropy exactly. */
+void kasld_project_posture(const char *const *exclude, int n_exclude,
+                           struct projected_posture *out) {
+  static struct engine pe;
+  int n_rules = 0, n_vrules = 0;
+  const rule_fn *rules = engine_rules(&n_rules);
+  const verdict_fn *vrules = engine_verdict_rules(&n_vrules);
+  memset(out, 0, sizeof(*out));
+  engine_init(&pe);
+  engine_build_evidence(&pe.ev, exclude, n_exclude);
+  engine_run_full_floored(&pe, KASLD_SOUND_FLOOR, rules, n_rules, vrules,
+                          n_vrules);
+  out->available = 1;
+  out->vslots = quantity_slots(Q_VIRT_IMAGE_BASE, &pe.est[Q_VIRT_IMAGE_BASE],
+                               KASLD_SOUND_FLOOR, pe.constraints,
+                               pe.n_constraints, layout.virt_kaslr_align);
+  out->vbits = out->vslots > 0 ? ilog2(out->vslots) : 0;
+#ifdef KASLR_PHYS_MIN
+  out->pslots = quantity_slots(Q_PHYS_IMAGE_BASE, &pe.est[Q_PHYS_IMAGE_BASE],
+                               KASLD_SOUND_FLOOR, pe.constraints,
+                               pe.n_constraints, layout.phys_kaslr_align);
+  out->pbits = out->pslots > 0 ? ilog2(out->pslots) : 0;
+#endif
+}
 #endif /* !KASLD_TESTING (engine_resolve/build need the components+engine.c)   \
         */
+
+#ifdef KASLD_TESTING
+/* Engine compiled out: the projection is unavailable by default, so the
+ * advisor's projected-posture rows are suppressed (readers gate on
+ * out->available). A render test can set kasld_test_projection to make the stub
+ * report an available projection:
+ *   1 = entropy grows with the exclude-set size (monotone) — exercises the
+ *       exposure / load-bearing rows;
+ *   2 = entropy is a constant regardless of exclusions — models a base that is
+ *       never recoverable, so every suggestion forfeits 0 (the speculative-only
+ *       verdict rows);
+ *   3 = set-membership: one component ("c_critical") is the sole base pin, so
+ *       the base is recoverable (9 bits) only when it is excluded and other
+ *       leaks are redundant — exercises the load-bearing and not-required
+ *       verdicts in one report. */
+int kasld_test_projection = 0;
+void kasld_project_posture(const char *const *exclude, int n_exclude,
+                           struct projected_posture *out) {
+  memset(out, 0, sizeof(*out));
+  if (!kasld_test_projection)
+    return;
+  out->available = 1;
+  out->pbits = kasld_test_projection == 3 ? 9 : 8;
+  if (kasld_test_projection == 2) {
+    out->vbits = 9;
+  } else if (kasld_test_projection == 3) {
+    int critical_removed = 0;
+    for (int i = 0; i < n_exclude; i++)
+      if (exclude[i] && strcmp(exclude[i], "c_critical") == 0) {
+        critical_removed = 1;
+        break;
+      }
+    out->vbits = critical_removed ? 9 : 0;
+  } else {
+    out->vbits = 4 + n_exclude;
+  }
+  out->vslots = 1UL << out->vbits;
+  out->pslots = 1UL << out->pbits;
+}
+#endif
 
 /* Write the engine's resolved estimates into the bound state that
  * compute_kaslr_info() reads (`layout`). Where a quantity is not

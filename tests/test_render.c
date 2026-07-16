@@ -1538,6 +1538,269 @@ static void test_build_hardening_report(void) {
   num_scalar_facts = 0;
 }
 
+static void wrap_render_hardening_text(void *a) {
+  (void)a;
+  render_hardening_text();
+}
+static void wrap_render_hardening_json(void *a) {
+  (void)a;
+  render_hardening_json();
+}
+static void wrap_render_hardening_markdown(void *a) {
+  (void)a;
+  render_hardening_markdown();
+}
+
+/* Projected posture, leave-one-out framing. With the engine compiled
+ * out kasld_project_posture is a stub; kasld_test_projection makes it report an
+ * available posture whose entropy grows with the exclude-set size, so the
+ * current / ceiling / leave-one-out re-resolutions can be exercised without the
+ * resolver. Seeds three suggestion sources, each silencing exactly one
+ * component: an inactive sysctl gate, the lockdown suggestion (a succeeded
+ * no-fallback lockdown leak), and the dmesg-fallback suggestion (a succeeded
+ * dmesg leak that bypassed via a log file). Checks the report fields, the
+ * ceiling union, the per-suggestion forfeit, each renderer's output — and that
+ * the default (unavailable) stub suppresses every projected row. */
+static void test_hardening_projection(void) {
+  reset_results();
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+  sysctl_kptr_restrict = 1;  /* active   — not a suggestion */
+  sysctl_dmesg_restrict = 1; /* active, but fallback bypass -> suggestion */
+  sysctl_perf_event_paranoid =
+      0; /* inactive (threshold 2) — a gate suggestion */
+  sysctl_lockdown = LOCKDOWN_NONE; /* inactive -> lockdown suggestion */
+
+  struct component_log *c = hr_seed_comp("c_perf_leak", OUTCOME_SUCCESS);
+  hr_seed_meta(c, "method", "parsed");
+  hr_seed_meta(c, "sysctl", "perf_event_paranoid>=2");
+  hr_seed_meta(c, "addr", "virtual");
+  /* No fallback, so enabling the gate silences it: gate exclude-set size 1. */
+
+  c = hr_seed_comp("c_lockdown_leak", OUTCOME_SUCCESS);
+  hr_seed_meta(c, "method", "parsed");
+  hr_seed_meta(c, "lockdown", "yes");
+  hr_seed_meta(c, "addr", "virtual");
+  /* No fallback, so lockdown silences the klogctl path: lockdown set size 1. */
+
+  c = hr_seed_comp("c_dmesg_fallback", OUTCOME_SUCCESS);
+  hr_seed_meta(c, "method", "parsed");
+  hr_seed_meta(c, "sysctl", "dmesg_restrict>=1");
+  hr_seed_meta(c, "fallback", "yes");
+  /* Succeeded via a log file, so restricting the files silences it: set size 1.
+   */
+
+  kasld_test_projection = 1;
+
+  struct hardening_report rep;
+  build_hardening_report(&rep);
+
+  /* Current posture (stub: 4 + 0 excluded). Ceiling excludes the union of the
+   * three size-1 silenced sets (stub: 4 + 3 = 7). Each suggestion's
+   * leave-one-out excludes the union minus its own set = 2 (stub: 4 + 2 = 6),
+   * so each forfeits all_vbits - skip_vbits = 7 - 6 = 1 bit. */
+  assert(rep.has_projection == 1);
+  assert(rep.cur_vbits == 4);
+  assert(rep.all_impact == 3 && rep.all_vbits == 7);
+  assert(rep.n_gate_suggestions == 1);
+  assert(rep.gate_suggestions[0].has_projection == 1 &&
+         rep.gate_suggestions[0].silences == 1 &&
+         rep.gate_suggestions[0].skip_vbits == 6);
+  assert(rep.suggest_lockdown && rep.lockdown_has_projection == 1 &&
+         rep.lockdown_silences == 1 && rep.lockdown_skip_vbits == 6);
+  assert(rep.suggest_dmesg_fallback && rep.dmesg_fallback_has_projection == 1 &&
+         rep.dmesg_fallback_silences == 1 &&
+         rep.dmesg_fallback_skip_vbits == 6);
+  assert(rep.n_projecting == 3);
+
+  /* Text: the current-vs-hardened anchor + a load-bearing verdict per
+   * suggestion (each forfeits 1 bit). */
+  set_render_mode(0, 0, 0);
+  capture_stdout(wrap_render_hardening_text, NULL);
+  assert(strstr(render_cap,
+                "base recoverable: 4 bits now \xe2\x86\x92 7 bits") != NULL);
+  assert(strstr(render_cap,
+                "load-bearing \xe2\x80\x94 omitting forfeits 1 virtual bits") !=
+         NULL);
+
+  /* JSON: each suggestion carries silences + the leave-one-out projection;
+   * top-level projected_posture reports current and the all-applied ceiling. */
+  set_render_mode(1, 0, 0);
+  capture_stdout(wrap_render_hardening_json, NULL);
+  assert(strstr(render_cap, "\"silences\": 1") != NULL);
+  assert(strstr(render_cap, "\"virt_base_entropy_forfeited\": 1") != NULL);
+  assert(strstr(render_cap, "\"projected_posture\"") != NULL);
+
+  /* Markdown: the inline load-bearing verdict on the suggestion bullets. */
+  set_render_mode(0, 0, 1);
+  capture_stdout(wrap_render_hardening_markdown, NULL);
+  assert(strstr(render_cap,
+                "load-bearing \xe2\x80\x94 omitting forfeits 1 virtual bits") !=
+         NULL);
+
+  /* Suppressed path: the default (unavailable) stub drops every projected row.
+   */
+  kasld_test_projection = 0;
+  build_hardening_report(&rep);
+  assert(rep.has_projection == 0 && rep.lockdown_has_projection == 0 &&
+         rep.dmesg_fallback_has_projection == 0);
+  set_render_mode(0, 0, 0);
+  capture_stdout(wrap_render_hardening_text, NULL);
+  assert(strstr(render_cap, "load-bearing") == NULL &&
+         strstr(render_cap, "base recoverable") == NULL);
+  set_render_mode(1, 0, 0);
+  capture_stdout(wrap_render_hardening_json, NULL);
+  assert(strstr(render_cap, "projected_posture") == NULL);
+
+  set_render_mode(0, 0, 0);
+  sysctl_perf_event_paranoid = 0;
+  sysctl_dmesg_restrict = 0;
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+}
+
+/* Projected posture on a base that is never recoverable (the fully-hardened
+ * host). The constant stub (kasld_test_projection == 2) reports the same
+ * entropy regardless of exclusions, so every suggestion silences a real leak
+ * yet forfeits 0 guaranteed bits — the "speculative window only" verdict,
+ * matching the "guaranteed base already at N bits" anchor. */
+static void test_hardening_projection_no_exposure(void) {
+  reset_results();
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+  sysctl_kptr_restrict = 1;
+  sysctl_dmesg_restrict = 1;
+  sysctl_perf_event_paranoid = 2;
+  sysctl_lockdown = LOCKDOWN_NONE; /* inactive -> lockdown suggestion */
+
+  struct component_log *c = hr_seed_comp("c_lockdown_leak", OUTCOME_SUCCESS);
+  hr_seed_meta(c, "method", "parsed");
+  hr_seed_meta(c, "lockdown", "yes");
+  hr_seed_meta(c, "addr", "virtual");
+
+  kasld_test_projection = 2;
+
+  struct hardening_report rep;
+  build_hardening_report(&rep);
+
+  /* Constant stub: current == ceiling == 9, so no recoverable exposure; the
+   * lockdown suggestion silences its leak but forfeits nothing. */
+  assert(rep.has_projection && rep.cur_vbits == 9 && rep.all_vbits == 9);
+  assert(rep.suggest_lockdown && rep.lockdown_has_projection &&
+         rep.lockdown_silences == 1 && rep.lockdown_skip_vbits == 9);
+
+  set_render_mode(0, 0, 0);
+  capture_stdout(wrap_render_hardening_text, NULL);
+  assert(strstr(render_cap, "guaranteed base already at 9 bits") != NULL);
+  assert(strstr(render_cap, "speculative window only, no guaranteed bits") !=
+         NULL);
+  assert(strstr(render_cap, "load-bearing") == NULL);
+
+  set_render_mode(0, 0, 1);
+  capture_stdout(wrap_render_hardening_markdown, NULL);
+  assert(strstr(render_cap, "speculative window only (no guaranteed bits)") !=
+         NULL);
+
+  kasld_test_projection = 0;
+  set_render_mode(0, 0, 0);
+  sysctl_lockdown = LOCKDOWN_NONE;
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+}
+
+/* Projected posture with a recoverable base pinned by ONE leak, plus a second,
+ * redundant leak. The set-membership stub (kasld_test_projection == 3) makes
+ * the base recoverable (9 bits) only when "c_critical" is silenced. So the gate
+ * that silences it is load-bearing (forfeits all 9), while the gate that
+ * silences the redundant leak forfeits 0 despite silencing a real leak — the
+ * "not required (the rest reach the same posture)" verdict, distinct from
+ * speculative-only because the base IS recoverable. */
+static void test_hardening_projection_redundant(void) {
+  reset_results();
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+  sysctl_kptr_restrict = 0;  /* inactive -> a suggestion (redundant leak) */
+  sysctl_dmesg_restrict = 1; /* active */
+  sysctl_perf_event_paranoid = 0; /* inactive -> a suggestion (critical leak) */
+  sysctl_lockdown = LOCKDOWN_INTEGRITY; /* active: no lockdown suggestion */
+
+  struct component_log *c = hr_seed_comp("c_critical", OUTCOME_SUCCESS);
+  hr_seed_meta(c, "method", "parsed");
+  hr_seed_meta(c, "sysctl", "perf_event_paranoid>=2");
+  hr_seed_meta(c, "addr", "virtual");
+
+  c = hr_seed_comp("c_redundant", OUTCOME_SUCCESS);
+  hr_seed_meta(c, "method", "parsed");
+  hr_seed_meta(c, "sysctl", "kptr_restrict>=1");
+  hr_seed_meta(c, "addr", "virtual");
+
+  /* A gate that governs a component which did NOT succeed: it becomes a
+   * suggestion (impact > 0) but silences nothing -> the "no base-leak" verdict.
+   */
+  hashed_pointers = 0; /* inactive -> a suggestion */
+  c = hr_seed_comp("c_hashed_denied", OUTCOME_ACCESS_DENIED);
+  hr_seed_meta(c, "method", "parsed");
+  hr_seed_meta(c, "sysctl", "hashed_pointers>=1");
+  hr_seed_meta(c, "addr", "virtual");
+
+  kasld_test_projection = 3;
+
+  struct hardening_report rep;
+  build_hardening_report(&rep);
+
+  /* Base recoverable (stub: 0 with c_critical present, 9 once excluded). */
+  assert(rep.has_projection && rep.cur_vbits == 0 && rep.all_vbits == 9);
+  const struct hr_suggestion *crit = NULL, *redu = NULL;
+  for (int i = 0; i < rep.n_gate_suggestions; i++) {
+    if (strcmp(rep.gate_suggestions[i].display, "kernel.perf_event_paranoid") ==
+        0)
+      crit = &rep.gate_suggestions[i];
+    else if (strcmp(rep.gate_suggestions[i].display, "kernel.kptr_restrict") ==
+             0)
+      redu = &rep.gate_suggestions[i];
+  }
+  assert(crit && redu);
+  /* Critical gate: leave-one-out keeps c_critical in -> 0 bits -> forfeits 9.
+   */
+  assert(crit->silences == 1 && crit->skip_vbits == 0);
+  /* Redundant gate: leave-one-out still excludes c_critical -> 9 bits -> 0. */
+  assert(redu->silences == 1 && redu->skip_vbits == 9);
+  /* Hashed-pointers gate: governs a denied component, so silences nothing. */
+  const struct hr_suggestion *none = NULL;
+  for (int i = 0; i < rep.n_gate_suggestions; i++)
+    if (strcmp(rep.gate_suggestions[i].display,
+               "kernel pointer hashing (%pK)") == 0)
+      none = &rep.gate_suggestions[i];
+  assert(none && none->silences == 0);
+
+  set_render_mode(0, 0, 0);
+  capture_stdout(wrap_render_hardening_text, NULL);
+  assert(strstr(render_cap,
+                "base recoverable: 0 bits now \xe2\x86\x92 9 bits") != NULL);
+  assert(strstr(render_cap,
+                "load-bearing \xe2\x80\x94 omitting forfeits 9 virtual bits") !=
+         NULL);
+  assert(strstr(render_cap, "not required (the rest reach the same posture)") !=
+         NULL);
+  assert(strstr(render_cap, "no base-leak behind this \xe2\x80\x94 recovers "
+                            "nothing") != NULL);
+
+  set_render_mode(0, 0, 1);
+  capture_stdout(wrap_render_hardening_markdown, NULL);
+  assert(strstr(render_cap,
+                "not required \xe2\x80\x94 the rest reach the same posture") !=
+         NULL);
+
+  kasld_test_projection = 0;
+  set_render_mode(0, 0, 0);
+  sysctl_kptr_restrict = 0;
+  sysctl_dmesg_restrict = 0;
+  sysctl_lockdown = LOCKDOWN_NONE;
+  hashed_pointers = 0;
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+}
+
 /* The pointer-hashing gate: a %pK leak tagged sysctl:hashed_pointers is gated
  * by kernel pointer hashing. With hashing on (the modern default) the gate is
  * active, the leak yields nothing (hashed ids fail the kernel-VAS filter), and
@@ -1699,6 +1962,9 @@ int main(void) {
   RUN(test_render_hardening_json);
   RUN(test_render_hardening_markdown);
   RUN(test_build_hardening_report);
+  RUN(test_hardening_projection);
+  RUN(test_hardening_projection_no_exposure);
+  RUN(test_hardening_projection_redundant);
   RUN(test_render_hardening_pointer_hashing_gate);
   RUN(test_render_hardening_text_rand_failed_surfaces);
   RUN(test_render_hardening_json_rand_failed_state);

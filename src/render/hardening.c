@@ -105,6 +105,28 @@ static int seccomp_blocked_perf(const struct component_log *cl, int seccomp,
   return 0;
 }
 
+/* Leave-one-out projection: re-resolve the guaranteed window with every
+ * suggestion's silenced leaks removed EXCEPT this one's (i.e. exclude the full
+ * hardened union `all` minus this suggestion's set `sub`). The bits forfeited
+ * by omitting the suggestion are then (all_vbits - out->vbits). */
+static void project_skipping(const char *const *all, int nall,
+                             const char *const *sub, int nsub,
+                             struct projected_posture *out) {
+  const char *ex[MAX_COMPONENTS];
+  int n = 0;
+  for (int i = 0; i < nall; i++) {
+    int in_sub = 0;
+    for (int j = 0; j < nsub; j++)
+      if (strcmp(all[i], sub[j]) == 0) {
+        in_sub = 1;
+        break;
+      }
+    if (!in_sub && n < MAX_COMPONENTS)
+      ex[n++] = all[i];
+  }
+  kasld_project_posture(ex, n, out);
+}
+
 void build_hardening_report(struct hardening_report *r) {
   memset(r, 0, sizeof(*r));
 
@@ -190,8 +212,13 @@ void build_hardening_report(struct hardening_report *r) {
         hg.bypassed++;
         if (hg.n_bypassed_names < HR_NAME_MAX)
           hg.bypassed_names[hg.n_bypassed_names++] = comp_logs[i].name;
-        if (meta_get(&comp_logs[i].meta, "fallback"))
+        if (meta_get(&comp_logs[i].meta, "fallback")) {
           hg.fallback++;
+        } else if (hg.n_silenced < HR_NAME_MAX) {
+          /* No fallback source, so enabling the gate actually removes this leak
+           * — the exclude set for the counterfactual projection. */
+          hg.silenced_names[hg.n_silenced++] = comp_logs[i].name;
+        }
       }
     }
     if (hg.gated == 0)
@@ -232,42 +259,159 @@ void build_hardening_report(struct hardening_report *r) {
   r->lockdown = sysctl_lockdown;
 
   /* Available hardening. Gate suggestions (inactive gate with gated
-   * components), the lockdown suggestion, and the text-only dmesg-fallback
-   * suggestion. */
+   * components), the lockdown suggestion, and the dmesg-fallback suggestion.
+   *
+   * Projected posture uses a leave-one-out framing: first resolve the
+   * current posture and the fully-hardened ceiling (every suggestion's leaks
+   * removed), then re-resolve for each suggestion with all-but-itself removed.
+   * The bits it is worth are (all_vbits - skip_vbits) — how much of the fully-
+   * hardened entropy is forfeited by omitting it. This exposes leaks that are
+   * masked by another (a marginal-from-current delta would read them as 0). */
+  {
+    struct projected_posture cur;
+    kasld_project_posture(NULL, 0, &cur);
+    if (cur.available) {
+      r->has_projection = 1;
+      r->cur_vbits = cur.vbits;
+      r->cur_pbits = cur.pbits;
+    }
+  }
+
+  /* Each suggestion's silenced set is accumulated into the hardened union `all`
+   * (deduped below); the lockdown/dmesg sets are kept for the leave-one-out
+   * pass. All sets are bounded by the component count. */
+  const char *all[MAX_COMPONENTS];
+  int nall = 0;
+  const char *ld_sil[MAX_COMPONENTS];
+  int n_ld = 0;
+  const char *dm_sil[MAX_COMPONENTS];
+  int n_dm = 0;
+
   for (int i = 0; i < r->n_gates; i++) {
     if (r->gates[i].active)
       continue;
     if (r->n_gate_suggestions < HR_SUGG_MAX) {
-      r->gate_suggestions[r->n_gate_suggestions].display = r->gates[i].display;
-      r->gate_suggestions[r->n_gate_suggestions].threshold =
-          r->gates[i].threshold;
-      r->gate_suggestions[r->n_gate_suggestions].impact = r->gates[i].gated;
-      r->n_gate_suggestions++;
+      struct hr_suggestion *sg = &r->gate_suggestions[r->n_gate_suggestions++];
+      sg->display = r->gates[i].display;
+      sg->threshold = r->gates[i].threshold;
+      sg->impact = r->gates[i].gated;
+      sg->silences = r->gates[i].n_silenced;
     }
+    for (int k = 0; k < r->gates[i].n_silenced; k++)
+      if (nall < MAX_COMPONENTS)
+        all[nall++] = r->gates[i].silenced_names[k];
   }
+
+  /* Lockdown suggestion. It silences only the lockdown-gated leaks that
+   * succeeded with NO file fallback: lockdown blocks the klogctl() syscall, so
+   * a leak that also reads a dmesg log file survives it and stays in the
+   * evidence.
+   */
   if (sysctl_lockdown < LOCKDOWN_INTEGRITY) {
     int lockdown_gated = 0;
-    for (int i = 0; i < num_comp_logs; i++)
-      if (meta_get(&comp_logs[i].meta, "lockdown"))
-        lockdown_gated++;
+    for (int i = 0; i < num_comp_logs; i++) {
+      if (!meta_get(&comp_logs[i].meta, "lockdown"))
+        continue;
+      lockdown_gated++;
+      if (comp_logs[i].outcome == OUTCOME_SUCCESS &&
+          !meta_get(&comp_logs[i].meta, "fallback") && n_ld < MAX_COMPONENTS)
+        ld_sil[n_ld++] = comp_logs[i].name;
+    }
     if (lockdown_gated > 0) {
       r->suggest_lockdown = 1;
       r->lockdown_impact = lockdown_gated;
+      r->lockdown_silences = n_ld;
+      for (int k = 0; k < n_ld; k++)
+        if (nall < MAX_COMPONENTS)
+          all[nall++] = ld_sil[k];
     }
   }
+
+  /* dmesg-fallback suggestion. It silences exactly the dmesg leaks that
+   * succeeded VIA a fallback log file — restricting those files to root removes
+   * them (the sysctl itself already blocks the syscall path). */
   if (sysctl_dmesg_restrict >= 1) {
-    int fallback_bypassed = 0;
     for (int i = 0; i < num_comp_logs; i++) {
       if (comp_logs[i].outcome != OUTCOME_SUCCESS)
         continue;
       if (!component_has_gate(&comp_logs[i], &gates[GATE_DMESG_RESTRICT]))
         continue;
-      if (meta_get(&comp_logs[i].meta, "fallback"))
-        fallback_bypassed++;
+      if (!meta_get(&comp_logs[i].meta, "fallback"))
+        continue;
+      if (n_dm < MAX_COMPONENTS)
+        dm_sil[n_dm++] = comp_logs[i].name;
     }
-    if (fallback_bypassed > 0) {
+    if (n_dm > 0) {
       r->suggest_dmesg_fallback = 1;
-      r->dmesg_fallback_count = fallback_bypassed;
+      r->dmesg_fallback_count = n_dm;
+      r->dmesg_fallback_silences = n_dm;
+      for (int k = 0; k < n_dm; k++)
+        if (nall < MAX_COMPONENTS)
+          all[nall++] = dm_sil[k];
+    }
+  }
+
+  /* Ceiling posture: re-resolve with the deduped union of every suggestion's
+   * silenced set removed at once. */
+  int nuniq = 0;
+  if (r->has_projection) {
+    for (int i = 0; i < nall; i++) {
+      int dup = 0;
+      for (int m = 0; m < nuniq; m++)
+        if (strcmp(all[m], all[i]) == 0) {
+          dup = 1;
+          break;
+        }
+      if (!dup)
+        all[nuniq++] = all[i];
+    }
+    struct projected_posture pa;
+    kasld_project_posture(all, nuniq, &pa);
+    if (pa.available) {
+      r->all_vbits = pa.vbits;
+      r->all_pbits = pa.pbits;
+      r->all_impact = nuniq;
+    }
+  }
+
+  /* Leave-one-out pass: for each suggestion, the posture with all OTHER
+   * suggestions applied. skip_vbits < all_vbits means this suggestion is
+   * load-bearing (its leaks are not fully covered by the rest). */
+  if (r->has_projection) {
+    int k = 0; /* gate_suggestions[] are the inactive gates, in order */
+    for (int i = 0; i < r->n_gates && k < r->n_gate_suggestions; i++) {
+      if (r->gates[i].active)
+        continue;
+      struct hr_suggestion *sg = &r->gate_suggestions[k++];
+      struct projected_posture pp;
+      project_skipping(all, nuniq, r->gates[i].silenced_names,
+                       r->gates[i].n_silenced, &pp);
+      if (pp.available) {
+        sg->has_projection = 1;
+        sg->skip_vbits = pp.vbits;
+        sg->skip_pbits = pp.pbits;
+        r->n_projecting++;
+      }
+    }
+    if (r->suggest_lockdown) {
+      struct projected_posture pp;
+      project_skipping(all, nuniq, ld_sil, n_ld, &pp);
+      if (pp.available) {
+        r->lockdown_has_projection = 1;
+        r->lockdown_skip_vbits = pp.vbits;
+        r->lockdown_skip_pbits = pp.pbits;
+        r->n_projecting++;
+      }
+    }
+    if (r->suggest_dmesg_fallback) {
+      struct projected_posture pp;
+      project_skipping(all, nuniq, dm_sil, n_dm, &pp);
+      if (pp.available) {
+        r->dmesg_fallback_has_projection = 1;
+        r->dmesg_fallback_skip_vbits = pp.vbits;
+        r->dmesg_fallback_skip_pbits = pp.pbits;
+        r->n_projecting++;
+      }
     }
   }
 
@@ -397,6 +541,70 @@ static const char *symbol_resolution_json(enum kasld_text_order o) {
   default:
     return "unknown";
   }
+}
+
+/* One suggestion's leave-one-out verdict row, indented under it. `silences` is
+ * how many base-leaks it removes; skip_* is the posture with every OTHER
+ * suggestion applied, so all_* - skip_* is the entropy forfeited by omitting
+ * it. `exposure` is set when the guaranteed base is recoverable at all (all_*
+ * beats the current posture) — when it is not, a forfeit of 0 means the
+ * silenced leaks are speculative-window only, not that another change covers
+ * them. */
+static void print_necessity(int silences, int exposure, int all_v, int skip_v,
+                            int all_p, int skip_p) {
+  int fv = all_v - skip_v, fp = all_p - skip_p;
+  if (silences == 0) {
+    printf("    no base-leak behind this — recovers nothing\n");
+  } else if (fv > 0 || fp > 0) {
+    if (fp > 0 && fv > 0)
+      printf(
+          "    load-bearing — omitting forfeits %d bits virtual, %d physical\n",
+          fv, fp);
+    else
+      printf("    load-bearing — omitting forfeits %d %s bits\n",
+             fv > 0 ? fv : fp, fv > 0 ? "virtual" : "physical");
+  } else if (!exposure) {
+    printf("    silences %d leak%s — speculative window only, no guaranteed "
+           "bits\n",
+           silences, silences == 1 ? "" : "s");
+  } else {
+    printf("    silences %d leak%s but 0 guaranteed bits — not required (the "
+           "rest reach the same posture)\n",
+           silences, silences == 1 ? "" : "s");
+  }
+}
+
+/* Emit the JSON "projected" object for one suggestion in the leave-one-out
+ * framing: the posture with every other suggestion applied (skip_*), and the
+ * bits forfeited by omitting this one (all_* - skip_*). Trailing content only,
+ * so the caller adds the preceding comma. */
+static void json_print_projected(int silences, int all_v, int skip_v, int all_p,
+                                 int skip_p) {
+  printf("        \"silences\": %d,\n", silences);
+  printf("        \"projected\": {\n");
+  printf("          \"virt_base_entropy_if_omitted_bits\": %d,\n", skip_v);
+  printf("          \"virt_base_entropy_forfeited\": %d,\n", all_v - skip_v);
+  printf("          \"phys_base_entropy_if_omitted_bits\": %d,\n", skip_p);
+  printf("          \"phys_base_entropy_forfeited\": %d\n", all_p - skip_p);
+  printf("        }\n");
+}
+
+/* Markdown single-line leave-one-out verdict clause appended to a suggestion
+ * bullet (no leading separator for the "recovers nothing" case, which reads as
+ * a dash continuation). */
+static void md_print_necessity(int silences, int exposure, int all_v,
+                               int skip_v, int all_p, int skip_p) {
+  int fv = all_v - skip_v, fp = all_p - skip_p;
+  if (silences == 0)
+    printf(" — recovers nothing (no base-leak behind it)");
+  else if (fv > 0 || fp > 0)
+    printf("; load-bearing — omitting forfeits %d %s bits", fv > 0 ? fv : fp,
+           fv > 0 ? "virtual" : "physical");
+  else if (!exposure)
+    printf("; speculative window only (no guaranteed bits)");
+  else
+    printf(
+        "; 0 guaranteed bits (not required — the rest reach the same posture)");
 }
 
 void render_hardening_text(void) {
@@ -561,6 +769,21 @@ void render_hardening_text(void) {
   /* ---- Section 2: Available Hardening ---- */
   printf("%sAvailable hardening:%s\n", c(C_BOLD), c(C_RESET));
 
+  /* Anchor: the current vs fully-hardened guaranteed posture. Each suggestion
+   * below is then scored by how much of that gap it is load-bearing for (its
+   * leave-one-out forfeit), not a marginal-from-here delta. `exposure` is set
+   * when hardening can recover any guaranteed bits at all. */
+  int exposure = rep.all_vbits > rep.cur_vbits || rep.all_pbits > rep.cur_pbits;
+  if (rep.has_projection && exposure)
+    printf("  %sbase recoverable: %d bits now \xe2\x86\x92 %d bits with all of "
+           "the "
+           "below applied%s\n",
+           c(C_DIM), rep.cur_vbits, rep.all_vbits, c(C_RESET));
+  else if (rep.has_projection)
+    printf("  %sguaranteed base already at %d bits; the below silence "
+           "speculative-only leaks%s\n",
+           c(C_DIM), rep.cur_vbits, c(C_RESET));
+
   int any_suggestions = 0;
 
   for (int i = 0; i < rep.n_gate_suggestions; i++) {
@@ -569,6 +792,10 @@ void render_hardening_text(void) {
            rep.gate_suggestions[i].display, rep.gate_suggestions[i].threshold);
     printf("    affects %d component%s\n", rep.gate_suggestions[i].impact,
            rep.gate_suggestions[i].impact == 1 ? "" : "s");
+    if (rep.gate_suggestions[i].has_projection)
+      print_necessity(rep.gate_suggestions[i].silences, exposure, rep.all_vbits,
+                      rep.gate_suggestions[i].skip_vbits, rep.all_pbits,
+                      rep.gate_suggestions[i].skip_pbits);
   }
 
   if (rep.suggest_lockdown) {
@@ -576,6 +803,10 @@ void render_hardening_text(void) {
     printf("  %s\xe2\x86\x92%s Enable kernel lockdown (integrity mode)\n",
            c(C_CYAN), c(C_RESET));
     printf("    blocks klogctl() even with CAP_SYSLOG\n");
+    if (rep.lockdown_has_projection)
+      print_necessity(rep.lockdown_silences, exposure, rep.all_vbits,
+                      rep.lockdown_skip_vbits, rep.all_pbits,
+                      rep.lockdown_skip_pbits);
   }
 
   if (rep.suggest_dmesg_fallback) {
@@ -584,6 +815,10 @@ void render_hardening_text(void) {
            c(C_CYAN), c(C_RESET));
     printf("    %d dmesg component%s may have succeeded via log files\n",
            rep.dmesg_fallback_count, rep.dmesg_fallback_count == 1 ? "" : "s");
+    if (rep.dmesg_fallback_has_projection)
+      print_necessity(rep.dmesg_fallback_silences, exposure, rep.all_vbits,
+                      rep.dmesg_fallback_skip_vbits, rep.all_pbits,
+                      rep.dmesg_fallback_skip_pbits);
   }
 
   if (!any_suggestions)
@@ -830,7 +1065,7 @@ void render_hardening_json(void) {
          rep.lockdown >= LOCKDOWN_INTEGRITY ? "true" : "false");
   printf("    },\n");
 
-  /* Available hardening (json omits the text-only dmesg-fallback suggestion) */
+  /* Available hardening (all suggestions, incl. dmesg-fallback, for tooling) */
   printf("    \"available_hardening\": [\n");
   int first_sug = 1;
   for (int i = 0; i < rep.n_gate_suggestions; i++) {
@@ -842,9 +1077,14 @@ void render_hardening_json(void) {
            rep.gate_suggestions[i].display, rep.gate_suggestions[i].threshold);
     printf("        \"impact\": %d,\n", rep.gate_suggestions[i].impact);
     printf("        \"detail\": \"Blocks unprivileged access for %d "
-           "component%s\"\n",
+           "component%s\"%s\n",
            rep.gate_suggestions[i].impact,
-           rep.gate_suggestions[i].impact == 1 ? "" : "s");
+           rep.gate_suggestions[i].impact == 1 ? "" : "s",
+           rep.gate_suggestions[i].has_projection ? "," : "");
+    if (rep.gate_suggestions[i].has_projection)
+      json_print_projected(rep.gate_suggestions[i].silences, rep.all_vbits,
+                           rep.gate_suggestions[i].skip_vbits, rep.all_pbits,
+                           rep.gate_suggestions[i].skip_pbits);
     printf("      }");
   }
 
@@ -856,10 +1096,48 @@ void render_hardening_json(void) {
     printf("        \"action\": \"Enable kernel lockdown (integrity mode)\","
            "\n");
     printf("        \"impact\": %d,\n", rep.lockdown_impact);
-    printf("        \"detail\": \"Blocks klogctl() even with CAP_SYSLOG\"\n");
+    printf("        \"detail\": \"Blocks klogctl() even with CAP_SYSLOG\"%s\n",
+           rep.lockdown_has_projection ? "," : "");
+    if (rep.lockdown_has_projection)
+      json_print_projected(rep.lockdown_silences, rep.all_vbits,
+                           rep.lockdown_skip_vbits, rep.all_pbits,
+                           rep.lockdown_skip_pbits);
+    printf("      }");
+  }
+
+  if (rep.suggest_dmesg_fallback) {
+    if (!first_sug)
+      printf(",\n");
+    first_sug = 0;
+    printf("      {\n");
+    printf("        \"action\": \"Restrict dmesg fallback files to root\",\n");
+    printf("        \"impact\": %d,\n", rep.dmesg_fallback_count);
+    printf("        \"detail\": \"%d dmesg component%s may have succeeded via "
+           "log files\"%s\n",
+           rep.dmesg_fallback_count, rep.dmesg_fallback_count == 1 ? "" : "s",
+           rep.dmesg_fallback_has_projection ? "," : "");
+    if (rep.dmesg_fallback_has_projection)
+      json_print_projected(rep.dmesg_fallback_silences, rep.all_vbits,
+                           rep.dmesg_fallback_skip_vbits, rep.all_pbits,
+                           rep.dmesg_fallback_skip_pbits);
     printf("      }");
   }
   printf("\n    ],\n");
+
+  /* Projected posture: current guaranteed residual entropy and the ceiling with
+   * every suggestion applied. Omitted entirely when the engine is compiled out.
+   */
+  if (rep.has_projection) {
+    printf("    \"projected_posture\": {\n");
+    printf("      \"current\": { \"virt_base_entropy_bits\": %d, "
+           "\"phys_base_entropy_bits\": %d },\n",
+           rep.cur_vbits, rep.cur_pbits);
+    printf(
+        "      \"all_suggestions_applied\": { \"virt_base_entropy_bits\": %d, "
+        "\"phys_base_entropy_bits\": %d, \"components_silenced\": %d }\n",
+        rep.all_vbits, rep.all_pbits, rep.all_impact);
+    printf("    },\n");
+  }
 
   /* Patched vulnerabilities */
   printf("    \"patched_vulnerabilities\": {\n");
@@ -1027,24 +1305,48 @@ void render_hardening_markdown(void) {
 
   /* Available hardening */
   printf("### Available hardening\n\n");
+  int exposure = rep.all_vbits > rep.cur_vbits || rep.all_pbits > rep.cur_pbits;
+  if (rep.has_projection && exposure)
+    printf("Base recoverable: %d bits now \xe2\x86\x92 %d bits with all of the "
+           "below applied.\n\n",
+           rep.cur_vbits, rep.all_vbits);
+  else if (rep.has_projection)
+    printf("Guaranteed base already at %d bits; the below silence "
+           "speculative-only leaks.\n\n",
+           rep.cur_vbits);
   int any_sug = 0;
   for (int i = 0; i < rep.n_gate_suggestions; i++) {
     any_sug = 1;
-    printf("- Set `%s = %d` — affects %d component%s\n",
+    printf("- Set `%s = %d` — affects %d component%s",
            rep.gate_suggestions[i].display, rep.gate_suggestions[i].threshold,
            rep.gate_suggestions[i].impact,
            rep.gate_suggestions[i].impact == 1 ? "" : "s");
+    if (rep.gate_suggestions[i].has_projection)
+      md_print_necessity(rep.gate_suggestions[i].silences, exposure,
+                         rep.all_vbits, rep.gate_suggestions[i].skip_vbits,
+                         rep.all_pbits, rep.gate_suggestions[i].skip_pbits);
+    printf("\n");
   }
   if (rep.suggest_lockdown) {
     any_sug = 1;
     printf("- Enable kernel lockdown (integrity mode) — blocks klogctl() even "
-           "with CAP_SYSLOG\n");
+           "with CAP_SYSLOG");
+    if (rep.lockdown_has_projection)
+      md_print_necessity(rep.lockdown_silences, exposure, rep.all_vbits,
+                         rep.lockdown_skip_vbits, rep.all_pbits,
+                         rep.lockdown_skip_pbits);
+    printf("\n");
   }
   if (rep.suggest_dmesg_fallback) {
     any_sug = 1;
     printf("- Restrict dmesg fallback files to root — %d dmesg component%s may "
-           "have succeeded via log files\n",
+           "have succeeded via log files",
            rep.dmesg_fallback_count, rep.dmesg_fallback_count == 1 ? "" : "s");
+    if (rep.dmesg_fallback_has_projection)
+      md_print_necessity(rep.dmesg_fallback_silences, exposure, rep.all_vbits,
+                         rep.dmesg_fallback_skip_vbits, rep.all_pbits,
+                         rep.dmesg_fallback_skip_pbits);
+    printf("\n");
   }
   if (!any_sug)
     printf("All available runtime hardening is active.\n");

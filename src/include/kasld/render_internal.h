@@ -80,8 +80,8 @@ void render_markdown(const struct summary *s);
  * gates ONCE and fills this structure; the text, json, and markdown hardening
  * renderers then consume it, so the section-derivation logic lives in exactly
  * one place. Each renderer still chooses how to present (and which fields to
- * show): json omits the side-channel section and the dmesg-fallback
- * suggestion; only text annotates ✓/⚠/✗ and residual counts. Raw origin
+ * show): json omits the side-channel section; only text annotates ✓/⚠/✗ and
+ * residual counts. Raw origin
  * strings are stored verbatim (empty allowed) so each format applies its own
  * "(unknown)" / "unknown" fallback.
  * -------------------------------------------------------------------------
@@ -113,12 +113,26 @@ struct hr_gate {
   int n_blocked_names;
   const char *bypassed_names[HR_NAME_MAX];
   int n_bypassed_names;
+  /* Components enabling this gate would actually SILENCE: succeeded and gated
+   * with no fallback source (a fallback-bypassing leak survives the sysctl).
+   * The exclude set for the counterfactual posture projection. */
+  const char *silenced_names[HR_NAME_MAX];
+  int n_silenced;
 };
 
 struct hr_suggestion {
   const char *display;
   int threshold;
-  int impact;
+  int impact; /* components this gate governs (gated count) */
+  /* Projected posture, leave-one-out framing: skip_* is the guaranteed
+   * residual entropy with EVERY suggestion applied EXCEPT this one, so the bits
+   * forfeited by omitting it are (report.all_vbits - skip_vbits). silences is
+   * how many succeeded base-leaks this suggestion actually removes (0 => the
+   * gate governs components but none leak the base). has_projection is 0 when
+   * the engine is compiled out. */
+  int has_projection;
+  int silences;
+  int skip_vbits, skip_pbits;
 };
 struct hr_vuln {
   const char *name, *cve, *patch;
@@ -153,6 +167,27 @@ struct hardening_report {
   int n_gate_suggestions;
   int suggest_lockdown, lockdown_impact;
   int suggest_dmesg_fallback, dmesg_fallback_count; /* text-only suggestion */
+
+  /* Projected posture: current guaranteed residual entropy, and the
+   * ceiling if ALL suggestions are applied together. has_projection is 0 when
+   * the engine is compiled out (projected rows are then suppressed).
+   * n_projecting counts suggestions carrying a projection (the combined-ceiling
+   * line is only informative once more than one contributes). The lockdown and
+   * dmesg-fallback suggestions carry their own projected pair because they are
+   * not gate_suggestions[] entries. */
+  int has_projection;
+  int cur_vbits, cur_pbits;
+  int all_vbits, all_pbits;
+  int all_impact;   /* distinct components silenced by applying every suggestion
+                     */
+  int n_projecting; /* suggestions (gate + lockdown + dmesg) with a projection
+                     */
+  /* Leave-one-out for the lockdown and dmesg-fallback suggestions (they are not
+   * gate_suggestions[] entries). skip_* / silences mirror hr_suggestion. */
+  int lockdown_has_projection, lockdown_silences;
+  int lockdown_skip_vbits, lockdown_skip_pbits;
+  int dmesg_fallback_has_projection, dmesg_fallback_silences;
+  int dmesg_fallback_skip_vbits, dmesg_fallback_skip_pbits;
 
   int vuln_total;
   struct hr_vuln vulns[HR_VULNS_MAX]; /* succeeded (possibly unpatched) */

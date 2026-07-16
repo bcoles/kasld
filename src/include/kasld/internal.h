@@ -415,6 +415,32 @@ struct summary {
   struct component_stats stats;
 };
 
+/* Counterfactual "projected posture" for the hardening advisor: the residual
+ * KASLR entropy the guaranteed window would have if a set of components' leaks
+ * were removed (e.g. those a sysctl would silence). Computed by re-resolving
+ * the engine over the collected evidence minus the excluded components — a pure
+ * fixpoint re-run, no component re-execution. `available` is 0 when the engine
+ * is compiled out (KASLD_TESTING); readers must gate on it. */
+struct projected_posture {
+  int available;
+  int vbits, pbits; /* guaranteed residual entropy, bits (virt / phys base) */
+  unsigned long vslots, pslots;
+};
+
+/* Re-resolve the guaranteed window with the named component origins'
+ * observations excluded, and report the residual posture. exclude may be NULL
+ * (n_exclude 0) to re-derive the current posture. Defined in orchestrator.c. */
+void kasld_project_posture(const char *const *exclude, int n_exclude,
+                           struct projected_posture *out);
+
+#ifdef KASLD_TESTING
+/* Render-test seam: with the engine compiled out kasld_project_posture is a
+ * stub reporting available == 0; set this to make it report an available
+ * projection (entropy monotone in the exclude-set size) so the advisor's
+ * projected-delta rows can be exercised by the render tests. */
+extern int kasld_test_projection;
+#endif
+
 /* =========================================================================
  * Shared globals (defined in orchestrator.c)
  * ========================================================================= */
