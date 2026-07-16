@@ -48,8 +48,8 @@ build/<arch>/
 ```
 
 A hardened configuration (`kernel.dmesg_restrict=1`, `kernel.kptr_restrict=1`,
-`kernel.perf_event_paranoid=2` or higher, and `%pK` pointer hashing, on by
-default) narrows the filesystem-oracle path. It is one axis of the vantage
+`kernel.perf_event_paranoid=2` or higher, `kernel.unprivileged_bpf_disabled=1`,
+and `%pK` pointer hashing, on by default) narrows the filesystem-oracle path. It is one axis of the vantage
 only: side-channel, weak-entropy, and capability-granted techniques are
 independent of these sysctls. For testing purposes, the
 [extra/weaken-kernel-hardening](../extra/weaken-kernel-hardening) script
@@ -406,8 +406,9 @@ their machine-readable metadata. The assessment has seven sections:
    Omitted when KASLR is healthy or opted out.
 
 2. **Active defenses** — runtime security settings detected on the system
-   (`dmesg_restrict`, `kptr_restrict`, `perf_event_paranoid`, `%pK` pointer
-   hashing, lockdown mode) and their current values.
+   (`dmesg_restrict`, `kptr_restrict`, `perf_event_paranoid`,
+   `unprivileged_bpf_disabled`, `%pK` pointer hashing, lockdown mode) and
+   their current values.
 
 3. **Available hardening** — actionable suggestions for settings that are
    not currently active but would block one or more successful components

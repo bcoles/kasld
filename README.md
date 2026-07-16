@@ -54,8 +54,9 @@ build/<arch>/
 ```
 
 A hardened configuration (`kernel.dmesg_restrict=1`,
-`kernel.kptr_restrict=1`, `kernel.perf_event_paranoid=2` or higher)
-narrows the filesystem-oracle path, but is only one axis of the vantage:
+`kernel.kptr_restrict=1`, `kernel.perf_event_paranoid=2` or higher,
+`kernel.unprivileged_bpf_disabled=1`) narrows the filesystem-oracle
+path, but is only one axis of the vantage:
 side-channel, weak-entropy, and capability-granted techniques are
 independent of these sysctls. For testing, the
 [extra/weaken-kernel-hardening](extra/weaken-kernel-hardening) script
