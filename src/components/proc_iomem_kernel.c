@@ -119,7 +119,10 @@ int main(void) {
     fprintf(stderr, "[-] /proc/iomem appears masked (needs CAP_SYS_ADMIN); "
                     "addresses read as 0\n");
     fclose(f);
-    return 1;
+    /* Masking is an access restriction (CAP_SYS_ADMIN), not a missing source —
+     * report it as access-denied, mirroring proc_kallsyms's kptr_restrict
+     * all-zero path. */
+    return KASLD_EXIT_NOPERM;
   }
   fseek(f, start_pos, SEEK_SET);
 

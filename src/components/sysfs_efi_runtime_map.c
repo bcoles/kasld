@@ -96,13 +96,17 @@ int main(void) {
                                        : KASLD_EXIT_UNAVAILABLE;
   }
 
+  int denied = 0; /* a per-entry read failed with EACCES/EPERM */
   while ((ent = readdir(d)) != NULL) {
     if (ent->d_name[0] == '.')
       continue;
 
     snprintf(path, sizeof(path), "%s/%s/virt_addr", base, ent->d_name);
-    if (kasld_read_file_line(path, buf, sizeof(buf)) < 0)
+    if (kasld_read_file_line(path, buf, sizeof(buf)) < 0) {
+      if (errno == EACCES || errno == EPERM)
+        denied = 1;
       continue;
+    }
 
     char *endptr;
     unsigned long virt = strtoul(buf, &endptr, 16);
@@ -150,6 +154,13 @@ int main(void) {
   closedir(d);
 
   if (!count) {
+    /* The virt_addr/phys_addr attributes are root-only (0400). If the directory
+     * listed but every entry read was denied, report access-denied rather than
+     * data-absent. */
+    if (denied) {
+      kasld_err("EFI runtime map entries are not readable (needs root)");
+      return KASLD_EXIT_NOPERM;
+    }
     kasld_err("no EFI runtime map entries with direct-map virtual addresses"
               " found");
     return 0;

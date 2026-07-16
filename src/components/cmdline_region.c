@@ -16,7 +16,8 @@ KASLD_EXPLAIN("Reads the physical address and length of the kernel cmdline "
               "The cmdline-phys-exclude rule treats it as a forbidden band for "
               "the kernel physical base. x86 only.");
 KASLD_META("method:parsed\n"
-           "phase:inference\n");
+           "phase:inference\n"
+           "addr:phys-extent\n");
 
 int main(void) {
   unsigned long ptr = kasld_read_boot_cmd_line_ptr();

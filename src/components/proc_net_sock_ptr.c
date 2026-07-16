@@ -51,7 +51,7 @@ KASLD_EXPLAIN(
 KASLD_META("method:parsed\n"
            "phase:inference\n"
            "addr:virtual\n"
-           "sysctl:hashed_pointers>=1\n"
+           "sysctl:kptr_restrict>=1\n"
            "bypass:CAP_SYSLOG\n");
 
 struct sock_range {

@@ -59,6 +59,15 @@
 #include <string.h>
 #include <unistd.h>
 
+KASLD_EXPLAIN(
+    "Reads the ELF program headers of /proc/kcore, the core image of kernel "
+    "virtual memory. The text region's PT_LOAD header is built from _stext, so "
+    "its p_vaddr is the randomized virtual text base; only the headers are "
+    "read, never the segment data. On x86_64 the linear-map headers also carry "
+    "each RAM segment's virtual and physical base, recovering page_offset_base "
+    "exactly. Opening /proc/kcore needs CAP_SYS_RAWIO and is blocked by kernel "
+    "lockdown; the file is mode 0400 root.");
+
 KASLD_META("method:parsed\n"
            "phase:inference\n"
            "addr:virtual\n"
