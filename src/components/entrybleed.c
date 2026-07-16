@@ -321,7 +321,6 @@ static uint64_t leak_syscall_entry(uint64_t offset) {
       min = data[index];
       addr = SCAN_START + index * STEP;
     }
-    // kasld_info("%llx %ld", (SCAN_START + index * STEP), data[index]);
   }
 
   if (kasld_addr_is_kernel_text(addr))

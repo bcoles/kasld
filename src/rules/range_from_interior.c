@@ -13,9 +13,9 @@
 // It deliberately does NOT floor the ceiling to the KASLR alignment. The text
 // base is _stext (KERNEL_VIRT_TEXT_DEFAULT names _stext, not the image base),
 // and on sub-offset arches (riscv64 +0x2000, arm32 +0x8000, s390 +0x100000)
-// _stext is not alignment-aligned, so floor(sample, align) drops the ceiling
-// BELOW the truth — an unsoundness that previously rejected the real kallsyms
-// pin on riscv64. Sound alignment-tightening belongs on the aligned image base,
+// _stext is not alignment-aligned, so floor(sample, align) would drop the
+// ceiling BELOW the truth (e.g. rejecting a real _stext kallsyms pin on
+// riscv64). Sound alignment-tightening belongs on the aligned image base,
 // not on _stext.
 // ---
 // <bcoles@gmail.com>

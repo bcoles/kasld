@@ -181,7 +181,6 @@ static unsigned long get_kernel_addr_proc_pid_syscall(void) {
                              ? PAGE_OFFSET
                              : (unsigned long)KERNEL_VIRT_TEXT_MIN;
       if (leaked_addr >= lo && leaked_addr <= KERNEL_VIRT_TEXT_MAX) {
-        // kasld_info("Found kernel pointer: %lx", leaked_addr);
         if (!addr || leaked_addr < addr)
           addr = leaked_addr;
       }

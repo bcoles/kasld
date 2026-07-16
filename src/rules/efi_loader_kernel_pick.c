@@ -49,10 +49,10 @@
 //
 // Zero survivors → emit nothing.
 //
-// Phase: POST_COLLECTION. Needs SF_IMAGE_SIZE_MIN (SF_IMAGE_SIZE_MAX, when
-// present, sharpens the pin into the sound band) and the per-arch
-// EFI_KIMG_ALIGN constant. Gated to arches that define EFI_KIMG_ALIGN
-// (arm64, riscv64, x86_64, loongarch64); inert otherwise.
+// Needs SF_IMAGE_SIZE_MIN (SF_IMAGE_SIZE_MAX, when present, sharpens the pin
+// into the sound band) and the per-arch EFI_KIMG_ALIGN constant. Gated to
+// arches that define EFI_KIMG_ALIGN (arm64, riscv64, x86_64, loongarch64);
+// inert otherwise.
 //
 // A pure constraint over evidence: no I/O. The underlying addresses come from
 // an `efi=debug` dmesg dump parsed elsewhere.

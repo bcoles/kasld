@@ -1,10 +1,9 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
 // Rule: s390 below-text cascade — any VIRT observation in a region packed
-// below text_virt floors Q_VIRT_IMAGE_BASE. Consolidates the per-region rungs
-// (formerly s390_text_from_vmalloc + s390_text_from_vmemmap) into one
-// table-driven cascade, and is structured so a deeper rung is one table row
-// once its KASLD_REGION_* tag and a collector component exist.
+// below text_virt floors Q_VIRT_IMAGE_BASE. A table-driven cascade over the
+// per-region rungs (vmalloc, vmemmap, ...), structured so a deeper rung is one
+// table row once its KASLD_REGION_* tag and a collector component exist.
 //
 // arch/s390/boot/startup.c packs the VAS as a column directly below text_virt,
 // no gaps:
