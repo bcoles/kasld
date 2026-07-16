@@ -74,10 +74,13 @@ void render_oneline(const struct summary *s) {
   if (have_dmap && layout.virt_page_offset)
     printf(" dmap=0x%lx", layout.virt_page_offset);
 
-  /* Physical DRAM range */
+  /* Physical DRAM range. Gate on either edge being set, not on pdram_lo alone:
+   * DRAM legitimately starts at phys 0 (x86, s390), so a zero base is a real
+   * range, not an absent one. section_range zeroes both edges when nothing
+   * matched. */
   unsigned long pdram_lo, pdram_hi;
   section_range(KASLD_TYPE_PHYS, "dram", &pdram_lo, &pdram_hi);
-  if (pdram_lo) {
+  if (pdram_lo || pdram_hi) {
     char hbuf[32];
     unsigned long top = pdram_hi ? pdram_hi : pdram_lo;
     printf(" dram=[0x%lx..0x%lx](%s)", pdram_lo, top,

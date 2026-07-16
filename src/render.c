@@ -30,7 +30,9 @@
 /* Human-readable size: format bytes as "N.N KiB/MiB/GiB/TiB" */
 const char *human_size(unsigned long bytes, char *buf, size_t bufsz) {
 #if ULONG_MAX > 0xFFFFFFFFul
-  if (bytes >= TB)
+  if (bytes >= PB)
+    snprintf(buf, bufsz, "%.1f PiB", (double)bytes / (double)PB);
+  else if (bytes >= TB)
     snprintf(buf, bufsz, "%.1f TiB", (double)bytes / (double)TB);
   else
 #endif

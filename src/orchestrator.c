@@ -1115,8 +1115,15 @@ static int capture_result(const char *line, const char *method,
   char type_ch;
   char region_field[REGION_FIELD_CAP];
   int prefix_consumed = 0;
-  /* sscanf width must be strictly less than buffer size — sscanf writes
-   * an implicit terminator. NAME_LEN + 31 here for REGION_FIELD_CAP = 80. */
+  /* sscanf width must be strictly less than the buffer size — sscanf writes an
+   * implicit terminator. The width is a literal (scanf cannot take a computed
+   * one), so a _Static_assert locks it to the buffer: if NAME_LEN ever shrinks
+   * enough to make REGION_FIELD_CAP <= 80, the build fails here rather than
+   * silently overflowing region_field on component-controlled input. */
+  /* __extension__ silences -Wpedantic: _Static_assert is a C11 keyword gcc
+   * accepts as an extension on the -std=c99 build path. */
+  __extension__ _Static_assert(REGION_FIELD_CAP > 79,
+                               "sscanf width 79 must stay < REGION_FIELD_CAP");
   if (sscanf(line, "%c %79s %n", &type_ch, region_field, &prefix_consumed) <
           2 ||
       prefix_consumed == 0)
@@ -3841,16 +3848,11 @@ int main(int argc, char *argv[]) {
   if (!quiet && !verbose && plain_output())
     printf("\n\n");
 
-  if (num_results > 0) {
-    emit_summary();
-    return 0;
-  }
-
-  if (json_output || oneline_output || markdown_output) {
-    emit_summary(); /* valid empty structured output */
-  } else {
-    printf("\n---\n\nno tagged results to process\n");
-  }
-  return 1;
+  /* The KASLR default-window analysis and, with -H, the hardening assessment
+   * are meaningful even with zero leaks — a hardened host that yields nothing
+   * is the success case, not an error — so every format renders the summary.
+   * The exit code still distinguishes "found leaks" (0) from "none" (1). */
+  emit_summary();
+  return num_results > 0 ? 0 : 1;
 }
 #endif /* !KASLD_TESTING */

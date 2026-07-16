@@ -197,9 +197,21 @@ static void print_group(enum kasld_addr_type type, const char *section,
     char hbuf[32];
     unsigned long span = addrs[n_addrs - 1] - addrs[0];
     unsigned long consensus = section_consensus(type, section, region_filter);
-    printf("  %s==>%s 0x%016lx  %s(%s, %d source%s, %d conflict%s)%s\n",
-           c(C_CYAN), c(C_RESET), consensus, c(C_DIM), bm, ns,
-           ns == 1 ? "" : "s", nc, nc == 1 ? "" : "s", c(C_RESET));
+    /* "conflict" only makes sense for landmark sections (text/module/directmap)
+     * where distinct anchors genuinely disagree about one base. In the physical
+     * extent sections (dram/mmio) the other anchors are separate RAM segments /
+     * MMIO regions, not disagreements — the range line below carries the span,
+     * so the count is omitted rather than mislabelled. */
+    int extent_section =
+        (strcmp(section, "dram") == 0 || strcmp(section, "mmio") == 0);
+    if (extent_section)
+      printf("  %s==>%s 0x%016lx  %s(%s, %d source%s)%s\n", c(C_CYAN),
+             c(C_RESET), consensus, c(C_DIM), bm, ns, ns == 1 ? "" : "s",
+             c(C_RESET));
+    else
+      printf("  %s==>%s 0x%016lx  %s(%s, %d source%s, %d conflict%s)%s\n",
+             c(C_CYAN), c(C_RESET), consensus, c(C_DIM), bm, ns,
+             ns == 1 ? "" : "s", nc, nc == 1 ? "" : "s", c(C_RESET));
     printf("  %s   %s range: 0x%016lx - 0x%016lx  (%s)\n", c(C_CYAN),
            c(C_RESET), addrs[0], addrs[n_addrs - 1],
            human_size(span, hbuf, sizeof(hbuf)));
@@ -669,6 +681,8 @@ static void print_physical_layout(void) {
   struct {
     unsigned long addr;
     char label[128];
+    enum kasld_region
+        region; /* for collapsing repetitive same-region entries */
     /* 1 iff this leak is a kernel-image region (text/data/bss/image). The
      * phys-text-base window box only renders entries with is_text=1; other
      * leaks whose address happens to land in the window are dropped from
@@ -685,6 +699,7 @@ static void print_physical_layout(void) {
   if (ptext && nppts < MAX_RESULTS) {
     ppts[nppts].addr = ptext;
     snprintf(ppts[nppts].label, sizeof(ppts[nppts].label), "[text] kernel");
+    ppts[nppts].region = REGION_KERNEL_TEXT;
     ppts[nppts].is_text = 1;
     ppts[nppts].is_dram_edge = 0;
     nppts++;
@@ -745,6 +760,7 @@ static void print_physical_layout(void) {
       ppts[nppts].addr = best;
       snprintf(ppts[nppts].label, sizeof(ppts[nppts].label), "[dram] %s",
                boundary_markers[b].label);
+      ppts[nppts].region = breg;
       ppts[nppts].is_text = 0;
       ppts[nppts].is_dram_edge =
           (breg == REGION_RAM); /* ram_base / ram_top become bucket edges */
@@ -798,6 +814,7 @@ static void print_physical_layout(void) {
       else
         snprintf(ppts[nppts].label, sizeof(ppts[nppts].label), "[%s] %s", sec,
                  kasld_region_wire(r->region));
+      ppts[nppts].region = r->region;
       ppts[nppts].is_text = is_kernel_image_region(r->region);
       ppts[nppts].is_dram_edge = 0;
       nppts++;
@@ -959,6 +976,13 @@ static void print_physical_layout(void) {
     const char *header = bk->header ? bk->header : "in DRAM";
     printf("%s%s\n", INDENT, header);
     if (any) {
+      /* Cap repetitive same-region entries (an MMIO-heavy host can have dozens
+       * of pci_mmio BARs, which bury the layout — the Results section already
+       * lists them). Show the highest few of each region, then a "... N more"
+       * summary; regions at or below the cap print in full. */
+      enum { PHYS_MAP_REGION_CAP = 6 };
+      int total[REGION__COUNT] = {0};
+      int shown[REGION__COUNT] = {0};
       for (int i = 0; i < nppts; i++) {
         if (ppts[i].is_dram_edge)
           continue;
@@ -966,8 +990,26 @@ static void print_physical_layout(void) {
           continue;
         if (bk->text_only && !ppts[i].is_text)
           continue;
-        printf("%s  0x%016lx  %s\n", INDENT, ppts[i].addr, ppts[i].label);
+        total[ppts[i].region]++;
       }
+      for (int i = 0; i < nppts; i++) {
+        if (ppts[i].is_dram_edge)
+          continue;
+        if (ppts[i].addr < bk->lo || ppts[i].addr > bk->hi)
+          continue;
+        if (bk->text_only && !ppts[i].is_text)
+          continue;
+        enum kasld_region rg = ppts[i].region;
+        if (total[rg] > PHYS_MAP_REGION_CAP && shown[rg] >= PHYS_MAP_REGION_CAP)
+          continue; /* tail of an over-cap region — summarised below */
+        printf("%s  0x%016lx  %s\n", INDENT, ppts[i].addr, ppts[i].label);
+        shown[rg]++;
+      }
+      for (enum kasld_region rg = 0; rg < REGION__COUNT; rg++)
+        if (total[rg] > PHYS_MAP_REGION_CAP)
+          printf("%s  %s... %d more %s region%s%s\n", INDENT, c(C_DIM),
+                 total[rg] - PHYS_MAP_REGION_CAP, kasld_region_wire(rg),
+                 (total[rg] - PHYS_MAP_REGION_CAP) == 1 ? "" : "s", c(C_RESET));
     } else {
       printf("%s  %s(no leak)%s\n", INDENT, c(C_DIM), c(C_RESET));
     }
