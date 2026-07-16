@@ -11,6 +11,14 @@
 # - kernel.dmesg_restrict  -> 0  (allow unprivileged dmesg access)
 # - kernel.kptr_restrict   -> 0  (expose kernel pointers in /proc/kallsyms etc)
 # - kernel.perf_event_paranoid -> 0  (allow unprivileged perf_event_open)
+# - kernel.unprivileged_bpf_disabled -> 0  (allow unprivileged bpf())
+#
+# Note: kernel.unprivileged_bpf_disabled has three states: 0 (allowed), 1
+# (disabled and LOCKED until reboot), and 2 (disabled but re-enablable). Writing
+# 0 works from state 0 or 2 (state 2 is the common CONFIG_BPF_UNPRIV_DEFAULT_OFF
+# default) and re-enables the unprivileged bpf() components. Only the locked
+# state 1 refuses the write (EPERM). This script attempts it and reports if the
+# kernel rejected it.
 #
 # Requires: root privileges
 #
@@ -19,6 +27,7 @@
 # https://sysctl-explorer.net/kernel/kptr_restrict/
 # https://sysctl-explorer.net/kernel/dmesg_restrict/
 # https://sysctl-explorer.net/kernel/perf_event_paranoid/
+# https://sysctl-explorer.net/kernel/unprivileged_bpf_disabled/
 # ---
 # <bcoles@gmail.com>
 
@@ -43,6 +52,7 @@ echo
 saved_dmesg=$(sysctl -n kernel.dmesg_restrict 2>/dev/null) || saved_dmesg=""
 saved_kptr=$(sysctl -n kernel.kptr_restrict 2>/dev/null) || saved_kptr=""
 saved_perf=$(sysctl -n kernel.perf_event_paranoid 2>/dev/null) || saved_perf=""
+saved_bpf=$(sysctl -n kernel.unprivileged_bpf_disabled 2>/dev/null) || saved_bpf=""
 
 restore() {
   echo
@@ -50,6 +60,10 @@ restore() {
   [ -n "$saved_dmesg" ] && sysctl -q kernel.dmesg_restrict="$saved_dmesg"
   [ -n "$saved_kptr" ] && sysctl -q kernel.kptr_restrict="$saved_kptr"
   [ -n "$saved_perf" ] && sysctl -q kernel.perf_event_paranoid="$saved_perf"
+  # Restoring the original (equal or more restrictive) value is always allowed.
+  if [ -n "$saved_bpf" ]; then
+    sysctl -q kernel.unprivileged_bpf_disabled="$saved_bpf" 2>/dev/null || true
+  fi
   echo "[+] Restored."
   exit 0
 }
@@ -57,21 +71,32 @@ restore() {
 trap restore INT TERM EXIT
 
 echo "[*] Current settings:"
-[ -n "$saved_dmesg" ] && echo "  kernel.dmesg_restrict       = $saved_dmesg"
-[ -n "$saved_kptr" ] && echo "  kernel.kptr_restrict        = $saved_kptr"
-[ -n "$saved_perf" ] && echo "  kernel.perf_event_paranoid  = $saved_perf"
+[ -n "$saved_dmesg" ] && echo "  kernel.dmesg_restrict            = $saved_dmesg"
+[ -n "$saved_kptr" ] && echo "  kernel.kptr_restrict             = $saved_kptr"
+[ -n "$saved_perf" ] && echo "  kernel.perf_event_paranoid       = $saved_perf"
+[ -n "$saved_bpf" ] && echo "  kernel.unprivileged_bpf_disabled = $saved_bpf"
 echo
 
 echo "[*] Applying weakened settings ..."
 [ -n "$saved_dmesg" ] && sysctl -q kernel.dmesg_restrict=0
 [ -n "$saved_kptr" ] && sysctl -q kernel.kptr_restrict=0
 [ -n "$saved_perf" ] && sysctl -q kernel.perf_event_paranoid=0
+# Writing 0 succeeds from state 2 (re-enables unprivileged bpf); only the locked
+# state 1 rejects it. Attempt it, but do not abort the other (successful)
+# relaxations if the kernel says no.
+if [ -n "$saved_bpf" ] && [ "$saved_bpf" != "0" ]; then
+  if ! sysctl -q kernel.unprivileged_bpf_disabled=0 2>/dev/null; then
+    echo "  [!] kernel.unprivileged_bpf_disabled is locked (state 1); cannot"
+    echo "      re-enable unprivileged bpf() until reboot."
+  fi
+fi
 echo
 
 echo "[*] New settings:"
-[ -n "$saved_dmesg" ] && echo "  kernel.dmesg_restrict       = $(sysctl -n kernel.dmesg_restrict)"
-[ -n "$saved_kptr" ] && echo "  kernel.kptr_restrict        = $(sysctl -n kernel.kptr_restrict)"
-[ -n "$saved_perf" ] && echo "  kernel.perf_event_paranoid  = $(sysctl -n kernel.perf_event_paranoid)"
+[ -n "$saved_dmesg" ] && echo "  kernel.dmesg_restrict            = $(sysctl -n kernel.dmesg_restrict)"
+[ -n "$saved_kptr" ] && echo "  kernel.kptr_restrict             = $(sysctl -n kernel.kptr_restrict)"
+[ -n "$saved_perf" ] && echo "  kernel.perf_event_paranoid       = $(sysctl -n kernel.perf_event_paranoid)"
+[ -n "$saved_bpf" ] && echo "  kernel.unprivileged_bpf_disabled = $(sysctl -n kernel.unprivileged_bpf_disabled)"
 echo
 
 echo "[*] Hardening weakened. Run KASLD in another terminal."
