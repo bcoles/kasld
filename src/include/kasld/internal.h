@@ -466,6 +466,19 @@ const char *kasld_vantage_caps(const struct kasld_vantage *v, char *out,
 /* seccomp mode 0/1/2 → "none"/"strict"/"filter" (else "unknown"). */
 const char *kasld_vantage_seccomp_str(int seccomp);
 
+/* Effective-capability → the kasld leak source it unlocks. Reported from the
+ * vantage cap_eff so the confinement view also answers "which cap-gated leaks
+ * are reachable here" — the recon complement to the readable-oracle matrix,
+ * covering the non-file leaks (perf / bpf) too. `bit` is the capability number
+ * (linux/capability.h, stable ABI). */
+struct kasld_cap_leak {
+  int bit;
+  const char *cap;    /* "CAP_SYS_RAWIO" */
+  const char *source; /* the kasld source it grants */
+};
+#define KASLD_N_CAP_LEAKS 5
+extern const struct kasld_cap_leak kasld_cap_leaks[KASLD_N_CAP_LEAKS];
+
 extern struct kasld_layout layout;
 extern struct result results[MAX_RESULTS];
 extern int num_results;

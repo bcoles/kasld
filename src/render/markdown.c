@@ -126,6 +126,21 @@ static void render_environment_markdown(void) {
     printf("| `%s` | %s |\n", kasld_oracle_paths[i],
            v.oracle_readable[i] ? "yes" : "no");
   printf("\n");
+
+  /* Cap-gated leaks the effective cap set unlocks (if any). */
+  int shown = 0;
+  for (int i = 0; v.have_caps && i < KASLD_N_CAP_LEAKS; i++) {
+    if (!((v.cap_eff >> kasld_cap_leaks[i].bit) & 1ull))
+      continue;
+    if (!shown) {
+      printf("Capability-reachable leaks:\n\n");
+      shown = 1;
+    }
+    printf("- `%s` \xe2\x86\x92 %s\n", kasld_cap_leaks[i].cap,
+           kasld_cap_leaks[i].source);
+  }
+  if (shown)
+    printf("\n");
 }
 
 void render_markdown(const struct summary *s) {

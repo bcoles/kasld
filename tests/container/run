@@ -334,7 +334,9 @@ else
 fi
 CV="$WORK/vantage-ctr"; mkdir -p "$CV/proc/self"
 printf '0::/docker/deadbeefcafe\n' >"$CV/proc/self/cgroup"
-printf 'Name:\tx\nSeccomp:\t2\nCapEff:\t0000000000000000\nCapBnd:\t000001ffffffffff\nNoNewPrivs:\t1\n' \
+# CapEff bit 17 = CAP_SYS_RAWIO — so the vantage must also flag /proc/kcore as a
+# cap-reachable leak.
+printf 'Name:\tx\nSeccomp:\t2\nCapEff:\t0000000000020000\nCapBnd:\t000001ffffffffff\nNoNewPrivs:\t1\n' \
   >"$CV/proc/self/status"
 KASLD_SYSROOT="$CV" "$HOSTBIN" -v -f -s "$SKIP" >"$WORK/vantage.fx.txt" 2>&1 || true
 if grep -qE '^Container:[[:space:]]+docker' "$WORK/vantage.fx.txt" &&
@@ -349,11 +351,13 @@ if python3 - "$WORK/vantage.fx.json" <<'PY'
 import json,sys
 try: e=json.load(open(sys.argv[1])).get("environment",{})
 except Exception: sys.exit(1)
+caps=[l.get("capability") for l in e.get("cap_reachable_leaks",[])]
 sys.exit(0 if e.get("container")=="docker" and e.get("seccomp")=="filter"
-         and e.get("readable_oracles",{}).get("/proc/kallsyms") is False else 1)
+         and e.get("readable_oracles",{}).get("/proc/kallsyms") is False
+         and "CAP_SYS_RAWIO" in caps else 1)
 PY
 then
-  pass "vantage(json): -j environment object → container=docker, seccomp=filter, oracles masked"
+  pass "vantage(json): env object → container/seccomp/masked-oracles + CAP_SYS_RAWIO→kcore reachable"
 else
   fail "vantage(json): -j environment object missing/incorrect"
 fi

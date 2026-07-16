@@ -407,6 +407,17 @@ const char *const kasld_oracle_labels[KASLD_N_ORACLES] = {
     "Readable /proc/kallsyms:", "Readable /proc/kcore:",
     "Readable /proc/iomem:", "Readable /proc/modules:"};
 
+/* Held-cap → the kasld leak it unlocks. Bit numbers are the stable capability
+ * ABI (linux/capability.h): CAP_SYS_RAWIO=17, CAP_SYS_ADMIN=21, CAP_SYSLOG=34,
+ * CAP_PERFMON=38, CAP_BPF=39. Each maps to a real component. */
+const struct kasld_cap_leak kasld_cap_leaks[KASLD_N_CAP_LEAKS] = {
+    {17, "CAP_SYS_RAWIO", "/proc/kcore _stext"},
+    {21, "CAP_SYS_ADMIN", "/proc/iomem physical addresses"},
+    {34, "CAP_SYSLOG", "/proc/kallsyms (kptr_restrict unmasked)"},
+    {38, "CAP_PERFMON", "perf_event_open kernel sampling"},
+    {39, "CAP_BPF", "BPF verifier-log pointer"},
+};
+
 /* Detect whether we run inside a container and, if so, the runtime. All reads
  * are unprivileged and SYSROOT-redirectable. Returns a runtime name or NULL
  * (not containerized / undetectable). Marker files are most reliable; cgroup
@@ -544,20 +555,41 @@ static void print_banner(void) {
  * host their values (Seccomp: none, caps: none, no_new_privs: no) are the
  * DEFAULTS, not restrictions — printing them there reads as "you are confined"
  * when you are not, so we suppress them and show just the container status. */
+/* List the cap-gated leaks the effective cap set unlocks (one line each), or
+ * nothing if none apply. Shown regardless of confinement: a held cap is a real
+ * reachability fact whether or not the process is otherwise restricted. */
+static void print_cap_reachable_leaks(const struct kasld_vantage *v) {
+  if (!v->have_caps)
+    return;
+  int shown = 0;
+  for (int i = 0; i < KASLD_N_CAP_LEAKS; i++) {
+    if (!((v->cap_eff >> kasld_cap_leaks[i].bit) & 1ull))
+      continue;
+    if (!shown) {
+      printf("Cap-reachable leaks:\n");
+      shown = 1;
+    }
+    printf("  %-16s -> %s\n", kasld_cap_leaks[i].cap,
+           kasld_cap_leaks[i].source);
+  }
+}
+
 static void print_confinement(const struct kasld_vantage *v) {
   printf("%-30s%s\n", "Container:", v->container ? v->container : "none");
-  if (!kasld_vantage_confined(v))
-    return; /* unconfined host — the defaults below are not restrictions */
-
-  if (v->seccomp >= 0)
-    printf("%-30s%s\n", "Seccomp:", kasld_vantage_seccomp_str(v->seccomp));
-  char capbuf[24];
-  const char *caps = kasld_vantage_caps(v, capbuf, sizeof(capbuf));
-  if (caps)
-    printf("%-30s%s\n", "Effective capabilities:", caps);
-  if (v->no_new_privs >= 0)
-    printf("%-30s%s\n",
-           "No new privileges:", v->no_new_privs == 1 ? "yes" : "no");
+  /* The seccomp / caps / no-new-privs detail is only meaningful when actually
+   * confined — otherwise those values are the unprivileged defaults. */
+  if (kasld_vantage_confined(v)) {
+    if (v->seccomp >= 0)
+      printf("%-30s%s\n", "Seccomp:", kasld_vantage_seccomp_str(v->seccomp));
+    char capbuf[24];
+    const char *caps = kasld_vantage_caps(v, capbuf, sizeof(capbuf));
+    if (caps)
+      printf("%-30s%s\n", "Effective capabilities:", caps);
+    if (v->no_new_privs >= 0)
+      printf("%-30s%s\n",
+             "No new privileges:", v->no_new_privs == 1 ? "yes" : "no");
+  }
+  print_cap_reachable_leaks(v);
 }
 
 static void print_system_config(void) {

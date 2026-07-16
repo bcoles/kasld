@@ -194,7 +194,22 @@ static void render_environment_json(void) {
     printf(": %s%s\n", v.oracle_readable[i] ? "true" : "false",
            i + 1 < KASLD_N_ORACLES ? "," : "");
   }
-  printf("    }\n");
+  printf("    },\n");
+
+  /* Cap-gated leaks the effective cap set unlocks — the recon complement to
+   * readable_oracles (covers the non-file leaks too). Empty when none apply. */
+  printf("    \"cap_reachable_leaks\": [");
+  int first = 1;
+  for (int i = 0; v.have_caps && i < KASLD_N_CAP_LEAKS; i++) {
+    if (!((v.cap_eff >> kasld_cap_leaks[i].bit) & 1ull))
+      continue;
+    printf("%s\n      {\"capability\": \"%s\", \"source\": ", first ? "" : ",",
+           kasld_cap_leaks[i].cap);
+    json_print_escaped(kasld_cap_leaks[i].source);
+    printf("}");
+    first = 0;
+  }
+  printf(first ? "]\n" : "\n    ]\n");
   printf("  },\n");
 }
 
