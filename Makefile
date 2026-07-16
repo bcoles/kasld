@@ -578,6 +578,7 @@ lint :
 	@$(TEST_DIR)/check-image-size
 	@$(TEST_DIR)/check-fdt-unflatten
 	@$(TEST_DIR)/check-shellcheck
+	@$(TEST_DIR)/hardening-fixtures
 
 .PHONY: test-integration
 test-integration : $(TEST_INT_BIN)

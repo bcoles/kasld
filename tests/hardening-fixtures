@@ -1,0 +1,156 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# hardening-fixtures — exercise the -H hardening advisor over the x86_64 replay
+# fixtures and assert its structural invariants on real captured data.
+#
+# The advisor's meta -> gate -> suggestion logic is unit-tested in
+# tests/test_render.c by seeding component logs synthetically. This harness
+# instead drives the REAL binary over captured sysroots (the path that broke
+# when component .kasld_meta was read through the sysroot wrapper), so the
+# meta-extraction + gate-detection + projection pipeline is checked end to end
+# against real fixtures rather than hand-built inputs.
+#
+# It is NOT a golden-master diff (fixture output is anonymised / environment-
+# dependent). It asserts invariants that must hold for ANY fixture:
+#   - every active-defense gate name is one KASLD knows;
+#   - an ACTIVE gate is never re-offered as available hardening;
+#   - every "Set <gate> = N" suggestion maps to an INACTIVE gate whose threshold
+#     is N;
+#   - components_blocked / components_bypassed are subsets of components_gated;
+#   - projected posture is entropy-monotone: applying all hardening never lowers
+#     the guaranteed residual entropy below the current posture.
+#
+# x86_64 host only (runs the native binary; no qemu). Soft-skips when the host
+# is not x86_64, the binary/components are not built, python3 is absent, or no
+# x86_64 fixtures exist — matching the other optional guards.
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+FIX=$ROOT/tests/fixtures/x86_64
+
+if [ -t 1 ]; then
+  RED=$(printf '\033[31m')
+  GREEN=$(printf '\033[32m')
+  YELLOW=$(printf '\033[33m')
+  RESET=$(printf '\033[0m')
+else
+  RED=
+  GREEN=
+  YELLOW=
+  RESET=
+fi
+
+case "$(uname -m)" in
+  x86_64 | amd64) ;;
+  *)
+    printf '%shardening-fixtures: SKIP%s (host %s, not x86_64)\n' \
+      "$YELLOW" "$RESET" "$(uname -m)"
+    exit 0
+    ;;
+esac
+command -v python3 >/dev/null 2>&1 || {
+  printf '%shardening-fixtures: SKIP%s (python3 not found)\n' "$YELLOW" "$RESET"
+  exit 0
+}
+BIN=$(echo "$ROOT"/build/x86_64-*/kasld | awk '{print $1}')
+{ [ -n "$BIN" ] && [ -x "$BIN" ]; } || {
+  printf '%shardening-fixtures: SKIP%s (no x86_64 kasld binary; run make first)\n' \
+    "$YELLOW" "$RESET"
+  exit 0
+}
+[ -d "$FIX" ] || {
+  printf '%shardening-fixtures: SKIP%s (no x86_64 fixtures)\n' "$YELLOW" "$RESET"
+  exit 0
+}
+
+# Invariant checker: cell name in $1, the -H -j JSON in $HF_JSON (a heredoc is
+# python's own stdin here, so the payload rides an env var instead). Exits
+# non-zero, printing the violations, on any breach.
+check() {
+  python3 - "$1" <<'PY'
+import sys, os, json, re
+cell = sys.argv[1]
+KNOWN = {
+    "kernel.kptr_restrict", "kernel.dmesg_restrict",
+    "kernel.perf_event_paranoid", "kernel.unprivileged_bpf_disabled",
+    "kernel pointer hashing (%pK)", "seccomp syscall filter",
+}
+try:
+    h = json.loads(os.environ["HF_JSON"])
+except Exception as e:
+    print("    %s: invalid JSON: %s" % (cell, e)); sys.exit(1)
+h = h.get("hardening", h)
+errs = []
+gates = {}
+for g in h.get("active_defenses", []):
+    gates[g.get("gate")] = g
+    if g.get("gate") not in KNOWN:
+        errs.append("unknown gate %r" % g.get("gate"))
+    gated = set(g.get("components_gated", []))
+    for k in ("components_blocked", "components_bypassed"):
+        extra = set(g.get(k, [])) - gated
+        if extra:
+            errs.append("%s: %s not a subset of gated: %s" %
+                        (g.get("gate"), k, sorted(extra)))
+for s in h.get("available_hardening", []):
+    m = re.match(r"Set (.+) = (\d+)$", s.get("action", ""))
+    if not m:
+        continue  # lockdown / dmesg-fallback suggestions carry no gate token
+    name, thr = m.group(1), int(m.group(2))
+    g = gates.get(name)
+    if g is None:
+        errs.append("suggestion for gate absent from active_defenses: %s" % name)
+        continue
+    if g.get("active"):
+        errs.append("ACTIVE gate re-offered as hardening: %s" % name)
+    if g.get("threshold") != thr:
+        errs.append("suggestion threshold %d != gate threshold %r (%s)" %
+                    (thr, g.get("threshold"), name))
+pp = h.get("projected_posture")
+if pp is not None:
+    cur, allp = pp.get("current", {}), pp.get("all_suggestions_applied", {})
+    for side, o in (("current", cur), ("all_suggestions_applied", allp)):
+        for k in ("virt_base_entropy_bits", "phys_base_entropy_bits"):
+            if o.get(k, 0) < 0:
+                errs.append("projected_posture.%s.%s < 0" % (side, k))
+    for axis in ("virt_base_entropy_bits", "phys_base_entropy_bits"):
+        if allp.get(axis, 0) < cur.get(axis, 0):
+            errs.append("applying all hardening LOWERED %s (%d < %d) — not "
+                        "entropy-monotone" %
+                        (axis, allp.get(axis, 0), cur.get(axis, 0)))
+if errs:
+    for e in errs:
+        print("    %s: %s" % (cell, e))
+    sys.exit(1)
+PY
+}
+
+COMP=$(dirname "$BIN")/components
+fail=0
+n=0
+for d in "$FIX"/*/; do
+  [ -d "$d/sysroot" ] || continue
+  cell=$(basename "$d")
+  json=$(KASLD_SYSROOT="$d/sysroot" KASLD_COMPONENT_DIR="$COMP" \
+    "$BIN" -H -j 2>/dev/null)
+  if [ -z "$json" ]; then
+    echo "    $cell: no output"
+    fail=1
+    continue
+  fi
+  if ! HF_JSON="$json" check "$cell"; then
+    fail=1
+  fi
+  n=$((n + 1))
+done
+
+if [ "$fail" -ne 0 ]; then
+  printf '%shardening-fixtures: advisor invariants violated above%s\n' \
+    "$RED" "$RESET" >&2
+  exit 1
+fi
+printf '%shardening-fixtures: OK%s (%s x86_64 fixtures, advisor invariants hold)\n' \
+  "$GREEN" "$RESET" "$n"
