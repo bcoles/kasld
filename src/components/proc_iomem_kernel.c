@@ -99,7 +99,7 @@ int main(void) {
                                                : KASLD_EXIT_UNAVAILABLE;
   }
 
-  /* Detect kptr_restrict masking by scanning a few lines for a real address.
+  /* Detect CAP_SYS_ADMIN masking by scanning a few lines for a real address.
    * If every line up to a small cap reads as 00000000-00000000, the file is
    * masked and we cannot use it. */
   int saw_real_addr = 0;
@@ -116,7 +116,7 @@ int main(void) {
     }
   }
   if (!saw_real_addr) {
-    fprintf(stderr, "[-] /proc/iomem appears masked (kptr_restrict?); "
+    fprintf(stderr, "[-] /proc/iomem appears masked (needs CAP_SYS_ADMIN); "
                     "addresses read as 0\n");
     fclose(f);
     return 1;
