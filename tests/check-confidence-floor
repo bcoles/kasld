@@ -40,6 +40,7 @@ RULES=$ROOT/src/rules
 # evidence or a firmware/structural fact, not a bare default/convention — the
 # review that admits an entry here. Keep alphabetical.
 #   page_offset_from_config        parsed CONFIG_PAGE_OFFSET (a read fact)
+#   page_offset_from_leak          parsed exact linear-map base (kcore p_vaddr-p_paddr)
 #   phys_virt_synth                page_offset = virt - phys from a leak pair
 #   ppc32_phys_ceiling             BookE no-KASLR (deterministic sub-threshold RAM)
 #   randomize_memory_page_offset   page_offset reconstructed from a directmap leak
@@ -47,6 +48,7 @@ RULES=$ROOT/src/rules
 #   riscv64_text_base              gated on a KASLR-disabled signal, conf-capped
 #   s390_image_base_from_config    parsed CONFIG_KERNEL_IMAGE_BASE on KASLR-off
 ALLOW="page_offset_from_config
+page_offset_from_leak
 phys_virt_synth
 ppc32_phys_ceiling
 randomize_memory_page_offset

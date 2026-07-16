@@ -48,6 +48,7 @@ static const rule_fn k_rules[] = {
     rule_page_offset_from_landmark,
     rule_page_offset_invariant_pin,
     rule_page_offset_from_config,
+    rule_page_offset_from_leak,
     rule_directmap_page_offset_bounds,
     rule_randomize_memory_page_offset,
 

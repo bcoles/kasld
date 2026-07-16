@@ -4315,6 +4315,44 @@ static void test_page_offset_from_config(void) {
 #endif
 }
 
+/* page_offset_from_leak: a leaked exact linear-map base (SF_VIRT_PAGE_OFFSET,
+ * e.g. proc_kcore's p_vaddr - p_paddr) pins Q_PAGE_OFFSET outright. Unlike the
+ * config rule this is arch-agnostic — it fires wherever the fact is present. */
+int rule_page_offset_from_leak(const struct evidence_set *ev,
+                               const struct estimate *est,
+                               struct constraint *out, int out_max);
+
+static void test_page_offset_from_leak(void) {
+  struct engine e;
+  engine_init(&e);
+  struct estimate top;
+  quantities[Q_PAGE_OFFSET].init_top(&top);
+  unsigned long base =
+      top.lo; /* inside the arch window so the pin is admitted */
+  struct observation o = mk_scalar(SF_VIRT_PAGE_OFFSET, base, CONF_PARSED);
+  evidence_add(&e.ev, &o);
+
+  const rule_fn rules[] = {rule_page_offset_from_leak};
+  engine_run(&e, rules, 1);
+
+  assert(e.est[Q_PAGE_OFFSET].lo == base); /* pinned to the exact base */
+  assert(e.est[Q_PAGE_OFFSET].hi == base);
+}
+
+/* Inert without the fact: no SF_VIRT_PAGE_OFFSET leaves the honest window. */
+static void test_page_offset_from_leak_inert(void) {
+  struct engine e;
+  engine_init(&e);
+  struct estimate top;
+  quantities[Q_PAGE_OFFSET].init_top(&top);
+
+  const rule_fn rules[] = {rule_page_offset_from_leak};
+  engine_run(&e, rules, 1);
+
+  assert(e.est[Q_PAGE_OFFSET].lo == top.lo);
+  assert(e.est[Q_PAGE_OFFSET].hi == top.hi);
+}
+
 /* virt_kaslr_disabled_pin: SF_VIRT_KASLR_DISABLED + the arch's compile-time
  * default text base pins Q_VIRT_IMAGE_BASE on arches where
  * KASLR_DISABLED_PINS_VIRT_TEXT==1 (x86_64, loongarch64); inert elsewhere
@@ -6270,6 +6308,8 @@ int main(void) {
   RUN(test_page_offset_none);
   RUN(test_page_offset_invariant_pin);
   RUN(test_page_offset_from_config);
+  RUN(test_page_offset_from_leak);
+  RUN(test_page_offset_from_leak_inert);
 #if __SIZEOF_LONG__ >= 8
   RUN(test_directmap_page_offset_bounds);
   RUN(test_directmap_page_offset_lower_bound_from_max_pfn);

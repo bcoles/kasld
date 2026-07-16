@@ -157,6 +157,7 @@ R(highmem_32bit_bound);
 R(page_offset_from_landmark);
 R(page_offset_invariant_pin);
 R(page_offset_from_config);
+R(page_offset_from_leak);
 R(directmap_page_offset_bounds);
 R(randomize_memory_page_offset);
 

@@ -116,6 +116,14 @@ static inline int kasld_mul_ovf(unsigned long a, unsigned long b,
  *                             randomization or runtime patching), in which case
  *                             phys_to_directmap_virt() is undefined and callers
  *                             must rely on engine-resolved values.
+ * - PHYS_OFFSET_EXACT:        1 if PHYS_OFFSET is the true runtime physical
+ * base of the linear map, so page_offset_base = directmap_va -
+ * __pa(directmap_va) + PHYS_OFFSET is exact. 0 (the default) if PHYS_OFFSET is
+ * a placeholder or assumption -- e.g. arm64 randomizes memstart_addr and
+ * riscv's RAM base is board-dependent, so that identity would recover a wrong
+ * base. Narrower than DIRECTMAP_STATIC, which also requires a static
+ * PAGE_OFFSET (x86_64 randomizes page_offset_base yet keeps PHYS_OFFSET exactly
+ * 0).
  * - TEXT_TRACKS_DIRECTMAP:    1 if kernel text sits at a fixed offset within
  * the linear map (text moves with the directmap; KASLR cannot slide them
  * independently). 0 if text relocates independently -- phys-DRAM ceilings /
@@ -221,6 +229,15 @@ __extension__ _Static_assert((unsigned long)KERNEL_PHYS_MAX >
 #endif
 #ifndef TEXT_TRACKS_DIRECTMAP
 #error "arch header must define TEXT_TRACKS_DIRECTMAP (0 or 1)"
+#endif
+
+/* PHYS_OFFSET_EXACT is opt-in: an arch declares it 1 only when PHYS_OFFSET is
+ * the genuine runtime linear-map physical base (see the contract banner). The
+ * default 0 keeps the page_offset_base recovery inert on arches where the
+ * offset is a placeholder, so a new arch cannot silently emit an unsound base.
+ */
+#ifndef PHYS_OFFSET_EXACT
+#define PHYS_OFFSET_EXACT 0
 #endif
 
 /* Canonical directmap projections (both directions). Defined once here, gated
@@ -916,6 +933,10 @@ enum kasld_scalar_fact {
                               (MIPS/LoongArch)*/
   SF_VIRT_CONFIG_PAGE_OFFSET,   /* CONFIG_PAGE_OFFSET (VMSPLIT; authoritative
                                    arches)*/
+  SF_VIRT_PAGE_OFFSET,          /* exact runtime linear-map base
+                                   (page_offset_base), recovered from a parse —
+                                   pins Q_PAGE_OFFSET, unlike a directmap-address
+                                   leak which only upper-bounds it */
   SF_EFI_PRESENT,         /* 1 if /sys/firmware/efi exists (EFI boot)         */
   SF_FDT_KASLR_SEED,      /* FDT /chosen/kaslr-seed (riscv64)                 */
   SF_VIRT_KASLR_DISABLED, /* 1 if a detector observed VIRTUAL KASLR off       */
@@ -1011,6 +1032,7 @@ static const char *const kasld_scalar_fact_wire_table[SF__COUNT] = {
     [SF_PAGE_SIZE] = "page_size",
     [SF_VIRT_RANDOMIZE_MAX_OFFSET] = "virt_randomize_max_offset",
     [SF_VIRT_CONFIG_PAGE_OFFSET] = "virt_config_page_offset",
+    [SF_VIRT_PAGE_OFFSET] = "virt_page_offset",
     [SF_EFI_PRESENT] = "efi_present",
     [SF_FDT_KASLR_SEED] = "fdt_kaslr_seed",
     [SF_VIRT_KASLR_DISABLED] = "virt_kaslr_disabled",

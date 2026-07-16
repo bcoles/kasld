@@ -39,6 +39,10 @@
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/include/asm/page.h#L59
 #define DIRECTMAP_STATIC 0
 #define TEXT_TRACKS_DIRECTMAP 0
+// PHYS_OFFSET is unconditionally 0 on x86_64 (__pa(x) = x - PAGE_OFFSET, no
+// physical-base randomization), so directmap_va - __pa(directmap_va) recovers
+// page_offset_base exactly even though the directmap VA base itself randomizes.
+#define PHYS_OFFSET_EXACT 1
 
 // CONFIG_RANDOMIZE_MEMORY places the direct-map / vmalloc / vmemmap region
 // bases on PUD_SIZE (1 GiB) boundaries, so a bounded region base has
