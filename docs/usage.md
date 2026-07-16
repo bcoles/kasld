@@ -1,9 +1,11 @@
 # Usage
 
 `kasld` recovers a running kernel's memory layout — primarily the kernel text
-base — for an unprivileged local user. Run it with no arguments and it prints an
-answer: the recovered (or narrowed) virtual and physical image base, the direct
-map base, and the leaks the answer was derived from.
+base — from a local process, using as much as its vantage (privileges, groups,
+capabilities, system configuration, and any container confinement) allows. Run
+it with no arguments and it prints an answer: the recovered (or narrowed)
+virtual and physical image base, the direct map base, and the leaks the answer
+was derived from.
 
 Underneath, `kasld` gathers evidence from many small leak components (each a
 standalone technique that probes one source) and feeds it to an inference engine
@@ -45,10 +47,11 @@ build/<arch>/
   components/        <- leak components
 ```
 
-Modern fully-patched systems with `kernel.dmesg_restrict=1`,
-`kernel.kptr_restrict=1`, `kernel.perf_event_paranoid=2` (or higher), and
-`%pK` pointer hashing (on by default) are expected to return limited results.
-For testing purposes, the
+A hardened configuration (`kernel.dmesg_restrict=1`, `kernel.kptr_restrict=1`,
+`kernel.perf_event_paranoid=2` or higher, and `%pK` pointer hashing, on by
+default) narrows the filesystem-oracle path. It is one axis of the vantage
+only: side-channel, weak-entropy, and capability-granted techniques are
+independent of these sysctls. For testing purposes, the
 [extra/weaken-kernel-hardening](../extra/weaken-kernel-hardening) script
 can temporarily relax these settings (requires root).
 

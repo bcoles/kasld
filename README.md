@@ -8,16 +8,17 @@
   <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"/>
 </p>
 
-KASLD answers a practical question: **how effective is KASLR on this
-system, against an unprivileged local attacker?** It derandomizes the
-Linux kernel's virtual and physical memory layout from an unprivileged
-local process — recovering the kernel text base outright where a leak or
-side channel allows, and otherwise narrowing it to the smallest set of
-placements the available evidence supports. The inference engine fuses
-evidence from dozens of independent techniques with the architecture's
-known invariants, narrowing the kernel's placement to a residual window —
-reported as the surviving slot count and bits of entropy: a measure of
-how much protection KASLR actually retains. On a fully-patched modern
+KASLD recovers the Linux kernel's virtual and physical memory layout —
+primarily the kernel text base — from a local process, using as much as
+the process's vantage allows: its privileges and capabilities, the
+system's configuration, and any container confinement. It recovers the
+kernel text base outright where a leak or side channel allows, and
+otherwise narrows it to the smallest set of placements the available
+evidence supports. The inference engine fuses evidence from dozens of
+independent techniques with the architecture's known invariants,
+narrowing the kernel's placement to a residual window — reported as the
+surviving slot count and bits of entropy, a direct measure of how much
+protection KASLR retains from this vantage. On a fully-patched modern
 kernel — where x86-64 side channels are mitigated and no direct
 kernel-text leak survives — full recovery is often impossible, but the
 constraint set is rarely empty. On architectures without KASLR, the
@@ -52,9 +53,11 @@ build/<arch>/
   components/        <- leak components
 ```
 
-Fully-patched systems with `kernel.dmesg_restrict=1`,
-`kernel.kptr_restrict=1`, and `kernel.perf_event_paranoid=2` (or higher)
-return limited results. For testing, the
+A hardened configuration (`kernel.dmesg_restrict=1`,
+`kernel.kptr_restrict=1`, `kernel.perf_event_paranoid=2` or higher)
+narrows the filesystem-oracle path, but is only one axis of the vantage:
+side-channel, weak-entropy, and capability-granted techniques are
+independent of these sysctls. For testing, the
 [extra/weaken-kernel-hardening](extra/weaken-kernel-hardening) script
 can temporarily relax these settings (requires root).
 
@@ -93,6 +96,35 @@ mode.
 
 See [docs/usage.md](docs/usage.md) for the full CLI, output-mode
 details, explain mode, and hardening assessment.
+
+## Vantage
+
+What KASLD can recover depends on the running process's *vantage* — not a
+single privilege level, but the combination of three independent things:
+
+* **Privileges, groups, and capabilities** — an unprivileged uid, membership
+  in a group such as `adm` (which grants the kernel logs under `/var/log/`),
+  a container task holding an extra capability, or root. These do not form a
+  single ladder, because filesystem permissions gate each source
+  independently: a container granted `CAP_SYS_RAWIO` is init-namespace root
+  for that check and can read `/proc/kcore` — a leak an ordinary user cannot
+  reach — while distributions differ over whether a file such as
+  `/boot/System.map` is world-readable at all.
+* **System configuration** — `kptr_restrict`, `dmesg_restrict`,
+  `perf_event_paranoid`, unprivileged BPF, kernel lockdown. Configuration is
+  independent of privilege: root cannot read `/proc/kallsyms` under
+  `kptr_restrict=2`, while a relaxed sysctl or unprivileged BPF can hand a
+  plain user a leak that a hardened system would deny.
+* **Confinement** — a namespace or seccomp sandbox that masks `/proc`
+  oracles or blocks syscalls, narrowing what any privilege level observes.
+
+KASLD assumes few privileges by default and opportunistically uses whatever
+the vantage grants. The reported *guaranteed* window never depends on
+privilege: elevated access or a weak configuration can widen what is
+attempted, never the sound layout the evidence proves. The verbose (`-v`),
+JSON (`-j`), and Markdown (`-m`) outputs report the detected vantage —
+container, confinement, readable oracles, and the capability-gated leaks
+reachable from the current capabilities.
 
 ## Documentation
 

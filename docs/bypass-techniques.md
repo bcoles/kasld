@@ -1,8 +1,9 @@
 # KASLR Bypass Techniques
 
-Survey of techniques an unprivileged process can use to recover the kernel
-text base — or other layout secrets — across mainstream Linux. This docs
-indexes the entire technique space. Techniques KASLD implements are
+Survey of techniques a local process — typically unprivileged, but including
+paths that a container capability or a relaxed configuration unlocks — can use
+to recover the kernel text base or other layout secrets across mainstream Linux.
+This document indexes the entire technique space. Techniques KASLD implements are
 documented with a link to the component source; everything else points
 at the canonical reference.
 

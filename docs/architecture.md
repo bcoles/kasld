@@ -301,6 +301,15 @@ guaranteed window. The renderer owns the vocabulary — `inferred` / "Guaranteed
 range" for the sound window, `likely` / "speculative" for the other (see
 [Output formats](usage.md)).
 
+The same guarantee holds across the caller's vantage. A richer vantage — extra
+capabilities, a relaxed sysctl, an unmasked `/proc` — adds observations and can
+widen what the engine attempts, but the guaranteed window is a function of the
+evidence in hand, never of the privilege that gathered it: an assumed or elevated
+capability cannot narrow the sound window, only a sound observation can. An input
+a namespace can forge (a container's virtualized `MemTotal`, say) is admitted to
+the guaranteed window only where forging it cannot move that window; otherwise it
+is capped at the speculative one.
+
 Both windows are **build-agnostic**: the engine never assumes which kernel image
 it is looking at, and never trusts a version string or fingerprint to pin a base,
 so it reports the widest window that is *sound* (guaranteed) and, beneath it, the

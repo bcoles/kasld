@@ -39,7 +39,7 @@ kernel's load address may still vary across boots: a bootloader
 (U-Boot, GRUB, the EFI stub, Coreboot, etc.) is free to place the image
 at whatever physical address suits the board's memory map. The kernel
 is not actively randomizing in that case, but the base is still unknown
-to an unprivileged user a priori. KASLD treats this case identically —
+to a local user a priori. KASLD treats this case identically —
 the same inference engine narrows the bootloader-chosen base from
 observable evidence (`dmesg` landmarks, `/proc/iomem`, `/sys` facts,
 devicetree reservations) to a residual window, or to a single address
