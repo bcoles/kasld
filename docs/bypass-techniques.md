@@ -138,6 +138,7 @@ The following KASLD components read from `/proc`:
 * [proc_pid_syscall.c](../src/components/proc_pid_syscall.c) — kernel stack pointer from `/proc/<pid>/syscall`
 * [proc_stat_wchan.c](../src/components/proc_stat_wchan.c) — wait channel address from `/proc/<pid>/stat`
 * [proc_timer_list.c](../src/components/proc_timer_list.c) — per-CPU timer base addresses from `/proc/timer_list`
+* [proc_kcore.c](../src/components/proc_kcore.c) — kernel `_stext` (and, on x86_64, the exact direct-map base `page_offset_base`) from the `/proc/kcore` ELF program headers. Unlike the entries above this is **not** an unprivileged leak: opening `/proc/kcore` requires `CAP_SYS_RAWIO` (in the init user namespace) and reads are blocked by kernel lockdown (confidentiality). It targets the container-with-capabilities case — a process granted `CAP_SYS_RAWIO` (e.g. `docker --cap-add=SYS_RAWIO` with system paths unconfined, or `--privileged`) is init-ns root for that check and can read it. The text base is sound on decoupled-text arches only (x86_64/arm64/riscv64/s390), where the kernel text has a dedicated high mapping. The direct-map base is recovered as `p_vaddr - p_paddr + PHYS_OFFSET` from the linear-map (RAM) headers and pinned exactly, but only where `PHYS_OFFSET` is the true runtime physical base (x86_64); elsewhere it is left to the bounding leaks.
 
 The following KASLD components read from `/sys`:
 

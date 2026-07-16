@@ -28,7 +28,7 @@ else
 fi
 
 # Suite binaries (smallest first).
-SUITES="test_evidence test_estimate test_align test_prefetch_scan test_cpu test_outcome test_text_order test_kernel_image test_engine_integration test_kasld test_render test_engine test_dmesg_layout test_dmesg_backtrace test_btf test_dmesg_reservations test_boot_params_e820 test_sysfs_parsers"
+SUITES="test_evidence test_estimate test_align test_prefetch_scan test_cpu test_outcome test_text_order test_kernel_image test_engine_integration test_kasld test_render test_engine test_dmesg_layout test_dmesg_backtrace test_btf test_dmesg_reservations test_boot_params_e820 test_sysfs_parsers test_kcore"
 
 total_pass=0
 total_count=0

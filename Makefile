@@ -525,6 +525,14 @@ $(TEST_BPE820_BIN): $(TEST_DIR)/test_boot_params_e820.c $(SRC_DIR)/components/bo
 	$(call ccv,CCLD,$@)
 	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_boot_params_e820.c -o $@
 
+# proc_kcore ELF program-header scan: the component #included (main renamed) and
+# driven over a staged KASLD_SYSROOT /proc/kcore; the only coverage of the parse
+# (the live component is CAP_SYS_RAWIO-gated, so it is dark in the fixtures).
+TEST_KCORE_BIN := $(TEST_OBJ_DIR)/test_kcore
+$(TEST_KCORE_BIN): $(TEST_DIR)/test_kcore.c $(SRC_DIR)/components/proc_kcore.c $(HDRS) | $(TEST_OBJ_DIR)
+	$(call ccv,CCLD,$@)
+	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_kcore.c -o $@
+
 # sysfs / ACPI / DT leak-parser tests: each component #included (main renamed)
 # and driven over a staged KASLD_SYSROOT fixture tree reproducing the kernel ABI.
 TEST_PARSERS_SRCS := $(SRC_DIR)/components/sysfs_efi_runtime_map.c \
@@ -547,7 +555,7 @@ $(TEST_PARSERS_BIN): $(TEST_DIR)/test_sysfs_parsers.c $(TEST_PARSERS_SRCS) $(HDR
 	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_sysfs_parsers.c -o $@
 
 .PHONY: test
-test : $(TEST_BIN) $(TEST_RENDER_BIN) $(TEST_EST_BIN) $(TEST_EV_BIN) $(TEST_ALIGN_BIN) $(TEST_PREFETCH_SCAN_BIN) $(TEST_CPU_BIN) $(TEST_OUTCOME_BIN) $(TEST_TEXT_ORDER_BIN) $(TEST_KIMG_BIN) $(TEST_ENG_BIN) $(TEST_INT_BIN) $(TEST_DMESG_BIN) $(TEST_BACKTRACE_BIN) $(TEST_BTF_BIN) $(TEST_DMESG_RESV_BIN) $(TEST_BPE820_BIN) $(TEST_PARSERS_BIN)
+test : $(TEST_BIN) $(TEST_RENDER_BIN) $(TEST_EST_BIN) $(TEST_EV_BIN) $(TEST_ALIGN_BIN) $(TEST_PREFETCH_SCAN_BIN) $(TEST_CPU_BIN) $(TEST_OUTCOME_BIN) $(TEST_TEXT_ORDER_BIN) $(TEST_KIMG_BIN) $(TEST_ENG_BIN) $(TEST_INT_BIN) $(TEST_DMESG_BIN) $(TEST_BACKTRACE_BIN) $(TEST_BTF_BIN) $(TEST_DMESG_RESV_BIN) $(TEST_BPE820_BIN) $(TEST_PARSERS_BIN) $(TEST_KCORE_BIN)
 	@$(TEST_DIR)/run-all
 	@$(MAKE) --no-print-directory lint
 
