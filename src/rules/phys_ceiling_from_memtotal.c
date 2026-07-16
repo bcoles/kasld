@@ -31,8 +31,6 @@
 // The coupled-arch virtual ceiling from MemTotal is handled separately
 // by virt_ceiling_from_memtotal, which maps through the resolved
 // Q_PAGE_OFFSET.
-//
-// Phase: POST_COLLECTION. Pure constraint over evidence.
 // ---
 // <bcoles@gmail.com>
 
@@ -112,6 +110,11 @@ int rule_phys_ceiling_from_memtotal(const struct evidence_set *ev,
       return 0;
     if (phys_floor == ULONG_MAX)
       phys_floor = PHYS_OFFSET; /* no observed DRAM: compile-time fallback */
+    /* Wrap guard, mirroring virt_ceiling_from_memtotal: a phys floor plus a
+     * spanned total that runs past the top of the address space (32-bit PAE)
+     * yields no sound ceiling. */
+    if (memtotal > ULONG_MAX - phys_floor)
+      return 0;
     ceiling = phys_floor + memtotal - min_image;
     src_a = msrc;
     src_b = fsrc;

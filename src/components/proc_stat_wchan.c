@@ -79,6 +79,7 @@ static unsigned long get_kernel_addr_proc_stat_wchan(void) {
 
   if (fgets(buff, BUFSIZ, f) == NULL) {
     perror("[-] fgets");
+    fclose(f);
     return 0;
   }
 

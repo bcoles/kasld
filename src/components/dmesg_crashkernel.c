@@ -132,8 +132,14 @@ static int on_reserving(const char *line, void *ctx) {
 
   unsigned long base_mb = strtoul(q + 4, &endptr, 10);
 
-  unsigned long start = base_mb * 1024 * 1024;
-  unsigned long end = start + size_mb * 1024 * 1024;
+  /* MB → bytes with overflow guards: on a 32-bit unsigned long a base/size of
+   * >= 4096 MB wraps and would yield a bogus low range. Skip the line rather
+   * than emit a wrapped reservation. */
+  unsigned long start, size_bytes, end;
+  if (kasld_mul_ovf(base_mb, 1024UL * 1024UL, &start) ||
+      kasld_mul_ovf(size_mb, 1024UL * 1024UL, &size_bytes) ||
+      kasld_add_ovf(start, size_bytes, &end))
+    return 1;
 
   if (start && (!r->lo || start < r->lo))
     r->lo = start;

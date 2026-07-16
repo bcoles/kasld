@@ -73,6 +73,7 @@
 #include "include/kasld/api.h"
 #include "include/kasld/cli.h"
 #include <errno.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -139,8 +140,15 @@ int main(void) {
     return 0;
   }
 
-  unsigned long lo = lo_pfn * PAGE_SIZE;
+  /* Clamp PFNs before the byte conversion: on a 32-bit (PAE) kernel a PFN
+   * above ULONG_MAX / PAGE_SIZE wraps unsigned long and would yield a bogus
+   * too-low RAM bound (and a wrapped direct-map projection below). */
   unsigned long hi_use = hi_end_pfn > hi_pfn ? hi_end_pfn : hi_pfn;
+  if (lo_pfn > ULONG_MAX / PAGE_SIZE)
+    lo_pfn = ULONG_MAX / PAGE_SIZE;
+  if (hi_use > ULONG_MAX / PAGE_SIZE)
+    hi_use = ULONG_MAX / PAGE_SIZE;
+  unsigned long lo = lo_pfn * PAGE_SIZE;
   unsigned long hi = hi_use * PAGE_SIZE - 1;
 
   /* lo: the start of the lowest published zone — a sound RAM witness but
