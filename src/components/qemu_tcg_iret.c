@@ -159,8 +159,11 @@ static uint64_t get_kernel_stack_addr_using_qemu_tcg_iret(void) {
   stack_t ss;
   ss.ss_sp = malloc(SIGSTKSZ);
   if (!ss.ss_sp) {
+    /* This returns a leaked address (0 = none); the safeguard cannot be armed,
+     * so report no leak rather than letting an exit-code value escape as an
+     * address. */
     kasld_err("alt-stack alloc failed; aborting");
-    return KASLD_EXIT_UNAVAILABLE;
+    return 0;
   }
   ss.ss_size = SIGSTKSZ;
   ss.ss_flags = 0;

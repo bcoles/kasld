@@ -116,7 +116,9 @@ static unsigned long get_kernel_addr_mincore(void) {
     }
 
     unsigned long n;
-    for (n = 0; n < page / sizeof(unsigned char); n++) {
+    /* Slide an unsigned-long-wide window over buf; stop before the read would
+     * run past the page-sized allocation (buf[n .. n+sizeof(long)-1]). */
+    for (n = 0; n + sizeof(unsigned long) <= page; n++) {
       addr = *(unsigned long *)(&buf[n]);
       /* Kernel address space */
       if (kasld_addr_is_kernel_text(addr)) {

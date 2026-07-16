@@ -153,6 +153,13 @@ int main(void) {
     uint32_t descsz = hdr[1];
     uint32_t type = hdr[2];
 
+    /* namesz/descsz are attacker-untrusted header fields. Reject anything that
+     * cannot fit in buf before aligning or indexing: a value near UINT32_MAX
+     * would wrap ALIGN4() to a small total (defeating the total > sizeof buf
+     * guard below) and then index name[namesz - 1] far out of bounds. */
+    if (namesz > sizeof buf || descsz > sizeof buf)
+      break;
+
     uint32_t name_aligned = ALIGN4(namesz);
     uint32_t desc_aligned = ALIGN4(descsz);
     uint32_t total = name_aligned + desc_aligned;
