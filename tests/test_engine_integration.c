@@ -106,9 +106,225 @@ static void add_scalar(struct engine *e, enum kasld_scalar_fact f,
   evidence_add(&e->ev, &o);
 }
 
-static int contains(const struct estimate *e, unsigned long v) {
+/* Used only by the x86_64-gated tests, so unused on hosts that compile none of
+ * them (same reason as add_addr_conf / add_addr_top above). */
+__attribute__((unused)) static int contains(const struct estimate *e,
+                                            unsigned long v) {
   return e->lo <= v && v <= e->hi;
 }
+
+/* Arches with a whole-engine containment property test below. Decoupled arches
+ * (x86_64/arm64/riscv64/s390) draw virt and phys text bases independently;
+ * coupled arches (x86_32) draw one and derive the other via the linear map. The
+ * shared containment core applies to both. */
+#if defined(__x86_64__) || defined(__aarch64__) ||                             \
+    ((defined(__riscv) || defined(__riscv__)) && __riscv_xlen == 64) ||        \
+    defined(__s390x__) || defined(__i386__)
+#define KASLD_PROP_ARCH 1
+#endif
+
+#ifdef KASLD_PROP_ARCH
+/* ---- Soundness property test support ----------------------------------------
+ * Deterministic SplitMix64 PRNG + generators, used by the per-arch property
+ * tests below. Determinism is mandatory (the suite bans wall-clock / rand()): a
+ * seed reproduces the exact case, so any failure this finds is promoted
+ * verbatim into a fixed unit test. */
+struct prop_rng {
+  unsigned long long s;
+};
+static unsigned long long prop_rand(struct prop_rng *r) {
+  r->s += 0x9E3779B97F4A7C15ull;
+  unsigned long long z = r->s;
+  z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull;
+  z = (z ^ (z >> 27)) * 0x94D049BB133111EBull;
+  return z ^ (z >> 31);
+}
+/* An `align`-multiple in [lo, hi) (lo assumed already align-aligned). */
+static unsigned long prop_aligned(struct prop_rng *r, unsigned long lo,
+                                  unsigned long hi, unsigned long align) {
+  unsigned long slots = (hi - lo) / align;
+  if (slots == 0)
+    return lo;
+  return lo + (unsigned long)(prop_rand(r) % slots) * align;
+}
+static int prop_coin(struct prop_rng *r) { return (int)(prop_rand(r) & 1u); }
+
+/* Containment via the value-access seam: truth must lie in one of q's resolved
+ * ranges (interval minus any C_EXCLUDE holes carved at `floor`). Returns 1 for
+ * a non-interval quantity (its containment is the [lo,hi] / finset check). */
+static int truth_in_ranges(enum kasld_quantity q, const struct estimate *est,
+                           const struct engine *e, enum kasld_confidence floor,
+                           unsigned long truth) {
+  struct range rs[ESTIMATE_MAX_WORK];
+  int n = quantity_ranges(q, est, floor, e->constraints, e->n_constraints, rs,
+                          ESTIMATE_MAX_WORK);
+  if (n == 0)
+    return 1;
+  for (int i = 0; i < n; i++)
+    if (rs[i].lo <= truth && truth <= rs[i].hi)
+      return 1;
+  return 0;
+}
+
+struct prop_check {
+  enum kasld_quantity q;
+  unsigned long truth;
+};
+
+/* Shared containment core for the per-arch whole-engine property tests. `e`
+ * holds the faithful evidence for one generated truth (unchanged across the two
+ * resolves). Asserts, in BOTH the likely (all-signals) and guaranteed
+ * (sound-floor) windows, that every checked quantity is non-bottom and still
+ * contains its truth (interval + C_EXCLUDE holes via truth_in_ranges). Aborts
+ * with the reproducing seed on the first violation. */
+static void prop_check_containment(struct engine *e, const rule_fn *rules,
+                                   int nr, const verdict_fn *vrules, int nv,
+                                   const struct prop_check *chk, int nchk,
+                                   const char *arch, unsigned long seed) {
+  const struct quantity_def *qd = quantities;
+  for (int pass = 0; pass < 2; pass++) {
+    enum kasld_confidence floor;
+    const char *wname;
+    if (pass == 0) {
+      engine_run_full(e, rules, nr, vrules, nv);
+      floor = CONF_BRUTE;
+      wname = "likely";
+    } else {
+      engine_run_full_floored(e, CONF_INFERRED, rules, nr, vrules, nv);
+      floor = CONF_INFERRED;
+      wname = "guaranteed";
+    }
+    for (int k = 0; k < nchk; k++) {
+      const struct estimate *est = &e->est[chk[k].q];
+      if (estimate_is_bottom(est, &qd[chk[k].q]) ||
+          !contains(est, chk[k].truth) ||
+          !truth_in_ranges(chk[k].q, est, e, floor, chk[k].truth)) {
+        fprintf(stderr,
+                "\nPROPERTY FAIL %s (%s) seed=%lu q=%d truth=0x%lx "
+                "window=[0x%lx,0x%lx]\n",
+                arch, wname, seed, (int)chk[k].q, chk[k].truth, est->lo,
+                est->hi);
+        assert(0 && "property: window excluded the truth");
+      }
+    }
+  }
+}
+
+/* A phys-only baseline that leaves both text-base windows multi-slot (no exact
+ * text pin), so the floor property can inject a distinct in-window value. RAM +
+ * MemTotal + image-size lower bound ceiling the phys base; the virt base stays
+ * near its honest top (x86_64 decouples the two). Faithful: contains the truth
+ * this seed generated (memtotal >= phys + image). Used only by the x86_64 floor
+ * property, so unused on an arm64 host. */
+__attribute__((unused)) static void prop_build_baseline(struct engine *e,
+                                                        unsigned long memtotal,
+                                                        unsigned long image) {
+  engine_init(e);
+  add_addr(e, KASLD_TYPE_PHYS, REGION_RAM, 0, memtotal - 1, NULL);
+  add_scalar(e, SF_PHYS_MEMTOTAL, memtotal);
+  add_scalar(e, SF_IMAGE_SIZE_MIN, image);
+  add_scalar(e, SF_PHYS_ADDR_BITS, 46);
+}
+
+struct prop_axis {
+  enum kasld_addr_type type;
+  enum kasld_quantity q;
+  unsigned long truth;
+  unsigned long align;
+  /* Realistic window to draw the wrong-but-valid pin value from (the arch KASLR
+   * window). On arches whose honest top is a wide VA-config union, drawing from
+   * the whole guaranteed window could pick an address a band-check verdict
+   * invalidates, which would break the positive control; the KASLR window is
+   * where a real _stext can land. */
+  unsigned long pick_lo, pick_hi;
+};
+
+/* Shared floor-invariant core. Over the phys-only baseline (which leaves the
+ * text windows multi-slot), a below-floor wrong base pin on each axis must move
+ * NO guaranteed quantity, while the SAME pin at CONF_PARSED must (per-axis
+ * positive control proves the pin is live). Generalizes
+ * test_full_engine_floor_invariant to random truths/windows; per-arch callers
+ * supply the generated truth + axes. `r` draws the wrong value; memtotal/image
+ * rebuild the baseline for each injection. */
+__attribute__((unused)) static void
+prop_check_floor(const rule_fn *rules, int nr, const verdict_fn *vrules, int nv,
+                 unsigned long memtotal, unsigned long image,
+                 const struct prop_axis *axes, int naxes, struct prop_rng *r,
+                 const char *arch, unsigned long seed) {
+  static const enum kasld_confidence subfloor[] = {CONF_HEURISTIC, CONF_TIMING,
+                                                   CONF_BRUTE};
+  static struct engine e0;
+  prop_build_baseline(&e0, memtotal, image);
+  engine_run_full_floored(&e0, CONF_INFERRED, rules, nr, vrules, nv);
+  struct estimate g0[Q__COUNT];
+  memcpy(g0, e0.est, sizeof(g0));
+
+  for (int a = 0; a < naxes; a++) {
+    assert(contains(&g0[axes[a].q], axes[a].truth)); /* faithful baseline */
+    unsigned long lo = g0[axes[a].q].lo, hi = g0[axes[a].q].hi;
+    unsigned long align = axes[a].align;
+    /* Draw the wrong value from the KASLR window intersected with the
+     * guaranteed window, so it is both in-window (won't bottom the meet) and
+     * valid. */
+    unsigned long plo = axes[a].pick_lo > lo ? axes[a].pick_lo : lo;
+    unsigned long phi = axes[a].pick_hi < hi ? axes[a].pick_hi : hi;
+    if (phi <= plo || (phi - plo) / align < 4)
+      continue; /* window too narrow to plant a distinct in-window value */
+
+    unsigned long wrong = 0;
+    int ok = 0;
+    for (int t = 0; t < 8 && !ok; t++) {
+      unsigned long cand = prop_aligned(r, plo + align, phi, align);
+      if (cand > plo && cand < phi && cand != axes[a].truth) {
+        wrong = cand;
+        ok = 1;
+      }
+    }
+    if (!ok)
+      continue;
+
+    /* Positive control: at CONF_PARSED the pin MUST move guaranteed. */
+    {
+      static struct engine e;
+      prop_build_baseline(&e, memtotal, image);
+      add_addr_conf(&e, axes[a].type, REGION_KERNEL_TEXT, wrong, 0, CONF_PARSED,
+                    "_stext");
+      engine_run_full_floored(&e, CONF_INFERRED, rules, nr, vrules, nv);
+      const struct estimate *g = &e.est[axes[a].q];
+      if (g->lo == lo && g->hi == hi) {
+        fprintf(stderr,
+                "\nPROPERTY FLOOR %s: parsed pin inert seed=%lu axis=%d "
+                "wrong=0x%lx window=[0x%lx,0x%lx]\n",
+                arch, seed, a, wrong, lo, hi);
+        assert(0 &&
+               "floor: CONF_PARSED pin did not move guaranteed (not live)");
+      }
+    }
+
+    /* Invariance: at every sub-floor level the pin moves NO guaranteed quantity
+     * (the whole g[] is byte-identical to the baseline g0). */
+    for (size_t c = 0; c < sizeof(subfloor) / sizeof(subfloor[0]); c++) {
+      static struct engine e;
+      prop_build_baseline(&e, memtotal, image);
+      add_addr_conf(&e, axes[a].type, REGION_KERNEL_TEXT, wrong, 0, subfloor[c],
+                    "_stext");
+      engine_run_full_floored(&e, CONF_INFERRED, rules, nr, vrules, nv);
+      for (int q = 0; q < Q__COUNT; q++) {
+        if (e.est[q].lo != g0[q].lo || e.est[q].hi != g0[q].hi ||
+            e.est[q].stride != g0[q].stride ||
+            e.est[q].stride_offset != g0[q].stride_offset) {
+          fprintf(
+              stderr,
+              "\nPROPERTY FLOOR %s: sub-floor pin MOVED guaranteed seed=%lu "
+              "axis=%d conf=%d q=%d wrong=0x%lx\n",
+              arch, seed, a, (int)subfloor[c], q, wrong);
+          assert(0 && "floor: below-floor signal moved the guaranteed window");
+        }
+      }
+    }
+  }
+}
+#endif /* KASLD_PROP_ARCH */
 
 /* A consistent x86_64 KASLR placement and the leaks a real run might gather. */
 static void test_full_engine_x86_64_leaky(void) {
@@ -998,6 +1214,503 @@ static void test_full_engine_s390_old_identity_map_sound(void) {
 #endif
 }
 
+/* Property test: over a seeded family of valid x86_64 layouts and a random
+ * subset of the faithful leaks each would produce, the resolved window of every
+ * quantity must still contain the truth — in the all-signals (likely) window
+ * AND the sound-floor (guaranteed) window. Generalizes
+ * test_full_engine_x86_64_leaky from one hand-picked truth to thousands.
+ * Soundness only: a rule that emits nothing passes (precision is the per-rule
+ * unit tests' job). A failure prints the seed, which reproduces the case
+ * exactly for promotion to a fixed test. */
+static void test_full_engine_property_x86_64(void) {
+#if defined(__x86_64__)
+  int nr = 0, nv = 0;
+  const rule_fn *rules = engine_rules(&nr);
+  const verdict_fn *vrules = engine_verdict_rules(&nv);
+  const unsigned long ITERS = 2000;
+  for (unsigned long seed = 0; seed < ITERS; seed++) {
+    struct prop_rng r = {seed * 0x100000001B3ull + 0xCBF29CE484222325ull};
+
+    /* --- a valid, aligned x86_64 truth (real KASLR windows) --- */
+    /* Image geometry first: the base ceilings (base + image <= window max, a
+     * real kernel's image fits inside the KASLR window) depend on it. */
+    unsigned long gap =
+        (1ul + prop_rand(&r) % 16ul) * 0x100000ul; /* 1..16 MiB */
+    unsigned long image =
+        gap + (prop_rand(&r) % 16ul) * 0x100000ul; /* >= gap */
+    unsigned long virt =
+        prop_aligned(&r, (unsigned long)KASLR_VIRT_TEXT_MIN,
+                     (unsigned long)KASLR_VIRT_TEXT_MAX - image,
+                     (unsigned long)KASLR_VIRT_ALIGN);
+    unsigned long phys = prop_aligned(&r, (unsigned long)KASLR_PHYS_MIN,
+                                      (unsigned long)KASLR_PHYS_MAX - image,
+                                      (unsigned long)KASLR_PHYS_ALIGN);
+    /* L4 direct-map base: 1 GiB-aligned, a bounded random offset above it. */
+    unsigned long po = (unsigned long)PAGE_OFFSET_BASE_L4 +
+                       (unsigned long)(prop_rand(&r) % 0x1000ull) *
+                           (unsigned long)RANDOMIZE_MEMORY_ALIGN;
+    unsigned long memtotal = phys + image +
+                             (unsigned long)(prop_rand(&r) % 0x40000000ull) +
+                             0x10000000ul;
+
+    struct engine e;
+    engine_init(&e);
+
+    /* --- a random subset of faithful leaks (all consistent with the truth) ---
+     */
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_VIRT, REGION_KERNEL_TEXT,
+               virt + (unsigned long)STEXT_OFFSET, 0, "_stext");
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_VIRT, REGION_KERNEL_DATA, virt + gap, 0,
+               "_edata");
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_PHYS, REGION_KERNEL_TEXT, phys, 0, "_stext");
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_VIRT, REGION_DIRECTMAP,
+               po + (unsigned long)(prop_rand(&r) % 0x10000000ull), 0, NULL);
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_PHYS, REGION_RAM, 0, memtotal - 1, NULL);
+    if (prop_coin(&r))
+      add_scalar(&e, SF_IMAGE_SIZE_MIN,
+                 image); /* lower bound on the footprint */
+    if (prop_coin(&r))
+      add_scalar(&e, SF_PHYS_MEMTOTAL, memtotal);
+    if (prop_coin(&r))
+      add_scalar(&e, SF_PHYS_ADDR_BITS, 46);
+    if (prop_coin(&r))
+      add_scalar(&e, SF_PHYS_KERNEL_ALIGN, (unsigned long)KASLR_PHYS_ALIGN);
+
+    struct prop_check chk[] = {
+        {Q_VIRT_IMAGE_BASE, virt},
+        {Q_PHYS_IMAGE_BASE, phys},
+        {Q_PAGE_OFFSET, po},
+    };
+    prop_check_containment(&e, rules, nr, vrules, nv, chk,
+                           (int)(sizeof(chk) / sizeof(chk[0])), "x86_64", seed);
+  }
+#endif
+}
+
+/* Property test (adversarial / floor invariant). Generalizes
+ * test_full_engine_floor_invariant from one fixed baseline + two fixed
+ * injection values to a seeded family: over random truths and windows, a
+ * below-floor wrong base pin must NEVER move the guaranteed window (which
+ * resolves at CONF_INFERRED), while the SAME pin at CONF_PARSED MUST (the
+ * per-iteration positive control proves the injection is live, not vacuously
+ * ignored). This is the property whose failure is the guaranteed-window
+ * hole-carving / size-pin bug class — a rule reading a below-floor observation
+ * into an at-floor constraint. */
+static void test_full_engine_property_x86_64_floor(void) {
+#if defined(__x86_64__)
+  int nr = 0, nv = 0;
+  const rule_fn *rules = engine_rules(&nr);
+  const verdict_fn *vrules = engine_verdict_rules(&nv);
+
+  const unsigned long ITERS = 1500;
+  for (unsigned long seed = 0; seed < ITERS; seed++) {
+    struct prop_rng r = {seed * 0x100000001B3ull + 0x1234567ull};
+
+    unsigned long gap = (1ul + prop_rand(&r) % 16ul) * 0x100000ul;
+    unsigned long image = gap + (prop_rand(&r) % 16ul) * 0x100000ul;
+    unsigned long virt =
+        prop_aligned(&r, (unsigned long)KASLR_VIRT_TEXT_MIN,
+                     (unsigned long)KASLR_VIRT_TEXT_MAX - image,
+                     (unsigned long)KASLR_VIRT_ALIGN);
+    unsigned long phys = prop_aligned(&r, (unsigned long)KASLR_PHYS_MIN,
+                                      (unsigned long)KASLR_PHYS_MAX - image,
+                                      (unsigned long)KASLR_PHYS_ALIGN);
+    unsigned long memtotal = phys + image +
+                             (unsigned long)(prop_rand(&r) % 0x40000000ull) +
+                             0x10000000ul;
+
+    struct prop_axis axes[] = {
+        {KASLD_TYPE_VIRT, Q_VIRT_IMAGE_BASE, virt,
+         (unsigned long)KASLR_VIRT_ALIGN, (unsigned long)KASLR_VIRT_TEXT_MIN,
+         (unsigned long)KASLR_VIRT_TEXT_MAX},
+        {KASLD_TYPE_PHYS, Q_PHYS_IMAGE_BASE, phys,
+         (unsigned long)KASLR_PHYS_ALIGN, (unsigned long)KASLR_PHYS_MIN,
+         (unsigned long)KASLR_PHYS_MAX},
+    };
+    prop_check_floor(rules, nr, vrules, nv, memtotal, image, axes, 2, &r,
+                     "x86_64", seed);
+  }
+#endif
+}
+
+/* Property test: arm64 whole-engine containment. arm64 is decoupled like x86_64
+ * (virt/phys text randomize independently) but with a 64 KiB granule, a nonzero
+ * .head.text gap (STEXT_OFFSET), and a honest top spanning the VA_BITS configs
+ * — so it drives a distinct set of arch rules over the same invariant. Default
+ * (48-bit) placements: with no VA_BITS signal, Q_VA_BITS stays the full
+ * candidate set and the virt honest top is the config union (which contains a
+ * 48-bit base); the faithful leaks must narrow toward the truth, not past it.
+ */
+static void test_full_engine_property_arm64(void) {
+#if defined(__aarch64__)
+  int nr = 0, nv = 0;
+  const rule_fn *rules = engine_rules(&nr);
+  const verdict_fn *vrules = engine_verdict_rules(&nv);
+  const unsigned long ITERS = 2000;
+  for (unsigned long seed = 0; seed < ITERS; seed++) {
+    struct prop_rng r = {seed * 0x100000001B3ull + 0xA5A5A5A5ull};
+
+    unsigned long gap =
+        (1ul + prop_rand(&r) % 16ul) * 0x100000ul; /* 1..16 MiB */
+    unsigned long image =
+        gap + (prop_rand(&r) % 16ul) * 0x100000ul; /* >= gap */
+    unsigned long virt =
+        prop_aligned(&r, (unsigned long)KASLR_VIRT_TEXT_MIN,
+                     (unsigned long)KASLR_VIRT_TEXT_MAX - image,
+                     (unsigned long)KASLR_VIRT_ALIGN);
+    /* phys floor at one align unit (KASLR_PHYS_MIN is 0 on arm64; a phys base
+     * of 0 is not a realistic placement). */
+    unsigned long phys = prop_aligned(&r, (unsigned long)KASLR_PHYS_ALIGN,
+                                      (unsigned long)KASLR_PHYS_MAX - image,
+                                      (unsigned long)KASLR_PHYS_ALIGN);
+    unsigned long memtotal = phys + image +
+                             (unsigned long)(prop_rand(&r) % 0x40000000ull) +
+                             0x10000000ul;
+
+    struct engine e;
+    engine_init(&e);
+
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_VIRT, REGION_KERNEL_TEXT,
+               virt + (unsigned long)STEXT_OFFSET, 0, "_stext");
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_VIRT, REGION_KERNEL_DATA, virt + gap, 0,
+               "_edata");
+    /* Faithful phys _stext = phys image base + the .head.text gap (the same
+     * image-internal offset in virt and phys space). */
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_PHYS, REGION_KERNEL_TEXT,
+               phys + (unsigned long)STEXT_OFFSET, 0, "_stext");
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_PHYS, REGION_RAM, 0, memtotal - 1, NULL);
+    if (prop_coin(&r))
+      add_scalar(&e, SF_IMAGE_SIZE_MIN, image);
+    if (prop_coin(&r))
+      add_scalar(&e, SF_PHYS_MEMTOTAL, memtotal);
+    if (prop_coin(&r))
+      add_scalar(&e, SF_PHYS_ADDR_BITS, 48);
+
+    struct prop_check chk[] = {
+        {Q_VIRT_IMAGE_BASE, virt},
+        {Q_PHYS_IMAGE_BASE, phys},
+    };
+    prop_check_containment(&e, rules, nr, vrules, nv, chk,
+                           (int)(sizeof(chk) / sizeof(chk[0])), "arm64", seed);
+  }
+#endif
+}
+
+/* Property test: riscv64 whole-engine containment. Decoupled KASLR, 2 MiB
+ * granule, STEXT_OFFSET 0 (the KASLD image base is the _stext value here). Same
+ * faithful-leak set as the other decoupled arches. */
+static void test_full_engine_property_riscv64(void) {
+#if (defined(__riscv) || defined(__riscv__)) && __riscv_xlen == 64
+  int nr = 0, nv = 0;
+  const rule_fn *rules = engine_rules(&nr);
+  const verdict_fn *vrules = engine_verdict_rules(&nv);
+
+  const unsigned long ITERS = 2000;
+  for (unsigned long seed = 0; seed < ITERS; seed++) {
+    struct prop_rng r = {seed * 0x100000001B3ull + 0x5C711Full};
+
+    unsigned long gap = (1ul + prop_rand(&r) % 16ul) * 0x100000ul;
+    unsigned long image = gap + (prop_rand(&r) % 16ul) * 0x100000ul;
+    unsigned long virt =
+        prop_aligned(&r, (unsigned long)KASLR_VIRT_TEXT_MIN,
+                     (unsigned long)KASLR_VIRT_TEXT_MAX - image,
+                     (unsigned long)KASLR_VIRT_ALIGN);
+    unsigned long phys = prop_aligned(&r, (unsigned long)KASLR_PHYS_MIN,
+                                      (unsigned long)KASLR_PHYS_MAX - image,
+                                      (unsigned long)KASLR_PHYS_ALIGN);
+    unsigned long memtotal = phys + image +
+                             (unsigned long)(prop_rand(&r) % 0x40000000ull) +
+                             0x10000000ul;
+
+    struct engine e;
+    engine_init(&e);
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_VIRT, REGION_KERNEL_TEXT,
+               virt + (unsigned long)STEXT_OFFSET, 0, "_stext");
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_VIRT, REGION_KERNEL_DATA, virt + gap, 0,
+               "_edata");
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_PHYS, REGION_KERNEL_TEXT,
+               phys + (unsigned long)STEXT_OFFSET, 0, "_stext");
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_PHYS, REGION_RAM, 0, memtotal - 1, NULL);
+    if (prop_coin(&r))
+      add_scalar(&e, SF_IMAGE_SIZE_MIN, image);
+    if (prop_coin(&r))
+      add_scalar(&e, SF_PHYS_MEMTOTAL, memtotal);
+    if (prop_coin(&r))
+      add_scalar(&e, SF_PHYS_ADDR_BITS, 48);
+
+    struct prop_check chk[] = {
+        {Q_VIRT_IMAGE_BASE, virt},
+        {Q_PHYS_IMAGE_BASE, phys},
+    };
+    prop_check_containment(&e, rules, nr, vrules, nv, chk,
+                           (int)(sizeof(chk) / sizeof(chk[0])), "riscv64",
+                           seed);
+  }
+#endif
+}
+
+/* Property test: s390 whole-engine containment. Decoupled KASLR, 16 KiB virt /
+ * 1 MiB phys granule, STEXT_OFFSET 0. Same faithful-leak set. */
+static void test_full_engine_property_s390(void) {
+#if defined(__s390x__)
+  int nr = 0, nv = 0;
+  const rule_fn *rules = engine_rules(&nr);
+  const verdict_fn *vrules = engine_verdict_rules(&nv);
+
+  const unsigned long ITERS = 2000;
+  for (unsigned long seed = 0; seed < ITERS; seed++) {
+    struct prop_rng r = {seed * 0x100000001B3ull + 0x53390ull};
+
+    unsigned long gap = (1ul + prop_rand(&r) % 16ul) * 0x100000ul;
+    unsigned long image = gap + (prop_rand(&r) % 16ul) * 0x100000ul;
+    unsigned long virt =
+        prop_aligned(&r, (unsigned long)KASLR_VIRT_TEXT_MIN,
+                     (unsigned long)KASLR_VIRT_TEXT_MAX - image,
+                     (unsigned long)KASLR_VIRT_ALIGN);
+    unsigned long phys = prop_aligned(&r, (unsigned long)KASLR_PHYS_MIN,
+                                      (unsigned long)KASLR_PHYS_MAX - image,
+                                      (unsigned long)KASLR_PHYS_ALIGN);
+    unsigned long memtotal = phys + image +
+                             (unsigned long)(prop_rand(&r) % 0x40000000ull) +
+                             0x10000000ul;
+
+    struct engine e;
+    engine_init(&e);
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_VIRT, REGION_KERNEL_TEXT,
+               virt + (unsigned long)STEXT_OFFSET, 0, "_stext");
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_VIRT, REGION_KERNEL_DATA, virt + gap, 0,
+               "_edata");
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_PHYS, REGION_KERNEL_TEXT,
+               phys + (unsigned long)STEXT_OFFSET, 0, "_stext");
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_PHYS, REGION_RAM, 0, memtotal - 1, NULL);
+    if (prop_coin(&r))
+      add_scalar(&e, SF_IMAGE_SIZE_MIN, image);
+    if (prop_coin(&r))
+      add_scalar(&e, SF_PHYS_MEMTOTAL, memtotal);
+
+    struct prop_check chk[] = {
+        {Q_VIRT_IMAGE_BASE, virt},
+        {Q_PHYS_IMAGE_BASE, phys},
+    };
+    prop_check_containment(&e, rules, nr, vrules, nv, chk,
+                           (int)(sizeof(chk) / sizeof(chk[0])), "s390", seed);
+  }
+#endif
+}
+
+/* Property test: x86_32 whole-engine containment — a COUPLED arch. Kernel text
+ * sits in the linear map, so virt and phys text bases share one KASLR slide:
+ * virt = phys_to_directmap_virt(phys). The generator draws phys and derives
+ * virt; a random leak subset (sometimes phys-only or virt-only) forces
+ * text_base_coupling_synth to reconstruct the other side, so this exercises the
+ * coupling-rule family the decoupled tests never reach. STEXT_OFFSET 0. */
+static void test_full_engine_property_x86_32(void) {
+#if defined(__i386__)
+  int nr = 0, nv = 0;
+  const rule_fn *rules = engine_rules(&nr);
+  const verdict_fn *vrules = engine_verdict_rules(&nv);
+
+  const unsigned long ITERS = 2000;
+  for (unsigned long seed = 0; seed < ITERS; seed++) {
+    struct prop_rng r = {seed * 0x100000001B3ull + 0x86326ull};
+
+    unsigned long gap = (1ul + prop_rand(&r) % 16ul) * 0x100000ul;
+    unsigned long image = gap + (prop_rand(&r) % 16ul) * 0x100000ul;
+    unsigned long phys = prop_aligned(&r, (unsigned long)KASLR_PHYS_ALIGN,
+                                      (unsigned long)KASLR_PHYS_MAX - image,
+                                      (unsigned long)KASLR_PHYS_ALIGN);
+    /* Coupled: the virtual text base tracks phys in the linear map. */
+    unsigned long virt = phys_to_directmap_virt(phys);
+    unsigned long memtotal = phys + image +
+                             (unsigned long)(prop_rand(&r) % 0x08000000ull) +
+                             0x02000000ul;
+
+    struct engine e;
+    engine_init(&e);
+    /* A page-offset landmark pins Q_PAGE_OFFSET to the (default vmsplit)
+     * linear- map base — a real 32-bit kernel has a definite PAGE_OFFSET. This
+     * is what enables text_base_coupling_synth (it projects only when
+     * PAGE_OFFSET is pinned), so the phys-only / virt-only subsets below
+     * exercise the coupling reconstruction rather than leaving the two bases
+     * independent. */
+    add_addr(&e, KASLD_TYPE_VIRT, REGION_PAGE_OFFSET,
+             (unsigned long)PAGE_OFFSET, 0, "page_offset");
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_VIRT, REGION_KERNEL_TEXT,
+               virt + (unsigned long)STEXT_OFFSET, 0, "_stext");
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_VIRT, REGION_KERNEL_DATA, virt + gap, 0,
+               "_edata");
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_PHYS, REGION_KERNEL_TEXT,
+               phys + (unsigned long)STEXT_OFFSET, 0, "_stext");
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_PHYS, REGION_RAM, 0, memtotal - 1, NULL);
+    if (prop_coin(&r))
+      add_scalar(&e, SF_IMAGE_SIZE_MIN, image);
+    if (prop_coin(&r))
+      add_scalar(&e, SF_PHYS_MEMTOTAL, memtotal);
+
+    struct prop_check chk[] = {
+        {Q_VIRT_IMAGE_BASE, virt},
+        {Q_PHYS_IMAGE_BASE, phys},
+    };
+    prop_check_containment(&e, rules, nr, vrules, nv, chk,
+                           (int)(sizeof(chk) / sizeof(chk[0])), "x86_32", seed);
+  }
+#endif
+}
+
+/* Floor invariant on the other decoupled arches — same property as the x86_64
+ * floor test, exercising each arch's own rule set (the arch-specific rules only
+ * run on their arch, so a floor-gating bug in e.g. riscv64_text_base is only
+ * caught here). */
+static void test_full_engine_property_arm64_floor(void) {
+#if defined(__aarch64__)
+  int nr = 0, nv = 0;
+  const rule_fn *rules = engine_rules(&nr);
+  const verdict_fn *vrules = engine_verdict_rules(&nv);
+  for (unsigned long seed = 0; seed < 1500; seed++) {
+    struct prop_rng r = {seed * 0x100000001B3ull + 0xF100A64ull};
+    unsigned long gap = (1ul + prop_rand(&r) % 16ul) * 0x100000ul;
+    unsigned long image = gap + (prop_rand(&r) % 16ul) * 0x100000ul;
+    unsigned long virt =
+        prop_aligned(&r, (unsigned long)KASLR_VIRT_TEXT_MIN,
+                     (unsigned long)KASLR_VIRT_TEXT_MAX - image,
+                     (unsigned long)KASLR_VIRT_ALIGN);
+    unsigned long phys = prop_aligned(&r, (unsigned long)KASLR_PHYS_ALIGN,
+                                      (unsigned long)KASLR_PHYS_MAX - image,
+                                      (unsigned long)KASLR_PHYS_ALIGN);
+    unsigned long memtotal = phys + image +
+                             (unsigned long)(prop_rand(&r) % 0x40000000ull) +
+                             0x10000000ul;
+    struct prop_axis axes[] = {
+        {KASLD_TYPE_VIRT, Q_VIRT_IMAGE_BASE, virt,
+         (unsigned long)KASLR_VIRT_ALIGN, (unsigned long)KASLR_VIRT_TEXT_MIN,
+         (unsigned long)KASLR_VIRT_TEXT_MAX},
+        {KASLD_TYPE_PHYS, Q_PHYS_IMAGE_BASE, phys,
+         (unsigned long)KASLR_PHYS_ALIGN, (unsigned long)KASLR_PHYS_ALIGN,
+         (unsigned long)KASLR_PHYS_MAX},
+    };
+    prop_check_floor(rules, nr, vrules, nv, memtotal, image, axes, 2, &r,
+                     "arm64", seed);
+  }
+#endif
+}
+
+static void test_full_engine_property_riscv64_floor(void) {
+#if (defined(__riscv) || defined(__riscv__)) && __riscv_xlen == 64
+  int nr = 0, nv = 0;
+  const rule_fn *rules = engine_rules(&nr);
+  const verdict_fn *vrules = engine_verdict_rules(&nv);
+  for (unsigned long seed = 0; seed < 1500; seed++) {
+    struct prop_rng r = {seed * 0x100000001B3ull + 0xF105C71ull};
+    unsigned long gap = (1ul + prop_rand(&r) % 16ul) * 0x100000ul;
+    unsigned long image = gap + (prop_rand(&r) % 16ul) * 0x100000ul;
+    unsigned long virt =
+        prop_aligned(&r, (unsigned long)KASLR_VIRT_TEXT_MIN,
+                     (unsigned long)KASLR_VIRT_TEXT_MAX - image,
+                     (unsigned long)KASLR_VIRT_ALIGN);
+    unsigned long phys = prop_aligned(&r, (unsigned long)KASLR_PHYS_MIN,
+                                      (unsigned long)KASLR_PHYS_MAX - image,
+                                      (unsigned long)KASLR_PHYS_ALIGN);
+    unsigned long memtotal = phys + image +
+                             (unsigned long)(prop_rand(&r) % 0x40000000ull) +
+                             0x10000000ul;
+    struct prop_axis axes[] = {
+        {KASLD_TYPE_VIRT, Q_VIRT_IMAGE_BASE, virt,
+         (unsigned long)KASLR_VIRT_ALIGN, (unsigned long)KASLR_VIRT_TEXT_MIN,
+         (unsigned long)KASLR_VIRT_TEXT_MAX},
+        {KASLD_TYPE_PHYS, Q_PHYS_IMAGE_BASE, phys,
+         (unsigned long)KASLR_PHYS_ALIGN, (unsigned long)KASLR_PHYS_MIN,
+         (unsigned long)KASLR_PHYS_MAX},
+    };
+    prop_check_floor(rules, nr, vrules, nv, memtotal, image, axes, 2, &r,
+                     "riscv64", seed);
+  }
+#endif
+}
+
+static void test_full_engine_property_s390_floor(void) {
+#if defined(__s390x__)
+  int nr = 0, nv = 0;
+  const rule_fn *rules = engine_rules(&nr);
+  const verdict_fn *vrules = engine_verdict_rules(&nv);
+  for (unsigned long seed = 0; seed < 1500; seed++) {
+    struct prop_rng r = {seed * 0x100000001B3ull + 0xF10539ull};
+    unsigned long gap = (1ul + prop_rand(&r) % 16ul) * 0x100000ul;
+    unsigned long image = gap + (prop_rand(&r) % 16ul) * 0x100000ul;
+    unsigned long virt =
+        prop_aligned(&r, (unsigned long)KASLR_VIRT_TEXT_MIN,
+                     (unsigned long)KASLR_VIRT_TEXT_MAX - image,
+                     (unsigned long)KASLR_VIRT_ALIGN);
+    unsigned long phys = prop_aligned(&r, (unsigned long)KASLR_PHYS_MIN,
+                                      (unsigned long)KASLR_PHYS_MAX - image,
+                                      (unsigned long)KASLR_PHYS_ALIGN);
+    unsigned long memtotal = phys + image +
+                             (unsigned long)(prop_rand(&r) % 0x40000000ull) +
+                             0x10000000ul;
+    struct prop_axis axes[] = {
+        {KASLD_TYPE_VIRT, Q_VIRT_IMAGE_BASE, virt,
+         (unsigned long)KASLR_VIRT_ALIGN, (unsigned long)KASLR_VIRT_TEXT_MIN,
+         (unsigned long)KASLR_VIRT_TEXT_MAX},
+        {KASLD_TYPE_PHYS, Q_PHYS_IMAGE_BASE, phys,
+         (unsigned long)KASLR_PHYS_ALIGN, (unsigned long)KASLR_PHYS_MIN,
+         (unsigned long)KASLR_PHYS_MAX},
+    };
+    prop_check_floor(rules, nr, vrules, nv, memtotal, image, axes, 2, &r,
+                     "s390", seed);
+  }
+#endif
+}
+
+static void test_full_engine_property_x86_32_floor(void) {
+#if defined(__i386__)
+  int nr = 0, nv = 0;
+  const rule_fn *rules = engine_rules(&nr);
+  const verdict_fn *vrules = engine_verdict_rules(&nv);
+  for (unsigned long seed = 0; seed < 1500; seed++) {
+    struct prop_rng r = {seed * 0x100000001B3ull + 0xF108632ull};
+    unsigned long gap = (1ul + prop_rand(&r) % 16ul) * 0x100000ul;
+    unsigned long image = gap + (prop_rand(&r) % 16ul) * 0x100000ul;
+    unsigned long phys = prop_aligned(&r, (unsigned long)KASLR_PHYS_ALIGN,
+                                      (unsigned long)KASLR_PHYS_MAX - image,
+                                      (unsigned long)KASLR_PHYS_ALIGN);
+    unsigned long virt = phys_to_directmap_virt(phys); /* coupled */
+    unsigned long memtotal = phys + image +
+                             (unsigned long)(prop_rand(&r) % 0x08000000ull) +
+                             0x02000000ul;
+    struct prop_axis axes[] = {
+        {KASLD_TYPE_VIRT, Q_VIRT_IMAGE_BASE, virt,
+         (unsigned long)KASLR_VIRT_ALIGN, (unsigned long)KASLR_VIRT_TEXT_MIN,
+         (unsigned long)KASLR_VIRT_TEXT_MAX},
+        {KASLD_TYPE_PHYS, Q_PHYS_IMAGE_BASE, phys,
+         (unsigned long)KASLR_PHYS_ALIGN, (unsigned long)KASLR_PHYS_ALIGN,
+         (unsigned long)KASLR_PHYS_MAX},
+    };
+    prop_check_floor(rules, nr, vrules, nv, memtotal, image, axes, 2, &r,
+                     "x86_32", seed);
+  }
+#endif
+}
+
 int main(void) {
   TEST_SUITE("test_engine_integration");
 
@@ -1005,6 +1718,16 @@ int main(void) {
   RUN(test_full_engine_x86_64_leaky);
   RUN(test_full_engine_two_window);
   RUN(test_full_engine_floor_invariant);
+  RUN(test_full_engine_property_x86_64);
+  RUN(test_full_engine_property_x86_64_floor);
+  RUN(test_full_engine_property_arm64_floor);
+  RUN(test_full_engine_property_riscv64_floor);
+  RUN(test_full_engine_property_s390_floor);
+  RUN(test_full_engine_property_x86_32_floor);
+  RUN(test_full_engine_property_arm64);
+  RUN(test_full_engine_property_riscv64);
+  RUN(test_full_engine_property_s390);
+  RUN(test_full_engine_property_x86_32);
   RUN(test_full_engine_ppc64_hardened_shape);
   RUN(test_full_engine_s390_no_prng_shape);
   RUN(test_full_engine_arm32_no_kaslr_shape);
