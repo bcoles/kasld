@@ -4327,8 +4327,10 @@ static void test_page_offset_from_leak(void) {
   engine_init(&e);
   struct estimate top;
   quantities[Q_PAGE_OFFSET].init_top(&top);
-  unsigned long base =
-      top.lo; /* inside the arch window so the pin is admitted */
+  /* Inside the arch window so the pin is admitted, and non-zero: the rule (like
+   * page_offset_from_config) treats 0 as "unset". s390's window starts at 0
+   * (PAGE_OFFSET==0), so fall back to top.hi there. */
+  unsigned long base = top.lo ? top.lo : top.hi;
   struct observation o = mk_scalar(SF_VIRT_PAGE_OFFSET, base, CONF_PARSED);
   evidence_add(&e.ev, &o);
 
