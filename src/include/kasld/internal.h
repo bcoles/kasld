@@ -454,6 +454,7 @@ extern int hardening_mode;
 extern int sysctl_kptr_restrict;
 extern int sysctl_dmesg_restrict;
 extern int sysctl_perf_event_paranoid;
+extern int sysctl_unprivileged_bpf_disabled;
 extern int hashed_pointers;
 
 enum lockdown_mode {

@@ -88,7 +88,7 @@ void render_markdown(const struct summary *s);
  */
 #define HR_NAME_MAX 64
 #define HR_GATES_MAX                                                           \
-  5 /* 4 sysctl gates + the synthetic seccomp filter gate                      \
+  6 /* 5 sysctl gates + the synthetic seccomp filter gate                      \
      */
 #define HR_VULNS_MAX 16
 #define HR_SURFACE_MAX 64

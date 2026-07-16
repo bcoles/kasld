@@ -1538,6 +1538,64 @@ static void test_build_hardening_report(void) {
   num_scalar_facts = 0;
 }
 
+/* The unprivileged_bpf_disabled gate: 0 = unprivileged bpf() allowed (the leak
+ * fires), >=1 = disabled (blocks it), so it uses the "value >= threshold
+ * blocks" model with threshold 1. Inactive (0) with a succeeded bpf component
+ * yields a "Set kernel.unprivileged_bpf_disabled = 1" suggestion; active (>=1)
+ * with a denied component credits the gate as blocking. */
+static void test_hardening_unprivileged_bpf_gate(void) {
+  const struct hr_gate *gb;
+  struct hardening_report rep;
+
+  /* Inactive gate + succeeded leak -> a suggestion. */
+  reset_results();
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+  sysctl_unprivileged_bpf_disabled = 0; /* inactive (threshold 1) */
+  struct component_log *c = hr_seed_comp("c_bpf_leak", OUTCOME_SUCCESS);
+  hr_seed_meta(c, "method", "parsed");
+  hr_seed_meta(c, "sysctl", "unprivileged_bpf_disabled>=1");
+  hr_seed_meta(c, "addr", "virtual");
+
+  build_hardening_report(&rep);
+  gb = NULL;
+  for (int i = 0; i < rep.n_gates; i++)
+    if (strcmp(rep.gates[i].display, "kernel.unprivileged_bpf_disabled") == 0)
+      gb = &rep.gates[i];
+  assert(gb && !gb->active && gb->gated == 1 && gb->bypassed == 1);
+  int found = 0;
+  for (int i = 0; i < rep.n_gate_suggestions; i++)
+    if (strcmp(rep.gate_suggestions[i].display,
+               "kernel.unprivileged_bpf_disabled") == 0) {
+      found = 1;
+      assert(rep.gate_suggestions[i].threshold == 1);
+    }
+  assert(found);
+
+  /* Active gate + denied leak -> credited as blocking, not a suggestion. */
+  reset_results();
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+  sysctl_unprivileged_bpf_disabled = 2; /* active (>= threshold 1) */
+  c = hr_seed_comp("c_bpf_blocked", OUTCOME_ACCESS_DENIED);
+  hr_seed_meta(c, "method", "parsed");
+  hr_seed_meta(c, "sysctl", "unprivileged_bpf_disabled>=1");
+
+  build_hardening_report(&rep);
+  gb = NULL;
+  for (int i = 0; i < rep.n_gates; i++)
+    if (strcmp(rep.gates[i].display, "kernel.unprivileged_bpf_disabled") == 0)
+      gb = &rep.gates[i];
+  assert(gb && gb->active && gb->gated == 1 && gb->blocked == 1);
+  for (int i = 0; i < rep.n_gate_suggestions; i++)
+    assert(strcmp(rep.gate_suggestions[i].display,
+                  "kernel.unprivileged_bpf_disabled") != 0);
+
+  sysctl_unprivileged_bpf_disabled = -1; /* restore unread sentinel */
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+}
+
 static void wrap_render_hardening_text(void *a) {
   (void)a;
   render_hardening_text();
@@ -1962,6 +2020,7 @@ int main(void) {
   RUN(test_render_hardening_json);
   RUN(test_render_hardening_markdown);
   RUN(test_build_hardening_report);
+  RUN(test_hardening_unprivileged_bpf_gate);
   RUN(test_hardening_projection);
   RUN(test_hardening_projection_no_exposure);
   RUN(test_hardening_projection_redundant);

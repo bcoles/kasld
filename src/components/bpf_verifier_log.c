@@ -122,7 +122,7 @@ KASLD_META("method:parsed\n"
            "phase:inference\n"
            "live:1\n"
            "addr:virtual\n"
-           "sysctl:unprivileged_bpf_disabled=0\n"
+           "sysctl:unprivileged_bpf_disabled>=1\n"
            "bypass:CAP_BPF\n"
            "patch:v7.2\n");
 

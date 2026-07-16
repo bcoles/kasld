@@ -70,6 +70,9 @@ static int num_skip_patterns;
 int sysctl_kptr_restrict = -1;
 int sysctl_dmesg_restrict = -1;
 int sysctl_perf_event_paranoid = -1;
+/* unprivileged bpf(): 0 = allowed, >=1 = disabled (blocks the unprivileged
+ * bpf leak components). -1 = sysctl absent. */
+int sysctl_unprivileged_bpf_disabled = -1;
 
 /* Kernel pointer hashing: 1 = %p/%pK hashed (the default — mitigating), 0 =
  * no_hash_pointers / hash_pointers=never on the boot cmdline (raw addresses),
@@ -608,6 +611,8 @@ static void print_system_config(void) {
   sysctl_dmesg_restrict = read_sysctl_int("/proc/sys/kernel/dmesg_restrict");
   sysctl_perf_event_paranoid =
       read_sysctl_int("/proc/sys/kernel/perf_event_paranoid");
+  sysctl_unprivileged_bpf_disabled =
+      read_sysctl_int("/proc/sys/kernel/unprivileged_bpf_disabled");
   sysctl_lockdown = read_lockdown();
   hashed_pointers = read_pointer_hashing();
 
@@ -3716,6 +3721,8 @@ int main(int argc, char *argv[]) {
     sysctl_dmesg_restrict = read_sysctl_int("/proc/sys/kernel/dmesg_restrict");
     sysctl_perf_event_paranoid =
         read_sysctl_int("/proc/sys/kernel/perf_event_paranoid");
+    sysctl_unprivileged_bpf_disabled =
+        read_sysctl_int("/proc/sys/kernel/unprivileged_bpf_disabled");
     sysctl_lockdown = read_lockdown();
     hashed_pointers = read_pointer_hashing();
   }

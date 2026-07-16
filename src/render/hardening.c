@@ -30,6 +30,7 @@ enum {
   GATE_KPTR_RESTRICT = 0,
   GATE_DMESG_RESTRICT,
   GATE_PERF_EVENT_PARANOID,
+  GATE_UNPRIVILEGED_BPF,
   GATE_HASHED_POINTERS,
   GATE__COUNT,
 };
@@ -41,6 +42,12 @@ static const struct sysctl_gate gates[GATE__COUNT] = {
     [GATE_PERF_EVENT_PARANOID] = {"perf_event_paranoid",
                                   "kernel.perf_event_paranoid",
                                   &sysctl_perf_event_paranoid, 2},
+    /* 0 = unprivileged bpf() allowed, >=1 disables it (blocks the unprivileged
+     * bpf leak components), so the "value >= threshold blocks" model fits with
+     * threshold 1. */
+    [GATE_UNPRIVILEGED_BPF] = {"unprivileged_bpf_disabled",
+                               "kernel.unprivileged_bpf_disabled",
+                               &sysctl_unprivileged_bpf_disabled, 1},
     /* Not a /proc/sys knob — boot-time (no_hash_pointers) — but the same gate
      * plumbing fits: a runtime-readable mitigation that gates %pK address
      * leaks (hashed by default => low-priv readers get an id, not the addr). */
