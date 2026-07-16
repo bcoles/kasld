@@ -424,6 +424,23 @@ void build_hardening_report(struct hardening_report *r) {
         r->n_projecting++;
       }
     }
+
+    /* Rank the gate suggestions by their leave-one-out forfeit (all_vbits -
+     * skip_vbits) so Available hardening reads as a prioritised plan — the most
+     * load-bearing fix first. Effort is uniform across the sysctl gates (all
+     * runtime), so bits alone order them. Stable insertion sort (equal forfeits
+     * keep gate-table order); n <= HR_SUGG_MAX. */
+    for (int i = 1; i < r->n_gate_suggestions; i++) {
+      struct hr_suggestion key = r->gate_suggestions[i];
+      int key_forfeit = r->all_vbits - key.skip_vbits;
+      int j = i - 1;
+      while (j >= 0 &&
+             r->all_vbits - r->gate_suggestions[j].skip_vbits < key_forfeit) {
+        r->gate_suggestions[j + 1] = r->gate_suggestions[j];
+        j--;
+      }
+      r->gate_suggestions[j + 1] = key;
+    }
   }
 
   /* Patched vulnerabilities: total vuln-tagged components + the succeeded

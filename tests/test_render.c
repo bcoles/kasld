@@ -1823,6 +1823,9 @@ static void test_hardening_projection_redundant(void) {
   assert(crit->silences == 1 && crit->skip_vbits == 0);
   /* Redundant gate: leave-one-out still excludes c_critical -> 9 bits -> 0. */
   assert(redu->silences == 1 && redu->skip_vbits == 9);
+  /* Suggestions are ranked by forfeit, so the critical gate (forfeits 9) sorts
+   * ahead of the redundant one (forfeits 0), regardless of gate-table order. */
+  assert(&rep.gate_suggestions[0] == crit);
   /* Hashed-pointers gate: governs a denied component, so silences nothing. */
   const struct hr_suggestion *none = NULL;
   for (int i = 0; i < rep.n_gate_suggestions; i++)
