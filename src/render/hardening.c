@@ -921,10 +921,13 @@ void render_hardening_text(void) {
     for (int i = 0; i < rep.n_hw; i++) {
       if (!rep.hw[i].succeeded)
         continue;
-      printf("    %-28s %s", rep.hw[i].name, rep.hw[i].hardware);
+      /* Lead with the technique and what it leaks; the hardware field is the
+       * relevant CPU feature/mitigation (e.g. KPTI, "TSX required"), labelled
+       * so it does not read as the subject that leaks. */
+      printf("    %-28s ", rep.hw[i].name);
       if (rep.hw[i].addr)
-        printf(" — leaks %s address", rep.hw[i].addr);
-      printf("\n");
+        printf("leaks %s address; ", rep.hw[i].addr);
+      printf("hardware: %s\n", rep.hw[i].hardware);
     }
     if (rep.hw_succeeded < rep.n_hw) {
       printf("  %d of %d hardware-gated component%s did not succeed.\n",
@@ -1416,10 +1419,10 @@ void render_hardening_markdown(void) {
     for (int i = 0; i < rep.n_hw; i++) {
       if (!rep.hw[i].succeeded)
         continue;
-      printf("- %s — %s", rep.hw[i].name, rep.hw[i].hardware);
+      printf("- %s — ", rep.hw[i].name);
       if (rep.hw[i].addr)
-        printf(" (leaks %s address)", rep.hw[i].addr);
-      printf("\n");
+        printf("leaks %s address; ", rep.hw[i].addr);
+      printf("hardware: %s\n", rep.hw[i].hardware);
     }
     printf("\n");
   }
