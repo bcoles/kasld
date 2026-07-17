@@ -349,17 +349,21 @@ int main(void) {
     }
   }
 
-  /* Restriction profile (from cmdline tokens):
-   *   default   — root, kptr_restrict=0: kasld can read everything.
-   *   hidekptr  — root, kptr_restrict=2: no kallsyms; the pin must come from
-   *               inference (exercises the engine, not the kallsyms shortcut).
-   *   hardened  — drop to uid 1000 with kptr_restrict=2, dmesg_restrict=1,
-   *               perf_event_paranoid=3: the realistic unprivileged-attacker
-   *               floor, where only file-derived facts survive.
-   *   stock     — drop to uid 1000 but leave every sysctl at its kernel default
+  /* Restriction profile (from cmdline tokens). The analysis phase always runs
+   * unprivileged (uid 1000) — KASLD's threat model is an unprivileged local
+   * attacker, so every scenario measures what such a user can leak, never what
+   * root can. Scenarios differ only by the sysctl hardening applied:
+   *   default   — uid 1000, kptr_restrict=0: permissive sysctls; an
+   *               unprivileged user can still read kallsyms/iomem values.
+   *   hidekptr  — uid 1000, kptr_restrict=2: no kallsyms; the pin must come
+   * from inference (exercises the engine, not the kallsyms shortcut). hardened
+   * — uid 1000, kptr_restrict=2, dmesg_restrict=1, perf_event_paranoid=3: the
+   * realistic unprivileged-attacker floor, where only file-derived facts
+   * survive. stock     — uid 1000 but leave every sysctl at its kernel default
    *               (kptr_restrict=0, dmesg_restrict=0, perf_event_paranoid=2):
    *               an unprivileged user on an out-of-the-box kernel, neither
-   *               weakened nor hardened by us. */
+   *               weakened nor hardened by us.
+   * The root ground-truth capture above is the only privileged step. */
   int hidden = 0, hardened = 0, stock = 0, capture = 0;
   {
     int cf = open("/proc/cmdline", O_RDONLY);
@@ -417,29 +421,29 @@ int main(void) {
     return 0;
   }
 
-  /* Apply the requested restriction profile before running kasld. */
-  uid_t uid = 0;
+  /* Apply the requested restriction profile before running kasld. The analysis
+   * always runs unprivileged; only the sysctl hardening varies. */
+  uid_t uid = 1000;
   if (hardened) {
     write_file("/proc/sys/kernel/kptr_restrict", "2\n");
     write_file("/proc/sys/kernel/dmesg_restrict", "1\n");
     write_file("/proc/sys/kernel/perf_event_paranoid", "3\n");
-    uid = 1000;
     printf("=== profile: HARDENED — uid=1000, kptr_restrict=2, "
            "dmesg_restrict=1, perf_event_paranoid=3 (file-only floor) ===\n");
   } else if (hidden) {
     write_file("/proc/sys/kernel/kptr_restrict", "2\n");
-    printf("=== profile: hidden — root, kptr_restrict=2 (no kallsyms) ===\n");
+    printf(
+        "=== profile: hidden — uid=1000, kptr_restrict=2 (no kallsyms) ===\n");
   } else if (stock) {
     /* Kernel-default sysctls, nothing weakened or hardened by us: vanilla
      * defaults are kptr_restrict=0, dmesg_restrict=0, perf_event_paranoid=2.
      * Reset perf from the -1 used for the ground-truth dump; leave kptr and
-     * dmesg at their defaults. Run unprivileged. */
+     * dmesg at their defaults. */
     write_file("/proc/sys/kernel/perf_event_paranoid", "2\n");
-    uid = 1000;
     printf("=== profile: stock — uid=1000, kernel-default sysctls "
            "(kptr_restrict=0, dmesg_restrict=0, perf_event_paranoid=2) ===\n");
   } else {
-    printf("=== profile: default — root, kptr_restrict=0 ===\n");
+    printf("=== profile: default — uid=1000, kptr_restrict=0 ===\n");
   }
   fflush(stdout);
 

@@ -68,12 +68,17 @@ it is wider but still contains the truth — the correct outcome under restricti
 
 ## Profiles
 
-| mode | reader identity | what it exercises |
-|------|-----------------|-------------------|
-| `default`  | root, `kptr_restrict=0` | the easy case — kallsyms readable |
-| `hidden`   | root, `kptr_restrict=2` | the pin must come from inference |
-| `hardened` | uid 1000, `kptr=2` + `dmesg_restrict=1` + `perf=3` | the realistic unprivileged floor (file-derived facts only) |
-| `stock`    | uid 1000, kernel-default sysctls (`kptr=0`, `dmesg_restrict=0`, `perf=2`) | an unprivileged user on an out-of-the-box kernel — nothing weakened or hardened |
+The analysis always runs unprivileged (uid 1000) — the threat model is an
+unprivileged local attacker — so the modes differ only in the sysctl hardening
+applied, never in the reader's identity. The one privileged step is the per-boot
+ground-truth capture the check compares against.
+
+| mode | sysctls (at uid 1000) | what it exercises |
+|------|-----------------------|-------------------|
+| `default`  | `kptr_restrict=0` | permissive — kallsyms readable where the kernel exposes it unprivileged |
+| `hidden`   | `kptr_restrict=2` | the pin must come from inference |
+| `hardened` | `kptr=2` + `dmesg_restrict=1` + `perf=3` | the realistic unprivileged floor (file-derived facts only) |
+| `stock`    | kernel-default sysctls (`kptr=0`, `dmesg_restrict=0`, `perf=2`) | an unprivileged user on an out-of-the-box kernel — nothing weakened or hardened |
 | `nokaslr`  | `nokaslr` on the cmdline | the KASLR-disabled pin |
 
 ## Architectures

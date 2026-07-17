@@ -32,9 +32,11 @@
 #   tests/vm/run spec-table      # render only the speculative-narrowing table
 #                                # (cells where the likely window beats guaranteed)
 #
-# Modes:
-#   default   root, kptr_restrict=0 — kasld may read kallsyms (the easy case)
-#   hidden    root, kptr_restrict=2 — pin must come from inference
+# Modes (the analysis always runs unprivileged at uid 1000; modes differ only
+# by the sysctl hardening applied — the root ground-truth capture is the sole
+# privileged step):
+#   default   uid 1000, kptr_restrict=0 — permissive sysctls, kallsyms readable
+#   hidden    uid 1000, kptr_restrict=2 — pin must come from inference
 #   hardened  uid 1000 + kptr=2/dmesg_restrict=1/perf=3 — unprivileged floor
 #   nokaslr   boot with `nokaslr` — verifies the KASLR-disabled pin
 #

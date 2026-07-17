@@ -27,6 +27,7 @@ together see [architecture.md](architecture.md).
   - [Markdown (`-m`)](#markdown--m)
 - [Explain mode](#explain-mode)
 - [Hardening assessment](#hardening-assessment)
+- [Continuous integration](#continuous-integration)
 
 ## Quick start
 
@@ -465,3 +466,48 @@ bits forfeited by omitting this one), and a top-level `projected_posture`
 reports the `current` and `all_suggestions_applied` postures.
 Markdown output (`-m -H`) appends the same assessment as a
 `## Hardening Assessment` section.
+
+## Continuous integration
+
+KASLD has no built-in pass/fail flag: it *measures*, and the CI script
+*decides*. The JSON output (`-j`, plus the `-H -j` hardening object) carries
+every value a policy would key on, so a regression gate is a one-line `jq`
+predicate — more flexible than a baked-in threshold, and it composes any policy
+you like. A distro or kernel builder can fail the build when a freshly built
+kernel's KASLR posture regresses below policy.
+
+The fields a gate keys on:
+
+- `.kaslr.inferred.entropy_bits` — the **guaranteed** residual entropy of the
+  kernel base: the bits KASLD could not strip *with certainty*. Gate here for a
+  sound "provably ≥ N bits" policy.
+- `.kaslr.likely.entropy_bits` — the **speculative** residual (the narrower
+  best-guess window). Gate here to also fail when a speculative technique could
+  plausibly recover the base, accepting that this window is unproven.
+- `.kaslr.disabled` / `.kaslr.unsupported` — booleans: KASLR opted out, or not
+  applicable to the arch/config.
+- `.hardening.patched_vulnerabilities.possibly_unpatched` — CVE-class components
+  that *succeeded*. A behavioural signal, not a version check: KASLD never trusts
+  `uname`, so this is "a CVE-class leak worked here", never "the kernel is
+  version X". Empty means none did.
+
+Each gate below exits non-zero on a policy breach:
+
+```sh
+# Fail if the guaranteed base entropy drops below 12 bits.
+bits=$(kasld -j | jq '.kaslr.inferred.entropy_bits')
+[ "$bits" -ge 12 ] || { echo "KASLR regressed: $bits guaranteed bits"; exit 1; }
+
+# Fail if KASLR is off (disabled, or unsupported for this arch/config).
+if kasld -j | jq -e '.kaslr.disabled or .kaslr.unsupported' >/dev/null; then
+  echo "KASLR not active"; exit 1
+fi
+
+# Fail if any CVE-class leak succeeded.
+n=$(kasld -H -j | jq '.hardening.patched_vulnerabilities.possibly_unpatched | length')
+[ "$n" -eq 0 ] || { echo "$n CVE-class leak(s) succeeded"; exit 1; }
+```
+
+Run KASLD **unprivileged** in the target environment for the posture a real
+unprivileged attacker sees; running it as root additionally exposes root-gated
+sources (e.g. `/proc/iomem`), which measure a different threat model.
