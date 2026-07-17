@@ -95,6 +95,25 @@ __attribute__((unused)) static void add_addr_top(struct engine *e,
   evidence_add(&e->ev, &o);
 }
 
+/* An interior-position sample: a leaked pointer inside a region, not its base.
+ * Models the several kernel-text function-pointer leaks a real run gathers
+ * alongside the _stext base. Used only by the x86_64 curation test. */
+__attribute__((unused)) static void add_interior(struct engine *e,
+                                                 enum kasld_addr_type type,
+                                                 enum kasld_region region,
+                                                 unsigned long addr) {
+  struct observation o;
+  memset(&o, 0, sizeof(o));
+  o.value_kind = OBS_ADDRESS;
+  o.type = type;
+  o.region = region;
+  o.sample = addr;
+  o.set_mask = SAMPLE_SET;
+  o.pos = POS_INTERIOR;
+  o.conf = CONF_PARSED;
+  evidence_add(&e->ev, &o);
+}
+
 static void add_scalar(struct engine *e, enum kasld_scalar_fact f,
                        unsigned long v) {
   struct observation o;
@@ -216,6 +235,27 @@ static int prop_constraint_holds(const struct constraint *c,
   return 1;
 }
 
+/* No-curation invariant: a truth-consistent evidence set contains no
+ * misclassified observation, so no verdict rule may invalidate any of them. A
+ * verdict firing on a faithful set is a curator over-reaching — e.g. a
+ * region-blind outlier filter rejecting a sound non-text leak (the
+ * text_cluster_filter / directmap bug) — which silently drops evidence and
+ * collapses a quantity. That is a COMPLETENESS failure: sound but less
+ * resolved, and invisible to the containment check, which an absent or widened
+ * window still trivially "contains" the truth for. */
+static void assert_no_curation(struct engine *e, const char *arch,
+                               const char *ctx, unsigned long seed) {
+  for (int i = 0; i < e->ev.n_obs; i++)
+    if (!e->ev.obs[i].valid) {
+      fprintf(stderr,
+              "\nCURATION FAIL %s (%s) seed=%lu: a verdict invalidated a "
+              "truth-consistent obs id=%u type=%d region=%d\n",
+              arch, ctx, seed, e->ev.obs[i].id, (int)e->ev.obs[i].type,
+              (int)e->ev.obs[i].region);
+      assert(0 && "curation: a verdict invalidated a truth-consistent obs");
+    }
+}
+
 static void prop_check_containment(struct engine *e, const rule_fn *rules,
                                    int nr, const verdict_fn *vrules, int nv,
                                    const struct prop_check *chk, int nchk,
@@ -233,6 +273,9 @@ static void prop_check_containment(struct engine *e, const rule_fn *rules,
       floor = CONF_INFERRED;
       wname = "guaranteed";
     }
+    /* The generated set is faithful, so no verdict may curate any observation
+     * out (a completeness guard the containment check below cannot see). */
+    assert_no_curation(e, arch, wname, seed);
     /* Phase 3: per-constraint soundness on the all-signals store. Every
      * at-floor constraint on a checked quantity must be a true claim about the
      * truth; one that is not is a rule over-narrowing, named by its origin.
@@ -450,6 +493,65 @@ static void test_full_engine_x86_64_leaky(void) {
   assert(pt->hi < top.hi); /* kernel_image_phys_bound / mmio / memtotal */
   qd[Q_PAGE_OFFSET].init_top(&top);
   assert(po->hi < top.hi); /* directmap_page_offset_bounds */
+#endif
+}
+
+/* Regression for the text_cluster_filter / directmap collapse. A rich but fully
+ * FAITHFUL x86_64 leak set — a kernel-text cluster PLUS a directmap leak — must
+ * not curate the (sound) directmap out, and must still resolve page_offset. The
+ * plain faithful test above carries only ~2 text leaks, below CLUSTER_MIN, so
+ * the region-blind outlier filter never fired against the directmap; enough
+ * text leaks form a cluster the directmap (terabytes away) is judged an outlier
+ * of. Asserts no-curation, completeness, and monotonicity (the cluster must not
+ * widen page_offset — adding sound evidence never makes a resolution worse). */
+static void test_full_engine_faithful_cluster_keeps_directmap(void) {
+#if defined(__x86_64__)
+  const unsigned long T = 0xffffffff8a000000ul; /* true virt text base       */
+  const unsigned long PO =
+      0xffff8a4000000000ul;                     /* true page_offset (PUD-aln) */
+  const unsigned long gap = 0x1400000ul;        /* 20 MiB image span         */
+  const unsigned long dleak = PO + 0x8000000ul; /* directmap leak, +128 MiB  */
+  int nr = 0, nv = 0;
+  const rule_fn *rules = engine_rules(&nr);
+  const verdict_fn *vrules = engine_verdict_rules(&nv);
+
+  /* Baseline: the directmap leak WITHOUT a text cluster resolves page_offset.
+   * static (BSS): two ~1.35 MiB engines would overflow the 2 MiB frame cap. */
+  static struct engine base;
+  engine_init(&base);
+  add_addr(&base, KASLD_TYPE_VIRT, REGION_DIRECTMAP, dleak, 0, NULL);
+  add_addr(&base, KASLD_TYPE_PHYS, REGION_RAM, 0x0ul, 0x7ffffffful, NULL);
+  add_scalar(&base, SF_PHYS_MAX_PFN, 0x80000ul); /* ~2 GiB / 4 KiB */
+  engine_run_full_floored(&base, CONF_INFERRED, rules, nr, vrules, nv);
+  const struct estimate *pob = &base.est[Q_PAGE_OFFSET];
+  assert(!estimate_is_bottom(pob, &quantities[Q_PAGE_OFFSET]));
+  assert(contains(pob, PO));
+  unsigned long base_lo = pob->lo, base_hi = pob->hi;
+
+  /* Rich: the same directmap leak PLUS a faithful kernel-text cluster (>= 5).
+   */
+  static struct engine e;
+  engine_init(&e);
+  add_addr(&e, KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, T, 0, "_stext");
+  add_interior(&e, KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, T + 0x100000ul);
+  add_interior(&e, KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, T + 0x400000ul);
+  add_interior(&e, KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, T + 0x800000ul);
+  add_interior(&e, KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, T + 0xc00000ul);
+  add_interior(&e, KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE, T + gap);
+  add_addr(&e, KASLD_TYPE_VIRT, REGION_DIRECTMAP, dleak, 0, NULL);
+  add_addr(&e, KASLD_TYPE_PHYS, REGION_RAM, 0x0ul, 0x7ffffffful, NULL);
+  add_scalar(&e, SF_PHYS_MAX_PFN, 0x80000ul);
+  engine_run_full_floored(&e, CONF_INFERRED, rules, nr, vrules, nv);
+
+  /* (1) No-curation: every faithful obs — the directmap included — stays valid.
+   */
+  assert_no_curation(&e, "x86_64", "faithful-cluster", 0);
+  /* (2) Completeness: page_offset still resolves and admits the truth. */
+  const struct estimate *po = &e.est[Q_PAGE_OFFSET];
+  assert(!estimate_is_bottom(po, &quantities[Q_PAGE_OFFSET]));
+  assert(contains(po, PO));
+  /* (3) Monotonicity: the text cluster did not widen page_offset. */
+  assert(po->lo >= base_lo && po->hi <= base_hi);
 #endif
 }
 
@@ -1810,6 +1912,7 @@ int main(void) {
 
   BEGIN_CATEGORY("Full registry against planted leaks");
   RUN(test_full_engine_x86_64_leaky);
+  RUN(test_full_engine_faithful_cluster_keeps_directmap);
   RUN(test_full_engine_two_window);
   RUN(test_full_engine_floor_invariant);
   RUN(test_full_engine_property_x86_64);
