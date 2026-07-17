@@ -81,6 +81,10 @@ can temporarily relax these settings (requires root).
 -h, --help          Show this help
 ```
 
+Single-dash short flags may be bundled: `-fq` is `-f -q`, `-vj` is `-v -j`. A
+value-taking flag (`-s`/`-t`/`-w`) may appear only as the last flag in a bundle,
+taking the next argument — `-fqt 2` is `-f -q -t 2`.
+
 ## Output modes
 
 ### Default text mode

@@ -3637,6 +3637,9 @@ static void usage(const char *progname) {
   printf("Usage: %s [OPTIONS]\n\n", progname);
   for (int s = 0; s < OPT_SECT__COUNT; s++)
     usage_print_section((enum opt_section)s, col);
+  printf("Short flags may be bundled: -fq is -f -q. A value-taking flag "
+         "(-s/-t/-w)\nmay appear only last in a bundle, taking the next "
+         "argument.\n");
 }
 
 /* Look up an option by its short or long name. Returns NULL if no match. */
@@ -3647,6 +3650,22 @@ static const struct opt *opt_find(const char *arg) {
       return &opts[i];
   }
   return NULL;
+}
+
+/* Apply option `o`, consuming argv[*i + 1] as its value if it takes one (and
+ * advancing *i past it). Returns the handler's exit code (0 = ok), or 2 if a
+ * value-taking option is missing its value. Shared by the whole-token and the
+ * bundled-short-flag paths in main(). */
+static int apply_opt(const struct opt *o, int *i, int argc, char *argv[]) {
+  const char *val = NULL;
+  if (o->takes_arg) {
+    if (*i + 1 >= argc) {
+      fprintf(stderr, "%s requires a value\n", o->long_name);
+      return 2;
+    }
+    val = argv[++(*i)];
+  }
+  return o->set(val);
 }
 
 /* Orchestration-layer summary emit: build the summary, run resolution (stats,
@@ -3674,23 +3693,47 @@ int main(int argc, char *argv[]) {
    * option's value (NULL for flags) or — for early-exit options like
    * --version / --help — sets a sentinel checked after the loop. */
   for (int i = 1; i < argc; i++) {
-    const struct opt *o = opt_find(argv[i]);
-    if (!o) {
-      fprintf(stderr, "unknown option: %s\n", argv[i]);
-      usage(argv[0]);
-      return 2;
+    const char *arg = argv[i];
+    const struct opt *o = opt_find(arg);
+    if (o) {
+      int rc = apply_opt(o, &i, argc, argv);
+      if (rc != 0)
+        return rc;
+      continue;
     }
-    const char *val = NULL;
-    if (o->takes_arg) {
-      if (i + 1 >= argc) {
-        fprintf(stderr, "%s requires a value\n", o->long_name);
+    /* Bundled single-dash short flags: "-fq" == "-f" "-q". Only a single-dash
+     * token of length >= 3 that did not match as a whole (long "--" options and
+     * two-char short flags took the path above). A value-taking flag (-s/-t/-w)
+     * may appear only as the last char, taking the next argument. */
+    if (arg[0] == '-' && arg[1] != '-' && arg[1] != '\0' && arg[2] != '\0') {
+      int bad = 0;
+      for (int k = 1; arg[k] != '\0'; k++) {
+        char sh[3] = {'-', arg[k], '\0'};
+        const struct opt *so = opt_find(sh);
+        if (!so) {
+          fprintf(stderr, "unknown option: -%c (in '%s')\n", arg[k], arg);
+          bad = 1;
+          break;
+        }
+        if (so->takes_arg && arg[k + 1] != '\0') {
+          fprintf(stderr, "-%c takes a value, so it must be last in '%s'\n",
+                  arg[k], arg);
+          bad = 1;
+          break;
+        }
+        int rc = apply_opt(so, &i, argc, argv);
+        if (rc != 0)
+          return rc;
+      }
+      if (bad) {
+        usage(argv[0]);
         return 2;
       }
-      val = argv[++i];
+      continue;
     }
-    int rc = o->set(val);
-    if (rc != 0)
-      return rc;
+    fprintf(stderr, "unknown option: %s\n", arg);
+    usage(argv[0]);
+    return 2;
   }
 
   if (wants_version) {

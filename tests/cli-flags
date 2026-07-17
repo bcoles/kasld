@@ -1,0 +1,92 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# cli-flags — exercise the argument parser, chiefly short-flag bundling
+# ("-fq" == "-f -q"), which main()'s option loop cannot be unit-tested for
+# (main is compiled out under -DKASLD_TESTING).
+#
+# Most cases use early-exit flags (-V version / -h help) or parse errors, so no
+# component pipeline runs; a single effect check confirms a bundled format flag
+# actually takes effect, driven over a fixture for determinism.
+#
+# x86_64 host only (runs the native binary); soft-skips when the host is not
+# x86_64 or the binary is not built, matching the other optional guards.
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+
+if [ -t 1 ]; then
+  RED=$(printf '\033[31m')
+  GREEN=$(printf '\033[32m')
+  YELLOW=$(printf '\033[33m')
+  RESET=$(printf '\033[0m')
+else
+  RED=
+  GREEN=
+  YELLOW=
+  RESET=
+fi
+
+case "$(uname -m)" in
+  x86_64 | amd64) ;;
+  *)
+    printf '%scli-flags: SKIP%s (host %s, not x86_64)\n' \
+      "$YELLOW" "$RESET" "$(uname -m)"
+    exit 0
+    ;;
+esac
+BIN=$(echo "$ROOT"/build/x86_64-*/kasld | awk '{print $1}')
+{ [ -n "$BIN" ] && [ -x "$BIN" ]; } || {
+  printf '%scli-flags: SKIP%s (no x86_64 kasld binary; run make first)\n' \
+    "$YELLOW" "$RESET"
+  exit 0
+}
+
+fail=0
+# expect EXIT ARGS... — run the binary with ARGS, assert its exit status.
+expect() {
+  exp=$1
+  shift
+  "$BIN" "$@" >/dev/null 2>&1
+  got=$?
+  if [ "$got" -ne "$exp" ]; then
+    printf '    FAIL: kasld %s -> exit %s, expected %s\n' "$*" "$got" "$exp"
+    fail=1
+  fi
+}
+
+# Bundling accepted (early-exit flags, so no pipeline runs).
+expect 0 -Vq   # -V -q : version wins, quiet parsed
+expect 0 -hf   # -h -f : help parsed alongside a bundled flag
+expect 0 -Vt 2 # value-taking flag last in a bundle takes the next arg
+# Whole-token and long options unaffected.
+expect 0 -V
+expect 0 --version
+expect 2 -w # value-taking flag missing its value
+# Bundling rejections.
+expect 2 -tq 2 # value-taking flag not last in the bundle
+expect 2 -fz   # unknown char inside a bundle
+expect 2 -zq   # unknown leading char
+# Long options are never unpacked into short flags.
+expect 2 --fq
+
+# Effect check: a bundled format flag actually takes effect (over a fixture so
+# it is fast and deterministic). -vj must emit JSON.
+fix=$(echo "$ROOT"/tests/fixtures/x86_64/*/sysroot | awk '{print $1}')
+if [ -d "$fix" ]; then
+  first=$(KASLD_SYSROOT="$fix" "$BIN" -vj 2>/dev/null | head -c1)
+  if [ "$first" != "{" ]; then
+    printf '    FAIL: -vj did not select JSON (first byte %s)\n' "'$first'"
+    fail=1
+  fi
+fi
+
+if [ "$fail" -ne 0 ]; then
+  printf '%scli-flags: option-parser assertions failed above%s\n' \
+    "$RED" "$RESET" >&2
+  exit 1
+fi
+printf '%scli-flags: OK%s (short-flag bundling + option parsing)\n' \
+  "$GREEN" "$RESET"
