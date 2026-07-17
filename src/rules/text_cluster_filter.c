@@ -5,18 +5,29 @@
 // Genuine
 // kernel-text leaks cluster within one image size of each other; a stray
 // virtual address far from that cluster is a misclassification. The rule finds
-// the median of the valid virtual observations, requires a strict majority to
-// sit within one image size of it (else it refuses to act), and invalidates
-// (V_INVALID) any virtual observation more than CLUSTER_OUTLIER_THRESHOLD from
-// the median.
+// the median of the valid kernel-image-region observations, requires a strict
+// majority to sit within one image size of it (else it refuses to act), and
+// invalidates (V_INVALID) any such observation more than
+// CLUSTER_OUTLIER_THRESHOLD from the median.
 //
-// A set-based curator (it reasons over the whole virtual observation set),
+// Scope is the kernel-image family ONLY (text/data/bss/image —
+// is_kernel_image_region). The direct map, vmalloc, vmemmap and module regions
+// legitimately live terabytes from the kernel-text cluster, so judging them
+// against the text median would reject sound non-text leaks as "outliers": once
+// enough text leaks form a cluster, a real directmap leak (e.g. from
+// prefetch_directmap / bpf_verifier_log) sits ~100 TiB below the median and
+// would be invalidated, silently collapsing Q_PAGE_OFFSET. The filter therefore
+// only curates observations that CLAIM to be kernel-image — a misclassified
+// pointer tagged text is still caught; a correctly-tagged directmap is exempt.
+//
+// A set-based curator (it reasons over the kernel-image observation set),
 // unlike the per-observation coupling_validate. Still pure and evidence-only,
 // so it settles before the constraint rules consume the set.
 // ---
 // <bcoles@gmail.com>
 
 #include "include/kasld/engine_rules.h"
+#include "include/kasld/regions.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -45,7 +56,7 @@ int rule_text_cluster_filter(const struct evidence_set *ev, struct verdict *out,
   for (int i = 0; i < ev->n_obs && count < TCF_MAX_SAMPLES; i++) {
     const struct observation *o = &ev->obs[i];
     if (o->valid && o->value_kind == OBS_ADDRESS &&
-        o->eff_type == KASLD_TYPE_VIRT)
+        o->eff_type == KASLD_TYPE_VIRT && is_kernel_image_region(o->eff_region))
       vals[count++] = obs_anchor(o);
   }
   if (count < CLUSTER_MIN)
@@ -66,7 +77,8 @@ int rule_text_cluster_filter(const struct evidence_set *ev, struct verdict *out,
   for (int i = 0; i < ev->n_obs && n < out_max; i++) {
     const struct observation *o = &ev->obs[i];
     if (!o->valid || o->value_kind != OBS_ADDRESS ||
-        o->eff_type != KASLD_TYPE_VIRT)
+        o->eff_type != KASLD_TYPE_VIRT ||
+        !is_kernel_image_region(o->eff_region))
       continue;
     if (abs_diff(obs_anchor(o), median) <= CLUSTER_OUTLIER_THRESHOLD)
       continue;

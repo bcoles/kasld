@@ -1566,6 +1566,42 @@ static void test_text_cluster_filter(void) {
 #endif /* __SIZEOF_LONG__ >= 8 */
 }
 
+/* Regression: the text-cluster curator must NOT touch non-text virtual regions.
+ * A direct-map leak legitimately sits terabytes below the kernel-text cluster;
+ * before the region scope it was judged an "outlier" and invalidated once
+ * enough text leaks formed a cluster, silently collapsing Q_PAGE_OFFSET. */
+static void test_text_cluster_filter_spares_directmap(void) {
+#if __SIZEOF_LONG__ >= 8
+  struct engine e;
+  engine_init(&e);
+  unsigned long base = 0xffffffff81000000ul; /* kernel-text cluster */
+  uint32_t cid[5], dmid;
+  for (int i = 0; i < 5; i++) {
+    struct observation o = mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT,
+                                  base + (unsigned long)i * 0x1000ul,
+                                  LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
+    cid[i] = evidence_add(&e.ev, &o);
+  }
+  /* A directmap leak ~116 TiB below the text median — a text-region outlier by
+   * distance, but a correctly-tagged directmap observation. */
+  struct observation dmap =
+      mk_obs(KASLD_TYPE_VIRT, REGION_DIRECTMAP, 0xffff888000000000ul, LO_SET,
+             POS_BASE, CONF_TIMING);
+  dmid = evidence_add(&e.ev, &dmap);
+
+  const verdict_fn vrules[] = {rule_text_cluster_filter};
+  engine_run_full(&e, NULL, 0, vrules, 1);
+
+  for (int i = 0; i < e.ev.n_obs; i++) {
+    if (e.ev.obs[i].id == dmid)
+      assert(e.ev.obs[i].valid == 1); /* directmap exempt — not a text claim */
+    for (int k = 0; k < 5; k++)
+      if (e.ev.obs[i].id == cid[k])
+        assert(e.ev.obs[i].valid == 1); /* text cluster untouched */
+  }
+#endif /* __SIZEOF_LONG__ >= 8 */
+}
+
 /* initrd_phys_exclude (Stage E): the first C_EXCLUDE rule — carves the initrd
  * forbidden zone out of Q_PHYS_IMAGE_BASE's candidate set. */
 int rule_initrd_phys_exclude(const struct evidence_set *ev,
@@ -6357,6 +6393,7 @@ int main(void) {
   BEGIN_CATEGORY("Coupling / cluster verdicts");
   RUN(test_coupling_validate);
   RUN(test_text_cluster_filter);
+  RUN(test_text_cluster_filter_spares_directmap);
   /* The remaining coupling tests are defined inside the file-level
    * `#if __SIZEOF_LONG__ >= 8` block (line ~1412) — their bodies model
    * 64-bit-only kernel layouts (arm64 / loongarch / riscv64 VA, x86_64 KASLR
