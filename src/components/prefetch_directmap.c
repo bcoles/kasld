@@ -85,6 +85,10 @@ static int verbose = 0;
 #define DM_STEP RANDOMIZE_MEMORY_ALIGN
 #define DM_ITERATIONS 64
 #define DM_PASSES 11
+// Minimum passes that must locate SOME edge before the vote will trust there is
+// a signal to corroborate. Below this the signal is too weak to judge; at or
+// above it, a failure to agree means scatter (incoherent), not weakness.
+#define DM_MIN_LOCATED 3
 
 // Cluster confirmation for the dense direct-map block: a slot begins the run if
 // it and >= DM_CONFIRM_K of the next DM_CONFIRM_M slots are mapped. Kept small
@@ -108,14 +112,25 @@ static size_t directmap_window(uint64_t *win_base) {
 }
 
 // ---------------------------------------------------------------------------
-// Robust vote of the detected left edge across passes. The base is the region's
-// left-edge FLOOR: nothing is mapped below page_offset_base, so a pass never
-// detects an edge below it — passes that miss the (marginal) base slot land
-// HIGHER instead. The best estimate is therefore the LOWEST detected edge, not
-// the median. Requiring the winner to be corroborated by >= 2 passes rejects a
-// lone pass that under-shot on noise; the fallback is the minimum. Sets
-// *n_found to the number of passes that located an edge (distinguishes
-// no-signal from a too-weak one). Returns the page_offset_base address, or 0.
+// Robust vote of the detected left edge across passes. page_offset_base is one
+// specific PUD slot: passes that TRULY locate it agree on that exact slot,
+// while passes that miss it land HIGHER (nothing real is mapped below the
+// base). So the estimate is the LOWEST edge that is CORROBORATED — reported by
+// >= 2 passes at the exact same slot.
+//
+// If no two passes agree, the located edges are SCATTER, not a floor, and the
+// vote fails CLOSED (returns 0). This is load-bearing: on a host where the
+// prefetch differential is neutralised (e.g. under a hypervisor), each pass
+// still returns a per-pass "edge" from timing noise — scattered across the
+// whole window, and able to land ANYWHERE, including below the true base.
+// Emitting the minimum of that scatter (the previous behaviour) fabricates a
+// confident, WRONG page_offset_base every run — a false leak, worse than none
+// (measured on such a host: 0/10 exact hits, every value distinct, some below
+// the true base). A coincidental exact agreement among DM_PASSES over the
+// ~window_slots candidates is negligible (~C(DM_PASSES,2)/window_slots), so
+// corroboration is a sound signal-vs-noise gate. Sets *n_found to the number of
+// passes that located an edge (distinguishes no-signal from a corroboration
+// failure). Returns the page_offset_base address, or 0.
 // ---------------------------------------------------------------------------
 static unsigned long directmap_vote(int vendor, size_t n, uint64_t win_base,
                                     int *n_found) {
@@ -154,13 +169,12 @@ static unsigned long directmap_vote(int vendor, size_t n, uint64_t win_base,
    * floor, not a proportion of DM_PASSES. The direct-map differential is weak,
    * so only a fraction of passes locate an edge; a majority requirement would
    * make MORE passes counterproductive (raising the bar the weak signal must
-   * clear). Three independent detections is the confidence floor. */
-  if (found < 3)
+   * clear). DM_MIN_LOCATED independent detections is the confidence floor. */
+  if (found < DM_MIN_LOCATED)
     return 0;
 
   /* Sort ascending (insertion sort; found is tiny), then return the lowest edge
-   * located by >= 2 passes — the corroborated left-edge floor. Falls back to
-   * the minimum if no value repeats. */
+   * located by >= 2 passes — the corroborated left-edge floor. */
   for (i = 1; i < found; i++) {
     unsigned long key = edges[i];
     int j = i - 1;
@@ -173,7 +187,10 @@ static unsigned long directmap_vote(int vendor, size_t n, uint64_t win_base,
   for (i = 0; i + 1 < found; i++)
     if (edges[i] == edges[i + 1])
       return edges[i];
-  return edges[0];
+  /* No two passes agreed: scatter, not a floor. Fail CLOSED rather than emit
+   * the scatter minimum — a dead channel otherwise reports a confident, wrong
+   * base every run (see the function header). */
+  return 0;
 }
 
 static unsigned long get_directmap_base_prefetch(void) {
@@ -217,11 +234,19 @@ static unsigned long get_directmap_base_prefetch(void) {
       kasld_err("no direct-map signal: the scan found no mapped-region cluster "
                 "(this CPU may not leak through prefetch page-walk latency, or "
                 "the direct map is smaller than the confirmation window)");
-    else
+    else if (n_found < DM_MIN_LOCATED)
       kasld_err("weak prefetch signal: only %d/%d passes located an edge "
                 "(scheduler / frequency / thermal noise); a quieter run may "
                 "resolve it",
                 n_found, DM_PASSES);
+    else
+      kasld_err(
+          "incoherent prefetch signal: %d/%d passes located an edge but "
+          "none agreed on a base — the located edges scatter across the "
+          "window, so there is no left-edge floor to recover (the prefetch "
+          "differential is likely neutralised here, e.g. under a "
+          "hypervisor); a re-run will not help",
+          n_found, DM_PASSES);
     return 0;
   }
 
