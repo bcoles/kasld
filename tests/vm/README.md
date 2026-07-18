@@ -38,6 +38,7 @@ tests/vm/run aarch64-alpine-6.12 hardened
 tests/vm/run all hardened             # every cell in one profile
 tests/vm/run table                    # results matrix + speculative-narrowing table
 tests/vm/run spec-table               # only the speculative-narrowing table
+tests/vm/run spec-table --with-timing # ...also listing timing/side-channel rows
 tests/vm/run aarch64-alpine-6.12 capture # build a truth-bearing fixture from a live boot
 ```
 
@@ -56,6 +57,16 @@ any arch produced an unsound or incomplete result. After running the scenarios,
 speculative-narrowing table showing the cells where the likely best-guess window
 beats the guaranteed one and what signal drove it — both published tables in
 [docs/reproducibility.md](../../docs/reproducibility.md) are generated this way.
+
+The speculative-narrowing table excludes microarchitectural side-channel
+narrowings (`method:timing` — cache/speculation oracles such as `prefetch` and
+`entrybleed`) by default: their success depends on the host CPU and varies from
+run to run, so a table listing them would not be reproducible. This is not a claim
+that they fail — they work, and can recover more than the guaranteed matrix shows
+(e.g. pinning a `hardened` base to exact where no file-derived leak can); they are
+withheld only for reproducibility. `--with-timing` (or `SPEC_INCLUDE_TIMING=1`)
+lists them. The guaranteed results matrix is resolved only at the sound floor and
+never depends on timing regardless.
 
 ```
 aarch64     PASS  truth=0xffff800080000000 ∈ [0x...,0x...] recovered=Y

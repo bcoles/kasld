@@ -31,6 +31,9 @@
 #                                # narrowing table
 #   tests/vm/run spec-table      # render only the speculative-narrowing table
 #                                # (cells where the likely window beats guaranteed)
+#   tests/vm/run table --with-timing        # include timing/side-channel rows in
+#   tests/vm/run spec-table --with-timing   # the speculative-narrowing table
+#                                # (excluded by default — see SPEC_INCLUDE_TIMING)
 #
 # Modes (the analysis always runs unprivileged at uid 1000; modes differ only
 # by the sysctl hardening applied — the root ground-truth capture is the sole
@@ -47,6 +50,10 @@
 #   BUILD_DIR       kasld build root (default: ./build)
 #   LOONGARCH_BIOS  path to edk2 loongarch firmware (loongarch64 needs UEFI)
 #   TIMEOUT         per-boot timeout seconds (default: 240)
+#   SPEC_INCLUDE_TIMING  1 = include timing/side-channel (method:timing) rows in
+#                   the speculative-narrowing table; default 0 excludes them
+#                   because their result is hardware- and run-dependent
+#                   (equivalent to passing --with-timing)
 # ---
 # <bcoles@gmail.com>
 set -u
@@ -59,6 +66,20 @@ ALPINE_VER=${ALPINE_VER:-3.21}
 ALPINE_MIRROR=${ALPINE_MIRROR:-https://dl-cdn.alpinelinux.org/alpine}
 TIMEOUT=${TIMEOUT:-600}
 CACHE=$HERE/.cache
+
+# Speculative-narrowing table: which consensus-method names are treated as
+# non-reproducible and excluded from the table by default. Microarchitectural
+# side channels (method:timing — cache/speculation oracles such as prefetch and
+# entrybleed) succeed as a function of the host CPU and vary from run to run,
+# even on the same machine, so a table that listed them would not be
+# reproducible. Deterministic sub-floor signals (a leaked pointer, a memory-map
+# heuristic) are unaffected and stay. Opt the timing rows back in with
+# --with-timing or SPEC_INCLUDE_TIMING=1.
+SPEC_NONREPRO_METHODS="timing"
+SPEC_INCLUDE_TIMING=${SPEC_INCLUDE_TIMING:-0}
+for _arg in "$@"; do
+  [ "$_arg" = --with-timing ] && SPEC_INCLUDE_TIMING=1
+done
 
 # name | alpine-arch | flavor | build-prefix | qemu-suffix | machine | console
 #   name:   <arch>-<distro>-<kernel maj.minor>. <arch> is the display arch (it
@@ -560,9 +581,15 @@ fmt_bits() {
 # edge (lo/hi/consensus) coincides with a likely-window edge — the leak or timing
 # signal that pinned the speculative base; for coupled arches with no text leak
 # this resolves to the directmap/dram base whose image-size ceiling narrowed it.
-# Prints one pipe-delimited record: gbits|lbits|lmin|lmax|method|via
+# The trailing `ntouch` field is 1 when a group whose consensus_method is in
+# `nonrepro` (the run-varying set, e.g. timing) coincides with ANY edge of the
+# likely window (virtual OR physical) — i.e. a non-reproducible signal helped set
+# the shown window, whether or not it is the one `method`/`via` attributes. The
+# render filter drops such rows by default so the table does not depend on a
+# per-run signal even when the displayed attribution landed on a reproducible one.
+# Prints one pipe-delimited record: gbits|lbits|lmin|lmax|method|via|ntouch
 likely_of() {
-  awk '
+  awk -v nonrepro="$SPEC_NONREPRO_METHODS" '
     function val(s){ sub(/^[^:]*:[ \t]*/,"",s); gsub(/[",]/,"",s);
                      gsub(/^[ \t]+|[ \t]+$/,"",s); return s }
     function orig(s){ sub(/^[^:]*:[ \t]*\[/,"",s); sub(/\].*/,"",s);
@@ -570,6 +597,13 @@ likely_of() {
     function match_edge(target,   i){
       for(i=1;i<=gi;i++) if(glo[i]==target||ghi[i]==target||gcons[i]==target){
         method=gcm[i]; via=gorg[i]; return 1 } return 0 }
+    function in_set(m){ return index(" " nonrepro " ", " " m " ")>0 }
+    function edge_of(i,t){ return (t!="" && (glo[i]==t||ghi[i]==t||gcons[i]==t)) }
+    function nonrepro_touch(   i){
+      for(i=1;i<=gi;i++) if(in_set(gcm[i]) &&
+        (edge_of(i,lmax)||edge_of(i,lmin)||edge_of(i,lpmax)||edge_of(i,lpmin)))
+        return 1
+      return 0 }
     /"kaslr":[ \t]*\{/{ ink=1 }
     ink && /"inferred":[ \t]*\{/{ blk="inf" }
     ink && /"likely":[ \t]*\{/{ blk="lik" }
@@ -593,7 +627,7 @@ likely_of() {
       method="?"; via="?"
       if(!match_edge(lmax) && !match_edge(lmin) && lpmax!="")
         if(!match_edge(lpmax)) match_edge(lpmin)
-      printf "%s|%s|%s|%s|%s|%s\n", gbits, lbits, lmin, lmax, method, via
+      printf "%s|%s|%s|%s|%s|%s|%s\n", gbits, lbits, lmin, lmax, method, via, nonrepro_touch()
     }' "$1"
 }
 
@@ -606,6 +640,7 @@ cmd_spec_table() {
   nl='
 '
   body=
+  excluded_timing=0
   for a in $arches; do
     arch_disp=${a%%-*}
     for scen in default hidden hardened; do
@@ -613,7 +648,7 @@ cmd_spec_table() {
       [ -f "$log" ] || continue
       grep -aq 'KASLD VM DONE' "$log" || continue
       row=$(likely_of "$log"); [ -n "$row" ] || continue   # likely == guaranteed
-      IFS='|' read -r gbits lbits lmin lmax method via <<EOF
+      IFS='|' read -r gbits lbits lmin lmax method via ntouch <<EOF
 $row
 EOF
       # The engine emits a `likely` block whenever it trims the raw guaranteed
@@ -622,6 +657,15 @@ EOF
       # (entropy 0), a `likely` block that only shaves a non-grid interval edge
       # adds no bit — skip it, so the table lists real speculative narrowing.
       [ "$gbits" != "$lbits" ] || continue
+      # Non-reproducible microarchitectural/timing narrowings are excluded by
+      # default: their success depends on the host CPU and varies run to run.
+      # ntouch=1 means a run-varying signal (SPEC_NONREPRO_METHODS, e.g. timing)
+      # helped set an edge of this likely window — so the row would not reproduce,
+      # regardless of which signal the `method`/`via` columns happen to name.
+      # --with-timing / SPEC_INCLUDE_TIMING=1 lists them anyway.
+      if [ "$SPEC_INCLUDE_TIMING" != 1 ] && [ "$ntouch" = 1 ]; then
+        excluded_timing=$((excluded_timing + 1)); continue
+      fi
       truth=$(awk '/ _text$/{print $1; exit}' "$log")
       [ -n "$truth" ] || truth=$(awk '/ _stext$/{print $1; exit}' "$log")
       t=$(norm "$truth"); lo=$(norm "$lmin"); hi=$(norm "$lmax")
@@ -638,7 +682,11 @@ EOF
   done
 
   if [ -z "$body" ]; then
-    printf 'No speculative narrowing: the likely window equals guaranteed on every cell.\n'
+    if [ "$excluded_timing" -gt 0 ]; then
+      printf 'No reproducible speculative narrowing: the only cells where the likely window beat guaranteed were narrowed by a timing side channel, which is excluded by default (pass --with-timing to list them).\n'
+    else
+      printf 'No speculative narrowing: the likely window equals guaranteed on every cell.\n'
+    fi
     return 0
   fi
   printf '| arch | release | source | scenario | guaranteed | likely | via | method | truth ∈ likely |\n'
@@ -646,6 +694,12 @@ EOF
   printf '%s' "$body"
   # shellcheck disable=SC2016  # backticks are literal markdown, not a subshell
   printf '\n`via`/`method` = the sub-floor signal that narrowed the base past the sound floor; `truth ∈ likely` = whether that best-guess window still contained the real base. A `**NO**` is disclosed, not withheld — the soundness gate is on the guaranteed matrix above, which contains the truth regardless. Every other KASLR-on cell: likely equals guaranteed.\n'
+  if [ "$SPEC_INCLUDE_TIMING" = 1 ]; then
+    # shellcheck disable=SC2016
+    printf 'Timing side-channel narrowings (method:timing — e.g. `prefetch`, `entrybleed`) are listed here because --with-timing is set; they are hardware- and run-dependent, so they are omitted from the default (reproducible) table.\n'
+  elif [ "$excluded_timing" -gt 0 ]; then
+    printf 'Timing side-channel narrowings (method:timing) are excluded by default because their success is hardware- and run-dependent; %d such cell(s) were omitted. Pass --with-timing to list them.\n' "$excluded_timing"
+  fi
 }
 
 # Render the results matrix (markdown) from the boot logs left by previous runs.
