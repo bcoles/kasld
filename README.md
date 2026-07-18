@@ -17,11 +17,12 @@ otherwise narrows it to the smallest set of placements the available
 evidence supports. The inference engine fuses evidence from dozens of
 independent techniques with the architecture's known invariants,
 narrowing the kernel's placement to a residual window — reported as the
-surviving slot count and bits of entropy, a direct measure of how much
-protection KASLR retains from this vantage. On a fully-patched modern
-kernel — where x86-64 side channels are mitigated and no direct
-kernel-text leak survives — full recovery is often impossible, but the
-constraint set is rarely empty. On architectures without KASLR, the
+surviving slot count and bits of entropy: an upper bound on the protection
+KASLR retains from this vantage, not a guarantee the base is beyond an
+attacker's reach (see [docs/limitations.md](docs/limitations.md)). On a
+fully-patched modern kernel — where x86-64 side channels are mitigated
+and no direct kernel-text leak survives — full recovery is often impossible,
+but the constraint set is rarely empty. On architectures without KASLR, the
 engine locates the bootloader-chosen load address.
 
 Supports:
@@ -138,6 +139,7 @@ inference rule). The table below is the per-audience reference.
 | Audience | Document |
 |---|---|
 | End user / operator | [docs/usage.md](docs/usage.md) — CLI, output modes, explain mode, hardening assessment |
+| Interpreting a result | [docs/limitations.md](docs/limitations.md) — what a negative or partial result means: sound-but-not-complete, and why a failure is not a security guarantee |
 | Exploit developer | [docs/exploitation.md](docs/exploitation.md) — pwntools template, `ksymoff`, function-offset patterns |
 | Component / rule author | [CONTRIBUTING.md](CONTRIBUTING.md) — writing a component or rule, emitter API, exit codes, metadata |
 | Architecture / internals | [docs/architecture.md](docs/architecture.md) — the inference engine, data-flow seams, tagged-line protocol, cross-region derivation |

@@ -325,6 +325,12 @@ placement is slightly non-uniform (see
 true entropy is marginally lower. `0 bits` (a single surviving slot) means the
 value is fully recovered.
 
+These figures bound what KASLD recovered from the current vantage. A wide
+residual or an empty result is not a security assurance — it reflects what the
+implemented techniques could do here and now, not that the base is beyond reach.
+See [limitations.md](limitations.md) for what a negative or partial result does
+and does not imply.
+
 ### Oneline (`-1`)
 
 `-1` (`--oneline`) produces a single shell-pipeable line with a **fixed

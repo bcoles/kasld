@@ -448,3 +448,7 @@ axes that require purpose-built kernels (VA-bits / paging mode, endianness,
 VMSPLIT, individual `CONFIG_*` toggles) are not yet covered. Timing and
 side-channel components are validated separately, as their behaviour depends on
 hardware rather than configuration.
+
+These are limits on what the checks here *verify*. For what a KASLD result means
+when it is run against a target — in particular why a failure to recover the base
+is not evidence the system is secure — see [limitations.md](limitations.md).
