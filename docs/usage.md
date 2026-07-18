@@ -327,11 +327,35 @@ value is fully recovered.
 
 ### Oneline (`-1`)
 
-`-1` (`--oneline`) produces a single shell-pipeable line:
+`-1` (`--oneline`) produces a single shell-pipeable line with a **fixed
+key set** — every key below appears on every line, in this order, so a
+scraper can match `field=` unconditionally. A value that is unresolved
+or not applicable to the arch/run renders the sentinel `na` (never a
+fabricated, defaulted, or leaked value):
 
 ```
-arch=x86_64 kaslr=on text=0xffffffff8fe00000 slide=+0xee00000(249561088) ptext=0x34600000 pslide=+0x33600000(861929472) dmap=0xffff800000000000 results=27
+arch=x86_64 kaslr=on text=0xffffffff8fe00000 stext=na slide=+0xee00000(249561088) entropy=9bits ptext=0x34600000 pstext=na pslide=+0x33600000(861929472) pentropy=9bits dmap=0xffff800000000000 dram=[0x0..0x33fffffff](13.0 GiB) results=27
 ```
+
+| Key | Meaning |
+| --- | --- |
+| `arch` | kernel machine (`uname`), or `unknown` |
+| `kaslr` | `on` \| `off` \| `unsupported` |
+| `text` | virtual image base (`_text`); engine-resolved, never a leak |
+| `stext` | virtual `_stext`, when it differs from the image base |
+| `slide` | virtual KASLR slide, signed `±0xHEX(decimal)` |
+| `entropy` | virtual residual entropy over the guaranteed window, `Nbits` |
+| `ptext` | physical image base (`_text`) |
+| `pstext` | physical `_stext`, when it differs from the physical image base |
+| `pslide` | physical KASLR slide (decoupled arches only) |
+| `pentropy` | physical residual entropy |
+| `dmap` | direct-map base (`PAGE_OFFSET`); engine-resolved floor/pin |
+| `dram` | physical DRAM extent, `[0xLO..0xHI](size)` |
+| `results` | count of merged result records (not the raw component count) |
+
+`na` carries the same "no value asserted" guarantee the human formats
+express by omitting a row; `extra/ksymoff` anchors on `text=0x…`, so a
+`text=na` line is correctly treated as having no derivable base.
 
 ### JSON (`-j`)
 

@@ -780,11 +780,15 @@ static void test_render_oneline_dmap_is_base_not_interior(void) {
 /* oneline `text=` presents the engine-resolved image base only, never a raw
  * leak consensus. set_rich_render_state seeds an in-bounds VIRT text base leak
  * (which the old consensus fallback would surface); with the engine reporting
- * no resolved base (vtext==0), `text=` must be omitted — an unresolved base is
- * not backfilled from a leak (sibling of the dmap= base/interior rule). */
-static void test_render_oneline_text_omits_when_engine_unresolved(void) {
+ * no resolved base (vtext==0), `text=` renders the `na` sentinel — an
+ * unresolved base is not backfilled from a leak (sibling of the dmap=
+ * base/interior rule). The fixed schema keeps the key present; only the value
+ * degrades to na, so `na` carries the same "no value asserted" guarantee the
+ * old key-omission did. */
+static void test_render_oneline_text_na_when_engine_unresolved(void) {
   struct summary s;
   set_rich_render_state(&s);
+  const unsigned long leak = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
   s.kaslr.vtext = 0; /* engine resolved no concrete base */
   s.kaslr.vstext = 0;
 
@@ -792,8 +796,45 @@ static void test_render_oneline_text_omits_when_engine_unresolved(void) {
   capture_stdout(wrap_render_summary, &s);
   set_render_mode(0, 0, 0);
 
-  /* Leading space matches oneline's " text=" and avoids matching " stext=". */
-  assert(strstr(render_cap, " text=") == NULL);
+  /* Key present as the sentinel; the seeded leak base is not surfaced. */
+  assert(strstr(render_cap, " text=na") != NULL);
+  char leakbuf[32];
+  snprintf(leakbuf, sizeof(leakbuf), "text=0x%lx", leak);
+  assert(strstr(render_cap, leakbuf) == NULL);
+}
+
+/* Contract lock for the fixed oneline schema: every documented key must appear
+ * on every line so a scraper can rely on matching `field=` unconditionally. A
+ * fully-zeroed summary (nothing resolved) is the worst case — each optional
+ * value must fall back to its `na` sentinel rather than dropping the key. A
+ * future edit that drops or renames a key fails here. */
+static void test_render_oneline_schema_is_stable(void) {
+  reset_results();
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+  struct summary s;
+  memset(&s, 0, sizeof(s));
+
+  set_render_mode(0, 1, 0);
+  capture_stdout(wrap_render_summary, &s);
+  set_render_mode(0, 0, 0);
+
+  static const char *const keys[] = {
+      "arch=",     "kaslr=",  " text=",    " stext=",  " slide=",
+      " entropy=", " ptext=", " pstext=",  " pslide=", " pentropy=",
+      " dmap=",    " dram=",  " results=",
+  };
+  for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++)
+    assert(strstr(render_cap, keys[i]) != NULL);
+
+  /* With nothing resolved, every optional field is the na sentinel. */
+  assert(strstr(render_cap, " text=na") != NULL);
+  assert(strstr(render_cap, " slide=na") != NULL);
+  assert(strstr(render_cap, " entropy=na") != NULL);
+  assert(strstr(render_cap, " ptext=na") != NULL);
+  assert(strstr(render_cap, " pslide=na") != NULL);
+  assert(strstr(render_cap, " dmap=na") != NULL);
+  assert(strstr(render_cap, " dram=na") != NULL);
 }
 
 /* set_rich_render_state seeds a single-origin record; this overlays a second
@@ -2010,7 +2051,8 @@ int main(void) {
   RUN(test_render_markdown_with_rich_content);
   RUN(test_render_oneline_with_rich_content);
   RUN(test_render_oneline_dmap_is_base_not_interior);
-  RUN(test_render_oneline_text_omits_when_engine_unresolved);
+  RUN(test_render_oneline_text_na_when_engine_unresolved);
+  RUN(test_render_oneline_schema_is_stable);
   RUN(test_render_text_lists_all_origins);
   RUN(test_render_text_leaks_aggregates_across_records);
   RUN(test_render_json_emits_origins_array);
