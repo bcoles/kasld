@@ -6310,6 +6310,83 @@ static void test_riscv64_text_base_modern(void) {
 #endif
 }
 
+/* rule_page_offset_from_landmark: cover the two branches the pin tests miss.
+ * (1) A bounded landmark (lo != hi) is a WINDOW — emitted as LOWER + UPPER, so
+ *     the resolved interval keeps [lo, hi] rather than pinning to the low edge
+ *     (the riscv64 SV39 probe case). (2) On x86_64 an L4/L5 directmap-floor
+ *     landmark is a LOWER bound, not an exact pin: RANDOMIZE_MEMORY can place
+ *     the real base above it, so the window is never collapsed to a point. */
+static void test_page_offset_from_landmark_window(void) {
+  struct engine e;
+  engine_init(&e);
+  struct estimate top;
+  quantities[Q_PAGE_OFFSET].init_top(&top);
+  struct constraint out[8];
+
+  /* (1) A bounded landmark (lo != hi) is a window: the rule emits a LOWER +
+   * UPPER pair, not a C_EQUALS pin on the low edge. Assert on the emitted
+   * constraints directly, so the check is independent of the engine's
+   * page-offset alignment (which rounds a resolved edge on coarser arches). */
+  /* Offset from top.lo so the anchor is non-zero even on identity-map arches
+   * where page_offset == 0 (s390): the rule skips a zero-valued landmark. */
+  unsigned long bump = po_window_bump(&top);
+  unsigned long lo = top.lo + bump;
+  unsigned long hi = top.lo + 2 * bump; /* distinct from lo */
+  struct observation w = mk_obs(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, lo,
+                                LO_SET | HI_SET, POS_BASE, CONF_PARSED);
+  w.hi = hi;
+  evidence_add(&e.ev, &w);
+  int n = rule_page_offset_from_landmark(&e.ev, e.est, out, 8);
+  assert(n == 2);
+  assert(out[0].q == Q_PAGE_OFFSET && out[0].op == C_LOWER_BOUND &&
+         out[0].value == lo);
+  assert(out[1].q == Q_PAGE_OFFSET && out[1].op == C_UPPER_BOUND &&
+         out[1].value == hi);
+
+#if defined(__x86_64__)
+  /* (2) On x86_64 an L4 VAS-floor landmark is a LOWER bound, not a pin:
+   * RANDOMIZE_MEMORY can place the real base above it. */
+  engine_init(&e);
+  struct observation f =
+      mk_obs(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, 0xffff800000000000ul, LO_SET,
+             POS_BASE, CONF_PARSED);
+  evidence_add(&e.ev, &f);
+  n = rule_page_offset_from_landmark(&e.ev, e.est, out, 8);
+  assert(n == 1);
+  assert(out[0].op == C_LOWER_BOUND && out[0].value == 0xffff800000000000ul);
+#endif
+}
+
+/* rule_base_align_cross_validate: complements test_base_align_cross_validate
+ * (a single VIRT hint) — two VIRT hints exercise the max-over-observations
+ * helper (the coarser must win), and a PHYS hint drives the decoupled-arch
+ * Q_PHYS_KASLR_ALIGN block. */
+static void test_base_align_cross_validate_phys(void) {
+  struct engine e;
+  engine_init(&e);
+  struct observation v1 = mk_obs(
+      KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, (unsigned long)KASLR_VIRT_TEXT_MIN,
+      LO_SET | BASE_ALIGN_SET, POS_BASE, CONF_PARSED);
+  v1.base_align = 0x10000ul; /* 64 KiB (finer) */
+  struct observation v2 = mk_obs(
+      KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, (unsigned long)KASLR_VIRT_TEXT_MIN,
+      LO_SET | BASE_ALIGN_SET, POS_BASE, CONF_PARSED);
+  v2.base_align = 0x400000ul; /* 4 MiB (coarser — must win) */
+  struct observation p =
+      mk_obs(KASLD_TYPE_PHYS, REGION_KERNEL_IMAGE, 0x1000000ul,
+             LO_SET | BASE_ALIGN_SET, POS_BASE, CONF_PARSED);
+  p.base_align = 0x400000ul; /* 4 MiB */
+  evidence_add(&e.ev, &v1);
+  evidence_add(&e.ev, &v2);
+  evidence_add(&e.ev, &p);
+  const rule_fn rules[] = {rule_base_align_cross_validate};
+  engine_run(&e, rules, 1);
+  assert(e.est[Q_VIRT_KASLR_ALIGN].lo >= 0x400000ul); /* coarsest hint wins */
+#if !TEXT_TRACKS_DIRECTMAP
+  assert(e.est[Q_PHYS_KASLR_ALIGN].lo >= 0x400000ul); /* phys block ran */
+#endif
+}
+
 int main(void) {
   TEST_SUITE("test_engine");
 
@@ -6381,6 +6458,7 @@ int main(void) {
   RUN(test_page_offset_from_config);
   RUN(test_page_offset_from_leak);
   RUN(test_page_offset_from_leak_inert);
+  RUN(test_page_offset_from_landmark_window);
 #if __SIZEOF_LONG__ >= 8
   RUN(test_directmap_page_offset_bounds);
   RUN(test_directmap_page_offset_lower_bound_from_max_pfn);
@@ -6441,6 +6519,7 @@ int main(void) {
   RUN(test_config_max_offset_virt_anchors_no_ceiling);
   RUN(test_config_max_offset_absent);
   RUN(test_base_align_cross_validate);
+  RUN(test_base_align_cross_validate_phys);
 
   BEGIN_CATEGORY("KASLR-off pin");
   RUN(test_virt_kaslr_disabled_pin);
