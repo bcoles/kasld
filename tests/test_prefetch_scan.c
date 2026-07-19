@@ -109,6 +109,50 @@ static void test_amd_low_amplitude_min_width_accepted(void) {
   assert(prefetch_scan_find_edge(t, N, CPU_VENDOR_AMD, 5, 8) == (long)B);
 }
 
+/* Batched finder: the batched collector amplifies the mapped/unmapped
+ * differential to many-fold (an ~8x plateau) with a full-strength base slot.
+ * The finder returns the leftmost slot of the plateau directly. A single
+ * unmapped hole inside the image (a slot the kernel left unmapped) must not
+ * split the cluster: K-of-M confirmation tolerates it. */
+static void test_batched_plateau_with_hole(void) {
+  uint64_t t[N];
+  size_t B = 60, i;
+  fill_baseline(t, 10000, 400); /* median ~10100, threshold 3x ~30300 */
+  for (i = 0; i < 27; i++)
+    t[B + i] = 80000; /* ~8x mapped plateau */
+  t[B + 10] = 10200;  /* an unmapped hole mid-image, back at baseline */
+  assert(prefetch_scan_find_edge_batched(t, N, 5, 8) == (long)B);
+}
+
+/* Batched finder robustness: under CPU contention a run of baseline slots can
+ * be perturbed to ~1.5x the median — enough to form a false cluster that the
+ * summed collector's 1.5x threshold would wrongly take as the leftmost edge.
+ * The batched threshold sits many-fold above the median (in the empty gap below
+ * the plateau), so the perturbed baseline cannot qualify and the true plateau —
+ * even though it lies to the RIGHT of the noise — is the only cluster returned.
+ */
+static void test_batched_rejects_loaded_baseline_false_cluster(void) {
+  uint64_t t[N];
+  size_t B = 120, i;
+  fill_baseline(t, 10000, 400);
+  for (i = 0; i < 10; i++)
+    t[30 + i] = 15500; /* perturbed baseline ~1.55x: a false 1.5x cluster */
+  for (i = 0; i < 27; i++)
+    t[B + i] = 150000; /* the real ~15x plateau, to the right of the noise */
+  assert(prefetch_scan_find_edge_batched(t, N, 5, 8) == (long)B);
+}
+
+/* Batched finder: baseline plus a sub-threshold perturbation, no plateau -> -1
+ * (reports no signal rather than guessing a base from noise). */
+static void test_batched_no_plateau(void) {
+  uint64_t t[N];
+  size_t i;
+  fill_baseline(t, 10000, 400);
+  for (i = 0; i < 10; i++)
+    t[30 + i] = 15500; /* ~1.55x: below the batched threshold */
+  assert(prefetch_scan_find_edge_batched(t, N, 5, 8) == -1);
+}
+
 /* AMD: baseline plus isolated outliers, no contiguous cluster -> -1. */
 static void test_amd_no_cluster(void) {
   uint64_t t[N];
@@ -161,6 +205,10 @@ int main(void) {
   RUN(test_amd_low_amplitude_min_width_accepted);
   RUN(test_amd_no_cluster);
   RUN(test_amd_edge_at_zero);
+  BEGIN_CATEGORY("Batched (strong bimodal, no walk)");
+  RUN(test_batched_plateau_with_hole);
+  RUN(test_batched_rejects_loaded_baseline_false_cluster);
+  RUN(test_batched_no_plateau);
   BEGIN_CATEGORY("Intel (mins, mapped faster)");
   RUN(test_intel_weaker_base_walk);
   RUN(test_intel_edge_at_zero);

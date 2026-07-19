@@ -71,6 +71,93 @@ prefetch_scan_collect(uint64_t *times, size_t n, uint64_t base, uint64_t step,
   }
 }
 
+// Batch size for the batched AMD collector: prefetches issued per timer
+// bracket. Larger amortizes the rdtscp overhead further and widens the
+// mapped/unmapped separation, at proportional cost. Overridable for tuning.
+#ifndef PREFETCH_SCAN_BATCH
+#define PREFETCH_SCAN_BATCH 2000
+#endif
+
+// Timing primitive for the batched collector: issue `batch` back-to-back
+// prefetch pairs to a single address inside one rdtscp bracket. With one timer
+// pair amortized over the whole batch, the measured span is dominated by
+// batch * per-access page-walk latency rather than by rdtscp overhead. On AMD
+// without KPTI this exposes a mapped/unmapped differential that a single timed
+// prefetch leaves buried in the rdtscp quantum: a mapped address (full nested
+// page-table walk) reads many-fold above the unmapped baseline where the walk
+// short-circuits. `batch` must be >= 1 (it is decremented to zero as the loop
+// counter).
+__attribute__((unused)) static uint64_t
+prefetch_scan_time_batch(uint64_t addr, unsigned long batch) {
+  uint64_t t0_lo, t0_hi, t1_lo, t1_hi;
+
+  __asm__ volatile(".intel_syntax noprefix;"
+                   "mfence;"
+                   "rdtscp;"
+                   "mov %0, rax;"
+                   "mov %1, rdx;"
+                   "lfence;"
+                   "2:;"
+                   "prefetchnta qword ptr [%5];"
+                   "prefetcht2 qword ptr [%5];"
+                   "dec %4;"
+                   "jnz 2b;"
+                   "lfence;"
+                   "rdtscp;"
+                   "mov %2, rax;"
+                   "mov %3, rdx;"
+                   "mfence;"
+                   ".att_syntax;"
+                   : "=&r"(t0_lo), "=&r"(t0_hi), "=&r"(t1_lo), "=&r"(t1_hi),
+                     "+r"(batch)
+                   : "r"(addr)
+                   : "rax", "rcx", "rdx", "cc", "memory");
+
+  uint64_t t0 = (t0_hi << 32) | t0_lo;
+  uint64_t t1 = (t1_hi << 32) | t1_lo;
+  return t1 - t0;
+}
+
+// ---------------------------------------------------------------------------
+// Batched AMD collector: for each slot, time PREFETCH_SCAN_BATCH back-to-back
+// prefetches under one rdtscp bracket and keep the MIN across `iterations`
+// trials. Amortizing the timer over the whole batch exposes the per-access
+// page-walk latency directly, so a mapped slot (full nested walk) stands
+// many-fold above the unmapped baseline where the walk short-circuits — a
+// differential that the single-timed-prefetch sum can leave buried in rdtscp
+// quantization on some AMD parts (notably virtualized hosts). MIN across trials
+// removes upward scheduler noise; the mapped floor stays high because every
+// prefetch in the batch re-walks. Produces the same mapped=HIGHER orientation
+// and times[] layout as prefetch_scan_collect's AMD branch, so
+// prefetch_scan_find_edge_batched consumes it.
+//
+// Each slot's trials run consecutively (slot-major), so its MIN is taken over a
+// short contiguous window and reliably captures one clean trial even when a
+// co-scheduled tenant steals cycles for part of the scan. Sampling one slot per
+// sweep instead would spread a slot's trials across the whole scan, letting a
+// periodic external stall inflate the same slots every sweep into a false
+// cluster.
+// ---------------------------------------------------------------------------
+__attribute__((unused)) static void
+prefetch_scan_collect_batched(uint64_t *times, size_t n, uint64_t base,
+                              uint64_t step, int iterations) {
+  size_t idx;
+  int i;
+
+  for (idx = 0; idx < n; idx++) {
+    uint64_t addr = base + idx * step;
+    uint64_t best = ~(uint64_t)0;
+    for (i = 0; i < PREFETCH_SCAN_WARMUP; i++)
+      (void)prefetch_scan_time_batch(addr, PREFETCH_SCAN_BATCH);
+    for (i = 0; i < iterations; i++) {
+      uint64_t t = prefetch_scan_time_batch(addr, PREFETCH_SCAN_BATCH);
+      if (t < best)
+        best = t;
+    }
+    times[idx] = best;
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Dump per-slot timings to stderr (verbose diagnostics).
 // ---------------------------------------------------------------------------
@@ -231,6 +318,49 @@ prefetch_scan_find_edge(const uint64_t *times, size_t n, int vendor,
   while (seed > 0 && times[seed - 1] < edge_bound)
     seed--;
   return (long)seed;
+}
+
+// Multiple of the baseline median that a batched-collector slot must clear to
+// count as mapped. The batched collector amplifies every mapped slot equally,
+// so the plateau stands many-fold above baseline (>10x observed) while even a
+// contention-perturbed baseline slot stays well under 2x. A threshold in that
+// empty gap rejects the false clusters that the summed collector's 1.5x bound
+// admits under load, without approaching the plateau. Overridable for tuning.
+#ifndef PREFETCH_BATCH_RATIO
+#define PREFETCH_BATCH_RATIO 3
+#endif
+
+// ---------------------------------------------------------------------------
+// Left-edge (base slot) finder for the BATCHED collector, or -1 if no mapped
+// plateau is found. The batched profile is strongly bimodal — unmapped baseline
+// vs a mapped plateau many times higher — and, unlike the summed profile, the
+// base slot is as strong as the body (batching amplifies every mapped slot
+// equally). So there is no weak base slot to walk out to a looser bound: the
+// base is simply the leftmost slot of the plateau. Return the leftmost slot
+// above PREFETCH_BATCH_RATIO x the median with >= confirm_k of the next
+// confirm_m slots also above it (the confirmation window rejects isolated
+// spikes and tolerates an unmapped hole inside the image). Nothing is mapped
+// below the kernel image base, so the leftmost qualifying slot is the base;
+// passing the same value for the cluster helper's threshold and edge bound
+// disables its left-walk, which would otherwise step into baseline noise here.
+// ---------------------------------------------------------------------------
+__attribute__((unused)) static long
+prefetch_scan_find_edge_batched(const uint64_t *times, size_t n, int confirm_k,
+                                int confirm_m) {
+  if (n == 0)
+    return -1;
+
+  uint64_t *sorted = (uint64_t *)malloc(n * sizeof(uint64_t));
+  if (!sorted)
+    return -1;
+  memcpy(sorted, times, n * sizeof(uint64_t));
+  qsort(sorted, n, sizeof(uint64_t), prefetch_scan_cmp_u64);
+  uint64_t median = sorted[n / 2];
+  free(sorted);
+
+  uint64_t threshold = median * PREFETCH_BATCH_RATIO;
+  return prefetch_scan_amd_cluster(times, n, threshold, threshold, confirm_k,
+                                   confirm_m);
 }
 
 #endif /* KASLD_PREFETCH_SCAN_H */

