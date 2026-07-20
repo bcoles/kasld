@@ -280,6 +280,7 @@ R(arm64_text_base);
 R(arm64_memstart_align);
 R(arm64_va_bits_from_directmap);
 R(arm64_va_bits_from_vmemmap);
+R(arm64_page_offset_from_va_bits);
 R(arm64_text_phys_residue);
 R(arm64_phys_text_residue);
 
@@ -310,6 +311,7 @@ R(x86_64_vmalloc_base_bound);
 R(x86_64_vmemmap_base_bound);
 R(x86_64_la57_from_directmap);
 R(x86_64_page_offset_from_vmalloc_vmemmap);
+R(x86_64_randomize_memory_budget);
 
 /* Verdict rules */
 V(coupling_validate);

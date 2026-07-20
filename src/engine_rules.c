@@ -97,6 +97,7 @@ static const rule_fn k_rules[] = {
     rule_arm64_memstart_align,
     rule_arm64_va_bits_from_directmap,
     rule_arm64_va_bits_from_vmemmap,
+    rule_arm64_page_offset_from_va_bits,
     rule_arm64_text_phys_residue,
     rule_arm64_phys_text_residue,
 
@@ -127,6 +128,7 @@ static const rule_fn k_rules[] = {
     rule_x86_64_vmemmap_base_bound,
     rule_x86_64_la57_from_directmap,
     rule_x86_64_page_offset_from_vmalloc_vmemmap,
+    rule_x86_64_randomize_memory_budget,
 };
 
 /* ── Verdict rule registry ──────────────────────────────────────────────── */

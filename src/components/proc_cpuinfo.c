@@ -187,6 +187,15 @@ static int detect_x86_address_sizes(void) {
   kasld_info("Address sizes: %u bits physical, %u bits virtual", phys_bits,
              virt_bits);
 
+  /* Publish the active paging level as a scalar fact ONLY when the width is 48:
+   * a 48-bit-virtual CPU cannot run 5-level paging, so L4 is certain. A width
+   * of 57 is the CPU capability (5-level may not be enabled), so it is not
+   * published here — the active level then comes from a runtime directmap
+   * observation. Consumers (e.g. the RANDOMIZE_MEMORY budget bounds) rely on
+   * this being a sound statement of the active level, not the CPU maximum. */
+  if (virt_bits == 48)
+    kasld_emit_scalar(SF_VIRT_ADDR_BITS, virt_bits, CONF_PARSED);
+
   unsigned long virt_page_offset = 0;
 
   if (virt_bits <= 48)

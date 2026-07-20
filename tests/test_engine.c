@@ -4060,6 +4060,140 @@ static void test_va_bits_arm64(void) {
   assert(e.est[Q_PAGE_OFFSET].hi == po.hi); /* inert off arm64 */
 #endif
 }
+
+/* x86_64_randomize_memory_budget: the shared entropy budget confines all three
+ * region bases to a band above vaddr_start, leak-free, from max_pfn + a
+ * resolved paging level. A directmap leak resolves Q_VA_BITS=48 (L4). */
+int rule_x86_64_randomize_memory_budget(const struct evidence_set *ev,
+                                        const struct estimate *est,
+                                        struct constraint *out, int out_max);
+
+static void test_x86_64_randomize_memory_budget(void) {
+  struct engine e;
+  engine_init(&e);
+  add_directmap(&e, 0xffff888000001000ul); /* L4 range -> Q_VA_BITS=48 */
+  unsigned long max_pfn = 0x100000ul;      /* 1M pages = 4 GiB */
+  struct observation mp = mk_scalar(SF_PHYS_MAX_PFN, max_pfn, CONF_PARSED);
+  evidence_add(&e.ev, &mp);
+
+  const rule_fn rules[] = {rule_x86_64_la57_from_directmap,
+                           rule_x86_64_randomize_memory_budget};
+  engine_run(&e, rules, 2);
+
+#if defined(__x86_64__)
+  const unsigned long one_tb = 1ul << 40, pud = 1ul << 30;
+  const unsigned long vs = 0xffff888000000000ul, ve = 0xfffffe0000000000ul;
+  const unsigned long span = ve - vs;
+  unsigned long ram = max_pfn << 12;
+  unsigned long dm_min = ((ram + one_tb - 1) / one_tb) * one_tb; /* 1 TiB */
+  unsigned long vmalloc_sz = 32ul * one_tb;
+  unsigned long dm_max = 64ul * one_tb;
+  unsigned long remain_lo = span - dm_min - vmalloc_sz;
+
+  /* page_offset: a budget ceiling no prior rule provided. The floor is left to
+   * la57's canonical half boundary (this rule does not raise the directmap
+   * floor). */
+  assert(e.est[Q_PAGE_OFFSET].lo == 0xffff800000000000ul); /* from la57 */
+  assert(e.est[Q_PAGE_OFFSET].hi == vs + remain_lo / 3);
+  /* vmalloc: floor + the leak-free budget ceiling (previously unbounded above
+   * without a vmemmap witness). */
+  assert(e.est[Q_VMALLOC_BASE].lo == vs + dm_min);
+  unsigned long va_hi = vs + pud + (dm_max + 2ul * (span - vmalloc_sz)) / 3;
+  assert(e.est[Q_VMALLOC_BASE].hi == va_hi);
+  /* vmemmap: tighter floor. */
+  assert(e.est[Q_VMEMMAP_BASE].lo == vs + dm_min + vmalloc_sz);
+
+  /* SOUNDNESS: the un-randomized default L4 region bases must fall inside every
+   * emitted window (truth is never excluded). */
+  assert(0xffff888000000000ul >= e.est[Q_PAGE_OFFSET].lo &&
+         0xffff888000000000ul <= e.est[Q_PAGE_OFFSET].hi);
+  assert(0xffffc90000000000ul >= e.est[Q_VMALLOC_BASE].lo &&
+         0xffffc90000000000ul <= e.est[Q_VMALLOC_BASE].hi);
+  assert(0xffffea0000000000ul >= e.est[Q_VMEMMAP_BASE].lo);
+  /* And the window genuinely tightened vmalloc below the full VAS top. */
+  struct estimate vmtop;
+  quantities[Q_VMALLOC_BASE].init_top(&vmtop);
+  assert(e.est[Q_VMALLOC_BASE].hi < vmtop.hi);
+#else
+  struct estimate t;
+  quantities[Q_VMALLOC_BASE].init_top(&t);
+  assert(e.est[Q_VMALLOC_BASE].lo == t.lo); /* inert off x86_64 */
+#endif
+}
+
+/* Paging level resolved but no SF_PHYS_MAX_PFN: every budget bound needs the
+ * directmap size, so the rule emits nothing and vmalloc/vmemmap stay at top. */
+static void test_x86_64_randomize_memory_budget_no_max_pfn(void) {
+  struct engine e;
+  engine_init(&e);
+  add_directmap(&e, 0xffff888000001000ul); /* resolves Q_VA_BITS=48 */
+  const rule_fn rules[] = {rule_x86_64_la57_from_directmap,
+                           rule_x86_64_randomize_memory_budget};
+  engine_run(&e, rules, 2);
+#if defined(__x86_64__)
+  struct estimate t;
+  quantities[Q_VMALLOC_BASE].init_top(&t);
+  assert(e.est[Q_VMALLOC_BASE].lo == t.lo); /* no size -> no bound */
+  assert(e.est[Q_VMALLOC_BASE].hi == t.hi);
+#endif
+}
+
+/* Unresolved paging level: the rule emits nothing (never guesses a floor an L5
+ * system would violate). Arch-independent. */
+static void test_x86_64_randomize_memory_budget_inert(void) {
+  struct engine e;
+  engine_init(&e);
+  struct observation mp = mk_scalar(SF_PHYS_MAX_PFN, 0x100000ul, CONF_PARSED);
+  evidence_add(&e.ev, &mp);
+  const rule_fn rules[] = {rule_x86_64_randomize_memory_budget};
+  engine_run(&e, rules, 1);
+  struct estimate t;
+  quantities[Q_PAGE_OFFSET].init_top(&t);
+  assert(e.est[Q_PAGE_OFFSET].lo == t.lo);
+  quantities[Q_VMALLOC_BASE].init_top(&t);
+  assert(e.est[Q_VMALLOC_BASE].lo == t.lo);
+}
+
+/* arm64_page_offset_from_va_bits: a resolved Q_VA_BITS pins the exact
+ * linear-map virtual base -(1<<VA_BITS), even with no directmap/vmemmap leak
+ * present. */
+int rule_arm64_page_offset_from_va_bits(const struct evidence_set *ev,
+                                        const struct estimate *est,
+                                        struct constraint *out, int out_max);
+
+/* Narrow a FINSET estimate to the single candidate `value`. */
+static void resolve_finset(struct estimate *e, unsigned long value) {
+  const struct quantity_def *qd = &quantities[Q_VA_BITS];
+  e->kind = LK_FINSET;
+  e->lo = 0;
+  e->hi = 0;
+  for (int i = 0; i < qd->n_candidates; i++)
+    if (qd->candidates[i] == value)
+      e->lo = 1ul << i;
+}
+
+static void test_arm64_page_offset_from_va_bits(void) {
+  struct engine e;
+  engine_init(&e);
+  struct constraint out[4];
+
+  /* Unresolved Q_VA_BITS (honest top, all candidates live) -> nothing. */
+  assert(rule_arm64_page_offset_from_va_bits(&e.ev, e.est, out, 4) == 0);
+
+  /* Resolve Q_VA_BITS by a leak-free path (no directmap observation). */
+  resolve_finset(&e.est[Q_VA_BITS], 48);
+  int n = rule_arm64_page_offset_from_va_bits(&e.ev, e.est, out, 4);
+#if defined(__aarch64__)
+  unsigned long po = -(1ul << 48); /* arm64_page_offset_for(48) */
+  assert(n == 2);
+  assert(out[0].q == Q_PAGE_OFFSET && out[0].op == C_LOWER_BOUND &&
+         out[0].value == po);
+  assert(out[1].q == Q_PAGE_OFFSET && out[1].op == C_UPPER_BOUND &&
+         out[1].value == po);
+#else
+  assert(n == 0); /* inert off arm64 */
+#endif
+}
 #endif /* __SIZEOF_LONG__ >= 8 (la57 / arm64 va_bits) */
 
 /* KASLR alignment quantities (LK_MAXALIGN). The arch-default baseline pins the
@@ -6582,6 +6716,9 @@ int main(void) {
   RUN(test_x86_64_vmalloc_vmemmap_chain);
   RUN(test_x86_64_vmalloc_no_max_pfn);
   RUN(test_x86_64_vmalloc_upper_l4_when_po_unresolved);
+  RUN(test_x86_64_randomize_memory_budget);
+  RUN(test_x86_64_randomize_memory_budget_no_max_pfn);
+  RUN(test_x86_64_randomize_memory_budget_inert);
 #if defined(__x86_64__)
   RUN(test_x86_64_po_from_vmalloc);
   RUN(test_x86_64_po_from_vmemmap);
@@ -6600,6 +6737,7 @@ int main(void) {
   RUN(test_va_bits_la57_l4);
   RUN(test_va_bits_la57_contradictory);
   RUN(test_va_bits_arm64);
+  RUN(test_arm64_page_offset_from_va_bits);
 
   BEGIN_CATEGORY("riscv64-specific rules");
   RUN(test_riscv64_fdt_kaslr_seed);
