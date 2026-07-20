@@ -129,6 +129,7 @@ static const rule_fn k_rules[] = {
     rule_x86_64_la57_from_directmap,
     rule_x86_64_page_offset_from_vmalloc_vmemmap,
     rule_x86_64_randomize_memory_budget,
+    rule_x86_64_va_bits_from_scalar,
 };
 
 /* ── Verdict rule registry ──────────────────────────────────────────────── */

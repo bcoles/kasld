@@ -4194,6 +4194,38 @@ static void test_arm64_page_offset_from_va_bits(void) {
   assert(n == 0); /* inert off arm64 */
 #endif
 }
+
+/* x86_64_va_bits_from_scalar: SF_VIRT_ADDR_BITS (the active paging width, from
+ * the mmap probe or the 48-gated cpuinfo read) pins Q_VA_BITS on x86_64. */
+int rule_x86_64_va_bits_from_scalar(const struct evidence_set *ev,
+                                    const struct estimate *est,
+                                    struct constraint *out, int out_max);
+
+static void test_x86_64_va_bits_from_scalar(void) {
+  struct engine e;
+  const rule_fn rules[] = {rule_x86_64_va_bits_from_scalar};
+
+  engine_init(&e);
+  struct observation s = mk_scalar(SF_VIRT_ADDR_BITS, 57, CONF_INFERRED);
+  evidence_add(&e.ev, &s);
+  engine_run(&e, rules, 1);
+#if defined(__x86_64__)
+  assert(finset_is(&e.est[Q_VA_BITS], 57)); /* active 5-level pinned */
+#else
+  struct estimate t0;
+  quantities[Q_VA_BITS].init_top(&t0);
+  assert(e.est[Q_VA_BITS].lo == t0.lo); /* inert off x86_64 */
+#endif
+
+  /* Out-of-range width -> inert (fresh state on the same engine). */
+  engine_init(&e);
+  struct observation bad = mk_scalar(SF_VIRT_ADDR_BITS, 39, CONF_INFERRED);
+  evidence_add(&e.ev, &bad);
+  engine_run(&e, rules, 1);
+  struct estimate top;
+  quantities[Q_VA_BITS].init_top(&top);
+  assert(e.est[Q_VA_BITS].lo == top.lo);
+}
 #endif /* __SIZEOF_LONG__ >= 8 (la57 / arm64 va_bits) */
 
 /* KASLR alignment quantities (LK_MAXALIGN). The arch-default baseline pins the
@@ -6738,6 +6770,7 @@ int main(void) {
   RUN(test_va_bits_la57_contradictory);
   RUN(test_va_bits_arm64);
   RUN(test_arm64_page_offset_from_va_bits);
+  RUN(test_x86_64_va_bits_from_scalar);
 
   BEGIN_CATEGORY("riscv64-specific rules");
   RUN(test_riscv64_fdt_kaslr_seed);

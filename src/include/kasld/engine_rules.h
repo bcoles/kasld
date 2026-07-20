@@ -312,6 +312,7 @@ R(x86_64_vmemmap_base_bound);
 R(x86_64_la57_from_directmap);
 R(x86_64_page_offset_from_vmalloc_vmemmap);
 R(x86_64_randomize_memory_budget);
+R(x86_64_va_bits_from_scalar);
 
 /* Verdict rules */
 V(coupling_validate);

@@ -61,6 +61,7 @@ NAME_ALLOW="mmap_arm64_va_bits
 mmap_brute_vmsplit
 mmap_riscv64_va_bits
 mmap_s390_va_bits
+mmap_x86_64_va_bits
 qemu_tcg_iret"
 
 if [ -t 2 ]; then
