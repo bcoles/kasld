@@ -4,8 +4,8 @@
 # Validate KASLD results against ground truth available to root.
 #
 # Reads tagged lines from a KASLD run (or runs kasld itself), then
-# compares each result against /proc/kallsyms, /proc/iomem, and
-# /proc/modules.
+# compares each result against /proc/kallsyms, /proc/iomem, /proc/modules,
+# and /proc/kcore (direct-map base / page_offset_base).
 #
 # Wire format (see src/include/kasld/api.h):
 #   <type> <region>[:<name>] pos=<pos> conf=<conf> \
@@ -246,6 +246,32 @@ extract_iomem_range 'Kernel bss'
 truth_pbss_lo="$_range_lo"
 truth_pbss_hi="$_range_hi"
 
+# Direct-map base (page_offset_base) from /proc/kcore. Each direct-map LOAD
+# segment maps physical RAM at a fixed virtual offset, so VirtAddr - PhysAddr ==
+# page_offset_base for all of them. Take that offset (the value >= 2 direct-map
+# segments agree on) as ground truth. Portable 64-bit hex subtract via 32-bit
+# hi/lo halves (no gawk strtonum); the band excludes kernel text and vmalloc/
+# vmemmap. Empty when readelf or /proc/kcore is unavailable.
+truth_page_offset=""
+if command -v readelf >/dev/null 2>&1 && [ -r /proc/kcore ]; then
+  truth_page_offset=$(readelf -lW /proc/kcore 2>/dev/null | awk '
+    function h2n(s,  n,i){ n=0; s=tolower(s); sub(/^0x/,"",s);
+      for(i=1;i<=length(s);i++) n=n*16+index("0123456789abcdef",substr(s,i,1))-1;
+      return n }
+    $1=="LOAD" {
+      v=$3; p=$4; sub(/^0x/,"",v); sub(/^0x/,"",p);
+      while(length(v)<16) v="0" v; while(length(p)<16) p="0" p;
+      ph=h2n(substr(p,1,8)); pl=h2n(substr(p,9,8));
+      if (ph==0 && pl==0) next;                               # not physical-backed
+      vh=h2n(substr(v,1,8)); vl=h2n(substr(v,9,8));
+      if (vh < h2n("ffff8880") || vh >= h2n("ffffc880")) next; # direct-map band only
+      lo=vl-pl; hi=vh-ph; if(lo<0){lo+=4294967296; hi-=1}
+      off=sprintf("%08x%08x", hi, lo);
+      cnt[off]++; if(cnt[off]>best){best=cnt[off]; mode=off}
+    }
+    END{ if(best>=2) print mode }')
+fi
+
 # System RAM: first range start, last range end
 truth_ram_lo=""
 truth_ram_hi=""
@@ -321,6 +347,9 @@ if [ -n "$truth_mod_lo" ]; then
 fi
 if [ -n "$truth_ptext_lo" ]; then
   printf "  %-*s 0x%s - 0x%s\n" "$gt_label_w" "Kernel code (P):" "$truth_ptext_lo" "$truth_ptext_hi"
+fi
+if [ -n "$truth_page_offset" ]; then
+  printf "  %-*s 0x%s\n" "$gt_label_w" "page_offset_base:" "$truth_page_offset"
 fi
 if [ -n "$truth_pdata_lo" ]; then
   printf "  %-*s 0x%s - 0x%s\n" "$gt_label_w" "Kernel data (P):" "$truth_pdata_lo" "$truth_pdata_hi"
@@ -574,8 +603,35 @@ printf '%s\n' "$tagged_lines" | while IFS= read -r line; do
       fi
       ;;
 
-    # ---- Virtual: direct-map and friends -------------------------------
-    "V directmap"|"V vmalloc"|"V vmemmap")
+    # ---- Virtual: direct map (page_offset_base + interior leaks) --------
+    "V directmap")
+      # Ground truth: page_offset_base from /proc/kcore direct-map segments.
+      # pos matters: a pos=base result IS page_offset_base and must match it
+      # exactly (catches a confident-but-wrong base like a mitigated CPU's sparse
+      # edge that a non-zero check passes); an interior/top/extent result is a
+      # leaked address INSIDE the direct map, which cannot be below the map's
+      # floor (page_offset_base) but is not expected to equal it.
+      if [ -z "$truth_page_offset" ]; then
+        if [ "$addr" != "0000000000000000" ]; then
+          skip "$desc — non-zero, but no /proc/kcore ground truth (readelf/kcore?)"
+        else
+          fail "$desc — zero address"
+        fi
+      elif [ "$pos" = "base" ]; then
+        if [ "$addr" = "$truth_page_offset" ]; then
+          pass "$desc — matches /proc/kcore page_offset_base"
+        else
+          fail "$desc — base 0x$addr != page_offset_base 0x$truth_page_offset (/proc/kcore)"
+        fi
+      elif hex_ge "$addr" "$truth_page_offset"; then
+        pass "$desc — within direct map (>= page_offset_base 0x$truth_page_offset)"
+      else
+        fail "$desc — 0x$addr below page_offset_base 0x$truth_page_offset (/proc/kcore)"
+      fi
+      ;;
+
+    # ---- Virtual: vmalloc / vmemmap -----------------------------------
+    "V vmalloc"|"V vmemmap")
       # Just sanity-check it's a non-zero kernel-space address. /proc/vmallocinfo
       # could give a tighter ground truth for vmalloc but it's gated by
       # kptr_restrict and not always populated.
