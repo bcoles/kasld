@@ -1,13 +1,16 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
-// arm64 VA_BITS detection via an mmap boundary probe, emitting PAGE_OFFSET.
+// arm64 active VA_BITS detection via an mmap boundary probe.
 //
-// PROBING-phase component. On arm64 TASK_SIZE = 1<<VA_BITS and PAGE_OFFSET =
-// -(1<<VA_BITS), both fixed (not randomized). A one-page probe at
-// (1<<c) - PAGE_SIZE is mappable iff c <= VA_BITS, so probing the candidate
-// ladder largest-first and taking the first that maps yields the exact VA_BITS,
-// hence the exact PAGE_OFFSET (= arm64_page_offset_for(VA_BITS)). The engine
-// pins Q_PAGE_OFFSET to it (page_offset_from_landmark).
+// PROBING-phase component. On arm64 TASK_SIZE = 1<<VA_BITS, so a one-page probe
+// at (1<<c) - PAGE_SIZE is mappable iff c <= VA_BITS; probing the candidate
+// ladder largest-first and taking the first that maps yields the exact ACTIVE
+// VA_BITS. That is published as SF_VIRT_ADDR_BITS; arm64_va_bits_from_scalar
+// pins Q_VA_BITS from it, and arm64_page_offset_from_va_bits then derives the
+// exact PAGE_OFFSET = -(1<<VA_BITS) (not randomized on arm64). Emitting the
+// width — rather than the direct PAGE_OFFSET — resolves Q_VA_BITS leak-free
+// (which a REGION_PAGE_OFFSET landmark alone does not) and mirrors the x86_64
+// probe.
 //
 // MAP_FIXED_NOREPLACE distinguishes "beyond TASK_SIZE" (ENOMEM/EINVAL → probe a
 // smaller boundary) from "occupied" (EEXIST → the address is within TASK_SIZE)
@@ -17,8 +20,7 @@
 // seccomp) or a VA_BITS below the smallest supported candidate → no emission,
 // leaving the engine's honest window (sound but wide).
 //
-// Leak primitive: virtual (kernel direct-map base) via the mmap syscall;
-// unprivileged, no sysctl gate. arm64 only.
+// Detection via the mmap syscall; unprivileged, no sysctl gate. arm64 only.
 // ---
 // <bcoles@gmail.com>
 
@@ -36,14 +38,14 @@
 
 KASLD_EXPLAIN(
     "Probes mmap(MAP_FIXED_NOREPLACE) at the 1<<VA_BITS boundaries on arm64 "
-    "(52/48/47/42/39): the largest that maps is VA_BITS, giving the exact "
-    "PAGE_OFFSET = -(1<<VA_BITS) (not randomized on arm64). arm64 only; "
-    "unprivileged.");
+    "(52/48/47/42/39): the largest that maps is the active VA_BITS. Publishes "
+    "the width, from which PAGE_OFFSET = -(1<<VA_BITS) is derived (not "
+    "randomized on arm64). arm64 only; unprivileged.");
 
 KASLD_META("method:inferred\n"
            "phase:probing\n"
            "live:1\n"
-           "addr:virtual\n");
+           "addr:none\n");
 
 int main(void) {
   if (kasld_skip_live_probe("VA_BITS mmap"))
@@ -89,10 +91,9 @@ int main(void) {
     return 0;
   }
 
-  unsigned long virt_page_offset = arm64_page_offset_for(va_bits);
-  kasld_info("VA_BITS=%lu PAGE_OFFSET=%#lx", va_bits, virt_page_offset);
-  kasld_result_base(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, virt_page_offset, NULL,
-                    CONF_INFERRED);
+  kasld_info("active VA_BITS=%lu (PAGE_OFFSET = %#lx)", va_bits,
+             arm64_page_offset_for(va_bits));
+  kasld_emit_scalar(SF_VIRT_ADDR_BITS, va_bits, CONF_INFERRED);
   return 0;
 #else
   return 0;

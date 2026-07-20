@@ -4254,6 +4254,33 @@ static void test_x86_64_page_offset_floor_from_va_bits(void) {
   assert(n == 0); /* inert off x86_64 */
 #endif
 }
+
+/* arm64_va_bits_from_scalar + arm64_page_offset_from_va_bits chain: the mmap
+ * probe's active-width scalar resolves Q_VA_BITS, which derives PAGE_OFFSET —
+ * the leak-free path that replaces the direct page_offset landmark. */
+int rule_arm64_va_bits_from_scalar(const struct evidence_set *ev,
+                                   const struct estimate *est,
+                                   struct constraint *out, int out_max);
+
+static void test_arm64_va_bits_from_scalar(void) {
+  struct engine e;
+  engine_init(&e);
+  struct observation s = mk_scalar(SF_VIRT_ADDR_BITS, 48, CONF_INFERRED);
+  evidence_add(&e.ev, &s);
+  const rule_fn rules[] = {rule_arm64_va_bits_from_scalar,
+                           rule_arm64_page_offset_from_va_bits};
+  engine_run(&e, rules, 2);
+#if defined(__aarch64__)
+  assert(finset_is(&e.est[Q_VA_BITS], 48)); /* width pinned */
+  assert(e.est[Q_PAGE_OFFSET].lo ==
+         0xffff000000000000ul); /* -(1<<48) derived */
+  assert(e.est[Q_PAGE_OFFSET].hi == 0xffff000000000000ul);
+#else
+  struct estimate t;
+  quantities[Q_VA_BITS].init_top(&t);
+  assert(e.est[Q_VA_BITS].lo == t.lo); /* inert off arm64 */
+#endif
+}
 #endif /* __SIZEOF_LONG__ >= 8 (la57 / arm64 va_bits) */
 
 /* KASLR alignment quantities (LK_MAXALIGN). The arch-default baseline pins the
@@ -6800,6 +6827,7 @@ int main(void) {
   RUN(test_arm64_page_offset_from_va_bits);
   RUN(test_x86_64_va_bits_from_scalar);
   RUN(test_x86_64_page_offset_floor_from_va_bits);
+  RUN(test_arm64_va_bits_from_scalar);
 
   BEGIN_CATEGORY("riscv64-specific rules");
   RUN(test_riscv64_fdt_kaslr_seed);
