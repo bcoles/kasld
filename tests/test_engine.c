@@ -4226,6 +4226,34 @@ static void test_x86_64_va_bits_from_scalar(void) {
   quantities[Q_VA_BITS].init_top(&top);
   assert(e.est[Q_VA_BITS].lo == top.lo);
 }
+
+/* x86_64_page_offset_floor_from_va_bits: a resolved level raises the directmap
+ * floor to that level's canonical value (tightening the loose L5 floor
+ * proc_cpuinfo emits on an LA57-capable part booted 4-level). */
+int rule_x86_64_page_offset_floor_from_va_bits(const struct evidence_set *ev,
+                                               const struct estimate *est,
+                                               struct constraint *out,
+                                               int out_max);
+
+static void test_x86_64_page_offset_floor_from_va_bits(void) {
+  struct engine e;
+  engine_init(&e);
+  struct constraint out[2];
+
+  /* Unresolved Q_VA_BITS -> inert. */
+  assert(rule_x86_64_page_offset_floor_from_va_bits(&e.ev, e.est, out, 2) == 0);
+
+  /* L4 resolved -> canonical L4 floor (not the loose L5 0xff11...). */
+  resolve_finset(&e.est[Q_VA_BITS], 48);
+  int n = rule_x86_64_page_offset_floor_from_va_bits(&e.ev, e.est, out, 2);
+#if defined(__x86_64__)
+  assert(n == 1);
+  assert(out[0].q == Q_PAGE_OFFSET && out[0].op == C_LOWER_BOUND &&
+         out[0].value == 0xffff800000000000ul);
+#else
+  assert(n == 0); /* inert off x86_64 */
+#endif
+}
 #endif /* __SIZEOF_LONG__ >= 8 (la57 / arm64 va_bits) */
 
 /* KASLR alignment quantities (LK_MAXALIGN). The arch-default baseline pins the
@@ -6771,6 +6799,7 @@ int main(void) {
   RUN(test_va_bits_arm64);
   RUN(test_arm64_page_offset_from_va_bits);
   RUN(test_x86_64_va_bits_from_scalar);
+  RUN(test_x86_64_page_offset_floor_from_va_bits);
 
   BEGIN_CATEGORY("riscv64-specific rules");
   RUN(test_riscv64_fdt_kaslr_seed);

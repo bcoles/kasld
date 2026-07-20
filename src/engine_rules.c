@@ -130,6 +130,7 @@ static const rule_fn k_rules[] = {
     rule_x86_64_page_offset_from_vmalloc_vmemmap,
     rule_x86_64_randomize_memory_budget,
     rule_x86_64_va_bits_from_scalar,
+    rule_x86_64_page_offset_floor_from_va_bits,
 };
 
 /* ── Verdict rule registry ──────────────────────────────────────────────── */
