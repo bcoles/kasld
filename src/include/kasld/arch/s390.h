@@ -138,9 +138,16 @@
 
 // Plausible physical address range for kernel image base (__kaslr_offset_phys).
 // Physical text address = __kaslr_offset_phys + IMAGE_BASE_OFFSET >=
-// IMAGE_BASE_OFFSET. CONFIG_MAX_PHYSMEM_BITS default is 46 (64 TiB).
+// IMAGE_BASE_OFFSET. KERNEL_PHYS_MAX is a RAM heuristic (a defeasible ceiling),
+// NOT an architectural limit. The honest top is PHYS_ADDR_TOP below.
 #define KERNEL_PHYS_MIN 0ul
 #define KERNEL_PHYS_MAX (64ul * GB)
+
+// Honest architectural phys top: 2^MAX_PHYSMEM_BITS. s390
+// CONFIG_MAX_PHYSMEM_BITS ranges 42..53 (default 46), so 53 bits (8 PiB) is the
+// widest realisable physical address. The engine narrows from here via RAM/DRAM
+// ceilings.
+#define PHYS_ADDR_TOP (1ul << 53)
 
 // Virtual KASLR randomization window (v6.8+ upstream defaults):
 // Image base picked from [CONFIG_KERNEL_IMAGE_BASE, vmax - image_size) where

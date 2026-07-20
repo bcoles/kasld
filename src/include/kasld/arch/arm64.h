@@ -157,9 +157,17 @@ static inline unsigned long arm64_page_end_for(unsigned long va_bits) {
 // (_text); _stext is projected from it with STEXT_OFFSET.
 #define STEXT_OFFSET 0x10000ul
 
-// Plausible physical address range for kernel image
+// Plausible physical address range for kernel image. KERNEL_PHYS_MAX is a RAM
+// heuristic (a defeasible ceiling), NOT an architectural limit — a large
+// machine's phys base can exceed it. The honest top is PHYS_ADDR_TOP below.
 #define KERNEL_PHYS_MIN 0ul
 #define KERNEL_PHYS_MAX (256ul * GB)
+
+// Honest architectural phys top: 2^MAX_PHYSMEM_BITS. arm64 PHYS_MASK_SHIFT =
+// CONFIG_ARM64_PA_BITS, up to 52 bits with FEAT_LPA2 — the widest realisable
+// physical address. The engine narrows from here via RAM/DRAM ceilings; it must
+// never start below a valid placement.
+#define PHYS_ADDR_TOP (1ul << 52)
 
 // KIMAGE_VADDR = MODULES_END on arm64. Varies by version (new layout only):
 //   v5.4:  _PAGE_END(48) + SZ_128M  = 0xffff800008000000

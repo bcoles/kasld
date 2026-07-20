@@ -117,9 +117,16 @@
 // rules.
 #define RISCV_PHYS_LOAD_OFFSET (2 * MB)
 
-// Plausible physical address range for kernel image
+// Plausible physical address range for kernel image. KERNEL_PHYS_MAX is a RAM
+// heuristic (a defeasible ceiling), NOT an architectural limit. The honest top
+// is PHYS_ADDR_TOP below.
 #define KERNEL_PHYS_MIN PHYS_OFFSET
 #define KERNEL_PHYS_MAX (PHYS_OFFSET + 4ul * GB)
+
+// Honest architectural phys top: 2^MAX_PHYSMEM_BITS. riscv64 caps the physical
+// address at 56 bits (Sv57) — the widest realisable physical address. The
+// engine narrows from here via RAM/DRAM ceilings.
+#define PHYS_ADDR_TOP (1ul << 56)
 
 // Modern (v5.10+) default: KERNEL_LINK_ADDR is the kernel image virtual base.
 // KASLR only exists on v6.6+ which always uses the modern layout.
