@@ -33,6 +33,10 @@ default:
 | arm32 | — | — | — | Not supported |
 | PowerPC64 | — | — | — | Not supported |
 | sparc | — | — | — | Not supported |
+| SuperH (sh) | — | — | — | Not supported |
+| m68k | — | — | — | Not supported |
+| MicroBlaze | — | — | — | Not supported |
+| OpenRISC | — | — | — | Not supported |
 
 Even where KASLR is unsupported, disabled, or failed to randomize, the
 kernel's load address may still vary across boots: a bootloader

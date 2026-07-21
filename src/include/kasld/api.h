@@ -185,6 +185,14 @@ static inline int kasld_mul_ovf(unsigned long a, unsigned long b,
 #include "arch/s390.h" /* experimental */
 #elif defined(__sparc__)
 #include "arch/sparc.h"
+#elif defined(__sh__)
+#include "arch/sh.h"
+#elif defined(__m68k__)
+#include "arch/m68k.h"
+#elif defined(__MICROBLAZE__) || defined(__microblaze__)
+#include "arch/microblaze.h"
+#elif defined(__or1k__) || defined(__OR1K__)
+#include "arch/openrisc.h"
 #else
 #error "Unrecognized architecture!"
 #endif
