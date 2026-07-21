@@ -1560,6 +1560,64 @@ static void test_dram_ceiling(void) {
 #endif
 }
 
+/* Regression: dram_ceiling's phys->virt projection must not wrap on 32-bit
+ * highmem. A DRAM top in highmem projects above the 32-bit address space, so
+ * page_offset + phys_span overflows to a phantom-low ceiling that would exclude
+ * the true (higher) text base. The rule must emit no such ceiling. Mirrors the
+ * guard virt_ceiling_from_memtotal carries; a no-op on 64-bit / decoupled. */
+static void test_dram_ceiling_no_highmem_wrap(void) {
+  struct engine e;
+  engine_init(&e);
+  unsigned long ksize = 0x1000000ul;
+  struct observation is = mk_scalar(SF_IMAGE_SIZE_MIN, ksize, CONF_PARSED);
+  evidence_add(&e.ev, &is);
+
+  struct estimate potop, vtop;
+  quantities[Q_PAGE_OFFSET].init_top(&potop);
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&vtop);
+  unsigned long po = potop.hi; /* pin page_offset high in its window */
+  struct observation pl = mk_obs(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, po,
+                                 LO_SET, POS_BASE, CONF_PARSED);
+  evidence_add(&e.ev, &pl);
+
+  /* Choose a highmem DRAM top whose phys->virt projection wraps a 32-bit
+   * unsigned long to a phantom ceiling `target` inside (KASLR_VIRT_TEXT_MIN,
+   * vtop.hi): above the rule's low-ceiling self-reject, below the honest top so
+   * a buggy cap would visibly lower it. Unsigned arithmetic is well-defined;
+   * the values are unused on 64-bit / decoupled builds. */
+  unsigned long vmin = (unsigned long)KASLR_VIRT_TEXT_MIN;
+  unsigned long target = vmin + (vtop.hi - vmin) / 2;
+  unsigned long phys_span = target - po - (unsigned long)IMAGE_BASE_OFFSET;
+  unsigned long dram_top = (unsigned long)PHYS_OFFSET + ksize + phys_span;
+  struct observation ram;
+  memset(&ram, 0, sizeof(ram));
+  ram.value_kind = OBS_ADDRESS;
+  ram.type = KASLD_TYPE_PHYS;
+  ram.region = REGION_RAM;
+  ram.hi = dram_top;
+  ram.set_mask = HI_SET;
+  ram.conf = CONF_PARSED;
+  evidence_add(&e.ev, &ram);
+
+  const rule_fn rules[] = {rule_page_offset_from_landmark, rule_dram_ceiling};
+  engine_run(&e, rules, 2);
+
+#if TEXT_TRACKS_DIRECTMAP && __SIZEOF_LONG__ == 4
+  /* Assert only when the construction genuinely wraps in-band (needs vmin < po,
+   * i.e. a text-min floor below this split's page_offset — e.g. i686's
+   * multi-VMSPLIT window; arches where vmin ~= po produce no in-band wrap and
+   * skip). When it wraps, the rule must stay inert and leave the honest ceiling
+   * untouched; pre-fix it capped it at the wrapped `target` < vtop.hi. */
+  int wrapped = phys_span > ULONG_MAX - po - (unsigned long)IMAGE_BASE_OFFSET;
+  if (wrapped && e.est[Q_PAGE_OFFSET].lo == e.est[Q_PAGE_OFFSET].hi &&
+      e.est[Q_PAGE_OFFSET].lo == po)
+    assert(e.est[Q_VIRT_IMAGE_BASE].hi == vtop.hi);
+#else
+  (void)e;
+  (void)vtop;
+#endif
+}
+
 /* coupling_validate (Stage E): a curation/verdict rule. Exercises the engine's
  * verdict path (emit verdict -> evidence_resolve -> observation invalidated).
  */
@@ -2094,6 +2152,46 @@ static void test_cmdline_mem_virt_ceiling(void) {
   }
 #else
   assert(e.est[Q_VIRT_IMAGE_BASE].hi == vtop.hi); /* inert off coupled arches */
+#endif
+}
+
+/* Regression: cmdline_mem_virt_ceiling's page_offset + (mem - ksize) projection
+ * must not wrap on 32-bit. A `mem=` naming more RAM than the linear map covers
+ * projects above the address space, wrapping to a phantom-low ceiling that
+ * would exclude the true text base. The rule must emit no such ceiling. */
+static void test_cmdline_mem_virt_ceiling_no_highmem_wrap(void) {
+  struct engine e;
+  engine_init(&e);
+  unsigned long ksize = 0x1000000ul;
+  struct estimate potop, vtop;
+  quantities[Q_PAGE_OFFSET].init_top(&potop);
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&vtop);
+  unsigned long po = potop.hi;
+  unsigned long vmin = (unsigned long)KASLR_VIRT_TEXT_MIN;
+  unsigned long target = vmin + (vtop.hi - vmin) / 2;
+  unsigned long span = target - po - (unsigned long)IMAGE_BASE_OFFSET;
+  unsigned long mem = span + ksize;
+
+  struct observation pl = mk_obs(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, po,
+                                 LO_SET, POS_BASE, CONF_PARSED);
+  struct observation m = mk_scalar(SF_PHYS_CMDLINE_MEM, mem, CONF_PARSED);
+  struct observation k = mk_scalar(SF_IMAGE_SIZE_MIN, ksize, CONF_PARSED);
+  evidence_add(&e.ev, &pl);
+  evidence_add(&e.ev, &m);
+  evidence_add(&e.ev, &k);
+
+  const rule_fn rules[] = {rule_page_offset_from_landmark,
+                           rule_cmdline_mem_virt_ceiling};
+  engine_run(&e, rules, 2);
+
+#if TEXT_TRACKS_DIRECTMAP && __SIZEOF_LONG__ == 4
+  int wrapped = span > ULONG_MAX - po - (unsigned long)IMAGE_BASE_OFFSET;
+  if (wrapped && e.est[Q_PAGE_OFFSET].lo == e.est[Q_PAGE_OFFSET].hi &&
+      e.est[Q_PAGE_OFFSET].lo == po)
+    assert(e.est[Q_VIRT_IMAGE_BASE].hi == vtop.hi);
+#else
+  (void)e;
+  (void)vtop;
 #endif
 }
 
@@ -6788,6 +6886,7 @@ int main(void) {
   RUN(test_dram_floor_ignores_non_ram_dram_regions);
   RUN(test_dram_floor_no_dram);
   RUN(test_dram_ceiling);
+  RUN(test_dram_ceiling_no_highmem_wrap);
   RUN(test_mmio_floor_phys_ceiling);
   RUN(test_phys_hole_filter);
   RUN(test_phys_hole_filter_ignores_reservations);
@@ -6845,6 +6944,7 @@ int main(void) {
   RUN(test_cmdline_mem_phys_ceiling);
   RUN(test_cmdline_mem_phys_ceiling_no_signal);
   RUN(test_cmdline_mem_virt_ceiling);
+  RUN(test_cmdline_mem_virt_ceiling_no_highmem_wrap);
   RUN(test_riscv64_va_bits_pin);
   RUN(test_vmsplit_text_base);
   RUN(test_vmsplit_text_base_nondefault_offset);

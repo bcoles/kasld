@@ -66,8 +66,17 @@ int rule_dram_ceiling(const struct evidence_set *ev, const struct estimate *est,
     return 0;
 
   unsigned long phys_ceiling = dram_top - kernel_size;
-  unsigned long ceiling =
-      (phys_ceiling - PHYS_OFFSET) + virt_page_offset + IMAGE_BASE_OFFSET;
+  unsigned long phys_span = phys_ceiling - (unsigned long)PHYS_OFFSET;
+  /* A 32-bit highmem kernel linearly maps only lowmem; a phys ceiling that lies
+   * in highmem projects above the address space, so page_offset + phys_span
+   * wraps. A wrapped ceiling sits below the real text and would wrongly reject
+   * it -- emit none, leaving the lowmem-aware highmem_32bit_bound to shape the
+   * likely window. Inert on 64-bit coupled arches, where the sum never wraps.
+   * Mirrors the guard virt_ceiling_from_memtotal carries. */
+  if (phys_span >
+      ULONG_MAX - virt_page_offset - (unsigned long)IMAGE_BASE_OFFSET)
+    return 0;
+  unsigned long ceiling = phys_span + virt_page_offset + IMAGE_BASE_OFFSET;
   ceiling =
       kasld_floor_virt_text_bound(ceiling, (unsigned long)KASLR_VIRT_ALIGN);
   if (ceiling <= KASLR_VIRT_TEXT_MIN)

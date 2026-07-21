@@ -63,8 +63,16 @@ int rule_cmdline_mem_virt_ceiling(const struct evidence_set *ev,
   if (mem == 0 || ksize == 0 || ksize >= mem)
     return 0;
 
+  unsigned long span = mem - ksize;
+  /* A 32-bit highmem `mem=` names more RAM than the linear map covers, so
+   * page_offset + span projects above the address space and wraps to a phantom
+   * low ceiling that would wrongly reject the true (higher) text base -- emit
+   * none. Inert on 64-bit, where the sum never wraps. Mirrors the guard
+   * virt_ceiling_from_memtotal carries. */
+  if (span > ULONG_MAX - virt_page_offset - (unsigned long)IMAGE_BASE_OFFSET)
+    return 0;
   unsigned long ceiling =
-      virt_page_offset + mem - ksize + (unsigned long)IMAGE_BASE_OFFSET;
+      virt_page_offset + span + (unsigned long)IMAGE_BASE_OFFSET;
   /* Align to the resolved Q_VIRT_KASLR_ALIGN (>= compile-time
    * KASLR_VIRT_ALIGN). */
   unsigned long valign = est[Q_VIRT_KASLR_ALIGN].lo;
