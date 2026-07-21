@@ -54,7 +54,9 @@ COMP=$ROOT/src/components
 #                                    program into the running kernel)
 #   KBASE_IOCTL / /dev/mali        — Mali GPU timeline stream pointer leak
 #                                    (ioctls the running kernel's GPU device)
-SIG='perf_event_open|SYS_perf_event_open|__NR_perf_event_open|rdtsc|sidechannel\.h|mincore[[:space:]]*\(|sidt|/proc/self/syscall|getppid[[:space:]]*\(|PF_CAN|AF_CAN|NILFS_IOCTL|FBIOGET_FSCREENINFO|TIOCGSERIAL|pppd|SYS_bpf|BPF_PROG_LOAD|KBASE_IOCTL|/dev/mali'
+#   /dev/snd/seq                   — ALSA sequencer data.ext.ptr leak (drives
+#                                    the running kernel's sequencer)
+SIG='perf_event_open|SYS_perf_event_open|__NR_perf_event_open|rdtsc|sidechannel\.h|mincore[[:space:]]*\(|sidt|/proc/self/syscall|getppid[[:space:]]*\(|PF_CAN|AF_CAN|NILFS_IOCTL|FBIOGET_FSCREENINFO|TIOCGSERIAL|pppd|SYS_bpf|BPF_PROG_LOAD|KBASE_IOCTL|/dev/mali|/dev/snd/seq'
 
 # Reviewed live probes whose liveness is not greppable: mmap VA-boundary sweeps
 # (mmap alone is too common a call to signature on) and the iret CPU probe. Keep
