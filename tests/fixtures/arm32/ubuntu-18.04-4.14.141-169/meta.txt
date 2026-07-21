@@ -1,0 +1,11 @@
+collect_version:  1
+collected_utc:    Fri Dec 23 10:37:31 UTC 2022
+uname_m_raw:      armv7l
+arch_canonical:   arm32
+kernel_release:   4.14.141-169
+distro:           ubuntu-18.04
+kasld:            kasld 0.3.1-dev
+suggested_fixture: tests/fixtures/arm32/ubuntu-18.04-4.14.141-169/
+anonymized:       1
+kallsyms:         0
+source:           hardware (ODROID-XU4, Exynos 5422, Mali-T628)

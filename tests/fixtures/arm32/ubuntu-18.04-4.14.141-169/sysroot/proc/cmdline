@@ -1,0 +1,1 @@
+console=tty1 console=ttySAC2,115200n8 root=[redacted] rootwait ro fsck.repair=yes net.ifnames=0  HPD=true vout=hdmi usbhid.quirks=0x0eef:0x0005:0x0004 smsc95xx.macaddr=[mac] false s5p_mfc.mem=16M

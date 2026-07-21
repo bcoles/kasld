@@ -1,0 +1,14 @@
+absent: /sys/kernel/security/lockdown
+absent: /sys/kernel/boot_params/data
+absent: /sys/kernel/boot_params/setup_data
+absent: /sys/firmware/memmap
+absent: /proc/device-tree/rtas
+absent: /sys/firmware/devicetree/base/rtas
+unreadable: /sys/firmware/fdt
+absent: /boot/config-4.14.141-169
+absent: /boot/vmlinuz-4.14.141-169
+absent: /boot/Image-4.14.141-169
+absent: /boot/vmlinux-4.14.141-169
+absent: /boot/System.map-4.14.141-169
+skipped: /proc/kallsyms (use --kallsyms to include)
+anonymized: host identity, CPU brand, UUIDs/MACs, sensitive cmdline values redacted
