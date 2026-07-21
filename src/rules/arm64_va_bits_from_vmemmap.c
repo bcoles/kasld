@@ -24,8 +24,21 @@
 // case. The threshold is VMEMMAP_END - (128 TiB / 4 KiB) * sizeof(struct page);
 // it is sensitive to sizeof(struct page), which SF_STRUCT_PAGE_BYTES supplies
 // exactly (from BTF) when present, else the common 64-byte default
-// (0xfffffdffc0000000). The resolver's confidence-priority handles a
-// higher-confidence contradiction from a different source.
+// (0xfffffdffc0000000).
+//
+// CONFIDENCE — CONF_HEURISTIC, NOT the observation's confidence. This inference
+// holds only under the modern (v5.4+) VA layout. On the pre-v5.4 "unflipped"
+// layout the vmemmap sits LOW (just below the linear map at _PAGE_END(48),
+// e.g. v4.14 vmemmap = [0xffff7e0000000000, 0xffff800000000000]) REGARDLESS of
+// VA_BITS, and that low range OVERLAPS the modern VA52 vmemmap — so a vmemmap
+// address below the VA48 floor is ambiguous (modern VA52, or pre-v5.4 VA48),
+// not a guaranteed VA52 witness. Emitting it in the guaranteed band (at the
+// parsed obs confidence) let the VA52 PAGE_OFFSET ceiling (0xfff0000000000000)
+// override the DIRECTLY OBSERVED old-layout directmap base
+// (0xffff800000000000), pinning PAGE_OFFSET to a value the truth lies above — a
+// guaranteed-window unsoundness. So this is a likely-window heuristic: it
+// shapes the best guess, and a real directmap observation (the sound linear-map
+// base) governs the guaranteed window. Do NOT raise it back to parsed/inferred.
 //
 // arm64 only; inert elsewhere. Inert when no VIRT VMEMMAP observation is
 // present.
@@ -99,7 +112,7 @@ int rule_arm64_va_bits_from_vmemmap(const struct evidence_set *ev,
     c->q = Q_VA_BITS;
     c->op = C_EQUALS;
     c->value = 52;
-    c->conf = conf;
+    c->conf = kasld_conf_min(CONF_HEURISTIC, conf);
     c->derived_from[0] = src;
     c->lineage_count = 1;
     if (sp_src != 0) {
@@ -116,7 +129,7 @@ int rule_arm64_va_bits_from_vmemmap(const struct evidence_set *ev,
     c->q = Q_PAGE_OFFSET;
     c->op = C_UPPER_BOUND;
     c->value = ARM64_VA52_PAGE_OFFSET;
-    c->conf = conf;
+    c->conf = kasld_conf_min(CONF_HEURISTIC, conf);
     c->derived_from[0] = src;
     c->lineage_count = 1;
     if (sp_src != 0) {

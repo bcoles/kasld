@@ -44,8 +44,7 @@ INTEG=$ROOT/tests/test_engine_integration.c
 # Rules whose dedicated soundness test lives in test_engine_integration.c
 # (exercised end-to-end over the full registry) rather than a by-name unit test
 # in test_engine.c. Keep alphabetical.
-INTEGRATION="arm64_text_base
-initrd_above_kernel"
+INTEGRATION="initrd_above_kernel"
 
 if [ -t 2 ]; then
   RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); RESET=$(printf '\033[0m')

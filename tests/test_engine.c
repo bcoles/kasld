@@ -258,6 +258,78 @@ static void test_arm64_text_base_off_2mib_stays_in_window(void) {
 #endif
 }
 
+/* Recurrence guard (see arm64_text_base.c header): on the ONE resolved
+ * PAGE_OFFSET shared with a pre-v5.4 layout — arm64_page_offset_for(47) =
+ * 0xffff800000000000, which old VA48 and modern VA47 both produce —
+ * arm64_text_base must emit NO image-base FLOOR, so the low old-VA48 _text
+ * (v4.14: 0xffff000008080000) stays admitted; the CEILING may still narrow. Do
+ * NOT relax this into a modern-layout floor for va==47. The complementary
+ * test_arm64_text_base_modern_floor_when_unambiguous pins the other direction.
+ */
+int rule_arm64_text_base(const struct evidence_set *ev,
+                         const struct estimate *est, struct constraint *out,
+                         int out_max);
+
+static void test_arm64_text_base_admits_old_layout(void) {
+  /* 64-bit addresses; the rule is arch-gated, so the whole body is aarch64-only
+   * (trivially passes elsewhere) to keep the constants out of 32-bit builds. */
+#if defined(__aarch64__)
+  struct engine e;
+  engine_init(&e);
+  /* Pin PAGE_OFFSET to -(1<<47) = 0xffff800000000000 — the sole ambiguous
+   * value: a pre-v5.4 VA48 boot's old linear map lands here, indistinguishable
+   * from a modern VA47 kernel. The rule must not floor above the low old-VA48
+   * image. */
+  e.est[Q_PAGE_OFFSET].kind = LK_INTERVAL;
+  e.est[Q_PAGE_OFFSET].lo = 0xffff800000000000ul;
+  e.est[Q_PAGE_OFFSET].hi = 0xffff800000000000ul;
+
+  struct constraint out[4];
+  int n = rule_arm64_text_base(&e.ev, e.est, out, 4);
+  const unsigned long old_text = 0xffff000008080000ul;
+  assert(n >= 1); /* rule fired (PAGE_OFFSET resolved) */
+  for (int i = 0; i < n; i++) {
+    assert(out[i].q == Q_VIRT_IMAGE_BASE);
+    /* No lower bound at all for the ambiguous value; every upper bound admits
+     * the old base. */
+    if (out[i].op == C_LOWER_BOUND)
+      assert(out[i].value <= old_text);
+    if (out[i].op == C_UPPER_BOUND)
+      assert(out[i].value >= old_text);
+  }
+#endif
+}
+
+/* Complement of the guard above: on an UNAMBIGUOUS resolved PAGE_OFFSET (here
+ * VA48 = -(1<<48) = 0xffff000000000000, a value no pre-v5.4 layout produces —
+ * old VA48's linear map is 0xffff800000000000, not this) the modern layout is
+ * proven, so the tight modern floor _PAGE_END(48)+128M = 0xffff800008000000
+ * MUST be emitted. This pins the modern-layout floor so a future widening of
+ * the ambiguity gate does not silently discard it on unambiguous kernels. */
+static void test_arm64_text_base_modern_floor_when_unambiguous(void) {
+#if defined(__aarch64__)
+  struct engine e;
+  engine_init(&e);
+  e.est[Q_PAGE_OFFSET].kind = LK_INTERVAL;
+  e.est[Q_PAGE_OFFSET].lo = arm64_page_offset_for(48ul);
+  e.est[Q_PAGE_OFFSET].hi = arm64_page_offset_for(48ul);
+
+  struct constraint out[4];
+  int n = rule_arm64_text_base(&e.ev, e.est, out, 4);
+  const unsigned long modern_floor = arm64_page_end_for(48ul) + 0x8000000ul;
+  int saw_floor = 0;
+  for (int i = 0; i < n; i++) {
+    if (out[i].op == C_LOWER_BOUND) {
+      assert(out[i].value ==
+             modern_floor); /* the tight modern floor, exactly */
+      saw_floor = 1;
+    }
+  }
+  assert(
+      saw_floor); /* a VA48 kernel is unambiguously modern — floor required */
+#endif
+}
+
 /* ========================================================================
  * image_base_resolved_grid_align: snap the window to the RESOLVED (coarser)
  * KASLR grid — the step image_base_grid_align leaves to this rule.
@@ -2959,6 +3031,29 @@ static void test_arm64_va_bits_from_vmemmap_above_floor_inert(void) {
   /* Q_VA_BITS: no constraint emitted. */
   for (int i = 0; i < e.n_constraints; i++)
     assert(e.constraints[i].q != Q_VA_BITS);
+}
+
+/* Recurrence guard (see arm64_va_bits_from_vmemmap.c header): the VA52
+ * discrimination is a likely-window HEURISTIC — the pre-v5.4 low-vmemmap layout
+ * is ambiguous with modern VA52 — so it must NEVER land in the guaranteed band,
+ * where it would override a directly-observed directmap PAGE_OFFSET. Do not
+ * raise its confidence back to parsed/inferred. */
+static void test_arm64_va_bits_from_vmemmap_is_heuristic(void) {
+  struct engine e;
+  engine_init(&e);
+  struct observation o =
+      mk_obs(KASLD_TYPE_VIRT, REGION_VMEMMAP, 0xfff8000000000000ul,
+             LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
+  evidence_add(&e.ev, &o);
+  struct constraint out[4];
+  int n = rule_arm64_va_bits_from_vmemmap(&e.ev, e.est, out, 4);
+#if defined(__aarch64__)
+  assert(n >= 1);
+  for (int i = 0; i < n; i++)
+    assert(out[i].conf <= CONF_HEURISTIC); /* never the guaranteed band */
+#else
+  assert(n == 0);
+#endif
 }
 
 /* s390_text_from_vmalloc: a VIRT/VMALLOC observation pushes the text
@@ -6617,6 +6712,8 @@ int main(void) {
   RUN(test_image_base_grid_align_tightens);
   RUN(test_image_base_grid_align_noop);
   RUN(test_arm64_text_base_off_2mib_stays_in_window);
+  RUN(test_arm64_text_base_admits_old_layout);
+  RUN(test_arm64_text_base_modern_floor_when_unambiguous);
   RUN(test_resolved_grid_align_sound);
   RUN(test_resolved_grid_align_noop);
 #if !TEXT_TRACKS_DIRECTMAP
@@ -6819,6 +6916,7 @@ int main(void) {
   BEGIN_CATEGORY("arm64-specific rules");
   RUN(test_arm64_memstart_align);
   RUN(test_arm64_va_bits_from_vmemmap_pins_52);
+  RUN(test_arm64_va_bits_from_vmemmap_is_heuristic);
   RUN(test_arm64_va_bits_from_vmemmap_above_floor_inert);
   RUN(test_va_bits_la57_l5);
   RUN(test_va_bits_la57_l4);
