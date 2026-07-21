@@ -63,6 +63,28 @@ static inline int is_phys_dram_region(enum kasld_region r) {
   }
 }
 
+/* RAM *coverage* regions: contiguous spans of usable System RAM, whose ABSENCE
+ * therefore establishes a non-RAM gap. Deliberately narrower than
+ * is_phys_dram_region(): that predicate answers "is this address inside DRAM?"
+ * and so also admits interior reservations (initrd, crashkernel, reserved-mem,
+ * ACPI, ...) and the kernel image — ranges that sit WITHIN RAM but do not
+ * define its boundaries. A hole test must use coverage regions only: an
+ * interior reservation is not a RAM boundary, so the gaps between reservations
+ * are real RAM, and treating them as non-RAM would wrongly cap a bound below a
+ * true base sitting there. PMEM and the kernel-image regions are excluded for
+ * the same reason (not usable-DRAM coverage / interior). */
+static inline int is_phys_ram_coverage_region(enum kasld_region r) {
+  switch (r) {
+  case REGION_RAM:
+  case REGION_DMA:
+  case REGION_DMA32:
+  case REGION_NUMA_NODE:
+    return 1;
+  default:
+    return 0;
+  }
+}
+
 /* Memory-mapped I/O windows (definitely NOT where kernel text loads). */
 static inline int is_mmio_region(enum kasld_region r) {
   return r == REGION_MMIO || r == REGION_PCI_MMIO;

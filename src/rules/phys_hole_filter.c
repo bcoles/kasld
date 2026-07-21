@@ -3,15 +3,25 @@
 // Rule: drop the physical text ceiling out of a DRAM hole.
 //
 // The kernel image loads in DRAM, so
-// if the current physical ceiling lands in a gap between known DRAM extents, it
-// can be dropped to the top of the highest DRAM extent strictly below it.
+// if the current physical ceiling lands in a gap between known RAM extents, it
+// can be dropped to the top of the highest RAM extent strictly below it.
 //
-//   if phys_image_base hi lies in no DRAM extent:
-//     phys_image_base <= hi of the highest DRAM extent below it
+//   if phys_image_base hi lies in no RAM-coverage extent:
+//     phys_image_base <= hi of the highest RAM-coverage extent below it
+//
+// Uses is_phys_ram_coverage_region() (System RAM / DMA / DMA32 / NUMA node),
+// NOT is_phys_dram_region(): the hole test is only sound over extents that
+// COVER RAM (whose absence means non-RAM). Interior reservations (initrd,
+// crashkernel, reserved-mem, ...) sit within RAM without defining its
+// boundaries — folding them in would treat the real RAM between two
+// reservations as a hole and cap the ceiling below a true base there. When only
+// reservations are present (a hardened host with a restricted /proc/iomem but a
+// leaked dmesg crashkernel line), no coverage extent is collected and the rule
+// stays inert.
 //
 // CROSS-QUANTITY: reads the resolved Q_PHYS_IMAGE_BASE upper edge and the
-// leaked DRAM extent observations (those with both lo and hi). Emits a
-// C_UPPER_BOUND. Inert on coupled arches and when no DRAM extent observation is
+// leaked RAM-coverage extent observations (those with both lo and hi). Emits a
+// C_UPPER_BOUND. Inert on coupled arches and when no coverage extent is
 // present.
 // ---
 // <bcoles@gmail.com>
@@ -37,7 +47,8 @@ int rule_phys_hole_filter(const struct evidence_set *ev,
     const struct observation *o = &ev->obs[i];
     if (!o->valid || o->value_kind != OBS_ADDRESS)
       continue;
-    if (o->eff_type != KASLD_TYPE_PHYS || !is_phys_dram_region(o->eff_region))
+    if (o->eff_type != KASLD_TYPE_PHYS ||
+        !is_phys_ram_coverage_region(o->eff_region))
       continue;
     if (!HAS_LO(o) || !HAS_HI(o) || o->lo > o->hi)
       continue;

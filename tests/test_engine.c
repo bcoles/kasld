@@ -5071,6 +5071,34 @@ static void test_phys_hole_filter(void) {
 #endif
 }
 
+/* Regression: interior reservation sub-regions must NOT be treated as RAM
+ * coverage. On a hardened host the complete System-RAM map can be absent
+ * (/proc/iomem addresses restricted) while a dmesg crashkernel/initrd line
+ * still leaks a reservation extent. Those extents sit WITHIN RAM without
+ * defining its boundaries, so the real RAM between/above them is not a hole —
+ * the rule must stay inert rather than cap the ceiling below a true base there.
+ * Pre-fix it used is_phys_dram_region (which admits reservations) and snapped
+ * the ceiling to the top of the highest reservation. */
+static void test_phys_hole_filter_ignores_reservations(void) {
+  struct engine e;
+  engine_init(&e);
+  unsigned long P = (unsigned long)PHYS_OFFSET;
+  unsigned long ceiling_before = e.est[Q_PHYS_IMAGE_BASE].hi;
+  /* Two reservation islands with a gap; NO REGION_RAM coverage present. */
+  add_phys_extent(&e, REGION_INITRD, P + 0x1000000ul, P + 0x1100000ul);
+  add_phys_extent(&e, REGION_CRASHKERNEL, P + 0x3000000ul, P + 0x4000000ul);
+  const rule_fn rules[] = {rule_phys_hole_filter};
+  engine_run(&e, rules, 1);
+#if !TEXT_TRACKS_DIRECTMAP
+  /* No coverage extent → rule inert → ceiling unchanged (a true base in the
+   * real RAM above the reservations stays admissible). */
+  assert(e.est[Q_PHYS_IMAGE_BASE].hi == ceiling_before);
+#else
+  (void)e;
+  (void)ceiling_before;
+#endif
+}
+
 static void test_kernel_image_phys_bound(void) {
   struct engine e;
   engine_init(&e);
@@ -6762,6 +6790,7 @@ int main(void) {
   RUN(test_dram_ceiling);
   RUN(test_mmio_floor_phys_ceiling);
   RUN(test_phys_hole_filter);
+  RUN(test_phys_hole_filter_ignores_reservations);
   RUN(test_kernel_image_phys_bound);
   RUN(test_kernel_image_phys_bound_lower_from_high_witness);
   RUN(test_kernel_image_phys_bound_lower_conf);
