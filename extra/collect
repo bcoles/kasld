@@ -341,6 +341,11 @@ if [ "$ANON" -eq 1 ]; then
   scrub_secrets "$OUT/verbose.txt"
   scrub_secrets "$OUT/dmesg.txt"
   scrub_secrets "$OUT/sysroot/var/log/dmesg"
+  # The kernel command line is also exposed as the device-tree /chosen/bootargs
+  # (both paths), a separate copy of the same string — scrub it too, or a MAC /
+  # root=UUID in bootargs survives the cmdline scrub.
+  scrub_secrets "$OUT/sysroot/proc/device-tree/chosen/bootargs"
+  scrub_secrets "$OUT/sysroot/sys/firmware/devicetree/base/chosen/bootargs"
   echo "anonymized: host identity, CPU brand, UUIDs/MACs, sensitive cmdline values redacted" >> "$NOTES"
 fi
 
