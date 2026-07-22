@@ -131,8 +131,12 @@ KASLD_META("method:parsed\n"
  *   s390:   "vmalloc area:        0x...-0x..."         (range; boot KERN_DEBUG)
  */
 enum layout_kind {
-  LK_BASE = 0, /* needle ... 0x<lo> ...      (single address) */
-  LK_RANGE,    /* needle ... 0x<lo>[ ]-[ ]0x<hi> ... (two addresses) */
+  LK_BASE = 0,   /* needle ... 0x<lo> ...      (single address) */
+  LK_RANGE,      /* needle ... 0x<lo>[ ]-[ ]0x<hi> ... (two addresses) */
+  LK_IMAGE_BASE, /* single address that IS _text (the image base) directly, so
+                  * emit_base() must NOT apply the _start->_text projection (the
+                  * ".text : 0x" line, distinct from the _start-reporting
+                  * "kernel : 0x" needle). Parsed like LK_BASE. */
 };
 
 struct layout_entry {
@@ -146,8 +150,22 @@ struct layout_entry {
 };
 
 static const struct layout_entry entries[] = {
-    {".text : 0x", KASLD_TYPE_VIRT, "kernel .text start", REGION_KERNEL_TEXT,
-     KERNEL_VIRT_TEXT_MIN, KERNEL_VIRT_TEXT_MAX, LK_BASE},
+    /* The ARM/arm64/x86_32 layout print's ".text : 0x<lo> - 0x<hi>" low edge is
+     * _text (the image base) itself, NOT _stext — verified against ground
+     * truth: arm64 prints ".text : _text" (_stext one STEXT_OFFSET page above)
+     * and arm32 prints ".text : _text" with _text ==
+     * __pa+PAGE_OFFSET+TEXT_OFFSET. So it is a REGION_KERNEL_IMAGE base, but
+     * LK_IMAGE_BASE (not LK_BASE): the value is ALREADY _text, so emit_base()
+     * must NOT add IMAGE_BASE_OFFSET (that _start->_text projection is only for
+     * the "kernel : 0x" needle, which reports _start). arm32 has
+     * IMAGE_BASE_OFFSET 0x8000, so projecting here would land 0x8000 ABOVE
+     * _text and exclude the truth. A kernel-text tag is also wrong: it reads
+     * the value as _stext and shifts DOWN by STEXT_OFFSET (0x10000 on arm64),
+     * landing below _text. The head-gap arches (riscv/s390) report their image
+     * span via the "kernel : 0x" / "vmalloc area:" needles. */
+    {".text : 0x", KASLD_TYPE_VIRT, "kernel image base (.text)",
+     REGION_KERNEL_IMAGE, KERNEL_VIRT_TEXT_MIN, KERNEL_VIRT_TEXT_MAX,
+     LK_IMAGE_BASE},
     {".data : 0x", KASLD_TYPE_VIRT, "kernel .data start", REGION_KERNEL_DATA,
      KERNEL_VIRT_VAS_START, KERNEL_VIRT_VAS_END, LK_BASE},
     {".bss  : 0x", KASLD_TYPE_VIRT, "kernel .bss start", REGION_KERNEL_BSS,
@@ -231,20 +249,19 @@ static int extract_range(const char *s, unsigned long *lo, unsigned long *hi) {
 static void emit_base(int idx, unsigned long addr) {
   enum kasld_region region = entries[idx].region;
 
-  /* The only REGION_KERNEL_IMAGE needle ("kernel : 0x...", riscv/xtensa)
-   * reports _start = kernel_map.virt_addr, the image LOAD address. The solved
-   * image base is _text, which sits IMAGE_BASE_OFFSET above _start on a
-   * head-gap arch
-   * (_start is granule-aligned, so the offset is exactly the .head.text).
-   * Project up so the pin is the image base, not _start. No-op where
-   * IMAGE_BASE_OFFSET is 0 (every arch whose dmesg lacks this line). */
-  if (region == REGION_KERNEL_IMAGE)
+  /* Two needles report REGION_KERNEL_IMAGE, at DIFFERENT anchors:
+   *   "kernel : 0x..." (riscv/xtensa, LK_BASE) reports _start = kernel_map.
+   *     virt_addr, the image LOAD address, IMAGE_BASE_OFFSET (the
+   * granule-aligned .head.text) below _text — project it UP to _text.
+   *   ".text : 0x..." (arm/arm64/x86_32, LK_IMAGE_BASE) reports _text directly
+   * — do NOT project (arm32's IMAGE_BASE_OFFSET is 0x8000; adding it would land
+   *     above _text and exclude the truth).
+   * The solved image base is _text; only the _start-reporting needle needs the
+   * projection. */
+  if (region == REGION_KERNEL_IMAGE && entries[idx].kind != LK_IMAGE_BASE)
     addr += (unsigned long)IMAGE_BASE_OFFSET;
 
   kasld_info("%s: %lx", entries[idx].display, addr);
-
-  if (region == REGION_KERNEL_TEXT)
-    kasld_info("possible kernel base: %lx", kasld_floor_text_base(addr));
 
 #if KERNEL_VIRT_VAS_START /* vacuous where VAS_START is 0 (s390) */
   if ((region == REGION_DIRECTMAP || region == REGION_MODULE_REGION) &&

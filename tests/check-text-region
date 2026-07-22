@@ -34,9 +34,10 @@ fi
 
 # Components whose REGION_KERNEL_TEXT base is genuinely _stext (reviewed):
 #   proc_kallsyms                 — emits _stext (and _text as KERNEL_IMAGE)
-#   dmesg_mem_init_kernel_layout  — the ".text : 0x" line is _stext
 #   proc_kcore                    — the KCORE_TEXT PT_LOAD p_vaddr is _stext
-ALLOW="proc_kallsyms dmesg_mem_init_kernel_layout proc_kcore"
+# (dmesg_mem_init_kernel_layout's ".text : 0x" line is _text, the image base, so
+#  it is tagged REGION_KERNEL_IMAGE — not KERNEL_TEXT — and is not listed here.)
+ALLOW="proc_kallsyms proc_kcore"
 
 # Literal base emission tagged KERNEL_TEXT (drop // and block-comment lines so a
 # comment naming the region does not trip the guard).

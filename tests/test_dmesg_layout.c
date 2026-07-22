@@ -88,10 +88,33 @@ static void test_kernel_line_below_text_rejected(void) {
   assert(strstr(cap, "kernel_text") == NULL);
 }
 
+/* The ARM/arm64/x86_32 layout ".text : 0x<lo> - 0x<hi>" low edge IS _text (the
+ * image base) directly, not _stext and not _start. It must pin
+ * REGION_KERNEL_IMAGE at the value UNCHANGED — never KERNEL_TEXT (which the
+ * engine reads as _stext and shifts DOWN by STEXT_OFFSET, below _text on
+ * arm64/loongarch64), and never with the _start->_text projection (which on
+ * arm32 would add IMAGE_BASE_OFFSET = 0x8000 and land ABOVE _text). The emitted
+ * lo must equal the raw value on every arch, including those with
+ * IMAGE_BASE_OFFSET != 0. */
+static void test_text_line_pins_image_base(void) {
+  unsigned long image_base = (unsigned long)KERNEL_VIRT_TEXT_MIN;
+  char line[256], want[64];
+  snprintf(line, sizeof(line), "      .text : 0x%lx - 0x%lx   (  6208 KB)",
+           image_base, image_base + 0x600000);
+  parse_capture(line, cap, sizeof(cap));
+  assert(strstr(cap, "V kernel_image pos=base") != NULL);
+  assert(strstr(cap, "kernel_text") == NULL); /* not shifted down as _stext */
+  snprintf(want, sizeof(want), "lo=0x%lx",
+           image_base); /* unchanged: no project */
+  assert(strstr(cap, want) != NULL);
+}
+
 int main(void) {
   TEST_SUITE("test_dmesg_layout");
   BEGIN_CATEGORY("riscv layout-dump kernel line");
   RUN(test_kernel_line_pins_text_base);
   RUN(test_kernel_line_below_text_rejected);
+  BEGIN_CATEGORY("arm/x86_32 layout .text line");
+  RUN(test_text_line_pins_image_base);
   return TEST_DONE();
 }
