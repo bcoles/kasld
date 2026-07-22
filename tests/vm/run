@@ -615,6 +615,11 @@ likely_of() {
     /"likely_physical":[ \t]*\{/{ lpk=1 }
     lpk && /"range_min":/{ lpmin=val($0) }
     lpk && /"range_max":/{ lpmax=val($0); lpk=0 }
+    # page_offset likely edge (single-line object): on a coupled arch the image
+    # base rides the page-offset grid, so its likely low edge is the page_offset
+    # config-default (e.g. VMSPLIT_3G 0xc0000000) rather than any observed group.
+    /"virt_page_offset_base":/{ s=$0
+      if(sub(/.*"likely":[ \t]*\{[ \t]*"min":[ \t]*"/,"",s)){ sub(/".*/,"",s); polik=s } }
     /"groups":[ \t]*\[/{ ing=1 }
     ing && /"type":/{ gi++; gorg[gi]="" }
     ing && gi>0 && /"consensus":/{ gcons[gi]=val($0) }
@@ -627,6 +632,10 @@ likely_of() {
       method="?"; via="?"
       if(!match_edge(lmax) && !match_edge(lmin) && lpmax!="")
         if(!match_edge(lpmax)) match_edge(lpmin)
+      # Coupled-arch fallback: no observed group edge matched, but the likely
+      # image-base low edge sits on the page_offset config-default grid — the
+      # narrowing is the assumed page offset (a config-default guess), not a leak.
+      if(method=="?" && polik!="" && lmin==polik){ method="config"; via="page_offset default" }
       printf "%s|%s|%s|%s|%s|%s|%s\n", gbits, lbits, lmin, lmax, method, via, nonrepro_touch()
     }' "$1"
 }

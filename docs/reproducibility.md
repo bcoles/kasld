@@ -168,11 +168,11 @@ is out of scope (see [Scope](#scope) below).
 | arch | release | source | scenario | KASLR | virt residual | phys residual |
 |------|---------|--------|----------|-------|---------------|---------------|
 | x86_64 | 6.12.81-0-virt | alpine | default | on | exact | 6 bits |
-| x86_64 | 6.12.81-0-virt | alpine | hidden | on | 1 bit | 6 bits |
+| x86_64 | 6.12.81-0-virt | alpine | hidden | on | exact | 6 bits |
 | x86_64 | 6.12.81-0-virt | alpine | hardened | on | 6 bits | 6 bits |
 | i686 | 6.12.81-0-lts | alpine | default | on | exact | — |
 | i686 | 6.12.81-0-lts | alpine | hidden | on | exact | — |
-| i686 | 6.12.81-0-lts | alpine | hardened | on | 5 bits | — |
+| i686 | 6.12.81-0-lts | alpine | hardened | on | 6 bits | — |
 | aarch64 | 6.12.81-0-virt | alpine | default | on | exact | 9 bits |
 | aarch64 | 6.12.81-0-virt | alpine | hidden | on | 15 bits | 14 bits |
 | aarch64 | 6.12.81-0-virt | alpine | hardened | on | 31 bits | 14 bits |
@@ -192,22 +192,22 @@ is out of scope (see [Scope](#scope) below).
 | s390x | 6.12.81-0-lts | alpine | hidden | on | 28 bits | 10 bits |
 | s390x | 6.12.81-0-lts | alpine | hardened | on | 39 bits | 10 bits |
 | x86_64 | 5.15.211 | mainline | default | on | exact | 9 bits |
-| x86_64 | 5.15.211 | mainline | hidden | on | 5 bits | 9 bits |
+| x86_64 | 5.15.211 | mainline | hidden | on | 4 bits | 9 bits |
 | x86_64 | 5.15.211 | mainline | hardened | on | 9 bits | 9 bits |
 | x86_64 | 6.6.144 | mainline | default | on | exact | 9 bits |
-| x86_64 | 6.6.144 | mainline | hidden | on | 5 bits | 9 bits |
+| x86_64 | 6.6.144 | mainline | hidden | on | 4 bits | 9 bits |
 | x86_64 | 6.6.144 | mainline | hardened | on | 9 bits | 9 bits |
 | x86_64 | 7.0.0 | mainline | default | on | exact | 9 bits |
-| x86_64 | 7.0.0 | mainline | hidden | on | 5 bits | 9 bits |
+| x86_64 | 7.0.0 | mainline | hidden | on | 4 bits | 9 bits |
 | x86_64 | 7.0.0 | mainline | hardened | on | 9 bits | 9 bits |
 | i686 | 5.15.211 | mainline | default | on | exact | — |
-| i686 | 5.15.211 | mainline | hidden | on | 4 bits | — |
+| i686 | 5.15.211 | mainline | hidden | on | 3 bits | — |
 | i686 | 5.15.211 | mainline | hardened | on | 8 bits | — |
 | i686 | 6.6.144 | mainline | default | on | exact | — |
-| i686 | 6.6.144 | mainline | hidden | on | 4 bits | — |
+| i686 | 6.6.144 | mainline | hidden | on | 3 bits | — |
 | i686 | 6.6.144 | mainline | hardened | on | 8 bits | — |
 | i686 | 7.0.0 | mainline | default | on | exact | — |
-| i686 | 7.0.0 | mainline | hidden | on | 4 bits | — |
+| i686 | 7.0.0 | mainline | hidden | on | 3 bits | — |
 | i686 | 7.0.0 | mainline | hardened | on | 8 bits | — |
 | aarch64 | 5.15.211 | mainline | default | on | exact | 9 bits |
 | aarch64 | 5.15.211 | mainline | hidden | on | 10 bits | 14 bits |
@@ -357,26 +357,28 @@ ten below, where a sub-floor signal narrows the base past the sound floor
 
 | arch | release | source | scenario | guaranteed | likely | via | method | truth ∈ likely |
 |------|---------|--------|----------|------------|--------|-----|--------|:---:|
-| x86_64 | 6.12.81-0-virt | alpine | hidden | 1 bit | exact | `perf_event_open` | parsed | yes |
-| x86_64 | 5.15.211 | mainline | hidden | 5 bits | exact | `perf_event_open` | parsed | yes |
-| x86_64 | 6.6.144 | mainline | hidden | 5 bits | exact | `perf_event_open` | parsed | yes |
-| x86_64 | 7.0.0 | mainline | hidden | 5 bits | exact | `perf_event_open` | parsed | yes |
-| i686 | 5.15.211 | mainline | hidden | 4 bits | exact | `perf_event_open` | parsed | yes |
-| i686 | 6.6.144 | mainline | hidden | 4 bits | exact | `perf_event_open` | parsed | yes |
-| i686 | 7.0.0 | mainline | hidden | 4 bits | exact | `perf_event_open` | parsed | yes |
+| i686 | 6.12.81-0-lts | alpine | hardened | 6 bits | 5 bits | `page_offset default` | config | yes |
+| x86_64 | 5.15.211 | mainline | hidden | 4 bits | exact | `perf_text_poke_leak` | parsed | yes |
+| x86_64 | 6.6.144 | mainline | hidden | 4 bits | exact | `perf_event_open` | parsed | yes |
+| x86_64 | 7.0.0 | mainline | hidden | 4 bits | exact | `perf_event_open` | parsed | yes |
+| i686 | 5.15.211 | mainline | hidden | 3 bits | exact | `perf_text_poke_leak` | parsed | yes |
+| i686 | 6.6.144 | mainline | hidden | 3 bits | exact | `perf_event_open` | parsed | yes |
+| i686 | 7.0.0 | mainline | hidden | 3 bits | exact | `perf_event_open` | parsed | yes |
 | ppc32 | 5.15.211 | mainline | hardened | 15 bits | 11 bits | `proc_zoneinfo + sysfs_devicetree_memory` | parsed | yes |
 | ppc32 | 6.6.144 | mainline | hardened | 15 bits | 11 bits | `proc_zoneinfo + sysfs_devicetree_memory` | parsed | yes |
 | ppc32 | 7.0.0 | mainline | hardened | 15 bits | 11 bits | `proc_zoneinfo + sysfs_devicetree_memory` | parsed | yes |
 
 The split follows the reader profile and the arch's surviving sub-floor signals.
-Under `hidden`, `perf_event_open` is still permitted, so on `x86_64` and `i686`
-it leaks a symbol pointer — a parsed best-guess base — that collapses the likely
-window to `exact` (on Alpine `x86_64` this narrows the 1-bit guaranteed window
-the rest of the way). Under `hardened`, `perf_event_paranoid=3` blocks it, so the
-likely window collapses back onto guaranteed unless another surviving signal
-narrows it. `ppc32` is the one such case here: under `hardened` its narrowing is a
-memory-map heuristic from `/proc/zoneinfo` and the device-tree, trimming 15 bits
-to 11. Every other KASLR-on cell leaves likely equal to guaranteed.
+Under `hidden`, `perf_event_open` is still permitted, so on mainline `x86_64` and
+`i686` it leaks a symbol pointer — a parsed best-guess base — that collapses the
+likely window to `exact` (on the Alpine cells the guaranteed window is already
+`exact` or near it, so there is nothing left to narrow). Under `hardened`,
+`perf_event_paranoid=3` blocks it, so the likely window collapses back onto
+guaranteed unless another surviving signal narrows it. Two cases appear here: on
+Alpine `i686` the narrowing is the assumed x86_32 page offset — a `config` default
+(VMSPLIT_3G at `0xc0000000`), trimming 6 bits to 5; on `ppc32` it is a memory-map
+heuristic from `/proc/zoneinfo` and the device-tree, trimming 15 bits to 11. Every
+other KASLR-on cell leaves likely equal to guaranteed.
 
 No cell appears under `default`, and that is not a gap: with `kptr_restrict=0` the
 sound `proc_kallsyms` pin already resolves the *guaranteed* window to `exact`, so
@@ -389,8 +391,9 @@ stricter profile recovered *more* than a looser one. Absolute recovery stays
 monotonic (`default` ≥ `hidden` ≥ `hardened`) — read it off the guaranteed matrix
 above, not this table.
 
-All ten rows are `parsed` — deterministic leaks and a memory-map heuristic, not
-timing — and every likely window on this run contained the truth (10 / 10). A
+Nine of the ten rows are `parsed` (deterministic leaks and a memory-map
+heuristic); the tenth is a `config` default (the assumed x86_32 page offset). None
+are timing — and every likely window on this run contained the truth (10 / 10). A
 likely miss is never a soundness violation regardless: the gate is on guaranteed,
 which contains the truth in every cell.
 
