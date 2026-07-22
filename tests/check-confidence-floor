@@ -17,11 +17,14 @@
 #
 # This check flags every rule that emits a C_EQUALS pin at an at-or-above-floor
 # confidence written as a bare literal (CONF_INFERRED / CONF_DERIVED /
-# CONF_PARSED). A pin whose confidence is capped to its input via
-# kasld_conf_min() / kasld_edge_conf() is the disciplined form and is not
-# flagged; nor is a pin that inherits an observation's own confidence (its value
-# IS the observed fact). Each flagged rule must be reviewed — is the pinned value
-# a derived fact, not a default/convention? — and added to the ALLOW list below.
+# CONF_PARSED), whether assigned directly (`->conf = CONF_DERIVED`) or via a
+# conditional (`... ? CONF_DERIVED : CONF_HEURISTIC`) — a ternary that can reach
+# the floor still pins the guaranteed window and must be reviewed. A pin whose
+# confidence is capped to its input via kasld_conf_min() / kasld_edge_conf() is
+# the disciplined form and is not flagged; nor is a pin that inherits an
+# observation's own confidence (its value IS the observed fact). Each flagged
+# rule must be reviewed — is the pinned value a derived fact, not a
+# default/convention? — and added to the ALLOW list below.
 #
 # Scope: engine rules only. A component emitting a kernel-image base at
 # at-or-above-floor confidence is emitting an observed leak; that axis is guarded
@@ -41,7 +44,13 @@ RULES=$ROOT/src/rules
 # review that admits an entry here. Keep alphabetical.
 #   page_offset_from_config        parsed CONFIG_PAGE_OFFSET (a read fact)
 #   page_offset_from_leak          parsed exact linear-map base (kcore p_vaddr-p_paddr)
-#   phys_virt_synth                page_offset = virt - phys from a leak pair
+#   page_offset_invariant_pin      arch-fixed PAGE_OFFSET (MIPS CKSEG0, ppc linear
+#                                  base, etc.); ISA constant, not a guess — gated
+#                                  on PAGE_OFFSET_INVARIANT, inert on configurable
+#                                  arches (x86/arm/riscv64/s390)
+#   phys_virt_synth                page_offset = virt-phys; guaranteed (CONF_DERIVED)
+#                                  only when >= 2 independent origins corroborate,
+#                                  else CONF_HEURISTIC (likely only)
 #   ppc32_phys_ceiling             BookE no-KASLR (deterministic sub-threshold RAM)
 #   randomize_memory_page_offset   page_offset reconstructed from a directmap leak
 #   riscv64_fdt_kaslr_seed         gated on the observed fdt KASLR seed
@@ -49,6 +58,7 @@ RULES=$ROOT/src/rules
 #   s390_image_base_from_config    parsed CONFIG_KERNEL_IMAGE_BASE on KASLR-off
 ALLOW="page_offset_from_config
 page_offset_from_leak
+page_offset_invariant_pin
 phys_virt_synth
 ppc32_phys_ceiling
 randomize_memory_page_offset
@@ -62,13 +72,23 @@ else
   RED=; GREEN=; RESET=
 fi
 
-# 0 if the file emits a C_EQUALS pin at an at-or-above-floor confidence LITERAL
-# (a bare `conf = CONF_INFERRED/_DERIVED/_PARSED`, not a kasld_conf_min/
-# kasld_edge_conf cap and not a comment).
+# 0 if the file emits a C_EQUALS pin at an at-or-above-floor confidence LITERAL:
+# either a bare `conf = CONF_INFERRED/_DERIVED/_PARSED`, or a conditional arm
+# `? CONF_x` / `: CONF_x` (a ternary that can reach the floor — e.g.
+# `n >= 2 ? CONF_DERIVED : CONF_HEURISTIC`). A kasld_conf_min()/kasld_edge_conf()
+# cap passes CONF_x as a call argument `(CONF_x`, matching neither form, so the
+# disciplined cap is (correctly) not flagged. Comments are stripped first, and a
+# `conf =` that wraps onto the next line (clang-format splitting a long
+# `c->conf = CONF_x; /* ... */`) is folded back so the split assignment is seen —
+# detection must not depend on formatting.
 is_guaranteed_pin() {
   grep -qE '(\.|->)op = C_EQUALS' "$1" 2>/dev/null || return 1
   grep -vE '^[[:space:]]*(//|\*)' "$1" 2>/dev/null \
-    | grep -qE '(\.|->)conf = CONF_(INFERRED|DERIVED|PARSED)'
+    | awk '
+        prev ~ /(\.|->)conf =[[:space:]]*$/ { print prev " " $0; prev=""; next }
+        { if (prev != "") print prev; prev=$0 }
+        END { if (prev != "") print prev }' \
+    | grep -qE '((\.|->)conf =|[?:])[[:space:]]*CONF_(INFERRED|DERIVED|PARSED)'
 }
 
 contains() { # $1=needle $2=list

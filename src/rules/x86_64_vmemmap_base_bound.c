@@ -62,12 +62,18 @@ int rule_x86_64_vmemmap_base_bound(const struct evidence_set *ev,
   unsigned long one_tb = 1ul << TB_SHIFT;
   unsigned long pud_size = 1ul << PUD_SHIFT;
 
-  /* Paging mode from virt_page_offset: L5 if its floor sits below the L4 VAS.
+  /* Paging mode from virt_page_offset. The larger L5 size feeds a LOWER bound
+   * below, so mis-selecting L5 tightens it upward and can cross the true base:
+   * commit L5 only when page_offset is RESOLVED to a point below the L4 VAS,
+   * not on the bare floor. The unresolved Q_PAGE_OFFSET floor
+   * (0xff00000000000000) sits below X86_64_L4_VAS_START, so an ordinary L4 box
+   * would otherwise mis-select L5 (L4 bases randomize up from
+   * __PAGE_OFFSET_BASE_L4 > L4_VAS_START). Mirrors x86_64_vmalloc_base_bound.
    */
-  unsigned long po_lo = est[Q_PAGE_OFFSET].lo;
-  unsigned long vmalloc_size_tb = (po_lo != 0 && po_lo < X86_64_L4_VAS_START)
-                                      ? VMALLOC_SIZE_TB_L5
-                                      : VMALLOC_SIZE_TB_L4;
+  const struct estimate *po = &est[Q_PAGE_OFFSET];
+  unsigned long vmalloc_size_tb = VMALLOC_SIZE_TB_L4;
+  if (po->lo == po->hi && po->lo != 0 && po->lo < X86_64_L4_VAS_START)
+    vmalloc_size_tb = VMALLOC_SIZE_TB_L5;
 
   int n = 0;
 

@@ -76,16 +76,54 @@ static inline int kasld_emit_va_band_verdicts(const struct evidence_set *ev,
   return n;
 }
 
+/* First non-zero OBS_SCALAR value for `fact`, or 0. Reports its confidence and
+ * source id via the out-params when found. */
+static inline unsigned long
+kasld_scalar_fact_value(const struct evidence_set *ev,
+                        enum kasld_scalar_fact fact,
+                        enum kasld_confidence *conf, uint32_t *src) {
+  for (int i = 0; i < ev->n_obs; i++) {
+    const struct observation *o = &ev->obs[i];
+    if (o->valid && o->value_kind == OBS_SCALAR && o->scalar_fact == fact &&
+        o->scalar_value != 0) {
+      if (conf)
+        *conf = o->conf;
+      if (src)
+        *src = o->id;
+      return o->scalar_value;
+    }
+  }
+  return 0;
+}
+
 /* Shared skeleton for the virt/phys KASLR-disabled text pins. On a positive
- * `signal` scalar, pin quantity `q` to the arch default `dflt` — an assumed
- * standard-config value, not a parsed fact, so emitted at <= CONF_INFERRED
- * (capped to the signal's own confidence) and only when `dflt` lies inside the
- * quantity's current honest window (so a leak that already narrowed past it
- * wins). Returns 1 if a pin was emitted, 0 otherwise. */
+ * `signal` scalar, pin quantity `q` to the KASLR-off base — but the VALUE and
+ * its confidence differ by whether the base is a fact or a guess:
+ *   - `learned_base` != 0 is the EXACT no-KASLR base, pinned at
+ * `learned_ceiling`
+ *     (<= CONF_INFERRED) — reaches the guaranteed window, correct for default
+ * AND non-default builds. The caller must pass the exact value: on x86 the base
+ *     is __START_KERNEL_map + LOAD_PHYSICAL_ADDR, and LOAD_PHYSICAL_ADDR =
+ *     ALIGN(CONFIG_PHYSICAL_START, CONFIG_PHYSICAL_ALIGN) — so the caller
+ * aligns the parsed CONFIG_PHYSICAL_START and passes 0 (falling back to `dflt`)
+ * when the alignment is unknown, since the un-aligned value is a floor, not the
+ *     base. `learned_src`/`learned_src2` are the parsed value's source ids for
+ *     lineage (0 = none), added only on the learned path.
+ *   - otherwise the compile-time `dflt` is an ASSUMED standard-config value (a
+ *     guess): pinned at CONF_HEURISTIC (likely window only), so a non-default
+ *     CONFIG_PHYSICAL_START build's true base is never excluded from the
+ *     guaranteed window. (Previously the default reached CONF_INFERRED; the
+ *     window-containment check below only catches a default ABOVE a narrowed
+ *     window, not a below-default build — hence the demotion.)
+ * The value must lie inside `q`'s current honest window (so a leak that already
+ * narrowed past it wins). Mirrors s390_image_base_from_config, which pins its
+ * learned config base. Returns 1 if a pin was emitted, 0 otherwise. */
 static inline int kasld_emit_kaslr_disabled_pin(
     const struct evidence_set *ev, const struct estimate *est,
     struct constraint *out, int out_max, enum kasld_scalar_fact signal,
-    enum kasld_quantity q, unsigned long dflt, const char *origin) {
+    enum kasld_quantity q, unsigned long learned_base,
+    enum kasld_confidence learned_ceiling, uint32_t learned_src,
+    uint32_t learned_src2, unsigned long dflt, const char *origin) {
   if (out_max < 1)
     return 0;
 
@@ -104,18 +142,37 @@ static inline int kasld_emit_kaslr_disabled_pin(
   if (sig_id == 0)
     return 0;
 
+  unsigned long value;
+  enum kasld_confidence ceiling;
+  uint32_t extra_src, extra_src2;
+  if (learned_base != 0) {
+    value = learned_base;
+    ceiling = learned_ceiling;
+    extra_src = learned_src;
+    extra_src2 = learned_src2;
+  } else {
+    value = dflt;
+    ceiling = CONF_HEURISTIC;
+    extra_src = 0;
+    extra_src2 = 0;
+  }
+
   const struct estimate *e = &est[q];
-  if (dflt == 0 || dflt < e->lo || dflt > e->hi)
+  if (value == 0 || value < e->lo || value > e->hi)
     return 0;
 
   struct constraint *c = &out[0];
   memset(c, 0, sizeof(*c));
   c->q = q;
   c->op = C_EQUALS;
-  c->value = dflt;
-  c->conf = sig_conf < CONF_INFERRED ? sig_conf : CONF_INFERRED;
+  c->value = value;
+  c->conf = kasld_conf_min(sig_conf, ceiling);
   c->derived_from[0] = sig_id;
   c->lineage_count = 1;
+  if (extra_src)
+    c->derived_from[c->lineage_count++] = extra_src;
+  if (extra_src2 && c->lineage_count < MAX_LINEAGE)
+    c->derived_from[c->lineage_count++] = extra_src2;
   snprintf(c->origin, ORIGIN_LEN, "%s", origin);
   return 1;
 }
@@ -280,6 +337,7 @@ R(arm64_text_base);
 R(arm64_memstart_align);
 R(arm64_va_bits_from_directmap);
 R(arm64_va_bits_from_vmemmap);
+R(arm64_va47_modern_floor);
 R(arm64_page_offset_from_va_bits);
 R(arm64_va_bits_from_scalar);
 R(arm64_text_phys_residue);

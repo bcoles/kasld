@@ -45,57 +45,52 @@
 #include <string.h>
 
 #if defined(__mips__) || defined(__loongarch__)
-/* Compute the kernel image's contiguous extent from observations.
- * Returns 0 if no usable observations are available. */
+/* Measure the kernel image's [_text, _end] extent from observations of one
+ * address type. kernel_length must OVER-estimate the true _end - _text: the
+ * kernel adds ALIGN(kernel_length, 0xffff) to the slide, so under-sizing it
+ * puts the ceiling below the true base. The span is exact only when anchored
+ * low at _text (a KERNEL_IMAGE base — the image head) AND high at _end (a
+ * KERNEL_BSS extent's hi). Without the BSS extent the span stops at _edata
+ * (KERNEL_DATA hi) and under-estimates by the BSS size; some arches'
+ * iomem/dmesg omit the "Kernel bss" entry entirely (e.g. loongarch, which
+ * exposes only "Kernel code" and "Kernel data"). Require both anchors as
+ * genuine extents (HAS_LO/HAS_HI, not obs_anchor point samples) and return 0 —
+ * emit nothing — otherwise, rather than a truncated, unsound length. */
+static unsigned long
+config_max_offset_ceiling__extent(const struct evidence_set *ev,
+                                  enum kasld_addr_type type) {
+  unsigned long lo = ULONG_MAX, hi = 0;
+  int have_image = 0, have_bss = 0;
+  for (int i = 0; i < ev->n_obs; i++) {
+    const struct observation *o = &ev->obs[i];
+    if (!o->valid || o->value_kind != OBS_ADDRESS || o->eff_type != type)
+      continue;
+    if (o->eff_region != REGION_KERNEL_TEXT &&
+        o->eff_region != REGION_KERNEL_IMAGE &&
+        o->eff_region != REGION_KERNEL_DATA &&
+        o->eff_region != REGION_KERNEL_BSS)
+      continue;
+    if (HAS_LO(o) && o->lo < lo)
+      lo = o->lo;
+    if (HAS_HI(o) && o->hi > hi)
+      hi = o->hi;
+    if (o->eff_region == REGION_KERNEL_IMAGE && HAS_LO(o))
+      have_image = 1; /* low anchor at _text (the image head) */
+    if (o->eff_region == REGION_KERNEL_BSS && HAS_HI(o))
+      have_bss = 1; /* high anchor at _end (__bss_stop) */
+  }
+  if (have_image && have_bss && lo != ULONG_MAX && hi > lo)
+    return hi - lo + 1;
+  return 0;
+}
+
+/* Prefer the PHYS extent (iomem); fall back to VIRT (dmesg layout). */
 static unsigned long
 config_max_offset_ceiling__kernel_length(const struct evidence_set *ev) {
-  /* PHYS path: iomem text..bss/data span. */
-  unsigned long pmin = ULONG_MAX, pmax = 0;
-  for (int i = 0; i < ev->n_obs; i++) {
-    const struct observation *o = &ev->obs[i];
-    if (!o->valid || o->value_kind != OBS_ADDRESS ||
-        o->eff_type != KASLD_TYPE_PHYS)
-      continue;
-    if (o->eff_region != REGION_KERNEL_TEXT &&
-        o->eff_region != REGION_KERNEL_IMAGE &&
-        o->eff_region != REGION_KERNEL_DATA &&
-        o->eff_region != REGION_KERNEL_BSS)
-      continue;
-    if (HAS_LO(o) && o->lo < pmin)
-      pmin = o->lo;
-    if (HAS_HI(o) && o->hi > pmax)
-      pmax = o->hi;
-  }
-  if (pmin != ULONG_MAX && pmax > pmin)
-    return pmax - pmin + 1;
-
-  /* VIRT path: same shape as PHYS — measure a real text..bss EXTENT via
-   * HAS_LO/HAS_HI, NOT obs_anchor point samples. kernel_length must be an
-   * OVER-estimate of the true _end - _text for the ceiling to stay sound (the
-   * kernel adds ALIGN(kernel_length, 0xffff) to the slide; under-sizing it puts
-   * the ceiling below the true base). A span between two scattered point leaks
-   * (the old obs_anchor min..max) is a severe under-estimate, so require
-   * genuine extents; absence yields 0 → emit nothing rather than an unsound
-   * guess. */
-  unsigned long vmin = ULONG_MAX, vmax = 0;
-  for (int i = 0; i < ev->n_obs; i++) {
-    const struct observation *o = &ev->obs[i];
-    if (!o->valid || o->value_kind != OBS_ADDRESS ||
-        o->eff_type != KASLD_TYPE_VIRT)
-      continue;
-    if (o->eff_region != REGION_KERNEL_TEXT &&
-        o->eff_region != REGION_KERNEL_IMAGE &&
-        o->eff_region != REGION_KERNEL_DATA &&
-        o->eff_region != REGION_KERNEL_BSS)
-      continue;
-    if (HAS_LO(o) && o->lo < vmin)
-      vmin = o->lo;
-    if (HAS_HI(o) && o->hi > vmax)
-      vmax = o->hi;
-  }
-  if (vmin != ULONG_MAX && vmax > vmin)
-    return vmax - vmin + 1;
-  return 0;
+  unsigned long len = config_max_offset_ceiling__extent(ev, KASLD_TYPE_PHYS);
+  if (len)
+    return len;
+  return config_max_offset_ceiling__extent(ev, KASLD_TYPE_VIRT);
 }
 #endif
 

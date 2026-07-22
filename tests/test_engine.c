@@ -3154,6 +3154,69 @@ static void test_arm64_va_bits_from_vmemmap_is_heuristic(void) {
 #endif
 }
 
+/* arm64_va47_modern_floor: on the one ambiguous resolved PAGE_OFFSET
+ * (arm64_page_offset_for(47) = 0xffff800000000000, shared by a modern VA47
+ * kernel and the pre-v5.4 VA48 layout) a VMEMMAP observation ABOVE the linear-
+ * map base proves the modern layout and recovers the tight VA47 floor
+ * _PAGE_END(47)+128M. Without such a witness — or with a low old-layout vmemmap
+ * — the rule is inert so arm64_text_base's honest floor is preserved. */
+int rule_arm64_va47_modern_floor(const struct evidence_set *ev,
+                                 const struct estimate *est,
+                                 struct constraint *out, int out_max);
+
+static void test_arm64_va47_modern_floor(void) {
+#if defined(__aarch64__)
+  const unsigned long ambiguous_po = arm64_page_offset_for(47ul);
+  const unsigned long modern_floor =
+      arm64_page_end_for(47ul) + 0x8000000ul; /* _PAGE_END(47) + 128M */
+  struct engine e;
+  struct constraint out[4];
+  struct observation o;
+  int n;
+
+  /* Case 1: a VMEMMAP witness above the linear-map base → tight modern floor.
+   */
+  engine_init(&e);
+  e.est[Q_PAGE_OFFSET].kind = LK_INTERVAL;
+  e.est[Q_PAGE_OFFSET].lo = ambiguous_po;
+  e.est[Q_PAGE_OFFSET].hi = ambiguous_po;
+  o = mk_obs(KASLD_TYPE_VIRT, REGION_VMEMMAP, 0xffffffe000000000ul,
+             LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
+  evidence_add(&e.ev, &o);
+  n = rule_arm64_va47_modern_floor(&e.ev, e.est, out, 4);
+  assert(n == 1);
+  assert(out[0].q == Q_VIRT_IMAGE_BASE && out[0].op == C_LOWER_BOUND);
+  assert(out[0].value == modern_floor);
+
+  /* Case 2: no VMEMMAP observation → inert (honest floor preserved). */
+  engine_init(&e);
+  e.est[Q_PAGE_OFFSET].kind = LK_INTERVAL;
+  e.est[Q_PAGE_OFFSET].lo = ambiguous_po;
+  e.est[Q_PAGE_OFFSET].hi = ambiguous_po;
+  n = rule_arm64_va47_modern_floor(&e.ev, e.est, out, 4);
+  assert(n == 0);
+
+  /* Case 3: the pre-v5.4 (v4.14) case — a VMEMMAP observation BELOW PAGE_OFFSET
+   * is not a modern witness, so the rule must stay inert and leave the honest
+   * floor in place. */
+  engine_init(&e);
+  e.est[Q_PAGE_OFFSET].kind = LK_INTERVAL;
+  e.est[Q_PAGE_OFFSET].lo = ambiguous_po;
+  e.est[Q_PAGE_OFFSET].hi = ambiguous_po;
+  o = mk_obs(KASLD_TYPE_VIRT, REGION_VMEMMAP, 0xffff7e0000000000ul,
+             LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
+  evidence_add(&e.ev, &o);
+  n = rule_arm64_va47_modern_floor(&e.ev, e.est, out, 4);
+  assert(n == 0);
+#else
+  /* Inert off arm64. */
+  struct engine e;
+  struct constraint out[4];
+  engine_init(&e);
+  assert(rule_arm64_va47_modern_floor(&e.ev, e.est, out, 4) == 0);
+#endif
+}
+
 /* s390_text_from_vmalloc: a VIRT/VMALLOC observation pushes the text
  * base lower bound up by exactly MODULES_LEN (= SZ_2G) + 1. */
 int rule_s390_text_from_belows(const struct evidence_set *ev,
@@ -4254,6 +4317,89 @@ static void test_va_bits_arm64(void) {
 #endif
 }
 
+/* 47/48 disambiguation. The directmap value 0xffff800000000000 is shared by a
+ * modern VA47 kernel and the pre-v5.4 VA48 layout, so the Q_VA_BITS=47 pin is
+ * gated on a kernel-image observation ABOVE PAGE_OFFSET (proves modern). The
+ * page_offset pin (0xffff800000000000, correct for both) is always emitted. */
+static void test_va_bits_arm64_va47_modern_witness(void) {
+  struct engine e;
+  engine_init(&e);
+  add_directmap(&e, 0xffff800000000000ul); /* ambiguous VA47 / old-VA48 */
+  struct observation img =
+      mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE, 0xffffc00008000000ul,
+             LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED); /* image above PO */
+  evidence_add(&e.ev, &img);
+  const rule_fn rules[] = {rule_arm64_va_bits_from_directmap};
+  engine_run(&e, rules, 1);
+#if defined(__aarch64__)
+  assert(finset_is(&e.est[Q_VA_BITS], 47)); /* modern proven -> pinned */
+  assert(e.est[Q_PAGE_OFFSET].lo == 0xffff800000000000ul);
+  assert(e.est[Q_PAGE_OFFSET].hi == 0xffff800000000000ul);
+#else
+  (void)e;
+#endif
+}
+
+/* Pre-v5.4 (v4.14) case: kernel image BELOW PAGE_OFFSET does not prove modern,
+ * so the va47 pin is withheld — Q_VA_BITS stays ambiguous, still admitting the
+ * true 48 — while the page_offset pin is still emitted. Aborts if the gate is
+ * reverted (the old code pinned 47, excluding 48). */
+static void test_va_bits_arm64_va47_ambiguous_no_pin(void) {
+  struct engine e;
+  engine_init(&e);
+  add_directmap(&e, 0xffff800000000000ul);
+  struct observation img =
+      mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE, 0xffff000008080000ul,
+             LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED); /* v4.14 _text, low */
+  evidence_add(&e.ev, &img);
+  const rule_fn rules[] = {rule_arm64_va_bits_from_directmap};
+  engine_run(&e, rules, 1);
+#if defined(__aarch64__)
+  struct estimate vtop;
+  quantities[Q_VA_BITS].init_top(&vtop);
+  assert(e.est[Q_VA_BITS].lo ==
+         vtop.lo); /* not collapsed to {47}; 48 still live */
+  assert(e.est[Q_PAGE_OFFSET].lo ==
+         0xffff800000000000ul); /* page_offset pinned */
+  assert(e.est[Q_PAGE_OFFSET].hi == 0xffff800000000000ul);
+#else
+  (void)e;
+#endif
+}
+
+/* No kernel-image witness -> va47 pin withheld, page_offset still emitted. */
+static void test_va_bits_arm64_va47_no_witness(void) {
+  struct engine e;
+  engine_init(&e);
+  add_directmap(&e, 0xffff800000000000ul);
+  const rule_fn rules[] = {rule_arm64_va_bits_from_directmap};
+  engine_run(&e, rules, 1);
+#if defined(__aarch64__)
+  struct estimate vtop;
+  quantities[Q_VA_BITS].init_top(&vtop);
+  assert(e.est[Q_VA_BITS].lo == vtop.lo);
+  assert(e.est[Q_PAGE_OFFSET].lo == 0xffff800000000000ul);
+#else
+  (void)e;
+#endif
+}
+
+/* Unambiguous width (modern VA48 directmap) still pins regardless of image
+ * position — the gate touches only the va47 bucket. */
+static void test_va_bits_arm64_unambiguous_va48_pins(void) {
+  struct engine e;
+  engine_init(&e);
+  add_directmap(&e, 0xffff000000001000ul); /* modern VA48 linear map */
+  const rule_fn rules[] = {rule_arm64_va_bits_from_directmap};
+  engine_run(&e, rules, 1);
+#if defined(__aarch64__)
+  assert(finset_is(&e.est[Q_VA_BITS], 48));
+  assert(e.est[Q_PAGE_OFFSET].lo == 0xffff000000000000ul);
+#else
+  (void)e;
+#endif
+}
+
 /* x86_64_randomize_memory_budget: the shared entropy budget confines all three
  * region bases to a band above vaddr_start, leak-free, from max_pfn + a
  * resolved paging level. A directmap leak resolves Q_VA_BITS=48 (L4). */
@@ -4654,12 +4800,16 @@ static void test_config_max_offset_ceiling(void) {
   struct observation s =
       mk_scalar(SF_VIRT_RANDOMIZE_MAX_OFFSET, max_offset, CONF_PARSED);
   evidence_add(&e.ev, &s);
-  /* Feed a kernel_length signal via PHYS iomem-style observations. */
+  /* Feed a kernel_length signal via PHYS iomem-style observations: "Kernel
+   * code" is emitted as REGION_KERNEL_IMAGE (its low edge is __pa(_text), the
+   * image base) and "Kernel bss" as REGION_KERNEL_BSS (its high edge is
+   * __pa(_end)). Both anchors are required so the [_text, _end] span is exact.
+   */
   struct observation tx, bs;
   memset(&tx, 0, sizeof(tx));
   tx.value_kind = OBS_ADDRESS;
   tx.type = KASLD_TYPE_PHYS;
-  tx.region = REGION_KERNEL_TEXT;
+  tx.region = REGION_KERNEL_IMAGE;
   tx.lo = 0x02860000ul;
   tx.hi = 0x0352ffffull;
   tx.set_mask = LO_SET | HI_SET;
@@ -4694,6 +4844,44 @@ static void test_config_max_offset_ceiling(void) {
    * scalar. */
   assert(e.est[Q_VIRT_IMAGE_BASE].hi == top.hi);
 #endif
+}
+
+/* Regression: an iomem map with "Kernel code" (KERNEL_IMAGE) + "Kernel data"
+ * (KERNEL_DATA) but NO "Kernel bss" entry — the loongarch layout (values from a
+ * real loongarch boot) — must NOT drive the ceiling. Without the bss extent the
+ * span stops at _edata and under-estimates kernel_length, so
+ * ALIGN(kernel_length, 0xffff) is too small and the ceiling would drop below
+ * the true base. Both the image (low, _text) and bss (high, _end) anchors are
+ * required; absent the bss anchor the rule emits nothing. */
+static void test_config_max_offset_bss_absent_no_ceiling(void) {
+  struct engine e;
+  engine_init(&e);
+  struct observation s =
+      mk_scalar(SF_VIRT_RANDOMIZE_MAX_OFFSET, 0x1000000ul, CONF_PARSED);
+  evidence_add(&e.ev, &s);
+  struct estimate top;
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
+  struct observation code, data;
+  memset(&code, 0, sizeof(code));
+  code.value_kind = OBS_ADDRESS;
+  code.type = KASLD_TYPE_PHYS;
+  code.region = REGION_KERNEL_IMAGE;
+  code.lo = 0x021d0000ul; /* "Kernel code" 021d0000-02e9ffff */
+  code.hi = 0x02e9ffffull;
+  code.set_mask = LO_SET | HI_SET;
+  code.pos = POS_BASE;
+  code.conf = CONF_PARSED;
+  data = code;
+  data.region = REGION_KERNEL_DATA;
+  data.lo = 0x02ea0000ul; /* "Kernel data" 02ea0000-03a90dff, no "Kernel bss" */
+  data.hi = 0x03a90dffull;
+  evidence_add(&e.ev, &code);
+  evidence_add(&e.ev, &data);
+
+  const rule_fn rules[] = {rule_config_max_offset_ceiling};
+  engine_run(&e, rules, 1);
+  /* bss extent absent -> no (unsound) ceiling, on every arch */
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi == top.hi);
 }
 
 /* Regression: VIRT kernel-image POINT leaks (samples, no lo/hi extent) must NOT
@@ -4872,15 +5060,16 @@ static void test_virt_kaslr_disabled_pin(void) {
   if (def >= top.lo && def <= top.hi) {
     assert(e.est[Q_VIRT_IMAGE_BASE].lo == def);
     assert(e.est[Q_VIRT_IMAGE_BASE].hi == def);
-    /* The default is an assumed standard-config value, so the pin is emitted at
-     * CONF_INFERRED even from this parsed signal — a real text leak then
-     * outranks it by confidence rather than by capture order. */
+    /* No parsed CONFIG_PHYSICAL_START here, so the pinned value is the assumed
+     * standard-config default — a guess, emitted at CONF_HEURISTIC (likely
+     * window only), so it never excludes a non-default build's true base from
+     * the guaranteed window. */
     int found = 0;
     for (int i = 0; i < e.n_constraints; i++) {
       const struct constraint *c = &e.constraints[i];
       if (c->q == Q_VIRT_IMAGE_BASE && c->op == C_EQUALS && c->value == def) {
         found = 1;
-        assert(c->conf == CONF_INFERRED);
+        assert(c->conf == CONF_HEURISTIC);
       }
     }
     assert(found);
@@ -4895,6 +5084,121 @@ static void test_virt_kaslr_disabled_pin(void) {
   assert(e.est[Q_VIRT_IMAGE_BASE].lo ==
          top.lo); /* inert on relocating arches */
   assert(e.est[Q_VIRT_IMAGE_BASE].hi == top.hi);
+#endif
+}
+
+/* With a parsed CONFIG_PHYSICAL_START AND CONFIG_PHYSICAL_ALIGN the no-KASLR
+ * base is a FACT (KERNEL_VIRT_TEXT_MIN + ALIGN(ps, align)), so the pin uses the
+ * LEARNED value at CONF_INFERRED (guaranteed window) — correct for a
+ * NON-default build, where the assumed default would exclude the truth. Here ps
+ * is already align-aligned, so the aligned base equals the raw sum. */
+static void test_virt_kaslr_disabled_pin_learned(void) {
+#if KASLR_DISABLED_PINS_VIRT_TEXT
+  struct engine e;
+  engine_init(&e);
+  struct estimate top;
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
+  unsigned long ps = 0x400000ul;    /* 4 MiB: below the 16 MiB default */
+  unsigned long align = 0x200000ul; /* 2 MiB — ps is a multiple */
+  unsigned long learned_base = (unsigned long)KERNEL_VIRT_TEXT_MIN + ps +
+                               (unsigned long)IMAGE_BASE_OFFSET;
+  if (learned_base < top.lo || learned_base > top.hi)
+    return; /* arch window doesn't admit it; skip */
+  struct observation sig = mk_scalar(SF_VIRT_KASLR_DISABLED, 1, CONF_PARSED);
+  struct observation psf = mk_scalar(SF_PHYSICAL_START, ps, CONF_PARSED);
+  struct observation alf = mk_scalar(SF_PHYS_KERNEL_ALIGN, align, CONF_PARSED);
+  evidence_add(&e.ev, &sig);
+  evidence_add(&e.ev, &psf);
+  evidence_add(&e.ev, &alf);
+  const rule_fn rules[] = {rule_virt_kaslr_disabled_pin};
+  engine_run(&e, rules, 1);
+  int found = 0;
+  for (int i = 0; i < e.n_constraints; i++) {
+    const struct constraint *c = &e.constraints[i];
+    if (c->q == Q_VIRT_IMAGE_BASE && c->op == C_EQUALS) {
+      found = 1;
+      assert(c->value == learned_base); /* the LEARNED base, not the default */
+      assert(c->conf == CONF_INFERRED); /* a read fact -> guaranteed window */
+    }
+  }
+  assert(found);
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo == learned_base);
+#else
+  (void)0;
+#endif
+}
+
+/* Regression (soundness): CONFIG_PHYSICAL_START need not be a multiple of
+ * CONFIG_PHYSICAL_ALIGN — the kernel loads at LOAD_PHYSICAL_ADDR =
+ * ALIGN(CONFIG_PHYSICAL_START, CONFIG_PHYSICAL_ALIGN), rounding UP. The exact
+ * pin must use the ALIGNED value; pinning the raw value would sit BELOW the
+ * true base and collapse the guaranteed window to a point that excludes it. */
+static void test_virt_kaslr_disabled_pin_learned_unaligned(void) {
+#if KASLR_DISABLED_PINS_VIRT_TEXT
+  struct engine e;
+  engine_init(&e);
+  struct estimate top;
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
+  unsigned long align = 0x200000ul;   /* 2 MiB */
+  unsigned long ps = 0x500000ul;      /* 5 MiB: NOT aligned */
+  unsigned long aligned = 0x600000ul; /* ALIGN(5M,2M) = 6 MiB */
+  unsigned long exact = (unsigned long)KERNEL_VIRT_TEXT_MIN + aligned +
+                        (unsigned long)IMAGE_BASE_OFFSET; /* the true base */
+  unsigned long raw = (unsigned long)KERNEL_VIRT_TEXT_MIN + ps +
+                      (unsigned long)IMAGE_BASE_OFFSET; /* the buggy value */
+  if (exact < top.lo || exact > top.hi)
+    return; /* arch window doesn't admit it; skip */
+  struct observation sig = mk_scalar(SF_VIRT_KASLR_DISABLED, 1, CONF_PARSED);
+  struct observation psf = mk_scalar(SF_PHYSICAL_START, ps, CONF_PARSED);
+  struct observation alf = mk_scalar(SF_PHYS_KERNEL_ALIGN, align, CONF_PARSED);
+  evidence_add(&e.ev, &sig);
+  evidence_add(&e.ev, &psf);
+  evidence_add(&e.ev, &alf);
+  const rule_fn rules[] = {rule_virt_kaslr_disabled_pin};
+  engine_run(&e, rules, 1);
+  int found = 0;
+  for (int i = 0; i < e.n_constraints; i++) {
+    const struct constraint *c = &e.constraints[i];
+    if (c->q == Q_VIRT_IMAGE_BASE && c->op == C_EQUALS) {
+      found = 1;
+      assert(c->value == exact); /* ALIGNED base (LOAD_PHYSICAL_ADDR) */
+      assert(c->value != raw);   /* NOT the raw un-aligned value */
+      assert(c->conf == CONF_INFERRED);
+    }
+  }
+  assert(found);
+#else
+  (void)0;
+#endif
+}
+
+/* Without a parsed CONFIG_PHYSICAL_ALIGN the aligned base is unknown (the raw
+ * value may round up), so the learned path emits NO exact guaranteed pin — only
+ * the assumed default at CONF_HEURISTIC. The raw value still floors the window
+ * via physical_start_lower_bound (tested separately). */
+static void test_virt_kaslr_disabled_pin_learned_align_absent(void) {
+#if KASLR_DISABLED_PINS_VIRT_TEXT
+  struct engine e;
+  engine_init(&e);
+  struct estimate top;
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
+  unsigned long ps = 0x400000ul;
+  unsigned long learned = (unsigned long)KERNEL_VIRT_TEXT_MIN + ps +
+                          (unsigned long)IMAGE_BASE_OFFSET;
+  struct observation sig = mk_scalar(SF_VIRT_KASLR_DISABLED, 1, CONF_PARSED);
+  struct observation psf = mk_scalar(SF_PHYSICAL_START, ps, CONF_PARSED);
+  evidence_add(&e.ev, &sig);
+  evidence_add(&e.ev, &psf); /* deliberately NO SF_PHYS_KERNEL_ALIGN */
+  const rule_fn rules[] = {rule_virt_kaslr_disabled_pin};
+  engine_run(&e, rules, 1);
+  for (int i = 0; i < e.n_constraints; i++) {
+    const struct constraint *c = &e.constraints[i];
+    if (c->q == Q_VIRT_IMAGE_BASE && c->op == C_EQUALS)
+      /* No exact learned pin in the guaranteed window. */
+      assert(!(c->value == learned && (int)c->conf >= (int)CONF_INFERRED));
+  }
+#else
+  (void)0;
 #endif
 }
 
@@ -5017,15 +5321,15 @@ static void test_phys_kaslr_disabled_pin(void) {
   if (def != 0 && def >= top_p.lo && def <= top_p.hi) {
     assert(e.est[Q_PHYS_IMAGE_BASE].lo == def);
     assert(e.est[Q_PHYS_IMAGE_BASE].hi == def);
-    /* Assumed standard-config default → pin emitted at CONF_INFERRED even from
-     * this parsed signal, so a real phys-text leak outranks it by confidence.
-     */
+    /* No parsed CONFIG_PHYSICAL_START → assumed standard-config default, a
+     * guess, emitted at CONF_HEURISTIC (likely window only) so a non-default
+     * build's true base is not excluded from the guaranteed window. */
     int found = 0;
     for (int i = 0; i < e.n_constraints; i++) {
       const struct constraint *c = &e.constraints[i];
       if (c->q == Q_PHYS_IMAGE_BASE && c->op == C_EQUALS && c->value == def) {
         found = 1;
-        assert(c->conf == CONF_INFERRED);
+        assert(c->conf == CONF_HEURISTIC);
       }
     }
     assert(found);
@@ -5041,6 +5345,45 @@ static void test_phys_kaslr_disabled_pin(void) {
    * because arch_default_phys_text_base() doesn't model truth there. */
   assert(e.est[Q_PHYS_IMAGE_BASE].lo == top_p.lo);
   assert(e.est[Q_PHYS_IMAGE_BASE].hi == top_p.hi);
+#endif
+}
+
+/* Regression (soundness): the phys no-KASLR base is LOAD_PHYSICAL_ADDR =
+ * ALIGN(CONFIG_PHYSICAL_START, CONFIG_PHYSICAL_ALIGN). An un-aligned
+ * CONFIG_PHYSICAL_START must pin the ALIGNED value, not the raw one, or the
+ * guaranteed window collapses below the true phys base. */
+static void test_phys_kaslr_disabled_pin_learned_unaligned(void) {
+#if KASLR_DISABLED_PINS_PHYS
+  struct engine e;
+  engine_init(&e);
+  struct estimate top_p;
+  quantities[Q_PHYS_IMAGE_BASE].init_top(&top_p);
+  unsigned long align = 0x200000ul;   /* 2 MiB */
+  unsigned long ps = 0x500000ul;      /* 5 MiB: NOT aligned */
+  unsigned long aligned = 0x600000ul; /* ALIGN(5M,2M) = LOAD_PHYSICAL_ADDR */
+  if (aligned < top_p.lo || aligned > top_p.hi)
+    return; /* window doesn't admit it; skip */
+  struct observation sig = mk_scalar(SF_PHYS_KASLR_DISABLED, 1, CONF_PARSED);
+  struct observation psf = mk_scalar(SF_PHYSICAL_START, ps, CONF_PARSED);
+  struct observation alf = mk_scalar(SF_PHYS_KERNEL_ALIGN, align, CONF_PARSED);
+  evidence_add(&e.ev, &sig);
+  evidence_add(&e.ev, &psf);
+  evidence_add(&e.ev, &alf);
+  const rule_fn rules[] = {rule_phys_kaslr_disabled_pin};
+  engine_run(&e, rules, 1);
+  int found = 0;
+  for (int i = 0; i < e.n_constraints; i++) {
+    const struct constraint *c = &e.constraints[i];
+    if (c->q == Q_PHYS_IMAGE_BASE && c->op == C_EQUALS) {
+      found = 1;
+      assert(c->value == aligned); /* LOAD_PHYSICAL_ADDR, not raw ps */
+      assert(c->value != ps);
+      assert(c->conf == CONF_INFERRED);
+    }
+  }
+  assert(found);
+#else
+  (void)0;
 #endif
 }
 
@@ -5135,7 +5478,10 @@ static void add_phys_extent(struct engine *e, enum kasld_region region,
 static void test_mmio_floor_phys_ceiling(void) {
   struct engine e;
   engine_init(&e);
-  /* Anchor to PHYS_OFFSET (DRAM base) so the addresses are real physical RAM
+  /* The rule now emits at CONF_HEURISTIC (likely window only — the ceiling is
+   * unsound under a partial DRAM map); engine_run() applies constraints to the
+   * likely estimate, so the ceiling still narrows e.est here.
+   * Anchor to PHYS_OFFSET (DRAM base) so the addresses are real physical RAM
    * on every arch (0 on x86_64, 2 GiB on riscv64) and the derived ceiling
    * lands inside the phys KASLR window rather than below it. */
   unsigned long P = (unsigned long)PHYS_OFFSET;
@@ -5823,7 +6169,15 @@ static void test_randomize_memory_page_offset_path2(void) {
   engine_run(&e, rules, 1);
   assert(e.est[Q_PAGE_OFFSET].lo == po);
   assert(e.est[Q_PAGE_OFFSET].hi == po); /* reconstructed exact base, pinned */
-#endif                                   /* __x86_64__ */
+
+  /* Path 2 is a cross-origin heuristic pairing (the lowest directmap sample
+   * need not map the lowest RAM base), so it is emitted BELOW the sound floor:
+   * it shapes the likely window (asserted above, resolved at CONF_BRUTE) but
+   * never the guaranteed one. */
+  struct constraint pc[2];
+  int pk = rule_randomize_memory_page_offset(&e.ev, e.est, pc, 2);
+  assert(pk == 1 && pc[0].op == C_EQUALS && pc[0].conf == CONF_HEURISTIC);
+#endif /* __x86_64__ */
 }
 
 /* phys_virt_synth: same-origin directmap + DRAM leaks reconstruct
@@ -5868,6 +6222,115 @@ static void test_phys_virt_synth(void) {
     assert(e.est[Q_PAGE_OFFSET].lo == po);
     assert(e.est[Q_PAGE_OFFSET].hi == po);
   }
+}
+
+/* Corroboration gate: a single origin's min(directmap)/min(phys) pairing is not
+ * provably the same physical page, so one agreeing candidate stays below the
+ * sound floor (CONF_HEURISTIC, likely-only); two independent origins converging
+ * on the same value corroborate it into the guaranteed window (CONF_DERIVED).
+ */
+static void test_phys_virt_synth_corroboration(void) {
+  struct estimate top;
+  quantities[Q_PAGE_OFFSET].init_top(&top);
+  const unsigned long pmd = 2ul * 1024 * 1024;
+  unsigned long po = top.lo + (po_window_bump(&top) & ~(pmd - 1));
+  if (po < top.lo || po > top.hi)
+    return; /* window too small on this arch to place a candidate; skip */
+  unsigned long p1 = (unsigned long)PHYS_OFFSET + 0x4000000ul;
+  unsigned long v1 = po + (p1 - (unsigned long)PHYS_OFFSET);
+  unsigned long p2 = (unsigned long)PHYS_OFFSET + 0x8000000ul;
+  unsigned long v2 = po + (p2 - (unsigned long)PHYS_OFFSET);
+
+  /* One origin -> heuristic (likely-only). */
+  {
+    struct engine e;
+    engine_init(&e);
+    struct observation vo =
+        mk_obs(KASLD_TYPE_VIRT, REGION_DIRECTMAP, v1, LO_SET | SAMPLE_SET,
+               POS_INTERIOR, CONF_PARSED);
+    snprintf(vo.origin, ORIGIN_LEN, "o1");
+    struct observation po1;
+    memset(&po1, 0, sizeof(po1));
+    po1.value_kind = OBS_ADDRESS;
+    po1.type = KASLD_TYPE_PHYS;
+    po1.region = REGION_RAM;
+    po1.lo = p1;
+    po1.set_mask = LO_SET;
+    po1.pos = POS_BASE;
+    po1.conf = CONF_PARSED;
+    snprintf(po1.origin, ORIGIN_LEN, "o1");
+    evidence_add(&e.ev, &vo);
+    evidence_add(&e.ev, &po1);
+    struct constraint out[3];
+    int k = rule_phys_virt_synth(&e.ev, e.est, out, 3);
+    assert(k >= 1);
+    for (int i = 0; i < k; i++)
+      assert(out[i].conf == CONF_HEURISTIC);
+  }
+  /* Two agreeing origins -> corroborated into the guaranteed window. */
+  {
+    struct engine e;
+    engine_init(&e);
+    struct observation obs[4];
+    obs[0] = mk_obs(KASLD_TYPE_VIRT, REGION_DIRECTMAP, v1, LO_SET | SAMPLE_SET,
+                    POS_INTERIOR, CONF_PARSED);
+    snprintf(obs[0].origin, ORIGIN_LEN, "o1");
+    obs[2] = mk_obs(KASLD_TYPE_VIRT, REGION_DIRECTMAP, v2, LO_SET | SAMPLE_SET,
+                    POS_INTERIOR, CONF_PARSED);
+    snprintf(obs[2].origin, ORIGIN_LEN, "o2");
+    for (int idx = 1; idx <= 3; idx += 2) {
+      memset(&obs[idx], 0, sizeof(obs[idx]));
+      obs[idx].value_kind = OBS_ADDRESS;
+      obs[idx].type = KASLD_TYPE_PHYS;
+      obs[idx].region = REGION_RAM;
+      obs[idx].set_mask = LO_SET;
+      obs[idx].pos = POS_BASE;
+      obs[idx].conf = CONF_PARSED;
+    }
+    obs[1].lo = p1;
+    snprintf(obs[1].origin, ORIGIN_LEN, "o1");
+    obs[3].lo = p2;
+    snprintf(obs[3].origin, ORIGIN_LEN, "o2");
+    for (int i = 0; i < 4; i++)
+      evidence_add(&e.ev, &obs[i]);
+    struct constraint out[3];
+    int k = rule_phys_virt_synth(&e.ev, e.est, out, 3);
+    assert(k >= 1);
+    for (int i = 0; i < k; i++)
+      assert(out[i].conf == CONF_DERIVED);
+  }
+}
+
+/* L5 mis-select guard: with page_offset UNRESOLVED (a windowed floor below the
+ * L4 VAS, as the honest floor is), the lower bound must use the L4 vmalloc
+ * size, not L5 — committing the larger L5 size on an L4 box would push the
+ * lower bound above the true vmemmap base. Only a RESOLVED page_offset below
+ * the L4 VAS commits L5. Mirrors x86_64_vmalloc_base_bound's guard. */
+static void test_x86_64_vmemmap_base_bound_unresolved_po_keeps_l4(void) {
+#if defined(__x86_64__)
+  struct engine e;
+  engine_init(&e);
+  const unsigned long one_tb = 1ul << 40;
+  unsigned long vmalloc_lo = 0xffffc90000000000ul;
+  e.est[Q_VMALLOC_BASE].lo = vmalloc_lo;
+  e.est[Q_VMALLOC_BASE].lo_binding = 1;
+  e.est[Q_VMALLOC_BASE].lo_conf = CONF_INFERRED;
+  /* Unresolved page_offset: floor below the L4 VAS, but lo != hi. */
+  e.est[Q_PAGE_OFFSET].lo = 0xff00000000000000ul;
+  e.est[Q_PAGE_OFFSET].hi = 0xffffc00000000000ul;
+  struct constraint out[4];
+  int k = rule_x86_64_vmemmap_base_bound(&e.ev, e.est, out, 4);
+  int found = 0;
+  for (int i = 0; i < k; i++)
+    if (out[i].op == C_LOWER_BOUND) {
+      found = 1;
+      /* L4 (32 TiB) not L5 (12800 TiB): the bound sits just above vmalloc, far
+       * below the delta an L5 mis-select would produce. */
+      assert(out[i].value > vmalloc_lo);
+      assert(out[i].value - vmalloc_lo < 100ul * one_tb);
+    }
+  assert(found);
+#endif
 }
 
 /* A directmap virt leak and a phys leak that are NOT the same physical page
@@ -6963,6 +7426,7 @@ int main(void) {
   RUN(test_ceiling_uses_resolved_align);
   RUN(test_resolved_grid_align_pins_x86_64);
   RUN(test_config_max_offset_ceiling);
+  RUN(test_config_max_offset_bss_absent_no_ceiling);
   RUN(test_config_max_offset_virt_anchors_no_ceiling);
   RUN(test_config_max_offset_absent);
   RUN(test_base_align_cross_validate);
@@ -6970,9 +7434,13 @@ int main(void) {
 
   BEGIN_CATEGORY("KASLR-off pin");
   RUN(test_virt_kaslr_disabled_pin);
+  RUN(test_virt_kaslr_disabled_pin_learned);
+  RUN(test_virt_kaslr_disabled_pin_learned_unaligned);
+  RUN(test_virt_kaslr_disabled_pin_learned_align_absent);
   RUN(test_virt_kaslr_disabled_pin_no_signal_no_pin);
   RUN(test_directmap_kaslr_disabled_pin);
   RUN(test_phys_kaslr_disabled_pin);
+  RUN(test_phys_kaslr_disabled_pin_learned_unaligned);
   RUN(test_phys_kaslr_disabled_pin_defers_to_real_leak);
   RUN(test_phys_kaslr_disabled_pin_inert_on_decoupled);
 #if defined(__x86_64__)
@@ -7011,6 +7479,7 @@ int main(void) {
 
   BEGIN_CATEGORY("phys_virt_synth");
   RUN(test_phys_virt_synth);
+  RUN(test_phys_virt_synth_corroboration);
   RUN(test_phys_virt_synth_rejects_misaligned_pair);
   RUN(test_phys_virt_synth_spread_within_align);
   RUN(test_phys_virt_synth_decoupled_window_contains_lower_truth);
@@ -7038,6 +7507,7 @@ int main(void) {
   RUN(test_x86_64_po_from_vmalloc_no_max_pfn);
   RUN(test_x86_64_po_from_vmemmap_pinned_l5);
   RUN(test_x86_64_po_from_vmemmap_pinned_l4_keeps_l4);
+  RUN(test_x86_64_vmemmap_base_bound_unresolved_po_keeps_l4);
   RUN(test_x86_64_vmalloc_vmemmap_invariant_violation);
   RUN(test_x86_64_vmalloc_vmemmap_invariant_ok);
 #endif
@@ -7047,10 +7517,15 @@ int main(void) {
   RUN(test_arm64_va_bits_from_vmemmap_pins_52);
   RUN(test_arm64_va_bits_from_vmemmap_is_heuristic);
   RUN(test_arm64_va_bits_from_vmemmap_above_floor_inert);
+  RUN(test_arm64_va47_modern_floor);
   RUN(test_va_bits_la57_l5);
   RUN(test_va_bits_la57_l4);
   RUN(test_va_bits_la57_contradictory);
   RUN(test_va_bits_arm64);
+  RUN(test_va_bits_arm64_va47_modern_witness);
+  RUN(test_va_bits_arm64_va47_ambiguous_no_pin);
+  RUN(test_va_bits_arm64_va47_no_witness);
+  RUN(test_va_bits_arm64_unambiguous_va48_pins);
   RUN(test_arm64_page_offset_from_va_bits);
   RUN(test_x86_64_va_bits_from_scalar);
   RUN(test_x86_64_page_offset_floor_from_va_bits);

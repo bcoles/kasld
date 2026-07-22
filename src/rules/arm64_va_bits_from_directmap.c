@@ -20,11 +20,27 @@
 // Explicit window-inversion guards are unnecessary — the engine's monotone meet
 // skips any bound that would empty the interval.
 //
+// 47/48 AMBIGUITY. arm64_page_offset_for(47) = 0xffff800000000000 is produced
+// by BOTH a modern 16K/3-level (VA47) kernel and the pre-v5.4 "unflipped" VA48
+// layout (whose PAGE_OFFSET = -(1<<(VA_BITS-1)) collides with the modern
+// -(1<<47)). So a directmap at that value cannot pin the hardware width alone.
+// va=48 cannot be pinned instead: the engine derives virt_page_offset =
+// arm64_page_offset_for(va) (the modern formula), and arm64_page_offset_for(48)
+// = 0xffff000000000000 is the WRONG page_offset for a pre-v5.4 VA48 kernel (its
+// real base is 0xffff800000000000). So the Q_VA_BITS pin for the va47 bucket is
+// GATED on an independent proof of the modern layout — a kernel-image VIRT
+// observation strictly ABOVE PAGE_OFFSET, which is impossible pre-v5.4 (there
+// the image sits BELOW the linear map, e.g. v4.14 _text = 0xffff000008080000).
+// Without that proof Q_VA_BITS is left ambiguous — its finite set still admits
+// both 47 and 48, so it contains the true width under either layout — while the
+// page_offset pin (0xffff800000000000, correct for both) is emitted regardless.
+//
 // arm64 only; inert elsewhere (Q_VA_BITS candidates differ per arch).
 // ---
 // <bcoles@gmail.com>
 
 #include "include/kasld/engine_rules.h"
+#include "include/kasld/regions.h"
 
 #include <string.h>
 
@@ -79,8 +95,30 @@ int rule_arm64_va_bits_from_directmap(const struct evidence_set *ev,
   unsigned long po = arm64_page_offset_for(resolved_va);
 
   int n = 0;
-  /* Q_VA_BITS = resolved width. */
-  if (n < out_max) {
+  /* Q_VA_BITS = resolved width — but for the ambiguous va47 bucket, only when
+   * the modern layout is proven by a kernel-image observation above PAGE_OFFSET
+   * (see the 47/48 note above). Every other resolved width is unambiguous. */
+  int pin_va = 1;
+  uint32_t layout_witness = 0;
+  if (resolved_va == 47ul) {
+    pin_va = 0;
+    for (int i = 0; i < ev->n_obs; i++) {
+      const struct observation *o = &ev->obs[i];
+      if (!o->valid || o->value_kind != OBS_ADDRESS ||
+          o->eff_type != KASLD_TYPE_VIRT ||
+          !is_kernel_image_region(o->eff_region))
+        continue;
+      /* An image address above the linear-map base is impossible pre-v5.4
+       * (image below PAGE_OFFSET there), so it proves the modern VA47 layout.
+       */
+      if (obs_anchor(o) > po) {
+        pin_va = 1;
+        layout_witness = o->id;
+        break;
+      }
+    }
+  }
+  if (pin_va && n < out_max) {
     struct constraint *c = &out[n++];
     memset(c, 0, sizeof(*c));
     c->q = Q_VA_BITS;
@@ -89,6 +127,8 @@ int rule_arm64_va_bits_from_directmap(const struct evidence_set *ev,
     c->conf = conf;
     c->derived_from[0] = src;
     c->lineage_count = src ? 1 : 0;
+    if (layout_witness)
+      c->derived_from[c->lineage_count++] = layout_witness;
     snprintf(c->origin, ORIGIN_LEN, "arm64_va_bits_from_directmap");
   }
   /* virt_page_offset is exact (not randomized): pin both edges. The lower edge

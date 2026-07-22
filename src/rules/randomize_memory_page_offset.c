@@ -108,7 +108,14 @@ int rule_randomize_memory_page_offset(const struct evidence_set *ev,
     c->q = Q_PAGE_OFFSET;
     c->op = C_EQUALS;
     c->value = candidate;
-    c->conf = CONF_DERIVED;
+    /* The lowest directmap SAMPLE need not map the lowest RAM base: it maps
+     * whatever phys page that leak referenced, so candidate = page_offset +
+     * (that page's phys - pram_min), which equals page_offset only when they
+     * coincide. A PUD-aligned mispairing passes the filter and would pin wrong,
+     * so keep this cross-origin reconstruction out of the guaranteed window
+     * (CONF_HEURISTIC, likely-only). Path 1's same-origin name-matched pair is
+     * the sound pin (CONF_INFERRED, above). */
+    c->conf = CONF_HEURISTIC;
     c->derived_from[0] = vsrc;
     c->derived_from[1] = psrc;
     c->lineage_count = 2;

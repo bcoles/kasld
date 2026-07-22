@@ -16,29 +16,34 @@
 //     (arm64 -> rule_arm64_text_base, riscv64 -> rule_riscv64_text_base, s390
 //     -> rule_s390_image_base_from_config).
 //
-// The pinned value is the arch's *assumed* standard-config default, not a fact
-// read from the kernel, so it is emitted at CONF_INFERRED (capped to the
-// disabled signal's own confidence). A real text leak (parsed/derived) thus
-// outranks it by confidence and wins deterministically, independent of the
-// order evidence happens to be captured in.
+// The pinned value depends on whether the base is a FACT or a GUESS:
+//   - When a parsed CONFIG_PHYSICAL_START is available (SF_PHYSICAL_START, from
+//     /boot/config or /proc/config.gz), the no-KASLR base is exactly
+//     KERNEL_VIRT_TEXT_MIN + that value + IMAGE_BASE_OFFSET — a read fact,
+//     pinned at CONF_INFERRED (reaches the guaranteed window, correct for
+//     default AND non-default builds).
+//   - Otherwise the compile-time arch_default_text_base() is an ASSUMED
+//     standard-config value (a guess): pinned at CONF_HEURISTIC (likely window
+//     only), so a build with a non-default CONFIG_PHYSICAL_START never has its
+//     true base excluded from the guaranteed window.
+// The shared helper applies the demotion; this rule supplies both candidate
+// values. (Earlier the default reached CONF_INFERRED; the window-containment
+// check only catches a default ABOVE a narrowed window, not a below-default
+// build, so an assumed default at the sound floor was unsound there.)
 //
 // Soundness backstops:
 //   1. Fires only on a positive SF_VIRT_KASLR_DISABLED signal (no spurious
 //   pin).
-//   2. Window-containment check: the computed default must lie within the
-//      CURRENT honest window — if other evidence (a real leak or bound) has
-//      already narrowed the window past the compile-time default, the default
-//      is dropped and the narrowed window kept rather than pinning to a value
-//      the evidence excludes. NB this does NOT catch an arch whose default is
-//      itself wrong but still inside the window (e.g. sub-48 VA_BITS_MIN on
-//      arm64, where the default coincides with the floor — see arm64.h SCOPE
-//      note).
-//   3. Inferred confidence (above): any real text leak overrides the pin.
+//   2. Window-containment check: the value must lie within the CURRENT honest
+//      window — if other evidence already narrowed past it, it is dropped.
+//   3. Confidence: any real text leak (parsed/derived) outranks the pin; the
+//      guess-tier default only shapes the likely window.
 // ---
 // <bcoles@gmail.com>
 
 #include "include/kasld/engine_rules.h"
 
+#include <limits.h>
 #include <string.h>
 
 int rule_virt_kaslr_disabled_pin(const struct evidence_set *ev,
@@ -51,8 +56,43 @@ int rule_virt_kaslr_disabled_pin(const struct evidence_set *ev,
   (void)out_max;
   return 0;
 #else
+  /* Learned CONFIG_PHYSICAL_START -> the exact no-KASLR virtual base. The
+   * kernel loads at KERNEL_VIRT_TEXT_MIN (__START_KERNEL_map) +
+   * LOAD_PHYSICAL_ADDR, where LOAD_PHYSICAL_ADDR = ALIGN(CONFIG_PHYSICAL_START,
+   * CONFIG_PHYSICAL_ALIGN) — so the EXACT base needs the alignment, not the raw
+   * parsed value (an un-aligned CONFIG_PHYSICAL_START rounds UP, leaving the
+   * raw value BELOW the true base). SF_PHYS_KERNEL_ALIGN carries the alignment
+   * (same config read plus an independent boot_params source), so it is present
+   * whenever the base is. Without a parsed, power-of-two alignment the exact
+   * base is unknown, so pin nothing here (learned_base stays 0 -> the assumed
+   * default shapes only the likely window) — the raw value still floors the
+   * guaranteed window via physical_start_lower_bound. Overflow-guard every sum.
+   */
+  enum kasld_confidence ps_conf = CONF_UNKNOWN;
+  uint32_t ps_src = 0;
+  unsigned long ps =
+      kasld_scalar_fact_value(ev, SF_PHYSICAL_START, &ps_conf, &ps_src);
+  enum kasld_confidence al_conf = CONF_UNKNOWN;
+  uint32_t al_src = 0;
+  unsigned long align =
+      kasld_scalar_fact_value(ev, SF_PHYS_KERNEL_ALIGN, &al_conf, &al_src);
+  unsigned long learned_base = 0;
+  enum kasld_confidence learned_ceiling = CONF_INFERRED;
+  if (ps && align && (align & (align - 1)) == 0 &&
+      ps <= ULONG_MAX - (align - 1)) {
+    unsigned long aligned =
+        (ps + align - 1) & ~(align - 1); /* LOAD_PHYSICAL_ADDR */
+    if (aligned <= ULONG_MAX - (unsigned long)KERNEL_VIRT_TEXT_MIN -
+                       (unsigned long)IMAGE_BASE_OFFSET) {
+      learned_base = (unsigned long)KERNEL_VIRT_TEXT_MIN + aligned +
+                     (unsigned long)IMAGE_BASE_OFFSET;
+      learned_ceiling =
+          kasld_conf_min(CONF_INFERRED, kasld_conf_min(ps_conf, al_conf));
+    }
+  }
   return kasld_emit_kaslr_disabled_pin(
       ev, est, out, out_max, SF_VIRT_KASLR_DISABLED, Q_VIRT_IMAGE_BASE,
-      arch_default_text_base(), "virt_kaslr_disabled_pin");
+      learned_base, learned_ceiling, ps_src, al_src, arch_default_text_base(),
+      "virt_kaslr_disabled_pin");
 #endif
 }

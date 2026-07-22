@@ -103,6 +103,7 @@ int rule_phys_virt_synth(const struct evidence_set *ev,
   unsigned long cand_lo = ULONG_MAX, cand_hi = 0;
   unsigned long best = 0; /* most-aligned candidate (the true base) */
   int best_tz = -1;
+  int n_valid = 0; /* distinct origins contributing an agreeing candidate */
   for (int j = 0; j < n_og; j++) {
     unsigned long v = og[j].vmin, p = og[j].pmin;
     if (v == ULONG_MAX || p == ULONG_MAX)
@@ -126,6 +127,7 @@ int rule_phys_virt_synth(const struct evidence_set *ev,
       continue;
     if (cand < po->lo || cand > po->hi)
       continue;
+    n_valid++;
     if (cand < cand_lo)
       cand_lo = cand;
     if (cand > cand_hi)
@@ -145,6 +147,14 @@ int rule_phys_virt_synth(const struct evidence_set *ev,
   if (cand_hi - cand_lo > align) /* candidates disagree -> a bad pair */
     return 0;
 
+  /* A single origin's min(directmap)/min(phys) is not provably the same
+   * physical page, so one agreeing candidate can be a PMD-aligned mispairing.
+   * Only >= 2 independent origins converging on the same value corroborate it
+   * enough for the guaranteed window (CONF_DERIVED); a lone candidate is a
+   * heuristic (CONF_HEURISTIC, likely-window only). */
+  enum kasld_confidence synth_conf =
+      (n_valid >= 2) ? CONF_DERIVED : CONF_HEURISTIC;
+
   int n = 0;
 #if PAGE_OFFSET_FIXED
   /* Fixed-PAGE_OFFSET arch: the true direct-map base is a single architectural
@@ -158,7 +168,7 @@ int rule_phys_virt_synth(const struct evidence_set *ev,
     c->q = Q_PAGE_OFFSET;
     c->op = C_EQUALS;
     c->value = best;
-    c->conf = CONF_DERIVED;
+    c->conf = synth_conf;
     c->lineage_count = 0;
     snprintf(c->origin, ORIGIN_LEN, "phys_virt_synth");
   }
@@ -171,7 +181,7 @@ int rule_phys_virt_synth(const struct evidence_set *ev,
     c->q = Q_PAGE_OFFSET;
     c->op = C_LOWER_BOUND;
     c->value = cand_lo;
-    c->conf = CONF_DERIVED;
+    c->conf = synth_conf;
     c->lineage_count = 0;
     snprintf(c->origin, ORIGIN_LEN, "phys_virt_synth");
   }
@@ -181,7 +191,7 @@ int rule_phys_virt_synth(const struct evidence_set *ev,
     c->q = Q_PAGE_OFFSET;
     c->op = C_UPPER_BOUND;
     c->value = cand_hi;
-    c->conf = CONF_DERIVED;
+    c->conf = synth_conf;
     c->lineage_count = 0;
     snprintf(c->origin, ORIGIN_LEN, "phys_virt_synth");
   }
