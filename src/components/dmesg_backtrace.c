@@ -239,14 +239,21 @@ static void scan_text(const char *line, struct btctx *c) {
 
 /* Scan a register-dump line for direct-map-range values, keep the lowest.
  *
- * Every "0x..." register value at/above PAGE_OFFSET is a sound upper bound on
- * the direct-map base (the lowest such value is the tightest), which is why the
- * minimum is what matters. The stack pointer under CONFIG_VMAP_STACK is also a
- * vmalloc_base witness, but a register value cannot be classified as vmalloc
- * vs direct map before the randomized region bases are resolved (the regions
- * are ordered direct map < vmalloc < vmemmap, but their boundaries are exactly
- * the unknowns). A vmalloc-specific bound therefore belongs to the inference
- * layer, not here, and is not emitted. */
+ * A register value at/above PAGE_OFFSET is only a HEURISTIC upper bound on the
+ * direct-map base, not a sound one: a real kernel VA (direct map / vmalloc /
+ * vmemmap) is >= page_offset_base, but a register need NOT hold a pointer, and
+ * a non-pointer value that lands in the wide window below the randomized
+ * page_offset_base would be below the true base. The window floor here
+ * (PAGE_OFFSET = 0xff00... on x86_64) sits far below the KASLR minimum base
+ * (__PAGE_OFFSET_BASE_L4 = 0xffff888000000000) and even spans the non-canonical
+ * hole, and page_offset_base randomizes only UPWARD from that minimum, so the
+ * [floor, base) gap is real and can be many TB. No local test proves a value is
+ * >= the (unknown, randomized) base, and "keep the lowest" actively selects the
+ * value most likely to sit below it — so the emission is sub-floor (likely
+ * window only). The stack pointer under CONFIG_VMAP_STACK is also a
+ * vmalloc_base witness, but a register value cannot be classified as vmalloc vs
+ * direct map before the randomized region bases are resolved, so a
+ * vmalloc-specific bound belongs to the inference layer, not here. */
 static void scan_directmap(const char *line, struct btctx *c) {
   const char *p = line;
   unsigned long v;
@@ -428,11 +435,15 @@ int main(void) {
 
   if (ctx.directmap) {
     kasld_found("leaked directmap virtual address: %lx", ctx.directmap);
-    /* A register value known only to be somewhere in the direct map — an
-     * address-space landmark bounding the direct-map base, not a specific
-     * object. */
+    /* A register value that MIGHT be a direct-map address — but a register need
+     * not hold a pointer, and one below the randomized page_offset_base would
+     * forge a too-low page_offset ceiling (no local test rules that out; see
+     * scan_directmap). Emit sub-floor (CONF_HEURISTIC) so it shapes only the
+     * likely window and can never move the guaranteed one; a real direct-map
+     * leak (proc_kcore, proc_net_sock_ptr) governs the guaranteed page_offset
+     * bound. */
     kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, ctx.directmap, NULL,
-                        CONF_PARSED);
+                        CONF_HEURISTIC);
   }
 
   return 0;

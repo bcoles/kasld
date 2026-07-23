@@ -93,6 +93,10 @@ static void test_user_cr3_is_ram_plus_directmap(void) {
   if (in_directmap_range(0xffff8d5ec397b000UL)) {
     assert(strstr(cap, "V directmap") != NULL);
     assert(strstr(cap, "sample=0xffff8d5ec397b000") != NULL);
+    /* A register value is only a heuristic direct-map witness (it may be a
+     * non-pointer below the randomized page_offset_base); it must stay
+     * sub-floor so it cannot forge a guaranteed page_offset ceiling. */
+    assert(strstr(cap, "directmap pos=interior conf=heuristic") != NULL);
   }
 }
 
