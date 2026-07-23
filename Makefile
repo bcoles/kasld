@@ -506,6 +506,21 @@ $(TEST_BACKTRACE_BIN): $(TEST_DIR)/test_dmesg_backtrace.c $(SRC_DIR)/components/
 	$(call ccv,CCLD,$@)
 	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_dmesg_backtrace.c -o $@
 
+# proc_net_sock_ptr hashed-pointer rejection: the component is #included (main
+# renamed) so its classify_sock_ptr() is unit-tested, and it is driven over a
+# staged KASLD_SYSROOT /proc/net/unix to assert the batch-decline + real-emit.
+TEST_SOCKPTR_BIN := $(TEST_OBJ_DIR)/test_proc_net_sock_ptr
+$(TEST_SOCKPTR_BIN): $(TEST_DIR)/test_proc_net_sock_ptr.c $(SRC_DIR)/components/proc_net_sock_ptr.c $(HDRS) | $(TEST_OBJ_DIR)
+	$(call ccv,CCLD,$@)
+	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_proc_net_sock_ptr.c -o $@
+
+# proc_timer_list hashed-pointer rejection: same slab/pointer-alignment gate as
+# proc_net_sock_ptr, unit-tested (classify_timer_base) + staged /proc/timer_list.
+TEST_TIMERLIST_BIN := $(TEST_OBJ_DIR)/test_proc_timer_list
+$(TEST_TIMERLIST_BIN): $(TEST_DIR)/test_proc_timer_list.c $(SRC_DIR)/components/proc_timer_list.c $(HDRS) | $(TEST_OBJ_DIR)
+	$(call ccv,CCLD,$@)
+	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_proc_timer_list.c -o $@
+
 # dmesg physical-reservation parsers: the four restructured components
 # (reserved_mem / swiotlb / crashkernel / cma) #included (main renamed) and
 # driven over a staged KASLD_SYSROOT /var/log/dmesg; asserts per-region ranges.
@@ -555,7 +570,7 @@ $(TEST_PARSERS_BIN): $(TEST_DIR)/test_sysfs_parsers.c $(TEST_PARSERS_SRCS) $(HDR
 	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_sysfs_parsers.c -o $@
 
 .PHONY: test
-test : $(TEST_BIN) $(TEST_RENDER_BIN) $(TEST_EST_BIN) $(TEST_EV_BIN) $(TEST_ALIGN_BIN) $(TEST_PREFETCH_SCAN_BIN) $(TEST_CPU_BIN) $(TEST_OUTCOME_BIN) $(TEST_TEXT_ORDER_BIN) $(TEST_KIMG_BIN) $(TEST_ENG_BIN) $(TEST_INT_BIN) $(TEST_DMESG_BIN) $(TEST_BACKTRACE_BIN) $(TEST_BTF_BIN) $(TEST_DMESG_RESV_BIN) $(TEST_BPE820_BIN) $(TEST_PARSERS_BIN) $(TEST_KCORE_BIN)
+test : $(TEST_BIN) $(TEST_RENDER_BIN) $(TEST_EST_BIN) $(TEST_EV_BIN) $(TEST_ALIGN_BIN) $(TEST_PREFETCH_SCAN_BIN) $(TEST_CPU_BIN) $(TEST_OUTCOME_BIN) $(TEST_TEXT_ORDER_BIN) $(TEST_KIMG_BIN) $(TEST_ENG_BIN) $(TEST_INT_BIN) $(TEST_DMESG_BIN) $(TEST_BACKTRACE_BIN) $(TEST_SOCKPTR_BIN) $(TEST_TIMERLIST_BIN) $(TEST_BTF_BIN) $(TEST_DMESG_RESV_BIN) $(TEST_BPE820_BIN) $(TEST_PARSERS_BIN) $(TEST_KCORE_BIN)
 	@$(TEST_DIR)/run-all
 	@$(MAKE) --no-print-directory lint
 
