@@ -4,7 +4,9 @@
 // privileges.
 //
 // Read by the engine bridge. Reads route through the kasld_* wrappers, so it is
-// KASLD_SYSROOT-aware. Search order mirrors boot_config.c.
+// KASLD_SYSROOT-aware. Search order mirrors boot_config.c: release-keyed paths
+// first (bound to the running kernel), the unkeyed /boot/config last and
+// flagged, so callers can hold its facts below the guaranteed floor.
 // ---
 // <bcoles@gmail.com>
 
@@ -18,38 +20,51 @@
 #include <string.h>
 #include <sys/utsname.h>
 
-/* Open the kernel config file at well-known paths (release-specific last). */
-__attribute__((unused)) static FILE *kasld_open_boot_config(void) {
-  FILE *fp = kasld_fopen("/boot/config", "r");
-  if (fp)
-    return fp;
+/* Open the kernel config file. Release-keyed paths are tried FIRST — they are
+ * installed by the running kernel's own package for this exact uname release,
+ * so their Kconfig answers describe the running kernel. The unkeyed
+ * /boot/config is tried LAST as a best-effort fallback: it carries no release
+ * binding (it may be a leftover from another kernel or a rescue image), so when
+ * it is the match, *is_unkeyed (if non-NULL) is set to 1 and callers demote its
+ * facts below the guaranteed floor. */
+__attribute__((unused)) static FILE *kasld_open_boot_config(int *is_unkeyed) {
+  if (is_unkeyed)
+    *is_unkeyed = 0;
 
   struct utsname uts;
-  if (kasld_uname(&uts) != 0)
-    return NULL;
+  if (kasld_uname(&uts) == 0) {
+    const char *fmts[] = {
+        "/boot/config-%s",
+        "/lib/modules/%s/build/.config",
+        "/lib/modules/%s/config",
+        NULL,
+    };
+    char path[256];
+    for (int i = 0; fmts[i]; i++) {
+      snprintf(path, sizeof(path), fmts[i], uts.release);
+      FILE *fp = kasld_fopen(path, "r");
+      if (fp)
+        return fp;
+    }
+  }
 
-  const char *fmts[] = {
-      "/boot/config-%s",
-      "/lib/modules/%s/build/.config",
-      "/lib/modules/%s/config",
-      NULL,
-  };
-  char path[256];
-  for (int i = 0; fmts[i]; i++) {
-    snprintf(path, sizeof(path), fmts[i], uts.release);
-    fp = kasld_fopen(path, "r");
-    if (fp)
-      return fp;
+  /* Last resort: the unkeyed /boot/config (no release binding). */
+  FILE *fp = kasld_fopen("/boot/config", "r");
+  if (fp) {
+    if (is_unkeyed)
+      *is_unkeyed = 1;
+    return fp;
   }
   return NULL;
 }
 
 /* Value of a "CONFIG_<KEY>=<number>" option (strtoul base 0, so decimal or
  * 0x-hex), or 0 if the config is unreadable or the option is absent/malformed.
- * `key` must include the trailing '=' (e.g. "CONFIG_PAGE_OFFSET="). */
+ * `key` must include the trailing '=' (e.g. "CONFIG_PAGE_OFFSET="). Sets
+ * *is_unkeyed per kasld_open_boot_config. */
 __attribute__((unused)) static unsigned long
-kasld_config_get_ulong(const char *key) {
-  FILE *fp = kasld_open_boot_config();
+kasld_config_get_ulong(const char *key, int *is_unkeyed) {
+  FILE *fp = kasld_open_boot_config(is_unkeyed);
   if (!fp)
     return 0;
 
@@ -72,8 +87,9 @@ kasld_config_get_ulong(const char *key) {
 
 /* CONFIG_RANDOMIZE_BASE_MAX_OFFSET (MIPS/LoongArch KASLR offset mask), or 0. */
 __attribute__((unused)) static unsigned long
-kasld_read_randomize_max_offset(void) {
-  return kasld_config_get_ulong("CONFIG_RANDOMIZE_BASE_MAX_OFFSET=");
+kasld_read_randomize_max_offset(int *is_unkeyed) {
+  return kasld_config_get_ulong("CONFIG_RANDOMIZE_BASE_MAX_OFFSET=",
+                                is_unkeyed);
 }
 
 /* CONFIG_PAGE_OFFSET (the configured virt_page_offset / VMSPLIT on arches where
@@ -81,8 +97,8 @@ kasld_read_randomize_max_offset(void) {
  * virt_page_offset cannot be overridden at runtime — the consuming rule gates
  * on PAGE_OFFSET_FROM_CONFIG, NOT this reader. */
 __attribute__((unused)) static unsigned long
-kasld_read_config_page_offset(void) {
-  return kasld_config_get_ulong("CONFIG_PAGE_OFFSET=");
+kasld_read_config_page_offset(int *is_unkeyed) {
+  return kasld_config_get_ulong("CONFIG_PAGE_OFFSET=", is_unkeyed);
 }
 
 #endif /* KASLD_BOOTCONFIG_H */

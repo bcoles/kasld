@@ -197,7 +197,7 @@ int main(void) {
   /* Kernel-text function ordering (canonical / static-reorder / FG-KASLR) —
    * gates whether a generic System.map can resolve symbols. See text_order.h.
    */
-  emit_text_order_from_kconfig(fp);
+  emit_text_order_from_kconfig(fp, CONF_PARSED);
 
   /* s390 image-base layout discriminator. On an s390 config (CONFIG_S390=y),
    * the presence/absence of CONFIG_KERNEL_IMAGE_BASE distinguishes the modern

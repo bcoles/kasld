@@ -36,36 +36,38 @@ KASLD_META("method:detection\n"
            "phase:inference\n"
            "addr:none\n");
 
-static int open_boot_config(FILE **fpp) {
+/* Open the kernel config file. Release-keyed paths (bound to the running
+ * kernel's uname release) are tried FIRST; the unkeyed /boot/config is a
+ * best-effort fallback tried LAST and reported via *is_unkeyed, since it has no
+ * release binding and may describe a different kernel. Availability depends on
+ * CONFIG_IKCONFIG, distro layout, and whether kernel headers are installed. */
+static int open_boot_config(FILE **fpp, int *is_unkeyed) {
   struct utsname utsname;
   char path[256];
 
-  if (kasld_uname(&utsname) == -1)
-    return -1;
+  *is_unkeyed = 0;
 
-  /* Try multiple known locations for the kernel config file.
-   * Availability depends on CONFIG_IKCONFIG, distro layout, and
-   * whether kernel headers are installed. */
-  const char *fixed_paths[] = {"/boot/config", NULL};
+  if (kasld_uname(&utsname) == 0) {
+    const char *release_fmts[] = {
+        "/boot/config-%s",
+        "/lib/modules/%s/build/.config",
+        "/lib/modules/%s/config",
+        NULL,
+    };
 
-  for (int i = 0; fixed_paths[i]; i++) {
-    *fpp = kasld_fopen(fixed_paths[i], "r");
-    if (*fpp)
-      return 0;
+    for (int i = 0; release_fmts[i]; i++) {
+      snprintf(path, sizeof(path), release_fmts[i], utsname.release);
+      *fpp = kasld_fopen(path, "r");
+      if (*fpp)
+        return 0;
+    }
   }
 
-  const char *release_fmts[] = {
-      "/boot/config-%s",
-      "/lib/modules/%s/build/.config",
-      "/lib/modules/%s/config",
-      NULL,
-  };
-
-  for (int i = 0; release_fmts[i]; i++) {
-    snprintf(path, sizeof(path), release_fmts[i], utsname.release);
-    *fpp = kasld_fopen(path, "r");
-    if (*fpp)
-      return 0;
+  /* Last resort: the unkeyed /boot/config (no release binding). */
+  *fpp = kasld_fopen("/boot/config", "r");
+  if (*fpp) {
+    *is_unkeyed = 1;
+    return 0;
   }
 
   kasld_err("could not find kernel config");
@@ -85,8 +87,18 @@ static unsigned long get_kernel_addr_boot_config(FILE *fp) {
 
 int main(void) {
   FILE *fp;
-  if (open_boot_config(&fp) < 0)
+  int is_unkeyed = 0;
+  if (open_boot_config(&fp, &is_unkeyed) < 0)
     return KASLD_EXIT_UNAVAILABLE;
+
+  /* An unkeyed /boot/config carries no binding to the running kernel: it may be
+   * a leftover from another kernel or a rescue image. Its Kconfig answers drive
+   * guaranteed pins (the KASLR-disabled C_EQUALS pin, the PHYSICAL_START floor,
+   * the s390 layout discriminator, ...), so a stale file could exclude the true
+   * base from the guaranteed window. Demote every fact from that source below
+   * the guaranteed floor — it then shapes only the likely window. Release-keyed
+   * paths are bound to the running kernel and stay at CONF_PARSED. */
+  enum kasld_confidence cfg_conf = is_unkeyed ? CONF_HEURISTIC : CONF_PARSED;
 
 #if PAGE_OFFSET_FROM_CONFIG
   /* Detect PAGE_OFFSET (32-bit vmsplit). CONFIG_PAGE_OFFSET equals the runtime
@@ -99,7 +111,7 @@ int main(void) {
   if (virt_page_offset) {
     kasld_info("CONFIG_PAGE_OFFSET: %#lx", virt_page_offset);
     kasld_result_base(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, virt_page_offset,
-                      NULL, CONF_PARSED);
+                      NULL, cfg_conf);
   }
 #endif
 
@@ -111,7 +123,7 @@ int main(void) {
   unsigned long phys_start = get_kconfig_physical_start(fp);
   if (phys_start) {
     kasld_info("CONFIG_PHYSICAL_START: %#lx", phys_start);
-    kasld_emit_scalar(SF_PHYSICAL_START, phys_start, CONF_PARSED);
+    kasld_emit_scalar(SF_PHYSICAL_START, phys_start, cfg_conf);
   }
 
   /* CONFIG_PHYSICAL_ALIGN — KASLR slot granularity on x86. boot_params
@@ -122,7 +134,7 @@ int main(void) {
   unsigned long phys_align = get_kconfig_physical_align(fp);
   if (phys_align) {
     kasld_info("CONFIG_PHYSICAL_ALIGN: %#lx", phys_align);
-    kasld_emit_scalar(SF_PHYS_KERNEL_ALIGN, phys_align, CONF_PARSED);
+    kasld_emit_scalar(SF_PHYS_KERNEL_ALIGN, phys_align, cfg_conf);
   }
 
   /* KASLR-off detection. CONFIG_RANDOMIZE_BASE=n means the kernel binary
@@ -132,8 +144,8 @@ int main(void) {
    * (KASLR_DISABLED_PINS_VIRT_TEXT / KASLR_DISABLED_PINS_PHYS) + window-
    * containment to decide whether to pin. */
   if (get_kernel_addr_boot_config(fp)) {
-    kasld_emit_scalar(SF_VIRT_KASLR_DISABLED, 1, CONF_PARSED);
-    kasld_emit_scalar(SF_PHYS_KASLR_DISABLED, 1, CONF_PARSED);
+    kasld_emit_scalar(SF_VIRT_KASLR_DISABLED, 1, cfg_conf);
+    kasld_emit_scalar(SF_PHYS_KASLR_DISABLED, 1, cfg_conf);
   }
 
   /* CONFIG_KASAN=y forces the direct-map randomization off at runtime
@@ -143,13 +155,13 @@ int main(void) {
    */
   if (is_kconfig_set(fp, "CONFIG_KASAN")) {
     kasld_info("CONFIG_KASAN=y");
-    kasld_emit_scalar(SF_KASAN_ENABLED, 1, CONF_PARSED);
+    kasld_emit_scalar(SF_KASAN_ENABLED, 1, cfg_conf);
   }
 
   /* Kernel-text function ordering (canonical / static-reorder / FG-KASLR) —
    * gates whether a generic System.map can resolve symbols. See text_order.h.
    */
-  emit_text_order_from_kconfig(fp);
+  emit_text_order_from_kconfig(fp, cfg_conf);
 
   /* s390 image-base layout discriminator — see proc_config.c. CONFIG_S390=y
    * with CONFIG_KERNEL_IMAGE_BASE present (value > 0) selects the modern high
@@ -159,7 +171,7 @@ int main(void) {
     unsigned long s390_image_base = get_kconfig_kernel_image_base(fp);
     kasld_info("CONFIG_KERNEL_IMAGE_BASE: %#lx%s", s390_image_base,
                s390_image_base ? "" : " (absent: identity-mapped layout)");
-    kasld_emit_scalar(SF_VIRT_KERNEL_IMAGE_BASE, s390_image_base, CONF_PARSED);
+    kasld_emit_scalar(SF_VIRT_KERNEL_IMAGE_BASE, s390_image_base, cfg_conf);
   }
 
   fclose(fp);

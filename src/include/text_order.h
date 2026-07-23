@@ -63,13 +63,17 @@ static enum kasld_text_order classify_text_order(FILE *fp, int nofgkaslr) {
                                          : TEXT_ORDER_CANONICAL;
 }
 
-/* Emit SF_TEXT_ORDER at CONF_PARSED from a config stream, resolving the
- * nofgkaslr cmdline override. No diagnostics on stdout (the wire stays clean).
- */
-static void __attribute__((unused)) emit_text_order_from_kconfig(FILE *fp) {
+/* Emit SF_TEXT_ORDER from a config stream at the caller-supplied confidence,
+ * resolving the nofgkaslr cmdline override. The confidence is a parameter
+ * because an authoritative source (/proc/config.gz, a release-keyed
+ * /boot/config-*) warrants CONF_PARSED, whereas an unverifiable one (the
+ * unkeyed /boot/config) must stay below the guaranteed floor. No diagnostics on
+ * stdout (the wire stays clean). */
+static void __attribute__((unused))
+emit_text_order_from_kconfig(FILE *fp, enum kasld_confidence conf) {
   kasld_emit_scalar(SF_TEXT_ORDER,
                     classify_text_order(fp, cmdline_has_word("nofgkaslr")),
-                    CONF_PARSED);
+                    conf);
 }
 
 #endif /* KASLD_TEXT_ORDER_H */
