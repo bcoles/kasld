@@ -74,11 +74,18 @@ int main(void) {
   DIR *d;
   struct dirent *ent;
   char path[512];
-  unsigned char buf[128];
+  unsigned char buf[1024];
   int n;
   unsigned long lo = ~0ul, hi = 0;
   int count = 0;
   int addr_cells = 1, size_cells = 1;
+  /* Buffer the per-region extents and emit them only after the whole map has
+   * been read and confirmed complete — a partial covering fabricates false
+   * non-RAM gaps (see the emit site below). */
+  enum { MAX_BANKS = 64 };
+  unsigned long ext_lo[MAX_BANKS], ext_hi[MAX_BANKS];
+  int n_ext = 0;
+  int truncated = 0, overflow = 0;
 
   /* Try sysfs first, then /proc/device-tree symlink */
   d = kasld_opendir(base);
@@ -146,6 +153,15 @@ int main(void) {
     if (n < entry_bytes)
       continue;
 
+    /* A read that exactly fills buf may have been clipped mid-property: the reg
+     * could hold more banks than we can see. The covering below is sound only
+     * if the WHOLE map is emitted, so a possibly-truncated node poisons the
+     * entire map — abandon it rather than fake gaps past the last bank seen. */
+    if (n == (int)sizeof(buf)) {
+      truncated = 1;
+      break;
+    }
+
     /* Parse all (address, size) pairs in the reg property.
      * There may be multiple entries for multi-bank systems. */
     int offset = 0;
@@ -166,13 +182,16 @@ int main(void) {
       if (end > hi)
         hi = end;
 
-      /* Per-region extent for ram_map_phys_exclude. The DT /memory nodes are
-       * the complete RAM map (each reg is memblock_add'd), so the non-RAM gaps
-       * between them forbid the physical kernel base. A positionless extent
-       * (not pos=base): the authoritative floor/ceiling stay with the hull
-       * base/top emitted below. */
-      kasld_result_extent(KASLD_TYPE_PHYS, REGION_RAM, base_addr, end - 1, NULL,
-                          CONF_PARSED);
+      /* Stash the extent; emitted after the map is confirmed complete. On
+       * overflow the extent set is incomplete, but lo/hi stay exact (every
+       * node was read in full), so keep tracking the hull. */
+      if (n_ext < MAX_BANKS) {
+        ext_lo[n_ext] = base_addr;
+        ext_hi[n_ext] = end - 1;
+        n_ext++;
+      } else {
+        overflow = 1;
+      }
 
       count++;
       offset += entry_bytes;
@@ -180,9 +199,32 @@ int main(void) {
   }
   closedir(d);
 
+  if (truncated) {
+    kasld_err("device tree memory map may be truncated (a reg property exceeds "
+              "the read buffer); withholding the RAM map to avoid a false "
+              "covering");
+    return 0;
+  }
+
   if (!count) {
     kasld_err("no memory nodes found in device tree");
     return 0;
+  }
+
+  /* Per-region extents for ram_map_phys_exclude. The DT /memory nodes are the
+   * complete RAM map (each reg is memblock_add'd), so the non-RAM gaps between
+   * them forbid the physical kernel base. Positionless extents (not pos=base):
+   * the authoritative floor/ceiling stay with the hull base/top below. Emit
+   * only when the full set fit in the buffer — an overflowed (partial) set
+   * would carve false gaps, so fall back to the hull bounds alone. */
+  if (!overflow) {
+    for (int i = 0; i < n_ext; i++)
+      kasld_result_extent(KASLD_TYPE_PHYS, REGION_RAM, ext_lo[i], ext_hi[i],
+                          NULL, CONF_PARSED);
+  } else {
+    kasld_info("device tree: more than %d memory regions; emitting hull bounds "
+               "only (no gap covering)",
+               (int)MAX_BANKS);
   }
 
   kasld_info("device tree: %d memory region(s)", count);

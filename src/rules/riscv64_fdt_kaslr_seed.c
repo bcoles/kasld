@@ -19,7 +19,10 @@
 //
 // Reads SF_FDT_KASLR_SEED (bridged binary read; 0/absent => inert — covers the
 // seed-disabled/wiped case handled by virt_kaslr_disabled_pin /
-// phys_kaslr_disabled_pin),
+// phys_kaslr_disabled_pin). The emitter (fdt_facts) withholds the fact on a
+// Zkr-capable CPU, where setup_vm() would seed from the Zkr `seed` CSR instead
+// of the FDT cell, so a fact reaching this rule is known to have driven the
+// slot selection,
 // SF_EFI_PRESENT (non-EFI only — EFI mixes in efi_kaslr_seed),
 // SF_IMAGE_SIZE_MIN / SF_IMAGE_SIZE_MAX (the Path 1 nr_pos bracket), and VIRT
 // text/data leaks for the Path 2 gap. riscv64 only.

@@ -125,8 +125,18 @@ int main(void) {
   unsigned long kernel_phys = phys_addr + RISCV_PHYS_LOAD_OFFSET;
 
   kasld_info("possible kernel physical address: 0x%016lx", kernel_phys);
+  /* kernel_phys is a firmware CONVENTION (reservation + fixed load offset), not
+   * an observed image address. It holds only when mmode_resv0 sits at the DRAM
+   * base and the kernel is loaded immediately above it; on firmware that places
+   * the reservation at an arbitrary DRAM offset, or where the physical load
+   * address is randomized independently of the reservation, the true image base
+   * can lie ABOVE kernel_phys. A kernel-image PHYS witness bounds the physical
+   * base from above (kernel_image_phys_bound), so promoting this convention to
+   * the guaranteed floor (CONF_INFERRED+) would forge a C_UPPER_BOUND that can
+   * exclude the true base. Emit at CONF_HEURISTIC: it shapes the likely window
+   * but the engine's floor gate keeps it out of the guaranteed one. */
   kasld_result_sample(KASLD_TYPE_PHYS, REGION_KERNEL_IMAGE, kernel_phys, NULL,
-                      CONF_PARSED);
+                      CONF_HEURISTIC);
 
 #if defined(phys_to_directmap_virt) && TEXT_TRACKS_DIRECTMAP
   /* The directmap projection only yields the kernel-image virt when text
@@ -136,8 +146,11 @@ int main(void) {
    * a kernel-image virt. */
   unsigned long virt = phys_to_directmap_virt(kernel_phys);
   kasld_info("possible kernel virtual address: 0x%016lx", virt);
+  /* Derived from the same convention-based kernel_phys (see above), so it
+   * carries the same confidence — likely window only, never a guaranteed
+   * bound. */
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE, virt, NULL,
-                      CONF_PARSED);
+                      CONF_HEURISTIC);
 #else
   kasld_info("note: kernel text virtual address cannot be derived from phys on "
              "this arch (text does not track the linear map)");

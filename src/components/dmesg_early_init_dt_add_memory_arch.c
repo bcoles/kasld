@@ -105,12 +105,27 @@ int main(void) {
   }
 
   kasld_info("possible PAGE_OFFSET physical address: 0x%016lx", addr);
-  kasld_result_base(KASLD_TYPE_PHYS, REGION_RAM, addr, NULL, CONF_PARSED);
+  /* early_init_dt_add_memory_arch() prints "Ignoring memory range LO - HI" for
+   * TWO distinct clips, and this parser reads only HI:
+   *   low-clip  (base, phys_offset):        HI is the DRAM base — a sound floor
+   *   high-clip (MAX_MEMBLOCK_ADDR+1, base+size): HI is the top of a bank that
+   *             overran the arch/limit-imposed physical ceiling — ABOVE all
+   *             usable RAM, not a floor.
+   * The two are indistinguishable from the value alone (the high-clip fires
+   * whenever RAM exceeds MAX_MEMBLOCK_ADDR, e.g. a mem= / memblock-limited
+   * boot). Emitting HI as a guaranteed REGION_RAM floor would, on a high-clip,
+   * place a C_LOWER_BOUND above the true base and exclude it. Emit at
+   * CONF_HEURISTIC so it only shapes the likely window; the guaranteed DRAM
+   * floor is supplied by the unambiguous maps (sysfs device-tree memory,
+   * /proc/iomem System RAM). */
+  kasld_result_base(KASLD_TYPE_PHYS, REGION_RAM, addr, NULL, CONF_HEURISTIC);
 
 #ifdef phys_to_directmap_virt
   unsigned long virt = phys_to_directmap_virt(addr);
   kasld_info("possible direct-map virtual address: 0x%016lx", virt);
-  kasld_result_base(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, NULL, CONF_PARSED);
+  /* Derived from the same ambiguous HI value — likely window only. */
+  kasld_result_base(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, NULL,
+                    CONF_HEURISTIC);
 #else
   kasld_info("note: phys and virt KASLR are decoupled on this arch; "
              "cannot derive kernel text virtual address from physical leak");
