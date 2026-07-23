@@ -33,11 +33,11 @@
 
 #include "include/cmdline.h"
 #include "include/kasld/api.h"
+#include "include/kasld/bootconfig.h"
 #include "include/kasld/cli.h"
 
 #include <stdio.h>
 #include <string.h>
-#include <sys/utsname.h>
 
 KASLD_EXPLAIN(
     "Checks whether a hibernation resume has disabled KASLR. On some "
@@ -50,32 +50,6 @@ KASLD_EXPLAIN(
 KASLD_META("method:detection\n"
            "phase:inference\n"
            "addr:none\n");
-
-/* Open the kernel boot config at well-known paths. Returns an open FILE*
- * or NULL. Mirrors the search order used by boot_config.c. */
-static FILE *open_boot_config(const char *release) {
-  const char *fixed_paths[] = {"/boot/config", NULL};
-  for (int i = 0; fixed_paths[i]; i++) {
-    FILE *fp = kasld_fopen(fixed_paths[i], "r");
-    if (fp)
-      return fp;
-  }
-
-  const char *release_fmts[] = {
-      "/boot/config-%s",
-      "/lib/modules/%s/build/.config",
-      "/lib/modules/%s/config",
-      NULL,
-  };
-  char path[256];
-  for (int i = 0; release_fmts[i]; i++) {
-    snprintf(path, sizeof(path), release_fmts[i], release);
-    FILE *fp = kasld_fopen(path, "r");
-    if (fp)
-      return fp;
-  }
-  return NULL;
-}
 
 /* Return 1 if CONFIG_HIBERNATION=y appears in an already-open config file. */
 static int config_has_hibernation(FILE *fp) {
@@ -115,14 +89,11 @@ int main(void) {
   }
 
   /* CONFIG_HIBERNATION=y must be compiled in for the kernel to act on
-   * resume=. Without it the parameter is ignored and KASLR is not affected. */
-  struct utsname uts;
-  if (kasld_uname(&uts) != 0) {
-    kasld_err("kasld_uname() failed.");
-    return 1;
-  }
-
-  FILE *fp = open_boot_config(uts.release);
+   * resume=. Without it the parameter is ignored and KASLR is not affected.
+   * The shared reader tries release-keyed paths first and flags the unkeyed
+   * /boot/config, which has no binding to the running kernel. */
+  int is_unkeyed = 0;
+  FILE *fp = kasld_open_boot_config(&is_unkeyed);
   if (!fp) {
     kasld_err("could not open boot config.");
     return KASLD_EXIT_UNAVAILABLE;
@@ -141,12 +112,16 @@ int main(void) {
    * resume. The kernel loaded at the compile-time defaults; both axes are
    * off. virt_kaslr_disabled_pin / phys_kaslr_disabled_pin each gate by
    * its arch macro (KASLR_DISABLED_PINS_VIRT_TEXT / KASLR_DISABLED_PINS_PHYS) +
-   * window-containment. */
+   * window-containment. A stale/foreign unkeyed /boot/config could carry
+   * CONFIG_HIBERNATION=y while the running kernel differs, so its verdict is
+   * held below the guaranteed floor (CONF_HEURISTIC) — it cannot forge the
+   * pin-to-default C_EQUALS; a release-keyed config stays authoritative. */
+  enum kasld_confidence conf = is_unkeyed ? CONF_HEURISTIC : CONF_PARSED;
   kasld_info("hibernation resume detected with CONFIG_HIBERNATION=y; KASLR "
              "disabled.");
 
-  kasld_emit_scalar(SF_VIRT_KASLR_DISABLED, 1, CONF_PARSED);
-  kasld_emit_scalar(SF_PHYS_KASLR_DISABLED, 1, CONF_PARSED);
+  kasld_emit_scalar(SF_VIRT_KASLR_DISABLED, 1, conf);
+  kasld_emit_scalar(SF_PHYS_KASLR_DISABLED, 1, conf);
 
   return 0;
 }

@@ -171,15 +171,25 @@ static int __attribute__((unused)) cmdline_get_memparse(const char *key,
 
   size_t klen = strlen(key);
   const char *p = buf;
+  int found = 0;
+  /* A repeated token is applied by the kernel in LAST-wins order (each parse
+   * overwrites the previous — e.g. handle_mem_options for `mem=`), so keep
+   * scanning and return the last valid value. Returning the first match could
+   * yield a smaller `mem=` than the kernel actually used and, via
+   * cmdline_mem_{phys,virt}_ceiling, place a text-base ceiling below the true
+   * base. */
   while ((p = strstr(p, key)) != NULL) {
     if (p == buf || p[-1] == ' ' || p[-1] == '\t' || p[-1] == '\n') {
       const char *v = p + klen;
-      if (kasld_memparse(&v, out))
-        return 1;
+      unsigned long val;
+      if (kasld_memparse(&v, &val)) {
+        *out = val;
+        found = 1;
+      }
     }
     p += klen;
   }
-  return 0;
+  return found;
 }
 
 #endif /* KASLD_CMDLINE_H */

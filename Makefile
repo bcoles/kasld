@@ -514,6 +514,23 @@ $(TEST_BOOTCFG_BIN): $(TEST_DIR)/test_boot_config.c $(SRC_DIR)/components/boot_c
 	$(call ccv,CCLD,$@)
 	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_boot_config.c -o $@
 
+# dmesg_kaslr_disabled classification: #includes the component (main renamed),
+# driven over a staged KASLD_SYSROOT /var/log/dmesg to assert only whitelisted
+# opt-out phrases pin to default and unrecognized lines emit nothing.
+TEST_KASLRDIS_BIN := $(TEST_OBJ_DIR)/test_dmesg_kaslr_disabled
+$(TEST_KASLRDIS_BIN): $(TEST_DIR)/test_dmesg_kaslr_disabled.c $(SRC_DIR)/components/dmesg_kaslr_disabled.c $(HDRS) | $(TEST_OBJ_DIR)
+	$(call ccv,CCLD,$@)
+	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_dmesg_kaslr_disabled.c -o $@
+
+# sysfs_devicetree_memory covering completeness: #includes the component (main
+# renamed), driven over a staged KASLD_SYSROOT binary device tree to assert a
+# complete map emits hull+extents, a buffer-filling reg withholds the map, and
+# >64 banks falls back to hull-only.
+TEST_DTMEM_BIN := $(TEST_OBJ_DIR)/test_sysfs_devicetree_memory
+$(TEST_DTMEM_BIN): $(TEST_DIR)/test_sysfs_devicetree_memory.c $(SRC_DIR)/components/sysfs_devicetree_memory.c $(HDRS) | $(TEST_OBJ_DIR)
+	$(call ccv,CCLD,$@)
+	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_sysfs_devicetree_memory.c -o $@
+
 # proc_net_sock_ptr hashed-pointer rejection: the component is #included (main
 # renamed) so its classify_sock_ptr() is unit-tested, and it is driven over a
 # staged KASLD_SYSROOT /proc/net/unix to assert the batch-decline + real-emit.
@@ -578,7 +595,7 @@ $(TEST_PARSERS_BIN): $(TEST_DIR)/test_sysfs_parsers.c $(TEST_PARSERS_SRCS) $(HDR
 	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_sysfs_parsers.c -o $@
 
 .PHONY: test
-test : $(TEST_BIN) $(TEST_RENDER_BIN) $(TEST_EST_BIN) $(TEST_EV_BIN) $(TEST_ALIGN_BIN) $(TEST_PREFETCH_SCAN_BIN) $(TEST_CPU_BIN) $(TEST_OUTCOME_BIN) $(TEST_TEXT_ORDER_BIN) $(TEST_KIMG_BIN) $(TEST_ENG_BIN) $(TEST_INT_BIN) $(TEST_DMESG_BIN) $(TEST_BACKTRACE_BIN) $(TEST_BOOTCFG_BIN) $(TEST_SOCKPTR_BIN) $(TEST_TIMERLIST_BIN) $(TEST_BTF_BIN) $(TEST_DMESG_RESV_BIN) $(TEST_BPE820_BIN) $(TEST_PARSERS_BIN) $(TEST_KCORE_BIN)
+test : $(TEST_BIN) $(TEST_RENDER_BIN) $(TEST_EST_BIN) $(TEST_EV_BIN) $(TEST_ALIGN_BIN) $(TEST_PREFETCH_SCAN_BIN) $(TEST_CPU_BIN) $(TEST_OUTCOME_BIN) $(TEST_TEXT_ORDER_BIN) $(TEST_KIMG_BIN) $(TEST_ENG_BIN) $(TEST_INT_BIN) $(TEST_DMESG_BIN) $(TEST_BACKTRACE_BIN) $(TEST_BOOTCFG_BIN) $(TEST_KASLRDIS_BIN) $(TEST_DTMEM_BIN) $(TEST_SOCKPTR_BIN) $(TEST_TIMERLIST_BIN) $(TEST_BTF_BIN) $(TEST_DMESG_RESV_BIN) $(TEST_BPE820_BIN) $(TEST_PARSERS_BIN) $(TEST_KCORE_BIN)
 	@$(TEST_DIR)/run-all
 	@$(MAKE) --no-print-directory lint
 

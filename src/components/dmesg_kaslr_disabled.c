@@ -133,11 +133,21 @@ static int on_match(const char *line, void *ctx) {
     return 1;
   }
 
-  /* Otherwise the line is a definitive opt-out: nokaslr cmdline,
-   * hibernation resume on x86, the cmdline-confirming arm64 / loongarch
-   * variants. The kernel sits at the arch's compile-time default text
-   * base; the virt_/phys_kaslr_disabled_pin rule will act on this. */
-  m->opt_out = true;
+  /* A definitive opt-out (the kernel sits at the arch's compile-time default
+   * text base) is asserted ONLY for the specific phrases the boot stubs print
+   * for it: nokaslr / hibernation-selected on x86, the cmdline-confirming arm64
+   * line, and the loongarch "KASLR is disabled." An opt-out feeds the
+   * pin-to-default C_EQUALS via virt_/phys_kaslr_disabled_pin, so an
+   * unrecognized "KASLR disabled" line must NOT be taken as opt-out: a
+   * future/unknown randomization-failure reason would place the kernel at a
+   * firmware-determined position (not the default), and pinning to default
+   * would exclude the true base. Unknown variants emit nothing (a wide, honest
+   * window) rather than a wrong guaranteed pin. */
+  if (strstr(line, "'nokaslr'") || strstr(line, "'kaslr' not on cmdline") ||
+      strstr(line, "KASLR disabled on command line") ||
+      strstr(line, "KASLR is disabled")) {
+    m->opt_out = true;
+  }
   return 1;
 }
 
