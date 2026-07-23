@@ -220,7 +220,15 @@ static int drain_ring(struct perf_event_mmap_page *meta, const char *ring,
       name_copy[copy_len] = 0;
       sanitise_name(name_copy, sizeof(name_copy));
 
-      if (!(k->flags & KSYM_FLAG_UNREGISTER) && k->addr != 0) {
+      /* Only emit an address inside the module window. A KSYMBOL record is a
+       * BPF-JIT / kprobe-OOL / ftrace-trampoline allocation, normally in the
+       * module region; one outside it (a separate bpf/vmalloc region on some
+       * configs) must be DROPPED, not tagged REGION_MODULE_REGION — that would
+       * feed module_text_bound a bogus text-base bound on
+       * MODULES_RELATIVE_TO_TEXT arches (riscv64/s390). Mirrors the window
+       * check perf_text_poke_leak already applies. */
+      if (!(k->flags & KSYM_FLAG_UNREGISTER) && k->addr != 0 &&
+          kasld_addr_is_module_region((unsigned long)k->addr)) {
         kasld_found("ksymbol: addr=0x%lx len=%u type=%u name=%s",
                     (unsigned long)k->addr, k->len, k->ksym_type,
                     name_copy[0] ? name_copy : "(anon)");

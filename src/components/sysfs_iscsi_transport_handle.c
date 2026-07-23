@@ -122,9 +122,14 @@ static unsigned long get_kernel_addr_iscsi_iser_transport(void) {
 
   addr = strtoul(buff, &endptr, 10);
 
-  /* Accept any kernel-VAS pointer (reject userspace/NULL); the image-vs-module
-   * classification happens at emit time in emit_iscsi_transport. */
-  if (kasld_addr_is_kernel_vas(addr))
+  /* Accept a pointer-aligned kernel-VAS value (reject userspace/NULL and any
+   * misaligned garbage): a real struct iscsi_transport is a static module/.data
+   * object, so pointer-aligned. Defense in depth — the handle is printed
+   * decimal and never hashed, but this keeps the treatment consistent with the
+   * other pointer-leak parsers. The image-vs-module classification happens at
+   * emit time in emit_iscsi_transport. */
+  if (addr && (addr & (sizeof(void *) - 1)) == 0 &&
+      kasld_addr_is_kernel_vas(addr))
     return addr;
 
   return 0;
@@ -161,7 +166,10 @@ static unsigned long get_kernel_addr_iscsi_sw_tcp_transport(void) {
 
   addr = strtoul(buff, &endptr, 10);
 
-  if (kasld_addr_is_kernel_vas(addr))
+  /* Pointer-aligned kernel-VAS value only (see the iser reader for rationale).
+   */
+  if (addr && (addr & (sizeof(void *) - 1)) == 0 &&
+      kasld_addr_is_kernel_vas(addr))
     return addr;
 
   return 0;

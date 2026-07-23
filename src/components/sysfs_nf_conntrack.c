@@ -86,7 +86,15 @@ static unsigned long get_kernel_addr_conntrack(void) {
 
     addr = strtoul(&substr[strlen(needle)], &endptr, 16);
 
-    if (kasld_addr_is_kernel_vas(addr))
+    /* A real `struct net *` is pointer-aligned (init_net is a static struct;
+     * kmalloc'd namespaces come from the SMP_CACHE_BYTES-aligned net_cachep),
+     * so require alignment before trusting the value. Defense in depth: the %p
+     * naming predates pointer hashing and was removed in v4.6, so no hashed
+     * source exists today, but this keeps the treatment consistent with the
+     * other pointer-leak parsers and rejects any misaligned garbage that a
+     * future/backported hashing path could produce. */
+    if (addr && (addr & (sizeof(void *) - 1)) == 0 &&
+        kasld_addr_is_kernel_vas(addr))
       break;
 
     addr = 0;
