@@ -6,9 +6,10 @@
 // CONFIG_RANDOMIZE_BASE=n, riscv64 no FDT seed, hibernation override,
 // !KASLR_SUPPORTED synth, or a future detector that proves only physical
 // KASLR is off — e.g. EFI_RNG_PROTOCOL unavailable with virt KASLR intact
-// via the DTB seed) the kernel's physical text base sits at
-// CONFIG_PHYSICAL_START. Pin Q_PHYS_IMAGE_BASE to a LEARNED SF_PHYSICAL_START
-// when available (a fact), else to arch_default_phys_text_base() (a guess).
+// via the DTB seed) the kernel's physical text base sits at LOAD_PHYSICAL_ADDR
+// = ALIGN(CONFIG_PHYSICAL_START, CONFIG_PHYSICAL_ALIGN). Pin Q_PHYS_IMAGE_BASE
+// to that learned value when BOTH SF_PHYSICAL_START and SF_PHYS_KERNEL_ALIGN
+// are available (a fact), else to arch_default_phys_text_base() (a guess).
 //
 // Per-arch enable:
 //   KASLR_DISABLED_PINS_PHYS — 1 on arches where the kernel's own code
@@ -19,12 +20,14 @@
 //     when SF_PHYS_KASLR_DISABLED is true on those arches, no pin fires
 //     because the address isn't predictable from compile-time data.
 //
-// A learned SF_PHYSICAL_START is a parsed fact, pinned at CONF_INFERRED
-// (correct for default AND non-default builds); the compile-time default is an
-// assumed standard-config value, pinned at CONF_HEURISTIC (likely window only)
-// so a non-default CONFIG_PHYSICAL_START build's true base is never excluded
-// from the guaranteed window. A real phys-text leak outranks either by
-// confidence.
+// The learned ALIGN(SF_PHYSICAL_START, SF_PHYS_KERNEL_ALIGN) is a parsed fact,
+// pinned at CONF_INFERRED (correct for default AND non-default builds); the
+// compile-time default is an assumed standard-config value, pinned at
+// CONF_HEURISTIC (likely window only) so a non-default CONFIG_PHYSICAL_START
+// build's true base is never excluded from the guaranteed window. Without a
+// parsed alignment no exact pin is emitted (the raw value still floors the
+// window via physical_start_lower_bound). A real phys-text leak outranks either
+// by confidence.
 //
 // Soundness backstops:
 //   1. Fires only on a positive SF_PHYS_KASLR_DISABLED signal.

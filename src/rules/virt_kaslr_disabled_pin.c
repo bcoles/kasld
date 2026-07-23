@@ -17,11 +17,16 @@
 //     -> rule_s390_image_base_from_config).
 //
 // The pinned value depends on whether the base is a FACT or a GUESS:
-//   - When a parsed CONFIG_PHYSICAL_START is available (SF_PHYSICAL_START, from
-//     /boot/config or /proc/config.gz), the no-KASLR base is exactly
-//     KERNEL_VIRT_TEXT_MIN + that value + IMAGE_BASE_OFFSET — a read fact,
-//     pinned at CONF_INFERRED (reaches the guaranteed window, correct for
-//     default AND non-default builds).
+//   - When BOTH CONFIG_PHYSICAL_START and CONFIG_PHYSICAL_ALIGN are parsed
+//     (SF_PHYSICAL_START from /boot/config or /proc/config.gz;
+//     SF_PHYS_KERNEL_ALIGN from those or boot_params), the no-KASLR base is
+//     exactly KERNEL_VIRT_TEXT_MIN + LOAD_PHYSICAL_ADDR + IMAGE_BASE_OFFSET,
+//     where LOAD_PHYSICAL_ADDR = ALIGN(CONFIG_PHYSICAL_START,
+//     CONFIG_PHYSICAL_ALIGN) (the kernel rounds an un-aligned
+//     CONFIG_PHYSICAL_START UP) — a read fact, pinned at CONF_INFERRED (reaches
+//     the guaranteed window, correct for default AND non-default builds).
+//     Without a parsed alignment the raw value is only a floor
+//     (physical_start_lower_bound), so no exact pin is emitted.
 //   - Otherwise the compile-time arch_default_text_base() is an ASSUMED
 //     standard-config value (a guess): pinned at CONF_HEURISTIC (likely window
 //     only), so a build with a non-default CONFIG_PHYSICAL_START never has its
