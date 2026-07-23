@@ -30,6 +30,13 @@
 // VMSPLIT (CONFIG_PAGE_OFFSET) is a compile-time constant, fixed at boot.
 #define PAGE_OFFSET_FROM_CONFIG 1
 
+// TASK_SIZE == __PAGE_OFFSET exactly on x86_32, with no gap (arch/x86/include/
+// asm/page_32_types.h: `#define TASK_SIZE __PAGE_OFFSET`; STACK_TOP ==
+// TASK_SIZE too). So the mmap user/kernel split boundary IS PAGE_OFFSET,
+// letting mmap_brute_vmsplit bound PAGE_OFFSET soundly (arm32 differs:
+// TASK_SIZE = PAGE_OFFSET - 16 MiB).
+#define TASK_SIZE_IS_PAGE_OFFSET 1
+
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/include/asm/page.h#L59
 #define PHYS_OFFSET 0ul
 // PAGE_OFFSET and PHYS_OFFSET are both compile-time constants on x86_32 (no

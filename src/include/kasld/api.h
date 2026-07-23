@@ -419,6 +419,14 @@ static inline unsigned long kasld__directmap_virt_to_phys(unsigned long v) {
 #define PAGE_OFFSET_INVARIANT 0
 #endif
 
+/* 1 where the mmap user/kernel split (TASK_SIZE) equals PAGE_OFFSET exactly, so
+ * a TASK_SIZE measurement (mmap_brute_vmsplit) bounds PAGE_OFFSET soundly. Set
+ * only on x86_32 (page_32_types.h: TASK_SIZE == __PAGE_OFFSET). Defaults to 0 —
+ * notably arm32, where TASK_SIZE = PAGE_OFFSET - 16 MiB sits a gap below it. */
+#ifndef TASK_SIZE_IS_PAGE_OFFSET
+#define TASK_SIZE_IS_PAGE_OFFSET 0
+#endif
+
 /* 1 iff CONFIG_PAGE_OFFSET is the AUTHORITATIVE runtime virt_page_offset on
  * this arch — i.e. virt_page_offset is a pure compile-time constant set by the
  * config/VMSPLIT and cannot be overridden at boot. True on x86_32/arm32
