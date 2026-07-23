@@ -135,11 +135,14 @@ typedef struct {
  * data.ext.ptr at 20, data.ext.len at 16). snd_seq_port_info holds a `void
  * *kernel`, so its total size is 168 on LP64 / 164 on ILP32 — do not assert a
  * fixed size; the ioctl number below derives it from sizeof per-arch. */
-_Static_assert(sizeof(kasld_seq_event) == 28, "snd_seq_event must be 28 bytes");
-_Static_assert(offsetof(kasld_seq_event, data.ext.ptr) == 20,
-               "data.ext.ptr must be at offset 20");
-_Static_assert(offsetof(kasld_seq_event, data.ext.len) == 16,
-               "data.ext.len must be at offset 16");
+/* __extension__ silences -Wpedantic: _Static_assert is a C11 keyword gcc
+ * supports as an extension, and the tree builds -std=c99 -pedantic. */
+__extension__ _Static_assert(sizeof(kasld_seq_event) == 28,
+                             "snd_seq_event must be 28 bytes");
+__extension__ _Static_assert(offsetof(kasld_seq_event, data.ext.ptr) == 20,
+                             "data.ext.ptr must be at offset 20");
+__extension__ _Static_assert(offsetof(kasld_seq_event, data.ext.len) == 16,
+                             "data.ext.len must be at offset 16");
 
 /* Request numbers are computed from the struct sizes so they are correct on
  * both 32- and 64-bit ABIs (the kernel encodes sizeof into the number).

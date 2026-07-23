@@ -160,11 +160,14 @@ static unsigned long get_kernel_addr_from_bcm_msg_head_struct(void) {
    * upper-half-of-tv_sec leak shape doesn't apply. We bail rather than
    * silently produce a non-pointer value. */
 #if __SIZEOF_LONG__ >= 8
-  _Static_assert(offsetof(struct bcm_msg_head, ival2) == 32 &&
-                     sizeof(struct bcm_timeval) == 16,
-                 "bcm_msg_head layout drift: the leak read below targets "
-                 "ival2.tv_sec's high half; recompute the offset if the "
-                 "struct moves.");
+  /* __extension__ silences -Wpedantic: _Static_assert is a C11 keyword gcc
+   * supports as an extension, and the tree builds -std=c99 -pedantic. */
+  __extension__ _Static_assert(
+      offsetof(struct bcm_msg_head, ival2) == 32 &&
+          sizeof(struct bcm_timeval) == 16,
+      "bcm_msg_head layout drift: the leak read below "
+      "targets ival2.tv_sec's high half; recompute the "
+      "offset if the struct moves.");
 
   if (sizeof(buf) < 112)
     return 0;
