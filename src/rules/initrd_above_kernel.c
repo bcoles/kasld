@@ -27,7 +27,12 @@
 //
 // Arch scope: gated to exclude s390, whose boot stub uses top-down physmem
 // allocation and routinely places the kernel above firmware-supplied initrd
-// regions — the convention does not hold there even as a heuristic.
+// regions — the convention does not hold there even as a heuristic. ppc32 is
+// excluded for the same reason: BookE (e500) KASLR relocates the kernel to any
+// 64 MiB-indexed slot in [0, min(RAM, 512 MiB)), so it lands above the
+// fixed-position initrd on most boots — the "kernel below initrd" convention is
+// systematically false there, undershooting the likely window. (BookS ppc32 has
+// no text KASLR and sits at the fixed low base, so it loses nothing.)
 // ---
 // <bcoles@gmail.com>
 
@@ -41,7 +46,8 @@ int rule_initrd_above_kernel(const struct evidence_set *ev,
                              const struct estimate *est, struct constraint *out,
                              int out_max) {
   (void)est;
-#if defined(__s390__) || defined(__s390x__)
+#if defined(__s390__) || defined(__s390x__) ||                                 \
+    (defined(__powerpc__) && !defined(__powerpc64__))
   (void)ev;
   (void)out;
   (void)out_max;
