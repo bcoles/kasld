@@ -73,7 +73,7 @@ spec_for() {
   mipsel)    echo "mipsel   mips    malta_defconfig    vmlinux le" ;;
   mips64el)  echo "mips64el mips    malta_defconfig    vmlinux le" ;;
   riscv32)   echo "riscv32  riscv   defconfig          Image   -" ;;
-  ppc32)     echo "powerpc  powerpc pmac32_defconfig   vmlinux -" ;;
+  ppc32)     echo "powerpc  powerpc mpc85xx_defconfig  vmlinux -" ;;
   powerpc64) echo "powerpc64 powerpc ppc64_defconfig  vmlinux -" ;;
   armeb)     echo "armeb    arm     multi_v7_defconfig zImage  be" ;;
   x86_64)    echo "x86_64   x86     x86_64_defconfig   bzImage -" ;;
@@ -161,15 +161,38 @@ build_one() {
   ppc64le)
     "$src/scripts/config" --file "$bdir/.config" -d COMPAT ;;
   esac
-  # ppc32 (pmac g3beige): older pmac32_defconfig ships the pmac zilog UART as a
-  # module with no console (5.15: SERIAL_PMACZILOG=m, _CONSOLE unset), so the
-  # minimal initramfs boot has no /dev/console ("unable to open an initial
-  # console" -> power down). Force the driver + its console built-in; TTYS puts
-  # it in the ttyS namespace the run recipe uses (console=ttyS0).
+  # ppc32 (Freescale e500v2 via qemu's generic ppce500 board): enable that board
+  # (PPC_QEMU_E500, required to boot -M ppce500) and text KASLR (RELOCATABLE +
+  # RANDOMIZE_BASE — the latter is available only on PPC_85xx + FLATMEM, both of
+  # which mpc85xx_defconfig provides; e500v2 stays FLATMEM, so the option holds).
+  # The 8250 console and initrd support come from the base defconfig, and e500
+  # KASLR self-seeds from the timebase, so no device-tree seed injection is needed
+  # (unlike riscv64). pmac/g3beige is not used: its book3s32 kernel has no text
+  # KASLR, so it could only ever report the disabled-base pin.
   case "$base" in
   ppc32)
+    # mpc85xx_defconfig ships CONFIG_DEBUG_INFO=y, which bloats vmlinux to ~270 MB;
+    # since run packages the kernel image into the initramfs, that overflows the
+    # e500's RAM at unpack time ("initrd: incomplete write -28"). Turn debug info
+    # off to keep the image small, like the other gap arches: pre-5.18 it is a
+    # plain bool (-d DEBUG_INFO); 5.18+ it is a choice, so the selected DWARF
+    # member must be disabled and NONE selected. CRYPTO_DEV_TALITOS (the Freescale
+    # SEC accel, unused here) fails to build on 6.6 with the current toolchain, so
+    # drop it.
     "$src/scripts/config" --file "$bdir/.config" \
-      -e SERIAL_PMACZILOG -e SERIAL_PMACZILOG_TTYS -e SERIAL_PMACZILOG_CONSOLE ;;
+      -e PPC_QEMU_E500 -e RELOCATABLE -e RANDOMIZE_BASE -d CRYPTO_DEV_TALITOS \
+      -d DEBUG_INFO -d DEBUG_INFO_DWARF_TOOLCHAIN_DEFAULT -e DEBUG_INFO_NONE ;;
+  esac
+  # riscv64: the stock defconfig leaves RANDOMIZE_BASE off, so text KASLR is
+  # compiled out and the kernel always boots at its link address. Enable it (and
+  # its RELOCATABLE prerequisite) so the mainline riscv64 cells exercise the
+  # randomized layout, matching the KASLR-on posture of the other 64-bit arches.
+  # riscv KASLR needs a boot-supplied seed (DT /chosen/kaslr-seed or the Zkr CSR),
+  # which tests/vm/run injects. Harmless on trees predating riscv KASLR (5.18-):
+  # the symbols do not exist there, so olddefconfig simply drops the request.
+  case "$base" in
+  riscv64)
+    "$src/scripts/config" --file "$bdir/.config" -e RELOCATABLE -e RANDOMIZE_BASE ;;
   esac
   # devtmpfs (console at init-exec) + initramfs support. BLK_DEV_INITRD/RD_GZIP
   # are absent from some older defconfigs (mips/ppc32 malta at 5.15), so the

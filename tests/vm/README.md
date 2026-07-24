@@ -53,10 +53,11 @@ are then checked offline by `make test-fixtures` (see
 Each run prints a per-arch verdict and a summary; the exit status is non-zero if
 any arch produced an unsound or incomplete result. After running the scenarios,
 `tests/vm/run table` reads the boot logs and emits a markdown matrix
-(arch × scenario → recovered / residual bits / sound), then a
-speculative-narrowing table showing the cells where the likely best-guess window
-beats the guaranteed one and what signal drove it — both published tables in
-[docs/reproducibility.md](../../docs/reproducibility.md) are generated this way.
+(arch × scenario → KASLR / virt residual / phys residual; soundness is a gate,
+not a column), then a speculative-narrowing table showing any cells where the
+likely best-guess window beats the guaranteed one and what signal drove it — the
+published tables in [docs/reproducibility.md](../../docs/reproducibility.md) are
+generated this way.
 
 The speculative-narrowing table excludes microarchitectural side-channel
 narrowings (`method:timing` — cache/speculation oracles such as `prefetch` and
@@ -79,18 +80,28 @@ it is wider but still contains the truth — the correct outcome under restricti
 
 ## Profiles
 
-The analysis always runs unprivileged (uid 1000) — the threat model is an
-unprivileged local attacker — so the modes differ only in the sysctl hardening
-applied, never in the reader's identity. The one privileged step is the per-boot
-ground-truth capture the check compares against.
+The analysis always runs unprivileged (uid 1000, with all supplementary groups
+dropped) — the threat model is an unprivileged local attacker — so the modes
+differ only in the sysctl vector applied, never in the reader's identity. The one
+privileged step is the per-boot ground-truth capture the check compares against.
+
+`default` is the kernel's *own* compile-time sysctl posture, read back at boot and
+left as booted (`kptr_restrict=0` and `perf_event_paranoid=2` upstream;
+`dmesg_restrict` whatever the `.config` sets — `0` on the mainline builds, `1` on
+Alpine). Each other mode moves exactly one axis off that baseline. A key
+consequence: `kptr_restrict=0` alone does **not** expose symbol values — at the
+upstream `perf_event_paranoid=2`, `/proc/kallsyms` is zeroed for an unprivileged
+reader (`kallsyms_show_value()` needs `perf<=1` or `CAP_SYSLOG`), so on a stock
+kernel the base comes from inference, not the symbol table.
 
 | mode | sysctls (at uid 1000) | what it exercises |
 |------|-----------------------|-------------------|
-| `default`  | `kptr_restrict=0` | permissive — kallsyms readable where the kernel exposes it unprivileged |
-| `hidden`   | `kptr_restrict=2` | the pin must come from inference |
-| `hardened` | `kptr=2` + `dmesg_restrict=1` + `perf=3` | the realistic unprivileged floor (file-derived facts only) |
-| `stock`    | kernel-default sysctls (`kptr=0`, `dmesg_restrict=0`, `perf=2`) | an unprivileged user on an out-of-the-box kernel — nothing weakened or hardened |
-| `nokaslr`  | `nokaslr` on the cmdline | the KASLR-disabled pin |
+| `default`     | booted compile-time defaults (`kptr=0`, `perf=2`; `dmesg` per `.config`) | a stock kernel — kallsyms zeroed by `perf=2`, so inference alone |
+| `kptr-hidden` | `default` + `kptr_restrict=2` | pointers hidden; isolates `kptr`'s effect (perf already gates kallsyms) |
+| `perf-open`   | `default` + `perf_event_paranoid=0` | perf relaxed — unlocks `/proc/kallsyms` *and* the `perf_event_open` text-poke leak (exact) |
+| `dmesg-open`  | `default` + `dmesg_restrict=0` | world-readable dmesg (differs from `default` only where the kernel ships `dmesg_restrict=1`) |
+| `hardened`    | `kptr=2` + `dmesg_restrict=1` + `perf=3` | the realistic unprivileged floor (file-derived facts only) |
+| `nokaslr`     | `nokaslr` on the cmdline | the KASLR-disabled pin |
 
 ## Architectures
 
@@ -121,11 +132,12 @@ match the qemu that loads it.
 
 Alpine has no port for some arches; their kernel is built from source by
 `tests/vm/build-kernel` — a pinned kernel.org tarball + a stock upstream
-defconfig + a fixed one-line endianness overlay where the byte order differs
-from the base defconfig. The result is staged into the cache and booted by
-`tests/vm/run` with the same `init.c` as the Alpine flavors. Reproducible but
-slow; run it once per arch, manually. The arch-gated rule logic is covered
-per-push by `tests/test-cross`.
+defconfig + fixed config overlays (endianness where the byte order differs from
+the base defconfig, devtmpfs for an init console, and `RANDOMIZE_BASE` for
+riscv64 so its text KASLR is compiled in). The result is staged into the cache
+and booted by `tests/vm/run` with the same `init.c` as the Alpine flavors.
+Reproducible but slow; run it once per arch, manually. The arch-gated rule logic
+is covered per-push by `tests/test-cross`.
 
 ```sh
 tests/vm/build-kernel mipsel-mainline-7.0  # download source + cross-build -> cache (slow)
@@ -138,20 +150,24 @@ tests/vm/run mipsel-mainline-7.0           # boot it, verdict
 | mipsel | `mips` / `malta_defconfig` (LE) | `qemu-system-mipsel -M malta` |
 | mips64el | `mips` / `malta_defconfig` + 64-bit (LE) | `qemu-system-mips64el -M malta` |
 | riscv32 | `riscv` / `defconfig` + `32-bit.config` | `qemu-system-riscv32 -M virt` |
-| ppc32 | `powerpc` / `pmac32_defconfig` (BE) | `qemu-system-ppc -M g3beige` |
+| ppc32 | `powerpc` / `mpc85xx_defconfig` (BE) | `qemu-system-ppc -M ppce500` |
 | powerpc64 | `powerpc` / `ppc64_defconfig` (BE) | `qemu-system-ppc64 -M pseries` |
 | armeb (blocked) | `arm` / `multi_v7_defconfig` + BE | `qemu-system-arm -M virt` |
 
 Validation status of the gap arches (built fresh from kernel.org, booted here):
 
-- `mips`, `mipsel`, `mips64el`, `riscv32`, `ppc32` — verified end-to-end, boots
-  PASS, base recovered exactly. `malta_defconfig` is little-endian, so `mips`
-  exercises the big-endian overlay (and `mipsel` boots the native byte order);
-  `mips64el` promotes the same board to a 64-bit CPU (`MIPS64R2-generic`);
-  `riscv32` is staged as the flat `Image` (the `virt` board rejects the raw
-  `vmlinux` ELF) and needs the 32-bit OpenSBI firmware (auto-discovered, see
-  below); `ppc32` needs `qemu-system-ppc` (the `qemu-system-misc`/`-ppc` package)
-  and its console is `ttyS0` (pmac zilog registers in the `ttyS` namespace).
+- `mips`, `mipsel`, `mips64el`, `riscv32` — verified end-to-end, boots PASS.
+  `malta_defconfig` is little-endian, so `mips` exercises the big-endian overlay
+  (and `mipsel` boots the native byte order); `mips64el` promotes the same board
+  to a 64-bit CPU (`MIPS64R2-generic`); `riscv32` is staged as the flat `Image`
+  (the `virt` board rejects the raw `vmlinux` ELF) and needs the 32-bit OpenSBI
+  firmware (auto-discovered, see below).
+- `ppc32` — the Freescale e500v2 target on qemu's generic `-M ppce500` board
+  (`qemu-system-ppc` from the `qemu-system-misc`/`-ppc` package, console `ttyS0`
+  on an 8250 UART). Built from `mpc85xx_defconfig` with text KASLR enabled (see
+  "Gap architectures"), so it boots PASS and randomizes for real. pmac/g3beige
+  (book3s32) is not used: its kernel has no text KASLR, so it could only report
+  the disabled-base pin.
 - `powerpc64` — boots PASS on `-M pseries` (`power9`, console `hvc0`), but the
   board delivers no KASLR seed, so the kernel boots unrandomized; the base is
   pinned via the disabled-base path, not a KASLR defeat.
@@ -205,9 +221,19 @@ The mainline cells are built on request, never part of the default gap set.
   VMSPLIT, `CONFIG_*` toggles) need purpose-built kernels and are out of scope
   here.
 - `loongarch64` boots via UEFI; the firmware is auto-discovered next to the qemu
-  binary or set via `LOONGARCH_BIOS`. Under `qemu -M virt` some arches (e.g.
-  riscv64) are seedless, so KASLR is off and the result is the disabled-base
-  pin — still a soundness point.
+  binary or set via `LOONGARCH_BIOS`.
+- riscv text KASLR needs both a kernel built with `RANDOMIZE_BASE` and a
+  boot-supplied seed, and `qemu -M virt` provides neither by default (its DTB
+  carries only `rng-seed`, not `kaslr-seed`, and the cells run without `-cpu max`
+  so there is no Zkr self-seed). For the cells actually built with it — the
+  mainline `riscv64` 6.6/7.0 kernels — `run` dumps qemu's generated DTB, splices a
+  fresh per-boot `/chosen/kaslr-seed`, and boots from the patched blob (`dtc`
+  required), so the base is randomized like the other 64-bit arches. This is
+  gated on the staged `.config` having `CONFIG_RANDOMIZE_BASE=y`, so the Alpine
+  `riscv64` kernel (not built with it) and 5.15 (predates riscv KASLR, added in
+  5.18) stay seedless — KASLR off, the disabled-base pin, still a soundness point.
+  Other seedless arches (`ppc64le` on `-M pseries`, etc.) likewise land on the
+  disabled-base pin.
 - `riscv32` needs 32-bit OpenSBI, which most qemu builds do not bundle (only the
   riscv64 image). It is auto-discovered next to the qemu binary, in the system
   share dir, or in the distro cross package

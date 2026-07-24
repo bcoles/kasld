@@ -24,7 +24,8 @@
 # Usage:
 #   tests/vm/run                 # every supported arch, default profile
 #   tests/vm/run <arch>          # one arch, default profile
-#   tests/vm/run <arch> <mode>   # mode: default | hidden | hardened | nokaslr
+#   tests/vm/run <arch> <mode>   # mode: default | kptr-hidden | perf-open |
+#                                #       dmesg-open | hardened | nokaslr
 #   tests/vm/run all <mode>      # every arch in a given mode
 #   tests/vm/run table           # render the results matrix (markdown) from the
 #                                # boot logs, followed by the speculative-
@@ -38,10 +39,17 @@
 # Modes (the analysis always runs unprivileged at uid 1000; modes differ only
 # by the sysctl hardening applied — the root ground-truth capture is the sole
 # privileged step):
-#   default   uid 1000, kptr_restrict=0 — permissive sysctls, kallsyms readable
-#   hidden    uid 1000, kptr_restrict=2 — pin must come from inference
-#   hardened  uid 1000 + kptr=2/dmesg_restrict=1/perf=3 — unprivileged floor
-#   nokaslr   boot with `nokaslr` — verifies the KASLR-disabled pin
+# perf/dmesg only affect the result once kallsyms is hidden, so those toggles
+# branch off kptr-hidden, not default. Values not named are the kernel's own
+# booted defaults (captured per cell; no distro sysctl.d runs under the minimal
+# initramfs, so dmesg_restrict is the compile-time .config value):
+#   default     uid 1000, all sysctls at booted defaults — kallsyms is zeroed at
+#               the upstream perf=2 (needs perf<=1 or CAP_SYSLOG), so inference
+#   kptr-hidden default + kptr_restrict=2 — isolates kptr (perf already gates kallsyms)
+#   perf-open   default + perf_event_paranoid=0 — unlocks kallsyms + the perf leak
+#   dmesg-open  default + dmesg_restrict=0 — dmesg log readable
+#   hardened    kptr=2 + dmesg_restrict=1 + perf=3 — unprivileged floor
+#   nokaslr     boot with `nokaslr` — verifies the KASLR-disabled pin
 #
 # Env overrides:
 #   QEMU_DIR        directory holding qemu-system-* (default: search PATH)
@@ -134,9 +142,9 @@ mips64el-mainline-7.0   | -           | local| mips64el     | mips64el    | -M m
 riscv32-mainline-5.15   | -           | local| riscv32      | riscv32     | -M virt                | ttyS0
 riscv32-mainline-6.6    | -           | local| riscv32      | riscv32     | -M virt                | ttyS0
 riscv32-mainline-7.0    | -           | local| riscv32      | riscv32     | -M virt                | ttyS0
-ppc32-mainline-5.15     | -           | local| powerpc      | ppc         | -M g3beige             | ttyS0
-ppc32-mainline-6.6      | -           | local| powerpc      | ppc         | -M g3beige             | ttyS0
-ppc32-mainline-7.0      | -           | local| powerpc      | ppc         | -M g3beige             | ttyS0
+ppc32-mainline-5.15     | -           | local| powerpc      | ppc         | -M ppce500             | ttyS0
+ppc32-mainline-6.6      | -           | local| powerpc      | ppc         | -M ppce500             | ttyS0
+ppc32-mainline-7.0      | -           | local| powerpc      | ppc         | -M ppce500             | ttyS0
 powerpc64-mainline-5.15 | -           | local| powerpc64    | ppc64       | -M pseries -cpu power9 | hvc0
 powerpc64-mainline-6.6  | -           | local| powerpc64    | ppc64       | -M pseries -cpu power9 | hvc0
 powerpc64-mainline-7.0  | -           | local| powerpc64    | ppc64       | -M pseries -cpu power9 | hvc0
@@ -452,7 +460,7 @@ EOF
   qsuf=$(trim "$qsuf"); machine=$(trim "$machine"); console=$(trim "$console")
 
   # Guest RAM. Default 1 GiB; the qemu malta board (mips) caps at 256 MiB.
-  mem=1024; case "$name" in mips | mipsel | mips64 | mips64el) mem=256 ;; esac
+  mem=1024; case "$name" in mips | mipsel | mips64 | mips64el) mem=256 ;; ppc32*) mem=512 ;; esac
 
   echo "=================== $name ($mode) ==================="
   tc=$(resolve_target "$prefix")
@@ -516,21 +524,55 @@ EOF
     esac
   fi
 
+  # riscv text KASLR needs a boot-supplied seed. QEMU's `virt` DTB carries only
+  # rng-seed, so a kernel built with RANDOMIZE_BASE finds no kaslr-seed and boots
+  # at its link address. For the cells actually built with it (grep the staged
+  # .config — Alpine ships no such config, and trees predating riscv KASLR never
+  # gain the symbol), dump QEMU's generated DTB, splice a fresh per-boot
+  # /chosen/kaslr-seed, and boot from the patched blob so the text base is
+  # randomized. QEMU still applies its own bootargs/initrd fixups over a supplied
+  # -dtb, so the cmdline and initramfs are unaffected. dtc is required; without it
+  # the seed is skipped and the kernel boots unrandomized (still sound, KASLR-off).
+  dtb=""
+  cfg="$CACHE/kbuild-$name/.config"
+  if [ "${name%%-*}" = riscv64 ] && [ -f "$cfg" ] &&
+     grep -q '^CONFIG_RANDOMIZE_BASE=y' "$cfg"; then
+    if command -v dtc >/dev/null 2>&1; then
+      _raw="$work/qemu.dtb"; _seeded="$work/kaslr-seed.dtb"
+      rm -f "$_raw" "$_seeded"
+      # shellcheck disable=SC2086
+      $qemu $machine -smp 1 -m "$mem" $bios -machine dumpdtb="$_raw" -nographic \
+        >/dev/null 2>&1
+      if [ -f "$_raw" ]; then
+        _hi=$(od -An -N4 -tx4 /dev/urandom | tr -d ' ')
+        _lo=$(od -An -N4 -tx4 /dev/urandom | tr -d ' ')
+        dtc -I dtb -O dts "$_raw" 2>/dev/null |
+          awk -v s="0x$_hi 0x$_lo" \
+            '/chosen \{/{print; print "\t\tkaslr-seed = <" s ">;"; next} {print}' |
+          dtc -I dts -O dtb -o "$_seeded" 2>/dev/null
+        [ -f "$_seeded" ] && dtb="-dtb $_seeded"
+      fi
+    else
+      echo "  !! dtc not found — riscv64 kaslr-seed skipped (boots unrandomized)" >&2
+    fi
+  fi
+
   append="console=$console panic=-1 quiet"
   case "$mode" in
-    default)  ;;
-    hidden)   append="$append hidekptr" ;;
-    hardened) append="$append hardened" ;;
-    stock)    append="$append stock" ;;
-    nokaslr)  append="$append nokaslr" ;;
-    capture)  append="$append capture" ;;
+    default)     ;;
+    kptr-hidden) append="$append hidekptr" ;;
+    perf-open)   append="$append perfopen" ;;
+    dmesg-open)  append="$append dmesgopen" ;;
+    hardened)    append="$append hardened" ;;
+    nokaslr)     append="$append nokaslr" ;;
+    capture)     append="$append capture" ;;
     *) echo "  unknown mode: $mode"; return 2 ;;
   esac
 
   log="$work/boot-$mode.log"
   echo "  [*] booting $qemu ($machine) -> $log"
   # shellcheck disable=SC2086
-  timeout "$TIMEOUT" $qemu $machine $accel -smp 1 -m "$mem" $bios \
+  timeout "$TIMEOUT" $qemu $machine $accel -smp 1 -m "$mem" $bios $dtb \
     -kernel "$CACHE/$name-vmlinuz" -initrd "$work/initramfs.cpio.gz" \
     -nographic -no-reboot -append "$append" >"$log" 2>&1 || true
   # Strip CR and NUL bytes: early console output can contain binary noise that
@@ -652,7 +694,7 @@ cmd_spec_table() {
   excluded_timing=0
   for a in $arches; do
     arch_disp=${a%%-*}
-    for scen in default hidden hardened; do
+    for scen in default kptr-hidden perf-open dmesg-open hardened; do
       log="$HERE/$a/boot-$scen.log"
       [ -f "$log" ] || continue
       grep -aq 'KASLD VM DONE' "$log" || continue
@@ -726,7 +768,7 @@ cmd_table() {
     # cell name (<arch>-<distro>-<version>). The same arch appears under several
     # cells (distro/version); the `source` and `release` columns carry that split.
     arch_disp=${a%%-*}
-    for scen in default hidden hardened nokaslr; do
+    for scen in default kptr-hidden perf-open dmesg-open hardened nokaslr; do
       log="$HERE/$a/boot-$scen.log"
       [ -f "$log" ] || continue   # arch not built (no kernel) — simply omitted
       rel=$(grep -am1 'Linux version' "$log" | sed -E 's/.*Linux version ([^ ]+).*/\1/')
@@ -787,7 +829,20 @@ cmd_table() {
       pmax=$(grep -am1 -oE '"phys_kaslr_text_max": *"0x[0-9a-fA-F]+"' "$log" | grep -oE '0x[0-9a-fA-F]+')
       pbits=$(phys_bits_of "$log"); [ -n "$pbits" ] || pbits='—'
       plo=$(norm "$pmin"); phi=$(norm "$pmax")
-      if [ "$pv" = NA ] || [ "$kas" = off ]; then
+      # `coupled` is a distinct value from `—`, keyed on the coupling flag itself
+      # (not phys_verdict=NA, which also fires on a decoupled arch that captured
+      # no iomem truth): on a coupled arch the physical image base is a fixed
+      # projection of the virtual text base (phys = virt - a known constant), so
+      # there is no independent physical quantity to resolve — recovering the
+      # virtual base already determines it. Emitting `coupled` rather than `—`
+      # lets the reader tell a coupled arch from a KASLR-off row, and from a
+      # decoupled arch (which always shows exact / n bits while KASLR is on).
+      dec=$(grep -am1 -oE '"text_tracks_directmap": *(true|false)' "$log" | awk '{print $2}')
+      if [ "$kas" = off ]; then
+        phys_residual='—'
+      elif [ "$dec" = true ]; then
+        phys_residual=coupled
+      elif [ "$pv" = NA ]; then
         phys_residual='—'
       elif { [ -n "$plo" ] && [ "$plo" = "$phi" ]; } || [ "$pbits" = 0 ] || [ "$pbits" = '—' ]; then
         phys_residual=exact
@@ -815,7 +870,7 @@ cmd_table() {
   printf '|------|---------|--------|----------|-------|---------------|---------------|\n'
   printf '%s' "$body"
   # shellcheck disable=SC2016  # backticks are literal markdown, not a subshell
-  printf '\nEvery cell is sound: the true base lies inside the guaranteed window, on BOTH the virtual and (where independently resolved) the physical axis. `source` = `alpine` (distro kernel) or `mainline` (mainline kernel.org build). `virt residual` / `phys residual` = how much KASLR entropy KASLD could not strip from the virtual text base / physical image base: `exact` = base recovered, KASLR defeated (a byte-exact pin and a below-granularity sub-slot window are the same outcome — the randomized slot is known); `<n> bits` = KASLR-randomized, n bits of the slot still unknown; `—` = KASLR off, or (phys) an arch where the physical base is not randomized independently of the virtual text base.\n'
+  printf '\nEvery cell is sound: the true base lies inside the guaranteed window, on BOTH the virtual and (where independently resolved) the physical axis. `source` = `alpine` (distro kernel) or `mainline` (mainline kernel.org build). `virt residual` / `phys residual` = how much KASLR entropy KASLD could not strip from the virtual text base / physical image base: `exact` = base recovered, KASLR defeated (a byte-exact pin and a below-granularity sub-slot window are the same outcome — the randomized slot is known); `<n> bits` = KASLR-randomized, n bits of the slot still unknown; `—` = KASLR off (nothing randomized to strip). In the `phys residual` column, `coupled` marks an architecture whose physical image base is a fixed projection of the virtual text base (no independent physical axis — recovering the virtual base already determines it); only the decoupled arches (x86-64, arm64, riscv64, s390) carry an independent `exact` / `<n> bits` physical result.\n'
 
   # The matrix reports the guaranteed window; the speculative-narrowing table
   # discloses where the likely best-guess window beats it, and by what signal.
@@ -824,7 +879,12 @@ cmd_table() {
 }
 
 # ---- dispatch ----
-arches=$(echo "$TABLE" | awk -F'|' 'NF>1{gsub(/ /,"",$1); print $1}')
+# Cell list, ordered alphabetically by architecture (the rendered tables and the
+# boot loop both consume this). A stable sort keyed on the arch prefix
+# (<arch>-<distro>-<version>) keeps the alpine-then-mainline / ascending-version
+# order within each arch while presenting arches A→Z.
+arches=$(echo "$TABLE" | awk -F'|' 'NF>1{gsub(/ /,"",$1); print $1}' |
+  awk -F- '{print $1"\t"$0}' | LC_ALL=C sort -s -k1,1 | cut -f2)
 
 case "${1:-}" in
   table | --table)           cmd_table; exit $? ;;

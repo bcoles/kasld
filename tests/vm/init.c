@@ -18,6 +18,7 @@
 #define _GNU_SOURCE
 #include <dirent.h>
 #include <fcntl.h>
+#include <grp.h>
 #include <linux/reboot.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -36,6 +37,25 @@ static void write_file(const char *path, const char *val) {
     }
     close(fd);
   }
+}
+
+/* Read the first line of `path` into buf (newline-stripped); empty on failure.
+ * Used to capture the kernel's own booted sysctl values as facts. */
+static void read_sysctl(const char *path, char *buf, size_t sz) {
+  buf[0] = '\0';
+  int fd = open(path, O_RDONLY);
+  if (fd < 0)
+    return;
+  ssize_t n = read(fd, buf, sz - 1);
+  close(fd);
+  if (n <= 0) {
+    buf[0] = '\0';
+    return;
+  }
+  buf[n] = '\0';
+  char *nl = strchr(buf, '\n');
+  if (nl)
+    *nl = '\0';
 }
 
 static void dump_file(const char *path, const char *label) {
@@ -308,6 +328,13 @@ static void run_as(uid_t uid, const char *path, char *const argv[]) {
     if (chdir("/tmp") != 0) { /* best effort */
     }
     if (uid != 0) {
+      /* Drop ALL supplementary groups first (still privileged) so the child is
+       * not in adm/kvm/video/etc. — a truly unprivileged identity. adm, for
+       * one, would read /var/log/dmesg past dmesg_restrict. */
+      if (setgroups(0, NULL) != 0) {
+        printf("setgroups(0) failed\n");
+        _exit(126);
+      }
       if (setgid((gid_t)uid) != 0) {
         printf("setgid(%d) failed\n", (int)uid);
         _exit(126);
@@ -350,21 +377,26 @@ int main(void) {
   }
 
   /* Restriction profile (from cmdline tokens). The analysis phase always runs
-   * unprivileged (uid 1000) — KASLD's threat model is an unprivileged local
-   * attacker, so every scenario measures what such a user can leak, never what
-   * root can. Scenarios differ only by the sysctl hardening applied:
-   *   default   — uid 1000, kptr_restrict=0: permissive sysctls; an
-   *               unprivileged user can still read kallsyms/iomem values.
-   *   hidekptr  — uid 1000, kptr_restrict=2: no kallsyms; the pin must come
-   * from inference (exercises the engine, not the kallsyms shortcut). hardened
-   * — uid 1000, kptr_restrict=2, dmesg_restrict=1, perf_event_paranoid=3: the
-   * realistic unprivileged-attacker floor, where only file-derived facts
-   * survive. stock     — uid 1000 but leave every sysctl at its kernel default
-   *               (kptr_restrict=0, dmesg_restrict=0, perf_event_paranoid=2):
-   *               an unprivileged user on an out-of-the-box kernel, neither
-   *               weakened nor hardened by us.
-   * The root ground-truth capture above is the only privileged step. */
-  int hidden = 0, hardened = 0, stock = 0, capture = 0;
+   * unprivileged (uid 1000, no supplementary groups) — KASLD's threat model is
+   * an unprivileged local attacker with no group privileges. Every scenario is
+   * a REALISTIC single-knob delta from the kernel's OWN booted sysctl defaults
+   * (captured below; with this minimal initramfs no distro sysctl.d runs, so
+   * those are the compile-time defaults — dmesg_restrict is per-.config,
+   * perf/kptr the upstream runtime defaults): default     — booted
+   * kptr/dmesg/perf. NB on modern kernels /proc/kallsyms is zeroed for an
+   * unprivileged reader even at kptr_restrict=0: kallsyms_show_value() needs
+   * perf_event_paranoid<=1 or CAP_SYSLOG. So the honest default does NOT hand
+   * over the base via kallsyms. kptr-hidden (`hidekptr`)  — default +
+   * kptr_restrict=2 (a distro raising it). perf-open   (`perfopen`)  — default
+   * + perf_event_paranoid=0 (a dev/CI host permitting perf); perf<=1 ALSO
+   * unlocks kallsyms, the realistic recovery path there, so kptr stays at its
+   * booted default. dmesg-open  (`dmesgopen`) — default + dmesg_restrict=0
+   * (dmesg log readable). hardened    (`hardened`)  — kptr=2, dmesg=1, perf=3:
+   * the file-only floor. The root ground-truth capture (kptr temporarily 0) is
+   * the only privileged step; every branch then sets kptr/perf explicitly
+   * (default restores booted). `capture` mode (below) reconstructs a fixture
+   * and never reaches this. */
+  int hidden = 0, hardened = 0, perfopen = 0, dmesgopen = 0, capture = 0;
   {
     int cf = open("/proc/cmdline", O_RDONLY);
     char cb[512];
@@ -377,8 +409,10 @@ int main(void) {
           hidden = 1;
         if (strstr(cb, "hardened"))
           hardened = 1;
-        if (strstr(cb, "stock"))
-          stock = 1;
+        if (strstr(cb, "perfopen"))
+          perfopen = 1;
+        if (strstr(cb, "dmesgopen"))
+          dmesgopen = 1;
         if (strstr(cb, "capture"))
           capture = 1;
       }
@@ -386,8 +420,28 @@ int main(void) {
     }
   }
 
-  /* Always capture ground truth first, as root with kallsyms readable — even in
-   * hidden/hardened runs (the comparison baseline comes from the same boot). */
+  /* Capture the kernel's booted sysctl defaults as facts BEFORE modifying
+   * anything, and log them per cell (the compile-time posture — never assumed).
+   * kptr_restrict is upstream 0 and dmesg_restrict is per-.config (mainline 0,
+   * distro kernels may compile 1). Empties (absent sysctl) fall back to
+   * upstream defaults so the restore-writes below are always valid. */
+  char b_kptr[16], b_perf[16], b_dmesg[16];
+  read_sysctl("/proc/sys/kernel/kptr_restrict", b_kptr, sizeof b_kptr);
+  read_sysctl("/proc/sys/kernel/perf_event_paranoid", b_perf, sizeof b_perf);
+  read_sysctl("/proc/sys/kernel/dmesg_restrict", b_dmesg, sizeof b_dmesg);
+  if (!b_kptr[0])
+    strcpy(b_kptr, "0");
+  if (!b_perf[0])
+    strcpy(b_perf, "2");
+  if (!b_dmesg[0])
+    strcpy(b_dmesg, "0");
+  printf("=== booted sysctls: kptr_restrict=%s perf_event_paranoid=%s "
+         "dmesg_restrict=%s ===\n",
+         b_kptr, b_perf, b_dmesg);
+
+  /* Capture ground truth as root with kallsyms readable (needs kptr=0). perf is
+   * opened only for the capture pass; the analysis profiles below each set
+   * kptr/perf explicitly. */
   write_file("/proc/sys/kernel/kptr_restrict", "0\n");
   write_file("/proc/sys/kernel/perf_event_paranoid", "-1\n");
 
@@ -428,22 +482,37 @@ int main(void) {
     write_file("/proc/sys/kernel/kptr_restrict", "2\n");
     write_file("/proc/sys/kernel/dmesg_restrict", "1\n");
     write_file("/proc/sys/kernel/perf_event_paranoid", "3\n");
-    printf("=== profile: HARDENED — uid=1000, kptr_restrict=2, "
+    printf("=== profile: hardened — uid=1000, kptr_restrict=2, "
            "dmesg_restrict=1, perf_event_paranoid=3 (file-only floor) ===\n");
+  } else if (perfopen) {
+    /* default + perf relaxed (a host permitting unprivileged perf). perf<=1
+     * also unlocks /proc/kallsyms (kallsyms_for_perf), the realistic recovery
+     * path — so kptr stays at its booted default, not forced. */
+    write_file("/proc/sys/kernel/kptr_restrict", b_kptr);
+    write_file("/proc/sys/kernel/perf_event_paranoid", "0\n");
+    printf("=== profile: perf-open — uid=1000, kptr_restrict=%s (booted), "
+           "perf_event_paranoid=0, dmesg_restrict=%s (booted) ===\n",
+           b_kptr, b_dmesg);
+  } else if (dmesgopen) {
+    /* default + dmesg log opened; kptr/perf stay at their booted defaults. */
+    write_file("/proc/sys/kernel/kptr_restrict", b_kptr);
+    write_file("/proc/sys/kernel/dmesg_restrict", "0\n");
+    write_file("/proc/sys/kernel/perf_event_paranoid", b_perf);
+    printf("=== profile: dmesg-open — uid=1000, kptr_restrict=%s (booted), "
+           "dmesg_restrict=0, perf_event_paranoid=%s (booted) ===\n",
+           b_kptr, b_perf);
   } else if (hidden) {
     write_file("/proc/sys/kernel/kptr_restrict", "2\n");
-    printf(
-        "=== profile: hidden — uid=1000, kptr_restrict=2 (no kallsyms) ===\n");
-  } else if (stock) {
-    /* Kernel-default sysctls, nothing weakened or hardened by us: vanilla
-     * defaults are kptr_restrict=0, dmesg_restrict=0, perf_event_paranoid=2.
-     * Reset perf from the -1 used for the ground-truth dump; leave kptr and
-     * dmesg at their defaults. */
-    write_file("/proc/sys/kernel/perf_event_paranoid", "2\n");
-    printf("=== profile: stock — uid=1000, kernel-default sysctls "
-           "(kptr_restrict=0, dmesg_restrict=0, perf_event_paranoid=2) ===\n");
+    write_file("/proc/sys/kernel/perf_event_paranoid", b_perf);
+    printf("=== profile: kptr-hidden — uid=1000, kptr_restrict=2, "
+           "dmesg_restrict=%s perf_event_paranoid=%s (booted) ===\n",
+           b_dmesg, b_perf);
   } else {
-    printf("=== profile: default — uid=1000, kptr_restrict=0 ===\n");
+    write_file("/proc/sys/kernel/kptr_restrict", b_kptr);
+    write_file("/proc/sys/kernel/perf_event_paranoid", b_perf);
+    printf("=== profile: default — uid=1000, kptr_restrict=%s "
+           "dmesg_restrict=%s perf_event_paranoid=%s (all booted) ===\n",
+           b_kptr, b_dmesg, b_perf);
   }
   fflush(stdout);
 

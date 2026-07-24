@@ -86,15 +86,32 @@ It needs `qemu-system-<arch>` and the cross toolchains on PATH; an architecture
 is skipped (not failed) when either is missing. The analysis always runs as an
 unprivileged user (uid 1000) — KASLD's threat model is an unprivileged local
 attacker, so every profile measures what such a user can leak, never what root
-can. The profiles (the `scenario` column of the matrix) differ only in how much
-the sysctl hardening lets that user read; the one privileged step is the
-per-boot ground-truth capture the check compares against.
+can. Every profile is a declared sysctl vector — never a "default-config"
+assumption; the one privileged step is the per-boot ground-truth capture the
+check compares against.
 
-- `default` — `kptr_restrict=0`: permissive sysctls, so an unprivileged reader
-  still sees kallsyms (kernel pointers exposed to everyone).
-- `hidden` — `kptr_restrict=2`: kernel pointers are *hidden*, so kallsyms is
-  unusable and the base must come from inference or other leaks (e.g. dmesg),
-  not the symbol table.
+`default` is each kernel's *own* compile-time sysctl posture, read back at boot
+and left as booted: `kptr_restrict=0` and `perf_event_paranoid=2` upstream, with
+`dmesg_restrict` taking whatever the kernel `.config` sets (`0` on the mainline
+builds, `1` on Alpine). The other four profiles each move exactly one axis away
+from that booted baseline.
+
+- `default` — the booted compile-time defaults. `kptr_restrict=0` alone does
+  *not* expose symbol values: at the upstream `perf_event_paranoid=2`,
+  `/proc/kallsyms` zeroes every address for an unprivileged reader, because
+  `kallsyms_show_value()` requires `perf_event_paranoid<=1` *or* `CAP_SYSLOG`
+  (generic across architectures). On a stock kernel the symbol table therefore
+  yields nothing, and the base comes from sound inference alone.
+- `kptr-hidden` — `default` plus `kptr_restrict=2`: kernel pointers are *hidden*.
+  On a stock kernel this changes little over `default` — perf already gates
+  kallsyms — so it isolates the effect of `kptr_restrict` by itself.
+- `perf-open` — `default` plus `perf_event_paranoid=0`. Dropping perf below 1
+  unlocks two independent sound signals at once: `/proc/kallsyms` now shows real
+  addresses, and `perf_event_open` text-poke records leak a symbol pointer.
+  Either pins the base exactly.
+- `dmesg-open` — `default` plus `dmesg_restrict=0`: the world-readable ring
+  buffer. This differs from `default` only on kernels that ship
+  `dmesg_restrict=1` (Alpine); on the mainline builds dmesg is already open.
 - `hardened` — `kptr_restrict=2`, `dmesg_restrict=1`, `perf_event_paranoid=3`:
   the realistic attacker floor, where only file-derived facts survive.
 
@@ -103,7 +120,8 @@ See [tests/vm/README.md](../tests/vm/README.md) for the full arch list and optio
 
 Every architecture is booted on mainline kernel.org kernels — the LTS lines 5.15
 and 6.6 and current 7.0 — cross-built from pinned source by `tests/vm/build-kernel`
-(a stock upstream defconfig plus a fixed endianness/devtmpfs overlay). Eight of
+(a stock upstream defconfig plus fixed config overlays: endianness, devtmpfs, and
+text KASLR for riscv64 and ppc32). Eight of
 them additionally boot a publicly-fetchable Alpine distro kernel; the other six —
 `mips`, `mipsel`, `mips64el`, `powerpc64`, `ppc32`, `riscv32` — have no Alpine
 port, so mainline is their only source. Cells are named `<arch>-<distro>-<line>`;
@@ -133,9 +151,10 @@ therefore a floor, not a ceiling: the residual bits are the *most* KASLR entropy
 that survives sound, reproducible inference, and a microarchitectural oracle
 (e.g. `prefetch`) can strip more on top — to `exact` when it succeeds — on capable
 hardware. Those gains are real but hardware-dependent (whether the oracle fires
-varies by CPU and by run), so they are reported separately in
-[Speculative narrowing](#speculative-narrowing-the-likely-window) below rather
-than scored here.
+varies by CPU and by run), so they are discussed in
+[Speculative narrowing](#speculative-narrowing-the-likely-window) below and
+listed by `tests/vm/run spec-table --with-timing` — but, for the same
+reproducibility reason, kept out of the default table there too, not scored here.
 
 `source` is the kernel: `alpine` (a distro kernel) or `mainline` (a vanilla
 kernel.org build via `tests/vm/build-kernel`). `virt residual` and `phys
@@ -148,198 +167,329 @@ on each axis:
   randomized slot is known, so 0 bits of KASLR entropy remain.
 - `<n> bits` — KASLR is still randomized, with n bits of the slot unrecovered
   (2^n candidate positions).
-- `—` — KASLR is off, so there is no randomization to defeat; or, in the `phys
-  residual` column, the physical base is not randomized independently of the
-  virtual text base (a *coupled* architecture: x86-32, arm32, MIPS, PPC,
-  RISC-V 32, LoongArch), so it carries no separate physical result. The
-  physical column scores only the *decoupled* arches — x86-64, arm64, riscv64,
-  s390 — where the kernel image is placed independently in physical memory.
+- `—` — KASLR is off, so there is no randomization to defeat (both columns).
+- `coupled` (`phys residual` only) — the physical image base is not randomized
+  independently of the virtual text base; it is a fixed projection of it
+  (`phys = virt - <arch constant>`), so recovering the virtual base already
+  determines the physical one and there is no separate physical quantity to
+  score. This is every *coupled* architecture: x86-32, arm32, MIPS, PPC,
+  RISC-V 32, LoongArch. The `phys residual` column carries an independent
+  `exact` / `<n> bits` result only on the *decoupled* arches — x86-64, arm64,
+  riscv64, s390 — where the kernel image is placed independently in physical
+  memory. A coupled arch is thus distinguishable from a KASLR-off row (`—`) and
+  from a decoupled arch (a bit count) at a glance.
 
 Soundness is gated on both axes: a cell whose physical window excludes the true
 physical base is withheld exactly like a virtual violation, never published.
 
 The axes are architecture × kernel line × reader profile: each architecture is
 booted on the mainline LTS lines 5.15 and 6.6 and on current 7.0 — plus an Alpine
-distro kernel where a port exists — under each of the three reader profiles
-(`default`, `hidden`, `hardened`). An architecture predating a line carries no
-cell there (LoongArch, mainlined in 6.1, has no 5.15 row). A kernel-config axis
-is out of scope (see [Scope](#scope) below).
+distro kernel where a port exists — under each of the five reader profiles
+(`default`, `kptr-hidden`, `perf-open`, `dmesg-open`, `hardened`). An architecture
+predating a line carries no cell there (LoongArch, mainlined in 6.1, has no 5.15
+row). A kernel-config axis is out of scope (see [Scope](#scope) below).
 
 | arch | release | source | scenario | KASLR | virt residual | phys residual |
 |------|---------|--------|----------|-------|---------------|---------------|
-| x86_64 | 6.12.81-0-virt | alpine | default | on | exact | 6 bits |
-| x86_64 | 6.12.81-0-virt | alpine | hidden | on | exact | 6 bits |
-| x86_64 | 6.12.81-0-virt | alpine | hardened | on | 6 bits | 6 bits |
-| i686 | 6.12.81-0-lts | alpine | default | on | exact | — |
-| i686 | 6.12.81-0-lts | alpine | hidden | on | exact | — |
-| i686 | 6.12.81-0-lts | alpine | hardened | on | 6 bits | — |
-| aarch64 | 6.12.81-0-virt | alpine | default | on | exact | 9 bits |
-| aarch64 | 6.12.81-0-virt | alpine | hidden | on | 15 bits | 14 bits |
+| aarch64 | 6.12.81-0-virt | alpine | default | on | 31 bits | 14 bits |
+| aarch64 | 6.12.81-0-virt | alpine | kptr-hidden | on | 31 bits | 14 bits |
+| aarch64 | 6.12.81-0-virt | alpine | perf-open | on | exact | 9 bits |
+| aarch64 | 6.12.81-0-virt | alpine | dmesg-open | on | 31 bits | 14 bits |
 | aarch64 | 6.12.81-0-virt | alpine | hardened | on | 31 bits | 14 bits |
-| armv7 | 6.12.81-0-lts | alpine | default | off | — | — |
-| armv7 | 6.12.81-0-lts | alpine | hidden | off | — | — |
-| armv7 | 6.12.81-0-lts | alpine | hardened | off | — | — |
-| riscv64 | 6.18.35-0-lts | alpine | default | off | — | — |
-| riscv64 | 6.18.35-0-lts | alpine | hidden | off | — | — |
-| riscv64 | 6.18.35-0-lts | alpine | hardened | off | — | — |
-| loongarch64 | 6.18.35-0-lts | alpine | default | on | exact | — |
-| loongarch64 | 6.18.35-0-lts | alpine | hidden | on | 10 bits | — |
-| loongarch64 | 6.18.35-0-lts | alpine | hardened | on | 14 bits | — |
-| ppc64le | 6.12.81-0-lts | alpine | default | off | — | — |
-| ppc64le | 6.12.81-0-lts | alpine | hidden | off | — | — |
-| ppc64le | 6.12.81-0-lts | alpine | hardened | off | — | — |
-| s390x | 6.12.81-0-lts | alpine | default | on | exact | 10 bits |
-| s390x | 6.12.81-0-lts | alpine | hidden | on | 28 bits | 10 bits |
-| s390x | 6.12.81-0-lts | alpine | hardened | on | 39 bits | 10 bits |
-| x86_64 | 5.15.211 | mainline | default | on | exact | 9 bits |
-| x86_64 | 5.15.211 | mainline | hidden | on | 4 bits | 9 bits |
-| x86_64 | 5.15.211 | mainline | hardened | on | 9 bits | 9 bits |
-| x86_64 | 6.6.144 | mainline | default | on | exact | 9 bits |
-| x86_64 | 6.6.144 | mainline | hidden | on | 4 bits | 9 bits |
-| x86_64 | 6.6.144 | mainline | hardened | on | 9 bits | 9 bits |
-| x86_64 | 7.0.0 | mainline | default | on | exact | 9 bits |
-| x86_64 | 7.0.0 | mainline | hidden | on | 4 bits | 9 bits |
-| x86_64 | 7.0.0 | mainline | hardened | on | 9 bits | 9 bits |
-| i686 | 5.15.211 | mainline | default | on | exact | — |
-| i686 | 5.15.211 | mainline | hidden | on | 3 bits | — |
-| i686 | 5.15.211 | mainline | hardened | on | 8 bits | — |
-| i686 | 6.6.144 | mainline | default | on | exact | — |
-| i686 | 6.6.144 | mainline | hidden | on | 3 bits | — |
-| i686 | 6.6.144 | mainline | hardened | on | 8 bits | — |
-| i686 | 7.0.0 | mainline | default | on | exact | — |
-| i686 | 7.0.0 | mainline | hidden | on | 3 bits | — |
-| i686 | 7.0.0 | mainline | hardened | on | 8 bits | — |
-| aarch64 | 5.15.211 | mainline | default | on | exact | 9 bits |
-| aarch64 | 5.15.211 | mainline | hidden | on | 10 bits | 14 bits |
+| aarch64 | 5.15.211 | mainline | default | on | 31 bits | 14 bits |
+| aarch64 | 5.15.211 | mainline | kptr-hidden | on | 31 bits | 14 bits |
+| aarch64 | 5.15.211 | mainline | perf-open | on | exact | 9 bits |
+| aarch64 | 5.15.211 | mainline | dmesg-open | on | 31 bits | 14 bits |
 | aarch64 | 5.15.211 | mainline | hardened | on | 31 bits | 14 bits |
-| aarch64 | 6.6.144 | mainline | default | on | exact | 9 bits |
-| aarch64 | 6.6.144 | mainline | hidden | on | 10 bits | 14 bits |
+| aarch64 | 6.6.144 | mainline | default | on | 31 bits | 14 bits |
+| aarch64 | 6.6.144 | mainline | kptr-hidden | on | 31 bits | 14 bits |
+| aarch64 | 6.6.144 | mainline | perf-open | on | exact | 9 bits |
+| aarch64 | 6.6.144 | mainline | dmesg-open | on | 31 bits | 14 bits |
 | aarch64 | 6.6.144 | mainline | hardened | on | 31 bits | 14 bits |
-| aarch64 | 7.0.0 | mainline | default | on | exact | 9 bits |
-| aarch64 | 7.0.0 | mainline | hidden | on | 10 bits | 14 bits |
+| aarch64 | 7.0.0 | mainline | default | on | 31 bits | 14 bits |
+| aarch64 | 7.0.0 | mainline | kptr-hidden | on | 31 bits | 14 bits |
+| aarch64 | 7.0.0 | mainline | perf-open | on | exact | 9 bits |
+| aarch64 | 7.0.0 | mainline | dmesg-open | on | 31 bits | 14 bits |
 | aarch64 | 7.0.0 | mainline | hardened | on | 31 bits | 14 bits |
+| armv7 | 6.12.81-0-lts | alpine | default | off | — | — |
+| armv7 | 6.12.81-0-lts | alpine | kptr-hidden | off | — | — |
+| armv7 | 6.12.81-0-lts | alpine | perf-open | off | — | — |
+| armv7 | 6.12.81-0-lts | alpine | dmesg-open | off | — | — |
+| armv7 | 6.12.81-0-lts | alpine | hardened | off | — | — |
 | armv7 | 5.15.211 | mainline | default | off | — | — |
-| armv7 | 5.15.211 | mainline | hidden | off | — | — |
+| armv7 | 5.15.211 | mainline | kptr-hidden | off | — | — |
+| armv7 | 5.15.211 | mainline | perf-open | off | — | — |
+| armv7 | 5.15.211 | mainline | dmesg-open | off | — | — |
 | armv7 | 5.15.211 | mainline | hardened | off | — | — |
 | armv7 | 6.6.144 | mainline | default | off | — | — |
-| armv7 | 6.6.144 | mainline | hidden | off | — | — |
+| armv7 | 6.6.144 | mainline | kptr-hidden | off | — | — |
+| armv7 | 6.6.144 | mainline | perf-open | off | — | — |
+| armv7 | 6.6.144 | mainline | dmesg-open | off | — | — |
 | armv7 | 6.6.144 | mainline | hardened | off | — | — |
 | armv7 | 7.0.0 | mainline | default | off | — | — |
-| armv7 | 7.0.0 | mainline | hidden | off | — | — |
+| armv7 | 7.0.0 | mainline | kptr-hidden | off | — | — |
+| armv7 | 7.0.0 | mainline | perf-open | off | — | — |
+| armv7 | 7.0.0 | mainline | dmesg-open | off | — | — |
 | armv7 | 7.0.0 | mainline | hardened | off | — | — |
-| riscv64 | 5.15.211 | mainline | default | off | — | — |
-| riscv64 | 5.15.211 | mainline | hidden | off | — | — |
-| riscv64 | 5.15.211 | mainline | hardened | off | — | — |
-| riscv64 | 6.6.144 | mainline | default | off | — | — |
-| riscv64 | 6.6.144 | mainline | hidden | off | — | — |
-| riscv64 | 6.6.144 | mainline | hardened | off | — | — |
-| riscv64 | 7.0.0 | mainline | default | off | — | — |
-| riscv64 | 7.0.0 | mainline | hidden | off | — | — |
-| riscv64 | 7.0.0 | mainline | hardened | off | — | — |
-| loongarch64 | 6.6.144 | mainline | default | on | exact | — |
-| loongarch64 | 6.6.144 | mainline | hidden | on | 10 bits | — |
-| loongarch64 | 6.6.144 | mainline | hardened | on | 14 bits | — |
-| loongarch64 | 7.0.0 | mainline | default | on | exact | — |
-| loongarch64 | 7.0.0 | mainline | hidden | on | 10 bits | — |
-| loongarch64 | 7.0.0 | mainline | hardened | on | 14 bits | — |
-| ppc64le | 5.15.211 | mainline | default | off | — | — |
-| ppc64le | 5.15.211 | mainline | hidden | off | — | — |
-| ppc64le | 5.15.211 | mainline | hardened | off | — | — |
-| ppc64le | 6.6.144 | mainline | default | off | — | — |
-| ppc64le | 6.6.144 | mainline | hidden | off | — | — |
-| ppc64le | 6.6.144 | mainline | hardened | off | — | — |
-| ppc64le | 7.0.0 | mainline | default | off | — | — |
-| ppc64le | 7.0.0 | mainline | hidden | off | — | — |
-| ppc64le | 7.0.0 | mainline | hardened | off | — | — |
-| s390x | 5.15.211 | mainline | default | on | exact | exact |
-| s390x | 5.15.211 | mainline | hidden | on | 7 bits | 10 bits |
-| s390x | 5.15.211 | mainline | hardened | on | 39 bits | 10 bits |
-| s390x | 6.6.144 | mainline | default | on | exact | exact |
-| s390x | 6.6.144 | mainline | hidden | on | 7 bits | 10 bits |
-| s390x | 6.6.144 | mainline | hardened | on | 39 bits | 10 bits |
-| s390x | 7.0.0 | mainline | default | on | exact | 10 bits |
-| s390x | 7.0.0 | mainline | hidden | on | 28 bits | 10 bits |
-| s390x | 7.0.0 | mainline | hardened | on | 39 bits | 10 bits |
-| mips | 5.15.211 | mainline | default | on | 11 bits | — |
-| mips | 5.15.211 | mainline | hidden | on | 11 bits | — |
-| mips | 5.15.211 | mainline | hardened | on | 11 bits | — |
-| mips | 6.6.144 | mainline | default | on | 11 bits | — |
-| mips | 6.6.144 | mainline | hidden | on | 11 bits | — |
-| mips | 6.6.144 | mainline | hardened | on | 11 bits | — |
-| mips | 7.0.0 | mainline | default | on | 11 bits | — |
-| mips | 7.0.0 | mainline | hidden | on | 11 bits | — |
-| mips | 7.0.0 | mainline | hardened | on | 11 bits | — |
-| mipsel | 5.15.211 | mainline | default | on | 11 bits | — |
-| mipsel | 5.15.211 | mainline | hidden | on | 11 bits | — |
-| mipsel | 5.15.211 | mainline | hardened | on | 11 bits | — |
-| mipsel | 6.6.144 | mainline | default | on | 11 bits | — |
-| mipsel | 6.6.144 | mainline | hidden | on | 11 bits | — |
-| mipsel | 6.6.144 | mainline | hardened | on | 11 bits | — |
-| mipsel | 7.0.0 | mainline | default | on | 11 bits | — |
-| mipsel | 7.0.0 | mainline | hidden | on | 11 bits | — |
-| mipsel | 7.0.0 | mainline | hardened | on | 11 bits | — |
-| mips64el | 5.15.211 | mainline | default | on | 14 bits | — |
-| mips64el | 5.15.211 | mainline | hidden | on | 14 bits | — |
-| mips64el | 5.15.211 | mainline | hardened | on | 14 bits | — |
-| mips64el | 6.6.144 | mainline | default | on | 14 bits | — |
-| mips64el | 6.6.144 | mainline | hidden | on | 14 bits | — |
-| mips64el | 6.6.144 | mainline | hardened | on | 14 bits | — |
-| mips64el | 7.0.0 | mainline | default | on | 14 bits | — |
-| mips64el | 7.0.0 | mainline | hidden | on | 14 bits | — |
-| mips64el | 7.0.0 | mainline | hardened | on | 14 bits | — |
-| riscv32 | 5.15.211 | mainline | default | off | — | — |
-| riscv32 | 5.15.211 | mainline | hidden | off | — | — |
-| riscv32 | 5.15.211 | mainline | hardened | off | — | — |
-| riscv32 | 6.6.144 | mainline | default | off | — | — |
-| riscv32 | 6.6.144 | mainline | hidden | off | — | — |
-| riscv32 | 6.6.144 | mainline | hardened | off | — | — |
-| riscv32 | 7.0.0 | mainline | default | off | — | — |
-| riscv32 | 7.0.0 | mainline | hidden | off | — | — |
-| riscv32 | 7.0.0 | mainline | hardened | off | — | — |
-| ppc32 | 5.15.211 | mainline | default | on | exact | — |
-| ppc32 | 5.15.211 | mainline | hidden | on | 2 bits | — |
-| ppc32 | 5.15.211 | mainline | hardened | on | 15 bits | — |
-| ppc32 | 6.6.144 | mainline | default | on | exact | — |
-| ppc32 | 6.6.144 | mainline | hidden | on | 2 bits | — |
-| ppc32 | 6.6.144 | mainline | hardened | on | 15 bits | — |
-| ppc32 | 7.0.0 | mainline | default | on | exact | — |
-| ppc32 | 7.0.0 | mainline | hidden | on | 2 bits | — |
-| ppc32 | 7.0.0 | mainline | hardened | on | 15 bits | — |
+| i686 | 6.12.81-0-lts | alpine | default | on | 5 bits | coupled |
+| i686 | 6.12.81-0-lts | alpine | kptr-hidden | on | 5 bits | coupled |
+| i686 | 6.12.81-0-lts | alpine | perf-open | on | exact | coupled |
+| i686 | 6.12.81-0-lts | alpine | dmesg-open | on | 5 bits | coupled |
+| i686 | 6.12.81-0-lts | alpine | hardened | on | 5 bits | coupled |
+| i686 | 5.15.211 | mainline | default | on | 8 bits | coupled |
+| i686 | 5.15.211 | mainline | kptr-hidden | on | 8 bits | coupled |
+| i686 | 5.15.211 | mainline | perf-open | on | exact | coupled |
+| i686 | 5.15.211 | mainline | dmesg-open | on | 8 bits | coupled |
+| i686 | 5.15.211 | mainline | hardened | on | 8 bits | coupled |
+| i686 | 6.6.144 | mainline | default | on | 8 bits | coupled |
+| i686 | 6.6.144 | mainline | kptr-hidden | on | 8 bits | coupled |
+| i686 | 6.6.144 | mainline | perf-open | on | exact | coupled |
+| i686 | 6.6.144 | mainline | dmesg-open | on | 8 bits | coupled |
+| i686 | 6.6.144 | mainline | hardened | on | 8 bits | coupled |
+| i686 | 7.0.0 | mainline | default | on | 8 bits | coupled |
+| i686 | 7.0.0 | mainline | kptr-hidden | on | 8 bits | coupled |
+| i686 | 7.0.0 | mainline | perf-open | on | exact | coupled |
+| i686 | 7.0.0 | mainline | dmesg-open | on | 8 bits | coupled |
+| i686 | 7.0.0 | mainline | hardened | on | 8 bits | coupled |
+| loongarch64 | 6.18.35-0-lts | alpine | default | on | 14 bits | coupled |
+| loongarch64 | 6.18.35-0-lts | alpine | kptr-hidden | on | 14 bits | coupled |
+| loongarch64 | 6.18.35-0-lts | alpine | perf-open | on | exact | coupled |
+| loongarch64 | 6.18.35-0-lts | alpine | dmesg-open | on | 14 bits | coupled |
+| loongarch64 | 6.18.35-0-lts | alpine | hardened | on | 14 bits | coupled |
+| loongarch64 | 6.6.144 | mainline | default | on | 14 bits | coupled |
+| loongarch64 | 6.6.144 | mainline | kptr-hidden | on | 14 bits | coupled |
+| loongarch64 | 6.6.144 | mainline | perf-open | on | exact | coupled |
+| loongarch64 | 6.6.144 | mainline | dmesg-open | on | 14 bits | coupled |
+| loongarch64 | 6.6.144 | mainline | hardened | on | 14 bits | coupled |
+| loongarch64 | 7.0.0 | mainline | default | on | 14 bits | coupled |
+| loongarch64 | 7.0.0 | mainline | kptr-hidden | on | 14 bits | coupled |
+| loongarch64 | 7.0.0 | mainline | perf-open | on | exact | coupled |
+| loongarch64 | 7.0.0 | mainline | dmesg-open | on | 14 bits | coupled |
+| loongarch64 | 7.0.0 | mainline | hardened | on | 14 bits | coupled |
+| mips | 5.15.211 | mainline | default | on | 11 bits | coupled |
+| mips | 5.15.211 | mainline | kptr-hidden | on | 11 bits | coupled |
+| mips | 5.15.211 | mainline | perf-open | on | 11 bits | coupled |
+| mips | 5.15.211 | mainline | dmesg-open | on | 11 bits | coupled |
+| mips | 5.15.211 | mainline | hardened | on | 11 bits | coupled |
+| mips | 6.6.144 | mainline | default | on | 11 bits | coupled |
+| mips | 6.6.144 | mainline | kptr-hidden | on | 11 bits | coupled |
+| mips | 6.6.144 | mainline | perf-open | on | 11 bits | coupled |
+| mips | 6.6.144 | mainline | dmesg-open | on | 11 bits | coupled |
+| mips | 6.6.144 | mainline | hardened | on | 11 bits | coupled |
+| mips | 7.0.0 | mainline | default | on | 11 bits | coupled |
+| mips | 7.0.0 | mainline | kptr-hidden | on | 11 bits | coupled |
+| mips | 7.0.0 | mainline | perf-open | on | 11 bits | coupled |
+| mips | 7.0.0 | mainline | dmesg-open | on | 11 bits | coupled |
+| mips | 7.0.0 | mainline | hardened | on | 11 bits | coupled |
+| mips64el | 5.15.211 | mainline | default | on | 14 bits | coupled |
+| mips64el | 5.15.211 | mainline | kptr-hidden | on | 14 bits | coupled |
+| mips64el | 5.15.211 | mainline | perf-open | on | 14 bits | coupled |
+| mips64el | 5.15.211 | mainline | dmesg-open | on | 14 bits | coupled |
+| mips64el | 5.15.211 | mainline | hardened | on | 14 bits | coupled |
+| mips64el | 6.6.144 | mainline | default | on | 14 bits | coupled |
+| mips64el | 6.6.144 | mainline | kptr-hidden | on | 14 bits | coupled |
+| mips64el | 6.6.144 | mainline | perf-open | on | 14 bits | coupled |
+| mips64el | 6.6.144 | mainline | dmesg-open | on | 14 bits | coupled |
+| mips64el | 6.6.144 | mainline | hardened | on | 14 bits | coupled |
+| mips64el | 7.0.0 | mainline | default | on | 14 bits | coupled |
+| mips64el | 7.0.0 | mainline | kptr-hidden | on | 14 bits | coupled |
+| mips64el | 7.0.0 | mainline | perf-open | on | 14 bits | coupled |
+| mips64el | 7.0.0 | mainline | dmesg-open | on | 14 bits | coupled |
+| mips64el | 7.0.0 | mainline | hardened | on | 14 bits | coupled |
+| mipsel | 5.15.211 | mainline | default | on | 11 bits | coupled |
+| mipsel | 5.15.211 | mainline | kptr-hidden | on | 11 bits | coupled |
+| mipsel | 5.15.211 | mainline | perf-open | on | 11 bits | coupled |
+| mipsel | 5.15.211 | mainline | dmesg-open | on | 11 bits | coupled |
+| mipsel | 5.15.211 | mainline | hardened | on | 11 bits | coupled |
+| mipsel | 6.6.144 | mainline | default | on | 11 bits | coupled |
+| mipsel | 6.6.144 | mainline | kptr-hidden | on | 11 bits | coupled |
+| mipsel | 6.6.144 | mainline | perf-open | on | 11 bits | coupled |
+| mipsel | 6.6.144 | mainline | dmesg-open | on | 11 bits | coupled |
+| mipsel | 6.6.144 | mainline | hardened | on | 11 bits | coupled |
+| mipsel | 7.0.0 | mainline | default | on | 11 bits | coupled |
+| mipsel | 7.0.0 | mainline | kptr-hidden | on | 11 bits | coupled |
+| mipsel | 7.0.0 | mainline | perf-open | on | 11 bits | coupled |
+| mipsel | 7.0.0 | mainline | dmesg-open | on | 11 bits | coupled |
+| mipsel | 7.0.0 | mainline | hardened | on | 11 bits | coupled |
 | powerpc64 | 5.15.211 | mainline | default | off | — | — |
-| powerpc64 | 5.15.211 | mainline | hidden | off | — | — |
+| powerpc64 | 5.15.211 | mainline | kptr-hidden | off | — | — |
+| powerpc64 | 5.15.211 | mainline | perf-open | off | — | — |
+| powerpc64 | 5.15.211 | mainline | dmesg-open | off | — | — |
 | powerpc64 | 5.15.211 | mainline | hardened | off | — | — |
 | powerpc64 | 6.6.144 | mainline | default | off | — | — |
-| powerpc64 | 6.6.144 | mainline | hidden | off | — | — |
+| powerpc64 | 6.6.144 | mainline | kptr-hidden | off | — | — |
+| powerpc64 | 6.6.144 | mainline | perf-open | off | — | — |
+| powerpc64 | 6.6.144 | mainline | dmesg-open | off | — | — |
 | powerpc64 | 6.6.144 | mainline | hardened | off | — | — |
 | powerpc64 | 7.0.0 | mainline | default | off | — | — |
-| powerpc64 | 7.0.0 | mainline | hidden | off | — | — |
+| powerpc64 | 7.0.0 | mainline | kptr-hidden | off | — | — |
+| powerpc64 | 7.0.0 | mainline | perf-open | off | — | — |
+| powerpc64 | 7.0.0 | mainline | dmesg-open | off | — | — |
 | powerpc64 | 7.0.0 | mainline | hardened | off | — | — |
+| ppc32 | 5.15.211 | mainline | default | on | 14 bits | coupled |
+| ppc32 | 5.15.211 | mainline | kptr-hidden | on | 14 bits | coupled |
+| ppc32 | 5.15.211 | mainline | perf-open | on | exact | coupled |
+| ppc32 | 5.15.211 | mainline | dmesg-open | on | 14 bits | coupled |
+| ppc32 | 5.15.211 | mainline | hardened | on | 14 bits | coupled |
+| ppc32 | 6.6.144 | mainline | default | on | 14 bits | coupled |
+| ppc32 | 6.6.144 | mainline | kptr-hidden | on | 14 bits | coupled |
+| ppc32 | 6.6.144 | mainline | perf-open | on | exact | coupled |
+| ppc32 | 6.6.144 | mainline | dmesg-open | on | 13 bits | coupled |
+| ppc32 | 6.6.144 | mainline | hardened | on | 14 bits | coupled |
+| ppc32 | 7.0.0 | mainline | default | on | 11 bits | coupled |
+| ppc32 | 7.0.0 | mainline | kptr-hidden | on | 14 bits | coupled |
+| ppc32 | 7.0.0 | mainline | perf-open | on | exact | coupled |
+| ppc32 | 7.0.0 | mainline | dmesg-open | on | 14 bits | coupled |
+| ppc32 | 7.0.0 | mainline | hardened | on | 12 bits | coupled |
+| ppc64le | 6.12.81-0-lts | alpine | default | off | — | — |
+| ppc64le | 6.12.81-0-lts | alpine | kptr-hidden | off | — | — |
+| ppc64le | 6.12.81-0-lts | alpine | perf-open | off | — | — |
+| ppc64le | 6.12.81-0-lts | alpine | dmesg-open | off | — | — |
+| ppc64le | 6.12.81-0-lts | alpine | hardened | off | — | — |
+| ppc64le | 5.15.211 | mainline | default | off | — | — |
+| ppc64le | 5.15.211 | mainline | kptr-hidden | off | — | — |
+| ppc64le | 5.15.211 | mainline | perf-open | off | — | — |
+| ppc64le | 5.15.211 | mainline | dmesg-open | off | — | — |
+| ppc64le | 5.15.211 | mainline | hardened | off | — | — |
+| ppc64le | 6.6.144 | mainline | default | off | — | — |
+| ppc64le | 6.6.144 | mainline | kptr-hidden | off | — | — |
+| ppc64le | 6.6.144 | mainline | perf-open | off | — | — |
+| ppc64le | 6.6.144 | mainline | dmesg-open | off | — | — |
+| ppc64le | 6.6.144 | mainline | hardened | off | — | — |
+| ppc64le | 7.0.0 | mainline | default | off | — | — |
+| ppc64le | 7.0.0 | mainline | kptr-hidden | off | — | — |
+| ppc64le | 7.0.0 | mainline | perf-open | off | — | — |
+| ppc64le | 7.0.0 | mainline | dmesg-open | off | — | — |
+| ppc64le | 7.0.0 | mainline | hardened | off | — | — |
+| riscv32 | 5.15.211 | mainline | default | off | — | — |
+| riscv32 | 5.15.211 | mainline | kptr-hidden | off | — | — |
+| riscv32 | 5.15.211 | mainline | perf-open | off | — | — |
+| riscv32 | 5.15.211 | mainline | dmesg-open | off | — | — |
+| riscv32 | 5.15.211 | mainline | hardened | off | — | — |
+| riscv32 | 6.6.144 | mainline | default | off | — | — |
+| riscv32 | 6.6.144 | mainline | kptr-hidden | off | — | — |
+| riscv32 | 6.6.144 | mainline | perf-open | off | — | — |
+| riscv32 | 6.6.144 | mainline | dmesg-open | off | — | — |
+| riscv32 | 6.6.144 | mainline | hardened | off | — | — |
+| riscv32 | 7.0.0 | mainline | default | off | — | — |
+| riscv32 | 7.0.0 | mainline | kptr-hidden | off | — | — |
+| riscv32 | 7.0.0 | mainline | perf-open | off | — | — |
+| riscv32 | 7.0.0 | mainline | dmesg-open | off | — | — |
+| riscv32 | 7.0.0 | mainline | hardened | off | — | — |
+| riscv64 | 6.18.35-0-lts | alpine | default | off | — | — |
+| riscv64 | 6.18.35-0-lts | alpine | kptr-hidden | off | — | — |
+| riscv64 | 6.18.35-0-lts | alpine | perf-open | off | — | — |
+| riscv64 | 6.18.35-0-lts | alpine | dmesg-open | off | — | — |
+| riscv64 | 6.18.35-0-lts | alpine | hardened | off | — | — |
+| riscv64 | 5.15.211 | mainline | default | off | — | — |
+| riscv64 | 5.15.211 | mainline | kptr-hidden | off | — | — |
+| riscv64 | 5.15.211 | mainline | perf-open | off | — | — |
+| riscv64 | 5.15.211 | mainline | dmesg-open | off | — | — |
+| riscv64 | 5.15.211 | mainline | hardened | off | — | — |
+| riscv64 | 6.6.144 | mainline | default | on | exact | 9 bits |
+| riscv64 | 6.6.144 | mainline | kptr-hidden | on | exact | 9 bits |
+| riscv64 | 6.6.144 | mainline | perf-open | on | exact | 9 bits |
+| riscv64 | 6.6.144 | mainline | dmesg-open | on | exact | 9 bits |
+| riscv64 | 6.6.144 | mainline | hardened | on | 16 bits | 9 bits |
+| riscv64 | 7.0.0 | mainline | default | on | 16 bits | 9 bits |
+| riscv64 | 7.0.0 | mainline | kptr-hidden | on | 16 bits | 9 bits |
+| riscv64 | 7.0.0 | mainline | perf-open | on | exact | 9 bits |
+| riscv64 | 7.0.0 | mainline | dmesg-open | on | 16 bits | 9 bits |
+| riscv64 | 7.0.0 | mainline | hardened | on | 16 bits | 9 bits |
+| s390x | 6.12.81-0-lts | alpine | default | on | 39 bits | 10 bits |
+| s390x | 6.12.81-0-lts | alpine | kptr-hidden | on | 39 bits | 10 bits |
+| s390x | 6.12.81-0-lts | alpine | perf-open | on | exact | 10 bits |
+| s390x | 6.12.81-0-lts | alpine | dmesg-open | on | 39 bits | 10 bits |
+| s390x | 6.12.81-0-lts | alpine | hardened | on | 39 bits | 10 bits |
+| s390x | 5.15.211 | mainline | default | on | 39 bits | 10 bits |
+| s390x | 5.15.211 | mainline | kptr-hidden | on | 39 bits | 10 bits |
+| s390x | 5.15.211 | mainline | perf-open | on | exact | exact |
+| s390x | 5.15.211 | mainline | dmesg-open | on | 39 bits | 10 bits |
+| s390x | 5.15.211 | mainline | hardened | on | 39 bits | 10 bits |
+| s390x | 6.6.144 | mainline | default | on | 39 bits | 10 bits |
+| s390x | 6.6.144 | mainline | kptr-hidden | on | 39 bits | 10 bits |
+| s390x | 6.6.144 | mainline | perf-open | on | exact | exact |
+| s390x | 6.6.144 | mainline | dmesg-open | on | 39 bits | 10 bits |
+| s390x | 6.6.144 | mainline | hardened | on | 39 bits | 10 bits |
+| s390x | 7.0.0 | mainline | default | on | 39 bits | 10 bits |
+| s390x | 7.0.0 | mainline | kptr-hidden | on | 39 bits | 10 bits |
+| s390x | 7.0.0 | mainline | perf-open | on | exact | 10 bits |
+| s390x | 7.0.0 | mainline | dmesg-open | on | 39 bits | 10 bits |
+| s390x | 7.0.0 | mainline | hardened | on | 39 bits | 10 bits |
+| x86_64 | 6.12.81-0-virt | alpine | default | on | 6 bits | 6 bits |
+| x86_64 | 6.12.81-0-virt | alpine | kptr-hidden | on | 6 bits | 6 bits |
+| x86_64 | 6.12.81-0-virt | alpine | perf-open | on | exact | 6 bits |
+| x86_64 | 6.12.81-0-virt | alpine | dmesg-open | on | 6 bits | 6 bits |
+| x86_64 | 6.12.81-0-virt | alpine | hardened | on | 6 bits | 6 bits |
+| x86_64 | 5.15.211 | mainline | default | on | 9 bits | 9 bits |
+| x86_64 | 5.15.211 | mainline | kptr-hidden | on | 9 bits | 9 bits |
+| x86_64 | 5.15.211 | mainline | perf-open | on | exact | 9 bits |
+| x86_64 | 5.15.211 | mainline | dmesg-open | on | 9 bits | 9 bits |
+| x86_64 | 5.15.211 | mainline | hardened | on | 9 bits | 9 bits |
+| x86_64 | 6.6.144 | mainline | default | on | 9 bits | 9 bits |
+| x86_64 | 6.6.144 | mainline | kptr-hidden | on | 9 bits | 9 bits |
+| x86_64 | 6.6.144 | mainline | perf-open | on | exact | 9 bits |
+| x86_64 | 6.6.144 | mainline | dmesg-open | on | 9 bits | 9 bits |
+| x86_64 | 6.6.144 | mainline | hardened | on | 9 bits | 9 bits |
+| x86_64 | 7.0.0 | mainline | default | on | 9 bits | 9 bits |
+| x86_64 | 7.0.0 | mainline | kptr-hidden | on | 9 bits | 9 bits |
+| x86_64 | 7.0.0 | mainline | perf-open | on | exact | 9 bits |
+| x86_64 | 7.0.0 | mainline | dmesg-open | on | 9 bits | 9 bits |
+| x86_64 | 7.0.0 | mainline | hardened | on | 9 bits | 9 bits |
 
-All three profiles run unprivileged, so `default` is not a guaranteed `exact`:
-it pins the virtual base only where an unprivileged reader can still see
-kallsyms. `kptr_restrict=0` exposes kallsyms on most arches, but some kernels
-gate the symbol values behind `CAP_SYSLOG` even then, leaving e.g. `mips` at its
-inference bound. The `phys residual` reflects the same reality — the physical
-image base is read from `/proc/iomem`, whose addresses the kernel zeroes for a
-non-root reader regardless of `kptr_restrict`, so several decoupled arches show
-`<n> bits` on the physical axis under `default` where a *root* reader would have
-pinned it exact (`s390x` still pins exact on some lines because another fact
-resolves it).
+All five profiles run unprivileged, and on a stock kernel `default` is *not*
+`exact`: at the upstream
+`perf_event_paranoid=2`, `/proc/kallsyms` is zeroed even with `kptr_restrict=0`
+(`kallsyms_show_value()` needs `perf_event_paranoid<=1` or `CAP_SYSLOG`), so the
+symbol table contributes nothing and the virtual base comes from sound inference
+alone — e.g. 6 bits on Alpine `x86_64`, 9 bits on mainline `x86_64`, 5 bits on
+`i686`. `kptr-hidden` adds `kptr_restrict=2` on top and lands on the same
+numbers, because perf already gated kallsyms: raising `kptr_restrict` removes a
+source that was already dark.
 
-Under `hidden`/`hardened`, the window widens further: `kptr_restrict=2` removes
-kallsyms entirely, so the base stays `exact` only where some other unprivileged
-leak or fact still resolves it. `hardened` strips more of those sources than
-`hidden` (perf and dmesg go too), so some cells that pin under `hidden` widen
-under `hardened`. The bits are how much of the KASLR slot the surviving facts
-leave.
+`perf-open` is the profile that recovers `exact` on every KASLR-on cell. Dropping
+`perf_event_paranoid` to 0 simultaneously un-zeroes `/proc/kallsyms` (a sound
+`proc_kallsyms` pin) and permits the `perf_event_open` text-poke leak — either
+alone pins the virtual base. The recovery is thus a *perf* relaxation, not a
+`kptr_restrict` one: a stock `kptr_restrict=0` kernel is not derandomized by the
+symbol table until perf is also relaxed. `dmesg-open` re-opens the ring buffer
+where a kernel shipped `dmesg_restrict=1` (Alpine); across this corpus that
+exposed no additional kernel-text landmark, so its guaranteed windows match
+`default`. `hardened` (`kptr_restrict=2`, `dmesg_restrict=1`,
+`perf_event_paranoid=3`) strips every relaxable source and is the widest column;
+its bits are what sound inference bounds with no leak at all.
+
+The `phys residual` moves independently: the physical image base is read from
+`/proc/iomem`, whose `Kernel code` addresses the kernel zeroes for a non-root
+reader regardless of `kptr_restrict` *or* `perf_event_paranoid`. So on most
+decoupled arches (x86-64, arm64, riscv64) the physical axis stays at `<n> bits`
+under *every* profile, including `perf-open`: the perf unlock recovers the
+virtual text base but not the physical one, which a *root* reader would have
+pinned exact. s390 is the exception on some lines — a sound source unlocked with
+perf resolves its physical base to `exact` too (5.15/6.6 mainline), while on the
+others (7.0 mainline, Alpine) it stays at its bounded `10 bits`.
 
 Several architectures show KASLR `off`: under the default qemu machine they
 receive no KASLR seed (or the port has no text KASLR), so the kernel boots
 unrandomized. `residual` is `—` for every `off` row — there is
 no randomness to strip — but KASLD still bounds, and on seedless arches pins, the
-fixed base soundly via the disabled-base path (e.g. `riscv64` under `-M virt`,
-pinned from arch constants plus the world-readable device-tree). It simply is not
-a KASLR-defeat result, so the column does not score it.
+fixed base soundly via the disabled-base path (from arch constants plus the
+world-readable device-tree). It simply is not a KASLR-defeat result, so the
+column does not score it.
+
+riscv64 is the mixed case. Its text KASLR (`RANDOMIZE_BASE`) needs both a kernel
+built for it *and* a boot-supplied seed, and qemu's `virt` machine provides
+neither by default — hence the seedless `off` rows above. The mainline 6.6 and
+7.0 cells are therefore built with `RANDOMIZE_BASE` and booted with a fresh
+per-boot `kaslr-seed` spliced into the device tree, so they randomize like the
+other 64-bit arches: the base moves every boot and the truth stays inside the
+window. The 5.15 cell predates riscv KASLR (added in 5.18) and the Alpine kernel
+is not built with it, so both stay honestly `off`. The two enabled lines differ
+in recovery for a config reason: 6.6's stock `defconfig` sets `CONFIG_DEBUG_VM`,
+so `mem_init()` prints a kernel-layout line that pins `_text` from readable dmesg
+(defeated only under `hardened`, which restricts dmesg); 7.0 drops `DEBUG_VM`,
+leaving inference to bound the base to 16 bits until `perf-open` unlocks the
+symbol table for an exact pin.
 
 ### Speculative narrowing (the likely window)
 
@@ -351,66 +501,76 @@ best-guess, always a subset of guaranteed, and — unlike guaranteed — it is *
 gated to contain the truth. It surfaces in `-j` JSON as the `likely` /
 `likely_physical` objects, emitted only when strictly tighter than guaranteed.
 
-On the matrix boots, the likely window equals guaranteed on every cell except the
-ten below, where a sub-floor signal narrows the base past the sound floor
-(generated by `tests/vm/run spec-table`):
+`tests/vm/run spec-table` renders a table of the cells where the likely window
+beats guaranteed, but by default lists only *reproducible* narrowings:
+deterministic `parsed` signals (a file, a leaked pointer, a config default) that
+beat the sound floor the same way on every run. On this run there are none, so it
+reports "no reproducible speculative narrowing" and emits no rows — at the
+reproducible level the likely window equals the guaranteed window on every cell.
+
+That is the expected outcome once the profiles and rules are correct. Where a
+perf or kallsyms signal exists it is a *sound* pin, so it resolves the
+**guaranteed** window under `perf-open` (to `exact`), never the likely one — a
+sound signal has nothing left to narrow. And the memory-map heuristics that bound
+RAM from world-readable facts (`/proc/zoneinfo` spans, the device-tree `memory`
+node, dmesg zone lines) never tighten past the placement-tracking guaranteed
+ceiling on any arch here, so they add no `likely`-only row either. Every parsed
+signal thus lands in the guaranteed matrix or contributes nothing. The only cells
+whose likely window beats guaranteed are narrowed by a *timing* side channel,
+excluded by default for reproducibility (below).
+
+Absolute recovery is monotonic in how much the profile relaxes: `perf-open`
+recovers the most, `hardened` the least, with `default`/`kptr-hidden`/`dmesg-open`
+between — read that off the guaranteed matrix above, not the likely window.
+
+**Timing side-channel narrowings are excluded by default** — 16 would appear on
+this run, every one an x86_64 cell narrowed by `prefetch` (both the Alpine and
+mainline kernels, across the non-`perf-open` profiles) — but they work, and they
+materially improve recovery. The likely window can also be narrowed by a
+microarchitectural side channel: a cache or speculation timing oracle such as
+`prefetch` or `entrybleed` that survives even `perf_event_paranoid=3`, pinning the
+base where no parsed signal can. On this run `prefetch` narrowed the `x86_64`
+`hardened` cell (7.0 mainline) from its 9-bit guaranteed window all the way to
+`exact` — a full KASLR defeat on the profile that strips every file-derived leak.
+They are omitted **only** because a timing oracle's success is a function of the
+host CPU and varies from run to run, even on the same machine, so including them
+would make the results irreproducible — not because the technique fails. On
+capable hardware these side channels routinely strip more entropy than the
+guaranteed matrix shows. They are validated separately (see [Scope](#scope));
+`tests/vm/run spec-table --with-timing` lists them, populating the
+otherwise-empty table.
+
+For illustration, that populated table from the capable host that generated this
+matrix — `prefetch` collapses every x86_64 cell to `exact`, `hardened` included:
 
 | arch | release | source | scenario | guaranteed | likely | via | method | truth ∈ likely |
 |------|---------|--------|----------|------------|--------|-----|--------|:---:|
-| i686 | 6.12.81-0-lts | alpine | hardened | 6 bits | 5 bits | `page_offset default` | config | yes |
-| x86_64 | 5.15.211 | mainline | hidden | 4 bits | exact | `perf_text_poke_leak` | parsed | yes |
-| x86_64 | 6.6.144 | mainline | hidden | 4 bits | exact | `perf_event_open` | parsed | yes |
-| x86_64 | 7.0.0 | mainline | hidden | 4 bits | exact | `perf_event_open` | parsed | yes |
-| i686 | 5.15.211 | mainline | hidden | 3 bits | exact | `perf_text_poke_leak` | parsed | yes |
-| i686 | 6.6.144 | mainline | hidden | 3 bits | exact | `perf_event_open` | parsed | yes |
-| i686 | 7.0.0 | mainline | hidden | 3 bits | exact | `perf_event_open` | parsed | yes |
-| ppc32 | 5.15.211 | mainline | hardened | 15 bits | 11 bits | `proc_zoneinfo + sysfs_devicetree_memory` | parsed | yes |
-| ppc32 | 6.6.144 | mainline | hardened | 15 bits | 11 bits | `proc_zoneinfo + sysfs_devicetree_memory` | parsed | yes |
-| ppc32 | 7.0.0 | mainline | hardened | 15 bits | 11 bits | `proc_zoneinfo + sysfs_devicetree_memory` | parsed | yes |
+| x86_64 | 6.12.81-0-virt | alpine | default | 6 bits | exact | `prefetch` | timing | yes |
+| x86_64 | 6.12.81-0-virt | alpine | kptr-hidden | 6 bits | exact | `prefetch` | timing | yes |
+| x86_64 | 6.12.81-0-virt | alpine | dmesg-open | 6 bits | exact | `prefetch` | timing | yes |
+| x86_64 | 6.12.81-0-virt | alpine | hardened | 6 bits | exact | `prefetch` | timing | yes |
+| x86_64 | 5.15.211 | mainline | default | 9 bits | exact | `prefetch` | timing | yes |
+| x86_64 | 5.15.211 | mainline | kptr-hidden | 9 bits | exact | `prefetch` | timing | yes |
+| x86_64 | 5.15.211 | mainline | dmesg-open | 9 bits | exact | `prefetch` | timing | yes |
+| x86_64 | 5.15.211 | mainline | hardened | 9 bits | exact | `prefetch` | timing | yes |
+| x86_64 | 6.6.144 | mainline | default | 9 bits | exact | `prefetch` | timing | yes |
+| x86_64 | 6.6.144 | mainline | kptr-hidden | 9 bits | exact | `prefetch` | timing | yes |
+| x86_64 | 6.6.144 | mainline | dmesg-open | 9 bits | exact | `prefetch` | timing | yes |
+| x86_64 | 6.6.144 | mainline | hardened | 9 bits | exact | `prefetch` | timing | yes |
+| x86_64 | 7.0.0 | mainline | default | 9 bits | exact | `prefetch` | timing | yes |
+| x86_64 | 7.0.0 | mainline | kptr-hidden | 9 bits | exact | `prefetch` | timing | yes |
+| x86_64 | 7.0.0 | mainline | dmesg-open | 9 bits | exact | `prefetch` | timing | yes |
+| x86_64 | 7.0.0 | mainline | hardened | 9 bits | exact | `prefetch` | timing | yes |
 
-The split follows the reader profile and the arch's surviving sub-floor signals.
-Under `hidden`, `perf_event_open` is still permitted, so on mainline `x86_64` and
-`i686` it leaks a symbol pointer — a parsed best-guess base — that collapses the
-likely window to `exact` (on the Alpine cells the guaranteed window is already
-`exact` or near it, so there is nothing left to narrow). Under `hardened`,
-`perf_event_paranoid=3` blocks it, so the likely window collapses back onto
-guaranteed unless another surviving signal narrows it. Two cases appear here: on
-Alpine `i686` the narrowing is the assumed x86_32 page offset — a `config` default
-(VMSPLIT_3G at `0xc0000000`), trimming 6 bits to 5; on `ppc32` it is a memory-map
-heuristic from `/proc/zoneinfo` and the device-tree, trimming 15 bits to 11. Every
-other KASLR-on cell leaves likely equal to guaranteed.
-
-No cell appears under `default`, and that is not a gap: with `kptr_restrict=0` the
-sound `proc_kallsyms` pin already resolves the *guaranteed* window to `exact`, so
-the likely window has nothing left to narrow and the engine emits no divergence.
-An absent row means the base was already recovered soundly, not that a
-speculative signal was missing — `perf_event_open` runs under `default` too, it is
-simply redundant there. A row therefore shows up only where a stricter profile has
-removed the sound pin and a sub-floor signal fills the gap; it never means a
-stricter profile recovered *more* than a looser one. Absolute recovery stays
-monotonic (`default` ≥ `hidden` ≥ `hardened`) — read it off the guaranteed matrix
-above, not this table.
-
-Nine of the ten rows are `parsed` (deterministic leaks and a memory-map
-heuristic); the tenth is a `config` default (the assumed x86_32 page offset). None
-are timing — and every likely window on this run contained the truth (10 / 10). A
-likely miss is never a soundness violation regardless: the gate is on guaranteed,
-which contains the truth in every cell.
-
-Timing side-channel narrowings are excluded from this table by default — but
-they work, and they materially improve recovery. The likely window can also be
-narrowed by a microarchitectural side channel: a cache or speculation timing
-oracle such as `prefetch` or `entrybleed` that survives even
-`perf_event_paranoid=3`, pinning the base where no parsed signal can. On the run
-that generated this table, `prefetch` narrowed the `x86_64` `hardened` cell (7.0
-mainline) from its 9-bit guaranteed window all the way to `exact` — a full KASLR
-defeat on the profile that strips every file-derived leak. That result is omitted here **only** because a
-timing oracle's success is a function of the host CPU and varies from run to run,
-even on the same machine, so publishing it would make this table irreproducible —
-not because the technique fails. On capable hardware these side channels routinely
-strip more entropy than the guaranteed matrix shows. They are validated separately
-(see [Scope](#scope)); `tests/vm/run spec-table --with-timing` regenerates the
-table with them included.
+This table is exactly what "excluded for reproducibility" means, and it is shown
+here only to make the capability concrete: it is a snapshot of one capable host,
+not a reproducible result. On a mitigated CPU (microcode or hypervisor Spectre-v2
+defenses) or a lower-microarchitecture part the `prefetch` signal flattens and
+these rows narrow less or disappear entirely — which is why they are kept out of
+the guaranteed matrix and gated behind `--with-timing`. Only the guaranteed
+matrix above reproduces run to run and machine to machine. (`perf-open` is absent
+because its base is already `exact` in the guaranteed window, leaving the oracle
+nothing to add.)
 
 ## 3. Offline, over a captured corpus
 
@@ -451,6 +611,21 @@ axes that require purpose-built kernels (VA-bits / paging mode, endianness,
 VMSPLIT, individual `CONFIG_*` toggles) are not yet covered. Timing and
 side-channel components are validated separately, as their behaviour depends on
 hardware rather than configuration.
+
+The matrix exercises the **kernel**, not a distribution's userland. Each cell
+boots straight into the analysis harness from a minimal initramfs, so no distro
+init, `sysctl.d` drop-ins, service sandboxing, or LSM policy (AppArmor / SELinux /
+seccomp) ever runs. Every profile therefore measures the kernel's *own* posture —
+its compile-time sysctl defaults plus the one explicit sysctl vector the harness
+sets — and nothing a userland would layer on top. This cuts both ways and is a
+scope boundary in both directions: a real distribution install may enforce
+controls these cells do not (so an actual system can be *stricter* than even the
+`hardened` column), and userland is itself a potential leak surface — setuid
+helpers, privileged daemons, and files a running service populates — that the
+matrix does not exercise (so an actual system may expose *more* than the
+`default` column). The isolation is deliberate: it attributes each result to a
+named kernel and a declared sysctl vector, keeping the cells reproducible and
+independent of any particular distribution's userspace.
 
 These are limits on what the checks here *verify*. For what a KASLD result means
 when it is run against a target — in particular why a failure to recover the base

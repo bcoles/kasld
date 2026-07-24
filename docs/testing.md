@@ -306,7 +306,7 @@ inferred range contains the kernel's true text base. Where
 `extra/validate-bundle` validates a single captured system offline, this
 validates live kernels
 across architectures and reader-privilege profiles
-(`default` / `hidden` / `hardened` / `nokaslr`).
+(`default` / `kptr-hidden` / `perf-open` / `dmesg-open` / `hardened` / `nokaslr`).
 
 Unlike replay (layer 2) — which runs offline over captured fixtures and
 only checks that KASLD parses and runs — this boots a real kernel, so it
@@ -315,19 +315,21 @@ contains it.
 
 Needs `qemu-system-<arch>` and the cross toolchains on PATH; an arch is
 skipped (not failed) when either is missing. After running the scenarios,
-`tests/vm/run table` renders the `arch × scenario → recovered / residual bits /
-sound` matrix from the boot logs; the published snapshot is in
-[reproducibility.md](reproducibility.md). See
+`tests/vm/run table` renders the `arch × scenario → KASLR / virt residual /
+phys residual` matrix from the boot logs (soundness is a gate, not a column —
+it refuses to emit if any cell's window excludes the truth); the published
+snapshot is in [reproducibility.md](reproducibility.md). See
 [tests/vm/README.md](../tests/vm/README.md) for the full arch list and options.
 
-Architectures Alpine does not port (`mips`, `mipsel`, `riscv32`, `ppc32`) are
-built from a pinned kernel.org source by `tests/vm/build-kernel` — a stock
-upstream defconfig plus a fixed endianness/devtmpfs overlay — then booted by
-`tests/vm/run` the same way:
+Architectures Alpine does not port (`mips`, `mipsel`, `mips64el`, `riscv32`,
+`ppc32`, `powerpc64`) are built from a pinned kernel.org source by
+`tests/vm/build-kernel` — a stock upstream defconfig plus fixed config overlays
+(endianness, devtmpfs, and text KASLR where the stock defconfig omits it, e.g.
+ppc32) — then booted by `tests/vm/run` the same way:
 
 ```sh
-tests/vm/build-kernel mipsel   # download source + cross-build -> cache (slow)
-tests/vm/run mipsel            # boot it, verdict
+tests/vm/build-kernel mipsel-mainline-7.0   # download source + cross-build -> cache (slow)
+tests/vm/run mipsel-mainline-7.0            # boot it, verdict
 ```
 
 This is manual and slow; the arch-gated rule *logic* is covered per-push by

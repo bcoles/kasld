@@ -21,7 +21,7 @@
 // [to] the aligned image base, not [...] _stext" — this rule is that step: it
 // snaps the RESOLVED base bounds, not the raw sample. It bites where an
 // unaligned bound is the tightest one (the interior-sample ceiling and the
-// image-size-derived floor under the hidden/hardened profiles).
+// image-size-derived floor under the more restricted reader profiles).
 //
 // Compile-time KASLR_VIRT_ALIGN (via
 // kasld_floor_text_base/kasld_ceil_text_base), NOT the resolved
