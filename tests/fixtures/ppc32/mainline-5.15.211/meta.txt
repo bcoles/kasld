@@ -1,0 +1,12 @@
+collect_version:  1
+collected_utc:    Fri Jul 24 11:54:39 AM UTC 2026
+uname_m_raw:      ppc
+arch_canonical:   ppc32
+kernel_release:   5.15.211
+distro:           mainline
+kasld:            
+suggested_fixture: tests/fixtures/ppc32/mainline-5.15.211/
+anonymized:       0
+host_scrubbed:    1
+kallsyms:         1
+source:           vm (ppc32-mainline-5.15)

@@ -1,0 +1,16 @@
+d27f8000 T _stext
+d27f8000 T _text
+d32de000 D _etext
+d32de000 D __start_rodata
+d3602000 R __end_rodata
+d3603000 T _sinittext
+d3603000 T __init_begin
+d363d000 T _einittext
+d364e000 D __per_cpu_end
+d364e000 D __per_cpu_start
+d38b1000 D _sdata
+d38b1000 D __init_end
+d399b000 B _edata
+d399b000 B __bss_start
+d39cfcf8 B __bss_stop
+d39d0000 B _end

@@ -1,0 +1,11 @@
+00000000-1fffffff : System RAM
+c00000000-c1fffffff : pci@fe0008000
+  c00000000-c0003ffff : 0000:00:01.0
+  c00040000-c00043fff : 0000:00:01.0
+  c00044000-c00044fff : 0000:00:01.0
+fe0003000-fe0003013 : fe0003000.i2c i2c@3000
+fe0004500-fe0004507 : serial
+fe0008000-fe0008fff : pci@fe0008000
+fe002e000-fe002efff : fe002e000.sdhc sdhc@2e000
+fe00e0000-fe00e0fff : fe00e0000.global-utilities global-utilities@e0000
+fe00ff000-fe00fffff : fe00ff000.gpio gpio@ff000
