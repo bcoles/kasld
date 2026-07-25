@@ -813,6 +813,31 @@ static void test_roundtrip_sized(void) {
   assert(r->hi == 0x10ffffu); /* lo + sz - 1 */
 }
 
+/* An `R` skip-reason line is captured onto the per-component log (always, not
+ * only under --verbose) and tags no address record; a wire result line leaves
+ * the reason empty and does tag a record. */
+static void test_skip_reason_capture(void) {
+  int saved_v = verbose;
+  verbose = 0;
+
+  struct component_log cl;
+  memset(&cl, 0, sizeof(cl));
+  const char *r = "R KPTI enabled";
+  int tagged = handle_component_line(&cl, "timing", "prefetch", r, strlen(r));
+  assert(tagged == 0);
+  assert(strcmp(cl.reason, "KPTI enabled") == 0);
+
+  reset_results();
+  memset(&cl, 0, sizeof(cl));
+  char buf[512];
+  assert(capture_helper(emit_base_helper, buf, sizeof(buf)) == 1);
+  int t2 = handle_component_line(&cl, "parsed", "test", buf, strlen(buf));
+  assert(t2 == 1);
+  assert(cl.reason[0] == '\0');
+
+  verbose = saved_v;
+}
+
 /* =========================================================================
  * CONF_UNKNOWN rejection at helpers
  * ========================================================================= */
@@ -1655,6 +1680,7 @@ int main(void) {
   RUN(test_roundtrip_top);
   RUN(test_roundtrip_sample);
   RUN(test_roundtrip_sized);
+  RUN(test_skip_reason_capture);
   RUN(test_helpers_reject_conf_unknown);
 
   BEGIN_CATEGORY("result_in_bounds");

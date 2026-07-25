@@ -111,8 +111,10 @@ taking the next argument — `-fqt 2` is `-f -q -t 2`.
 The default text mode prints a tight answer-first readout: a one-line
 header, the resolved or narrowed text-base windows, the directmap window
 when narrowed, the virt/phys coupling note, the leaks the answers were
-derived from, and a hint about the verbose mode. No banner, no system
-config, no memory-layout diagram.
+derived from, a short **Leaks not run** footer naming any leak/side-channel
+that ran but declined (with the reason — e.g. "not an Intel CPU"), and a
+hint about the verbose mode. No banner, no system config, no memory-layout
+diagram.
 
 ```
 KASLD 0.3.1-dev  --  Kernel ASLR derandomization
@@ -133,6 +135,10 @@ Leaks (6):
   phys kernel image   0x0000000034600000 [base]       (proc_iomem_kernel)
   phys kernel data    0x0000000036000000 [base]       (proc_iomem_kernel)
   phys kernel BSS     0x0000000036b34000 [base]       (proc_iomem_kernel)
+
+Leaks not run:
+  entrybleed           no offsets for this kernel build
+  mmap_brute_vmsplit   no user/kernel split found in the 32-bit sweep
 
 [-v: detailed results, memory map, system info]  [-H: hardening assessment]
 ```
@@ -412,9 +418,12 @@ The `environment` object is the recon vantage: `container`, `seccomp`,
 leak sources (fields are a `null` or enum when they do not apply).
 
 The `components` array holds one record per component — `name`,
-`exit_code`, `outcome`, and the parsed `meta` from `KASLD_META`
-(including `cve` / `patch` / `config` / `sysctl` keys). The `hardening`
-object is described under [Hardening assessment](#hardening-assessment).
+`exit_code`, `outcome`, an optional `skip_reason` (a short string a
+leak/side-channel reported when it declined or found nothing, e.g. `"KPTI
+enabled"`; present only when one was emitted), and the parsed `meta` from
+`KASLD_META` (including `cve` / `patch` / `config` / `sysctl` keys). The
+`hardening` object is described under
+[Hardening assessment](#hardening-assessment).
 A per-component patch worklist — `{component, cve, fixed_in, leaked_here}`
 — is a direct projection of the `components` array:
 

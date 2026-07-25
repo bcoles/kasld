@@ -1250,12 +1250,50 @@ static inline int kasld_emit_scalar(enum kasld_scalar_fact f,
   return 1;
 }
 
-/* Component exit codes — the component-side ABI for signalling status to
- * the orchestrator. A non-zero exit with one of these values lets the
- * orchestrator distinguish "component ran but found nothing" (exit 0, no
- * tagged lines) from "data source unavailable" or "access denied". The
- * orchestrator maps these to OUTCOME_UNAVAILABLE / OUTCOME_ACCESS_DENIED
- * for the hardening report. */
+/* Emit one skip-reason: `R <text>`. A leak or probe component that determines
+ * it cannot run — or ran and found nothing worth attributing to a specific
+ * gate — emits a short reason here. The orchestrator captures it (in default
+ * output as well as under --verbose) and shows one dim line per reporting
+ * component. Orthogonal to the exit code: the exit code names the outcome class
+ * (unavailable / access-denied / no-result), this names the specific gate
+ * within it (e.g. "KPTI enabled", "not an Intel CPU"). Reason is display
+ * metadata, not engine evidence. Emit at most once; keep it short. Newlines are
+ * folded to spaces so the record stays a single wire line. */
+static inline void kasld_skip_reason(const char *reason) {
+  if (!reason || !*reason)
+    return;
+  fputs("R ", stdout);
+  for (const char *p = reason; *p; p++)
+    putchar((*p == '\n' || *p == '\r') ? ' ' : (unsigned char)*p);
+  putchar('\n');
+}
+
+/* Component exit codes — the component-side ABI for signalling run status to
+ * the orchestrator, which maps them to a component_outcome (outcome.h) for the
+ * summary and hardening report. There are exactly three classes; the specific
+ * gate a technique tripped on is reported separately, not encoded in the code.
+ *
+ *   0    Ran to completion. Any results are in the tagged output. Exit 0 with
+ *        no tagged line means the technique applied but produced nothing this
+ *        run: a source with no matching entry, transient side-channel noise, or
+ *        an empty result that is genuinely ambiguous between "mitigated" and
+ *        "would resolve elsewhere". A miss that cannot be proven structural
+ *        stays 0 — a flat side-channel that a quieter run might resolve is not
+ *        UNAVAILABLE.
+ *
+ *   69   KASLD_EXIT_UNAVAILABLE — the technique provably cannot apply on this
+ *        host: a required data source, instruction, or CPU feature is absent;
+ *        the CPU vendor is wrong for a vendor-specific attack; a mitigation is
+ *        conclusively present (e.g. KPTI under a prefetch timing leak); or the
+ *        configuration is unsupported.
+ *
+ *   77   KASLD_EXIT_NOPERM — a data source or syscall the technique needs was
+ *        denied: EPERM/EACCES, a missing capability, or a restrictive sysctl.
+ *
+ * Precedence: a tagged result always wins (exit however is convenient — the
+ * orchestrator counts the result). Otherwise report the class that is provably
+ * true; when the only honest answer is "ran, found nothing, cannot prove why",
+ * that is 0. */
 #define KASLD_EXIT_UNAVAILABLE                                                 \
   69                         /* feature/hardware not present (EX_UNAVAILABLE) */
 #define KASLD_EXIT_NOPERM 77 /* access denied (EX_NOPERM) */

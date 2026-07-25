@@ -171,12 +171,14 @@ int main(void) {
   if (!is_intel_cpu()) {
     fprintf(stderr,
             "[-] databounce: not an Intel CPU; attack not applicable\n");
+    kasld_skip_reason("not an Intel CPU");
     return KASLD_EXIT_UNAVAILABLE;
   }
 
   if (!has_rtm()) {
     fprintf(stderr, "[-] databounce: TSX/RTM not available; "
                     "required for store-to-load forwarding\n");
+    kasld_skip_reason("TSX/RTM not available");
     return KASLD_EXIT_UNAVAILABLE;
   }
 
@@ -219,6 +221,7 @@ int main(void) {
   if (!addr || best_count < DATABOUNCE_SWEEPS / 4) {
     fprintf(stderr, "[-] databounce: no kernel mapping detected "
                     "(CPU may not be vulnerable)\n");
+    kasld_skip_reason("no kernel mapping (CPU may not be vulnerable)");
     return 0;
   }
 

@@ -273,6 +273,7 @@ static int detect_kernel_version(void) {
 
   if (strstr(u.machine, "64") == NULL) {
     kasld_err("system is not using a 64-bit kernel");
+    kasld_skip_reason("not a 64-bit kernel");
     exit(KASLD_EXIT_UNAVAILABLE);
   }
 
@@ -288,6 +289,7 @@ static int detect_kernel_version(void) {
   }
 
   kasld_err("kernel version '%s' not recognized", kernel_version);
+  kasld_skip_reason("no offsets for this kernel build");
   return -1;
 }
 
@@ -334,7 +336,8 @@ static unsigned long get_kernel_addr_entrybleed(void) {
 
   if (cpu == CPU_VENDOR_UNKNOWN) {
     kasld_err("Unknown CPU vendor");
-    return 0;
+    kasld_skip_reason("unknown CPU vendor");
+    exit(KASLD_EXIT_UNAVAILABLE);
   }
 
   bool pti = detect_kpti();
@@ -344,7 +347,8 @@ static unsigned long get_kernel_addr_entrybleed(void) {
 
   if (cpu == CPU_VENDOR_AMD && pti) {
     kasld_err("AMD systems with KPTI enabled are not affected by EntryBleed");
-    return 0;
+    kasld_skip_reason("AMD with KPTI enabled (not affected)");
+    exit(KASLD_EXIT_UNAVAILABLE);
   }
 
   int kernel = detect_kernel_version();
@@ -364,6 +368,8 @@ static unsigned long get_kernel_addr_entrybleed(void) {
     if (addr != leak_syscall_entry(offset)) {
       addr = 0;
       kasld_err("Inconsistent results. Aborting ...");
+      kasld_skip_reason(
+          "inconsistent results (noise); a quieter run may resolve");
       break;
     }
   }

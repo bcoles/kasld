@@ -769,6 +769,7 @@ int main(void) {
   if (!getenv("KASLD_EXPERIMENTAL")) {
     fprintf(stderr, "[-] kernelsnitch: experimental component; "
                     "set KASLD_EXPERIMENTAL=1 to enable\n");
+    kasld_skip_reason("experimental (set KASLD_EXPERIMENTAL=1)");
     return KASLD_EXIT_UNAVAILABLE;
   }
 
@@ -784,6 +785,7 @@ int main(void) {
   if (prctl(PR_FUTEX_HASH, PR_FUTEX_HASH_GET_SLOTS, 0, 0, 0) >= 0) {
     fprintf(stderr, "[-] kernelsnitch: CONFIG_FUTEX_PRIVATE_HASH is enabled; "
                     "attack not possible\n");
+    kasld_skip_reason("CONFIG_FUTEX_PRIVATE_HASH enabled");
     return KASLD_EXIT_UNAVAILABLE;
   }
 
@@ -803,8 +805,10 @@ int main(void) {
   sched_setaffinity(0, sizeof(cpuset), &cpuset);
 
   /* Phase 1: Pile-up. */
-  if (create_pileup() < 0)
+  if (create_pileup() < 0) {
+    kasld_skip_reason("could not create the futex pile-up");
     return 0;
+  }
 
   /* Phase 2: Find collision addresses. */
   unsigned long collisions[MAX_COLLISIONS];
@@ -812,6 +816,7 @@ int main(void) {
   if (find_collisions(collisions, &num_collisions, hashsize) < 0) {
     fprintf(stderr, "[-] kernelsnitch: insufficient collisions; "
                     "timing signal too noisy?\n");
+    kasld_skip_reason("insufficient collisions (timing too noisy)");
     cleanup_pileup();
     return 0;
   }
@@ -867,6 +872,7 @@ int main(void) {
   if (!result) {
     fprintf(stderr, "[-] kernelsnitch: brute-force failed to find "
                     "mm_struct address\n");
+    kasld_skip_reason("brute-force did not find the mm_struct address");
     return 0;
   }
 

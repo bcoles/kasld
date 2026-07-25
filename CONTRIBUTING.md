@@ -182,11 +182,19 @@ failed to randomize) emits scalar facts via `kasld_emit_scalar()` instead of an
 address; which facts, and how the engine consumes each, are documented in
 [docs/architecture.md → KASLR runtime states](docs/architecture.md#kaslr-runtime-states).
 
+A leak or probe that determines it cannot run — or ran and found nothing worth
+attributing to a specific gate — calls `kasld_skip_reason(text)`, which emits a
+short `R` skip-reason line (e.g. "KPTI enabled", "not an Intel CPU"). The
+orchestrator captures it in default output (a dim "Leaks not run" footer, one
+line per reporting component) and as `skip_reason` in the JSON. It is display
+metadata, never engine evidence, and is orthogonal to the exit code: the code
+names the outcome class, the reason names the specific gate within it.
+
 ### Diagnostics and options
 
 Two channels, kept separate (`include/kasld/cli.h`):
 
-- **stdout is the machine channel** — *only* the `P`/`V`/`S` wire lines the
+- **stdout is the machine channel** — *only* the `P`/`V`/`S`/`R` wire lines the
   emitter helpers print. Never write a human message to stdout (so
   `component 2>/dev/null` is clean, parseable output).
 - **stderr is the human channel** — every diagnostic, through the levelled

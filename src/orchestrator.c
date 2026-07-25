@@ -1556,6 +1556,16 @@ static int handle_component_line(struct component_log *clog,
     }
   }
 
+  /* `R` lines are a skip-reason (why the component produced no result). They
+   * carry no address, so they are stored on the per-component log — always, not
+   * only under --verbose — and never reach the address/scalar parsers. */
+  if (line[0] == 'R') {
+    if (clog && line[1] == ' ' && line[2])
+      snprintf(clog->reason, sizeof(clog->reason), "%.*s",
+               (int)(sizeof(clog->reason) - 1), line + 2);
+    return 0;
+  }
+
   /* Origin (provenance) is the component name — captured at the orchestrator
    * since it owns the subprocess identity. `S` lines are scalar system facts;
    * everything else is an address record. */
@@ -1622,6 +1632,7 @@ static int run_component(const struct component *c) {
     snprintf(clog->name, sizeof(clog->name), "%s", c->name);
     clog->exit_code = -1;
     clog->outcome = OUTCOME_NO_RESULT;
+    clog->reason[0] = '\0';
     clog->lines = NULL;
     clog->num_lines = 0;
     clog->lines_cap = 0;

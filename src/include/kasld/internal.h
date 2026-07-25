@@ -317,10 +317,18 @@ struct component_meta {
   int num_entries;
 };
 
+/* Longest skip-reason kept from an `R` wire line (see kasld_skip_reason in
+ * api.h). Short by design — a one-line triage hint, not prose. */
+#define SKIP_REASON_LEN 192
+
 struct component_log {
   char name[256];
   int exit_code;
   enum component_outcome outcome;
+  /* Why the component did not produce a result, as it self-reported on an `R`
+   * wire line. Empty when none was emitted. Captured in default output too, so
+   * a gated leak's reason shows without re-running under --verbose. */
+  char reason[SKIP_REASON_LEN];
   /* Captured stdout lines for verbose/JSON output. Dynamically allocated
    * by run_component() only when verbose mode is active; non-verbose runs
    * leave `lines` == NULL and `lines_cap` == 0 so the per-component overhead
