@@ -227,6 +227,12 @@ COMP_SRC_DIR := $(SRC_DIR)/components
 SRC_FILES := $(wildcard $(COMP_SRC_DIR)/*.c)
 BIN_FILES := $(patsubst $(COMP_SRC_DIR)/%.c,$(COMP_DIR)/%,$(SRC_FILES))
 
+# Side-channel components compiled with -O0 (see the recipe below for why).
+# Named once here so the build rule and `make print-deps` share one list.
+SIDECHANNEL_COMPONENTS := databounce echoload entrybleed mincore prefetch \
+                          prefetch_directmap zombieload
+SIDECHANNEL_BINS := $(addprefix $(COMP_DIR)/,$(SIDECHANNEL_COMPONENTS))
+
 # cc-component <cmd...>: compile one leak component. One line per component.
 # The compiler's output is captured so ordering is fully controlled, and the
 # outcome decides what prints:
@@ -297,26 +303,10 @@ endif
 # Side-channel components: compile without optimization (-O0 overrides -O2).
 # These rely on precise instruction ordering around timing measurements
 # (rdtsc/rdtscp + mfence/lfence), speculative execution gadgets (asm goto),
-# or Flush+Reload cache probing via volatile pointer accesses.
-$(COMP_DIR)/databounce: $(COMP_SRC_DIR)/databounce.c $(HDRS) | $(COMP_DIR)
-	$(call cc-component, $(CC) $(ALL_CFLAGS) -O0 $(ALL_LDFLAGS) -I$(SRC_DIR) $< -o $@)
-
-$(COMP_DIR)/echoload: $(COMP_SRC_DIR)/echoload.c $(HDRS) | $(COMP_DIR)
-	$(call cc-component, $(CC) $(ALL_CFLAGS) -O0 $(ALL_LDFLAGS) -I$(SRC_DIR) $< -o $@)
-
-$(COMP_DIR)/entrybleed: $(COMP_SRC_DIR)/entrybleed.c $(HDRS) | $(COMP_DIR)
-	$(call cc-component, $(CC) $(ALL_CFLAGS) -O0 $(ALL_LDFLAGS) -I$(SRC_DIR) $< -o $@)
-
-$(COMP_DIR)/mincore: $(COMP_SRC_DIR)/mincore.c $(HDRS) | $(COMP_DIR)
-	$(call cc-component, $(CC) $(ALL_CFLAGS) -O0 $(ALL_LDFLAGS) -I$(SRC_DIR) $< -o $@)
-
-$(COMP_DIR)/prefetch: $(COMP_SRC_DIR)/prefetch.c $(HDRS) | $(COMP_DIR)
-	$(call cc-component, $(CC) $(ALL_CFLAGS) -O0 $(ALL_LDFLAGS) -I$(SRC_DIR) $< -o $@)
-
-$(COMP_DIR)/prefetch_directmap: $(COMP_SRC_DIR)/prefetch_directmap.c $(HDRS) | $(COMP_DIR)
-	$(call cc-component, $(CC) $(ALL_CFLAGS) -O0 $(ALL_LDFLAGS) -I$(SRC_DIR) $< -o $@)
-
-$(COMP_DIR)/zombieload: $(COMP_SRC_DIR)/zombieload.c $(HDRS) | $(COMP_DIR)
+# or Flush+Reload cache probing via volatile pointer accesses. The static
+# pattern rule takes precedence over the generic $(COMP_DIR)/% rule above for
+# the listed targets; the list lives in SIDECHANNEL_COMPONENTS.
+$(SIDECHANNEL_BINS): $(COMP_DIR)/%: $(COMP_SRC_DIR)/%.c $(HDRS) | $(COMP_DIR)
 	$(call cc-component, $(CC) $(ALL_CFLAGS) -O0 $(ALL_LDFLAGS) -I$(SRC_DIR) $< -o $@)
 
 # kernelsnitch: needs -lpthread (uses default -O2 for hash timing performance)
@@ -819,6 +809,39 @@ cross :
 	exit $$rc
 
 
+# Dependency manifest for packagers: the required toolchain, the two optional
+# libraries (with their auto-detection result for the current $(CC)), and the
+# per-component compile/link flag exceptions — so a distro control file can be
+# populated without reverse-engineering the feature-probe logic above. The lib
+# lines report the same HAVE_ZLIB / HAVE_PTHREAD probes the real build uses, so
+# they cannot drift from what actually links; the flag lines read from the same
+# variables the build recipes consume.
+.PHONY: print-deps
+print-deps:
+	@echo "KASLD build dependencies"
+	@echo "========================"
+	@echo
+	@echo "Toolchain:"
+	@echo "  C99 compiler (CC=$(CC)); built with -std=c99 and _GNU_SOURCE."
+	@echo "  Cross builds (target triple != host) link -static automatically."
+	@echo
+	@echo "Libraries (both OPTIONAL, auto-detected at build time):"
+	@printf '  pthread   present: %-3s  parallel inference pool (kasld) + kernelsnitch\n' "$(if $(HAVE_PTHREAD),yes,no)"
+	@echo "                          kasld runs sequentially without it;"
+	@echo "                          kernelsnitch is skipped without it."
+	@printf '  zlib      present: %-3s  native /proc/config.gz decompression (proc_config)\n' "$(if $(HAVE_ZLIB),yes,no)"
+	@echo "                          proc_config still builds without it."
+	@echo
+	@echo "Per-component compile/link flag exceptions:"
+	@echo "  -O0 (timing-sensitive side channels):"
+	@echo "      $(SIDECHANNEL_COMPONENTS)"
+	@echo "  -DHAVE_ZLIB -lz:   proc_config (when zlib present)"
+	@echo "  -lpthread:         kernelsnitch; kasld orchestrator (adds -DHAVE_PTHREAD)"
+	@echo
+	@echo "Debian control mapping:"
+	@echo "  Build-Depends:            gcc, make, libc-dev"
+	@echo "  Build-Depends (optional): zlib1g-dev   (pthread ships in libc6)"
+
 .PHONY: help
 help:
 	@echo
@@ -833,6 +856,7 @@ help:
 	@echo "      install         Install to PREFIX (default: /usr/local)"
 	@echo "      uninstall       Remove installed files"
 	@echo "      clean           Remove build directory"
+	@echo "      print-deps      List build dependencies (libs + per-component flags)"
 	@echo
 	@echo "  Test targets:"
 	@echo "      test                   Build and run the unit suite + lint"

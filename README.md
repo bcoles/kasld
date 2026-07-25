@@ -172,8 +172,14 @@ make cross        # cross-compile for all supported architectures
 make install      # install to /usr/local (PREFIX=/usr/local)
 make uninstall    # remove installed files
 make clean        # remove build directory
+make print-deps   # list build dependencies (libs + per-component flags)
 make help         # show all targets and options
 ```
+
+`make print-deps` reports the required toolchain, the two optional libraries
+(`pthread`, `zlib`) with their auto-detection result for the current compiler,
+and the per-component compile/link flag exceptions — enough to populate a
+distribution package's control file without reading the Makefile's probe logic.
 
 KASLD can be cross-compiled with `make` by specifying the appropriate
 compiler (`CC`). Static linking is applied automatically when cross-compiling:
