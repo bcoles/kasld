@@ -309,6 +309,42 @@ static void test_render_json_with_rich_content(void) {
   set_render_mode(0, 0, 0);
 }
 
+/* Plain -j (no --hardening, no --verbose) is the complete posture snapshot a
+ * fleet/CI layer consumes: it always carries the per-component records with
+ * their parsed metadata and the full hardening block, including each
+ * suggestion's enforcement surface and the hardware side-channel section. Raw
+ * component stdout stays behind --verbose. */
+static void test_render_json_posture_always_present(void) {
+  extern int hardening_mode, verbose;
+  struct summary s;
+  set_rich_render_state(&s);
+  hardening_mode = 0; /* NOT in hardening mode */
+  verbose = 0;        /* NOT verbose */
+  /* The synthetic component declares a kptr_restrict>=1 gate and succeeded;
+   * a readable-but-permissive value makes that gate fire (an active-defense
+   * row and a hardening suggestion), so the enforcement surface is emitted. */
+  int saved_kptr = sysctl_kptr_restrict;
+  sysctl_kptr_restrict = 0;
+  set_render_mode(1, 0, 0);
+  capture_stdout(wrap_render_summary, &s);
+  sysctl_kptr_restrict = saved_kptr;
+
+  /* Per-component records with parsed meta, without -H/-v. */
+  assert(strstr(render_cap, "\"components\": [") != NULL);
+  assert(strstr(render_cap, "synthetic_component") != NULL);
+  assert(strstr(render_cap, "\"meta\": {") != NULL);
+  /* The full hardening block, without -H. */
+  assert(strstr(render_cap, "\"hardening\": {") != NULL);
+  assert(strstr(render_cap, "\"active_defenses\": [") != NULL);
+  assert(strstr(render_cap, "\"hardware_side_channels\": [") != NULL);
+  /* Enforcement surface accompanies each active-defense / suggestion row. */
+  assert(strstr(render_cap, "\"surface\":") != NULL);
+  /* Raw stdout lines stay behind --verbose. */
+  assert(strstr(render_cap, "\"output\": [") == NULL);
+
+  set_render_mode(0, 0, 0);
+}
+
 /* The speculative "likely" window renders as a sub-line under the guaranteed
  * (inferred) text range in -v text, and as a "likely" object with
  * "speculative": true in -j JSON. Set up the no-concrete-base case (guaranteed
@@ -2048,6 +2084,7 @@ int main(void) {
   BEGIN_CATEGORY("Renderer — rich content");
   RUN(test_render_text_with_rich_content);
   RUN(test_render_json_with_rich_content);
+  RUN(test_render_json_posture_always_present);
   RUN(test_render_markdown_with_rich_content);
   RUN(test_render_oneline_with_rich_content);
   RUN(test_render_oneline_dmap_is_base_not_interior);

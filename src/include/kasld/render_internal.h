@@ -105,6 +105,8 @@ enum hr_posture {
 
 struct hr_gate {
   const char *display;
+  const char *surface; /* enforcement lever: "sysctl" / "boot_param" /
+                        * "seccomp" — routes a report to the owning team */
   int value, threshold, active;
   int gated, blocked, bypassed, fallback; /* full counts (names may be fewer) */
   const char *gated_names[HR_NAME_MAX];
@@ -122,6 +124,7 @@ struct hr_gate {
 
 struct hr_suggestion {
   const char *display;
+  const char *surface; /* enforcement lever (see hr_gate.surface) */
   int threshold;
   int impact; /* components this gate governs (gated count) */
   /* Projected posture, leave-one-out framing: skip_* is the guaranteed

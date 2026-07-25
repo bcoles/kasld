@@ -92,9 +92,10 @@ Leaks (6):
 
 `-v` adds the full verbose readout (banner, system-config block,
 per-component logs, KASLR analysis, memory-layout maps). `-j` emits
-machine-readable JSON. `-1` emits a single shell-pipeable line. `-m`
-formats for issue trackers. `-H` appends a hardening assessment in any
-mode.
+machine-readable JSON — the complete structured view, always including
+the per-component records and the hardening assessment. `-1` emits a
+single shell-pipeable line. `-m` formats for issue trackers. `-H`
+appends the hardening assessment to the text/markdown reports.
 
 See [docs/usage.md](docs/usage.md) for the full CLI, output-mode
 details, explain mode, and hardening assessment.

@@ -94,8 +94,7 @@ the vantage. See [limitations.md](limitations.md).
 -w, --workers N     Parallel inference workers (default: nproc; 0 = sequential)
 -x, --experimental  Enable experimental components
 -s, --skip PATTERN  Skip matching components (glob, comma-separated; multiple --skip flags accumulate)
--H, --hardening     Append the post-run hardening assessment (composable
-                    with any output mode)
+-H, --hardening     Append the hardening assessment to text/markdown output
 -t, --timeout N     Per-component timeout in seconds (default: 30)
 -V, --version       Print version and exit
 -h, --help          Show this help
@@ -385,7 +384,12 @@ express by omitting a row; `extra/ksymoff` anchors on `text=0x…`, so a
 
 ### JSON (`-j`)
 
-`-j` (`--json`) emits the full structured summary. See
+`-j` (`--json`) emits the **complete** structured view: every block
+documented below is always present, whatever the other flags — a machine
+consumer keys on presence-of-key, not on which flags were passed. This makes
+one `-j` blob the full, self-contained posture snapshot a fleet/CI layer can
+diff against a baseline or aggregate across hosts. (`--verbose` is the sole
+addition: it appends each component's raw stdout `output` lines.) See
 [docs/exploitation.md](exploitation.md) for how the JSON plugs into an exploit —
 control-flow and data-only strategies, a pwntools template, and `ksymoff`.
 
@@ -403,11 +407,23 @@ best-guess, always contained within it. Memory-KASLR regions
 (`memory_kaslr`) carry the same guaranteed `min`/`max` and an optional
 nested `likely` object.
 
-The JSON also carries an `environment` object — the recon vantage:
-`container`, `seccomp`, `capabilities`, `no_new_privs`, and a
-`readable_oracles` map for the `/proc` leak sources. Unlike the text
-block, every field is always present (a `null` or enum), so a consumer
-keys on presence.
+The `environment` object is the recon vantage: `container`, `seccomp`,
+`capabilities`, `no_new_privs`, and a `readable_oracles` map for the `/proc`
+leak sources (fields are a `null` or enum when they do not apply).
+
+The `components` array holds one record per component — `name`,
+`exit_code`, `outcome`, and the parsed `meta` from `KASLD_META`
+(including `cve` / `patch` / `config` / `sysctl` keys). The `hardening`
+object is described under [Hardening assessment](#hardening-assessment).
+A per-component patch worklist — `{component, cve, fixed_in, leaked_here}`
+— is a direct projection of the `components` array:
+
+```sh
+kasld -j | jq '[.components[]
+  | select(.meta.cve or .meta.patch)
+  | {component: .name, cve: .meta.cve, fixed_in: .meta.patch,
+     leaked_here: (.outcome == "success")}]'
+```
 
 ### Markdown (`-m`)
 
@@ -507,12 +523,16 @@ text is the [FG-KASLR / reordered-text class](kaslr.md#function-granular-kaslr-f
 offset from `_text`, so a leaked address pins only its own symbol and a generic
 `System.map` no longer locates the rest.
 
-The hardening assessment is also available in JSON output (`-j -H`),
-where it appears in a top-level `"hardening"` object with fields
-`exposure`, `kaslr_posture` (always present; `state` is one of
+In JSON, the assessment is the top-level `hardening` object, with fields
+`exposure`, `kaslr_posture` (`state` is one of
 `active` / `disabled` / `unsupported` / `randomization_failed`),
 `active_defenses`, `lockdown`, `available_hardening`,
-`patched_vulnerabilities`, `compile_time_surface`, and `no_mitigation`.
+`patched_vulnerabilities`, `compile_time_surface`,
+`hardware_side_channels`, and `no_mitigation`.
+Each `active_defenses` and `available_hardening` entry carries a
+`surface` — the enforcement lever the change lives on (`sysctl`,
+`boot_param`, `lsm`, `file_permissions`, or `seccomp`) — so a report can
+route each item to the team that owns it.
 When the engine resolves a guaranteed base window, each `available_hardening`
 entry also carries `silences` (base-leaks it removes) and a `projected`
 object (the residual entropy with every other suggestion applied, and the
@@ -524,11 +544,13 @@ Markdown output (`-m -H`) appends the same assessment as a
 ## Continuous integration
 
 KASLD has no built-in pass/fail flag: it *measures*, and the CI script
-*decides*. The JSON output (`-j`, plus the `-H -j` hardening object) carries
-every value a policy would key on, so a regression gate is a one-line `jq`
-predicate — more flexible than a baked-in threshold, and it composes any policy
-you like. A distro or kernel builder can fail the build when a freshly built
-kernel's KASLR posture regresses below policy.
+*decides*. A single `-j` blob carries every value a policy would key on —
+including the whole `hardening` object — so a regression gate is a one-line
+`jq` predicate, more flexible than a baked-in threshold, and it composes any
+policy you like. A distro or kernel builder can fail the build when a freshly
+built kernel's KASLR posture regresses below policy. The same blob is the unit
+a fleet layer baselines and diffs: capture one per host, compare a later run,
+and alert on any guaranteed-bit regression.
 
 The fields a gate keys on:
 
@@ -558,7 +580,7 @@ if kasld -j | jq -e '.kaslr.disabled or .kaslr.unsupported' >/dev/null; then
 fi
 
 # Fail if any CVE-class leak succeeded.
-n=$(kasld -H -j | jq '.hardening.patched_vulnerabilities.possibly_unpatched | length')
+n=$(kasld -j | jq '.hardening.patched_vulnerabilities.possibly_unpatched | length')
 [ "$n" -eq 0 ] || { echo "$n CVE-class leak(s) succeeded"; exit 1; }
 ```
 

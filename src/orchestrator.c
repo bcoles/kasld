@@ -3571,7 +3571,7 @@ static const struct opt opts[] = {
     {"-c", "--color", 0, NULL, OPT_SECT_DETAIL, set_color,
      "Colourize text output (auto-detected for TTYs)", 0, 0},
     {"-H", "--hardening", 0, NULL, OPT_SECT_DETAIL, set_hardening,
-     "Append a hardening assessment to the report", 0, 0},
+     "Append the hardening assessment to text/markdown output", 0, 0},
 
     /* ── Component control ───────────────────────────────────────────── */
     {"-x", "--experimental", 0, NULL, OPT_SECT_COMPONENT, set_experimental,

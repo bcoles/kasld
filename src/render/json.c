@@ -537,10 +537,13 @@ void render_json(const struct summary *s) {
   printf("    \"no_result\": %d\n", s->stats.no_result);
   printf("  }");
 
-  if ((verbose || hardening_mode) && num_comp_logs > 0) {
+  /* components — the complete per-component record: name, exit code, outcome,
+   * and the parsed KASLD_META (method/addr/cve/patch/config/sysctl/…). This is
+   * the machine-readable posture a fleet/CI layer diffs and aggregates, so it
+   * is always present; the raw stdout lines (bulky, and the resolved values
+   * already appear in groups/derived) are appended only under --verbose. */
+  {
     printf(",\n");
-
-    /* components — present with --verbose or --hardening */
     printf("  \"components\": [\n");
     for (int i = 0; i < num_comp_logs; i++) {
       struct component_log *cl = &comp_logs[i];
@@ -556,7 +559,7 @@ void render_json(const struct summary *s) {
         printf(",\n      \"explain\": ");
         json_print_escaped(cl->explain);
       }
-      if (hardening_mode && cl->meta.num_entries > 0) {
+      if (cl->meta.num_entries > 0) {
         printf(",\n      \"meta\": {\n");
         /* Build meta object: single values as strings, multiple as arrays */
         int first_key = 1;
@@ -612,18 +615,10 @@ void render_json(const struct summary *s) {
       }
       printf("\n    }");
     }
-    printf("\n  ]");
-    if (hardening_mode)
-      printf(",");
-    printf("\n");
-  } else {
-    if (hardening_mode)
-      printf(",");
-    printf("\n");
+    printf("\n  ],\n");
   }
 
-  if (hardening_mode)
-    render_hardening_json();
+  render_hardening_json();
 
   printf("}\n");
 }

@@ -19,6 +19,7 @@
 struct sysctl_gate {
   const char *name;    /* meta value prefix, e.g. "dmesg_restrict" */
   const char *display; /* display string, e.g. "kernel.dmesg_restrict" */
+  const char *surface; /* enforcement lever, e.g. "sysctl" / "boot_param" */
   int *value_ptr;      /* pointer to stored runtime value */
   int threshold;       /* blocking threshold (value >= threshold blocks) */
 };
@@ -35,24 +36,24 @@ enum {
   GATE__COUNT,
 };
 static const struct sysctl_gate gates[GATE__COUNT] = {
-    [GATE_KPTR_RESTRICT] = {"kptr_restrict", "kernel.kptr_restrict",
+    [GATE_KPTR_RESTRICT] = {"kptr_restrict", "kernel.kptr_restrict", "sysctl",
                             &sysctl_kptr_restrict, 1},
     [GATE_DMESG_RESTRICT] = {"dmesg_restrict", "kernel.dmesg_restrict",
-                             &sysctl_dmesg_restrict, 1},
+                             "sysctl", &sysctl_dmesg_restrict, 1},
     [GATE_PERF_EVENT_PARANOID] = {"perf_event_paranoid",
-                                  "kernel.perf_event_paranoid",
+                                  "kernel.perf_event_paranoid", "sysctl",
                                   &sysctl_perf_event_paranoid, 2},
     /* 0 = unprivileged bpf() allowed, >=1 disables it (blocks the unprivileged
      * bpf leak components), so the "value >= threshold blocks" model fits with
      * threshold 1. */
     [GATE_UNPRIVILEGED_BPF] = {"unprivileged_bpf_disabled",
-                               "kernel.unprivileged_bpf_disabled",
+                               "kernel.unprivileged_bpf_disabled", "sysctl",
                                &sysctl_unprivileged_bpf_disabled, 1},
     /* Not a /proc/sys knob — boot-time (no_hash_pointers) — but the same gate
      * plumbing fits: a runtime-readable mitigation that gates %pK address
      * leaks (hashed by default => low-priv readers get an id, not the addr). */
     [GATE_HASHED_POINTERS] = {"hashed_pointers", "kernel pointer hashing (%pK)",
-                              &hashed_pointers, 1},
+                              "boot_param", &hashed_pointers, 1},
 };
 static const int ngates = GATE__COUNT;
 
@@ -201,6 +202,7 @@ void build_hardening_report(struct hardening_report *r) {
     struct hr_gate hg;
     memset(&hg, 0, sizeof(hg));
     hg.display = gates[g].display;
+    hg.surface = gates[g].surface;
     hg.value = *gates[g].value_ptr;
     hg.threshold = gates[g].threshold;
     hg.active = sysctl_gate_active(&gates[g]);
@@ -251,6 +253,7 @@ void build_hardening_report(struct hardening_report *r) {
     struct hr_gate sg;
     memset(&sg, 0, sizeof(sg));
     sg.display = "seccomp syscall filter";
+    sg.surface = "seccomp";
     sg.active = 1;
     sg.value = vant.seccomp;
     for (int i = 0; i < num_comp_logs; i++) {
@@ -304,6 +307,7 @@ void build_hardening_report(struct hardening_report *r) {
     if (r->n_gate_suggestions < HR_SUGG_MAX) {
       struct hr_suggestion *sg = &r->gate_suggestions[r->n_gate_suggestions++];
       sg->display = r->gates[i].display;
+      sg->surface = r->gates[i].surface;
       sg->threshold = r->gates[i].threshold;
       sg->impact = r->gates[i].gated;
       sg->silences = r->gates[i].n_silenced;
@@ -1043,6 +1047,7 @@ void render_hardening_json(void) {
 
     printf("      {\n");
     printf("        \"gate\": \"%s\",\n", hg->display);
+    printf("        \"surface\": \"%s\",\n", hg->surface ? hg->surface : "");
     printf("        \"value\": %d,\n", hg->value);
     printf("        \"threshold\": %d,\n", hg->threshold);
     printf("        \"active\": %s,\n", hg->active ? "true" : "false");
@@ -1106,6 +1111,9 @@ void render_hardening_json(void) {
     printf("      {\n");
     printf("        \"action\": \"Set %s = %d\",\n",
            rep.gate_suggestions[i].display, rep.gate_suggestions[i].threshold);
+    printf("        \"surface\": \"%s\",\n",
+           rep.gate_suggestions[i].surface ? rep.gate_suggestions[i].surface
+                                           : "");
     printf("        \"impact\": %d,\n", rep.gate_suggestions[i].impact);
     printf("        \"detail\": \"Blocks unprivileged access for %d "
            "component%s\"%s\n",
@@ -1126,6 +1134,7 @@ void render_hardening_json(void) {
     printf("      {\n");
     printf("        \"action\": \"Enable kernel lockdown (integrity mode)\","
            "\n");
+    printf("        \"surface\": \"lsm\",\n");
     printf("        \"impact\": %d,\n", rep.lockdown_impact);
     printf("        \"detail\": \"Blocks klogctl() even with CAP_SYSLOG\"%s\n",
            rep.lockdown_has_projection ? "," : "");
@@ -1142,6 +1151,7 @@ void render_hardening_json(void) {
     first_sug = 0;
     printf("      {\n");
     printf("        \"action\": \"Restrict dmesg fallback files to root\",\n");
+    printf("        \"surface\": \"file_permissions\",\n");
     printf("        \"impact\": %d,\n", rep.dmesg_fallback_count);
     printf("        \"detail\": \"%d dmesg component%s may have succeeded via "
            "log files\"%s\n",
@@ -1207,6 +1217,25 @@ void render_hardening_json(void) {
       json_print_escaped(rep.surface[i].addr);
     }
     printf("}");
+  }
+  printf("\n    ],\n");
+
+  /* Hardware side-channels: microarchitectural leaks (prefetch, EntryBleed,
+   * etc.). succeeded marks the ones that fired on this CPU; the rest are gated
+   * by an active CPU mitigation or an inapplicable attack. */
+  printf("    \"hardware_side_channels\": [\n");
+  for (int i = 0; i < rep.n_hw; i++) {
+    if (i > 0)
+      printf(",\n");
+    printf("      {\"component\": ");
+    json_print_escaped(rep.hw[i].name);
+    printf(", \"hardware\": ");
+    json_print_escaped(rep.hw[i].hardware);
+    if (rep.hw[i].addr) {
+      printf(", \"addr\": ");
+      json_print_escaped(rep.hw[i].addr);
+    }
+    printf(", \"succeeded\": %s}", rep.hw[i].succeeded ? "true" : "false");
   }
   printf("\n    ],\n");
 
