@@ -1,0 +1,149 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-ksymoff — known-answer tests for extra/ksymoff.
+#
+# ksymoff is pure address arithmetic (KASLR-slide application and
+# physical<->virtual / direct-map translation), so it is testable offline with
+# fixed inputs. check-shellcheck guards its syntax; this guards its ARITHMETIC —
+# the class of bug shellcheck cannot see, e.g. a signed-64 comparison that
+# miscomputes kernel addresses whose top bit is set.
+#
+# Soft dependency: ksymoff needs bash; if bash is absent this SKIPs (exit 0).
+#
+# Usage: tests/check-ksymoff   (also run by `make lint` / `make test`)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+KSYMOFF=$ROOT/extra/ksymoff
+
+if [ -t 1 ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m')
+  YELLOW=$(printf '\033[33m'); RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; YELLOW=; RESET=
+fi
+
+if ! command -v bash >/dev/null 2>&1; then
+  printf '%sksymoff guard: SKIP%s (bash not installed)\n' "$YELLOW" "$RESET"
+  exit 0
+fi
+
+pass=0; fail=0
+eq() {  # desc  want  got
+  if [ "$2" = "$3" ]; then
+    pass=$((pass + 1))
+  else
+    fail=$((fail + 1))
+    printf '  %sFAIL%s %s\n         want: [%s]\n         got:  [%s]\n' \
+      "$RED" "$RESET" "$1" "$2" "$3" >&2
+  fi
+}
+errs() {  # desc  cmd...   (must exit non-zero and print nothing to stdout)
+  desc=$1; shift
+  if out=$("$@" 2>/dev/null) && [ -n "$out" ]; then
+    fail=$((fail + 1))
+    printf '  %sFAIL%s %s (expected error, got: [%s])\n' "$RED" "$RESET" "$desc" "$out" >&2
+  else
+    pass=$((pass + 1))
+  fi
+}
+noexec() {  # desc  cmd...   (must NOT create $MARK — no arithmetic injection)
+  desc=$1; shift
+  rm -f "$MARK"
+  "$@" >/dev/null 2>&1 || true
+  if [ -f "$MARK" ]; then
+    fail=$((fail + 1))
+    printf '  %sFAIL%s %s (arithmetic injection EXECUTED)\n' "$RED" "$RESET" "$desc" >&2
+  else
+    pass=$((pass + 1))
+  fi
+}
+ESC=$(printf '\033')
+noesc() {  # desc  output   (output must contain no terminal ESC byte)
+  case "$2" in
+    *"$ESC"*) fail=$((fail + 1))
+              printf '  %sFAIL%s %s (escape reached output)\n' "$RED" "$RESET" "$1" >&2 ;;
+    *)        pass=$((pass + 1)) ;;
+  esac
+}
+
+# A minimal System.map: _text plus two symbols at known offsets.
+MAP=$(mktemp)  || { printf 'ksymoff guard: SKIP (mktemp failed)\n'; exit 0; }
+EVIL=$(mktemp) || { printf 'ksymoff guard: SKIP (mktemp failed)\n'; exit 0; }
+MARK=$(mktemp -u) || MARK="${TMPDIR:-/tmp}/ksymoff_inj_marker.$$"
+trap 'rm -f "$MAP" "$EVIL" "$MARK"' EXIT
+printf '%s\n' \
+  'ffffffff81000000 T _text' \
+  'ffffffff81276cb0 T commit_creds' \
+  'ffffffff81280000 T prepare_kernel_cred' > "$MAP"
+
+# ---- symbol modes (slide = 0x82200000 - 0x81000000 = 0x1200000) ----
+eq 'forward: symbol + base'       'ffffffff82476cb0 T commit_creds' \
+   "$("$KSYMOFF" -b 0xffffffff82200000 -s "$MAP" commit_creds 2>/dev/null)"
+eq 'forward: stdin text= field'   'ffffffff82476cb0 T commit_creds' \
+   "$(printf 'arch=x86_64 text=0xffffffff82200000 dmap=na\n' | "$KSYMOFF" -s "$MAP" commit_creds 2>/dev/null)"
+eq 'slide only'                   '+0x1200000' \
+   "$("$KSYMOFF" -b 0xffffffff82200000 -s "$MAP" --slide 2>/dev/null)"
+eq 'inverse: symbol addr -> base' '0xffffffff82200000' \
+   "$("$KSYMOFF" --from commit_creds=0xffffffff82476cb0 -s "$MAP" 2>/dev/null)"
+eq 'inverse + forward chaining'   'ffffffff82480000 T prepare_kernel_cred' \
+   "$("$KSYMOFF" --from commit_creds=0xffffffff82476cb0 -s "$MAP" prepare_kernel_cred 2>/dev/null)"
+
+# ---- physical translation (page_offset_base = 0xffff9e8000000000) ----
+PO=0xffff9e8000000000
+eq 'phys2virt'                    'ffff9e8034600000' \
+   "$("$KSYMOFF" --page-offset "$PO" --phys2virt 0x34600000 2>/dev/null)"
+eq 'virt2phys'                    '0x34600000' \
+   "$("$KSYMOFF" --page-offset "$PO" --virt2phys 0xffff9e8034600000 2>/dev/null)"
+eq 'virt2phys at base -> 0x0'     '0x0' \
+   "$("$KSYMOFF" --page-offset "$PO" --virt2phys "$PO" 2>/dev/null)"
+eq 'phys2virt: stdin dmap= field' 'ffff9e8034600000' \
+   "$(printf 'arch=x86_64 text=na dmap=%s dram=na\n' "$PO" | "$KSYMOFF" --phys2virt 0x34600000 2>/dev/null)"
+# struct page = vmemmap + (pfn * sizeof(struct page)); pfn = phys >> page-shift
+eq 'phys2page: 4KiB / 64B'        'ffffea0000d18000' \
+   "$("$KSYMOFF" --vmemmap 0xffffea0000000000 --phys2page 0x34600000 2>/dev/null)"
+eq 'phys2page: 64KiB / 56B'       'ffffea00000b7500' \
+   "$("$KSYMOFF" --vmemmap 0xffffea0000000000 --page-shift 16 --page-size 56 --phys2page 0x34600000 2>/dev/null)"
+
+# ---- regression / error guards ----
+# The signed-64 bug: a below-base virtual address must ERROR, not print a bogus
+# physical address (kernel addresses have the top bit set).
+errs 'virt2phys below base errors' "$KSYMOFF" --page-offset "$PO" --virt2phys 0x1000
+errs 'two phys actions rejected'   "$KSYMOFF" --page-offset "$PO" --phys2virt 0x1000 --virt2phys 0x2000
+errs 'bad hex rejected'            "$KSYMOFF" --page-offset "$PO" --phys2virt zz
+errs 'phys2page needs vmemmap'     "$KSYMOFF" --phys2page 0x1000
+errs 'symbol mode needs source'    "$KSYMOFF" -b 0xffffffff82200000 commit_creds
+
+# ---- security: bash-arithmetic code-execution from a hostile symbol source ----
+# A non-hex address field must be rejected, never fed to `$(( 0x$value ))` — an
+# embedded array-subscript command substitution would otherwise run. Regression
+# guard for the arithmetic-eval injection class (all three source-derived
+# addresses: _text, the --from lookup, and a specific-symbol lookup).
+PAY="0+a[\$(:>$MARK)]"   # bash arithmetic injection payload; no spaces
+printf '%s\n' "$PAY T _text" 'ffffffff81276cb0 T commit_creds' > "$EVIL"
+noexec 'no exec: hostile _text address'  "$KSYMOFF" -b 0xffffffff82200000 -s "$EVIL" --slide
+printf '%s\n' 'ffffffff81000000 T _text' "$PAY T commit_creds" > "$EVIL"
+noexec 'no exec: hostile --from address' "$KSYMOFF" --from commit_creds=0xffffffff82476cb0 -s "$EVIL"
+printf '%s\n' 'ffffffff81000000 T _text' "$PAY T commit_creds" > "$EVIL"
+noexec 'no exec: hostile symbol address' "$KSYMOFF" -b 0xffffffff82200000 -s "$EVIL" commit_creds
+
+# Terminal-escape injection: control chars in file-derived type/name fields must
+# be stripped, never printed (CWE-150). Covers the per-symbol and dump paths.
+printf '%s\n' 'ffffffff81000000 T _text' "ffffffff81276cb0 ${ESC}[31mT commit_creds" > "$EVIL"
+noesc 'no escape: per-symbol type field' \
+  "$("$KSYMOFF" -b 0xffffffff82200000 -s "$EVIL" commit_creds 2>/dev/null)"
+printf '%s\n' 'ffffffff81000000 T _text' "ffffffff81276cb0 T ${ESC}evilname" > "$EVIL"
+noesc 'no escape: dump-all name field' \
+  "$("$KSYMOFF" -b 0xffffffff82200000 -s "$EVIL" 2>/dev/null)"
+
+total=$((pass + fail))
+if [ "$fail" -eq 0 ]; then
+  printf '%sksymoff guard: OK%s (%s known-answer cases)\n' "$GREEN" "$RESET" "$total"
+  exit 0
+else
+  printf '%sksymoff guard: %s/%s FAILED%s\n' "$RED" "$fail" "$total" "$RESET" >&2
+  exit 1
+fi

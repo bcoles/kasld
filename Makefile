@@ -617,6 +617,7 @@ lint :
 	@$(TEST_DIR)/check-confidence-floor
 	@$(TEST_DIR)/check-image-size
 	@$(TEST_DIR)/check-fdt-unflatten
+	@$(TEST_DIR)/check-ksymoff
 	@$(TEST_DIR)/check-shellcheck
 	@$(TEST_DIR)/hardening-fixtures
 	@$(TEST_DIR)/cli-flags
