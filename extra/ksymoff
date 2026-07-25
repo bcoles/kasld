@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # This file is part of KASLD - https://github.com/bcoles/kasld
 #
-# Apply a KASLR slide to kernel symbols, or derive the slide and text
-# base from a known runtime symbol address. Works against System.map,
+# Apply a KASLR slide to kernel symbols, derive the slide and text base
+# from a known runtime symbol address, or translate physical <-> virtual
+# addresses through the direct map. Works against System.map,
 # `/proc/kallsyms` snapshots, and vmlinux ELF (debug-symbols enabled).
 #
 # Synopsis:
 #   ksymoff [-b BASE | --from NAME=ADDR] -s SOURCE [--slide] [SYMBOL ...]
+#   ksymoff --page-offset BASE { --phys2virt ADDR | --virt2phys ADDR }
+#   ksymoff --vmemmap BASE [--page-size N] [--page-shift N] --phys2page ADDR
 #
 # Modes
 # -----
@@ -21,6 +24,13 @@
 #
 #   --slide    Print only the KASLR slide (signed hex). Combines with
 #              either mode.
+#
+#   Physical   Translate physical <-> virtual through the direct map, for
+#              data-only pivots (Dirty Pagetable, cross-cache) that work in
+#              physical addresses. Needs a base, not a symbol source:
+#                --phys2virt ADDR   virt = phys + page_offset_base
+#                --virt2phys ADDR   phys = virt − page_offset_base
+#                --phys2page ADDR   struct page = vmemmap_base + pfn * page-size
 #
 # Three ways to supply the runtime text base, picked in priority order:
 #   --from NAME=ADDR    derived from any known runtime symbol address
@@ -48,6 +58,18 @@
 #   ksymoff --from commit_creds=0xffffffff82345678 -s vmlinux \
 #           prepare_kernel_cred init_cred modprobe_path
 #
+#   # Physical <-> virtual through the direct map (data-only pivots)
+#   ksymoff --page-offset 0xffff9e8000000000 --phys2virt 0x34600000
+#   ksymoff --page-offset 0xffff9e8000000000 --virt2phys 0xffff9e8034600000
+#   kasld -1 | ksymoff --phys2virt 0x34600000        # reads the `dmap=` field
+#
+#   # Physical address -> its struct page (page-table attacks)
+#   ksymoff --vmemmap 0xffffea0000000000 --phys2page 0x34600000
+#
+# Physical translation assumes 4 KiB pages and a 64-byte struct page; override
+# with --page-shift / --page-size (KASLD's `page_size` and `btf_struct_page_size`
+# facts report both for the target).
+#
 # Caveat: assumes a SINGLE KASLR slide — i.e. canonical (source/link-order)
 # function layout, where every symbol sits at a fixed offset from the text base.
 # This is FALSE on reordered-text kernels: under FG-KASLR each function is moved
@@ -66,6 +88,14 @@
 #   --from NAME=ADDR      Known runtime symbol address; derives base.
 #                         Mutually exclusive with -b.
 #   --slide               Print only the slide.
+#   --page-offset BASE    Direct-map base (page_offset_base) for --phys2virt /
+#                         --virt2phys; or piped from `kasld -1` (`dmap=` field).
+#   --phys2virt ADDR      Print the direct-map virtual address of a phys addr.
+#   --virt2phys ADDR      Print the physical address of a direct-map virt addr.
+#   --vmemmap BASE        vmemmap base (struct page array); for --phys2page.
+#   --page-size N         sizeof(struct page) (default 64).
+#   --page-shift N        Page shift, log2(page size) (default 12 = 4 KiB).
+#   --phys2page ADDR      Print the `struct page *` for a physical address.
 #   -h, --help            Show this help and exit.
 #
 # Symbol file
@@ -98,10 +128,23 @@ set -e
 die()  { printf 'ksymoff: %s\n' "$1" >&2; exit 1; }
 have() { command -v "$1" >/dev/null 2>&1; }
 
+# Unsigned less-than for up-to-64-bit hex (bash arithmetic is signed, so kernel
+# addresses with the top bit set miscompare). Zero-pad to 16 and compare
+# lexically — byte order on equal-width lowercase hex is unsigned order.
+hex_ult() {  # a b (hex, no 0x) -> true if a < b unsigned
+  local a b
+  a=$(printf '%016s' "${1,,}"); a=${a// /0}
+  b=$(printf '%016s' "${2,,}"); b=${b// /0}
+  [[ "$a" < "$b" ]] && return 0
+  return 1
+}
+
 # -- Argument parsing -----------------------------------------------------
 base="" symfile="" slide_only=0
 from_sym="" from_addr=""
 symbols=()
+page_offset="" vmemmap="" page_size=64 page_shift=12
+phys2virt="" virt2phys="" phys2page=""
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -124,6 +167,27 @@ while [[ $# -gt 0 ]]; do
       [[ "$from_sym" =~ ^[A-Za-z_][A-Za-z0-9_.]*$ ]] \
         || die "bad --from symbol name: $from_sym"
       shift 2 ;;
+    --page-offset)
+      [[ $# -ge 2 ]] || die "$1 requires BASE"
+      page_offset="$2"; shift 2 ;;
+    --vmemmap)
+      [[ $# -ge 2 ]] || die "$1 requires BASE"
+      vmemmap="$2"; shift 2 ;;
+    --page-size)
+      [[ $# -ge 2 ]] || die "$1 requires N"
+      page_size="$2"; shift 2 ;;
+    --page-shift)
+      [[ $# -ge 2 ]] || die "$1 requires N"
+      page_shift="$2"; shift 2 ;;
+    --phys2virt)
+      [[ $# -ge 2 ]] || die "$1 requires ADDR"
+      phys2virt="$2"; shift 2 ;;
+    --virt2phys)
+      [[ $# -ge 2 ]] || die "$1 requires ADDR"
+      virt2phys="$2"; shift 2 ;;
+    --phys2page)
+      [[ $# -ge 2 ]] || die "$1 requires ADDR"
+      phys2page="$2"; shift 2 ;;
     -h|--help)
       sed -n '2,/^[^#]/{ /^#/s/^# \?//p; }' "$0"
       exit 0 ;;
@@ -136,6 +200,66 @@ while [[ $# -gt 0 ]]; do
       symbols+=("$1"); shift ;;
   esac
 done
+
+# -- Physical-address translation (data-only pivots) ----------------------
+# Independent of the symbol modes: needs a base, not a symbol source. For
+# data-only exploits that work in physical addresses (Dirty Pagetable,
+# cross-cache):
+#   virt        = phys + page_offset_base            (--phys2virt)
+#   phys        = virt − page_offset_base            (--virt2phys)
+#   struct page = vmemmap_base + pfn * page-size     (--phys2page)
+n_phys=0
+for v in "$phys2virt" "$virt2phys" "$phys2page"; do
+  [[ -n "$v" ]] && n_phys=$((n_phys + 1))
+done
+if (( n_phys > 0 )); then
+  (( n_phys == 1 )) || die "use one of --phys2virt / --virt2phys / --phys2page"
+  [[ -z "$symfile" ]] || die "physical translation takes no symbol source (-s)"
+  [[ -z "$base" && -z "$from_sym" ]] \
+    || die "physical translation does not combine with -b/--from"
+
+  # struct page needs only the vmemmap base and the page geometry.
+  if [[ -n "$phys2page" ]]; then
+    [[ -n "$vmemmap" ]] || die "--phys2page needs --vmemmap BASE (struct page array base)"
+    vm=${vmemmap#0[xX]}
+    [[ "$vm" =~ ^[0-9a-fA-F]+$ ]] || die "bad --vmemmap: $vmemmap"
+    { [[ "$page_size"  =~ ^[0-9]+$ ]] && (( page_size  > 0 )); } || die "bad --page-size: $page_size"
+    { [[ "$page_shift" =~ ^[0-9]+$ ]] && (( page_shift > 0 )); } || die "bad --page-shift: $page_shift"
+    pa=${phys2page#0[xX]}
+    [[ "$pa" =~ ^[0-9a-fA-F]+$ ]] || die "bad --phys2page address: $phys2page"
+    pfn=$(( 0x$pa >> page_shift ))
+    printf '%016x\n' $(( 0x$vm + pfn * page_size ))
+    exit 0
+  fi
+
+  # phys<->virt need the direct-map base: --page-offset, else stdin `dmap=`.
+  po=""
+  if [[ -n "$page_offset" ]]; then
+    po=${page_offset#0[xX]}
+    [[ "$po" =~ ^[0-9a-fA-F]+$ ]] || die "bad --page-offset: $page_offset"
+  elif [[ ! -t 0 ]]; then
+    IFS= read -r line || die "stdin: no input (expected \`kasld -1\`)"
+    if [[ "$line" =~ [[:space:]]dmap=0x([0-9a-fA-F]+) ]]; then
+      po="${BASH_REMATCH[1]}"
+    else
+      die "no \`dmap=0x...\` field in stdin (direct-map base unresolved? \`dmap=na\`)"
+    fi
+  else
+    die "no direct-map base — use --page-offset BASE or pipe \`kasld -1\`"
+  fi
+
+  if [[ -n "$phys2virt" ]]; then
+    pa=${phys2virt#0[xX]}
+    [[ "$pa" =~ ^[0-9a-fA-F]+$ ]] || die "bad --phys2virt address: $phys2virt"
+    printf '%016x\n' $(( 0x$pa + 0x$po ))
+  else
+    va=${virt2phys#0[xX]}
+    [[ "$va" =~ ^[0-9a-fA-F]+$ ]] || die "bad --virt2phys address: $virt2phys"
+    hex_ult "$va" "$po" && die "virtual address is below the direct-map base"
+    printf '0x%x\n' $(( 0x$va - 0x$po ))
+  fi
+  exit 0
+fi
 
 [[ -n "$symfile" ]] || die "no symbol source (use -s SOURCE)"
 [[ -f "$symfile" ]] || die "symbol file not found: $symfile"
