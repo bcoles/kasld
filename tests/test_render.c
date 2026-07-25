@@ -1020,6 +1020,55 @@ static void test_render_oneline_schema_is_stable(void) {
   assert(strstr(render_cap, " dram=na") != NULL);
 }
 
+/* Oneline entropy reflects the guaranteed-window residual even with NO concrete
+ * base (the unpinned windowed case — the number a fleet/CI scraper needs), and
+ * 0bits for a pin (not na); and the randomization-failed posture surfaces as
+ * kaslr=failed, distinct from off/on. */
+static void test_render_oneline_entropy_and_failed(void) {
+  struct summary s;
+  reset_results();
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+
+  /* Unpinned windowed case: a resolved window (vslots/pslots), no concrete
+   * base. Residual entropy must still surface for both virt and phys. */
+  memset(&s, 0, sizeof(s));
+  s.kaslr.vslots = 512;
+  s.kaslr.vbits = 9;
+  s.kaslr.pslots = 64;
+  s.kaslr.pbits = 6;
+  set_render_mode(0, 1, 0);
+  capture_stdout(wrap_render_summary, &s);
+  assert(strstr(render_cap, " text=na") != NULL);        /* no concrete base */
+  assert(strstr(render_cap, " entropy=9bits") != NULL);  /* residual shown */
+  assert(strstr(render_cap, " pentropy=6bits") != NULL); /* phys too */
+  assert(strstr(render_cap, " kaslr=on") != NULL);
+
+  /* Pin: one slot -> 0 bits, reported as 0bits (not na). */
+  memset(&s, 0, sizeof(s));
+  s.kaslr.vtext = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
+  s.kaslr.vslots = 1;
+  s.kaslr.vbits = 0;
+  capture_stdout(wrap_render_summary, &s);
+  assert(strstr(render_cap, " entropy=0bits") != NULL);
+  assert(strstr(render_cap, " entropy=na") == NULL);
+
+  /* Randomization-failed posture -> kaslr=failed (distinct from off/on). The
+   * proven window residual is still reported; kaslr=failed is the effective-
+   * zero signal. */
+  memset(&s, 0, sizeof(s));
+  s.kaslr.randomization_failed = 1;
+  s.kaslr.vslots = 512;
+  s.kaslr.vbits = 9;
+  capture_stdout(wrap_render_summary, &s);
+  assert(strstr(render_cap, " kaslr=failed") != NULL);
+  assert(strstr(render_cap, " kaslr=on") == NULL);
+  assert(strstr(render_cap, " kaslr=off") == NULL);
+  assert(strstr(render_cap, " entropy=9bits") != NULL);
+
+  set_render_mode(0, 0, 0);
+}
+
 /* set_rich_render_state seeds a single-origin record; this overlays a second
  * and third origin on the VIRT/KERNEL_TEXT record so the renderer tests below
  * exercise the multi-contributor display path that text.c, markdown.c, and
@@ -2244,6 +2293,7 @@ int main(void) {
   RUN(test_render_oneline_dmap_is_base_not_interior);
   RUN(test_render_oneline_text_na_when_engine_unresolved);
   RUN(test_render_oneline_schema_is_stable);
+  RUN(test_render_oneline_entropy_and_failed);
   RUN(test_render_text_lists_all_origins);
   RUN(test_render_text_leaks_aggregates_across_records);
   RUN(test_render_json_emits_origins_array);

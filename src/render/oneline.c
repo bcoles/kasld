@@ -15,15 +15,20 @@
 //
 // Keys, in order:
 //   arch      kernel machine (uname), or `unknown`
-//   kaslr     on | off | unsupported
+//   kaslr     on | off | unsupported | failed  (failed = randomization failed
+//             at boot: effective 0 bits, deterministic per boot — distinct from
+//             off, a deliberate opt-out at the link-time default)
 //   text      virtual image base (_text); engine-resolved base, never a leak
 //   stext     virtual _stext, when it differs from the image base
 //   slide     virtual KASLR slide, signed: ±0xHEX(decimal)
-//   entropy   virtual residual entropy over the guaranteed window, `Nbits`
+//   entropy   virtual residual entropy over the guaranteed window, `Nbits`;
+//             present whenever a window was resolved (an unpinned window
+//             reports its N bits; a pin reports 0bits). `na` only when KASLR is
+//             off/unsupported (no window).
 //   ptext     physical image base (_text)
 //   pstext    physical _stext, when it differs from the physical image base
 //   pslide    physical KASLR slide (decoupled arches only)
-//   pentropy  physical residual entropy
+//   pentropy  physical residual entropy (same window/`na` rule as entropy)
 //   dmap      direct-map base (PAGE_OFFSET); engine-resolved floor/pin
 //   dram      physical DRAM extent: [0xLO..0xHI](size)
 //   results   count of merged result records (post-merge wire records — not
@@ -47,11 +52,17 @@ void render_oneline(const struct summary *s) {
   /* arch */
   printf("arch=%s", have_uname ? u.machine : "unknown");
 
-  /* KASLR state */
+  /* KASLR state. `failed` is the randomization-failed posture (boot stub
+   * attempted KASLR but produced no random offset — effective slot entropy 0,
+   * position deterministic per boot); distinct from `off` (deliberate opt-out,
+   * kernel at the link-time default). Priority matches the hardening posture:
+   * unsupported > off > failed > on. */
   if (s->kaslr.unsupported)
     printf(" kaslr=unsupported");
   else if (s->kaslr.disabled)
     printf(" kaslr=off");
+  else if (s->kaslr.randomization_failed)
+    printf(" kaslr=failed");
   else
     printf(" kaslr=on");
 
@@ -80,7 +91,14 @@ void render_oneline(const struct summary *s) {
     printf(" slide=na");
   }
 
-  if (s->kaslr.vtext && s->kaslr.vbits > 0)
+  /* Residual entropy over the guaranteed window — the bits of the base the
+   * evidence could not strip. Shown whenever the engine resolved a window
+   * (vslots > 0): the unpinned windowed case (where the residual is the whole
+   * point) reports its N bits, and a pin reports 0 bits. Matches the JSON
+   * inferred.entropy_bits. `na` only when there is no window — KASLR
+   * off/unsupported zero the slot count. (In the `failed` posture the window is
+   * still the proven residual; `kaslr=failed` is the effective-zero signal.) */
+  if (s->kaslr.vslots > 0)
     printf(" entropy=%dbits", s->kaslr.vbits);
   else
     printf(" entropy=na");
@@ -105,7 +123,7 @@ void render_oneline(const struct summary *s) {
     printf(" pslide=na");
   }
 
-  if (s->kaslr.has_phys && s->kaslr.ptext && s->kaslr.pbits > 0)
+  if (s->kaslr.pslots > 0)
     printf(" pentropy=%dbits", s->kaslr.pbits);
   else
     printf(" pentropy=na");

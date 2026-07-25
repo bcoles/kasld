@@ -371,15 +371,15 @@ arch=x86_64 kaslr=on text=0xffffffff8fe00000 stext=na slide=+0xee00000(249561088
 | Key | Meaning |
 | --- | --- |
 | `arch` | kernel machine (`uname`), or `unknown` |
-| `kaslr` | `on` \| `off` \| `unsupported` |
+| `kaslr` | `on` \| `off` \| `unsupported` \| `failed` (`failed` = randomization failed at boot: effective 0 bits, deterministic per boot — distinct from `off`, a deliberate opt-out at the link-time default) |
 | `text` | virtual image base (`_text`); engine-resolved, never a leak |
 | `stext` | virtual `_stext`, when it differs from the image base |
 | `slide` | virtual KASLR slide, signed `±0xHEX(decimal)` |
-| `entropy` | virtual residual entropy over the guaranteed window, `Nbits` |
+| `entropy` | virtual residual entropy over the guaranteed window, `Nbits`; present whenever a window was resolved — an unpinned window reports its N bits, a pin reports `0bits`. `na` only when KASLR is off/unsupported |
 | `ptext` | physical image base (`_text`) |
 | `pstext` | physical `_stext`, when it differs from the physical image base |
 | `pslide` | physical KASLR slide (decoupled arches only) |
-| `pentropy` | physical residual entropy |
+| `pentropy` | physical residual entropy (same window / `na` rule as `entropy`) |
 | `dmap` | direct-map base (`PAGE_OFFSET`); engine-resolved floor/pin |
 | `dram` | physical DRAM extent, `[0xLO..0xHI](size)` |
 | `results` | count of merged result records (not the raw component count) |
