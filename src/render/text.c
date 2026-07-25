@@ -1020,7 +1020,7 @@ static void print_physical_layout(void) {
 }
 
 /* Render the kernel memory map: virtual layout above, physical layout below. */
-static void print_memory_map(void) {
+void print_memory_map(void) {
   print_virtual_layout();
   print_physical_layout();
 }
@@ -1038,12 +1038,6 @@ static void print_memory_map(void) {
  * is ASCII so it survives any terminal.
  * -------------------------------------------------------------------------
  */
-static const char *coupling_descr(void) {
-  return TEXT_TRACKS_DIRECTMAP
-             ? "physical and virtual text move together (coupled)"
-             : "physical and virtual text randomize independently";
-}
-
 /* Emit one bound row of the readout. `label` is the left column; the
  * value column contains either a pinned address (when lo == hi) or a
  * range + slot/entropy footer. */
@@ -1463,8 +1457,8 @@ static void render_readout(const struct summary *s) {
                        s->kaslr.pslots > 0 || layout.phys_kaslr_text_min ||
                        layout.phys_kaslr_text_max;
   if (TEXT_TRACKS_DIRECTMAP || phys_row_shown)
-    printf("  %-19s %s%s%s\n", "Phys/Virt coupling", c(C_DIM), coupling_descr(),
-           c(C_RESET));
+    printf("  %-19s %s%s%s\n", "Phys/Virt coupling", c(C_DIM),
+           kasld_coupling_descr(), c(C_RESET));
   printf("\n");
 
   readout_print_leaks();

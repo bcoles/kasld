@@ -428,12 +428,23 @@ kasld -j | jq '[.components[]
 ### Markdown (`-m`)
 
 `-m` (`--markdown`) formats the summary for issue trackers (GitHub /
-GitLab markdown tables). The KASLR table includes the inferred text
-range and any Memory-KASLR (directmap / vmalloc / vmemmap) bounds, and
-the leak table credits the component(s) that produced each address. An
-`## Environment` section reports the recon vantage (container /
-confinement / readable oracles). With `-H` it also appends the hardening
-assessment (see below).
+GitLab markdown tables). The KASLR table carries the same two-window
+model as the text readout: the guaranteed **Inferred text range**, the
+speculative **Likely text range** when a sub-floor signal narrows it,
+the remaining slots with their grain (`N x <align>`) and entropy, the
+**Phys/Virt coupling** classification, and any Memory-KASLR (directmap /
+vmalloc / vmemmap) bounds. When the kernel-text function order is
+reordered (FG-KASLR / LTO / AutoFDO / Propeller), a **Caution** note
+warns that a leaked address no longer resolves the rest of the symbols
+via a generic `System.map`. When KASLR is disabled or unsupported, the
+compile-time **Kernel image base** is reported (there is no slide, so the
+base is the answer). The leak table credits the component(s) that
+produced each address. With `--verbose`, a `## Memory layout` section
+embeds the virtual and physical ASCII address-space maps in a fenced code
+block (the same diagrams the text readout draws). An `## Environment`
+section reports the recon vantage (container / confinement / readable
+oracles). With `-H` it also
+appends the hardening assessment (see below).
 
 ## Explain mode
 
@@ -539,7 +550,9 @@ object (the residual entropy with every other suggestion applied, and the
 bits forfeited by omitting this one), and a top-level `projected_posture`
 reports the `current` and `all_suggestions_applied` postures.
 Markdown output (`-m -H`) appends the same assessment as a
-`## Hardening Assessment` section.
+`## Hardening Assessment` section; each Available-hardening suggestion
+ends with its enforcement surface as a trailing `` [`lever`] `` tag
+(e.g. `` [`sysctl`] ``, `` [`file_permissions`] ``).
 
 ## Continuous integration
 

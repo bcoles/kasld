@@ -236,9 +236,12 @@ run_fixture() {
   # -H -j (the hardening detail toggle, which renders the FULL analysis in
   # text / markdown / json *plus* the hardening section — so it also exercises
   # the json and markdown analysis renderers). Bare -j / -m are therefore
-  # redundant and omitted, saving two pipeline runs per fixture. Each line is
-  # "flags<TAB>marker the mode must emit". Skipped if the main run already
-  # crashed; read in-shell (heredoc, not a pipe) so the failure flag survives.
+  # redundant and omitted, saving two pipeline runs per fixture. -v -m is swept
+  # explicitly: it must emit the markdown document AND must NOT leak the plain-
+  # text run narration (component banners / wire records), which only text mode
+  # streams. Each line is "flags<TAB>marker"; a marker beginning "!" is a
+  # negative assertion (the mode must NOT emit it). Skipped if the main run
+  # already crashed; read in-shell (heredoc, not a pipe) so the flag survives.
   mode_fail=""
   if [ "$rc" -lt 128 ]; then
     while IFS="$(printf '\t')" read -r mflags marker; do
@@ -252,15 +255,29 @@ run_fixture() {
         mode_fail="'$mflags' signal $((mrc - 128))"
         break
       fi
-      if ! grep -qE "$marker" "$sc/mode.txt"; then
-        mode_fail="'$mflags' rendered no output ($marker)"
-        break
-      fi
+      # A marker beginning "!" is a NEGATIVE assertion: the mode must NOT emit
+      # it (e.g. a document format must not leak the plain-text run narration).
+      case "$marker" in
+      "!"*)
+        if grep -qE "${marker#!}" "$sc/mode.txt"; then
+          mode_fail="'$mflags' leaked disallowed output (${marker#!})"
+          break
+        fi
+        ;;
+      *)
+        if ! grep -qE "$marker" "$sc/mode.txt"; then
+          mode_fail="'$mflags' rendered no output ($marker)"
+          break
+        fi
+        ;;
+      esac
     done <<EOF
 -1	arch=
 -H	Hardening Assessment
 -H -m	Hardening Assessment|"hardening"
 -H -j	"hardening"
+-v -m	# KASLD Results
+-v -m	!^(── |\[[.+-]\]|[VPS] )
 EOF
   fi
 

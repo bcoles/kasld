@@ -1385,6 +1385,11 @@ void render_hardening_markdown(void) {
       md_print_necessity(rep.gate_suggestions[i].silences, exposure,
                          rep.all_vbits, rep.gate_suggestions[i].skip_vbits,
                          rep.all_pbits, rep.gate_suggestions[i].skip_pbits);
+    /* Enforcement surface — the lever this change lives on, so a report can
+     * route it to the team that owns it (a `sysctl` differs from a
+     * `file_permissions` chmod even when both close a leak). */
+    if (rep.gate_suggestions[i].surface)
+      printf(" [`%s`]", rep.gate_suggestions[i].surface);
     printf("\n");
   }
   if (rep.suggest_lockdown) {
@@ -1395,6 +1400,7 @@ void render_hardening_markdown(void) {
       md_print_necessity(rep.lockdown_silences, exposure, rep.all_vbits,
                          rep.lockdown_skip_vbits, rep.all_pbits,
                          rep.lockdown_skip_pbits);
+    printf(" [`lsm`]");
     printf("\n");
   }
   if (rep.suggest_dmesg_fallback) {
@@ -1406,6 +1412,7 @@ void render_hardening_markdown(void) {
       md_print_necessity(rep.dmesg_fallback_silences, exposure, rep.all_vbits,
                          rep.dmesg_fallback_skip_vbits, rep.all_pbits,
                          rep.dmesg_fallback_skip_pbits);
+    printf(" [`file_permissions`]");
     printf("\n");
   }
   if (!any_sug)

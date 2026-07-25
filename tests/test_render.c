@@ -384,6 +384,13 @@ static void test_render_likely_window(void) {
   capture_stdout(wrap_render_summary, &s);
   assert(strstr(render_cap, "\"likely\"") != NULL);
   assert(strstr(render_cap, "\"speculative\": true") != NULL);
+
+  /* Markdown carries the same likely window as a dedicated table row (the text
+   * analogue of the "likely (speculative)" sub-line). */
+  set_render_mode(0, 0, 1);
+  capture_stdout(wrap_render_summary, &s);
+  assert(strstr(render_cap, "| Likely text range |") != NULL);
+  assert(strstr(render_cap, "(speculative)") != NULL);
   set_render_mode(0, 0, 0);
 }
 
@@ -660,10 +667,61 @@ static void test_render_coupling_gated(void) {
   capture_stdout(wrap_render_summary, &s);
   assert(strstr(render_cap, "Phys/Virt coupling") != NULL);
 
+  /* Markdown mirrors the same gate: suppressed with no physical row, shown
+   * once one is present. */
+  set_render_mode(0, 0, 1);
+  layout.phys_kaslr_text_min = 0;
+  layout.phys_kaslr_text_max = 0;
+  s.kaslr.pslots = 0;
+  capture_stdout(wrap_render_summary, &s);
+  assert(strstr(render_cap, "Phys/Virt coupling") == NULL);
+  layout.phys_kaslr_text_min = 0x01000000ul;
+  layout.phys_kaslr_text_max = 0x10000000ul;
+  capture_stdout(wrap_render_summary, &s);
+  assert(strstr(render_cap, "Phys/Virt coupling") != NULL);
+
   layout.phys_kaslr_text_min = sp_lo;
   layout.phys_kaslr_text_max = sp_hi;
   set_render_mode(0, 0, 0);
 #endif
+}
+
+/* A reordered (non-canonical) kernel-text function order surfaces a Caution in
+ * the markdown readout, mirroring the text headline warning: a leaked address
+ * no longer generalises through a generic System.map. Canonical order is
+ * silent. */
+static void test_render_markdown_text_order_caution(void) {
+  struct summary s;
+  reset_results();
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+  memset(&s, 0, sizeof(s));
+  s.kaslr.vslots = 60; /* keep the KASLR readout path alive */
+  s.kaslr.vbits = 6;
+
+  scalar_facts[num_scalar_facts].fact = SF_TEXT_ORDER;
+  scalar_facts[num_scalar_facts].value = TEXT_ORDER_STATIC;
+  scalar_facts[num_scalar_facts].conf = CONF_PARSED;
+  snprintf(scalar_facts[num_scalar_facts].origin, ORIGIN_LEN, "fingerprint");
+  num_scalar_facts++;
+
+  set_render_mode(0, 0, 1); /* markdown */
+  capture_stdout(wrap_render_summary, &s);
+  assert(strstr(render_cap, "**Caution:**") != NULL);
+  assert(strstr(render_cap, "non-canonical") != NULL);
+
+  /* Per-boot (dynamic) variant carries the stronger wording. */
+  scalar_facts[0].value = TEXT_ORDER_DYNAMIC;
+  capture_stdout(wrap_render_summary, &s);
+  assert(strstr(render_cap, "per-boot randomized") != NULL);
+
+  /* Canonical order → no caution. */
+  scalar_facts[0].value = TEXT_ORDER_CANONICAL;
+  capture_stdout(wrap_render_summary, &s);
+  assert(strstr(render_cap, "**Caution:**") == NULL);
+
+  set_render_mode(0, 0, 0);
+  num_scalar_facts = 0;
 }
 
 /* The verbose Memory-KASLR candidate count comes from the engine's hole-aware
@@ -715,11 +773,20 @@ static void test_render_disabled_base_not_labeled_likely(void) {
   set_render_mode(0, 0, 0);
   capture_stdout(wrap_render_summary, &s);
   verbose = 0;
-  layout.virt_kaslr_text_min = smin;
-  layout.virt_kaslr_text_max = smax;
-
   assert(strstr(render_cap, "Kernel image base") != NULL);
   assert(strstr(render_cap, "Likely kernel image base") == NULL);
+
+  /* Markdown carries the same pinned base in the disabled case (not just a
+   * "KASLR is disabled" banner) — the base IS the answer when there is no
+   * slide. */
+  set_render_mode(0, 0, 1);
+  capture_stdout(wrap_render_summary, &s);
+  set_render_mode(0, 0, 0);
+  assert(strstr(render_cap, "Kernel image base") != NULL);
+  assert(strstr(render_cap, "compile-time default") != NULL);
+
+  layout.virt_kaslr_text_min = smin;
+  layout.virt_kaslr_text_max = smax;
 }
 
 /* A leaked interior sample must self-disclose "[interior]" in the leak rows so
@@ -762,6 +829,11 @@ static void test_render_markdown_with_rich_content(void) {
   assert(strstr(render_cap, "|") != NULL);
   assert(strstr(render_cap, "| Pos |") != NULL);
   assert(strstr(render_cap, "| base |") != NULL);
+  /* Verbose markdown embeds the ASCII memory-layout maps in a fenced code
+   * block (the same diagrams the text readout draws). */
+  assert(strstr(render_cap, "## Memory layout") != NULL);
+  assert(strstr(render_cap, "```") != NULL);
+  assert(strstr(render_cap, "memory layout") != NULL); /* map heading text */
   set_render_mode(0, 0, 0);
 }
 
@@ -1766,12 +1838,17 @@ static void test_hardening_projection(void) {
   assert(strstr(render_cap, "\"virt_base_entropy_forfeited\": 1") != NULL);
   assert(strstr(render_cap, "\"projected_posture\"") != NULL);
 
-  /* Markdown: the inline load-bearing verdict on the suggestion bullets. */
+  /* Markdown: the inline load-bearing verdict on the suggestion bullets, plus
+   * each suggestion's enforcement surface as a trailing [`lever`] tag — the
+   * three suggestions here sit on three distinct levers. */
   set_render_mode(0, 0, 1);
   capture_stdout(wrap_render_hardening_markdown, NULL);
   assert(strstr(render_cap,
                 "load-bearing \xe2\x80\x94 omitting forfeits 1 virtual bits") !=
          NULL);
+  assert(strstr(render_cap, "[`sysctl`]") != NULL);
+  assert(strstr(render_cap, "[`lsm`]") != NULL);
+  assert(strstr(render_cap, "[`file_permissions`]") != NULL);
 
   /* Suppressed path: the default (unavailable) stub drops every projected row.
    */
@@ -2131,6 +2208,7 @@ int main(void) {
   RUN(test_render_directmap_base_promoted);
   RUN(test_render_directmap_base_promoted_unbounded);
   RUN(test_render_coupling_gated);
+  RUN(test_render_markdown_text_order_caution);
   RUN(test_render_memory_kaslr_uses_stored_slots);
   RUN(test_render_disabled_base_not_labeled_likely);
   RUN(test_render_leak_discloses_interior);

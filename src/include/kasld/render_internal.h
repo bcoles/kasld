@@ -20,6 +20,16 @@
  */
 const char *human_size(unsigned long bytes, char *buf, size_t bufsz);
 
+/* Phys/virt text-base coupling, in one phrase shared by every renderer so the
+ * classification never drifts between formats. On coupled arches a physical
+ * leak reveals the virtual text base; on decoupled arches they randomize
+ * independently. */
+static inline const char *kasld_coupling_descr(void) {
+  return TEXT_TRACKS_DIRECTMAP
+             ? "physical and virtual text move together (coupled)"
+             : "physical and virtual text randomize independently";
+}
+
 /* Result-model helpers (mirror anchor_addr(). result_method returns the
  * strongest method in the record's method_set; origins are iterated as
  * r->origins[0..provenance_count] at the consuming renderer). */
@@ -240,6 +250,10 @@ void build_hardening_report(struct hardening_report *r);
 /* Hardening assessment renderers — each consumes a built report. text is
  * appended to text mode under -H; json is embedded under -H -j; markdown is
  * appended to markdown mode under -H -m. Defined in src/render/hardening.c. */
+/* Virtual + physical ASCII memory-layout maps (verbose). Defined in
+ * src/render/text.c; also embedded, color-free, in a markdown code block. */
+void print_memory_map(void);
+
 void render_hardening_text(void);
 void render_hardening_json(void);
 void render_hardening_markdown(void);

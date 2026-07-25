@@ -95,6 +95,33 @@ static void md_memory_kaslr_row(const char *name, unsigned long min,
            lmin, lmax);
 }
 
+/* Speculative "likely" text-base window (subset of the guaranteed range above;
+ * may be wrong), the table analogue of the text readout's "likely
+ * (speculative)" sub-line. Inert when the likely window equals the guaranteed
+ * one (lmax == 0). */
+static void md_likely_window_row(const char *label, unsigned long lmin,
+                                 unsigned long lmax) {
+  if (!lmax)
+    return;
+  if (lmin == lmax)
+    printf("| %s | `0x%016lx` (speculative) |\n", label, lmin);
+  else
+    printf("| %s | `0x%016lx` - `0x%016lx` (speculative) |\n", label, lmin,
+           lmax);
+}
+
+/* "N slots" cell, carrying the slot grain (N x <align>) when the KASLR
+ * alignment is known — the same slot/stride footer the text readout shows on a
+ * guaranteed window — plus the entropy in bits. */
+static void md_slots_cell(unsigned long slots, int bits, unsigned long align) {
+  char hbuf[32];
+  if (align)
+    printf("%lu x %s (%d bits)", slots, human_size(align, hbuf, sizeof(hbuf)),
+           bits);
+  else
+    printf("%lu (%d bits)", slots, bits);
+}
+
 /* Environment / recon vantage — same gather + confined-gating as the text
  * block: the confinement rows appear only when actually confined (otherwise the
  * values are unprivileged defaults, not restrictions). Oracle readability
@@ -168,10 +195,34 @@ void render_markdown(const struct summary *s) {
     printf("*\n\n");
   }
 
-  if (s->kaslr.unsupported)
+  /* KASLR unsupported / disabled: no slide, so the kernel base IS the answer —
+   * carry it here (the KASLR Analysis table below is skipped in these cases),
+   * mirroring the text readout's single kernel-image-base line. */
+  if (s->kaslr.unsupported) {
     printf("> **KASLR is not supported on this architecture**\n\n");
-  else if (s->kaslr.disabled)
-    printf("> **KASLR is disabled**\n\n");
+    if (s->kaslr.default_addr)
+      printf("**Kernel image base:** `0x%016lx` (arch default, no "
+             "randomization)\n\n",
+             s->kaslr.default_addr);
+  } else if (s->kaslr.disabled) {
+    printf("> **KASLR is disabled** (nokaslr / RANDOMIZE_BASE=n / "
+           "hibernation)\n\n");
+    /* Prefer the engine-resolved base (min == max pin) over the compile-time
+     * default; a narrowed window (legacy riscv64 in the linear map) is shown as
+     * a range rather than a misreported static default. */
+    if (layout.virt_kaslr_text_min == layout.virt_kaslr_text_max &&
+        layout.virt_kaslr_text_min != 0)
+      printf("**Kernel image base:** `0x%016lx` (compile-time default, no "
+             "slide)\n\n",
+             layout.virt_kaslr_text_min);
+    else if (layout.virt_kaslr_text_min || layout.virt_kaslr_text_max)
+      printf("**Kernel image base:** `0x%016lx` - `0x%016lx`\n\n",
+             layout.virt_kaslr_text_min, layout.virt_kaslr_text_max);
+    else if (s->kaslr.default_addr)
+      printf("**Kernel image base:** `0x%016lx` (compile-time default, no "
+             "slide)\n\n",
+             s->kaslr.default_addr);
+  }
 
   /* KASLR analysis. Mirrors render_kaslr_text: shown only when there is a
    * concrete base, a narrowed text range, or a Memory-KASLR bound — and never
@@ -193,14 +244,20 @@ void render_markdown(const struct summary *s) {
     if ((v_spec || !s->kaslr.vtext) && s->kaslr.vslots > 0) {
       printf("| Inferred text range | `0x%016lx` - `0x%016lx` |\n",
              layout.virt_kaslr_text_min, layout.virt_kaslr_text_max);
-      printf("| Remaining slots | %lu (%d bits) |\n", s->kaslr.vslots,
-             s->kaslr.vbits);
+      md_likely_window_row("Likely text range", s->kaslr.vlikely_min,
+                           s->kaslr.vlikely_max);
+      printf("| Remaining slots | ");
+      md_slots_cell(s->kaslr.vslots, s->kaslr.vbits, layout.virt_kaslr_align);
+      printf(" |\n");
     }
     if ((p_spec || !s->kaslr.ptext) && s->kaslr.pslots > 0) {
       printf("| Inferred phys text range | `0x%016lx` - `0x%016lx` |\n",
              layout.phys_kaslr_text_min, layout.phys_kaslr_text_max);
-      printf("| Remaining phys slots | %lu (%d bits) |\n", s->kaslr.pslots,
-             s->kaslr.pbits);
+      md_likely_window_row("Likely phys text range", s->kaslr.plikely_min,
+                           s->kaslr.plikely_max);
+      printf("| Remaining phys slots | ");
+      md_slots_cell(s->kaslr.pslots, s->kaslr.pbits, layout.phys_kaslr_align);
+      printf(" |\n");
     }
 
     if (s->kaslr.vtext) {
@@ -229,6 +286,19 @@ void render_markdown(const struct summary *s) {
              s->kaslr.pslots);
     }
 
+    /* Phys/virt coupling — the static classification the text readout carries,
+     * so a markdown report states whether a physical leak reveals the virtual
+     * text base or the two randomize independently. Its job is to relate the
+     * physical and virtual bases, so (mirroring the text readout) it earns a
+     * row only when there is a physical dimension to relate to: always on
+     * coupled arches, and on decoupled arches only when a physical row shows.
+     */
+    int phys_row_shown = s->kaslr.has_phys || s->kaslr.pslots > 0 ||
+                         layout.phys_kaslr_text_min ||
+                         layout.phys_kaslr_text_max;
+    if (TEXT_TRACKS_DIRECTMAP || phys_row_shown)
+      printf("| Phys/Virt coupling | %s |\n", kasld_coupling_descr());
+
     /* Memory KASLR (CONFIG_RANDOMIZE_MEMORY) region bounds. */
     md_memory_kaslr_row("Direct map base", s->kaslr.virt_page_offset_min,
                         s->kaslr.virt_page_offset_max,
@@ -242,6 +312,36 @@ void render_markdown(const struct summary *s) {
         s->kaslr.virt_vmemmap_likely_min, s->kaslr.virt_vmemmap_likely_max);
 
     printf("\n");
+  }
+
+  /* Non-canonical kernel-text function order caution — the table analogue of
+   * the text readout's headline warning (shown outside -H; the -H Function
+   * layout section carries the full detail). A reordered layout means a leaked
+   * address no longer generalises through a generic System.map. */
+  {
+    enum kasld_text_order to = resolve_text_order(NULL);
+    if (to == TEXT_ORDER_DYNAMIC)
+      printf("> **Caution:** kernel-text function order is per-boot randomized "
+             "— a leak pins only that symbol; no static `System.map` resolves "
+             "the rest (see `-H`).\n\n");
+    else if (to == TEXT_ORDER_STATIC)
+      printf("> **Caution:** non-canonical kernel-text function order — use "
+             "this build's exact `System.map`, not a generic one (see "
+             "`-H`).\n\n");
+  }
+
+  /* Memory-layout maps (verbose): the same virtual + physical ASCII
+   * address-space diagrams the text readout draws, embedded in a fenced code
+   * block so the monospaced alignment survives markdown rendering. Color is
+   * forced off around the call so no ANSI escape leaks into the block (markdown
+   * never colors, but -m -c would otherwise reach the shared c() macro). */
+  if (verbose) {
+    int saved_color = color_output; /* declared in internal.h */
+    color_output = 0;
+    printf("## Memory layout\n\n```\n");
+    print_memory_map();
+    printf("```\n\n");
+    color_output = saved_color;
   }
 
   /* Result groups */

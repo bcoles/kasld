@@ -1517,7 +1517,7 @@ static int handle_component_line(struct component_log *clog,
   memcpy(line, content, len);
   line[len] = '\0';
 
-  if (verbose && !json_output)
+  if (verbose && plain_output())
     printf("%s\n", line);
 
   /* Capture line for verbose / JSON-with-output. Allocated on first use and
@@ -1601,10 +1601,10 @@ static int run_component(const struct component *c) {
   const char *method_val = meta_get(&tmp_meta, "method");
   const char *comp_method = method_val ? method_val : "parsed";
 
-  if (verbose && !json_output)
+  if (verbose && plain_output())
     print_component_banner(c->name, comp_method);
 
-  if (explain_mode && explain_str && !json_output) {
+  if (explain_mode && explain_str && plain_output()) {
     /* `c` names the component parameter in this function, shadowing the c()
      * colour helper, so reference the colour codes directly. */
     const char *dim = color_output ? C_DIM : "";
@@ -3124,7 +3124,7 @@ static void engine_resolve(struct engine *e) {
   engine_run_full_floored(e, KASLD_SOUND_FLOOR, rules, n_rules, vrules,
                           n_vrules);
 
-  if (verbose && !json_output) {
+  if (verbose && plain_output()) {
     engine_report_conflicts(e);
     engine_report_corroboration(e);
     engine_report_saturation(e);
@@ -3794,7 +3794,7 @@ int main(int argc, char *argv[]) {
 
   /* Verbose: list components excluded by --skip or, under KASLD_SYSROOT, by the
    * offline live-probe filter (apply_sysroot_filter). */
-  if (verbose && !json_output) {
+  if (verbose && plain_output()) {
     const char *sysroot = getenv("KASLD_SYSROOT");
     int offline = sysroot && *sysroot;
     for (int i = 0; i < num_components; i++) {
