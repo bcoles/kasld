@@ -463,6 +463,37 @@ elif [ -n "$ptext" ]; then
   nare "phys image_base"    "resolved 0x$ptext (no truth)"
 fi
 
+# RANDOMIZE_MEMORY region windows (direct map / vmalloc / vmemmap). Truth for
+# each region base is the variable's VALUE, captured from /proc/kcore into the
+# kcore-region-truth frame (a few bytes — never kcore itself). Absent on arches
+# without CONFIG_RANDOMIZE_MEMORY, or from a bundle captured before this frame
+# existed, in which case the region is N/A (or silent when kasld resolves no
+# window for it either). A region base outside its resolved window is a
+# soundness bug, same criterion as the text base.
+RT=$BUNDLE/sysroot/kcore-region-truth
+for _reg in page_offset:page_offset_base vmalloc:vmalloc_base vmemmap:vmemmap_base; do
+  _rlabel=${_reg%%:*}; _rsym=${_reg#*:}
+  _rtruth=""
+  [ -s "$RT" ] && _rtruth=$(sed -n "s/^region_truth $_rsym = 0x\([0-9a-fA-F]*\).*/\1/p" "$RT" | head -1)
+  _rwmin=$(get ".kaslr.memory_kaslr.virt_${_rsym}.min")
+  _rwmax=$(get ".kaslr.memory_kaslr.virt_${_rsym}.max")
+  if [ -n "$_rwmin" ] && [ -n "$_rwmax" ]; then
+    _rwmin=$(hex16 "$_rwmin"); _rwmax=$(hex16 "$_rwmax")
+    if [ -n "$_rtruth" ]; then
+      _rtruth=$(hex16 "$_rtruth")
+      if hex_in "$_rtruth" "$_rwmin" "$_rwmax"; then
+        pass "$_rlabel window" "[0x$_rwmin, 0x$_rwmax] ∋ 0x$_rtruth"
+      else
+        fail "$_rlabel window" "[0x$_rwmin, 0x$_rwmax] ∌ 0x$_rtruth"
+      fi
+    else
+      nare "$_rlabel window" "no kcore region truth (window: [0x$_rwmin, 0x$_rwmax])"
+    fi
+  elif [ -n "$_rtruth" ]; then
+    nare "$_rlabel window" "truth 0x$(hex16 "$_rtruth") but no resolved window"
+  fi
+done
+
 echo
 read -r p f s < "$TMP/counts"
 total=$((p + f + s))

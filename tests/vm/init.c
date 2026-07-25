@@ -17,6 +17,7 @@
 // <bcoles@gmail.com>
 #define _GNU_SOURCE
 #include <dirent.h>
+#include <elf.h>
 #include <fcntl.h>
 #include <grp.h>
 #include <linux/reboot.h>
@@ -107,6 +108,118 @@ static void dump_iomem_kernel(void) {
         strstr(line, "System RAM"))
       fputs(line, stdout);
   fclose(f);
+  printf("\n");
+}
+
+/* ------------------------------------------------------------------------
+ * RANDOMIZE_MEMORY region ground truth (/proc/kcore).
+ *
+ * On x86_64 the direct map, vmalloc and vmemmap regions are randomized
+ * independently of the text base (CONFIG_RANDOMIZE_MEMORY); their bases are the
+ * kernel variables page_offset_base / vmalloc_base / vmemmap_base. Each
+ * variable's *value* is the ground truth for the matching resolved window —
+ * and, unlike the text base, it is not in kallsyms (kallsyms carries the
+ * variable's address, not its content). It is read from /proc/kcore, a sparse
+ * ELF core of kernel memory: only the ELF program headers plus one word per
+ * region are read (a few KiB), never the multi-terabyte whole. Needs root +
+ * kptr=0 + CONFIG_PROC_KCORE; a silent no-op otherwise (an arch without these
+ * symbols, or no kcore), which the harness treats as "no region truth".
+ * ------------------------------------------------------------------------ */
+#if __SIZEOF_POINTER__ == 8
+typedef Elf64_Ehdr kc_ehdr;
+typedef Elf64_Phdr kc_phdr;
+#else
+typedef Elf32_Ehdr kc_ehdr;
+typedef Elf32_Phdr kc_phdr;
+#endif
+
+/* Address of `sym` in /proc/kallsyms (root/kptr=0 → real values). 0 if absent.
+ */
+static unsigned long kallsyms_addr(const char *sym) {
+  FILE *f = fopen("/proc/kallsyms", "r");
+  if (!f)
+    return 0;
+  size_t slen = strlen(sym);
+  unsigned long addr = 0;
+  char line[512];
+  while (fgets(line, sizeof line, f)) {
+    /* "ADDR TYPE NAME [MODULE]\n" — compare the 3rd field to sym exactly. */
+    char *p = line;
+    while (*p && *p != ' ')
+      p++;
+    char *aend = p;
+    while (*p == ' ')
+      p++;
+    while (*p && *p != ' ')
+      p++; /* type */
+    while (*p == ' ')
+      p++;
+    char *name = p;
+    while (*p && *p != ' ' && *p != '\n')
+      p++;
+    if ((size_t)(p - name) == slen && strncmp(name, sym, slen) == 0) {
+      *aend = '\0';
+      addr = strtoul(line, NULL, 16);
+      break;
+    }
+  }
+  fclose(f);
+  return addr;
+}
+
+/* Read one native word at kernel virtual address `addr` from /proc/kcore by
+ * walking the PT_LOAD program headers to the segment that covers it. Returns 1
+ * and sets *out on success (only the headers + one word are read). */
+static int kcore_read_word(unsigned long addr, unsigned long *out) {
+  int fd = open("/proc/kcore", O_RDONLY);
+  if (fd < 0)
+    return 0;
+  int ok = 0;
+  kc_ehdr eh;
+  if (pread(fd, &eh, sizeof eh, 0) == (ssize_t)sizeof eh &&
+      memcmp(eh.e_ident, ELFMAG, SELFMAG) == 0) {
+    for (unsigned i = 0; i < eh.e_phnum; i++) {
+      kc_phdr ph;
+      off_t poff = (off_t)eh.e_phoff + (off_t)i * eh.e_phentsize;
+      if (pread(fd, &ph, sizeof ph, poff) != (ssize_t)sizeof ph)
+        break;
+      if (ph.p_type != PT_LOAD || ph.p_memsz == 0)
+        continue;
+      if (addr >= ph.p_vaddr && addr - ph.p_vaddr < ph.p_memsz) {
+        off_t foff = (off_t)ph.p_offset + (off_t)(addr - ph.p_vaddr);
+        unsigned long v;
+        if (pread(fd, &v, sizeof v, foff) == (ssize_t)sizeof v) {
+          *out = v;
+          ok = 1;
+        }
+        break;
+      }
+    }
+  }
+  close(fd);
+  return ok;
+}
+
+/* The RANDOMIZE_MEMORY region bases whose live soundness tests/vm/run gates. */
+static const char *const region_syms[] = {"page_offset_base", "vmalloc_base",
+                                          "vmemmap_base"};
+
+/* Ground truth for the randomized region bases. One "region_truth <name> =
+ * 0x<value>" line per region that resolves; nothing where kcore/the symbols are
+ * absent. Emitted alongside the kallsyms/iomem truth so tests/vm/run can gate
+ * each region's resolved window the same way it gates the text base. */
+static void dump_region_kaslr_truth(void) {
+  printf("=== region kaslr truth (/proc/kcore) ===\n");
+  int any = 0;
+  for (unsigned i = 0; i < sizeof region_syms / sizeof region_syms[0]; i++) {
+    unsigned long addr = kallsyms_addr(region_syms[i]), val;
+    if (addr && kcore_read_word(addr, &val)) {
+      printf("region_truth %s = 0x%lx\n", region_syms[i], val);
+      any = 1;
+    }
+  }
+  if (!any)
+    printf("  <none — not randomized on this arch, or kcore unreadable>\n");
   printf("\n");
 }
 
@@ -301,6 +414,21 @@ static void capture_bundle(void) {
   for (unsigned i = 0; i < sizeof files / sizeof files[0]; i++)
     capture_file(files[i]);
   capture_kallsyms(); /* landmark lines only (see capture_kallsyms) */
+  /* RANDOMIZE_MEMORY region truth: the resolved VALUES (a few bytes), read from
+   * kcore here — never kcore itself, which is terabyte-sparse. Carried as a
+   * small synthetic frame so a fixture can gate the region windows offline. */
+  {
+    unsigned char buf[256];
+    int n = 0;
+    for (unsigned i = 0; i < sizeof region_syms / sizeof region_syms[0]; i++) {
+      unsigned long addr = kallsyms_addr(region_syms[i]), val;
+      if (addr && kcore_read_word(addr, &val))
+        n += snprintf((char *)buf + n, sizeof buf - (size_t)n,
+                      "region_truth %s = 0x%lx\n", region_syms[i], val);
+    }
+    if (n > 0)
+      emit_frame("/kcore-region-truth", buf, (unsigned long)n);
+  }
   capture_tree("/sys/firmware/memmap");
   capture_tree("/proc/device-tree/chosen");
   capture_tree("/proc/device-tree/rtas");
@@ -451,6 +579,7 @@ int main(void) {
   dump_file("/proc/cmdline", "cmdline");
   dump_kallsyms_landmarks();
   dump_iomem_kernel();
+  dump_region_kaslr_truth();
   printf("=== presence probes ===\n");
   printf("/sys/firmware/efi: %d   /proc/device-tree: %d   "
          "/proc/device-tree/chosen/kaslr-seed: %d\n",

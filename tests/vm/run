@@ -248,6 +248,33 @@ phys_verdict() {
   if hexle "$_plo" "$_pt" && hexle "$_pt" "$_phi"; then echo Y; else echo N; fi
 }
 
+# region_verdict <log>: gates the RANDOMIZE_MEMORY region bases (direct map,
+# vmalloc, vmemmap). Each truth the init reads from /proc/kcore (the
+# "region_truth <sym> = 0x..." lines) must lie inside its resolved window
+# (the "virt_<region>_base" {min,max} in -j). Prints:
+#   Y        every captured region truth is inside its window
+#   NA       no region truth captured (arch without RANDOMIZE_MEMORY, or no kcore)
+#   N:<sym>  <sym>'s truth is outside its resolved window (a soundness violation)
+region_verdict() {
+  _rlog=$1
+  _rany=0
+  for _rp in page_offset_base:virt_page_offset_base \
+             vmalloc_base:virt_vmalloc_base \
+             vmemmap_base:virt_vmemmap_base; do
+    _rsym=${_rp%%:*}; _rkey=${_rp#*:}
+    _rt=$(grep -am1 -oE "region_truth $_rsym = 0x[0-9a-fA-F]+" "$_rlog" | grep -oE '0x[0-9a-fA-F]+')
+    [ -n "$_rt" ] || continue
+    _rany=1
+    _rwin=$(grep -am1 -oE "\"$_rkey\": \{[^}]*\}" "$_rlog")
+    _rmin=$(printf '%s' "$_rwin" | grep -oE '0x[0-9a-fA-F]+' | sed -n 1p)
+    _rmax=$(printf '%s' "$_rwin" | grep -oE '0x[0-9a-fA-F]+' | sed -n 2p)
+    _rtn=$(norm "$_rt"); _rlo=$(norm "$_rmin"); _rhi=$(norm "$_rmax")
+    { [ -n "$_rlo" ] && [ -n "$_rhi" ]; } || continue # truth but no window -> can't gate
+    if hexle "$_rlo" "$_rtn" && hexle "$_rtn" "$_rhi"; then :; else echo "N:$_rsym"; return; fi
+  done
+  [ "$_rany" = 1 ] && echo Y || echo NA
+}
+
 # verdict <log>: prints "PASS|FAIL|N/A  <detail>" and returns 0 only on PASS/NA.
 # Gates on BOTH axes: the virtual text base AND (on decoupled arches) the physical
 # image base must lie inside their resolved windows.
@@ -275,8 +302,14 @@ verdict() {
     echo "FAIL  phys base OUTSIDE resolved window — soundness violation (virt truth=$_truth ∈ [$_min,$_max])"
     return 1
   fi
+  _rv=$(region_verdict "$_log")
+  case "$_rv" in
+    N:*)
+      echo "FAIL  region ${_rv#N:} OUTSIDE resolved window — soundness violation (text/phys sound)"
+      return 1 ;;
+  esac
   _rec=N; [ "$_lo" = "$_hi" ] && _rec=Y
-  echo "PASS  truth=$_truth ∈ [$_min,$_max] recovered=$_rec phys=$_pv"
+  echo "PASS  truth=$_truth ∈ [$_min,$_max] recovered=$_rec phys=$_pv region=$_rv"
   return 0
 }
 
@@ -801,6 +834,14 @@ cmd_table() {
         bad="${bad}  $a/$scen: phys base OUTSIDE resolved window — soundness violation${nl}"
         continue
       fi
+      # SOUNDNESS GATE (RANDOMIZE_MEMORY regions): each region base whose truth
+      # was read from kcore (page_offset / vmalloc / vmemmap) must lie inside its
+      # resolved window. NA where no region truth was captured (not RANDOMIZE_-
+      # MEMORY, or no kcore). Not rendered as a column — a gate only.
+      rv=$(region_verdict "$log")
+      case "$rv" in
+        N:*) bad="${bad}  $a/$scen: region ${rv#N:} base OUTSIDE resolved window — soundness violation${nl}"; continue ;;
+      esac
       kas=on; [ "$disabled" = true ] && kas=off
       # Kernel source: a mainline kernel.org build (TABLE flavor "local") vs an
       # Alpine distro kernel.
