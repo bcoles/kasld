@@ -1,0 +1,207 @@
+.TH KSYMOFF 1 "2026-07-25" "kasld 0.3.1\-dev" "KASLD Manual"
+.SH NAME
+ksymoff \- apply a KASLR slide to kernel symbols and translate addresses
+.SH SYNOPSIS
+.B ksymoff
+.RB [ \-b
+.IR BASE " | " \-\-from
+.IR NAME = ADDR ]
+.BI \-s " SOURCE"
+.RB [ \-\-slide ]
+.RI [ SYMBOL " ...]"
+.br
+.B ksymoff
+.BI \-\-page\-offset " BASE"
+.RB { \-\-phys2virt
+.IR ADDR " | " \-\-virt2phys
+.IR ADDR }
+.br
+.B ksymoff
+.BI \-\-vmemmap " BASE"
+.RB [ \-\-page\-size
+.IR N "] [" \-\-page\-shift
+.IR N ]
+.BI \-\-phys2page " ADDR"
+.SH DESCRIPTION
+.B ksymoff
+applies a KASLR slide to kernel symbols, derives the slide and text base from a
+known runtime symbol address, or translates physical and virtual addresses
+through the direct map.
+It works against
+.IR System.map ,
+.I /proc/kallsyms
+snapshots, and a
+.I vmlinux
+ELF built with debug symbols.
+.SS Modes
+.TP
+.B Forward
+Given the runtime text base, print runtime addresses for one or more symbols,
+or for every symbol in the source when none are listed.
+.TP
+.B Inverse
+Given a known runtime symbol address
+.RB ( \-\-from
+.IR NAME = ADDR ),
+derive the runtime text base. Combine it with positional symbol names to chain
+into a forward lookup \(em one leaked address yields many.
+.TP
+.B Slide
+With
+.BR \-\-slide ,
+print only the KASLR slide (signed hex). Combines with either mode above.
+.TP
+.B Physical
+Translate physical and virtual addresses through the direct map, for data-only
+pivots that operate on physical addresses. These need a base rather than a
+symbol source.
+.PP
+The runtime text base is supplied in one of three ways, in priority order:
+.B \-\-from
+.IR NAME = ADDR ;
+.B \-b
+.IR BASE ;
+or a
+.B "kasld \-1"
+line piped on standard input (the
+.I text=
+field is read).
+.SH OPTIONS
+.TP
+.BR \-b ", " "\-\-base " \fIBASE\fR
+Runtime text base (hex, with or without a
+.I 0x
+prefix).
+.TP
+.BR \-s ", " "\-\-symbols " \fIFILE\fR
+Symbol source:
+.IR System.map ,
+a kallsyms dump, or a
+.I vmlinux
+ELF. Required for the symbol modes.
+.TP
+.BI \-\-from " NAME=ADDR"
+Known runtime symbol address; derives the base. Mutually exclusive with
+.BR \-b .
+.TP
+.B \-\-slide
+Print only the slide.
+.TP
+.BI \-\-page\-offset " BASE"
+Direct-map base
+.RI ( page_offset_base )
+for
+.B \-\-phys2virt
+and
+.BR \-\-virt2phys ,
+or piped from
+.B "kasld \-1"
+(the
+.I dmap=
+field).
+.TP
+.BI \-\-phys2virt " ADDR"
+Print the direct-map virtual address of a physical address.
+.TP
+.BI \-\-virt2phys " ADDR"
+Print the physical address of a direct-map virtual address.
+.TP
+.BI \-\-vmemmap " BASE"
+The vmemmap base (the
+.I struct page
+array), for
+.BR \-\-phys2page .
+.TP
+.BI \-\-page\-size " N"
+.IR sizeof(struct\ page) " (default: 64)."
+.TP
+.BI \-\-page\-shift " N"
+Page shift,
+.IR log2 (page\ size)
+(default: 12, i.e. 4 KiB).
+.TP
+.BI \-\-phys2page " ADDR"
+Print the
+.I struct page *
+for a physical address.
+.TP
+.BR \-h ", " \-\-help
+Show the full help and exit.
+.SH REORDERED-TEXT KERNELS
+.B ksymoff
+assumes a single KASLR slide \(em a canonical, source/link-order function
+layout, where every symbol sits at a fixed offset from the text base.
+This is false on reordered-text kernels: under function-granular KASLR each
+function is moved independently per boot (no single slide, so one leak pins
+only that one symbol), and under LTO, AutoFDO, or Propeller the offsets come
+from that exact build only (a generic version-level
+.I System.map
+mis-resolves).
+Check the layout first with
+.B "kasld \-H"
+(the function-layout line) or the
+.I text_order
+field of
+.BR "kasld \-H \-j" :
+proceed only for a
+.I canonical
+layout; for a static reorder use the build_id-matched map; for a per-boot
+reorder do not use
+.B ksymoff
+for chaining.
+.SH EXAMPLES
+.PP
+Forward \(em look up specific symbols:
+.PP
+.RS
+.EX
+ksymoff \-b 0xffffffff82200000 \-s System.map commit_creds
+kasld \-1 | ksymoff \-s System.map commit_creds
+.EE
+.RE
+.PP
+Inverse \(em derive the text base from one known symbol, then chain:
+.PP
+.RS
+.EX
+ksymoff \-\-from commit_creds=0xffffffff82345678 \-s vmlinux \e
+        prepare_kernel_cred init_cred modprobe_path
+.EE
+.RE
+.PP
+Translate physical to direct-map virtual, and a physical address to its
+.IR "struct page" :
+.PP
+.RS
+.EX
+ksymoff \-\-page\-offset 0xffff9e8000000000 \-\-phys2virt 0x34600000
+ksymoff \-\-vmemmap 0xffffea0000000000 \-\-phys2page 0x34600000
+.EE
+.RE
+.SH NOTES
+The symbol source must correspond to the running kernel; a mismatch produces
+wrong addresses without error. The
+.B kernel_notes_buildid
+component prints the GNU build_id from
+.IR /sys/kernel/notes ;
+.B readelf \-n
+prints the build_id embedded in a
+.IR vmlinux .
+Equal values mean the
+.I vmlinux
+matches the running kernel.
+.PP
+.B ksymoff
+requires
+.BR bash (1)
+for 64-bit hex arithmetic, and
+.BR nm (1)
+or
+.BR readelf (1)
+only when the symbol source is an ELF file.
+.SH SEE ALSO
+.BR kasld (1),
+.BR nm (1),
+.BR readelf (1)
+.SH AUTHOR
+KASLD is maintained by bcoles <bcoles@gmail.com>.

@@ -1,0 +1,176 @@
+.TH KASLD 1 "2026-07-25" "kasld 0.3.1\-dev" "KASLD Manual"
+.SH NAME
+kasld \- recover the Linux kernel memory layout and defeat KASLR
+.SH SYNOPSIS
+.B kasld
+.RI [ OPTIONS ]
+.SH DESCRIPTION
+.B kasld
+recovers the Linux kernel's virtual and physical memory layout \(em primarily
+the kernel text base \(em from a local process, using as much as the process's
+vantage allows: its privileges and capabilities, the system's configuration,
+and any container confinement.
+It recovers the kernel text base outright where a leak or side channel allows,
+and otherwise narrows it to the smallest set of placements the available
+evidence supports.
+.PP
+An inference engine fuses evidence from dozens of independent techniques with
+the architecture's known invariants, narrowing the kernel's placement to a
+residual window \(em reported as the surviving slot count and bits of entropy.
+That residual window is an upper bound on the protection KASLR retains from
+this vantage, not a guarantee the base is beyond an attacker's reach; see
+.I limitations.md
+under the installed documentation.
+On architectures without KASLR the engine locates the bootloader-chosen load
+address.
+.PP
+Each leak technique is a standalone component binary, discovered and executed
+at run time (see
+.B FILES
+and
+.BR ENVIRONMENT ).
+The default output is a compact text readout; alternative machine-readable
+formats are selected with the options below.
+.SH OPTIONS
+.SS Output format (mutually exclusive)
+.TP
+.BR \-j ", " \-\-json
+Machine-readable JSON output.
+.TP
+.BR \-1 ", " \-\-oneline
+Single-line summary output.
+.TP
+.BR \-m ", " \-\-markdown
+Markdown table output.
+.SS Output detail
+.TP
+.BR \-v ", " \-\-verbose
+Show component output, the KASLR analysis, and the memory map.
+.TP
+.BR \-e ", " \-\-explain
+Show technique explanations before each component (implies
+.BR \-\-verbose ).
+.TP
+.BR \-q ", " \-\-quiet
+Suppress the banner, progress, and warnings.
+.TP
+.BR \-c ", " \-\-color
+Colourize text output (auto-detected for TTYs).
+.TP
+.BR \-H ", " \-\-hardening
+Append the hardening assessment to text and markdown output.
+.SS Component control
+.TP
+.BR \-x ", " \-\-experimental
+Enable experimental components.
+.TP
+.BR \-s ", " "\-\-skip " \fIPATTERN\fR
+Skip matching components (glob, comma-separated; the flag may repeat).
+.TP
+.BR \-t ", " "\-\-timeout " \fIN\fR
+Per-component timeout in seconds (default: 30).
+.TP
+.BR \-f ", " \-\-fast
+Shortcut for a 2-second per-component timeout
+.RB ( \-\-timeout
+wins if both are given).
+.TP
+.BR \-w ", " "\-\-workers " \fIN\fR
+Parallel component workers (default: the number of online CPUs; 0 = sequential).
+.SS Miscellaneous
+.TP
+.BR \-V ", " \-\-version
+Print the version and exit.
+.TP
+.BR \-h ", " \-\-help
+Show a usage summary and exit.
+.PP
+Short flags may be bundled:
+.B \-fq
+is
+.BR "\-f \-q" .
+A value-taking flag
+.RB ( \-s ,
+.BR \-t ,
+.BR \-w )
+may appear only last in a bundle, taking the next argument.
+.SH EXIT STATUS
+.TP
+.B 0
+Ran to completion and recovered at least one leak result.
+.TP
+.B 1
+Ran to completion but no leak produced a result. This is a valid outcome, not
+an error: a hardened host that yields nothing is the success case. The KASLR
+window analysis and, with
+.BR \-H ,
+the hardening assessment are still reported.
+.TP
+.B 2
+Usage error, conflicting output-format flags, or the component directory could
+not be found.
+.SH ENVIRONMENT
+.TP
+.B KASLD_COMPONENT_DIR
+Directory to load component binaries from, overriding the default search
+(see
+.BR FILES ).
+.TP
+.B KASLD_SYSROOT
+Treat this path as the filesystem root when reading kernel facts, for offline
+replay of a captured tree. Components that depend on live runtime state are
+skipped.
+.TP
+.B KASLD_EXPERIMENTAL
+When set, enable experimental components, equivalent to
+.BR \-\-experimental .
+.SH FILES
+.TP
+.I <bindir>/../libexec/kasld/
+Installed component binaries (FHS layout). The search order is
+.B KASLD_COMPONENT_DIR
+first, then
+.I components/
+beside the
+.B kasld
+binary, then
+.I ../libexec/kasld/
+relative to it.
+.TP
+.I <prefix>/share/doc/kasld/
+Installed documentation.
+.SH EXAMPLES
+.PP
+Default text readout:
+.PP
+.RS
+.EX
+kasld
+.EE
+.RE
+.PP
+Machine-readable JSON, with the hardening assessment:
+.PP
+.RS
+.EX
+kasld \-H \-j
+.EE
+.RE
+.PP
+Pipe the one-line summary into
+.BR ksymoff (1)
+to resolve a symbol at its runtime address:
+.PP
+.RS
+.EX
+kasld \-1 | ksymoff \-s System.map commit_creds
+.EE
+.RE
+.SH SEE ALSO
+.BR ksymoff (1)
+.PP
+The guides under
+.I <prefix>/share/doc/kasld/
+cover usage, exploitation, and the inference engine in depth.
+.SH AUTHOR
+KASLD is maintained by bcoles <bcoles@gmail.com>.
