@@ -15,6 +15,11 @@ uninitialized kernel memory to userspace, brute-forcing memory layout
 constraints, taking advantage of weak randomization entropy, leveraging
 patched kernel info leak bugs, and using arbitrary read primitives.
 
+Grouped by what a leak needs — from reading an interface, through measuring or
+inferring, to exploiting a bug:
+
+![KASLR bypass technique map: eight technique categories in three bands by requirement — read an interface (filesystem leaks, syscall and interface leaks, ioctl leaks), measure or infer (side-channels, brute force, weak entropy), and exploit a bug (patched kernel bugs, arbitrary read)](diagrams/bypass-technique-map.svg)
+
 ## Table of Contents
 
 - [Filesystem leaks](#filesystem-leaks)

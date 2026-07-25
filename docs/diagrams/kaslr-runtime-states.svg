@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="536" viewBox="0 0 960 536" font-family="sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#37474f"/>
+    </marker>
+    <style>
+      .title { font-size: 22px; font-weight: 700; fill: #263238; }
+      .sub   { font-size: 13px; fill: #546e7a; }
+      .q     { font-size: 13.5px; font-weight: 700; fill: #37474f; }
+      .qs    { font-family: monospace; font-size: 10.5px; fill: #607d8b; }
+      .tt    { font-size: 14px; font-weight: 700; }
+      .ts    { font-size: 11px; fill: #455a64; }
+      .flow  { stroke: #37474f; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+      .elab  { font-size: 11.5px; font-weight: 700; fill: #37474f; }
+      .note  { font-size: 11.5px; fill: #607d8b; }
+      .mono  { font-family: monospace; font-size: 11px; }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="100%" height="100%" fill="#ffffff"/>
+
+  <text x="32" y="40" class="title">KASLD &#8212; KASLR Runtime States</text>
+  <text x="32" y="62" class="sub">On any boot a KASLR-capable kernel lands in one of four states. KASLD reports them distinctly &#8212; three yield 0 bits, but they are not interchangeable.</text>
+
+  <!-- decision nodes (left) -->
+  <rect x="48" y="100" width="372" height="60" rx="8" fill="#eceff1" stroke="#78909c" stroke-width="1.5"/>
+  <text x="64" y="126" class="q">Architecture has KASLR machinery?</text>
+  <text x="64" y="146" class="qs">no: arm32, PowerPC64, RISC-V32, SPARC</text>
+
+  <rect x="48" y="190" width="372" height="74" rx="8" fill="#eceff1" stroke="#78909c" stroke-width="1.5"/>
+  <text x="64" y="214" class="q">Opted out of KASLR?</text>
+  <text x="64" y="232" class="qs">nokaslr, RANDOMIZE_BASE=n, hibernation resume,</text>
+  <text x="64" y="248" class="qs">kexec_file, kdump elfcorehdr, non-EFI no seed</text>
+
+  <rect x="48" y="294" width="372" height="60" rx="8" fill="#eceff1" stroke="#78909c" stroke-width="1.5"/>
+  <text x="64" y="320" class="q">Boot entropy source available?</text>
+  <text x="64" y="340" class="qs">EFI_RNG / FDT kaslr-seed / CPU PRNG / free memory</text>
+
+  <!-- flow between decisions -->
+  <path d="M234 160 L234 190" class="flow"/>
+  <text x="242" y="180" class="elab">yes</text>
+  <path d="M234 264 L234 294" class="flow"/>
+  <text x="242" y="284" class="elab">no</text>
+  <path d="M234 354 L234 410 L556 410" class="flow"/>
+  <text x="242" y="374" class="elab">yes</text>
+
+  <!-- exit arrows to terminals -->
+  <path d="M420 122 L556 122" class="flow"/>
+  <text x="470" y="114" class="elab">no</text>
+  <path d="M420 222 L556 222" class="flow"/>
+  <text x="446" y="214" class="elab">yes &#8212; opted out</text>
+  <path d="M420 320 L556 320" class="flow"/>
+  <text x="452" y="312" class="elab">no seed</text>
+
+  <!-- terminal: UNSUPPORTED (grey) -->
+  <rect x="560" y="96" width="376" height="56" rx="8" fill="#f5f5f5" stroke="#9e9e9e" stroke-width="1.5"/>
+  <text x="576" y="120" class="tt" fill="#616161">UNSUPPORTED</text>
+  <text x="576" y="140" class="ts">0 bits &#183; arch has no KASLR &#183; virt fixed, phys bootloader-set</text>
+
+  <!-- terminal: DISABLED (green) -->
+  <rect x="560" y="192" width="376" height="60" rx="8" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.5"/>
+  <text x="576" y="216" class="tt" fill="#1b5e20">DISABLED</text>
+  <text x="576" y="236" class="ts">0 bits &#183; lands at the compile-time default &#183; fully predictable</text>
+
+  <!-- terminal: RANDOMIZATION FAILED (amber) -->
+  <rect x="560" y="290" width="376" height="68" rx="8" fill="#fff3e0" stroke="#fb8c00" stroke-width="1.5"/>
+  <text x="576" y="314" class="tt" fill="#e65100">RANDOMIZATION FAILED</text>
+  <text x="576" y="333" class="ts">0 bits, but lands at a firmware-chosen position &#8212; NOT the default.</text>
+  <text x="576" y="349" class="ts">Per-host deterministic (fingerprintable across boots).</text>
+
+  <!-- terminal: ACTIVE (blue) -->
+  <rect x="560" y="382" width="376" height="58" rx="8" fill="#e3f2fd" stroke="#1976d2" stroke-width="1.5"/>
+  <text x="576" y="406" class="tt" fill="#0d47a1">ACTIVE</text>
+  <text x="576" y="426" class="ts">full entropy &#183; uniform over valid_slots &#183; needs a leak / side channel</text>
+
+  <!-- callout: the load-bearing distinction -->
+  <line x1="32" y1="462" x2="928" y2="462" stroke="#e0a86a" stroke-width="1"/>
+  <text x="32" y="484" class="note" fill="#b65c00" font-weight="700">Disabled vs Randomization-failed &#8212; same dmesg prefix, different landing.</text>
+  <text x="32" y="502" class="note">Both log <tspan class="mono">KASLR disabled</tspan>, but Disabled sits at the link-time default (safe to pin) while Failed sits at a firmware position (must NOT be pinned to default).</text>
+  <text x="32" y="520" class="note">KASLD emits distinct facts &#8212; <tspan class="mono">SF_*_KASLR_DISABLED</tspan> vs <tspan class="mono">SF_*_KASLR_RANDOMIZATION_FAILED</tspan> &#8212; and the latter never sets <tspan class="mono">kaslr.disabled</tspan>.</text>
+</svg>

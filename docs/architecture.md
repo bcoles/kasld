@@ -269,7 +269,11 @@ floor* (`CONF_INFERRED`): only observations and constraints at or above the floo
 are in scope, so it rests purely on proven signals. The **likely** window is the
 same resolution with *every* signal admitted (floor `CONF_BRUTE`), including the
 sub-floor ones — timing side-channels, fingerprint heuristics, best-guess
-defaults.
+defaults. Both windows nest on the address axis — likely inside guaranteed inside
+the honest arch window — and the confidence floor decides which signals may build
+each:
+
+![Two-window resolution: an address axis with the likely window nested inside the guaranteed window inside the honest arch window and the true base marked inside them, alongside the confidence ladder split by the sound floor CONF_INFERRED into facts that shape the guaranteed window and guesses that refine the likely window only](diagrams/two-window-resolution.svg)
 
 Confidence (`parsed > derived > inferred > heuristic > timing > brute`) is a
 *trust* ordering, and the floor turns it into a policy. A **fact** — a value

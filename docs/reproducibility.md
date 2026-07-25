@@ -445,7 +445,12 @@ symbol table contributes nothing and the virtual base comes from sound inference
 alone — e.g. 6 bits on Alpine `x86_64`, 9 bits on mainline `x86_64`, 5 bits on
 `i686`. `kptr-hidden` adds `kptr_restrict=2` on top and lands on the same
 numbers, because perf already gated kallsyms: raising `kptr_restrict` removes a
-source that was already dark.
+source that was already dark. (`kptr-hidden` is identical to `default` on every
+cell here. On a host with live network sockets it could differ, because
+`kptr_restrict` also gates the `%pK` `/proc/net` socket pointers KASLD reads —
+but those bound the direct map / page-offset, never the text image base the
+matrix scores, so the difference would show up only in a memory-region window,
+not this table.)
 
 `perf-open` is the profile that recovers `exact` on every KASLR-on cell. Dropping
 `perf_event_paranoid` to 0 simultaneously un-zeroes `/proc/kallsyms` (a sound
@@ -626,6 +631,26 @@ matrix does not exercise (so an actual system may expose *more* than the
 `default` column). The isolation is deliberate: it attributes each result to a
 named kernel and a declared sysctl vector, keeping the cells reproducible and
 independent of any particular distribution's userspace.
+
+Neither an unprivileged user namespace nor unprivileged eBPF widens
+text-base recovery, so neither is a scenario of its own. A user namespace does
+not help because the symbol table, `/proc/iomem`, `dmesg`, and
+`perf_event_open` gates all check `capable()` in the *initial* user namespace,
+which the `ns_capable()` a child namespace grants cannot satisfy — so the
+`default` and `hardened` results already bound a userns-wielding attacker for the
+text base. A user namespace reaches only `ns_capable`-gated leaks through created
+virtual devices (a third-party-driver ioctl surface), which the minimal
+initramfs does not expose.
+
+eBPF does not help either. Where it is enabled
+(`kernel.unprivileged_bpf_disabled=0`; the upstream default flipped to disabled
+in 5.16), the disclosure KASLD does exploit is the verifier log printing an
+unmasked `struct bpf_map *` — a *direct-map* virtual address, not the text base.
+Like a `%pK` `/proc/net` socket pointer, it bounds `page_offset` / the direct map
+— a memory-KASLR region this matrix does not score — so it leaves the
+text-image-base residual unchanged (the relevant verifier-log hole is
+version-specific and was masked in 7.2). Both are disclosure channels in their
+own right, but of kernel *data* addresses, not the text base measured here.
 
 These are limits on what the checks here *verify*. For what a KASLD result means
 when it is run against a target — in particular why a failure to recover the base

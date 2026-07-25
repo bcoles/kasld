@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="532" viewBox="0 0 960 532" font-family="sans-serif">
+  <defs>
+    <style>
+      .title { font-size: 22px; font-weight: 700; fill: #263238; }
+      .sub   { font-size: 13px; fill: #546e7a; }
+      .colh  { font-size: 13px; font-weight: 700; }
+      .src   { font-family: monospace; font-size: 11.5px; fill: #212121; }
+      .cap   { font-family: monospace; font-size: 11px; fill: #1565c0; }
+      .cfg   { font-family: monospace; font-size: 11px; fill: #2e7d32; }
+      .gate  { font-size: 11px; fill: #6a1b9a; }
+      .dash  { font-size: 13px; fill: #b0bec5; }
+      .small { font-size: 10.5px; fill: #90a4ae; }
+      .hd    { font-size: 14px; font-weight: 700; fill: #37474f; }
+      .note  { font-size: 11.5px; fill: #607d8b; }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="100%" height="100%" fill="#ffffff"/>
+
+  <text x="32" y="40" class="title">KASLD &#8212; Vantage: three independent gates</text>
+  <text x="32" y="62" class="sub">What a process can leak is gated by three independent axes. A source is reachable only where every gate that applies to it permits.</text>
+
+  <!-- side-channel row highlight (drawn under the grid) -->
+  <rect x="24" y="366" width="912" height="40" fill="#fff8e1"/>
+
+  <!-- header fills -->
+  <rect x="24"  y="92" width="200" height="34" fill="#eceff1" stroke="#b0bec5"/>
+  <rect x="224" y="92" width="228" height="34" fill="#e3f2fd" stroke="#90caf9"/>
+  <rect x="452" y="92" width="234" height="34" fill="#e8f5e9" stroke="#a5d6a7"/>
+  <rect x="686" y="92" width="250" height="34" fill="#f3e5f5" stroke="#ce93d8"/>
+  <text x="34"  y="114" class="colh" fill="#546e7a">leak source</text>
+  <text x="338" y="114" class="colh" fill="#0d47a1" text-anchor="middle">Privileges &amp; capabilities</text>
+  <text x="569" y="114" class="colh" fill="#1b5e20" text-anchor="middle">System configuration</text>
+  <text x="811" y="114" class="colh" fill="#4a148c" text-anchor="middle">Confinement</text>
+
+  <!-- outer border + column separators -->
+  <rect x="24" y="92" width="912" height="314" fill="none" stroke="#cfd8dc"/>
+  <line x1="224" y1="92" x2="224" y2="406" stroke="#cfd8dc"/>
+  <line x1="452" y1="92" x2="452" y2="406" stroke="#cfd8dc"/>
+  <line x1="686" y1="92" x2="686" y2="406" stroke="#cfd8dc"/>
+  <!-- row separators -->
+  <line x1="24" y1="126" x2="936" y2="126" stroke="#eceff1"/>
+  <line x1="24" y1="166" x2="936" y2="166" stroke="#eceff1"/>
+  <line x1="24" y1="206" x2="936" y2="206" stroke="#eceff1"/>
+  <line x1="24" y1="246" x2="936" y2="246" stroke="#eceff1"/>
+  <line x1="24" y1="286" x2="936" y2="286" stroke="#eceff1"/>
+  <line x1="24" y1="326" x2="936" y2="326" stroke="#eceff1"/>
+  <line x1="24" y1="366" x2="936" y2="366" stroke="#e0c88a"/>
+
+  <!-- r1 /proc/kallsyms -->
+  <text x="34"  y="150" class="src">/proc/kallsyms</text>
+  <text x="234" y="150" class="cap">CAP_SYSLOG</text>
+  <text x="462" y="142" class="cfg">kptr_restrict</text>
+  <text x="462" y="158" class="cfg">perf_event_paranoid</text>
+  <text x="696" y="150" class="gate">/proc masked</text>
+
+  <!-- r2 dmesg -->
+  <text x="34"  y="190" class="src">dmesg (syslog)</text>
+  <text x="234" y="182" class="cap">CAP_SYSLOG</text>
+  <text x="234" y="198" class="gate" fill="#1565c0">or adm group</text>
+  <text x="462" y="190" class="cfg">dmesg_restrict</text>
+  <text x="696" y="190" class="gate">syscall / mount masked</text>
+
+  <!-- r3 /proc/kcore -->
+  <text x="34"  y="230" class="src">/proc/kcore</text>
+  <text x="234" y="230" class="cap">CAP_SYS_RAWIO</text>
+  <text x="462" y="230" class="gate" fill="#2e7d32">kernel lockdown</text>
+  <text x="696" y="230" class="gate">/proc masked</text>
+
+  <!-- r4 perf_event_open -->
+  <text x="34"  y="270" class="src">perf_event_open</text>
+  <text x="338" y="270" class="dash" text-anchor="middle">&#8212;</text>
+  <text x="462" y="270" class="cfg">perf_event_paranoid</text>
+  <text x="696" y="270" class="gate">seccomp blocks syscall</text>
+
+  <!-- r5 unprivileged BPF -->
+  <text x="34"  y="310" class="src">unprivileged BPF</text>
+  <text x="338" y="310" class="dash" text-anchor="middle">&#8212;</text>
+  <text x="462" y="310" class="cfg">unprivileged_bpf_disabled</text>
+  <text x="696" y="310" class="gate">seccomp blocks syscall</text>
+
+  <!-- r6 /boot/System.map -->
+  <text x="34"  y="350" class="src">/boot/System.map</text>
+  <text x="234" y="342" class="gate" fill="#1565c0">file mode</text>
+  <text x="234" y="358" class="small" fill="#90a4ae">(distro-dependent)</text>
+  <text x="569" y="350" class="dash" text-anchor="middle">&#8212;</text>
+  <text x="696" y="350" class="gate">mount masked</text>
+
+  <!-- r7 side channels (exception row) -->
+  <text x="34"  y="384" class="src">side channels</text>
+  <text x="34"  y="399" class="small" fill="#a1887f">prefetch, entrybleed, ...</text>
+  <text x="338" y="390" class="dash" text-anchor="middle">&#8212;</text>
+  <text x="569" y="390" class="gate" fill="#ef6c00" text-anchor="middle" font-style="italic">independent of the sysctls</text>
+  <text x="696" y="390" class="gate">seccomp (timers, syscalls)</text>
+
+  <!-- callouts: not a ladder -->
+  <text x="32" y="440" class="hd">Not a single ladder &#8212; more privilege is not a superset</text>
+  <text x="32" y="462" class="note">&#183; root, but <tspan class="cfg">kptr_restrict=2</tspan> -&gt; kallsyms still denied &#8212; configuration overrides privilege.</text>
+  <text x="32" y="480" class="note">&#183; a plain uid + a relaxed sysctl or unprivileged BPF -&gt; a leak a hardened root would not get.</text>
+  <text x="32" y="498" class="note">&#183; a container task holding <tspan class="cap">CAP_SYS_RAWIO</tspan> -&gt; <tspan class="src" font-size="11">/proc/kcore</tspan>, a source an ordinary user cannot reach.</text>
+  <text x="32" y="522" class="small" fill="#607d8b">A richer vantage widens what KASLD attempts; it never widens the guaranteed (sound) window.</text>
+</svg>

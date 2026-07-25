@@ -120,6 +120,11 @@ single privilege level, but the combination of three independent things:
 * **Confinement** — a namespace or seccomp sandbox that masks `/proc`
   oracles or blocks syscalls, narrowing what any privilege level observes.
 
+The three axes gate each leak source independently — so more privilege is not a
+superset of less: configuration can deny a source to root, and side channels
+bypass the sysctls entirely. [docs/usage.md](docs/usage.md#vantage) has a
+leak-source-by-gate matrix showing which axis controls each source.
+
 KASLD assumes few privileges by default and opportunistically uses whatever
 the vantage grants. The reported *guaranteed* window never depends on
 privilege: elevated access or a weak configuration can widen what is
@@ -133,14 +138,15 @@ reachable from the current capabilities.
 New to KASLD? Read in order: [docs/kaslr.md](docs/kaslr.md) (what KASLR is and
 what it randomizes) → [docs/architecture.md → A leak from end to
 end](docs/architecture.md#a-leak-from-end-to-end) (how KASLD turns one leak into
-an answer) → [CONTRIBUTING.md](CONTRIBUTING.md) (add a leak component or
+an answer) → [docs/limitations.md](docs/limitations.md) (what a result does and
+does not prove) → [CONTRIBUTING.md](CONTRIBUTING.md) (add a leak component or
 inference rule). The table below is the per-audience reference.
 
 | Audience | Document |
 |---|---|
 | End user / operator | [docs/usage.md](docs/usage.md) — CLI, output modes, explain mode, hardening assessment |
 | Interpreting a result | [docs/limitations.md](docs/limitations.md) — what a negative or partial result means: sound-but-not-complete, and why a failure is not a security guarantee |
-| Exploit developer | [docs/exploitation.md](docs/exploitation.md) — pwntools template, `ksymoff`, function-offset patterns |
+| Exploit developer | [docs/exploitation.md](docs/exploitation.md) — where KASLR-defeat fits in an exploit, control-flow vs data-only, pwntools template, `ksymoff` |
 | Component / rule author | [CONTRIBUTING.md](CONTRIBUTING.md) — writing a component or rule, emitter API, exit codes, metadata |
 | Architecture / internals | [docs/architecture.md](docs/architecture.md) — the inference engine, data-flow seams, tagged-line protocol, cross-region derivation |
 | Test runner / CI | [docs/testing.md](docs/testing.md) — host tests, replay fixtures, cross-arch under qemu-user, coverage |

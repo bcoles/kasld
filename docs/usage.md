@@ -18,6 +18,7 @@ together see [architecture.md](architecture.md).
 ## Table of Contents
 
 - [Quick start](#quick-start)
+- [Vantage](#vantage)
 - [Command-line options](#command-line-options)
 - [Output modes](#output-modes)
   - [Default text mode](#default-text-mode)
@@ -55,6 +56,25 @@ only: side-channel, weak-entropy, and capability-granted techniques are
 independent of these sysctls. For testing purposes, the
 [extra/weaken-kernel-hardening](../extra/weaken-kernel-hardening) script
 can temporarily relax these settings (requires root).
+
+## Vantage
+
+What `kasld` recovers depends on the process's *vantage* — three independent
+axes, not a single privilege ladder: **privileges and capabilities**, **system
+configuration**, and **confinement**. The hardened sysctls above are only one of
+them. A leak source is reachable only where every axis that gates it permits, so
+more privilege is not a superset of less — configuration can deny a source to
+root, and the side-channel and capability-granted techniques bypass the sysctls
+entirely:
+
+![Vantage matrix of leak sources against the three gating axes — privileges and capabilities, system configuration, confinement — showing the axes are independent rather than a ladder: configuration can deny a source to root, and side channels are independent of the sysctls](diagrams/vantage.svg)
+
+The `-v`, `-j`, and `-m` outputs report the detected vantage (container,
+confinement, readable oracles, and the capability-gated leaks reachable from the
+current capabilities). A richer vantage lets `kasld` attempt more and gather more
+evidence, but the guaranteed (sound) window reflects only the evidence actually
+proven — never the privilege that gathered it — so it stays trustworthy whatever
+the vantage. See [limitations.md](limitations.md).
 
 ## Command-line options
 
@@ -366,8 +386,8 @@ express by omitting a row; `extra/ksymoff` anchors on `text=0x…`, so a
 ### JSON (`-j`)
 
 `-j` (`--json`) emits the full structured summary. See
-[docs/exploitation.md](exploitation.md) for a pwntools template that
-consumes the JSON.
+[docs/exploitation.md](exploitation.md) for how the JSON plugs into an exploit —
+control-flow and data-only strategies, a pwntools template, and `ksymoff`.
 
 The KASLR object reports two windows plus a headline base. The key names
 differ from the text labels; the mapping is:

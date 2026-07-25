@@ -182,6 +182,11 @@ and KASLD reports them distinctly:
 | **Unsupported** | Bootloader-determined physical address; virtual address is hardware-fixed (e.g. `PAGE_OFFSET + TEXT_OFFSET` on arm32) | 0 bits — arch has no KASLR machinery | Whatever entropy the bootloader's placement policy provides — often per-boot deterministic |
 | **Randomization failed** | Boot-stub- or firmware-deterministic, *not* the link-time default | 0 bits — boot stub skipped the random offset | Whatever entropy the deterministic fallback path provides — typically the lowest aligned slot the firmware allocator returns, identical across boots on the same hardware |
 
+The path a boot takes to each state — and the load-bearing *disabled* vs
+*randomization failed* distinction — at a glance:
+
+![KASLR runtime-state decision flow: whether the architecture has KASLR machinery, whether KASLR was opted out, and whether a boot entropy source was available select one of unsupported, disabled, randomization-failed, or active; three yield zero bits but land at different, non-interchangeable positions](diagrams/kaslr-runtime-states.svg)
+
 The four states are entered by different mechanisms:
 
 - **Active** — the default for any KASLR-supporting arch when the

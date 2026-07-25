@@ -1,0 +1,95 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="548" viewBox="0 0 960 548" font-family="sans-serif">
+  <defs>
+    <style>
+      .title { font-size: 22px; font-weight: 700; fill: #1b5e20; }
+      .sub   { font-size: 13px; fill: #546e7a; }
+      .hd    { font-size: 14px; font-weight: 700; fill: #37474f; }
+      .lbl   { font-size: 12.5px; font-weight: 700; }
+      .mono  { font-family: monospace; font-size: 12.5px; }
+      .note  { font-size: 11.5px; fill: #607d8b; }
+      .small { font-size: 11px; fill: #455a64; }
+      .guide { stroke: #cfd8dc; stroke-width: 1; stroke-dasharray: 3 3; }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="100%" height="100%" fill="#ffffff"/>
+
+  <text x="32" y="40" class="title">KASLD &#8212; Two-Window Resolution: guaranteed vs likely</text>
+  <text x="32" y="62" class="sub">The engine reports the widest window it can prove sound (guaranteed) and, nested inside it, the widest that is plausible (likely).</text>
+
+  <!-- ============ Panel A: nested windows on the address axis ============ -->
+  <!-- truth marker (drawn first so bars overlay its ends cleanly at edges) -->
+  <line x1="525" y1="100" x2="525" y2="242" stroke="#1565c0" stroke-width="2" stroke-dasharray="4 3"/>
+  <path d="M519 104 L531 104 L525 114 z" fill="#1565c0"/>
+  <text x="525" y="96" class="lbl" fill="#1565c0" text-anchor="middle">true base</text>
+
+  <!-- honest arch window -->
+  <rect x="140" y="114" width="740" height="28" rx="4" fill="#eceff1" stroke="#b0bec5"/>
+  <text x="150" y="132" class="small" fill="#546e7a">honest arch window &#8212; the full KASLR range (build-agnostic starting point)</text>
+
+  <!-- guaranteed window -->
+  <rect x="250" y="154" width="520" height="28" rx="4" fill="#c8e6c9" stroke="#2e7d32"/>
+  <text x="260" y="172" class="lbl" fill="#1b5e20">GUARANTEED &#183; sound &#183; proven to contain the true base</text>
+
+  <!-- likely window (nested inside guaranteed) -->
+  <rect x="440" y="194" width="170" height="28" rx="4" fill="#fff3e0" stroke="#fb8c00"/>
+  <text x="450" y="212" class="lbl" fill="#e65100">LIKELY</text>
+  <text x="620" y="212" class="small" fill="#e65100">best guess &#183; may be wrong &#183; not gated to contain truth</text>
+
+  <!-- nesting guides -->
+  <line x1="250" y1="182" x2="250" y2="240" class="guide"/>
+  <line x1="770" y1="182" x2="770" y2="240" class="guide"/>
+
+  <!-- address axis baseline -->
+  <line x1="140" y1="240" x2="880" y2="240" stroke="#cfd8dc" stroke-width="1"/>
+  <text x="140" y="256" class="small" fill="#90a4ae">lower addresses</text>
+  <text x="880" y="256" class="small" fill="#90a4ae" text-anchor="end">higher addresses</text>
+
+  <line x1="32" y1="282" x2="928" y2="282" stroke="#e0e0e0" stroke-width="1"/>
+
+  <!-- ============ Panel B: confidence ladder + sound floor ============ -->
+  <text x="32" y="308" class="hd">Confidence ladder &#8212; the floor turns trust into policy</text>
+
+  <rect x="60" y="322" width="160" height="24" rx="4" fill="#c8e6c9" stroke="#2e7d32"/>
+  <text x="140" y="339" class="mono" fill="#1b5e20" text-anchor="middle">parsed</text>
+  <rect x="60" y="352" width="160" height="24" rx="4" fill="#c8e6c9" stroke="#2e7d32"/>
+  <text x="140" y="369" class="mono" fill="#1b5e20" text-anchor="middle">derived</text>
+  <rect x="60" y="382" width="160" height="24" rx="4" fill="#c8e6c9" stroke="#2e7d32"/>
+  <text x="140" y="399" class="mono" fill="#1b5e20" text-anchor="middle">inferred</text>
+
+  <!-- sound floor -->
+  <line x1="48" y1="414" x2="232" y2="414" stroke="#c62828" stroke-width="1.5" stroke-dasharray="4 2"/>
+  <text x="140" y="428" class="small" fill="#c62828" text-anchor="middle" font-weight="700">SOUND FLOOR &#183; CONF_INFERRED</text>
+
+  <rect x="60" y="434" width="160" height="24" rx="4" fill="#fff3e0" stroke="#fb8c00"/>
+  <text x="140" y="451" class="mono" fill="#e65100" text-anchor="middle">heuristic</text>
+  <rect x="60" y="464" width="160" height="24" rx="4" fill="#fff3e0" stroke="#fb8c00"/>
+  <text x="140" y="481" class="mono" fill="#e65100" text-anchor="middle">timing</text>
+  <rect x="60" y="494" width="160" height="24" rx="4" fill="#fff3e0" stroke="#fb8c00"/>
+  <text x="140" y="511" class="mono" fill="#e65100" text-anchor="middle">brute</text>
+
+  <text x="240" y="356" class="small" fill="#1b5e20" font-weight="700">facts (at or above the floor)</text>
+  <text x="240" y="372" class="small" fill="#2e7d32">shape the GUARANTEED window.</text>
+  <text x="240" y="466" class="small" fill="#e65100" font-weight="700">guesses (below the floor)</text>
+  <text x="240" y="482" class="small" fill="#fb8c00">refine the LIKELY window only.</text>
+  <text x="240" y="332" class="small" fill="#90a4ae">strongest</text>
+  <text x="240" y="512" class="small" fill="#90a4ae">weakest</text>
+
+  <line x1="452" y1="300" x2="452" y2="524" stroke="#e0e0e0" stroke-width="1"/>
+
+  <!-- ============ Panel C: the three invariants ============ -->
+  <text x="476" y="308" class="hd">Why the split is safe &#8212; three invariants</text>
+
+  <text x="476" y="334" class="lbl" fill="#2e7d32">1 &#183; Guaranteed contains the truth.</text>
+  <text x="476" y="351" class="small">The floored run applies only proven (at-or-above-floor) signals, and per-rule</text>
+  <text x="476" y="366" class="small">soundness never narrows past the true base.</text>
+
+  <text x="476" y="394" class="lbl" fill="#2e7d32">2 &#183; A sub-floor signal cannot move guaranteed.</text>
+  <text x="476" y="411" class="small">A wrong timing or heuristic guess can shrink likely toward the wrong slot, but</text>
+  <text x="476" y="426" class="small">is out of scope for the guaranteed run &#8212; safety is structural, not per-rule care.</text>
+
+  <text x="476" y="454" class="lbl" fill="#2e7d32">3 &#183; Likely is a subset of guaranteed.</text>
+  <text x="476" y="471" class="small">The speculative window is intersected with guaranteed at the report boundary:</text>
+  <text x="476" y="486" class="small">a refinement, never a contradiction.</text>
+
+  <text x="476" y="514" class="note">The true base is proven inside guaranteed; usually &#8212; not always &#8212; inside likely.</text>
+</svg>

@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="470" viewBox="0 0 960 470" font-family="sans-serif">
+  <defs>
+    <style>
+      .title { font-size: 22px; font-weight: 700; fill: #263238; }
+      .sub   { font-size: 13px; fill: #546e7a; }
+      .band  { font-size: 13px; font-weight: 700; }
+      .bands { font-size: 10px; }
+      .cat   { font-size: 14px; font-weight: 700; }
+      .desc  { font-size: 11px; fill: #455a64; }
+      .sub2  { font-size: 10.5px; fill: #78909c; }
+      .note  { font-size: 11.5px; fill: #607d8b; }
+    </style>
+  </defs>
+  <rect x="0" y="0" width="100%" height="100%" fill="#ffffff"/>
+
+  <text x="32" y="40" class="title">KASLD &#8212; KASLR Bypass Technique Map</text>
+  <text x="32" y="62" class="sub">The technique space, grouped by what a leak requires. Sections KASLD implements link to the component source; the rest point to a reference.</text>
+
+  <!-- ============ Band 1: read an interface ============ -->
+  <rect x="32" y="88" width="124" height="108" rx="8" fill="#e3f2fd" stroke="#1976d2" stroke-width="1.5"/>
+  <text x="46" y="130" class="band" fill="#0d47a1">Read an</text>
+  <text x="46" y="147" class="band" fill="#0d47a1">interface</text>
+  <text x="46" y="168" class="bands" fill="#1565c0">needs only the</text>
+  <text x="46" y="181" class="bands" fill="#1565c0">right permissions</text>
+
+  <rect x="168" y="88" width="248" height="108" rx="8" fill="#f5faff" stroke="#90caf9"/>
+  <text x="182" y="112" class="cat" fill="#0d47a1">Filesystem leaks</text>
+  <text x="182" y="133" class="desc">read /proc, /sys, /var/log, boot config</text>
+  <text x="182" y="166" class="sub2">system logs &#183; debugfs</text>
+  <text x="182" y="181" class="sub2">procfs / sysfs &#183; boot config</text>
+
+  <rect x="428" y="88" width="248" height="108" rx="8" fill="#f5faff" stroke="#90caf9"/>
+  <text x="442" y="112" class="cat" fill="#0d47a1">Syscall &amp; interface leaks</text>
+  <text x="442" y="133" class="desc">addresses cross the syscall boundary</text>
+  <text x="442" y="166" class="sub2">perf_event_open, sockets,</text>
+  <text x="442" y="181" class="sub2">timers, BPF, ...</text>
+
+  <rect x="688" y="88" width="248" height="108" rx="8" fill="#f5faff" stroke="#90caf9"/>
+  <text x="702" y="112" class="cat" fill="#0d47a1">ioctl leaks</text>
+  <text x="702" y="133" class="desc">driver ioctls copy out</text>
+  <text x="702" y="148" class="desc">uninitialized kernel memory</text>
+  <text x="702" y="181" class="sub2">DRM, sockets, filesystems, ...</text>
+
+  <!-- ============ Band 2: measure or infer ============ -->
+  <rect x="32" y="204" width="124" height="108" rx="8" fill="#fff3e0" stroke="#fb8c00" stroke-width="1.5"/>
+  <text x="46" y="246" class="band" fill="#e65100">Measure</text>
+  <text x="46" y="263" class="band" fill="#e65100">or infer</text>
+  <text x="46" y="284" class="bands" fill="#ef6c00">no files, no bug</text>
+  <text x="46" y="297" class="bands" fill="#ef6c00">&#8212; hardware or math</text>
+
+  <rect x="168" y="204" width="248" height="108" rx="8" fill="#fffaf3" stroke="#ffcc80"/>
+  <text x="182" y="228" class="cat" fill="#e65100">Side-channels</text>
+  <text x="182" y="249" class="desc">microarchitectural timing /</text>
+  <text x="182" y="264" class="desc">transient execution</text>
+  <text x="182" y="297" class="sub2">prefetch, EntryBleed, data-bounce, ...</text>
+
+  <rect x="428" y="204" width="248" height="108" rx="8" fill="#fffaf3" stroke="#ffcc80"/>
+  <text x="442" y="228" class="cat" fill="#e65100">Brute force</text>
+  <text x="442" y="249" class="desc">probe the address space</text>
+  <text x="442" y="264" class="desc">directly &#8212; no files, no bug</text>
+  <text x="442" y="297" class="sub2">mmap until failure -&gt; vmsplit / VA bits</text>
+
+  <rect x="688" y="204" width="248" height="108" rx="8" fill="#fffaf3" stroke="#ffcc80"/>
+  <text x="702" y="228" class="cat" fill="#e65100">Weak entropy</text>
+  <text x="702" y="249" class="desc">few slots, or randomization</text>
+  <text x="702" y="264" class="desc">that never applied</text>
+  <text x="702" y="297" class="sub2">randomization failure &#183; slide baseline</text>
+
+  <!-- ============ Band 3: exploit a bug ============ -->
+  <rect x="32" y="320" width="124" height="108" rx="8" fill="#ffebee" stroke="#c62828" stroke-width="1.5"/>
+  <text x="46" y="362" class="band" fill="#b71c1c">Exploit</text>
+  <text x="46" y="379" class="band" fill="#b71c1c">a bug</text>
+  <text x="46" y="400" class="bands" fill="#c62828">needs a</text>
+  <text x="46" y="413" class="bands" fill="#c62828">vulnerability</text>
+
+  <rect x="168" y="320" width="372" height="108" rx="8" fill="#fff5f6" stroke="#ef9a9a"/>
+  <text x="182" y="344" class="cat" fill="#b71c1c">Patched kernel bugs</text>
+  <text x="182" y="365" class="desc">uninitialized-memory and unsanitized-pointer info</text>
+  <text x="182" y="380" class="desc">leaks, since fixed &#8212; still live on unpatched kernels</text>
+  <text x="182" y="413" class="sub2">CVE-tagged; KASLD ships components for several</text>
+
+  <rect x="552" y="320" width="384" height="108" rx="8" fill="#fff5f6" stroke="#ef9a9a"/>
+  <text x="566" y="344" class="cat" fill="#b71c1c">Arbitrary read</text>
+  <text x="566" y="365" class="desc">an arbitrary read/write primitive reads a kernel</text>
+  <text x="566" y="380" class="desc">pointer directly, defeating KASLR outright</text>
+  <text x="566" y="413" class="sub2">the exploit supplies the primitive, not KASLD</text>
+
+  <text x="32" y="452" class="note">Top band needs only access; the bottom needs a vulnerability. The full catalog &#8212; references, CVEs, and component links &#8212; is in the sections below.</text>
+</svg>
