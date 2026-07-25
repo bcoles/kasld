@@ -555,10 +555,6 @@ void render_json(const struct summary *s) {
       printf(",\n");
       printf("      \"exit_code\": %d,\n", cl->exit_code);
       printf("      \"outcome\": \"%s\"", outcome_name(cl->outcome));
-      if (cl->reason[0]) {
-        printf(",\n      \"skip_reason\": ");
-        json_print_escaped(cl->reason);
-      }
       if (cl->explain) {
         printf(",\n      \"explain\": ");
         json_print_escaped(cl->explain);

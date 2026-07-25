@@ -1484,26 +1484,6 @@ static void render_readout(const struct summary *s) {
     }
   }
 
-  /* Skip reasons: one dim line per component that declined to run and said why
-   * (an `R` wire line -> component_log.reason). Self-selecting — a component
-   * emits a reason only when its non-result is worth explaining, so the
-   * dmesg/proc parsers that merely found no entry stay silent and this stays a
-   * short triage aid rather than a wall of "no result". Shown in default output
-   * so a gated leak's reason is visible without re-running under -v. */
-  if (!quiet) {
-    int any = 0;
-    for (int i = 0; i < num_comp_logs; i++) {
-      if (comp_logs[i].outcome == OUTCOME_SUCCESS || !comp_logs[i].reason[0])
-        continue;
-      if (!any) {
-        printf("\n%sLeaks not run:%s\n", c(C_DIM), c(C_RESET));
-        any = 1;
-      }
-      printf("  %s%-20s %s%s\n", c(C_DIM), comp_logs[i].name,
-             comp_logs[i].reason, c(C_RESET));
-    }
-  }
-
   printf("\n[-v: detailed results, memory map, system info]  "
          "[-H: hardening assessment]\n");
 }

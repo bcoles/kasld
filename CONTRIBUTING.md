@@ -185,10 +185,9 @@ address; which facts, and how the engine consumes each, are documented in
 A leak or probe that determines it cannot run — or ran and found nothing worth
 attributing to a specific gate — calls `kasld_skip_reason(text)`, which emits a
 short `R` skip-reason line (e.g. "KPTI enabled", "not an Intel CPU"). The
-orchestrator captures it in default output (a dim "Leaks not run" footer, one
-line per reporting component) and as `skip_reason` in the JSON. It is display
-metadata, never engine evidence, and is orthogonal to the exit code: the code
-names the outcome class, the reason names the specific gate within it.
+orchestrator captures it onto the per-component log; it is recorded metadata,
+never engine evidence, and is orthogonal to the exit code: the code names the
+outcome class, the reason names the specific gate within it.
 
 ### Diagnostics and options
 

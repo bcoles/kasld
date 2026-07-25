@@ -1252,13 +1252,13 @@ static inline int kasld_emit_scalar(enum kasld_scalar_fact f,
 
 /* Emit one skip-reason: `R <text>`. A leak or probe component that determines
  * it cannot run — or ran and found nothing worth attributing to a specific
- * gate — emits a short reason here. The orchestrator captures it (in default
- * output as well as under --verbose) and shows one dim line per reporting
- * component. Orthogonal to the exit code: the exit code names the outcome class
- * (unavailable / access-denied / no-result), this names the specific gate
- * within it (e.g. "KPTI enabled", "not an Intel CPU"). Reason is display
- * metadata, not engine evidence. Emit at most once; keep it short. Newlines are
- * folded to spaces so the record stays a single wire line. */
+ * gate — emits a short reason here. The orchestrator captures it onto the
+ * per-component log; it is recorded metadata, not surfaced in any output format
+ * and not engine evidence. Orthogonal to the exit code: the exit code names the
+ * outcome class (unavailable / access-denied / no-result), this names the
+ * specific gate within it (e.g. "KPTI enabled", "not an Intel CPU"). Emit at
+ * most once; keep it short. Newlines are folded to spaces so the record stays a
+ * single wire line. */
 static inline void kasld_skip_reason(const char *reason) {
   if (!reason || !*reason)
     return;

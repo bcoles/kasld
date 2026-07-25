@@ -309,81 +309,6 @@ static void test_render_json_with_rich_content(void) {
   set_render_mode(0, 0, 0);
 }
 
-/* Default (non-verbose) text output lists a dim "Leaks not run" footer: one
- * line per component that emitted a skip-reason and did not succeed. A
- * succeeding component's stray reason is not shown, and a component with no
- * reason contributes no line — so the footer stays a short triage aid. */
-static void test_render_text_skip_reason_footer(void) {
-  extern int verbose, quiet;
-  reset_results();
-  num_comp_logs = 0;
-  num_scalar_facts = 0;
-
-  struct component_log *g = &comp_logs[num_comp_logs++];
-  memset(g, 0, sizeof(*g));
-  snprintf(g->name, sizeof(g->name), "prefetch");
-  g->outcome = OUTCOME_UNAVAILABLE;
-  snprintf(g->reason, sizeof(g->reason), "KPTI enabled");
-
-  struct component_log *ok = &comp_logs[num_comp_logs++];
-  memset(ok, 0, sizeof(*ok));
-  snprintf(ok->name, sizeof(ok->name), "proc_kallsyms");
-  ok->outcome = OUTCOME_SUCCESS;
-  snprintf(ok->reason, sizeof(ok->reason), "should not appear");
-
-  struct component_log *quiet_c = &comp_logs[num_comp_logs++];
-  memset(quiet_c, 0, sizeof(*quiet_c));
-  snprintf(quiet_c->name, sizeof(quiet_c->name), "dmesg_backtrace");
-  quiet_c->outcome = OUTCOME_NO_RESULT; /* no reason emitted */
-
-  struct summary s;
-  memset(&s, 0, sizeof(s));
-  int saved_v = verbose, saved_q = quiet;
-  verbose = 0;
-  quiet = 0;
-  set_render_mode(0, 0, 0);
-  capture_stdout(wrap_render_summary, &s);
-  verbose = saved_v;
-  quiet = saved_q;
-
-  assert(strstr(render_cap, "Leaks not run") != NULL);
-  assert(strstr(render_cap, "prefetch") != NULL);
-  assert(strstr(render_cap, "KPTI enabled") != NULL);
-  /* Succeeding component's reason is suppressed; silent component adds no line.
-   */
-  assert(strstr(render_cap, "should not appear") == NULL);
-}
-
-/* The per-component JSON record carries the skip-reason when one was emitted.
- */
-static void test_render_json_skip_reason(void) {
-  extern int hardening_mode, verbose;
-  reset_results();
-  num_comp_logs = 0;
-  num_scalar_facts = 0;
-
-  struct component_log *g = &comp_logs[num_comp_logs++];
-  memset(g, 0, sizeof(*g));
-  snprintf(g->name, sizeof(g->name), "prefetch");
-  g->outcome = OUTCOME_UNAVAILABLE;
-  g->exit_code = KASLD_EXIT_UNAVAILABLE;
-  snprintf(g->reason, sizeof(g->reason), "KPTI enabled");
-
-  struct summary s;
-  memset(&s, 0, sizeof(s));
-  int saved_h = hardening_mode, saved_v = verbose;
-  hardening_mode = 0;
-  verbose = 1; /* components[] is emitted under -v (or -H) */
-  set_render_mode(1, 0, 0);
-  capture_stdout(wrap_render_summary, &s);
-  hardening_mode = saved_h;
-  verbose = saved_v;
-  set_render_mode(0, 0, 0);
-
-  assert(strstr(render_cap, "\"skip_reason\": \"KPTI enabled\"") != NULL);
-  assert(strstr(render_cap, "\"outcome\": \"unavailable\"") != NULL);
-}
-
 /* Plain -j (no --hardening, no --verbose) is the complete posture snapshot a
  * fleet/CI layer consumes: it always carries the per-component records with
  * their parsed metadata and the full hardening block, including each
@@ -2285,8 +2210,6 @@ int main(void) {
   BEGIN_CATEGORY("Renderer — rich content");
   RUN(test_render_text_with_rich_content);
   RUN(test_render_json_with_rich_content);
-  RUN(test_render_text_skip_reason_footer);
-  RUN(test_render_json_skip_reason);
   RUN(test_render_json_posture_always_present);
   RUN(test_render_markdown_with_rich_content);
   RUN(test_render_oneline_with_rich_content);
