@@ -767,6 +767,35 @@ uninstall :
 	rm -rf "$(DESTDIR)$(PREFIX)/libexec/kasld"
 	rm -rf "$(DESTDIR)$(PREFIX)/share/doc/kasld"
 
+# Post-install smoke test (GNU `installcheck` convention). Runs the INSTALLED
+# bin/kasld and confirms it discovers its components via the FHS
+# ../libexec/kasld path — the split-install layout `install` produces. Assumes
+# `install` already ran with the same PREFIX/DESTDIR; it validates an installed
+# tree (possibly a DESTDIR staging root before packaging), so it deliberately
+# does not depend on the `install` target. Runs unprivileged and keys on the
+# JSON per-component `outcome` records — emitted for every discovered component
+# that executed, whatever leaks the host actually yields — so it asserts the
+# discovery path, not leak success or the process exit code. Uses only grep, no
+# JSON parser. On a broken layout the binary prints "cannot find component
+# directory" and emits no records, so the count is 0 and the check fails.
+.PHONY: installcheck
+installcheck :
+	@bin="$(DESTDIR)$(PREFIX)/bin/kasld"; \
+	if [ ! -x "$$bin" ]; then \
+	  echo "installcheck: FAIL - $$bin not found or not executable" >&2; \
+	  echo "  run 'make install' with a matching PREFIX/DESTDIR first" >&2; \
+	  exit 1; \
+	fi; \
+	out=$$("$$bin" -j -f -q 2>/dev/null) || true; \
+	n=$$(printf '%s\n' "$$out" | grep -c '"outcome"'); \
+	if [ "$$n" -gt 0 ]; then \
+	  echo "installcheck: OK ($$n components discovered via libexec/kasld/)"; \
+	else \
+	  echo "installcheck: FAIL - bin/kasld discovered no components" >&2; \
+	  echo "  expected component binaries in $(DESTDIR)$(PREFIX)/libexec/kasld/" >&2; \
+	  exit 1; \
+	fi
+
 
 # Cross-compile all supported architectures with `make cross` — a local,
 # musl-only mirror of the CI / release matrices. Expects <triple>-gcc on PATH;
@@ -854,6 +883,7 @@ help:
 	@echo "      coverage        Host unit-test coverage report (gcov)"
 	@echo "      coverage-e2e    End-to-end coverage over x86 fixtures (gcov)"
 	@echo "      install         Install to PREFIX (default: /usr/local)"
+	@echo "      installcheck    Smoke-test the installed bin/kasld + libexec/kasld/"
 	@echo "      uninstall       Remove installed files"
 	@echo "      clean           Remove build directory"
 	@echo "      print-deps      List build dependencies (libs + per-component flags)"

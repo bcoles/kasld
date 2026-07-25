@@ -170,6 +170,7 @@ make run          # build and run
 make test         # build and run unit tests
 make cross        # cross-compile for all supported architectures
 make install      # install to /usr/local (PREFIX=/usr/local)
+make installcheck # smoke-test the installed bin/kasld + libexec/kasld/
 make uninstall    # remove installed files
 make clean        # remove build directory
 make print-deps   # list build dependencies (libs + per-component flags)
@@ -180,6 +181,11 @@ make help         # show all targets and options
 (`pthread`, `zlib`) with their auto-detection result for the current compiler,
 and the per-component compile/link flag exceptions — enough to populate a
 distribution package's control file without reading the Makefile's probe logic.
+
+`make installcheck` runs the installed `bin/kasld` and confirms it discovers its
+components via the FHS `../libexec/kasld` path — a post-install smoke test for
+the split-install layout, using the same `PREFIX`/`DESTDIR` as `make install`
+(so it also works against a `DESTDIR` staging root in package CI).
 
 KASLD can be cross-compiled with `make` by specifying the appropriate
 compiler (`CC`). Static linking is applied automatically when cross-compiling:
