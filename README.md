@@ -187,6 +187,9 @@ components via the FHS `../libexec/kasld` path — a post-install smoke test for
 the split-install layout, using the same `PREFIX`/`DESTDIR` as `make install`
 (so it also works against a `DESTDIR` staging root in package CI).
 
+`make install` also installs `man1` manual pages for `kasld` and `ksymoff` to
+`<prefix>/share/man/man1/`, so `man kasld` and `man ksymoff` work after install.
+
 KASLD can be cross-compiled with `make` by specifying the appropriate
 compiler (`CC`). Static linking is applied automatically when cross-compiling:
 

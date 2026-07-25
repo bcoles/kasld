@@ -1,0 +1,118 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-manpages — keep the committed man pages in sync with each program.
+#
+# For kasld(1) and ksymoff(1), assert that the set of long options in the
+# program's --help exactly matches the set documented in the man page's source,
+# so a new or removed flag cannot silently skip its manual entry. The parity
+# check is pure text (roff "\-" escapes are stripped first), so it needs no
+# groff. When groff is available it additionally lints the roff for warnings.
+#
+# The ksymoff half always runs (it is a shell script); the kasld half soft-skips
+# when no natively-runnable kasld binary is built, matching the other optional
+# guards.
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+
+if [ -t 1 ]; then
+  RED=$(printf '\033[31m')
+  GREEN=$(printf '\033[32m')
+  YELLOW=$(printf '\033[33m')
+  RESET=$(printf '\033[0m')
+else
+  RED=
+  GREEN=
+  YELLOW=
+  RESET=
+fi
+
+fail=0
+
+# Long options a program lists in its --help output.
+help_opts() {
+  "$@" 2>&1 | grep -oE '\-\-[a-z][a-z0-9-]*' | sort -u
+}
+
+# Long options a man page documents (strip roff backslash escapes first, so
+# "\-\-json" reads as "--json").
+man_opts() {
+  sed 's/\\//g' "$1" | grep -oE '\-\-[a-z][a-z0-9-]*' | sort -u
+}
+
+# check_parity NAME MANPAGE -- CMD...
+# Compares the option sets and reports any that appear in only one place.
+check_parity() {
+  name=$1
+  man=$2
+  shift 2 # drop NAME MANPAGE; the "--" separator is $1 now
+  shift   # drop "--"
+
+  hf=$(mktemp)
+  mf=$(mktemp)
+  help_opts "$@" >"$hf"
+  man_opts "$man" >"$mf"
+
+  miss=$(grep -Fxv -f "$mf" "$hf" || true)  # in --help, absent from man page
+  extra=$(grep -Fxv -f "$hf" "$mf" || true) # in man page, absent from --help
+  rm -f "$hf" "$mf"
+
+  if [ -n "$miss" ]; then
+    printf '%scheck-manpages: FAIL%s (%s: options in --help but not %s)\n' \
+      "$RED" "$RESET" "$name" "$man"
+    printf '%s\n' "$miss" | sed 's/^/    /'
+    fail=1
+  fi
+  if [ -n "$extra" ]; then
+    printf '%scheck-manpages: FAIL%s (%s: options in %s but not --help)\n' \
+      "$RED" "$RESET" "$name" "$man"
+    printf '%s\n' "$extra" | sed 's/^/    /'
+    fail=1
+  fi
+}
+
+# ksymoff: a shell script, runnable anywhere its interpreter exists.
+if extra/ksymoff --help >/dev/null 2>&1; then
+  check_parity ksymoff "$ROOT/man/ksymoff.1" -- "$ROOT/extra/ksymoff" --help
+else
+  printf '%scheck-manpages: SKIP%s (ksymoff --help not runnable)\n' \
+    "$YELLOW" "$RESET"
+fi
+
+# kasld: pick a natively-runnable built binary (a cross binary will not exec).
+KASLD_BIN=
+for c in "$ROOT"/build/*/kasld; do
+  [ -x "$c" ] || continue
+  if "$c" --version >/dev/null 2>&1; then
+    KASLD_BIN=$c
+    break
+  fi
+done
+if [ -n "$KASLD_BIN" ]; then
+  check_parity kasld "$ROOT/man/kasld.1" -- "$KASLD_BIN" --help
+else
+  printf '%scheck-manpages: SKIP%s (no runnable kasld binary; run make first)\n' \
+    "$YELLOW" "$RESET"
+fi
+
+# Optional roff lint: any groff warning is a formatting bug.
+if command -v groff >/dev/null 2>&1; then
+  for m in "$ROOT"/man/kasld.1 "$ROOT"/man/ksymoff.1; do
+    w=$(groff -man -z -ww "$m" 2>&1 || true)
+    if [ -n "$w" ]; then
+      printf '%scheck-manpages: FAIL%s (roff warnings in %s)\n' \
+        "$RED" "$RESET" "$m"
+      printf '%s\n' "$w" | sed 's/^/    /'
+      fail=1
+    fi
+  done
+fi
+
+if [ "$fail" -eq 0 ]; then
+  printf '%scheck-manpages: OK%s (kasld.1 / ksymoff.1 in sync with --help)\n' \
+    "$GREEN" "$RESET"
+fi
+exit "$fail"

@@ -608,6 +608,7 @@ lint :
 	@$(TEST_DIR)/check-image-size
 	@$(TEST_DIR)/check-fdt-unflatten
 	@$(TEST_DIR)/check-ksymoff
+	@$(TEST_DIR)/check-manpages
 	@$(TEST_DIR)/check-shellcheck
 	@$(TEST_DIR)/hardening-fixtures
 	@$(TEST_DIR)/cli-flags
@@ -759,6 +760,8 @@ install : build
 	done
 	install -d "$(DESTDIR)$(PREFIX)/share/doc/kasld"
 	cp -R docs README.md LICENSE "$(DESTDIR)$(PREFIX)/share/doc/kasld/"
+	install -d "$(DESTDIR)$(PREFIX)/share/man/man1"
+	install -m 644 man/kasld.1 man/ksymoff.1 "$(DESTDIR)$(PREFIX)/share/man/man1/"
 
 .PHONY: uninstall
 uninstall :
@@ -766,6 +769,8 @@ uninstall :
 	rm -f "$(DESTDIR)$(PREFIX)/bin/ksymoff"
 	rm -rf "$(DESTDIR)$(PREFIX)/libexec/kasld"
 	rm -rf "$(DESTDIR)$(PREFIX)/share/doc/kasld"
+	rm -f "$(DESTDIR)$(PREFIX)/share/man/man1/kasld.1"
+	rm -f "$(DESTDIR)$(PREFIX)/share/man/man1/ksymoff.1"
 
 # Post-install smoke test (GNU `installcheck` convention). Runs the INSTALLED
 # bin/kasld and confirms it discovers its components via the FHS
