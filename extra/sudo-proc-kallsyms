@@ -3,16 +3,47 @@
 #
 # Search /proc/kallsyms for kernel base (with sudo).
 #
+# Temporarily lowers kernel.kptr_restrict to 0 so /proc/kallsyms exposes real
+# symbol addresses, reads the base symbols, then restores the original
+# kptr_restrict value. The lowering and the restore are both reported to stderr;
+# the matching kallsyms lines go to stdout. Restoration runs from a trap, so an
+# interrupted or failing read still returns kptr_restrict to its original value.
+#
 # Requires:
-# - sudo privileges
+# - sudo privileges (to set kptr_restrict and read unhashed kallsyms)
 # - CONFIG_KALLSYMS=y
-# - /proc/sys/kernel/kptr_restrict < 2
 #
 # References:
 # https://sysctl-explorer.net/kernel/kptr_restrict/
 # https://www.kernel.org/doc/Documentation/sysctl/kernel.txt
 # ---
 # <bcoles@gmail.com>
+
+lowered=0
+saved_kptr=$(sysctl -n kernel.kptr_restrict 2>/dev/null) || saved_kptr=""
+
+restore() {
+  [ "$lowered" = "1" ] || return
+  if sudo sysctl -q kernel.kptr_restrict="$saved_kptr" 2>/dev/null; then
+    echo "[*] kernel.kptr_restrict: 0 -> $saved_kptr (restored)" >&2
+  else
+    echo "[-] kernel.kptr_restrict: failed to restore to $saved_kptr" >&2
+  fi
+}
+
+trap restore INT TERM EXIT
+
+if [ -n "$saved_kptr" ]; then
+  if sudo sysctl -q kernel.kptr_restrict=0 2>/dev/null; then
+    lowered=1
+    echo "[*] kernel.kptr_restrict: $saved_kptr -> 0 (temporarily lowered)" >&2
+  else
+    echo "[-] kernel.kptr_restrict: failed to lower to 0; reading as-is" >&2
+  fi
+else
+  echo "[*] kernel.kptr_restrict not present; reading /proc/kallsyms as-is" >&2
+fi
+
 sudo grep 'T startup_64' /proc/kallsyms
 sudo grep 'T _stext' /proc/kallsyms
 sudo grep 'T _text' /proc/kallsyms
