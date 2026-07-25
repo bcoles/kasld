@@ -294,12 +294,20 @@ for sym in _text _stext startup_64; do
   [[ -n "$default_hex" ]] && break
 done
 [[ -n "$default_hex" ]] || die "no _text / _stext / startup_64 in symbol source"
+# Security: this value is interpolated into `$(( 0x$default_hex ... ))`. A
+# non-hex value from a hostile symbol source (e.g. `a[$(cmd)]`) would be
+# executed by bash arithmetic evaluation, so require strict hex before use.
+[[ "$default_hex" =~ ^[0-9a-fA-F]+$ ]] \
+  || die "malformed _text address in symbol source (expected hex)"
 
 # -- Resolve runtime text base and KASLR slide ---------------------------
 if [[ -n "$from_sym" ]]; then
   # Inverse: slide = runtime_addr − default_addr_of(NAME)
   sym_default=$(awk -v s="$from_sym" '$3 == s { print $1; exit }' "$symfile")
   [[ -n "$sym_default" ]] || die "symbol not in source: $from_sym"
+  # Security: validate before arithmetic — see the _text check above.
+  [[ "$sym_default" =~ ^[0-9a-fA-F]+$ ]] \
+    || die "malformed address for $from_sym in symbol source (expected hex)"
   slide=$(( 0x$from_addr - 0x$sym_default ))
   base_hex=$(printf '%x' $(( 0x$default_hex + slide )))
 else
@@ -344,12 +352,21 @@ if (( ${#symbols[@]} > 0 )); then
       continue
     fi
     read -r addr_hex sym_type _ <<< "$line"
-    printf '%016x %s %s\n' $(( 0x$addr_hex + slide )) "$sym_type" "$sym"
+    # Security: validate before arithmetic — a non-hex address from a hostile
+    # symbol source would otherwise be executed by bash arithmetic evaluation.
+    if [[ ! "$addr_hex" =~ ^[0-9a-fA-F]+$ ]]; then
+      printf '# malformed address for: %s\n' "$sym" >&2
+      continue
+    fi
+    # Strip control characters from the file-derived type: a hostile symbol
+    # source must not inject terminal escape sequences into the output (CWE-150).
+    printf '%016x %s %s\n' $(( 0x$addr_hex + slide )) "${sym_type//[[:cntrl:]]/}" "$sym"
   done
 else
   while IFS=' ' read -r addr sym_type name _; do
     [[ "$addr" =~ ^[0-9a-fA-F]+$ ]] || continue
     [[ -n "$name" ]] || continue
-    printf '%016x %s %s\n' $(( 0x$addr + slide )) "$sym_type" "$name"
+    # Strip control characters from file-derived fields (see the per-symbol path).
+    printf '%016x %s %s\n' $(( 0x$addr + slide )) "${sym_type//[[:cntrl:]]/}" "${name//[[:cntrl:]]/}"
   done < "$symfile"
 fi
