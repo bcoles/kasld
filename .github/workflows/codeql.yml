@@ -1,0 +1,44 @@
+name: codeql
+
+# Static analysis of the C sources. CodeQL has no shell analyzer — the shell
+# scripts in extra/ and tests/ are covered by shellcheck (tests/check-shellcheck,
+# run under `make check` in build.yml), so the two are complementary.
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+  schedule:
+    - cron: '19 4 * * 1'   # weekly (Mon 04:19 UTC) — picks up new query releases
+
+jobs:
+  analyze:
+    name: analyze (c-cpp)
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write   # upload results to the Security tab
+      contents: read
+      actions: read
+
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Install build dependencies
+      # zlib1g-dev so proc-config links -lz (matches the real `make` build); the
+      # rest of the toolchain (gcc/make/binutils/libc) is present on the runner.
+      run: sudo apt-get update && sudo apt-get install -y zlib1g-dev
+
+    - name: Initialize CodeQL
+      uses: github/codeql-action/init@v3
+      with:
+        languages: c-cpp
+        build-mode: manual
+
+    - name: Build
+      run: make
+
+    - name: Perform CodeQL analysis
+      uses: github/codeql-action/analyze@v3
+      with:
+        category: "/language:c-cpp"

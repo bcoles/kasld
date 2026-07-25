@@ -4,6 +4,10 @@
 
 <p align="center">
   <img src="https://github.com/bcoles/kasld/actions/workflows/build.yml/badge.svg" alt="Build Status"/>
+  <img src="https://github.com/bcoles/kasld/actions/workflows/codeql.yml/badge.svg" alt="CodeQL"/>
+  <img src="https://img.shields.io/badge/platform-Linux-informational" alt="Platform: Linux"/>
+  <img src="https://img.shields.io/badge/arch-x86%20%C2%B7%20ARM%20%C2%B7%20MIPS%20%C2%B7%20PPC%20%C2%B7%20RISC--V%20%C2%B7%20LoongArch%20%C2%B7%20s390-blue" alt="Architectures"/>
+  <img src="https://img.shields.io/badge/C-C99-blue.svg" alt="C99"/>
   <img src="https://img.shields.io/github/v/release/bcoles/kasld" alt="Release"/>
   <img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="License: MIT"/>
 </p>
