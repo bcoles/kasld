@@ -139,6 +139,14 @@ hex_ult() {  # a b (hex, no 0x) -> true if a < b unsigned
   return 1
 }
 
+# SECURITY: any value interpolated into `$(( 0x$x ))` must be pure hex/decimal.
+# bash arithmetic evaluates embedded command substitutions and array subscripts,
+# so a value like `a[$(cmd)]` from an untrusted symbol source would execute as a
+# command. Every arithmetic input is validated by one of these first. (The same
+# guard is duplicated in extra/check-results — deliberately no shared library.)
+is_hex() { case "$1" in ''|*[!0-9A-Fa-f]*) return 1 ;; *) return 0 ;; esac; }
+is_dec() { case "$1" in ''|*[!0-9]*)       return 1 ;; *) return 0 ;; esac; }
+
 # -- Argument parsing -----------------------------------------------------
 base="" symfile="" slide_only=0
 from_sym="" from_addr=""
@@ -162,7 +170,7 @@ while [[ $# -gt 0 ]]; do
       from_sym="${2%%=*}"
       from_addr="${2#*=}"
       from_addr="${from_addr#0[xX]}"
-      [[ "$from_addr" =~ ^[0-9a-fA-F]+$ ]] \
+      is_hex "$from_addr" \
         || die "bad --from address: ${2#*=}"
       [[ "$from_sym" =~ ^[A-Za-z_][A-Za-z0-9_.]*$ ]] \
         || die "bad --from symbol name: $from_sym"
@@ -222,11 +230,11 @@ if (( n_phys > 0 )); then
   if [[ -n "$phys2page" ]]; then
     [[ -n "$vmemmap" ]] || die "--phys2page needs --vmemmap BASE (struct page array base)"
     vm=${vmemmap#0[xX]}
-    [[ "$vm" =~ ^[0-9a-fA-F]+$ ]] || die "bad --vmemmap: $vmemmap"
-    { [[ "$page_size"  =~ ^[0-9]+$ ]] && (( page_size  > 0 )); } || die "bad --page-size: $page_size"
-    { [[ "$page_shift" =~ ^[0-9]+$ ]] && (( page_shift > 0 )); } || die "bad --page-shift: $page_shift"
+    is_hex "$vm" || die "bad --vmemmap: $vmemmap"
+    { is_dec "$page_size" && (( page_size  > 0 )); } || die "bad --page-size: $page_size"
+    { is_dec "$page_shift" && (( page_shift > 0 )); } || die "bad --page-shift: $page_shift"
     pa=${phys2page#0[xX]}
-    [[ "$pa" =~ ^[0-9a-fA-F]+$ ]] || die "bad --phys2page address: $phys2page"
+    is_hex "$pa" || die "bad --phys2page address: $phys2page"
     pfn=$(( 0x$pa >> page_shift ))
     printf '%016x\n' $(( 0x$vm + pfn * page_size ))
     exit 0
@@ -236,7 +244,7 @@ if (( n_phys > 0 )); then
   po=""
   if [[ -n "$page_offset" ]]; then
     po=${page_offset#0[xX]}
-    [[ "$po" =~ ^[0-9a-fA-F]+$ ]] || die "bad --page-offset: $page_offset"
+    is_hex "$po" || die "bad --page-offset: $page_offset"
   elif [[ ! -t 0 ]]; then
     IFS= read -r line || die "stdin: no input (expected \`kasld -1\`)"
     if [[ "$line" =~ [[:space:]]dmap=0x([0-9a-fA-F]+) ]]; then
@@ -250,11 +258,11 @@ if (( n_phys > 0 )); then
 
   if [[ -n "$phys2virt" ]]; then
     pa=${phys2virt#0[xX]}
-    [[ "$pa" =~ ^[0-9a-fA-F]+$ ]] || die "bad --phys2virt address: $phys2virt"
+    is_hex "$pa" || die "bad --phys2virt address: $phys2virt"
     printf '%016x\n' $(( 0x$pa + 0x$po ))
   else
     va=${virt2phys#0[xX]}
-    [[ "$va" =~ ^[0-9a-fA-F]+$ ]] || die "bad --virt2phys address: $virt2phys"
+    is_hex "$va" || die "bad --virt2phys address: $virt2phys"
     hex_ult "$va" "$po" && die "virtual address is below the direct-map base"
     printf '0x%x\n' $(( 0x$va - 0x$po ))
   fi
@@ -297,7 +305,7 @@ done
 # Security: this value is interpolated into `$(( 0x$default_hex ... ))`. A
 # non-hex value from a hostile symbol source (e.g. `a[$(cmd)]`) would be
 # executed by bash arithmetic evaluation, so require strict hex before use.
-[[ "$default_hex" =~ ^[0-9a-fA-F]+$ ]] \
+is_hex "$default_hex" \
   || die "malformed _text address in symbol source (expected hex)"
 
 # -- Resolve runtime text base and KASLR slide ---------------------------
@@ -306,7 +314,7 @@ if [[ -n "$from_sym" ]]; then
   sym_default=$(awk -v s="$from_sym" '$3 == s { print $1; exit }' "$symfile")
   [[ -n "$sym_default" ]] || die "symbol not in source: $from_sym"
   # Security: validate before arithmetic — see the _text check above.
-  [[ "$sym_default" =~ ^[0-9a-fA-F]+$ ]] \
+  is_hex "$sym_default" \
     || die "malformed address for $from_sym in symbol source (expected hex)"
   slide=$(( 0x$from_addr - 0x$sym_default ))
   base_hex=$(printf '%x' $(( 0x$default_hex + slide )))
@@ -326,7 +334,7 @@ else
     fi
   fi
   base_hex="${base#0[xX]}"
-  [[ "$base_hex" =~ ^[0-9a-fA-F]+$ ]] || die "bad runtime base: $base"
+  is_hex "$base_hex" || die "bad runtime base: $base"
   slide=$(( 0x$base_hex - 0x$default_hex ))
 fi
 
@@ -354,7 +362,7 @@ if (( ${#symbols[@]} > 0 )); then
     read -r addr_hex sym_type _ <<< "$line"
     # Security: validate before arithmetic — a non-hex address from a hostile
     # symbol source would otherwise be executed by bash arithmetic evaluation.
-    if [[ ! "$addr_hex" =~ ^[0-9a-fA-F]+$ ]]; then
+    if ! is_hex "$addr_hex"; then
       printf '# malformed address for: %s\n' "$sym" >&2
       continue
     fi
@@ -364,7 +372,7 @@ if (( ${#symbols[@]} > 0 )); then
   done
 else
   while IFS=' ' read -r addr sym_type name _; do
-    [[ "$addr" =~ ^[0-9a-fA-F]+$ ]] || continue
+    is_hex "$addr" || continue
     [[ -n "$name" ]] || continue
     # Strip control characters from file-derived fields (see the per-symbol path).
     printf '%016x %s %s\n' $(( 0x$addr + slide )) "${sym_type//[[:cntrl:]]/}" "${name//[[:cntrl:]]/}"

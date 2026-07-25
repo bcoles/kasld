@@ -73,6 +73,11 @@ skip() { update_counts skip; printf "  ${YELLOW}SKIP${RESET}  %s\n" "$1"; }
 
 # Normalize a hex string (with or without 0x prefix) to 16-char lowercase
 hex16() {
+  # SECURITY: reject non-hex input up front so the reformatted value can never
+  # carry shell/arithmetic metacharacters into a later `$(( 0x... ))` — the same
+  # class numeric() guards. Callers today pass only /proc-sourced hex; this keeps
+  # hex16 self-contained. A rejected value yields empty output (treated as absent).
+  printf '%s' "$1" | grep -qiE '^(0x)?[0-9a-f]+$' || return 0
   printf '%s' "$1" | tr 'A-F' 'a-f' | sed 's/^0x//; s/^0*//' | \
     awk '{ printf "%016s\n", $0 }' | tr ' ' '0'
 }
