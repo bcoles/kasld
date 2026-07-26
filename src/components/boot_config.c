@@ -18,14 +18,13 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld/api.h"
+#include "include/kasld/bootconfig.h"
 #include "include/kasld/cli.h"
 #include "include/kconfig.h"
 #include "include/text_order.h"
-#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <sys/utsname.h>
 
 KASLD_EXPLAIN(
     "Reads /boot/config-$(uname -r) to check whether CONFIG_RANDOMIZE_BASE "
@@ -35,44 +34,6 @@ KASLD_EXPLAIN(
 KASLD_META("method:detection\n"
            "phase:inference\n"
            "addr:none\n");
-
-/* Open the kernel config file. Release-keyed paths (bound to the running
- * kernel's uname release) are tried FIRST; the unkeyed /boot/config is a
- * best-effort fallback tried LAST and reported via *is_unkeyed, since it has no
- * release binding and may describe a different kernel. Availability depends on
- * CONFIG_IKCONFIG, distro layout, and whether kernel headers are installed. */
-static int open_boot_config(FILE **fpp, int *is_unkeyed) {
-  struct utsname utsname;
-  char path[256];
-
-  *is_unkeyed = 0;
-
-  if (kasld_uname(&utsname) == 0) {
-    const char *release_fmts[] = {
-        "/boot/config-%s",
-        "/lib/modules/%s/build/.config",
-        "/lib/modules/%s/config",
-        NULL,
-    };
-
-    for (int i = 0; release_fmts[i]; i++) {
-      snprintf(path, sizeof(path), release_fmts[i], utsname.release);
-      *fpp = kasld_fopen(path, "r");
-      if (*fpp)
-        return 0;
-    }
-  }
-
-  /* Last resort: the unkeyed /boot/config (no release binding). */
-  *fpp = kasld_fopen("/boot/config", "r");
-  if (*fpp) {
-    *is_unkeyed = 1;
-    return 0;
-  }
-
-  kasld_err("could not find kernel config");
-  return -1;
-}
 
 static unsigned long get_kernel_addr_boot_config(FILE *fp) {
   if (kconfig_has_kaslr(fp))
@@ -86,10 +47,12 @@ static unsigned long get_kernel_addr_boot_config(FILE *fp) {
 }
 
 int main(void) {
-  FILE *fp;
   int is_unkeyed = 0;
-  if (open_boot_config(&fp, &is_unkeyed) < 0)
+  FILE *fp = kasld_open_boot_config(&is_unkeyed);
+  if (!fp) {
+    kasld_err("could not find kernel config");
     return KASLD_EXIT_UNAVAILABLE;
+  }
 
   /* An unkeyed /boot/config carries no binding to the running kernel: it may be
    * a leftover from another kernel or a rescue image. Its Kconfig answers drive
