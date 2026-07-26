@@ -400,6 +400,21 @@ static enum lockdown_mode read_lockdown(void) {
   return LOCKDOWN_NONE;
 }
 
+/* Read the runtime hardening state (sysctls, lockdown, pointer hashing) into
+ * the module globals the readout and the hardening advisor consume. Called from
+ * both the verbose path (print_system_config) and the default path, so those
+ * globals are populated whichever runs. */
+static void read_security_state(void) {
+  sysctl_kptr_restrict = read_sysctl_int("/proc/sys/kernel/kptr_restrict");
+  sysctl_dmesg_restrict = read_sysctl_int("/proc/sys/kernel/dmesg_restrict");
+  sysctl_perf_event_paranoid =
+      read_sysctl_int("/proc/sys/kernel/perf_event_paranoid");
+  sysctl_unprivileged_bpf_disabled =
+      read_sysctl_int("/proc/sys/kernel/unprivileged_bpf_disabled");
+  sysctl_lockdown = read_lockdown();
+  hashed_pointers = read_pointer_hashing();
+}
+
 /* ---- Recon vantage: container + confinement facts, shared by all renderers
  * (text verbose block, JSON, markdown) so they can't diverge. Outside the
  * KASLD_TESTING guard because the render modules link against these. ------- */
@@ -606,15 +621,7 @@ static void print_system_config(void) {
   printf("%-30s%s\n", "Kernel version:", u.version);
   printf("%-30s%s\n", "Kernel arch:", u.machine);
 
-  /* Read and store sysctl values */
-  sysctl_kptr_restrict = read_sysctl_int("/proc/sys/kernel/kptr_restrict");
-  sysctl_dmesg_restrict = read_sysctl_int("/proc/sys/kernel/dmesg_restrict");
-  sysctl_perf_event_paranoid =
-      read_sysctl_int("/proc/sys/kernel/perf_event_paranoid");
-  sysctl_unprivileged_bpf_disabled =
-      read_sysctl_int("/proc/sys/kernel/unprivileged_bpf_disabled");
-  sysctl_lockdown = read_lockdown();
-  hashed_pointers = read_pointer_hashing();
+  read_security_state();
 
   printf("\n");
   read_proc_value("kernel.kptr_restrict:", "/proc/sys/kernel/kptr_restrict");
@@ -3785,14 +3792,7 @@ int main(int argc, char *argv[]) {
   } else {
     /* Always read system state — the readout's "KASLR disabled" branch and
      * the hardening report both depend on these values. */
-    sysctl_kptr_restrict = read_sysctl_int("/proc/sys/kernel/kptr_restrict");
-    sysctl_dmesg_restrict = read_sysctl_int("/proc/sys/kernel/dmesg_restrict");
-    sysctl_perf_event_paranoid =
-        read_sysctl_int("/proc/sys/kernel/perf_event_paranoid");
-    sysctl_unprivileged_bpf_disabled =
-        read_sysctl_int("/proc/sys/kernel/unprivileged_bpf_disabled");
-    sysctl_lockdown = read_lockdown();
-    hashed_pointers = read_pointer_hashing();
+    read_security_state();
   }
 
   if (discover_components() < 0)
