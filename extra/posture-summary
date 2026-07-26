@@ -96,6 +96,7 @@ row='{
   pbits:  (.kaslr.inferred_physical.entropy_bits // 0),
   leaks:  (.hardening.exposure.succeeded // 0),
   total:  (.hardening.exposure.total // 0),
+  defenses: ([(.hardening.confirmed_mitigations // [])[].gate] | unique | length),
   cves:   ((.hardening.patched_vulnerabilities.possibly_unpatched // []) | length),
   topfix: ((.hardening.available_hardening // []) | (if length > 0 then .[0].action else "-" end))
 }'
@@ -120,7 +121,7 @@ done
   exit 2
 }
 
-HDR="host arch kernel kaslr vbits pbits leaks cves top-fix"
+HDR="host arch kernel kaslr vbits pbits leaks defenses cves top-fix"
 
 case "$fmt" in
 json)
@@ -129,19 +130,19 @@ json)
 csv)
   echo "$HDR" | tr ' ' ','
   jq -rs 'sort_by(.host)[] | [.host, .arch, .kernel, .kaslr, .vbits, .pbits,
-    "\(.leaks)/\(.total)", .cves, .topfix] | @csv' "$tmp"
+    "\(.leaks)/\(.total)", .defenses, .cves, .topfix] | @csv' "$tmp"
   ;;
 markdown)
   echo "$HDR" | sed 's/ / | /g; s/^/| /; s/$/ |/'
   echo "$HDR" | sed 's/[^ ]*/---/g; s/ / | /g; s/^/| /; s/$/ |/'
-  jq -rs 'sort_by(.host)[] | "| \(.host) | \(.arch) | \(.kernel) | \(.kaslr) | \(.vbits) | \(.pbits) | \(.leaks)/\(.total) | \(.cves) | \(.topfix) |"' "$tmp"
+  jq -rs 'sort_by(.host)[] | "| \(.host) | \(.arch) | \(.kernel) | \(.kaslr) | \(.vbits) | \(.pbits) | \(.leaks)/\(.total) | \(.defenses) | \(.cves) | \(.topfix) |"' "$tmp"
   ;;
 text)
   # Header + rows as tab-separated, then align each column to its widest cell.
   {
     echo "$HDR" | tr ' ' '\t'
     jq -rs 'sort_by(.host)[] | [.host, .arch, .kernel, .kaslr, "\(.vbits)b",
-      "\(.pbits)b", "\(.leaks)/\(.total)", .cves, .topfix] | @tsv' "$tmp"
+      "\(.pbits)b", "\(.leaks)/\(.total)", .defenses, .cves, .topfix] | @tsv' "$tmp"
   } | awk -F'\t' '
     { for (i = 1; i <= NF; i++) { c[NR, i] = $i; if (length($i) > w[i]) w[i] = length($i) } nc = NF; nr = NR }
     END { for (r = 1; r <= nr; r++) { line = ""

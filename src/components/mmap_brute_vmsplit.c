@@ -84,7 +84,8 @@ static unsigned long find_kernel_address_space_start(unsigned long *last_ok) {
   }
 
   kasld_err("Could not locate kernel virtual address space");
-  kasld_skip_reason("no user/kernel split found in the 32-bit sweep");
+  kasld_disposition(DISP_INCONCLUSIVE, NULL,
+                    "no user/kernel split found in the 32-bit sweep");
   return 0;
 }
 

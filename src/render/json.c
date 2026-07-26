@@ -555,6 +555,23 @@ void render_json(const struct summary *s) {
       printf(",\n");
       printf("      \"exit_code\": %d,\n", cl->exit_code);
       printf("      \"outcome\": \"%s\"", outcome_name(cl->outcome));
+      /* Disposition: the fine-grained reason a component produced no result,
+       * refining the coarse outcome. Present only when the component reported
+       * one. `gate` names the confirmed control for a mitigation. */
+      if (cl->disposition.category != DISP_NONE) {
+        printf(",\n      \"disposition\": {\n");
+        printf("        \"category\": \"%s\"",
+               kasld_disp_wire(cl->disposition.category));
+        if (cl->disposition.gate[0]) {
+          printf(",\n        \"gate\": ");
+          json_print_escaped(cl->disposition.gate);
+        }
+        if (cl->disposition.message[0]) {
+          printf(",\n        \"message\": ");
+          json_print_escaped(cl->disposition.message);
+        }
+        printf("\n      }");
+      }
       if (cl->explain) {
         printf(",\n      \"explain\": ");
         json_print_escaped(cl->explain);

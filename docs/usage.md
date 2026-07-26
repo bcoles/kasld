@@ -427,9 +427,11 @@ The `environment` object is the recon vantage: `container`, `seccomp`,
 leak sources (fields are a `null` or enum when they do not apply).
 
 The `components` array holds one record per component — `name`,
-`exit_code`, `outcome`, and the parsed `meta` from
-`KASLD_META` (including `cve` / `patch` / `config` / `sysctl` keys). The
-`hardening` object is described under
+`exit_code`, `outcome`, an optional `disposition` (why a component produced no
+tagged result: `category` — `mitigation` / `absent` / `disabled` /
+`inconclusive` — plus, for a mitigation, the `gate` it confirmed and an optional
+`message`), and the parsed `meta` from `KASLD_META` (including `cve` / `patch` /
+`config` / `sysctl` keys). The `hardening` object is described under
 [Hardening assessment](#hardening-assessment).
 A per-component patch worklist — `{component, cve, fixed_in, leaked_here}`
 — is a direct projection of the `components` array:
@@ -489,7 +491,11 @@ $ ./kasld --explain
 
 The `--hardening` (`-H`) flag appends a post-run hardening assessment that
 evaluates the system's KASLR defenses based on the component results and
-their machine-readable metadata. The assessment has seven sections:
+their machine-readable metadata. It opens with **Confirmed active mitigations**
+(shown when present) — controls a component observed to defeat its leak this
+run, keyed by the gate (`kpti`, an MDS hardware fix, a hardening `CONFIG`); this
+is the runtime-observed complement to the sysctl gates, and appears in json as
+`hardening.confirmed_mitigations`. It is followed by seven analysis sections:
 
 1. **KASLR posture** (only when degraded) — surfaces a runtime KASLR
    state that downgrades effective slot entropy to 0 bits. Fires on

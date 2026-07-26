@@ -297,16 +297,14 @@ static unsigned long get_kernel_addr_prefetch(void) {
 
   if (!has_rdtscp()) {
     kasld_err("rdtscp instruction not supported on this CPU");
-    kasld_skip_reason("rdtscp not supported");
-    exit(KASLD_EXIT_UNAVAILABLE);
+    exit(kasld_disp_absent("rdtscp not supported"));
   }
 
   if (pti) {
     fprintf(stderr,
             "[-] KPTI is enabled; prefetch side-channel is ineffective\n"
             "    (kernel pages unmapped from userspace page tables)\n");
-    kasld_skip_reason("KPTI enabled");
-    exit(KASLD_EXIT_UNAVAILABLE);
+    exit(kasld_disp_mitigation("kpti", "KPTI enabled"));
   }
 
   kasld_info("KPTI is not detected");
@@ -331,7 +329,8 @@ static unsigned long get_kernel_addr_prefetch(void) {
           "only the unmapped baseline and page-table-boundary timing. This "
           "CPU may not leak the kernel base through prefetch page-walk "
           "latency.");
-      kasld_skip_reason(
+      kasld_disposition(
+          DISP_INCONCLUSIVE, NULL,
           "no kernel-text signal (CPU may not leak, or mitigated)");
     } else {
       kasld_err(
@@ -339,7 +338,8 @@ static unsigned long get_kernel_addr_prefetch(void) {
           "none held a majority (scheduler / CPU-frequency / thermal noise; "
           "a quieter run may resolve it).",
           n_found, NUM_PASSES);
-      kasld_skip_reason("unstable signal; a quieter run may resolve");
+      kasld_disposition(DISP_INCONCLUSIVE, NULL,
+                        "unstable signal; a quieter run may resolve");
     }
     return 0;
   }
@@ -348,7 +348,8 @@ static unsigned long get_kernel_addr_prefetch(void) {
     return addr;
 
   kasld_err("discarding candidate 0x%lx: outside the kernel-text window", addr);
-  kasld_skip_reason("candidate outside the kernel-text window");
+  kasld_disposition(DISP_INCONCLUSIVE, NULL,
+                    "candidate outside the kernel-text window");
   return 0;
 }
 

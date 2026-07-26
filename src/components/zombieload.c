@@ -363,37 +363,33 @@ int main(void) {
   if (!getenv("KASLD_EXPERIMENTAL")) {
     fprintf(stderr, "[-] zombieload: experimental component; "
                     "set KASLD_EXPERIMENTAL=1 to enable\n");
-    kasld_skip_reason("experimental (set KASLD_EXPERIMENTAL=1)");
-    return KASLD_EXIT_UNAVAILABLE;
+    return kasld_disp_disabled("experimental (set KASLD_EXPERIMENTAL=1)");
   }
 
   if (!is_intel_cpu()) {
     fprintf(stderr,
             "[-] zombieload: not an Intel CPU; MDS is Intel-specific\n");
-    kasld_skip_reason("not an Intel CPU");
-    return KASLD_EXIT_UNAVAILABLE;
+    return kasld_disp_absent("not an Intel CPU");
   }
 
   if (!has_rtm()) {
     fprintf(stderr, "[-] zombieload: TSX/RTM not available (CPUID); "
                     "required for MDS fault suppression\n");
-    kasld_skip_reason("TSX/RTM not available");
-    return KASLD_EXIT_UNAVAILABLE;
+    return kasld_disp_absent("TSX/RTM not available");
   }
 
   if (!rtm_is_functional()) {
     fprintf(stderr, "[-] zombieload: TSX/RTM disabled at runtime; "
                     "CPUID reports RTM but transactions abort immediately "
                     "(microcode update or hypervisor restriction)\n");
-    kasld_skip_reason("TSX/RTM disabled at runtime");
-    return KASLD_EXIT_UNAVAILABLE;
+    return kasld_disp_absent("TSX/RTM disabled at runtime");
   }
 
   int mds_status = check_mds_status();
   if (mds_status == 2) {
     fprintf(stderr, "[-] zombieload: CPU not affected by MDS (hardware fix)\n");
-    kasld_skip_reason("CPU not affected by MDS (hardware fix)");
-    return KASLD_EXIT_UNAVAILABLE;
+    return kasld_disp_mitigation("mds",
+                                 "CPU not affected by MDS (hardware fix)");
   }
   if (mds_status == 1) {
     fprintf(stderr, "[.] zombieload: MDS mitigations active "
@@ -417,8 +413,7 @@ int main(void) {
   fault_page = mmap(NULL, 4096, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
   if (fault_page == MAP_FAILED) {
     fprintf(stderr, "[-] zombieload: failed to map faulting page\n");
-    kasld_skip_reason("failed to map faulting page");
-    return 0;
+    return kasld_disp_inconclusive("failed to map faulting page");
   }
 
   /* Pin to a single core to reduce noise from cross-core LFB traffic */
@@ -491,9 +486,8 @@ int main(void) {
             "(hypervisor intercept, TSX not truly entering transactional "
             "mode, or hardware-specific behaviour)\n",
             MDS_RUNS);
-    kasld_skip_reason(
+    return kasld_disp_inconclusive(
         "no transient execution reached the probe (TSX aborting)");
-    return KASLD_EXIT_UNAVAILABLE;
   }
 
   if (total_probe_hits < MDS_MIN_HITS) {
@@ -507,19 +501,21 @@ int main(void) {
             "reported vulnerable, or the transient window is too narrow "
             "on this microcode revision\n",
             total_probe_hits, MDS_RUNS, MDS_MIN_HITS);
-    kasld_skip_reason("leak chain not propagating (CPU may be hardened)");
-    return KASLD_EXIT_UNAVAILABLE;
+    return kasld_disp_inconclusive(
+        "leak chain not propagating (CPU may be hardened)");
   }
 
   if (!addr) {
     if (mds_status == 1) {
       fprintf(stderr, "[-] zombieload: no kernel address found "
                       "(MDS mitigations likely effective)\n");
-      kasld_skip_reason("no kernel address (MDS mitigations likely effective)");
+      kasld_disposition(DISP_INCONCLUSIVE, NULL,
+                        "no kernel address (MDS mitigations likely effective)");
     } else {
       fprintf(stderr, "[-] zombieload: no kernel address found "
                       "(signal present but no kernel text pattern detected)\n");
-      kasld_skip_reason("no kernel-text pattern in the signal");
+      kasld_disposition(DISP_INCONCLUSIVE, NULL,
+                        "no kernel-text pattern in the signal");
     }
     return 0;
   }

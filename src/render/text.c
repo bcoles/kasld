@@ -1492,10 +1492,47 @@ static void render_readout(const struct summary *s) {
  * Text renderer (verbose mode — full detail)
  * -------------------------------------------------------------------------
  */
+/* Digest of component dispositions read from comp_logs. In default output only
+ * the mitigation category is shown — the "what defended this target" view: a
+ * control a component positively observed to foil its leak, keyed by the gate
+ * it confirmed. Verbose output lists every reported disposition. Prints nothing
+ * at all (not even a header) when there is nothing to show, so a clean run
+ * stays quiet. */
+static void render_dispositions_text(int mitigations_only) {
+  int shown = 0;
+  for (int i = 0; i < num_comp_logs; i++) {
+    const struct component_disposition *d = &comp_logs[i].disposition;
+    if (d->category == DISP_NONE)
+      continue;
+    if (mitigations_only && d->category != DISP_MITIGATION)
+      continue;
+    if (!shown) {
+      printf("%s%s%s\n", c(C_BOLD),
+             mitigations_only ? "Mitigations observed:"
+                              : "Component dispositions:",
+             c(C_RESET));
+      shown = 1;
+    }
+    if (d->category == DISP_MITIGATION)
+      printf("  %s%s%s %s", c(C_YELLOW), d->gate, c(C_RESET),
+             comp_logs[i].name);
+    else
+      printf("  %s%-12s%s %s", c(C_DIM), kasld_disp_wire(d->category),
+             c(C_RESET), comp_logs[i].name);
+    if (d->message[0])
+      printf(" %s(%s)%s", c(C_DIM), d->message, c(C_RESET));
+    printf("\n");
+  }
+  if (shown)
+    printf("\n");
+}
+
 void render_text(const struct summary *s) {
   /* Default mode: tight answer-first readout. */
   if (!verbose) {
     render_readout(s);
+    if (!quiet)
+      render_dispositions_text(/*mitigations_only=*/1);
     if (hardening_mode)
       render_hardening_text();
     return;
@@ -1517,6 +1554,7 @@ void render_text(const struct summary *s) {
     if (s->stats.no_result)
       printf(", %d no result", s->stats.no_result);
     printf("%s\n\n", c(C_RESET));
+    render_dispositions_text(/*mitigations_only=*/0);
   }
 
   printf("%s========================================%s\n", c(C_BOLD),

@@ -769,8 +769,7 @@ int main(void) {
   if (!getenv("KASLD_EXPERIMENTAL")) {
     fprintf(stderr, "[-] kernelsnitch: experimental component; "
                     "set KASLD_EXPERIMENTAL=1 to enable\n");
-    kasld_skip_reason("experimental (set KASLD_EXPERIMENTAL=1)");
-    return KASLD_EXIT_UNAVAILABLE;
+    return kasld_disp_disabled("experimental (set KASLD_EXPERIMENTAL=1)");
   }
 
   kasld_info("trying KernelSnitch (futex hash timing) ...");
@@ -785,8 +784,8 @@ int main(void) {
   if (prctl(PR_FUTEX_HASH, PR_FUTEX_HASH_GET_SLOTS, 0, 0, 0) >= 0) {
     fprintf(stderr, "[-] kernelsnitch: CONFIG_FUTEX_PRIVATE_HASH is enabled; "
                     "attack not possible\n");
-    kasld_skip_reason("CONFIG_FUTEX_PRIVATE_HASH enabled");
-    return KASLD_EXIT_UNAVAILABLE;
+    return kasld_disp_mitigation("CONFIG_FUTEX_PRIVATE_HASH",
+                                 "CONFIG_FUTEX_PRIVATE_HASH enabled");
   }
 
   /* Determine futex hash table size. */
@@ -806,8 +805,7 @@ int main(void) {
 
   /* Phase 1: Pile-up. */
   if (create_pileup() < 0) {
-    kasld_skip_reason("could not create the futex pile-up");
-    return 0;
+    return kasld_disp_inconclusive("could not create the futex pile-up");
   }
 
   /* Phase 2: Find collision addresses. */
@@ -816,7 +814,8 @@ int main(void) {
   if (find_collisions(collisions, &num_collisions, hashsize) < 0) {
     fprintf(stderr, "[-] kernelsnitch: insufficient collisions; "
                     "timing signal too noisy?\n");
-    kasld_skip_reason("insufficient collisions (timing too noisy)");
+    kasld_disposition(DISP_INCONCLUSIVE, NULL,
+                      "insufficient collisions (timing too noisy)");
     cleanup_pileup();
     return 0;
   }
@@ -872,8 +871,8 @@ int main(void) {
   if (!result) {
     fprintf(stderr, "[-] kernelsnitch: brute-force failed to find "
                     "mm_struct address\n");
-    kasld_skip_reason("brute-force did not find the mm_struct address");
-    return 0;
+    return kasld_disp_inconclusive(
+        "brute-force did not find the mm_struct address");
   }
 
   /* The brute-forced address is the current task's mm_struct, allocated

@@ -63,9 +63,11 @@ protocol — the field grammar, a field-by-field anatomy of a line, and the
 region/confidence vocabularies — is documented in
 [docs/architecture.md → The tagged-line protocol](docs/architecture.md#the-tagged-line-protocol).
 
-The orchestrator ignores any line that does not begin with `P` or `V` followed
-by a space, so a component can freely print diagnostic messages (progress,
-errors, explanations). A component may emit zero, one, or multiple tagged lines.
+Beyond the address records (`P`/`V`), two more tagged kinds share the channel —
+scalar facts (`S`) and dispositions (`R`); the orchestrator parses all three and
+ignores anything else, so a component can freely print diagnostic messages
+(progress, errors, explanations). A component may emit zero, one, or multiple
+tagged lines.
 
 ### Position vs. confidence
 
@@ -182,12 +184,31 @@ failed to randomize) emits scalar facts via `kasld_emit_scalar()` instead of an
 address; which facts, and how the engine consumes each, are documented in
 [docs/architecture.md → KASLR runtime states](docs/architecture.md#kaslr-runtime-states).
 
-A leak or probe that determines it cannot run — or ran and found nothing worth
-attributing to a specific gate — calls `kasld_skip_reason(text)`, which emits a
-short `R` skip-reason line (e.g. "KPTI enabled", "not an Intel CPU"). The
-orchestrator captures it onto the per-component log; it is recorded metadata,
-never engine evidence, and is orthogonal to the exit code: the code names the
-outcome class, the reason names the specific gate within it.
+A leak or probe that ends without a tagged result can report *why* with a
+**disposition** — a short `R` line in a closed category that refines the exit
+code (recorded metadata, never engine evidence). The category carries the
+distinction the exit code cannot: an unavailable technique blocked by a
+*defensive control on the target* versus one that merely lacks a *prerequisite
+on this host*, and an empty run that is a deliberate opt-out versus an honest
+"ran, no clean signal, cannot prove why". The typed emitters emit the line and
+return the exit code the category implies, so the two channels cannot disagree:
+
+| Emitter | Meaning | Returns |
+|---|---|---|
+| `kasld_disp_mitigation(gate, msg)` | A defensive control foiled it; `gate` names the control (`kpti`, a `CONFIG_` id, a CVE id) and is **required** | `KASLD_EXIT_UNAVAILABLE` |
+| `kasld_disp_mitigation_denied(gate, msg)` | A control *denied the source* (the access-denied variant) | `KASLD_EXIT_NOPERM` |
+| `kasld_disp_absent(msg)` | An attacker prerequisite is missing on this host | `KASLD_EXIT_UNAVAILABLE` |
+| `kasld_disp_disabled(msg)` | Deliberate operator opt-out (needs a flag/env) | `KASLD_EXIT_UNAVAILABLE` |
+| `kasld_disp_inconclusive(msg)` | Ran, no clean signal, cannot prove why | `0` |
+
+Use `kasld_disposition(cat, gate, msg)` (no return value) where the exit code is
+decided elsewhere — inside a helper or a loop. A mitigation with no gate is a
+bug and emits nothing. Emit a disposition only when it soundly classifies the
+null result beyond the exit code — above all, a confirmed mitigation; a
+component that merely found no matching entry emits nothing. A `mitigation`
+disposition is confirmed active in the hardening report; the mitigation category
+is surfaced in default output, all categories under `--verbose`, and each
+disposition per-component in JSON.
 
 ### Diagnostics and options
 

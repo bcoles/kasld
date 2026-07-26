@@ -24,7 +24,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
   /* Bound the input shape to what the orchestrator's read loop would emit:
    * LINE_LEN-sized line, single-line (capture_result expects pre-tokenised
    * input — the read loop splits on '\n' before calling). */
-  if (size == 0 || size >= LINE_LEN)
+  if (size == 0 || size >= MAX_LINE_LEN)
     return 0;
 
   char *buf = malloc(size + 1);

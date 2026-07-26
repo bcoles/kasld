@@ -1250,21 +1250,104 @@ static inline int kasld_emit_scalar(enum kasld_scalar_fact f,
   return 1;
 }
 
-/* Emit one skip-reason: `R <text>`. A leak or probe component that determines
- * it cannot run — or ran and found nothing worth attributing to a specific
- * gate — emits a short reason here. The orchestrator captures it onto the
- * per-component log; it is recorded metadata, not surfaced in any output format
- * and not engine evidence. Orthogonal to the exit code: the exit code names the
- * outcome class (unavailable / access-denied / no-result), this names the
- * specific gate within it (e.g. "KPTI enabled", "not an Intel CPU"). Emit at
- * most once; keep it short. Newlines are folded to spaces so the record stays a
- * single wire line. */
-static inline void kasld_skip_reason(const char *reason) {
-  if (!reason || !*reason)
+/* Component disposition — why a component produced no tagged result, in a
+ * closed vocabulary. It refines the exit code, which names only the coarse
+ * class. The category carries the distinction the exit code structurally
+ * cannot: whether an unavailable technique was stopped by a *defensive control
+ * on the target* (mitigation) or merely lacks a *prerequisite on this host*
+ * (absent), and whether an empty run is a deliberate opt-out (disabled) or an
+ * honest "ran, no clean signal, cannot prove why" (inconclusive). */
+enum kasld_disp {
+  DISP_NONE = 0,     /* no disposition reported */
+  DISP_MITIGATION,   /* a defensive control on the target/host foiled it */
+  DISP_ABSENT,       /* an attacker prerequisite is missing on this host */
+  DISP_DISABLED,     /* deliberate operator opt-out (needs a flag/env) */
+  DISP_INCONCLUSIVE, /* ran, no clean signal, cannot prove why */
+};
+
+/* Category <-> wire token. Kept adjacent so the emitter and the orchestrator's
+ * parser share one source of the token strings and cannot drift. */
+static inline const char *kasld_disp_wire(enum kasld_disp d) {
+  switch (d) {
+  case DISP_MITIGATION:
+    return "mitigation";
+  case DISP_ABSENT:
+    return "absent";
+  case DISP_DISABLED:
+    return "disabled";
+  case DISP_INCONCLUSIVE:
+    return "inconclusive";
+  case DISP_NONE:
+    break;
+  }
+  return NULL;
+}
+
+static inline enum kasld_disp kasld_disp_parse(const char *tok) {
+  if (!tok)
+    return DISP_NONE;
+  if (!strcmp(tok, "mitigation"))
+    return DISP_MITIGATION;
+  if (!strcmp(tok, "absent"))
+    return DISP_ABSENT;
+  if (!strcmp(tok, "disabled"))
+    return DISP_DISABLED;
+  if (!strcmp(tok, "inconclusive"))
+    return DISP_INCONCLUSIVE;
+  return DISP_NONE;
+}
+
+/* Emit one disposition line:
+ *   R cat=<category> [gate=<token>] [msg="<text>"]
+ * A leak or probe component that ends without a tagged result reports why here.
+ * The orchestrator records it on the per-component log; renderers surface the
+ * mitigation category (a confirmed defensive control) in the hardening report
+ * and in text/JSON output. Emit at most once.
+ *
+ * `gate` names the specific control and is REQUIRED for DISP_MITIGATION (e.g.
+ * "kpti", a CONFIG_ id, or a CVE id) and ignored for every other category; a
+ * mitigation with no gate is a bug and emits nothing. Newlines fold to spaces
+ * and a `"` in `msg` folds to `'` so the record stays one trivially-parsed
+ * line. Prefer the typed wrappers below, which also return the exit code the
+ * category implies, so the two channels cannot disagree. */
+static inline void kasld_disposition(enum kasld_disp cat, const char *gate,
+                                     const char *msg) {
+  const char *cw = kasld_disp_wire(cat);
+  if (!cw) {
+    fprintf(stderr, "kasld_disposition: invalid category %d; nothing emitted\n",
+            (int)cat);
     return;
-  fputs("R ", stdout);
-  for (const char *p = reason; *p; p++)
-    putchar((*p == '\n' || *p == '\r') ? ' ' : (unsigned char)*p);
+  }
+  int want_gate = (cat == DISP_MITIGATION);
+  int have_gate = gate && *gate;
+  if (want_gate && !have_gate) {
+    fprintf(stderr, "kasld_disposition: %s requires a gate; nothing emitted\n",
+            cw);
+    return;
+  }
+  fputs("R cat=", stdout);
+  fputs(cw, stdout);
+  if (want_gate) {
+    fputs(" gate=", stdout);
+    for (const char *p = gate; *p; p++) {
+      unsigned char ch = (unsigned char)*p;
+      int sep = (ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r' ||
+                 ch == '"' || ch == '=');
+      putchar(sep ? '_' : ch);
+    }
+  }
+  if (msg && *msg) {
+    fputs(" msg=\"", stdout);
+    for (const char *p = msg; *p; p++) {
+      unsigned char ch = (unsigned char)*p;
+      if (ch == '\n' || ch == '\r')
+        ch = ' ';
+      else if (ch == '"')
+        ch = '\'';
+      putchar(ch);
+    }
+    putchar('"');
+  }
   putchar('\n');
 }
 
@@ -1297,6 +1380,37 @@ static inline void kasld_skip_reason(const char *reason) {
 #define KASLD_EXIT_UNAVAILABLE                                                 \
   69                         /* feature/hardware not present (EX_UNAVAILABLE) */
 #define KASLD_EXIT_NOPERM 77 /* access denied (EX_NOPERM) */
+
+/* Typed disposition wrappers: emit the `R` line (see kasld_disposition above)
+ * and return the exit code the category implies, so a component ends a gated
+ * path with a single expression — `return kasld_disp_absent("no RTM");` or
+ * `exit(kasld_disp_mitigation("kpti", "KPTI active"));` — and the disposition
+ * and exit code cannot disagree. A mitigation is UNAVAILABLE when a control is
+ * present (kasld_disp_mitigation) or NOPERM when a control denied the source
+ * (kasld_disp_mitigation_denied); an inconclusive run is always exit 0. Where
+ * the exit code is decided elsewhere (a helper, a loop break), call the untyped
+ * kasld_disposition() directly. */
+static inline int kasld_disp_mitigation(const char *gate, const char *msg) {
+  kasld_disposition(DISP_MITIGATION, gate, msg);
+  return KASLD_EXIT_UNAVAILABLE;
+}
+static inline int kasld_disp_mitigation_denied(const char *gate,
+                                               const char *msg) {
+  kasld_disposition(DISP_MITIGATION, gate, msg);
+  return KASLD_EXIT_NOPERM;
+}
+static inline int kasld_disp_absent(const char *msg) {
+  kasld_disposition(DISP_ABSENT, NULL, msg);
+  return KASLD_EXIT_UNAVAILABLE;
+}
+static inline int kasld_disp_disabled(const char *msg) {
+  kasld_disposition(DISP_DISABLED, NULL, msg);
+  return KASLD_EXIT_UNAVAILABLE;
+}
+static inline int kasld_disp_inconclusive(const char *msg) {
+  kasld_disposition(DISP_INCONCLUSIVE, NULL, msg);
+  return 0;
+}
 
 /* When stdout is a pipe (as when the orchestrator captures output), glibc
  * switches to fully-buffered mode. stderr remains unbuffered. Both pipes

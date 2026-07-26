@@ -299,16 +299,14 @@ static unsigned long get_directmap_base_prefetch(void) {
 
   if (!has_rdtscp()) {
     kasld_err("rdtscp instruction not supported on this CPU");
-    kasld_skip_reason("rdtscp not supported");
-    exit(KASLD_EXIT_UNAVAILABLE);
+    exit(kasld_disp_absent("rdtscp not supported"));
   }
 
   if (pti) {
     fprintf(stderr,
             "[-] KPTI is enabled; prefetch side-channel is ineffective\n"
             "    (kernel pages unmapped from userspace page tables)\n");
-    kasld_skip_reason("KPTI enabled");
-    exit(KASLD_EXIT_UNAVAILABLE);
+    exit(kasld_disp_mitigation("kpti", "KPTI enabled"));
   }
 
   kasld_info("KPTI is not detected");
@@ -318,8 +316,7 @@ static unsigned long get_directmap_base_prefetch(void) {
   if (n == 0) {
     kasld_err("5-level paging (la57) is active; the direct-map KASLR window is "
               "too large for a flat scan (unsupported)");
-    kasld_skip_reason("5-level paging (la57) window too large to scan");
-    exit(KASLD_EXIT_UNAVAILABLE);
+    exit(kasld_disp_absent("5-level paging (la57) window too large to scan"));
   }
 
   pin_cpu(0);
@@ -329,7 +326,8 @@ static unsigned long get_directmap_base_prefetch(void) {
   unsigned long base = directmap_vote(cpu, n, win_base, &n_found, &sparse);
 
   if (!base) {
-    kasld_skip_reason(
+    kasld_disposition(
+        DISP_INCONCLUSIVE, NULL,
         sparse         ? "sparse signal; true base not recoverable"
         : n_found == 0 ? "no direct-map signal (CPU may not leak, or mitigated)"
         : n_found < DM_MIN_LOCATED ? "weak signal; a quieter run may resolve"

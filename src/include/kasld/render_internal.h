@@ -211,6 +211,19 @@ struct hardening_report {
   struct hr_nomit nomit[HR_NOMIT_MAX];
   int n_nomit;
 
+  /* Controls a component positively observed to defeat it at runtime (a
+   * `mitigation` disposition). Distinct from `gates`, which are sysctl levers
+   * read from their values: these are confirmed by a leak being foiled, and
+   * name controls no sysctl reports (KPTI, an MDS hardware fix, a hardening
+   * CONFIG). Pointers alias the owning comp_logs entry, which outlives the
+   * report. */
+  struct hr_confirmed {
+    const char *component;
+    const char *gate;
+    const char *message;
+  } confirmed[HR_NAME_MAX];
+  int n_confirmed;
+
   /* Kernel-text function ordering (SF_TEXT_ORDER, resolved by max confidence:
    * config CONF_PARSED supersedes the kallsyms heuristic CONF_HEURISTIC).
    * text_order == 0 means undetermined. Gates whether a generic System.map can

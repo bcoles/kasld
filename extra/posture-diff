@@ -95,7 +95,8 @@ posture='{
   guar_bits:    (.kaslr.inferred.entropy_bits // 0),
   pguar_bits:   (.kaslr.inferred_physical.entropy_bits // 0),
   unpatched:    ([(.hardening.patched_vulnerabilities.possibly_unpatched // [])[].component] | sort),
-  defenses_off: ([(.hardening.active_defenses // [])[] | select(.active == false) | .gate] | sort)
+  defenses_off: ([(.hardening.active_defenses // [])[] | select(.active == false) | .gate] | sort),
+  confirmed:    ([(.hardening.confirmed_mitigations // [])[].gate] | sort | unique)
 }'
 
 b_posture=$(jq "$posture" "$base") || exit 2
@@ -116,7 +117,12 @@ findings=$(jq -rn --argjson b "$b_posture" --argjson c "$c_posture" '
     then "KASLR posture worsened: \($b.kaslr) -> \($c.kaslr)"
     else empty end ),
   ( ($c.unpatched - $b.unpatched)[] | "new CVE-class leak succeeded: \(.)" ),
-  ( ($c.defenses_off - $b.defenses_off)[] | "defense turned off: \(.)" )
+  ( ($c.defenses_off - $b.defenses_off)[] | "defense turned off: \(.)" ),
+  # A control confirmed to defeat a leak at baseline no longer does — a
+  # non-sysctl defense (KPTI, an MDS hardware fix, a hardening CONFIG) has
+  # weakened. These come from deterministic checks, so a drop is a real change,
+  # not run-to-run noise.
+  ( ($b.confirmed - $c.confirmed)[] | "confirmed mitigation no longer blocking a leak: \(.)" )
 ') || exit 2
 
 if [ -n "$findings" ]; then

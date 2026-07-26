@@ -1,10 +1,10 @@
 # Parser fuzz harnesses
 
-libFuzzer harnesses for the parsers that consume external input. The first four
+libFuzzer harnesses for the parsers that consume external input. The first five
 are the pure string→struct parsers in `src/orchestrator.c` — each consumes
 attacker-influenced input (component stdout, ELF section payload, dmesg) in the
 privileged orchestrator process, so a bug there is a real exposure surface. The
-fifth, `fuzz_btf`, walks the binary BTF type info in
+sixth, `fuzz_btf`, walks the binary BTF type info in
 `src/components/btf_struct_page_size.c`: kernel-provided input rather than an
 attacker surface, but the most intricate binary parser in the tree, so it is
 fuzzed for over-read / overflow / unbounded-loop safety.
@@ -15,6 +15,7 @@ fuzzed for over-read / overflow / unbounded-loop safety.
 | `fuzz_capture_result` | `capture_result(line, method, origin)` | `<P|V> <region>[:<name>] pos=<pos> conf=<conf> [lo=...] [hi=...|sz=...] [sample=...] [base_align=...]` |
 | `fuzz_capture_scalar` | `capture_scalar(line, origin)` | `S <fact> conf=<c> value=0x<hex>` |
 | `fuzz_parse_meta` | `parse_meta(raw, *m)` | newline-delimited `key:value` pairs |
+| `fuzz_parse_disposition` | `parse_disposition(s, *d)` | `cat=<category> [gate=<token>] [msg="<text>"]` (the `R`-line body) |
 | `fuzz_btf` | `btf_struct_size(buf, len, name)` | BTF blob: header + type / string sections |
 
 ## Build and run

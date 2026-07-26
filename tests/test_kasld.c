@@ -813,27 +813,88 @@ static void test_roundtrip_sized(void) {
   assert(r->hi == 0x10ffffu); /* lo + sz - 1 */
 }
 
-/* An `R` skip-reason line is captured onto the per-component log (always, not
- * only under --verbose) and tags no address record; a wire result line leaves
- * the reason empty and does tag a record. */
-static void test_skip_reason_capture(void) {
+static int emit_mitigation_helper(void) {
+  return kasld_disp_mitigation("kpti", "KPTI enabled");
+}
+static int emit_absent_helper(void) {
+  return kasld_disp_absent("not an Intel CPU");
+}
+static int emit_inconclusive_helper(void) {
+  return kasld_disp_inconclusive("noisy");
+}
+static int emit_mitigation_nogate_helper(void) {
+  /* A mitigation with no gate is a bug: the emitter must print nothing. */
+  kasld_disposition(DISP_MITIGATION, NULL, "should not emit");
+  return 0;
+}
+
+/* An `R` disposition line is parsed onto the per-component log (always, not
+ * only under --verbose) and tags no address record; the typed emitters return
+ * the exit code the category implies and round-trip through the parser;
+ * malformed dispositions leave the category at DISP_NONE; a wire result line
+ * tags a record and leaves the disposition empty. */
+static void test_disposition_capture(void) {
   int saved_v = verbose;
   verbose = 0;
-
+  char buf[512];
   struct component_log cl;
-  memset(&cl, 0, sizeof(cl));
-  const char *r = "R KPTI enabled";
-  int tagged = handle_component_line(&cl, "timing", "prefetch", r, strlen(r));
-  assert(tagged == 0);
-  assert(strcmp(cl.reason, "KPTI enabled") == 0);
 
+  /* mitigation: emitter returns UNAVAILABLE and the gate round-trips. */
+  assert(capture_helper(emit_mitigation_helper, buf, sizeof(buf)) ==
+         KASLD_EXIT_UNAVAILABLE);
+  assert(strcmp(buf, "R cat=mitigation gate=kpti msg=\"KPTI enabled\"") == 0);
+  memset(&cl, 0, sizeof(cl));
+  assert(handle_component_line(&cl, "timing", "prefetch", buf, strlen(buf)) ==
+         0);
+  assert(cl.disposition.category == DISP_MITIGATION);
+  assert(strcmp(cl.disposition.gate, "kpti") == 0);
+  assert(strcmp(cl.disposition.message, "KPTI enabled") == 0);
+
+  /* absent: UNAVAILABLE, no gate. */
+  assert(capture_helper(emit_absent_helper, buf, sizeof(buf)) ==
+         KASLD_EXIT_UNAVAILABLE);
+  memset(&cl, 0, sizeof(cl));
+  handle_component_line(&cl, "timing", "databounce", buf, strlen(buf));
+  assert(cl.disposition.category == DISP_ABSENT);
+  assert(cl.disposition.gate[0] == '\0');
+  assert(strcmp(cl.disposition.message, "not an Intel CPU") == 0);
+
+  /* inconclusive: exit 0. */
+  assert(capture_helper(emit_inconclusive_helper, buf, sizeof(buf)) == 0);
+  memset(&cl, 0, sizeof(cl));
+  handle_component_line(&cl, "timing", "prefetch", buf, strlen(buf));
+  assert(cl.disposition.category == DISP_INCONCLUSIVE);
+
+  /* mitigation with no gate: emitter prints nothing (bug), and a hand-built
+   * gate-less mitigation line parses to DISP_NONE rather than a bogus claim. */
+  assert(capture_helper(emit_mitigation_nogate_helper, buf, sizeof(buf)) == 0);
+  assert(buf[0] == '\0');
+  memset(&cl, 0, sizeof(cl));
+  const char *nogate = "R cat=mitigation msg=\"x\"";
+  handle_component_line(&cl, "timing", "x", nogate, strlen(nogate));
+  assert(cl.disposition.category == DISP_NONE);
+
+  /* Unknown category is dropped. */
+  memset(&cl, 0, sizeof(cl));
+  const char *bogus = "R cat=bogus msg=\"x\"";
+  handle_component_line(&cl, "timing", "x", bogus, strlen(bogus));
+  assert(cl.disposition.category == DISP_NONE);
+
+  /* A `gate=`/`cat=` substring inside the quoted message is not mistaken for a
+   * field: the message is last, so field searches stop before it. */
+  memset(&cl, 0, sizeof(cl));
+  const char *tricky = "R cat=absent msg=\"weird cat=x gate=y text\"";
+  handle_component_line(&cl, "timing", "x", tricky, strlen(tricky));
+  assert(cl.disposition.category == DISP_ABSENT);
+  assert(cl.disposition.gate[0] == '\0');
+  assert(strcmp(cl.disposition.message, "weird cat=x gate=y text") == 0);
+
+  /* A wire result line tags a record and leaves the disposition empty. */
   reset_results();
   memset(&cl, 0, sizeof(cl));
-  char buf[512];
   assert(capture_helper(emit_base_helper, buf, sizeof(buf)) == 1);
-  int t2 = handle_component_line(&cl, "parsed", "test", buf, strlen(buf));
-  assert(t2 == 1);
-  assert(cl.reason[0] == '\0');
+  assert(handle_component_line(&cl, "parsed", "test", buf, strlen(buf)) == 1);
+  assert(cl.disposition.category == DISP_NONE);
 
   verbose = saved_v;
 }
@@ -1680,7 +1741,7 @@ int main(void) {
   RUN(test_roundtrip_top);
   RUN(test_roundtrip_sample);
   RUN(test_roundtrip_sized);
-  RUN(test_skip_reason_capture);
+  RUN(test_disposition_capture);
   RUN(test_helpers_reject_conf_unknown);
 
   BEGIN_CATEGORY("result_in_bounds");

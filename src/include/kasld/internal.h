@@ -334,18 +334,27 @@ struct component_meta {
   int num_entries;
 };
 
-/* Longest skip-reason kept from an `R` wire line (see kasld_skip_reason in
- * api.h). Short by design — a one-line triage hint, not prose. */
-#define SKIP_REASON_LEN 192
+/* A component's self-reported disposition, parsed from an `R` wire line (see
+ * kasld_disposition in api.h): why it produced no tagged result, as a closed
+ * category plus, for a mitigation, the specific control that fired and an
+ * optional human string. Short by design — a triage hint, not prose. `gate`
+ * and `message` are empty unless the wire line carried them; `category` is
+ * DISP_NONE when no `R` line was emitted. */
+#define DISP_GATE_LEN 64
+#define DISP_MSG_LEN 192
+struct component_disposition {
+  enum kasld_disp category;
+  char gate[DISP_GATE_LEN];
+  char message[DISP_MSG_LEN];
+};
 
 struct component_log {
   char name[256];
   int exit_code;
   enum component_outcome outcome;
-  /* Why the component did not produce a result, as it self-reported on an `R`
-   * wire line. Empty when none was emitted. Captured in default output too, so
-   * a gated leak's reason shows without re-running under --verbose. */
-  char reason[SKIP_REASON_LEN];
+  /* Why the component did not produce a result. Recorded in default output too,
+   * so a gated leak's disposition shows without re-running under --verbose. */
+  struct component_disposition disposition;
   /* Captured stdout lines for verbose/JSON output. Dynamically allocated
    * by run_component() only when verbose mode is active; non-verbose runs
    * leave `lines` == NULL and `lines_cap` == 0 so the per-component overhead

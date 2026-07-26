@@ -519,6 +519,20 @@ void build_hardening_report(struct hardening_report *r) {
       r->n_nomit++;
     }
   }
+
+  /* Confirmed active mitigations: controls a component observed to foil its
+   * leak this run (a `mitigation` disposition). Runtime observation, not the
+   * static "this leak could be gated by X" inference the sysctl gates and meta
+   * carry. */
+  for (int i = 0; i < num_comp_logs && r->n_confirmed < HR_NAME_MAX; i++) {
+    const struct component_disposition *d = &comp_logs[i].disposition;
+    if (d->category != DISP_MITIGATION)
+      continue;
+    r->confirmed[r->n_confirmed].component = comp_logs[i].name;
+    r->confirmed[r->n_confirmed].gate = d->gate;
+    r->confirmed[r->n_confirmed].message = d->message[0] ? d->message : NULL;
+    r->n_confirmed++;
+  }
 }
 
 /* Kernel-text function-ordering labels (shared by the text/json renderers). */
@@ -657,6 +671,22 @@ void render_hardening_text(void) {
          "against current defenses.\n\n",
          rep.succeeded > 0 ? c(C_YELLOW) : c(C_GREEN), rep.succeeded, rep.total,
          c(C_RESET));
+
+  /* Confirmed active mitigations: controls a component observed to defeat its
+   * leak this run (mitigation dispositions). Positive posture — printed only
+   * when present, keyed by the confirmed control. */
+  if (rep.n_confirmed > 0) {
+    printf("%sConfirmed active mitigations%s (observed to defeat a leak):\n",
+           c(C_BOLD), c(C_RESET));
+    for (int i = 0; i < rep.n_confirmed; i++) {
+      printf("  %s%s%s — %s", c(C_YELLOW), rep.confirmed[i].gate, c(C_RESET),
+             rep.confirmed[i].component);
+      if (rep.confirmed[i].message)
+        printf(" %s(%s)%s", c(C_DIM), rep.confirmed[i].message, c(C_RESET));
+      printf("\n");
+    }
+    printf("\n");
+  }
 
   /* ---- Section 0: KASLR posture downgrade ----
    *
@@ -997,6 +1027,23 @@ void render_hardening_json(void) {
   printf("      \"note\": \"Detection-only components excluded\"\n");
   printf("    },\n");
 
+  /* Confirmed active mitigations: controls a component observed to defeat its
+   * leak this run (mitigation dispositions). Runtime observation, distinct from
+   * the gates below (sysctl levers read from their values). */
+  printf("    \"confirmed_mitigations\": [");
+  for (int i = 0; i < rep.n_confirmed; i++) {
+    printf("%s\n      {\"gate\": ", i ? "," : "");
+    json_print_escaped(rep.confirmed[i].gate);
+    printf(", \"component\": ");
+    json_print_escaped(rep.confirmed[i].component);
+    if (rep.confirmed[i].message) {
+      printf(", \"message\": ");
+      json_print_escaped(rep.confirmed[i].message);
+    }
+    printf("}");
+  }
+  printf("%s],\n", rep.n_confirmed ? "\n    " : "");
+
   /* Kernel-text function ordering — gates System.map symbol resolution. */
   printf("    \"text_order\": {\n");
   printf("      \"class\": \"%s\",\n", text_order_json_class(rep.text_order));
@@ -1277,6 +1324,21 @@ void render_hardening_markdown(void) {
   printf("## Hardening Assessment\n\n");
   printf("**%d of %d** leak techniques succeeded against current defenses.\n\n",
          rep.succeeded, rep.total);
+
+  /* Confirmed active mitigations: controls observed to defeat a leak this run
+   * (mitigation dispositions). Printed only when present. */
+  if (rep.n_confirmed > 0) {
+    printf("### Confirmed active mitigations\n\n");
+    printf("Controls observed to defeat a leak this run:\n\n");
+    for (int i = 0; i < rep.n_confirmed; i++) {
+      printf("- **%s** - %s", rep.confirmed[i].gate,
+             rep.confirmed[i].component);
+      if (rep.confirmed[i].message)
+        printf(" (%s)", rep.confirmed[i].message);
+      printf("\n");
+    }
+    printf("\n");
+  }
 
   /* KASLR posture downgrade */
   if (rep.n_rand_detectors > 0) {

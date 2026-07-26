@@ -407,10 +407,12 @@ V vmalloc pos=interior conf=heuristic sample=0xffffc90000123456
 P ram pos=extent conf=parsed lo=0x100000 hi=0x7fedffff
 ```
 
-The orchestrator ignores any line that does not begin with `P` or `V` followed
-by a space, so components can freely print diagnostics. A component may emit
-zero, one, or multiple tagged lines, and it never writes the format by hand — it
-calls one of the five emitter helpers (see
+Address records begin with `P` or `V`; two further tagged kinds share the
+channel — `S` (a scalar system fact, via `kasld_emit_scalar()`) and `R` (a
+component *disposition*: why it produced no tagged result, via the disposition
+emitters). Any other line is a diagnostic and ignored, so components can print
+freely. A component may emit zero, one, or multiple tagged lines, and it never
+writes the format by hand — it calls one of the emitter helpers (see
 [Emitter API](../CONTRIBUTING.md#emitter-api)), which produce the correct shape
 and reject malformed inputs at the source.
 

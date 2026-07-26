@@ -1526,6 +1526,61 @@ static void apply_sysroot_filter(void) {
  * lines), so the single fixed copy never overflows. Called for each complete
  * line, the unterminated EOF tail, and an over-long line that fills the read
  * buffer without a newline — one place, no synthetic delimiters. */
+/* Parse the body of an `R` line (everything after "R ") into a disposition.
+ * Grammar: `cat=<category> [gate=<token>] [msg="<text>"]`, emitted in that
+ * order by kasld_disposition() (api.h). gate is a space-delimited token; msg is
+ * quoted and always last, so a `gate=`/`cat=` substring inside the message text
+ * cannot be mistaken for a real field (each field is only sought before msg).
+ * An unknown category, or a mitigation with no gate, is malformed and leaves
+ * the disposition at DISP_NONE. */
+static void parse_disposition(const char *s, struct component_disposition *d) {
+  *d = (struct component_disposition){0};
+
+  const char *cat = strstr(s, "cat=");
+  if (!cat)
+    return;
+  cat += 4;
+  char tok[32];
+  size_t i = 0;
+  while (cat[i] && cat[i] != ' ' && i < sizeof(tok) - 1) {
+    tok[i] = cat[i];
+    i++;
+  }
+  tok[i] = '\0';
+  enum kasld_disp category = kasld_disp_parse(tok);
+  if (category == DISP_NONE)
+    return;
+
+  /* msg="..." is last; bound the gate search to the text before it. */
+  const char *msg = strstr(s, " msg=\"");
+  const char *gate = strstr(s, " gate=");
+  if (gate && (!msg || gate < msg)) {
+    gate += 6;
+    size_t j = 0;
+    while (gate[j] && gate[j] != ' ' && j < sizeof(d->gate) - 1) {
+      d->gate[j] = gate[j];
+      j++;
+    }
+    d->gate[j] = '\0';
+  }
+  if (msg) {
+    msg += 6;
+    size_t k = 0;
+    while (msg[k] && msg[k] != '"' && k < sizeof(d->message) - 1) {
+      d->message[k] = msg[k];
+      k++;
+    }
+    d->message[k] = '\0';
+  }
+
+  /* A mitigation names the control that fired; without a gate the claim is
+   * unusable to the hardening report, so drop it rather than record a
+   * gate-less mitigation. */
+  if (category == DISP_MITIGATION && d->gate[0] == '\0')
+    return;
+  d->category = category;
+}
+
 static int handle_component_line(struct component_log *clog,
                                  const char *comp_method, const char *origin,
                                  const char *content, size_t len) {
@@ -1574,13 +1629,12 @@ static int handle_component_line(struct component_log *clog,
     }
   }
 
-  /* `R` lines are a skip-reason (why the component produced no result). They
+  /* `R` lines are a disposition (why the component produced no result). They
    * carry no address, so they are stored on the per-component log — always, not
    * only under --verbose — and never reach the address/scalar parsers. */
   if (line[0] == 'R') {
     if (clog && line[1] == ' ' && line[2])
-      snprintf(clog->reason, sizeof(clog->reason), "%.*s",
-               (int)(sizeof(clog->reason) - 1), line + 2);
+      parse_disposition(line + 2, &clog->disposition);
     return 0;
   }
 
@@ -1658,7 +1712,7 @@ static int run_component(const struct component *c) {
     snprintf(clog->name, sizeof(clog->name), "%s", c->name);
     clog->exit_code = -1;
     clog->outcome = OUTCOME_NO_RESULT;
-    clog->reason[0] = '\0';
+    clog->disposition = (struct component_disposition){0};
     clog->lines = NULL;
     clog->num_lines = 0;
     clog->lines_cap = 0;

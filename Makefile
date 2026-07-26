@@ -718,7 +718,7 @@ test-engine : $(TEST_ENG_BIN)
 FUZZ_CC      ?= clang
 FUZZ_CFLAGS  ?= -O1 -g -fsanitize=fuzzer,address,undefined -DKASLD_TESTING -I src
 FUZZ_OUT     := $(BUILD_DIR)/fuzz
-FUZZ_TARGETS := fuzz_parse_hex fuzz_capture_result fuzz_capture_scalar fuzz_parse_meta fuzz_btf
+FUZZ_TARGETS := fuzz_parse_hex fuzz_capture_result fuzz_capture_scalar fuzz_parse_meta fuzz_parse_disposition fuzz_btf
 FUZZ_BINS    := $(addprefix $(FUZZ_OUT)/,$(FUZZ_TARGETS))
 
 $(FUZZ_OUT)/% : tests/fuzz/%.c

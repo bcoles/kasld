@@ -225,14 +225,12 @@ int main(void) {
   if (!getenv("KASLD_EXPERIMENTAL")) {
     fprintf(stderr, "[-] echoload: experimental component; "
                     "set KASLD_EXPERIMENTAL=1 to enable\n");
-    kasld_skip_reason("experimental (set KASLD_EXPERIMENTAL=1)");
-    return KASLD_EXIT_UNAVAILABLE;
+    return kasld_disp_disabled("experimental (set KASLD_EXPERIMENTAL=1)");
   }
 
   if (!is_intel_cpu()) {
     fprintf(stderr, "[-] echoload: not an Intel CPU; attack not applicable\n");
-    kasld_skip_reason("not an Intel CPU");
-    return KASLD_EXIT_UNAVAILABLE;
+    return kasld_disp_absent("not an Intel CPU");
   }
 
   int use_tsx;
@@ -280,8 +278,8 @@ int main(void) {
   if (!addr) {
     fprintf(stderr, "[-] echoload: no kernel mapping detected "
                     "(CPU may not be vulnerable)\n");
-    kasld_skip_reason("no kernel mapping (CPU may not be vulnerable)");
-    return 0;
+    return kasld_disp_inconclusive(
+        "no kernel mapping (CPU may not be vulnerable)");
   }
 
   /* Unanimity verification: repeat the full sweep and require every result to
@@ -289,9 +287,8 @@ int main(void) {
   for (int v = 0; v < ECHOLOAD_VERIFY; v++) {
     if (addr != echoload_sweep(use_tsx)) {
       fprintf(stderr, "[-] echoload: inconsistent results. Aborting ...\n");
-      kasld_skip_reason(
+      return kasld_disp_inconclusive(
           "inconsistent results (noise); a quieter run may resolve");
-      return 0;
     }
   }
 

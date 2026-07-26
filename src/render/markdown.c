@@ -195,6 +195,28 @@ void render_markdown(const struct summary *s) {
     printf("*\n\n");
   }
 
+  /* Mitigations observed: controls a component observed to defeat its leak this
+   * run (mitigation dispositions) — the "what defended this target" view.
+   * Printed only when present, mirroring the default text digest. */
+  {
+    int shown = 0;
+    for (int i = 0; i < num_comp_logs; i++) {
+      const struct component_disposition *d = &comp_logs[i].disposition;
+      if (d->category != DISP_MITIGATION)
+        continue;
+      if (!shown) {
+        printf("**Mitigations observed** (controls that defeated a leak):\n\n");
+        shown = 1;
+      }
+      printf("- **%s** - %s", d->gate, comp_logs[i].name);
+      if (d->message[0])
+        printf(" (%s)", d->message);
+      printf("\n");
+    }
+    if (shown)
+      printf("\n");
+  }
+
   /* KASLR unsupported / disabled: no slide, so the kernel base IS the answer —
    * carry it here (the KASLR Analysis table below is skipped in these cases),
    * mirroring the text readout's single kernel-image-base line. */

@@ -17,7 +17,7 @@
 #include <string.h>
 
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
-  if (size == 0 || size >= LINE_LEN)
+  if (size == 0 || size >= MAX_LINE_LEN)
     return 0;
 
   char *buf = malloc(size + 1);
