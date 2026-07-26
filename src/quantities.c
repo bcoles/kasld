@@ -42,7 +42,6 @@ static void top_interval(struct estimate *e, unsigned long lo,
   e->lo_conf = e->hi_conf = CONF_PARSED; /* honest top is an arch axiom */
   e->stride = 0;
   e->stride_offset = 0;
-  e->stride_binding = 0;
 }
 
 static void top_virt_image_base(struct estimate *e) {
@@ -118,7 +117,7 @@ static void top_maxalign(struct estimate *e) {
   e->hi = 0ul;
   e->lo_binding = e->hi_binding = 0;
   e->lo_conf = e->hi_conf = CONF_PARSED; /* honest top is an arch axiom */
-  e->stride = e->stride_offset = e->stride_binding = 0;
+  e->stride = e->stride_offset = 0;
 }
 
 static void top_va_bits(struct estimate *e) {
@@ -130,7 +129,7 @@ static void top_va_bits(struct estimate *e) {
   e->hi = 0ul;
   e->lo_binding = e->hi_binding = 0;
   e->lo_conf = e->hi_conf = CONF_PARSED; /* honest top is an arch axiom */
-  e->stride = e->stride_offset = e->stride_binding = 0;
+  e->stride = e->stride_offset = 0;
 }
 
 /* ---- the table -------------------------------------------------------- */

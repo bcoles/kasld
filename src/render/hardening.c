@@ -412,7 +412,6 @@ void build_hardening_report(struct hardening_report *r) {
         sg->has_projection = 1;
         sg->skip_vbits = pp.vbits;
         sg->skip_pbits = pp.pbits;
-        r->n_projecting++;
       }
     }
     if (r->suggest_lockdown) {
@@ -422,7 +421,6 @@ void build_hardening_report(struct hardening_report *r) {
         r->lockdown_has_projection = 1;
         r->lockdown_skip_vbits = pp.vbits;
         r->lockdown_skip_pbits = pp.pbits;
-        r->n_projecting++;
       }
     }
     if (r->suggest_dmesg_fallback) {
@@ -432,7 +430,6 @@ void build_hardening_report(struct hardening_report *r) {
         r->dmesg_fallback_has_projection = 1;
         r->dmesg_fallback_skip_vbits = pp.vbits;
         r->dmesg_fallback_skip_pbits = pp.pbits;
-        r->n_projecting++;
       }
     }
 

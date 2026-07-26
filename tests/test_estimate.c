@@ -509,9 +509,9 @@ static struct constraint mk_stride(enum kasld_quantity q, unsigned long residue,
   return c;
 }
 
-/* First stride constraint sets the annotation; the estimate's stride pair
- * matches the residue and modulus. */
-static void test_stride_first_constraint_sets_annotation(void) {
+/* First stride constraint sets the estimate's stride pair to the residue and
+ * modulus. */
+static void test_stride_first_constraint_sets_pair(void) {
   struct estimate e;
   quantities[Q_VIRT_IMAGE_BASE].init_top(&e);
   struct constraint c =
@@ -519,7 +519,6 @@ static void test_stride_first_constraint_sets_annotation(void) {
   estimate_meet(&e, &quantities[Q_VIRT_IMAGE_BASE], &c);
   assert(e.stride == 0x100000ul);
   assert(e.stride_offset == 0x1234ul);
-  assert(e.stride_binding == 1);
   assert(!estimate_is_bottom(&e, &quantities[Q_VIRT_IMAGE_BASE]));
 }
 
@@ -649,7 +648,7 @@ int main(void) {
   RUN(test_finset_meet);
 
   BEGIN_CATEGORY("Stride (C_STRIDE) algebra");
-  RUN(test_stride_first_constraint_sets_annotation);
+  RUN(test_stride_first_constraint_sets_pair);
   RUN(test_stride_same_modulus_agreeing_residues);
   RUN(test_stride_same_modulus_disagreeing_residues_bottom);
   RUN(test_stride_crt_combines_to_lcm);

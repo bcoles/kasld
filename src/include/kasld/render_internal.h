@@ -183,18 +183,14 @@ struct hardening_report {
 
   /* Projected posture: current guaranteed residual entropy, and the
    * ceiling if ALL suggestions are applied together. has_projection is 0 when
-   * the engine is compiled out (projected rows are then suppressed).
-   * n_projecting counts suggestions carrying a projection (the combined-ceiling
-   * line is only informative once more than one contributes). The lockdown and
-   * dmesg-fallback suggestions carry their own projected pair because they are
-   * not gate_suggestions[] entries. */
+   * the engine is compiled out (projected rows are then suppressed). The
+   * lockdown and dmesg-fallback suggestions carry their own projected pair
+   * because they are not gate_suggestions[] entries. */
   int has_projection;
   int cur_vbits, cur_pbits;
   int all_vbits, all_pbits;
-  int all_impact;   /* distinct components silenced by applying every suggestion
-                     */
-  int n_projecting; /* suggestions (gate + lockdown + dmesg) with a projection
-                     */
+  int all_impact; /* distinct components silenced by applying every suggestion
+                   */
   /* Leave-one-out for the lockdown and dmesg-fallback suggestions (they are not
    * gate_suggestions[] entries). skip_* / silences mirror hr_suggestion. */
   int lockdown_has_projection, lockdown_silences;

@@ -206,7 +206,6 @@ void estimate_meet(struct estimate *e, const struct quantity_def *qd,
       if (e->stride == 0) {
         e->stride = m;
         e->stride_offset = r % m;
-        e->stride_binding = c->id;
       } else {
         unsigned long combined_r, combined_m;
         if (!stride_crt(e->stride_offset, e->stride, r % m, m, &combined_r,
@@ -216,12 +215,10 @@ void estimate_meet(struct estimate *e, const struct quantity_def *qd,
            * the standard interval test. */
           e->lo = 1;
           e->hi = 0;
-          e->stride_binding = c->id;
           break;
         }
         e->stride = combined_m;
         e->stride_offset = combined_r;
-        e->stride_binding = c->id;
       }
       break;
     }

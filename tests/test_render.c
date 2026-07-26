@@ -1867,7 +1867,6 @@ static void test_hardening_projection(void) {
   assert(rep.suggest_dmesg_fallback && rep.dmesg_fallback_has_projection == 1 &&
          rep.dmesg_fallback_silences == 1 &&
          rep.dmesg_fallback_skip_vbits == 6);
-  assert(rep.n_projecting == 3);
 
   /* Text: the current-vs-hardened anchor + a load-bearing verdict per
    * suggestion (each forfeits 1 bit). */

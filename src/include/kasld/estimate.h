@@ -48,11 +48,9 @@ struct estimate {
    * value satisfies (q % stride) == stride_offset in addition to lying in
    * [lo, hi]. Multiple C_STRIDE constraints fold via CRT in estimate_meet;
    * unsolvable systems push the estimate to bottom. Always 0 on
-   * LK_MAXALIGN / LK_FINSET (the stride concept doesn't apply there).
-   * stride_binding names the most-recent C_STRIDE that touched the pair. */
+   * LK_MAXALIGN / LK_FINSET (the stride concept doesn't apply there). */
   unsigned long stride;
   unsigned long stride_offset;
-  uint32_t stride_binding;
 };
 
 /* Result of resolving one quantity: the estimate plus the ids of constraints
