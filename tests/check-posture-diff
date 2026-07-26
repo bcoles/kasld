@@ -1,0 +1,111 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-posture-diff — behavioural test for extra/posture-diff.
+#
+# Asserts the regression gate's verdict (exit code) across the cases that
+# matter, above all the one that makes posture-diff correct: a reboot that
+# re-randomizes the base address but keeps the same posture is NOT a regression
+# (the volatile per-boot fields must be ignored). Also checks that genuine
+# posture regressions (entropy drop, new CVE-class leak, relaxed defense,
+# downgraded KASLR state) DO fail, that an improvement does not, and the error
+# paths.
+#
+# Usage: tests/check-posture-diff   (also run by `make test`)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+TOOL=$ROOT/extra/posture-diff
+
+if [ -t 2 ]; then
+  RED=$(printf '\033[31m')
+  GREEN=$(printf '\033[32m')
+  RESET=$(printf '\033[0m')
+else
+  RED=
+  GREEN=
+  RESET=
+fi
+
+command -v jq >/dev/null 2>&1 || {
+  printf '%scheck-posture-diff: SKIP%s (jq not found)\n' "$GREEN" "$RESET"
+  exit 0
+}
+
+TMP=$(mktemp -d) || exit 1
+trap 'rm -rf "$TMP"' EXIT
+
+base=$TMP/baseline.json
+cat >"$base" <<'EOF'
+{
+  "kaslr": {
+    "inferred": { "entropy_bits": 9 },
+    "inferred_physical": { "entropy_bits": 31 },
+    "virtual": { "image_base": "0xffffffff81000000", "slide_bytes": 16777216 }
+  },
+  "hardening": {
+    "kaslr_posture": { "state": "active" },
+    "patched_vulnerabilities": { "total": 3, "likely_patched": 3, "possibly_unpatched": [] },
+    "active_defenses": [
+      { "gate": "kernel.kptr_restrict", "active": true },
+      { "gate": "kernel.perf_event_paranoid", "active": true }
+    ]
+  }
+}
+EOF
+
+# Derive each variant from the baseline so only the field under test differs.
+mk() { jq "$2" "$base" >"$TMP/$1.json"; }
+mk reboot   '.kaslr.virtual.image_base = "0xffffffff9c400000" | .kaslr.virtual.slide_bytes = 456123392'
+mk improve  '.kaslr.inferred.entropy_bits = 16'
+mk entropy  '.kaslr.inferred.entropy_bits = 4'
+mk pentropy '.kaslr.inferred_physical.entropy_bits = 20'
+mk cve      '.hardening.patched_vulnerabilities.possibly_unpatched += [{"component":"alsa_seq_ext_ptr","patch":"v7.2"}]'
+mk defoff   '(.hardening.active_defenses[] | select(.gate == "kernel.kptr_restrict") | .active) = false'
+mk posture  '.hardening.kaslr_posture.state = "disabled"'
+echo 'not json{' >"$TMP/broken.json"
+# Valid JSON, but not a kasld snapshot: must error, NOT report a false
+# "entropy dropped to 0" regression.
+echo '{"foo": 1}' >"$TMP/notkasld.json"
+
+fails=0
+# want <expected-exit> <baseline> <current> <description>
+want() {
+  _exp=$1
+  shift
+  _b=$1
+  _c=$2
+  _desc=$3
+  "$TOOL" "$_b" "$_c" >/dev/null 2>&1
+  _got=$?
+  if [ "$_got" -ne "$_exp" ]; then
+    printf '%scheck-posture-diff: FAIL%s — %s: exit %s, want %s\n' \
+      "$RED" "$RESET" "$_desc" "$_got" "$_exp" >&2
+    fails=$((fails + 1))
+  fi
+}
+
+# 0 = no regression
+want 0 "$base" "$base" "identical snapshots"
+want 0 "$base" "$TMP/reboot.json" "reboot (re-randomized address, same posture)"
+want 0 "$base" "$TMP/improve.json" "entropy improved"
+# 1 = regression
+want 1 "$base" "$TMP/entropy.json" "virtual entropy dropped"
+want 1 "$base" "$TMP/pentropy.json" "physical entropy dropped"
+want 1 "$base" "$TMP/cve.json" "new CVE-class leak"
+want 1 "$base" "$TMP/defoff.json" "defense turned off"
+want 1 "$base" "$TMP/posture.json" "KASLR posture downgraded"
+# 2 = error
+want 2 "$base" "$TMP/broken.json" "invalid JSON input"
+want 2 "$base" "$TMP/notkasld.json" "valid JSON but not a kasld snapshot"
+want 2 "$base" "$TMP/nonexistent.json" "missing input file"
+
+if [ "$fails" -ne 0 ]; then
+  printf '%scheck-posture-diff: FAIL%s (%d case(s))\n' "$RED" "$RESET" "$fails" >&2
+  exit 1
+fi
+
+printf '%scheck-posture-diff: OK%s (11 cases; reboot ignored, regressions caught)\n' \
+  "$GREEN" "$RESET"

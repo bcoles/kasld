@@ -1,0 +1,130 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# posture-diff — compare two `kasld -j` snapshots and report whether the
+# KASLR security POSTURE regressed. A regression gate for config-drift
+# monitoring / CI: save a baseline snapshot, compare a later run, fail if the
+# target got easier to attack.
+#
+# Only the boot-STABLE, security-relevant posture is compared — guaranteed
+# residual entropy, KASLR posture state, unpatched CVE-class leaks, and which
+# defenses are off. The per-boot VOLATILE values (the resolved base address,
+# slide, direct-map base) are never read: KASLR re-randomizes them every boot,
+# so comparing them would flag a healthy reboot as a change. Comparing posture,
+# not addresses, is the whole point.
+#
+# The raw component leak-set is deliberately NOT diffed: timing side channels
+# are nondeterministic, so a run-to-run difference there is noise, not drift.
+# A leak that actually weakens the target shows up as an entropy drop, a newly
+# unpatched CVE, or a relaxed defense — all of which ARE compared.
+#
+# Usage:  posture-diff BASELINE.json CURRENT.json
+#   Snapshots are `kasld -j` output (live, or replayed from an extra/collect
+#   bundle via KASLD_SYSROOT=<bundle>/sysroot kasld -j).
+#
+# Exit:  0 = no regression   1 = regression (findings on stdout)   2 = error
+#
+# Dependencies: jq.  No root required (it reads two files).
+#
+# NOTE: like kasld itself, a "no regression" result is not a security
+# assurance — the posture reflects what this vantage could measure, and the
+# residual entropy is an upper bound on retained protection, not a guarantee.
+# ---
+# <bcoles@gmail.com>
+set -u
+
+prog=$(basename "$0")
+
+usage() {
+  cat <<EOF
+Usage: $prog BASELINE.json CURRENT.json
+
+Compare two 'kasld -j' snapshots; exit non-zero if the KASLR posture regressed.
+
+  BASELINE.json   the reference snapshot (e.g. last known-good)
+  CURRENT.json    the snapshot to check against it
+
+Exit: 0 no regression, 1 regression, 2 error.
+EOF
+}
+
+case "${1:-}" in
+-h | --help)
+  usage
+  exit 0
+  ;;
+esac
+
+[ $# -eq 2 ] || {
+  usage >&2
+  exit 2
+}
+base=$1
+cur=$2
+
+command -v jq >/dev/null 2>&1 || {
+  echo "$prog: jq not found (apt install jq)" >&2
+  exit 2
+}
+
+for f in "$base" "$cur"; do
+  [ -f "$f" ] || {
+    echo "$prog: no such file: $f" >&2
+    exit 2
+  }
+  jq -e . "$f" >/dev/null 2>&1 || {
+    echo "$prog: not valid JSON: $f" >&2
+    exit 2
+  }
+  # Reject anything that is not a kasld `-j` snapshot, so a wrong or truncated
+  # file fails clearly rather than coalescing to zeros and reporting a false
+  # "entropy dropped to 0" regression. Both blocks are always present in a
+  # current `kasld -j`.
+  jq -e '((.kaslr | type) == "object") and ((.hardening | type) == "object")' \
+    "$f" >/dev/null 2>&1 || {
+    echo "$prog: $f is not a kasld -j snapshot (missing .kaslr / .hardening)" >&2
+    exit 2
+  }
+done
+
+# The boot-stable posture: everything a regression gate should compare, and
+# nothing that re-randomizes per boot. Missing blocks (an older kasld -j, KASLR
+# off) coalesce to safe neutral values.
+posture='{
+  kaslr:        (.hardening.kaslr_posture.state // "active"),
+  guar_bits:    (.kaslr.inferred.entropy_bits // 0),
+  pguar_bits:   (.kaslr.inferred_physical.entropy_bits // 0),
+  unpatched:    ([(.hardening.patched_vulnerabilities.possibly_unpatched // [])[].component] | sort),
+  defenses_off: ([(.hardening.active_defenses // [])[] | select(.active == false) | .gate] | sort)
+}'
+
+b_posture=$(jq "$posture" "$base") || exit 2
+c_posture=$(jq "$posture" "$cur") || exit 2
+
+# Emit one line per regression; empty output means the posture held or improved.
+findings=$(jq -rn --argjson b "$b_posture" --argjson c "$c_posture" '
+  # KASLR posture worse-ness: active is best; a disabled / failed kernel is
+  # worse. unsupported is arch-fixed (cannot change on the same host).
+  def rank: {"active": 2, "randomization_failed": 1, "disabled": 1, "unsupported": 0}[.] // 2;
+  ( if $c.guar_bits < $b.guar_bits
+    then "guaranteed entropy dropped: \($b.guar_bits) -> \($c.guar_bits) bits (virtual)"
+    else empty end ),
+  ( if $c.pguar_bits < $b.pguar_bits
+    then "guaranteed entropy dropped: \($b.pguar_bits) -> \($c.pguar_bits) bits (physical)"
+    else empty end ),
+  ( if ($c.kaslr | rank) < ($b.kaslr | rank)
+    then "KASLR posture worsened: \($b.kaslr) -> \($c.kaslr)"
+    else empty end ),
+  ( ($c.unpatched - $b.unpatched)[] | "new CVE-class leak succeeded: \(.)" ),
+  ( ($c.defenses_off - $b.defenses_off)[] | "defense turned off: \(.)" )
+') || exit 2
+
+if [ -n "$findings" ]; then
+  echo "REGRESSION: posture is weaker than baseline"
+  # Indent each finding for readability.
+  printf '%s\n' "$findings" | sed 's/^/  - /'
+  exit 1
+fi
+
+echo "OK: no posture regression"
+exit 0

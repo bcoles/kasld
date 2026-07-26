@@ -609,6 +609,8 @@ lint :
 	@$(TEST_DIR)/check-fdt-unflatten
 	@$(TEST_DIR)/check-ksymoff
 	@$(TEST_DIR)/check-manpages
+	@$(TEST_DIR)/check-posture-diff
+	@$(TEST_DIR)/check-posture-summary
 	@$(TEST_DIR)/check-shellcheck
 	@$(TEST_DIR)/hardening-fixtures
 	@$(TEST_DIR)/cli-flags

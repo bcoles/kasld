@@ -1,0 +1,154 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# posture-summary — roll up many `kasld -j` snapshots into one table, one row
+# per host. The fleet view: scan the whole estate's KASLR posture at a glance
+# instead of reading N separate reports.
+#
+# Input is one `kasld -j` file per host, passed as arguments. The host label is
+# the file's basename (minus a .json suffix), because `kasld -j` deliberately
+# carries no hostname — identity comes from how you name the file when you
+# collect it. This tool does NO collection and NO transport: your own fan-out
+# supplies the snapshots. A reference loop:
+#
+#   for h in $(cat hosts); do ssh "$h" 'kasld -j' > "snap/$h.json"; done
+#   posture-summary snap/*.json
+#
+# (or replay extra/collect bundles: KASLD_SYSROOT=<bundle>/sysroot kasld -j).
+#
+# A file that is not a valid `kasld -j` snapshot is skipped with a warning
+# (one bad host does not sink the report); the skipped count is noted.
+#
+# Only the boot-STABLE posture is summarised — the per-boot resolved addresses
+# never appear (they re-randomize every boot and mean nothing across hosts).
+#
+# Usage:  posture-summary [--text|--markdown|--csv|--json] FILE...
+# Exit:   0 = at least one snapshot summarised, 2 = usage / no valid input.
+#
+# Dependencies: jq, awk.
+# ---
+# <bcoles@gmail.com>
+set -u
+
+prog=$(basename "$0")
+fmt=text
+
+usage() {
+  cat <<EOF
+Usage: $prog [FORMAT] FILE...
+
+Summarise many 'kasld -j' snapshots (one file per host) into one table.
+Host label = file basename. Bad snapshots are skipped with a warning.
+
+FORMAT:
+  --text       aligned text table (default)
+  --markdown   GitHub/GitLab markdown table
+  --csv        comma-separated (spreadsheets)
+  --json       array of per-host posture objects
+  -h, --help   this help
+
+Exit: 0 summarised >=1 host, 2 usage / no valid input.
+EOF
+}
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+  --text) fmt=text ;;
+  --markdown | --md) fmt=markdown ;;
+  --csv) fmt=csv ;;
+  --json) fmt=json ;;
+  -h | --help)
+    usage
+    exit 0
+    ;;
+  --)
+    shift
+    break
+    ;;
+  -*)
+    echo "$prog: unknown option: $1" >&2
+    exit 2
+    ;;
+  *) break ;;
+  esac
+  shift
+done
+
+[ $# -ge 1 ] || {
+  usage >&2
+  exit 2
+}
+command -v jq >/dev/null 2>&1 || {
+  echo "$prog: jq not found (apt install jq)" >&2
+  exit 2
+}
+
+# Per-host posture object. Boot-stable fields only; the resolved base address /
+# slide are never read. Missing blocks (older -j, KASLR off) coalesce safely.
+# $host is a jq variable (bound with --arg below), not shell expansion.
+# shellcheck disable=SC2016
+row='{
+  host:   $host,
+  arch:   (.arch // "?"),
+  kernel: (.kernel.release // "?"),
+  kaslr:  (.hardening.kaslr_posture.state // "active"),
+  vbits:  (.kaslr.inferred.entropy_bits // 0),
+  pbits:  (.kaslr.inferred_physical.entropy_bits // 0),
+  leaks:  (.hardening.exposure.succeeded // 0),
+  total:  (.hardening.exposure.total // 0),
+  cves:   ((.hardening.patched_vulnerabilities.possibly_unpatched // []) | length),
+  topfix: ((.hardening.available_hardening // []) | (if length > 0 then .[0].action else "-" end))
+}'
+
+tmp=$(mktemp) || exit 2
+trap 'rm -f "$tmp"' EXIT
+
+skipped=0
+for f in "$@"; do
+  if [ ! -f "$f" ] || ! jq -e '((.kaslr | type) == "object") and ((.hardening | type) == "object")' \
+    "$f" >/dev/null 2>&1; then
+    echo "$prog: skipping (not a kasld -j snapshot): $f" >&2
+    skipped=$((skipped + 1))
+    continue
+  fi
+  host=$(basename "$f" .json)
+  jq -c --arg host "$host" "$row" "$f" >>"$tmp"
+done
+
+[ -s "$tmp" ] || {
+  echo "$prog: no valid snapshots" >&2
+  exit 2
+}
+
+HDR="host arch kernel kaslr vbits pbits leaks cves top-fix"
+
+case "$fmt" in
+json)
+  jq -s 'sort_by(.host)' "$tmp"
+  ;;
+csv)
+  echo "$HDR" | tr ' ' ','
+  jq -rs 'sort_by(.host)[] | [.host, .arch, .kernel, .kaslr, .vbits, .pbits,
+    "\(.leaks)/\(.total)", .cves, .topfix] | @csv' "$tmp"
+  ;;
+markdown)
+  echo "$HDR" | sed 's/ / | /g; s/^/| /; s/$/ |/'
+  echo "$HDR" | sed 's/[^ ]*/---/g; s/ / | /g; s/^/| /; s/$/ |/'
+  jq -rs 'sort_by(.host)[] | "| \(.host) | \(.arch) | \(.kernel) | \(.kaslr) | \(.vbits) | \(.pbits) | \(.leaks)/\(.total) | \(.cves) | \(.topfix) |"' "$tmp"
+  ;;
+text)
+  # Header + rows as tab-separated, then align each column to its widest cell.
+  {
+    echo "$HDR" | tr ' ' '\t'
+    jq -rs 'sort_by(.host)[] | [.host, .arch, .kernel, .kaslr, "\(.vbits)b",
+      "\(.pbits)b", "\(.leaks)/\(.total)", .cves, .topfix] | @tsv' "$tmp"
+  } | awk -F'\t' '
+    { for (i = 1; i <= NF; i++) { c[NR, i] = $i; if (length($i) > w[i]) w[i] = length($i) } nc = NF; nr = NR }
+    END { for (r = 1; r <= nr; r++) { line = ""
+            for (i = 1; i <= nc; i++) { line = line sprintf("%-*s", w[i] + 2, c[r, i]) }
+            sub(/[ \t]+$/, "", line); print line } }'
+  ;;
+esac
+
+[ "$skipped" -eq 0 ] || echo "$prog: skipped $skipped file(s)" >&2
+exit 0

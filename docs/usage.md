@@ -601,3 +601,57 @@ n=$(kasld -j | jq '.hardening.patched_vulnerabilities.possibly_unpatched | lengt
 Run KASLD **unprivileged** in the target environment for the posture a real
 unprivileged attacker sees; running it as root additionally exposes root-gated
 sources (e.g. `/proc/iomem`), which measure a different threat model.
+
+### Regression gate (`extra/posture-diff`)
+
+To gate on *drift over time* rather than an absolute threshold, save a `-j`
+snapshot as a baseline and compare a later run against it with
+[extra/posture-diff](../extra/posture-diff) — a small `jq`-based helper that
+exits non-zero if the KASLR posture regressed:
+
+```sh
+kasld -j > baseline.json            # once, when the host is known-good
+# … later, or in CI …
+kasld -j > current.json
+extra/posture-diff baseline.json current.json || echo "posture regressed"
+```
+
+It compares only the boot-**stable**, security-relevant posture — guaranteed
+residual entropy (virtual and physical), the KASLR posture state, unpatched
+CVE-class leaks, and which defenses are off. The per-boot **volatile** values
+(the resolved base address, slide, direct-map base) are never compared, so a
+healthy reboot — which re-randomizes all of them — is *not* flagged; only a
+genuine posture regression is. Exit `0` = no regression, `1` = regression
+(findings printed), `2` = error. Snapshots can be live `-j` or replayed from an
+[extra/collect](../extra/collect) bundle
+(`KASLD_SYSROOT=<bundle>/sysroot kasld -j`), so a baseline captured on one host
+can be checked from another.
+
+### Fleet summary (`extra/posture-summary`)
+
+To scan a whole estate at once, [extra/posture-summary](../extra/posture-summary)
+rolls up many `-j` snapshots into one table — one row per host — instead of
+reading N separate reports:
+
+```sh
+# one snapshot file per host (the filename is the host label)
+for h in $(cat hosts); do ssh "$h" 'kasld -j' > "snap/$h.json"; done
+extra/posture-summary snap/*.json
+```
+
+```
+host     arch    kernel      kaslr   vbits  pbits  leaks  cves  top-fix
+cache03  x86_64  6.12.81     active  9b     31b    2/71   0     Set kernel.perf_event_paranoid = 2
+db02     aarch64 6.12.90     active  16b    16b    0/68   0     -
+web01    x86_64  6.15.6      active  9b     31b    1/70   1     Enable kernel lockdown (integrity mode)
+```
+
+Each row carries only the boot-stable posture — KASLR state, guaranteed
+residual entropy (virtual/physical), leaks succeeded/total, unpatched CVE-class
+count, and the most load-bearing hardening action. The host label is the
+snapshot's filename (`-j` carries no hostname), so name each file after its
+host when you collect it; this tool does no collection or transport itself.
+Output is an aligned text table by default, or `--markdown` (issue trackers),
+`--csv` (spreadsheets), or `--json` (further tooling). A file that is not a
+valid `kasld -j` snapshot is skipped with a warning rather than aborting the
+report.

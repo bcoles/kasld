@@ -1,0 +1,125 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-posture-summary — behavioural test for extra/posture-summary.
+#
+# Asserts the multi-host roll-up: every valid snapshot becomes a row labelled
+# by its filename, a bad snapshot is skipped (not fatal) while the valid ones
+# still report, each output format renders, and the error paths exit 2.
+#
+# Usage: tests/check-posture-summary   (also run by `make test`)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+TOOL=$ROOT/extra/posture-summary
+
+if [ -t 2 ]; then
+  RED=$(printf '\033[31m')
+  GREEN=$(printf '\033[32m')
+  RESET=$(printf '\033[0m')
+else
+  RED=
+  GREEN=
+  RESET=
+fi
+
+command -v jq >/dev/null 2>&1 || {
+  printf '%scheck-posture-summary: SKIP%s (jq not found)\n' "$GREEN" "$RESET"
+  exit 0
+}
+
+TMP=$(mktemp -d) || exit 1
+trap 'rm -rf "$TMP"' EXIT
+
+# One minimal but complete `-j`-shaped snapshot; two "hosts" derive from it.
+host_json() { # $1 = vbits
+  cat <<EOF
+{
+  "arch": "x86_64",
+  "kernel": { "release": "6.8.0-test" },
+  "kaslr": { "inferred": { "entropy_bits": $1 }, "inferred_physical": { "entropy_bits": 31 } },
+  "hardening": {
+    "kaslr_posture": { "state": "active" },
+    "exposure": { "succeeded": 2, "total": 68 },
+    "patched_vulnerabilities": { "possibly_unpatched": [] },
+    "available_hardening": [ { "action": "Set kernel.perf_event_paranoid = 2", "surface": "sysctl" } ]
+  }
+}
+EOF
+}
+host_json 9 >"$TMP/web01.json"
+host_json 16 >"$TMP/db02.json"
+echo 'garbage{' >"$TMP/broken.json"
+# A KASLR-off host: no inferred window (0 bits), posture state present.
+cat >"$TMP/off03.json" <<'EOF'
+{
+  "arch": "x86_64", "kernel": { "release": "6.8.0-test" },
+  "kaslr": { "disabled": true },
+  "hardening": {
+    "kaslr_posture": { "state": "disabled" },
+    "exposure": { "succeeded": 5, "total": 40 },
+    "patched_vulnerabilities": { "possibly_unpatched": [] },
+    "active_defenses": [], "available_hardening": []
+  }
+}
+EOF
+
+fails=0
+fail() {
+  printf '%scheck-posture-summary: FAIL%s — %s\n' "$RED" "$RESET" "$1" >&2
+  fails=$((fails + 1))
+}
+# exits WANT CMD... — run CMD, assert its exit code (var-first, no bare $?).
+exits() {
+  _w=$1
+  shift
+  "$@" >/dev/null 2>&1
+  _g=$?
+  [ "$_g" -eq "$_w" ] || fail "exit $_g, want $_w: $1"
+}
+
+# Two valid hosts + one bad: exit 0, both host labels present, bad one skipped.
+if out=$("$TOOL" "$TMP/web01.json" "$TMP/db02.json" "$TMP/broken.json" 2>/dev/null); then
+  echo "$out" | grep -q '^web01 ' || fail "web01 row missing"
+  echo "$out" | grep -q '^db02 ' || fail "db02 row missing"
+else
+  fail "mixed input did not exit 0"
+fi
+
+# A non-active posture rolls up correctly: state shown, 0 residual bits.
+off=$("$TOOL" --json "$TMP/off03.json" 2>/dev/null)
+echo "$off" | jq -e '.[0].kaslr == "disabled" and .[0].vbits == 0' >/dev/null ||
+  fail "disabled host row wrong (kaslr/vbits)"
+
+# The bad file is reported as skipped on stderr.
+"$TOOL" "$TMP/web01.json" "$TMP/broken.json" 2>"$TMP/err" >/dev/null
+grep -q 'skipping' "$TMP/err" || fail "bad snapshot not reported as skipped"
+
+# --json: a 2-element array of objects, labelled by filename.
+n=$("$TOOL" --json "$TMP/web01.json" "$TMP/db02.json" 2>/dev/null | jq 'length')
+[ "$n" = "2" ] || fail "--json length $n, want 2"
+"$TOOL" --json "$TMP/web01.json" "$TMP/db02.json" 2>/dev/null |
+  jq -e 'map(.host) | sort == ["db02","web01"]' >/dev/null || fail "--json host labels wrong"
+
+# --csv: header + one line per host = 3 lines.
+lines=$("$TOOL" --csv "$TMP/web01.json" "$TMP/db02.json" 2>/dev/null | wc -l)
+[ "$lines" -eq 3 ] || fail "--csv line count $lines, want 3"
+
+# --markdown: has the header row.
+"$TOOL" --markdown "$TMP/web01.json" 2>/dev/null | grep -q '^| host |' ||
+  fail "--markdown header missing"
+
+# Error paths -> exit 2.
+exits 2 "$TOOL"                           # no args
+exits 2 "$TOOL" "$TMP/broken.json"        # all-bad
+exits 2 "$TOOL" --bogus "$TMP/web01.json" # unknown option
+
+if [ "$fails" -ne 0 ]; then
+  printf '%scheck-posture-summary: FAIL%s (%d case(s))\n' "$RED" "$RESET" "$fails" >&2
+  exit 1
+fi
+
+printf '%scheck-posture-summary: OK%s (rows labelled, bad skipped, all formats)\n' \
+  "$GREEN" "$RESET"
