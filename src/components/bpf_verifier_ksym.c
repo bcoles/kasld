@@ -145,7 +145,7 @@ KASLD_EXPLAIN(
     "Before "
     "commit 72a85e9464a5 the verifier's pointer-mask left BTF_ID unmasked, so "
     "the "
-    "log printed each resolved kallsyms address — kernel .text pointers that "
+    "log printed each resolved kallsyms address - kernel .text pointers that "
     "bracket the image base. Reachable with CAP_BPF (without CAP_PERFMON), a "
     "BPF-token userns, or unprivileged_bpf_disabled=0; a silent no-op on "
     "patched "
@@ -294,7 +294,7 @@ int main(int argc, char **argv) {
   const char *why = "";
   int nids = find_func_btf_ids(ids, &why);
   if (nids == 0) {
-    kasld_err("no btf_ids (%s) — CONFIG_DEBUG_INFO_BTF off, or BTF unreadable",
+    kasld_err("no btf_ids (%s) - CONFIG_DEBUG_INFO_BTF off, or BTF unreadable",
               why);
     return KASLD_EXIT_UNAVAILABLE;
   }

@@ -590,21 +590,21 @@ static void print_necessity(int silences, int exposure, int all_v, int skip_v,
                             int all_p, int skip_p) {
   int fv = all_v - skip_v, fp = all_p - skip_p;
   if (silences == 0) {
-    printf("    no base-leak behind this — recovers nothing\n");
+    printf("    no base-leak behind this - recovers nothing\n");
   } else if (fv > 0 || fp > 0) {
     if (fp > 0 && fv > 0)
       printf(
-          "    load-bearing — omitting forfeits %d bits virtual, %d physical\n",
+          "    load-bearing - omitting forfeits %d bits virtual, %d physical\n",
           fv, fp);
     else
-      printf("    load-bearing — omitting forfeits %d %s bits\n",
+      printf("    load-bearing - omitting forfeits %d %s bits\n",
              fv > 0 ? fv : fp, fv > 0 ? "virtual" : "physical");
   } else if (!exposure) {
-    printf("    silences %d leak%s — speculative window only, no guaranteed "
+    printf("    silences %d leak%s - speculative window only, no guaranteed "
            "bits\n",
            silences, silences == 1 ? "" : "s");
   } else {
-    printf("    silences %d leak%s but 0 guaranteed bits — not required (the "
+    printf("    silences %d leak%s but 0 guaranteed bits - not required (the "
            "rest reach the same posture)\n",
            silences, silences == 1 ? "" : "s");
   }
@@ -632,15 +632,15 @@ static void md_print_necessity(int silences, int exposure, int all_v,
                                int skip_v, int all_p, int skip_p) {
   int fv = all_v - skip_v, fp = all_p - skip_p;
   if (silences == 0)
-    printf(" — recovers nothing (no base-leak behind it)");
+    printf(" - recovers nothing (no base-leak behind it)");
   else if (fv > 0 || fp > 0)
-    printf("; load-bearing — omitting forfeits %d %s bits", fv > 0 ? fv : fp,
+    printf("; load-bearing - omitting forfeits %d %s bits", fv > 0 ? fv : fp,
            fv > 0 ? "virtual" : "physical");
   else if (!exposure)
     printf("; speculative window only (no guaranteed bits)");
   else
     printf(
-        "; 0 guaranteed bits (not required — the rest reach the same posture)");
+        "; 0 guaranteed bits (not required - the rest reach the same posture)");
 }
 
 void render_hardening_text(void) {
@@ -674,7 +674,7 @@ void render_hardening_text(void) {
    * results banner. */
   if (rep.n_rand_detectors > 0) {
     printf("%sKASLR posture:%s\n", c(C_BOLD), c(C_RESET));
-    printf("  %s** KASLR randomization failed — random offset not applied "
+    printf("  %s** KASLR randomization failed - random offset not applied "
            "at boot **%s\n",
            c(C_YELLOW), c(C_RESET));
     printf("  Detected by:\n");
@@ -686,7 +686,7 @@ void render_hardening_text(void) {
            c(C_YELLOW), c(C_RESET));
     printf("  %sNote: the kernel is NOT at the link-time default. The "
            "position is deterministic per (firmware, kernel build, "
-           "hardware) — an operator with a previously-captured slide on "
+           "hardware) - an operator with a previously-captured slide on "
            "this machine can re-use it on subsequent boots without "
            "re-leaking.%s\n",
            c(C_DIM), c(C_RESET));
@@ -731,7 +731,7 @@ void render_hardening_text(void) {
         snprintf(vcol, sizeof(vcol), "%-6s", "");
       printf("  %-34s %s %s%s%s  ", hg->display, vcol,
              circumvented ? c(C_YELLOW) : c(C_GREEN),
-             circumvented ? "\xe2\x9a\xa0" : "\xe2\x9c\x93", c(C_RESET));
+             circumvented ? GLYPH_WARN : GLYPH_OK, c(C_RESET));
       if (blocked > 0 && blocked <= 5) {
         printf("blocked ");
         for (int n = 0; n < hg->n_blocked_names; n++) {
@@ -760,8 +760,8 @@ void render_hardening_text(void) {
        * surface it here (as lockdown is shown even when inactive) rather than
        * silently omit it. */
       any_active = 1;
-      printf("  %-34s = %-4d %s\xe2\x9c\x97%s  permissive \xe2\x80\x94 ",
-             hg->display, hg->value, c(C_YELLOW), c(C_RESET));
+      printf("  %-34s = %-4d %s%s%s  permissive - ", hg->display, hg->value,
+             c(C_YELLOW), GLYPH_FAIL, c(C_RESET));
       if (hg->n_bypassed_names > 0 && bypassed <= 5) {
         for (int n = 0; n < hg->n_bypassed_names; n++) {
           if (n > 0)
@@ -790,11 +790,11 @@ void render_hardening_text(void) {
   }
   if (lockdown_str) {
     any_active = 1;
-    printf("  %-34s        %s\xe2\x9c\x93%s  %s mode\n", "Kernel lockdown",
-           c(C_GREEN), c(C_RESET), lockdown_str);
+    printf("  %-34s        %s%s%s  %s mode\n", "Kernel lockdown", c(C_GREEN),
+           GLYPH_OK, c(C_RESET), lockdown_str);
   } else {
-    printf("  %-34s        %s\xe2\x9c\x97%s  inactive\n", "Kernel lockdown",
-           c(C_DIM), c(C_RESET));
+    printf("  %-34s        %s%s%s  inactive\n", "Kernel lockdown", c(C_DIM),
+           GLYPH_FAIL, c(C_RESET));
   }
 
   if (!any_active)
@@ -811,10 +811,10 @@ void render_hardening_text(void) {
    * when hardening can recover any guaranteed bits at all. */
   int exposure = rep.all_vbits > rep.cur_vbits || rep.all_pbits > rep.cur_pbits;
   if (rep.has_projection && exposure)
-    printf("  %sbase recoverable: %d bits now \xe2\x86\x92 %d bits with all of "
+    printf("  %sbase recoverable: %d bits now %s %d bits with all of "
            "the "
            "below applied%s\n",
-           c(C_DIM), rep.cur_vbits, rep.all_vbits, c(C_RESET));
+           c(C_DIM), rep.cur_vbits, GLYPH_ARROW, rep.all_vbits, c(C_RESET));
   else if (rep.has_projection)
     printf("  %sguaranteed base already at %d bits; the below silence "
            "speculative-only leaks%s\n",
@@ -826,7 +826,7 @@ void render_hardening_text(void) {
     any_suggestions = 1;
     /* Enforcement surface trails the action, so a reader routes the change to
      * the lever it lives on (a sysctl differs from a boot parameter). */
-    printf("  %s\xe2\x86\x92%s Set %s = %d", c(C_CYAN), c(C_RESET),
+    printf("  %s%s%s Set %s = %d", c(C_CYAN), GLYPH_ARROW, c(C_RESET),
            rep.gate_suggestions[i].display, rep.gate_suggestions[i].threshold);
     if (rep.gate_suggestions[i].surface)
       printf("  [%s]", rep.gate_suggestions[i].surface);
@@ -841,8 +841,8 @@ void render_hardening_text(void) {
 
   if (rep.suggest_lockdown) {
     any_suggestions = 1;
-    printf("  %s\xe2\x86\x92%s Enable kernel lockdown (integrity mode)  [%s]\n",
-           c(C_CYAN), c(C_RESET), HR_SURFACE_LOCKDOWN);
+    printf("  %s%s%s Enable kernel lockdown (integrity mode)  [%s]\n",
+           c(C_CYAN), GLYPH_ARROW, c(C_RESET), HR_SURFACE_LOCKDOWN);
     printf("    blocks klogctl() even with CAP_SYSLOG\n");
     if (rep.lockdown_has_projection)
       print_necessity(rep.lockdown_silences, exposure, rep.all_vbits,
@@ -852,8 +852,8 @@ void render_hardening_text(void) {
 
   if (rep.suggest_dmesg_fallback) {
     any_suggestions = 1;
-    printf("  %s\xe2\x86\x92%s Restrict dmesg fallback files to root  [%s]\n",
-           c(C_CYAN), c(C_RESET), HR_SURFACE_DMESG_FALLBACK);
+    printf("  %s%s%s Restrict dmesg fallback files to root  [%s]\n", c(C_CYAN),
+           GLYPH_ARROW, c(C_RESET), HR_SURFACE_DMESG_FALLBACK);
     printf("    %d dmesg component%s may have succeeded via log files\n",
            rep.dmesg_fallback_count, rep.dmesg_fallback_count == 1 ? "" : "s");
     if (rep.dmesg_fallback_has_projection)
@@ -877,7 +877,7 @@ void render_hardening_text(void) {
            "(likely patched or blocked).\n",
            rep.vuln_total - rep.n_vulns, rep.vuln_total);
     if (rep.n_vulns > 0) {
-      printf("  %s%d component%s succeeded%s — kernel may lack fixes for:\n",
+      printf("  %s%d component%s succeeded%s - kernel may lack fixes for:\n",
              c(C_YELLOW), rep.n_vulns, rep.n_vulns == 1 ? "" : "s", c(C_RESET));
       for (int i = 0; i < rep.n_vulns; i++) {
         printf("    %s", rep.vulns[i].name);
@@ -1281,7 +1281,7 @@ void render_hardening_markdown(void) {
   /* KASLR posture downgrade */
   if (rep.n_rand_detectors > 0) {
     printf("### KASLR posture\n\n");
-    printf("> **KASLR randomization failed — random offset not applied at "
+    printf("> **KASLR randomization failed - random offset not applied at "
            "boot.** Effective slot entropy: **0 bits** (kernel at a "
            "firmware-determined position).\n\n");
     printf("Detected by:\n\n");
@@ -1313,9 +1313,9 @@ void render_hardening_markdown(void) {
       if (hg->threshold > 0)
         snprintf(vcol, sizeof(vcol), "%d", hg->value);
       else
-        snprintf(vcol, sizeof(vcol), "\xe2\x80\x94"); /* em dash */
+        snprintf(vcol, sizeof(vcol), "-");
       printf("| `%s` | %s | %s | ", hg->display, vcol,
-             circumvented ? "\xe2\x9a\xa0" : "\xe2\x9c\x93");
+             circumvented ? GLYPH_WARN : GLYPH_OK);
       int wrote = 0;
       if (hg->blocked > 0 && hg->blocked <= 5) {
         printf("blocked ");
@@ -1342,8 +1342,8 @@ void render_hardening_markdown(void) {
         printf("%d gated component%s", hg->gated, hg->gated == 1 ? "" : "s");
       printf(" |\n");
     } else if (hg->bypassed > 0) {
-      printf("| `%s` | %d | \xe2\x9c\x97 | permissive — ", hg->display,
-             hg->value);
+      printf("| `%s` | %d | %s | permissive - ", hg->display, hg->value,
+             GLYPH_FAIL);
       if (hg->n_bypassed_names > 0 && hg->bypassed <= 5) {
         for (int n = 0; n < hg->n_bypassed_names; n++)
           printf("%s%s", n ? ", " : "", hg->bypassed_names[n]);
@@ -1367,18 +1367,18 @@ void render_hardening_markdown(void) {
     break;
   }
   if (lockdown_str)
-    printf("| Kernel lockdown | | \xe2\x9c\x93 | %s mode |\n", lockdown_str);
+    printf("| Kernel lockdown | | %s | %s mode |\n", GLYPH_OK, lockdown_str);
   else
-    printf("| Kernel lockdown | | \xe2\x9c\x97 | inactive |\n");
+    printf("| Kernel lockdown | | %s | inactive |\n", GLYPH_FAIL);
   printf("\n");
 
   /* Available hardening */
   printf("### Available hardening\n\n");
   int exposure = rep.all_vbits > rep.cur_vbits || rep.all_pbits > rep.cur_pbits;
   if (rep.has_projection && exposure)
-    printf("Base recoverable: %d bits now \xe2\x86\x92 %d bits with all of the "
+    printf("Base recoverable: %d bits now %s %d bits with all of the "
            "below applied.\n\n",
-           rep.cur_vbits, rep.all_vbits);
+           rep.cur_vbits, GLYPH_ARROW, rep.all_vbits);
   else if (rep.has_projection)
     printf("Guaranteed base already at %d bits; the below silence "
            "speculative-only leaks.\n\n",
@@ -1386,7 +1386,7 @@ void render_hardening_markdown(void) {
   int any_sug = 0;
   for (int i = 0; i < rep.n_gate_suggestions; i++) {
     any_sug = 1;
-    printf("- Set `%s = %d` — affects %d component%s",
+    printf("- Set `%s = %d` - affects %d component%s",
            rep.gate_suggestions[i].display, rep.gate_suggestions[i].threshold,
            rep.gate_suggestions[i].impact,
            rep.gate_suggestions[i].impact == 1 ? "" : "s");
@@ -1403,7 +1403,7 @@ void render_hardening_markdown(void) {
   }
   if (rep.suggest_lockdown) {
     any_sug = 1;
-    printf("- Enable kernel lockdown (integrity mode) — blocks klogctl() even "
+    printf("- Enable kernel lockdown (integrity mode) - blocks klogctl() even "
            "with CAP_SYSLOG");
     if (rep.lockdown_has_projection)
       md_print_necessity(rep.lockdown_silences, exposure, rep.all_vbits,
@@ -1414,7 +1414,7 @@ void render_hardening_markdown(void) {
   }
   if (rep.suggest_dmesg_fallback) {
     any_sug = 1;
-    printf("- Restrict dmesg fallback files to root — %d dmesg component%s may "
+    printf("- Restrict dmesg fallback files to root - %d dmesg component%s may "
            "have succeeded via log files",
            rep.dmesg_fallback_count, rep.dmesg_fallback_count == 1 ? "" : "s");
     if (rep.dmesg_fallback_has_projection)
@@ -1437,7 +1437,7 @@ void render_hardening_markdown(void) {
            "patched or blocked).\n\n",
            rep.vuln_total - rep.n_vulns, rep.vuln_total);
     if (rep.n_vulns > 0) {
-      printf("**%d component%s succeeded** — kernel may lack fixes for:\n\n",
+      printf("**%d component%s succeeded** - kernel may lack fixes for:\n\n",
              rep.n_vulns, rep.n_vulns == 1 ? "" : "s");
       for (int i = 0; i < rep.n_vulns; i++) {
         printf("- %s", rep.vulns[i].name);
@@ -1481,7 +1481,7 @@ void render_hardening_markdown(void) {
     for (int i = 0; i < rep.n_hw; i++) {
       if (!rep.hw[i].succeeded)
         continue;
-      printf("- %s — ", rep.hw[i].name);
+      printf("- %s - ", rep.hw[i].name);
       if (rep.hw[i].addr)
         printf("leaks %s address; ", rep.hw[i].addr);
       printf("hardware: %s\n", rep.hw[i].hardware);
@@ -1497,9 +1497,9 @@ void render_hardening_markdown(void) {
     for (int i = 0; i < rep.n_nomit; i++) {
       const char *addr = rep.nomit[i].addr;
       if (addr)
-        printf("- %s — leaks %s addresses\n", rep.nomit[i].name, addr);
+        printf("- %s - leaks %s addresses\n", rep.nomit[i].name, addr);
       else
-        printf("- %s — no mitigation\n", rep.nomit[i].name);
+        printf("- %s - no mitigation\n", rep.nomit[i].name);
     }
     printf("\n");
   }

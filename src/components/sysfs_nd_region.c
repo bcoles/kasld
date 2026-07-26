@@ -76,7 +76,7 @@ KASLD_EXPLAIN(
     "Reads physical start addresses of NVDIMM/PMem regions from the libnvdimm "
     "sysfs interface (/sys/bus/nd/devices/ndregionN/resource). Each region's "
     "world-readable 'resource' attribute (0444, DEVICE_ATTR_RO) exposes "
-    "nd_region->ndr_start — the physical byte address of the first byte of "
+    "nd_region->ndr_start - the physical byte address of the first byte of "
     "that interleave set. Only present on systems with NVDIMM or Persistent "
     "Memory hardware (Intel Optane DCPMM, JEDEC NVDIMM-P) and the nd_region "
     "driver bound.");

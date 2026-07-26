@@ -72,7 +72,7 @@ KASLD_EXPLAIN(
     "Opens a perf event with PERF_SAMPLE_BRANCH_STACK and "
     "branch_sample_type=KERNEL|ANY against a child process doing a busy "
     "syscall loop. Each PERF_RECORD_SAMPLE delivers the CPU's Last Branch "
-    "Record snapshot (16–32 kernel branch addresses per sample). Gated by "
+    "Record snapshot (16-32 kernel branch addresses per sample). Gated by "
     "kernel.perf_event_paranoid <= 1 or CAP_PERFMON.");
 
 KASLD_META("method:parsed\n"
@@ -178,7 +178,7 @@ int main(int argc, char *argv[]) {
     waitpid(child, NULL, 0);
     if (e == EACCES || e == EPERM) {
       fprintf(stderr,
-              "[-] perf_event_open EACCES — needs perf_event_paranoid<=1 or "
+              "[-] perf_event_open EACCES - needs perf_event_paranoid<=1 or "
               "CAP_PERFMON\n");
       return KASLD_EXIT_NOPERM;
     }

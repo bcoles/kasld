@@ -27,7 +27,7 @@
 #include "include/kasld/devicetree.h"
 
 KASLD_EXPLAIN(
-    "Reads /sys/firmware/devicetree/base/chosen/linux,memory-limit — the "
+    "Reads /sys/firmware/devicetree/base/chosen/linux,memory-limit - the "
     "physical-RAM ceiling the kernel honours (mem= cmdline cap or "
     "firmware-imposed limit), set by PowerPC firmware on handoff. Emits "
     "a PHYS ram observation with the TOP edge when the limit is "

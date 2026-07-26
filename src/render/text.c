@@ -222,7 +222,7 @@ static void print_group(enum kasld_addr_type type, const char *section,
 
 /* Bits-of-entropy from a candidate count: ceil(log2(v)) for v >= 1, 0 for
  * v == 0. CEIL (not floor) because the user-facing question is "how much
- * brute-force work remains?" — 13 candidates is ~4 bits of worst-case
+ * brute-force work remains?" - 13 candidates is ~4 bits of worst-case
  * work, not 3. Floor would understate residual entropy on every
  * non-power-of-2 candidate count (common for direct-map / vmalloc /
  * vmemmap windows on RANDOMIZE_MEMORY). Power-of-2 inputs are unaffected
@@ -1276,7 +1276,7 @@ static void readout_windowed_base_row(const char *label, unsigned long lo,
 
 static void render_readout(const struct summary *s) {
   /* Tool + target header is printed by orchestrator.c BEFORE the "Running
-   * N components" line and progress bar — conventional CLI ordering
+   * N components" line and progress bar - conventional CLI ordering
    * (header → work → results). The readout starts directly with the
    * findings so the progress bar is the last thing erased before the
    * answers appear. */
@@ -1470,14 +1470,14 @@ static void render_readout(const struct summary *s) {
   {
     enum kasld_text_order to = resolve_text_order(NULL);
     if (to == TEXT_ORDER_DYNAMIC) {
-      printf("\n  %-19s %sfunction order is per-boot randomized — a leak pins "
+      printf("\n  %-19s %sfunction order is per-boot randomized - a leak pins "
              "only\n",
              "Caution", c(C_YELLOW));
       printf("  %-19s that symbol; no static System.map resolves the rest "
              "(-H).%s\n",
              "", c(C_RESET));
     } else if (to == TEXT_ORDER_STATIC) {
-      printf("\n  %-19s %snon-canonical function order — use this build's "
+      printf("\n  %-19s %snon-canonical function order - use this build's "
              "exact\n",
              "Caution", c(C_YELLOW));
       printf("  %-19s System.map, not a generic one (-H).%s\n", "", c(C_RESET));

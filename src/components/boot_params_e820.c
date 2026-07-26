@@ -73,7 +73,7 @@
 
 KASLD_EXPLAIN(
     "Reads the x86 E820 physical memory map and initrd physical address "
-    "directly from /sys/kernel/boot_params/data — a world-readable "
+    "directly from /sys/kernel/boot_params/data - a world-readable "
     "(0444) 4096-byte binary sysfs file exposing the full struct "
     "boot_params passed from the bootloader. No dmesg access is "
     "required. The E820 table yields physical DRAM bounds; the "

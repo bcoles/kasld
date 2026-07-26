@@ -56,7 +56,7 @@ KASLD_EXPLAIN(
     "(conventional memory, MMIO, runtime services, loader code, etc.). "
     "Extracts physical DRAM, MMIO and EFI_LOADER_CODE ranges. Each "
     "EFI_LOADER_CODE entry is emitted as a separate REGION_EFI_LOADER_IMAGE "
-    "observation with its full [start, end] extent — the running kernel is "
+    "observation with its full [start, end] extent - the running kernel is "
     "one of these entries on an EFI stub boot, with bootloader/driver "
     "images claiming the others. efi_loader_kernel_pick filters by EFI stub "
     "alignment + SF_IMAGE_SIZE_MIN match to identify the running-kernel entry. "

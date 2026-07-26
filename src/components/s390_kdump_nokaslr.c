@@ -55,7 +55,7 @@ int main(void) {
     return 1;
   }
 
-  kasld_info("s390 'elfcorehdr=' on /proc/cmdline — running as kdump "
+  kasld_info("s390 'elfcorehdr=' on /proc/cmdline - running as kdump "
              "crash kernel; __kaslr_enabled forced to 0.");
   /* On s390 kdump both __kaslr_offset (virt) and __kaslr_offset_phys are
    * forced to 0; the kernel sits at the compile-time defaults on both axes

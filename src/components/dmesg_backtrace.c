@@ -68,7 +68,7 @@ KASLD_EXPLAIN(
     "Bracketed [<ffffffff...>] tokens are kernel text pointers; register "
     "values in the direct-map range bound the direct-map base; the x86 CR3 "
     "register exposes the physical page-table base. CR3 is classified by the "
-    "dump's process context — the idle task's CR3 is swapper_pg_dir (kernel "
+    "dump's process context - the idle task's CR3 is swapper_pg_dir (kernel "
     ".bss), any other task's is a process page table in generic DRAM. Access "
     "is gated by dmesg_restrict.");
 

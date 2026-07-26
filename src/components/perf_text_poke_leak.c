@@ -341,7 +341,7 @@ int main(int argc, char *argv[]) {
                  ? KASLD_EXIT_NOPERM
                  : KASLD_EXIT_UNAVAILABLE;
     if (first_err == EACCES || first_err == EPERM)
-      kasld_err("perf_event_open EACCES — perf_event_paranoid > 0");
+      kasld_err("perf_event_open EACCES - perf_event_paranoid > 0");
     else
       kasld_err("perf_event_open failed on every cpu: %s", strerror(first_err));
     free(fds);

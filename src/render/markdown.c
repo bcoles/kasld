@@ -163,7 +163,7 @@ static void render_environment_markdown(void) {
       printf("Capability-reachable leaks:\n\n");
       shown = 1;
     }
-    printf("- `%s` \xe2\x86\x92 %s\n", kasld_cap_leaks[i].cap,
+    printf("- `%s` %s %s\n", kasld_cap_leaks[i].cap, GLYPH_ARROW,
            kasld_cap_leaks[i].source);
   }
   if (shown)
@@ -322,10 +322,10 @@ void render_markdown(const struct summary *s) {
     enum kasld_text_order to = resolve_text_order(NULL);
     if (to == TEXT_ORDER_DYNAMIC)
       printf("> **Caution:** kernel-text function order is per-boot randomized "
-             "— a leak pins only that symbol; no static `System.map` resolves "
+             "- a leak pins only that symbol; no static `System.map` resolves "
              "the rest (see `-H`).\n\n");
     else if (to == TEXT_ORDER_STATIC)
-      printf("> **Caution:** non-canonical kernel-text function order — use "
+      printf("> **Caution:** non-canonical kernel-text function order - use "
              "this build's exact `System.map`, not a generic one (see "
              "`-H`).\n\n");
   }

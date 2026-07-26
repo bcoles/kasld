@@ -17,7 +17,7 @@
 // This is a firmware CONVENTION, NOT a fact, so it is emitted at CONF_HEURISTIC
 // and shapes the LIKELY window only. RISC-V has NO physical KASLR — the
 // physical base is pure firmware/bootloader placement, which "is not fixed
-// across hardware" (riscv64.h) — so unlike the VIRTUAL sibling
+// across hardware" (riscv64.h) - so unlike the VIRTUAL sibling
 // riscv64_text_base, no KASLR-off signal recovers soundness here:
 // SF_VIRT_KASLR_DISABLED concerns the randomized VIRTUAL mapping and says
 // nothing about physical placement, and the SBI implementation id is not

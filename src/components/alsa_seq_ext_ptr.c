@@ -197,7 +197,7 @@ KASLD_EXPLAIN(
     "sequencer event addressed to itself via direct dispatch, then reads it "
     "back. Before commit 705dd6dcbc0e, snd_seq_read() returned the event "
     "header with data.ext.ptr still pointing at the kvmalloc'd pool cell that "
-    "holds the chained payload — a kernel direct-map address that bounds "
+    "holds the chained payload - a kernel direct-map address that bounds "
     "the direct-map base. Holds many clients open at once so their pools land "
     "at "
     "different direct-map addresses, and emits the lowest (tightest "
@@ -437,7 +437,7 @@ int main(int argc, char **argv) {
      * empty. Such an address is a real leak but not a page_offset witness, so
      * emit nothing rather than mislabel a vmalloc pointer as direct-map. */
     kasld_err("leaked pointer 0x%lx is outside the direct-map window "
-              "(kvmalloc in vmalloc, or coupled arch) — nothing to emit",
+              "(kvmalloc in vmalloc, or coupled arch) - nothing to emit",
               addr);
     close(fd0);
     return 0;

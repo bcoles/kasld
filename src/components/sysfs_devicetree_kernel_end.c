@@ -31,7 +31,7 @@
 #include "include/kasld/devicetree.h"
 
 KASLD_EXPLAIN(
-    "Reads /sys/firmware/devicetree/base/chosen/linux,kernel-end — the "
+    "Reads /sys/firmware/devicetree/base/chosen/linux,kernel-end - the "
     "physical address one byte past the loaded kernel image, set by "
     "PowerPC firmware on its handoff. Emits a PHYS kernel_image "
     "observation with the TOP edge; kernel_image_phys_bound consumes it "

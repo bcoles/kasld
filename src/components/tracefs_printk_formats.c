@@ -111,7 +111,7 @@ int main(int argc, char **argv) {
 
   if (!have_text && !have_mod) {
     kasld_info("no kernel/module addresses in printk_formats "
-               "(table empty — no trace_printk/bpf_printk activity?)");
+               "(table empty - no trace_printk/bpf_printk activity?)");
     return KASLD_EXIT_UNAVAILABLE;
   }
 

@@ -30,7 +30,9 @@
 #include <dirent.h>
 #include <errno.h>
 #include <fnmatch.h>
+#include <langinfo.h>
 #include <limits.h>
+#include <locale.h>
 #include <poll.h>
 #include <signal.h>
 #include <stdio.h>
@@ -57,6 +59,8 @@ int json_output;
 int oneline_output;
 int markdown_output;
 int color_output;
+int unicode_output = 1; /* Unicode glyphs on by default; main() lowers it for a
+                         * non-UTF-8 locale, --ascii forces it off. */
 int explain_mode;
 static int fast_mode;
 int hardening_mode;
@@ -546,6 +550,13 @@ static void print_banner(void) {
   struct utsname u;
   if (kasld_uname(&u) < 0) {
     perror("uname");
+    return;
+  }
+
+  /* ASCII mode (non-UTF-8 locale or --ascii): the box-art is Unicode block
+   * characters, so emit a plain-text title instead. */
+  if (!unicode_output) {
+    printf("\n  KASLD v%s  --  Kernel ASLR derandomization\n\n", VERSION);
     return;
   }
 
@@ -1588,17 +1599,25 @@ static int handle_component_line(struct component_log *clog,
  * extra/check-results); the rule alone delimits the block. */
 static void print_component_banner(const char *name, const char *method) {
   const int width = 64;
-  int cols = 3 + (int)strlen(name); /* "── " + name */
-  printf("\n%s──%s %s%s%s", c(C_DIM), c(C_RESET), c(C_BOLD), name, c(C_RESET));
+  /* Box-drawing rule + middle-dot separator, ASCII fallbacks in a non-UTF-8
+   * locale (--ascii). Each fallback is the same display width as its glyph, so
+   * the column accounting below is unchanged. */
+  const char *bar2 = kasld_glyph("\xe2\x94\x80\xe2\x94\x80", "--"); /* ── */
+  const char *bar1 = kasld_glyph("\xe2\x94\x80", "-");              /* ─  */
+  const char *dot = kasld_glyph("\xc2\xb7", "-");                   /* ·  */
+  int cols = 3 + (int)strlen(name); /* bar2 + name */
+  printf("\n%s%s%s %s%s%s", c(C_DIM), bar2, c(C_RESET), c(C_BOLD), name,
+         c(C_RESET));
   if (method && *method) {
-    printf(" %s·%s %s%s%s", c(C_DIM), c(C_RESET), c(C_DIM), method, c(C_RESET));
-    cols += 3 + (int)strlen(method); /* " · " + method */
+    printf(" %s%s%s %s%s%s", c(C_DIM), dot, c(C_RESET), c(C_DIM), method,
+           c(C_RESET));
+    cols += 3 + (int)strlen(method); /* " . " + method */
   }
   putchar(' ');
   cols += 1;
   printf("%s", c(C_DIM));
   for (; cols < width; cols++)
-    printf("─");
+    printf("%s", bar1);
   printf("%s\n", c(C_RESET));
 }
 
@@ -2268,7 +2287,7 @@ void merge_results(void) {
  */
 /* Bits-of-entropy from a candidate count: ceil(log2(v)) for v >= 1, 0 for
  * v == 0. CEIL (not floor) because the user-facing question is "how much
- * brute-force work remains?" — 13 candidates is ~4 bits of worst-case
+ * brute-force work remains?" - 13 candidates is ~4 bits of worst-case
  * work, not 3. Power-of-2 inputs are unaffected (ceil == floor). */
 static int ilog2(unsigned long v) {
   if (v <= 1)
@@ -2936,7 +2955,7 @@ static const char *constraint_op_name(enum constraint_op op) {
 static void report_one_conflict(const char *window, int q,
                                 const struct constraint *cc) {
   fprintf(stderr,
-          "[engine %s] %s: rejected '%s 0x%lx' from %s — contradicts "
+          "[engine %s] %s: rejected '%s 0x%lx' from %s - contradicts "
           "higher-priority evidence\n",
           window, quantities[q].name, constraint_op_name(cc->op), cc->value,
           cc->origin[0] ? cc->origin : "rule");
@@ -3469,6 +3488,11 @@ static int set_color(const char *val) {
   color_output = 1;
   return 0;
 }
+static int set_ascii(const char *val) {
+  (void)val;
+  unicode_output = 0;
+  return 0;
+}
 static int set_quiet(const char *val) {
   (void)val;
   quiet = 1;
@@ -3587,7 +3611,12 @@ static const struct opt opts[] = {
     {"-q", "--quiet", 0, NULL, OPT_SECT_DETAIL, set_quiet,
      "Suppress banner, progress, and warnings", 0, 0},
     {"-c", "--color", 0, NULL, OPT_SECT_DETAIL, set_color,
-     "Colourize text output (auto-detected for TTYs)", 0, 0},
+     "Colourize text output (auto for TTYs; honours NO_COLOR / CLICOLOR)", 0,
+     0},
+    {"-a", "--ascii", 0, NULL, OPT_SECT_DETAIL, set_ascii,
+     "ASCII-only output: no Unicode glyphs or banner (auto in a non-UTF-8 "
+     "locale)",
+     0, 0},
     {"-H", "--hardening", 0, NULL, OPT_SECT_DETAIL, set_hardening,
      "Append the hardening assessment to text/markdown output", 0, 0},
 
@@ -3707,6 +3736,17 @@ int main(int argc, char *argv[]) {
     parallel_workers = (ncpu > 1) ? (int)ncpu : 4;
   }
 
+  /* Unicode vs ASCII output. Honour the locale codeset: a non-UTF-8 locale
+   * (C/POSIX, or a legacy 8-bit terminal) cannot render the box-art banner or
+   * the check/cross/arrow glyphs, so fall back to ASCII. --ascii forces this
+   * regardless of locale (e.g. a screen reader on a UTF-8 system). The machine
+   * formats (-j/-1) carry no glyphs and are unaffected. */
+  setlocale(LC_CTYPE, "");
+  {
+    const char *cs = nl_langinfo(CODESET);
+    unicode_output = cs && (strstr(cs, "UTF-8") || strstr(cs, "UTF8"));
+  }
+
   /* Table-driven option walk. Each match either runs the handler with the
    * option's value (NULL for flags) or — for early-exit options like
    * --version / --help — sets a sentinel checked after the loop. */
@@ -3779,9 +3819,26 @@ int main(int argc, char *argv[]) {
   /* Ensure line-buffered stdout so output appears in real-time */
   setvbuf(stdout, NULL, _IOLBF, 0);
 
-  /* Auto-detect color when stdout is a TTY and no structured format selected */
-  if (!color_output && plain_output())
-    color_output = isatty(STDOUT_FILENO);
+  /* Colour policy for text output (the machine formats never colour, so this is
+   * gated on plain_output()). Precedence, highest first:
+   *   --color / CLICOLOR_FORCE (non-empty, != "0"): force on. An explicit
+   *     request is deliberate intent, so it beats NO_COLOR.
+   *   NO_COLOR present (any value, incl. empty): off (https://no-color.org).
+   *   CLICOLOR=0: off (BSD convention).
+   *   otherwise: on when stdout is a TTY. */
+  if (plain_output()) {
+    const char *clicolor_force = getenv("CLICOLOR_FORCE");
+    const char *clicolor = getenv("CLICOLOR");
+    if (color_output || (clicolor_force && clicolor_force[0] &&
+                         strcmp(clicolor_force, "0") != 0))
+      color_output = 1;
+    else if (getenv("NO_COLOR") != NULL)
+      color_output = 0;
+    else if (clicolor && strcmp(clicolor, "0") == 0)
+      color_output = 0;
+    else
+      color_output = isatty(STDOUT_FILENO);
+  }
 
   /* Banner + system-config block live behind --verbose (or --hardening,
    * which consumes the sysctl/lockdown state in its own report). The

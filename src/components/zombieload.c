@@ -502,7 +502,7 @@ int main(void) {
             "address-dependent cache fills (%d probe hits across %d runs, "
             "scattered across offsets; %d required per offset for signal). "
             "Transient execution appears to be happening but the leaked "
-            "byte is not propagating through the encoding load — CPU may "
+            "byte is not propagating through the encoding load - CPU may "
             "be silently hardened against this MDS variant despite being "
             "reported vulnerable, or the transient window is too narrow "
             "on this microcode revision\n",

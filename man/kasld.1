@@ -55,7 +55,22 @@ Show technique explanations before each component (implies
 Suppress the banner, progress, and warnings.
 .TP
 .BR \-c ", " \-\-color
-Colourize text output (auto-detected for TTYs).
+Colourize text output. Auto-detected for TTYs and suppressed by the
+.B NO_COLOR
+and
+.B CLICOLOR
+environment variables (see
+.BR ENVIRONMENT ).
+.TP
+.BR \-a ", " \-\-ascii
+ASCII-only output: replace the Unicode status glyphs and the box-art banner
+with ASCII equivalents. Auto-enabled in a non-UTF-8 locale; this flag forces it
+regardless (for screen readers on a UTF-8 system). The JSON
+.RB ( \-j )
+and one-line
+.RB ( \-1 )
+formats carry no glyphs and are unaffected \(em they are the fully accessible
+interfaces.
 .TP
 .BR \-H ", " \-\-hardening
 Append the hardening assessment to text and markdown output.
@@ -124,6 +139,23 @@ skipped.
 .B KASLD_EXPERIMENTAL
 When set, enable experimental components, equivalent to
 .BR \-\-experimental .
+.TP
+.B NO_COLOR
+When present (any value, including empty), disable coloured output regardless of
+whether stdout is a TTY. An explicit
+.B \-\-color
+or
+.B CLICOLOR_FORCE
+overrides it. See
+.IR https://no-color.org .
+.TP
+.BR CLICOLOR ", " CLICOLOR_FORCE
+.B CLICOLOR=0
+disables colour;
+.B CLICOLOR_FORCE
+(non-empty and not
+.BR 0 )
+forces colour on even when stdout is not a TTY (BSD convention).
 .SH FILES
 .TP
 .I <bindir>/../libexec/kasld/

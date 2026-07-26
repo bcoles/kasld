@@ -59,7 +59,7 @@
 KASLD_EXPLAIN(
     "Searches dmesg for ARM32 identity_mapping_add() messages printed "
     "during early MMU setup. The logged range is the PHYSICAL address of "
-    "the kernel idmap text (virt_to_phys(__idmap_text)) — an interior "
+    "the kernel idmap text (virt_to_phys(__idmap_text)) - an interior "
     "physical kernel-image address. Access is gated by dmesg_restrict.");
 
 KASLD_META("method:parsed\n"

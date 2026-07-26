@@ -83,6 +83,8 @@ the vantage. See [limitations.md](limitations.md).
 -1, --oneline       Single-line summary output (shell-pipeable)
 -m, --markdown      Markdown table output (for issue trackers)
 -c, --color         Colorize text output (auto-detected for TTYs)
+-a, --ascii         ASCII-only output: no Unicode glyphs or banner
+                    (auto-enabled in a non-UTF-8 locale)
 -q, --quiet         Suppress progress indicator and warnings
 -v, --verbose       Add banner, system-config block, per-component logs,
                     per-region Results table, KASLR analysis, and the
@@ -103,6 +105,19 @@ the vantage. See [limitations.md](limitations.md).
 Single-dash short flags may be bundled: `-fq` is `-f -q`, `-vj` is `-v -j`. A
 value-taking flag (`-s`/`-t`/`-w`) may appear only as the last flag in a bundle,
 taking the next argument — `-fqt 2` is `-f -q -t 2`.
+
+### Accessibility
+
+The text output uses a few Unicode glyphs (`✓ ⚠ ✗ →`) and a box-art banner
+under `-v`. These are auto-disabled in a non-UTF-8 locale (`LANG=C`, legacy
+consoles), and `--ascii` (`-a`) forces plain ASCII regardless — for screen
+readers on a UTF-8 system, or non-UTF-8 pipelines. The JSON (`-j`) and one-line
+(`-1`) formats carry no glyphs and are the fully accessible, machine-readable
+interfaces.
+
+Colour follows the standard environment conventions: `NO_COLOR` (any value)
+disables it, `CLICOLOR=0` disables it, and `CLICOLOR_FORCE` (non-empty, not `0`)
+forces it on even when piped. An explicit `--color` overrides `NO_COLOR`.
 
 ## Output modes
 

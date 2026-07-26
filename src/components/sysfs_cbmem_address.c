@@ -60,7 +60,7 @@ KASLD_EXPLAIN(
     "Reads physical DRAM addresses of coreboot CBMEM entries from "
     "/sys/bus/coreboot/devices/cbmem-*/address. The coreboot CBMEM driver "
     "exposes each entry's physical base address with world-readable (0444) "
-    "DEVICE_ATTR_RO attributes — no capability check, not gated by "
+    "DEVICE_ATTR_RO attributes - no capability check, not gated by "
     "kptr_restrict. On ARM Chromebook systems with a fixed physical-to-"
     "virtual mapping, these DRAM addresses yield linear-map kernel virtual "
     "addresses. Requires CONFIG_GOOGLE_CBMEM.");

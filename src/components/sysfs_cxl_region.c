@@ -58,7 +58,7 @@ KASLD_EXPLAIN(
     "Reads Host Physical Addresses (HPA) of CXL (Compute Express Link) "
     "memory regions from /sys/bus/cxl/devices/regionN/resource. The CXL "
     "subsystem exposes each active region's physical base address with "
-    "world-readable (0444) DEVICE_ATTR_RO attributes — no capability "
+    "world-readable (0444) DEVICE_ATTR_RO attributes - no capability "
     "check, not gated by kptr_restrict. On architectures with a fixed "
     "physical-to-virtual mapping, these DRAM base addresses yield linear-"
     "map kernel virtual addresses. Requires CONFIG_CXL_BUS.");

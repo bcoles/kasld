@@ -53,7 +53,7 @@ KASLD_EXPLAIN(
     "REGION_KERNEL_IMAGE / KERNEL_DATA / KERNEL_BSS. These are the "
     "authoritative physical placement of the running kernel image. x86 and "
     "s390 emit these labels in their setup code; harmless on arches that "
-    "don't (no matching line → no emission). /proc/iomem requires "
+    "don't (no matching line -> no emission). /proc/iomem requires "
     "CAP_SYS_ADMIN for unmasked addresses; emits nothing under masking.");
 
 KASLD_META("method:parsed\n"

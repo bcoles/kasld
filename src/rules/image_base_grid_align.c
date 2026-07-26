@@ -18,7 +18,7 @@
 // This complements range_from_interior, whose raw interior-sample ceiling is
 // deliberately left un-floored (a plain floor there once rejected the real
 // riscv64 kallsyms pin). That rule's header defers "sound alignment-tightening
-// [to] the aligned image base, not [...] _stext" — this rule is that step: it
+// [to] the aligned image base, not [...] _stext" - this rule is that step: it
 // snaps the RESOLVED base bounds, not the raw sample. It bites where an
 // unaligned bound is the tightest one (the interior-sample ceiling and the
 // image-size-derived floor under the more restricted reader profiles).

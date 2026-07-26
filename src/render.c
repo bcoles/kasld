@@ -109,7 +109,7 @@ int summary_has_memory_kaslr(const struct summary *s) {
  * "Physical DRAM" line full of 0xc000... virt addresses on a coupled
  * arch. Phys-rooted sections (dram / mmio) carry a type-aware label so
  * that a VIRT directmap mirror renders as "(virtual mirror via direct
- * map)" instead of "Physical" — the address IS virtual, but the
+ * map)" instead of "Physical" - the address IS virtual, but the
  * underlying region is the same phys instance. */
 const char *section_display_name(enum kasld_addr_type type,
                                  const char *section) {

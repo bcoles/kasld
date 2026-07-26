@@ -147,14 +147,14 @@ int main(int argc, char **argv) {
   FILE *f = kasld_fopen(DBGMSG_PATH, "r");
   if (!f) {
     if (errno == EACCES || errno == EPERM) {
-      kasld_err("%s not readable (mode 0600 — the default since ZFS 0.8.0)",
+      kasld_err("%s not readable (mode 0600 - the default since ZFS 0.8.0)",
                 DBGMSG_PATH);
       return KASLD_EXIT_NOPERM;
     }
     return KASLD_EXIT_UNAVAILABLE; /* ZFS not loaded / no debug log */
   }
 
-  kasld_info("scanning %s for kernel pointers (raw %%px — not kptr_restricted)",
+  kasld_info("scanning %s for kernel pointers (raw %%px - not kptr_restricted)",
              DBGMSG_PATH);
 
   char line[1024];

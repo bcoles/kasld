@@ -111,7 +111,7 @@ KASLD_EXPLAIN(
     "Loads a tiny socket-filter BPF program that references a map via an "
     "fd_array index (BPF_PSEUDO_MAP_IDX ldimm64) and requests a verifier log. "
     "Before commit 72a85e9464a5 the verifier's pointer-mask left MAP_IDX "
-    "unmasked, so the log printed the resolved kernel pointer — the kmalloc'd "
+    "unmasked, so the log printed the resolved kernel pointer - the kmalloc'd "
     "struct bpf_map address, a direct-map VA that bounds the direct-map base. "
     "Reachable with CAP_BPF (without CAP_PERFMON), a BPF-token userns, or "
     "unprivileged_bpf_disabled=0. Emits only when a real kernel pointer "

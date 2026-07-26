@@ -116,7 +116,7 @@ KASLD_EXPLAIN(
     "binary fingerprint: GNU build_id (content hash of vmlinux), "
     "CONFIG_BUILD_SALT (distro version string when set), CONFIG_LTO_CLANG "
     "flag, and FDO packaging metadata JSON. The fingerprint identifies "
-    "the exact kernel binary independent of KASLR. Metadata-only — not "
+    "the exact kernel binary independent of KASLR. Metadata-only - not "
     "consumed by any inference rule. Built into every kernel since "
     "v2.6.23.");
 

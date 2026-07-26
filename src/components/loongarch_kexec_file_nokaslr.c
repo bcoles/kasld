@@ -52,7 +52,7 @@ int main(void) {
     return 1;
   }
 
-  kasld_info("LoongArch 'kexec_file' cmdline token present — KASLR disabled "
+  kasld_info("LoongArch 'kexec_file' cmdline token present - KASLR disabled "
              "by kaslr_disabled().");
   /* LoongArch kexec_file disables both axes via arch/loongarch's
    * relocate.c kaslr_disabled() short-circuit; the kernel lands at

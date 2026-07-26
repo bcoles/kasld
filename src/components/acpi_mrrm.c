@@ -58,7 +58,7 @@ KASLD_EXPLAIN(
     "/sys/firmware/acpi/memory_ranges/rangeN/base. The kernel parses the "
     "ACPI MRRM table (Intel tiered-memory / CXL systems) and exposes each "
     "physical memory range with world-readable (0444) __ATTR_RO attributes "
-    "— no capability check, not gated by kptr_restrict. On architectures "
+    "- no capability check, not gated by kptr_restrict. On architectures "
     "with a fixed physical-to-virtual mapping the base addresses directly "
     "yield linear-map kernel virtual addresses. Requires CONFIG_ACPI_MRRM.");
 

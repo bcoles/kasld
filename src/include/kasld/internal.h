@@ -57,6 +57,23 @@ static inline const char *c(const char *code) {
 }
 
 /* =========================================================================
+ * Output glyphs: Unicode when the terminal can render it, ASCII otherwise.
+ * unicode_output is set from the locale codeset (a non-UTF-8 locale cannot
+ * render the box-art banner or the check/cross/arrow glyphs) and forced off
+ * by --ascii. kasld_glyph() mirrors c(): pick per output mode; the GLYPH_*
+ * macros pair each Unicode glyph with its ASCII fallback in one place.
+ * =========================================================================
+ */
+extern int unicode_output; /* forward declaration for kasld_glyph() */
+static inline const char *kasld_glyph(const char *uni, const char *ascii) {
+  return unicode_output ? uni : ascii;
+}
+#define GLYPH_OK kasld_glyph("\xe2\x9c\x93", "[ok]")     /* U+2713 check */
+#define GLYPH_WARN kasld_glyph("\xe2\x9a\xa0", "[warn]") /* U+26A0 warning */
+#define GLYPH_FAIL kasld_glyph("\xe2\x9c\x97", "[fail]") /* U+2717 cross */
+#define GLYPH_ARROW kasld_glyph("\xe2\x86\x92", "->")    /* U+2192 arrow */
+
+/* =========================================================================
  * Runtime memory layout: initialized from compile-time arch constants, then
  * overwritten with the engine's resolved estimates by
  * engine_sync_authoritative.

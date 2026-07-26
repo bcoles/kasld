@@ -1875,8 +1875,7 @@ static void test_hardening_projection(void) {
   assert(strstr(render_cap,
                 "base recoverable: 4 bits now \xe2\x86\x92 7 bits") != NULL);
   assert(strstr(render_cap,
-                "load-bearing \xe2\x80\x94 omitting forfeits 1 virtual bits") !=
-         NULL);
+                "load-bearing - omitting forfeits 1 virtual bits") != NULL);
 
   /* JSON: each suggestion carries silences + the leave-one-out projection;
    * top-level projected_posture reports current and the all-applied ceiling. */
@@ -1892,8 +1891,7 @@ static void test_hardening_projection(void) {
   set_render_mode(0, 0, 1);
   capture_stdout(wrap_render_hardening_markdown, NULL);
   assert(strstr(render_cap,
-                "load-bearing \xe2\x80\x94 omitting forfeits 1 virtual bits") !=
-         NULL);
+                "load-bearing - omitting forfeits 1 virtual bits") != NULL);
   assert(strstr(render_cap, "[`sysctl`]") != NULL);
   assert(strstr(render_cap, "[`lsm`]") != NULL);
   assert(strstr(render_cap, "[`file_permissions`]") != NULL);
@@ -2041,17 +2039,15 @@ static void test_hardening_projection_redundant(void) {
   assert(strstr(render_cap,
                 "base recoverable: 0 bits now \xe2\x86\x92 9 bits") != NULL);
   assert(strstr(render_cap,
-                "load-bearing \xe2\x80\x94 omitting forfeits 9 virtual bits") !=
-         NULL);
+                "load-bearing - omitting forfeits 9 virtual bits") != NULL);
   assert(strstr(render_cap, "not required (the rest reach the same posture)") !=
          NULL);
-  assert(strstr(render_cap, "no base-leak behind this \xe2\x80\x94 recovers "
+  assert(strstr(render_cap, "no base-leak behind this - recovers "
                             "nothing") != NULL);
 
   set_render_mode(0, 0, 1);
   capture_stdout(wrap_render_hardening_markdown, NULL);
-  assert(strstr(render_cap,
-                "not required \xe2\x80\x94 the rest reach the same posture") !=
+  assert(strstr(render_cap, "not required - the rest reach the same posture") !=
          NULL);
 
   kasld_test_projection = 0;

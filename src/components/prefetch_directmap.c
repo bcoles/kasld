@@ -337,7 +337,7 @@ static unsigned long get_directmap_base_prefetch(void) {
     if (sparse)
       kasld_err(
           "sparse prefetch signal: %d/%d passes agreed on a base, but the "
-          "direct map is not densely mapped above it — the region is a thin "
+          "direct map is not densely mapped above it - the region is a thin "
           "scatter of mapped slots, not the dense linear map, so the agreed "
           "edge is not its floor (the differential is likely neutralised here, "
           "e.g. patched AMD microcode); the true base is not recoverable",
@@ -354,7 +354,7 @@ static unsigned long get_directmap_base_prefetch(void) {
     else
       kasld_err(
           "incoherent prefetch signal: %d/%d passes located an edge but "
-          "none agreed on a base — the located edges scatter across the "
+          "none agreed on a base - the located edges scatter across the "
           "window, so there is no left-edge floor to recover (the prefetch "
           "differential is likely neutralised here, e.g. under a "
           "hypervisor); a re-run will not help",

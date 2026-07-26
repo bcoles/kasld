@@ -58,7 +58,7 @@ KASLD_EXPLAIN(
     "serial (TIOCGSERIAL -> iomem_base) device ioctls for physical MMIO base "
     "addresses. Both GET paths are ungated (no capability or kptr_restrict "
     "check); access needs only the device node (video/dialout group). MMIO "
-    "bases ceiling the physical kernel base on decoupled arches — a fallback "
+    "bases ceiling the physical kernel base on decoupled arches - a fallback "
     "for when /proc/iomem is masked and for platform (non-PCI) devices.");
 
 KASLD_META("method:parsed\n"

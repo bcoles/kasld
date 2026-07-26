@@ -182,18 +182,18 @@ static unsigned long get_kernel_addr_sidt(void) {
 
   /* UMIP emulation returns a hardcoded dummy base with limit=0 */
   if (base == UMIP_DUMMY_IDT_BASE && idt.limit == 0) {
-    kasld_err("UMIP active — kernel returned dummy IDT value, no leak");
+    kasld_err("UMIP active - kernel returned dummy IDT value, no leak");
     return 0;
   }
 
   if (is_cpu_entry_area(base)) {
-    kasld_err("IDT is in the CPU entry area (CONFIG_PAGE_TABLE_ISOLATION=y) — "
+    kasld_err("IDT is in the CPU entry area (CONFIG_PAGE_TABLE_ISOLATION=y) - "
               "no leak");
     return 0;
   }
 
   if (is_fixmap_region(base)) {
-    kasld_err("IDT is in the fixmap region (kernel >= ~3.10) — no leak");
+    kasld_err("IDT is in the fixmap region (kernel >= ~3.10) - no leak");
     return 0;
   }
 
