@@ -103,3 +103,7 @@ KASLD exercised, and cannot speak to the paths it does not implement, the side
 channels tuned to the specific hardware, or a memory-corruption bug that leaks
 the base directly. A clean KASLD run raises the cost of defeating KASLR from a
 given vantage; it does not prove KASLR intact.
+
+The same applies to what a run *emits*: [footprint.md](footprint.md) bounds
+KASLD's observability — it is loud by design, and its default footprint is an
+upper bound on what a monitored host sees, not what a tuned adversary produces.

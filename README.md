@@ -152,6 +152,7 @@ inference rule). The table below is the per-audience reference.
 | End user / operator | [docs/usage.md](docs/usage.md) — CLI, output modes, explain mode, hardening assessment |
 | Interpreting a result | [docs/limitations.md](docs/limitations.md) — what a negative or partial result means: sound-but-not-complete, and why a failure is not a security guarantee |
 | Exploit developer | [docs/exploitation.md](docs/exploitation.md) — where KASLR-defeat fits in an exploit, control-flow vs data-only, pwntools template, `ksymoff` |
+| Detection / blue team | [docs/footprint.md](docs/footprint.md) — what a run looks like on a monitored host: the behavioural signature to detect it, and the operator's OPSEC cost; loud by design |
 | Component / rule author | [CONTRIBUTING.md](CONTRIBUTING.md) — writing a component or rule, emitter API, exit codes, metadata |
 | Architecture / internals | [docs/architecture.md](docs/architecture.md) — the inference engine, data-flow seams, tagged-line protocol, cross-region derivation |
 | Test runner / CI | [docs/testing.md](docs/testing.md) — host tests, replay fixtures, cross-arch under qemu-user, coverage |
