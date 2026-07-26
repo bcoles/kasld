@@ -15,6 +15,13 @@
 #include <stdio.h>
 #include <string.h>
 
+/* Enforcement surfaces for the two suggestions that are not gate_suggestions[]
+ * entries (those carry their own .surface): kernel lockdown is an LSM, and the
+ * dmesg fallback-file restriction is a filesystem-permissions change. Named
+ * once here so the text, JSON, and markdown renderers agree on the label. */
+#define HR_SURFACE_LOCKDOWN "lsm"
+#define HR_SURFACE_DMESG_FALLBACK "file_permissions"
+
 /* Known sysctl gates */
 struct sysctl_gate {
   const char *name;    /* meta value prefix, e.g. "dmesg_restrict" */
@@ -820,8 +827,13 @@ void render_hardening_text(void) {
 
   for (int i = 0; i < rep.n_gate_suggestions; i++) {
     any_suggestions = 1;
-    printf("  %s\xe2\x86\x92%s Set %s = %d\n", c(C_CYAN), c(C_RESET),
+    /* Enforcement surface trails the action, so a reader routes the change to
+     * the lever it lives on (a sysctl differs from a boot parameter). */
+    printf("  %s\xe2\x86\x92%s Set %s = %d", c(C_CYAN), c(C_RESET),
            rep.gate_suggestions[i].display, rep.gate_suggestions[i].threshold);
+    if (rep.gate_suggestions[i].surface)
+      printf("  [%s]", rep.gate_suggestions[i].surface);
+    printf("\n");
     printf("    affects %d component%s\n", rep.gate_suggestions[i].impact,
            rep.gate_suggestions[i].impact == 1 ? "" : "s");
     if (rep.gate_suggestions[i].has_projection)
@@ -832,8 +844,8 @@ void render_hardening_text(void) {
 
   if (rep.suggest_lockdown) {
     any_suggestions = 1;
-    printf("  %s\xe2\x86\x92%s Enable kernel lockdown (integrity mode)\n",
-           c(C_CYAN), c(C_RESET));
+    printf("  %s\xe2\x86\x92%s Enable kernel lockdown (integrity mode)  [%s]\n",
+           c(C_CYAN), c(C_RESET), HR_SURFACE_LOCKDOWN);
     printf("    blocks klogctl() even with CAP_SYSLOG\n");
     if (rep.lockdown_has_projection)
       print_necessity(rep.lockdown_silences, exposure, rep.all_vbits,
@@ -843,8 +855,8 @@ void render_hardening_text(void) {
 
   if (rep.suggest_dmesg_fallback) {
     any_suggestions = 1;
-    printf("  %s\xe2\x86\x92%s Restrict dmesg fallback files to root\n",
-           c(C_CYAN), c(C_RESET));
+    printf("  %s\xe2\x86\x92%s Restrict dmesg fallback files to root  [%s]\n",
+           c(C_CYAN), c(C_RESET), HR_SURFACE_DMESG_FALLBACK);
     printf("    %d dmesg component%s may have succeeded via log files\n",
            rep.dmesg_fallback_count, rep.dmesg_fallback_count == 1 ? "" : "s");
     if (rep.dmesg_fallback_has_projection)
@@ -1134,7 +1146,7 @@ void render_hardening_json(void) {
     printf("      {\n");
     printf("        \"action\": \"Enable kernel lockdown (integrity mode)\","
            "\n");
-    printf("        \"surface\": \"lsm\",\n");
+    printf("        \"surface\": \"%s\",\n", HR_SURFACE_LOCKDOWN);
     printf("        \"impact\": %d,\n", rep.lockdown_impact);
     printf("        \"detail\": \"Blocks klogctl() even with CAP_SYSLOG\"%s\n",
            rep.lockdown_has_projection ? "," : "");
@@ -1151,7 +1163,7 @@ void render_hardening_json(void) {
     first_sug = 0;
     printf("      {\n");
     printf("        \"action\": \"Restrict dmesg fallback files to root\",\n");
-    printf("        \"surface\": \"file_permissions\",\n");
+    printf("        \"surface\": \"%s\",\n", HR_SURFACE_DMESG_FALLBACK);
     printf("        \"impact\": %d,\n", rep.dmesg_fallback_count);
     printf("        \"detail\": \"%d dmesg component%s may have succeeded via "
            "log files\"%s\n",
@@ -1400,7 +1412,7 @@ void render_hardening_markdown(void) {
       md_print_necessity(rep.lockdown_silences, exposure, rep.all_vbits,
                          rep.lockdown_skip_vbits, rep.all_pbits,
                          rep.lockdown_skip_pbits);
-    printf(" [`lsm`]");
+    printf(" [`%s`]", HR_SURFACE_LOCKDOWN);
     printf("\n");
   }
   if (rep.suggest_dmesg_fallback) {
@@ -1412,7 +1424,7 @@ void render_hardening_markdown(void) {
       md_print_necessity(rep.dmesg_fallback_silences, exposure, rep.all_vbits,
                          rep.dmesg_fallback_skip_vbits, rep.all_pbits,
                          rep.dmesg_fallback_skip_pbits);
-    printf(" [`file_permissions`]");
+    printf(" [`%s`]", HR_SURFACE_DMESG_FALLBACK);
     printf("\n");
   }
   if (!any_sug)
