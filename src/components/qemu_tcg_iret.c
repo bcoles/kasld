@@ -162,21 +162,17 @@ static const struct kernel_info offsets[] = {
 
 #define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
 
-/* Index into offsets[] whose full uname matches this kernel, or -1. Trailing
- * whitespace is trimmed before comparing: a long Ubuntu HWE version clipped at
- * utsname's 64-char field can end on a space, and the table stores fingerprints
- * trimmed the same way, so the live uname is trimmed to match. */
+/* Index into offsets[] whose full uname matches this kernel, or -1. The
+ * fingerprint (compose + trailing-space trim) is built by
+ * kasld_uname_fingerprint(); see its comment for why the trim matters. */
 static int match_known_kernel(void) {
   struct utsname u;
   char v[512];
-  size_t n;
   unsigned long i;
 
   if (kasld_uname(&u) != 0)
     return -1;
-  snprintf(v, sizeof(v), "%s %s", u.release, u.version);
-  for (n = strlen(v); n > 0 && v[n - 1] == ' '; n--)
-    v[n - 1] = '\0';
+  kasld_uname_fingerprint(v, sizeof(v), &u);
   for (i = 0; i < ARRAY_SIZE(offsets); i++)
     if (strcmp(v, offsets[i].kernel_version) == 0)
       return (int)i;

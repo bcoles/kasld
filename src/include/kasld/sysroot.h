@@ -146,4 +146,18 @@ __attribute__((unused)) static int kasld_uname(struct utsname *u) {
   return rc;
 }
 
+/* Compose "<release> <version>" into buf and trim trailing spaces. Offset-table
+ * components match this full-uname build fingerprint against per-build entries;
+ * a long Ubuntu HWE version is clipped at utsname.version's 64-char field and
+ * can end on a space, so trimming keeps the live string equal to the (also
+ * trimmed) stored fingerprint. The caller passes the utsname (from kasld_uname)
+ * so each component keeps its own uname fetch and failure policy. */
+__attribute__((unused)) static void
+kasld_uname_fingerprint(char *buf, size_t n, const struct utsname *u) {
+  size_t i;
+  snprintf(buf, n, "%s %s", u->release, u->version);
+  for (i = strlen(buf); i > 0 && buf[i - 1] == ' '; i--)
+    buf[i - 1] = '\0';
+}
+
 #endif /* KASLD_SYSROOT_H */

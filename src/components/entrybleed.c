@@ -280,8 +280,7 @@ static int detect_kernel_version(void) {
     exit(kasld_disp_absent("not a 64-bit kernel"));
   }
 
-  snprintf(kernel_version, KERNEL_VERSION_SIZE_BUFFER, "%s %s", u.release,
-           u.version);
+  kasld_uname_fingerprint(kernel_version, KERNEL_VERSION_SIZE_BUFFER, &u);
 
   unsigned long i;
   for (i = 0; i < ARRAY_SIZE(offsets); i++) {
