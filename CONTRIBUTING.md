@@ -206,9 +206,8 @@ decided elsewhere — inside a helper or a loop. A mitigation with no gate is a
 bug and emits nothing. Emit a disposition only when it soundly classifies the
 null result beyond the exit code — above all, a confirmed mitigation; a
 component that merely found no matching entry emits nothing. A `mitigation`
-disposition is confirmed active in the hardening report; the mitigation category
-is surfaced in default output, all categories under `--verbose`, and each
-disposition per-component in JSON.
+disposition is confirmed active in the hardening report; every disposition is
+listed under `--verbose` and appears per-component in JSON.
 
 ### Diagnostics and options
 

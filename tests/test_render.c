@@ -1736,6 +1736,77 @@ static void test_build_hardening_report(void) {
   num_scalar_facts = 0;
 }
 
+/* The per-component disposition surfaces in JSON: a mitigation carries its
+ * category, gate, and message; a non-mitigation (absent) carries category and
+ * message with no gate. */
+static void test_render_json_disposition(void) {
+  struct summary s;
+  set_rich_render_state(
+      &s); /* resets, stages a summary + one success comp_log */
+
+  struct component_log *m = hr_seed_comp("prefetch", OUTCOME_UNAVAILABLE);
+  m->disposition.category = DISP_MITIGATION;
+  snprintf(m->disposition.gate, DISP_GATE_LEN, "kpti");
+  snprintf(m->disposition.message, DISP_MSG_LEN, "KPTI enabled");
+
+  struct component_log *a = hr_seed_comp("databounce", OUTCOME_UNAVAILABLE);
+  a->disposition.category = DISP_ABSENT;
+  snprintf(a->disposition.message, DISP_MSG_LEN, "not an Intel CPU");
+
+  set_render_mode(1, 0, 0);
+  capture_stdout(wrap_render_summary, &s);
+  set_render_mode(0, 0, 0);
+
+  assert(strstr(render_cap, "\"disposition\"") != NULL);
+  assert(strstr(render_cap, "\"category\": \"mitigation\"") != NULL);
+  assert(strstr(render_cap, "\"gate\": \"kpti\"") != NULL);
+  assert(strstr(render_cap, "KPTI enabled") != NULL);
+  assert(strstr(render_cap, "\"category\": \"absent\"") != NULL);
+  assert(strstr(render_cap, "not an Intel CPU") != NULL);
+
+  num_comp_logs = 0;
+}
+
+/* A mitigation disposition is confirmed active in the hardening report; absent
+ * and inconclusive dispositions are not. Asserts both the report model and the
+ * rendered JSON confirmed_mitigations array. */
+static void test_render_hardening_confirmed_mitigations(void) {
+  struct summary s;
+  set_rich_render_state(
+      &s); /* resets, stages a summary + one success comp_log */
+
+  struct component_log *m = hr_seed_comp("prefetch", OUTCOME_UNAVAILABLE);
+  m->disposition.category = DISP_MITIGATION;
+  snprintf(m->disposition.gate, DISP_GATE_LEN, "kpti");
+  snprintf(m->disposition.message, DISP_MSG_LEN, "KPTI enabled");
+  struct component_log *a = hr_seed_comp("databounce", OUTCOME_UNAVAILABLE);
+  a->disposition.category = DISP_ABSENT;
+  struct component_log *ic =
+      hr_seed_comp("mmap_brute_vmsplit", OUTCOME_NO_RESULT);
+  ic->disposition.category = DISP_INCONCLUSIVE;
+
+  /* Report model: only the mitigation is confirmed; its gate/component/message
+   * carry through, and absent/inconclusive are excluded. */
+  struct hardening_report rep;
+  build_hardening_report(&rep);
+  assert(rep.n_confirmed == 1);
+  assert(strcmp(rep.confirmed[0].gate, "kpti") == 0);
+  assert(strcmp(rep.confirmed[0].component, "prefetch") == 0);
+  assert(rep.confirmed[0].message != NULL &&
+         strcmp(rep.confirmed[0].message, "KPTI enabled") == 0);
+
+  /* Rendered JSON hardening object carries the array. */
+  set_render_mode(1, 0, 0);
+  hardening_mode = 1;
+  capture_stdout(wrap_render_summary, &s);
+  hardening_mode = 0;
+  set_render_mode(0, 0, 0);
+  assert(strstr(render_cap, "\"confirmed_mitigations\"") != NULL);
+  assert(strstr(render_cap, "\"gate\": \"kpti\"") != NULL);
+
+  num_comp_logs = 0;
+}
+
 /* The unprivileged_bpf_disabled gate: 0 = unprivileged bpf() allowed (the leak
  * fires), >=1 = disabled (blocks it), so it uses the "value >= threshold
  * blocks" model with threshold 1. Inactive (0) with a succeeded bpf component
@@ -2224,6 +2295,8 @@ int main(void) {
   RUN(test_render_hardening_json);
   RUN(test_render_hardening_markdown);
   RUN(test_build_hardening_report);
+  RUN(test_render_json_disposition);
+  RUN(test_render_hardening_confirmed_mitigations);
   RUN(test_hardening_unprivileged_bpf_gate);
   RUN(test_hardening_projection);
   RUN(test_hardening_projection_no_exposure);
