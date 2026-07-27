@@ -46,6 +46,10 @@
 // https://cc0x1f.net/publications/kaslr.pdf
 // https://github.com/cc0x1f/store-to-leak-forwarding-there-and-back-again
 // https://i.blackhat.com/asia-20/Friday/asia-20-Canella-Store-To-Leak-Forwarding-There-And-Back-Again-wp.pdf
+//
+// KASLD_BUILD_NO_OPTIMIZE: built -O0 (Makefile) so the optimizer cannot reorder
+// or elide the timing / cache-probe / speculation measurements this technique
+// relies on; a per-function no-opt attribute is not a reliable substitute.
 // ---
 // <bcoles@gmail.com>
 

@@ -78,6 +78,10 @@
 // Van Schaik, Milburn, Österlund, Frigo, Maisuradze, Razavi, Bos,
 // Giuffrida.
 // "RIDL: Rogue In-Flight Data Load" (S&P 2019)
+//
+// KASLD_BUILD_NO_OPTIMIZE: built -O0 (Makefile) so the optimizer cannot reorder
+// or elide the timing / cache-probe / speculation measurements this technique
+// relies on; a per-function no-opt attribute is not a reliable substitute.
 // ---
 // <bcoles@gmail.com>
 

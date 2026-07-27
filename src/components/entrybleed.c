@@ -44,6 +44,10 @@
 // https://dl.acm.org/doi/pdf/10.1145/3623652.3623669
 // https://googleprojectzero.blogspot.com/2022/12/exploiting-CVE-2022-42703-bringing-back-the-stack-attack.html
 // https://bugs.chromium.org/p/project-zero/issues/detail?id=2351
+//
+// KASLD_BUILD_NO_OPTIMIZE: built -O0 (Makefile) so the optimizer cannot reorder
+// or elide the timing / cache-probe / speculation measurements this technique
+// relies on; a per-function no-opt attribute is not a reliable substitute.
 // ---
 // <bcoles@gmail.com>
 

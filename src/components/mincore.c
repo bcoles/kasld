@@ -25,6 +25,10 @@
 // Mitigations:
 //   Patched in v4.15. No runtime sysctl could restrict access — the
 //   bug was an uninitialized byte in the mincore output vector. x86_64 only.
+//
+// KASLD_BUILD_NO_OPTIMIZE: built -O0 (Makefile) so the optimizer cannot reorder
+// or elide the timing / cache-probe / speculation measurements this technique
+// relies on; a per-function no-opt attribute is not a reliable substitute.
 // ---
 // <bcoles@gmail.com>
 

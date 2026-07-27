@@ -227,10 +227,15 @@ COMP_SRC_DIR := $(SRC_DIR)/components
 SRC_FILES := $(wildcard $(COMP_SRC_DIR)/*.c)
 BIN_FILES := $(patsubst $(COMP_SRC_DIR)/%.c,$(COMP_DIR)/%,$(SRC_FILES))
 
-# Side-channel components compiled with -O0 (see the recipe below for why).
-# Named once here so the build rule and `make print-deps` share one list.
-SIDECHANNEL_COMPONENTS := databounce echoload entrybleed mincore prefetch \
-                          prefetch_directmap zombieload
+# Side-channel components opt out of optimization by carrying the marker
+# KASLD_BUILD_NO_OPTIMIZE in their source header; they are discovered by grep so
+# adding one needs no Makefile edit (matching the drop-in component model). The
+# same list feeds the build rule below and `make print-deps`. Whole-file -O0 is
+# deliberate: it reliably stops the optimizer reordering or eliding the
+# rdtsc/mfence timing loops, which a per-function attribute does not guarantee
+# (gcc's optimize attribute is documented debugging-only).
+SIDECHANNEL_COMPONENTS := $(patsubst $(COMP_SRC_DIR)/%.c,%,\
+    $(shell grep -l KASLD_BUILD_NO_OPTIMIZE $(COMP_SRC_DIR)/*.c 2>/dev/null))
 SIDECHANNEL_BINS := $(addprefix $(COMP_DIR)/,$(SIDECHANNEL_COMPONENTS))
 
 # cc-component <cmd...>: compile one leak component. One line per component.
@@ -305,9 +310,11 @@ endif
 # (rdtsc/rdtscp + mfence/lfence), speculative execution gadgets (asm goto),
 # or Flush+Reload cache probing via volatile pointer accesses. The static
 # pattern rule takes precedence over the generic $(COMP_DIR)/% rule above for
-# the listed targets; the list lives in SIDECHANNEL_COMPONENTS.
+# the SIDECHANNEL_BINS (discovered by the KASLD_BUILD_NO_OPTIMIZE marker above).
+# -U_FORTIFY_SOURCE drops the fortify define inherited from ALL_CFLAGS: it is a
+# no-op at -O0 and glibc otherwise warns "_FORTIFY_SOURCE requires -O".
 $(SIDECHANNEL_BINS): $(COMP_DIR)/%: $(COMP_SRC_DIR)/%.c $(HDRS) | $(COMP_DIR)
-	$(call cc-component, $(CC) $(ALL_CFLAGS) -O0 $(ALL_LDFLAGS) -I$(SRC_DIR) $< -o $@)
+	$(call cc-component, $(CC) $(ALL_CFLAGS) -O0 -U_FORTIFY_SOURCE $(ALL_LDFLAGS) -I$(SRC_DIR) $< -o $@)
 
 # kernelsnitch: needs -lpthread (uses default -O2 for hash timing performance)
 $(COMP_DIR)/kernelsnitch: $(COMP_SRC_DIR)/kernelsnitch.c $(HDRS) | $(COMP_DIR)
