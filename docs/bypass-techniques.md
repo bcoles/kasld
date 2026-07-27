@@ -314,7 +314,7 @@ The following KASLD components exploit syscall and interface leaks:
 * [mincore.c](../src/components/mincore.c) — `mincore()` heap page disclosure via uninitialized memory (CVE-2017-16994; patched in v4.15)
 * [bcm_msg_head_struct.c](../src/components/bcm_msg_head_struct.c) — CAN BCM `bcm_msg_head` struct uninitialized 4-byte padding hole leaks kernel stack pointer via `recvmsg()` (CVE-2021-34693; patched in v5.12)
 * [pppd_kallsyms.c](../src/components/pppd_kallsyms.c) — set-uid-root `pppd` opens `/proc/kallsyms` as root, bypassing the `kptr_restrict` open-time check in pre-v4.8 kernels
-* [qemu_tcg_iret.c](../src/components/qemu_tcg_iret.c) — QEMU TCG `iret` emulation bug causes the hypervisor to read from the host kernel stack instead of the guest user stack, leaking a kernel address (patched in QEMU 9.1; not a kernel bug)
+* [qemu_tcg_iret.c](../src/components/qemu_tcg_iret.c) — QEMU TCG `iret` emulation performs the frame read as ring 0, so a ring-3 guest reads an exception handler's return address off the guest kernel's exception stack — a kernel `.text` pointer (patched in QEMU 9.1; not a kernel bug)
 
 ## ioctl leaks
 
