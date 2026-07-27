@@ -170,9 +170,13 @@ int rule_x86_64_randomize_memory_budget(const struct evidence_set *ev,
   unsigned long remain_lo = span - dm_min - vmalloc_sz;
   const enum kasld_confidence cap = kasld_conf_min(CONF_INFERRED, pfn_conf);
 
-  /* page_offset upper bound: base_0 = vaddr_start + e_0, e_0 <= remain/3. */
+  /* page_offset upper bound: base_0 = vaddr_start + e_0, e_0 <= remain/3.
+   * page_offset_base is PUD-granular, so floor the ceiling to the PUD boundary:
+   * the true base is a PUD multiple <= this value, so flooring stays sound
+   * while tightening it and dropping the ragged remain/3 remainder (cf. the
+   * alignment floor in phys_bits_ceiling). */
   if (n < out_max) {
-    unsigned long upper = lv.vaddr_start + remain_lo / 3;
+    unsigned long upper = (lv.vaddr_start + remain_lo / 3) & ~(pud - 1);
     struct constraint *c = &out[n++];
     memset(c, 0, sizeof(*c));
     c->q = Q_PAGE_OFFSET;
@@ -203,7 +207,9 @@ int rule_x86_64_randomize_memory_budget(const struct evidence_set *ev,
    * (dm_max + 2*(span - vmalloc_size)) / 3 (increasing in dm => dm_max). */
   if (n < out_max) {
     unsigned long num = dm_max + 2ul * (span - vmalloc_sz);
-    unsigned long upper = lv.vaddr_start + pud + num / 3;
+    unsigned long upper = (lv.vaddr_start + pud + num / 3) & ~(pud - 1);
+    /* vmalloc_base is PUD-granular too; floor to align + tighten (see above).
+     */
     /* Only emit when it actually sits below the region-group ceiling. */
     if (upper < lv.vaddr_end && upper > lv.vaddr_start + dm_min) {
       struct constraint *c = &out[n++];

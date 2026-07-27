@@ -4433,11 +4433,14 @@ static void test_x86_64_randomize_memory_budget(void) {
    * la57's canonical half boundary (this rule does not raise the directmap
    * floor). */
   assert(e.est[Q_PAGE_OFFSET].lo == 0xffff800000000000ul); /* from la57 */
-  assert(e.est[Q_PAGE_OFFSET].hi == vs + remain_lo / 3);
+  /* Ceilings are floored to the PUD grain (page_offset / vmalloc are
+   * PUD-granular), dropping the ragged remain/3 remainder. */
+  assert(e.est[Q_PAGE_OFFSET].hi == ((vs + remain_lo / 3) & ~(pud - 1)));
   /* vmalloc: floor + the leak-free budget ceiling (previously unbounded above
    * without a vmemmap witness). */
   assert(e.est[Q_VMALLOC_BASE].lo == vs + dm_min);
-  unsigned long va_hi = vs + pud + (dm_max + 2ul * (span - vmalloc_sz)) / 3;
+  unsigned long va_hi =
+      (vs + pud + (dm_max + 2ul * (span - vmalloc_sz)) / 3) & ~(pud - 1);
   assert(e.est[Q_VMALLOC_BASE].hi == va_hi);
   /* vmemmap: tighter floor. */
   assert(e.est[Q_VMEMMAP_BASE].lo == vs + dm_min + vmalloc_sz);
