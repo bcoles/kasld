@@ -5,6 +5,7 @@
 //
 // Mostly taken from original PoC by Norbert Slusarek:
 // https://www.openwall.com/lists/oss-security/2021/06/15/1/2
+// The original was a minimal proof-of-concept reproducer; reimplemented here.
 //
 // Leak primitive:
 //   Data leaked:      kernel stack pointer (uninitialized struct padding)

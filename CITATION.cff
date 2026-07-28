@@ -1,0 +1,18 @@
+cff-version: 1.2.0
+message: "If you use KASLD, please cite it as below."
+title: "KASLD: Kernel Address Space Layout Derandomization"
+abstract: >-
+  Recovers the Linux kernel's virtual and physical memory layout — primarily
+  the kernel text base — from a local process, to defeat KASLR.
+type: software
+authors:
+  - given-names: "Brendan"
+    family-names: "Coles"
+repository-code: "https://github.com/bcoles/kasld"
+url: "https://github.com/bcoles/kasld"
+license: MIT
+# Cite the latest release, not the in-development VERSION (master is x.y.z-dev).
+# `make bump-version` updates these two lines on release; `tests/check-version`
+# requires the cited version to be a real release (never a -dev string).
+version: "0.3.0"
+date-released: "2026-06-19"

@@ -1,0 +1,26 @@
+# Third-party notices
+
+KASLD is licensed under the MIT License (see [LICENSE](LICENSE)). Most of the
+code is original. Some leak components adapt third-party proof-of-concept code,
+and some implement a technique first published by others; each such component
+credits its origin in its file header. This file collects those credits with
+the source and reuse basis for each.
+
+| Component | Original author(s) | Source | Basis for reuse |
+|---|---|---|---|
+| `kernelsnitch` | IAIK, Graz University of Technology | https://github.com/IAIK/KernelSnitch | Upstream is MIT — honored; attribution retained. |
+| `echoload` | Claudio Canella, Michael Schwarz, Martin Haubenwallner, Martin Schwarzl, Daniel Gruss | https://github.com/cc0x1f/store-to-leak-forwarding | Used with the authors' permission. |
+| `databounce` | Claudio Canella, Michael Schwarz, Martin Haubenwallner, Martin Schwarzl, Daniel Gruss | https://github.com/cc0x1f/store-to-leak-forwarding | Used with the authors' permission. |
+| `qemu_tcg_iret` | @_leave07 and @prosti | https://kqx.io/post/qemu-nday/ | Used with the authors' permission. |
+| `perf_event_open` | lizzie | https://blog.lizzie.io/kaslr-and-perf.html | Adapted with the author's knowledge; substantially reworked since. |
+| `entrybleed` | Will (William Liu) | https://www.willsroot.io/2022/12/entrybleed.html | Adapted with the author's knowledge (the EntryBleed paper references KASLD). |
+| `proc_kallsyms` | spender (Brad Spengler) | https://grsecurity.net/~spender/exploits/exploit.txt | Rewritten; used with the author's knowledge. |
+| `mincore` | Jann Horn | https://bugs.chromium.org/p/project-zero/issues/detail?id=1431 | Adapted from the author's minimal bug reproducer (CVE-2017-16994) and reimplemented. |
+| `bcm_msg_head_struct` | Norbert Slusarek | https://www.openwall.com/lists/oss-security/2021/06/15/1/2 | Adapted from the author's minimal bug reproducer (CVE-2021-34693) and reimplemented. |
+| `sysfs_kernel_notes_xen` | Nassim-Asrir (@p1k4l4) | https://github.com/Nassim-Asrir/ZDI-24-020 | Technique credit; reimplemented in KASLD's own code. |
+| `prefetch` | Daniel Gruss et al. (technique); Will (timing asm) | https://gruss.cc/files/prefetch.pdf ; EntryBleed | Implements the published technique; adapts the EntryBleed timing asm. |
+| `zombieload` | ZombieLoad authors (Michael Schwarz, Moritz Lipp, et al., IAIK) | https://github.com/IAIK/ZombieLoad | Implements the published technique in KASLD's own code (`src/include/sidechannel.h`). |
+
+Each component's full credit and reference URLs are in its file header under
+`src/components/`. Upstream licenses, where they exist, are honored;
+adaptations used with permission are noted above.

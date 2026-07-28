@@ -206,7 +206,36 @@ make cross
 
 ## License
 
-KASLD is MIT licensed. It incorporates modified third-party code
-snippets and proof-of-concept code; those snippets may carry different
-license terms. See the reference URLs in each file's comment header
-for credits and license details.
+KASLD is MIT licensed (see [LICENSE](LICENSE)). Some leak components adapt
+third-party proof-of-concept code or implement a technique first published by
+others; each such file credits its original author and source in its header,
+and [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) lists each with its license
+or reuse basis (upstream license, author permission, or technique/reproducer
+material reimplemented here).
+
+## Citing KASLD
+
+KASLD is MIT licensed — attribution is not required for use, but if you
+reference it in research, tooling, exploits, or writing, a citation or link is
+appreciated:
+
+> **KASLD: Kernel Address Space Layout Derandomization**, Brendan Coles,
+> https://github.com/bcoles/kasld
+
+BibTeX:
+
+```bibtex
+@software{kasld,
+  title   = {KASLD: Kernel Address Space Layout Derandomization},
+  author  = {Coles, Brendan},
+  url     = {https://github.com/bcoles/kasld},
+  version = {0.3.0},
+  year    = {2026}
+}
+```
+
+GitHub also shows a *"Cite this repository"* button from
+[CITATION.cff](CITATION.cff). For an unreleased build from `master`, cite the
+specific commit and the date accessed — e.g. `bcoles/kasld@<commit>`
+(accessed YYYY-MM-DD) — since `-dev` version strings are not unique to a single
+commit.

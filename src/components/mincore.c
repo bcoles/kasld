@@ -10,6 +10,8 @@
 //
 // Largely based on original code by Jann Horn:
 // https://bugs.chromium.org/p/project-zero/issues/detail?id=1431
+// The original was a minimal bug reproducer (CVE-2017-16994); reimplemented
+// here.
 //
 // Leak primitive:
 //   Data leaked:      kernel heap pointer (page allocator metadata)

@@ -46,6 +46,8 @@
 // References:
 // https://lukasmaar.github.io/papers/ndss25-kernelsnitch.pdf
 // https://github.com/IAIK/KernelSnitch
+//
+// The IAIK/KernelSnitch reference code is MIT licensed; attribution retained.
 // ---
 // <bcoles@gmail.com>
 
