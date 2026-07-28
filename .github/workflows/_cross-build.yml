@@ -179,7 +179,7 @@ jobs:
           cp -a "${{ steps.builddir.outputs.dir }}/." "${DIR}/"
           rm -rf "${DIR}/obj"
           find "${DIR}/components" -type f ! -perm -u+x -delete
-          cp README.md LICENSE "${DIR}/"
+          cp README.md LICENSE THIRD-PARTY-NOTICES.md "${DIR}/"
           # Companion symbol-offset tool (arch-independent) + the docs, so the
           # tarball matches `make install` and the README's doc links resolve.
           mkdir -p "${DIR}/extra"

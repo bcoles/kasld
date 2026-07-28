@@ -616,6 +616,7 @@ lint :
 	@$(TEST_DIR)/check-fdt-unflatten
 	@$(TEST_DIR)/check-ksymoff
 	@$(TEST_DIR)/check-manpages
+	@$(TEST_DIR)/check-version
 	@$(TEST_DIR)/check-posture-diff
 	@$(TEST_DIR)/check-posture-summary
 	@$(TEST_DIR)/check-shellcheck
@@ -768,7 +769,7 @@ install : build
 	  install -m 755 "$$f" "$(DESTDIR)$(PREFIX)/libexec/kasld/"; \
 	done
 	install -d "$(DESTDIR)$(PREFIX)/share/doc/kasld"
-	cp -R docs README.md LICENSE "$(DESTDIR)$(PREFIX)/share/doc/kasld/"
+	cp -R docs README.md LICENSE THIRD-PARTY-NOTICES.md "$(DESTDIR)$(PREFIX)/share/doc/kasld/"
 	install -d "$(DESTDIR)$(PREFIX)/share/man/man1"
 	install -m 644 man/kasld.1 man/ksymoff.1 "$(DESTDIR)$(PREFIX)/share/man/man1/"
 
@@ -885,6 +886,30 @@ print-deps:
 	@echo "  Build-Depends:            gcc, make, libc-dev"
 	@echo "  Build-Depends (optional): zlib1g-dev   (pthread ships in libc6)"
 
+# Stamp a new version across the files that carry it as metadata: the VERSION
+# file (injected into the build as -DVERSION), the man-page .TH lines (version +
+# date), and — for a real release only — CITATION.cff (version + date-released;
+# a -dev string is not a citable identifier). The usage.md example output is
+# illustrative and intentionally not stamped. tests/check-version enforces that
+# these stay in step. Uses GNU sed -i.
+#   make bump-version NEW=0.3.1        # cut a release
+#   make bump-version NEW=0.3.2-dev    # open the next dev cycle
+.PHONY: bump-version
+bump-version :
+	@[ -n "$(NEW)" ] || { echo 'usage: make bump-version NEW=x.y.z  (append -dev for a dev cycle)' >&2; exit 2; }
+	@new='$(NEW)'; d=$$(date +%F); old=$$(cat VERSION 2>/dev/null); \
+	printf '%s\n' "$$new" > VERSION; \
+	for m in man/kasld.1 man/ksymoff.1; do \
+	  sed -i -E "1s/\"[0-9]{4}-[0-9]{2}-[0-9]{2}\"/\"$$d\"/; 1s/\"kasld [^\"]*\"/\"kasld $$new\"/" "$$m"; \
+	done; \
+	case "$$new" in \
+	*-dev) echo "  note: '$$new' is a dev version — CITATION.cff left at the last release" ;; \
+	*) sed -i -E "s/^version: .*/version: \"$$new\"/; s/^date-released: .*/date-released: \"$$d\"/" CITATION.cff; \
+	   echo "  CITATION.cff -> version $$new, date-released $$d" ;; \
+	esac; \
+	echo "  VERSION: $${old:-?} -> $$new   (man pages dated $$d)"; \
+	echo "  next: review the diff, commit, and 'git tag v$$new' for a release"
+
 .PHONY: help
 help:
 	@echo
@@ -901,6 +926,7 @@ help:
 	@echo "      uninstall       Remove installed files"
 	@echo "      clean           Remove build directory"
 	@echo "      print-deps      List build dependencies (libs + per-component flags)"
+	@echo "      bump-version    Stamp NEW=x.y.z across VERSION, man pages, CITATION.cff"
 	@echo
 	@echo "  Test targets:"
 	@echo "      test                   Build and run the unit suite + lint"

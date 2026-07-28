@@ -1,0 +1,66 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-version — the version-carrying files stay in step, so a release does
+# not ship a binary that says one version while the man pages say another.
+#
+# Asserts:
+#   - man/kasld.1 and man/ksymoff.1 `.TH` version == the VERSION file
+#     (roff `\-` escapes are normalized before comparing).
+#   - CITATION.cff has a `version:` and a `date-released:`, and the cited
+#     version is a real release (not an in-development `-dev` string, which is
+#     not a citable identifier — cite a release or a commit instead).
+#
+# `make bump-version V=x.y.z` updates all of these together.
+#
+# Usage: tests/check-version   (also run by `make test`)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+
+if [ -t 2 ]; then
+  RED=$(printf '\033[31m')
+  GREEN=$(printf '\033[32m')
+  RESET=$(printf '\033[0m')
+else
+  RED=
+  GREEN=
+  RESET=
+fi
+
+fails=0
+fail() {
+  printf '%scheck-version: FAIL%s — %s\n' "$RED" "$RESET" "$1" >&2
+  fails=$((fails + 1))
+}
+
+ver=$(cat "$ROOT/VERSION" 2>/dev/null)
+[ -n "$ver" ] || fail "VERSION file is empty or missing"
+
+# Man-page .TH version: `"kasld <version>"`, with roff `\-` normalized to `-`.
+for m in kasld ksymoff; do
+  mf="$ROOT/man/$m.1"
+  mver=$(sed -n '1s/.*"kasld \([^"]*\)".*/\1/p' "$mf" | sed 's/\\//g')
+  [ "$mver" = "$ver" ] ||
+    fail "man/$m.1 version '$mver' != VERSION '$ver' (run: make bump-version V=$ver)"
+done
+
+# CITATION.cff cites a released version (never -dev), with a release date.
+cff="$ROOT/CITATION.cff"
+if [ -f "$cff" ]; then
+  cver=$(sed -n 's/^version: *"\([^"]*\)".*/\1/p' "$cff" | head -1)
+  grep -q '^date-released:' "$cff" || fail "CITATION.cff: no date-released"
+  case "$cver" in
+  "") fail "CITATION.cff: no version" ;;
+  *-dev) fail "CITATION.cff cites '$cver' — cite a release, not a -dev string" ;;
+  esac
+fi
+
+if [ "$fails" -ne 0 ]; then
+  exit 1
+fi
+
+printf '%scheck-version: OK%s (VERSION %s in step with man pages; CITATION.cff cites a release)\n' \
+  "$GREEN" "$RESET" "$ver"
