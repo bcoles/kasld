@@ -3,8 +3,11 @@
 KASLD is licensed under the MIT License (see [LICENSE](LICENSE)). Most of the
 code is original. Some leak components adapt third-party proof-of-concept code,
 and some implement a technique first published by others; each such component
-credits its origin in its file header. This file collects those credits with
-the source and reuse basis for each.
+credits its origin in its file header. This file collects those credits, and
+lists the external libraries KASLD links against, with the license or reuse
+basis for each.
+
+## Adapted and reimplemented code
 
 | Component | Original author(s) | Source | Basis for reuse |
 |---|---|---|---|
@@ -24,3 +27,20 @@ the source and reuse basis for each.
 Each component's full credit and reference URLs are in its file header under
 `src/components/`. Upstream licenses, where they exist, are honored;
 adaptations used with permission are noted above.
+
+## Linked dependencies
+
+KASLD links a few external libraries; none is vendored or modified. Their
+licenses:
+
+| Library | License | Used for |
+|---|---|---|
+| C library — musl | MIT | Released and cross builds link musl statically. |
+| C library — glibc | LGPL-2.1-or-later | A local build on a typical Linux distribution links the system glibc dynamically instead. |
+| zlib | zlib License | Optional native `/proc/config.gz` decompression in `proc_config`; linked only when detected at build time. |
+
+`pthread` (the parallel inference pool and `kernelsnitch`) is part of the C
+library on both musl and glibc and carries no separate license. The released
+tarballs are statically linked against musl, so the only external library code
+they can embed is musl (MIT) and, where the toolchain provides it, zlib (zlib
+License) — both permissive.
