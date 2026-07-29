@@ -1,0 +1,40 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-hash-parity — recompute every hashed offset-table row's key with the
+# shipped kasld_fnv1a64 (include/kasld/hash.h) and assert it matches the stored
+# hash, so the runtime hash and the offline table generator's cannot silently
+# drift. Also asserts per-file hash distinctness and self-tests the hash against
+# pinned vectors. See tests/check_hash_parity.c.
+#
+# With no arguments, checks every component that carries a hashed table
+# (auto-detected by the row signature). Pass one or more component paths to check
+# a specific set (future components with their own offset tables).
+
+set -u
+
+root=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+src="$root/src"
+cc=${CC:-cc}
+
+bin=$(mktemp) || exit 1
+trap 'rm -f "$bin"' EXIT INT TERM
+
+if ! "$cc" -O2 -Wall -Wextra -I"$src" "$root/tests/check_hash_parity.c" -o "$bin"; then
+  echo "check-hash-parity: failed to compile harness" >&2
+  exit 1
+fi
+
+if [ "$#" -eq 0 ]; then
+  # Auto-discover components carrying a hashed offset table by the row signature.
+  # shellcheck disable=SC2046  # intended word-splitting of the discovered list
+  set -- $(grep -lE '^[[:space:]]*\{0x[0-9a-f]{16}, 0x[0-9a-f]+\}, //' \
+    "$src"/components/*.c 2>/dev/null)
+fi
+
+if [ "$#" -eq 0 ]; then
+  echo "check-hash-parity: no hashed-table components found (nothing to check)"
+  exit 0
+fi
+
+"$bin" "$@"
