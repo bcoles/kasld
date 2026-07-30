@@ -1,0 +1,51 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-log-prefixes — no doubled status markers in diagnostics.
+#
+# kasld_info / kasld_err / kasld_found / kasld_debug (include/kasld/cli.h) each
+# prepend a "[x] " status marker to stderr ('.' info, '-' err/N-A, '+' found).
+# A message that ITSELF begins with a bracketed marker ("[.]" / "[-]" / "[+]")
+# doubles it, printing "[.] [.] ..." or "[.] [-] ...". This check FAILS if any
+# diagnostic string starts with such a marker: drop the embedded marker and pick
+# the helper whose marker you want.
+#
+# Multi-line calls are covered (the string may sit on the line after the call),
+# so this scans each source file as a whole via grep -Pz.
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+
+if [ -t 2 ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; RESET=
+fi
+
+# A kasld_{info,err,found,debug} call whose first string literal opens with a
+# "[x]" marker. [[:space:]]* spans the newline of a multi-line call under -z.
+PAT='kasld_(info|err|found|debug)[[:space:]]*\([[:space:]]*"\[.\]'
+
+# Components are the primary surface; the include tree is covered too, since any
+# shared header could grow a diagnostic. Globs span every header location.
+offenders=$(grep -aPzl "$PAT" \
+  "$ROOT"/src/components/*.c \
+  "$ROOT"/src/include/*.h \
+  "$ROOT"/src/include/kasld/*.h \
+  "$ROOT"/src/include/kasld/arch/*.h 2>/dev/null \
+  | sed "s#^$ROOT/##" | sort -u)
+
+if [ -n "$offenders" ]; then
+  printf '%scheck-log-prefixes: FAIL%s — diagnostic message begins with a status\n' \
+    "$RED" "$RESET" >&2
+  echo "  marker, doubling the one kasld_info/err/found/debug already prepends:" >&2
+  for f in $offenders; do echo "    $f" >&2; done
+  exit 1
+fi
+
+set -- "$ROOT"/src/components/*.c
+printf '%scheck-log-prefixes: OK%s (%s components, no doubled status markers)\n' \
+  "$GREEN" "$RESET" "$#"
+exit 0

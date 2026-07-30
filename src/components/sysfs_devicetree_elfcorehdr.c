@@ -127,8 +127,8 @@ int main(void) {
   }
 
   if (!chosen) {
-    kasld_info(
-        "[-] device tree chosen node not found or no kdump crash kernel "
+    kasld_err(
+        "device tree chosen node not found or no kdump crash kernel "
         "properties (linux,elfcorehdr / linux,usable-memory-range) present\n"
         "    (this component only works in the kdump crash kernel context)");
     return KASLD_EXIT_UNAVAILABLE;

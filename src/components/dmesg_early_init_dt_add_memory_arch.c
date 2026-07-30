@@ -93,7 +93,7 @@ int main(void) {
   unsigned long addr = 0;
 
   kasld_info(
-      "[.] searching dmesg for early_init_dt_add_memory_arch() ignored memory "
+      "searching dmesg for early_init_dt_add_memory_arch() ignored memory "
       "ranges ...");
   int ds = dmesg_search("OF: fdt: Ignoring memory range 0x", on_match, &addr);
 

@@ -40,7 +40,7 @@ static unsigned long get_kernel_addr_boot_config(FILE *fp) {
     return 0;
 
   kasld_info(
-      "[.] Kernel appears to have been compiled without CONFIG_RANDOMIZE_BASE"
+      "Kernel appears to have been compiled without CONFIG_RANDOMIZE_BASE"
       " (KASLR not compiled in)");
 
   return (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;

@@ -133,7 +133,7 @@ static int kaslr_disabled_from_config(FILE *fp) {
     return 0;
 
   kasld_info(
-      "[.] Kernel appears to have been compiled without CONFIG_RANDOMIZE_BASE"
+      "Kernel appears to have been compiled without CONFIG_RANDOMIZE_BASE"
       " (KASLR not compiled in)");
   return 1;
 }
