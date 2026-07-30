@@ -3,12 +3,18 @@
 // Parse ELF notes from /sys/kernel/notes for leaked kernel pointers on
 // x86(_64) kernels.
 //
-// Xen ELF notes on kernels with CONFIG_XEN=y contain KASLR-adjusted virtual
-// addresses generated via _ASM_PTR in arch/x86/xen/xen-head.S:
-//   - Type 1 (XEN_ELFNOTE_ENTRY): startup_xen virtual address
-//   - Type 2 (XEN_ELFNOTE_HYPERCALL_PAGE): hypercall_page virtual address
-//   - Type 18 (XEN_ELFNOTE_PHYS32_ENTRY): virtual KASLR offset (pvh_start_xen -
-//   __START_KERNEL_map)
+// Xen ELF notes embed KASLR-adjusted virtual addresses generated via _ASM_PTR
+// in the kernel image. The gating config differs per note:
+//   - Type 1  (XEN_ELFNOTE_ENTRY):         startup_xen VA [CONFIG_XEN_PV]
+//   - Type 2  (XEN_ELFNOTE_HYPERCALL_PAGE): hypercall_page VA [CONFIG_XEN_PV]
+//   - Type 18 (XEN_ELFNOTE_PHYS32_ENTRY):  pvh_start_xen -        [CONFIG_PVH]
+//                                          __START_KERNEL_map (a virtual
+//                                          offset)
+// So it is not merely CONFIG_XEN: the PV notes need CONFIG_XEN_PV and the PVH
+// note needs CONFIG_PVH (a KVM/QEMU PVH guest enables CONFIG_PVH without
+// CONFIG_XEN). CVE-2024-26816 is scoped to CONFIG_XEN_PV; on a distro kernel
+// CONFIG_XEN=y pulls in both. Sources: arch/x86/xen/xen-head.S,
+// arch/x86/platform/pvh/head.S.
 //
 // Also performs a generic scan of all remaining note descriptors for
 // pointer-sized values in the kernel text virtual address range.
@@ -32,29 +38,37 @@
 //
 // Leak primitive:
 //   Data leaked:      kernel text virtual address (startup_xen, hypercall_page)
+//   CVE:              CVE-2024-26816
 //   Kernel subsystem: arch/x86/xen — /sys/kernel/notes (ELF notes)
 //   Data structure:   Xen ELF notes (XEN_ELFNOTE_ENTRY,
 //   XEN_ELFNOTE_HYPERCALL_PAGE) Address type:     virtual (kernel text) Method:
-//   exact (ELF note parsing) Patched:          v6.9 (commit aaa8736370db);
-//   hardened v6.13 (223abe96ac0d) Status:           fixed in v6.9
-//   Access check:     none (world-readable /sys/kernel/notes, 0444)
+//   exact (ELF note parsing) Patched:          v6.9 (CVE-2024-26816,
+//   aaa8736370db); hardened v6.13 (223abe96ac0d) Status:           fixed in
+//   v6.9 Access check:     none (world-readable /sys/kernel/notes, 0444)
 //   Source:
 //   https://elixir.bootlin.com/linux/v6.7.3/source/arch/x86/xen/xen-head.S#L118
 //
 // Mitigations:
 //   Patched in v6.9 (relocations in .notes skipped). Further hardened in
-//   v6.13 (place-relative relocations). Requires CONFIG_XEN=y.
-//   /sys/kernel/notes is world-readable (0444); no runtime sysctl
-//   can restrict access.
+//   v6.13 (place-relative relocations). Requires CONFIG_XEN_PV and/or
+//   CONFIG_PVH (per the notes above). /sys/kernel/notes is world-readable
+//   (0444); no runtime sysctl can restrict access.
 //
 // Requires:
 // - Readable /sys/kernel/notes
-// - CONFIG_XEN=y (for Xen-specific notes; generic scan works without it)
+// - CONFIG_XEN_PV (startup_xen, hypercall_page) and/or CONFIG_PVH
+// (pvh_start_xen)
+//   for the Xen notes; the generic note scan works without either
 //
-// Patched in v6.9-rc1~164^2~8 (aaa8736370db) — relocations in .notes section
-// are skipped, so values no longer reflect the KASLR-adjusted addresses.
-// Further hardened in v6.13-rc1~202^2~2 (223abe96ac0d) — Xen ELF notes use
-// place-relative relocations to prevent leaking the KASLR base.
+// Patched in v6.9-rc1~164^2~8 (aaa8736370db, CVE-2024-26816) — relocations in
+// the .notes section are skipped, so values no longer reflect the
+// KASLR-adjusted addresses (they become identical to System.map). Backported to
+// the 2024-03-27 stable batch
+// (6.6.23, 6.1.83, 5.15.153, 5.10.214, 5.4.273, 4.19.311, ...), so a build's
+// version does not determine whether it is affected; the staleness check below
+// distinguishes patched from vulnerable notes at runtime. Further hardened in
+// v6.13-rc1~202^2~2 (223abe96ac0d) — Xen ELF notes use place-relative
+// relocations to prevent leaking the KASLR base.
 //
 // References:
 // https://cateee.net/lkddb/web-lkddb/XEN.html
@@ -75,7 +89,6 @@
 #include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
-#include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
 #include <unistd.h>
@@ -96,8 +109,9 @@ KASLD_EXPLAIN("On Xen PV and PVH guests, /sys/kernel/notes contains ELF notes "
 KASLD_META("method:parsed\n"
            "phase:inference\n"
            "addr:virtual\n"
+           "cve:CVE-2024-26816\n"
            "patch:v6.9\n"
-           "config:CONFIG_XEN\n");
+           "config:CONFIG_XEN_PV\n");
 
 /* Check if /proc/kallsyms contains xen_elfnote_* global symbols,
  * indicating v6.13+ place-relative encoding where Xen ELF note values
@@ -127,6 +141,18 @@ static int has_xen_elfnote_symbols(void) {
   return 0;
 }
 
+/* The image base is recovered from these notes by alignment. On x86_64 _text is
+ * 2 MiB-aligned (CONFIG_PHYSICAL_ALIGN, the KASLR step), and the PHYS32_ENTRY
+ * note resolves to pvh_start_xen, which sits within a few KiB of _text (_text+0
+ * .. _text+0x5f0 across 5.x/6.x). The orchestrator floors the lowest interior
+ * sample emitted below to KASLR_VIRT_ALIGN, landing on _text.
+ *
+ * pvh_start_xen is the anchor for that floor. hypercall_page sits at _text +
+ * 0x1000 on <= 5.x (inside the 2 MiB window), but 6.x moves it to .noinstr.text
+ * ~16-19 MiB past _text, so its floor overshoots _text by ~16 MiB; startup_xen
+ * (.init.text) is ~25-40 MiB out. All three are emitted as interior samples;
+ * the engine bounds the base from the lowest. */
+
 int main(void) {
   int fd;
   uint32_t hdr[3]; /* namesz, descsz, type */
@@ -143,7 +169,7 @@ int main(void) {
 
   fd = kasld_open("/sys/kernel/notes", O_RDONLY);
   if (fd < 0) {
-    perror("[-] open(/sys/kernel/notes)");
+    kasld_err("/sys/kernel/notes unavailable");
     return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM
                                                : KASLD_EXIT_UNAVAILABLE;
   }
@@ -286,12 +312,13 @@ int main(void) {
       }
       if (xen_phys32) {
         /* PHYS32_ENTRY stores pvh_start_xen - __START_KERNEL_map, not a
-         * hardware physical address. On x86_64, the kernel text is mapped
-         * at __START_KERNEL_map + virt_offset, so this value IS the virtual
-         * KASLR offset. Adding __START_KERNEL_map recovers the virtual
-         * address of pvh_start_xen, which sits at or very near _stext.
-         * The hardware physical load address is independently randomized
-         * and is not recoverable from this note. */
+         * hardware physical address. On x86_64 the kernel text is mapped at
+         * __START_KERNEL_map + virt_offset, so this value IS the virtual KASLR
+         * offset; adding __START_KERNEL_map recovers pvh_start_xen's virtual
+         * address, which sits at or very near _text — the sample the
+         * orchestrator floors to KASLR_VIRT_ALIGN to recover _text (see the
+         * note above main()). The hardware physical load address is
+         * independently randomized and is not recoverable from this note. */
         unsigned long virt = KERNEL_VIRT_TEXT_MIN + xen_phys32;
         if (kasld_addr_is_kernel_text(virt)) {
           kasld_found("Xen PHYS32_ENTRY -> virtual: %lx", virt);
@@ -307,15 +334,6 @@ int main(void) {
 
   if (!found)
     kasld_err("no kernel addresses found in ELF notes");
-
-  // NOTE: On kernels <= 5.x, hypercall_page was in .pushsection .text
-  // (at _text + 0x1000), so addr & -KASLR_VIRT_ALIGN recovered _text exactly.
-  // In 6.x, hypercall_page moved to .pushsection .noinstr.text for
-  // instrumentation isolation. The linker places .noinstr.text after the
-  // bulk of kernel code, putting hypercall_page millions of bytes past
-  // _text. addr & -KASLR_VIRT_ALIGN then overshoots by ~16+ MiB.
-  // The orchestrator handles this correctly since it does not assume a
-  // fixed symbol-to-base offset.
 
   return 0;
 }
