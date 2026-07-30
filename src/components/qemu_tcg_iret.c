@@ -132,6 +132,12 @@ struct kernel_info {
 
 // clang-format off
 static const struct kernel_info offsets[] = {
+    // Alpine 3.13
+    {0x8ad1b47d2f15facb, 0xa008a0}, // 5.10.152-0-lts #1-Alpine SMP Sun, 30 Oct 2022 10:11:01 UTC
+    {0x3ecdb166b6066ca7, 0x8008a0}, // 5.10.152-0-virt #1-Alpine SMP Sun, 30 Oct 2022 10:11:01 UTC
+    // Alpine 3.14
+    {0x93fc3738f9b7e389, 0xa008a0}, // 5.10.180-0-lts #1-Alpine SMP Thu, 18 May 2023 08:53:16 +0000
+    {0x81f0d8ab8d8c4c13, 0x8008a0}, // 5.10.180-0-virt #1-Alpine SMP Thu, 18 May 2023 08:53:16 +0000
     // Alpine 3.15
     {0x9d086fa1045c9ede, 0xa009e0}, // 5.15.207-0-lts #1-Alpine SMP Sat, 16 May 2026 10:46:17 +0000
     {0xf0e6a3832bc192fa, 0x8009e0}, // 5.15.207-0-virt #1-Alpine SMP Sat, 16 May 2026 10:46:17 +0000
@@ -4151,7 +4157,7 @@ static const struct kernel_info offsets[] = {
     {0xf42ffbb34a23d6ed, 0xc008a0}, // 5.14.21-150400.24.55-default #1 SMP PREEMPT_DYNAMIC Mon Mar 27 15:25:48 UTC 2023 (cc75cf8)
     {0x3faf284d3e340756, 0xc008a0}, // 5.14.21-150400.24.60-default #1 SMP PREEMPT_DYNAMIC Wed Apr 12 12:13:32 UTC 2023 (93dbe2e)
     {0x5e0bb684601a93f5, 0xc008a0}, // 5.14.21-150400.24.63-default #1 SMP PREEMPT_DYNAMIC Tue May 2 15:49:04 UTC 2023 (fd0cc4f)
-    {0xb1ad2c04b180f2a5, 0xc008a0}, // 5.14.21-150400.24.66-default
+    {0xc981586f393a6d29, 0xc008a0}, // 5.14.21-150400.24.66-default #1 SMP PREEMPT_DYNAMIC Tue Jun 6 10:18:38 UTC 2023 (98adc02)
     {0xd7a4ee90cc114d68, 0xc008a0}, // 5.14.21-150400.24.69-default #1 SMP PREEMPT_DYNAMIC Tue Jul 4 13:36:11 UTC 2023 (28b65ec)
     {0x5383a08112b4bc8d, 0xc008a0}, // 5.14.21-150400.24.74-default #1 SMP PREEMPT_DYNAMIC Thu Jul 27 15:04:26 UTC 2023 (28a2488)
     {0x7af7faf1696ede39, 0xc008e0}, // 5.14.21-150400.24.81-default #1 SMP PREEMPT_DYNAMIC Tue Aug 8 14:10:43 UTC 2023 (90a74a8)
@@ -4168,9 +4174,9 @@ static const struct kernel_info offsets[] = {
     {0x80f44a2b4e207422, 0xc008e0}, // 5.14.21-150500.55.31-default #1 SMP PREEMPT_DYNAMIC Wed Oct 4 16:52:05 UTC 2023 (5dc23e0)
     {0x45bb205ea8c653a6, 0xc008e0}, // 5.14.21-150500.55.36-default #1 SMP PREEMPT_DYNAMIC Tue Oct 31 08:37:43 UTC 2023 (e7a2e23)
     {0x0ffb2f0d6967918c, 0xc008e0}, // 5.14.21-150500.55.39-default #1 SMP PREEMPT_DYNAMIC Tue Dec 5 10:06:35 UTC 2023 (2e4092e)
-    {0xee86cdb0172556fe, 0xc008e0}, // 5.14.21-150500.55.44-default
-    {0x13b117179025dd11, 0xc008e0}, // 5.14.21-150500.55.49-default
-    {0xff99e976e3ed3d7d, 0xc00920}, // 5.14.21-150500.55.52-default
+    {0xfb77267a956bb00c, 0xc008e0}, // 5.14.21-150500.55.44-default #1 SMP PREEMPT_DYNAMIC Mon Jan 15 10:03:40 UTC 2024 (cc7d8b6)
+    {0xc603e4985aa4d9cc, 0xc008e0}, // 5.14.21-150500.55.49-default #1 SMP PREEMPT_DYNAMIC Sun Feb 11 17:48:15 UTC 2024 (36baf2f)
+    {0x02b9faa6f6475b1f, 0xc00920}, // 5.14.21-150500.55.52-default #1 SMP PREEMPT_DYNAMIC Tue Mar 5 16:53:41 UTC 2024 (a62851f)
     {0x4d965b590d59077c, 0xc00930}, // 5.14.21-150500.55.59-default #1 SMP PREEMPT_DYNAMIC Thu Apr 18 12:59:33 UTC 2024 (e8ae24a)
     {0xf48c56065c598ec6, 0xc00930}, // 5.14.21-150500.55.62-default #1 SMP PREEMPT_DYNAMIC Tue May 7 11:55:30 UTC 2024 (66dfe0d)
     {0x834acd410cbd2bb4, 0xc00930}, // 5.14.21-150500.55.65-default #1 SMP PREEMPT_DYNAMIC Thu May 23 04:57:11 UTC 2024 (a46829d)
@@ -4238,6 +4244,9 @@ static const struct kernel_info offsets[] = {
  * `asm_exc_divide_error`. The leak and recovery are identical (base =
  * floor(leaked - offset)); a build uses exactly one of the two symbols. */
 static const struct kernel_info offsets_divide_error[] = {
+    // Alpine 3.12
+    {0x03f4b8705ee3afb7, 0x800b90}, // 5.4.192-0-lts #1-Alpine SMP Wed, 11 May 2022 18:11:33 UTC
+    {0x785f0cb994952325, 0x800c50}, // 5.4.192-0-virt #1-Alpine SMP Wed, 11 May 2022 18:11:33 UTC
     // Fedora 32
     {0x595ffe5777097675, 0xc00c70}, // 5.4.0-1.fc32.x86_64 #1 SMP Mon Nov 25 15:38:30 UTC 2019
     {0x001efa1edf89c065, 0xc00c70}, // 5.4.0-2.fc32.x86_64 #1 SMP Mon Nov 25 22:45:19 UTC 2019
@@ -5019,7 +5028,7 @@ static const struct kernel_info offsets_divide_error[] = {
     {0xe31d8208b7ad8628, 0xa00c70}, // 5.3.18-lp152.19-default #1 SMP Tue Jun 9 20:59:24 UTC 2020 (960cb00)
     {0x8ecb4b8b26917f1d, 0xa00c70}, // 5.3.18-lp152.26-default #1 SMP Mon Jun 29 14:58:38 UTC 2020 (2a0430f)
     {0x51ade7231a5149c3, 0xa00c70}, // 5.3.18-lp152.33-default #1 SMP Wed Jul 22 06:32:33 UTC 2020 (e5a8383)
-    {0x4e098b14bbde0562, 0xa00c70}, // 5.3.18-lp152.36-default
+    {0x8227f33e3e4777c9, 0xa00c70}, // 5.3.18-lp152.36-default #1 SMP Tue Aug 18 17:09:44 UTC 2020 (885251f)
     {0xf21428da99303022, 0xa00c70}, // 5.3.18-lp152.41-default #1 SMP Thu Sep 3 23:02:59 UTC 2020 (a4d139b)
     {0xb45a5f68c8ac74d2, 0xa00c70}, // 5.3.18-lp152.44-default #1 SMP Wed Sep 30 18:51:43 UTC 2020 (914f31e)
     {0x35f92e65ba2717a1, 0xa00c70}, // 5.3.18-lp152.47-default #1 SMP Thu Oct 15 16:05:25 UTC 2020 (41f7396)
@@ -5059,7 +5068,7 @@ static const struct kernel_info offsets_divide_error[] = {
     {0x41b741255a26a2ca, 0xa00c50}, // 5.3.18-57-default #1 SMP Wed Apr 28 10:54:41 UTC 2021 (ba3c2e9)
     {0x1b6edad00893ac1f, 0xa00c50}, // 5.3.18-59.10-default #1 SMP Fri Jun 25 12:36:56 UTC 2021 (6856d31)
     {0x6d0fe1b4357667c3, 0xa00c50}, // 5.3.18-59.13-default #1 SMP Tue Jul 6 07:33:56 UTC 2021 (23ab94f)
-    {0x2fbc688bfab3a940, 0xa00c50}, // 5.3.18-59.16-default
+    {0x31e3495b43d941e6, 0xa00c50}, // 5.3.18-59.16-default #1 SMP Thu Jul 15 11:28:57 UTC 2021 (0b62bdb)
     {0x6d165a5cc4fab858, 0xa00c50}, // 5.3.18-59.19-default #1 SMP Tue Aug 3 14:11:23 UTC 2021 (055c4fd)
     {0xc8272a577cad27ba, 0xa00c50}, // 5.3.18-59.24-default #1 SMP Mon Sep 13 15:06:42 UTC 2021 (2f872ea)
     {0x74e2a7fb6f007991, 0xa00c50}, // 5.3.18-59.27-default #1 SMP Tue Oct 5 10:00:40 UTC 2021 (7df2404)
@@ -5085,6 +5094,7 @@ static const char *match_de_handler(uint64_t *off) {
   char v[512];
   uint64_t h;
   unsigned long i;
+  const char *sym = NULL;
 
   if (kasld_uname(&u) != 0)
     return NULL;
@@ -5093,17 +5103,25 @@ static const char *match_de_handler(uint64_t *off) {
   for (i = 0; i < ARRAY_SIZE(offsets); i++)
     if (offsets[i].uname_hash == h) {
       *off = offsets[i].de_offset;
-      return "asm_exc_divide_error";
+      sym = "asm_exc_divide_error";
+      break;
     }
-  for (i = 0; i < ARRAY_SIZE(offsets_divide_error); i++)
-    if (offsets_divide_error[i].uname_hash == h) {
-      *off = offsets_divide_error[i].de_offset;
-      return "divide_error";
-    }
-  return NULL;
+  if (!sym)
+    for (i = 0; i < ARRAY_SIZE(offsets_divide_error); i++)
+      if (offsets_divide_error[i].uname_hash == h) {
+        *off = offsets_divide_error[i].de_offset;
+        sym = "divide_error";
+        break;
+      }
+  /* One line per lookup, whichever table matched. */
+  if (sym)
+    kasld_info("kernel version '%s' detected", v);
+  else
+    kasld_info("kernel version '%s' not recognized", v);
+  return sym;
 }
 
-uint64_t kbase;
+static uint64_t kbase;
 static sigjmp_buf env;
 
 // SIGFPE handler: triggered by the intentional div-by-zero in kaslr().
