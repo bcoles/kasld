@@ -5,8 +5,9 @@
 //
 // Components that key per-build offsets on a uname fingerprint store rows of
 // the form
-//     {0x<16-hex hash>, 0x<offset>}, // <release> <version>
-// where the hash was produced by the offline table generator. This harness
+//     {0x<16-hex hash>, <offset(s)>}, // <release> <version>
+// where <offset(s)> is one offset or a { ... } array, and the hash was produced
+// by the offline table generator. This harness
 // recomputes kasld_fnv1a64() over each row's uname comment and asserts it
 // equals the stored hash, so the runtime hash and the generator's cannot
 // silently drift: a build whose row is present matches its own row exactly. It
@@ -68,8 +69,11 @@ static int cmp_row(const void *a, const void *b) {
   return (x > y) - (x < y);
 }
 
-/* Parse one table row "{0x<hash>, 0x<off>}, // <uname>". Returns 1 and fills
- * *hash / *uname (into the caller's line buffer) on a match, else 0. */
+/* Parse one hashed table row "{0x<hash>, <...>}, // <uname>", where <...> is a
+ * single offset (qemu) or a { ... } offset array (bpf). Only the hash and the
+ * uname comment are checked, so whatever sits between them is ignored. Returns
+ * 1 and fills *hash / *uname (into the caller's line buffer) on a match, else
+ * 0. */
 static int parse_row(char *line, uint64_t *hash, char **uname) {
   char *p = line, *end;
   while (*p == ' ' || *p == '\t')
@@ -77,12 +81,12 @@ static int parse_row(char *line, uint64_t *hash, char **uname) {
   if (*p != '{' || p[1] != '0' || p[2] != 'x')
     return 0;
   *hash = strtoull(p + 1, &end, 16);
-  if (strncmp(end, ", 0x", 4) != 0)
+  if (*end != ',') /* a hashed row is "{0x<hash>, <offset(s)>}, // ..." */
     return 0;
-  strtoull(end + 2, &end, 16); /* offset: advance past, value unused here */
-  if (strncmp(end, "}, // ", 6) != 0)
+  char *c = strstr(end, "// "); /* the uname comment, past any offset(s) */
+  if (!c)
     return 0;
-  char *u = end + 6;
+  char *u = c + 3;
   size_t n = strlen(u);
   while (n > 0 && (u[n - 1] == '\n' || u[n - 1] == '\r'))
     u[--n] = '\0';
