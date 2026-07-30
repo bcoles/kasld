@@ -1448,7 +1448,11 @@ typedef int make_iso_compilers_happy;
  *   bypass:  Capability that bypasses the mitigation.
  *   patch:   Kernel version that closed the bug.
  *   cve:     Associated CVE.
- *   hardware: Hardware requirement.
+ *   hardware: Hardware requirement -- the positive condition the leak needs
+ *            (e.g. "TSX required", "prefetch side-channel"). A feature that
+ *            disables the leak goes in a trailing "(mitigated by <feature>)",
+ *            never as the bare value: KPTI, UMIP and the like name the
+ *            mitigation, not the requirement.
  */
 #define KASLD_META(text)                                                       \
   __attribute__((                                                              \

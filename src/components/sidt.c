@@ -105,7 +105,7 @@ KASLD_META("method:parsed\n"
            "live:1\n"
            "addr:virtual\n"
            "patch:v3.10\n"
-           "hardware:UMIP\n");
+           "hardware:user-mode SIDT (mitigated by UMIP)\n");
 
 /* IDTR layout: 2-byte limit followed by base address (4 or 8 bytes) */
 struct idtr {

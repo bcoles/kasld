@@ -982,8 +982,8 @@ void render_hardening_text(void) {
       if (!rep.hw[i].succeeded)
         continue;
       /* Lead with the technique and what it leaks; the hardware field is the
-       * relevant CPU feature/mitigation (e.g. KPTI, "TSX required"), labelled
-       * so it does not read as the subject that leaks. */
+       * requirement (e.g. "TSX required", "prefetch side-channel (mitigated by
+       * KPTI)"), labelled so it does not read as the subject that leaks. */
       printf("    %-28s ", rep.hw[i].name);
       if (rep.hw[i].addr)
         printf("leaks %s address; ", rep.hw[i].addr);

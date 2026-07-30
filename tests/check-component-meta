@@ -27,6 +27,7 @@ fi
 rc=0
 missing=""
 nomethod=""
+badhw=""
 n=0
 for f in "$COMP"/*.c; do
   n=$((n + 1))
@@ -38,6 +39,18 @@ for f in "$COMP"/*.c; do
     nomethod="$nomethod $base"
     rc=1
   fi
+  # The hardware: field names the requirement; a feature that DISABLES the leak
+  # belongs in a trailing "(mitigated by X)", never as the bare value. The flagged
+  # tokens name mitigations, not requirements: KPTI is a kernel config, not
+  # hardware (a KPTI dependency belongs in config:); UMIP is a CPU feature but one
+  # that blocks user-mode instructions. A bare KPTI/UMIP where the requirement
+  # goes is the inverted meaning this catches.
+  hw=$(grep -E '"hardware:' "$f" | head -1 | sed -E 's/.*"hardware:([^"]*)".*/\1/')
+  req=$(printf '%s' "${hw%\\n}" | sed -E 's/\(mitigated by [^)]*\)//g')
+  if printf '%s' "$req" | grep -qwE 'KPTI|UMIP'; then
+    badhw="$badhw $base"
+    rc=1
+  fi
 done
 
 if [ -n "$missing" ]; then
@@ -47,6 +60,10 @@ fi
 if [ -n "$nomethod" ]; then
   printf '%scheck-component-meta: FAIL%s — KASLD_META without a method: key:\n' "$RED" "$RESET"
   for c in $nomethod; do printf '  %s\n' "$c"; done
+fi
+if [ -n "$badhw" ]; then
+  printf '%scheck-component-meta: FAIL%s — hardware: names a mitigation as the requirement (move it into "(mitigated by X)"):\n' "$RED" "$RESET"
+  for c in $badhw; do printf '  %s\n' "$c"; done
 fi
 if [ "$rc" -eq 0 ]; then
   printf '%scheck-component-meta: OK%s (%d components, all declare KASLD_META with a method: key)\n' "$GREEN" "$RESET" "$n"
