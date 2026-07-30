@@ -145,20 +145,21 @@ what it randomizes) → [docs/architecture.md → A leak from end to
 end](docs/architecture.md#a-leak-from-end-to-end) (how KASLD turns one leak into
 an answer) → [docs/limitations.md](docs/limitations.md) (what a result does and
 does not prove) → [CONTRIBUTING.md](CONTRIBUTING.md) (add a leak component or
-inference rule). The table below is the per-audience reference.
+inference rule). The table below indexes the docs by topic.
 
-| Audience | Document |
+| Topic | Document |
 |---|---|
-| End user / operator | [docs/usage.md](docs/usage.md) — CLI, output modes, explain mode, hardening assessment |
-| Interpreting a result | [docs/limitations.md](docs/limitations.md) — what a negative or partial result means: sound-but-not-complete, and why a failure is not a security guarantee |
-| Exploit developer | [docs/exploitation.md](docs/exploitation.md) — where KASLR-defeat fits in an exploit, control-flow vs data-only, pwntools template, `ksymoff` |
-| Detection / blue team | [docs/footprint.md](docs/footprint.md) — what a run looks like on a monitored host: the behavioural signature to detect it, and the operator's OPSEC cost; loud by design |
-| Component / rule author | [CONTRIBUTING.md](CONTRIBUTING.md) — writing a component or rule, emitter API, exit codes, metadata |
-| Architecture / internals | [docs/architecture.md](docs/architecture.md) — the inference engine, data-flow seams, tagged-line protocol, cross-region derivation |
-| Test runner / CI | [docs/testing.md](docs/testing.md) — host tests, replay fixtures, cross-arch under qemu-user, coverage |
-| Reproducibility | [docs/reproducibility.md](docs/reproducibility.md) — independent verification: on the local kernel, live across architectures, or over the captured corpus |
 | KASLR primer | [docs/kaslr.md](docs/kaslr.md) — per-arch KASLR history, default text base, vmsplit, FG-KASLR |
+| Usage & CLI | [docs/usage.md](docs/usage.md) — CLI, output modes, explain mode, hardening assessment |
+| Interpreting results | [docs/limitations.md](docs/limitations.md) — what a negative or partial result means: sound-but-not-complete, and why a failure is not a security guarantee |
 | Bypass techniques | [docs/bypass-techniques.md](docs/bypass-techniques.md) — filesystem leaks, side-channels, syscall / ioctl leaks, weak entropy, patched CVEs, arbitrary read |
+| Exploitation | [docs/exploitation.md](docs/exploitation.md) — where KASLR-defeat fits in an exploit, control-flow vs data-only, pwntools template, `ksymoff` |
+| Footprint & detection | [docs/footprint.md](docs/footprint.md) — what a run looks like on a monitored host: the behavioural signature to detect it, and the operator's OPSEC cost; loud by design |
+| Utilities | [extra/README.md](extra/README.md) — the `extra/` helper scripts (capture/replay, soundness validation, posture-diff, `ksymoff`) and how they combine |
+| Architecture & internals | [docs/architecture.md](docs/architecture.md) — the inference engine, data-flow seams, tagged-line protocol, cross-region derivation |
+| Contributing | [CONTRIBUTING.md](CONTRIBUTING.md) — writing a component or rule, emitter API, exit codes, metadata |
+| Testing & CI | [docs/testing.md](docs/testing.md) — host tests, replay fixtures, cross-arch under qemu-user, coverage |
+| Reproducibility | [docs/reproducibility.md](docs/reproducibility.md) — independent verification: on the local kernel, live across architectures, or over the captured corpus |
 
 ## Building
 
