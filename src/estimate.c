@@ -494,14 +494,17 @@ unsigned long quantity_slots(enum kasld_quantity q, const struct estimate *e,
         continue;
       slots += (rs[i].hi - first) / e->stride + 1;
     } else {
-      /* Whole-slot span. A non-empty range narrower than one slot still
-       * occupies one slot (the base sits inside it) — so it counts as 1
-       * candidate (0 bits), not 0. Without this a sub-slot window would report
-       * "0 slots" and be indistinguishable from an empty result. */
-      unsigned long w = (rs[i].hi - rs[i].lo) / step;
-      if (w == 0 && rs[i].hi > rs[i].lo)
-        w = 1;
-      slots += w;
+      /* Whole-slot pitch over the closed range [lo, hi]: the `+ 1` counts the
+       * floor itself, so a pin (lo == hi) is one candidate and a range
+       * narrower than one slot is one candidate rather than none.
+       *
+       * A carved hole can leave a sub-range whose floor is off the slot grid,
+       * in which case this counts one placement more than exist. That
+       * direction is deliberate: the count feeds the residual-entropy
+       * headline, where over-stating what survives is the conservative error
+       * and under-stating it would claim more of KASLR is defeated than the
+       * evidence shows. */
+      slots += (rs[i].hi - rs[i].lo) / step + 1;
     }
   }
   return slots;

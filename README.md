@@ -75,7 +75,7 @@ The default text mode prints an answer-first overview:
 KASLD 0.3.1-dev  --  Kernel ASLR derandomization
 Target: x86_64 / 6.15.6
 
-Running 94 components (3 experimental skipped; use -x to enable)...
+Running 94 of 97 components (3 experimental skipped; use -x to enable)...
 [####################] 100%  94/94  13.9s
 
   Virtual image base  0xffffffff8fe00000   slide +0xee00000

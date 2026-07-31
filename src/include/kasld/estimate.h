@@ -139,9 +139,11 @@ int quantity_ranges(enum kasld_quantity q, const struct estimate *e,
                     int n_cs, struct range *out, int out_max);
 
 /* Hole-aware count of aligned candidate positions for q's resolved estimate:
- * the sum over quantity_ranges() of (span / align), span = hi - lo per range.
- * With no excludes this is (hi - lo) / align; each interior C_EXCLUDE hole at
- * conf >= floor strictly reduces it. Returns 0 for align == 0 or a non-interval
+ * the sum over quantity_ranges() of the candidates in each closed range,
+ * (hi - lo) / align + 1. The ranges are inclusive of both edges (see `struct
+ * range` above), so the trailing + 1 counts the floor: a pinned quantity is one
+ * candidate, not none. Each interior C_EXCLUDE hole at conf >= floor strictly
+ * reduces the total. Returns 0 for align == 0 or a non-interval
  * lattice. `floor` has the same meaning and requirement as in quantity_ranges:
  * pass the floor `e` was resolved at. This is the terminal consumer over the
  * range iterator above — the basis for hole-aware slot/entropy reporting, and

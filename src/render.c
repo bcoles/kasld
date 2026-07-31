@@ -229,33 +229,13 @@ section_consensus_pick(enum kasld_addr_type type, const char *section,
   return anchor;
 }
 
-/* Scan results[] for (type, section, optional region_filter) and report:
- *   *best_method      — method of the consensus record
- *   *n_sources        — number of records matching the filter whose anchor
- *                       address equals the consensus anchor (i.e.
- *                       "agreeing" sources)
- *   *n_conflicts      — count of in-bounds records (within the filter)
- *                       with a different anchor
- *
- * The filter scope MUST match what the displayed records use, so the
- * printed `==>` line is computed over the same set the user sees.
- */
-void section_consensus_info(enum kasld_addr_type type, const char *section,
-                            enum kasld_region region_filter,
-                            const char **best_method, int *n_sources,
-                            int *n_conflicts) {
-  const struct result *anchor =
-      section_consensus_pick(type, section, region_filter);
-  if (!anchor) {
-    *best_method = "unknown";
-    *n_sources = 0;
-    *n_conflicts = 0;
-    return;
-  }
-  *best_method = result_method(anchor);
-
-  unsigned long best_addr = anchor_addr(anchor);
-  int sources = 0, conflicts = 0;
+/* Count the distinct component origins contributing in-bounds records to a
+ * (type, section, optional region_filter). A record may credit several
+ * components (merged provenance); each distinct origin counts once. */
+int section_source_count(enum kasld_addr_type type, const char *section,
+                         enum kasld_region region_filter) {
+  char seen[MAX_COMPONENTS][ORIGIN_LEN];
+  int n = 0;
   for (int i = 0; i < num_results; i++) {
     const struct result *r = &results[i];
     if (r->type != type || strcmp(result_section(r), section) != 0)
@@ -264,13 +244,107 @@ void section_consensus_info(enum kasld_addr_type type, const char *section,
       continue;
     if (!in_bounds(r))
       continue;
-    if (anchor_addr(r) == best_addr)
-      sources++;
-    else
-      conflicts++;
+    for (int p = 0; p < r->provenance_count; p++) {
+      int dup = 0;
+      for (int j = 0; j < n; j++)
+        if (strncmp(seen[j], r->origins[p], ORIGIN_LEN) == 0) {
+          dup = 1;
+          break;
+        }
+      if (!dup && n < MAX_COMPONENTS)
+        snprintf(seen[n++], ORIGIN_LEN, "%s", r->origins[p]);
+    }
   }
-  *n_sources = sources;
-  *n_conflicts = conflicts;
+  return n;
+}
+
+/* True when a (type, section, optional region_filter) carries no edge (lo/hi)
+ * record — every in-bounds record is a bare interior sample. Such a section
+ * has no single "base": the samples corroborate an extent, they do not compete
+ * for one address, so consensus/conflict counting does not apply to it. */
+int section_is_interior_only(enum kasld_addr_type type, const char *section,
+                             enum kasld_region region_filter) {
+  int found = 0;
+  for (int i = 0; i < num_results; i++) {
+    const struct result *r = &results[i];
+    if (r->type != type || strcmp(result_section(r), section) != 0)
+      continue;
+    if (region_filter != REGION_UNKNOWN && r->region != region_filter)
+      continue;
+    if (!in_bounds(r))
+      continue;
+    if (HAS_LO(r) || HAS_HI(r))
+      return 0; /* an edge claim exists → not interior-only */
+    found = 1;
+  }
+  return found;
+}
+
+/* Scan results[] for (type, section, optional region_filter) and report:
+ *   *best_method   — method of the consensus record
+ *   *n_sources     — for an edge section, records whose anchor equals the
+ *                    consensus anchor ("agreeing" sources); for an
+ * interior-only section, the distinct contributing components *n_conflicts   —
+ * records with a different anchor for an edge section; always 0 for an
+ * interior-only section (interior samples corroborate an extent, they never
+ * conflict) *interior_only — 1 when the section carries only interior samples
+ * (no edge), so callers can present a span instead of a single "base"
+ *
+ * The filter scope MUST match what the displayed records use, so the
+ * printed `==>` line is computed over the same set the user sees.
+ */
+void section_consensus_info(enum kasld_addr_type type, const char *section,
+                            enum kasld_region region_filter,
+                            const char **best_method, int *n_sources,
+                            int *n_conflicts, int *interior_only) {
+  const struct result *anchor =
+      section_consensus_pick(type, section, region_filter);
+  if (!anchor) {
+    *best_method = "unknown";
+    *n_sources = 0;
+    *n_conflicts = 0;
+    *interior_only = 0;
+    return;
+  }
+  *best_method = result_method(anchor);
+  /* Sources are the distinct contributing components — the intuitive "how many
+   * components found this region", not the records that happen to share the
+   * winning address (which undercounts when they corroborate at different
+   * points). */
+  *n_sources = section_source_count(type, section, region_filter);
+  *interior_only = section_is_interior_only(type, section, region_filter);
+
+  /* Conflicts count genuine disagreements about the region's base: distinct
+   * lo-edge (base) addresses beyond the first. Interior-only sections have no
+   * base to disagree on, and dram/mmio are multi-segment coverings (every
+   * segment carries its own base) rather than one contested base — both are 0.
+   * Interior samples and top edges are never base claims, so they corroborate
+   * the region rather than conflicting with it. */
+  if (*interior_only || strcmp(section, "dram") == 0 ||
+      strcmp(section, "mmio") == 0) {
+    *n_conflicts = 0;
+    return;
+  }
+  unsigned long bases[MAX_RESULTS];
+  int nb = 0;
+  for (int i = 0; i < num_results; i++) {
+    const struct result *r = &results[i];
+    if (r->type != type || strcmp(result_section(r), section) != 0)
+      continue;
+    if (region_filter != REGION_UNKNOWN && r->region != region_filter)
+      continue;
+    if (!in_bounds(r) || !HAS_LO(r))
+      continue;
+    int dup = 0;
+    for (int j = 0; j < nb; j++)
+      if (bases[j] == r->lo) {
+        dup = 1;
+        break;
+      }
+    if (!dup && nb < MAX_RESULTS)
+      bases[nb++] = r->lo;
+  }
+  *n_conflicts = nb > 1 ? nb - 1 : 0;
 }
 
 /* Anchor address for a (type, section, optional region_filter). See

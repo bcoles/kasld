@@ -407,6 +407,18 @@ struct kaslr_info {
   unsigned long pslots;
   int pbits;
   int has_phys;
+  /* Entropy the virtual KASLR window started with, counted over
+   * Q_VIRT_IMAGE_BASE's honest top at the same alignment as vbits. The
+   * baseline that makes vbits interpretable: "5 bits remain" says nothing
+   * without it. 0 means not computed, and every format then reports the
+   * residual alone.
+   *
+   * Virtual only, deliberately. That quantity's honest top IS the arch's
+   * KASLR window, so the ratio means what a reader will take it to mean. The
+   * physical and direct-map tops are addressable-range bounds rather than
+   * randomization windows, so a denominator drawn from them would read as
+   * KASLR entropy the kernel never had. */
+  int vbits_top;
   /* Speculative "likely" window: the engine resolved a second time with ALL
    * signals, including those below the sound floor (timing/heuristic/brute).
    * It is a subset of the guaranteed window in the vtext/ptext fields above and

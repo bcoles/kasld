@@ -431,7 +431,7 @@ static void test_render_vtext_speculative(void) {
 
   /* DEFAULT compact readout: the concrete base is the headline, graded
    * speculative, with its slide alongside and the proven window shown as
-   * "guaranteed" beneath — never buried as "not derandomized" alone. */
+   * "guaranteed" beneath — never buried as a bare status word alone. */
   verbose = 0;
   capture_stdout(wrap_render_summary, &s);
   assert(strstr(render_cap, "likely (speculative)") != NULL);
@@ -461,7 +461,7 @@ static void test_render_vtext_speculative(void) {
 }
 
 /* A windowed image base (no concrete text pinned) with a tighter likely window
- * renders, in the default readout, as the "not derandomized" headline, then the
+ * renders, in the default readout, as the "narrowed" headline, then the
  * speculative likely window, then the guaranteed range labelled "guaranteed" —
  * the same likely-over-guaranteed order a concrete base uses. Regression for
  * the bare-window path that printed the unlabelled guaranteed range first and
@@ -496,7 +496,10 @@ static void test_render_windowed_base_likely_order(void) {
 
   set_render_mode(0, 0, 0); /* default compact readout */
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "not derandomized") != NULL);
+  /* Graded status, not a binary verdict: the two windows printed beneath it
+   * are narrowings, so "not derandomized" would contradict them. */
+  assert(strstr(render_cap, "narrowed") != NULL);
+  assert(strstr(render_cap, "not derandomized") == NULL);
   {
     const char *lk = strstr(render_cap, "likely (speculative)");
     const char *gt = strstr(render_cap, "guaranteed");
@@ -632,6 +635,69 @@ static void test_render_directmap_base_promoted_unbounded(void) {
   assert(strstr(render_cap, "likely (speculative)") != NULL); /* graded */
   assert(strstr(render_cap, "guaranteed") !=
          NULL); /* floor beneath, labelled */
+  set_render_mode(0, 0, 0);
+#endif
+}
+
+/* Residual entropy is stated against the entropy the KASLR window started
+ * with, so a reader can tell whether almost everything or almost nothing was
+ * recovered — "5 bits remain" says nothing on its own. Where that baseline is
+ * not known the residual stands alone: a denominator borrowed from a quantity
+ * whose honest top is an addressable range rather than a randomization window
+ * would read as KASLR entropy the kernel never had. */
+static void test_render_entropy_states_its_baseline(void) {
+  struct summary s;
+  reset_results();
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+  memset(&s, 0, sizeof(s));
+  s.kaslr.vslots = 24;
+  s.kaslr.vbits = 5;
+  s.kaslr.vbits_top = 9;
+
+  set_render_mode(0, 0, 0);
+  capture_stdout(wrap_render_summary, &s);
+  assert(strstr(render_cap, "~5 of 9 bits") != NULL);
+
+  s.kaslr.vbits_top = 0; /* baseline unknown */
+  capture_stdout(wrap_render_summary, &s);
+  assert(strstr(render_cap, "~5 bits") != NULL);
+  assert(strstr(render_cap, "of 9 bits") == NULL);
+  set_render_mode(0, 0, 0);
+}
+
+/* Every window row states its grade, including one with no speculative line
+ * above it to contrast against. Within a single readout some quantities carry
+ * a likely window and others do not; an unlabelled range would then be
+ * indistinguishable from an unstated grade rather than reading as guaranteed,
+ * and the reader could not tell which of the two windows a row belongs to. */
+static void test_render_window_row_always_graded(void) {
+#if RANDOMIZE_MEMORY_ALIGN > 0
+  struct summary s;
+  reset_results();
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+  memset(&s, 0, sizeof(s));
+
+  unsigned long align = (unsigned long)RANDOMIZE_MEMORY_ALIGN;
+  s.kaslr.vslots = 60;
+  s.kaslr.vbits = 6;
+  /* A bounded direct-map window and deliberately NO likely window. */
+  s.kaslr.virt_page_offset_min = (unsigned long)PAGE_OFFSET_BASE_L4;
+  s.kaslr.virt_page_offset_max =
+      (unsigned long)PAGE_OFFSET_BASE_L4 + 12ul * align;
+  s.kaslr.virt_page_offset_slots = 13;
+  s.kaslr.virt_page_offset_likely_min = 0;
+  s.kaslr.virt_page_offset_likely_max = 0;
+
+  set_render_mode(0, 0, 0);
+  capture_stdout(wrap_render_summary, &s);
+  assert(strstr(render_cap, "Direct map base") != NULL);
+  assert(strstr(render_cap, "likely (speculative)") == NULL); /* none to show */
+  assert(strstr(render_cap, "guaranteed") != NULL); /* graded regardless */
+  /* The count reconciles with the window it is printed beside: a closed
+   * 12-slot span holds 13 candidates. */
+  assert(strstr(render_cap, "13 x ") != NULL);
   set_render_mode(0, 0, 0);
 #endif
 }
@@ -1807,6 +1873,96 @@ static void test_render_hardening_confirmed_mitigations(void) {
   num_comp_logs = 0;
 }
 
+/* Interior samples corroborate an extent; they are not competing base claims.
+ * A section with only interior samples is interior-only (no single base), its
+ * sources count the distinct contributors, and it has no conflicts. Adding a
+ * base does not make the interior samples "conflict" with it — only a second,
+ * differing base does. */
+static void stage_vt_interior(unsigned long sample, const char *origin) {
+  struct result *r = push_result();
+  r->type = KASLD_TYPE_VIRT;
+  r->region = REGION_KERNEL_TEXT;
+  r->pos = POS_INTERIOR;
+  r->conf = CONF_PARSED;
+  r->sample = sample;
+  r->set_mask = SAMPLE_SET;
+  snprintf(r->origins[0], ORIGIN_LEN, "%s", origin);
+  r->provenance_count = 1;
+  r->method_set = 1u << KM_PARSED;
+}
+static void stage_vt_base(unsigned long lo, const char *origin) {
+  struct result *r = push_result();
+  r->type = KASLD_TYPE_VIRT;
+  r->region = REGION_KERNEL_TEXT;
+  r->pos = POS_BASE;
+  r->conf = CONF_TIMING;
+  r->lo = lo;
+  r->set_mask = LO_SET;
+  snprintf(r->origins[0], ORIGIN_LEN, "%s", origin);
+  r->provenance_count = 1;
+  r->method_set = 1u << KM_TIMING;
+}
+
+static void test_section_interior_only_and_conflicts(void) {
+  reset_results();
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+  const unsigned long vt = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
+  const char *sec = "text"; /* REGION_KERNEL_TEXT's section name */
+
+  const char *bm;
+  int ns, nc, io;
+
+  /* Two interior samples from two components: interior-only, 2 sources, no
+   * conflict. */
+  stage_vt_interior(vt + 0x1000, "comp_a");
+  stage_vt_interior(vt + 0x5000, "comp_b");
+  assert(section_is_interior_only(KASLD_TYPE_VIRT, sec, REGION_UNKNOWN) == 1);
+  assert(section_source_count(KASLD_TYPE_VIRT, sec, REGION_UNKNOWN) == 2);
+  section_consensus_info(KASLD_TYPE_VIRT, sec, REGION_UNKNOWN, &bm, &ns, &nc,
+                         &io);
+  assert(io == 1 && ns == 2 && nc == 0);
+
+  /* Add a base from a third component: no longer interior-only, still no
+   * conflict (a base and interior samples above it agree), 3 sources. */
+  stage_vt_base(vt, "comp_c");
+  assert(section_is_interior_only(KASLD_TYPE_VIRT, sec, REGION_UNKNOWN) == 0);
+  section_consensus_info(KASLD_TYPE_VIRT, sec, REGION_UNKNOWN, &bm, &ns, &nc,
+                         &io);
+  assert(io == 0 && ns == 3 && nc == 0);
+
+  /* A second, differing base is a genuine disagreement: one conflict. */
+  stage_vt_base(vt + 0x100000, "comp_d");
+  section_consensus_info(KASLD_TYPE_VIRT, sec, REGION_UNKNOWN, &bm, &ns, &nc,
+                         &io);
+  assert(io == 0 && nc == 1);
+
+  reset_results();
+}
+
+/* The interior-only resolution surfaces in the rendered output: the JSON group
+ * is flagged interior_only with zero conflicts (interior samples corroborate an
+ * extent, they never compete for a base). */
+static void test_render_interior_only_surface(void) {
+  reset_results();
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+  const unsigned long vt = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
+  stage_vt_interior(vt + 0x1000, "comp_a");
+  stage_vt_interior(vt + 0x9000, "comp_b");
+
+  struct summary s;
+  memset(&s, 0, sizeof(s));
+
+  set_render_mode(1, 0, 0);
+  capture_stdout(wrap_render_summary, &s);
+  set_render_mode(0, 0, 0);
+  assert(strstr(render_cap, "\"interior_only\": true") != NULL);
+  assert(strstr(render_cap, "\"conflicts\": 0") != NULL);
+
+  reset_results();
+}
+
 /* The unprivileged_bpf_disabled gate: 0 = unprivileged bpf() allowed (the leak
  * fires), >=1 = disabled (blocks it), so it uses the "value >= threshold
  * blocks" model with threshold 1. Inactive (0) with a succeeded bpf component
@@ -2297,6 +2453,8 @@ int main(void) {
   RUN(test_build_hardening_report);
   RUN(test_render_json_disposition);
   RUN(test_render_hardening_confirmed_mitigations);
+  RUN(test_section_interior_only_and_conflicts);
+  RUN(test_render_interior_only_surface);
   RUN(test_hardening_unprivileged_bpf_gate);
   RUN(test_hardening_projection);
   RUN(test_hardening_projection_no_exposure);
@@ -2325,6 +2483,8 @@ int main(void) {
   RUN(test_render_memory_likely_window);
   RUN(test_render_directmap_base_promoted);
   RUN(test_render_directmap_base_promoted_unbounded);
+  RUN(test_render_entropy_states_its_baseline);
+  RUN(test_render_window_row_always_graded);
   RUN(test_render_coupling_gated);
   RUN(test_render_markdown_text_order_caution);
   RUN(test_render_memory_kaslr_uses_stored_slots);

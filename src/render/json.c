@@ -84,8 +84,8 @@ static void render_json_group(enum kasld_addr_type gt, const char *gs) {
   section_range(gt, gs, &lo, &hi);
 
   const char *bm;
-  int ns, nc;
-  section_consensus_info(gt, gs, REGION_UNKNOWN, &bm, &ns, &nc);
+  int ns, nc, io;
+  section_consensus_info(gt, gs, REGION_UNKNOWN, &bm, &ns, &nc, &io);
 
   printf("    {\n");
   printf("      \"type\": \"%c\",\n", kasld_type_wire(gt));
@@ -99,6 +99,11 @@ static void render_json_group(enum kasld_addr_type gt, const char *gs) {
   printf(",\n");
   printf("      \"consensus_sources\": %d,\n", ns);
   printf("      \"conflicts\": %d,\n", nc);
+  /* interior_only: the group carries only interior samples (no edge). consensus
+   * is then the lowest sample and lo/hi bound the corroborated span, not a
+   * resolved base; consensus_sources counts distinct contributors and conflicts
+   * is 0 (interior samples do not compete). */
+  printf("      \"interior_only\": %s,\n", io ? "true" : "false");
   printf("      \"lo\": \"0x%016lx\"", lo);
   if (hi)
     printf(",\n      \"hi\": \"0x%016lx\"", hi);
@@ -310,6 +315,8 @@ void render_json(const struct summary *s) {
            layout.virt_image_base_default);
     printf("      \"slide_bytes\": %ld,\n", s->kaslr.vslide);
     printf("      \"entropy_bits\": %d,\n", s->kaslr.vbits);
+    if (s->kaslr.vbits_top > 0)
+      printf("      \"entropy_bits_initial\": %d,\n", s->kaslr.vbits_top);
     printf("      \"slots\": %lu", s->kaslr.vslots);
     if (s->kaslr.vslot_valid)
       printf(",\n      \"slot_index\": %lu", s->kaslr.vslot_idx);
@@ -323,6 +330,8 @@ void render_json(const struct summary *s) {
     printf("      \"range_min\": \"0x%016lx\",\n", layout.virt_kaslr_text_min);
     printf("      \"range_max\": \"0x%016lx\",\n", layout.virt_kaslr_text_max);
     printf("      \"slots\": %lu,\n", s->kaslr.vslots);
+    if (s->kaslr.vbits_top > 0)
+      printf("      \"entropy_bits_initial\": %d,\n", s->kaslr.vbits_top);
     printf("      \"entropy_bits\": %d\n", s->kaslr.vbits);
     printf("    }");
   }

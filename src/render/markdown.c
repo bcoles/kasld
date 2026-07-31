@@ -271,8 +271,12 @@ void render_markdown(const struct summary *s) {
       printf("| KASLR slide | %s0x%lx (%ld)%s |\n",
              s->kaslr.vslide < 0 ? "-" : "+", (unsigned long)abs_vs,
              s->kaslr.vslide, v_spec ? " (likely)" : "");
-      printf("| Virtual entropy | %d bits (%lu slots) |\n", s->kaslr.vbits,
-             s->kaslr.vslots);
+      if (s->kaslr.vbits_top > 0)
+        printf("| Virtual entropy | %d of %d bits (%lu slots) |\n",
+               s->kaslr.vbits, s->kaslr.vbits_top, s->kaslr.vslots);
+      else
+        printf("| Virtual entropy | %d bits (%lu slots) |\n", s->kaslr.vbits,
+               s->kaslr.vslots);
       if (s->kaslr.vslot_valid)
         printf("| Observed slot | %lu / %lu |\n", s->kaslr.vslot_idx,
                s->kaslr.vslots);

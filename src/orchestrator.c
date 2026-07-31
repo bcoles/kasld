@@ -35,6 +35,7 @@
 #include <locale.h>
 #include <poll.h>
 #include <signal.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -146,6 +147,114 @@ static pthread_mutex_t result_mutex = PTHREAD_MUTEX_INITIALIZER;
 #define RESULT_LOCK() ((void)0)
 #define RESULT_UNLOCK() ((void)0)
 #endif
+
+/* -------------------------------------------------------------------------
+ * Progress display
+ *
+ * The bar repaints in place with a carriage return and leaves the cursor on
+ * its line, so anything else written to stderr while it is painted would be
+ * appended to that line. `output_mutex` makes the bar the sole owner of that
+ * line: every other diagnostic goes through progress_note(), which erases the
+ * bar, writes the message, and repaints. progress_finish() retires the bar by
+ * erasing it from the stream it was painted on.
+ *
+ * Deliberately separate from result_mutex, which protects data structures and
+ * is never held across I/O. Lock order is result_mutex -> output_mutex;
+ * nothing acquires them in the other order.
+ * -------------------------------------------------------------------------
+ */
+#ifdef HAVE_PTHREAD
+static pthread_mutex_t output_mutex = PTHREAD_MUTEX_INITIALIZER;
+#define OUTPUT_LOCK() pthread_mutex_lock(&output_mutex)
+#define OUTPUT_UNLOCK() pthread_mutex_unlock(&output_mutex)
+#else
+#define OUTPUT_LOCK() ((void)0)
+#define OUTPUT_UNLOCK() ((void)0)
+#endif
+
+static int progress_done; /* components finished */
+static struct timespec progress_start;
+static int progress_painted; /* highest `done` a frame was drawn for */
+static int progress_width;   /* visible columns of the drawn frame */
+static int progress_live;    /* a frame is currently on screen */
+static int progress_total;   /* components the bar is counting up to */
+
+/* Erase the drawn frame, leaving the cursor at column 0 of a blank line.
+ * Overwrites with spaces rather than an erase escape so the result is the same
+ * on a terminal that does not interpret them. Caller holds output_mutex. */
+static void progress_erase(void) {
+  if (!progress_live)
+    return;
+  fputc('\r', stderr);
+  for (int i = 0; i < progress_width; i++)
+    fputc(' ', stderr);
+  fputc('\r', stderr);
+  progress_live = 0;
+  progress_width = 0;
+}
+
+/* Draw the frame for `done` of `total`. The three segments are built
+ * separately so the visible width is known exactly: colour escapes carry no
+ * width, and progress_erase() must overwrite the visible columns only. Caller
+ * holds output_mutex. */
+static void progress_paint(int done, int total) {
+  int pct = total > 0 ? (done * 100) / total : 0;
+  struct timespec now;
+  clock_gettime(CLOCK_MONOTONIC, &now);
+  double elapsed = (double)(now.tv_sec - progress_start.tv_sec) +
+                   (double)(now.tv_nsec - progress_start.tv_nsec) / 1e9;
+
+  const int bar_width = 20;
+  int filled = (pct * bar_width) / 100;
+  char bar[32];
+  for (int i = 0; i < bar_width; i++)
+    bar[i] = i < filled ? '#' : '.';
+  bar[bar_width] = '\0';
+
+  /* Counter padded to the width of `total` so the elapsed-time column holds
+   * still as the count grows into more digits. */
+  int tw = 1;
+  for (int t = total; t >= 10; t /= 10)
+    tw++;
+
+  char seg_bar[40], seg_mid[48], seg_time[24];
+  int w = 0;
+  w += snprintf(seg_bar, sizeof(seg_bar), "[%s]", bar);
+  w += snprintf(seg_mid, sizeof(seg_mid), " %3d%%  %*d/%d  ", pct, tw, done,
+                total);
+  w += snprintf(seg_time, sizeof(seg_time), "%.1fs", elapsed);
+
+  fprintf(stderr, "\r%s%s%s%s%s%s%s", c(C_DIM), seg_bar, c(C_RESET), seg_mid,
+          c(C_DIM), seg_time, c(C_RESET));
+  progress_width = w;
+  progress_live = 1;
+}
+
+/* Emit a diagnostic on its own line without corrupting the bar. Safe from any
+ * thread, and a plain stderr write when no bar is drawn. */
+static void progress_note(const char *fmt, ...) {
+  va_list ap;
+  OUTPUT_LOCK();
+  int repaint = progress_live;
+  int done = progress_painted;
+  progress_erase();
+  va_start(ap, fmt);
+  vfprintf(stderr, fmt, ap);
+  va_end(ap);
+  fputc('\n', stderr);
+  if (repaint)
+    progress_paint(done, progress_total);
+  fflush(stderr);
+  OUTPUT_UNLOCK();
+}
+
+/* Retire the bar, erasing it from the stream it was painted on. */
+static void progress_finish(void) {
+  OUTPUT_LOCK();
+  progress_erase();
+  fflush(stderr);
+  OUTPUT_UNLOCK();
+}
 
 /* Inference worker pool: index list built once, consumed by workers */
 static int pool_inf[MAX_COMPONENTS]; /* indices into components[] */
@@ -1051,15 +1160,15 @@ static int append_result(enum kasld_addr_type type, enum kasld_region region,
   if (num_results >= MAX_RESULTS) {
     orchestrator_saturation |= ORCH_SAT_RESULTS_FULL;
     static int warned;
-    if (!warned) {
-      if (!quiet)
-        fprintf(
-            stderr,
-            "warning: result limit (%d) reached, dropping further results\n",
-            MAX_RESULTS);
-      warned = 1;
-    }
+    int first = !warned;
+    warned = 1;
     RESULT_UNLOCK();
+    /* Reported outside the lock: progress_note() takes output_mutex, and the
+     * one-way result_mutex -> output_mutex order is what keeps the two from
+     * ever forming a cycle. */
+    if (first && !quiet)
+      progress_note("[-] result limit (%d) reached, dropping further results",
+                    MAX_RESULTS);
     return 0;
   }
   int idx = num_results++;
@@ -1731,13 +1840,15 @@ static int run_component(const struct component *c) {
 
   int pipefd[2];
   if (pipe(pipefd) < 0) {
-    perror("pipe");
+    if (!quiet)
+      progress_note("[-] %s: pipe: %s", c->name, strerror(errno));
     return -1;
   }
 
   pid_t pid = fork();
   if (pid < 0) {
-    perror("fork");
+    if (!quiet)
+      progress_note("[-] %s: fork: %s", c->name, strerror(errno));
     close(pipefd[0]);
     close(pipefd[1]);
     return -1;
@@ -1861,8 +1972,8 @@ static int run_component(const struct component *c) {
 
   if (timed_out) {
     if (!quiet)
-      fprintf(stderr, "warning: component '%s' timed out after %ds, killing\n",
-              c->name, component_timeout);
+      progress_note("[-] component '%s' timed out after %ds, killing", c->name,
+                    component_timeout);
     kill(-pid, SIGKILL); /* Kill entire process group */
   }
 
@@ -1887,10 +1998,6 @@ static int run_component(const struct component *c) {
   return rc;
 }
 
-/* Progress tracking across phases */
-static int progress_done;
-static struct timespec progress_start;
-
 static void progress_update(void) {
   RESULT_LOCK();
   int done = ++progress_done;
@@ -1898,33 +2005,24 @@ static void progress_update(void) {
 
   if (quiet || json_output || oneline_output || markdown_output)
     return;
-  if (verbose)
+  if (verbose) {
     printf("\n");
-  else {
-    /* Progress bar uses \r to overwrite itself; only useful on a TTY. Sent
-     * to stderr so `kasld | grep` / `kasld > out` don't capture overwrites. */
-    if (!isatty(STDERR_FILENO))
-      return;
-    int total =
-        num_active_components > 0 ? num_active_components : num_components;
-    int pct = total > 0 ? (done * 100) / total : 0;
-    struct timespec now;
-    clock_gettime(CLOCK_MONOTONIC, &now);
-    double elapsed = (double)(now.tv_sec - progress_start.tv_sec) +
-                     (double)(now.tv_nsec - progress_start.tv_nsec) / 1e9;
+    return;
+  }
+  /* The bar overwrites itself with \r, which only means anything on a TTY.
+   * Drawn on stderr so `kasld | grep` / `kasld > out` don't capture frames. */
+  if (!isatty(STDERR_FILENO))
+    return;
 
-    /* Build a small progress bar: [####......] */
-    int bar_width = 20;
-    int filled = (pct * bar_width) / 100;
-    char bar[32];
-    for (int i = 0; i < bar_width; i++)
-      bar[i] = i < filled ? '#' : '.';
-    bar[bar_width] = '\0';
-
-    fprintf(stderr, "\r%s[%s]%s %3d%%  %d/%d  %s%.1fs%s", c(C_DIM), bar,
-            c(C_RESET), pct, done, total, c(C_DIM), elapsed, c(C_RESET));
+  OUTPUT_LOCK();
+  /* Workers finish concurrently and can reach here out of order; never draw a
+   * lower count over a higher one. */
+  if (done > progress_painted) {
+    progress_painted = done;
+    progress_paint(done, progress_total);
     fflush(stderr);
   }
+  OUTPUT_UNLOCK();
 }
 
 /* Worker thread: claims inference components from the pool and runs them. */
@@ -2375,6 +2473,21 @@ static struct engine
  * the engine is floor-agnostic. */
 #define KASLD_SOUND_FLOOR CONF_INFERRED
 
+#ifndef KASLD_TESTING
+/* Candidate count over q's honest compile-time top — the entropy this
+ * architecture's KASLR had before any evidence narrowed it. Counted through
+ * quantity_slots() at the same alignment as the residual, so the two are
+ * directly comparable. */
+static unsigned long quantity_top_slots(enum kasld_quantity q,
+                                        unsigned long align) {
+  if (!align || !quantities[q].init_top)
+    return 0;
+  struct estimate top;
+  quantities[q].init_top(&top);
+  return quantity_slots(q, &top, KASLD_SOUND_FLOOR, NULL, 0, align);
+}
+#endif
+
 /* Snapshot of the LIKELY resolution (floor CONF_BRUTE — all signals): the est +
  * constraints quantity_slots() needs, plus the resolver's rejected-constraint
  * (conflict) set so the likely window's conflicts can be reported symmetrically
@@ -2496,11 +2609,20 @@ void compute_kaslr_info(struct summary *s) {
   {
     unsigned long text_range =
         layout.virt_kaslr_text_max - layout.virt_kaslr_text_min;
-    s->kaslr.vslots =
-        layout.virt_kaslr_align ? text_range / layout.virt_kaslr_align : 0;
+    /* Closed window: + 1 counts the floor slot, matching quantity_slots(). */
+    s->kaslr.vslots = (layout.virt_kaslr_align && layout.virt_kaslr_text_max)
+                          ? text_range / layout.virt_kaslr_align + 1
+                          : 0;
   }
 #endif
   s->kaslr.vbits = s->kaslr.vslots > 0 ? ilog2(s->kaslr.vslots) : 0;
+#ifndef KASLD_TESTING
+  {
+    unsigned long top =
+        quantity_top_slots(Q_VIRT_IMAGE_BASE, layout.virt_kaslr_align);
+    s->kaslr.vbits_top = top > 0 ? ilog2(top) : 0;
+  }
+#endif
 
 #ifdef KASLR_PHYS_MIN
   {
@@ -2512,8 +2634,9 @@ void compute_kaslr_info(struct summary *s) {
 #else
     unsigned long phys_range =
         layout.phys_kaslr_text_max - layout.phys_kaslr_text_min;
-    s->kaslr.pslots =
-        layout.phys_kaslr_align ? phys_range / layout.phys_kaslr_align : 0;
+    s->kaslr.pslots = (layout.phys_kaslr_align && layout.phys_kaslr_text_max)
+                          ? phys_range / layout.phys_kaslr_align + 1
+                          : 0;
 #endif
     s->kaslr.pbits = s->kaslr.pslots > 0 ? ilog2(s->kaslr.pslots) : 0;
   }
@@ -2521,9 +2644,11 @@ void compute_kaslr_info(struct summary *s) {
 
   if (s->kaslr.vtext) {
     s->kaslr.vslide = (long)(s->kaslr.vtext - layout.virt_image_base_default);
+    /* The window is closed at both edges, so a base sitting exactly on
+     * virt_kaslr_text_max is the last slot, not out of range. */
     s->kaslr.vslot_valid = (layout.virt_kaslr_align > 0 &&
                             s->kaslr.vtext >= layout.virt_kaslr_text_min &&
-                            s->kaslr.vtext < layout.virt_kaslr_text_max);
+                            s->kaslr.vtext <= layout.virt_kaslr_text_max);
     if (s->kaslr.vslot_valid)
       s->kaslr.vslot_idx = (s->kaslr.vtext - layout.virt_kaslr_text_min) /
                            layout.virt_kaslr_align;
@@ -3769,6 +3894,33 @@ static int apply_opt(const struct opt *o, int *i, int argc, char *argv[]) {
   return o->set(val);
 }
 
+/* Name the components the orchestrator killed, so a run with kills is
+ * distinguishable from a clean one in the report itself rather than only in
+ * the run narration the progress bar scrolls past. Silent when every component
+ * was reaped normally. Names beyond the first three fold into a count, the
+ * same way leak provenance does. */
+static void report_killed_components(void) {
+  const char *names[3];
+  int shown = 0, n = 0;
+  for (int i = 0; i < num_comp_logs; i++) {
+    if (comp_logs[i].outcome != OUTCOME_TIMEOUT)
+      continue;
+    if (shown < (int)(sizeof(names) / sizeof(names[0])))
+      names[shown++] = comp_logs[i].name;
+    n++;
+  }
+  if (n == 0)
+    return;
+
+  printf("%s%d component%s timed out after %ds and %s killed (", c(C_YELLOW), n,
+         n == 1 ? "" : "s", component_timeout, n == 1 ? "was" : "were");
+  for (int i = 0; i < shown; i++)
+    printf("%s%s", i ? ", " : "", names[i]);
+  if (n > shown)
+    printf(", +%d more", n - shown);
+  printf(")%s\n", c(C_RESET));
+}
+
 /* Orchestration-layer summary emit: build the summary, run resolution (stats,
  * defaults, then the engine via compute_kaslr_info), and hand the finished
  * summary to the renderer. Resolution lives here, not in render.c — the
@@ -3965,6 +4117,8 @@ int main(int argc, char *argv[]) {
     printf("\n");
 
     clock_gettime(CLOCK_MONOTONIC, &progress_start);
+    progress_total =
+        num_active_components > 0 ? num_active_components : num_components;
     int exp_active =
         experimental_mode || (getenv("KASLD_EXPERIMENTAL") != NULL);
     int nf = 0, ne = 0;
@@ -3979,17 +4133,23 @@ int main(int argc, char *argv[]) {
     const char *sysroot = getenv("KASLD_SYSROOT");
     const char *skipped_by =
         (sysroot && *sysroot) ? "skipped" : "skipped by --skip";
-    if (nf > 0 && ne > 0)
-      printf("Running %d components (%d %s, %d experimental "
+    /* "N of M" rather than a bare N: the skipped counts that follow are
+     * excluded from N, so a bare count reads either way. */
+    if (num_active_components == 0)
+      /* Nothing to run (e.g. -s '*'): the result below is the engine's
+       * leak-free structural inference, not a scan. */
+      printf("Structural baseline - no components run\n");
+    else if (nf > 0 && ne > 0)
+      printf("Running %d of %d components (%d %s, %d experimental "
              "skipped; use -x to enable)...\n",
-             num_active_components, nf, skipped_by, ne);
+             num_active_components, num_components, nf, skipped_by, ne);
     else if (nf > 0)
-      printf("Running %d components (%d %s)...\n", num_active_components, nf,
-             skipped_by);
+      printf("Running %d of %d components (%d %s)...\n", num_active_components,
+             num_components, nf, skipped_by);
     else if (ne > 0)
-      printf("Running %d components (%d experimental skipped; "
+      printf("Running %d of %d components (%d experimental skipped; "
              "use -x to enable)...\n",
-             num_active_components, ne);
+             num_active_components, num_components, ne);
     else
       printf("Running %d components...\n", num_active_components);
     fflush(stdout);
@@ -4010,8 +4170,12 @@ int main(int argc, char *argv[]) {
   for (int p = 0; p < (int)(sizeof(phases) / sizeof(phases[0])); p++)
     run_phase(&phases[p]); /* merges results after each phase */
 
-  if (!quiet && !verbose && plain_output())
-    printf("\n\n");
+  if (!quiet && !verbose && plain_output()) {
+    progress_finish();
+    printf("\n");
+    report_killed_components();
+    printf("\n");
+  }
 
   /* The KASLR default-window analysis and, with -H, the hardening assessment
    * are meaningful even with zero leaks — a hardened host that yields nothing

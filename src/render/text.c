@@ -186,35 +186,47 @@ static void print_group(enum kasld_addr_type type, const char *section,
 
   if (n_addrs == 1) {
     const char *bm;
-    int ns, nc;
-    section_consensus_info(type, section, region_filter, &bm, &ns, &nc);
-    printf("  %s==>%s 0x%016lx  %s(%s, %d source%s)%s\n", c(C_CYAN), c(C_RESET),
-           addrs[0], c(C_DIM), bm, ns, ns == 1 ? "" : "s", c(C_RESET));
+    int ns, nc, io;
+    section_consensus_info(type, section, region_filter, &bm, &ns, &nc, &io);
+    /* A lone interior sample is a point inside the region, not its base — say
+     * so, rather than presenting it as the resolved address. */
+    printf("  %s==>%s 0x%016lx  %s(%s, %s%d source%s)%s\n", c(C_CYAN),
+           c(C_RESET), addrs[0], c(C_DIM), bm, io ? "interior sample; " : "",
+           ns, ns == 1 ? "" : "s", c(C_RESET));
   } else if (n_addrs > 1) {
     const char *bm;
-    int ns, nc;
-    section_consensus_info(type, section, region_filter, &bm, &ns, &nc);
+    int ns, nc, io;
+    section_consensus_info(type, section, region_filter, &bm, &ns, &nc, &io);
     char hbuf[32];
     unsigned long span = addrs[n_addrs - 1] - addrs[0];
-    unsigned long consensus = section_consensus(type, section, region_filter);
-    /* "conflict" only makes sense for landmark sections (text/module/directmap)
-     * where distinct anchors genuinely disagree about one base. In the physical
-     * extent sections (dram/mmio) the other anchors are separate RAM segments /
-     * MMIO regions, not disagreements — the range line below carries the span,
-     * so the count is omitted rather than mislabelled. */
-    int extent_section =
-        (strcmp(section, "dram") == 0 || strcmp(section, "mmio") == 0);
-    if (extent_section)
-      printf("  %s==>%s 0x%016lx  %s(%s, %d source%s)%s\n", c(C_CYAN),
-             c(C_RESET), consensus, c(C_DIM), bm, ns, ns == 1 ? "" : "s",
-             c(C_RESET));
-    else
-      printf("  %s==>%s 0x%016lx  %s(%s, %d source%s, %d conflict%s)%s\n",
-             c(C_CYAN), c(C_RESET), consensus, c(C_DIM), bm, ns,
-             ns == 1 ? "" : "s", nc, nc == 1 ? "" : "s", c(C_RESET));
-    printf("  %s   %s range: 0x%016lx - 0x%016lx  (%s)\n", c(C_CYAN),
-           c(C_RESET), addrs[0], addrs[n_addrs - 1],
-           human_size(span, hbuf, sizeof(hbuf)));
+    if (io) {
+      /* Interior-only: the samples prove the region contains [lo, hi] (a lower
+       * bound on its extent). Present that span as the resolved fact — there is
+       * no single base to pick, and the samples corroborate rather than
+       * conflict, so the count is "N samples from M sources", never conflicts.
+       */
+      printf("  %s==>%s spans 0x%016lx - 0x%016lx  %s(%s; %d samples, %d "
+             "source%s; %s)%s\n",
+             c(C_CYAN), c(C_RESET), addrs[0], addrs[n_addrs - 1], c(C_DIM), bm,
+             n_addrs, ns, ns == 1 ? "" : "s",
+             human_size(span, hbuf, sizeof(hbuf)), c(C_RESET));
+    } else {
+      unsigned long consensus = section_consensus(type, section, region_filter);
+      /* nc is a genuine competing-base count (0 for the multi-segment dram/mmio
+       * coverings and for corroborating interior/top records), so it is printed
+       * only when a real disagreement exists. */
+      if (nc > 0)
+        printf("  %s==>%s 0x%016lx  %s(%s, %d source%s, %d conflict%s)%s\n",
+               c(C_CYAN), c(C_RESET), consensus, c(C_DIM), bm, ns,
+               ns == 1 ? "" : "s", nc, nc == 1 ? "" : "s", c(C_RESET));
+      else
+        printf("  %s==>%s 0x%016lx  %s(%s, %d source%s)%s\n", c(C_CYAN),
+               c(C_RESET), consensus, c(C_DIM), bm, ns, ns == 1 ? "" : "s",
+               c(C_RESET));
+      printf("  %s   %s range: 0x%016lx - 0x%016lx  (%s)\n", c(C_CYAN),
+             c(C_RESET), addrs[0], addrs[n_addrs - 1],
+             human_size(span, hbuf, sizeof(hbuf)));
+    }
   }
 
   printf("\n");
@@ -254,6 +266,20 @@ static int ilog2_ul(unsigned long v) {
  * unlabeled name column) directly under the region's guaranteed row. lmin/lmax
  * are 0/0 when there is no likely window. A single value (lmin == lmax) is a
  * pinned best-guess; otherwise a tighter sub-range. */
+/* Residual entropy, stated against the entropy the architecture's KASLR
+ * started with wherever that is known. "~13 bits" alone does not tell a reader
+ * whether almost everything or almost nothing was recovered. `bits_top` of 0
+ * means the starting budget was not computed, and the residual stands alone.
+ */
+static const char *entropy_phrase(int bits, int bits_top, char *buf,
+                                  size_t bufsz) {
+  if (bits_top > bits)
+    snprintf(buf, bufsz, "~%d of %d bits", bits, bits_top);
+  else
+    snprintf(buf, bufsz, "~%d bits", bits);
+  return buf;
+}
+
 static void render_memory_kaslr_likely(unsigned long lmin, unsigned long lmax,
                                        unsigned long slots) {
   if (!lmin && !lmax)
@@ -386,14 +412,16 @@ static void render_kaslr_text(const struct summary *s) {
     printf("  KASLR slide:          %s%s0x%lx%s (%ld)%s\n", c(C_CYAN),
            s->kaslr.vslide < 0 ? "-" : "+", (unsigned long)abs_vslide,
            c(C_RESET), s->kaslr.vslide, v_spec ? "  (likely)" : "");
+    char vebuf[48];
+    entropy_phrase(s->kaslr.vbits, s->kaslr.vbits_top, vebuf, sizeof(vebuf));
     if (v_spec)
       printf("  Guaranteed range:     0x%016lx - 0x%016lx  (%s%lu%s slots, "
-             "%d bits)\n",
+             "%s)\n",
              layout.virt_kaslr_text_min, layout.virt_kaslr_text_max,
-             c(C_MAGENTA), s->kaslr.vslots, c(C_RESET), s->kaslr.vbits);
+             c(C_MAGENTA), s->kaslr.vslots, c(C_RESET), vebuf);
     else if (s->kaslr.vslots > 0)
-      printf("  KASLR text entropy:   %s%d bits%s (%lu slots of %#lx)\n",
-             c(C_MAGENTA), s->kaslr.vbits, c(C_RESET), s->kaslr.vslots,
+      printf("  KASLR text entropy:   %s%s%s (%lu slots of %#lx)\n",
+             c(C_MAGENTA), vebuf, c(C_RESET), s->kaslr.vslots,
              layout.virt_kaslr_align);
     else
       /* Guaranteed window is a single slot: the visible base IS the only
@@ -1043,7 +1071,7 @@ void print_memory_map(void) {
  * range + slot/entropy footer. */
 static void readout_bound_row(const char *label, unsigned long lo,
                               unsigned long hi, unsigned long slots, int bits,
-                              unsigned long align) {
+                              int bits_top, unsigned long align) {
   if (lo == 0 && hi == 0)
     return; /* quantity not narrowed below honest top OR not applicable */
 
@@ -1055,21 +1083,29 @@ static void readout_bound_row(const char *label, unsigned long lo,
 
   /* Two-line form: status + entropy on the first line — the entropy sits in
    * the same column as the "slide ±X" of a fully-resolved row, so the third
-   * column reads consistently ("slide" when pinned, "~N bits" when not) — then
-   * range + slot-grain on the next line, indented to the value column. */
+   * column reads consistently ("slide" when pinned, entropy when not) — then
+   * range + slot-grain on the next line, indented to the value column.
+   *
+   * The status word is graded, not binary: a window strictly inside the arch
+   * top has been narrowed, however much entropy survives, and calling that
+   * "not derandomized" contradicts the range printed directly beneath it. */
   if (slots > 0 && bits >= 0) {
-    printf("  %-19s %s%-18s%s   %s~%d bits%s\n", label, c(C_YELLOW),
-           "not derandomized", c(C_RESET), c(C_MAGENTA), bits, c(C_RESET));
+    char ebuf[48];
+    printf("  %-19s %s%-18s%s   %s%s%s\n", label, c(C_YELLOW), "narrowed",
+           c(C_RESET), c(C_MAGENTA),
+           entropy_phrase(bits, bits_top, ebuf, sizeof(ebuf)), c(C_RESET));
     char hbuf[32];
     if (align)
-      printf("  %-19s 0x%016lx - 0x%016lx   (%lu x %s)\n", "", lo, hi, slots,
+      printf("  %-19s 0x%016lx - 0x%016lx   %sguaranteed%s  (%lu x %s)\n", "",
+             lo, hi, c(C_DIM), c(C_RESET), slots,
              human_size(align, hbuf, sizeof(hbuf)));
     else
-      printf("  %-19s 0x%016lx - 0x%016lx   (%lu candidates)\n", "", lo, hi,
-             slots);
+      printf("  %-19s 0x%016lx - 0x%016lx   %sguaranteed%s  (%lu candidates)\n",
+             "", lo, hi, c(C_DIM), c(C_RESET), slots);
   } else {
     /* Range known but no slot/entropy count — just print the bounds. */
-    printf("  %-19s 0x%016lx - 0x%016lx\n", label, lo, hi);
+    printf("  %-19s 0x%016lx - 0x%016lx   %sguaranteed%s\n", label, lo, hi,
+           c(C_DIM), c(C_RESET));
   }
 }
 
@@ -1103,6 +1139,8 @@ static int readout_print_leaks(void) {
     const char *label;
     unsigned long addr;
     const struct result *r;
+    unsigned long span_lo, span_hi;
+    int is_span;
   } found[32];
   int nf = 0;
 
@@ -1134,6 +1172,41 @@ static int readout_print_leaks(void) {
   if (nf == 0)
     return 0;
 
+  /* Per-row interior-span detection, and the widest address field, up front. A
+   * region with only interior samples (no edge) has no base; its samples bound
+   * a span, shown as "lo - hi". Computing the max field width first lets the
+   * position and origin columns line up whether a row shows one address or a
+   * span. */
+  int addr_w = 18; /* width of "0x%016lx" */
+  int any_span = 0;
+  for (int i = 0; i < nf; i++) {
+    unsigned long lo = found[i].addr, hi = found[i].addr;
+    int span = 1;
+    for (int j = 0; j < num_results; j++) {
+      const struct result *r = &results[j];
+      if (r->type != found[i].r->type || r->region != found[i].r->region ||
+          !in_bounds(r))
+        continue;
+      if (HAS_LO(r) || HAS_HI(r))
+        span = 0;
+      unsigned long a = anchor_addr(r);
+      if (a < lo)
+        lo = a;
+      if (a > hi)
+        hi = a;
+    }
+    found[i].is_span = span && hi > lo;
+    found[i].span_lo = lo;
+    found[i].span_hi = hi;
+    if (found[i].is_span) {
+      any_span = 1;
+      addr_w = 39; /* width of "0x%016lx - 0x%016lx" */
+    }
+  }
+  /* Pos-note field: wide enough for "[interior span]" when a span is present,
+   * otherwise the narrow default so a span-free readout stays tight. */
+  const int posnote_w = any_span ? 16 : 11;
+
   printf("Leaks (%d):\n", nf);
   for (int i = 0; i < nf; i++) {
     /* Credit every component that found this (type, region), not just the one
@@ -1162,16 +1235,30 @@ static int readout_print_leaks(void) {
           snprintf(seen[ns++], ORIGIN_LEN, "%s", r->origins[p]);
       }
     }
+    /* Address field: a single address or a "lo - hi" span. `vis` is its visible
+     * width; the trailing pad brings every row's pos/origin columns to the same
+     * position (addr_w). Color codes carry no width, so they sit outside it. */
+    const char *pn =
+        found[i].is_span ? " [interior span]" : pos_note(found[i].r);
+    int vis;
+    if (found[i].is_span) {
+      printf("  %-19s %s0x%016lx - 0x%016lx%s", found[i].label, c(C_GREEN),
+             found[i].span_lo, found[i].span_hi, c(C_RESET));
+      vis = 39;
+    } else {
+      printf("  %-19s %s0x%016lx%s", found[i].label, c(C_GREEN), found[i].addr,
+             c(C_RESET));
+      vis = 18;
+    }
+    for (int k = vis; k < addr_w; k++)
+      putchar(' ');
     if (ns == 0) {
-      printf("  %-19s %s0x%016lx%s%s\n", found[i].label, c(C_GREEN),
-             found[i].addr, c(C_RESET), pos_note(found[i].r));
+      printf("%s\n", pn);
       continue;
     }
     /* Names that fit a default ~80-col line; the rest fold into "+N more". */
     const int shown = ns < 3 ? ns : 3;
-    /* Pad the position field so the origins column lines up across rows. */
-    printf("  %-19s %s0x%016lx%s%-11s   %s(", found[i].label, c(C_GREEN),
-           found[i].addr, c(C_RESET), pos_note(found[i].r), c(C_DIM));
+    printf("%-*s   %s(", posnote_w, pn, c(C_DIM));
     for (int idx = 0; idx < shown; idx++)
       printf("%s%s", idx ? ", " : "", seen[idx]);
     if (ns > shown)
@@ -1201,17 +1288,17 @@ static void readout_likely_row(unsigned long lo, unsigned long hi) {
  */
 static void readout_guaranteed_window_row(unsigned long lo, unsigned long hi,
                                           unsigned long slots, int bits,
-                                          unsigned long align) {
-  char hbuf[32];
+                                          int bits_top, unsigned long align) {
+  char hbuf[32], ebuf[48];
+  entropy_phrase(bits, bits_top, ebuf, sizeof(ebuf));
   if (align)
-    printf(
-        "  %-19s 0x%016lx - 0x%016lx   %sguaranteed%s  (~%d bits, %lu x %s)\n",
-        "", lo, hi, c(C_DIM), c(C_RESET), bits, slots,
-        human_size(align, hbuf, sizeof(hbuf)));
+    printf("  %-19s 0x%016lx - 0x%016lx   %sguaranteed%s  (%s, %lu x %s)\n", "",
+           lo, hi, c(C_DIM), c(C_RESET), ebuf, slots,
+           human_size(align, hbuf, sizeof(hbuf)));
   else
-    printf("  %-19s 0x%016lx - 0x%016lx   %sguaranteed%s  (~%d bits, %lu "
+    printf("  %-19s 0x%016lx - 0x%016lx   %sguaranteed%s  (%s, %lu "
            "candidates)\n",
-           "", lo, hi, c(C_DIM), c(C_RESET), bits, slots);
+           "", lo, hi, c(C_DIM), c(C_RESET), ebuf, slots);
 }
 
 /* A concrete LIKELY base graded "likely (speculative)", annotated with its
@@ -1238,40 +1325,36 @@ static void readout_likely_base_row(const char *label, unsigned long base,
 /* Windowed image-base readout (no concrete base was pinned): the entropy
  * headline, then the speculative likely window ABOVE the guaranteed range — the
  * same likely-over-guaranteed ordering the concrete-base form uses
- * (readout_likely_base_row over readout_guaranteed_window_row). The guaranteed
- * range is labelled "guaranteed" only when a likely line accompanies it, so the
- * label always contrasts a speculative line rather than standing alone. Entropy
- * stays on the headline; the range carries only the slot grain. Pinned or
- * slot-less forms have no pair to reorder and defer to the plain rows. */
+ * (readout_likely_base_row over readout_guaranteed_window_row). Every range row
+ * states its grade, whether or not a likely line accompanies it: within one
+ * readout some quantities carry a speculative window and others do not, so an
+ * unlabelled range would be indistinguishable from an unstated grade rather
+ * than reading as "guaranteed". Entropy stays on the headline; the range
+ * carries only the slot grain. Pinned or slot-less forms have no pair to
+ * reorder and defer to the plain rows. */
 static void readout_windowed_base_row(const char *label, unsigned long lo,
                                       unsigned long hi, unsigned long llo,
                                       unsigned long lhi, unsigned long slots,
-                                      int bits, unsigned long align) {
+                                      int bits, int bits_top,
+                                      unsigned long align) {
   if (lo == hi || slots == 0 || bits < 0) {
-    readout_bound_row(label, lo, hi, slots, bits, align);
+    readout_bound_row(label, lo, hi, slots, bits, bits_top, align);
     readout_likely_row(llo, lhi);
     return;
   }
-  printf("  %-19s %s%-18s%s   %s~%d bits%s\n", label, c(C_YELLOW),
-         "not derandomized", c(C_RESET), c(C_MAGENTA), bits, c(C_RESET));
+  char ebuf[48];
+  printf("  %-19s %s%-18s%s   %s%s%s\n", label, c(C_YELLOW), "narrowed",
+         c(C_RESET), c(C_MAGENTA),
+         entropy_phrase(bits, bits_top, ebuf, sizeof(ebuf)), c(C_RESET));
   readout_likely_row(llo, lhi);
   char hbuf[32];
-  if (lhi) { /* a likely line was emitted above — grade the range "guaranteed"
-              */
-    if (align)
-      printf("  %-19s 0x%016lx - 0x%016lx   %sguaranteed%s  (%lu x %s)\n", "",
-             lo, hi, c(C_DIM), c(C_RESET), slots,
-             human_size(align, hbuf, sizeof(hbuf)));
-    else
-      printf("  %-19s 0x%016lx - 0x%016lx   %sguaranteed%s  (%lu candidates)\n",
-             "", lo, hi, c(C_DIM), c(C_RESET), slots);
-  } else if (align) {
-    printf("  %-19s 0x%016lx - 0x%016lx   (%lu x %s)\n", "", lo, hi, slots,
+  if (align)
+    printf("  %-19s 0x%016lx - 0x%016lx   %sguaranteed%s  (%lu x %s)\n", "", lo,
+           hi, c(C_DIM), c(C_RESET), slots,
            human_size(align, hbuf, sizeof(hbuf)));
-  } else {
-    printf("  %-19s 0x%016lx - 0x%016lx   (%lu candidates)\n", "", lo, hi,
-           slots);
-  }
+  else
+    printf("  %-19s 0x%016lx - 0x%016lx   %sguaranteed%s  (%lu candidates)\n",
+           "", lo, hi, c(C_DIM), c(C_RESET), slots);
 }
 
 static void render_readout(const struct summary *s) {
@@ -1314,7 +1397,8 @@ static void render_readout(const struct summary *s) {
     else if (layout.virt_kaslr_text_min || layout.virt_kaslr_text_max)
       readout_bound_row("Kernel image base", layout.virt_kaslr_text_min,
                         layout.virt_kaslr_text_max, s->kaslr.vslots,
-                        s->kaslr.vbits, layout.virt_kaslr_align);
+                        s->kaslr.vbits, s->kaslr.vbits_top,
+                        layout.virt_kaslr_align);
     else if (s->kaslr.default_addr)
       printf("  %-19s %s0x%016lx%s   compile-time default (no slide)\n",
              "Kernel image base", c(C_GREEN), s->kaslr.default_addr,
@@ -1358,14 +1442,15 @@ static void render_readout(const struct summary *s) {
     if (s->kaslr.vstext && s->kaslr.vstext != s->kaslr.vtext)
       printf("  %-19s %s0x%016lx%s   %slikely%s\n", "Virtual _stext",
              c(C_GREEN), s->kaslr.vstext, c(C_RESET), c(C_DIM), c(C_RESET));
-    readout_guaranteed_window_row(layout.virt_kaslr_text_min,
-                                  layout.virt_kaslr_text_max, s->kaslr.vslots,
-                                  s->kaslr.vbits, layout.virt_kaslr_align);
+    readout_guaranteed_window_row(
+        layout.virt_kaslr_text_min, layout.virt_kaslr_text_max, s->kaslr.vslots,
+        s->kaslr.vbits, s->kaslr.vbits_top, layout.virt_kaslr_align);
   } else {
     readout_windowed_base_row("Virtual image base", layout.virt_kaslr_text_min,
                               layout.virt_kaslr_text_max, s->kaslr.vlikely_min,
                               s->kaslr.vlikely_max, s->kaslr.vslots,
-                              s->kaslr.vbits, layout.virt_kaslr_align);
+                              s->kaslr.vbits, s->kaslr.vbits_top,
+                              layout.virt_kaslr_align);
   }
 
   int p_likely_base = (s->kaslr.has_phys && s->kaslr.ptext && !ppin);
@@ -1385,13 +1470,13 @@ static void render_readout(const struct summary *s) {
              c(C_GREEN), s->kaslr.pstext, c(C_RESET), c(C_DIM), c(C_RESET));
     readout_guaranteed_window_row(layout.phys_kaslr_text_min,
                                   layout.phys_kaslr_text_max, s->kaslr.pslots,
-                                  s->kaslr.pbits, layout.phys_kaslr_align);
+                                  s->kaslr.pbits, 0, layout.phys_kaslr_align);
   } else if (s->kaslr.pslots > 0 ||
              (layout.phys_kaslr_text_min || layout.phys_kaslr_text_max)) {
     readout_windowed_base_row("Physical image base", layout.phys_kaslr_text_min,
                               layout.phys_kaslr_text_max, s->kaslr.plikely_min,
                               s->kaslr.plikely_max, s->kaslr.pslots,
-                              s->kaslr.pbits, layout.phys_kaslr_align);
+                              s->kaslr.pbits, 0, layout.phys_kaslr_align);
   }
 
   /* virt_page_offset (direct-map base): only when both sides narrowed into a
@@ -1427,13 +1512,13 @@ static void render_readout(const struct summary *s) {
       readout_likely_base_row("Direct map base", lhi, "off",
                               (long)(lhi - PAGE_OFFSET_BASE_L4));
       if (hi && hi >= lo)
-        readout_guaranteed_window_row(lo, hi, slots, bits, align);
+        readout_guaranteed_window_row(lo, hi, slots, bits, 0, align);
       else
         printf("  %-19s >= %s0x%016lx%s   %sguaranteed%s\n", "", c(C_CYAN), lo,
                c(C_RESET), c(C_DIM), c(C_RESET));
     } else {
       if (lo && hi && hi >= lo)
-        readout_bound_row("Direct map base", lo, hi, slots, bits, align);
+        readout_bound_row("Direct map base", lo, hi, slots, bits, 0, align);
       else if (lo && !hi)
         printf("  %-19s >= %s0x%016lx%s\n", "Direct map base", c(C_CYAN), lo,
                c(C_RESET));

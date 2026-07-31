@@ -300,21 +300,47 @@ static void test_quantity_slots_hole_aware(void) {
   e.hi = base + 0x4000000ul;         /* 64 MiB span */
   unsigned long align = 0x1000000ul; /* 16 MiB slots */
 
-  /* No holes: (hi - lo) / align. */
+  /* No holes. The range is closed at both edges, so a 64 MiB span at a 16 MiB
+   * pitch admits five placements (base, +16M, +32M, +48M, +64M) — not four.
+   * Asserted as a literal rather than as the formula, so the count and the
+   * window a reader is shown cannot drift apart. */
   unsigned long full =
       quantity_slots(Q_VIRT_IMAGE_BASE, &e, CONF_BRUTE, NULL, 0, align);
-  assert(full == (e.hi - e.lo) / align);
+  assert(full == 5);
+  assert(full == (e.hi - e.lo) / align + 1);
 
-  /* An interior hole strictly reduces the count. */
+  /* An interior hole strictly reduces the count, and each surviving sub-range
+   * is itself counted closed: [base, base+16M-1] holds one placement and
+   * [base+32M, base+64M] holds three. */
   struct constraint cs[1];
   cs[0] = mk(Q_VIRT_IMAGE_BASE, C_EXCLUDE, base + 0x1000000ul, CONF_DERIVED, 1);
   cs[0].value2 = base + 0x1fffffful; /* hole [base+16M, base+32M-1] */
   unsigned long holed =
       quantity_slots(Q_VIRT_IMAGE_BASE, &e, CONF_BRUTE, cs, 1, align);
+  assert(holed == 4);
   assert(holed < full);
 
   /* align 0 is defined as 0 slots (no division). */
   assert(quantity_slots(Q_VIRT_IMAGE_BASE, &e, CONF_BRUTE, NULL, 0, 0) == 0);
+}
+
+/* A pinned quantity is one candidate, and a window narrower than one slot is
+ * also one — both fall out of counting a closed range rather than needing a
+ * special case. Zero candidates would be indistinguishable from an empty
+ * result, and would report a pin as if nothing had been resolved. */
+static void test_quantity_slots_pin_is_one_candidate(void) {
+  struct estimate e;
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&e);
+  unsigned long base = e.lo;
+  unsigned long align = 0x1000000ul; /* 16 MiB slots */
+
+  e.hi = e.lo; /* pinned */
+  assert(quantity_slots(Q_VIRT_IMAGE_BASE, &e, CONF_BRUTE, NULL, 0, align) ==
+         1);
+
+  e.hi = base + 0x1000ul; /* 4 KiB window, far narrower than one slot */
+  assert(quantity_slots(Q_VIRT_IMAGE_BASE, &e, CONF_BRUTE, NULL, 0, align) ==
+         1);
 }
 
 /* The floor gates which C_EXCLUDE holes carve, exactly as estimate_resolve
@@ -631,11 +657,12 @@ static void test_quantity_slots_with_stride(void) {
   /* Pin a small window so the count is meaningfully bounded. */
   e.lo = 0x10000000ul;
   e.hi = 0x10000000ul + 0x800000ul; /* 8 MiB window */
-  /* With align = 16 KiB: 8 MiB / 16 KiB = 512 align-slots, but only
-   * 8 MiB / 1 MiB = 8 stride-class slots. */
+  /* Both edges count, as everywhere else. With align = 16 KiB the window would
+   * hold 8 MiB / 16 KiB + 1 = 513 align-slots; the stride class admits only
+   * 8 MiB / 1 MiB + 1 = 9. */
   unsigned long slots = quantity_slots(Q_VIRT_IMAGE_BASE, &e, CONF_BRUTE, cs, 1,
                                        0x4000ul /* 16 KiB */);
-  assert(slots == 8 || slots == 9); /* off-by-one at edge tolerable */
+  assert(slots == 9);
 }
 
 int main(void) {
@@ -668,6 +695,7 @@ int main(void) {
   RUN(test_quantity_ranges_interval_with_interior_hole);
   RUN(test_exclude_full_cover_is_bottom);
   RUN(test_quantity_slots_hole_aware);
+  RUN(test_quantity_slots_pin_is_one_candidate);
   RUN(test_quantity_slots_floor_gates_holes);
   RUN(test_quantity_ranges_finset);
   RUN(test_quantity_ranges_maxalign_empty);

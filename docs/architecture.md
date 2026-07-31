@@ -98,8 +98,8 @@ raise the floor (DRAM bounds) and the 2 MiB `IMAGE_ALIGN` slot grid is applied.
 With only this one leak the result is still a window — several slots wide:
 
 ```
-  Virtual image base   not derandomized     ~3 bits
-                       0xffffffff81000000 - 0xffffffff81f41000   (7 x 2.0 MiB)
+  Virtual image base   narrowed             ~3 of 9 bits
+                       0xffffffff81000000 - 0xffffffff81f41000   guaranteed  (8 x 2.0 MiB)
 ```
 
 A second observation — a `_stext` base witness, a DRAM floor, or the
