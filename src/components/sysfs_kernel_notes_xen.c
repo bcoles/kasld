@@ -150,8 +150,11 @@ static int has_xen_elfnote_symbols(void) {
  * pvh_start_xen is the anchor for that floor. hypercall_page sits at _text +
  * 0x1000 on <= 5.x (inside the 2 MiB window), but 6.x moves it to .noinstr.text
  * ~16-19 MiB past _text, so its floor overshoots _text by ~16 MiB; startup_xen
- * (.init.text) is ~25-40 MiB out. All three are emitted as interior samples;
- * the engine bounds the base from the lowest. */
+ * (.init.text) is ~25-40 MiB out. All three are emitted as interior samples, so
+ * the floor of the lowest bounds the guaranteed base from above. pvh_start_xen
+ * alone also pins the LIKELY base: its offset is below the align, so its own
+ * floor is _text exactly — emitted at CONF_HEURISTIC, which refines the likely
+ * window without ever narrowing the guaranteed one. */
 
 int main(void) {
   int fd;
@@ -324,6 +327,18 @@ int main(void) {
           kasld_found("Xen PHYS32_ENTRY -> virtual: %lx", virt);
           kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, virt,
                               "pvh_start_xen", CONF_PARSED);
+          /* pvh_start_xen is the PVH entry in .head.text (_text+0..0x5f0), so
+           * its VA sits within one KASLR step of _text; kasld_floor_text_base()
+           * rounds it down to the base grid (preserving any arch sub-offset),
+           * landing on _text exactly. Pin that as the likely image base at
+           * CONF_HEURISTIC: "within one step" is a structural regularity, not a
+           * runtime-provable bound, so it stays below the guaranteed floor and
+           * refines the likely window only — never the guaranteed base, which
+           * rests on the interior sample above. */
+          unsigned long base = kasld_floor_text_base(virt);
+          if (kasld_addr_is_kernel_text(base))
+            kasld_result_base(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE, base,
+                              "_text", CONF_HEURISTIC);
           found++;
         }
       }
