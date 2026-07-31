@@ -138,8 +138,9 @@ static void test_complete_map_emits_hull_and_extents(void) {
   rm_memory_node("memory@0");
   rm_memory_node("memory@1");
 
-  assert(strstr(cap, "ram pos=base conf=parsed lo=0x40000000") != NULL);
-  assert(strstr(cap, "ram pos=top conf=parsed hi=0xa0000000") != NULL);
+  /* Both edges known → a single bounded range (pos=base carrying lo and hi). */
+  assert(strstr(cap, "ram pos=base conf=parsed lo=0x40000000 hi=0xa0000000") !=
+         NULL);
   assert(strstr(cap, "ram pos=extent") != NULL);
 }
 
@@ -166,8 +167,8 @@ static void test_overflow_emits_hull_only(void) {
   rm_memory_node("memory@0");
   rm_memory_node("memory@1");
 
-  assert(strstr(cap, "ram pos=base") != NULL);
-  assert(strstr(cap, "ram pos=top") != NULL);
+  /* Hull only, as a bounded range (pos=base with both edges); no covering. */
+  assert(strstr(cap, "ram pos=base conf=parsed lo=0x40000000 hi=") != NULL);
   assert(strstr(cap, "ram pos=extent") == NULL);
 }
 

@@ -230,11 +230,13 @@ int main(void) {
   kasld_info("device tree: %d memory region(s)", count);
 
   kasld_info("lowest DRAM start:  0x%016lx", lo);
-  kasld_result_base(KASLD_TYPE_PHYS, REGION_RAM, lo, NULL, CONF_PARSED);
-
   if (hi && hi != lo) {
     kasld_info("highest DRAM end:   0x%016lx", hi);
-    kasld_result_top(KASLD_TYPE_PHYS, REGION_RAM, hi, NULL, CONF_PARSED);
+    /* Both edges known: one bounded range (validated lo <= hi at the source).
+     */
+    kasld_result_range(KASLD_TYPE_PHYS, REGION_RAM, lo, hi, NULL, CONF_PARSED);
+  } else {
+    kasld_result_base(KASLD_TYPE_PHYS, REGION_RAM, lo, NULL, CONF_PARSED);
   }
 
 #ifdef phys_to_directmap_virt
