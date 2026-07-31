@@ -1,1 +1,7 @@
 *.sh
+# Generated per-build offset tables: a single multi-thousand-row array
+# initializer. clang-format's // clang-format off disables reformatting but not
+# parsing, and the parse of one ~450k-token statement can exhaust memory.
+# The rows are machine-generated with a fixed format, so exclude these files
+# from clang-format entirely.
+src/components/bpf_verifier_ksym.c
