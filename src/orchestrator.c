@@ -2782,6 +2782,13 @@ void compute_kaslr_info(struct summary *s) {
             : 0;
   }
 #endif
+  s->kaslr.virt_page_offset_bits = s->kaslr.virt_page_offset_slots > 0
+                                       ? ilog2(s->kaslr.virt_page_offset_slots)
+                                       : 0;
+  s->kaslr.virt_vmalloc_bits =
+      s->kaslr.virt_vmalloc_slots > 0 ? ilog2(s->kaslr.virt_vmalloc_slots) : 0;
+  s->kaslr.virt_vmemmap_bits =
+      s->kaslr.virt_vmemmap_slots > 0 ? ilog2(s->kaslr.virt_vmemmap_slots) : 0;
 
 #ifndef KASLD_TESTING
   /* Speculative "likely" sub-windows for the memory-KASLR regions: the engine's
@@ -4135,11 +4142,27 @@ int main(int argc, char *argv[]) {
         (sysroot && *sysroot) ? "skipped" : "skipped by --skip";
     /* "N of M" rather than a bare N: the skipped counts that follow are
      * excluded from N, so a bare count reads either way. */
-    if (num_active_components == 0)
-      /* Nothing to run (e.g. -s '*'): the result below is the engine's
-       * leak-free structural inference, not a scan. */
-      printf("Structural baseline - no components run\n");
-    else if (nf > 0 && ne > 0)
+    if (num_active_components == 0) {
+      /* Every discovered component was filtered out, so the result below is
+       * the engine's leak-free structural inference rather than a scan. Name
+       * which filter emptied the set: the three causes (--skip, experimental
+       * gating, KASLD_SYSROOT dropping live probes) need different responses.
+       * A component directory that is missing or empty cannot reach here --
+       * discover_components() fails the run before any output. */
+      if (nf > 0 && ne > 0)
+        printf("Structural baseline: no components ran (%d %s, %d experimental;"
+               " use -x to enable)\n",
+               nf, skipped_by, ne);
+      else if (nf > 0)
+        printf("Structural baseline: no components ran (all %d %s)\n", nf,
+               skipped_by);
+      else if (ne > 0)
+        printf("Structural baseline: no components ran (all %d experimental;"
+               " use -x to enable)\n",
+               ne);
+      else
+        printf("Structural baseline: no components ran\n");
+    } else if (nf > 0 && ne > 0)
       printf("Running %d of %d components (%d %s, %d experimental "
              "skipped; use -x to enable)...\n",
              num_active_components, num_components, nf, skipped_by, ne);

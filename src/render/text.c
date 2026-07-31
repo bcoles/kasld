@@ -232,26 +232,6 @@ static void print_group(enum kasld_addr_type type, const char *section,
   printf("\n");
 }
 
-/* Bits-of-entropy from a candidate count: ceil(log2(v)) for v >= 1, 0 for
- * v == 0. CEIL (not floor) because the user-facing question is "how much
- * brute-force work remains?" - 13 candidates is ~4 bits of worst-case
- * work, not 3. Floor would understate residual entropy on every
- * non-power-of-2 candidate count (common for direct-map / vmalloc /
- * vmemmap windows on RANDOMIZE_MEMORY). Power-of-2 inputs are unaffected
- * (ceil == floor). */
-static int ilog2_ul(unsigned long v) {
-  if (v <= 1)
-    return 0;
-  int r = 0;
-  unsigned long n = v;
-  while (n >>= 1)
-    r++;
-  /* If v is not a power of 2, round up. */
-  if ((v & (v - 1)) != 0)
-    r++;
-  return r;
-}
-
 /* Print one row of the Memory KASLR (CONFIG_RANDOMIZE_MEMORY) table.
  * Each region (virt_page_offset_base, virt_vmalloc_base, virt_vmemmap_base)
  * carries a (min, max) pair that compute_kaslr_info stores using 0 as the "not
@@ -301,7 +281,8 @@ static void render_memory_kaslr_likely(unsigned long lmin, unsigned long lmax,
 
 static void render_memory_kaslr_bound(const char *name, unsigned long min,
                                       unsigned long max, unsigned long slots,
-                                      unsigned long lmin, unsigned long lmax,
+                                      int bits, unsigned long lmin,
+                                      unsigned long lmax,
                                       unsigned long likely_slots) {
   if (!min && !max)
     return;
@@ -312,24 +293,24 @@ static void render_memory_kaslr_bound(const char *name, unsigned long min,
    * "0xhigh - 0xlow". */
   if (min && max && min > max)
     return;
+  /* Same notation as the compact readout: ".." over a closed candidate window,
+   * an explicit grade, and the candidate count separated from the entropy. The
+   * direct map appears in both views, so the two must not describe one
+   * quantity two different ways. */
   if (min && !max)
-    printf("  %-21s >= 0x%016lx\n", name, min);
-  else if (!min && max)
-    printf("  %-21s <= 0x%016lx\n", name, max);
-  else if (min == max)
-    printf("  %-21s %s0x%016lx%s (pinned)\n", name, c(C_GREEN), min,
+    printf("  %-17s guaranteed  >= %s0x%lx%s\n", name, c(C_CYAN), min,
            c(C_RESET));
-  else {
-    /* Bounded both sides: report the residual positional entropy of the region
-     * base — the hole-aware slot count the engine resolved (quantity_slots in
-     * compute_kaslr_info), e.g. a direct-map leak narrows virt_page_offset_base
-     * to ~RAM/1GiB. */
-    if (slots > 1)
-      printf("  %-21s 0x%016lx - 0x%016lx  (%s%lu%s candidates, %d bits)\n",
-             name, min, max, c(C_MAGENTA), slots, c(C_RESET), ilog2_ul(slots));
-    else
-      printf("  %-21s 0x%016lx - 0x%016lx\n", name, min, max);
-  }
+  else if (!min && max)
+    printf("  %-17s guaranteed  <= %s0x%lx%s\n", name, c(C_CYAN), max,
+           c(C_RESET));
+  else if (min == max)
+    printf("  %-17s pinned      %s0x%lx%s\n", name, c(C_GREEN), min,
+           c(C_RESET));
+  else if (slots > 1)
+    printf("  %-17s guaranteed  0x%lx .. 0x%lx  %s%lu slots, ~%d bits%s\n",
+           name, min, max, c(C_MAGENTA), slots, bits, c(C_RESET));
+  else
+    printf("  %-17s guaranteed  0x%lx .. 0x%lx\n", name, min, max);
   render_memory_kaslr_likely(lmin, lmax, likely_slots);
 }
 
@@ -477,19 +458,19 @@ static void render_kaslr_text(const struct summary *s) {
   if (summary_has_memory_kaslr(s)) {
     printf("Memory KASLR (directmap / vmalloc / vmemmap):\n");
     render_memory_kaslr_bound(
-        "virt_page_offset_base", s->kaslr.virt_page_offset_min,
+        "Direct map base", s->kaslr.virt_page_offset_min,
         s->kaslr.virt_page_offset_max, s->kaslr.virt_page_offset_slots,
-        s->kaslr.virt_page_offset_likely_min,
+        s->kaslr.virt_page_offset_bits, s->kaslr.virt_page_offset_likely_min,
         s->kaslr.virt_page_offset_likely_max,
         s->kaslr.virt_page_offset_likely_slots);
     render_memory_kaslr_bound(
-        "virt_vmalloc_base", s->kaslr.virt_vmalloc_min,
-        s->kaslr.virt_vmalloc_max, s->kaslr.virt_vmalloc_slots,
+        "vmalloc base", s->kaslr.virt_vmalloc_min, s->kaslr.virt_vmalloc_max,
+        s->kaslr.virt_vmalloc_slots, s->kaslr.virt_vmalloc_bits,
         s->kaslr.virt_vmalloc_likely_min, s->kaslr.virt_vmalloc_likely_max,
         s->kaslr.virt_vmalloc_likely_slots);
     render_memory_kaslr_bound(
-        "virt_vmemmap_base", s->kaslr.virt_vmemmap_min,
-        s->kaslr.virt_vmemmap_max, s->kaslr.virt_vmemmap_slots,
+        "vmemmap base", s->kaslr.virt_vmemmap_min, s->kaslr.virt_vmemmap_max,
+        s->kaslr.virt_vmemmap_slots, s->kaslr.virt_vmemmap_bits,
         s->kaslr.virt_vmemmap_likely_min, s->kaslr.virt_vmemmap_likely_max,
         s->kaslr.virt_vmemmap_likely_slots);
     printf("\n");
@@ -1053,62 +1034,6 @@ void print_memory_map(void) {
   print_physical_layout();
 }
 
-/* -------------------------------------------------------------------------
- * Readout renderer (default text mode — answer-first summary)
- *
- * Produces a tight ~15-line summary that answers "where is the kernel
- * text base?" without the layout maps, per-component logs, or system
- * config block. The verbose flow (render_text under --verbose) retains
- * all of that detail.
- *
- * Layout: 2-column with a 20-char label field; values right-padded to
- * an entropy column at the end of the line where applicable. All output
- * is ASCII so it survives any terminal.
- * -------------------------------------------------------------------------
- */
-/* Emit one bound row of the readout. `label` is the left column; the
- * value column contains either a pinned address (when lo == hi) or a
- * range + slot/entropy footer. */
-static void readout_bound_row(const char *label, unsigned long lo,
-                              unsigned long hi, unsigned long slots, int bits,
-                              int bits_top, unsigned long align) {
-  if (lo == 0 && hi == 0)
-    return; /* quantity not narrowed below honest top OR not applicable */
-
-  if (lo == hi) {
-    printf("  %-19s %s0x%016lx%s   pinned\n", label, c(C_GREEN), lo,
-           c(C_RESET));
-    return;
-  }
-
-  /* Two-line form: status + entropy on the first line — the entropy sits in
-   * the same column as the "slide ±X" of a fully-resolved row, so the third
-   * column reads consistently ("slide" when pinned, entropy when not) — then
-   * range + slot-grain on the next line, indented to the value column.
-   *
-   * The status word is graded, not binary: a window strictly inside the arch
-   * top has been narrowed, however much entropy survives, and calling that
-   * "not derandomized" contradicts the range printed directly beneath it. */
-  if (slots > 0 && bits >= 0) {
-    char ebuf[48];
-    printf("  %-19s %s%-18s%s   %s%s%s\n", label, c(C_YELLOW), "narrowed",
-           c(C_RESET), c(C_MAGENTA),
-           entropy_phrase(bits, bits_top, ebuf, sizeof(ebuf)), c(C_RESET));
-    char hbuf[32];
-    if (align)
-      printf("  %-19s 0x%016lx - 0x%016lx   %sguaranteed%s  (%lu x %s)\n", "",
-             lo, hi, c(C_DIM), c(C_RESET), slots,
-             human_size(align, hbuf, sizeof(hbuf)));
-    else
-      printf("  %-19s 0x%016lx - 0x%016lx   %sguaranteed%s  (%lu candidates)\n",
-             "", lo, hi, c(C_DIM), c(C_RESET), slots);
-  } else {
-    /* Range known but no slot/entropy count — just print the bounds. */
-    printf("  %-19s 0x%016lx - 0x%016lx   %sguaranteed%s\n", label, lo, hi,
-           c(C_DIM), c(C_RESET));
-  }
-}
-
 /* List the kernel-locating leaks that drive the readout. One line per
  * (type, region) consensus pick — skipping noise (generic DRAM/MMIO
  * extents, virt_page_offset metadata). */
@@ -1177,7 +1102,6 @@ static int readout_print_leaks(void) {
    * a span, shown as "lo - hi". Computing the max field width first lets the
    * position and origin columns line up whether a row shows one address or a
    * span. */
-  int addr_w = 18; /* width of "0x%016lx" */
   int any_span = 0;
   for (int i = 0; i < nf; i++) {
     unsigned long lo = found[i].addr, hi = found[i].addr;
@@ -1198,25 +1122,75 @@ static int readout_print_leaks(void) {
     found[i].is_span = span && hi > lo;
     found[i].span_lo = lo;
     found[i].span_hi = hi;
-    if (found[i].is_span) {
+    if (found[i].is_span)
       any_span = 1;
-      addr_w = 39; /* width of "0x%016lx - 0x%016lx" */
+  }
+  /* Column widths for the block, computed up front so the position tag, the
+   * ".." separator and the provenance continuation each land in one column
+   * whatever mix of spans and single addresses the run produced. */
+  int digits = 1, label_w = 1;
+  for (int i = 0; i < nf; i++) {
+    int l = (int)strlen(found[i].label);
+    if (l > label_w)
+      label_w = l;
+    unsigned long v[2] = {found[i].is_span ? found[i].span_lo : found[i].addr,
+                          found[i].is_span ? found[i].span_hi : 0ul};
+    for (int k = 0; k < 2; k++) {
+      if (!v[k])
+        continue;
+      int n = 0;
+      unsigned long t = v[k];
+      do {
+        n++;
+        t >>= 4;
+      } while (t);
+      if (n > digits)
+        digits = n;
     }
   }
-  /* Pos-note field: wide enough for "[interior span]" when a span is present,
-   * otherwise the narrow default so a span-free readout stays tight. */
-  const int posnote_w = any_span ? 16 : 11;
+  label_w += 2;
+  /* pos_note() strings carry a leading space, which serves as this column's
+   * gutter. */
+  const int posnote_w = (any_span ? 16 : 11) + 1;
 
-  printf("Leaks (%d):\n", nf);
+  /* Count distinct contributing components across the whole block: a finding
+   * is a (type, region) group, and several components can corroborate one, so
+   * a bare row count under-reports what produced the evidence. */
+  int total_sources = 0;
+  {
+    char all[MAX_COMPONENTS][ORIGIN_LEN];
+    for (int i = 0; i < nf; i++)
+      for (int j = 0; j < num_results; j++) {
+        const struct result *r = &results[j];
+        if (r->type != found[i].r->type || r->region != found[i].r->region ||
+            !in_bounds(r))
+          continue;
+        for (int pi = 0; pi < r->provenance_count; pi++) {
+          int dup = 0;
+          for (int k = 0; k < total_sources; k++)
+            if (strncmp(all[k], r->origins[pi], ORIGIN_LEN) == 0) {
+              dup = 1;
+              break;
+            }
+          if (!dup && total_sources < MAX_COMPONENTS)
+            snprintf(all[total_sources++], ORIGIN_LEN, "%s", r->origins[pi]);
+        }
+      }
+  }
+
+  /* "Evidence", not "Leaks": the block holds side-channel measurements
+   * (prefetch timing) alongside actual disclosures, and only the latter are
+   * leaks. */
+  printf("%sEvidence%s  (%d finding%s, %d component%s)\n", c(C_BOLD),
+         c(C_RESET), nf, nf == 1 ? "" : "s", total_sources,
+         total_sources == 1 ? "" : "s");
   for (int i = 0; i < nf; i++) {
     /* Credit every component that found this (type, region), not just the one
      * highest-confidence record: results merge by (type, region, NAME), so the
      * same address tagged under different symbol names (e.g. _stext from
      * proc_kallsyms vs an unnamed text leak) lands in separate merged records.
      * Aggregate provenance across all in-bounds records of this (type, region),
-     * de-duplicated. seen[] is sized to the structural max so the distinct
-     * count is exact; the line shows the first few and folds the rest into
-     * "+N more" (verbose lists them all). */
+     * de-duplicated. */
     char seen[MAX_COMPONENTS][ORIGIN_LEN];
     int ns = 0;
     for (int j = 0; j < num_results; j++) {
@@ -1224,137 +1198,286 @@ static int readout_print_leaks(void) {
       if (r->type != found[i].r->type || r->region != found[i].r->region ||
           !in_bounds(r))
         continue;
-      for (int p = 0; p < r->provenance_count; p++) {
+      for (int pi = 0; pi < r->provenance_count; pi++) {
         int dup = 0;
         for (int idx = 0; idx < ns; idx++)
-          if (strncmp(seen[idx], r->origins[p], ORIGIN_LEN) == 0) {
+          if (strncmp(seen[idx], r->origins[pi], ORIGIN_LEN) == 0) {
             dup = 1;
             break;
           }
         if (!dup && ns < (int)(sizeof(seen) / sizeof(seen[0])))
-          snprintf(seen[ns++], ORIGIN_LEN, "%s", r->origins[p]);
+          snprintf(seen[ns++], ORIGIN_LEN, "%s", r->origins[pi]);
       }
     }
-    /* Address field: a single address or a "lo - hi" span. `vis` is its visible
-     * width; the trailing pad brings every row's pos/origin columns to the same
-     * position (addr_w). Color codes carry no width, so they sit outside it. */
+
+    /* The extent-position tag precedes the value it qualifies: a reader should
+     * know what kind of address is coming before reading it, not after. */
     const char *pn =
         found[i].is_span ? " [interior span]" : pos_note(found[i].r);
-    int vis;
+    char a1[40], a2[40], t[32];
+    snprintf(t, sizeof(t), "0x%lx",
+             found[i].is_span ? found[i].span_lo : found[i].addr);
+    snprintf(a1, sizeof(a1), "%*s", digits + 2, t);
+    printf("  %-*s%-*s%s%s%s", label_w, found[i].label, posnote_w, pn,
+           c(C_GREEN), a1, c(C_RESET));
     if (found[i].is_span) {
-      printf("  %-19s %s0x%016lx - 0x%016lx%s", found[i].label, c(C_GREEN),
-             found[i].span_lo, found[i].span_hi, c(C_RESET));
-      vis = 39;
-    } else {
-      printf("  %-19s %s0x%016lx%s", found[i].label, c(C_GREEN), found[i].addr,
-             c(C_RESET));
-      vis = 18;
+      snprintf(t, sizeof(t), "0x%lx", found[i].span_hi);
+      snprintf(a2, sizeof(a2), "%*s", digits + 2, t);
+      printf(" .. %s%s%s", c(C_GREEN), a2, c(C_RESET));
     }
-    for (int k = vis; k < addr_w; k++)
-      putchar(' ');
-    if (ns == 0) {
-      printf("%s\n", pn);
+    printf("\n");
+
+    if (ns == 0)
       continue;
+    /* Provenance on its own line, introduced by "from" and aligned under the
+     * value: bare parenthesised names read as kernel symbols rather than as
+     * the components that produced the finding. */
+    const int indent = 2 + label_w + posnote_w + 5; /* under "from " */
+    int col = indent;
+    printf("  %-*s%sfrom ", label_w + posnote_w, "", c(C_DIM));
+    for (int idx = 0; idx < ns; idx++) {
+      int need = (int)strlen(seen[idx]) + (idx ? 2 : 0);
+      /* Wrap rather than truncate: which components corroborate a finding is
+       * the whole point of the line, so a long list continues on the next one
+       * at the same column instead of folding into "+N more". */
+      if (idx && col + need > 78) {
+        printf(",\n%*s%s", indent, "", seen[idx]);
+        col = indent + (int)strlen(seen[idx]);
+      } else {
+        printf("%s%s", idx ? ", " : "", seen[idx]);
+        col += need;
+      }
     }
-    /* Names that fit a default ~80-col line; the rest fold into "+N more". */
-    const int shown = ns < 3 ? ns : 3;
-    printf("%-*s   %s(", posnote_w, pn, c(C_DIM));
-    for (int idx = 0; idx < shown; idx++)
-      printf("%s%s", idx ? ", " : "", seen[idx]);
-    if (ns > shown)
-      printf(", +%d more", ns - shown);
-    printf(")%s\n", c(C_RESET));
+    printf("%s\n", c(C_RESET));
   }
   return nf;
 }
 
-/* Default-readout sub-line for the speculative "likely" window, printed under
- * the guaranteed image-base range when a sub-sound-floor signal narrowed it.
- * hi == 0 means unset (likely == guaranteed) — nothing to add. */
-static void readout_likely_row(unsigned long lo, unsigned long hi) {
-  if (hi == 0)
+/* ---- Compact readout: one block per resolved quantity -------------------
+ *
+ * A block is a header line naming the quantity and stating its status, then
+ * one indented row per epistemic grade. The quantity name owns a line rather
+ * than a fixed-width label column, so a long name cannot consume the value
+ * column, and a continuation row is owned by its indentation instead of by
+ * position alone.
+ *
+ * Grade is a column on every value row. Within one readout some quantities
+ * carry a speculative window and others do not, so an unlabelled row reads as
+ * an unstated grade rather than as "guaranteed".
+ *
+ * Addresses are right-aligned to the widest address in their own block and
+ * never zero-padded: relative magnitude stays legible, and a 16 MiB physical
+ * address does not wear the costume of a 64-bit kernel pointer.
+ * ------------------------------------------------------------------------- */
+#define READOUT_GRADE_W 21 /* "likely (speculative)" + 1 */
+/* Sized so the status opens at the same column the value fields start at
+ * (26), clear of the grade column below it. At 21 the status opened at 24 --
+ * inside the grade field, so its "(" landed on top of the ")" of
+ * "likely (speculative)" on the row beneath. */
+#define READOUT_LABEL_W 23
+#define GRADE_LIKELY "likely (speculative)"
+#define GRADE_GUARANTEED "guaranteed"
+
+/* Decimal digits in v (at least 1). */
+static int readout_dec_digits(unsigned long v) {
+  int n = 0;
+  do {
+    n++;
+    v /= 10;
+  } while (v);
+  return n;
+}
+
+static int readout_hex_digits(unsigned long v) {
+  int n = 0;
+  do {
+    n++;
+    v >>= 4;
+  } while (v);
+  return n;
+}
+
+static const char *readout_addr(unsigned long v, int digits, char *buf,
+                                size_t sz) {
+  char t[32];
+  snprintf(t, sizeof(t), "0x%lx", v);
+  snprintf(buf, sz, "%*s", digits + 2, t);
+  return buf;
+}
+
+/* Slot pitch without a trailing ".0" — the pitch is exact by construction, so
+ * the decimal is noise. Trimmed here rather than in human_size(), which also
+ * formats measured sizes elsewhere (and oneline's fixed-schema `dram=`). */
+static const char *readout_grain(unsigned long align, char *buf, size_t sz) {
+  char t[32];
+  human_size(align, t, sizeof(t));
+  char *dot = strstr(t, ".0");
+  if (dot)
+    memmove(dot, dot + 2, strlen(dot + 2) + 1);
+  snprintf(buf, sz, "%s", t);
+  return buf;
+}
+
+/* A displayed window edge must be a value the quantity can actually take:
+ * snap the floor up and the ceiling down onto the candidate grid. An edge off
+ * the grid is a *bound*, and printing it where a candidate is expected invites
+ * the reader to treat a bound as an answer. Left untouched if snapping would
+ * wrap or invert the window. */
+static void readout_snap(unsigned long *lo, unsigned long *hi,
+                         unsigned long align) {
+  if (!align || !*lo || !*hi)
     return;
-  if (lo == hi)
-    printf("  %-19s %s0x%016lx   likely (speculative)%s\n", "", c(C_DIM), lo,
+  unsigned long m = align - 1;
+  if (*lo > ULONG_MAX - m)
+    return;
+  unsigned long l = (*lo + m) & ~m, h = *hi & ~m;
+  if (l >= *lo && h <= *hi && l <= h) {
+    *lo = l;
+    *hi = h;
+  }
+}
+
+/* Blocks are separated by a blank line so a quantity's rows read as one unit;
+ * reset per readout by render_readout(). */
+static int readout_block_n;
+
+/* One address-field width and one count-field width for the whole Layout
+ * section, so the ".." separator, the high endpoint and the candidate count
+ * each form a single column down the section rather than one per block. */
+static int readout_addr_w = 1;
+static int readout_count_w = 1;
+
+static int readout_wmax(int w, unsigned long v) {
+  if (!v)
+    return w;
+  int n = readout_hex_digits(v);
+  return n > w ? n : w;
+}
+
+static int readout_cmax(int w, unsigned long v) {
+  if (!v)
+    return w;
+  int n = readout_dec_digits(v);
+  return n > w ? n : w;
+}
+
+static void readout_head(const char *label, const char *status) {
+  if (readout_block_n++)
+    printf("\n");
+  printf("  %s%s%s", c(C_BOLD), label, c(C_RESET));
+  if (status && *status) {
+    /* Pad to the widest quantity name so statuses form a scannable column.
+     * Unlike the old label column this one abuts prose, never an address, so a
+     * name that outgrows the pad merely shifts its own status. */
+    /* Parenthesised, and deliberately not sharing a column with the value
+     * rows below: this is a verdict about the quantity, not a value. It cannot
+     * align with the addresses in any case -- those are right-aligned, so a
+     * short physical address and a long virtual one start in different
+     * columns. The brackets make the difference explicit rather than leaving
+     * it to read as a near-miss. */
+    int pad = READOUT_LABEL_W - (int)strlen(label);
+    printf("%*s%s(%s)%s", pad > 1 ? pad : 1, "", c(C_YELLOW), status,
            c(C_RESET));
-  else
-    printf("  %-19s %s0x%016lx - 0x%016lx   likely (speculative)%s\n", "",
-           c(C_DIM), lo, hi, c(C_RESET));
+  }
+  printf("\n");
 }
 
-/* The proven [lo,hi] window a concrete LIKELY base sits inside, shown beneath
- * it as the honest floor — dim-labelled "guaranteed" with residual entropy, so
- * the speculative headline base is always paired with what is actually proven.
- */
-static void readout_guaranteed_window_row(unsigned long lo, unsigned long hi,
-                                          unsigned long slots, int bits,
-                                          int bits_top, unsigned long align) {
-  char hbuf[32], ebuf[48];
-  entropy_phrase(bits, bits_top, ebuf, sizeof(ebuf));
-  if (align)
-    printf("  %-19s 0x%016lx - 0x%016lx   %sguaranteed%s  (%s, %lu x %s)\n", "",
-           lo, hi, c(C_DIM), c(C_RESET), ebuf, slots,
-           human_size(align, hbuf, sizeof(hbuf)));
-  else
-    printf("  %-19s 0x%016lx - 0x%016lx   %sguaranteed%s  (%s, %lu "
-           "candidates)\n",
-           "", lo, hi, c(C_DIM), c(C_RESET), ebuf, slots);
+/* One resolved address at `grade`. `note` (the slide) trails the value rather
+ * than sitting between the value and its grade: it is the same value in
+ * another coordinate system, not a separate metric. */
+static void readout_point(const char *grade, unsigned long v, int digits,
+                          const char *note) {
+  char ab[40];
+  printf("    %-*s%s%s%s", READOUT_GRADE_W, grade, c(C_GREEN),
+         readout_addr(v, digits, ab, sizeof(ab)), c(C_RESET));
+  if (note && *note)
+    /* One space, so the note opens in the same column the ".." separator does
+     * on a window row: column N is where a row's continuation begins, whether
+     * that continuation is a high endpoint or a displacement. Two spaces put
+     * it one column right of the separator, which read as a failed match. */
+    printf(" %s%s%s", c(C_CYAN), note, c(C_RESET));
+  printf("\n");
 }
 
-/* A concrete LIKELY base graded "likely (speculative)", annotated with its
- * displacement from the un-randomized base: `disp` labelled `disp_label`
- * ("slide" for the kernel image bases; "off" for the direct map's independent
- * RANDOMIZE_MEMORY offset). The "   <label> <value>" field is a fixed 24
- * visible columns (the value padded to fill), so "likely (speculative)" lands
- * in the column shared with "guaranteed" on the window row beneath — both rows
- * share the "  <label> 0x<addr>" prefix, and 24 columns matches where the
- * window row's " - 0x<addr>   " puts "guaranteed". */
-static void readout_likely_base_row(const char *label, unsigned long base,
-                                    const char *disp_label, long disp) {
-  unsigned long mag = disp < 0 ? (unsigned long)-disp : (unsigned long)disp;
-  char vb[24];
-  int vn = snprintf(vb, sizeof(vb), "%s0x%lx", disp < 0 ? "-" : "+", mag);
-  int pad = 20 - (int)strlen(disp_label) - vn; /* "   <label> " + value == 24 */
-  if (pad < 1)
-    pad = 1; /* keep one space if the value is unexpectedly wide */
-  printf("  %-19s %s0x%016lx%s   %s %s%s%s%*s%slikely (speculative)%s\n", label,
-         c(C_GREEN), base, c(C_RESET), disp_label, c(C_CYAN), vb, c(C_RESET),
-         pad, "", c(C_DIM), c(C_RESET));
+/* A window at `grade`: first and last candidate, then how many and at what
+ * pitch. Both edges are inclusive and on the grid, so the printed count
+ * reconciles with the printed edges. */
+static void readout_window(const char *grade, unsigned long lo,
+                           unsigned long hi, int digits, unsigned long slots,
+                           int count_w, unsigned long align) {
+  char a1[40], a2[40], gb[32];
+  printf("    %-*s%s .. %s", READOUT_GRADE_W, grade,
+         readout_addr(lo, digits, a1, sizeof(a1)),
+         readout_addr(hi, digits, a2, sizeof(a2)));
+  if (slots > 0) {
+    /* Right-aligned to the widest count in this block, so the pitch that
+     * follows it lines up between a block's likely and guaranteed rows. */
+    if (align)
+      printf("  %s%*lu x %s%s", c(C_MAGENTA), count_w, slots,
+             readout_grain(align, gb, sizeof(gb)), c(C_RESET));
+    else
+      printf("  %s%*lu candidates%s", c(C_MAGENTA), count_w, slots, c(C_RESET));
+  }
+  printf("\n");
 }
 
-/* Windowed image-base readout (no concrete base was pinned): the entropy
- * headline, then the speculative likely window ABOVE the guaranteed range — the
- * same likely-over-guaranteed ordering the concrete-base form uses
- * (readout_likely_base_row over readout_guaranteed_window_row). Every range row
- * states its grade, whether or not a likely line accompanies it: within one
- * readout some quantities carry a speculative window and others do not, so an
- * unlabelled range would be indistinguishable from an unstated grade rather
- * than reading as "guaranteed". Entropy stays on the headline; the range
- * carries only the slot grain. Pinned or slot-less forms have no pair to
- * reorder and defer to the plain rows. */
-static void readout_windowed_base_row(const char *label, unsigned long lo,
-                                      unsigned long hi, unsigned long llo,
-                                      unsigned long lhi, unsigned long slots,
-                                      int bits, int bits_top,
-                                      unsigned long align) {
-  if (lo == hi || slots == 0 || bits < 0) {
-    readout_bound_row(label, lo, hi, slots, bits, bits_top, align);
-    readout_likely_row(llo, lhi);
+/* Half-bound form: only one edge proven. */
+static void readout_halfbound(const char *grade, const char *op,
+                              unsigned long v, int digits) {
+  char ab[40];
+  printf("    %-*s%s %s%s%s\n", READOUT_GRADE_W, grade, op, c(C_CYAN),
+         readout_addr(v, digits, ab, sizeof(ab)), c(C_RESET));
+}
+
+/* Status for a quantity's header: pinned, or how much entropy survives. */
+static const char *readout_status(int pinned, int bits, int bits_top, char *buf,
+                                  size_t sz) {
+  if (pinned) {
+    /* "pinned" is the established word for a proven single value across the
+     * formats and the verbose block; the readout does not coin a second one. */
+    snprintf(buf, sz, "pinned");
+    return buf;
+  }
+  char e[48];
+  entropy_phrase(bits, bits_top, e, sizeof(e));
+  snprintf(buf, sz, "narrowed to %s", e);
+  return buf;
+}
+
+/* Window-only form: no concrete base was resolved. The speculative sub-window,
+ * when present, sits above the proven one -- the same likely-over-guaranteed
+ * order the concrete-base form uses. */
+static void readout_window_block(const char *label, unsigned long lo,
+                                 unsigned long hi, unsigned long llo,
+                                 unsigned long lhi, unsigned long slots,
+                                 unsigned long lslots, int bits, int bits_top,
+                                 unsigned long align) {
+  if (!lo && !hi)
+    return;
+  char stat[80];
+  int pinned = (lo == hi && lo != 0);
+  readout_snap(&lo, &hi, align);
+  readout_snap(&llo, &lhi, align);
+  int w = readout_addr_w;
+  /* No slot count means no entropy was resolved (KASLR off, or a quantity the
+   * engine bounded without a grid). Report the window and stop rather than
+   * fabricate a "~0 bits" residual. */
+  const char *status = NULL;
+  if (pinned || slots > 0)
+    status = readout_status(pinned, bits, bits_top, stat, sizeof(stat));
+  readout_head(label, status);
+  if (pinned) {
+    readout_point(GRADE_GUARANTEED, lo, w, NULL);
     return;
   }
-  char ebuf[48];
-  printf("  %-19s %s%-18s%s   %s%s%s\n", label, c(C_YELLOW), "narrowed",
-         c(C_RESET), c(C_MAGENTA),
-         entropy_phrase(bits, bits_top, ebuf, sizeof(ebuf)), c(C_RESET));
-  readout_likely_row(llo, lhi);
-  char hbuf[32];
-  if (align)
-    printf("  %-19s 0x%016lx - 0x%016lx   %sguaranteed%s  (%lu x %s)\n", "", lo,
-           hi, c(C_DIM), c(C_RESET), slots,
-           human_size(align, hbuf, sizeof(hbuf)));
-  else
-    printf("  %-19s 0x%016lx - 0x%016lx   %sguaranteed%s  (%lu candidates)\n",
-           "", lo, hi, c(C_DIM), c(C_RESET), slots);
+  if (lhi && llo && lhi >= llo)
+    readout_window(GRADE_LIKELY, llo, lhi, w, lslots, readout_count_w, align);
+  if (lo && hi && hi >= lo)
+    readout_window(GRADE_GUARANTEED, lo, hi, w, slots, readout_count_w, align);
+  else if (lo)
+    readout_halfbound(GRADE_GUARANTEED, ">=", lo, w);
+  else if (hi)
+    readout_halfbound(GRADE_GUARANTEED, "<=", hi, w);
 }
 
 static void render_readout(const struct summary *s) {
@@ -1368,10 +1491,13 @@ static void render_readout(const struct summary *s) {
    * answered with a single text-base line. */
   if (s->kaslr.unsupported) {
     printf("KASLR not supported on this architecture.\n\n");
-    if (s->kaslr.default_addr)
-      printf("  %-19s %s0x%016lx%s   arch default (no randomization)\n",
-             "Kernel image base", c(C_GREEN), s->kaslr.default_addr,
-             c(C_RESET));
+    if (s->kaslr.default_addr) {
+      readout_block_n = 0;
+      printf("%sLayout%s\n", c(C_BOLD), c(C_RESET));
+      readout_head("Kernel image base", "arch default, no randomization");
+      readout_point(GRADE_GUARANTEED, s->kaslr.default_addr, readout_addr_w,
+                    NULL);
+    }
     printf("\n");
     readout_print_leaks();
     printf("\n[-v: detailed results, memory map, system info]  "
@@ -1389,20 +1515,23 @@ static void render_readout(const struct summary *s) {
      * in the linear map at a load offset we can't pin), it resolves to a
      * narrowed *window* instead — showing the static default there would
      * misreport the base (it can sit in an entirely different mapping). */
+    readout_block_n = 0;
+    printf("%sLayout%s\n", c(C_BOLD), c(C_RESET));
     if (layout.virt_kaslr_text_min == layout.virt_kaslr_text_max &&
-        layout.virt_kaslr_text_min != 0)
-      printf("  %-19s %s0x%016lx%s   compile-time default (no slide)\n",
-             "Kernel image base", c(C_GREEN), layout.virt_kaslr_text_min,
-             c(C_RESET));
-    else if (layout.virt_kaslr_text_min || layout.virt_kaslr_text_max)
-      readout_bound_row("Kernel image base", layout.virt_kaslr_text_min,
-                        layout.virt_kaslr_text_max, s->kaslr.vslots,
-                        s->kaslr.vbits, s->kaslr.vbits_top,
-                        layout.virt_kaslr_align);
-    else if (s->kaslr.default_addr)
-      printf("  %-19s %s0x%016lx%s   compile-time default (no slide)\n",
-             "Kernel image base", c(C_GREEN), s->kaslr.default_addr,
-             c(C_RESET));
+        layout.virt_kaslr_text_min != 0) {
+      readout_head("Kernel image base", "compile-time default, no slide");
+      readout_point(GRADE_GUARANTEED, layout.virt_kaslr_text_min,
+                    readout_addr_w, NULL);
+    } else if (layout.virt_kaslr_text_min || layout.virt_kaslr_text_max) {
+      readout_window_block("Kernel image base", layout.virt_kaslr_text_min,
+                           layout.virt_kaslr_text_max, 0, 0, s->kaslr.vslots, 0,
+                           s->kaslr.vbits, s->kaslr.vbits_top,
+                           layout.virt_kaslr_align);
+    } else if (s->kaslr.default_addr) {
+      readout_head("Kernel image base", "compile-time default, no slide");
+      readout_point(GRADE_GUARANTEED, s->kaslr.default_addr, readout_addr_w,
+                    NULL);
+    }
     printf("\n");
     readout_print_leaks();
     printf("\n[-v: detailed results, memory map, system info]  "
@@ -1413,6 +1542,40 @@ static void render_readout(const struct summary *s) {
   /* Regular KASLR path: text base lines + memory-KASLR window lines +
    * coupling note + leaks. Each bound row is suppressed if its quantity
    * was never narrowed below the honest top — keeps the output tight. */
+  /* Name the block. Without a heading the most important section of the
+   * output begins as an unlabelled indented table while the evidence below it
+   * is titled. */
+  readout_block_n = 0;
+  {
+    int a = 1, cw = 1;
+    a = readout_wmax(a, layout.virt_kaslr_text_min);
+    a = readout_wmax(a, layout.virt_kaslr_text_max);
+    a = readout_wmax(a, s->kaslr.vtext);
+    a = readout_wmax(a, s->kaslr.vstext);
+    a = readout_wmax(a, s->kaslr.vlikely_max);
+    a = readout_wmax(a, layout.phys_kaslr_text_min);
+    a = readout_wmax(a, layout.phys_kaslr_text_max);
+    a = readout_wmax(a, s->kaslr.ptext);
+    a = readout_wmax(a, s->kaslr.pstext);
+    a = readout_wmax(a, s->kaslr.plikely_max);
+    a = readout_wmax(a, s->kaslr.virt_page_offset_min);
+    a = readout_wmax(a, s->kaslr.virt_page_offset_max);
+    a = readout_wmax(a, s->kaslr.virt_page_offset_likely_max);
+    cw = readout_cmax(cw, s->kaslr.vslots);
+    cw = readout_cmax(cw, s->kaslr.vlikely_slots);
+    cw = readout_cmax(cw, s->kaslr.pslots);
+    cw = readout_cmax(cw, s->kaslr.plikely_slots);
+    cw = readout_cmax(cw, s->kaslr.virt_page_offset_slots);
+    cw = readout_cmax(cw, s->kaslr.virt_page_offset_likely_slots);
+    readout_addr_w = a;
+    /* Capped: a single very wide window (an unconstrained physical range can
+     * run to ten digits) would otherwise pad every count in the section out to
+     * its width, stranding a three-digit count behind a wall of spaces. Past
+     * the cap the outlier overflows its own row instead. */
+    readout_count_w = cw > 6 ? 6 : cw;
+  }
+  printf("%sLayout%s\n", c(C_BOLD), c(C_RESET));
+
   int vpin = (layout.virt_kaslr_text_min == layout.virt_kaslr_text_max &&
               layout.virt_kaslr_text_min != 0);
   int ppin = (layout.phys_kaslr_text_min == layout.phys_kaslr_text_max &&
@@ -1425,58 +1588,74 @@ static void render_readout(const struct summary *s) {
    * answer, so the separate likely-window row is suppressed (it would only
    * restate it). */
   int v_likely_base = (s->kaslr.vtext && !vpin);
+  char stat[80], slide[48];
   if (s->kaslr.vtext && vpin) {
-    /* Fully derandomized — show address + slide instead of range. */
     long abs_v = s->kaslr.vslide < 0 ? -s->kaslr.vslide : s->kaslr.vslide;
-    printf("  %-19s %s0x%016lx%s   slide %s%s0x%lx%s\n", "Virtual image base",
-           c(C_GREEN), s->kaslr.vtext, c(C_RESET), c(C_CYAN),
-           s->kaslr.vslide < 0 ? "-" : "+", (unsigned long)abs_v, c(C_RESET));
+    int w = readout_addr_w;
+    snprintf(slide, sizeof(slide), "slide %s0x%lx",
+             s->kaslr.vslide < 0 ? "-" : "+", (unsigned long)abs_v);
+    readout_head("Virtual image base",
+                 readout_status(1, 0, 0, stat, sizeof(stat)));
+    readout_point(GRADE_GUARANTEED, s->kaslr.vtext, w, slide);
     if (s->kaslr.vstext && s->kaslr.vstext != s->kaslr.vtext)
-      printf("  %-19s %s0x%016lx%s\n", "Virtual _stext", c(C_GREEN),
-             s->kaslr.vstext, c(C_RESET));
+      readout_point("guaranteed _stext", s->kaslr.vstext, w, NULL);
   } else if (v_likely_base) {
-    /* Concrete base + its slide, both graded likely; the proven window follows
-     * on the guaranteed row beneath. */
-    readout_likely_base_row("Virtual image base", s->kaslr.vtext, "slide",
-                            s->kaslr.vslide);
+    unsigned long glo = layout.virt_kaslr_text_min,
+                  ghi = layout.virt_kaslr_text_max;
+    readout_snap(&glo, &ghi, layout.virt_kaslr_align);
+    long abs_v = s->kaslr.vslide < 0 ? -s->kaslr.vslide : s->kaslr.vslide;
+    int w = readout_addr_w;
+    snprintf(slide, sizeof(slide), "slide %s0x%lx",
+             s->kaslr.vslide < 0 ? "-" : "+", (unsigned long)abs_v);
+    readout_head("Virtual image base",
+                 readout_status(0, s->kaslr.vbits, s->kaslr.vbits_top, stat,
+                                sizeof(stat)));
+    readout_point(GRADE_LIKELY, s->kaslr.vtext, w, slide);
     if (s->kaslr.vstext && s->kaslr.vstext != s->kaslr.vtext)
-      printf("  %-19s %s0x%016lx%s   %slikely%s\n", "Virtual _stext",
-             c(C_GREEN), s->kaslr.vstext, c(C_RESET), c(C_DIM), c(C_RESET));
-    readout_guaranteed_window_row(
-        layout.virt_kaslr_text_min, layout.virt_kaslr_text_max, s->kaslr.vslots,
-        s->kaslr.vbits, s->kaslr.vbits_top, layout.virt_kaslr_align);
+      readout_point("likely _stext", s->kaslr.vstext, w, NULL);
+    readout_window(GRADE_GUARANTEED, glo, ghi, w, s->kaslr.vslots,
+                   readout_count_w, layout.virt_kaslr_align);
   } else {
-    readout_windowed_base_row("Virtual image base", layout.virt_kaslr_text_min,
-                              layout.virt_kaslr_text_max, s->kaslr.vlikely_min,
-                              s->kaslr.vlikely_max, s->kaslr.vslots,
-                              s->kaslr.vbits, s->kaslr.vbits_top,
-                              layout.virt_kaslr_align);
+    readout_window_block("Virtual image base", layout.virt_kaslr_text_min,
+                         layout.virt_kaslr_text_max, s->kaslr.vlikely_min,
+                         s->kaslr.vlikely_max, s->kaslr.vslots,
+                         s->kaslr.vlikely_slots, s->kaslr.vbits,
+                         s->kaslr.vbits_top, layout.virt_kaslr_align);
   }
 
   int p_likely_base = (s->kaslr.has_phys && s->kaslr.ptext && !ppin);
   if (s->kaslr.has_phys && ppin) {
     long abs_p = s->kaslr.pslide < 0 ? -s->kaslr.pslide : s->kaslr.pslide;
-    printf("  %-19s %s0x%016lx%s   slide %s%s0x%lx%s\n", "Physical image base",
-           c(C_GREEN), s->kaslr.ptext, c(C_RESET), c(C_CYAN),
-           s->kaslr.pslide < 0 ? "-" : "+", (unsigned long)abs_p, c(C_RESET));
+    int w = readout_addr_w;
+    snprintf(slide, sizeof(slide), "slide %s0x%lx",
+             s->kaslr.pslide < 0 ? "-" : "+", (unsigned long)abs_p);
+    readout_head("Physical image base",
+                 readout_status(1, 0, 0, stat, sizeof(stat)));
+    readout_point(GRADE_GUARANTEED, s->kaslr.ptext, w, slide);
     if (s->kaslr.pstext && s->kaslr.pstext != s->kaslr.ptext)
-      printf("  %-19s %s0x%016lx%s\n", "Physical _stext", c(C_GREEN),
-             s->kaslr.pstext, c(C_RESET));
+      readout_point("guaranteed _stext", s->kaslr.pstext, w, NULL);
   } else if (p_likely_base) {
-    readout_likely_base_row("Physical image base", s->kaslr.ptext, "slide",
-                            s->kaslr.pslide);
+    unsigned long glo = layout.phys_kaslr_text_min,
+                  ghi = layout.phys_kaslr_text_max;
+    readout_snap(&glo, &ghi, layout.phys_kaslr_align);
+    long abs_p = s->kaslr.pslide < 0 ? -s->kaslr.pslide : s->kaslr.pslide;
+    int w = readout_addr_w;
+    snprintf(slide, sizeof(slide), "slide %s0x%lx",
+             s->kaslr.pslide < 0 ? "-" : "+", (unsigned long)abs_p);
+    readout_head("Physical image base",
+                 readout_status(0, s->kaslr.pbits, 0, stat, sizeof(stat)));
+    readout_point(GRADE_LIKELY, s->kaslr.ptext, w, slide);
     if (s->kaslr.pstext && s->kaslr.pstext != s->kaslr.ptext)
-      printf("  %-19s %s0x%016lx%s   %slikely%s\n", "Physical _stext",
-             c(C_GREEN), s->kaslr.pstext, c(C_RESET), c(C_DIM), c(C_RESET));
-    readout_guaranteed_window_row(layout.phys_kaslr_text_min,
-                                  layout.phys_kaslr_text_max, s->kaslr.pslots,
-                                  s->kaslr.pbits, 0, layout.phys_kaslr_align);
+      readout_point("likely _stext", s->kaslr.pstext, w, NULL);
+    readout_window(GRADE_GUARANTEED, glo, ghi, w, s->kaslr.pslots,
+                   readout_count_w, layout.phys_kaslr_align);
   } else if (s->kaslr.pslots > 0 ||
              (layout.phys_kaslr_text_min || layout.phys_kaslr_text_max)) {
-    readout_windowed_base_row("Physical image base", layout.phys_kaslr_text_min,
-                              layout.phys_kaslr_text_max, s->kaslr.plikely_min,
-                              s->kaslr.plikely_max, s->kaslr.pslots,
-                              s->kaslr.pbits, 0, layout.phys_kaslr_align);
+    readout_window_block("Physical image base", layout.phys_kaslr_text_min,
+                         layout.phys_kaslr_text_max, s->kaslr.plikely_min,
+                         s->kaslr.plikely_max, s->kaslr.pslots,
+                         s->kaslr.plikely_slots, s->kaslr.pbits, 0,
+                         layout.phys_kaslr_align);
   }
 
   /* virt_page_offset (direct-map base): only when both sides narrowed into a
@@ -1491,7 +1670,7 @@ static void render_readout(const struct summary *s) {
     unsigned long lhi = s->kaslr.virt_page_offset_likely_max;
     unsigned long align = (unsigned long)RANDOMIZE_MEMORY_ALIGN;
     unsigned long slots = s->kaslr.virt_page_offset_slots;
-    int bits = slots > 0 ? ilog2_ul(slots) : 0;
+    int bits = s->kaslr.virt_page_offset_bits;
     /* A concrete likely base — a POS_BASE timing pin (prefetch_directmap)
      * narrowed the likely window to a single-slot bracket at the base — is
      * promoted to a graded headline with the guaranteed window beneath, the
@@ -1502,30 +1681,33 @@ static void render_readout(const struct summary *s) {
     int concrete_likely =
         llo && lhi && lhi >= llo && align && (lhi - llo) <= align;
     if (concrete_likely && lo) {
-      /* Promote the concrete likely base to a graded headline with whatever is
-       * proven beneath it. A sound upper bound on page_offset is rare (nothing
-       * usually bounds it from above — a timing directmap recovery is filtered
-       * out of the guaranteed window), so unlike the image bases the row
-       * beneath is normally just the floor (>= lo). The promotion must NOT
-       * require a bounded guaranteed window, or it never fires for the direct
-       * map. */
-      readout_likely_base_row("Direct map base", lhi, "off",
-                              (long)(lhi - PAGE_OFFSET_BASE_L4));
-      if (hi && hi >= lo)
-        readout_guaranteed_window_row(lo, hi, slots, bits, 0, align);
+      /* A POS_BASE timing pin narrowed the likely window to a single-slot
+       * bracket at the base; its top (lhi) is the best guess. Unlike the image
+       * bases there is usually no sound ceiling on page_offset (a timing
+       * directmap recovery is filtered out of the guaranteed window), so the
+       * proven row beneath is normally just the floor. */
+      unsigned long glo = lo, ghi = hi;
+      readout_snap(&glo, &ghi, align);
+      int w = readout_addr_w;
+      char st[80], off[48];
+      /* The direct map has no compile-time default to slide from, but it does
+       * have a RANDOMIZE_MEMORY offset from the un-randomized base — the same
+       * value in another coordinate system, so it takes the slide's place. */
+      long d = (long)(lhi - (unsigned long)PAGE_OFFSET_BASE_L4);
+      snprintf(off, sizeof(off), "off %s0x%lx", d < 0 ? "-" : "+",
+               (unsigned long)(d < 0 ? -d : d));
+      readout_head("Direct map base",
+                   readout_status(0, bits, 0, st, sizeof(st)));
+      readout_point(GRADE_LIKELY, lhi, w, off);
+      if (ghi && ghi >= glo)
+        readout_window(GRADE_GUARANTEED, glo, ghi, w, slots, readout_count_w,
+                       align);
       else
-        printf("  %-19s >= %s0x%016lx%s   %sguaranteed%s\n", "", c(C_CYAN), lo,
-               c(C_RESET), c(C_DIM), c(C_RESET));
+        readout_halfbound(GRADE_GUARANTEED, ">=", glo, w);
     } else {
-      if (lo && hi && hi >= lo)
-        readout_bound_row("Direct map base", lo, hi, slots, bits, 0, align);
-      else if (lo && !hi)
-        printf("  %-19s >= %s0x%016lx%s\n", "Direct map base", c(C_CYAN), lo,
-               c(C_RESET));
-      else if (!lo && hi)
-        printf("  %-19s <= %s0x%016lx%s\n", "Direct map base", c(C_CYAN), hi,
-               c(C_RESET));
-      readout_likely_row(llo, lhi);
+      readout_window_block("Direct map base", lo, hi, llo, lhi, slots,
+                           s->kaslr.virt_page_offset_likely_slots, bits, 0,
+                           align);
     }
   }
 
@@ -1541,9 +1723,11 @@ static void render_readout(const struct summary *s) {
   int phys_row_shown = (s->kaslr.has_phys && ppin) || p_likely_base ||
                        s->kaslr.pslots > 0 || layout.phys_kaslr_text_min ||
                        layout.phys_kaslr_text_max;
+  /* A static arch property, not a measured quantity: presented as a note
+   * rather than as a value row, so it does not sit in the value column
+   * alongside addresses under an abbreviated label its siblings do not use. */
   if (TEXT_TRACKS_DIRECTMAP || phys_row_shown)
-    printf("  %-19s %s%s%s\n", "Phys/Virt coupling", c(C_DIM),
-           kasld_coupling_descr(), c(C_RESET));
+    printf("\n  %sNote: %s%s\n", c(C_DIM), kasld_coupling_descr(), c(C_RESET));
   printf("\n");
 
   readout_print_leaks();

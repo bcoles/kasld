@@ -133,21 +133,34 @@ config, no memory-layout diagram.
 KASLD 0.3.1-dev  --  Kernel ASLR derandomization
 Target: x86_64 / 6.15.6
 
-Running 94 components (3 experimental skipped; use -x to enable)...
+Running 94 of 97 components (3 experimental skipped; use -x to enable)...
 [####################] 100%  94/94  13.9s
 
-  Virtual image base  0xffffffff8fe00000   slide +0xee00000
-  Physical image base 0x0000000034600000   slide +0x33600000
-  Direct map base     >= 0xffff800000000000
-  Phys/Virt coupling  physical and virtual text randomize independently
+Layout
+  Virtual image base     (pinned)
+    guaranteed           0xffffffff8fe00000 slide +0xee00000
 
-Leaks (6):
-  virt kernel text    0xffffffff8ff04104 [interior]   (perf_event_open, proc_kallsyms)
-  virt kernel image   0xffffffff8fe00000 [base]       (perf_event_open, prefetch, proc_kallsyms)
-  virt directmap      0xffff9eeb80000000 [base]       (prefetch_directmap)
-  phys kernel image   0x0000000034600000 [base]       (proc_iomem_kernel)
-  phys kernel data    0x0000000036000000 [base]       (proc_iomem_kernel)
-  phys kernel BSS     0x0000000036b34000 [base]       (proc_iomem_kernel)
+  Physical image base    (pinned)
+    guaranteed                   0x34600000 slide +0x33600000
+
+  Direct map base        (narrowed to ~9 bits)
+    guaranteed           >= 0xffff800000000000
+
+  Note: physical and virtual text randomize independently
+
+Evidence  (6 findings, 5 components)
+  virt kernel text    [interior] 0xffffffff8ff04104
+                                 from perf_event_open, proc_kallsyms
+  virt kernel image   [base]     0xffffffff8fe00000
+                                 from perf_event_open, prefetch, proc_kallsyms
+  virt directmap      [base]     0xffff9eeb80000000
+                                 from prefetch_directmap
+  phys kernel image   [base]             0x34600000
+                                 from proc_iomem_kernel
+  phys kernel data    [base]             0x36000000
+                                 from proc_iomem_kernel
+  phys kernel BSS     [base]             0x36b34000
+                                 from proc_iomem_kernel
 
 [-v: detailed results, memory map, system info]  [-H: hardening assessment]
 ```
@@ -300,9 +313,9 @@ KASLR analysis:
   Physical KASLR entropy: 0 bits (pinned)
 
 Memory KASLR (directmap / vmalloc / vmemmap):
-  virt_page_offset_base >= 0xffff800000000000
-  virt_vmalloc_base     0xffff810040000000 - 0xffffdcffc0000000  (94206 candidates, 17 bits)
-  virt_vmemmap_base     0xffffa10080000000 - 0xfffffd0000000000  (94206 candidates, 17 bits)
+  Direct map base   guaranteed  >= 0xffff800000000000
+  vmalloc base      guaranteed  0xffff810040000000 .. 0xffffdcffc0000000  94206 slots, ~17 bits
+  vmemmap base      guaranteed  0xffffa10080000000 .. 0xfffffd0000000000  94206 slots, ~17 bits
 
 ----------------------------------------
 Virtual memory layout (decoupled):

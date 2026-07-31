@@ -450,6 +450,10 @@ struct kaslr_info {
    * are excluded, matching the headline vslots/pslots). Renderers derive bits
    * via ilog2. 0 when the region is unresolved / not a both-sided window. */
   unsigned long virt_page_offset_slots, virt_page_offset_likely_slots;
+  /* Residual entropy over each window, derived from the hole-aware slot counts
+   * at the engine boundary. Carried here rather than recomputed in a renderer:
+   * the same quantity must not be derived two ways. */
+  int virt_page_offset_bits, virt_vmalloc_bits, virt_vmemmap_bits;
   unsigned long virt_vmalloc_slots, virt_vmalloc_likely_slots;
   unsigned long virt_vmemmap_slots, virt_vmemmap_likely_slots;
 };

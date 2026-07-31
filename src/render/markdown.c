@@ -379,7 +379,10 @@ void render_markdown(const struct summary *s) {
   enum kasld_addr_type type_order[] = {KASLD_TYPE_PHYS, KASLD_TYPE_VIRT,
                                        KASLD_TYPE_UNKNOWN};
 
-  printf("## Leak Results\n\n");
+  /* "Evidence", matching the text readout: the block carries side-channel
+   * measurements alongside actual disclosures, and only the latter are leaks.
+   */
+  printf("## Evidence\n\n");
 
   if (verbose) {
     /* Verbose: individual result rows */

@@ -440,7 +440,10 @@ static void test_render_vtext_speculative(void) {
   assert(strstr(render_cap, "slide +0x10000000") != NULL);
   {
     char base_hex[32];
-    snprintf(base_hex, sizeof(base_hex), "0x%016lx", s.kaslr.vtext);
+    /* The readout right-aligns addresses without zero-padding, so build the
+     * expectation the same way: "0x%016lx" only matches on arches whose
+     * addresses happen to fill 16 hex digits. */
+    snprintf(base_hex, sizeof(base_hex), "0x%lx", s.kaslr.vtext);
     assert(strstr(render_cap, base_hex) != NULL);
   }
 
@@ -591,7 +594,7 @@ static void test_render_directmap_base_promoted(void) {
   set_render_mode(0, 0, 0); /* default text readout */
   capture_stdout(wrap_render_summary, &s);
   char hex[32], off[32];
-  snprintf(hex, sizeof(hex), "0x%016lx", base);
+  snprintf(hex, sizeof(hex), "0x%lx", base);
   snprintf(off, sizeof(off), "off +0x%lx", 20ul * align); /* base - default */
   assert(strstr(render_cap, hex) != NULL);                /* headline base */
   assert(strstr(render_cap, off) != NULL);                /* RM offset */
@@ -628,7 +631,7 @@ static void test_render_directmap_base_promoted_unbounded(void) {
   set_render_mode(0, 0, 0); /* default text readout */
   capture_stdout(wrap_render_summary, &s);
   char hex[32], off[32];
-  snprintf(hex, sizeof(hex), "0x%016lx", base);
+  snprintf(hex, sizeof(hex), "0x%lx", base);
   snprintf(off, sizeof(off), "off +0x%lx", 20ul * align);
   assert(strstr(render_cap, hex) != NULL); /* headline base */
   assert(strstr(render_cap, off) != NULL); /* RM offset */
@@ -725,13 +728,16 @@ static void test_render_coupling_gated(void) {
   layout.phys_kaslr_text_max = 0;
   s.kaslr.pslots = 0;
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "Phys/Virt coupling") == NULL);
+  /* The readout carries the coupling as a prose note rather than a labelled
+   * value row, so gate on the description itself; markdown keeps the labelled
+   * table row and is asserted on that below. */
+  assert(strstr(render_cap, "physical and virtual text") == NULL);
 
   /* A physical image base row present → the note is shown. */
   layout.phys_kaslr_text_min = 0x01000000ul;
   layout.phys_kaslr_text_max = 0x10000000ul;
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "Phys/Virt coupling") != NULL);
+  assert(strstr(render_cap, "physical and virtual text") != NULL);
 
   /* Markdown mirrors the same gate: suppressed with no physical row, shown
    * once one is present. */
@@ -815,7 +821,11 @@ static void test_render_memory_kaslr_uses_stored_slots(void) {
   verbose = 0;
   set_render_mode(0, 0, 0);
 
-  assert(strstr(render_cap, "7 candidates") != NULL);
+  /* The engine-supplied count is used verbatim; a naive (max-min)/align would
+   * give a different number. Entropy is no longer derived here either -- the
+   * renderer prints the summary's bits rather than recomputing them, so a
+   * summary that sets slots without bits reports 0 bits by design. */
+  assert(strstr(render_cap, "7 slots") != NULL);
 }
 
 /* A KASLR-disabled base is a proven pin, not a speculative "likely" value: the
@@ -887,7 +897,7 @@ static void test_render_markdown_with_rich_content(void) {
   struct summary s;
   set_rich_render_state(&s);
   extern int verbose;
-  verbose = 1; /* per-record Leak Results table (with the Pos column) */
+  verbose = 1; /* per-record Evidence table (with the Pos column) */
   set_render_mode(0, 0, 1);
   capture_stdout(wrap_render_summary, &s);
   verbose = 0;
@@ -1125,14 +1135,15 @@ static void test_render_text_leaks_aggregates_across_records(void) {
   snprintf(r->origins[0], ORIGIN_LEN, "proc_kallsyms");
   r->provenance_count = 1;
 
-  /* Default text clamps the name list to the first few + "+N more". The first
-   * record already supplies 3 origins, so the separate record's contributor is
-   * aggregated as a later one and surfaces in the "+N more" count — proving the
-   * bracket reaches across records rather than listing one record's set. */
+  /* The first record supplies 3 origins and this separate record supplies a
+   * fourth, so seeing proc_kallsyms named in the default readout proves the
+   * provenance line reaches across records rather than listing one record's
+   * set. (The list wraps rather than truncating, so every contributor is
+   * named.) */
   set_render_mode(0, 0, 0); /* text */
   capture_stdout(wrap_render_summary, &s);
   assert(strstr(render_cap, "prefetch") != NULL);
-  assert(strstr(render_cap, "more)") != NULL);
+  assert(strstr(render_cap, "proc_kallsyms") != NULL);
 
   /* Verbose lists every aggregated contributor by name, including the one from
    * the separate record. */
@@ -1210,19 +1221,16 @@ static void test_render_text_leaks_no_provenance(void) {
   seed_no_provenance_text_result(&s);
   set_render_mode(0, 0, 0);
   capture_stdout(wrap_render_summary, &s);
-  /* Address must still appear; no parenthesised origin block trails the
-   * Leaks-section label line. */
+  /* Address must still appear, and a record with no origins gets no
+   * provenance line at all. */
   assert(strstr(render_cap, "0x") != NULL);
-  const char *leaks = strstr(render_cap, "Leaks (");
-  assert(leaks != NULL);
-  const char *label = strstr(leaks, "virt kernel text");
+  const char *evidence = strstr(render_cap, "Evidence");
+  assert(evidence != NULL);
+  const char *label = strstr(evidence, "virt kernel text");
   assert(label != NULL);
-  const char *eol = strchr(label, '\n');
-  assert(eol != NULL);
-  /* Inspect just the one Leaks row: no `(` between the label and end-of-line
-   * means the empty-origins fallback fired correctly. */
-  for (const char *p = label; p < eol; p++)
-    assert(*p != '(');
+  /* The single finding has no origins, so the "from ..." continuation the
+   * empty-origins fallback suppresses must be absent from the whole block. */
+  assert(strstr(evidence, "from") == NULL);
 }
 
 static void test_render_json_emits_empty_origins_array(void) {
@@ -1280,8 +1288,11 @@ static void test_render_text_leaks_count_is_groups_not_contributors(void) {
   set_render_mode(0, 0, 0);
   capture_stdout(wrap_render_summary, &s);
   /* Two groups (virt kernel text + virt directmap), regardless of how many
-   * origins contribute to each. */
-  assert(strstr(render_cap, "Leaks (2):") != NULL);
+   * origins contribute to each. The heading now states findings and
+   * contributing components separately, so a row count can no longer be
+   * mistaken for a component count. */
+  assert(strstr(render_cap, "2 findings") != NULL);
+  assert(strstr(render_cap, "components)") != NULL);
   assert(strstr(render_cap, "virt kernel text") != NULL);
   assert(strstr(render_cap, "virt directmap") != NULL);
   assert(strstr(render_cap, "origin_a") != NULL);
@@ -1613,7 +1624,7 @@ static void test_render_readout_disabled_range_no_entropy(void) {
   /* Plain range, no fabricated entropy: a hex range but no "bits"/"candidates".
    */
   assert(strstr(render_cap, "Kernel image base") != NULL);
-  assert(strstr(render_cap, " - ") != NULL);
+  assert(strstr(render_cap, " .. ") != NULL);
   assert(strstr(render_cap, "bits") == NULL);
   assert(strstr(render_cap, "candidates") == NULL);
 }
