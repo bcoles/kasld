@@ -167,6 +167,23 @@ static unsigned long kallsyms_addr(const char *sym) {
   return addr;
 }
 
+/* Ground-truth offsets of the bpf_verifier_ksym leak targets (mirrors its
+ * k_funcs[]), each relative to _text, so a VM boot can check the base the
+ * offset table recovers against these real values. */
+static void dump_bpf_kfunc_offsets(void) {
+  static const char *const kf[] = {
+      "schedule",     "do_exit",       "kfree",         "kmem_cache_alloc",
+      "vfs_read",     "vfs_write",     "vfs_open",      "filp_close",
+      "sock_recvmsg", "tcp_sendmsg",   "ip_rcv",        "capable",
+      "commit_creds", "prepare_creds", "get_task_cred", "wake_up_process"};
+  unsigned long t = kallsyms_addr("_text");
+  printf("=== bpf k_func offsets (from _text=0x%lx) ===\n", t);
+  for (unsigned i = 0; i < sizeof kf / sizeof kf[0]; i++) {
+    unsigned long a = kallsyms_addr(kf[i]);
+    printf("  %-18s 0x%lx off=0x%lx\n", kf[i], a, (a && t) ? a - t : 0UL);
+  }
+}
+
 /* Read one native word at kernel virtual address `addr` from /proc/kcore by
  * walking the PT_LOAD program headers to the segment that covers it. Returns 1
  * and sets *out on success (only the headers + one word are read). */
@@ -578,6 +595,7 @@ int main(void) {
   dump_file("/proc/version", "version");
   dump_file("/proc/cmdline", "cmdline");
   dump_kallsyms_landmarks();
+  dump_bpf_kfunc_offsets();
   dump_iomem_kernel();
   dump_region_kaslr_truth();
   printf("=== presence probes ===\n");
@@ -607,10 +625,18 @@ int main(void) {
   /* Apply the requested restriction profile before running kasld. The analysis
    * always runs unprivileged; only the sysctl hardening varies. */
   uid_t uid = 1000;
+  /* The BPF verifier-log leaks (bpf_verifier_ksym / bpf_verifier_log) only fire
+   * where an unprivileged process may call bpf(); enable it for the permissive
+   * profiles so those components are exercised. hardened re-disables it below
+   * as part of the file-only floor. (A write is refused if the kernel booted
+   * with CONFIG_BPF_UNPRIV_DEFAULT_OFF locking it at 2 — then the leak stays a
+   * no-op.) */
+  write_file("/proc/sys/kernel/unprivileged_bpf_disabled", "0\n");
   if (hardened) {
     write_file("/proc/sys/kernel/kptr_restrict", "2\n");
     write_file("/proc/sys/kernel/dmesg_restrict", "1\n");
     write_file("/proc/sys/kernel/perf_event_paranoid", "3\n");
+    write_file("/proc/sys/kernel/unprivileged_bpf_disabled", "2\n");
     printf("=== profile: hardened — uid=1000, kptr_restrict=2, "
            "dmesg_restrict=1, perf_event_paranoid=3 (file-only floor) ===\n");
   } else if (perfopen) {

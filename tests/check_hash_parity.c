@@ -61,12 +61,15 @@ static int selftest(void) {
 
 struct row {
   uint64_t hash;
+  int block; /* per-arch #if block; distinctness is checked within a block */
   char *uname;
 };
 
 static int cmp_row(const void *a, const void *b) {
-  uint64_t x = ((const struct row *)a)->hash, y = ((const struct row *)b)->hash;
-  return (x > y) - (x < y);
+  const struct row *r = a, *s = b;
+  if (r->block != s->block)
+    return (r->block > s->block) - (r->block < s->block);
+  return (r->hash > s->hash) - (r->hash < s->hash);
 }
 
 /* Parse one hashed table row "{0x<hash>, <...>}, // <uname>", where <...> is a
@@ -109,7 +112,19 @@ static int check_file(const char *path) {
   char line[1024];
   uint64_t hash;
   char *uname;
+  int block = 0;
   while (fgets(line, sizeof(line), f)) {
+    /* A table may be split into per-arch #if blocks (bpf_verifier_ksym): the
+     * same uname then repeats across blocks with the same hash, so distinctness
+     * is per-block, not file-wide. A flat table has no directives -> one block
+     * -> unchanged. */
+    char *t = line;
+    while (*t == ' ' || *t == '\t')
+      t++;
+    if (t[0] == '#' &&
+        (strncmp(t + 1, "if", 2) == 0 || strncmp(t + 1, "elif", 4) == 0 ||
+         strncmp(t + 1, "else", 4) == 0))
+      block++;
     if (!parse_row(line, &hash, &uname))
       continue;
     uint64_t got = kasld_fnv1a64(uname);
@@ -130,6 +145,7 @@ static int check_file(const char *path) {
       }
     }
     rows[n].hash = hash;
+    rows[n].block = block;
     rows[n].uname = strdup(uname);
     n++;
   }
@@ -144,7 +160,8 @@ static int check_file(const char *path) {
 
   qsort(rows, n, sizeof(*rows), cmp_row);
   for (size_t i = 1; i < n; i++)
-    if (rows[i].hash == rows[i - 1].hash) {
+    if (rows[i].hash == rows[i - 1].hash &&
+        rows[i].block == rows[i - 1].block) {
       fprintf(stderr, "  %s: hash collision 0x%016llx:\n    // %s\n    // %s\n",
               path, (unsigned long long)rows[i].hash, rows[i - 1].uname,
               rows[i].uname);
