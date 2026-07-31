@@ -828,6 +828,39 @@ static void test_render_memory_kaslr_uses_stored_slots(void) {
   assert(strstr(render_cap, "7 slots") != NULL);
 }
 
+/* json and markdown must carry the hole-aware candidate count for the
+ * memory-KASLR windows. A consumer cannot recompute it: interior C_EXCLUDE
+ * holes are carved at read time inside quantity_slots() and never reach the
+ * wire, so (max - min) / align is the hole-blind figure, not this one. */
+static void test_render_memory_kaslr_slots_reach_machine_formats(void) {
+#if RANDOMIZE_MEMORY_ALIGN > 0
+  struct summary s;
+  reset_results();
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+  memset(&s, 0, sizeof(s));
+  s.kaslr.vslots = 60;
+  s.kaslr.vbits = 6;
+  unsigned long align = (unsigned long)RANDOMIZE_MEMORY_ALIGN;
+  s.kaslr.virt_page_offset_min = (unsigned long)PAGE_OFFSET_BASE_L4;
+  s.kaslr.virt_page_offset_max =
+      (unsigned long)PAGE_OFFSET_BASE_L4 + 8ul * align;
+  s.kaslr.virt_page_offset_slots = 7; /* engine value; a naive width gives 9 */
+  s.kaslr.virt_page_offset_bits = 3;
+
+  set_render_mode(1, 0, 0); /* json */
+  capture_stdout(wrap_render_summary, &s);
+  assert(strstr(render_cap, "\"slots\": 7") != NULL);
+  assert(strstr(render_cap, "\"entropy_bits\": 3") != NULL);
+
+  set_render_mode(0, 0, 1); /* markdown */
+  capture_stdout(wrap_render_summary, &s);
+  assert(strstr(render_cap, "7 slots") != NULL);
+  assert(strstr(render_cap, "~3 bits") != NULL);
+  set_render_mode(0, 0, 0);
+#endif
+}
+
 /* A KASLR-disabled base is a proven pin, not a speculative "likely" value: the
  * word "Likely" must not prefix the kernel image base. */
 static void test_render_disabled_base_not_labeled_likely(void) {
@@ -2495,6 +2528,7 @@ int main(void) {
   RUN(test_render_directmap_base_promoted);
   RUN(test_render_directmap_base_promoted_unbounded);
   RUN(test_render_entropy_states_its_baseline);
+  RUN(test_render_memory_kaslr_slots_reach_machine_formats);
   RUN(test_render_window_row_always_graded);
   RUN(test_render_coupling_gated);
   RUN(test_render_markdown_text_order_caution);

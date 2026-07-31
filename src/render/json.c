@@ -397,16 +397,22 @@ void render_json(const struct summary *s) {
     struct {
       const char *name;
       unsigned long min, max, lmin, lmax;
+      unsigned long slots, lslots;
+      int bits;
     } regions[] = {
         {"virt_page_offset_base", s->kaslr.virt_page_offset_min,
          s->kaslr.virt_page_offset_max, s->kaslr.virt_page_offset_likely_min,
-         s->kaslr.virt_page_offset_likely_max},
+         s->kaslr.virt_page_offset_likely_max, s->kaslr.virt_page_offset_slots,
+         s->kaslr.virt_page_offset_likely_slots,
+         s->kaslr.virt_page_offset_bits},
         {"virt_vmalloc_base", s->kaslr.virt_vmalloc_min,
          s->kaslr.virt_vmalloc_max, s->kaslr.virt_vmalloc_likely_min,
-         s->kaslr.virt_vmalloc_likely_max},
+         s->kaslr.virt_vmalloc_likely_max, s->kaslr.virt_vmalloc_slots,
+         s->kaslr.virt_vmalloc_likely_slots, s->kaslr.virt_vmalloc_bits},
         {"virt_vmemmap_base", s->kaslr.virt_vmemmap_min,
          s->kaslr.virt_vmemmap_max, s->kaslr.virt_vmemmap_likely_min,
-         s->kaslr.virt_vmemmap_likely_max},
+         s->kaslr.virt_vmemmap_likely_max, s->kaslr.virt_vmemmap_slots,
+         s->kaslr.virt_vmemmap_likely_slots, s->kaslr.virt_vmemmap_bits},
     };
     for (size_t i = 0; i < sizeof(regions) / sizeof(regions[0]); i++) {
       if (!regions[i].min && !regions[i].max)
@@ -422,13 +428,23 @@ void render_json(const struct summary *s) {
         printf("\"0x%016lx\"", regions[i].max);
       else
         printf("null");
+      /* The hole-aware candidate count and its residual entropy. A consumer
+       * cannot derive these from min/max: interior C_EXCLUDE holes are carved
+       * at read time inside quantity_slots() and never appear on the wire, so
+       * (max - min) / align is the hole-blind number, not this one. */
+      if (regions[i].slots > 0)
+        printf(", \"slots\": %lu, \"entropy_bits\": %d", regions[i].slots,
+               regions[i].bits);
       /* Speculative sub-window from the all-signals snapshot; subset of
        * [min, max] and may be wrong. Absent unless a sub-floor signal narrowed
        * the region. */
-      if (regions[i].lmax || regions[i].lmin)
-        printf(", \"likely\": { \"min\": \"0x%016lx\", \"max\": \"0x%016lx\", "
-               "\"speculative\": true }",
+      if (regions[i].lmax || regions[i].lmin) {
+        printf(", \"likely\": { \"min\": \"0x%016lx\", \"max\": \"0x%016lx\"",
                regions[i].lmin, regions[i].lmax);
+        if (regions[i].lslots > 0)
+          printf(", \"slots\": %lu", regions[i].lslots);
+        printf(", \"speculative\": true }");
+      }
       printf(" }");
       first = 0;
     }

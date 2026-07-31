@@ -73,7 +73,8 @@ static void print_group_sources(enum kasld_addr_type type,
  * arch-specific RANDOMIZE_MEMORY_ALIGN, which the table omits for brevity). */
 static void md_memory_kaslr_row(const char *name, unsigned long min,
                                 unsigned long max, unsigned long lmin,
-                                unsigned long lmax) {
+                                unsigned long lmax, unsigned long slots,
+                                int bits) {
   if (!min && !max)
     return;
   if (min && max && min > max)
@@ -84,6 +85,12 @@ static void md_memory_kaslr_row(const char *name, unsigned long min,
     printf("| %s | <= `0x%016lx` |\n", name, max);
   else if (min == max)
     printf("| %s | `0x%016lx` (pinned) |\n", name, min);
+  else if (slots > 0)
+    /* The hole-aware candidate count and its residual entropy, which a reader
+     * cannot derive from the bounds: interior excludes are carved at read time
+     * and never surface, so (max - min) / align is the hole-blind figure. */
+    printf("| %s | `0x%016lx` - `0x%016lx` (%lu slots, ~%d bits) |\n", name,
+           min, max, slots, bits);
   else
     printf("| %s | `0x%016lx` - `0x%016lx` |\n", name, min, max);
   /* Speculative sub-window from the all-signals snapshot (subset of the row
@@ -304,16 +311,19 @@ void render_markdown(const struct summary *s) {
       printf("| Phys/Virt coupling | %s |\n", kasld_coupling_descr());
 
     /* Memory KASLR (CONFIG_RANDOMIZE_MEMORY) region bounds. */
-    md_memory_kaslr_row("Direct map base", s->kaslr.virt_page_offset_min,
-                        s->kaslr.virt_page_offset_max,
-                        s->kaslr.virt_page_offset_likely_min,
-                        s->kaslr.virt_page_offset_likely_max);
+    md_memory_kaslr_row(
+        "Direct map base", s->kaslr.virt_page_offset_min,
+        s->kaslr.virt_page_offset_max, s->kaslr.virt_page_offset_likely_min,
+        s->kaslr.virt_page_offset_likely_max, s->kaslr.virt_page_offset_slots,
+        s->kaslr.virt_page_offset_bits);
     md_memory_kaslr_row(
         "vmalloc base", s->kaslr.virt_vmalloc_min, s->kaslr.virt_vmalloc_max,
-        s->kaslr.virt_vmalloc_likely_min, s->kaslr.virt_vmalloc_likely_max);
+        s->kaslr.virt_vmalloc_likely_min, s->kaslr.virt_vmalloc_likely_max,
+        s->kaslr.virt_vmalloc_slots, s->kaslr.virt_vmalloc_bits);
     md_memory_kaslr_row(
         "vmemmap base", s->kaslr.virt_vmemmap_min, s->kaslr.virt_vmemmap_max,
-        s->kaslr.virt_vmemmap_likely_min, s->kaslr.virt_vmemmap_likely_max);
+        s->kaslr.virt_vmemmap_likely_min, s->kaslr.virt_vmemmap_likely_max,
+        s->kaslr.virt_vmemmap_slots, s->kaslr.virt_vmemmap_bits);
 
     printf("\n");
   }
