@@ -5,3 +5,4 @@
 # The rows are machine-generated with a fixed format, so exclude these files
 # from clang-format entirely.
 src/components/bpf_verifier_ksym.c
+src/components/dmesg_ex_handler_msr.c
