@@ -240,6 +240,35 @@ __extension__ _Static_assert((unsigned long)KERNEL_PHYS_MAX >
 #error "arch header must define TEXT_TRACKS_DIRECTMAP (0 or 1)"
 #endif
 
+/* MODULES_RELATIVE_TO_PAGE_OFFSET is opt-in: an arch declares it 1 when its
+ * module band is defined as a DELTA FROM PAGE_OFFSET rather than at fixed
+ * addresses. The compile-time MODULES_START/END then encode nothing but the
+ * band's position under the compile-time PAGE_OFFSET, and an arch whose
+ * PAGE_OFFSET moves at runtime (arm32 VMSPLIT) leaves them pointing at a place
+ * the modules are not. Such an arch also supplies MODULES_START_FOR(po) /
+ * MODULES_END_FOR(po) -- the same arithmetic parameterised on PAGE_OFFSET -- so
+ * the orchestrator can re-derive the band once the engine resolves it, and so
+ * the static macros cannot drift from the relation they are an instance of.
+ *
+ * Both accessors must stay integer CONSTANT EXPRESSIONS when applied to the
+ * compile-time PAGE_OFFSET: MODULES_START/END appear in static initialisers and
+ * in #if arithmetic.
+ *
+ * The default 0 means "the band is at fixed addresses": arches whose
+ * PAGE_OFFSET cannot move, and MODULES_RELATIVE_TO_TEXT arches (whose band
+ * follows the text base instead), are unaffected. */
+#ifndef MODULES_RELATIVE_TO_PAGE_OFFSET
+#define MODULES_RELATIVE_TO_PAGE_OFFSET 0
+#endif
+#if MODULES_RELATIVE_TO_PAGE_OFFSET
+#if !defined(MODULES_START_FOR) || !defined(MODULES_END_FOR)
+#error "MODULES_RELATIVE_TO_PAGE_OFFSET=1 requires MODULES_START_FOR/END_FOR"
+#endif
+#if MODULES_RELATIVE_TO_TEXT
+#error "module band cannot follow both PAGE_OFFSET and the text base"
+#endif
+#endif
+
 /* PHYS_OFFSET_EXACT is opt-in: an arch declares it 1 only when PHYS_OFFSET is
  * the genuine runtime linear-map physical base (see the contract banner). The
  * default 0 keeps the page_offset_base recovery inert on arches where the

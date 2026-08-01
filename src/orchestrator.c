@@ -3564,10 +3564,74 @@ static void engine_sync_authoritative(const struct engine *e) {
 #endif
     unsigned long band_start =
         (band_end > KASLD_MODULES_LEN) ? (band_end - KASLD_MODULES_LEN) : 0ul;
-    layout.modules_start = band_start;
-    layout.modules_end = band_end;
+    /* A projection is only worth adopting when it lands somewhere. When the
+     * text window still reaches the bottom of the arch's kernel VAS the
+     * subtractions above saturate -- on MODULES_BELOW_TEXT_START arches
+     * IMAGE_BASE_OFFSET is itself the default text floor, so an unnarrowed
+     * vt->lo drives band_end to 0 and band_start with it -- and adopting that
+     * writes a degenerate band the map then draws as `modules (pinned)` at
+     * address 0: a pin claim at an address nothing was proven about, and a
+     * validation range that rejects every real module leak. Reject any
+     * projection that collapses (inverted, empty, or anchored at 0) and keep
+     * the static band instead; per the output contract an absent narrowing
+     * says nothing was proven, which is exactly the state here. Stated as a
+     * general well-formedness test, not an arch case: the same saturation is
+     * reachable on any arch whose text floor sits at the VAS floor. */
+    if (band_start && band_end > band_start) {
+      layout.modules_start = band_start;
+      layout.modules_end = band_end;
+    }
   }
 #undef KASLD_MODULES_LEN
+#endif
+
+  /* The module region's validation union. Compile-time by default. */
+  unsigned long mod_union_lo = (unsigned long)MODULES_START;
+  unsigned long mod_union_hi = (unsigned long)MODULES_END;
+
+#if MODULES_RELATIVE_TO_PAGE_OFFSET
+  /* Re-derive the module band once the engine has something to say about
+   * PAGE_OFFSET. The arch defines the band as a delta from PAGE_OFFSET, so the
+   * compile-time MODULES_START/END describe where the modules sit under the
+   * COMPILE-TIME split only. On arm32 a runtime VMSPLIT of 0x80000000 leaves
+   * them 1 GiB high -- the map drew the module band inside what the same map
+   * labelled user space -- and, because region_info validates module addresses
+   * against this band, every genuine module leak from such a kernel is
+   * rejected. The band must follow the resolved PAGE_OFFSET.
+   *
+   * Uncertainty is inherited, not discarded. The engine's PAGE_OFFSET estimate
+   * is a window; the derived band is that window's image, so:
+   *   - pinned  (lo == hi): the band collapses to the exact placement;
+   *   - a proven floor/window that EXCLUDES the compile-time PAGE_OFFSET: the
+   *     split provably moved but the engine has not said where, so the band is
+   *     the union over the whole window -- wider, correspondingly less precise,
+   *     and still guaranteed to contain the real band. Drawing the
+   *     compile-time band here would state a location that was just disproved.
+   *   - a window that still admits the compile-time PAGE_OFFSET: nothing has
+   *     been proven and nothing contradicted, so the band is left alone.
+   * The derived union is never narrower than the truth, so it cannot silently
+   * reject a real module leak -- the failure mode the union contract guards. */
+  {
+    const struct estimate *po = &e->est[Q_PAGE_OFFSET];
+    int pinned = (po->lo == po->hi && po->lo != 0);
+    int default_excluded = po->lo > (unsigned long)PAGE_OFFSET ||
+                           po->hi < (unsigned long)PAGE_OFFSET;
+    if (po->lo && po->lo <= po->hi && (pinned || default_excluded)) {
+      unsigned long lo = MODULES_START_FOR(po->lo);
+      unsigned long hi = MODULES_END_FOR(po->hi);
+      /* The floor can underflow past the bottom of the kernel VAS when the
+       * window reaches down to the lowest admissible split; clamp rather than
+       * draw a band below the address space the map covers. */
+      if (lo < (unsigned long)KERNEL_VIRT_VAS_START)
+        lo = (unsigned long)KERNEL_VIRT_VAS_START;
+      if (hi > lo) {
+        mod_union_lo = lo;
+        mod_union_hi = hi;
+        layout.modules_start = lo;
+        layout.modules_end = hi;
+      }
+    }
+  }
 #endif
 
   /* Runtime module-band anchoring (every arch).
@@ -3610,14 +3674,14 @@ static void engine_sync_authoritative(const struct engine *e) {
       if (a > obs_hi)
         obs_hi = a;
     }
-    /* MODULES_START == 0 on arches with no bounded module sub-region (s390):
-     * the lower-bound clause is then vacuous, so gate it out — keeps the check
-     * meaningful and quiets -Wtype-limits (obs_lo >= 0 always true) there. */
+    /* Clamped to the validation union, which on a PAGE_OFFSET-relative arch is
+     * the re-derived one above rather than the compile-time macros: gating a
+     * runtime observation on the compile-time band is what dropped genuine
+     * module leaks from a moved-split kernel. mod_union_lo is a variable, so
+     * the s390 case (union floor 0, making the lower clause vacuous) no longer
+     * needs a preprocessor gate to avoid -Wtype-limits. */
     int in_modules = obs_lo != ULONG_MAX && obs_lo <= obs_hi &&
-                     obs_hi <= (unsigned long)MODULES_END;
-#if MODULES_START
-    in_modules = in_modules && obs_lo >= (unsigned long)MODULES_START;
-#endif
+                     obs_hi <= mod_union_hi && obs_lo >= mod_union_lo;
     if (in_modules) {
       layout.modules_start = obs_lo;
       layout.modules_end = obs_hi;

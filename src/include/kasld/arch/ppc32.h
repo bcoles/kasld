@@ -42,8 +42,15 @@
 // Modules are located below kernel: PAGE_OFFSET - 256MiB (0x10000000)
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/include/asm/book3s/32/pgtable.h#L214
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/include/asm/nohash/32/mmu-8xx.h#L173
-#define MODULES_START (PAGE_OFFSET - 0x10000000ul) // 0xb0000000ul
-#define MODULES_END PAGE_OFFSET
+// Stated as a relation to PAGE_OFFSET rather than as fixed addresses, so the
+// band cannot drift from the definition it instantiates. ppc32 is
+// PAGE_OFFSET_INVARIANT, so the re-derivation the flag enables is a no-op here
+// -- it declares the relation, it does not predict movement.
+#define MODULES_RELATIVE_TO_PAGE_OFFSET 1
+#define MODULES_START_FOR(po) ((po) - 0x10000000ul)
+#define MODULES_END_FOR(po) (po)
+#define MODULES_START MODULES_START_FOR(PAGE_OFFSET) // 0xb0000000ul
+#define MODULES_END MODULES_END_FOR(PAGE_OFFSET)
 #define MODULES_RELATIVE_TO_TEXT 0
 
 // page aligned

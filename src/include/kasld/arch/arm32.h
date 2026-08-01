@@ -67,8 +67,16 @@
 
 // Modules are located below kernel: PAGE_OFFSET - 16MiB (0x01000000)
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm/include/asm/memory.h#L51
-#define MODULES_START (PAGE_OFFSET - 0x01000000) // 0xbf000000ul
-#define MODULES_END PAGE_OFFSET
+// Stated as a relation to PAGE_OFFSET, not as fixed addresses: VMSPLIT chooses
+// PAGE_OFFSET at build time and the band moves with it, so the compile-time
+// instance below is only where the modules sit under THIS binary's default.
+// MODULES_RELATIVE_TO_PAGE_OFFSET lets the orchestrator re-derive the band once
+// the engine resolves the running kernel's PAGE_OFFSET.
+#define MODULES_RELATIVE_TO_PAGE_OFFSET 1
+#define MODULES_START_FOR(po) ((po) - 0x01000000ul)
+#define MODULES_END_FOR(po) (po)
+#define MODULES_START MODULES_START_FOR(PAGE_OFFSET) // 0xbf000000ul
+#define MODULES_END MODULES_END_FOR(PAGE_OFFSET)
 // Module region is fixed below PAGE_OFFSET; does not shift with KASLR.
 #define MODULES_RELATIVE_TO_TEXT 0
 

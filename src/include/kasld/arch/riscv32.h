@@ -37,8 +37,15 @@
 // Above this, addresses fall in the fixmap/vmalloc region.
 #define KERNEL_VIRT_TEXT_MAX 0xf0000000ul
 
-#define MODULES_START PAGE_OFFSET
-#define MODULES_END 0xfffffffful
+// riscv32 has no separate module window: modules share the upper VAS, whose
+// floor is the linear-map base and whose ceiling is the top of the address
+// space regardless of where that base sits. Only the floor is a PAGE_OFFSET
+// relation; riscv32 is PAGE_OFFSET_INVARIANT, so nothing moves in practice.
+#define MODULES_RELATIVE_TO_PAGE_OFFSET 1
+#define MODULES_START_FOR(po) (po)
+#define MODULES_END_FOR(po) (0xfffffffful)
+#define MODULES_START MODULES_START_FOR(PAGE_OFFSET)
+#define MODULES_END MODULES_END_FOR(PAGE_OFFSET)
 #define MODULES_RELATIVE_TO_TEXT 0
 
 // https://elixir.bootlin.com/linux/v6.2-rc2/source/arch/riscv/include/asm/efi.h#L41

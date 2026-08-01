@@ -1702,6 +1702,107 @@ static void test_engine_sync_module_band_rejects_out_of_union(void) {
   assert(layout.modules_end != oob);
   assert(layout.modules_start <= layout.modules_end);
 }
+
+/* A projected module band must never collapse. On MODULES_RELATIVE_TO_TEXT
+ * arches the band is derived by subtracting from the resolved text window; with
+ * nothing yet proven the window sits at its honest top, and on an arch whose
+ * IMAGE_BASE_OFFSET equals that floor (s390) both subtractions saturate and the
+ * projection degenerates to start == end == 0. Adopting that publishes a pin at
+ * an address nothing was proven about -- the map drew `modules (pinned)` at 0
+ * -- and hands region_info a validation range that rejects every real module
+ * leak. Sync must reject a degenerate projection and keep the static band.
+ *
+ * Live on every arch: static-module arches assert their union stays intact,
+ * text-relative arches assert the projection is well-formed. */
+static void test_engine_sync_module_band_never_degenerate(void) {
+  struct engine e;
+  memset(&e, 0, sizeof(e));
+
+  /* The honest top of Q_VIRT_IMAGE_BASE: the state before any evidence lands.
+   * Derived from the arch's own widened window so it is exact on every arch and
+   * cannot overflow a 32-bit word. */
+  e.est[Q_VIRT_IMAGE_BASE].lo = (unsigned long)KASLR_VIRT_TEXT_MIN_WIDE;
+  e.est[Q_VIRT_IMAGE_BASE].hi = (unsigned long)KASLR_VIRT_TEXT_MAX_WIDE;
+
+  layout.modules_start = MODULES_START;
+  layout.modules_end = MODULES_END;
+
+  engine_sync_authoritative(&e);
+
+  /* Non-empty and well-ordered: a band that starts where it ends is a pin
+   * claim, and 0/0 is a pin claim about nothing. */
+  assert(layout.modules_end > layout.modules_start);
+}
+
+/* Where the arch defines its module band as a delta from PAGE_OFFSET, the band
+ * must follow the PAGE_OFFSET the engine resolves, not the one this binary was
+ * compiled against. arm32 picks PAGE_OFFSET by VMSPLIT, so on a kernel built
+ * with a 2 GiB split the compile-time band sits a full gigabyte above the real
+ * one -- the map drew modules inside the stretch it labels user space, and
+ * region_info, which validates module addresses against the same band, threw
+ * away every genuine module leak that kernel produced.
+ *
+ * Both shapes of engine knowledge are asserted, because they differ in kind:
+ * a pin gives the exact band; a window that has merely excluded the
+ * compile-time value gives the union over that window -- wider, still
+ * containing the truth, and never the disproved compile-time placement. */
+static void test_engine_sync_module_band_follows_page_offset(void) {
+  struct engine e;
+  unsigned long sv_po = layout.virt_page_offset;
+
+  /* A PAGE_OFFSET above the compile-time one, inside the arch's own kernel VAS,
+   * so the derived band stays in the address space on every width. */
+  unsigned long moved =
+      (unsigned long)PAGE_OFFSET +
+      ((unsigned long)KERNEL_VIRT_VAS_END - (unsigned long)PAGE_OFFSET) / 4;
+
+  memset(&e, 0, sizeof(e));
+  e.est[Q_VIRT_IMAGE_BASE].lo = layout.virt_kaslr_text_min;
+  e.est[Q_VIRT_IMAGE_BASE].hi = layout.virt_kaslr_text_max;
+  e.est[Q_PAGE_OFFSET].lo = moved; /* pinned: the split is proven */
+  e.est[Q_PAGE_OFFSET].hi = moved;
+
+  layout.modules_start = MODULES_START;
+  layout.modules_end = MODULES_END;
+  engine_sync_authoritative(&e);
+
+#if MODULES_RELATIVE_TO_PAGE_OFFSET
+  unsigned long want_lo = MODULES_START_FOR(moved);
+  unsigned long want_hi = MODULES_END_FOR(moved);
+  if (want_lo < (unsigned long)KERNEL_VIRT_VAS_START)
+    want_lo = (unsigned long)KERNEL_VIRT_VAS_START;
+  assert(want_hi > want_lo);
+  assert(layout.modules_start == want_lo);
+  assert(layout.modules_end == want_hi);
+  /* It really moved off the compile-time placement. */
+  assert(layout.modules_start != (unsigned long)MODULES_START ||
+         layout.modules_end != (unsigned long)MODULES_END);
+
+  /* Unpinned, but the compile-time PAGE_OFFSET is excluded: the band inherits
+   * the window's uncertainty as width rather than being drawn as located. */
+  unsigned long win_hi = moved + (moved - (unsigned long)PAGE_OFFSET);
+  memset(&e, 0, sizeof(e));
+  e.est[Q_VIRT_IMAGE_BASE].lo = layout.virt_kaslr_text_min;
+  e.est[Q_VIRT_IMAGE_BASE].hi = layout.virt_kaslr_text_max;
+  e.est[Q_PAGE_OFFSET].lo = moved;
+  e.est[Q_PAGE_OFFSET].hi = win_hi;
+  layout.modules_start = MODULES_START;
+  layout.modules_end = MODULES_END;
+  engine_sync_authoritative(&e);
+  /* Contains the band for every PAGE_OFFSET the window still admits. */
+  assert(layout.modules_start <= want_lo);
+  assert(layout.modules_end >= MODULES_END_FOR(win_hi));
+  assert(layout.modules_end > layout.modules_start);
+#elif !MODULES_RELATIVE_TO_TEXT
+  /* A fixed band does not move with the linear map, and must not be touched. */
+  assert(layout.modules_start == (unsigned long)MODULES_START);
+  assert(layout.modules_end == (unsigned long)MODULES_END);
+#endif
+
+  layout.virt_page_offset = sv_po;
+  layout.modules_start = MODULES_START;
+  layout.modules_end = MODULES_END;
+}
 int main(void) {
   TEST_SUITE("test_kasld");
   test_init_layout_engine_bounds();
@@ -1803,6 +1904,8 @@ int main(void) {
   RUN(test_engine_sync_projects_all_fields);
   RUN(test_engine_sync_anchors_module_band_to_observations);
   RUN(test_engine_sync_module_band_rejects_out_of_union);
+  RUN(test_engine_sync_module_band_never_degenerate);
+  RUN(test_engine_sync_module_band_follows_page_offset);
 
   return TEST_DONE();
 }
