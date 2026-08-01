@@ -1,0 +1,66 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-guard-docs — keep the documented guard list in step with the guards that
+# actually run.
+#
+# docs/testing.md carries a table of the static guards `make lint` runs. Nothing
+# tied the two together, and the table silently fell ten guards behind before
+# anyone noticed. This is the same parity check check-manpages applies to flags,
+# applied to the guard list: the set of `check-*` scripts the Makefile invokes
+# must equal the set the table documents.
+#
+# Pure text, so it needs no build.
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+DOC=$ROOT/docs/testing.md
+MK=$ROOT/Makefile
+
+if [ -t 1 ]; then
+  RED=$(printf '\033[31m')
+  GREEN=$(printf '\033[32m')
+  RESET=$(printf '\033[0m')
+else
+  RED=
+  GREEN=
+  RESET=
+fi
+
+# Guards the Makefile actually invokes. Matching on the $(TEST_DIR)/ prefix
+# deliberately excludes Makefile targets that merely share the check- prefix
+# (check-headers is a build prerequisite, not a lint guard).
+run_f=$(mktemp)
+doc_f=$(mktemp)
+grep -oE '\$\(TEST_DIR\)/check-[a-z0-9-]+' "$MK" | sed 's|.*/||' | sort -u >"$run_f"
+# The backticks are literal markdown table syntax, not command substitution.
+# shellcheck disable=SC2016
+grep -oE '^\| `check-[a-z0-9-]+`' "$DOC" | tr -d '|` ' | sort -u >"$doc_f"
+
+missing=$(comm -13 "$doc_f" "$run_f")
+extra=$(comm -23 "$doc_f" "$run_f")
+rm -f "$run_f" "$doc_f"
+
+fail=0
+if [ -n "$missing" ]; then
+  printf '%scheck-guard-docs: FAIL%s (run by lint, absent from docs/testing.md)\n' \
+    "$RED" "$RESET"
+  printf '%s\n' "$missing" | sed 's/^/  /'
+  fail=1
+fi
+if [ -n "$extra" ]; then
+  printf '%scheck-guard-docs: FAIL%s (in docs/testing.md, not run by lint)\n' \
+    "$RED" "$RESET"
+  printf '%s\n' "$extra" | sed 's/^/  /'
+  fail=1
+fi
+
+if [ "$fail" -eq 0 ]; then
+  # shellcheck disable=SC2016
+  n=$(grep -cE '^\| `check-[a-z0-9-]+`' "$DOC")
+  printf '%scheck-guard-docs: OK%s (%s guards, docs match lint)\n' \
+    "$GREEN" "$RESET" "$n"
+fi
+exit "$fail"

@@ -1,0 +1,88 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-readout-docs — keep documented sample output honest.
+#
+# The README and docs carry hand-maintained copies of rendered output. Nothing
+# ties them to the renderer, so a column or vocabulary change silently leaves
+# them describing a version of the tool that no longer exists. That has now
+# happened repeatedly, and each time it was caught by grep rather than a gate.
+#
+# Two checks, both pure text (no binary needed, so this runs everywhere):
+#
+#   1. Retired vocabulary. Any string the renderer no longer emits must not
+#      survive in a sample. Add a row when you rename something.
+#   2. Sample width. The readout is designed to fit 80 columns; a documented
+#      sample wider than that is either stale or documents a regression.
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+
+if [ -t 1 ]; then
+  RED=$(printf '\033[31m')
+  GREEN=$(printf '\033[32m')
+  RESET=$(printf '\033[0m')
+else
+  RED=
+  GREEN=
+  RESET=
+fi
+
+fail=0
+DOCS="$ROOT/README.md $ROOT/docs/usage.md $ROOT/docs/architecture.md"
+DOCS="$DOCS $ROOT/docs/exploitation.md"
+
+# 1. Retired strings: "what it used to say" per line. Tab-separated so the
+#    replacement text can contain spaces.
+retired_check() {
+  old=$1
+  new=$2
+  # Word splitting is intended: DOCS is a space-separated file list.
+  # shellcheck disable=SC2086
+  hits=$(grep -Fn -- "$old" $DOCS 2>/dev/null || true)
+  if [ -n "$hits" ]; then
+    printf '%scheck-readout-docs: FAIL%s (retired %s -- now %s)\n' \
+      "$RED" "$RESET" "$old" "$new"
+    printf '%s\n' "$hits" | sed 's/^/  /'
+    fail=1
+  fi
+}
+
+retired_check 'Leaks (' 'Evidence ('
+retired_check '## Leak Results' '## Evidence'
+retired_check 'not derandomized' 'narrowed to ~N bits'
+retired_check 'Virtual memory layout' 'Virtual address space'
+retired_check 'Physical memory layout' 'Physical address space'
+retired_check '## Memory layout' '## Address space'
+retired_check 'virt_page_offset_base 0x' 'Direct map base ... (prose label)'
+retired_check '(base; extent unknown)' '(base proven; extent unknown)'
+retired_check ' candidates,' ' slots, ~N bits'
+
+# 2. Width of the readout sample blocks. Only lines inside a fenced block that
+#    contains the readout's own headings are measured -- other fenced blocks
+#    hold JSON, shell transcripts and tables with their own conventions.
+# Word splitting is intended: DOCS is a space-separated file list.
+# shellcheck disable=SC2086
+too_wide=$(awk '
+  /^```/       { infence = !infence; if (!infence) { readout = 0 } ; next }
+  !infence     { next }
+  /^(Layout|Evidence  \()/ { readout = 1 }
+  readout && length($0) > 80 {
+    printf "%s:%d: %d cols: %s\n", FILENAME, FNR, length($0), $0
+  }
+' $DOCS)
+
+if [ -n "$too_wide" ]; then
+  printf '%scheck-readout-docs: FAIL%s (sample lines over 80 columns)\n' \
+    "$RED" "$RESET"
+  printf '%s\n' "$too_wide" | sed 's/^/  /'
+  fail=1
+fi
+
+if [ "$fail" -eq 0 ]; then
+  printf '%scheck-readout-docs: OK%s (samples use current vocabulary, within 80 cols)\n' \
+    "$GREEN" "$RESET"
+fi
+exit "$fail"

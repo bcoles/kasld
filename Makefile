@@ -618,6 +618,8 @@ lint :
 	@$(TEST_DIR)/check-fdt-unflatten
 	@$(TEST_DIR)/check-ksymoff
 	@$(TEST_DIR)/check-manpages
+	@$(TEST_DIR)/check-readout-docs
+	@$(TEST_DIR)/check-guard-docs
 	@$(TEST_DIR)/check-version
 	@$(TEST_DIR)/check-posture-diff
 	@$(TEST_DIR)/check-posture-summary

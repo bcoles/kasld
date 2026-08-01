@@ -90,6 +90,18 @@ and `make` halts on the first.
 | `check-live-probes` | every live probe (reads live kernel/CPU state) is tagged `live:1` and self-guards with `kasld_skip_live_probe()`, so it never runs offline against the analysis host |
 | `check-text-floor` | no component rolls its own text-base floor — they must use the `api.h` helper |
 | `check-shellcheck` | shellcheck over the `extra/` helper scripts |
+| `check-confidence-floor` | no engine rule pins the *guaranteed* window from a guess — a sub-floor signal may shape `likely` only, outside the reviewed allowlist |
+| `check-text-region` | the `KERNEL_TEXT` vs `KERNEL_IMAGE` base contract holds — only reviewed emitters may publish a `_stext` base |
+| `check-image-size` | the kernel image size is read only through the evidence accessors, never re-derived in a component |
+| `check-hash-parity` | every hashed offset-table row's key recomputes to the stored value under the shipped `kasld_fnv1a64()`, so the runtime hash and the offline generator's cannot drift apart |
+| `check-manpages` | the set of long options in each program's `--help` exactly matches the set its man page documents, so a new or removed flag cannot skip its manual entry |
+| `check-version` | the version-carrying files stay in step, so a release cannot ship a binary claiming one version while the man pages claim another |
+| `check-fdt-unflatten` | round-trip test for `tests/fdt-unflatten`: build a known DTB, expand it to the `/proc/device-tree` layout, assert nodes and values survive |
+| `check-ksymoff` | known-answer tests for `extra/ksymoff` |
+| `check-posture-diff` | behavioural test for `extra/posture-diff` |
+| `check-posture-summary` | behavioural test for `extra/posture-summary` |
+| `check-guard-docs` | this table lists exactly the guards `make lint` runs — the same parity check `check-manpages` applies to flags, applied to the guard list itself |
+| `check-readout-docs` | documented sample output uses the renderer's current vocabulary and fits 80 columns — the README and `docs/` carry hand-maintained copies of rendered output with nothing tying them to the renderer, so a rename or column change silently leaves them describing a version of the tool that no longer exists |
 
 `check-truncation` needs `i686-linux-gnu-gcc` and `check-shellcheck` needs
 `shellcheck`; both **skip cleanly** (exit 0) when their tool is absent, so
