@@ -586,10 +586,32 @@ static void print_virtual_layout(void) {
                                        1};
   }
 
+  /* A band must contain the region it names, so it must contain every address
+   * proven to be inside that region. The bounds above are the engine's *base*
+   * estimates -- where the region starts, not how far it reaches -- so a leak
+   * from the region's interior routinely sits above `end`, and the map would
+   * draw an address it has just proven is inside the region outside the band
+   * that names it. Widen each band to cover its own leaks: the result is the
+   * smallest interval known to contain the region's observed parts, which is
+   * exactly what the evidence supports.
+   *
+   * This also retires the degenerate direct-map band. It is built start == end
+   * because the mapping's extent is unknown; drawing that literally printed one
+   * address as both bookends and read as a zero-size direct map, while the
+   * region's own leaks sat gigabytes above it. */
+  for (int i = 0; i < n; i++) {
+    if (regions[i].leak_lo && regions[i].leak_lo < regions[i].start)
+      regions[i].start = regions[i].leak_lo;
+    if (regions[i].leak_hi > regions[i].end)
+      regions[i].end = regions[i].leak_hi;
+    if (regions[i].leak_lo > regions[i].end)
+      regions[i].end = regions[i].leak_lo;
+  }
+
   /* Sort by start address */
   qsort(regions, (size_t)n, sizeof(struct map_region), region_cmp);
 
-  printf("%sVirtual memory layout (%s):%s\n\n", c(C_BOLD),
+  printf("%sVirtual address space (%s):%s\n\n", c(C_BOLD),
          TEXT_TRACKS_DIRECTMAP ? "coupled" : "decoupled", c(C_RESET));
 
   /* Compact column layout: address column at the left bookends each
@@ -618,7 +640,10 @@ static void print_virtual_layout(void) {
     /* A base-only anchor (direct map) is drawn start==end but its extent is
      * unknown, so it is NOT a pinned single value — reserve "(pinned)" for a
      * genuine zero-extent point. */
-    const char *point_tail = r->base_only ? " (base; extent unknown)"
+    /* base_only means the engine proved where the mapping starts but not how
+     * far it reaches, so the band's top edge is "as far as evidence shows",
+     * not the region's end. Say that rather than implying a measured extent. */
+    const char *point_tail = r->base_only ? " (base proven; extent unknown)"
                              : pinned     ? " (pinned)"
                                           : "";
 
@@ -649,7 +674,15 @@ static void print_virtual_layout(void) {
       unsigned long gap = r->start - regions[i - 1].end - 1;
       printf("%s%s. . .  %s gap  . . .%s\n", INDENT, c(C_DIM),
              human_size(gap, hbuf, sizeof(hbuf)), c(C_RESET));
-      printf("  0x%016lx\n", regions[i - 1].end);
+      /* A base-only region with no leak to widen it has no known ceiling, so
+       * there is no upper boundary to draw. Printing its base here would repeat
+       * the address about to appear as the lower bookend and render the region
+       * as zero-height. Mark it open-ended instead. */
+      if (regions[i - 1].base_only &&
+          regions[i - 1].start == regions[i - 1].end)
+        printf("%s%s^ extent unknown%s\n", INDENT, c(C_DIM), c(C_RESET));
+      else
+        printf("  0x%016lx\n", regions[i - 1].end);
     }
   }
 
@@ -841,7 +874,7 @@ static void print_physical_layout(void) {
         memcpy(&ppts[j], tmp, sizeof(ppts[0]));
       }
 
-  printf("%sPhysical memory layout:%s\n\n", c(C_BOLD), c(C_RESET));
+  printf("%sPhysical address space:%s\n\n", c(C_BOLD), c(C_RESET));
 
   /* Extract DRAM edges from boundary markers (if leaked). These promote from
    * "labels inside a bucket" to actual bucket edges, with separate
@@ -1793,6 +1826,13 @@ void render_text(const struct summary *s) {
   /* Default mode: tight answer-first readout. */
   if (!verbose) {
     render_readout(s);
+    /* --map without --verbose: the diagram is a view of the resolved layout,
+     * not run narration, so it is reachable without the per-component stream
+     * that --verbose also turns on. */
+    if (map_mode) {
+      printf("\n");
+      print_memory_map();
+    }
     if (hardening_mode)
       render_hardening_text();
     return;

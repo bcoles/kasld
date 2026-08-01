@@ -861,6 +861,50 @@ static void test_render_memory_kaslr_slots_reach_machine_formats(void) {
 #endif
 }
 
+/* --map draws the address-space diagram without --verbose, which is the whole
+ * point of the flag: the diagram is a view of the resolved layout, not run
+ * narration, so it must be reachable without the per-component stream. */
+static void test_render_map_flag(void) {
+  struct summary s;
+  reset_results();
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+  memset(&s, 0, sizeof(s));
+  extern int verbose;
+  extern int map_mode;
+  s.kaslr.vslots = 60;
+  s.kaslr.vbits = 6;
+
+  /* Default readout: no diagram. */
+  verbose = 0;
+  map_mode = 0;
+  set_render_mode(0, 0, 0);
+  capture_stdout(wrap_render_summary, &s);
+  assert(strstr(render_cap, "address space") == NULL);
+
+  /* --map alone: diagram, and still no per-component narration. */
+  map_mode = 1;
+  capture_stdout(wrap_render_summary, &s);
+  assert(strstr(render_cap, "Virtual address space") != NULL);
+
+  /* markdown honours it too, as its own section. */
+  set_render_mode(0, 0, 1);
+  capture_stdout(wrap_render_summary, &s);
+  assert(strstr(render_cap, "## Address space") != NULL);
+
+  /* --verbose implies it: removing content from --verbose would regress
+   * anyone relying on it today. */
+  map_mode = 0;
+  verbose = 1;
+  set_render_mode(0, 0, 0);
+  capture_stdout(wrap_render_summary, &s);
+  assert(strstr(render_cap, "Virtual address space") != NULL);
+
+  verbose = 0;
+  map_mode = 0;
+  set_render_mode(0, 0, 0);
+}
+
 /* A KASLR-disabled base is a proven pin, not a speculative "likely" value: the
  * word "Likely" must not prefix the kernel image base. */
 static void test_render_disabled_base_not_labeled_likely(void) {
@@ -940,9 +984,9 @@ static void test_render_markdown_with_rich_content(void) {
   assert(strstr(render_cap, "| base |") != NULL);
   /* Verbose markdown embeds the ASCII memory-layout maps in a fenced code
    * block (the same diagrams the text readout draws). */
-  assert(strstr(render_cap, "## Memory layout") != NULL);
+  assert(strstr(render_cap, "## Address space") != NULL);
   assert(strstr(render_cap, "```") != NULL);
-  assert(strstr(render_cap, "memory layout") != NULL); /* map heading text */
+  assert(strstr(render_cap, "address space") != NULL); /* map heading text */
   set_render_mode(0, 0, 0);
 }
 
@@ -2529,6 +2573,7 @@ int main(void) {
   RUN(test_render_directmap_base_promoted_unbounded);
   RUN(test_render_entropy_states_its_baseline);
   RUN(test_render_memory_kaslr_slots_reach_machine_formats);
+  RUN(test_render_map_flag);
   RUN(test_render_window_row_always_graded);
   RUN(test_render_coupling_gated);
   RUN(test_render_markdown_text_order_caution);

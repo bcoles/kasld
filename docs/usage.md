@@ -97,6 +97,7 @@ the vantage. See [limitations.md](limitations.md).
 -x, --experimental  Enable experimental components
 -s, --skip PATTERN  Skip matching components (glob, comma-separated; multiple --skip flags accumulate)
 -H, --hardening     Append the hardening assessment to text/markdown output
+    --map           Draw the address-space diagram (implied by --verbose)
 -t, --timeout N     Per-component timeout in seconds (default: 30)
 -V, --version       Print version and exit
 -h, --help          Show this help
@@ -174,7 +175,8 @@ the [kaslr.md glossary](kaslr.md#glossary); the engine vocabulary behind them
 
 `-v` (`--verbose`) restores the full banner, system-config block,
 per-component logs, per-region "Results" table, KASLR analysis section,
-and a compact bracket-format virtual + physical memory layout. The
+and the virtual + physical address-space diagram (also available on its own
+via `--map`). The
 system-config block reports the recon vantage: whether the process is
 containerized, and — when it is confined — its seccomp / capability /
 no-new-privs state, plus which `/proc` leak oracles are readable here:
@@ -318,25 +320,25 @@ Memory KASLR (directmap / vmalloc / vmemmap):
   vmemmap base      guaranteed  0xffffa10080000000 .. 0xfffffd0000000000  94206 slots, ~17 bits
 
 ----------------------------------------
-Virtual memory layout (decoupled):
+Virtual address space (decoupled):
 
   0xffffffffffffffff
       modules (no leak)
   0xffffffffc0000000
-      . . .  770.0 MiB gap  . . .
-  0xffffffff8fe00000
-      kernel text (pinned)
+      . . .  767.3 MiB gap  . . .
+  0xffffffff900a9fc9
+      kernel text
         leak hi: 0xffffffff900a9fc9
         leak lo: 0xffffffff8fe00000
   0xffffffff8fe00000
       . . .  128.0 TiB gap  . . .
-  0xffff800000000000
-      direct map (base; extent unknown)
+      ^ extent unknown
+      direct map (base proven; extent unknown)
   0xffff800000000000
       . . .  65408.0 TiB gap  . . .
   0xff00000000000000  (user space + non-canonical hole below)
 
-Physical memory layout:
+Physical address space:
 
   0x000000003ffdefff
       above DRAM
@@ -470,7 +472,7 @@ warns that a leaked address no longer resolves the rest of the symbols
 via a generic `System.map`. When KASLR is disabled or unsupported, the
 compile-time **Kernel image base** is reported (there is no slide, so the
 base is the answer). The leak table credits the component(s) that
-produced each address. With `--verbose`, a `## Memory layout` section
+produced each address. With `--verbose`, a `## Address space` section
 embeds the virtual and physical ASCII address-space maps in a fenced code
 block (the same diagrams the text readout draws). An `## Environment`
 section reports the recon vantage (container / confinement / readable

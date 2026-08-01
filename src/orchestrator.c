@@ -65,6 +65,9 @@ int unicode_output = 1; /* Unicode glyphs on by default; main() lowers it for a
 int explain_mode;
 static int fast_mode;
 int hardening_mode;
+/* --map: draw the address-space diagram without the per-component narration
+ * --verbose also turns on. Implied by --verbose, which keeps showing it. */
+int map_mode;
 static int experimental_mode;
 
 #define MAX_SKIP_PATTERNS 64
@@ -3733,6 +3736,11 @@ static int set_hardening(const char *val) {
   hardening_mode = 1;
   return 0;
 }
+static int set_map(const char *val) {
+  (void)val;
+  map_mode = 1;
+  return 0;
+}
 static int set_timeout(const char *val) {
   /* strtol with end-pointer + errno check — atoi accepts trailing garbage
    * silently (atoi("5junk") == 5), which lets a typo land a degraded value. */
@@ -3790,7 +3798,7 @@ static const struct opt opts[] = {
 
     /* ── Output detail ───────────────────────────────────────────────── */
     {"-v", "--verbose", 0, NULL, OPT_SECT_DETAIL, set_verbose,
-     "Show component output, KASLR analysis, memory map", 0, 0},
+     "Show component output, KASLR analysis, address-space diagram", 0, 0},
     {"-e", "--explain", 0, NULL, OPT_SECT_DETAIL, set_explain,
      "Show technique explanations before each component (implies --verbose)", 0,
      0},
@@ -3805,6 +3813,11 @@ static const struct opt opts[] = {
      0, 0},
     {"-H", "--hardening", 0, NULL, OPT_SECT_DETAIL, set_hardening,
      "Append the hardening assessment to text/markdown output", 0, 0},
+    /* Long form only: -m is --markdown, and a -m/-M pair between two flags
+     * that both reshape output is a shift-slip away from silently swapping a
+     * diagram for a Markdown document. */
+    {NULL, "--map", 0, NULL, OPT_SECT_DETAIL, set_map,
+     "Draw the address-space diagram (implied by --verbose)", 0, 0},
 
     /* ── Component control ───────────────────────────────────────────── */
     {"-x", "--experimental", 0, NULL, OPT_SECT_COMPONENT, set_experimental,
@@ -3841,7 +3854,12 @@ static void usage_print_section(enum opt_section sect, int col) {
       printed_heading = 1;
     }
     char prefix[64];
-    if (o->arg_name)
+    /* A long-only option has no short_name; indent its long form to the column
+     * the long forms occupy so the list stays aligned. */
+    if (!o->short_name)
+      snprintf(prefix, sizeof(prefix), "      %s%s%s", o->long_name,
+               o->arg_name ? " " : "", o->arg_name ? o->arg_name : "");
+    else if (o->arg_name)
       snprintf(prefix, sizeof(prefix), "  %s, %s %s", o->short_name,
                o->long_name, o->arg_name);
     else
@@ -3860,8 +3878,13 @@ static void usage(const char *progname) {
    * one description column. */
   int col = 0;
   for (int i = 0; i < n_opts; i++) {
-    int len = (int)strlen("  ") + (int)strlen(opts[i].short_name) +
-              (int)strlen(", ") + (int)strlen(opts[i].long_name);
+    /* short_name is NULL for a long-only option (see the struct comment); it
+     * occupies the same indent width its "-x, " prefix would have. */
+    int len = (int)strlen("  ") +
+              (opts[i].short_name
+                   ? (int)strlen(opts[i].short_name) + (int)strlen(", ")
+                   : (int)strlen("    ")) +
+              (int)strlen(opts[i].long_name);
     if (opts[i].arg_name)
       len += 1 + (int)strlen(opts[i].arg_name);
     if (len > col)

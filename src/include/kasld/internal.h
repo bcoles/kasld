@@ -500,6 +500,7 @@ extern int oneline_output;
 extern int markdown_output;
 extern int explain_mode;
 extern int hardening_mode;
+extern int map_mode; /* --map: draw the address-space diagram */
 extern int sysctl_kptr_restrict;
 extern int sysctl_dmesg_restrict;
 extern int sysctl_perf_event_paranoid;

@@ -349,10 +349,10 @@ void render_markdown(const struct summary *s) {
    * block so the monospaced alignment survives markdown rendering. Color is
    * forced off around the call so no ANSI escape leaks into the block (markdown
    * never colors, but -m -c would otherwise reach the shared c() macro). */
-  if (verbose) {
+  if (verbose || map_mode) {
     int saved_color = color_output; /* declared in internal.h */
     color_output = 0;
-    printf("## Memory layout\n\n```\n");
+    printf("## Address space\n\n```\n");
     print_memory_map();
     printf("```\n\n");
     color_output = saved_color;
