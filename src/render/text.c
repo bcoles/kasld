@@ -611,6 +611,16 @@ static void print_virtual_layout(void) {
   /* Sort by start address */
   qsort(regions, (size_t)n, sizeof(struct map_region), region_cmp);
 
+  /* Widening must not push a band into its neighbour. A stale or misattributed
+   * leak can sit above the next region's floor (the kernel-image regions admit
+   * any address, so nothing rejects one), and an overlapping band makes the
+   * emit loop's gap test fail, dropping the boundary instead of drawing the
+   * overlap. Clamp to the neighbour: a leak beyond it is outside this region's
+   * possible extent, so the band should stop rather than swallow the next. */
+  for (int i = 0; i + 1 < n; i++)
+    if (regions[i + 1].start > 0 && regions[i].end >= regions[i + 1].start)
+      regions[i].end = regions[i + 1].start - 1;
+
   printf("%sVirtual address space (%s):%s\n\n", c(C_BOLD),
          TEXT_TRACKS_DIRECTMAP ? "coupled" : "decoupled", c(C_RESET));
 
