@@ -243,6 +243,15 @@ void render_json(const struct summary *s) {
 
   /* layout */
   printf("  \"layout\": {\n");
+  /* The kernel address space the regions below sit in. Architectural, but not
+   * derivable from `arch` alone -- on x86_64 the 4- and 5-level layouts differ,
+   * and the engine resolves which is active. Without these a consumer can
+   * place every region and every gap between them, but cannot bound the space
+   * itself: no ceiling above the topmost region, no floor below the lowest. */
+  printf("    \"virt_kernel_vas_start\": \"0x%016lx\",\n",
+         layout.virt_kernel_vas_start);
+  printf("    \"virt_kernel_vas_end\": \"0x%016lx\",\n",
+         layout.virt_kernel_vas_end);
   printf("    \"virt_page_offset\": \"0x%016lx\",\n", layout.virt_page_offset);
   printf("    \"virt_image_base_min\": \"0x%016lx\",\n",
          layout.virt_image_base_min);
