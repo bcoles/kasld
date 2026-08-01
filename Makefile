@@ -299,6 +299,14 @@ check-headers: | $(COMP_DIR)
 $(COMP_DIR)/%: $(COMP_SRC_DIR)/%.c $(HDRS) | $(COMP_DIR)
 	$(call cc-component, $(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $< -o $@)
 
+# Offset-table components #include a generated offsets/<name>.inc; add it as a
+# prerequisite (the pattern rule above only sees the .c + $(HDRS)) so a regen
+# rebuilds the component.
+$(COMP_DIR)/bpf_verifier_ksym: $(COMP_SRC_DIR)/offsets/bpf_verifier_ksym.inc
+$(COMP_DIR)/dmesg_ex_handler_msr: $(COMP_SRC_DIR)/offsets/dmesg_ex_handler_msr.inc
+$(COMP_DIR)/entrybleed: $(COMP_SRC_DIR)/offsets/entrybleed.inc
+$(COMP_DIR)/qemu_tcg_iret: $(COMP_SRC_DIR)/offsets/qemu_tcg_iret.inc
+
 # proc_config: link with zlib when available for native gzip decompression
 ifeq ($(HAVE_ZLIB),1)
 $(COMP_DIR)/proc_config: $(COMP_SRC_DIR)/proc_config.c $(HDRS) | $(COMP_DIR)

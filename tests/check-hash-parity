@@ -31,7 +31,7 @@ if [ "$#" -eq 0 ]; then
   # the offset payload between them (a single offset, or a { ... } array).
   # shellcheck disable=SC2046  # intended word-splitting of the discovered list
   set -- $(grep -lE '^[[:space:]]*\{0x[0-9a-f]{16},.*//' \
-    "$src"/components/*.c 2>/dev/null)
+    "$src"/components/*.c "$src"/components/offsets/*.inc 2>/dev/null)
 fi
 
 if [ "$#" -eq 0 ]; then

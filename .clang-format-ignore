@@ -1,8 +1,5 @@
 *.sh
-# Generated per-build offset tables: a single multi-thousand-row array
-# initializer. clang-format's // clang-format off disables reformatting but not
-# parsing, and the parse of one ~450k-token statement can exhaust memory.
-# The rows are machine-generated with a fixed format, so exclude these files
-# from clang-format entirely.
-src/components/bpf_verifier_ksym.c
-src/components/dmesg_ex_handler_msr.c
+# Generated per-build offset tables, kept in #included .inc files so each
+# component .c formats normally while the multi-thousand-row data — a single
+# array initializer whose parse can exhaust clang-format's memory — is excluded.
+src/components/offsets/*.inc

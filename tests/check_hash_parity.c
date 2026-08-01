@@ -16,7 +16,7 @@
 // pinned vectors — including a >= 0x80 byte, to catch a dropped unsigned-char
 // cast.
 //
-// Usage: check_hash_parity <component.c> [<component.c> ...]
+// Usage: check_hash_parity <table.inc> [<table.inc> ...]
 // Exit 0 iff every file's rows round-trip and are distinct; non-zero otherwise.
 // ---
 // <bcoles@gmail.com>
@@ -29,6 +29,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h> /* isatty */
 
 /* Pinned (input -> hash) vectors, computed independently of this binary. Guards
  * the hash constants and the unsigned-char cast (the last two carry bytes >=
@@ -99,8 +100,10 @@ static int parse_row(char *line, uint64_t *hash, char **uname) {
   return 1;
 }
 
-/* Returns count of problems (mismatches + collisions + structural). */
-static int check_file(const char *path) {
+/* Returns count of problems (mismatches + collisions + structural); reports the
+ * number of table rows parsed via *out_rows (0 on any failure). */
+static int check_file(const char *path, size_t *out_rows) {
+  *out_rows = 0;
   FILE *f = fopen(path, "r");
   if (!f) {
     fprintf(stderr, "  %s: cannot open\n", path);
@@ -172,23 +175,32 @@ static int check_file(const char *path) {
     free(rows[i].uname);
   free(rows);
 
-  if (!bad)
-    printf("  %s: %zu rows OK\n", path, n);
+  *out_rows = n;
   return bad;
 }
 
 int main(int argc, char **argv) {
   if (argc < 2) {
-    fprintf(stderr, "usage: %s <component.c> [<component.c> ...]\n", argv[0]);
+    fprintf(stderr, "usage: %s <table.inc> [<table.inc> ...]\n", argv[0]);
     return 2;
   }
   int bad = selftest();
-  for (int i = 1; i < argc; i++)
-    bad += check_file(argv[i]);
+  size_t ntables = 0, total_rows = 0;
+  for (int i = 1; i < argc; i++) {
+    size_t rows = 0;
+    bad += check_file(argv[i], &rows);
+    if (rows) {
+      ntables++;
+      total_rows += rows;
+    }
+  }
   if (bad) {
     fprintf(stderr, "check-hash-parity: FAIL (%d problem(s))\n", bad);
     return 1;
   }
-  printf("check-hash-parity: OK\n");
+  const char *green = isatty(1) ? "\033[32m" : "";
+  const char *reset = isatty(1) ? "\033[0m" : "";
+  printf("%scheck-hash-parity: OK%s (%zu tables, %zu rows)\n", green, reset,
+         ntables, total_rows);
   return 0;
 }

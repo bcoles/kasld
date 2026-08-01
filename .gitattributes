@@ -1,0 +1,4 @@
+# Per-build offset tables: multi-thousand-row generated data, #included by the
+# offset-table components. Marked generated so hosting UIs collapse them in
+# diffs and omit them from language statistics.
+src/components/offsets/*.inc linguist-generated=true
