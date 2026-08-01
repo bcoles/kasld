@@ -905,6 +905,388 @@ static void test_render_map_flag(void) {
   set_render_mode(0, 0, 0);
 }
 
+/* A virtual map band must contain the region it names, and therefore every
+ * address proven to be inside it. The band bounds come from the engine's *base*
+ * estimates -- where a region starts, not how far it reaches -- so an interior
+ * leak routinely sits above them, and the map drew an address it had just
+ * proven was inside kernel text above the band that named it. */
+static void test_render_map_band_contains_its_leaks(void) {
+  struct summary s;
+  reset_results();
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+  memset(&s, 0, sizeof(s));
+  extern int verbose;
+  unsigned long sv_max = layout.virt_image_base_max;
+
+  /* Narrow the base window so there is room between its ceiling and the next
+   * region: at the honest top it abuts modules_start, leaving nowhere for an
+   * interior sample to sit. */
+  unsigned long win_lo = layout.virt_image_base_min;
+  unsigned long win_hi = layout.virt_image_base_max;
+  /* The map stacks disjoint bands, so a band widened past the next region's
+   * floor is clamped back to it and the widened edge is never drawn. On some
+   * layouts a neighbouring region starts *inside* the base window rather than
+   * above it -- ppc64 places modules at PAGE_OFFSET + 32 PiB while its text
+   * window spans the whole kernel VAS -- so the window alone does not bound
+   * where the next band begins. Cap the synthetic window at the nearest region
+   * floor above it, keeping the sample in the stretch no other region claims.
+   */
+  if (layout.modules_start > win_lo && layout.modules_start < win_hi)
+    win_hi = layout.modules_start;
+  if (layout.virt_page_offset > win_lo && layout.virt_page_offset < win_hi)
+    win_hi = layout.virt_page_offset;
+  unsigned long win_span = win_hi - win_lo;
+  layout.virt_image_base_max = win_lo + win_span / 4;
+  /* One byte above the narrowed ceiling: the widening must still fire, while
+   * the sample stays well inside the unclaimed stretch on every arch layout --
+   * and it is derived, so nothing overflows on 32-bit. */
+  unsigned long interior = layout.virt_image_base_max + 1;
+
+  struct result *r = push_result();
+  r->type = KASLD_TYPE_VIRT;
+  r->region = REGION_KERNEL_TEXT;
+  r->pos = POS_INTERIOR;
+  r->conf = CONF_PARSED;
+  r->sample = interior;
+  r->set_mask = SAMPLE_SET;
+  snprintf(r->origins[0], ORIGIN_LEN, "synthetic_test");
+  r->method_set = 1u << KM_PARSED;
+  r->provenance_count = 1;
+
+  s.kaslr.vslots = 60;
+  s.kaslr.vbits = 6;
+  verbose = 1;
+  set_render_mode(0, 0, 0);
+  capture_stdout(wrap_render_summary, &s);
+  verbose = 0;
+  set_render_mode(0, 0, 0);
+  layout.virt_image_base_max = sv_max;
+
+  /* Assert the property directly: the ceiling the map gives kernel text must
+   * cover the address proven to be inside it. An occurrence count will not do
+   * -- whether the widened edge is printed at all depends on whether a region
+   * sits above kernel text, which differs by arch (on arm64 modules are placed
+   * below the image, so kernel text is topmost and its ceiling comes from the
+   * map's own top instead).
+   *
+   * Kernel text is drawn in one of two shapes. As a band of its own, its
+   * ceiling is the bookend printed above the label. Mapped through the direct
+   * map (coupled arches), it is drawn nested inside its container with its own
+   * span inline -- there is no bookend of its own, and the inline upper edge is
+   * the ceiling. Read whichever shape was emitted. */
+  const char *map = strstr(render_cap, "Virtual address space");
+  assert(map != NULL);
+  const char *lbl = strstr(map, "kernel text");
+  assert(lbl != NULL);
+
+  unsigned long ceiling = 0;
+  int found = 0;
+  const char *eol = strchr(lbl, '\n');
+  const char *inline_hi = strstr(lbl, " - 0x");
+  if (inline_hi && eol && inline_hi < eol &&
+      sscanf(inline_hi + 3, "0x%lx", &ceiling) == 1) {
+    found = 1; /* contained form: the entry states its own span */
+  } else {
+    for (const char *l = map; l < lbl;) {
+      const char *nl = strchr(l, '\n');
+      if (!nl || nl > lbl)
+        break;
+      unsigned long v;
+      if (sscanf(l, " 0x%lx", &v) == 1 && strncmp(l, "  0x", 4) == 0) {
+        ceiling = v;
+        found = 1;
+      }
+      l = nl + 1;
+    }
+  }
+  assert(found);
+  assert(ceiling >= interior);
+}
+
+/* The physical map's ceiling must sit above every point drawn beneath it. High
+ * MMIO routinely lies above the leaked DRAM top, and pinning the ceiling to
+ * ram_top drew those points outside the map that lists them -- and, where the
+ * above-DRAM band's own footer is ram_top too, printed one address as both
+ * bookends of a band holding points gigabytes higher. */
+static void test_render_map_ceiling_covers_high_mmio(void) {
+  struct summary s;
+  reset_results();
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+  memset(&s, 0, sizeof(s));
+  extern int verbose;
+
+  /* Small, so both fit a 32-bit unsigned long; the property under test is
+   * only that the MMIO point sits above the leaked DRAM top. */
+  unsigned long top = (unsigned long)PHYS_OFFSET + 0x1000000ul;
+  unsigned long mmio = top + 0x1000000ul;
+
+  struct result *r1 = push_result();
+  r1->type = KASLD_TYPE_PHYS;
+  r1->region = REGION_RAM;
+  r1->hi = top;
+  r1->set_mask = HI_SET;
+  r1->pos = POS_TOP;
+  r1->conf = CONF_PARSED;
+  snprintf(r1->origins[0], ORIGIN_LEN, "synthetic_test");
+  r1->method_set = 1u << KM_PARSED;
+  r1->provenance_count = 1;
+
+  struct result *r2 = push_result();
+  r2->type = KASLD_TYPE_PHYS;
+  r2->region = REGION_MMIO;
+  r2->sample = mmio;
+  r2->set_mask = SAMPLE_SET;
+  r2->pos = POS_INTERIOR;
+  r2->conf = CONF_PARSED;
+  snprintf(r2->origins[0], ORIGIN_LEN, "synthetic_test");
+  r2->method_set = 1u << KM_PARSED;
+  r2->provenance_count = 1;
+
+  s.kaslr.vslots = 60;
+  s.kaslr.vbits = 6;
+  verbose = 1;
+  set_render_mode(0, 0, 0);
+  capture_stdout(wrap_render_summary, &s);
+  verbose = 0;
+  set_render_mode(0, 0, 0);
+
+  const char *blk = strstr(render_cap, "Physical address space");
+  assert(blk != NULL);
+  char hex[32];
+  snprintf(hex, sizeof(hex), "0x%016lx", mmio);
+  assert(strstr(blk, hex) != NULL); /* the point is drawn */
+
+  /* The first bare address line after the heading is the ceiling. */
+  unsigned long ceiling = 0;
+  for (const char *l = strchr(blk, '\n'); l; l = strchr(l + 1, '\n')) {
+    if (sscanf(l, "\n  0x%lx", &ceiling) == 1)
+      break;
+  }
+  assert(ceiling >= mmio);
+}
+
+/* Kernel text is mapped THROUGH the direct map on coupled arches, and the map
+ * has to say so. It previously could not: the direct-map region was only added
+ * when its base differed from the text floor, which on the default
+ * configuration of every coupled arch it does not -- so the largest kernel
+ * region was absent from the map entirely (verified missing on ppc64le, ppc32,
+ * mips32, riscv32) -- and on the configurations where it did appear it was
+ * stacked as a sibling BELOW the region it contains.
+ *
+ * Drive the coinciding case directly and assert the direct map is drawn with
+ * kernel text nested inside its bookends. On decoupled arches the same input
+ * means the two really are indistinguishable and suppression is right, so the
+ * arms differ; both are asserted rather than skipped. */
+static void test_render_map_directmap_contains_text(void) {
+  struct summary s;
+  reset_results();
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+  memset(&s, 0, sizeof(s));
+  extern int verbose;
+
+  unsigned long sv_po = layout.virt_page_offset;
+  /* The coupled default: the direct map begins exactly where the kernel image
+   * may begin. Derived from layout, so it is that arch's own address. */
+  layout.virt_page_offset = layout.virt_image_base_min;
+
+  s.kaslr.vslots = 60;
+  s.kaslr.vbits = 6;
+  verbose = 1;
+  set_render_mode(0, 0, 0);
+  capture_stdout(wrap_render_summary, &s);
+  verbose = 0;
+  set_render_mode(0, 0, 0);
+  layout.virt_page_offset = sv_po;
+
+  const char *map = strstr(render_cap, "Virtual address space");
+  assert(map != NULL);
+  const char *dmap = strstr(map, "direct map");
+
+#if TEXT_TRACKS_DIRECTMAP
+  /* Present at all -- the whole defect was its absence. */
+  assert(dmap != NULL);
+  const char *text = strstr(dmap, "kernel text");
+  assert(text != NULL);
+  /* Nested, not stacked: no band bookend separates the two, and the contained
+   * region is indented one level deeper than its container's label. */
+  for (const char *l = strchr(dmap, '\n'); l && l < text;
+       l = strchr(l + 1, '\n'))
+    assert(strncmp(l + 1, "  0x", 4) != 0);
+  const char *text_bol = text;
+  while (text_bol > map && text_bol[-1] != '\n')
+    text_bol--;
+  const char *dmap_bol = dmap;
+  while (dmap_bol > map && dmap_bol[-1] != '\n')
+    dmap_bol--;
+  assert((text - text_bol) > (dmap - dmap_bol));
+#else
+  /* Decoupled: a direct-map base equal to the text floor proves nothing the
+   * text band does not already say, and nothing is contained. */
+  assert(dmap == NULL);
+#endif
+}
+
+/* The map's address bookends are shared: one line is at once the floor of the
+ * band above and the ceiling of the band below, and the band above prints it.
+ * Nothing sits above the topmost band, so its ceiling has no other printer --
+ * leave it out and the reader takes the map's top edge for the band's own end,
+ * which contradicts the window the readout states for that same region.
+ *
+ * Lay three narrow bands strictly inside the kernel VAS so the map's top edge
+ * is provably above every band's end on every arch (several arches ship a
+ * modules or text region that really does reach the VAS ceiling, where there is
+ * correctly nothing extra to draw), then assert the first thing under the top
+ * edge is an address BELOW it and not a region label. */
+static void test_render_map_draws_topmost_band_ceiling(void) {
+  struct summary s;
+  reset_results();
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+  memset(&s, 0, sizeof(s));
+  extern int verbose;
+
+  unsigned long sv_po = layout.virt_page_offset;
+  unsigned long sv_tmin = layout.virt_image_base_min;
+  unsigned long sv_tmax = layout.virt_image_base_max;
+  unsigned long sv_mstart = layout.modules_start;
+  unsigned long sv_mend = layout.modules_end;
+
+  /* Eighths of the arch's own kernel VAS: derived, so nothing overflows a
+   * 32-bit word and the bands land inside the VAS on every layout. */
+  unsigned long vas_lo = layout.virt_kernel_vas_start;
+  unsigned long vas_hi = layout.virt_kernel_vas_end;
+  unsigned long q = (vas_hi - vas_lo) / 8;
+  layout.virt_page_offset = vas_lo + q;
+  layout.virt_image_base_min = vas_lo + 3 * q;
+  layout.virt_image_base_max = vas_lo + 4 * q;
+  layout.modules_start = vas_lo + 5 * q;
+  layout.modules_end = vas_lo + 6 * q;
+
+  s.kaslr.vslots = 60;
+  s.kaslr.vbits = 6;
+  verbose = 1;
+  set_render_mode(0, 0, 0);
+  capture_stdout(wrap_render_summary, &s);
+  verbose = 0;
+  set_render_mode(0, 0, 0);
+
+  layout.virt_page_offset = sv_po;
+  layout.virt_image_base_min = sv_tmin;
+  layout.virt_image_base_max = sv_tmax;
+  layout.modules_start = sv_mstart;
+  layout.modules_end = sv_mend;
+
+  const char *map = strstr(render_cap, "Virtual address space");
+  assert(map != NULL);
+
+  unsigned long top = 0, next = 0;
+  int have_top = 0, have_next = 0;
+  for (const char *l = map; l && *l && !have_next;) {
+    const char *nl = strchr(l, '\n');
+    unsigned long v;
+    if (strncmp(l, "  0x", 4) == 0 && sscanf(l + 2, "0x%lx", &v) == 1) {
+      if (!have_top) {
+        top = v;
+        have_top = 1;
+      } else {
+        next = v;
+        have_next = 1;
+      }
+    } else if (have_top) {
+      /* Only a gap separator or the open-extent marker may stand between the
+       * map's top edge and the topmost band's ceiling. A region label here
+       * means the ceiling was never drawn. Copy the line out first: strstr()
+       * over the raw cursor would happily match a gap separator further down
+       * the block and pass a test that should fail. */
+      char line[256];
+      size_t len = nl ? (size_t)(nl - l) : strlen(l);
+      if (len >= sizeof(line))
+        len = sizeof(line) - 1;
+      memcpy(line, l, len);
+      line[len] = '\0';
+      assert(line[0] == '\0' || strstr(line, ". . .") != NULL ||
+             strstr(line, "^ extent unknown") != NULL);
+    }
+    l = nl ? nl + 1 : NULL;
+  }
+  assert(have_top && have_next);
+  assert(top == vas_hi);
+  assert(next < top);
+}
+
+/* Walk the bare address bookends of one map block (lines whose first four
+ * characters are exactly "  0x" -- the column that brackets each band; leaks
+ * and sub-entries are indented further and are deliberately skipped) and assert
+ * the column never rises as it descends. Returns the number of bookends seen so
+ * a caller can check the block was actually drawn. */
+static int assert_map_column_descends(const char *block) {
+  unsigned long prev = 0;
+  int seen = 0;
+  for (const char *l = block; l && *l;) {
+    unsigned long v;
+    if (strncmp(l, "  0x", 4) == 0 && sscanf(l + 2, "0x%lx", &v) == 1) {
+      if (seen)
+        assert(v <= prev);
+      prev = v;
+      seen++;
+    }
+    const char *nl = strchr(l, '\n');
+    l = nl ? nl + 1 : NULL;
+  }
+  return seen;
+}
+
+/* The physical column must descend: the ceiling has to dominate every edge
+ * drawn beneath it, and the bucket FOOTERS are edges too. The bucket above the
+ * phys-text window carries `phys_kaslr_text_max` as its footer, and that bound
+ * routinely sits above both a leaked ram_top and the sysconf estimate whenever
+ * no DRAM-extent observation narrowed it -- so the map printed an address above
+ * its own stated top. The engine's window must NOT be clipped to fix this
+ * (truncating it would misreport the window); the ceiling rises instead. */
+static void test_render_phys_ceiling_covers_bucket_footers(void) {
+  struct summary s;
+  reset_results();
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+  memset(&s, 0, sizeof(s));
+  extern int verbose;
+
+  unsigned long sv_min = layout.phys_kaslr_text_min;
+  unsigned long sv_max = layout.phys_kaslr_text_max;
+
+  /* No RAM observation at all, so the DRAM ceiling falls back to the sysconf
+   * estimate and dram_hi stays ULONG_MAX -- the configuration that emits the
+   * `[pmax + 1, dram_hi]` bucket whose footer is pmax. A pmax of ULONG_MAX - 1
+   * is above any estimate sysconf can produce on any word size, so the ordering
+   * violation is deterministic rather than dependent on the host's RAM. */
+  layout.phys_kaslr_text_min = ULONG_MAX / 2;
+  layout.phys_kaslr_text_max = ULONG_MAX - 1;
+
+  s.kaslr.vslots = 60;
+  s.kaslr.vbits = 6;
+  verbose = 1;
+  set_render_mode(0, 0, 0);
+  capture_stdout(wrap_render_summary, &s);
+  verbose = 0;
+  set_render_mode(0, 0, 0);
+
+  layout.phys_kaslr_text_min = sv_min;
+  layout.phys_kaslr_text_max = sv_max;
+
+  const char *blk = strstr(render_cap, "Physical address space");
+  assert(blk != NULL);
+  assert(assert_map_column_descends(blk) >= 2);
+
+  /* And the window itself is reported untouched: the ceiling moved, pmax did
+   * not. */
+  char hex[32];
+  snprintf(hex, sizeof(hex), "0x%016lx", ULONG_MAX - 1);
+  assert(strstr(blk, hex) != NULL);
+}
+
 /* A KASLR-disabled base is a proven pin, not a speculative "likely" value: the
  * word "Likely" must not prefix the kernel image base. */
 static void test_render_disabled_base_not_labeled_likely(void) {
@@ -2573,6 +2955,11 @@ int main(void) {
   RUN(test_render_directmap_base_promoted_unbounded);
   RUN(test_render_entropy_states_its_baseline);
   RUN(test_render_memory_kaslr_slots_reach_machine_formats);
+  RUN(test_render_map_band_contains_its_leaks);
+  RUN(test_render_map_ceiling_covers_high_mmio);
+  RUN(test_render_phys_ceiling_covers_bucket_footers);
+  RUN(test_render_map_draws_topmost_band_ceiling);
+  RUN(test_render_map_directmap_contains_text);
   RUN(test_render_map_flag);
   RUN(test_render_window_row_always_graded);
   RUN(test_render_coupling_gated);

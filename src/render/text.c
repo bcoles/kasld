@@ -531,6 +531,16 @@ static void render_derived_text(const struct summary *s) {
  * ASCII memory layout map
  * -------------------------------------------------------------------------
  */
+/* Region identity, stable across the sort. Used to express containment: a
+ * region names the region it lives INSIDE, not the slot that region happens to
+ * occupy once the array is ordered by address. */
+enum map_region_id {
+  MR_MODULES = 0,
+  MR_KERNEL_TEXT,
+  MR_DIRECTMAP,
+  MR_NONE = -1,
+};
+
 struct map_region {
   unsigned long start;
   unsigned long end;
@@ -540,16 +550,61 @@ struct map_region {
   int base_only;         /* 1 = start is a known base but the extent is
                           * unknown (start==end is a drawing convenience, not a
                           * genuine zero-size pin) */
+  int id;                /* enum map_region_id */
+  /* The region enclosing this one, or MR_NONE for a top-level band. Kernel
+   * text is MAPPED THROUGH the direct map on TEXT_TRACKS_DIRECTMAP arches: the
+   * two are not siblings and no stacking of disjoint bands can describe them.
+   * A contained region is drawn indented inside its container's bookends
+   * instead of claiming a band of its own. */
+  int parent;
 };
 
+/* Total order, so the column is byte-identical run to run. Regions really can
+ * share a start (riscv32 places its module window at PAGE_OFFSET, s390 leaves
+ * both the text and module bands at the VAS floor until something is proven),
+ * and leaving those ties to qsort let the same machine draw the map two ways.
+ */
 static int region_cmp(const void *a, const void *b) {
   const struct map_region *ra = (const struct map_region *)a;
   const struct map_region *rb = (const struct map_region *)b;
-  if (ra->start < rb->start)
-    return -1;
-  if (ra->start > rb->start)
-    return 1;
-  return 0;
+  if (ra->start != rb->start)
+    return ra->start < rb->start ? -1 : 1;
+  if (ra->end != rb->end)
+    return ra->end < rb->end ? -1 : 1;
+  return ra->id < rb->id ? -1 : (ra->id > rb->id);
+}
+
+/* One downward boundary transition in the virtual column: the
+ * `. . . N gap . . .` separator for the unclaimed span, then the ceiling of the
+ * band below it. `above` is the first address NOT in `below` (the floor of
+ * whatever sits on top, or the map's own top edge).
+ *
+ * Shared by the map's top edge and the inter-band gaps so the two render
+ * identically. The map's bookends are shared: one address line is
+ * simultaneously the floor of the band above and the ceiling of the band below,
+ * and it is the band above that prints it. The topmost band has nothing above
+ * it, so without this being called for the map's top edge its ceiling is never
+ * drawn at all and the reader takes the map's top for the band's own end --
+ * e.g. kernel text appearing to run to 0xffffffffffffffff on arm64 while the
+ * readout states an image-base window that ends far below. */
+static void print_map_boundary(const char *indent, unsigned long above,
+                               const struct map_region *below) {
+  /* `above - below->end > 1` rather than `below->end + 1 < above`: the latter
+   * wraps when the band ends at the top of the address space. */
+  if (above - below->end > 1) {
+    char hbuf[32];
+    unsigned long gap = above - below->end - 1;
+    printf("%s%s. . .  %s gap  . . .%s\n", indent, c(C_DIM),
+           human_size(gap, hbuf, sizeof(hbuf)), c(C_RESET));
+  }
+  /* A base-only region with no leak to widen it has no known ceiling, so there
+   * is no upper boundary to draw. Printing its base here would repeat the
+   * address about to appear as the lower bookend and render the region as
+   * zero-height. Mark it open-ended instead. */
+  if (below->base_only && below->start == below->end)
+    printf("%s%s^ extent unknown%s\n", indent, c(C_DIM), c(C_RESET));
+  else
+    printf("  0x%016lx\n", below->end);
 }
 
 /* Render the virtual half of the memory map: kernel text / modules / direct-map
@@ -564,26 +619,54 @@ static void print_virtual_layout(void) {
   struct map_region regions[8];
   int n = 0;
 
-  regions[n++] = (struct map_region){
-      layout.modules_start, layout.modules_end, "modules", vmod_lo, vmod_hi, 0};
-  regions[n++] = (struct map_region){layout.virt_image_base_min,
-                                     layout.virt_image_base_max,
-                                     "kernel text",
-                                     vtext_lo,
-                                     vtext_hi,
-                                     0};
+  /* Kernel text is mapped THROUGH the direct map on coupled arches -- the image
+   * sits at PAGE_OFFSET + a small offset, inside the linear mapping, not beside
+   * it. Record that as containment rather than trying to stack the two as
+   * disjoint bands, which is what previously forced the choice between hiding
+   * the direct map entirely (it was suppressed whenever its base coincided with
+   * the text floor, i.e. on the default configuration of every coupled arch, so
+   * the largest kernel region simply never appeared) and drawing it as a
+   * sibling *below* the region it contains. The ordering test is a guard, not a
+   * formality: a direct-map base above the text floor would not contain it, and
+   * indenting text inside it would assert something false. */
+  int text_in_directmap = TEXT_TRACKS_DIRECTMAP && layout.virt_page_offset &&
+                          layout.virt_page_offset <= layout.virt_image_base_min;
 
-  /* Only show directmap region if it's distinct from text region.
-     Use virt_page_offset as both start and end — we know the mapping begins
-     there but don't know its true extent. virt_kernel_vas_end would cause
-     unsigned overflow in the gap arithmetic (end + 1 wraps to 0). */
-  if (layout.virt_page_offset != layout.virt_image_base_min) {
+  regions[n++] = (struct map_region){layout.modules_start,
+                                     layout.modules_end,
+                                     "modules",
+                                     vmod_lo,
+                                     vmod_hi,
+                                     0,
+                                     MR_MODULES,
+                                     MR_NONE};
+  regions[n++] =
+      (struct map_region){layout.virt_image_base_min,
+                          layout.virt_image_base_max,
+                          "kernel text",
+                          vtext_lo,
+                          vtext_hi,
+                          0,
+                          MR_KERNEL_TEXT,
+                          text_in_directmap ? MR_DIRECTMAP : MR_NONE};
+
+  /* The direct map is shown whenever its base is known. Use virt_page_offset as
+     both start and end — we know the mapping begins there but don't know its
+     true extent. virt_kernel_vas_end would cause unsigned overflow in the gap
+     arithmetic (end + 1 wraps to 0). The only case still suppressed is a
+     decoupled arch whose direct-map base coincides with the text floor: there
+     the two are genuinely indistinguishable and nothing is contained. */
+  if (layout.virt_page_offset &&
+      (text_in_directmap ||
+       layout.virt_page_offset != layout.virt_image_base_min)) {
     regions[n++] = (struct map_region){layout.virt_page_offset,
                                        layout.virt_page_offset,
                                        "direct map",
                                        vdmap_lo,
                                        vdmap_hi,
-                                       1};
+                                       1,
+                                       MR_DIRECTMAP,
+                                       MR_NONE};
   }
 
   /* A band must contain the region it names, so it must contain every address
@@ -608,18 +691,45 @@ static void print_virtual_layout(void) {
       regions[i].end = regions[i].leak_lo;
   }
 
-  /* Sort by start address */
-  qsort(regions, (size_t)n, sizeof(struct map_region), region_cmp);
+  /* A container must cover what it contains, so the drawn band absorbs its
+   * contained regions' extents. This is the only widening the enclosing region
+   * needs: everything else about the direct map's reach stays unknown, which
+   * its own label continues to say. */
+  for (int i = 0; i < n; i++) {
+    if (regions[i].parent == MR_NONE)
+      continue;
+    for (int j = 0; j < n; j++) {
+      if (regions[j].id != regions[i].parent)
+        continue;
+      if (regions[i].start < regions[j].start)
+        regions[j].start = regions[i].start;
+      if (regions[i].end > regions[j].end)
+        regions[j].end = regions[i].end;
+    }
+  }
 
-  /* Widening must not push a band into its neighbour. A stale or misattributed
-   * leak can sit above the next region's floor (the kernel-image regions admit
-   * any address, so nothing rejects one), and an overlapping band makes the
-   * emit loop's gap test fail, dropping the boundary instead of drawing the
-   * overlap. Clamp to the neighbour: a leak beyond it is outside this region's
-   * possible extent, so the band should stop rather than swallow the next. */
-  for (int i = 0; i + 1 < n; i++)
-    if (regions[i + 1].start > 0 && regions[i].end >= regions[i + 1].start)
-      regions[i].end = regions[i + 1].start - 1;
+  /* Split into the bands the column draws and the regions drawn inside them.
+   * `bands` is sorted by start; `regions` keeps insertion order so a band can
+   * find its contents by id. */
+  struct map_region bands[8];
+  int nb = 0;
+  for (int i = 0; i < n; i++)
+    if (regions[i].parent == MR_NONE)
+      bands[nb++] = regions[i];
+
+  /* Sort by start address */
+  qsort(bands, (size_t)nb, sizeof(struct map_region), region_cmp);
+
+  /* No neighbour clamp here. Bands are NOT disjoint: on TEXT_TRACKS_DIRECTMAP
+   * arches kernel text is nested inside the direct map, so clamping a band to
+   * its successor's floor truncates the enclosing region and re-creates the
+   * very defect the widening above removes -- a leak printed outside the band
+   * that lists it. Where two regions share a start it also inverts one into a
+   * zero-height band. A clamp is no help even on disjoint layouts: abutting
+   * bands defeat the emit loop's `end + 1 < start` gap test exactly as
+   * overlapping ones do, so the boundary is dropped either way. Containment is
+   * now representable (see `parent`), so the disjointness assumption the clamp
+   * encoded has no way back in. */
 
   printf("%sVirtual address space (%s):%s\n\n", c(C_BOLD),
          TEXT_TRACKS_DIRECTMAP ? "coupled" : "decoupled", c(C_RESET));
@@ -638,14 +748,20 @@ static void print_virtual_layout(void) {
    * the upper bound on PAGE_OFFSET, not the architectural VAS ceiling), so
    * we clamp it up to the highest region boundary we know about. */
   unsigned long map_top = layout.virt_kernel_vas_end;
-  for (int i = 0; i < n; i++)
-    if (regions[i].end > map_top)
-      map_top = regions[i].end;
+  for (int i = 0; i < nb; i++)
+    if (bands[i].end > map_top)
+      map_top = bands[i].end;
 
   printf("  0x%016lx\n", map_top);
 
-  for (int i = n - 1; i >= 0; i--) {
-    struct map_region *r = &regions[i];
+  /* The highest band's ceiling: no band sits above it to print the shared
+   * bookend, so draw it here or it never appears and the map silently claims
+   * the region reaches the top of the address space. */
+  if (nb > 0 && map_top > bands[nb - 1].end)
+    print_map_boundary(INDENT, map_top, &bands[nb - 1]);
+
+  for (int i = nb - 1; i >= 0; i--) {
+    struct map_region *r = &bands[i];
     int pinned = (r->start == r->end);
     /* A base-only anchor (direct map) is drawn start==end but its extent is
      * unknown, so it is NOT a pinned single value — reserve "(pinned)" for a
@@ -673,27 +789,52 @@ static void print_virtual_layout(void) {
     } else if (pinned) {
       printf("%s%s%s\n", INDENT, r->label, point_tail);
     } else {
-      printf("%s%s %s(no leak)%s\n", INDENT, r->label, c(C_DIM), c(C_RESET));
+      /* point_tail carries here too: a base-only band whose bookends come from
+       * a contained region now has a drawn ceiling, and that ceiling is the
+       * contained region's reach, not a measurement of this one's. Dropping the
+       * disclaimer would let the drawn edge read as the region's extent. */
+      printf("%s%s%s %s(no leak)%s\n", INDENT, r->label, point_tail, c(C_DIM),
+             c(C_RESET));
     }
+
+    /* Regions mapped through this one, drawn inside its bookends with their own
+     * span inline — the same sub-entry shape the physical column uses under a
+     * bucket header. Nesting is what makes the relationship readable: a
+     * contained region has no band of its own to be above or below, so no
+     * reading of the column can put kernel text outside the direct map that
+     * maps it. */
+    for (int j = 0; j < n; j++) {
+      const struct map_region *sub = &regions[j];
+      if (sub->parent != r->id)
+        continue;
+      if (sub->start == sub->end)
+        printf("%s  %s  0x%016lx\n", INDENT, sub->label, sub->start);
+      else
+        printf("%s  %s  0x%016lx - 0x%016lx\n", INDENT, sub->label, sub->start,
+               sub->end);
+      if (sub->leak_hi && sub->leak_hi != sub->leak_lo) {
+        printf("%s    leak hi: 0x%016lx\n", INDENT, sub->leak_hi);
+        printf("%s    leak lo: 0x%016lx\n", INDENT, sub->leak_lo);
+      } else if (sub->leak_lo) {
+        printf("%s    leak: 0x%016lx\n", INDENT, sub->leak_lo);
+      } else {
+        printf("%s    %s(no leak)%s\n", INDENT, c(C_DIM), c(C_RESET));
+      }
+    }
+
     printf("  0x%016lx\n", r->start);
 
-    /* Gap to the next (lower) region, if any. The gap address bookend
-     * (the next region's `end`) is printed after the separator. */
-    if (i > 0 && regions[i - 1].end + 1 < r->start) {
-      char hbuf[32];
-      unsigned long gap = r->start - regions[i - 1].end - 1;
-      printf("%s%s. . .  %s gap  . . .%s\n", INDENT, c(C_DIM),
-             human_size(gap, hbuf, sizeof(hbuf)), c(C_RESET));
-      /* A base-only region with no leak to widen it has no known ceiling, so
-       * there is no upper boundary to draw. Printing its base here would repeat
-       * the address about to appear as the lower bookend and render the region
-       * as zero-height. Mark it open-ended instead. */
-      if (regions[i - 1].base_only &&
-          regions[i - 1].start == regions[i - 1].end)
-        printf("%s%s^ extent unknown%s\n", INDENT, c(C_DIM), c(C_RESET));
-      else
-        printf("  0x%016lx\n", regions[i - 1].end);
-    }
+    /* Gap to the next (lower) band, if any. The gap address bookend
+     * (the next band's `end`) is printed after the separator.
+     *
+     * `bands[i - 1].end < r->start` rather than `end + 1 < start`: the latter
+     * wraps to 0 for a band ending at the top of the address space and then
+     * reports a gap where the two bands in fact overlap, printing an address
+     * ABOVE the one just printed. Bands are not guaranteed disjoint (riscv32's
+     * module window covers the direct map), so an overlap has no boundary to
+     * draw and the transition is simply omitted. */
+    if (i > 0 && bands[i - 1].end < r->start)
+      print_map_boundary(INDENT, r->start, &bands[i - 1]);
   }
 
   /* Only print virt_kernel_vas_start as a footer when it is genuinely below the
@@ -702,10 +843,10 @@ static void print_virtual_layout(void) {
    * virt_page_offset_min inference feedback loop, making it larger than
    * layout.virt_page_offset; printing it there would produce two labels in
    * inverted address order. */
-  if (n == 0 || layout.virt_kernel_vas_start < regions[0].start) {
-    if (n > 0 && regions[0].start > layout.virt_kernel_vas_start + 1) {
+  if (nb == 0 || layout.virt_kernel_vas_start < bands[0].start) {
+    if (nb > 0 && bands[0].start > layout.virt_kernel_vas_start + 1) {
       char hbuf[32];
-      unsigned long gap = regions[0].start - layout.virt_kernel_vas_start;
+      unsigned long gap = bands[0].start - layout.virt_kernel_vas_start;
       printf("%s%s. . .  %s gap  . . .%s\n", INDENT, c(C_DIM),
              human_size(gap, hbuf, sizeof(hbuf)), c(C_RESET));
     }
@@ -915,12 +1056,21 @@ static void print_physical_layout(void) {
 
   /* Top label: a leaked DRAM edge (ram_top) is measured; the sysconf figure is
    * an estimate — mark it so the reader can tell an observed edge from a
-   * derived one. */
+   * derived one. The ceiling must also sit above everything drawn beneath it
+   * (points AND bucket footers), so it is only finalised and printed once the
+   * buckets exist — see the fold-in below the bucket construction. */
   unsigned long top_label = have_ram_top ? ram_top : ram_end;
-  if (top_label)
-    printf("  0x%016lx%s\n", top_label, have_ram_top ? "" : "  (estimated)");
-  else
-    printf("  0x????????????????  (end of RAM unknown)\n");
+  int top_is_estimate = !have_ram_top;
+  /* High MMIO routinely lies above ram_top, and pinning the label to ram_top
+   * drew those points outside the map that lists them -- and, when the
+   * above-DRAM band's own footer is ram_top too, printed one address as both
+   * bookends of a band holding points gigabytes higher. ppts[] is ordered high
+   * to low, so its head is the highest point shown. (The sysconf path already
+   * did this; the leaked path did not.) */
+  if (nppts > 0 && ppts[0].addr > top_label) {
+    top_label = ppts[0].addr;
+    top_is_estimate = 0; /* an observed address, however it was reached */
+  }
 
   /* On !TEXT_TRACKS_DIRECTMAP arches the phys text base is independently
    * randomized inside [phys_kaslr_text_min, phys_kaslr_text_max]. Inference
@@ -1007,6 +1157,29 @@ static void print_physical_layout(void) {
           (struct phys_bucket){"below DRAM", (unsigned long)PHYS_OFFSET,
                                ram_base - 1, (unsigned long)PHYS_OFFSET, 0};
   }
+
+  /* Finalise the ceiling: it must dominate every edge the column goes on to
+   * draw, and the bucket footers are edges too. The `[pmax + 1, dram_hi]`
+   * bucket carries `pmax` as its footer, and pmax -- the engine's proven
+   * ceiling on the physical image base -- routinely sits above both the leaked
+   * ram_top and the sysconf estimate (any host with no DRAM-extent observation,
+   * where pmax stays at the arch default). Printing the ceiling first and the
+   * footer after ran the column non-monotonic: an address above the stated top
+   * of the map. pmax itself is engine state and is NOT clipped -- truncating it
+   * would misreport the window -- so the ceiling rises to meet it instead.
+   * A bucket edge is a derived bound rather than an observed address, so the
+   * label reverts to "(estimated)" when one raises the ceiling. */
+  for (int b = 0; b < nbuckets; b++) {
+    if (buckets[b].footer_addr > top_label) {
+      top_label = buckets[b].footer_addr;
+      top_is_estimate = 1;
+    }
+  }
+
+  if (top_label)
+    printf("  0x%016lx%s\n", top_label, top_is_estimate ? "  (estimated)" : "");
+  else
+    printf("  0x????????????????  (end of RAM unknown)\n");
 
   for (int b = 0; b < nbuckets; b++) {
     const struct phys_bucket *bk = &buckets[b];

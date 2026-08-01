@@ -323,6 +323,8 @@ Memory KASLR (directmap / vmalloc / vmemmap):
 Virtual address space (decoupled):
 
   0xffffffffffffffff
+      . . .  16.0 MiB gap  . . .
+  0xffffffffff000000
       modules (no leak)
   0xffffffffc0000000
       . . .  767.3 MiB gap  . . .
@@ -340,7 +342,7 @@ Virtual address space (decoupled):
 
 Physical address space:
 
-  0x000000003ffdefff
+  0x00000000febd5000
       above DRAM
         0x00000000febd5000  [mmio] pci_mmio:0000:00:1f.2
         0x00000000febd4000  [mmio] pci_mmio:0000:00:01.0
