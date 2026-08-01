@@ -82,15 +82,30 @@ else
     "$YELLOW" "$RESET"
 fi
 
-# kasld: pick a natively-runnable built binary (a cross binary will not exec).
+# kasld: prefer the host's own build. A cross binary is not always unrunnable --
+# an i686 build execs fine on x86_64 -- and cross binaries are only refreshed by
+# `make cross`, so scanning build/*/ in glob order can select one that predates
+# the current source. That compares the man page against a stale --help, which
+# passes or fails for reasons unrelated to the man page.
 KASLD_BIN=
-for c in "$ROOT"/build/*/kasld; do
-  [ -x "$c" ] || continue
-  if "$c" --version >/dev/null 2>&1; then
-    KASLD_BIN=$c
-    break
+host_dir="$ROOT/build/$(uname -m)-linux-gnu/kasld"
+if [ -x "$host_dir" ] && "$host_dir" --version >/dev/null 2>&1; then
+  KASLD_BIN=$host_dir
+else
+  # Fall back to the newest runnable build rather than the first in glob order.
+  runnable=
+  for c in "$ROOT"/build/*/kasld; do
+    [ -x "$c" ] || continue
+    "$c" --version >/dev/null 2>&1 || continue
+    runnable="$runnable $c"
+  done
+  if [ -n "$runnable" ]; then
+    # Word splitting is intended: `runnable` is a space-separated path list.
+    # These are our own build/ paths -- no spaces or newlines to mis-parse.
+    # shellcheck disable=SC2086,SC2012
+    KASLD_BIN=$(ls -t $runnable | head -n 1)
   fi
-done
+fi
 if [ -n "$KASLD_BIN" ]; then
   check_parity kasld "$ROOT/man/kasld.1" -- "$KASLD_BIN" --help
 else
