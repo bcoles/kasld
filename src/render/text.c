@@ -385,14 +385,19 @@ static void render_kaslr_text(const struct summary *s) {
            s->kaslr.vtext, c(C_RESET), v_spec ? "  likely (speculative)" : "");
     if (s->kaslr.vstext && s->kaslr.vstext != s->kaslr.vtext)
       printf("  Virtual _stext:       0x%016lx\n", s->kaslr.vstext);
-    printf("  Default image base:   0x%016lx\n",
-           layout.virt_image_base_default);
     long abs_vslide = s->kaslr.vslide < 0 ? -s->kaslr.vslide : s->kaslr.vslide;
     /* A slide is exact only for a proven pin; when the base is the likely
      * best-guess inside a range, the slide inherits that grade. */
     printf("  KASLR slide:          %s%s0x%lx%s (%ld)%s\n", c(C_CYAN),
            s->kaslr.vslide < 0 ? "-" : "+", (unsigned long)abs_vslide,
            c(C_RESET), s->kaslr.vslide, v_spec ? "  (likely)" : "");
+    /* The compile-time default is the origin the slide is measured from, not a
+     * finding: as a peer row it wore the same label style as the measured
+     * values while carrying no grade, so the one row that is not a measurement
+     * read as the most certain. Subordinated to the slide it defines, it keeps
+     * base - default = slide checkable without posing as a result. */
+    printf("                        %sfrom compile-time default 0x%016lx%s\n",
+           c(C_DIM), layout.virt_image_base_default, c(C_RESET));
     char vebuf[48];
     entropy_phrase(s->kaslr.vbits, s->kaslr.vbits_top, vebuf, sizeof(vebuf));
     if (v_spec)
@@ -422,12 +427,14 @@ static void render_kaslr_text(const struct summary *s) {
     if (s->kaslr.pstext && s->kaslr.pstext != s->kaslr.ptext)
       printf("  Physical _stext:      0x%016lx\n", s->kaslr.pstext);
 #ifdef KERNEL_PHYS_DEFAULT
-    printf("  Default phys base:    0x%016lx\n",
-           (unsigned long)KERNEL_PHYS_DEFAULT);
     long abs_pslide = s->kaslr.pslide < 0 ? -s->kaslr.pslide : s->kaslr.pslide;
     printf("  Physical KASLR slide: %s%s0x%lx%s (%ld)%s\n", c(C_CYAN),
            s->kaslr.pslide < 0 ? "-" : "+", (unsigned long)abs_pslide,
            c(C_RESET), s->kaslr.pslide, p_spec ? "  (likely)" : "");
+    /* Subordinated to its slide for the same reason as the virtual default
+     * above: the origin of a measurement, not a measurement. */
+    printf("                        %sfrom compile-time default 0x%016lx%s\n",
+           c(C_DIM), (unsigned long)KERNEL_PHYS_DEFAULT, c(C_RESET));
     if (p_spec)
       printf("  Guaranteed phys range: 0x%016lx - 0x%016lx  (%s%lu%s slots, "
              "%d bits)\n",
@@ -1861,34 +1868,79 @@ static void readout_window_block(const char *label, unsigned long lo,
     readout_halfbound(GRADE_GUARANTEED, "<=", hi, w);
 }
 
+/* The shared compile-time-default remark, indented into the Layout block and
+ * set off from the value rows above it. Addresses in the readout are never
+ * zero-padded, so the remark renders the default the same way. */
+static void readout_default_remark(unsigned long def, unsigned long lo,
+                                   unsigned long hi) {
+  char ab[40], rb[160];
+  const char *rem;
+  snprintf(ab, sizeof(ab), "0x%lx", def);
+  rem = default_base_remark(def, lo, hi, ab, rb, sizeof(rb));
+  if (rem)
+    printf("\n  %s%s%s\n", c(C_DIM), rem, c(C_RESET));
+}
+
 /* The "no slide" image-base block, shared by the KASLR-unsupported and
  * KASLR-disabled readouts. Both answer the same question with the same
  * evidence, and both must answer it from the ENGINE, not from the compile-time
  * default: the default is a build-time constant that a differently-configured
  * kernel simply does not honour. arm32 is the standing witness -- an Alpine
- * armv7 kernel built VMSPLIT_2G has _text at 0xc0008000 - 0x40000000, and
- * printing the arch default there states a wrong address at the GUARANTEED
+ * armv7 kernel built VMSPLIT_2G has _text at 0x80008000, and printing the arch
+ * default 0xc0008000 as the answer states a wrong address at the GUARANTEED
  * grade while the engine's own window (which contains the truth) sits unused.
- * The default is only reached when the engine resolved nothing at all. */
+ * The default is never the answer here: with nothing resolved the block prints
+ * nothing, and the caller keeps the heading off the page.
+ *
+ * The base carries no status. The line above the block already states the
+ * posture in words, so "no slide" / "no randomization" only restates it, and
+ * the two postures would otherwise wear different qualifiers for the same
+ * kind of result. */
 static void readout_static_base_block(unsigned long default_addr,
-                                      const char *pinned_status,
                                       const struct summary *s) {
+  unsigned long lo = layout.virt_kaslr_text_min;
+  unsigned long hi = layout.virt_kaslr_text_max;
+  if (!lo && !hi)
+    return; /* nothing resolved: no heading either */
   readout_block_n = 0;
   printf("%sLayout%s\n", c(C_BOLD), c(C_RESET));
-  if (layout.virt_kaslr_text_min == layout.virt_kaslr_text_max &&
-      layout.virt_kaslr_text_min != 0) {
-    readout_head("Kernel image base", pinned_status);
-    readout_point(GRADE_GUARANTEED, layout.virt_kaslr_text_min, readout_addr_w,
-                  NULL);
-  } else if (layout.virt_kaslr_text_min || layout.virt_kaslr_text_max) {
-    readout_window_block("Kernel image base", layout.virt_kaslr_text_min,
-                         layout.virt_kaslr_text_max, 0, 0, s->kaslr.vslots, 0,
+  if (lo == hi) {
+    readout_head("Kernel image base", NULL);
+    readout_point(GRADE_GUARANTEED, lo, readout_addr_w, NULL);
+  } else {
+    readout_window_block("Kernel image base", lo, hi, 0, 0, s->kaslr.vslots, 0,
                          s->kaslr.vbits, s->kaslr.vbits_top,
                          layout.virt_kaslr_align);
-  } else if (default_addr) {
-    readout_head("Kernel image base", pinned_status);
-    readout_point(GRADE_GUARANTEED, default_addr, readout_addr_w, NULL);
   }
+  readout_default_remark(default_addr, lo, hi);
+}
+
+/* The verbose-mode image base for the no-slide postures, answered from the same
+ * place the readout answers it: the engine. The banner above already names the
+ * posture, so the base carries no qualifier. An edge the engine never resolved
+ * is shown as the one-sided bound it is, rather than as a range starting at 0.
+ */
+static void verbose_static_base_block(unsigned long default_addr) {
+  unsigned long lo = layout.virt_kaslr_text_min;
+  unsigned long hi = layout.virt_kaslr_text_max;
+  char ab[40], rb[160];
+  const char *rem;
+  if (!lo && !hi)
+    return;
+  if (lo == hi)
+    printf("Kernel image base: %s0x%016lx%s\n", c(C_GREEN), lo, c(C_RESET));
+  else if (lo && hi)
+    printf("Kernel image base: %s0x%016lx - 0x%016lx%s\n", c(C_GREEN), lo, hi,
+           c(C_RESET));
+  else if (hi)
+    printf("Kernel image base: %s<= 0x%016lx%s\n", c(C_GREEN), hi, c(C_RESET));
+  else
+    printf("Kernel image base: %s>= 0x%016lx%s\n", c(C_GREEN), lo, c(C_RESET));
+  snprintf(ab, sizeof(ab), "0x%016lx", default_addr);
+  rem = default_base_remark(default_addr, lo, hi, ab, rb, sizeof(rb));
+  if (rem)
+    printf("%s%s%s\n", c(C_DIM), rem, c(C_RESET));
+  printf("\n");
 }
 
 static void render_readout(const struct summary *s) {
@@ -1902,9 +1954,7 @@ static void render_readout(const struct summary *s) {
    * answered with a single text-base line. */
   if (s->kaslr.unsupported) {
     printf("KASLR not supported on this architecture.\n\n");
-    if (s->kaslr.default_addr || layout.virt_kaslr_text_min ||
-        layout.virt_kaslr_text_max)
-      readout_static_base_block(s->kaslr.default_addr, "no randomization", s);
+    readout_static_base_block(s->kaslr.default_addr, s);
     printf("\n");
     readout_print_leaks();
     printf("\n[-v: detailed results, memory map, system info]  "
@@ -1922,14 +1972,27 @@ static void render_readout(const struct summary *s) {
      * in the linear map at a load offset we can't pin), it resolves to a
      * narrowed *window* instead — showing the static default there would
      * misreport the base (it can sit in an entirely different mapping). */
-    readout_static_base_block(s->kaslr.default_addr,
-                              "compile-time default, no slide", s);
+    readout_static_base_block(s->kaslr.default_addr, s);
     printf("\n");
     readout_print_leaks();
     printf("\n[-v: detailed results, memory map, system info]  "
            "[-H: hardening assessment]\n");
     return;
   }
+
+  /* Randomization failed: the boot stub ran and relocated the image, but had
+   * no randomness to place it with. NOT the disabled posture -- the image did
+   * move, so it is neither randomized nor at the link-time default, and the
+   * engine's own windows remain the answer. The readout therefore states the
+   * posture and continues into the regular path rather than branching away to
+   * a single base line. Without this the output is indistinguishable from an
+   * active kernel whose window simply never narrowed, and a reader has no way
+   * to know the entropy is gone. */
+  if (s->kaslr.randomization_failed)
+    printf("%sKASLR randomization did not run on this kernel%s "
+           "(no seed / no PRNG).\nThe boot stub still placed the image, so it "
+           "is not at the compile-time default.\n\n",
+           c(C_YELLOW), c(C_RESET));
 
   /* Regular KASLR path: text base lines + memory-KASLR window lines +
    * coupling note + leaks. Each bound row is suppressed if its quantity
@@ -2183,6 +2246,12 @@ static void render_dispositions_text(void) {
 }
 
 void render_text(const struct summary *s) {
+  /* Per-render state: which (type, section) groups the verbose pass has
+   * already emitted, and whether a separator is due before the next one.
+   * Cleared here so a second render starts from an empty set rather than
+   * suppressing every group the first one printed. */
+  num_printed_groups = 0;
+
   /* Default mode: tight answer-first readout. */
   if (!verbose) {
     render_readout(s);
@@ -2226,9 +2295,7 @@ void render_text(const struct summary *s) {
   if (s->kaslr.unsupported) {
     printf("%s** KASLR is not supported on this architecture **%s\n\n",
            c(C_YELLOW), c(C_RESET));
-    if (s->kaslr.default_addr)
-      printf("Kernel image base: %s0x%016lx%s (default for arch)\n\n",
-             c(C_GREEN), s->kaslr.default_addr, c(C_RESET));
+    verbose_static_base_block(s->kaslr.default_addr);
   } else if (s->kaslr.disabled) {
     printf("%s** KASLR is disabled **%s\n\n", c(C_YELLOW), c(C_RESET));
     printf("Detected by:\n");
@@ -2246,24 +2313,16 @@ void render_text(const struct summary *s) {
                                                    : "(unknown)");
     }
     printf("\n");
-    /* Prefer the engine-RESOLVED base over the compile-time default. On arches
-     * where "disabled" pins the base, the resolved value equals that default,
-     * so this is unchanged; but where the no-KASLR base is layout-dependent
-     * (legacy riscv64: text in the linear map at an unpinnable load offset) it
-     * resolves to a narrowed *window*, which the static default would misreport
-     * (by 128 GiB, in a different mapping entirely). */
-    if (layout.virt_kaslr_text_min == layout.virt_kaslr_text_max &&
-        layout.virt_kaslr_text_min != 0)
-      printf("Kernel image base: %s0x%016lx%s (KASLR off)\n\n", c(C_GREEN),
-             layout.virt_kaslr_text_min, c(C_RESET));
-    else if (layout.virt_kaslr_text_min || layout.virt_kaslr_text_max)
-      printf("Kernel image base: %s0x%016lx - 0x%016lx%s "
-             "(KASLR off; base not pinned to a single default)\n\n",
-             c(C_GREEN), layout.virt_kaslr_text_min, layout.virt_kaslr_text_max,
-             c(C_RESET));
-    else if (s->kaslr.default_addr)
-      printf("Kernel image base: %s0x%016lx%s (assumes default config)\n\n",
-             c(C_GREEN), s->kaslr.default_addr, c(C_RESET));
+    verbose_static_base_block(s->kaslr.default_addr);
+  } else if (s->kaslr.randomization_failed) {
+    /* The stub relocated the image with no randomness: neither randomized nor
+     * at the link-time default. Stated here so the verbose report is not
+     * silent about a posture only -1 and -H would otherwise reveal; the
+     * resolved bases below remain the answer. */
+    printf("%s** KASLR randomization did not run **%s\n\n", c(C_YELLOW),
+           c(C_RESET));
+    printf("The boot stub still placed the image, so it is not at the "
+           "compile-time default.\n\n");
   }
 
   /* Print each (type, section) group in a defined order */

@@ -262,6 +262,14 @@ resolve_text_order(enum kasld_confidence *conf_out) {
   return best;
 }
 
+/* The compile-time default as a remark on the resolved image base, or NULL when
+ * there is nothing to say. Shared by every format that reports a base with no
+ * slide, so the same bounds always produce the same sentence. Defined in
+ * src/render.c. */
+const char *default_base_remark(unsigned long def, unsigned long lo,
+                                unsigned long hi, const char *addr_text,
+                                char *buf, size_t bufsz);
+
 /* Build the model from the global component logs / scalar facts / gates. */
 void build_hardening_report(struct hardening_report *r);
 

@@ -88,6 +88,41 @@ int kaslr_phys_is_window(void) {
   return layout.phys_kaslr_text_max != layout.phys_kaslr_text_min;
 }
 
+/* The compile-time default, phrased as a remark on the resolved image base.
+ *
+ * The default is a link-time constant, not a measurement, so it fits neither
+ * grade the output uses: it is not proven, and it is not a guess drawn from
+ * evidence. Every format states it as a plain sentence — which cannot be
+ * mistaken for a resolved value — carrying the only thing evidence has to say
+ * about it: whether the resolved bounds leave it standing. One sentence, built
+ * here, so no two formats can word the same fact differently.
+ *
+ * The verdict is a property of the bounds and never of how a format drew them,
+ * so a single test covers a pin, a closed range and either half-bound: the
+ * default is ruled out exactly when a known edge lies on the wrong side of it.
+ * An unknown edge rules nothing out. A pin that is not the default falls out of
+ * the same test, with no separate case.
+ *
+ * Containment is not corroboration. An Alpine armv7 kernel built VMSPLIT_2G has
+ * _text at 0x80008000 while the arch default 0xc0008000 sits inside the proven
+ * bounds, so the surviving verdict claims only that the default is possible.
+ *
+ * Returns NULL when there is nothing to say: no default, nothing resolved, or
+ * the default IS the resolved base — restating a printed address reads as a
+ * competing claim. `addr_text` is the caller's rendering of `def`, so each
+ * format keeps its own address style. */
+const char *default_base_remark(unsigned long def, unsigned long lo,
+                                unsigned long hi, const char *addr_text,
+                                char *buf, size_t bufsz) {
+  if (!def || (!lo && !hi) || (def == lo && def == hi))
+    return NULL;
+  int ruled_out = (lo && def < lo) || (hi && def > hi);
+  snprintf(buf, bufsz,
+           "The compile-time default for this architecture is %s, %s.",
+           addr_text, ruled_out ? "ruled out" : "still possible");
+  return buf;
+}
+
 /* A memory-KASLR region (page_offset / vmalloc / vmemmap) has a narrowed edge:
  * the gate every renderer uses to decide whether to emit the Memory-KASLR
  * section. Pure read of the resolved summary. */

@@ -63,6 +63,16 @@ retired_check 'Virtual address space (coupled):' 'Virtual address space (coupled
 retired_check 'Virtual address space (decoupled):' 'Virtual address space (decoupled, not to scale):'
 retired_check 'Physical address space:' 'Physical address space (not to scale):'
 retired_check ' candidates,' ' slots, ~N bits'
+# The compile-time default is no longer a peer row beside the measured values,
+# and no posture names a base after it: it is the origin the slide is measured
+# from, and elsewhere a remark on the resolved bounds.
+retired_check 'Default image base' 'from compile-time default 0x...'
+retired_check 'Default phys base' 'from compile-time default 0x...'
+retired_check 'arch default, no randomization' 'the engine-resolved base'
+retired_check 'compile-time default, no slide' 'the engine-resolved base'
+retired_check 'base not pinned to a single default' 'the engine-resolved range'
+retired_check 'assumes default config' 'the engine-resolved base'
+retired_check '(default for arch)' 'the engine-resolved base'
 
 # 2. Width of the readout sample blocks. Only lines inside a fenced block that
 #    contains the readout's own headings are measured -- other fenced blocks

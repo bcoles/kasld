@@ -921,62 +921,135 @@ static void test_render_memory_kaslr_slots_reach_machine_formats(void) {
 #endif
 }
 
-/* On an arch with no KASLR support the readout must answer from the ENGINE,
- * not from the compile-time default. The default is a build-time constant; a
- * kernel configured differently does not honour it. Live witness: an Alpine
- * armv7 kernel built VMSPLIT_2G has _text at 0x80008000, and the readout
- * printed the arch default 0xc0008000 at the GUARANTEED grade -- a wrong
- * address stated as proven -- while the engine's own window (which contained
- * the truth) went unused. The disabled-KASLR branch already resolved this the
- * right way; the unsupported branch never got the same treatment.
+/* The image base under the no-slide postures (KASLR unsupported / disabled),
+ * across every format that reports it and every shape the engine can resolve.
  *
- * Portable: the window is built from this arch's own text floor and KASLR
+ * Two rules, one table:
+ *
+ *   1. The base comes from the ENGINE, never from the compile-time default.
+ *      The default is a build-time constant a differently-configured kernel
+ *      does not honour. Live witness: an Alpine armv7 kernel built VMSPLIT_2G
+ *      has _text at 0x80008000 while its arch default is 0xc0008000 -- printing
+ *      the default there states a wrong address as the answer.
+ *   2. The default appears only as a remark, and the remark's verdict is a
+ *      property of the resolved BOUNDS, not of how a format drew them. It is
+ *      "ruled out" exactly when a known edge lies on the wrong side of it; an
+ *      unresolved edge rules nothing out. Containment is not corroboration --
+ *      that armv7 default sits inside the proven bounds and is still wrong --
+ *      so the surviving verdict claims only "still possible".
+ *
+ * Portable: every address is built from this arch's own text floor and KASLR
  * alignment, so nothing here can overflow a 32-bit unsigned long. */
-static void test_render_static_base_prefers_engine_window(void) {
+static void check_static_base_case(int posture_disabled, unsigned long lo,
+                                   unsigned long hi, unsigned long dflt,
+                                   const char *want_verdict, int json_mode,
+                                   int md_mode, int want_verbose) {
   struct summary s;
+  extern int verbose;
   reset_results();
   num_comp_logs = 0;
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
-  extern int verbose;
 
   unsigned long sv_lo = layout.virt_kaslr_text_min;
   unsigned long sv_hi = layout.virt_kaslr_text_max;
-
-  unsigned long al = layout.virt_kaslr_align ? layout.virt_kaslr_align : 0x1000;
-  /* Align the window edges to the candidate grid so the readout's own snapping
-   * is a no-op and the printed edges are the ones set here. */
-  unsigned long lo = (layout.virt_image_base_min + al - 1) & ~(al - 1);
-  unsigned long step = al * 4;
-  unsigned long hi = lo + step;
-  /* An "arch default" outside the window the engine proved -- exactly what a
-   * non-default vmsplit produces. */
-  unsigned long dflt = lo + step * 2;
-
   layout.virt_kaslr_text_min = lo;
   layout.virt_kaslr_text_max = hi;
-  s.kaslr.unsupported = 1;
+  if (posture_disabled)
+    s.kaslr.disabled = 1;
+  else
+    s.kaslr.unsupported = 1;
   s.kaslr.default_addr = dflt;
 
-  verbose = 0;
-  set_render_mode(0, 0, 0);
+  verbose = want_verbose;
+  set_render_mode(json_mode, 0, md_mode);
   capture_stdout(wrap_render_summary, &s);
   set_render_mode(0, 0, 0);
+  verbose = 0;
 
   layout.virt_kaslr_text_min = sv_lo;
   layout.virt_kaslr_text_max = sv_hi;
 
-  char abuf[32];
-  /* The engine's window is what is shown ... */
-  snprintf(abuf, sizeof(abuf), "0x%lx", lo);
-  assert(strstr(render_cap, abuf) != NULL);
-  snprintf(abuf, sizeof(abuf), "0x%lx", hi);
-  assert(strstr(render_cap, abuf) != NULL);
-  /* ... and the constant the engine contradicts is not stated anywhere. No
-   * results were pushed, so the Evidence block is empty and this address has
-   * no other way into the output. */
-  snprintf(abuf, sizeof(abuf), "0x%lx", dflt);
-  assert(strstr(render_cap, abuf) == NULL);
+  /* The compact readout right-aligns addresses without zero-filling; the
+   * verbose block and markdown pad to 16 digits. The two forms coincide for a
+   * high 64-bit address and differ everywhere else, so the expected string
+   * follows the format under test rather than assuming one width. */
+  const char *afmt = (md_mode || want_verbose) ? "0x%016lx" : "0x%lx";
+  char abuf[40];
+  if (lo) {
+    snprintf(abuf, sizeof(abuf), afmt, lo);
+    assert(strstr(render_cap, abuf) != NULL);
+  }
+  if (hi) {
+    snprintf(abuf, sizeof(abuf), afmt, hi);
+    assert(strstr(render_cap, abuf) != NULL);
+  }
+
+  const char *rem = strstr(render_cap, "The compile-time default");
+  if (!want_verdict) {
+    assert(rem == NULL);
+    return;
+  }
+  assert(rem != NULL);
+  const char *eol = strchr(rem, '\n');
+  char line[256];
+  assert(eol != NULL);
+  assert((size_t)(eol - rem) < sizeof(line));
+  snprintf(line, (size_t)(eol - rem) + 1, "%s", rem);
+  /* The verdict, the default, and no grade word: the remark is a sentence
+   * about a constant, never a row on the confidence ladder. */
+  assert(strstr(line, want_verdict) != NULL);
+  snprintf(abuf, sizeof(abuf), afmt, dflt);
+  assert(strstr(line, abuf) != NULL);
+  assert(strstr(line, GRADE_GUARANTEED) == NULL);
+  assert(strstr(line, GRADE_LIKELY) == NULL);
+}
+
+static void test_render_static_base_prefers_engine_window(void) {
+  unsigned long al = layout.virt_kaslr_align ? layout.virt_kaslr_align : 0x1000;
+  /* Grid-aligned so the readout's own edge snapping is a no-op and the printed
+   * edges are the ones set here. */
+  unsigned long b = (layout.virt_image_base_min + al - 1) & ~(al - 1);
+  unsigned long lo = b + al * 2;
+  unsigned long hi = b + al * 6;
+  unsigned long inside = b + al * 4;
+  unsigned long below = b;          /* < lo */
+  unsigned long above = b + al * 8; /* > hi */
+
+  struct {
+    const char *name;
+    unsigned long lo, hi, dflt;
+    const char *want;
+  } cases[] = {
+      /* Closed range. */
+      {"inside", lo, hi, inside, "still possible"},
+      {"below", lo, hi, below, "ruled out"},
+      {"above", lo, hi, above, "ruled out"},
+      /* Pinned: the default either IS the answer (nothing to remark on) or is
+         ruled out by the same edge test, with no special case. */
+      {"pin is default", inside, inside, inside, NULL},
+      {"pin elsewhere", inside, inside, below, "ruled out"},
+      /* Half-bounds: an unresolved edge rules nothing out on that side. A
+         ceiling alone cannot exclude a default beneath it. */
+      {"ceiling only, under", 0, hi, inside, "still possible"},
+      {"ceiling only, over", 0, hi, above, "ruled out"},
+      {"floor only, over", lo, 0, inside, "still possible"},
+      {"floor only, under", lo, 0, below, "ruled out"},
+  };
+
+  for (size_t i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+    /* Both postures, and every format that carries the base: the compact
+       readout, the verbose text block, and markdown. A representation
+       difference between them is fine; a different verdict is a bug. */
+    for (int disabled = 0; disabled <= 1; disabled++) {
+      check_static_base_case(disabled, cases[i].lo, cases[i].hi, cases[i].dflt,
+                             cases[i].want, 0, 0, 0);
+      check_static_base_case(disabled, cases[i].lo, cases[i].hi, cases[i].dflt,
+                             cases[i].want, 0, 0, 1);
+      check_static_base_case(disabled, cases[i].lo, cases[i].hi, cases[i].dflt,
+                             cases[i].want, 0, 1, 0);
+    }
+  }
 }
 
 /* The map's direct-map band must be floored on the engine's resolved page
@@ -1681,6 +1754,8 @@ static void test_render_disabled_base_not_labeled_likely(void) {
 
   s.kaslr.disabled = 1;
   unsigned long vt = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
+  /* The orchestrator always carries the arch default on the summary. */
+  s.kaslr.default_addr = vt;
   unsigned long smin = layout.virt_kaslr_text_min;
   unsigned long smax = layout.virt_kaslr_text_max;
   layout.virt_kaslr_text_min = vt; /* engine pin: min == max != 0 */
@@ -1695,12 +1770,15 @@ static void test_render_disabled_base_not_labeled_likely(void) {
 
   /* Markdown carries the same pinned base in the disabled case (not just a
    * "KASLR is disabled" banner) — the base IS the answer when there is no
-   * slide. */
+   * slide. The address itself is the assertion: the pin is an engine result,
+   * and it is reported without a qualifier naming where it happens to land. */
   set_render_mode(0, 0, 1);
   capture_stdout(wrap_render_summary, &s);
   set_render_mode(0, 0, 0);
   assert(strstr(render_cap, "Kernel image base") != NULL);
-  assert(strstr(render_cap, "compile-time default") != NULL);
+  char pinhex[32];
+  snprintf(pinhex, sizeof(pinhex), "0x%016lx", vt);
+  assert(strstr(render_cap, pinhex) != NULL);
 
   layout.virt_kaslr_text_min = smin;
   layout.virt_kaslr_text_max = smax;
@@ -1909,6 +1987,62 @@ static void test_render_oneline_entropy_and_failed(void) {
   assert(strstr(render_cap, " entropy=9bits") != NULL);
 
   set_render_mode(0, 0, 0);
+}
+
+/* The randomization-failed posture is stated in every format, and is never
+ * conflated with the disabled one.
+ *
+ * `disabled` means the boot stub took the no-KASLR path and the image stayed at
+ * its link-time base. `failed` means the stub ran and relocated the image with
+ * no randomness to place it with: neither randomized nor at the compile-time
+ * default. A reader (or a consumer branching on `disabled == false`) that could
+ * not tell the two apart would assume full randomization on a kernel that has
+ * none, so the posture must appear in its own right rather than only under -H.
+ *
+ * The engine's windows stay the answer here, so the human formats state the
+ * posture and continue rather than branching to a single base line -- and the
+ * compile-time-default remark must NOT appear, since the image did move. */
+static void test_render_randomization_failed_posture(void) {
+  struct summary s;
+  extern int verbose;
+  /* The arch's own resolved window is left exactly as it is: this test is
+     about the posture line, not about any particular bounds, and narrowing
+     the window here would push the shared fixture's text result out of
+     bounds for whichever test runs next. */
+  struct {
+    int json, md, verb;
+    const char *want;
+  } modes[] = {
+      {0, 0, 0, "KASLR randomization did not run"},
+      {0, 0, 1, "KASLR randomization did not run"},
+      {0, 1, 0, "KASLR randomization did not run"},
+      {1, 0, 0, "\"randomization_failed\": true"},
+  };
+
+  for (size_t i = 0; i < sizeof(modes) / sizeof(modes[0]); i++) {
+    reset_results();
+    num_comp_logs = 0;
+    num_scalar_facts = 0;
+    memset(&s, 0, sizeof(s));
+    s.kaslr.randomization_failed = 1;
+    s.kaslr.default_addr = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
+    s.kaslr.vslots = 7;
+    s.kaslr.vbits = 3;
+
+    verbose = modes[i].verb;
+    set_render_mode(modes[i].json, 0, modes[i].md);
+    capture_stdout(wrap_render_summary, &s);
+    set_render_mode(0, 0, 0);
+    verbose = 0;
+
+    assert(strstr(render_cap, modes[i].want) != NULL);
+    /* Never reported as the disabled posture ... */
+    assert(strstr(render_cap, "KASLR is disabled") == NULL);
+    assert(strstr(render_cap, "\"disabled\": true") == NULL);
+    /* ... and the default is not offered as a candidate: the stub relocated
+       the image, so "still possible" would invite the wrong guess. */
+    assert(strstr(render_cap, "The compile-time default") == NULL);
+  }
 }
 
 /* set_rich_render_state seeds a single-origin record; this overlays a second
@@ -3399,6 +3533,7 @@ int main(void) {
   RUN(test_render_oneline_text_na_when_engine_unresolved);
   RUN(test_render_oneline_schema_is_stable);
   RUN(test_render_oneline_entropy_and_failed);
+  RUN(test_render_randomization_failed_posture);
   RUN(test_render_text_lists_all_origins);
   RUN(test_render_text_leaks_aggregates_across_records);
   RUN(test_render_json_emits_origins_array);

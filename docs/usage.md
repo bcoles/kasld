@@ -305,13 +305,13 @@ Physical MMIO / pci_mmio [8]:
 ----------------------------------------
 KASLR analysis:
   Virtual image base:   0xffffffff8fe00000
-  Default image base:   0xffffffff81000000
   KASLR slide:          +0xee00000 (249561088)
+                        from compile-time default 0xffffffff81000000
   KASLR text entropy:   0 bits (pinned)
 
   Physical image base:  0x0000000034600000
-  Default phys base:    0x0000000001000000
   Physical KASLR slide: +0x33600000 (861929472)
+                        from compile-time default 0x0000000001000000
   Physical KASLR entropy: 0 bits (pinned)
 
 Memory KASLR (directmap / vmalloc / vmemmap):

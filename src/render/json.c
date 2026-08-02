@@ -315,8 +315,23 @@ void render_json(const struct summary *s) {
   printf("    \"virt_image_base_max\": \"0x%016lx\",\n",
          layout.virt_image_base_max);
   printf("    \"image_align\": \"0x%lx\",\n", layout.image_align);
+  /* The compile-time defaults: where a build of this architecture links the
+   * kernel absent any relocation. Build constants, not findings, so they live
+   * here among the other architectural constants rather than in the `kaslr`
+   * object — and they are emitted unconditionally, since they are known
+   * whether or not anything was resolved. A consumer that wants to know
+   * whether the default survived compares it against the resolved window
+   * (`kaslr.inferred.*`); containment is not corroboration, so the comparison
+   * is the consumer's to make. `null` where the architecture defines no
+   * physical default. */
   printf("    \"virt_image_base_default\": \"0x%016lx\",\n",
          layout.virt_image_base_default);
+#ifdef KERNEL_PHYS_DEFAULT
+  printf("    \"phys_image_base_default\": \"0x%016lx\",\n",
+         (unsigned long)KERNEL_PHYS_DEFAULT);
+#else
+  printf("    \"phys_image_base_default\": null,\n");
+#endif
   /* Phys KASLR window. Symmetric with virt_image_base_min/max above (which is
    * the virt window) — both are the engine-resolved [lo, hi] for the
    * corresponding text-base quantity. Coupled arches and arches without
@@ -365,7 +380,15 @@ void render_json(const struct summary *s) {
    * nested "likely" (see below). */
   printf("  \"kaslr\": {\n");
   printf("    \"disabled\": %s,\n", s->kaslr.disabled ? "true" : "false");
-  printf("    \"unsupported\": %s", s->kaslr.unsupported ? "true" : "false");
+  printf("    \"unsupported\": %s,\n", s->kaslr.unsupported ? "true" : "false");
+  /* Distinct from `disabled`: the boot stub ran and relocated the image, only
+   * the randomness was missing. Placement is firmware-determined, so it is
+   * neither randomized nor at the link-time default — a consumer that treats
+   * this as `disabled` would wrongly assume the latter. Carried here rather
+   * than only in the `-H` posture block, so the default JSON can tell a failed
+   * kernel from an active one. */
+  printf("    \"randomization_failed\": %s",
+         s->kaslr.randomization_failed ? "true" : "false");
 
   /* A concrete vtext while the guaranteed window is still a RANGE means the
    * base came from a sub-sound-floor leak: it is a speculative best-guess, not
@@ -377,8 +400,9 @@ void render_json(const struct summary *s) {
     printf("      \"image_base\": \"0x%016lx\",\n", s->kaslr.vtext);
     if (s->kaslr.vstext && s->kaslr.vstext != s->kaslr.vtext)
       printf("      \"stext\": \"0x%016lx\",\n", s->kaslr.vstext);
-    printf("      \"default_base\": \"0x%016lx\",\n",
-           layout.virt_image_base_default);
+    /* `slide_bytes` is this base measured against
+     * `layout.virt_image_base_default`, which carries that constant for every
+     * posture. */
     printf("      \"slide_bytes\": %ld,\n", s->kaslr.vslide);
     printf("      \"entropy_bits\": %d,\n", s->kaslr.vbits);
     if (s->kaslr.vbits_top > 0)
@@ -390,16 +414,25 @@ void render_json(const struct summary *s) {
       printf(",\n      \"speculative\": true");
     printf("\n    }");
   }
-  if (!s->kaslr.disabled && !s->kaslr.unsupported && s->kaslr.vslots > 0 &&
+  /* The proven window is worth emitting whenever the engine resolved one --
+   * including on a KASLR-disabled or non-KASLR kernel, where it is often the
+   * only thing known about the base. On a VMSPLIT_2G arm32 kernel the engine
+   * proves a 2.8 GB window containing _text while the compile-time default is
+   * simply wrong, so suppressing it left a machine consumer with nothing.
+   * Slots and entropy stay gated on a live slot count: KASLR off means no
+   * residual entropy, but it does not mean no window. */
+  if ((layout.virt_kaslr_text_min || layout.virt_kaslr_text_max) &&
       (v_spec || !s->kaslr.vtext)) {
     printf(",\n    \"inferred\": {\n");
     printf("      \"range_min\": \"0x%016lx\",\n", layout.virt_kaslr_text_min);
-    printf("      \"range_max\": \"0x%016lx\",\n", layout.virt_kaslr_text_max);
-    printf("      \"slots\": %lu,\n", s->kaslr.vslots);
-    if (s->kaslr.vbits_top > 0)
-      printf("      \"entropy_bits_initial\": %d,\n", s->kaslr.vbits_top);
-    printf("      \"entropy_bits\": %d\n", s->kaslr.vbits);
-    printf("    }");
+    printf("      \"range_max\": \"0x%016lx\"", layout.virt_kaslr_text_max);
+    if (s->kaslr.vslots > 0) {
+      printf(",\n      \"slots\": %lu", s->kaslr.vslots);
+      if (s->kaslr.vbits_top > 0)
+        printf(",\n      \"entropy_bits_initial\": %d", s->kaslr.vbits_top);
+      printf(",\n      \"entropy_bits\": %d", s->kaslr.vbits);
+    }
+    printf("\n    }");
   }
 
   /* Speculative "likely" window: a subset of the guaranteed (inferred/virtual)
@@ -421,10 +454,9 @@ void render_json(const struct summary *s) {
     printf("      \"image_base\": \"0x%016lx\",\n", s->kaslr.ptext);
     if (s->kaslr.pstext && s->kaslr.pstext != s->kaslr.ptext)
       printf("      \"stext\": \"0x%016lx\",\n", s->kaslr.pstext);
-#ifdef KERNEL_PHYS_DEFAULT
-    printf("      \"default_base\": \"0x%016lx\",\n",
-           (unsigned long)KERNEL_PHYS_DEFAULT);
-#endif
+    /* `slide_bytes` is this base measured against
+     * `layout.phys_image_base_default`, which carries that constant for every
+     * posture (and is null where the architecture defines none). */
     printf("      \"slide_bytes\": %ld,\n", s->kaslr.pslide);
     printf("      \"entropy_bits\": %d,\n", s->kaslr.pbits);
     printf("      \"slots\": %lu", s->kaslr.pslots);

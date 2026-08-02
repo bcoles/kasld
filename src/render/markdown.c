@@ -129,6 +129,38 @@ static void md_slots_cell(unsigned long slots, int bits, unsigned long align) {
     printf("%lu (%d bits)", slots, bits);
 }
 
+/* The "no slide" image-base report, shared by the KASLR-unsupported and
+ * KASLR-disabled branches. Both answer the same question with the same
+ * evidence, and both answer it from the ENGINE: the compile-time default is a
+ * build-time constant that a differently-configured kernel does not honour, so
+ * it is never the reported base.
+ *
+ * The base carries no qualifier. The banner above the block already states the
+ * posture, and a pin that happens to land on the compile-time default is still
+ * an engine pin -- naming it after the default would describe a coincidence as
+ * a provenance. An edge the engine never resolved is reported as the one-sided
+ * bound it is, rather than as a range starting at 0. */
+static void md_static_base_block(const struct summary *s) {
+  unsigned long lo = layout.virt_kaslr_text_min;
+  unsigned long hi = layout.virt_kaslr_text_max;
+  char ab[40], rb[160];
+  const char *rem;
+  if (!lo && !hi)
+    return;
+  if (lo == hi)
+    printf("**Kernel image base:** `0x%016lx`\n\n", lo);
+  else if (lo && hi)
+    printf("**Kernel image base:** `0x%016lx` - `0x%016lx`\n\n", lo, hi);
+  else if (hi)
+    printf("**Kernel image base:** <= `0x%016lx`\n\n", hi);
+  else
+    printf("**Kernel image base:** >= `0x%016lx`\n\n", lo);
+  snprintf(ab, sizeof(ab), "`0x%016lx`", s->kaslr.default_addr);
+  rem = default_base_remark(s->kaslr.default_addr, lo, hi, ab, rb, sizeof(rb));
+  if (rem)
+    printf("%s\n\n", rem);
+}
+
 /* Environment / recon vantage — same gather + confined-gating as the text
  * block: the confinement rows appear only when actually confined (otherwise the
  * values are unprivileged defaults, not restrictions). Oracle readability
@@ -207,28 +239,20 @@ void render_markdown(const struct summary *s) {
    * mirroring the text readout's single kernel-image-base line. */
   if (s->kaslr.unsupported) {
     printf("> **KASLR is not supported on this architecture**\n\n");
-    if (s->kaslr.default_addr)
-      printf("**Kernel image base:** `0x%016lx` (arch default, no "
-             "randomization)\n\n",
-             s->kaslr.default_addr);
+    md_static_base_block(s);
   } else if (s->kaslr.disabled) {
     printf("> **KASLR is disabled** (nokaslr / RANDOMIZE_BASE=n / "
            "hibernation)\n\n");
-    /* Prefer the engine-resolved base (min == max pin) over the compile-time
-     * default; a narrowed window (legacy riscv64 in the linear map) is shown as
-     * a range rather than a misreported static default. */
-    if (layout.virt_kaslr_text_min == layout.virt_kaslr_text_max &&
-        layout.virt_kaslr_text_min != 0)
-      printf("**Kernel image base:** `0x%016lx` (compile-time default, no "
-             "slide)\n\n",
-             layout.virt_kaslr_text_min);
-    else if (layout.virt_kaslr_text_min || layout.virt_kaslr_text_max)
-      printf("**Kernel image base:** `0x%016lx` - `0x%016lx`\n\n",
-             layout.virt_kaslr_text_min, layout.virt_kaslr_text_max);
-    else if (s->kaslr.default_addr)
-      printf("**Kernel image base:** `0x%016lx` (compile-time default, no "
-             "slide)\n\n",
-             s->kaslr.default_addr);
+    md_static_base_block(s);
+  } else if (s->kaslr.randomization_failed) {
+    /* The stub relocated the image with no randomness: neither randomized nor
+     * at the link-time default, so no static base line follows — the KASLR
+     * Analysis table below carries the engine's windows, which are the answer.
+     * Stated so the report is not silent about a posture only -1 and -H would
+     * otherwise reveal. */
+    printf("> **KASLR randomization did not run** (no seed / no PRNG)\n\n");
+    printf("The boot stub still placed the image, so it is not at the "
+           "compile-time default.\n\n");
   }
 
   /* KASLR analysis. Mirrors render_kaslr_text: shown only when there is a
@@ -248,14 +272,21 @@ void render_markdown(const struct summary *s) {
     int v_spec = s->kaslr.vtext && kaslr_virt_is_window();
     int p_spec = s->kaslr.has_phys && kaslr_phys_is_window();
 
-    if ((v_spec || !s->kaslr.vtext) && s->kaslr.vslots > 0) {
+    /* The proven window is reported whenever the engine resolved one, including
+     * on a KASLR-disabled or non-KASLR kernel where it may be all that is known
+     * about the base. Slots stay gated on a live count: no KASLR means no
+     * residual entropy, not no window. */
+    if ((v_spec || !s->kaslr.vtext) &&
+        (layout.virt_kaslr_text_min || layout.virt_kaslr_text_max)) {
       printf("| Inferred text range | `0x%016lx` - `0x%016lx` |\n",
              layout.virt_kaslr_text_min, layout.virt_kaslr_text_max);
       md_likely_window_row("Likely text range", s->kaslr.vlikely_min,
                            s->kaslr.vlikely_max);
-      printf("| Remaining slots | ");
-      md_slots_cell(s->kaslr.vslots, s->kaslr.vbits, layout.virt_kaslr_align);
-      printf(" |\n");
+      if (s->kaslr.vslots > 0) {
+        printf("| Remaining slots | ");
+        md_slots_cell(s->kaslr.vslots, s->kaslr.vbits, layout.virt_kaslr_align);
+        printf(" |\n");
+      }
     }
     if ((p_spec || !s->kaslr.ptext) && s->kaslr.pslots > 0) {
       printf("| Inferred phys text range | `0x%016lx` - `0x%016lx` |\n",
@@ -273,11 +304,15 @@ void render_markdown(const struct summary *s) {
              v_spec ? " likely (speculative)" : "");
       if (s->kaslr.vstext && s->kaslr.vstext != s->kaslr.vtext)
         printf("| Virtual _stext | `0x%016lx` |\n", s->kaslr.vstext);
-      printf("| Default image base | `0x%016lx` |\n",
-             layout.virt_image_base_default);
-      printf("| KASLR slide | %s0x%lx (%ld)%s |\n",
+      /* The compile-time default rides in the slide's own cell rather than
+       * taking a row beside the measured values: it is the origin the slide is
+       * measured from, not a finding, and a peer row wearing no grade read as
+       * the most certain line in the table. */
+      printf("| KASLR slide | %s0x%lx (%ld) from compile-time default "
+             "`0x%016lx`%s |\n",
              s->kaslr.vslide < 0 ? "-" : "+", (unsigned long)abs_vs,
-             s->kaslr.vslide, v_spec ? " (likely)" : "");
+             s->kaslr.vslide, layout.virt_image_base_default,
+             v_spec ? " (likely)" : "");
       if (s->kaslr.vbits_top > 0)
         printf("| Virtual entropy | %d of %d bits (%lu slots) |\n",
                s->kaslr.vbits, s->kaslr.vbits_top, s->kaslr.vslots);
