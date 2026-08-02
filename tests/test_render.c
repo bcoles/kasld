@@ -1222,6 +1222,126 @@ static void test_render_map_overlapped_band_states_its_ceiling(void) {
   assert(hit != NULL);
 }
 
+/* The trailing hint is a footer, so it must come after everything it
+ * advertises. It was emitted from inside the readout, which put it BETWEEN the
+ * readout and the map -- where it reads as a section divider. Nothing caught
+ * that, because without --map there was no content after it to be wrong about.
+ * The hint also names only what this run did not already produce. */
+static void test_render_footer_hint_is_last(void) {
+  struct summary s;
+  reset_results();
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+  memset(&s, 0, sizeof(s));
+  extern int verbose;
+  extern int map_mode;
+  s.kaslr.vslots = 60;
+  s.kaslr.vbits = 6;
+  verbose = 0;
+
+  /* No --map: the hint stands alone and offers the map. */
+  map_mode = 0;
+  set_render_mode(0, 0, 0);
+  capture_stdout(wrap_render_summary, &s);
+  const char *hint = strstr(render_cap, "[-v:");
+  assert(hint != NULL);
+  assert(strstr(hint, "memory map") != NULL);
+
+  /* --map: the hint follows the diagram, and stops offering what is already
+   * on screen. */
+  map_mode = 1;
+  capture_stdout(wrap_render_summary, &s);
+  const char *map = strstr(render_cap, "Virtual address space");
+  hint = strstr(render_cap, "[-v:");
+  assert(map != NULL);
+  assert(hint != NULL);
+  assert(hint > map);
+  assert(strstr(hint, "memory map") == NULL);
+  map_mode = 0;
+}
+
+/* Reads a physical-map boundary line -- an address alone on its line, with at
+ * most the speculative tag after it. Leak rows carry a `[tag] name` suffix and
+ * are inside a band, not edges of one, so they are rejected here. */
+static int map_boundary_addr(const char *line, unsigned long *out) {
+  const char *p = line;
+  while (*p == ' ')
+    p++;
+  if (p[0] != '0' || p[1] != 'x')
+    return 0;
+  char *end;
+  unsigned long v = strtoul(p + 2, &end, 16);
+  if (end == p + 2)
+    return 0;
+  while (*end == ' ')
+    end++;
+  if (*end != '\0' && strncmp(end, "likely (speculative)", 20) != 0)
+    return 0;
+  *out = v;
+  return 1;
+}
+
+/* The physical column runs strictly downward. Two consequences, both of which
+ * were violated at once by a band bounded with ULONG_MAX when no RAM top was
+ * known: a band whose bookends are the SAME address is a labelled region of
+ * zero height, and a band drawn ABOVE the stated ceiling is off the map it
+ * belongs to. Asserting strict descent covers both without the test having to
+ * reproduce the bucket arithmetic. */
+static void test_render_phys_map_descends_strictly(void) {
+  struct summary s;
+  reset_results();
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+  memset(&s, 0, sizeof(s));
+  extern int verbose;
+  extern int map_mode;
+  s.kaslr.vslots = 60;
+  s.kaslr.vbits = 6;
+  verbose = 0;
+  map_mode = 1;
+
+  /* A physical window is required, or the column is a single undivided DRAM
+   * band and there is no bucket arithmetic to get wrong. Its ceiling has to
+   * sit above the sysconf RAM estimate, which is the case the defect needed:
+   * the proven ceiling outruns anything observed, no RAM top is known, and the
+   * band above the window is left bounded by the ULONG_MAX placeholder.
+   * Derived from ULONG_MAX so it holds on 32-bit as well as 64-bit. */
+  unsigned long sv_pmin = layout.phys_kaslr_text_min;
+  unsigned long sv_pmax = layout.phys_kaslr_text_max;
+  layout.phys_kaslr_text_min = 0x200000ul;
+  layout.phys_kaslr_text_max = ULONG_MAX / 2;
+
+  set_render_mode(0, 0, 0);
+  capture_stdout(wrap_render_summary, &s);
+  map_mode = 0;
+  layout.phys_kaslr_text_min = sv_pmin;
+  layout.phys_kaslr_text_max = sv_pmax;
+
+  const char *phys = strstr(render_cap, "Physical address space");
+  assert(phys != NULL);
+
+  int seen = 0;
+  unsigned long prev = 0;
+  for (const char *p = phys; p; p = strchr(p + 1, '\n')) {
+    const char *nl = strchr(p + 1, '\n');
+    size_t len = nl ? (size_t)(nl - (p + 1)) : strlen(p + 1);
+    char line[256];
+    if (len >= sizeof(line))
+      len = sizeof(line) - 1;
+    memcpy(line, p + 1, len);
+    line[len] = '\0';
+    unsigned long addr;
+    if (!map_boundary_addr(line, &addr))
+      continue;
+    if (seen)
+      assert(addr < prev);
+    prev = addr;
+    seen = 1;
+  }
+  /* The column exists at all -- otherwise the loop above proves nothing. */
+  assert(seen);
+}
+
 /* --map draws the address-space diagram without --verbose, which is the whole
  * point of the flag: the diagram is a view of the resolved layout, not run
  * narration, so it must be reachable without the per-component stream. */
@@ -3591,6 +3711,8 @@ int main(void) {
   RUN(test_render_map_directmap_base_from_engine);
   RUN(test_render_map_overlapped_band_states_its_ceiling);
   RUN(test_render_map_flag);
+  RUN(test_render_footer_hint_is_last);
+  RUN(test_render_phys_map_descends_strictly);
   RUN(test_render_window_row_always_graded);
   RUN(test_render_coupling_gated);
   RUN(test_render_markdown_text_order_caution);

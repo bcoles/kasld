@@ -1243,6 +1243,17 @@ static void print_physical_layout(void) {
   int show_phys_window =
       (pmax > pmin && pmin > 0 && dram_lo <= dram_hi && wlo <= whi);
 
+  /* The window band's TOP is an edge the column draws, and unlike a footer it
+   * is a top edge, so the footer sweep further down never sees it. pmax is
+   * engine state and is not clipped, so where the proven ceiling sits above the
+   * RAM estimate the ceiling rises to meet it -- otherwise the window band runs
+   * off the top of its own map. Raised here rather than after the buckets are
+   * built, because the band above the window is bounded by this ceiling. */
+  if (show_phys_window && whi > top_label) {
+    top_label = whi;
+    top_is_estimate = 0;
+  }
+
   /* Build a flat list of buckets, top to bottom. `footer_addr` is the
    * boundary label printed after the bucket (= bottom edge). `text_only`
    * gates the bucket to kernel-image-region leaks (the virt layout's
@@ -1283,9 +1294,17 @@ static void print_physical_layout(void) {
      * Named by its position around the text window: the two in-DRAM bands are
      * different parts of DRAM, and heading both of them "in DRAM" left the
      * reader to work out which was which from the addresses alone. */
-    if (dram_hi > whi)
+    /* Bounded by the drawn ceiling, not by dram_hi. With no known RAM top
+     * dram_hi is ULONG_MAX, which made this band unconditional and gave it a
+     * top far above anything the column prints: it rendered between two copies
+     * of the same address, a labelled region of zero height. Bounding it by
+     * top_label draws it only over space the map actually shows, and drops it
+     * entirely when the window already reaches the ceiling. No leak is lost
+     * with it -- the ceiling dominates the highest point above. */
+    unsigned long band_hi = dram_hi < top_label ? dram_hi : top_label;
+    if (band_hi > whi)
       buckets[nbuckets++] = (struct phys_bucket){"in DRAM, above kernel text",
-                                                 whi + 1, dram_hi, whi, 0};
+                                                 whi + 1, band_hi, whi, 0};
     /* Text window, clipped into DRAM (a window edge outside DRAM belongs to
      * the above-/below-DRAM band, not to this one). */
     buckets[nbuckets++] =
@@ -1957,8 +1976,6 @@ static void render_readout(const struct summary *s) {
     readout_static_base_block(s->kaslr.default_addr, s);
     printf("\n");
     readout_print_leaks();
-    printf("\n[-v: detailed results, memory map, system info]  "
-           "[-H: hardening assessment]\n");
     return;
   }
   if (s->kaslr.disabled) {
@@ -1975,8 +1992,6 @@ static void render_readout(const struct summary *s) {
     readout_static_base_block(s->kaslr.default_addr, s);
     printf("\n");
     readout_print_leaks();
-    printf("\n[-v: detailed results, memory map, system info]  "
-           "[-H: hardening assessment]\n");
     return;
   }
 
@@ -2208,9 +2223,20 @@ static void render_readout(const struct summary *s) {
       printf("  %-19s System.map, not a generic one (-H).%s\n", "", c(C_RESET));
     }
   }
+}
 
-  printf("\n[-v: detailed results, memory map, system info]  "
-         "[-H: hardening assessment]\n");
+/* Trailing hint, printed once by the caller AFTER every block it advertises --
+ * emitting it from the readout put it between the readout and the map, where it
+ * read as a divider rather than a footer. It names only what this invocation
+ * did not already produce: offering --map to a reader who passed --map, or -H
+ * to one who passed -H, is noise that makes the real suggestion harder to see.
+ * Verbose mode prints no hint at all, having already shown everything. */
+static void readout_footer_hint(void) {
+  printf("\n[-v: detailed results,%s system info]",
+         map_mode ? "" : " memory map,");
+  if (!hardening_mode)
+    printf("  [-H: hardening assessment]");
+  printf("\n");
 }
 
 /* -------------------------------------------------------------------------
@@ -2264,6 +2290,7 @@ void render_text(const struct summary *s) {
     }
     if (hardening_mode)
       render_hardening_text();
+    readout_footer_hint();
     return;
   }
 
