@@ -177,10 +177,17 @@ static pthread_mutex_t output_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 static int progress_done; /* components finished */
 static struct timespec progress_start;
-static int progress_painted; /* highest `done` a frame was drawn for */
-static int progress_width;   /* visible columns of the drawn frame */
-static int progress_live;    /* a frame is currently on screen */
-static int progress_total;   /* components the bar is counting up to */
+static int progress_painted;  /* highest `done` a frame was drawn for */
+static int progress_width;    /* visible columns of the drawn frame */
+static int progress_live;     /* a frame is currently on screen */
+static int progress_total;    /* components the bar is counting up to */
+static int progress_inflight; /* claimed but not yet reaped */
+
+/* How long a worker waits on its child before repainting. The bar is redrawn
+ * only when a component finishes, so during a stall its elapsed field freezes
+ * -- a stopped clock, which reads as "nothing is happening" rather than
+ * "something is stuck". Ticking from the wait keeps it moving. */
+#define PROGRESS_TICK_MS 250
 
 /* Erase the drawn frame, leaving the cursor at column 0 of a blank line.
  * Overwrites with spaces rather than an erase escape so the result is the same
@@ -200,7 +207,10 @@ static void progress_erase(void) {
  * separately so the visible width is known exactly: colour escapes carry no
  * width, and progress_erase() must overwrite the visible columns only. Caller
  * holds output_mutex. */
-static void progress_paint(int done, int total) {
+/* `inflight` is snapshotted by the caller: progress_paint runs under
+ * output_mutex, and taking result_mutex here would invert the one-way
+ * result_mutex -> output_mutex order the rest of this file relies on. */
+static void progress_paint(int done, int total, int inflight) {
   int pct = total > 0 ? (done * 100) / total : 0;
   struct timespec now;
   clock_gettime(CLOCK_MONOTONIC, &now);
@@ -220,15 +230,31 @@ static void progress_paint(int done, int total) {
   for (int t = total; t >= 10; t /= 10)
     tw++;
 
-  char seg_bar[40], seg_mid[48], seg_time[24];
+  /* In-flight count, and how long since anything finished. Together they say
+   * what a bare percentage cannot: whether the pool is working through a queue
+   * or has drained to one stuck component. The stall figure only appears once
+   * it exceeds the tick threshold, so a healthy run reads as before. */
+  char seg_bar[40], seg_mid[80], seg_time[40];
   int w = 0;
   w += snprintf(seg_bar, sizeof(seg_bar), "[%s]", bar);
-  w += snprintf(seg_mid, sizeof(seg_mid), " %3d%%  %*d/%d  ", pct, tw, done,
-                total);
+  if (inflight > 0)
+    w += snprintf(seg_mid, sizeof(seg_mid), " %3d%%  %*d/%d  %d running  ", pct,
+                  tw, done, total, inflight);
+  else
+    w += snprintf(seg_mid, sizeof(seg_mid), " %3d%%  %*d/%d  ", pct, tw, done,
+                  total);
   w += snprintf(seg_time, sizeof(seg_time), "%.1fs", elapsed);
 
+  int prev = progress_width;
   fprintf(stderr, "\r%s%s%s%s%s%s%s", c(C_DIM), seg_bar, c(C_RESET), seg_mid,
           c(C_DIM), seg_time, c(C_RESET));
+  /* A frame narrower than the one it replaces leaves the old frame's tail on
+   * screen: \r rewinds but does not clear, and the next erase only blanks the
+   * new (shorter) width. Blank the difference here so the recorded width is
+   * always the full extent of what is visible. Frames vary in width because
+   * the in-flight and stall figures appear and disappear. */
+  for (int i = w; i < prev; i++)
+    fputc(' ', stderr);
   progress_width = w;
   progress_live = 1;
 }
@@ -237,6 +263,9 @@ static void progress_paint(int done, int total) {
  * thread, and a plain stderr write when no bar is drawn. */
 static void progress_note(const char *fmt, ...) {
   va_list ap;
+  RESULT_LOCK();
+  int inflight = progress_inflight;
+  RESULT_UNLOCK();
   OUTPUT_LOCK();
   int repaint = progress_live;
   int done = progress_painted;
@@ -246,8 +275,29 @@ static void progress_note(const char *fmt, ...) {
   va_end(ap);
   fputc('\n', stderr);
   if (repaint)
-    progress_paint(done, progress_total);
+    progress_paint(done, progress_total, inflight);
   fflush(stderr);
+  OUTPUT_UNLOCK();
+}
+
+/* Repaint the current frame without advancing the count. Called from a worker
+ * waiting on its child, so the elapsed and stall figures keep moving while no
+ * component completes. Snapshots the counters under result_mutex and releases
+ * it before taking output_mutex, preserving the one-way lock order. */
+static void progress_tick(void) {
+  if (quiet || json_output || oneline_output || markdown_output || verbose)
+    return;
+  if (!isatty(STDERR_FILENO))
+    return;
+  RESULT_LOCK();
+  int done = progress_painted;
+  int inflight = progress_inflight;
+  RESULT_UNLOCK();
+  OUTPUT_LOCK();
+  if (progress_live) {
+    progress_paint(done, progress_total, inflight);
+    fflush(stderr);
+  }
   OUTPUT_UNLOCK();
 }
 
@@ -1915,15 +1965,19 @@ static int run_component(const struct component *c) {
       break;
     }
 
-    int pr = poll(&pfd, 1, (int)(remaining > INT_MAX ? INT_MAX : remaining));
+    /* Cap the wait so a worker blocked on a silent child still repaints. The
+     * real timeout is the `remaining == 0` test at the top of the loop, so a
+     * poll expiry here is just a tick, not an expiry. */
+    long wait = remaining > PROGRESS_TICK_MS ? PROGRESS_TICK_MS : remaining;
+    int pr = poll(&pfd, 1, (int)wait);
     if (pr < 0) {
       if (errno == EINTR)
         continue;
       break;
     }
     if (pr == 0) {
-      timed_out = 1;
-      break;
+      progress_tick();
+      continue;
     }
 
     /* Read available data into the free tail of the buffer. */
@@ -2004,6 +2058,9 @@ static int run_component(const struct component *c) {
 static void progress_update(void) {
   RESULT_LOCK();
   int done = ++progress_done;
+  if (progress_inflight > 0)
+    progress_inflight--;
+  int inflight = progress_inflight;
   RESULT_UNLOCK();
 
   if (quiet || json_output || oneline_output || markdown_output)
@@ -2022,10 +2079,20 @@ static void progress_update(void) {
    * lower count over a higher one. */
   if (done > progress_painted) {
     progress_painted = done;
-    progress_paint(done, progress_total);
+    progress_paint(done, progress_total, inflight);
     fflush(stderr);
   }
   OUTPUT_UNLOCK();
+}
+
+/* Bump the in-flight count around a component run. progress_update() does the
+ * matching decrement, and it is called on every path -- including the
+ * sequential ones that never claim a pool slot -- so the increment has to live
+ * beside the call, not beside the claim. */
+static void progress_enter_component(void) {
+  RESULT_LOCK();
+  progress_inflight++;
+  RESULT_UNLOCK();
 }
 
 /* Worker thread: claims inference components from the pool and runs them. */
@@ -2037,6 +2104,7 @@ static void *inference_worker(void *arg) {
     RESULT_UNLOCK();
     if (slot < 0)
       break;
+    progress_enter_component();
     run_component(&components[pool_inf[slot]]);
     progress_update();
   }
@@ -2068,6 +2136,7 @@ static void run_phase(const struct phase *p) {
 
   if (!p->parallel) {
     for (int i = 0; i < pool_inf_n; i++) {
+      progress_enter_component();
       run_component(&components[pool_inf[i]]);
       progress_update();
     }
@@ -2082,6 +2151,7 @@ static void run_phase(const struct phase *p) {
 
   if (workers <= 1 || verbose) {
     for (int i = 0; i < pool_inf_n; i++) {
+      progress_enter_component();
       run_component(&components[pool_inf[i]]);
       progress_update();
     }
