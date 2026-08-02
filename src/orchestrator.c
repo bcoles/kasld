@@ -26,6 +26,7 @@
 #include "include/kasld/engine_rules.h"
 #include "include/kasld/internal.h"
 #include "include/kasld/outcome.h"
+#include "include/kasld/randomize_memory.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -2862,6 +2863,42 @@ void compute_kaslr_info(struct summary *s) {
       s->kaslr.virt_vmalloc_slots > 0 ? ilog2(s->kaslr.virt_vmalloc_slots) : 0;
   s->kaslr.virt_vmemmap_bits =
       s->kaslr.virt_vmemmap_slots > 0 ? ilog2(s->kaslr.virt_vmemmap_slots) : 0;
+
+#ifndef KASLD_TESTING
+  /* Baseline for the direct-map residual, the counterpart of vbits_top. The
+   * denominator is NOT Q_PAGE_OFFSET's honest top (an addressable range, which
+   * would read as entropy the kernel never had) but the window
+   * kernel_randomize_memory() actually draws page_offset_base from, counted at
+   * the same PUD grain as the residual so the two are comparable.
+   *
+   * The budget window cannot be read back off the resolved estimate: the rule
+   * that models it deliberately emits no page_offset lower bound (the x86_64
+   * direct-map floor is held at the canonical half boundary so low
+   * static-layout addresses are not rejected), so it is re-derived from the
+   * shared model here.
+   *
+   * Gated on the model's own confidence cap reaching the sound floor, not
+   * merely on max_pfn being present: the whole window is sized from that
+   * observation, and a heuristic one would put a sub-floor denominator under a
+   * guaranteed-window numerator — mixing trust levels in a single ratio. Left
+   * at 0 (renderers show the bare residual) whenever the model is unavailable:
+   * off x86_64, unresolved paging level, no max_pfn, or a sub-floor one. */
+  {
+    struct kasld_rm_budget b;
+    if (kasld_rm_budget_from_evidence(&g_auth_engine.ev, g_auth_engine.est,
+                                      &b) &&
+        kasld_conf_min(CONF_INFERRED, b.pfn_conf) >= KASLD_SOUND_FLOOR) {
+      struct estimate budget;
+      memset(&budget, 0, sizeof(budget));
+      budget.lo = b.lo;
+      budget.hi = b.hi;
+      unsigned long top =
+          quantity_slots(Q_PAGE_OFFSET, &budget, KASLD_SOUND_FLOOR, NULL, 0,
+                         RANDOMIZE_MEMORY_ALIGN);
+      s->kaslr.virt_page_offset_bits_top = top > 0 ? ilog2(top) : 0;
+    }
+  }
+#endif
 
 #ifndef KASLD_TESTING
   /* Speculative "likely" sub-windows for the memory-KASLR regions: the engine's

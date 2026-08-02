@@ -522,6 +522,66 @@ static void test_render_windowed_base_likely_order(void) {
  * "likely" sub-windows. A guaranteed region range plus a tighter likely sub-
  * range must surface in the verbose Memory KASLR block, the default direct-map
  * readout, JSON, and markdown. Reads only s->kaslr (mutates no global). */
+/* The direct-map residual is reported against a baseline, the way the virtual
+ * image base is: "narrowed to ~4 of 14 bits" rather than a bare "~4 bits" with
+ * nothing to read it against. The denominator is the summary's
+ * virt_page_offset_bits_top (the RANDOMIZE_MEMORY budget window's candidate
+ * count, computed at the engine boundary); the row must present it, and must
+ * degrade to the bare residual when it is absent -- off x86_64, or where the
+ * model could not be evaluated at or above the sound floor. Reads only
+ * s->kaslr, so it runs the same on every arch. */
+static void test_render_directmap_entropy_denominator(void) {
+  struct summary s;
+  reset_results();
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+  memset(&s, 0, sizeof(s));
+
+  s.kaslr.vslots = 60; /* keep render_kaslr_text from early-returning */
+  s.kaslr.vbits = 6;
+  /* A narrowed, non-pinned direct-map window (no likely sub-window, so the
+   * bare-window row renders). Offsets from the arch PAGE_OFFSET macro so the
+   * constants fit `unsigned long` on 32-bit arches. */
+  s.kaslr.virt_page_offset_min = (unsigned long)PAGE_OFFSET + 0x01000000ul;
+  s.kaslr.virt_page_offset_max = (unsigned long)PAGE_OFFSET + 0x09000000ul;
+  s.kaslr.virt_page_offset_slots = 16;
+  s.kaslr.virt_page_offset_bits = 4;
+  s.kaslr.virt_page_offset_bits_top = 14;
+
+  set_render_mode(0, 0, 0);
+  capture_stdout(wrap_render_summary, &s);
+  const char *row = strstr(render_cap, "Direct map base");
+  assert(row != NULL);
+  {
+    const char *eol = strchr(row, '\n');
+    assert(eol != NULL);
+    char line[256];
+    size_t len = (size_t)(eol - row);
+    assert(len < sizeof(line));
+    memcpy(line, row, len);
+    line[len] = '\0';
+    assert(strstr(line, "~4 of 14 bits") != NULL);
+  }
+
+  /* No sound baseline: the residual stands alone rather than being presented
+   * against a denominator drawn from somewhere else. */
+  s.kaslr.virt_page_offset_bits_top = 0;
+  capture_stdout(wrap_render_summary, &s);
+  row = strstr(render_cap, "Direct map base");
+  assert(row != NULL);
+  {
+    const char *eol = strchr(row, '\n');
+    assert(eol != NULL);
+    char line[256];
+    size_t len = (size_t)(eol - row);
+    assert(len < sizeof(line));
+    memcpy(line, row, len);
+    line[len] = '\0';
+    assert(strstr(line, "~4 bits") != NULL);
+    assert(strstr(line, " of ") == NULL);
+  }
+}
+
 static void test_render_memory_likely_window(void) {
   struct summary s;
   reset_results();
@@ -1065,6 +1125,81 @@ static void test_render_map_ceiling_covers_high_mmio(void) {
       break;
   }
   assert(ceiling >= mmio);
+}
+
+/* The physical map's bands must PARTITION the address space: a leak belongs to
+ * exactly one band, under exactly one header. The phys-text window band is
+ * [phys_kaslr_text_min, phys_kaslr_text_max] and the above-DRAM band is
+ * (ram_top, ULONG_MAX]; phys_kaslr_text_max is the engine's proven ceiling and
+ * stays at the arch default until an observation narrows it, so it routinely
+ * sits above a leaked ram_top and the two bands overlap. A kernel-image leak
+ * in the overlap satisfies both (the window's `text_only` gate admits it, the
+ * above-DRAM band admits every region) and was printed TWICE, once under
+ * "above DRAM" and once under "phys kernel text". */
+static void test_render_map_phys_buckets_partition(void) {
+  struct summary s;
+  reset_results();
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+  memset(&s, 0, sizeof(s));
+  extern int verbose;
+
+  unsigned long sv_min = layout.phys_kaslr_text_min;
+  unsigned long sv_max = layout.phys_kaslr_text_max;
+
+  /* Small offsets from PHYS_OFFSET so every value fits a 32-bit unsigned
+   * long. The property under test is only the ordering
+   * pmin < ram_top < ktext <= pmax. */
+  unsigned long ram_top = (unsigned long)PHYS_OFFSET + 0x1000000ul;
+  unsigned long ktext = ram_top + 0x400000ul;
+
+  layout.phys_kaslr_text_min = (unsigned long)PHYS_OFFSET + 0x100000ul;
+  layout.phys_kaslr_text_max = ram_top + 0x1000000ul;
+
+  struct result *r1 = push_result();
+  r1->type = KASLD_TYPE_PHYS;
+  r1->region = REGION_RAM;
+  r1->hi = ram_top;
+  r1->set_mask = HI_SET;
+  r1->pos = POS_TOP;
+  r1->conf = CONF_PARSED;
+  snprintf(r1->origins[0], ORIGIN_LEN, "synthetic_test");
+  r1->method_set = 1u << KM_PARSED;
+  r1->provenance_count = 1;
+
+  /* A kernel-image leak above the leaked DRAM top but inside the (still wide)
+   * proven text window — the overlap. */
+  struct result *r2 = push_result();
+  r2->type = KASLD_TYPE_PHYS;
+  r2->region = REGION_KERNEL_IMAGE;
+  r2->lo = ktext;
+  r2->set_mask = LO_SET;
+  r2->pos = POS_BASE;
+  r2->conf = CONF_PARSED;
+  snprintf(r2->origins[0], ORIGIN_LEN, "synthetic_test");
+  r2->method_set = 1u << KM_PARSED;
+  r2->provenance_count = 1;
+
+  s.kaslr.vslots = 60;
+  s.kaslr.vbits = 6;
+  verbose = 1;
+  set_render_mode(0, 0, 0);
+  capture_stdout(wrap_render_summary, &s);
+  verbose = 0;
+  set_render_mode(0, 0, 0);
+
+  layout.phys_kaslr_text_min = sv_min;
+  layout.phys_kaslr_text_max = sv_max;
+
+  const char *blk = strstr(render_cap, "Physical address space");
+  assert(blk != NULL);
+
+  char hex[32];
+  snprintf(hex, sizeof(hex), "0x%016lx  [", ktext);
+  int seen = 0;
+  for (const char *p = strstr(blk, hex); p; p = strstr(p + 1, hex))
+    seen++;
+  assert(seen == 1); /* drawn, and drawn once */
 }
 
 /* Kernel text is mapped THROUGH the direct map on coupled arches, and the map
@@ -2951,12 +3086,14 @@ int main(void) {
   RUN(test_render_vtext_speculative);
   RUN(test_render_windowed_base_likely_order);
   RUN(test_render_memory_likely_window);
+  RUN(test_render_directmap_entropy_denominator);
   RUN(test_render_directmap_base_promoted);
   RUN(test_render_directmap_base_promoted_unbounded);
   RUN(test_render_entropy_states_its_baseline);
   RUN(test_render_memory_kaslr_slots_reach_machine_formats);
   RUN(test_render_map_band_contains_its_leaks);
   RUN(test_render_map_ceiling_covers_high_mmio);
+  RUN(test_render_map_phys_buckets_partition);
   RUN(test_render_phys_ceiling_covers_bucket_footers);
   RUN(test_render_map_draws_topmost_band_ceiling);
   RUN(test_render_map_directmap_contains_text);

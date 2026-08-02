@@ -417,7 +417,9 @@ struct kaslr_info {
    * KASLR window, so the ratio means what a reader will take it to mean. The
    * physical and direct-map tops are addressable-range bounds rather than
    * randomization windows, so a denominator drawn from them would read as
-   * KASLR entropy the kernel never had. */
+   * KASLR entropy the kernel never had. (The direct map does get a baseline —
+   * see virt_page_offset_bits_top — but from the RANDOMIZE_MEMORY budget
+   * model, not from Q_PAGE_OFFSET's top.) */
   int vbits_top;
   /* Speculative "likely" window: the engine resolved a second time with ALL
    * signals, including those below the sound floor (timing/heuristic/brute).
@@ -454,6 +456,19 @@ struct kaslr_info {
    * at the engine boundary. Carried here rather than recomputed in a renderer:
    * the same quantity must not be derived two ways. */
   int virt_page_offset_bits, virt_vmalloc_bits, virt_vmemmap_bits;
+  /* Entropy the direct-map base started with, i.e. the baseline that makes
+   * virt_page_offset_bits interpretable, counted the same way (PUD-granular
+   * candidates through quantity_slots, then ilog2).
+   *
+   * NOT Q_PAGE_OFFSET's honest top, which is an addressable range rather than
+   * a randomization window: the denominator is the window
+   * kernel_randomize_memory() actually draws page_offset_base from, modelled
+   * in randomize_memory.h. x86_64-only (RANDOMIZE_MEMORY is), and 0 whenever
+   * that model cannot be evaluated soundly — no max_pfn, unresolved paging
+   * level, or a max_pfn observation below the sound floor, which would put a
+   * sub-floor denominator under a guaranteed-window numerator. Renderers
+   * degrade to the bare residual at 0. */
+  int virt_page_offset_bits_top;
   unsigned long virt_vmalloc_slots, virt_vmalloc_likely_slots;
   unsigned long virt_vmemmap_slots, virt_vmemmap_likely_slots;
 };

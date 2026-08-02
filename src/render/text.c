@@ -1080,12 +1080,34 @@ static void print_physical_layout(void) {
    * arches without phys KASLR leave both bounds at 0 — single DRAM box. */
   unsigned long pmin = layout.phys_kaslr_text_min;
   unsigned long pmax = layout.phys_kaslr_text_max;
-  int show_phys_window = (pmax > pmin && pmin > 0);
 
   /* DRAM range used to clip the in-DRAM buckets and decide above/below
    * buckets. Falls back to PHYS_OFFSET..ULONG_MAX when edges are unknown. */
   unsigned long dram_lo = have_ram_base ? ram_base : (unsigned long)PHYS_OFFSET;
   unsigned long dram_hi = have_ram_top ? ram_top : ULONG_MAX;
+
+  /* The window as DRAWN is its intersection with DRAM. The buckets have to
+   * PARTITION the address space: the above-DRAM and below-DRAM bands own
+   * everything outside [dram_lo, dram_hi], so an in-DRAM band that reaches
+   * past a DRAM edge overlaps one of them, and a kernel-image leak landing in
+   * the overlap prints twice under two different band headers. The window
+   * edges do reach past: pmax is the engine's proven ceiling on the physical
+   * image base, which stays at the arch default until an observation narrows
+   * it and so routinely sits above a leaked ram_top. (Non-image leaks in the
+   * overlap were already single-printed — the window band's `text_only` gate
+   * drops them — so the double print is specific to kernel-image records.)
+   * Clipping moves no printed address: the [pmax + 1, dram_hi] band is not
+   * emitted at all when pmax >= dram_hi, and the window's footer already
+   * collapsed to dram_lo when pmin <= dram_lo. It is the band MEMBERSHIP that
+   * changes, which is the defect. The engine's window itself is untouched --
+   * clipping that would misreport it. */
+  unsigned long wlo = pmin > dram_lo ? pmin : dram_lo;
+  unsigned long whi = pmax < dram_hi ? pmax : dram_hi;
+  /* wlo <= whi is exactly "the window meets DRAM"; when it does not, there is
+   * no in-DRAM window to split around and the single DRAM band (which admits
+   * every region) shows any leak the above/below bands do not. */
+  int show_phys_window =
+      (pmax > pmin && pmin > 0 && dram_lo <= dram_hi && wlo <= whi);
 
   /* Build a flat list of buckets, top to bottom. `footer_addr` is the
    * boundary label printed after the bucket (= bottom edge). `text_only`
@@ -1124,20 +1146,20 @@ static void print_physical_layout(void) {
         (struct phys_bucket){NULL, dram_lo, dram_hi, dram_lo, 0};
   } else {
     /* In-DRAM above text window. Clipped at ram_top (no longer ULONG_MAX). */
-    if (dram_hi > pmax)
+    if (dram_hi > whi)
       buckets[nbuckets++] =
-          (struct phys_bucket){NULL, pmax + 1, dram_hi, pmax, 0};
-    /* Text window. */
+          (struct phys_bucket){NULL, whi + 1, dram_hi, whi, 0};
+    /* Text window, clipped into DRAM (a window edge outside DRAM belongs to
+     * the above-/below-DRAM band, not to this one). */
     buckets[nbuckets++] =
-        (struct phys_bucket){"phys kernel text", pmin, pmax, pmin, 1};
+        (struct phys_bucket){"phys kernel text", wlo, whi, wlo, 1};
     /* In-DRAM below text window. Clipped at ram_base (no longer PHYS_OFFSET).
-     */
-    if (pmin > dram_lo)
+     * When the window's lower edge is at or below dram_lo, wlo == dram_lo and
+     * the window band already carries dram_lo as its footer — the trailing
+     * label collapses with no separate band. */
+    if (wlo > dram_lo)
       buckets[nbuckets++] =
-          (struct phys_bucket){NULL, dram_lo, pmin - 1, dram_lo, 0};
-    else
-      /* Window's lower edge IS dram_lo; collapse the trailing label. */
-      buckets[nbuckets - 1].footer_addr = dram_lo;
+          (struct phys_bucket){NULL, dram_lo, wlo - 1, dram_lo, 0};
   }
 
   /* Below-DRAM bucket: leaks whose address < ram_base. Only emitted when
@@ -1913,7 +1935,8 @@ static void render_readout(const struct summary *s) {
       snprintf(off, sizeof(off), "off %s0x%lx", d < 0 ? "-" : "+",
                (unsigned long)(d < 0 ? -d : d));
       readout_head("Direct map base",
-                   readout_status(0, bits, 0, st, sizeof(st)));
+                   readout_status(0, bits, s->kaslr.virt_page_offset_bits_top,
+                                  st, sizeof(st)));
       readout_point(GRADE_LIKELY, lhi, w, off);
       if (ghi && ghi >= glo)
         readout_window(GRADE_GUARANTEED, glo, ghi, w, slots, readout_count_w,
@@ -1922,8 +1945,8 @@ static void render_readout(const struct summary *s) {
         readout_halfbound(GRADE_GUARANTEED, ">=", glo, w);
     } else {
       readout_window_block("Direct map base", lo, hi, llo, lhi, slots,
-                           s->kaslr.virt_page_offset_likely_slots, bits, 0,
-                           align);
+                           s->kaslr.virt_page_offset_likely_slots, bits,
+                           s->kaslr.virt_page_offset_bits_top, align);
     }
   }
 

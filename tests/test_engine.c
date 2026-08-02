@@ -10,6 +10,7 @@
 // <bcoles@gmail.com>
 
 #include "include/kasld/engine.h"
+#include "include/kasld/randomize_memory.h"
 #include "include/kasld/regions.h"
 #include "test_harness.h"
 
@@ -4463,6 +4464,79 @@ static void test_x86_64_randomize_memory_budget(void) {
 #endif
 }
 
+/* The budget model has a second consumer: the summary uses the SIZE of the
+ * page_offset window as the denominator for the direct-map residual entropy
+ * ("~4 of N bits"). It cannot read that window back off the resolved estimate
+ * -- the rule deliberately emits no page_offset floor -- so both go through
+ * kasld_rm_budget_from_evidence(). Assert the shared model agrees with what
+ * the rule emitted, that it counts the candidates the denominator claims, and
+ * that it carries the max_pfn confidence the summary's floor gate needs. */
+static void test_x86_64_randomize_memory_budget_shared_window(void) {
+  struct engine e;
+  engine_init(&e);
+  add_directmap(&e, 0xffff888000001000ul); /* L4 range -> Q_VA_BITS=48 */
+  /* 13 GiB of RAM: the worked example. Written as a page count so it fits a
+   * 32-bit unsigned long on the cross targets (13 GiB in bytes does not). */
+  unsigned long max_pfn = 3407872ul; /* 13 GiB / 4 KiB */
+  struct observation mp = mk_scalar(SF_PHYS_MAX_PFN, max_pfn, CONF_PARSED);
+  evidence_add(&e.ev, &mp);
+
+  const rule_fn rules[] = {rule_x86_64_la57_from_directmap,
+                           rule_x86_64_randomize_memory_budget};
+  engine_run(&e, rules, 2);
+
+  struct kasld_rm_budget b;
+  int got = kasld_rm_budget_from_evidence(&e.ev, e.est, &b);
+#if defined(__x86_64__)
+  assert(got);
+  /* One model, not two: the window's top IS the ceiling the rule emitted. */
+  assert(b.hi == e.est[Q_PAGE_OFFSET].hi);
+  /* The floor is vaddr_start, which the rule does NOT emit -- the resolved
+   * estimate sits lower (la57's canonical half boundary), which is exactly why
+   * the denominator has to be re-derived rather than measured off it. */
+  assert(b.lo == 0xffff888000000000ul);
+  assert(e.est[Q_PAGE_OFFSET].lo < b.lo);
+  /* PUD-granular candidates over the window: span 117.5 TiB, minus a 1 TiB
+   * minimum direct map and the 32 TiB vmalloc hole, a third of what is left. */
+  unsigned long pud = 1ul << 30;
+  assert((b.hi - b.lo) / pud + 1 == 28843);
+  /* The gate input: the confidence of the SF_PHYS_MAX_PFN observation the
+   * whole window is sized from, carried out verbatim so a caller can hold the
+   * denominator to a floor. */
+  assert(b.pfn_conf == CONF_PARSED);
+  assert(kasld_conf_min(CONF_INFERRED, b.pfn_conf) == CONF_INFERRED);
+#else
+  assert(!got); /* RANDOMIZE_MEMORY is x86_64-only */
+#endif
+}
+
+/* A max_pfn below the sound floor sizes a sub-floor window. The model still
+ * evaluates -- the rule caps its constraints at that confidence -- but the
+ * cap no longer reaches CONF_INFERRED, which is what stops the summary
+ * presenting the window as a denominator under a guaranteed-window numerator.
+ */
+static void test_x86_64_randomize_memory_budget_subfloor_pfn(void) {
+  struct engine e;
+  engine_init(&e);
+  add_directmap(&e, 0xffff888000001000ul);
+  struct observation mp =
+      mk_scalar(SF_PHYS_MAX_PFN, 0x340000ul, CONF_HEURISTIC);
+  evidence_add(&e.ev, &mp);
+  const rule_fn rules[] = {rule_x86_64_la57_from_directmap,
+                           rule_x86_64_randomize_memory_budget};
+  engine_run(&e, rules, 2); /* resolves the paging level */
+
+  struct kasld_rm_budget b;
+  int got = kasld_rm_budget_from_evidence(&e.ev, e.est, &b);
+#if defined(__x86_64__)
+  assert(got);
+  assert(b.pfn_conf == CONF_HEURISTIC);
+  assert(kasld_conf_min(CONF_INFERRED, b.pfn_conf) == CONF_HEURISTIC);
+#else
+  assert(!got);
+#endif
+}
+
 /* Paging level resolved but no SF_PHYS_MAX_PFN: every budget bound needs the
  * directmap size, so the rule emits nothing and vmalloc/vmemmap stay at top. */
 static void test_x86_64_randomize_memory_budget_no_max_pfn(void) {
@@ -7502,6 +7576,8 @@ int main(void) {
   RUN(test_x86_64_vmalloc_no_max_pfn);
   RUN(test_x86_64_vmalloc_upper_l4_when_po_unresolved);
   RUN(test_x86_64_randomize_memory_budget);
+  RUN(test_x86_64_randomize_memory_budget_shared_window);
+  RUN(test_x86_64_randomize_memory_budget_subfloor_pfn);
   RUN(test_x86_64_randomize_memory_budget_no_max_pfn);
   RUN(test_x86_64_randomize_memory_budget_inert);
 #if defined(__x86_64__)

@@ -63,21 +63,13 @@
 
 #include "include/kasld/engine_rules.h"
 #include "include/kasld/quantity.h"
+#include "include/kasld/randomize_memory.h"
 
 #include <string.h>
 
-#define TB_SHIFT 40
-#define PUD_SHIFT 30
-#define PAGE_SHIFT 12
-
-/* Per-paging-level layout constants (verified against kernel_randomize_memory
- * and the x86_64 page-table type headers). */
-struct rm_level {
-  unsigned long vaddr_start; /* __PAGE_OFFSET_BASE */
-  unsigned long vaddr_end;   /* CPU_ENTRY_AREA_BASE */
-  unsigned long vmalloc_tb;  /* VMALLOC_SIZE_TB */
-  unsigned long dm_max_tb;   /* 1 << (MAX_PHYSMEM_BITS - TB_SHIFT) */
-};
+#define TB_SHIFT KASLD_RM_TB_SHIFT
+#define PUD_SHIFT KASLD_RM_PUD_SHIFT
+#define PAGE_SHIFT KASLD_RM_PAGE_SHIFT
 
 int rule_x86_64_randomize_memory_budget(const struct evidence_set *ev,
                                         const struct estimate *est,
@@ -86,104 +78,55 @@ int rule_x86_64_randomize_memory_budget(const struct evidence_set *ev,
   if (out_max < 1)
     return 0;
 
-  /* Active paging level: the runtime-observed Q_VA_BITS finset is
-   * authoritative; else the cpuinfo width, trusted only when it is 48 (a 48-bit
-   * CPU cannot run 5-level, so L4 is certain; 57 is a capability, not proof of
-   * 5-level). */
-  unsigned long va_bits = 0;
-  if (!estimate_finset_value(&quantities[Q_VA_BITS], &est[Q_VA_BITS],
-                             &va_bits)) {
-    for (int i = 0; i < ev->n_obs; i++) {
-      const struct observation *o = &ev->obs[i];
-      if (o->valid && o->value_kind == OBS_SCALAR &&
-          o->scalar_fact == SF_VIRT_ADDR_BITS && o->scalar_value == 48) {
-        va_bits = 48;
-        break;
-      }
-    }
-  }
-
-  struct rm_level lv;
-  if (va_bits == 48) {
-    lv.vaddr_start = 0xffff888000000000ul;
-    lv.vaddr_end = 0xfffffe0000000000ul;
-    lv.vmalloc_tb = 32ul;
-    lv.dm_max_tb = 1ul << (46 - TB_SHIFT); /* 64 TiB */
-  } else if (va_bits == 57) {
-    lv.vaddr_start = 0xff11000000000000ul;
-    lv.vaddr_end = 0xfffffe0000000000ul;
-    lv.vmalloc_tb = 12800ul;
-    lv.dm_max_tb = 1ul << (52 - TB_SHIFT); /* 4096 TiB */
-  } else {
+  /* One shared evaluation of kernel_randomize_memory()'s budget (paging level,
+   * max_pfn and the page_offset window), so the rule and the summary's entropy
+   * denominator cannot model it two ways. Returns 0 when the level is
+   * unresolved, no SF_PHYS_MAX_PFN exists, or the fixed region sizes already
+   * fill the span — the rule has nothing sound to say in any of those. */
+  struct kasld_rm_budget b;
+  if (!kasld_rm_budget_from_evidence(ev, est, &b))
     return 0;
-  }
 
   const unsigned long one_tb = 1ul << TB_SHIFT;
   const unsigned long pud = 1ul << PUD_SHIFT;
-  const unsigned long span = lv.vaddr_end - lv.vaddr_start;
+  const unsigned long span = b.lv.vaddr_end - b.lv.vaddr_start;
 
   int n = 0;
 
   /* No page_offset LOWER bound is emitted here. vaddr_start
-   * (__PAGE_OFFSET_BASE) would be a sound lower edge on the direct-map base,
-   * but the x86_64 directmap floor is deliberately kept at the canonical half
-   * boundary (0xffff800000000000) so that low static-layout addresses (LDT
+   * (__PAGE_OFFSET_BASE) — b.lo — would be a sound lower edge on the direct-map
+   * base, but the x86_64 directmap floor is deliberately kept at the canonical
+   * half boundary (0xffff800000000000) so that low static-layout addresses (LDT
    * remap, etc.) are not rejected; this rule does not override that choice. It
    * contributes the UPPER bounds the budget newly provides, plus the region
    * floors on the separate vmalloc/vmemmap quantities. */
 
-  /* Everything needs the directmap size, i.e. SF_PHYS_MAX_PFN. */
-  unsigned long max_pfn = 0;
-  uint32_t pfn_src = 0;
-  enum kasld_confidence pfn_conf = CONF_PARSED;
-  for (int i = 0; i < ev->n_obs; i++) {
-    const struct observation *o = &ev->obs[i];
-    if (o->valid && o->value_kind == OBS_SCALAR &&
-        o->scalar_fact == SF_PHYS_MAX_PFN) {
-      max_pfn = o->scalar_value;
-      pfn_src = o->id;
-      pfn_conf = o->conf;
-      break;
-    }
-  }
-  if (!max_pfn)
-    return n;
-
   /* dm_min: the smallest possible directmap size — DIV_ROUND_UP(RAM, 1TiB) with
    * zero padding, capped at the architectural maximum. The real directmap is
    * never smaller (padding >= 0; ZONE_DEVICE only enlarges it), so using dm_min
-   * where a larger size would tighten a bound keeps it sound. */
-  unsigned long ram_bytes = max_pfn << PAGE_SHIFT;
+   * where a larger size would tighten a bound keeps it sound. Recomputed from
+   * the same max_pfn the window was built from. */
+  unsigned long ram_bytes = b.max_pfn << PAGE_SHIFT;
   unsigned long dm_min_tb = (ram_bytes + one_tb - 1) / one_tb;
-  if (dm_min_tb > lv.dm_max_tb)
-    dm_min_tb = lv.dm_max_tb;
+  if (dm_min_tb > b.lv.dm_max_tb)
+    dm_min_tb = b.lv.dm_max_tb;
 
   unsigned long dm_min = dm_min_tb * one_tb;
-  unsigned long vmalloc_sz = lv.vmalloc_tb * one_tb;
-  unsigned long dm_max = lv.dm_max_tb * one_tb;
+  unsigned long vmalloc_sz = b.lv.vmalloc_tb * one_tb;
+  unsigned long dm_max = b.lv.dm_max_tb * one_tb;
 
-  /* remain_lo: an over-estimate of the kernel's `remain` (drops vmemmap size
-   * >= 0 and uses dm_min), so ceilings computed from it are sound. Guard the
-   * degenerate huge-RAM case where the fixed sizes already fill the span. */
-  if (dm_min + vmalloc_sz >= span)
-    return n;
-  unsigned long remain_lo = span - dm_min - vmalloc_sz;
-  const enum kasld_confidence cap = kasld_conf_min(CONF_INFERRED, pfn_conf);
+  const enum kasld_confidence cap = kasld_conf_min(CONF_INFERRED, b.pfn_conf);
 
-  /* page_offset upper bound: base_0 = vaddr_start + e_0, e_0 <= remain/3.
-   * page_offset_base is PUD-granular, so floor the ceiling to the PUD boundary:
-   * the true base is a PUD multiple <= this value, so flooring stays sound
-   * while tightening it and dropping the ragged remain/3 remainder (cf. the
-   * alignment floor in phys_bits_ceiling). */
+  /* page_offset upper bound: base_0 = vaddr_start + e_0, e_0 <= remain/3,
+   * floored to the PUD boundary — b.hi, the top of the shared window. */
   if (n < out_max) {
-    unsigned long upper = (lv.vaddr_start + remain_lo / 3) & ~(pud - 1);
     struct constraint *c = &out[n++];
     memset(c, 0, sizeof(*c));
     c->q = Q_PAGE_OFFSET;
     c->op = C_UPPER_BOUND;
-    c->value = upper;
+    c->value = b.hi;
     c->conf = cap;
-    c->derived_from[0] = pfn_src;
+    c->derived_from[0] = b.pfn_src;
     c->lineage_count = 1;
     snprintf(c->origin, ORIGIN_LEN, "x86_64_randomize_memory_budget");
   }
@@ -195,9 +138,9 @@ int rule_x86_64_randomize_memory_budget(const struct evidence_set *ev,
     memset(c, 0, sizeof(*c));
     c->q = Q_VMALLOC_BASE;
     c->op = C_LOWER_BOUND;
-    c->value = lv.vaddr_start + dm_min;
+    c->value = b.lv.vaddr_start + dm_min;
     c->conf = cap;
-    c->derived_from[0] = pfn_src;
+    c->derived_from[0] = b.pfn_src;
     c->lineage_count = 1;
     snprintf(c->origin, ORIGIN_LEN, "x86_64_randomize_memory_budget");
   }
@@ -207,18 +150,18 @@ int rule_x86_64_randomize_memory_budget(const struct evidence_set *ev,
    * (dm_max + 2*(span - vmalloc_size)) / 3 (increasing in dm => dm_max). */
   if (n < out_max) {
     unsigned long num = dm_max + 2ul * (span - vmalloc_sz);
-    unsigned long upper = (lv.vaddr_start + pud + num / 3) & ~(pud - 1);
+    unsigned long upper = (b.lv.vaddr_start + pud + num / 3) & ~(pud - 1);
     /* vmalloc_base is PUD-granular too; floor to align + tighten (see above).
      */
     /* Only emit when it actually sits below the region-group ceiling. */
-    if (upper < lv.vaddr_end && upper > lv.vaddr_start + dm_min) {
+    if (upper < b.lv.vaddr_end && upper > b.lv.vaddr_start + dm_min) {
       struct constraint *c = &out[n++];
       memset(c, 0, sizeof(*c));
       c->q = Q_VMALLOC_BASE;
       c->op = C_UPPER_BOUND;
       c->value = upper;
       c->conf = cap;
-      c->derived_from[0] = pfn_src;
+      c->derived_from[0] = b.pfn_src;
       c->lineage_count = 1;
       snprintf(c->origin, ORIGIN_LEN, "x86_64_randomize_memory_budget");
     }
@@ -230,9 +173,9 @@ int rule_x86_64_randomize_memory_budget(const struct evidence_set *ev,
     memset(c, 0, sizeof(*c));
     c->q = Q_VMEMMAP_BASE;
     c->op = C_LOWER_BOUND;
-    c->value = lv.vaddr_start + dm_min + vmalloc_sz;
+    c->value = b.lv.vaddr_start + dm_min + vmalloc_sz;
     c->conf = cap;
-    c->derived_from[0] = pfn_src;
+    c->derived_from[0] = b.pfn_src;
     c->lineage_count = 1;
     snprintf(c->origin, ORIGIN_LEN, "x86_64_randomize_memory_budget");
   }
