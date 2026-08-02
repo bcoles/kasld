@@ -58,6 +58,10 @@ retired_check 'Physical memory layout' 'Physical address space'
 retired_check '## Memory layout' '## Address space'
 retired_check 'virt_page_offset_base 0x' 'Direct map base ... (prose label)'
 retired_check '(base; extent unknown)' '(base proven; extent unknown)'
+retired_check '(base proven; extent unknown)' '(base proven) / (base is a lower bound)'
+retired_check 'Virtual address space (coupled):' 'Virtual address space (coupled, not to scale):'
+retired_check 'Virtual address space (decoupled):' 'Virtual address space (decoupled, not to scale):'
+retired_check 'Physical address space:' 'Physical address space (not to scale):'
 retired_check ' candidates,' ' slots, ~N bits'
 
 # 2. Width of the readout sample blocks. Only lines inside a fenced block that

@@ -671,13 +671,21 @@ int main(void) {
   }
   fflush(stdout);
 
-  /* Run kasld in JSON mode only — tests/vm/run reads the window from the -j
-   * output, and the ground-truth dump above supplies the comparison value. A
-   * second verbose run would just double the work (every component re-spawned,
-   * the live probes re-run) for output the check does not consume, which under
-   * TCG emulation is the difference between finishing and timing out. */
+  /* Run kasld in JSON mode — tests/vm/run reads the window from the -j output,
+   * and the ground-truth dump above supplies the comparison value. */
   char *av_j[] = {"/kasld", "-j", NULL};
   run_as(uid, "/kasld", av_j);
+
+  /* Then once more for the human-readable readout and the address-space
+   * diagram. --map, not --verbose: the layout rendering is the only thing this
+   * second pass is for, and -v adds per-component narration and the explain
+   * text on top of it. The components still re-run (there is no way to render
+   * two formats from one pass), so this stays the cheapest form of the second
+   * run — under TCG the per-component narration is what turns a slow boot into
+   * a timed-out one. Every layout decision is otherwise only ever seen on
+   * x86_64; this is what puts the map in front of a coupled 32-bit arch. */
+  char *av_map[] = {"/kasld", "--map", "-q", NULL};
+  run_as(uid, "/kasld", av_map);
 
   printf("\n==================== KASLD VM DONE ====================\n");
   sync();

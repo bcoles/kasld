@@ -921,6 +921,234 @@ static void test_render_memory_kaslr_slots_reach_machine_formats(void) {
 #endif
 }
 
+/* On an arch with no KASLR support the readout must answer from the ENGINE,
+ * not from the compile-time default. The default is a build-time constant; a
+ * kernel configured differently does not honour it. Live witness: an Alpine
+ * armv7 kernel built VMSPLIT_2G has _text at 0x80008000, and the readout
+ * printed the arch default 0xc0008000 at the GUARANTEED grade -- a wrong
+ * address stated as proven -- while the engine's own window (which contained
+ * the truth) went unused. The disabled-KASLR branch already resolved this the
+ * right way; the unsupported branch never got the same treatment.
+ *
+ * Portable: the window is built from this arch's own text floor and KASLR
+ * alignment, so nothing here can overflow a 32-bit unsigned long. */
+static void test_render_static_base_prefers_engine_window(void) {
+  struct summary s;
+  reset_results();
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+  memset(&s, 0, sizeof(s));
+  extern int verbose;
+
+  unsigned long sv_lo = layout.virt_kaslr_text_min;
+  unsigned long sv_hi = layout.virt_kaslr_text_max;
+
+  unsigned long al = layout.virt_kaslr_align ? layout.virt_kaslr_align : 0x1000;
+  /* Align the window edges to the candidate grid so the readout's own snapping
+   * is a no-op and the printed edges are the ones set here. */
+  unsigned long lo = (layout.virt_image_base_min + al - 1) & ~(al - 1);
+  unsigned long step = al * 4;
+  unsigned long hi = lo + step;
+  /* An "arch default" outside the window the engine proved -- exactly what a
+   * non-default vmsplit produces. */
+  unsigned long dflt = lo + step * 2;
+
+  layout.virt_kaslr_text_min = lo;
+  layout.virt_kaslr_text_max = hi;
+  s.kaslr.unsupported = 1;
+  s.kaslr.default_addr = dflt;
+
+  verbose = 0;
+  set_render_mode(0, 0, 0);
+  capture_stdout(wrap_render_summary, &s);
+  set_render_mode(0, 0, 0);
+
+  layout.virt_kaslr_text_min = sv_lo;
+  layout.virt_kaslr_text_max = sv_hi;
+
+  char abuf[32];
+  /* The engine's window is what is shown ... */
+  snprintf(abuf, sizeof(abuf), "0x%lx", lo);
+  assert(strstr(render_cap, abuf) != NULL);
+  snprintf(abuf, sizeof(abuf), "0x%lx", hi);
+  assert(strstr(render_cap, abuf) != NULL);
+  /* ... and the constant the engine contradicts is not stated anywhere. No
+   * results were pushed, so the Evidence block is empty and this address has
+   * no other way into the output. */
+  snprintf(abuf, sizeof(abuf), "0x%lx", dflt);
+  assert(strstr(render_cap, abuf) == NULL);
+}
+
+/* The map's direct-map band must be floored on the engine's resolved page
+ * offset, not on layout.virt_page_offset. That field is SEEDED from the arch's
+ * compile-time PAGE_OFFSET and only replaced when the engine pins the
+ * quantity, so where the engine holds a window instead it stays a stale
+ * constant. Live witness: an Alpine armv7 VMSPLIT_2G kernel left it at
+ * 0xc0000000 while the engine had already proved the direct map starts at or
+ * below an address observed inside it at 0x81d44600 -- and the map drew the
+ * constant as the region's floor, ABOVE an address it had just proven was
+ * inside the region, labelled "base proven". */
+static void test_render_map_directmap_base_from_engine(void) {
+  struct summary s;
+  reset_results();
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+  memset(&s, 0, sizeof(s));
+  extern int verbose;
+
+  unsigned long sv_po = layout.virt_page_offset;
+  unsigned long sv_min = layout.virt_page_offset_min;
+  unsigned long sv_max = layout.virt_page_offset_max;
+  unsigned long sv_bmin = layout.virt_image_base_min;
+  unsigned long sv_bmax = layout.virt_image_base_max;
+
+  /* Offsets from this arch's own VAS floor, so every value is a real address
+   * on the arch under test and none can overflow a 32-bit unsigned long. */
+  unsigned long step = 0x100000ul;
+  unsigned long po_min = layout.virt_kernel_vas_start + step;
+  unsigned long po_max = layout.virt_kernel_vas_start + step * 2;
+  unsigned long stale = layout.virt_kernel_vas_start + step * 4;
+
+  layout.virt_page_offset_min = po_min;
+  layout.virt_page_offset_max = po_max;
+  layout.virt_page_offset = stale; /* above the proven ceiling */
+  /* Put the text band clear of the direct-map floor. A decoupled arch draws no
+   * direct-map band at all when the two coincide (there the region proves
+   * nothing the text band does not already say) -- and on s390 the VAS floor
+   * plus one step lands exactly on KERNEL_VIRT_TEXT_MIN. */
+  layout.virt_image_base_min = layout.virt_kernel_vas_start + step * 10;
+  layout.virt_image_base_max = layout.virt_image_base_min;
+
+  s.kaslr.vslots = 60;
+  s.kaslr.vbits = 6;
+  verbose = 1;
+  set_render_mode(0, 0, 0);
+  capture_stdout(wrap_render_summary, &s);
+  verbose = 0;
+  set_render_mode(0, 0, 0);
+
+  layout.virt_page_offset = sv_po;
+  layout.virt_page_offset_min = sv_min;
+  layout.virt_page_offset_max = sv_max;
+  layout.virt_image_base_min = sv_bmin;
+  layout.virt_image_base_max = sv_bmax;
+
+  const char *map = strstr(render_cap, "Virtual address space");
+  assert(map != NULL);
+  const char *dmap = strstr(map, "direct map");
+  assert(dmap != NULL);
+
+  /* Bound the search to the virtual column. */
+  const char *end = strstr(map, "Physical address space");
+  size_t vlen = end ? (size_t)(end - map) : strlen(map);
+
+  char abuf[32];
+  snprintf(abuf, sizeof(abuf), "0x%lx", stale);
+  const char *bad = strstr(map, abuf);
+  assert(bad == NULL || (size_t)(bad - map) >= vlen);
+
+  snprintf(abuf, sizeof(abuf), "0x%lx", po_min);
+  const char *good = strstr(map, abuf);
+  assert(good != NULL && (size_t)(good - map) < vlen);
+
+  /* And the floor is not promoted to a proven address while the engine still
+   * holds a window around it: the band's own label line says which it is. */
+  const char *eol = strchr(dmap, '\n');
+  assert(eol != NULL);
+  char line[256];
+  size_t ln = (size_t)(eol - dmap);
+  if (ln >= sizeof(line))
+    ln = sizeof(line) - 1;
+  memcpy(line, dmap, ln);
+  line[ln] = '\0';
+  assert(strstr(line, "base proven") == NULL);
+  assert(strstr(line, "lower bound") != NULL);
+}
+
+/* A band that the band above it OVERLAPS has no bookend to carry its top edge:
+ * the transition is suppressed (an overlap has no boundary to draw), so the
+ * last address in the column is the overlapping band's floor -- below this
+ * band's ceiling. The ceiling then went unstated entirely, and where a leak had
+ * widened the band, that leak printed above BOTH of the band's bookends and
+ * broke the descending column. Live on aarch64: the engine's module window
+ * spans most of the kernel VAS and so covers the direct map, and the
+ * direct-map band drew one address as both of its bookends with its own
+ * interior leak 64 MiB above them.
+ *
+ * Every address here is an offset from this arch's own VAS floor, so the case
+ * is built the same way on a 32- and a 64-bit target. */
+static void test_render_map_overlapped_band_states_its_ceiling(void) {
+  struct summary s;
+  reset_results();
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+  memset(&s, 0, sizeof(s));
+  extern int verbose;
+
+  unsigned long sv_ms = layout.modules_start;
+  unsigned long sv_me = layout.modules_end;
+  unsigned long sv_po = layout.virt_page_offset;
+  unsigned long sv_pmin = layout.virt_page_offset_min;
+  unsigned long sv_pmax = layout.virt_page_offset_max;
+  unsigned long sv_bmin = layout.virt_image_base_min;
+  unsigned long sv_bmax = layout.virt_image_base_max;
+
+  unsigned long step = 0x100000ul;
+  unsigned long base = layout.virt_kernel_vas_start;
+  /* A module window straddling the direct-map base: the two bands overlap and
+   * neither can print the other's ceiling as a shared bookend. */
+  layout.modules_start = base + step;
+  layout.modules_end = base + step * 3;
+  layout.virt_page_offset = base + step * 2;
+  layout.virt_page_offset_min = layout.virt_page_offset;
+  layout.virt_page_offset_max = layout.virt_page_offset;
+  layout.virt_image_base_min = base + step * 10;
+  layout.virt_image_base_max = base + step * 10;
+
+  s.kaslr.vslots = 60;
+  s.kaslr.vbits = 6;
+  verbose = 1;
+  set_render_mode(0, 0, 0);
+  capture_stdout(wrap_render_summary, &s);
+  verbose = 0;
+  set_render_mode(0, 0, 0);
+
+  unsigned long mod_end = layout.modules_end;
+  layout.modules_start = sv_ms;
+  layout.modules_end = sv_me;
+  layout.virt_page_offset = sv_po;
+  layout.virt_page_offset_min = sv_pmin;
+  layout.virt_page_offset_max = sv_pmax;
+  layout.virt_image_base_min = sv_bmin;
+  layout.virt_image_base_max = sv_bmax;
+
+  const char *map = strstr(render_cap, "Virtual address space");
+  assert(map != NULL);
+  const char *end = strstr(map, "Physical address space");
+  size_t vlen = end ? (size_t)(end - map) : strlen(map);
+
+  /* The overlapped band's ceiling is stated, and stated as what it is: an edge
+   * that lies inside the band drawn above it, not a bookend of its own. */
+  char abuf[32];
+  snprintf(abuf, sizeof(abuf), "0x%lx", mod_end);
+  const char *hit = NULL;
+  for (const char *p = map; p && (size_t)(p - map) < vlen;
+       p = strchr(p + 1, '\n')) {
+    const char *nl = strchr(p + 1, '\n');
+    size_t len = nl ? (size_t)(nl - p) : strlen(p);
+    char line[256];
+    if (len >= sizeof(line))
+      len = sizeof(line) - 1;
+    memcpy(line, p, len);
+    line[len] = '\0';
+    if (strstr(line, abuf) && strstr(line, "inside the band above")) {
+      hit = p;
+      break;
+    }
+  }
+  assert(hit != NULL);
+}
+
 /* --map draws the address-space diagram without --verbose, which is the whole
  * point of the flag: the diagram is a view of the resolved layout, not run
  * narration, so it must be reachable without the per-component stream. */
@@ -1115,13 +1343,20 @@ static void test_render_map_ceiling_covers_high_mmio(void) {
   const char *blk = strstr(render_cap, "Physical address space");
   assert(blk != NULL);
   char hex[32];
-  snprintf(hex, sizeof(hex), "0x%016lx", mmio);
+  /* Un-padded: the map prints addresses right-aligned to the widest one in the
+   * block, not zero-filled to 16 digits. */
+  snprintf(hex, sizeof(hex), "0x%lx", mmio);
   assert(strstr(blk, hex) != NULL); /* the point is drawn */
 
-  /* The first bare address line after the heading is the ceiling. */
+  /* The first bare address line after the heading is the ceiling. Right
+   * alignment means the leading run of spaces varies with the block's widest
+   * address, so skip it rather than matching a fixed indent. */
   unsigned long ceiling = 0;
   for (const char *l = strchr(blk, '\n'); l; l = strchr(l + 1, '\n')) {
-    if (sscanf(l, "\n  0x%lx", &ceiling) == 1)
+    const char *p = l + 1;
+    while (*p == ' ')
+      p++;
+    if (sscanf(p, "0x%lx", &ceiling) == 1)
       break;
   }
   assert(ceiling >= mmio);
@@ -1195,7 +1430,9 @@ static void test_render_map_phys_buckets_partition(void) {
   assert(blk != NULL);
 
   char hex[32];
-  snprintf(hex, sizeof(hex), "0x%016lx  [", ktext);
+  /* Un-padded (the map right-aligns rather than zero-fills); the two trailing
+   * spaces plus `[` still anchor this to a leak row, not a bare bookend. */
+  snprintf(hex, sizeof(hex), "0x%lx  [", ktext);
   int seen = 0;
   for (const char *p = strstr(blk, hex); p; p = strstr(p + 1, hex))
     seen++;
@@ -1361,14 +1598,22 @@ static int assert_map_column_descends(const char *block) {
   unsigned long prev = 0;
   int seen = 0;
   for (const char *l = block; l && *l;) {
+    const char *nl = strchr(l, '\n');
+    size_t len = nl ? (size_t)(nl - l) : strlen(l);
+    const char *p = l;
+    while ((size_t)(p - l) < len && *p == ' ')
+      p++;
     unsigned long v;
-    if (strncmp(l, "  0x", 4) == 0 && sscanf(l + 2, "0x%lx", &v) == 1) {
+    /* A bookend is a bare address line. The map right-aligns addresses to the
+     * widest in the block, so the indent varies with the block's contents and
+     * cannot be matched literally; what separates a bookend from a leak row
+     * under a bucket header is that the leak row carries a "[section]" tag. */
+    if (sscanf(p, "0x%lx", &v) == 1 && memchr(l, '[', len) == NULL) {
       if (seen)
         assert(v <= prev);
       prev = v;
       seen++;
     }
-    const char *nl = strchr(l, '\n');
     l = nl ? nl + 1 : NULL;
   }
   return seen;
@@ -1418,7 +1663,9 @@ static void test_render_phys_ceiling_covers_bucket_footers(void) {
   /* And the window itself is reported untouched: the ceiling moved, pmax did
    * not. */
   char hex[32];
-  snprintf(hex, sizeof(hex), "0x%016lx", ULONG_MAX - 1);
+  /* Un-padded: the map right-aligns addresses rather than zero-filling them,
+   * so on a 32-bit target the padded form does not appear at all. */
+  snprintf(hex, sizeof(hex), "0x%lx", ULONG_MAX - 1);
   assert(strstr(blk, hex) != NULL);
 }
 
@@ -3205,6 +3452,9 @@ int main(void) {
   RUN(test_render_phys_ceiling_covers_bucket_footers);
   RUN(test_render_map_draws_topmost_band_ceiling);
   RUN(test_render_map_directmap_contains_text);
+  RUN(test_render_static_base_prefers_engine_window);
+  RUN(test_render_map_directmap_base_from_engine);
+  RUN(test_render_map_overlapped_band_states_its_ceiling);
   RUN(test_render_map_flag);
   RUN(test_render_window_row_always_graded);
   RUN(test_render_coupling_gated);
