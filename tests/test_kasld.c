@@ -1803,6 +1803,156 @@ static void test_engine_sync_module_band_follows_page_offset(void) {
   layout.modules_start = MODULES_START;
   layout.modules_end = MODULES_END;
 }
+
+/* =========================================================================
+ * Progress bar
+ *
+ * The bar only draws when stderr is a TTY, so a live run is the only place it
+ * is ever seen — and every defect in it (a stale tail left by a narrower
+ * frame, an in-flight counter that could only count down) built cleanly and
+ * passed every architecture. These drive progress_paint() and the in-flight
+ * accounting directly and read back what was written.
+ * ========================================================================= */
+
+/* Redirect stderr to a tmpfile for the duration of `fn`, then read what was
+ * written into `buf`. Mirrors capture_stdout() in test_render.c; a tmpfile
+ * rather than a pipe so a frame can never block on a full pipe buffer.
+ * Single-threaded (matches the harness). */
+static void capture_stderr(void (*fn)(void), char *buf, size_t buflen) {
+  fflush(stderr);
+  int saved = dup(fileno(stderr));
+  FILE *tmp = tmpfile();
+  assert(saved >= 0 && tmp != NULL);
+  fflush(stderr);
+  dup2(fileno(tmp), fileno(stderr));
+  fn();
+  fflush(stderr);
+  /* Restore stderr BEFORE reading so the harness can report a failure. */
+  dup2(saved, fileno(stderr));
+  close(saved);
+  rewind(tmp);
+  size_t n = fread(buf, 1, buflen - 1, tmp);
+  buf[n] = '\0';
+  fclose(tmp);
+}
+
+/* Replay a byte stream onto a single terminal line: '\r' homes the cursor,
+ * printable bytes overwrite at the cursor, CSI escapes (colour) consume no
+ * columns. Returns the visible width, trailing blanks trimmed — i.e. exactly
+ * what a reader would see, which is the property the bar's own width
+ * bookkeeping has to match. */
+static size_t replay_tty_line(const char *in, char *out, size_t outsz) {
+  size_t cur = 0, len = 0;
+  memset(out, ' ', outsz);
+  for (const char *p = in; *p; p++) {
+    if (*p == '\033') { /* CSI: ESC [ params final */
+      if (p[1] != '[')
+        continue;
+      p += 2;
+      while (*p && !(*p >= '@' && *p <= '~'))
+        p++;
+      if (!*p)
+        break;
+      continue;
+    }
+    if (*p == '\r' || *p == '\n') {
+      cur = 0;
+      continue;
+    }
+    if (cur < outsz - 1) {
+      out[cur++] = *p;
+      if (cur > len)
+        len = cur;
+    }
+  }
+  while (len > 0 && out[len - 1] == ' ')
+    len--;
+  out[len] = '\0';
+  return len;
+}
+
+static int pb_wide_width, pb_narrow_width;
+
+/* A frame with an in-flight figure is wider than one without. */
+static void pb_paint_wide_then_narrow(void) {
+  progress_paint(5, 10, 3);
+  pb_wide_width = progress_width;
+  progress_paint(6, 10, 0);
+  pb_narrow_width = progress_width;
+}
+
+/* \r rewinds the cursor but clears nothing, so a frame narrower than the one
+ * it replaces leaves the old frame's tail on screen; progress_erase() then
+ * blanks only the NEW (shorter) width and the tail survives the bar. The frame
+ * has to blank the difference itself, so that the recorded progress_width is
+ * always the full extent of what is visible. */
+static void test_progress_paint_no_stale_tail(void) {
+  char raw[1024], line[256];
+  progress_width = 0;
+  progress_live = 0;
+  clock_gettime(CLOCK_MONOTONIC, &progress_start);
+
+  capture_stderr(pb_paint_wide_then_narrow, raw, sizeof(raw));
+
+  /* The premise: the second frame really is the narrower one. */
+  assert(pb_wide_width > pb_narrow_width);
+  size_t visible = replay_tty_line(raw, line, sizeof(line));
+  /* What is on screen is what the bar thinks it drew — no stale tail beyond
+   * the width progress_erase() will blank. */
+  assert(visible == (size_t)pb_narrow_width);
+  /* And the surviving text is the new frame, not a splice of both. */
+  assert(strstr(line, "running") == NULL);
+  assert(line[0] == '[');
+}
+
+/* The in-flight count is claimed by progress_enter_component() and released by
+ * progress_update(). progress_update() runs on EVERY path, including the
+ * sequential phases that never touch the worker pool, so the claim has to sit
+ * beside the call rather than beside the pool slot — otherwise the sequential
+ * phase releases what it never claimed, the count floors at zero and stays
+ * there for the rest of the run. */
+static void test_progress_inflight_balances(void) {
+  int sv_quiet = quiet;
+  int sv_done = progress_done, sv_painted = progress_painted;
+  int sv_total = progress_total;
+
+  /* Isolate the accounting: quiet returns progress_update() immediately after
+   * the count, so the assertions hold whether or not stderr is a TTY. */
+  quiet = 1;
+  progress_inflight = 0;
+  progress_done = 0;
+  progress_painted = 0;
+  progress_total = 8;
+
+  /* Parallel phase: two components claimed at once, both reaped. */
+  progress_enter_component();
+  progress_enter_component();
+  assert(progress_inflight == 2);
+  progress_update();
+  assert(progress_inflight == 1);
+  progress_update();
+  assert(progress_inflight == 0);
+
+  /* Sequential phase: claim and release strictly alternating. The claim must
+   * register here too, and the pair must return to zero. */
+  for (int i = 0; i < 3; i++) {
+    progress_enter_component();
+    assert(progress_inflight == 1);
+    progress_update();
+    assert(progress_inflight == 0);
+  }
+
+  /* An unmatched release never drives the count negative. */
+  progress_update();
+  assert(progress_inflight == 0);
+  assert(progress_done == 6);
+
+  quiet = sv_quiet;
+  progress_done = sv_done;
+  progress_painted = sv_painted;
+  progress_total = sv_total;
+}
+
 int main(void) {
   TEST_SUITE("test_kasld");
   test_init_layout_engine_bounds();
@@ -1899,6 +2049,10 @@ int main(void) {
   RUN(test_compute_kaslr_info_no_note_when_vtext_present);
   RUN(test_compute_kaslr_info_no_note_without_phys_landmark);
 #endif
+
+  BEGIN_CATEGORY("Progress bar");
+  RUN(test_progress_paint_no_stale_tail);
+  RUN(test_progress_inflight_balances);
 
   BEGIN_CATEGORY("engine_sync_authoritative");
   RUN(test_engine_sync_projects_all_fields);
