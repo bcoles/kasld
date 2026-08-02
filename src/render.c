@@ -133,14 +133,20 @@ const char *section_display_name(enum kasld_addr_type type,
   return "Unknown";
 }
 
-/* (type, section) span across all in-bounds results. */
+/* Span of the in-bounds results in a (type, section, optional region_filter).
+ * The filter scope MUST match what the caller displays, so the reported span
+ * describes the same records the consumer sees — the same requirement the
+ * consensus helpers carry. */
 void section_range(enum kasld_addr_type type, const char *section,
-                   unsigned long *out_lo, unsigned long *out_hi) {
+                   enum kasld_region region_filter, unsigned long *out_lo,
+                   unsigned long *out_hi) {
   unsigned long lo = 0, hi = 0;
   int found = 0;
   for (int i = 0; i < num_results; i++) {
     const struct result *r = &results[i];
     if (r->type != type || strcmp(result_section(r), section) != 0)
+      continue;
+    if (region_filter != REGION_UNKNOWN && r->region != region_filter)
       continue;
     if (!in_bounds(r))
       continue;

@@ -1979,6 +1979,114 @@ static void test_render_derived_text(void) {
   assert(strstr(render_cap, "Derived addresses") != NULL);
 }
 
+/* Seed one PHYS "dram" section carrying two unrelated regions: a RAM extent
+ * and a much lower cmdline blob. Both are POS_BASE at CONF_PARSED, so a
+ * section-wide consensus (which resolves ties by lowest anchor) would pick the
+ * cmdline address and publish it as the consensus for DRAM. */
+static void seed_two_regions_one_section(struct summary *s) {
+  reset_results();
+  num_comp_logs = 0;
+  num_scalar_facts = 0;
+  memset(s, 0, sizeof(*s));
+
+  struct result *ram = push_result();
+  ram->type = KASLD_TYPE_PHYS;
+  ram->region = REGION_RAM;
+  ram->pos = POS_BASE;
+  ram->conf = CONF_PARSED;
+  ram->lo = 0x40000000ul;
+  ram->hi = 0xf0000000ul;
+  ram->set_mask = LO_SET | HI_SET;
+  snprintf(ram->origins[0], ORIGIN_LEN, "origin_ram");
+  ram->method_set = 1u << KM_PARSED;
+  ram->provenance_count = 1;
+
+  struct result *cmdline = push_result();
+  cmdline->type = KASLD_TYPE_PHYS;
+  cmdline->region = REGION_CMDLINE;
+  cmdline->pos = POS_BASE;
+  cmdline->conf = CONF_PARSED;
+  cmdline->lo = 0x10000000ul;
+  cmdline->set_mask = LO_SET;
+  snprintf(cmdline->origins[0], ORIGIN_LEN, "origin_cmdline");
+  cmdline->method_set = 1u << KM_PARSED;
+  cmdline->provenance_count = 1;
+}
+
+/* Point at a JSON group's "region" key. Every aggregate key the group reports
+ * (consensus, lo, hi) is emitted after it within the same object, so a caller
+ * can assert on this group by searching forward from the returned pointer. */
+static const char *json_group_at_region(const char *region) {
+  static char needle[64];
+  snprintf(needle, sizeof(needle), "\"region\": \"%s\"", region);
+  return strstr(render_cap, needle);
+}
+
+/* Assert the next occurrence of `key` at or after `from` carries `want`. */
+static void assert_group_key_hex(const char *from, const char *key,
+                                 unsigned long want) {
+  char needle[64], expect[96];
+  snprintf(needle, sizeof(needle), "\"%s\": ", key);
+  const char *p = strstr(from, needle);
+  assert(p != NULL);
+  snprintf(expect, sizeof(expect), "\"%s\": \"0x%016lx\"", key, want);
+  assert(strncmp(p, expect, strlen(expect)) == 0);
+}
+
+/* A JSON group's aggregate describes exactly the region it names — it never
+ * spans the other regions sharing its section. Without the per-region split,
+ * the single "dram" group reports the cmdline address as the DRAM consensus
+ * and a span reaching from the cmdline blob to the top of RAM. */
+static void test_render_json_group_aggregate_is_per_region(void) {
+  struct summary s;
+  seed_two_regions_one_section(&s);
+  set_render_mode(1, 0, 0);
+  capture_stdout(wrap_render_summary, &s);
+  set_render_mode(0, 0, 0);
+
+  const char *ram = json_group_at_region("ram");
+  const char *cmdline = json_group_at_region("cmdline");
+  assert(ram != NULL);
+  assert(cmdline != NULL);
+
+  /* Each group's consensus and span come from its own records only. */
+  assert_group_key_hex(ram, "consensus", 0x40000000ul);
+  assert_group_key_hex(ram, "lo", 0x40000000ul);
+  assert_group_key_hex(ram, "hi", 0xf0000000ul);
+
+  assert_group_key_hex(cmdline, "consensus", 0x10000000ul);
+  assert_group_key_hex(cmdline, "lo", 0x10000000ul);
+}
+
+/* One group per region present, not one per section: a section carrying N
+ * regions emits N groups, each naming its region. */
+static void test_render_json_groups_split_by_region(void) {
+  struct summary s;
+  seed_two_regions_one_section(&s);
+  set_render_mode(1, 0, 0);
+  capture_stdout(wrap_render_summary, &s);
+  set_render_mode(0, 0, 0);
+
+  /* Count by a group-only key: "region" also appears on every record inside a
+   * group, so it cannot stand in for the group count. */
+  int groups = 0;
+  for (const char *p = render_cap;
+       (p = strstr(p, "\"consensus_method\": ")) != NULL; p++)
+    groups++;
+  assert(groups == 2);
+
+  /* Both groups still report the section they belong to. */
+  int sections = 0;
+  for (const char *p = render_cap;
+       (p = strstr(p, "\"section\": \"dram\"")) != NULL; p++)
+    sections++;
+  assert(sections == 2);
+
+  /* ...and are told apart by their region. */
+  assert(json_group_at_region("ram") != NULL);
+  assert(json_group_at_region("cmdline") != NULL);
+}
+
 static void test_render_text_kernel_region_promotion(void) {
   struct summary s;
   set_richer_render_state(&s);
@@ -3104,6 +3212,8 @@ int main(void) {
   RUN(test_render_memory_kaslr_uses_stored_slots);
   RUN(test_render_disabled_base_not_labeled_likely);
   RUN(test_render_leak_discloses_interior);
+  RUN(test_render_json_group_aggregate_is_per_region);
+  RUN(test_render_json_groups_split_by_region);
 
   return TEST_DONE();
 }

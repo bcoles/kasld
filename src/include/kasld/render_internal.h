@@ -61,9 +61,11 @@ int section_source_count(enum kasld_addr_type type, const char *section,
 int section_is_interior_only(enum kasld_addr_type type, const char *section,
                              enum kasld_region region_filter);
 
-/* (type, section) extent across all in-bounds results. lo/hi = 0 when none. */
+/* Extent of the in-bounds results in a (type, section, optional
+ * region_filter). lo/hi = 0 when none match. */
 void section_range(enum kasld_addr_type type, const char *section,
-                   unsigned long *out_lo, unsigned long *out_hi);
+                   enum kasld_region region_filter, unsigned long *out_lo,
+                   unsigned long *out_hi);
 
 /* JSON string escaper — used by json.c and hardening.c. */
 void json_print_escaped(const char *s);

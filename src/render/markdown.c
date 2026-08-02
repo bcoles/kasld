@@ -486,7 +486,8 @@ void render_markdown(const struct summary *s) {
         unsigned long consensus =
             section_consensus(type_order[t], section_order[si], REGION_UNKNOWN);
         unsigned long lo, hi;
-        section_range(type_order[t], section_order[si], &lo, &hi);
+        section_range(type_order[t], section_order[si], REGION_UNKNOWN, &lo,
+                      &hi);
 
         if (hi && hi != lo) {
           unsigned long span = hi - lo;
@@ -543,7 +544,7 @@ void render_markdown(const struct summary *s) {
 
       unsigned long consensus = section_consensus(r->type, sec, REGION_UNKNOWN);
       unsigned long lo, hi;
-      section_range(r->type, sec, &lo, &hi);
+      section_range(r->type, sec, REGION_UNKNOWN, &lo, &hi);
 
       if (hi && hi != lo) {
         unsigned long span = hi - lo;

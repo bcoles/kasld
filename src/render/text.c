@@ -611,9 +611,12 @@ static void print_map_boundary(const char *indent, unsigned long above,
  * regions, the gaps between them, and the VAS-floor annotation. */
 static void print_virtual_layout(void) {
   unsigned long vtext_lo, vtext_hi, vmod_lo, vmod_hi, vdmap_lo, vdmap_hi;
-  section_range(KASLD_TYPE_VIRT, "text", &vtext_lo, &vtext_hi);
-  section_range(KASLD_TYPE_VIRT, "module", &vmod_lo, &vmod_hi);
-  section_range(KASLD_TYPE_VIRT, "directmap", &vdmap_lo, &vdmap_hi);
+  /* Whole-section spans: the map draws each region band as a single extent,
+   * so every record in the section contributes regardless of its region. */
+  section_range(KASLD_TYPE_VIRT, "text", REGION_UNKNOWN, &vtext_lo, &vtext_hi);
+  section_range(KASLD_TYPE_VIRT, "module", REGION_UNKNOWN, &vmod_lo, &vmod_hi);
+  section_range(KASLD_TYPE_VIRT, "directmap", REGION_UNKNOWN, &vdmap_lo,
+                &vdmap_hi);
 
   /* Build virtual memory region list */
   struct map_region regions[8];

@@ -443,6 +443,18 @@ The `environment` object is the recon vantage: `container`, `seccomp`,
 `capabilities`, `no_new_privs`, and a `readable_oracles` map for the `/proc`
 leak sources (fields are a `null` or enum when they do not apply).
 
+The `groups` array carries the leak evidence, one object per (`type`,
+`section`, `region`) — the same split the text readout prints as separate
+blocks. A group's aggregate describes only the region it names: `consensus`
+(the most base-like address), `consensus_method`, `consensus_sources`,
+`conflicts`, `interior_only` and the `lo`/`hi` span are computed over that
+region's records alone, never across the other regions sharing its section.
+Several regions routinely share one section — `dram` alone spans `ram`,
+`initrd`, `cmdline`, `acpi_table` and more, whose bases are unrelated — so
+`section` is not a unique key and `region` is what tells the groups apart.
+Each group's `results` array lists its own records; `valid` marks whether a
+record passes the layout bounds check.
+
 The `components` array holds one record per component — `name`,
 `exit_code`, `outcome`, an optional `disposition` (why a component produced no
 tagged result: `category` — `mitigation` / `absent` / `disabled` /

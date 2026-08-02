@@ -147,7 +147,7 @@ void render_oneline(const struct summary *s) {
    * range, not an absent one. section_range zeroes both edges when nothing
    * matched. `na` when nothing matched. */
   unsigned long pdram_lo, pdram_hi;
-  section_range(KASLD_TYPE_PHYS, "dram", &pdram_lo, &pdram_hi);
+  section_range(KASLD_TYPE_PHYS, "dram", REGION_UNKNOWN, &pdram_lo, &pdram_hi);
   if (pdram_lo || pdram_hi) {
     char hbuf[32];
     unsigned long top = pdram_hi ? pdram_hi : pdram_lo;

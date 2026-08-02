@@ -66,30 +66,53 @@ static const char *outcome_name(enum component_outcome o) {
   return "unknown";
 }
 
-/* Local mirror of the per-(type, section) key used in the dispatcher below.
- * Kept private to this TU; the text renderer carries its own copy with the
- * "already printed" tracking it needs. */
+/* Local mirror of the per-(type, section, region) key used in the dispatcher
+ * below. Kept private to this TU; the text renderer carries its own copy with
+ * the "already printed" tracking it needs. */
 struct json_group_key {
   enum kasld_addr_type type;
   const char *section;
+  enum kasld_region region;
 };
 
-static void render_json_group(enum kasld_addr_type gt, const char *gs) {
+/* Upper bound on distinct group keys. A result's section is derived from its
+ * region (region_info[].section_name), so section is not an independent axis:
+ * the bound is one group per (address type, region) pair. Derived from the
+ * enums so adding a region cannot silently overflow the array. */
+#define JSON_N_ADDR_TYPES (KASLD_TYPE_VIRT + 1)
+#define JSON_GROUP_MAX (JSON_N_ADDR_TYPES * REGION__COUNT)
+
+/* One group per (type, section, region).
+ *
+ * The group aggregate — consensus, span, source and conflict counts — must
+ * describe exactly the records the group carries, so it cannot span regions:
+ * a single "dram" section spreads across ram, initrd, cmdline, acpi_table and
+ * more, whose bases are unrelated, and an aggregate over their union answers
+ * no question a consumer can ask. Every scan below is therefore filtered to
+ * `gr`, matching the text renderer's per-region blocks.
+ *
+ * `display` names the section, so groups that share a section share a display
+ * label; `region` is what distinguishes them. */
+static void render_json_group(enum kasld_addr_type gt, const char *gs,
+                              enum kasld_region gr) {
   const char *display = section_display_name(gt, gs);
   if (!display)
     return;
 
-  unsigned long consensus = section_consensus(gt, gs, REGION_UNKNOWN);
+  unsigned long consensus = section_consensus(gt, gs, gr);
   unsigned long lo, hi;
-  section_range(gt, gs, &lo, &hi);
+  section_range(gt, gs, gr, &lo, &hi);
 
   const char *bm;
   int ns, nc, io;
-  section_consensus_info(gt, gs, REGION_UNKNOWN, &bm, &ns, &nc, &io);
+  section_consensus_info(gt, gs, gr, &bm, &ns, &nc, &io);
 
   printf("    {\n");
   printf("      \"type\": \"%c\",\n", kasld_type_wire(gt));
   printf("      \"section\": \"%s\",\n", gs);
+  printf("      \"region\": ");
+  json_print_escaped(kasld_region_wire(gr));
+  printf(",\n");
   printf("      \"display\": ");
   json_print_escaped(display);
   printf(",\n");
@@ -111,7 +134,8 @@ static void render_json_group(enum kasld_addr_type gt, const char *gs) {
   printf(",\n      \"results\": [\n");
   int first = 1;
   for (int i = 0; i < num_results; i++) {
-    if (results[i].type != gt || strcmp(result_section(&results[i]), gs) != 0)
+    if (results[i].type != gt || results[i].region != gr ||
+        strcmp(result_section(&results[i]), gs) != 0)
       continue;
     const struct result *r = &results[i];
     if (!first)
@@ -155,6 +179,39 @@ static void render_json_group(enum kasld_addr_type gt, const char *gs) {
   }
   printf("\n      ]\n");
   printf("    }");
+}
+
+/* Append one group key per distinct region among the in-bounds results in
+ * (type, section), skipping keys already collected so callers may pass the
+ * same (type, section) twice. Keys stay in first-appearance order within the
+ * section, matching the text renderer's block order.
+ *
+ * A group is emitted only where an in-bounds record exists, so the render loop
+ * needs no emptiness re-check. Dedupe keys on (type, region) alone: the region
+ * determines the section, so comparing sections would be redundant. */
+static void collect_group_keys(enum kasld_addr_type type, const char *section,
+                               struct json_group_key *keys, int *nkeys) {
+  for (int i = 0; i < num_results; i++) {
+    const struct result *r = &results[i];
+    if (r->type != type || strcmp(result_section(r), section) != 0)
+      continue;
+    if (!in_bounds(r))
+      continue;
+    int dup = 0;
+    for (int j = 0; j < *nkeys; j++)
+      if (keys[j].type == type && keys[j].region == r->region) {
+        dup = 1;
+        break;
+      }
+    if (dup)
+      continue;
+    if (*nkeys >= JSON_GROUP_MAX)
+      return; /* bound is derived from the enums; not reachable in practice */
+    keys[*nkeys].type = type;
+    keys[*nkeys].section = section;
+    keys[*nkeys].region = r->region;
+    (*nkeys)++;
+  }
 }
 
 /* environment — the recon vantage: container / confinement / which /proc leak
@@ -462,72 +519,35 @@ void render_json(const struct summary *s) {
 
   printf("\n  },\n");
 
-  /* groups — build ordered list of unique (type, section) keys */
+  /* groups — the canonical section order first, then anything outside it, with
+   * each (type, section) split into one group per region it carries. */
   const char *const *section_order = kasld_render_sections;
   enum kasld_addr_type type_order[] = {KASLD_TYPE_VIRT, KASLD_TYPE_PHYS,
                                        KASLD_TYPE_UNKNOWN};
 
-  struct json_group_key gkeys[64];
+  struct json_group_key gkeys[JSON_GROUP_MAX];
   int ngkeys = 0;
 
-  for (int t = 0; type_order[t] != KASLD_TYPE_UNKNOWN; t++) {
-    for (int si = 0; section_order[si]; si++) {
-      int has = 0;
-      for (int i = 0; i < num_results; i++) {
-        if (results[i].type == type_order[t] &&
-            strcmp(result_section(&results[i]), section_order[si]) == 0 &&
-            in_bounds(&results[i])) {
-          has = 1;
-          break;
-        }
-      }
-      if (has && ngkeys < 64) {
-        gkeys[ngkeys].type = type_order[t];
-        gkeys[ngkeys].section = section_order[si];
-        ngkeys++;
-      }
-    }
-  }
+  for (int t = 0; type_order[t] != KASLD_TYPE_UNKNOWN; t++)
+    for (int si = 0; section_order[si]; si++)
+      collect_group_keys(type_order[t], section_order[si], gkeys, &ngkeys);
 
-  /* Append any remaining groups not in predefined order */
-  for (int i = 0; i < num_results; i++) {
-    const char *sec = result_section(&results[i]);
-    int already = 0;
-    for (int j = 0; j < ngkeys; j++) {
-      if (gkeys[j].type == results[i].type &&
-          strcmp(gkeys[j].section, sec) == 0) {
-        already = 1;
-        break;
-      }
-    }
-    if (!already && ngkeys < 64) {
-      gkeys[ngkeys].type = results[i].type;
-      gkeys[ngkeys].section = sec;
-      ngkeys++;
-    }
-  }
+  /* Any (type, section) outside the canonical order; collect_group_keys skips
+   * whatever the loop above already took. */
+  for (int i = 0; i < num_results; i++)
+    collect_group_keys(results[i].type, result_section(&results[i]), gkeys,
+                       &ngkeys);
 
   printf("  \"groups\": [\n");
   int first_group = 1;
   for (int g = 0; g < ngkeys; g++) {
+    /* Metadata-only sections (no leak-group view) have no display name. */
     if (!section_display_name(gkeys[g].type, gkeys[g].section))
-      continue;
-    /* Verify group has at least one in-bounds result */
-    int has = 0;
-    for (int i = 0; i < num_results; i++) {
-      if (results[i].type == gkeys[g].type &&
-          strcmp(result_section(&results[i]), gkeys[g].section) == 0 &&
-          in_bounds(&results[i])) {
-        has = 1;
-        break;
-      }
-    }
-    if (!has)
       continue;
     if (!first_group)
       printf(",\n");
     first_group = 0;
-    render_json_group(gkeys[g].type, gkeys[g].section);
+    render_json_group(gkeys[g].type, gkeys[g].section, gkeys[g].region);
   }
   printf("\n  ],\n");
 
