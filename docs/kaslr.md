@@ -402,8 +402,20 @@ Additionally, FG-KASLR randomizes only kernel functions, leaving other useful
 kernel data (such as [modprobe_path](https://sam4k.com/like-techniques-modprobe_path/)
 and `core_pattern` usermode helpers) unchanged at a static offset.
 
+As of January 2026, a prerequisite for landing FG-KASLR on x86 is under
+discussion: a [proposal to link the relocatable x86_64 kernel as a
+PIE](https://lore.kernel.org/lkml/20260108092526.28586-21-ardb@kernel.org/)
+(Ard Biesheuvel). Earlier x86 FG-KASLR attempts were tied to the x86-specific
+kernel relocation format; recasting the kernel as an ordinary
+position-independent ELF would let FG-KASLR be implemented in the ELF domain and
+carry to other architectures (arm64, RISC-V, LoongArch) rather than staying
+x86-only. PIE linking by itself randomizes only the kernel base — every symbol
+keeps a fixed offset from `.text` — so it is a foundation for FG-KASLR, not
+FG-KASLR itself; the per-function reordering is a separate step layered on top.
+
 See also:
 
+* [[RFC/RFT PATCH 00/19] Link the relocatable x86 kernel as PIE](https://lore.kernel.org/lkml/20260108092526.28586-21-ardb@kernel.org/) (Ard Biesheuvel, January 2026) — the PIE prerequisite for ELF-domain FG-KASLR
 * [[PATCH v10 00/15] Function Granular KASLR](https://lore.kernel.org/lkml/20220209185752.1226407-1-alexandr.lobakin@intel.com/)
 * [CONFIG_FG_KASLR](https://patchwork.kernel.org/project/linux-hardening/patch/20211223002209.1092165-8-alexandr.lobakin@intel.com/)
 * [FGKASLR - CTF Wiki](https://ctf-wiki.org/pwn/linux/kernel-mode/defense/randomization/fgkaslr/)

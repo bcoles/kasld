@@ -320,10 +320,10 @@ Memory KASLR (directmap / vmalloc / vmemmap):
   vmemmap base      guaranteed  0xffffa10080000000 .. 0xfffffd0000000000  94206 slots, ~17 bits
 
 ----------------------------------------
-Virtual address space (decoupled):
+Virtual address space (decoupled, not to scale):
 
   0xffffffffffffffff
-      . . .  16.0 MiB gap  . . .
+      . . .  16 MiB gap  . . .
   0xffffffffff000000
       modules (no leak)
   0xffffffffc0000000
@@ -333,35 +333,35 @@ Virtual address space (decoupled):
         leak hi: 0xffffffff900a9fc9
         leak lo: 0xffffffff8fe00000
   0xffffffff8fe00000
-      . . .  128.0 TiB gap  . . .
+      . . .  128 TiB gap  . . .
       ^ extent unknown
-      direct map (base proven; extent unknown)
+      direct map (base is a lower bound)
   0xffff800000000000
-      . . .  65408.0 TiB gap  . . .
+      . . .  65408 TiB gap  . . .
   0xff00000000000000  (user space + non-canonical hole below)
 
-Physical address space:
+Physical address space (not to scale):
 
-  0x00000000febd5000
+  0xfebd5000
       above DRAM
-        0x00000000febd5000  [mmio] pci_mmio:0000:00:1f.2
-        0x00000000febd4000  [mmio] pci_mmio:0000:00:01.0
-        0x00000000febd0000  [mmio] pci_mmio:0000:00:02.0
-        0x00000000feba0000  [mmio] pci_mmio:0000:00:02.0
-        0x00000000feb80000  [mmio] pci_mmio:0000:00:02.0
-        0x00000000feb40000  [mmio] pci_mmio:0000:00:02.0
-        0x00000000fd000000  [mmio] pci_mmio:0000:00:01.0
-  0x000000003ffdefff
+        0xfebd5000  [mmio] pci_mmio:0000:00:1f.2
+        0xfebd4000  [mmio] pci_mmio:0000:00:01.0
+        0xfebd0000  [mmio] pci_mmio:0000:00:02.0
+        0xfeba0000  [mmio] pci_mmio:0000:00:02.0
+        0xfeb80000  [mmio] pci_mmio:0000:00:02.0
+        0xfeb40000  [mmio] pci_mmio:0000:00:02.0
+        0xfd000000  [mmio] pci_mmio:0000:00:01.0
+  0x3ffdefff
       in DRAM
-        0x000000003efc2000  [dram] initrd
-        0x0000000036b34000  [bss] kernel_bss:kernel_bss
-        0x0000000036000000  [data] kernel_data:kernel_data
-        0x0000000034600000  [text] kernel
-        0x00000000011ee000  [dram] vmcoreinfo
-        0x00000000000c0000  [mmio] pci_mmio:0000:00:01.0
-        0x0000000000020000  [dram] cmdline
-        0x0000000000001000  [dram] ram
-  0x0000000000000000
+        0x3efc2000  [dram] initrd
+        0x36b34000  [bss] kernel_bss:kernel_bss
+        0x36000000  [data] kernel_data:kernel_data
+        0x34600000  [text] kernel
+         0x11ee000  [dram] vmcoreinfo
+           0xc0000  [mmio] pci_mmio:0000:00:01.0
+           0x20000  [dram] cmdline
+            0x1000  [dram] ram
+         0x0
 ```
 
 </details>

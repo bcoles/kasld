@@ -93,6 +93,15 @@ None of the following implies KASLR is secure on the system.
 - "KASLR off" or "randomization failed" describes a specific boot (a seedless
   machine, a particular firmware), not a universal property of the kernel or
   architecture.
+- The guarantee is relative to a point-in-time model of the kernel. KASLD
+  captures research, techniques, and per-architecture memory-layout models as of
+  its last update; the sound floor rests on that model, not on anything the target
+  reports. A later kernel that changes an architecture's layout, widens a KASLR
+  range, randomizes a region the architecture previously fixed, or decouples
+  quantities that were coupled can move the true base outside a *guaranteed*
+  window until the model is re-verified. The soundness direction holds for the
+  kernel behavior KASLD models; drift beyond it is a maintenance boundary, not a
+  property of the target.
 
 ## For defenders
 
