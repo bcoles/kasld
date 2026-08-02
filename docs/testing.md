@@ -53,6 +53,22 @@ only the orchestrator binary and the `components/` subdirectory).
 | `test_dmesg_layout` | the riscv `print_vm_layout` dump parser | `components/dmesg_mem_init_kernel_layout.c` (`#include`d, `main` renamed) |
 | `test_btf` | the BTF struct-size reader behind `btf_struct_page_size` | `components/btf_struct_page_size.c` (`#include`d, `main` renamed) |
 
+After the drivers, `make test` runs `tests/check-render-width`: it renders the
+built `kasld` binary and asserts every line of the output it lays out stays
+within 100 columns. Width is per-architecture — address columns and candidate
+counts are wider on 64-bit targets — so an overflow introduced on one layout is
+invisible on the build host until someone renders that target. Each binary runs
+against an empty sysroot, which leaves every window at its architectural
+default and so produces the widest output the tool can emit.
+
+It measures the host binary only, to stay inside the fast run. Set
+`KASLD_WIDTH_ALL=1` to sweep every built target under qemu-user (tens of
+seconds; targets whose interpreter is absent are skipped). `--verbose` is not
+measured: its bulk is component diagnostics and echoed kernel log text, strings
+chosen for what they say rather than how wide they are. The target-identity line
+is exempt for the same reason — it interpolates an unbounded kernel version
+string.
+
 Run one driver in isolation:
 
 ```sh
@@ -101,7 +117,7 @@ and `make` halts on the first.
 | `check-posture-diff` | behavioural test for `extra/posture-diff` |
 | `check-posture-summary` | behavioural test for `extra/posture-summary` |
 | `check-guard-docs` | this table lists exactly the guards `make lint` runs — the same parity check `check-manpages` applies to flags, applied to the guard list itself |
-| `check-readout-docs` | documented sample output uses the renderer's current vocabulary and fits 80 columns — the README and `docs/` carry hand-maintained copies of rendered output with nothing tying them to the renderer, so a rename or column change silently leaves them describing a version of the tool that no longer exists |
+| `check-readout-docs` | documented sample output uses the renderer's current vocabulary and fits 100 columns (live output is measured separately by `check-render-width`) — the README and `docs/` carry hand-maintained copies of rendered output with nothing tying them to the renderer, so a rename or column change silently leaves them describing a version of the tool that no longer exists |
 
 `check-truncation` needs `i686-linux-gnu-gcc` and `check-shellcheck` needs
 `shellcheck`; both **skip cleanly** (exit 0) when their tool is absent, so

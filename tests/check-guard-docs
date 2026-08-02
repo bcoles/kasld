@@ -29,12 +29,18 @@ else
   RESET=
 fi
 
-# Guards the Makefile actually invokes. Matching on the $(TEST_DIR)/ prefix
+# Guards the `lint` target actually invokes. Matching on the $(TEST_DIR)/ prefix
 # deliberately excludes Makefile targets that merely share the check- prefix
-# (check-headers is a build prerequisite, not a lint guard).
+# (check-headers is a build prerequisite, not a lint guard), and the recipe is
+# read from the lint block alone: a check invoked by another target is not a
+# static guard and does not belong in the static-guard table, so scanning the
+# whole file would demand a row for something that table does not describe.
 run_f=$(mktemp)
 doc_f=$(mktemp)
-grep -oE '\$\(TEST_DIR\)/check-[a-z0-9-]+' "$MK" | sed 's|.*/||' | sort -u >"$run_f"
+awk '/^lint[[:space:]]*:/ { inblock = 1; next }
+     inblock && /^\t/    { print; next }
+     inblock             { exit }' "$MK" |
+  grep -oE '\$\(TEST_DIR\)/check-[a-z0-9-]+' | sed 's|.*/||' | sort -u >"$run_f"
 # The backticks are literal markdown table syntax, not command substitution.
 # shellcheck disable=SC2016
 grep -oE '^\| `check-[a-z0-9-]+`' "$DOC" | tr -d '|` ' | sort -u >"$doc_f"

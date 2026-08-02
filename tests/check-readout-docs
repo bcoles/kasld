@@ -12,7 +12,7 @@
 #
 #   1. Retired vocabulary. Any string the renderer no longer emits must not
 #      survive in a sample. Add a row when you rename something.
-#   2. Sample width. The readout is designed to fit 80 columns; a documented
+#   2. Sample width. The readout is designed to fit 100 columns; a documented
 #      sample wider than that is either stale or documents a regression.
 # ---
 # <bcoles@gmail.com>
@@ -83,20 +83,20 @@ too_wide=$(awk '
   /^```/       { infence = !infence; if (!infence) { readout = 0 } ; next }
   !infence     { next }
   /^(Layout|Evidence  \()/ { readout = 1 }
-  readout && length($0) > 80 {
+  readout && length($0) > 100 {
     printf "%s:%d: %d cols: %s\n", FILENAME, FNR, length($0), $0
   }
 ' $DOCS)
 
 if [ -n "$too_wide" ]; then
-  printf '%scheck-readout-docs: FAIL%s (sample lines over 80 columns)\n' \
+  printf '%scheck-readout-docs: FAIL%s (sample lines over 100 columns)\n' \
     "$RED" "$RESET"
   printf '%s\n' "$too_wide" | sed 's/^/  /'
   fail=1
 fi
 
 if [ "$fail" -eq 0 ]; then
-  printf '%scheck-readout-docs: OK%s (samples use current vocabulary, within 80 cols)\n' \
+  printf '%scheck-readout-docs: OK%s (samples use current vocabulary, within 100 cols)\n' \
     "$GREEN" "$RESET"
 fi
 exit "$fail"

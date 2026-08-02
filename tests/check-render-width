@@ -1,0 +1,160 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-render-width — keep LIVE rendered output inside the column budget.
+#
+# check-readout-docs measures the samples committed to the README and docs. It
+# cannot measure the renderer, so an overflow introduced today stays invisible
+# until someone happens to paste fresh output into a document. Width is also
+# per-architecture: address columns and candidate counts are wider on 64-bit
+# targets, so output that fits on the build host can overflow on a target that
+# is never rendered during a normal build.
+#
+# Every built target is rendered against an EMPTY sysroot. With no observations
+# the engine leaves each window at its architectural default, which is the
+# widest output the tool can produce -- the candidate counts are largest when
+# nothing has narrowed them. It also costs nothing to set up and keeps the
+# check honest about what it covers: no fixture is involved, so no fixture can
+# quietly stop representing an architecture.
+#
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+
+if [ -t 1 ]; then
+  RED=$(printf '\033[31m')
+  GREEN=$(printf '\033[32m')
+  YELLOW=$(printf '\033[33m')
+  RESET=$(printf '\033[0m')
+else
+  RED=
+  GREEN=
+  YELLOW=
+  RESET=
+fi
+
+MAX_COLS=100
+QEMU_DIR=${QEMU_DIR:-}
+HOST_TRIPLE=$(cc -dumpmachine 2>/dev/null || echo unknown)
+fail=0
+
+# Output modes worth measuring: the default readout, the readout plus the
+# diagram, markdown (which embeds the same diagram in its own section), and the
+# hardening report. All are laid out by the renderer against a column budget it
+# controls.
+#
+# --verbose is deliberately absent. Its bulk is component diagnostics and echoed
+# kernel log text -- strings chosen for what they say, not for how wide they
+# are. Measuring them would turn this into a lint that rewrites diagnostics to
+# fit a terminal, which is not what the budget is for.
+MODES="-q
+-q --map
+-q --markdown --map
+-q -H"
+
+# qemu-user binary for a toolchain triple, keyed on the leading arch component.
+# Same rule as tests/test-cross — a target whose interpreter is absent is
+# skipped rather than failed, so this runs wherever the build does.
+qemu_for() {
+  case "${1%%-*}" in
+  x86_64)      echo qemu-x86_64 ;;
+  i686 | i586) echo qemu-i386 ;;
+  aarch64)     echo qemu-aarch64 ;;
+  arm | armv7) echo qemu-arm ;;
+  armeb)       echo qemu-armeb ;;
+  mips)        echo qemu-mips ;;
+  mipsel)      echo qemu-mipsel ;;
+  mips64)      echo qemu-mips64 ;;
+  mips64el)    echo qemu-mips64el ;;
+  powerpc)     echo qemu-ppc ;;
+  powerpc64)   echo qemu-ppc64 ;;
+  powerpc64le) echo qemu-ppc64le ;;
+  riscv32)     echo qemu-riscv32 ;;
+  riscv64)     echo qemu-riscv64 ;;
+  s390x)       echo qemu-s390x ;;
+  loongarch64) echo qemu-loongarch64 ;;
+  *)           echo "" ;;
+  esac
+}
+
+resolve_qemu() {
+  [ -n "$1" ] || return 1
+  if [ -n "$QEMU_DIR" ]; then
+    [ -x "$QEMU_DIR/$1" ] && { echo "$QEMU_DIR/$1"; return 0; }
+    return 1
+  fi
+  command -v "$1" 2>/dev/null
+}
+
+# Colour is disabled off a tty, but strip CSI sequences anyway so a forced-colour
+# environment cannot inflate a line past the budget with bytes nobody sees.
+#
+# The target-identity lines are exempt. They interpolate the kernel version
+# string, which is supplied by the target and has no bound the renderer can
+# impose -- a long enough uname overflows any budget, and truncating it would
+# hide the one field a reader uses to identify what was measured. Every line
+# whose width the renderer actually controls is measured.
+measure() {
+  sed 's/\033\[[0-9;]*m//g' | awk -v max="$MAX_COLS" -v tag="$1" '
+    /^Target:/ || /^\*\*Kernel:\*\*/ { next }
+    length($0) > max {
+      printf "%s: %d cols: %s\n", tag, length($0), $0
+    }'
+}
+
+EMPTY=$(mktemp -d "${TMPDIR:-/tmp}/kasld-width.XXXXXX") || exit 1
+OUT="$EMPTY/.report"
+trap 'rm -rf "$EMPTY"' EXIT INT TERM
+
+# Default: the host binary only, which keeps this inside the fast test run.
+# Cross targets need a qemu launch each and take tens of seconds, so the sweep
+# that actually covers per-arch width is opt-in -- and the summary always states
+# which of the two ran, so a fast pass is never mistaken for a broad one.
+ALL=${KASLD_WIDTH_ALL:-0}
+
+for bin in "$ROOT"/build/*/kasld; do
+  [ -x "$bin" ] || continue
+  triple=$(basename "$(dirname "$bin")")
+  [ "$ALL" = "1" ] || [ "$triple" = "$HOST_TRIPLE" ] || continue
+  runner=
+  if [ "$triple" != "$HOST_TRIPLE" ]; then
+    runner=$(resolve_qemu "$(qemu_for "$triple")") || continue
+  fi
+  printf '%s\n' "$MODES" | while read -r mode; do
+    # shellcheck disable=SC2086
+    KASLD_SYSROOT="$EMPTY" $runner "$bin" $mode 2>/dev/null |
+      measure "$triple [$mode]"
+  done >>"$OUT"
+  printf 'TARGET %s\n' "$triple" >>"$OUT"
+done
+
+[ -f "$OUT" ] || : >"$OUT"
+# grep -c prints 0 AND exits 1 on no match, so a `|| echo 0` fallback appends
+# a second value and the count stops being a number.
+targets=$(grep -c '^TARGET ' "$OUT" 2>/dev/null || true)
+report=$(grep -v '^TARGET ' "$OUT" 2>/dev/null || true)
+
+if [ "$targets" -eq 0 ]; then
+  printf '%scheck-render-width: SKIP%s (no built binaries to render)\n' \
+    "$YELLOW" "$RESET"
+  exit 0
+fi
+
+if [ -n "$report" ]; then
+  printf '%scheck-render-width: FAIL%s (rendered lines over %d columns)\n' \
+    "$RED" "$RESET" "$MAX_COLS"
+  printf '%s\n' "$report" | sed 's/^/  /'
+  fail=1
+fi
+
+if [ "$fail" -eq 0 ]; then
+  [ "$targets" -eq 1 ] && noun=target || noun=targets
+  if [ "$ALL" = "1" ]; then
+    scope="every built target"
+  else
+    scope="host only; KASLD_WIDTH_ALL=1 sweeps cross targets"
+  fi
+  printf '%scheck-render-width: OK%s (%d %s within %d cols; %s)\n' \
+    "$GREEN" "$RESET" "$targets" "$noun" "$MAX_COLS" "$scope"
+fi
+
+exit "$fail"
