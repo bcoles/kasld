@@ -40,28 +40,21 @@ static void md_print_cell(const char *s) {
  * which techniques produced each leak rather than just counting them. */
 static void print_group_sources(enum kasld_addr_type type,
                                 const char *section) {
-  const char *seen[64];
-  int nseen = 0;
+  struct origin_set seen;
+  memset(&seen, 0, sizeof(seen));
   for (int i = 0; i < num_results; i++) {
     struct result *r = &results[i];
     if (r->type != type || strcmp(result_section(r), section) != 0 ||
         !in_bounds(r))
       continue;
-    for (int j = 0; j < r->provenance_count; j++) {
-      int dup = 0;
-      for (int sd = 0; sd < nseen; sd++)
-        if (strcmp(seen[sd], r->origins[j]) == 0) {
-          dup = 1;
-          break;
-        }
-      if (!dup && nseen < 64)
-        seen[nseen++] = r->origins[j];
-    }
+    origin_set_union(&seen, &r->origins);
   }
-  for (int sd = 0; sd < nseen; sd++) {
+  int nseen = origin_set_count(&seen);
+  for (int slot = origin_set_next(&seen, 0), sd = 0; slot >= 0;
+       slot = origin_set_next(&seen, slot + 1), sd++) {
     if (sd)
       printf(", ");
-    md_print_cell(seen[sd]);
+    md_print_cell(kasld_origin_name(slot));
   }
   if (!nseen)
     printf("-");
@@ -399,7 +392,9 @@ void render_markdown(const struct summary *s) {
    * answer-first default output omits it (see the text renderer). */
   if (verbose) {
     int shown = 0;
-    for (int i = 0; i < num_comp_logs; i++) {
+    for (int i = 0; i < num_components; i++) {
+      if (!comp_logs[i].ran)
+        continue;
       const struct component_disposition *d = &comp_logs[i].disposition;
       if (d->category == DISP_NONE)
         continue;
@@ -462,10 +457,11 @@ void render_markdown(const struct summary *s) {
                  kasld_pos_wire(r->pos), kasld_region_wire(r->region));
           md_print_cell(r->name);
           printf(" | ");
-          for (int j = 0; j < r->provenance_count; j++) {
-            if (j)
+          for (int j = origin_set_next(&r->origins, 0), oi = 0; j >= 0;
+               j = origin_set_next(&r->origins, j + 1), oi++) {
+            if (oi)
               printf(", ");
-            md_print_cell(r->origins[j]);
+            md_print_cell(kasld_origin_name(j));
           }
           printf(" | %s%s |\n", result_method(r),
                  in_bounds(r) ? "" : " (stale)");
@@ -488,10 +484,11 @@ void render_markdown(const struct summary *s) {
         unsigned long a = anchor_addr(r);
         printf("| %c | %s | `0x%016lx` | %s | %s | ", kasld_type_wire(r->type),
                sec, a, kasld_pos_wire(r->pos), kasld_region_wire(r->region));
-        for (int j = 0; j < r->provenance_count; j++) {
-          if (j)
+        for (int j = origin_set_next(&r->origins, 0), oi = 0; j >= 0;
+             j = origin_set_next(&r->origins, j + 1), oi++) {
+          if (oi)
             printf(", ");
-          md_print_cell(r->origins[j]);
+          md_print_cell(kasld_origin_name(j));
         }
         printf(" | %s%s |\n", result_method(r), in_bounds(r) ? "" : " (stale)");
       }

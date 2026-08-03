@@ -12,6 +12,7 @@
 #ifndef KASLD_TEST_ORCH_COMMON_H
 #define KASLD_TEST_ORCH_COMMON_H
 
+#include <assert.h>
 #include <limits.h>
 
 /* Seed the engine-bounds carrier the same way orchestrator's main() does.
@@ -40,6 +41,51 @@ static struct result *push_result(void) {
   struct result *r = &results[num_results++];
   result_init(r);
   return r;
+}
+
+/* Reset the per-component execution log. The array is indexed by discovery
+ * slot, so clearing it means clearing every slot's `ran` marker. */
+static void reset_comp_logs(void) {
+  for (int i = 0; i < MAX_COMPONENTS; i++)
+    memset(&comp_logs[i], 0, sizeof(comp_logs[i]));
+}
+
+/* Register `name` in the discovery table and return its slot, so a synthetic
+ * result can carry provenance that resolves back to a component name the way a
+ * real run's does. Idempotent: registering the same name twice returns the
+ * slot it already holds. */
+static int test_origin(const char *name) {
+  if (!name || !*name)
+    return ORIGIN_NONE;
+  for (int i = 0; i < num_components; i++)
+    if (strcmp(components[i].name, name) == 0)
+      return i;
+  assert(num_components < MAX_COMPONENTS);
+  int slot = num_components++;
+  memset(&components[slot], 0, sizeof(components[slot]));
+  snprintf(components[slot].name, sizeof(components[slot].name), "%s", name);
+  return slot;
+}
+
+/* Credit `name` as a contributor to `r`. */
+static void add_origin(struct result *r, const char *name) {
+  origin_set_add(&r->origins, test_origin(name));
+}
+
+/* Seed the execution-log slot belonging to `name`, registering the component
+ * if this is its first mention. Returns the zeroed, marked-as-run slot for the
+ * caller to populate. */
+static struct component_log *seed_comp_log(const char *name) {
+  struct component_log *cl = &comp_logs[test_origin(name)];
+  memset(cl, 0, sizeof(*cl));
+  cl->ran = 1;
+  snprintf(cl->name, sizeof(cl->name), "%s", name);
+  return cl;
+}
+
+/* The name of a result's first contributor, or "" when it has none. */
+static const char *first_origin(const struct result *r) {
+  return kasld_origin_name(origin_set_next(&r->origins, 0));
 }
 
 #endif /* KASLD_TEST_ORCH_COMMON_H */

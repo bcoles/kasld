@@ -155,7 +155,7 @@ static void set_render_mode(int json, int oneline, int markdown) {
 
 static void test_render_summary_text_mode_minimal(void) {
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   struct summary s;
   memset(&s, 0, sizeof(s));
@@ -168,7 +168,7 @@ static void test_render_summary_text_mode_minimal(void) {
 
 static void test_render_summary_json_mode_minimal(void) {
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   struct summary s;
   memset(&s, 0, sizeof(s));
@@ -182,7 +182,7 @@ static void test_render_summary_json_mode_minimal(void) {
 
 static void test_render_summary_oneline_mode_minimal(void) {
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   struct summary s;
   memset(&s, 0, sizeof(s));
@@ -200,7 +200,7 @@ static void test_render_summary_oneline_mode_minimal(void) {
 
 static void test_render_summary_markdown_mode_minimal(void) {
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   struct summary s;
   memset(&s, 0, sizeof(s));
@@ -224,7 +224,7 @@ static void test_render_summary_markdown_mode_minimal(void) {
  * Reusable across multiple render-mode tests. */
 static void set_rich_render_state(struct summary *s) {
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   memset(s, 0, sizeof(*s));
 
@@ -240,9 +240,8 @@ static void set_rich_render_state(struct summary *s) {
   r1->conf = CONF_PARSED;
   r1->lo = vt;
   r1->set_mask = LO_SET;
-  snprintf(r1->origins[0], ORIGIN_LEN, "synthetic_test");
+  add_origin(r1, "synthetic_test");
   r1->method_set = 1u << KM_PARSED;
-  r1->provenance_count = 1;
 
   struct result *r2 = push_result();
   r2->type = KASLD_TYPE_PHYS;
@@ -252,14 +251,11 @@ static void set_rich_render_state(struct summary *s) {
   r2->lo = 0x40000000ul;
   r2->hi = 0xf0000000ul;
   r2->set_mask = LO_SET | HI_SET;
-  snprintf(r2->origins[0], ORIGIN_LEN, "synthetic_test");
+  add_origin(r2, "synthetic_test");
   r2->method_set = 1u << KM_PARSED;
-  r2->provenance_count = 1;
 
   /* A component log with the metadata shape render_hardening_* reads. */
-  struct component_log *cl = &comp_logs[num_comp_logs++];
-  memset(cl, 0, sizeof(*cl));
-  snprintf(cl->name, sizeof(cl->name), "synthetic_component");
+  struct component_log *cl = seed_comp_log("synthetic_component");
   cl->outcome = OUTCOME_SUCCESS;
   cl->exit_code = 0;
   cl->meta.num_entries = 3;
@@ -352,7 +348,7 @@ static void test_render_json_posture_always_present(void) {
 static void test_render_likely_window(void) {
   struct summary s;
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
   extern int verbose;
@@ -403,7 +399,7 @@ static void test_render_likely_window(void) {
 static void test_render_vtext_speculative(void) {
   struct summary s;
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
   extern int verbose;
@@ -473,7 +469,7 @@ static void test_render_vtext_speculative(void) {
 static void test_render_windowed_base_likely_order(void) {
   struct summary s;
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
   unsigned long sv_vlo = layout.virt_kaslr_text_min,
@@ -535,7 +531,7 @@ static void test_render_windowed_base_likely_order(void) {
 static void test_render_directmap_entropy_denominator(void) {
   struct summary s;
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
 
@@ -594,7 +590,7 @@ static void test_render_directmap_entropy_denominator(void) {
 static void test_render_memory_likely_window(void) {
   struct summary s;
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
   extern int verbose;
@@ -643,7 +639,7 @@ static void test_render_directmap_base_promoted(void) {
 #if RANDOMIZE_MEMORY_ALIGN > 0
   struct summary s;
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
 
@@ -684,7 +680,7 @@ static void test_render_directmap_base_promoted_unbounded(void) {
 #if RANDOMIZE_MEMORY_ALIGN > 0
   struct summary s;
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
 
@@ -720,7 +716,7 @@ static void test_render_directmap_base_promoted_unbounded(void) {
 static void test_render_entropy_states_its_baseline(void) {
   struct summary s;
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
   s.kaslr.vslots = 24;
@@ -747,7 +743,7 @@ static void test_render_window_row_always_graded(void) {
 #if RANDOMIZE_MEMORY_ALIGN > 0
   struct summary s;
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
 
@@ -785,7 +781,7 @@ static void test_render_coupling_gated(void) {
   unsigned long sp_hi = layout.phys_kaslr_text_max;
 
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
   s.kaslr.vslots = 60; /* keep the regular KASLR readout path */
@@ -834,7 +830,7 @@ static void test_render_coupling_gated(void) {
 static void test_render_markdown_text_order_caution(void) {
   struct summary s;
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
   s.kaslr.vslots = 60; /* keep the KASLR readout path alive */
@@ -843,7 +839,7 @@ static void test_render_markdown_text_order_caution(void) {
   scalar_facts[num_scalar_facts].fact = SF_TEXT_ORDER;
   scalar_facts[num_scalar_facts].value = TEXT_ORDER_STATIC;
   scalar_facts[num_scalar_facts].conf = CONF_PARSED;
-  snprintf(scalar_facts[num_scalar_facts].origin, ORIGIN_LEN, "fingerprint");
+  scalar_facts[num_scalar_facts].origin = test_origin("fingerprint");
   num_scalar_facts++;
 
   set_render_mode(0, 0, 1); /* markdown */
@@ -872,7 +868,7 @@ static void test_render_markdown_text_order_caution(void) {
 static void test_render_memory_kaslr_uses_stored_slots(void) {
   struct summary s;
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
   extern int verbose;
@@ -905,7 +901,7 @@ static void test_render_memory_kaslr_slots_reach_machine_formats(void) {
 #if RANDOMIZE_MEMORY_ALIGN > 0
   struct summary s;
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
   s.kaslr.vslots = 60;
@@ -956,7 +952,7 @@ static void check_static_base_case(int posture_disabled, unsigned long lo,
   struct summary s;
   extern int verbose;
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
 
@@ -1073,7 +1069,7 @@ static void test_render_static_base_prefers_engine_window(void) {
 static void test_render_map_directmap_base_from_engine(void) {
   struct summary s;
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
   extern int verbose;
@@ -1162,7 +1158,7 @@ static void test_render_map_directmap_base_from_engine(void) {
 static void test_render_map_overlapped_band_states_its_ceiling(void) {
   struct summary s;
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
   extern int verbose;
@@ -1239,7 +1235,7 @@ static void test_render_map_overlapped_band_states_its_ceiling(void) {
 static void test_render_footer_hint_is_last(void) {
   struct summary s;
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
   extern int verbose;
@@ -1299,7 +1295,7 @@ static int map_boundary_addr(const char *line, unsigned long *out) {
 static void test_render_phys_map_descends_strictly(void) {
   struct summary s;
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
   extern int verbose;
@@ -1357,7 +1353,7 @@ static void test_render_phys_map_descends_strictly(void) {
 static void test_render_map_flag(void) {
   struct summary s;
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
   extern int verbose;
@@ -1403,7 +1399,7 @@ static void test_render_map_flag(void) {
 static void test_render_map_band_contains_its_leaks(void) {
   struct summary s;
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
   extern int verbose;
@@ -1440,9 +1436,8 @@ static void test_render_map_band_contains_its_leaks(void) {
   r->conf = CONF_PARSED;
   r->sample = interior;
   r->set_mask = SAMPLE_SET;
-  snprintf(r->origins[0], ORIGIN_LEN, "synthetic_test");
+  add_origin(r, "synthetic_test");
   r->method_set = 1u << KM_PARSED;
-  r->provenance_count = 1;
 
   s.kaslr.vslots = 60;
   s.kaslr.vbits = 6;
@@ -1502,7 +1497,7 @@ static void test_render_map_band_contains_its_leaks(void) {
 static void test_render_map_ceiling_covers_high_mmio(void) {
   struct summary s;
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
   extern int verbose;
@@ -1519,9 +1514,8 @@ static void test_render_map_ceiling_covers_high_mmio(void) {
   r1->set_mask = HI_SET;
   r1->pos = POS_TOP;
   r1->conf = CONF_PARSED;
-  snprintf(r1->origins[0], ORIGIN_LEN, "synthetic_test");
+  add_origin(r1, "synthetic_test");
   r1->method_set = 1u << KM_PARSED;
-  r1->provenance_count = 1;
 
   struct result *r2 = push_result();
   r2->type = KASLD_TYPE_PHYS;
@@ -1530,9 +1524,8 @@ static void test_render_map_ceiling_covers_high_mmio(void) {
   r2->set_mask = SAMPLE_SET;
   r2->pos = POS_INTERIOR;
   r2->conf = CONF_PARSED;
-  snprintf(r2->origins[0], ORIGIN_LEN, "synthetic_test");
+  add_origin(r2, "synthetic_test");
   r2->method_set = 1u << KM_PARSED;
-  r2->provenance_count = 1;
 
   s.kaslr.vslots = 60;
   s.kaslr.vbits = 6;
@@ -1576,7 +1569,7 @@ static void test_render_map_ceiling_covers_high_mmio(void) {
 static void test_render_map_phys_buckets_partition(void) {
   struct summary s;
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
   extern int verbose;
@@ -1600,9 +1593,8 @@ static void test_render_map_phys_buckets_partition(void) {
   r1->set_mask = HI_SET;
   r1->pos = POS_TOP;
   r1->conf = CONF_PARSED;
-  snprintf(r1->origins[0], ORIGIN_LEN, "synthetic_test");
+  add_origin(r1, "synthetic_test");
   r1->method_set = 1u << KM_PARSED;
-  r1->provenance_count = 1;
 
   /* A kernel-image leak above the leaked DRAM top but inside the (still wide)
    * proven text window — the overlap. */
@@ -1613,9 +1605,8 @@ static void test_render_map_phys_buckets_partition(void) {
   r2->set_mask = LO_SET;
   r2->pos = POS_BASE;
   r2->conf = CONF_PARSED;
-  snprintf(r2->origins[0], ORIGIN_LEN, "synthetic_test");
+  add_origin(r2, "synthetic_test");
   r2->method_set = 1u << KM_PARSED;
-  r2->provenance_count = 1;
 
   s.kaslr.vslots = 60;
   s.kaslr.vbits = 6;
@@ -1656,7 +1647,7 @@ static void test_render_map_phys_buckets_partition(void) {
 static void test_render_map_directmap_contains_text(void) {
   struct summary s;
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
   extern int verbose;
@@ -1717,7 +1708,7 @@ static void test_render_map_directmap_contains_text(void) {
 static void test_render_map_draws_topmost_band_ceiling(void) {
   struct summary s;
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
   extern int verbose;
@@ -1831,7 +1822,7 @@ static int assert_map_column_descends(const char *block) {
 static void test_render_phys_ceiling_covers_bucket_footers(void) {
   struct summary s;
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
   extern int verbose;
@@ -1876,7 +1867,7 @@ static void test_render_phys_ceiling_covers_bucket_footers(void) {
 static void test_render_disabled_base_not_labeled_likely(void) {
   struct summary s;
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
   extern int verbose;
@@ -1920,7 +1911,7 @@ static void test_render_disabled_base_not_labeled_likely(void) {
 static void test_render_leak_discloses_interior(void) {
   struct summary s;
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
 
@@ -1931,9 +1922,8 @@ static void test_render_leak_discloses_interior(void) {
   r->conf = CONF_PARSED;
   r->lo = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
   r->set_mask = LO_SET;
-  snprintf(r->origins[0], ORIGIN_LEN, "synthetic_test");
+  add_origin(r, "synthetic_test");
   r->method_set = 1u << KM_PARSED;
-  r->provenance_count = 1;
 
   set_render_mode(0, 0, 0); /* readout */
   capture_stdout(wrap_render_summary, &s);
@@ -1990,9 +1980,8 @@ static void test_render_oneline_dmap_is_base_not_interior(void) {
   r->conf = CONF_PARSED;
   r->lo = interior;
   r->set_mask = LO_SET;
-  snprintf(r->origins[0], ORIGIN_LEN, "synthetic_test");
+  add_origin(r, "synthetic_test");
   r->method_set = 1u << KM_PARSED;
-  r->provenance_count = 1;
 
   /* Engine-resolved base: virt_page_offset_min signals it, layout carries the
    * rendered anchor. */
@@ -2042,7 +2031,7 @@ static void test_render_oneline_text_na_when_engine_unresolved(void) {
  * future edit that drops or renames a key fails here. */
 static void test_render_oneline_schema_is_stable(void) {
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   struct summary s;
   memset(&s, 0, sizeof(s));
@@ -2076,7 +2065,7 @@ static void test_render_oneline_schema_is_stable(void) {
 static void test_render_oneline_entropy_and_failed(void) {
   struct summary s;
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
 
   /* Unpinned windowed case: a resolved window (vslots/pslots), no concrete
@@ -2150,7 +2139,7 @@ static void test_render_randomization_failed_posture(void) {
 
   for (size_t i = 0; i < sizeof(modes) / sizeof(modes[0]); i++) {
     reset_results();
-    num_comp_logs = 0;
+    reset_comp_logs();
     num_scalar_facts = 0;
     memset(&s, 0, sizeof(s));
     s.kaslr.randomization_failed = 1;
@@ -2176,20 +2165,19 @@ static void test_render_randomization_failed_posture(void) {
 
 /* set_rich_render_state seeds a single-origin record; this overlays a second
  * and third origin on the VIRT/KERNEL_TEXT record so the renderer tests below
- * exercise the multi-contributor display path that text.c, markdown.c, and
- * json.c iterate r->origins[0..provenance_count] for. */
+ * exercise the multi-contributor display path text.c, markdown.c and json.c
+ * walk r->origins for. */
 static void seed_multi_origin_text_result(struct summary *s) {
   set_rich_render_state(s);
   for (int i = 0; i < num_results; i++) {
     struct result *r = &results[i];
     if (r->type == KASLD_TYPE_VIRT && r->region == REGION_KERNEL_TEXT) {
-      snprintf(r->origins[0], ORIGIN_LEN, "prefetch");
-      snprintf(r->origins[1], ORIGIN_LEN, "perf_event_open");
-      snprintf(r->origins[2], ORIGIN_LEN, "perf_lbr_sampling");
+      add_origin(r, "prefetch");
+      add_origin(r, "perf_event_open");
+      add_origin(r, "perf_lbr_sampling");
       r->method_set = 1u << KM_TIMING;
       r->method_set |= 1u << KM_PARSED;
       r->method_set |= 1u << KM_PARSED;
-      r->provenance_count = 3;
       return;
     }
   }
@@ -2236,8 +2224,7 @@ static void test_render_text_leaks_aggregates_across_records(void) {
   r->pos = POS_BASE;
   r->conf = CONF_PARSED;
   snprintf(r->name, NAME_LEN, "_stext");
-  snprintf(r->origins[0], ORIGIN_LEN, "proc_kallsyms");
-  r->provenance_count = 1;
+  add_origin(r, "proc_kallsyms");
 
   /* The first record supplies 3 origins and this separate record supplies a
    * fourth, so seeing proc_kallsyms named in the default readout proves the
@@ -2279,7 +2266,7 @@ static void test_render_json_emits_origins_array(void) {
 }
 
 /* result_method returns the strongest method in the record's set (consistent
- * with the resolved confidence), not the earliest contributor's. */
+ * with the resolved confidence), not any single contributor's. */
 static void test_result_method_returns_strongest(void) {
   struct result r = {0};
   r.method_set = (1u << KM_TIMING) | (1u << KM_PARSED);
@@ -2303,7 +2290,7 @@ static void test_render_markdown_lists_all_origins(void) {
   set_render_mode(0, 0, 0);
 }
 
-/* Defensive: when provenance_count is 0 (no contributors recorded), the
+/* Defensive: when a record has no contributors recorded, the
  * renderers must still produce sensible output for the record without
  * crashing or emitting a stray "()" empty-origin block. */
 static void seed_no_provenance_text_result(struct summary *s) {
@@ -2311,8 +2298,7 @@ static void seed_no_provenance_text_result(struct summary *s) {
   for (int i = 0; i < num_results; i++) {
     struct result *r = &results[i];
     if (r->type == KASLD_TYPE_VIRT && r->region == REGION_KERNEL_TEXT) {
-      r->provenance_count = 0;
-      r->origins[0][0] = '\0';
+      memset(&r->origins, 0, sizeof(r->origins));
       r->method_set = 0;
       return;
     }
@@ -2363,11 +2349,10 @@ static void seed_two_region_groups(struct summary *s) {
   for (int i = 0; i < num_results; i++) {
     struct result *r = &results[i];
     if (r->type == KASLD_TYPE_VIRT && r->region == REGION_KERNEL_TEXT) {
-      snprintf(r->origins[0], ORIGIN_LEN, "origin_a");
-      snprintf(r->origins[1], ORIGIN_LEN, "origin_b");
+      add_origin(r, "origin_a");
+      add_origin(r, "origin_b");
       r->method_set = 1u << KM_PARSED;
       r->method_set |= 1u << KM_PARSED;
-      r->provenance_count = 2;
       break;
     }
   }
@@ -2381,9 +2366,8 @@ static void seed_two_region_groups(struct summary *s) {
   r->conf = CONF_PARSED;
   r->lo = dm;
   r->set_mask = LO_SET;
-  snprintf(r->origins[0], ORIGIN_LEN, "synthetic_test");
+  add_origin(r, "synthetic_test");
   r->method_set = 1u << KM_PARSED;
-  r->provenance_count = 1;
 }
 
 static void test_render_text_leaks_count_is_groups_not_contributors(void) {
@@ -2425,9 +2409,8 @@ static void set_richer_render_state(struct summary *s) {
   r3->conf = CONF_DERIVED;
   r3->lo = vt + 0x800000ul;
   r3->set_mask = LO_SET;
-  snprintf(r3->origins[0], ORIGIN_LEN, "synthetic_test");
+  add_origin(r3, "synthetic_test");
   r3->method_set = 1u << KM_DERIVED;
-  r3->provenance_count = 1;
 
   /* REGION_KERNEL_BSS sibling — gives collect_kernel_regions multiple
    * kernel-locating regions in the same section, triggering
@@ -2439,9 +2422,8 @@ static void set_richer_render_state(struct summary *s) {
   r4->conf = CONF_PARSED;
   r4->lo = vt + 0x900000ul;
   r4->set_mask = LO_SET;
-  snprintf(r4->origins[0], ORIGIN_LEN, "synthetic_test");
+  add_origin(r4, "synthetic_test");
   r4->method_set = 1u << KM_PARSED;
-  r4->provenance_count = 1;
 
   /* Phys-side band so render_text's phys map has something to draw and
    * render_memory_kaslr_bound's pinned / one-sided branches fire. */
@@ -2495,7 +2477,7 @@ static void test_render_derived_text(void) {
  * cmdline address and publish it as the consensus for DRAM. */
 static void seed_two_regions_one_section(struct summary *s) {
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   memset(s, 0, sizeof(*s));
 
@@ -2507,9 +2489,8 @@ static void seed_two_regions_one_section(struct summary *s) {
   ram->lo = 0x40000000ul;
   ram->hi = 0xf0000000ul;
   ram->set_mask = LO_SET | HI_SET;
-  snprintf(ram->origins[0], ORIGIN_LEN, "origin_ram");
+  add_origin(ram, "origin_ram");
   ram->method_set = 1u << KM_PARSED;
-  ram->provenance_count = 1;
 
   struct result *cmdline = push_result();
   cmdline->type = KASLD_TYPE_PHYS;
@@ -2518,9 +2499,8 @@ static void seed_two_regions_one_section(struct summary *s) {
   cmdline->conf = CONF_PARSED;
   cmdline->lo = 0x10000000ul;
   cmdline->set_mask = LO_SET;
-  snprintf(cmdline->origins[0], ORIGIN_LEN, "origin_cmdline");
+  add_origin(cmdline, "origin_cmdline");
   cmdline->method_set = 1u << KM_PARSED;
-  cmdline->provenance_count = 1;
 }
 
 /* Point at a JSON group's "region" key. Every aggregate key the group reports
@@ -2645,9 +2625,8 @@ static void test_section_consensus_lowest_among_ties(void) {
     r->conf = CONF_PARSED;
     r->sample = addrs[i];
     r->set_mask = SAMPLE_SET;
-    snprintf(r->origins[0], ORIGIN_LEN, "synth");
+    add_origin(r, "synth");
     r->method_set = 1u << KM_PARSED;
-    r->provenance_count = 1;
   }
   /* Make all three pass in_bounds: the directmap base lives at PAGE_OFFSET
    * by construction, all three samples are above it. */
@@ -2672,9 +2651,8 @@ static void test_section_consensus_prefers_pos_base(void) {
   r_interior->conf = CONF_PARSED;
   r_interior->sample = interior_addr;
   r_interior->set_mask = SAMPLE_SET;
-  snprintf(r_interior->origins[0], ORIGIN_LEN, "synth");
+  add_origin(r_interior, "synth");
   r_interior->method_set = 1u << KM_PARSED;
-  r_interior->provenance_count = 1;
 
   struct result *r_base = push_result();
   r_base->type = KASLD_TYPE_VIRT;
@@ -2683,9 +2661,8 @@ static void test_section_consensus_prefers_pos_base(void) {
   r_base->conf = CONF_PARSED;
   r_base->lo = base_addr;
   r_base->set_mask = LO_SET;
-  snprintf(r_base->origins[0], ORIGIN_LEN, "synth");
+  add_origin(r_base, "synth");
   r_base->method_set = 1u << KM_PARSED;
-  r_base->provenance_count = 1;
 
   assert(section_consensus(KASLD_TYPE_VIRT, "text", REGION_UNKNOWN) ==
          base_addr);
@@ -2705,9 +2682,8 @@ static void test_section_consensus_higher_conf_wins(void) {
   r_h->conf = CONF_HEURISTIC;
   r_h->sample = lo_heuristic;
   r_h->set_mask = SAMPLE_SET;
-  snprintf(r_h->origins[0], ORIGIN_LEN, "synth");
+  add_origin(r_h, "synth");
   r_h->method_set = 1u << KM_HEURISTIC;
-  r_h->provenance_count = 1;
 
   struct result *r_p = push_result();
   r_p->type = KASLD_TYPE_VIRT;
@@ -2716,9 +2692,8 @@ static void test_section_consensus_higher_conf_wins(void) {
   r_p->conf = CONF_PARSED;
   r_p->sample = hi_parsed;
   r_p->set_mask = SAMPLE_SET;
-  snprintf(r_p->origins[0], ORIGIN_LEN, "synth");
+  add_origin(r_p, "synth");
   r_p->method_set = 1u << KM_PARSED;
-  r_p->provenance_count = 1;
 
   layout.virt_page_offset = (unsigned long)PAGE_OFFSET;
   assert(section_consensus(KASLD_TYPE_VIRT, "directmap", REGION_UNKNOWN) ==
@@ -2782,7 +2757,7 @@ static void test_render_json_with_memory_kaslr(void) {
  * range-form branch in render_derived_text. */
 static void test_render_derived_text_range_form(void) {
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   struct summary s;
   memset(&s, 0, sizeof(s));
@@ -2795,9 +2770,8 @@ static void test_render_derived_text_range_form(void) {
   r->lo = vt + 0x1000000ul;
   r->hi = vt + 0x2000000ul;
   r->set_mask = LO_SET | HI_SET;
-  snprintf(r->origins[0], ORIGIN_LEN, "synth");
+  add_origin(r, "synth");
   r->method_set = 1u << KM_DERIVED;
-  r->provenance_count = 1;
   s.stats.total = 1;
   set_render_mode(0, 0, 0);
   verbose = 1; /* Derived addresses are surfaced in the verbose render path */
@@ -2816,7 +2790,7 @@ static void test_render_derived_text_range_form(void) {
  * arch. */
 static void test_render_readout_disabled_range_no_entropy(void) {
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   struct summary s;
   memset(&s, 0, sizeof(s));
@@ -2895,9 +2869,7 @@ static void test_render_hardening_markdown(void) {
  * surface / side-channel / no-mitigation lists. */
 static struct component_log *hr_seed_comp(const char *name,
                                           enum component_outcome oc) {
-  struct component_log *cl = &comp_logs[num_comp_logs++];
-  memset(cl, 0, sizeof(*cl));
-  snprintf(cl->name, sizeof(cl->name), "%s", name);
+  struct component_log *cl = seed_comp_log(name);
   cl->outcome = oc;
   return cl;
 }
@@ -2910,7 +2882,7 @@ static void hr_seed_meta(struct component_log *cl, const char *k,
 
 static void test_build_hardening_report(void) {
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   sysctl_kptr_restrict = 1;       /* active   (threshold 1) */
   sysctl_dmesg_restrict = 1;      /* active   (threshold 1) */
@@ -2959,7 +2931,7 @@ static void test_build_hardening_report(void) {
   scalar_facts[num_scalar_facts].fact = SF_VIRT_KASLR_RANDOMIZATION_FAILED;
   scalar_facts[num_scalar_facts].value = 1;
   scalar_facts[num_scalar_facts].conf = CONF_PARSED;
-  snprintf(scalar_facts[num_scalar_facts].origin, ORIGIN_LEN, "dmesg_kaslr");
+  scalar_facts[num_scalar_facts].origin = test_origin("dmesg_kaslr");
   num_scalar_facts++;
 
   struct hardening_report rep;
@@ -3021,7 +2993,7 @@ static void test_build_hardening_report(void) {
   sysctl_dmesg_restrict = 0;
   sysctl_perf_event_paranoid = 0;
   sysctl_lockdown = LOCKDOWN_NONE;
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
 }
 
@@ -3053,7 +3025,7 @@ static void test_render_json_disposition(void) {
   assert(strstr(render_cap, "\"category\": \"absent\"") != NULL);
   assert(strstr(render_cap, "not an Intel CPU") != NULL);
 
-  num_comp_logs = 0;
+  reset_comp_logs();
 }
 
 /* A mitigation disposition is confirmed active in the hardening report; absent
@@ -3093,7 +3065,7 @@ static void test_render_hardening_confirmed_mitigations(void) {
   assert(strstr(render_cap, "\"confirmed_mitigations\"") != NULL);
   assert(strstr(render_cap, "\"gate\": \"kpti\"") != NULL);
 
-  num_comp_logs = 0;
+  reset_comp_logs();
 }
 
 /* Interior samples corroborate an extent; they are not competing base claims.
@@ -3109,8 +3081,7 @@ static void stage_vt_interior(unsigned long sample, const char *origin) {
   r->conf = CONF_PARSED;
   r->sample = sample;
   r->set_mask = SAMPLE_SET;
-  snprintf(r->origins[0], ORIGIN_LEN, "%s", origin);
-  r->provenance_count = 1;
+  add_origin(r, origin);
   r->method_set = 1u << KM_PARSED;
 }
 static void stage_vt_base(unsigned long lo, const char *origin) {
@@ -3121,14 +3092,13 @@ static void stage_vt_base(unsigned long lo, const char *origin) {
   r->conf = CONF_TIMING;
   r->lo = lo;
   r->set_mask = LO_SET;
-  snprintf(r->origins[0], ORIGIN_LEN, "%s", origin);
-  r->provenance_count = 1;
+  add_origin(r, origin);
   r->method_set = 1u << KM_TIMING;
 }
 
 static void test_section_interior_only_and_conflicts(void) {
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   const unsigned long vt = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
   const char *sec = "text"; /* REGION_KERNEL_TEXT's section name */
@@ -3168,7 +3138,7 @@ static void test_section_interior_only_and_conflicts(void) {
  * extent, they never compete for a base). */
 static void test_render_interior_only_surface(void) {
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   const unsigned long vt = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
   stage_vt_interior(vt + 0x1000, "comp_a");
@@ -3197,7 +3167,7 @@ static void test_hardening_unprivileged_bpf_gate(void) {
 
   /* Inactive gate + succeeded leak -> a suggestion. */
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   sysctl_unprivileged_bpf_disabled = 0; /* inactive (threshold 1) */
   struct component_log *c = hr_seed_comp("c_bpf_leak", OUTCOME_SUCCESS);
@@ -3222,7 +3192,7 @@ static void test_hardening_unprivileged_bpf_gate(void) {
 
   /* Active gate + denied leak -> credited as blocking, not a suggestion. */
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   sysctl_unprivileged_bpf_disabled = 2; /* active (>= threshold 1) */
   c = hr_seed_comp("c_bpf_blocked", OUTCOME_ACCESS_DENIED);
@@ -3240,7 +3210,7 @@ static void test_hardening_unprivileged_bpf_gate(void) {
                   "kernel.unprivileged_bpf_disabled") != 0);
 
   sysctl_unprivileged_bpf_disabled = -1; /* restore unread sentinel */
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
 }
 
@@ -3269,7 +3239,7 @@ static void wrap_render_hardening_markdown(void *a) {
  * the default (unavailable) stub suppresses every projected row. */
 static void test_hardening_projection(void) {
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   sysctl_kptr_restrict = 1;  /* active   — not a suggestion */
   sysctl_dmesg_restrict = 1; /* active, but fallback bypass -> suggestion */
@@ -3363,7 +3333,7 @@ static void test_hardening_projection(void) {
   set_render_mode(0, 0, 0);
   sysctl_perf_event_paranoid = 0;
   sysctl_dmesg_restrict = 0;
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
 }
 
@@ -3374,7 +3344,7 @@ static void test_hardening_projection(void) {
  * matching the "guaranteed base already at N bits" anchor. */
 static void test_hardening_projection_no_exposure(void) {
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   sysctl_kptr_restrict = 1;
   sysctl_dmesg_restrict = 1;
@@ -3412,7 +3382,7 @@ static void test_hardening_projection_no_exposure(void) {
   kasld_test_projection = 0;
   set_render_mode(0, 0, 0);
   sysctl_lockdown = LOCKDOWN_NONE;
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
 }
 
@@ -3425,7 +3395,7 @@ static void test_hardening_projection_no_exposure(void) {
  * speculative-only because the base IS recoverable. */
 static void test_hardening_projection_redundant(void) {
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   sysctl_kptr_restrict = 0;  /* inactive -> a suggestion (redundant leak) */
   sysctl_dmesg_restrict = 1; /* active */
@@ -3506,7 +3476,7 @@ static void test_hardening_projection_redundant(void) {
   sysctl_dmesg_restrict = 0;
   sysctl_lockdown = LOCKDOWN_NONE;
   hashed_pointers = 0;
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
 }
 
@@ -3516,7 +3486,7 @@ static void test_hardening_projection_redundant(void) {
  * an active gate is not re-offered as available hardening. */
 static void test_render_hardening_pointer_hashing_gate(void) {
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   /* Isolate the pointer-hashing gate — make the three sysctl gates unreadable
    * so only it can surface. */
@@ -3552,7 +3522,7 @@ static void test_render_hardening_pointer_hashing_gate(void) {
   /* Restore globals so later tests see a clean state. */
   hashed_pointers = -1;
   sysctl_lockdown = LOCKDOWN_NONE;
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
 }
 
@@ -3563,7 +3533,7 @@ static void test_render_hardening_pointer_hashing_gate(void) {
  * with its own banner rather than reuse the opt-out banner. */
 static void test_render_hardening_text_rand_failed_surfaces(void) {
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   struct summary s;
   set_rich_render_state(&s);
@@ -3571,8 +3541,7 @@ static void test_render_hardening_text_rand_failed_surfaces(void) {
   scalar_facts[num_scalar_facts].fact = SF_VIRT_KASLR_RANDOMIZATION_FAILED;
   scalar_facts[num_scalar_facts].value = 1;
   scalar_facts[num_scalar_facts].conf = CONF_PARSED;
-  snprintf(scalar_facts[num_scalar_facts].origin, ORIGIN_LEN,
-           "dmesg_kaslr_disabled");
+  scalar_facts[num_scalar_facts].origin = test_origin("dmesg_kaslr_disabled");
   num_scalar_facts++;
   set_render_mode(0, 0, 0);
   hardening_mode = 1;
@@ -3588,15 +3557,14 @@ static void test_render_hardening_text_rand_failed_surfaces(void) {
  * slot_entropy_zero=true, kernel_at_link_time_default=false. */
 static void test_render_hardening_json_rand_failed_state(void) {
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   struct summary s;
   set_rich_render_state(&s);
   scalar_facts[num_scalar_facts].fact = SF_VIRT_KASLR_RANDOMIZATION_FAILED;
   scalar_facts[num_scalar_facts].value = 1;
   scalar_facts[num_scalar_facts].conf = CONF_PARSED;
-  snprintf(scalar_facts[num_scalar_facts].origin, ORIGIN_LEN,
-           "dmesg_kaslr_disabled");
+  scalar_facts[num_scalar_facts].origin = test_origin("dmesg_kaslr_disabled");
   num_scalar_facts++;
   set_render_mode(1, 0, 0);
   hardening_mode = 1;
@@ -3621,7 +3589,7 @@ static void test_render_hardening_json_rand_failed_state(void) {
  * Guards against a regression where the renderer fires unconditionally. */
 static void test_render_hardening_text_no_rand_failed_silent(void) {
   reset_results();
-  num_comp_logs = 0;
+  reset_comp_logs();
   num_scalar_facts = 0;
   struct summary s;
   set_rich_render_state(&s);

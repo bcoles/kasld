@@ -152,8 +152,9 @@ static void print_group(enum kasld_addr_type type, const char *section,
         kasld_method_set_str(r->method_set, mbuf, sizeof mbuf);
         printf("  %s0x%016lx%s  %s%s %s(", c(C_RED), a, c(C_RESET), rn,
                pos_note(r), c(C_DIM));
-        for (int j = 0; j < r->provenance_count; j++)
-          printf("%s%s", j ? ", " : "", r->origins[j]);
+        for (int j = origin_set_next(&r->origins, 0), oi = 0; j >= 0;
+             j = origin_set_next(&r->origins, j + 1), oi++)
+          printf("%s%s", oi ? ", " : "", kasld_origin_name(j));
         printf(", %s, stale)%s\n", mbuf, c(C_RESET));
       } else
         printf("  %s0x%016lx%s  %s%s %s(stale)%s\n", c(C_RED), a, c(C_RESET),
@@ -166,8 +167,9 @@ static void print_group(enum kasld_addr_type type, const char *section,
       kasld_method_set_str(r->method_set, mbuf, sizeof mbuf);
       printf("  %s0x%016lx%s  %s%s %s(", c(C_GREEN), a, c(C_RESET), rn,
              pos_note(r), c(C_DIM));
-      for (int j = 0; j < r->provenance_count; j++)
-        printf("%s%s", j ? ", " : "", r->origins[j]);
+      for (int j = origin_set_next(&r->origins, 0), oi = 0; j >= 0;
+           j = origin_set_next(&r->origins, j + 1), oi++)
+        printf("%s%s", oi ? ", " : "", kasld_origin_name(j));
       printf(", %s)%s\n", mbuf, c(C_RESET));
     } else
       printf("  %s0x%016lx%s  %s%s\n", c(C_GREEN), a, c(C_RESET), rn,
@@ -1563,24 +1565,17 @@ static int readout_print_leaks(void) {
    * a bare row count under-reports what produced the evidence. */
   int total_sources = 0;
   {
-    char all[MAX_COMPONENTS][ORIGIN_LEN];
+    struct origin_set all;
+    memset(&all, 0, sizeof(all));
     for (int i = 0; i < nf; i++)
       for (int j = 0; j < num_results; j++) {
         const struct result *r = &results[j];
         if (r->type != found[i].r->type || r->region != found[i].r->region ||
             !in_bounds(r))
           continue;
-        for (int pi = 0; pi < r->provenance_count; pi++) {
-          int dup = 0;
-          for (int k = 0; k < total_sources; k++)
-            if (strncmp(all[k], r->origins[pi], ORIGIN_LEN) == 0) {
-              dup = 1;
-              break;
-            }
-          if (!dup && total_sources < MAX_COMPONENTS)
-            snprintf(all[total_sources++], ORIGIN_LEN, "%s", r->origins[pi]);
-        }
+        origin_set_union(&all, &r->origins);
       }
+    total_sources = origin_set_count(&all);
   }
 
   /* "Evidence", not "Leaks": the block holds side-channel measurements
@@ -1596,24 +1591,16 @@ static int readout_print_leaks(void) {
      * proc_kallsyms vs an unnamed text leak) lands in separate merged records.
      * Aggregate provenance across all in-bounds records of this (type, region),
      * de-duplicated. */
-    char seen[MAX_COMPONENTS][ORIGIN_LEN];
-    int ns = 0;
+    struct origin_set seen;
+    memset(&seen, 0, sizeof(seen));
     for (int j = 0; j < num_results; j++) {
       const struct result *r = &results[j];
       if (r->type != found[i].r->type || r->region != found[i].r->region ||
           !in_bounds(r))
         continue;
-      for (int pi = 0; pi < r->provenance_count; pi++) {
-        int dup = 0;
-        for (int idx = 0; idx < ns; idx++)
-          if (strncmp(seen[idx], r->origins[pi], ORIGIN_LEN) == 0) {
-            dup = 1;
-            break;
-          }
-        if (!dup && ns < (int)(sizeof(seen) / sizeof(seen[0])))
-          snprintf(seen[ns++], ORIGIN_LEN, "%s", r->origins[pi]);
-      }
+      origin_set_union(&seen, &r->origins);
     }
+    int ns = origin_set_count(&seen);
 
     /* The extent-position tag precedes the value it qualifies: a reader should
      * know what kind of address is coming before reading it, not after. */
@@ -1640,16 +1627,18 @@ static int readout_print_leaks(void) {
     const int indent = 2 + label_w + posnote_w + 5; /* under "from " */
     int col = indent;
     printf("  %-*s%sfrom ", label_w + posnote_w, "", c(C_DIM));
-    for (int idx = 0; idx < ns; idx++) {
-      int need = (int)strlen(seen[idx]) + (idx ? 2 : 0);
+    for (int slot = origin_set_next(&seen, 0), idx = 0; slot >= 0;
+         slot = origin_set_next(&seen, slot + 1), idx++) {
+      const char *nm = kasld_origin_name(slot);
+      int need = (int)strlen(nm) + (idx ? 2 : 0);
       /* Wrap rather than truncate: which components corroborate a finding is
        * the whole point of the line, so a long list continues on the next one
        * at the same column instead of folding into "+N more". */
       if (idx && col + need > 78) {
-        printf(",\n%*s%s", indent, "", seen[idx]);
-        col = indent + (int)strlen(seen[idx]);
+        printf(",\n%*s%s", indent, "", nm);
+        col = indent + (int)strlen(nm);
       } else {
-        printf("%s%s", idx ? ", " : "", seen[idx]);
+        printf("%s%s", idx ? ", " : "", nm);
         col += need;
       }
     }
@@ -2243,9 +2232,9 @@ static void readout_footer_hint(void) {
  * there is nothing to show, so a clean run stays quiet. */
 static void render_dispositions_text(void) {
   int shown = 0;
-  for (int i = 0; i < num_comp_logs; i++) {
+  for (int i = 0; i < num_components; i++) {
     const struct component_disposition *d = &comp_logs[i].disposition;
-    if (d->category == DISP_NONE)
+    if (!comp_logs[i].ran || d->category == DISP_NONE)
       continue;
     if (!shown) {
       printf("%sComponent dispositions:%s\n", c(C_BOLD), c(C_RESET));
@@ -2330,8 +2319,9 @@ void render_text(const struct summary *s) {
     for (int i = 0; i < num_scalar_facts; i++) {
       if (scalar_facts[i].fact == SF_VIRT_KASLR_DISABLED &&
           scalar_facts[i].value != 0)
-        printf("  %s\n", scalar_facts[i].origin[0] ? scalar_facts[i].origin
-                                                   : "(unknown)");
+        printf("  %s\n", kasld_origin_name(scalar_facts[i].origin)[0]
+                             ? kasld_origin_name(scalar_facts[i].origin)
+                             : "(unknown)");
     }
     printf("\n");
     verbose_static_base_block(s->kaslr.default_addr);

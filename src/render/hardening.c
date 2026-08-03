@@ -155,7 +155,9 @@ void build_hardening_report(struct hardening_report *r) {
   int host_paranoid = sysctl_perf_event_paranoid;
 
   /* Exposure: non-detection components carrying metadata. */
-  for (int i = 0; i < num_comp_logs; i++) {
+  for (int i = 0; i < num_components; i++) {
+    if (!comp_logs[i].ran)
+      continue;
     const char *method = meta_get(&comp_logs[i].meta, "method");
     if (!method || strcmp(method, "detection") == 0)
       continue;
@@ -173,7 +175,8 @@ void build_hardening_report(struct hardening_report *r) {
       continue;
     if (scalar_facts[i].fact == SF_VIRT_KASLR_RANDOMIZATION_FAILED) {
       if (r->n_rand_detectors < HR_NAME_MAX)
-        r->rand_detectors[r->n_rand_detectors++] = scalar_facts[i].origin;
+        r->rand_detectors[r->n_rand_detectors++] =
+            kasld_origin_name(scalar_facts[i].origin);
     } else if (scalar_facts[i].fact == SF_VIRT_KASLR_DISABLED) {
       opt_out = 1;
     }
@@ -213,7 +216,9 @@ void build_hardening_report(struct hardening_report *r) {
     hg.value = *gates[g].value_ptr;
     hg.threshold = gates[g].threshold;
     hg.active = sysctl_gate_active(&gates[g]);
-    for (int i = 0; i < num_comp_logs; i++) {
+    for (int i = 0; i < num_components; i++) {
+      if (!comp_logs[i].ran)
+        continue;
       if (!component_has_gate(&comp_logs[i], &gates[g]))
         continue;
       hg.gated++;
@@ -263,7 +268,9 @@ void build_hardening_report(struct hardening_report *r) {
     sg.surface = "seccomp";
     sg.active = 1;
     sg.value = vant.seccomp;
-    for (int i = 0; i < num_comp_logs; i++) {
+    for (int i = 0; i < num_components; i++) {
+      if (!comp_logs[i].ran)
+        continue;
       if (!seccomp_blocked_perf(&comp_logs[i], vant.seccomp, host_paranoid))
         continue;
       sg.gated++;
@@ -331,7 +338,9 @@ void build_hardening_report(struct hardening_report *r) {
    */
   if (sysctl_lockdown < LOCKDOWN_INTEGRITY) {
     int lockdown_gated = 0;
-    for (int i = 0; i < num_comp_logs; i++) {
+    for (int i = 0; i < num_components; i++) {
+      if (!comp_logs[i].ran)
+        continue;
       if (!meta_get(&comp_logs[i].meta, "lockdown"))
         continue;
       lockdown_gated++;
@@ -353,7 +362,9 @@ void build_hardening_report(struct hardening_report *r) {
    * succeeded VIA a fallback log file — restricting those files to root removes
    * them (the sysctl itself already blocks the syscall path). */
   if (sysctl_dmesg_restrict >= 1) {
-    for (int i = 0; i < num_comp_logs; i++) {
+    for (int i = 0; i < num_components; i++) {
+      if (!comp_logs[i].ran)
+        continue;
       if (comp_logs[i].outcome != OUTCOME_SUCCESS)
         continue;
       if (!component_has_gate(&comp_logs[i], &gates[GATE_DMESG_RESTRICT]))
@@ -453,7 +464,9 @@ void build_hardening_report(struct hardening_report *r) {
 
   /* Patched vulnerabilities: total vuln-tagged components + the succeeded
    * (possibly unpatched) subset. */
-  for (int i = 0; i < num_comp_logs; i++) {
+  for (int i = 0; i < num_components; i++) {
+    if (!comp_logs[i].ran)
+      continue;
     const char *patch = meta_get(&comp_logs[i].meta, "patch");
     const char *cve = meta_get(&comp_logs[i].meta, "cve");
     if (!patch && !cve)
@@ -468,7 +481,9 @@ void build_hardening_report(struct hardening_report *r) {
   }
 
   /* Compile-time attack surface: succeeded components with config= keys. */
-  for (int i = 0; i < num_comp_logs; i++) {
+  for (int i = 0; i < num_components; i++) {
+    if (!comp_logs[i].ran)
+      continue;
     if (comp_logs[i].outcome != OUTCOME_SUCCESS)
       continue;
     const char *configs[4];
@@ -485,7 +500,9 @@ void build_hardening_report(struct hardening_report *r) {
   }
 
   /* Hardware side-channels: non-detection components with a hardware= key. */
-  for (int i = 0; i < num_comp_logs; i++) {
+  for (int i = 0; i < num_components; i++) {
+    if (!comp_logs[i].ran)
+      continue;
     const char *hw = meta_get(&comp_logs[i].meta, "hardware");
     if (!hw)
       continue;
@@ -505,7 +522,9 @@ void build_hardening_report(struct hardening_report *r) {
 
   /* No known mitigation: succeeded non-detection components with no
    * mitigation key. */
-  for (int i = 0; i < num_comp_logs; i++) {
+  for (int i = 0; i < num_components; i++) {
+    if (!comp_logs[i].ran)
+      continue;
     if (comp_logs[i].outcome != OUTCOME_SUCCESS)
       continue;
     const char *method = meta_get(&comp_logs[i].meta, "method");
@@ -524,7 +543,9 @@ void build_hardening_report(struct hardening_report *r) {
    * leak this run (a `mitigation` disposition). Runtime observation, not the
    * static "this leak could be gated by X" inference the sysctl gates and meta
    * carry. */
-  for (int i = 0; i < num_comp_logs && r->n_confirmed < HR_NAME_MAX; i++) {
+  for (int i = 0; i < num_components && r->n_confirmed < HR_NAME_MAX; i++) {
+    if (!comp_logs[i].ran)
+      continue;
     const struct component_disposition *d = &comp_logs[i].disposition;
     if (d->category != DISP_MITIGATION)
       continue;

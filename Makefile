@@ -617,6 +617,7 @@ lint :
 	@$(TEST_DIR)/check-truncation
 	@$(TEST_DIR)/check-component-output
 	@$(TEST_DIR)/check-component-meta
+	@$(TEST_DIR)/check-component-cap
 	@$(TEST_DIR)/check-log-prefixes
 	@$(TEST_DIR)/check-live-probes
 	@$(TEST_DIR)/check-hash-parity

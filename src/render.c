@@ -275,8 +275,8 @@ section_consensus_pick(enum kasld_addr_type type, const char *section,
  * components (merged provenance); each distinct origin counts once. */
 int section_source_count(enum kasld_addr_type type, const char *section,
                          enum kasld_region region_filter) {
-  char seen[MAX_COMPONENTS][ORIGIN_LEN];
-  int n = 0;
+  struct origin_set seen;
+  memset(&seen, 0, sizeof(seen));
   for (int i = 0; i < num_results; i++) {
     const struct result *r = &results[i];
     if (r->type != type || strcmp(result_section(r), section) != 0)
@@ -285,18 +285,11 @@ int section_source_count(enum kasld_addr_type type, const char *section,
       continue;
     if (!in_bounds(r))
       continue;
-    for (int p = 0; p < r->provenance_count; p++) {
-      int dup = 0;
-      for (int j = 0; j < n; j++)
-        if (strncmp(seen[j], r->origins[p], ORIGIN_LEN) == 0) {
-          dup = 1;
-          break;
-        }
-      if (!dup && n < MAX_COMPONENTS)
-        snprintf(seen[n++], ORIGIN_LEN, "%s", r->origins[p]);
-    }
+    /* Contributors are a set, so accumulating across records de-duplicates
+     * for free. */
+    origin_set_union(&seen, &r->origins);
   }
-  return n;
+  return origin_set_count(&seen);
 }
 
 /* True when a (type, section, optional region_filter) carries no edge (lo/hi)

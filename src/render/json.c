@@ -153,10 +153,11 @@ static void render_json_group(enum kasld_addr_type gt, const char *gs,
     json_print_escaped(r->name);
     printf(",\n");
     printf("          \"origins\": [");
-    for (int j = 0; j < r->provenance_count; j++) {
-      if (j)
+    for (int j = origin_set_next(&r->origins, 0), k = 0; j >= 0;
+         j = origin_set_next(&r->origins, j + 1), k++) {
+      if (k)
         printf(", ");
-      json_print_escaped(r->origins[j]);
+      json_print_escaped(kasld_origin_name(j));
     }
     printf("],\n");
     printf("          \"method\": ");
@@ -631,7 +632,9 @@ void render_json(const struct summary *s) {
   {
     printf(",\n");
     printf("  \"components\": [\n");
-    for (int i = 0; i < num_comp_logs; i++) {
+    for (int i = 0; i < num_components; i++) {
+      if (!comp_logs[i].ran)
+        continue;
       struct component_log *cl = &comp_logs[i];
       if (i > 0)
         printf(",\n");

@@ -31,8 +31,8 @@ static inline const char *kasld_coupling_descr(void) {
 }
 
 /* Result-model helpers (mirror anchor_addr(). result_method returns the
- * strongest method in the record's method_set; origins are iterated as
- * r->origins[0..provenance_count] at the consuming renderer). */
+ * strongest method in the record's method_set; contributors are walked with
+ * origin_set_next() over r->origins at the consuming renderer). */
 const char *result_method(const struct result *r);
 const char *result_section(const struct result *r);
 int in_bounds(const struct result *r);

@@ -34,7 +34,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
   num_scalar_facts = 0;
   orchestrator_saturation = 0;
 
-  capture_scalar(buf, "fuzz");
+  capture_scalar(buf, 0);
 
   free(buf);
   return 0;

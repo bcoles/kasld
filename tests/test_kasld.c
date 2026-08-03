@@ -37,9 +37,12 @@
  * Helpers
  * ========================================================================= */
 
+/* capture_result takes the producing component's discovery slot, the way
+ * run_component supplies it; register the name so provenance resolves back to
+ * it the way a real run's does. */
 static int parse_line(const char *line, const char *method,
                       const char *origin) {
-  return capture_result(line, method, origin);
+  return capture_result(line, method, test_origin(origin));
 }
 
 /* =========================================================================
@@ -83,7 +86,7 @@ static void test_result_init_zeroes_everything(void) {
   assert(r.set_mask == 0);
   assert(r.pos == POS_UNKNOWN);
   assert(r.conf == CONF_UNKNOWN);
-  assert(r.provenance_count == 0);
+  assert(origin_set_count(&r.origins) == 0);
   assert(r.name[0] == '\0');
   assert(!HAS_LO(&r) && !HAS_HI(&r) && !HAS_SAMPLE(&r) && !HAS_BASE_ALIGN(&r));
 }
@@ -106,8 +109,8 @@ static void test_parse_base_record(void) {
   assert(HAS_LO(r) && HAS_HI(r));
   assert(r->lo == 0x33000000ul);
   assert(r->hi == 0x333ffffful);
-  assert(r->provenance_count == 1);
-  assert(strcmp(r->origins[0], "proc-iomem") == 0);
+  assert(origin_set_count(&r->origins) == 1);
+  assert(strcmp(first_origin(r), "proc-iomem") == 0);
 }
 
 static void test_parse_interior_sample(void) {
@@ -348,8 +351,7 @@ static void test_merge_collapses_same_key(void) {
   base->conf = CONF_PARSED;
   base->lo = 0x33000000;
   base->set_mask = LO_SET;
-  base->provenance_count = 1;
-  snprintf(base->origins[0], ORIGIN_LEN, "proc-iomem");
+  add_origin(base, "proc-iomem");
 
   struct result *top = push_result();
   top->type = KASLD_TYPE_PHYS;
@@ -358,15 +360,14 @@ static void test_merge_collapses_same_key(void) {
   top->conf = CONF_PARSED;
   top->hi = 0x333fffff;
   top->set_mask = HI_SET;
-  top->provenance_count = 1;
-  snprintf(top->origins[0], ORIGIN_LEN, "dmesg");
+  add_origin(top, "dmesg");
 
   merge_results();
   assert(num_results == 1);
   struct result *r = &results[0];
   assert(HAS_LO(r) && HAS_HI(r));
   assert(r->lo == 0x33000000ul && r->hi == 0x333ffffful);
-  assert(r->provenance_count == 2);
+  assert(origin_set_count(&r->origins) == 2);
 }
 
 static void test_merge_keeps_conflicting_records(void) {
@@ -379,8 +380,7 @@ static void test_merge_keeps_conflicting_records(void) {
   a->lo = 0x100000;
   a->hi = 0x1fffff;
   a->set_mask = LO_SET | HI_SET;
-  a->provenance_count = 1;
-  snprintf(a->origins[0], ORIGIN_LEN, "source-a");
+  add_origin(a, "source-a");
 
   struct result *b = push_result();
   b->type = KASLD_TYPE_PHYS;
@@ -390,8 +390,7 @@ static void test_merge_keeps_conflicting_records(void) {
   b->lo = 0x500000;
   b->hi = 0x5fffff;
   b->set_mask = LO_SET | HI_SET;
-  b->provenance_count = 1;
-  snprintf(b->origins[0], ORIGIN_LEN, "source-b");
+  add_origin(b, "source-b");
 
   int before = num_results;
   merge_results();
@@ -492,8 +491,7 @@ static void test_merge_keeps_lo_only_witnesses_separate(void) {
   a->conf = CONF_PARSED;
   a->lo = (unsigned long)PAGE_OFFSET;
   a->set_mask = LO_SET;
-  a->provenance_count = 1;
-  snprintf(a->origins[0], ORIGIN_LEN, "source-a");
+  add_origin(a, "source-a");
 
   struct result *b = push_result();
   b->type = KASLD_TYPE_VIRT;
@@ -502,14 +500,13 @@ static void test_merge_keeps_lo_only_witnesses_separate(void) {
   b->conf = CONF_PARSED;
   b->lo = (unsigned long)PAGE_OFFSET + 0x10000000ul;
   b->set_mask = LO_SET;
-  b->provenance_count = 1;
-  snprintf(b->origins[0], ORIGIN_LEN, "source-b");
+  add_origin(b, "source-b");
 
   merge_results();
   assert(num_results == 2);
   /* Origin attribution is preserved (no cross-witness merging). */
-  assert(strcmp(results[0].origins[0], "source-a") == 0);
-  assert(strcmp(results[1].origins[0], "source-b") == 0);
+  assert(strcmp(first_origin(&results[0]), "source-a") == 0);
+  assert(strcmp(first_origin(&results[1]), "source-b") == 0);
 }
 
 static void test_merge_picks_highest_conf_sample(void) {
@@ -753,7 +750,7 @@ static void test_roundtrip_base(void) {
   char buf[512];
   reset_results();
   assert(capture_helper(emit_base_helper, buf, sizeof(buf)) == 1);
-  assert(capture_result(buf, "parsed", "test") == 1);
+  assert(capture_result(buf, "parsed", test_origin("test")) == 1);
   struct result *r = &results[0];
   assert(r->type == KASLD_TYPE_VIRT);
   assert(r->region == REGION_KERNEL_TEXT);
@@ -767,7 +764,7 @@ static void test_roundtrip_range(void) {
   char buf[512];
   reset_results();
   assert(capture_helper(emit_range_helper, buf, sizeof(buf)) == 1);
-  assert(capture_result(buf, "parsed", "test") == 1);
+  assert(capture_result(buf, "parsed", test_origin("test")) == 1);
   struct result *r = &results[0];
   assert(r->type == KASLD_TYPE_PHYS);
   assert(r->region == REGION_INITRD);
@@ -780,7 +777,7 @@ static void test_roundtrip_top(void) {
   char buf[512];
   reset_results();
   assert(capture_helper(emit_top_helper, buf, sizeof(buf)) == 1);
-  assert(capture_result(buf, "parsed", "test") == 1);
+  assert(capture_result(buf, "parsed", test_origin("test")) == 1);
   struct result *r = &results[0];
   assert(r->type == KASLD_TYPE_PHYS);
   assert(r->region == REGION_RAM);
@@ -793,7 +790,7 @@ static void test_roundtrip_sample(void) {
   char buf[512];
   reset_results();
   assert(capture_helper(emit_sample_helper, buf, sizeof(buf)) == 1);
-  assert(capture_result(buf, "heuristic", "test") == 1);
+  assert(capture_result(buf, "heuristic", test_origin("test")) == 1);
   struct result *r = &results[0];
   assert(r->type == KASLD_TYPE_VIRT);
   assert(r->region == REGION_VMALLOC);
@@ -806,7 +803,7 @@ static void test_roundtrip_sized(void) {
   char buf[512];
   reset_results();
   assert(capture_helper(emit_sized_helper, buf, sizeof(buf)) == 1);
-  assert(capture_result(buf, "parsed", "test") == 1);
+  assert(capture_result(buf, "parsed", test_origin("test")) == 1);
   struct result *r = &results[0];
   assert(HAS_LO(r) && HAS_HI(r));
   assert(r->lo == 0x100000ul);
@@ -962,8 +959,7 @@ static void test_merge_dedups_provenance(void) {
     r->conf = CONF_HEURISTIC;
     r->lo = FX_TEXT;
     r->set_mask = LO_SET;
-    r->provenance_count = 1;
-    snprintf(r->origins[0], ORIGIN_LEN, "%s", i == 1 ? "src-b" : "src-a");
+    add_origin(r, i == 1 ? "src-b" : "src-a");
     r->method_set = 1u << KM_HEURISTIC;
   }
   merge_results();
@@ -971,23 +967,16 @@ static void test_merge_dedups_provenance(void) {
   struct result *r = &results[0];
   /* "src-a" appears twice in the contributors but only once in the merged
    * origin list. */
-  assert(r->provenance_count == 2);
-  int seen_a = 0, seen_b = 0;
-  for (int i = 0; i < r->provenance_count; i++) {
-    if (strcmp(r->origins[i], "src-a") == 0)
-      seen_a++;
-    if (strcmp(r->origins[i], "src-b") == 0)
-      seen_b++;
-  }
-  assert(seen_a == 1 && seen_b == 1);
+  assert(origin_set_count(&r->origins) == 2);
+  assert(origin_set_has(&r->origins, test_origin("src-a")));
+  assert(origin_set_has(&r->origins, test_origin("src-b")));
 }
 
 static void test_merge_keeps_all_contributors(void) {
   reset_results();
-  /* Many distinct-origin contributors at the same lo. Provenance is sized to
-   * the structural max (MAX_COMPONENTS), so the merged record keeps every one:
-   * the cap can no longer bind at any realistic contributor count (here well
-   * above the old cap of 8, well under MAX_COMPONENTS). */
+  /* Many distinct-origin contributors at the same lo. Provenance is a bitset
+   * over the whole discovery table, so the merged record keeps every one and no
+   * contributor count below MAX_COMPONENTS can truncate. */
   const int n = 40;
   for (int i = 0; i < n; i++) {
     struct result *r = push_result();
@@ -997,13 +986,15 @@ static void test_merge_keeps_all_contributors(void) {
     r->conf = CONF_HEURISTIC;
     r->lo = FX_TEXT; /* same lo so lo_only_conflict permits merge */
     r->set_mask = LO_SET;
-    r->provenance_count = 1;
-    snprintf(r->origins[0], ORIGIN_LEN, "src-%d", i);
+    char nm[32];
+    snprintf(nm, sizeof(nm), "src-%d", i);
+    add_origin(r, nm);
   }
   merge_results();
 
   assert(num_results == 1);
-  assert(results[0].provenance_count == n); /* all kept, none truncated */
+  assert(origin_set_count(&results[0].origins) ==
+         n); /* all kept, none truncated */
 }
 
 /* =========================================================================
@@ -1090,9 +1081,8 @@ static void test_synthesized_result_sets_fields_correctly(void) {
   r->lo = (unsigned long)PAGE_OFFSET + 0x33000000ul;
   r->hi = (unsigned long)PAGE_OFFSET + 0x333ffffful;
   r->set_mask = LO_SET | HI_SET;
-  snprintf(r->origins[0], ORIGIN_LEN, "inference:my_plugin");
+  add_origin(r, "inference:my_plugin");
   r->method_set = 1u << KM_DERIVED;
-  r->provenance_count = 1;
 
   /* Round-trip through result_in_bounds and select_anchor. */
   assert(result_in_bounds(r, &layout) == 1);
@@ -1315,21 +1305,98 @@ static void test_merge_is_idempotent(void) {
     r->conf = CONF_PARSED;
     r->lo = 0x1000ul;
     r->set_mask = LO_SET;
-    r->provenance_count = 1;
-    snprintf(r->origins[0], ORIGIN_LEN, "src-%d", i);
+    char nm[32];
+    snprintf(nm, sizeof(nm), "src-%d", i);
+    add_origin(r, nm);
   }
   merge_results();
   assert(num_results == 1);
   unsigned long lo_after_first = results[0].lo;
   uint32_t mask_after_first = results[0].set_mask;
-  uint8_t prov_after_first = results[0].provenance_count;
+  int prov_after_first = origin_set_count(&results[0].origins);
 
   /* Run again — must be a no-op. */
   merge_results();
   assert(num_results == 1);
   assert(results[0].lo == lo_after_first);
   assert(results[0].set_mask == mask_after_first);
-  assert(results[0].provenance_count == prov_after_first);
+  assert(origin_set_count(&results[0].origins) == prov_after_first);
+}
+
+/* =========================================================================
+ * Merge: capture order is irrelevant
+ *
+ * results[] arrives in component completion order, which the worker pool
+ * makes vary between runs. merge_results() opens by sorting into a canonical
+ * content order so the merged set is a pure function of the record SET.
+ *
+ * The scenario below is the one that makes this load-bearing rather than
+ * cosmetic: the refusal predicates are NOT transitive. A record carrying no
+ * sample is sample-compatible with every other, so an unsorted pass could
+ * anchor a group on it and admit a candidate that the canonically-first
+ * record would have refused — a different grouping from the same evidence.
+ * ========================================================================= */
+static void seed_merge_permutation(const int *order, int n) {
+  reset_results();
+  for (int k = 0; k < n; k++) {
+    struct result *r = push_result();
+    r->type = KASLD_TYPE_PHYS;
+    r->region = REGION_RAM;
+    r->conf = CONF_PARSED;
+    switch (order[k]) {
+    case 0: /* bare bound, no sample: compatible with both samples below */
+      r->pos = POS_BASE;
+      r->lo = 0x1000ul;
+      r->set_mask = LO_SET;
+      add_origin(r, "src-bound");
+      break;
+    case 1: /* sample witness A */
+      r->pos = POS_INTERIOR;
+      r->sample = 0x2000ul;
+      r->set_mask = SAMPLE_SET;
+      add_origin(r, "src-sample-a");
+      break;
+    default: /* sample witness B — conflicts with A, not with the bound */
+      r->pos = POS_INTERIOR;
+      r->sample = 0x3000ul;
+      r->set_mask = SAMPLE_SET;
+      add_origin(r, "src-sample-b");
+      break;
+    }
+  }
+  merge_results();
+}
+
+static void test_merge_is_capture_order_independent(void) {
+  const int forward[3] = {0, 1, 2};
+  const int reverse[3] = {2, 1, 0};
+  const int middle[3] = {1, 0, 2};
+
+  seed_merge_permutation(forward, 3);
+  int n_ref = num_results;
+  struct result ref[3];
+  assert(n_ref <= (int)(sizeof(ref) / sizeof(ref[0])));
+  for (int i = 0; i < n_ref; i++)
+    ref[i] = results[i];
+
+  const int *perms[2] = {reverse, middle};
+  for (int p = 0; p < 2; p++) {
+    seed_merge_permutation(perms[p], 3);
+    assert(num_results == n_ref);
+    for (int i = 0; i < n_ref; i++) {
+      /* Same records, in the same slots — not merely the same set. */
+      assert(results[i].type == ref[i].type);
+      assert(results[i].region == ref[i].region);
+      assert(results[i].pos == ref[i].pos);
+      assert(results[i].conf == ref[i].conf);
+      assert(results[i].set_mask == ref[i].set_mask);
+      assert(results[i].lo == ref[i].lo);
+      assert(results[i].hi == ref[i].hi);
+      assert(results[i].sample == ref[i].sample);
+      assert(memcmp(&results[i].origins, &ref[i].origins,
+                    sizeof(ref[i].origins)) == 0);
+    }
+  }
 }
 
 /* =========================================================================
@@ -2023,6 +2090,7 @@ int main(void) {
   RUN(test_merge_dedups_provenance);
   RUN(test_merge_keeps_all_contributors);
   RUN(test_merge_is_idempotent);
+  RUN(test_merge_is_capture_order_independent);
   RUN(test_merge_base_align_takes_max);
   RUN(test_merge_base_align_propagates_from_either_contributor);
   RUN(test_phys_virt_linkage_stays_two_records);

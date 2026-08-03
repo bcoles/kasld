@@ -1,0 +1,69 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-component-cap — MAX_COMPONENTS must stay ahead of the component tree.
+#
+# MAX_COMPONENTS (src/include/kasld/internal.h) bounds the discovery table: a
+# component directory holding more executables than that runs only the first
+# MAX_COMPONENTS by name and reports the truncation. Nothing at runtime can
+# recover the dropped components, and a truncated run gathers a subset of the
+# available evidence — so its residual-entropy figure overstates what KASLR
+# retains. The cap must therefore be raised before the tree reaches it, not
+# after.
+#
+# The count grows one component at a time and nothing else notices, so this
+# check FAILS while there is still headroom left, giving a release's worth of
+# warning rather than reporting the wall after it is hit.
+#
+# Raising the cap is cheap: provenance is a bitset over the discovery table
+# (struct origin_set), so each additional component costs one bit per result
+# rather than a name per result.
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+COMP="$ROOT/src/components"
+HDR="$ROOT/src/include/kasld/internal.h"
+
+# Minimum free slots between the in-tree component count and the cap.
+MIN_HEADROOM=64
+
+if [ -t 2 ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; RESET=
+fi
+
+n=0
+for f in "$COMP"/*.c; do
+  [ -e "$f" ] || continue
+  n=$((n + 1))
+done
+
+if [ "$n" -eq 0 ]; then
+  printf '%scheck-component-cap: FAIL%s — no components found under %s\n' \
+    "$RED" "$RESET" "$COMP"
+  exit 1
+fi
+
+# The cap is #ifndef-guarded so a build can override it; the guard checks the
+# in-tree default, which is what a plain `make` compiles.
+cap=$(sed -n 's/^#define MAX_COMPONENTS \([0-9][0-9]*\)$/\1/p' "$HDR" | head -1)
+if [ -z "$cap" ]; then
+  printf '%scheck-component-cap: FAIL%s — no MAX_COMPONENTS default in %s\n' \
+    "$RED" "$RESET" "$HDR"
+  exit 1
+fi
+
+headroom=$((cap - n))
+if [ "$headroom" -lt "$MIN_HEADROOM" ]; then
+  printf '%scheck-component-cap: FAIL%s — %d components, MAX_COMPONENTS is %d (headroom %d, want >= %d)\n' \
+    "$RED" "$RESET" "$n" "$cap" "$headroom" "$MIN_HEADROOM"
+  printf '  raise MAX_COMPONENTS in src/include/kasld/internal.h\n'
+  exit 1
+fi
+
+printf '%scheck-component-cap: OK%s (%d components, cap %d, headroom %d)\n' \
+  "$GREEN" "$RESET" "$n" "$cap" "$headroom"
+exit 0

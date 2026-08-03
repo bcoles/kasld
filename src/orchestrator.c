@@ -134,13 +134,19 @@ struct kasld_layout layout = {
 static int component_timeout = DEFAULT_TIMEOUT_SECS;
 
 /* Parallel inference: 0 = sequential (default), N > 1 = N worker threads */
+/* Ceiling on the inference worker pool. Bounds the per-phase pthread_t array
+ * independently of MAX_COMPONENTS: the pool is sized from the online CPU count
+ * (or --workers), never from how many components exist, so the two caps have no
+ * reason to track each other. --workers above this clamps. */
+#define KASLD_MAX_WORKERS 256
+
 static int parallel_workers = 0;
 
 /* Number of components that will actually run (excludes skipped experimental)
  */
 static int num_active_components;
 
-/* Protects results[], num_results, comp_logs[], num_comp_logs, progress_done,
+/* Protects results[], num_results, progress_done,
  * and the parallel worker pool counter (pool_next). No-ops when pthread is
  * unavailable (sequential-only mode). */
 #ifdef HAVE_PTHREAD
@@ -320,7 +326,6 @@ static int pool_next;                /* next index in pool_inf[] to claim */
  * -------------------------------------------------------------------------
  */
 struct component_log comp_logs[MAX_COMPONENTS];
-int num_comp_logs;
 
 /* -------------------------------------------------------------------------
  * Orchestrator-side saturation flags. Parallels engine.saturation (which
@@ -333,8 +338,12 @@ int num_comp_logs;
  */
 enum orchestrator_saturation {
   ORCH_SAT_RESULTS_FULL = 1u << 0, /* MAX_RESULTS hit; drops new records */
-  ORCH_SAT_COMPONENT_LINES_DROPPED =
-      1u << 1, /* alloc failure during verbose-line capture */
+  ORCH_SAT_COMPONENT_LINES_DROPPED = 1u << 1, /* alloc failure during
+                                                 verbose-line capture */
+  ORCH_SAT_COMPONENTS_TRUNCATED = 1u << 2, /* more executables in the component
+                                              directory than MAX_COMPONENTS */
+  ORCH_SAT_SCALARS_FULL = 1u << 3,         /* MAX_SCALAR_FACTS hit; drops new
+                                              scalar facts */
 };
 static unsigned int orchestrator_saturation;
 
@@ -343,7 +352,6 @@ static unsigned int orchestrator_saturation;
  * =========================================================================
  */
 struct component {
-  char path[KASLD_PATH_MAX];
   char name[256];
   char phase[32];      /* scheduling phase: "inference" or "probing".
                         * Set from "phase:" in .kasld_meta; falls back to
@@ -357,8 +365,32 @@ struct component {
                         * KASLD_SYSROOT */
 };
 
+/* Every component lives in the one directory discovery settled on, so a full
+ * path is that directory plus the name — held once here rather than repeated
+ * per component. Set by discover_components() before any component runs. */
+static char component_dir[KASLD_PATH_MAX];
+
 static struct component components[MAX_COMPONENTS];
-static int num_components;
+int num_components;
+
+/* Compose a component's executable path. Returns buf, or NULL if the composed
+ * path would not fit (the caller then skips the component rather than acting on
+ * a truncated path). */
+static const char *component_path(const struct component *c, char *buf,
+                                  size_t bufsz) {
+  int n = snprintf(buf, bufsz, "%s/%s", component_dir, c->name);
+  if (n < 0 || (size_t)n >= bufsz)
+    return NULL;
+  return buf;
+}
+
+const char *kasld_origin_name(int idx) {
+  if (idx == ORIGIN_ARCH_SYNTH)
+    return "arch-no-kaslr";
+  if (idx < 0 || idx >= num_components)
+    return "";
+  return components[idx].name;
+}
 
 /* Phase table.
  * Each row declares a phase key (matched against components[].phase) and an
@@ -442,18 +474,12 @@ static int discover_components(void) {
     return -1;
   }
 
+  snprintf(component_dir, sizeof(component_dir), "%s", comp_dir);
+
   /* Scan directory for executables */
   struct dirent *ent;
+  int truncated = 0;
   while ((ent = readdir(d)) != NULL) {
-    if (num_components >= MAX_COMPONENTS) {
-      if (!quiet)
-        fprintf(stderr,
-                "warning: component limit (%d) reached, "
-                "skipping remaining\n",
-                MAX_COMPONENTS);
-      break;
-    }
-
     /* Skip dotfiles */
     if (ent->d_name[0] == '.')
       continue;
@@ -472,12 +498,40 @@ static int discover_components(void) {
     if (!(st.st_mode & S_IXUSR))
       continue;
 
-    struct component *c = &components[num_components];
-    snprintf(c->path, sizeof(c->path), "%s", path);
+    struct component *c;
+    if (num_components < MAX_COMPONENTS) {
+      c = &components[num_components++];
+    } else {
+      /* Full: keep the alphabetically-first MAX_COMPONENTS entries by evicting
+       * the current maximum when this name sorts below it. Which components a
+       * too-large directory drops is then a property of the directory, not of
+       * readdir order — the same set on every filesystem and every run. */
+      truncated = 1;
+      int max_i = 0;
+      for (int i = 1; i < num_components; i++)
+        if (strcmp(components[i].name, components[max_i].name) > 0)
+          max_i = i;
+      if (strcmp(ent->d_name, components[max_i].name) >= 0)
+        continue;
+      c = &components[max_i];
+      memset(c, 0, sizeof(*c));
+    }
     snprintf(c->name, sizeof(c->name), "%s", ent->d_name);
-    num_components++;
   }
   closedir(d);
+
+  /* Truncation means the run gathered a subset of the available evidence, so
+   * its residual-entropy figure overstates what KASLR retains. Report it on
+   * both channels — the saturation bit reaches --verbose and JSON, and the
+   * warning is printed even under --quiet, which suppresses progress noise
+   * rather than a caveat on the answer. */
+  if (truncated) {
+    orchestrator_saturation |= ORCH_SAT_COMPONENTS_TRUNCATED;
+    fprintf(stderr,
+            "warning: component limit (%d) reached in %s; ran the first %d by "
+            "name and skipped the rest\n",
+            MAX_COMPONENTS, comp_dir, MAX_COMPONENTS);
+  }
 
   if (num_components == 0) {
     fprintf(stderr, "error: no components found in %s\n", comp_dir);
@@ -1172,7 +1226,7 @@ static int parse_result_tail(const char *tail_start, struct parsed_tail *p) {
  * offending field) rather than a silent "ran but produced nothing". */
 static int result_vas_ok(enum kasld_region region, const struct parsed_tail *p,
                          enum kasld_addr_type type, const char *name_buf,
-                         const char *origin) {
+                         int origin) {
   const struct region_info *ri = &region_info[region];
   if (ri->derive_vas != NULL ||
       (ri->static_vas.lo == 0 && ri->static_vas.hi == 0))
@@ -1201,7 +1255,8 @@ static int result_vas_ok(enum kasld_region region, const struct parsed_tail *p,
             " (origin=%s)\n",
             kasld_type_wire(type), kasld_region_wire(region),
             name_buf[0] ? ":" : "", name_buf[0] ? name_buf : "", vas_field,
-            vas_val, vlo, vhi, origin && *origin ? origin : "?");
+            vas_val, vlo, vhi,
+            kasld_origin_name(origin)[0] ? kasld_origin_name(origin) : "?");
   return 0;
 }
 
@@ -1209,7 +1264,7 @@ static int result_vas_ok(enum kasld_region region, const struct parsed_tail *p,
  * success, 0 if the result table is full (warning emitted once). */
 static int append_result(enum kasld_addr_type type, enum kasld_region region,
                          const char *name_buf, const struct parsed_tail *p,
-                         const char *method, const char *origin) {
+                         const char *method, int origin) {
   RESULT_LOCK();
   if (num_results >= MAX_RESULTS) {
     orchestrator_saturation |= ORCH_SAT_RESULTS_FULL;
@@ -1258,13 +1313,8 @@ static int append_result(enum kasld_addr_type type, enum kasld_region region,
     r->set_mask |= BASE_ALIGN_SET;
   }
   /* Provenance: this is the first contributor. */
-  if (origin && *origin) {
-    size_t ol = strnlen(origin, ORIGIN_LEN - 1);
-    memcpy(r->origins[0], origin, ol);
-    r->origins[0][ol] = '\0';
-  }
+  origin_set_add(&r->origins, origin);
   r->method_set = method_bit(method);
-  r->provenance_count = 1;
   return 1;
 }
 
@@ -1280,8 +1330,7 @@ static int append_result(enum kasld_addr_type type, enum kasld_region region,
  *
  * Returns 1 on accept (record appended to results[]), 0 on reject.
  */
-static int capture_result(const char *line, const char *method,
-                          const char *origin) {
+static int capture_result(const char *line, const char *method, int origin) {
   /* Quick prefix filter. */
   if (line[0] != 'P' && line[0] != 'V')
     return 0;
@@ -1333,7 +1382,7 @@ static int capture_result(const char *line, const char *method,
 /* Parse one `S <fact> conf=<c> value=0x<hex>` scalar-fact wire record into
  * scalar_facts[]. Returns 1 on capture, 0 on reject (unknown fact, bad conf or
  * value). Sibling of capture_result(); same validate-or-reject discipline. */
-static int capture_scalar(const char *line, const char *origin) {
+static int capture_scalar(const char *line, int origin) {
   if (line[0] != 'S' || line[1] != ' ')
     return 0;
   char name[32], conf_str[16], val_str[40];
@@ -1355,6 +1404,7 @@ static int capture_scalar(const char *line, const char *origin) {
    * outside the lock. */
   RESULT_LOCK();
   if (num_scalar_facts >= MAX_SCALAR_FACTS) {
+    orchestrator_saturation |= ORCH_SAT_SCALARS_FULL;
     RESULT_UNLOCK();
     return 0;
   }
@@ -1364,8 +1414,7 @@ static int capture_scalar(const char *line, const char *origin) {
   s->fact = f;
   s->value = v;
   s->conf = c;
-  snprintf(s->origin, ORIGIN_LEN, "%.*s", (int)(ORIGIN_LEN - 1),
-           origin ? origin : "");
+  s->origin = origin;
   return 1;
 }
 
@@ -1624,7 +1673,9 @@ int meta_get_all(const struct component_meta *m, const char *key,
 #ifndef KASLD_TESTING
 static void classify_components(void) {
   for (int i = 0; i < num_components; i++) {
-    char *meta_raw = extract_elf_section(components[i].path, ".kasld_meta");
+    char cpath[KASLD_PATH_MAX];
+    const char *cp = component_path(&components[i], cpath, sizeof(cpath));
+    char *meta_raw = cp ? extract_elf_section(cp, ".kasld_meta") : NULL;
     if (!meta_raw) {
       snprintf(components[i].phase, sizeof(components[i].phase), "inference");
       continue;
@@ -1745,7 +1796,7 @@ static void parse_disposition(const char *s, struct component_disposition *d) {
 }
 
 static int handle_component_line(struct component_log *clog,
-                                 const char *comp_method, const char *origin,
+                                 const char *comp_method, int origin,
                                  const char *content, size_t len) {
   char line[MAX_LINE_LEN];
   if (len >= sizeof(line))
@@ -1801,9 +1852,9 @@ static int handle_component_line(struct component_log *clog,
     return 0;
   }
 
-  /* Origin (provenance) is the component name — captured at the orchestrator
-   * since it owns the subprocess identity. `S` lines are scalar system facts;
-   * everything else is an address record. */
+  /* Origin (provenance) is the component's discovery slot — captured at the
+   * orchestrator since it owns the subprocess identity. `S` lines are scalar
+   * system facts; everything else is an address record. */
   if (line[0] == 'S')
     return capture_scalar(line, origin);
   return capture_result(line, comp_method, origin);
@@ -1839,13 +1890,22 @@ static void print_component_banner(const char *name, const char *method) {
 }
 
 static int run_component(const struct component *c) {
+  /* The component's discovery slot is its identity: it indexes comp_logs[] and
+   * is the provenance recorded on every result it emits. Derived from the
+   * table rather than a counter, so it does not depend on completion order. */
+  const int slot = (int)(c - components);
+  char cpath[KASLD_PATH_MAX];
+  const char *cp = component_path(c, cpath, sizeof(cpath));
+  if (!cp)
+    return -1;
+
   /* Extract explain string before execution (if --explain active or JSON) */
   char *explain_str = NULL;
   if (explain_mode || json_output)
-    explain_str = extract_elf_section(c->path, ".kasld_explain");
+    explain_str = extract_elf_section(cp, ".kasld_explain");
 
   /* Extract metadata (always — needed for method and hardening report) */
-  char *meta_raw = extract_elf_section(c->path, ".kasld_meta");
+  char *meta_raw = extract_elf_section(cp, ".kasld_meta");
   struct component_meta tmp_meta = {0};
   parse_meta(meta_raw, &tmp_meta);
   free(meta_raw);
@@ -1866,31 +1926,27 @@ static int run_component(const struct component *c) {
   }
 
   /* Always allocate a log slot for outcome tracking */
-  struct component_log *clog = NULL;
-  RESULT_LOCK();
-  if (num_comp_logs < MAX_COMPONENTS) {
-    int clog_idx = num_comp_logs++;
-    RESULT_UNLOCK();
-    clog = &comp_logs[clog_idx];
-    snprintf(clog->name, sizeof(clog->name), "%s", c->name);
-    clog->exit_code = -1;
-    clog->outcome = OUTCOME_NO_RESULT;
-    clog->disposition = (struct component_disposition){0};
-    clog->lines = NULL;
-    clog->num_lines = 0;
-    clog->lines_cap = 0;
-    clog->explain = explain_str; /* transfer ownership */
-    clog->meta = tmp_meta;       /* copy parsed metadata */
-    explain_str = NULL;
-    /* Re-point method to the clog copy (stable pointer into clog->meta) */
-    method_val = meta_get(&clog->meta, "method");
-    comp_method = method_val ? method_val : "parsed";
-  } else {
-    RESULT_UNLOCK();
-  }
+  /* One log slot per component, addressed by its discovery slot rather than
+   * claimed from a counter: each running component owns a distinct slot by
+   * construction, so no lock is needed and the array's order is discovery
+   * order on every run instead of the order components happened to finish. */
+  struct component_log *clog = &comp_logs[slot];
+  clog->ran = 1;
+  snprintf(clog->name, sizeof(clog->name), "%s", c->name);
+  clog->exit_code = -1;
+  clog->outcome = OUTCOME_NO_RESULT;
+  clog->disposition = (struct component_disposition){0};
+  clog->lines = NULL;
+  clog->num_lines = 0;
+  clog->lines_cap = 0;
+  clog->explain = explain_str; /* ownership transfers to the log slot */
+  clog->meta = tmp_meta;       /* copy parsed metadata */
+  explain_str = NULL;
+  /* Re-point method to the clog copy (stable pointer into clog->meta) */
+  method_val = meta_get(&clog->meta, "method");
+  comp_method = method_val ? method_val : "parsed";
 
-  /* Free explain_str if not transferred to clog */
-  free(explain_str);
+  free(explain_str); /* NULL after the transfer above */
 
   int pipefd[2];
   if (pipe(pipefd) < 0) {
@@ -1935,10 +1991,10 @@ static int run_component(const struct component *c) {
      * Empty / unset → direct execve of the component (the normal path). */
     const char *wrap = getenv("KASLD_EXEC_WRAPPER");
     if (wrap && *wrap) {
-      execl(wrap, wrap, c->path, (char *)NULL);
+      execl(wrap, wrap, cp, (char *)NULL);
       /* fall-through to _exit on failure */
     } else {
-      execl(c->path, c->name, (char *)NULL);
+      execl(cp, c->name, (char *)NULL);
     }
     _exit(127);
   }
@@ -1992,7 +2048,7 @@ static int run_component(const struct component *c) {
        * consumed, leaving buf_pos == 0 and nothing to flush. */
       if (buf_pos > 0)
         tagged_this_run +=
-            handle_component_line(clog, comp_method, c->name, buf, buf_pos);
+            handle_component_line(clog, comp_method, slot, buf, buf_pos);
       break;
     }
     buf_pos += (size_t)n;
@@ -2005,7 +2061,7 @@ static int run_component(const struct component *c) {
     while ((nl = memchr(buf + start, '\n', buf_pos - start)) != NULL) {
       size_t llen = (size_t)(nl - (buf + start));
       tagged_this_run +=
-          handle_component_line(clog, comp_method, c->name, buf + start, llen);
+          handle_component_line(clog, comp_method, slot, buf + start, llen);
       start = (size_t)(nl - buf) + 1;
     }
     size_t left = buf_pos - start;
@@ -2016,7 +2072,7 @@ static int run_component(const struct component *c) {
      * zero-length read, then keep reading the rest of the line. */
     if (left == sizeof(buf)) {
       tagged_this_run +=
-          handle_component_line(clog, comp_method, c->name, buf, left);
+          handle_component_line(clog, comp_method, slot, buf, left);
       left = 0;
     }
 
@@ -2165,7 +2221,11 @@ static void run_phase(const struct phase *p) {
   pool_next = 0;
 
 #ifdef HAVE_PTHREAD
-  pthread_t threads[MAX_COMPONENTS];
+  /* One entry per worker, not per component: `workers` is already clamped to
+   * the online CPU count and to the number of components in this phase. */
+  pthread_t threads[KASLD_MAX_WORKERS];
+  if (workers > KASLD_MAX_WORKERS)
+    workers = KASLD_MAX_WORKERS;
   int started = 0;
   for (int i = 0; i < workers; i++)
     if (pthread_create(&threads[started], NULL, inference_worker, NULL) == 0)
@@ -2278,33 +2338,6 @@ const struct result *select_anchor(enum kasld_addr_type type,
  * field is an attribute of the contribution, not a discriminator for
  * identity. Two contributions from the same component are one provenance
  * entry regardless of method. */
-static int provenance_has(const struct result *r, const char *s) {
-  if (!s || !*s)
-    return 1;
-  for (int i = 0; i < r->provenance_count; i++)
-    if (strncmp(r->origins[i], s, ORIGIN_LEN) == 0)
-      return 1;
-  return 0;
-}
-
-static void provenance_add(struct result *r, const char *origin) {
-  if (origin && *origin && provenance_has(r, origin))
-    return;
-  /* Distinct origins <= number of components <= MAX_PROVENANCE, so this guard
-   * never binds; it only keeps the write in-bounds if that invariant changes.
-   */
-  if (r->provenance_count >= MAX_PROVENANCE)
-    return;
-  int slot = r->provenance_count++;
-  if (origin && *origin) {
-    size_t ol = strnlen(origin, ORIGIN_LEN - 1);
-    memcpy(r->origins[slot], origin, ol);
-    r->origins[slot][ol] = '\0';
-  } else {
-    r->origins[slot][0] = '\0';
-  }
-}
-
 static void merge_into(struct result *a, const struct result *b,
                        int *sample_owner_w) {
   if (HAS_LO(b)) {
@@ -2345,8 +2378,9 @@ static void merge_into(struct result *a, const struct result *b,
   if (conf_weight(b->conf) > conf_weight(a->conf))
     a->conf = b->conf;
   a->method_set |= b->method_set;
-  for (int i = 0; i < b->provenance_count; i++)
-    provenance_add(a, b->origins[i]);
+  /* Contributors are a set of component slots, so the union is a word-wise OR:
+   * membership is idempotent and no de-duplication pass is needed. */
+  origin_set_union(&a->origins, &b->origins);
 }
 
 static int merge_consistent(const struct result *a) {
@@ -2419,18 +2453,69 @@ static void clamp_sample(struct result *a) {
   }
 }
 
+/* Total order over a record's own content, for the canonical sort below.
+ * Compares only value fields — never provenance or array position — so two
+ * records that tie here are identical as evidence, and no refusal predicate can
+ * reject their merge. Their relative order is therefore immaterial, which is
+ * what lets an unstable qsort produce a stable result. Addresses compare by
+ * relation rather than subtraction: they are unsigned long and a difference
+ * would wrap. */
+static int result_canonical_cmp(const void *va, const void *vb) {
+  const struct result *a = (const struct result *)va;
+  const struct result *b = (const struct result *)vb;
+  if (a->type != b->type)
+    return (int)a->type - (int)b->type;
+  if (a->region != b->region)
+    return (int)a->region - (int)b->region;
+  int n = strncmp(a->name, b->name, NAME_LEN);
+  if (n != 0)
+    return n;
+  if (a->pos != b->pos)
+    return (int)a->pos - (int)b->pos;
+  if (a->conf != b->conf)
+    return (int)a->conf - (int)b->conf;
+  if (a->set_mask != b->set_mask)
+    return a->set_mask < b->set_mask ? -1 : 1;
+  if (a->lo != b->lo)
+    return a->lo < b->lo ? -1 : 1;
+  if (a->hi != b->hi)
+    return a->hi < b->hi ? -1 : 1;
+  if (a->sample != b->sample)
+    return a->sample < b->sample ? -1 : 1;
+  if (a->base_align != b->base_align)
+    return a->base_align < b->base_align ? -1 : 1;
+  return 0;
+}
+
 /* Collapse same-(type, region, name) records into one. Called by run_phase()
  * once after every component in the phase has finished, so compute_kaslr_info()
  * — and the engine evidence built from results[] — see deduplicated records.
  * The engine itself runs later, in compute_kaslr_info(); nothing infers here.
  *
+ * ORDER-INDEPENDENT: results[] arrives in component completion order, which
+ * under the worker pool varies between runs. The pass opens by sorting into a
+ * canonical content order, so both the grouping and the surviving records are a
+ * function of the record SET alone. That matters beyond presentation: the
+ * refusal predicates are not transitive (a record carrying no sample is
+ * sample-compatible with every other), so which contributor anchors a group can
+ * decide which later candidates join it. Sorting fixes the anchor by content
+ * instead of by arrival. It also makes every consumer that walks results[] in
+ * index order — the JSON and markdown record lists, the text evidence rows, the
+ * covering order handed to the engine — reproducible across runs.
+ *
  * IDEMPOTENT: safe to call repeatedly. The merge collapses (type, region, name)
  * groups by keeping the highest-confidence record's sample/pos and taking the
  * narrowest interval intersection; calling it again on the already-merged set
- * is a no-op (every potential merge has already been applied). Test code (and
- * the per-phase wiring in run_phase) relies on this — a future edit that
- * introduced cross-call state would break both. */
+ * is a no-op (every potential merge has already been applied). The compaction
+ * below preserves relative order, so the array stays sorted and the second
+ * call's sort is a no-op too. Test code (and the per-phase wiring in run_phase)
+ * relies on this — a future edit that introduced cross-call state would break
+ * both. */
 void merge_results(void) {
+  if (num_results > 1)
+    qsort(results, (size_t)num_results, sizeof(results[0]),
+          result_canonical_cmp);
+
   int alive[MAX_RESULTS];
   for (int i = 0; i < num_results; i++)
     alive[i] = 1;
@@ -3006,14 +3091,19 @@ void compute_kaslr_info(struct summary *s) {
  * -------------------------------------------------------------------------
  */
 void compute_component_stats(struct summary *s) {
-  s->stats.total = num_comp_logs;
+  s->stats.total = 0;
   s->stats.succeeded = 0;
   s->stats.no_result = 0;
   s->stats.unavailable = 0;
   s->stats.access_denied = 0;
   s->stats.timed_out = 0;
 
-  for (int i = 0; i < num_comp_logs; i++) {
+  /* comp_logs[] is indexed by discovery slot and sparse: a filtered component,
+   * or one whose phase did not run, leaves its slot untouched. */
+  for (int i = 0; i < num_components; i++) {
+    if (!comp_logs[i].ran)
+      continue;
+    s->stats.total++;
     switch (comp_logs[i].outcome) {
     case OUTCOME_SUCCESS:
       s->stats.succeeded++;
@@ -3060,12 +3150,12 @@ void inject_kaslr_defaults(struct summary *s) {
     fv->fact = SF_VIRT_KASLR_DISABLED;
     fv->value = 1;
     fv->conf = CONF_PARSED;
-    snprintf(fv->origin, ORIGIN_LEN, "arch-no-kaslr");
+    fv->origin = ORIGIN_ARCH_SYNTH;
     struct scalar_fact_record *fp = &scalar_facts[num_scalar_facts++];
     fp->fact = SF_PHYS_KASLR_DISABLED;
     fp->value = 1;
     fp->conf = CONF_PARSED;
-    snprintf(fp->origin, ORIGIN_LEN, "arch-no-kaslr");
+    fp->origin = ORIGIN_ARCH_SYNTH;
   }
 #endif
 
@@ -3162,16 +3252,40 @@ static void bridge_normalize_arch(struct observation *o,
 #endif
 }
 
-/* True if `origin` is in the exclude list (used by the counterfactual posture
- * projection to drop a set of components' leaks). exclude may be NULL. */
-static int origin_excluded(const char *origin, const char *const *exclude,
-                           int n_exclude) {
-  if (!origin || !exclude)
-    return 0;
-  for (int i = 0; i < n_exclude; i++)
-    if (exclude[i] && strcmp(origin, exclude[i]) == 0)
-      return 1;
-  return 0;
+/* Resolve a name-keyed exclude list into a set of component slots, for the
+ * counterfactual posture projection. Names that match no discovered component
+ * are ignored. exclude may be NULL. */
+static void origin_exclude_set(const char *const *exclude, int n_exclude,
+                               struct origin_set *out) {
+  memset(out, 0, sizeof(*out));
+  if (!exclude)
+    return;
+  for (int i = 0; i < n_exclude; i++) {
+    if (!exclude[i])
+      continue;
+    for (int c = 0; c < num_components; c++)
+      if (strcmp(components[c].name, exclude[i]) == 0) {
+        origin_set_add(out, c);
+        break;
+      }
+  }
+}
+
+/* True when every component that contributed `origins` is excluded — the
+ * record then has no surviving witness and drops out of the projection. A
+ * record corroborated by an excluded component AND a retained one stays: the
+ * retained component still witnesses it, which is exactly what the
+ * counterfactual asks. An empty contributor set is never excluded. */
+static int origins_all_excluded(const struct origin_set *origins,
+                                const struct origin_set *excluded) {
+  int any = 0;
+  for (int i = origin_set_next(origins, 0); i >= 0;
+       i = origin_set_next(origins, i + 1)) {
+    any = 1;
+    if (!origin_set_has(excluded, i))
+      return 0;
+  }
+  return any;
 }
 
 /* Build the engine's evidence set: a pure copy of what the components produced
@@ -3183,17 +3297,23 @@ static int origin_excluded(const char *origin, const char *const *exclude,
  * "what if this leak were closed" projection; pass NULL/0 for the full set. */
 static void engine_build_evidence(struct evidence_set *ev,
                                   const char *const *exclude, int n_exclude) {
+  struct origin_set excluded;
+  origin_exclude_set(exclude, n_exclude, &excluded);
+
   for (int i = 0; i < num_results; i++) {
     const struct result *r = &results[i];
-    const char *origin = r->provenance_count > 0 ? r->origins[0] : NULL;
-    if (origin_excluded(origin, exclude, n_exclude))
+    if (origins_all_excluded(&r->origins, &excluded))
       continue;
+    /* The engine carries one representative origin per observation. Take the
+     * lowest contributor slot: discovery order, so the choice is the same on
+     * every run regardless of which component finished first. */
+    int origin = origin_set_next(&r->origins, 0);
 
     /* Covering members (pos=extent) are routed to the engine's coverings[],
      * not obs[]: they are complete single-source maps that bypass the
      * cross-source merge (see struct covering and merge_results). They keep
-     * their own origin (provenance_count is 1 — the merge never touched them),
-     * which is exactly what the map rules group on. */
+     * their own single origin — the merge never touched them — which is
+     * exactly what the map rules group on. */
     if (r->pos == POS_EXTENT) {
       struct covering cv;
       memset(&cv, 0, sizeof(cv));
@@ -3202,8 +3322,7 @@ static void engine_build_evidence(struct evidence_set *ev,
       cv.lo = r->lo;
       cv.hi = r->hi;
       cv.conf = r->conf;
-      if (r->provenance_count > 0)
-        snprintf(cv.origin, ORIGIN_LEN, "%s", r->origins[0]);
+      snprintf(cv.origin, ORIGIN_LEN, "%s", kasld_origin_name(origin));
       evidence_add_covering(ev, &cv);
       continue;
     }
@@ -3221,8 +3340,7 @@ static void engine_build_evidence(struct evidence_set *ev,
     o.pos = r->pos;
     o.conf = r->conf;
     snprintf(o.name, NAME_LEN, "%s", r->name);
-    if (r->provenance_count > 0)
-      snprintf(o.origin, ORIGIN_LEN, "%s", r->origins[0]);
+    snprintf(o.origin, ORIGIN_LEN, "%s", kasld_origin_name(origin));
 
     bridge_normalize_arch(&o, r);
     evidence_add(ev, &o);
@@ -3230,7 +3348,7 @@ static void engine_build_evidence(struct evidence_set *ev,
 
   /* Scalar system facts collected from component `S` records. */
   for (int i = 0; i < num_scalar_facts; i++) {
-    if (origin_excluded(scalar_facts[i].origin, exclude, n_exclude))
+    if (origin_set_has(&excluded, scalar_facts[i].origin))
       continue;
     struct observation o;
     memset(&o, 0, sizeof(o));
@@ -3238,7 +3356,8 @@ static void engine_build_evidence(struct evidence_set *ev,
     o.scalar_fact = scalar_facts[i].fact;
     o.scalar_value = scalar_facts[i].value;
     o.conf = scalar_facts[i].conf;
-    snprintf(o.origin, ORIGIN_LEN, "%s", scalar_facts[i].origin);
+    snprintf(o.origin, ORIGIN_LEN, "%s",
+             kasld_origin_name(scalar_facts[i].origin));
     evidence_add(ev, &o);
   }
 }
@@ -3437,6 +3556,17 @@ static void orchestrator_report_saturation(void) {
     fprintf(stderr,
             "[orchestrator] saturation: allocation failure while capturing "
             "component stdout for --verbose; at least one line was dropped\n");
+  if (orchestrator_saturation & ORCH_SAT_COMPONENTS_TRUNCATED)
+    fprintf(stderr,
+            "[orchestrator] saturation: MAX_COMPONENTS (%d) reached; the "
+            "component directory holds more executables and only the first %d "
+            "by name ran\n",
+            MAX_COMPONENTS, MAX_COMPONENTS);
+  if (orchestrator_saturation & ORCH_SAT_SCALARS_FULL)
+    fprintf(stderr,
+            "[orchestrator] saturation: MAX_SCALAR_FACTS (%d) reached; further "
+            "scalar system facts were dropped at capture\n",
+            MAX_SCALAR_FACTS);
 }
 
 static void engine_resolve(struct engine *e) {
@@ -4119,8 +4249,8 @@ static int apply_opt(const struct opt *o, int *i, int argc, char *argv[]) {
 static void report_killed_components(void) {
   const char *names[3];
   int shown = 0, n = 0;
-  for (int i = 0; i < num_comp_logs; i++) {
-    if (comp_logs[i].outcome != OUTCOME_TIMEOUT)
+  for (int i = 0; i < num_components; i++) {
+    if (!comp_logs[i].ran || comp_logs[i].outcome != OUTCOME_TIMEOUT)
       continue;
     if (shown < (int)(sizeof(names) / sizeof(names[0])))
       names[shown++] = comp_logs[i].name;

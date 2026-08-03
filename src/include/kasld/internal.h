@@ -24,13 +24,17 @@
  * Constants
  * =========================================================================
  */
-#define MAX_COMPONENTS 128
+/* Upper bound on components discovered in the component directory. Overridable
+ * at build time (-DMAX_COMPONENTS=...) for an install carrying a larger set,
+ * matching the engine-side caps. tests/check-component-cap fails the build when
+ * the in-tree component count leaves too little headroom beneath it. A
+ * directory holding more than this many executables runs the first
+ * MAX_COMPONENTS in discovery order and reports the truncation. */
+#ifndef MAX_COMPONENTS
+#define MAX_COMPONENTS 512
+#endif
 #define MAX_RESULTS 4096
 /* NAME_LEN / ORIGIN_LEN are the wire-field widths, defined once in api.h. */
-/* A merged record can be corroborated by at most every component, so size its
- * provenance to the structural maximum — overflow is impossible by
- * construction. */
-#define MAX_PROVENANCE MAX_COMPONENTS
 /* Captured-stdout lines are kept only for --verbose / --json output. The log
  * is grown geometrically on demand from this initial capacity; there is no
  * hard cap (the previous fixed cap of 64 silently truncated noisy components).
@@ -120,7 +124,7 @@ struct kasld_layout {
  * `pos` describes what `sample` represents (BASE/TOP/INTERIOR/UNKNOWN).
  * It is NEVER a check for "do we have a known base?" — that is HAS_LO(r).
  *
- * Provenance is owned, fixed-cap arrays. The struct lives in a static
+ * Provenance is an owned, fixed-width bitset. The struct lives in a static
  * results[] table; pointer-to-transient-buffer fields would dangle.
  * ========================================================================= */
 
@@ -202,6 +206,68 @@ static inline void kasld_method_set_str(uint16_t set, char *buf, size_t sz) {
     snprintf(buf, sz, "unknown");
 }
 
+/* Provenance: which components contributed a record.
+ *
+ * A component's identity is its slot in the discovery table, assigned once
+ * after discovery sorts that table — so it is fixed for the run and does not
+ * depend on the order components finish in. A record carries its contributors
+ * as a bitset over those slots: union is a word-wise OR, membership a bit test,
+ * and the contributor count a popcount. Names are resolved for display through
+ * kasld_origin_name(), so a record can never name a component that was not
+ * discovered.
+ *
+ * The set is sized to the structural maximum (every component corroborating one
+ * record), which costs one bit per component rather than a name per component,
+ * so raising MAX_COMPONENTS stays cheap. */
+#define ORIGIN_WORDS ((MAX_COMPONENTS + 31) / 32)
+
+struct origin_set {
+  uint32_t w[ORIGIN_WORDS];
+};
+
+static inline void origin_set_add(struct origin_set *s, int idx) {
+  if (idx >= 0 && idx < MAX_COMPONENTS)
+    s->w[idx / 32] |= 1u << (idx % 32);
+}
+
+static inline int origin_set_has(const struct origin_set *s, int idx) {
+  if (idx < 0 || idx >= MAX_COMPONENTS)
+    return 0;
+  return (s->w[idx / 32] & (1u << (idx % 32))) != 0;
+}
+
+static inline void origin_set_union(struct origin_set *a,
+                                    const struct origin_set *b) {
+  for (int i = 0; i < ORIGIN_WORDS; i++)
+    a->w[i] |= b->w[i];
+}
+
+/* Index of the lowest contributor at or above `from`, or -1 when none remains.
+ * Iterating from 0 walks the contributors in discovery order:
+ *   for (int i = origin_set_next(&r->origins, 0); i >= 0;
+ *        i = origin_set_next(&r->origins, i + 1))
+ */
+static inline int origin_set_next(const struct origin_set *s, int from) {
+  if (from < 0)
+    from = 0;
+  for (int i = from; i < MAX_COMPONENTS; i++)
+    if (s->w[i / 32] & (1u << (i % 32)))
+      return i;
+  return -1;
+}
+
+static inline int origin_set_count(const struct origin_set *s) {
+  int n = 0;
+  for (int i = 0; i < ORIGIN_WORDS; i++) {
+    uint32_t v = s->w[i];
+    while (v) {
+      v &= v - 1;
+      n++;
+    }
+  }
+  return n;
+}
+
 struct result {
   enum kasld_addr_type type;
   enum kasld_region region;
@@ -215,21 +281,32 @@ struct result {
   enum kasld_position pos;
   enum kasld_confidence conf;
 
-  /* Provenance: the components that corroborate this record (origins[0] is the
-   * earliest contributor) and method_set, the union of their methods. Sized to
-   * the structural max (MAX_COMPONENTS) so it can never overflow. */
-  char origins[MAX_PROVENANCE][ORIGIN_LEN];
+  /* The components that corroborate this record, and method_set, the union of
+   * their methods. */
+  struct origin_set origins;
   uint16_t method_set; /* bitmask over enum kasld_method */
-  uint8_t provenance_count;
 };
+
+/* Origin slots below zero name a producer that is not a discovered component.
+ * A result's provenance only ever holds real component slots (every result
+ * arrives on a component's wire channel); the sentinels exist for the scalar
+ * facts the orchestrator synthesises itself, which still need a display name.
+ */
+#define ORIGIN_NONE (-1)       /* unattributed */
+#define ORIGIN_ARCH_SYNTH (-2) /* synthesised from compile-time arch facts */
+
+/* Display name of a discovered component or of an origin sentinel; "" for an
+ * index outside both. Defined in orchestrator.c, which owns the discovery
+ * table. */
+const char *kasld_origin_name(int idx);
 
 #define HAS_LO(r) ((r)->set_mask & LO_SET)
 #define HAS_HI(r) ((r)->set_mask & HI_SET)
 #define HAS_SAMPLE(r) ((r)->set_mask & SAMPLE_SET)
 #define HAS_BASE_ALIGN(r) ((r)->set_mask & BASE_ALIGN_SET)
 
-/* Zero-initialise a result. set_mask=0, provenance_count=0, all enums to
- * their _UNKNOWN values, empty strings — all the correct unset state. */
+/* Zero-initialise a result. set_mask=0, no contributors, all enums to their
+ * _UNKNOWN values, empty strings — all the correct unset state. */
 static inline void result_init(struct result *r) { memset(r, 0, sizeof(*r)); }
 
 /* is_phys_dram_region and is_kernel_image_region are defined once, in
@@ -348,7 +425,13 @@ struct component_disposition {
   char message[DISP_MSG_LEN];
 };
 
+/* Per-component execution record, indexed by the component's discovery slot —
+ * comp_logs[i] describes components[i]. The array is therefore sparse: a
+ * component that was filtered out, or that belongs to a phase that did not run,
+ * leaves its slot untouched. `ran` marks a populated slot; consumers iterate
+ * 0..num_components and skip the rest. */
 struct component_log {
+  int ran; /* 0 for a slot no component wrote to */
   char name[256];
   int exit_code;
   enum component_outcome outcome;
@@ -580,8 +663,10 @@ extern const struct kasld_cap_leak kasld_cap_leaks[KASLD_N_CAP_LEAKS];
 extern struct kasld_layout layout;
 extern struct result results[MAX_RESULTS];
 extern int num_results;
+/* Indexed by discovery slot; see struct component_log. Iterate against
+ * num_components and skip slots whose `ran` is 0. */
 extern struct component_log comp_logs[MAX_COMPONENTS];
-extern int num_comp_logs;
+extern int num_components;
 
 /* Scalar system facts collected from components' `S` wire records, parallel to
  * results[]. The engine bridge copies these to OBS_SCALAR observations; the
@@ -592,7 +677,8 @@ struct scalar_fact_record {
   enum kasld_scalar_fact fact;
   unsigned long value;
   enum kasld_confidence conf;
-  char origin[ORIGIN_LEN];
+  int origin; /* discovery slot of the producing component; -1 if unattributed
+               */
 };
 #define MAX_SCALAR_FACTS 64
 extern struct scalar_fact_record scalar_facts[MAX_SCALAR_FACTS];
