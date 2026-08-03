@@ -359,20 +359,45 @@ static void test_uio_map(void) {
 
 /* --- iSCSI transport handle (CVE-2021-27363): the "handle" attribute is a
  * decimal kernel pointer. KASLD_SYSROOT short-circuits the netlink autoload,
- * so the fixture is read directly. Uses a host-arch kernel-text address. --- */
+ * so the fixture is read directly. Uses host-arch kernel-text addresses.
+ *
+ * The class directory is enumerated, so any registered transport is read —
+ * including the HBA drivers (be2iscsi, bnx2i, qedi, qla4xxx, cxgb3i/cxgb4i)
+ * alongside tcp and iser. Each handle points into its own driver's module data,
+ * so each is emitted as a separate named sample. ------------------------- */
 static void test_iscsi_transport_handle(void) {
-  unsigned long addr =
-      0xffffffff81000000UL; /* in the host kernel-text window */
-  if (!kasld_addr_is_kernel_text(addr))
+  unsigned long iser = 0xffffffff81000000UL; /* host kernel-text window */
+  unsigned long tcp = 0xffffffff81001000UL;
+  unsigned long hba = 0xffffffff81002000UL;
+  if (!kasld_addr_is_kernel_text(iser) || !kasld_addr_is_kernel_text(tcp) ||
+      !kasld_addr_is_kernel_text(hba))
     return;
   char dec[32];
-  snprintf(dec, sizeof(dec), "%lu\n", addr);
+  snprintf(dec, sizeof(dec), "%lu\n", iser);
   stage_text("/sys/class/iscsi_transport/iser/handle", dec);
+  snprintf(dec, sizeof(dec), "%lu\n", tcp);
   stage_text("/sys/class/iscsi_transport/tcp/handle", dec);
+  snprintf(dec, sizeof(dec), "%lu\n", hba);
+  stage_text("/sys/class/iscsi_transport/be2iscsi/handle", dec);
   run_capture(iscsi_main);
-  assert(strstr(cap, "V kernel_data:iscsi_iser_transport") != NULL);
-  char want[64];
-  snprintf(want, sizeof(want), "sample=0x%lx", addr);
+
+  /* Every registered transport is emitted under its own name, each carrying
+   * its own address — not one record collapsed from the set. */
+  char want[96];
+  snprintf(want, sizeof(want),
+           "V kernel_data:iser pos=interior conf=parsed "
+           "sample=0x%lx",
+           iser);
+  assert(strstr(cap, want) != NULL);
+  snprintf(want, sizeof(want),
+           "V kernel_data:tcp pos=interior conf=parsed "
+           "sample=0x%lx",
+           tcp);
+  assert(strstr(cap, want) != NULL);
+  snprintf(want, sizeof(want),
+           "V kernel_data:be2iscsi pos=interior "
+           "conf=parsed sample=0x%lx",
+           hba);
   assert(strstr(cap, want) != NULL);
 }
 
