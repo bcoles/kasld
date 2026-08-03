@@ -144,7 +144,7 @@ Layout
   Physical image base    (pinned)
     guaranteed                   0x34600000 slide +0x33600000
 
-  Direct map base        (narrowed to ~9 bits)
+  Direct map base
     guaranteed           >= 0xffff800000000000
 
   Note: physical and virtual text randomize independently

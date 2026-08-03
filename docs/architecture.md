@@ -99,8 +99,8 @@ With only this one leak the result is still a window — several slots wide:
 
 ```
 Layout
-  Virtual image base     (narrowed to ~3 of 9 bits)
-    guaranteed           0xffffffff81000000 .. 0xffffffff81e00000  8 x 2 MiB
+  Virtual image base
+    guaranteed           0xffffffff81000000 .. 0xffffffff81e00000  8 x 2 MiB  ~3 of 9 bits
 ```
 
 A second observation — a `_stext` base witness, a DRAM floor, or the

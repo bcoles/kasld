@@ -499,9 +499,11 @@ static void test_render_windowed_base_likely_order(void) {
 
   set_render_mode(0, 0, 0); /* default compact readout */
   capture_stdout(wrap_render_summary, &s);
-  /* Graded status, not a binary verdict: the two windows printed beneath it
-   * are narrowings, so "not derandomized" would contradict them. */
-  assert(strstr(render_cap, "narrowed") != NULL);
+  /* Graded residual, not a binary verdict: both windows are narrowings, so
+   * "not derandomized" would contradict them. The residual is stated on the
+   * row whose slot count it restates, so it is found there rather than on the
+   * block header. */
+  assert(strstr(render_cap, "~11 bits") != NULL);
   assert(strstr(render_cap, "not derandomized") == NULL);
   {
     const char *lk = strstr(render_cap, "likely (speculative)");
@@ -550,7 +552,12 @@ static void test_render_directmap_entropy_denominator(void) {
 
   set_render_mode(0, 0, 0);
   capture_stdout(wrap_render_summary, &s);
+  /* The residual is stated on the guaranteed window row, beside the slot count
+   * it restates -- not on the block header, which carries no grade and so
+   * cannot own a figure describing one particular row. */
   const char *row = strstr(render_cap, "Direct map base");
+  assert(row != NULL);
+  row = strstr(row, GRADE_GUARANTEED);
   assert(row != NULL);
   {
     const char *eol = strchr(row, '\n');
@@ -568,6 +575,8 @@ static void test_render_directmap_entropy_denominator(void) {
   s.kaslr.virt_page_offset_bits_top = 0;
   capture_stdout(wrap_render_summary, &s);
   row = strstr(render_cap, "Direct map base");
+  assert(row != NULL);
+  row = strstr(row, GRADE_GUARANTEED);
   assert(row != NULL);
   {
     const char *eol = strchr(row, '\n');

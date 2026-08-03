@@ -73,6 +73,10 @@ retired_check 'compile-time default, no slide' 'the engine-resolved base'
 retired_check 'base not pinned to a single default' 'the engine-resolved range'
 retired_check 'assumes default config' 'the engine-resolved base'
 retired_check '(default for arch)' 'the engine-resolved base'
+# Residual entropy is stated on the window row it describes, beside the slot
+# count it restates, not parked on the block header above a row it does not
+# describe.
+retired_check 'narrowed to ~' 'a trailing ~N bits on the window row'
 
 # 2. Width of the readout sample blocks. Only lines inside a fenced block that
 #    contains the readout's own headings are measured -- other fenced blocks

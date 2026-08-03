@@ -456,6 +456,12 @@ struct kaslr_info {
    * at the engine boundary. Carried here rather than recomputed in a renderer:
    * the same quantity must not be derived two ways. */
   int virt_page_offset_bits, virt_vmalloc_bits, virt_vmemmap_bits;
+  /* The same, over each region's speculative sub-window. Every window the
+   * readout draws states its own residual beside its own slot count, so the
+   * likely rows need theirs from the engine boundary too rather than a
+   * renderer dividing a range it happens to have. */
+  int virt_page_offset_likely_bits, virt_vmalloc_likely_bits,
+      virt_vmemmap_likely_bits;
   /* Entropy the direct-map base started with, i.e. the baseline that makes
    * virt_page_offset_bits interpretable, counted the same way (PUD-granular
    * candidates through quantity_slots, then ilog2).

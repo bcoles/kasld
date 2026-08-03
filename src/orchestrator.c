@@ -2957,6 +2957,22 @@ void compute_kaslr_info(struct summary *s) {
     }
   }
 #endif
+  /* Residual entropy over each speculative sub-window, from the hole-aware
+   * slot counts just resolved. Derived here beside the guaranteed figures so
+   * the same quantity is never derived two ways; 0 where no sub-window was
+   * narrowed. */
+  s->kaslr.virt_page_offset_likely_bits =
+      s->kaslr.virt_page_offset_likely_slots > 0
+          ? ilog2(s->kaslr.virt_page_offset_likely_slots)
+          : 0;
+  s->kaslr.virt_vmalloc_likely_bits =
+      s->kaslr.virt_vmalloc_likely_slots > 0
+          ? ilog2(s->kaslr.virt_vmalloc_likely_slots)
+          : 0;
+  s->kaslr.virt_vmemmap_likely_bits =
+      s->kaslr.virt_vmemmap_likely_slots > 0
+          ? ilog2(s->kaslr.virt_vmemmap_likely_slots)
+          : 0;
 
 #if !TEXT_TRACKS_DIRECTMAP
   /* On decoupled arches (x86_64, arm64, riscv64, s390): note when physical

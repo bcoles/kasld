@@ -1806,13 +1806,21 @@ static void readout_point(const char *grade, unsigned long v, int digits,
   printf("\n");
 }
 
-/* A window at `grade`: first and last candidate, then how many and at what
- * pitch. Both edges are inclusive and on the grid, so the printed count
- * reconciles with the printed edges. */
+/* A window at `grade`: first and last candidate, then how many, at what pitch,
+ * and what entropy that count leaves. Both edges are inclusive and on the grid,
+ * so the printed count reconciles with the printed edges.
+ *
+ * The residual sits on the row whose count it restates, not on the block
+ * header: a header carries no grade, so an entropy figure parked there is read
+ * as belonging to whichever row happens to sit under it -- which, in the
+ * concrete-base form, is the speculative one it does not describe. Stated here,
+ * every window row is self-describing and a point row (which has no spread)
+ * correctly carries neither figure. */
 static void readout_window(const char *grade, unsigned long lo,
                            unsigned long hi, int digits, unsigned long slots,
-                           int count_w, unsigned long align) {
-  char a1[40], a2[40], gb[32];
+                           int count_w, unsigned long align, int bits,
+                           int bits_top) {
+  char a1[40], a2[40], gb[32], eb[48];
   printf("    %-*s%s .. %s", READOUT_GRADE_W, grade,
          readout_addr(lo, digits, a1, sizeof(a1)),
          readout_addr(hi, digits, a2, sizeof(a2)));
@@ -1824,6 +1832,8 @@ static void readout_window(const char *grade, unsigned long lo,
              readout_grain(align, gb, sizeof(gb)), c(C_RESET));
     else
       printf("  %s%*lu candidates%s", c(C_MAGENTA), count_w, slots, c(C_RESET));
+    printf("  %s%s%s", c(C_DIM), entropy_phrase(bits, bits_top, eb, sizeof(eb)),
+           c(C_RESET));
   }
   printf("\n");
 }
@@ -1836,51 +1846,40 @@ static void readout_halfbound(const char *grade, const char *op,
          readout_addr(v, digits, ab, sizeof(ab)), c(C_RESET));
 }
 
-/* Status for a quantity's header: pinned, or how much entropy survives. */
-static const char *readout_status(int pinned, int bits, int bits_top, char *buf,
-                                  size_t sz) {
-  if (pinned) {
-    /* "pinned" is the established word for a proven single value across the
-     * formats and the verbose block; the readout does not coin a second one. */
-    snprintf(buf, sz, "pinned");
-    return buf;
-  }
-  char e[48];
-  entropy_phrase(bits, bits_top, e, sizeof(e));
-  snprintf(buf, sz, "narrowed to %s", e);
-  return buf;
-}
+/* Status for a quantity's header. Only a pin has one: the residual entropy of
+ * a window belongs beside the slot count it restates, on the window row
+ * itself. A pinned quantity's row is a bare address with no count to carry
+ * that verdict, so the header states it. */
+#define READOUT_PINNED "pinned"
 
 /* Window-only form: no concrete base was resolved. The speculative sub-window,
  * when present, sits above the proven one -- the same likely-over-guaranteed
- * order the concrete-base form uses. */
+ * order the concrete-base form uses. Each window states its own residual. */
 static void readout_window_block(const char *label, unsigned long lo,
                                  unsigned long hi, unsigned long llo,
                                  unsigned long lhi, unsigned long slots,
                                  unsigned long lslots, int bits, int bits_top,
-                                 unsigned long align) {
+                                 int lbits, unsigned long align) {
   if (!lo && !hi)
     return;
-  char stat[80];
   int pinned = (lo == hi && lo != 0);
   readout_snap(&lo, &hi, align);
   readout_snap(&llo, &lhi, align);
   int w = readout_addr_w;
-  /* No slot count means no entropy was resolved (KASLR off, or a quantity the
-   * engine bounded without a grid). Report the window and stop rather than
-   * fabricate a "~0 bits" residual. */
-  const char *status = NULL;
-  if (pinned || slots > 0)
-    status = readout_status(pinned, bits, bits_top, stat, sizeof(stat));
-  readout_head(label, status);
+  readout_head(label, pinned ? READOUT_PINNED : NULL);
   if (pinned) {
     readout_point(GRADE_GUARANTEED, lo, w, NULL);
     return;
   }
+  /* A speculative sub-window is measured against its own width alone: the
+   * baseline that makes the proven residual interpretable is a statement about
+   * what the kernel randomized, not about how far a guess narrowed it. */
   if (lhi && llo && lhi >= llo)
-    readout_window(GRADE_LIKELY, llo, lhi, w, lslots, readout_count_w, align);
+    readout_window(GRADE_LIKELY, llo, lhi, w, lslots, readout_count_w, align,
+                   lbits, 0);
   if (lo && hi && hi >= lo)
-    readout_window(GRADE_GUARANTEED, lo, hi, w, slots, readout_count_w, align);
+    readout_window(GRADE_GUARANTEED, lo, hi, w, slots, readout_count_w, align,
+                   bits, bits_top);
   else if (lo)
     readout_halfbound(GRADE_GUARANTEED, ">=", lo, w);
   else if (hi)
@@ -1928,7 +1927,7 @@ static void readout_static_base_block(unsigned long default_addr,
     readout_point(GRADE_GUARANTEED, lo, readout_addr_w, NULL);
   } else {
     readout_window_block("Kernel image base", lo, hi, 0, 0, s->kaslr.vslots, 0,
-                         s->kaslr.vbits, s->kaslr.vbits_top,
+                         s->kaslr.vbits, s->kaslr.vbits_top, 0,
                          layout.virt_kaslr_align);
   }
   readout_default_remark(default_addr, lo, hi);
@@ -2058,14 +2057,13 @@ static void render_readout(const struct summary *s) {
    * answer, so the separate likely-window row is suppressed (it would only
    * restate it). */
   int v_likely_base = (s->kaslr.vtext && !vpin);
-  char stat[80], slide[48];
+  char slide[48];
   if (s->kaslr.vtext && vpin) {
     long abs_v = s->kaslr.vslide < 0 ? -s->kaslr.vslide : s->kaslr.vslide;
     int w = readout_addr_w;
     snprintf(slide, sizeof(slide), "slide %s0x%lx",
              s->kaslr.vslide < 0 ? "-" : "+", (unsigned long)abs_v);
-    readout_head("Virtual image base",
-                 readout_status(1, 0, 0, stat, sizeof(stat)));
+    readout_head("Virtual image base", READOUT_PINNED);
     readout_point(GRADE_GUARANTEED, s->kaslr.vtext, w, slide);
     if (s->kaslr.vstext && s->kaslr.vstext != s->kaslr.vtext)
       readout_point("guaranteed _stext", s->kaslr.vstext, w, NULL);
@@ -2077,20 +2075,19 @@ static void render_readout(const struct summary *s) {
     int w = readout_addr_w;
     snprintf(slide, sizeof(slide), "slide %s0x%lx",
              s->kaslr.vslide < 0 ? "-" : "+", (unsigned long)abs_v);
-    readout_head("Virtual image base",
-                 readout_status(0, s->kaslr.vbits, s->kaslr.vbits_top, stat,
-                                sizeof(stat)));
+    readout_head("Virtual image base", NULL);
     readout_point(GRADE_LIKELY, s->kaslr.vtext, w, slide);
     if (s->kaslr.vstext && s->kaslr.vstext != s->kaslr.vtext)
       readout_point("likely _stext", s->kaslr.vstext, w, NULL);
     readout_window(GRADE_GUARANTEED, glo, ghi, w, s->kaslr.vslots,
-                   readout_count_w, layout.virt_kaslr_align);
+                   readout_count_w, layout.virt_kaslr_align, s->kaslr.vbits,
+                   s->kaslr.vbits_top);
   } else {
-    readout_window_block("Virtual image base", layout.virt_kaslr_text_min,
-                         layout.virt_kaslr_text_max, s->kaslr.vlikely_min,
-                         s->kaslr.vlikely_max, s->kaslr.vslots,
-                         s->kaslr.vlikely_slots, s->kaslr.vbits,
-                         s->kaslr.vbits_top, layout.virt_kaslr_align);
+    readout_window_block(
+        "Virtual image base", layout.virt_kaslr_text_min,
+        layout.virt_kaslr_text_max, s->kaslr.vlikely_min, s->kaslr.vlikely_max,
+        s->kaslr.vslots, s->kaslr.vlikely_slots, s->kaslr.vbits,
+        s->kaslr.vbits_top, s->kaslr.vlikely_bits, layout.virt_kaslr_align);
   }
 
   int p_likely_base = (s->kaslr.has_phys && s->kaslr.ptext && !ppin);
@@ -2099,8 +2096,7 @@ static void render_readout(const struct summary *s) {
     int w = readout_addr_w;
     snprintf(slide, sizeof(slide), "slide %s0x%lx",
              s->kaslr.pslide < 0 ? "-" : "+", (unsigned long)abs_p);
-    readout_head("Physical image base",
-                 readout_status(1, 0, 0, stat, sizeof(stat)));
+    readout_head("Physical image base", READOUT_PINNED);
     readout_point(GRADE_GUARANTEED, s->kaslr.ptext, w, slide);
     if (s->kaslr.pstext && s->kaslr.pstext != s->kaslr.ptext)
       readout_point("guaranteed _stext", s->kaslr.pstext, w, NULL);
@@ -2112,20 +2108,19 @@ static void render_readout(const struct summary *s) {
     int w = readout_addr_w;
     snprintf(slide, sizeof(slide), "slide %s0x%lx",
              s->kaslr.pslide < 0 ? "-" : "+", (unsigned long)abs_p);
-    readout_head("Physical image base",
-                 readout_status(0, s->kaslr.pbits, 0, stat, sizeof(stat)));
+    readout_head("Physical image base", NULL);
     readout_point(GRADE_LIKELY, s->kaslr.ptext, w, slide);
     if (s->kaslr.pstext && s->kaslr.pstext != s->kaslr.ptext)
       readout_point("likely _stext", s->kaslr.pstext, w, NULL);
     readout_window(GRADE_GUARANTEED, glo, ghi, w, s->kaslr.pslots,
-                   readout_count_w, layout.phys_kaslr_align);
+                   readout_count_w, layout.phys_kaslr_align, s->kaslr.pbits, 0);
   } else if (s->kaslr.pslots > 0 ||
              (layout.phys_kaslr_text_min || layout.phys_kaslr_text_max)) {
     readout_window_block("Physical image base", layout.phys_kaslr_text_min,
                          layout.phys_kaslr_text_max, s->kaslr.plikely_min,
                          s->kaslr.plikely_max, s->kaslr.pslots,
                          s->kaslr.plikely_slots, s->kaslr.pbits, 0,
-                         layout.phys_kaslr_align);
+                         s->kaslr.plikely_bits, layout.phys_kaslr_align);
   }
 
   /* virt_page_offset (direct-map base): only when both sides narrowed into a
@@ -2159,26 +2154,25 @@ static void render_readout(const struct summary *s) {
       unsigned long glo = lo, ghi = hi;
       readout_snap(&glo, &ghi, align);
       int w = readout_addr_w;
-      char st[80], off[48];
+      char off[48];
       /* The direct map has no compile-time default to slide from, but it does
        * have a RANDOMIZE_MEMORY offset from the un-randomized base — the same
        * value in another coordinate system, so it takes the slide's place. */
       long d = (long)(lhi - (unsigned long)PAGE_OFFSET_BASE_L4);
       snprintf(off, sizeof(off), "off %s0x%lx", d < 0 ? "-" : "+",
                (unsigned long)(d < 0 ? -d : d));
-      readout_head("Direct map base",
-                   readout_status(0, bits, s->kaslr.virt_page_offset_bits_top,
-                                  st, sizeof(st)));
+      readout_head("Direct map base", NULL);
       readout_point(GRADE_LIKELY, lhi, w, off);
       if (ghi && ghi >= glo)
         readout_window(GRADE_GUARANTEED, glo, ghi, w, slots, readout_count_w,
-                       align);
+                       align, bits, s->kaslr.virt_page_offset_bits_top);
       else
         readout_halfbound(GRADE_GUARANTEED, ">=", glo, w);
     } else {
       readout_window_block("Direct map base", lo, hi, llo, lhi, slots,
                            s->kaslr.virt_page_offset_likely_slots, bits,
-                           s->kaslr.virt_page_offset_bits_top, align);
+                           s->kaslr.virt_page_offset_bits_top,
+                           s->kaslr.virt_page_offset_likely_bits, align);
     }
   }
 
