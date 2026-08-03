@@ -835,14 +835,18 @@ static void test_disposition_capture(void) {
   verbose = 0;
   char buf[512];
   struct component_log cl;
+  /* A component's identity is its slot in the discovery table. These cases
+   * exercise the line parser, which records the slot without resolving it to a
+   * name, and each starts from a cleared log — so one slot serves for all of
+   * them. */
+  const int slot = 0;
 
   /* mitigation: emitter returns UNAVAILABLE and the gate round-trips. */
   assert(capture_helper(emit_mitigation_helper, buf, sizeof(buf)) ==
          KASLD_EXIT_UNAVAILABLE);
   assert(strcmp(buf, "R cat=mitigation gate=kpti msg=\"KPTI enabled\"") == 0);
   memset(&cl, 0, sizeof(cl));
-  assert(handle_component_line(&cl, "timing", "prefetch", buf, strlen(buf)) ==
-         0);
+  assert(handle_component_line(&cl, "timing", slot, buf, strlen(buf)) == 0);
   assert(cl.disposition.category == DISP_MITIGATION);
   assert(strcmp(cl.disposition.gate, "kpti") == 0);
   assert(strcmp(cl.disposition.message, "KPTI enabled") == 0);
@@ -851,7 +855,7 @@ static void test_disposition_capture(void) {
   assert(capture_helper(emit_absent_helper, buf, sizeof(buf)) ==
          KASLD_EXIT_UNAVAILABLE);
   memset(&cl, 0, sizeof(cl));
-  handle_component_line(&cl, "timing", "databounce", buf, strlen(buf));
+  handle_component_line(&cl, "timing", slot, buf, strlen(buf));
   assert(cl.disposition.category == DISP_ABSENT);
   assert(cl.disposition.gate[0] == '\0');
   assert(strcmp(cl.disposition.message, "not an Intel CPU") == 0);
@@ -859,7 +863,7 @@ static void test_disposition_capture(void) {
   /* inconclusive: exit 0. */
   assert(capture_helper(emit_inconclusive_helper, buf, sizeof(buf)) == 0);
   memset(&cl, 0, sizeof(cl));
-  handle_component_line(&cl, "timing", "prefetch", buf, strlen(buf));
+  handle_component_line(&cl, "timing", slot, buf, strlen(buf));
   assert(cl.disposition.category == DISP_INCONCLUSIVE);
 
   /* mitigation with no gate: emitter prints nothing (bug), and a hand-built
@@ -868,20 +872,20 @@ static void test_disposition_capture(void) {
   assert(buf[0] == '\0');
   memset(&cl, 0, sizeof(cl));
   const char *nogate = "R cat=mitigation msg=\"x\"";
-  handle_component_line(&cl, "timing", "x", nogate, strlen(nogate));
+  handle_component_line(&cl, "timing", slot, nogate, strlen(nogate));
   assert(cl.disposition.category == DISP_NONE);
 
   /* Unknown category is dropped. */
   memset(&cl, 0, sizeof(cl));
   const char *bogus = "R cat=bogus msg=\"x\"";
-  handle_component_line(&cl, "timing", "x", bogus, strlen(bogus));
+  handle_component_line(&cl, "timing", slot, bogus, strlen(bogus));
   assert(cl.disposition.category == DISP_NONE);
 
   /* A `gate=`/`cat=` substring inside the quoted message is not mistaken for a
    * field: the message is last, so field searches stop before it. */
   memset(&cl, 0, sizeof(cl));
   const char *tricky = "R cat=absent msg=\"weird cat=x gate=y text\"";
-  handle_component_line(&cl, "timing", "x", tricky, strlen(tricky));
+  handle_component_line(&cl, "timing", slot, tricky, strlen(tricky));
   assert(cl.disposition.category == DISP_ABSENT);
   assert(cl.disposition.gate[0] == '\0');
   assert(strcmp(cl.disposition.message, "weird cat=x gate=y text") == 0);
@@ -890,7 +894,7 @@ static void test_disposition_capture(void) {
   reset_results();
   memset(&cl, 0, sizeof(cl));
   assert(capture_helper(emit_base_helper, buf, sizeof(buf)) == 1);
-  assert(handle_component_line(&cl, "parsed", "test", buf, strlen(buf)) == 1);
+  assert(handle_component_line(&cl, "parsed", slot, buf, strlen(buf)) == 1);
   assert(cl.disposition.category == DISP_NONE);
 
   verbose = saved_v;
