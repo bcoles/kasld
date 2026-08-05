@@ -534,6 +534,24 @@ image (`MODULES_VADDR = _end - 2 GiB`), so module addresses provide an additiona
 derivation path that `module_text_bound` exploits to estimate `_end` and bound
 `kernel_text` from above.
 
+AArch64 relates its module region to kernel text differently. The region is not
+at a fixed offset from the image; instead the allocator draws a window that is
+guaranteed to contain `[_text, _end]` and serves every module allocation from
+inside it (`module_init_limits()` calls `random_bounding_box()` on v6.9+;
+earlier kernels derive `module_alloc_base` from `_etext`/`_end`). Every module
+address therefore lies within `MODULES_BRACKET_TEXT` (2 GiB) of the image base,
+which `module_text_bracket` turns into a two-sided bound — narrowing the
+guaranteed window to 4 GiB, or roughly 16 bits at the 64 KiB granule.
+
+Because the relation is relative, it holds regardless of where the region sits
+absolutely — which matters, as the region moves with KASLR and so has no fixed
+band to test against. The rule consumes only `REGION_MODULE` (addresses whose
+source knows structurally that they belong to a loaded module), never
+`REGION_MODULE_REGION` (the band itself, or an address classified as module by
+falling inside it): on this architecture the validation band spans most of the
+kernel address space, so a range-classified address carries no information about
+which region it belongs to.
+
 ---
 
 ## KASLR runtime states

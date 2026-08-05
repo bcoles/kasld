@@ -300,7 +300,7 @@ KASLD quantity (`Q_*`) that resolves each region annotated alongside it:
 |---|---|---|---|---|
 | x86_64 | Independent | Independent | Independent | Three separate randomizations (`CONFIG_RANDOMIZE_MEMORY`) |
 | x86_32 | Coupled | Coupled | Fixed module region | Single KASLR offset |
-| arm64 | Independent | Independent | Fixed module region | Separate phys/virt randomization |
+| arm64 | Independent | Independent | Bracketed (within 2 GiB of text) | Separate phys/virt randomization; modules drawn from a window spanning the kernel image, so they move with it |
 | arm32 | — | Coupled | Fixed (PAGE_OFFSET - 16M) | No KASLR |
 | MIPS32/64 | Coupled | Coupled (kseg0) | Fixed module region | Hardware-defined mapping |
 | PowerPC32 | Coupled | Coupled | Fixed (PAGE_OFFSET - 256M) | |
