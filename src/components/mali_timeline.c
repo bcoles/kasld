@@ -269,8 +269,10 @@ int main(int argc, char **argv) {
       return KASLD_EXIT_NOPERM;
     }
   }
+  /* No Mali GPU on this host — the technique needs the kbase device node to
+   * exist at all. A missing prerequisite here, not a defence on the target. */
   if (fd < 0)
-    return KASLD_EXIT_UNAVAILABLE; /* no Mali GPU */
+    return kasld_disp_absent("no Mali GPU device node present");
 
   /* Mandatory handshake, then create the context. VERSION_CHECK is in/out: it
    * writes the kernel's own version back into the struct. Some kbase versions
@@ -281,7 +283,10 @@ int main(int argc, char **argv) {
   if (mali_ioctl(fd, KBASE_IOCTL_VERSION_CHECK, &vc) != 0) {
     kasld_err("KBASE_IOCTL_VERSION_CHECK failed (not Mali / incompatible ABI)");
     close(fd);
-    return KASLD_EXIT_UNAVAILABLE;
+    /* The device node exists but does not speak the kbase UK ABI, so it is
+     * not a target this technique can address. */
+    return kasld_disp_absent("device node is not a kbase Mali GPU, or its UK "
+                             "ABI is incompatible");
   }
   kasld_info("Mali kbase UK ABI version %u.%u", vc.major, vc.minor);
   /* re-handshake with the kernel's reported version (harmless if already

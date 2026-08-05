@@ -92,6 +92,7 @@ static unsigned long get_kernel_addr_mincore(void) {
   }
 
   unsigned long i;
+  int timed_out = 0;
   /* -t SECS overrides the default give-up budget: on a vulnerable kernel the
    * leak is found in a few thousand iterations, but on a patched one this scan
    * runs to the deadline before concluding "likely patched". */
@@ -109,6 +110,7 @@ static unsigned long get_kernel_addr_mincore(void) {
           (now.tv_sec == deadline.tv_sec && now.tv_nsec >= deadline.tv_nsec)) {
         kasld_err("timeout after %lu iterations (%ds); likely patched", i,
                   budget_s);
+        timed_out = 1;
         break;
       }
     }
@@ -141,6 +143,17 @@ static unsigned long get_kernel_addr_mincore(void) {
 
   free(buf);
   kasld_err("kernel base not found in mincore info leak");
+  /* A vulnerable kernel yields within a few thousand iterations, so an empty
+   * scan points at a patched one — but a quiet run on a vulnerable kernel
+   * looks identical from here, so the reason cannot be proven either way.
+   * Untyped: this helper returns an address, and the caller owns the exit
+   * code (0, which is what an inconclusive run carries). */
+  kasld_disposition(DISP_INCONCLUSIVE, NULL,
+                    timed_out ? "scan hit its time budget with no kernel-text "
+                                "value; likely patched, not proven"
+                              : "scan exhausted its iterations with no "
+                                "kernel-text value; likely patched, not "
+                                "proven");
   return 0;
 }
 

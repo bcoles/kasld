@@ -189,11 +189,11 @@ static unsigned long get_kernel_addr_from_bcm_msg_head_struct(void) {
   if (kasld_addr_is_kernel_text(addr))
     return addr;
 #else
+  /* Unreached: main() declines the 64-bit-only shape before probing. */
   (void)buf;
   (void)addrs;
   (void)endptr;
   (void)addr;
-  kasld_err("BCM bcm_msg_head leak shape targets a 64-bit kernel; skipping");
 #endif
 
   return 0;
@@ -202,6 +202,17 @@ static unsigned long get_kernel_addr_from_bcm_msg_head_struct(void) {
 #pragma GCC diagnostic pop
 
 int main(void) {
+  /* The leak shape is 64-bit only (see the offset reasoning above), so on a
+   * 32-bit kernel the technique provably cannot apply. Decline before opening
+   * the socket: a bare "no address leaked" would report a structural
+   * non-application as an empty probe. A missing host prerequisite, which says
+   * nothing about the target's KASLR. */
+#if __SIZEOF_LONG__ < 8
+  kasld_err("BCM bcm_msg_head leak shape targets a 64-bit kernel");
+  return kasld_disp_absent(
+      "32-bit kernel: the bcm_msg_head leak shape is 64-bit only");
+#endif
+
   if (kasld_skip_live_probe("CAN BCM"))
     return 0;
   /* Live socket probe: opens a CAN BCM socket and recvfrom()s a reply. */

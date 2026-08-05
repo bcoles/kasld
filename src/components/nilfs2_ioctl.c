@@ -186,10 +186,13 @@ int main(void) {
 
   kasld_info("trying nilfs2 NILFS_IOCTL_GET_SUINFO heap leak ...");
 
+  /* The technique needs a mounted nilfs2 filesystem to issue the ioctl
+   * against. Its absence is a missing prerequisite on this host, not a
+   * defence on the target. */
   fd = open_nilfs2_fd();
   if (fd < 0) {
     kasld_err("no nilfs2 mount found");
-    return 0;
+    return kasld_disp_absent("no mounted nilfs2 filesystem to query");
   }
 
   for (int i = 0; i < 100000; i++) {
@@ -207,6 +210,14 @@ int main(void) {
   }
 
   close(fd);
+
+  /* A filesystem that rejects the ioctl outright cannot serve the technique
+   * at all — distinct from the loop simply never catching a pointer, which is
+   * an honest empty run and stays exit 0 with no disposition. */
+  if (nilfs_ioctl_unsupported)
+    return kasld_disp_absent("nilfs2 mount does not support "
+                             "NILFS_IOCTL_GET_SUINFO");
+
   kasld_err("no kernel address leaked via nilfs2 ioctl");
   return 0;
 }
