@@ -85,7 +85,8 @@ int rule_module_text_bracket(const struct evidence_set *ev,
    * grid. Skip on wrap — an address within W of ULONG_MAX cannot be bounded
    * above, and a wrapped value would be a spuriously tight ceiling. */
   if (vmod_lo <= ULONG_MAX - w) {
-    unsigned long new_max = kasld_floor_virt_text_bound(vmod_lo + w - 1, valign);
+    unsigned long new_max =
+        kasld_floor_virt_text_bound(vmod_lo + w - 1, valign);
     /* Fail-safe, not the soundness guard: a genuine module allocation yields a
      * bound inside the quantity's honest top, so a ceiling below that window's
      * floor means the observation was not what it claimed — emitting it would

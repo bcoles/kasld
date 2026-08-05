@@ -117,6 +117,7 @@ and `make` halts on the first.
 | `check-ksymoff` | known-answer tests for `extra/ksymoff` |
 | `check-posture-diff` | behavioural test for `extra/posture-diff` |
 | `check-posture-summary` | behavioural test for `extra/posture-summary` |
+| `check-baseline` | the structural baseline — what a run with no component at all (`-s '*'`) reports — renders in every output mode and exits with the no-results status, and a run that does gather evidence resolves a window *inside* the baseline window. The baseline is the architectural top over an empty evidence set, so evidence may only narrow it; stated as containment, the check needs no per-architecture table and no ground truth. Also sweeps every cross binary present under qemu-user, which needs no fixture and reaches arch headers no fixture covers |
 | `check-guard-docs` | this table lists exactly the guards `make lint` runs — the same parity check `check-manpages` applies to flags, applied to the guard list itself |
 | `check-readout-docs` | documented sample output uses the renderer's current vocabulary and fits 100 columns (live output is measured separately by `check-render-width`) — the README and `docs/` carry hand-maintained copies of rendered output with nothing tying them to the renderer, so a rename or column change silently leaves them describing a version of the tool that no longer exists |
 

@@ -72,15 +72,13 @@ expect 2 -zq   # unknown leading char
 # Long options are never unpacked into short flags.
 expect 2 --fq
 
-# Effect check: a bundled format flag actually takes effect (over a fixture so
-# it is fast and deterministic). -vj must emit JSON.
-fix=$(echo "$ROOT"/tests/fixtures/x86_64/*/sysroot | awk '{print $1}')
-if [ -d "$fix" ]; then
-  first=$(KASLD_SYSROOT="$fix" "$BIN" -vj 2>/dev/null | head -c1)
-  if [ "$first" != "{" ]; then
-    printf '    FAIL: -vj did not select JSON (first byte %s)\n' "'$first'"
-    fail=1
-  fi
+# Effect check: a bundled format flag actually takes effect. -vj must emit
+# JSON. Skipping every component keeps the run fast and its output determined
+# by the flags alone, so the check needs no fixture and always runs.
+first=$("$BIN" -q -s '*' -vj 2>/dev/null | head -c1)
+if [ "$first" != "{" ]; then
+  printf '    FAIL: -vj did not select JSON (first byte %s)\n' "'$first'"
+  fail=1
 fi
 
 if [ "$fail" -ne 0 ]; then

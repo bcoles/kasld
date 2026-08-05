@@ -1,0 +1,253 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-baseline — the structural baseline: what kasld reports when NO component
+# runs (`-s '*'` skips them all), which is the engine's answer over an empty
+# evidence set.
+#
+# Three things this pins that nothing else does:
+#
+#   1. Rendering with no evidence. Every output mode must render the baseline
+#      and exit with the no-results status. The zero-result path has regressed
+#      before (text and -H once bailed out entirely rather than printing the
+#      summary), and no other test drives the real binary with nothing found.
+#   2. Monotonicity, end to end. The baseline window IS the architectural top,
+#      so a run that gathers evidence may only narrow it: the resolved window
+#      must sit inside the baseline window. Checked as a containment relation
+#      rather than against expected addresses, so it needs no per-arch table
+#      and no ground truth, and stays correct as the arch headers evolve.
+#   3. Every built architecture. A baseline run needs no fixture and no truth,
+#      so each cross binary can be swept under qemu-user in milliseconds --
+#      the cheapest coverage there is for the arch headers' KASLR windows.
+#
+# Runs the native binary always; additionally sweeps whatever cross binaries
+# and qemu-user happen to be present, and stays quiet about the ones that are
+# not (a plain `make` builds only the host arch).
+#
+# Env:    QEMU_DIR (default: resolve qemu-<arch> from PATH)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+QEMU_DIR=${QEMU_DIR:-}
+
+if [ -t 1 ]; then
+  RED=$(printf '\033[31m')
+  GREEN=$(printf '\033[32m')
+  YELLOW=$(printf '\033[33m')
+  RESET=$(printf '\033[0m')
+else
+  RED=
+  GREEN=
+  YELLOW=
+  RESET=
+fi
+
+# Exit status for a run that completed but resolved nothing. The baseline is
+# that case by construction: no component ran, so no evidence was gathered.
+NO_RESULTS=1
+
+fail=0
+note() {
+  printf '    FAIL: %s\n' "$1"
+  fail=1
+}
+
+# ---------------------------------------------------------------------------
+# Native binary: the full assertion set.
+# ---------------------------------------------------------------------------
+
+# The host build dir is named for the host triple, so identify the native
+# binary by running it rather than by matching a name we would have to keep in
+# step with the Makefile.
+BIN=
+for cand in "$ROOT"/build/*/kasld; do
+  [ -x "$cand" ] || continue
+  if "$cand" -V >/dev/null 2>&1; then
+    BIN=$cand
+    break
+  fi
+done
+[ -n "$BIN" ] || {
+  printf '%scheck-baseline: SKIP%s (no runnable kasld binary; run make first)\n' \
+    "$YELLOW" "$RESET"
+  exit 0
+}
+
+# One baseline run per mode. `-q` keeps the progress indicator off so the
+# capture is the rendered document alone.
+baseline() { "$BIN" -q -s '*' "$@" 2>/dev/null; }
+
+# The no-results status, which every mode below shares.
+baseline >/dev/null
+rc=$?
+[ "$rc" -eq "$NO_RESULTS" ] ||
+  note "baseline exit $rc, expected $NO_RESULTS (no-results status)"
+
+# Each mode renders its own document. A mode that bailed would produce nothing
+# at all, which is the regression this catches; the marker confirms the output
+# is that mode's, not another's.
+check_mode() {
+  flags=$1 marker=$2
+  # shellcheck disable=SC2086  # flags is a deliberate word-split flag list
+  out=$(baseline $flags)
+  if [ -z "$out" ]; then
+    note "'$flags' rendered nothing on the baseline"
+  elif ! printf '%s\n' "$out" | grep -qF "$marker"; then
+    note "'$flags' output carries no '$marker'"
+  fi
+}
+check_mode ""      "Quantity"       # default readout: the Layout table
+check_mode "-v"    "Quantity"       # verbose: same table, fuller document
+check_mode "--map" "Quantity"       # map implies the readout
+check_mode "-H"    "Quantity"       # hardening appends to the text readout
+check_mode "-j"    '"kaslr"'        # json
+check_mode "-m"    "#"              # markdown
+check_mode "-1"    "arch="          # oneline
+
+# The run states plainly that nothing ran, so the empty layout table is not
+# read as a failed analysis. Part of the run's status block rather than the
+# rendered document, so this is the one assertion that drops -q.
+"$BIN" -s '*' 2>/dev/null | grep -qi 'no components ran' ||
+  note "baseline does not say that no components ran"
+
+# ---------------------------------------------------------------------------
+# Monotonicity: evidence may only narrow the baseline window.
+# ---------------------------------------------------------------------------
+# Driven over a captured fixture rather than a live run, so the comparison is
+# deterministic and needs no privileges. jq parses both documents. Where jq or
+# a native-arch fixture is absent the check cannot run, and the closing line
+# says so rather than reporting an unqualified OK for a check that was skipped.
+monotonic=skipped
+if command -v jq >/dev/null 2>&1; then
+  # The fixture must match the native binary's architecture: a foreign-arch
+  # sysroot yields nothing the binary can read, both runs then return the
+  # untouched baseline, and the containment below holds without testing
+  # anything. Keyed on the fixture tree's own arch directory names.
+  case "$(uname -m)" in
+  x86_64 | amd64)   fixarch=x86_64 ;;
+  i686 | i586 | i386) fixarch=x86_32 ;;
+  aarch64 | arm64)  fixarch=arm64 ;;
+  armv7l | armv6l | arm) fixarch=arm32 ;;
+  riscv64)          fixarch=riscv64 ;;
+  riscv32)          fixarch=riscv32 ;;
+  s390x)            fixarch=s390 ;;
+  ppc64le | ppc64)  fixarch=ppc64 ;;
+  ppc | powerpc)    fixarch=ppc32 ;;
+  loongarch64)      fixarch=loongarch64 ;;
+  mips64el)         fixarch=mips64el ;;
+  mipsel)           fixarch=mips32el ;;
+  mips)             fixarch=mips32 ;;
+  *)                fixarch= ;;
+  esac
+  fix=
+  [ -n "$fixarch" ] &&
+    fix=$(echo "$ROOT"/tests/fixtures/"$fixarch"/*/sysroot | awk '{print $1}')
+  if [ -n "$fix" ] && [ -d "$fix" ]; then
+    b=$(KASLD_SYSROOT="$fix" "$BIN" -q -s '*' -j 2>/dev/null)
+    f=$(KASLD_SYSROOT="$fix" "$BIN" -q -j 2>/dev/null)
+    if [ -z "$b" ] || [ -z "$f" ]; then
+      note "fixture run produced no JSON to compare"
+    else
+      # The comparison lives in jq so the ordering is well defined: every edge
+      # is printed as a fixed-width zero-padded hex string, so jq's string
+      # order is the numeric order (POSIX sh has no ordinal string compare).
+      # Each window is optional in the schema -- a quantity the architecture
+      # does not randomize carries none -- so only pairs both runs report are
+      # compared. Every violating window is reported, not just the first.
+      viol=$(printf '%s\n%s\n' "$b" "$f" | jq -rs '
+        ["inferred", "likely", "inferred_physical", "likely_physical"][] as $k
+        | (.[0].kaslr[$k] // empty) as $base
+        | (.[1].kaslr[$k] // empty) as $full
+        | select($base and $full)
+        | select($full.range_min < $base.range_min
+                 or $full.range_max > $base.range_max)
+        | "\($k): resolved [\($full.range_min), \($full.range_max)] is not "
+          + "inside baseline [\($base.range_min), \($base.range_max)]"')
+      [ -z "$viol" ] || printf '%s\n' "$viol" | while IFS= read -r v; do
+        printf '    FAIL: %s\n' "$v"
+      done
+      [ -z "$viol" ] || fail=1
+
+      # Containment is satisfied trivially when the fixture run resolves
+      # nothing, so require it to have actually narrowed something. Without
+      # this the check passes whether or not it tested anything -- which it
+      # silently did when the fixture and the binary disagreed on architecture.
+      narrowed=$(printf '%s\n%s\n' "$b" "$f" | jq -rs '
+        [["inferred", "likely", "inferred_physical", "likely_physical"][] as $k
+         | (.[0].kaslr[$k] // empty) as $base
+         | (.[1].kaslr[$k] // empty) as $full
+         | select($base and $full)
+         | select($full.range_min > $base.range_min
+                  or $full.range_max < $base.range_max)] | length')
+      if [ "${narrowed:-0}" -gt 0 ]; then
+        monotonic=checked
+      else
+        note "fixture $fix narrowed no window: containment proves nothing here"
+      fi
+    fi
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Cross binaries: the same baseline on every architecture built.
+# ---------------------------------------------------------------------------
+# Rendering only. A baseline needs no fixture, so this is the one check that
+# reaches every arch header for the cost of a process spawn.
+qemu_for() {
+  case "${1%%-*}" in
+  x86_64)      echo qemu-x86_64 ;;
+  i686 | i586) echo qemu-i386 ;;
+  aarch64)     echo qemu-aarch64 ;;
+  arm | armv7) echo qemu-arm ;;
+  armeb)       echo qemu-armeb ;;
+  mips)        echo qemu-mips ;;
+  mipsel)      echo qemu-mipsel ;;
+  mips64)      echo qemu-mips64 ;;
+  mips64el)    echo qemu-mips64el ;;
+  powerpc64le) echo qemu-ppc64le ;;
+  powerpc64)   echo qemu-ppc64 ;;
+  powerpc)     echo qemu-ppc ;;
+  riscv32)     echo qemu-riscv32 ;;
+  riscv64)     echo qemu-riscv64 ;;
+  s390x)       echo qemu-s390x ;;
+  loongarch64) echo qemu-loongarch64 ;;
+  *)           echo "" ;;
+  esac
+}
+resolve_qemu() {
+  [ -n "$1" ] || return 1
+  if [ -n "$QEMU_DIR" ]; then
+    [ -x "$QEMU_DIR/$1" ] && echo "$QEMU_DIR/$1"
+  else
+    command -v "$1" 2>/dev/null
+  fi
+}
+
+n_arch=0
+for cand in "$ROOT"/build/*/kasld; do
+  [ -x "$cand" ] || continue
+  [ "$cand" = "$BIN" ] && continue
+  d=$(dirname "$cand")
+  triple=$(basename "$d")
+  q=$(resolve_qemu "$(qemu_for "$triple")") || continue
+  [ -n "$q" ] || continue
+  # The components must be discoverable for the skip filter to count them, but
+  # none is executed, so no exec wrapper is needed for the children.
+  out=$(KASLD_COMPONENT_DIR="$d/components" "$q" "$cand" -q -s '*' -1 2>/dev/null)
+  rc=$?
+  n_arch=$((n_arch + 1))
+  [ "$rc" -eq "$NO_RESULTS" ] ||
+    note "$triple: baseline exit $rc, expected $NO_RESULTS"
+  printf '%s\n' "$out" | grep -q '^arch=' ||
+    note "$triple: baseline oneline did not render"
+done
+
+if [ "$fail" -ne 0 ]; then
+  printf '%scheck-baseline: baseline assertions failed above%s\n' \
+    "$RED" "$RESET" >&2
+  exit 1
+fi
+printf '%scheck-baseline: OK%s (baseline renders in every mode; monotonicity %s; %s cross arch%s)\n' \
+  "$GREEN" "$RESET" "$monotonic" "$n_arch" "$([ "$n_arch" -eq 1 ] || echo es)"
