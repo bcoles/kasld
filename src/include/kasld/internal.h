@@ -480,8 +480,6 @@ struct kaslr_info {
   long vslide;
   unsigned long vslots;
   int vbits;
-  unsigned long vslot_idx;
-  int vslot_valid;
   /* Physical KASLR */
   unsigned long ptext;  /* phys image base (_text) */
   unsigned long pstext; /* phys _stext for display: observed symbol, else _text
@@ -504,6 +502,14 @@ struct kaslr_info {
    * see virt_page_offset_bits_top — but from the RANDOMIZE_MEMORY budget
    * model, not from Q_PAGE_OFFSET's top.) */
   int vbits_top;
+  /* The same baseline as a raw candidate count. ilog2 rounds up, so
+   * 2^vbits_top over-states it and cannot stand in for "N of M". */
+  unsigned long vtop_slots;
+  /* Candidates spanned by the physical image base's architectural top. That
+   * top is an addressing bound, not a window the kernel drew from, so a count
+   * equal to it means nothing was narrowed at all -- and the figure is a limit
+   * of the address space rather than a search space, so it is withheld. */
+  unsigned long parch_slots;
   /* Speculative "likely" window: the engine resolved a second time with ALL
    * signals, including those below the sound floor (timing/heuristic/brute).
    * It is a subset of the guaranteed window in the vtext/ptext fields above and
@@ -539,12 +545,11 @@ struct kaslr_info {
    * at the engine boundary. Carried here rather than recomputed in a renderer:
    * the same quantity must not be derived two ways. */
   int virt_page_offset_bits, virt_vmalloc_bits, virt_vmemmap_bits;
-  /* The same, over each region's speculative sub-window. Every window the
-   * readout draws states its own residual beside its own slot count, so the
-   * likely rows need theirs from the engine boundary too rather than a
-   * renderer dividing a range it happens to have. */
-  int virt_page_offset_likely_bits, virt_vmalloc_likely_bits,
-      virt_vmemmap_likely_bits;
+  /* The direct map's starting candidate count, from the same budget window
+   * virt_page_offset_bits_top is taken from. Carried raw as well as in bits:
+   * ilog2 rounds up, so 2^bits_top over-states the baseline and cannot be used
+   * to say "N of M". 0 where the budget model could not be evaluated. */
+  unsigned long virt_page_offset_top_slots;
   /* Entropy the direct-map base started with, i.e. the baseline that makes
    * virt_page_offset_bits interpretable, counted the same way (PUD-granular
    * candidates through quantity_slots, then ilog2).

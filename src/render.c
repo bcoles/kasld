@@ -123,6 +123,222 @@ const char *default_base_remark(unsigned long def, unsigned long lo,
   return buf;
 }
 
+/* Slot pitch without a trailing ".0" — the pitch is exact by construction, so
+ * the decimal is noise. Trimmed here rather than in human_size(), which also
+ * formats measured sizes elsewhere (and oneline's fixed-schema `dram=`).
+ * The map's gap sizes share it: a gap between two exact edges is exact too,
+ * and "16.0 MiB" claims a precision the ".0" does not carry. */
+const char *kasld_grain(unsigned long align, char *buf, size_t sz) {
+  char t[32];
+  human_size(align, t, sizeof(t));
+  char *dot = strstr(t, ".0");
+  if (dot)
+    memmove(dot, dot + 2, strlen(dot + 2) + 1);
+  snprintf(buf, sz, "%s", t);
+  return buf;
+}
+
+/* The displacement of a base from the un-randomized one it was drawn against,
+ * as a trailing note on the address rather than a column: it is the same value
+ * in another coordinate system, and only a concrete base has one. */
+const char *readout_slide(long slide, char *buf, size_t sz) {
+  unsigned long mag = (unsigned long)(slide < 0 ? -slide : slide);
+  snprintf(buf, sz, "slide %s0x%lx", slide < 0 ? "-" : "+", mag);
+  return buf;
+}
+
+/* ---------------------------------------------------------------------------
+ * The Layout table's row model.
+ *
+ * Built once here and rendered by each format, so the text readout and the
+ * markdown report cannot describe the same resolved state differently -- the
+ * failure this layer has had to be corrected for twice. A row carries only
+ * strings: which cells are emphasised, and how, is a presentation decision each
+ * renderer makes for itself.
+ * ------------------------------------------------------------------------- */
+
+struct layout_row layout_rows[LAYOUT_MAX_ROWS];
+int n_layout_rows;
+
+const char *const layout_hdr[LAYOUT_COLS] = {"Quantity", "Basis", "Range",
+                                             "Search space", "Align"};
+
+/* The candidate count, against the set the row narrows: a guaranteed row
+ * narrows the window the kernel randomized over, a likely row narrows the
+ * guaranteed set above it. One rule for the whole column, so a reader need not
+ * work out why some rows carry a denominator and others do not.
+ *
+ * `top` is a raw count: 2^bits would over-state it, since ilog2 rounds up. It
+ * is dropped when it does not exceed the row's own count -- a window that
+ * narrowed nothing has no fraction to report -- and where no enclosing set is
+ * modelled at all, which leaves the bare residual rather than a denominator
+ * drawn from an addressing limit. A likely row is a subset of the guaranteed
+ * one by construction, so N > M here would be a visible contract violation. */
+static void layout_fmt_space(char *buf, size_t sz, unsigned long slots,
+                             unsigned long top) {
+  if (!slots)
+    snprintf(buf, sz, "-");
+  else if (top > slots)
+    snprintf(buf, sz, "%lu of %lu", slots, top);
+  else
+    snprintf(buf, sz, "%lu", slots);
+}
+
+/* Addresses are never zero-padded here, matching the rest of the readout: a
+ * 16 MiB physical address does not wear the costume of a 64-bit pointer. */
+static void layout_fmt_range(char *buf, size_t sz, unsigned long lo,
+                             unsigned long hi, const char *note) {
+  char tail[32];
+  tail[0] = '\0';
+  if (note && *note)
+    snprintf(tail, sizeof(tail), " %s", note);
+  if (lo && hi && lo == hi)
+    snprintf(buf, sz, "0x%lx%s", lo, tail);
+  else if (lo && hi)
+    snprintf(buf, sz, "0x%lx - 0x%lx%s", lo, hi, tail);
+  else if (lo)
+    snprintf(buf, sz, ">= 0x%lx%s", lo, tail);
+  else if (hi)
+    snprintf(buf, sz, "<= 0x%lx%s", hi, tail);
+  else
+    snprintf(buf, sz, "not narrowed");
+}
+
+/* A row. `slots` of 0 withholds the search space -- the caller decides what is
+ * a bound worth acting on; `top` is the set the row narrows, and is dropped
+ * unless it exceeds `slots`. */
+static void layout_add(const char *quantity, const char *basis,
+                       unsigned long slots, unsigned long top, unsigned long lo,
+                       unsigned long hi, const char *note,
+                       unsigned long align) {
+  char gb[32];
+  struct layout_row *r;
+  if (n_layout_rows >= LAYOUT_MAX_ROWS)
+    return;
+  r = &layout_rows[n_layout_rows++];
+  memset(r, 0, sizeof(*r));
+  snprintf(r->cell[0], LAYOUT_CELL, "%s", quantity);
+  snprintf(r->cell[1], LAYOUT_CELL, "%s", basis);
+  layout_fmt_range(r->cell[2], LAYOUT_CELL, lo, hi, note);
+  layout_fmt_space(r->cell[3], LAYOUT_CELL, slots, top);
+  r->lo = lo;
+  r->hi = hi;
+  snprintf(r->note, sizeof(r->note), "%s", note ? note : "");
+  snprintf(r->cell[4], LAYOUT_CELL, "%s",
+           align ? kasld_grain(align, gb, sizeof(gb)) : "-");
+  r->dim = (!lo && !hi);
+  r->pinned =
+      (strcmp(basis, GRADE_GUARANTEED) == 0 && lo && lo == hi && slots == 1);
+}
+
+/* Build the rows for this run, in the fixed order the readout presents.
+ */
+void layout_build(const struct summary *s) {
+  n_layout_rows = 0;
+
+  {
+    int vpin = (layout.virt_kaslr_text_min == layout.virt_kaslr_text_max &&
+                layout.virt_kaslr_text_min != 0);
+    int ppin = (layout.phys_kaslr_text_min == layout.phys_kaslr_text_max &&
+                layout.phys_kaslr_text_min != 0);
+    char slide[48];
+
+    /* Virtual image base. A pin is a single guaranteed row carrying its slide;
+     * otherwise the proven window, plus the speculative answer beneath it --
+     * either a concrete base (which IS that answer, so the likely window would
+     * only restate it) or a narrower window. */
+    layout_add("Virtual Image Base", GRADE_GUARANTEED, s->kaslr.vslots,
+               s->kaslr.vtop_slots, layout.virt_kaslr_text_min,
+               layout.virt_kaslr_text_max,
+               vpin ? readout_slide(s->kaslr.vslide, slide, sizeof(slide))
+                    : NULL,
+               layout.virt_kaslr_align);
+    if (s->kaslr.vtext && !vpin)
+      layout_add("Virtual Image Base", GRADE_LIKELY, 1, s->kaslr.vslots,
+                 s->kaslr.vtext, s->kaslr.vtext,
+                 readout_slide(s->kaslr.vslide, slide, sizeof(slide)),
+                 layout.virt_kaslr_align);
+    else if (!s->kaslr.vtext && s->kaslr.vlikely_max)
+      layout_add("Virtual Image Base", GRADE_LIKELY, s->kaslr.vlikely_slots,
+                 s->kaslr.vslots, s->kaslr.vlikely_min, s->kaslr.vlikely_max,
+                 NULL, layout.virt_kaslr_align);
+
+    /* Physical image base. Its top is an addressable-range bound rather than a
+     * randomization window, so it has no baseline to count against -- and when
+     * nothing narrowed it, no search space either. A likely row that narrows an
+     * unbounded set is still unbounded, so it withholds its count too rather
+     * than stating a fraction of a number that means nothing. */
+    /* The physical top is an addressing bound, not a window the kernel drew
+     * from, so a count equal to it means nothing was narrowed -- and the figure
+     * would be the size of the address space rather than a search space.
+     * Decided once here; every physical row reports 0 candidates when it
+     * holds, including a likely row, since a fraction of an unbounded set is
+     * still unbounded. */
+    int pbounded =
+        !(s->kaslr.parch_slots && s->kaslr.pslots >= s->kaslr.parch_slots);
+    unsigned long pslots = pbounded ? s->kaslr.pslots : 0;
+    if (s->kaslr.has_phys || s->kaslr.pslots > 0 ||
+        layout.phys_kaslr_text_min || layout.phys_kaslr_text_max) {
+      layout_add("Physical Image Base", GRADE_GUARANTEED, pslots, 0,
+                 layout.phys_kaslr_text_min, layout.phys_kaslr_text_max,
+                 ppin ? readout_slide(s->kaslr.pslide, slide, sizeof(slide))
+                      : NULL,
+                 layout.phys_kaslr_align);
+      if (s->kaslr.ptext && !ppin)
+        layout_add("Physical Image Base", GRADE_LIKELY, pbounded ? 1 : 0,
+                   pslots, s->kaslr.ptext, s->kaslr.ptext,
+                   readout_slide(s->kaslr.pslide, slide, sizeof(slide)),
+                   layout.phys_kaslr_align);
+      else if (!s->kaslr.ptext && s->kaslr.plikely_max)
+        layout_add("Physical Image Base", GRADE_LIKELY,
+                   pbounded ? s->kaslr.plikely_slots : 0, pslots,
+                   s->kaslr.plikely_min, s->kaslr.plikely_max, NULL,
+                   layout.phys_kaslr_align);
+    }
+
+    /* The memory-KASLR regions exist as unknowns only where the architecture
+     * randomizes them; elsewhere RANDOMIZE_MEMORY_ALIGN is 0 and the engine
+     * never constrains them, so no row is drawn. */
+#if RANDOMIZE_MEMORY_ALIGN > 0
+    {
+      unsigned long dmalign = (unsigned long)RANDOMIZE_MEMORY_ALIGN;
+      layout_add(
+          "Direct Map Base", GRADE_GUARANTEED, s->kaslr.virt_page_offset_slots,
+          s->kaslr.virt_page_offset_top_slots, s->kaslr.virt_page_offset_min,
+          s->kaslr.virt_page_offset_max, NULL, dmalign);
+      /* A single-slot likely bracket is a base pin, not a window: report the
+       * address itself. The direct map has no compile-time default to slide
+       * from, but it does have a RANDOMIZE_MEMORY offset from the
+       * un-randomized base -- the same value in another coordinate system, so
+       * it takes the slide's place. */
+      if (s->kaslr.virt_page_offset_likely_max) {
+        unsigned long llo = s->kaslr.virt_page_offset_likely_min;
+        unsigned long lhi = s->kaslr.virt_page_offset_likely_max;
+        int concrete = llo && lhi >= llo && (lhi - llo) <= dmalign;
+        char off[48];
+        if (concrete) {
+          long d = (long)(lhi - (unsigned long)PAGE_OFFSET_BASE_L4);
+          snprintf(off, sizeof(off), "off %s0x%lx", d < 0 ? "-" : "+",
+                   (unsigned long)(d < 0 ? -d : d));
+          layout_add("Direct Map Base", GRADE_LIKELY, 1,
+                     s->kaslr.virt_page_offset_slots, lhi, lhi, off, dmalign);
+        } else {
+          layout_add("Direct Map Base", GRADE_LIKELY,
+                     s->kaslr.virt_page_offset_likely_slots,
+                     s->kaslr.virt_page_offset_slots, llo, lhi, NULL, dmalign);
+        }
+      }
+      layout_add("Vmalloc Base", GRADE_GUARANTEED, s->kaslr.virt_vmalloc_slots,
+                 0, s->kaslr.virt_vmalloc_min, s->kaslr.virt_vmalloc_max, NULL,
+                 dmalign);
+      layout_add("Vmemmap Base", GRADE_GUARANTEED, s->kaslr.virt_vmemmap_slots,
+                 0, s->kaslr.virt_vmemmap_min, s->kaslr.virt_vmemmap_max, NULL,
+                 dmalign);
+    }
+#endif
+  }
+}
+
 /* A memory-KASLR region (page_offset / vmalloc / vmemmap) has a narrowed edge:
  * the gate every renderer uses to decide whether to emit the Memory-KASLR
  * section. Pure read of the resolved summary. */

@@ -91,11 +91,21 @@ resolve_qemu() {
 # The target-identity lines are exempt. They interpolate the kernel version
 # string, which is supplied by the target and has no bound the renderer can
 # impose -- a long enough uname overflows any budget, and truncating it would
-# hide the one field a reader uses to identify what was measured. Every line
-# whose width the renderer actually controls is measured.
+# hide the one field a reader uses to identify what was measured.
+#
+# Markdown table rows are exempt for a different reason: the budget exists
+# because a terminal line wraps, and a markdown row does not -- it reflows in
+# any renderer, and much of its width is the format's own scaffolding (pipes,
+# padding, code spans) rather than anything a reader sees. Exempting the ROW
+# rather than the mode is deliberate: markdown also embeds the address-space
+# diagram in a fenced code block, which does NOT reflow, so it stays measured.
+#
+# Every line whose width the renderer actually controls, and where width has a
+# consequence, is measured.
 measure() {
   sed 's/\033\[[0-9;]*m//g' | awk -v max="$MAX_COLS" -v tag="$1" '
     /^Target:/ || /^\*\*Kernel:\*\*/ { next }
+    /^\|/ { next }
     length($0) > max {
       printf "%s: %d cols: %s\n", tag, length($0), $0
     }'

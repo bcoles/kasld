@@ -409,8 +409,6 @@ void render_json(const struct summary *s) {
     if (s->kaslr.vbits_top > 0)
       printf("      \"entropy_bits_initial\": %d,\n", s->kaslr.vbits_top);
     printf("      \"slots\": %lu", s->kaslr.vslots);
-    if (s->kaslr.vslot_valid)
-      printf(",\n      \"slot_index\": %lu", s->kaslr.vslot_idx);
     if (v_spec)
       printf(",\n      \"speculative\": true");
     printf("\n    }");

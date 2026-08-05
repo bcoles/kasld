@@ -273,8 +273,6 @@ static void set_rich_render_state(struct summary *s) {
   s->kaslr.vslide = 0x10000000;
   s->kaslr.vslots = 512;
   s->kaslr.vbits = 9;
-  s->kaslr.vslot_valid = 1;
-  s->kaslr.vslot_idx = 42;
   s->stats.total = 1;
   s->stats.succeeded = 1;
 }
@@ -366,27 +364,33 @@ static void test_render_likely_window(void) {
   verbose = 1; /* the KASLR analysis block shows in the verbose text flow */
   set_render_mode(0, 0, 0); /* text */
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "likely (speculative)") != NULL);
-  /* A single surviving slot renders as a pinned best-guess in the verbose
-   * analysis, not a degenerate "0xX - 0xX (1 slots, 0 bits)" range. */
-  assert(strstr(render_cap, "(pinned)") != NULL);
-  assert(strstr(render_cap, "1 slots") == NULL);
+  assert(strstr(render_cap, GRADE_LIKELY) != NULL);
+  /* A single surviving slot is one address, not a degenerate "0xX - 0xX"
+     range: the row states the address and a search space of one. */
+  {
+    char one[32];
+    snprintf(one, sizeof(one), "0x%lx - 0x%lx", s.kaslr.vlikely_min,
+             s.kaslr.vlikely_min);
+    assert(strstr(render_cap, one) == NULL);
+    assert(strstr(render_cap, "1 slots") == NULL);
+  }
 
   verbose = 0; /* DEFAULT (compact readout) must also show the likely line */
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "likely (speculative)") != NULL);
+  assert(strstr(render_cap, GRADE_LIKELY) != NULL);
 
   set_render_mode(1, 0, 0); /* json */
   capture_stdout(wrap_render_summary, &s);
   assert(strstr(render_cap, "\"likely\"") != NULL);
   assert(strstr(render_cap, "\"speculative\": true") != NULL);
 
-  /* Markdown carries the same likely window as a dedicated table row (the text
-   * analogue of the "likely (speculative)" sub-line). */
+  /* Markdown carries the same likely window, as a row of the same Layout
+     table the readout draws — both are rendered from one row model, so the
+     grade word is the one the readout uses. */
   set_render_mode(0, 0, 1);
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "| Likely text range |") != NULL);
-  assert(strstr(render_cap, "(speculative)") != NULL);
+  assert(strstr(render_cap, GRADE_LIKELY) != NULL);
+  assert(strstr(render_cap, "## Layout") != NULL);
   set_render_mode(0, 0, 0);
 }
 
@@ -419,19 +423,18 @@ static void test_render_vtext_speculative(void) {
   verbose = 1;
   set_render_mode(0, 0, 0); /* text */
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "likely (speculative)") != NULL);
-  assert(strstr(render_cap, "Guaranteed range") != NULL);
-  /* The slide is a best-guess for a windowed (unpinned) base, so it inherits
-   * the likely grade (#6): ")  (likely)" is the slide tail. */
-  assert(strstr(render_cap, ")  (likely)") != NULL);
+  assert(strstr(render_cap, GRADE_LIKELY) != NULL);
+  /* -v draws the same Layout table as the readout, so the proven window is
+     the guaranteed row rather than a separately-worded line. */
+  assert(strstr(render_cap, GRADE_GUARANTEED) != NULL);
 
   /* DEFAULT compact readout: the concrete base is the headline, graded
    * speculative, with its slide alongside and the proven window shown as
    * "guaranteed" beneath — never buried as a bare status word alone. */
   verbose = 0;
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "likely (speculative)") != NULL);
-  assert(strstr(render_cap, "guaranteed") != NULL);
+  assert(strstr(render_cap, GRADE_LIKELY) != NULL);
+  assert(strstr(render_cap, GRADE_GUARANTEED) != NULL);
   /* A concrete best-guess base carries its slide, graded likely. */
   assert(strstr(render_cap, "slide +0x10000000") != NULL);
   {
@@ -451,7 +454,7 @@ static void test_render_vtext_speculative(void) {
 
   set_render_mode(0, 0, 1); /* markdown: concrete base graded likely */
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "likely (speculative)") != NULL);
+  assert(strstr(render_cap, GRADE_LIKELY) != NULL);
   set_render_mode(0, 0, 0);
 
   layout.virt_kaslr_text_min = sv_lo;
@@ -495,18 +498,19 @@ static void test_render_windowed_base_likely_order(void) {
 
   set_render_mode(0, 0, 0); /* default compact readout */
   capture_stdout(wrap_render_summary, &s);
-  /* Graded residual, not a binary verdict: both windows are narrowings, so
-   * "not derandomized" would contradict them. The residual is stated on the
-   * row whose slot count it restates, so it is found there rather than on the
-   * block header. */
-  assert(strstr(render_cap, "~11 bits") != NULL);
+  /* A graded residual, not a binary verdict: both windows are narrowings, so
+   * "not derandomized" would contradict them. The residual is the candidate
+   * count in the row's own Search space cell. */
+  assert(strstr(render_cap, "1391") != NULL);
   assert(strstr(render_cap, "not derandomized") == NULL);
   {
-    const char *lk = strstr(render_cap, "likely (speculative)");
-    const char *gt = strstr(render_cap, "guaranteed");
+    const char *lk = strstr(render_cap, GRADE_LIKELY);
+    const char *gt = strstr(render_cap, GRADE_GUARANTEED);
     assert(lk != NULL); /* speculative window shown */
-    assert(gt != NULL); /* range graded "guaranteed" like the virt form */
-    assert(lk < gt);    /* likely line sits ABOVE the guaranteed range */
+    assert(gt != NULL); /* proven range shown, graded */
+    /* Proven first, speculative beneath: a quantity's rows read as the claim
+       and then the guess drawn inside it. */
+    assert(gt < lk);
   }
 
   layout.virt_kaslr_text_min = sv_vlo;
@@ -520,15 +524,17 @@ static void test_render_windowed_base_likely_order(void) {
  * "likely" sub-windows. A guaranteed region range plus a tighter likely sub-
  * range must surface in the verbose Memory KASLR block, the default direct-map
  * readout, JSON, and markdown. Reads only s->kaslr (mutates no global). */
-/* The direct-map residual is reported against a baseline, the way the virtual
- * image base is: "narrowed to ~4 of 14 bits" rather than a bare "~4 bits" with
- * nothing to read it against. The denominator is the summary's
- * virt_page_offset_bits_top (the RANDOMIZE_MEMORY budget window's candidate
- * count, computed at the engine boundary); the row must present it, and must
- * degrade to the bare residual when it is absent -- off x86_64, or where the
- * model could not be evaluated at or above the sound floor. Reads only
- * s->kaslr, so it runs the same on every arch. */
+/* The direct-map search space is reported against a baseline, the way the
+ * virtual image base is: "16 of 16384" rather than a bare "16" with nothing to
+ * read it against. The denominator is virt_page_offset_top_slots, the
+ * RANDOMIZE_MEMORY budget window's candidate count computed at the engine
+ * boundary. It is carried as a raw count and not derived from bits_top: ilog2
+ * rounds up, so 2^bits_top over-states the baseline. The row must present it,
+ * and must degrade to the bare residual when it is absent -- off x86_64, or
+ * where the model could not be evaluated at or above the sound floor. Reads
+ * only s->kaslr, so it runs the same on every arch. */
 static void test_render_directmap_entropy_denominator(void) {
+#if RANDOMIZE_MEMORY_ALIGN > 0
   struct summary s;
   reset_results();
   reset_comp_logs();
@@ -545,13 +551,14 @@ static void test_render_directmap_entropy_denominator(void) {
   s.kaslr.virt_page_offset_slots = 16;
   s.kaslr.virt_page_offset_bits = 4;
   s.kaslr.virt_page_offset_bits_top = 14;
+  s.kaslr.virt_page_offset_top_slots = 16384;
 
   set_render_mode(0, 0, 0);
   capture_stdout(wrap_render_summary, &s);
   /* The residual is stated on the guaranteed window row, beside the slot count
    * it restates -- not on the block header, which carries no grade and so
    * cannot own a figure describing one particular row. */
-  const char *row = strstr(render_cap, "Direct map base");
+  const char *row = strstr(render_cap, "Direct Map Base");
   assert(row != NULL);
   row = strstr(row, GRADE_GUARANTEED);
   assert(row != NULL);
@@ -563,14 +570,15 @@ static void test_render_directmap_entropy_denominator(void) {
     assert(len < sizeof(line));
     memcpy(line, row, len);
     line[len] = '\0';
-    assert(strstr(line, "~4 of 14 bits") != NULL);
+    assert(strstr(line, "16 of 16384") != NULL);
   }
 
   /* No sound baseline: the residual stands alone rather than being presented
    * against a denominator drawn from somewhere else. */
   s.kaslr.virt_page_offset_bits_top = 0;
+  s.kaslr.virt_page_offset_top_slots = 0;
   capture_stdout(wrap_render_summary, &s);
-  row = strstr(render_cap, "Direct map base");
+  row = strstr(render_cap, "Direct Map Base");
   assert(row != NULL);
   row = strstr(row, GRADE_GUARANTEED);
   assert(row != NULL);
@@ -582,12 +590,14 @@ static void test_render_directmap_entropy_denominator(void) {
     assert(len < sizeof(line));
     memcpy(line, row, len);
     line[len] = '\0';
-    assert(strstr(line, "~4 bits") != NULL);
+    assert(strstr(line, "16") != NULL);
     assert(strstr(line, " of ") == NULL);
   }
+#endif
 }
 
 static void test_render_memory_likely_window(void) {
+#if RANDOMIZE_MEMORY_ALIGN > 0
   struct summary s;
   reset_results();
   reset_comp_logs();
@@ -609,11 +619,11 @@ static void test_render_memory_likely_window(void) {
   verbose = 1;              /* verbose Memory KASLR block */
   set_render_mode(0, 0, 0); /* text */
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "likely (speculative)") != NULL);
+  assert(strstr(render_cap, GRADE_LIKELY) != NULL);
 
   verbose = 0; /* DEFAULT readout direct-map likely line */
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "likely (speculative)") != NULL);
+  assert(strstr(render_cap, GRADE_LIKELY) != NULL);
 
   set_render_mode(1, 0, 0); /* json */
   capture_stdout(wrap_render_summary, &s);
@@ -622,15 +632,15 @@ static void test_render_memory_likely_window(void) {
 
   set_render_mode(0, 0, 1); /* markdown */
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "(likely)") != NULL);
-  assert(strstr(render_cap, "speculative") != NULL);
+  assert(strstr(render_cap, GRADE_LIKELY) != NULL);
   set_render_mode(0, 0, 0);
+#endif
 }
 
 /* A concrete likely direct-map base — a POS_BASE timing pin
  * (prefetch_directmap) narrowed the likely window to a single-slot bracket at
  * the base — is promoted in the default readout to a graded headline (the base
- * address graded "likely (speculative)") with the guaranteed window beneath it
+ * address graded "likely") with the guaranteed window beneath it
  * ("guaranteed"), the same form as the image bases, rather than a bound row +
  * dim sub-line. The "guaranteed" label is unique to that promoted window row,
  * so its presence proves the promotion fired. RANDOMIZE_MEMORY arches only
@@ -663,8 +673,8 @@ static void test_render_directmap_base_promoted(void) {
   snprintf(off, sizeof(off), "off +0x%lx", 20ul * align); /* base - default */
   assert(strstr(render_cap, hex) != NULL);                /* headline base */
   assert(strstr(render_cap, off) != NULL);                /* RM offset */
-  assert(strstr(render_cap, "likely (speculative)") != NULL); /* graded */
-  assert(strstr(render_cap, "guaranteed") != NULL); /* window beneath */
+  assert(strstr(render_cap, GRADE_LIKELY) != NULL);       /* graded */
+  assert(strstr(render_cap, GRADE_GUARANTEED) != NULL);   /* window beneath */
   set_render_mode(0, 0, 0);
 #endif
 }
@@ -698,21 +708,21 @@ static void test_render_directmap_base_promoted_unbounded(void) {
   char hex[32], off[32];
   snprintf(hex, sizeof(hex), "0x%lx", base);
   snprintf(off, sizeof(off), "off +0x%lx", 20ul * align);
-  assert(strstr(render_cap, hex) != NULL); /* headline base */
-  assert(strstr(render_cap, off) != NULL); /* RM offset */
-  assert(strstr(render_cap, "likely (speculative)") != NULL); /* graded */
-  assert(strstr(render_cap, "guaranteed") !=
+  assert(strstr(render_cap, hex) != NULL);          /* headline base */
+  assert(strstr(render_cap, off) != NULL);          /* RM offset */
+  assert(strstr(render_cap, GRADE_LIKELY) != NULL); /* graded */
+  assert(strstr(render_cap, GRADE_GUARANTEED) !=
          NULL); /* floor beneath, labelled */
   set_render_mode(0, 0, 0);
 #endif
 }
 
-/* Residual entropy is stated against the entropy the KASLR window started
- * with, so a reader can tell whether almost everything or almost nothing was
- * recovered — "5 bits remain" says nothing on its own. Where that baseline is
- * not known the residual stands alone: a denominator borrowed from a quantity
- * whose honest top is an addressable range rather than a randomization window
- * would read as KASLR entropy the kernel never had. */
+/* The residual search space is stated against the space the KASLR window
+ * started with, so a reader can tell whether almost everything or almost
+ * nothing was recovered — "24 remain" says nothing on its own. Where that
+ * baseline is not known the residual stands alone: a denominator borrowed from
+ * a quantity whose honest top is an addressable range rather than a
+ * randomization window would read as KASLR entropy the kernel never had. */
 static void test_render_entropy_states_its_baseline(void) {
   struct summary s;
   reset_results();
@@ -722,15 +732,16 @@ static void test_render_entropy_states_its_baseline(void) {
   s.kaslr.vslots = 24;
   s.kaslr.vbits = 5;
   s.kaslr.vbits_top = 9;
+  s.kaslr.vtop_slots = 512;
 
   set_render_mode(0, 0, 0);
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "~5 of 9 bits") != NULL);
+  assert(strstr(render_cap, "24 of 512") != NULL);
 
-  s.kaslr.vbits_top = 0; /* baseline unknown */
+  s.kaslr.vtop_slots = 0; /* baseline unknown */
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "~5 bits") != NULL);
-  assert(strstr(render_cap, "of 9 bits") == NULL);
+  assert(strstr(render_cap, "24") != NULL);
+  assert(strstr(render_cap, "of 512") == NULL);
   set_render_mode(0, 0, 0);
 }
 
@@ -760,12 +771,12 @@ static void test_render_window_row_always_graded(void) {
 
   set_render_mode(0, 0, 0);
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "Direct map base") != NULL);
-  assert(strstr(render_cap, "likely (speculative)") == NULL); /* none to show */
-  assert(strstr(render_cap, "guaranteed") != NULL); /* graded regardless */
+  assert(strstr(render_cap, "Direct Map Base") != NULL);
+  assert(strstr(render_cap, GRADE_LIKELY) == NULL);     /* none to show */
+  assert(strstr(render_cap, GRADE_GUARANTEED) != NULL); /* graded regardless */
   /* The count reconciles with the window it is printed beside: a closed
    * 12-slot span holds 13 candidates. */
-  assert(strstr(render_cap, "13 x ") != NULL);
+  assert(strstr(render_cap, "13") != NULL);
   set_render_mode(0, 0, 0);
 #endif
 }
@@ -866,6 +877,7 @@ static void test_render_markdown_text_order_caution(void) {
  * (max-min)/align. Set a slot count the naive formula could never produce for
  * this window and assert it is what renders. */
 static void test_render_memory_kaslr_uses_stored_slots(void) {
+#if RANDOMIZE_MEMORY_ALIGN > 0
   struct summary s;
   reset_results();
   reset_comp_logs();
@@ -886,11 +898,20 @@ static void test_render_memory_kaslr_uses_stored_slots(void) {
   verbose = 0;
   set_render_mode(0, 0, 0);
 
-  /* The engine-supplied count is used verbatim; a naive (max-min)/align would
-   * give a different number. Entropy is no longer derived here either -- the
-   * renderer prints the summary's bits rather than recomputing them, so a
-   * summary that sets slots without bits reports 0 bits by design. */
-  assert(strstr(render_cap, "7 slots") != NULL);
+  /* The engine-supplied count is used verbatim in the row's Search space
+     cell; a naive (max-min)/align would give a different number. */
+  {
+    const char *row = strstr(render_cap, "Direct Map Base");
+    const char *eol;
+    char line[256];
+    assert(row != NULL);
+    eol = strchr(row, '\n');
+    assert(eol != NULL);
+    assert((size_t)(eol - row) < sizeof(line));
+    snprintf(line, (size_t)(eol - row) + 1, "%s", row);
+    assert(strstr(line, " 7  ") != NULL);
+  }
+#endif
 }
 
 /* json and markdown must carry the hole-aware candidate count for the
@@ -918,10 +939,12 @@ static void test_render_memory_kaslr_slots_reach_machine_formats(void) {
   assert(strstr(render_cap, "\"slots\": 7") != NULL);
   assert(strstr(render_cap, "\"entropy_bits\": 3") != NULL);
 
+  /* Markdown reports the same hole-aware count in the Layout table's search
+     space column. Bits stay a machine-format figure: the human table states
+     the candidate count itself, which is the same fact without the log. */
   set_render_mode(0, 0, 1); /* markdown */
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "7 slots") != NULL);
-  assert(strstr(render_cap, "~3 bits") != NULL);
+  assert(strstr(render_cap, "| 7 | 1 GiB |") != NULL);
   set_render_mode(0, 0, 0);
 #endif
 }
@@ -1280,7 +1303,7 @@ static int map_boundary_addr(const char *line, unsigned long *out) {
     return 0;
   while (*end == ' ')
     end++;
-  if (*end != '\0' && strncmp(end, "likely (speculative)", 20) != 0)
+  if (*end != '\0' && strncmp(end, GRADE_LIKELY, sizeof(GRADE_LIKELY) - 1) != 0)
     return 0;
   *out = v;
   return 1;
@@ -2433,9 +2456,11 @@ static void set_richer_render_state(struct summary *s) {
   /* memory_kaslr (RANDOMIZE_MEMORY) — populate all three to hit the
    * pinned branch (min == max), the one-sided branch (min only), and the
    * window branch (min < max). */
-  /* pinned: min == max */
+  /* pinned: min == max. quantity_slots() reports one candidate for a pinned
+     estimate, so the fixture carries the count a real run would. */
   s->kaslr.virt_page_offset_min = (unsigned long)PAGE_OFFSET + 0x01000000ul;
   s->kaslr.virt_page_offset_max = (unsigned long)PAGE_OFFSET + 0x01000000ul;
+  s->kaslr.virt_page_offset_slots = 1;
   /* one-sided: min only */
   s->kaslr.virt_vmalloc_min = (unsigned long)PAGE_OFFSET + 0x11000000ul;
   s->kaslr.virt_vmalloc_max = 0;
@@ -2445,18 +2470,30 @@ static void set_richer_render_state(struct summary *s) {
 }
 
 static void test_render_text_with_memory_kaslr_bound(void) {
+#if RANDOMIZE_MEMORY_ALIGN > 0
   struct summary s;
   set_richer_render_state(&s);
   set_render_mode(0, 0, 0);
   capture_stdout(wrap_render_summary, &s);
-  /* The default (no-verbose) readout surfaces a narrowed direct-map base
-   * as its own row. The richer-render-state setup pins virt_page_offset_min ==
-   * virt_page_offset_max so the readout's lo == hi branch fires with the
-   * "pinned" annotation. (Under -v the original render_memory_kaslr_bound
-   * runs instead, producing "(pinned)" / ">= 0x" / "<= 0x" — covered by
-   * the verbose-mode tests below.) */
-  assert(strstr(render_cap, "Direct map base") != NULL);
-  assert(strstr(render_cap, "pinned") != NULL);
+  /* The default (no-verbose) readout surfaces the direct-map base as its own
+   * table row. The richer-render-state setup pins virt_page_offset_min ==
+   * virt_page_offset_max, and a pinned quantity needs no separate annotation:
+   * the row carries the single address and a search space of one, which is
+   * what "pinned" used to say. (Under -v render_memory_kaslr_bound runs too,
+   * producing "(pinned)" / ">= 0x" / "<= 0x" — covered below.) */
+  const char *row = strstr(render_cap, "Direct Map Base");
+  assert(row != NULL);
+  {
+    const char *eol = strchr(row, '\n');
+    char line[256];
+    assert(eol != NULL);
+    assert((size_t)(eol - row) < sizeof(line));
+    snprintf(line, (size_t)(eol - row) + 1, "%s", row);
+    /* One candidate, and one address rather than a range. */
+    assert(strstr(line, " 1  ") != NULL);
+    assert(strstr(line, " - ") == NULL);
+  }
+#endif
 }
 
 static void test_render_derived_text(void) {

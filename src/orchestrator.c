@@ -2779,6 +2779,7 @@ void compute_kaslr_info(struct summary *s) {
   {
     unsigned long top =
         quantity_top_slots(Q_VIRT_IMAGE_BASE, layout.virt_kaslr_align);
+    s->kaslr.vtop_slots = top;
     s->kaslr.vbits_top = top > 0 ? ilog2(top) : 0;
   }
 #endif
@@ -2798,19 +2799,15 @@ void compute_kaslr_info(struct summary *s) {
                           : 0;
 #endif
     s->kaslr.pbits = s->kaslr.pslots > 0 ? ilog2(s->kaslr.pslots) : 0;
+#ifndef KASLD_TESTING
+    s->kaslr.parch_slots =
+        quantity_top_slots(Q_PHYS_IMAGE_BASE, layout.phys_kaslr_align);
+#endif
   }
 #endif
 
   if (s->kaslr.vtext) {
     s->kaslr.vslide = (long)(s->kaslr.vtext - layout.virt_image_base_default);
-    /* The window is closed at both edges, so a base sitting exactly on
-     * virt_kaslr_text_max is the last slot, not out of range. */
-    s->kaslr.vslot_valid = (layout.virt_kaslr_align > 0 &&
-                            s->kaslr.vtext >= layout.virt_kaslr_text_min &&
-                            s->kaslr.vtext <= layout.virt_kaslr_text_max);
-    if (s->kaslr.vslot_valid)
-      s->kaslr.vslot_idx = (s->kaslr.vtext - layout.virt_kaslr_text_min) /
-                           layout.virt_kaslr_align;
   }
 
   if (s->kaslr.ptext) {
@@ -2829,7 +2826,6 @@ void compute_kaslr_info(struct summary *s) {
     s->kaslr.vslide = 0;
     s->kaslr.vslots = 0;
     s->kaslr.vbits = 0;
-    s->kaslr.vslot_valid = 0;
     s->kaslr.pslide = 0;
     s->kaslr.pslots = 0;
     s->kaslr.pbits = 0;
@@ -2980,6 +2976,7 @@ void compute_kaslr_info(struct summary *s) {
       unsigned long top =
           quantity_slots(Q_PAGE_OFFSET, &budget, KASLD_SOUND_FLOOR, NULL, 0,
                          RANDOMIZE_MEMORY_ALIGN);
+      s->kaslr.virt_page_offset_top_slots = top;
       s->kaslr.virt_page_offset_bits_top = top > 0 ? ilog2(top) : 0;
     }
   }
@@ -3042,22 +3039,6 @@ void compute_kaslr_info(struct summary *s) {
     }
   }
 #endif
-  /* Residual entropy over each speculative sub-window, from the hole-aware
-   * slot counts just resolved. Derived here beside the guaranteed figures so
-   * the same quantity is never derived two ways; 0 where no sub-window was
-   * narrowed. */
-  s->kaslr.virt_page_offset_likely_bits =
-      s->kaslr.virt_page_offset_likely_slots > 0
-          ? ilog2(s->kaslr.virt_page_offset_likely_slots)
-          : 0;
-  s->kaslr.virt_vmalloc_likely_bits =
-      s->kaslr.virt_vmalloc_likely_slots > 0
-          ? ilog2(s->kaslr.virt_vmalloc_likely_slots)
-          : 0;
-  s->kaslr.virt_vmemmap_likely_bits =
-      s->kaslr.virt_vmemmap_likely_slots > 0
-          ? ilog2(s->kaslr.virt_vmemmap_likely_slots)
-          : 0;
 
 #if !TEXT_TRACKS_DIRECTMAP
   /* On decoupled arches (x86_64, arm64, riscv64, s390): note when physical

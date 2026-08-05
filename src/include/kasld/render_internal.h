@@ -270,6 +270,40 @@ const char *default_base_remark(unsigned long def, unsigned long lo,
                                 unsigned long hi, const char *addr_text,
                                 char *buf, size_t bufsz);
 
+/* Size with the trailing ".0" trimmed: a slot pitch is exact by construction,
+ * so the decimal is noise. Shared by every format that prints a grid. */
+const char *kasld_grain(unsigned long align, char *buf, size_t sz);
+
+/* The two grades, and the displacement note a concrete base carries. Shared
+ * vocabulary: every format states the same word for the same claim. */
+#define GRADE_LIKELY "likely"
+#define GRADE_GUARANTEED "guaranteed"
+const char *readout_slide(long slide, char *buf, size_t sz);
+
+/* The Layout table's rows, built once in render.c and rendered per format. */
+#define LAYOUT_COLS 5
+#define LAYOUT_CELL 72
+#define LAYOUT_MAX_ROWS 12
+struct layout_row {
+  char cell[LAYOUT_COLS][LAYOUT_CELL];
+  /* The range's parts, kept alongside the composed cell so a format that
+   * aligns columns can re-compose with its own padding. Addresses are never
+   * zero-padded -- a 16 MiB physical address must not wear the costume of a
+   * 64-bit kernel pointer -- so alignment is done with spaces or not at all. */
+  unsigned long lo, hi;
+  char note[32];
+  int dim; /* nothing bounded: the row recedes */
+  /* A proven single address -- the quantity is solved. Set only for a
+   * guaranteed row of one candidate: a likely row can also hold one address,
+   * but that is the best guess, and emphasising it would make an unproven
+   * value the most prominent thing on screen. */
+  int pinned;
+};
+extern struct layout_row layout_rows[LAYOUT_MAX_ROWS];
+extern int n_layout_rows;
+extern const char *const layout_hdr[LAYOUT_COLS];
+void layout_build(const struct summary *s);
+
 /* Build the model from the global component logs / scalar facts / gates. */
 void build_hardening_report(struct hardening_report *r);
 
