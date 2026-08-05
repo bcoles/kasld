@@ -505,11 +505,11 @@ struct kaslr_info {
   /* The same baseline as a raw candidate count. ilog2 rounds up, so
    * 2^vbits_top over-states it and cannot stand in for "N of M". */
   unsigned long vtop_slots;
-  /* Candidates spanned by the physical image base's architectural top. That
-   * top is an addressing bound, not a window the kernel drew from, so a count
-   * equal to it means nothing was narrowed at all -- and the figure is a limit
-   * of the address space rather than a search space, so it is withheld. */
-  unsigned long parch_slots;
+  /* Candidates spanned by each image base's architectural top. That top is
+   * widened to admit configurations the model cannot rule out, so a count equal
+   * to it means nothing was narrowed at all -- and the figure is a limit of the
+   * address space rather than a search space, so it is withheld. */
+  unsigned long varch_slots, parch_slots;
   /* Speculative "likely" window: the engine resolved a second time with ALL
    * signals, including those below the sound floor (timing/heuristic/brute).
    * It is a subset of the guaranteed window in the vtext/ptext fields above and

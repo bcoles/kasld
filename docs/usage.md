@@ -158,7 +158,7 @@ Running 94 of 97 components (3 experimental skipped; use -x to enable)...
 
   Quantity             Basis       Range                                 Search space  Align
   -------------------  ----------  ------------------------------------  ------------  -----
-  Virtual Image Base   guaranteed  0xffffffff8fe00000 slide +0xee00000       1 of 512  2 MiB
+  Virtual Image Base   guaranteed  0xffffffff8fe00000 slide +0xee00000       1 of 505  2 MiB
   Physical Image Base  guaranteed          0x34600000 slide +0x33600000             1  2 MiB
   Direct Map Base      guaranteed  >= 0xffff800000000000                            -  1 GiB
 
@@ -324,7 +324,7 @@ Physical MMIO / pci_mmio [8]:
 KASLR analysis:
   Quantity             Basis       Range                                    Search space  Align
   -------------------  ----------  ---------------------------------------  ------------  -----
-  Virtual Image Base   guaranteed  0xffffffff8fe00000 slide +0xee00000          1 of 512  2 MiB
+  Virtual Image Base   guaranteed  0xffffffff8fe00000 slide +0xee00000          1 of 505  2 MiB
   Physical Image Base  guaranteed          0x34600000 slide +0x33600000                1  2 MiB
   Direct Map Base      guaranteed  >= 0xffff800000000000                               -  1 GiB
   Vmalloc Base         guaranteed  0xffff810040000000 - 0xffffdcffc0000000         94206  1 GiB

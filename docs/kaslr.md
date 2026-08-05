@@ -441,7 +441,7 @@ For KASLD's own engine and tool vocabulary (quantity, estimate, covering, rule,
   readout's `Align` column carries it. See
   [Default text base](#default-text-base-and-kaslr-alignment).
 - **search space** — how many slots a quantity could still be in, given the
-  evidence. The readout states it against the set the row narrows (`24 of 512`),
+  evidence. The readout states it against the set the row narrows (`24 of 505`),
   which is the brute-force cost of that row. See
   [usage.md](usage.md#default-text-mode).
 - **entropy** — the number of random bits in the placement, `log2(slots)`; the

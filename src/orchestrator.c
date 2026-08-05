@@ -2777,10 +2777,28 @@ void compute_kaslr_info(struct summary *s) {
   s->kaslr.vbits = s->kaslr.vslots > 0 ? ilog2(s->kaslr.vslots) : 0;
 #ifndef KASLD_TESTING
   {
-    unsigned long top =
-        quantity_top_slots(Q_VIRT_IMAGE_BASE, layout.virt_kaslr_align);
+    /* The starting candidate count, from the window the kernel draws the image
+     * base from -- KASLR_VIRT_TEXT_MIN..MAX, not the quantity's honest top.
+     * The honest top is deliberately widened to admit configurations the model
+     * cannot rule out (a sub-48 arm64 VA, a smaller CONFIG_PHYSICAL_START), so
+     * it is not a window the kernel ever used: on arm64 it over-states the
+     * count fourfold, on riscv64 by 127x. The tight pair is exactly what
+     * find_random_virt_addr() draws from on x86_64.
+     *
+     * A resolved estimate can be WIDER than this window, since the estimate
+     * uses the honest top -- a kernel built below the default
+     * CONFIG_PHYSICAL_START, say. The renderer prints "of N" only where N
+     * exceeds the count, so that degrades to a bare count rather than an
+     * incoherent ratio. */
+    unsigned long a = layout.virt_kaslr_align;
+    unsigned long lo = (unsigned long)KASLR_VIRT_TEXT_MIN;
+    unsigned long hi = (unsigned long)KASLR_VIRT_TEXT_MAX;
+    unsigned long top = (a && hi > lo) ? (hi - lo) / a + 1 : 0;
     s->kaslr.vtop_slots = top;
     s->kaslr.vbits_top = top > 0 ? ilog2(top) : 0;
+#ifndef KASLD_TESTING
+    s->kaslr.varch_slots = quantity_top_slots(Q_VIRT_IMAGE_BASE, a);
+#endif
   }
 #endif
 

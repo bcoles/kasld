@@ -239,6 +239,14 @@ void layout_build(const struct summary *s) {
   {
     int vpin = (layout.virt_kaslr_text_min == layout.virt_kaslr_text_max &&
                 layout.virt_kaslr_text_min != 0);
+    /* A count equal to the quantity's architectural top means nothing was
+     * narrowed, and that top is a limit of the address space rather than a
+     * window the kernel drew from -- so there is no search space to report.
+     * Decided once per quantity; a likely row inherits it, since a fraction of
+     * an unbounded set is still unbounded. */
+    int vbounded =
+        !(s->kaslr.varch_slots && s->kaslr.vslots >= s->kaslr.varch_slots);
+    unsigned long vslots = vbounded ? s->kaslr.vslots : 0;
     int ppin = (layout.phys_kaslr_text_min == layout.phys_kaslr_text_max &&
                 layout.phys_kaslr_text_min != 0);
     char slide[48];
@@ -247,21 +255,21 @@ void layout_build(const struct summary *s) {
      * otherwise the proven window, plus the speculative answer beneath it --
      * either a concrete base (which IS that answer, so the likely window would
      * only restate it) or a narrower window. */
-    layout_add("Virtual Image Base", GRADE_GUARANTEED, s->kaslr.vslots,
-               s->kaslr.vtop_slots, layout.virt_kaslr_text_min,
-               layout.virt_kaslr_text_max,
-               vpin ? readout_slide(s->kaslr.vslide, slide, sizeof(slide))
-                    : NULL,
-               layout.virt_kaslr_align);
+    layout_add(
+        "Virtual Image Base", GRADE_GUARANTEED, vslots, s->kaslr.vtop_slots,
+        layout.virt_kaslr_text_min, layout.virt_kaslr_text_max,
+        vpin ? readout_slide(s->kaslr.vslide, slide, sizeof(slide)) : NULL,
+        layout.virt_kaslr_align);
     if (s->kaslr.vtext && !vpin)
-      layout_add("Virtual Image Base", GRADE_LIKELY, 1, s->kaslr.vslots,
+      layout_add("Virtual Image Base", GRADE_LIKELY, vbounded ? 1 : 0, vslots,
                  s->kaslr.vtext, s->kaslr.vtext,
                  readout_slide(s->kaslr.vslide, slide, sizeof(slide)),
                  layout.virt_kaslr_align);
     else if (!s->kaslr.vtext && s->kaslr.vlikely_max)
-      layout_add("Virtual Image Base", GRADE_LIKELY, s->kaslr.vlikely_slots,
-                 s->kaslr.vslots, s->kaslr.vlikely_min, s->kaslr.vlikely_max,
-                 NULL, layout.virt_kaslr_align);
+      layout_add("Virtual Image Base", GRADE_LIKELY,
+                 vbounded ? s->kaslr.vlikely_slots : 0, vslots,
+                 s->kaslr.vlikely_min, s->kaslr.vlikely_max, NULL,
+                 layout.virt_kaslr_align);
 
     /* Physical image base. Its top is an addressable-range bound rather than a
      * randomization window, so it has no baseline to count against -- and when
