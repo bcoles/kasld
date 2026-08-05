@@ -891,6 +891,74 @@ static void test_engine_saturation_vrule_emit_overflow(void) {
     assert(!estimate_is_bottom(&e.est[q], &quantities[q]));
 }
 
+/* Curation that keeps finding fresh rulings: invalidates every still-valid
+ * observation it can see, up to the per-call emit cap. Curation runs to
+ * fixpoint, so each round rules on the next batch until the verdict store is
+ * full — the one saturation case that leaves an observation the engine ruled
+ * invalid still readable by the constraint rules. */
+static int sat_vrule_invalidates_all(const struct evidence_set *ev,
+                                     struct verdict *out, int out_max) {
+  int n = 0;
+  for (int i = 0; i < ev->n_obs && n < out_max; i++) {
+    if (!ev->obs[i].valid)
+      continue;
+    memset(&out[n], 0, sizeof(out[n]));
+    out[n].kind = V_INVALID;
+    out[n].observation_id = ev->obs[i].id;
+    snprintf(out[n].origin, ORIGIN_LEN, "sat_vall");
+    n++;
+  }
+  return n;
+}
+
+static void test_engine_saturation_verdicts_full(void) {
+  static struct engine e; /* ~1.3 MiB: BSS, never the stack */
+  engine_init(&e);
+  struct estimate top;
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
+  /* Comfortably more observations than the verdict store can hold rulings. */
+  for (int i = 0; i < MAX_VERDICTS + 64; i++) {
+    struct observation ob =
+        mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE, top.lo + 0x800000ul,
+               SAMPLE_SET, POS_INTERIOR, CONF_PARSED);
+    evidence_add(&e.ev, &ob);
+  }
+  const verdict_fn vrules[] = {sat_vrule_invalidates_all};
+  engine_run_full(&e, NULL, 0, vrules, 1);
+  assert(e.saturation & ENGINE_SAT_VERDICTS_FULL);
+  /* Estimates stay well-defined; the bit reports that the run cannot be
+   * trusted, it does not corrupt the lattice. */
+  for (int q = 0; q < Q__COUNT; q++)
+    assert(!estimate_is_bottom(&e.est[q], &quantities[q]));
+}
+
+/* Curation that never settles: a fresh origin each call defeats the verdict
+ * dedup, so every round looks like new information and the round cap is what
+ * stops it. */
+static int sat_vrule_never_settles(const struct evidence_set *ev,
+                                   struct verdict *out, int out_max) {
+  static int seq;
+  (void)ev;
+  if (out_max < 1)
+    return 0;
+  memset(&out[0], 0, sizeof(out[0]));
+  out[0].kind = V_INVALID;
+  out[0].observation_id = 0xffffffffu; /* stale id — harmlessly ignored */
+  snprintf(out[0].origin, ORIGIN_LEN, "sat_vnew%d", seq++);
+  return 1;
+}
+
+static void test_engine_saturation_curation_unsettled(void) {
+  static struct engine e;
+  engine_init(&e);
+  const verdict_fn vrules[] = {sat_vrule_never_settles};
+  engine_run_full(&e, NULL, 0, vrules, 1);
+  assert(e.saturation & ENGINE_SAT_CURATION_UNSETTLED);
+  /* The round cap bounded it well inside the verdict store. */
+  assert(e.ev.n_verdicts <= ENGINE_MAX_CURATION_ROUNDS);
+  assert(!(e.saturation & ENGINE_SAT_VERDICTS_FULL));
+}
+
 /* Force ESTIMATE_MAX_CONFLICTS by feeding many contradictory low-confidence
  * constraints — each is rejected as bottom-forcing; once the conflict array
  * is full, ESTIMATE_SAT_CONFLICTS_FULL is set. */
@@ -7393,6 +7461,8 @@ int main(void) {
   RUN(test_engine_saturation_constraints_full);
   RUN(test_engine_saturation_rule_emit_overflow);
   RUN(test_engine_saturation_vrule_emit_overflow);
+  RUN(test_engine_saturation_verdicts_full);
+  RUN(test_engine_saturation_curation_unsettled);
   RUN(test_engine_saturation_estimate_work_full);
   RUN(test_resolve_equal_conf_conflict_order_independent);
   RUN(test_resolve_edge_conf_propagation);

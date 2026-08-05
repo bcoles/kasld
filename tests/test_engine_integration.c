@@ -1907,6 +1907,136 @@ static void test_full_engine_property_coverage(void) {
 #endif
 }
 
+/* =========================================================================
+ * Curation settles before any constraint is emitted
+ *
+ * A verdict rule reads the EFFECTIVE view (an observation's valid bit and its
+ * effective region), so one ruling can enable another. The constraint store is
+ * append-only with no retraction path, so a constraint emitted against a
+ * half-curated set would outlive the observation it came from — the engine
+ * would then narrow on evidence it had itself rejected.
+ *
+ * The planted cascade is built from arch macros, not from one arch's numbers,
+ * because the ingredients are shared: every *_coupling_validate rule bands
+ * REGION_KERNEL_TEXT against KERNEL_VIRT_TEXT_MIN/MAX, and none of them checks
+ * REGION_KERNEL_DATA — while is_kernel_image_region(), which
+ * text_cluster_filter judges against, does include it. So:
+ *
+ *   - five in-band text leaks, clustered;
+ *   - five text claims below KERNEL_VIRT_TEXT_MIN, far enough below to form
+ *     their own cluster. Equal counts leave text_cluster_filter without the
+ *     strict majority it requires, so it refuses to act until they are gone;
+ *   - one far KERNEL_DATA claim, which survives the band check but which the
+ *     cluster filter rejects once the median moves onto the in-band cluster.
+ *
+ * The invariant asserted is the general one, not the scenario: after a run, no
+ * constraint may name an invalidated observation in its lineage. An arch with
+ * no band-checking curation rule simply keeps the whole planted set, and the
+ * invariant holds with nothing to bite on.
+ * ========================================================================= */
+/* Confined to 64-bit layouts, and not for want of trying: the cascade needs an
+ * outlier more than CLUSTER_OUTLIER_THRESHOLD (1 GiB) from the text cluster,
+ * and on x86_32 / arm32 the whole address space below KERNEL_VIRT_TEXT_MIN is
+ * 0x40000000 — exactly that threshold, with no room left to stay off zero.
+ * Those arches also carry no band-checking curation rule, so there would be
+ * nothing to cascade even if the geometry allowed it. */
+#if __SIZEOF_LONG__ >= 8
+#define CURATION_BAND_LO ((unsigned long)KERNEL_VIRT_TEXT_MIN)
+#define CURATION_OUT_OF_BAND (CURATION_BAND_LO - 0x80000000ul)
+#define CURATION_FAR (CURATION_BAND_LO - 0x100000000ul)
+
+static void add_virt_at(struct engine *e, enum kasld_region region,
+                        unsigned long addr) {
+  struct observation o;
+  memset(&o, 0, sizeof(o));
+  o.value_kind = OBS_ADDRESS;
+  o.type = KASLD_TYPE_VIRT;
+  o.region = region;
+  o.lo = addr;
+  o.sample = addr;
+  o.set_mask = LO_SET | SAMPLE_SET;
+  o.pos = POS_BASE;
+  o.conf = CONF_PARSED;
+  snprintf(o.origin, ORIGIN_LEN, "curation_cascade");
+  evidence_add(&e->ev, &o);
+}
+
+/* Count constraints whose lineage names an observation the run invalidated. */
+static int stale_lineage_constraints(const struct engine *e) {
+  int n = 0;
+  for (int c = 0; c < e->n_constraints; c++)
+    for (int l = 0; l < e->constraints[c].lineage_count; l++)
+      for (int i = 0; i < e->ev.n_obs; i++)
+        if (e->ev.obs[i].id == e->constraints[c].derived_from[l] &&
+            !e->ev.obs[i].valid)
+          n++;
+  return n;
+}
+
+static int invalidated_obs(const struct engine *e) {
+  int n = 0;
+  for (int i = 0; i < e->ev.n_obs; i++)
+    n += e->ev.obs[i].valid ? 0 : 1;
+  return n;
+}
+
+static void plant_curation_cascade(struct engine *e) {
+  engine_init(e);
+  for (int i = 0; i < 5; i++)
+    add_virt_at(e, REGION_KERNEL_TEXT,
+                CURATION_BAND_LO + (unsigned long)(i + 1) * 0x100000ul);
+  for (int i = 0; i < 5; i++)
+    add_virt_at(e, REGION_KERNEL_TEXT,
+                CURATION_OUT_OF_BAND + (unsigned long)i * 0x1000ul);
+  add_virt_at(e, REGION_KERNEL_DATA, CURATION_FAR);
+}
+
+/* Does this arch carry a curation rule that bands kernel text? Probed rather
+ * than enumerated from arch macros, so the day a fifth *_coupling_validate
+ * lands this test strengthens itself instead of quietly going vacuous there. */
+static int arch_bands_kernel_text(const verdict_fn *vrules, int n_vrules) {
+  static struct engine probe;
+  engine_init(&probe);
+  add_virt_at(&probe, REGION_KERNEL_TEXT, CURATION_OUT_OF_BAND);
+  engine_run_full(&probe, NULL, 0, vrules, n_vrules);
+  return invalidated_obs(&probe) > 0;
+}
+
+static void check_no_stale_lineage(struct engine *e, int banded) {
+  int invalid = invalidated_obs(e);
+  /* Where text is banded the cascade must run to completion — five out-of-band
+   * claims plus the far data claim the moved median then exposes. Asserting it
+   * keeps the invariant below from passing on an evidence set curation never
+   * touched. */
+  if (banded)
+    assert(invalid >= 6);
+  else
+    assert(invalid == 0);
+  assert(stale_lineage_constraints(e) == 0);
+}
+
+#endif /* __SIZEOF_LONG__ >= 8 */
+
+static void test_full_engine_curation_settles_before_constraints(void) {
+#if __SIZEOF_LONG__ >= 8
+  static struct engine e; /* ~1.3 MiB: BSS, never the stack */
+  int n_rules = 0, n_vrules = 0;
+  const rule_fn *rules = engine_rules(&n_rules);
+  const verdict_fn *vrules = engine_verdict_rules(&n_vrules);
+
+  int banded = arch_bands_kernel_text(vrules, n_vrules);
+
+  plant_curation_cascade(&e);
+  engine_run_full(&e, rules, n_rules, vrules, n_vrules);
+  check_no_stale_lineage(&e, banded);
+
+  /* Same invariant at the sound floor, where the guaranteed window is drawn. */
+  plant_curation_cascade(&e);
+  engine_run_full_floored(&e, CONF_INFERRED, rules, n_rules, vrules, n_vrules);
+  check_no_stale_lineage(&e, banded);
+#endif /* __SIZEOF_LONG__ >= 8 */
+}
+
 int main(void) {
   TEST_SUITE("test_engine_integration");
 
@@ -1926,6 +2056,7 @@ int main(void) {
   RUN(test_full_engine_property_s390);
   RUN(test_full_engine_property_x86_32);
   RUN(test_full_engine_property_coverage);
+  RUN(test_full_engine_curation_settles_before_constraints);
   RUN(test_full_engine_ppc64_hardened_shape);
   RUN(test_full_engine_s390_no_prng_shape);
   RUN(test_full_engine_arm32_no_kaslr_shape);

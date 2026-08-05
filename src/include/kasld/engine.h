@@ -33,6 +33,14 @@
 #ifndef ENGINE_RULE_MAX_EMIT
 #define ENGINE_RULE_MAX_EMIT 32
 #endif
+/* Rounds of curation allowed before the constraint rules run. A round either
+ * adds a verdict or is the last, and V_INVALID is a latch, so the effective
+ * evidence set shrinks monotonically and settles well inside this. Far above
+ * anything a real evidence set reaches; the cap only bounds a pathological
+ * cascade, and hitting it raises ENGINE_SAT_CURATION_UNSETTLED. */
+#ifndef ENGINE_MAX_CURATION_ROUNDS
+#define ENGINE_MAX_CURATION_ROUNDS 32
+#endif
 
 /* A rule reads evidence + current estimates, writes up to out_max
  * constraints to out[], returns the count. Pure: no mutation of inputs,
@@ -55,7 +63,13 @@ typedef int (*verdict_fn)(const struct evidence_set *ev, struct verdict *out,
  * the caps bind on realistic deduped workloads, but a hit would silently
  * drop information that could otherwise have flowed; surfacing the bit under
  * --verbose keeps the dropped-info case observable. Per-source bits so the
- * verbose output can name which cap fired. */
+ * verbose output can name which cap fired.
+ *
+ * The last two are the exception to "dropped information": an unapplied or
+ * unsettled verdict leaves an observation the engine RULED INVALID inside the
+ * set the constraint rules read, so the run can narrow on evidence it has
+ * itself rejected. Those two mean the resolved estimates are not trustworthy,
+ * not merely looser. */
 enum engine_saturation {
   ENGINE_SAT_CONSTRAINTS_FULL = 1u << 0, /* ENGINE_MAX_CONSTRAINTS reached */
   ENGINE_SAT_RULE_EMIT_OVERFLOW = 1u
@@ -65,6 +79,10 @@ enum engine_saturation {
   ENGINE_SAT_ESTIMATE_WORK_FULL = 1u
                                   << 3, /* ESTIMATE_MAX_WORK gather truncated */
   ENGINE_SAT_CONFLICTS_FULL = 1u << 4,  /* ESTIMATE_MAX_CONFLICTS overflow */
+  ENGINE_SAT_VERDICTS_FULL = 1u << 5,   /* MAX_VERDICTS reached; a curation
+                                           ruling was not applied */
+  ENGINE_SAT_CURATION_UNSETTLED =
+      1u << 6, /* curation still emitting at ENGINE_MAX_CURATION_ROUNDS */
 };
 
 struct engine {

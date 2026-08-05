@@ -102,6 +102,55 @@ static int already_have_verdict(const struct evidence_set *ev,
   return 0;
 }
 
+/* Run the curation rules to fixpoint, so the constraint rules below only ever
+ * read fully-curated evidence.
+ *
+ * One round is not enough. A verdict rule reads the EFFECTIVE view — an
+ * observation's `valid` bit and its effective region/type — so one ruling can
+ * enable another: text_cluster_filter takes the median of the surviving
+ * kernel-image observations, and dropping an outlier moves that median, which
+ * can expose a second outlier (or flip its strict-majority guard from refusing
+ * to acting). Running the constraint rules against a half-curated set would
+ * leave the append-only constraint store holding a claim derived from an
+ * observation the engine went on to reject, and nothing retracts a constraint.
+ *
+ * Terminates: verdicts are deduped and V_INVALID is a latch, so the valid set
+ * shrinks monotonically and every round either adds a verdict or is the last.
+ * The round cap is a backstop, not the mechanism.
+ *
+ * Both failure modes leave curation incomplete rather than merely truncated —
+ * an observation the engine ruled invalid stays readable — so each raises its
+ * own saturation bit. */
+static void curate_to_fixpoint(struct engine *e, enum kasld_confidence floor,
+                               const verdict_fn *vrules, int n_vrules) {
+  for (int round = 0; round < ENGINE_MAX_CURATION_ROUNDS; round++) {
+    int added = 0;
+    for (int v = 0; v < n_vrules; v++) {
+      struct verdict vt[ENGINE_RULE_MAX_EMIT];
+      int k = vrules[v](&e->ev, vt, ENGINE_RULE_MAX_EMIT);
+      if (k > ENGINE_RULE_MAX_EMIT) {
+        k = ENGINE_RULE_MAX_EMIT;
+        e->saturation |= ENGINE_SAT_VRULE_EMIT_OVERFLOW;
+      }
+      for (int i = 0; i < k; i++) {
+        if (already_have_verdict(&e->ev, &vt[i]))
+          continue;
+        if (!evidence_add_verdict(&e->ev, &vt[i])) {
+          e->saturation |= ENGINE_SAT_VERDICTS_FULL;
+          continue;
+        }
+        added++;
+      }
+    }
+    /* Recompute the effective view so the next round — and the constraint
+     * rules after it — see this round's rulings. */
+    resolve_evidence(e, floor);
+    if (!added)
+      return;
+  }
+  e->saturation |= ENGINE_SAT_CURATION_UNSETTLED;
+}
+
 void engine_run_full_floored(struct engine *e, enum kasld_confidence floor,
                              const rule_fn *rules, int n_rules,
                              const verdict_fn *vrules, int n_vrules) {
@@ -121,28 +170,17 @@ void engine_run_full_floored(struct engine *e, enum kasld_confidence floor,
    * snapshot, breaking the estimates_equal early-exit. */
   resolve_all(e, floor);
 
+  /* Curation settles once, before any constraint is emitted. Verdict rules
+   * depend only on the evidence set, which nothing below mutates, so re-running
+   * them per pass could not produce a ruling this has not already applied —
+   * and running them alongside the constraint rules is precisely what would let
+   * a retained constraint outlive the observation it came from. */
+  curate_to_fixpoint(e, floor, vrules, n_vrules);
+
   uint32_t next_id = 1;
   for (int pass = 0; pass < ENGINE_MAX_PASSES; pass++) {
     struct estimate snap[Q__COUNT];
     memcpy(snap, e->est, sizeof(snap));
-
-    /* Curation first: emit + dedup verdicts, then recompute the effective
-     * view so the constraint rules below see curated evidence. Verdict rules
-     * read only (immutable) observations, so curation completes before any
-     * constraint rule consumes an observation that would later be invalidated.
-     */
-    for (int v = 0; v < n_vrules; v++) {
-      struct verdict vt[ENGINE_RULE_MAX_EMIT];
-      int k = vrules[v](&e->ev, vt, ENGINE_RULE_MAX_EMIT);
-      if (k > ENGINE_RULE_MAX_EMIT) {
-        k = ENGINE_RULE_MAX_EMIT;
-        e->saturation |= ENGINE_SAT_VRULE_EMIT_OVERFLOW;
-      }
-      for (int i = 0; i < k; i++)
-        if (!already_have_verdict(&e->ev, &vt[i]))
-          evidence_add_verdict(&e->ev, &vt[i]);
-    }
-    resolve_evidence(e, floor);
 
     for (int r = 0; r < n_rules; r++) {
       struct constraint tmp[ENGINE_RULE_MAX_EMIT];

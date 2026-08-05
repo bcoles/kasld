@@ -3520,6 +3520,20 @@ static void engine_report_saturation(const struct engine *e) {
             "[engine] saturation: ESTIMATE_MAX_CONFLICTS (%d) reached; "
             "additional rejected constraints were not recorded\n",
             ESTIMATE_MAX_CONFLICTS);
+  /* Unlike the caps above, these two leave an observation the engine ruled
+   * invalid inside the set the constraint rules read — the estimates below are
+   * not merely looser, they may rest on rejected evidence. */
+  if (e->saturation & ENGINE_SAT_VERDICTS_FULL)
+    fprintf(stderr,
+            "[engine] saturation: MAX_VERDICTS (%d) reached; a curation ruling "
+            "was not applied and its observation stayed in the effective set\n",
+            MAX_VERDICTS);
+  if (e->saturation & ENGINE_SAT_CURATION_UNSETTLED)
+    fprintf(stderr,
+            "[engine] saturation: curation still emitting after "
+            "ENGINE_MAX_CURATION_ROUNDS (%d); the constraint rules ran against "
+            "partially curated evidence\n",
+            ENGINE_MAX_CURATION_ROUNDS);
 }
 
 /* Sibling reporter for orchestrator-side caps (results[], per-component
