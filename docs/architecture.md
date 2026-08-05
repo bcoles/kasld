@@ -98,9 +98,9 @@ raise the floor (DRAM bounds) and the 2 MiB `IMAGE_ALIGN` slot grid is applied.
 With only this one leak the result is still a window — several slots wide:
 
 ```
-Layout
-  Virtual image base
-    guaranteed           0xffffffff81000000 .. 0xffffffff81e00000  8 x 2 MiB  ~3 of 9 bits
+  Quantity            Basis       Range                                    Search space  Align
+  ------------------  ----------  ---------------------------------------  ------------  -----
+  Virtual Image Base  guaranteed  0xffffffff81000000 - 0xffffffff81e00000      8 of 512  2 MiB
 ```
 
 A second observation — a `_stext` base witness, a DRAM floor, or the
@@ -113,9 +113,9 @@ narrowed window above, or, once the constraints collapse to one slot, the pinned
 base and its slide:
 
 ```
-Layout
-  Virtual image base     (pinned)
-    guaranteed           0xffffffff81e00000 slide +0xe00000
+  Quantity            Basis       Range                               Search space  Align
+  ------------------  ----------  ----------------------------------  ------------  -----
+  Virtual Image Base  guaranteed  0xffffffff81e00000 slide +0xe00000      1 of 512  2 MiB
 ```
 
 That is the whole path: a log line becomes an observation, a rule turns it into a

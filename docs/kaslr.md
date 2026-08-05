@@ -264,7 +264,7 @@ a physical address leak does not directly reveal the virtual address
 | arm64 | Decoupled | v4.6 | EFI stub randomizes physical; `kaslr_early_init` randomizes virtual; linear map has limited entropy |
 | MIPS32/64 | Coupled | v4.7 | Single relocation offset; fixed kseg0 virt-to-phys mapping |
 | x86_64 | Decoupled | v4.8 | Separate `find_random_phys_addr` / `find_random_virt_addr`; also `CONFIG_RANDOMIZE_MEMORY` for memory sections |
-| s390 | Decoupled | v5.2 | Identity-mapped (virt = phys) through v6.7; v6.8+ moves kernel text to a separate high mapping and randomizes the identity base independently, so KASLD models it decoupled (`TEXT_TRACKS_DIRECTMAP=0`) |
+| s390 | Decoupled | v5.2 | Identity-mapped (virt = phys) through v6.7; v6.8+ moves kernel text to a separate high mapping randomized as normal KASLR, so KASLD models it decoupled (`TEXT_TRACKS_DIRECTMAP=0`); the identity/direct-map base can also be randomized via `RANDOMIZE_IDENTITY_BASE`, a debug-oriented option off by default (pinned to 0 on production kernels) |
 | PowerPC32 | Coupled | v5.5 | Same offset applied to both addresses |
 | LoongArch | Coupled | v6.3 | Single relocation offset; direct-mapped windows |
 | RISC-V64 | Virtual only | v6.6 | Only virtual address randomized; physical depends on bootloader |
@@ -437,10 +437,17 @@ For KASLD's own engine and tool vocabulary (quantity, estimate, covering, rule,
   above it, zero on most architectures. See
   [Default text base](#default-text-base-and-kaslr-alignment).
 - **`IMAGE_ALIGN` / KASLR slot** — the randomization granularity. The kernel lands
-  at `default + N × IMAGE_ALIGN`; each candidate position is one slot. See
+  at `default + N × IMAGE_ALIGN`; each candidate position is one slot. The
+  readout's `Align` column carries it. See
   [Default text base](#default-text-base-and-kaslr-alignment).
-- **entropy** — the number of random bits in the placement, `log2(slots)`; shown
-  as `~N bits`. See [Default text base](#default-text-base-and-kaslr-alignment).
+- **search space** — how many slots a quantity could still be in, given the
+  evidence. The readout states it against the set the row narrows (`24 of 512`),
+  which is the brute-force cost of that row. See
+  [usage.md](usage.md#default-text-mode).
+- **entropy** — the number of random bits in the placement, `log2(slots)`; the
+  same fact as the search space, expressed as a logarithm, and shown as
+  `~N bits` under `-v` and in the machine formats. See
+  [Default text base](#default-text-base-and-kaslr-alignment).
 - **runtime state** — which of four conditions a KASLR-capable boot is in
   (randomized, disabled, …). See [KASLR runtime states](#kaslr-runtime-states).
 - **`PAGE_OFFSET`** — the start of the kernel virtual address space; on 32-bit, the

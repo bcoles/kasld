@@ -124,11 +124,30 @@ forces it on even when piped. An explicit `--color` overrides `NO_COLOR`.
 
 ### Default text mode
 
-The default text mode prints a tight answer-first readout: a one-line
-header, the resolved or narrowed text-base windows, the directmap window
-when narrowed, the virt/phys coupling note, the leaks the answers were
-derived from, and a hint about the verbose mode. No banner, no system
-config, no memory-layout diagram.
+The default text mode prints a tight answer-first readout: a one-line header,
+the Layout table, the virt/phys coupling note, the leaks the answers were
+derived from, and a hint about the verbose mode. No banner, no system config,
+no memory-layout diagram.
+
+The Layout table carries one row per quantity and basis:
+
+| Column | What it holds |
+|:-------|:--------------|
+| `Quantity` | what is being located — always a *base*, a single address, not a region |
+| `Basis` | `guaranteed` (proven; contains the true base) or `likely` (the all-signals estimate, a subset of the guaranteed window, and may be wrong) |
+| `Range` | the addresses: a window, a single address where the quantity is pinned, or a one-sided `>=` / `<=` bound. A concrete base carries its `slide` from the compile-time default |
+| `Search space` | how many placements remain, against the set the row narrows — a `guaranteed` row against the window the kernel randomized over, a `likely` row against the `guaranteed` count above it. Bare where no enclosing set is modelled; `-` where the quantity is not randomized here |
+| `Align` | the grid the candidates sit on, which is what reconciles the count with the range |
+
+Every quantity the architecture randomizes gets a row whether or not the engine
+bounded it, so the set of rows is a property of the machine rather than of the
+run — rows do not appear and vanish between boots. A row the engine never
+bounded says so rather than printing the architectural window, which would put
+a compile-time constant where a reader expects a measurement.
+
+Addresses are never zero-padded: a 16 MiB physical address would otherwise wear
+the costume of a 64-bit kernel pointer. They are right-aligned instead, so the
+endpoints still form columns.
 
 ```
 KASLD 0.3.1-dev  --  Kernel ASLR derandomization
@@ -137,15 +156,11 @@ Target: x86_64 / 6.15.6
 Running 94 of 97 components (3 experimental skipped; use -x to enable)...
 [####################] 100%  94/94  13.9s
 
-Layout
-  Virtual image base     (pinned)
-    guaranteed           0xffffffff8fe00000 slide +0xee00000
-
-  Physical image base    (pinned)
-    guaranteed                   0x34600000 slide +0x33600000
-
-  Direct map base
-    guaranteed           >= 0xffff800000000000
+  Quantity             Basis       Range                                 Search space  Align
+  -------------------  ----------  ------------------------------------  ------------  -----
+  Virtual Image Base   guaranteed  0xffffffff8fe00000 slide +0xee00000       1 of 512  2 MiB
+  Physical Image Base  guaranteed          0x34600000 slide +0x33600000             1  2 MiB
+  Direct Map Base      guaranteed  >= 0xffff800000000000                            -  1 GiB
 
   Note: physical and virtual text randomize independently
 
@@ -166,7 +181,7 @@ Evidence  (6 findings, 5 components)
 [-v: detailed results, memory map, system info]  [-H: hardening assessment]
 ```
 
-Terms in this readout (slide, directmap, coupling, slot/entropy) are defined in
+Terms in this readout (slide, directmap, coupling, slot, search space) are defined in
 the [kaslr.md glossary](kaslr.md#glossary); the engine vocabulary behind them
 (quantity, estimate, honest top) is in the
 [architecture.md glossary](architecture.md#glossary).
@@ -176,7 +191,10 @@ the [kaslr.md glossary](kaslr.md#glossary); the engine vocabulary behind them
 `-v` (`--verbose`) restores the full banner, system-config block,
 per-component logs, per-region "Results" table, KASLR analysis section,
 and the virtual + physical address-space diagram (also available on its own
-via `--map`). The
+via `--map`). The KASLR analysis section draws the same **Layout** table the
+default readout does, then adds only what its columns cannot carry: `_stext`
+where a quantity has one, the compile-time default a slide is measured from,
+and the residual expressed in bits. The
 system-config block reports the recon vantage: whether the process is
 containerized, and — when it is confined — its seccomp / capability /
 no-new-privs state, plus which `/proc` leak oracles are readable here:
@@ -304,20 +322,18 @@ Physical MMIO / pci_mmio [8]:
 
 ----------------------------------------
 KASLR analysis:
-  Virtual image base:   0xffffffff8fe00000
-  KASLR slide:          +0xee00000 (249561088)
-                        from compile-time default 0xffffffff81000000
-  KASLR text entropy:   0 bits (pinned)
+  Quantity             Basis       Range                                    Search space  Align
+  -------------------  ----------  ---------------------------------------  ------------  -----
+  Virtual Image Base   guaranteed  0xffffffff8fe00000 slide +0xee00000          1 of 512  2 MiB
+  Physical Image Base  guaranteed          0x34600000 slide +0x33600000                1  2 MiB
+  Direct Map Base      guaranteed  >= 0xffff800000000000                               -  1 GiB
+  Vmalloc Base         guaranteed  0xffff810040000000 - 0xffffdcffc0000000         94206  1 GiB
+  Vmemmap Base         guaranteed  0xffffa10080000000 - 0xfffffd0000000000         94206  1 GiB
 
-  Physical image base:  0x0000000034600000
-  Physical KASLR slide: +0x33600000 (861929472)
-                        from compile-time default 0x0000000001000000
-  Physical KASLR entropy: 0 bits (pinned)
-
-Memory KASLR (directmap / vmalloc / vmemmap):
-  Direct map base   guaranteed  >= 0xffff800000000000
-  vmalloc base      guaranteed  0xffff810040000000 .. 0xffffdcffc0000000  94206 slots, ~17 bits
-  vmemmap base      guaranteed  0xffffa10080000000 .. 0xfffffd0000000000  94206 slots, ~17 bits
+  Compile-time default: 0xffffffff81000000
+  Virtual entropy:      ~0 of 9 bits
+  Physical entropy:     ~0 bits
+  Direct map entropy:   ~17 bits
 
 ----------------------------------------
 Virtual address space (decoupled, not to scale):
@@ -430,8 +446,8 @@ differ from the text labels; the mapping is:
 
 | Concept | JSON key | Text label |
 | --- | --- | --- |
-| Guaranteed window (sound floor; contains the true base) | `inferred` / `inferred_physical` | "Inferred text range" / "Guaranteed range" |
-| Likely window (all signals; a subset of the guaranteed window; may be wrong) | `likely` / `likely_physical` (with `"speculative": true`) | "likely (speculative)" |
+| Guaranteed window (sound floor; contains the true base) | `inferred` / `inferred_physical` | `guaranteed` in the Layout table (readout and `-v` draw the same one) |
+| Likely window (all signals; a subset of the guaranteed window; may be wrong) | `likely` / `likely_physical` (with `"speculative": true`) | `likely` in the Layout table |
 | Headline concrete base | `virtual` / `physical` → `image_base` | "Virtual / Physical image base" |
 
 So `inferred*` is the guaranteed window and `likely*` is the speculative
@@ -474,18 +490,19 @@ kasld -j | jq '[.components[]
 
 ### Markdown (`-m`)
 
-`-m` (`--markdown`) formats the summary for issue trackers (GitHub /
-GitLab markdown tables). The KASLR table carries the same two-window
-model as the text readout: the guaranteed **Inferred text range**, the
-speculative **Likely text range** when a sub-floor signal narrows it,
-the remaining slots with their grain (`N x <align>`) and entropy, the
-**Phys/Virt coupling** classification, and any Memory-KASLR (directmap /
-vmalloc / vmemmap) bounds. When the kernel-text function order is
-reordered (FG-KASLR / LTO / AutoFDO / Propeller), a **Caution** note
-warns that a leaked address no longer resolves the rest of the symbols
-via a generic `System.map`. When KASLR is disabled or unsupported, the
-compile-time **Kernel image base** is reported (there is no slide, so the
-base is the answer). The leak table credits the component(s) that
+`-m` (`--markdown`) formats the summary for issue trackers (GitHub / GitLab
+markdown tables). It carries the same **Layout** table as the text readout,
+with the same five columns and the same rows — both are rendered from one row
+model, so the two views cannot describe the same resolved state differently.
+Beneath it a short table holds what those columns have no room for: `_stext`
+where a quantity has one, the compile-time default a slide is measured from,
+and the **Phys/Virt coupling** classification. When the kernel-text function
+order is reordered (FG-KASLR / LTO / AutoFDO / Propeller), a **Caution** note
+warns that a leaked address no longer resolves the rest of the symbols via a
+generic `System.map`. When KASLR is disabled or unsupported there is no slide,
+so the engine-resolved **Kernel image base** is the answer — followed, where
+the compile-time default is not that base, by a remark saying whether the
+evidence rules the default out. The leak table credits the component(s) that
 produced each address. With `--verbose`, a `## Address space` section
 embeds the virtual and physical ASCII address-space maps in a fenced code
 block (the same diagrams the text readout draws). An `## Environment`
@@ -626,6 +643,13 @@ The fields a gate keys on:
   plausibly recover the base, accepting that this window is unproven.
 - `.kaslr.disabled` / `.kaslr.unsupported` — booleans: KASLR opted out, or not
   applicable to the arch/config.
+
+To ask which placement the kernel actually chose — for a distribution across
+boots, say — divide `.kaslr.virtual.slide_bytes` by the quantity's alignment.
+That counts from the un-randomized base, so it describes the target. A position
+counted from `.kaslr.inferred.range_min` instead describes how far KASLD
+narrowed the window and from which direction: for a leak that bounds from
+above, the base sits at that window's last slot by construction.
 - `.hardening.patched_vulnerabilities.possibly_unpatched` — CVE-class components
   that *succeeded*. A behavioural signal, not a version check: KASLD never trusts
   `uname`, so this is "a CVE-class leak worked here", never "the kernel is

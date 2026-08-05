@@ -78,15 +78,11 @@ Target: x86_64 / 6.15.6
 Running 94 of 97 components (3 experimental skipped; use -x to enable)...
 [####################] 100%  94/94  13.9s
 
-Layout
-  Virtual image base     (pinned)
-    guaranteed           0xffffffff8fe00000 slide +0xee00000
-
-  Physical image base    (pinned)
-    guaranteed                   0x34600000 slide +0x33600000
-
-  Direct map base
-    guaranteed           >= 0xffff800000000000
+  Quantity             Basis       Range                                 Search space  Align
+  -------------------  ----------  ------------------------------------  ------------  -----
+  Virtual Image Base   guaranteed  0xffffffff8fe00000 slide +0xee00000       1 of 512  2 MiB
+  Physical Image Base  guaranteed          0x34600000 slide +0x33600000             1  2 MiB
+  Direct Map Base      guaranteed  >= 0xffff800000000000                            -  1 GiB
 
   Note: physical and virtual text randomize independently
 
