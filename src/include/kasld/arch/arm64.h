@@ -96,23 +96,67 @@ static inline unsigned long arm64_page_end_for(unsigned long va_bits) {
 //   [0xffff800000000000, 0xffff80000fffffful]   (256 MiB) v6.2+:
 //   [0xffff800000000000, 0xffff80007ffffffful]  (2 GiB)
 //
-// The two base addresses (0xffff0000... vs 0xffff8000...) belong to the old
-// vs new VA layouts; both still appear in the wild. The union spans both
-// bases so a real module leak from either layout is admitted by
-// result_in_bounds(). Trade-off: the union includes a large addressable gap
-// between the two bases where modules never actually live; addresses in
-// that gap can be misclassified as REGION_MODULE_REGION by sources that
-// guess region purely by address (dmesg parsers). Mitigated downstream:
-// module_text_bound is inert on arm64 (MODULES_RELATIVE_TO_TEXT=0), so the
-// admission does not pollute Q_VIRT_IMAGE_BASE. The runtime band rendered to
-// the user comes from observed module addresses when available
-// (engine_sync), not the wide validation window.
+// Those are the STATIC bands: they describe the module region only when KASLR
+// is off. With KASLR on the region is placed around the kernel image and moves
+// with it — pre-v6.9 module_alloc_base is derived from _etext/_end, v6.9+
+// module_init_limits() draws a random_bounding_box() containing [_text, _end]
+// — so modules sit wherever _text sits, not in the static band. A module on a
+// KASLR kernel is routinely tens of TiB above the highest static ceiling.
+//
+// The validation union is therefore the RELOCATABLE range. Both allocators
+// serve from a window of at most SZ_2G that also spans the kernel image, so a
+// module lies within 2 GiB of the image base; the image base in turn spans the
+// honest top [KASLR_VIRT_TEXT_MIN_WIDE, KASLR_VIRT_TEXT_MAX_WIDE]. The union
+// is that window grown by 2 GiB on both sides, clamped to the top of the
+// kernel VAS — which the upper edge reaches. This subsumes every static layout
+// above. MODULES_BRACKET_TEXT below states the same 2 GiB as an inference
+// axis; the guards beside KASLR_VIRT_TEXT_MAX_WIDE keep the two in step.
+//
+// Consequence: classifying an address as a module purely by range is
+// near-vacuous on arm64, since the band covers most of the kernel VAS. Per the
+// union's contract that is the correct trade (a wider-than-truth window admits
+// non-module addresses; a narrower-than-truth window drops real data), but it
+// leaves the weak REGION_MODULE_REGION tag carrying no information here, which
+// is why module_text_bracket consumes only the structurally-known
+// REGION_MODULE. A range-classified observation must not bound the text base
+// on this arch. The runtime band rendered to the user comes from observed
+// module addresses when available (engine_sync), not this validation window.
 // https://elixir.bootlin.com/linux/v6.6/source/arch/arm64/include/asm/memory.h
-#define MODULES_START 0xffff000000000000ul
-#define MODULES_END 0xffff80007ffffffful
+// https://elixir.bootlin.com/linux/v6.9/source/arch/arm64/kernel/module.c#L32
+#define MODULES_START 0xfffeffff88000000ul // KASLR_VIRT_TEXT_MIN_WIDE - SZ_2G
+#define MODULES_END KERNEL_VIRT_VAS_END
 // Module region does not shift with KASLR on arm64.
 // (Modules are loaded independently of kernel text placement.)
 #define MODULES_RELATIVE_TO_TEXT 0
+
+// The band is not at a fixed offset from text, but every module allocation is
+// drawn from a window that also contains the kernel image, so a module address
+// brackets _text to +/-2GiB. That holds across every arm64 allocator
+// generation:
+//
+//   v6.9+ (module VA range rework): module_init_limits() sets
+//     module_direct_base = random_bounding_box(SZ_128M, _text, _end) and/or
+//     module_plt_base = random_bounding_box(SZ_2G, _text, _end); both boxes
+//     contain [_text, _end] by construction. execmem_arch_setup() serves from
+//     [direct_base, +SZ_128M) with fallback [plt_base, +SZ_2G). When the image
+//     is too large to randomize, or KASLR is off, module_direct_base = _text
+//     and the range is [_text, _text + SZ_128M).
+//   pre-v6.9 with ARM64_MODULE_PLTS (MODULES_VSIZE == SZ_2G):
+//     RANDOMIZE_MODULE_REGION_FULL puts module_alloc_base in
+//     [_end - SZ_2G, _text] and allocates up to base + SZ_2G.
+//     Without FULL, base is in [_etext - MODULES_VSIZE, _stext], which is
+//     tighter still.
+//   pre-v6.9 without PLTs (MODULES_VSIZE == SZ_128M): tighter again.
+//
+// SZ_2G is therefore the widest path, and bounds all of them.
+// https://elixir.bootlin.com/linux/v6.9/source/arch/arm64/kernel/module.c#L32
+// https://elixir.bootlin.com/linux/v6.6/source/arch/arm64/kernel/kaslr.c#L128
+//
+// Only REGION_MODULE (structurally-known module addresses) may feed this — see
+// the module-region provenance note in api.h. The MODULES_START/END union
+// below overlaps the VA_BITS=48 direct map, so a range-classified pointer
+// would bracket _text around the wrong region entirely.
+#define MODULES_BRACKET_TEXT 0x80000000ul // SZ_2G
 
 // MIN_KIMG_ALIGN is 2MiB (used without KASLR).
 // https://elixir.bootlin.com/linux/v6.2-rc2/source/arch/arm64/include/asm/boot.h#L18
@@ -290,6 +334,18 @@ static inline unsigned long arch_default_text_base(void) {
  * admits every supported VA_BITS_MIN's text base, so a sub-48 text leak is not
  * falsely excluded. Widen-only, never-narrow — same discipline as the floor. */
 #define KASLR_VIRT_TEXT_MAX_WIDE KERNEL_VIRT_TEXT_MAX
+
+/* The module band is the honest top grown by the bracket on both sides (see
+ * MODULES_START/END above). Those are literals — they sit above these _WIDE
+ * definitions and cannot reference them — so assert the relation here rather
+ * than let the two drift apart: widening the honest top without widening the
+ * band alongside it would drop real module addresses. */
+#if MODULES_START > KASLR_VIRT_TEXT_MIN_WIDE - MODULES_BRACKET_TEXT
+#error "arm64 module band floor excludes a module a full bracket below _text"
+#endif
+#if MODULES_END < KASLR_VIRT_TEXT_MAX_WIDE
+#error "arm64 module band ceiling excludes a module at the highest text base"
+#endif
 
 #define KASLR_SUPPORTED 1
 

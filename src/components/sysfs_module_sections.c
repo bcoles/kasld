@@ -138,15 +138,19 @@ int main(void) {
     return 0;
   }
 
+  /* REGION_MODULE, not REGION_MODULE_REGION: these are section addresses read
+   * from a named module's own sysfs directory, so the region is known
+   * structurally rather than inferred from the address falling in a band —
+   * the provenance module_text_bracket requires (see api.h). */
   kasld_info("lowest leaked module text address:  %lx", range.lo);
   if (range.hi != range.lo) {
     kasld_info("highest leaked module text address: %lx", range.hi);
     /* Pair of base+top samples for the same MODULE region: the merge pass
      * will combine them into a full extent. */
-    kasld_result_range(KASLD_TYPE_VIRT, REGION_MODULE_REGION, range.lo,
-                       range.hi, NULL, CONF_PARSED);
+    kasld_result_range(KASLD_TYPE_VIRT, REGION_MODULE, range.lo, range.hi, NULL,
+                       CONF_PARSED);
   } else {
-    kasld_result_sample(KASLD_TYPE_VIRT, REGION_MODULE_REGION, range.lo, NULL,
+    kasld_result_sample(KASLD_TYPE_VIRT, REGION_MODULE, range.lo, NULL,
                         CONF_PARSED);
   }
 

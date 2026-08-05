@@ -3980,9 +3980,13 @@ int rule_arm64_coupling_validate(const struct evidence_set *ev,
 static void test_arm64_coupling_validate_module_outside_band(void) {
   struct engine e;
   engine_init(&e);
-  /* Tag a kernel-text address as MODULE. Bad: not in [MODULES_START,END]. */
+  /* Below the relocatable floor (KASLR_VIRT_TEXT_MIN_WIDE - a full bracket):
+   * no text base is low enough for a module to reach here. Deliberately NOT a
+   * text-adjacent address — on arm64 the module region moves with the kernel
+   * image and sits within MODULES_BRACKET_TEXT of it, so text-adjacent is
+   * exactly where modules DO live and must stay admissible. */
   struct observation bad =
-      mk_obs(KASLD_TYPE_VIRT, REGION_MODULE, 0xffff8000c0000000ul,
+      mk_obs(KASLD_TYPE_VIRT, REGION_MODULE, 0xfff8000000000000ul,
              LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
   evidence_add(&e.ev, &bad);
   const verdict_fn vrules[] = {rule_arm64_coupling_validate};
@@ -6716,6 +6720,8 @@ int rule_min_offset_from_image_size(const struct evidence_set *,
                                     struct constraint *, int);
 int rule_module_text_bound(const struct evidence_set *, const struct estimate *,
                            struct constraint *, int);
+int rule_module_text_bracket(const struct evidence_set *,
+                             const struct estimate *, struct constraint *, int);
 int rule_ppc32_phys_ceiling(const struct evidence_set *,
                             const struct estimate *, struct constraint *, int);
 int rule_riscv64_fdt_kaslr_seed(const struct evidence_set *,
@@ -6866,6 +6872,91 @@ static void test_module_text_bound(void) {
 #else
   assert(e.est[Q_VIRT_IMAGE_BASE].lo == top.lo &&
          e.est[Q_VIRT_IMAGE_BASE].hi == top.hi); /* inert */
+#endif
+}
+
+/* module_text_bracket: on a MODULES_BRACKET_TEXT arch every module allocation
+ * shares a W-wide window with the kernel image, so one structurally-known
+ * module address (REGION_MODULE) brackets the image base to +/-W. The property
+ * under test is soundness first: the narrowed window must still contain a text
+ * base consistent with the observation. Inert where the axis is 0. */
+static void test_module_text_bracket_contains_truth(void) {
+  struct engine e;
+  engine_init(&e);
+  struct estimate top;
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
+  unsigned long truth = kasld_ceil_text_base(top.lo + 0x4000000ul);
+  /* A module allocated 256 MiB above the image — inside any bracket width. */
+  unsigned long vmod = truth + 0x10000000ul;
+  struct observation m = mk_obs(KASLD_TYPE_VIRT, REGION_MODULE, vmod,
+                                LO_SET | SAMPLE_SET, POS_INTERIOR, CONF_PARSED);
+  evidence_add(&e.ev, &m);
+  const rule_fn rules[] = {rule_kaslr_align_arch_default,
+                           rule_module_text_bracket};
+  engine_run(&e, rules, 2);
+#if MODULES_BRACKET_TEXT > 0
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo <= truth);
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi >= truth);
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi - e.est[Q_VIRT_IMAGE_BASE].lo <
+         top.hi - top.lo); /* and it did narrow */
+#else
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo == top.lo &&
+         e.est[Q_VIRT_IMAGE_BASE].hi == top.hi); /* inert */
+#endif
+}
+
+/* The provenance guard, and the reason the rule exists in its own file rather
+ * than as a third case in module_text_bound: REGION_MODULE_REGION means "fell
+ * inside the module band", and on a bracketing arch that band is a wide union
+ * of VA layouts overlapping other regions (on arm64, a VA_BITS=48 direct map).
+ * Bracketing off such an address would carry the text window to the wrong
+ * region entirely, so the weaker tag must not narrow — on ANY arch. */
+static void test_module_text_bracket_ignores_range_classified(void) {
+  struct engine e;
+  engine_init(&e);
+  struct estimate top;
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
+  unsigned long vmod =
+      kasld_ceil_text_base(top.lo + 0x4000000ul) + 0x10000000ul;
+  struct observation m = mk_obs(KASLD_TYPE_VIRT, REGION_MODULE_REGION, vmod,
+                                LO_SET | SAMPLE_SET, POS_INTERIOR, CONF_PARSED);
+  evidence_add(&e.ev, &m);
+  const rule_fn rules[] = {rule_kaslr_align_arch_default,
+                           rule_module_text_bracket};
+  engine_run(&e, rules, 2);
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo == top.lo &&
+         e.est[Q_VIRT_IMAGE_BASE].hi == top.hi);
+}
+
+/* End-to-end proof of the bracket against real data: the addresses are from
+ * tests/fixtures/arm64/debian-13-6.12.94_deb13-arm64, a KASLR kernel whose
+ * module region sits ~1.18 GiB below _text and ~128 TiB above the static
+ * module band. Using fixture addresses pins the model to a shipped kernel
+ * rather than to a synthetic address chosen to satisfy it. */
+static void test_module_text_bracket_real_arm64_witness(void) {
+#if MODULES_BRACKET_TEXT > 0 && defined(__aarch64__)
+  const unsigned long text = 0xffff97c219a00000ul;
+  const unsigned long module = 0xffff97c1ce36f000ul;
+
+  /* The validation union must admit it before any rule can see it. */
+  assert(kasld_addr_is_module_region(module));
+  /* And the pair must satisfy the relation the bracket claims. */
+  assert(text - module < (unsigned long)MODULES_BRACKET_TEXT);
+
+  struct engine e;
+  engine_init(&e);
+  struct observation o = mk_obs(KASLD_TYPE_VIRT, REGION_MODULE, module,
+                                LO_SET | SAMPLE_SET, POS_INTERIOR, CONF_PARSED);
+  evidence_add(&e.ev, &o);
+  const rule_fn rules[] = {rule_kaslr_align_arch_default,
+                           rule_module_text_bracket};
+  engine_run(&e, rules, 2);
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo <= text); /* contains the truth */
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi >= text);
+  /* and is no wider than the two-sided bracket: ~16 bits at a 64 KiB granule
+   * in place of the ~35 bits of the unnarrowed window. */
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi - e.est[Q_VIRT_IMAGE_BASE].lo <=
+         2ul * (unsigned long)MODULES_BRACKET_TEXT);
 #endif
 }
 
@@ -7598,6 +7689,9 @@ int main(void) {
 
   BEGIN_CATEGORY("Module-relative text bounds");
   RUN(test_module_text_bound);
+  RUN(test_module_text_bracket_contains_truth);
+  RUN(test_module_text_bracket_ignores_range_classified);
+  RUN(test_module_text_bracket_real_arm64_witness);
 
   BEGIN_CATEGORY("EFI Loader Code disambiguation");
   RUN(test_efi_loader_kernel_pick_single_aligned);

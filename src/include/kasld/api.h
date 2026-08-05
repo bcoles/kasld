@@ -87,9 +87,14 @@ static inline int kasld_mul_ovf(unsigned long a, unsigned long b,
  *   (engine_sync_authoritative); the static window must not exclude any
  *   address a real kernel might assign to a module -- silently rejecting
  *   legitimate module leaks is the failure mode this guards against. A
- *   wider-than-truth window admits some non-module addresses (cosmetic on
- *   MODULES_RELATIVE_TO_TEXT=0 arches where the module band is not used to
- *   bound text); a narrower-than-truth window drops real data.
+ *   wider-than-truth window admits some non-module addresses (cosmetic where
+ *   the band is not used to bound text); a narrower-than-truth window drops
+ *   real data. Where the module region MOVES WITH KASLR the union must cover
+ *   the relocatable range; a static band describes the region only when KASLR
+ *   is off. Widening far enough to do that can leave range-classification
+ *   vacuous on an arch -- that is the correct trade, and it is contained by
+ *   the REGION_MODULE / REGION_MODULE_REGION provenance split (see the region
+ *   table), never by narrowing the union back.
  *
  * - MODULES_RELATIVE_TO_TEXT: 1 if the module region shifts with KASLR text.
  * - IMAGE_ALIGN:              Kernel text address alignment.
@@ -267,6 +272,35 @@ __extension__ _Static_assert((unsigned long)KERNEL_PHYS_MAX >
 #if MODULES_RELATIVE_TO_TEXT
 #error "module band cannot follow both PAGE_OFFSET and the text base"
 #endif
+#endif
+
+/* MODULES_BRACKET_TEXT is opt-in: an arch declares it as a byte size W when
+ * its module allocator draws a window of at most W bytes that is GUARANTEED to
+ * also contain the kernel image, then serves every module allocation from
+ * inside that window. The consequence a rule can use is purely relative:
+ *
+ *   for every module allocation M:   |M - _text| < W
+ *
+ * so a single module address brackets the text base to a 2*W window, with no
+ * dependence on where the band sits absolutely. That independence is the point
+ * — it is what makes the axis usable on an arch whose static MODULES_START/END
+ * are a wide multi-layout union rather than the live band.
+ *
+ * This is a DIFFERENT geometry from MODULES_RELATIVE_TO_TEXT, which means "the
+ * band is at a fixed OFFSET from the text base" and yields a much tighter
+ * bound via MODULES_END_TO_TEXT_OFFSET. An arch has one or the other, never
+ * both; the default 0 means "no bracketing relation is claimed" and leaves
+ * module_text_bracket inert.
+ *
+ * Soundness obligation on the arch: W must bound EVERY allocator path,
+ * including fallbacks and the KASLR-disabled path, across every kernel version
+ * the arch header claims to model. Understating W under-narrows the guaranteed
+ * window and is a soundness bug, not a precision one. */
+#ifndef MODULES_BRACKET_TEXT
+#define MODULES_BRACKET_TEXT 0
+#endif
+#if MODULES_BRACKET_TEXT > 0 && MODULES_RELATIVE_TO_TEXT
+#error "module band cannot be both text-bracketing and text-relative"
 #endif
 
 /* PHYS_OFFSET_EXACT is opt-in: an arch declares it 1 only when PHYS_OFFSET is
@@ -863,6 +897,22 @@ enum kasld_confidence {
   X(REGION_KERNEL_DATA, "kernel_data", "data", K_OPEN)                         \
   X(REGION_KERNEL_BSS, "kernel_bss", "bss", K_OPEN)                            \
   X(REGION_KERNEL_IMAGE, "kernel_image", "text", K_OPEN)                       \
+  /* The two module regions differ by PROVENANCE, not by address range —   */  \
+  /* both are validated against the same [MODULES_START, MODULES_END] band.*/  \
+  /* MODULE: the source structurally KNOWS the address belongs to a loaded */  \
+  /* module (it read a module's own address — /proc/modules, a sysfs      */   \
+  /* per-module sections entry, a named symbol in a known module).        */   \
+  /* MODULE_REGION: the band itself, OR an address merely CLASSIFIED as    */  \
+  /* module because it fell inside the band (dmesg parsers, opportunistic  */  \
+  /* pointer leaks, perf JIT/trampoline records).                          */  \
+  /* The distinction is load-bearing on MODULES_BRACKET_TEXT arches, where */  \
+  /* the band is a wide multi-layout union that overlaps other regions:    */  \
+  /* on arm64 a VA_BITS=48 direct map starts at MODULES_START, so a        */  \
+  /* range-classified kmalloc pointer would otherwise bound the text base  */  \
+  /* ~128 TiB below the truth. module_text_bracket therefore reads MODULE  */  \
+  /* only; module_text_bound (whose arches have a narrow text-relative     */  \
+  /* band) reads both. Emit MODULE_REGION when in any doubt — it is the    */  \
+  /* weaker, always-safe tag.                                              */  \
   X(REGION_MODULE, "module", "module", K_MODULE)                               \
   X(REGION_MODULE_REGION, "module_region", "module", K_MODULE)                 \
   /* ---- Direct-map / virtual landmarks --------------------------------- */  \

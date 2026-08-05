@@ -109,13 +109,18 @@ int main(void) {
    * The component aggregates them into a min/max range — both endpoints
    * are within the module region. (A future version could enumerate
    * each module by name with kasld_result().) */
+  /* REGION_MODULE, not REGION_MODULE_REGION: each address is a loaded
+   * module's own base, read from a per-module record — the region is known
+   * structurally, not inferred from the address falling in a band. That is
+   * what lets module_text_bracket consume it on arches whose band is a wide
+   * multi-layout union (see the provenance note in api.h). */
   kasld_info("lowest leaked module address:  %lx", range.lo);
-  kasld_result_sample(KASLD_TYPE_VIRT, REGION_MODULE_REGION, range.lo, NULL,
+  kasld_result_sample(KASLD_TYPE_VIRT, REGION_MODULE, range.lo, NULL,
                       CONF_PARSED);
 
   if (range.hi != range.lo) {
     kasld_info("highest leaked module address: %lx", range.hi);
-    kasld_result_sample(KASLD_TYPE_VIRT, REGION_MODULE_REGION, range.hi, NULL,
+    kasld_result_sample(KASLD_TYPE_VIRT, REGION_MODULE, range.hi, NULL,
                         CONF_PARSED);
   }
 
