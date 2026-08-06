@@ -25,7 +25,7 @@
 set -u
 
 PROG=$(basename "$0")
-COLLECT_VERSION=1
+COLLECT_VERSION=2
 
 die() { echo "$PROG: $*" >&2; exit 2; }
 need_val() { [ "$1" -ge 2 ] || die "$2 requires a value"; }
@@ -174,6 +174,34 @@ grab() {
   fi
 }
 
+# Capture named attributes of every member of a sysfs class. grab_tree cannot:
+# /sys/class/<class>/<name> is a symlink into /sys/devices and its walk does not
+# follow links. Materialising the attributes as plain files is what the replay
+# layer opens, and it keeps the capture to what the analysis reads rather than a
+# whole device subtree.
+grab_class_attr() {
+  cls=$1
+  shift
+  [ -d "/sys/class/$cls" ] || { echo "absent: /sys/class/$cls" >> "$NOTES"; return 0; }
+  # Record the class directory even when empty: "registered but no members" is
+  # a different state from "class absent", and both are worth replaying.
+  mkdir -p "$OUT/sysroot/sys/class/$cls"
+  for e in "/sys/class/$cls"/*; do
+    [ -e "$e" ] || continue
+    n=$(basename "$e")
+    for a in "$@"; do
+      [ -r "$e/$a" ] || continue
+      mkdir -p "$OUT/sysroot/sys/class/$cls/$n"
+      if cat "$e/$a" > "$OUT/sysroot/sys/class/$cls/$n/$a" 2>/dev/null; then
+        :
+      else
+        echo "unreadable: /sys/class/$cls/$n/$a" >> "$NOTES"
+        rm -f "$OUT/sysroot/sys/class/$cls/$n/$a"
+      fi
+    done
+  done
+}
+
 # grab_tree DIR — copy a (small) directory subtree into the mirror.
 grab_tree() {
   d=$1
@@ -242,6 +270,12 @@ do
 done
 
 grab_tree /sys/firmware/memmap
+
+# iSCSI transports: `handle` is the address of the registering driver's static
+# struct iscsi_transport (CVE-2021-27363), one per transport the host has
+# loaded. Read by sysfs_iscsi_transport_handle, which enumerates the class.
+grab_class_attr iscsi_transport handle
+
 # Device tree is exposed at both paths depending on arch/kernel; capture both.
 grab_tree /proc/device-tree/chosen
 grab_tree /proc/device-tree/rtas
