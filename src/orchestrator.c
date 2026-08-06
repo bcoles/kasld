@@ -1747,52 +1747,99 @@ static void apply_sysroot_filter(void) {
  * cannot be mistaken for a real field (each field is only sought before msg).
  * An unknown category, or a mitigation with no gate, is malformed and leaves
  * the disposition at DISP_NONE. */
-static void parse_disposition(const char *s, struct component_disposition *d) {
-  *d = (struct component_disposition){0};
+/* Parse one `cat=<category> [gate=<token>] [msg="<text>"]` disposition body —
+ * the bytes after the leading "R ". Returns 1 and fills *d on a well-formed
+ * record; returns 0 leaving *d untouched otherwise.
+ *
+ * Validate-then-commit, matching the address and scalar parsers. A component
+ * is contracted to emit at most one R line, but the record already captured
+ * must not depend on every component honouring that: a second line that fails
+ * to parse leaves the first standing rather than erasing it.
+ *
+ * Strict for the same reasons those two are: an unknown key, a repeated key, an
+ * over-length token or an unterminated quote rejects the line rather than being
+ * silently ignored or truncated. The category comes from a parsed key rather
+ * than a search, so no text inside a message can supply one. */
+static int parse_disposition(const char *s, struct component_disposition *d) {
+  struct component_disposition tmp;
+  int seen_cat = 0, seen_gate = 0, seen_msg = 0;
 
-  const char *cat = strstr(s, "cat=");
-  if (!cat)
-    return;
-  cat += 4;
-  char tok[32];
-  size_t i = 0;
-  while (cat[i] && cat[i] != ' ' && i < sizeof(tok) - 1) {
-    tok[i] = cat[i];
-    i++;
-  }
-  tok[i] = '\0';
-  enum kasld_disp category = kasld_disp_parse(tok);
-  if (category == DISP_NONE)
-    return;
+  memset(&tmp, 0, sizeof(tmp));
 
-  /* msg="..." is last; bound the gate search to the text before it. */
-  const char *msg = strstr(s, " msg=\"");
-  const char *gate = strstr(s, " gate=");
-  if (gate && (!msg || gate < msg)) {
-    gate += 6;
-    size_t j = 0;
-    while (gate[j] && gate[j] != ' ' && j < sizeof(d->gate) - 1) {
-      d->gate[j] = gate[j];
-      j++;
+  while (*s) {
+    while (*s == ' ' || *s == '\t')
+      s++;
+    if (!*s)
+      break;
+
+    const char *key = s;
+    while (*s && *s != '=' && *s != ' ' && *s != '\t')
+      s++;
+    if (*s != '=')
+      return 0; /* a bare token is not a key=value field */
+    size_t klen = (size_t)(s - key);
+    s++;
+
+    if (klen == 3 && memcmp(key, "cat", 3) == 0) {
+      char tok[32];
+      size_t n = 0;
+      if (seen_cat)
+        return 0;
+      seen_cat = 1;
+      while (*s && *s != ' ' && *s != '\t') {
+        if (n >= sizeof(tok) - 1)
+          return 0;
+        tok[n++] = *s++;
+      }
+      tok[n] = '\0';
+      tmp.category = kasld_disp_parse(tok);
+      if (tmp.category == DISP_NONE)
+        return 0;
+    } else if (klen == 4 && memcmp(key, "gate", 4) == 0) {
+      size_t n = 0;
+      if (seen_gate)
+        return 0;
+      seen_gate = 1;
+      while (*s && *s != ' ' && *s != '\t') {
+        if (n >= sizeof(tmp.gate) - 1)
+          return 0;
+        tmp.gate[n++] = *s++;
+      }
+      tmp.gate[n] = '\0';
+      if (n == 0)
+        return 0; /* gate= naming nothing */
+    } else if (klen == 3 && memcmp(key, "msg", 3) == 0) {
+      size_t n = 0;
+      if (seen_msg)
+        return 0;
+      seen_msg = 1;
+      if (*s != '"')
+        return 0; /* the message is always quoted */
+      s++;
+      while (*s && *s != '"') {
+        if (n >= sizeof(tmp.message) - 1)
+          return 0;
+        tmp.message[n++] = *s++;
+      }
+      if (*s != '"')
+        return 0; /* unterminated */
+      s++;
+      tmp.message[n] = '\0';
+    } else {
+      return 0; /* unknown key (spec: no forward-compat silence) */
     }
-    d->gate[j] = '\0';
-  }
-  if (msg) {
-    msg += 6;
-    size_t k = 0;
-    while (msg[k] && msg[k] != '"' && k < sizeof(d->message) - 1) {
-      d->message[k] = msg[k];
-      k++;
-    }
-    d->message[k] = '\0';
   }
 
+  if (!seen_cat)
+    return 0;
   /* A mitigation names the control that fired; without a gate the claim is
    * unusable to the hardening report, so drop it rather than record a
    * gate-less mitigation. */
-  if (category == DISP_MITIGATION && d->gate[0] == '\0')
-    return;
-  d->category = category;
+  if (tmp.category == DISP_MITIGATION && tmp.gate[0] == '\0')
+    return 0;
+
+  *d = tmp;
+  return 1;
 }
 
 static int handle_component_line(struct component_log *clog,
@@ -1847,8 +1894,10 @@ static int handle_component_line(struct component_log *clog,
    * carry no address, so they are stored on the per-component log — always, not
    * only under --verbose — and never reach the address/scalar parsers. */
   if (line[0] == 'R') {
-    if (clog && line[1] == ' ' && line[2])
-      parse_disposition(line + 2, &clog->disposition);
+    if (clog && line[1] == ' ' && line[2] &&
+        !parse_disposition(line + 2, &clog->disposition) && verbose && !quiet)
+      fprintf(stderr, "[parser] dropped malformed R line (origin=%s)\n",
+              kasld_origin_name(origin));
     return 0;
   }
 

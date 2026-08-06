@@ -882,7 +882,7 @@ static void test_disposition_capture(void) {
   assert(cl.disposition.category == DISP_NONE);
 
   /* A `gate=`/`cat=` substring inside the quoted message is not mistaken for a
-   * field: the message is last, so field searches stop before it. */
+   * field: fields come from parsed keys, so message text supplies none. */
   memset(&cl, 0, sizeof(cl));
   const char *tricky = "R cat=absent msg=\"weird cat=x gate=y text\"";
   handle_component_line(&cl, "timing", slot, tricky, strlen(tricky));
@@ -896,6 +896,84 @@ static void test_disposition_capture(void) {
   assert(capture_helper(emit_base_helper, buf, sizeof(buf)) == 1);
   assert(handle_component_line(&cl, "parsed", slot, buf, strlen(buf)) == 1);
   assert(cl.disposition.category == DISP_NONE);
+
+  verbose = saved_v;
+}
+
+/* The disposition parser commits only a record it has fully validated, and is
+ * as strict about its key set as the address and scalar parsers are about
+ * theirs. kasld_disposition() cannot emit any of the lines below, and
+ * check-component-output stops a component hand-writing one — so these hold the
+ * parser to its own contract rather than relying on either of those. */
+static void test_disposition_rejects_malformed(void) {
+  int saved_v = verbose;
+  verbose = 0;
+  const int slot = 0;
+  struct component_log cl;
+
+  /* A rejected line leaves an established record untouched. Components are
+   * contracted to emit at most one R line; the captured record does not depend
+   * on every component honouring that. */
+  memset(&cl, 0, sizeof(cl));
+  const char *good = "R cat=mitigation gate=kpti msg=\"KPTI active\"";
+  handle_component_line(&cl, "timing", slot, good, strlen(good));
+  assert(cl.disposition.category == DISP_MITIGATION);
+  const char *junk = "R garbage with no category at all";
+  handle_component_line(&cl, "timing", slot, junk, strlen(junk));
+  assert(cl.disposition.category == DISP_MITIGATION); /* survived */
+  assert(strcmp(cl.disposition.gate, "kpti") == 0);
+
+  /* Each of these rejects the whole line. `cat` is read from a parsed key, so
+   * neither a message body nor a key merely ending in "cat" can supply one. */
+  static const char *const bad[] = {
+      "R xcat=mitigation gate=kpti msg=\"m\"",  /* key ending in "cat" */
+      "R gate=x msg=\"see cat=absent detail\"", /* category only in prose */
+      "R cat=absent bogus=1 msg=\"m\"",         /* unknown key */
+      "R cat=absent cat=disabled",              /* repeated key */
+      "R cat=absent msg=\"unterminated",        /* no closing quote */
+      "R cat=absent msg=bare",                  /* message not quoted */
+      "R cat=mitigation gate= msg=\"m\"",       /* gate naming nothing */
+      "R cat=absent extra",                     /* bare token, not key=value */
+  };
+  for (size_t i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
+    memset(&cl, 0, sizeof(cl));
+    handle_component_line(&cl, "timing", slot, bad[i], strlen(bad[i]));
+    assert(cl.disposition.category == DISP_NONE);
+  }
+
+  /* Over-length gate and message reject rather than truncate — the same
+   * no-silent-narrowing rule the region/name parser follows. */
+  char big[MAX_LINE_LEN];
+  memset(&cl, 0, sizeof(cl));
+  int n = snprintf(big, sizeof(big), "R cat=mitigation gate=");
+  memset(big + n, 'G', DISP_GATE_LEN);
+  big[n + DISP_GATE_LEN] = '\0';
+  handle_component_line(&cl, "timing", slot, big, strlen(big));
+  assert(cl.disposition.category == DISP_NONE);
+
+  memset(&cl, 0, sizeof(cl));
+  n = snprintf(big, sizeof(big), "R cat=absent msg=\"");
+  memset(big + n, 'M', DISP_MSG_LEN);
+  big[n + DISP_MSG_LEN] = '"';
+  big[n + DISP_MSG_LEN + 1] = '\0';
+  handle_component_line(&cl, "timing", slot, big, strlen(big));
+  assert(cl.disposition.category == DISP_NONE);
+
+  /* Well-formed records still parse, including a message carrying text that
+   * looks like other fields, and fields given in either order. */
+  memset(&cl, 0, sizeof(cl));
+  const char *tricky = "R cat=absent msg=\"weird cat=x gate=y text\"";
+  handle_component_line(&cl, "timing", slot, tricky, strlen(tricky));
+  assert(cl.disposition.category == DISP_ABSENT);
+  assert(cl.disposition.gate[0] == '\0');
+  assert(strcmp(cl.disposition.message, "weird cat=x gate=y text") == 0);
+
+  memset(&cl, 0, sizeof(cl));
+  const char *reordered = "R msg=\"m\" gate=kpti cat=mitigation";
+  handle_component_line(&cl, "timing", slot, reordered, strlen(reordered));
+  assert(cl.disposition.category == DISP_MITIGATION);
+  assert(strcmp(cl.disposition.gate, "kpti") == 0);
+  assert(strcmp(cl.disposition.message, "m") == 0);
 
   verbose = saved_v;
 }
@@ -2064,6 +2142,7 @@ int main(void) {
   RUN(test_roundtrip_sample);
   RUN(test_roundtrip_sized);
   RUN(test_disposition_capture);
+  RUN(test_disposition_rejects_malformed);
   RUN(test_helpers_reject_conf_unknown);
 
   BEGIN_CATEGORY("result_in_bounds");
