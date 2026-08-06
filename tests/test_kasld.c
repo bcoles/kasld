@@ -1236,7 +1236,7 @@ static void test_is_phys_dram_region_excludes_non_dram(void) {
   assert(!is_phys_dram_region(REGION_VMALLOC));
   assert(!is_phys_dram_region(REGION_VMEMMAP));
   assert(!is_phys_dram_region(REGION_MODULE));
-  assert(!is_phys_dram_region(REGION_MODULE_REGION));
+  assert(!is_phys_dram_region(REGION_MODULE_BAND));
   /* Sentinel. */
   assert(!is_phys_dram_region(REGION_UNKNOWN));
 }
@@ -1765,7 +1765,7 @@ static void test_engine_sync_projects_all_fields(void) {
 }
 
 /* engine_sync_authoritative tightens layout.modules_start/end from observed
- * VIRT/REGION_MODULE_REGION addresses (when inside the validation union),
+ * VIRT/REGION_MODULE_BAND addresses (when inside the validation union),
  * so the rendered band reflects the actual runtime module range rather than
  * the wide validation window. */
 static void test_engine_sync_anchors_module_band_to_observations(void) {
@@ -1785,7 +1785,7 @@ static void test_engine_sync_anchors_module_band_to_observations(void) {
   o1.valid = 1;
   o1.value_kind = OBS_ADDRESS;
   o1.eff_type = KASLD_TYPE_VIRT;
-  o1.eff_region = REGION_MODULE_REGION;
+  o1.eff_region = REGION_MODULE_BAND;
   o1.pos = POS_INTERIOR;
   o1.sample = obs_lo;
   o1.set_mask = SAMPLE_SET;
@@ -1826,7 +1826,7 @@ static void test_engine_sync_module_band_rejects_out_of_union(void) {
   o.valid = 1;
   o.value_kind = OBS_ADDRESS;
   o.eff_type = KASLD_TYPE_VIRT;
-  o.eff_region = REGION_MODULE_REGION;
+  o.eff_region = REGION_MODULE_BAND;
   o.pos = POS_INTERIOR;
   /* Just below the union floor — out of the validation union on every arch
    * (module unions never start at 0). A fixed sentinel like ULONG_MAX is not

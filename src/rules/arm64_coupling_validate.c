@@ -77,7 +77,7 @@ static int arm64_va_band_bad(enum kasld_region region, unsigned long a) {
     return (a >= arm64_page_end_for(ARM64_VA_BITS_MIN_SUPPORTED)) ||
            (a < (unsigned long)KERNEL_VIRT_VAS_START);
   case REGION_MODULE:
-  case REGION_MODULE_REGION:
+  case REGION_MODULE_BAND:
     /* Modules sit in the fixed [MODULES_START, MODULES_END] band. */
     return (a < (unsigned long)MODULES_START) ||
            (a > (unsigned long)MODULES_END);

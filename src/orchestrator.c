@@ -1061,8 +1061,9 @@ struct parsed_tail {
 /* Split a "region[:name]" wire token into a resolved region + name_buf (sized
  * NAME_LEN). The split is on the FIRST `:` only — names may contain subsequent
  * colons (e.g. PCI BDF "0000:00:14.0"); region wire names are short
- * identifiers without ':' (longest "module_region" = 13). Returns
- * REGION_UNKNOWN on a malformed, over-length, or unrecognized token. */
+ * identifiers without ':' (the longest, "virt_page_offset" and
+ * "efi_loader_image", are 16). Returns REGION_UNKNOWN on a malformed,
+ * over-length, or unrecognized token. */
 static enum kasld_region parse_region_field(const char *region_field,
                                             char *name_buf) {
   char region_str[32];
@@ -3980,7 +3981,7 @@ static void engine_sync_authoritative(const struct engine *e) {
    * in-scope kernel-version layouts -- wide on purpose so no real module
    * leak is silently rejected. When proc_modules or sysfs_module_sections
    * have given us actual module addresses (emitted as VIRT REGION_MODULE
-   * or REGION_MODULE_REGION observations), the runtime band lives in a
+   * or REGION_MODULE_BAND observations), the runtime band lives in a
    * much smaller span. Tightening the rendered/JSON layout to that
    * observed span makes the diagram reflect reality on this kernel, and
    * replaces the static MODULES_START/END display for arches whose true
@@ -4000,8 +4001,7 @@ static void engine_sync_authoritative(const struct engine *e) {
       if (!o->valid || o->value_kind != OBS_ADDRESS ||
           o->eff_type != KASLD_TYPE_VIRT)
         continue;
-      if (o->eff_region != REGION_MODULE &&
-          o->eff_region != REGION_MODULE_REGION)
+      if (o->eff_region != REGION_MODULE && o->eff_region != REGION_MODULE_BAND)
         continue;
       if (HAS_LO(o) && o->lo < obs_lo)
         obs_lo = o->lo;

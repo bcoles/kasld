@@ -105,7 +105,7 @@ static int in_directmap_range(unsigned long val) {
   if (val >= KERNEL_VIRT_TEXT_MIN)
     return 0;
 #if MODULES_START >= PAGE_OFFSET
-  if (kasld_addr_is_module_region(val))
+  if (kasld_addr_is_module_band(val))
     return 0;
 #endif
   return 1;

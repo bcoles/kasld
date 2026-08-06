@@ -79,7 +79,7 @@ static struct module_range get_addr_proc_modules(void) {
     if (!module_addr)
       continue;
 
-    if (kasld_addr_is_module_region(module_addr)) {
+    if (kasld_addr_is_module_band(module_addr)) {
       if (!range.lo || module_addr < range.lo)
         range.lo = module_addr;
       if (module_addr > range.hi)
@@ -109,7 +109,7 @@ int main(void) {
    * The component aggregates them into a min/max range — both endpoints
    * are within the module region. (A future version could enumerate
    * each module by name with kasld_result().) */
-  /* REGION_MODULE, not REGION_MODULE_REGION: each address is a loaded
+  /* REGION_MODULE, not REGION_MODULE_BAND: each address is a loaded
    * module's own base, read from a per-module record — the region is known
    * structurally, not inferred from the address falling in a band. That is
    * what lets module_text_bracket consume it on arches whose band is a wide

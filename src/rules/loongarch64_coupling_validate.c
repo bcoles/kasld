@@ -77,7 +77,7 @@ static int loongarch64_va_band_bad(enum kasld_region region, unsigned long a) {
   case REGION_VMALLOC:
   case REGION_VMEMMAP:
   case REGION_MODULE:
-  case REGION_MODULE_REGION:
+  case REGION_MODULE_BAND:
     /* All XKVRANGE-resident; share the modules-band union as a conservative
      * bound (the exact per-cpu_vabits split between modules/vmalloc/vmemmap is
      * not statically known). */

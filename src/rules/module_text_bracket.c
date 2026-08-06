@@ -19,7 +19,7 @@
 // MODULES_START/END are a wide union of several VA layouts rather than the
 // live band.
 //
-// PROVENANCE: reads VIRT REGION_MODULE only, NOT REGION_MODULE_REGION. The
+// PROVENANCE: reads VIRT REGION_MODULE only, NOT REGION_MODULE_BAND. The
 // weaker tag covers addresses classified as module merely because they fell
 // inside that union, and on arm64 the union overlaps a VA_BITS=48 direct map,
 // so a range-classified kmalloc pointer would bracket the text base around the

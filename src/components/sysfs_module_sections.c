@@ -81,7 +81,7 @@ static unsigned long read_module_text(char *path) {
 
   addr = strtoul(buff, &endptr, 16);
 
-  if (addr && kasld_addr_is_module_region(addr))
+  if (addr && kasld_addr_is_module_band(addr))
     return addr;
 
   return 0;
@@ -138,7 +138,7 @@ int main(void) {
     return 0;
   }
 
-  /* REGION_MODULE, not REGION_MODULE_REGION: these are section addresses read
+  /* REGION_MODULE, not REGION_MODULE_BAND: these are section addresses read
    * from a named module's own sysfs directory, so the region is known
    * structurally rather than inferred from the address falling in a band —
    * the provenance module_text_bracket requires (see api.h). */

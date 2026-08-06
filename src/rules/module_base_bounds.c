@@ -24,7 +24,7 @@
 //   modules are not.
 //
 // PROVENANCE: module ADDRESSES are read as REGION_MODULE only, never
-// REGION_MODULE_REGION. A range-classified address is inside the band by
+// REGION_MODULE_BAND. A range-classified address is inside the band by
 // construction, so bounding the base with it looks safe — but that safety is
 // inherited from the band, and on an arch whose band spans most of the address
 // space (arm64) it is worth nothing. Requiring structural provenance keeps the
@@ -74,7 +74,7 @@ int rule_module_base_bounds(const struct evidence_set *ev,
    * mem_init() layout block ("modules : 0x..."). That is the most direct
    * possible answer to this quantity, so it pins rather than bounds.
    *
-   * This is the one place REGION_MODULE_REGION is the RIGHT tag to read.
+   * This is the one place REGION_MODULE_BAND is the RIGHT tag to read.
    * Elsewhere the weak tag means "assumed to be a module because it fell in
    * the band"; combined with POS_BASE it means "this IS where the band
    * starts", and only the landmark parser emits that pair -- every other
@@ -84,7 +84,7 @@ int rule_module_base_bounds(const struct evidence_set *ev,
     if (!o->valid || o->value_kind != OBS_ADDRESS ||
         o->eff_type != KASLD_TYPE_VIRT || o->pos != POS_BASE)
       continue;
-    if (o->eff_region != REGION_MODULE_REGION)
+    if (o->eff_region != REGION_MODULE_BAND)
       continue;
     unsigned long a = obs_anchor(o);
     if (!a)

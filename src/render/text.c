@@ -1293,7 +1293,7 @@ static int readout_print_leaks(void) {
       {KASLD_TYPE_VIRT, REGION_KERNEL_BSS, "virt kernel BSS"},
       {KASLD_TYPE_VIRT, REGION_DIRECTMAP, "virt directmap"},
       {KASLD_TYPE_VIRT, REGION_MODULE, "virt module"},
-      {KASLD_TYPE_VIRT, REGION_MODULE_REGION, "virt module region"},
+      {KASLD_TYPE_VIRT, REGION_MODULE_BAND, "virt module region"},
       {KASLD_TYPE_PHYS, REGION_KERNEL_TEXT, "phys kernel text"},
       {KASLD_TYPE_PHYS, REGION_KERNEL_IMAGE, "phys kernel image"},
       {KASLD_TYPE_PHYS, REGION_KERNEL_DATA, "phys kernel data"},

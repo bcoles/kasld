@@ -116,7 +116,7 @@ static inline unsigned long arm64_page_end_for(unsigned long va_bits) {
 // near-vacuous on arm64, since the band covers most of the kernel VAS. Per the
 // union's contract that is the correct trade (a wider-than-truth window admits
 // non-module addresses; a narrower-than-truth window drops real data), but it
-// leaves the weak REGION_MODULE_REGION tag carrying no information here, which
+// leaves the weak REGION_MODULE_BAND tag carrying no information here, which
 // is why module_text_bracket consumes only the structurally-known
 // REGION_MODULE. A range-classified observation must not bound the text base
 // on this arch. The runtime band rendered to the user comes from observed

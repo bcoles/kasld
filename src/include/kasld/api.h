@@ -93,7 +93,7 @@ static inline int kasld_mul_ovf(unsigned long a, unsigned long b,
  *   the relocatable range; a static band describes the region only when KASLR
  *   is off. Widening far enough to do that can leave range-classification
  *   vacuous on an arch -- that is the correct trade, and it is contained by
- *   the REGION_MODULE / REGION_MODULE_REGION provenance split (see the region
+ *   the REGION_MODULE / REGION_MODULE_BAND provenance split (see the region
  *   table), never by narrowing the union back.
  *
  * - MODULES_RELATIVE_TO_TEXT: 1 if the module region shifts with KASLR text.
@@ -652,15 +652,20 @@ static inline int kasld_addr_in_range(unsigned long long addr,
   return addr >= lo && addr <= hi;
 }
 
-/* Predicate: is `va` plausibly inside the kernel module region on this arch?
+/* Predicate: is `va` plausibly inside the kernel module BAND on this arch?
  *
  * Wraps the MODULES_START/END validation union (see the CONTRACT in the
- * arch-header contract banner above).
- * Used by components that classify leaked addresses as module-region
- * (proc_modules, sysfs_module_sections, dmesg-parsers). Centralising the
- * check here means the per-arch widening / future per-version handling
- * lives in one place rather than four. */
-static inline int kasld_addr_is_module_region(unsigned long va) {
+ * arch-header contract banner above). Centralising the check here means the
+ * per-arch widening / future per-version handling lives in one place.
+ *
+ * Two different uses, and the difference decides the region tag. A source that
+ * already KNOWS it read a module's address (proc_modules,
+ * sysfs_module_sections) uses this only as a sanity filter and still emits
+ * REGION_MODULE. A source holding a bare pointer uses it to CLASSIFY, and must
+ * emit REGION_MODULE_BAND — membership in the band is not evidence that an
+ * address is a module, since the band overlaps other regions on several arches
+ * (see the region note by the region table). */
+static inline int kasld_addr_is_module_band(unsigned long va) {
   return kasld_addr_in_range(va, (unsigned long)MODULES_START,
                              (unsigned long)MODULES_END);
 }
@@ -921,24 +926,29 @@ enum kasld_confidence {
   X(REGION_KERNEL_DATA, "kernel_data", "data", K_OPEN)                         \
   X(REGION_KERNEL_BSS, "kernel_bss", "bss", K_OPEN)                            \
   X(REGION_KERNEL_IMAGE, "kernel_image", "text", K_OPEN)                       \
-  /* The two module regions differ by PROVENANCE, not by address range —   */  \
-  /* both are validated against the same [MODULES_START, MODULES_END] band.*/  \
-  /* MODULE: the source structurally KNOWS the address belongs to a loaded */  \
-  /* module (it read a module's own address — /proc/modules, a sysfs      */   \
-  /* per-module sections entry, a named symbol in a known module).        */   \
-  /* MODULE_REGION: the band itself, OR an address merely CLASSIFIED as    */  \
-  /* module because it fell inside the band (dmesg parsers, opportunistic  */  \
-  /* pointer leaks, perf JIT/trampoline records).                          */  \
-  /* The distinction is load-bearing on MODULES_BRACKET_TEXT arches, where */  \
-  /* the band is a wide multi-layout union that overlaps other regions:    */  \
-  /* on arm64 a VA_BITS=48 direct map starts at MODULES_START, so a        */  \
-  /* range-classified kmalloc pointer would otherwise bound the text base  */  \
-  /* ~128 TiB below the truth. module_text_bracket therefore reads MODULE  */  \
-  /* only; module_text_bound (whose arches have a narrow text-relative     */  \
-  /* band) reads both. Emit MODULE_REGION when in any doubt — it is the    */  \
-  /* weaker, always-safe tag.                                              */  \
+  /* The two module regions differ by PROVENANCE, not by address range —    */ \
+  /* both are validated against the same [MODULES_START, MODULES_END] band. */ \
+  /* MODULE: the source structurally KNOWS the address belongs to a loaded  */ \
+  /* module (it read a module's own address — /proc/modules, a sysfs        */ \
+  /* per-module sections entry, a named symbol in a known module).          */ \
+  /* MODULE_BAND: the band itself, OR an address merely CLASSIFIED as a     */ \
+  /* module because it fell inside the band (dmesg parsers, opportunistic   */ \
+  /* pointer leaks, perf JIT/trampoline records).                           */ \
+  /*                                                                        */ \
+  /* The distinction is load-bearing wherever a module address moves a TEXT */ \
+  /* base, because the band overlaps other regions on every such arch: on   */ \
+  /* arm64 a VA_BITS=48 direct map starts at MODULES_START, and on riscv64  */ \
+  /* and s390 the band contains the whole kernel-text range. A              */ \
+  /* range-classified address is then indistinguishable from a module one.  */ \
+  /* So module_text_bracket AND module_text_bound both read MODULE only.    */ \
+  /*                                                                        */ \
+  /* MODULE_BAND is read where the claim is about the REGION rather than a  */ \
+  /* module: the rendered band, and (with POS_BASE) the kernel's own        */ \
+  /* "modules : 0x..." layout line, which pins Q_MODULE_BASE.               */ \
+  /*                                                                        */ \
+  /* Emit MODULE_BAND when in any doubt — it is the weaker, always-safe tag.*/ \
   X(REGION_MODULE, "module", "module", K_MODULE)                               \
-  X(REGION_MODULE_REGION, "module_region", "module", K_MODULE)                 \
+  X(REGION_MODULE_BAND, "module_band", "module", K_MODULE)                     \
   /* ---- Direct-map / virtual landmarks --------------------------------- */  \
   X(REGION_DIRECTMAP, "directmap", "directmap", K_VIRT)                        \
   X(REGION_PAGE_OFFSET, "virt_page_offset", "pageoffset", K_PAGEOFFSET)        \

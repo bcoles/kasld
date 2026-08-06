@@ -6908,7 +6908,7 @@ static void test_module_text_bracket_contains_truth(void) {
 }
 
 /* The provenance guard, and the reason the rule exists in its own file rather
- * than as a third case in module_text_bound: REGION_MODULE_REGION means "fell
+ * than as a third case in module_text_bound: REGION_MODULE_BAND means "fell
  * inside the module band", and on a bracketing arch that band is a wide union
  * of VA layouts overlapping other regions (on arm64, a VA_BITS=48 direct map).
  * Bracketing off such an address would carry the text window to the wrong
@@ -6920,7 +6920,7 @@ static void test_module_text_bracket_ignores_range_classified(void) {
   quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
   unsigned long vmod =
       kasld_ceil_text_base(top.lo + 0x4000000ul) + 0x10000000ul;
-  struct observation m = mk_obs(KASLD_TYPE_VIRT, REGION_MODULE_REGION, vmod,
+  struct observation m = mk_obs(KASLD_TYPE_VIRT, REGION_MODULE_BAND, vmod,
                                 LO_SET | SAMPLE_SET, POS_INTERIOR, CONF_PARSED);
   evidence_add(&e.ev, &m);
   const rule_fn rules[] = {rule_kaslr_align_arch_default,
@@ -6941,7 +6941,7 @@ static void test_module_text_bracket_real_arm64_witness(void) {
   const unsigned long module = 0xffff97c1ce36f000ul;
 
   /* The validation union must admit it before any rule can see it. */
-  assert(kasld_addr_is_module_region(module));
+  assert(kasld_addr_is_module_band(module));
   /* And the pair must satisfy the relation the bracket claims. */
   assert(text - module < (unsigned long)MODULES_BRACKET_TEXT);
 
@@ -6982,7 +6982,7 @@ static void test_module_text_bound_ignores_range_classified(void) {
   struct estimate top;
   quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
   struct observation m =
-      mk_obs(KASLD_TYPE_VIRT, REGION_MODULE_REGION, top.lo + 0x100000ul,
+      mk_obs(KASLD_TYPE_VIRT, REGION_MODULE_BAND, top.lo + 0x100000ul,
              LO_SET | SAMPLE_SET, POS_INTERIOR, CONF_PARSED);
   evidence_add(&e.ev, &m);
   engine_run(&e, rules, 2);
@@ -6998,8 +6998,8 @@ static void test_module_base_pinned_by_region_landmark(void) {
   struct engine e;
   engine_init(&e);
   unsigned long band_base = (unsigned long)MODULES_START + 0x200000ul;
-  struct observation o = mk_obs(KASLD_TYPE_VIRT, REGION_MODULE_REGION,
-                                band_base, LO_SET, POS_BASE, CONF_PARSED);
+  struct observation o = mk_obs(KASLD_TYPE_VIRT, REGION_MODULE_BAND, band_base,
+                                LO_SET, POS_BASE, CONF_PARSED);
   evidence_add(&e.ev, &o);
   const rule_fn rules[] = {rule_module_base_bounds};
   engine_run(&e, rules, 1);
@@ -7043,7 +7043,7 @@ static void test_module_base_ignores_range_classified(void) {
 
   engine_init(&e);
   struct observation m =
-      mk_obs(KASLD_TYPE_VIRT, REGION_MODULE_REGION, MBB_TEST_ADDR,
+      mk_obs(KASLD_TYPE_VIRT, REGION_MODULE_BAND, MBB_TEST_ADDR,
              LO_SET | SAMPLE_SET, POS_INTERIOR, CONF_PARSED);
   evidence_add(&e.ev, &m);
   engine_run(&e, rules, 1);

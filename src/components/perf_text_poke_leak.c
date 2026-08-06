@@ -43,7 +43,7 @@
 // each leaked address is emitted only under the region it actually falls in: a
 // core-.text address as a KERNEL_TEXT interior sample (bounds the image base
 // from above), a module-region address (ftrace trampoline / kprobe page) as
-// REGION_MODULE_REGION; anything outside both windows is skipped.
+// REGION_MODULE_BAND; anything outside both windows is skipped.
 //
 // Requires:
 // - kernel.perf_event_paranoid <= 0 (or CAP_PERFMON / CAP_SYS_ADMIN)
@@ -255,7 +255,7 @@ static void drain_ring(struct perf_event_mmap_page *meta, const char *ring,
         if (acc->text_n == 0 || addr > acc->text_hi)
           acc->text_hi = addr;
         acc->text_n++;
-      } else if (addr != 0 && kasld_addr_is_module_region(addr)) {
+      } else if (addr != 0 && kasld_addr_is_module_band(addr)) {
         if (acc->mod_n == 0 || addr < acc->mod_lo)
           acc->mod_lo = addr;
         if (acc->mod_n == 0 || addr > acc->mod_hi)
@@ -408,11 +408,11 @@ int main(int argc, char *argv[]) {
   if (acc.mod_n) {
     kasld_found("%d module-region poke(s); lowest 0x%lx highest 0x%lx",
                 acc.mod_n, acc.mod_lo, acc.mod_hi);
-    kasld_result_sample(KASLD_TYPE_VIRT, REGION_MODULE_REGION, acc.mod_lo, NULL,
+    kasld_result_sample(KASLD_TYPE_VIRT, REGION_MODULE_BAND, acc.mod_lo, NULL,
                         CONF_PARSED);
     if (acc.mod_hi != acc.mod_lo)
-      kasld_result_sample(KASLD_TYPE_VIRT, REGION_MODULE_REGION, acc.mod_hi,
-                          NULL, CONF_PARSED);
+      kasld_result_sample(KASLD_TYPE_VIRT, REGION_MODULE_BAND, acc.mod_hi, NULL,
+                          CONF_PARSED);
   }
   return 0;
 }

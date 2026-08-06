@@ -99,7 +99,7 @@ int main(int argc, char **argv) {
       if (!have_text || a > text_hi)
         text_hi = a;
       have_text = 1;
-    } else if (kasld_addr_is_module_region(a)) {
+    } else if (kasld_addr_is_module_band(a)) {
       if (!have_mod || a < mod_lo)
         mod_lo = a;
       if (!have_mod || a > mod_hi)
@@ -129,10 +129,10 @@ int main(int argc, char **argv) {
   }
   if (have_mod) {
     kasld_info("module format addresses: 0x%lx-0x%lx", mod_lo, mod_hi);
-    kasld_result_sample(KASLD_TYPE_VIRT, REGION_MODULE_REGION, mod_lo,
+    kasld_result_sample(KASLD_TYPE_VIRT, REGION_MODULE_BAND, mod_lo,
                         "printk_fmt", CONF_PARSED);
     if (mod_hi != mod_lo)
-      kasld_result_sample(KASLD_TYPE_VIRT, REGION_MODULE_REGION, mod_hi,
+      kasld_result_sample(KASLD_TYPE_VIRT, REGION_MODULE_BAND, mod_hi,
                           "printk_fmt", CONF_PARSED);
   }
   return 0;

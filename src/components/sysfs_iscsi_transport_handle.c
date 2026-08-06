@@ -204,7 +204,7 @@ static enum handle_read read_transport_handle(const char *transport,
 
 /* The struct iscsi_transport lives in MODULE memory when the driver is built as
  * a module (the usual case), or in the kernel image .data section when built
- * in. Classify by range so a module pointer is tagged REGION_MODULE_REGION, not
+ * in. Classify by range so a module pointer is tagged REGION_MODULE_BAND, not
  * an image region: a KERNEL_DATA tag on a module pointer feeds
  * image_size_text_data_gap a bogus (>1 GiB) text..data gap, which pushes the
  * Q_VIRT_IMAGE_BASE ceiling below the true base and excludes it.
@@ -216,12 +216,12 @@ static enum handle_read read_transport_handle(const char *transport,
  * range, so a text-first order would tag real module pointers KERNEL_DATA and
  * reproduce exactly the ceiling bug described above. Range classification
  * cannot separate the two where the ranges overlap; what makes the ambiguity
- * harmless is that REGION_MODULE_REGION no longer reaches any rule that moves
+ * harmless is that REGION_MODULE_BAND no longer reaches any rule that moves
  * a text base (module_text_bound and module_text_bracket both require
  * REGION_MODULE), so a mis-tag here is presentational. */
 static void emit_iscsi_transport(unsigned long addr, const char *name) {
-  if (kasld_addr_is_module_region(addr))
-    kasld_result_sample(KASLD_TYPE_VIRT, REGION_MODULE_REGION, addr, name,
+  if (kasld_addr_is_module_band(addr))
+    kasld_result_sample(KASLD_TYPE_VIRT, REGION_MODULE_BAND, addr, name,
                         CONF_PARSED);
   else if (kasld_addr_is_kernel_text(addr))
     kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_DATA, addr, name,

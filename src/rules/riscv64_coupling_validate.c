@@ -83,7 +83,7 @@ static int riscv64_va_band_bad(enum kasld_region region, unsigned long a) {
     return (a < (unsigned long)KERNEL_VIRT_TEXT_MIN) ||
            (a > (unsigned long)KERNEL_VIRT_TEXT_MAX);
   case REGION_MODULE:
-  case REGION_MODULE_REGION:
+  case REGION_MODULE_BAND:
     /* Inside the module-band union (modern relative-to-text + legacy). */
     return (a < (unsigned long)MODULES_START) ||
            (a > (unsigned long)MODULES_END);

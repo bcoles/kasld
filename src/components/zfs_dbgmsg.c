@@ -99,8 +99,8 @@ static int emit_addr(unsigned long addr) {
   enum kasld_region region;
   if (kasld_addr_is_kernel_text(addr))
     region = REGION_KERNEL_TEXT;
-  else if (kasld_addr_is_module_region(addr))
-    region = REGION_MODULE_REGION;
+  else if (kasld_addr_is_module_band(addr))
+    region = REGION_MODULE_BAND;
   else if (kasld_addr_is_directmap(addr))
     region = REGION_DIRECTMAP;
   else if (kasld_addr_is_kernel_vas(addr))

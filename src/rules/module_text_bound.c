@@ -16,7 +16,7 @@
 //     virt_kaslr_align
 //     + IMAGE_BASE_OFFSET
 //
-// Reads VIRT REGION_MODULE leaks ONLY -- never REGION_MODULE_REGION; see the
+// Reads VIRT REGION_MODULE leaks ONLY -- never REGION_MODULE_BAND; see the
 // provenance note at the filter below. Aligns to the resolved
 // Q_VIRT_KASLR_ALIGN. Inert where MODULES_RELATIVE_TO_TEXT==0, and inert when
 // no structurally-known module observation is present.
@@ -51,7 +51,7 @@ int rule_module_text_bound(const struct evidence_set *ev,
     if (!o->valid || o->value_kind != OBS_ADDRESS ||
         o->eff_type != KASLD_TYPE_VIRT)
       continue;
-    /* REGION_MODULE only, never REGION_MODULE_REGION. This rule moves
+    /* REGION_MODULE only, never REGION_MODULE_BAND. This rule moves
      * Q_VIRT_IMAGE_BASE at the sound floor, so it may consume only addresses
      * whose source KNOWS they belong to a module -- not ones classified as
      * module because they fell inside the band. On both arches this rule runs

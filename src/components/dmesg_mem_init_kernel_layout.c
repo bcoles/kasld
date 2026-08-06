@@ -184,7 +184,7 @@ static const struct layout_entry entries[] = {
     {"lowmem  : 0x", KASLD_TYPE_VIRT, "kernel lowmem start", REGION_DIRECTMAP,
      KERNEL_VIRT_VAS_START, KERNEL_VIRT_VAS_END, LK_BASE},
     {"modules : 0x", KASLD_TYPE_VIRT, "kernel modules start",
-     REGION_MODULE_REGION, MODULES_START, MODULES_END, LK_BASE},
+     REGION_MODULE_BAND, MODULES_START, MODULES_END, LK_BASE},
     {"memory  : 0x", KASLD_TYPE_VIRT, "kernel memory start", REGION_DIRECTMAP,
      KERNEL_VIRT_VAS_START, KERNEL_VIRT_VAS_END, LK_BASE},
     /* Range extractions (lo,hi). One needle per print-format dialect:
@@ -264,7 +264,7 @@ static void emit_base(int idx, unsigned long addr) {
   kasld_info("%s: %lx", entries[idx].display, addr);
 
 #if KERNEL_VIRT_VAS_START /* vacuous where VAS_START is 0 (s390) */
-  if ((region == REGION_DIRECTMAP || region == REGION_MODULE_REGION) &&
+  if ((region == REGION_DIRECTMAP || region == REGION_MODULE_BAND) &&
       addr < (unsigned long)KERNEL_VIRT_VAS_START)
     kasld_err("warning: %s %lx below configured KERNEL_VIRT_VAS_START %lx",
               entries[idx].display, addr, (unsigned long)KERNEL_VIRT_VAS_START);

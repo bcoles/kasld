@@ -23,7 +23,7 @@
 // perf_event_paranoid<=0 for unprivileged users (or CAP_PERFMON).
 //
 // The component subscribes, polls for a short window, and emits one
-// REGION_MODULE_REGION observation per ksymbol register record. The kernel
+// REGION_MODULE_BAND observation per ksymbol register record. The kernel
 // virtual addresses BPF JIT pages, kprobe OOL pages, and ftrace trampolines
 // occupy all live in the module region on every supported arch.
 // Notification-driven: yields nothing if no BPF / kprobe / ftrace registration
@@ -223,16 +223,16 @@ static int drain_ring(struct perf_event_mmap_page *meta, const char *ring,
       /* Only emit an address inside the module window. A KSYMBOL record is a
        * BPF-JIT / kprobe-OOL / ftrace-trampoline allocation, normally in the
        * module region; one outside it (a separate bpf/vmalloc region on some
-       * configs) must be DROPPED, not tagged REGION_MODULE_REGION — that would
+       * configs) must be DROPPED, not tagged REGION_MODULE_BAND — that would
        * feed module_text_bound a bogus text-base bound on
        * MODULES_RELATIVE_TO_TEXT arches (riscv64/s390). Mirrors the window
        * check perf_text_poke_leak already applies. */
       if (!(k->flags & KSYM_FLAG_UNREGISTER) && k->addr != 0 &&
-          kasld_addr_is_module_region((unsigned long)k->addr)) {
+          kasld_addr_is_module_band((unsigned long)k->addr)) {
         kasld_found("ksymbol: addr=0x%lx len=%u type=%u name=%s",
                     (unsigned long)k->addr, k->len, k->ksym_type,
                     name_copy[0] ? name_copy : "(anon)");
-        kasld_result_sample(KASLD_TYPE_VIRT, REGION_MODULE_REGION,
+        kasld_result_sample(KASLD_TYPE_VIRT, REGION_MODULE_BAND,
                             (unsigned long)k->addr,
                             name_copy[0] ? name_copy : NULL, CONF_PARSED);
         emitted++;
