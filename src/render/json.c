@@ -483,6 +483,29 @@ void render_json(const struct summary *s) {
     printf("    }");
   }
 
+  /* Module region base (Q_MODULE_BASE): where the region can START, which is
+   * NOT the `layout.modules_start` band below — that spans every address a
+   * module may occupy, while this is bounded above by the lowest module seen.
+   * A sibling of virtual/physical rather than a memory_kaslr member: the
+   * module region exists on every architecture, whereas memory_kaslr is the
+   * x86_64 CONFIG_RANDOMIZE_MEMORY chain. Emitted only once the engine has
+   * bounded it; an untightened side emits null. */
+  if (s->kaslr.virt_module_min || s->kaslr.virt_module_max) {
+    printf(",\n    \"module_base\": {\n");
+    printf("      \"min\": ");
+    if (s->kaslr.virt_module_min)
+      printf("\"0x%016lx\",\n", s->kaslr.virt_module_min);
+    else
+      printf("null,\n");
+    printf("      \"max\": ");
+    if (s->kaslr.virt_module_max)
+      printf("\"0x%016lx\",\n", s->kaslr.virt_module_max);
+    else
+      printf("null,\n");
+    printf("      \"slots\": %lu\n", s->kaslr.virt_module_slots);
+    printf("    }");
+  }
+
   /* Memory KASLR (CONFIG_RANDOMIZE_MEMORY) — directmap / vmalloc / vmemmap
    * base bounds derived from the structural placement chain. Emitted only
    * when at least one region has been narrowed from its compile-time

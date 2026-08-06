@@ -125,6 +125,13 @@ static inline unsigned long arm64_page_end_for(unsigned long va_bits) {
 // https://elixir.bootlin.com/linux/v6.9/source/arch/arm64/kernel/module.c#L32
 #define MODULES_START 0xfffeffff88000000ul // KASLR_VIRT_TEXT_MIN_WIDE - SZ_2G
 #define MODULES_END KERNEL_VIRT_VAS_END
+
+// Usable as a BOUND on the module base, not only as an admission filter: the
+// floor is a full bracket below the lowest text base the honest top admits and
+// the ceiling is the top of the VAS, so both edges hold with KASLR on or off
+// (KASLR off puts _text at KIMAGE_VADDR, well inside) and across every VA
+// layout, which is what the guards beside KASLR_VIRT_TEXT_MAX_WIDE assert.
+#define MODULES_BAND_EXACT 1
 // Module region does not shift with KASLR on arm64.
 // (Modules are loaded independently of kernel text placement.)
 #define MODULES_RELATIVE_TO_TEXT 0

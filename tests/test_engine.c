@@ -6722,6 +6722,8 @@ int rule_module_text_bound(const struct evidence_set *, const struct estimate *,
                            struct constraint *, int);
 int rule_module_text_bracket(const struct evidence_set *,
                              const struct estimate *, struct constraint *, int);
+int rule_module_base_bounds(const struct evidence_set *,
+                            const struct estimate *, struct constraint *, int);
 int rule_ppc32_phys_ceiling(const struct evidence_set *,
                             const struct estimate *, struct constraint *, int);
 int rule_riscv64_fdt_kaslr_seed(const struct evidence_set *,
@@ -6957,6 +6959,75 @@ static void test_module_text_bracket_real_arm64_witness(void) {
    * in place of the ~35 bits of the unnarrowed window. */
   assert(e.est[Q_VIRT_IMAGE_BASE].hi - e.est[Q_VIRT_IMAGE_BASE].lo <=
          2ul * (unsigned long)MODULES_BRACKET_TEXT);
+#endif
+}
+
+/* module_base_bounds. MODULES_START + 1 MiB is inside the module band on every
+ * supported arch, so one address exercises the rule everywhere without a
+ * per-arch table. */
+#define MBB_TEST_ADDR ((unsigned long)MODULES_START + 0x100000ul)
+
+/* The allocator cannot return an address below its own region, so the lowest
+ * module address caps the base. Holds on every arch, with or without a usable
+ * band. */
+static void test_module_base_upper_from_observation(void) {
+  struct engine e;
+  engine_init(&e);
+  struct observation m = mk_obs(KASLD_TYPE_VIRT, REGION_MODULE, MBB_TEST_ADDR,
+                                LO_SET | SAMPLE_SET, POS_INTERIOR, CONF_PARSED);
+  evidence_add(&e.ev, &m);
+  const rule_fn rules[] = {rule_module_base_bounds};
+  engine_run(&e, rules, 1);
+  assert(e.est[Q_MODULE_BASE].hi <= MBB_TEST_ADDR);
+}
+
+/* The provenance guard. A range-classified address is inside the band by
+ * construction, which makes it look safe to bound with -- but that safety is
+ * the band's, and the band is worth nothing where it spans most of the address
+ * space. Compared against a run with no observation at all, so the assertion
+ * holds on every arch whatever its band contributes. */
+static void test_module_base_ignores_range_classified(void) {
+  /* One engine, run twice: struct engine is large enough that two on the
+   * stack exceed the frame budget. */
+  struct engine e;
+  const rule_fn rules[] = {rule_module_base_bounds};
+  engine_init(&e);
+  engine_run(&e, rules, 1);
+  unsigned long bare_lo = e.est[Q_MODULE_BASE].lo;
+  unsigned long bare_hi = e.est[Q_MODULE_BASE].hi;
+
+  engine_init(&e);
+  struct observation m =
+      mk_obs(KASLD_TYPE_VIRT, REGION_MODULE_REGION, MBB_TEST_ADDR,
+             LO_SET | SAMPLE_SET, POS_INTERIOR, CONF_PARSED);
+  evidence_add(&e.ev, &m);
+  engine_run(&e, rules, 1);
+  assert(e.est[Q_MODULE_BASE].lo == bare_lo);
+  assert(e.est[Q_MODULE_BASE].hi == bare_hi);
+}
+
+/* Where the arch declares its band exact, both edges bound the base. Inert
+ * elsewhere by design: an unverified band costs precision, never soundness. */
+static void test_module_base_band_bounds(void) {
+  struct engine e;
+  engine_init(&e);
+  const rule_fn rules[] = {rule_module_base_bounds};
+  engine_run(&e, rules, 1);
+#if MODULES_BAND_EXACT
+  assert(e.est[Q_MODULE_BASE].lo >= (unsigned long)MODULES_START);
+  assert(e.est[Q_MODULE_BASE].hi <= (unsigned long)MODULES_END);
+#elif MODULES_RELATIVE_TO_PAGE_OFFSET
+  /* Derived from the resolved PAGE_OFFSET, which with only this rule running is
+   * still its honest top -- so the band is the widest the arch admits, and the
+   * containment that matters is that it does not exclude the base the
+   * compile-time split implies. */
+  assert(e.est[Q_MODULE_BASE].lo <= (unsigned long)MODULES_START);
+  assert(e.est[Q_MODULE_BASE].hi >= (unsigned long)MODULES_START);
+#else
+  struct estimate top;
+  quantities[Q_MODULE_BASE].init_top(&top);
+  assert(e.est[Q_MODULE_BASE].lo == top.lo &&
+         e.est[Q_MODULE_BASE].hi == top.hi);
 #endif
 }
 
@@ -7692,6 +7763,9 @@ int main(void) {
   RUN(test_module_text_bracket_contains_truth);
   RUN(test_module_text_bracket_ignores_range_classified);
   RUN(test_module_text_bracket_real_arm64_witness);
+  RUN(test_module_base_upper_from_observation);
+  RUN(test_module_base_ignores_range_classified);
+  RUN(test_module_base_band_bounds);
 
   BEGIN_CATEGORY("EFI Loader Code disambiguation");
   RUN(test_efi_loader_kernel_pick_single_aligned);

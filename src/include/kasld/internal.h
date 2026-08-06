@@ -112,6 +112,13 @@ struct kasld_layout {
   unsigned long virt_vmalloc_base_max;
   unsigned long virt_vmemmap_base_min;
   unsigned long virt_vmemmap_base_max;
+  /* Q_MODULE_BASE's resolved window: where the module region can START. Kept
+   * apart from modules_start/end, which is the band the map draws — the base
+   * is bounded by the lowest module seen, while the band spans every address
+   * modules may occupy. Conflating them would report an observed allocation as
+   * the region's origin. */
+  unsigned long virt_module_base_min;
+  unsigned long virt_module_base_max;
 };
 
 /* =========================================================================
@@ -529,6 +536,10 @@ struct kaslr_info {
   unsigned long virt_vmalloc_max;
   unsigned long virt_vmemmap_min;
   unsigned long virt_vmemmap_max;
+  /* Q_MODULE_BASE: where the module region can start. Distinct from the
+   * modules_start/end band the map draws (see struct layout). */
+  unsigned long virt_module_min;
+  unsigned long virt_module_max;
   /* Speculative "likely" sub-windows for the memory-KASLR regions above, from
    * the all-signals snapshot (engine_resolve). Each is a subset of its region's
    * guaranteed min/max and MAY be wrong. 0/0 = none (no sub-floor signal
@@ -565,6 +576,7 @@ struct kaslr_info {
   int virt_page_offset_bits_top;
   unsigned long virt_vmalloc_slots, virt_vmalloc_likely_slots;
   unsigned long virt_vmemmap_slots, virt_vmemmap_likely_slots;
+  unsigned long virt_module_slots;
 };
 
 struct summary {

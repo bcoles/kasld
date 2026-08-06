@@ -2911,6 +2911,11 @@ void compute_kaslr_info(struct summary *s) {
   s->kaslr.virt_vmemmap_max = (layout.virt_vmemmap_base_max != ULONG_MAX)
                                   ? layout.virt_vmemmap_base_max
                                   : 0;
+  s->kaslr.virt_module_min =
+      (layout.virt_module_base_min != 0) ? layout.virt_module_base_min : 0;
+  s->kaslr.virt_module_max = (layout.virt_module_base_max != ULONG_MAX)
+                                 ? layout.virt_module_base_max
+                                 : 0;
 
   /* Hole-aware residual slot counts for the memory-KASLR regions, mirroring the
    * headline vslots/pslots: routed through quantity_slots() so interior
@@ -2937,6 +2942,17 @@ void compute_kaslr_info(struct summary *s) {
                            KASLD_SOUND_FLOOR, g_auth_engine.constraints,
                            g_auth_engine.n_constraints, RANDOMIZE_MEMORY_ALIGN)
           : 0;
+  /* The module base is page-granular on every arch that randomizes it (x86_64
+   * draws a whole number of pages; the arm64 bounding box and the
+   * PAGE_OFFSET-derived bands are page-aligned), so PAGE_SIZE is the pitch
+   * rather than RANDOMIZE_MEMORY_ALIGN, which is an x86_64 memory-KASLR
+   * constant and 0 elsewhere. */
+  s->kaslr.virt_module_slots =
+      (s->kaslr.virt_module_min && s->kaslr.virt_module_max)
+          ? quantity_slots(Q_MODULE_BASE, &g_auth_engine.est[Q_MODULE_BASE],
+                           KASLD_SOUND_FLOOR, g_auth_engine.constraints,
+                           g_auth_engine.n_constraints, PAGE_SIZE)
+          : 0;
 #else
   {
     unsigned long a = (unsigned long)RANDOMIZE_MEMORY_ALIGN;
@@ -2952,6 +2968,10 @@ void compute_kaslr_info(struct summary *s) {
     s->kaslr.virt_vmemmap_slots =
         (a && s->kaslr.virt_vmemmap_max > s->kaslr.virt_vmemmap_min)
             ? (s->kaslr.virt_vmemmap_max - s->kaslr.virt_vmemmap_min) / a
+            : 0;
+    s->kaslr.virt_module_slots =
+        (s->kaslr.virt_module_max > s->kaslr.virt_module_min)
+            ? (s->kaslr.virt_module_max - s->kaslr.virt_module_min) / PAGE_SIZE
             : 0;
   }
 #endif
@@ -3719,11 +3739,12 @@ void kasld_project_posture(const char *const *exclude, int n_exclude,
  *   Q_PHYS_KASLR_ALIGN -> phys_kaslr_align    (decoupled arches)
  *   Q_VMALLOC_BASE     -> virt_vmalloc_base_* (when constrained)
  *   Q_VMEMMAP_BASE     -> virt_vmemmap_base_* (when constrained)
+ *   Q_MODULE_BASE      -> virt_module_base_*  (when constrained)
  *   Q_VA_BITS          -> none (intermediate; bounds Q_VIRT_IMAGE_BASE)
  * The compile-time check below trips when Q__COUNT changes — forcing whoever
  * adds a quantity to decide its sink (or document it as intermediate) and bump
  * the count, rather than silently leaving it unprojected. */
-typedef char engine_sync_projects_every_quantity[(Q__COUNT == 8) ? 1 : -1];
+typedef char engine_sync_projects_every_quantity[(Q__COUNT == 9) ? 1 : -1];
 
 static void engine_sync_authoritative(const struct engine *e) {
   const struct estimate *vt = &e->est[Q_VIRT_IMAGE_BASE];
@@ -3798,6 +3819,10 @@ static void engine_sync_authoritative(const struct engine *e) {
     layout.virt_vmemmap_base_min = e->est[Q_VMEMMAP_BASE].lo;
   if (e->est[Q_VMEMMAP_BASE].hi_binding)
     layout.virt_vmemmap_base_max = e->est[Q_VMEMMAP_BASE].hi;
+  if (e->est[Q_MODULE_BASE].lo_binding)
+    layout.virt_module_base_min = e->est[Q_MODULE_BASE].lo;
+  if (e->est[Q_MODULE_BASE].hi_binding)
+    layout.virt_module_base_max = e->est[Q_MODULE_BASE].hi;
 
 #if MODULES_RELATIVE_TO_TEXT
   /* Modules region shifts with kernel text on this arch (riscv64, s390).
@@ -4542,6 +4567,8 @@ int main(int argc, char *argv[]) {
   layout.virt_vmalloc_base_max = ULONG_MAX;
   layout.virt_vmemmap_base_min = 0;
   layout.virt_vmemmap_base_max = ULONG_MAX;
+  layout.virt_module_base_min = 0;
+  layout.virt_module_base_max = ULONG_MAX;
 
   for (int p = 0; p < (int)(sizeof(phases) / sizeof(phases[0])); p++)
     run_phase(&phases[p]); /* merges results after each phase */

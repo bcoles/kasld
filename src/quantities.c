@@ -109,6 +109,28 @@ static void top_kernel_vas_window(struct estimate *e) {
                (unsigned long)KERNEL_VIRT_VAS_END);
 }
 
+static void top_module_base(struct estimate *e) {
+  /* The kernel VAS window, NOT [MODULES_START, MODULES_END]. The band would be
+   * the tighter top, but a top must be constant and contain every value the
+   * quantity can take on this arch, and the band fails that on two counts: it
+   * follows a runtime PAGE_OFFSET where MODULES_RELATIVE_TO_PAGE_OFFSET (a
+   * moved VMSPLIT leaves the compile-time macros describing a place the
+   * modules are not), and on x86_32 the region starts at
+   * `high_memory + VMALLOC_OFFSET`, so its floor tracks how much lowmem
+   * exists. Narrowing to the band is a RULE (module_base_bounds), which can
+   * consult the resolved PAGE_OFFSET and can decline on an arch whose band
+   * does not span every configuration. Wide here, narrowed by evidence --
+   * the same discipline as every other top.
+   *
+   * The floor is 0, NOT KERNEL_VIRT_VAS_START: on arm32 and ppc32 the module
+   * region sits BELOW PAGE_OFFSET (`PAGE_OFFSET - 16M` and `- 256M`), so a
+   * VAS-start floor excludes the very address the quantity names and every
+   * bound derived from a real module leak lands under it. Nothing is lost by
+   * starting at 0 -- a top exists to be narrowed, and an un-narrowed module
+   * base is reported as unbounded rather than as a window. */
+  top_interval(e, 0ul, (unsigned long)KERNEL_VIRT_VAS_END);
+}
+
 static void top_maxalign(struct estimate *e) {
   /* Least information for an alignment lattice is "aligned to 1 byte";
    * meet (max) only raises it as evidence arrives. */
@@ -152,6 +174,7 @@ static void top_va_bits(struct estimate *e) {
     NULL, 0)                                                                   \
   X(Q_VMEMMAP_BASE, "virt_vmemmap_base", LK_INTERVAL, top_kernel_vas_window,   \
     NULL, 0)                                                                   \
+  X(Q_MODULE_BASE, "virt_module_base", LK_INTERVAL, top_module_base, NULL, 0)  \
   X(Q_VIRT_KASLR_ALIGN, "virt_kaslr_align", LK_MAXALIGN, top_maxalign, NULL,   \
     0)                                                                         \
   X(Q_PHYS_KASLR_ALIGN, "phys_kaslr_align", LK_MAXALIGN, top_maxalign, NULL,   \

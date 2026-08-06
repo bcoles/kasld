@@ -32,7 +32,13 @@ else
   RESET=
 fi
 
-MAX_COLS=100
+# 110, not 100: the Search space column reports a size whether or not evidence
+# narrowed it, so a run with NO evidence — the structural baseline, and the
+# widest the table can get — carries the physical addressing limit in full
+# ("2147483641 of 2147483648", 24 columns). Real runs narrow that and land at
+# 95-96. The budget is set by the worst case rather than the common one so the
+# table never reflows between runs.
+MAX_COLS=110
 QEMU_DIR=${QEMU_DIR:-}
 HOST_TRIPLE=$(cc -dumpmachine 2>/dev/null || echo unknown)
 fail=0

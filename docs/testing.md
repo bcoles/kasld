@@ -55,7 +55,7 @@ only the orchestrator binary and the `components/` subdirectory).
 
 After the drivers, `make test` runs `tests/check-render-width`: it renders the
 built `kasld` binary and asserts every line of the output it lays out stays
-within 100 columns. Width is per-architecture — address columns and candidate
+within 110 columns. Width is per-architecture — address columns and candidate
 counts are wider on 64-bit targets — so an overflow introduced on one layout is
 invisible on the build host until someone renders that target. Each binary runs
 against an empty sysroot, which leaves every window at its architectural

@@ -136,7 +136,7 @@ The Layout table carries one row per quantity and basis:
 | `Quantity` | what is being located — always a *base*, a single address, not a region |
 | `Basis` | `guaranteed` (proven; contains the true base) or `likely` (the all-signals estimate, a subset of the guaranteed window, and may be wrong) |
 | `Range` | the addresses: a window, a single address where the quantity is pinned, or a one-sided `>=` / `<=` bound. A concrete base carries its `slide` from the compile-time default |
-| `Search space` | how many placements remain, against the set the row narrows — a `guaranteed` row against the window the kernel randomized over, a `likely` row against the `guaranteed` count above it. Bare where no enclosing set is modelled; `-` where the quantity is not randomized here |
+| `Search space` | how many placements remain, against the set the row narrows — a `guaranteed` row against the window the kernel randomized over, a `likely` row against the `guaranteed` count above it. Reported whether or not evidence narrowed it, so a baseline run states the size of the problem; the denominator is dropped when nothing narrowed, leaving the bare total. `-` means no window is modelled for the quantity, which is the only thing that withholds the figure — "nothing was learned" is carried by `Range` reading `not narrowed` |
 | `Align` | the grid the candidates sit on, which is what reconciles the count with the range |
 
 Every quantity the architecture randomizes gets a row whether or not the engine
@@ -144,6 +144,12 @@ bounded it, so the set of rows is a property of the machine rather than of the
 run — rows do not appear and vanish between boots. A row the engine never
 bounded says so rather than printing the architectural window, which would put
 a compile-time constant where a reader expects a measurement.
+
+`Module Region Base` is the exception, and appears only once the engine has
+bounded it. The module region exists on every architecture, so a row that was
+always present would be `not narrowed` on most of them; the region is also the
+one quantity whose bound comes from a leak rather than from the architecture,
+since the lowest module address the tool can see caps where the region starts.
 
 Addresses are never zero-padded: a 16 MiB physical address would otherwise wear
 the costume of a 64-bit kernel pointer. They are right-aligned instead, so the

@@ -168,16 +168,28 @@ const char *const layout_hdr[LAYOUT_COLS] = {"Quantity", "Basis", "Range",
  * guaranteed set above it. One rule for the whole column, so a reader need not
  * work out why some rows carry a denominator and others do not.
  *
+ * The column reports the size of the set still to be searched, whether or not
+ * evidence shrank it. A row that narrowed nothing still has a size worth
+ * stating -- it is what a baseline run is for -- so only the absence of a
+ * MODELLED set withholds the figure. That is the sole meaning of "-": no
+ * window is modelled for this quantity, so there is no count to give -- vmalloc
+ * and vmemmap, whose randomization windows are not modelled at all, and the
+ * direct map on a run with no max_pfn, since its window is sized from that
+ * observation rather than fixed by the architecture. "Nothing was learned" is
+ * carried by the Range column reading `not narrowed`, not by a blank here.
+ *
  * `top` is a raw count: 2^bits would over-state it, since ilog2 rounds up. It
- * is dropped when it does not exceed the row's own count -- a window that
- * narrowed nothing has no fraction to report -- and where no enclosing set is
- * modelled at all, which leaves the bare residual rather than a denominator
- * drawn from an addressing limit. A likely row is a subset of the guaranteed
- * one by construction, so N > M here would be a visible contract violation. */
+ * is dropped as a denominator when it does not exceed the row's own count,
+ * since a window that narrowed nothing has no fraction to report. Where the
+ * estimate carries no bounds at all, `top` alone is the answer. A likely row is
+ * a subset of the guaranteed one by construction, so N > M here would be a
+ * visible contract violation. */
 static void layout_fmt_space(char *buf, size_t sz, unsigned long slots,
                              unsigned long top) {
-  if (!slots)
+  if (!slots && !top)
     snprintf(buf, sz, "-");
+  else if (!slots)
+    snprintf(buf, sz, "%lu", top);
   else if (top > slots)
     snprintf(buf, sz, "%lu of %lu", slots, top);
   else
@@ -239,14 +251,11 @@ void layout_build(const struct summary *s) {
   {
     int vpin = (layout.virt_kaslr_text_min == layout.virt_kaslr_text_max &&
                 layout.virt_kaslr_text_min != 0);
-    /* A count equal to the quantity's architectural top means nothing was
-     * narrowed, and that top is a limit of the address space rather than a
-     * window the kernel drew from -- so there is no search space to report.
-     * Decided once per quantity; a likely row inherits it, since a fraction of
-     * an unbounded set is still unbounded. */
-    int vbounded =
-        !(s->kaslr.varch_slots && s->kaslr.vslots >= s->kaslr.varch_slots);
-    unsigned long vslots = vbounded ? s->kaslr.vslots : 0;
+    /* Reported whether or not evidence narrowed it: the virtual top is the
+     * window the kernel randomized over, so its size is a real search space
+     * even untouched -- that count is the same figure already shown as the
+     * denominator once something does narrow. */
+    unsigned long vslots = s->kaslr.vslots;
     int ppin = (layout.phys_kaslr_text_min == layout.phys_kaslr_text_max &&
                 layout.phys_kaslr_text_min != 0);
     char slide[48];
@@ -261,30 +270,23 @@ void layout_build(const struct summary *s) {
         vpin ? readout_slide(s->kaslr.vslide, slide, sizeof(slide)) : NULL,
         layout.virt_kaslr_align);
     if (s->kaslr.vtext && !vpin)
-      layout_add("Virtual Image Base", GRADE_LIKELY, vbounded ? 1 : 0, vslots,
-                 s->kaslr.vtext, s->kaslr.vtext,
+      layout_add("Virtual Image Base", GRADE_LIKELY, 1, vslots, s->kaslr.vtext,
+                 s->kaslr.vtext,
                  readout_slide(s->kaslr.vslide, slide, sizeof(slide)),
                  layout.virt_kaslr_align);
     else if (!s->kaslr.vtext && s->kaslr.vlikely_max)
-      layout_add("Virtual Image Base", GRADE_LIKELY,
-                 vbounded ? s->kaslr.vlikely_slots : 0, vslots,
-                 s->kaslr.vlikely_min, s->kaslr.vlikely_max, NULL,
+      layout_add("Virtual Image Base", GRADE_LIKELY, s->kaslr.vlikely_slots,
+                 vslots, s->kaslr.vlikely_min, s->kaslr.vlikely_max, NULL,
                  layout.virt_kaslr_align);
 
     /* Physical image base. Its top is an addressable-range bound rather than a
-     * randomization window, so it has no baseline to count against -- and when
-     * nothing narrowed it, no search space either. A likely row that narrows an
-     * unbounded set is still unbounded, so it withholds its count too rather
-     * than stating a fraction of a number that means nothing. */
-    /* The physical top is an addressing bound, not a window the kernel drew
-     * from, so a count equal to it means nothing was narrowed -- and the figure
-     * would be the size of the address space rather than a search space.
-     * Decided once here; every physical row reports 0 candidates when it
-     * holds, including a likely row, since a fraction of an unbounded set is
-     * still unbounded. */
-    int pbounded =
-        !(s->kaslr.parch_slots && s->kaslr.pslots >= s->kaslr.parch_slots);
-    unsigned long pslots = pbounded ? s->kaslr.pslots : 0;
+     * randomization window: unlike the virtual top it is a bound on what is
+     * ADDRESSABLE, so an un-narrowed count states how many aligned addresses
+     * exist rather than how many the kernel chose among (physical placement is
+     * bounded by installed RAM, far below this). It is still the set left to
+     * search, and the Range column shows the same ceiling beside it, so it is
+     * reported rather than withheld -- but it is not an entropy figure. */
+    unsigned long pslots = s->kaslr.pslots;
     if (s->kaslr.has_phys || s->kaslr.pslots > 0 ||
         layout.phys_kaslr_text_min || layout.phys_kaslr_text_max) {
       layout_add("Physical Image Base", GRADE_GUARANTEED, pslots, 0,
@@ -293,14 +295,13 @@ void layout_build(const struct summary *s) {
                       : NULL,
                  layout.phys_kaslr_align);
       if (s->kaslr.ptext && !ppin)
-        layout_add("Physical Image Base", GRADE_LIKELY, pbounded ? 1 : 0,
-                   pslots, s->kaslr.ptext, s->kaslr.ptext,
+        layout_add("Physical Image Base", GRADE_LIKELY, 1, pslots,
+                   s->kaslr.ptext, s->kaslr.ptext,
                    readout_slide(s->kaslr.pslide, slide, sizeof(slide)),
                    layout.phys_kaslr_align);
       else if (!s->kaslr.ptext && s->kaslr.plikely_max)
-        layout_add("Physical Image Base", GRADE_LIKELY,
-                   pbounded ? s->kaslr.plikely_slots : 0, pslots,
-                   s->kaslr.plikely_min, s->kaslr.plikely_max, NULL,
+        layout_add("Physical Image Base", GRADE_LIKELY, s->kaslr.plikely_slots,
+                   pslots, s->kaslr.plikely_min, s->kaslr.plikely_max, NULL,
                    layout.phys_kaslr_align);
     }
 
@@ -344,6 +345,18 @@ void layout_build(const struct summary *s) {
                  dmalign);
     }
 #endif
+
+    /* Module region base, on every arch rather than under the memory-KASLR
+     * gate: the region exists everywhere, and where it does not move the row
+     * still reports where it is. Drawn only once the engine has bounded it --
+     * an unbounded module base says nothing the other rows do not, and a row
+     * that is always `not narrowed` is noise. Its pitch is PAGE_SIZE, the
+     * granularity every arch's allocator places the region on. */
+    if (s->kaslr.virt_module_min || s->kaslr.virt_module_max) {
+      layout_add("Module Region Base", GRADE_GUARANTEED,
+                 s->kaslr.virt_module_slots, 0, s->kaslr.virt_module_min,
+                 s->kaslr.virt_module_max, NULL, PAGE_SIZE);
+    }
   }
 }
 

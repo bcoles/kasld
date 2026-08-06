@@ -296,6 +296,30 @@ __extension__ _Static_assert((unsigned long)KERNEL_PHYS_MAX >
  * including fallbacks and the KASLR-disabled path, across every kernel version
  * the arch header claims to model. Understating W under-narrows the guaranteed
  * window and is a soundness bug, not a precision one. */
+/* MODULES_BAND_EXACT is opt-in: an arch declares it 1 when the compile-time
+ * [MODULES_START, MODULES_END] spans the module region under EVERY
+ * configuration the arch header claims to model -- so the band's edges may be
+ * used as BOUNDS on Q_MODULE_BASE, not merely as an admission filter.
+ *
+ * The two are different obligations. Admission only needs the band to be wide
+ * enough not to reject a real address; bounding also needs its FLOOR to be low
+ * enough not to exclude one. A band whose floor moves at runtime satisfies the
+ * first and fails the second, which is why this is separate from the band
+ * itself rather than implied by it.
+ *
+ * The default 0 means "usable for admission only". It leaves module_base_bounds
+ * with nothing to say on an arch that has not been checked, which costs
+ * precision and never soundness -- a new arch cannot silently pin the module
+ * region to a window that excludes it. MODULES_RELATIVE_TO_PAGE_OFFSET arches
+ * do not need it: their band is re-derived from the resolved PAGE_OFFSET, which
+ * is exact once that is known. */
+#ifndef MODULES_BAND_EXACT
+#define MODULES_BAND_EXACT 0
+#endif
+#if MODULES_BAND_EXACT && MODULES_RELATIVE_TO_PAGE_OFFSET
+#error "a PAGE_OFFSET-relative band is derived, not exact at compile time"
+#endif
+
 #ifndef MODULES_BRACKET_TEXT
 #define MODULES_BRACKET_TEXT 0
 #endif
