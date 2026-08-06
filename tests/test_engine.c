@@ -6962,6 +6962,51 @@ static void test_module_text_bracket_real_arm64_witness(void) {
 #endif
 }
 
+/* module_text_bound must not take a range-classified address. This rule moves
+ * Q_VIRT_IMAGE_BASE at the sound floor, and on BOTH arches it runs on the
+ * module band contains the whole kernel-text range — so a kernel address that
+ * some component classified by range is indistinguishable from a module one.
+ * On s390 that direction is unsound: modules sit below the image, so such an
+ * address raises the lower bound above the true _text. Asserted against a run
+ * with no observation at all, so it holds on every arch. */
+static void test_module_text_bound_ignores_range_classified(void) {
+  struct engine e;
+  const rule_fn rules[] = {rule_kaslr_align_arch_default,
+                           rule_module_text_bound};
+  engine_init(&e);
+  engine_run(&e, rules, 2);
+  unsigned long bare_lo = e.est[Q_VIRT_IMAGE_BASE].lo;
+  unsigned long bare_hi = e.est[Q_VIRT_IMAGE_BASE].hi;
+
+  engine_init(&e);
+  struct estimate top;
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
+  struct observation m =
+      mk_obs(KASLD_TYPE_VIRT, REGION_MODULE_REGION, top.lo + 0x100000ul,
+             LO_SET | SAMPLE_SET, POS_INTERIOR, CONF_PARSED);
+  evidence_add(&e.ev, &m);
+  engine_run(&e, rules, 2);
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo == bare_lo);
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi == bare_hi);
+}
+
+/* The kernel prints its own module-region start in the mem_init() layout block,
+ * which the landmark parser emits as POS_BASE on the REGION. That is the region
+ * itself, not an address that might be a module, so it pins the quantity. The
+ * one place the weak tag is the correct thing to read. */
+static void test_module_base_pinned_by_region_landmark(void) {
+  struct engine e;
+  engine_init(&e);
+  unsigned long band_base = (unsigned long)MODULES_START + 0x200000ul;
+  struct observation o = mk_obs(KASLD_TYPE_VIRT, REGION_MODULE_REGION,
+                                band_base, LO_SET, POS_BASE, CONF_PARSED);
+  evidence_add(&e.ev, &o);
+  const rule_fn rules[] = {rule_module_base_bounds};
+  engine_run(&e, rules, 1);
+  assert(e.est[Q_MODULE_BASE].lo == band_base);
+  assert(e.est[Q_MODULE_BASE].hi == band_base);
+}
+
 /* module_base_bounds. MODULES_START + 1 MiB is inside the module band on every
  * supported arch, so one address exercises the rule everywhere without a
  * per-arch table. */
@@ -7450,7 +7495,10 @@ static void test_riscv64_text_base_legacy(void) {
    * legacy-region bound (the WIDE min), or the window stays uselessly wide. */
   unsigned long vmod = legacy_po - 0x7f6de000ul; /* ~just under 2 GiB below */
   struct observation mod =
-      mk_obs(KASLD_TYPE_VIRT, REGION_MODULE_REGION, vmod, LO_SET | SAMPLE_SET,
+      /* REGION_MODULE: a real module leak, which is what proc_modules and
+         sysfs_module_sections emit. module_text_bound requires structural
+         provenance -- a range-classified address must not move a text base. */
+      mk_obs(KASLD_TYPE_VIRT, REGION_MODULE, vmod, LO_SET | SAMPLE_SET,
              POS_INTERIOR, CONF_PARSED);
   evidence_add(&e.ev, &mod);
   const rule_fn rules[] = {rule_lobound_page_offset, rule_riscv64_text_base,
@@ -7763,6 +7811,8 @@ int main(void) {
   RUN(test_module_text_bracket_contains_truth);
   RUN(test_module_text_bracket_ignores_range_classified);
   RUN(test_module_text_bracket_real_arm64_witness);
+  RUN(test_module_text_bound_ignores_range_classified);
+  RUN(test_module_base_pinned_by_region_landmark);
   RUN(test_module_base_upper_from_observation);
   RUN(test_module_base_ignores_range_classified);
   RUN(test_module_base_band_bounds);

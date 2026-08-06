@@ -207,7 +207,18 @@ static enum handle_read read_transport_handle(const char *transport,
  * in. Classify by range so a module pointer is tagged REGION_MODULE_REGION, not
  * an image region: a KERNEL_DATA tag on a module pointer feeds
  * image_size_text_data_gap a bogus (>1 GiB) text..data gap, which pushes the
- * Q_VIRT_IMAGE_BASE ceiling below the true base and excludes it. */
+ * Q_VIRT_IMAGE_BASE ceiling below the true base and excludes it.
+ *
+ * The module test comes FIRST deliberately, and must stay that way. Reversing
+ * it looks tempting on riscv64 and s390, where the module band contains the
+ * whole kernel-text range and so the second branch below is unreachable -- but
+ * on those same arches a genuine module address also falls inside that text
+ * range, so a text-first order would tag real module pointers KERNEL_DATA and
+ * reproduce exactly the ceiling bug described above. Range classification
+ * cannot separate the two where the ranges overlap; what makes the ambiguity
+ * harmless is that REGION_MODULE_REGION no longer reaches any rule that moves
+ * a text base (module_text_bound and module_text_bracket both require
+ * REGION_MODULE), so a mis-tag here is presentational. */
 static void emit_iscsi_transport(unsigned long addr, const char *name) {
   if (kasld_addr_is_module_region(addr))
     kasld_result_sample(KASLD_TYPE_VIRT, REGION_MODULE_REGION, addr, name,

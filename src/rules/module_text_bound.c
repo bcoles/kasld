@@ -16,9 +16,10 @@
 //     virt_kaslr_align
 //     + IMAGE_BASE_OFFSET
 //
-// Reads VIRT REGION_MODULE / REGION_MODULE_REGION leaks; aligns to the
-// resolved Q_VIRT_KASLR_ALIGN. Inert where MODULES_RELATIVE_TO_TEXT==0, and
-// inert when no module-region observation is present.
+// Reads VIRT REGION_MODULE leaks ONLY -- never REGION_MODULE_REGION; see the
+// provenance note at the filter below. Aligns to the resolved
+// Q_VIRT_KASLR_ALIGN. Inert where MODULES_RELATIVE_TO_TEXT==0, and inert when
+// no structurally-known module observation is present.
 // ---
 // <bcoles@gmail.com>
 
@@ -50,7 +51,21 @@ int rule_module_text_bound(const struct evidence_set *ev,
     if (!o->valid || o->value_kind != OBS_ADDRESS ||
         o->eff_type != KASLD_TYPE_VIRT)
       continue;
-    if (o->eff_region != REGION_MODULE && o->eff_region != REGION_MODULE_REGION)
+    /* REGION_MODULE only, never REGION_MODULE_REGION. This rule moves
+     * Q_VIRT_IMAGE_BASE at the sound floor, so it may consume only addresses
+     * whose source KNOWS they belong to a module -- not ones classified as
+     * module because they fell inside the band. On both arches this rule runs
+     * on, the band CONTAINS the whole kernel-text range (riscv64
+     * [ffffffde.., ffffffffc0000000] over text [ffffffe0.., ffffffffc0000000];
+     * s390 [0, 20000000000000] over text [100000, 20000000000000]), so a
+     * range-classified kernel address is indistinguishable from a module one
+     * and reaches here as a text-base bound. On s390 that is unsound in the
+     * dangerous direction: modules sit BELOW the image, so a kernel .data
+     * address raises the C_LOWER_BOUND above the true _text and carves truth
+     * out of the guaranteed window. Requiring structural provenance removes
+     * the whole class, rather than relying on every emitter to filter -- see
+     * the region note in api.h. */
+    if (o->eff_region != REGION_MODULE)
       continue;
     unsigned long a = obs_anchor(o);
     if (a < vmod_lo) {

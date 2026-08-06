@@ -1096,11 +1096,12 @@ static void test_full_engine_riscv64_legacy_no_kaslr(void) {
                 0xffffffd800000000ul, CONF_INFERRED, NULL);
   add_addr(&e, KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, 0xffffffe000000000ul, 0,
            NULL);
-  /* module-region leaks (~2 GiB below text). */
-  add_addr(&e, KASLD_TYPE_VIRT, REGION_MODULE_REGION, 0xffffffdf80922000ul, 0,
-           NULL);
-  add_addr(&e, KASLD_TYPE_VIRT, REGION_MODULE_REGION, 0xffffffdf80d99000ul, 0,
-           NULL);
+  /* Module leaks (~2 GiB below text), REGION_MODULE as proc_modules and
+   * sysfs_module_sections emit them: module_text_bound requires structural
+   * provenance, since on this arch the module band contains the whole text
+   * range and a range-classified address is indistinguishable from a module. */
+  add_addr(&e, KASLD_TYPE_VIRT, REGION_MODULE, 0xffffffdf80922000ul, 0, NULL);
+  add_addr(&e, KASLD_TYPE_VIRT, REGION_MODULE, 0xffffffdf80d99000ul, 0, NULL);
   /* DRAM. */
   add_addr(&e, KASLD_TYPE_PHYS, REGION_RAM, 0x80000000ul, 0, NULL);
   add_addr_top(&e, KASLD_TYPE_PHYS, REGION_RAM, 0x9fe00000ul);

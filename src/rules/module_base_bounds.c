@@ -3,7 +3,11 @@
 // Rule: bound Q_MODULE_BASE — the lowest address the module allocator can hand
 // out — from module observations and from the architecture's module band.
 //
-// Two independent bounds, either of which may be absent:
+// Three independent sources, any of which may be absent:
+//
+//   PIN, from the kernel's own layout block: a POS_BASE observation of the
+//   module region states where the region starts, so it fixes the quantity
+//   outright rather than bounding it.
 //
 //   UPPER, from evidence: the allocator cannot have returned an address below
 //   its own region, so the lowest observed module address is an upper bound on
@@ -19,13 +23,16 @@
 //   the compile-time split only, and on a moved VMSPLIT they name a place the
 //   modules are not.
 //
-// PROVENANCE: reads VIRT REGION_MODULE only, never REGION_MODULE_REGION. A
-// range-classified address is inside the band by construction, so bounding the
-// base with it looks safe — but that safety is inherited from the band, and on
-// an arch whose band spans most of the address space (arm64) it is worth
-// nothing. Requiring structural provenance keeps the rule sound on its own
-// terms rather than on a per-arch argument, and keeps it sound if the module
-// base is ever coupled to another quantity. See the region note in api.h.
+// PROVENANCE: module ADDRESSES are read as REGION_MODULE only, never
+// REGION_MODULE_REGION. A range-classified address is inside the band by
+// construction, so bounding the base with it looks safe — but that safety is
+// inherited from the band, and on an arch whose band spans most of the address
+// space (arm64) it is worth nothing. Requiring structural provenance keeps the
+// rule sound on its own terms rather than on a per-arch argument.
+//
+// The one exception is a POS_BASE observation OF THE REGION, which is not an
+// address that might be a module but the region's own start — see the pin
+// below. See the region note in api.h.
 // ---
 // <bcoles@gmail.com>
 
@@ -60,6 +67,34 @@ int rule_module_base_bounds(const struct evidence_set *ev,
   (void)est;
   if (out_max < 1)
     return 0;
+
+  /* --- The region base, stated outright ---------------------------------
+   * A POS_BASE observation of the module REGION is not a module address at
+   * all: it is the region's own start, which the kernel prints in its
+   * mem_init() layout block ("modules : 0x..."). That is the most direct
+   * possible answer to this quantity, so it pins rather than bounds.
+   *
+   * This is the one place REGION_MODULE_REGION is the RIGHT tag to read.
+   * Elsewhere the weak tag means "assumed to be a module because it fell in
+   * the band"; combined with POS_BASE it means "this IS where the band
+   * starts", and only the landmark parser emits that pair -- every other
+   * band emitter reports interior samples. */
+  for (int i = 0; i < ev->n_obs; i++) {
+    const struct observation *o = &ev->obs[i];
+    if (!o->valid || o->value_kind != OBS_ADDRESS ||
+        o->eff_type != KASLD_TYPE_VIRT || o->pos != POS_BASE)
+      continue;
+    if (o->eff_region != REGION_MODULE_REGION)
+      continue;
+    unsigned long a = obs_anchor(o);
+    if (!a)
+      continue;
+    if (n < out_max)
+      mbb_emit(&out[n++], C_LOWER_BOUND, a, o->id);
+    if (n < out_max)
+      mbb_emit(&out[n++], C_UPPER_BOUND, a, o->id);
+    break;
+  }
 
   /* --- Upper bound from the lowest structurally-known module address ----- */
   unsigned long vmod_lo = ULONG_MAX;
