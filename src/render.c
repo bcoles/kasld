@@ -235,6 +235,9 @@ static void layout_add(const char *quantity, const char *basis,
   layout_fmt_space(r->cell[3], LAYOUT_CELL, slots, top);
   r->lo = lo;
   r->hi = hi;
+  r->slots = slots;
+  r->top = top;
+  r->align = align;
   snprintf(r->note, sizeof(r->note), "%s", note ? note : "");
   snprintf(r->cell[4], LAYOUT_CELL, "%s",
            align ? kasld_grain(align, gb, sizeof(gb)) : "-");
@@ -247,6 +250,13 @@ static void layout_add(const char *quantity, const char *basis,
  */
 void layout_build(const struct summary *s) {
   n_layout_rows = 0;
+
+  /* A slide is a displacement from the un-randomized base, so it only carries
+   * meaning where something randomized. In the static postures the banner above
+   * the rows already states that nothing did, and the note would restate it in
+   * a form ("slide +0x2f8000") that reads as evidence of movement. Decided once
+   * here rather than by having a separate renderer for those postures. */
+  const int show_slide = !(s->kaslr.unsupported || s->kaslr.disabled);
 
   {
     int vpin = (layout.virt_kaslr_text_min == layout.virt_kaslr_text_max &&
@@ -264,15 +274,19 @@ void layout_build(const struct summary *s) {
      * otherwise the proven window, plus the speculative answer beneath it --
      * either a concrete base (which IS that answer, so the likely window would
      * only restate it) or a narrower window. */
-    layout_add(
-        "Virtual Image Base", GRADE_GUARANTEED, vslots, s->kaslr.vtop_slots,
-        layout.virt_kaslr_text_min, layout.virt_kaslr_text_max,
-        vpin ? readout_slide(s->kaslr.vslide, slide, sizeof(slide)) : NULL,
-        layout.virt_kaslr_align);
+    layout_add("Virtual Image Base", GRADE_GUARANTEED, vslots,
+               s->kaslr.vtop_slots, layout.virt_kaslr_text_min,
+               layout.virt_kaslr_text_max,
+               (vpin && show_slide)
+                   ? readout_slide(s->kaslr.vslide, slide, sizeof(slide))
+                   : NULL,
+               layout.virt_kaslr_align);
     if (s->kaslr.vtext && !vpin)
       layout_add("Virtual Image Base", GRADE_LIKELY, 1, vslots, s->kaslr.vtext,
                  s->kaslr.vtext,
-                 readout_slide(s->kaslr.vslide, slide, sizeof(slide)),
+                 show_slide
+                     ? readout_slide(s->kaslr.vslide, slide, sizeof(slide))
+                     : NULL,
                  layout.virt_kaslr_align);
     else if (!s->kaslr.vtext && s->kaslr.vlikely_max)
       layout_add("Virtual Image Base", GRADE_LIKELY, s->kaslr.vlikely_slots,
@@ -291,13 +305,16 @@ void layout_build(const struct summary *s) {
         layout.phys_kaslr_text_min || layout.phys_kaslr_text_max) {
       layout_add("Physical Image Base", GRADE_GUARANTEED, pslots, 0,
                  layout.phys_kaslr_text_min, layout.phys_kaslr_text_max,
-                 ppin ? readout_slide(s->kaslr.pslide, slide, sizeof(slide))
-                      : NULL,
+                 (ppin && show_slide)
+                     ? readout_slide(s->kaslr.pslide, slide, sizeof(slide))
+                     : NULL,
                  layout.phys_kaslr_align);
       if (s->kaslr.ptext && !ppin)
         layout_add("Physical Image Base", GRADE_LIKELY, 1, pslots,
                    s->kaslr.ptext, s->kaslr.ptext,
-                   readout_slide(s->kaslr.pslide, slide, sizeof(slide)),
+                   show_slide
+                       ? readout_slide(s->kaslr.pslide, slide, sizeof(slide))
+                       : NULL,
                    layout.phys_kaslr_align);
       else if (!s->kaslr.ptext && s->kaslr.plikely_max)
         layout_add("Physical Image Base", GRADE_LIKELY, s->kaslr.plikely_slots,
@@ -344,6 +361,21 @@ void layout_build(const struct summary *s) {
                  0, s->kaslr.virt_vmemmap_min, s->kaslr.virt_vmemmap_max, NULL,
                  dmalign);
     }
+#endif
+
+#if RANDOMIZE_MEMORY_ALIGN == 0
+    /* The direct-map base is not RANDOMIZED off x86_64, but it is still
+     * resolved: on a 32-bit arch it is the VMSPLIT, which the engine bounds
+     * from the boot config or an mmap probe. Drawn when the engine has
+     * something to say, which is the same condition JSON emits it under --
+     * without this the readout hid a resolved quantity that every other format
+     * reported. No Align: the pitch here is not a modelled randomization
+     * granule, and stating one would invent a grid. */
+    if (s->kaslr.virt_page_offset_min || s->kaslr.virt_page_offset_max)
+      layout_add(
+          "Direct Map Base", GRADE_GUARANTEED, s->kaslr.virt_page_offset_slots,
+          s->kaslr.virt_page_offset_top_slots, s->kaslr.virt_page_offset_min,
+          s->kaslr.virt_page_offset_max, NULL, 0);
 #endif
 
     /* Module region base, on every arch rather than under the memory-KASLR

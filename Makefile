@@ -635,6 +635,7 @@ lint :
 	@$(TEST_DIR)/check-posture-summary
 	@$(TEST_DIR)/check-shellcheck
 	@$(TEST_DIR)/check-baseline
+	@$(TEST_DIR)/check-render-parity
 	@$(TEST_DIR)/hardening-fixtures
 	@$(TEST_DIR)/cli-flags
 

@@ -1,0 +1,216 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-render-parity — the text readout, the markdown report and JSON must
+# name the SAME set of resolved quantities for a given run.
+#
+# The Layout row model exists so no two formats can describe the same resolved
+# state differently, but it only binds a format that consults it. The
+# no-randomization postures (KASLR unsupported / disabled) used to return before
+# the model was built and then hardcode the kernel image base, so a quantity the
+# engine had fully resolved — the module region base, pinned to one address —
+# reached JSON while the text and markdown readouts omitted it entirely. Nothing
+# failed: each format was internally consistent, and the omission only surfaced
+# by rendering the same machine three ways and comparing by hand.
+#
+# This compares the NAMES, never the values. Formats legitimately present the
+# same bound differently — the text block snaps a window to the alignment grid
+# while markdown prints the raw edges, which is the same candidate set written
+# two ways. A difference in what they SAY is the bug; a difference in how they
+# say it is not.
+#
+# Every quantity needs an entry in the map below. A new one with no entry fails
+# here, which is the point: adding a quantity should require stating how each
+# format names it, rather than discovering months later that one format never
+# learned about it.
+#
+# Runs the native binary over the fixture corpus, then sweeps whatever cross
+# binaries and qemu-user are present — the cross sweep is what reaches the
+# static postures, which no host fixture triggers.
+#
+# Env:    QEMU_DIR (default: resolve qemu-<arch> from PATH)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+QEMU_DIR=${QEMU_DIR:-}
+
+if [ -t 1 ]; then
+  RED=$(printf '\033[31m')
+  GREEN=$(printf '\033[32m')
+  YELLOW=$(printf '\033[33m')
+  RESET=$(printf '\033[0m')
+else
+  RED=
+  GREEN=
+  YELLOW=
+  RESET=
+fi
+
+fail=0
+note() {
+  printf '  FAIL: %s\n' "$1"
+  fail=1
+}
+
+# quantity-name -> JSON key. The readout label is the key the row model carries,
+# so the left column is exactly what layout_add() is given.
+json_key_for() {
+  case "$1" in
+  "Virtual Image Base")  echo inferred ;;
+  "Physical Image Base") echo inferred_physical ;;
+  "Direct Map Base")     echo virt_page_offset_base ;;
+  "Vmalloc Base")        echo virt_vmalloc_base ;;
+  "Vmemmap Base")        echo virt_vmemmap_base ;;
+  "Module Region Base")  echo module_base ;;
+  *)                     echo "" ;;
+  esac
+}
+
+# The quantity names a text readout presents, deduplicated. Covers both shapes:
+# the table (leading two spaces, name padded into the first column) and the
+# static-posture block (a bold heading at the same indent). Both are matched by
+# their trailing "... Base" label, which every quantity name ends with.
+text_quantities() {
+  sed -n 's/^  \([A-Z][A-Za-z0-9 ]*Base\) .*/\1/p;s/^  \([A-Z][A-Za-z0-9 ]*Base\)$/\1/p' |
+    sort -u
+}
+
+# Same, from markdown: table rows "| Name | ..." and static lines "**Name:**".
+md_quantities() {
+  sed -n 's/^| \([A-Z][A-Za-z0-9 ]*Base\) |.*/\1/p;s/^\*\*\([A-Z][A-Za-z0-9 ]*Base\):\*\*.*/\1/p' |
+    sort -u
+}
+
+# One target (binary + optional qemu + optional sysroot), all three formats.
+# shellcheck disable=SC2086  # $q is an optional interpreter prefix, intentionally split
+compare_one() {
+  label=$1 q=$2 bin=$3 sysroot=$4
+  compdir=$(dirname "$bin")/components
+  run() {
+    KASLD_SYSROOT="$sysroot" KASLD_COMPONENT_DIR="$compdir" \
+      $q "$bin" -q "$@" 2>/dev/null
+  }
+  t=$(run | text_quantities)
+  m=$(run -m | md_quantities)
+  j=$(run -j)
+
+  # Text vs markdown: both read the row model, so they must agree exactly.
+  if [ "$t" != "$m" ]; then
+    note "$label: text and markdown name different quantities"
+    printf '        text:     %s\n' "$(echo "$t" | tr '\n' ' ')"
+    printf '        markdown: %s\n' "$(echo "$m" | tr '\n' ' ')"
+    return
+  fi
+
+  # Text vs JSON. Not a two-way name match: the two apply different policies on
+  # purpose. The readout draws a row for every quantity the architecture
+  # randomizes, bounded or not, so the set of rows is a property of the machine
+  # rather than of the run; JSON emits a quantity only once it has something to
+  # say about it. So the assertion runs ONE way -- anything JSON reports must be
+  # named by the readout -- which is exactly the direction the bug ran, and
+  # leaves the policy difference alone.
+  for name in $(echo "$t" | tr ' ' '_'); do
+    disp=$(echo "$name" | tr '_' ' ')
+    [ -n "$(json_key_for "$disp")" ] ||
+      note "$label: quantity \"$disp\" has no entry in json_key_for()"
+  done
+  for key in inferred inferred_physical virt_page_offset_base \
+    virt_vmalloc_base virt_vmemmap_base module_base; do
+    # Anchored to an object key ("name": {), never a bare occurrence: the
+    # component catalogue in JSON describes quantities in prose, and a
+    # substring match would treat an explain string as a reported value.
+    printf '%s\n' "$j" | grep -q "\"$key\": {" || continue
+    found=0
+    for name in $(echo "$t" | tr ' ' '_'); do
+      disp=$(echo "$name" | tr '_' ' ')
+      [ "$(json_key_for "$disp")" = "$key" ] && found=1
+    done
+    [ "$found" -eq 1 ] ||
+      note "$label: JSON reports \"$key\" but the readout names no quantity for it"
+  done
+}
+
+BIN=
+for cand in "$ROOT"/build/*/kasld; do
+  [ -x "$cand" ] || continue
+  if "$cand" -V >/dev/null 2>&1; then
+    BIN=$cand
+    break
+  fi
+done
+[ -n "$BIN" ] || {
+  printf '%scheck-render-parity: SKIP%s (no runnable kasld binary; run make first)\n' \
+    "$YELLOW" "$RESET"
+  exit 0
+}
+
+n=0
+host_arch=$(basename "$(dirname "$BIN")")
+host_arch=${host_arch%%-*}
+for sysroot in "$ROOT"/tests/fixtures/*/*/sysroot; do
+  [ -d "$sysroot" ] || continue
+  # A fixture is only meaningful under a binary built for its architecture.
+  fx=$(basename "$(dirname "$(dirname "$sysroot")")")
+  case "$host_arch:$fx" in
+  x86_64:x86_64) ;;
+  *) continue ;;
+  esac
+  compare_one "$(basename "$(dirname "$sysroot")")" "" "$BIN" "$sysroot"
+  n=$((n + 1))
+done
+
+# Baseline (no fixture): the widest state, and the one every arch can render.
+compare_one "baseline" "" "$BIN" "/nonexistent-sysroot"
+n=$((n + 1))
+
+qemu_for() {
+  case "${1%%-*}" in
+  x86_64)      echo qemu-x86_64 ;;
+  i686 | i586) echo qemu-i386 ;;
+  aarch64)     echo qemu-aarch64 ;;
+  arm | armv7) echo qemu-arm ;;
+  armeb)       echo qemu-armeb ;;
+  mips)        echo qemu-mips ;;
+  mipsel)      echo qemu-mipsel ;;
+  mips64)      echo qemu-mips64 ;;
+  mips64el)    echo qemu-mips64el ;;
+  powerpc64le) echo qemu-ppc64le ;;
+  powerpc64)   echo qemu-ppc64 ;;
+  powerpc)     echo qemu-ppc ;;
+  riscv32)     echo qemu-riscv32 ;;
+  riscv64)     echo qemu-riscv64 ;;
+  s390x)       echo qemu-s390x ;;
+  loongarch64) echo qemu-loongarch64 ;;
+  *)           echo "" ;;
+  esac
+}
+resolve_qemu() {
+  [ -n "$1" ] || return 1
+  if [ -n "$QEMU_DIR" ]; then
+    [ -x "$QEMU_DIR/$1" ] && echo "$QEMU_DIR/$1"
+  else
+    command -v "$1" 2>/dev/null
+  fi
+}
+
+# The cross sweep is what reaches the KASLR-unsupported posture: no host fixture
+# produces it, and that posture is where the formats diverged.
+for cand in "$ROOT"/build/*/kasld; do
+  [ -x "$cand" ] || continue
+  [ "$cand" = "$BIN" ] && continue
+  triple=$(basename "$(dirname "$cand")")
+  q=$(resolve_qemu "$(qemu_for "$triple")") || continue
+  [ -n "$q" ] || continue
+  compare_one "$triple" "$q" "$cand" "/nonexistent-sysroot"
+  n=$((n + 1))
+done
+
+if [ "$fail" -ne 0 ]; then
+  printf '%scheck-render-parity: formats disagree on which quantities exist%s\n' \
+    "$RED" "$RESET" >&2
+  exit 1
+fi
+printf '%scheck-render-parity: OK%s (%d runs; text/markdown/json name the same quantities)\n' \
+  "$GREEN" "$RESET" "$n"

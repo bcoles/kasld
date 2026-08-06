@@ -131,14 +131,28 @@ void render_oneline(const struct summary *s) {
   /* Direct-map base (PAGE_OFFSET): the engine-resolved base — a pinned value or
    * the proven aligned floor — not an interior linear-map sample. On randomized
    * arches show it once the engine has established it (via a directmap leak);
-   * where the base is architecturally fixed, a directmap leak confirms the
-   * linear map and the base is the compile-time PAGE_OFFSET. `na` otherwise. */
-  int have_dmap =
-      s->kaslr.virt_page_offset_min ||
-      (DIRECTMAP_STATIC &&
-       section_consensus(KASLD_TYPE_VIRT, "directmap", REGION_UNKNOWN));
-  if (have_dmap && layout.virt_page_offset)
-    printf(" dmap=0x%lx", layout.virt_page_offset);
+   * where the compile-time value is the guaranteed runtime one, a directmap
+   * leak confirms the linear map and that constant IS the base. `na` otherwise.
+   *
+   * The second clause needs BOTH axes. DIRECTMAP_STATIC alone says only that
+   * KASLR does not move the base, which is a different claim from knowing where
+   * it is: arm32 and x86_32 are DIRECTMAP_STATIC yet their PAGE_OFFSET varies
+   * with VMSPLIT, and on those the fallback below prints the compile-time
+   * constant for a base the engine had merely bounded — an assertion, in the
+   * machine-readable mode, that no evidence supports. PAGE_OFFSET_INVARIANT is
+   * the axis that licenses it, being defined as the compile-time value being
+   * the guaranteed runtime one (see api.h).
+   *
+   * The value comes from the ENGINE, not from layout.virt_page_offset. That
+   * field is only assigned on a coupled arch once the engine PINS the base, so
+   * reading it where the engine had merely established a floor yields the
+   * compile-time seed again -- the same wrong answer by a second route. */
+  unsigned long dmap = s->kaslr.virt_page_offset_min;
+  if (!dmap && DIRECTMAP_STATIC && PAGE_OFFSET_INVARIANT &&
+      section_consensus(KASLD_TYPE_VIRT, "directmap", REGION_UNKNOWN))
+    dmap = (unsigned long)PAGE_OFFSET;
+  if (dmap)
+    printf(" dmap=0x%lx", dmap);
   else
     printf(" dmap=na");
 

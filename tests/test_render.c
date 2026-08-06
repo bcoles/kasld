@@ -289,6 +289,57 @@ static void test_render_text_with_rich_content(void) {
   assert(strstr(render_cap, "0x") != NULL);
 }
 
+/* `-1` must not assert a direct-map base the engine only bounded. The field is
+ * documented as an engine-resolved floor or pin, and on an arch whose
+ * PAGE_OFFSET varies with VMSPLIT the compile-time constant is neither: it is a
+ * link-time seed that a moved split leaves pointing at the wrong place. The
+ * regression prints it anyway, because the fallback was gated on
+ * DIRECTMAP_STATIC ("KASLR does not move this") rather than on
+ * PAGE_OFFSET_INVARIANT ("the compile-time value IS the runtime one").
+ *
+ * Set up as the engine leaves it when no oracle pins the split: an upper bound
+ * and no floor. Live witness — Debian 6.12.94-armmp with the boot config and
+ * the mmap probe unavailable — reported min:null max:0xc0000000 in JSON and
+ * `<= 0xc0000000` in the readout, while `-1` stated dmap=0xc0000000. */
+static void test_render_oneline_dmap_not_asserted_when_unpinned(void) {
+  struct summary s;
+  reset_results();
+  reset_comp_logs();
+  num_scalar_facts = 0;
+  memset(&s, 0, sizeof(s));
+
+  /* Bounded from above only: nothing proves where the base sits. */
+  s.kaslr.virt_page_offset_min = 0;
+  s.kaslr.virt_page_offset_max = (unsigned long)PAGE_OFFSET;
+
+  /* A direct-map leak, which is what arms the fallback: on its own it confirms
+   * the linear map exists, and the regression treated that as confirming WHERE
+   * it starts. The live witness had one from bpf_verifier_log. */
+  struct result *dm = push_result();
+  dm->type = KASLD_TYPE_VIRT;
+  dm->region = REGION_DIRECTMAP;
+  dm->pos = POS_INTERIOR;
+  dm->conf = CONF_PARSED;
+  dm->lo = (unsigned long)PAGE_OFFSET + 0x1000ul;
+  dm->sample = dm->lo;
+  dm->set_mask = LO_SET | SAMPLE_SET;
+  add_origin(dm, "synthetic_directmap");
+  dm->method_set = 1u << KM_PARSED;
+
+  set_render_mode(0, 1, 0);
+  capture_stdout(wrap_render_summary, &s);
+  set_render_mode(0, 0, 0);
+
+  /* On an arch where the compile-time value is guaranteed, naming it is sound
+   * and the field may carry it; where it is not, the only honest answers are a
+   * resolved address or `na`. */
+#if PAGE_OFFSET_INVARIANT
+  assert(strstr(render_cap, "dmap=") != NULL);
+#else
+  assert(strstr(render_cap, "dmap=na") != NULL);
+#endif
+}
+
 static void test_render_json_with_rich_content(void) {
   struct summary s;
   set_rich_render_state(&s);
@@ -1908,7 +1959,10 @@ static void test_render_disabled_base_not_labeled_likely(void) {
   set_render_mode(0, 0, 0);
   capture_stdout(wrap_render_summary, &s);
   verbose = 0;
-  assert(strstr(render_cap, "Kernel image base") != NULL);
+  /* The static postures render from the shared row model, so the quantity
+   * wears the same name it does in the table -- not a second label for the
+   * same thing. */
+  assert(strstr(render_cap, "Virtual Image Base") != NULL);
   assert(strstr(render_cap, "Likely kernel image base") == NULL);
 
   /* Markdown carries the same pinned base in the disabled case (not just a
@@ -1918,7 +1972,10 @@ static void test_render_disabled_base_not_labeled_likely(void) {
   set_render_mode(0, 0, 1);
   capture_stdout(wrap_render_summary, &s);
   set_render_mode(0, 0, 0);
-  assert(strstr(render_cap, "Kernel image base") != NULL);
+  /* The static postures render from the shared row model, so the quantity
+   * wears the same name it does in the table -- not a second label for the
+   * same thing. */
+  assert(strstr(render_cap, "Virtual Image Base") != NULL);
   char pinhex[32];
   snprintf(pinhex, sizeof(pinhex), "0x%016lx", vt);
   assert(strstr(render_cap, pinhex) != NULL);
@@ -2846,7 +2903,10 @@ static void test_render_readout_disabled_range_no_entropy(void) {
   layout.virt_kaslr_text_max = saved_max;
   /* Plain range, no fabricated entropy: a hex range but no "bits"/"candidates".
    */
-  assert(strstr(render_cap, "Kernel image base") != NULL);
+  /* The static postures render from the shared row model, so the quantity
+   * wears the same name it does in the table -- not a second label for the
+   * same thing. */
+  assert(strstr(render_cap, "Virtual Image Base") != NULL);
   assert(strstr(render_cap, " .. ") != NULL);
   assert(strstr(render_cap, "bits") == NULL);
   assert(strstr(render_cap, "candidates") == NULL);
@@ -3659,6 +3719,7 @@ int main(void) {
 
   BEGIN_CATEGORY("Renderer — rich content");
   RUN(test_render_text_with_rich_content);
+  RUN(test_render_oneline_dmap_not_asserted_when_unpinned);
   RUN(test_render_json_with_rich_content);
   RUN(test_render_json_posture_always_present);
   RUN(test_render_markdown_with_rich_content);

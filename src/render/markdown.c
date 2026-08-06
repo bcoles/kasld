@@ -71,23 +71,40 @@ static void print_group_sources(enum kasld_addr_type type,
  * an engine pin -- naming it after the default would describe a coincidence as
  * a provenance. An edge the engine never resolved is reported as the one-sided
  * bound it is, rather than as a range starting at 0. */
+/* The resolved quantities for the no-randomization postures, from the same rows
+ * the Layout table renders. Presented as lines rather than a table because with
+ * nothing randomized the Search space and Align columns carry nothing -- but
+ * the SET of quantities comes from the model, so this cannot say something
+ * different from the text readout or from JSON, which is what it did while it
+ * hardcoded the image base. */
 static void md_static_base_block(const struct summary *s) {
-  unsigned long lo = layout.virt_kaslr_text_min;
-  unsigned long hi = layout.virt_kaslr_text_max;
   char ab[40], rb[160];
   const char *rem;
-  if (!lo && !hi)
+  unsigned long rem_lo = 0, rem_hi = 0;
+  int drawn = 0;
+  for (int i = 0; i < n_layout_rows; i++) {
+    const struct layout_row *r = &layout_rows[i];
+    if (r->dim || strcmp(r->cell[1], GRADE_GUARANTEED) != 0)
+      continue;
+    if (r->lo && r->lo == r->hi)
+      printf("**%s:** `0x%016lx`\n\n", r->cell[0], r->lo);
+    else if (r->lo && r->hi)
+      printf("**%s:** `0x%016lx` - `0x%016lx`\n\n", r->cell[0], r->lo, r->hi);
+    else if (r->hi)
+      printf("**%s:** <= `0x%016lx`\n\n", r->cell[0], r->hi);
+    else
+      printf("**%s:** >= `0x%016lx`\n\n", r->cell[0], r->lo);
+    if (!drawn) {
+      rem_lo = r->lo;
+      rem_hi = r->hi;
+    }
+    drawn = 1;
+  }
+  if (!drawn)
     return;
-  if (lo == hi)
-    printf("**Kernel image base:** `0x%016lx`\n\n", lo);
-  else if (lo && hi)
-    printf("**Kernel image base:** `0x%016lx` - `0x%016lx`\n\n", lo, hi);
-  else if (hi)
-    printf("**Kernel image base:** <= `0x%016lx`\n\n", hi);
-  else
-    printf("**Kernel image base:** >= `0x%016lx`\n\n", lo);
   snprintf(ab, sizeof(ab), "`0x%016lx`", s->kaslr.default_addr);
-  rem = default_base_remark(s->kaslr.default_addr, lo, hi, ab, rb, sizeof(rb));
+  rem = default_base_remark(s->kaslr.default_addr, rem_lo, rem_hi, ab, rb,
+                            sizeof(rb));
   if (rem)
     printf("%s\n\n", rem);
 }
@@ -168,6 +185,11 @@ void render_markdown(const struct summary *s) {
   /* KASLR unsupported / disabled: no slide, so the kernel base IS the answer —
    * carry it here (the KASLR Analysis table below is skipped in these cases),
    * mirroring the text readout's single kernel-image-base line. */
+  /* Built before the posture branches for the same reason the text readout
+   * does it: the row model decides which quantities a format presents, and a
+   * branch that returns before building it decides again for itself. */
+  layout_build(s);
+
   if (s->kaslr.unsupported) {
     printf("> **KASLR is not supported on this architecture**\n\n");
     md_static_base_block(s);

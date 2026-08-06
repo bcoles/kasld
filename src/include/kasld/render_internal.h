@@ -291,6 +291,13 @@ struct layout_row {
    * zero-padded -- a 16 MiB physical address must not wear the costume of a
    * 64-bit kernel pointer -- so alignment is done with spaces or not at all. */
   unsigned long lo, hi;
+  /* The counts behind cell[3], kept so a format that presents rows in a shape
+   * other than the table (the static-posture block) need not re-derive them
+   * from the summary -- which is how a renderer ends up deciding for itself
+   * which quantities exist. The model carries values; each format does its own
+   * formatting. */
+  unsigned long slots, top;
+  unsigned long align;
   char note[32];
   int dim; /* nothing bounded: the row recedes */
   /* A proven single address -- the quantity is solved. Set only for a

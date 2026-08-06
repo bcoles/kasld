@@ -145,11 +145,15 @@ run — rows do not appear and vanish between boots. A row the engine never
 bounded says so rather than printing the architectural window, which would put
 a compile-time constant where a reader expects a measurement.
 
-`Module Region Base` is the exception, and appears only once the engine has
-bounded it. The module region exists on every architecture, so a row that was
-always present would be `not narrowed` on most of them; the region is also the
-one quantity whose bound comes from a leak rather than from the architecture,
-since the lowest module address the tool can see caps where the region starts.
+Quantities the architecture does *not* randomize follow a second rule: they get
+a row once the engine has bounded them, and none otherwise. Two are in this
+class. The module region exists everywhere, and the lowest module address the
+tool can see caps where it starts — a bound that comes from a leak rather than
+from the architecture. The direct-map base is likewise fixed off x86_64, but
+still resolved: on a 32-bit kernel it is the VMSPLIT, read from the boot config
+or narrowed by an mmap probe. Neither is randomized, so neither has a window to
+sit in; both are worth reporting once known, and a row that was always present
+would read `not narrowed` on most machines.
 
 Addresses are never zero-padded: a 16 MiB physical address would otherwise wear
 the costume of a 64-bit kernel pointer. They are right-aligned instead, so the
@@ -157,32 +161,27 @@ endpoints still form columns.
 
 ```
 KASLD 0.3.1-dev  --  Kernel ASLR derandomization
-Target: x86_64 / 6.15.6
+Target: x86_64 / 7.0.0
 
-Running 94 of 97 components (3 experimental skipped; use -x to enable)...
-[####################] 100%  94/94  13.9s
+Running 101 of 104 components (3 experimental skipped; use -x to enable)...
+[####################] 100%  101/101  12.1s
 
-  Quantity             Basis       Range                                 Search space  Align
-  -------------------  ----------  ------------------------------------  ------------  -----
-  Virtual Image Base   guaranteed  0xffffffff8fe00000 slide +0xee00000       1 of 505  2 MiB
-  Physical Image Base  guaranteed          0x34600000 slide +0x33600000             1  2 MiB
-  Direct Map Base      guaranteed  >= 0xffff800000000000                            -  1 GiB
+  Quantity             Basis       Range                                    Search space  Align
+  -------------------  ----------  ---------------------------------------  ------------  -----
+  Virtual Image Base   guaranteed  0xffffffffb7000000 slide +0x36000000         1 of 505  2 MiB
+  Physical Image Base  guaranteed            0x200000 -         0x3d400000           481  2 MiB
+  Physical Image Base  likely               0x1000000 -         0x3c346000    474 of 481  2 MiB
+  Direct Map Base      guaranteed  0xffff800000000000 - 0xffffa4aa80000000         37547  1 GiB
+  Vmalloc Base         guaranteed  0xffff898000000000 - 0xffffd6d580000000         79191  1 GiB
+  Vmemmap Base         guaranteed  0xffffa98040000000 - 0xfffffd0000000000         85504  1 GiB
 
   Note: physical and virtual text randomize independently
 
-Evidence  (6 findings, 5 components)
-  virt kernel text    [interior] 0xffffffff8ff04104
+Evidence  (2 findings, 3 components)
+  virt kernel text    [interior] 0xffffffffb7298cb2
+                                 from perf_event_open, perf_text_poke_leak, proc_kallsyms
+  virt kernel image   [base]     0xffffffffb7000000
                                  from perf_event_open, proc_kallsyms
-  virt kernel image   [base]     0xffffffff8fe00000
-                                 from perf_event_open, prefetch, proc_kallsyms
-  virt directmap      [base]     0xffff9eeb80000000
-                                 from prefetch_directmap
-  phys kernel image   [base]             0x34600000
-                                 from proc_iomem_kernel
-  phys kernel data    [base]             0x36000000
-                                 from proc_iomem_kernel
-  phys kernel BSS     [base]             0x36b34000
-                                 from proc_iomem_kernel
 
 [-v: detailed results, memory map, system info]  [-H: hardening assessment]
 ```
@@ -413,7 +412,7 @@ or not applicable to the arch/run renders the sentinel `na` (never a
 fabricated, defaulted, or leaked value):
 
 ```
-arch=x86_64 kaslr=on text=0xffffffff8fe00000 stext=na slide=+0xee00000(249561088) entropy=9bits ptext=0x34600000 pstext=na pslide=+0x33600000(861929472) pentropy=9bits dmap=0xffff800000000000 dram=[0x0..0x33fffffff](13.0 GiB) results=27
+arch=x86_64 kaslr=on text=0xffffffffb7000000 stext=na slide=+0x36000000(905969664) entropy=0bits ptext=na pstext=na pslide=na pentropy=9bits dmap=0xffff800000000000 dram=[0x0..0x3ffdefff](1023.9 MiB) results=25
 ```
 
 | Key | Meaning |
@@ -428,7 +427,7 @@ arch=x86_64 kaslr=on text=0xffffffff8fe00000 stext=na slide=+0xee00000(249561088
 | `pstext` | physical `_stext`, when it differs from the physical image base |
 | `pslide` | physical KASLR slide (decoupled arches only) |
 | `pentropy` | physical residual entropy (same window / `na` rule as `entropy`) |
-| `dmap` | direct-map base (`PAGE_OFFSET`); engine-resolved floor/pin |
+| `dmap` | direct-map base (`PAGE_OFFSET`): the engine-resolved pin or proven floor, never the compile-time constant — except where the architecture guarantees that constant is the runtime value. `na` when neither is established |
 | `dram` | physical DRAM extent, `[0xLO..0xHI](size)` |
 | `results` | count of merged result records (not the raw component count) |
 
@@ -506,9 +505,12 @@ and the **Phys/Virt coupling** classification. When the kernel-text function
 order is reordered (FG-KASLR / LTO / AutoFDO / Propeller), a **Caution** note
 warns that a leaked address no longer resolves the rest of the symbols via a
 generic `System.map`. When KASLR is disabled or unsupported there is no slide,
-so the engine-resolved **Kernel image base** is the answer — followed, where
-the compile-time default is not that base, by a remark saying whether the
-evidence rules the default out. The leak table credits the component(s) that
+so the resolved quantities themselves are the answer: the same rows the Layout
+table would carry, written as lines rather than a table because with nothing
+randomized the `Search space` and `Align` columns hold nothing. They are drawn
+from the same row model, so a posture that reports fewer quantities than another
+format is not possible. A remark follows where the compile-time default is not
+the resolved base, saying whether the evidence rules the default out. The leak table credits the component(s) that
 produced each address. With `--verbose`, a `## Address space` section
 embeds the virtual and physical ASCII address-space maps in a fenced code
 block (the same diagrams the text readout draws). An `## Environment`

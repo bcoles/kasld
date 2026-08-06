@@ -293,6 +293,8 @@ static void render_kaslr_text(const struct summary *s) {
   printf("%s%s%s\n", c(C_DIM), "----------------------------------------",
          c(C_RESET));
   printf("%sKASLR analysis:%s\n", c(C_BOLD), c(C_RESET));
+  /* Verbose renders this table instead of the readout, so it builds the rows
+   * itself: render_readout() is the !verbose path and never runs here. */
   layout_build(s);
   layout_render();
   printf("\n");
@@ -1713,21 +1715,46 @@ static void readout_default_remark(unsigned long def, unsigned long lo,
  * kind of result. */
 static void readout_static_base_block(unsigned long default_addr,
                                       const struct summary *s) {
-  unsigned long lo = layout.virt_kaslr_text_min;
-  unsigned long hi = layout.virt_kaslr_text_max;
-  if (!lo && !hi)
-    return; /* nothing resolved: no heading either */
-  readout_block_n = 0;
-  printf("%sLayout%s\n", c(C_BOLD), c(C_RESET));
-  if (lo == hi) {
-    readout_head("Kernel image base", NULL);
-    readout_point(GRADE_GUARANTEED, lo, readout_addr_w, NULL);
-  } else {
-    readout_window_block("Kernel image base", lo, hi, 0, 0, s->kaslr.vslots, 0,
-                         s->kaslr.vbits, s->kaslr.vbits_top,
-                         layout.virt_kaslr_align);
+  int drawn = 0;
+  unsigned long rem_lo = 0, rem_hi = 0;
+  (void)s;
+  /* Every quantity the engine resolved, from the same rows the table renders --
+   * not the image base alone. The block shape differs from the table because
+   * with nothing randomized there is no window to count against, but WHICH
+   * quantities appear must not: a posture that picks its own would drift from
+   * the other formats, and did (a pinned module region base reached JSON while
+   * this block showed only the image base).
+   *
+   * A likely row is folded into its guaranteed row rather than drawn
+   * separately, since readout_window_block presents both grades under one
+   * heading. */
+  for (int i = 0; i < n_layout_rows; i++) {
+    const struct layout_row *r = &layout_rows[i];
+    const struct layout_row *lk = NULL;
+    if (r->dim || strcmp(r->cell[1], GRADE_GUARANTEED) != 0)
+      continue; /* unbounded, or a likely row already folded in below */
+    if (i + 1 < n_layout_rows &&
+        strcmp(layout_rows[i + 1].cell[0], r->cell[0]) == 0 &&
+        strcmp(layout_rows[i + 1].cell[1], GRADE_LIKELY) == 0)
+      lk = &layout_rows[i + 1];
+    if (!drawn) {
+      readout_block_n = 0;
+      printf("%sLayout%s\n", c(C_BOLD), c(C_RESET));
+    }
+    readout_window_block(r->cell[0], r->lo, r->hi, lk ? lk->lo : 0,
+                         lk ? lk->hi : 0, r->slots, lk ? lk->slots : 0, 0, 0,
+                         r->align);
+    /* The remark belongs to the image base -- the only quantity carrying a
+     * compile-time default -- but it closes the whole block rather than
+     * interrupting it between rows, so hold the bounds it is judged against. */
+    if (!drawn) {
+      rem_lo = r->lo;
+      rem_hi = r->hi;
+    }
+    drawn = 1;
   }
-  readout_default_remark(default_addr, lo, hi);
+  if (drawn)
+    readout_default_remark(default_addr, rem_lo, rem_hi);
 }
 
 /* The verbose-mode image base for the no-slide postures, answered from the same
@@ -1736,23 +1763,38 @@ static void readout_static_base_block(unsigned long default_addr,
  * is shown as the one-sided bound it is, rather than as a range starting at 0.
  */
 static void verbose_static_base_block(unsigned long default_addr) {
-  unsigned long lo = layout.virt_kaslr_text_min;
-  unsigned long hi = layout.virt_kaslr_text_max;
   char ab[40], rb[160];
   const char *rem;
-  if (!lo && !hi)
+  unsigned long rem_lo = 0, rem_hi = 0;
+  int drawn = 0;
+  /* Same rows as the readout and the markdown report -- verbose is a third
+   * view of one resolved state, not a third opinion about which quantities it
+   * contains. */
+  for (int i = 0; i < n_layout_rows; i++) {
+    const struct layout_row *r = &layout_rows[i];
+    if (r->dim || strcmp(r->cell[1], GRADE_GUARANTEED) != 0)
+      continue;
+    if (r->lo && r->lo == r->hi)
+      printf("%s: %s0x%016lx%s\n", r->cell[0], c(C_GREEN), r->lo, c(C_RESET));
+    else if (r->lo && r->hi)
+      printf("%s: %s0x%016lx - 0x%016lx%s\n", r->cell[0], c(C_GREEN), r->lo,
+             r->hi, c(C_RESET));
+    else if (r->hi)
+      printf("%s: %s<= 0x%016lx%s\n", r->cell[0], c(C_GREEN), r->hi,
+             c(C_RESET));
+    else
+      printf("%s: %s>= 0x%016lx%s\n", r->cell[0], c(C_GREEN), r->lo,
+             c(C_RESET));
+    if (!drawn) {
+      rem_lo = r->lo;
+      rem_hi = r->hi;
+    }
+    drawn = 1;
+  }
+  if (!drawn)
     return;
-  if (lo == hi)
-    printf("Kernel image base: %s0x%016lx%s\n", c(C_GREEN), lo, c(C_RESET));
-  else if (lo && hi)
-    printf("Kernel image base: %s0x%016lx - 0x%016lx%s\n", c(C_GREEN), lo, hi,
-           c(C_RESET));
-  else if (hi)
-    printf("Kernel image base: %s<= 0x%016lx%s\n", c(C_GREEN), hi, c(C_RESET));
-  else
-    printf("Kernel image base: %s>= 0x%016lx%s\n", c(C_GREEN), lo, c(C_RESET));
   snprintf(ab, sizeof(ab), "0x%016lx", default_addr);
-  rem = default_base_remark(default_addr, lo, hi, ab, rb, sizeof(rb));
+  rem = default_base_remark(default_addr, rem_lo, rem_hi, ab, rb, sizeof(rb));
   if (rem)
     printf("%s%s%s\n", c(C_DIM), rem, c(C_RESET));
   printf("\n");
@@ -1893,8 +1935,17 @@ static void render_readout(const struct summary *s) {
    * findings so the progress bar is the last thing erased before the
    * answers appear. */
 
-  /* Special-case: arch with no KASLR support, or KASLR disabled. Both are
-   * answered with a single text-base line. */
+  /* Built BEFORE the posture branches, not inside the randomized path: the row
+   * model is the one place that decides which resolved quantities the readout
+   * presents, and a posture that returns before building it has to decide again
+   * for itself -- which is how the static postures came to show only the image
+   * base while JSON reported every quantity the engine had resolved. */
+  layout_build(s);
+
+  /* Special-case: arch with no KASLR support, or KASLR disabled. Both present
+   * the resolved quantities as a block rather than a table: with nothing
+   * randomized there is no window to compare against, so the table's columns
+   * would be mostly empty. */
   if (s->kaslr.unsupported) {
     printf("KASLR not supported on this architecture.\n\n");
     readout_static_base_block(s->kaslr.default_addr, s);
@@ -1937,7 +1988,6 @@ static void render_readout(const struct summary *s) {
    * Every quantity the architecture randomizes gets a row whether or not the
    * engine bounded it; a quantity the architecture does not randomize gets
    * none, because the tool has nothing to say about it. */
-  layout_build(s);
   layout_render();
 
   /* Coupling closes the bounds table as a single dim line: it is a static
@@ -2076,6 +2126,10 @@ void render_text(const struct summary *s) {
   printf("%s Results%s\n", c(C_BOLD), c(C_RESET));
   printf("%s========================================%s\n\n", c(C_BOLD),
          c(C_RESET));
+
+  /* Verbose has its own static-posture blocks below and never reaches
+   * render_readout(), so it builds the rows they read. */
+  layout_build(s);
 
   if (s->kaslr.unsupported) {
     printf("%s** KASLR is not supported on this architecture **%s\n\n",
