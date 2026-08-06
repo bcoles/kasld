@@ -54,6 +54,10 @@ int rule_module_base_bounds(const struct evidence_set *ev,
                             const struct estimate *est, struct constraint *out,
                             int out_max) {
   int n = 0;
+  /* Only the MODULES_RELATIVE_TO_PAGE_OFFSET band below reads the estimates.
+   * The cast sits outside that conditional so it covers every arch, including
+   * those whose branch never touches est. */
+  (void)est;
   if (out_max < 1)
     return 0;
 
@@ -102,7 +106,7 @@ int rule_module_base_bounds(const struct evidence_set *ev,
   if (n < out_max)
     mbb_emit(&out[n++], C_UPPER_BOUND, (unsigned long)MODULES_END, 0);
 #else
-  (void)est; /* band not usable as a bound on this arch */
+  /* band not usable as a bound on this arch */
 #endif
 
   return n;
