@@ -7169,6 +7169,59 @@ static void test_module_base_from_va_bits(void) {
 #endif
 }
 
+/* ppc64 has no MODULES_VADDR: modules come from vmalloc, whose base is one of
+ * three constants selected at boot by the translation mode and page size. Both
+ * selectors are observable, so knowing them pins the quantity. Every branch
+ * requires POSITIVE evidence -- Book3E is identified only by printing no MMU
+ * line, which a restricted /proc mimics, so it must not be inferred. */
+static void test_module_base_ppc64_vmalloc(void) {
+  struct engine e;
+  const rule_fn rules[] = {rule_module_base_ppc64_vmalloc};
+  struct estimate top;
+  quantities[Q_MODULE_BASE].init_top(&top);
+
+  /* No MMU fact at all: silent, not a Book3E guess. */
+  engine_init(&e);
+  struct observation ps = mk_scalar(SF_PAGE_SIZE, 4096, CONF_PARSED);
+  evidence_add(&e.ev, &ps);
+  engine_run(&e, rules, 1);
+  assert(e.est[Q_MODULE_BASE].lo == top.lo &&
+         e.est[Q_MODULE_BASE].hi == top.hi);
+
+#if defined(MODULES_BASE_PPC64_RADIX)
+  /* Radix pins regardless of page size. */
+  engine_init(&e);
+  struct observation rx =
+      mk_scalar(SF_PPC64_MMU_MODE, KASLD_PPC64_MMU_RADIX, CONF_PARSED);
+  evidence_add(&e.ev, &rx);
+  engine_run(&e, rules, 1);
+  assert(e.est[Q_MODULE_BASE].lo == (unsigned long)MODULES_BASE_PPC64_RADIX &&
+         e.est[Q_MODULE_BASE].hi == (unsigned long)MODULES_BASE_PPC64_RADIX);
+
+  /* Hash needs the page size too; 4K and 64K select different bases. */
+  engine_init(&e);
+  struct observation hs =
+      mk_scalar(SF_PPC64_MMU_MODE, KASLD_PPC64_MMU_HASH, CONF_PARSED);
+  evidence_add(&e.ev, &hs);
+  engine_run(&e, rules, 1);
+  assert(e.est[Q_MODULE_BASE].lo == top.lo); /* mode alone is not enough */
+
+  engine_init(&e);
+  evidence_add(&e.ev, &hs);
+  struct observation p4 = mk_scalar(SF_PAGE_SIZE, 4096, CONF_PARSED);
+  evidence_add(&e.ev, &p4);
+  engine_run(&e, rules, 1);
+  assert(e.est[Q_MODULE_BASE].lo == (unsigned long)MODULES_BASE_PPC64_HASH_4K);
+
+  engine_init(&e);
+  evidence_add(&e.ev, &hs);
+  struct observation p64 = mk_scalar(SF_PAGE_SIZE, 65536, CONF_PARSED);
+  evidence_add(&e.ev, &p64);
+  engine_run(&e, rules, 1);
+  assert(e.est[Q_MODULE_BASE].lo == (unsigned long)MODULES_BASE_PPC64_HASH_64K);
+#endif
+}
+
 /* text_pin_from_observation (declared above): a POS_BASE VIRT/KERNEL_TEXT
  * observation pins Q_VIRT_IMAGE_BASE; a POS_BASE PHYS/KERNEL_TEXT observation
  * pins Q_PHYS_IMAGE_BASE. Arch-independent. */
@@ -7912,6 +7965,7 @@ int main(void) {
   RUN(test_module_base_execmem_window);
   RUN(test_module_base_from_text);
   RUN(test_module_base_from_va_bits);
+  RUN(test_module_base_ppc64_vmalloc);
 
   BEGIN_CATEGORY("EFI Loader Code disambiguation");
   RUN(test_efi_loader_kernel_pick_single_aligned);

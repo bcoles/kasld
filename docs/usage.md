@@ -152,8 +152,9 @@ class.
 The module region exists everywhere, and is resolved from whichever directions
 the architecture affords. Where its placement is fully determined the row is a
 single address: a fixed segment base (MIPS), a base computed from the hardware
-virtual-address width (LoongArch), or one derived from a resolved `PAGE_OFFSET`
-(arm32, ppc32, riscv32). Where something is randomized or unknown it is a
+virtual-address width (LoongArch), one selected by the translation mode and
+page size (ppc64), or one derived from a resolved `PAGE_OFFSET` (arm32, ppc32,
+riscv32). Where something is randomized or unknown it is a
 window instead, narrowed by the architecture's module band, by the allocator's
 own placement window (on x86_64 the base sits within 1024 pages of
 `MODULES_VADDR`), by the resolved text base where the region is anchored to the

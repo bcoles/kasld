@@ -145,6 +145,51 @@ static int detect_riscv_mmu(void) {
 }
 #endif /* riscv64 */
 
+#if defined(__powerpc64__) || defined(__ppc64__)
+/* ppc64: "MMU : Radix" or "MMU : Hash".
+ *
+ * 64-bit PowerPC has no MODULES_VADDR — modules come from vmalloc, whose base
+ * differs by translation mode and page size across a 32 TiB spread. This field
+ * supplies the mode half; SF_PAGE_SIZE supplies the other, and a rule combines
+ * them.
+ *
+ * Trustworthy for the purpose: the platform code prints it from
+ * radix_enabled(), and that same runtime feature bit selects __vmalloc_start
+ * (radix_pgtable.c sets RADIX_VMALLOC_START, hash_utils.c sets
+ * H_VMALLOC_START). One bit drives both the report and the layout, so this is
+ * the live mode, not a capability — unlike x86_64's "57 bits virtual", which
+ * is what the CPU can do rather than what the kernel enabled.
+ *
+ * Emitted only on a POSITIVE match. The line comes from platform code
+ * (pSeries, PowerNV), so Book3E parts do not print it at all — but a
+ * restricted or absent /proc/cpuinfo looks identical, so absence is not
+ * evidence of Book3E and nothing is inferred from it. */
+static int detect_ppc64_mmu(void) {
+  char buf[256];
+  char *val = cpuinfo_get("MMU", buf, sizeof(buf));
+
+  if (!val) {
+    kasld_info("no MMU field in %s (Book3E, or a restricted /proc)",
+               CPUINFO_PATH);
+    return 0;
+  }
+
+  unsigned long mode;
+  if (strncmp(val, "Radix", 5) == 0) {
+    mode = KASLD_PPC64_MMU_RADIX;
+  } else if (strncmp(val, "Hash", 4) == 0) {
+    mode = KASLD_PPC64_MMU_HASH;
+  } else {
+    kasld_err("unrecognised MMU mode '%s'; not emitting", val);
+    return 0;
+  }
+
+  kasld_info("MMU: %s", val);
+  kasld_emit_scalar(SF_PPC64_MMU_MODE, mode, CONF_PARSED);
+  return 1;
+}
+#endif /* ppc64 */
+
 #if defined(__loongarch__) && __loongarch_grlen == 64
 /* loongarch64: "Address Sizes  : N bits physical, M bits virtual" (note the
  * capitalisation, which differs from x86_64's "address sizes").
@@ -288,6 +333,10 @@ int main(void) {
 
 #if defined(__loongarch__) && __loongarch_grlen == 64
   found |= detect_loongarch_address_sizes();
+#endif
+
+#if defined(__powerpc64__) || defined(__ppc64__)
+  found |= detect_ppc64_mmu();
 #endif
 
   if (!found) {

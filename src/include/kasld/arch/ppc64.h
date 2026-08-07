@@ -64,6 +64,24 @@
 // Usable as a BOUND: the floor is the lowest vmalloc base of any 64-bit
 // PowerPC MMU configuration, and the ceiling the highest vmalloc end.
 #define MODULES_BAND_EXACT 1
+
+// The live vmalloc base -- and so the module region's base -- is decided by the
+// translation mode and, for hash, the page size. All three values are
+// compile-time constants in the kernel; only the SELECTION is runtime, and both
+// selectors are observable unprivileged (SF_PPC64_MMU_MODE from /proc/cpuinfo,
+// SF_PAGE_SIZE from sysconf). module_base_ppc64_vmalloc turns the pair into a
+// pin.
+//
+// Book3E (KERN_VIRT_START = 0xc000100000000000) is deliberately absent: it is
+// identified only by the ABSENCE of the MMU line, which a restricted /proc
+// mimics exactly, so it stays unpinned rather than inferred from a missing
+// signal. The band floor above still covers it.
+// https://elixir.bootlin.com/linux/v7.2/source/arch/powerpc/include/asm/book3s/64/radix.h
+// https://elixir.bootlin.com/linux/v7.2/source/arch/powerpc/include/asm/book3s/64/hash-64k.h
+// https://elixir.bootlin.com/linux/v7.2/source/arch/powerpc/include/asm/book3s/64/hash-4k.h
+#define MODULES_BASE_PPC64_RADIX 0xc008000000000000ul
+#define MODULES_BASE_PPC64_HASH_64K 0xc008000000000000ul
+#define MODULES_BASE_PPC64_HASH_4K 0xc0003d0000000000ul
 #define MODULES_RELATIVE_TO_TEXT 0
 
 // Plausible physical address range for kernel image

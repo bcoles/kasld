@@ -1068,6 +1068,12 @@ enum kasld_text_order {
  * records via kasld_emit_scalar(); the engine consumes them as OBS_SCALAR.
  * Closed vocabulary — add an entry, a wire token below, and a rule.
  * ========================================================================= */
+/* SF_PPC64_MMU_MODE values. The kernel prints this from radix_enabled(), the
+ * same runtime feature bit that selects __vmalloc_start, so it states the LIVE
+ * translation mode rather than a CPU capability. */
+#define KASLD_PPC64_MMU_RADIX 1ul
+#define KASLD_PPC64_MMU_HASH 2ul
+
 enum kasld_scalar_fact {
   SF_NONE = 0,
   SF_PHYS_MEMTOTAL,  /* total RAM bytes (/proc/meminfo)                  */
@@ -1116,6 +1122,11 @@ enum kasld_scalar_fact {
                           /* phys is off (e.g. EFI_RNG_PROTOCOL unavailable   */
                           /* with virt randomization intact via DTB) emits    */
                           /* this fact alone.                                 */
+  /* 64-bit PowerPC translation mode, as KASLD_PPC64_MMU_* below. Which of the
+   * three module-region bases is live follows from this plus SF_PAGE_SIZE, so
+   * it is emitted as a raw measurement and interpreted by a rule. Values are
+   * non-zero because a scalar fact of 0 reads as absent. */
+  SF_PPC64_MMU_MODE,
   SF_VIRT_KASLR_RANDOMIZATION_FAILED, /* 1 if the boot stub attempted    */
   /* virtual KASLR but could not produce a random virt offset (current   */
   /* emitters: arm64/riscv64 "lack of seed", arm64 "FDT remapping        */
@@ -1207,6 +1218,7 @@ static const char *const kasld_scalar_fact_wire_table[SF__COUNT] = {
     [SF_STRUCT_PAGE_BYTES] = "struct_page_bytes",
     [SF_TEXT_ORDER] = "text_order",
     [SF_VIRT_KERNEL_IMAGE_BASE] = "virt_kernel_image_base",
+    [SF_PPC64_MMU_MODE] = "ppc64_mmu_mode",
 };
 /* Adding an SF_* without a wire token shrinks this below SF__COUNT -> error. */
 typedef char kasld_sf_wire_table_complete
