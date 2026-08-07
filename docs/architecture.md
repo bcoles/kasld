@@ -532,7 +532,10 @@ would have been derivable on a coupled system.
 RISC-V 64-bit is a special case: its module region is anchored to the kernel
 image (`MODULES_VADDR = _end - 2 GiB`), so module addresses provide an additional
 derivation path that `module_text_bound` exploits to estimate `_end` and bound
-`kernel_text` from above.
+`kernel_text` from above. The relation runs both ways — `module_base_from_text`
+inverts it, deriving the module region's base from a resolved text base — and
+the same pair applies on s390, where the region sits 2 GiB below the image
+start rather than past its end.
 
 AArch64 relates its module region to kernel text differently. The region is not
 at a fixed offset from the image; instead the allocator draws a window that is

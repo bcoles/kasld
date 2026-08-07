@@ -147,13 +147,21 @@ a compile-time constant where a reader expects a measurement.
 
 Quantities the architecture does *not* randomize follow a second rule: they get
 a row once the engine has bounded them, and none otherwise. Two are in this
-class. The module region exists everywhere, and the lowest module address the
-tool can see caps where it starts — a bound that comes from a leak rather than
-from the architecture. The direct-map base is likewise fixed off x86_64, but
-still resolved: on a 32-bit kernel it is the VMSPLIT, read from the boot config
-or narrowed by an mmap probe. Neither is randomized, so neither has a window to
-sit in; both are worth reporting once known, and a row that was always present
-would read `not narrowed` on most machines.
+class.
+
+The module region exists everywhere, and is bounded from several directions —
+the architecture's own module band; the allocator's placement window where it
+draws one (on x86_64 the base sits within 1024 pages of `MODULES_VADDR`); the
+resolved text base, where the region is anchored to the image (riscv64, s390);
+and the lowest module address a leak discloses, which caps where the region can
+start. No leak is required: the sample above resolves the row to 1025
+candidates with no module address in evidence at all.
+
+The direct-map base is likewise fixed off x86_64, but still resolved: on a
+32-bit kernel it is the VMSPLIT, read from the boot config or narrowed by an
+mmap probe. Neither quantity is randomized, so neither has a window to sit in;
+both are worth reporting once known, and a row that was always present would
+read `not narrowed` on most machines.
 
 Addresses are never zero-padded: a 16 MiB physical address would otherwise wear
 the costume of a 64-bit kernel pointer. They are right-aligned instead, so the

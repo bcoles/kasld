@@ -7111,6 +7111,35 @@ static void test_module_base_execmem_window(void) {
 #endif
 }
 
+/* The inverse of module_text_bound: where the module region is placed relative
+ * to the image, a resolved text base derives the module base. Without this the
+ * quantity falls back to the raw validation band even with text pinned. */
+static void test_module_base_from_text(void) {
+  struct engine e;
+  engine_init(&e);
+  struct estimate top, mtop;
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
+  quantities[Q_MODULE_BASE].init_top(&mtop);
+  unsigned long t = kasld_ceil_text_base(top.lo + 0x4000000ul);
+  struct observation o = mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE, t, LO_SET,
+                                POS_BASE, CONF_PARSED);
+  evidence_add(&e.ev, &o);
+  const rule_fn rules[] = {rule_text_pin_from_observation,
+                           rule_module_base_from_text};
+  engine_run(&e, rules, 2);
+#if MODULES_RELATIVE_TO_TEXT
+  /* Narrowed from the band, and capped by the image base -- the region sits
+   * below the image on every arch this applies to. */
+  assert(e.est[Q_MODULE_BASE].lo > mtop.lo ||
+         e.est[Q_MODULE_BASE].hi < mtop.hi);
+  assert(e.est[Q_MODULE_BASE].hi <= t);
+  assert(e.est[Q_MODULE_BASE].lo <= e.est[Q_MODULE_BASE].hi);
+#else
+  assert(e.est[Q_MODULE_BASE].lo == mtop.lo &&
+         e.est[Q_MODULE_BASE].hi == mtop.hi);
+#endif
+}
+
 /* text_pin_from_observation (declared above): a POS_BASE VIRT/KERNEL_TEXT
  * observation pins Q_VIRT_IMAGE_BASE; a POS_BASE PHYS/KERNEL_TEXT observation
  * pins Q_PHYS_IMAGE_BASE. Arch-independent. */
@@ -7852,6 +7881,7 @@ int main(void) {
   RUN(test_module_base_ignores_range_classified);
   RUN(test_module_base_band_bounds);
   RUN(test_module_base_execmem_window);
+  RUN(test_module_base_from_text);
 
   BEGIN_CATEGORY("EFI Loader Code disambiguation");
   RUN(test_efi_loader_kernel_pick_single_aligned);
