@@ -54,6 +54,11 @@
 // vmalloc at MAP_BASE (kseg2, 0xc0000000) -- this floor exactly. The
 // machine-specific MAP_BASE override (Loongson) is 64-bit only.
 #define MODULES_BAND_EXACT 1
+
+// And the floor IS the base: with no MODULES_VADDR on 32-bit MIPS the region
+// starts where vmalloc does, at MAP_BASE (kseg2) -- a fixed address, not a
+// randomized or runtime-derived one.
+#define MODULES_BASE_IS_BAND_FLOOR 1
 #define MODULES_RELATIVE_TO_TEXT 0
 
 // KASLR offset is shifted left 16 bits (64 KiB granularity).

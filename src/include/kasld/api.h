@@ -320,6 +320,28 @@ __extension__ _Static_assert((unsigned long)KERNEL_PHYS_MAX >
 #error "a PAGE_OFFSET-relative band is derived, not exact at compile time"
 #endif
 
+/* MODULES_BASE_IS_BAND_FLOOR is opt-in: an arch declares it 1 when the module
+ * region does not merely lie inside [MODULES_START, MODULES_END] but STARTS at
+ * MODULES_START exactly -- a fixed segment address with no randomization, no
+ * allocator offset, and no runtime term. The band's floor is then the answer to
+ * Q_MODULE_BASE rather than a bound on it, so the rule pins instead of
+ * bracketing.
+ *
+ * Strictly stronger than MODULES_BAND_EXACT, which only promises the floor is
+ * low enough to bound; this promises it is the value. Declaring it requires
+ * that promise to hold under every configuration the header models -- an arch
+ * whose base moves with the VA width, the MMU, lowmem size or an allocator
+ * offset must NOT declare it, even where its floor is exact. */
+#ifndef MODULES_BASE_IS_BAND_FLOOR
+#define MODULES_BASE_IS_BAND_FLOOR 0
+#endif
+#if MODULES_BASE_IS_BAND_FLOOR && !MODULES_BAND_EXACT
+#error "the band floor cannot BE the base unless the band is exact"
+#endif
+#if MODULES_BASE_IS_BAND_FLOOR && MODULES_RELATIVE_TO_PAGE_OFFSET
+#error "a PAGE_OFFSET-relative floor is derived, not a fixed base"
+#endif
+
 #ifndef MODULES_BRACKET_TEXT
 #define MODULES_BRACKET_TEXT 0
 #endif

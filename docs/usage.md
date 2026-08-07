@@ -149,12 +149,18 @@ Quantities the architecture does *not* randomize follow a second rule: they get
 a row once the engine has bounded them, and none otherwise. Two are in this
 class.
 
-The module region exists everywhere, and is bounded from several directions —
-the architecture's own module band; the allocator's placement window where it
-draws one (on x86_64 the base sits within 1024 pages of `MODULES_VADDR`); the
-resolved text base, where the region is anchored to the image (riscv64, s390);
-and the lowest module address a leak discloses, which caps where the region can
-start. No leak is required: the sample above resolves the row to 1025
+The module region exists everywhere, and is resolved from whichever directions
+the architecture affords. Where its placement is fully determined the row is a
+single address: a fixed segment base (MIPS), a base computed from the hardware
+virtual-address width (LoongArch), or one derived from a resolved `PAGE_OFFSET`
+(arm32, ppc32, riscv32). Where something is randomized or unknown it is a
+window instead, narrowed by the architecture's module band, by the allocator's
+own placement window (on x86_64 the base sits within 1024 pages of
+`MODULES_VADDR`), by the resolved text base where the region is anchored to the
+image (riscv64, s390), and by the lowest module address a leak discloses, which
+caps where the region can start.
+
+No leak is required for any of that: the sample above resolves the row to 1025
 candidates with no module address in evidence at all.
 
 The direct-map base is likewise fixed off x86_64, but still resolved: on a

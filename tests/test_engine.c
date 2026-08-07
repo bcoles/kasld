@@ -7058,7 +7058,12 @@ static void test_module_base_band_bounds(void) {
   engine_init(&e);
   const rule_fn rules[] = {rule_module_base_bounds};
   engine_run(&e, rules, 1);
-#if MODULES_BAND_EXACT
+#if MODULES_BASE_IS_BAND_FLOOR
+  /* Stronger than a bound: the arch places the region AT the floor, so the
+   * quantity resolves to that one address rather than to the band. */
+  assert(e.est[Q_MODULE_BASE].lo == (unsigned long)MODULES_START &&
+         e.est[Q_MODULE_BASE].hi == (unsigned long)MODULES_START);
+#elif MODULES_BAND_EXACT
   assert(e.est[Q_MODULE_BASE].lo >= (unsigned long)MODULES_START);
   assert(e.est[Q_MODULE_BASE].hi <= (unsigned long)MODULES_END);
 #elif MODULES_RELATIVE_TO_PAGE_OFFSET

@@ -49,6 +49,10 @@
 // MIPS segment address, and MODULES_END is FIXADDR_START - 2 pages, below the
 // ceiling here. Neither varies with config.
 #define MODULES_BAND_EXACT 1
+
+// And the floor IS the base: MODULES_VADDR is CKSSEG, a fixed MIPS segment
+// address, so the region starts there on every 64-bit MIPS configuration.
+#define MODULES_BASE_IS_BAND_FLOOR 1
 #define MODULES_RELATIVE_TO_TEXT 0
 
 // KASLR offset is shifted left 16 bits (64 KiB granularity).

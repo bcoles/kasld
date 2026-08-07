@@ -135,6 +135,12 @@ int rule_module_base_bounds(const struct evidence_set *ev,
         mbb_emit(&out[n++], C_UPPER_BOUND, band_hi, 0);
     }
   }
+#elif MODULES_BASE_IS_BAND_FLOOR
+  /* The floor is not a bound here, it IS the base: a fixed segment address the
+   * arch places the region at, with nothing randomized or runtime-derived in
+   * between. Pin rather than bracket. */
+  if (n < out_max)
+    mbb_emit(&out[n++], C_EQUALS, (unsigned long)MODULES_START, 0);
 #elif MODULES_BAND_EXACT
   if (n < out_max)
     mbb_emit(&out[n++], C_LOWER_BOUND, (unsigned long)MODULES_START, 0);
