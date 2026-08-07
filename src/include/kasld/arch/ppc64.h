@@ -43,12 +43,27 @@
 #define KERNEL_VIRT_TEXT_MIN PAGE_OFFSET
 #define KERNEL_VIRT_TEXT_MAX 0xffffffffff000000ul
 
-// Modules are loaded in the vmalloc region, which starts at
-// PAGE_OFFSET + KERN_VIRT_SIZE (0xc008000000000000 on Book3S).
-// https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/include/asm/book3s/64/pgtable.h#L324
-// https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/mm/book3s64/hash_utils.c
-#define MODULES_START 0xc008000000000000ul
+// 64-bit PowerPC defines no MODULES_VADDR, so modules come from the vmalloc
+// region -- whose base differs by MMU and page size, across a 32 TiB spread:
+//
+//   radix     RADIX_KERN_VIRT_START = 0xc008000000000000  (+ 1<<49)
+//   hash-64k  H_KERN_VIRT_START     = 0xc008000000000000
+//   hash-4k   H_KERN_VIRT_START     = 0xc0003d0000000000
+//   Book3E    KERN_VIRT_START       = 0xc000100000000000  (+ 0x100000000000)
+//
+// The floor is the lowest of those (Book3E), not the Book3S one: a floor at
+// 0xc008000000000000 admits radix and 64k-page hash but rejects every module
+// address on a 4K-page hash kernel or a Book3E part (e5500/e6500), which is a
+// silent drop -- proc_modules reports "no kernel address found", the same as
+// an empty file. The ceiling is the radix vmalloc end, the highest of the four.
+// https://elixir.bootlin.com/linux/v7.2/source/arch/powerpc/include/asm/book3s/64/radix.h
+// https://elixir.bootlin.com/linux/v7.2/source/arch/powerpc/include/asm/nohash/64/pgtable.h
+#define MODULES_START 0xc000100000000000ul
 #define MODULES_END 0xc009fffffffffffful
+
+// Usable as a BOUND: the floor is the lowest vmalloc base of any 64-bit
+// PowerPC MMU configuration, and the ceiling the highest vmalloc end.
+#define MODULES_BAND_EXACT 1
 #define MODULES_RELATIVE_TO_TEXT 0
 
 // Plausible physical address range for kernel image

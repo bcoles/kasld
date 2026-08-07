@@ -141,7 +141,12 @@ static int is_fixmap_region(unsigned long addr) {
 }
 
 static int is_kernel_text_region(unsigned long addr) {
-  return addr >= KERNEL_VIRT_TEXT_MIN && addr < MODULES_START;
+  /* Bounded by KERNEL_VIRT_TEXT_MAX, not MODULES_START. The two coincided while
+   * the module band began where the text window ends, but the band's floor is
+   * the non-randomized MODULES_VADDR (512 MiB lower), and text does extend
+   * above it -- reading the band's floor as a text ceiling would reject
+   * legitimate text on a KASLR kernel. */
+  return addr >= KERNEL_VIRT_TEXT_MIN && addr < KERNEL_VIRT_TEXT_MAX;
 }
 
 #else /* __i386__ */

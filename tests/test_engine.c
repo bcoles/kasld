@@ -7076,6 +7076,41 @@ static void test_module_base_band_bounds(void) {
 #endif
 }
 
+/* The allocator's own module-base window, and its gate. The named base is the
+ * RANDOMIZE_BASE=y placement of MODULES_VADDR, so the rule may only speak once
+ * evidence shows the image moved — which proves that option was set. With an
+ * unresolved image base it must stay silent, since the module region could be
+ * at the =n placement instead and the window would be in the wrong place. */
+static void test_module_base_execmem_window(void) {
+  struct engine e;
+  const rule_fn rules[] = {rule_module_base_execmem_window};
+
+  /* Unresolved image base: inert. */
+  engine_init(&e);
+  engine_run(&e, rules, 1);
+  struct estimate top;
+  quantities[Q_MODULE_BASE].init_top(&top);
+  assert(e.est[Q_MODULE_BASE].lo == top.lo &&
+         e.est[Q_MODULE_BASE].hi == top.hi);
+
+#if defined(MODULES_BASE_RANDOMIZED)
+  /* Image pinned away from the compile-time default: the window applies. */
+  engine_init(&e);
+  struct observation t =
+      mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE,
+             (unsigned long)KERNEL_VIRT_TEXT_DEFAULT + 0x2000000ul, LO_SET,
+             POS_BASE, CONF_PARSED);
+  evidence_add(&e.ev, &t);
+  const rule_fn pinned[] = {rule_text_pin_from_observation,
+                            rule_module_base_execmem_window};
+  engine_run(&e, pinned, 2);
+  assert(e.est[Q_MODULE_BASE].lo >= (unsigned long)MODULES_BASE_RANDOMIZED);
+  assert(e.est[Q_MODULE_BASE].hi <=
+         (unsigned long)MODULES_BASE_RANDOMIZED +
+             (unsigned long)MODULES_BASE_RANDOM_SPAN);
+#endif
+}
+
 /* text_pin_from_observation (declared above): a POS_BASE VIRT/KERNEL_TEXT
  * observation pins Q_VIRT_IMAGE_BASE; a POS_BASE PHYS/KERNEL_TEXT observation
  * pins Q_PHYS_IMAGE_BASE. Arch-independent. */
@@ -7816,6 +7851,7 @@ int main(void) {
   RUN(test_module_base_upper_from_observation);
   RUN(test_module_base_ignores_range_classified);
   RUN(test_module_base_band_bounds);
+  RUN(test_module_base_execmem_window);
 
   BEGIN_CATEGORY("EFI Loader Code disambiguation");
   RUN(test_efi_loader_kernel_pick_single_aligned);

@@ -61,8 +61,24 @@
 // Module region size: SZ_256M.
 // Use conservative floor (48-bit VA) and wide ceiling to cover all VA configs.
 // https://elixir.bootlin.com/linux/v6.12/source/arch/loongarch/include/asm/pgtable.h#L82
-#define MODULES_START 0xffff000000000000ul
+// The floor covers any VALEN the kernel can describe, not just today's parts.
+// vm_map_base = 0 - (1 << cpu_vabits), read from CPUCFG1 at boot, so a wider
+// VA moves the module region DOWN. Shipping parts report 39 (Loongson-2K) and
+// 48 (LA464/LA664) -- both land above 0xffff000000000000 -- but the kernel's
+// own page tables reach VA_BITS = PGDIR_SHIFT + (PAGE_SHIFT - PTRLOG) = 58 at
+// 4 levels with 16K pages, so a future VALEN in 49..58 would sit below it.
+// Anchor on that geometric bound (0 - (1 << 58)) rather than on the widest
+// part that happens to exist: the failure mode of guessing is a silently
+// dropped module address, and the cost of the wider band is only
+// classify-by-range, which the REGION_MODULE provenance split already made
+// non-load-bearing.
+#define MODULES_START 0xfc00000000000000ul // 0 - (1 << 58)
 #define MODULES_END 0xffffffffffff0000ul
+
+// Usable as a BOUND, not only as an admission filter: the floor above is
+// derived from the widest VA the kernel's page tables can describe, so it sits
+// at or below vm_map_base for every VALEN a running kernel could report.
+#define MODULES_BAND_EXACT 1
 #define MODULES_RELATIVE_TO_TEXT 0
 
 // EFI_KIMG_ALIGN is SZ_2M, but KASLR offset uses << 16 = 64 KiB granularity.

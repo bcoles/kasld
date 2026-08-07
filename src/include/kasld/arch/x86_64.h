@@ -75,12 +75,57 @@
 #define KERNEL_VIRT_TEXT_MIN 0xffffffff80000000ul
 #define KERNEL_VIRT_TEXT_MAX 0xffffffffc0000000ul
 
-// MODULES_VADDR = __START_KERNEL_map + KERNEL_IMAGE_SIZE = 0xffffffffc0000000
-// MODULES_END   = 0xffffffffff000000 (or 0xfffffffffe000000 with
-// DEBUG_KMAP_LOCAL_FORCE_MAP)
-// https://elixir.bootlin.com/linux/v6.12/source/arch/x86/include/asm/pgtable_64_types.h
-#define MODULES_START 0xffffffffc0000000ul
+// MODULES_VADDR = __START_KERNEL_map + KERNEL_IMAGE_SIZE, and KERNEL_IMAGE_SIZE
+// is NOT constant:
+//
+//   CONFIG_RANDOMIZE_BASE=y   1 GiB   -> MODULES_VADDR = 0xffffffffc0000000
+//   CONFIG_RANDOMIZE_BASE=n   512 MiB -> MODULES_VADDR = 0xffffffffa0000000
+//
+// (page_64_types.h: "If KASLR is disabled we can shrink it to 0.5 GiB and
+// increase the size of the modules area to 1.5 GiB".) The floor is therefore
+// the non-randomized value: a floor at 0xffffffffc0000000 rejects every module
+// address on a kernel BUILT without RANDOMIZE_BASE -- a build-time condition,
+// so booting `nokaslr` does not reproduce it and the nokaslr VM cells never
+// caught it.
+//
+// MODULES_END is 0xffffffffff000000, or 0xfffffffffe000000 with
+// DEBUG_KMAP_LOCAL_FORCE_MAP; the wider value is kept, since a ceiling that is
+// too high only admits, never rejects.
+//
+// Cost: the band now overlaps the text window [0xffffffff80000000,
+// 0xffffffffc0000000] by 512 MiB, so classify-by-range cannot separate text
+// from modules there. That is contained by the REGION_MODULE provenance split
+// -- module_text_bound and module_text_bracket are both inert on x86_64, and
+// module_base_bounds reads REGION_MODULE only -- so a mis-tag is
+// presentational.
+// https://elixir.bootlin.com/linux/v7.2/source/arch/x86/include/asm/page_64_types.h
+// https://elixir.bootlin.com/linux/v7.2/source/arch/x86/include/asm/pgtable_64_types.h
+#define MODULES_START 0xffffffffa0000000ul
 #define MODULES_END 0xffffffffff000000ul
+
+// Usable as a BOUND: the floor is the lower of the two KERNEL_IMAGE_SIZE
+// placements, so it holds whether or not the kernel was built with KASLR.
+#define MODULES_BAND_EXACT 1
+
+// execmem_arch_setup() places the module range's start at
+//   start = MODULES_VADDR + offset
+//   offset = kaslr_enabled() ? get_random_u32_inclusive(1, 1024) * PAGE_SIZE :
+//   0
+// so the base is confined to a 1024-page window above MODULES_VADDR -- ~10 bits
+// drawn independently of the text slide.
+//
+// MODULES_VADDR below is the CONFIG_RANDOMIZE_BASE=y placement
+// (__START_KERNEL_map + 1 GiB). Naming it separately from MODULES_START, which
+// is the =n placement, is what lets a rule use it: the two differ, and only
+// evidence that the image MOVED proves which one is live (a relocated image
+// implies RANDOMIZE_BASE=y implies KERNEL_IMAGE_SIZE = 1 GiB). Offset 0 stays
+// in the window because kaslr_enabled() is RANDOMIZE_MEMORY && KASLR_FLAG, and
+// RANDOMIZE_MEMORY depends on RANDOMIZE_BASE -- so a =y kernel with
+// RANDOMIZE_MEMORY=n randomizes text but leaves the module base at
+// MODULES_VADDR exactly.
+// https://elixir.bootlin.com/linux/v7.2/source/arch/x86/mm/init.c#L1066
+#define MODULES_BASE_RANDOMIZED 0xffffffffc0000000ul
+#define MODULES_BASE_RANDOM_SPAN 0x400000ul // 1024 * PAGE_SIZE
 // Module region is fixed at MODULES_VADDR; does not shift with KASLR.
 #define MODULES_RELATIVE_TO_TEXT 0
 

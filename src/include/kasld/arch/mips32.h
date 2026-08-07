@@ -49,6 +49,11 @@
 
 #define MODULES_START 0xc0000000ul
 #define MODULES_END 0xfffffffful
+
+// Usable as a BOUND: 32-bit MIPS has no MODULES_VADDR, so modules come from
+// vmalloc at MAP_BASE (kseg2, 0xc0000000) -- this floor exactly. The
+// machine-specific MAP_BASE override (Loongson) is 64-bit only.
+#define MODULES_BAND_EXACT 1
 #define MODULES_RELATIVE_TO_TEXT 0
 
 // KASLR offset is shifted left 16 bits (64 KiB granularity).

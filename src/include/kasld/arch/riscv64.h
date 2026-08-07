@@ -89,6 +89,11 @@
 #define MODULES_START 0xffffffde00000000ul
 #define MODULES_END 0xffffffffc0000000ul
 
+// Usable as a BOUND: modules occupy [_end - 2 GiB, _start], so the lowest
+// possible base is (lowest text) - 2 GiB = 0xffffffdf80000000, ~6 GiB above
+// this floor, and the ceiling is exactly the highest _start the arch admits.
+#define MODULES_BAND_EXACT 1
+
 // Module region is anchored to kernel _end (shifts with KASLR)
 #define MODULES_RELATIVE_TO_TEXT 1
 // MODULES_BELOW_TEXT_START selects the s390-style "Case B" placement

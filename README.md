@@ -76,24 +76,25 @@ KASLD 0.3.1-dev  --  Kernel ASLR derandomization
 Target: x86_64 / 7.0.0
 
 Running 101 of 104 components (3 experimental skipped; use -x to enable)...
-[####################] 100%  101/101  38.4s
+[####################] 100%  101/101  39.1s
 1 component timed out after 30s and was killed (prefetch_directmap)
 
   Quantity             Basis       Range                                    Search space  Align
   -------------------  ----------  ---------------------------------------  ------------  -----
-  Virtual Image Base   guaranteed  0xffffffffa5e00000 slide +0x24e00000         1 of 505  2 MiB
+  Virtual Image Base   guaranteed  0xffffffffa2e00000 slide +0x21e00000         1 of 505  2 MiB
   Physical Image Base  guaranteed            0x200000 -         0x3d400000           481  2 MiB
-  Physical Image Base  likely               0x1000000 -         0x3c346000    474 of 481  2 MiB
+  Physical Image Base  likely               0x1000000 -         0x3c345000    474 of 481  2 MiB
   Direct Map Base      guaranteed  0xffff800000000000 - 0xffffa4aa80000000         37547  1 GiB
   Vmalloc Base         guaranteed  0xffff898000000000 - 0xffffd6d580000000         79191  1 GiB
   Vmemmap Base         guaranteed  0xffffa98040000000 - 0xfffffd0000000000         85504  1 GiB
+  Module Region Base   guaranteed  0xffffffffc0000000 - 0xffffffffc0400000          1025  4 KiB
 
   Note: physical and virtual text randomize independently
 
 Evidence  (2 findings, 4 components)
-  virt kernel text    [interior] 0xffffffffa5f04109
+  virt kernel text    [interior] 0xffffffffa309cab5
                                  from perf_event_open, perf_text_poke_leak, proc_kallsyms
-  virt kernel image   [base]     0xffffffffa5e00000
+  virt kernel image   [base]     0xffffffffa2e00000
                                  from perf_event_open, prefetch, proc_kallsyms
 
 [-v: detailed results, memory map, system info]  [-H: hardening assessment]

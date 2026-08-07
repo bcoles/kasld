@@ -114,6 +114,12 @@
 // Runtime-determined; use wide bounds for validation.
 #define MODULES_START 0ul
 #define MODULES_END 0x20000000000000ul
+
+// Usable as a BOUND: the boot decompressor sets MODULES_END =
+// round_down(kernel_start, _SEGMENT_SIZE) and MODULES_VADDR = MODULES_END -
+// 2 GiB, so both stay within this window for any image placement, and a floor
+// of 0 cannot be too high whatever the layout.
+#define MODULES_BAND_EXACT 1
 #define MODULES_RELATIVE_TO_TEXT 1
 #define MODULES_BELOW_TEXT_START 1
 #define MODULES_END_TO_TEXT_OFFSET                                             \
