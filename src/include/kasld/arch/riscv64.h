@@ -96,11 +96,21 @@
 
 // Module region is anchored to kernel _end (shifts with KASLR)
 #define MODULES_RELATIVE_TO_TEXT 1
-// MODULES_BELOW_TEXT_START selects the s390-style "Case B" placement
-// (module band sits below the image). riscv64 puts modules ABOVE the
-// image's _end, so explicitly 0 — needed (not just implicit-zero) so
-// -Wundef does not fire at the `#if MODULES_BELOW_TEXT_START` sites in
-// orchestrator.c + rules/module_text_bound.c (those sites are gated on
+// MODULES_BELOW_TEXT_START selects which end of the image the band is
+// measured from, which decides what MODULES_END_TO_TEXT_OFFSET added to the
+// lowest module address yields. Both riscv64 and s390 place the band below
+// the image; they differ in what its low edge is pinned to:
+//
+//   s390 (1):     MODULES_END = round_down(_text), low edge = that - 2 GiB,
+//                 so lowest module + offset bounds the TEXT BASE directly.
+//   riscv64 (0):  MODULES_VADDR = _end - 2 GiB (MODULES_END = _start), so the
+//                 low edge tracks _end and lowest module + offset bounds _END;
+//                 module_text_bound then subtracts a minimum image size to
+//                 reach the text base.
+//
+// Explicit 0 rather than implicit-zero so -Wundef does not fire at the
+// `#if MODULES_BELOW_TEXT_START` sites in orchestrator.c +
+// rules/module_text_bound.c (those sites are gated on
 // MODULES_RELATIVE_TO_TEXT so they're only reachable on riscv64 + s390).
 #define MODULES_BELOW_TEXT_START 0
 #define MODULES_END_TO_TEXT_OFFSET 0x80000000ul /* 2 GiB */

@@ -237,7 +237,31 @@ __extension__ _Static_assert((unsigned long)KERNEL_PHYS_MAX >
 /* DIRECTMAP_STATIC and TEXT_TRACKS_DIRECTMAP must be declared by every arch
  * header — no defaults. Forcing each arch author to make the decision
  * explicitly is the whole point. See the arch-header contract banner above
- * for the 0/1 semantics. */
+ * for the 0/1 semantics.
+ *
+ * The two answer different questions, and both are read on their own:
+ * DIRECTMAP_STATIC decides whether phys_to_directmap_virt() and
+ * directmap_virt_to_phys() are defined at all, so it gates every compile-time
+ * linear-map projection; TEXT_TRACKS_DIRECTMAP decides whether a physical
+ * bound may propagate to the virtual text base.
+ *
+ * They nonetheless hold the SAME value on every architecture supported today,
+ * so no in-tree arch demonstrates the difference and neither can be inferred
+ * from the other by example. Pick by the question being asked, not by what a
+ * neighbouring header happens to say. The pair separates as soon as an arch
+ * fixes one of the two independently:
+ *
+ *   DIRECTMAP_STATIC=1, TEXT_TRACKS_DIRECTMAP=0 — the linear map sits at its
+ *   compile-time address while the image is randomized independently of it
+ *   (x86_64 built without RANDOMIZE_MEMORY is exactly this shape; KASLD models
+ *   x86_64 with DIRECTMAP_STATIC=0 because it cannot prove the build).
+ *
+ *   DIRECTMAP_STATIC=0, TEXT_TRACKS_DIRECTMAP=1 — text keeps a fixed offset
+ *   inside a linear map whose own base is randomized, so the offset is known
+ *   but neither endpoint is.
+ *
+ * Treating them as one flag would silently pick a side on whichever arch
+ * arrives first. */
 #ifndef DIRECTMAP_STATIC
 #error "arch header must define DIRECTMAP_STATIC (0 or 1)"
 #endif
