@@ -7140,6 +7140,30 @@ static void test_module_base_from_text(void) {
 #endif
 }
 
+/* Where the module region is placed by arithmetic on the VA width alone, a
+ * resolved width pins the quantity outright. The width must be the hardware
+ * one: an mmap probe measures TASK_SIZE = 1 << min(cpu_vabits, VA_BITS), and
+ * feeding a clamped width here would place the region a factor of two too high
+ * per clamped bit. */
+static void test_module_base_from_va_bits(void) {
+  struct engine e;
+  engine_init(&e);
+  const rule_fn rules[] = {rule_module_base_from_va_bits};
+  struct observation vb = mk_scalar(SF_VIRT_ADDR_BITS, 48, CONF_PARSED);
+  evidence_add(&e.ev, &vb);
+  engine_run(&e, rules, 1);
+#if defined(MODULES_BASE_FROM_VA_BITS_ADDEND)
+  unsigned long want =
+      (0ul - (1ul << 48)) + (unsigned long)MODULES_BASE_FROM_VA_BITS_ADDEND;
+  assert(e.est[Q_MODULE_BASE].lo == want && e.est[Q_MODULE_BASE].hi == want);
+#else
+  struct estimate top;
+  quantities[Q_MODULE_BASE].init_top(&top);
+  assert(e.est[Q_MODULE_BASE].lo == top.lo &&
+         e.est[Q_MODULE_BASE].hi == top.hi);
+#endif
+}
+
 /* text_pin_from_observation (declared above): a POS_BASE VIRT/KERNEL_TEXT
  * observation pins Q_VIRT_IMAGE_BASE; a POS_BASE PHYS/KERNEL_TEXT observation
  * pins Q_PHYS_IMAGE_BASE. Arch-independent. */
@@ -7882,6 +7906,7 @@ int main(void) {
   RUN(test_module_base_band_bounds);
   RUN(test_module_base_execmem_window);
   RUN(test_module_base_from_text);
+  RUN(test_module_base_from_va_bits);
 
   BEGIN_CATEGORY("EFI Loader Code disambiguation");
   RUN(test_efi_loader_kernel_pick_single_aligned);

@@ -79,6 +79,16 @@
 // derived from the widest VA the kernel's page tables can describe, so it sits
 // at or below vm_map_base for every VALEN a running kernel could report.
 #define MODULES_BAND_EXACT 1
+
+// The module region's placement is a pure function of the hardware VA width:
+//   vm_map_base   = 0 - (1 << cpu_vabits)
+//   MODULES_VADDR = vm_map_base + PCI_IOSIZE + 2 * PAGE_SIZE   (PCI_IOSIZE=32M)
+// Nothing randomizes it, so a resolved width pins the quantity exactly rather
+// than bounding it. Declared as an addend so the rule needs no loongarch
+// literals of its own; the width comes from SF_VIRT_ADDR_BITS.
+// https://elixir.bootlin.com/linux/v7.2/source/arch/loongarch/include/asm/pgtable.h#L98
+// https://elixir.bootlin.com/linux/v7.2/source/arch/loongarch/include/asm/addrspace.h#L141
+#define MODULES_BASE_FROM_VA_BITS_ADDEND (0x2000000ul + 2ul * PAGE_SIZE)
 #define MODULES_RELATIVE_TO_TEXT 0
 
 // EFI_KIMG_ALIGN is SZ_2M, but KASLR offset uses << 16 = 64 KiB granularity.

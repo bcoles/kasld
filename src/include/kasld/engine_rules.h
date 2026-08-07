@@ -323,6 +323,7 @@ R(module_text_bracket);
 R(module_base_bounds);
 R(module_base_execmem_window);
 R(module_base_from_text);
+R(module_base_from_va_bits);
 
 /* Multi-entry EFI_LOADER_CODE → Q_PHYS_IMAGE_BASE pin (arm64/riscv64/x86_64) */
 R(efi_loader_kernel_pick);

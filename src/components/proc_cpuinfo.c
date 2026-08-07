@@ -145,6 +145,58 @@ static int detect_riscv_mmu(void) {
 }
 #endif /* riscv64 */
 
+#if defined(__loongarch__) && __loongarch_grlen == 64
+/* loongarch64: "Address Sizes  : N bits physical, M bits virtual" (note the
+ * capitalisation, which differs from x86_64's "address sizes").
+ *
+ * M is cpu_vabits + 1, read from CPUCFG1.VALEN by cpu_probe_addrbits(). This
+ * is the value that determines the whole upper VA layout:
+ *
+ *   vm_map_base   = 0 - (1 << cpu_vabits)
+ *   MODULES_VADDR = vm_map_base + PCI_IOSIZE + 2 * PAGE_SIZE
+ *
+ * Published UNCONDITIONALLY, unlike the x86_64 case below which publishes only
+ * a width of 48. That asymmetry is deliberate and must not be "fixed": on
+ * x86_64 a reported 57 is the CPU *capability* and the kernel may still run
+ * 4-level, so the width there does not state the active layout. LoongArch has
+ * no such split — one CPUCFG field feeds both vm_map_base and this line, so
+ * whatever it reports IS what the kernel used.
+ *
+ * Note also that an mmap boundary probe CANNOT substitute for this read.
+ * TASK_SIZE64 is `1 << min(cpu_vabits, VA_BITS)`, clamped to the kernel's
+ * page-table width, while vm_map_base uses cpu_vabits unclamped. A 16K/3-level
+ * kernel on cpu_vabits=48 hardware has VA_BITS=47, so a probe would under-read
+ * by a bit and place the module region 128 TiB too high. */
+static int detect_loongarch_address_sizes(void) {
+  char buf[256];
+  char *val = cpuinfo_get("Address Sizes", buf, sizeof(buf));
+
+  if (!val) {
+    kasld_err("Could not read Address Sizes from %s", CPUINFO_PATH);
+    return 0;
+  }
+
+  unsigned int phys_bits = 0, virt_bits = 0;
+  if (sscanf(val, "%u bits physical, %u bits virtual", &phys_bits,
+             &virt_bits) != 2) {
+    kasld_err("Could not parse Address Sizes: %s", val);
+    return 0;
+  }
+
+  kasld_info("Address sizes: %u bits physical, %u bits virtual", phys_bits,
+             virt_bits);
+
+  /* Sanity-bound before publishing: a width outside what the architecture can
+   * express is a parse artefact, not a measurement. */
+  if (virt_bits < 32 || virt_bits > 64) {
+    kasld_err("implausible virtual width %u; not emitting", virt_bits);
+    return 0;
+  }
+  kasld_emit_scalar(SF_VIRT_ADDR_BITS, virt_bits, CONF_PARSED);
+  return 1;
+}
+#endif /* loongarch64 */
+
 #if defined(__x86_64__) || defined(__amd64__)
 /* x86_64: "address sizes : N bits physical, M bits virtual"
  * Virtual address width determines paging level:
@@ -232,6 +284,10 @@ int main(void) {
 
 #if defined(__x86_64__) || defined(__amd64__)
   found |= detect_x86_address_sizes();
+#endif
+
+#if defined(__loongarch__) && __loongarch_grlen == 64
+  found |= detect_loongarch_address_sizes();
 #endif
 
   if (!found) {
