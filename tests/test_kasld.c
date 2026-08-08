@@ -1916,10 +1916,16 @@ static void test_engine_sync_module_band_follows_page_offset(void) {
   engine_sync_authoritative(&e);
 
 #if MODULES_RELATIVE_TO_PAGE_OFFSET
+  /* The projected floor is the relation's own value, NOT clamped up to
+   * KERNEL_VIRT_VAS_START. Arches that carve the module band out of vmalloc
+   * put it below PAGE_OFFSET, and on those KERNEL_VIRT_VAS_START *is*
+   * PAGE_OFFSET -- clamping there would collapse the band and reject every
+   * genuine module leak. Only a wrapped floor (a PAGE_OFFSET window reaching
+   * below the band's own width) is rejected, and `moved` is above the
+   * compile-time PAGE_OFFSET so it cannot wrap here. */
   unsigned long want_lo = MODULES_START_FOR(moved);
   unsigned long want_hi = MODULES_END_FOR(moved);
-  if (want_lo < (unsigned long)KERNEL_VIRT_VAS_START)
-    want_lo = (unsigned long)KERNEL_VIRT_VAS_START;
+  assert(want_lo <= moved); /* no wrap in this fixture */
   assert(want_hi > want_lo);
   assert(layout.modules_start == want_lo);
   assert(layout.modules_end == want_hi);

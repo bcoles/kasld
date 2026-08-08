@@ -39,16 +39,33 @@
 // Above this, addresses fall in the I/O or fixmap region.
 #define KERNEL_VIRT_TEXT_MAX 0xf0000000ul
 
-// Modules are located below kernel: PAGE_OFFSET - 256MiB (0x10000000)
-// https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/include/asm/book3s/32/pgtable.h#L214
-// https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/include/asm/nohash/32/mmu-8xx.h#L173
-// Stated as a relation to PAGE_OFFSET rather than as fixed addresses, so the
-// band cannot drift from the definition it instantiates. ppc32 is
-// PAGE_OFFSET_INVARIANT, so the re-derivation the flag enables is a no-op here
-// -- it declares the relation, it does not predict movement.
+// ppc32 places modules in one of two entirely different regions, decided by
+// the platform, and the analysing binary cannot tell which kernel it faces --
+// so the band is the union of both.
+//
+// 8xx and BOOK3S_32 carve a dedicated window immediately below the linear map
+// (task_size_32.h): MODULES_END is PAGE_OFFSET (8xx) or PAGE_OFFSET rounded
+// down to 256 MiB (book3s32), with MODULES_VADDR = MODULES_END -
+// CONFIG_MODULES_SIZE * 1 MiB. That Kconfig is `range 1 256`, so 256 MiB below
+// PAGE_OFFSET is the lowest floor any such kernel can have.
+//
+// EVERY OTHER ppc32 platform -- including PPC_85xx/e500, the only one with
+// CONFIG_RANDOMIZE_BASE -- leaves MODULES_VADDR undefined and allocates from
+// the shared vmalloc window instead (mm/mem.c execmem_arch_setup: `#else start
+// = VMALLOC_START; end = VMALLOC_END;`). On nohash/32 VMALLOC_START derives
+// from runtime high_memory and so lies ABOVE PAGE_OFFSET, and VMALLOC_END is
+// ioremap_bot, which moves down from IOREMAP_TOP at runtime. Neither edge is a
+// compile-time constant, so the ceiling is the top of the address space.
+//
+// The union is therefore [PAGE_OFFSET - 256 MiB, top of VAS]. Only the floor
+// is a PAGE_OFFSET relation. ppc32 is PAGE_OFFSET_INVARIANT, so the
+// re-derivation the flag enables is a no-op here -- it declares the relation,
+// it does not predict movement.
+// https://elixir.bootlin.com/linux/v7.2/source/arch/powerpc/include/asm/task_size_32.h
+// https://elixir.bootlin.com/linux/v7.2/source/arch/powerpc/mm/mem.c
 #define MODULES_RELATIVE_TO_PAGE_OFFSET 1
 #define MODULES_START_FOR(po) ((po) - 0x10000000ul)
-#define MODULES_END_FOR(po) (po)
+#define MODULES_END_FOR(po) (KERNEL_VIRT_VAS_END)
 #define MODULES_START MODULES_START_FOR(PAGE_OFFSET) // 0xb0000000ul
 #define MODULES_END MODULES_END_FOR(PAGE_OFFSET)
 #define MODULES_RELATIVE_TO_TEXT 0

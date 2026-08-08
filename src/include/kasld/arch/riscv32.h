@@ -37,13 +37,26 @@
 // Above this, addresses fall in the fixmap/vmalloc region.
 #define KERNEL_VIRT_TEXT_MAX 0xf0000000ul
 
-// riscv32 has no separate module window: modules share the upper VAS, whose
-// floor is the linear-map base and whose ceiling is the top of the address
-// space regardless of where that base sits. Only the floor is a PAGE_OFFSET
-// relation; riscv32 is PAGE_OFFSET_INVARIANT, so nothing moves in practice.
+// Modules share the vmalloc window, which on rv32 sits immediately BELOW the
+// linear map, not above it:
+//
+//   MODULES_VADDR = VMALLOC_START = PAGE_OFFSET - VMALLOC_SIZE
+//   MODULES_END   = VMALLOC_END   = PAGE_OFFSET
+//
+// VMALLOC_SIZE is KERN_VIRT_SIZE >> 1, and KERN_VIRT_SIZE is
+// (PTRS_PER_PGD / 2 * PGDIR_SIZE) / 2. rv32 is sv32 only, so PGDIR_SHIFT is
+// 22 (PGDIR_SIZE 4 MiB) and PTRS_PER_PGD is 4096/4 = 1024, giving
+// KERN_VIRT_SIZE = 1 GiB and VMALLOC_SIZE = 512 MiB. Exact, with no
+// configuration variance to take a union over.
+//
+// Stated as a relation to PAGE_OFFSET rather than as fixed addresses so the
+// band cannot drift from the definition it instantiates. riscv32 is
+// PAGE_OFFSET_INVARIANT, so the re-derivation the flag enables is a no-op
+// here -- it declares the relation, it does not predict movement.
+// https://elixir.bootlin.com/linux/v7.2/source/arch/riscv/include/asm/pgtable.h
 #define MODULES_RELATIVE_TO_PAGE_OFFSET 1
-#define MODULES_START_FOR(po) (po)
-#define MODULES_END_FOR(po) (0xfffffffful)
+#define MODULES_START_FOR(po) ((po) - 0x20000000ul)
+#define MODULES_END_FOR(po) (po)
 #define MODULES_START MODULES_START_FOR(PAGE_OFFSET)
 #define MODULES_END MODULES_END_FOR(PAGE_OFFSET)
 #define MODULES_RELATIVE_TO_TEXT 0
