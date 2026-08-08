@@ -124,14 +124,15 @@ int rule_module_base_bounds(const struct evidence_set *ev,
      * avoid. Both accessors are monotone in PAGE_OFFSET, so the widest sound
      * band pairs the lowest floor with the highest ceiling. */
     const struct estimate *po = &est[Q_PAGE_OFFSET];
-    if (po->lo && po->hi && po->lo <= po->hi) {
-      unsigned long band_lo = (unsigned long)MODULES_START_FOR(po->lo);
-      unsigned long band_hi = (unsigned long)MODULES_END_FOR(po->hi);
+    unsigned long po_lo = 0, po_hi = 0;
+    if (quantity_window(Q_PAGE_OFFSET, po, &po_lo, &po_hi) && po_lo) {
+      unsigned long band_lo = (unsigned long)MODULES_START_FOR(po_lo);
+      unsigned long band_hi = (unsigned long)MODULES_END_FOR(po_hi);
       /* Guard the wrap an extreme PAGE_OFFSET would produce rather than
        * emitting a floor at the wrong end of the address space. */
-      if (kasld_module_band_floor_sane(po->lo, band_lo) && n < out_max)
+      if (kasld_module_band_floor_sane(po_lo, band_lo) && n < out_max)
         mbb_emit(&out[n++], C_LOWER_BOUND, band_lo, 0);
-      if (band_hi >= po->hi && n < out_max)
+      if (band_hi >= po_hi && n < out_max)
         mbb_emit(&out[n++], C_UPPER_BOUND, band_hi, 0);
     }
   }

@@ -147,6 +147,196 @@ static void test_finset_meet(void) {
   assert(estimate_is_bottom(&e3, qd));
 }
 
+/* Every other op on a finite set. A synthetic candidate table rather than
+ * Q_VA_BITS, so the assertions are exact and identical on every architecture:
+ * the real VA-bits list is a single entry on most arches, which would leave
+ * everything below vacuous exactly where a regression would hide. The values
+ * are the x86_32 vmsplit set, the case this lattice work exists for. */
+static const unsigned long fs_cands[] = {0x40000000ul, 0x80000000ul,
+                                         0xb0000000ul, 0xc0000000ul};
+static const struct quantity_def fs_qd = {"test_finset", LK_FINSET, NULL,
+                                          fs_cands, 4};
+#define FS_ALL 0xful
+
+static void fs_top(struct estimate *e) {
+  memset(e, 0, sizeof(*e));
+  e->kind = LK_FINSET;
+  e->lo = FS_ALL;
+}
+static int fs_live(const struct estimate *e, unsigned long v) {
+  for (int i = 0; i < fs_qd.n_candidates; i++)
+    if (fs_cands[i] == v)
+      return (e->lo & (1ul << i)) != 0;
+  return 0;
+}
+
+static void test_finset_bounds_and_excludes(void) {
+  struct estimate e;
+
+  /* A lower bound trims the low end. */
+  fs_top(&e);
+  struct constraint lb =
+      mk(Q_VA_BITS, C_LOWER_BOUND, 0x80000000ul, CONF_PARSED, 1);
+  estimate_meet(&e, &fs_qd, &lb);
+  assert(!fs_live(&e, 0x40000000ul));
+  assert(fs_live(&e, 0x80000000ul) && fs_live(&e, 0xc0000000ul));
+  assert(e.lo_binding == 1);
+
+  /* An upper bound trims the high end and composes with the bound above. */
+  struct constraint ub =
+      mk(Q_VA_BITS, C_UPPER_BOUND, 0xb0000000ul, CONF_PARSED, 2);
+  estimate_meet(&e, &fs_qd, &ub);
+  assert(fs_live(&e, 0x80000000ul) && fs_live(&e, 0xb0000000ul));
+  assert(!fs_live(&e, 0x40000000ul) && !fs_live(&e, 0xc0000000ul));
+  assert(!estimate_is_bottom(&e, &fs_qd));
+
+  /* An exclude removes an INTERIOR candidate exactly — the case a single
+   * interval can only approximate by trimming an end. */
+  fs_top(&e);
+  struct constraint ex = mk(Q_VA_BITS, C_EXCLUDE, 0x80000000ul, CONF_PARSED, 3);
+  ex.value2 = 0x80000000ul;
+  estimate_meet(&e, &fs_qd, &ex);
+  assert(!fs_live(&e, 0x80000000ul));
+  assert(fs_live(&e, 0x40000000ul) && fs_live(&e, 0xb0000000ul) &&
+         fs_live(&e, 0xc0000000ul));
+
+  /* A span exclude removes every candidate it covers, interior or not. */
+  struct constraint ex2 =
+      mk(Q_VA_BITS, C_EXCLUDE, 0xb0000000ul, CONF_PARSED, 4);
+  ex2.value2 = 0xfffffffful;
+  estimate_meet(&e, &fs_qd, &ex2);
+  assert(fs_live(&e, 0x40000000ul));
+  assert(!fs_live(&e, 0xb0000000ul) && !fs_live(&e, 0xc0000000ul));
+
+  /* An exclude covering everything still live is bottom, matching the
+   * interval lattice rather than silently accepting a no-op. */
+  struct constraint ex3 = mk(Q_VA_BITS, C_EXCLUDE, 0ul, CONF_PARSED, 5);
+  ex3.value2 = ~0ul;
+  estimate_meet(&e, &fs_qd, &ex3);
+  assert(estimate_is_bottom(&e, &fs_qd));
+
+  /* Alignment filters candidates; 0xb0000000 is not 1 GiB-aligned. */
+  fs_top(&e);
+  struct constraint al =
+      mk(Q_VA_BITS, C_AT_LEAST_ALIGN, 0x40000000ul, CONF_PARSED, 6);
+  estimate_meet(&e, &fs_qd, &al);
+  assert(!fs_live(&e, 0xb0000000ul));
+  assert(fs_live(&e, 0x40000000ul) && fs_live(&e, 0x80000000ul) &&
+         fs_live(&e, 0xc0000000ul));
+
+  /* A stride narrows the live set directly and leaves no residue annotation
+   * to carry, unlike the interval lattice. */
+  fs_top(&e);
+  struct constraint st = mk(Q_VA_BITS, C_STRIDE, 0x30000000ul, CONF_PARSED, 7);
+  st.value2 = 0x40000000ul; /* == 0x30000000 (mod 1 GiB): only 0xb0000000 */
+  estimate_meet(&e, &fs_qd, &st);
+  assert(fs_live(&e, 0xb0000000ul));
+  assert(!fs_live(&e, 0x40000000ul) && !fs_live(&e, 0x80000000ul) &&
+         !fs_live(&e, 0xc0000000ul));
+  assert(e.stride == 0 && e.stride_offset == 0);
+
+  /* A constraint that changes nothing must not claim the binding. */
+  fs_top(&e);
+  struct constraint noop = mk(Q_VA_BITS, C_LOWER_BOUND, 0ul, CONF_PARSED, 8);
+  estimate_meet(&e, &fs_qd, &noop);
+  assert(e.lo == FS_ALL && e.lo_binding == 0);
+}
+
+/* ========================================================================
+ * Lattice-agnostic accessors
+ * ======================================================================== */
+static void test_accessors_interval(void) {
+  struct estimate e;
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&e);
+  unsigned long lo = 0, hi = 0;
+
+  assert(!quantity_narrowed(Q_VIRT_IMAGE_BASE, &e));
+  assert(quantity_window(Q_VIRT_IMAGE_BASE, &e, &lo, &hi));
+  assert(lo == e.lo && hi == e.hi);
+  assert(!quantity_pinned(Q_VIRT_IMAGE_BASE, &e, NULL));
+  assert(quantity_admits(Q_VIRT_IMAGE_BASE, &e, lo));
+  assert(quantity_admits(Q_VIRT_IMAGE_BASE, &e, hi));
+
+  /* Pin it and re-ask. */
+  struct constraint eq =
+      mk(Q_VIRT_IMAGE_BASE, C_EQUALS, lo + 0x200000ul, CONF_PARSED, 1);
+  estimate_meet(&e, &quantities[Q_VIRT_IMAGE_BASE], &eq);
+  unsigned long v = 0;
+  assert(quantity_pinned(Q_VIRT_IMAGE_BASE, &e, &v));
+  assert(v == lo + 0x200000ul);
+  assert(quantity_narrowed(Q_VIRT_IMAGE_BASE, &e));
+  assert(quantity_admits(Q_VIRT_IMAGE_BASE, &e, v));
+  assert(!quantity_admits(Q_VIRT_IMAGE_BASE, &e, v + 1));
+
+  /* NULL outputs are accepted. */
+  assert(quantity_window(Q_VIRT_IMAGE_BASE, &e, NULL, NULL));
+
+  /* Bottom reports no window and no pin. */
+  struct estimate b;
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&b);
+  b.lo = 1;
+  b.hi = 0;
+  assert(!quantity_window(Q_VIRT_IMAGE_BASE, &b, &lo, &hi));
+  assert(!quantity_pinned(Q_VIRT_IMAGE_BASE, &b, NULL));
+  assert(!quantity_admits(Q_VIRT_IMAGE_BASE, &b, 0));
+}
+
+static void test_accessors_finset(void) {
+  const struct quantity_def *qd = &quantities[Q_VA_BITS];
+  struct estimate e;
+  qd->init_top(&e);
+
+  /* The window spans the candidate extremes, whatever order the table is in. */
+  unsigned long lo = 0, hi = 0, cmin = ~0ul, cmax = 0;
+  for (int i = 0; i < qd->n_candidates; i++) {
+    if (qd->candidates[i] < cmin)
+      cmin = qd->candidates[i];
+    if (qd->candidates[i] > cmax)
+      cmax = qd->candidates[i];
+  }
+  assert(quantity_window(Q_VA_BITS, &e, &lo, &hi));
+  assert(lo == cmin && hi == cmax);
+  assert(!quantity_narrowed(Q_VA_BITS, &e));
+
+  /* admits() is exact — every candidate yes, a non-candidate no. */
+  for (int i = 0; i < qd->n_candidates; i++)
+    assert(quantity_admits(Q_VA_BITS, &e, qd->candidates[i]));
+  assert(!quantity_admits(Q_VA_BITS, &e, 999ul));
+
+  /* A one-entry table is pinned at its top; a longer one is not. */
+  assert(quantity_pinned(Q_VA_BITS, &e, NULL) == (qd->n_candidates == 1));
+
+  /* Narrow to one candidate: pinned, and admits only that one. */
+  struct constraint eq =
+      mk(Q_VA_BITS, C_EQUALS, qd->candidates[0], CONF_PARSED, 1);
+  estimate_meet(&e, qd, &eq);
+  unsigned long v = 0;
+  assert(quantity_pinned(Q_VA_BITS, &e, &v) && v == qd->candidates[0]);
+  assert(quantity_admits(Q_VA_BITS, &e, qd->candidates[0]));
+  if (qd->n_candidates > 1) {
+    assert(quantity_narrowed(Q_VA_BITS, &e));
+    assert(!quantity_admits(Q_VA_BITS, &e, qd->candidates[1]));
+  }
+
+  /* An empty set is bottom: no window, no pin, admits nothing. */
+  struct estimate b;
+  qd->init_top(&b);
+  b.lo = 0;
+  assert(!quantity_window(Q_VA_BITS, &b, &lo, &hi));
+  assert(!quantity_pinned(Q_VA_BITS, &b, NULL));
+  assert(!quantity_admits(Q_VA_BITS, &b, qd->candidates[0]));
+}
+
+static void test_accessors_maxalign_is_not_a_value(void) {
+  struct estimate e;
+  quantities[Q_VIRT_KASLR_ALIGN].init_top(&e);
+  /* An alignment is not an address set: it never pins, spans no window and
+   * admits nothing — the same answer quantity_ranges already gives. */
+  assert(!quantity_pinned(Q_VIRT_KASLR_ALIGN, &e, NULL));
+  assert(!quantity_window(Q_VIRT_KASLR_ALIGN, &e, NULL, NULL));
+  assert(!quantity_admits(Q_VIRT_KASLR_ALIGN, &e, e.lo));
+}
+
 /* ========================================================================
  * Greedy resolver: contradictions resolved by trust priority
  * ======================================================================== */
@@ -673,6 +863,12 @@ int main(void) {
   RUN(test_interval_meet_equals_and_bottom);
   RUN(test_maxalign_meet);
   RUN(test_finset_meet);
+  RUN(test_finset_bounds_and_excludes);
+
+  BEGIN_CATEGORY("Lattice-agnostic accessors");
+  RUN(test_accessors_interval);
+  RUN(test_accessors_finset);
+  RUN(test_accessors_maxalign_is_not_a_value);
 
   BEGIN_CATEGORY("Stride (C_STRIDE) algebra");
   RUN(test_stride_first_constraint_sets_pair);

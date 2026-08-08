@@ -29,10 +29,11 @@ int rule_x86_32_vmsplit_ceiling(const struct evidence_set *ev,
   if (out_max < 1)
     return 0;
   const struct estimate *po = &est[Q_PAGE_OFFSET];
-  if (po->lo != po->hi)
+  unsigned long virt_page_offset;
+  if (!quantity_pinned(Q_PAGE_OFFSET, po, &virt_page_offset))
     return 0; /* virt_page_offset not yet pinned */
 
-  unsigned long ceiling = po->lo + X86_32_KERNEL_IMAGE_SIZE;
+  unsigned long ceiling = virt_page_offset + X86_32_KERNEL_IMAGE_SIZE;
   if (ceiling <= KASLR_VIRT_TEXT_MIN)
     return 0;
 

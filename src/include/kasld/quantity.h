@@ -64,6 +64,14 @@ struct quantity_def {
   int n_candidates;
 };
 
+/* Upper bound on n_candidates. An LK_FINSET estimate stores its live set as a
+ * bitmask in a single unsigned long, so a longer list would have candidates
+ * with no bit to live in — and `1ul << i` past the word width is undefined
+ * rather than merely wrong. Every candidate table is checked against this at
+ * compile time in quantities.c, so the meet loop can shift without a runtime
+ * guard. */
+#define KASLD_FINSET_MAX_CANDIDATES ((int)(sizeof(unsigned long) * 8))
+
 extern const struct quantity_def quantities[Q__COUNT];
 
 #endif /* KASLD_QUANTITY_H */

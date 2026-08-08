@@ -65,13 +65,14 @@ int rule_riscv64_text_base(const struct evidence_set *ev,
    * (not a constant — it must track whichever legacy value is live), not a
    * C_EQUALS pin (the load offset varies). module_text_bound carries the
    * ceiling. */
-  if (po->kind == LK_INTERVAL &&
-      po->lo >= (unsigned long)RISCV_LEGACY_PAGE_OFFSET) {
+  unsigned long po_lo = 0, po_hi = 0;
+  const int po_known = quantity_window(Q_PAGE_OFFSET, po, &po_lo, &po_hi);
+  if (po_known && po_lo >= (unsigned long)RISCV_LEGACY_PAGE_OFFSET) {
     struct constraint *c = &out[0];
     memset(c, 0, sizeof(*c));
     c->q = Q_VIRT_IMAGE_BASE;
     c->op = C_LOWER_BOUND;
-    c->value = po->lo + (unsigned long)IMAGE_BASE_OFFSET;
+    c->value = po_lo + (unsigned long)IMAGE_BASE_OFFSET;
     c->conf = CONF_INFERRED;
     c->derived_from[0] = po->lo_binding;
     c->lineage_count = po->lo_binding ? 1 : 0;
@@ -89,10 +90,9 @@ int rule_riscv64_text_base(const struct evidence_set *ev,
    * layout — and the engine fixpoint ACCUMULATES constraints across passes, so
    * emitting the modern pin now (before PAGE_OFFSET resolves to legacy) would
    * leave a stale C_EQUALS that outranks the later legacy lower bound. Waiting
-   * for po->hi < legacy means we never pin modern on a kernel that turns out
-   * legacy. */
-  if (!(po->kind == LK_INTERVAL &&
-        po->hi < (unsigned long)RISCV_LEGACY_PAGE_OFFSET))
+   * for the window's TOP to fall below legacy means we never pin modern on a
+   * kernel that turns out legacy. */
+  if (!(po_known && po_hi < (unsigned long)RISCV_LEGACY_PAGE_OFFSET))
     return 0;
 
   uint32_t sig_id = 0;

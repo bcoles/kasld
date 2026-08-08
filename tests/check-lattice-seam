@@ -1,0 +1,105 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-lattice-seam — quantities whose lattice is not fixed across builds must
+# be read through the accessors, never through `.lo` / `.hi`.
+#
+# `struct estimate` means different things per lattice. On LK_INTERVAL `lo` and
+# `hi` are the window edges; on LK_FINSET `lo` is a live-candidate BITMASK and
+# `hi` is unused entirely. A consumer that reads the fields directly is correct
+# only for the lattice it happened to be written against — and Q_PAGE_OFFSET is
+# compiled as an interval on some architectures and a finite set on others, so
+# "the lattice it was written against" is not a property of the source at all.
+#
+# Nothing would fail loudly if that went wrong. A bitmask read as an address is
+# a small integer: comparisons still evaluate, arithmetic still runs, and the
+# result is a plausible-looking wrong answer rather than a crash. That is the
+# failure mode this guard exists to make impossible.
+#
+# Checked per quantity below:
+#   - direct field access:  est[Q_X].lo   /  ...->est[Q_X].hi
+#   - via a bound pointer:  const struct estimate *p = &est[Q_X];  ... p->lo
+#     (the alias is discovered from the binding, not assumed to be called `po`)
+#
+# `.lo_binding` and `.lo_conf` are deliberately NOT flagged: they carry the same
+# meaning on every lattice (the constraint that last narrowed the estimate, and
+# its confidence), and the word-boundary match leaves them alone.
+#
+# Use instead: quantity_pinned(), quantity_window(), quantity_admits(),
+# quantity_narrowed() — see the contract in src/include/kasld/estimate.h.
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+
+# Quantities whose lattice is arch-dependent or may change. Add one here when
+# it gains a non-interval representation on any architecture.
+QUANTITIES="Q_PAGE_OFFSET Q_VA_BITS"
+
+# The accessors themselves are the seam, so they are the one place allowed to
+# touch the representation. Paths are repo-relative.
+ALLOW="src/estimate.c"
+
+if [ -t 1 ]; then
+  RED=$(printf '\033[31m')
+  GREEN=$(printf '\033[32m')
+  RESET=$(printf '\033[0m')
+else
+  RED=
+  GREEN=
+  RESET=
+fi
+
+fail=0
+checked=0
+
+allowed() {
+  for a in $ALLOW; do
+    [ "$1" = "$a" ] && return 0
+  done
+  return 1
+}
+
+for q in $QUANTITIES; do
+  for f in $(cd "$ROOT" && find src -name '*.c' | sort); do
+    allowed "$f" && continue
+    grep -q "$q" "$ROOT/$f" 2>/dev/null || continue
+    checked=$((checked + 1))
+
+    # 1. Direct field access on the array element.
+    hits=$(grep -n "est\[$q\]\.\(lo\|hi\)\([^_a-zA-Z0-9]\|$\)" "$ROOT/$f")
+    if [ -n "$hits" ]; then
+      printf '  %sFAIL%s %s reads est[%s] fields directly:\n' \
+        "$RED" "$RESET" "$f" "$q"
+      printf '        %s\n' "$hits"
+      fail=1
+    fi
+
+    # 2. Via a pointer bound to the estimate. Discover the alias name from the
+    #    binding rather than assuming a convention, so renaming it cannot slip
+    #    a direct read past this check.
+    aliases=$(sed -n \
+      "s/.*struct estimate \*\([A-Za-z_][A-Za-z_0-9]*\) *= *&[^;]*est\[$q\].*/\1/p" \
+      "$ROOT/$f" | sort -u)
+    for a in $aliases; do
+      hits=$(grep -n "\b$a->\(lo\|hi\)\([^_a-zA-Z0-9]\|$\)" "$ROOT/$f")
+      if [ -n "$hits" ]; then
+        printf '  %sFAIL%s %s reads "%s" (bound to est[%s]) field-wise:\n' \
+          "$RED" "$RESET" "$f" "$a" "$q"
+        printf '        %s\n' "$hits"
+        fail=1
+      fi
+    done
+  done
+done
+
+if [ "$fail" -ne 0 ]; then
+  printf '%scheck-lattice-seam: representation-dependent reads of a '\
+'lattice-variable quantity%s\n' "$RED" "$RESET" >&2
+  printf 'Use quantity_pinned/window/admits/narrowed (estimate.h) instead.\n' >&2
+  exit 1
+fi
+
+printf '%scheck-lattice-seam: OK%s (%d files, %s read via accessors only)\n' \
+  "$GREEN" "$RESET" "$checked" "$(echo "$QUANTITIES" | tr ' ' '/')"

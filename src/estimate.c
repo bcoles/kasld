@@ -136,6 +136,40 @@ static int stride_intersects_interval(unsigned long lo, unsigned long hi,
   return first <= hi;
 }
 
+/* Does one concrete value satisfy this constraint?
+ *
+ * The finite-set lattice narrows by testing each live candidate, so it needs a
+ * predicate that is TOTAL over the op enum. The switch carries no `default:`
+ * deliberately: a newly added constraint op then fails -Wswitch until someone
+ * states how a finite set answers it. That is the guard the old code lacked —
+ * it handled C_EQUALS and let every other op through untouched, so C_EXCLUDE
+ * and both bounds were silently discarded on a finite set.
+ *
+ * Interval semantics are not expressed here. An interval cannot represent an
+ * interior hole, so LK_INTERVAL keeps its own op-by-op narrowing, including
+ * the end-trim approximation for C_EXCLUDE. */
+static int constraint_admits(const struct constraint *c, unsigned long v) {
+  switch (c->op) {
+  case C_LOWER_BOUND:
+    return v >= c->value;
+  case C_UPPER_BOUND:
+    return v <= c->value;
+  case C_EQUALS:
+    return v == c->value;
+  case C_AT_LEAST_ALIGN:
+    /* A zero alignment constrains nothing; say so rather than divide by it. */
+    return c->value == 0 || (v % c->value) == 0;
+  case C_EXCLUDE:
+    /* Inclusive [value, value2]. A reversed pair is an empty range, which
+     * excludes nothing — this test admits everything for it, as it should. */
+    return v < c->value || v > c->value2;
+  case C_STRIDE:
+    /* q = value (mod value2). A zero modulus is not a residue class. */
+    return c->value2 == 0 || (v % c->value2) == (c->value % c->value2);
+  }
+  return 1; /* not reached; an unhandled op is a -Wswitch build failure */
+}
+
 /* ------------------------------------------------------------------------
  * Meet — narrow an estimate by one constraint.
  * ------------------------------------------------------------------------ */
@@ -236,21 +270,27 @@ void estimate_meet(struct estimate *e, const struct quantity_def *qd,
     }
     break;
 
-  case LK_FINSET:
-    if (c->op == C_EQUALS) {
-      /* Pin to the candidate whose value == c->value; if no candidate
-       * matches, the intersection is empty (bottom). */
-      unsigned long mask = 0;
-      for (int i = 0; i < qd->n_candidates; i++)
-        if (qd->candidates[i] == c->value)
-          mask = 1ul << i;
-      unsigned long narrowed = e->lo & mask;
-      if (narrowed != e->lo) {
-        e->lo = narrowed;
-        e->lo_binding = c->id;
-      }
+  case LK_FINSET: {
+    /* Keep every live candidate the constraint admits and drop the rest. One
+     * uniform narrowing for all ops, so none can be ignored by omission: a
+     * C_EQUALS naming no candidate empties the set (bottom), a bound trims the
+     * ends, and a C_EXCLUDE removes an interior candidate exactly — the finite
+     * set represents holes that the interval lattice has to approximate.
+     *
+     * `stride` stays 0 here: a C_STRIDE narrows the live set directly, leaving
+     * no residue annotation to carry (see struct estimate). The shift is safe
+     * unguarded because n_candidates is bounded at compile time by
+     * KASLD_FINSET_MAX_CANDIDATES. */
+    unsigned long mask = 0;
+    for (int i = 0; i < qd->n_candidates; i++)
+      if ((e->lo & (1ul << i)) && constraint_admits(c, qd->candidates[i]))
+        mask |= 1ul << i;
+    if (mask != e->lo) {
+      e->lo = mask;
+      e->lo_binding = c->id;
     }
     break;
+  }
   }
 
   /* Propagate the binding constraint's confidence to whichever edge it just set
@@ -388,6 +428,105 @@ void estimate_resolve(enum kasld_quantity q, enum kasld_confidence floor,
 /* ------------------------------------------------------------------------
  * quantity_ranges — interval-set value-access for consumers.
  * ------------------------------------------------------------------------ */
+/* ------------------------------------------------------------------------
+ * Lattice-agnostic value access — see the contract in estimate.h.
+ * ------------------------------------------------------------------------ */
+int quantity_pinned(enum kasld_quantity q, const struct estimate *e,
+                    unsigned long *out) {
+  const struct quantity_def *qd = &quantities[q];
+  unsigned long v = 0;
+  switch (qd->lattice) {
+  case LK_INTERVAL:
+    if (e->lo != e->hi)
+      return 0;
+    v = e->lo;
+    break;
+  case LK_FINSET:
+    if (!estimate_finset_value(qd, e, &v))
+      return 0;
+    break;
+  case LK_MAXALIGN:
+    return 0; /* an alignment is not a value */
+  }
+  if (out)
+    *out = v;
+  return 1;
+}
+
+int quantity_window(enum kasld_quantity q, const struct estimate *e,
+                    unsigned long *lo, unsigned long *hi) {
+  const struct quantity_def *qd = &quantities[q];
+  unsigned long a = 0, b = 0;
+  switch (qd->lattice) {
+  case LK_INTERVAL:
+    if (e->lo > e->hi)
+      return 0; /* bottom */
+    a = e->lo;
+    b = e->hi;
+    break;
+  case LK_FINSET: {
+    /* Candidate tables are not required to be sorted, so scan for both edges
+     * rather than reading the first and last live bits. */
+    int seen = 0;
+    for (int i = 0; i < qd->n_candidates; i++) {
+      if (!(e->lo & (1ul << i)))
+        continue;
+      unsigned long v = qd->candidates[i];
+      if (!seen || v < a)
+        a = v;
+      if (!seen || v > b)
+        b = v;
+      seen = 1;
+    }
+    if (!seen)
+      return 0; /* empty set — bottom */
+    break;
+  }
+  case LK_MAXALIGN:
+    return 0;
+  }
+  if (lo)
+    *lo = a;
+  if (hi)
+    *hi = b;
+  return 1;
+}
+
+int quantity_admits(enum kasld_quantity q, const struct estimate *e,
+                    unsigned long v) {
+  const struct quantity_def *qd = &quantities[q];
+  switch (qd->lattice) {
+  case LK_INTERVAL:
+    if (e->lo > e->hi || v < e->lo || v > e->hi)
+      return 0;
+    if (e->stride && (v % e->stride) != e->stride_offset)
+      return 0;
+    return 1;
+  case LK_FINSET:
+    for (int i = 0; i < qd->n_candidates; i++)
+      if ((e->lo & (1ul << i)) && qd->candidates[i] == v)
+        return 1;
+    return 0;
+  case LK_MAXALIGN:
+    return 0;
+  }
+  return 0;
+}
+
+int quantity_narrowed(enum kasld_quantity q, const struct estimate *e) {
+  const struct quantity_def *qd = &quantities[q];
+  struct estimate top;
+  qd->init_top(&top);
+  switch (qd->lattice) {
+  case LK_INTERVAL:
+    return e->lo > top.lo || e->hi < top.hi || e->stride != top.stride;
+  case LK_FINSET:
+  case LK_MAXALIGN:
+    return e->lo != top.lo;
+  }
+  return 0;
+}
+
 int quantity_ranges(enum kasld_quantity q, const struct estimate *e,
                     enum kasld_confidence floor, const struct constraint *cs,
                     int n_cs, struct range *out, int out_max) {
@@ -397,6 +536,12 @@ int quantity_ranges(enum kasld_quantity q, const struct estimate *e,
     return 0; /* an alignment is not an address set */
 
   if (qd->lattice == LK_FINSET) {
+    /* One degenerate range per live candidate, with no read-time carving. The
+     * interval path below carves C_EXCLUDE holes here because a single
+     * interval cannot hold them; a bitmask can, so estimate_meet has already
+     * applied every exclude at or above the floor `e` was resolved at. Carving
+     * again would be a no-op at best and, if handed a different floor than `e`
+     * was resolved at, inconsistent with the mask. */
     int n = 0;
     for (int i = 0; i < qd->n_candidates && n < out_max; i++)
       if (e->lo & (1ul << i)) {

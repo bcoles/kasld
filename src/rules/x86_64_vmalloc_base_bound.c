@@ -83,7 +83,9 @@ int rule_x86_64_vmalloc_base_bound(const struct evidence_set *ev,
     return 0;
 
   const struct estimate *po = &est[Q_PAGE_OFFSET];
-  unsigned long virt_page_offset_min = po->lo;
+  unsigned long virt_page_offset_min;
+  if (!quantity_window(Q_PAGE_OFFSET, po, &virt_page_offset_min, NULL))
+    return 0; /* nothing admitted — no floor to build on */
 
   unsigned long one_tb = 1ul << TB_SHIFT;
   unsigned long page_bytes = max_pfn << PAGE_SHIFT;
@@ -133,7 +135,9 @@ int rule_x86_64_vmalloc_base_bound(const struct evidence_set *ev,
      * resolved page_offset < L4_VAS_START is genuinely L5 (L4 bases randomize
      * up from __PAGE_OFFSET_BASE_L4 > L4_VAS_START). */
     unsigned long vmalloc_size_tb = VMALLOC_SIZE_TB_L4;
-    if (po->lo == po->hi && po->lo != 0 && po->lo < X86_64_L4_VAS_START)
+    unsigned long po_pin;
+    if (quantity_pinned(Q_PAGE_OFFSET, po, &po_pin) && po_pin != 0 &&
+        po_pin < X86_64_L4_VAS_START)
       vmalloc_size_tb = VMALLOC_SIZE_TB_L5;
     unsigned long below = vmalloc_size_tb * one_tb + pud_size;
     if (vmemmap->hi > below) {

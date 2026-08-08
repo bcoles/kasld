@@ -100,7 +100,7 @@ int rule_randomize_memory_page_offset(const struct evidence_set *ev,
     if (candidate & (pud_size - 1))
       return 0;
     const struct estimate *po = &est[Q_PAGE_OFFSET];
-    if (candidate < po->lo || candidate > po->hi)
+    if (!quantity_admits(Q_PAGE_OFFSET, po, candidate))
       return 0;
 
     struct constraint *c = &out[0];

@@ -55,9 +55,9 @@ int rule_virt_ceiling_from_memtotal(const struct evidence_set *ev,
 
   /* Cross-quantity input: a pinned virt_page_offset (lo == hi). */
   const struct estimate *po = &est[Q_PAGE_OFFSET];
-  if (po->lo != po->hi)
+  unsigned long virt_page_offset;
+  if (!quantity_pinned(Q_PAGE_OFFSET, po, &virt_page_offset))
     return 0; /* virt_page_offset not yet resolved to a point */
-  unsigned long virt_page_offset = po->lo;
 
   unsigned long memtotal = 0, phys_floor = ULONG_MAX, dram_top = 0;
   enum kasld_confidence mconf = CONF_UNKNOWN, fconf = CONF_PARSED,

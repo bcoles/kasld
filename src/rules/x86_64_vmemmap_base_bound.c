@@ -72,7 +72,9 @@ int rule_x86_64_vmemmap_base_bound(const struct evidence_set *ev,
    */
   const struct estimate *po = &est[Q_PAGE_OFFSET];
   unsigned long vmalloc_size_tb = VMALLOC_SIZE_TB_L4;
-  if (po->lo == po->hi && po->lo != 0 && po->lo < X86_64_L4_VAS_START)
+  unsigned long po_pin;
+  if (quantity_pinned(Q_PAGE_OFFSET, po, &po_pin) && po_pin != 0 &&
+      po_pin < X86_64_L4_VAS_START)
     vmalloc_size_tb = VMALLOC_SIZE_TB_L5;
 
   int n = 0;

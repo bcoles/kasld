@@ -138,7 +138,11 @@ int rule_riscv64_page_offset_from_vmalloc_vmemmap(const struct evidence_set *ev,
    * ambiguity (see riscv64_vmalloc_size_from_po). */
   if (mm != ULONG_MAX && n < out_max) {
     const struct estimate *po = &est[Q_PAGE_OFFSET];
-    unsigned long vmalloc_size = riscv64_vmalloc_size_from_po(po->lo, po->hi);
+    unsigned long po_lo = 0, po_hi = 0;
+    unsigned long vmalloc_size =
+        quantity_window(Q_PAGE_OFFSET, po, &po_lo, &po_hi)
+            ? riscv64_vmalloc_size_from_po(po_lo, po_hi)
+            : 0;
     if (vmalloc_size != 0 && mm <= ULONG_MAX - vmalloc_size - 1ul) {
       struct constraint *c = &out[n++];
       memset(c, 0, sizeof(*c));

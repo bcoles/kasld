@@ -125,12 +125,13 @@ int rule_x86_64_page_offset_from_vmalloc_vmemmap(const struct evidence_set *ev,
    * VMALLOC_SIZE_TB·1TB from the witness — a bigger subtraction means a
    * smaller (tighter) upper bound, which is *unsound* if we guess L5 on an L4
    * system (excludes valid PAGE_OFFSET values). So commit to L5 only when
-   * Q_PAGE_OFFSET is fully pinned in L5 territory (lo == hi AND below the L4
-   * VAS floor). Otherwise default to L4 — a smaller subtraction, a looser
-   * bound, which is always sound under uncertainty. */
+   * Q_PAGE_OFFSET is fully pinned in L5 territory (a single value AND below
+   * the L4 VAS floor). Otherwise default to L4 — a smaller subtraction, a
+   * looser bound, which is always sound under uncertainty. */
   unsigned long vmalloc_size_tb = VMALLOC_SIZE_TB_L4;
-  if (est[Q_PAGE_OFFSET].lo == est[Q_PAGE_OFFSET].hi &&
-      est[Q_PAGE_OFFSET].lo < X86_64_L4_VAS_START)
+  unsigned long po_pin;
+  if (quantity_pinned(Q_PAGE_OFFSET, &est[Q_PAGE_OFFSET], &po_pin) &&
+      po_pin < X86_64_L4_VAS_START)
     vmalloc_size_tb = VMALLOC_SIZE_TB_L5;
 
   int n = 0;

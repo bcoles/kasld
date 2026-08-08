@@ -125,7 +125,7 @@ int rule_phys_virt_synth(const struct evidence_set *ev,
      * randomize_memory_page_offset enforces (PMD on Path 1, PUD on Path 2). */
     if (cand & ((2ul * 1024 * 1024) - 1))
       continue;
-    if (cand < po->lo || cand > po->hi)
+    if (!quantity_admits(Q_PAGE_OFFSET, po, cand))
       continue;
     n_valid++;
     if (cand < cand_lo)

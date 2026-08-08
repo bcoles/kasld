@@ -67,11 +67,12 @@ int rule_arm64_va47_modern_floor(const struct evidence_set *ev,
 
   const struct estimate *po = &est[Q_PAGE_OFFSET];
   /* Act only on a fully resolved PAGE_OFFSET. */
-  if (po->kind != LK_INTERVAL || po->lo != po->hi)
+  unsigned long po_pin;
+  if (!quantity_pinned(Q_PAGE_OFFSET, po, &po_pin))
     return 0;
   /* Only the one ambiguous value: arm64_text_base already floors every other
    * resolved PAGE_OFFSET, so there is nothing to recover there. */
-  if (po->lo != arm64_page_offset_for(47ul))
+  if (po_pin != arm64_page_offset_for(47ul))
     return 0;
 
   /* Witness: a VIRT/VMEMMAP observation strictly above the linear-map base.
@@ -85,7 +86,7 @@ int rule_arm64_va47_modern_floor(const struct evidence_set *ev,
         o->eff_type != KASLD_TYPE_VIRT || o->eff_region != REGION_VMEMMAP)
       continue;
     unsigned long a = obs_anchor(o);
-    if (a > po->lo) {
+    if (a > po_pin) {
       witness_id = o->id;
       witness_conf = o->conf;
       break;

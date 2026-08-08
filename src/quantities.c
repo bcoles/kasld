@@ -30,6 +30,12 @@ static const unsigned long va_bits_candidates[] = {48ul};
 #endif
 #define N_VA_BITS                                                              \
   ((int)(sizeof(va_bits_candidates) / sizeof(va_bits_candidates[0])))
+/* The live set is a bitmask in one unsigned long; see the bound's definition
+ * in quantity.h. Checked here so estimate_meet's `1ul << i` needs no runtime
+ * guard, on the 32-bit builds too. */
+__extension__ _Static_assert(N_VA_BITS <= KASLD_FINSET_MAX_CANDIDATES,
+                             "VA_BITS_CANDIDATES longer than the finite-set "
+                             "bitmask can represent");
 
 /* ---- honest tops ------------------------------------------------------ */
 

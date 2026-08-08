@@ -77,7 +77,8 @@ int rule_arm64_text_base(const struct evidence_set *ev,
 
   const struct estimate *po = &est[Q_PAGE_OFFSET];
   /* Act only once PAGE_OFFSET is resolved to a single value. */
-  if (po->kind != LK_INTERVAL || po->lo != po->hi)
+  unsigned long po_pin;
+  if (!quantity_pinned(Q_PAGE_OFFSET, po, &po_pin))
     return 0;
 
   /* Map the resolved PAGE_OFFSET back to its VA_BITS (PAGE_OFFSET = -(1<<va)).
@@ -86,7 +87,7 @@ int rule_arm64_text_base(const struct evidence_set *ev,
   const int ncands = (int)(sizeof(cands) / sizeof(cands[0]));
   unsigned long va = 0;
   for (int k = 0; k < ncands; k++) {
-    if (arm64_page_offset_for(cands[k]) == po->lo) {
+    if (arm64_page_offset_for(cands[k]) == po_pin) {
       va = cands[k];
       break;
     }

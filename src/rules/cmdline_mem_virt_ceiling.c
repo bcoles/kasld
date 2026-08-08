@@ -42,9 +42,9 @@ int rule_cmdline_mem_virt_ceiling(const struct evidence_set *ev,
 
   /* virt_page_offset must be pinned (VMSPLIT or landmark resolved). */
   const struct estimate *po = &est[Q_PAGE_OFFSET];
-  if (po->lo != po->hi)
+  unsigned long virt_page_offset;
+  if (!quantity_pinned(Q_PAGE_OFFSET, po, &virt_page_offset))
     return 0;
-  unsigned long virt_page_offset = po->lo;
 
   unsigned long mem = 0;
   enum kasld_confidence mconf = CONF_UNKNOWN, kconf = CONF_UNKNOWN;

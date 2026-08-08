@@ -3821,8 +3821,12 @@ static void engine_sync_authoritative(const struct engine *e) {
     layout.phys_kaslr_align = e->est[Q_VIRT_KASLR_ALIGN].lo;
 #endif
 
-  layout.virt_page_offset_min = e->est[Q_PAGE_OFFSET].lo;
-  layout.virt_page_offset_max = e->est[Q_PAGE_OFFSET].hi;
+  /* The rendered min/max are the window CONTAINING every admitted value, which
+   * is what the map draws as the direct-map band's uncertainty. On a lattice
+   * that can hold gaps this is wider than the live set — the right direction
+   * for a band, which must not appear narrower than the evidence supports. */
+  quantity_window(Q_PAGE_OFFSET, &e->est[Q_PAGE_OFFSET],
+                  &layout.virt_page_offset_min, &layout.virt_page_offset_max);
 
   /* Project the resolved direct-map base onto the rendered singular field
    * whenever the engine has pinned it. On coupled arches PAGE_OFFSET equals
@@ -3831,9 +3835,12 @@ static void engine_sync_authoritative(const struct engine *e) {
    * it to a different boundary, and the render must follow the engine rather
    * than show the compile-time seed. (The decoupled, possibly-unpinned
    * RANDOMIZE_MEMORY case is handled by the block below.) */
-  if (e->est[Q_PAGE_OFFSET].lo == e->est[Q_PAGE_OFFSET].hi &&
-      e->est[Q_PAGE_OFFSET].lo != 0)
-    layout.virt_page_offset = e->est[Q_PAGE_OFFSET].lo;
+  {
+    unsigned long po_pin;
+    if (quantity_pinned(Q_PAGE_OFFSET, &e->est[Q_PAGE_OFFSET], &po_pin) &&
+        po_pin != 0)
+      layout.virt_page_offset = po_pin;
+  }
 
 #if !TEXT_TRACKS_DIRECTMAP
   /* On decoupled arches the direct-map base (PAGE_OFFSET) is randomized away
@@ -3850,8 +3857,10 @@ static void engine_sync_authoritative(const struct engine *e) {
    * begins at the directmap base. */
   {
     const struct estimate *po = &e->est[Q_PAGE_OFFSET];
-    if (po->lo > (unsigned long)PAGE_OFFSET)
-      layout.virt_page_offset = po->lo;
+    unsigned long po_lo;
+    if (quantity_window(Q_PAGE_OFFSET, po, &po_lo, NULL) &&
+        po_lo > (unsigned long)PAGE_OFFSET)
+      layout.virt_page_offset = po_lo;
   }
 
   const struct estimate *pt = &e->est[Q_PHYS_IMAGE_BASE];
@@ -3954,12 +3963,19 @@ static void engine_sync_authoritative(const struct engine *e) {
    * reject a real module leak -- the failure mode the union contract guards. */
   {
     const struct estimate *po = &e->est[Q_PAGE_OFFSET];
-    int pinned = (po->lo == po->hi && po->lo != 0);
-    int default_excluded = po->lo > (unsigned long)PAGE_OFFSET ||
-                           po->hi < (unsigned long)PAGE_OFFSET;
-    if (po->lo && po->lo <= po->hi && (pinned || default_excluded)) {
-      unsigned long lo = MODULES_START_FOR(po->lo);
-      unsigned long hi = MODULES_END_FOR(po->hi);
+    unsigned long po_lo = 0, po_hi = 0, po_pin = 0;
+    int have = quantity_window(Q_PAGE_OFFSET, po, &po_lo, &po_hi);
+    int pinned = quantity_pinned(Q_PAGE_OFFSET, po, &po_pin) && po_pin != 0;
+    /* Ask the estimate whether the compile-time split is still admitted rather
+     * than comparing it against the window edges: on a lattice that can hold
+     * gaps, an edge comparison still calls an excluded interior value
+     * possible, and this test is what decides whether the band may move off
+     * that split at all. */
+    int default_excluded =
+        !quantity_admits(Q_PAGE_OFFSET, po, (unsigned long)PAGE_OFFSET);
+    if (have && po_lo && (pinned || default_excluded)) {
+      unsigned long lo = MODULES_START_FOR(po_lo);
+      unsigned long hi = MODULES_END_FOR(po_hi);
       /* Reject a wrapped floor; do NOT clamp it to KERNEL_VIRT_VAS_START. On
        * every arch that carves the module band out of vmalloc the band
        * legitimately sits BELOW PAGE_OFFSET, and on those KERNEL_VIRT_VAS_START
@@ -3967,7 +3983,7 @@ static void engine_sync_authoritative(const struct engine *e) {
        * reject every genuine module leak, the exact failure the union contract
        * above exists to prevent. Same wrap test that
        * rules/module_base_bounds.c applies to these edges. */
-      if (kasld_module_band_floor_sane(po->lo, lo) && hi > lo) {
+      if (kasld_module_band_floor_sane(po_lo, lo) && hi > lo) {
         mod_union_lo = lo;
         mod_union_hi = hi;
         layout.modules_start = lo;

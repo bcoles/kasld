@@ -108,6 +108,7 @@ and `make` halts on the first.
 | `check-text-floor` | no component rolls its own text-base floor — they must use the `api.h` helper |
 | `check-shellcheck` | shellcheck over the `extra/` helper scripts |
 | `check-confidence-floor` | no engine rule pins the *guaranteed* window from a guess — a sub-floor signal may shape `likely` only, outside the reviewed allowlist |
+| `check-lattice-seam` | quantities whose lattice varies by architecture (`Q_PAGE_OFFSET`, `Q_VA_BITS`) are read through `quantity_pinned/window/admits/narrowed`, never through `.lo` / `.hi`. `struct estimate` means different things per lattice — on a finite set `lo` is a live-candidate bitmask and `hi` is unused — so a direct read is correct only for the lattice it was written against, which is not a property of the source when the same file compiles both ways. Nothing would fail loudly: a bitmask read as an address is a small integer, so the result is a plausible wrong answer rather than a crash. The pointer alias is discovered from its binding rather than assumed to be named `po`, so renaming it cannot slip a read past |
 | `check-text-region` | the `KERNEL_TEXT` vs `KERNEL_IMAGE` base contract holds — only reviewed emitters may publish a `_stext` base |
 | `check-image-size` | the kernel image size is read only through the evidence accessors, never re-derived in a component |
 | `check-hash-parity` | every hashed offset-table row's key recomputes to the stored value under the shipped `kasld_fnv1a64()`, so the runtime hash and the offline generator's cannot drift apart |

@@ -38,9 +38,9 @@ int rule_dram_ceiling(const struct evidence_set *ev, const struct estimate *est,
     return 0;
 
   const struct estimate *po = &est[Q_PAGE_OFFSET];
-  if (po->lo != po->hi)
+  unsigned long virt_page_offset;
+  if (!quantity_pinned(Q_PAGE_OFFSET, po, &virt_page_offset))
     return 0; /* virt_page_offset not yet pinned */
-  unsigned long virt_page_offset = po->lo;
 
   unsigned long dram_top = 0;
   enum kasld_confidence kconf = CONF_UNKNOWN, tconf = CONF_PARSED;

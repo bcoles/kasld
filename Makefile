@@ -624,6 +624,7 @@ lint :
 	@$(TEST_DIR)/check-text-floor
 	@$(TEST_DIR)/check-text-region
 	@$(TEST_DIR)/check-confidence-floor
+	@$(TEST_DIR)/check-lattice-seam
 	@$(TEST_DIR)/check-image-size
 	@$(TEST_DIR)/check-fdt-unflatten
 	@$(TEST_DIR)/check-ksymoff

@@ -52,9 +52,9 @@ int rule_highmem_32bit_bound(const struct evidence_set *ev,
     return 0; /* meaningful only on 32-bit coupled arches */
 
   const struct estimate *po = &est[Q_PAGE_OFFSET];
-  if (po->lo != po->hi)
+  unsigned long virt_page_offset;
+  if (!quantity_pinned(Q_PAGE_OFFSET, po, &virt_page_offset))
     return 0; /* virt_page_offset not yet pinned */
-  unsigned long virt_page_offset = po->lo;
 
   unsigned long lowmem = 0;
   enum kasld_confidence conf = CONF_UNKNOWN;

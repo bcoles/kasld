@@ -28,7 +28,7 @@
 // window around the implied phys base.
 //
 // Soundness:
-//   * Requires Q_PAGE_OFFSET pinned (po->lo == po->hi). On
+//   * Requires Q_PAGE_OFFSET narrowed to a single value. On
 //     DIRECTMAP_STATIC arches this is provided by phys_virt_synth (from
 //     paired directmap+DRAM leaks) or page_offset_invariant_pin (on the
 //     architecturally-fixed subset). Without that pin we cannot project
@@ -61,10 +61,10 @@ int rule_text_base_coupling_synth(const struct evidence_set *ev,
   (void)ev;
 #if TEXT_TRACKS_DIRECTMAP
   const struct estimate *po = &est[Q_PAGE_OFFSET];
-  if (po->lo != po->hi)
+  unsigned long virt_page_offset;
+  if (!quantity_pinned(Q_PAGE_OFFSET, po, &virt_page_offset))
     return 0; /* virt_page_offset must be pinned for the projection to be sound
                */
-  const unsigned long virt_page_offset = po->lo;
 
   const struct estimate *vt = &est[Q_VIRT_IMAGE_BASE];
   const struct estimate *pt = &est[Q_PHYS_IMAGE_BASE];

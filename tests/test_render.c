@@ -14,6 +14,13 @@
 // <bcoles@gmail.com>
 
 #include "../src/orchestrator.c"
+/* The engine's value model, after orchestrator.c so its feature-test
+ * macros are established first. engine_sync_authoritative projects
+ * resolved estimates into `layout`, and reading an estimate means knowing
+ * its lattice — so this TU carries estimate.c + quantities.c even though
+ * -DKASLD_TESTING excludes the rest of the engine. */
+#include "../src/estimate.c"
+#include "../src/quantities.c"
 #include "../src/region_info.c"
 #include "../src/render.c"
 #include "../src/render/hardening.c"

@@ -48,7 +48,9 @@ struct estimate {
    * value satisfies (q % stride) == stride_offset in addition to lying in
    * [lo, hi]. Multiple C_STRIDE constraints fold via CRT in estimate_meet;
    * unsolvable systems push the estimate to bottom. Always 0 on
-   * LK_MAXALIGN / LK_FINSET (the stride concept doesn't apply there). */
+   * LK_MAXALIGN / LK_FINSET. On a finite set a C_STRIDE still narrows — it
+   * drops every candidate outside the residue class — but it does so directly,
+   * leaving no annotation to carry afterwards. */
   unsigned long stride;
   unsigned long stride_offset;
 };
@@ -97,6 +99,47 @@ int estimate_is_bottom(const struct estimate *e, const struct quantity_def *qd);
  * resolved Q_VA_BITS) don't depend on the LK_FINSET representation. */
 int estimate_finset_value(const struct quantity_def *qd,
                           const struct estimate *e, unsigned long *out);
+
+/* ------------------------------------------------------------------------
+ * Lattice-agnostic value access.
+ *
+ * `struct estimate` means different things per lattice — on LK_FINSET `lo` is
+ * a live-candidate BITMASK and `hi` is unused — so reading `.lo` / `.hi`
+ * directly only works if the caller already knows the quantity's lattice. That
+ * coupling is what these exist to remove: a quantity may change lattice (or an
+ * arch may compile it differently) without every consumer changing with it.
+ *
+ * `.lo_binding` and `.lo_conf` stay directly readable. They carry the same
+ * meaning on every lattice — the constraint that last narrowed the estimate,
+ * and its confidence — and no consumer reads the `hi_` pair, which LK_FINSET
+ * never sets.
+ * ------------------------------------------------------------------------ */
+
+/* Narrowed to exactly one value? Writes it to *out (may be NULL) and returns 1.
+ * An alignment (LK_MAXALIGN) is never a value, so it never pins. */
+int quantity_pinned(enum kasld_quantity q, const struct estimate *e,
+                    unsigned long *out);
+
+/* The smallest window CONTAINING every value still admitted — for LK_FINSET
+ * the lowest and highest live candidates, which is wider than the live set
+ * itself. Use quantity_admits() to ask about one value; use this only for
+ * arithmetic that genuinely wants edges. Returns 0 (leaving *lo / *hi
+ * untouched) when nothing is admitted, which also covers the bottom estimate.
+ * Either output may be NULL. */
+int quantity_window(enum kasld_quantity q, const struct estimate *e,
+                    unsigned long *lo, unsigned long *hi);
+
+/* Is `v` still possible? Exact on LK_FINSET. On LK_INTERVAL it honours the
+ * stride annotation but not interior C_EXCLUDE holes, which the lattice does
+ * not carry — so it can answer "yes" for a value a hole has removed. That
+ * direction is the sound one (it over-admits, never under-admits) and matches
+ * what edge comparisons already did. */
+int quantity_admits(enum kasld_quantity q, const struct estimate *e,
+                    unsigned long v);
+
+/* Has anything been proven about this quantity, or is it still at its honest
+ * top? Replaces open-coded comparisons against a freshly built top. */
+int quantity_narrowed(enum kasld_quantity q, const struct estimate *e);
 
 /* Resolve quantity q over the constraints in cs[0..n_cs), considering only
  * those with conf >= floor. Greedy strongest-first (conf DESC, lineage_count
