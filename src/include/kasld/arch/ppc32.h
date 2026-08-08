@@ -66,7 +66,9 @@
 #define MODULES_RELATIVE_TO_PAGE_OFFSET 1
 #define MODULES_START_FOR(po) ((po) - 0x10000000ul)
 #define MODULES_END_FOR(po) (KERNEL_VIRT_VAS_END)
-#define MODULES_START MODULES_START_FOR(PAGE_OFFSET) // 0xb0000000ul
+// Instantiated at the lowest admissible split, per the union rule in api.h;
+// ppc32 has only one, so this is PAGE_OFFSET spelled as the rule requires.
+#define MODULES_START MODULES_START_FOR(KERNEL_VIRT_VAS_START) // 0xb0000000ul
 #define MODULES_END MODULES_END_FOR(PAGE_OFFSET)
 #define MODULES_RELATIVE_TO_TEXT 0
 

@@ -56,13 +56,40 @@
 // configurations. The orchestrator adjusts at runtime once vmsplit is detected.
 #define KERNEL_VIRT_VAS_START KERNEL_VIRT_TEXT_MIN
 #define KERNEL_VIRT_VAS_END 0xfffffffful
-// Above this, addresses fall in the module/fixmap region.
+// Kernel text ceiling, and a deliberate over-estimate rather than a region
+// boundary: the image sits within KERNEL_IMAGE_SIZE (512 MiB) of PAGE_OFFSET,
+// so even the highest split puts it no higher than 0xe0000000. What lies above
+// the image is the rest of the linear map, whose top is the runtime lowmem
+// size -- there is no fixed address at which the module region begins.
 #define KERNEL_VIRT_TEXT_MAX 0xf0000000ul
 
-// Modules placed in high memory above kernel text.
-// https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/kernel/module.c
-#define MODULES_START 0xf0000000ul
-#define MODULES_END 0xfffffffful
+// x86_32 has no module region at a fixed address. MODULES_VADDR is
+// VMALLOC_START, which is `high_memory + VMALLOC_OFFSET` (8 MiB), and
+// high_memory is PAGE_OFFSET plus the span of lowmem:
+//
+//   MODULES_VADDR = PAGE_OFFSET + lowmem_span + 8 MiB
+//
+// Two runtime terms, and only the first is a PAGE_OFFSET relation. The lowmem
+// span is a property of how much RAM the machine has (capped by MAXMEM), which
+// nothing here observes, so the floor states the limit it approaches as that
+// span goes to zero: PAGE_OFFSET + 8 MiB. Sound under the older definition
+// too, which rounded down to an 8 MiB boundary -- every admissible PAGE_OFFSET
+// is already 8 MiB-aligned, so the rounding cannot land below.
+//
+// The ceiling is VMALLOC_END, which moves with NR_CPUS through
+// CPU_ENTRY_AREA_PAGES and is no more a compile-time constant than the floor,
+// so it is the top of the address space.
+//
+// A band stated as a literal cannot hold here: the floor is correct only for a
+// 3G split carrying more than ~760 MiB of lowmem, and drops below any fixed
+// value on a smaller machine or a lower split.
+// https://elixir.bootlin.com/linux/v7.2/source/arch/x86/include/asm/pgtable_32_areas.h
+// https://elixir.bootlin.com/linux/v7.2/source/arch/x86/mm/init_32.c
+#define MODULES_RELATIVE_TO_PAGE_OFFSET 1
+#define MODULES_START_FOR(po) ((po) + 0x00800000ul)
+#define MODULES_END_FOR(po) (KERNEL_VIRT_VAS_END)
+#define MODULES_START MODULES_START_FOR(KERNEL_VIRT_VAS_START) // 0x40800000ul
+#define MODULES_END MODULES_END_FOR(PAGE_OFFSET)
 // Module region is fixed; does not shift with KASLR.
 #define MODULES_RELATIVE_TO_TEXT 0
 

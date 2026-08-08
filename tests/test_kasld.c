@@ -1920,12 +1920,12 @@ static void test_engine_sync_module_band_follows_page_offset(void) {
    * KERNEL_VIRT_VAS_START. Arches that carve the module band out of vmalloc
    * put it below PAGE_OFFSET, and on those KERNEL_VIRT_VAS_START *is*
    * PAGE_OFFSET -- clamping there would collapse the band and reject every
-   * genuine module leak. Only a wrapped floor (a PAGE_OFFSET window reaching
-   * below the band's own width) is rejected, and `moved` is above the
-   * compile-time PAGE_OFFSET so it cannot wrap here. */
+   * genuine module leak. Only a wrapped floor is rejected, and `moved` sits
+   * well inside the address space, so the relation cannot wrap here whether it
+   * adds to PAGE_OFFSET or subtracts from it. */
   unsigned long want_lo = MODULES_START_FOR(moved);
   unsigned long want_hi = MODULES_END_FOR(moved);
-  assert(want_lo <= moved); /* no wrap in this fixture */
+  assert(kasld_module_band_floor_sane(moved, want_lo)); /* no wrap here */
   assert(want_hi > want_lo);
   assert(layout.modules_start == want_lo);
   assert(layout.modules_end == want_hi);

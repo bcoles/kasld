@@ -127,9 +127,9 @@ int rule_module_base_bounds(const struct evidence_set *ev,
     if (po->lo && po->hi && po->lo <= po->hi) {
       unsigned long band_lo = (unsigned long)MODULES_START_FOR(po->lo);
       unsigned long band_hi = (unsigned long)MODULES_END_FOR(po->hi);
-      /* MODULES_START_FOR subtracts, so guard the wrap a low PAGE_OFFSET
-       * would produce rather than emitting a floor near ULONG_MAX. */
-      if (band_lo <= po->lo && n < out_max)
+      /* Guard the wrap an extreme PAGE_OFFSET would produce rather than
+       * emitting a floor at the wrong end of the address space. */
+      if (kasld_module_band_floor_sane(po->lo, band_lo) && n < out_max)
         mbb_emit(&out[n++], C_LOWER_BOUND, band_lo, 0);
       if (band_hi >= po->hi && n < out_max)
         mbb_emit(&out[n++], C_UPPER_BOUND, band_hi, 0);

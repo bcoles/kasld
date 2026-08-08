@@ -65,17 +65,33 @@
 // Above this, addresses fall in the vectors/fixmap region.
 #define KERNEL_VIRT_TEXT_MAX 0xf0000000ul
 
-// Modules are located below kernel: PAGE_OFFSET - 16MiB (0x01000000)
-// https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm/include/asm/memory.h#L51
-// Stated as a relation to PAGE_OFFSET, not as fixed addresses: VMSPLIT chooses
-// PAGE_OFFSET at build time and the band moves with it, so the compile-time
-// instance below is only where the modules sit under THIS binary's default.
-// MODULES_RELATIVE_TO_PAGE_OFFSET lets the orchestrator re-derive the band once
-// the engine resolves the running kernel's PAGE_OFFSET.
+// arm32 gives modules a dedicated window immediately below the linear map:
+// MODULES_VADDR is PAGE_OFFSET - 16 MiB (8 MiB on a Thumb-2 kernel, whose
+// relocations reach less far, so the 16 MiB floor covers both), and
+// MODULES_END is PAGE_OFFSET, or one PMD below it under CONFIG_HIGHMEM.
+//
+// That window is not the whole story. CONFIG_ARM_MODULE_PLTS -- `default y`,
+// so this is the ordinary case rather than an exotic one -- gives the
+// allocator a fallback of [VMALLOC_START, VMALLOC_END] for modules that no
+// longer fit, reached via PLT veneers (arch/arm/mm/init.c execmem_arch_setup).
+// VMALLOC_START derives from runtime high_memory and therefore lies ABOVE
+// PAGE_OFFSET, so a band that stops at PAGE_OFFSET describes only the first
+// window and rejects every module that spilled into the second. VMALLOC_END is
+// 0xff800000, but a band is the union over what a kernel MIGHT do, and
+// CONFIG_XIP_KERNEL re-points MODULES_VADDR at the execute-in-place ROM
+// entirely -- so the ceiling is the top of the address space.
+//
+// The floor is the only PAGE_OFFSET relation of the two, and it is
+// instantiated at the lowest admissible split rather than this binary's:
+// VMSPLIT is a build choice of the kernel under analysis, and
+// kasld_addr_is_module_band() runs inside components, before the engine has
+// resolved which split that kernel used.
+// https://elixir.bootlin.com/linux/v7.2/source/arch/arm/include/asm/memory.h
+// https://elixir.bootlin.com/linux/v7.2/source/arch/arm/mm/init.c
 #define MODULES_RELATIVE_TO_PAGE_OFFSET 1
 #define MODULES_START_FOR(po) ((po) - 0x01000000ul)
-#define MODULES_END_FOR(po) (po)
-#define MODULES_START MODULES_START_FOR(PAGE_OFFSET) // 0xbf000000ul
+#define MODULES_END_FOR(po) (KERNEL_VIRT_VAS_END)
+#define MODULES_START MODULES_START_FOR(KERNEL_VIRT_VAS_START) // 0x3f000000ul
 #define MODULES_END MODULES_END_FOR(PAGE_OFFSET)
 // Module region is fixed below PAGE_OFFSET; does not shift with KASLR.
 #define MODULES_RELATIVE_TO_TEXT 0

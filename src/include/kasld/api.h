@@ -271,13 +271,25 @@ __extension__ _Static_assert((unsigned long)KERNEL_PHYS_MAX >
 
 /* MODULES_RELATIVE_TO_PAGE_OFFSET is opt-in: an arch declares it 1 when its
  * module band is defined as a DELTA FROM PAGE_OFFSET rather than at fixed
- * addresses. The compile-time MODULES_START/END then encode nothing but the
- * band's position under the compile-time PAGE_OFFSET, and an arch whose
- * PAGE_OFFSET moves at runtime (arm32 VMSPLIT) leaves them pointing at a place
- * the modules are not. Such an arch also supplies MODULES_START_FOR(po) /
- * MODULES_END_FOR(po) -- the same arithmetic parameterised on PAGE_OFFSET -- so
- * the orchestrator can re-derive the band once the engine resolves it, and so
- * the static macros cannot drift from the relation they are an instance of.
+ * addresses. Such an arch supplies MODULES_START_FOR(po) / MODULES_END_FOR(po)
+ * -- the same arithmetic parameterised on PAGE_OFFSET -- so the orchestrator
+ * can re-derive the band once the engine resolves it, and so the static macros
+ * cannot drift from the relation they are an instance of.
+ *
+ * WHICH INSTANCE: the static MODULES_START/END must apply the relation at the
+ * LOWEST PAGE_OFFSET the arch admits, not at the compile-time one. The two
+ * differ wherever the split is a build choice the analysing binary cannot see
+ * (arm32 and x86_32 VMSPLIT), and there the compile-time instance is a band
+ * this binary's own default would have -- not the union the CONTRACT above
+ * requires. It matters because the static macros are what
+ * kasld_addr_is_module_band() enforces INSIDE each component, which runs
+ * before the engine has resolved anything: a band drawn at the wrong split
+ * discards every genuine module address at the source, and the orchestrator's
+ * re-derivation comes too late to recover it. On every arch in scope the
+ * lowest admissible split is KERNEL_VIRT_VAS_START, so that is the argument to
+ * instantiate with; where PAGE_OFFSET cannot move the two coincide and the
+ * choice is a no-op. The assertions below hold the property rather than the
+ * spelling.
  *
  * Both accessors must stay integer CONSTANT EXPRESSIONS when applied to the
  * compile-time PAGE_OFFSET: MODULES_START/END appear in static initialisers and
@@ -295,6 +307,20 @@ __extension__ _Static_assert((unsigned long)KERNEL_PHYS_MAX >
 #endif
 #if MODULES_RELATIVE_TO_TEXT
 #error "module band cannot follow both PAGE_OFFSET and the text base"
+#endif
+/* The union-vs-instance rule, enforced rather than merely documented: writing
+ * the floor as the relation applied to the compile-time PAGE_OFFSET is the
+ * mistake, and it is spelled almost identically to the correct form, so the
+ * check has to be equality against the right argument. Both accessors are
+ * monotone in PAGE_OFFSET, so this also fixes the floor as the widest the
+ * relation can produce, whether it adds to PAGE_OFFSET or subtracts from it.
+ * An arch needing a wider band widens the RELATION, which keeps the static
+ * macros and the runtime projection describing the same geometry. */
+#if MODULES_START != MODULES_START_FOR(KERNEL_VIRT_VAS_START)
+#error "MODULES_START must instantiate the relation at the lowest split"
+#endif
+#if MODULES_END < MODULES_END_FOR(PAGE_OFFSET)
+#error "MODULES_END is below the band's own ceiling at the compile-time split"
 #endif
 #endif
 
@@ -697,6 +723,30 @@ static inline int kasld_addr_in_range(unsigned long long addr,
                                       unsigned long long hi) {
   return addr >= lo && addr <= hi;
 }
+
+#if MODULES_RELATIVE_TO_PAGE_OFFSET
+/* Guard for projecting the module band onto a resolved PAGE_OFFSET.
+ *
+ * MODULES_START_FOR either adds to PAGE_OFFSET or subtracts from it, so the
+ * arithmetic can wrap at whichever end of the address space it moves toward: a
+ * subtracting relation underflows past 0 when the split reaches the lowest one
+ * admissible, an adding relation overflows past ULONG_MAX. Both present the
+ * same way -- the projected floor lands on the far side of the PAGE_OFFSET it
+ * was derived from. Which side that is depends only on the relation, so the
+ * test is a compile-time constant and folds away.
+ *
+ * A wrapped floor is rejected, never clamped: on an arch that carves the band
+ * out of the address space below PAGE_OFFSET, clamping to the bottom of the
+ * kernel VAS collapses the band onto a point and rejects every genuine module
+ * leak. */
+static inline int kasld_module_band_floor_sane(unsigned long po,
+                                               unsigned long floor) {
+  return ((unsigned long)MODULES_START_FOR((unsigned long)PAGE_OFFSET) <=
+          (unsigned long)PAGE_OFFSET)
+             ? floor <= po
+             : floor >= po;
+}
+#endif
 
 /* Predicate: is `va` plausibly inside the kernel module BAND on this arch?
  *

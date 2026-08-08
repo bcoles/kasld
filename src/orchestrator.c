@@ -3960,16 +3960,14 @@ static void engine_sync_authoritative(const struct engine *e) {
     if (po->lo && po->lo <= po->hi && (pinned || default_excluded)) {
       unsigned long lo = MODULES_START_FOR(po->lo);
       unsigned long hi = MODULES_END_FOR(po->hi);
-      /* MODULES_START_FOR subtracts, so a PAGE_OFFSET window reaching down to
-       * the lowest admissible split can wrap the floor past 0 and leave it
-       * near ULONG_MAX. Reject a wrapped floor; do NOT clamp it to
-       * KERNEL_VIRT_VAS_START. On every arch that carves the module band out
-       * of vmalloc the band legitimately sits BELOW PAGE_OFFSET, and on those
-       * KERNEL_VIRT_VAS_START *is* PAGE_OFFSET -- clamping there would discard
-       * the whole band and reject every genuine module leak, the exact failure
-       * the union contract above exists to prevent. Same wrap test that
+      /* Reject a wrapped floor; do NOT clamp it to KERNEL_VIRT_VAS_START. On
+       * every arch that carves the module band out of vmalloc the band
+       * legitimately sits BELOW PAGE_OFFSET, and on those KERNEL_VIRT_VAS_START
+       * *is* PAGE_OFFSET -- clamping there would discard the whole band and
+       * reject every genuine module leak, the exact failure the union contract
+       * above exists to prevent. Same wrap test that
        * rules/module_base_bounds.c applies to these edges. */
-      if (lo <= po->lo && hi > lo) {
+      if (kasld_module_band_floor_sane(po->lo, lo) && hi > lo) {
         mod_union_lo = lo;
         mod_union_hi = hi;
         layout.modules_start = lo;

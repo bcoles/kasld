@@ -299,15 +299,15 @@ KASLD quantity (`Q_*`) that resolves each region annotated alongside it:
 | Architecture | Text ↔ Phys | Text ↔ Direct map | Text ↔ Modules | Notes |
 |---|---|---|---|---|
 | x86_64 | Independent | Independent | Independent | Three separate randomizations (`CONFIG_RANDOMIZE_MEMORY`) |
-| x86_32 | Coupled | Coupled | Fixed module region | Single KASLR offset |
+| x86_32 | Coupled | Coupled | Tracks lowmem, not text | Single KASLR offset; the module region starts at `VMALLOC_START`, which is `PAGE_OFFSET` plus the runtime lowmem size plus 8 MiB |
 | arm64 | Independent | Independent | Bracketed (within 2 GiB of text) | Separate phys/virt randomization; modules drawn from a window spanning the kernel image, so they move with it |
-| arm32 | — | Coupled | Fixed (PAGE_OFFSET - 16M) | No KASLR |
+| arm32 | — | Coupled | Below PAGE_OFFSET, spills to vmalloc | No KASLR; a dedicated 16 MiB window below `PAGE_OFFSET`, with `CONFIG_ARM_MODULE_PLTS` (default y) spilling overflow into vmalloc above it |
 | MIPS32/64 | Coupled | Coupled (kseg0) | Fixed module region | Hardware-defined mapping |
-| PowerPC32 | Coupled | Coupled | Fixed (PAGE_OFFSET - 256M) | |
+| PowerPC32 | Coupled | Coupled | Platform-dependent | A dedicated window below `PAGE_OFFSET` on 8xx / book3s32; every other platform, 85xx included, allocates from the shared vmalloc window |
 | PowerPC64 | — | Coupled | Shared VAS | No KASLR |
 | LoongArch64 | Coupled | Coupled | Fixed module region | Direct-mapped windows |
 | RISC-V64 | Virtual only | Decoupled | Coupled (shifts with kernel) | Module region anchored to kernel `_end`; text ↔ directmap coupled on legacy pre-v5.10 kernels (no KASLR) |
-| RISC-V32 | — | Coupled | Same as PAGE_OFFSET | No KASLR |
+| RISC-V32 | — | Coupled | Below PAGE_OFFSET (vmalloc) | No KASLR; modules share the vmalloc window, which on sv32 is the 512 MiB below `PAGE_OFFSET` |
 
 On coupled architectures, all sections are at fixed offsets from each other:
 a physical address reveals the virtual text base via
