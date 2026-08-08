@@ -41,6 +41,11 @@
 // Unlocks text_base_coupling_synth (it needs Q_PAGE_OFFSET pinned to
 // propagate Q_VIRT_IMAGE_BASE ↔ Q_PHYS_IMAGE_BASE).
 #define PAGE_OFFSET_INVARIANT 1
+// The DMW1 direct-mapped window base, fixed by the architecture. Above
+// KERNEL_VIRT_VAS_START (0x8000000000000000), as on mips64.
+#define PAGE_OFFSET_CANDIDATES {0x9000000000000000ul}
+#define PAGE_OFFSET_MIN 0x9000000000000000ul
+#define PAGE_OFFSET_MAX 0x9000000000000000ul
 
 // XKPRANGE starts at 0x8000000000000000 (hardware direct map windows DMW0/1/2).
 // XKVRANGE starts at 0xc000000000000000 (vmalloc, modules, vmemmap).

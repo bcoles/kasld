@@ -50,6 +50,10 @@
 // #define PAGE_OFFSET __identity_base
 #define PAGE_OFFSET 0ul
 
+// Continuous: __identity_base shifts at boot, so only the window is known.
+#define PAGE_OFFSET_MIN KERNEL_VIRT_VAS_START
+#define PAGE_OFFSET_MAX KERNEL_VIRT_VAS_END
+
 // Physical memory starts at address 0.
 #define PHYS_OFFSET 0ul
 

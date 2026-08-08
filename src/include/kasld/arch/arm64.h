@@ -44,6 +44,12 @@
 // https://elixir.bootlin.com/linux/v6.12/source/arch/arm64/include/asm/memory.h#L44
 // We assume 52 va bits (broadest, covers all configs):
 #define PAGE_OFFSET 0xfff0000000000000ul
+
+// Derived from the paging mode: PAGE_OFFSET is -(1 << VA_BITS), so the
+// window spans VA_BITS 52 (lowest base) to 39 (highest). Q_VA_BITS carries
+// the finite set; arm64_page_offset_from_va_bits maps one to the other.
+#define PAGE_OFFSET_MIN PAGE_OFFSET
+#define PAGE_OFFSET_MAX 0xffffff8000000000ul
 #define PHYS_OFFSET 0ul
 
 // VA_BITS candidates for Q_VA_BITS (finite-set lattice), smallest first. Each

@@ -28,6 +28,11 @@
 // https://www.kernel.org/doc/html/latest/x86/x86_64/mm.html
 // https://elixir.bootlin.com/linux/v6.12/source/arch/x86/include/asm/page_64_types.h#L34
 #define PAGE_OFFSET 0xff00000000000000ul
+
+// Continuous: CONFIG_RANDOMIZE_MEMORY randomizes the linear-map base within
+// its region, so there is no set to enumerate -- only the window.
+#define PAGE_OFFSET_MIN KERNEL_VIRT_VAS_START
+#define PAGE_OFFSET_MAX KERNEL_VIRT_VAS_END
 #define PHYS_OFFSET 0ul
 
 // On x86_64, CONFIG_RANDOMIZE_MEMORY makes the runtime PAGE_OFFSET differ

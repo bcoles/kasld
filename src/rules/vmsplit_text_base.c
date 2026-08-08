@@ -30,7 +30,9 @@
 // _text); a lower bound at that value is sound for every TEXT_OFFSET.
 //
 // Sound for any TEXT_OFFSET >= IMAGE_BASE_OFFSET, hence the !KASLR_SUPPORTED
-// gate and the per-arch VMSPLIT_PAGE_OFFSETS opt-in.
+// gate. The candidate set is the architecture's own PAGE_OFFSET_CANDIDATES, so
+// there is no second list to keep in step; the rule is inert where that set has
+// a single entry, since there is then no split to determine.
 //
 // NOT the same as api.h's kasld_floor_text_base(), and deliberately not built
 // on it: this snaps to the 1 GiB VMSPLIT boundary to *determine PAGE_OFFSET*,
@@ -48,11 +50,11 @@ int rule_vmsplit_text_base(const struct evidence_set *ev,
                            const struct estimate *est, struct constraint *out,
                            int out_max) {
   (void)est;
-#if defined(HAVE_VMSPLIT_PAGE_OFFSET) && !KASLR_SUPPORTED
+#if PAGE_OFFSET_IS_FINITE && !PAGE_OFFSET_KNOWN_AT_BUILD && !KASLR_SUPPORTED
   if (out_max < 2)
     return 0;
 
-  static const unsigned long cand[] = VMSPLIT_PAGE_OFFSETS; /* high -> low */
+  static const unsigned long cand[] = PAGE_OFFSET_CANDIDATES; /* high -> low */
   const int ncand = (int)(sizeof(cand) / sizeof(cand[0]));
 
   unsigned long best_po = 0;

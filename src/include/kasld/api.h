@@ -269,6 +269,63 @@ __extension__ _Static_assert((unsigned long)KERNEL_PHYS_MAX >
 #error "arch header must define TEXT_TRACKS_DIRECTMAP (0 or 1)"
 #endif
 
+/* ---- The linear-map base, as one axis ----------------------------------
+ *
+ * PAGE_OFFSET_MIN / PAGE_OFFSET_MAX bracket every linear-map base the
+ * architecture admits. Required of every arch, and stated as literals rather
+ * than derived: they appear in #if arithmetic and in static initialisers,
+ * where a candidate array cannot be indexed.
+ *
+ * They exist because KERNEL_VIRT_VAS_START had quietly acquired this second
+ * job, and it is not the same quantity. On mips64, loongarch64 and riscv64 the
+ * kernel address space STARTS far below the linear map — VAS_START
+ * 0x8000000000000000 against a PAGE_OFFSET of 0xffffffff80000000 on mips64 —
+ * so reading it as "the lowest split" is wrong there, and right elsewhere only
+ * by coincidence of which arches use it.
+ *
+ * PAGE_OFFSET_CANDIDATES is the complete set, highest first, declared ONLY
+ * where the base is a PRIMITIVE property of the build: a VMSPLIT choice, or an
+ * architectural constant. Deliberately absent where it is
+ *
+ *   DERIVED — arm64 and riscv64 compute it from the paging mode, which
+ *     Q_VA_BITS already models as a finite set. A second list there would be
+ *     two declarations obliged to agree, and riscv64's would additionally have
+ *     to track kernel version (SV39 alone has had two bases). The coupling
+ *     rule that maps one to the other is the single source of truth instead.
+ *
+ *   CONTINUOUS — x86_64 randomizes it (RANDOMIZE_MEMORY) and s390 shifts it;
+ *     there is no set to enumerate.
+ *
+ * PAGE_OFFSET_KNOWN_AT_BUILD answers the question none of the older axes did:
+ * can the ANALYSING BINARY know the target's linear-map base? That is distinct
+ * from DIRECTMAP_STATIC, which asks whether the base moves at RUNTIME — a
+ * property of the target kernel. A base can be perfectly static there and
+ * still unknown here, which is exactly the x86_32 / arm32 VMSPLIT case. */
+#ifndef PAGE_OFFSET_MIN
+#error                                                                         \
+    "arch header must define PAGE_OFFSET_MIN (lowest admissible linear-map base)"
+#endif
+#ifndef PAGE_OFFSET_MAX
+#error "arch header must define PAGE_OFFSET_MAX (highest admissible base)"
+#endif
+#if PAGE_OFFSET_MIN > PAGE_OFFSET_MAX
+#error "PAGE_OFFSET_MIN is above PAGE_OFFSET_MAX"
+#endif
+#if PAGE_OFFSET < PAGE_OFFSET_MIN || PAGE_OFFSET > PAGE_OFFSET_MAX
+#error "the compile-time PAGE_OFFSET falls outside [PAGE_OFFSET_MIN, _MAX]"
+#endif
+
+#ifdef PAGE_OFFSET_CANDIDATES
+#define PAGE_OFFSET_IS_FINITE 1
+#else
+#define PAGE_OFFSET_IS_FINITE 0
+#endif
+
+/* One admissible value means this binary knows the target's base. A finite set
+ * with more than one, or no set at all, means it does not. */
+#define PAGE_OFFSET_KNOWN_AT_BUILD                                             \
+  (PAGE_OFFSET_IS_FINITE && PAGE_OFFSET_MIN == PAGE_OFFSET_MAX)
+
 /* MODULES_RELATIVE_TO_PAGE_OFFSET is opt-in: an arch declares it 1 when its
  * module band is defined as a DELTA FROM PAGE_OFFSET rather than at fixed
  * addresses. Such an arch supplies MODULES_START_FOR(po) / MODULES_END_FOR(po)

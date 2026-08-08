@@ -243,6 +243,57 @@ static void test_finset_bounds_and_excludes(void) {
 }
 
 /* ========================================================================
+ * Arch declaration: the linear-map base axis
+ * ======================================================================== */
+/* PAGE_OFFSET_MIN / _MAX must be stated as literals — they are used in #if
+ * arithmetic and static initialisers, where a candidate array cannot be
+ * indexed — so nothing at compile time can check them against the list they
+ * are supposed to bracket. This does, on whichever architecture it is built
+ * for, which `make test-cross` turns into coverage of all of them. */
+static void test_page_offset_axis_is_self_consistent(void) {
+  assert((unsigned long)PAGE_OFFSET_MIN <= (unsigned long)PAGE_OFFSET_MAX);
+  /* This binary's own build must be admissible under its own declaration. */
+  assert((unsigned long)PAGE_OFFSET >= (unsigned long)PAGE_OFFSET_MIN);
+  assert((unsigned long)PAGE_OFFSET <= (unsigned long)PAGE_OFFSET_MAX);
+
+#if PAGE_OFFSET_IS_FINITE
+  static const unsigned long cands[] = PAGE_OFFSET_CANDIDATES;
+  const int n = (int)(sizeof(cands) / sizeof(cands[0]));
+  assert(n >= 1);
+  assert(n <= KASLD_FINSET_MAX_CANDIDATES);
+
+  unsigned long lo = ~0ul, hi = 0;
+  int has_default = 0, sorted_desc = 1;
+  for (int i = 0; i < n; i++) {
+    if (cands[i] < lo)
+      lo = cands[i];
+    if (cands[i] > hi)
+      hi = cands[i];
+    if (cands[i] == (unsigned long)PAGE_OFFSET)
+      has_default = 1;
+    if (i && cands[i] >= cands[i - 1])
+      sorted_desc = 0;
+  }
+  /* The window is exactly the set's extremes — not merely a superset, or the
+   * band derived from PAGE_OFFSET_MIN would be wider than the truth. */
+  assert(lo == (unsigned long)PAGE_OFFSET_MIN);
+  assert(hi == (unsigned long)PAGE_OFFSET_MAX);
+  /* The compile-time default is one of the admissible values. */
+  assert(has_default);
+  /* Highest first, and no duplicates. Documented order that consumers rely on
+   * for snap-down, and the strict comparison catches a repeated entry, which
+   * would waste a bitmask bit and make the set look larger than it is. */
+  assert(sorted_desc);
+  /* Exactly one admissible value is what "this binary knows the base" means. */
+  assert(PAGE_OFFSET_KNOWN_AT_BUILD == (n == 1));
+#else
+  /* No enumerable set: derived from another quantity, or continuous. Either
+   * way the base is not knowable from this binary alone. */
+  assert(!PAGE_OFFSET_KNOWN_AT_BUILD);
+#endif
+}
+
+/* ========================================================================
  * Lattice-agnostic accessors
  * ======================================================================== */
 static void test_accessors_interval(void) {
@@ -864,6 +915,9 @@ int main(void) {
   RUN(test_maxalign_meet);
   RUN(test_finset_meet);
   RUN(test_finset_bounds_and_excludes);
+
+  BEGIN_CATEGORY("Arch declaration: linear-map base axis");
+  RUN(test_page_offset_axis_is_self_consistent);
 
   BEGIN_CATEGORY("Lattice-agnostic accessors");
   RUN(test_accessors_interval);

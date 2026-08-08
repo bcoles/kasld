@@ -18,6 +18,12 @@
 #define PAGE_OFFSET 0xffffffff80000000ul
 // CKSEG0 is fixed by the MIPS ISA — virt_page_offset cannot vary at runtime.
 #define PAGE_OFFSET_INVARIANT 1
+// CKSEG0, fixed by the MIPS ISA. Note this sits far ABOVE
+// KERNEL_VIRT_VAS_START (0x8000000000000000) -- the kernel address space
+// begins well below the linear map here.
+#define PAGE_OFFSET_CANDIDATES {0xffffffff80000000ul}
+#define PAGE_OFFSET_MIN 0xffffffff80000000ul
+#define PAGE_OFFSET_MAX 0xffffffff80000000ul
 
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/mips/include/asm/mach-generic/spaces.h#L28
 #define PHYS_OFFSET 0ul

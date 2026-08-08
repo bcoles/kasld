@@ -42,6 +42,13 @@
 // https://elixir.bootlin.com/linux/v6.12/source/arch/riscv/include/asm/page.h
 #define PAGE_OFFSET 0xff60000000000000ul
 
+// Derived from the paging mode AND the kernel version: SV57/SV48/SV39 each
+// have a base, SV39 has had two across releases, and the pre-v5.10 layout
+// adds RISCV_LEGACY_PAGE_OFFSET at the top. Q_VA_BITS carries the mode; no
+// second list is declared here for the same reason as arm64.
+#define PAGE_OFFSET_MIN 0xff60000000000000ul
+#define PAGE_OFFSET_MAX RISCV_LEGACY_PAGE_OFFSET
+
 // Physical RAM base (platform-dependent; 0x80000000 for QEMU virt, SiFive,
 // etc.)
 #define PHYS_OFFSET 0x80000000ul

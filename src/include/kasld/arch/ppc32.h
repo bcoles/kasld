@@ -31,6 +31,13 @@
 #define DIRECTMAP_STATIC 1
 #define TEXT_TRACKS_DIRECTMAP 1
 #define PAGE_OFFSET_INVARIANT 1
+// One value in practice. arch/powerpc/Kconfig does expose a prompt for it
+// (PAGE_OFFSET_BOOL, under ADVANCED_OPTIONS) and two in-tree 85xx defconfigs
+// use it, so this set is narrower than the architecture strictly allows --
+// see the PAGE_OFFSET_INVARIANT entry in dev/TODO.md.
+#define PAGE_OFFSET_CANDIDATES {0xc0000000ul}
+#define PAGE_OFFSET_MIN 0xc0000000ul
+#define PAGE_OFFSET_MAX 0xc0000000ul
 
 #define KERNEL_VIRT_VAS_START PAGE_OFFSET
 #define KERNEL_VIRT_VAS_END 0xfffffffful

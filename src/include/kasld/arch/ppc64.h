@@ -25,6 +25,11 @@
 // book3s64 linear-mapping base is architecturally fixed (not
 // user-configurable).
 #define PAGE_OFFSET_INVARIANT 1
+// book3s64 linear-mapping base. arch/powerpc/Kconfig declares it under
+// `if PPC64` as a hex with no prompt, so it cannot be configured.
+#define PAGE_OFFSET_CANDIDATES {0xc000000000000000ul}
+#define PAGE_OFFSET_MIN 0xc000000000000000ul
+#define PAGE_OFFSET_MAX 0xc000000000000000ul
 
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/include/asm/page.h#L227
 #define PHYS_OFFSET 0ul

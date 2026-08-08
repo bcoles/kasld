@@ -2311,7 +2311,7 @@ static void test_vmsplit_text_base(void) {
   engine_run(&e, rules, 1);
   struct estimate vtop;
   quantities[Q_VIRT_IMAGE_BASE].init_top(&vtop);
-#if defined(HAVE_VMSPLIT_PAGE_OFFSET) && !KASLR_SUPPORTED
+#if PAGE_OFFSET_IS_FINITE && !PAGE_OFFSET_KNOWN_AT_BUILD && !KASLR_SUPPORTED
   assert(e.est[Q_PAGE_OFFSET].lo == boundary &&
          e.est[Q_PAGE_OFFSET].hi == boundary);
   /* Lower bound at boundary + IMAGE_BASE_OFFSET; the top is not pinned. */
@@ -2348,7 +2348,7 @@ static void test_vmsplit_text_base_nondefault_offset(void) {
   const rule_fn rules[] = {rule_vmsplit_text_base,
                            rule_text_pin_from_observation};
   engine_run(&e, rules, 2);
-#if defined(HAVE_VMSPLIT_PAGE_OFFSET) && !KASLR_SUPPORTED
+#if PAGE_OFFSET_IS_FINITE && !PAGE_OFFSET_KNOWN_AT_BUILD && !KASLR_SUPPORTED
   assert(e.est[Q_PAGE_OFFSET].lo ==
          boundary); /* PAGE_OFFSET still determined */
   /* The real _text is admitted and pinned — NOT excluded down to +0x8000. */

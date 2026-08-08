@@ -29,6 +29,11 @@
 #define DIRECTMAP_STATIC 1
 #define TEXT_TRACKS_DIRECTMAP 1
 #define PAGE_OFFSET_INVARIANT 1
+// Hard-coded in arch/riscv/include/asm/page.h for 32-bit MMU builds; riscv
+// has no CONFIG_PAGE_OFFSET for rv32, so there is nothing to vary.
+#define PAGE_OFFSET_CANDIDATES {0xc0000000ul}
+#define PAGE_OFFSET_MIN 0xc0000000ul
+#define PAGE_OFFSET_MAX 0xc0000000ul
 
 #define KERNEL_VIRT_VAS_START PAGE_OFFSET
 #define KERNEL_VIRT_VAS_END 0xfffffffful

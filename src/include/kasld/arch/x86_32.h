@@ -29,6 +29,13 @@
 #define PAGE_OFFSET 0xc0000000ul
 // VMSPLIT (CONFIG_PAGE_OFFSET) is a compile-time constant, fixed at boot.
 #define PAGE_OFFSET_FROM_CONFIG 1
+// Every linear-map base an x86_32 kernel can be built with, highest first
+// (arch/x86/Kconfig: VMSPLIT_3G / 3G_OPT / 2G / 2G_OPT / 1G). Which one is in
+// force is a build choice of the kernel under analysis, not of this binary.
+#define PAGE_OFFSET_CANDIDATES                                                 \
+  {0xc0000000ul, 0xb0000000ul, 0x80000000ul, 0x78000000ul, 0x40000000ul}
+#define PAGE_OFFSET_MIN 0x40000000ul
+#define PAGE_OFFSET_MAX 0xc0000000ul
 
 // TASK_SIZE == __PAGE_OFFSET exactly on x86_32, with no gap (arch/x86/include/
 // asm/page_32_types.h: `#define TASK_SIZE __PAGE_OFFSET`; STACK_TOP ==
