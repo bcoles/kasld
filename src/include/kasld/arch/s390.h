@@ -229,11 +229,11 @@
  *
  * KASLR-off signal sources: kdump (arch/s390/boot/startup.c forces
  * __kaslr_enabled = 0 when oldmem_data.start is set, signalled by elfcorehdr=),
- * nokaslr cmdline, RANDOMIZE_BASE=n. */
+ * nokaslr cmdline, RANDOMIZE_BASE=n.
+ *
+ * There is deliberately no arch_default_text_base() here. That hook returns a
+ * single compile-time constant, which is exactly the assumed default this arch
+ * declines to pin to. api.h's stub stands in and nothing calls it. */
 #define KASLR_DISABLED_PINS_VIRT_TEXT 0
-#define KASLD_ARCH_DEFAULT_TEXT_BASE_DEFINED 1
-static inline unsigned long arch_default_text_base(void) {
-  return KERNEL_VIRT_TEXT_DEFAULT;
-}
 
 #endif /* KASLD_S390_H */

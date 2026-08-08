@@ -254,12 +254,13 @@ static inline unsigned long arm64_page_end_for(unsigned long va_bits) {
  * KIMAGE_VADDR(VA_BITS_MIN) — correct for VA_BITS 39/42/47/48/52, not just 48.
  * Same shape as rule_riscv64_text_base. When PAGE_OFFSET is unresolved (no
  * probe result, no leak) it does not pin — the honest window stays wide
- * (sound). */
+ * (sound).
+ *
+ * There is deliberately no arch_default_text_base() here. That hook returns a
+ * single compile-time constant, which on arm64 can only be the VA_BITS_MIN=48
+ * KIMAGE_VADDR — the very answer this arch opted out of, wrong for VA_BITS
+ * 39/42/47. api.h's stub stands in and nothing calls it. */
 #define KASLR_DISABLED_PINS_VIRT_TEXT 0
-#define KASLD_ARCH_DEFAULT_TEXT_BASE_DEFINED 1
-static inline unsigned long arch_default_text_base(void) {
-  return KERNEL_VIRT_TEXT_DEFAULT;
-}
 
 // KASLR randomization window (v4.6+):
 // The KASLR offset from KIMAGE_VADDR is in [BIT(45), BIT(45)+BIT(46)).
