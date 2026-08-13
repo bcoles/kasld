@@ -273,28 +273,6 @@ static void emit_base(int idx, unsigned long addr) {
   /* Each "kernel .text start" / ".data start" / "modules start" message
    * reports the BASE of the named region. */
   kasld_result_base(entries[idx].type, region, addr, NULL, CONF_PARSED);
-#ifdef directmap_virt_to_phys
-  if (region == REGION_DIRECTMAP) {
-    unsigned long phys = directmap_virt_to_phys(addr);
-    kasld_info("  possible physical address: 0x%016lx", phys);
-    kasld_result_base(KASLD_TYPE_PHYS, region, phys, NULL, CONF_PARSED);
-  }
-#endif
-#if defined(directmap_virt_to_phys) && TEXT_TRACKS_DIRECTMAP
-  /* The BSS virt is also the BSS directmap virt only when the kernel image
-   * sits at the linear-map offset (TEXT_TRACKS_DIRECTMAP). Both gates are
-   * required: without the second, a future (DIRECTMAP_STATIC=1,
-   * TEXT_TRACKS_DIRECTMAP=0) arch would silently misproject the BSS virt
-   * through the linear-map formula. Emitting the PHYS/KERNEL_BSS result
-   * enables the BSS-resident gap refinement in kernel_image_phys_bound.c on
-   * ARM32 and x86_32 (the only arches that print a ".bss  :" line). */
-  if (region == REGION_KERNEL_BSS) {
-    unsigned long phys = directmap_virt_to_phys(addr);
-    kasld_info("  possible physical address: 0x%016lx", phys);
-    kasld_result_base(KASLD_TYPE_PHYS, REGION_KERNEL_BSS, phys, NULL,
-                      CONF_PARSED);
-  }
-#endif
 }
 
 static void emit_range(int idx, unsigned long lo, unsigned long hi) {

@@ -152,12 +152,6 @@ int main(void) {
                             (unsigned long)ehdr_addr, "elfcorehdr",
                             CONF_PARSED);
       }
-#ifdef phys_to_directmap_virt
-      unsigned long virt = phys_to_directmap_virt((unsigned long)ehdr_addr);
-      kasld_info("possible direct-map virtual address: 0x%016lx", virt);
-      kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, "elfcorehdr",
-                          CONF_PARSED);
-#endif
       count++;
     }
   } else if (n > 0) {
@@ -191,12 +185,6 @@ int main(void) {
         kasld_result_sample(KASLD_TYPE_PHYS, REGION_RAM, (unsigned long)base,
                             "usable-memory", CONF_PARSED);
       }
-#ifdef phys_to_directmap_virt
-      unsigned long virt = phys_to_directmap_virt((unsigned long)base);
-      kasld_info("possible direct-map virtual address: 0x%016lx", virt);
-      kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt,
-                          "usable-memory", CONF_PARSED);
-#endif
       count++;
     }
   } else if (n > 0) {

@@ -49,6 +49,11 @@
 // PAGE_OFFSET and PHYS_OFFSET are both compile-time constants on x86_32 (no
 // PAGE_OFFSET randomization, no PHYS_OFFSET patching), and x86_32 has no
 // mainline KASLR — text sits at a fixed offset within the linear map.
+// LINEAR_MAP_ANCHOR: __va(x) = x + PAGE_OFFSET on 32-bit x86 — physical 0
+// maps to the linear-map base, so the anchor is the compile-time
+// PHYS_OFFSET (0) whatever the VMSPLIT moves PAGE_OFFSET to.
+// arch/x86/include/asm/page_32.h __va()
+#define LINEAR_MAP_ANCHOR LM_ANCHOR_PHYS_OFFSET
 #define DIRECTMAP_STATIC 1
 #define TEXT_TRACKS_DIRECTMAP 1
 
@@ -92,13 +97,14 @@
 // value on a smaller machine or a lower split.
 // https://elixir.bootlin.com/linux/v7.2/source/arch/x86/include/asm/pgtable_32_areas.h
 // https://elixir.bootlin.com/linux/v7.2/source/arch/x86/mm/init_32.c
-#define MODULES_RELATIVE_TO_PAGE_OFFSET 1
 #define MODULES_START_FOR(po) ((po) + 0x00800000ul)
 #define MODULES_END_FOR(po) (KERNEL_VIRT_VAS_END)
+// Where the module band is anchored: a fixed delta from PAGE_OFFSET, so a
+// runtime VMSPLIT moves the band with it.
+#define MODULES_ANCHOR MOD_ANCHOR_PAGE_OFFSET
 #define MODULES_START MODULES_START_FOR(KERNEL_VIRT_VAS_START) // 0x40800000ul
 #define MODULES_END MODULES_END_FOR(PAGE_OFFSET)
 // Module region is fixed; does not shift with KASLR.
-#define MODULES_RELATIVE_TO_TEXT 0
 
 // For x86_32, possible max alignment is 0x100_0000 (16MiB) with default of
 // 0x20_0000 (2MiB) in increments of 0x2000 (8KiB).

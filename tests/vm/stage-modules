@@ -1,0 +1,198 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# stage-modules — give an already-built VM cell a loadable kernel module,
+# without rebuilding its kernel.
+#
+# Why every cell needs one: a cell with no module loaded leaves every
+# module-region component reading an empty /proc/modules and an absent
+# /sys/module/*/sections, which is indistinguishable from a component that does
+# not work. The module region is also the only place several rules can bound the
+# text base from, so a cell without one silently under-tests them. Not a single
+# cell in this tree had a module until this was added.
+#
+# Why it can skip the kernel: most mainline defconfigs already build `dummy`
+# and/or `veth` as modules, so nothing in .config changes and the staged kernel
+# stays byte-identical. That matters — changing .config changes vermagic and the
+# symbol CRCs, and a module built against a different .config is rejected at
+# load. Cells where neither driver is modular are SKIPPED here and reported;
+# they need `tests/vm/build-kernel <cell>`, which will force one on and rebuild
+# and re-stage the kernel to match.
+#
+# Usage:  tests/vm/stage-modules [cell ...]     (default: every built cell)
+# Env:    LINUX_VERSION  source tree to build against (must match the cell's)
+#         JOBS           parallelism
+# ---
+# <bcoles@gmail.com>
+
+set -u
+HERE=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd)
+
+# Reuse build-kernel's arch mapping and cache layout rather than keeping a
+# second copy of them in step.
+BUILD_KERNEL_LIB=1
+export BUILD_KERNEL_LIB
+# shellcheck source=/dev/null
+. "$HERE/build-kernel"
+
+if [ -t 1 ]; then
+  GREEN=$(printf '\033[32m')
+  YELLOW=$(printf '\033[33m')
+  RED=$(printf '\033[31m')
+  RESET=$(printf '\033[0m')
+else
+  GREEN=
+  YELLOW=
+  RED=
+  RESET=
+fi
+
+# The kernel release a cell's STAGED IMAGE actually boots, read from its own
+# banner. Works across every image format in the matrix (bzImage, ELF vmlinux,
+# the compressed ones) because the banner survives in all of them.
+#
+# The build tree is not authoritative for this. build-kernel treats the version
+# in a cell name as a label and takes the source version from the caller, which
+# is right when building one cell and leaves no record afterwards — so a kbuild
+# tree reconfigured against a newer source since its kernel was staged reports
+# one version while the staged vmlinuz holds another. Several cells here are in
+# exactly that state: kbuild-mipsel-mainline-5.15 is a 7.0 tree beside a
+# 5.15.211 image.
+#
+# Building from a drifted tree is not a near miss. The module carries the wrong
+# vermagic, finit_module() rejects it: init logs it FAILED and continues, so it
+# silently fails to load rather than giving a readable error.
+# Prefer the release build-kernel recorded beside the image; fall back to the
+# image's own banner for cells staged before that was written. The banner is
+# readable in most formats but not all — loongarch64's images defeat it — so the
+# recorded file is the reliable path going forward.
+image_release() { # cell image
+  [ -s "$CACHE/$1-kernel.release" ] && {
+    cat "$CACHE/$1-kernel.release"
+    return 0
+  }
+  strings -a "$2" 2>/dev/null |
+    grep -m1 -oE '[0-9]+\.[0-9]+\.[0-9]+[^ ]* \(.*\) #' | grep -oE '^[^ ]+'
+}
+
+# The source tree whose own Makefile builds the given release. Resolved by
+# reading each tree rather than by assuming the directory is named after it:
+# linux-7.0/ builds 7.0.0, so name-matching misses it, while linux-5.15.211/
+# happens to match. Reading the Makefile is right in both cases.
+src_for_release() {
+  for _d in "$CACHE"/linux-*; do
+    [ -d "$_d" ] || continue
+    _v=$(awk '/^VERSION *=/{a=$3} /^PATCHLEVEL *=/{b=$3} /^SUBLEVEL *=/{c=$3}
+              END{if (a != "") print a"."b"."c}' "$_d/Makefile" 2>/dev/null)
+    [ "$_v" = "$1" ] && {
+      echo "$_d"
+      return 0
+    }
+  done
+  return 1
+}
+
+if [ "$#" -eq 0 ]; then
+  # shellcheck disable=SC2046  # intended word-splitting of the discovered list
+  set -- $(find "$CACHE" -maxdepth 1 -name 'kbuild-*' -type d 2>/dev/null |
+    sed 's|.*/kbuild-||' | sort)
+fi
+
+n_ok=0
+n_skip=0
+n_fail=0
+skipped=''
+
+for cell in "$@"; do
+  bdir=$CACHE/kbuild-$cell
+  if [ ! -f "$bdir/.config" ]; then
+    printf '%s%-34s no build tree — needs build-kernel%s\n' \
+      "$YELLOW" "$cell" "$RESET"
+    n_skip=$((n_skip + 1))
+    skipped="$skipped $cell"
+    continue
+  fi
+  if ! grep -qE '^CONFIG_(DUMMY|VETH)=m$' "$bdir/.config"; then
+    printf '%s%-34s no modular candidate — needs build-kernel%s\n' \
+      "$YELLOW" "$cell" "$RESET"
+    n_skip=$((n_skip + 1))
+    skipped="$skipped $cell"
+    continue
+  fi
+  # Module.symvers carries the exported-symbol table (and, under
+  # CONFIG_MODVERSIONS, its CRCs) that modpost resolves a module against. Only a
+  # full vmlinux build produces it, so a tree cleaned down to its configuration
+  # cannot link one: every kernel symbol resolves as undefined. Checked here
+  # because such a tree otherwise passes every other precondition — it has a
+  # .config and a kernel.release that agree with the staged image — and the
+  # failure only appears minutes into the build.
+  if [ ! -f "$bdir/Module.symvers" ]; then
+    printf '%s%-34s tree holds no Module.symvers — needs build-kernel%s\n' \
+      "$YELLOW" "$cell" "$RESET"
+    n_skip=$((n_skip + 1))
+    skipped="$skipped $cell"
+    continue
+  fi
+
+  # The tree and the staged kernel must be the same kernel. See image_release().
+  img=$CACHE/$cell-vmlinuz
+  want=$(image_release "$cell" "$img")
+  have=$(cat "$bdir/include/config/kernel.release" 2>/dev/null)
+  if [ -z "$want" ]; then
+    printf '%s%-34s cannot read a release from %s — skipping%s\n' \
+      "$YELLOW" "$cell" "${img##*/}" "$RESET"
+    n_skip=$((n_skip + 1))
+    skipped="$skipped $cell"
+    continue
+  fi
+  if [ -z "$have" ]; then
+    printf '%s%-34s build tree not configured — needs build-kernel%s\n' \
+      "$YELLOW" "$cell" "$RESET"
+    n_skip=$((n_skip + 1))
+    skipped="$skipped $cell"
+    continue
+  fi
+  if [ "$want" != "$have" ]; then
+    printf '%s%-34s tree is %s, staged kernel is %s — rebuild with LINUX_VERSION=%s%s\n' \
+      "$RED" "$cell" "$have" "$want" "$want" "$RESET"
+    n_skip=$((n_skip + 1))
+    skipped="$skipped $cell"
+    continue
+  fi
+
+  # Build from the tree that matches, not from whatever LINUX_VERSION happened
+  # to be inherited. `src` is build-kernel's own global, reassigned per cell.
+  # shellcheck disable=SC2034  # consumed by build-kernel's stage_modules()
+  if ! src=$(src_for_release "$want"); then
+    printf '%s%-34s no source tree builds %s%s\n' "$RED" "$cell" "$want" "$RESET"
+    n_fail=$((n_fail + 1))
+    continue
+  fi
+
+  # shellcheck disable=SC2046  # spec fields are space-separated by construction
+  set -- $(spec_for "$cell")
+  ka=$2
+  tcprefix=$1
+  cc=$(cross_for "$tcprefix")
+  if [ -z "$cc" ]; then
+    printf '%s%-34s no toolchain for %s%s\n' "$RED" "$cell" "$tcprefix" "$RESET"
+    n_fail=$((n_fail + 1))
+    continue
+  fi
+
+  printf '%-34s ' "$cell"
+  if stage_modules "$cell" "$ka" "$cc" "$bdir"; then
+    printf '%sok%s (%s)\n' "$GREEN" "$RESET" \
+      "$(find "$CACHE/$cell-modules" -name '*.ko' -exec basename {} \; |
+        tr '\n' ' ')"
+    n_ok=$((n_ok + 1))
+  else
+    printf '%sFAILED%s\n' "$RED" "$RESET"
+    n_fail=$((n_fail + 1))
+  fi
+done
+
+echo
+printf 'staged %d, skipped %d, failed %d\n' "$n_ok" "$n_skip" "$n_fail"
+[ -n "$skipped" ] && printf 'needs a kernel rebuild:%s\n' "$skipped"
+[ "$n_fail" -eq 0 ]

@@ -42,12 +42,16 @@
 // https://elixir.bootlin.com/linux/v6.12/source/arch/riscv/include/asm/page.h
 #define PAGE_OFFSET 0xff60000000000000ul
 
-// Derived from the paging mode AND the kernel version: SV57/SV48/SV39 each
-// have a base, SV39 has had two across releases, and the pre-v5.10 layout
-// adds RISCV_LEGACY_PAGE_OFFSET at the top. Q_VA_BITS carries the mode; no
-// second list is declared here for the same reason as arm64.
-#define PAGE_OFFSET_MIN 0xff60000000000000ul
-#define PAGE_OFFSET_MAX RISCV_LEGACY_PAGE_OFFSET
+// Derived from the paging mode AND the kernel version, with no enumerable
+// set: SV57/SV48/SV39 each have a base, SV39 has had two across releases, the
+// pre-v5.10 layout adds another, and legacy MAXPHYSMEM_2GB puts PAGE_OFFSET at
+// 0xffffffff80000000 — above every other value. The bracket is therefore the
+// whole kernel VAS. Narrowing it to the values enumerated in the comment above
+// excludes that 2 GiB build, which is a guaranteed-window soundness bug, not a
+// precision gain. What the paging mode does prove is carried by Q_VA_BITS and
+// applied by the coupling rule.
+#define PAGE_OFFSET_MIN KERNEL_VIRT_VAS_START
+#define PAGE_OFFSET_MAX KERNEL_VIRT_VAS_END
 
 // Physical RAM base (platform-dependent; 0x80000000 for QEMU virt, SiFive,
 // etc.)
@@ -62,6 +66,13 @@
 //
 // On legacy kernels (pre-v5.10) text WAS in the linear map, but those
 // kernels had no KASLR so the lost coupled-derivation is acceptable.
+// LINEAR_MAP_ANCHOR: kernel_map.va_pa_offset = PAGE_OFFSET - phys_ram_base
+// with phys_ram_base = memblock_start_of_DRAM() & PMD_MASK, so the anchor
+// IS the base of DRAM (PMD-rounded; see riscv32.h). The paging mode moves
+// the VIRTUAL base, which Q_VA_BITS carries and this axis says nothing
+// about — the physical anchor tracks DRAM under every mode.
+// arch/riscv/mm/init.c setup_bootmem()
+#define LINEAR_MAP_ANCHOR LM_ANCHOR_DRAM_BASE
 #define DIRECTMAP_STATIC 0
 #define TEXT_TRACKS_DIRECTMAP 0
 
@@ -79,7 +90,7 @@
 
 // Kernel text region. Covers both modern and legacy layouts for validation:
 //   Legacy: _stext ≈ 0xffffffe000200000 (>= KERNEL_VIRT_TEXT_MIN)
-//   Modern: _stext ≈ 0xffffffff80200000 (>= KERNEL_VIRT_TEXT_MIN, <
+//   Modern: _stext ≈ 0xffffffff80002000 (>= KERNEL_VIRT_TEXT_MIN, <
 //   KERNEL_VIRT_TEXT_MAX)
 // KASLR (v6.6+) randomizes within 1 PUD (1 GiB) from KERNEL_LINK_ADDR.
 // https://elixir.bootlin.com/linux/v6.6/source/arch/riscv/include/asm/pgtable.h#L63
@@ -93,6 +104,9 @@
 //
 // Legacy: modules also below kernel, anchored to _end.
 // Use a wide range covering both layouts for validation.
+// Where the module band is anchored: placed relative to the kernel image, so it
+// slides with text KASLR.
+#define MODULES_ANCHOR MOD_ANCHOR_TEXT
 #define MODULES_START 0xffffffde00000000ul
 #define MODULES_END 0xffffffffc0000000ul
 
@@ -102,7 +116,6 @@
 #define MODULES_BAND_EXACT 1
 
 // Module region is anchored to kernel _end (shifts with KASLR)
-#define MODULES_RELATIVE_TO_TEXT 1
 // MODULES_BELOW_TEXT_START selects which end of the image the band is
 // measured from, which decides what MODULES_END_TO_TEXT_OFFSET added to the
 // lowest module address yields. Both riscv64 and s390 place the band below

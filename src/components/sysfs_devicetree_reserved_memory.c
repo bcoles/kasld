@@ -193,13 +193,6 @@ int main(void) {
         kasld_result_range(KASLD_TYPE_PHYS, REGION_RESERVED_MEM, base_addr,
                            res_hi, ent->d_name, CONF_PARSED);
 
-#ifdef phys_to_directmap_virt
-      unsigned long virt = phys_to_directmap_virt(base_addr);
-      kasld_info("  possible direct-map virtual address: 0x%016lx", virt);
-      kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, ent->d_name,
-                          CONF_PARSED);
-#endif
-
       count++;
       offset += entry_bytes;
     }
@@ -210,11 +203,6 @@ int main(void) {
     kasld_err("no reserved-memory regions with reg properties found");
     return 0;
   }
-
-#ifndef phys_to_directmap_virt
-  kasld_info("note: phys and virt KASLR are decoupled on this arch; "
-             "cannot derive directmap virtual address from physical leak");
-#endif
 
   return 0;
 }

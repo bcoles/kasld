@@ -37,6 +37,8 @@
 set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 COMP=$ROOT/src/components
+# shellcheck source=tests/lib/guard-scope.sh
+. "$ROOT/tests/lib/guard-scope.sh"
 
 # Live primitive signatures: a source hit means the component reads live
 # executing-kernel/CPU state. Kept deliberately specific to avoid false hits.
@@ -120,6 +122,8 @@ if [ "$fail" = 1 ]; then
   printf 'to NAME_ALLOW in tests/check-live-probes (after review) or drop it.\n' >&2
   exit 1
 fi
+
+guard_scope "check-live-probes" "$ndetected" 10
 
 printf '%slive-probe guard: OK%s (%d live probes, all tagged live:1 and self-guarded)\n' \
   "$GREEN" "$RESET" "$ndetected"

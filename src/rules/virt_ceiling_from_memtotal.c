@@ -24,10 +24,9 @@
 //
 // This is a CROSS-QUANTITY rule: it uses the engine's resolved Q_PAGE_OFFSET
 // rather than the compile-time PAGE_OFFSET, because the runtime value can
-// differ (e.g. x86-32 VMSPLIT). It therefore fires only once Q_PAGE_OFFSET has
-// collapsed to a point (a landmark pinned it) — the engine's fixpoint loop
-// re-runs this rule after page_offset_from_landmark resolves. If
-// virt_page_offset is still an interval (no landmark observed), the rule emits
+// differ (e.g. x86-32 VMSPLIT). It takes the window's UPPER EDGE — a ceiling
+// needs the highest base the target could have — so it fires as soon as the
+// quantity has a window at all, and tightens as the fixpoint narrows it. If
 // nothing: we cannot soundly map the ceiling through an unknown origin. That is
 // correct under the "a component may return nothing" principle — absence yields
 // no constraint, never a wrong one.
@@ -53,11 +52,16 @@ int rule_virt_ceiling_from_memtotal(const struct evidence_set *ev,
   if (out_max < 1)
     return 0;
 
-  /* Cross-quantity input: a pinned virt_page_offset (lo == hi). */
+  /* Cross-quantity input: the UPPER EDGE of the resolved virt_page_offset
+   * window. This rule produces a CEILING, and a virtual ceiling projected from
+   * a physical span needs the highest base the target could have — demanding a
+   * pinned point is stricter than the arithmetic needs and leaves the rule
+   * inert wherever the split is a build choice. Where one base is admissible
+   * the edge IS that base. */
   const struct estimate *po = &est[Q_PAGE_OFFSET];
-  unsigned long virt_page_offset;
-  if (!quantity_pinned(Q_PAGE_OFFSET, po, &virt_page_offset))
-    return 0; /* virt_page_offset not yet resolved to a point */
+  unsigned long virt_page_offset = 0;
+  if (!quantity_window(Q_PAGE_OFFSET, po, NULL, &virt_page_offset))
+    return 0;
 
   unsigned long memtotal = 0, phys_floor = ULONG_MAX, dram_top = 0;
   enum kasld_confidence mconf = CONF_UNKNOWN, fconf = CONF_PARSED,

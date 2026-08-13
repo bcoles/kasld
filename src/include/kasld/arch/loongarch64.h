@@ -31,6 +31,10 @@
 // PAGE_OFFSET is fixed by DMW hardware (CSR_DMW1_VSEG << DMW_PABITS) — KASLR
 // randomizes only the physical load address — so the compile-time direct-map
 // formula is exact (DIRECTMAP_STATIC) and text tracks the directmap.
+// LINEAR_MAP_ANCHOR: __va(x) = x + PAGE_OFFSET - PHYS_OFFSET with
+// PHYS_OFFSET a compile-time 0, so the anchor is that constant.
+// arch/loongarch/include/asm/page.h __va(); asm/addrspace.h PHYS_OFFSET
+#define LINEAR_MAP_ANCHOR LM_ANCHOR_PHYS_OFFSET
 #define DIRECTMAP_STATIC 1
 #define TEXT_TRACKS_DIRECTMAP 1
 
@@ -77,6 +81,9 @@
 // dropped module address, and the cost of the wider band is only
 // classify-by-range, which the REGION_MODULE provenance split already made
 // non-load-bearing.
+// Where the module band is anchored: a fixed address range, independent of both
+// the image and the linear map.
+#define MODULES_ANCHOR MOD_ANCHOR_FIXED
 #define MODULES_START 0xfc00000000000000ul // 0 - (1 << 58)
 #define MODULES_END 0xffffffffffff0000ul
 
@@ -94,7 +101,6 @@
 // https://elixir.bootlin.com/linux/v7.2/source/arch/loongarch/include/asm/pgtable.h#L98
 // https://elixir.bootlin.com/linux/v7.2/source/arch/loongarch/include/asm/addrspace.h#L141
 #define MODULES_BASE_FROM_VA_BITS_ADDEND (0x2000000ul + 2ul * PAGE_SIZE)
-#define MODULES_RELATIVE_TO_TEXT 0
 
 // EFI_KIMG_ALIGN is SZ_2M, but KASLR offset uses << 16 = 64 KiB granularity.
 // https://elixir.bootlin.com/linux/v6.12/source/arch/loongarch/kernel/relocate.c

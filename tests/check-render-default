@@ -1,0 +1,87 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-render-default — no output format may name a compile-time layout
+# default in code.
+#
+# A renderer that prints an address is asserting it. The compile-time
+# PAGE_OFFSET and KERNEL_VIRT_TEXT_DEFAULT are link-time constants of the
+# ANALYSING build, not measurements of the target, and presenting one as the
+# answer states a wrong address at full confidence on any kernel built
+# differently. That has happened twice, in two different renderers: the readout
+# printed the arch default as the kernel image base on an Alpine armv7 kernel
+# built VMSPLIT_2G, claiming 0xc0008000 where _text was really at 0x80008000 —
+# while the engine's own window, which contained the truth, went unused.
+#
+# The rule is not "never show the default". It is that the constant may not be
+# reached for directly:
+#
+#   - to present the default AS a default, read the layout field the
+#     orchestrator publishes (json's `virt_image_base_default`). It is labelled
+#     for what it is, so nothing is claimed.
+#   - to use the linear-map base as an ANSWER, call
+#     kasld_page_offset_if_known(), which yields the constant only where a
+#     single base is admissible and 0 everywhere else. The licence lives in
+#     that name rather than being re-derived per site from whichever axes
+#     looked relevant — DIRECTMAP_STATIC in particular is NOT the licence, since
+#     "KASLR does not move the base" is a different claim from knowing where
+#     the base is.
+#
+# There are no exceptions. A new one means the accessor above needs extending,
+# not that the guard needs an allowlist.
+#
+# Names with a suffix (PAGE_OFFSET_MIN, PAGE_OFFSET_BASE_L4, ...) are other
+# quantities and are not matched; comments and string literals are stripped
+# first, since the renderers discuss these constants legitimately and often.
+#
+# Pure text, so it needs no build.
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/c-code-grep.sh
+. "$ROOT/tests/lib/c-code-grep.sh"
+
+if [ -t 1 ]; then
+  RED=$(printf '\033[31m')
+  GREEN=$(printf '\033[32m')
+  RESET=$(printf '\033[0m')
+else
+  RED=
+  GREEN=
+  RESET=
+fi
+
+# The comment/string stripper lives in tests/lib/c-code-grep.sh, shared with
+# check-page-offset-substitution so the two cannot drift on the tricky part.
+strip_and_match() {
+  c_code_grep "$1" \
+    '(^|[^A-Za-z0-9_])(PAGE_OFFSET|KERNEL_VIRT_TEXT_DEFAULT)([^A-Za-z0-9_]|$)'
+}
+
+bad=0
+n=0
+for f in "$ROOT"/src/render.c "$ROOT"/src/render/*.c; do
+  [ -f "$f" ] || continue
+  n=$((n + 1))
+  hits=$(strip_and_match "$f")
+  [ -n "$hits" ] || continue
+  bad=1
+  echo "${RED}${f#"$ROOT"/}: compile-time layout default in renderer code${RESET}"
+  echo "$hits" | while IFS= read -r h; do
+    echo "  $h"
+  done
+done
+
+if [ "$bad" -ne 0 ]; then
+  echo
+  echo "A renderer printing an address asserts it, and these constants describe"
+  echo "the analysing build rather than the target. Read the published layout"
+  echo "field to show a default as a default, or call"
+  echo "kasld_page_offset_if_known() to use the linear-map base as an answer."
+  exit 1
+fi
+
+printf '%scheck-render-default: OK%s (%d renderers, no compile-time defaults)\n' \
+  "$GREEN" "$RESET" "$n"

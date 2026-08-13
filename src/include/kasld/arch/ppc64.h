@@ -39,6 +39,11 @@
 // (The bitwise OR form of phys_to_virt used in kernel headers — equivalent to
 // addition when the bit ranges don't overlap — is subsumed by the canonical
 // (p - PHYS_OFFSET + PAGE_OFFSET) form in api.h.)
+// LINEAR_MAP_ANCHOR: MEMORY_START is 0UL unconditionally on PPC64, so
+// physical 0 maps to the linear-map base and the compile-time PHYS_OFFSET
+// is the anchor.
+// arch/powerpc/include/asm/page.h (#ifdef CONFIG_PPC64: MEMORY_START 0UL)
+#define LINEAR_MAP_ANCHOR LM_ANCHOR_PHYS_OFFSET
 #define DIRECTMAP_STATIC 1
 #define TEXT_TRACKS_DIRECTMAP 1
 
@@ -63,6 +68,9 @@
 // an empty file. The ceiling is the radix vmalloc end, the highest of the four.
 // https://elixir.bootlin.com/linux/v7.2/source/arch/powerpc/include/asm/book3s/64/radix.h
 // https://elixir.bootlin.com/linux/v7.2/source/arch/powerpc/include/asm/nohash/64/pgtable.h
+// Where the module band is anchored: a fixed address range, independent of both
+// the image and the linear map.
+#define MODULES_ANCHOR MOD_ANCHOR_FIXED
 #define MODULES_START 0xc000100000000000ul
 #define MODULES_END 0xc009fffffffffffful
 
@@ -87,7 +95,6 @@
 #define MODULES_BASE_PPC64_RADIX 0xc008000000000000ul
 #define MODULES_BASE_PPC64_HASH_64K 0xc008000000000000ul
 #define MODULES_BASE_PPC64_HASH_4K 0xc0003d0000000000ul
-#define MODULES_RELATIVE_TO_TEXT 0
 
 // Plausible physical address range for kernel image
 #define KERNEL_PHYS_MIN 0ul

@@ -53,8 +53,6 @@ int rule_riscv64_non_efi_phys_base(const struct evidence_set *ev,
     return 0;
 
   int efi_present = 0, have_efi_fact = 0;
-  unsigned long pdram_lo = ULONG_MAX;
-  uint32_t src = 0;
   for (int i = 0; i < ev->n_obs; i++) {
     const struct observation *o = &ev->obs[i];
     if (!o->valid)
@@ -62,23 +60,19 @@ int rule_riscv64_non_efi_phys_base(const struct evidence_set *ev,
     if (o->value_kind == OBS_SCALAR && o->scalar_fact == SF_EFI_PRESENT) {
       efi_present = (o->scalar_value != 0);
       have_efi_fact = 1;
-      continue;
-    }
-    /* RAM_BASE markers only — see header comment for why other dram-section
-     * regions are not sound floors. */
-    if (o->value_kind == OBS_ADDRESS && o->eff_type == KASLD_TYPE_PHYS &&
-        o->eff_region == REGION_RAM && o->pos == POS_BASE) {
-      unsigned long a = obs_anchor(o);
-      if (a < pdram_lo) {
-        pdram_lo = a;
-        src = o->id;
-      }
+      break;
     }
   }
   /* Only pin on confirmed non-EFI boot. */
   if (!have_efi_fact || efi_present)
     return 0;
-  if (pdram_lo == ULONG_MAX)
+
+  /* RAM_BASE markers only — see header comment for why other dram-section
+   * regions are not sound floors. That filter is evidence_lowest_dram_base()'s,
+   * shared with the rules that anchor the linear map on the same value. */
+  unsigned long pdram_lo = 0;
+  uint32_t src = 0;
+  if (!evidence_lowest_dram_base(ev, &pdram_lo, NULL, &src))
     return 0;
 
   /* phys _stext = DRAM base + firmware placement + image head. */

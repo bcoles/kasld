@@ -1,0 +1,78 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-dram-base — enforce the DRAM-base access contract.
+#
+# Where physical RAM begins is read ONLY through evidence_lowest_dram_base() in
+# kasld/evidence.h. Three rules need it and each is entitled to assume the other
+# two got the same answer:
+#
+#   dram_floor_bound          trusts it as a floor on the physical base
+#   phys_virt_synth           anchors the LINEAR MAP on it (LM_ANCHOR_DRAM_BASE)
+#   text_base_coupling_synth  projects phys<->virt through it
+#
+# On the architectures whose kernel sets its physical offset from the base of
+# DRAM, that value IS the address mapped at PAGE_OFFSET, so two rules disagreeing
+# about it would anchor the linear map differently and shift a guaranteed window
+# — a wrong answer, not a wide one. Before the accessor existed the same loop was
+# copied into all three, and the comments promised an agreement nothing enforced.
+#
+# The filter is the substance, not the boilerplate: REGION_RAM with POS_BASE and
+# nothing else. That is the KERNEL's account of its own memory (/proc/iomem
+# "System RAM"), rather than firmware's account of the board, which may describe
+# banks the kernel never took — and a bank the kernel rejected would put the
+# anchor BELOW the real one, which is the dangerous direction, since one of the
+# consumers emits C_EQUALS. A rule rolling its own scan is free to widen that
+# filter to any dram-section region and would reintroduce the hazard silently.
+#
+# Fail if a rule pairs REGION_RAM with POS_BASE itself. Emitters (src/components)
+# name regions legitimately and are out of scope; so is the accessor.
+#
+# Usage: tests/check-dram-base   (also run by `make test`)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+RULES=$ROOT/src/rules
+# shellcheck source=tests/lib/guard-scope.sh
+. "$ROOT/tests/lib/guard-scope.sh"
+
+if [ -t 2 ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; RESET=
+fi
+
+# A rule re-deriving the base tests both halves of the filter, so flag any file
+# naming REGION_RAM and POS_BASE together. Comment lines are dropped first: the
+# rules discuss the region and the position constantly and legitimately.
+bad=
+n=0
+for f in "$RULES"/*.c; do
+  [ -f "$f" ] || continue
+  n=$((n + 1))
+  code=$(grep -vE '^[[:space:]]*(//|/?\*)' "$f")
+  printf '%s' "$code" | grep -q 'REGION_RAM' || continue
+  printf '%s' "$code" | grep -q 'POS_BASE' || continue
+  bad="$bad  ${f##*/}$(printf '\n')"
+done
+
+if [ -n "$bad" ]; then
+  printf '%scheck-dram-base: FAIL%s — rule(s) scan for the DRAM base directly\n' \
+    "$RED" "$RESET" >&2
+  printf '%s' "$bad" >&2
+  echo >&2
+  echo "Where DRAM begins is read via evidence_lowest_dram_base(ev, &base," >&2
+  echo "&conf, &src), which returns 0 when nothing was observed — found-ness is" >&2
+  echo "the RETURN value, because 0 is an ordinary DRAM base on mips, ppc and" >&2
+  echo "x86_32. Rolling the scan by hand lets two rules anchor the linear map" >&2
+  echo "at different addresses, which shifts a guaranteed window rather than" >&2
+  echo "widening it." >&2
+  exit 1
+fi
+
+guard_scope "check-dram-base" "$n" 50
+
+printf '%scheck-dram-base: OK%s (%d rules, DRAM base read only via the evidence accessor)\n' \
+  "$GREEN" "$RESET" "$n"

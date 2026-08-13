@@ -34,6 +34,7 @@
 #include "../src/render/text.c"
 #include "test_harness.h"
 #include "test_orch_common.h"
+#include "test_po_access.h"
 
 #include <assert.h>
 #include <limits.h>
@@ -519,12 +520,18 @@ static void test_merge_keeps_lo_only_witnesses_separate(void) {
 static void test_merge_picks_highest_conf_sample(void) {
   reset_results();
   /* Same-key contributors where only one has SAMPLE_SET: the sample
-   * survives, the other contributes nothing sample-wise. */
+   * survives, the other contributes nothing sample-wise.
+   *
+   * Both at the same confidence, deliberately. What this exercises is the
+   * sample-owner and pos handling; giving the bound-only record a WEAKER
+   * confidence would instead exercise conf_edge_conflict, which refuses the
+   * merge precisely because the merged record would publish that record's `lo`
+   * at the sample contributor's stronger tier. That case has its own test. */
   struct result *no_sample = push_result();
   no_sample->type = KASLD_TYPE_VIRT;
   no_sample->region = REGION_KERNEL_IMAGE;
   no_sample->pos = POS_BASE;
-  no_sample->conf = CONF_HEURISTIC;
+  no_sample->conf = CONF_PARSED;
   no_sample->lo = FX_TEXT;
   no_sample->set_mask = LO_SET;
 
@@ -563,11 +570,14 @@ static void test_merge_promotes_pos_to_base_from_later_contributor(void) {
   sample->sample = (FX_TEXT + 0x333333ul);
   sample->set_mask = SAMPLE_SET;
 
+  /* Same confidence as the seed: this test is about the pos-promotion branch.
+   * A weaker contributor supplying `lo` is refused by conf_edge_conflict, since
+   * the merged record would carry that bound at the seed's stronger tier. */
   struct result *base = push_result();
   base->type = KASLD_TYPE_VIRT;
   base->region = REGION_KERNEL_IMAGE;
   base->pos = POS_BASE;
-  base->conf = CONF_TIMING;
+  base->conf = CONF_PARSED;
   base->lo = FX_TEXT;
   base->set_mask = LO_SET;
 
@@ -603,6 +613,73 @@ static void test_merge_samples_conflict_kept_separate(void) {
 
   merge_results();
   assert(num_results == 2);
+}
+
+/* A weaker record must not tighten a stronger one. merge_into takes the
+ * tightest edge from any contributor and the strongest confidence across all of
+ * them; without conf_edge_conflict the two come from different contributors and
+ * the merged record publishes a heuristic edge at the inferred tier, where the
+ * engine's sound floor admits it. This is the shape mmap_brute_vmsplit emits on
+ * every arch where TASK_SIZE is not PAGE_OFFSET: a measured bound plus a
+ * stride-rounded guess strictly inside it. */
+static void test_merge_weaker_tightening_edge_kept_separate(void) {
+  reset_results();
+  struct result *a = push_result();
+  a->type = KASLD_TYPE_VIRT;
+  a->region = REGION_PAGE_OFFSET;
+  a->pos = POS_BASE;
+  a->conf = CONF_INFERRED; /* the measurement */
+  a->lo = 0x7f000000ul;
+  a->hi = 0xc0000000ul;
+  a->set_mask = LO_SET | HI_SET;
+
+  struct result *b = push_result();
+  b->type = KASLD_TYPE_VIRT;
+  b->region = REGION_PAGE_OFFSET;
+  b->pos = POS_BASE;
+  b->conf = CONF_HEURISTIC; /* the guess, tighter than what was measured */
+  b->lo = 0x80000000ul;
+  b->set_mask = LO_SET;
+
+  merge_results();
+  assert(num_results == 2);
+  /* The measured edge survives intact on its own record, still inferred. */
+  int seen_measured = 0, seen_guess = 0;
+  for (int i = 0; i < num_results; i++) {
+    if (results[i].conf == CONF_INFERRED && results[i].lo == 0x7f000000ul)
+      seen_measured = 1;
+    if (results[i].conf == CONF_HEURISTIC && results[i].lo == 0x80000000ul)
+      seen_guess = 1;
+  }
+  assert(seen_measured && seen_guess);
+}
+
+/* ...but a weaker record that merely AGREES still merges. That is the
+ * corroboration the merge exists for, and the consensus-source counting the
+ * renderers do depends on those collapsing. Nothing tightens here, so there is
+ * no edge to publish above its tier. */
+static void test_merge_weaker_agreeing_still_merges(void) {
+  reset_results();
+  struct result *a = push_result();
+  a->type = KASLD_TYPE_VIRT;
+  a->region = REGION_KERNEL_TEXT;
+  a->pos = POS_BASE;
+  a->conf = CONF_PARSED;
+  a->lo = 0xc0300000ul;
+  a->set_mask = LO_SET;
+
+  struct result *b = push_result();
+  b->type = KASLD_TYPE_VIRT;
+  b->region = REGION_KERNEL_TEXT;
+  b->pos = POS_BASE;
+  b->conf = CONF_DERIVED;
+  b->lo = 0xc0300000ul;
+  b->set_mask = LO_SET;
+
+  merge_results();
+  assert(num_results == 1);
+  assert(results[0].conf == CONF_PARSED);
+  assert(results[0].lo == 0xc0300000ul);
 }
 
 /* =========================================================================
@@ -1710,8 +1787,37 @@ static void test_engine_sync_projects_all_fields(void) {
   e.est[Q_VIRT_IMAGE_BASE].lo = FX_TEXT;
   e.est[Q_VIRT_IMAGE_BASE].hi = (FX_TEXT + 0x0e000000ul);
   e.est[Q_VIRT_KASLR_ALIGN].lo = 0x200000ul;
-  e.est[Q_PAGE_OFFSET].lo = (unsigned long)PAGE_OFFSET + 0x10000000ul;
-  e.est[Q_PAGE_OFFSET].hi = (unsigned long)PAGE_OFFSET + 0x30000000ul;
+  /* Build Q_PAGE_OFFSET through the quantity's own top and narrow it with a
+   * constraint rather than assigning .lo / .hi, so the fixture states a window
+   * and lets the lattice decide how to hold it. */
+  unsigned long fx_po_lo = 0, fx_po_hi = 0;
+  {
+    const struct quantity_def *qd = &quantities[Q_PAGE_OFFSET];
+    struct estimate *po = &e.est[Q_PAGE_OFFSET];
+    unsigned long t_lo = 0, t_hi = 0;
+    qd->init_top(po);
+    quantity_window(Q_PAGE_OFFSET, po, &t_lo, &t_hi);
+    /* Lift the floor so the projected window is narrower than the top — a
+     * field that is never written would otherwise still compare equal. On a
+     * decoupled arch the assertion below also wants the base ABOVE the
+     * compile-time default, which is what that branch is about. */
+#if !TEXT_TRACKS_DIRECTMAP
+    unsigned long want_floor = (unsigned long)PAGE_OFFSET + 1;
+#else
+    unsigned long want_floor = t_lo + 1;
+#endif
+    if (t_lo < t_hi) {
+      struct constraint c;
+      memset(&c, 0, sizeof(c));
+      c.q = Q_PAGE_OFFSET;
+      c.op = C_LOWER_BOUND;
+      c.value = want_floor;
+      c.conf = CONF_PARSED;
+      c.id = 1;
+      estimate_meet(po, qd, &c);
+    }
+    quantity_window(Q_PAGE_OFFSET, po, &fx_po_lo, &fx_po_hi);
+  }
   e.est[Q_PHYS_IMAGE_BASE].lo = 0x4000000ul;
   e.est[Q_PHYS_IMAGE_BASE].hi = 0x3c000000ul;
   e.est[Q_PHYS_KASLR_ALIGN].lo = 0x200000ul;
@@ -1745,10 +1851,8 @@ static void test_engine_sync_projects_all_fields(void) {
   assert(layout.virt_image_base_max == layout.virt_kaslr_text_max);
   assert(layout.virt_kaslr_align == 0x200000ul);
 
-  assert(layout.virt_page_offset_min ==
-         (unsigned long)PAGE_OFFSET + 0x10000000ul);
-  assert(layout.virt_page_offset_max ==
-         (unsigned long)PAGE_OFFSET + 0x30000000ul);
+  assert(layout.virt_page_offset_min == fx_po_lo);
+  assert(layout.virt_page_offset_max == fx_po_hi);
 
   assert(layout.virt_vmalloc_base_min ==
          (unsigned long)PAGE_OFFSET + 0x11000000ul);
@@ -1760,10 +1864,12 @@ static void test_engine_sync_projects_all_fields(void) {
          (unsigned long)PAGE_OFFSET + 0x14000000ul);
 
 #if !TEXT_TRACKS_DIRECTMAP
-  /* Direct-map base moves to the proven lower bound (we set lo > PAGE_OFFSET),
-   * but the VAS floor must NOT (only layout.virt_page_offset, never
-   * virt_kernel_vas_start — the second renderer bug). */
-  assert(layout.virt_page_offset == (unsigned long)PAGE_OFFSET + 0x10000000ul);
+  /* Direct-map base moves to the proven lower bound (the fixture lifts the
+   * floor above the lowest admissible base), but the VAS floor must NOT — only
+   * layout.virt_page_offset, never virt_kernel_vas_start, which was the second
+   * renderer bug. */
+  assert(fx_po_lo > (unsigned long)PAGE_OFFSET);
+  assert(layout.virt_page_offset == fx_po_lo);
   assert(layout.phys_kaslr_text_min == 0x4000000ul);
   assert(layout.phys_kaslr_text_max == 0x3c000000ul);
   assert(layout.phys_kaslr_align == 0x200000ul);
@@ -1906,17 +2012,16 @@ static void test_engine_sync_module_band_follows_page_offset(void) {
   struct engine e;
   unsigned long sv_po = layout.virt_page_offset;
 
-  /* A PAGE_OFFSET above the compile-time one, inside the arch's own kernel VAS,
-   * so the derived band stays in the address space on every width. */
-  unsigned long moved =
-      (unsigned long)PAGE_OFFSET +
-      ((unsigned long)KERNEL_VIRT_VAS_END - (unsigned long)PAGE_OFFSET) / 4;
+  /* A split the architecture actually admits, and where it offers more than
+   * one, not the compile-time default. An invented address cannot serve here:
+   * where the architecture fixes the linear-map base, pinning to anything but
+   * that value empties the estimate instead of moving it. */
+  unsigned long moved = po_admissible(1);
 
   memset(&e, 0, sizeof(e));
   e.est[Q_VIRT_IMAGE_BASE].lo = layout.virt_kaslr_text_min;
   e.est[Q_VIRT_IMAGE_BASE].hi = layout.virt_kaslr_text_max;
-  e.est[Q_PAGE_OFFSET].lo = moved; /* pinned: the split is proven */
-  e.est[Q_PAGE_OFFSET].hi = moved;
+  po_set(&e.est[Q_PAGE_OFFSET], moved, moved); /* pinned: the split is proven */
 
   layout.modules_start = MODULES_START;
   layout.modules_end = MODULES_END;
@@ -1936,25 +2041,35 @@ static void test_engine_sync_module_band_follows_page_offset(void) {
   assert(want_hi > want_lo);
   assert(layout.modules_start == want_lo);
   assert(layout.modules_end == want_hi);
-  /* It really moved off the compile-time placement. */
-  assert(layout.modules_start != (unsigned long)MODULES_START ||
-         layout.modules_end != (unsigned long)MODULES_END);
+  /* It really moved off the compile-time placement — only askable of an arch
+   * whose split can move. Where exactly one value is admissible the band IS
+   * the compile-time one, and reproducing it faithfully is the property. */
+  if (po_is_fixed()) {
+    assert(layout.modules_start == (unsigned long)MODULES_START);
+    assert(layout.modules_end == (unsigned long)MODULES_END);
+  } else {
+    assert(layout.modules_start != (unsigned long)MODULES_START ||
+           layout.modules_end != (unsigned long)MODULES_END);
+  }
 
-  /* Unpinned, but the compile-time PAGE_OFFSET is excluded: the band inherits
-   * the window's uncertainty as width rather than being drawn as located. */
-  unsigned long win_hi = moved + (moved - (unsigned long)PAGE_OFFSET);
-  memset(&e, 0, sizeof(e));
-  e.est[Q_VIRT_IMAGE_BASE].lo = layout.virt_kaslr_text_min;
-  e.est[Q_VIRT_IMAGE_BASE].hi = layout.virt_kaslr_text_max;
-  e.est[Q_PAGE_OFFSET].lo = moved;
-  e.est[Q_PAGE_OFFSET].hi = win_hi;
-  layout.modules_start = MODULES_START;
-  layout.modules_end = MODULES_END;
-  engine_sync_authoritative(&e);
-  /* Contains the band for every PAGE_OFFSET the window still admits. */
-  assert(layout.modules_start <= want_lo);
-  assert(layout.modules_end >= MODULES_END_FOR(win_hi));
-  assert(layout.modules_end > layout.modules_start);
+  if (!po_is_fixed()) {
+
+    /* Unpinned, but the compile-time PAGE_OFFSET is excluded: the band inherits
+     * the window's uncertainty as width rather than being drawn as located. */
+    unsigned long win_hi = po_admissible(1);
+    unsigned long win_lo = po_admissible(2);
+    memset(&e, 0, sizeof(e));
+    e.est[Q_VIRT_IMAGE_BASE].lo = layout.virt_kaslr_text_min;
+    e.est[Q_VIRT_IMAGE_BASE].hi = layout.virt_kaslr_text_max;
+    po_set(&e.est[Q_PAGE_OFFSET], win_lo, win_hi);
+    layout.modules_start = MODULES_START;
+    layout.modules_end = MODULES_END;
+    engine_sync_authoritative(&e);
+    /* Contains the band for every PAGE_OFFSET the window still admits. */
+    assert(layout.modules_start <= want_lo);
+    assert(layout.modules_end >= MODULES_END_FOR(win_hi));
+    assert(layout.modules_end > layout.modules_start);
+  }
 #elif !MODULES_RELATIVE_TO_TEXT
   /* A fixed band does not move with the linear map, and must not be touched. */
   assert(layout.modules_start == (unsigned long)MODULES_START);
@@ -2183,6 +2298,8 @@ int main(void) {
   RUN(test_merge_picks_highest_conf_sample);
   RUN(test_merge_promotes_pos_to_base_from_later_contributor);
   RUN(test_merge_samples_conflict_kept_separate);
+  RUN(test_merge_weaker_tightening_edge_kept_separate);
+  RUN(test_merge_weaker_agreeing_still_merges);
   RUN(test_merge_dedups_provenance);
   RUN(test_merge_keeps_all_contributors);
   RUN(test_merge_is_idempotent);

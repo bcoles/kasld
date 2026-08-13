@@ -1,15 +1,15 @@
 #!/bin/sh
 # This file is part of KASLD - https://github.com/bcoles/kasld
 #
-# check-lattice-seam — quantities whose lattice is not fixed across builds must
-# be read through the accessors, never through `.lo` / `.hi`.
+# check-lattice-seam — quantities that are not plainly an interval must be read
+# through the accessors, never through `.lo` / `.hi`.
 #
 # `struct estimate` means different things per lattice. On LK_INTERVAL `lo` and
 # `hi` are the window edges; on LK_FINSET `lo` is a live-candidate BITMASK and
-# `hi` is unused entirely. A consumer that reads the fields directly is correct
-# only for the lattice it happened to be written against — and Q_PAGE_OFFSET is
-# compiled as an interval on some architectures and a finite set on others, so
-# "the lattice it was written against" is not a property of the source at all.
+# `hi` is unused entirely. Which lattice a quantity uses is declared once in the
+# quantity table and nowhere else, so a consumer that reads the fields directly
+# has hard-coded an answer it never asked for: right for Q_VA_BITS's finite set
+# only by accident, and silently wrong the moment a quantity's row changes.
 #
 # Nothing would fail loudly if that went wrong. A bitmask read as an address is
 # a small integer: comparisons still evaluate, arithmetic still runs, and the
@@ -33,8 +33,10 @@
 set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 
-# Quantities whose lattice is arch-dependent or may change. Add one here when
-# it gains a non-interval representation on any architecture.
+# Quantities the seam covers. Q_VA_BITS is the finite set. Q_PAGE_OFFSET is an
+# interval, held to the same seam because more rules and renderers read it than
+# any other quantity, so it is where a representation change would cost most.
+# Add one here when it gains a non-interval representation on any architecture.
 QUANTITIES="Q_PAGE_OFFSET Q_VA_BITS"
 
 # The accessors themselves are the seam, so they are the one place allowed to
@@ -51,6 +53,25 @@ else
   RESET=
 fi
 
+# The files this guard owns: src/ recursively, plus the test sources at the top
+# of tests/. NOT `find tests` — tests/vm/.cache holds unpacked kernel source
+# trees, so that walks a hundred thousand files instead of twenty-five and turns
+# the lint into a multi-minute wait.
+sources() {
+  find src -name '*.c'
+  find tests -maxdepth 1 -name '*.c'
+}
+
+# An equality between the SAME field of two estimates of the same quantity is
+# representation-agnostic: `e.est[Q_X].lo == top.lo` compares a bitmask with a
+# bitmask on a finite set and an edge with an edge on an interval, and means
+# "unchanged" on both. It is the one field-level idiom that cannot be wrong for
+# the lattice, so it is not a finding. Anything that consumes the field as a
+# VALUE — arithmetic, an inequality, an assignment — still is.
+same_field_compare() {
+  grep -vE '(\.lo[^=]*==[^=]*\.lo|\.hi[^=]*==[^=]*\.hi|\.(lo|hi)[^=]*==[[:space:]]*$)'
+}
+
 fail=0
 checked=0
 
@@ -62,13 +83,14 @@ allowed() {
 }
 
 for q in $QUANTITIES; do
-  for f in $(cd "$ROOT" && find src -name '*.c' | sort); do
+  for f in $(cd "$ROOT" && sources | sort); do
     allowed "$f" && continue
     grep -q "$q" "$ROOT/$f" 2>/dev/null || continue
     checked=$((checked + 1))
 
     # 1. Direct field access on the array element.
-    hits=$(grep -n "est\[$q\]\.\(lo\|hi\)\([^_a-zA-Z0-9]\|$\)" "$ROOT/$f")
+    hits=$(grep -n "est\[$q\]\.\(lo\|hi\)\([^_a-zA-Z0-9]\|$\)" "$ROOT/$f" |
+      same_field_compare)
     if [ -n "$hits" ]; then
       printf '  %sFAIL%s %s reads est[%s] fields directly:\n' \
         "$RED" "$RESET" "$f" "$q"
@@ -92,6 +114,65 @@ for q in $QUANTITIES; do
       fi
     done
   done
+done
+
+# A third and fourth shape, both of which the two checks above miss, and both of
+# which shipped as real bugs:
+#
+#   3. a LOCAL estimate seeded by `quantities[Q_X].init_top(&v)` and then read
+#      as `v.lo` / `v.hi`. The binding is a call, not a pointer assignment, so
+#      the alias discovery above never sees it. This is how a test helper came
+#      to compute `top->hi - top->lo` on a finite set, where the subtraction is
+#      a bitmask minus an unused field.
+#
+#   4. the INVERSE: an accessor for a lattice-variable quantity applied to an
+#      estimate of a different one — `po_lo(&t)` after `t` was re-seeded as a
+#      Q_VMALLOC_BASE top. The accessor decodes whatever it is handed as
+#      Q_PAGE_OFFSET's lattice, so on an interval arch it silently returns the
+#      right number and on a finite-set arch it returns a candidate address in
+#      place of an ordinary one. Nine architectures failed on a single line of
+#      this, and the direction is invisible to a guard that only bans field
+#      access.
+#
+# Both are decided by binding each estimate variable to the quantity it was most
+# recently seeded from, then checking the two agree.
+for f in $(cd "$ROOT" && sources | sort); do
+  allowed "$f" && continue
+  hits=$(awk -v watched="$(echo "$QUANTITIES" | tr ' ' '|')" '
+    # Seed: quantities[Q_X].init_top(&v)
+    match($0, /quantities\[Q_[A-Z_0-9]+\]\.init_top\(&[A-Za-z_][A-Za-z_0-9]*\)/) {
+      s = substr($0, RSTART, RLENGTH)
+      q = substr(s, index(s, "[") + 1); q = substr(q, 1, index(q, "]") - 1)
+      v = substr(s, index(s, "&") + 1); v = substr(v, 1, index(v, ")") - 1)
+      bind[v] = q
+    }
+    # Cheap pre-filter. Without it the inner loop builds two dynamic regexes per
+    # tracked variable per line, which over an 8000-line fixture file with dozens
+    # of bindings is hundreds of thousands of compiles and turns a lint into a
+    # multi-minute wait.
+    !/\.(lo|hi)|po_(lo|hi|set)\(/ { next }
+    # Same exemption as same_field_compare(), applied here because this block
+    # emits a message rather than the source line, so the filter cannot see it.
+    /\.lo[^=]*==[^=]*\.lo|\.hi[^=]*==[^=]*\.hi|\.(lo|hi)[^=]*==[ \t]*$/ { next }
+    {
+      for (v in bind) {
+        # 3. field-wise read of a lattice-variable quantity
+        if (bind[v] ~ ("^(" watched ")$") &&
+            $0 ~ ("(^|[^A-Za-z_0-9.>])" v "\\.(lo|hi)([^_A-Za-z0-9]|$)"))
+          printf "%d: reads %s.lo/.hi, and %s is a %s top\n", FNR, v, v, bind[v]
+        # 4. page-offset accessor on an estimate of another quantity
+        if (bind[v] !~ /^Q_PAGE_OFFSET$/ &&
+            $0 ~ ("po_(lo|hi|set)\\(&" v "([^A-Za-z_0-9]|$)"))
+          printf "%d: po_* accessor on %s, which is a %s top\n", FNR, v, bind[v]
+      }
+    }
+  ' "$ROOT/$f" | same_field_compare)
+  if [ -n "$hits" ]; then
+    printf '  %sFAIL%s %s mixes an estimate with the wrong lattice:\n' \
+      "$RED" "$RESET" "$f"
+    printf '        %s\n' "$hits"
+    fail=1
+  fi
 done
 
 if [ "$fail" -ne 0 ]; then

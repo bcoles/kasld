@@ -48,8 +48,9 @@
 //   CONFIG_LIBNVDIMM=n removes the nd bus and all nd_region sysfs entries.
 //   Requires physical NVDIMM/PMem hardware and the nd_region driver to be
 //   bound. On x86_64 with CONFIG_RANDOMIZE_MEMORY, physical addresses do not
-//   directly reveal the virtual text base. On ARM64/RISC-V without decoupled
-//   KASLR, phys_to_directmap_virt() gives the directmap virtual address.
+//   directly reveal the virtual text base. The physical address is emitted as
+//   a fact; where it lands in the linear map is the engine's to decide, from
+//   the base it resolved rather than from a compile-time constant.
 //
 // Requires:
 // - CONFIG_LIBNVDIMM
@@ -150,13 +151,6 @@ int main(void) {
     kasld_info("%s resource: 0x%016lx", ent->d_name, addr);
     kasld_result_sample(KASLD_TYPE_PHYS, REGION_PMEM, addr, ent->d_name,
                         CONF_PARSED);
-
-#ifdef phys_to_directmap_virt
-    unsigned long virt = phys_to_directmap_virt(addr);
-    kasld_info("possible direct-map virtual address: 0x%016lx", virt);
-    kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, ent->d_name,
-                        CONF_PARSED);
-#endif
 
     count++;
   }

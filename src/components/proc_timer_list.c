@@ -152,14 +152,6 @@ int main(void) {
   kasld_info("timer base address: 0x%016lx", base);
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, base, NULL,
                       CONF_PARSED);
-#ifdef directmap_virt_to_phys
-  {
-    unsigned long phys = directmap_virt_to_phys(base);
-    kasld_info("  possible physical address: 0x%016lx", phys);
-    kasld_result_sample(KASLD_TYPE_PHYS, REGION_DIRECTMAP, phys, NULL,
-                        CONF_PARSED);
-  }
-#endif
 
   return 0;
 }

@@ -38,6 +38,8 @@
 set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 RULES=$ROOT/src/rules
+# shellcheck source=tests/lib/guard-scope.sh
+. "$ROOT/tests/lib/guard-scope.sh"
 
 # Reviewed at-or-above-floor C_EQUALS pins. Each pins a value DERIVED from
 # evidence or a firmware/structural fact, not a bare default/convention — the
@@ -51,7 +53,6 @@ RULES=$ROOT/src/rules
 #   phys_virt_synth                page_offset = virt-phys; guaranteed (CONF_DERIVED)
 #                                  only when >= 2 independent origins corroborate,
 #                                  else CONF_HEURISTIC (likely only)
-#   ppc32_phys_ceiling             BookE no-KASLR (deterministic sub-threshold RAM)
 #   randomize_memory_page_offset   page_offset reconstructed from a directmap leak
 #   riscv64_fdt_kaslr_seed         gated on the observed fdt KASLR seed
 #   riscv64_text_base              gated on a KASLR-disabled signal, conf-capped
@@ -60,7 +61,6 @@ ALLOW="page_offset_from_config
 page_offset_from_leak
 page_offset_invariant_pin
 phys_virt_synth
-ppc32_phys_ceiling
 randomize_memory_page_offset
 riscv64_fdt_kaslr_seed
 riscv64_text_base
@@ -135,4 +135,13 @@ done
 
 # shellcheck disable=SC2086  # word-split the allowlist into argv to count via $#
 set -- $ALLOW
+# The scope this guard actually examined. Counted here rather than in the
+# loop: an unmatched glob leaves the literal pattern, which a loop-side
+# counter would tally as one file and so report a non-empty scope.
+_scanned=0
+for _f in "$RULES"/*.c; do
+  [ -f "$_f" ] && _scanned=$((_scanned + 1))
+done
+guard_scope "check-confidence-floor" "$_scanned" 50
+
 printf '%sconfidence-floor guard: OK%s (%s reviewed at-or-above-floor pins, none new)\n' "$GREEN" "$RESET" "$#"

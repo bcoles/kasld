@@ -2,12 +2,12 @@
 //
 // Rule: pin virt_page_offset from CONFIG_PAGE_OFFSET on VMSPLIT arches.
 //
-// On x86_32 and arm32 the user/kernel split (CONFIG_PAGE_OFFSET / VMSPLIT) is a
-// pure compile-time constant: the configured value IS the runtime
-// virt_page_offset, with no boot-time override. So reading CONFIG_PAGE_OFFSET
-// (bridged as SF_VIRT_CONFIG_PAGE_OFFSET) and pinning Q_PAGE_OFFSET to it is
-// sound — unlike the compile-time DEFAULT, which only guesses the common 3G/1G
-// split.
+// On x86_32, arm32 and ppc32 the user/kernel split (CONFIG_PAGE_OFFSET /
+// VMSPLIT, or ppc32's free hex field) is a pure compile-time constant: the
+// configured value IS the runtime virt_page_offset, with no boot-time override.
+// So reading CONFIG_PAGE_OFFSET (bridged as SF_VIRT_CONFIG_PAGE_OFFSET) and
+// pinning Q_PAGE_OFFSET to it is sound — unlike the compile-time DEFAULT, which
+// only guesses the common split.
 //
 // Gated on PAGE_OFFSET_FROM_CONFIG, NOT a raw arch check: the macro encodes the
 // soundness property "CONFIG_PAGE_OFFSET is authoritative here". It is

@@ -52,6 +52,12 @@
 // in scope). Mainline ARM has no KASLR — text sits at a fixed offset within
 // the linear map.
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm/include/asm/memory.h#L286
+// LINEAR_MAP_ANCHOR: PHYS_OFFSET is __pv_phys_pfn_offset << PAGE_SHIFT,
+// patched at boot, and the kernel DISCARDS any bank below it (setup.c
+// "Ignoring memory below PHYS_OFFSET"), so its own account of RAM starts
+// exactly at the anchor. The lowest observed physical RAM base names it.
+// arch/arm/include/asm/memory.h PHYS_OFFSET; arch/arm/kernel/setup.c
+#define LINEAR_MAP_ANCHOR LM_ANCHOR_DRAM_BASE
 #define DIRECTMAP_STATIC 1
 #define TEXT_TRACKS_DIRECTMAP 1
 
@@ -91,13 +97,14 @@
 // resolved which split that kernel used.
 // https://elixir.bootlin.com/linux/v7.2/source/arch/arm/include/asm/memory.h
 // https://elixir.bootlin.com/linux/v7.2/source/arch/arm/mm/init.c
-#define MODULES_RELATIVE_TO_PAGE_OFFSET 1
 #define MODULES_START_FOR(po) ((po) - 0x01000000ul)
 #define MODULES_END_FOR(po) (KERNEL_VIRT_VAS_END)
+// Where the module band is anchored: a fixed delta from PAGE_OFFSET, so a
+// runtime VMSPLIT moves the band with it.
+#define MODULES_ANCHOR MOD_ANCHOR_PAGE_OFFSET
 #define MODULES_START MODULES_START_FOR(KERNEL_VIRT_VAS_START) // 0x3f000000ul
 #define MODULES_END MODULES_END_FOR(PAGE_OFFSET)
 // Module region is fixed below PAGE_OFFSET; does not shift with KASLR.
-#define MODULES_RELATIVE_TO_TEXT 0
 
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm/include/asm/efi.h
 #define IMAGE_ALIGN (2 * MB)

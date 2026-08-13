@@ -39,10 +39,11 @@ fi
 # kernel-source cache (tests/vm/.cache) and the binary fuzz corpora are not
 # walked. All are shellcheck-clean; this guard keeps them so.
 scripts=
-for f in "$EXTRA"/* "$ROOT"/tests/* "$ROOT"/tests/vm/* "$ROOT"/tests/fuzz/*; do
+for f in "$EXTRA"/* "$ROOT"/tests/* "$ROOT"/tests/lib/* "$ROOT"/tests/vm/* "$ROOT"/tests/fuzz/*; do
   [ -f "$f" ] || continue
   case "$(head -1 "$f" 2>/dev/null)" in
     '#!'*sh*) scripts="$scripts $f" ;;
+    '# shellcheck shell='*) scripts="$scripts $f" ;;
   esac
 done
 

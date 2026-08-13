@@ -50,6 +50,18 @@ static void top_interval(struct estimate *e, unsigned long lo,
   e->stride_offset = 0;
 }
 
+/* Honest top of a finite set: every candidate live. The shift is guarded at
+ * exactly the word width, where `(1 << n) - 1` would be undefined and `~0ul`
+ * is the answer anyway. */
+static void top_finset(struct estimate *e, int n) {
+  e->kind = LK_FINSET;
+  e->lo = (n >= (int)(sizeof(unsigned long) * 8)) ? ~0ul : ((1ul << n) - 1ul);
+  e->hi = 0ul;
+  e->lo_binding = e->hi_binding = 0;
+  e->lo_conf = e->hi_conf = CONF_PARSED; /* honest top is an arch axiom */
+  e->stride = e->stride_offset = 0;
+}
+
 static void top_virt_image_base(struct estimate *e) {
   /* The virtual kernel-text base lives in the virtual KASLR window
    * [KASLR_VIRT_TEXT_MIN_WIDE, KASLR_VIRT_TEXT_MAX_WIDE] — fixed per-arch by
@@ -99,13 +111,18 @@ static void top_phys_image_base(struct estimate *e) {
 }
 
 static void top_page_offset(struct estimate *e) {
-  /* Interval over the architectural kernel VAS window. Honest where
-   * KERNEL_VIRT_VAS_START/END span every PAGE_OFFSET the arch admits (true on
-   * x86_64: spans 4- and 5-level). Discrete-few arches (x86_32 VMSPLIT,
-   * arm64/riscv64 paging) get the finite-set refinement in per-arch
-   * follow-ups. */
-  top_interval(e, (unsigned long)KERNEL_VIRT_VAS_START,
-               (unsigned long)KERNEL_VIRT_VAS_END);
+  /* Interval over every linear-map base the architecture admits. An interval
+   * can represent any address in the bracket, so no value the target might hold
+   * is unrepresentable; an enumeration would have to be complete for every
+   * kernel in scope, and a base outside it would be excluded from the
+   * guaranteed window rather than merely unresolved.
+   *
+   * The bracket is a single value on the architectures that fix the base
+   * (PAGE_OFFSET_MIN == PAGE_OFFSET_MAX), so those resolve before any rule
+   * runs. The rest are narrowed by measurement: the mmap split probe on 32-bit,
+   * and the paging-mode coupling from Q_VA_BITS on arm64 and riscv64. */
+  top_interval(e, (unsigned long)PAGE_OFFSET_MIN,
+               (unsigned long)PAGE_OFFSET_MAX);
 }
 
 static void top_kernel_vas_window(struct estimate *e) {
@@ -148,17 +165,7 @@ static void top_maxalign(struct estimate *e) {
   e->stride = e->stride_offset = 0;
 }
 
-static void top_va_bits(struct estimate *e) {
-  e->kind = LK_FINSET;
-  /* All candidates possible: low N_VA_BITS bits set. */
-  e->lo = (N_VA_BITS >= (int)(sizeof(unsigned long) * 8))
-              ? ~0ul
-              : ((1ul << N_VA_BITS) - 1ul);
-  e->hi = 0ul;
-  e->lo_binding = e->hi_binding = 0;
-  e->lo_conf = e->hi_conf = CONF_PARSED; /* honest top is an arch axiom */
-  e->stride = e->stride_offset = 0;
-}
+static void top_va_bits(struct estimate *e) { top_finset(e, N_VA_BITS); }
 
 /* ---- the table -------------------------------------------------------- */
 

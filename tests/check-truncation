@@ -29,6 +29,8 @@
 
 set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/guard-scope.sh
+. "$ROOT/tests/lib/guard-scope.sh"
 
 # Force ASCII diagnostics. GCC quotes type names with Unicode ‘ ’ under a
 # UTF-8 locale (e.g. CI's glibc toolchain) and ASCII ' ' under C — and the
@@ -164,6 +166,15 @@ if [ "$fail" = 1 ]; then
   printf 'intentional in a 32-bit-only TU, add it to ALLOW in tests/check-truncation.\n' >&2
   exit 1
 fi
+
+# The scope this guard actually examined. Counted here rather than in the
+# loop: an unmatched glob leaves the literal pattern, which a loop-side
+# counter would tally as one file and so report a non-empty scope.
+_scanned=0
+for _f in "$ROOT"/src/rules/*.c "$ROOT"/src/components/*.c; do
+  [ -f "$_f" ] && _scanned=$((_scanned + 1))
+done
+guard_scope "check-truncation" "$_scanned" 100
 
 printf '%struncation guard: OK%s (compiled for 32-bit via %s; no silent narrowing)\n' \
   "$GREEN" "$RESET" "$CC"

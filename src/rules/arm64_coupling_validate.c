@@ -51,13 +51,16 @@
 #include <string.h>
 
 /* The linear map sits in [PAGE_OFFSET, _PAGE_END), both functions of VA_BITS.
- * The widest accepting ceiling is _PAGE_END of the SMALLEST supported VA_BITS
- * (highest _PAGE_END) — arm64_page_end_for(ARM64_VA_BITS_MIN_SUPPORTED) — so a
- * sub-48 PAGE_OFFSET (e.g. 39-bit 0xffffff8000000000) is admitted, not flagged
- * as out-of-band. Trade-off: the gap between the 48-bit and smallest-VA_BITS
- * _PAGE_END values is no longer policed pre-resolution (a 48-bit heap pointer
- * mistagged DIRECTMAP there is admitted); the directmap consumers narrow once
- * PAGE_OFFSET resolves. */
+ * The accepting ceiling is _PAGE_END of ARM64_VA_BITS_VALIDATE_MIN (the
+ * smallest width admitted pre-resolution, not the smallest supported) — so a
+ * PAGE_OFFSET for any width DOWN TO that one (e.g. 39-bit 0xffffff8000000000)
+ * is admitted, not flagged as out-of-band. Trade-off, in both directions: the
+ * gap between the 48-bit and VALIDATE_MIN _PAGE_END values is no longer policed
+ * pre-resolution (a 48-bit heap pointer mistagged DIRECTMAP there is admitted),
+ * and a width BELOW VALIDATE_MIN has its base above this ceiling, so a real
+ * leak from one (VA36's 0xfffffff000000000) is rejected. Both resolve the same
+ * way: the directmap consumers narrow once PAGE_OFFSET resolves — from the
+ * width the mmap probe pins, which does not pass through this filter. */
 #define ARM64_VMEMMAP_END 0xffffffffc0000000ul /* −SZ_1G */
 /* VA_BITS=48 VMEMMAP floor; conservative for both VA48 and VA52 (VA52's
  * VMEMMAP extends further down, so any address < VA48 floor is consistent
@@ -71,10 +74,13 @@ static int arm64_va_band_bad(enum kasld_region region, unsigned long a) {
   case REGION_DIRECTMAP:
   case REGION_PAGE_OFFSET:
     /* Linear map lives in [PAGE_OFFSET, _PAGE_END), both VA_BITS-dependent.
-     * Widest accepting bounds: floor at the lowest PAGE_OFFSET (VA52's,
-     * KERNEL_VIRT_VAS_START); ceiling at the highest _PAGE_END (smallest
-     * supported VA_BITS). */
-    return (a >= arm64_page_end_for(ARM64_VA_BITS_MIN_SUPPORTED)) ||
+     * Accepting bounds: floor at the lowest PAGE_OFFSET (VA52's,
+     * KERNEL_VIRT_VAS_START); ceiling at _PAGE_END of
+     * ARM64_VA_BITS_VALIDATE_MIN
+     * -- the smallest width admitted PRE-resolution, NOT the smallest
+     * supported. A VA36 base sits above this ceiling and is rejected (see the
+     * file-top note). */
+    return (a >= arm64_page_end_for(ARM64_VA_BITS_VALIDATE_MIN)) ||
            (a < (unsigned long)KERNEL_VIRT_VAS_START);
   case REGION_MODULE:
   case REGION_MODULE_BAND:

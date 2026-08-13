@@ -167,14 +167,6 @@ int main(void) {
    * instance name so the table reads "acpi_table:Cpu0Ist". */
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_ACPI_TABLE, s.addr, s.label,
                       CONF_PARSED);
-#ifdef directmap_virt_to_phys
-  {
-    unsigned long phys = directmap_virt_to_phys(s.addr);
-    kasld_info("  possible physical address: 0x%016lx", phys);
-    kasld_result_sample(KASLD_TYPE_PHYS, REGION_ACPI_TABLE, phys, s.label,
-                        CONF_PARSED);
-  }
-#endif
 
   return 0;
 }

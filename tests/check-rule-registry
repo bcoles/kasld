@@ -37,6 +37,8 @@
 set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 RULES=$ROOT/src/rules
+# shellcheck source=tests/lib/guard-scope.sh
+. "$ROOT/tests/lib/guard-scope.sh"
 REG=$ROOT/src/engine_rules.c
 UNIT=$ROOT/tests/test_engine.c
 INTEG=$ROOT/tests/test_engine_integration.c
@@ -114,5 +116,14 @@ done
 
 nfiles=$(printf '%s\n' "$files" | grep -c .)
 nint=$(printf '%s\n' "$INTEGRATION" | grep -c .)
+# The scope this guard actually examined. Counted here rather than in the
+# loop: an unmatched glob leaves the literal pattern, which a loop-side
+# counter would tally as one file and so report a non-empty scope.
+_scanned=0
+for _f in "$RULES"/*.c; do
+  [ -f "$_f" ] && _scanned=$((_scanned + 1))
+done
+guard_scope "check-rule-registry" "$_scanned" 50
+
 printf '%scheck-rule-registry: OK%s (%s rules, all registered once and tested; %s integration-covered)\n' \
   "$GREEN" "$RESET" "$nfiles" "$nint"

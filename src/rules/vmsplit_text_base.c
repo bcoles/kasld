@@ -11,10 +11,13 @@
 // NOT pin the text base — it determines PAGE_OFFSET (the valuable part) and
 // floors the image base. ANY observed kernel virtual text address V gives:
 //
-//   PAGE_OFFSET     = largest VMSPLIT boundary <= V   (V lies in the image,
+//   B               = largest VMSPLIT boundary <= V   (V lies in the image,
 //                     which spans [PAGE_OFFSET + TEXT_OFFSET, PAGE_OFFSET +
 //                     1G))
-//   virt text base >= PAGE_OFFSET + IMAGE_BASE_OFFSET  (lower bound; the exact
+//   PAGE_OFFSET    in [B, min(V)]   (the lowest witness upper-bounds it
+//   directly
+//                     on a coupled arch; see the ceiling note below)
+//   virt text base >= B + IMAGE_BASE_OFFSET             (lower bound; the exact
 //                     base comes from an observed text witness via
 //                     text_pin_from_observation)
 //
@@ -24,15 +27,42 @@
 //
 // We gather every virtual kernel-text witness, snap each to its boundary, and
 // take the boundary with the strongest support (highest confidence, then most
-// independent witnesses). The witness count becomes the PAGE_OFFSET pin's
-// lineage. Pinning the text base to PAGE_OFFSET + IMAGE_BASE_OFFSET would be
-// UNSOUND on a kernel whose TEXT_OFFSET exceeds 0x8000 (it excludes the real
-// _text); a lower bound at that value is sound for every TEXT_OFFSET.
+// independent witnesses). The witness count becomes the constraint's lineage.
+// Pinning the text base to PAGE_OFFSET + IMAGE_BASE_OFFSET would be UNSOUND on
+// a kernel whose TEXT_OFFSET exceeds 0x8000 (it excludes the real _text); a
+// lower bound at that value is sound for every TEXT_OFFSET.
 //
-// Sound for any TEXT_OFFSET >= IMAGE_BASE_OFFSET, hence the !KASLR_SUPPORTED
-// gate. The candidate set is the architecture's own PAGE_OFFSET_CANDIDATES, so
-// there is no second list to keep in step; the rule is inert where that set has
-// a single entry, since there is then no split to determine.
+// BOUNDS on PAGE_OFFSET, not an equality, and that is the whole difference
+// between this rule and an unsound one. `C_EQUALS` on the snap would exclude
+// the truth whenever the split is one the list omits — a kernel built there
+// snaps to the next listed boundary DOWN. Completeness cannot be established
+// from inside this repo (the list mirrors a Kconfig choice a vendor can
+// extend), so the rule emits a window.
+//
+// Ceiling: the lowest witness. On a coupled arch every kernel-text address is
+// at or above PAGE_OFFSET, so PAGE_OFFSET <= min(V) directly — no argument
+// about boundary spacing, tighter than the next listed candidate above the snap
+// (which the witness already sits below), and independent of the list.
+//
+// Floor: the snapped boundary, a lower bound on the true base PROVIDED no
+// listed candidate sits strictly between that base and the witness — then the
+// largest listed candidate <= V is at or below the base. That holds where the
+// list is complete AND the image does not span a listed boundary (the witness
+// stays within one gap of the base): arm32's four VMSPLIT options are the whole
+// Kconfig choice, and a kernel image is far below the 256 MiB minimum gap. It
+// is NOT the unconditional "snapping only rounds down" it may look like: an
+// UNLISTED base just under a listed boundary, with text spanning across it,
+// would snap above the truth. The floor rests on that completeness; the ceiling
+// above does not.
+//
+// The !KASLR_SUPPORTED gate is separate and still required. The floor assumes
+// the witness sits within one gap of the base; with KASLR the image can be
+// placed far higher, so the snap can land on a different boundary entirely and
+// the floor would then exclude the truth just as an equality would.
+//
+// The candidate set is the architecture's own PAGE_OFFSET_CANDIDATES, so there
+// is no second list to keep in step; the rule is inert where that set has a
+// single entry, since there is then no split to determine.
 //
 // NOT the same as api.h's kasld_floor_text_base(), and deliberately not built
 // on it: this snaps to the 1 GiB VMSPLIT boundary to *determine PAGE_OFFSET*,
@@ -51,9 +81,6 @@ int rule_vmsplit_text_base(const struct evidence_set *ev,
                            int out_max) {
   (void)est;
 #if PAGE_OFFSET_IS_FINITE && !PAGE_OFFSET_KNOWN_AT_BUILD && !KASLR_SUPPORTED
-  if (out_max < 2)
-    return 0;
-
   static const unsigned long cand[] = PAGE_OFFSET_CANDIDATES; /* high -> low */
   const int ncand = (int)(sizeof(cand) / sizeof(cand[0]));
 
@@ -62,12 +89,14 @@ int rule_vmsplit_text_base(const struct evidence_set *ev,
   int best_votes = 0;
   uint32_t best_src[MAX_LINEAGE];
   int best_nsrc = 0;
+  unsigned long best_min_v = 0; /* lowest witness for the winning boundary */
 
   for (int c = 0; c < ncand; c++) {
     enum kasld_confidence conf = CONF_UNKNOWN;
     int votes = 0;
     uint32_t src[MAX_LINEAGE];
     int nsrc = 0;
+    unsigned long min_v = 0;
 
     for (int i = 0; i < ev->n_obs; i++) {
       const struct observation *o = &ev->obs[i];
@@ -95,6 +124,8 @@ int rule_vmsplit_text_base(const struct evidence_set *ev,
         continue;
 
       votes++;
+      if (min_v == 0 || v < min_v)
+        min_v = v; /* PAGE_OFFSET <= every witness on a coupled arch */
       if (o->conf > conf)
         conf = o->conf;
       if (nsrc < MAX_LINEAGE)
@@ -109,25 +140,45 @@ int rule_vmsplit_text_base(const struct evidence_set *ev,
       best_conf = conf;
       best_votes = votes;
       best_nsrc = nsrc;
+      best_min_v = min_v;
       memcpy(best_src, src, sizeof(uint32_t) * (size_t)nsrc);
     }
   }
 
   if (best_votes == 0)
     return 0;
+  if (out_max < 3)
+    return 0;
 
   int n = 0;
 
-  struct constraint *po = &out[n++];
-  memset(po, 0, sizeof(*po));
-  po->q = Q_PAGE_OFFSET;
-  po->op = C_EQUALS;
-  po->value = best_po;
-  po->conf = best_conf;
+  struct constraint *lo_c = &out[n++];
+  memset(lo_c, 0, sizeof(*lo_c));
+  lo_c->q = Q_PAGE_OFFSET;
+  lo_c->op = C_LOWER_BOUND;
+  lo_c->value = best_po;
+  lo_c->conf = best_conf;
   for (int i = 0; i < best_nsrc; i++)
-    po->derived_from[i] = best_src[i];
-  po->lineage_count = best_nsrc;
-  snprintf(po->origin, ORIGIN_LEN, "vmsplit_text_base");
+    lo_c->derived_from[i] = best_src[i];
+  lo_c->lineage_count = best_nsrc;
+  snprintf(lo_c->origin, ORIGIN_LEN, "vmsplit_text_base");
+
+  /* The lowest witness is itself an upper bound: on a coupled arch every text
+   * address is at or above PAGE_OFFSET, so PAGE_OFFSET <= min(V). Tighter than
+   * the next listed boundary above the snap (which the witness already sits
+   * below), and independent of the candidate list. best_min_v >= best_po since
+   * a witness snaps to best_po only when it is at or above it, so the window
+   * never inverts. */
+  struct constraint *hi_c = &out[n++];
+  memset(hi_c, 0, sizeof(*hi_c));
+  hi_c->q = Q_PAGE_OFFSET;
+  hi_c->op = C_UPPER_BOUND;
+  hi_c->value = best_min_v;
+  hi_c->conf = best_conf;
+  for (int i = 0; i < best_nsrc; i++)
+    hi_c->derived_from[i] = best_src[i];
+  hi_c->lineage_count = best_nsrc;
+  snprintf(hi_c->origin, ORIGIN_LEN, "vmsplit_text_base");
 
   /* Floor the image base at PAGE_OFFSET + IMAGE_BASE_OFFSET (the smallest
    * TEXT_OFFSET). A lower bound, NOT an exact pin: TEXT_OFFSET varies by

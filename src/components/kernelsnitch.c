@@ -882,13 +882,5 @@ int main(void) {
   kasld_found("leaked mm_struct address: %lx", result);
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, result, "mm_struct",
                       CONF_TIMING);
-#ifdef directmap_virt_to_phys
-  {
-    unsigned long phys = directmap_virt_to_phys(result);
-    kasld_info("  possible physical address: 0x%016lx", phys);
-    kasld_result_sample(KASLD_TYPE_PHYS, REGION_DIRECTMAP, phys, "mm_struct",
-                        CONF_TIMING);
-  }
-#endif
   return 0;
 }

@@ -418,19 +418,6 @@ int main(void) {
       kasld_result_sample(KASLD_TYPE_PHYS, REGION_RAM, ctx.cr3, "cr3",
                           CONF_PARSED);
     }
-#if defined(phys_to_directmap_virt) && TEXT_TRACKS_DIRECTMAP
-    /* Coupled arches: project the CR3 phys to its direct-map virtual address.
-     * Defensive — CR3 is x86-only and x86 is decoupled, so this is unreached in
-     * practice — but kept correct: swapper → .bss virt, otherwise a generic
-     * direct-map landmark. */
-    {
-      unsigned long virt = phys_to_directmap_virt(ctx.cr3);
-      enum kasld_region r =
-          ctx.cr3_swapper ? REGION_KERNEL_BSS : REGION_DIRECTMAP;
-      kasld_info("possible direct-map virtual address: %lx", virt);
-      kasld_result_sample(KASLD_TYPE_VIRT, r, virt, "cr3", CONF_PARSED);
-    }
-#endif
   }
 
   if (ctx.directmap) {

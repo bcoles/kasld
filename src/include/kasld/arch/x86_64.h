@@ -42,6 +42,11 @@
 // undefined (see gate at end of file). Kernel text KASLR (RANDOMIZE_BASE)
 // is independent of RANDOMIZE_MEMORY, so text does not track the directmap.
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/include/asm/page.h#L59
+// LINEAR_MAP_ANCHOR: __va(x) = x + page_offset_base, so physical 0 maps to
+// the linear-map base and the anchor is the compile-time PHYS_OFFSET (0).
+// RANDOMIZE_MEMORY slides the VIRTUAL base, never the physical anchor.
+// arch/x86/include/asm/page_64.h __va()
+#define LINEAR_MAP_ANCHOR LM_ANCHOR_PHYS_OFFSET
 #define DIRECTMAP_STATIC 0
 #define TEXT_TRACKS_DIRECTMAP 0
 // PHYS_OFFSET is unconditionally 0 on x86_64 (__pa(x) = x - PAGE_OFFSET, no
@@ -105,6 +110,9 @@
 // presentational.
 // https://elixir.bootlin.com/linux/v7.2/source/arch/x86/include/asm/page_64_types.h
 // https://elixir.bootlin.com/linux/v7.2/source/arch/x86/include/asm/pgtable_64_types.h
+// Where the module band is anchored: a fixed address range, independent of both
+// the image and the linear map.
+#define MODULES_ANCHOR MOD_ANCHOR_FIXED
 #define MODULES_START 0xffffffffa0000000ul
 #define MODULES_END 0xffffffffff000000ul
 
@@ -132,7 +140,6 @@
 #define MODULES_BASE_RANDOMIZED 0xffffffffc0000000ul
 #define MODULES_BASE_RANDOM_SPAN 0x400000ul // 1024 * PAGE_SIZE
 // Module region is fixed at MODULES_VADDR; does not shift with KASLR.
-#define MODULES_RELATIVE_TO_TEXT 0
 
 // For x86_64, possible max alignment is 0x100_0000 (16MiB) with default of
 // 0x20_0000 (2MiB) in increments of 0x20_0000 (2MiB).

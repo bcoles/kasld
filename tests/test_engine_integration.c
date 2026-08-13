@@ -21,6 +21,7 @@
 #include "include/kasld/engine_rules.h"
 #include "include/kasld/regions.h"
 #include "test_harness.h"
+#include "test_po_access.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -492,7 +493,7 @@ static void test_full_engine_x86_64_leaky(void) {
   qd[Q_PHYS_IMAGE_BASE].init_top(&top);
   assert(pt->hi < top.hi); /* kernel_image_phys_bound / mmio / memtotal */
   qd[Q_PAGE_OFFSET].init_top(&top);
-  assert(po->hi < top.hi); /* directmap_page_offset_bounds */
+  assert(po_hi(po) < top.hi); /* directmap_page_offset_bounds */
 #endif
 }
 
@@ -526,7 +527,7 @@ static void test_full_engine_faithful_cluster_keeps_directmap(void) {
   const struct estimate *pob = &base.est[Q_PAGE_OFFSET];
   assert(!estimate_is_bottom(pob, &quantities[Q_PAGE_OFFSET]));
   assert(contains(pob, PO));
-  unsigned long base_lo = pob->lo, base_hi = pob->hi;
+  unsigned long base_lo = po_lo(pob), base_hi = po_hi(pob);
 
   /* Rich: the same directmap leak PLUS a faithful kernel-text cluster (>= 5).
    */
@@ -551,7 +552,7 @@ static void test_full_engine_faithful_cluster_keeps_directmap(void) {
   assert(!estimate_is_bottom(po, &quantities[Q_PAGE_OFFSET]));
   assert(contains(po, PO));
   /* (3) Monotonicity: the text cluster did not widen page_offset. */
-  assert(po->lo >= base_lo && po->hi <= base_hi);
+  assert(po_lo(po) >= base_lo && po_hi(po) <= base_hi);
 #endif
 }
 
@@ -755,7 +756,7 @@ static void test_full_engine_ppc64_hardened_shape(void) {
 
   assert(vt->lo <= t_virt && t_virt <= vt->hi);
   assert(pt->lo <= t_phys && t_phys <= pt->hi);
-  assert(po->lo <= t_po && t_po <= po->hi);
+  assert(po_lo(po) <= t_po && t_po <= po_hi(po));
 #endif
 }
 
@@ -859,7 +860,7 @@ static void test_full_engine_arm32_no_kaslr_shape(void) {
 
   assert(vt->lo <= t_virt && t_virt <= vt->hi);
   assert(pt->lo <= t_phys && t_phys <= pt->hi);
-  assert(po->lo <= t_po && t_po <= po->hi);
+  assert(po_lo(po) <= t_po && t_po <= po_hi(po));
 #endif
 }
 
@@ -914,7 +915,7 @@ static void test_full_engine_i686_kaslr_shape(void) {
 
   assert(vt->lo <= t_virt && t_virt <= vt->hi);
   assert(pt->lo <= t_phys && t_phys <= pt->hi);
-  assert(po->lo <= t_po && t_po <= po->hi);
+  assert(po_lo(po) <= t_po && t_po <= po_hi(po));
 #endif
 }
 
@@ -1090,8 +1091,8 @@ static void test_full_engine_riscv64_legacy_no_kaslr(void) {
    * CONFIG_PAGE_OFFSET (CONF_PARSED). The two contradict; confidence — not
    * capture order — must decide, so the legacy parsed value has to win despite
    * being added second. Reverting proc_cpuinfo's confidence to parsed would
-   * make this resolve to the wrong (modern) value, failing the po->lo assertion
-   * below. */
+   * make this resolve to the wrong (modern) value, failing the po_lo(po)
+   * assertion below. */
   add_addr_conf(&e, KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, 0xffffffd600000000ul,
                 0xffffffd800000000ul, CONF_INFERRED, NULL);
   add_addr(&e, KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, 0xffffffe000000000ul, 0,
@@ -1118,7 +1119,7 @@ static void test_full_engine_riscv64_legacy_no_kaslr(void) {
   assert(!estimate_is_bottom(vt, &quantities[Q_VIRT_IMAGE_BASE]));
   /* PAGE_OFFSET resolves to the legacy value (the higher CONFIG landmark beats
    * the modern cpuinfo range). */
-  assert(po->lo == 0xffffffe000000000ul);
+  assert(po_lo(po) == 0xffffffe000000000ul);
   /* The window contains the real _stext, is in the legacy linear-map region
    * (NOT the 128 GiB-high modern KERNEL_LINK default), and module_text_bound
    * makes it tight. */
@@ -1205,7 +1206,7 @@ static void test_full_engine_arm64_va39_sub48(void) {
   const struct estimate *vt = &e.est[Q_VIRT_IMAGE_BASE];
   const struct estimate *po = &e.est[Q_PAGE_OFFSET];
   /* PAGE_OFFSET resolves to the exact 39-bit value (admitted + classified). */
-  assert(po->lo == po39 && po->hi == po39);
+  assert(po_lo(po) == po39 && po_hi(po) == po39);
   /* The image base resolves to the sub-48 _text — which sits ABOVE the old
    * 48-bit honest-top ceiling (KASLR_VIRT_TEXT_MAX), so only the widened
    * KASLR_VIRT_TEXT_MAX_WIDE admits it. */
@@ -1699,9 +1700,24 @@ static void test_full_engine_property_s390(void) {
 #endif
 }
 
+/* The coupled projection the x86_32 property fixtures need.
+ *
+ * api.h exposes phys_to_directmap_virt() only where the linear-map base is
+ * known at build time, and x86_32's is a VMSPLIT choice, so the macro is
+ * deliberately absent there. These fixtures are not analysing a target: they
+ * CONSTRUCT a synthetic kernel and pin its page offset themselves (see the
+ * REGION_PAGE_OFFSET landmark each adds). Projecting through that same chosen
+ * base is therefore exact by construction, and keeping it in one place keeps
+ * the projection and the landmark from drifting apart. */
+#if defined(__i386__) /* both callers are x86_32-only */
+static unsigned long fixture_coupled_virt(unsigned long phys) {
+  return phys - (unsigned long)PHYS_OFFSET + (unsigned long)PAGE_OFFSET;
+}
+#endif
+
 /* Property test: x86_32 whole-engine containment — a COUPLED arch. Kernel text
  * sits in the linear map, so virt and phys text bases share one KASLR slide:
- * virt = phys_to_directmap_virt(phys). The generator draws phys and derives
+ * virt = fixture_coupled_virt(phys). The generator draws phys and derives
  * virt; a random leak subset (sometimes phys-only or virt-only) forces
  * text_base_coupling_synth to reconstruct the other side, so this exercises the
  * coupling-rule family the decoupled tests never reach. STEXT_OFFSET 0. */
@@ -1721,7 +1737,7 @@ static void test_full_engine_property_x86_32(void) {
                                       (unsigned long)KASLR_PHYS_MAX - image,
                                       (unsigned long)KASLR_PHYS_ALIGN);
     /* Coupled: the virtual text base tracks phys in the linear map. */
-    unsigned long virt = phys_to_directmap_virt(phys);
+    unsigned long virt = fixture_coupled_virt(phys);
     unsigned long memtotal = phys + image +
                              (unsigned long)(prop_rand(&r) % 0x08000000ull) +
                              0x02000000ul;
@@ -1877,7 +1893,7 @@ static void test_full_engine_property_x86_32_floor(void) {
     unsigned long phys = prop_aligned(&r, (unsigned long)KASLR_PHYS_ALIGN,
                                       (unsigned long)KASLR_PHYS_MAX - image,
                                       (unsigned long)KASLR_PHYS_ALIGN);
-    unsigned long virt = phys_to_directmap_virt(phys); /* coupled */
+    unsigned long virt = fixture_coupled_virt(phys); /* coupled */
     unsigned long memtotal = phys + image +
                              (unsigned long)(prop_rand(&r) % 0x08000000ull) +
                              0x02000000ul;

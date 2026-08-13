@@ -98,9 +98,18 @@ static inline int kasld_mul_ovf(unsigned long a, unsigned long b,
  *
  * - MODULES_RELATIVE_TO_TEXT: 1 if the module region shifts with KASLR text.
  * - IMAGE_ALIGN:              Kernel text address alignment.
- * - IMAGE_BASE_OFFSET:              _text's alignment residue (its offset
- * within the KASLR granule); used only by the residue-aware floor. NOT the
- * _stext head gap (see STEXT_OFFSET).
+ * - IMAGE_BASE_OFFSET:       the gap from the image's PLACEMENT ADDRESS to
+ * _text -- from the linear-map base on a coupled arch, from the load address on
+ * s390 -- so `placement + IMAGE_BASE_OFFSET` is where _text lands. It is what a
+ * rule adds when projecting a base it knows onto the text base. NOT the _stext
+ * head gap (see STEXT_OFFSET), and NOT _text's alignment residue: the two
+ * coincide on most arches but diverge wherever the gap is a whole multiple of
+ * the KASLR granule, where the residue is 0 and this constant is not --
+ * 0x100000 vs 0 on s390, 0x200000 vs 0 on loongarch64. Code that wants the
+ * residue must take `KERNEL_VIRT_TEXT_DEFAULT & (align - 1)`, which is what
+ * kasld_floor_aligned_suboffset() does; using IMAGE_BASE_OFFSET there would
+ * floor a whole granule too high on those two arches and could exclude the
+ * truth.
  * - STEXT_OFFSET:             Head gap _stext - _text (0 unless a fixed header
  *                             precedes _stext, e.g. arm64 0x10000); see its
  *                             definition below — a fallback, resolved at
@@ -114,14 +123,19 @@ static inline int kasld_mul_ovf(unsigned long a, unsigned long b,
  *
  * KASLR and address derivation:
  * - KASLR_SUPPORTED:          1 if the arch has mainline KASLR.
- * - DIRECTMAP_STATIC:         1 if PAGE_OFFSET and PHYS_OFFSET are both
- *                             compile-time constants at runtime, so
- *                             phys_to_directmap_virt(p) = p - PHYS_OFFSET +
- *                             PAGE_OFFSET yields the real runtime directmap
- *                             virt. 0 if either offset shifts at boot (KASLR
- *                             randomization or runtime patching), in which case
- *                             phys_to_directmap_virt() is undefined and callers
- *                             must rely on engine-resolved values.
+ * - DIRECTMAP_STATIC:         1 if PAGE_OFFSET and PHYS_OFFSET do not move at
+ *                             runtime (the linear-map base is fixed once
+ * booted). This governs whether a direct-map base reconstructed from a leak may
+ * be PINNED to one value (PAGE_OFFSET_FIXED) rather than kept a window. 0 if
+ * either offset shifts at boot (KASLR randomization or runtime patching), where
+ * such a reconstruction must stay a window. It does NOT gate the compile-time
+ * projection macros phys_to_directmap_virt / directmap_virt_to_phys: those
+ * substitute this build's PAGE_OFFSET, which is sound only where this build
+ * KNOWS the target's base (PAGE_OFFSET_KNOWN_AT_BUILD), a stricter condition.
+ *                             The VMSPLIT arches are DIRECTMAP_STATIC=1 yet
+ *                             KNOWN_AT_BUILD=0 -- the base is a runtime
+ * constant but this build cannot know which split the target chose -- so the
+ * macros are undefined there.
  * - PHYS_OFFSET_EXACT:        1 if PHYS_OFFSET is the true runtime physical
  * base of the linear map, so page_offset_base = directmap_va -
  * __pa(directmap_va) + PHYS_OFFSET is exact. 0 (the default) if PHYS_OFFSET is
@@ -136,8 +150,9 @@ static inline int kasld_mul_ovf(unsigned long a, unsigned long b,
  *                             floors then do not propagate to virtual text
  *                             bounds.
  * - directmap_virt_to_phys(): Convert a directmap virtual to its physical page.
- *                             Same gate as phys_to_directmap_virt; sound only
- *                             when the input is a directmap address.
+ *                             Gated by PAGE_OFFSET_KNOWN_AT_BUILD, like
+ *                             phys_to_directmap_virt; sound only when the input
+ *                             is a directmap address.
  *
  * These are deliberately WIDE: each range is the union across all in-scope
  * kernel versions / configs (vmsplit, non-KASLR defaults, old kernels), so a
@@ -157,6 +172,80 @@ static inline int kasld_mul_ovf(unsigned long a, unsigned long b,
  * ...]; KASLR_VIRT_ALIGN = 2 MiB. arm64:  KERNEL_TEXT ~128 TiB; KASLR_TEXT ~64
  * TiB; KASLR_VIRT_ALIGN 2 MiB (vs IMAGE_ALIGN 64 KiB).
  * ========================================================================= */
+
+/* LINEAR_MAP_ANCHOR — WHERE the linear map's physical anchor comes from.
+ *
+ * The linear map sends one physical address to virtual PAGE_OFFSET. Call it the
+ * anchor. A rule that pairs a direct-map virtual with a physical reconstructs
+ * the base as (virt - phys + anchor), so the anchor is the whole content of the
+ * derivation — get it wrong and the base is wrong by the same amount, silently,
+ * with nothing in the arithmetic to notice. The anchor is not a number this
+ * binary can carry (on most arches the kernel decides it at boot), so the axis
+ * names its SOURCE:
+ *
+ *   LM_ANCHOR_PHYS_OFFSET — the compile-time PHYS_OFFSET IS the anchor. These
+ *     are the kernels that map physical 0 at the linear-map base, so the
+ *     constant is right by construction rather than by luck.
+ *   LM_ANCHOR_DRAM_BASE — the kernel sets the anchor FROM the base of DRAM
+ *     while booting, so the lowest observed physical RAM base names it. The
+ *     value is a runtime discovery; only evidence supplies it.
+ *   LM_ANCHOR_UNKNOWABLE — the kernel places the anchor at neither, displaced
+ *     by an amount no unprivileged observation recovers. A rule must DECLINE;
+ *     there is no sound one-sided bound to fall back on either, because the
+ *     displacement has no fixed direction.
+ *
+ * Declared by every arch header, because there is no defensible default: a
+ * missing answer would silently become "PHYS_OFFSET" and reintroduce exactly
+ * the substitution this axis exists to prevent.
+ *
+ * This is a THIRD axis, not a restatement of the two above it. DIRECTMAP_STATIC
+ * asks whether the base moves at runtime and TEXT_TRACKS_DIRECTMAP whether text
+ * rides inside the map; both were used as proxies for this question and neither
+ * answers it. arm64 is the counterexample that separates all three: text is
+ * randomized independently of the map (TEXT_TRACKS_DIRECTMAP=0), the base does
+ * move (DIRECTMAP_STATIC=0), and the anchor is UNKNOWABLE — memstart_addr is
+ * rounded down to ARM64_MEMSTART_ALIGN, re-based to (end of DRAM - linear
+ * region size) when memory overflows the map, decremented by the whole
+ * 52-to-48 PAGE_OFFSET difference on a 52-bit build running without 52-bit
+ * hardware, and on older kernels moved down again by a random multiple of the
+ * alignment. Every one of those displacements is itself large-page aligned, so
+ * an alignment sanity check does not catch them.
+ *
+ * Each arch header cites the kernel code its answer comes from. */
+/* MODULES_ANCHOR — what the module band's position is fixed to.
+ *
+ * Four alternatives, and they are alternatives: a band is anchored to exactly
+ * one thing. Encoding that as independent booleans meant the illegal
+ * combinations had to be excluded by hand, and api.h grew a pairwise #error for
+ * each pair anyone thought of — "cannot follow both PAGE_OFFSET and the text
+ * base", "cannot be both text-bracketing and text-relative". Those checks were
+ * the encoding admitting it was wrong: n placements need n(n-1)/2 checks to
+ * stay exclusive, and the (n+1)th is added by someone who writes one boolean
+ * and forgets n more. As a single value the exclusivity is structural and the
+ * checks are unnecessary.
+ *
+ *   MOD_ANCHOR_FIXED         a fixed address range, independent of both the
+ *                            image and the linear map.
+ *   MOD_ANCHOR_PAGE_OFFSET   a fixed delta from PAGE_OFFSET, so a runtime
+ *                            VMSPLIT moves the band with it. Requires
+ *                            MODULES_START_FOR / MODULES_END_FOR.
+ *   MOD_ANCHOR_TEXT          placed relative to the kernel image, so it slides
+ *                            with text KASLR.
+ *   MOD_ANCHOR_BRACKETS_TEXT a window centred on the image,
+ * MODULES_BRACKET_TEXT wide either side.
+ *
+ * The two long-standing booleans are DERIVED below rather than declared, so the
+ * arch headers state the anchor once and every existing consumer keeps reading
+ * the predicate it already reads. */
+#define MOD_ANCHOR_FIXED 1
+#define MOD_ANCHOR_PAGE_OFFSET 2
+#define MOD_ANCHOR_TEXT 3
+#define MOD_ANCHOR_BRACKETS_TEXT 4
+
+#define LM_ANCHOR_PHYS_OFFSET 1
+#define LM_ANCHOR_DRAM_BASE 2
+#define LM_ANCHOR_UNKNOWABLE 3
+
 #if defined(__x86_64__) || defined(__amd64__)
 #include "arch/x86_64.h"
 #elif defined(__i386__)
@@ -240,10 +329,12 @@ __extension__ _Static_assert((unsigned long)KERNEL_PHYS_MAX >
  * for the 0/1 semantics.
  *
  * The two answer different questions, and both are read on their own:
- * DIRECTMAP_STATIC decides whether phys_to_directmap_virt() and
- * directmap_virt_to_phys() are defined at all, so it gates every compile-time
- * linear-map projection; TEXT_TRACKS_DIRECTMAP decides whether a physical
- * bound may propagate to the virtual text base.
+ * DIRECTMAP_STATIC decides whether a direct-map base reconstructed from a leak
+ * may be pinned to one value (PAGE_OFFSET_FIXED, below); TEXT_TRACKS_DIRECTMAP
+ * decides whether a physical bound may propagate to the virtual text base.
+ * Neither gates the compile-time projections — that is
+ * PAGE_OFFSET_KNOWN_AT_BUILD's job, since projecting requires knowing the base
+ * HERE, not merely that the target holds it still.
  *
  * They nonetheless hold the SAME value on every architecture supported today,
  * so no in-tree arch demonstrates the difference and neither can be inferred
@@ -251,8 +342,8 @@ __extension__ _Static_assert((unsigned long)KERNEL_PHYS_MAX >
  * neighbouring header happens to say. The pair separates as soon as an arch
  * fixes one of the two independently:
  *
- *   DIRECTMAP_STATIC=1, TEXT_TRACKS_DIRECTMAP=0 — the linear map sits at its
- *   compile-time address while the image is randomized independently of it
+ *   DIRECTMAP_STATIC=1, TEXT_TRACKS_DIRECTMAP=0 — the linear map does not move
+ *   at runtime while the image is randomized independently of it
  *   (x86_64 built without RANDOMIZE_MEMORY is exactly this shape; KASLD models
  *   x86_64 with DIRECTMAP_STATIC=0 because it cannot prove the build).
  *
@@ -268,6 +359,44 @@ __extension__ _Static_assert((unsigned long)KERNEL_PHYS_MAX >
 #ifndef TEXT_TRACKS_DIRECTMAP
 #error "arch header must define TEXT_TRACKS_DIRECTMAP (0 or 1)"
 #endif
+#ifndef LINEAR_MAP_ANCHOR
+#error                                                                         \
+    "arch header must define LINEAR_MAP_ANCHOR (LM_ANCHOR_PHYS_OFFSET / _DRAM_BASE / _UNKNOWABLE)"
+#endif
+#ifndef MODULES_ANCHOR
+#error                                                                         \
+    "arch header must define MODULES_ANCHOR (MOD_ANCHOR_FIXED / _PAGE_OFFSET / _TEXT / _BRACKETS_TEXT)"
+#endif
+__extension__ _Static_assert(MODULES_ANCHOR == MOD_ANCHOR_FIXED ||
+                                 MODULES_ANCHOR == MOD_ANCHOR_PAGE_OFFSET ||
+                                 MODULES_ANCHOR == MOD_ANCHOR_TEXT ||
+                                 MODULES_ANCHOR == MOD_ANCHOR_BRACKETS_TEXT,
+                             "MODULES_ANCHOR must be one of the four "
+                             "MOD_ANCHOR_* answers");
+/* Derived, never declared: one anchor, so these can no longer disagree. */
+#define MODULES_RELATIVE_TO_TEXT (MODULES_ANCHOR == MOD_ANCHOR_TEXT)
+#define MODULES_RELATIVE_TO_PAGE_OFFSET                                        \
+  (MODULES_ANCHOR == MOD_ANCHOR_PAGE_OFFSET)
+/* A typo'd or stale value would expand to 0 in an #if and silently match
+ * nothing, so every consumer would fall to its else branch. Pin it to the three
+ * declared answers. */
+__extension__ _Static_assert(LINEAR_MAP_ANCHOR == LM_ANCHOR_PHYS_OFFSET ||
+                                 LINEAR_MAP_ANCHOR == LM_ANCHOR_DRAM_BASE ||
+                                 LINEAR_MAP_ANCHOR == LM_ANCHOR_UNKNOWABLE,
+                             "LINEAR_MAP_ANCHOR must be one of the three "
+                             "LM_ANCHOR_* answers");
+/* A coupled arch cannot have an unknowable anchor. Text riding at a fixed
+ * offset inside the linear map is what makes a physical bound projectable onto
+ * the virtual text base, and that projection needs the anchor — so an arch
+ * claiming the first while denying the second would put
+ * text_base_coupling_synth in the position of projecting through a number it
+ * cannot obtain. It holds on all twelve supported arches today; asserted
+ * because that rule reads the coupling flag and takes a usable anchor for
+ * granted rather than re-checking. */
+__extension__ _Static_assert(!TEXT_TRACKS_DIRECTMAP ||
+                                 LINEAR_MAP_ANCHOR != LM_ANCHOR_UNKNOWABLE,
+                             "TEXT_TRACKS_DIRECTMAP arch must have a knowable "
+                             "linear-map anchor");
 
 /* ---- The linear-map base, as one axis ----------------------------------
  *
@@ -283,9 +412,17 @@ __extension__ _Static_assert((unsigned long)KERNEL_PHYS_MAX >
  * so reading it as "the lowest split" is wrong there, and right elsewhere only
  * by coincidence of which arches use it.
  *
- * PAGE_OFFSET_CANDIDATES is the complete set, highest first, declared ONLY
- * where the base is a PRIMITIVE property of the build: a VMSPLIT choice, or an
- * architectural constant. Deliberately absent where it is
+ * The bracket is what Q_PAGE_OFFSET is resolved within, and it is an interval
+ * on every architecture. An interval can represent any address between its
+ * edges, so a base the target holds is at worst unresolved; an enumeration
+ * would have to be complete for every kernel in scope, and a base missing from
+ * it would be excluded outright.
+ *
+ * PAGE_OFFSET_CANDIDATES is the VMSPLIT boundary list, highest first, declared
+ * ONLY where the base is a PRIMITIVE property of the build: a VMSPLIT choice,
+ * or an architectural constant. It is what an observed kernel-text address is
+ * snapped DOWN to in order to tell one split from another, and nothing reads it
+ * as the set of admissible bases. Deliberately absent where the base is
  *
  *   DERIVED — arm64 and riscv64 compute it from the paging mode, which
  *     Q_VA_BITS already models as a finite set. A second list there would be
@@ -315,16 +452,18 @@ __extension__ _Static_assert((unsigned long)KERNEL_PHYS_MAX >
 #error "the compile-time PAGE_OFFSET falls outside [PAGE_OFFSET_MIN, _MAX]"
 #endif
 
+/* Whether the boundary list exists, as a 0/1 an `#if` can combine with the
+ * other axes. Not a statement about how Q_PAGE_OFFSET is represented — that is
+ * an interval everywhere. */
 #ifdef PAGE_OFFSET_CANDIDATES
 #define PAGE_OFFSET_IS_FINITE 1
 #else
 #define PAGE_OFFSET_IS_FINITE 0
 #endif
 
-/* One admissible value means this binary knows the target's base. A finite set
- * with more than one, or no set at all, means it does not. */
-#define PAGE_OFFSET_KNOWN_AT_BUILD                                             \
-  (PAGE_OFFSET_IS_FINITE && PAGE_OFFSET_MIN == PAGE_OFFSET_MAX)
+/* A bracket holding one address means this binary knows the target's base.
+ * Any wider bracket means it does not, whatever the reason for the width. */
+#define PAGE_OFFSET_KNOWN_AT_BUILD (PAGE_OFFSET_MIN == PAGE_OFFSET_MAX)
 
 /* MODULES_RELATIVE_TO_PAGE_OFFSET is opt-in: an arch declares it 1 when its
  * module band is defined as a DELTA FROM PAGE_OFFSET rather than at fixed
@@ -355,15 +494,9 @@ __extension__ _Static_assert((unsigned long)KERNEL_PHYS_MAX >
  * The default 0 means "the band is at fixed addresses": arches whose
  * PAGE_OFFSET cannot move, and MODULES_RELATIVE_TO_TEXT arches (whose band
  * follows the text base instead), are unaffected. */
-#ifndef MODULES_RELATIVE_TO_PAGE_OFFSET
-#define MODULES_RELATIVE_TO_PAGE_OFFSET 0
-#endif
 #if MODULES_RELATIVE_TO_PAGE_OFFSET
 #if !defined(MODULES_START_FOR) || !defined(MODULES_END_FOR)
 #error "MODULES_RELATIVE_TO_PAGE_OFFSET=1 requires MODULES_START_FOR/END_FOR"
-#endif
-#if MODULES_RELATIVE_TO_TEXT
-#error "module band cannot follow both PAGE_OFFSET and the text base"
 #endif
 /* The union-vs-instance rule, enforced rather than merely documented: writing
  * the floor as the relation applied to the compile-time PAGE_OFFSET is the
@@ -452,9 +585,14 @@ __extension__ _Static_assert((unsigned long)KERNEL_PHYS_MAX >
 #ifndef MODULES_BRACKET_TEXT
 #define MODULES_BRACKET_TEXT 0
 #endif
-#if MODULES_BRACKET_TEXT > 0 && MODULES_RELATIVE_TO_TEXT
-#error "module band cannot be both text-bracketing and text-relative"
-#endif
+/* The bracket width belongs to exactly one anchor, and MODULES_ANCHOR now makes
+ * the exclusivity structural, so what remains is that the width and the anchor
+ * agree: a width without the anchor is dead, an anchor without the width has no
+ * geometry. */
+__extension__ _Static_assert(
+    (MODULES_BRACKET_TEXT > 0) == (MODULES_ANCHOR == MOD_ANCHOR_BRACKETS_TEXT),
+    "MODULES_BRACKET_TEXT must be declared iff MODULES_ANCHOR is "
+    "MOD_ANCHOR_BRACKETS_TEXT");
 
 /* PHYS_OFFSET_EXACT is opt-in: an arch declares it 1 only when PHYS_OFFSET is
  * the genuine runtime linear-map physical base (see the contract banner). The
@@ -465,13 +603,46 @@ __extension__ _Static_assert((unsigned long)KERNEL_PHYS_MAX >
 #define PHYS_OFFSET_EXACT 0
 #endif
 
+/* PHYS_OFFSET_EXACT is the STRICTLY STRONGER claim, and the two are easy to
+ * mistake for one question. LINEAR_MAP_ANCHOR says WHICH QUANTITY the anchor is
+ * — the PHYS_OFFSET symbol, the DRAM base, or nothing reachable.
+ * PHYS_OFFSET_EXACT says that the VALUE THIS BINARY COMPILED IN for that symbol
+ * is also the target's. The first can hold while the second fails, whenever the
+ * symbol is a per-platform constant: MIPS anchors the linear map at PHYS_OFFSET
+ * (so LM_ANCHOR_PHYS_OFFSET) yet lets the platform set it — 0x08000000 on ip22
+ * and pic32, 0x20000000 on ip28, or PFN_PHYS(ARCH_PFN_OFFSET) under
+ * CONFIG_MIPS_AUTO_PFN_OFFSET — while KASLD compiles 0. So the implication runs
+ * one way only, and asserting it is what stops the pair silently disagreeing.
+ *
+ * The converse is deliberately NOT asserted. x86_32, ppc64, loongarch64 and
+ * s390 all anchor at a genuinely fixed 0 and could carry PHYS_OFFSET_EXACT=1;
+ * they do not today, which costs precision (page_offset_from_leak and
+ * proc_kcore stay inert there) and never soundness. Promoting them is a
+ * deliberate per-arch decision with its own validation, not something to derive
+ * from this axis. */
+__extension__ _Static_assert(!PHYS_OFFSET_EXACT ||
+                                 LINEAR_MAP_ANCHOR == LM_ANCHOR_PHYS_OFFSET,
+                             "PHYS_OFFSET_EXACT requires the anchor to BE "
+                             "PHYS_OFFSET");
+
 /* Canonical directmap projections (both directions). Defined once here, gated
  * by the same predicate on every arch. Callers must use `#ifdef
  * phys_to_directmap_virt` or `#ifdef directmap_virt_to_phys` — unsound arches
  * don't get the macro, so forgetting the guard fails to compile rather than
  * silently emitting a wrong observation. Both macros are bijective on a
- * static linear map and share the same gate. */
-#if DIRECTMAP_STATIC
+ * static linear map and share the same gate.
+ *
+ * The gate is PAGE_OFFSET_KNOWN_AT_BUILD, not DIRECTMAP_STATIC. Substituting
+ * the compile-time PAGE_OFFSET is sound only where this binary knows the
+ * target's base; that the target keeps it still is necessary but not
+ * sufficient. On the VMSPLIT arches the two diverge, and projecting there
+ * manufactures a direct-map address that is off by the difference between the
+ * analysing build's split and the target's — an address indistinguishable from
+ * a genuine leak once it reaches the evidence set, which the engine then reads
+ * back as the base it was built from. Those arches get no macro, so every
+ * caller falls to its existing decoupled branch and the linear map is
+ * reconstructed from real leaks or not at all. */
+#if PAGE_OFFSET_KNOWN_AT_BUILD
 /* A directmap virtual address is by construction >= PAGE_OFFSET. A projection
  * where (p - PHYS_OFFSET) underflows or (+ PAGE_OFFSET) wraps the word -- a
  * high physical reserved region on a 32-bit arch -- is therefore not a
@@ -497,6 +668,39 @@ static inline unsigned long kasld__directmap_virt_to_phys(unsigned long v) {
 #define directmap_virt_to_phys(v)                                              \
   kasld__directmap_virt_to_phys((unsigned long)(v))
 #endif
+
+/* Self-enforcing restatement of the gate above. Trivially satisfied as written,
+ * and that is the point: widening the condition to any predicate that does not
+ * imply PAGE_OFFSET_KNOWN_AT_BUILD breaks the build on the arches where the
+ * substitution would be a guess, instead of quietly producing direct-map
+ * addresses computed from the wrong base. Every caller is #ifdef-guarded WITH a
+ * fallback, so removing the macro fails nothing at compile time — this is the
+ * only compile-time backstop the projection has. */
+#if defined(phys_to_directmap_virt) && !PAGE_OFFSET_KNOWN_AT_BUILD
+#error                                                                         \
+    "the compile-time directmap projection requires PAGE_OFFSET_KNOWN_AT_BUILD"
+#endif
+
+/* The linear-map base where this build genuinely knows it, 0 where it does not.
+ *
+ * For presentation. A renderer stating an address is asserting it, so it may
+ * name the compile-time PAGE_OFFSET only where exactly one base is admissible
+ * and that constant is therefore the runtime one. Everywhere else the honest
+ * output is "unknown", never the link-time seed dressed as a measurement — that
+ * regressed twice, once printing 0xc0008000 for a _text that was really at
+ * 0x80008000. Returning 0 rather than a guess lets the caller fall through to
+ * its own "not established" path.
+ *
+ * Exists so no renderer has to name PAGE_OFFSET at all: the licence lives here
+ * once, in a name that states it, instead of being re-derived at each site from
+ * whichever axes looked relevant. */
+static inline unsigned long kasld_page_offset_if_known(void) {
+#if PAGE_OFFSET_KNOWN_AT_BUILD
+  return (unsigned long)PAGE_OFFSET;
+#else
+  return 0;
+#endif
+}
 
 /* Conservative lower edges of Q_VIRT_IMAGE_BASE / Q_PHYS_IMAGE_BASE windows.
  *
@@ -588,10 +792,13 @@ static inline unsigned long kasld__directmap_virt_to_phys(unsigned long v) {
  * and such a reconstruction must stay a window. The base is variable on x86_64
  * (RANDOMIZE_MEMORY slides it) and on the decoupled arches whose linear-map
  * base tracks RAM/firmware placement (arm64 memstart_addr, riscv64
- * kernel_map.page_offset, s390 __identity_base). That predicate is exactly
- * DIRECTMAP_STATIC (the compile-time direct-map formula is sound iff
- * PAGE_OFFSET and PHYS_OFFSET are the runtime constants), so PAGE_OFFSET_FIXED
- * IS DIRECTMAP_STATIC — one source of truth; two flags would drift. */
+ * kernel_map.page_offset, s390 __identity_base). That predicate — the base
+ * stays put at runtime — is exactly what DIRECTMAP_STATIC asserts, so
+ * PAGE_OFFSET_FIXED IS DIRECTMAP_STATIC — one source of truth; two flags would
+ * drift. Pinning a LEAKED base needs only that it not move, NOT that this build
+ * know it in advance; the compile-time projection macros are the ones gated on
+ * PAGE_OFFSET_KNOWN_AT_BUILD, which the VMSPLIT arches fail while still being
+ * DIRECTMAP_STATIC. */
 #define PAGE_OFFSET_FIXED DIRECTMAP_STATIC
 
 /* STEXT_OFFSET — the head gap: _stext - _text (image base). The engine's one
@@ -645,7 +852,7 @@ static inline unsigned long kasld__directmap_virt_to_phys(unsigned long v) {
 
 /* 1 iff CONFIG_PAGE_OFFSET is the AUTHORITATIVE runtime virt_page_offset on
  * this arch — i.e. virt_page_offset is a pure compile-time constant set by the
- * config/VMSPLIT and cannot be overridden at boot. True on x86_32/arm32
+ * config/VMSPLIT and cannot be overridden at boot. True on x86_32/arm32/ppc32
  * (user/kernel split is fixed at build). NOT true on riscv64
  * (CONFIG_PAGE_OFFSET reflects the built SATP mode but the kernel may boot a
  * narrower mode) or arm64 (VA_BITS), so those must use the runtime probe, not
@@ -857,14 +1064,14 @@ static inline int kasld_addr_is_kernel_vas(unsigned long va) {
  *
  * The base is KASLR_VIRT_ALIGN-aligned only *up to a fixed sub-offset*: a KASLR
  * slide is a whole multiple of KASLR_VIRT_ALIGN, so the base's low bits always
- * equal KERNEL_VIRT_TEXT_DEFAULT mod KASLR_VIRT_ALIGN (0 on x86_64/arm64/ppc;
- * 0x2000 on riscv64; IMAGE_BASE_OFFSET on arm32; 1 MiB on s390; ...). A plain
- * `addr & -KASLR_VIRT_ALIGN` drops *below* the real base on the sub-offset
- * arches — an UNSOUND upper bound that wrongly rejects the true base. This
- * returns the largest value <= addr carrying the correct sub-offset (which is
- * exactly the floor when the sub-offset is 0). It is the single sanctioned way
- * to align a leaked text pointer to a base estimate — components must not roll
- * their own `& -ALIGN`. */
+ * equal KERNEL_VIRT_TEXT_DEFAULT mod KASLR_VIRT_ALIGN (0 on
+ * x86_64/arm64/ppc/s390/loongarch64; 0x2000 on riscv64; 0x8000 on arm32; ...).
+ * A plain `addr & -KASLR_VIRT_ALIGN` drops *below* the real base on the
+ * sub-offset arches — an UNSOUND upper bound that wrongly rejects the true
+ * base. This returns the largest value <= addr carrying the correct sub-offset
+ * (which is exactly the floor when the sub-offset is 0). It is the single
+ * sanctioned way to align a leaked text pointer to a base estimate — components
+ * must not roll their own `& -ALIGN`. */
 /* Pure, parameterised core: the largest value <= addr that is congruent to
  * (default_base mod align) modulo align. `align` must be a non-zero power of
  * two. Split out as a pure function of (align, default_base) so the sub-offset
@@ -905,12 +1112,13 @@ static inline unsigned long kasld_ceil_text_base(unsigned long addr) {
 
 /* Engine-rule variant: floor a bound on the VIRTUAL kernel image base (_text)
  * to the RESOLVED alignment `align` (Q_VIRT_KASLR_ALIGN, which boot_params can
- * raise), preserving _text's alignment residue (IMAGE_BASE_OFFSET) so the
- * result never drops below _text on arches where _text isn't granule-aligned
- * (riscv64 residue +0x2000, arm32 +0x8000, ...). This is the single sanctioned
- * way for a rule to floor a virt text-base bound; a bare `& ~(align - 1)` is
- * unsound there. A no-op floor where the residue is 0. The phys axis needs no
- * equivalent: the phys base carries no usable residue. */
+ * raise), preserving _text's alignment residue -- KERNEL_VIRT_TEXT_DEFAULT mod
+ * align, NOT IMAGE_BASE_OFFSET, which is a different quantity on s390 and
+ * loongarch64 -- so the result never drops below _text on arches where _text
+ * isn't granule-aligned (riscv64 +0x2000, arm32 +0x8000, ...). This is the
+ * single sanctioned way for a rule to floor a virt text-base bound; a bare `&
+ * ~(align - 1)` is unsound there. A no-op floor where the residue is 0. The
+ * phys axis needs no equivalent: the phys base carries no usable residue. */
 static inline unsigned long kasld_floor_virt_text_bound(unsigned long v,
                                                         unsigned long align) {
   if (align == 0)

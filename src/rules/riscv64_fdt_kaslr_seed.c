@@ -47,6 +47,35 @@ int rule_riscv64_fdt_kaslr_seed(const struct evidence_set *ev,
   if (out_max < 1)
     return 0;
 
+  /* A seed in the device tree does not mean the kernel used it.
+   *
+   * Every claim below is of the form "the kernel picked slot (seed % nr_pos)",
+   * which presupposes that it ran the slot selection at all. `nokaslr` on the
+   * command line suppresses it while leaving /chosen/kaslr-seed exactly where
+   * the bootloader wrote it, so the seed stays readable and describes a
+   * placement that never happened. Deriving from it then pins the text base to
+   * a slot the image is not in, and the pin is a different wrong address on
+   * every boot because the seed is fresh each time.
+   *
+   * Not a synthetic case: a bootloader or the EFI stub supplies the seed, and
+   * `nokaslr` is an ordinary thing to boot with on top of it. So decline on any
+   * positive KASLR-disabled signal and leave the placement to
+   * virt_kaslr_disabled_pin, which pins the compile-time default -- the address
+   * the kernel actually used.
+   *
+   * This is why the file-top note about the kernel wiping the cell after use is
+   * not on its own a soundness argument: it establishes that a VISIBLE seed was
+   * not consumed, which is the opposite of what the derivation needs. The
+   * disabled signal is what separates "not consumed yet" from "never will be".
+   */
+  for (int i = 0; i < ev->n_obs; i++) {
+    const struct observation *o = &ev->obs[i];
+    if (!o->valid || o->value_kind != OBS_SCALAR)
+      continue;
+    if (o->scalar_fact == SF_VIRT_KASLR_DISABLED && o->scalar_value != 0)
+      return 0;
+  }
+
   const unsigned long pud_size = 1ul << 30; /* 1 GiB */
   const unsigned long pmd_size = 2ul * 1024 * 1024;
 

@@ -38,7 +38,8 @@
 
 KASLD_EXPLAIN(
     "Probes mmap(MAP_FIXED_NOREPLACE) at the 1<<VA_BITS boundaries on arm64 "
-    "(52/48/47/42/39): the largest that maps is the active VA_BITS. Publishes "
+    "(52/48/47/42/39/36): the largest that maps is the active VA_BITS. "
+    "Publishes "
     "the width, from which PAGE_OFFSET = -(1<<VA_BITS) is derived (not "
     "randomized on arm64). arm64 only; unprivileged.");
 
@@ -52,16 +53,20 @@ int main(void) {
     return 0;
   /* Live mmap boundary probe of the running VA space. */
 #if defined(__aarch64__)
-  /* VA_BITS candidates, largest first (must match VA_BITS_CANDIDATES). */
-  static const unsigned long cands[] = {52ul, 48ul, 47ul, 42ul, 39ul};
-  const int ncands = (int)(sizeof(cands) / sizeof(cands[0]));
+  /* The architecture's own candidate set, walked LARGEST first: the widest
+   * boundary that still maps is the active VA_BITS. Read from the header rather
+   * than restated here: a second copy would be two lists obliged to agree, with
+   * nothing to enforce it, and a width present in one and absent from the other
+   * is probed by neither. */
+  static const unsigned long cset[] = VA_BITS_CANDIDATES; /* smallest first */
+  const int ncands = (int)(sizeof(cset) / sizeof(cset[0]));
 
   long pg = sysconf(_SC_PAGESIZE);
   unsigned long page = (pg > 0) ? (unsigned long)pg : 0x1000ul;
 
   unsigned long va_bits = 0;
-  for (int i = 0; i < ncands; i++) {
-    unsigned long c = cands[i];
+  for (int i = ncands - 1; i >= 0; i--) {
+    unsigned long c = cset[i];
     void *want = (void *)((1UL << c) - page);
     void *p = mmap(want, (size_t)page, PROT_NONE,
                    MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);

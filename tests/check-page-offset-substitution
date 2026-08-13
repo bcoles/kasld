@@ -1,0 +1,128 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-page-offset-substitution — no rule may substitute the compile-time
+# PAGE_OFFSET for the linear-map base it is reasoning about.
+#
+# The analysing binary's PAGE_OFFSET is a property of ITS build, not of the
+# target kernel. On the arches where the base is a VMSPLIT choice the two differ
+# routinely, and a rule that reaches for the constant is asserting the split it
+# was compiled with. That produced a guaranteed-window soundness violation on a
+# 2G-split kernel: a rule projected a physical DRAM floor to a virtual text floor
+# through the constant, placing the floor above the true text base.
+#
+# Nothing about such a rule looks wrong. It compiles on every arch, passes on the
+# whole default-split corpus, and is off by exactly the difference between two
+# build configurations — which is zero on every machine anyone happens to test.
+#
+# The sound alternatives, and why the constant is never one of them:
+#   - an EQUALITY (a projection, a pin) needs the resolved Q_PAGE_OFFSET, read
+#     via quantity_pinned(); the rule stays inert until something pins it.
+#   - a BOUND may use the extremal admissible edge instead — PAGE_OFFSET_MAX for
+#     an upper bound, PAGE_OFFSET_MIN for a lower one. Those hold against every
+#     target regardless of this build, so the rule keeps firing early.
+# Both are spelled with a PAGE_OFFSET_* name, so this guard matches the bare
+# token only.
+#
+# Scope is src/rules/ AND src/components/. A component runs before inference and
+# can never see a resolved estimate, so it cannot be held to the accessor — but
+# it is held to the rest: it may not floor, band or classify a leaked address on
+# the compile-time constant, because that names the analysing build's split and
+# discards the target's genuine pointers when the two differ. A component that
+# needs a floor measures one (kasld_kernel_pointer_floor / kasld_page_offset_floor
+# in kernel_floor.h, which probe TASK_SIZE); one that needs a bound uses the
+# extremal admissible edge.
+#
+# Preprocessor conditionals are exempt by construction, not by review. `#if` needs
+# a constant expression, so the band assertions (`#if MODULES_START >= PAGE_OFFSET`)
+# cannot call an accessor and cannot be written any other way — which is exactly
+# why api.h keeps PAGE_OFFSET a plain scalar. Only the C code below them counts.
+#
+# Pure text, so it needs no build.
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+RULES=$ROOT/src/rules
+COMPONENTS=$ROOT/src/components
+# shellcheck source=tests/lib/guard-scope.sh
+. "$ROOT/tests/lib/guard-scope.sh"
+# shellcheck source=tests/lib/c-code-grep.sh
+. "$ROOT/tests/lib/c-code-grep.sh"
+
+if [ -t 1 ]; then
+  RED=$(printf '\033[31m')
+  GREEN=$(printf '\033[32m')
+  RESET=$(printf '\033[0m')
+else
+  RED=
+  GREEN=
+  RESET=
+fi
+
+# Reviewed exceptions. Each is a rule whose whole purpose is to assert the
+# compile-time value, on arches that have declared it architecturally invariant.
+allow_file() {
+  case "$1" in
+  # A rule whose whole purpose is to assert the compile-time value, on arches
+  # that have declared it architecturally invariant.
+  page_offset_invariant_pin.c) return 0 ;;
+  # The direct-map floor in in_directmap_range(). Live only where the linear map
+  # is separable from kernel text, which is the DECOUPLED arches — there the
+  # compile-time base is the sound minimum the runtime one randomizes up from.
+  # On every 32-bit arch the window [PAGE_OFFSET, KERNEL_VIRT_TEXT_MIN) is empty,
+  # so the comparison cannot decide anything and no VMSPLIT can move it.
+  dmesg_backtrace.c) return 0 ;;
+  # Two `== PAGE_OFFSET` tests, both of which SKIP an emission when the parsed
+  # value matches this build's default. Suppressing a redundant observation is
+  # sound whatever the target's split is; neither floors nor bounds anything.
+  proc_cpuinfo.c) return 0 ;;
+  *) return 1 ;;
+  esac
+}
+
+# The comment/string stripper lives in tests/lib/c-code-grep.sh so this guard
+# and check-render-default cannot drift apart on the tricky part. Preprocessor
+# conditionals are exempt by construction (see the scope note): `#if` needs a
+# constant expression, so a band assertion cannot call an accessor.
+strip_and_match() {
+  c_code_grep "$1" '(^|[^A-Za-z0-9_])PAGE_OFFSET([^A-Za-z0-9_]|$)' |
+    grep -vE ':[[:space:]]*#[[:space:]]*(if|elif)'
+}
+
+bad=0
+nr=0
+nc=0
+for f in "$RULES"/*.c "$COMPONENTS"/*.c; do
+  [ -f "$f" ] || continue
+  base=${f##*/}
+  case "$f" in
+  "$RULES"/*) kind=rule; nr=$((nr + 1)) ;;
+  *) kind=component; nc=$((nc + 1)) ;;
+  esac
+  allow_file "$base" && continue
+  hits=$(strip_and_match "$f")
+  [ -n "$hits" ] || continue
+  bad=1
+  echo "${RED}$base: compile-time PAGE_OFFSET in $kind code${RESET}"
+  echo "$hits" | while IFS= read -r h; do
+    echo "  $h"
+  done
+done
+
+if [ "$bad" -ne 0 ]; then
+  echo
+  echo "This build's PAGE_OFFSET names the split it was COMPILED with, not the"
+  echo "target's. In a rule, use quantity_pinned(Q_PAGE_OFFSET, ...) for an"
+  echo "equality, or PAGE_OFFSET_MIN / PAGE_OFFSET_MAX for a bound in the safe"
+  echo "direction. In a component, which never sees an estimate, measure the"
+  echo "floor instead — kasld_kernel_pointer_floor() for the user/kernel"
+  echo "boundary, kasld_page_offset_floor() for a region-tagged bound."
+  exit 1
+fi
+
+guard_scope "check-page-offset-substitution" "$nr" 50
+
+printf '%scheck-page-offset-substitution: OK%s (%d rules, %d components, 3 reviewed exceptions)\n' \
+  "$GREEN" "$RESET" "$nr" "$nc"

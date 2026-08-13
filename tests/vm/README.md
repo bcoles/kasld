@@ -40,7 +40,24 @@ tests/vm/run table                    # results matrix + speculative-narrowing t
 tests/vm/run spec-table               # only the speculative-narrowing table
 tests/vm/run spec-table --with-timing # ...also listing timing/side-channel rows
 tests/vm/run aarch64-alpine-6.12 capture # build a truth-bearing fixture from a live boot
+tests/vm/run fetch-modules            # stage a distro cell's own modules (see below)
 ```
+
+Every module-region component reads an empty `/proc/modules` on a cell with no
+module loaded, which is indistinguishable from a component that does not work, so
+each cell carries two real in-tree modules (`dummy`, `veth`) that `init` loads
+before the run. How they are staged depends on the kernel's origin:
+
+- **distro cells** (Alpine, Debian): `tests/vm/run fetch-modules [cell ...]` takes
+  the modules from the same published build the kernel came from — the netboot
+  `modloop` or the `linux-lts` apk — so vermagic matches by construction. It reads
+  the release from the artefact and refuses when it disagrees with the staged
+  kernel, since the mirror moves independently of the cache.
+- **mainline cells** (`tests/vm/build-kernel`): the build forces `MODULES`/`DUMMY`/
+  `VETH` modular and stages them beside the kernel, so any rebuilt cell comes back
+  with modules. `tests/vm/stage-modules <cell>` rebuilds them against an existing
+  `.config` without re-staging the kernel — usable only when the build tree still
+  matches the staged image (it checks, and refuses otherwise).
 
 The `capture` mode is a maintainer workflow, not a validation profile: it boots
 the kernel as root with `kptr_restrict=0`, frames the real `/proc` + `/sys` +
@@ -100,8 +117,16 @@ kernel the base comes from inference, not the symbol table.
 | `kptr-hidden` | `default` + `kptr_restrict=2` | pointers hidden; isolates `kptr`'s effect (perf already gates kallsyms) |
 | `perf-open`   | `default` + `perf_event_paranoid=0` | perf relaxed — unlocks `/proc/kallsyms` *and* the `perf_event_open` text-poke leak (exact) |
 | `dmesg-open`  | `default` + `dmesg_restrict=0` | world-readable dmesg (differs from `default` only where the kernel ships `dmesg_restrict=1`) |
-| `hardened`    | `kptr=2` + `dmesg_restrict=1` + `perf=3` | the realistic unprivileged floor (file-derived facts only) |
+| `bpf-open`    | `default` + `unprivileged_bpf_disabled=0` | unprivileged `bpf()` permitted (the BPF verifier-log leaks). Every cell boots with it *disabled* — distro cells ship `CONFIG_BPF_UNPRIV_DEFAULT_OFF`, mainline cells are built with it forced on — so this is a real posture change everywhere. Shown on every cell like the other sysctl profiles, including where it reads the same as `default` — that is a result, not an absence. On the mainline cells it yields nothing because the verifier-log offset table is `uname`-keyed and holds no locally built kernel, not because `bpf()` was already permitted |
+| `hardened`    | `kptr=2` + `dmesg_restrict=1` + `perf=3` + `unprivileged_bpf_disabled=2` | the realistic unprivileged floor (file-derived facts only) |
 | `nokaslr`     | `nokaslr` on the cmdline | the KASLR-disabled pin |
+| `no5lvl`      | `no5lvl` on the cmdline (x86_64, riscv64) | the kernel's fallback paging level when 5-level is disabled |
+| `no4lvl`      | `no4lvl` on the cmdline (riscv64) | a third paging level from one image — a distinct `PAGE_OFFSET` |
+| `la57`        | `-cpu max` under `-accel tcg` (x86_64) | 5-level paging emulated where the host lacks `la57`; the only mode that varies QEMU, not the cmdline — slow (TCG) |
+
+`no5lvl`/`no4lvl`/`la57` resolve a different `PAGE_OFFSET` from the *same* kernel
+image by changing the paging level, so one build exercises several linear-map
+bases. `la57` forces TCG because KVM cannot expose a CPU feature the host lacks.
 
 ## Architectures
 

@@ -24,6 +24,8 @@
 set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 COMP="$ROOT/src/components"
+# shellcheck source=tests/lib/guard-scope.sh
+. "$ROOT/tests/lib/guard-scope.sh"
 HDR="$ROOT/src/include/kasld/internal.h"
 
 # Minimum free slots between the in-tree component count and the cap.
@@ -63,6 +65,8 @@ if [ "$headroom" -lt "$MIN_HEADROOM" ]; then
   printf '  raise MAX_COMPONENTS in src/include/kasld/internal.h\n'
   exit 1
 fi
+
+guard_scope "check-component-cap" "$n" 80
 
 printf '%scheck-component-cap: OK%s (%d components, cap %d, headroom %d)\n' \
   "$GREEN" "$RESET" "$n" "$cap" "$headroom"

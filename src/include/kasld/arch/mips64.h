@@ -34,6 +34,10 @@
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/mips/include/asm/page.h#L199
 // PAGE_OFFSET is fixed by the CKSEG0 hardware mapping, so the compile-time
 // direct-map formula is exact (DIRECTMAP_STATIC) and text tracks the directmap.
+// LINEAR_MAP_ANCHOR: PAGE_OFFSET is CAC_BASE + PHYS_OFFSET, so the anchor
+// is the compile-time PHYS_OFFSET (0), not a runtime DRAM discovery.
+// arch/mips/include/asm/mach-generic/spaces.h PAGE_OFFSET / PHYS_OFFSET
+#define LINEAR_MAP_ANCHOR LM_ANCHOR_PHYS_OFFSET
 #define DIRECTMAP_STATIC 1
 #define TEXT_TRACKS_DIRECTMAP 1
 
@@ -48,6 +52,9 @@
 // Above this, addresses fall in the module region.
 #define KERNEL_VIRT_TEXT_MAX 0xffffffffc0000000ul
 
+// Where the module band is anchored: a fixed address range, independent of both
+// the image and the linear map.
+#define MODULES_ANCHOR MOD_ANCHOR_FIXED
 #define MODULES_START 0xffffffffc0000000ul
 #define MODULES_END 0xfffffffffffffffful
 
@@ -59,7 +66,6 @@
 // And the floor IS the base: MODULES_VADDR is CKSSEG, a fixed MIPS segment
 // address, so the region starts there on every 64-bit MIPS configuration.
 #define MODULES_BASE_IS_BAND_FLOOR 1
-#define MODULES_RELATIVE_TO_TEXT 0
 
 // KASLR offset is shifted left 16 bits (64 KiB granularity).
 // https://elixir.bootlin.com/linux/v6.12/source/arch/mips/kernel/relocate.c#L276

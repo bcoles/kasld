@@ -145,23 +145,5 @@ int main(void) {
     kasld_result_top(KASLD_TYPE_PHYS, REGION_RAM, e.hi, NULL, CONF_PARSED);
   }
 
-#ifdef phys_to_directmap_virt
-  if (e.lo) {
-    unsigned long virt = phys_to_directmap_virt(e.lo);
-    kasld_info("possible direct-map virtual address (low):  0x%016lx", virt);
-    kasld_result_base(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, NULL,
-                      CONF_PARSED);
-  }
-  if (e.hi) {
-    unsigned long virt = phys_to_directmap_virt(e.hi);
-    kasld_info("possible direct-map virtual address (high): 0x%016lx", virt);
-    kasld_result_top(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, NULL,
-                     CONF_PARSED);
-  }
-#else
-  kasld_info("note: phys and virt KASLR are decoupled on this arch; "
-             "cannot derive kernel text virtual address from physical leak");
-#endif
-
   return 0;
 }

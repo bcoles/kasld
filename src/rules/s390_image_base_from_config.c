@@ -12,13 +12,15 @@
 //   value > 0  — modern (v6.8+) high separate-kernel-mapping layout. The image
 //     base is placed at >= CONFIG_KERNEL_IMAGE_BASE (the KASLR window minimum;
 //     arch/s390/boot/startup.c). Floor Q_VIRT_IMAGE_BASE at that value. The
-//     value is the image-base floor itself (not _stext); flooring at it without
-//     adding IMAGE_BASE_OFFSET stays at or below the true _text under either
-//     image-base/_stext modeling, so it cannot exclude truth. When
-//     SF_VIRT_KASLR_DISABLED is also present the base does not slide, so the
-//     floor becomes an exact PIN — this rule owns the s390 no-KASLR base (s390
-//     opts out of the generic compile-time-default disabled-pin; see s390.h),
-//     pinning the layout-correct PARSED value rather than an assumed default.
+//     value is the LOAD address, not _text; flooring at it without adding
+//     IMAGE_BASE_OFFSET stays at or below the true _text, so as a bound it
+//     cannot exclude truth. When SF_VIRT_KASLR_DISABLED is also present the
+//     base does not slide, so the floor becomes an exact PIN — and the pin adds
+//     IMAGE_BASE_OFFSET, because an equality has none of the slack that let the
+//     bound omit it. This rule owns the s390 no-KASLR base (s390 opts out of
+//     the generic compile-time-default disabled-pin; see s390.h), pinning the
+//     layout-correct PARSED load address plus the arch's .text offset rather
+//     than an assumed default.
 //
 //   value == 0 — config is an s390 config that LACKS the knob: the pre-v6.8
 //     identity-mapped layout (__identity_base = 0, no RANDOMIZE_IDENTITY_BASE),
@@ -95,13 +97,32 @@ int rule_s390_image_base_from_config(const struct evidence_set *ev,
       return 0;
     c->value = image_base;
     if (kaslr_off_id) {
-      /* KASLR confirmed off + parsed modern base ⇒ the image base IS
-       * CONFIG_KERNEL_IMAGE_BASE exactly (no slide): PIN it. This is the sound,
-       * layout-correct replacement for the generic compile-time-default
-       * disabled-pin (s390 opts that out — see s390.h). Confidence is the
-       * weaker of the parsed config and the off-signal: a parsed off-signal
-       * keeps the pin in the guaranteed window; a weaker detector lands it in
-       * likely. */
+      /* KASLR confirmed off + parsed modern base ⇒ the load address IS
+       * CONFIG_KERNEL_IMAGE_BASE exactly (no slide): PIN the text base.
+       *
+       * The pin must add IMAGE_BASE_OFFSET, and that is the one place the
+       * floor's licence does NOT carry over. As a C_LOWER_BOUND the raw config
+       * value is deliberately at or BELOW the truth, which is what makes it
+       * safe without the addend. An equality has no such slack: _text sits
+       * IMAGE_BASE_OFFSET into the image, so pinning the load address pins one
+       * offset below the real _text and puts the truth outside the guaranteed
+       * window. A live nokaslr boot reported exactly that — truth
+       * 0x3ffe0100000 against a window pinned at 0x3ffe0000000, short by the
+       * 1 MiB .text offset.
+       *
+       * The sum is the arch's own no-KASLR text base, so it agrees with
+       * KERNEL_VIRT_TEXT_DEFAULT by construction rather than by coincidence;
+       * what this rule adds over that constant is that the load address is
+       * PARSED from the target's config instead of assumed.
+       *
+       * Confidence is the weaker of the parsed config and the off-signal: a
+       * parsed off-signal keeps the pin in the guaranteed window; a weaker
+       * detector lands it in likely. */
+      if (image_base > ULONG_MAX - (unsigned long)IMAGE_BASE_OFFSET)
+        return 0;
+      c->value = image_base + (unsigned long)IMAGE_BASE_OFFSET;
+      if (c->value >= (unsigned long)KERNEL_VIRT_TEXT_MAX)
+        return 0;
       c->op = C_EQUALS;
       c->conf = kasld_conf_min(CONF_PARSED, kaslr_off_conf);
       c->derived_from[c->lineage_count++] = kaslr_off_id;

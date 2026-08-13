@@ -22,6 +22,8 @@
 set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 RULES=$ROOT/src/rules
+# shellcheck source=tests/lib/guard-scope.sh
+. "$ROOT/tests/lib/guard-scope.sh"
 
 # Reviewed self-edges. Each reads est[Q] and writes Q; all are either pure
 # gate/filter/selector reads (sound by construction) or value-determining with
@@ -98,4 +100,13 @@ done
 
 # shellcheck disable=SC2086  # word-split the allowlist into argv to count via $#
 set -- $ALLOW
+# The scope this guard actually examined. Counted here rather than in the
+# loop: an unmatched glob leaves the literal pattern, which a loop-side
+# counter would tally as one file and so report a non-empty scope.
+_scanned=0
+for _f in "$RULES"/*.c; do
+  [ -f "$_f" ] && _scanned=$((_scanned + 1))
+done
+guard_scope "check-self-edges" "$_scanned" 50
+
 printf '%sself-edge guard: OK%s (%s reviewed self-edges, none new)\n' "$GREEN" "$RESET" "$#"

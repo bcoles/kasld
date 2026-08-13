@@ -2703,6 +2703,76 @@ static void test_render_text_kernel_region_promotion(void) {
          strstr(render_cap, "KASLR") != NULL);
 }
 
+static void wrap_readout_leaks(void *arg) {
+  (void)arg;
+  readout_print_leaks();
+}
+
+/* A directmap finding built from distinct interior samples plus a coexisting
+ * base bound must render as a corroborated SPAN, not a single sample address
+ * credited to every source. Three independent leaks — two interior pointers at
+ * different addresses and one base — agree on the base but did NOT all find the
+ * same pointer; collapsing them onto one interior address and crediting all
+ * three to it misattributes (the reported readout bug: one interior value
+ * "from" three components that each found something different). The
+ * lower-suffix fix gates the span on `best`, not on any record, so a coexisting
+ * base bound no longer suppresses the span. */
+static void test_render_evidence_distinct_interior_samples_span(void) {
+  reset_results();
+  reset_comp_logs();
+  num_scalar_facts = 0;
+  unsigned long base = (unsigned long)PAGE_OFFSET;
+  unsigned long s1 =
+      base + 0x03ace520ul; /* interior sample 1 (best: pushed 1st) */
+  unsigned long s2 =
+      base + 0x05000000ul; /* interior sample 2 — higher, distinct */
+  layout.virt_page_offset = base;
+
+  struct result *i1 = push_result();
+  i1->type = KASLD_TYPE_VIRT;
+  i1->region = REGION_DIRECTMAP;
+  i1->pos = POS_INTERIOR;
+  i1->conf = CONF_PARSED;
+  i1->sample = s1;
+  i1->set_mask = SAMPLE_SET;
+  add_origin(i1, "alsa_synth");
+  i1->method_set = 1u << KM_PARSED;
+
+  struct result *i2 = push_result();
+  i2->type = KASLD_TYPE_VIRT;
+  i2->region = REGION_DIRECTMAP;
+  i2->pos = POS_INTERIOR;
+  i2->conf = CONF_PARSED;
+  i2->sample = s2;
+  i2->set_mask = SAMPLE_SET;
+  add_origin(i2, "dmesg_synth");
+  i2->method_set = 1u << KM_PARSED;
+
+  struct result *b = push_result(); /* coexisting base bound (an edge) */
+  b->type = KASLD_TYPE_VIRT;
+  b->region = REGION_DIRECTMAP;
+  b->pos = POS_BASE;
+  b->conf = CONF_PARSED;
+  b->lo = base;
+  b->set_mask = LO_SET;
+  add_origin(b, "prefetch_synth");
+  b->method_set = 1u << KM_PARSED;
+
+  set_render_mode(0, 0, 0);
+  capture_stdout(wrap_readout_leaks, NULL);
+  set_render_mode(0, 0, 0);
+
+  /* Span form: the higher interior sample's address appears only when the
+   * finding renders as a span [lo, hi]; the pre-fix single-address form would
+   * show only `best` (s1). And all three sources stay credited. */
+  char hex2[24];
+  snprintf(hex2, sizeof hex2, "0x%lx", s2);
+  assert(strstr(render_cap, hex2) != NULL);
+  assert(strstr(render_cap, "alsa_synth") != NULL);
+  assert(strstr(render_cap, "dmesg_synth") != NULL);
+  assert(strstr(render_cap, "prefetch_synth") != NULL);
+}
+
 /* section_consensus / section_consensus_pick: every observation in a
  * section satisfies `addr = base + nonneg_offset`, so the picker must
  * (1) prefer higher CONF, then (2) prefer POS_BASE, then (3) prefer the
@@ -3769,6 +3839,7 @@ int main(void) {
   RUN(test_render_readout_disabled_range_no_entropy);
   RUN(test_render_text_kernel_region_promotion);
   RUN(test_section_consensus_per_subgroup_scope);
+  RUN(test_render_evidence_distinct_interior_samples_span);
   RUN(test_section_consensus_lowest_among_ties);
   RUN(test_section_consensus_prefers_pos_base);
   RUN(test_section_consensus_higher_conf_wins);

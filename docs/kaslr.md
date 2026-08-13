@@ -143,7 +143,8 @@ KERNEL_IMAGE_SIZE` with no gap, so the ceiling is hard.
 — the common one. Sub-48 configs place the image higher and randomize over a
 smaller window, since `KIMAGE_VADDR = _PAGE_END(VA_BITS_MIN) + module-region
 size` and `_PAGE_END = -(1 << (VA_BITS_MIN − 1))`: 4K 3-level (`VA_BITS = 39`,
-common on Android) → `0xffffffc080000000`, 64K 2-level (42), 16K 3-level (47).
+common on Android) → `0xffffffc080000000`, 64K 2-level (42), 16K 3-level (47),
+and 16K 2-level (36, `EXPERT`-gated).
 KASLD detects the running `VA_BITS` with an mmap boundary probe
 (`mmap_arm64_va_bits`) and resolves the per-config text band and entropy
 accordingly.

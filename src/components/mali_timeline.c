@@ -79,6 +79,7 @@
 #endif
 #include "include/kasld/api.h"
 #include "include/kasld/cli.h"
+#include "include/kasld/kernel_floor.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
@@ -224,12 +225,13 @@ static int scan_buf(const unsigned char *buf, size_t len) {
     memcpy(&v, buf + off, sizeof(v));
     if (v == 0 || v == ~0UL)
       continue;
-    /* Sound kernel floor: a direct-map slab pointer is >= PAGE_OFFSET. On
-     * 32-bit PAGE_OFFSET is the highest VMSPLIT boundary (0xc0000000), so this
-     * drops the stream's ASCII tracepoint-descriptor header (byte values <=
-     * 0x7e) and any userspace pointer it carries; on 64-bit the kernel/user
-     * split makes it unambiguous. */
-    if (mali_below_floor(v, (unsigned long)PAGE_OFFSET))
+    /* Sound kernel floor: a direct-map slab pointer is at or above the
+     * user/kernel boundary, so anything below it is the stream's ASCII
+     * tracepoint-descriptor header (byte values <= 0x7e) or a userspace
+     * pointer. Measured, not the compile-time PAGE_OFFSET: on a kernel whose
+     * split sits below this build's, that constant discards genuine pointers
+     * and the component looks like it found nothing. */
+    if (mali_below_floor(v, kasld_kernel_pointer_floor()))
       continue;
     if (v & (MALI_PTR_ALIGN - 1))
       continue;
@@ -256,6 +258,11 @@ int main(int argc, char **argv) {
    * from a captured tree. */
   if (kasld_skip_live_probe("mali_timeline"))
     return 0;
+
+  /* Measure the kernel floor before the GPU device is opened: the measurement
+   * forks, and there is no device or stream fd to inherit at this point.
+   * Cached, so the scan's per-word calls are a load. */
+  (void)kasld_kernel_pointer_floor();
 
   int fd = -1;
   for (int i = 0; mali_nodes[i]; i++) {

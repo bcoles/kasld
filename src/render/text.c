@@ -327,11 +327,12 @@ static void render_kaslr_text(const struct summary *s) {
  * Derived addresses text renderer
  *
  * Cross-region derivations arrive as ordinary records in results[] with
- * conf == CONF_DERIVED, emitted by components (e.g. via
- * phys_to_directmap_virt() on arches where the compile-time projection is
- * sound). Render those records
- * in the same per-record style as the leak groups, plus the architecture
- * decoupling note when applicable.
+ * conf == CONF_DERIVED — a component relating two regions it observed, not a
+ * linear-map projection: components no longer convert a physical address to
+ * its direct-map virtual, because doing so re-states the compile-time
+ * PAGE_OFFSET as though it were evidence. Render those records in the same
+ * per-record style as the leak groups, plus the architecture decoupling note
+ * when applicable.
  * -------------------------------------------------------------------------
  */
 static void render_derived_text(const struct summary *s) {
@@ -506,17 +507,22 @@ static void print_virtual_layout(void) {
    * region's "base proven" floor, ABOVE an address proven to be inside the
    * region. The engine's resolved window is authoritative wherever it holds an
    * opinion; the constant is the fallback for when it does not. */
+  /* The window is always populated -- seeded from the quantity's own bracket
+   * before any component runs, then overwritten by the engine -- so there is no
+   * "unset" state to test for, and testing for one is worse than redundant
+   * here: zero is a LEGITIMATE linear-map base. s390 built without
+   * CONFIG_RANDOMIZE_IDENTITY_BASE has __identity_base == 0, so a proven pin at
+   * 0 is a real result, and a truthiness guard reads it as absent and labels
+   * the band a mere lower bound. Compare the edges, never their truthiness. */
   unsigned long po_lo = layout.virt_page_offset_min;
   unsigned long po_hi = layout.virt_page_offset_max;
   unsigned long dmap_base = layout.virt_page_offset;
-  if (po_lo && po_hi && po_lo <= po_hi &&
-      (dmap_base < po_lo || dmap_base > po_hi))
+  if (po_lo <= po_hi && (dmap_base < po_lo || dmap_base > po_hi))
     dmap_base = po_lo;
   /* Whether that floor is a proven single value or the low end of a window the
    * engine could not close. The band's label says which; it used to claim
    * "base proven" either way. */
-  int dmap_base_pinned = (po_lo && po_lo == po_hi) ||
-                         (!po_lo && !po_hi && layout.virt_page_offset != 0);
+  int dmap_base_pinned = (po_lo == po_hi);
 
   /* Kernel text is mapped THROUGH the direct map on coupled arches -- the image
    * sits at PAGE_OFFSET + a small offset, inside the linear mapping, not beside
@@ -1348,14 +1354,20 @@ static int readout_print_leaks(void) {
   int any_span = 0;
   for (int i = 0; i < nf; i++) {
     unsigned long lo = found[i].addr, hi = found[i].addr;
-    int span = 1;
+    /* Span when the shown value is an interior sample rather than a resolved
+     * base. Distinct samples from independent sources then bound the region's
+     * observed extent — collapsing them onto one sample address and crediting
+     * every source to it would imply they all found that address, when they
+     * each found a different point that only agrees on the base. A best record
+     * carrying an edge IS the resolved base: show that single value, not a
+     * span. (Gated on best, not on any record: a coexisting base bound no
+     * longer suppresses a genuine multi-sample interior span.) */
+    int span = !(HAS_LO(found[i].r) || HAS_HI(found[i].r));
     for (int j = 0; j < num_results; j++) {
       const struct result *r = &results[j];
       if (r->type != found[i].r->type || r->region != found[i].r->region ||
           !in_bounds(r))
         continue;
-      if (HAS_LO(r) || HAS_HI(r))
-        span = 0;
       unsigned long a = anchor_addr(r);
       if (a < lo)
         lo = a;

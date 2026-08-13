@@ -278,22 +278,5 @@ int main(void) {
     }
   }
 
-#ifdef phys_to_directmap_virt
-  if (e.dram.lo) {
-    /* Same caveat: phys_to_directmap_virt(e.dram.lo) lands at the
-     * directmap base ONLY when e.dram.lo is the actual phys floor.
-     * When firmware reserves low phys for the kernel's Loader Code
-     * range, e.dram.lo is interior to the directmap, not its base.
-     * Emit as a directmap sample. */
-    unsigned long virt = phys_to_directmap_virt(e.dram.lo);
-    kasld_info("possible direct-map virtual address: 0x%016lx", virt);
-    kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, NULL,
-                        CONF_PARSED);
-  }
-#else
-  kasld_info("note: phys and virt KASLR are decoupled on this arch; "
-             "cannot derive kernel text virtual address from physical leak");
-#endif
-
   return 0;
 }

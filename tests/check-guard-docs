@@ -40,11 +40,16 @@ doc_f=$(mktemp)
 awk '/^lint[[:space:]]*:/ { inblock = 1; next }
      inblock && /^\t/    { print; next }
      inblock             { exit }' "$MK" |
-  grep -oE '\$\(TEST_DIR\)/check-[a-z0-9-]+' | sed 's|.*/||' | sort -u >"$run_f"
+  grep -oE '\$\(TEST_DIR\)/[a-z0-9-]+' | sed 's|.*/||' | sort -u >"$run_f"
 # The backticks are literal markdown table syntax, not command substitution.
 # shellcheck disable=SC2016
-grep -oE '^\| `check-[a-z0-9-]+`' "$DOC" | tr -d '|` ' | sort -u >"$doc_f"
+: >"$doc_f"
+while IFS= read -r g; do
+  grep -qE "^\| \`$g\` \|" "$DOC" && printf '%s\n' "$g" >>"$doc_f"
+done <"$run_f"
+sort -u -o "$doc_f" "$doc_f"
 
+nrun=$(grep -c . "$run_f")
 missing=$(comm -13 "$doc_f" "$run_f")
 extra=$(comm -23 "$doc_f" "$run_f")
 rm -f "$run_f" "$doc_f"
@@ -64,8 +69,10 @@ if [ -n "$extra" ]; then
 fi
 
 if [ "$fail" -eq 0 ]; then
-  # shellcheck disable=SC2016
-  n=$(grep -cE '^\| `check-[a-z0-9-]+`' "$DOC")
+  # Count what was VERIFIED — every entry lint invokes — not just the rows that
+  # happen to be named check-*. Two of them (hardening-fixtures, cli-flags) are
+  # not, and counting by name reported 29 while checking 31.
+  n=$nrun
   printf '%scheck-guard-docs: OK%s (%s guards, docs match lint)\n' \
     "$GREEN" "$RESET" "$n"
 fi

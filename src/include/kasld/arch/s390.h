@@ -64,6 +64,16 @@
 // end of file). Kernel text (__kaslr_offset) and identity base move
 // independently, so text does not track the directmap.
 // Relationship: phys == (kvirt - __kaslr_offset) + __kaslr_offset_phys.
+// LINEAR_MAP_ANCHOR: __va(x) = x + __identity_base, so physical 0 maps to
+// the linear-map base and the anchor is the compile-time PHYS_OFFSET (0).
+// RANDOMIZE_IDENTITY_BASE randomises __identity_base — the VIRTUAL side —
+// which is why DIRECTMAP_STATIC is 0 here while the anchor stays known.
+// NOT LM_ANCHOR_DRAM_BASE: the anchor is the constant 0, and coincides with
+// the DRAM base only because s390 memory starts at 0. Classifying it as a
+// DRAM discovery would be right by accident and wrong on any machine that
+// reported RAM starting higher.
+// arch/s390/include/asm/page.h __va() / __identity_base
+#define LINEAR_MAP_ANCHOR LM_ANCHOR_PHYS_OFFSET
 #define DIRECTMAP_STATIC 0
 #define TEXT_TRACKS_DIRECTMAP 0
 
@@ -116,6 +126,9 @@
 //   = 0x80000000 + 0xFC000 + 0x100000 = 0x801FC000
 //
 // Runtime-determined; use wide bounds for validation.
+// Where the module band is anchored: placed relative to the kernel image, so it
+// slides with text KASLR.
+#define MODULES_ANCHOR MOD_ANCHOR_TEXT
 #define MODULES_START 0ul
 #define MODULES_END 0x20000000000000ul
 
@@ -124,7 +137,6 @@
 // 2 GiB, so both stay within this window for any image placement, and a floor
 // of 0 cannot be too high whatever the layout.
 #define MODULES_BAND_EXACT 1
-#define MODULES_RELATIVE_TO_TEXT 1
 #define MODULES_BELOW_TEXT_START 1
 #define MODULES_END_TO_TEXT_OFFSET                                             \
   0x801FC000ul /* MODULES_LEN + (_SEGMENT_SIZE - IMAGE_ALIGN) +                \

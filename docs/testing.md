@@ -89,8 +89,12 @@ when available (`HAVE_PTHREAD`), matching the normal build.
 
 ### Static guards (`make lint`)
 
-`make test` finishes by running `make lint` — static-analysis guards that assert
-source invariants the unit tests can't, with no compiled test binary. Run them
+`make test` finishes by running `make lint` — guards that assert source
+invariants the unit tests can't. Most are pure text over `src/`, so they need no
+build and run in a second; three are not, and it matters when the tree must stay
+frozen: `check-truncation` compiles a translation unit for i686,
+`check-hash-parity` builds `tests/check_hash_parity.c`, and `check-render-width`
+and `check-baseline` execute already-built binaries. Run them
 alone with `make lint` (fast; no driver build). Each exits non-zero on failure,
 and `make` halts on the first.
 
@@ -108,9 +112,12 @@ and `make` halts on the first.
 | `check-text-floor` | no component rolls its own text-base floor — they must use the `api.h` helper |
 | `check-shellcheck` | shellcheck over the `extra/` helper scripts |
 | `check-confidence-floor` | no engine rule pins the *guaranteed* window from a guess — a sub-floor signal may shape `likely` only, outside the reviewed allowlist |
-| `check-lattice-seam` | quantities whose lattice varies by architecture (`Q_PAGE_OFFSET`, `Q_VA_BITS`) are read through `quantity_pinned/window/admits/narrowed`, never through `.lo` / `.hi`. `struct estimate` means different things per lattice — on a finite set `lo` is a live-candidate bitmask and `hi` is unused — so a direct read is correct only for the lattice it was written against, which is not a property of the source when the same file compiles both ways. Nothing would fail loudly: a bitmask read as an address is a small integer, so the result is a plausible wrong answer rather than a crash. The pointer alias is discovered from its binding rather than assumed to be named `po`, so renaming it cannot slip a read past |
+| `check-lattice-seam` | the quantities held to the estimate accessors (`Q_PAGE_OFFSET`, `Q_VA_BITS`) are read through `quantity_pinned/window/admits/narrowed`, never through `.lo` / `.hi`. `struct estimate` means different things per lattice — on a finite set `lo` is a live-candidate bitmask and `hi` is unused — and which lattice a quantity uses is declared once in the quantity table, so a direct read hard-codes an answer the reader never asked for. Nothing would fail loudly: a bitmask read as an address is a small integer, so the result is a plausible wrong answer rather than a crash. The pointer alias is discovered from its binding rather than assumed to be named `po`, so renaming it cannot slip a read past |
+| `check-page-offset-substitution` | no engine rule or leak component substitutes the compile-time `PAGE_OFFSET` for the target's linear-map base. That constant describes the analysing build, not the kernel under examination, and on the VMSPLIT arches the two differ routinely — code that reaches for it is asserting the split it was compiled with. The failure is invisible: it compiles everywhere, passes on the whole default-split corpus, and is off by exactly the gap between two build configurations, which is zero on every machine anyone tests. In a rule, an equality must read the resolved `Q_PAGE_OFFSET` via `quantity_pinned()`, and a bound may instead use `PAGE_OFFSET_MAX` (upper) or `PAGE_OFFSET_MIN` (lower), which hold against every target and need no resolution. A component runs before inference and can never see an estimate, so it measures the boundary instead — `kasld_kernel_pointer_floor()` for the user/kernel split, `kasld_page_offset_floor()` for a region-tagged bound. Comments and string literals are stripped first, and `#if` / `#elif` lines are exempt by construction (a constant expression cannot call an accessor, which is why the band assertions keep `PAGE_OFFSET` a plain scalar), so only C code counts |
+| `check-render-default` | no output format names a compile-time layout default (`PAGE_OFFSET`, `KERNEL_VIRT_TEXT_DEFAULT`) in code. A renderer printing an address asserts it, and these are link-time constants of the analysing build rather than measurements of the target — presenting one as the answer states a wrong address at full confidence on any kernel built differently, which has happened twice in two different renderers. Showing a default *as* a default is fine via the published layout field; using the linear-map base as an answer goes through `kasld_page_offset_if_known()`, which yields the constant only where a single base is admissible. No exceptions — a new one means that accessor needs extending |
 | `check-text-region` | the `KERNEL_TEXT` vs `KERNEL_IMAGE` base contract holds — only reviewed emitters may publish a `_stext` base |
 | `check-image-size` | the kernel image size is read only through the evidence accessors, never re-derived in a component |
+| `check-dram-base` | where physical RAM begins is read only through `evidence_lowest_dram_base()`, never re-scanned in a rule. Four rules need it, and on the architectures whose kernel sets its physical offset from the base of DRAM that value *is* the address mapped at `PAGE_OFFSET` — so two rules disagreeing about it anchor the linear map differently and shift a guaranteed window rather than widening one. The filter is the substance: `REGION_RAM` with `POS_BASE` and nothing else, which is the kernel's account of its own memory rather than firmware's account of the board, and a bank the kernel rejected would drag the anchor below the real one — the dangerous direction, since one consumer emits `C_EQUALS`. Before the accessor existed the same loop was copied into every caller and the comments promised an agreement nothing enforced |
 | `check-hash-parity` | every hashed offset-table row's key recomputes to the stored value under the shipped `kasld_fnv1a64()`, so the runtime hash and the offline generator's cannot drift apart |
 | `check-manpages` | the set of long options in each program's `--help` exactly matches the set its man page documents, so a new or removed flag cannot skip its manual entry |
 | `check-version` | the version-carrying files stay in step, so a release cannot ship a binary claiming one version while the man pages claim another |
@@ -122,6 +129,8 @@ and `make` halts on the first.
 | `check-render-parity` | the text readout, the markdown report and JSON name the same set of resolved quantities for a given run. The Layout row model exists so no two formats can describe one resolved state differently, but it only binds a format that consults it: the no-randomization postures once returned before the model was built and then hardcoded the kernel image base, so a quantity the engine had pinned reached JSON while both readouts omitted it. Compares names, never values — formats may present the same bound differently (the text block snaps a window to the alignment grid, markdown prints the raw edges) — and requires every quantity to have a name mapping, so adding one forces stating how each format names it |
 | `check-guard-docs` | this table lists exactly the guards `make lint` runs — the same parity check `check-manpages` applies to flags, applied to the guard list itself |
 | `check-readout-docs` | documented sample output uses the renderer's current vocabulary and fits 100 columns (live output is measured separately by `check-render-width`) — the README and `docs/` carry hand-maintained copies of rendered output with nothing tying them to the renderer, so a rename or column change silently leaves them describing a version of the tool that no longer exists |
+| `hardening-fixtures` | the `-H` hardening advisor holds its structural invariants when driven over the captured x86_64 sysroots. `test_render.c` covers the meta → gate → suggestion logic by seeding component logs synthetically; this drives the REAL binary over real captures, which is the path that regressed before. Not named `check-*`: it exercises behaviour over fixtures rather than asserting a source invariant, but `make lint` runs it and it is part of that contract |
+| `cli-flags` | the argument parser, chiefly short-flag bundling (`-fq` == `-f -q`), which `main()`'s option loop cannot be unit-tested for (`main` is compiled out under `-DKASLD_TESTING`). Same note on the name as above |
 
 `check-truncation` needs `i686-linux-gnu-gcc` and `check-shellcheck` needs
 `shellcheck`; both **skip cleanly** (exit 0) when their tool is absent, so
@@ -339,7 +348,7 @@ inferred range contains the kernel's true text base. Where
 `extra/validate-bundle` validates a single captured system offline, this
 validates live kernels
 across architectures and reader-privilege profiles
-(`default` / `kptr-hidden` / `perf-open` / `dmesg-open` / `hardened` / `nokaslr`).
+(`default` / `kptr-hidden` / `perf-open` / `dmesg-open` / `bpf-open` / `hardened` / `nokaslr`).
 
 Unlike replay (layer 2) — which runs offline over captured fixtures and
 only checks that KASLD parses and runs — this boots a real kernel, so it

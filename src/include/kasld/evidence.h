@@ -173,6 +173,64 @@ evidence_image_size_max(const struct evidence_set *ev,
   return best;
 }
 
+/* evidence_lowest_dram_base — the base of physical RAM: the LOWEST observed
+ * phys REGION_RAM POS_BASE. Returns 1 and sets *out when one was observed, 0
+ * otherwise.
+ *
+ * Found-ness is the RETURN value, not a sentinel in *out, because 0 is a
+ * perfectly ordinary DRAM base — mips, ppc and x86_32 all start RAM there. An
+ * accessor returning 0 for "none" would read as "absent" on exactly the coupled
+ * architectures whose linear map this anchors.
+ *
+ * The one sanctioned way for a rule to ask where DRAM starts. Three rules need
+ * it and each is entitled to assume the other two got the same answer:
+ * dram_floor_bound trusts it as a physical floor, while phys_virt_synth and
+ * text_base_coupling_synth anchor the LINEAR MAP on it — on the coupled arches
+ * the kernel sets its physical offset from the base of DRAM, so this value is
+ * the address that maps to PAGE_OFFSET. Two rules disagreeing about it would
+ * anchor the linear map differently and shift a guaranteed window, so the
+ * agreement their comments claim is made structural here rather than left to
+ * three copies of one loop staying in step.
+ *
+ * POS_BASE on REGION_RAM only: that is the kernel's own account of its memory
+ * (/proc/iomem "System RAM"), not firmware's account of the board, which may
+ * describe banks the kernel never took. *conf / *src (each may be NULL) receive
+ * the winning observation's confidence and id, so a caller can attribute a
+ * constraint to the witness that established the base. */
+static inline int evidence_lowest_dram_base(const struct evidence_set *ev,
+                                            unsigned long *out,
+                                            enum kasld_confidence *conf,
+                                            uint32_t *src) {
+  unsigned long best = 0;
+  int found = 0;
+  enum kasld_confidence c = CONF_UNKNOWN;
+  uint32_t s = 0;
+  for (int i = 0; i < ev->n_obs; i++) {
+    const struct observation *o = &ev->obs[i];
+    if (!o->valid || o->value_kind != OBS_ADDRESS ||
+        o->eff_type != KASLD_TYPE_PHYS)
+      continue;
+    if (o->eff_region != REGION_RAM || o->pos != POS_BASE)
+      continue;
+    unsigned long a = obs_anchor(o);
+    if (!found || a < best) {
+      best = a;
+      found = 1;
+      c = o->conf;
+      s = o->id;
+    }
+  }
+  if (!found)
+    return 0;
+  if (out)
+    *out = best;
+  if (conf)
+    *conf = c;
+  if (src)
+    *src = s;
+  return 1;
+}
+
 /* Minimum plausible kernel image size in bytes: every real kernel image is at
  * least this large, so it is always a sound lower bound on the footprint — the
  * conservative floor used when nothing tighter was observed. */

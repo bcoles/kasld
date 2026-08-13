@@ -38,6 +38,7 @@ static const rule_fn k_rules[] = {
 
     /* DRAM bounds */
     rule_dram_floor_bound,
+    rule_page_offset_text_floor,
     rule_dram_ceiling,
     rule_mmio_floor_phys_ceiling,
     rule_phys_hole_filter,

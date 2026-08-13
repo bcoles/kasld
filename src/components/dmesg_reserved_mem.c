@@ -126,15 +126,5 @@ int main(void) {
   /* Per-region forbidden bands are emitted in on_match(); the directmap
    * projection below derives one virtual landmark from the lowest region. */
 
-#ifdef phys_to_directmap_virt
-  unsigned long virt = phys_to_directmap_virt(r.lo);
-  kasld_info("possible direct-map virtual address: 0x%016lx", virt);
-  kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, NULL,
-                      CONF_PARSED);
-#else
-  kasld_info("note: phys and virt KASLR are decoupled on this arch; "
-             "cannot derive kernel text virtual address from physical leak");
-#endif
-
   return 0;
 }

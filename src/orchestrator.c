@@ -2488,6 +2488,54 @@ static int sample_bound_clamp_conflict(const struct result *a,
   return 0;
 }
 
+/* Cross-tier edge conflict: the WEAKER contributor would supply an edge that
+ * survives the intersection.
+ *
+ * merge_into takes the tightest edge from any contributor and the strongest
+ * confidence across all of them, and nothing requires those to be the same
+ * contributor. A merged record carries ONE confidence, so a weaker record's
+ * tighter edge is published at the stronger record's tier — and the engine's
+ * sound floor then admits a bound nothing proved at that tier. The measured
+ * edge it displaced is gone from the record entirely.
+ *
+ * Agreement is not a conflict. A weaker record holding the SAME value moves no
+ * edge, which is the corroboration this merge exists for; those still collapse,
+ * so the consensus-source counting downstream is unaffected.
+ *
+ * Refusing costs nothing: both records reach the engine, each carrying its own
+ * confidence, and the two resolutions separate them without further help — the
+ * guaranteed run is floored above the weaker constraint and never sees it,
+ * while the likely run applies both and keeps the tighter claim.
+ *
+ * Symmetric in (a, b): weak and strong are chosen by confidence, never by which
+ * record happens to be the accumulator, so the canonical sort's choice of
+ * anchor cannot change the outcome.
+ *
+ * EDGES ONLY, and the limit is deliberate. merge_into refuses to let a weaker
+ * contributor displace a sample another already holds, but adopts one freely
+ * where the accumulator holds none, so a weak sample can still reach a record
+ * that publishes it at a stronger tier. Extending this predicate to cover that
+ * also refuses the merge a weak interior sample makes into a strong extent,
+ * which is a refinement worth keeping and is the shape
+ * test_merge_sample_inside_extent_collapses pins down. The asymmetry is
+ * defensible because only the EDGES become bounds: the merged record keeps the
+ * strong contributor's pos, so the sample is carried rather than read as the
+ * anchor. Revisit if a consumer is found that turns a sample into a bound at
+ * the record's confidence. */
+static int conf_edge_conflict(const struct result *a, const struct result *b) {
+  int wa = conf_weight(a->conf);
+  int wb = conf_weight(b->conf);
+  if (wa == wb)
+    return 0;
+  const struct result *weak = (wa < wb) ? a : b;
+  const struct result *strong = (wa < wb) ? b : a;
+  if (HAS_LO(weak) && (!HAS_LO(strong) || weak->lo > strong->lo))
+    return 1;
+  if (HAS_HI(weak) && (!HAS_HI(strong) || weak->hi < strong->hi))
+    return 1;
+  return 0;
+}
+
 static void clamp_sample(struct result *a) {
   if (HAS_SAMPLE(a)) {
     if (HAS_LO(a) && a->sample < a->lo)
@@ -2610,6 +2658,8 @@ void merge_results(void) {
       if (lo_only_conflict(&acc, b))
         continue;
       if (sample_bound_clamp_conflict(&acc, b))
+        continue;
+      if (conf_edge_conflict(&acc, b))
         continue;
       struct result trial = acc;
       int trial_w = sample_owner_w;
@@ -2765,6 +2815,20 @@ static unsigned long observed_stext_base(enum kasld_addr_type type,
   return image_base ? image_base + (unsigned long)STEXT_OFFSET : 0;
 }
 
+/* Did evidence move either edge of Q_PAGE_OFFSET off the architecture's own
+ * bracket? The reference is the quantity's honest top, read back through the
+ * same accessor as the resolved estimate so the two cannot describe the lattice
+ * differently. Both the rendered singular base and the reported window key off
+ * this, so they cannot disagree about whether anything was learned. */
+static int page_offset_narrowed(void) {
+  struct estimate top;
+  unsigned long top_lo = 0, top_hi = 0;
+  quantities[Q_PAGE_OFFSET].init_top(&top);
+  quantity_window(Q_PAGE_OFFSET, &top, &top_lo, &top_hi);
+  return layout.virt_page_offset_min > top_lo ||
+         layout.virt_page_offset_max < top_hi;
+}
+
 void compute_kaslr_info(struct summary *s) {
 #ifndef KASLD_TESTING
   /* The layered engine is the sole inference path: resolve every quantity from
@@ -2772,6 +2836,52 @@ void compute_kaslr_info(struct summary *s) {
    * the rest of this function reads. */
   engine_resolve(&g_auth_engine);
   engine_sync_authoritative(&g_auth_engine);
+
+  /* The singular rendered direct-map base follows the LIKELY resolution
+   * wherever the sound one stopped at a window rather than a value. It is a
+   * best-single-answer field — the renderers are its only readers, and the
+   * guaranteed edges travel separately as virt_page_offset_{min,max} — so the
+   * alternative to a likely value is not a sounder one, it is the compile-time
+   * seed: the analysing build's split presented as the target's. On a
+   * moved-VMSPLIT kernel that reads 0xc0000000 beside a guaranteed window of
+   * [0x80000000, 0xbfffffff], which is the one number in the readout that the
+   * evidence contradicts. */
+  {
+    unsigned long po_auth, po_likely;
+    if (!quantity_pinned(Q_PAGE_OFFSET, &g_auth_engine.est[Q_PAGE_OFFSET],
+                         &po_auth)) {
+      if (g_have_likely &&
+          quantity_pinned(Q_PAGE_OFFSET, &g_likely.est[Q_PAGE_OFFSET],
+                          &po_likely) &&
+          po_likely != 0) {
+        layout.virt_page_offset = po_likely;
+      }
+#if TEXT_TRACKS_DIRECTMAP
+      /* No single likely value either: show the proven FLOOR, the lowest base
+       * the evidence still admits.
+       *
+       * Only where evidence actually narrowed the bracket. With nothing learned
+       * the floor is the architecture's theoretical minimum and no window is
+       * reported beside it to say so, which on arm32 or x86_32 would present
+       * 0x40000000 — a split almost no kernel is built with — as the answer.
+       * The seed is a poorer claim but a better default, and an unnarrowed
+       * window is exactly the case the field is informational for.
+       *
+       * Coupled arches only. There the split is a build choice the evidence can
+       * contradict downward, so a measured floor below the analysing build's
+       * PAGE_OFFSET is the better answer. Decoupled arches randomize the base
+       * UPWARD from their compile-time default, so a floor below it says
+       * nothing — engine_sync_authoritative already moves the field there, and
+       * only once the floor rises above that default. Applying this branch to
+       * them would undo that gate wherever the bracket's own minimum sits lower
+       * than PAGE_OFFSET, which on riscv64 it does. */
+      else if (page_offset_narrowed() && layout.virt_page_offset_min &&
+               layout.virt_page_offset_min <= layout.virt_page_offset_max) {
+        layout.virt_page_offset = layout.virt_page_offset_min;
+      }
+#endif
+    }
+  }
 #endif
 
   /* Virtual image base (_text). Fall back to the engine's pinned singleton
@@ -2943,14 +3053,32 @@ void compute_kaslr_info(struct summary *s) {
   }
 #endif
 
-  s->kaslr.virt_page_offset_min =
-      (layout.virt_page_offset_min != (unsigned long)PAGE_OFFSET)
-          ? layout.virt_page_offset_min
-          : 0;
-  s->kaslr.virt_page_offset_max =
-      (layout.virt_page_offset_max != (unsigned long)KERNEL_VIRT_VAS_END)
-          ? layout.virt_page_offset_max
-          : 0;
+  /* The resolved linear-map window, reported when evidence narrowed it from the
+   * architecture's own bracket and suppressed when it did not. The reference
+   * for "narrowed" is the quantity's honest top, read back through the same
+   * accessor as the resolved estimate so the two cannot describe the lattice
+   * differently.
+   *
+   * Not a comparison against the compile-time PAGE_OFFSET: that answers a
+   * question about the TARGET with a property of the analysing build, and hides
+   * a resolved edge wherever the two happen to coincide. Nor against
+   * KERNEL_VIRT_VAS_END, which is a different quantity — on the architectures
+   * whose kernel address space starts or ends outside the linear map, an
+   * untouched upper edge compares unequal and reports a bound nothing
+   * established.
+   *
+   * Both edges move together, unlike the vmalloc / vmemmap fields below. Those
+   * start from sentinels outside any real address, so an untightened edge there
+   * means "no bound known" and nulling it alone is honest. This quantity starts
+   * from a real architectural bracket, where an untightened edge is still a
+   * bound — so nulling one edge of a window the engine PINNED would report the
+   * base as unbounded above. Either the window was learned and is reported
+   * whole, or nothing about it was and none of it is. */
+  {
+    const int narrowed = page_offset_narrowed();
+    s->kaslr.virt_page_offset_min = narrowed ? layout.virt_page_offset_min : 0;
+    s->kaslr.virt_page_offset_max = narrowed ? layout.virt_page_offset_max : 0;
+  }
   s->kaslr.virt_vmalloc_min =
       (layout.virt_vmalloc_base_min != 0) ? layout.virt_vmalloc_base_min : 0;
   s->kaslr.virt_vmalloc_max = (layout.virt_vmalloc_base_max != ULONG_MAX)
@@ -4628,8 +4756,14 @@ int main(int argc, char *argv[]) {
    * resolved quantities; the vmalloc/vmemmap *_max sentinels (ULONG_MAX = "no
    * upper bound known") must start set because the engine writes those edges
    * only when actually constrained. */
-  layout.virt_page_offset_min = layout.virt_kernel_vas_start;
-  layout.virt_page_offset_max = layout.virt_kernel_vas_end;
+  /* The linear-map base's own bracket, not the kernel VAS. Those are different
+   * quantities: loongarch64's address space starts a full exabyte below the
+   * lowest base it admits, and reading the VAS edge as "the lowest admissible
+   * PAGE_OFFSET" is the conflation this model exists to remove. Seeding from
+   * the quantity's honest top also makes "nothing was learned" mean exactly
+   * "still at the top", which is what page_offset_narrowed() tests. */
+  layout.virt_page_offset_min = (unsigned long)PAGE_OFFSET_MIN;
+  layout.virt_page_offset_max = (unsigned long)PAGE_OFFSET_MAX;
   layout.virt_vmalloc_base_min = 0;
   layout.virt_vmalloc_base_max = ULONG_MAX;
   layout.virt_vmemmap_base_min = 0;

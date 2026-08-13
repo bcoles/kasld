@@ -21,28 +21,59 @@
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/Kconfig#L1233
 #define PHYS_OFFSET 0ul
 
-// PAGE_OFFSET and PHYS_OFFSET are compile-time on ppc32 (BookE
-// CONFIG_RELOCATABLE is out of KASLD scope). Mainline ppc32 has no KASLR —
-// text sits at a fixed offset within the linear map. The compile-time
-// constant is the architectural guaranteed runtime value within KASLD's
-// modelled scope, so Q_PAGE_OFFSET is pinnable without evidence (same
-// shape as mips32/64 and ppc64). Unlocks text_base_coupling_synth.
-// https://elixir.bootlin.com/linux/v6.1.1/source/arch/powerpc/include/asm/page.h#L240
+// The linear-map base does not move at RUNTIME on ppc32 (BookE
+// CONFIG_RELOCATABLE is out of KASLD scope), so the compile-time projection
+// formula describes the target correctly ONCE the base is known. Text sits at
+// a fixed offset within the linear map, so a physical bound propagates to the
+// virtual text base.
+// LINEAR_MAP_ANCHOR: MEMORY_START is memstart_addr under
+// CONFIG_NONSTATIC_KERNEL, tracked as the LOWEST device-tree memory block
+// (prom.c: `if (base < memstart_addr) memstart_addr = base;`), and 0 otherwise
+// — which is also where DRAM starts on the platforms that build that way.
+// Either way the lowest observed physical RAM base names the anchor.
+// arch/powerpc/include/asm/page.h MEMORY_START; arch/powerpc/kernel/prom.c
+#define LINEAR_MAP_ANCHOR LM_ANCHOR_DRAM_BASE
 #define DIRECTMAP_STATIC 1
 #define TEXT_TRACKS_DIRECTMAP 1
-#define PAGE_OFFSET_INVARIANT 1
-// One value in practice. arch/powerpc/Kconfig does expose a prompt for it
-// (PAGE_OFFSET_BOOL, under ADVANCED_OPTIONS) and two in-tree 85xx defconfigs
-// use it, so this set is narrower than the architecture strictly allows --
-// see the PAGE_OFFSET_INVARIANT entry in dev/TODO.md.
-#define PAGE_OFFSET_CANDIDATES {0xc0000000ul}
-#define PAGE_OFFSET_MIN 0xc0000000ul
+
+// ...but the ANALYSING BINARY does not know which base the target was built
+// with. arch/powerpc/Kconfig gives ppc32 a prompt -- `config PAGE_OFFSET hex
+// "Virtual address of memory base" if PAGE_OFFSET_BOOL`, inside
+// `menu "Advanced setup" depends on PPC32` -- and two in-tree 85xx defconfigs
+// move it (xes_mpc85xx 0x80000000, ppa8548 0xb0000000). So this is the x86_32 /
+// arm32 VMSPLIT case, not the mips/ppc64 invariant case.
+//
+// CONFIG_PAGE_OFFSET is nonetheless build-fixed hex with no boot override --
+// exactly as authoritative as arm32's and x86_32's -- so a readable
+// /proc/config.gz pins the base exactly. PAGE_OFFSET_FROM_CONFIG enables that
+// (page_offset_from_config), the precise path and the sound successor to the
+// old PAGE_OFFSET_INVARIANT pin: that one named 0xc0000000 for EVERY ppc32,
+// wrong on an 0x80000000 build, whereas the config read names the real value.
+#define PAGE_OFFSET_FROM_CONFIG 1
+
+// A BRACKET is the no-config fallback: the Kconfig symbol is a free hex field,
+// not a choice, so no enumeration can be shown complete -- an incomplete one
+// would exclude the truth, an over-wide bracket merely fails to narrow. With no
+// Kconfig `range` the floor is a judgment call; it is kept a full GiB below the
+// lowest in-tree defconfig (0x80000000) rather than raised to it, because
+// raising it collapses the bracket to a single 1 GiB stride -- and a bracket
+// that admits exactly its two endpoints, one of them the compile-time default,
+// leaves the band no interior split to move to (see
+// test_engine_sync_module_band_follows_page_offset). The live measurement
+// narrows it: mmap_brute_vmsplit lands 128 KiB below the truth via
+// task_size_32.h's USER_TOP = PAGE_OFFSET - SZ_128K, EXCEPT on 8xx, where
+// CONFIG_TASK_SIZE defaults to 0x80000000 and wins over USER_TOP, so the probe
+// reads 0x80000000 there and its likely guess is off by the split (the
+// guaranteed bracket still contains the truth).
+#define PAGE_OFFSET_MIN 0x40000000ul
 #define PAGE_OFFSET_MAX 0xc0000000ul
 
-#define KERNEL_VIRT_VAS_START PAGE_OFFSET
+// Drawn at the LOWEST admissible split (PAGE_OFFSET_MIN): a kernel built lower
+// would have its text below the floor and every address it reports rejected at
+// the source, so the floor tracks the bracket's low edge.
+#define KERNEL_VIRT_TEXT_MIN 0x40000000ul
+#define KERNEL_VIRT_VAS_START KERNEL_VIRT_TEXT_MIN
 #define KERNEL_VIRT_VAS_END 0xfffffffful
-
-#define KERNEL_VIRT_TEXT_MIN PAGE_OFFSET
 // Above this, addresses fall in the I/O or fixmap region.
 #define KERNEL_VIRT_TEXT_MAX 0xf0000000ul
 
@@ -64,20 +95,27 @@
 // ioremap_bot, which moves down from IOREMAP_TOP at runtime. Neither edge is a
 // compile-time constant, so the ceiling is the top of the address space.
 //
-// The union is therefore [PAGE_OFFSET - 256 MiB, top of VAS]. Only the floor
-// is a PAGE_OFFSET relation. ppc32 is PAGE_OFFSET_INVARIANT, so the
-// re-derivation the flag enables is a no-op here -- it declares the relation,
-// it does not predict movement.
+// The union is therefore [PAGE_OFFSET - 256 MiB, top of VAS]. Only the floor is
+// a PAGE_OFFSET relation, so MODULES_RELATIVE_TO_PAGE_OFFSET declares it and
+// the engine re-derives MODULES_START against the resolved base. That
+// re-derivation genuinely matters now that the base varies across the bracket
+// -- it was inert under the old unconditional pin, not because ppc32 is
+// special.
 // https://elixir.bootlin.com/linux/v7.2/source/arch/powerpc/include/asm/task_size_32.h
 // https://elixir.bootlin.com/linux/v7.2/source/arch/powerpc/mm/mem.c
-#define MODULES_RELATIVE_TO_PAGE_OFFSET 1
 #define MODULES_START_FOR(po) ((po) - 0x10000000ul)
 #define MODULES_END_FOR(po) (KERNEL_VIRT_VAS_END)
-// Instantiated at the lowest admissible split, per the union rule in api.h;
-// ppc32 has only one, so this is PAGE_OFFSET spelled as the rule requires.
-#define MODULES_START MODULES_START_FOR(KERNEL_VIRT_VAS_START) // 0xb0000000ul
+// Instantiated at the lowest admissible split, per the union rule in api.h: the
+// widest (lowest) floor any admissible base produces, MODULES_START_FOR of the
+// bracket's low edge = 0x30000000. That sits BELOW KERNEL_VIRT_VAS_START, which
+// is correct, not a mis-derivation: on 8xx/book3s32 the module window is carved
+// immediately below the linear-map base, so the lowest module address is
+// genuinely lower than the lowest linear-map base the bracket admits.
+// Where the module band is anchored: a fixed delta from PAGE_OFFSET, so a
+// runtime VMSPLIT moves the band with it.
+#define MODULES_ANCHOR MOD_ANCHOR_PAGE_OFFSET
+#define MODULES_START MODULES_START_FOR(KERNEL_VIRT_VAS_START)
 #define MODULES_END MODULES_END_FOR(PAGE_OFFSET)
-#define MODULES_RELATIVE_TO_TEXT 0
 
 // page aligned
 #define IMAGE_ALIGN 0x1000ul
@@ -95,7 +133,7 @@
 // Default: 0xc0000000 (PAGE_OFFSET, no text offset on PPC32).
 // See docs/kaslr.md "Default text base and KASLR alignment" for all
 // architectures. Kernel source: arch/powerpc/kernel/vmlinux.lds.S
-#define KERNEL_VIRT_TEXT_DEFAULT (KERNEL_VIRT_TEXT_MIN + IMAGE_BASE_OFFSET)
+#define KERNEL_VIRT_TEXT_DEFAULT (PAGE_OFFSET + IMAGE_BASE_OFFSET)
 
 #define KASLR_SUPPORTED 1
 

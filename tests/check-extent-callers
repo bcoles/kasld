@@ -24,6 +24,8 @@
 set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 COMPONENTS=$ROOT/src/components
+# shellcheck source=tests/lib/guard-scope.sh
+. "$ROOT/tests/lib/guard-scope.sh"
 
 # Reviewed covering sources. Each reads a COMPLETE authoritative RAM map:
 #   boot_params_e820       x86 zero-page E820 table (hard-capped, never partial)
@@ -89,4 +91,13 @@ done
 
 # shellcheck disable=SC2086  # word-split the allowlist into argv to count via $#
 set -- $ALLOW
+# The scope this guard actually examined. Counted here rather than in the
+# loop: an unmatched glob leaves the literal pattern, which a loop-side
+# counter would tally as one file and so report a non-empty scope.
+_scanned=0
+for _f in "$COMPONENTS"/*.c; do
+  [ -f "$_f" ] && _scanned=$((_scanned + 1))
+done
+guard_scope "check-extent-callers" "$_scanned" 80
+
 printf '%sextent-caller guard: OK%s (%s reviewed covering sources, none new)\n' "$GREEN" "$RESET" "$#"

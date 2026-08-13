@@ -25,11 +25,15 @@
 #   tests/vm/run                 # every supported arch, default profile
 #   tests/vm/run <arch>          # one arch, default profile
 #   tests/vm/run <arch> <mode>   # mode: default | kptr-hidden | perf-open |
-#                                #       dmesg-open | hardened | nokaslr
+#                                #       dmesg-open | bpf-open | hardened |
+#                                #       nokaslr | no5lvl | no4lvl | la57
 #   tests/vm/run all <mode>      # every arch in a given mode
 #   tests/vm/run table           # render the results matrix (markdown) from the
 #                                # boot logs, followed by the speculative-
 #                                # narrowing table
+#   tests/vm/run fetch-modules [cell ...]   # stage a distro cell's own modules
+#                                # from the published build its kernel came from
+#                                # (mainline cells: tests/vm/stage-modules)
 #   tests/vm/run spec-table      # render only the speculative-narrowing table
 #                                # (cells where the likely window beats guaranteed)
 #   tests/vm/run table --with-timing        # include timing/side-channel rows in
@@ -50,6 +54,21 @@
 #   dmesg-open  default + dmesg_restrict=0 — dmesg log readable
 #   hardened    kptr=2 + dmesg_restrict=1 + perf=3 — unprivileged floor
 #   nokaslr     boot with `nokaslr` — verifies the KASLR-disabled pin
+#   no5lvl      boot with `no5lvl` — x86_64 drops to 4-level paging, riscv64 to
+#               SV48. Both move PAGE_OFFSET, so this is what exercises a
+#               linear-map base other than the one the cell boots by default.
+#   no4lvl      boot with `no4lvl` — riscv64 drops to SV39, its third paging
+#               mode and a third PAGE_OFFSET.
+#   la57        x86_64 only, and the one mode that changes QEMU rather than the
+#               kernel command line: forces TCG so `-cpu max` can expose la57.
+#               Under KVM the guest only gets features the HOST has, and a host
+#               without la57 pins the guest to 4-level paging however the kernel
+#               is configured — so this is the only way to reach x86_64's
+#               5-level layout on such a host. Slow: TCG, not KVM.
+#
+# The last two are kernel parameters, not init tokens: the paging mode is
+# chosen at boot, so it needs no separate cell the way a VMSPLIT does. Every
+# other architecture ignores them and boots exactly as `default`.
 #
 # Env overrides:
 #   QEMU_DIR        directory holding qemu-system-* (default: search PATH)
@@ -113,12 +132,18 @@ x86_64-mainline-7.0     | -           | local| x86_64       | x86_64      | -M q
 i686-mainline-5.15      | -           | local| i686         | i386        | -M pc -cpu max         | ttyS0
 i686-mainline-6.6       | -           | local| i686         | i386        | -M pc -cpu max         | ttyS0
 i686-mainline-7.0       | -           | local| i686         | i386        | -M pc -cpu max         | ttyS0
+i686-mainline-7.0-vmsplit2g | -       | local| i686         | i386        | -M pc -cpu max         | ttyS0
 aarch64-mainline-5.15   | -           | local| aarch64      | aarch64     | -M virt -cpu max       | ttyAMA0
 aarch64-mainline-6.6    | -           | local| aarch64      | aarch64     | -M virt -cpu max       | ttyAMA0
 aarch64-mainline-7.0    | -           | local| aarch64      | aarch64     | -M virt -cpu max       | ttyAMA0
+aarch64-mainline-7.0-va39 | -         | local| aarch64      | aarch64     | -M virt -cpu max       | ttyAMA0
+aarch64-mainline-7.0-va47 | -         | local| aarch64      | aarch64     | -M virt -cpu max       | ttyAMA0
+aarch64-mainline-7.0-va42 | -         | local| aarch64      | aarch64     | -M virt -cpu max       | ttyAMA0
+aarch64-mainline-7.0-va36 | -         | local| aarch64      | aarch64     | -M virt -cpu max       | ttyAMA0
 armv7-mainline-5.15     | -           | local| armv7        | arm         | -M virt -cpu max       | ttyAMA0
 armv7-mainline-6.6      | -           | local| armv7        | arm         | -M virt -cpu max       | ttyAMA0
 armv7-mainline-7.0      | -           | local| armv7        | arm         | -M virt -cpu max       | ttyAMA0
+armv7-mainline-7.0-vmsplit2g | -      | local| armv7        | arm         | -M virt -cpu max       | ttyAMA0
 riscv64-mainline-5.15   | -           | local| riscv64      | riscv64     | -M virt                | ttyS0
 riscv64-mainline-6.6    | -           | local| riscv64      | riscv64     | -M virt                | ttyS0
 riscv64-mainline-7.0    | -           | local| riscv64      | riscv64     | -M virt                | ttyS0
@@ -481,6 +506,158 @@ reconstruct_fixture() {
   [ "$_bad" = 0 ]
 }
 
+# The kernel release a cell's STAGED image actually boots: the release recorded
+# beside the image, else the image's own banner, else its newest boot log.
+#
+# The image outranks any log. A log says what booted when it was written, so a
+# cell restaged since then keeps older logs naming the kernel it used to run —
+# and those logs outlive the image they describe. Logs come last, newest first,
+# because the banner does not survive every image format.
+staged_release() { # cell
+  [ -s "$CACHE/$1-kernel.release" ] && { cat "$CACHE/$1-kernel.release"; return 0; }
+  _r=$(strings -a "$CACHE/$1-vmlinuz" 2>/dev/null |
+    grep -m1 -oE '[0-9]+\.[0-9]+\.[0-9]+[^ ]* \(.*\) #' | grep -oE '^[^ ]+')
+  [ -n "$_r" ] && { echo "$_r"; return 0; }
+  # shellcheck disable=SC2012  # boot-<scenario>.log names are fixed by this script
+  _newest=$(ls -t "$HERE/$1"/boot-*.log 2>/dev/null | head -1)
+  [ -n "$_newest" ] || return 1
+  grep -ahm1 -oE 'Linux version [^ ]+' "$_newest" | sed 's/Linux version //'
+}
+
+# Stage loadable modules for a DISTRO cell, taken from the same published build
+# that produced its kernel. Nothing is compiled: the distro already built these
+# against this exact kernel, so vermagic and the symbol CRCs match by
+# construction — which is what finit_module() checks.
+#
+# Two sources, mirroring the two kernel-fetch paths:
+#   netboot flavors  modloop-<flavor>, a squashfs beside vmlinuz-<flavor>
+#   apk flavor       the linux-lts apk the kernel itself came from
+#
+# The release inside the artifact is compared against the staged kernel's before
+# anything is staged. A mirror serves what is current, not what was fetched, so
+# the two drift apart on their own; a module built for another release is
+# rejected at load: init logs it FAILED and continues, so it silently fails to
+# load rather than giving a readable error. Mismatch therefore refuses, and says so.
+fetch_modules_distro() { # cell alpine-arch flavor
+  _cell=$1 _aarch=$2 _flavor=$3
+  _want=$(staged_release "$_cell")
+  [ -n "$_want" ] || { echo "  !! $_cell: cannot determine the staged kernel release"; return 1; }
+
+  _tmp=$(mktemp -d) || return 1
+  if [ "$_flavor" = apk ]; then
+    _repo="$ALPINE_MIRROR/edge/main/$_aarch"
+    _apk=$(curl -fsSL "$_repo/" | grep -oE 'linux-lts-[0-9][^"<]*\.apk' | sort -V | tail -1)
+    [ -n "$_apk" ] || { echo "  !! $_cell: no linux-lts apk for $_aarch"; rm -rf "$_tmp"; return 1; }
+    curl -fsSL -o "$_tmp/k.apk" "$_repo/$_apk" || { rm -rf "$_tmp"; return 1; }
+    (cd "$_tmp" && tar -xzif k.apk --wildcards \
+      'lib/modules/*/kernel/drivers/net/dummy.ko*' \
+      'lib/modules/*/kernel/drivers/net/veth.ko*' 2>/dev/null)
+  else
+    _url="$ALPINE_MIRROR/v$ALPINE_VER/releases/$_aarch/netboot/modloop-$_flavor"
+    curl -fsSL -o "$_tmp/modloop" "$_url" || {
+      echo "  !! $_cell: no modloop at $_url"
+      rm -rf "$_tmp"
+      return 1
+    }
+    unsquashfs -q -d "$_tmp/x" "$_tmp/modloop" \
+      'modules/*/kernel/drivers/net/dummy.ko*' \
+      'modules/*/kernel/drivers/net/veth.ko*' \
+      'lib/modules/*/kernel/drivers/net/dummy.ko*' \
+      'lib/modules/*/kernel/drivers/net/veth.ko*' >/dev/null 2>&1
+  fi
+
+  # The release the artifact itself carries, read from the path it unpacked into
+  # rather than from the cell name or the mirror's directory.
+  _got=$(find "$_tmp" -name '*.ko*' 2>/dev/null | head -1 |
+    sed -E 's|.*/modules/([^/]+)/.*|\1|')
+  if [ -z "$_got" ]; then
+    echo "  !! $_cell: no dummy/veth module in the published $_flavor artifact"
+    rm -rf "$_tmp"
+    return 1
+  fi
+  if [ "$_got" != "$_want" ]; then
+    echo "  !! $_cell: mirror serves $_got, staged kernel is $_want — refetch the kernel and the modules together"
+    rm -rf "$_tmp"
+    return 1
+  fi
+
+  mkdir -p "$CACHE/$_cell-modules"
+  _n=0
+  find "$_tmp" -name '*.ko*' 2>/dev/null >"$_tmp/list"
+  while IFS= read -r _k; do
+    _b=${_k##*/}
+    case "$_b" in
+    # A distro may ship modules compressed; finit_module() takes plain ELF.
+    *.ko.gz) gunzip -c "$_k" >"$CACHE/$_cell-modules/${_b%.gz}" || continue ;;
+    *.ko.zst) zstd -qdc "$_k" >"$CACHE/$_cell-modules/${_b%.zst}" || continue ;;
+    *.ko.xz) xz -dc "$_k" >"$CACHE/$_cell-modules/${_b%.xz}" || continue ;;
+    *.ko) cp "$_k" "$CACHE/$_cell-modules/$_b" ;;
+    *) continue ;;
+    esac
+    _n=$((_n + 1))
+  done <"$_tmp/list"
+  rm -rf "$_tmp"
+  [ "$_n" -gt 0 ] || { echo "  !! $_cell: nothing staged"; return 1; }
+  echo "$_want" >"$CACHE/$_cell-kernel.release"
+  printf '  %-26s %s  (%s)\n' "$_cell" "$_want" \
+    "$(find "$CACHE/$_cell-modules" -name '*.ko' -exec basename {} \; | tr '\n' ' ')"
+}
+
+# Stage distro-cell modules. Cells default to every non-`local` cell with a
+# staged kernel.
+cmd_fetch_modules() {
+  _sel=$*
+  _ok=0 _fail=0
+  for _a in ${_sel:-$arches}; do
+    _row=$(echo "$TABLE" | grep -E "^[[:space:]]*${_a}[[:space:]]*\|")
+    [ -n "$_row" ] || continue
+    IFS='|' read -r _ _aa _fl _ _ _ _ <<EOF
+$_row
+EOF
+    _aa=$(trim "$_aa"); _fl=$(trim "$_fl")
+    [ "$_fl" = local ] && continue
+    [ -f "$CACHE/$_a-vmlinuz" ] || continue
+    if fetch_modules_distro "$_a" "$_aa" "$_fl"; then
+      _ok=$((_ok + 1))
+    else
+      _fail=$((_fail + 1))
+    fi
+  done
+  echo "----------------------------------------------------------------------"
+  echo "modules: $_ok staged, $_fail unavailable"
+  [ "$_fail" -eq 0 ]
+}
+
+# The kasld binary a cell would run. Unlike resolve_target this does not need the
+# cell's toolchain on PATH, because inspecting a binary does not require building
+# one.
+cell_binary() {
+  _p=$(printf '%s' "$TABLE" | awk -F'|' -v a="$1" \
+    'NF>1{gsub(/ /,"",$1); if ($1==a) {gsub(/ /,"",$4); print $4; exit}}')
+  [ -n "$_p" ] || return 1
+  for _d in "$BUILD_DIR/$_p"-*; do
+    [ -x "$_d/kasld" ] || continue
+    echo "$_d/kasld"
+    return 0
+  done
+  return 1
+}
+
+# True when a binary is big-endian arm WITHOUT EF_ARM_BE8, i.e. BE32
+# (word-invariant byte order). Big-endian arm kernels from ARMv6 on run userspace
+# BE8 (byte-invariant), so a BE32 binary faults on its first instruction and the
+# process dies with SIGILL before main() — the kernel boots, the payload cannot
+# run. Detected from the ELF header rather than the cell name, so the cell starts
+# working by itself if a BE8 toolchain is installed.
+arm_be32_binary() {
+  [ -f "$1" ] || return 1
+  [ "$(od -An -tx1 -j5 -N1 "$1" 2>/dev/null | tr -d ' ')" = 02 ] || return 1
+  [ "$(od -An -tx1 -j18 -N2 "$1" 2>/dev/null | tr -d ' ')" = 0028 ] || return 1
+  _fl=$(od -An -tx1 -j36 -N4 "$1" 2>/dev/null | tr -d ' ')
+  [ ${#_fl} -eq 8 ] || return 1
+  [ $((0x$_fl & 0x00800000)) -eq 0 ]
+}
+
 # Build + boot one arch in one mode. Returns the verdict's status.
 run_one() {
   name=$1 mode=$2
@@ -499,6 +676,10 @@ EOF
   tc=$(resolve_target "$prefix")
   [ -n "$tc" ] || { echo "  SKIP  no build/$prefix-*/kasld with toolchain on PATH (run make cross)"; return 3; }
   bdir=${tc% *}; cc=${tc#* }
+  if arm_be32_binary "$bdir/kasld"; then
+    echo "  SKIP  $(basename "$bdir") emits BE32; a big-endian arm kernel runs userspace BE8, so kasld cannot execute"
+    return 3
+  fi
   qemu=$(resolve_qemu "$qsuf")
   [ -n "$qemu" ] || { echo "  SKIP  qemu-system-$qsuf not found"; return 3; }
 
@@ -514,6 +695,22 @@ EOF
   cp "$bdir/kasld" "$work/root/kasld"
   cp "$CACHE/$name-vmlinuz" "$work/root/kernel-image"
   cp "$bdir"/components/* "$work/root/components/" 2>/dev/null || true
+  # The kernel's own .config as /boot/config-<release>, what a real system
+  # exposes. boot_config reads it as plain text (proc_config's /proc/config.gz
+  # needs the zlib the static cross binaries lack), so this is what runs the
+  # PAGE_OFFSET_FROM_CONFIG path end-to-end on the VMSPLIT arches. Keyed on the
+  # staged kernel's release so boot_config's uname-r match holds.
+  _kcfg="$CACHE/kbuild-$name/.config"; _krel=$(cat "$CACHE/$name-kernel.release" 2>/dev/null)
+  if [ -n "$_krel" ] && [ -f "$_kcfg" ]; then
+    mkdir -p "$work/root/boot"
+    cp "$_kcfg" "$work/root/boot/config-$_krel"
+  fi
+  # Modules the cell's kernel build staged, if any. init loads every .ko here
+  # before the run, so /proc/modules and /sys/module carry real addresses.
+  if [ -d "$CACHE/$name-modules" ]; then
+    mkdir -p "$work/root/modules"
+    cp "$CACHE/$name-modules"/*.ko "$work/root/modules/" 2>/dev/null || true
+  fi
   chmod +x "$work/root/init" "$work/root/kasld" "$work/root/components/"* 2>/dev/null || true
   (cd "$work/root" && find . -print0 | cpio --null -o --format=newc 2>/dev/null | gzip -9 >"$work/initramfs.cpio.gz")
 
@@ -596,11 +793,22 @@ EOF
     kptr-hidden) append="$append hidekptr" ;;
     perf-open)   append="$append perfopen" ;;
     dmesg-open)  append="$append dmesgopen" ;;
+    bpf-open)    append="$append bpfopen" ;;
     hardened)    append="$append hardened" ;;
     nokaslr)     append="$append nokaslr" ;;
+    no5lvl)      append="$append no5lvl" ;;
+    no4lvl)      append="$append no4lvl" ;;
+    la57)        accel="-accel tcg" ;;
     capture)     append="$append capture" ;;
     *) echo "  unknown mode: $mode"; return 2 ;;
   esac
+
+  # Anything in KASLD_VM_APPEND is appended verbatim to the kernel command line.
+  # The kernel hands unrecognised `key=value` tokens to init as ENVIRONMENT, and
+  # init execv()s kasld, so this is how a diagnostic env var reaches the binary
+  # inside the guest without touching init.c:
+  #   KASLD_VM_APPEND=KASLD_DEBUG_CONSTRAINTS=1 tests/vm/run <cell> default
+  [ -z "${KASLD_VM_APPEND:-}" ] || append="$append $KASLD_VM_APPEND"
 
   log="$work/boot-$mode.log"
   echo "  [*] booting $qemu ($machine) -> $log"
@@ -696,12 +904,17 @@ likely_of() {
     /"virt_page_offset_base":/{ s=$0
       if(sub(/.*"likely":[ \t]*\{[ \t]*"min":[ \t]*"/,"",s)){ sub(/".*/,"",s); polik=s } }
     /"groups":[ \t]*\[/{ ing=1 }
-    ing && /"type":/{ gi++; gorg[gi]="" }
+    ing && /"type":/{ gi++; gorg[gi]=""; curorig="" }
     ing && gi>0 && /"consensus":/{ gcons[gi]=val($0) }
     ing && gi>0 && /"consensus_method":/{ gcm[gi]=val($0) }
     ing && gi>0 && /"lo":/{ glo[gi]=val($0) }
     ing && gi>0 && /"hi":/{ ghi[gi]=val($0) }
-    ing && gi>0 && /"origins":/{ if(gorg[gi]=="") gorg[gi]=orig($0) }
+    # via credits the result whose method IS the group consensus method (the
+    # reproducible source that set it), not merely the first-listed result: a
+    # parsed leak corroborated by a timing signal must read as the parsed leak,
+    # not the timing one that happens to agree. Fall back to the first result.
+    ing && gi>0 && /"origins":/{ curorig=orig($0); if(gorg[gi]=="") gorg[gi]=curorig }
+    ing && gi>0 && /"method":/{ if(val($0)==gcm[gi]) gorg[gi]=curorig }
     END{
       if(lmax==""){ exit }        # no likely block -> no divergence
       method="?"; via="?"
@@ -727,7 +940,7 @@ cmd_spec_table() {
   excluded_timing=0
   for a in $arches; do
     arch_disp=${a%%-*}
-    for scen in default kptr-hidden perf-open dmesg-open hardened; do
+    for scen in default kptr-hidden perf-open dmesg-open bpf-open hardened; do
       log="$HERE/$a/boot-$scen.log"
       [ -f "$log" ] || continue
       grep -aq 'KASLD VM DONE' "$log" || continue
@@ -761,6 +974,9 @@ EOF
       src=alpine; [ "$flavor" = local ] && src=mainline
       rel=$(grep -am1 'Linux version' "$log" | sed -E 's/.*Linux version ([^ ]+).*/\1/')
       [ -n "$rel" ] || rel='?'
+      # Same variant disambiguation as the guaranteed matrix (see cmd_table).
+      variant=$(printf '%s' "$a" | cut -d- -f4-)
+      [ -n "$variant" ] && rel="$rel ($variant)"
       body="${body}| $arch_disp | $rel | $src | $scen | $(fmt_bits "$gbits") | $(fmt_bits "$lbits") | \`$via\` | $method | $hit |${nl}"
     done
   done
@@ -795,17 +1011,34 @@ cmd_table() {
   nl='
 '
   bad=    # cells that are NOT verified sound (gate); refusing to emit if any
+  unrunnable=   # cells that cannot produce a result at all; disclosed, not gated
   body=
   for a in $arches; do
+    # A cell whose binary cannot execute under its own kernel yields no result by
+    # construction, so it is evidence of nothing — neither soundness nor a
+    # violation. Withholding the whole matrix over it would withhold it forever.
+    # It is listed beneath the matrix instead, so the omission stays visible.
+    # Any OTHER cell that fails to finish still fails the gate below: a cell that
+    # normally completes and suddenly does not may be hiding a regression.
+    if cb=$(cell_binary "$a") && arm_be32_binary "$cb"; then
+      case " $unrunnable " in *" ${a%%-*} "*) ;; *) unrunnable="$unrunnable${a%%-*} " ;; esac
+      continue
+    fi
     # Matrix label is the real architecture — the leading dash-component of the
     # cell name (<arch>-<distro>-<version>). The same arch appears under several
     # cells (distro/version); the `source` and `release` columns carry that split.
     arch_disp=${a%%-*}
-    for scen in default kptr-hidden perf-open dmesg-open hardened nokaslr; do
+    for scen in default kptr-hidden perf-open dmesg-open bpf-open hardened nokaslr \
+      no5lvl no4lvl la57; do
       log="$HERE/$a/boot-$scen.log"
       [ -f "$log" ] || continue   # arch not built (no kernel) — simply omitted
       rel=$(grep -am1 'Linux version' "$log" | sed -E 's/.*Linux version ([^ ]+).*/\1/')
       [ -n "$rel" ] || rel='?'
+      # Distinguish variant cells (VA_BITS / VMSPLIT configs) that share an arch
+      # and release: append the 4th dash-field of the cell name to the label, so
+      # aarch64-...-va47 and armv7-...-vmsplit2g do not collapse onto the base row.
+      variant=$(printf '%s' "$a" | cut -d- -f4-)
+      [ -n "$variant" ] && rel="$rel ($variant)"
       if ! grep -aq 'KASLD VM DONE' "$log"; then
         bad="${bad}  $a/$scen: boot did not finish${nl}"; continue
       fi
@@ -892,10 +1125,40 @@ cmd_table() {
       else
         phys_residual="$pbits bits"
       fi
-      # nokaslr is a control (KASLR forced off → always "—"); it carries no
-      # per-arch signal, so it is gate-checked above like every other cell but
-      # kept out of the rendered matrix.
-      [ "$scen" = nokaslr ] || body="${body}| $arch_disp | $rel | $src | $scen | $kas | $residual | $phys_residual |${nl}"
+      # default is first in the scenario order, so its residuals are recorded
+      # here before bpf-open is reached and can gate the bpf-open row below.
+      # Which scenarios earn a row. All of them are gate-checked above; this
+      # decides only what the matrix shows.
+      #
+      # nokaslr is a control (KASLR forced off → always "—") and carries no
+      # per-arch signal. The paging-mode parameters carry signal on the two
+      # architectures that act on them and are ignored everywhere else, where
+      # the boot is a byte-for-byte repeat of `default` and a row would render
+      # as coverage that does not exist.
+      #
+      # Filter by APPLICABILITY, never by OUTCOME. Whether a profile applies to a
+      # cell is a property of the cell; whether it changed the number is a
+      # RESULT, and suppressing a row for it hides the negative finding the
+      # profile exists to report. It is also unsound here: the residuals being
+      # compared come from two independent boots of a KASLR kernel, and on a cell
+      # whose window edge tracks the image the figure moves between boots on its
+      # own -- so an outcome filter emits and withholds rows from placement
+      # noise. bpf-open used to be filtered that way and is not any more; it is
+      # shown on every cell, like the four other sysctl profiles, several of
+      # which are identical to `default` on all 55 cells and are still shown.
+      show=1
+      case "$scen" in
+      nokaslr) show=0 ;;
+      no5lvl)
+        case "$arch_disp" in
+        x86_64 | riscv64) ;;
+        *) show=0 ;;
+        esac
+        ;;
+      no4lvl) [ "$arch_disp" = riscv64 ] || show=0 ;;
+      la57) [ "$arch_disp" = x86_64 ] || show=0 ;;
+      esac
+      [ "$show" = 0 ] || body="${body}| $arch_disp | $rel | $src | $scen | $kas | $residual | $phys_residual |${nl}"
     done
   done
 
@@ -912,6 +1175,12 @@ cmd_table() {
   printf '%s' "$body"
   # shellcheck disable=SC2016  # backticks are literal markdown, not a subshell
   printf '\nEvery cell is sound: the true base lies inside the guaranteed window, on BOTH the virtual and (where independently resolved) the physical axis. `source` = `alpine` (distro kernel) or `mainline` (mainline kernel.org build). `virt residual` / `phys residual` = how much KASLR entropy KASLD could not strip from the virtual text base / physical image base: `exact` = base recovered, KASLR defeated (a byte-exact pin and a below-granularity sub-slot window are the same outcome — the randomized slot is known); `<n> bits` = KASLR-randomized, n bits of the slot still unknown; `—` = KASLR off (nothing randomized to strip). In the `phys residual` column, `coupled` marks an architecture whose physical image base is a fixed projection of the virtual text base (no independent physical axis — recovering the virtual base already determines it); only the decoupled arches (x86-64, arm64, riscv64, s390) carry an independent `exact` / `<n> bits` physical result.\n'
+
+  # An arch that cannot run the payload is disclosed rather than dropped
+  # silently, so the matrix cannot be read as having covered it.
+  if [ -n "$unrunnable" ]; then
+    printf '\nNot covered: %s— the big-endian arm toolchain available here emits BE32 binaries, while a big-endian arm kernel runs userspace BE8. kasld cannot execute under such a kernel, so no result is produced and no soundness claim is made either way. Those kernels build and boot; only the userspace side is missing.\n' "$unrunnable"
+  fi
 
   # The matrix reports the guaranteed window; the speculative-narrowing table
   # discloses where the likely best-guess window beats it, and by what signal.
@@ -930,6 +1199,7 @@ arches=$(echo "$TABLE" | awk -F'|' 'NF>1{gsub(/ /,"",$1); print $1}' |
 case "${1:-}" in
   table | --table)           cmd_table; exit $? ;;
   spec-table | --spec-table) cmd_spec_table; exit $? ;;
+  fetch-modules)             shift; cmd_fetch_modules "$@"; exit $? ;;
 esac
 
 sel=${1:-all}; mode=${2:-default}

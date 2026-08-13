@@ -58,7 +58,6 @@
 int rule_text_base_coupling_synth(const struct evidence_set *ev,
                                   const struct estimate *est,
                                   struct constraint *out, int out_max) {
-  (void)ev;
 #if TEXT_TRACKS_DIRECTMAP
   const struct estimate *po = &est[Q_PAGE_OFFSET];
   unsigned long virt_page_offset;
@@ -66,9 +65,40 @@ int rule_text_base_coupling_synth(const struct evidence_set *ev,
     return 0; /* virt_page_offset must be pinned for the projection to be sound
                */
 
+  /* The linear map anchors virt_page_offset to the true DRAM base, NOT the
+   * compile-time PHYS_OFFSET -- which every coupled arch models as 0. The two
+   * coincide only where DRAM starts at phys 0 (mips, ppc64, loongarch64,
+   * x86_32, ppc32 e500); on arm32 the board places DRAM at 0x40000000, and a
+   * projection through PHYS_OFFSET=0 shifts the image by virt_page_offset
+   * instead of (virt_page_offset - 0x40000000), landing the whole window ABOVE
+   * the true base. Read the corroborated base from evidence -- the lowest phys
+   * REGION_RAM POS_BASE, the same floor dram_floor_bound trusts -- and decline
+   * if it is absent: the phys<->virt delta is then unknowable and any
+   * projection would be a guess.
+   *
+   * The lowest observed RAM base IS the address the linear map anchors at on
+   * every architecture this rule is gated to: TEXT_TRACKS_DIRECTMAP implies
+   * LINEAR_MAP_ANCHOR is LM_ANCHOR_DRAM_BASE or LM_ANCHOR_PHYS_OFFSET, and on
+   * the latter the constant is 0 and DRAM starts there, so the two agree. That
+   * is a property of the headers rather than an assumption of this rule -- see
+   * LINEAR_MAP_ANCHOR in api.h, and phys_virt_synth, which reads the axis
+   * directly because it is not gated on coupling and so meets arm64, whose
+   * anchor is recoverable from nothing.
+   *
+   * The exposure is an emitter reporting a bank the kernel did not take, which
+   * would put the anchor LOW. Two of the four bounds below are unsound in that
+   * direction -- a low anchor inflates v_minus_p, dropping the virt->phys
+   * ceiling and raising the phys->virt floor, either able to carve out the
+   * truth. Only REGION_RAM POS_BASE counts, which is the kernel's own account
+   * of its memory rather than firmware's account of the board. */
+  unsigned long dram_base = 0;
+  if (!evidence_lowest_dram_base(ev, &dram_base, NULL, NULL) ||
+      dram_base > virt_page_offset)
+    return 0;
+
   const struct estimate *vt = &est[Q_VIRT_IMAGE_BASE];
   const struct estimate *pt = &est[Q_PHYS_IMAGE_BASE];
-  const unsigned long phys_off = (unsigned long)PHYS_OFFSET;
+  const unsigned long phys_off = dram_base;
   const unsigned long text_off = (unsigned long)IMAGE_BASE_OFFSET;
   /* virt_to_phys delta: PAGE_OFFSET - PHYS_OFFSET. Positive on every
    * TEXT_TRACKS_DIRECTMAP arch (kernel virt > kernel phys). */
@@ -133,6 +163,7 @@ int rule_text_base_coupling_synth(const struct evidence_set *ev,
   }
   return n;
 #else
+  (void)ev;
   (void)est;
   (void)out;
   (void)out_max;

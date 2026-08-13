@@ -45,21 +45,44 @@
 // We assume 52 va bits (broadest, covers all configs):
 #define PAGE_OFFSET 0xfff0000000000000ul
 
-// Derived from the paging mode: PAGE_OFFSET is -(1 << VA_BITS), so the
-// window spans VA_BITS 52 (lowest base) to 39 (highest). Q_VA_BITS carries
-// the finite set; arm64_page_offset_from_va_bits maps one to the other.
-#define PAGE_OFFSET_MIN PAGE_OFFSET
-#define PAGE_OFFSET_MAX 0xffffff8000000000ul
+// Derived from the paging mode: PAGE_OFFSET is -(1 << VA_BITS). Q_VA_BITS
+// carries that finite set and arm64_page_offset_from_va_bits applies it, so
+// the bracket here stays the whole kernel VAS rather than the span of the
+// VA_BITS candidates. A bracket is a GUARANTEED window: tightening it to a
+// candidate list makes every value outside that list unrepresentable, and the
+// list would then have to be complete for every kernel in scope — which is the
+// obligation that broke riscv64's equivalent.
+#define PAGE_OFFSET_MIN KERNEL_VIRT_VAS_START
+#define PAGE_OFFSET_MAX KERNEL_VIRT_VAS_END
 #define PHYS_OFFSET 0ul
 
 // VA_BITS candidates for Q_VA_BITS (finite-set lattice), smallest first. Each
 // arm64 paging config has its own VA_BITS (hence its own PAGE_OFFSET /
-// KIMAGE_VADDR geometry): 4K 3-level=39 (common on Android), 64K 2-level=42,
-// 16K 3-level=47, 4K/16K 4-level=48, and 52-bit LVA (VA_BITS_MIN still 48).
-#define VA_BITS_CANDIDATES {39ul, 42ul, 47ul, 48ul, 52ul}
-// Smallest supported VA_BITS — gives the highest (widest-accepting) linear-map
-// ceiling for region validation.
-#define ARM64_VA_BITS_MIN_SUPPORTED 39ul
+// KIMAGE_VADDR geometry): 16K 2-level=36 (EXPERT-gated), 4K 3-level=39 (common
+// on Android), 64K 2-level=42, 16K 3-level=47, 4K/16K 4-level=48, and 52-bit
+// LVA (VA_BITS_MIN still 48). The complete ARM64_VA_BITS_* choice from
+// arch/arm64/Kconfig; mmap_arm64_va_bits walks this same array rather than
+// keeping a second copy.
+#define VA_BITS_CANDIDATES {36ul, 39ul, 42ul, 47ul, 48ul, 52ul}
+
+// The smallest VA_BITS whose linear map is admitted BEFORE the width is
+// resolved — a validation-filter knob, NOT a statement about which widths are
+// supported. Deliberately not the smallest candidate: the accepting ceiling is
+// _PAGE_END of this width, so lowering it widens the band for EVERY arm64
+// kernel and admits more mistagged pointers as direct-map candidates (see the
+// trade-off note in arm64_coupling_validate).
+//
+// A 36-bit kernel's WIDTH still resolves — mmap_arm64_va_bits pins Q_VA_BITS
+// directly (the probe does not pass through this filter), and PAGE_OFFSET then
+// projects from that pin. But this knob does cost 36-bit its direct-map
+// EVIDENCE: a VA36 linear-map base is 0xfffffff000000000, above _PAGE_END(39),
+// so arm64_coupling_validate marks a REGION_DIRECTMAP / REGION_PAGE_OFFSET leak
+// there V_INVALID and it cannot corroborate. That is a completeness loss on a
+// config that needs 16K pages and EXPERT (the base still resolves from the
+// width pin), not a soundness one — dropping a real observation only fails to
+// narrow. Lowering the knob to 36 to recover it would widen the accepting band
+// for every arm64 kernel, which is the worse trade.
+#define ARM64_VA_BITS_VALIDATE_MIN 39ul
 
 // VA_BITS-derived geometry, kept in one place so the layout math is not
 // duplicated across mmap_arm64_va_bits, arm64_coupling_validate, and
@@ -79,6 +102,20 @@ static inline unsigned long arm64_page_end_for(unsigned long va_bits) {
 // file). Kernel text KASLR slides independently of the linear map, so text
 // does not track the directmap.
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/arm64/include/asm/memory.h#L295
+// LINEAR_MAP_ANCHOR: the anchor is memstart_addr, which the kernel places
+// AWAY from where DRAM begins and by no fixed amount or direction:
+//   round_down(memblock_start_of_DRAM(), ARM64_MEMSTART_ALIGN)  — below
+//   round_up(memblock_end_of_DRAM() - linear_region_size, ...)  — above,
+//     when memory overflows the linear map
+//   -= _PAGE_OFFSET(vabits_actual) - _PAGE_OFFSET(52)          — far below,
+//     on a 52-bit build running without 52-bit hardware
+//   -= ARM64_MEMSTART_ALIGN * random()                         — below, on
+//     kernels predating the linear-map derandomisation
+// Every displacement is large-page aligned, so an alignment check cannot
+// separate a displaced candidate from a true base. Nothing unprivileged
+// recovers memstart_addr, so a rule needing the anchor must decline.
+// arch/arm64/mm/init.c arm64_memblock_init()
+#define LINEAR_MAP_ANCHOR LM_ANCHOR_UNKNOWABLE
 #define DIRECTMAP_STATIC 0
 #define TEXT_TRACKS_DIRECTMAP 0
 
@@ -129,6 +166,9 @@ static inline unsigned long arm64_page_end_for(unsigned long va_bits) {
 // module addresses when available (engine_sync), not this validation window.
 // https://elixir.bootlin.com/linux/v6.6/source/arch/arm64/include/asm/memory.h
 // https://elixir.bootlin.com/linux/v6.9/source/arch/arm64/kernel/module.c#L32
+// Where the module band is anchored: a window CENTRED on the image;
+// MODULES_BRACKET_TEXT is its half-width.
+#define MODULES_ANCHOR MOD_ANCHOR_BRACKETS_TEXT
 #define MODULES_START 0xfffeffff88000000ul // KASLR_VIRT_TEXT_MIN_WIDE - SZ_2G
 #define MODULES_END KERNEL_VIRT_VAS_END
 
@@ -140,7 +180,6 @@ static inline unsigned long arm64_page_end_for(unsigned long va_bits) {
 #define MODULES_BAND_EXACT 1
 // Module region does not shift with KASLR on arm64.
 // (Modules are loaded independently of kernel text placement.)
-#define MODULES_RELATIVE_TO_TEXT 0
 
 // The band is not at a fixed offset from text, but every module allocation is
 // drawn from a window that also contains the kernel image, so a module address

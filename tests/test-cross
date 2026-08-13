@@ -27,7 +27,7 @@
 set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 QEMU_DIR=${QEMU_DIR:-}   # empty: resolve qemu-<arch> from PATH
-OUT=$ROOT/build/tests
+TESTS_BASE=$ROOT/build/tests
 
 # qemu-user binary for $1: from QEMU_DIR if set, else PATH. Empty if not found.
 resolve_qemu() {
@@ -45,7 +45,29 @@ CFLAGS=${CFLAGS:--std=c99 -O2 -static -I$ROOT/src -Werror=shift-count-overflow -
 # Targets are independent (separate build dir + binaries each), so build/run
 # them JOBS at a time. Default to one per core; JOBS=1 restores serial order.
 JOBS=${JOBS:-$(nproc 2>/dev/null || echo 1)}
-mkdir -p "$OUT"
+
+# A UNIQUE build dir per invocation. Two overlapping runs -- or an orphaned
+# run_target subshell whose parent `make` was killed but which lives on and
+# still runs its `rm -rf "$d"` cleanup -- must not share `build/tests/<triple>`,
+# or one deletes the other's tree mid-compile. That surfaces as a fabricated
+# compile failure whose cc.log the cleanup has already removed (see
+# show_cc_log). mktemp keeps each run's path distinct; the trap removes it on
+# exit unless KEEP=1.
+mkdir -p "$TESTS_BASE"
+OUT=$(mktemp -d "$TESTS_BASE/run.XXXXXX") || { echo "test-cross: mktemp failed" >&2; exit 1; }
+trap '[ "${KEEP:-0}" = 1 ] || rm -rf "$OUT"' EXIT
+
+# The compile log, or an honest note when it is absent. A missing log means the
+# build dir vanished mid-compile, NOT that the compiler printed nothing -- the
+# old code sed'd a removed file and reported an empty failure, inviting a hunt
+# for a source bug that is not there.
+show_cc_log() {
+  if [ -s "$1" ]; then
+    sed 's/^/      /' "$1" | head -5
+  else
+    printf '      (no compile log at %s -- build dir vanished mid-compile)\n' "$1"
+  fi
+}
 
 CORE="$ROOT/src/estimate.c $ROOT/src/quantities.c $ROOT/src/evidence.c $ROOT/src/engine.c"
 RULES=$(echo "$ROOT"/src/rules/*.c)
@@ -74,12 +96,12 @@ run_target() {
   # and PHYS_OFFSET-relative assertion errors.)
   # shellcheck disable=SC2086  # $cc/$CFLAGS/$CORE/$RULES are command + flag/file lists, split intentionally
   if ! $cc $CFLAGS "$ROOT/tests/test_engine.c" $CORE $RULES -o "$d/test_engine" 2>"$d/cc.log"; then
-    printf 'FAIL  %-30s (compile test_engine)\n' "$triple"; sed 's/^/      /' "$d/cc.log" | head -5; echo fail >"$st"; return
+    printf 'FAIL  %-30s (compile test_engine)\n' "$triple"; show_cc_log "$d/cc.log"; echo fail >"$st"; return
   fi
   # shellcheck disable=SC2086  # $cc/$CFLAGS/$CORE/$RULES are command + flag/file lists, split intentionally
   if ! $cc $CFLAGS "$ROOT/tests/test_engine_integration.c" $CORE "$ROOT/src/engine_rules.c" $RULES \
         -o "$d/test_integration" 2>"$d/cc.log"; then
-    printf 'FAIL  %-30s (compile test_integration)\n' "$triple"; sed 's/^/      /' "$d/cc.log" | head -5; echo fail >"$st"; return
+    printf 'FAIL  %-30s (compile test_integration)\n' "$triple"; show_cc_log "$d/cc.log"; echo fail >"$st"; return
   fi
   # The parser / result-model / merge / engine-sync unit suite (its renderer
   # half is now test_render, below). It includes the orchestrator + render
@@ -88,12 +110,12 @@ run_target() {
   # every width and endianness.
   # shellcheck disable=SC2086  # $cc/$CFLAGS are command + flag list, split intentionally
   if ! $cc $CFLAGS -DKASLD_TESTING "$ROOT/tests/test_kasld.c" -o "$d/test_kasld" -lpthread 2>"$d/cc.log"; then
-    printf 'FAIL  %-30s (compile test_kasld)\n' "$triple"; sed 's/^/      /' "$d/cc.log" | head -5; echo fail >"$st"; return
+    printf 'FAIL  %-30s (compile test_kasld)\n' "$triple"; show_cc_log "$d/cc.log"; echo fail >"$st"; return
   fi
   # The renderer unit suite (split from test_kasld); same single-TU model.
   # shellcheck disable=SC2086  # $cc/$CFLAGS are command + flag list, split intentionally
   if ! $cc $CFLAGS -DKASLD_TESTING "$ROOT/tests/test_render.c" -o "$d/test_render" -lpthread 2>"$d/cc.log"; then
-    printf 'FAIL  %-30s (compile test_render)\n' "$triple"; sed 's/^/      /' "$d/cc.log" | head -5; echo fail >"$st"; return
+    printf 'FAIL  %-30s (compile test_render)\n' "$triple"; show_cc_log "$d/cc.log"; echo fail >"$st"; return
   fi
   # The estimate-algebra + honest-top soundness suite (links only estimate.c +
   # quantities.c). Its arch-gated interval_admits() asserts validate each arch's
@@ -102,7 +124,7 @@ run_target() {
   # affects.
   # shellcheck disable=SC2086  # $cc/$CFLAGS are command + flag list, split intentionally
   if ! $cc $CFLAGS "$ROOT/tests/test_estimate.c" "$ROOT/src/estimate.c" "$ROOT/src/quantities.c" -o "$d/test_estimate" 2>"$d/cc.log"; then
-    printf 'FAIL  %-30s (compile test_estimate)\n' "$triple"; sed 's/^/      /' "$d/cc.log" | head -5; echo fail >"$st"; return
+    printf 'FAIL  %-30s (compile test_estimate)\n' "$triple"; show_cc_log "$d/cc.log"; echo fail >"$st"; return
   fi
   ok=1
   for t in test_engine test_integration test_estimate test_kasld test_render; do

@@ -411,6 +411,16 @@ $(TEST_ALIGN_BIN): $(TEST_DIR)/test_align.c $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
 	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_align.c -o $@
 
+# TASK_SIZE probe test (header-only): drives the boundary search and gap
+# detection in task_size.h with a synthetic address space (an injected step, no
+# mmap), so the pure logic runs on any host. Covers the porous / untrusted paths
+# a normal-kernel VM boot cannot reach. No .c sources to link.
+TEST_TS_BIN := $(TEST_OBJ_DIR)/test_task_size
+
+$(TEST_TS_BIN): $(TEST_DIR)/test_task_size.c $(HDRS) | $(TEST_OBJ_DIR)
+	$(call ccv,CCLD,$@)
+	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_task_size.c -o $@
+
 # Prefetch scan edge-detection test (header-only): drives
 # prefetch_scan_find_edge() with synthetic timing profiles. The x86_64-only
 # header makes the suite inert on other hosts. No .c sources to link.
@@ -600,7 +610,7 @@ $(TEST_PARSERS_BIN): $(TEST_DIR)/test_sysfs_parsers.c $(TEST_PARSERS_SRCS) $(HDR
 	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_sysfs_parsers.c -o $@
 
 .PHONY: test
-test : $(KASLD_BIN) $(TEST_BIN) $(TEST_RENDER_BIN) $(TEST_EST_BIN) $(TEST_EV_BIN) $(TEST_ALIGN_BIN) $(TEST_PREFETCH_SCAN_BIN) $(TEST_CPU_BIN) $(TEST_OUTCOME_BIN) $(TEST_TEXT_ORDER_BIN) $(TEST_KIMG_BIN) $(TEST_ENG_BIN) $(TEST_INT_BIN) $(TEST_DMESG_BIN) $(TEST_BACKTRACE_BIN) $(TEST_BOOTCFG_BIN) $(TEST_KASLRDIS_BIN) $(TEST_DTMEM_BIN) $(TEST_SOCKPTR_BIN) $(TEST_TIMERLIST_BIN) $(TEST_BTF_BIN) $(TEST_DMESG_RESV_BIN) $(TEST_BPE820_BIN) $(TEST_PARSERS_BIN) $(TEST_KCORE_BIN)
+test : $(KASLD_BIN) $(TEST_BIN) $(TEST_RENDER_BIN) $(TEST_EST_BIN) $(TEST_EV_BIN) $(TEST_ALIGN_BIN) $(TEST_TS_BIN) $(TEST_PREFETCH_SCAN_BIN) $(TEST_CPU_BIN) $(TEST_OUTCOME_BIN) $(TEST_TEXT_ORDER_BIN) $(TEST_KIMG_BIN) $(TEST_ENG_BIN) $(TEST_INT_BIN) $(TEST_DMESG_BIN) $(TEST_BACKTRACE_BIN) $(TEST_BOOTCFG_BIN) $(TEST_KASLRDIS_BIN) $(TEST_DTMEM_BIN) $(TEST_SOCKPTR_BIN) $(TEST_TIMERLIST_BIN) $(TEST_BTF_BIN) $(TEST_DMESG_RESV_BIN) $(TEST_BPE820_BIN) $(TEST_PARSERS_BIN) $(TEST_KCORE_BIN)
 	@$(TEST_DIR)/run-all
 	@$(TEST_DIR)/check-render-width
 	@$(MAKE) --no-print-directory lint
@@ -625,7 +635,10 @@ lint :
 	@$(TEST_DIR)/check-text-region
 	@$(TEST_DIR)/check-confidence-floor
 	@$(TEST_DIR)/check-lattice-seam
+	@$(TEST_DIR)/check-page-offset-substitution
+	@$(TEST_DIR)/check-render-default
 	@$(TEST_DIR)/check-image-size
+	@$(TEST_DIR)/check-dram-base
 	@$(TEST_DIR)/check-fdt-unflatten
 	@$(TEST_DIR)/check-ksymoff
 	@$(TEST_DIR)/check-manpages

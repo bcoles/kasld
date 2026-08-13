@@ -2,19 +2,37 @@
 //
 // Rule: bound the kernel text base from leaked module-region addresses.
 //
-// On arches where the module area is
-// placed relative to kernel text (MODULES_RELATIVE_TO_TEXT), a leaked module
-// virtual address bounds the text base:
+// On arches where the module area is placed relative to kernel text
+// (MODULES_RELATIVE_TO_TEXT: riscv64, s390) the band sits BELOW the image on
+// both, so a leaked module virtual address bounds the text base from both
+// sides.
 //
-//   Case A (riscv64, MODULES_END ~= _end): module area sits just past the
-//   image,
-//     so _end ~= vmod_lo + MODULES_END_TO_TEXT_OFFSET and
+// UPPER bound — arch-specific, set by which image symbol the band's LOW edge
+// tracks:
+//   Case A (riscv64): MODULES_VADDR = _end - 2 GiB, so
+//     vmod_lo + MODULES_END_TO_TEXT_OFFSET ~= _end, and
 //     image_base <= align_down(_end - MIN_KERNEL_IMAGE_SIZE, virt_kaslr_align).
-//   Case B (s390, MODULES_END below __kaslr_offset):
+//   Case B (s390): MODULES_END = round_down(_text), low edge = that - 2 GiB, so
 //     image_base <= align_down(vmod_lo + MODULES_END_TO_TEXT_OFFSET,
-//     virt_kaslr_align) image_base >= align_down(vmod_hi, virt_kaslr_align) +
-//     virt_kaslr_align
-//     + IMAGE_BASE_OFFSET
+//                              virt_kaslr_align).
+//
+// LOWER bound — common to both: the band ENDS at or below the image start, so
+// every module sits below _text:
+//     image_base >= align_down(vmod_hi, virt_kaslr_align) + virt_kaslr_align
+//                   + IMAGE_BASE_OFFSET.
+//
+// That holds under each module-region layout riscv64 has carried, which matters
+// because the older one is still in scope (see RISCV_LEGACY_PAGE_OFFSET and
+// riscv64_text_base's legacy path):
+//   dedicated band — MODULES_END = _start, so the region is carved to end
+//     exactly where the image begins.
+//   vmalloc-backed — no dedicated band at all; MODULES_VADDR/END are
+//     VMALLOC_START/END, and VMALLOC_END is PAGE_OFFSET, while legacy text sits
+//     ABOVE PAGE_OFFSET (RISCV_LEGACY_PAGE_OFFSET + the head gap). Modules are
+//     below the linear-map base and the image is above it.
+// The two reach the same conclusion by different routes, so the bound does not
+// depend on which layout the target was built with — which is as well, since
+// nothing here can tell them apart.
 //
 // Reads VIRT REGION_MODULE leaks ONLY -- never REGION_MODULE_BAND; see the
 // provenance note at the filter below. Aligns to the resolved
@@ -81,10 +99,27 @@ int rule_module_text_bound(const struct evidence_set *ev,
     return 0;
 
   int n = 0;
+
+  /* UPPER bound: which image symbol the band's low edge tracks is arch-specific
+   * (see the header). */
 #if MODULES_BELOW_TEXT_START
-  /* Case B (s390): upper + lower bound. */
+  /* Case B (s390): low edge = round_down(_text) - 2 GiB, so lowest module +
+   * offset bounds the text base directly. */
   unsigned long new_max = kasld_floor_virt_text_bound(
       vmod_lo + (unsigned long)MODULES_END_TO_TEXT_OFFSET, valign);
+#else
+  /* Case A (riscv64): low edge = _end - 2 GiB, so lowest module + offset bounds
+   * _end; back off a minimum image size to reach the text base. The sanity
+   * floor is the WIDE minimum (KASLR_VIRT_TEXT_MIN_WIDE), not
+   * KASLR_VIRT_TEXT_MIN: on an arch with more than one text layout (riscv64
+   * legacy linear-map vs modern KERNEL_LINK_ADDR) the narrow min is the modern
+   * floor and would discard a legitimate legacy-region bound. */
+  unsigned long new_max = 0;
+  unsigned long end_est = vmod_lo + (unsigned long)MODULES_END_TO_TEXT_OFFSET;
+  if (end_est > MTB_MIN_KERNEL_IMAGE_SIZE)
+    new_max = kasld_floor_virt_text_bound(end_est - MTB_MIN_KERNEL_IMAGE_SIZE,
+                                          valign);
+#endif
   if (new_max > (unsigned long)KASLR_VIRT_TEXT_MIN_WIDE && n < out_max) {
     struct constraint *c = &out[n++];
     memset(c, 0, sizeof(*c));
@@ -96,9 +131,14 @@ int rule_module_text_bound(const struct evidence_set *ev,
     c->lineage_count = 1;
     snprintf(c->origin, ORIGIN_LEN, "module_text_bound");
   }
-  /* C_LOWER_BOUND: the slot above the highest module, plus the head. Flooring
-   * vmod_hi down is sound for a lower bound; the head (IMAGE_BASE_OFFSET) is
-   * re-added. */
+
+  /* LOWER bound (both arches -- the band ends at the image start, so every
+   * module sits below _text): the slot above the highest module, plus the head.
+   * Sound in the dangerous direction only because the REGION_MODULE provenance
+   * filter above admits solely addresses KNOWN to be modules -- a misclassified
+   * kernel .data address would raise this floor above the true _text. Flooring
+   * vmod_hi down keeps it conservative; IMAGE_BASE_OFFSET (the _start->_stext
+   * head) is re-added. */
   unsigned long mod_slot = vmod_hi & ~(valign - 1); /* virt-floor-ok */
   unsigned long new_min = mod_slot + valign + (unsigned long)IMAGE_BASE_OFFSET;
   if (new_min > (unsigned long)KASLR_VIRT_TEXT_MIN_WIDE && n < out_max) {
@@ -112,30 +152,6 @@ int rule_module_text_bound(const struct evidence_set *ev,
     c->lineage_count = 1;
     snprintf(c->origin, ORIGIN_LEN, "module_text_bound");
   }
-#else
-  /* Case A (riscv64): MODULES_END ~= _end. The sanity floor is the WIDE
-   * minimum (KASLR_VIRT_TEXT_MIN_WIDE), not KASLR_VIRT_TEXT_MIN: on an arch
-   * with more than one text layout (riscv64 legacy linear-map vs modern
-   * KERNEL_LINK_ADDR) the narrow min is the modern floor and would discard a
-   * legitimate legacy-region bound. */
-  unsigned long end_est = vmod_lo + (unsigned long)MODULES_END_TO_TEXT_OFFSET;
-  if (end_est > MTB_MIN_KERNEL_IMAGE_SIZE) {
-    unsigned long new_max = kasld_floor_virt_text_bound(
-        end_est - MTB_MIN_KERNEL_IMAGE_SIZE, valign);
-    if (new_max > (unsigned long)KASLR_VIRT_TEXT_MIN_WIDE && n < out_max) {
-      struct constraint *c = &out[n++];
-      memset(c, 0, sizeof(*c));
-      c->q = Q_VIRT_IMAGE_BASE;
-      c->op = C_UPPER_BOUND;
-      c->value = new_max;
-      c->conf = CONF_INFERRED;
-      c->derived_from[0] = lo_src;
-      c->lineage_count = 1;
-      snprintf(c->origin, ORIGIN_LEN, "module_text_bound");
-    }
-  }
-  (void)hi_src;
-#endif
   return n;
 #else
   (void)ev;

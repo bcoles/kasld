@@ -382,7 +382,7 @@ space directly, without reading any files or exploiting vulnerabilities.
 
 The following KASLD components use brute-force probing:
 
-* [mmap_brute_vmsplit.c](../src/components/mmap_brute_vmsplit.c) — determines `PAGE_OFFSET` (vmsplit) on 32-bit systems by mapping pages across the address space until failure
+* [mmap_brute_vmsplit.c](../src/components/mmap_brute_vmsplit.c) — locates the user/kernel split (`TASK_SIZE`) on 32-bit systems by binary-searching the address space for the lowest page `mmap` refuses, which is `PAGE_OFFSET` (vmsplit) itself on x86_32 and a lower bound on it elsewhere
 
 ## Weak entropy
 

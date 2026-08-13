@@ -82,7 +82,6 @@ static int on_match(const char *line, void *ctx) {
   char *endptr;
   unsigned long addr;
   enum kasld_region region;
-  int is_directmap;
   size_t name_len;
 
   name_start = strstr(line, "Freeing ");
@@ -115,25 +114,14 @@ static int on_match(const char *line, void *ctx) {
 
   if (kasld_addr_is_kernel_text(addr)) {
     region = REGION_KERNEL_IMAGE;
-    is_directmap = 0;
   } else {
     region = (name_len >= 6 && strncmp(name_start, "initrd", 6) == 0)
                  ? REGION_INITRD
                  : REGION_DIRECTMAP;
-    is_directmap = 1;
   }
 
   kasld_found("leaked address: %lx", addr);
   kasld_result_sample(KASLD_TYPE_VIRT, region, addr, NULL, CONF_PARSED);
-#ifdef directmap_virt_to_phys
-  if (is_directmap) {
-    unsigned long phys = directmap_virt_to_phys(addr);
-    kasld_info("  possible physical address: 0x%016lx", phys);
-    kasld_result_sample(KASLD_TYPE_PHYS, region, phys, NULL, CONF_PARSED);
-  }
-#else
-  (void)is_directmap;
-#endif
 
   return 1; /* keep scanning for more sections */
 }

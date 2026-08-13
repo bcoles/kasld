@@ -17,6 +17,8 @@
 
 set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/guard-scope.sh
+. "$ROOT/tests/lib/guard-scope.sh"
 
 if [ -t 2 ]; then
   RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); RESET=$(printf '\033[0m')
@@ -46,6 +48,15 @@ if [ -n "$offenders" ]; then
 fi
 
 set -- "$ROOT"/src/components/*.c
+# The scope this guard actually examined. Counted here rather than in the
+# loop: an unmatched glob leaves the literal pattern, which a loop-side
+# counter would tally as one file and so report a non-empty scope.
+_scanned=0
+for _f in "$ROOT"/src/components/*.c; do
+  [ -f "$_f" ] && _scanned=$((_scanned + 1))
+done
+guard_scope "check-log-prefixes" "$_scanned" 80
+
 printf '%scheck-log-prefixes: OK%s (%s components, no doubled status markers)\n' \
   "$GREEN" "$RESET" "$#"
 exit 0

@@ -52,10 +52,6 @@ KASLD_META("method:inferred\n"
            "live:1\n"
            "addr:virtual\n");
 
-int main(void) {
-  if (kasld_skip_live_probe("VA_BITS mmap"))
-    return 0;
-  /* Live mmap boundary probe of the running VA space. */
 #if defined(__riscv) && __riscv_xlen == 64
 /* PAGE_OFFSET values from arch/riscv/include/asm/page.h */
 #define RISCV_PAGE_OFFSET_SV57                                                 \
@@ -70,35 +66,80 @@ int main(void) {
 #define RISCV_TASK_SIZE_SV48 ((void *)(1UL << 47))
 #define RISCV_PROBE_LEN 0x1000ul
 
+#ifndef MAP_FIXED_NOREPLACE
+#define MAP_FIXED_NOREPLACE 0x100000
+#endif
+
+/* Is `want` inside this process's address space?
+ *
+ * MAP_FIXED_NOREPLACE rather than MAP_FIXED: the forcible flag does not decline
+ * on a collision, it destroys whatever is mapped there. Both boundaries probed
+ * here are legitimate user addresses whenever the active mode is wider than the
+ * one being tested (1<<38 is an ordinary address under SV48), so the risk is
+ * not hypothetical, merely unlikely. NOREPLACE also answers more precisely:
+ * EEXIST means occupied, which is itself proof the address is below TASK_SIZE.
+ *
+ * The flag is v4.17+ and is ignored as a plain hint before that, which shows up
+ * as a mapping at some other address; that is treated as unusable rather than
+ * guessed at. RISC-V is not a practical concern there — the port predates the
+ * flag by two releases and no real riscv64 system runs a kernel that old — but
+ * declining costs nothing and keeps the rule uniform with the other probes. */
+enum probe_r { PROBE_WITHIN, PROBE_BEYOND, PROBE_UNUSABLE };
+
+static enum probe_r probe_boundary(void *want) {
+  void *p = mmap(want, RISCV_PROBE_LEN, PROT_NONE,
+                 MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0);
+  if (p == want) {
+    munmap(p, RISCV_PROBE_LEN);
+    return PROBE_WITHIN;
+  }
+  if (p != MAP_FAILED) {
+    munmap(p, RISCV_PROBE_LEN); /* displaced: the flag was not honoured */
+    return PROBE_UNUSABLE;
+  }
+  if (errno == EEXIST)
+    return PROBE_WITHIN;
+  if (errno == ENOMEM)
+    return PROBE_BEYOND;
+  return PROBE_UNUSABLE;
+}
+#endif /* riscv64 */
+
+int main(void) {
+  if (kasld_skip_live_probe("VA_BITS mmap"))
+    return 0;
+  /* Live mmap boundary probe of the running VA space. */
+#if defined(__riscv) && __riscv_xlen == 64
+
   /* --- probe 1: SV39 boundary (1<<38) --- */
-  void *p1 = mmap(RISCV_TASK_SIZE_SV39, RISCV_PROBE_LEN, PROT_READ,
-                  MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
-  if (p1 == MAP_FAILED) {
-    if (errno != ENOMEM)
-      return 0; /* a different failure: don't infer */
-    kasld_info("mmap(1<<38) failed (ENOMEM): SV39");
+  switch (probe_boundary(RISCV_TASK_SIZE_SV39)) {
+  case PROBE_BEYOND:
+    kasld_info("mmap(1<<38) rejected: SV39");
     kasld_info("PAGE_OFFSET: [%#lx, %#lx]", RISCV_PAGE_OFFSET_SV39_LO,
                RISCV_PAGE_OFFSET_SV39_HI);
     kasld_result_range(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET,
                        RISCV_PAGE_OFFSET_SV39_LO, RISCV_PAGE_OFFSET_SV39_HI,
                        NULL, CONF_INFERRED);
     return 0;
+  case PROBE_UNUSABLE:
+    return 0; /* cannot tell; leave the engine its honest window */
+  case PROBE_WITHIN:
+    break;
   }
-  munmap(p1, RISCV_PROBE_LEN);
 
   /* --- probe 2: SV48 boundary (1<<47) --- */
-  void *p2 = mmap(RISCV_TASK_SIZE_SV48, RISCV_PROBE_LEN, PROT_READ,
-                  MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
   unsigned long virt_page_offset;
-  if (p2 == MAP_FAILED) {
-    if (errno != ENOMEM)
-      return 0;
+  switch (probe_boundary(RISCV_TASK_SIZE_SV48)) {
+  case PROBE_BEYOND:
     virt_page_offset = RISCV_PAGE_OFFSET_SV48; /* SV48 */
-    kasld_info("mmap(1<<47) failed (ENOMEM): SV48");
-  } else {
-    munmap(p2, RISCV_PROBE_LEN);
+    kasld_info("mmap(1<<47) rejected: SV48");
+    break;
+  case PROBE_WITHIN:
     virt_page_offset = RISCV_PAGE_OFFSET_SV57; /* SV57 */
-    kasld_info("mmap(1<<47) succeeded: SV57");
+    kasld_info("mmap(1<<47) accepted: SV57");
+    break;
+  default:
+    return 0;
   }
   kasld_info("PAGE_OFFSET: %#lx", virt_page_offset);
   kasld_result_base(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, virt_page_offset, NULL,

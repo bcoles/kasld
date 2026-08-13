@@ -137,13 +137,6 @@ int main(void) {
                           label, CONF_PARSED);
     }
     count++;
-
-#ifdef phys_to_directmap_virt
-    unsigned long virt = phys_to_directmap_virt((unsigned long)addr);
-    kasld_found("sysfs_cxl_region %s: directmap va = 0x%016lx", label, virt);
-    kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, label,
-                        CONF_PARSED);
-#endif
   }
   closedir(d);
 

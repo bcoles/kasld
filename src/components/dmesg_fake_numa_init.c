@@ -100,14 +100,5 @@ int main(void) {
   kasld_found("leaked faked NUMA NODE #0 physical address: 0x%016lx", addr);
   kasld_result_base(KASLD_TYPE_PHYS, REGION_RAM, addr, NULL, CONF_PARSED);
 
-#ifdef phys_to_directmap_virt
-  unsigned long virt = phys_to_directmap_virt(addr);
-  kasld_info("possible direct-map virtual address: 0x%016lx", virt);
-  kasld_result_base(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, NULL, CONF_PARSED);
-#else
-  kasld_info("note: phys and virt KASLR are decoupled on this arch; "
-             "cannot derive kernel text virtual address from physical leak");
-#endif
-
   return 0;
 }

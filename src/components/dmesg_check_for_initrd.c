@@ -88,14 +88,6 @@ int main(void) {
   kasld_found("leaked initrd start: %lx", addr);
   kasld_info("possible kernel base: %lx", kasld_floor_text_base(addr));
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_INITRD, addr, NULL, CONF_PARSED);
-#ifdef directmap_virt_to_phys
-  {
-    unsigned long phys = directmap_virt_to_phys(addr);
-    kasld_info("  possible physical address: 0x%016lx", phys);
-    kasld_result_sample(KASLD_TYPE_PHYS, REGION_INITRD, phys, NULL,
-                        CONF_PARSED);
-  }
-#endif
 
   return 0;
 }

@@ -278,6 +278,7 @@ R(image_base_resolved_grid_align);
 
 /* DRAM bounds (MMIO ceilings, holes, kernel-image phys gap, firmware) */
 R(dram_floor_bound);
+R(page_offset_text_floor);
 R(dram_ceiling);
 R(mmio_floor_phys_ceiling);
 R(phys_hole_filter);

@@ -23,6 +23,8 @@
 #         LINUX_MIRROR   kernel.org mirror base
 #         BUILD_DIR      kasld build root (to find the cross toolchain triple)
 #         JOBS           parallel make jobs
+#         PRUNE_TREE=1   reduce each build tree to its configuration once the
+#                        kernel, modules and release are staged (see prune_tree)
 # ---
 # <bcoles@gmail.com>
 set -u
@@ -107,6 +109,76 @@ fetch_src() {
   url="$LINUX_MIRROR/v${maj}.x/linux-$LINUX_VERSION.tar.xz"
   echo "[*] fetching $url"
   curl -fSL "$url" | tar -xJ -C "$CACHE" || { echo "!! source fetch failed"; return 1; }
+}
+
+# Build and stage whichever candidate drivers this cell's .config marks =m.
+#
+# NAMED kbuild targets, never `make modules`: a mainline defconfig marks
+# hundreds of drivers =m (i915, sunrpc, 9p), and building all of them costs
+# several times the kernel itself for two files nothing else needs.
+#
+# Both where both are available, so /proc/modules holds a RANGE -- the module
+# band's floor and ceiling are then both observed rather than one address
+# standing in for both.
+# Reduce a built tree to what identifies it. A tree is ~1.7 GiB and a batch of
+# them does not fit alongside the rest of the cache; nothing downstream reads one
+# — tests/vm/run boots the staged kernel and loads the staged modules. .config
+# and include/config/kernel.release stay, so the cell's configuration remains on
+# record and a rebuild reproduces the same kernel.
+#
+# Keeps the tree unless all three artefacts are staged. A tree pruned after a
+# partial build is indistinguishable afterwards from one that was never built,
+# and a full rebuild is the only way back — so the ambiguous case keeps the tree
+# and says which artefact was missing.
+#
+# A pruned tree can no longer build modules: Module.symvers goes with it, and
+# without it modpost resolves every kernel symbol as undefined. stage-modules
+# checks for that file and reports the tree as needing a rebuild.
+prune_tree() { # cell build-dir
+  _pc=$1 _pb=$2
+  for _need in "$CACHE/$_pc-vmlinuz:kernel" "$CACHE/$_pc-kernel.release:release"; do
+    [ -s "${_need%:*}" ] && continue
+    echo "  [*] keeping tree: no staged ${_need##*:}"
+    return 0
+  done
+  if [ -z "$(find "$CACHE/$_pc-modules" -name '*.ko' 2>/dev/null | head -1)" ]; then
+    echo "  [*] keeping tree: no staged modules"
+    return 0
+  fi
+  _pt=$(mktemp -d) || return 0
+  cp "$_pb/.config" "$_pt/" 2>/dev/null
+  cp "$_pb/include/config/kernel.release" "$_pt/kernel.release" 2>/dev/null
+  rm -rf "$_pb"
+  mkdir -p "$_pb/include/config"
+  cp "$_pt/.config" "$_pb/" 2>/dev/null
+  cp "$_pt/kernel.release" "$_pb/include/config/" 2>/dev/null
+  rm -rf "$_pt"
+  echo "  [*] pruned build tree (kept .config and kernel.release)"
+}
+
+stage_modules() {  # cell kernel-ARCH cross-prefix build-dir
+  _cell=$1 _ka=$2 _cc=$3 _bdir=$4
+  _targets=''
+  _names=''
+  for _m in dummy veth; do
+    _sym=$(echo "$_m" | tr '[:lower:]' '[:upper:]')
+    grep -q "^CONFIG_$_sym=m$" "$_bdir/.config" || continue
+    _targets="$_targets drivers/net/$_m.ko"
+    _names="$_names $_m"
+  done
+  [ -n "$_targets" ] || { echo "  !! no candidate driver is modular here"; return 1; }
+  # shellcheck disable=SC2086  # intentional word-split of the target list
+  make -C "$src" O="$_bdir" ARCH="$_ka" CROSS_COMPILE="$_cc" -j"$JOBS" \
+    $_targets >/dev/null || { echo "  !! module build failed"; return 1; }
+  rm -rf "$CACHE/$_cell-modules"
+  mkdir -p "$CACHE/$_cell-modules"
+  for _m in $_names; do
+    _f=$(find "$_bdir/drivers/net" -name "$_m.ko" | head -1)
+    [ -n "$_f" ] && cp "$_f" "$CACHE/$_cell-modules/"
+  done
+  _nko=$(find "$CACHE/$_cell-modules" -name '*.ko' | wc -l)
+  [ "$_nko" -gt 0 ] || { echo "  !! no modules staged"; return 1; }
+  echo "  [*] staged $_nko module(s):$_names -> $CACHE/$_cell-modules"
 }
 
 build_one() {
@@ -194,15 +266,127 @@ build_one() {
   riscv64)
     "$src/scripts/config" --file "$bdir/.config" -e RELOCATABLE -e RANDOMIZE_BASE ;;
   esac
+  # mips (malta): enable text KASLR so the cells exercise the randomized layout
+  # rather than a fixed base. MIPS text KASLR self-seeds from random_get_entropy()
+  # (the CP0 count register qemu emulates) xored with the banner, so no
+  # device-tree seed is needed (like ppc32, unlike riscv64).
+  #
+  # EXCEPT MIPS on 6.6: there the relocation is broken. Once the kernel actually
+  # moves, a kernel paging request in a syscall's user-copy path faults on a bad
+  # address and Oopses — deterministically on 32-bit (init dies in mount before
+  # kasld runs), flakily on 64-bit (an Oops in poll/copy on some boots). The
+  # trigger is the relocation act (a nokaslr boot of the same kernel is fine), in
+  # the MIPS exception path; fixed by 7.0 and absent in 5.15 — an upstream
+  # regression. All three pinned versions were booted on all widths, so this is an
+  # exact exclusion of the version that breaks, not a guess at a range. A static
+  # mips cell is still validated soundly (kasld cannot read RANDOMIZE_BASE
+  # unprivileged, so it reports the conservative KASLR-possible window, which
+  # contains the fixed base).
+  case "$base" in
+  mips | mipsel | mips64 | mips64el)
+    case "$LINUX_VERSION" in
+    6.6*)
+      echo "  [*] mips KASLR left off: MIPS $LINUX_VERSION relocation is broken (fixed by 7.0)" ;;
+    *)
+      "$src/scripts/config" --file "$bdir/.config" -e RELOCATABLE -e RANDOMIZE_BASE ;;
+    esac ;;
+  esac
   # devtmpfs (console at init-exec) + initramfs support. BLK_DEV_INITRD/RD_GZIP
   # are absent from some older defconfigs (mips/ppc32 malta at 5.15), so the
   # kernel cannot unpack the gzipped initramfs and panics "unable to mount root
   # fs". Forced on so every version boots the same -initrd; harmless where on.
   "$src/scripts/config" --file "$bdir/.config" \
     -e DEVTMPFS -e DEVTMPFS_MOUNT -e BLK_DEV_INITRD -e RD_GZIP
+  # Unprivileged BPF off by default, matching the modern upstream/distro posture
+  # (every distro cell here ships CONFIG_BPF_UNPRIV_DEFAULT_OFF). A kernel built
+  # straight from an older defconfig otherwise boots unprivileged bpf() permitted,
+  # which is not a realistic default: the `default` profile reflects what an
+  # unprivileged attacker faces (bpf() blocked), and `bpf-open` is the profile
+  # that enables it. No dependency where BPF_SYSCALL is off -- then it is inert.
+  "$src/scripts/config" --file "$bdir/.config" -e BPF_UNPRIV_DEFAULT_OFF
+  # At least one real in-tree driver as a MODULE, so the cell has a populated
+  # module region. dummy (drivers/net/dummy.c) is a genuine driver rather than a
+  # stub, exists on every architecture, and pulls in no dependencies. veth joins
+  # it so /proc/modules holds a RANGE rather than a single address -- the module
+  # band's two edges are then both observed.
+  # BOTH must be modular, not either: a defconfig that ships one of them =m
+  # would otherwise satisfy the check and stage a single module, leaving
+  # /proc/modules holding one address where the point is to hold two. The arm64
+  # defconfig is exactly that case (VETH=m, DUMMY not).
+  #
+  # Requesting a symbol that is already =m is a no-op, so this costs nothing
+  # where the defconfig already provides both; where it does not, .config
+  # changes and with it vermagic, which obliges rebuilding and re-staging the
+  # kernel or the module is rejected at load.
+  if ! grep -qE '^CONFIG_DUMMY=m$' "$bdir/.config" ||
+    ! grep -qE '^CONFIG_VETH=m$' "$bdir/.config"; then
+    "$src/scripts/config" --file "$bdir/.config" -e MODULES -m DUMMY -m VETH
+  fi
+  # Cell VARIANTS, keyed on the full cell name rather than $base: the linear-map
+  # base is a build-time choice with no runtime override, so a moved-VMSPLIT
+  # kernel cannot be a boot mode of an existing cell -- it is a separate kernel
+  # and therefore a separate cell. x86 and arm spell the symbols the same way.
+  case "$arch" in
+  *-vmsplit2g)
+    "$src/scripts/config" --file "$bdir/.config" \
+      -d VMSPLIT_3G -d VMSPLIT_3G_OPT -d VMSPLIT_1G -e VMSPLIT_2G ;;
+  # arm64 derives PAGE_OFFSET from the VA width: -(1 << VA_BITS). The width is
+  # a Kconfig choice, not a boot parameter, so a second width is a second cell
+  # (unlike riscv64, where no4lvl/no5lvl pick the paging mode at boot). 39 bits
+  # is what the great majority of shipped arm64 devices run, and the narrowest
+  # kernel address space the architecture offers. The whole choice is cleared
+  # before selecting, because scripts/config sets symbols one at a time and
+  # leaving the previous member set makes the outcome depend on which of them
+  # olddefconfig resolves first. 4K pages is the dependency of the 39-bit
+  # member.
+  *-va36 | *-va39 | *-va42 | *-va47)
+    # The VA width fixes the page size: 39 needs 4K, 36 and 47 need 16K, 42
+    # needs 64K (arch/arm64/Kconfig). 36-bit is additionally EXPERT-gated. Clear
+    # the whole choice before selecting, because scripts/config sets symbols one
+    # at a time and leaving a previous member set makes the outcome depend on
+    # which one olddefconfig resolves first.
+    _w=${arch##*-va}
+    case "$_w" in
+    39) _pg=ARM64_4K_PAGES ;;
+    36 | 47) _pg=ARM64_16K_PAGES ;;
+    42) _pg=ARM64_64K_PAGES ;;
+    esac
+    "$src/scripts/config" --file "$bdir/.config" \
+      -d ARM64_4K_PAGES -d ARM64_16K_PAGES -d ARM64_64K_PAGES -e "$_pg" \
+      -d ARM64_VA_BITS_36 -d ARM64_VA_BITS_39 -d ARM64_VA_BITS_42 \
+      -d ARM64_VA_BITS_47 -d ARM64_VA_BITS_48 -d ARM64_VA_BITS_52
+    [ "$_w" != 36 ] || "$src/scripts/config" --file "$bdir/.config" -e EXPERT
+    "$src/scripts/config" --file "$bdir/.config" -e "ARM64_VA_BITS_$_w" ;;
+  esac
   make -C "$src" O="$bdir" ARCH="$ka" CROSS_COMPILE="$cc" olddefconfig >/dev/null
+  # olddefconfig DROPS a request whose symbol the tree does not have (see the
+  # riscv KASLR note above), which for a split variant would silently produce a
+  # default-split kernel wearing the variant's name -- a cell that passes while
+  # testing nothing. Assert the split actually moved.
+  case "$arch" in
+  *-vmsplit2g)
+    if ! grep -q '^CONFIG_PAGE_OFFSET=0x80000000$' "$bdir/.config"; then
+      echo "  !! $arch: VMSPLIT_2G did not take (CONFIG_PAGE_OFFSET is" \
+        "$(sed -n 's/^CONFIG_PAGE_OFFSET=//p' "$bdir/.config"))"
+      return 1
+    fi
+    echo "  [*] split moved: CONFIG_PAGE_OFFSET=0x80000000" ;;
+  *-va36 | *-va39 | *-va42 | *-va47)
+    _w=${arch##*-va}
+    if ! grep -q "^CONFIG_ARM64_VA_BITS=$_w\$" "$bdir/.config"; then
+      echo "  !! $arch: ARM64_VA_BITS_$_w did not take (CONFIG_ARM64_VA_BITS is" \
+        "$(sed -n 's/^CONFIG_ARM64_VA_BITS=//p' "$bdir/.config"))"
+      return 1
+    fi
+    echo "  [*] VA width moved: CONFIG_ARM64_VA_BITS=$_w" \
+      "(PAGE_OFFSET = -(1 << $_w))" ;;
+  esac
   make -C "$src" O="$bdir" ARCH="$ka" CROSS_COMPILE="$cc" -j"$JOBS" "$image" ||
     { echo "  !! build failed"; return 1; }
+  # Stage the modules flat next to the kernel. Flat because init loads them with
+  # finit_module() by path -- there is no depmod, no module tree and no shell in
+  # the initramfs.
+  stage_modules "$arch" "$ka" "$cc" "$bdir" || return 1
 
   case "$image" in
   vmlinux) img="$bdir/vmlinux" ;;
@@ -210,8 +394,33 @@ build_one() {
   esac
   [ -f "$img" ] || { echo "  !! no image at $img"; return 1; }
   cp "$img" "$CACHE/$arch-vmlinuz"
+  # Record which kernel this image IS, beside it.
+  #
+  # The version in a cell name is a label; the source version comes from the
+  # caller and nothing used to survive the build to say which was used. A
+  # kbuild tree reconfigured later against different sources then reports one
+  # release while the staged image still holds another, and a module built from
+  # that tree carries the wrong vermagic, which finit_module() rejects: init
+  # logs it FAILED and continues, so the module silently fails to load rather
+  # than giving a readable error. Several cells reached exactly
+  # that state. Writing the release here makes the mismatch checkable instead of
+  # latent; stage-modules refuses when the two disagree.
+  if [ -f "$bdir/include/config/kernel.release" ]; then
+    cp "$bdir/include/config/kernel.release" "$CACHE/$arch-kernel.release"
+  fi
   echo "  [ok] staged $CACHE/$arch-vmlinuz  (boot it: tests/vm/run $arch)"
+  if [ "${PRUNE_TREE:-0}" = 1 ]; then
+    prune_tree "$arch" "$bdir"
+  fi
 }
+
+# Sourcing with BUILD_KERNEL_LIB=1 exposes spec_for()/stage_modules() and the
+# cache layout without building anything, so a caller can stage modules for an
+# already-built cell without keeping a second copy of the arch mapping.
+# shellcheck disable=SC2317  # reached only when this file is sourced
+if [ -n "${BUILD_KERNEL_LIB:-}" ]; then
+  return 0 2>/dev/null || exit 0
+fi
 
 fetch_src || exit 1
 

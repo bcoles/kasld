@@ -13,6 +13,7 @@
 #include "include/kasld/randomize_memory.h"
 #include "include/kasld/regions.h"
 #include "test_harness.h"
+#include "test_po_access.h"
 
 #include <assert.h>
 #include <limits.h>
@@ -282,8 +283,7 @@ static void test_arm64_text_base_admits_old_layout(void) {
    * from a modern VA47 kernel. The rule must not floor above the low old-VA48
    * image. */
   e.est[Q_PAGE_OFFSET].kind = LK_INTERVAL;
-  e.est[Q_PAGE_OFFSET].lo = 0xffff800000000000ul;
-  e.est[Q_PAGE_OFFSET].hi = 0xffff800000000000ul;
+  po_set(&e.est[Q_PAGE_OFFSET], 0xffff800000000000ul, 0xffff800000000000ul);
 
   struct constraint out[4];
   int n = rule_arm64_text_base(&e.ev, e.est, out, 4);
@@ -312,8 +312,8 @@ static void test_arm64_text_base_modern_floor_when_unambiguous(void) {
   struct engine e;
   engine_init(&e);
   e.est[Q_PAGE_OFFSET].kind = LK_INTERVAL;
-  e.est[Q_PAGE_OFFSET].lo = arm64_page_offset_for(48ul);
-  e.est[Q_PAGE_OFFSET].hi = arm64_page_offset_for(48ul);
+  po_set(&e.est[Q_PAGE_OFFSET], arm64_page_offset_for(48ul),
+         arm64_page_offset_for(48ul));
 
   struct constraint out[4];
   int n = rule_arm64_text_base(&e.ev, e.est, out, 4);
@@ -483,7 +483,11 @@ static void test_resolved_grid_align_phys(void) {
  * identical on every width; it is exercised here on 64-bit (host + 64-bit
  * cross). */
 #if __SIZEOF_LONG__ >= 8
-#define VMALLOC_GAP 0x10000000000ul /* 1 TiB, synthetic */
+/* Synthetic, and deliberately small: a gap of 1 TiB overflows past the end
+ * of the address space when added to a linear-map base that already sits
+ * near it (mips64: 0xffffffff80000000), which makes the mock rule decline
+ * and the fixture assert nothing. */
+#define VMALLOC_GAP 0x100000ul
 
 static int rule_pin_page_offset(const struct evidence_set *ev,
                                 const struct estimate *est,
@@ -539,15 +543,17 @@ static int rule_vmalloc_from_po(const struct evidence_set *ev,
                                 struct constraint *out, int out_max) {
   (void)ev;
   const struct estimate *po = &est[Q_PAGE_OFFSET];
-  /* Fire only once virt_page_offset is pinned to a point. */
-  if (po->lo != po->hi || out_max < 1)
+  /* Fire only once virt_page_offset is pinned to a point. A mock rule, but it
+   * reads the estimate the same way a real one must. */
+  unsigned long po_pin;
+  if (!quantity_pinned(Q_PAGE_OFFSET, po, &po_pin) || out_max < 1)
     return 0;
-  if (po->lo > ULONG_MAX - VMALLOC_GAP)
+  if (po_pin > ULONG_MAX - VMALLOC_GAP)
     return 0;
   memset(&out[0], 0, sizeof(out[0]));
   out[0].q = Q_VMALLOC_BASE;
   out[0].op = C_LOWER_BOUND;
-  out[0].value = po->lo + VMALLOC_GAP;
+  out[0].value = po_pin + VMALLOC_GAP;
   out[0].conf = CONF_DERIVED;
   out[0].lineage_count = 0;
   snprintf(out[0].origin, ORIGIN_LEN, "vmalloc_from_po");
@@ -558,9 +564,9 @@ static void test_engine_cross_quantity_fixpoint(void) {
   struct engine e;
   engine_init(&e);
 
-  struct estimate po_top;
-  quantities[Q_PAGE_OFFSET].init_top(&po_top);
-  unsigned long po_val = po_top.lo + 0x8aa754a000ul; /* inside VAS window */
+  /* An admissible base, not an invented one: where Q_PAGE_OFFSET is a finite
+   * set, pinning to a non-candidate empties it rather than resolving it. */
+  unsigned long po_val = po_admissible(0);
 
   struct observation o = mk_obs(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, po_val,
                                 LO_SET, POS_BASE, CONF_DERIVED);
@@ -573,8 +579,8 @@ static void test_engine_cross_quantity_fixpoint(void) {
   engine_run(&e, rules, 2);
 
   /* virt_page_offset pinned. */
-  assert(e.est[Q_PAGE_OFFSET].lo == po_val &&
-         e.est[Q_PAGE_OFFSET].hi == po_val);
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) == po_val &&
+         po_hi(&e.est[Q_PAGE_OFFSET]) == po_val);
   /* vmalloc lower bound derived from the pinned virt_page_offset. */
   assert(e.est[Q_VMALLOC_BASE].lo == po_val + VMALLOC_GAP);
   /* Required at least two passes: pin in pass 1, derive vmalloc in pass 2. */
@@ -710,15 +716,20 @@ static void test_engine_saturation_estimate_work_full(void) {
  * value-then-op tie-break — with the old id-only tie-break the two orders below
  * resolve to different values. */
 static void test_resolve_equal_conf_conflict_order_independent(void) {
+  /* Q_VIRT_IMAGE_BASE rather than Q_PAGE_OFFSET: this is a test of the
+   * RESOLVER's tie-break, so it wants a quantity whose window is wide on every
+   * architecture, and both arbitrary values below have to be admissible for the
+   * tie-break to be what decides between them. Q_PAGE_OFFSET's bracket holds a
+   * single value wherever the architecture fixes the linear-map base. */
   struct estimate top;
-  quantities[Q_PAGE_OFFSET].init_top(&top);
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
   unsigned long v_small = top.lo + 0x1000000ul;
   unsigned long v_large = top.lo + 0x2000000ul;
 
   struct constraint a, b;
   memset(&a, 0, sizeof(a));
   memset(&b, 0, sizeof(b));
-  a.q = b.q = Q_PAGE_OFFSET;
+  a.q = b.q = Q_VIRT_IMAGE_BASE;
   a.op = b.op = C_EQUALS;
   a.conf = b.conf = CONF_PARSED;
   a.lineage_count = b.lineage_count = 1;
@@ -730,7 +741,7 @@ static void test_resolve_equal_conf_conflict_order_independent(void) {
   b.id = 2;
   struct constraint cs1[2] = {a, b};
   struct resolve_result r1;
-  estimate_resolve(Q_PAGE_OFFSET, CONF_BRUTE, cs1, 2, &r1);
+  estimate_resolve(Q_VIRT_IMAGE_BASE, CONF_BRUTE, cs1, 2, &r1);
 
   /* Order 2: larger value emitted first (b.id < a.id) — the parallel-execution
    * flip the id tie-break was sensitive to. */
@@ -738,7 +749,7 @@ static void test_resolve_equal_conf_conflict_order_independent(void) {
   b.id = 1;
   struct constraint cs2[2] = {a, b};
   struct resolve_result r2;
-  estimate_resolve(Q_PAGE_OFFSET, CONF_BRUTE, cs2, 2, &r2);
+  estimate_resolve(Q_VIRT_IMAGE_BASE, CONF_BRUTE, cs2, 2, &r2);
 
   /* Same resolved estimate either way; value-ASC tie-break picks the smaller.
    */
@@ -1009,7 +1020,7 @@ static void test_engine_saturation_conflicts_full(void) {
 }
 
 /* ========================================================================
- * ceiling_from_image_size rule (Stage D)
+ * ceiling_from_image_size rule
  * ======================================================================== */
 int rule_ceiling_from_image_size(const struct evidence_set *ev,
                                  const struct estimate *est,
@@ -1042,7 +1053,7 @@ static struct observation mk_scalar(enum kasld_scalar_fact fact,
   return o;
 }
 
-/* phys_ceiling_from_memtotal rule (Stage D), decoupled arches only. */
+/* phys_ceiling_from_memtotal rule, decoupled arches only. */
 int rule_phys_ceiling_from_memtotal(const struct evidence_set *ev,
                                     const struct estimate *est,
                                     struct constraint *out, int out_max);
@@ -1305,7 +1316,7 @@ static void test_ceiling_oversized_image(void) {
   assert(e.est[Q_VIRT_IMAGE_BASE].hi == top.hi);
 }
 
-/* dram_floor_bound rule (Stage D): min phys DRAM -> a lower bound on the
+/* dram_floor_bound rule: min phys DRAM -> a lower bound on the
  * kernel base (phys on decoupled arches, virt on coupled). */
 int rule_dram_floor_bound(const struct evidence_set *ev,
                           const struct estimate *est, struct constraint *out,
@@ -1334,14 +1345,60 @@ static void test_dram_floor_bound(void) {
            top.lo); /* the rule raised the floor */
   }
 #else
-  /* Virtual floor via the compile-time conversion, rounded DOWN. */
-  if (floor >= PHYS_OFFSET) {
-    unsigned long expect =
-        (floor - PHYS_OFFSET + PAGE_OFFSET + IMAGE_BASE_OFFSET) &
-        ~(KASLR_VIRT_ALIGN - 1);
-    if (expect > KASLR_VIRT_TEXT_MIN)
-      assert(e.est[Q_VIRT_IMAGE_BASE].lo == expect);
-  }
+  /* Virtual floor: the resolved linear-map base alone, rounded DOWN to a slot.
+   * The DRAM offset is deliberately NOT added — `pdram_lo - PHYS_OFFSET` is the
+   * image's distance above the base only where the arch's PHYS_OFFSET is the
+   * kernel's memstart, which on arm32 it is not (memstart is a runtime board
+   * property; the header says 0). Adding it counted the DRAM base twice and put
+   * the FLOOR above the true text base on a 2G-split arm32 boot.
+   *
+   * This fixture carries no page-offset evidence, so the resolved window is the
+   * honest top and its lower edge is the lowest base the arch admits. */
+  unsigned long po_lo = 0;
+  quantity_window(Q_PAGE_OFFSET, &e.est[Q_PAGE_OFFSET], &po_lo, NULL);
+  unsigned long lowest_text = po_lo + (unsigned long)IMAGE_BASE_OFFSET;
+  unsigned long expect = lowest_text & ~(KASLR_VIRT_ALIGN - 1);
+  if (expect > KASLR_VIRT_TEXT_MIN &&
+      expect <= (unsigned long)KERNEL_VIRT_TEXT_MAX)
+    assert(e.est[Q_VIRT_IMAGE_BASE].lo == expect);
+  /* The invariant the formula must satisfy, stated separately so a future
+   * rewrite is checked against the property and not against its own
+   * arithmetic: a LOWER bound on the text base may never exceed the lowest text
+   * base the evidence still admits. */
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo <= lowest_text);
+#endif
+}
+
+int rule_page_offset_text_floor(const struct evidence_set *ev,
+                                const struct estimate *est,
+                                struct constraint *out, int out_max);
+
+/* page_offset_text_floor: on a coupled arch the image sits inside the linear
+ * map, so the LOWEST base the resolved window admits floors the text base. Pure
+ * cross-quantity — no observation is needed, and none is supplied here. */
+static void test_page_offset_text_floor(void) {
+  struct engine e;
+  engine_init(&e);
+  const rule_fn rules[] = {rule_page_offset_text_floor};
+  engine_run(&e, rules, 1);
+
+  struct estimate top;
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
+#if TEXT_TRACKS_DIRECTMAP
+  unsigned long po_lo = 0;
+  quantity_window(Q_PAGE_OFFSET, &e.est[Q_PAGE_OFFSET], &po_lo, NULL);
+  unsigned long lowest_text = po_lo + (unsigned long)IMAGE_BASE_OFFSET;
+  /* The property, not the arithmetic: a LOWER bound on the text base may never
+   * exceed the lowest text base the evidence still admits. */
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo <= lowest_text);
+  /* ...and it never widens the honest top. */
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo >= top.lo);
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi == top.hi); /* floors only, no ceiling */
+#else
+  /* Decoupled: the image is randomised independently of the linear map and may
+   * sit below it, so the rule must stay inert. */
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo == top.lo &&
+         e.est[Q_VIRT_IMAGE_BASE].hi == top.hi);
 #endif
 }
 
@@ -1391,7 +1448,7 @@ static void test_dram_floor_ignores_non_ram_dram_regions(void) {
   assert(e.est[Q_PHYS_IMAGE_BASE].lo == ptop.lo);
 }
 
-/* page_offset_from_landmark rule (Stage F, pulled forward). */
+/* page_offset_from_landmark rule. */
 int rule_page_offset_from_landmark(const struct evidence_set *ev,
                                    const struct estimate *est,
                                    struct constraint *out, int out_max);
@@ -1401,7 +1458,7 @@ int rule_page_offset_from_landmark(const struct evidence_set *ev,
  * 0xc0000000 + 0x40000000 wraps to 0). Scale by the actual window so the
  * landmark always lands strictly inside on every arch / width. */
 static unsigned long po_window_bump(const struct estimate *top) {
-  unsigned long window = top->hi - top->lo;
+  unsigned long window = po_hi(top) - po_lo(top);
   unsigned long bump = window / 4;
   if (bump > 0x40000000ul)
     bump = 0x40000000ul;
@@ -1414,17 +1471,15 @@ static unsigned long po_window_bump(const struct estimate *top) {
 static void test_page_offset_pin(void) {
   struct engine e;
   engine_init(&e);
-  struct estimate top;
-  quantities[Q_PAGE_OFFSET].init_top(&top);
-  unsigned long val = top.lo + po_window_bump(&top);
+  unsigned long val = po_admissible(0);
   struct observation o = mk_obs(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, val,
                                 LO_SET, POS_BASE, CONF_PARSED);
   evidence_add(&e.ev, &o);
 
   const rule_fn rules[] = {rule_page_offset_from_landmark};
   engine_run(&e, rules, 1);
-  assert(e.est[Q_PAGE_OFFSET].lo == val);
-  assert(e.est[Q_PAGE_OFFSET].hi == val);
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) == val);
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) == val);
 }
 
 /* Conflicting landmarks: the stronger-confidence one wins; the contradicting
@@ -1433,11 +1488,12 @@ static void test_page_offset_pin(void) {
 static void test_page_offset_conflict(void) {
   struct engine e;
   engine_init(&e);
-  struct estimate top;
-  quantities[Q_PAGE_OFFSET].init_top(&top);
-  unsigned long bump = po_window_bump(&top);
-  unsigned long strong = top.lo + bump;
-  unsigned long weak = top.lo + bump + (bump / 2 ? bump / 2 : 0x1000ul);
+  /* Two bases the architecture admits. Where it admits only one there are no
+   * conflicting landmarks to have, so the fixture reports that instead. */
+  unsigned long strong = po_admissible(0);
+  unsigned long weak = po_admissible(1);
+  if (po_is_fixed())
+    return;
   struct observation a = mk_obs(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, strong,
                                 LO_SET, POS_BASE, CONF_PARSED);
   struct observation b = mk_obs(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, weak,
@@ -1447,13 +1503,14 @@ static void test_page_offset_conflict(void) {
 
   const rule_fn rules[] = {rule_page_offset_from_landmark};
   engine_run(&e, rules, 1);
-  assert(e.est[Q_PAGE_OFFSET].lo == strong); /* parsed beats heuristic */
-  assert(e.est[Q_PAGE_OFFSET].hi == strong);
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) == strong); /* parsed beats heuristic */
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) == strong);
   /* The rejected weaker landmark is retained as a conflict for --verbose
    * explainability (engine_report_conflicts), not silently dropped. Both
-   * `strong` and `weak` are now derived from a window-scaled bump (see
-   * po_window_bump), so neither wraps on a 32-bit address space — the
-   * contradiction fires uniformly across widths. */
+   * `strong` and `weak` come from po_admissible(), which returns two DISTINCT
+   * bases the architecture admits on every arch — so the contradiction fires
+   * uniformly across widths and never degenerates into one value contradicting
+   * itself. */
   assert(e.n_conflicts[Q_PAGE_OFFSET] >= 1);
 }
 
@@ -1465,11 +1522,11 @@ static void test_page_offset_none(void) {
   engine_run(&e, rules, 1);
   struct estimate top;
   quantities[Q_PAGE_OFFSET].init_top(&top);
-  assert(e.est[Q_PAGE_OFFSET].lo == top.lo);
-  assert(e.est[Q_PAGE_OFFSET].hi == top.hi);
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) == po_lo(&top));
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) == po_hi(&top));
 }
 
-/* virt_ceiling_from_memtotal (Stage D, coupled arches): cross-quantity rule. */
+/* virt_ceiling_from_memtotal (coupled arches): cross-quantity rule. */
 int rule_virt_ceiling_from_memtotal(const struct evidence_set *ev,
                                     const struct estimate *est,
                                     struct constraint *out, int out_max);
@@ -1485,18 +1542,11 @@ static void test_virt_ceiling_from_memtotal(void) {
   struct observation m = mk_scalar(SF_PHYS_MEMTOTAL, mem, CONF_PARSED);
   evidence_add(&e.ev, &m);
 
-  struct estimate potop;
-  quantities[Q_PAGE_OFFSET].init_top(&potop);
-  /* Pick a landmark inside the Q_PAGE_OFFSET window. A fixed +1 GiB
-   * overflowed when potop.lo sits high in a 32-bit space (ppc32:
-   * 0xc0000000 + 0x40000000 wraps to 0). Scale by the actual window. */
-  unsigned long window = potop.hi - potop.lo;
-  unsigned long bump = window / 4;
-  if (bump > 0x40000000ul)
-    bump = 0x40000000ul;
-  if (bump < 0x10000ul)
-    bump = 0x10000ul;
-  unsigned long po = potop.lo + bump;
+  /* A landmark the architecture actually admits. The earlier form scaled an
+   * offset off the window's floor, which cannot work where Q_PAGE_OFFSET is a
+   * finite set: an arbitrary address inside the window is still not one of the
+   * candidates, so the landmark would empty the estimate rather than pin it. */
+  unsigned long po = po_admissible(0);
   struct observation pl = mk_obs(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, po,
                                  LO_SET, POS_BASE, CONF_PARSED);
   evidence_add(&e.ev, &pl);
@@ -1508,8 +1558,8 @@ static void test_virt_ceiling_from_memtotal(void) {
                            rule_virt_ceiling_from_memtotal};
   engine_run(&e, rules, 2);
 
-  assert(e.est[Q_PAGE_OFFSET].lo == po); /* landmark pinned it */
-  assert(e.est[Q_PAGE_OFFSET].hi == po);
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) == po); /* landmark pinned it */
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) == po);
 
   struct estimate vtop;
   quantities[Q_VIRT_IMAGE_BASE].init_top(&vtop);
@@ -1524,7 +1574,7 @@ static void test_virt_ceiling_from_memtotal(void) {
 #endif
 }
 
-/* phys_bits_ceiling (Stage D): CPU physical-address-width ceiling. */
+/* phys_bits_ceiling: CPU physical-address-width ceiling. */
 int rule_phys_bits_ceiling(const struct evidence_set *ev,
                            const struct estimate *est, struct constraint *out,
                            int out_max);
@@ -1575,7 +1625,7 @@ static void test_phys_bits_absent(void) {
   assert(e.est[Q_PHYS_IMAGE_BASE].hi == ptop.hi);
 }
 
-/* dram_ceiling (Stage D, coupled): top-of-RAM ceiling, cross-quantity. */
+/* dram_ceiling (coupled): top-of-RAM ceiling, cross-quantity. */
 int rule_dram_ceiling(const struct evidence_set *ev, const struct estimate *est,
                       struct constraint *out, int out_max);
 
@@ -1587,18 +1637,11 @@ static void test_dram_ceiling(void) {
   struct observation is = mk_scalar(SF_IMAGE_SIZE_MIN, ksize, CONF_PARSED);
   evidence_add(&e.ev, &is);
 
-  struct estimate potop;
-  quantities[Q_PAGE_OFFSET].init_top(&potop);
-  /* Pick a landmark inside the Q_PAGE_OFFSET window. A fixed +1 GiB
-   * overflowed when potop.lo sits high in a 32-bit space (ppc32:
-   * 0xc0000000 + 0x40000000 wraps to 0). Scale by the actual window. */
-  unsigned long window = potop.hi - potop.lo;
-  unsigned long bump = window / 4;
-  if (bump > 0x40000000ul)
-    bump = 0x40000000ul;
-  if (bump < 0x10000ul)
-    bump = 0x10000ul;
-  unsigned long po = potop.lo + bump;
+  /* A base the architecture admits. Scaling an offset off the window floor
+   * cannot work where the architecture fixes the linear-map base: the bracket
+   * holds one value, so anything offset from it is outside the window and the
+   * landmark below would fail to pin it. */
+  unsigned long po = po_admissible(0);
   struct observation pl = mk_obs(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, po,
                                  LO_SET, POS_BASE, CONF_PARSED);
   evidence_add(&e.ev, &pl);
@@ -1644,7 +1687,7 @@ static void test_dram_ceiling_no_highmem_wrap(void) {
   struct estimate potop, vtop;
   quantities[Q_PAGE_OFFSET].init_top(&potop);
   quantities[Q_VIRT_IMAGE_BASE].init_top(&vtop);
-  unsigned long po = potop.hi; /* pin page_offset high in its window */
+  unsigned long po = po_hi(&potop); /* pin page_offset high in its window */
   struct observation pl = mk_obs(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, po,
                                  LO_SET, POS_BASE, CONF_PARSED);
   evidence_add(&e.ev, &pl);
@@ -1678,8 +1721,8 @@ static void test_dram_ceiling_no_highmem_wrap(void) {
    * skip). When it wraps, the rule must stay inert and leave the honest ceiling
    * untouched; pre-fix it capped it at the wrapped `target` < vtop.hi. */
   int wrapped = phys_span > ULONG_MAX - po - (unsigned long)IMAGE_BASE_OFFSET;
-  if (wrapped && e.est[Q_PAGE_OFFSET].lo == e.est[Q_PAGE_OFFSET].hi &&
-      e.est[Q_PAGE_OFFSET].lo == po)
+  if (wrapped && po_lo(&e.est[Q_PAGE_OFFSET]) == po_hi(&e.est[Q_PAGE_OFFSET]) &&
+      po_lo(&e.est[Q_PAGE_OFFSET]) == po)
     assert(e.est[Q_VIRT_IMAGE_BASE].hi == vtop.hi);
 #else
   (void)e;
@@ -1687,7 +1730,7 @@ static void test_dram_ceiling_no_highmem_wrap(void) {
 #endif
 }
 
-/* coupling_validate (Stage E): a curation/verdict rule. Exercises the engine's
+/* coupling_validate: a curation/verdict rule. Exercises the engine's
  * verdict path (emit verdict -> evidence_resolve -> observation invalidated).
  */
 int rule_coupling_validate(const struct evidence_set *ev, struct verdict *out,
@@ -1726,7 +1769,7 @@ static void test_coupling_validate(void) {
 #endif
 }
 
-/* text_cluster_filter (Stage E): set-based curation — invalidate VIRT outliers
+/* text_cluster_filter: set-based curation — invalidate VIRT outliers
  * far from the cluster median, keep the cluster. */
 int rule_text_cluster_filter(const struct evidence_set *ev, struct verdict *out,
                              int out_max);
@@ -1801,7 +1844,7 @@ static void test_text_cluster_filter_spares_directmap(void) {
 #endif /* __SIZEOF_LONG__ >= 8 */
 }
 
-/* initrd_phys_exclude (Stage E): the first C_EXCLUDE rule — carves the initrd
+/* initrd_phys_exclude: a C_EXCLUDE rule — carves the initrd
  * forbidden zone out of Q_PHYS_IMAGE_BASE's candidate set. */
 int rule_initrd_phys_exclude(const struct evidence_set *ev,
                              const struct estimate *est, struct constraint *out,
@@ -2184,11 +2227,9 @@ int rule_cmdline_mem_virt_ceiling(const struct evidence_set *ev,
 static void test_cmdline_mem_virt_ceiling(void) {
   struct engine e;
   engine_init(&e);
-  struct estimate potop;
-  quantities[Q_PAGE_OFFSET].init_top(&potop);
-  unsigned long po = potop.lo + 0x10000000ul; /* a plausible VMSPLIT offset */
-  unsigned long ksize = 0x1000000ul;          /* 16 MiB image */
-  unsigned long mem = 0x20000000ul;           /* 512 MiB mem= cap (> image) */
+  unsigned long po = po_admissible(0);
+  unsigned long ksize = 0x1000000ul; /* 16 MiB image */
+  unsigned long mem = 0x20000000ul;  /* 512 MiB mem= cap (> image) */
 
   struct observation pl = mk_obs(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, po,
                                  LO_SET, POS_BASE, CONF_PARSED);
@@ -2207,13 +2248,13 @@ static void test_cmdline_mem_virt_ceiling(void) {
 #if TEXT_TRACKS_DIRECTMAP
   /* Compute the bound from the page_offset actually pinned by the landmark, so
    * the check holds whatever value the coupled arch resolves it to. */
-  if (e.est[Q_PAGE_OFFSET].lo == e.est[Q_PAGE_OFFSET].hi) {
+  if (po_lo(&e.est[Q_PAGE_OFFSET]) == po_hi(&e.est[Q_PAGE_OFFSET])) {
     struct estimate vatop;
     quantities[Q_VIRT_KASLR_ALIGN].init_top(&vatop);
     unsigned long valign = vatop.lo < (unsigned long)KASLR_VIRT_ALIGN
                                ? (unsigned long)KASLR_VIRT_ALIGN
                                : vatop.lo;
-    unsigned long pin = e.est[Q_PAGE_OFFSET].lo;
+    unsigned long pin = po_lo(&e.est[Q_PAGE_OFFSET]);
     unsigned long expect = kasld_floor_virt_text_bound(
         pin + mem - ksize + (unsigned long)IMAGE_BASE_OFFSET, valign);
     if (expect > (unsigned long)KASLR_VIRT_TEXT_MIN && expect < vtop.hi)
@@ -2235,7 +2276,7 @@ static void test_cmdline_mem_virt_ceiling_no_highmem_wrap(void) {
   struct estimate potop, vtop;
   quantities[Q_PAGE_OFFSET].init_top(&potop);
   quantities[Q_VIRT_IMAGE_BASE].init_top(&vtop);
-  unsigned long po = potop.hi;
+  unsigned long po = po_hi(&potop);
   unsigned long vmin = (unsigned long)KASLR_VIRT_TEXT_MIN;
   unsigned long target = vmin + (vtop.hi - vmin) / 2;
   unsigned long span = target - po - (unsigned long)IMAGE_BASE_OFFSET;
@@ -2255,8 +2296,8 @@ static void test_cmdline_mem_virt_ceiling_no_highmem_wrap(void) {
 
 #if TEXT_TRACKS_DIRECTMAP && __SIZEOF_LONG__ == 4
   int wrapped = span > ULONG_MAX - po - (unsigned long)IMAGE_BASE_OFFSET;
-  if (wrapped && e.est[Q_PAGE_OFFSET].lo == e.est[Q_PAGE_OFFSET].hi &&
-      e.est[Q_PAGE_OFFSET].lo == po)
+  if (wrapped && po_lo(&e.est[Q_PAGE_OFFSET]) == po_hi(&e.est[Q_PAGE_OFFSET]) &&
+      po_lo(&e.est[Q_PAGE_OFFSET]) == po)
     assert(e.est[Q_VIRT_IMAGE_BASE].hi == vtop.hi);
 #else
   (void)e;
@@ -2312,8 +2353,14 @@ static void test_vmsplit_text_base(void) {
   struct estimate vtop;
   quantities[Q_VIRT_IMAGE_BASE].init_top(&vtop);
 #if PAGE_OFFSET_IS_FINITE && !PAGE_OFFSET_KNOWN_AT_BUILD && !KASLR_SUPPORTED
-  assert(e.est[Q_PAGE_OFFSET].lo == boundary &&
-         e.est[Q_PAGE_OFFSET].hi == boundary);
+  /* BOUNDS, not a pin: the snapped boundary is the floor, and the ceiling is
+   * the witness itself (PAGE_OFFSET <= V on a coupled arch), so a split the
+   * candidate list omits is still admitted — the true base lies between the
+   * floor below and the witness above. The ceiling checks against the injected
+   * witness, the test's own input, not against the rule's arithmetic. */
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) == boundary);
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) == witness);
+  assert(quantity_admits(Q_PAGE_OFFSET, &e.est[Q_PAGE_OFFSET], boundary));
   /* Lower bound at boundary + IMAGE_BASE_OFFSET; the top is not pinned. */
   assert(e.est[Q_VIRT_IMAGE_BASE].lo ==
          boundary + (unsigned long)IMAGE_BASE_OFFSET);
@@ -2321,8 +2368,38 @@ static void test_vmsplit_text_base(void) {
 #else
   struct estimate potop;
   quantities[Q_PAGE_OFFSET].init_top(&potop);
-  assert(e.est[Q_PAGE_OFFSET].lo == potop.lo); /* inert off arm32 */
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) == po_lo(&potop)); /* inert off arm32 */
   assert(e.est[Q_VIRT_IMAGE_BASE].hi == vtop.hi);
+#endif
+}
+
+/* Soundness: a kernel built at a split the candidate list does NOT contain must
+ * still be admitted. This is the reason the rule bounds rather than pins. The
+ * witness snaps DOWN to the nearest listed boundary, and an equality there
+ * would name a base 256 MiB below the truth and empty the estimate of the real
+ * one — a guaranteed-window violation from a list that is merely incomplete,
+ * which cannot be shown complete from inside this repo. */
+static void test_vmsplit_text_base_unlisted_split_admitted(void) {
+  struct engine e;
+  engine_init(&e);
+  /* 256 MiB above a listed arm32 boundary, and not itself one. */
+  unsigned long real_po = 0x90000000ul;
+  unsigned long witness = real_po + (unsigned long)IMAGE_BASE_OFFSET;
+  struct observation o = mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, witness,
+                                LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
+  evidence_add(&e.ev, &o);
+  const rule_fn rules[] = {rule_vmsplit_text_base};
+  engine_run(&e, rules, 1);
+#if PAGE_OFFSET_IS_FINITE && !PAGE_OFFSET_KNOWN_AT_BUILD && !KASLR_SUPPORTED
+  /* The listed boundary below it is still the floor... */
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) < real_po);
+  /* ...and the truth survives, which C_EQUALS on the snap would not have
+   * allowed. The ceiling is the witness, so it sits above the unlisted true
+   * base (real_po < witness) and admits it. */
+  assert(quantity_admits(Q_PAGE_OFFSET, &e.est[Q_PAGE_OFFSET], real_po));
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) == witness);
+#else
+  (void)real_po;
 #endif
 }
 
@@ -2349,7 +2426,7 @@ static void test_vmsplit_text_base_nondefault_offset(void) {
                            rule_text_pin_from_observation};
   engine_run(&e, rules, 2);
 #if PAGE_OFFSET_IS_FINITE && !PAGE_OFFSET_KNOWN_AT_BUILD && !KASLR_SUPPORTED
-  assert(e.est[Q_PAGE_OFFSET].lo ==
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) ==
          boundary); /* PAGE_OFFSET still determined */
   /* The real _text is admitted and pinned — NOT excluded down to +0x8000. */
   assert(e.est[Q_VIRT_IMAGE_BASE].lo <= real_text &&
@@ -2608,9 +2685,7 @@ int rule_ppc64_firmware_ceiling(const struct evidence_set *ev,
 static void test_highmem_32bit_bound(void) {
   struct engine e;
   engine_init(&e);
-  struct estimate potop;
-  quantities[Q_PAGE_OFFSET].init_top(&potop);
-  unsigned long po = potop.lo + 0x10000000ul;
+  unsigned long po = po_admissible(0);
   struct observation pl = mk_obs(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, po,
                                  LO_SET, POS_BASE, CONF_PARSED);
   evidence_add(&e.ev, &pl);
@@ -2694,9 +2769,7 @@ int rule_x86_32_vmsplit_ceiling(const struct evidence_set *ev,
 static void test_x86_32_vmsplit_ceiling(void) {
   struct engine e;
   engine_init(&e);
-  struct estimate potop;
-  quantities[Q_PAGE_OFFSET].init_top(&potop);
-  unsigned long po = potop.lo + 0x10000000ul;
+  unsigned long po = po_admissible(0);
   struct observation pl = mk_obs(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, po,
                                  LO_SET, POS_BASE, CONF_PARSED);
   evidence_add(&e.ev, &pl);
@@ -2737,10 +2810,10 @@ static void test_x86_64_vmalloc_vmemmap_chain(void) {
   struct engine e;
   engine_init(&e);
 
-  struct estimate potop;
-  quantities[Q_PAGE_OFFSET].init_top(&potop);
-  /* po above the L4 VAS floor -> L4 paging (VMALLOC_SIZE_TB = 32). */
-  unsigned long po = potop.lo + 0x88000000000ul;
+  /* po_admissible(0) is the compile-time PAGE_OFFSET, which sits BELOW the L4
+   * VAS floor (0xffff800000000000) -> 5-level paging (VMALLOC_SIZE_TB = 12800).
+   * The assertions below derive the expected size from po, so they follow. */
+  unsigned long po = po_admissible(0);
   struct observation pl = mk_obs(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, po,
                                  LO_SET, POS_BASE, CONF_PARSED);
   evidence_add(&e.ev, &pl);
@@ -2799,9 +2872,7 @@ static void test_x86_64_vmalloc_vmemmap_chain(void) {
 static void test_x86_64_vmalloc_no_max_pfn(void) {
   struct engine e;
   engine_init(&e);
-  struct estimate potop;
-  quantities[Q_PAGE_OFFSET].init_top(&potop);
-  unsigned long po = potop.lo + 0x88000000000ul;
+  unsigned long po = po_admissible(0);
   struct observation pl = mk_obs(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, po,
                                  LO_SET, POS_BASE, CONF_PARSED);
   evidence_add(&e.ev, &pl);
@@ -2840,8 +2911,9 @@ static void test_x86_64_vmalloc_upper_l4_when_po_unresolved(void) {
 #if defined(__x86_64__)
   struct estimate potop;
   quantities[Q_PAGE_OFFSET].init_top(&potop);
-  assert(e.est[Q_PAGE_OFFSET].lo == potop.lo);                /* still floor */
-  assert(e.est[Q_PAGE_OFFSET].lo != e.est[Q_PAGE_OFFSET].hi); /* unresolved */
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) == po_lo(&potop)); /* still floor */
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) !=
+         po_hi(&e.est[Q_PAGE_OFFSET])); /* unresolved */
 
   assert(e.est[Q_VMALLOC_BASE].hi_binding != 0); /* the upper bound fired */
   unsigned long one_tb = 1ul << 40, pud = 1ul << 30;
@@ -2889,9 +2961,9 @@ static void test_x86_64_po_from_vmalloc(void) {
   /* The upper bound on Q_PAGE_OFFSET should be ≤ va_witness - directmap_size -
    * PUD. */
   unsigned long expect = va_witness - directmap_size - pud;
-  assert(e.est[Q_PAGE_OFFSET].hi <= expect);
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) <= expect);
   /* And it must still admit the truth. */
-  assert(e.est[Q_PAGE_OFFSET].hi >= po_truth);
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) >= po_truth);
 #endif
 }
 
@@ -2923,8 +2995,8 @@ static void test_x86_64_po_from_vmemmap(void) {
   engine_run(&e, rules, 1);
 
   unsigned long expect = mm_witness - vmalloc_size - directmap_size - 2ul * pud;
-  assert(e.est[Q_PAGE_OFFSET].hi <= expect);
-  assert(e.est[Q_PAGE_OFFSET].hi >= po_truth);
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) <= expect);
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) >= po_truth);
 #endif
 }
 
@@ -2943,7 +3015,7 @@ static void test_x86_64_po_from_vmalloc_no_max_pfn(void) {
 
   struct estimate top;
   quantities[Q_PAGE_OFFSET].init_top(&top);
-  assert(e.est[Q_PAGE_OFFSET].hi == top.hi);
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) == po_hi(&top));
 #endif
 }
 
@@ -3010,8 +3082,8 @@ static void test_x86_64_po_from_vmemmap_pinned_l5(void) {
   assert(found_l5);
 
   /* The pin dominates the resolved estimate. */
-  assert(e.est[Q_PAGE_OFFSET].lo == po_l5);
-  assert(e.est[Q_PAGE_OFFSET].hi == po_l5);
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) == po_l5);
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) == po_l5);
 #endif
 }
 
@@ -3071,8 +3143,8 @@ static void test_x86_64_po_from_vmemmap_pinned_l4_keeps_l4(void) {
   }
   assert(found_l4);
 
-  assert(e.est[Q_PAGE_OFFSET].lo == po_l4);
-  assert(e.est[Q_PAGE_OFFSET].hi == po_l4);
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) == po_l4);
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) == po_l4);
 #endif
 }
 
@@ -3169,13 +3241,13 @@ static void test_arm64_va_bits_from_vmemmap_pins_52(void) {
       va_eq = 1;
   assert(va_eq);
   /* Q_PAGE_OFFSET ceiling at 0xfff0000000000000. */
-  assert(e.est[Q_PAGE_OFFSET].hi == 0xfff0000000000000ul);
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) == 0xfff0000000000000ul);
 #else
   /* Inert off arm64. */
   (void)v_mm;
   struct estimate top;
   quantities[Q_PAGE_OFFSET].init_top(&top);
-  assert(e.est[Q_PAGE_OFFSET].hi == top.hi);
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) == po_hi(&top));
 #endif
 }
 
@@ -3194,7 +3266,7 @@ static void test_arm64_va_bits_from_vmemmap_above_floor_inert(void) {
 
   struct estimate top;
   quantities[Q_PAGE_OFFSET].init_top(&top);
-  assert(e.est[Q_PAGE_OFFSET].hi == top.hi);
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) == po_hi(&top));
   /* Q_VA_BITS: no constraint emitted. */
   for (int i = 0; i < e.n_constraints; i++)
     assert(e.constraints[i].q != Q_VA_BITS);
@@ -3247,8 +3319,7 @@ static void test_arm64_va47_modern_floor(void) {
    */
   engine_init(&e);
   e.est[Q_PAGE_OFFSET].kind = LK_INTERVAL;
-  e.est[Q_PAGE_OFFSET].lo = ambiguous_po;
-  e.est[Q_PAGE_OFFSET].hi = ambiguous_po;
+  po_set(&e.est[Q_PAGE_OFFSET], ambiguous_po, ambiguous_po);
   o = mk_obs(KASLD_TYPE_VIRT, REGION_VMEMMAP, 0xffffffe000000000ul,
              LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
   evidence_add(&e.ev, &o);
@@ -3260,8 +3331,7 @@ static void test_arm64_va47_modern_floor(void) {
   /* Case 2: no VMEMMAP observation → inert (honest floor preserved). */
   engine_init(&e);
   e.est[Q_PAGE_OFFSET].kind = LK_INTERVAL;
-  e.est[Q_PAGE_OFFSET].lo = ambiguous_po;
-  e.est[Q_PAGE_OFFSET].hi = ambiguous_po;
+  po_set(&e.est[Q_PAGE_OFFSET], ambiguous_po, ambiguous_po);
   n = rule_arm64_va47_modern_floor(&e.ev, e.est, out, 4);
   assert(n == 0);
 
@@ -3270,8 +3340,7 @@ static void test_arm64_va47_modern_floor(void) {
    * floor in place. */
   engine_init(&e);
   e.est[Q_PAGE_OFFSET].kind = LK_INTERVAL;
-  e.est[Q_PAGE_OFFSET].lo = ambiguous_po;
-  e.est[Q_PAGE_OFFSET].hi = ambiguous_po;
+  po_set(&e.est[Q_PAGE_OFFSET], ambiguous_po, ambiguous_po);
   o = mk_obs(KASLD_TYPE_VIRT, REGION_VMEMMAP, 0xffff7e0000000000ul,
              LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
   evidence_add(&e.ev, &o);
@@ -3802,16 +3871,24 @@ static void test_s390_image_base_from_config_modern_pin_when_kaslr_off(void) {
   evidence_add(&e.ev, &off);
   const rule_fn rules[] = {rule_s390_image_base_from_config};
 
-  /* All signals: pinned to the parsed config base (no slide). */
+  /* CONFIG_KERNEL_IMAGE_BASE is the LOAD address; _text sits IMAGE_BASE_OFFSET
+   * into the image. The pin is therefore the sum, not the raw config value —
+   * pinning the raw value put the truth one offset BELOW the window on a live
+   * nokaslr boot. The expected value is the arch's own no-KASLR text base, so
+   * asserting against KERNEL_VIRT_TEXT_DEFAULT states the property rather than
+   * restating the arithmetic. */
+  const unsigned long want = cfg + (unsigned long)IMAGE_BASE_OFFSET;
+  assert(want == (unsigned long)KERNEL_VIRT_TEXT_DEFAULT);
+
   engine_run(&e, rules, 1);
-  assert(e.est[Q_VIRT_IMAGE_BASE].lo == cfg);
-  assert(e.est[Q_VIRT_IMAGE_BASE].hi == cfg);
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo == want);
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi == want);
 
   /* Sound floor: a PARSED off-signal keeps the pin in the guaranteed window. */
   e.ev.n_verdicts = 0;
   engine_run_full_floored(&e, CONF_INFERRED, rules, 1, NULL, 0);
-  assert(e.est[Q_VIRT_IMAGE_BASE].lo == cfg);
-  assert(e.est[Q_VIRT_IMAGE_BASE].hi == cfg);
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo == want);
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi == want);
 #endif
 }
 
@@ -4181,12 +4258,12 @@ static void test_riscv64_po_from_vmalloc(void) {
 
 #if (defined(__riscv) || defined(__riscv__)) && __riscv_xlen == 64
   /* Q_PAGE_OFFSET lower bound at v_va + 1. */
-  assert(e.est[Q_PAGE_OFFSET].lo >= v_va + 1ul);
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) >= v_va + 1ul);
 #else
   (void)v_va;
   struct estimate top;
   quantities[Q_PAGE_OFFSET].init_top(&top);
-  assert(e.est[Q_PAGE_OFFSET].lo == top.lo);
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) == po_lo(&top));
 #endif
 }
 
@@ -4207,12 +4284,12 @@ static void test_riscv64_po_from_vmemmap_default_window_uses_sv39(void) {
 
 #if (defined(__riscv) || defined(__riscv__)) && __riscv_xlen == 64
   /* SV39 VMALLOC_SIZE = 0x1400000000 (80 GiB). */
-  assert(e.est[Q_PAGE_OFFSET].lo >= v_mm + 0x1400000000ul + 1ul);
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) >= v_mm + 0x1400000000ul + 1ul);
 #else
   (void)v_mm;
   struct estimate top;
   quantities[Q_PAGE_OFFSET].init_top(&top);
-  assert(e.est[Q_PAGE_OFFSET].lo == top.lo);
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) == po_lo(&top));
 #endif
 }
 
@@ -4233,7 +4310,7 @@ static void test_riscv64_po_from_vmemmap_pinned_sv48(void) {
 
   /* V_mm chosen so:
    *   - V_mm + SV48_SIZE + 1 ≤ sv48_po  (consistent with the upper bound)
-   *   - V_mm + SV48_SIZE + 1 > top.lo   (visibly tightens the lower bound)
+   *   - V_mm + SV48_SIZE + 1 > po_lo(&top)   (visibly tightens the lower bound)
    * V_mm = sv48_po - SV48_SIZE - 0x10000000 puts V_mm just inside the SV48
    * vmemmap region. */
   unsigned long sv48_size = 0x2840000000000ul;
@@ -4251,11 +4328,11 @@ static void test_riscv64_po_from_vmemmap_pinned_sv48(void) {
 #if (defined(__riscv) || defined(__riscv__)) && __riscv_xlen == 64
   /* SV48 VMALLOC_SIZE = 0x2840000000000 (~44 TiB).
    * Mistakenly using SV39 size (0x1400000000 = 80 GiB) would leave po.lo at
-   * the SV57 floor (top.lo = 0xff60000000000000) because V_mm + SV39_SIZE is
-   * far below it. Assert the EXACT SV48-derived value to prove mode pick. */
-  assert(e.est[Q_PAGE_OFFSET].lo == v_mm + sv48_size + 1ul);
+   * the SV57 floor (po_lo(&top) = 0xff60000000000000) because V_mm + SV39_SIZE
+   * is far below it. Assert the EXACT SV48-derived value to prove mode pick. */
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) == v_mm + sv48_size + 1ul);
   /* The cap upper-bounds Q_PAGE_OFFSET. */
-  assert(e.est[Q_PAGE_OFFSET].hi == sv48_po);
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) == sv48_po);
 #else
   (void)v_mm;
   (void)sv48_po;
@@ -4263,15 +4340,25 @@ static void test_riscv64_po_from_vmemmap_pinned_sv48(void) {
   struct estimate top;
   quantities[Q_PAGE_OFFSET].init_top(&top);
   /* Non-riscv64: rule body inert; cap helper still fires for any arch since
-   * it is test-local. After cap: po.lo == top.lo (cap only sets hi). The
+   * it is test-local. After cap: po.lo == po_lo(&top) (cap only sets hi). The
    * sv48_po landmark is a riscv64-shaped address; on arches whose VAS sits
    * below it (e.g. s390x), the cap is redundant against the honest top —
    * assert hi <= sv48_po rather than equality. */
-  assert(e.est[Q_PAGE_OFFSET].lo == top.lo);
-  if (sv48_po <= top.hi)
-    assert(e.est[Q_PAGE_OFFSET].hi == sv48_po);
-  else
-    assert(e.est[Q_PAGE_OFFSET].hi == top.hi);
+  if (po_is_fixed()) {
+    /* One admissible base, and it is structural rather than observed. A cap
+     * below it cannot lower an edge onto it — there is no edge — and cannot
+     * remove it either: emptying the estimate is a contradiction, which the
+     * engine records and skips rather than applying. So the base stands, and
+     * THAT is the property worth asserting. A riscv64-shaped landmark must not
+     * be able to displace an architectural constant. */
+    assert(quantity_admits(Q_PAGE_OFFSET, &e.est[Q_PAGE_OFFSET], po_lo(&top)));
+  } else {
+    assert(po_lo(&e.est[Q_PAGE_OFFSET]) == po_lo(&top));
+    if (sv48_po <= po_hi(&top))
+      assert(po_hi(&e.est[Q_PAGE_OFFSET]) == sv48_po);
+    else
+      assert(po_hi(&e.est[Q_PAGE_OFFSET]) == po_hi(&top));
+  }
 #endif
 }
 
@@ -4283,7 +4370,7 @@ static void test_riscv64_po_from_vmalloc_vmemmap_no_obs(void) {
   engine_run(&e, rules, 1);
   struct estimate top;
   quantities[Q_PAGE_OFFSET].init_top(&top);
-  assert(e.est[Q_PAGE_OFFSET].lo == top.lo);
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) == po_lo(&top));
 }
 #endif /* __SIZEOF_LONG__ >= 8 (x86_64 vmalloc/vmemmap) */
 
@@ -4328,12 +4415,12 @@ static void test_va_bits_la57_l5(void) {
 
 #if defined(__x86_64__)
   assert(finset_is(&e.est[Q_VA_BITS], 57));
-  assert(e.est[Q_PAGE_OFFSET].lo == 0xff11000000000000ul);
-  assert(e.est[Q_PAGE_OFFSET].hi == 0xffff800000000000ul - 1);
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) == 0xff11000000000000ul);
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) == 0xffff800000000000ul - 1);
 #else
   struct estimate po;
   quantities[Q_PAGE_OFFSET].init_top(&po);
-  assert(e.est[Q_PAGE_OFFSET].lo == po.lo); /* inert off x86_64 */
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) == po_lo(&po)); /* inert off x86_64 */
 #endif
 }
 
@@ -4347,7 +4434,7 @@ static void test_va_bits_la57_l4(void) {
 
 #if defined(__x86_64__)
   assert(finset_is(&e.est[Q_VA_BITS], 48));
-  assert(e.est[Q_PAGE_OFFSET].lo == 0xffff800000000000ul);
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) == 0xffff800000000000ul);
 #else
   (void)e;
 #endif
@@ -4365,9 +4452,9 @@ static void test_va_bits_la57_contradictory(void) {
   struct estimate vtop, po;
   quantities[Q_VA_BITS].init_top(&vtop);
   quantities[Q_PAGE_OFFSET].init_top(&po);
-  assert(e.est[Q_VA_BITS].lo == vtop.lo);   /* all candidates still live */
-  assert(e.est[Q_PAGE_OFFSET].lo == po.lo); /* window untouched */
-  assert(e.est[Q_PAGE_OFFSET].hi == po.hi);
+  assert(e.est[Q_VA_BITS].lo == vtop.lo); /* all candidates still live */
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) == po_lo(&po)); /* window untouched */
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) == po_hi(&po));
 }
 
 /* arm64 VA_BITS rule: active under cross-build, inert (no change) on host. */
@@ -4382,11 +4469,11 @@ static void test_va_bits_arm64(void) {
 #if defined(__aarch64__)
   assert(finset_is(&e.est[Q_VA_BITS], 52));
   /* VA52 pins the virt_page_offset ceiling to the window floor. */
-  assert(e.est[Q_PAGE_OFFSET].hi == 0xfff0000000000000ul);
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) == 0xfff0000000000000ul);
 #else
   struct estimate po;
   quantities[Q_PAGE_OFFSET].init_top(&po);
-  assert(e.est[Q_PAGE_OFFSET].hi == po.hi); /* inert off arm64 */
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) == po_hi(&po)); /* inert off arm64 */
 #endif
 }
 
@@ -4406,8 +4493,8 @@ static void test_va_bits_arm64_va47_modern_witness(void) {
   engine_run(&e, rules, 1);
 #if defined(__aarch64__)
   assert(finset_is(&e.est[Q_VA_BITS], 47)); /* modern proven -> pinned */
-  assert(e.est[Q_PAGE_OFFSET].lo == 0xffff800000000000ul);
-  assert(e.est[Q_PAGE_OFFSET].hi == 0xffff800000000000ul);
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) == 0xffff800000000000ul);
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) == 0xffff800000000000ul);
 #else
   (void)e;
 #endif
@@ -4430,11 +4517,11 @@ static void test_va_bits_arm64_va47_ambiguous_no_pin(void) {
 #if defined(__aarch64__)
   struct estimate vtop;
   quantities[Q_VA_BITS].init_top(&vtop);
-  assert(e.est[Q_VA_BITS].lo ==
-         vtop.lo); /* not collapsed to {47}; 48 still live */
-  assert(e.est[Q_PAGE_OFFSET].lo ==
+  /* not collapsed to {47}; 48 still live */
+  assert(e.est[Q_VA_BITS].lo == vtop.lo);
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) ==
          0xffff800000000000ul); /* page_offset pinned */
-  assert(e.est[Q_PAGE_OFFSET].hi == 0xffff800000000000ul);
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) == 0xffff800000000000ul);
 #else
   (void)e;
 #endif
@@ -4451,7 +4538,7 @@ static void test_va_bits_arm64_va47_no_witness(void) {
   struct estimate vtop;
   quantities[Q_VA_BITS].init_top(&vtop);
   assert(e.est[Q_VA_BITS].lo == vtop.lo);
-  assert(e.est[Q_PAGE_OFFSET].lo == 0xffff800000000000ul);
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) == 0xffff800000000000ul);
 #else
   (void)e;
 #endif
@@ -4467,7 +4554,7 @@ static void test_va_bits_arm64_unambiguous_va48_pins(void) {
   engine_run(&e, rules, 1);
 #if defined(__aarch64__)
   assert(finset_is(&e.est[Q_VA_BITS], 48));
-  assert(e.est[Q_PAGE_OFFSET].lo == 0xffff000000000000ul);
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) == 0xffff000000000000ul);
 #else
   (void)e;
 #endif
@@ -4505,10 +4592,10 @@ static void test_x86_64_randomize_memory_budget(void) {
   /* page_offset: a budget ceiling no prior rule provided. The floor is left to
    * la57's canonical half boundary (this rule does not raise the directmap
    * floor). */
-  assert(e.est[Q_PAGE_OFFSET].lo == 0xffff800000000000ul); /* from la57 */
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) == 0xffff800000000000ul); /* from la57 */
   /* Ceilings are floored to the PUD grain (page_offset / vmalloc are
    * PUD-granular), dropping the ragged remain/3 remainder. */
-  assert(e.est[Q_PAGE_OFFSET].hi == ((vs + remain_lo / 3) & ~(pud - 1)));
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) == ((vs + remain_lo / 3) & ~(pud - 1)));
   /* vmalloc: floor + the leak-free budget ceiling (previously unbounded above
    * without a vmemmap witness). */
   assert(e.est[Q_VMALLOC_BASE].lo == vs + dm_min);
@@ -4520,8 +4607,8 @@ static void test_x86_64_randomize_memory_budget(void) {
 
   /* SOUNDNESS: the un-randomized default L4 region bases must fall inside every
    * emitted window (truth is never excluded). */
-  assert(0xffff888000000000ul >= e.est[Q_PAGE_OFFSET].lo &&
-         0xffff888000000000ul <= e.est[Q_PAGE_OFFSET].hi);
+  assert(0xffff888000000000ul >= po_lo(&e.est[Q_PAGE_OFFSET]) &&
+         0xffff888000000000ul <= po_hi(&e.est[Q_PAGE_OFFSET]));
   assert(0xffffc90000000000ul >= e.est[Q_VMALLOC_BASE].lo &&
          0xffffc90000000000ul <= e.est[Q_VMALLOC_BASE].hi);
   assert(0xffffea0000000000ul >= e.est[Q_VMEMMAP_BASE].lo);
@@ -4562,12 +4649,12 @@ static void test_x86_64_randomize_memory_budget_shared_window(void) {
 #if defined(__x86_64__)
   assert(got);
   /* One model, not two: the window's top IS the ceiling the rule emitted. */
-  assert(b.hi == e.est[Q_PAGE_OFFSET].hi);
+  assert(b.hi == po_hi(&e.est[Q_PAGE_OFFSET]));
   /* The floor is vaddr_start, which the rule does NOT emit -- the resolved
    * estimate sits lower (la57's canonical half boundary), which is exactly why
    * the denominator has to be re-derived rather than measured off it. */
   assert(b.lo == 0xffff888000000000ul);
-  assert(e.est[Q_PAGE_OFFSET].lo < b.lo);
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) < b.lo);
   /* PUD-granular candidates over the window: span 117.5 TiB, minus a 1 TiB
    * minimum direct map and the 32 TiB vmalloc hole, a third of what is left. */
   unsigned long pud = 1ul << 30;
@@ -4637,8 +4724,11 @@ static void test_x86_64_randomize_memory_budget_inert(void) {
   engine_run(&e, rules, 1);
   struct estimate t;
   quantities[Q_PAGE_OFFSET].init_top(&t);
-  assert(e.est[Q_PAGE_OFFSET].lo == t.lo);
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) == po_lo(&t));
   quantities[Q_VMALLOC_BASE].init_top(&t);
+  /* Plain .lo, not po_lo(): `t` is a Q_VMALLOC_BASE estimate now, and that
+   * quantity's lattice does not vary by arch. po_lo() would decode it as
+   * Q_PAGE_OFFSET's, reading a candidate bitmask as an address. */
   assert(e.est[Q_VMALLOC_BASE].lo == t.lo);
 }
 
@@ -4760,9 +4850,9 @@ static void test_arm64_va_bits_from_scalar(void) {
   engine_run(&e, rules, 2);
 #if defined(__aarch64__)
   assert(finset_is(&e.est[Q_VA_BITS], 48)); /* width pinned */
-  assert(e.est[Q_PAGE_OFFSET].lo ==
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) ==
          0xffff000000000000ul); /* -(1<<48) derived */
-  assert(e.est[Q_PAGE_OFFSET].hi == 0xffff000000000000ul);
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) == 0xffff000000000000ul);
 #else
   struct estimate t;
   quantities[Q_VA_BITS].init_top(&t);
@@ -5096,11 +5186,12 @@ static void test_page_offset_invariant_pin(void) {
   struct estimate top;
   quantities[Q_PAGE_OFFSET].init_top(&top);
 #if PAGE_OFFSET_INVARIANT
-  assert(e.est[Q_PAGE_OFFSET].lo == (unsigned long)PAGE_OFFSET);
-  assert(e.est[Q_PAGE_OFFSET].hi == (unsigned long)PAGE_OFFSET); /* pinned */
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) == (unsigned long)PAGE_OFFSET);
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) ==
+         (unsigned long)PAGE_OFFSET); /* pinned */
 #else
-  assert(e.est[Q_PAGE_OFFSET].lo == top.lo); /* honest window kept */
-  assert(e.est[Q_PAGE_OFFSET].hi == top.hi);
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) == po_lo(&top)); /* honest window kept */
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) == po_hi(&top));
 #endif
 }
 
@@ -5115,10 +5206,12 @@ static void test_page_offset_from_config(void) {
   engine_init(&e);
   struct estimate top;
   quantities[Q_PAGE_OFFSET].init_top(&top);
-  /* Pick a value inside the arch's virt_page_offset window so the pin is
-   * admitted.
-   */
-  unsigned long cfg = top.lo;
+  /* A base the arch is actually built at, so the pinned value is a real
+   * placement on every arch this rule fires on: po_admissible(0) is the
+   * compile-time PAGE_OFFSET (arm32/x86_32's top VMSPLIT candidate, ppc32's
+   * default), not the bracket's arbitrary low edge po_lo(&top) would give on
+   * ppc32. Admitted by the window either way, so the pin still succeeds. */
+  unsigned long cfg = po_admissible(0);
   struct observation o =
       mk_scalar(SF_VIRT_CONFIG_PAGE_OFFSET, cfg, CONF_PARSED);
   evidence_add(&e.ev, &o);
@@ -5127,11 +5220,12 @@ static void test_page_offset_from_config(void) {
   engine_run(&e, rules, 1);
 
 #if PAGE_OFFSET_FROM_CONFIG
-  assert(e.est[Q_PAGE_OFFSET].lo == cfg);
-  assert(e.est[Q_PAGE_OFFSET].hi == cfg); /* pinned to the config value */
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) == cfg);
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) == cfg); /* pinned to the config value */
 #else
-  assert(e.est[Q_PAGE_OFFSET].lo == top.lo); /* inert: honest window kept */
-  assert(e.est[Q_PAGE_OFFSET].hi == top.hi);
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) ==
+         po_lo(&top)); /* inert: honest window kept */
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) == po_hi(&top));
 #endif
 }
 
@@ -5149,16 +5243,16 @@ static void test_page_offset_from_leak(void) {
   quantities[Q_PAGE_OFFSET].init_top(&top);
   /* Inside the arch window so the pin is admitted, and non-zero: the rule (like
    * page_offset_from_config) treats 0 as "unset". s390's window starts at 0
-   * (PAGE_OFFSET==0), so fall back to top.hi there. */
-  unsigned long base = top.lo ? top.lo : top.hi;
+   * (PAGE_OFFSET==0), so fall back to po_hi(&top) there. */
+  unsigned long base = po_lo(&top) ? po_lo(&top) : po_hi(&top);
   struct observation o = mk_scalar(SF_VIRT_PAGE_OFFSET, base, CONF_PARSED);
   evidence_add(&e.ev, &o);
 
   const rule_fn rules[] = {rule_page_offset_from_leak};
   engine_run(&e, rules, 1);
 
-  assert(e.est[Q_PAGE_OFFSET].lo == base); /* pinned to the exact base */
-  assert(e.est[Q_PAGE_OFFSET].hi == base);
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) == base); /* pinned to the exact base */
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) == base);
 }
 
 /* Inert without the fact: no SF_VIRT_PAGE_OFFSET leaves the honest window. */
@@ -5171,8 +5265,8 @@ static void test_page_offset_from_leak_inert(void) {
   const rule_fn rules[] = {rule_page_offset_from_leak};
   engine_run(&e, rules, 1);
 
-  assert(e.est[Q_PAGE_OFFSET].lo == top.lo);
-  assert(e.est[Q_PAGE_OFFSET].hi == top.hi);
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) == po_lo(&top));
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) == po_hi(&top));
 }
 
 /* virt_kaslr_disabled_pin: SF_VIRT_KASLR_DISABLED + the arch's compile-time
@@ -5329,8 +5423,6 @@ static void test_virt_kaslr_disabled_pin_learned_align_absent(void) {
 #if KASLR_DISABLED_PINS_VIRT_TEXT
   struct engine e;
   engine_init(&e);
-  struct estimate top;
-  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
   unsigned long ps = 0x400000ul;
   unsigned long learned = (unsigned long)KERNEL_VIRT_TEXT_MIN + ps +
                           (unsigned long)IMAGE_BASE_OFFSET;
@@ -5394,8 +5486,8 @@ static void test_directmap_kaslr_disabled_pin(void) {
   evidence_add(&e.ev, &k);
   evidence_add(&e.ev, &vb);
   engine_run(&e, rules, 1);
-  assert(e.est[Q_PAGE_OFFSET].lo == PAGE_OFFSET_BASE_L4 &&
-         e.est[Q_PAGE_OFFSET].hi == PAGE_OFFSET_BASE_L4);
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) == PAGE_OFFSET_BASE_L4 &&
+         po_hi(&e.est[Q_PAGE_OFFSET]) == PAGE_OFFSET_BASE_L4);
   assert(e.est[Q_VMALLOC_BASE].lo == VMALLOC_BASE_L4 &&
          e.est[Q_VMALLOC_BASE].hi == VMALLOC_BASE_L4);
   assert(e.est[Q_VMEMMAP_BASE].lo == VMEMMAP_BASE_L4 &&
@@ -5409,8 +5501,8 @@ static void test_directmap_kaslr_disabled_pin(void) {
   evidence_add(&e2.ev, &d);
   evidence_add(&e2.ev, &vb2);
   engine_run(&e2, rules, 1);
-  assert(e2.est[Q_PAGE_OFFSET].lo == PAGE_OFFSET_BASE_L5 &&
-         e2.est[Q_PAGE_OFFSET].hi == PAGE_OFFSET_BASE_L5);
+  assert(po_lo(&e2.est[Q_PAGE_OFFSET]) == PAGE_OFFSET_BASE_L5 &&
+         po_hi(&e2.est[Q_PAGE_OFFSET]) == PAGE_OFFSET_BASE_L5);
 
   /* Negative: VA width but no disable signal — no pin. */
   static struct engine e3;
@@ -5418,8 +5510,8 @@ static void test_directmap_kaslr_disabled_pin(void) {
   struct observation vb3 = mk_scalar(SF_VIRT_ADDR_BITS, 48, CONF_PARSED);
   evidence_add(&e3.ev, &vb3);
   engine_run(&e3, rules, 1);
-  assert(e3.est[Q_PAGE_OFFSET].lo == top.lo &&
-         e3.est[Q_PAGE_OFFSET].hi == top.hi);
+  assert(po_lo(&e3.est[Q_PAGE_OFFSET]) == po_lo(&top) &&
+         po_hi(&e3.est[Q_PAGE_OFFSET]) == po_hi(&top));
 
   /* Negative: disable signal but no VA width — no pin (can't pick L4/L5). */
   static struct engine e4;
@@ -5427,8 +5519,8 @@ static void test_directmap_kaslr_disabled_pin(void) {
   struct observation k4 = mk_scalar(SF_KASAN_ENABLED, 1, CONF_PARSED);
   evidence_add(&e4.ev, &k4);
   engine_run(&e4, rules, 1);
-  assert(e4.est[Q_PAGE_OFFSET].lo == top.lo &&
-         e4.est[Q_PAGE_OFFSET].hi == top.hi);
+  assert(po_lo(&e4.est[Q_PAGE_OFFSET]) == po_lo(&top) &&
+         po_hi(&e4.est[Q_PAGE_OFFSET]) == po_hi(&top));
 
   /* Fallback path: NO SF_VIRT_ADDR_BITS, but a directmap leak below the L4 VAS
    * floor resolves Q_VA_BITS=57 via la57_from_directmap; the pin then takes the
@@ -5444,8 +5536,8 @@ static void test_directmap_kaslr_disabled_pin(void) {
   const rule_fn rules_la57[] = {rule_x86_64_la57_from_directmap,
                                 rule_directmap_kaslr_disabled_pin};
   engine_run(&e5, rules_la57, 2);
-  assert(e5.est[Q_PAGE_OFFSET].lo == PAGE_OFFSET_BASE_L5 &&
-         e5.est[Q_PAGE_OFFSET].hi == PAGE_OFFSET_BASE_L5);
+  assert(po_lo(&e5.est[Q_PAGE_OFFSET]) == PAGE_OFFSET_BASE_L5 &&
+         po_hi(&e5.est[Q_PAGE_OFFSET]) == PAGE_OFFSET_BASE_L5);
 #endif
 }
 
@@ -6076,15 +6168,18 @@ static void test_image_size_text_data_gap(void) {
 static void test_directmap_page_offset_bounds(void) {
   struct engine e;
   engine_init(&e);
-  struct estimate top;
-  quantities[Q_PAGE_OFFSET].init_top(&top);
-  unsigned long vd = top.lo + 0x11000000000ul; /* a directmap leak in-window */
+  /* A direct-map leak that the base could plausibly sit at or below. Using an
+   * admissible base keeps the resulting ceiling inside the window where the
+   * architecture fixes the linear-map base — the bracket holds one value there,
+   * and an upper bound below it would empty the estimate rather than narrow
+   * it. */
+  unsigned long vd = po_admissible(0);
   struct observation o = mk_obs(KASLD_TYPE_VIRT, REGION_DIRECTMAP, vd,
                                 LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
   evidence_add(&e.ev, &o);
   const rule_fn rules[] = {rule_directmap_page_offset_bounds};
   engine_run(&e, rules, 1);
-  assert(e.est[Q_PAGE_OFFSET].hi ==
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) ==
          vd); /* virt_page_offset <= lowest directmap */
 }
 
@@ -6096,11 +6191,17 @@ static void test_directmap_page_offset_bounds(void) {
  * floor and is excluded here (see test_directmap_page_offset_base_likely_edge).
  */
 static void test_directmap_page_offset_lower_bound_from_max_pfn(void) {
+  /* Bounding the base from a direct-map leak only means something where the
+   * base can move. On an architecture that admits exactly one, Q_PAGE_OFFSET is
+   * resolved by its own honest top and no bound can narrow it further. */
+  if (po_is_fixed())
+    return;
   struct engine e;
   engine_init(&e);
   struct estimate top;
   quantities[Q_PAGE_OFFSET].init_top(&top);
-  unsigned long vd = top.lo + 0x11000000000ul; /* a directmap leak in-window */
+  unsigned long vd =
+      po_lo(&top) + 0x11000000000ul; /* a directmap leak in-window */
   struct observation o = mk_obs(KASLD_TYPE_VIRT, REGION_DIRECTMAP, vd,
                                 LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
   unsigned long max_pfn = 0x340000ul; /* ~13 GiB of direct-mapped RAM */
@@ -6111,11 +6212,11 @@ static void test_directmap_page_offset_lower_bound_from_max_pfn(void) {
   engine_run_full_floored(&e, CONF_INFERRED, rules, 1, NULL, 0);
   unsigned long reach = max_pfn * PAGE_SIZE - (unsigned long)PHYS_OFFSET;
   unsigned long expect_lo = vd - reach;
-  assert(e.est[Q_PAGE_OFFSET].hi == vd); /* base <= leak */
-  assert(e.est[Q_PAGE_OFFSET].lo ==
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) == vd); /* base <= leak */
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) ==
          expect_lo); /* base >= leak - directmap span */
   /* The window must be exactly the direct-map span — no wider, no narrower. */
-  assert(e.est[Q_PAGE_OFFSET].hi - e.est[Q_PAGE_OFFSET].lo == reach);
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) - po_lo(&e.est[Q_PAGE_OFFSET]) == reach);
 }
 
 /* A POS_BASE directmap observation (prefetch_directmap's located left edge)
@@ -6126,10 +6227,16 @@ static void test_directmap_page_offset_lower_bound_from_max_pfn(void) {
  * base folded with a parsed interior sample), which presents as POS_BASE at
  * CONF_PARSED; the cap must still hold it below the floor. */
 static void test_directmap_page_offset_base_likely_edge(void) {
+  /* Bounding the base from a direct-map leak only means something where the
+   * base can move. On an architecture that admits exactly one, Q_PAGE_OFFSET is
+   * resolved by its own honest top and no bound can narrow it further. */
+  if (po_is_fixed())
+    return;
   struct estimate top;
   quantities[Q_PAGE_OFFSET].init_top(&top);
-  unsigned long vd = top.lo + 0x11000000000ul; /* PUD-aligned base in-window */
-  unsigned long max_pfn = 0x340000ul;          /* ~13 GiB direct-mapped RAM */
+  unsigned long vd =
+      po_lo(&top) + 0x11000000000ul;  /* PUD-aligned base in-window */
+  unsigned long max_pfn = 0x340000ul; /* ~13 GiB direct-mapped RAM */
   unsigned long reach = max_pfn * PAGE_SIZE - (unsigned long)PHYS_OFFSET;
   const unsigned long align = (unsigned long)RANDOMIZE_MEMORY_ALIGN;
   const rule_fn rules[] = {rule_directmap_page_offset_bounds};
@@ -6145,11 +6252,11 @@ static void test_directmap_page_offset_base_likely_edge(void) {
   evidence_add(&e.ev, &o);
   evidence_add(&e.ev, &mp);
   engine_run(&e, rules, 1);
-  assert(e.est[Q_PAGE_OFFSET].hi == vd);
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) == vd);
   if (align >= 2ul * 1024 * 1024)
-    assert(e.est[Q_PAGE_OFFSET].lo == vd - align);
+    assert(po_lo(&e.est[Q_PAGE_OFFSET]) == vd - align);
   else
-    assert(e.est[Q_PAGE_OFFSET].lo == vd - reach);
+    assert(po_lo(&e.est[Q_PAGE_OFFSET]) == vd - reach);
 
   /* GUARANTEED (floored at the sound floor): the below-floor edge is excluded,
    * so the window is the full max_pfn span regardless of arch — the edge can
@@ -6158,8 +6265,9 @@ static void test_directmap_page_offset_base_likely_edge(void) {
   evidence_add(&e.ev, &o);
   evidence_add(&e.ev, &mp);
   engine_run_full_floored(&e, CONF_INFERRED, rules, 1, NULL, 0);
-  assert(e.est[Q_PAGE_OFFSET].hi == vd);
-  assert(e.est[Q_PAGE_OFFSET].lo == vd - reach); /* unchanged by the edge */
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) == vd);
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) ==
+         vd - reach); /* unchanged by the edge */
 }
 
 /* virt_page_offset_base on x86_64 RANDOMIZE_MEMORY is PUD-aligned (1 GiB) by
@@ -6173,13 +6281,13 @@ static void test_directmap_page_offset_bounds_pud_aligned(void) {
   engine_init(&e);
   struct estimate top;
   quantities[Q_PAGE_OFFSET].init_top(&top);
-  /* Leak deliberately NOT on a PUD boundary: top.lo + 1 TiB + 0x397b000
+  /* Leak deliberately NOT on a PUD boundary: po_lo(&top) + 1 TiB + 0x397b000
    * (a typical sub-PUD offset). Without the alignment fix the rule would
    * emit raw bounds with the same sub-PUD offset; with it the upper
    * aligns down to the nearest PUD and the lower aligns up. */
   const unsigned long pud = (unsigned long)RANDOMIZE_MEMORY_ALIGN;
   const unsigned long sub_pud_offset = 0x397b000ul; /* < PUD_SIZE */
-  unsigned long vd = top.lo + (1ul << 40) + sub_pud_offset;
+  unsigned long vd = po_lo(&top) + (1ul << 40) + sub_pud_offset;
   struct observation o = mk_obs(KASLD_TYPE_VIRT, REGION_DIRECTMAP, vd,
                                 LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
   unsigned long max_pfn = 0x340000ul; /* ~13 GiB direct-mapped RAM */
@@ -6191,16 +6299,16 @@ static void test_directmap_page_offset_bounds_pud_aligned(void) {
    * edge (which would narrow the lower edge past the max_pfn span). */
   engine_run_full_floored(&e, CONF_INFERRED, rules, 1, NULL, 0);
   /* Upper aligned DOWN: low PUD bits cleared. */
-  assert((e.est[Q_PAGE_OFFSET].hi & (pud - 1)) == 0);
-  assert(e.est[Q_PAGE_OFFSET].hi <= vd);
-  assert(e.est[Q_PAGE_OFFSET].hi >= vd - sub_pud_offset);
+  assert((po_hi(&e.est[Q_PAGE_OFFSET]) & (pud - 1)) == 0);
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) <= vd);
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) >= vd - sub_pud_offset);
   /* Lower aligned UP: low PUD bits cleared, AND no less restrictive than raw.
    */
-  assert((e.est[Q_PAGE_OFFSET].lo & (pud - 1)) == 0);
+  assert((po_lo(&e.est[Q_PAGE_OFFSET]) & (pud - 1)) == 0);
   unsigned long reach = max_pfn * PAGE_SIZE - (unsigned long)PHYS_OFFSET;
   unsigned long raw_lower = vd - reach;
-  assert(e.est[Q_PAGE_OFFSET].lo >= raw_lower);
-  assert(e.est[Q_PAGE_OFFSET].lo <= raw_lower + (pud - 1));
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) >= raw_lower);
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) <= raw_lower + (pud - 1));
 #else
   /* Arches without RANDOMIZE_MEMORY_ALIGN — no-op. */
 #endif
@@ -6241,7 +6349,7 @@ static void test_randomize_memory_page_offset(void) {
   engine_init(&e);
   struct estimate top;
   quantities[Q_PAGE_OFFSET].init_top(&top);
-  unsigned long po = (top.lo + 0x88000000000ul) & ~((2ul << 20) - 1);
+  unsigned long po = (po_lo(&top) + 0x88000000000ul) & ~((2ul << 20) - 1);
   unsigned long phys = 0x4000000ul;
   /* same-origin VIRT directmap + PHYS, differing by `po`. */
   struct observation v = mk_obs(KASLD_TYPE_VIRT, REGION_DIRECTMAP, po + phys,
@@ -6254,9 +6362,9 @@ static void test_randomize_memory_page_offset(void) {
   evidence_add(&e.ev, &p);
   const rule_fn rules[] = {rule_randomize_memory_page_offset};
   engine_run(&e, rules, 1);
-  if (po >= top.lo && po <= top.hi) {
-    assert(e.est[Q_PAGE_OFFSET].lo == po);
-    assert(e.est[Q_PAGE_OFFSET].hi == po);
+  if (po >= po_lo(&top) && po <= po_hi(&top)) {
+    assert(po_lo(&e.est[Q_PAGE_OFFSET]) == po);
+    assert(po_hi(&e.est[Q_PAGE_OFFSET]) == po);
   }
 #endif
 }
@@ -6316,8 +6424,9 @@ static void test_randomize_memory_page_offset_path2(void) {
   evidence_add(&e.ev, &r);
   const rule_fn rules[] = {rule_randomize_memory_page_offset};
   engine_run(&e, rules, 1);
-  assert(e.est[Q_PAGE_OFFSET].lo == po);
-  assert(e.est[Q_PAGE_OFFSET].hi == po); /* reconstructed exact base, pinned */
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) == po);
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) ==
+         po); /* reconstructed exact base, pinned */
 
   /* Path 2 is a cross-origin heuristic pairing (the lowest directmap sample
    * need not map the lowest RAM base), so it is emitted BELOW the sound floor:
@@ -6335,42 +6444,129 @@ int rule_phys_virt_synth(const struct evidence_set *ev,
                          const struct estimate *est, struct constraint *out,
                          int out_max);
 
-static void test_phys_virt_synth(void) {
+/* The rule needs the physical address the linear map anchors at; the
+ * architecture's LINEAR_MAP_ANCHOR says where that comes from, and one of the
+ * three answers is "nowhere an unprivileged process can look". Gate on the axis
+ * rather than on an arch list, so a header changing its answer moves the tests
+ * with it. The declining arches are covered by
+ * test_phys_virt_synth_declines_without_anchor below. */
+#define PVS_HAS_ANCHOR (LINEAR_MAP_ANCHOR != LM_ANCHOR_UNKNOWABLE)
+
+/* The decline is the soundness property on an LM_ANCHOR_UNKNOWABLE arch
+ * (arm64): the lowest observed RAM base is NOT the linear map's anchor there —
+ * the kernel displaces memstart_addr from it by up to gigabytes, in either
+ * direction — so a candidate built from the DRAM base would put the window past
+ * the truth rather than merely make it wide. Feed the rule the exact evidence
+ * shape that fires elsewhere and assert nothing comes back. */
+static void test_phys_virt_synth_declines_without_anchor(void) {
+#if !PVS_HAS_ANCHOR
   struct engine e;
   engine_init(&e);
   struct estimate top;
   quantities[Q_PAGE_OFFSET].init_top(&top);
-  /* virt_page_offset base in-window for any arch (a window-scaled bump above
-   * the floor, PMD-aligned so it can be a real directmap base), and a phys
-   * address >= PHYS_OFFSET (the rule skips phys below the DRAM base). The
-   * direct-map VA of phys p is po + (p - PHYS_OFFSET); the rule reconstructs
-   * virt_page_offset = v - p + PHYS_OFFSET = po. */
-  const unsigned long pmd_size = 2ul * 1024 * 1024;
-  unsigned long po = top.lo + (po_window_bump(&top) & ~(pmd_size - 1));
-  unsigned long p = (unsigned long)PHYS_OFFSET + 0x4000000ul;
-  unsigned long v = po + (p - (unsigned long)PHYS_OFFSET);
+
+  const unsigned long base = 0x40000000ul; /* a plausible observed DRAM base */
+  unsigned long po = po_admissible(0);
+  unsigned long delta = 0x4000000ul;
+  unsigned long p = base + delta;
+  unsigned long v = po + delta;
+
   struct observation vo =
       mk_obs(KASLD_TYPE_VIRT, REGION_DIRECTMAP, v, LO_SET | SAMPLE_SET,
              POS_INTERIOR, CONF_PARSED);
   snprintf(vo.origin, ORIGIN_LEN, "synth");
-  struct observation d;
-  memset(&d, 0, sizeof(d));
-  d.value_kind = OBS_ADDRESS;
-  d.type = KASLD_TYPE_PHYS;
-  d.region = REGION_RAM;
-  d.lo = p;
-  d.set_mask = LO_SET;
-  d.pos = POS_BASE;
-  d.conf = CONF_PARSED;
-  snprintf(d.origin, ORIGIN_LEN, "synth");
   evidence_add(&e.ev, &vo);
-  evidence_add(&e.ev, &d);
+
+  struct observation pl;
+  memset(&pl, 0, sizeof(pl));
+  pl.value_kind = OBS_ADDRESS;
+  pl.type = KASLD_TYPE_PHYS;
+  pl.region = REGION_RAM;
+  pl.lo = p;
+  pl.set_mask = LO_SET;
+  pl.pos = POS_INTERIOR;
+  pl.conf = CONF_PARSED;
+  snprintf(pl.origin, ORIGIN_LEN, "synth");
+  evidence_add(&e.ev, &pl);
+
+  /* And the DRAM base itself, so the anchor scan would have found one. */
+  struct observation db;
+  memset(&db, 0, sizeof(db));
+  db.value_kind = OBS_ADDRESS;
+  db.type = KASLD_TYPE_PHYS;
+  db.region = REGION_RAM;
+  db.lo = base;
+  db.set_mask = LO_SET;
+  db.pos = POS_BASE;
+  db.conf = CONF_PARSED;
+  snprintf(db.origin, ORIGIN_LEN, "iomem");
+  evidence_add(&e.ev, &db);
+
+  struct constraint out[4];
+  assert(rule_phys_virt_synth(&e.ev, e.est, out, 4) == 0);
+#endif
+}
+
+static void test_phys_virt_synth(void) {
+#if PVS_HAS_ANCHOR
+  struct engine e;
+  engine_init(&e);
+  struct estimate top;
+  quantities[Q_PAGE_OFFSET].init_top(&top);
+  /* Reconstruct virt_page_offset from a same-origin (directmap VA, phys) pair.
+   * The linear map anchors at the DRAM base: __va(p) = po + (p - base). The
+   * rule reads that base from the lowest phys RAM POS_BASE where the
+   * compile-time PHYS_OFFSET is a runtime-patched placeholder (arm32/riscv32),
+   * or from PHYS_OFFSET itself where that is exact (x86_64). Anchor the
+   * evidence on `base` so a build that reads the wrong anchor lands the
+   * candidate off `po` and the pin fails. */
+/* The anchor the rule will use, chosen by the same axis the rule reads. Keying
+ * this on PHYS_OFFSET_EXACT instead is a subtly different question and gets it
+ * wrong on i686 and s390, whose anchor IS the compile-time PHYS_OFFSET while
+ * that constant is not certified exact for them. */
+#if LINEAR_MAP_ANCHOR == LM_ANCHOR_PHYS_OFFSET
+  const unsigned long base = (unsigned long)PHYS_OFFSET;
+#else
+  const unsigned long base = 0x40000000ul; /* a runtime-patched DRAM base */
+#endif
+  unsigned long po = po_admissible(0);
+  unsigned long delta = 0x4000000ul;
+  unsigned long p = base + delta; /* interior phys leak */
+  unsigned long v = po + delta;   /* its direct-map VA: po + (p - base) */
+  struct observation vo =
+      mk_obs(KASLD_TYPE_VIRT, REGION_DIRECTMAP, v, LO_SET | SAMPLE_SET,
+             POS_INTERIOR, CONF_PARSED);
+  snprintf(vo.origin, ORIGIN_LEN, "synth");
+  struct observation pl; /* the paired phys leak (interior, same origin) */
+  memset(&pl, 0, sizeof(pl));
+  pl.value_kind = OBS_ADDRESS;
+  pl.type = KASLD_TYPE_PHYS;
+  pl.region = REGION_RAM;
+  pl.lo = p;
+  pl.set_mask = LO_SET;
+  pl.pos = POS_INTERIOR;
+  pl.conf = CONF_PARSED;
+  snprintf(pl.origin, ORIGIN_LEN, "synth");
+  struct observation db; /* the DRAM base -- the linear-map anchor */
+  memset(&db, 0, sizeof(db));
+  db.value_kind = OBS_ADDRESS;
+  db.type = KASLD_TYPE_PHYS;
+  db.region = REGION_RAM;
+  db.lo = base;
+  db.set_mask = LO_SET;
+  db.pos = POS_BASE;
+  db.conf = CONF_PARSED;
+  snprintf(db.origin, ORIGIN_LEN, "dram");
+  evidence_add(&e.ev, &vo);
+  evidence_add(&e.ev, &pl);
+  evidence_add(&e.ev, &db);
   const rule_fn rules[] = {rule_phys_virt_synth};
   engine_run(&e, rules, 1);
-  if (po >= top.lo && po <= top.hi) {
-    assert(e.est[Q_PAGE_OFFSET].lo == po);
-    assert(e.est[Q_PAGE_OFFSET].hi == po);
+  if (po >= po_lo(&top) && po <= po_hi(&top)) {
+    assert(po_lo(&e.est[Q_PAGE_OFFSET]) == po);
+    assert(po_hi(&e.est[Q_PAGE_OFFSET]) == po);
   }
+#endif
 }
 
 /* Corroboration gate: a single origin's min(directmap)/min(phys) pairing is not
@@ -6379,16 +6575,30 @@ static void test_phys_virt_synth(void) {
  * on the same value corroborate it into the guaranteed window (CONF_DERIVED).
  */
 static void test_phys_virt_synth_corroboration(void) {
-  struct estimate top;
-  quantities[Q_PAGE_OFFSET].init_top(&top);
+#if PVS_HAS_ANCHOR
+  /* Bounding the base from a direct-map leak only means something where the
+   * base can move. On an architecture that admits exactly one, Q_PAGE_OFFSET is
+   * resolved by its own honest top and no bound can narrow it further. */
+  if (po_is_fixed())
+    return;
   const unsigned long pmd = 2ul * 1024 * 1024;
-  unsigned long po = top.lo + (po_window_bump(&top) & ~(pmd - 1));
-  if (po < top.lo || po > top.hi)
-    return; /* window too small on this arch to place a candidate; skip */
-  unsigned long p1 = (unsigned long)PHYS_OFFSET + 0x4000000ul;
-  unsigned long v1 = po + (p1 - (unsigned long)PHYS_OFFSET);
-  unsigned long p2 = (unsigned long)PHYS_OFFSET + 0x8000000ul;
-  unsigned long v2 = po + (p2 - (unsigned long)PHYS_OFFSET);
+  /* An ADMISSIBLE base, not one computed from the window edges. The rule
+   * discards any candidate quantity_admits() rejects, so on a finite-set arch a
+   * base arrived at by arithmetic is thrown away before it can corroborate
+   * anything and the test sees k == 0 — which is the rule working, not
+   * failing. */
+  unsigned long po = po_admissible(0);
+  if (po == 0 || (po & (pmd - 1)) != 0)
+    return; /* no PMD-aligned base to place here; nothing to corroborate */
+  /* Anchor the pairs on the DRAM base (a runtime-patched placeholder where
+   * PHYS_OFFSET is not exact); a separate POS_BASE observation carries it. */
+#if LINEAR_MAP_ANCHOR == LM_ANCHOR_PHYS_OFFSET
+  const unsigned long base = (unsigned long)PHYS_OFFSET;
+#else
+  const unsigned long base = 0x40000000ul;
+#endif
+  unsigned long p1 = base + 0x4000000ul, v1 = po + 0x4000000ul;
+  unsigned long p2 = base + 0x8000000ul, v2 = po + 0x8000000ul;
 
   /* One origin -> heuristic (likely-only). */
   {
@@ -6405,11 +6615,22 @@ static void test_phys_virt_synth_corroboration(void) {
     po1.region = REGION_RAM;
     po1.lo = p1;
     po1.set_mask = LO_SET;
-    po1.pos = POS_BASE;
+    po1.pos = POS_INTERIOR;
     po1.conf = CONF_PARSED;
     snprintf(po1.origin, ORIGIN_LEN, "o1");
+    struct observation db1; /* the DRAM base -- the linear-map anchor */
+    memset(&db1, 0, sizeof(db1));
+    db1.value_kind = OBS_ADDRESS;
+    db1.type = KASLD_TYPE_PHYS;
+    db1.region = REGION_RAM;
+    db1.lo = base;
+    db1.set_mask = LO_SET;
+    db1.pos = POS_BASE;
+    db1.conf = CONF_PARSED;
+    snprintf(db1.origin, ORIGIN_LEN, "dram");
     evidence_add(&e.ev, &vo);
     evidence_add(&e.ev, &po1);
+    evidence_add(&e.ev, &db1);
     struct constraint out[3];
     int k = rule_phys_virt_synth(&e.ev, e.est, out, 3);
     assert(k >= 1);
@@ -6433,7 +6654,7 @@ static void test_phys_virt_synth_corroboration(void) {
       obs[idx].type = KASLD_TYPE_PHYS;
       obs[idx].region = REGION_RAM;
       obs[idx].set_mask = LO_SET;
-      obs[idx].pos = POS_BASE;
+      obs[idx].pos = POS_INTERIOR;
       obs[idx].conf = CONF_PARSED;
     }
     obs[1].lo = p1;
@@ -6442,12 +6663,24 @@ static void test_phys_virt_synth_corroboration(void) {
     snprintf(obs[3].origin, ORIGIN_LEN, "o2");
     for (int i = 0; i < 4; i++)
       evidence_add(&e.ev, &obs[i]);
+    struct observation db; /* the DRAM base -- the linear-map anchor */
+    memset(&db, 0, sizeof(db));
+    db.value_kind = OBS_ADDRESS;
+    db.type = KASLD_TYPE_PHYS;
+    db.region = REGION_RAM;
+    db.lo = base;
+    db.set_mask = LO_SET;
+    db.pos = POS_BASE;
+    db.conf = CONF_PARSED;
+    snprintf(db.origin, ORIGIN_LEN, "dram");
+    evidence_add(&e.ev, &db);
     struct constraint out[3];
     int k = rule_phys_virt_synth(&e.ev, e.est, out, 3);
     assert(k >= 1);
     for (int i = 0; i < k; i++)
       assert(out[i].conf == CONF_DERIVED);
   }
+#endif
 }
 
 /* L5 mis-select guard: with page_offset UNRESOLVED (a windowed floor below the
@@ -6465,8 +6698,7 @@ static void test_x86_64_vmemmap_base_bound_unresolved_po_keeps_l4(void) {
   e.est[Q_VMALLOC_BASE].lo_binding = 1;
   e.est[Q_VMALLOC_BASE].lo_conf = CONF_INFERRED;
   /* Unresolved page_offset: floor below the L4 VAS, but lo != hi. */
-  e.est[Q_PAGE_OFFSET].lo = 0xff00000000000000ul;
-  e.est[Q_PAGE_OFFSET].hi = 0xffffc00000000000ul;
+  po_set(&e.est[Q_PAGE_OFFSET], 0xff00000000000000ul, 0xffffc00000000000ul);
   struct constraint out[4];
   int k = rule_x86_64_vmemmap_base_bound(&e.ev, e.est, out, 4);
   int found = 0;
@@ -6489,6 +6721,7 @@ static void test_x86_64_vmemmap_base_bound_unresolved_po_keeps_l4(void) {
  * pin virt_page_offset to a bogus value. Regression test for the alignment
  * guard. */
 static void test_phys_virt_synth_rejects_misaligned_pair(void) {
+#if PVS_HAS_ANCHOR
   struct engine e;
   engine_init(&e);
   struct estimate top;
@@ -6497,7 +6730,7 @@ static void test_phys_virt_synth_rejects_misaligned_pair(void) {
    * aligned but NOT PMD (2 MiB) aligned: a provably-impossible base. Anchor to
    * the arch's (large-page-aligned) virt_page_offset floor so the test is
    * portable across widths — the alignment guard is width-independent. */
-  unsigned long po_floor = top.lo;
+  unsigned long po_floor = po_lo(&top);
   unsigned long p = (unsigned long)PHYS_OFFSET + 0x100000ul;
   unsigned long v = po_floor + 0x101000ul;
   struct observation vo =
@@ -6519,8 +6752,9 @@ static void test_phys_virt_synth_rejects_misaligned_pair(void) {
   const rule_fn rules[] = {rule_phys_virt_synth};
   engine_run(&e, rules, 1);
   /* Estimate must be untouched — no pin to the misaligned candidate. */
-  assert(e.est[Q_PAGE_OFFSET].lo == top.lo);
-  assert(e.est[Q_PAGE_OFFSET].hi == top.hi);
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) == po_lo(&top));
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) == po_hi(&top));
+#endif
 }
 
 /* Two origins whose candidates agree within one KASLR alignment slot but are
@@ -6531,6 +6765,7 @@ static void test_phys_virt_synth_rejects_misaligned_pair(void) {
  * reports the [lo, hi] window. Exercised per-arch under tests/test-cross, which
  * is where the fixed-arch pin path actually runs. */
 static void test_phys_virt_synth_spread_within_align(void) {
+#if PVS_HAS_ANCHOR
   struct engine e;
   engine_init(&e);
   struct estimate top;
@@ -6542,31 +6777,48 @@ static void test_phys_virt_synth_spread_within_align(void) {
    * the most-aligned candidate via trailing_zeros_ul, and this test asserts
    * po_true wins. Lands strictly inside the floor..top window on every
    * arch / address width. */
-  unsigned long po_true = top.lo + (po_window_bump(&top) & ~((2 * pmd) - 1));
+  /* An ADMISSIBLE base: the rule drops any candidate quantity_admits() rejects,
+   * and on a finite set a base computed from the window edges is not one. Index
+   * 1 rather than 0 so po_alt has room below the window ceiling where the arch
+   * offers a second value; where it does not, po_alt is simply inadmissible and
+   * the rule sees one candidate, which is the branch asserted below. */
+  unsigned long po_true = po_admissible(1);
   unsigned long po_alt = po_true + pmd; /* +2 MiB: less aligned */
-  unsigned long p = (unsigned long)PHYS_OFFSET + 0x4000000ul; /* >= DRAM base */
+  if (po_true == 0 || (po_true & ((2 * pmd) - 1)) != 0)
+    return; /* no 2*PMD-aligned base here: nothing to rank */
+  /* Anchor the pairs on the DRAM base (see test_phys_virt_synth): the phys leak
+   * is interior, a separate POS_BASE observation carries the anchor. */
+#if LINEAR_MAP_ANCHOR == LM_ANCHOR_PHYS_OFFSET
+  const unsigned long base = (unsigned long)PHYS_OFFSET;
+#else
+  const unsigned long base = 0x40000000ul;
+#endif
+  unsigned long delta = 0x4000000ul;
+  unsigned long p = base + delta; /* interior phys leak */
 
   /* Origin A reconstructs po_true; origin B reconstructs po_alt. */
   struct observation va =
-      mk_obs(KASLD_TYPE_VIRT, REGION_DIRECTMAP,
-             po_true + (p - (unsigned long)PHYS_OFFSET), LO_SET | SAMPLE_SET,
-             POS_INTERIOR, CONF_PARSED);
+      mk_obs(KASLD_TYPE_VIRT, REGION_DIRECTMAP, po_true + delta,
+             LO_SET | SAMPLE_SET, POS_INTERIOR, CONF_PARSED);
   snprintf(va.origin, ORIGIN_LEN, "origA");
   struct observation pa =
-      mk_obs(KASLD_TYPE_PHYS, REGION_RAM, p, LO_SET, POS_BASE, CONF_PARSED);
+      mk_obs(KASLD_TYPE_PHYS, REGION_RAM, p, LO_SET, POS_INTERIOR, CONF_PARSED);
   snprintf(pa.origin, ORIGIN_LEN, "origA");
   struct observation vb =
-      mk_obs(KASLD_TYPE_VIRT, REGION_DIRECTMAP,
-             po_alt + (p - (unsigned long)PHYS_OFFSET), LO_SET | SAMPLE_SET,
-             POS_INTERIOR, CONF_PARSED);
+      mk_obs(KASLD_TYPE_VIRT, REGION_DIRECTMAP, po_alt + delta,
+             LO_SET | SAMPLE_SET, POS_INTERIOR, CONF_PARSED);
   snprintf(vb.origin, ORIGIN_LEN, "origB");
   struct observation pb =
-      mk_obs(KASLD_TYPE_PHYS, REGION_RAM, p, LO_SET, POS_BASE, CONF_PARSED);
+      mk_obs(KASLD_TYPE_PHYS, REGION_RAM, p, LO_SET, POS_INTERIOR, CONF_PARSED);
   snprintf(pb.origin, ORIGIN_LEN, "origB");
+  struct observation db =
+      mk_obs(KASLD_TYPE_PHYS, REGION_RAM, base, LO_SET, POS_BASE, CONF_PARSED);
+  snprintf(db.origin, ORIGIN_LEN, "dram");
   evidence_add(&e.ev, &va);
   evidence_add(&e.ev, &pa);
   evidence_add(&e.ev, &vb);
   evidence_add(&e.ev, &pb);
+  evidence_add(&e.ev, &db);
 
   const rule_fn rules[] = {rule_phys_virt_synth};
   engine_run(&e, rules, 1);
@@ -6575,20 +6827,22 @@ static void test_phys_virt_synth_spread_within_align(void) {
    * KASLR_VIRT_ALIGN); Q_VIRT_KASLR_ALIGN is unset in this isolated run, so it
    * is KASLR_VIRT_ALIGN. */
   unsigned long align = (unsigned long)KASLR_VIRT_ALIGN;
-  if (po_alt <= top.hi && pmd <= align) {
+  if (po_alt <= po_hi(&top) && pmd <= align) {
 #if PAGE_OFFSET_FIXED
-    assert(e.est[Q_PAGE_OFFSET].lo == po_true); /* pinned to cleanest/lowest */
-    assert(e.est[Q_PAGE_OFFSET].hi == po_true);
+    assert(po_lo(&e.est[Q_PAGE_OFFSET]) ==
+           po_true); /* pinned to cleanest/lowest */
+    assert(po_hi(&e.est[Q_PAGE_OFFSET]) == po_true);
 #else
-    assert(e.est[Q_PAGE_OFFSET].lo == po_true); /* proven window */
-    assert(e.est[Q_PAGE_OFFSET].hi == po_alt);
+    assert(po_lo(&e.est[Q_PAGE_OFFSET]) == po_true); /* proven window */
+    assert(po_hi(&e.est[Q_PAGE_OFFSET]) == po_alt);
 #endif
   } else {
     /* spread exceeds the arch's align (or out of window): rule bails, untouched
      */
-    assert(e.est[Q_PAGE_OFFSET].lo == top.lo);
-    assert(e.est[Q_PAGE_OFFSET].hi == top.hi);
+    assert(po_lo(&e.est[Q_PAGE_OFFSET]) == po_lo(&top));
+    assert(po_hi(&e.est[Q_PAGE_OFFSET]) == po_hi(&top));
   }
+#endif
 }
 
 /* Soundness guard for the PAGE_OFFSET_FIXED == DIRECTMAP_STATIC unification: on
@@ -6599,6 +6853,7 @@ static void test_phys_virt_synth_spread_within_align(void) {
  * contain it. Inert (no assertion) on a static-direct-map arch, where the
  * cleaner candidate is provably the constant base and pinning is sound. */
 static void test_phys_virt_synth_decoupled_window_contains_lower_truth(void) {
+#if PVS_HAS_ANCHOR
 #if !PAGE_OFFSET_FIXED
   struct engine e;
   engine_init(&e);
@@ -6609,47 +6864,56 @@ static void test_phys_virt_synth_decoupled_window_contains_lower_truth(void) {
   unsigned long align = (unsigned long)KASLR_VIRT_ALIGN;
   /* base2 = a 2*PMD boundary strictly inside the window. */
   unsigned long base2 =
-      (top.lo + po_window_bump(&top) + (2 * pmd - 1)) & ~((2 * pmd) - 1);
+      (po_lo(&top) + po_window_bump(&top) + (2 * pmd - 1)) & ~((2 * pmd) - 1);
   unsigned long truth =
       base2 + pmd; /* PMD-aligned, odd multiple: LESS aligned */
   unsigned long mispair =
       base2 + 2 * pmd; /* 2*PMD-aligned: MORE aligned, +1 slot */
-  unsigned long p = (unsigned long)PHYS_OFFSET + 0x4000000ul;
+#if LINEAR_MAP_ANCHOR == LM_ANCHOR_PHYS_OFFSET
+  const unsigned long base = (unsigned long)PHYS_OFFSET;
+#else
+  const unsigned long base = 0x40000000ul;
+#endif
+  unsigned long delta = 0x4000000ul;
+  unsigned long p = base + delta;
 
   if (pmd > align ||
-      mispair > top.hi) /* arch window/align can't host it: skip */
+      mispair > po_hi(&top)) /* arch window/align can't host it: skip */
     return;
 
   /* origin A reconstructs the true (lower, less-aligned) base; origin B a
-   * cleaner mispair one slot above. */
+   * cleaner mispair one slot above. A separate POS_BASE carries the anchor. */
   struct observation va =
-      mk_obs(KASLD_TYPE_VIRT, REGION_DIRECTMAP,
-             truth + (p - (unsigned long)PHYS_OFFSET), LO_SET | SAMPLE_SET,
-             POS_INTERIOR, CONF_PARSED);
+      mk_obs(KASLD_TYPE_VIRT, REGION_DIRECTMAP, truth + delta,
+             LO_SET | SAMPLE_SET, POS_INTERIOR, CONF_PARSED);
   snprintf(va.origin, ORIGIN_LEN, "origA");
   struct observation pa =
-      mk_obs(KASLD_TYPE_PHYS, REGION_RAM, p, LO_SET, POS_BASE, CONF_PARSED);
+      mk_obs(KASLD_TYPE_PHYS, REGION_RAM, p, LO_SET, POS_INTERIOR, CONF_PARSED);
   snprintf(pa.origin, ORIGIN_LEN, "origA");
   struct observation vb =
-      mk_obs(KASLD_TYPE_VIRT, REGION_DIRECTMAP,
-             mispair + (p - (unsigned long)PHYS_OFFSET), LO_SET | SAMPLE_SET,
-             POS_INTERIOR, CONF_PARSED);
+      mk_obs(KASLD_TYPE_VIRT, REGION_DIRECTMAP, mispair + delta,
+             LO_SET | SAMPLE_SET, POS_INTERIOR, CONF_PARSED);
   snprintf(vb.origin, ORIGIN_LEN, "origB");
   struct observation pb =
-      mk_obs(KASLD_TYPE_PHYS, REGION_RAM, p, LO_SET, POS_BASE, CONF_PARSED);
+      mk_obs(KASLD_TYPE_PHYS, REGION_RAM, p, LO_SET, POS_INTERIOR, CONF_PARSED);
   snprintf(pb.origin, ORIGIN_LEN, "origB");
+  struct observation db =
+      mk_obs(KASLD_TYPE_PHYS, REGION_RAM, base, LO_SET, POS_BASE, CONF_PARSED);
+  snprintf(db.origin, ORIGIN_LEN, "dram");
   evidence_add(&e.ev, &va);
   evidence_add(&e.ev, &pa);
   evidence_add(&e.ev, &vb);
   evidence_add(&e.ev, &pb);
+  evidence_add(&e.ev, &db);
 
   const rule_fn rules[] = {rule_phys_virt_synth};
   engine_run(&e, rules, 1);
 
   /* The proven window spans both candidates; the lower (true) base is its
    * floor, NOT excluded by a snap up to the cleaner mispair. */
-  assert(e.est[Q_PAGE_OFFSET].lo == truth);
-  assert(e.est[Q_PAGE_OFFSET].hi == mispair);
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) == truth);
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) == mispair);
+#endif
 #endif
 }
 
@@ -6741,7 +7005,7 @@ static void test_arm64_memstart_align(void) {
   struct estimate top;
   quantities[Q_PAGE_OFFSET].init_top(&top);
   unsigned long v =
-      top.lo + 0x40123000ul; /* a directmap addr above the floor */
+      po_lo(&top) + 0x40123000ul; /* a directmap addr above the floor */
   struct observation ps = mk_scalar(SF_PAGE_SIZE, 4096ul, CONF_PARSED);
   struct observation d = mk_obs(KASLD_TYPE_VIRT, REGION_DIRECTMAP, v,
                                 LO_SET | SAMPLE_SET, POS_INTERIOR, CONF_PARSED);
@@ -6751,11 +7015,11 @@ static void test_arm64_memstart_align(void) {
   engine_run(&e, rules, 1);
 #if defined(__aarch64__)
   unsigned long expect = v & ~((1024ul * 1024 * 1024) - 1);
-  if (expect > top.lo && expect < top.hi)
-    assert(e.est[Q_PAGE_OFFSET].hi == expect);
+  if (expect > po_lo(&top) && expect < po_hi(&top))
+    assert(po_hi(&e.est[Q_PAGE_OFFSET]) == expect);
 #else
-  assert(e.est[Q_PAGE_OFFSET].hi == top.hi &&
-         e.est[Q_PAGE_OFFSET].lo == top.lo);
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) == po_hi(&top) &&
+         po_lo(&e.est[Q_PAGE_OFFSET]) == po_lo(&top));
 #endif
 }
 
@@ -6988,6 +7252,35 @@ static void test_module_text_bound_ignores_range_classified(void) {
   engine_run(&e, rules, 2);
   assert(e.est[Q_VIRT_IMAGE_BASE].lo == bare_lo);
   assert(e.est[Q_VIRT_IMAGE_BASE].hi == bare_hi);
+}
+
+/* The lower bound, hoisted out of the upper-bound #if: on both
+ * MODULES_RELATIVE_TO_TEXT arches the module band ENDS at the image start, so a
+ * module address floors the text base. Emitted on s390 (Case B) but discarded
+ * on riscv64 (Case A) until the split. A module placed 64 MiB below a chosen
+ * text base must raise the floor to at-or-below that base (contains the truth)
+ * and strictly above the untouched floor (the bound fired). The riscv64 path
+ * runs under tests/test-cross; the inert case is covered by
+ * test_module_text_bound. */
+static void test_module_text_bound_floor_from_high_edge(void) {
+#if MODULES_RELATIVE_TO_TEXT
+  struct engine e;
+  engine_init(&e);
+  struct estimate top;
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
+  unsigned long truth = kasld_ceil_text_base(top.lo + 0x8000000ul);
+  if (truth <= top.lo + 0x4000000ul)
+    return; /* window too small to place a module below the base */
+  unsigned long vmod = truth - 0x4000000ul; /* a module 64 MiB below _text */
+  struct observation m = mk_obs(KASLD_TYPE_VIRT, REGION_MODULE, vmod,
+                                LO_SET | SAMPLE_SET, POS_INTERIOR, CONF_PARSED);
+  evidence_add(&e.ev, &m);
+  const rule_fn rules[] = {rule_kaslr_align_arch_default,
+                           rule_module_text_bound};
+  engine_run(&e, rules, 2);
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo <= truth); /* contains the truth */
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo > top.lo); /* floor rose: bound fired */
+#endif
 }
 
 /* The kernel prints its own module-region start in the mem_init() layout block,
@@ -7343,6 +7636,15 @@ static void test_text_base_coupling_synth_virt_to_phys(void) {
   struct observation v = mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, vtext,
                                 LO_SET, POS_BASE, CONF_PARSED);
   evidence_add(&e.ev, &v);
+  /* text_base_coupling_synth anchors the phys<->virt map at the observed DRAM
+   * base, not the compile-time PHYS_OFFSET, so give it one — at PHYS_OFFSET,
+   * where the invariant test arches (mips, ppc64, loongarch64) actually place
+   * DRAM, so the projection is unchanged from PHYS_OFFSET and the assertions
+   * below still hold. */
+  struct observation dram =
+      mk_obs(KASLD_TYPE_PHYS, REGION_RAM, (unsigned long)PHYS_OFFSET,
+             LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
+  evidence_add(&e.ev, &dram);
   const rule_fn rules[] = {rule_page_offset_invariant_pin,
                            rule_text_pin_from_observation,
                            rule_text_base_coupling_synth};
@@ -7369,6 +7671,11 @@ static void test_text_base_coupling_synth_phys_to_virt(void) {
   struct observation p = mk_obs(KASLD_TYPE_PHYS, REGION_KERNEL_TEXT, ptext,
                                 LO_SET, POS_BASE, CONF_PARSED);
   evidence_add(&e.ev, &p);
+  /* DRAM base for the coupling anchor; see the virt_to_phys test above. */
+  struct observation dram =
+      mk_obs(KASLD_TYPE_PHYS, REGION_RAM, (unsigned long)PHYS_OFFSET,
+             LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
+  evidence_add(&e.ev, &dram);
   const rule_fn rules[] = {rule_page_offset_invariant_pin,
                            rule_text_pin_from_observation,
                            rule_text_base_coupling_synth};
@@ -7383,8 +7690,12 @@ static void test_text_base_coupling_synth_phys_to_virt(void) {
 }
 
 static void test_text_base_coupling_synth_no_page_offset_pin_inert(void) {
-  /* Without a pinned Q_PAGE_OFFSET the rule cannot project anything,
-   * even when virt text is pinned. */
+  /* Without a pinned Q_PAGE_OFFSET the rule cannot project anything, even when
+   * virt text is pinned. Not askable of an architecture that admits exactly one
+   * base: there Q_PAGE_OFFSET is resolved by its own honest top, before any
+   * rule runs, so "not pinned" is not a state the engine can be in. */
+  if (po_is_fixed())
+    return;
   struct engine e;
   engine_init(&e);
   struct estimate ptop;
@@ -7402,9 +7713,9 @@ static void test_text_base_coupling_synth_no_page_offset_pin_inert(void) {
 }
 
 static void test_text_base_coupling_synth_no_obs_soundness(void) {
-  /* With no text observations the rule may still project the architectural
-   * honest tops across the coupling (sound — the arch's KASLR window IS a
-   * constraint), but it must never resolve a quantity to bottom. */
+  /* With no observations the rule declines (it now anchors on an observed DRAM
+   * base, absent here), so it must leave both quantities at their honest tops
+   * and never resolve one to bottom. */
   struct engine e;
   engine_init(&e);
   struct estimate vtop, ptop;
@@ -7443,14 +7754,90 @@ static void test_ppc32_phys_ceiling(void) {
 #if defined(__powerpc__) && !defined(__powerpc64__)
   assert(e.est[Q_VIRT_IMAGE_BASE].lo >= top.lo &&
          e.est[Q_VIRT_IMAGE_BASE].hi <= top.hi); /* narrowed-or-equal */
+  /* The ceiling is a PHYSICAL span carried into virtual space, so it must land
+   * at or above the highest linear-map base the target could have — an
+   * unrandomised kernel already sits there, and no ceiling below it can be
+   * right. Deriving it from the architecture's text FLOOR instead satisfies
+   * this only while the architecture admits a single base; the moment it admits
+   * more, the ceiling drops by the width of the bracket and the guaranteed
+   * window excludes the true text base. Inert as a discriminator today, since
+   * ppc32's floor and its highest base coincide — it exists to bite whoever
+   * widens that bracket. */
+  unsigned long po_lo = 0, po_hi = 0;
+  quantity_window(Q_PAGE_OFFSET, &e.est[Q_PAGE_OFFSET], &po_lo, &po_hi);
+  assert(e.est[Q_VIRT_IMAGE_BASE].hi >= po_hi);
 #else
   assert(e.est[Q_VIRT_IMAGE_BASE].lo == top.lo &&
          e.est[Q_VIRT_IMAGE_BASE].hi == top.hi); /* inert */
 #endif
 }
 
+/* arm64's VA_BITS constants must agree with each other. The probe walks
+ * VA_BITS_CANDIDATES directly, so the ladder cannot drift from the set — but
+ * the validator's pre-resolution ceiling is a separate constant, and it is only
+ * meaningful if it names a width the architecture actually admits. A value
+ * outside the set would draw the accepting band at a boundary no kernel has,
+ * silently, and nothing else would notice. */
+static void test_arm64_va_bits_constants_agree(void) {
+#if defined(__aarch64__)
+  static const unsigned long cands[] = VA_BITS_CANDIDATES;
+  const int n = (int)(sizeof(cands) / sizeof(cands[0]));
+  int found = 0, sorted = 1;
+  for (int i = 0; i < n; i++) {
+    if (cands[i] == (unsigned long)ARM64_VA_BITS_VALIDATE_MIN)
+      found = 1;
+    if (i && cands[i] <= cands[i - 1])
+      sorted = 0;
+  }
+  assert(found);  /* the validator ceiling names a real width */
+  assert(sorted); /* smallest first, no duplicates — the probe walks it in
+                   * reverse and relies on that order */
+  /* The knob is a filter, not a support boundary: it may sit above the smallest
+   * candidate, and today it deliberately does. Assert the direction only. */
+  assert((unsigned long)ARM64_VA_BITS_VALIDATE_MIN >= cands[0]);
+#endif
+}
+
 /* riscv64 non-EFI: FDT kaslr-seed + image size pins the text base (Path 1).
  * Assert it pins within [KERNEL_LINK_ADDR, +1 GiB). */
+/* A readable /chosen/kaslr-seed alongside a positive KASLR-disabled signal: the
+ * bootloader wrote a seed and `nokaslr` stopped the kernel consuming it, so the
+ * slot arithmetic describes a placement that never happened. The rule must
+ * decline outright — deriving here pinned the base to a fresh wrong address
+ * every boot, which is how a live riscv64 nokaslr cell reported its truth
+ * OUTSIDE a pinned window. Truth is the compile-time default, which
+ * virt_kaslr_disabled_pin supplies; this test only requires that the seed rule
+ * add nothing. */
+static void test_riscv64_fdt_kaslr_seed_declines_when_kaslr_off(void) {
+  struct estimate top;
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
+  const rule_fn rules[] = {rule_riscv64_fdt_kaslr_seed};
+  const unsigned long ksize = 0x1900000ul; /* 25 MiB, as above */
+
+  static struct engine e;
+  engine_init(&e);
+  struct observation seed =
+      mk_scalar(SF_FDT_KASLR_SEED, 0x12345678ul, CONF_PARSED);
+  struct observation efi = mk_scalar(SF_EFI_PRESENT, 0ul, CONF_PARSED);
+  struct observation smin = mk_scalar(SF_IMAGE_SIZE_MIN, ksize, CONF_PARSED);
+  struct observation smax = mk_scalar(SF_IMAGE_SIZE_MAX, ksize, CONF_PARSED);
+  struct observation off = mk_scalar(SF_VIRT_KASLR_DISABLED, 1ul, CONF_PARSED);
+  evidence_add(&e.ev, &seed);
+  evidence_add(&e.ev, &efi);
+  evidence_add(&e.ev, &smin);
+  evidence_add(&e.ev, &smax);
+  evidence_add(&e.ev, &off);
+
+  /* Called directly as well as through the engine: the estimate staying at its
+   * top could also mean a constraint was emitted and then dropped, and what
+   * this pins down is that none is emitted at all. */
+  struct constraint out[4];
+  assert(rule_riscv64_fdt_kaslr_seed(&e.ev, e.est, out, 4) == 0);
+  engine_run(&e, rules, 1);
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo == top.lo &&
+         e.est[Q_VIRT_IMAGE_BASE].hi == top.hi);
+}
+
 static void test_riscv64_fdt_kaslr_seed(void) {
   struct estimate top;
   quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
@@ -7650,7 +8037,7 @@ static void test_riscv64_text_base_legacy(void) {
   const rule_fn rules[] = {rule_lobound_page_offset, rule_riscv64_text_base,
                            rule_module_text_bound};
   engine_run(&e, rules, 3);
-  assert(e.est[Q_PAGE_OFFSET].lo ==
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) ==
          legacy_po); /* resolved to the legacy value */
   int floor_found = 0, modern_pin = 0;
   unsigned long want_floor = (unsigned long)RISCV_LEGACY_PAGE_OFFSET +
@@ -7699,7 +8086,8 @@ static void test_riscv64_text_base_modern(void) {
   evidence_add(&e.ev, &po);
   const rule_fn rules[] = {rule_cap_page_offset, rule_riscv64_text_base};
   engine_run(&e, rules, 2);
-  assert(e.est[Q_PAGE_OFFSET].hi < (unsigned long)RISCV_LEGACY_PAGE_OFFSET);
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) <
+         (unsigned long)RISCV_LEGACY_PAGE_OFFSET);
   int pinned = 0;
   for (int i = 0; i < e.n_constraints; i++) {
     const struct constraint *c = &e.constraints[i];
@@ -7733,11 +8121,12 @@ static void test_page_offset_from_landmark_window(void) {
    * UPPER pair, not a C_EQUALS pin on the low edge. Assert on the emitted
    * constraints directly, so the check is independent of the engine's
    * page-offset alignment (which rounds a resolved edge on coarser arches). */
-  /* Offset from top.lo so the anchor is non-zero even on identity-map arches
-   * where page_offset == 0 (s390): the rule skips a zero-valued landmark. */
+  /* Offset from po_lo(&top) so the anchor is non-zero even on identity-map
+   * arches where page_offset == 0 (s390): the rule skips a zero-valued
+   * landmark. */
   unsigned long bump = po_window_bump(&top);
-  unsigned long lo = top.lo + bump;
-  unsigned long hi = top.lo + 2 * bump; /* distinct from lo */
+  unsigned long lo = po_lo(&top) + bump;
+  unsigned long hi = po_lo(&top) + 2 * bump; /* distinct from lo */
   struct observation w = mk_obs(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, lo,
                                 LO_SET | HI_SET, POS_BASE, CONF_PARSED);
   w.hi = hi;
@@ -7849,6 +8238,7 @@ int main(void) {
 
   BEGIN_CATEGORY("DRAM bounds");
   RUN(test_dram_floor_bound);
+  RUN(test_page_offset_text_floor);
   RUN(test_dram_floor_ignores_non_ram_dram_regions);
   RUN(test_dram_floor_no_dram);
   RUN(test_dram_ceiling);
@@ -7913,6 +8303,7 @@ int main(void) {
   RUN(test_cmdline_mem_virt_ceiling_no_highmem_wrap);
   RUN(test_riscv64_va_bits_pin);
   RUN(test_vmsplit_text_base);
+  RUN(test_vmsplit_text_base_unlisted_split_admitted);
   RUN(test_vmsplit_text_base_nondefault_offset);
   RUN(test_cmdline_memmap_phys_exclude);
   RUN(test_cmdline_memmap_no_image_size);
@@ -7958,6 +8349,7 @@ int main(void) {
   RUN(test_module_text_bracket_ignores_range_classified);
   RUN(test_module_text_bracket_real_arm64_witness);
   RUN(test_module_text_bound_ignores_range_classified);
+  RUN(test_module_text_bound_floor_from_high_edge);
   RUN(test_module_base_pinned_by_region_landmark);
   RUN(test_module_base_upper_from_observation);
   RUN(test_module_base_ignores_range_classified);
@@ -7998,6 +8390,7 @@ int main(void) {
   RUN(test_phys_virt_synth_rejects_misaligned_pair);
   RUN(test_phys_virt_synth_spread_within_align);
   RUN(test_phys_virt_synth_decoupled_window_contains_lower_truth);
+  RUN(test_phys_virt_synth_declines_without_anchor);
 
   BEGIN_CATEGORY("x86_64-specific rules");
   RUN(test_x86_32_vmsplit_ceiling);
@@ -8050,6 +8443,7 @@ int main(void) {
 
   BEGIN_CATEGORY("riscv64-specific rules");
   RUN(test_riscv64_fdt_kaslr_seed);
+  RUN(test_riscv64_fdt_kaslr_seed_declines_when_kaslr_off);
   RUN(test_riscv64_non_efi_phys_base);
   RUN(test_riscv64_text_base_legacy);
   RUN(test_riscv64_text_base_modern);
@@ -8091,6 +8485,7 @@ int main(void) {
 
   BEGIN_CATEGORY("ppc-specific rules");
   RUN(test_ppc32_phys_ceiling);
+  RUN(test_arm64_va_bits_constants_agree);
   RUN(test_ppc64_firmware_ceiling);
 
   return TEST_DONE();

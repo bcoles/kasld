@@ -4,7 +4,8 @@
 //
 // A component that leaks both a
 // direct-map virtual address and a physical DRAM address pins the direct-map
-// base: virt_page_offset = virt - phys + PHYS_OFFSET. Grouping by origin and
+// base: virt_page_offset = virt - phys + phys_base (the linear map's physical
+// anchor — see the anchor note below). Grouping by origin and
 // taking each origin's min(directmap virt) / min(phys DRAM) yields one
 // candidate per origin; when all candidates agree within one KASLR alignment
 // slot the result is trustworthy. On a static-direct-map arch
@@ -16,6 +17,16 @@
 // placement (arm64 memstart_addr, riscv64 kernel_map.page_offset, s390
 // __identity_base) — the cleanest candidate is NOT guaranteed to be the base,
 // so the proven [min_cand, max_cand] window is reported instead.
+//
+// Anchor: phys_base is the physical address the kernel maps at page_offset, and
+// where to read it is the architecture's LINEAR_MAP_ANCHOR answer (api.h).
+// LM_ANCHOR_PHYS_OFFSET arches supply it as the compile-time constant; on
+// LM_ANCHOR_DRAM_BASE arches the kernel sets it from the base of DRAM at boot,
+// so it is read from evidence as the lowest phys RAM POS_BASE and the rule
+// declines when none was observed. LM_ANCHOR_UNKNOWABLE arches (arm64) get no
+// derivation at all — the anchor is displaced from DRAM by an amount nothing
+// unprivileged recovers, so a candidate built from the DRAM base is not merely
+// imprecise but wrong by up to gigabytes, in either direction.
 //
 // This is the mechanism that reconstructs the EXACT randomized virt_page_offset
 // on a live x86_64 (RANDOMIZE_MEMORY) host from a directmap leak — far tighter
@@ -46,6 +57,9 @@
  * the cleanest (most large-page-aligned) candidate is the true direct-map base,
  * since a mispaired (v,p) only clears the 2 MiB PMD minimum, never the arch's
  * full PAGE_OFFSET alignment. */
+/* Only the live branch uses this; on an UNKNOWABLE-anchor arch the rule
+ * declines before any of it runs, and an unused static would warn. */
+#if LINEAR_MAP_ANCHOR != LM_ANCHOR_UNKNOWABLE
 static int trailing_zeros_ul(unsigned long v) {
   int n = 0;
   if (v == 0)
@@ -56,12 +70,26 @@ static int trailing_zeros_ul(unsigned long v) {
   }
   return n;
 }
+#endif
 
 int rule_phys_virt_synth(const struct evidence_set *ev,
                          const struct estimate *est, struct constraint *out,
                          int out_max) {
   if (out_max < 1)
     return 0;
+
+#if LINEAR_MAP_ANCHOR == LM_ANCHOR_UNKNOWABLE
+  /* The architecture places the linear map's physical anchor where no
+   * unprivileged observation can find it, so the whole derivation is
+   * unavailable and the rule declines. See LINEAR_MAP_ANCHOR in api.h for what
+   * the anchor is and why arm64's cannot be recovered; there is no sound
+   * one-sided bound to fall back on, because its displacement has no fixed
+   * direction. */
+  (void)ev;
+  (void)est;
+  (void)out;
+  return 0;
+#else
 
   struct {
     char origin[ORIGIN_LEN];
@@ -99,6 +127,27 @@ int rule_phys_virt_synth(const struct evidence_set *ev,
       og[j].pmin = a;
   }
 
+  /* The anchor, from wherever this architecture keeps it (LINEAR_MAP_ANCHOR).
+   */
+#if LINEAR_MAP_ANCHOR == LM_ANCHOR_PHYS_OFFSET
+  const unsigned long lm_base = (unsigned long)PHYS_OFFSET;
+#else /* LM_ANCHOR_DRAM_BASE */
+  /* The kernel set the anchor from the base of DRAM, so the lowest observed RAM
+   * base names it — and the rule declines when none was observed rather than
+   * guessing, since the pairing delta is then unknowable.
+   *
+   * Residual exposure, worth stating because it is the only one left: an
+   * emitter reporting a bank the KERNEL did not take would put the anchor below
+   * the real one, and low is the dangerous direction, since the pin below is
+   * C_EQUALS. evidence_lowest_dram_base() reads REGION_RAM POS_BASE only —
+   * the kernel's own account of its memory, not firmware's account of the
+   * board — and is the same accessor dram_floor_bound trusts as a floor, so no
+   * two rules can disagree about where DRAM starts. */
+  unsigned long lm_base = 0;
+  if (!evidence_lowest_dram_base(ev, &lm_base, NULL, NULL))
+    return 0;
+#endif
+
   const struct estimate *po = &est[Q_PAGE_OFFSET];
   unsigned long cand_lo = ULONG_MAX, cand_hi = 0;
   unsigned long best = 0; /* most-aligned candidate (the true base) */
@@ -108,13 +157,11 @@ int rule_phys_virt_synth(const struct evidence_set *ev,
     unsigned long v = og[j].vmin, p = og[j].pmin;
     if (v == ULONG_MAX || p == ULONG_MAX)
       continue;
-#if PHYS_OFFSET
-    if (p < (unsigned long)PHYS_OFFSET) /* below the DRAM base: not a leak */
+    if (p < lm_base) /* below the linear-map base: not a real directmap leak */
       continue;
-#endif
     if (v < p)
       continue;
-    unsigned long cand = v - p + (unsigned long)PHYS_OFFSET;
+    unsigned long cand = v - p + lm_base;
     /* virt_page_offset (the direct-map base) is large-page aligned on every
      * supported arch — x86_64 RANDOMIZE_MEMORY aligns it to PUD_SIZE (1 GiB),
      * and every other arch's PAGE_OFFSET is at least PMD-aligned. A candidate
@@ -197,4 +244,5 @@ int rule_phys_virt_synth(const struct evidence_set *ev,
   }
 #endif
   return n;
+#endif /* anchor available */
 }

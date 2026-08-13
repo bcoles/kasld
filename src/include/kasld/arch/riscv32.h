@@ -26,6 +26,14 @@
 // guaranteed runtime value (no VMSPLIT/SATP/paging-mode dependency on
 // riscv32), so Q_PAGE_OFFSET is pinnable without evidence — same shape
 // as mips32/64 and ppc32/64. Unlocks text_base_coupling_synth.
+// LINEAR_MAP_ANCHOR: kernel_map.va_pa_offset = PAGE_OFFSET - phys_ram_base
+// with phys_ram_base = memblock_start_of_DRAM() & PMD_MASK, so the anchor
+// IS the base of DRAM (rounded down to a 2 MiB boundary — equal on every
+// platform, whose DRAM base is PMD-aligned; where it is not, the candidate
+// lands off a large-page boundary and the consumer's alignment check drops
+// it rather than trusting it).
+// arch/riscv/mm/init.c setup_bootmem()
+#define LINEAR_MAP_ANCHOR LM_ANCHOR_DRAM_BASE
 #define DIRECTMAP_STATIC 1
 #define TEXT_TRACKS_DIRECTMAP 1
 #define PAGE_OFFSET_INVARIANT 1
@@ -59,14 +67,15 @@
 // PAGE_OFFSET_INVARIANT, so the re-derivation the flag enables is a no-op
 // here -- it declares the relation, it does not predict movement.
 // https://elixir.bootlin.com/linux/v7.2/source/arch/riscv/include/asm/pgtable.h
-#define MODULES_RELATIVE_TO_PAGE_OFFSET 1
 #define MODULES_START_FOR(po) ((po) - 0x20000000ul)
 #define MODULES_END_FOR(po) (po)
 // Instantiated at the lowest admissible split, per the union rule in api.h;
 // riscv32 has only one, so this is PAGE_OFFSET spelled as the rule requires.
+// Where the module band is anchored: a fixed delta from PAGE_OFFSET, so a
+// runtime VMSPLIT moves the band with it.
+#define MODULES_ANCHOR MOD_ANCHOR_PAGE_OFFSET
 #define MODULES_START MODULES_START_FOR(KERNEL_VIRT_VAS_START)
 #define MODULES_END MODULES_END_FOR(PAGE_OFFSET)
-#define MODULES_RELATIVE_TO_TEXT 0
 
 // https://elixir.bootlin.com/linux/v6.2-rc2/source/arch/riscv/include/asm/efi.h#L41
 #define IMAGE_ALIGN (4 * MB)

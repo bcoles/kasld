@@ -1,24 +1,40 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
-// Find start of kernel virtual address space (CONFIG_PAGE_OFFSET)
-// on 32-bit systems by mapping a page at 0x10000000 increments
-// across the entire 32-bit address space (until failure).
+// Find the start of the kernel virtual address space on 32-bit systems by
+// locating the lowest page that will not map.
 //
-// Usually vmsplit is located at 3GB (0xc0000000) on 32-bit systems;
-// however, embedded systems may make use of a lower vmsplit.
+// mmap refuses any address at or above TASK_SIZE, so the boundary can be
+// measured from an unprivileged process: binary-search between an address the
+// kernel itself handed out (mappable, therefore below the boundary) and the
+// top of the 32-bit address space (never mappable), and the search converges on
+// TASK_SIZE itself in about twenty probes.
 //
-// The sweep steps 256 MiB, so it returns the split rounded UP to that stride.
-// On x86_32 the mmap split IS PAGE_OFFSET exactly (TASK_SIZE == __PAGE_OFFSET),
-// so the last-mapped and first-unmapped steps bracket PAGE_OFFSET in a SOUND
-// 256 MiB band (emitted at inferred confidence, TASK_SIZE_IS_PAGE_OFFSET), on
-// top of the rounded best-guess emitted at heuristic confidence.
+// TASK_SIZE is not PAGE_OFFSET on every architecture, so what is emitted
+// depends on the relation the architecture fixes:
+//
+//   TASK_SIZE == PAGE_OFFSET (x86_32) — the measurement IS the linear-map base,
+//     emitted as an exact value.
+//   TASK_SIZE < PAGE_OFFSET (arm32 leaves a 16 MiB module band, ppc32 a smaller
+//     gap, riscv32 the whole fixmap/PCI-IO/vmemmap stack) — the measurement is
+//     a LOWER bound on PAGE_OFFSET, emitted as the window it proves. Where the
+//     split is also a build-time choice, the boundary rounded up to the VMSPLIT
+//     stride is added as a best guess at the likely tier.
+//
+// Usually the split is at 3 GiB (0xc0000000); embedded and 2G/2G distribution
+// kernels use a lower one.
+//
+// The search never displaces a live mapping (MAP_FIXED_NOREPLACE) and runs in a
+// forked child, so neither a kernel that ignores the flag nor an unmodelled
+// failure can damage the address space of the process doing the reporting.
+// Where the flag is not honoured (pre-v4.17) a page-granular search is not
+// possible and the coarse 256 MiB sweep supplies the best guess alone.
 //
 // Leak primitive:
 //   Data leaked:      kernel/user address space split point
 //   (CONFIG_PAGE_OFFSET) Kernel subsystem: mm — mmap syscall (virtual address
 //   space probing) Data structure:   kernel virtual address space boundary
 //   Address type:     virtual (kernel VAS start)
-//   Method:           brute (mmap sweep across the 32-bit address space)
+//   Method:           brute (mmap search across the 32-bit address space)
 //   Status:           unfixed (fundamental to 32-bit VM split design)
 //   Access check:     none (mmap syscall, unprivileged)
 //   Source:           N/A (architectural inference — no specific kernel
@@ -39,102 +55,139 @@
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
 #include "include/kasld/cli.h"
-#include <errno.h>
+#include "include/kasld/task_size.h"
+#include <limits.h>
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <sys/mman.h>
-#include <unistd.h>
 
-KASLD_EXPLAIN("Probes the 32-bit address space by attempting mmap at 256 MiB "
-              "increments until mapping fails. The first unmappable address is "
-              "the kernel/user virtual address split (CONFIG_PAGE_OFFSET). "
-              "32-bit only. No privilege or sysctl gate; the split is a "
-              "fundamental architectural property.");
+KASLD_EXPLAIN(
+    "Binary-searches the 32-bit address space for the lowest page that mmap "
+    "refuses, which is the kernel/user virtual address split (TASK_SIZE). On "
+    "x86_32 that address is CONFIG_PAGE_OFFSET exactly; elsewhere it is a "
+    "lower "
+    "bound on it, and the boundary rounded up to the VMSPLIT stride is the "
+    "best "
+    "guess. Uses MAP_FIXED_NOREPLACE so an occupied address is reported rather "
+    "than overwritten, and runs the search in a forked child so no probe can "
+    "disturb the address space it reports from; falls back to a coarse sweep "
+    "for the best guess alone where the kernel does not honour the flag "
+    "(pre-v4.17). 32-bit only. No privilege or sysctl gate; the split is a "
+    "fundamental architectural property.");
 
 KASLD_META("method:brute\n"
            "phase:probing\n"
            "live:1\n"
            "addr:virtual\n");
 
-/* Sweep the low 32-bit address space in 256 MiB steps. Return the first address
- * that will not map — the user/kernel split, where mmap rejects addr +
- * PAGE_SIZE > TASK_SIZE — and set *last_ok to the highest step that DID map
- * (strictly below the split). Returns 0 if the split was not located.
- *
- * MAP_FIXED (not MAP_FIXED_NOREPLACE): the latter is a Linux 4.17+ flag,
- * silently ignored as a plain hint on older kernels — mmap would then no longer
- * FAIL past TASK_SIZE and the sweep would run off the end. 32-bit targets
- * include pre-4.17 kernels, so the forcible flag is required. The 256 MiB
- * stride keeps every probe well below the stack (STACK_TOP == TASK_SIZE), so no
- * live mapping is clobbered. */
-static unsigned long find_kernel_address_space_start(unsigned long *last_ok) {
-  unsigned long i, prev = 0;
-  kasld_info("searching 32-bit address space for kernel virtual address space "
-             "start ...");
-
-  for (i = 0x10000000; i < 0xf0000000; i += 0x10000000) {
-    if (mmap((void *)i, PAGE_SIZE, PROT_READ,
-             MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0) == MAP_FAILED) {
-      *last_ok = prev;
-      return i;
-    }
-    munmap((void *)i, PAGE_SIZE);
-    prev = i;
-  }
-
-  kasld_err("Could not locate kernel virtual address space");
-  kasld_disposition(DISP_INCONCLUSIVE, NULL,
-                    "no user/kernel split found in the 32-bit sweep");
-  return 0;
+/* Compiled under exactly the conditions main() reaches it: a 32-bit build, on
+ * an architecture that admits more than one linear-map base. */
+#if !defined(__LP64__) && !defined(_LP64) && PAGE_OFFSET_MIN != PAGE_OFFSET_MAX
+/* The boundary rounded UP to the VMSPLIT stride: the best guess at PAGE_OFFSET
+ * where the two differ by less than one stride. Exact for every 256
+ * MiB-aligned VMSPLIT; an over-estimate for the rare x86 VMSPLIT_2G_OPT
+ * (0x78000000), which the exact tier covers on that architecture anyway. */
+static unsigned long round_to_stride(unsigned long addr) {
+  if (addr > ULONG_MAX - (KASLD_VMSPLIT_STRIDE - 1))
+    return addr;
+  return (addr + KASLD_VMSPLIT_STRIDE - 1) & ~(KASLD_VMSPLIT_STRIDE - 1);
 }
+#endif
 
 int main(void) {
   if (kasld_skip_live_probe("VMSPLIT mmap"))
     return 0;
   /* Live mmap probe of the running VA space. */
-  unsigned long last_ok = 0;
-  unsigned long addr = find_kernel_address_space_start(&last_ok);
-  if (!addr)
+#if defined(__LP64__) || defined(_LP64)
+  /* A 64-bit build cannot apply the 32-bit user/kernel split search -- the two
+   * halves of the address space are astronomically apart and the top page is
+   * past no boundary. Provably inapplicable, so it is absent (exit 69), not an
+   * unexplained no_result -- the same disposition this file gives the 32-bit
+   * binary on a 64-bit kernel below. */
+  return kasld_disp_absent("a 64-bit build cannot measure a 32-bit VMSPLIT");
+#else
+  unsigned long addr = 0;
+  int exact = 0;
+
+  kasld_info("searching 32-bit address space for kernel virtual address space "
+             "start ...");
+  switch (kasld_task_size_probe(&addr)) {
+  case KASLD_TS_EXACT:
+    exact = 1;
+    break;
+  case KASLD_TS_APPROX:
+    kasld_info("mmap does not honour MAP_FIXED_NOREPLACE (pre-v4.17); the "
+               "split is located by hint placement, best-guess only");
+    break;
+  case KASLD_TS_POROUS:
+    kasld_info("addresses above %lx still map, so it is a gap rather than the "
+               "split; best-guess only",
+               addr);
+    break;
+  case KASLD_TS_NOT_FOUND:
+    kasld_err("Could not locate kernel virtual address space");
+    kasld_disposition(DISP_INCONCLUSIVE, NULL,
+                      "no user/kernel split found in the 32-bit sweep");
     return 0;
+  case KASLD_TS_UNRELIABLE:
+  default:
+    kasld_info("the address-space search was refused; declining rather than "
+               "guessing");
+    kasld_disposition(DISP_INCONCLUSIVE, NULL,
+                      "the address-space search could not be trusted");
+    return 0;
+  }
+
+  /* Above every linear-map base the architecture admits, the boundary cannot be
+   * this kernel's. A 32-bit process on a 64-bit kernel reports exactly that —
+   * TASK_SIZE is 0xffffe000 for an i386 task on x86_64 and 0xfffff000 for an
+   * armv7 task on arm64 — and the layout being measured is then a 64-bit one
+   * this binary does not model. */
+  if (addr > (unsigned long)PAGE_OFFSET_MAX) {
+    kasld_info("virtual address start %lx is above the highest linear-map base "
+               "this architecture admits (%lx); the kernel is not the one this "
+               "build models",
+               addr, (unsigned long)PAGE_OFFSET_MAX);
+    return kasld_disp_absent("the running kernel is not a 32-bit kernel of "
+                             "this architecture");
+  }
 
   kasld_info("kernel virtual address start: %lx", addr);
 
-  /* Likely PAGE_OFFSET: the split rounded UP to the 256 MiB probe stride. Exact
-   * for every 256 MiB-aligned VMSPLIT (1G/2G/3G_OPT/3G); an over-estimate only
-   * for the rare x86 VMSPLIT_2G_OPT (0x78000000). Best guess for the likely
-   * window. */
-  kasld_result_base(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, addr, NULL,
-                    CONF_HEURISTIC);
-
+  /* What the measurement PROVES about the linear-map base. Requires `exact`: a
+   * hint-placed or gap-derived boundary might be wrong, and a bound that might
+   * be wrong has no business in the guaranteed window. */
+  if (exact) {
 #if TASK_SIZE_IS_PAGE_OFFSET
-  /* Where the mmap user/kernel split IS PAGE_OFFSET exactly (x86_32:
-   * TASK_SIZE == __PAGE_OFFSET, no gap), the sweep bounds PAGE_OFFSET SOUNDLY
-   * with no alignment assumption: it mapped at last_ok (so last_ok < TASK_SIZE
-   * == PAGE_OFFSET) and failed at addr (so addr >= TASK_SIZE == PAGE_OFFSET),
-   * giving PAGE_OFFSET in (last_ok, addr]. Emit that as a bounded range —
-   * page_offset_from_landmark turns it into a C_LOWER_BOUND / C_UPPER_BOUND
-   * pair at this inferred tier, moving the x86_32 (no-KASLR) page offset into
-   * the GUARANTEED window. A 256 MiB band; exact when the split is 256
-   * MiB-aligned.
-   *
-   * Only a coarse band, not the exact split: the fine boundary can't be
-   * measured with MAP_FIXED because the stack sits just below PAGE_OFFSET
-   * (STACK_TOP == TASK_SIZE), so a page-granular MAP_FIXED sweep would clobber
-   * it. Gated off on arches where the split sits a gap below PAGE_OFFSET
-   * (arm32: TASK_SIZE = PAGE_OFFSET - 16 MiB), where addr >= PAGE_OFFSET is not
-   * implied. */
-  if (last_ok)
-    kasld_result_range(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, last_ok + 1, addr,
-                       NULL, CONF_INFERRED);
+    /* Where the mmap user/kernel split IS PAGE_OFFSET (x86_32: TASK_SIZE ==
+     * __PAGE_OFFSET, no gap), the located boundary is the linear-map base
+     * itself, with no alignment assumption: nothing maps at or above it and the
+     * page below it does, so PAGE_OFFSET is that address.
+     * page_offset_from_landmark pins Q_PAGE_OFFSET from it, moving the x86_32
+     * (no-KASLR) page offset into the GUARANTEED window. */
+    kasld_result_base(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, addr, NULL,
+                      CONF_INFERRED);
+#else
+    /* Everywhere else the split sits BELOW PAGE_OFFSET by a distance the
+     * architecture fixes and this probe cannot see (arm32 reserves 16 MiB for
+     * modules, ppc32 a smaller gap, riscv32 the fixmap, PCI-IO and vmemmap
+     * regions). The measurement is then a lower bound on the base, emitted as
+     * the window it proves; the upper edge is the highest base the architecture
+     * admits, which holds against any target. */
+    kasld_result_range(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, addr,
+                       (unsigned long)PAGE_OFFSET_MAX, NULL, CONF_INFERRED);
 #endif
+  }
 
-#if KERNEL_VIRT_VAS_START /* vacuous where VAS_START is 0 (s390) */
-  if (addr < (unsigned long)KERNEL_VIRT_VAS_START)
-    kasld_err("warning: virtual address start %lx below configured "
-              "KERNEL_VIRT_VAS_START %lx",
-              addr, (unsigned long)KERNEL_VIRT_VAS_START);
+#if PAGE_OFFSET_MIN != PAGE_OFFSET_MAX
+  /* The split is a build-time choice this binary cannot read, so the rounded
+   * boundary is worth a best guess at the likely tier — unless the tier above
+   * already resolved the base, where a rounded value could only contradict a
+   * measured one. Where the architecture admits a single base there is nothing
+   * to guess. */
+  if (!(exact && TASK_SIZE_IS_PAGE_OFFSET))
+    kasld_result_base(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET,
+                      round_to_stride(addr), NULL, CONF_HEURISTIC);
 #endif
 
   return 0;
+#endif
 }

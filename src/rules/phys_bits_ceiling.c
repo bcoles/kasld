@@ -10,9 +10,11 @@
 //   phys_base <= (1 << phys_bits) - min_image
 //
 // Decoupled arches (x86-64): a C_UPPER_BOUND on Q_PHYS_IMAGE_BASE.
-// Coupled arches that expose the field (LoongArch): map through the
-// compile-time PAGE_OFFSET — which is a fixed hardware constant there, so no
-// Q_PAGE_OFFSET dependency — to a C_UPPER_BOUND on Q_VIRT_IMAGE_BASE.
+// Coupled arches that expose the field (LoongArch, and x86-32 — /proc/cpuinfo
+// carries `address sizes` on both): map through PAGE_OFFSET_MAX to a
+// C_UPPER_BOUND on Q_VIRT_IMAGE_BASE. The extremal edge rather than a resolved
+// value, so the bound needs no Q_PAGE_OFFSET dependency and still holds on a
+// target whose split this binary cannot see.
 //
 // A hypervisor may restrict phys_bits below installed RAM, making this tighter
 // than the MemTotal ceiling. Arches that don't expose the field, and 32-bit
@@ -73,9 +75,17 @@ int rule_phys_bits_ceiling(const struct evidence_set *ev,
   c->value = ceiling;
   return 1;
 #else
-  /* image_base = PAGE_OFFSET + (phys_base - PHYS_OFFSET) + IMAGE_BASE_OFFSET.
-   */
-  unsigned long ceiling = PAGE_OFFSET + IMAGE_BASE_OFFSET +
+  /* image_base = page_offset + (phys_base - PHYS_OFFSET) + IMAGE_BASE_OFFSET.
+   *
+   * PAGE_OFFSET_MAX, not the compile-time PAGE_OFFSET: an upper bound stays
+   * sound when the base used to compute it is too HIGH, so the highest
+   * admissible base is safe against every target, whereas this binary's own
+   * value is safe only while it happens to be that highest one. On the arches
+   * with a single admissible base the two are the same number, so nothing
+   * changes where the base really is a hardware constant. Using the extremal
+   * edge rather than the resolved Q_PAGE_OFFSET also keeps the rule firing
+   * before anything has pinned the base. */
+  unsigned long ceiling = (unsigned long)PAGE_OFFSET_MAX + IMAGE_BASE_OFFSET +
                           (phys_ceiling - min_image) - PHYS_OFFSET;
   ceiling =
       kasld_floor_virt_text_bound(ceiling, (unsigned long)KASLR_VIRT_ALIGN);

@@ -27,6 +27,7 @@
 #include <sys/mount.h>
 #include <sys/reboot.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <sys/utsname.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -499,11 +500,57 @@ static void run_as(uid_t uid, const char *path, char *const argv[]) {
   fflush(stdout);
 }
 
+/* Load every module staged into /modules.
+ *
+ * A real system always has modules loaded; a cell with none leaves every
+ * module-region component reading an empty /proc/modules and no per-module
+ * sections under /sys/module, which is indistinguishable from a component that
+ * does not work. The module region is also the only place several rules can
+ * bound the text base from, so a cell without one silently under-tests them.
+ *
+ * finit_module() directly rather than modprobe: the initramfs carries no shell,
+ * no depmod output and no module tree, and these are dependency-free drivers
+ * staged as plain files. */
+static void load_staged_modules(void) {
+  DIR *d = opendir("/modules");
+  struct dirent *e;
+  int loaded = 0;
+
+  if (!d)
+    return;
+  while ((e = readdir(d)) != NULL) {
+    size_t n = strlen(e->d_name);
+    char path[512];
+    int fd;
+
+    if (n < 4 || strcmp(e->d_name + n - 3, ".ko") != 0)
+      continue;
+    snprintf(path, sizeof(path), "/modules/%s", e->d_name);
+    fd = open(path, O_RDONLY);
+    if (fd < 0)
+      continue;
+    if (syscall(SYS_finit_module, fd, "", 0) == 0) {
+      printf("[init] module loaded: %s\n", e->d_name);
+      loaded++;
+    } else {
+      printf("[init] module FAILED: %s\n", e->d_name);
+    }
+    close(fd);
+  }
+  closedir(d);
+  if (!loaded)
+    printf("[init] no modules loaded -- module-region components have "
+           "nothing to read\n");
+}
+
 int main(void) {
   mount("proc", "/proc", "proc", 0, "");
   mount("sysfs", "/sys", "sysfs", 0, "");
   mount("devtmpfs", "/dev", "devtmpfs", 0, "");
   mount("tmpfs", "/tmp", "tmpfs", 0, "");
+
+  /* Before anything reads /proc/modules or /sys/module. */
+  load_staged_modules();
 
   /* Stage the kernel image where kasld's kernel_image_facts expects it:
    * /boot/vmlinuz-<release>, keyed by uname -r. The initramfs carries the image
@@ -541,7 +588,8 @@ int main(void) {
    * the only privileged step; every branch then sets kptr/perf explicitly
    * (default restores booted). `capture` mode (below) reconstructs a fixture
    * and never reaches this. */
-  int hidden = 0, hardened = 0, perfopen = 0, dmesgopen = 0, capture = 0;
+  int hidden = 0, hardened = 0, perfopen = 0, dmesgopen = 0, bpfopen = 0,
+      capture = 0;
   {
     int cf = open("/proc/cmdline", O_RDONLY);
     char cb[512];
@@ -558,6 +606,8 @@ int main(void) {
           perfopen = 1;
         if (strstr(cb, "dmesgopen"))
           dmesgopen = 1;
+        if (strstr(cb, "bpfopen"))
+          bpfopen = 1;
         if (strstr(cb, "capture"))
           capture = 1;
       }
@@ -625,13 +675,12 @@ int main(void) {
   /* Apply the requested restriction profile before running kasld. The analysis
    * always runs unprivileged; only the sysctl hardening varies. */
   uid_t uid = 1000;
-  /* The BPF verifier-log leaks (bpf_verifier_ksym / bpf_verifier_log) only fire
-   * where an unprivileged process may call bpf(); enable it for the permissive
-   * profiles so those components are exercised. hardened re-disables it below
-   * as part of the file-only floor. (A write is refused if the kernel booted
-   * with CONFIG_BPF_UNPRIV_DEFAULT_OFF locking it at 2 — then the leak stays a
-   * no-op.) */
-  write_file("/proc/sys/kernel/unprivileged_bpf_disabled", "0\n");
+  /* unprivileged_bpf_disabled is left at its BOOTED value in every profile but
+   * two: the kernel's own default is what an unprivileged attacker actually
+   * faces (a distro built CONFIG_BPF_UNPRIV_DEFAULT_OFF boots it locked at 2).
+   * hardened forces it off; the dedicated bpf-open profile forces it on to
+   * exercise the bpf verifier-log leaks — the perf-open equivalent for a host
+   * that permits unprivileged bpf(). */
   if (hardened) {
     write_file("/proc/sys/kernel/kptr_restrict", "2\n");
     write_file("/proc/sys/kernel/dmesg_restrict", "1\n");
@@ -655,6 +704,18 @@ int main(void) {
     write_file("/proc/sys/kernel/perf_event_paranoid", b_perf);
     printf("=== profile: dmesg-open — uid=1000, kptr_restrict=%s (booted), "
            "dmesg_restrict=0, perf_event_paranoid=%s (booted) ===\n",
+           b_kptr, b_perf);
+  } else if (bpfopen) {
+    /* default + unprivileged bpf() enabled (a host permitting it; only there do
+     * the bpf verifier-log leaks fire). Other knobs stay at their booted
+     * defaults. This root write re-enables bpf even where the kernel locked it
+     * at 2 — an unprivileged attacker could not, so it models an
+     * admin-permitted-bpf host, not a stock default. */
+    write_file("/proc/sys/kernel/kptr_restrict", b_kptr);
+    write_file("/proc/sys/kernel/perf_event_paranoid", b_perf);
+    write_file("/proc/sys/kernel/unprivileged_bpf_disabled", "0\n");
+    printf("=== profile: bpf-open — uid=1000, unprivileged_bpf_disabled=0, "
+           "kptr_restrict=%s perf_event_paranoid=%s (booted) ===\n",
            b_kptr, b_perf);
   } else if (hidden) {
     write_file("/proc/sys/kernel/kptr_restrict", "2\n");
