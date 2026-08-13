@@ -622,6 +622,10 @@ extern int markdown_output;
 extern int explain_mode;
 extern int hardening_mode;
 extern int map_mode; /* --map: draw the address-space diagram */
+/* A sysctl whose value could not be read because access was refused, as
+ * distinct from -1 ("absent or unparseable"). Both are "unknown" to anything
+ * comparing against 0, so existing < 0 / >= 0 checks are unaffected. */
+#define KASLD_SYSCTL_DENIED (-2)
 extern int sysctl_kptr_restrict;
 extern int sysctl_dmesg_restrict;
 extern int sysctl_perf_event_paranoid;
@@ -646,6 +650,16 @@ extern const char *const
 extern const char *const
     kasld_oracle_labels[KASLD_N_ORACLES]; /* "Readable …:" */
 
+/* SELinux runtime mode, read from /sys/fs/selinux/enforce. Absent covers both
+ * "SELinux is not built in" and "selinuxfs is not reachable from here" — which
+ * are indistinguishable from an unprivileged vantage, so the value never
+ * asserts that no LSM is present. */
+enum selinux_mode {
+  SELINUX_UNAVAILABLE = -1,
+  SELINUX_PERMISSIVE = 0,
+  SELINUX_ENFORCING = 1,
+};
+
 struct kasld_vantage {
   const char *container; /* runtime name, or NULL if not containerized */
   int seccomp;           /* -1 unknown; 0 none, 1 strict, 2 filter */
@@ -653,6 +667,14 @@ struct kasld_vantage {
   int have_caps;         /* 1 if cap_eff/cap_bnd are valid */
   unsigned long long cap_eff, cap_bnd;
   int oracle_readable[KASLD_N_ORACLES]; /* per kasld_oracle_paths[] */
+  /* Mandatory access control. `lsm_list` is securityfs's active-LSM list when
+   * readable and "" otherwise (it is unreachable under some policies, so an
+   * empty list is "unknown", never "no LSM"). `sec_context` is this process's
+   * own label — an SELinux context or an AppArmor profile, from the one path
+   * both expose. */
+  enum selinux_mode selinux;
+  char lsm_list[160];    /* "lockdown,capability,yama,apparmor" or "" */
+  char sec_context[192]; /* "u:r:shell:s0", "vscode (unconfined)", or "" */
 };
 void kasld_gather_vantage(struct kasld_vantage *v);
 /* Confined = the confinement detail is meaningful (else the values are the
@@ -661,6 +683,16 @@ int kasld_vantage_confined(const struct kasld_vantage *v);
 /* Format cap_eff as "none"/"full"/"0x…"; out must hold >= 19 bytes. */
 const char *kasld_vantage_caps(const struct kasld_vantage *v, char *out,
                                size_t outsz);
+/* 1 when a mandatory access control policy is actively confining this process:
+ * SELinux enforcing, or an AppArmor profile in enforce mode. A permissive
+ * policy logs but does not deny, so it is not confinement. Unknown reads as 0 —
+ * the tool never claims a denial came from an LSM it could not observe. */
+int kasld_vantage_mac_enforcing(const struct kasld_vantage *v);
+/* Format the MAC posture for display: the securityfs LSM list when readable,
+ * else the SELinux mode, else "unknown" — never "none", which an unprivileged
+ * vantage cannot establish. Returns out. */
+const char *kasld_vantage_lsm_str(const struct kasld_vantage *v, char *out,
+                                  size_t outsz);
 /* seccomp mode 0/1/2 → "none"/"strict"/"filter" (else "unknown"). */
 const char *kasld_vantage_seccomp_str(int seccomp);
 

@@ -21,6 +21,10 @@
  * once here so the text, JSON, and markdown renderers agree on the label. */
 #define HR_SURFACE_LOCKDOWN "lsm"
 #define HR_SURFACE_DMESG_FALLBACK "file_permissions"
+/* Kernel lockdown and a MAC policy are both LSMs but are different levers —
+ * one is a boot-time mode, the other a policy an administrator writes — so
+ * they carry distinct surfaces rather than sharing "lsm". */
+#define HR_SURFACE_MAC "mac"
 
 /* Known sysctl gates */
 struct sysctl_gate {
@@ -122,6 +126,63 @@ static int seccomp_blocked_perf(const struct component_log *cl, int seccomp,
       return host_paranoid < thr;
   }
   return 0;
+}
+
+/* True when the component declares at least one sysctl knob and none of them
+ * was at a blocking level on this host — so whatever denied it, the knobs it
+ * knows about did not.
+ *
+ * A component declaring no knob returns 0: nothing is known about what should
+ * have gated it, so its denial is not attributable. That exclusion keeps an
+ * ordinary DAC denial — a file whose mode or group excludes this uid — from
+ * being credited to a policy. */
+static int declared_sysctl_gates_permit(const struct component_log *cl) {
+  const char *vals[8];
+  int n = meta_get_all(&cl->meta, "sysctl", vals, 8);
+  if (n == 0)
+    return 0;
+  int checked = 0;
+  for (int i = 0; i < n; i++) {
+    for (int g = 0; g < ngates; g++) {
+      size_t nlen = strlen(gates[g].name);
+      if (strncmp(vals[i], gates[g].name, nlen) != 0 || vals[i][nlen] != '>')
+        continue;
+      int thr;
+      if (sscanf(vals[i] + nlen, ">=%d", &thr) != 1)
+        continue;
+      if (!gates[g].value_ptr)
+        return 0;
+      /* A knob that is merely absent leaves the denial unexplained, so nothing
+       * can be attributed. A knob whose read was REFUSED is different: these
+       * files are world-readable, so the refusal is itself the policy acting on
+       * this vantage — the knob's value stays unknown, but the mechanism no
+       * longer is. */
+      if (*gates[g].value_ptr == KASLD_SYSCTL_DENIED) {
+        checked++;
+        continue;
+      }
+      if (*gates[g].value_ptr < 0)
+        return 0;
+      if (*gates[g].value_ptr >= thr)
+        return 0; /* this knob was blocking — it explains the denial */
+      checked++;
+    }
+  }
+  return checked > 0;
+}
+
+/* Attribute an access denial to mandatory access control: the component was
+ * denied, a MAC policy is enforcing, none of the sysctls it declares was at a
+ * blocking level, and a seccomp filter has not already claimed it (a syscall
+ * filter is the more specific answer). A denial is credited to the policy only
+ * when nothing the component declares explains it; an unobservable LSM is
+ * never credited. */
+static int mac_blocked(const struct component_log *cl,
+                       const struct kasld_vantage *v, int host_paranoid) {
+  return cl->outcome == OUTCOME_ACCESS_DENIED &&
+         kasld_vantage_mac_enforcing(v) &&
+         !seccomp_blocked_perf(cl, v->seccomp, host_paranoid) &&
+         declared_sysctl_gates_permit(cl);
 }
 
 /* Leave-one-out projection: re-resolve the guaranteed window with every
@@ -226,10 +287,12 @@ void build_hardening_report(struct hardening_report *r) {
         hg.gated_names[hg.n_gated_names++] = comp_logs[i].name;
       if (comp_logs[i].outcome == OUTCOME_ACCESS_DENIED &&
           !(g == GATE_PERF_EVENT_PARANOID &&
-            seccomp_blocked_perf(&comp_logs[i], vant.seccomp, host_paranoid))) {
-        /* Credit perf_event_paranoid only when it actually blocked the perf
-         * component; a seccomp-blocked perf denial is credited to the seccomp
-         * gate below instead of blamed on a permissive paranoid setting. */
+            seccomp_blocked_perf(&comp_logs[i], vant.seccomp, host_paranoid)) &&
+          !mac_blocked(&comp_logs[i], &vant, host_paranoid)) {
+        /* Credit a knob only when it actually blocked the component. A
+         * seccomp-blocked perf denial goes to the seccomp gate below, and a
+         * denial no declared knob explains goes to the MAC gate, rather than
+         * either being blamed on a knob that was not at a blocking level. */
         hg.blocked++;
         if (hg.n_blocked_names < HR_NAME_MAX)
           hg.blocked_names[hg.n_blocked_names++] = comp_logs[i].name;
@@ -282,6 +345,34 @@ void build_hardening_report(struct hardening_report *r) {
     }
     if (sg.gated > 0 && r->n_gates < HR_GATES_MAX)
       r->gates[r->n_gates++] = sg;
+  }
+
+  /* Mandatory access control, on the same synthetic-gate footing as seccomp.
+   * Its members are exactly the denials no declared sysctl accounts for, so
+   * `gated` and `blocked` are the same set: the report claims a policy denial
+   * only where it can rule the alternatives out. */
+  if (kasld_vantage_mac_enforcing(&vant)) {
+    struct hr_gate mg;
+    memset(&mg, 0, sizeof(mg));
+    mg.display = vant.selinux == SELINUX_ENFORCING ? "SELinux policy"
+                                                   : "AppArmor profile";
+    mg.surface = HR_SURFACE_MAC;
+    mg.active = 1;
+    mg.value = 1;
+    for (int i = 0; i < num_components; i++) {
+      if (!comp_logs[i].ran)
+        continue;
+      if (!mac_blocked(&comp_logs[i], &vant, host_paranoid))
+        continue;
+      mg.gated++;
+      mg.blocked++;
+      if (mg.n_gated_names < HR_NAME_MAX)
+        mg.gated_names[mg.n_gated_names++] = comp_logs[i].name;
+      if (mg.n_blocked_names < HR_NAME_MAX)
+        mg.blocked_names[mg.n_blocked_names++] = comp_logs[i].name;
+    }
+    if (mg.gated > 0 && r->n_gates < HR_GATES_MAX)
+      r->gates[r->n_gates++] = mg;
   }
 
   r->lockdown = sysctl_lockdown;

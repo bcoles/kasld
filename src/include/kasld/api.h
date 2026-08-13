@@ -1912,6 +1912,12 @@ static inline int kasld_disp_mitigation_denied(const char *gate,
   kasld_disposition(DISP_MITIGATION, gate, msg);
   return KASLD_EXIT_NOPERM;
 }
+/* Only for a prerequisite that is provably not there. An access()/stat()
+ * failure alone does not establish that: a path denied by DAC or by a MAC
+ * policy fails identically to a missing one, and reporting a denial as an
+ * absence blames the target's build for what its configuration did. Split on
+ * errno — ENOENT is absence, EACCES/EPERM are a denial and belong on the
+ * KASLD_EXIT_NOPERM path. */
 static inline int kasld_disp_absent(const char *msg) {
   kasld_disposition(DISP_ABSENT, NULL, msg);
   return KASLD_EXIT_UNAVAILABLE;

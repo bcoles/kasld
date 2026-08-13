@@ -218,8 +218,10 @@ default readout does, then adds only what its columns cannot carry: `_stext`
 where a quantity has one, the compile-time default a slide is measured from,
 and the residual expressed in bits. The
 system-config block reports the recon vantage: whether the process is
-containerized, and — when it is confined — its seccomp / capability /
-no-new-privs state, plus which `/proc` leak oracles are readable here:
+containerized, which mandatory-access-control policy is in force and the
+security context this process runs under, and — when it is confined — its
+seccomp / capability / no-new-privs state, plus which `/proc` leak oracles are
+readable here:
 
 <details>
 <summary>Click to expand verbose example</summary>
@@ -246,6 +248,8 @@ kernel.perf_event_paranoid:   -1
 Kernel lockdown:              (unavailable)
 
 Container:                    none
+LSM:                          lockdown,capability,landlock,yama,apparmor
+Security context:             unconfined
 
 Readable /proc/kallsyms:      yes
 Readable /proc/kcore:         no
@@ -477,9 +481,14 @@ best-guess, always contained within it. Memory-KASLR regions
 (`memory_kaslr`) carry the same guaranteed `min`/`max` and an optional
 nested `likely` object.
 
-The `environment` object is the recon vantage: `container`, `seccomp`,
-`capabilities`, `no_new_privs`, and a `readable_oracles` map for the `/proc`
-leak sources (fields are a `null` or enum when they do not apply).
+The `environment` object is the recon vantage: `container`, `seccomp`, `lsm`,
+`selinux`, `security_context`, `mac_enforcing`, `capabilities`,
+`no_new_privs`, and a `readable_oracles` map for the `/proc` leak sources
+(fields are a `null` or enum when they do not apply). `lsm`, `selinux` and
+`security_context` are `null` when this vantage cannot read them, which is not
+the same as their being absent — an enforcing policy commonly hides its own
+state. `mac_enforcing` is the only one of the four that asserts anything: it is
+true only where a policy was observed actively confining this process.
 
 The `groups` array carries the leak evidence, one object per (`type`,
 `section`, `region`) — the same split the text readout prints as separate
@@ -635,8 +644,12 @@ In JSON, the assessment is the top-level `hardening` object, with fields
 `hardware_side_channels`, and `no_mitigation`.
 Each `active_defenses` and `available_hardening` entry carries a
 `surface` — the enforcement lever the change lives on (`sysctl`,
-`boot_param`, `lsm`, `file_permissions`, or `seccomp`) — so a report can
-route each item to the team that owns it.
+`boot_param`, `lsm`, `mac`, `file_permissions`, or `seccomp`) — so a report can
+route each item to the team that owns it. Kernel lockdown and a MAC policy are
+both LSMs but are different levers, so they carry `lsm` and `mac` separately.
+A denial is credited to the `mac` surface only when the component declares
+sysctl gates and none of them accounts for it, so an ordinary file-permission
+denial is never reported as a policy decision.
 When the engine resolves a guaranteed base window, each `available_hardening`
 entry also carries `silences` (base-leaks it removes) and a `projected`
 object (the residual entropy with every other suggestion applied, and the

@@ -339,9 +339,18 @@ int main(void) {
      * KASLD_SYSROOT an absent directory says nothing about the captured host
      * and reporting it as a missing prerequisite would blame the target for a
      * gap in the capture. There, an empty scan stays an unexplained miss. */
-    if (kasld_access(ISCSI_CLASS_DIR, F_OK) != 0)
+    /* A denied lookup fails the same way as a missing one, so split on errno:
+     * only ENOENT proves the directory is not there. Under a MAC policy the
+     * path can be present and simply invisible, and calling that a missing
+     * kernel config would blame the target's build for its policy. */
+    if (kasld_access(ISCSI_CLASS_DIR, F_OK) != 0) {
+      if (errno == EACCES || errno == EPERM) {
+        kasld_err(ISCSI_CLASS_DIR " is not readable");
+        return KASLD_EXIT_NOPERM;
+      }
       return kasld_disp_absent("no " ISCSI_CLASS_DIR
                                " (CONFIG_SCSI_ISCSI_ATTRS unavailable)");
+    }
 
     wait_for_transport();
   }

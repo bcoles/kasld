@@ -113,6 +113,12 @@ channels tuned to the specific hardware, or a memory-corruption bug that leaks
 the base directly. A clean KASLD run raises the cost of defeating KASLR from a
 given vantage; it does not prove KASLR intact.
 
+Where a mandatory access control policy is enforcing, the assessment credits it
+with a denial only when the component declares sysctl gates and none of them
+accounts for the outcome — so an ordinary file-permission denial is never
+reported as a policy decision, and the policy's true contribution is at least
+what the report attributes to it.
+
 The same applies to what a run *emits*: [footprint.md](footprint.md) bounds
 KASLD's observability — it is loud by design, and its default footprint is an
 upper bound on what a monitored host sees, not what a tuned adversary produces.

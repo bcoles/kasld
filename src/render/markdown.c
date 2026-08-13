@@ -121,6 +121,10 @@ static void render_environment_markdown(void) {
   printf("| Property | Value |\n");
   printf("|:---------|:------|\n");
   printf("| Container | %s |\n", v.container ? v.container : "none");
+  char lsmbuf[224];
+  printf("| LSM | %s |\n", kasld_vantage_lsm_str(&v, lsmbuf, sizeof(lsmbuf)));
+  if (v.sec_context[0])
+    printf("| Security context | %s |\n", v.sec_context);
   if (kasld_vantage_confined(&v)) {
     if (v.seccomp >= 0)
       printf("| Seccomp | %s |\n", kasld_vantage_seccomp_str(v.seccomp));

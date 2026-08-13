@@ -3700,6 +3700,132 @@ static void test_render_hardening_pointer_hashing_gate(void) {
   num_scalar_facts = 0;
 }
 
+/* The MAC posture helpers. Two honesty rules are load-bearing: an unreadable
+ * LSM is reported as unknown and never as absent, and a policy that only logs
+ * is not confinement. */
+static void test_vantage_mac_posture_helpers(void) {
+  struct kasld_vantage v;
+  char buf[224];
+
+  /* Nothing observable: "unknown", not "none". */
+  memset(&v, 0, sizeof(v));
+  v.selinux = SELINUX_UNAVAILABLE;
+  assert(!kasld_vantage_mac_enforcing(&v));
+  assert(strcmp(kasld_vantage_lsm_str(&v, buf, sizeof(buf)), "unknown") == 0);
+
+  /* SELinux enforcing, securityfs unreadable (the Android shape). */
+  v.selinux = SELINUX_ENFORCING;
+  snprintf(v.sec_context, sizeof(v.sec_context), "u:r:shell:s0");
+  assert(kasld_vantage_mac_enforcing(&v));
+  assert(kasld_vantage_confined(&v));
+  assert(strcmp(kasld_vantage_lsm_str(&v, buf, sizeof(buf)),
+                "selinux (enforcing)") == 0);
+
+  /* Permissive logs but does not deny, so it is not confinement. */
+  v.selinux = SELINUX_PERMISSIVE;
+  assert(!kasld_vantage_mac_enforcing(&v));
+  assert(strcmp(kasld_vantage_lsm_str(&v, buf, sizeof(buf)),
+                "selinux (permissive)") == 0);
+
+  /* AppArmor: the mode is carried in the context, and only enforce denies. */
+  memset(&v, 0, sizeof(v));
+  v.selinux = SELINUX_UNAVAILABLE;
+  snprintf(v.lsm_list, sizeof(v.lsm_list), "capability,yama,apparmor");
+  snprintf(v.sec_context, sizeof(v.sec_context), "firefox (unconfined)");
+  assert(!kasld_vantage_mac_enforcing(&v));
+  snprintf(v.sec_context, sizeof(v.sec_context), "firefox (complain)");
+  assert(!kasld_vantage_mac_enforcing(&v));
+  snprintf(v.sec_context, sizeof(v.sec_context), "firefox (enforce)");
+  assert(kasld_vantage_mac_enforcing(&v));
+  assert(strcmp(kasld_vantage_lsm_str(&v, buf, sizeof(buf)),
+                "capability,yama,apparmor") == 0);
+}
+
+/* Which denials a MAC policy may be credited with. The rule is narrow: the
+ * component must declare at least one sysctl knob, and every knob
+ * it declares must be observably not-blocking — either read and below its
+ * threshold, or refused (these files are world-readable, so a refusal is the
+ * policy itself and not file permissions). A component declaring no knob is
+ * never attributed, which is what keeps ordinary DAC denials out. */
+static void test_hardening_mac_attribution_scope(void) {
+  reset_comp_logs();
+  struct component_log *c = hr_seed_comp("c_gated", OUTCOME_ACCESS_DENIED);
+  hr_seed_meta(c, "method", "parsed");
+  hr_seed_meta(c, "sysctl", "dmesg_restrict>=1");
+
+  sysctl_dmesg_restrict = 0; /* readable and permissive => attributable */
+  assert(declared_sysctl_gates_permit(c) == 1);
+
+  sysctl_dmesg_restrict = 1; /* the knob was blocking => it explains it */
+  assert(declared_sysctl_gates_permit(c) == 0);
+
+  sysctl_dmesg_restrict = -1; /* absent => unexplained, attribute nothing */
+  assert(declared_sysctl_gates_permit(c) == 0);
+
+  sysctl_dmesg_restrict = KASLD_SYSCTL_DENIED; /* refused => policy is acting */
+  assert(declared_sysctl_gates_permit(c) == 1);
+
+  /* No declared knob: nothing is known about what should have gated it, so it
+   * stays unattributed however the denial arose. */
+  reset_comp_logs();
+  struct component_log *u = hr_seed_comp("c_ungated", OUTCOME_ACCESS_DENIED);
+  hr_seed_meta(u, "method", "parsed");
+  assert(declared_sysctl_gates_permit(u) == 0);
+
+  sysctl_dmesg_restrict = 0;
+  reset_comp_logs();
+}
+
+/* The full attribution predicate. A denial is credited to the policy only when
+ * the policy is enforcing, no declared knob accounts for it, and seccomp — the
+ * more specific mechanism — has not already claimed it. */
+static void test_hardening_mac_blocked_predicate(void) {
+  reset_comp_logs();
+  struct kasld_vantage v;
+  memset(&v, 0, sizeof(v));
+  v.selinux = SELINUX_ENFORCING;
+  v.seccomp = 0;
+
+  struct component_log *c = hr_seed_comp("c_gated", OUTCOME_ACCESS_DENIED);
+  hr_seed_meta(c, "method", "parsed");
+  hr_seed_meta(c, "sysctl", "dmesg_restrict>=1");
+  sysctl_dmesg_restrict = 0;
+
+  assert(mac_blocked(c, &v, -1) == 1);
+
+  /* Not enforcing: a permissive policy logs, it does not deny. */
+  v.selinux = SELINUX_PERMISSIVE;
+  assert(mac_blocked(c, &v, -1) == 0);
+  v.selinux = SELINUX_ENFORCING;
+
+  /* A component that ran or found nothing is not a denial to attribute. */
+  c->outcome = OUTCOME_SUCCESS;
+  assert(mac_blocked(c, &v, -1) == 0);
+  c->outcome = OUTCOME_NO_RESULT;
+  assert(mac_blocked(c, &v, -1) == 0);
+  c->outcome = OUTCOME_ACCESS_DENIED;
+
+  /* The knob was blocking, so it — not the policy — explains the denial. */
+  sysctl_dmesg_restrict = 1;
+  assert(mac_blocked(c, &v, -1) == 0);
+  sysctl_dmesg_restrict = 0;
+
+  /* seccomp wins the tie for a perf denial it can account for. */
+  reset_comp_logs();
+  struct component_log *p = hr_seed_comp("c_perf", OUTCOME_ACCESS_DENIED);
+  hr_seed_meta(p, "method", "parsed");
+  hr_seed_meta(p, "sysctl", "perf_event_paranoid>=2");
+  sysctl_perf_event_paranoid = 0;
+  v.seccomp = 2;
+  assert(mac_blocked(p, &v, 0) == 0); /* host paranoid 0 < 2 => seccomp's */
+  v.seccomp = 0;
+  assert(mac_blocked(p, &v, 0) == 1); /* no filter => the policy's */
+
+  sysctl_dmesg_restrict = 0;
+  sysctl_perf_event_paranoid = -1;
+  reset_comp_logs();
+}
+
 /* SF_VIRT_KASLR_RANDOMIZATION_FAILED surfaces in the text hardening report as a
  * dedicated posture section (entropy downgrade). The fact is distinct from
  * SF_VIRT_KASLR_DISABLED — the kernel was relocated to a firmware-determined
@@ -3827,6 +3953,9 @@ int main(void) {
   RUN(test_hardening_projection_no_exposure);
   RUN(test_hardening_projection_redundant);
   RUN(test_render_hardening_pointer_hashing_gate);
+  RUN(test_vantage_mac_posture_helpers);
+  RUN(test_hardening_mac_attribution_scope);
+  RUN(test_hardening_mac_blocked_predicate);
   RUN(test_render_hardening_text_rand_failed_surfaces);
   RUN(test_render_hardening_json_rand_failed_state);
   RUN(test_render_hardening_text_no_rand_failed_silent);

@@ -565,11 +565,32 @@ static void read_proc_value(const char *label, const char *path) {
   fclose(f);
 }
 
-/* Read a /proc/sys/ file and return its integer value, or -1 on failure */
-static int read_sysctl_int(const char *path) {
+/* Read the first line of a file into `out`, without its trailing newline.
+ * Returns 0 on success, -1 if the file could not be read or was empty.
+ * /proc/self/attr entries are NUL-terminated rather than newline-terminated,
+ * which the string handling below takes as the end of the value either way. */
+static int read_proc_line(const char *path, char *out, size_t outsz) {
+  out[0] = '\0';
   FILE *f = kasld_fopen(path, "r");
   if (!f)
     return -1;
+  size_t n = fread(out, 1, outsz - 1, f);
+  fclose(f);
+  out[n] = '\0';
+  out[strcspn(out, "\n")] = '\0';
+  return out[0] ? 0 : -1;
+}
+
+/* Read a /proc/sys/ file and return its integer value, KASLD_SYSCTL_DENIED if
+ * reading it was refused, or -1 if it is absent or unparseable.
+ *
+ * A refused read is kept apart from an absent one: these knobs are
+ * world-readable, so a refusal is not ordinary file permissions — something
+ * above DAC is withholding the system's own hardening settings here. */
+static int read_sysctl_int(const char *path) {
+  FILE *f = kasld_fopen(path, "r");
+  if (!f)
+    return (errno == EACCES || errno == EPERM) ? KASLD_SYSCTL_DENIED : -1;
   int val = -1;
   if (fscanf(f, "%d", &val) != 1)
     val = -1;
@@ -734,12 +755,54 @@ void kasld_gather_vantage(struct kasld_vantage *v) {
   }
   for (int i = 0; i < KASLD_N_ORACLES; i++)
     v->oracle_readable[i] = kasld_access(kasld_oracle_paths[i], R_OK) == 0;
+
+  /* Mandatory access control. Three unprivileged reads, none of which is
+   * available everywhere: securityfs carries the authoritative LSM list but is
+   * unreachable under some policies (Android hides it from an app or shell
+   * context), while selinuxfs and /proc/self/attr/current stay readable there.
+   * Take whatever this vantage can see. */
+  v->selinux = SELINUX_UNAVAILABLE;
+  v->lsm_list[0] = '\0';
+  v->sec_context[0] = '\0';
+  read_proc_line("/sys/kernel/security/lsm", v->lsm_list, sizeof(v->lsm_list));
+  read_proc_line("/proc/self/attr/current", v->sec_context,
+                 sizeof(v->sec_context));
+  char enf[16];
+  if (read_proc_line("/sys/fs/selinux/enforce", enf, sizeof(enf)) == 0)
+    v->selinux = enf[0] == '1' ? SELINUX_ENFORCING : SELINUX_PERMISSIVE;
+}
+
+/* An AppArmor profile is reported as "<profile> (<mode>)"; SELinux contexts
+ * carry no parenthesised mode. Only enforce mode denies. */
+static int apparmor_enforcing(const char *ctx) {
+  return ctx[0] && strstr(ctx, "(enforce)") != NULL;
+}
+
+int kasld_vantage_mac_enforcing(const struct kasld_vantage *v) {
+  return v->selinux == SELINUX_ENFORCING || apparmor_enforcing(v->sec_context);
+}
+
+const char *kasld_vantage_lsm_str(const struct kasld_vantage *v, char *out,
+                                  size_t outsz) {
+  const char *mode = v->selinux == SELINUX_ENFORCING    ? "enforcing"
+                     : v->selinux == SELINUX_PERMISSIVE ? "permissive"
+                                                        : NULL;
+  if (v->lsm_list[0] && mode)
+    snprintf(out, outsz, "%s (selinux %s)", v->lsm_list, mode);
+  else if (v->lsm_list[0])
+    snprintf(out, outsz, "%s", v->lsm_list);
+  else if (mode)
+    snprintf(out, outsz, "selinux (%s)", mode);
+  else
+    snprintf(out, outsz, "unknown");
+  return out;
 }
 
 /* Confined = the confinement detail is meaningful; otherwise the values are
  * unprivileged defaults, not restrictions (see print_confinement). */
 int kasld_vantage_confined(const struct kasld_vantage *v) {
-  return v->container != NULL || v->seccomp > 0 || v->no_new_privs == 1;
+  return v->container != NULL || v->seccomp > 0 || v->no_new_privs == 1 ||
+         kasld_vantage_mac_enforcing(v);
 }
 
 const char *kasld_vantage_caps(const struct kasld_vantage *v, char *out,
@@ -822,6 +885,10 @@ static void print_cap_reachable_leaks(const struct kasld_vantage *v) {
 
 static void print_confinement(const struct kasld_vantage *v) {
   printf("%-30s%s\n", "Container:", v->container ? v->container : "none");
+  char lsmbuf[224];
+  printf("%-30s%s\n", "LSM:", kasld_vantage_lsm_str(v, lsmbuf, sizeof(lsmbuf)));
+  if (v->sec_context[0])
+    printf("%-30s%s\n", "Security context:", v->sec_context);
   /* The seccomp / caps / no-new-privs detail is only meaningful when actually
    * confined — otherwise those values are the unprivileged defaults. */
   if (kasld_vantage_confined(v)) {

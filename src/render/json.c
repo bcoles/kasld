@@ -236,6 +236,31 @@ static void render_environment_json(void) {
   else
     json_print_escaped(kasld_vantage_seccomp_str(v.seccomp));
 
+  /* Mandatory access control. `lsm` and `security_context` are null when this
+   * vantage cannot read them, which is not the same as their being absent;
+   * `mac_enforcing` is the only field that asserts anything. */
+  printf(",\n    \"lsm\": ");
+  if (v.lsm_list[0])
+    json_print_escaped(v.lsm_list);
+  else
+    printf("null");
+
+  printf(",\n    \"selinux\": ");
+  if (v.selinux == SELINUX_UNAVAILABLE)
+    printf("null");
+  else
+    json_print_escaped(v.selinux == SELINUX_ENFORCING ? "enforcing"
+                                                      : "permissive");
+
+  printf(",\n    \"security_context\": ");
+  if (v.sec_context[0])
+    json_print_escaped(v.sec_context);
+  else
+    printf("null");
+
+  printf(",\n    \"mac_enforcing\": %s",
+         kasld_vantage_mac_enforcing(&v) ? "true" : "false");
+
   printf(",\n    \"capabilities\": ");
   char capbuf[24];
   const char *caps = kasld_vantage_caps(&v, capbuf, sizeof(capbuf));
