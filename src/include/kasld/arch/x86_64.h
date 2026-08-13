@@ -116,9 +116,9 @@
 #define MODULES_START 0xffffffffa0000000ul
 #define MODULES_END 0xffffffffff000000ul
 
-// Usable as a BOUND: the floor is the lower of the two KERNEL_IMAGE_SIZE
-// placements, so it holds whether or not the kernel was built with KASLR.
-#define MODULES_BAND_EXACT 1
+// BOUNDS: the floor is the lower of the two KERNEL_IMAGE_SIZE placements, so it
+// holds whether or not the kernel was built with KASLR.
+#define MODULES_BAND_STRENGTH MOD_BAND_BOUNDS
 
 // execmem_arch_setup() places the module range's start at
 //   start = MODULES_VADDR + offset

@@ -58,14 +58,12 @@
 #define MODULES_START 0xffffffffc0000000ul
 #define MODULES_END 0xfffffffffffffffful
 
-// Usable as a BOUND: MODULES_VADDR is CKSSEG (0xffffffffc0000000), a fixed
-// MIPS segment address, and MODULES_END is FIXADDR_START - 2 pages, below the
-// ceiling here. Neither varies with config.
-#define MODULES_BAND_EXACT 1
-
-// And the floor IS the base: MODULES_VADDR is CKSSEG, a fixed MIPS segment
-// address, so the region starts there on every 64-bit MIPS configuration.
-#define MODULES_BASE_IS_BAND_FLOOR 1
+// PINNED: MODULES_VADDR is CKSSEG (0xffffffffc0000000), a fixed MIPS segment
+// address, so the region starts there on every 64-bit MIPS configuration --
+// the floor is the base itself, not merely a bound on it. The ceiling the
+// level also asserts holds: MODULES_END is FIXADDR_START - 2 pages, below the
+// one declared here, and neither varies with config.
+#define MODULES_BAND_STRENGTH MOD_BAND_PINNED
 
 // KASLR offset is shifted left 16 bits (64 KiB granularity).
 // https://elixir.bootlin.com/linux/v6.12/source/arch/mips/kernel/relocate.c#L276

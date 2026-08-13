@@ -242,6 +242,36 @@ static inline int kasld_mul_ovf(unsigned long a, unsigned long b,
 #define MOD_ANCHOR_TEXT 3
 #define MOD_ANCHOR_BRACKETS_TEXT 4
 
+/* MODULES_BAND_STRENGTH — how much the COMPILE-TIME band is trusted to say
+ * about Q_MODULE_BASE. An ordinal, not a set of flags: each level is strictly
+ * stronger than the one below, so the ladder is the exclusivity and the
+ * implication between levels needs no #error to enforce.
+ *
+ *   MOD_BAND_ADMISSION  the band is wide enough not to REJECT a real module
+ *                       address, and nothing more. Nothing is emitted.
+ *   MOD_BAND_BOUNDS     [MODULES_START, MODULES_END] spans the region under
+ *                       every configuration the header models, so both edges
+ *                       bound the base.
+ *   MOD_BAND_PINNED     the region STARTS at MODULES_START exactly -- a fixed
+ *                       address with no randomization, allocator offset or
+ *                       runtime term. The floor IS the base, so the rule pins.
+ *
+ * PINNED sits above BOUNDS rather than beside it, which asks an arch that pins
+ * to have verified its ceiling too even though the pin never reads it. That is
+ * deliberate: an arch confident enough to answer the quantity outright should
+ * have established the band it sits in, and the alternative -- per-edge claims
+ * -- buys an asymmetry no in-tree arch needs at the cost of another macro.
+ *
+ * ADMISSION is the default because the failure it prevents is the expensive
+ * one: an unverified arch that says nothing costs precision, whereas one that
+ * silently claims BOUNDS can put a guaranteed window where the base is not. It
+ * must stay declarable independently of the anchor for that reason -- today
+ * every ADMISSION arch is also PAGE_OFFSET-anchored, but that is a fact about
+ * which arches have been checked, not a rule. */
+#define MOD_BAND_ADMISSION 1
+#define MOD_BAND_BOUNDS 2
+#define MOD_BAND_PINNED 3
+
 #define LM_ANCHOR_PHYS_OFFSET 1
 #define LM_ANCHOR_DRAM_BASE 2
 #define LM_ANCHOR_UNKNOWABLE 3
@@ -536,50 +566,47 @@ __extension__ _Static_assert(!TEXT_TRACKS_DIRECTMAP ||
  * including fallbacks and the KASLR-disabled path, across every kernel version
  * the arch header claims to model. Understating W under-narrows the guaranteed
  * window and is a soundness bug, not a precision one. */
-/* MODULES_BAND_EXACT is opt-in: an arch declares it 1 when the compile-time
- * [MODULES_START, MODULES_END] spans the module region under EVERY
- * configuration the arch header claims to model -- so the band's edges may be
- * used as BOUNDS on Q_MODULE_BASE, not merely as an admission filter.
+/* Admission and bounding are different obligations, which is why the band's
+ * width and the trust placed in its edges are stated separately. Admission only
+ * needs the band wide enough not to REJECT a real address; bounding also needs
+ * its FLOOR low enough not to EXCLUDE one. A band whose floor moves at runtime
+ * satisfies the first and fails the second.
  *
- * The two are different obligations. Admission only needs the band to be wide
- * enough not to reject a real address; bounding also needs its FLOOR to be low
- * enough not to exclude one. A band whose floor moves at runtime satisfies the
- * first and fails the second, which is why this is separate from the band
- * itself rather than implied by it.
- *
- * The default 0 means "usable for admission only". It leaves module_base_bounds
- * with nothing to say on an arch that has not been checked, which costs
- * precision and never soundness -- a new arch cannot silently pin the module
- * region to a window that excludes it. MODULES_RELATIVE_TO_PAGE_OFFSET arches
- * do not need it: their band is re-derived from the resolved PAGE_OFFSET, which
- * is exact once that is known. */
-#ifndef MODULES_BAND_EXACT
-#define MODULES_BAND_EXACT 0
+ * Declaring a level above ADMISSION requires its promise to hold under every
+ * configuration the header models -- an arch whose base moves with the VA
+ * width, the MMU, lowmem size or an allocator offset must not claim PINNED even
+ * where its floor looks exact. See MODULES_BAND_STRENGTH above for the ladder.
+ */
+/* The level has a safe default, so a header that says nothing is silently
+ * demoted to ADMISSION rather than rejected. That makes a half-finished
+ * conversion invisible: the arch keeps a retired macro, declares no level, and
+ * quietly stops bounding Q_MODULE_BASE -- a precision loss no test catches,
+ * because every test asserts whatever the header declares. Name the retired
+ * spellings so the omission fails the build of the arch that has it. */
+#ifdef MODULES_BAND_EXACT
+#error                                                                         \
+    "MODULES_BAND_EXACT is retired -- declare MODULES_BAND_STRENGTH MOD_BAND_BOUNDS"
 #endif
-#if MODULES_BAND_EXACT && MODULES_RELATIVE_TO_PAGE_OFFSET
-#error "a PAGE_OFFSET-relative band is derived, not exact at compile time"
+#ifdef MODULES_BASE_IS_BAND_FLOOR
+#error                                                                         \
+    "MODULES_BASE_IS_BAND_FLOOR is retired -- declare MODULES_BAND_STRENGTH MOD_BAND_PINNED"
 #endif
-
-/* MODULES_BASE_IS_BAND_FLOOR is opt-in: an arch declares it 1 when the module
- * region does not merely lie inside [MODULES_START, MODULES_END] but STARTS at
- * MODULES_START exactly -- a fixed segment address with no randomization, no
- * allocator offset, and no runtime term. The band's floor is then the answer to
- * Q_MODULE_BASE rather than a bound on it, so the rule pins instead of
- * bracketing.
- *
- * Strictly stronger than MODULES_BAND_EXACT, which only promises the floor is
- * low enough to bound; this promises it is the value. Declaring it requires
- * that promise to hold under every configuration the header models -- an arch
- * whose base moves with the VA width, the MMU, lowmem size or an allocator
- * offset must NOT declare it, even where its floor is exact. */
-#ifndef MODULES_BASE_IS_BAND_FLOOR
-#define MODULES_BASE_IS_BAND_FLOOR 0
+#ifndef MODULES_BAND_STRENGTH
+#define MODULES_BAND_STRENGTH MOD_BAND_ADMISSION
 #endif
-#if MODULES_BASE_IS_BAND_FLOOR && !MODULES_BAND_EXACT
-#error "the band floor cannot BE the base unless the band is exact"
-#endif
-#if MODULES_BASE_IS_BAND_FLOOR && MODULES_RELATIVE_TO_PAGE_OFFSET
-#error "a PAGE_OFFSET-relative floor is derived, not a fixed base"
+__extension__ _Static_assert(MODULES_BAND_STRENGTH == MOD_BAND_ADMISSION ||
+                                 MODULES_BAND_STRENGTH == MOD_BAND_BOUNDS ||
+                                 MODULES_BAND_STRENGTH == MOD_BAND_PINNED,
+                             "MODULES_BAND_STRENGTH must be one of the three "
+                             "MOD_BAND_* levels");
+/* A PAGE_OFFSET-anchored band is re-derived from the resolved split, so its
+ * compile-time edges describe only the compile-time split and cannot be trusted
+ * beyond admission. The one cross-axis rule left: everything the ladder used to
+ * need three #errors for is now the ordinal itself. */
+#if MODULES_ANCHOR == MOD_ANCHOR_PAGE_OFFSET &&                                \
+    MODULES_BAND_STRENGTH != MOD_BAND_ADMISSION
+#error                                                                         \
+    "a PAGE_OFFSET-anchored band is derived, so its compile-time edges are admission-only"
 #endif
 
 #ifndef MODULES_BRACKET_TEXT

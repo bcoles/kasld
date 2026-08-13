@@ -90,7 +90,7 @@
 // Usable as a BOUND, not only as an admission filter: the floor above is
 // derived from the widest VA the kernel's page tables can describe, so it sits
 // at or below vm_map_base for every VALEN a running kernel could report.
-#define MODULES_BAND_EXACT 1
+#define MODULES_BAND_STRENGTH MOD_BAND_BOUNDS
 
 // The module region's placement is a pure function of the hardware VA width:
 //   vm_map_base   = 0 - (1 << cpu_vabits)

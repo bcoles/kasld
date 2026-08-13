@@ -76,7 +76,7 @@
 
 // Usable as a BOUND: the floor is the lowest vmalloc base of any 64-bit
 // PowerPC MMU configuration, and the ceiling the highest vmalloc end.
-#define MODULES_BAND_EXACT 1
+#define MODULES_BAND_STRENGTH MOD_BAND_BOUNDS
 
 // The live vmalloc base -- and so the module region's base -- is decided by the
 // translation mode and, for hash, the page size. All three values are

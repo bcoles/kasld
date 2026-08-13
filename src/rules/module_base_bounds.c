@@ -17,8 +17,8 @@
 //   LOWER + UPPER, from the band: the region lies inside
 //   [MODULES_START, MODULES_END], so its base does too. The band is only usable
 //   as a BOUND where its edges hold under every configuration the arch models —
-//   a weaker claim than admission needs, which is why it is gated on
-//   MODULES_BAND_EXACT (see api.h). Where the band follows PAGE_OFFSET it is
+//   a stronger claim than admission needs, which is why it is gated on
+//   MODULES_BAND_STRENGTH (see api.h). Where the band follows PAGE_OFFSET it is
 //   derived from the RESOLVED value instead: the compile-time macros describe
 //   the compile-time split only, and on a moved VMSPLIT they name a place the
 //   modules are not.
@@ -136,13 +136,13 @@ int rule_module_base_bounds(const struct evidence_set *ev,
         mbb_emit(&out[n++], C_UPPER_BOUND, band_hi, 0);
     }
   }
-#elif MODULES_BASE_IS_BAND_FLOOR
+#elif MODULES_BAND_STRENGTH == MOD_BAND_PINNED
   /* The floor is not a bound here, it IS the base: a fixed segment address the
    * arch places the region at, with nothing randomized or runtime-derived in
    * between. Pin rather than bracket. */
   if (n < out_max)
     mbb_emit(&out[n++], C_EQUALS, (unsigned long)MODULES_START, 0);
-#elif MODULES_BAND_EXACT
+#elif MODULES_BAND_STRENGTH == MOD_BAND_BOUNDS
   if (n < out_max)
     mbb_emit(&out[n++], C_LOWER_BOUND, (unsigned long)MODULES_START, 0);
   if (n < out_max)

@@ -63,15 +63,13 @@
 #define MODULES_START 0xc0000000ul
 #define MODULES_END 0xfffffffful
 
-// Usable as a BOUND: 32-bit MIPS has no MODULES_VADDR, so modules come from
-// vmalloc at MAP_BASE (kseg2, 0xc0000000) -- this floor exactly. The
-// machine-specific MAP_BASE override (Loongson) is 64-bit only.
-#define MODULES_BAND_EXACT 1
-
-// And the floor IS the base: with no MODULES_VADDR on 32-bit MIPS the region
-// starts where vmalloc does, at MAP_BASE (kseg2) -- a fixed address, not a
-// randomized or runtime-derived one.
-#define MODULES_BASE_IS_BAND_FLOOR 1
+// PINNED: 32-bit MIPS has no MODULES_VADDR, so modules come from vmalloc at
+// MAP_BASE (kseg2, 0xc0000000) -- this floor exactly. The floor is therefore
+// the base itself, not merely a bound on it: a fixed address, not a randomized
+// or runtime-derived one. The machine-specific MAP_BASE override (Loongson) is
+// 64-bit only, and MODULES_END is the top of the address space, so the ceiling
+// the level also asserts holds trivially.
+#define MODULES_BAND_STRENGTH MOD_BAND_PINNED
 
 // KASLR offset is shifted left 16 bits (64 KiB granularity).
 // https://elixir.bootlin.com/linux/v6.12/source/arch/mips/kernel/relocate.c#L276

@@ -136,7 +136,7 @@
 // round_down(kernel_start, _SEGMENT_SIZE) and MODULES_VADDR = MODULES_END -
 // 2 GiB, so both stay within this window for any image placement, and a floor
 // of 0 cannot be too high whatever the layout.
-#define MODULES_BAND_EXACT 1
+#define MODULES_BAND_STRENGTH MOD_BAND_BOUNDS
 #define MODULES_BELOW_TEXT_START 1
 #define MODULES_END_TO_TEXT_OFFSET                                             \
   0x801FC000ul /* MODULES_LEN + (_SEGMENT_SIZE - IMAGE_ALIGN) +                \

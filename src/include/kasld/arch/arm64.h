@@ -177,7 +177,7 @@ static inline unsigned long arm64_page_end_for(unsigned long va_bits) {
 // the ceiling is the top of the VAS, so both edges hold with KASLR on or off
 // (KASLR off puts _text at KIMAGE_VADDR, well inside) and across every VA
 // layout, which is what the guards beside KASLR_VIRT_TEXT_MAX_WIDE assert.
-#define MODULES_BAND_EXACT 1
+#define MODULES_BAND_STRENGTH MOD_BAND_BOUNDS
 // Module region does not shift with KASLR on arm64.
 // (Modules are loaded independently of kernel text placement.)
 
