@@ -711,8 +711,15 @@ printf '%s\n' "$tagged_lines" | while IFS= read -r line; do
         # Some regions (efi_memmap, acpi_*) may sit in reserved holes
         # outside the System RAM extents. Don't fail those — skip with a
         # note so the operator can spot-check.
+        #
+        # cmdline_memmap is not a hole but a carve-out: the component emits a
+        # region only for the memmap= forms that REMOVE address space from RAM
+        # ($ reserved, ! persistent memory, # ACPI NVS), never for the @ form
+        # that adds usable RAM. Those intervals name whatever the operator
+        # asked to reserve, which is routinely outside the RAM extents
+        # entirely — a ramoops or pmem region above the top of memory.
         case "$region" in
-          efi_memmap|acpi_table|acpi_nvs|reserved_mem|pmem)
+          efi_memmap|acpi_table|acpi_nvs|reserved_mem|pmem|cmdline_memmap)
             skip "$desc — outside System RAM (region may be in reserved hole)"
             ;;
           *)
