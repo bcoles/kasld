@@ -331,9 +331,12 @@ $(COMP_DIR)/kernelsnitch: $(COMP_SRC_DIR)/kernelsnitch.c $(HDRS) | $(COMP_DIR)
 .PHONY: build
 build : check-headers $(BIN_FILES) $(KASLD_BIN)
 
+# -I$(SRC_DIR) so the orchestrator can include the component-side fact headers
+# (task_size.h and target_width.h use the same "include/kasld/..." form the
+# components do).
 $(OBJ_DIR)/orchestrator.o: $(KASLD_SRC) $(HDRS) | $(OBJ_DIR)
 	$(call ccv,CC,$@)
-	$(Q)$(CC) $(ALL_CFLAGS) $(PTHREAD_CFLAGS) -DVERSION='"$(VERSION)"' -c $< -o $@
+	$(Q)$(CC) $(ALL_CFLAGS) $(PTHREAD_CFLAGS) -I$(SRC_DIR) -DVERSION='"$(VERSION)"' -c $< -o $@
 
 $(OBJ_DIR)/render.o: $(RENDER_SRC) $(HDRS) | $(OBJ_DIR)
 	$(call ccv,CC,$@)
@@ -410,6 +413,15 @@ TEST_ALIGN_BIN := $(TEST_OBJ_DIR)/test_align
 $(TEST_ALIGN_BIN): $(TEST_DIR)/test_align.c $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
 	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_align.c -o $@
+
+# Address-parser test (header-only): drives kasld_addr_parse()'s refusal paths,
+# deriving the too-wide inputs from the build's own word so the same source is a
+# real overflow on the 32-bit cross targets. No .c sources to link.
+TEST_ADDRP_BIN := $(TEST_OBJ_DIR)/test_addr_parse
+
+$(TEST_ADDRP_BIN): $(TEST_DIR)/test_addr_parse.c $(HDRS) | $(TEST_OBJ_DIR)
+	$(call ccv,CCLD,$@)
+	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_addr_parse.c -o $@
 
 # TASK_SIZE probe test (header-only): drives the boundary search and gap
 # detection in task_size.h with a synthetic address space (an injected step, no
@@ -561,6 +573,22 @@ $(TEST_TIMERLIST_BIN): $(TEST_DIR)/test_proc_timer_list.c $(SRC_DIR)/components/
 	$(call ccv,CCLD,$@)
 	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_proc_timer_list.c -o $@
 
+# Build/target width check (header-only): the two mismatch signals and, mostly,
+# the paths that must NOT report one. Driven over a staged KASLD_SYSROOT.
+TEST_TWIDTH_BIN := $(TEST_OBJ_DIR)/test_target_width
+
+$(TEST_TWIDTH_BIN): $(TEST_DIR)/test_target_width.c $(HDRS) | $(TEST_OBJ_DIR)
+	$(call ccv,CCLD,$@)
+	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_target_width.c -o $@
+
+# proc_kallsyms masked-probe + address width: the kptr_restrict all-zero
+# detection and the refusal of a symbol address wider than this build's word,
+# over a staged /proc/kallsyms (main renamed).
+TEST_KALLSYMS_BIN := $(TEST_OBJ_DIR)/test_proc_kallsyms
+$(TEST_KALLSYMS_BIN): $(TEST_DIR)/test_proc_kallsyms.c $(SRC_DIR)/components/proc_kallsyms.c $(HDRS) | $(TEST_OBJ_DIR)
+	$(call ccv,CCLD,$@)
+	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_proc_kallsyms.c -o $@
+
 # dmesg physical-reservation parsers: the four restructured components
 # (reserved_mem / swiotlb / crashkernel / cma) #included (main renamed) and
 # driven over a staged KASLD_SYSROOT /var/log/dmesg; asserts per-region ranges.
@@ -610,7 +638,7 @@ $(TEST_PARSERS_BIN): $(TEST_DIR)/test_sysfs_parsers.c $(TEST_PARSERS_SRCS) $(HDR
 	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_sysfs_parsers.c -o $@
 
 .PHONY: test
-test : $(KASLD_BIN) $(TEST_BIN) $(TEST_RENDER_BIN) $(TEST_EST_BIN) $(TEST_EV_BIN) $(TEST_ALIGN_BIN) $(TEST_TS_BIN) $(TEST_PREFETCH_SCAN_BIN) $(TEST_CPU_BIN) $(TEST_OUTCOME_BIN) $(TEST_TEXT_ORDER_BIN) $(TEST_KIMG_BIN) $(TEST_ENG_BIN) $(TEST_INT_BIN) $(TEST_DMESG_BIN) $(TEST_BACKTRACE_BIN) $(TEST_BOOTCFG_BIN) $(TEST_KASLRDIS_BIN) $(TEST_DTMEM_BIN) $(TEST_SOCKPTR_BIN) $(TEST_TIMERLIST_BIN) $(TEST_BTF_BIN) $(TEST_DMESG_RESV_BIN) $(TEST_BPE820_BIN) $(TEST_PARSERS_BIN) $(TEST_KCORE_BIN)
+test : $(KASLD_BIN) $(TEST_BIN) $(TEST_RENDER_BIN) $(TEST_EST_BIN) $(TEST_EV_BIN) $(TEST_ALIGN_BIN) $(TEST_ADDRP_BIN) $(TEST_TWIDTH_BIN) $(TEST_TS_BIN) $(TEST_PREFETCH_SCAN_BIN) $(TEST_CPU_BIN) $(TEST_OUTCOME_BIN) $(TEST_TEXT_ORDER_BIN) $(TEST_KIMG_BIN) $(TEST_ENG_BIN) $(TEST_INT_BIN) $(TEST_DMESG_BIN) $(TEST_BACKTRACE_BIN) $(TEST_BOOTCFG_BIN) $(TEST_KASLRDIS_BIN) $(TEST_DTMEM_BIN) $(TEST_SOCKPTR_BIN) $(TEST_TIMERLIST_BIN) $(TEST_KALLSYMS_BIN) $(TEST_BTF_BIN) $(TEST_DMESG_RESV_BIN) $(TEST_BPE820_BIN) $(TEST_PARSERS_BIN) $(TEST_KCORE_BIN)
 	@$(TEST_DIR)/run-all
 	@$(TEST_DIR)/check-render-width
 	@$(MAKE) --no-print-directory lint
@@ -625,6 +653,7 @@ lint :
 	@$(TEST_DIR)/check-self-edges
 	@$(TEST_DIR)/check-extent-callers
 	@$(TEST_DIR)/check-truncation
+	@$(TEST_DIR)/check-addr-parse
 	@$(TEST_DIR)/check-component-output
 	@$(TEST_DIR)/check-component-meta
 	@$(TEST_DIR)/check-component-cap

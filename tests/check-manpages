@@ -88,8 +88,15 @@ fi
 # the current source. That compares the man page against a stale --help, which
 # passes or fails for reasons unrelated to the man page.
 KASLD_BIN=
-host_dir="$ROOT/build/$(uname -m)-linux-gnu/kasld"
-if [ -x "$host_dir" ] && "$host_dir" --version >/dev/null 2>&1; then
+# Name the native build the way the Makefile does -- $(CC) -dumpmachine -- not
+# by assembling "$(uname -m)-linux-gnu", which is only the host triple on a
+# glibc host and misses e.g. a musl or bare-metal one.
+host_dir=
+for t in "$(cc -dumpmachine 2>/dev/null)" "$(${CC:-cc} -dumpmachine 2>/dev/null)"; do
+  [ -n "$t" ] || continue
+  [ -x "$ROOT/build/$t/kasld" ] && { host_dir="$ROOT/build/$t/kasld"; break; }
+done
+if [ -n "$host_dir" ] && "$host_dir" --version >/dev/null 2>&1; then
   KASLD_BIN=$host_dir
 else
   # Fall back to the newest runnable build rather than the first in glob order.

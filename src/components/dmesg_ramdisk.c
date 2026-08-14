@@ -71,9 +71,8 @@ static unsigned long parse_mem_range(const char *p) {
   if (!tag)
     return 0;
 
-  char *endptr;
-  unsigned long addr = strtoul(tag + 5, &endptr, 16);
-  if (endptr == tag + 5 || addr == 0)
+  unsigned long addr;
+  if (!kasld_addr_parse(tag + 5, 16, &addr, NULL) || addr == 0)
     return 0;
 
   return addr;

@@ -128,12 +128,27 @@ static int on_efi_init(const char *line, void *ctx) {
   if (!p)
     return 1;
 
-  char *endptr;
-  unsigned long start = strtoul(p, &endptr, 16);
+  /* A descriptor can exceed a 32-bit build's word on a PAE/LPAE kernel. Refuse
+   * the line and, where the value was too wide rather than absent, mark the
+   * accumulator: its high edge is published as a DRAM ceiling, which an unread
+   * descriptor above it would understate. */
+  const char *endptr;
+  unsigned long start;
+  if (!kasld_addr_parse(p, 16, &start, &endptr)) {
+    if (kasld_addr_refused_wide(p, endptr))
+      (is_efi_mmio(line) ? &e->mmio : &e->dram)->incomplete = 1;
+    return 1;
+  }
   if (*endptr != '-')
     return 1;
 
-  unsigned long end = strtoul(endptr + 1, &endptr, 16);
+  unsigned long end;
+  const char *ep = endptr + 1;
+  if (!kasld_addr_parse(ep, 16, &end, &endptr)) {
+    if (kasld_addr_refused_wide(ep, endptr))
+      (is_efi_mmio(line) ? &e->mmio : &e->dram)->incomplete = 1;
+    return 1;
+  }
   if (!end)
     return 1;
 
@@ -161,13 +176,13 @@ static int on_efi_x86(const char *line, void *ctx) {
     return 1;
 
   p += 7; /* skip "range=[" */
-  char *endptr;
-  unsigned long start = strtoul(p, &endptr, 16);
-  if (*endptr != '-')
+  const char *endptr;
+  unsigned long start;
+  if (!kasld_addr_parse(p, 16, &start, &endptr) || *endptr != '-')
     return 1;
 
-  unsigned long end = strtoul(endptr + 1, &endptr, 16);
-  if (!end)
+  unsigned long end;
+  if (!kasld_addr_parse(endptr + 1, 16, &end, &endptr) || !end)
     return 1;
 
   if (is_efi_mmio(line))
@@ -230,9 +245,12 @@ int main(void) {
     kasld_result_sample(KASLD_TYPE_PHYS, REGION_RAM, e.dram.lo, NULL,
                         CONF_PARSED);
 
-    if (e.dram.hi && e.dram.hi != e.dram.lo)
+    if (e.dram.hi && e.dram.hi != e.dram.lo && !e.dram.incomplete)
       kasld_result_top(KASLD_TYPE_PHYS, REGION_RAM, e.dram.hi, NULL,
                        CONF_PARSED);
+    else if (e.dram.incomplete)
+      kasld_err("an EFI memory descriptor is wider than this build's word; "
+                "DRAM ceiling suppressed");
   }
 
   if (e.mmio.lo) {

@@ -125,6 +125,23 @@ static void render_environment_markdown(void) {
   printf("| LSM | %s |\n", kasld_vantage_lsm_str(&v, lsmbuf, sizeof(lsmbuf)));
   if (v.sec_context[0])
     printf("| Security context | %s |\n", v.sec_context);
+  if (v.uid != v.euid || v.gid != v.egid)
+    printf("| Identity | uid=%lu gid=%lu (euid=%lu egid=%lu) |\n", v.uid, v.gid,
+           v.euid, v.egid);
+  else
+    printf("| Identity | uid=%lu gid=%lu |\n", v.uid, v.gid);
+  if (v.ngroups > 0) {
+    printf("| Supplementary groups | ");
+    for (int i = 0; i < v.ngroups; i++) {
+      char nb[64];
+      const char *nm = kasld_group_name(v.groups[i], nb, sizeof(nb));
+      if (nm)
+        printf("%s%lu(%s)", i ? "," : "", v.groups[i], nm);
+      else
+        printf("%s%lu", i ? "," : "", v.groups[i]);
+    }
+    printf("%s |\n", v.groups_truncated ? ",..." : "");
+  }
   if (kasld_vantage_confined(&v)) {
     if (v.seccomp >= 0)
       printf("| Seccomp | %s |\n", kasld_vantage_seccomp_str(v.seccomp));

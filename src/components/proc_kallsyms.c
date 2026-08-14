@@ -65,7 +65,16 @@ int main(void) {
   int all_zero = 1;
   for (int i = 0; i < 16 && fgets(buf, sizeof(buf), f); i++) {
     unsigned long test;
-    if (sscanf(buf, "%lx", &test) == 1 && test != 0) {
+    const char *e;
+    int ok = kasld_addr_parse(buf, 16, &test, &e);
+    if (ok && test != 0) {
+      all_zero = 0;
+      break;
+    }
+    /* A refusal that consumed digits means the address was too wide for this
+     * build, not that the kernel masked it — a masked line parses cleanly as
+     * zero and must keep the scan going. */
+    if (!ok && e != buf) {
       all_zero = 0;
       break;
     }
@@ -80,9 +89,17 @@ int main(void) {
   FILE *ks = kasld_fopen("/proc/kallsyms", "r");
   if (ks) {
     unsigned long a;
-    char type, sym[256];
+    char line[512], type, sym[256];
     kasld_info("scanning /proc/kallsyms for _text, _stext and _etext ...");
-    while (fscanf(ks, "%lx %c %255s\n", &a, &type, sym) == 3) {
+    /* Read line-wise rather than with a "%lx" field: a symbol address wider
+     * than this build's word must be refused, and scanf would hand back a
+     * truncated one that looks like a valid base. */
+    while (fgets(line, sizeof(line), ks)) {
+      const char *e;
+      if (!kasld_addr_parse(line, 16, &a, &e))
+        continue;
+      if (sscanf(e, " %c %255s", &type, sym) != 2)
+        continue;
       if (!text && strcmp(sym, "_text") == 0)
         text = a;
       else if (!stext && strcmp(sym, "_stext") == 0)

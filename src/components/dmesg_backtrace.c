@@ -216,16 +216,24 @@ static int is_hex_digit(int c) {
  * letters, symbol offsets) are filtered by each caller's range predicate. */
 static int next_addr_token(const char **pp, unsigned long *out) {
   const char *p = *pp;
-  while (*p && !is_hex_digit((unsigned char)*p))
-    p++;
-  if (!*p) {
-    *pp = p;
-    return 0;
+  for (;;) {
+    while (*p && !is_hex_digit((unsigned char)*p))
+      p++;
+    if (!*p) {
+      *pp = p;
+      return 0;
+    }
+    const char *end;
+    int ok = kasld_addr_parse(p, 16, out, &end);
+    p = (end > p) ? end : p + 1;
+    if (ok) {
+      *pp = p;
+      return 1;
+    }
+    /* A run too wide for this build is skipped like any other unusable token:
+     * returning 0 here would end the line early, and the contract reserves
+     * that for exhaustion. */
   }
-  char *end;
-  *out = strtoul(p, &end, 16);
-  *pp = (end > p) ? end : p + 1;
-  return 1;
 }
 
 /* Scan a call-trace line for kernel-text addresses, keeping the lowest. */

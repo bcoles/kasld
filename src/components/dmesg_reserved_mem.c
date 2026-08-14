@@ -75,9 +75,10 @@ static int on_match(const char *line, void *ctx) {
   if (!p)
     return 1;
 
-  char *endptr;
-  unsigned long start = strtoul(p, &endptr, 16);
-  if (!start || endptr[0] != '.' || endptr[1] != '.')
+  const char *endptr;
+  unsigned long start;
+  if (!kasld_addr_parse(p, 16, &start, &endptr) || !start || endptr[0] != '.' ||
+      endptr[1] != '.')
     return 1;
 
   /* skip ".." */
@@ -85,8 +86,8 @@ static int on_match(const char *line, void *ctx) {
   if (!q)
     return 1;
 
-  unsigned long end = strtoul(q, &endptr, 16);
-  if (!end)
+  unsigned long end;
+  if (!kasld_addr_parse(q, 16, &end, &endptr) || !end)
     return 1;
 
   if (!r->lo || start < r->lo)
@@ -108,7 +109,7 @@ static int on_match(const char *line, void *ctx) {
 }
 
 int main(void) {
-  struct range_ctx r = {0, 0};
+  struct range_ctx r = {0, 0, 0};
 
   kasld_info("searching dmesg for device tree reserved memory regions ...");
   int ds = dmesg_search("OF: reserved mem:", on_match, &r);

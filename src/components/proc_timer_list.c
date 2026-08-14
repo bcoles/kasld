@@ -119,9 +119,10 @@ int main(void) {
     const char *p = bp + strlen(".base:");
     while (*p == ' ')
       p++;
-    char *endptr;
-    unsigned long val = strtoul(p, &endptr, 16);
-    if (endptr - p < (ptrdiff_t)(sizeof(void *) * 2))
+    const char *endptr;
+    unsigned long val;
+    if (!kasld_addr_parse(p, 16, &val, &endptr) ||
+        endptr - p < (ptrdiff_t)(sizeof(void *) * 2))
       continue;
     switch (classify_timer_base(val)) {
     case TB_HASHED:

@@ -79,7 +79,6 @@ static int on_match(const char *line, void *ctx) {
   const char *name_start;
   const char *name_end;
   const char *paren;
-  char *endptr;
   unsigned long addr;
   enum kasld_region region;
   size_t name_len;
@@ -97,8 +96,7 @@ static int on_match(const char *line, void *ctx) {
   if (paren == NULL)
     return 1;
 
-  addr = strtoul(paren + 1, &endptr, 16);
-  if (endptr == paren + 1 || addr == 0)
+  if (!kasld_addr_parse(paren + 1, 16, &addr, NULL) || addr == 0)
     return 1;
 
   if (!kasld_addr_is_kernel_vas(addr))

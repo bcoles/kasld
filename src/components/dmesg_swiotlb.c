@@ -74,13 +74,16 @@ static int on_mapped(const char *line, void *ctx) {
   if (!p)
     return 1;
 
-  char *endptr;
-  unsigned long start = strtoul(p + 5, &endptr, 16);
-  if (!start || *endptr != '-')
+  /* A physical range can exceed a 32-bit build's word on a PAE/LPAE kernel.
+   * Refuse the line: this region is a reserved band, so dropping one narrows
+   * what is excluded rather than widening it, and the aggregate stays sound. */
+  const char *endptr;
+  unsigned long start;
+  if (!kasld_addr_parse(p + 5, 16, &start, &endptr) || !start || *endptr != '-')
     return 1;
 
-  unsigned long end = strtoul(endptr + 1, &endptr, 16);
-  if (!end)
+  unsigned long end;
+  if (!kasld_addr_parse(endptr + 1, 16, &end, &endptr) || !end)
     return 1;
 
   if (!r->lo || start < r->lo)
@@ -99,17 +102,17 @@ static int on_placing(const char *line, void *ctx) {
   if (!p)
     return 1;
 
-  char *endptr;
-  unsigned long start = strtoul(p + 8, &endptr, 16);
-  if (!start)
+  const char *endptr;
+  unsigned long start;
+  if (!kasld_addr_parse(p + 8, 16, &start, &endptr) || !start)
     return 1;
 
   const char *q = strstr(endptr, "and ");
   if (!q)
     return 1;
 
-  unsigned long end = strtoul(q + 4, &endptr, 16);
-  if (!end)
+  unsigned long end;
+  if (!kasld_addr_parse(q + 4, 16, &end, &endptr) || !end)
     return 1;
 
   if (!r->lo || start < r->lo)
@@ -121,7 +124,7 @@ static int on_placing(const char *line, void *ctx) {
 }
 
 int main(void) {
-  struct range_ctx r = {0, 0};
+  struct range_ctx r = {0, 0, 0};
 
   kasld_info("searching dmesg for SWIOTLB bounce buffer info ...");
 

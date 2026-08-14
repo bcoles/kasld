@@ -71,7 +71,6 @@ KASLD_META("method:parsed\n"
 
 static int on_match(const char *line, void *ctx) {
   unsigned long *result = ctx;
-  char *endptr;
   char buf[BUFSIZ];
   char *ptr;
 
@@ -88,8 +87,8 @@ static int on_match(const char *line, void *ctx) {
   for (ptr = strtok(buf, " "); ptr != NULL; ptr = strtok(NULL, " ")) {
     if (strncmp(ptr, "0x", 2) != 0)
       continue;
-    unsigned long addr = strtoul(ptr, &endptr, 16);
-    if (addr != 0) {
+    unsigned long addr;
+    if (kasld_addr_parse(ptr, 16, &addr, NULL) && addr != 0) {
       *result = addr;
       return 0;
     }

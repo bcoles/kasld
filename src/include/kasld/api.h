@@ -951,9 +951,11 @@ static inline unsigned long arch_default_text_base(void) { return 0; }
 static inline unsigned long arch_default_phys_text_base(void) { return 0; }
 #endif
 
+#include <errno.h>
 #include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 /* Filesystem-fact reads route through the KASLD_SYSROOT redirection layer so a
@@ -962,12 +964,88 @@ static inline unsigned long arch_default_phys_text_base(void) { return 0; }
  * translation unit. */
 #include "sysroot.h"
 
+/* Parse an address out of kernel-supplied text.
+ *
+ * `base` is strtoul's (16 for the usual bare hex, 0 to honour a 0x prefix, 10
+ * for the decimal fields in /proc/<pid>/stat and the iscsi transport handle).
+ * Returns 1 and stores the value on success. Returns 0 — leaving *out
+ * untouched — when the field holds no digits, holds a sign, or holds an address
+ * too wide for this build's word. When `end` is non-NULL it receives the first
+ * unconsumed character, so a caller walking a line can still step past a field
+ * it rejected; on a no-digits or signed failure that is the original start, so
+ * a moved end pointer means digits were consumed (see
+ * kasld_addr_refused_wide).
+ *
+ * Width is the point. An address the analysing build cannot represent is not a
+ * parse error to paper over: a 32-bit binary reading a PAE `/proc/iomem`, or
+ * any 64-bit kernel, is being handed values it has no room for. Truncating one
+ * yields a plausible wrong address that enters the evidence set at the same
+ * confidence as a correct one — `sscanf("%lx")` on "100000000-13fffffff"
+ * reports success and hands back 0x0-0x3fffffff. Parsing at 64-bit width and
+ * range-checking against the word makes that unrepresentable value a refusal
+ * instead, which the caller can report honestly. */
+/* After a failed kasld_addr_parse, tells a field that held digits this build
+ * cannot represent apart from one that held no digits at all. `end` is the
+ * pointer the failed parse reported.
+ *
+ * The distinction matters to any caller accumulating an aggregate: a merely
+ * malformed field says nothing, while one that was too wide means a real span
+ * exists above everything gathered so far, and a bound derived from that
+ * aggregate would understate it. */
+static inline int kasld_addr_refused_wide(const char *s, const char *end) {
+  return end != NULL && end != s;
+}
+
+static inline int kasld_addr_parse(const char *s, int base, kasld_addr_t *out,
+                                   const char **end) {
+  const char *p = s;
+  /* strtoull skips leading whitespace, which callers rely on, but it also
+   * accepts a sign and NEGATES: "-1" converts to ULLONG_MAX with no ERANGE, so
+   * a signed field would be reported as a successful parse of a huge address —
+   * exactly the plausible-wrong-value this refuses everywhere else. An address
+   * field never carries a sign, so stop before one. */
+  while (*p == ' ' || *p == '\t' || *p == '\n' || *p == '\r' || *p == '\f' ||
+         *p == '\v')
+    p++;
+  if (*p == '-' || *p == '+') {
+    if (end)
+      *end = s;
+    return 0;
+  }
+
+  char *e;
+  errno = 0;
+  unsigned long long v = strtoull(p, &e, base);
+  if (e == p) {
+    /* No digits at all. Report the ORIGINAL start, not the position after the
+     * whitespace: a caller distinguishes "held nothing" from "held something
+     * too wide" by whether the end pointer moved, and skipped blanks are not
+     * progress. */
+    if (end)
+      *end = s;
+    return 0;
+  }
+  if (end)
+    *end = e;
+  if (errno == ERANGE)
+    return 0;
+  if (v > (unsigned long long)(kasld_addr_t)-1)
+    return 0; /* wider than this build's address type */
+  *out = (kasld_addr_t)v;
+  return 1;
+}
+
 /* Generic [lo, hi] half-open or inclusive range; semantics decided by the
  * caller. Used by component-side region accumulators (dmesg_* parsers,
  * sysfs walkers) that aggregate per-line spans before emitting a result. */
 struct addr_range {
   unsigned long lo;
   unsigned long hi;
+  /* Set when a span could not be represented in the word and was dropped. The
+   * aggregate is then partial in a known direction — an unrepresentable span
+   * lies above every representable one — so `lo` remains a sound floor while
+   * `hi` understates the top and must not be published as a ceiling. */
+  int incomplete;
 };
 
 /* MIPS64 XKPHYS: a 64-bit virtual address with bits [63:62] == 0b10 is a

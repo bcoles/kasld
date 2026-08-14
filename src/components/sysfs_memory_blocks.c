@@ -87,7 +87,8 @@ int main(void) {
                                                : KASLD_EXIT_UNAVAILABLE;
   }
 
-  block_size = strtoul(buf, NULL, 16);
+  if (!kasld_addr_parse(buf, 16, &block_size, NULL))
+    block_size = 0;
   if (!block_size) {
     kasld_err("invalid block size");
     return 0;
@@ -123,7 +124,9 @@ int main(void) {
     if (kasld_read_file_line(path, buf, sizeof(buf)) < 0)
       continue;
 
-    unsigned long idx = strtoul(buf, NULL, 16);
+    unsigned long idx;
+    if (!kasld_addr_parse(buf, 16, &idx, NULL))
+      continue;
     unsigned long addr = idx * block_size;
     /* No `if (!addr) continue;` — block 0 at idx 0 is a legitimate value
      * (phys 0). lo = ~0ul above is the "no blocks seen" sentinel; the

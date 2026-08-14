@@ -133,8 +133,8 @@ static int scan_line(const char *line) {
     size_t len = (size_t)(p - start);
     /* pointer width: 8 hex (32-bit) .. 16 hex (64-bit) */
     if (len >= 8 && len <= 16) {
-      unsigned long v = strtoul(start, NULL, 16);
-      if (v && !already_seen(v))
+      unsigned long v;
+      if (kasld_addr_parse(start, 16, &v, NULL) && v && !already_seen(v))
         emitted += emit_addr(v);
     }
   }

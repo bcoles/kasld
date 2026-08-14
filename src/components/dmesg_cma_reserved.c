@@ -125,8 +125,8 @@ static int on_reserved_pool(const char *line, void *ctx) {
   if (!p)
     return 1;
 
-  unsigned long addr = strtoul(p + 4, NULL, 16);
-  if (!addr)
+  unsigned long addr;
+  if (!kasld_addr_parse(p + 4, 16, &addr, NULL) || !addr)
     return 1;
 
   const char *s = strstr(p, ", size ");
@@ -147,8 +147,8 @@ static int on_cma_reserved(const char *line, void *ctx) {
   if (!p)
     return 1;
 
-  unsigned long addr = strtoul(p + 4, NULL, 16);
-  if (!addr)
+  unsigned long addr;
+  if (!kasld_addr_parse(p + 4, 16, &addr, NULL) || !addr)
     return 1;
 
   const char *sz = strstr(line, "Reserved ");
@@ -160,7 +160,7 @@ static int on_cma_reserved(const char *line, void *ctx) {
 }
 
 int main(void) {
-  struct range_ctx r = {0, 0};
+  struct range_ctx r = {0, 0, 0};
 
   kasld_info("searching dmesg for CMA/DMA reserved memory pools ...");
 

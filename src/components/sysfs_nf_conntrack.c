@@ -61,7 +61,6 @@ static unsigned long get_kernel_addr_conntrack(void) {
   const char *needle = "nf_conntrack_";
   char d_path[256];
   char *substr;
-  char *endptr;
   struct dirent *dir;
   DIR *d;
 
@@ -84,7 +83,8 @@ static unsigned long get_kernel_addr_conntrack(void) {
     if (substr == NULL)
       continue;
 
-    addr = strtoul(&substr[strlen(needle)], &endptr, 16);
+    if (!kasld_addr_parse(&substr[strlen(needle)], 16, &addr, NULL))
+      continue;
 
     /* A real `struct net *` is pointer-aligned (init_net is a static struct;
      * kmalloc'd namespaces come from the SMP_CACHE_BYTES-aligned net_cachep),

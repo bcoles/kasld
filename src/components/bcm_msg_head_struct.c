@@ -107,7 +107,6 @@ static unsigned long get_kernel_addr_from_bcm_msg_head_struct(void) {
   } msg;
   char addrs[9];
   char buf[sizeof(msg)];
-  char *endptr;
   unsigned long addr = 0;
 
   kasld_info("trying bcm_msg_head struct stack pointer leak ...");
@@ -184,7 +183,8 @@ static unsigned long get_kernel_addr_from_bcm_msg_head_struct(void) {
            (unsigned char)buf[leak_off + 3], (unsigned char)buf[leak_off + 2],
            (unsigned char)buf[leak_off + 1], (unsigned char)buf[leak_off + 0]);
 
-  addr = strtoul(addrs, &endptr, 16);
+  if (!kasld_addr_parse(addrs, 16, &addr, NULL))
+    return 0;
 
   if (kasld_addr_is_kernel_text(addr))
     return addr;
@@ -192,7 +192,6 @@ static unsigned long get_kernel_addr_from_bcm_msg_head_struct(void) {
   /* Unreached: main() declines the 64-bit-only shape before probing. */
   (void)buf;
   (void)addrs;
-  (void)endptr;
   (void)addr;
 #endif
 

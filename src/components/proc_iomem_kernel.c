@@ -110,7 +110,9 @@ int main(void) {
     const char *p = line;
     while (*p == ' ' || *p == '\t')
       p++;
-    if (sscanf(p, "%lx-%lx", &lo, &hi) == 2 && (lo != 0 || hi != 0)) {
+    const char *e;
+    if (kasld_addr_parse(p, 16, &lo, &e) && *e == '-' &&
+        kasld_addr_parse(e + 1, 16, &hi, NULL) && (lo != 0 || hi != 0)) {
       saw_real_addr = 1;
       break;
     }
@@ -133,7 +135,14 @@ int main(void) {
       p++;
     unsigned long lo = 0, hi = 0;
     char label[128] = {0};
-    if (sscanf(p, "%lx-%lx : %127[^\n]", &lo, &hi, label) != 3)
+    /* Both edges must be representable: a PAE map names physical addresses
+     * above the word on a 32-bit build, and half-parsing one would emit a
+     * region the kernel never reported. */
+    const char *e;
+    if (!kasld_addr_parse(p, 16, &lo, &e) || *e != '-' ||
+        !kasld_addr_parse(e + 1, 16, &hi, &e))
+      continue;
+    if (sscanf(e, " : %127[^\n]", label) != 1)
       continue;
     if (hi < lo)
       continue;

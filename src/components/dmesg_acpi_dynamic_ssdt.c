@@ -102,9 +102,9 @@ static int on_match(const char *line, void *ctx) {
   if (!p)
     return 1;
 
-  char *endptr;
-  unsigned long addr = strtoul(p + 1, &endptr, 16);
-  if (!addr)
+  unsigned long addr;
+  const char *endptr;
+  if (!kasld_addr_parse(p + 1, 16, &addr, &endptr) || !addr)
     return 1;
 
   /* Direct-map addresses land between PAGE_OFFSET (VAS upper-half start)

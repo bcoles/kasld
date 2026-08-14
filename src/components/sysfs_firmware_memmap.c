@@ -71,7 +71,7 @@ int main(void) {
   char path[512];
   char buf[256];
   unsigned long lo = ~0ul, hi = 0;
-  int count = 0;
+  int count = 0, incomplete = 0;
 
   kasld_info("searching %s for System RAM entries ...", base);
 
@@ -100,17 +100,26 @@ int main(void) {
     if (kasld_read_file_line(path, buf, sizeof(buf)) < 0)
       continue;
 
-    char *endptr;
-    unsigned long start = strtoul(buf, &endptr, 16);
-    if (!start)
+    unsigned long start;
+    const char *se;
+    if (!kasld_addr_parse(buf, 16, &start, &se) || !start) {
+      if (kasld_addr_refused_wide(buf, se))
+        incomplete = 1;
       continue;
+    }
 
     /* read end */
     snprintf(path, sizeof(path), "%s/%s/end", base, ent->d_name);
     if (kasld_read_file_line(path, buf, sizeof(buf)) < 0)
       continue;
 
-    unsigned long end = strtoul(buf, &endptr, 16);
+    unsigned long end;
+    const char *ee;
+    if (!kasld_addr_parse(buf, 16, &end, &ee)) {
+      if (kasld_addr_refused_wide(buf, ee))
+        incomplete = 1;
+      continue;
+    }
 
     /* track lowest start and highest end across System RAM entries */
     if (start < lo)
@@ -130,7 +139,14 @@ int main(void) {
   kasld_info("firmware memmap: %d System RAM entries", count);
 
   kasld_info("lowest System RAM start:  0x%016lx", lo);
-  if (hi && hi != lo) {
+  /* An entry this build cannot represent lies above every entry it can, so hi
+   * would understate the top of RAM — and the range's top is consumed as an
+   * upper bound. Fall back to the base alone, which a dropped high entry
+   * cannot raise. */
+  if (incomplete)
+    kasld_err("a System RAM entry is wider than this build's word; "
+              "publishing the base only");
+  if (hi && hi != lo && !incomplete) {
     kasld_info("highest System RAM end:   0x%016lx", hi);
     /* Both edges known: one bounded range (validated lo <= hi at the source).
      */

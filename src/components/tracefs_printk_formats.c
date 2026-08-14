@@ -91,7 +91,12 @@ int main(int argc, char **argv) {
   /* Lines: 0x<addr> : "<format>". %lx consumes the 0x prefix. */
   while (fgets(line, sizeof(line), f)) {
     unsigned long a;
-    if (sscanf(line, "%lx :", &a) != 1 || a == 0)
+    const char *e;
+    if (!kasld_addr_parse(line, 16, &a, &e) || a == 0)
+      continue;
+    while (*e == ' ')
+      e++;
+    if (*e != ':')
       continue;
     if (kasld_addr_is_kernel_text(a)) {
       if (!have_text || a < text_lo)

@@ -1,0 +1,147 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-addr-parse — guard that kernel addresses are parsed width-checked.
+#
+# A component reads addresses out of kernel-supplied text. The C library's
+# usual conversions both fail badly when the text names an address wider than
+# this build's word — a 32-bit binary reading a PAE/LPAE /proc/iomem, where
+# physical addresses run to 36 or 40 bits:
+#
+#   sscanf("%lx-%lx", ...) on "100000000-13fffffff" RETURNS SUCCESS and yields
+#   0x0-0x3fffffff, a believable region in the first gigabyte (the whole scanf
+#   family behaves this way — an fscanf over /proc/kallsyms did too);
+#   strtoul() saturates to ULONG_MAX and only reports it through errno, which
+#   almost no caller checked.
+#
+# Either way a wrong address enters the evidence set at CONF_PARSED, where
+# nothing downstream can tell it from a correct one. kasld_addr_parse()
+# (api.h) converts at 64-bit width and refuses a value the word cannot hold,
+# so the caller can skip the line instead.
+#
+# This check fails if a component or fact-reading header parses with strtoul /
+# strtoull, or any scanf-family %lx, outside the reviewed ALLOW list below.
+# A %llx field is not flagged: it converts at full width, so narrowing it on
+# assignment is check-truncation's business, not this guard's. It does not prove
+# a conversion is correct — only that no new address parse slips in unchecked.
+#
+# Distinct from check-truncation, which catches a value that is WIDE in C being
+# assigned to the word (a compiler-visible narrowing). Here nothing is narrowed:
+# the wide value is never constructed, so the compiler has nothing to see.
+#
+# Usage: tests/check-addr-parse   (also run by `make test`)
+# ---
+# <bcoles@gmail.com>
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+COMPONENTS=$ROOT/src/components
+INCLUDES=$ROOT/src/include
+# shellcheck source=tests/lib/guard-scope.sh
+. "$ROOT/tests/lib/guard-scope.sh"
+
+# Reviewed raw conversions. Each parses something that is NOT an address, or is
+# already held at a width the word cannot truncate:
+#   dmesg_backtrace:153            a pid (decimal)
+#   dmesg_cma_reserved:86          a MiB count (decimal)
+#   dmesg_crashkernel:128,137      sizes in MB (decimal)
+#   dmesg_ex_handler_msr:197       a within-symbol offset, not an address
+#   dmesg_last_pfn:80              a PFN, kept in unsigned long long on purpose
+#   proc_pid_syscall:134           a register, kept in unsigned long long
+#   sysfs_iommu_reserved_regions:157  a directory index (decimal)
+# Keep alphabetical.
+ALLOW="dmesg_backtrace
+dmesg_cma_reserved
+dmesg_crashkernel
+dmesg_ex_handler_msr
+dmesg_last_pfn
+proc_pid_syscall
+sysfs_iommu_reserved_regions"
+
+# Headers exempt from the rule. api is where kasld_addr_parse itself lives, so
+# it holds the one deliberate strtoull.
+# Of the fact-reading headers, firmware_memmap and kernel_image hold their
+# values in unsigned long long and range-check before narrowing (see the
+# comment in firmware_memmap.h); bootconfig, cmdline and kconfig parse config
+# scalars and sizes rather than addresses.
+ALLOW_HDR="api
+bootconfig
+cmdline
+firmware_memmap
+kconfig
+kernel_image"
+
+if [ -t 2 ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; RESET=
+fi
+
+contains() { # $1=needle $2=list
+  for _x in $2; do [ "$_x" = "$1" ] && return 0; done
+  return 1
+}
+
+# A raw conversion. Comment bodies are dropped by leading marker rather than by
+# excluding punctuation: a real call routinely contains `*` (a deref) or a
+# string literal, so filtering on those hides the very lines being guarded. A
+# leading `*` counts as a comment continuation only when a space or slash
+# follows it — `*woff = ...` is an assignment through a pointer.
+raw_parse() { # $1=file
+  grep -nE '(strtoul|strtoull)[[:space:]]*\(|(f|s|v|vs)?scanf[[:space:]]*\(.*%l[xX]' \
+    "$1" 2>/dev/null | grep -vE '^[0-9]+:[[:space:]]*(\*[[:space:]/]|//|/\*)'
+}
+
+fail=0
+nfiles=0
+detected=
+
+for f in "$COMPONENTS"/*.c; do
+  [ -e "$f" ] || continue
+  nfiles=$((nfiles + 1))
+  if raw_parse "$f" >/dev/null; then
+    detected="$detected $(basename "$f" .c)"
+  fi
+done
+
+for f in "$INCLUDES"/*.h "$INCLUDES"/kasld/*.h; do
+  [ -e "$f" ] || continue
+  nfiles=$((nfiles + 1))
+  b=$(basename "$f" .h)
+  if raw_parse "$f" >/dev/null && ! contains "$b" "$ALLOW_HDR"; then
+    detected="$detected $b"
+  fi
+done
+
+guard_scope "check-addr-parse" "$nfiles" 100
+
+for d in $detected; do
+  if ! contains "$d" "$ALLOW" && ! contains "$d" "$ALLOW_HDR"; then
+    if [ "$fail" = 0 ]; then
+      printf '%saddr-parse guard: unchecked address conversion(s):%s\n' "$RED" "$RESET" >&2
+    fi
+    printf '  %s\n' "$d" >&2
+    fail=1
+  fi
+done
+
+# Keep the list honest: an allowlisted file that no longer parses raw should
+# leave, so the list never grows stale cover for a future conversion.
+for a in $ALLOW; do
+  if ! contains "$a" "$detected"; then
+    printf '%saddr-parse guard: %s no longer parses raw — drop it from ALLOW%s\n' \
+      "$RED" "$a" "$RESET" >&2
+    fail=1
+  fi
+done
+
+if [ "$fail" = 1 ]; then
+  printf 'Parse kernel addresses with kasld_addr_parse(s, base, &out, &end) from\n' >&2
+  printf 'api.h: it converts at 64-bit width and refuses a value this build cannot\n' >&2
+  printf 'represent, so a PAE physical address is skipped rather than truncated\n' >&2
+  printf 'into a plausible wrong one. If the value is not an address, add the file\n' >&2
+  printf 'to ALLOW in tests/check-addr-parse with the reason.\n' >&2
+  exit 1
+fi
+
+printf '%scheck-addr-parse: OK%s (%d files, %d reviewed raw conversions)\n' \
+  "$GREEN" "$RESET" "$nfiles" "$(printf '%s\n' "$ALLOW" | wc -l | tr -d ' ')"

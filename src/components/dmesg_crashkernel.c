@@ -84,15 +84,19 @@ static int on_reserved(const char *line, void *ctx) {
   while (*p == ' ')
     p++;
 
-  char *endptr;
-  unsigned long start = strtoul(p, &endptr, 16);
+  const char *endptr;
+  unsigned long start;
+  if (!kasld_addr_parse(p, 16, &start, &endptr))
+    return 1;
 
   /* Skip to end address after " - " */
   const char *q = strstr(endptr, " - ");
   if (!q)
     return 1;
 
-  unsigned long end = strtoul(q + 3, &endptr, 16);
+  unsigned long end;
+  if (!kasld_addr_parse(q + 3, 16, &end, &endptr))
+    return 1;
 
   if (start && (!r->lo || start < r->lo))
     r->lo = start;
@@ -156,7 +160,7 @@ static int on_reserving(const char *line, void *ctx) {
 }
 
 int main(void) {
-  struct range_ctx r = {0, 0};
+  struct range_ctx r = {0, 0, 0};
 
   kasld_info("searching dmesg for crashkernel reservation ...");
 

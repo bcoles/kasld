@@ -149,10 +149,11 @@ static int make_array_map(void) {
 static unsigned long first_kernel_addr_in(const char *log) {
   const char *p = log;
   while ((p = strstr(p, "0x")) != NULL) {
-    char *end = NULL;
-    unsigned long v = strtoul(p, &end, 16);
+    const char *end = NULL;
+    unsigned long v = 0;
+    int ok = kasld_addr_parse(p, 16, &v, &end);
     p = (end && end != p) ? end : p + 2;
-    if (v != 0 && kasld_addr_is_kernel_vas(v))
+    if (ok && v != 0 && kasld_addr_is_kernel_vas(v))
       return v;
   }
   return 0;

@@ -218,10 +218,17 @@ default readout does, then adds only what its columns cannot carry: `_stext`
 where a quantity has one, the compile-time default a slide is measured from,
 and the residual expressed in bits. The
 system-config block reports the recon vantage: whether the process is
-containerized, which mandatory-access-control policy is in force and the
-security context this process runs under, and — when it is confined — its
-seccomp / capability / no-new-privs state, plus which `/proc` leak oracles are
-readable here:
+containerized, which mandatory-access-control policy is in force, the security
+context and the uid/gid/groups this process runs under, and — when it is
+confined — its seccomp / capability / no-new-privs state, plus which `/proc`
+leak oracles are readable here. The identity is not redundant with the
+capability set: several sources answer to discretionary permissions alone, so a
+denial is only explicable with the uid and groups that were refused in view.
+Group names come from `/etc/group` in the tree being analysed, so an offline
+replay names that tree's groups rather than the analysing host's; the ids kasld
+knows gate one of its own sources are named even where the tree cannot name
+them, which is the case on Android, where the file exists but is empty and the
+ids live inside the C library:
 
 <details>
 <summary>Click to expand verbose example</summary>
@@ -250,6 +257,8 @@ Kernel lockdown:              (unavailable)
 Container:                    none
 LSM:                          lockdown,capability,landlock,yama,apparmor
 Security context:             unconfined
+Identity:                     uid=1000 gid=1000
+Supplementary groups:         4(adm),24(cdrom),27(sudo),1000(user)
 
 Readable /proc/kallsyms:      yes
 Readable /proc/kcore:         no
@@ -481,9 +490,17 @@ best-guess, always contained within it. Memory-KASLR regions
 (`memory_kaslr`) carry the same guaranteed `min`/`max` and an optional
 nested `likely` object.
 
+A non-zero exit can replace the report rather than accompany it: on exit 3 the
+document is `{"error": {...}}`, carrying no `layout` or `kaslr` key so that no
+field of it can be mistaken for a measurement. Check the status before parsing;
+`kasld(1)` EXIT STATUS gives the codes and what each output mode writes.
+
 The `environment` object is the recon vantage: `container`, `seccomp`, `lsm`,
 `selinux`, `security_context`, `mac_enforcing`, `capabilities`,
-`no_new_privs`, and a `readable_oracles` map for the `/proc` leak sources
+`no_new_privs`, `uid`, `euid`, `gid`, `egid`, `groups` (null when unreadable,
+with `groups_truncated` when the process holds more than the report keeps),
+`group_gated_sources` (those of them kasld knows gate a source it reads, named),
+and a `readable_oracles` map for the `/proc` leak sources
 (fields are a `null` or enum when they do not apply). `lsm`, `selinux` and
 `security_context` are `null` when this vantage cannot read them, which is not
 the same as their being absent — an enforcing policy commonly hides its own

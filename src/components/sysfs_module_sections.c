@@ -54,7 +54,6 @@ KASLD_META("method:parsed\n"
 
 static unsigned long read_module_text(char *path) {
   FILE *f;
-  char *endptr;
   /* Fixed 64-byte cookie line — one hex address plus "\n". Constant-sized
    * to keep -Wvla / -Wstack-protector silent (no runtime-sized stack). */
   enum { buff_len = 64 };
@@ -79,7 +78,8 @@ static unsigned long read_module_text(char *path) {
   if (strlen(buff) != (size_t)(addr_len + 3))
     return 0;
 
-  addr = strtoul(buff, &endptr, 16);
+  if (!kasld_addr_parse(buff, 16, &addr, NULL))
+    return 0;
 
   if (addr && kasld_addr_is_module_band(addr))
     return addr;
@@ -95,9 +95,9 @@ static struct module_range get_module_text_sysfs(void) {
   const char *path = "/sys/module/";
   struct dirent *dir;
   DIR *d;
-  struct module_range range = {0, 0};
+  struct module_range range = {0, 0, 0};
 
-  kasld_info("trying /sys/modules/*/sections/.text ...");
+  kasld_info("trying /sys/module/*/sections/.text ...");
 
   d = kasld_opendir(path);
   if (d == NULL) {

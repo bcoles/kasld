@@ -142,10 +142,11 @@ int main(void) {
     }
     fclose(f);
 
-    /* Parse as hex (format: "0x%llx\n"); strtoul handles 0x prefix */
-    char *end;
-    unsigned long addr = strtoul(buf, &end, 0);
-    if (end == buf || addr == 0)
+    /* Format is "0x%llx\n", so base 0 honours the prefix. A pmem region base
+     * can exceed the word on a 32-bit build; a refusal skips the region rather
+     * than reporting a truncated one. */
+    unsigned long addr;
+    if (!kasld_addr_parse(buf, 0, &addr, NULL) || addr == 0)
       continue;
 
     kasld_info("%s resource: 0x%016lx", ent->d_name, addr);

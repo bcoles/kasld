@@ -109,7 +109,11 @@ static enum kasld_region classify_uio_addr(unsigned long addr) {
       p++;
     unsigned long start, end;
     char name[128];
-    if (sscanf(p, "%lx-%lx : %127[^\n]", &start, &end, name) != 3)
+    const char *e;
+    if (!kasld_addr_parse(p, 16, &start, &e) || *e != '-' ||
+        !kasld_addr_parse(e + 1, 16, &end, &e))
+      continue;
+    if (sscanf(e, " : %127[^\n]", name) != 1)
       continue;
     if (addr < start || addr > end)
       continue;

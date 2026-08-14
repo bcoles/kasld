@@ -77,16 +77,15 @@ static const char *needle = "mmode_resv0@";
 
 static int on_match(const char *line, void *ctx) {
   unsigned long *result = ctx;
-  char *endptr;
 
   const char *p = strstr(line, needle);
   if (!p)
     return 1;
 
   /* mmode_resv0@80000000 */
-  unsigned long addr = strtoul(p + strlen(needle), &endptr, 16);
-
-  if (addr == 0 || addr >= KERNEL_VIRT_VAS_END)
+  unsigned long addr;
+  if (!kasld_addr_parse(p + strlen(needle), 16, &addr, NULL) || addr == 0 ||
+      addr >= KERNEL_VIRT_VAS_END)
     return 1;
 
   kasld_found("leaked OpenSBI DRAM physical address: 0x%016lx", addr);

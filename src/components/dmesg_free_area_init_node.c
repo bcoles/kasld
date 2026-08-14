@@ -87,14 +87,24 @@ static int on_mem_range(const char *line, void *ctx) {
     return 1;
 
   const char *sp = p + 5;
-  char *endptr;
-  unsigned long start = strtoul(sp, &endptr, 16);
-  if (endptr == sp || *endptr != '-')
+  const char *endptr;
+  unsigned long start;
+  if (!kasld_addr_parse(sp, 16, &start, &endptr)) {
+    if (kasld_addr_refused_wide(sp, endptr))
+      r->incomplete = 1;
+    return 1;
+  }
+  if (*endptr != '-')
     return 1; /* genuine parse failure (no hex digits or missing '-') */
 
   const char *ep = endptr + 1;
-  unsigned long end = strtoul(ep, &endptr, 16);
-  if (endptr == ep || end <= start)
+  unsigned long end;
+  if (!kasld_addr_parse(ep, 16, &end, &endptr)) {
+    if (kasld_addr_refused_wide(ep, endptr))
+      r->incomplete = 1;
+    return 1;
+  }
+  if (end <= start)
     return 1; /* genuine parse failure or zero-length range */
 
   /* r->hi is the uninitialized sentinel (a valid range always has end > 0);
@@ -109,7 +119,7 @@ static int on_mem_range(const char *line, void *ctx) {
 }
 
 int main(void) {
-  struct range_ctx r = {0, 0};
+  struct range_ctx r = {0, 0, 0};
 
   kasld_info("searching dmesg for mm_init physical memory info ...");
 
@@ -144,9 +154,12 @@ int main(void) {
   kasld_info("lowest physical address:  0x%016lx", r.lo);
   kasld_result_sample(KASLD_TYPE_PHYS, REGION_RAM, r.lo, NULL, CONF_PARSED);
 
-  if (r.hi && r.hi != r.lo) {
+  if (r.hi && r.hi != r.lo && !r.incomplete) {
     kasld_info("highest physical address: 0x%016lx", r.hi);
     kasld_result_top(KASLD_TYPE_PHYS, REGION_RAM, r.hi, NULL, CONF_PARSED);
+  } else if (r.incomplete) {
+    kasld_err("a zone range is wider than this build's word; "
+              "DRAM ceiling suppressed");
   }
 
   return 0;

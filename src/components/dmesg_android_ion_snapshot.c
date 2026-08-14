@@ -67,10 +67,9 @@ static int on_match(const char *line, void *ctx) {
   if (!p)
     return 1;
 
-  char *endptr;
-  unsigned long addr = strtoul(p + strlen(needle2), &endptr, 16);
-
-  if (kasld_addr_is_kernel_text(addr)) {
+  unsigned long addr;
+  if (kasld_addr_parse(p + strlen(needle2), 16, &addr, NULL) &&
+      kasld_addr_is_kernel_text(addr)) {
     *result = addr;
     return 0;
   }

@@ -63,9 +63,9 @@ static int on_match(const char *line, void *ctx) {
   if (!p)
     return 1;
 
-  char *endptr;
-  unsigned long addr = strtoul(p + strlen(needle), &endptr, 16);
-  if (addr && addr < KERNEL_VIRT_VAS_END) {
+  unsigned long addr;
+  if (kasld_addr_parse(p + strlen(needle), 16, &addr, NULL) && addr &&
+      addr < KERNEL_VIRT_VAS_END) {
     *result = addr;
     return 0; /* stop after first match */
   }

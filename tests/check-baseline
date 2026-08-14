@@ -58,19 +58,24 @@ note() {
 # Native binary: the full assertion set.
 # ---------------------------------------------------------------------------
 
-# The host build dir is named for the host triple, so identify the native
-# binary by running it rather than by matching a name we would have to keep in
-# step with the Makefile.
+# The build subdirectory is named for the compiler's triple, so name the native
+# binary the same way the Makefile does.
+#
+# Running a candidate to see whether it works does NOT identify it: a build for
+# a narrower architecture runs perfectly well here (an i686 binary executes on
+# x86_64), and sorts first, so a probe-and-take-the-first-that-runs picks the
+# i686 build and then asserts native behaviour against a kernel that build
+# cannot model.
 BIN=
-for cand in "$ROOT"/build/*/kasld; do
-  [ -x "$cand" ] || continue
-  if "$cand" -V >/dev/null 2>&1; then
-    BIN=$cand
+for t in "$(cc -dumpmachine 2>/dev/null)" "$(${CC:-cc} -dumpmachine 2>/dev/null)"; do
+  [ -n "$t" ] || continue
+  if [ -x "$ROOT/build/$t/kasld" ]; then
+    BIN=$ROOT/build/$t/kasld
     break
   fi
 done
 [ -n "$BIN" ] || {
-  printf '%scheck-baseline: SKIP%s (no runnable kasld binary; run make first)\n' \
+  printf '%scheck-baseline: SKIP%s (no native kasld build; run make first)\n' \
     "$YELLOW" "$RESET"
   exit 0
 }
@@ -225,6 +230,18 @@ resolve_qemu() {
   fi
 }
 
+# An empty sysroot for the emulated runs. Under qemu-user a cross binary sees
+# the HOST's /proc, which describes a kernel of another architecture entirely —
+# meaningless input for an arm32 or riscv32 build, and for a 32-bit one it is a
+# 64-bit kernel, which the width check correctly refuses to analyse. A baseline
+# asserts only that each arch renders, so give it no facts at all.
+EMPTY_ROOT=$(mktemp -d) || {
+  printf '%scheck-baseline: SKIP%s (no temp dir for the cross sweep)\n' \
+    "$YELLOW" "$RESET"
+  exit 0
+}
+trap 'rm -rf "$EMPTY_ROOT"' EXIT INT TERM
+
 n_arch=0
 for cand in "$ROOT"/build/*/kasld; do
   [ -x "$cand" ] || continue
@@ -235,7 +252,8 @@ for cand in "$ROOT"/build/*/kasld; do
   [ -n "$q" ] || continue
   # The components must be discoverable for the skip filter to count them, but
   # none is executed, so no exec wrapper is needed for the children.
-  out=$(KASLD_COMPONENT_DIR="$d/components" "$q" "$cand" -q -s '*' -1 2>/dev/null)
+  out=$(KASLD_COMPONENT_DIR="$d/components" KASLD_SYSROOT="$EMPTY_ROOT" \
+        "$q" "$cand" -q -s '*' -1 2>/dev/null)
   rc=$?
   n_arch=$((n_arch + 1))
   [ "$rc" -eq "$NO_RESULTS" ] ||

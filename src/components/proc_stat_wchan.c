@@ -65,7 +65,6 @@ static unsigned long get_kernel_addr_proc_stat_wchan(void) {
   char buff[BUFSIZ];
   char delim[] = " ";
   char *ptr;
-  char *endptr;
 
   snprintf(path, sizeof(path), "/proc/%d/stat", (pid_t)getppid());
 
@@ -99,7 +98,9 @@ static unsigned long get_kernel_addr_proc_stat_wchan(void) {
   ptr = strtok(ptr, delim);
   while (ptr != NULL) {
     if (field == 34) {
-      addr = strtoul(ptr, &endptr, 10);
+      /* Field 34 (wchan) is printed in decimal. */
+      if (!kasld_addr_parse(ptr, 10, &addr, NULL))
+        addr = 0;
       if (!kasld_addr_is_kernel_text(addr))
         addr = 0;
       break;

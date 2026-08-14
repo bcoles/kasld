@@ -212,9 +212,8 @@ static unsigned long extract_addr(const char *s) {
   if (!p)
     return 0;
 
-  char *endptr;
-  unsigned long addr = strtoul(p + 2, &endptr, 16);
-  if (endptr == p + 2)
+  unsigned long addr;
+  if (!kasld_addr_parse(p + 2, 16, &addr, NULL))
     return 0;
 
   return addr;
@@ -230,15 +229,15 @@ static int extract_range(const char *s, unsigned long *lo, unsigned long *hi) {
   const char *p1 = strstr(s, "0x");
   if (!p1)
     return 0;
-  char *endptr;
-  unsigned long v1 = strtoul(p1 + 2, &endptr, 16);
-  if (endptr == p1 + 2)
+  const char *endptr;
+  unsigned long v1;
+  if (!kasld_addr_parse(p1 + 2, 16, &v1, &endptr))
     return 0;
   const char *p2 = strstr(endptr, "0x");
   if (!p2)
     return 0;
-  unsigned long v2 = strtoul(p2 + 2, &endptr, 16);
-  if (endptr == p2 + 2)
+  unsigned long v2;
+  if (!kasld_addr_parse(p2 + 2, 16, &v2, &endptr))
     return 0;
   /* Order-invariant: emit (min, max). */
   *lo = v1 < v2 ? v1 : v2;

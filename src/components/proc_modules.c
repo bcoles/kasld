@@ -53,13 +53,12 @@ KASLD_META("method:parsed\n"
 
 static struct module_range get_addr_proc_modules(void) {
   FILE *f;
-  char *endptr;
   char *line = 0;
   char *addr_buf;
   size_t size = 0;
   const char *path = "/proc/modules";
   unsigned long module_addr = 0;
-  struct module_range range = {0, 0};
+  struct module_range range = {0, 0, 0};
 
   kasld_info("reading %s ...", path);
 
@@ -75,8 +74,7 @@ static struct module_range get_addr_proc_modules(void) {
     if (addr_buf == NULL)
       continue;
 
-    module_addr = strtoul(addr_buf, &endptr, 16);
-    if (!module_addr)
+    if (!kasld_addr_parse(addr_buf, 16, &module_addr, NULL) || !module_addr)
       continue;
 
     if (kasld_addr_is_module_band(module_addr)) {

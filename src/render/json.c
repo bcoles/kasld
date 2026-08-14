@@ -261,6 +261,42 @@ static void render_environment_json(void) {
   printf(",\n    \"mac_enforcing\": %s",
          kasld_vantage_mac_enforcing(&v) ? "true" : "false");
 
+  /* Discretionary identity. `groups` is null when it could not be read, and
+   * carries `truncated` when the process holds more than the report keeps. */
+  printf(",\n    \"uid\": %lu,\n    \"euid\": %lu", v.uid, v.euid);
+  printf(",\n    \"gid\": %lu,\n    \"egid\": %lu", v.gid, v.egid);
+  printf(",\n    \"groups\": ");
+  if (v.ngroups < 0) {
+    printf("null");
+  } else {
+    printf("[");
+    for (int i = 0; i < v.ngroups; i++)
+      printf("%s%lu", i ? ", " : "", v.groups[i]);
+    printf("]");
+  }
+  /* The groups kasld knows gate a source, named. The numeric list above stays
+   * the authority — this says which of them mean something to the analysis. */
+  printf(",\n    \"group_gated_sources\": [");
+  {
+    int first = 1;
+    for (int i = 0; i < v.ngroups; i++) {
+      for (int g = 0; g < KASLD_N_GROUP_GATES; g++) {
+        if (kasld_group_gates[g].gid != v.groups[i])
+          continue;
+        printf("%s\n      {\"gid\": %lu, \"name\": ", first ? "" : ",",
+               kasld_group_gates[g].gid);
+        json_print_escaped(kasld_group_gates[g].name);
+        printf(", \"gates\": ");
+        json_print_escaped(kasld_group_gates[g].gates);
+        printf("}");
+        first = 0;
+      }
+    }
+    printf("%s]", first ? "" : "\n    ");
+  }
+  if (v.groups_truncated)
+    printf(",\n    \"groups_truncated\": true");
+
   printf(",\n    \"capabilities\": ");
   char capbuf[24];
   const char *caps = kasld_vantage_caps(&v, capbuf, sizeof(capbuf));

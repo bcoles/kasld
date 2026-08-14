@@ -84,15 +84,14 @@ static const char *needle = ": target ";
 
 static int on_match(const char *line, void *ctx) {
   unsigned long *lowest = ctx;
-  char *endptr;
 
   const char *p = strstr(line, needle);
   if (!p)
     return 1;
 
-  unsigned long addr = strtoul(p + strlen(needle), &endptr, 16);
-
-  if (addr && kasld_addr_is_kernel_text(addr)) {
+  unsigned long addr;
+  if (kasld_addr_parse(p + strlen(needle), 16, &addr, NULL) && addr &&
+      kasld_addr_is_kernel_text(addr)) {
     if (!*lowest || addr < *lowest)
       *lowest = addr;
   }

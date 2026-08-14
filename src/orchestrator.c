@@ -27,6 +27,8 @@
 #include "include/kasld/internal.h"
 #include "include/kasld/outcome.h"
 #include "include/kasld/randomize_memory.h"
+#include "include/kasld/render_internal.h"
+#include "include/kasld/target_width.h"
 
 #include <dirent.h>
 #include <errno.h>
@@ -670,6 +672,60 @@ const char *const kasld_oracle_labels[KASLD_N_ORACLES] = {
 /* Held-cap → the kasld leak it unlocks. Bit numbers are the stable capability
  * ABI (linux/capability.h): CAP_SYS_RAWIO=17, CAP_SYS_ADMIN=21, CAP_SYSLOG=34,
  * CAP_PERFMON=38, CAP_BPF=39. Each maps to a real component. */
+/* Groups that gate a source kasld reads. The Android ids are the reason this
+ * table exists: `readproc` decides whether /proc/<pid> entries of other tasks
+ * are visible at all under hidepid, and `radio` owns /proc/cmdline at 0440. */
+const struct kasld_group_gate kasld_group_gates[KASLD_N_GROUP_GATES] = {
+    {0, "root", "everything DAC-gated"},
+    {4, "adm", "/var/log/dmesg past dmesg_restrict"},
+    {1001, "radio", "/proc/cmdline (Android, 0440 root:radio)"},
+    {1007, "log", "the Android log sources"},
+    {3009, "readproc", "other tasks' /proc entries under hidepid"},
+    {3012, "readtracefs", "tracefs printk_formats"},
+};
+
+/* Name a gid for display. Two sources, in order of authority:
+ *
+ *   /etc/group   read through the sysroot layer, so replaying a captured tree
+ *                names ITS groups rather than the analysing host's — getgrgid()
+ *                would silently answer from the wrong machine. Present but
+ *                EMPTY on Android, where the ids live inside bionic.
+ *   the gate table  for the ids kasld knows gate a source, which is exactly the
+ *                set Android cannot name.
+ *
+ * Returns NULL when neither knows it; the caller prints the number alone, which
+ * is what the kernel checks. */
+const char *kasld_group_name(unsigned long gid, char *buf, size_t bufsz) {
+  FILE *f = kasld_fopen("/etc/group", "r");
+  if (f) {
+    char line[512];
+    while (fgets(line, sizeof(line), f)) {
+      /* name:passwd:gid:members */
+      char *c1 = strchr(line, ':');
+      if (!c1)
+        continue;
+      char *c2 = strchr(c1 + 1, ':');
+      if (!c2)
+        continue;
+      unsigned long g;
+      const char *e;
+      if (!kasld_addr_parse(c2 + 1, 10, &g, &e) || g != gid)
+        continue;
+      *c1 = '\0';
+      snprintf(buf, bufsz, "%.*s", (int)bufsz - 1, line);
+      fclose(f);
+      return buf;
+    }
+    fclose(f);
+  }
+  for (int i = 0; i < KASLD_N_GROUP_GATES; i++)
+    if (kasld_group_gates[i].gid == gid) {
+      snprintf(buf, bufsz, "%s", kasld_group_gates[i].name);
+      return buf;
+    }
+  return NULL;
+}
+
 const struct kasld_cap_leak kasld_cap_leaks[KASLD_N_CAP_LEAKS] = {
     {17, "CAP_SYS_RAWIO", "/proc/kcore _stext"},
     {21, "CAP_SYS_ADMIN", "/proc/iomem physical addresses"},
@@ -755,6 +811,30 @@ void kasld_gather_vantage(struct kasld_vantage *v) {
   }
   for (int i = 0; i < KASLD_N_ORACLES; i++)
     v->oracle_readable[i] = kasld_access(kasld_oracle_paths[i], R_OK) == 0;
+
+  /* Discretionary identity: the uid/gid pair the kernel checks first, and the
+   * supplementary groups that decide the group-gated sources. */
+  v->uid = (unsigned long)getuid();
+  v->euid = (unsigned long)geteuid();
+  v->gid = (unsigned long)getgid();
+  v->egid = (unsigned long)getegid();
+  {
+    gid_t buf[KASLD_N_GROUPS];
+    int n = getgroups(KASLD_N_GROUPS, buf);
+    if (n < 0) {
+      /* Either the call failed or there are more than the array holds; ask for
+       * the count alone to tell those apart. */
+      int total = getgroups(0, NULL);
+      v->ngroups = 0;
+      v->groups_truncated = total > KASLD_N_GROUPS;
+      if (total < 0)
+        v->ngroups = -1;
+    } else {
+      v->ngroups = n;
+      for (int i = 0; i < n; i++)
+        v->groups[i] = (unsigned long)buf[i];
+    }
+  }
 
   /* Mandatory access control. Three unprivileged reads, none of which is
    * available everywhere: securityfs carries the authoritative LSM list but is
@@ -889,6 +969,44 @@ static void print_confinement(const struct kasld_vantage *v) {
   printf("%-30s%s\n", "LSM:", kasld_vantage_lsm_str(v, lsmbuf, sizeof(lsmbuf)));
   if (v->sec_context[0])
     printf("%-30s%s\n", "Security context:", v->sec_context);
+
+  /* Identity is always printed: uid 0 versus anything else is the single
+   * largest determinant of what is readable, and unlike the seccomp/caps
+   * detail below it is meaningful whether or not the process is confined.
+   * The effective ids appear only when they differ — a setuid helper. */
+  if (v->uid != v->euid || v->gid != v->egid)
+    printf("%-30suid=%lu gid=%lu (euid=%lu egid=%lu)\n", "Identity:", v->uid,
+           v->gid, v->euid, v->egid);
+  else
+    printf("%-30suid=%lu gid=%lu\n", "Identity:", v->uid, v->gid);
+  if (v->ngroups > 0) {
+    /* Named where the tree knows them. The list wraps rather than truncating:
+     * which groups are held is the whole point of the line, and a membership
+     * dropped for width is one the reader cannot account for. */
+    int col = 30;
+    printf("%-30s", "Supplementary groups:");
+    for (int i = 0; i < v->ngroups; i++) {
+      char nb[64], item[96];
+      const char *nm = kasld_group_name(v->groups[i], nb, sizeof(nb));
+      if (nm)
+        snprintf(item, sizeof(item), "%lu(%s)", v->groups[i], nm);
+      else
+        snprintf(item, sizeof(item), "%lu", v->groups[i]);
+      int w = (int)strlen(item) + (i ? 1 : 0);
+      if (i && col + w > KASLD_READOUT_COLS) {
+        printf(",\n%-30s", "");
+        col = 30;
+        printf("%s", item);
+        col += (int)strlen(item);
+        continue;
+      }
+      printf("%s%s", i ? "," : "", item);
+      col += w;
+    }
+    if (v->groups_truncated)
+      printf(",...");
+    printf("\n");
+  }
   /* The seccomp / caps / no-new-privs detail is only meaningful when actually
    * confined — otherwise those values are the unprivileged defaults. */
   if (kasld_vantage_confined(v)) {
@@ -4703,6 +4821,75 @@ int main(int argc, char *argv[]) {
     /* Always read system state — the readout's "KASLR disabled" branch and
      * the hardening report both depend on these values. */
     read_security_state();
+  }
+
+  /* A build narrower than the target kernel cannot model it. The arch header is
+   * selected by THIS binary's architecture, so every window resolved from here
+   * would describe an address space the kernel does not have — and on a coupled
+   * architecture correctly-read physical bounds would be projected through the
+   * wrong linear map into a virtual window that cannot contain the base. The
+   * parse layer already refuses individual addresses it cannot represent; this
+   * refuses the analysis. */
+  {
+    const char *sysroot_env = getenv("KASLD_SYSROOT");
+    struct kasld_width_check w =
+        kasld_check_target_width(sysroot_env && *sysroot_env);
+    if (w.verdict == KASLD_WIDTH_MISMATCH) {
+      char detail[160];
+      if (w.signal == KASLD_WIDTH_SIGNAL_TASK_SIZE)
+        snprintf(detail, sizeof(detail),
+                 "%s: %#lx, above this architecture's highest split (%#lx)",
+                 kasld_width_signal_name(w.signal), w.task_size,
+                 (unsigned long)PAGE_OFFSET_MAX);
+      else
+        snprintf(detail, sizeof(detail),
+                 "%s: %d hex digits, a %d-bit kernel pointer",
+                 kasld_width_signal_name(w.signal), w.kallsyms_hex_digits,
+                 w.kallsyms_hex_digits * 4);
+
+      fprintf(stderr,
+              "[-] target kernel addresses more widely than this build can "
+              "represent\n");
+      fprintf(stderr, "[-]   %s\n", detail);
+      fprintf(stderr, "[-] run the build matching the kernel's word size\n");
+
+      /* What the machine formats emit here is decided per format, because the
+       * right answer differs:
+       *
+       * json      an object carrying ONLY the refusal. It has no `kaslr` or
+       *           `layout` key, because a document describing this build's
+       *           address space would describe one the kernel does not have,
+       *           which is the whole reason for declining. A consumer reaching
+       *           for a layout field finds nothing, exactly as before, but one
+       *           that logs the document now learns why.
+       * markdown  a short section, for the same reason a human reading the
+       *           text mode gets the message on stderr.
+       * oneline   nothing at all. Its schema fixes the key set on every line,
+       *           so a partial line would break that contract, and a full
+       *           line of `na` values is indistinguishable from the hardened
+       *           host that yields nothing (exit 1) — the one distinction that
+       *           matters here. Absence plus the exit code stays honest. */
+      if (json_output) {
+        printf("{\n  \"error\": {\n    \"code\": \"target_width_mismatch\",");
+        printf("\n    \"message\": ");
+        json_print_escaped("target kernel addresses more widely than this "
+                           "build can represent");
+        printf(",\n    \"detail\": ");
+        json_print_escaped(detail);
+        printf(",\n    \"action\": ");
+        json_print_escaped("run the build matching the kernel's word size");
+        printf("\n  }\n}\n");
+      } else if (markdown_output) {
+        printf("# KASLD\n\n## Analysis declined\n\n");
+        printf("The target kernel addresses more widely than this build can "
+               "represent, so no layout is reported: the model comes from this "
+               "binary's architecture and would describe an address space the "
+               "kernel does not have.\n\n");
+        printf("- Observed: %s\n", detail);
+        printf("- Action: run the build matching the kernel's word size\n");
+      }
+      return 3;
+    }
   }
 
   if (discover_components() < 0)

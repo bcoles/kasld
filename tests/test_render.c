@@ -3700,6 +3700,40 @@ static void test_render_hardening_pointer_hashing_gate(void) {
   num_scalar_facts = 0;
 }
 
+/* Group naming. The tree being analysed is the authority, so an offline replay
+ * names ITS groups; the gate table covers the ids kasld knows gate one of its
+ * own sources, which is the set a tree with an empty /etc/group cannot name —
+ * the Android shape. Neither source knowing an id is not an error: the number
+ * alone is what the kernel checks. */
+static void test_group_name_resolution(void) {
+  char buf[64];
+  /* The gate table answers for an id no /etc/group here will carry. */
+  const char *n = kasld_group_name(3009, buf, sizeof(buf));
+  assert(n != NULL && strcmp(n, "readproc") == 0);
+  n = kasld_group_name(1001, buf, sizeof(buf));
+  assert(n != NULL && strcmp(n, "radio") == 0);
+  /* An id neither source knows resolves to nothing rather than to a guess. */
+  assert(kasld_group_name(4242424, buf, sizeof(buf)) == NULL);
+}
+
+/* Every gate entry must name both the group and what it gates: an entry with a
+ * name but no consequence tells a reader nothing they could act on. */
+static void test_group_gate_table_is_complete(void) {
+  for (int i = 0; i < KASLD_N_GROUP_GATES; i++) {
+    assert(kasld_group_gates[i].name != NULL);
+    assert(kasld_group_gates[i].name[0] != '\0');
+    assert(kasld_group_gates[i].gates != NULL);
+    assert(kasld_group_gates[i].gates[0] != '\0');
+  }
+  /* readproc is the load-bearing one: without it a hidepid /proc hides every
+   * other task, which silences a whole class of components. */
+  int seen = 0;
+  for (int i = 0; i < KASLD_N_GROUP_GATES; i++)
+    if (kasld_group_gates[i].gid == 3009)
+      seen = 1;
+  assert(seen);
+}
+
 /* The MAC posture helpers. Two honesty rules are load-bearing: an unreadable
  * LSM is reported as unknown and never as absent, and a policy that only logs
  * is not confinement. */
@@ -3953,6 +3987,8 @@ int main(void) {
   RUN(test_hardening_projection_no_exposure);
   RUN(test_hardening_projection_redundant);
   RUN(test_render_hardening_pointer_hashing_gate);
+  RUN(test_group_name_resolution);
+  RUN(test_group_gate_table_is_complete);
   RUN(test_vantage_mac_posture_helpers);
   RUN(test_hardening_mac_attribution_scope);
   RUN(test_hardening_mac_blocked_predicate);

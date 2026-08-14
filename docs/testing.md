@@ -104,6 +104,7 @@ and `make` halts on the first.
 | `check-self-edges` | no engine rule reads `est[Q]` and writes `Q` (a "self-edge") outside the reviewed allowlist — each such rule needs a soundness test |
 | `check-extent-callers` | only reviewed whole-map components call `kasld_result_extent` (the covering-completeness contract; a partial map would carve a false gap) |
 | `check-truncation` | no silent 64-bit→word narrowing when compiled for 32-bit (compiles a TU with `i686-linux-gnu-gcc`) |
+| `check-addr-parse` | kernel addresses are converted with `kasld_addr_parse` outside a reviewed allowlist — `sscanf("%lx")` reports success on an address wider than the word and hands back a truncated one |
 | `check-component-output` | components write only wire lines to stdout (stdout is the machine channel; diagnostics go to stderr) |
 | `check-component-meta` | every component declares `KASLD_META` with a `method:` key |
 | `check-component-cap` | `MAX_COMPONENTS` keeps a margin above the in-tree component count — a component directory that overruns it silently drops the excess |

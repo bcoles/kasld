@@ -63,7 +63,6 @@ static unsigned long get_phys_addr_vmcoreinfo(void) {
   FILE *f;
   const char *path = "/sys/kernel/vmcoreinfo";
   char buf[256];
-  char *endptr;
   unsigned long addr;
 
   kasld_info("trying %s ...", path);
@@ -81,8 +80,7 @@ static unsigned long get_phys_addr_vmcoreinfo(void) {
   }
   fclose(f);
 
-  addr = strtoul(buf, &endptr, 16);
-  if (endptr == buf || !addr) {
+  if (!kasld_addr_parse(buf, 16, &addr, NULL) || !addr) {
     kasld_err("failed to parse physical address");
     return 0;
   }

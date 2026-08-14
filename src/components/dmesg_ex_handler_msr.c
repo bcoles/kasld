@@ -200,14 +200,15 @@ static int msr_symbol(const char *after_rip, unsigned long *woff) {
 
 static int on_match(const char *line, void *ctx) {
   struct msr_leak *m = ctx;
-  char *endptr;
 
   const char *p = strstr(line, needle);
   if (!p)
     return 1;
 
-  unsigned long addr = strtoul(p + strlen(needle), &endptr, 16);
-  if (!addr || !kasld_addr_is_kernel_text(addr))
+  unsigned long addr;
+  const char *endptr;
+  if (!kasld_addr_parse(p + strlen(needle), 16, &addr, &endptr) || !addr ||
+      !kasld_addr_is_kernel_text(addr))
     return 1;
 
   if (!m->any || addr < m->any)

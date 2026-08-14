@@ -108,9 +108,8 @@ int main(void) {
       continue;
     }
 
-    char *endptr;
-    unsigned long virt = strtoul(buf, &endptr, 16);
-    if (!virt || endptr == buf)
+    unsigned long virt;
+    if (!kasld_addr_parse(buf, 16, &virt, NULL) || !virt)
       continue;
 
     /* Must be in the direct-map region: at or above PAGE_OFFSET, below
@@ -128,8 +127,12 @@ int main(void) {
       continue;
     }
 
-    unsigned long phys = strtoul(buf, &endptr, 16);
-    if (endptr == buf || phys > virt) {
+    /* An unparseable phys_addr — including one too wide for this build — falls
+     * through to the same handling as a nonsensical one: publish the virtual
+     * sample alone rather than deriving a page offset from a value that was
+     * never read. */
+    unsigned long phys;
+    if (!kasld_addr_parse(buf, 16, &phys, NULL) || phys > virt) {
       kasld_info("EFI runtime entry %s: virt=0x%016lx", ent->d_name, virt);
       kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, virt, NULL,
                           CONF_PARSED);

@@ -133,7 +133,6 @@ static FILE *spawn_pppd(pid_t *child_out) {
 
 static unsigned long get_kernel_addr_pppd_kallsyms(void) {
   char *addr_buf;
-  char *endptr;
   unsigned long addr = 0;
   char buf[1024];
 
@@ -162,7 +161,8 @@ static unsigned long get_kernel_addr_pppd_kallsyms(void) {
   if (addr_buf == NULL)
     return 0;
 
-  addr = strtoul(&addr_buf[1], &endptr, 16);
+  if (!kasld_addr_parse(&addr_buf[1], 16, &addr, NULL))
+    return 0;
 
   if (kasld_addr_is_kernel_text(addr))
     return addr;

@@ -316,10 +316,11 @@ static void text_addr_range(const char *log, unsigned long *lo,
   *n = 0;
   *nuniq = 0;
   while ((p = strstr(p, "0x")) != NULL) {
-    char *e = NULL;
-    unsigned long v = strtoul(p, &e, 16);
+    const char *e = NULL;
+    unsigned long v = 0;
+    int ok = kasld_addr_parse(p, 16, &v, &e);
     p = (e && e != p) ? e : p + 2;
-    if (v == 0 || !kasld_addr_is_kernel_text(v))
+    if (!ok || v == 0 || !kasld_addr_is_kernel_text(v))
       continue;
     if (*n == 0 || v < *lo)
       *lo = v;

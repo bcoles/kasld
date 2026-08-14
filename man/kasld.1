@@ -132,6 +132,26 @@ the hardening assessment are still reported.
 .B 2
 Usage error, conflicting output-format flags, or the component directory could
 not be found.
+.TP
+.B 3
+The target kernel addresses memory more widely than this build can represent:
+a 32-bit build against a 64-bit kernel, which is the normal arrangement on a
+device with a 64-bit kernel and a 32-bit userland. No analysis is attempted,
+because the layout model comes from the build's own architecture and every
+window it resolved would describe an address space the kernel does not have.
+Run the build matching the kernel's word size.
+.IP
+The reason is written to standard error in every mode. What reaches standard
+output differs by format: the text modes write nothing there;
+.BR \-m " and " \-j
+write a short document naming the refusal, carrying no layout or KASLR fields
+so that nothing in it can be read as a measurement; and
+.B \-1
+writes nothing, because that format fixes its key set on every line and a line
+of
+.B na
+values would be indistinguishable from the hardened host that yields no results
+(exit 1).
 .SH ENVIRONMENT
 .TP
 .B KASLD_COMPONENT_DIR

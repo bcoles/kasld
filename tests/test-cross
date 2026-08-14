@@ -126,14 +126,31 @@ run_target() {
   if ! $cc $CFLAGS "$ROOT/tests/test_estimate.c" "$ROOT/src/estimate.c" "$ROOT/src/quantities.c" -o "$d/test_estimate" 2>"$d/cc.log"; then
     printf 'FAIL  %-30s (compile test_estimate)\n' "$triple"; show_cc_log "$d/cc.log"; echo fail >"$st"; return
   fi
+  # The width-sensitive suites. These are the reason the 32-bit targets matter:
+  # kasld_addr_t is the build's word, so on a 64-bit host the too-wide branch of
+  # kasld_addr_parse is unreachable and the refusal that the parser exists for
+  # never executes. Here it does.
+  # shellcheck disable=SC2086  # $cc/$CFLAGS are command + flag list, split intentionally
+  if ! $cc $CFLAGS "$ROOT/tests/test_addr_parse.c" -o "$d/test_addr_parse" 2>"$d/cc.log"; then
+    printf 'FAIL  %-30s (compile test_addr_parse)\n' "$triple"; show_cc_log "$d/cc.log"; echo fail >"$st"; return
+  fi
+  # shellcheck disable=SC2086  # $cc/$CFLAGS are command + flag list, split intentionally
+  if ! $cc $CFLAGS "$ROOT/tests/test_target_width.c" -o "$d/test_target_width" 2>"$d/cc.log"; then
+    printf 'FAIL  %-30s (compile test_target_width)\n' "$triple"; show_cc_log "$d/cc.log"; echo fail >"$st"; return
+  fi
+  # shellcheck disable=SC2086  # $cc/$CFLAGS are command + flag list, split intentionally
+  if ! $cc $CFLAGS "$ROOT/tests/test_proc_kallsyms.c" -o "$d/test_proc_kallsyms" 2>"$d/cc.log"; then
+    printf 'FAIL  %-30s (compile test_proc_kallsyms)\n' "$triple"; show_cc_log "$d/cc.log"; echo fail >"$st"; return
+  fi
   ok=1
-  for t in test_engine test_integration test_estimate test_kasld test_render; do
+  for t in test_engine test_integration test_estimate test_kasld test_render \
+           test_addr_parse test_target_width test_proc_kallsyms; do
     if ! "$qemu" "$d/$t" >/dev/null 2>"$d/$t.run"; then
       printf 'FAIL  %-30s (%s under qemu)\n' "$triple" "$t"; tail -3 "$d/$t.run" | sed 's/^/      /'; ok=0
     fi
   done
   if [ "$ok" = 1 ]; then
-    printf 'PASS  %-30s engine + integration + estimate + kasld + render\n' "$triple"; echo pass >"$st"
+    printf 'PASS  %-30s engine + integration + estimate + kasld + render + addr_parse + target_width + proc_kallsyms\n' "$triple"; echo pass >"$st"
   else
     echo fail >"$st"
   fi

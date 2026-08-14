@@ -113,9 +113,8 @@ static void scan_sock_file(const char *path, struct sock_range *r) {
   char *line = NULL;
   size_t size = 0;
   while (getline(&line, &size, f) != -1) {
-    char *end = NULL;
-    unsigned long addr = strtoul(line, &end, 16);
-    if (end == line)
+    unsigned long addr;
+    if (!kasld_addr_parse(line, 16, &addr, NULL))
       continue; /* header line or non-hex first token */
     switch (classify_sock_ptr(addr)) {
     case SOCK_PTR_HASHED:

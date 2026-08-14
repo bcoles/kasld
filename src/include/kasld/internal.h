@@ -644,6 +644,14 @@ extern enum lockdown_mode sysctl_lockdown;
  * text (verbose system-config block), JSON, and markdown renderers so they
  * can't diverge. All fields are unprivileged /proc reads
  * (SYSROOT-redirectable). */
+/* Supplementary groups kept for the report. A process with more than this is
+ * far outside anything the vantage model reasons about; the overflow is
+ * reported as a count rather than silently dropped. */
+/* The readout's line budget, matched to the width the render guard enforces
+ * (tests/check-render-width). Wrapping keeps a long list inside it rather than
+ * dropping entries. */
+#define KASLD_READOUT_COLS 108
+#define KASLD_N_GROUPS 24
 #define KASLD_N_ORACLES 4
 extern const char *const
     kasld_oracle_paths[KASLD_N_ORACLES]; /* /proc/kallsyms… */
@@ -675,6 +683,16 @@ struct kasld_vantage {
   enum selinux_mode selinux;
   char lsm_list[160];    /* "lockdown,capability,yama,apparmor" or "" */
   char sec_context[192]; /* "u:r:shell:s0", "vscode (unconfined)", or "" */
+  /* Discretionary identity. Between the MAC label above and the capability set
+   * below sits the plainest gate of all, and several sources answer only to it:
+   * /proc/cmdline is 0440 root:radio on Android, the /sys/module section files
+   * are 0400, and /proc mounted hidepid=invisible,gid=N hides every other
+   * task's entry from a process outside that group. A reader cannot tell why
+   * such a source was denied without seeing the identity that was refused. */
+  unsigned long uid, euid, gid, egid;
+  int ngroups; /* -1 unknown; else count in `groups` */
+  unsigned long groups[KASLD_N_GROUPS];
+  int groups_truncated; /* more groups than the array holds */
 };
 void kasld_gather_vantage(struct kasld_vantage *v);
 /* Confined = the confinement detail is meaningful (else the values are the
@@ -695,6 +713,29 @@ const char *kasld_vantage_lsm_str(const struct kasld_vantage *v, char *out,
                                   size_t outsz);
 /* seccomp mode 0/1/2 → "none"/"strict"/"filter" (else "unknown"). */
 const char *kasld_vantage_seccomp_str(int seccomp);
+
+/* Group → the kasld leak source it gates. The complement to kasld_cap_leaks
+ * for the discretionary half: several sources answer to group membership alone,
+ * and on Android the ids that matter cannot be named by a name lookup at all —
+ * /etc/group is present but EMPTY there, the ids being compiled into bionic, so
+ * a build against any other libc resolves nothing. This table names the ones
+ * whose absence or presence changes what kasld can read; every other group is
+ * reported by number, which is what the kernel checks anyway. */
+struct kasld_group_gate {
+  unsigned long gid;
+  const char *name;
+  const char *gates;
+};
+#define KASLD_N_GROUP_GATES 6
+extern const struct kasld_group_gate kasld_group_gates[KASLD_N_GROUP_GATES];
+
+/* Name a gid for display: from /etc/group in the tree being analysed (so an
+ * offline replay names THAT tree's groups, which getgrgid would not), falling
+ * back to the gate table above for the ids kasld knows gate one of its own
+ * sources — the set Android cannot name, its /etc/group being empty. Returns
+ * NULL when neither knows it, and the caller prints the number alone. Shared so
+ * the text and markdown documents cannot drift apart on what they name. */
+const char *kasld_group_name(unsigned long gid, char *buf, size_t bufsz);
 
 /* Effective-capability → the kasld leak source it unlocks. Reported from the
  * vantage cap_eff so the confinement view also answers "which cap-gated leaks

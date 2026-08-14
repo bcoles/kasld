@@ -147,7 +147,6 @@ static int transport_name_ok(const char *s) {
 static enum handle_read read_transport_handle(const char *transport,
                                               unsigned long *out) {
   FILE *f;
-  char *endptr;
   unsigned long addr;
   /* Class directory + a NAME_LEN-bounded transport name + "/handle". Any
    * KASLD_SYSROOT prefix is applied inside kasld_fopen, not here. */
@@ -183,9 +182,8 @@ static enum handle_read read_transport_handle(const char *transport,
   if (strlen(buff) > 21)
     return HANDLE_BAD;
 
-  errno = 0;
-  addr = strtoul(buff, &endptr, 10);
-  if (endptr == buff || errno)
+  /* The handle is printed in decimal. */
+  if (!kasld_addr_parse(buff, 10, &addr, NULL))
     return HANDLE_BAD;
 
   /* Accept a pointer-aligned kernel-VAS value (reject userspace/NULL and any
