@@ -663,6 +663,7 @@ lint :
 	@$(TEST_DIR)/check-text-floor
 	@$(TEST_DIR)/check-text-region
 	@$(TEST_DIR)/check-confidence-floor
+	@$(TEST_DIR)/check-arch-macros
 	@$(TEST_DIR)/check-lattice-seam
 	@$(TEST_DIR)/check-page-offset-substitution
 	@$(TEST_DIR)/check-render-default

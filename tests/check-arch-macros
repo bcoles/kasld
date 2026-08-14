@@ -1,0 +1,106 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-arch-macros — every macro an arch header defines must be read by
+# something. A name nothing reads is one of:
+#
+#   a typo         MODULES_BAND_STRENGHT next to the contract's
+#                  MODULES_BAND_STRENGTH. The arch silently takes the default
+#                  for the real macro, and the misspelling sits there looking
+#                  declared.
+#   a leftover     a contract macro renamed or retired while one arch header
+#                  kept the old spelling.
+#   dead weight    a constant no rule, component or test uses any more.
+#
+# The first two share the dangerous failure mode: the arch quietly falls back to
+# a default it never chose. Where that default is deliberately safe -- as
+# MODULES_BAND_STRENGTH's MOD_BAND_ADMISSION is -- the fallback costs precision
+# and nothing catches it, because the tests read the same declaration the code
+# does and assert whatever it says.
+#
+# COMPLEMENTS the retired-spelling #errors in api.h rather than duplicating
+# them. Those name one known-old macro and fail the BUILD of an arch still
+# declaring it, with a message saying what to write instead. This catches the
+# names no such #error lists -- above all misspellings, which by definition are
+# on no list. A name already covered by one of those #errors is referenced by
+# its own #ifdef, so it reads as used here; that is correct, since the build
+# already stops it.
+#
+# A reference is any mention outside the defining `#define NAME` text, on a line
+# that is not comment-only. Comment-only lines are excluded deliberately: prose
+# still naming a retired macro is exactly what makes one look alive. The
+# `#define NAME` prefix is stripped rather than the whole line, so a macro used
+# in ANOTHER macro's body (MODULES_START = MODULES_START_FOR(PAGE_OFFSET))
+# still counts as read.
+#
+# Pure text, so it needs no build.
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+
+if [ -t 1 ]; then
+  RED=$(printf '\033[31m')
+  GREEN=$(printf '\033[32m')
+  RESET=$(printf '\033[0m')
+else
+  RED=
+  GREEN=
+  RESET=
+fi
+
+used=$(mktemp) || exit 1
+defs=$(mktemp) || exit 1
+trap 'rm -f "$used" "$defs"' EXIT INT TERM
+
+# SCOPE: every .c/.h this project owns -- src/ and tests/ in full, minus two
+# trees that only look like source. tests/fixtures/ holds captured sysroots and
+# tests/vm/<cell>/ holds downloaded kernel trees: 172k foreign files whose
+# identifiers are not this project's, and which take the scan from a tenth of a
+# second to two minutes. Pruning the per-cell directories rather than tests/vm
+# itself keeps tests/vm/init.c, which IS ours.
+#
+# Enumerated with find rather than `git ls-files` so the guard still works from
+# an extracted release tarball, where there is no repository to ask.
+{
+  find "$ROOT/src" \( -name '*.c' -o -name '*.h' \) -exec cat {} +
+  find "$ROOT/tests" \
+    \( -path "$ROOT/tests/fixtures" -o \
+    \( -type d -path "$ROOT/tests/vm/*" \) \) -prune -o \
+    \( -name '*.c' -o -name '*.h' \) -exec cat {} +
+} |
+  grep -vE '^[[:space:]]*(//|\*|/\*)' |
+  sed -E 's/^[[:space:]]*#[[:space:]]*define[[:space:]]+[A-Za-z_][A-Za-z_0-9]*//' |
+  grep -oE '[A-Z_][A-Z_0-9]*' |
+  sort -u >"$used"
+
+# Every (header, macro) pair, collected before the loop so the counter below
+# survives (a `while read` on the far side of a pipe runs in a subshell).
+for f in "$ROOT"/src/include/kasld/arch/*.h; do
+  [ -f "$f" ] || continue
+  # Macro NAME from both object-like (#define X) and function-like
+  # (#define X(a)) forms; the name stops at '(' either way.
+  grep -oE '^[[:space:]]*#[[:space:]]*define[[:space:]]+[A-Z_][A-Z_0-9]*' "$f" |
+    awk -v b="$(basename "$f")" '{print b, $NF}' | sort -u >>"$defs"
+done
+
+fail=0
+n_macros=0
+while read -r base m; do
+  [ -n "$m" ] || continue
+  n_macros=$((n_macros + 1))
+  if ! grep -qxF "$m" "$used"; then
+    printf '%scheck-arch-macros: FAIL%s — %s defines %s, which nothing reads\n' \
+      "$RED" "$RESET" "$base" "$m" >&2
+    fail=1
+  fi
+done <"$defs"
+
+if [ "$fail" -ne 0 ]; then
+  printf '  a macro nothing reads is a typo, a retired spelling, or dead weight;\n' >&2
+  printf '  the first two leave the arch on a default it never chose\n' >&2
+  exit 1
+fi
+printf '%scheck-arch-macros: OK%s (%s arch macros, all read somewhere)\n' \
+  "$GREEN" "$RESET" "$n_macros"
