@@ -12,10 +12,11 @@
 // https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=4f134b89a24b965991e7c345b9a4591821f7c2a6
 //
 // Leak primitive:
-//   Data leaked:      kernel stack data (uninitialized upper bytes of syscall
-//   args) Kernel subsystem: fs/proc — /proc/<PID>/syscall (collect_syscall)
-//   Data structure:   struct syscall_info → data.args[] (upper 32 bits on
-//   32-bit) Address type:     virtual (kernel stack) Method:           parsed
+//   Data leaked:      kernel stack data (args[3..5], never written on 32-bit)
+//   Kernel subsystem: fs/proc — /proc/<PID>/syscall (collect_syscall)
+//   Data structure:   struct syscall_info → data.args[]
+//   Address type:     virtual (kernel stack)
+//   Method:           parsed
 //   CVE:              CVE-2020-28588
 //   Patched:          v5.10 (commit 4f134b89a24b)
 //   Status:           fixed in v5.10
@@ -23,9 +24,10 @@
 //   Source: https://elixir.bootlin.com/linux/v5.9/source/fs/proc/base.c
 //
 // Mitigations:
-//   Patched in v5.10. No runtime sysctl could restrict access — the bug was
-//   in collect_syscall() failing to zero upper bytes of 64-bit arg fields on
-//   32-bit systems. Only affects 32-bit kernels (ARM, x86_32, etc.).
+//   Patched in v5.10. No runtime sysctl could restrict access — the bug is
+//   that collect_syscall() stores six `unsigned long` into a __u64 args[6],
+//   covering 24 of 48 bytes on 32-bit. Only affects 32-bit kernels (ARM,
+//   x86_32, etc.).
 //
 // Requires:
 // - CONFIG_HAVE_ARCH_TRACEHOOK=y
@@ -36,14 +38,14 @@
 // https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=4f134b89a24b965991e7c345b9a4591821f7c2a6
 // https://cateee.net/lkddb/web-lkddb/HAVE_ARCH_TRACEHOOK.html
 //
-// 32-bit-kernel only — gated at compile time. The bug is in 32-bit kernels'
-// collect_syscall() (the high 32 bits of 64-bit syscall_info args are not
-// zeroed). 64-bit kernels follow a different code path and are not
-// vulnerable. On 64-bit kernels the argument-register values exposed by
-// /proc/<PID>/syscall are ordinary syscall numbers and pointers, none of
-// which carry the kernel-stack residue the exploit reads on 32-bit, and
-// misinterpreting a small integer (e.g. a syscall number) as a kernel
-// address would produce a nonsense observation.
+// 32-bit-kernel only — gated at compile time. collect_syscall() fills
+// data.args[] by storing six `unsigned long`, but the array is __u64 args[6]:
+// on 32-bit that writes 24 of 48 bytes, so args[3..5] are never written at
+// all, while args[0..2] each carry two real arguments packed into one field.
+// 64-bit kernels run the SAME code with sizeof(long) == 8, where six stores
+// fill the array exactly and no residue remains — the values exposed there
+// are ordinary syscall numbers and pointers, and misinterpreting one as a
+// kernel address would produce a nonsense observation.
 // ---
 // <bcoles@gmail.com>
 
@@ -64,10 +66,10 @@
 
 KASLD_EXPLAIN(
     "Reads /proc/<PID>/syscall on a 32-bit kernel. The file reports six "
-    "64-bit argument registers, but on 32-bit only the lower 32 bits are "
-    "used. Before the v5.10 fix (CVE-2020-28588), the upper 32 bits were "
-    "not zeroed, leaking stale kernel stack data that often contains "
-    "kernel text or stack pointers.");
+    "64-bit argument fields, but the kernel fills them with six 32-bit "
+    "words. Before the v5.10 fix (CVE-2020-28588), the last three fields "
+    "were left holding stale kernel stack data — a text pointer on x86_32, "
+    "arm and riscv32, a direct-map pointer on powerpc and mips.");
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"
@@ -214,8 +216,22 @@ int main(void) {
 
   kasld_info("lowest leaked address: %lx", addr);
   kasld_info("possible kernel base: %lx", kasld_floor_text_base(addr));
+  /* The leaked word is a kernel address; nothing available here establishes
+   * that it is TEXT. It is whatever the reading task's call chain left on
+   * proc_pid_syscall()'s own stack frame, which differs by architecture: a
+   * return address into text on x86_32, arm and riscv32; a direct-map pointer
+   * (kernel stacks, lowmem objects) on powerpc and mips, where the image is
+   * randomized above them and a direct-map word therefore lands BELOW _text.
+   *
+   * An interior-text sample implies image_base <= sample, so tagging a
+   * direct-map word as text truncates the image-base window below the true
+   * base. CONF_HEURISTIC keeps the observation under the sound floor, where
+   * the engine's confidence gate drops it from the floored run entirely: it
+   * shapes the likely window, and cannot bound the guaranteed one. Confirming
+   * text membership needs a text band this component cannot see — it runs
+   * before inference, and that band is the unknown being solved for. */
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr, NULL,
-                      CONF_PARSED);
+                      CONF_HEURISTIC);
 
   return 0;
 }
