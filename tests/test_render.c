@@ -34,7 +34,9 @@
 #include <assert.h>
 #include <limits.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 /* =========================================================================
@@ -3704,14 +3706,23 @@ static void test_render_hardening_pointer_hashing_gate(void) {
  * names ITS groups; the gate table covers the ids kasld knows gate one of its
  * own sources, which is the set a tree with an empty /etc/group cannot name —
  * the Android shape. Neither source knowing an id is not an error: the number
- * alone is what the kernel checks. */
+ * alone is what the kernel checks.
+ *
+ * Driven over the staged tree (see main), never the host's own /etc/group: the
+ * ids in the gate table are Android's, and whether a given machine happens to
+ * use one of them for something else is not a property of the code under test.
+ * gid 1001 is staged deliberately, because it is also AID_RADIO — the one id
+ * where the two sources disagree, and so the only one that can show which
+ * wins. */
 static void test_group_name_resolution(void) {
   char buf[64];
-  /* The gate table answers for an id no /etc/group here will carry. */
-  const char *n = kasld_group_name(3009, buf, sizeof(buf));
+  /* Both sources name 1001. The analysed tree is the authority, so its name
+   * must be the answer and the table's must not surface. */
+  const char *n = kasld_group_name(1001, buf, sizeof(buf));
+  assert(n != NULL && strcmp(n, "staff") == 0);
+  /* An id the tree does not name falls back to the gate table. */
+  n = kasld_group_name(3009, buf, sizeof(buf));
   assert(n != NULL && strcmp(n, "readproc") == 0);
-  n = kasld_group_name(1001, buf, sizeof(buf));
-  assert(n != NULL && strcmp(n, "radio") == 0);
   /* An id neither source knows resolves to nothing rather than to a guess. */
   assert(kasld_group_name(4242424, buf, sizeof(buf)) == NULL);
 }
@@ -3937,8 +3948,46 @@ static void test_render_hardening_text_no_rand_failed_silent(void) {
   assert(strstr(render_cap, "KASLR posture") == NULL);
 }
 
+/* A tree for the one function in this suite that reads a fact source. It is
+ * staged before the first test because the sysroot prefix is resolved once and
+ * cached, and it must be the whole suite's view rather than the host's: a test
+ * that consults /etc/group passes or fails on which ids the machine running it
+ * happens to have assigned. Only /etc/group is staged — nothing else here
+ * opens a file, so a miss anywhere else would be a new dependency, not a
+ * silent fallback to the host. */
+static char g_root[256];
+
+static void stage_group_file(void) {
+  snprintf(g_root, sizeof(g_root), "/tmp/kasld_render_rootXXXXXX");
+  assert(mkdtemp(g_root) != NULL);
+  char path[320];
+  snprintf(path, sizeof(path), "%s/etc", g_root);
+  assert(mkdir(path, 0755) == 0);
+  snprintf(path, sizeof(path), "%s/etc/group", g_root);
+  FILE *f = fopen(path, "w");
+  assert(f != NULL);
+  /* 1001 collides with AID_RADIO on purpose; 3009 is left out so the gate
+   * table has something to answer for. */
+  fputs("root:x:0:\n"
+        "staff:x:1001:\n"
+        "operators:x:1500:alice,bob\n",
+        f);
+  assert(fclose(f) == 0);
+  setenv("KASLD_SYSROOT", g_root, 1);
+}
+
+static void unstage_group_file(void) {
+  char path[320];
+  snprintf(path, sizeof(path), "%s/etc/group", g_root);
+  unlink(path);
+  snprintf(path, sizeof(path), "%s/etc", g_root);
+  rmdir(path);
+  rmdir(g_root);
+}
+
 int main(void) {
   TEST_SUITE("render — renderer unit suite");
+  stage_group_file();
   test_init_layout_engine_bounds();
 
   BEGIN_CATEGORY("Renderer — json_print_escaped");
@@ -4040,5 +4089,6 @@ int main(void) {
   RUN(test_render_json_group_aggregate_is_per_region);
   RUN(test_render_json_groups_split_by_region);
 
+  unstage_group_file();
   return TEST_DONE();
 }
