@@ -3,9 +3,14 @@
 #
 # Validate KASLD results against ground truth available to root.
 #
-# Reads tagged lines from a KASLD run (or runs kasld itself), then
-# compares each result against /proc/kallsyms, /proc/iomem, /proc/modules,
-# and /proc/kcore (direct-map base / page_offset_base).
+# Reads tagged lines from a file or standard input and compares each result
+# against /proc/kallsyms, /proc/iomem, /proc/modules, and /proc/kcore
+# (direct-map base / page_offset_base).
+#
+# It never runs kasld. Only this script needs root, for the unmasked ground
+# truth; kasld itself runs unprivileged and its output is piped or saved. That
+# separation is the point -- nothing here elevates the analysis, so the
+# KASLD_* environment (see kasld(1) ENVIRONMENT) is never read at root.
 #
 # Wire format (see src/include/kasld/api.h):
 #   <type> <region>[:<name>] pos=<pos> conf=<conf> \

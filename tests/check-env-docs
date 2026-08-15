@@ -1,0 +1,100 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-env-docs — every environment variable the code reads is documented in
+# kasld(1) ENVIRONMENT, and every one documented there is actually read.
+#
+# The audit that prompted this found the environment surface had grown to twelve
+# variables while the design notes described four. Two of them -- KASLD_EXEC_WRAPPER
+# and KASLD_COMPONENT_DIR -- name programs kasld will execute, so an undocumented
+# one is not merely untidy: it is an execution knob nobody reviewing a sudoers
+# rule or a packaging script can see.
+#
+# The same parity check check-manpages applies to flags, applied to getenv().
+# Documentation alone fixes a surface once; this is what keeps it fixed as the
+# surface grows.
+#
+# A variable counts as documented when it appears in a .B / .BR request inside
+# the ENVIRONMENT section -- an entry, not a passing mention in prose, since the
+# section's own introduction names two of them.
+#
+# Pure text, so it needs no build.
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+MAN="$ROOT/man/kasld.1"
+
+if [ -t 1 ]; then
+  RED=$(printf '\033[31m')
+  GREEN=$(printf '\033[32m')
+  RESET=$(printf '\033[0m')
+else
+  RED=
+  GREEN=
+  RESET=
+fi
+
+fail=0
+note() {
+  printf '%scheck-env-docs: FAIL%s — %s\n' "$RED" "$RESET" "$1" >&2
+  fail=1
+}
+
+[ -f "$MAN" ] || {
+  note "man/kasld.1 is missing"
+  exit 1
+}
+
+code=$(mktemp) || exit 1
+documented=$(mktemp) || exit 1
+trap 'rm -f "$code" "$documented"' EXIT INT TERM
+
+# The variables kasld(1) is answerable for: those read anywhere OUTSIDE
+# src/components/. A component is a standalone program with its own debugging
+# knobs -- KASLD_ZOMBIELOAD_DEBUG, MALI_MIN_COUNT -- and those belong to it, not
+# to the orchestrator's interface. Documenting them here would put 113
+# components' internals in one page and oblige it to track every one.
+#
+# A variable read in a component AND elsewhere (KASLD_EXPERIMENTAL,
+# KASLD_SYSROOT) is still part of the surface: it is picked up from the
+# non-component reader. Only component-EXCLUSIVE variables are private.
+#
+# src/ only in either case: tests and dev harnesses set these, they do not
+# define them.
+find "$ROOT/src" -name '*.c' -o -name '*.h' |
+  grep -v '/components/' |
+  xargs grep -hoE 'getenv\("[A-Z_][A-Z_0-9]*"\)' |
+  sed 's/getenv("//; s/")//' | sort -u >"$code"
+
+# Names given an ENTRY in the ENVIRONMENT section -- the tag line directly after
+# a .TP. Deliberately not every .B in the section: its introduction names two
+# variables in prose and entries cross-reference other sections, and neither is
+# a definition. One tag may carry several (`.BR CLICOLOR ", " CLICOLOR_FORCE`),
+# so take every uppercase token on that line.
+awk '/^\.SH ENVIRONMENT/ { inb = 1; next }
+     /^\.SH / { inb = 0 }
+     inb && tag { print; tag = 0 }
+     inb && /^\.TP[[:space:]]*$/ { tag = 1 }' "$MAN" |
+  grep -oE '[A-Z_][A-Z_0-9]{2,}' | sort -u >"$documented"
+
+n=0
+while IFS= read -r v; do
+  [ -n "$v" ] || continue
+  n=$((n + 1))
+  grep -qxF "$v" "$documented" ||
+    note "$v is read by src/ but has no kasld(1) ENVIRONMENT entry"
+done <"$code"
+
+while IFS= read -r v; do
+  [ -n "$v" ] || continue
+  grep -qxF "$v" "$code" ||
+    note "$v has a kasld(1) ENVIRONMENT entry but nothing in src/ reads it"
+done <"$documented"
+
+if [ "$fail" -ne 0 ]; then
+  exit 1
+fi
+printf '%scheck-env-docs: OK%s (%s environment variables, code and kasld(1) agree)\n' \
+  "$GREEN" "$RESET" "$n"

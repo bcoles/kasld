@@ -153,6 +153,26 @@ of
 values would be indistinguishable from the hardened host that yields no results
 (exit 1).
 .SH ENVIRONMENT
+Two of these name programs that
+.B kasld
+will execute:
+.B KASLD_COMPONENT_DIR
+selects the directory every component binary is run from, and
+.B KASLD_EXEC_WRAPPER
+selects a program run in their place. Preserving
+.B KASLD_*
+across a privilege boundary therefore hands over code execution at that
+privilege.
+.B sudo
+strips them under its default
+.BR env_reset ;
+a
+.B sudoers
+rule with
+.B env_keep
+or
+.BR SETENV ,
+or any wrapper that elevates while keeping the environment, does not.
 .TP
 .B KASLD_COMPONENT_DIR
 Directory to load component binaries from, overriding the default search
@@ -167,6 +187,30 @@ skipped.
 .B KASLD_EXPERIMENTAL
 When set, enable experimental components, equivalent to
 .BR \-\-experimental .
+.TP
+.B KASLD_EXEC_WRAPPER
+Program to execute in place of each component, with the component's path as
+its first argument. Intended for running guest-architecture components under
+a user-mode emulator. Unset or empty gives the normal path, a direct
+.BR execve (2)
+of the component.
+.TP
+.B KASLD_VERBOSE
+When set to a value that is non-empty and does not begin with
+.BR 0 ,
+enable verbose output, equivalent to
+.BR \-\-verbose .
+.TP
+.B KASLD_UNAME_RELEASE
+Override the kernel release reported by
+.BR uname (2),
+so a captured tree replays under the release it was taken from rather than
+the running one. Used with
+.BR KASLD_SYSROOT .
+.TP
+.B KASLD_DEBUG_CONSTRAINTS
+When set, print each inference constraint and the resulting bounds to standard
+error. Diagnostic only; it does not affect the result.
 .TP
 .B NO_COLOR
 When present (any value, including empty), disable coloured output regardless of
