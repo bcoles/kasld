@@ -95,6 +95,10 @@ int main(void) {
   int is_unkeyed = 0;
   FILE *fp = kasld_open_boot_config(&is_unkeyed);
   if (!fp) {
+    if (kasld_boot_config_denied) {
+      kasld_err("boot config present but not readable.");
+      return KASLD_EXIT_NOPERM;
+    }
     kasld_err("could not open boot config.");
     return KASLD_EXIT_UNAVAILABLE;
   }

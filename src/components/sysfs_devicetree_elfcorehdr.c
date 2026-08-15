@@ -107,7 +107,9 @@ int main(void) {
   int n;
   int count = 0;
 
-  /* Find the chosen node */
+  /* Find the chosen node. A property that exists but is hidden is a different
+   * fact from one that is absent; keep it so the verdict can say which. */
+  int dt_denied = 0;
   for (int i = 0; bases[i]; i++) {
     snprintf(path, sizeof(path), "%s/linux,elfcorehdr", bases[i]);
     FILE *f = kasld_fopen(path, "rb");
@@ -116,6 +118,8 @@ int main(void) {
       chosen = bases[i];
       break;
     }
+    if (errno == EACCES || errno == EPERM)
+      dt_denied = 1;
     /* Also check for linux,usable-memory-range as fallback probe */
     snprintf(path, sizeof(path), "%s/linux,usable-memory-range", bases[i]);
     f = kasld_fopen(path, "rb");
@@ -124,6 +128,8 @@ int main(void) {
       chosen = bases[i];
       break;
     }
+    if (errno == EACCES || errno == EPERM)
+      dt_denied = 1;
   }
 
   if (!chosen) {
@@ -131,7 +137,7 @@ int main(void) {
         "device tree chosen node not found or no kdump crash kernel "
         "properties (linux,elfcorehdr / linux,usable-memory-range) present\n"
         "    (this component only works in the kdump crash kernel context)");
-    return KASLD_EXIT_UNAVAILABLE;
+    return dt_denied ? KASLD_EXIT_NOPERM : KASLD_EXIT_UNAVAILABLE;
   }
 
   /* --- linux,elfcorehdr: <u64 address> <u64 size> --- */

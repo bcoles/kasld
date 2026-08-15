@@ -47,6 +47,7 @@
 #include "include/kasld/cli.h"
 #include "include/kasld/devicetree.h"
 #include <dirent.h>
+#include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -226,14 +227,32 @@ int main(int argc, char **argv) {
   const char *base = "/sys/firmware/devicetree/base";
   const char *alt = "/proc/device-tree";
   const char *root = NULL;
+  /* A tree that exists but is hidden is a different fact from one that is
+   * absent; keep it across both candidates, since errno alone would describe
+   * only the last one tried. */
+  int dt_denied = 0;
   DIR *d = kasld_opendir(base);
   if (d) {
     root = base;
     closedir(d);
-  } else if ((d = kasld_opendir(alt)) != NULL) {
-    root = alt;
-    closedir(d);
   } else {
+    if (errno == EACCES || errno == EPERM)
+      dt_denied = 1;
+    d = kasld_opendir(alt);
+    if (d) {
+      root = alt;
+      closedir(d);
+    } else if (errno == EACCES || errno == EPERM) {
+      dt_denied = 1;
+    }
+  }
+
+  if (!root) {
+    if (dt_denied) {
+      /* Present and hidden: the target's policy rather than its platform. */
+      kasld_err("device tree present but not readable");
+      return KASLD_EXIT_NOPERM;
+    }
     kasld_err("device tree not available (not a DT platform?)");
     return KASLD_EXIT_UNAVAILABLE;
   }

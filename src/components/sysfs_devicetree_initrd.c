@@ -90,6 +90,9 @@ int main(void) {
   unsigned char buf[8];
   int n;
 
+  /* A base that exists but is hidden is a different fact from one that is
+   * absent; keep it so the verdict below can say which. */
+  int dt_denied = 0;
   for (int i = 0; bases[i]; i++) {
     snprintf(path, sizeof(path), "%s/linux,initrd-start", bases[i]);
     FILE *f = kasld_fopen(path, "rb");
@@ -98,11 +101,13 @@ int main(void) {
       chosen = bases[i];
       break;
     }
+    if (errno == EACCES || errno == EPERM)
+      dt_denied = 1;
   }
 
   if (!chosen) {
     kasld_err("device tree chosen node not found or no initrd properties");
-    return KASLD_EXIT_UNAVAILABLE;
+    return dt_denied ? KASLD_EXIT_NOPERM : KASLD_EXIT_UNAVAILABLE;
   }
 
   kasld_info("trying %s/linux,initrd-{start,end} ...", chosen);

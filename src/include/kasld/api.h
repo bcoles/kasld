@@ -1972,6 +1972,23 @@ static inline void kasld_disposition(enum kasld_disp cat, const char *gate,
   69                         /* feature/hardware not present (EX_UNAVAILABLE) */
 #define KASLD_EXIT_NOPERM 77 /* access denied (EX_NOPERM) */
 
+/* The exit class a failed probe implies, read from errno.
+ *
+ * A denial and an absence are different facts about the target — one is its
+ * hardening, the other its build — and open()/access()/stat() report both by
+ * returning the same failure. Deciding UNAVAILABLE without looking records a
+ * mandatory-access-control denial as a missing prerequisite, which says nothing
+ * about the target while looking like it says something.
+ *
+ * Call it immediately after the failed probe, before any other library call has
+ * a chance to overwrite errno, and only where a SINGLE candidate path was
+ * tried: after a helper that walks several, errno belongs to the last one
+ * attempted rather than to the most informative. */
+static inline int kasld_exit_for_errno(void) {
+  return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM
+                                             : KASLD_EXIT_UNAVAILABLE;
+}
+
 /* Typed disposition wrappers: emit the `R` line (see kasld_disposition above)
  * and return the exit code the category implies, so a component ends a gated
  * path with a single expression — `return kasld_disp_absent("no RTM");` or

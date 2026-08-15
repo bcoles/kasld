@@ -272,6 +272,30 @@ The constants are defined in
 follow the `<sysexits.h>` convention (`EX_UNAVAILABLE` = 69,
 `EX_NOPERM` = 77).
 
+#### Absence and denial are different answers
+
+69 and 77 describe different facts about the target: one is how it was built,
+the other is how it is defended. `open()`, `access()`, `stat()` and `opendir()`
+report both by failing, and only `errno` separates them — so returning 69 from a
+failed probe without consulting it records a denial as a missing prerequisite,
+and the report then overlooks hardening the target actually has. Under a
+mandatory access control policy this is routine rather than rare: a denied path
+fails lookup, presenting exactly as a missing one.
+
+`kasld_exit_for_errno()` in
+[`src/include/kasld/api.h`](src/include/kasld/api.h) returns the constant the
+failure implies. Call it immediately after the failing probe, before any other
+library call can overwrite `errno`, and only where a single candidate path was
+tried — after a helper that walks several, `errno` belongs to the last one
+attempted rather than to the most informative, so those components record a
+denial across the walk instead.
+
+`tests/check-absence-vs-denial` enforces this floor: a component that probes a
+filesystem source and can reach an absence verdict must consult `errno`
+somewhere. It cannot prove the reason is the right one, so it is a floor and not
+a proof — a component whose verdict rests on no probe at all belongs in the
+check's allowlist with its reason.
+
 ### Minimal component
 
 A complete, real component. It searches the kernel log for the

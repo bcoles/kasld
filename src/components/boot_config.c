@@ -50,6 +50,10 @@ int main(void) {
   int is_unkeyed = 0;
   FILE *fp = kasld_open_boot_config(&is_unkeyed);
   if (!fp) {
+    if (kasld_boot_config_denied) {
+      kasld_err("kernel config present but not readable");
+      return KASLD_EXIT_NOPERM;
+    }
     kasld_err("could not find kernel config");
     return KASLD_EXIT_UNAVAILABLE;
   }

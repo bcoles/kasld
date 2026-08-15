@@ -92,6 +92,9 @@ struct nilfs_argv {
 
 static int nilfs_ioctl_unsupported;
 
+/* The exit class the mount-table probe implies; see kasld_exit_for_errno. */
+static int mounts_exit = KASLD_EXIT_UNAVAILABLE;
+
 /* Try to find a nilfs2 mount point by scanning /proc/mounts */
 static int open_nilfs2_fd(void) {
   FILE *fp;
@@ -101,8 +104,12 @@ static int open_nilfs2_fd(void) {
 
   fp = kasld_fopen("/proc/mounts", "r");
   if (!fp) {
+    /* Record the class before anything else can touch errno. -2 keeps "could
+     * not look" apart from "looked and found none": without the mount table
+     * this says nothing about whether a nilfs2 mount exists. */
+    mounts_exit = kasld_exit_for_errno();
     perror("[-] fopen /proc/mounts");
-    return -1;
+    return -2;
   }
 
   while (fgets(line, sizeof(line), fp)) {
@@ -190,6 +197,10 @@ int main(void) {
    * against. Its absence is a missing prerequisite on this host, not a
    * defence on the target. */
   fd = open_nilfs2_fd();
+  if (fd == -2) {
+    kasld_err("could not read the mount table");
+    return mounts_exit;
+  }
   if (fd < 0) {
     kasld_err("no nilfs2 mount found");
     return kasld_disp_absent("no mounted nilfs2 filesystem to query");

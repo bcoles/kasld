@@ -57,6 +57,9 @@ KASLD_META("method:detection\n"
            "addr:none\n"
            "config:CONFIG_IKCONFIG_PROC\n");
 
+/* The exit class the last open attempt implies; see kasld_exit_for_errno. */
+static int proc_config_exit = KASLD_EXIT_UNAVAILABLE;
+
 /* Decompress /proc/config.gz into a seekable FILE*.
  * Uses zlib if available, otherwise falls back to popen("zcat"). */
 static FILE *open_proc_config(void) {
@@ -70,6 +73,9 @@ static FILE *open_proc_config(void) {
   kasld_info("checking %s ...", PROC_CONFIG_GZ);
 
   if (kasld_access(PROC_CONFIG_GZ, R_OK) != 0) {
+    /* Preserve WHY across the NULL return: a denied config is the target's
+     * hardening, an absent one is how it was built. */
+    proc_config_exit = kasld_exit_for_errno();
     kasld_err("Could not read %s", PROC_CONFIG_GZ);
     return NULL;
   }
@@ -141,7 +147,7 @@ static int kaslr_disabled_from_config(FILE *fp) {
 int main(void) {
   FILE *fp = open_proc_config();
   if (!fp)
-    return KASLD_EXIT_UNAVAILABLE;
+    return proc_config_exit;
 
 #if PAGE_OFFSET_FROM_CONFIG
   /* Detect PAGE_OFFSET (32-bit vmsplit). CONFIG_PAGE_OFFSET equals the runtime

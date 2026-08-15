@@ -1,0 +1,105 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-absence-vs-denial — guard that a denied source is not reported absent.
+#
+# A component that cannot read a source must say which of two different things
+# happened. UNAVAILABLE (69) claims the technique provably cannot apply here:
+# the data source is not present, so the result says nothing about the target's
+# hardening. NOPERM (77) says the source exists and access was refused, which is
+# hardening, and the report counts it as such.
+#
+# open(), access(), stat() and opendir() report both by failing, and the caller
+# can only tell them apart through errno. A mandatory access control policy
+# makes this routine rather than rare — under SELinux a denied path fails
+# lookup, so it presents exactly as a missing one — and deciding UNAVAILABLE
+# without looking records the target's policy as its build.
+#
+# This check fails when a component reaches an UNAVAILABLE-class verdict from a
+# failed probe without consulting errno anywhere. It cannot prove the errno is
+# the right one (a helper that walks several candidate paths leaves errno from
+# the last, which is why those track a denial flag across the walk instead), so
+# it is a floor: no component decides absence blind.
+#
+# Usage: tests/check-absence-vs-denial   (also run by `make test`)
+# ---
+# <bcoles@gmail.com>
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+COMPONENTS=$ROOT/src/components
+# shellcheck source=tests/lib/guard-scope.sh
+. "$ROOT/tests/lib/guard-scope.sh"
+
+# Components whose UNAVAILABLE verdict does not come from a probe at all, so
+# there is no errno to consult:
+#   zombieload   a CPU-vendor and microarchitecture precondition
+# Keep alphabetical.
+ALLOW="zombieload"
+
+if [ -t 2 ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; RESET=
+fi
+
+contains() { # $1=needle $2=list
+  for _x in $2; do [ "$_x" = "$1" ] && return 0; done
+  return 1
+}
+
+fail=0
+nfiles=0
+flagged=
+
+for f in "$COMPONENTS"/*.c; do
+  [ -e "$f" ] || continue
+  nfiles=$((nfiles + 1))
+  b=$(basename "$f" .c)
+  # Probes a filesystem source ...
+  grep -qE 'kasld_(fopen|access|opendir|stat|open)[[:space:]]*\(' "$f" || continue
+  # ... and can reach an absence verdict ...
+  grep -qE 'KASLD_EXIT_UNAVAILABLE|kasld_disp_absent' "$f" || continue
+  # ... but never distinguishes a denial from a missing path. Comment bodies do
+  # not count: a file that only MENTIONS the helper, in a note pointing at it,
+  # would otherwise pass while deciding absence blind.
+  if grep -E 'EACCES|EPERM|kasld_exit_for_errno|_denied' "$f" |
+     grep -qvE '^[[:space:]]*(\*[[:space:]/]|//|/\*)'; then
+    continue
+  fi
+  flagged="$flagged $b"
+done
+
+guard_scope "check-absence-vs-denial" "$nfiles" 50
+
+for d in $flagged; do
+  if ! contains "$d" "$ALLOW"; then
+    if [ "$fail" = 0 ]; then
+      printf '%sabsence-vs-denial guard: absence decided without errno:%s\n' \
+        "$RED" "$RESET" >&2
+    fi
+    printf '  %s\n' "$d" >&2
+    fail=1
+  fi
+done
+
+# Keep the list honest: an allowlisted component that grew a probe-driven
+# verdict should leave, rather than staying as cover for it.
+for a in $ALLOW; do
+  if ! contains "$a" "$flagged"; then
+    printf '%sabsence-vs-denial guard: %s now distinguishes them — drop it from ALLOW%s\n' \
+      "$RED" "$a" "$RESET" >&2
+    fail=1
+  fi
+done
+
+if [ "$fail" = 1 ]; then
+  printf 'A failed probe carries its reason in errno. Use kasld_exit_for_errno()\n' >&2
+  printf 'right after the failing call, or — where several candidate paths are\n' >&2
+  printf 'tried — record a denial across the walk and return NOPERM when one was\n' >&2
+  printf 'seen. If the verdict has no probe behind it, add the component to ALLOW\n' >&2
+  printf 'in tests/check-absence-vs-denial with the reason.\n' >&2
+  exit 1
+fi
+
+printf '%scheck-absence-vs-denial: OK%s (%d components, %d reviewed non-probe verdicts)\n' \
+  "$GREEN" "$RESET" "$nfiles" "$(printf '%s\n' "$ALLOW" | wc -l | tr -d ' ')"

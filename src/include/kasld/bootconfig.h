@@ -15,6 +15,8 @@
 
 #include "sysroot.h"
 
+#include <errno.h>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -27,9 +29,16 @@
  * binding (it may be a leftover from another kernel or a rescue image), so when
  * it is the match, *is_unkeyed (if non-NULL) is set to 1 and callers demote its
  * facts below the guaranteed floor. */
+/* Set when a candidate config existed but could not be read. /boot is mode
+ * 0700 root on a number of distributions, so a denied config is a routine
+ * outcome and a different fact from a kernel built without one. Read it after
+ * kasld_open_boot_config returns NULL. */
+__attribute__((unused)) static int kasld_boot_config_denied;
+
 __attribute__((unused)) static FILE *kasld_open_boot_config(int *is_unkeyed) {
   if (is_unkeyed)
     *is_unkeyed = 0;
+  kasld_boot_config_denied = 0;
 
   struct utsname uts;
   if (kasld_uname(&uts) == 0) {
@@ -45,11 +54,15 @@ __attribute__((unused)) static FILE *kasld_open_boot_config(int *is_unkeyed) {
       FILE *fp = kasld_fopen(path, "r");
       if (fp)
         return fp;
+      if (errno == EACCES || errno == EPERM)
+        kasld_boot_config_denied = 1;
     }
   }
 
   /* Last resort: the unkeyed /boot/config (no release binding). */
   FILE *fp = kasld_fopen("/boot/config", "r");
+  if (!fp && (errno == EACCES || errno == EPERM))
+    kasld_boot_config_denied = 1;
   if (fp) {
     if (is_unkeyed)
       *is_unkeyed = 1;

@@ -91,6 +91,9 @@ int main(void) {
   int n;
 
   /* Probe: look for the property in either DT sysfs location */
+  /* A base that exists but is hidden is a different fact from one that is
+   * absent; keep it so the verdict below can say which. */
+  int dt_denied = 0;
   for (int i = 0; bases[i]; i++) {
     snprintf(path, sizeof(path), "%s/linux,uefi-mmap-start", bases[i]);
     FILE *f = kasld_fopen(path, "rb");
@@ -99,12 +102,14 @@ int main(void) {
       chosen = bases[i];
       break;
     }
+    if (errno == EACCES || errno == EPERM)
+      dt_denied = 1;
   }
 
   if (!chosen) {
     kasld_err("device tree chosen node not found or no linux,uefi-mmap-start "
               "property");
-    return KASLD_EXIT_UNAVAILABLE;
+    return dt_denied ? KASLD_EXIT_NOPERM : KASLD_EXIT_UNAVAILABLE;
   }
 
   kasld_info("trying %s/linux,uefi-mmap-start ...", chosen);
