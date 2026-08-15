@@ -1,0 +1,1408 @@
+[   11.743378] LibBpfLoader: cs[14].name:schedcls_tether_downstream4_rawip$5_4 min_kver:5040000 .max_kver:5080000 (kvers:50f0077)
+[   11.743380] LibBpfLoader: cs[15].name:schedcls_tether_upstream4_rawip$5_4 min_kver:5040000 .max_kver:5080000 (kvers:50f0077)
+[   11.743382] LibBpfLoader: cs[16].name:schedcls_tether_downstream4_rawip$4_14 min_kver:40e0000 .max_kver:5040000 (kvers:50f0077)
+[   11.743384] LibBpfLoader: cs[17].name:schedcls_tether_upstream4_rawip$4_14 min_kver:40e0000 .max_kver:5040000 (kvers:50f0077)
+[   11.743385] LibBpfLoader: cs[18].name:schedcls_tether_downstream4_ether$4_14 min_kver:40e0000 .max_kver:5080000 (kvers:50f0077)
+[   11.743387] LibBpfLoader: cs[19].name:schedcls_tether_upstream4_ether$4_14 min_kver:40e0000 .max_kver:5080000 (kvers:50f0077)
+[   11.743389] LibBpfLoader: cs[20].name:schedcls_tether_downstream4_rawip$stub min_kver:0 .max_kver:5040000 (kvers:50f0077)
+[   11.743390] LibBpfLoader: cs[21].name:schedcls_tether_upstream4_rawip$stub min_kver:0 .max_kver:5040000 (kvers:50f0077)
+[   11.743392] LibBpfLoader: cs[22].name:schedcls_tether_downstream4_ether$stub min_kver:0 .max_kver:40e0000 (kvers:50f0077)
+[   11.743393] LibBpfLoader: cs[23].name:schedcls_tether_upstream4_ether$stub min_kver:0 .max_kver:40e0000 (kvers:50f0077)
+[   11.743395] LibBpfLoader: cs[24].name:xdp_tether_downstream_ether min_kver:5090000 .max_kver:ffffffff (kvers:50f0077)
+[   11.743397] LibBpfLoader: cs[24].name:xdp_tether_downstream_ether requires bpfloader version [0x00002,0x00019)
+[   11.743805] LibBpfLoader: bpf_prog_load lib call for /apex/com.android.tethering/etc/bpf/offload.o (xdp_tether_downstream_ether) returned fd: 23 (no error)
+[   11.743843] LibBpfLoader: prog /sys/fs/bpf/tethering/prog_offload_xdp_tether_downstream_ether id 10
+[   11.745713] LibBpfLoader: cs[25].name:xdp_tether_downstream_rawip min_kver:5090000 .max_kver:ffffffff (kvers:50f0077)
+[   11.745716] LibBpfLoader: cs[25].name:xdp_tether_downstream_rawip requires bpfloader version [0x00002,0x00019)
+[   11.746138] LibBpfLoader: bpf_prog_load lib call for /apex/com.android.tethering/etc/bpf/offload.o (xdp_tether_downstream_rawip) returned fd: 24 (no error)
+[   11.746177] LibBpfLoader: prog /sys/fs/bpf/tethering/prog_offload_xdp_tether_downstream_rawip id 11
+[   11.747941] LibBpfLoader: cs[26].name:xdp_tether_upstream_ether min_kver:5090000 .max_kver:ffffffff (kvers:50f0077)
+[   11.747943] LibBpfLoader: cs[26].name:xdp_tether_upstream_ether requires bpfloader version [0x00002,0x00019)
+[   11.748379] LibBpfLoader: bpf_prog_load lib call for /apex/com.android.tethering/etc/bpf/offload.o (xdp_tether_upstream_ether) returned fd: 25 (no error)
+[   11.748417] LibBpfLoader: prog /sys/fs/bpf/tethering/prog_offload_xdp_tether_upstream_ether id 12
+[   11.750262] LibBpfLoader: cs[27].name:xdp_tether_upstream_rawip min_kver:5090000 .max_kver:ffffffff (kvers:50f0077)
+[   11.750264] LibBpfLoader: cs[27].name:xdp_tether_upstream_rawip requires bpfloader version [0x00002,0x00019)
+[   11.750758] LibBpfLoader: bpf_prog_load lib call for /apex/com.android.tethering/etc/bpf/offload.o (xdp_tether_upstream_rawip) returned fd: 26 (no error)
+[   11.750814] LibBpfLoader: prog /sys/fs/bpf/tethering/prog_offload_xdp_tether_upstream_rawip id 13
+[   11.752639] bpfloader: Loaded object: /apex/com.android.tethering/etc/bpf/offload.o
+[   11.754667] LibBpfLoader: Loading optional ELF object /apex/com.android.tethering/etc/bpf/test@btf.o with license Apache 2.0
+[   11.754677] LibBpfLoader: Section bpfloader_min_ver value is 25 [0x19]
+[   11.756029] LibBpfLoader: Section bpfloader_max_ver value is 65536 [0x10000]
+[   11.757551] LibBpfLoader: Section size_of_bpf_map_def value is 120 [0x78]
+[   11.758959] LibBpfLoader: Section size_of_bpf_prog_def value is 92 [0x5c]
+[   11.760329] LibBpfLoader: BpfLoader version 0x00013 ignoring ELF object /apex/com.android.tethering/etc/bpf/test@btf.o with min ver 0x00019
+[   11.762861] bpfloader: Loaded object: /apex/com.android.tethering/etc/bpf/test@btf.o
+[   11.765479] LibBpfLoader: Loading critical for Connectivity (Tethering) ELF object /apex/com.android.tethering/etc/bpf/offload@btf.o with license Apache 2.0
+[   11.765490] LibBpfLoader: Section bpfloader_min_ver value is 25 [0x19]
+[   11.766870] LibBpfLoader: Section bpfloader_max_ver value is 65536 [0x10000]
+[   11.768315] LibBpfLoader: Section size_of_bpf_map_def value is 120 [0x78]
+[   11.769712] LibBpfLoader: Section size_of_bpf_prog_def value is 92 [0x5c]
+[   11.771048] LibBpfLoader: BpfLoader version 0x00013 ignoring ELF object /apex/com.android.tethering/etc/bpf/offload@btf.o with min ver 0x00019
+[   11.773805] bpfloader: Loaded object: /apex/com.android.tethering/etc/bpf/offload@btf.o
+[   11.776336] LibBpfLoader: Loading critical for Connectivity and netd ELF object /apex/com.android.tethering/etc/bpf/netd_shared/netd.o with license Apache 2.0
+[   11.776346] LibBpfLoader: Section bpfloader_min_ver value is 13 [0xd]
+[   11.777700] LibBpfLoader: Section bpfloader_max_ver value is 65536 [0x10000]
+[   11.779150] LibBpfLoader: Section size_of_bpf_map_def value is 120 [0x78]
+[   11.780522] LibBpfLoader: Section size_of_bpf_prog_def value is 92 [0x5c]
+[   11.781961] LibBpfLoader: BpfLoader version 0x00013 processing ELF object /apex/com.android.tethering/etc/bpf/netd_shared/netd.o with ver [0x0000d,0x10000)
+[   11.785444] LibBpfLoader: Loaded code section 3 (cgroupskb_ingress_stats$trace)
+[   11.785475] LibBpfLoader: Loaded relo section 3 (.relcgroupskb/ingress/stats$trace)
+[   11.785478] LibBpfLoader: Adding section 3 to cs list
+[   11.785490] LibBpfLoader: Loaded code section 5 (cgroupskb_ingress_stats$4_19)
+[   11.785521] LibBpfLoader: Loaded relo section 5 (.relcgroupskb/ingress/stats$4_19)
+[   11.785523] LibBpfLoader: Adding section 5 to cs list
+[   11.785533] LibBpfLoader: Loaded code section 7 (cgroupskb_ingress_stats$4_14)
+[   11.785568] LibBpfLoader: Loaded relo section 7 (.relcgroupskb/ingress/stats$4_14)
+[   11.785570] LibBpfLoader: Adding section 7 to cs list
+[   11.785580] LibBpfLoader: Loaded code section 9 (cgroupskb_egress_stats$trace)
+[   11.785621] LibBpfLoader: Loaded relo section 9 (.relcgroupskb/egress/stats$trace)
+[   11.785622] LibBpfLoader: Adding section 9 to cs list
+[   11.785632] LibBpfLoader: Loaded code section 11 (cgroupskb_egress_stats$4_19)
+[   11.785678] LibBpfLoader: Loaded relo section 11 (.relcgroupskb/egress/stats$4_19)
+[   11.785680] LibBpfLoader: Adding section 11 to cs list
+[   11.785690] LibBpfLoader: Loaded code section 13 (cgroupskb_egress_stats$4_14)
+[   11.785741] LibBpfLoader: Loaded relo section 13 (.relcgroupskb/egress/stats$4_14)
+[   11.785743] LibBpfLoader: Adding section 13 to cs list
+[   11.785754] LibBpfLoader: Loaded code section 15 (skfilter_egress_xtbpf)
+[   11.785810] LibBpfLoader: Loaded relo section 15 (.relskfilter/egress/xtbpf)
+[   11.785812] LibBpfLoader: Adding section 15 to cs list
+[   11.785822] LibBpfLoader: Loaded code section 17 (skfilter_ingress_xtbpf)
+[   11.785883] LibBpfLoader: Loaded relo section 17 (.relskfilter/ingress/xtbpf)
+[   11.785884] LibBpfLoader: Adding section 17 to cs list
+[   11.785894] LibBpfLoader: Loaded code section 19 (schedact_ingress_account)
+[   11.785962] LibBpfLoader: Loaded relo section 19 (.relschedact/ingress/account)
+[   11.785968] LibBpfLoader: Adding section 19 to cs list
+[   11.785979] LibBpfLoader: Loaded code section 21 (skfilter_allowlist_xtbpf)
+[   11.786051] LibBpfLoader: Loaded relo section 21 (.relskfilter/allowlist/xtbpf)
+[   11.786053] LibBpfLoader: Adding section 21 to cs list
+[   11.786063] LibBpfLoader: Loaded code section 23 (skfilter_denylist_xtbpf)
+[   11.786195] LibBpfLoader: Loaded relo section 23 (.relskfilter/denylist/xtbpf)
+[   11.786197] LibBpfLoader: Adding section 23 to cs list
+[   11.786232] LibBpfLoader: Loaded code section 25 (cgroupsock_inet_create)
+[   11.786317] LibBpfLoader: Loaded relo section 25 (.relcgroupsock/inet/create)
+[   11.786318] LibBpfLoader: Adding section 25 to cs list
+[   11.786511] LibBpfLoader: Couldn't find section btf_min_bpfloader_ver (defaulting to 0 [0x0]).
+[   11.786518] LibBpfLoader: Couldn't find section btf_min_kernel_ver (defaulting to 0 [0x0]).
+[   11.793444] LibBpfLoader: map configuration_map selinux_context [            fs_bpf_netd_readonly] -> 5 -> 'fs_bpf_netd_readonly' (netd_readonly/)
+[   11.796269] LibBpfLoader: bpf_create_map name configuration_map, ret: 6
+[   11.796313] LibBpfLoader: map /sys/fs/bpf/netd_shared/map_netd_configuration_map id 12
+[   11.798449] LibBpfLoader: bpf_create_map name cookie_tag_map, ret: 8
+[   11.798490] LibBpfLoader: map /sys/fs/bpf/netd_shared/map_netd_cookie_tag_map id 13
+[   11.800250] LibBpfLoader: map uid_counterset_map selinux_context [               fs_bpf_net_shared] -> 4 -> 'fs_bpf_net_shared' (net_shared/)
+[   11.803469] LibBpfLoader: bpf_create_map name uid_counterset_map, ret: 9
+[   11.803521] LibBpfLoader: map /sys/fs/bpf/netd_shared/map_netd_uid_counterset_map id 14
+[   11.805427] LibBpfLoader: map app_uid_stats_map selinux_context [               fs_bpf_net_shared] -> 4 -> 'fs_bpf_net_shared' (net_shared/)
+[   11.809359] LibBpfLoader: bpf_create_map name app_uid_stats_map, ret: 10
+[   11.809418] LibBpfLoader: map /sys/fs/bpf/netd_shared/map_netd_app_uid_stats_map id 15
+[   11.811394] LibBpfLoader: bpf_create_map name stats_map_A, ret: 11
+[   11.811412] LibBpfLoader: map /sys/fs/bpf/netd_shared/map_netd_stats_map_A id 16
+[   11.813203] LibBpfLoader: map stats_map_B selinux_context [            fs_bpf_netd_readonly] -> 5 -> 'fs_bpf_netd_readonly' (netd_readonly/)
+[   11.816289] LibBpfLoader: bpf_create_map name stats_map_B, ret: 12
+[   11.816321] LibBpfLoader: map /sys/fs/bpf/netd_shared/map_netd_stats_map_B id 17
+[   11.818078] LibBpfLoader: map iface_stats_map selinux_context [               fs_bpf_net_shared] -> 4 -> 'fs_bpf_net_shared' (net_shared/)
+[   11.820699] LibBpfLoader: bpf_create_map name iface_stats_map, ret: 13
+[   11.820725] LibBpfLoader: map /sys/fs/bpf/netd_shared/map_netd_iface_stats_map id 18
+[   11.822393] LibBpfLoader: map uid_owner_map selinux_context [               fs_bpf_net_shared] -> 4 -> 'fs_bpf_net_shared' (net_shared/)
+[   11.825000] LibBpfLoader: bpf_create_map name uid_owner_map, ret: 14
+[   11.825044] LibBpfLoader: map /sys/fs/bpf/netd_shared/map_netd_uid_owner_map id 19
+[   11.826993] LibBpfLoader: bpf_create_map name uid_permission_map, ret: 15
+[   11.827011] LibBpfLoader: map /sys/fs/bpf/netd_shared/map_netd_uid_permission_map id 20
+[   11.828721] LibBpfLoader: map iface_index_name_map selinux_context [               fs_bpf_net_shared] -> 4 -> 'fs_bpf_net_shared' (net_shared/)
+[   11.831517] LibBpfLoader: bpf_create_map name iface_index_name_map, ret: 16
+[   11.831550] LibBpfLoader: map /sys/fs/bpf/netd_shared/map_netd_iface_index_name_map id 21
+[   11.833291] LibBpfLoader: skipping map packet_trace_enabled_map which requires bpfloader min ver 0x00021
+[   11.835261] LibBpfLoader: skipping map packet_trace_ringbuf which requires bpfloader min ver 0x00021
+[   11.837245] LibBpfLoader: map_fd found at 0 is 6 in /apex/com.android.tethering/etc/bpf/netd_shared/netd.o
+[   11.837248] LibBpfLoader: map_fd found at 1 is 8 in /apex/com.android.tethering/etc/bpf/netd_shared/netd.o
+[   11.837249] LibBpfLoader: map_fd found at 2 is 9 in /apex/com.android.tethering/etc/bpf/netd_shared/netd.o
+[   11.837251] LibBpfLoader: map_fd found at 3 is 10 in /apex/com.android.tethering/etc/bpf/netd_shared/netd.o
+[   11.837252] LibBpfLoader: map_fd found at 4 is 11 in /apex/com.android.tethering/etc/bpf/netd_shared/netd.o
+[   11.837254] LibBpfLoader: map_fd found at 5 is 12 in /apex/com.android.tethering/etc/bpf/netd_shared/netd.o
+[   11.837255] LibBpfLoader: map_fd found at 6 is 13 in /apex/com.android.tethering/etc/bpf/netd_shared/netd.o
+[   11.837257] LibBpfLoader: map_fd found at 7 is 14 in /apex/com.android.tethering/etc/bpf/netd_shared/netd.o
+[   11.837258] LibBpfLoader: map_fd found at 8 is 15 in /apex/com.android.tethering/etc/bpf/netd_shared/netd.o
+[   11.837260] LibBpfLoader: map_fd found at 9 is 16 in /apex/com.android.tethering/etc/bpf/netd_shared/netd.o
+[   11.837261] LibBpfLoader: map_fd found at 10 is -1 in /apex/com.android.tethering/etc/bpf/netd_shared/netd.o
+[   11.837262] LibBpfLoader: map_fd found at 11 is -1 in /apex/com.android.tethering/etc/bpf/netd_shared/netd.o
+[   11.837422] LibBpfLoader: applying relo to instruction at byte offset: 64, \x09       insn offset 8 , insn 118
+[   11.837425] LibBpfLoader: 
+[   11.837441] LibBpfLoader: applying relo to instruction at byte offset: 360, \x09       insn offset 45 , insn 118
+[   11.837443] LibBpfLoader: 
+[   11.837454] LibBpfLoader: applying relo to instruction at byte offset: 432, \x09       insn offset 54 , insn 118
+[   11.837456] LibBpfLoader: 
+[   11.837467] LibBpfLoader: applying relo to instruction at byte offset: 1272, \x09       insn offset 159 , insn 118
+[   11.837487] LibBpfLoader: 
+[   11.837494] LibBpfLoader: applying relo to instruction at byte offset: 1352, \x09       insn offset 169 , insn 118
+[   11.837496] LibBpfLoader: 
+[   11.837502] LibBpfLoader: applying relo to instruction at byte offset: 1456, \x09       insn offset 182 , insn 118
+[   11.837504] LibBpfLoader: 
+[   11.837510] LibBpfLoader: applying relo to instruction at byte offset: 1560, \x09       insn offset 195 , insn 118
+[   11.837511] LibBpfLoader: 
+[   11.837518] LibBpfLoader: applying relo to instruction at byte offset: 1600, \x09       insn offset 200 , insn 118
+[   11.837519] LibBpfLoader: 
+[   11.837526] LibBpfLoader: applying relo to instruction at byte offset: 1744, \x09       insn offset 218 , insn 118
+[   11.837527] LibBpfLoader: 
+[   11.837534] LibBpfLoader: applying relo to instruction at byte offset: 1848, \x09       insn offset 231 , insn 118
+[   11.837535] LibBpfLoader: 
+[   11.837541] LibBpfLoader: applying relo to instruction at byte offset: 1888, \x09       insn offset 236 , insn 118
+[   11.837543] LibBpfLoader: 
+[   11.837550] LibBpfLoader: applying relo to instruction at byte offset: 2176, \x09       insn offset 272 , insn 118
+[   11.837551] LibBpfLoader: 
+[   11.837557] LibBpfLoader: applying relo to instruction at byte offset: 2232, \x09       insn offset 279 , insn 118
+[   11.837559] LibBpfLoader: 
+[   11.837565] LibBpfLoader: applying relo to instruction at byte offset: 3128, \x09       insn offset 391 , insn 118
+[   11.837567] LibBpfLoader: 
+[   11.837573] LibBpfLoader: applying relo to instruction at byte offset: 3232, \x09       insn offset 404 , insn 118
+[   11.837574] LibBpfLoader: 
+[   11.837581] LibBpfLoader: applying relo to instruction at byte offset: 3272, \x09       insn offset 409 , insn 118
+[   11.837582] LibBpfLoader: 
+[   11.837589] LibBpfLoader: applying relo to instruction at byte offset: 3416, \x09       insn offset 427 , insn 118
+[   11.837590] LibBpfLoader: 
+[   11.837597] LibBpfLoader: applying relo to instruction at byte offset: 3520, \x09       insn offset 440 , insn 118
+[   11.837598] LibBpfLoader: 
+[   11.837604] LibBpfLoader: applying relo to instruction at byte offset: 3560, \x09       insn offset 445 , insn 118
+[   11.837606] LibBpfLoader: 
+[   11.837614] LibBpfLoader: applying relo to instruction at byte offset: 3792, \x09       insn offset 474 , insn 118
+[   11.837615] LibBpfLoader: 
+[   11.837622] LibBpfLoader: applying relo to instruction at byte offset: 3896, \x09       insn offset 487 , insn 118
+[   11.837623] LibBpfLoader: 
+[   11.837630] LibBpfLoader: applying relo to instruction at byte offset: 3936, \x09       insn offset 492 , insn 118
+[   11.837631] LibBpfLoader: 
+[   11.837639] LibBpfLoader: applying relo to instruction at byte offset: 64, \x09       insn offset 8 , insn 118
+[   11.837640] LibBpfLoader: 
+[   11.837647] LibBpfLoader: applying relo to instruction at byte offset: 360, \x09       insn offset 45 , insn 118
+[   11.837648] LibBpfLoader: 
+[   11.837655] LibBpfLoader: applying relo to instruction at byte offset: 432, \x09       insn offset 54 , insn 118
+[   11.837656] LibBpfLoader: 
+[   11.837663] LibBpfLoader: applying relo to instruction at byte offset: 1240, \x09       insn offset 155 , insn 118
+[   11.837664] LibBpfLoader: 
+[   11.837671] LibBpfLoader: applying relo to instruction at byte offset: 1320, \x09       insn offset 165 , insn 118
+[   11.837672] LibBpfLoader: 
+[   11.837679] LibBpfLoader: applying relo to instruction at byte offset: 1440, \x09       insn offset 180 , insn 118
+[   11.837680] LibBpfLoader: 
+[   11.837687] LibBpfLoader: applying relo to instruction at byte offset: 1544, \x09       insn offset 193 , insn 118
+[   11.837688] LibBpfLoader: 
+[   11.837694] LibBpfLoader: applying relo to instruction at byte offset: 1584, \x09       insn offset 198 , insn 118
+[   11.837696] LibBpfLoader: 
+[   11.837702] LibBpfLoader: applying relo to instruction at byte offset: 1728, \x09       insn offset 216 , insn 118
+[   11.837704] LibBpfLoader: 
+[   11.837710] LibBpfLoader: applying relo to instruction at byte offset: 1832, \x09       insn offset 229 , insn 118
+[   11.837711] LibBpfLoader: 
+[   11.837718] LibBpfLoader: applying relo to instruction at byte offset: 1872, \x09       insn offset 234 , insn 118
+[   11.837719] LibBpfLoader: 
+[   11.837725] LibBpfLoader: applying relo to instruction at byte offset: 2136, \x09       insn offset 267 , insn 118
+[   11.837736] LibBpfLoader: 
+[   11.837742] LibBpfLoader: applying relo to instruction at byte offset: 2240, \x09       insn offset 280 , insn 118
+[   11.837744] LibBpfLoader: 
+[   11.837750] LibBpfLoader: applying relo to instruction at byte offset: 2280, \x09       insn offset 285 , insn 118
+[   11.837751] LibBpfLoader: 
+[   11.837758] LibBpfLoader: applying relo to instruction at byte offset: 2424, \x09       insn offset 303 , insn 118
+[   11.837759] LibBpfLoader: 
+[   11.837766] LibBpfLoader: applying relo to instruction at byte offset: 2528, \x09       insn offset 316 , insn 118
+[   11.837767] LibBpfLoader: 
+[   11.837774] LibBpfLoader: applying relo to instruction at byte offset: 2568, \x09       insn offset 321 , insn 118
+[   11.837775] LibBpfLoader: 
+[   11.837782] LibBpfLoader: applying relo to instruction at byte offset: 2800, \x09       insn offset 350 , insn 118
+[   11.837783] LibBpfLoader: 
+[   11.837790] LibBpfLoader: applying relo to instruction at byte offset: 2904, \x09       insn offset 363 , insn 118
+[   11.837791] LibBpfLoader: 
+[   11.837797] LibBpfLoader: applying relo to instruction at byte offset: 2944, \x09       insn offset 368 , insn 118
+[   11.837799] LibBpfLoader: 
+[   11.837806] LibBpfLoader: applying relo to instruction at byte offset: 64, \x09       insn offset 8 , insn 118
+[   11.837807] LibBpfLoader: 
+[   11.837813] LibBpfLoader: applying relo to instruction at byte offset: 360, \x09       insn offset 45 , insn 118
+[   11.837814] LibBpfLoader: 
+[   11.837821] LibBpfLoader: applying relo to instruction at byte offset: 432, \x09       insn offset 54 , insn 118
+[   11.837822] LibBpfLoader: 
+[   11.837829] LibBpfLoader: applying relo to instruction at byte offset: 1208, \x09       insn offset 151 , insn 118
+[   11.837830] LibBpfLoader: 
+[   11.837837] LibBpfLoader: applying relo to instruction at byte offset: 1288, \x09       insn offset 161 , insn 118
+[   11.837838] LibBpfLoader: 
+[   11.837845] LibBpfLoader: applying relo to instruction at byte offset: 1408, \x09       insn offset 176 , insn 118
+[   11.837846] LibBpfLoader: 
+[   11.837852] LibBpfLoader: applying relo to instruction at byte offset: 1512, \x09       insn offset 189 , insn 118
+[   11.837853] LibBpfLoader: 
+[   11.837860] LibBpfLoader: applying relo to instruction at byte offset: 1552, \x09       insn offset 194 , insn 118
+[   11.837861] LibBpfLoader: 
+[   11.837868] LibBpfLoader: applying relo to instruction at byte offset: 1696, \x09       insn offset 212 , insn 118
+[   11.837869] LibBpfLoader: 
+[   11.837876] LibBpfLoader: applying relo to instruction at byte offset: 1800, \x09       insn offset 225 , insn 118
+[   11.837877] LibBpfLoader: 
+[   11.837884] LibBpfLoader: applying relo to instruction at byte offset: 1840, \x09       insn offset 230 , insn 118
+[   11.837885] LibBpfLoader: 
+[   11.837891] LibBpfLoader: applying relo to instruction at byte offset: 2104, \x09       insn offset 263 , insn 118
+[   11.837892] LibBpfLoader: 
+[   11.837899] LibBpfLoader: applying relo to instruction at byte offset: 2208, \x09       insn offset 276 , insn 118
+[   11.837900] LibBpfLoader: 
+[   11.837907] LibBpfLoader: applying relo to instruction at byte offset: 2248, \x09       insn offset 281 , insn 118
+[   11.837908] LibBpfLoader: 
+[   11.837914] LibBpfLoader: applying relo to instruction at byte offset: 2392, \x09       insn offset 299 , insn 118
+[   11.837916] LibBpfLoader: 
+[   11.837922] LibBpfLoader: applying relo to instruction at byte offset: 2496, \x09       insn offset 312 , insn 118
+[   11.837924] LibBpfLoader: 
+[   11.837930] LibBpfLoader: applying relo to instruction at byte offset: 2536, \x09       insn offset 317 , insn 118
+[   11.837931] LibBpfLoader: 
+[   11.837938] LibBpfLoader: applying relo to instruction at byte offset: 2768, \x09       insn offset 346 , insn 118
+[   11.837939] LibBpfLoader: 
+[   11.837946] LibBpfLoader: applying relo to instruction at byte offset: 2872, \x09       insn offset 359 , insn 118
+[   11.837947] LibBpfLoader: 
+[   11.837953] LibBpfLoader: applying relo to instruction at byte offset: 2912, \x09       insn offset 364 , insn 118
+[   11.837955] LibBpfLoader: 
+[   11.837962] LibBpfLoader: applying relo to instruction at byte offset: 64, \x09       insn offset 8 , insn 118
+[   11.837963] LibBpfLoader: 
+[   11.837969] LibBpfLoader: applying relo to instruction at byte offset: 360, \x09       insn offset 45 , insn 118
+[   11.837971] LibBpfLoader: 
+[   11.837977] LibBpfLoader: applying relo to instruction at byte offset: 432, \x09       insn offset 54 , insn 118
+[   11.837978] LibBpfLoader: 
+[   11.837985] LibBpfLoader: applying relo to instruction at byte offset: 712, \x09       insn offset 89 , insn 118
+[   11.837986] LibBpfLoader: 
+[   11.837993] LibBpfLoader: applying relo to instruction at byte offset: 792, \x09       insn offset 99 , insn 118
+[   11.837994] LibBpfLoader: 
+[   11.838001] LibBpfLoader: applying relo to instruction at byte offset: 896, \x09       insn offset 112 , insn 118
+[   11.838002] LibBpfLoader: 
+[   11.838008] LibBpfLoader: applying relo to instruction at byte offset: 1000, \x09       insn offset 125 , insn 118
+[   11.838009] LibBpfLoader: 
+[   11.838016] LibBpfLoader: applying relo to instruction at byte offset: 1040, \x09       insn offset 130 , insn 118
+[   11.838017] LibBpfLoader: 
+[   11.838024] LibBpfLoader: applying relo to instruction at byte offset: 1392, \x09       insn offset 174 , insn 118
+[   11.838025] LibBpfLoader: 
+[   11.838031] LibBpfLoader: applying relo to instruction at byte offset: 1496, \x09       insn offset 187 , insn 118
+[   11.838033] LibBpfLoader: 
+[   11.838039] LibBpfLoader: applying relo to instruction at byte offset: 1536, \x09       insn offset 192 , insn 118
+[   11.838040] LibBpfLoader: 
+[   11.838047] LibBpfLoader: applying relo to instruction at byte offset: 1824, \x09       insn offset 228 , insn 118
+[   11.838048] LibBpfLoader: 
+[   11.838055] LibBpfLoader: applying relo to instruction at byte offset: 1880, \x09       insn offset 235 , insn 118
+[   11.838056] LibBpfLoader: 
+[   11.838063] LibBpfLoader: applying relo to instruction at byte offset: 2992, \x09       insn offset 374 , insn 118
+[   11.838064] LibBpfLoader: 
+[   11.838070] LibBpfLoader: applying relo to instruction at byte offset: 3104, \x09       insn offset 388 , insn 118
+[   11.838071] LibBpfLoader: 
+[   11.838078] LibBpfLoader: applying relo to instruction at byte offset: 3144, \x09       insn offset 393 , insn 118
+[   11.838079] LibBpfLoader: 
+[   11.838086] LibBpfLoader: applying relo to instruction at byte offset: 3288, \x09       insn offset 411 , insn 118
+[   11.838087] LibBpfLoader: 
+[   11.838144] LibBpfLoader: applying relo to instruction at byte offset: 3400, \x09       insn offset 425 , insn 118
+[   11.838148] LibBpfLoader: 
+[   11.838163] LibBpfLoader: applying relo to instruction at byte offset: 3440, \x09       insn offset 430 , insn 118
+[   11.838164] LibBpfLoader: 
+[   11.838171] LibBpfLoader: applying relo to instruction at byte offset: 3672, \x09       insn offset 459 , insn 118
+[   11.838172] LibBpfLoader: 
+[   11.838179] LibBpfLoader: applying relo to instruction at byte offset: 3776, \x09       insn offset 472 , insn 118
+[   11.838180] LibBpfLoader: 
+[   11.838187] LibBpfLoader: applying relo to instruction at byte offset: 3816, \x09       insn offset 477 , insn 118
+[   11.838188] LibBpfLoader: 
+[   11.838195] LibBpfLoader: applying relo to instruction at byte offset: 64, \x09       insn offset 8 , insn 118
+[   11.838196] LibBpfLoader: 
+[   11.838205] LibBpfLoader: applying relo to instruction at byte offset: 360, \x09       insn offset 45 , insn 118
+[   11.838206] LibBpfLoader: 
+[   11.838213] LibBpfLoader: applying relo to instruction at byte offset: 432, \x09       insn offset 54 , insn 118
+[   11.838214] LibBpfLoader: 
+[   11.838221] LibBpfLoader: applying relo to instruction at byte offset: 712, \x09       insn offset 89 , insn 118
+[   11.838222] LibBpfLoader: 
+[   11.838228] LibBpfLoader: applying relo to instruction at byte offset: 792, \x09       insn offset 99 , insn 118
+[   11.838230] LibBpfLoader: 
+[   11.838236] LibBpfLoader: applying relo to instruction at byte offset: 912, \x09       insn offset 114 , insn 118
+[   11.838237] LibBpfLoader: 
+[   11.838244] LibBpfLoader: applying relo to instruction at byte offset: 1016, \x09       insn offset 127 , insn 118
+[   11.838245] LibBpfLoader: 
+[   11.838252] LibBpfLoader: applying relo to instruction at byte offset: 1056, \x09       insn offset 132 , insn 118
+[   11.838253] LibBpfLoader: 
+[   11.838259] LibBpfLoader: applying relo to instruction at byte offset: 1376, \x09       insn offset 172 , insn 118
+[   11.838261] LibBpfLoader: 
+[   11.838267] LibBpfLoader: applying relo to instruction at byte offset: 1480, \x09       insn offset 185 , insn 118
+[   11.838268] LibBpfLoader: 
+[   11.838275] LibBpfLoader: applying relo to instruction at byte offset: 1520, \x09       insn offset 190 , insn 118
+[   11.838276] LibBpfLoader: 
+[   11.838283] LibBpfLoader: applying relo to instruction at byte offset: 1784, \x09       insn offset 223 , insn 118
+[   11.838284] LibBpfLoader: 
+[   11.838290] LibBpfLoader: applying relo to instruction at byte offset: 1888, \x09       insn offset 236 , insn 118
+[   11.838292] LibBpfLoader: 
+[   11.838298] LibBpfLoader: applying relo to instruction at byte offset: 1928, \x09       insn offset 241 , insn 118
+[   11.838299] LibBpfLoader: 
+[   11.838306] LibBpfLoader: applying relo to instruction at byte offset: 2072, \x09       insn offset 259 , insn 118
+[   11.838307] LibBpfLoader: 
+[   11.838313] LibBpfLoader: applying relo to instruction at byte offset: 2176, \x09       insn offset 272 , insn 118
+[   11.838315] LibBpfLoader: 
+[   11.838321] LibBpfLoader: applying relo to instruction at byte offset: 2216, \x09       insn offset 277 , insn 118
+[   11.838322] LibBpfLoader: 
+[   11.838329] LibBpfLoader: applying relo to instruction at byte offset: 2448, \x09       insn offset 306 , insn 118
+[   11.838330] LibBpfLoader: 
+[   11.838337] LibBpfLoader: applying relo to instruction at byte offset: 2560, \x09       insn offset 320 , insn 118
+[   11.838338] LibBpfLoader: 
+[   11.838344] LibBpfLoader: applying relo to instruction at byte offset: 2600, \x09       insn offset 325 , insn 118
+[   11.838345] LibBpfLoader: 
+[   11.838353] LibBpfLoader: applying relo to instruction at byte offset: 64, \x09       insn offset 8 , insn 118
+[   11.838354] LibBpfLoader: 
+[   11.838362] LibBpfLoader: applying relo to instruction at byte offset: 360, \x09       insn offset 45 , insn 118
+[   11.838363] LibBpfLoader: 
+[   11.838370] LibBpfLoader: applying relo to instruction at byte offset: 432, \x09       insn offset 54 , insn 118
+[   11.838371] LibBpfLoader: 
+[   11.838377] LibBpfLoader: applying relo to instruction at byte offset: 712, \x09       insn offset 89 , insn 118
+[   11.838379] LibBpfLoader: 
+[   11.838385] LibBpfLoader: applying relo to instruction at byte offset: 792, \x09       insn offset 99 , insn 118
+[   11.838386] LibBpfLoader: 
+[   11.838393] LibBpfLoader: applying relo to instruction at byte offset: 912, \x09       insn offset 114 , insn 118
+[   11.838394] LibBpfLoader: 
+[   11.838401] LibBpfLoader: applying relo to instruction at byte offset: 1016, \x09       insn offset 127 , insn 118
+[   11.838402] LibBpfLoader: 
+[   11.838408] LibBpfLoader: applying relo to instruction at byte offset: 1056, \x09       insn offset 132 , insn 118
+[   11.838409] LibBpfLoader: 
+[   11.838416] LibBpfLoader: applying relo to instruction at byte offset: 1360, \x09       insn offset 170 , insn 118
+[   11.838417] LibBpfLoader: 
+[   11.838424] LibBpfLoader: applying relo to instruction at byte offset: 1464, \x09       insn offset 183 , insn 118
+[   11.838425] LibBpfLoader: 
+[   11.838431] LibBpfLoader: applying relo to instruction at byte offset: 1504, \x09       insn offset 188 , insn 118
+[   11.838432] LibBpfLoader: 
+[   11.838439] LibBpfLoader: applying relo to instruction at byte offset: 1768, \x09       insn offset 221 , insn 118
+[   11.838440] LibBpfLoader: 
+[   11.838447] LibBpfLoader: applying relo to instruction at byte offset: 1872, \x09       insn offset 234 , insn 118
+[   11.838448] LibBpfLoader: 
+[   11.838454] LibBpfLoader: applying relo to instruction at byte offset: 1912, \x09       insn offset 239 , insn 118
+[   11.838456] LibBpfLoader: 
+[   11.838462] LibBpfLoader: applying relo to instruction at byte offset: 2056, \x09       insn offset 257 , insn 118
+[   11.838463] LibBpfLoader: 
+[   11.838470] LibBpfLoader: applying relo to instruction at byte offset: 2160, \x09       insn offset 270 , insn 118
+[   11.838471] LibBpfLoader: 
+[   11.838477] LibBpfLoader: applying relo to instruction at byte offset: 2200, \x09       insn offset 275 , insn 118
+[   11.838479] LibBpfLoader: 
+[   11.838485] LibBpfLoader: applying relo to instruction at byte offset: 2432, \x09       insn offset 304 , insn 118
+[   11.838487] LibBpfLoader: 
+[   11.838493] LibBpfLoader: applying relo to instruction at byte offset: 2544, \x09       insn offset 318 , insn 118
+[   11.838494] LibBpfLoader: 
+[   11.838502] LibBpfLoader: applying relo to instruction at byte offset: 2584, \x09       insn offset 323 , insn 118
+[   11.838504] LibBpfLoader: 
+[   11.838516] LibBpfLoader: applying relo to instruction at byte offset: 96, \x09       insn offset 12 , insn 118
+[   11.838518] LibBpfLoader: 
+[   11.838531] LibBpfLoader: applying relo to instruction at byte offset: 184, \x09       insn offset 23 , insn 118
+[   11.838533] LibBpfLoader: 
+[   11.838544] LibBpfLoader: applying relo to instruction at byte offset: 288, \x09       insn offset 36 , insn 118
+[   11.838547] LibBpfLoader: 
+[   11.838557] LibBpfLoader: applying relo to instruction at byte offset: 328, \x09       insn offset 41 , insn 118
+[   11.838559] LibBpfLoader: 
+[   11.838567] LibBpfLoader: applying relo to instruction at byte offset: 40, \x09       insn offset 5 , insn 118
+[   11.838569] LibBpfLoader: 
+[   11.838577] LibBpfLoader: applying relo to instruction at byte offset: 144, \x09       insn offset 18 , insn 118
+[   11.838578] LibBpfLoader: 
+[   11.838585] LibBpfLoader: applying relo to instruction at byte offset: 184, \x09       insn offset 23 , insn 118
+[   11.838587] LibBpfLoader: 
+[   11.838594] LibBpfLoader: applying relo to instruction at byte offset: 56, \x09       insn offset 7 , insn 118
+[   11.838595] LibBpfLoader: 
+[   11.838602] LibBpfLoader: applying relo to instruction at byte offset: 160, \x09       insn offset 20 , insn 118
+[   11.838604] LibBpfLoader: 
+[   11.838610] LibBpfLoader: applying relo to instruction at byte offset: 200, \x09       insn offset 25 , insn 118
+[   11.838612] LibBpfLoader: 
+[   11.838620] LibBpfLoader: applying relo to instruction at byte offset: 136, \x09       insn offset 17 , insn 118
+[   11.838621] LibBpfLoader: 
+[   11.838629] LibBpfLoader: applying relo to instruction at byte offset: 32, \x09       insn offset 4 , insn 118
+[   11.838631] LibBpfLoader: 
+[   11.838640] LibBpfLoader: applying relo to instruction at byte offset: 80, \x09       insn offset 10 , insn 118
+[   11.838642] LibBpfLoader: 
+[   11.838649] LibBpfLoader: cs[0].name:cgroupskb_ingress_stats$trace min_kver:5080000 .max_kver:ffffffff (kvers:50f0077)
+[   11.838653] LibBpfLoader: cs[0].name:cgroupskb_ingress_stats$trace requires bpfloader version [0x00021,0x10000)
+[   11.838656] LibBpfLoader: cs[1].name:cgroupskb_ingress_stats$4_19 min_kver:4130000 .max_kver:ffffffff (kvers:50f0077)
+[   11.838659] LibBpfLoader: cs[1].name:cgroupskb_ingress_stats$4_19 requires bpfloader version [0x0000d,0x10000)
+[   11.838661] LibBpfLoader: prog cgroupskb_ingress_stats$4_19 selinux_context [            fs_bpf_netd_readonly] -> 5 -> 'fs_bpf_netd_readonly' (netd_readonly/)
+[   11.843195] LibBpfLoader: bpf_prog_load lib call for /apex/com.android.tethering/etc/bpf/netd_shared/netd.o (cgroupskb_ingress_stats$4_19) returned fd: 7 (no error)
+[   11.843315] LibBpfLoader: prog /sys/fs/bpf/netd_shared/prog_netd_cgroupskb_ingress_stats id 14
+[   11.845270] LibBpfLoader: cs[2].name:cgroupskb_ingress_stats$4_14 min_kver:0 .max_kver:4130000 (kvers:50f0077)
+[   11.845273] LibBpfLoader: cs[3].name:cgroupskb_egress_stats$trace min_kver:5080000 .max_kver:ffffffff (kvers:50f0077)
+[   11.845277] LibBpfLoader: cs[3].name:cgroupskb_egress_stats$trace requires bpfloader version [0x00021,0x10000)
+[   11.845279] LibBpfLoader: cs[4].name:cgroupskb_egress_stats$4_19 min_kver:4130000 .max_kver:ffffffff (kvers:50f0077)
+[   11.845281] LibBpfLoader: cs[4].name:cgroupskb_egress_stats$4_19 requires bpfloader version [0x0000d,0x10000)
+[   11.845285] LibBpfLoader: prog cgroupskb_egress_stats$4_19 selinux_context [            fs_bpf_netd_readonly] -> 5 -> 'fs_bpf_netd_readonly' (netd_readonly/)
+[   11.848909] LibBpfLoader: bpf_prog_load lib call for /apex/com.android.tethering/etc/bpf/netd_shared/netd.o (cgroupskb_egress_stats$4_19) returned fd: 17 (no error)
+[   11.848966] LibBpfLoader: prog /sys/fs/bpf/netd_shared/prog_netd_cgroupskb_egress_stats id 15
+[   11.850799] LibBpfLoader: cs[5].name:cgroupskb_egress_stats$4_14 min_kver:0 .max_kver:4130000 (kvers:50f0077)
+[   11.850802] LibBpfLoader: cs[6].name:skfilter_egress_xtbpf min_kver:0 .max_kver:ffffffff (kvers:50f0077)
+[   11.850804] LibBpfLoader: cs[6].name:skfilter_egress_xtbpf requires bpfloader version [0x0000d,0x10000)
+[   11.851342] LibBpfLoader: bpf_prog_load lib call for /apex/com.android.tethering/etc/bpf/netd_shared/netd.o (skfilter_egress_xtbpf) returned fd: 18 (no error)
+[   11.851386] LibBpfLoader: prog /sys/fs/bpf/netd_shared/prog_netd_skfilter_egress_xtbpf id 16
+[   11.853024] LibBpfLoader: cs[7].name:skfilter_ingress_xtbpf min_kver:0 .max_kver:ffffffff (kvers:50f0077)
+[   11.853026] LibBpfLoader: cs[7].name:skfilter_ingress_xtbpf requires bpfloader version [0x0000d,0x10000)
+[   11.853631] LibBpfLoader: bpf_prog_load lib call for /apex/com.android.tethering/etc/bpf/netd_shared/netd.o (skfilter_ingress_xtbpf) returned fd: 19 (no error)
+[   11.853698] LibBpfLoader: prog /sys/fs/bpf/netd_shared/prog_netd_skfilter_ingress_xtbpf id 17
+[   11.855606] LibBpfLoader: cs[8].name:schedact_ingress_account min_kver:0 .max_kver:ffffffff (kvers:50f0077)
+[   11.855609] LibBpfLoader: cs[8].name:schedact_ingress_account requires bpfloader version [0x0000d,0x10000)
+[   11.855612] LibBpfLoader: prog schedact_ingress_account selinux_context [               fs_bpf_net_shared] -> 4 -> 'fs_bpf_net_shared' (net_shared/)
+[   11.859063] LibBpfLoader: bpf_prog_load lib call for /apex/com.android.tethering/etc/bpf/netd_shared/netd.o (schedact_ingress_account) returned fd: 20 (no error)
+[   11.859186] LibBpfLoader: prog /sys/fs/bpf/netd_shared/prog_netd_schedact_ingress_account id 18
+[   11.860961] LibBpfLoader: cs[9].name:skfilter_allowlist_xtbpf min_kver:0 .max_kver:ffffffff (kvers:50f0077)
+[   11.860964] LibBpfLoader: cs[9].name:skfilter_allowlist_xtbpf requires bpfloader version [0x0000d,0x10000)
+[   11.861625] LibBpfLoader: bpf_prog_load lib call for /apex/com.android.tethering/etc/bpf/netd_shared/netd.o (skfilter_allowlist_xtbpf) returned fd: 21 (no error)
+[   11.861671] LibBpfLoader: prog /sys/fs/bpf/netd_shared/prog_netd_skfilter_allowlist_xtbpf id 19
+[   11.863492] LibBpfLoader: cs[10].name:skfilter_denylist_xtbpf min_kver:0 .max_kver:ffffffff (kvers:50f0077)
+[   11.863495] LibBpfLoader: cs[10].name:skfilter_denylist_xtbpf requires bpfloader version [0x0000d,0x10000)
+[   11.863946] LibBpfLoader: bpf_prog_load lib call for /apex/com.android.tethering/etc/bpf/netd_shared/netd.o (skfilter_denylist_xtbpf) returned fd: 22 (no error)
+[   11.864023] LibBpfLoader: prog /sys/fs/bpf/netd_shared/prog_netd_skfilter_denylist_xtbpf id 20
+[   11.865902] LibBpfLoader: cs[11].name:cgroupsock_inet_create min_kver:40e0000 .max_kver:ffffffff (kvers:50f0077)
+[   11.865906] LibBpfLoader: cs[11].name:cgroupsock_inet_create requires bpfloader version [0x0000d,0x10000)
+[   11.865909] LibBpfLoader: prog cgroupsock_inet_create selinux_context [            fs_bpf_netd_readonly] -> 5 -> 'fs_bpf_netd_readonly' (netd_readonly/)
+[   11.869150] LibBpfLoader: bpf_prog_load lib call for /apex/com.android.tethering/etc/bpf/netd_shared/netd.o (cgroupsock_inet_create) returned fd: 23 (no error)
+[   11.869202] LibBpfLoader: prog /sys/fs/bpf/netd_shared/prog_netd_cgroupsock_inet_create id 21
+[   11.870922] bpfloader: Loaded object: /apex/com.android.tethering/etc/bpf/netd_shared/netd.o
+[   11.873589] LibBpfLoader: Loading critical for Connectivity ELF object /apex/com.android.tethering/etc/bpf/net_shared/dscpPolicy.o with license Apache 2.0
+[   11.873601] LibBpfLoader: Section bpfloader_min_ver value is 13 [0xd]
+[   11.874961] LibBpfLoader: Section bpfloader_max_ver value is 65536 [0x10000]
+[   11.876468] LibBpfLoader: Section size_of_bpf_map_def value is 120 [0x78]
+[   11.877968] LibBpfLoader: Section size_of_bpf_prog_def value is 92 [0x5c]
+[   11.879351] LibBpfLoader: BpfLoader version 0x00013 processing ELF object /apex/com.android.tethering/etc/bpf/net_shared/dscpPolicy.o with ver [0x0000d,0x10000)
+[   11.882590] LibBpfLoader: Loaded code section 3 (schedcls_set_dscp_ether)
+[   11.882632] LibBpfLoader: Loaded relo section 3 (.relschedcls/set_dscp_ether)
+[   11.882638] LibBpfLoader: Adding section 3 to cs list
+[   11.882739] LibBpfLoader: Couldn't find section btf_min_bpfloader_ver (defaulting to 0 [0x0]).
+[   11.882747] LibBpfLoader: Couldn't find section btf_min_kernel_ver (defaulting to 0 [0x0]).
+[   11.886786] LibBpfLoader: bpf_create_map name socket_policy_cache_map, ret: 6
+[   11.886817] LibBpfLoader: map /sys/fs/bpf/net_shared/map_dscpPolicy_socket_policy_cache_map id 22
+[   11.888804] LibBpfLoader: bpf_create_map name ipv4_dscp_policies_map, ret: 8
+[   11.888837] LibBpfLoader: map /sys/fs/bpf/net_shared/map_dscpPolicy_ipv4_dscp_policies_map id 23
+[   11.890765] LibBpfLoader: bpf_create_map name ipv6_dscp_policies_map, ret: 9
+[   11.890785] LibBpfLoader: map /sys/fs/bpf/net_shared/map_dscpPolicy_ipv6_dscp_policies_map id 24
+[   11.892635] LibBpfLoader: map_fd found at 0 is 6 in /apex/com.android.tethering/etc/bpf/net_shared/dscpPolicy.o
+[   11.892637] LibBpfLoader: map_fd found at 1 is 8 in /apex/com.android.tethering/etc/bpf/net_shared/dscpPolicy.o
+[   11.892639] LibBpfLoader: map_fd found at 2 is 9 in /apex/com.android.tethering/etc/bpf/net_shared/dscpPolicy.o
+[   11.892697] LibBpfLoader: applying relo to instruction at byte offset: 680, \x09       insn offset 85 , insn 118
+[   11.892700] LibBpfLoader: 
+[   11.892708] LibBpfLoader: applying relo to instruction at byte offset: 1240, \x09       insn offset 155 , insn 118
+[   11.892709] LibBpfLoader: 
+[   11.892716] LibBpfLoader: applying relo to instruction at byte offset: 1936, \x09       insn offset 242 , insn 118
+[   11.892717] LibBpfLoader: 
+[   11.892724] LibBpfLoader: applying relo to instruction at byte offset: 2368, \x09       insn offset 296 , insn 118
+[   11.892725] LibBpfLoader: 
+[   11.892732] LibBpfLoader: applying relo to instruction at byte offset: 2888, \x09       insn offset 361 , insn 118
+[   11.892733] LibBpfLoader: 
+[   11.892739] LibBpfLoader: applying relo to instruction at byte offset: 3600, \x09       insn offset 450 , insn 118
+[   11.892741] LibBpfLoader: 
+[   11.892747] LibBpfLoader: cs[0].name:schedcls_set_dscp_ether min_kver:50f0000 .max_kver:ffffffff (kvers:50f0077)
+[   11.892749] LibBpfLoader: cs[0].name:schedcls_set_dscp_ether requires bpfloader version [0x0000d,0x10000)
+[   11.899275] LibBpfLoader: bpf_prog_load lib call for /apex/com.android.tethering/etc/bpf/net_shared/dscpPolicy.o (schedcls_set_dscp_ether) returned fd: 7 (no error)
+[   11.899352] LibBpfLoader: prog /sys/fs/bpf/net_shared/prog_dscpPolicy_schedcls_set_dscp_ether id 22
+[   11.901383] bpfloader: Loaded object: /apex/com.android.tethering/etc/bpf/net_shared/dscpPolicy.o
+[   11.903541] LibBpfLoader: Loading critical for ConnectivityNative ELF object /apex/com.android.tethering/etc/bpf/net_shared/block.o with license Apache 2.0
+[   11.903550] LibBpfLoader: Section bpfloader_min_ver value is 13 [0xd]
+[   11.904907] LibBpfLoader: Section bpfloader_max_ver value is 65536 [0x10000]
+[   11.906585] LibBpfLoader: Section size_of_bpf_map_def value is 120 [0x78]
+[   11.908002] LibBpfLoader: Section size_of_bpf_prog_def value is 92 [0x5c]
+[   11.909553] LibBpfLoader: BpfLoader version 0x00013 processing ELF object /apex/com.android.tethering/etc/bpf/net_shared/block.o with ver [0x0000d,0x10000)
+[   11.912459] LibBpfLoader: Loaded code section 3 (bind4_block_port)
+[   11.912485] LibBpfLoader: Loaded relo section 3 (.relbind4/block_port)
+[   11.912487] LibBpfLoader: Adding section 3 to cs list
+[   11.912496] LibBpfLoader: Loaded code section 5 (bind6_block_port)
+[   11.912524] LibBpfLoader: Loaded relo section 5 (.relbind6/block_port)
+[   11.912527] LibBpfLoader: Adding section 5 to cs list
+[   11.912605] LibBpfLoader: Couldn't find section btf_min_bpfloader_ver (defaulting to 0 [0x0]).
+[   11.912611] LibBpfLoader: Couldn't find section btf_min_kernel_ver (defaulting to 0 [0x0]).
+[   11.916451] LibBpfLoader: bpf_create_map name blocked_ports_map, ret: 6
+[   11.916474] LibBpfLoader: map /sys/fs/bpf/net_shared/map_block_blocked_ports_map id 25
+[   11.918497] LibBpfLoader: map_fd found at 0 is 6 in /apex/com.android.tethering/etc/bpf/net_shared/block.o
+[   11.918590] LibBpfLoader: applying relo to instruction at byte offset: 168, \x09       insn offset 21 , insn 118
+[   11.918593] LibBpfLoader: 
+[   11.918601] LibBpfLoader: applying relo to instruction at byte offset: 168, \x09       insn offset 21 , insn 118
+[   11.918603] LibBpfLoader: 
+[   11.918621] LibBpfLoader: cs[0].name:bind4_block_port min_kver:5040000 .max_kver:ffffffff (kvers:50f0077)
+[   11.918625] LibBpfLoader: cs[0].name:bind4_block_port requires bpfloader version [0x0000d,0x10000)
+[   11.919674] LibBpfLoader: bpf_prog_load lib call for /apex/com.android.tethering/etc/bpf/net_shared/block.o (bind4_block_port) returned fd: 7 (no error)
+[   11.919746] LibBpfLoader: prog /sys/fs/bpf/net_shared/prog_block_bind4_block_port id 23
+[   11.921507] LibBpfLoader: cs[1].name:bind6_block_port min_kver:5040000 .max_kver:ffffffff (kvers:50f0077)
+[   11.921511] LibBpfLoader: cs[1].name:bind6_block_port requires bpfloader version [0x0000d,0x10000)
+[   11.922069] LibBpfLoader: bpf_prog_load lib call for /apex/com.android.tethering/etc/bpf/net_shared/block.o (bind6_block_port) returned fd: 8 (no error)
+[   11.922181] LibBpfLoader: prog /sys/fs/bpf/net_shared/prog_block_bind6_block_port id 24
+[   11.923899] bpfloader: Loaded object: /apex/com.android.tethering/etc/bpf/net_shared/block.o
+[   11.926713] LibBpfLoader: Loading critical for Connectivity ELF object /apex/com.android.tethering/etc/bpf/net_shared/clatd.o with license Apache 2.0
+[   11.926728] LibBpfLoader: Section bpfloader_min_ver value is 13 [0xd]
+[   11.928197] LibBpfLoader: Section bpfloader_max_ver value is 65536 [0x10000]
+[   11.929702] LibBpfLoader: Section size_of_bpf_map_def value is 120 [0x78]
+[   11.931071] LibBpfLoader: Section size_of_bpf_prog_def value is 92 [0x5c]
+[   11.932484] LibBpfLoader: BpfLoader version 0x00013 processing ELF object /apex/com.android.tethering/etc/bpf/net_shared/clatd.o with ver [0x0000d,0x10000)
+[   11.935656] LibBpfLoader: Loaded code section 3 (schedcls_ingress6_clat_ether$4_14)
+[   11.935682] LibBpfLoader: Loaded relo section 3 (.relschedcls/ingress6/clat_ether$4_14)
+[   11.935685] LibBpfLoader: Adding section 3 to cs list
+[   11.935698] LibBpfLoader: Loaded code section 5 (schedcls_ingress6_clat_ether$4_9)
+[   11.935727] LibBpfLoader: Loaded relo section 5 (.relschedcls/ingress6/clat_ether$4_9)
+[   11.935729] LibBpfLoader: Adding section 5 to cs list
+[   11.935741] LibBpfLoader: Loaded code section 7 (schedcls_ingress6_clat_rawip$4_14)
+[   11.935774] LibBpfLoader: Loaded relo section 7 (.relschedcls/ingress6/clat_rawip$4_14)
+[   11.935776] LibBpfLoader: Adding section 7 to cs list
+[   11.935785] LibBpfLoader: Loaded code section 9 (schedcls_ingress6_clat_rawip$4_9)
+[   11.935826] LibBpfLoader: Loaded relo section 9 (.relschedcls/ingress6/clat_rawip$4_9)
+[   11.935827] LibBpfLoader: Adding section 9 to cs list
+[   11.935837] LibBpfLoader: Loaded code section 11 (schedcls_egress4_clat_rawip)
+[   11.935883] LibBpfLoader: Loaded relo section 11 (.relschedcls/egress4/clat_rawip)
+[   11.935886] LibBpfLoader: Adding section 11 to cs list
+[   11.935984] LibBpfLoader: Couldn't find section btf_min_bpfloader_ver (defaulting to 0 [0x0]).
+[   11.935990] LibBpfLoader: Couldn't find section btf_min_kernel_ver (defaulting to 0 [0x0]).
+[   11.939488] LibBpfLoader: bpf_create_map name clat_ingress6_map, ret: 6
+[   11.939523] LibBpfLoader: map /sys/fs/bpf/net_shared/map_clatd_clat_ingress6_map id 26
+[   11.941627] LibBpfLoader: bpf_create_map name clat_egress4_map, ret: 8
+[   11.941660] LibBpfLoader: map /sys/fs/bpf/net_shared/map_clatd_clat_egress4_map id 27
+[   11.943624] LibBpfLoader: map_fd found at 0 is 6 in /apex/com.android.tethering/etc/bpf/net_shared/clatd.o
+[   11.943628] LibBpfLoader: map_fd found at 1 is 8 in /apex/com.android.tethering/etc/bpf/net_shared/clatd.o
+[   11.943756] LibBpfLoader: applying relo to instruction at byte offset: 472, \x09       insn offset 59 , insn 118
+[   11.943759] LibBpfLoader: 
+[   11.943772] LibBpfLoader: applying relo to instruction at byte offset: 456, \x09       insn offset 57 , insn 118
+[   11.943774] LibBpfLoader: 
+[   11.943786] LibBpfLoader: applying relo to instruction at byte offset: 416, \x09       insn offset 52 , insn 118
+[   11.943788] LibBpfLoader: 
+[   11.943799] LibBpfLoader: applying relo to instruction at byte offset: 400, \x09       insn offset 50 , insn 118
+[   11.943801] LibBpfLoader: 
+[   11.943813] LibBpfLoader: applying relo to instruction at byte offset: 616, \x09       insn offset 77 , insn 118
+[   11.943815] LibBpfLoader: 
+[   11.943825] LibBpfLoader: cs[0].name:schedcls_ingress6_clat_ether$4_14 min_kver:40e0000 .max_kver:ffffffff (kvers:50f0077)
+[   11.943830] LibBpfLoader: cs[0].name:schedcls_ingress6_clat_ether$4_14 requires bpfloader version [0x0000d,0x10000)
+[   11.945516] LibBpfLoader: bpf_prog_load lib call for /apex/com.android.tethering/etc/bpf/net_shared/clatd.o (schedcls_ingress6_clat_ether$4_14) returned fd: 7 (no error)
+[   11.945605] LibBpfLoader: prog /sys/fs/bpf/net_shared/prog_clatd_schedcls_ingress6_clat_ether id 25
+[   11.947915] LibBpfLoader: cs[1].name:schedcls_ingress6_clat_ether$4_9 min_kver:0 .max_kver:40e0000 (kvers:50f0077)
+[   11.947922] LibBpfLoader: cs[2].name:schedcls_ingress6_clat_rawip$4_14 min_kver:40e0000 .max_kver:ffffffff (kvers:50f0077)
+[   11.947926] LibBpfLoader: cs[2].name:schedcls_ingress6_clat_rawip$4_14 requires bpfloader version [0x0000d,0x10000)
+[   11.949728] LibBpfLoader: bpf_prog_load lib call for /apex/com.android.tethering/etc/bpf/net_shared/clatd.o (schedcls_ingress6_clat_rawip$4_14) returned fd: 9 (no error)
+[   11.949799] LibBpfLoader: prog /sys/fs/bpf/net_shared/prog_clatd_schedcls_ingress6_clat_rawip id 26
+[   11.951798] LibBpfLoader: cs[3].name:schedcls_ingress6_clat_rawip$4_9 min_kver:0 .max_kver:40e0000 (kvers:50f0077)
+[   11.951803] LibBpfLoader: cs[4].name:schedcls_egress4_clat_rawip min_kver:0 .max_kver:ffffffff (kvers:50f0077)
+[   11.951807] LibBpfLoader: cs[4].name:schedcls_egress4_clat_rawip requires bpfloader version [0x0000d,0x10000)
+[   11.952512] LibBpfLoader: bpf_prog_load lib call for /apex/com.android.tethering/etc/bpf/net_shared/clatd.o (schedcls_egress4_clat_rawip) returned fd: 10 (no error)
+[   11.952578] LibBpfLoader: prog /sys/fs/bpf/net_shared/prog_clatd_schedcls_egress4_clat_rawip id 27
+[   11.954525] bpfloader: Loaded object: /apex/com.android.tethering/etc/bpf/net_shared/clatd.o
+[   11.958871] LibBpfLoader: Loading optional ELF object /system/etc/bpf/gpu_work.o with license Apache 2.0
+[   11.958882] LibBpfLoader: Section bpfloader_min_ver value is 0 [0x0]
+[   11.960262] LibBpfLoader: Section bpfloader_max_ver value is 65536 [0x10000]
+[   11.961985] LibBpfLoader: Section size_of_bpf_map_def value is 116 [0x74]
+[   11.963455] LibBpfLoader: Section size_of_bpf_prog_def value is 92 [0x5c]
+[   11.964856] LibBpfLoader: BpfLoader version 0x00013 processing ELF object /system/etc/bpf/gpu_work.o with ver [0x00000,0x10000)
+[   11.967325] LibBpfLoader: Loaded code section 3 (tracepoint_power_gpu_work_period)
+[   11.967351] LibBpfLoader: Loaded relo section 3 (.reltracepoint/power/gpu_work_period)
+[   11.967354] LibBpfLoader: Adding section 3 to cs list
+[   11.967427] LibBpfLoader: Couldn't find section btf_min_bpfloader_ver (defaulting to 0 [0x0]).
+[   11.967433] LibBpfLoader: Couldn't find section btf_min_kernel_ver (defaulting to 0 [0x0]).
+[   11.967493] LibBpfLoader: bpf_create_map name gpu_work_map, ret: 6
+[   11.967525] LibBpfLoader: map /sys/fs/bpf/map_gpu_work_gpu_work_map id 28
+[   11.969014] LibBpfLoader: bpf_create_map name gpu_work_global_data, ret: 7
+[   11.969259] LibBpfLoader: map /sys/fs/bpf/map_gpu_work_gpu_work_global_data id 29
+[   11.970770] LibBpfLoader: map_fd found at 0 is 6 in /system/etc/bpf/gpu_work.o
+[   11.970772] LibBpfLoader: map_fd found at 1 is 7 in /system/etc/bpf/gpu_work.o
+[   11.970810] LibBpfLoader: applying relo to instruction at byte offset: 56, \x09       insn offset 7 , insn 118
+[   11.970812] LibBpfLoader: 
+[   11.970819] LibBpfLoader: applying relo to instruction at byte offset: 160, \x09       insn offset 20 , insn 118
+[   11.970820] LibBpfLoader: 
+[   11.970826] LibBpfLoader: applying relo to instruction at byte offset: 240, \x09       insn offset 30 , insn 118
+[   11.970828] LibBpfLoader: 
+[   11.970834] LibBpfLoader: applying relo to instruction at byte offset: 304, \x09       insn offset 38 , insn 118
+[   11.970835] LibBpfLoader: 
+[   11.970839] LibBpfLoader: cs[0].name:tracepoint_power_gpu_work_period min_kver:0 .max_kver:ffffffff (kvers:50f0077)
+[   11.970841] LibBpfLoader: cs[0].name:tracepoint_power_gpu_work_period requires bpfloader version [0x00000,0x10000)
+[   11.971479] LibBpfLoader: bpf_prog_load lib call for /system/etc/bpf/gpu_work.o (tracepoint_power_gpu_work_period) returned fd: 8 (no error)
+[   11.971529] LibBpfLoader: prog /sys/fs/bpf/prog_gpu_work_tracepoint_power_gpu_work_period id 28
+[   11.973408] bpfloader: Loaded object: /system/etc/bpf/gpu_work.o
+[   11.975877] LibBpfLoader: Loading optional ELF object /system/etc/bpf/fuse_media.o with license GPL
+[   11.975889] LibBpfLoader: Section bpfloader_min_ver value is 0 [0x0]
+[   11.977493] LibBpfLoader: Section bpfloader_max_ver value is 65536 [0x10000]
+[   11.979094] LibBpfLoader: Section size_of_bpf_map_def value is 116 [0x74]
+[   11.980612] LibBpfLoader: Section size_of_bpf_prog_def value is 92 [0x5c]
+[   11.982030] LibBpfLoader: BpfLoader version 0x00013 processing ELF object /system/etc/bpf/fuse_media.o with ver [0x00000,0x10000)
+[   11.984803] LibBpfLoader: Loaded code section 3 (fuse_media)
+[   11.984828] LibBpfLoader: Adding section 3 to cs list
+[   11.984896] LibBpfLoader: No maps section could be found in elf object
+[   11.986316] LibBpfLoader: cs[0].name:fuse_media min_kver:0 .max_kver:ffffffff (kvers:50f0077)
+[   11.986319] LibBpfLoader: cs[0].name:fuse_media requires bpfloader version [0x00000,0x10000)
+[   11.990754] LibBpfLoader: bpf_prog_load lib call for /system/etc/bpf/fuse_media.o (fuse_media) returned fd: -1 (Permission denied)
+[   11.990769] LibBpfLoader: bpf_prog_load - BEGIN log_buf contents:
+[   11.992093] LibBpfLoader: 0: (bf) r6 = r1
+[   11.992926] LibBpfLoader: 1: (61) r3 = *(u32 *)(r6 +8)
+[   11.994027] LibBpfLoader: 2: (65) if r3 s> 0x10011 goto pc+12
+[   11.995219] LibBpfLoader:  R1=ctx(id=0,off=0,imm=0) R3_w=inv(id=0,umax_value=65553,var_off=(0x0; 0x1ffff)) R6_w=ctx(id=0,off=0,imm=0) R10=fp0
+[   11.997837] LibBpfLoader: 3: (65) if r3 s> 0x1000a goto pc+24
+[   11.999008] LibBpfLoader:  R1=ctx(id=0,off=0,imm=0) R3_w=inv(id=0,umax_value=65546,var_off=(0x0; 0x1ffff)) R6_w=ctx(id=0,off=0,imm=0) R10=fp0
+[   12.001938] LibBpfLoader: 4: (65) if r3 s> 0x10007 goto pc+55
+[   12.003408] LibBpfLoader:  R1=ctx(id=0,off=0,imm=0) R3_w=inv(id=0,umax_value=65543,var_off=(0x0; 0x1ffff)) R6_w=ctx(id=0,off=0,imm=0) R10=fp0
+[   12.006254] LibBpfLoader: 5: (15) if r3 == 0x10001 goto pc+126
+[   12.007442] LibBpfLoader:  R1=ctx(id=0,off=0,imm=0) R3_w=inv(id=0,umax_value=65543,var_off=(0x0; 0x1ffff)) R6_w=ctx(id=0,off=0,imm=0) R10=fp0
+[   12.010076] LibBpfLoader: 6: (15) if r3 == 0x10003 goto pc+144
+[   12.011299] LibBpfLoader:  R1=ctx(id=0,off=0,imm=0) R3_w=inv(id=0,umax_value=65543,var_off=(0x0; 0x1ffff)) R6_w=ctx(id=0,off=0,imm=0) R10=fp0
+[   12.013853] LibBpfLoader: 7: (15) if r3 == 0x10004 goto pc+1
+[   12.014986] LibBpfLoader: 
+[   12.015570] LibBpfLoader: from 7 to 9: R1=ctx(id=0,off=0,imm=0) R3=inv65540 R6=ctx(id=0,off=0,imm=0) R10=fp0
+[   12.017737] LibBpfLoader: 9: (79) r1 = *(u64 *)(r6 +32)
+[   12.018801] LibBpfLoader: 10: (b7) r2 = 6563104
+[   12.019970] LibBpfLoader: 11: (63) *(u32 *)(r10 -32) = r2
+[   12.021266] LibBpfLoader: 12: (18) r2 = 0x3a52545441544553
+[   12.022795] LibBpfLoader: 14: (05) goto pc+141
+[   12.023771] LibBpfLoader: 156: (7b) *(u64 *)(r10 -40) = r2
+[   12.024878] LibBpfLoader: 157: (79) r3 = *(u64 *)(r1 +8)
+[   12.026010] LibBpfLoader: R1 invalid mem access 'inv'
+[   12.027030] LibBpfLoader: processed 59 insns (limit 1000000) max_states_per_insn 1 total_states 4 peak_states 4 mark_read 1
+[   12.029347] LibBpfLoader: 
+[   12.029883] LibBpfLoader: bpf_prog_load - END log_buf contents.
+[   12.031076] LibBpfLoader: non-optional program failed to load.
+[   12.032449] LibBpfLoader: Failed to load programs, loadCodeSections ret=-1
+[   12.033942] bpfloader: Failed to load object: /system/etc/bpf/fuse_media.o, ret: Operation not permitted
+[   12.038053] LibBpfLoader: Loading optional ELF object /system/etc/bpf/time_in_state.o with license GPL
+[   12.038063] LibBpfLoader: Section bpfloader_min_ver value is 0 [0x0]
+[   12.039476] LibBpfLoader: Section bpfloader_max_ver value is 65536 [0x10000]
+[   12.041174] LibBpfLoader: Section size_of_bpf_map_def value is 116 [0x74]
+[   12.042929] LibBpfLoader: Section size_of_bpf_prog_def value is 92 [0x5c]
+[   12.044499] LibBpfLoader: BpfLoader version 0x00013 processing ELF object /system/etc/bpf/time_in_state.o with ver [0x00000,0x10000)
+[   12.049028] LibBpfLoader: Loaded code section 3 (tracepoint_sched_sched_switch)
+[   12.049211] LibBpfLoader: Loaded relo section 3 (.reltracepoint/sched/sched_switch)
+[   12.049219] LibBpfLoader: Adding section 3 to cs list
+[   12.049239] LibBpfLoader: Loaded code section 5 (tracepoint_power_cpu_frequency)
+[   12.049282] LibBpfLoader: Loaded relo section 5 (.reltracepoint/power/cpu_frequency)
+[   12.049286] LibBpfLoader: Adding section 5 to cs list
+[   12.049300] LibBpfLoader: Loaded code section 7 (tracepoint_sched_sched_process_free)
+[   12.049361] LibBpfLoader: Loaded relo section 7 (.reltracepoint/sched/sched_process_free)
+[   12.049366] LibBpfLoader: Adding section 7 to cs list
+[   12.049619] LibBpfLoader: Couldn't find section btf_min_bpfloader_ver (defaulting to 0 [0x0]).
+[   12.049628] LibBpfLoader: Couldn't find section btf_min_kernel_ver (defaulting to 0 [0x0]).
+[   12.060264] LibBpfLoader: bpf_create_map name total_time_in_state_map, ret: 6
+[   12.060294] LibBpfLoader: map /sys/fs/bpf/map_time_in_state_total_time_in_state_map id 30
+[   12.062834] LibBpfLoader: bpf_create_map name uid_time_in_state_map, ret: 8
+[   12.062864] LibBpfLoader: map /sys/fs/bpf/map_time_in_state_uid_time_in_state_map id 31
+[   12.065341] LibBpfLoader: bpf_create_map name uid_concurrent_times_map, ret: 9
+[   12.065362] LibBpfLoader: map /sys/fs/bpf/map_time_in_state_uid_concurrent_times_map id 32
+[   12.067063] LibBpfLoader: bpf_create_map name uid_last_update_map, ret: 10
+[   12.067078] LibBpfLoader: map /sys/fs/bpf/map_time_in_state_uid_last_update_map id 33
+[   12.068660] LibBpfLoader: bpf_create_map name cpu_last_update_map, ret: 11
+[   12.068672] LibBpfLoader: map /sys/fs/bpf/map_time_in_state_cpu_last_update_map id 34
+[   12.070323] LibBpfLoader: bpf_create_map name cpu_last_pid_map, ret: 12
+[   12.070333] LibBpfLoader: map /sys/fs/bpf/map_time_in_state_cpu_last_pid_map id 35
+[   12.071827] LibBpfLoader: bpf_create_map name cpu_policy_map, ret: 13
+[   12.071836] LibBpfLoader: map /sys/fs/bpf/map_time_in_state_cpu_policy_map id 36
+[   12.073554] LibBpfLoader: bpf_create_map name policy_freq_idx_map, ret: 14
+[   12.073568] LibBpfLoader: map /sys/fs/bpf/map_time_in_state_policy_freq_idx_map id 37
+[   12.075207] LibBpfLoader: bpf_create_map name freq_to_idx_map, ret: 15
+[   12.075220] LibBpfLoader: map /sys/fs/bpf/map_time_in_state_freq_to_idx_map id 38
+[   12.076748] LibBpfLoader: bpf_create_map name nr_active_map, ret: 16
+[   12.076761] LibBpfLoader: map /sys/fs/bpf/map_time_in_state_nr_active_map id 39
+[   12.078636] LibBpfLoader: bpf_create_map name policy_nr_active_map, ret: 17
+[   12.078649] LibBpfLoader: map /sys/fs/bpf/map_time_in_state_policy_nr_active_map id 40
+[   12.080320] LibBpfLoader: bpf_create_map name pid_tracked_hash_map, ret: 18
+[   12.080333] LibBpfLoader: map /sys/fs/bpf/map_time_in_state_pid_tracked_hash_map id 41
+[   12.081940] LibBpfLoader: bpf_create_map name pid_tracked_map, ret: 19
+[   12.081951] LibBpfLoader: map /sys/fs/bpf/map_time_in_state_pid_tracked_map id 42
+[   12.083481] LibBpfLoader: bpf_create_map name pid_task_aggregation_map, ret: 20
+[   12.083491] LibBpfLoader: map /sys/fs/bpf/map_time_in_state_pid_task_aggregation_map id 43
+[   12.085984] LibBpfLoader: bpf_create_map name pid_time_in_state_map, ret: 21
+[   12.086002] LibBpfLoader: map /sys/fs/bpf/map_time_in_state_pid_time_in_state_map id 44
+[   12.087893] LibBpfLoader: map_fd found at 0 is 6 in /system/etc/bpf/time_in_state.o
+[   12.087896] LibBpfLoader: map_fd found at 1 is 8 in /system/etc/bpf/time_in_state.o
+[   12.087899] LibBpfLoader: map_fd found at 2 is 9 in /system/etc/bpf/time_in_state.o
+[   12.087901] LibBpfLoader: map_fd found at 3 is 10 in /system/etc/bpf/time_in_state.o
+[   12.087903] LibBpfLoader: map_fd found at 4 is 11 in /system/etc/bpf/time_in_state.o
+[   12.087905] LibBpfLoader: map_fd found at 5 is 12 in /system/etc/bpf/time_in_state.o
+[   12.087908] LibBpfLoader: map_fd found at 6 is 13 in /system/etc/bpf/time_in_state.o
+[   12.087910] LibBpfLoader: map_fd found at 7 is 14 in /system/etc/bpf/time_in_state.o
+[   12.087914] LibBpfLoader: map_fd found at 8 is 15 in /system/etc/bpf/time_in_state.o
+[   12.087916] LibBpfLoader: map_fd found at 9 is 16 in /system/etc/bpf/time_in_state.o
+[   12.087918] LibBpfLoader: map_fd found at 10 is 17 in /system/etc/bpf/time_in_state.o
+[   12.087920] LibBpfLoader: map_fd found at 11 is 18 in /system/etc/bpf/time_in_state.o
+[   12.087922] LibBpfLoader: map_fd found at 12 is 19 in /system/etc/bpf/time_in_state.o
+[   12.087925] LibBpfLoader: map_fd found at 13 is 20 in /system/etc/bpf/time_in_state.o
+[   12.087928] LibBpfLoader: map_fd found at 14 is 21 in /system/etc/bpf/time_in_state.o
+[   12.088217] LibBpfLoader: applying relo to instruction at byte offset: 40, \x09       insn offset 5 , insn 118
+[   12.088220] LibBpfLoader: 
+[   12.088233] LibBpfLoader: applying relo to instruction at byte offset: 128, \x09       insn offset 16 , insn 118
+[   12.088234] LibBpfLoader: 
+[   12.088244] LibBpfLoader: applying relo to instruction at byte offset: 224, \x09       insn offset 28 , insn 118
+[   12.088246] LibBpfLoader: 
+[   12.088254] LibBpfLoader: applying relo to instruction at byte offset: 296, \x09       insn offset 37 , insn 118
+[   12.088255] LibBpfLoader: 
+[   12.088265] LibBpfLoader: applying relo to instruction at byte offset: 360, \x09       insn offset 45 , insn 118
+[   12.088267] LibBpfLoader: 
+[   12.088275] LibBpfLoader: applying relo to instruction at byte offset: 608, \x09       insn offset 76 , insn 118
+[   12.088277] LibBpfLoader: 
+[   12.088287] LibBpfLoader: applying relo to instruction at byte offset: 904, \x09       insn offset 113 , insn 118
+[   12.088289] LibBpfLoader: 
+[   12.088297] LibBpfLoader: applying relo to instruction at byte offset: 1248, \x09       insn offset 156 , insn 118
+[   12.088299] LibBpfLoader: 
+[   12.088308] LibBpfLoader: applying relo to instruction at byte offset: 1288, \x09       insn offset 161 , insn 118
+[   12.088311] LibBpfLoader: 
+[   12.088318] LibBpfLoader: applying relo to instruction at byte offset: 1464, \x09       insn offset 183 , insn 118
+[   12.088320] LibBpfLoader: 
+[   12.088330] LibBpfLoader: applying relo to instruction at byte offset: 1672, \x09       insn offset 209 , insn 118
+[   12.088332] LibBpfLoader: 
+[   12.088340] LibBpfLoader: applying relo to instruction at byte offset: 1712, \x09       insn offset 214 , insn 118
+[   12.088342] LibBpfLoader: 
+[   12.088352] LibBpfLoader: applying relo to instruction at byte offset: 1912, \x09       insn offset 239 , insn 118
+[   12.088353] LibBpfLoader: 
+[   12.088361] LibBpfLoader: applying relo to instruction at byte offset: 2128, \x09       insn offset 266 , insn 118
+[   12.088363] LibBpfLoader: 
+[   12.088373] LibBpfLoader: applying relo to instruction at byte offset: 2168, \x09       insn offset 271 , insn 118
+[   12.088374] LibBpfLoader: 
+[   12.088383] LibBpfLoader: applying relo to instruction at byte offset: 2320, \x09       insn offset 290 , insn 118
+[   12.088385] LibBpfLoader: 
+[   12.088426] LibBpfLoader: applying relo to instruction at byte offset: 2448, \x09       insn offset 306 , insn 118
+[   12.088429] LibBpfLoader: 
+[   12.088438] LibBpfLoader: applying relo to instruction at byte offset: 2784, \x09       insn offset 348 , insn 118
+[   12.088439] LibBpfLoader: 
+[   12.088446] LibBpfLoader: applying relo to instruction at byte offset: 2824, \x09       insn offset 353 , insn 118
+[   12.088448] LibBpfLoader: 
+[   12.088454] LibBpfLoader: applying relo to instruction at byte offset: 3000, \x09       insn offset 375 , insn 118
+[   12.088456] LibBpfLoader: 
+[   12.088463] LibBpfLoader: applying relo to instruction at byte offset: 3208, \x09       insn offset 401 , insn 118
+[   12.088464] LibBpfLoader: 
+[   12.088471] LibBpfLoader: applying relo to instruction at byte offset: 3248, \x09       insn offset 406 , insn 118
+[   12.088472] LibBpfLoader: 
+[   12.088479] LibBpfLoader: applying relo to instruction at byte offset: 3440, \x09       insn offset 430 , insn 118
+[   12.088480] LibBpfLoader: 
+[   12.088487] LibBpfLoader: applying relo to instruction at byte offset: 3656, \x09       insn offset 457 , insn 118
+[   12.088488] LibBpfLoader: 
+[   12.088495] LibBpfLoader: applying relo to instruction at byte offset: 3696, \x09       insn offset 462 , insn 118
+[   12.088496] LibBpfLoader: 
+[   12.088503] LibBpfLoader: applying relo to instruction at byte offset: 3824, \x09       insn offset 478 , insn 118
+[   12.088504] LibBpfLoader: 
+[   12.088511] LibBpfLoader: applying relo to instruction at byte offset: 3896, \x09       insn offset 487 , insn 118
+[   12.088512] LibBpfLoader: 
+[   12.088519] LibBpfLoader: applying relo to instruction at byte offset: 4000, \x09       insn offset 500 , insn 118
+[   12.088520] LibBpfLoader: 
+[   12.088527] LibBpfLoader: applying relo to instruction at byte offset: 4328, \x09       insn offset 541 , insn 118
+[   12.088528] LibBpfLoader: 
+[   12.088534] LibBpfLoader: applying relo to instruction at byte offset: 4368, \x09       insn offset 546 , insn 118
+[   12.088536] LibBpfLoader: 
+[   12.088542] LibBpfLoader: applying relo to instruction at byte offset: 4504, \x09       insn offset 563 , insn 118
+[   12.088544] LibBpfLoader: 
+[   12.088553] LibBpfLoader: applying relo to instruction at byte offset: 4704, \x09       insn offset 588 , insn 118
+[   12.088554] LibBpfLoader: 
+[   12.088560] LibBpfLoader: applying relo to instruction at byte offset: 4744, \x09       insn offset 593 , insn 118
+[   12.088562] LibBpfLoader: 
+[   12.088568] LibBpfLoader: applying relo to instruction at byte offset: 4912, \x09       insn offset 614 , insn 118
+[   12.088570] LibBpfLoader: 
+[   12.088576] LibBpfLoader: applying relo to instruction at byte offset: 5128, \x09       insn offset 641 , insn 118
+[   12.088577] LibBpfLoader: 
+[   12.088584] LibBpfLoader: applying relo to instruction at byte offset: 5168, \x09       insn offset 646 , insn 118
+[   12.088585] LibBpfLoader: 
+[   12.088592] LibBpfLoader: applying relo to instruction at byte offset: 5296, \x09       insn offset 662 , insn 118
+[   12.088593] LibBpfLoader: 
+[   12.088600] LibBpfLoader: applying relo to instruction at byte offset: 5384, \x09       insn offset 673 , insn 118
+[   12.088601] LibBpfLoader: 
+[   12.088608] LibBpfLoader: applying relo to instruction at byte offset: 5472, \x09       insn offset 684 , insn 118
+[   12.088609] LibBpfLoader: 
+[   12.088616] LibBpfLoader: applying relo to instruction at byte offset: 5600, \x09       insn offset 700 , insn 118
+[   12.088617] LibBpfLoader: 
+[   12.088624] LibBpfLoader: applying relo to instruction at byte offset: 5696, \x09       insn offset 712 , insn 118
+[   12.088625] LibBpfLoader: 
+[   12.088631] LibBpfLoader: applying relo to instruction at byte offset: 5800, \x09       insn offset 725 , insn 118
+[   12.088632] LibBpfLoader: 
+[   12.088639] LibBpfLoader: applying relo to instruction at byte offset: 6128, \x09       insn offset 766 , insn 118
+[   12.088640] LibBpfLoader: 
+[   12.088646] LibBpfLoader: applying relo to instruction at byte offset: 6168, \x09       insn offset 771 , insn 118
+[   12.088647] LibBpfLoader: 
+[   12.088654] LibBpfLoader: applying relo to instruction at byte offset: 6312, \x09       insn offset 789 , insn 118
+[   12.088655] LibBpfLoader: 
+[   12.088661] LibBpfLoader: applying relo to instruction at byte offset: 6416, \x09       insn offset 802 , insn 118
+[   12.088662] LibBpfLoader: 
+[   12.088669] LibBpfLoader: applying relo to instruction at byte offset: 6520, \x09       insn offset 815 , insn 118
+[   12.088670] LibBpfLoader: 
+[   12.088676] LibBpfLoader: applying relo to instruction at byte offset: 6624, \x09       insn offset 828 , insn 118
+[   12.088677] LibBpfLoader: 
+[   12.088684] LibBpfLoader: applying relo to instruction at byte offset: 6728, \x09       insn offset 841 , insn 118
+[   12.088685] LibBpfLoader: 
+[   12.088691] LibBpfLoader: applying relo to instruction at byte offset: 6832, \x09       insn offset 854 , insn 118
+[   12.088693] LibBpfLoader: 
+[   12.088699] LibBpfLoader: applying relo to instruction at byte offset: 6936, \x09       insn offset 867 , insn 118
+[   12.088700] LibBpfLoader: 
+[   12.088709] LibBpfLoader: applying relo to instruction at byte offset: 40, \x09       insn offset 5 , insn 118
+[   12.088710] LibBpfLoader: 
+[   12.088718] LibBpfLoader: applying relo to instruction at byte offset: 120, \x09       insn offset 15 , insn 118
+[   12.088720] LibBpfLoader: 
+[   12.088726] LibBpfLoader: applying relo to instruction at byte offset: 200, \x09       insn offset 25 , insn 118
+[   12.088727] LibBpfLoader: 
+[   12.088735] LibBpfLoader: applying relo to instruction at byte offset: 48, \x09       insn offset 6 , insn 118
+[   12.088736] LibBpfLoader: 
+[   12.088743] LibBpfLoader: applying relo to instruction at byte offset: 200, \x09       insn offset 25 , insn 118
+[   12.088744] LibBpfLoader: 
+[   12.088751] LibBpfLoader: applying relo to instruction at byte offset: 336, \x09       insn offset 42 , insn 118
+[   12.088752] LibBpfLoader: 
+[   12.088759] LibBpfLoader: applying relo to instruction at byte offset: 472, \x09       insn offset 59 , insn 118
+[   12.088761] LibBpfLoader: 
+[   12.088767] LibBpfLoader: applying relo to instruction at byte offset: 608, \x09       insn offset 76 , insn 118
+[   12.088768] LibBpfLoader: 
+[   12.088775] LibBpfLoader: applying relo to instruction at byte offset: 744, \x09       insn offset 93 , insn 118
+[   12.088776] LibBpfLoader: 
+[   12.088783] LibBpfLoader: applying relo to instruction at byte offset: 880, \x09       insn offset 110 , insn 118
+[   12.088784] LibBpfLoader: 
+[   12.088791] LibBpfLoader: applying relo to instruction at byte offset: 1016, \x09       insn offset 127 , insn 118
+[   12.088792] LibBpfLoader: 
+[   12.088799] LibBpfLoader: applying relo to instruction at byte offset: 1088, \x09       insn offset 136 , insn 118
+[   12.088800] LibBpfLoader: 
+[   12.088806] LibBpfLoader: applying relo to instruction at byte offset: 1200, \x09       insn offset 150 , insn 118
+[   12.088808] LibBpfLoader: 
+[   12.088812] LibBpfLoader: cs[0].name:tracepoint_sched_sched_switch min_kver:0 .max_kver:ffffffff (kvers:50f0077)
+[   12.088814] LibBpfLoader: cs[0].name:tracepoint_sched_sched_switch requires bpfloader version [0x00000,0x10000)
+[   12.091423] LibBpfLoader: bpf_prog_load lib call for /system/etc/bpf/time_in_state.o (tracepoint_sched_sched_switch) returned fd: 7 (no error)
+[   12.091501] LibBpfLoader: prog /sys/fs/bpf/prog_time_in_state_tracepoint_sched_sched_switch id 29
+[   12.093465] LibBpfLoader: cs[1].name:tracepoint_power_cpu_frequency min_kver:0 .max_kver:ffffffff (kvers:50f0077)
+[   12.093470] LibBpfLoader: cs[1].name:tracepoint_power_cpu_frequency requires bpfloader version [0x00000,0x10000)
+[   12.094062] LibBpfLoader: bpf_prog_load lib call for /system/etc/bpf/time_in_state.o (tracepoint_power_cpu_frequency) returned fd: 22 (no error)
+[   12.094181] LibBpfLoader: prog /sys/fs/bpf/prog_time_in_state_tracepoint_power_cpu_frequency id 30
+[   12.096066] LibBpfLoader: cs[2].name:tracepoint_sched_sched_process_free min_kver:0 .max_kver:ffffffff (kvers:50f0077)
+[   12.096068] LibBpfLoader: cs[2].name:tracepoint_sched_sched_process_free requires bpfloader version [0x00000,0x10000)
+[   12.096711] LibBpfLoader: bpf_prog_load lib call for /system/etc/bpf/time_in_state.o (tracepoint_sched_sched_process_free) returned fd: 23 (no error)
+[   12.096751] LibBpfLoader: prog /sys/fs/bpf/prog_time_in_state_tracepoint_sched_sched_process_free id 31
+[   12.098822] bpfloader: Loaded object: /system/etc/bpf/time_in_state.o
+[   12.101272] LibBpfLoader: Loading optional ELF object /system/etc/bpf/gpu_mem.o with license Apache 2.0
+[   12.101284] LibBpfLoader: Section bpfloader_min_ver value is 0 [0x0]
+[   12.102675] LibBpfLoader: Section bpfloader_max_ver value is 65536 [0x10000]
+[   12.104051] LibBpfLoader: Section size_of_bpf_map_def value is 116 [0x74]
+[   12.105479] LibBpfLoader: Section size_of_bpf_prog_def value is 92 [0x5c]
+[   12.106814] LibBpfLoader: BpfLoader version 0x00013 processing ELF object /system/etc/bpf/gpu_mem.o with ver [0x00000,0x10000)
+[   12.109250] LibBpfLoader: Loaded code section 3 (tracepoint_gpu_mem_gpu_mem_total)
+[   12.109274] LibBpfLoader: Loaded relo section 3 (.reltracepoint/gpu_mem/gpu_mem_total)
+[   12.109276] LibBpfLoader: Adding section 3 to cs list
+[   12.109346] LibBpfLoader: Couldn't find section btf_min_bpfloader_ver (defaulting to 0 [0x0]).
+[   12.109352] LibBpfLoader: Couldn't find section btf_min_kernel_ver (defaulting to 0 [0x0]).
+[   12.112693] LibBpfLoader: bpf_create_map name gpu_mem_total_map, ret: 6
+[   12.112715] LibBpfLoader: map /sys/fs/bpf/map_gpu_mem_gpu_mem_total_map id 45
+[   12.114421] LibBpfLoader: map_fd found at 0 is 6 in /system/etc/bpf/gpu_mem.o
+[   12.114461] LibBpfLoader: applying relo to instruction at byte offset: 80, \x09       insn offset 10 , insn 118
+[   12.114463] LibBpfLoader: 
+[   12.114469] LibBpfLoader: applying relo to instruction at byte offset: 128, \x09       insn offset 16 , insn 118
+[   12.114470] LibBpfLoader: 
+[   12.114477] LibBpfLoader: applying relo to instruction at byte offset: 208, \x09       insn offset 26 , insn 118
+[   12.114478] LibBpfLoader: 
+[   12.114482] LibBpfLoader: cs[0].name:tracepoint_gpu_mem_gpu_mem_total min_kver:0 .max_kver:ffffffff (kvers:50f0077)
+[   12.114484] LibBpfLoader: cs[0].name:tracepoint_gpu_mem_gpu_mem_total requires bpfloader version [0x00000,0x10000)
+[   12.115156] LibBpfLoader: bpf_prog_load lib call for /system/etc/bpf/gpu_mem.o (tracepoint_gpu_mem_gpu_mem_total) returned fd: 7 (no error)
+[   12.115203] LibBpfLoader: prog /sys/fs/bpf/prog_gpu_mem_tracepoint_gpu_mem_gpu_mem_total id 32
+[   12.117014] bpfloader: Loaded object: /system/etc/bpf/gpu_mem.o
+[   12.119243] init: Service 'bpfloader' (pid 290) exited with status 0 waiting took 0.467000 seconds
+[   12.121366] init: Sending signal 9 to service 'bpfloader' (pid 290) process group...
+[   12.122976] libprocessgroup: Successfully killed process cgroup uid 0 pid 290 in 0ms
+[   12.124975] init: processing action (ro.crypto.state=encrypted && ro.crypto.type=file && zygote-start) from (/system/etc/init/hw/init.rc:1055)
+[   12.127777] init: start_waiting_for_property("odsign.verification.done", "1"): already set
+[   12.130004] init: starting service 'update_verifier_nonencrypted'...
+[   12.132896] init: SVC_EXEC service 'update_verifier_nonencrypted' pid 297 (uid 0 gid 2001+1 context default) started; waiting...
+[   12.142221] init: Service 'update_verifier_nonencrypted' (pid 297) exited with status 0 waiting took 0.010000 seconds
+[   12.144601] init: Sending signal 9 to service 'update_verifier_nonencrypted' (pid 297) process group...
+[   12.147477] libprocessgroup: Successfully killed process cgroup uid 0 pid 297 in 0ms
+[   12.149958] init: starting service 'statsd'...
+[   12.151019] init: Created socket '/dev/socket/statsdw', mode 222, user 1066, group 1066
+[   12.154212] init: starting service 'netd'...
+[   12.155594] init: Created socket '/dev/socket/dnsproxyd', mode 660, user 0, group 3003
+[   12.157891] init: Created socket '/dev/socket/mdns', mode 660, user 0, group 1000
+[   12.159701] init: Created socket '/dev/socket/fwmarkd', mode 660, user 0, group 3003
+[   12.162912] init: starting service 'zygote'...
+[   12.164448] init: Created socket '/dev/socket/zygote', mode 660, user 0, group 1000
+[   12.166863] init: Created socket '/dev/socket/usap_pool_primary', mode 660, user 0, group 1000
+[   12.170056] init: Command 'start zygote_secondary' action=ro.crypto.state=encrypted && ro.crypto.type=file && zygote-start (/system/etc/init/hw/init.rc:1062) took 0ms and failed: service zygote_secondary not found
+[   12.174283] init: processing action (zygote-start) from (/vendor/etc/init/hw/init.ranchu.rc:78)
+[   12.178166] init: processing action (firmware_mounts_complete) from (/system/etc/init/hw/init.rc:513)
+[   12.180199] init: processing action (early-boot) from (/system/etc/init/installd.rc:5)
+[   12.184460] init: processing action (boot) from (/system/etc/init/hw/init.rc:1069)
+[   12.186910] init: Command 'symlink /sys/fs/f2fs/${dev.mnt.dev.data} /dev/sys/fs/by-name/userdata' action=boot (/system/etc/init/hw/init.rc:1092) took 0ms and failed: property 'dev.mnt.dev.data' doesn't exist while expanding '/sys/fs/f2fs/${dev.mnt.dev.data}'
+[   12.191939] init: Command 'symlink /sys/class/block/${dev.mnt.dev.data} /dev/sys/block/by-name/userdata' action=boot (/system/etc/init/hw/init.rc:1097) took 0ms and failed: property 'dev.mnt.dev.data' doesn't exist while expanding '/sys/class/block/${dev.mnt.dev.data}'
+[   12.196843] init: Command 'symlink /sys/class/block/${dev.mnt.rootdisk.data} /dev/sys/block/by-name/rootdisk' action=boot (/system/etc/init/hw/init.rc:1098) took 0ms and failed: property 'dev.mnt.rootdisk.data' doesn't exist while expanding '/sys/class/block/${dev.mnt.rootdisk.data}'
+[   12.203411] init: starting service 'hidl_memory'...
+[   12.205949] init: starting service 'vendor.audio-hal'...
+[   12.208516] init: starting service 'vendor.authsecret-1-0'...
+[   12.210637] init: starting service 'btlinux-1.1'...
+[   12.217935] init: starting service 'vendor.camera-provider-2-4'...
+[   12.220282] init: starting service 'vendor.camera-provider-2-7-google'...
+[   12.225661] init: starting service 'vendor.cas-hal-1-2'...
+[   12.230268] init: starting service 'vendor.contexthub-hal-1-1-mock'...
+[   12.234638] init: starting service 'vendor.drm-clearkey-service'...
+[   12.238322] init: starting service 'vendor.drm-widevine-hal'...
+[   12.250922] init: starting service 'vendor.drm-hal-1-0'...
+[   12.269519] init: starting service 'vendor.drm-clearkey-hal-1-4'...
+[   12.276661] init: starting service 'vendor.gatekeeper-1-0'...
+[   12.282368] init: starting service 'vendor.gralloc-3-0'...
+[   12.290463] init: starting service 'vendor.hwcomposer-2-4'...
+[   12.296000] init: starting service 'health-hal-2-1'...
+[   12.298905] init: starting service 'android-hardware-media-c2-goldfish-hal-1-0'...
+[   12.302350] init: starting service 'neuralnetworks_hal_service_sample_all'...
+[   12.305985] init: starting service 'neuralnetworks_hal_service_sample_limited'...
+[   12.309718] init: starting service 'vendor.power.stats-hal-1-0-mock'...
+[   12.314647] init: starting service 'vendor.sensors-hal-2-1-multihal'...
+[   12.317922] init: starting service 'vendor.thermal-hal-2-0-mock'...
+[   12.321465] init: starting service 'vendor.usb-hal-1-0'...
+[   12.324765] init: starting service 'vendor.wifi_hal_legacy'...
+[   12.331869] init: starting service 'vendor.identity-default'...
+[   12.336985] init: starting service 'vendor.light-default'...
+[   12.341619] init: starting service 'vendor.power-default'...
+[   12.360647] init: starting service 'vendor.rebootescrow-default'...
+[   12.365277] init: starting service 'vendor.vibrator-default'...
+[   12.382039] init: Command 'class_start hal' action=boot (/system/etc/init/hw/init.rc:1180) took 178ms and succeeded
+[   12.384503] init: service 'ueventd' requested start, but it is already running (flags: 2084)
+[   12.386569] init: service 'console' requested start, but it is already running (flags: 148)
+[   12.388608] init: starting service 'ranchu-setup'...
+[   12.392311] init: service 'qemu-props' requested start, but it is already running (flags: 6)
+[   12.394295] init: service 'apexd' requested start, but it is already running (flags: 134)
+[   12.396392] init: starting service 'audioserver'...
+[   12.400366] init: starting service 'credstore'...
+[   12.404146] init: starting service 'gpu'...
+[   12.414790] init: service 'lmkd' requested start, but it is already running (flags: 36)
+[   12.416604] init: service 'servicemanager' requested start, but it is already running (flags: 2084)
+[   12.419581] init: starting service 'surfaceflinger'...
+[   12.422778] init: Could not create socket 'pdx/system/vr/display/client': Failed to bind socket 'pdx/system/vr/display/client': No such file or directory
+[   12.426053] init: Could not create socket 'pdx/system/vr/display/manager': Failed to bind socket 'pdx/system/vr/display/manager': No such file or directory
+[   12.429613] init: Could not create socket 'pdx/system/vr/display/vsync': Failed to bind socket 'pdx/system/vr/display/vsync': No such file or directory
+[   12.437250] init: service 'vold' requested start, but it is already running (flags: 2052)
+[   12.439504] init: Command 'class_start core' action=boot (/system/etc/init/hw/init.rc:1182) took 55ms and succeeded
+[   12.465213] init: processing action (persist.sys.usb.config=* && boot) from (/system/etc/init/hw/init.usb.rc:108)
+[   12.469992] init: processing action (boot) from (/vendor/etc/init/hw/init.ranchu.rc:84)
+[   12.490617] init: Service 'ranchu-setup' (pid 340) exited with status 1 oneshot service took 0.099000 seconds in background
+[   12.492967] init: Sending signal 9 to service 'ranchu-setup' (pid 340) process group...
+[   12.496539] healthd: batteryCapacityLevelPath not found
+[   12.497680] healthd: batteryChargeTimeToFullNowPath. not found
+[   12.499301] healthd: batteryFullChargeDesignCapacityUahPath. not found
+[   12.512811] healthd: battery l=100 v=5000 t=25.0 h=2 st=2 c=900000 fc=3000000 cc=10 chg=a
+[   12.514429] libprocessgroup: Successfully killed process cgroup uid 0 pid 340 in 4ms
+[   12.519549] init: Command 'setprop debug.stagefright.ccodec ${ro.boot.debug.stagefright.ccodec}' action=boot (/vendor/etc/init/hw/init.ranchu.rc:93) took 0ms and failed: property 'ro.boot.debug.stagefright.ccodec' doesn't exist while expanding '${ro.boot.debug.stagefright.ccodec}'
+[   12.526395] init: Command 'setprop dalvik.vm.checkjni ${ro.boot.dalvik.vm.checkjni}' action=boot (/vendor/etc/init/hw/init.ranchu.rc:97) took 0ms and failed: property 'ro.boot.dalvik.vm.checkjni' doesn't exist while expanding '${ro.boot.dalvik.vm.checkjni}'
+[   12.534798] init: processing action (boot) from (/system/etc/init/dumpstate.rc:1)
+[   12.537628] init: processing action (boot) from (/system/etc/init/gsid.rc:25)
+[   12.539422] init: starting service 'exec 16 (/system/bin/gsid run-startup-tasks)'...
+[   12.543378] init: processing action (persist.device_config.profcollect_native_boot.enabled= && boot) from (/system/etc/init/profcollectd.rc:19)
+[   12.546962] init: starting service 'exec 17 (/system/bin/profcollectctl reset)'...
+[   12.550729] init: processing action (enable_property_trigger) from (<Builtin Action>:0)
+[   12.553294] init: processing action (apexd.status=ready && ro.product.cpu.abilist64=*) from (/system/etc/init/hw/init.rc:486)
+[   12.556771] init: starting service 'boringssl_self_test_apex64'...
+[   12.564856] init: SVC_EXEC service 'boringssl_self_test_apex64' pid 359 (uid 0 gid 0+0 context default) started; waiting...
+[   12.660545] init: Service 'exec 16 (/system/bin/gsid run-startup-tasks)' (pid 352) exited with status 0 oneshot service took 0.117000 seconds in background
+[   12.663607] init: Sending signal 9 to service 'exec 16 (/system/bin/gsid run-startup-tasks)' (pid 352) process group...
+[   12.666628] libprocessgroup: Successfully killed process cgroup uid 0 pid 352 in 0ms
+[   12.669753] init: Service 'boringssl_self_test_apex64' (pid 359) exited with status 0 waiting took 0.106000 seconds
+[   12.671956] init: Sending signal 9 to service 'boringssl_self_test_apex64' (pid 359) process group...
+[   12.674251] libprocessgroup: Successfully killed process cgroup uid 0 pid 359 in 0ms
+[   12.676583] init: processing action (bootreceiver.enable=1 && ro.product.cpu.abilist64=*) from (/system/etc/init/hw/init.rc:653)
+[   12.745398] init: Command 'mkdir /sys/kernel/tracing/instances/bootreceiver 0700 system system' action=bootreceiver.enable=1 && ro.product.cpu.abilist64=* (/system/etc/init/hw/init.rc:657) took 66ms and succeeded
+[   12.751534] init: processing action (net.tcp_def_init_rwnd=*) from (/system/etc/init/hw/init.rc:1212)
+[   12.754855] init: processing action (sys.init.perf_lsm_hooks=1) from (/system/etc/init/hw/init.rc:1223)
+[   12.775646] init: processing action (security.perf_harden=1) from (/system/etc/init/hw/init.rc:1237)
+[   12.782352] init: processing action (ro.debuggable=1) from (/system/etc/init/hw/init.rc:1272)
+[   12.787927] init: processing action (sys.usb.config=adb && sys.usb.configfs=0) from (/system/etc/init/hw/init.usb.rc:40)
+[   12.796845] init: Command 'write /sys/class/android_usb/android0/enable 0' action=sys.usb.config=adb && sys.usb.configfs=0 (/system/etc/init/hw/init.usb.rc:41) took 0ms and failed: Unable to write to file '/sys/class/android_usb/android0/enable': open() failed: Permission denied
+[   12.804252] init: Command 'write /sys/class/android_usb/android0/idVendor 18d1' action=sys.usb.config=adb && sys.usb.configfs=0 (/system/etc/init/hw/init.usb.rc:42) took 0ms and failed: Unable to write to file '/sys/class/android_usb/android0/idVendor': open() failed: Permission denied
+[   12.811893] init: Command 'write /sys/class/android_usb/android0/idProduct 4EE7' action=sys.usb.config=adb && sys.usb.configfs=0 (/system/etc/init/hw/init.usb.rc:43) took 0ms and failed: Unable to write to file '/sys/class/android_usb/android0/idProduct': open() failed: Permission denied
+[   12.818489] init: Command 'write /sys/class/android_usb/android0/functions ${sys.usb.config}' action=sys.usb.config=adb && sys.usb.configfs=0 (/system/etc/init/hw/init.usb.rc:44) took 0ms and failed: Unable to write to file '/sys/class/android_usb/android0/functions': open() failed: Permission denied
+[   12.824651] init: Command 'write /sys/class/android_usb/android0/enable 1' action=sys.usb.config=adb && sys.usb.configfs=0 (/system/etc/init/hw/init.usb.rc:45) took 0ms and failed: Unable to write to file '/sys/class/android_usb/android0/enable': open() failed: Permission denied
+[   12.831165] init: starting service 'adbd'...
+[   12.832344] init: Created socket '/dev/socket/adbd', mode 660, user 1000, group 1000
+[   12.838476] init: processing action (vendor.qemu.timezone=*) from (/vendor/etc/init/hw/init.ranchu.rc:131)
+[   12.851089] init: processing action (ro.boot.debug.sf.nobootanimation=1) from (/vendor/etc/init/hw/init.ranchu.rc:134)
+[   12.853969] init: processing action (ro.boot.qemu.cpuvulkan.version=*) from (/vendor/etc/init/hw/init.ranchu.rc:144)
+[   12.885230] init: processing action (vendor.qemu.vport.bluetooth=*) from (/vendor/etc/init/hw/init.ranchu.rc:206)
+[   12.890124] init: processing action (init.svc.audioserver=running) from (/system/etc/init/audioserver.rc:38)
+[   12.892509] init: service 'vendor.audio-hal' requested start, but it is already running (flags: 4)
+[   12.894733] init: Command 'start vendor.audio-hal-4-0-msd' action=init.svc.audioserver=running (/system/etc/init/audioserver.rc:40) took 0ms and failed: service vendor.audio-hal-4-0-msd not found
+[   12.899092] init: Command 'start audio_proxy_service' action=init.svc.audioserver=running (/system/etc/init/audioserver.rc:41) took 0ms and failed: service audio_proxy_service not found
+[   12.903641] init: Command 'start vendor.audio-hal-2-0' action=init.svc.audioserver=running (/system/etc/init/audioserver.rc:43) took 0ms and failed: service vendor.audio-hal-2-0 not found
+[   12.911503] init: Command 'start audio-hal-2-0' action=init.svc.audioserver=running (/system/etc/init/audioserver.rc:44) took 0ms and failed: service audio-hal-2-0 not found
+[   13.075122] init: processing action (ro.persistent_properties.ready=true) from (/system/etc/init/bootstat.rc:67)
+[   13.079672] init: processing action (ro.persistent_properties.ready=true) from (/system/etc/init/bootstat.rc:71)
+[   13.083767] init: starting service 'exec 18 (/system/bin/bootstat --set_system_boot_reason)'...
+[   13.095498] init: processing action (bootreceiver.enable=1 && ro.product.cpu.abilist64=*) from (/system/etc/init/dmesgd.rc:3)
+[   13.112609] init: Command 'rm /data/misc/dmesgd/sent_reports.txt' action=bootreceiver.enable=1 && ro.product.cpu.abilist64=* (/system/etc/init/dmesgd.rc:5) took 0ms and failed: unlink() failed: No such file or directory
+[   13.116584] init: processing action (drm.service.enabled=true) from (/system/etc/init/drmserver.rc:8)
+[   13.118802] init: starting service 'drm'...
+[   13.127615] init: processing action (persist.heapprofd.enable= && traced.lazy.heapprofd=) from (/system/etc/init/heapprofd.rc:49)
+[   13.131020] init: processing action (ro.debuggable=1) from (/system/etc/init/llkd-debuggable.rc:1)
+[   13.133661] init: processing action (ro.debuggable=*) from (/system/etc/init/llkd.rc:2)
+[   13.136311] init: processing action (debug.atrace.user_initiated= && persist.traced.enable=1) from (/system/etc/init/perfetto.rc:47)
+[   13.139397] init: starting service 'traced_probes'...
+[   13.144826] init: processing action (persist.traced.enable=1) from (/system/etc/init/perfetto.rc:50)
+[   13.147967] init: starting service 'traced'...
+[   13.149377] init: Created socket '/dev/socket/traced_consumer', mode 666, user 0, group 0
+[   13.151072] init: Created socket '/dev/socket/traced_producer', mode 666, user 0, group 0
+[   13.156676] init: service 'traced_probes' requested start, but it is already running (flags: 132)
+[   13.158813] init: processing action (ro.persistent_properties.ready=true) from (/system/etc/init/perfetto.rc:116)
+[   13.161287] init: processing action (persist.traced_perf.enable= && sys.init.perf_lsm_hooks=1 && traced.lazy.traced_perf=) from (/system/etc/init/traced_perf.rc:43)
+[   13.165412] init: processing action (init.svc.qemu-adb-keys=[redacted] from (/system_ext/etc/init/init.system_ext.rc:1)
+[   13.168393] init: starting service 'qemu-adb-setup'...
+[   13.172373] init: processing action (nonencrypted) from (/system/etc/init/hw/init.rc:1184)
+[   13.176400] init: starting service 'goldfish-logcat'...
+[   13.179682] init: starting service 'bt_vhci_forwarder'...
+[   13.180122] qemu-adb-setup: /data/misc/adb/adb_keys exists. Skipping qemu adb setup
+[   13.183867] init: service 'zygote' requested start, but it is already running (flags: 4)
+[   13.190265] init: starting service 'cameraserver'...
+[   13.264731] init: service 'drm' requested start, but it is already running (flags: 132)
+[   13.268576] init: starting service 'idmap2d'...
+[   13.278505] init: starting service 'incidentd'...
+[   13.284472] init: starting service 'installd'...
+[   13.290508] logd: logdr: UID=1036 GID=0 PID=391 b tail=0 logMask=99 pid=0 start=0ns deadline=0ns
+[   13.292549] init: starting service 'mediaextractor'...
+[   13.296236] init: starting service 'mediametrics'...
+[   13.299804] init: starting service 'media'...
+[   13.304402] init: service 'netd' requested start, but it is already running (flags: 4)
+[   13.306300] init: starting service 'storaged'...
+[   13.307780] init: Could not open file '/d/mmc0/mmc0:0001/ext_csd': Failed to open file '/d/mmc0/mmc0:0001/ext_csd': No such file or directory
+[   13.313397] init: starting service 'wificond'...
+[   13.319525] init: starting service 'vendor.ril-daemon'...
+[   13.327096] init: starting service 'media.swcodec'...
+[   13.331507] init: service 'statsd' requested start, but it is already running (flags: 4)
+[   13.333346] init: Command 'class_start main' action=nonencrypted (/system/etc/init/hw/init.rc:1185) took 157ms and succeeded
+[   13.336277] init: Service 'qemu-adb-setup' (pid 390) exited with status 0 oneshot service took 0.165000 seconds in background
+[   13.338642] init: Sending signal 9 to service 'qemu-adb-setup' (pid 390) process group...
+[   13.341872] libprocessgroup: Successfully killed process cgroup uid 0 pid 390 in 0ms
+[   13.344335] init: starting service 'gatekeeperd'...
+[   13.347873] init: service 'traced' requested start, but it is already running (flags: 132)
+[   13.349976] init: service 'traced_probes' requested start, but it is already running (flags: 132)
+[   13.351947] init: starting service 'usbd'...
+[   13.355350] init: starting service 'vendor.face-hal-1-0-default'...
+[   13.358991] init: starting service 'vendor.fps_hal'...
+[   13.362823] init: processing action (load_persist_props_action) from (/system/etc/init/flags_health_check.rc:1)
+[   13.371649] init: Encryption policy of /data/server_configurable_flags set to c6ed42866f41abfd34148fbb17633f19 v2 modes 1/4 flags 0x2
+[   13.378402] init: starting service 'exec 19 (/system/bin/flags_health_check BOOT_FAILURE)'...
+[   13.386013] init: SVC_EXEC service 'exec 19 (/system/bin/flags_health_check BOOT_FAILURE)' pid 418 (uid 1000 gid 1000+0 context default) started; waiting...
+[   13.537211] init: Service 'exec 19 (/system/bin/flags_health_check BOOT_FAILURE)' (pid 418) exited with status 0 waiting took 0.151000 seconds
+[   13.543845] init: Sending signal 9 to service 'exec 19 (/system/bin/flags_health_check BOOT_FAILURE)' (pid 418) process group...
+[   13.552609] libprocessgroup: Successfully killed process cgroup uid 1000 pid 418 in 0ms
+[   13.558474] init: processing action (load_persist_props_action) from (/system/etc/init/logcatd.rc:29)
+[   13.564857] init: processing action (llk.enable=0) from (/system/etc/init/llkd.rc:12)
+[   13.569845] init: processing action (khungtask.enable=1) from (/system/etc/init/llkd.rc:18)
+[   13.574997] init: processing action (llk.enable=0) from (/system/etc/init/llkd.rc:12)
+[   13.579840] init: processing action (khungtask.enable=0) from (/system/etc/init/llkd.rc:21)
+[   13.584948] init: processing action (init.svc.media=*) from (/system/etc/init/mediaserver.rc:1)
+[   13.590337] init: processing action (khungtask.enable=true) from (/system/etc/init/llkd.rc:25)
+[   13.597837] init: processing action (khungtask.enable=false) from (/system/etc/init/llkd.rc:31)
+[   13.602744] init: processing action (init.svc.mediadrm=running) from (/vendor/etc/init/android.hardware.drm-service.widevine.rc:1)
+[   13.635961] init: Service 'usbd' (pid 415) exited with status 0 oneshot service took 0.281000 seconds in background
+[   13.638191] init: Sending signal 9 to service 'usbd' (pid 415) process group...
+[   13.639770] libprocessgroup: Successfully killed process cgroup uid 0 pid 415 in 0ms
+[   14.765948] init: Service 'exec 18 (/system/bin/bootstat --set_system_boot_reason)' (pid 385) exited with status 0 oneshot service took 1.672000 seconds in background
+[   14.769491] init: Sending signal 9 to service 'exec 18 (/system/bin/bootstat --set_system_boot_reason)' (pid 385) process group...
+[   14.776831] libprocessgroup: Successfully killed process cgroup uid 1000 pid 385 in 1ms
+[   14.874603] init: starting service 'mdnsd'...
+[   14.876000] init: Created socket '/dev/socket/mdnsd', mode 660, user 1020, group 3003
+[   14.885499] init: Control message: Processed ctl.start for 'mdnsd' from pid: 379 (/apex/com.android.adbd/bin/adbd --root_seclabel=u:r:su:s0)
+[   17.841600] init: starting service 'bootanim'...
+[   17.856955] init: Control message: Processed ctl.start for 'bootanim' from pid: 344 (/system/bin/surfaceflinger)
+[   17.938914] init: Service 'exec 17 (/system/bin/profcollectctl reset)' (pid 353) exited with status 0 oneshot service took 5.388000 seconds in background
+[   17.942921] init: Sending signal 9 to service 'exec 17 (/system/bin/profcollectctl reset)' (pid 353) process group...
+[   17.945750] libprocessgroup: Successfully killed process cgroup uid 0 pid 353 in 0ms
+[   18.106923] init: Service 'bootanim' (pid 481) exited with status 0 oneshot service took 0.254000 seconds in background
+[   18.109961] init: Sending signal 9 to service 'bootanim' (pid 481) process group...
+[   18.112446] libprocessgroup: Successfully killed process cgroup uid 1003 pid 481 in 0ms
+[   24.432995] apexd: Can't open /system_ext/apex for reading : No such file or directory
+[   24.435188] apexd: Can't open /product/apex for reading : No such file or directory
+[   24.437427] apexd: Can't open /vendor/apex for reading : No such file or directory
+[   25.935859] AidlLazyServiceRegistrar: Process has 1 (of 1 available) client(s) in use after notification apexservice has clients: 1
+[   25.939778] AidlLazyServiceRegistrar: Shutdown prevented by forcePersist override flag.
+[   35.216007] init: service 'idmap2d' requested start, but it is already running (flags: 4)
+[   35.217775] init: Control message: Processed ctl.start for 'idmap2d' from pid: 505 (system_server)
+[   35.526659] healthd: battery l=100 v=5000 t=25.0 h=2 st=2 c=900000 fc=3000000 cc=10 chg=a
+[   35.816603] init: processing action (sys.sysctl.extra_free_kbytes=*) from (/system/etc/init/hw/init.rc:1203)
+[   35.820891] init: starting service 'exec 20 (/system/bin/extra_free_kbytes.sh 28096)'...
+[   35.828168] init: SVC_EXEC service 'exec 20 (/system/bin/extra_free_kbytes.sh 28096)' pid 614 (uid 0 gid 0+0 context default) started; waiting...
+[   35.877967] AidlLazyServiceRegistrar: Process has 0 (of 1 available) client(s) in use after notification apexservice has clients: 0
+[   35.880839] AidlLazyServiceRegistrar: Shutdown prevented by forcePersist override flag.
+[   35.914951] init: Service 'exec 20 (/system/bin/extra_free_kbytes.sh 28096)' (pid 614) exited with status 0 waiting took 0.087000 seconds
+[   35.918174] init: Sending signal 9 to service 'exec 20 (/system/bin/extra_free_kbytes.sh 28096)' (pid 614) process group...
+[   35.921281] libprocessgroup: Successfully killed process cgroup uid 0 pid 614 in 0ms
+[   45.511168] init: Sending signal 9 to service 'idmap2d' (pid 395) process group...
+[   45.519794] libprocessgroup: Successfully killed process cgroup uid 1000 pid 395 in 6ms
+[   45.523049] init: Control message: Processed ctl.stop for 'idmap2d' from pid: 505 (system_server)
+[   45.526285] init: Service 'idmap2d' (pid 395) received signal 9
+[   57.254681] init: starting service 'wpa_supplicant'...
+[   57.260265] init: Created socket '/dev/socket/wpa_wlan0', mode 660, user 1010, group 1010
+[   57.267123] init: Control message: Processed ctl.interface_start for 'aidl/android.hardware.wifi.supplicant.ISupplicant/default' from pid: 141 (/system/bin/servicemanager)
+[   57.401778] capability: warning: `wpa_supplicant' uses 32-bit capabilities (legacy support in use)
+[   58.787796] init: starting service 'vendor.gnss-2-0'...
+[   58.797967] init: Control message: Processed ctl.interface_start for 'android.hardware.gnss@2.0::IGnss/default' from pid: 142 (/system/bin/hwservicemanager)
+[   58.802680] init: service 'vendor.gnss-2-0' requested start, but it is already running (flags: 134)
+[   58.804631] init: Control message: Processed ctl.interface_start for 'android.hardware.gnss@2.0::IGnss/default' from pid: 142 (/system/bin/hwservicemanager)
+[   59.188230] type=1400 audit(1786779602.580:5): avc: granted { read } for comm="rkstack.process" name="psched" dev="proc" ino=4026532021 scontext=u:r:network_stack:s0 tcontext=u:object_r:proc_net:s0 tclass=file
+[   59.193559] type=1400 audit(1786779602.580:6): avc: granted { read open } for comm="rkstack.process" path="/proc/961/net/psched" dev="proc" ino=4026532021 scontext=u:r:network_stack:s0 tcontext=u:object_r:proc_net:s0 tclass=file
+[   59.199785] type=1400 audit(1786779602.580:7): avc: granted { getattr } for comm="rkstack.process" path="/proc/961/net/psched" dev="proc" ino=4026532021 scontext=u:r:network_stack:s0 tcontext=u:object_r:proc_net:s0 tclass=file
+[   60.878855] AidlLazyServiceRegistrar: Process has 1 (of 1 available) client(s) in use after notification apexservice has clients: 1
+[   60.882200] AidlLazyServiceRegistrar: Shutdown prevented by forcePersist override flag.
+[   60.888455] AidlLazyServiceRegistrar: Process has 0 (of 1 available) client(s) in use after notification apexservice has clients: 0
+[   60.890995] AidlLazyServiceRegistrar: Shutdown prevented by forcePersist override flag.
+[   67.027481] init: processing action (sys.boot_completed=1) from (/system/etc/init/hw/init.rc:1194)
+[   67.037757] init: starting service 'exec 21 (/bin/rm -rf /data/per_boot)'...
+[   67.049494] init: SVC_EXEC service 'exec 21 (/bin/rm -rf /data/per_boot)' pid 1539 (uid 1000 gid 1000+0 context default) started; waiting...
+[   67.178798] init: Service 'exec 21 (/bin/rm -rf /data/per_boot)' (pid 1539) exited with status 0 waiting took 0.102000 seconds
+[   67.182004] init: Sending signal 9 to service 'exec 21 (/bin/rm -rf /data/per_boot)' (pid 1539) process group...
+[   67.195691] libprocessgroup: Successfully killed process cgroup uid 1000 pid 1539 in 0ms
+[   67.239971] init: Encryption policy of /data/per_boot set to cd86c8eeb5f664a2d8b65e147482e0b1 v2 modes 1/4 flags 0x2
+[   67.242788] init: processing action (sys.boot_completed=1) from (/vendor/etc/init/hw/init.ranchu.rc:222)
+[   67.248108] init: processing action (sys.boot_completed=1 && sys.bootstat.first_boot_completed=0) from (/system/etc/init/bootstat.rc:77)
+[   67.251725] init: starting service 'exec 22 (/system/bin/bootstat --record_boot_complete --record_boot_reason --record_time_since_factory_reset -l)'...
+[   67.282472] init: processing action (sys.boot_completed=1) from (/system/etc/init/flags_health_check.rc:7)
+[   67.299530] init: processing action (persist.dbg.keep_debugfs_mounted= && ro.product.debugfs_restrictions.enabled=true && sys.boot_completed=1) from (/system/etc/init/init-debug.rc:15)
+[   67.311037] init: processing action (sys.boot_completed=1) from (/system/etc/init/logd.rc:34)
+[   67.337887] init: starting service 'logd-auditctl'...
+[   67.417981] init: Command 'start logd-auditctl' action=sys.boot_completed=1 (/system/etc/init/logd.rc:35) took 101ms and succeeded
+[   67.448397] init: Service 'exec 22 (/system/bin/bootstat --record_boot_complete --record_boot_reason --record_time_since_factory_reset -l)' (pid 1557) exited with status 0 oneshot service took 0.182000 seconds in background
+[   67.473492] init: Sending signal 9 to service 'exec 22 (/system/bin/bootstat --record_boot_complete --record_boot_reason --record_time_since_factory_reset -l)' (pid 1557) process group...
+[   67.486420] libprocessgroup: Successfully killed process cgroup uid 1000 pid 1557 in 0ms
+[   67.492692] init: Service 'logd-auditctl' (pid 1567) exited with status 0 oneshot service took 0.102000 seconds in background
+[   67.531914] init: Sending signal 9 to service 'logd-auditctl' (pid 1567) process group...
+[   67.538196] libprocessgroup: Successfully killed process cgroup uid 1036 pid 1567 in 0ms
+[   67.591287] init: processing action (sys.boot_completed=1 && sys.wifitracing.started=0) from (/system/etc/init/wifi.rc:28)
+[   67.597223] selinux: SELinux: Could not get canonical path for /sys/kernel/debug/tracing/instances/wifi restorecon: No such file or directory.
+[   67.645253] selinux: 
+[   67.654782] init: Command 'restorecon_recursive /sys/kernel/debug/tracing/instances/wifi' action=sys.boot_completed=1 && sys.wifitracing.started=0 (/system/etc/init/wifi.rc:31) took 57ms and succeeded
+[   67.833279] init: Command 'mkdir /sys/kernel/tracing/instances/wifi 711' action=sys.boot_completed=1 && sys.wifitracing.started=0 (/system/etc/init/wifi.rc:36) took 167ms and succeeded
+[   67.960385] init: Command 'write /sys/kernel/tracing/instances/wifi/events/cfg80211/rdev_add_key/enable 1' action=sys.boot_completed=1 && sys.wifitracing.started=0 (/system/etc/init/wifi.rc:56) took 55ms and succeeded
+[   68.134883] init: Command 'write /sys/kernel/tracing/instances/wifi/events/cfg80211/rdev_auth/enable 1' action=sys.boot_completed=1 && sys.wifitracing.started=0 (/system/etc/init/wifi.rc:58) took 128ms and succeeded
+[   68.243237] init: Command 'write /sys/kernel/tracing/instances/wifi/events/net/filter name==${wifi.interface:-wlan0}' action=sys.boot_completed=1 && sys.wifitracing.started=0 (/system/etc/init/wifi.rc:75) took 65ms and succeeded
+[   68.256252] init: processing action (dev.bootcomplete=1) from (/vendor/etc/init/hw/init.ranchu.rc:137)
+[   68.262244] init: starting service 'ranchu-setup'...
+[   68.269474] init: processing action (persist.sys.zram_enabled=1 && sys-boot-completed-set) from (/vendor/etc/init/hw/init.ranchu.rc:225)
+[   68.409555] zram0: detected capacity change from 0 to 3019680
+[   68.473484] mkswap: Swapspace size: 1509836k, UUID=[uuid]
+[   68.484636] Adding 1509836k swap on /dev/block/zram0.  Priority:-2 extents:1 across:1509836k SS
+[   68.489591] init: Command 'swapon_all /vendor/etc/fstab.${ro.hardware}' action=persist.sys.zram_enabled=1 && sys-boot-completed-set (/vendor/etc/init/hw/init.ranchu.rc:226) took 171ms and succeeded
+[   68.500142] init: Service 'ranchu-setup' (pid 1584) exited with status 0 oneshot service took 0.235000 seconds in background
+[   68.503239] init: Sending signal 9 to service 'ranchu-setup' (pid 1584) process group...
+[   68.505589] libprocessgroup: Successfully killed process cgroup uid 0 pid 1584 in 0ms
+[   68.555654] init: starting service 'idmap2d'...
+[   68.567092] init: Control message: Processed ctl.start for 'idmap2d' from pid: 505 (system_server)
+[   68.572202] init: processing action (sys.user.0.ce_available=true) from (/system/etc/init/wifi.rc:21)
+[   68.595601] init: processing action (sys.boot_completed=1 && sys.wifitracing.started=1 && wifi.interface=*) from (/system/etc/init/wifi.rc:98)
+[   68.670592] init: Command 'write /sys/kernel/tracing/instances/wifi/events/net/filter name==${wifi.interface}' action=sys.boot_completed=1 && sys.wifitracing.started=1 && wifi.interface=* (/system/etc/init/wifi.rc:101) took 54ms and succeeded
+[   70.756154] apexd: Deleting unused dm device com.android.apex.cts.shim
+[   70.797430] apexd: Didn't generate uevent for [com.android.apex.cts.shim] removal
+[   70.799768] apexd: Failed to delete dm-device com.android.apex.cts.shim
+[   70.801424] apexd: Deleting unused dm device com.android.btservices
+[   70.833289] apexd: Didn't generate uevent for [com.android.btservices] removal
+[   70.834805] apexd: Failed to delete dm-device com.android.btservices
+[   70.836091] apexd: Deleting unused dm device com.android.i18n
+[   70.841152] apexd: Didn't generate uevent for [com.android.i18n] removal
+[   70.842578] apexd: Failed to delete dm-device com.android.i18n
+[   70.844071] apexd: Deleting unused dm device com.android.runtime
+[   70.857303] apexd: Didn't generate uevent for [com.android.runtime] removal
+[   70.859180] apexd: Failed to delete dm-device com.android.runtime
+[   70.860785] apexd: Deleting unused dm device com.android.tzdata
+[   70.864068] apexd: Didn't generate uevent for [com.android.tzdata] removal
+[   70.870636] apexd: Failed to delete dm-device com.android.tzdata
+[   70.872091] apexd: Deleting unused dm device com.android.vndk.v33
+[   70.879254] AidlLazyServiceRegistrar: Process has 1 (of 1 available) client(s) in use after notification apexservice has clients: 1
+[   70.881998] apexd: Didn't generate uevent for [com.android.vndk.v33] removal
+[   70.883691] apexd: Failed to delete dm-device com.android.vndk.v33
+[   70.884819] AidlLazyServiceRegistrar: Shutdown prevented by forcePersist override flag.
+[   70.887350] apexd: Deleting unused dm device com.google.mainline.primary.libs
+[   70.891861] AidlLazyServiceRegistrar: Process has 0 (of 1 available) client(s) in use after notification apexservice has clients: 0
+[   70.891864] AidlLazyServiceRegistrar: Shutdown prevented by forcePersist override flag.
+[   70.913353] apexd: Didn't generate uevent for [com.google.mainline.primary.libs] removal
+[   70.915460] apexd: Failed to delete dm-device com.google.mainline.primary.libs
+[   70.918308] AidlLazyServiceRegistrar: Trying to shut down the service. No clients in use for any service in process.
+[   70.923268] AidlLazyServiceRegistrar: Unregistered all clients and exiting
+[   70.940481] init: Service 'apexd' (pid 207) exited with status 0 oneshot service took 63.102001 seconds in background
+[   70.943311] init: Sending signal 9 to service 'apexd' (pid 207) process group...
+[   70.945354] libprocessgroup: Successfully killed process cgroup uid 0 pid 207 in 0ms
+[   72.416055] binder_alloc: 1771: binder_alloc_buf, no vma
+[   72.416718] binder: release 1771:1771 transaction 64433 out, still active
+[   72.419084] binder: 505:1266 transaction failed 29189/-3, size 4-0 line 3371
+[   72.419110] binder: undelivered TRANSACTION_COMPLETE
+[   72.420683] binder: send failed reply for transaction 64433, target dead
+[   72.514181] healthd: battery l=100 v=5000 t=25.0 h=2 st=2 c=900000 fc=3000000 cc=10 chg=a
+[   72.532730] wlan0: authenticate with [mac]
+[   72.534157] wlan0: send auth to [mac] (try 1/3)
+[   72.808688] wlan0: authenticated
+[   72.816192] mac80211_hwsim hwsim0 wlan0: disabling HT/VHT/HE as WMM/QoS is not supported by the AP
+[   72.825128] wlan0: associate with [mac] (try 1/3)
+[   72.969355] wlan0: associate with [mac] (try 2/3)
+[   72.973201] wlan0: RX AssocResp from [mac] (capab=0x401 status=0 aid=1)
+[   72.983040] wlan0: associated
+[   75.691419] init: Untracked pid 2219 received signal 15
+[   75.692629] init: Untracked pid 2219 did not have an associated service entry and will not be reaped
+[   80.729147] binder: release 2235:2235 transaction 79848 out, still active
+[   80.802505] binder: undelivered TRANSACTION_COMPLETE
+[   81.729510] init: Untracked pid 2235 received signal 1
+[   81.730671] init: Untracked pid 2235 did not have an associated service entry and will not be reaped
+[   85.887490] binder: release 2727:2727 transaction 101397 out, still active
+[   85.889325] binder: undelivered TRANSACTION_COMPLETE
+[   85.996150] init: Sending signal 9 to service 'idmap2d' (pid 1587) process group...
+[   86.010333] libprocessgroup: Successfully killed process cgroup uid 1000 pid 1587 in 12ms
+[   86.014561] init: Control message: Processed ctl.stop for 'idmap2d' from pid: 505 (system_server)
+[   86.016809] init: Service 'idmap2d' (pid 1587) received signal 9
+[   86.307542] 8021q: adding VLAN 0 to HW filter on device eth0
+[   86.381966] type=1400 audit(1786779629.772:8): avc: denied { write } for comm="binder:299_4" name="mtu" dev="sysfs" ino=32465 scontext=u:r:netd:s0 tcontext=u:object_r:sysfs:s0 tclass=file permissive=0
+[   86.483931] type=1400 audit(1786779629.876:9): avc: denied { write } for comm="binder:299_4" name="mtu" dev="sysfs" ino=32465 scontext=u:r:netd:s0 tcontext=u:object_r:sysfs:s0 tclass=file permissive=0
+[   86.888582] init: Untracked pid 2727 received signal 1
+[   86.890261] init: Untracked pid 2727 did not have an associated service entry and will not be reaped
+[   89.134521] binder: invalid inc weak node for 79849
+[   89.136437] binder: 505:838 IncRefs 0 refcount change on invalid ref 1294 ret -22
+[   89.138050] binder: invalid inc weak node for 79851
+[   89.139156] binder: 505:838 IncRefs 0 refcount change on invalid ref 1295 ret -22
+[   89.141124] binder: 505:838 transaction failed 29189/-22, size 104-0 line 3191
+[   89.144045] binder: 505:838 transaction failed 29189/0, size 4-0 line 3122
+[   89.146489] binder: send failed reply for transaction 79848, target dead
+[   90.701015] logd: logdr: UID=10119 GID=10119 PID=1302 n tail=0 logMask=4 pid=0 start=0ns deadline=0ns
+[   92.001942] binder: release 3232:3232 transaction 131548 out, still active
+[   92.004602] binder: undelivered TRANSACTION_COMPLETE
+[   93.003865] init: Untracked pid 3232 received signal 1
+[   93.006935] init: Untracked pid 3232 did not have an associated service entry and will not be reaped
+[   93.357783] type=1400 audit(1786779636.748:10): avc: denied { search } for comm=73796E6320737663203830 name="oem" dev="dm-5" ino=43 scontext=u:r:adbd:s0 tcontext=u:object_r:oemfs:s0 tclass=dir permissive=0
+[   94.799831] binder: invalid inc weak node for 101399
+[   94.801334] binder: 505:1997 IncRefs 0 refcount change on invalid ref 1583 ret -22
+[   94.806023] binder: invalid inc weak node for 101403
+[   94.807137] binder: 505:1997 IncRefs 0 refcount change on invalid ref 1584 ret -22
+[   94.844605] binder: 505:1997 transaction failed 29189/-22, size 104-0 line 3191
+[   94.904369] binder: 505:1997 transaction failed 29189/0, size 4-0 line 3122
+[   94.965107] binder: send failed reply for transaction 101397, target dead
+[   95.737443] type=1400 audit(1786779639.128:11): avc: denied { read } for comm="binder:2650_4" name="u:object_r:system_adbd_prop:s0" dev="tmpfs" ino=269 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:system_adbd_prop:s0 tclass=file permissive=0 app=com.google.android.gms
+[   95.737522] logd: start watching /data/system/packages.list ...
+[   95.744189] logd: ReadPackageList, total packages: 181
+[   95.749836] type=1400 audit(1786779639.128:12): avc: denied { read } for comm="binder:2650_4" name="u:object_r:adbd_prop:s0" dev="tmpfs" ino=61 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:adbd_prop:s0 tclass=file permissive=0 app=com.google.android.gms
+[   95.948480] binder: invalid inc weak node for 131549
+[   95.959683] binder: 505:1932 IncRefs 0 refcount change on invalid ref 1802 ret -22
+[   95.962218] binder: invalid inc weak node for 131552
+[   95.966122] binder: 505:1932 IncRefs 0 refcount change on invalid ref 1803 ret -22
+[   95.967840] binder: 505:1932 transaction failed 29189/-22, size 104-0 line 3191
+[   95.971830] binder: 505:1932 transaction failed 29189/0, size 4-0 line 3122
+[   95.992854] type=1400 audit(1786779639.384:13): avc: denied { read } for comm="IntentService[D" name="u:object_r:system_adbd_prop:s0" dev="tmpfs" ino=269 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:system_adbd_prop:s0 tclass=file permissive=0 app=com.google.android.gms
+[   96.003749] type=1400 audit(1786779639.388:14): avc: denied { read } for comm="IntentService[D" name="u:object_r:adbd_prop:s0" dev="tmpfs" ino=61 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:adbd_prop:s0 tclass=file permissive=0 app=com.google.android.gms
+[   96.022959] binder: send failed reply for transaction 131548, target dead
+[   96.844917] type=1400 audit(1786779640.236:15): avc: denied { read } for comm="binder:2650_1" name="u:object_r:system_adbd_prop:s0" dev="tmpfs" ino=269 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:system_adbd_prop:s0 tclass=file permissive=0 app=com.google.android.gms
+[   96.851864] type=1400 audit(1786779640.236:16): avc: denied { read } for comm="binder:2650_1" name="u:object_r:adbd_prop:s0" dev="tmpfs" ino=61 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:adbd_prop:s0 tclass=file permissive=0 app=com.google.android.gms
+[   97.164166] logd: start watching /data/system/packages.list ...
+[   97.169192] logd: ReadPackageList, total packages: 181
+[   97.387738] type=1400 audit(1786779640.780:17): avc: denied { read } for comm="binder:2650_5" name="u:object_r:system_adbd_prop:s0" dev="tmpfs" ino=269 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:system_adbd_prop:s0 tclass=file permissive=0 app=com.google.android.gms
+[   97.395751] type=1400 audit(1786779640.788:18): avc: denied { read } for comm="binder:2650_5" name="u:object_r:adbd_prop:s0" dev="tmpfs" ino=61 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:adbd_prop:s0 tclass=file permissive=0 app=com.google.android.gms
+[   99.614846] type=1400 audit(1786779643.008:19): avc: denied { read } for comm="binder:2650_1" name="u:object_r:system_adbd_prop:s0" dev="tmpfs" ino=269 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:system_adbd_prop:s0 tclass=file permissive=0 app=com.google.android.gms
+[   99.630331] type=1400 audit(1786779643.016:20): avc: denied { read } for comm="binder:2650_1" name="u:object_r:adbd_prop:s0" dev="tmpfs" ino=61 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:adbd_prop:s0 tclass=file permissive=0 app=com.google.android.gms
+[  101.278400] type=1400 audit(1786779644.672:21): avc: denied { read } for comm="binder:2650_5" name="u:object_r:system_adbd_prop:s0" dev="tmpfs" ino=269 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:system_adbd_prop:s0 tclass=file permissive=0 app=com.google.android.gms
+[  101.288714] type=1400 audit(1786779644.672:22): avc: denied { read } for comm="binder:2650_5" name="u:object_r:adbd_prop:s0" dev="tmpfs" ino=61 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:adbd_prop:s0 tclass=file permissive=0 app=com.google.android.gms
+[  101.353805] init: starting service 'idmap2d'...
+[  101.358783] init: Control message: Processed ctl.start for 'idmap2d' from pid: 505 (system_server)
+[  102.813246] type=1400 audit(1786779646.196:23): avc: denied { read } for comm="binder:2650_5" name="u:object_r:system_adbd_prop:s0" dev="tmpfs" ino=269 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:system_adbd_prop:s0 tclass=file permissive=0 app=com.google.android.gms
+[  102.857315] type=1400 audit(1786779646.196:24): avc: denied { read } for comm="binder:2650_5" name="u:object_r:adbd_prop:s0" dev="tmpfs" ino=61 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:adbd_prop:s0 tclass=file permissive=0 app=com.google.android.gms
+[  103.302986] logd: logdr: UID=10119 GID=10119 PID=1302 n tail=0 logMask=4 pid=0 start=0ns deadline=0ns
+[  103.949538] type=1400 audit(1786779647.340:25): avc: denied { read } for comm="binder:2650_1" name="u:object_r:system_adbd_prop:s0" dev="tmpfs" ino=269 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:system_adbd_prop:s0 tclass=file permissive=0 app=com.google.android.gms
+[  103.956729] type=1400 audit(1786779647.340:26): avc: denied { read } for comm="binder:2650_1" name="u:object_r:adbd_prop:s0" dev="tmpfs" ino=61 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:adbd_prop:s0 tclass=file permissive=0 app=com.google.android.gms
+[  105.288046] type=1400 audit(1786779648.680:27): avc: denied { getattr } for comm="sh" path="/proc/iomem" dev="proc" ino=4026532065 scontext=u:r:shell:s0 tcontext=u:object_r:proc_iomem:s0 tclass=file permissive=0
+[  105.382871] type=1400 audit(1786779648.772:28): avc: denied { getattr } for comm="sh" path="/proc/sys/kernel/kptr_restrict" dev="proc" ino=59132 scontext=u:r:shell:s0 tcontext=u:object_r:proc_security:s0 tclass=file permissive=0
+[  105.392390] type=1400 audit(1786779648.772:29): avc: denied { getattr } for comm="sh" path="/proc/sys/kernel/dmesg_restrict" dev="proc" ino=59133 scontext=u:r:shell:s0 tcontext=u:object_r:proc_security:s0 tclass=file permissive=0
+[  105.420983] audit: audit_lost=1 audit_rate_limit=5 audit_backlog_limit=64
+[  105.422895] audit: rate limit exceeded
+[  105.422935] type=1400 audit(1786779648.812:30): avc: denied { getattr } for comm="sh" path="/proc/sys/kernel/randomize_va_space" dev="proc" ino=59171 scontext=u:r:shell:s0 tcontext=u:object_r:proc_security:s0 tclass=file permissive=0
+[  105.428804] type=1400 audit(1786779648.812:31): avc: denied { getattr } for comm="sh" path="/sys/kernel/boot_params/data" dev="sysfs" ino=701 scontext=u:r:shell:s0 tcontext=u:object_r:sysfs:s0 tclass=file permissive=0
+[  106.304657] type=1400 audit(1786779649.696:102): avc: denied { cpu } for comm="perf_text_poke_" scontext=u:r:shell:s0 tcontext=u:r:shell:s0 tclass=perf_event permissive=0
+[  106.309024] type=1400 audit(1786779649.696:103): avc: denied { cpu } for comm="perf_text_poke_" scontext=u:r:shell:s0 tcontext=u:r:shell:s0 tclass=perf_event permissive=0
+[  106.312938] type=1400 audit(1786779649.696:104): avc: denied { cpu } for comm="perf_text_poke_" scontext=u:r:shell:s0 tcontext=u:r:shell:s0 tclass=perf_event permissive=0
+[  106.320040] binder: 505:521 DecRefs 0 refcount change on invalid ref 1583 ret -22
+[  106.328161] binder: 505:521 DecRefs 0 refcount change on invalid ref 1584 ret -22
+[  106.359299] binder: 505:521 DecRefs 0 refcount change on invalid ref 1295 ret -22
+[  106.363595] binder: 505:521 DecRefs 0 refcount change on invalid ref 1294 ret -22
+[  106.367444] type=1400 audit(1786779649.760:105): avc: denied { read } for comm="proc_iomem_kern" name="iomem" dev="proc" ino=4026532065 scontext=u:r:shell:s0 tcontext=u:object_r:proc_iomem:s0 tclass=file permissive=0
+[  106.375016] type=1400 audit(1786779649.768:106): avc: denied { read } for comm="proc_kallsyms" name="kallsyms" dev="proc" ino=4026532073 scontext=u:r:shell:s0 tcontext=u:object_r:proc_kallsyms:s0 tclass=file permissive=0
+[  106.432078] binder: 505:521 DecRefs 0 refcount change on invalid ref 1803 ret -22
+[  106.472926] audit: audit_lost=73 audit_rate_limit=5 audit_backlog_limit=64
+[  106.474293] binder: 505:521 DecRefs 0 refcount change on invalid ref 1802 ret -22
+[  106.475949] audit: rate limit exceeded
+[  107.424228] type=1400 audit(1786779650.816:152): avc: denied { read } for comm="binder:2650_5" name="u:object_r:system_adbd_prop:s0" dev="tmpfs" ino=269 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:system_adbd_prop:s0 tclass=file permissive=0 app=com.google.android.gms
+[  107.437660] type=1400 audit(1786779650.816:153): avc: denied { read } for comm="binder:2650_5" name="u:object_r:adbd_prop:s0" dev="tmpfs" ino=61 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:adbd_prop:s0 tclass=file permissive=0 app=com.google.android.gms
+[  109.772729] logd: start watching /data/system/packages.list ...
+[  109.775375] logd: ReadPackageList, total packages: 181
+[  110.715853] type=1400 audit(1786779654.108:154): avc: denied { read } for comm="binder:2650_5" name="u:object_r:system_adbd_prop:s0" dev="tmpfs" ino=269 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:system_adbd_prop:s0 tclass=file permissive=0 app=com.google.android.gms
+[  110.737205] type=1400 audit(1786779654.124:155): avc: denied { read } for comm="binder:2650_5" name="u:object_r:adbd_prop:s0" dev="tmpfs" ino=61 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:adbd_prop:s0 tclass=file permissive=0 app=com.google.android.gms
+[  111.654968] binder: undelivered TRANSACTION_COMPLETE
+[  111.656338] binder: undelivered transaction 333817, process died.
+[  111.659268] binder: undelivered TRANSACTION_COMPLETE
+[  111.661740] binder: undelivered transaction 333822, process died.
+[  111.663341] binder: undelivered transaction 334135, process died.
+[  112.084695] binder: undelivered TRANSACTION_COMPLETE
+[  112.085987] binder: undelivered transaction 339787, process died.
+[  113.228473] binder: 1096:2594 transaction failed 29189/-22, size 168-0 line 3191
+[  113.254629] binder: 1096:2594 transaction failed 29189/-22, size 168-0 line 3191
+[  113.259295] binder: 1096:2594 transaction failed 29189/-22, size 244-0 line 3191
+[  113.262156] binder: 1096:2594 transaction failed 29189/-22, size 168-0 line 3191
+[  113.279287] binder: 1096:2594 transaction failed 29189/-22, size 168-0 line 3191
+[  113.283481] binder: 1096:2594 transaction failed 29189/-22, size 244-0 line 3191
+[  113.313250] binder: 1096:1360 transaction failed 29189/-22, size 244-0 line 3191
+[  113.364368] binder: 1096:1360 transaction failed 29189/-22, size 244-0 line 3191
+[  113.383287] binder: 1096:1360 transaction failed 29189/-22, size 168-0 line 3191
+[  114.898021] binder: 1096:2594 transaction failed 29189/-22, size 244-0 line 3191
+[  119.907883] binder_alloc: 1096: binder_alloc_buf size 1056768 failed, no address space
+[  119.912376] binder_alloc: allocated: 0 (num: 0 largest: 0), free: 1040384 (num: 1 largest: 1040384)
+[  119.916088] binder: 1302:2977 transaction failed 29201/-28, size 1056768-0 line 3371
+[  120.108321] logd: logdr: UID=10119 GID=10119 PID=1302 n tail=0 logMask=4 pid=0 start=0ns deadline=0ns
+[  121.244868] type=1400 audit(1786779664.636:156): avc: denied { read } for comm="binder:2650_6" name="u:object_r:system_adbd_prop:s0" dev="tmpfs" ino=269 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:system_adbd_prop:s0 tclass=file permissive=0 app=com.google.android.gms
+[  121.255702] type=1400 audit(1786779664.640:157): avc: denied { read } for comm="binder:2650_6" name="u:object_r:adbd_prop:s0" dev="tmpfs" ino=61 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:adbd_prop:s0 tclass=file permissive=0 app=com.google.android.gms
+[  121.733361] init: Sending signal 9 to service 'idmap2d' (pid 4019) process group...
+[  121.744290] libprocessgroup: Successfully killed process cgroup uid 1000 pid 4019 in 8ms
+[  121.747720] init: Control message: Processed ctl.stop for 'idmap2d' from pid: 505 (system_server)
+[  121.752615] init: Service 'idmap2d' (pid 4019) received signal 9
+[  122.717631] type=1400 audit(1786779666.112:158): avc: denied { read } for comm="IntentService[D" name="u:object_r:system_adbd_prop:s0" dev="tmpfs" ino=269 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:system_adbd_prop:s0 tclass=file permissive=0 app=com.google.android.gms
+[  122.740057] type=1400 audit(1786779666.116:159): avc: denied { read } for comm="IntentService[D" name="u:object_r:adbd_prop:s0" dev="tmpfs" ino=61 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:adbd_prop:s0 tclass=file permissive=0 app=com.google.android.gms
+[  126.450622] init: processing action (persist.device_config.lmkd_native.thrashing_limit_critical=*) from (/system/etc/init/lmkd.rc:44)
+[  126.457754] init: processing action (lmkd.reinit=1) from (/system/etc/init/lmkd.rc:10)
+[  126.461183] init: starting service 'exec 23 (/system/bin/lmkd --reinit)'...
+[  126.530212] init: Service 'exec 23 (/system/bin/lmkd --reinit)' (pid 5488) exited with status 0 oneshot service took 0.066000 seconds in background
+[  126.533375] init: Sending signal 9 to service 'exec 23 (/system/bin/lmkd --reinit)' (pid 5488) process group...
+[  126.536046] libprocessgroup: Successfully killed process cgroup uid 0 pid 5488 in 0ms
+[  127.419915] binder: undelivered transaction 484906, process died.
+[  127.430162] binder: release 1096:1113 transaction 484751 in, still active
+[  127.431853] binder: send failed reply for transaction 484751 to 3147:5500
+[  127.433932] binder: release 1096:1117 transaction 484800 in, still active
+[  127.435542] binder: send failed reply for transaction 484800 to 1764:5501
+[  127.435544] binder_alloc: 1096: binder_alloc_buf, no vma
+[  127.437004] binder: release 1096:1385 transaction 484764 in, still active
+[  127.439709] binder_alloc: 1096: binder_alloc_buf, no vma
+[  127.439737] binder: 505:957 transaction failed 29189/-3, size 0-0 line 3371
+[  127.440373] binder: send failed reply for transaction 484764 to 1513:5503
+[  127.440384] binder: release 1096:1712 transaction 484821 in, still active
+[  127.440386] binder: send failed reply for transaction 484821 to 2872:5502
+[  127.440887] binder: release 1096:2318 transaction 484790 in, still active
+[  127.449576] binder_alloc: 1096: binder_alloc_buf, no vma
+[  127.450177] binder: 505:1487 transaction failed 29189/-3, size 0-0 line 3371
+[  127.450926] binder: send failed reply for transaction 484790 to 1765:5499
+[  127.451291] binder: release 1096:3237 transaction 484818 in, still active
+[  127.456163] binder: send failed reply for transaction 484818 to 1556:5504
+[  127.456723] binder: 505:1695 transaction failed 29189/-3, size 0-0 line 3371
+[  127.458301] binder_alloc: 1096: binder_alloc_buf, no vma
+[  127.460105] binder: undelivered transaction 484877, process died.
+[  127.460475] binder_alloc: 1096: binder_alloc_buf, no vma
+[  127.460495] binder: 505:531 transaction failed 29189/-3, size 88-0 line 3371
+[  127.462795] binder: undelivered transaction 484907, process died.
+[  127.465001] binder_alloc: 1096: binder_alloc_buf, no vma
+[  127.466768] binder: undelivered transaction 484943, process died.
+[  127.468146] binder: 505:2499 transaction failed 29189/-3, size 0-0 line 3371
+[  127.468197] binder_alloc: 1096: binder_alloc_buf, no vma
+[  127.468200] binder: 505:531 transaction failed 29189/-3, size 88-0 line 3371
+[  127.469653] binder: undelivered transaction 484946, process died.
+[  127.471995] binder: 505:1997 transaction failed 29189/-3, size 0-0 line 3371
+[  127.473320] binder: undelivered transaction 484947, process died.
+[  127.481138] binder: undelivered transaction 484948, process died.
+[  127.493515] binder: undelivered transaction 484876, process died.
+[  127.495133] binder: send failed reply for transaction 484938 to 3147:3259
+[  129.393975] type=1400 audit(1786779672.788:160): avc: denied { read } for comm="binder:2650_5" name="u:object_r:system_adbd_prop:s0" dev="tmpfs" ino=269 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:system_adbd_prop:s0 tclass=file permissive=0 app=com.google.android.gms
+[  129.399544] type=1400 audit(1786779672.792:161): avc: denied { read } for comm="binder:2650_5" name="u:object_r:adbd_prop:s0" dev="tmpfs" ino=61 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:adbd_prop:s0 tclass=file permissive=0 app=com.google.android.gms
+[  129.552277] binder: 5568:5645 transaction failed 29189/-22, size 160-0 line 3191
+[  129.602558] binder: 5568:5645 transaction failed 29189/-22, size 160-0 line 3191
+[  129.677387] binder: 5568:5645 transaction failed 29189/-22, size 160-0 line 3191
+[  132.513287] healthd: battery l=100 v=5000 t=25.0 h=2 st=2 c=900000 fc=3000000 cc=10 chg=a
+[  144.438116] binder: undelivered TRANSACTION_COMPLETE
+[  144.440665] binder: undelivered transaction 544570, process died.
+[  144.443701] binder: undelivered TRANSACTION_COMPLETE
+[  144.445178] binder: undelivered transaction 544406, process died.
+[  150.225433] type=1400 audit(1786779693.616:162): avc: denied { read } for comm="binder:2650_6" name="u:object_r:system_adbd_prop:s0" dev="tmpfs" ino=269 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:system_adbd_prop:s0 tclass=file permissive=0 app=com.google.android.gms
+[  150.231996] type=1400 audit(1786779693.624:163): avc: denied { read } for comm="binder:2650_6" name="u:object_r:adbd_prop:s0" dev="tmpfs" ino=61 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:adbd_prop:s0 tclass=file permissive=0 app=com.google.android.gms
+[  156.932992] binder: 5505:5533 transaction failed 29201/-28, size 343524-0 line 3371
+[  192.515467] healthd: battery l=100 v=5000 t=25.0 h=2 st=2 c=900000 fc=3000000 cc=10 chg=a
+[  221.195089] type=1400 audit(1786779764.588:164): avc: denied { getattr } for comm="sh" path="/proc/iomem" dev="proc" ino=4026532065 scontext=u:r:shell:s0 tcontext=u:object_r:proc_iomem:s0 tclass=file permissive=0
+[  221.228686] type=1400 audit(1786779764.620:165): avc: denied { getattr } for comm="sh" path="/proc/sys/kernel/kptr_restrict" dev="proc" ino=59132 scontext=u:r:shell:s0 tcontext=u:object_r:proc_security:s0 tclass=file permissive=0
+[  221.233365] type=1400 audit(1786779764.620:166): avc: denied { getattr } for comm="sh" path="/proc/sys/kernel/dmesg_restrict" dev="proc" ino=59133 scontext=u:r:shell:s0 tcontext=u:object_r:proc_security:s0 tclass=file permissive=0
+[  221.245191] type=1400 audit(1786779764.636:167): avc: denied { getattr } for comm="sh" path="/proc/sys/kernel/randomize_va_space" dev="proc" ino=66289 scontext=u:r:shell:s0 tcontext=u:object_r:proc_security:s0 tclass=file permissive=0
+[  221.249835] audit: audit_lost=116 audit_rate_limit=5 audit_backlog_limit=64
+[  221.249994] type=1400 audit(1786779764.640:168): avc: denied { getattr } for comm="sh" path="/sys/kernel/boot_params/data" dev="sysfs" ino=701 scontext=u:r:shell:s0 tcontext=u:object_r:sysfs:s0 tclass=file permissive=0
+[  221.251650] audit: rate limit exceeded
+[  221.255718] type=1400 audit(1786779764.640:169): avc: denied { getattr } for comm="sh" path="/sys/kernel/notes" dev="sysfs" ino=369 scontext=u:r:shell:s0 tcontext=u:object_r:sysfs_kernel_notes:s0 tclass=file permissive=0
+[  221.260828] type=1400 audit(1786779764.644:170): avc: denied { getattr } for comm="find" path="/sys/firmware/memmap/5/end" dev="sysfs" ino=19958 scontext=u:r:shell:s0 tcontext=u:object_r:sysfs:s0 tclass=file permissive=0
+[  221.266055] type=1400 audit(1786779764.644:171): avc: denied { getattr } for comm="find" path="/sys/firmware/memmap/5/type" dev="sysfs" ino=19959 scontext=u:r:shell:s0 tcontext=u:object_r:sysfs:s0 tclass=file permissive=0
+[  252.512791] healthd: battery l=100 v=5000 t=25.0 h=2 st=2 c=900000 fc=3000000 cc=10 chg=a
+[  279.906652] type=1400 audit(1786779823.300:287): avc: denied { getattr } for comm="sh" path="/proc/iomem" dev="proc" ino=4026532065 scontext=u:r:shell:s0 tcontext=u:object_r:proc_iomem:s0 tclass=file permissive=0
+[  279.942653] type=1400 audit(1786779823.336:288): avc: denied { getattr } for comm="sh" path="/proc/sys/kernel/kptr_restrict" dev="proc" ino=59132 scontext=u:r:shell:s0 tcontext=u:object_r:proc_security:s0 tclass=file permissive=0
+[  279.947157] type=1400 audit(1786779823.336:289): avc: denied { getattr } for comm="sh" path="/proc/sys/kernel/dmesg_restrict" dev="proc" ino=59133 scontext=u:r:shell:s0 tcontext=u:object_r:proc_security:s0 tclass=file permissive=0
+[  279.961251] audit: audit_lost=231 audit_rate_limit=5 audit_backlog_limit=64
+[  279.961317] type=1400 audit(1786779823.352:290): avc: denied { getattr } for comm="sh" path="/proc/sys/kernel/randomize_va_space" dev="proc" ino=66289 scontext=u:r:shell:s0 tcontext=u:object_r:proc_security:s0 tclass=file permissive=0
+[  279.963355] audit: rate limit exceeded
+[  279.968408] type=1400 audit(1786779823.356:291): avc: denied { getattr } for comm="sh" path="/sys/kernel/boot_params/data" dev="sysfs" ino=701 scontext=u:r:shell:s0 tcontext=u:object_r:sysfs:s0 tclass=file permissive=0
+[  287.796629] type=1400 audit(1786779831.188:410): avc: denied { read } for comm="binder:2650_5" name="u:object_r:system_adbd_prop:s0" dev="tmpfs" ino=269 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:system_adbd_prop:s0 tclass=file permissive=0 app=com.google.android.gms
+[  287.802449] type=1400 audit(1786779831.188:411): avc: denied { read } for comm="binder:2650_5" name="u:object_r:adbd_prop:s0" dev="tmpfs" ino=61 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:adbd_prop:s0 tclass=file permissive=0 app=com.google.android.gms
+[  312.512743] healthd: battery l=100 v=5000 t=25.0 h=2 st=2 c=900000 fc=3000000 cc=10 chg=a
+[  361.052290] init: processing action (persist.device_config.lmkd_native.thrashing_limit_critical=*) from (/system/etc/init/lmkd.rc:44)
+[  361.058419] init: processing action (lmkd.reinit=1) from (/system/etc/init/lmkd.rc:10)
+[  361.060520] init: starting service 'exec 24 (/system/bin/lmkd --reinit)'...
+[  361.113032] init: Service 'exec 24 (/system/bin/lmkd --reinit)' (pid 7331) exited with status 0 oneshot service took 0.048000 seconds in background
+[  361.125323] init: Sending signal 9 to service 'exec 24 (/system/bin/lmkd --reinit)' (pid 7331) process group...
+[  361.134624] libprocessgroup: Successfully killed process cgroup uid 0 pid 7331 in 3ms
+[  372.512699] healthd: battery l=100 v=5000 t=25.0 h=2 st=2 c=900000 fc=3000000 cc=10 chg=a
+[  398.140098] init: Service 'adbd' (pid 379) exited with status 1
+[  398.143223] init: Sending signal 9 to service 'adbd' (pid 379) process group...
+[  398.145141] libprocessgroup: Successfully killed process cgroup uid 0 pid 379 in 0ms
+[  398.147395] init: starting service 'adbd'...
+[  398.150296] init: Created socket '/dev/socket/adbd', mode 660, user 1000, group 1000
+[  412.624148] type=1400 audit(1786779956.016:412): avc: denied { read } for comm="binder:2650_6" name="u:object_r:system_adbd_prop:s0" dev="tmpfs" ino=269 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:system_adbd_prop:s0 tclass=file permissive=0 app=com.google.android.gms
+[  412.630304] type=1400 audit(1786779956.016:413): avc: denied { read } for comm="binder:2650_6" name="u:object_r:adbd_prop:s0" dev="tmpfs" ino=61 scontext=u:r:gmscore_app:s0:c512,c768 tcontext=u:object_r:adbd_prop:s0 tclass=file permissive=0 app=com.google.android.gms
+[  432.512706] healthd: battery l=100 v=5000 t=25.0 h=2 st=2 c=900000 fc=3000000 cc=10 chg=a

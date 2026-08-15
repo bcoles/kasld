@@ -120,6 +120,13 @@ if [ -r /etc/os-release ]; then
   _id=$(sed -n 's/^ID=//p' /etc/os-release 2>/dev/null | tr -d '"' | head -1)
   _ver=$(sed -n 's/^VERSION_ID=//p' /etc/os-release 2>/dev/null | tr -d '"' | head -1)
   DISTRO="${_id:-unknown}-${_ver:-}"
+elif command -v getprop >/dev/null 2>&1; then
+  # Android ships no /etc/os-release, and /system/build.prop is root-only, so
+  # an unprivileged capture would otherwise be filed as "unknown". The property
+  # service answers regardless of who asks.
+  _rel=$(getprop ro.build.version.release 2>/dev/null)
+  _sdk=$(getprop ro.build.version.sdk 2>/dev/null)
+  [ -n "${_rel:-}${_sdk:-}" ] && DISTRO="android-${_rel:-$_sdk}"
 fi
 
 # Sanitize a token for use in a filename.
@@ -271,6 +278,22 @@ done
 
 grab_tree /sys/firmware/memmap
 
+# ---------------------------------------------------------------------------
+# Vantage: what the analysis reads to establish where it stands rather than
+# what the kernel looks like. A capture without these replays as an unconfined
+# root shell on a host with no mandatory access control, which is the one
+# vantage most systems do not have -- and on a system whose sources are gated
+# by policy rather than by their absence, the vantage IS the finding.
+# ---------------------------------------------------------------------------
+for f in \
+  /proc/self/status /proc/self/attr/current /etc/group \
+  /sys/kernel/security/lsm /sys/module/apparmor/parameters/enabled \
+  /sys/fs/selinux/enforce /sys/fs/selinux/policyvers /sys/fs/selinux/mls \
+  /proc/self/cgroup /proc/1/cgroup /.dockerenv /run/.containerenv
+do
+  grab "$f"
+done
+
 # iSCSI transports: `handle` is the address of the registering driver's static
 # struct iscsi_transport (CVE-2021-27363), one per transport the host has
 # loaded. Read by sysfs_iscsi_transport_handle, which enumerates the class.
@@ -370,6 +393,21 @@ if [ "$ANON" -eq 1 ]; then
     grep -v -e '^model name' -e '^Model' -e '^Hardware' -e '^Serial' "$ci" \
       > "$ci.tmp" 2>/dev/null && mv "$ci.tmp" "$ci"
   fi
+  # /etc/group's fourth field lists the account names in each group, which
+  # names the system's users. Inference reads only the name and the gid, so the
+  # member list is dropped rather than scrubbed. A trailing colon is kept: the
+  # field is empty, not missing.
+  gf="$OUT/sysroot/etc/group"
+  if [ -f "$gf" ]; then
+    sed -E 's/^([^:]*:[^:]*:[^:]*:).*$/\1/' "$gf" > "$gf.tmp" 2>/dev/null \
+      && mv "$gf.tmp" "$gf"
+  fi
+  # Identity, not secrets: the collecting process's own uid/gid/groups are the
+  # vantage being recorded. Only the name it ran under is scrubbed.
+  scrub_secrets "$OUT/sysroot/proc/self/status"
+  # Container ids embed the runtime's own UUIDs, which scrub_secrets rewrites.
+  scrub_secrets "$OUT/sysroot/proc/self/cgroup"
+  scrub_secrets "$OUT/sysroot/proc/1/cgroup"
   scrub_secrets "$OUT/sysroot/proc/cmdline"
   scrub_secrets "$OUT/sysroot/proc/version"
   scrub_secrets "$OUT/verbose.txt"
@@ -412,6 +450,11 @@ fi
   echo "  sysroot/        raw /proc, /sys, /boot facts the analysis reads."
   echo "                  Includes proc/cmdline (may carry boot secrets),"
   echo "                  proc/cpuinfo, proc/iomem, proc/modules."
+  echo "                  Also the vantage: the collecting process's identity"
+  echo "                  (proc/self/status, proc/self/attr/current), the"
+  echo "                  active LSM, and etc/group. With --anonymize the"
+  echo "                  group member lists are dropped, since they name the"
+  echo "                  system's users and inference reads only name + gid."
   echo "  dmesg.txt       kernel log, if permitted (hostnames, MACs, serials)."
   echo "  verbose.txt     kasld output, including leaked kernel addresses."
   if [ "$WANT_KALLSYMS" -eq 1 ]; then

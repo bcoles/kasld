@@ -1,0 +1,99 @@
+Node 0, zone    DMA32
+  per-node stats
+      nr_inactive_anon 103499
+      nr_active_anon 47885
+      nr_inactive_file 100170
+      nr_active_file 62182
+      nr_unevictable 2597
+      nr_slab_reclaimable 17160
+      nr_slab_unreclaimable 37398
+      nr_isolated_anon 0
+      nr_isolated_file 0
+      workingset_nodes 9820
+      workingset_refault_anon 133053
+      workingset_refault_file 1287965
+      workingset_activate_anon 48091
+      workingset_activate_file 533879
+      workingset_restore_anon 24021
+      workingset_restore_file 371503
+      workingset_nodereclaim 0
+      nr_anon_pages 148442
+      nr_mapped    125232
+      nr_file_pages 168698
+      nr_dirty     11
+      nr_writeback 0
+      nr_writeback_temp 0
+      nr_shmem     2699
+      nr_shmem_hugepages 0
+      nr_shmem_pmdmapped 0
+      nr_file_hugepages 0
+      nr_file_pmdmapped 0
+      nr_anon_transparent_hugepages 0
+      nr_vmscan_write 313733
+      nr_vmscan_immediate_reclaim 8279
+      nr_dirtied   274345
+      nr_written   582083
+      nr_kernel_misc_reclaimable 0
+      nr_foll_pin_acquired 205293240
+      nr_foll_pin_released 205293240
+      nr_kernel_stack 43936
+      nr_page_table_pages 25006
+      nr_swapcached 1300
+  pages free     45934
+        min      18432
+        low      30108
+        high     41784
+        spanned  524243
+        present  524146
+        managed  503281
+        cma      0
+        protection: (0, 0, 0)
+      nr_free_pages 45934
+      nr_zone_inactive_anon 103499
+      nr_zone_active_anon 47885
+      nr_zone_inactive_file 100170
+      nr_zone_active_file 62182
+      nr_zone_unevictable 2597
+      nr_zone_write_pending 11
+      nr_mlock     2597
+      nr_bounce    0
+      nr_zspages   38442
+      nr_free_cma  0
+  pagesets
+    cpu: 0
+              count: 372
+              high:  10036
+              batch: 63
+  vm stats threshold: 20
+    cpu: 1
+              count: 502
+              high:  10036
+              batch: 63
+  vm stats threshold: 20
+    cpu: 2
+              count: 1050
+              high:  10036
+              batch: 63
+  vm stats threshold: 20
+  node_unreclaimable:  0
+  start_pfn:           1
+Node 0, zone   Normal
+  pages free     0
+        min      0
+        low      0
+        high     0
+        spanned  0
+        present  0
+        managed  0
+        cma      0
+        protection: (0, 0, 0)
+Node 0, zone  Movable
+  pages free     0
+        min      0
+        low      0
+        high     0
+        spanned  0
+        present  0
+        managed  0
+        cma      0
+        protection: (0, 0, 0)

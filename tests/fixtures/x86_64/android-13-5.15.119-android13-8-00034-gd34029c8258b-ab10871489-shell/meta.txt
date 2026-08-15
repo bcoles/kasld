@@ -1,0 +1,10 @@
+collect_version:  2
+collected_utc:    Sat Aug 15 07:43:43 UTC 2026
+uname_m_raw:      x86_64
+arch_canonical:   x86_64
+kernel_release:   5.15.119-android13-8-00034-gd34029c8258b-ab10871489
+distro:           android-13
+kasld:            kasld 0.3.1-dev
+suggested_fixture: tests/fixtures/x86_64/android-13-5.15.119-android13-8-00034-gd34029c8258b-ab10871489-shell/
+anonymized:       1
+kallsyms:         1

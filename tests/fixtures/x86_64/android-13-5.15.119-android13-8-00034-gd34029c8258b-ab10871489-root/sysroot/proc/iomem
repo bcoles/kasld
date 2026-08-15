@@ -1,0 +1,124 @@
+00000000-00000fff : Reserved
+00001000-0009fbff : System RAM
+0009fc00-0009ffff : Reserved
+000a0000-000bffff : PCI Bus 0000:00
+000c0000-000c0dff : Video ROM
+000f0000-000fffff : Reserved
+  000f0000-000fffff : System ROM
+00100000-7ffd3fff : System RAM
+  31000000-32804c4a : Kernel code
+  32a00000-339f9fff : Kernel rodata
+  33a00000-33bfa9ff : Kernel data
+  33db4000-33ffffff : Kernel bss
+7ffd4000-7fffffff : Reserved
+80000000-febfffff : PCI Bus 0000:00
+  feb80000-febbffff : 0000:00:09.0
+  febc0000-febc0fff : 0000:00:03.0
+  febc1000-febc1fff : 0000:00:04.0
+  febc2000-febc2fff : 0000:00:05.0
+  febc3000-febc3fff : 0000:00:06.0
+  febc4000-febc4fff : 0000:00:07.0
+  febc5000-febc5fff : 0000:00:08.0
+  febc6000-febc6fff : 0000:00:09.0
+  febc7000-febc7fff : 0000:00:0a.0
+  febc8000-febc8fff : 0000:00:0b.0
+    febc8000-febc8fff : Address space control
+  febc9000-febc9fff : 0000:00:0c.0
+  febca000-febcafff : 0000:00:0e.0
+  febcb000-febcbfff : 0000:00:0f.0
+  febcc000-febccfff : 0000:00:10.0
+  febcd000-febcdfff : 0000:00:11.0
+  febce000-febcefff : 0000:00:12.0
+  febcf000-febcffff : 0000:00:13.0
+  febd0000-febd0fff : 0000:00:14.0
+  febd1000-febd1fff : 0000:00:15.0
+  febd2000-febd2fff : 0000:00:16.0
+  febd3000-febd3fff : 0000:00:17.0
+  febd4000-febd4fff : 0000:00:18.0
+  febd5000-febd5fff : 0000:00:19.0
+  febd6000-febd6fff : 0000:00:1a.0
+  febd7000-febd7fff : 0000:00:1b.0
+fec00000-fec003ff : IOAPIC 0
+fed00000-fed003ff : HPET 0
+  fed00000-fed003ff : PNP0103:00
+fee00000-fee00fff : Local APIC
+feffc000-feffffff : Reserved
+ff001000-ff002fff : GFSH0003:00
+ff010000-ff010fff : GFSH0001:00
+ff011000-ff011fff : GFSH0002:00
+ff012000-ff0120ff : GFSH0004:00
+ff013000-ff0130ff : GFSH0005:00
+ff014000-ff015fff : GFSH0006:00
+ff016000-ff016fff : GFSH0007:00
+ff017000-ff017fff : GFSH0008:00
+ff018000-ff027fff : Reserved
+  ff018000-ff018fff : ramoops:dmesg(0/12)
+  ff019000-ff019fff : ramoops:dmesg(1/12)
+  ff01a000-ff01afff : ramoops:dmesg(2/12)
+  ff01b000-ff01bfff : ramoops:dmesg(3/12)
+  ff01c000-ff01cfff : ramoops:dmesg(4/12)
+  ff01d000-ff01dfff : ramoops:dmesg(5/12)
+  ff01e000-ff01efff : ramoops:dmesg(6/12)
+  ff01f000-ff01ffff : ramoops:dmesg(7/12)
+  ff020000-ff020fff : ramoops:dmesg(8/12)
+  ff021000-ff021fff : ramoops:dmesg(9/12)
+  ff022000-ff022fff : ramoops:dmesg(10/12)
+  ff023000-ff023fff : ramoops:dmesg(11/12)
+  ff024000-ff024fff : ramoops:dmesg(12/12)
+  ff025000-ff025fff : ramoops:console
+  ff026000-ff026554 : ramoops:ftrace(0/2)
+  ff026555-ff026aa9 : ramoops:ftrace(1/2)
+  ff026aaa-ff026ffe : ramoops:ftrace(2/2)
+  ff026fff-ff027ffe : ramoops:pmsg
+fffc0000-ffffffff : Reserved
+400000000-80005ffff : PCI Bus 0000:00
+  400000000-7ffffffff : 0000:00:0b.0
+    400000000-7ffffffff : Address space area
+  800000000-800003fff : 0000:00:02.0
+    800000000-800003fff : virtio-pci-modern
+  800004000-800007fff : 0000:00:03.0
+    800004000-800007fff : virtio-pci-modern
+  800008000-80000bfff : 0000:00:04.0
+    800008000-80000bfff : virtio-pci-modern
+  80000c000-80000ffff : 0000:00:05.0
+    80000c000-80000ffff : virtio-pci-modern
+  800010000-800013fff : 0000:00:06.0
+    800010000-800013fff : virtio-pci-modern
+  800014000-800017fff : 0000:00:07.0
+    800014000-800017fff : virtio-pci-modern
+  800018000-80001bfff : 0000:00:08.0
+    800018000-80001bfff : virtio-pci-modern
+  80001c000-80001ffff : 0000:00:09.0
+    80001c000-80001ffff : virtio-pci-modern
+  800020000-800023fff : 0000:00:0a.0
+    800020000-800023fff : virtio-pci-modern
+  800024000-800027fff : 0000:00:0c.0
+    800024000-800027fff : virtio-pci-modern
+  800028000-80002bfff : 0000:00:0d.0
+    800028000-80002bfff : virtio-pci-modern
+  80002c000-80002ffff : 0000:00:0e.0
+    80002c000-80002ffff : virtio-pci-modern
+  800030000-800033fff : 0000:00:0f.0
+    800030000-800033fff : virtio-pci-modern
+  800034000-800037fff : 0000:00:10.0
+    800034000-800037fff : virtio-pci-modern
+  800038000-80003bfff : 0000:00:11.0
+    800038000-80003bfff : virtio-pci-modern
+  80003c000-80003ffff : 0000:00:12.0
+    80003c000-80003ffff : virtio-pci-modern
+  800040000-800043fff : 0000:00:13.0
+    800040000-800043fff : virtio-pci-modern
+  800044000-800047fff : 0000:00:14.0
+    800044000-800047fff : virtio-pci-modern
+  800048000-80004bfff : 0000:00:15.0
+    800048000-80004bfff : virtio-pci-modern
+  80004c000-80004ffff : 0000:00:16.0
+    80004c000-80004ffff : virtio-pci-modern
+  800050000-800053fff : 0000:00:17.0
+    800050000-800053fff : virtio-pci-modern
+  800054000-800057fff : 0000:00:18.0
+    800054000-800057fff : virtio-pci-modern
+  800058000-80005bfff : 0000:00:19.0
+    800058000-80005bfff : virtio-pci-modern
+  80005c000-80005ffff : 0000:00:1b.0
+    80005c000-80005ffff : virtio-pci-modern

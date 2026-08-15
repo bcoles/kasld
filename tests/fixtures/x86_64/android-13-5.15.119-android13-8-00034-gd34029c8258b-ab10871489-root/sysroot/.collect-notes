@@ -1,0 +1,18 @@
+absent: /sys/kernel/security/lockdown
+absent: /sys/kernel/boot_params/setup_data
+absent: /sys/kernel/security/lsm
+absent: /sys/module/apparmor/parameters/enabled
+absent: /.dockerenv
+absent: /run/.containerenv
+absent: /sys/class/iscsi_transport
+absent: /proc/device-tree/chosen
+absent: /proc/device-tree/rtas
+absent: /sys/firmware/devicetree/base/chosen
+absent: /sys/firmware/devicetree/base/rtas
+absent: /sys/firmware/fdt
+absent: /boot/config-5.15.119-android13-8-00034-gd34029c8258b-ab10871489
+absent: /boot/vmlinuz-5.15.119-android13-8-00034-gd34029c8258b-ab10871489
+absent: /boot/Image-5.15.119-android13-8-00034-gd34029c8258b-ab10871489
+absent: /boot/vmlinux-5.15.119-android13-8-00034-gd34029c8258b-ab10871489
+absent: /boot/System.map-5.15.119-android13-8-00034-gd34029c8258b-ab10871489
+anonymized: host identity, CPU brand, UUIDs/MACs, sensitive cmdline values redacted
