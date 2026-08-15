@@ -80,9 +80,9 @@
   <text x="182" y="413" class="sub2">CVE-tagged; KASLD ships components for several</text>
 
   <rect x="552" y="320" width="384" height="108" rx="8" fill="#fff5f6" stroke="#ef9a9a"/>
-  <text x="566" y="344" class="cat" fill="#b71c1c">Arbitrary read</text>
-  <text x="566" y="365" class="desc">an arbitrary read/write primitive reads a kernel</text>
-  <text x="566" y="380" class="desc">pointer directly, defeating KASLR outright</text>
+  <text x="566" y="344" class="cat" fill="#b71c1c">Exploit primitives</text>
+  <text x="566" y="365" class="desc">a read, write, or code-exec primitive recovers or</text>
+  <text x="566" y="380" class="desc">sidesteps KASLR during exploitation</text>
   <text x="566" y="413" class="sub2">the exploit supplies the primitive, not KASLD</text>
 
   <text x="32" y="452" class="note">Top band needs only access; the bottom needs a vulnerability. The full catalog &#8212; references, CVEs, and component links &#8212; is in the sections below.</text>

@@ -13,12 +13,12 @@ microarchitectural or software side-channels, leaking addresses through
 syscalls and kernel interfaces, exploiting ioctl handlers that copy
 uninitialized kernel memory to userspace, brute-forcing memory layout
 constraints, taking advantage of weak randomization entropy, leveraging
-patched kernel info leak bugs, and using arbitrary read primitives.
+patched kernel info leak bugs, and leveraging exploit primitives.
 
 Grouped by what a leak needs — from reading an interface, through measuring or
 inferring, to exploiting a bug:
 
-![KASLR bypass technique map: eight technique categories in three bands by requirement — read an interface (filesystem leaks, syscall and interface leaks, ioctl leaks), measure or infer (side-channels, brute force, weak entropy), and exploit a bug (patched kernel bugs, arbitrary read)](diagrams/bypass-technique-map.svg)
+![KASLR bypass technique map: eight technique categories in three bands by requirement — read an interface (filesystem leaks, syscall and interface leaks, ioctl leaks), measure or infer (side-channels, brute force, weak entropy), and exploit a bug (patched kernel bugs, exploit primitives)](diagrams/bypass-technique-map.svg)
 
 ## Table of Contents
 
@@ -33,7 +33,7 @@ inferring, to exploiting a bug:
 - [Brute force](#brute-force)
 - [Weak entropy](#weak-entropy)
 - [Patched kernel bugs](#patched-kernel-bugs)
-- [Arbitrary read](#arbitrary-read)
+- [Exploit primitives](#exploit-primitives)
 
 ## Filesystem leaks
 
@@ -549,13 +549,69 @@ memfd hugetlb non-zeroed folio leak. `memfd_alloc_folio()` in `mm/memfd.c` alloc
 
   * [mm/memfd: fix information leak in hugetlb folios](https://github.com/torvalds/linux/commit/de8798965fd0d9a6c47fc2ac57767ec32de12b49) (2025)
 
-## Arbitrary read
+## Exploit primitives
 
-Kernel vulnerabilities which provide arbitrary read (or write) primitives can
-be leveraged to leak kernel pointers and defeat KASLR, even when direct info
-leak vectors are unavailable.
+Once a vulnerability yields an in-kernel primitive — most often an arbitrary
+read, but a constrained or relative read, an out-of-bounds read, a use-after-free
+read, or a write repurposed into a read all qualify — KASLR is bypassed as a step
+of the exploit rather than through an unprivileged interface leak. Which technique
+applies follows from the strength of the primitive, from a narrow over-read at one
+end to full arbitrary read/write or code execution at the other.
 
-Leaking kernel addresses using `msg_msg` struct for arbitrary read (for `KMALLOC_CGROUP` objects):
+Exploitation makes two co-equal demands on KASLR, set by the strategy rather than
+by any single canonical slide:
+
+  * **Control-flow hijack and fixed-symbol overwrite** need the **image slide**
+    (`.text`/`.data` base) — gadget addresses, or the offset to a global such as
+    `modprobe_path` or `core_pattern`.
+  * **Data-only corruption** — flipping `cred`, page tables, or a `pipe_buffer`,
+    which sidesteps CFI/CET/SMEP — needs the **direct-map (`page_offset`) base**,
+    the physical↔virtual pivot that makes an arbitrary heap object addressable.
+
+On x86-64 the two bases are decoupled (`RANDOMIZE_MEMORY`), so which one an exploit
+needs is set by its strategy. Recovering the image slide is a subtraction —
+`slide = leaked_pointer − link_time(symbol)`, checked against the image alignment
+(`CONFIG_PHYSICAL_ALIGN`, 2 MiB on x86-64) — while recovering the direct-map base
+is an alignment: a leaked heap pointer lies in the linear map, so `page_offset`
+follows from rounding it down to the 1 GiB grid. A third strategy needs neither:
+corruption that reaches its target relative to an object already held — up to
+DirtyPipe-style page-cache overwrites — bypasses KASLR by not requiring any kernel
+address.
+
+### Leaking a pointer from a reachable object
+
+A relative, out-of-bounds, or use-after-free read that reaches an adjacent or
+reclaimed slab object leaks a pointer; which pointer it targets decides which base
+falls out.
+
+**To the image slide**, many heap objects embed pointers with known link-time
+values:
+
+  * **Operations tables** — `file_operations`, `tty_operations`, `proto_ops`,
+    `seq_operations`, `pipe_buffer->ops` (`anon_pipe_buf_ops`), `sk->sk_prot` and
+    similar `*_ops` fields point into `.rodata`/`.data`/`.text`. Reclaiming a freed
+    object with one that exposes such a field — the freed `seq_operations` of an
+    `open("/proc/…")` file landing in a use-after-free slot is the archetype —
+    yields a `.text`/`.data` pointer directly.
+  * **Deferred-work callbacks** — `timer_list.function`, `work_struct.func`.
+  * **Pointer-chasing** — leak any object pointer (a `task_struct`, a namespace),
+    then traverse to one whose target is a fixed `.data`/`.bss` symbol (`init_task`,
+    `init_cred`, `init_net`, `init_pid_ns`, `init_mm`, `init_ipc_ns`); the
+    traversal, not the first read, lands the known symbol.
+
+**To the direct-map base**, the object's own storage is the target: any slab
+object's address is a linear-map pointer, so leaking a heap pointer — a list
+neighbour, a self-reference, a back-pointer — bounds `page_offset` regardless of
+which object it belongs to. This is the data-only pivot: the recovered base makes a
+sprayed or target object (`cred`, page-table pages, a `pipe_buffer`) addressable,
+then feeds a data-only read/write primitive such as `pipe_buffer.page` AARW.
+
+The `msg_msg` structure is the usual delivery vehicle for either: corrupting its
+`m_ts` length or `next` pointer turns a one-shot overflow into a controlled
+over-read into an adjacent object. A write primitive discloses nothing by itself,
+but the same bug's write is frequently what builds the read.
+
+Leaking a kernel pointer from a reachable object (`msg_msg` and related objects):
 
   * [Four Bytes of Power: Exploiting CVE-2021-26708 in the Linux kernel | Alexander Popov](https://a13xp0p0v.github.io/2021/02/09/CVE-2021-26708.html)
   * [CVE-2021-22555: Turning \x00\x00 into 10000$ | security-research](https://google.github.io/security-research/pocs/linux/cve-2021-22555/writeup.html)
@@ -564,6 +620,47 @@ Leaking kernel addresses using `msg_msg` struct for arbitrary read (for `KMALLOC
   * [Will's Root: corCTF 2021 Fire of Salvation Writeup: Utilizing msg_msg Objects for Arbitrary Read and Arbitrary Write in the Linux Kernel](https://www.willsroot.io/2021/08/corctf-2021-fire-of-salvation-writeup.html)
   * [[corCTF 2021] Wall Of Perdition: Utilizing msg_msg Objects For Arbitrary Read And Arbitrary Write In The Linux Kernel](https://syst3mfailure.io/wall-of-perdition)
   * [[CVE-2021-42008] Exploiting A 16-Year-Old Vulnerability In The Linux 6pack Driver](https://syst3mfailure.io/sixpack-slab-out-of-bounds)
+  * [CVE-2022-0185: Linux kernel slab out-of-bounds write: exploit and writeup](https://www.openwall.com/lists/oss-security/2022/01/25/14) — partial-overwrite of `msg_msg.m_ts` extends the read to leak `init_ipc_ns` via a sprayed `shm_file_data`
+  * [\[CVE-2022-1786\] A Journey To The Dawn | kylebot's Blog](https://blog.kylebot.net/2022/10/16/CVE-2022-1786/) — `timerfd_ctx` list pointers and armed-timer `.text` callbacks
+  * [HTB UNI CTF 2021: Steam Driver Kernel Pwnable](https://www.hackthebox.com/blog/uni-ctf-writeup-steam-driver) — `msg_msg` user-copy KASLR rebase
+  * [Escaping the Google kCTF Container with a Data-Only Exploit](https://h0mbre.github.io/kCTF_Data_Only_Exploit/) (h0mbre) — `init_task`/`cred` traversal, data-only
+  * [pipe_buffer exploitation experiments](https://a13xp0p0v.github.io/2026/04/20/pipe-buffer-experiments.html) (Alexander Popov, 2026) — data-only `pipe_buffer.page` AARW; the direct-map pivot a recovered base feeds
+
+### Reading a fixed, KASLR-invariant structure
+
+A true arbitrary read — one that dereferences an attacker-chosen absolute address
+— can target a structure mapped at a fixed, KASLR-independent address whose
+contents are slid kernel-text pointers, sidestepping the object grooming above.
+The interrupt descriptor table is the canonical target: on x86-64 a read-only IDT
+alias is mapped at the constant address `0xfffffe0000000000` (`CPU_ENTRY_AREA_RO_IDT`,
+equal to `CPU_ENTRY_AREA_BASE` and unmoved by KASLR), while each gate still holds
+the runtime address of its handler.
+
+A 16-byte gate splits the 64-bit handler across `offset_low` (bits 0–15),
+`offset_middle` (16–31) and `offset_high` (32–63). Because the image slide is
+2 MiB-aligned, the low 21 bits of every handler are invariant and the top half is
+the canonical `0xffffffff…` window, so the only unknown bits — the slide entropy —
+sit in `offset_middle`; a single 32-bit read across that field reconstructs the
+handler, and subtracting the link-time symbol (gate 0 → `asm_exc_divide_error`)
+yields the slide. This is the memory-disclosure successor to the unprivileged
+`SIDT`/`SGDT` instruction leak (see [Side-channels](#side-channels)), which read
+the IDT/GDT *base*: the fixed read-only alias and UMIP defeat the instruction, but
+neither touches the gate *contents*, so an arbitrary read recovers the slide even
+where `SIDT` is blocked.
+
+  * [SIMPLE IS BETTER: Kernel Information Leak with Unprivileged Instructions (SIDT, SGDT) on x86](http://hypervsir.blogspot.com/2014/10/kernel-information-leak-with.html)
+  * [make cpu-entry-area great again — kqx](https://kqx.io/post/sp0/) — fixed IDT mapping and `cea_offset` randomization
+  * [SCTPhantom (CVE-2026-64564)](https://matrix.tencent.com/en/2026/08/06/sctphantom-CVE-2026-64564) — IDT gate 0 read from a repeatable 4-byte kernel read, bypassing UMIP
+
+### Resolving symbols from an in-kernel vantage
+
+The strongest primitives — arbitrary read/write from kernel context, or kernel
+code execution — make recovery direct rather than inferential: an attacker inside
+the kernel can read the compiled `kallsyms` tables, read a `.text` pointer from a
+CPU register (`rdmsr MSR_LSTAR` returns `entry_SYSCALL_64`), walk page tables from
+`CR3`, or read descriptor-table and segment state from ring 0. The task shifts from
+defeating KASLR to resolving symbol addresses under restrictions such as
+`kptr_restrict`.
 
 Leaking kernel addresses using privileged arbitrary read (or write) in kernel space:
 
@@ -572,3 +669,48 @@ Leaking kernel addresses using privileged arbitrary read (or write) in kernel sp
     * https://www.openwall.com/lists/oss-security/2018/08/09/6
     * https://xairy.io/articles/cve-2017-18344
     * [xairy/kernel-exploits/CVE-2017-18344](https://github.com/xairy/kernel-exploits/tree/master/CVE-2017-18344)
+
+### Corruption without a leak
+
+KASLR need not be recovered at all when the corruption reaches its target without a
+kernel address — the leak-free end of data-only exploitation:
+
+  * **Partial pointer overwrite** — because the slide is 2 MiB-aligned, the low
+    bits of every already-slid kernel pointer are KASLR-invariant, so overwriting
+    only the low byte(s) of an existing pointer retargets it within its aligned
+    region (a nearby object or gadget) with no base knowledge.
+  * **Relative writes** — overwriting a field at a known offset inside an object
+    already held: a use-after-free-reclaimed `cred`, a neighbouring slab object.
+  * **Content-only overwrites** — DirtyPipe (CVE-2022-0847) rewrites read-only
+    page-cache contents through an uninitialized `pipe_buffer.flags`, corrupting a
+    file (a setuid binary, `/etc/passwd`) with no kernel pointer whatsoever;
+    CVE-2026-31431 ("Copy Fail") reaches the page cache the same way through
+    `algif_aead` / `AF_ALG` and `splice()`.
+  * **Page-level use-after-free** — reclaiming a freed *physical page* as a
+    different object type (PageJack / Page-UAF) corrupts the overlapping structure
+    data-only.
+
+Writeups and targets:
+
+  * [The Dirty Pipe Vulnerability (CVE-2022-0847)](https://dirtypipe.cm4all.com/) (Max Kellermann, 2022) — content-only page-cache overwrite, no KASLR required
+  * [CVE-2026-31431 "Copy Fail"](https://www.sysdig.com/blog/cve-2026-31431-copy-fail-linux-kernel-flaw-lets-local-users-gain-root-in-seconds) (2026) — `algif_aead`/`AF_ALG` + `splice()` 4-byte page-cache write corrupts a setuid binary for root, no KASLR required (fix reverts commit `72548b093ee3`)
+  * [Beyond Control: Exploring Novel File System Objects for Data-Only Attacks on Linux Systems](https://arxiv.org/abs/2401.17618) (2024) — systematic study of data-only file-subsystem targets, many exploitable without a KASLR bypass
+  * [Page-UAF / PageJack (Black Hat USA 2024)](https://github.com/Lotuhu/Page-UAF) — page-level UAF PoCs (CVE-2021-22555, CVE-2022-0185, CVE-2022-0995, CVE-2023-5345); almost none require bypassing KASLR
+  * [Exploit Methods/Function pointer overwrite - Linux Kernel Security Subsystem](https://kernsec.org/wiki/index.php/Exploit_Methods/Function_pointer_overwrite) — where `.text`/fops/descriptor-table pointers live
+
+### Probing candidate bases
+
+With no leaked pointer to read directly, the base can still be found by *probing*
+the 2 MiB-aligned candidates: a survivable arbitrary read can scan them for the
+kernel's mapped contents, or — where nothing can be read back — an observable
+non-fatal side effect can distinguish a mapped from an unmapped address. A wrong
+guess that panics is single-shot, so a purely fatal primitive cannot be
+brute-forced this way, unlike the userland [Brute force](#brute-force) case.
+
+  * [Overwriting the modprobe_path](https://ian.nl/blog/overwrite-modprobe-path) (ian.nl) — recovers the slide by scanning 2 MiB-aligned bases with an arbitrary read, then overwrites `modprobe_path`
+
+## See also
+
+  * [xairy/linux-kernel-exploitation](https://github.com/xairy/linux-kernel-exploitation) — curated Linux kernel exploitation reference collection
+  * [Kernel Address Space Layout Randomization (KASLR)](https://breaking-bits.gitbook.io/breaking-bits/exploit-development/linux-kernel-exploit-development/kernel-address-space-layout-randomization-kalsr) — exploit-development walkthrough
+  * [Exploiting a Linux Kernel Infoleak to bypass Linux kASLR](https://marcograss.github.io/security/linux/2016/01/24/exploiting-infoleak-linux-kaslr-bypass.html) (Marco Grassi, 2016)
