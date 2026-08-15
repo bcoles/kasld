@@ -42,6 +42,11 @@ resolve_qemu() {
 # constant overflow gets caught. Kept targeted (not full -Werror) so the test
 # TUs' pre-existing unused-static warnings don't turn fatal.
 CFLAGS=${CFLAGS:--std=c99 -O2 -static -I$ROOT/src -Werror=shift-count-overflow -Werror=overflow}
+# Every binary this script builds is a test, so the hermeticity probe applies to
+# all of them: a test that reads a kernel fact from the machine running it is
+# asserting against that machine, on any architecture. Appended rather than put
+# in the default, so overriding CFLAGS cannot drop it.
+CFLAGS="$CFLAGS -DKASLD_HERMETIC_PROBE"
 # Targets are independent (separate build dir + binaries each), so build/run
 # them JOBS at a time. Default to one per core; JOBS=1 restores serial order.
 JOBS=${JOBS:-$(nproc 2>/dev/null || echo 1)}

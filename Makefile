@@ -371,6 +371,13 @@ run : build
 
 # Unit tests
 TEST_DIR := ./tests
+
+# Test binaries carry the hermeticity probe: kasld_resolve records any kernel
+# fact path resolved with no KASLD_SYSROOT set, and the harness fails the binary
+# on it. A test that reads the machine it runs on is asserting against that
+# machine's contents -- or against what that machine happens to lack, which its
+# source does not reveal. Never set for a shipped build.
+TEST_ALL_CFLAGS = $(ALL_CFLAGS) -DKASLD_HERMETIC_PROBE
 TEST_BIN := $(TEST_OBJ_DIR)/test_kasld
 
 # Unit tests of orchestrator internals (parsing, merge, anchor selection,
@@ -381,7 +388,7 @@ TEST_BIN := $(TEST_OBJ_DIR)/test_kasld
 # without exporting them across the public API.
 $(TEST_BIN): $(TEST_DIR)/test_kasld.c $(KASLD_SRC) $(RENDER_SRC) $(RENDER_MODE_SRCS) $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
-	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) $(PTHREAD_CFLAGS) -DKASLD_TESTING -I$(SRC_DIR) $(TEST_DIR)/test_kasld.c $(PTHREAD_LIBS) -o $@
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) $(PTHREAD_CFLAGS) -DKASLD_TESTING -I$(SRC_DIR) $(TEST_DIR)/test_kasld.c $(PTHREAD_LIBS) -o $@
 
 # Renderer unit tests (split from test_kasld.c). Same single-TU model — it
 # #includes the orchestrator + render translation units directly, hence
@@ -390,21 +397,21 @@ TEST_RENDER_BIN := $(TEST_OBJ_DIR)/test_render
 
 $(TEST_RENDER_BIN): $(TEST_DIR)/test_render.c $(KASLD_SRC) $(RENDER_SRC) $(RENDER_MODE_SRCS) $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
-	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) $(PTHREAD_CFLAGS) -DKASLD_TESTING -I$(SRC_DIR) $(TEST_DIR)/test_render.c $(PTHREAD_LIBS) -o $@
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) $(PTHREAD_CFLAGS) -DKASLD_TESTING -I$(SRC_DIR) $(TEST_DIR)/test_render.c $(PTHREAD_LIBS) -o $@
 
 # Estimate-core test (Stage A): standalone, links only estimate.c + quantities.c.
 TEST_EST_BIN := $(TEST_OBJ_DIR)/test_estimate
 
 $(TEST_EST_BIN): $(TEST_DIR)/test_estimate.c $(ESTIMATE_SRC) $(QUANTITIES_SRC) $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
-	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_estimate.c $(ESTIMATE_SRC) $(QUANTITIES_SRC) -o $@
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_estimate.c $(ESTIMATE_SRC) $(QUANTITIES_SRC) -o $@
 
 # Evidence-store test (Stage B): standalone, links only evidence.c.
 TEST_EV_BIN := $(TEST_OBJ_DIR)/test_evidence
 
 $(TEST_EV_BIN): $(TEST_DIR)/test_evidence.c $(EVIDENCE_SRC) $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
-	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_evidence.c $(EVIDENCE_SRC) -o $@
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_evidence.c $(EVIDENCE_SRC) -o $@
 
 # Align-helper test (header-only): exercises kasld_floor_text_base() and its
 # pure core against every arch's sub-offset on the host. No .c sources to link.
@@ -412,7 +419,7 @@ TEST_ALIGN_BIN := $(TEST_OBJ_DIR)/test_align
 
 $(TEST_ALIGN_BIN): $(TEST_DIR)/test_align.c $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
-	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_align.c -o $@
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_align.c -o $@
 
 # Address-parser test (header-only): drives kasld_addr_parse()'s refusal paths,
 # deriving the too-wide inputs from the build's own word so the same source is a
@@ -421,7 +428,7 @@ TEST_ADDRP_BIN := $(TEST_OBJ_DIR)/test_addr_parse
 
 $(TEST_ADDRP_BIN): $(TEST_DIR)/test_addr_parse.c $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
-	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_addr_parse.c -o $@
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_addr_parse.c -o $@
 
 # TASK_SIZE probe test (header-only): drives the boundary search and gap
 # detection in task_size.h with a synthetic address space (an injected step, no
@@ -431,7 +438,7 @@ TEST_TS_BIN := $(TEST_OBJ_DIR)/test_task_size
 
 $(TEST_TS_BIN): $(TEST_DIR)/test_task_size.c $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
-	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_task_size.c -o $@
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_task_size.c -o $@
 
 # Prefetch scan edge-detection test (header-only): drives
 # prefetch_scan_find_edge() with synthetic timing profiles. The x86_64-only
@@ -440,7 +447,7 @@ TEST_PREFETCH_SCAN_BIN := $(TEST_OBJ_DIR)/test_prefetch_scan
 
 $(TEST_PREFETCH_SCAN_BIN): $(TEST_DIR)/test_prefetch_scan.c $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
-	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_prefetch_scan.c -o $@
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_prefetch_scan.c -o $@
 
 # pin_cpu() cpuset-aware affinity test (header-only, x86_64-only cpu.h; inert
 # elsewhere). No .c sources to link.
@@ -448,7 +455,7 @@ TEST_CPU_BIN := $(TEST_OBJ_DIR)/test_cpu
 
 $(TEST_CPU_BIN): $(TEST_DIR)/test_cpu.c $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
-	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_cpu.c -o $@
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_cpu.c -o $@
 
 # Component outcome classifier test (header-only): exercises
 # kasld_classify_outcome() (outcome.h) — the reaped-status -> outcome mapping,
@@ -457,7 +464,7 @@ TEST_OUTCOME_BIN := $(TEST_OBJ_DIR)/test_outcome
 
 $(TEST_OUTCOME_BIN): $(TEST_DIR)/test_outcome.c $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
-	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_outcome.c -o $@
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_outcome.c -o $@
 
 # seccomp-exec: installs a minimal seccomp-BPF filter then execs its argv, so
 # tests/container/run can run kasld under a container-shaped syscall gate
@@ -467,7 +474,7 @@ SECCOMP_EXEC_BIN := $(TEST_OBJ_DIR)/seccomp-exec
 
 $(SECCOMP_EXEC_BIN): $(TEST_DIR)/container/seccomp-exec.c | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
-	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) $(TEST_DIR)/container/seccomp-exec.c -o $@
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) $(TEST_DIR)/container/seccomp-exec.c -o $@
 
 # fork-fail.so: LD_PRELOAD shim that fails a fraction of fork() calls with
 # EAGAIN, so tests/container/run can verify kasld stays coherent under a pids
@@ -483,7 +490,7 @@ TEST_TEXT_ORDER_BIN := $(TEST_OBJ_DIR)/test_text_order
 
 $(TEST_TEXT_ORDER_BIN): $(TEST_DIR)/test_text_order.c $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
-	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_text_order.c -o $@
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_text_order.c -o $@
 
 # Kernel image-size readers test (header-only): exercises the Image header / ELF
 # / System.map / gzip-ISIZE parsers in kasld/kernel_image.h against crafted
@@ -492,7 +499,7 @@ TEST_KIMG_BIN := $(TEST_OBJ_DIR)/test_kernel_image
 
 $(TEST_KIMG_BIN): $(TEST_DIR)/test_kernel_image.c $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
-	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_kernel_image.c -o $@
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_kernel_image.c -o $@
 
 # Engine test (Stage C/D): links the engine core + ALL ported rules. Linking the
 # whole rules/ wildcard (rather than a hand-maintained subset) means adding a
@@ -502,14 +509,14 @@ TEST_ENG_BIN := $(TEST_OBJ_DIR)/test_engine
 
 $(TEST_ENG_BIN): $(TEST_DIR)/test_engine.c $(ENGINE_CORE) $(RULE_SRCS) $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
-	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_engine.c $(ENGINE_CORE) $(RULE_SRCS) -o $@
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_engine.c $(ENGINE_CORE) $(RULE_SRCS) -o $@
 
 # Integration test: the FULL production rule registry (engine_rules.c + every
 # rules/*.c) against leak-bearing synthetic evidence.
 TEST_INT_BIN := $(TEST_OBJ_DIR)/test_engine_integration
 $(TEST_INT_BIN): $(TEST_DIR)/test_engine_integration.c $(ENGINE_CORE) $(ENGINE_RULES_SRC) $(RULE_SRCS) $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
-	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_engine_integration.c $(ENGINE_CORE) $(ENGINE_RULES_SRC) $(RULE_SRCS) -o $@
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_engine_integration.c $(ENGINE_CORE) $(ENGINE_RULES_SRC) $(RULE_SRCS) -o $@
 
 # Component parser test: dmesg_mem_init_kernel_layout's layout-dump parser,
 # exercised by #including the component (its main renamed). No extra link inputs
@@ -517,21 +524,21 @@ $(TEST_INT_BIN): $(TEST_DIR)/test_engine_integration.c $(ENGINE_CORE) $(ENGINE_R
 TEST_DMESG_BIN := $(TEST_OBJ_DIR)/test_dmesg_layout
 $(TEST_DMESG_BIN): $(TEST_DIR)/test_dmesg_layout.c $(SRC_DIR)/components/dmesg_mem_init_kernel_layout.c $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
-	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_dmesg_layout.c -o $@
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_dmesg_layout.c -o $@
 
 # BTF reader parser test: btf_struct_page_size's struct-size parser, exercised
 # by #including the component (its main renamed) against hand-built BTF blobs.
 TEST_BTF_BIN := $(TEST_OBJ_DIR)/test_btf
 $(TEST_BTF_BIN): $(TEST_DIR)/test_btf.c $(SRC_DIR)/components/btf_struct_page_size.c $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
-	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_btf.c -o $@
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_btf.c -o $@
 
 # dmesg_backtrace block parser: #includes the component (main renamed), driven
 # over a staged KASLD_SYSROOT /var/log/dmesg covering the CR3 context tagging.
 TEST_BACKTRACE_BIN := $(TEST_OBJ_DIR)/test_dmesg_backtrace
 $(TEST_BACKTRACE_BIN): $(TEST_DIR)/test_dmesg_backtrace.c $(SRC_DIR)/components/dmesg_backtrace.c $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
-	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_dmesg_backtrace.c -o $@
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_dmesg_backtrace.c -o $@
 
 # boot_config provenance: #includes the component (main renamed), driven over a
 # staged KASLD_SYSROOT to assert keyed configs stay CONF_PARSED while the
@@ -539,7 +546,7 @@ $(TEST_BACKTRACE_BIN): $(TEST_DIR)/test_dmesg_backtrace.c $(SRC_DIR)/components/
 TEST_BOOTCFG_BIN := $(TEST_OBJ_DIR)/test_boot_config
 $(TEST_BOOTCFG_BIN): $(TEST_DIR)/test_boot_config.c $(SRC_DIR)/components/boot_config.c $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
-	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_boot_config.c -o $@
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_boot_config.c -o $@
 
 # dmesg_kaslr_disabled classification: #includes the component (main renamed),
 # driven over a staged KASLD_SYSROOT /var/log/dmesg to assert only whitelisted
@@ -547,7 +554,7 @@ $(TEST_BOOTCFG_BIN): $(TEST_DIR)/test_boot_config.c $(SRC_DIR)/components/boot_c
 TEST_KASLRDIS_BIN := $(TEST_OBJ_DIR)/test_dmesg_kaslr_disabled
 $(TEST_KASLRDIS_BIN): $(TEST_DIR)/test_dmesg_kaslr_disabled.c $(SRC_DIR)/components/dmesg_kaslr_disabled.c $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
-	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_dmesg_kaslr_disabled.c -o $@
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_dmesg_kaslr_disabled.c -o $@
 
 # sysfs_devicetree_memory covering completeness: #includes the component (main
 # renamed), driven over a staged KASLD_SYSROOT binary device tree to assert a
@@ -556,7 +563,7 @@ $(TEST_KASLRDIS_BIN): $(TEST_DIR)/test_dmesg_kaslr_disabled.c $(SRC_DIR)/compone
 TEST_DTMEM_BIN := $(TEST_OBJ_DIR)/test_sysfs_devicetree_memory
 $(TEST_DTMEM_BIN): $(TEST_DIR)/test_sysfs_devicetree_memory.c $(SRC_DIR)/components/sysfs_devicetree_memory.c $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
-	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_sysfs_devicetree_memory.c -o $@
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_sysfs_devicetree_memory.c -o $@
 
 # proc_net_sock_ptr hashed-pointer rejection: the component is #included (main
 # renamed) so its classify_sock_ptr() is unit-tested, and it is driven over a
@@ -564,14 +571,14 @@ $(TEST_DTMEM_BIN): $(TEST_DIR)/test_sysfs_devicetree_memory.c $(SRC_DIR)/compone
 TEST_SOCKPTR_BIN := $(TEST_OBJ_DIR)/test_proc_net_sock_ptr
 $(TEST_SOCKPTR_BIN): $(TEST_DIR)/test_proc_net_sock_ptr.c $(SRC_DIR)/components/proc_net_sock_ptr.c $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
-	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_proc_net_sock_ptr.c -o $@
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_proc_net_sock_ptr.c -o $@
 
 # proc_timer_list hashed-pointer rejection: same slab/pointer-alignment gate as
 # proc_net_sock_ptr, unit-tested (classify_timer_base) + staged /proc/timer_list.
 TEST_TIMERLIST_BIN := $(TEST_OBJ_DIR)/test_proc_timer_list
 $(TEST_TIMERLIST_BIN): $(TEST_DIR)/test_proc_timer_list.c $(SRC_DIR)/components/proc_timer_list.c $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
-	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_proc_timer_list.c -o $@
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_proc_timer_list.c -o $@
 
 # Build/target width check (header-only): the two mismatch signals and, mostly,
 # the paths that must NOT report one. Driven over a staged KASLD_SYSROOT.
@@ -579,7 +586,7 @@ TEST_TWIDTH_BIN := $(TEST_OBJ_DIR)/test_target_width
 
 $(TEST_TWIDTH_BIN): $(TEST_DIR)/test_target_width.c $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
-	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_target_width.c -o $@
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_target_width.c -o $@
 
 # proc_kallsyms masked-probe + address width: the kptr_restrict all-zero
 # detection and the refusal of a symbol address wider than this build's word,
@@ -587,7 +594,7 @@ $(TEST_TWIDTH_BIN): $(TEST_DIR)/test_target_width.c $(HDRS) | $(TEST_OBJ_DIR)
 TEST_KALLSYMS_BIN := $(TEST_OBJ_DIR)/test_proc_kallsyms
 $(TEST_KALLSYMS_BIN): $(TEST_DIR)/test_proc_kallsyms.c $(SRC_DIR)/components/proc_kallsyms.c $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
-	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_proc_kallsyms.c -o $@
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_proc_kallsyms.c -o $@
 
 # dmesg physical-reservation parsers: the four restructured components
 # (reserved_mem / swiotlb / crashkernel / cma) #included (main renamed) and
@@ -599,14 +606,14 @@ TEST_DMESG_RESV_SRCS := $(SRC_DIR)/components/dmesg_reserved_mem.c \
 TEST_DMESG_RESV_BIN := $(TEST_OBJ_DIR)/test_dmesg_reservations
 $(TEST_DMESG_RESV_BIN): $(TEST_DIR)/test_dmesg_reservations.c $(TEST_DMESG_RESV_SRCS) $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
-	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_dmesg_reservations.c -o $@
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_dmesg_reservations.c -o $@
 
 # boot_params_e820 RAM-covering test: the component #included (main renamed) and
 # driven over a staged KASLD_SYSROOT zero-page; asserts the per-RAM-entry extents.
 TEST_BPE820_BIN := $(TEST_OBJ_DIR)/test_boot_params_e820
 $(TEST_BPE820_BIN): $(TEST_DIR)/test_boot_params_e820.c $(SRC_DIR)/components/boot_params_e820.c $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
-	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_boot_params_e820.c -o $@
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_boot_params_e820.c -o $@
 
 # proc_kcore ELF program-header scan: the component #included (main renamed) and
 # driven over a staged KASLD_SYSROOT /proc/kcore; the only coverage of the parse
@@ -614,7 +621,7 @@ $(TEST_BPE820_BIN): $(TEST_DIR)/test_boot_params_e820.c $(SRC_DIR)/components/bo
 TEST_KCORE_BIN := $(TEST_OBJ_DIR)/test_kcore
 $(TEST_KCORE_BIN): $(TEST_DIR)/test_kcore.c $(SRC_DIR)/components/proc_kcore.c $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
-	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_kcore.c -o $@
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_kcore.c -o $@
 
 # sysfs / ACPI / DT leak-parser tests: each component #included (main renamed)
 # and driven over a staged KASLD_SYSROOT fixture tree reproducing the kernel ABI.
@@ -635,7 +642,7 @@ TEST_PARSERS_SRCS := $(SRC_DIR)/components/sysfs_efi_runtime_map.c \
 TEST_PARSERS_BIN := $(TEST_OBJ_DIR)/test_sysfs_parsers
 $(TEST_PARSERS_BIN): $(TEST_DIR)/test_sysfs_parsers.c $(TEST_PARSERS_SRCS) $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
-	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_sysfs_parsers.c -o $@
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_sysfs_parsers.c -o $@
 
 .PHONY: test
 test : $(KASLD_BIN) $(TEST_BIN) $(TEST_RENDER_BIN) $(TEST_EST_BIN) $(TEST_EV_BIN) $(TEST_ALIGN_BIN) $(TEST_ADDRP_BIN) $(TEST_TWIDTH_BIN) $(TEST_TS_BIN) $(TEST_PREFETCH_SCAN_BIN) $(TEST_CPU_BIN) $(TEST_OUTCOME_BIN) $(TEST_TEXT_ORDER_BIN) $(TEST_KIMG_BIN) $(TEST_ENG_BIN) $(TEST_INT_BIN) $(TEST_DMESG_BIN) $(TEST_BACKTRACE_BIN) $(TEST_BOOTCFG_BIN) $(TEST_KASLRDIS_BIN) $(TEST_DTMEM_BIN) $(TEST_SOCKPTR_BIN) $(TEST_TIMERLIST_BIN) $(TEST_KALLSYMS_BIN) $(TEST_BTF_BIN) $(TEST_DMESG_RESV_BIN) $(TEST_BPE820_BIN) $(TEST_PARSERS_BIN) $(TEST_KCORE_BIN)
@@ -654,6 +661,7 @@ lint :
 	@$(TEST_DIR)/check-extent-callers
 	@$(TEST_DIR)/check-truncation
 	@$(TEST_DIR)/check-addr-parse
+	@$(TEST_DIR)/check-absence-vs-denial
 	@$(TEST_DIR)/check-component-output
 	@$(TEST_DIR)/check-component-meta
 	@$(TEST_DIR)/check-component-cap

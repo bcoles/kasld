@@ -54,6 +54,40 @@ __attribute__((unused)) static const char *kasld_sysroot(void) {
   return root;
 }
 
+#ifdef KASLD_HERMETIC_PROBE
+/* Test builds only: records fact paths resolved with no sysroot set — that is,
+ * read from the machine running the test rather than from a tree the test
+ * supplied. tests/test_harness.h fails the binary on any record.
+ *
+ * Every path reaching kasld_resolve is a kernel fact, so this needs no notion
+ * of which paths matter. It lives here rather than in a source scan because the
+ * read is usually several frames below the test: a renderer test that names no
+ * path still reaches container detection, the LSM probe and the group database.
+ * It also catches staging done too LATE, since the prefix is cached on first
+ * use and a read before the setenv resolves live.
+ *
+ * Never defined for a shipped build. */
+#define KASLD_HERMETIC_MAX 12
+__attribute__((
+    unused)) static const char *kasld_hermetic_paths[KASLD_HERMETIC_MAX];
+__attribute__((unused)) static int kasld_hermetic_n;
+__attribute__((unused)) static int kasld_hermetic_dropped;
+
+__attribute__((unused)) static void kasld_hermetic_record(const char *abs) {
+  int i;
+  for (i = 0; i < kasld_hermetic_n; i++)
+    if (strcmp(kasld_hermetic_paths[i], abs) == 0)
+      return;
+  if (kasld_hermetic_n == KASLD_HERMETIC_MAX) {
+    kasld_hermetic_dropped++;
+    return;
+  }
+  /* Callers pass string literals or buffers that outlive the run; copying
+   * would need an allocator this header has no reason to want. */
+  kasld_hermetic_paths[kasld_hermetic_n++] = abs;
+}
+#endif
+
 /* Resolve an absolute fact path against the sysroot. With no sysroot set (or
  * a non-absolute path), returns `abs` unchanged. Otherwise writes
  * "<root><abs>" into buf and returns it; if that would not fit, falls back to
@@ -62,6 +96,10 @@ __attribute__((unused)) static const char *
 kasld_resolve(const char *abs, char *buf, size_t bufsz) {
   const char *root = kasld_sysroot();
   size_t rl, al;
+#ifdef KASLD_HERMETIC_PROBE
+  if (root == NULL && abs != NULL && abs[0] == '/')
+    kasld_hermetic_record(abs);
+#endif
   if (root == NULL || abs == NULL || abs[0] != '/')
     return abs;
   rl = strlen(root);

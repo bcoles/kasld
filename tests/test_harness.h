@@ -27,6 +27,12 @@
 #include <string.h>
 #include <unistd.h>
 
+#ifdef KASLD_HERMETIC_PROBE
+/* Carries the recorder th_done reports on. Included here rather than assumed,
+ * because a test binary need not otherwise pull in the I/O layer at all. */
+#include "include/kasld/sysroot.h"
+#endif
+
 /* Suite state. Each test_main_*() shares these via the `static` translation
  * unit; the harness binary is a single .c, so per-file `static` is fine. */
 static int th_total, th_pass;
@@ -98,6 +104,34 @@ static void th_close_category(void) {
     fprintf(stderr, "%s── %s ──%s\n", TH_BOLD, th_suite, TH_RESET);            \
   } while (0)
 
+#ifdef KASLD_HERMETIC_PROBE
+/* Did this binary read a kernel fact from the machine it ran on? A test that
+ * does is asserting against whatever that machine happens to hold — or, worse,
+ * against what it happens to LACK, which nothing in the test's text reveals.
+ * Reported here rather than at the read, because a test capturing a component's
+ * output may have stderr pointed at /dev/null while the read happens.
+ *
+ * The fix is to supply the source rather than borrow it: stage a directory, put
+ * the files the test needs under it, and setenv KASLD_SYSROOT to it BEFORE the
+ * first read (the prefix is cached on first use). An empty staged tree is a
+ * legitimate answer, and the right one when the test wants the source absent.
+ */
+static int th_hermetic_failed(void) {
+  if (kasld_hermetic_n == 0)
+    return 0;
+  fprintf(stderr, "%s%sread %d kernel fact path%s from the host:%s\n", TH_RED,
+          TH_BOLD, kasld_hermetic_n, kasld_hermetic_n == 1 ? "" : "s",
+          TH_RESET);
+  for (int i = 0; i < kasld_hermetic_n; i++)
+    fprintf(stderr, "  %s\n", kasld_hermetic_paths[i]);
+  if (kasld_hermetic_dropped)
+    fprintf(stderr, "  (+%d more)\n", kasld_hermetic_dropped);
+  fprintf(stderr, "Stage a tree and point KASLD_SYSROOT at it before the "
+                  "first read.\n");
+  return 1;
+}
+#endif
+
 /* Final tally for this binary. Returns the exit code (0 ok, 1 fail). Call as
  * `return TEST_DONE();` from main(). */
 static int th_done(void) {
@@ -105,6 +139,10 @@ static int th_done(void) {
   int ok = th_pass == th_total;
   fprintf(stderr, "%s%s%d/%d tests passed%s\n", ok ? TH_GREEN : TH_RED, TH_BOLD,
           th_pass, th_total, TH_RESET);
+#ifdef KASLD_HERMETIC_PROBE
+  if (th_hermetic_failed())
+    ok = 0;
+#endif
   return ok ? 0 : 1;
 }
 #define TEST_DONE() th_done()

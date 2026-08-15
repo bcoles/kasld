@@ -69,6 +69,33 @@ chosen for what they say rather than how wide they are. The target-identity line
 is exempt for the same reason — it interpolates an unbounded kernel version
 string.
 
+Every test binary also carries the hermeticity probe. Test builds define
+`KASLD_HERMETIC_PROBE`, under which `kasld_resolve` records any kernel fact path
+resolved while `KASLD_SYSROOT` is unset — a read that went to the machine
+running the test rather than to a tree the test supplied — and the harness fails
+that binary at its tally, listing the paths:
+
+```
+7/7 tests passed
+read 1 kernel fact path from the host:
+  /proc/version
+Stage a tree and point KASLD_SYSROOT at it before the first read.
+```
+
+A test that reads the host asserts against whatever that machine holds, or
+against what it happens to lack, which the test's own text does not reveal. The
+check is a runtime one because a source scan cannot see it: the read is normally
+several frames below the test, so a renderer test that names no path still
+reaches container detection, the LSM probe and the group database. It equally
+catches staging done too late, since the prefix is resolved once and cached and
+a read before the `setenv` resolves live.
+
+The fix is to supply the source rather than borrow it: stage a directory, write
+the files the test needs under it, and set `KASLD_SYSROOT` to it before the
+first read. An empty staged tree is a legitimate answer, and the correct one
+where the test wants the source absent. The probe is never defined for a shipped
+build.
+
 Run one driver in isolation:
 
 ```sh
@@ -105,6 +132,7 @@ and `make` halts on the first.
 | `check-extent-callers` | only reviewed whole-map components call `kasld_result_extent` (the covering-completeness contract; a partial map would carve a false gap) |
 | `check-truncation` | no silent 64-bit→word narrowing when compiled for 32-bit (compiles a TU with `i686-linux-gnu-gcc`) |
 | `check-addr-parse` | kernel addresses are converted with `kasld_addr_parse` outside a reviewed allowlist — `sscanf("%lx")` reports success on an address wider than the word and hands back a truncated one |
+| `check-absence-vs-denial` | no component reports a denied source as an absent one — a failed probe's reason is in `errno`, and UNAVAILABLE claims the target's build while NOPERM reports its hardening |
 | `check-component-output` | components write only wire lines to stdout (stdout is the machine channel; diagnostics go to stderr) |
 | `check-component-meta` | every component declares `KASLD_META` with a `method:` key |
 | `check-component-cap` | `MAX_COMPONENTS` keeps a margin above the in-tree component count — a component directory that overruns it silently drops the excess |
