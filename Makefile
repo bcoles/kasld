@@ -686,6 +686,7 @@ lint :
 	@$(TEST_DIR)/check-version
 	@$(TEST_DIR)/check-posture-diff
 	@$(TEST_DIR)/check-posture-summary
+	@$(TEST_DIR)/check-validators
 	@$(TEST_DIR)/check-shellcheck
 	@$(TEST_DIR)/check-baseline
 	@$(TEST_DIR)/check-render-parity

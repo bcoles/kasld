@@ -1,0 +1,179 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-validators — no arithmetic-input validator accepts anything dangerous.
+#
+# extra/check-results and extra/ksymoff both feed parsed fields into shell
+# arithmetic, and `$(( x ))` evaluates embedded command substitutions and array
+# subscripts. A value like `a[$(cmd)]` reaching it runs cmd -- as ROOT in
+# check-results, whose documented use is `sudo check-results results.txt` and
+# `<component> | sudo check-results -`. Each script therefore validates every
+# arithmetic input first.
+#
+# The guard exists because that validator is DUPLICATED. Neither script can
+# source a shared library: ksymoff is installed to $PREFIX/bin as a standalone
+# program, and check-results is meant to be copied to a target and run there. So
+# there are four implementations of one security property, and a correction to
+# one does not reach the others.
+#
+# What is asserted is REJECTION, not sameness. The four legitimately differ in
+# what they accept -- is_hex refuses an 0x prefix because its callers strip one
+# first, and is_dec is decimal-only because --page-shift feeds a decimal range
+# check. Diffing them would fail on correct code. The invariant that actually
+# matters is that none of them lets a shell metacharacter through.
+#
+# Also asserted:
+#   - each validator ACCEPTS a known-good value, so one that rejected
+#     everything could not pass the corpus vacuously while breaking the tool;
+#   - the number of @arith-validator markers in the two scripts equals the
+#     number exercised here, so a validator added later cannot quietly escape
+#     the corpus.
+#
+# The definitions are extracted rather than sourced: both scripts run top-level
+# code and cannot be sourced. Extraction also fails loudly if a validator stops
+# being self-contained -- which is exactly when a shared helper has crept in.
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+
+if [ -t 1 ]; then
+  RED=$(printf '\033[31m')
+  GREEN=$(printf '\033[32m')
+  RESET=$(printf '\033[0m')
+else
+  RED=
+  GREEN=
+  RESET=
+fi
+
+fail=0
+note() {
+  printf '%scheck-validators: FAIL%s — %s\n' "$RED" "$RESET" "$1" >&2
+  fail=1
+}
+
+# Pull one shell function definition out of a script, by brace depth so a
+# one-liner and a multi-line body both come out whole.
+extract() {
+  awk -v fn="$2" '
+    index($0, fn "()") == 1 { inb = 1 }
+    inb {
+      print
+      t = $0; o = gsub(/\{/, "{", t)
+      t = $0; c = gsub(/\}/, "}", t)
+      depth += o - c
+      if (o > 0) seen = 1
+      if (seen && depth <= 0) exit
+    }
+  ' "$1"
+}
+
+# Inputs no validator may ever accept. Anything here reaching `$(( ))` is
+# command execution, or arithmetic the caller never intended.
+corpus=$(
+  cat <<'ADVERSARIAL'
+a[$(touch /tmp/kasld-pwn)]
+$(id)
+`id`
+$((1))
+${IFS}
+0x1$(id)
+x[0]
+1+1
+1-1
+1;id
+1 2
+-1
++1
+0xg
+zz
+1.0
+0x
+*
+?
+../etc/passwd
+ADVERSARIAL
+)
+
+# validator | script | convention | a value it MUST accept
+#   echo — accepted when it echoes something back (rejection is empty output)
+#   exit — accepted when it returns 0
+checks="
+numeric|extra/check-results|echo|deadbeef
+hex16|extra/check-results|echo|deadbeef
+is_hex|extra/ksymoff|exit|deadbeef
+is_dec|extra/ksymoff|exit|1234
+"
+
+n_checked=0
+tmp=$(mktemp) || exit 1
+trap 'rm -f "$tmp"' EXIT INT TERM
+
+# Read into positional args so the counters below survive (a `while read` on the
+# far side of a pipe runs in a subshell).
+oldifs=$IFS
+IFS='
+'
+# shellcheck disable=SC2086  # deliberate split: one row per newline
+set -- $checks
+IFS=$oldifs
+
+for row in "$@"; do
+  [ -n "$row" ] || continue
+  fn=$(printf '%s' "$row" | cut -d'|' -f1)
+  script=$(printf '%s' "$row" | cut -d'|' -f2)
+  conv=$(printf '%s' "$row" | cut -d'|' -f3)
+  good=$(printf '%s' "$row" | cut -d'|' -f4)
+  src="$ROOT/$script"
+
+  if [ ! -f "$src" ]; then
+    note "$script is missing"
+    continue
+  fi
+  def=$(extract "$src" "$fn")
+  if [ -z "$def" ]; then
+    note "$script: cannot extract $fn() -- is it still a self-contained function?"
+    continue
+  fi
+  n_checked=$((n_checked + 1))
+
+  # Non-vacuity first: a validator that rejects everything would sail through
+  # the corpus below while breaking the tool it guards.
+  if [ "$conv" = echo ]; then
+    got=$(printf '%s\n' "$def" "out=\$($fn '$good'); [ -n \"\$out\" ]" | sh 2>/dev/null && echo yes)
+  else
+    got=$(printf '%s\n' "$def" "$fn '$good'" | sh 2>/dev/null && echo yes)
+  fi
+  [ "${got:-}" = yes ] ||
+    note "$script: $fn() rejects '$good', which it must accept"
+
+  # Every adversarial input must be refused.
+  printf '%s\n' "$corpus" | while IFS= read -r bad; do
+    if [ "$conv" = echo ]; then
+      out=$(printf '%s\n' "$def" "$fn \"\$1\"" | sh -s -- "$bad" 2>/dev/null)
+      [ -z "$out" ] || printf 'ACCEPTED %s\n' "$bad"
+    else
+      printf '%s\n' "$def" "$fn \"\$1\"" | sh -s -- "$bad" 2>/dev/null &&
+        printf 'ACCEPTED %s\n' "$bad"
+    fi
+  done >"$tmp" 2>/dev/null
+  while IFS= read -r line; do
+    note "$script: $fn() accepted ${line#ACCEPTED }"
+  done <"$tmp"
+done
+
+# A validator added later must not escape the corpus. The marker sits at each
+# definition, so registering one is the same act as writing it.
+markers=$(cat "$ROOT/extra/check-results" "$ROOT/extra/ksymoff" |
+  grep -c '@arith-validator')
+if [ "${markers:-0}" -ne "$n_checked" ]; then
+  note "$markers @arith-validator markers but $n_checked exercised -- register the new one in this guard"
+fi
+
+if [ "$fail" -ne 0 ]; then
+  exit 1
+fi
+printf '%scheck-validators: OK%s (%s arithmetic-input validators, none accepts the adversarial corpus)\n' \
+  "$GREEN" "$RESET" "$n_checked"
