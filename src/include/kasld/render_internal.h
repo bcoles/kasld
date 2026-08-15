@@ -45,6 +45,26 @@ const char *section_display_name(enum kasld_addr_type type,
 /* Number of CONF_DERIVED records currently in results[]. */
 int count_derived(void);
 
+/* The disclosure phrases, named so a caller that needs to TEST one compares
+ * against the same definition the producer returns. A bare literal at the
+ * comparison drifts silently the day the wording changes. */
+#define DISCLOSE_VIRT "virtual addresses"
+#define DISCLOSE_PHYS "physical addresses"
+#define DISCLOSE_BOTH "virtual and physical addresses"
+#define DISCLOSE_FACTS "system facts"
+#define DISCLOSE_NOADDR "no addresses"
+
+/* What a component disclosed, as one phrase shared by every output format so
+ * the three cannot word the same fact differently.
+ *
+ * component_disclosed() reads it off the records attributed to the component
+ * and is exact for anything that succeeded; disclosure_descr() renders a
+ * DECLARED value, for the sections that list components which produced nothing.
+ * Both return NULL when there is nothing to say -- callers must print nothing
+ * rather than substitute a kind the component never claimed. */
+const char *component_disclosed(int slot);
+const char *disclosure_descr(const char *declared);
+
 /* Consensus over (type, section, optional region_filter). See the comment
  * on section_consensus_pick in render.c for the selection rule. */
 unsigned long section_consensus(enum kasld_addr_type type, const char *section,
@@ -159,15 +179,23 @@ struct hr_suggestion {
 struct hr_vuln {
   const char *name, *cve, *patch;
 };
+/* `discloses` on these two is observed where the component produced something
+ * and falls back to its declaration otherwise: both sections list a component
+ * whether or not it ran to a result, so there is not always anything to
+ * observe. NULL means neither answered -- render nothing, never a default. */
 struct hr_surface {
-  const char *name, *config, *addr;
+  const char *name, *config, *discloses;
 };
 struct hr_hw {
-  const char *name, *hardware, *addr;
+  const char *name, *hardware, *discloses;
   int succeeded;
 };
 struct hr_nomit {
-  const char *name, *addr;
+  const char *name;
+  /* Observed, not declared: what the component's own records disclosed this
+   * run. NULL only if it somehow disclosed nothing, which OUTCOME_SUCCESS
+   * rules out for every row in this list. */
+  const char *discloses;
 };
 
 struct hardening_report {

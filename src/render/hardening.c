@@ -92,6 +92,17 @@ static int component_has_gate(const struct component_log *cl,
  * "bypass" (a required capability, e.g. bypass:CAP_SYS_ADMIN) counts: a
  * capability-gated leak is mitigated by not granting that capability, so it is
  * not a "no known mitigation" vector even though no sysctl blocks it. */
+/* Two disclosure kinds are the same group when both are absent or both name the
+ * same thing. An absent kind groups only with other absent ones -- it is not a
+ * wildcard, which is how "not physical" once came to mean "virtual". Shared by
+ * the two sections that group by disclosure, so they cannot split or order
+ * their groups differently. */
+static int disclosure_eq(const char *a, const char *b) {
+  if (!a || !b)
+    return a == b;
+  return strcmp(a, b) == 0;
+}
+
 static int has_mitigation_keys(const struct component_meta *m) {
   static const char *mitigation_keys[] = {"sysctl", "config",   "patch",
                                           "cve",    "hardware", "lockdown",
@@ -581,11 +592,18 @@ void build_hardening_report(struct hardening_report *r) {
     int ncfg = meta_get_all(&comp_logs[i].meta, "config", configs, 4);
     if (ncfg == 0)
       continue;
-    const char *addr = meta_get(&comp_logs[i].meta, "addr");
+    /* This section lists a compiled-in surface whether or not the component
+     * produced anything, so prefer what it actually disclosed and fall back to
+     * its declaration only when there is nothing to observe. NULL where neither
+     * answers -- the renderers must then say nothing rather than pick a kind.
+     */
+    const char *d = component_disclosed(i);
+    if (!d)
+      d = disclosure_descr(meta_get(&comp_logs[i].meta, "addr"));
     for (int j = 0; j < ncfg && r->n_surface < HR_SURFACE_MAX; j++) {
       r->surface[r->n_surface].name = comp_logs[i].name;
       r->surface[r->n_surface].config = configs[j];
-      r->surface[r->n_surface].addr = addr;
+      r->surface[r->n_surface].discloses = d;
       r->n_surface++;
     }
   }
@@ -603,7 +621,12 @@ void build_hardening_report(struct hardening_report *r) {
     if (r->n_hw < HR_HW_MAX) {
       r->hw[r->n_hw].name = comp_logs[i].name;
       r->hw[r->n_hw].hardware = hw;
-      r->hw[r->n_hw].addr = meta_get(&comp_logs[i].meta, "addr");
+      {
+        const char *hd = component_disclosed(i);
+        if (!hd)
+          hd = disclosure_descr(meta_get(&comp_logs[i].meta, "addr"));
+        r->hw[r->n_hw].discloses = hd;
+      }
       r->hw[r->n_hw].succeeded = (comp_logs[i].outcome == OUTCOME_SUCCESS);
       r->n_hw++;
       if (comp_logs[i].outcome == OUTCOME_SUCCESS)
@@ -625,7 +648,13 @@ void build_hardening_report(struct hardening_report *r) {
       continue;
     if (r->n_nomit < HR_NOMIT_MAX) {
       r->nomit[r->n_nomit].name = comp_logs[i].name;
-      r->nomit[r->n_nomit].addr = meta_get(&comp_logs[i].meta, "addr");
+      /* Every component reaching here is OUTCOME_SUCCESS, so it disclosed
+       * something the orchestrator parsed and attributed. Read the kind off
+       * those records rather than off the component's own `addr:` claim, which
+       * is optional and unvalidated: a missing one rendered as the section
+       * heading repeated back ("no mitigation"), and `addr:none` rendered as
+       * "leaks none addresses". */
+      r->nomit[r->n_nomit].discloses = component_disclosed(i);
       r->n_nomit++;
     }
   }
@@ -1043,31 +1072,45 @@ void render_hardening_text(void) {
   if (rep.n_surface == 0) {
     printf("  No compile-time surface exposed.\n");
   } else {
-    /* Group by addr type */
-    int phys_count = 0, virt_count = 0;
+    /* Group by what the components disclose, one heading per distinct kind in
+     * first-appearance order. The split used to be "physical, or else virtual",
+     * which put a component that disclosed no address -- or declared nothing at
+     * all -- in the virtual bucket and told the operator it leaked virtual
+     * addresses. A kind nothing states is now its own group, named as unstated
+     * rather than folded into one of the others. */
+    const char *kinds[HR_SURFACE_MAX];
+    int nkinds = 0, phys_count = 0;
     for (int i = 0; i < rep.n_surface; i++) {
-      if (rep.surface[i].addr && strcmp(rep.surface[i].addr, "physical") == 0)
+      const char *d = rep.surface[i].discloses;
+      int seen = 0;
+      for (int k = 0; k < nkinds; k++)
+        if (disclosure_eq(kinds[k], d)) {
+          seen = 1;
+          break;
+        }
+      if (!seen && nkinds < HR_SURFACE_MAX)
+        kinds[nkinds++] = d;
+      /* Exact, as the physical/virtual split was before: this gates the note
+       * about physical addresses ALONE, so a component disclosing both is not
+       * one of them. A substring test would count it. */
+      if (d && strcmp(d, DISCLOSE_PHYS) == 0)
         phys_count++;
+    }
+    for (int k = 0; k < nkinds; k++) {
+      int n = 0;
+      for (int i = 0; i < rep.n_surface; i++)
+        if (disclosure_eq(kinds[k], rep.surface[i].discloses))
+          n++;
+      if (kinds[k])
+        printf("  %d component%s disclose%s %s via compiled-in features:\n", n,
+               n == 1 ? "" : "s", n == 1 ? "s" : "", kinds[k]);
       else
-        virt_count++;
-    }
-    if (phys_count > 0)
-      printf("  %d component%s leak%s physical addresses via compiled-in "
-             "features:\n",
-             phys_count, phys_count == 1 ? "" : "s",
-             phys_count == 1 ? "s" : "");
-    for (int i = 0; i < rep.n_surface; i++) {
-      if (rep.surface[i].addr && strcmp(rep.surface[i].addr, "physical") == 0)
-        printf("    %-28s %s\n", rep.surface[i].name, rep.surface[i].config);
-    }
-    if (virt_count > 0)
-      printf("  %d component%s leak%s virtual addresses via compiled-in "
-             "features:\n",
-             virt_count, virt_count == 1 ? "" : "s",
-             virt_count == 1 ? "s" : "");
-    for (int i = 0; i < rep.n_surface; i++) {
-      if (!rep.surface[i].addr || strcmp(rep.surface[i].addr, "physical") != 0)
-        printf("    %-28s %s\n", rep.surface[i].name, rep.surface[i].config);
+        printf("  %d component%s do%s not state what they disclose, via "
+               "compiled-in features:\n",
+               n, n == 1 ? "" : "s", n == 1 ? "es" : "");
+      for (int i = 0; i < rep.n_surface; i++)
+        if (disclosure_eq(kinds[k], rep.surface[i].discloses))
+          printf("    %-28s %s\n", rep.surface[i].name, rep.surface[i].config);
     }
     if (phys_count > 0 && sizeof(unsigned long) >= 8)
       printf("  %sNote: on 64-bit architectures with decoupled KASLR, "
@@ -1097,8 +1140,8 @@ void render_hardening_text(void) {
        * requirement (e.g. "TSX required", "prefetch side-channel (mitigated by
        * KPTI)"), labelled so it does not read as the subject that leaks. */
       printf("    %-28s ", rep.hw[i].name);
-      if (rep.hw[i].addr)
-        printf("leaks %s address; ", rep.hw[i].addr);
+      if (rep.hw[i].discloses)
+        printf("discloses %s; ", rep.hw[i].discloses);
       printf("hardware: %s\n", rep.hw[i].hardware);
     }
     if (rep.hw_succeeded < rep.n_hw) {
@@ -1116,10 +1159,37 @@ void render_hardening_text(void) {
   if (rep.n_nomit == 0) {
     printf("  All components have at least one mitigation key.\n");
   } else {
+    /* Grouped by disclosure, the same shape the compile-time surface section
+     * uses: the sentence carries the relationship and the rows carry only the
+     * names. A bare "name  physical addresses" column leaves the reader to
+     * guess what the two have to do with each other, and repeats the same
+     * phrase once per row. */
+    const char *kinds[HR_NOMIT_MAX];
+    int nkinds = 0;
     for (int i = 0; i < rep.n_nomit; i++) {
-      const char *addr = rep.nomit[i].addr;
-      printf("  %-28s %s%s%s\n", rep.nomit[i].name, addr ? "leaks " : "",
-             addr ? addr : "no mitigation", addr ? " addresses" : "");
+      int seen = 0;
+      for (int k = 0; k < nkinds; k++)
+        if (disclosure_eq(kinds[k], rep.nomit[i].discloses)) {
+          seen = 1;
+          break;
+        }
+      if (!seen && nkinds < HR_NOMIT_MAX)
+        kinds[nkinds++] = rep.nomit[i].discloses;
+    }
+    for (int k = 0; k < nkinds; k++) {
+      int n = 0;
+      for (int i = 0; i < rep.n_nomit; i++)
+        if (disclosure_eq(kinds[k], rep.nomit[i].discloses))
+          n++;
+      if (kinds[k])
+        printf("  %d component%s disclose%s %s:\n", n, n == 1 ? "" : "s",
+               n == 1 ? "s" : "", kinds[k]);
+      else
+        printf("  %d component%s do%s not state what they disclose:\n", n,
+               n == 1 ? "" : "s", n == 1 ? "es" : "");
+      for (int i = 0; i < rep.n_nomit; i++)
+        if (disclosure_eq(kinds[k], rep.nomit[i].discloses))
+          printf("    %s\n", rep.nomit[i].name);
     }
   }
 
@@ -1380,10 +1450,11 @@ void render_hardening_json(void) {
     json_print_escaped(rep.surface[i].name);
     printf(", \"config\": ");
     json_print_escaped(rep.surface[i].config);
-    if (rep.surface[i].addr) {
-      printf(", \"addr\": ");
-      json_print_escaped(rep.surface[i].addr);
-    }
+    printf(", \"discloses\": ");
+    if (rep.surface[i].discloses)
+      json_print_escaped(rep.surface[i].discloses);
+    else
+      printf("null");
     printf("}");
   }
   printf("\n    ],\n");
@@ -1399,10 +1470,11 @@ void render_hardening_json(void) {
     json_print_escaped(rep.hw[i].name);
     printf(", \"hardware\": ");
     json_print_escaped(rep.hw[i].hardware);
-    if (rep.hw[i].addr) {
-      printf(", \"addr\": ");
-      json_print_escaped(rep.hw[i].addr);
-    }
+    printf(", \"discloses\": ");
+    if (rep.hw[i].discloses)
+      json_print_escaped(rep.hw[i].discloses);
+    else
+      printf("null");
     printf(", \"succeeded\": %s}", rep.hw[i].succeeded ? "true" : "false");
   }
   printf("\n    ],\n");
@@ -1414,10 +1486,15 @@ void render_hardening_json(void) {
       printf(",\n");
     printf("      {\"component\": ");
     json_print_escaped(rep.nomit[i].name);
-    if (rep.nomit[i].addr) {
-      printf(", \"addr\": ");
-      json_print_escaped(rep.nomit[i].addr);
-    }
+    /* Always present, so a consumer reads the disclosure rather than inferring
+     * it from a key's absence. `null` where the component disclosed nothing --
+     * which OUTCOME_SUCCESS makes unreachable for this list, but the schema
+     * should not depend on that holding. */
+    printf(", \"discloses\": ");
+    if (rep.nomit[i].discloses)
+      json_print_escaped(rep.nomit[i].discloses);
+    else
+      printf("null");
     printf("}");
   }
   printf("\n    ]\n");
@@ -1633,11 +1710,12 @@ void render_hardening_markdown(void) {
   if (rep.n_surface == 0) {
     printf("No compile-time surface exposed.\n\n");
   } else {
-    printf("| Component | Config | Address |\n");
-    printf("|:---------|:-------|:--------|\n");
+    printf("| Component | Config | Discloses |\n");
+    printf("|:---------|:-------|:----------|\n");
     for (int i = 0; i < rep.n_surface; i++)
       printf("| %s | %s | %s |\n", rep.surface[i].name, rep.surface[i].config,
-             rep.surface[i].addr ? rep.surface[i].addr : "virtual");
+             rep.surface[i].discloses ? rep.surface[i].discloses
+                                      : "disclosure not stated");
     printf("\n");
   }
 
@@ -1656,8 +1734,8 @@ void render_hardening_markdown(void) {
       if (!rep.hw[i].succeeded)
         continue;
       printf("- %s - ", rep.hw[i].name);
-      if (rep.hw[i].addr)
-        printf("leaks %s address; ", rep.hw[i].addr);
+      if (rep.hw[i].discloses)
+        printf("discloses %s; ", rep.hw[i].discloses);
       printf("hardware: %s\n", rep.hw[i].hardware);
     }
     printf("\n");
@@ -1668,13 +1746,15 @@ void render_hardening_markdown(void) {
   if (rep.n_nomit == 0) {
     printf("All components have at least one mitigation key.\n\n");
   } else {
-    for (int i = 0; i < rep.n_nomit; i++) {
-      const char *addr = rep.nomit[i].addr;
-      if (addr)
-        printf("- %s - leaks %s addresses\n", rep.nomit[i].name, addr);
-      else
-        printf("- %s - no mitigation\n", rep.nomit[i].name);
-    }
+    /* A table rather than the text mode's grouped list: markdown labels a
+     * column in its header, so the relationship is stated once without
+     * restructuring the rows -- and it matches the tables the other markdown
+     * sections already use. */
+    printf("| Component | Discloses |\n");
+    printf("|:----------|:----------|\n");
+    for (int i = 0; i < rep.n_nomit; i++)
+      printf("| %s | %s |\n", rep.nomit[i].name,
+             rep.nomit[i].discloses ? rep.nomit[i].discloses : "not stated");
     printf("\n");
   }
 }

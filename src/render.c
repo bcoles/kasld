@@ -147,6 +147,73 @@ const char *readout_slide(long slide, char *buf, size_t sz) {
   return buf;
 }
 
+/* What a component actually disclosed this run, read off the records the
+ * orchestrator attributed to it rather than off a declaration.
+ *
+ * Both kinds carry their producer: an address record's origin_set is indexed by
+ * discovery slot, and a scalar fact stores the slot outright. A component that
+ * reached OUTCOME_SUCCESS emitted at least one of the two by construction --
+ * kasld_classify_outcome() sets it from had_tagged, and handle_component_line()
+ * counts only address and scalar records toward that, never an R disposition.
+ * So for any succeeding component this answers exactly, and cannot drift from
+ * what was actually observed the way a hand-declared field can.
+ *
+ * Returns NULL when the component disclosed nothing this run, which is the
+ * caller's cue that it has nothing to say rather than an invitation to guess.
+ */
+const char *component_disclosed(int slot) {
+  int virt = 0, phys = 0, facts = 0;
+  if (slot < 0)
+    return NULL;
+  for (int i = 0; i < num_results; i++) {
+    if (!origin_set_has(&results[i].origins, slot))
+      continue;
+    if (results[i].type == KASLD_TYPE_VIRT)
+      virt = 1;
+    else if (results[i].type == KASLD_TYPE_PHYS)
+      phys = 1;
+  }
+  for (int i = 0; i < num_scalar_facts; i++)
+    if (scalar_facts[i].origin == slot)
+      facts = 1;
+  if (virt && phys)
+    return DISCLOSE_BOTH;
+  if (virt)
+    return DISCLOSE_VIRT;
+  if (phys)
+    return DISCLOSE_PHYS;
+  if (facts)
+    return DISCLOSE_FACTS;
+  return NULL;
+}
+
+/* The same phrase from a DECLARED `discloses:` value, for the report sections
+ * that list a component whether or not it produced anything -- a side channel
+ * that stayed flat, or a compiled-in surface that never ran. There is nothing
+ * to observe there, so the technique's own claim is all there is.
+ *
+ * Returns NULL for an absent or unrecognised value. Callers must not substitute
+ * a default: an unstated disclosure is unknown, and rendering it as one of the
+ * kinds states something the component never claimed. */
+const char *disclosure_descr(const char *declared) {
+  if (!declared)
+    return NULL;
+  if (strcmp(declared, "virtual") == 0)
+    return DISCLOSE_VIRT;
+  if (strcmp(declared, "physical") == 0)
+    return DISCLOSE_PHYS;
+  if (strcmp(declared, "both") == 0)
+    return DISCLOSE_BOTH;
+  /* `none` claims no ADDRESS, and claims nothing about facts. Rendering it as
+   * DISCLOSE_FACTS would assert a disclosure the component never declared --
+   * the inference this whole path exists to stop. Where the component did
+   * produce records, component_disclosed() has already answered and this is
+   * never consulted. */
+  if (strcmp(declared, "none") == 0)
+    return DISCLOSE_NOADDR;
+  return NULL;
+}
+
 /* ---------------------------------------------------------------------------
  * The Layout table's row model.
  *
