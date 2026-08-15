@@ -108,6 +108,27 @@ static void test_64bit_build_is_inert(void) {
   assert(kasld_check_target_width(1).verdict == KASLD_WIDTH_OK);
 }
 
+/* Where the architecture fixes the boundary, the expectation is exact, and the
+ * compat boundary that sits BELOW it must be caught. mips is the only arch that
+ * declares this today; elsewhere the macro is absent and the path compiles out,
+ * which the assertions below account for rather than assume. */
+static void test_exact_boundary_arch(void) {
+#ifdef TASK_SIZE_EXACT
+  /* Both conditions must hold for an exact test to be sound, and each rules out
+   * an architecture that would otherwise look eligible:
+   *   a fixed split — with a choice of splits the test would refuse every
+   *     kernel not built with the highest one;
+   *   no gap — where the linear map starts above TASK_SIZE the measurement is
+   *     legitimately below PAGE_OFFSET, so equality is the wrong expectation.
+   * riscv32 is the near miss: its split is fixed, but the fixmap/PCI-IO/vmemmap
+   * stack sits between the two, so it must not declare this. */
+  assert((unsigned long)PAGE_OFFSET_MIN == (unsigned long)PAGE_OFFSET_MAX);
+  assert((unsigned long)TASK_SIZE_EXACT == (unsigned long)PAGE_OFFSET_MAX);
+#endif
+  /* No assertion for the arches that omit it: omission is the safe default and
+   * has several sound reasons, so its absence proves nothing either way. */
+}
+
 /* The refusal document must not be mistakable for a report. Its shape is
  * asserted here rather than only in the orchestrator, because the property
  * that matters is what it does NOT contain. */
@@ -145,6 +166,7 @@ int main(void) {
   RUN(test_matching_width_is_not_a_mismatch);
   RUN(test_no_signal_is_not_a_mismatch);
   RUN(test_64bit_build_is_inert);
+  RUN(test_exact_boundary_arch);
   RUN(test_refusal_document_shape);
 
   snprintf(sub, sizeof(sub), "%s/proc/kallsyms", g_root);

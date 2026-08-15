@@ -32,6 +32,14 @@
 #define PAGE_OFFSET_MIN 0x80000000ul
 #define PAGE_OFFSET_MAX 0x80000000ul
 
+// The user/kernel boundary is not a build choice here: arch/mips fixes
+// TASK_SIZE at 2 GiB for 32-bit, with no VMSPLIT to move it and no gap below
+// PAGE_OFFSET. That makes the measured boundary an EXACT expectation, which is
+// what lets a 32-bit build notice it is running as o32 on a 64-bit kernel:
+// TASK_SIZE32 there is 0x7fff8000, below this rather than above it, so a
+// highest-split comparison alone cannot see the difference.
+#define TASK_SIZE_EXACT 0x80000000ul
+
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/mips/include/asm/mach-generic/spaces.h#L28
 #define PHYS_OFFSET 0ul
 

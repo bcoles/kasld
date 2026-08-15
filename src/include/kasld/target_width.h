@@ -134,6 +134,26 @@ static inline struct kasld_width_check kasld_check_target_width(int replaying) {
     }
   }
 
+  /* Signal 1b: where the architecture fixes the boundary rather than offering a
+   * choice of splits, the measurement has an exact expectation, and any other
+   * value is a kernel this build does not model. mips is the case that needs
+   * it: its o32 compat boundary (0x7fff8000) sits BELOW the native one, so the
+   * highest-split comparison above cannot see it, and without this the arch
+   * would rest entirely on a kallsyms file a policy may hide.
+   *
+   * An architecture may only declare TASK_SIZE_EXACT when its split is fixed
+   * AND its linear map begins at the boundary. riscv32 meets the first and not
+   * the second — the fixmap/PCI-IO/vmemmap stack sits between TASK_SIZE and
+   * PAGE_OFFSET — so declaring it there would refuse every native kernel. */
+#ifdef TASK_SIZE_EXACT
+  if (!replaying && r.task_size != 0 &&
+      r.task_size != (unsigned long)TASK_SIZE_EXACT) {
+    r.verdict = KASLD_WIDTH_MISMATCH;
+    r.signal = KASLD_WIDTH_SIGNAL_TASK_SIZE;
+    return r;
+  }
+#endif
+
   /* Signal 2: the width of the kallsyms address column. Works against a
    * captured tree, and survives kptr_restrict; absent when a policy hides the
    * file, which is why it does not stand alone either. */
