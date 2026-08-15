@@ -84,7 +84,7 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"
-           "addr:physical\n"
+           "discloses:physical\n"
            "config:CONFIG_LIBNVDIMM\n");
 
 static const char *nd_base = "/sys/bus/nd/devices";

@@ -68,7 +68,7 @@ KASLD_EXPLAIN(
 // Untested: no coreboot/Chromebook hardware available for testing.
 KASLD_META("method:parsed\n"
            "phase:inference\n"
-           "addr:physical\n"
+           "discloses:physical\n"
            "config:CONFIG_GOOGLE_CBMEM\n");
 
 int main(void) {

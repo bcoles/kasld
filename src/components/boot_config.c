@@ -33,7 +33,7 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:detection\n"
            "phase:inference\n"
-           "addr:none\n");
+           "discloses:virtual\n");
 
 static unsigned long get_kernel_addr_boot_config(FILE *fp) {
   if (kconfig_has_kaslr(fp))

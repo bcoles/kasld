@@ -158,7 +158,7 @@ KASLD_EXPLAIN(
 KASLD_META("method:timing\n"
            "phase:probing\n"
            "live:1\n"
-           "addr:virtual\n"
+           "discloses:virtual\n"
            "hardware:prefetch side-channel (mitigated by KPTI)\n");
 
 static int verbose = 0;

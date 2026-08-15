@@ -49,7 +49,7 @@ KASLD_EXPLAIN("Searches dmesg for the PowerPC check_for_initrd() message that "
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"
-           "addr:virtual\n"
+           "discloses:virtual\n"
            "sysctl:dmesg_restrict>=1\n"
            "bypass:CAP_SYSLOG\n"
            "fallback:/var/log/dmesg\n"

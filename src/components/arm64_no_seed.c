@@ -39,7 +39,8 @@ KASLD_EXPLAIN("On non-EFI device-tree arm64 with no FDT /chosen/kaslr-seed and "
               "the compile-time default; emits SF_VIRT_KASLR_DISABLED for the "
               "engine pin rule. arm64 only.");
 KASLD_META("method:parsed\n"
-           "phase:inference\n");
+           "phase:inference\n"
+           "discloses:facts\n");
 
 int main(void) {
   if (kasld_kaslr_disabled_text_default())

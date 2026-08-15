@@ -193,7 +193,7 @@ KASLD_EXPLAIN(
 KASLD_META("method:timing\n"
            "phase:probing\n"
            "live:1\n"
-           "addr:virtual\n"
+           "discloses:virtual\n"
            "status:experimental\n"
            "config:CONFIG_FUTEX_PRIVATE_HASH\n"
            "patch:v6.14\n");

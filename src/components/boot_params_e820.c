@@ -82,7 +82,7 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"
-           "addr:physical\n");
+           "discloses:physical\n");
 
 /* Path and size of the boot_params sysfs binary attribute. */
 #define BOOT_PARAMS_PATH "/sys/kernel/boot_params/data"

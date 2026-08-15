@@ -12,7 +12,8 @@ KASLD_EXPLAIN("Reads /proc/meminfo (MemTotal, LowTotal) and /proc/zoneinfo "
               "(spanned PFNs) and emits them as scalar system facts that bound "
               "the physical address window. World-readable, no privileges.");
 KASLD_META("method:parsed\n"
-           "phase:inference\n");
+           "phase:inference\n"
+           "discloses:facts\n");
 
 int main(void) {
   unsigned long v;

@@ -14,7 +14,8 @@ KASLD_EXPLAIN("Reads /sys/kernel/boot_params/data for the exact kernel "
               "init_size and CONFIG_PHYSICAL_ALIGN, emitted as scalar facts "
               "tightening the KASLR ceiling and slot granularity. x86 only.");
 KASLD_META("method:parsed\n"
-           "phase:inference\n");
+           "phase:inference\n"
+           "discloses:facts\n");
 
 int main(void) {
   unsigned long v;

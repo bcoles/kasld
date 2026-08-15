@@ -204,13 +204,8 @@ const char *disclosure_descr(const char *declared) {
     return DISCLOSE_PHYS;
   if (strcmp(declared, "both") == 0)
     return DISCLOSE_BOTH;
-  /* `none` claims no ADDRESS, and claims nothing about facts. Rendering it as
-   * DISCLOSE_FACTS would assert a disclosure the component never declared --
-   * the inference this whole path exists to stop. Where the component did
-   * produce records, component_disclosed() has already answered and this is
-   * never consulted. */
-  if (strcmp(declared, "none") == 0)
-    return DISCLOSE_NOADDR;
+  if (strcmp(declared, "facts") == 0)
+    return DISCLOSE_FACTS;
   return NULL;
 }
 

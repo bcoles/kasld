@@ -58,7 +58,7 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"
-           "addr:phys-extent\n"
+           "discloses:physical\n"
            "bypass:CAP_SYS_ADMIN\n");
 
 /* Map one of the kernel-image iomem labels to its KASLD region.

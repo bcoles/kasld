@@ -76,7 +76,7 @@ KASLD_EXPLAIN(
 KASLD_META("method:brute\n"
            "phase:probing\n"
            "live:1\n"
-           "addr:virtual\n");
+           "discloses:virtual\n");
 
 /* Compiled under exactly the conditions main() reaches it: a 32-bit build, on
  * an architecture that admits more than one linear-map base. */

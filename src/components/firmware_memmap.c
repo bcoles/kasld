@@ -18,7 +18,8 @@ KASLD_EXPLAIN("Reads /sys/firmware/memmap (the authoritative firmware System "
               "firmware_memmap_holes keys on this component's origin. "
               "World-readable, no privileges.");
 KASLD_META("method:parsed\n"
-           "phase:inference\n");
+           "phase:inference\n"
+           "discloses:physical\n");
 
 int main(void) {
   struct kasld_ram_extent ext[128];

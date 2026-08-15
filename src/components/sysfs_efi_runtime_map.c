@@ -73,7 +73,7 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"
-           "addr:virtual\n"
+           "discloses:virtual\n"
            "config:CONFIG_EFI\n"
            "config:CONFIG_KEXEC_CORE\n");
 

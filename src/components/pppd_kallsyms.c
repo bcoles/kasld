@@ -72,7 +72,7 @@ KASLD_EXPLAIN(
 KASLD_META("method:parsed\n"
            "phase:inference\n"
            "live:1\n"
-           "addr:virtual\n"
+           "discloses:virtual\n"
            "sysctl:kptr_restrict>=1\n"
            "patch:v4.8\n");
 

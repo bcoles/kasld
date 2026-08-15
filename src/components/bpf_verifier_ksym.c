@@ -197,7 +197,7 @@ KASLD_EXPLAIN(
 KASLD_META("method:parsed\n"
            "phase:inference\n"
            "live:1\n"
-           "addr:virtual\n"
+           "discloses:virtual\n"
            "sysctl:unprivileged_bpf_disabled>=1\n"
            "bypass:CAP_BPF\n"
            "config:CONFIG_DEBUG_INFO_BTF\n"

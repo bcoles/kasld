@@ -213,7 +213,7 @@ KASLD_EXPLAIN(
 KASLD_META("method:parsed\n"
            "phase:inference\n"
            "live:1\n"
-           "addr:virtual\n"
+           "discloses:virtual\n"
            "patch:v7.2\n");
 
 /* Perform one self-addressed variable-event round trip on an already-open

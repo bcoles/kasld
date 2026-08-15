@@ -29,7 +29,8 @@ KASLD_EXPLAIN("On non-EFI riscv64 with no FDT /chosen/kaslr-seed and no 'zkr' "
               "CSR takes priority over the FDT seed, so a Zkr-capable CPU is "
               "excluded from the verdict. riscv64 only.");
 KASLD_META("method:parsed\n"
-           "phase:inference\n");
+           "phase:inference\n"
+           "discloses:facts\n");
 
 int main(void) {
   if (kasld_kaslr_disabled_text_default()) {

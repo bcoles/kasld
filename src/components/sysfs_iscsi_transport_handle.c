@@ -84,7 +84,7 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"
-           "addr:virtual\n"
+           "discloses:virtual\n"
            "cve:CVE-2021-27363\n"
            "patch:v5.12\n"
            "config:CONFIG_SCSI_ISCSI_ATTRS\n");

@@ -20,7 +20,8 @@ KASLD_EXPLAIN(
     "trailer) and emits it as a scalar fact bounding the KASLR window. "
     "No privileges.");
 KASLD_META("method:parsed\n"
-           "phase:inference\n");
+           "phase:inference\n"
+           "discloses:facts\n");
 
 int main(void) {
   struct utsname uts;

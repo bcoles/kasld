@@ -66,7 +66,7 @@ KASLD_EXPLAIN(
 KASLD_META("method:heuristic\n"
            "phase:probing\n"
            "live:1\n"
-           "addr:virtual\n"
+           "discloses:virtual\n"
            "cve:CVE-2017-16994\n"
            "patch:v4.15\n");
 

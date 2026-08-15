@@ -4,13 +4,15 @@
 # check-component-meta — every component must declare KASLD_META.
 #
 # KASLD_META(...) emits the .kasld_meta ELF section the orchestrator reads in
-# classify_components(): the method/phase/addr keys classify the component, and
+# classify_components(): the method/phase keys classify the component, discloses:
+# names what the technique leaks, and
 # the sysctl/config/bypass/cve/... keys drive the -H hardening assessment. A
 # component without it still runs, but is invisible to classification and the
 # hardening report — so the metadata block is mandatory.
 #
 # This check FAILS if any src/components/*.c lacks a KASLD_META(...) declaration,
-# or carries one with no method: key (the field that classifies the component).
+# or carries one with no method: key (the field that classifies the component), or
+# no discloses: key naming what it leaks.
 # ---
 # <bcoles@gmail.com>
 
@@ -30,6 +32,8 @@ rc=0
 missing=""
 nomethod=""
 badhw=""
+nodisc=""
+baddisc=""
 n=0
 for f in "$COMP"/*.c; do
   n=$((n + 1))
@@ -39,6 +43,30 @@ for f in "$COMP"/*.c; do
     rc=1
   elif ! grep -qE 'method:' "$f"; then
     nomethod="$nomethod $base"
+    rc=1
+  fi
+
+  # discloses: names what the TECHNIQUE discloses -- a static property, distinct
+  # from what a given run observed. Required of every component, for two
+  # readers:
+  #
+  #   the JSON publishes each component's whole KASLD_META block, so this is a
+  #   documented per-component field an external consumer reads; present on
+  #   some components and absent on others, its absence would encode nothing
+  #   but which sections of the hardening renderer happen to consult it.
+  #
+  #   the hardening report falls back to it in the compile-time surface and
+  #   hardware side-channel sections, which list a component whether or not it
+  #   produced anything -- there being nothing to observe in that case.
+  #
+  # Mandatory rather than optional because an absent value is indistinguishable
+  # from an unconsidered omission, and the optional version had drifted: several
+  # components named a kind they do not emit.
+  if ! grep -qE '"discloses:' "$f"; then
+    nodisc="$nodisc $base"
+    rc=1
+  elif ! grep -qE '"discloses:(virtual|physical|both|facts)\\n"' "$f"; then
+    baddisc="$baddisc $base"
     rc=1
   fi
   # The hardware: field names the requirement; a feature that DISABLES the leak
@@ -63,6 +91,14 @@ if [ -n "$nomethod" ]; then
   printf '%scheck-component-meta: FAIL%s — KASLD_META without a method: key:\n' "$RED" "$RESET"
   for c in $nomethod; do printf '  %s\n' "$c"; done
 fi
+if [ -n "$nodisc" ]; then
+  printf '%scheck-component-meta: FAIL%s — KASLD_META without a discloses: key:\n' "$RED" "$RESET"
+  for c in $nodisc; do printf '  %s\n' "$c"; done
+fi
+if [ -n "$baddisc" ]; then
+  printf '%scheck-component-meta: FAIL%s — discloses: must be virtual/physical/both/facts:\n' "$RED" "$RESET"
+  for c in $baddisc; do printf '  %s\n' "$c"; done
+fi
 if [ -n "$badhw" ]; then
   printf '%scheck-component-meta: FAIL%s — hardware: names a mitigation as the requirement (move it into "(mitigated by X)"):\n' "$RED" "$RESET"
   for c in $badhw; do printf '  %s\n' "$c"; done
@@ -70,6 +106,6 @@ fi
 if [ "$rc" -eq 0 ]; then
 guard_scope "check-component-meta" "$n" 80
 
-  printf '%scheck-component-meta: OK%s (%d components, all declare KASLD_META with a method: key)\n' "$GREEN" "$RESET" "$n"
+  printf '%scheck-component-meta: OK%s (%d components, all declare KASLD_META with method: and discloses:)\n' "$GREEN" "$RESET" "$n"
 fi
 exit $rc

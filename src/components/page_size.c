@@ -10,7 +10,8 @@
 KASLD_EXPLAIN("Emits the kernel page size (sysconf _SC_PAGESIZE) as a scalar "
               "fact; the arm64 physical-alignment rule consumes it.");
 KASLD_META("method:parsed\n"
-           "phase:inference\n");
+           "phase:inference\n"
+           "discloses:facts\n");
 
 int main(void) {
   long p = sysconf(_SC_PAGESIZE);

@@ -54,7 +54,7 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:detection\n"
            "phase:inference\n"
-           "addr:none\n"
+           "discloses:virtual\n"
            "config:CONFIG_IKCONFIG_PROC\n");
 
 /* The exit class the last open attempt implies; see kasld_exit_for_errno. */

@@ -104,7 +104,7 @@ KASLD_EXPLAIN(
 KASLD_META("method:parsed\n"
            "phase:inference\n"
            "live:1\n"
-           "addr:virtual\n"
+           "discloses:virtual\n"
            "cve:CVE-2023-26083\n"
            "config:CONFIG_MALI_MIDGARD\n"
            "note:bypasses_kptr_restrict\n");

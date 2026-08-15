@@ -74,7 +74,7 @@ KASLD_EXPLAIN(
 KASLD_META("method:parsed\n"
            "phase:inference\n"
            "live:1\n"
-           "addr:virtual\n"
+           "discloses:virtual\n"
            "cve:CVE-2020-28588\n"
            "patch:v5.10\n"
            "config:CONFIG_HAVE_ARCH_TRACEHOOK\n");

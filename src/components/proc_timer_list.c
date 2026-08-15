@@ -61,7 +61,7 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"
-           "addr:virtual\n"
+           "discloses:virtual\n"
            "patch:v4.15\n");
 
 /* Minimum alignment a real per-CPU struct timer_base pointer is guaranteed to

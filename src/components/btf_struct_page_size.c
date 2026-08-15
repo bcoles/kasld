@@ -32,7 +32,8 @@ KASLD_EXPLAIN("Parses sizeof(struct page) from the kernel's BTF type info "
               "(/sys/kernel/btf/vmlinux) and emits it as a scalar fact; the "
               "vmemmap-sizing rules consume it, else assume 64 bytes.");
 KASLD_META("method:parsed\n"
-           "phase:inference\n");
+           "phase:inference\n"
+           "discloses:facts\n");
 
 #define BTF_MAGIC 0xeB9F
 #define BTF_KIND_STRUCT 4

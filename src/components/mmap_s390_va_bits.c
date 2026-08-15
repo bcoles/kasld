@@ -21,7 +21,8 @@ KASLD_EXPLAIN("Probes the s390 user-address-space limit with a single "
               "SF_VIRT_ADDR_BITS. Unprivileged, no sysctl gate. s390x only.");
 KASLD_META("method:inferred\n"
            "phase:probing\n"
-           "live:1\n");
+           "live:1\n"
+           "discloses:facts\n");
 
 int main(void) {
   if (kasld_skip_live_probe("VA_BITS mmap"))

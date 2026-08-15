@@ -47,7 +47,7 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"
-           "addr:virtual\n"
+           "discloses:virtual\n"
            "sysctl:kptr_restrict>=1\n"
            "bypass:CAP_SYSLOG\n"
            "patch:v4.15\n");

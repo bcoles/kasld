@@ -76,7 +76,8 @@ KASLD_EXPLAIN(
  * leaks no address, so it is excluded from the exposure/leak accounting. The
  * emitted fact's confidence is CONF_HEURISTIC (separate from the method). */
 KASLD_META("method:detection\n"
-           "phase:inference\n");
+           "phase:inference\n"
+           "discloses:facts\n");
 
 int main(void) {
   FILE *f = kasld_fopen("/proc/kallsyms", "r");

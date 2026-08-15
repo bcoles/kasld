@@ -55,7 +55,7 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"
-           "addr:physical\n"
+           "discloses:physical\n"
            "lockdown:integrity\n"
            "config:CONFIG_VMCORE_INFO\n");
 

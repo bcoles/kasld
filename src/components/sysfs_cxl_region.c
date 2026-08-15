@@ -66,7 +66,7 @@ KASLD_EXPLAIN(
 // Untested: no CXL hardware available for testing.
 KASLD_META("method:parsed\n"
            "phase:inference\n"
-           "addr:physical\n"
+           "discloses:physical\n"
            "config:CONFIG_CXL_BUS\n");
 
 int main(void) {

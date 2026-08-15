@@ -50,7 +50,7 @@ KASLD_EXPLAIN(
 KASLD_META("method:inferred\n"
            "phase:probing\n"
            "live:1\n"
-           "addr:virtual\n");
+           "discloses:virtual\n");
 
 #if defined(__riscv) && __riscv_xlen == 64
 /* PAGE_OFFSET values from arch/riscv/include/asm/page.h */

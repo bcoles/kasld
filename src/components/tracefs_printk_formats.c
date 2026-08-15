@@ -57,7 +57,7 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"
-           "addr:virtual\n"
+           "discloses:virtual\n"
            "note:bypasses_kptr_restrict\n");
 
 static const char *const PATHS[] = {

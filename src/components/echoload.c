@@ -125,7 +125,7 @@ KASLD_EXPLAIN("EchoLoad exploits the Meltdown vulnerability's zero-return "
 KASLD_META("method:timing\n"
            "phase:probing\n"
            "live:1\n"
-           "addr:virtual\n"
+           "discloses:virtual\n"
            "status:experimental\n"
            "hardware:Meltdown-vulnerable CPU required\n");
 

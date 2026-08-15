@@ -13,7 +13,8 @@ KASLD_EXPLAIN("Reads the kernel boot config (/boot/config-*, /lib/modules/...) "
               "for CONFIG_RANDOMIZE_BASE_MAX_OFFSET and CONFIG_PAGE_OFFSET, "
               "emitted as scalar facts. No privileges.");
 KASLD_META("method:parsed\n"
-           "phase:inference\n");
+           "phase:inference\n"
+           "discloses:facts\n");
 
 int main(void) {
   unsigned long v;

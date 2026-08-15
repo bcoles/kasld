@@ -64,7 +64,7 @@ KASLD_EXPLAIN(
 KASLD_META("method:parsed\n"
            "phase:inference\n"
            "live:1\n"
-           "addr:physical\n");
+           "discloses:physical\n");
 
 /* Emit one MMIO window as a PHYS landmark: a range when a length is known, else
  * a base (lo edge). Both set HAS_LO, which mmio_floor_phys_ceiling consumes.

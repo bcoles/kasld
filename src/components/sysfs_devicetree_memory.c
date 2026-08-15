@@ -64,7 +64,7 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"
-           "addr:physical\n"
+           "discloses:physical\n"
            "config:CONFIG_OF\n");
 
 int main(void) {

@@ -95,7 +95,7 @@ KASLD_EXPLAIN(
 // Untested: no hardware with an active IOMMU available for testing.
 KASLD_META("method:parsed\n"
            "phase:inference\n"
-           "addr:physical\n"
+           "discloses:physical\n"
            "config:CONFIG_IOMMU_API\n");
 
 /* Physical DRAM range heuristic.

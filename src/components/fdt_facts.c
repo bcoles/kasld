@@ -11,7 +11,8 @@ KASLD_EXPLAIN("Reads the flattened device tree /chosen/kaslr-seed and emits it "
               "as a scalar fact. On non-EFI riscv64 the kernel derives its "
               "KASLR offset deterministically from this seed. No privileges.");
 KASLD_META("method:parsed\n"
-           "phase:inference\n");
+           "phase:inference\n"
+           "discloses:facts\n");
 
 int main(void) {
   unsigned long seed = (unsigned long)kasld_read_fdt_kaslr_seed();

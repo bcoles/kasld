@@ -63,7 +63,7 @@ KASLD_EXPLAIN("Searches dmesg for CMA (Contiguous Memory Allocator) or DMA "
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"
-           "addr:physical\n"
+           "discloses:physical\n"
            "sysctl:dmesg_restrict>=1\n"
            "bypass:CAP_SYSLOG\n"
            "fallback:/var/log/dmesg\n");

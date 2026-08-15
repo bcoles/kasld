@@ -270,7 +270,7 @@ static void set_rich_render_state(struct summary *s) {
   cl->meta.num_entries = 3;
   snprintf(cl->meta.entries[0].key, META_KEY_LEN, "method");
   snprintf(cl->meta.entries[0].value, META_VALUE_LEN, "parsed");
-  snprintf(cl->meta.entries[1].key, META_KEY_LEN, "addr");
+  snprintf(cl->meta.entries[1].key, META_KEY_LEN, "discloses");
   snprintf(cl->meta.entries[1].value, META_VALUE_LEN, "virtual");
   snprintf(cl->meta.entries[2].key, META_KEY_LEN, "sysctl");
   snprintf(cl->meta.entries[2].value, META_VALUE_LEN, "kptr_restrict>=1");
@@ -3087,12 +3087,12 @@ static void test_build_hardening_report(void) {
   c = hr_seed_comp("c_surface", OUTCOME_SUCCESS);
   hr_seed_meta(c, "method", "parsed");
   hr_seed_meta(c, "config", "CONFIG_FOO");
-  hr_seed_meta(c, "addr", "physical");
+  hr_seed_meta(c, "discloses", "physical");
 
   c = hr_seed_comp("c_hw", OUTCOME_SUCCESS);
   hr_seed_meta(c, "method", "parsed");
   hr_seed_meta(c, "hardware", "KPTI");
-  hr_seed_meta(c, "addr", "virtual");
+  hr_seed_meta(c, "discloses", "virtual");
 
   c = hr_seed_comp("c_nomit", OUTCOME_SUCCESS);
   hr_seed_meta(c, "method", "parsed");
@@ -3207,6 +3207,78 @@ static void test_render_json_disposition(void) {
 /* A mitigation disposition is confirmed active in the hardening report; absent
  * and inconclusive dispositions are not. Asserts both the report model and the
  * rendered JSON confirmed_mitigations array. */
+/* The disclosure a report row carries is OBSERVED, not declared: it is read off
+ * the records attributed to the component. The declaration is consulted only
+ * where nothing was produced, and where neither answers the row must say so
+ * rather than name a kind -- reporting an unstated disclosure as "virtual" is
+ * the defect this replaced. */
+static void test_hardening_disclosure_is_observed(void) {
+  struct summary s;
+  set_rich_render_state(&s);
+
+  /* Declares physical, discloses a VIRTUAL address: observation must win. */
+  struct component_log *c = hr_seed_comp("c_obs", OUTCOME_SUCCESS);
+  hr_seed_meta(c, "method", "parsed");
+  hr_seed_meta(c, "config", "CONFIG_OBS");
+  hr_seed_meta(c, "discloses", "physical");
+  struct result *r = push_result();
+  r->type = KASLD_TYPE_VIRT;
+  r->region = REGION_KERNEL_TEXT;
+  r->pos = POS_BASE;
+  r->conf = CONF_PARSED;
+  r->lo = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
+  r->set_mask = LO_SET;
+  origin_set_add(&r->origins, test_origin("c_obs"));
+
+  /* Ran, produced nothing, declares nothing: no kind may be invented. The
+   * hardware section is where that can arise -- the compile-time surface lists
+   * only OUTCOME_SUCCESS, so it always has something to observe. */
+  struct component_log *u = hr_seed_comp("c_unstated", OUTCOME_NO_RESULT);
+  hr_seed_meta(u, "method", "timing");
+  hr_seed_meta(u, "hardware", "some CPU feature");
+
+  struct hardening_report rep;
+  build_hardening_report(&rep);
+
+  int seen_obs = 0, seen_unstated = 0;
+  for (int i = 0; i < rep.n_surface; i++)
+    if (strcmp(rep.surface[i].name, "c_obs") == 0) {
+      seen_obs = 1;
+      assert(rep.surface[i].discloses != NULL);
+      assert(strcmp(rep.surface[i].discloses, DISCLOSE_VIRT) == 0);
+    }
+  for (int i = 0; i < rep.n_hw; i++)
+    if (strcmp(rep.hw[i].name, "c_unstated") == 0) {
+      seen_unstated = 1;
+      assert(rep.hw[i].discloses == NULL);
+    }
+  assert(seen_obs && seen_unstated);
+}
+
+/* The declaration IS used where there is nothing to observe, and only there. */
+static void test_hardening_disclosure_declared_fallback(void) {
+  struct summary s;
+  set_rich_render_state(&s);
+
+  struct component_log *c = hr_seed_comp("c_quiet", OUTCOME_NO_RESULT);
+  hr_seed_meta(c, "method", "timing");
+  hr_seed_meta(c, "hardware", "TSX required");
+  hr_seed_meta(c, "discloses", "facts");
+
+  struct hardening_report rep;
+  build_hardening_report(&rep);
+
+  int seen = 0;
+  for (int i = 0; i < rep.n_hw; i++)
+    if (strcmp(rep.hw[i].name, "c_quiet") == 0) {
+      seen = 1;
+      assert(rep.hw[i].discloses != NULL);
+      assert(strcmp(rep.hw[i].discloses, DISCLOSE_FACTS) == 0);
+      assert(!rep.hw[i].succeeded);
+    }
+  assert(seen);
+}
+
 static void test_render_hardening_confirmed_mitigations(void) {
   struct summary s;
   set_rich_render_state(
@@ -3349,7 +3421,7 @@ static void test_hardening_unprivileged_bpf_gate(void) {
   struct component_log *c = hr_seed_comp("c_bpf_leak", OUTCOME_SUCCESS);
   hr_seed_meta(c, "method", "parsed");
   hr_seed_meta(c, "sysctl", "unprivileged_bpf_disabled>=1");
-  hr_seed_meta(c, "addr", "virtual");
+  hr_seed_meta(c, "discloses", "virtual");
 
   build_hardening_report(&rep);
   gb = NULL;
@@ -3426,13 +3498,13 @@ static void test_hardening_projection(void) {
   struct component_log *c = hr_seed_comp("c_perf_leak", OUTCOME_SUCCESS);
   hr_seed_meta(c, "method", "parsed");
   hr_seed_meta(c, "sysctl", "perf_event_paranoid>=2");
-  hr_seed_meta(c, "addr", "virtual");
+  hr_seed_meta(c, "discloses", "virtual");
   /* No fallback, so enabling the gate silences it: gate exclude-set size 1. */
 
   c = hr_seed_comp("c_lockdown_leak", OUTCOME_SUCCESS);
   hr_seed_meta(c, "method", "parsed");
   hr_seed_meta(c, "lockdown", "yes");
-  hr_seed_meta(c, "addr", "virtual");
+  hr_seed_meta(c, "discloses", "virtual");
   /* No fallback, so lockdown silences the klogctl path: lockdown set size 1. */
 
   c = hr_seed_comp("c_dmesg_fallback", OUTCOME_SUCCESS);
@@ -3530,7 +3602,7 @@ static void test_hardening_projection_no_exposure(void) {
   struct component_log *c = hr_seed_comp("c_lockdown_leak", OUTCOME_SUCCESS);
   hr_seed_meta(c, "method", "parsed");
   hr_seed_meta(c, "lockdown", "yes");
-  hr_seed_meta(c, "addr", "virtual");
+  hr_seed_meta(c, "discloses", "virtual");
 
   kasld_test_projection = 2;
 
@@ -3581,12 +3653,12 @@ static void test_hardening_projection_redundant(void) {
   struct component_log *c = hr_seed_comp("c_critical", OUTCOME_SUCCESS);
   hr_seed_meta(c, "method", "parsed");
   hr_seed_meta(c, "sysctl", "perf_event_paranoid>=2");
-  hr_seed_meta(c, "addr", "virtual");
+  hr_seed_meta(c, "discloses", "virtual");
 
   c = hr_seed_comp("c_redundant", OUTCOME_SUCCESS);
   hr_seed_meta(c, "method", "parsed");
   hr_seed_meta(c, "sysctl", "kptr_restrict>=1");
-  hr_seed_meta(c, "addr", "virtual");
+  hr_seed_meta(c, "discloses", "virtual");
 
   /* A gate that governs a component which did NOT succeed: it becomes a
    * suggestion (impact > 0) but silences nothing -> the "no base-leak" verdict.
@@ -3595,7 +3667,7 @@ static void test_hardening_projection_redundant(void) {
   c = hr_seed_comp("c_hashed_denied", OUTCOME_ACCESS_DENIED);
   hr_seed_meta(c, "method", "parsed");
   hr_seed_meta(c, "sysctl", "hashed_pointers>=1");
-  hr_seed_meta(c, "addr", "virtual");
+  hr_seed_meta(c, "discloses", "virtual");
 
   kasld_test_projection = 3;
 
@@ -4028,6 +4100,8 @@ int main(void) {
   RUN(test_render_hardening_markdown);
   RUN(test_build_hardening_report);
   RUN(test_render_json_disposition);
+  RUN(test_hardening_disclosure_is_observed);
+  RUN(test_hardening_disclosure_declared_fallback);
   RUN(test_render_hardening_confirmed_mitigations);
   RUN(test_section_interior_only_and_conflicts);
   RUN(test_render_interior_only_surface);

@@ -55,7 +55,7 @@ KASLD_EXPLAIN(
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"
-           "addr:physical\n"
+           "discloses:physical\n"
            "config:CONFIG_MEMORY_HOTPLUG\n");
 
 /* Per-run extent emission for ram_map_phys_exclude. Bounded so a huge or

@@ -10,7 +10,8 @@
 KASLD_EXPLAIN("Checks for /sys/firmware/efi and emits SF_EFI_PRESENT (0 or 1). "
               "Several rules gate on EFI vs non-EFI boot. No privileges.");
 KASLD_META("method:parsed\n"
-           "phase:inference\n");
+           "phase:inference\n"
+           "discloses:facts\n");
 
 int main(void) {
   int present = (kasld_access("/sys/firmware/efi", F_OK) == 0) ? 1 : 0;

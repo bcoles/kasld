@@ -52,7 +52,6 @@ int count_derived(void);
 #define DISCLOSE_PHYS "physical addresses"
 #define DISCLOSE_BOTH "virtual and physical addresses"
 #define DISCLOSE_FACTS "system facts"
-#define DISCLOSE_NOADDR "no addresses"
 
 /* What a component disclosed, as one phrase shared by every output format so
  * the three cannot word the same fact differently.

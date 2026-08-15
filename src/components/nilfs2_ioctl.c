@@ -63,7 +63,7 @@ KASLD_EXPLAIN(
 KASLD_META("method:heuristic\n"
            "phase:probing\n"
            "live:1\n"
-           "addr:virtual\n"
+           "discloses:virtual\n"
            "patch:v6.3\n"
            "config:CONFIG_NILFS2_FS\n");
 

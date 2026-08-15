@@ -592,14 +592,13 @@ void build_hardening_report(struct hardening_report *r) {
     int ncfg = meta_get_all(&comp_logs[i].meta, "config", configs, 4);
     if (ncfg == 0)
       continue;
-    /* This section lists a compiled-in surface whether or not the component
-     * produced anything, so prefer what it actually disclosed and fall back to
-     * its declaration only when there is nothing to observe. NULL where neither
-     * answers -- the renderers must then say nothing rather than pick a kind.
-     */
+    /* Observed only. The loop above already skipped everything that is not
+     * OUTCOME_SUCCESS, and that outcome means the component emitted a record
+     * the orchestrator attributed to it -- so there is always something to
+     * read here and a `discloses:` fallback could never fire. NULL remains
+     * possible in the type and the renderers handle it, rather than the report
+     * depending on two loops agreeing forever. */
     const char *d = component_disclosed(i);
-    if (!d)
-      d = disclosure_descr(meta_get(&comp_logs[i].meta, "addr"));
     for (int j = 0; j < ncfg && r->n_surface < HR_SURFACE_MAX; j++) {
       r->surface[r->n_surface].name = comp_logs[i].name;
       r->surface[r->n_surface].config = configs[j];
@@ -624,7 +623,7 @@ void build_hardening_report(struct hardening_report *r) {
       {
         const char *hd = component_disclosed(i);
         if (!hd)
-          hd = disclosure_descr(meta_get(&comp_logs[i].meta, "addr"));
+          hd = disclosure_descr(meta_get(&comp_logs[i].meta, "discloses"));
         r->hw[r->n_hw].discloses = hd;
       }
       r->hw[r->n_hw].succeeded = (comp_logs[i].outcome == OUTCOME_SUCCESS);
