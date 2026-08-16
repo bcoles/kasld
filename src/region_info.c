@@ -25,13 +25,10 @@
 static void derive_vas_page_offset(const struct kasld_layout *ly,
                                    unsigned long *lo, unsigned long *hi) {
   /* PAGE_OFFSET is itself a layout field. Validate virt_page_offset records
-   * against the ARCH-default kernel VAS window (compile-time constants),
-   * NOT the runtime layout.virt_kernel_vas_start — the latter gets tightened
-   * by engine rules (phys_virt_synth, directmap_page_offset_bounds)
-   * which themselves derive their tightenings from virt_page_offset records.
-   * Using the runtime layout would create a circular dependency where
-   * a virt_page_offset record gets rejected because earlier inference (based
-   * on different records) tightened the bound above it.
+   * against the ARCH-default kernel VAS window (compile-time constants), NOT
+   * the runtime layout.virt_kernel_vas_start: a validation window has to be
+   * independent of the records it validates, or inference over one record can
+   * reject another by moving the bound above it in between.
    *
    * The compile-time KERNEL_VIRT_VAS_START/END from the arch header is the
    * widest plausible PAGE_OFFSET range; that's the right validation

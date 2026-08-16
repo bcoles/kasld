@@ -4040,7 +4040,8 @@ void kasld_project_posture(const char *const *exclude, int n_exclude,
  *   Q_VMALLOC_BASE     -> virt_vmalloc_base_* (when constrained)
  *   Q_VMEMMAP_BASE     -> virt_vmemmap_base_* (when constrained)
  *   Q_MODULE_BASE      -> virt_module_base_*  (when constrained)
- *   Q_VA_BITS          -> none (intermediate; bounds Q_VIRT_IMAGE_BASE)
+ *   Q_VA_BITS          -> virt_page_offset_unrandomized (via the paging level
+ *                         it names; also bounds Q_VIRT_IMAGE_BASE)
  * The compile-time check below trips when Q__COUNT changes — forcing whoever
  * adds a quantity to decide its sink (or document it as intermediate) and bump
  * the count, rather than silently leaving it unprojected. */
@@ -4091,6 +4092,29 @@ static void engine_sync_authoritative(const struct engine *e) {
         po_pin != 0)
       layout.virt_page_offset = po_pin;
   }
+
+#if RANDOMIZE_MEMORY_ALIGN > 0
+  /* The base the direct map slid away from, selected by the paging level the
+   * engine resolved. Q_VA_BITS is read here rather than the budget model's
+   * b.lo, which is the same address: the budget also declines when
+   * SF_PHYS_MAX_PFN is missing or below the floor, and neither says anything
+   * about which level is in force. Taking the level directly gives the sharper
+   * gate -- this base whenever the level is known, the budget's denominator
+   * only when the whole model holds.
+   *
+   * e is the guaranteed resolution, so the level arrives at the sound floor
+   * without asking, which is the right bar for a fact about the machine. Left
+   * at 0 where the level is unresolved; nothing downstream measures from a
+   * default. */
+  {
+    unsigned long va_bits;
+    struct kasld_rm_level lv;
+    if (estimate_finset_value(&quantities[Q_VA_BITS], &e->est[Q_VA_BITS],
+                              &va_bits) &&
+        kasld_rm_level_for(va_bits, &lv))
+      layout.virt_page_offset_unrandomized = lv.vaddr_start;
+  }
+#endif
 
 #if !TEXT_TRACKS_DIRECTMAP
   /* On decoupled arches the direct-map base (PAGE_OFFSET) is randomized away

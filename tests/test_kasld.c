@@ -1955,6 +1955,60 @@ static void test_engine_sync_projects_slot_counts(void) {
 #endif
 }
 
+/* engine_sync_authoritative selects the un-randomized direct-map base from the
+ * paging level the engine resolved, so the rendered RANDOMIZE_MEMORY offset is
+ * measured from the base the target kernel actually slid away from.
+ *
+ * The two bases are 59.6 PiB apart, and the level is knowable at run time but
+ * never at build time, so naming either one in the source is wrong on the
+ * other. Driving both levels through one projection is what a fixed constant
+ * cannot satisfy. Asserting against PAGE_OFFSET_BASE_L4/_L5 also holds the arch
+ * header and the paging-level table to the same pair of addresses, which are
+ * separate definitions of the same upstream constants.
+ *
+ * The unresolved case is the one that decides what an unknown level costs: no
+ * base, so downstream states no offset rather than measuring from a default. */
+static void test_engine_sync_selects_directmap_base_by_level(void) {
+#if RANDOMIZE_MEMORY_ALIGN > 0
+  const struct quantity_def *qd = &quantities[Q_VA_BITS];
+  const struct {
+    unsigned long bits;
+    unsigned long base;
+  } want[2] = {{48ul, (unsigned long)PAGE_OFFSET_BASE_L4},
+               {57ul, (unsigned long)PAGE_OFFSET_BASE_L5}};
+
+  for (int i = 0; i < 2; i++) {
+    struct engine e;
+    memset(&e, 0, sizeof(e));
+    qd->init_top(&e.est[Q_VA_BITS]);
+
+    struct constraint c;
+    memset(&c, 0, sizeof(c));
+    c.q = Q_VA_BITS;
+    c.op = C_EQUALS;
+    c.value = want[i].bits;
+    c.conf = CONF_PARSED;
+    c.id = 1;
+    estimate_meet(&e.est[Q_VA_BITS], qd, &c);
+
+    layout.virt_page_offset_unrandomized = 0;
+    engine_sync_authoritative(&e);
+    assert(layout.virt_page_offset_unrandomized == want[i].base);
+  }
+
+  /* Every candidate still live: the level is not resolved, so no base. */
+  {
+    struct engine e;
+    memset(&e, 0, sizeof(e));
+    qd->init_top(&e.est[Q_VA_BITS]);
+
+    layout.virt_page_offset_unrandomized = 0;
+    engine_sync_authoritative(&e);
+    assert(layout.virt_page_offset_unrandomized == 0);
+  }
+#endif
+}
+
 /* engine_sync_authoritative tightens layout.modules_start/end from observed
  * VIRT/REGION_MODULE_BAND addresses (when inside the validation union),
  * so the rendered band reflects the actual runtime module range rather than
@@ -2416,6 +2470,7 @@ int main(void) {
   BEGIN_CATEGORY("engine_sync_authoritative");
   RUN(test_engine_sync_projects_all_fields);
   RUN(test_engine_sync_projects_slot_counts);
+  RUN(test_engine_sync_selects_directmap_base_by_level);
   RUN(test_engine_sync_anchors_module_band_to_observations);
   RUN(test_engine_sync_module_band_rejects_out_of_union);
   RUN(test_engine_sync_module_band_never_degenerate);

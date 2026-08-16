@@ -715,9 +715,13 @@ static void test_render_directmap_base_promoted(void) {
 
   s.kaslr.vslots = 60; /* keep the regular KASLR readout path */
   s.kaslr.vbits = 6;
-  /* Base above the un-randomized direct-map base (PAGE_OFFSET_BASE_L4), so the
-   * displayed offset is the realistic small positive value it always is on a
-   * live kernel (page_offset_base >= PAGE_OFFSET_BASE_L4). */
+  /* Base above the un-randomized direct-map base, so the displayed offset is
+   * the realistic small positive value it always is on a live kernel
+   * (page_offset_base >= the level's __PAGE_OFFSET_BASE). Which base that is
+   * comes from the engine; a 4-level target is seeded here.
+   * test_render_directmap_offset_follows_paging_level covers the selection. */
+  unsigned long sv_ref = layout.virt_page_offset_unrandomized;
+  layout.virt_page_offset_unrandomized = (unsigned long)PAGE_OFFSET_BASE_L4;
   unsigned long align = (unsigned long)RANDOMIZE_MEMORY_ALIGN;
   unsigned long base = (unsigned long)PAGE_OFFSET_BASE_L4 + 20ul * align;
   s.kaslr.virt_page_offset_min = (unsigned long)PAGE_OFFSET_BASE_L4;
@@ -736,6 +740,7 @@ static void test_render_directmap_base_promoted(void) {
   assert(strstr(render_cap, GRADE_LIKELY) != NULL);       /* graded */
   assert(strstr(render_cap, GRADE_GUARANTEED) != NULL);   /* window beneath */
   set_render_mode(0, 0, 0);
+  layout.virt_page_offset_unrandomized = sv_ref;
 #endif
 }
 
@@ -756,6 +761,8 @@ static void test_render_directmap_base_promoted_unbounded(void) {
 
   s.kaslr.vslots = 60;
   s.kaslr.vbits = 6;
+  unsigned long sv_ref = layout.virt_page_offset_unrandomized;
+  layout.virt_page_offset_unrandomized = (unsigned long)PAGE_OFFSET_BASE_L4;
   unsigned long align = (unsigned long)RANDOMIZE_MEMORY_ALIGN;
   unsigned long base = (unsigned long)PAGE_OFFSET_BASE_L4 + 20ul * align;
   s.kaslr.virt_page_offset_min = (unsigned long)PAGE_OFFSET_BASE_L4; /* floor */
@@ -774,6 +781,129 @@ static void test_render_directmap_base_promoted_unbounded(void) {
   assert(strstr(render_cap, GRADE_GUARANTEED) !=
          NULL); /* floor beneath, labelled */
   set_render_mode(0, 0, 0);
+  layout.virt_page_offset_unrandomized = sv_ref;
+#endif
+}
+
+/* The RANDOMIZE_MEMORY offset is measured from the base for the paging level
+ * actually in force, which the engine projects — not from a compile-time
+ * constant. x86_64 has two un-randomized direct-map bases 59.6 PiB apart and a
+ * build cannot know which one its target runs: measuring a 5-level base
+ * against the 4-level constant yields `off -0xee888000000000` where the truth
+ * is a small positive slide, and the sign handling renders that as a
+ * measurement rather than an obvious wrap.
+ *
+ * Drives the same slide against each base in turn, so an implementation that
+ * names either one can satisfy at most half of it. The unresolved case asserts
+ * the annotation is dropped rather than measured from a default — the headline
+ * address must survive, since that part is known. */
+static void test_render_directmap_offset_follows_paging_level(void) {
+#if RANDOMIZE_MEMORY_ALIGN > 0
+  unsigned long align = (unsigned long)RANDOMIZE_MEMORY_ALIGN;
+  unsigned long sv_ref = layout.virt_page_offset_unrandomized;
+  const unsigned long refs[2] = {(unsigned long)PAGE_OFFSET_BASE_L4,
+                                 (unsigned long)PAGE_OFFSET_BASE_L5};
+
+  for (int i = 0; i < 2; i++) {
+    struct summary s;
+    reset_results();
+    reset_comp_logs();
+    num_scalar_facts = 0;
+    memset(&s, 0, sizeof(s));
+
+    unsigned long base = refs[i] + 20ul * align;
+    layout.virt_page_offset_unrandomized = refs[i];
+    s.kaslr.vslots = 60;
+    s.kaslr.vbits = 6;
+    s.kaslr.virt_page_offset_min = refs[i];
+    s.kaslr.virt_page_offset_max = base;
+    s.kaslr.virt_page_offset_slots = 21;
+    s.kaslr.virt_page_offset_likely_min = base - align;
+    s.kaslr.virt_page_offset_likely_max = base;
+
+    set_render_mode(0, 0, 0);
+    capture_stdout(wrap_render_summary, &s);
+    char off[32], wrong[48];
+    snprintf(off, sizeof(off), "off +0x%lx", 20ul * align);
+    /* What measuring from the OTHER level's base would print. */
+    long bad = (long)(base - refs[i ^ 1]);
+    snprintf(wrong, sizeof(wrong), "off %s0x%lx", bad < 0 ? "-" : "+",
+             (unsigned long)(bad < 0 ? -bad : bad));
+    assert(strstr(render_cap, off) != NULL);
+    assert(strstr(render_cap, wrong) == NULL);
+    set_render_mode(0, 0, 0);
+  }
+
+  /* Level unresolved: the base is still known and still headlined, but there
+   * is nothing sound to measure it from, so no offset is claimed. */
+  {
+    struct summary s;
+    reset_results();
+    reset_comp_logs();
+    num_scalar_facts = 0;
+    memset(&s, 0, sizeof(s));
+
+    unsigned long base = (unsigned long)PAGE_OFFSET_BASE_L4 + 20ul * align;
+    layout.virt_page_offset_unrandomized = 0;
+    s.kaslr.vslots = 60;
+    s.kaslr.vbits = 6;
+    s.kaslr.virt_page_offset_min = (unsigned long)PAGE_OFFSET_BASE_L4;
+    s.kaslr.virt_page_offset_max = base;
+    s.kaslr.virt_page_offset_slots = 21;
+    s.kaslr.virt_page_offset_likely_min = base - align;
+    s.kaslr.virt_page_offset_likely_max = base;
+
+    set_render_mode(0, 0, 0);
+    capture_stdout(wrap_render_summary, &s);
+    char hex[32];
+    snprintf(hex, sizeof(hex), "0x%lx", base);
+    assert(strstr(render_cap, hex) != NULL);
+    assert(strstr(render_cap, "off ") == NULL);
+    set_render_mode(0, 0, 0);
+  }
+
+  layout.virt_page_offset_unrandomized = sv_ref;
+#endif
+}
+
+/* JSON carries no offset annotation, so a consumer recovers the
+ * RANDOMIZE_MEMORY slide as virt_page_offset minus the un-randomized base.
+ * That base has to be published rather than left to be worked out: the obvious
+ * reconstruction, range-testing virt_page_offset against the two known x86_64
+ * bases, is unsound because the 4-level base lies inside the 5-level span, so a
+ * sufficiently slid 5-level map reads as 4-level.
+ *
+ * Both bases are driven through, so a field wired to either constant satisfies
+ * at most half. Zero is published rather than omitted, because a consumer has
+ * to be able to tell an unresolved level from a zero slide — and the pairing is
+ * asserted alongside it, the two fields being useless apart. */
+static void test_render_json_publishes_unrandomized_directmap_base(void) {
+#if RANDOMIZE_MEMORY_ALIGN > 0
+  unsigned long sv_ref = layout.virt_page_offset_unrandomized;
+  const unsigned long refs[3] = {(unsigned long)PAGE_OFFSET_BASE_L4,
+                                 (unsigned long)PAGE_OFFSET_BASE_L5, 0ul};
+
+  for (int i = 0; i < 3; i++) {
+    struct summary s;
+    reset_results();
+    reset_comp_logs();
+    num_scalar_facts = 0;
+    memset(&s, 0, sizeof(s));
+
+    layout.virt_page_offset_unrandomized = refs[i];
+    set_render_mode(1, 0, 0);
+    capture_stdout(wrap_render_summary, &s);
+
+    char want[80];
+    snprintf(want, sizeof(want),
+             "\"virt_page_offset_unrandomized\": \"0x%016lx\"", refs[i]);
+    assert(strstr(render_cap, want) != NULL);
+    /* The minuend the slide is taken from, in the same object. */
+    assert(strstr(render_cap, "\"virt_page_offset\":") != NULL);
+    set_render_mode(0, 0, 0);
+  }
+
+  layout.virt_page_offset_unrandomized = sv_ref;
 #endif
 }
 
@@ -4140,6 +4270,8 @@ int main(void) {
   RUN(test_render_directmap_entropy_denominator);
   RUN(test_render_directmap_base_promoted);
   RUN(test_render_directmap_base_promoted_unbounded);
+  RUN(test_render_directmap_offset_follows_paging_level);
+  RUN(test_render_json_publishes_unrandomized_directmap_base);
   RUN(test_render_entropy_states_its_baseline);
   RUN(test_render_memory_kaslr_slots_reach_machine_formats);
   RUN(test_render_map_band_contains_its_leaks);

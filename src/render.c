@@ -405,11 +405,22 @@ void layout_build(const struct summary *s) {
         int concrete = llo && lhi >= llo && (lhi - llo) <= dmalign;
         char off[48];
         if (concrete) {
-          long d = (long)(lhi - (unsigned long)PAGE_OFFSET_BASE_L4);
-          snprintf(off, sizeof(off), "off %s0x%lx", d < 0 ? "-" : "+",
-                   (unsigned long)(d < 0 ? -d : d));
+          /* Measured from the base for the paging level actually in force,
+           * which the engine projected. x86_64's two un-randomized bases are
+           * 59.6 PiB apart, so a compile-time one renders the other level's
+           * offset as a large negative number that still reads as a
+           * measurement. Unresolved level: no annotation, no denominator for
+           * the reader to misread. */
+          const char *note = NULL;
+          unsigned long ref = layout.virt_page_offset_unrandomized;
+          if (ref) {
+            long d = (long)(lhi - ref);
+            snprintf(off, sizeof(off), "off %s0x%lx", d < 0 ? "-" : "+",
+                     (unsigned long)(d < 0 ? -d : d));
+            note = off;
+          }
           layout_add("Direct Map Base", GRADE_LIKELY, 1,
-                     s->kaslr.virt_page_offset_slots, lhi, lhi, off, dmalign);
+                     s->kaslr.virt_page_offset_slots, lhi, lhi, note, dmalign);
         } else {
           layout_add("Direct Map Base", GRADE_LIKELY,
                      s->kaslr.virt_page_offset_likely_slots,

@@ -19,14 +19,6 @@
 #include <sys/utsname.h>
 #include <unistd.h>
 
-/* Un-randomized direct-map base — the reference for the direct map's
- * RANDOMIZE_MEMORY offset in the readout. x86_64-only; 0 elsewhere, where the
- * direct-map base promotion that uses it never fires (gated on
- * RANDOMIZE_MEMORY_ALIGN > 0). */
-#ifndef PAGE_OFFSET_BASE_L4
-#define PAGE_OFFSET_BASE_L4 0ul
-#endif
-
 /* Group key for "already printed" tracking. Sections are short, fixed
  * strings from region_info[].section_name — copy by pointer (those are
  * static literals owned by region_info.c). */
@@ -816,10 +808,9 @@ static void print_virtual_layout(void) {
 
   /* Only print virt_kernel_vas_start as a footer when it is genuinely below the
    * lowest visible region (i.e. the VAS extends further down than
-   * virt_page_offset). virt_kernel_vas_start can be raised by the
-   * virt_page_offset_min inference feedback loop, making it larger than
-   * layout.virt_page_offset; printing it there would produce two labels in
-   * inverted address order. */
+   * virt_page_offset). Where the lowest band starts at the VAS floor itself, or
+   * below it, the footer would repeat a boundary the map already draws or place
+   * two labels in inverted address order. */
   if (nb == 0 || layout.virt_kernel_vas_start < bands[0].start) {
     if (nb > 0 && bands[0].start > layout.virt_kernel_vas_start + 1) {
       char hbuf[32];

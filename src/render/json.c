@@ -362,16 +362,26 @@ void render_json(const struct summary *s) {
 
   /* layout */
   printf("  \"layout\": {\n");
-  /* The kernel address space the regions below sit in. Architectural, but not
-   * derivable from `arch` alone -- on x86_64 the 4- and 5-level layouts differ,
-   * and the engine resolves which is active. Without these a consumer can
-   * place every region and every gap between them, but cannot bound the space
-   * itself: no ceiling above the topmost region, no floor below the lowest. */
+  /* The kernel address space the regions below sit in: compile-time bounds from
+   * the arch header, wide enough to contain either x86_64 paging level rather
+   * than naming the one in force. Without them a consumer can place every
+   * region and every gap between them, but cannot bound the space itself: no
+   * ceiling above the topmost region, no floor below the lowest. Which level is
+   * actually in force is what virt_page_offset_unrandomized answers. */
   printf("    \"virt_kernel_vas_start\": \"0x%016lx\",\n",
          layout.virt_kernel_vas_start);
   printf("    \"virt_kernel_vas_end\": \"0x%016lx\",\n",
          layout.virt_kernel_vas_end);
   printf("    \"virt_page_offset\": \"0x%016lx\",\n", layout.virt_page_offset);
+  /* The base the direct map would sit at un-randomized -- __PAGE_OFFSET_BASE
+   * for the paging level the engine resolved. virt_page_offset minus this is
+   * the RANDOMIZE_MEMORY slide, which a consumer cannot otherwise recover:
+   * range-testing virt_page_offset against the two known x86_64 bases misreads
+   * a sufficiently slid 5-level map as 4-level, the 4-level base lying inside
+   * the 5-level span. Zero where the level is unresolved, or where the
+   * architecture randomizes no region bases at all. */
+  printf("    \"virt_page_offset_unrandomized\": \"0x%016lx\",\n",
+         layout.virt_page_offset_unrandomized);
   printf("    \"virt_image_base_min\": \"0x%016lx\",\n",
          layout.virt_image_base_min);
   printf("    \"virt_image_base_max\": \"0x%016lx\",\n",

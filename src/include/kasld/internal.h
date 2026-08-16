@@ -120,6 +120,21 @@ struct kasld_layout {
   unsigned long virt_module_base_min;
   unsigned long virt_module_base_max;
 
+  /* The direct map's un-randomized base -- __PAGE_OFFSET_BASE for the paging
+   * level in force, 0xffff888000000000 at 4 levels and 0xff11000000000000 at
+   * 5. The reference a rendered RANDOMIZE_MEMORY offset is measured from: the
+   * address the kernel would have used had it not slid the region.
+   *
+   * Selected from the resolved Q_VA_BITS rather than named by a compile-time
+   * constant, because a build cannot know which level its target runs and the
+   * two bases sit 59.6 PiB apart -- far enough that measuring from the wrong
+   * one yields a large negative number that still reads as a measurement.
+   *
+   * Zero where the level is unresolved, or where the architecture randomizes
+   * no memory regions at all. Renderers omit the annotation at zero rather
+   * than measure from a guess. */
+  unsigned long virt_page_offset_unrandomized;
+
   /* Candidate counts, projected beside the windows they belong to.
    *
    * How many placements a quantity still admits is not (hi - lo) / align: the
