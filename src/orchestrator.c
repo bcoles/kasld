@@ -330,24 +330,128 @@ static int pool_next;                /* next index in pool_inf[] to claim */
 struct component_log comp_logs[MAX_COMPONENTS];
 
 /* -------------------------------------------------------------------------
- * Orchestrator-side saturation flags. Parallels engine.saturation (which
- * covers the inference layer's fixed-size caps): bits are set when a
- * fixed-size buffer in the orchestrator truncates evidence. Surfaced
- * under --verbose by orchestrator_report_saturation() so a dropped-info
- * case is observable rather than silent. None of these caps bind on
- * realistic workloads; the bits exist so growth can be detected.
+ * The discard ledger's storage. Every path that drops evidence records here,
+ * whichever layer it belongs to: the orchestrator's fixed-size buffers write
+ * directly, and the engine's caps and rulings are projected in after the run by
+ * discard_project_engine() so the engine stays pure.
+ *
+ * None of the orchestrator caps bind on realistic workloads; they are recorded
+ * so growth is detected rather than absorbed.
  * -------------------------------------------------------------------------
  */
-enum orchestrator_saturation {
-  ORCH_SAT_RESULTS_FULL = 1u << 0, /* MAX_RESULTS hit; drops new records */
-  ORCH_SAT_COMPONENT_LINES_DROPPED = 1u << 1, /* alloc failure during
-                                                 verbose-line capture */
-  ORCH_SAT_COMPONENTS_TRUNCATED = 1u << 2, /* more executables in the component
-                                              directory than MAX_COMPONENTS */
-  ORCH_SAT_SCALARS_FULL = 1u << 3,         /* MAX_SCALAR_FACTS hit; drops new
-                                              scalar facts */
-};
-static unsigned int orchestrator_saturation;
+static struct kasld_discard discard_ledger[MAX_DISCARDS];
+static int n_discards;
+static int discards_truncated;
+static unsigned int discards_total;
+
+/* Store names used as the `source` of a DISCARD_CAPACITY entry. Spelled once
+ * here because report_discards() matches on them to choose which cap's prose to
+ * print: a typo would silently degrade a specific diagnostic into the generic
+ * line, which is the failure this ledger exists to stop. */
+#define DSRC_RESULTS "results"
+#define DSRC_SCALARS "scalar-facts"
+#define DSRC_COMPONENTS "components"
+#define DSRC_COMPONENT_LINES "component-log"
+#define DSRC_CONSTRAINTS "constraints"
+#define DSRC_VERDICTS "verdicts"
+#define DSRC_RULE_EMIT "rule-emit"
+#define DSRC_VRULE_EMIT "verdict-rule-emit"
+#define DSRC_ESTIMATE_WORK "estimate-work"
+#define DSRC_CONFLICT_STORE "conflict-store"
+#define DSRC_CURATION_ROUNDS "curation-rounds"
+
+/* Defined after the lock below so it can take it: reset is a mutator like any
+ * other, and a public one, so it does not rely on its callers happening to be
+ * single-threaded. */
+
+/* The ledger is written from the component worker threads (a rejected wire
+ * line, an out-of-VAS address) as well as from single-threaded phases, so it
+ * carries its own mutex.
+ *
+ * A LEAF: nothing here takes another lock or does I/O, so the only ordering in
+ * play is result_mutex -> discard_mutex, taken by append_result() recording a
+ * full results table. Nothing acquires result_mutex while holding this one, so
+ * that edge cannot close into a cycle — the same one-way discipline the
+ * result_mutex -> output_mutex pair already follows. */
+#ifdef HAVE_PTHREAD
+static pthread_mutex_t discard_mutex = PTHREAD_MUTEX_INITIALIZER;
+#define DISCARD_LOCK() pthread_mutex_lock(&discard_mutex)
+#define DISCARD_UNLOCK() pthread_mutex_unlock(&discard_mutex)
+#else
+#define DISCARD_LOCK() ((void)0)
+#define DISCARD_UNLOCK() ((void)0)
+#endif
+
+void kasld_discard_reset(void) {
+  DISCARD_LOCK();
+  n_discards = 0;
+  discards_truncated = 0;
+  discards_total = 0;
+  memset(discard_ledger, 0, sizeof(discard_ledger));
+  DISCARD_UNLOCK();
+}
+
+void kasld_discard_record(enum kasld_discard_reason reason,
+                          const char *source) {
+  const char *src = (source && *source) ? source : "";
+  if (reason < 0 || reason >= DISCARD__COUNT)
+    return;
+  DISCARD_LOCK();
+  /* Counted before the aggregation cap, so the total stays truthful even once
+   * the ledger stops taking new (reason, source) pairs. */
+  discards_total++;
+  for (int i = 0; i < n_discards; i++) {
+    if (discard_ledger[i].reason == reason &&
+        strncmp(discard_ledger[i].source, src, ORIGIN_LEN) == 0) {
+      if (discard_ledger[i].count != UINT_MAX)
+        discard_ledger[i].count++;
+      DISCARD_UNLOCK();
+      return;
+    }
+  }
+  if (n_discards >= MAX_DISCARDS) {
+    discards_truncated = 1;
+    DISCARD_UNLOCK();
+    return;
+  }
+  discard_ledger[n_discards].reason = reason;
+  snprintf(discard_ledger[n_discards].source, ORIGIN_LEN, "%s", src);
+  discard_ledger[n_discards].count = 1;
+  n_discards++;
+  DISCARD_UNLOCK();
+}
+
+int kasld_discard_count(void) { return n_discards; }
+
+const struct kasld_discard *kasld_discard_at(int i) {
+  if (i < 0 || i >= n_discards)
+    return NULL;
+  return &discard_ledger[i];
+}
+
+int kasld_discard_truncated(void) { return discards_truncated; }
+
+unsigned int kasld_discard_total(void) { return discards_total; }
+
+/* Wire names for the reason enum. Closed set; a new reason must be added here,
+ * and the compiler's -Wswitch flags the omission. */
+const char *kasld_discard_reason_name(enum kasld_discard_reason r) {
+  switch (r) {
+  case DISCARD_PARSE:
+    return "parse";
+  case DISCARD_BOUNDS:
+    return "bounds";
+  case DISCARD_CURATED:
+    return "curated";
+  case DISCARD_CONFLICT:
+    return "conflict";
+  case DISCARD_CAPACITY:
+    return "capacity";
+  case DISCARD__COUNT:
+    break;
+  }
+  return "unknown";
+}
 
 /* =========================================================================
  * Component discovery
@@ -524,11 +628,11 @@ static int discover_components(void) {
 
   /* Truncation means the run gathered a subset of the available evidence, so
    * its residual-entropy figure overstates what KASLR retains. Report it on
-   * both channels — the saturation bit reaches --verbose and JSON, and the
-   * warning is printed even under --quiet, which suppresses progress noise
-   * rather than a caveat on the answer. */
+   * both channels — the ledger entry reaches --verbose and the JSON `discarded`
+   * block, and the warning below is printed even under --quiet, which
+   * suppresses progress noise rather than a caveat on the answer. */
   if (truncated) {
-    orchestrator_saturation |= ORCH_SAT_COMPONENTS_TRUNCATED;
+    kasld_discard_record(DISCARD_CAPACITY, DSRC_COMPONENTS);
     fprintf(stderr,
             "warning: component limit (%d) reached in %s; ran the first %d by "
             "name and skipped the rest\n",
@@ -1443,6 +1547,7 @@ static int result_vas_ok(enum kasld_region region, const struct parsed_tail *p,
             name_buf[0] ? ":" : "", name_buf[0] ? name_buf : "", vas_field,
             vas_val, vlo, vhi,
             kasld_origin_name(origin)[0] ? kasld_origin_name(origin) : "?");
+  kasld_discard_record(DISCARD_BOUNDS, kasld_origin_name(origin));
   return 0;
 }
 
@@ -1453,7 +1558,7 @@ static int append_result(enum kasld_addr_type type, enum kasld_region region,
                          const char *method, int origin) {
   RESULT_LOCK();
   if (num_results >= MAX_RESULTS) {
-    orchestrator_saturation |= ORCH_SAT_RESULTS_FULL;
+    kasld_discard_record(DISCARD_CAPACITY, DSRC_RESULTS);
     static int warned;
     int first = !warned;
     warned = 1;
@@ -1548,41 +1653,55 @@ static int capture_result(const char *line, const char *method, int origin) {
 
   enum kasld_addr_type type = type_from_wire(type_ch);
   if (type == KASLD_TYPE_UNKNOWN)
-    return 0;
+    goto reject;
 
   char name_buf[NAME_LEN];
   enum kasld_region region = parse_region_field(region_field, name_buf);
   if (region == REGION_UNKNOWN)
-    return 0;
+    goto reject;
 
   struct parsed_tail p;
   if (!parse_result_tail(line + prefix_consumed, &p))
-    return 0;
+    goto reject;
 
+  /* The two below reject for reasons of their own and record them, so they do
+   * not fall through to the parse label. */
   if (!result_vas_ok(region, &p, type, name_buf, origin))
     return 0;
 
   return append_result(type, region, name_buf, &p, method, origin);
+
+  /* Past the prefix filter the line CLAIMED to be a record, so a rejection here
+   * is a component reporting something this build does not accept, and the
+   * record it carried never reaches the engine. Recorded at the point of
+   * decision rather than inferred by the caller: inference would have to ask
+   * whether anything else recorded meanwhile, which is not a question with a
+   * stable answer while worker threads share the ledger. */
+reject:
+  kasld_discard_record(DISCARD_PARSE, kasld_origin_name(origin));
+  return 0;
 }
 
 /* Parse one `S <fact> conf=<c> value=0x<hex>` scalar-fact wire record into
  * scalar_facts[]. Returns 1 on capture, 0 on reject (unknown fact, bad conf or
  * value). Sibling of capture_result(); same validate-or-reject discipline. */
 static int capture_scalar(const char *line, int origin) {
+  /* Not an `S` record at all — prose off the shared pipe. Not a rejection, and
+   * deliberately ahead of the reject label below. */
   if (line[0] != 'S' || line[1] != ' ')
     return 0;
   char name[32], conf_str[16], val_str[40];
   if (sscanf(line, "S %31s conf=%15s value=%39s", name, conf_str, val_str) != 3)
-    return 0;
+    goto reject;
   enum kasld_scalar_fact f = kasld_scalar_fact_from_wire(name);
   if (f == SF_NONE)
-    return 0;
+    goto reject;
   enum kasld_confidence c = conf_from_wire(conf_str);
   if (c == CONF_UNKNOWN)
-    return 0;
+    goto reject;
   unsigned long v;
   if (!parse_hex(val_str, &v))
-    return 0;
+    goto reject;
   /* Cap check + slot reservation under the same lock as capture_result —
    * the inference worker pool can call this from any thread, so a naked
    * num_scalar_facts++ is racy. Once the slot is reserved, this thread is
@@ -1590,7 +1709,7 @@ static int capture_scalar(const char *line, int origin) {
    * outside the lock. */
   RESULT_LOCK();
   if (num_scalar_facts >= MAX_SCALAR_FACTS) {
-    orchestrator_saturation |= ORCH_SAT_SCALARS_FULL;
+    kasld_discard_record(DISCARD_CAPACITY, DSRC_SCALARS);
     RESULT_UNLOCK();
     return 0;
   }
@@ -1602,6 +1721,14 @@ static int capture_scalar(const char *line, int origin) {
   s->conf = c;
   s->origin = origin;
   return 1;
+
+  /* Same discipline as capture_result, and in the same place: past the prefix
+   * filter the component meant to report a fact, and this build did not accept
+   * it. The full-table path above records its own reason and returns without
+   * reaching here. */
+reject:
+  kasld_discard_record(DISCARD_PARSE, kasld_origin_name(origin));
+  return 0;
 }
 
 static long deadline_remaining_ms(const struct timespec *deadline) {
@@ -2071,7 +2198,7 @@ static int handle_component_line(struct component_log *clog,
     }
     if (dropped) {
       RESULT_LOCK();
-      orchestrator_saturation |= ORCH_SAT_COMPONENT_LINES_DROPPED;
+      kasld_discard_record(DISCARD_CAPACITY, DSRC_COMPONENT_LINES);
       RESULT_UNLOCK();
     }
   }
@@ -2090,9 +2217,15 @@ static int handle_component_line(struct component_log *clog,
   /* Origin (provenance) is the component's discovery slot — captured at the
    * orchestrator since it owns the subprocess identity. `S` lines are scalar
    * system facts; everything else is an address record. */
-  if (line[0] == 'S')
-    return capture_scalar(line, origin);
-  return capture_result(line, comp_method, origin);
+  /* Rejections are recorded by whichever site decides them, not here. stdout
+   * and stderr share one pipe, so most lines reaching this point are a
+   * component's human-readable output and are turned away by a prefix filter
+   * inside the capture functions — prose is not discarded evidence and must not
+   * be counted as any. Only a line past that filter can be rejected in the
+   * sense that matters, and only the rejecting site knows whether it was
+   * malformed, out of bounds, or refused by a full table. */
+  return (line[0] == 'S') ? capture_scalar(line, origin)
+                          : capture_result(line, comp_method, origin);
 }
 
 /* Verbose: open a component's output block with a labelled rule, so its
@@ -3544,6 +3677,80 @@ static void validate_component_phases(void) {
  * Main
  * =========================================================================
  */
+/* Compiled in every build: a pure projection over the engine handed to it,
+ * with no engine-global dependency, so the unit tests can drive it directly.
+ * The classification below is subtle enough that it needs them. */
+/* Project the engine's own record of what it discarded into the ledger. The
+ * engine is pure and cannot write a global, so it accumulates caps in
+ * e->saturation and rulings in ev->verdicts, and this carries them across the
+ * same seam engine_sync_authoritative uses for estimates.
+ *
+ * Curation is recorded per RULE, not per observation: the question a reader has
+ * is which curator removed evidence, and the verdict's origin answers it. That
+ * is also the field the failing test names, so a live run and a failing build
+ * point at the same place. */
+static void discard_project_engine(const struct engine *e) {
+  static const struct {
+    unsigned int bit;
+    const char *src;
+  } caps[] = {
+      {ENGINE_SAT_CONSTRAINTS_FULL, DSRC_CONSTRAINTS},
+      {ENGINE_SAT_RULE_EMIT_OVERFLOW, DSRC_RULE_EMIT},
+      {ENGINE_SAT_VRULE_EMIT_OVERFLOW, DSRC_VRULE_EMIT},
+      {ENGINE_SAT_ESTIMATE_WORK_FULL, DSRC_ESTIMATE_WORK},
+      {ENGINE_SAT_CONFLICTS_FULL, DSRC_CONFLICT_STORE},
+      {ENGINE_SAT_VERDICTS_FULL, DSRC_VERDICTS},
+      {ENGINE_SAT_CURATION_UNSETTLED, DSRC_CURATION_ROUNDS},
+  };
+  for (size_t i = 0; i < sizeof(caps) / sizeof(caps[0]); i++)
+    if (e->saturation & caps[i].bit)
+      kasld_discard_record(DISCARD_CAPACITY, caps[i].src);
+
+  /* One entry per observation a CURATOR removed, attributed to the rule that
+   * removed it.
+   *
+   * An invalid observation is not enough on its own: resolve_evidence() also
+   * clears the bit for everything below the run's confidence floor, and that is
+   * the two-window design working, not evidence loss — the observation is out
+   * of scope for the guaranteed answer and still shapes the likely one. Only a
+   * verdict actually targeting the observation makes this a discard, so the
+   * lookup is the test, not merely the attribution.
+   *
+   * Curators can agree: a direct-map address tagged as kernel text is both
+   * outside text's VA band and an outlier from the text cluster, and draws a
+   * ruling from each. The observation is lost once, so it is counted once, and
+   * attributed to the first verdict found. The count is the number that has to
+   * be right; the attribution names a rule that did rule on it, not necessarily
+   * the only one. */
+  for (int i = 0; i < e->ev.n_obs; i++) {
+    if (e->ev.obs[i].valid)
+      continue;
+    for (int v = 0; v < e->ev.n_verdicts; v++)
+      if (e->ev.verdicts[v].observation_id == e->ev.obs[i].id) {
+        kasld_discard_record(DISCARD_CURATED, e->ev.verdicts[v].origin);
+        break;
+      }
+  }
+
+  /* Constraints the resolver refused. conflicts[] holds ids, so the emitting
+   * rule comes from the constraint store — the same lookup
+   * engine_report_conflicts does. A conflict whose constraint has aged out of
+   * the store is still counted, under an empty source, rather than dropped:
+   * the ledger's job is that the discard is visible even when its provenance
+   * is not. */
+  for (int q = 0; q < Q__COUNT; q++)
+    for (int c = 0; c < e->n_conflicts[q]; c++) {
+      uint32_t id = e->conflicts[q][c];
+      const char *by = NULL;
+      for (int i = 0; i < e->n_constraints; i++)
+        if (e->constraints[i].id == id) {
+          by = e->constraints[i].origin;
+          break;
+        }
+      kasld_discard_record(DISCARD_CONFLICT, by);
+    }
+}
+
 #ifndef KASLD_TESTING
 
 /* Arch-specific normalization of one copied result, at the ingestion boundary.
@@ -3830,76 +4037,76 @@ static void engine_report_constraints(const struct engine *e) {
  * deduped workloads; surfacing a hit makes the dropped-info case observable
  * rather than silent if scale ever grows. Diagnostic only (stderr, --verbose).
  */
-static void engine_report_saturation(const struct engine *e) {
-  if (!e->saturation)
-    return;
-  if (e->saturation & ENGINE_SAT_CONSTRAINTS_FULL)
-    fprintf(stderr,
-            "[engine] saturation: ENGINE_MAX_CONSTRAINTS (%d) reached; "
-            "subsequent rule emissions in the same pass were dropped\n",
-            ENGINE_MAX_CONSTRAINTS);
-  if (e->saturation & ENGINE_SAT_RULE_EMIT_OVERFLOW)
-    fprintf(stderr,
-            "[engine] saturation: a constraint rule returned > "
-            "ENGINE_RULE_MAX_EMIT (%d); excess constraints dropped\n",
-            ENGINE_RULE_MAX_EMIT);
-  if (e->saturation & ENGINE_SAT_VRULE_EMIT_OVERFLOW)
-    fprintf(stderr,
-            "[engine] saturation: a verdict rule returned > "
-            "ENGINE_RULE_MAX_EMIT (%d); excess verdicts dropped\n",
-            ENGINE_RULE_MAX_EMIT);
-  if (e->saturation & ENGINE_SAT_ESTIMATE_WORK_FULL)
-    fprintf(stderr,
-            "[engine] saturation: ESTIMATE_MAX_WORK reached in the resolver's "
-            "per-quantity gather; constraints beyond the cap were dropped in "
-            "insertion order\n");
-  if (e->saturation & ENGINE_SAT_CONFLICTS_FULL)
-    fprintf(stderr,
-            "[engine] saturation: ESTIMATE_MAX_CONFLICTS (%d) reached; "
-            "additional rejected constraints were not recorded\n",
-            ESTIMATE_MAX_CONFLICTS);
-  /* Unlike the caps above, these two leave an observation the engine ruled
-   * invalid inside the set the constraint rules read — the estimates below are
-   * not merely looser, they may rest on rejected evidence. */
-  if (e->saturation & ENGINE_SAT_VERDICTS_FULL)
-    fprintf(stderr,
-            "[engine] saturation: MAX_VERDICTS (%d) reached; a curation ruling "
-            "was not applied and its observation stayed in the effective set\n",
-            MAX_VERDICTS);
-  if (e->saturation & ENGINE_SAT_CURATION_UNSETTLED)
-    fprintf(stderr,
-            "[engine] saturation: curation still emitting after "
-            "ENGINE_MAX_CURATION_ROUNDS (%d); the constraint rules ran against "
-            "partially curated evidence\n",
-            ENGINE_MAX_CURATION_ROUNDS);
+/* One reporter for everything the run discarded, rendered from the ledger.
+ *
+ * The per-cap sentences live here rather than in the ledger because they are
+ * prose about a specific store, and prose belongs to the renderer. The ledger
+ * holds the fact — reason, source, count — and this maps a source to the
+ * sentence that explains what filling it costs. A source with no sentence still
+ * prints, generically; nothing is silently skipped. */
+static const char *discard_capacity_detail(const char *src) {
+  if (strcmp(src, DSRC_RESULTS) == 0)
+    return "MAX_RESULTS reached; further observations were dropped at capture";
+  if (strcmp(src, DSRC_SCALARS) == 0)
+    return "MAX_SCALAR_FACTS reached; further scalar system facts were dropped "
+           "at capture";
+  if (strcmp(src, DSRC_COMPONENTS) == 0)
+    return "MAX_COMPONENTS reached; the component directory holds more "
+           "executables and only the first by name ran";
+  if (strcmp(src, DSRC_COMPONENT_LINES) == 0)
+    return "allocation failure while capturing component stdout for --verbose";
+  if (strcmp(src, DSRC_CONSTRAINTS) == 0)
+    return "ENGINE_MAX_CONSTRAINTS reached; later rule emissions in the same "
+           "pass were dropped";
+  if (strcmp(src, DSRC_RULE_EMIT) == 0)
+    return "a constraint rule returned more than ENGINE_RULE_MAX_EMIT; the "
+           "excess was dropped";
+  if (strcmp(src, DSRC_VRULE_EMIT) == 0)
+    return "a verdict rule returned more than ENGINE_RULE_MAX_EMIT; the excess "
+           "was dropped";
+  if (strcmp(src, DSRC_ESTIMATE_WORK) == 0)
+    return "ESTIMATE_MAX_WORK reached in the resolver gather; constraints "
+           "beyond the cap were dropped in insertion order";
+  if (strcmp(src, DSRC_CONFLICT_STORE) == 0)
+    return "ESTIMATE_MAX_CONFLICTS reached; further rejected constraints were "
+           "not recorded";
+  /* The two below leave the engine reading evidence it had ruled on, so the
+   * estimates are not merely looser — they may rest on rejected evidence. */
+  if (strcmp(src, DSRC_VERDICTS) == 0)
+    return "MAX_VERDICTS reached; a curation ruling was not applied and its "
+           "observation stayed in the effective set";
+  if (strcmp(src, DSRC_CURATION_ROUNDS) == 0)
+    return "curation still emitting after ENGINE_MAX_CURATION_ROUNDS; the "
+           "constraint rules ran against partially curated evidence";
+  return NULL;
 }
 
-/* Sibling reporter for orchestrator-side caps (results[], per-component
- * verbose-line capture). Same diagnostic shape as engine_report_saturation;
- * surfaces under --verbose. */
-static void orchestrator_report_saturation(void) {
-  if (!orchestrator_saturation)
+static void report_discards(void) {
+  int n = kasld_discard_count();
+  if (n == 0)
     return;
-  if (orchestrator_saturation & ORCH_SAT_RESULTS_FULL)
+  fprintf(stderr,
+          "[discarded] %u item(s) left the pipeline; the residual entropy "
+          "below is an upper bound on what remained reachable\n",
+          kasld_discard_total());
+  for (int i = 0; i < n; i++) {
+    const struct kasld_discard *d = kasld_discard_at(i);
+    if (!d) /* bounded by kasld_discard_count(); honour the contract anyway */
+      continue;
+    const char *detail = d->reason == DISCARD_CAPACITY
+                             ? discard_capacity_detail(d->source)
+                             : NULL;
+    fprintf(stderr, "  %-9s %-20s x%u", kasld_discard_reason_name(d->reason),
+            d->source[0] ? d->source : "-", d->count);
+    if (detail)
+      fprintf(stderr, " — %s", detail);
+    fprintf(stderr, "\n");
+  }
+  if (kasld_discard_truncated())
     fprintf(stderr,
-            "[orchestrator] saturation: MAX_RESULTS (%d) reached; "
-            "further leak/scalar observations were dropped at capture\n",
-            MAX_RESULTS);
-  if (orchestrator_saturation & ORCH_SAT_COMPONENT_LINES_DROPPED)
-    fprintf(stderr,
-            "[orchestrator] saturation: allocation failure while capturing "
-            "component stdout for --verbose; at least one line was dropped\n");
-  if (orchestrator_saturation & ORCH_SAT_COMPONENTS_TRUNCATED)
-    fprintf(stderr,
-            "[orchestrator] saturation: MAX_COMPONENTS (%d) reached; the "
-            "component directory holds more executables and only the first %d "
-            "by name ran\n",
-            MAX_COMPONENTS, MAX_COMPONENTS);
-  if (orchestrator_saturation & ORCH_SAT_SCALARS_FULL)
-    fprintf(stderr,
-            "[orchestrator] saturation: MAX_SCALAR_FACTS (%d) reached; further "
-            "scalar system facts were dropped at capture\n",
-            MAX_SCALAR_FACTS);
+            "  (ledger full at %d distinct kinds; the count above is complete "
+            "but the breakdown is not)\n",
+            MAX_DISCARDS);
 }
 
 static void engine_resolve(struct engine *e) {
@@ -3936,11 +4143,16 @@ static void engine_resolve(struct engine *e) {
   engine_run_full_floored(e, KASLD_SOUND_FLOOR, rules, n_rules, vrules,
                           n_vrules);
 
+  /* Project after the GUARANTEED run, and only that one. The likely run admits
+   * every signal, so it curates and conflicts more freely by design; counting
+   * both would present the all-signals view's discards as losses from the
+   * answer this tool leads with. */
+  discard_project_engine(e);
+
   if (verbose && plain_output()) {
     engine_report_conflicts(e);
     engine_report_corroboration(e);
-    engine_report_saturation(e);
-    orchestrator_report_saturation();
+    report_discards();
   }
   engine_report_constraints(e); /* opt-in via KASLD_DEBUG_CONSTRAINTS */
 }
@@ -4701,6 +4913,11 @@ static void emit_summary(void) {
 }
 
 int main(int argc, char *argv[]) {
+  /* Statics start zeroed, so this is a no-op for the process that runs once.
+   * It is here so the ledger's lifetime is stated rather than inherited from
+   * BSS, which is what a test driving several runs in one process relies on. */
+  kasld_discard_reset();
+
   /* Default to nproc workers; --workers overrides */
   {
     long ncpu = sysconf(_SC_NPROCESSORS_ONLN);

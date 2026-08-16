@@ -27,9 +27,9 @@
 #include <stdio.h>
 #include <string.h>
 
-static void add_addr(struct engine *e, enum kasld_addr_type type,
-                     enum kasld_region region, unsigned long lo,
-                     unsigned long hi, const char *name) {
+static uint32_t add_addr(struct engine *e, enum kasld_addr_type type,
+                         enum kasld_region region, unsigned long lo,
+                         unsigned long hi, const char *name) {
   struct observation o;
   memset(&o, 0, sizeof(o));
   o.value_kind = OBS_ADDRESS;
@@ -46,7 +46,7 @@ static void add_addr(struct engine *e, enum kasld_addr_type type,
   o.conf = CONF_PARSED;
   if (name)
     snprintf(o.name, NAME_LEN, "%s", name);
-  evidence_add(&e->ev, &o);
+  return evidence_add(&e->ev, &o);
 }
 
 /* add_addr with an explicit confidence — for exercising confidence-ordered
@@ -236,25 +236,62 @@ static int prop_constraint_holds(const struct constraint *c,
   return 1;
 }
 
-/* No-curation invariant: a truth-consistent evidence set contains no
- * misclassified observation, so no verdict rule may invalidate any of them. A
- * verdict firing on a faithful set is a curator over-reaching — e.g. a
- * region-blind outlier filter rejecting a sound non-text leak (the
- * text_cluster_filter / directmap bug) — which silently drops evidence and
- * collapses a quantity. That is a COMPLETENESS failure: sound but less
- * resolved, and invisible to the containment check, which an absent or widened
- * window still trivially "contains" the truth for. */
+/* Curation invariant: every observation a run invalidated must be one the
+ * fixture deliberately made faulty. Curation removing anything else is a
+ * curator over-reaching — a region-blind outlier filter rejecting a sound
+ * non-text leak (the text_cluster_filter / directmap bug) — which silently
+ * drops evidence and collapses a quantity. That is a COMPLETENESS failure:
+ * sound but less resolved, and invisible to the containment check, which an
+ * absent or widened window still trivially "contains" the truth for.
+ *
+ * Stated over faulty sets rather than only faithful ones because collateral is
+ * the realistic shape. A faithful set has nothing to curate, so a curator that
+ * fires at all is already wrong and any assertion catches it; the harder case
+ * is a set where curation SHOULD fire, and takes a sound observation with it.
+ * The directmap bug needed exactly that mixture — a text cluster and a sound
+ * directmap leak — to trigger.
+ *
+ * Subset, not equality: a curator that fails to detect an injected fault has
+ * lost precision, not soundness, and some decline by design (below CLUSTER_MIN
+ * the outlier filter does not fire at all). Demanding equality would oblige
+ * every curator to catch every fault. A fixture wanting to assert detection
+ * says so itself. */
+static void assert_curation_subset(struct engine *e, const uint32_t *faulty,
+                                   int n_faulty, const char *arch,
+                                   const char *ctx, unsigned long seed) {
+  for (int i = 0; i < e->ev.n_obs; i++) {
+    if (e->ev.obs[i].valid)
+      continue;
+    int deliberate = 0;
+    for (int j = 0; j < n_faulty; j++)
+      if (e->ev.obs[i].id == faulty[j]) {
+        deliberate = 1;
+        break;
+      }
+    if (deliberate)
+      continue;
+    /* Name the curator. The verdict that targeted this observation carries the
+     * emitting rule in `origin`, so the failure localizes itself instead of
+     * leaving the reader to work out which of the seven rules fired. */
+    const char *by = "(no verdict found)";
+    for (int v = 0; v < e->ev.n_verdicts; v++)
+      if (e->ev.verdicts[v].observation_id == e->ev.obs[i].id) {
+        by = e->ev.verdicts[v].origin;
+        break;
+      }
+    fprintf(stderr,
+            "\nCURATION FAIL %s (%s) seed=%lu: %s invalidated a "
+            "truth-consistent obs id=%u type=%d region=%d\n",
+            arch, ctx, seed, by, e->ev.obs[i].id, (int)e->ev.obs[i].type,
+            (int)e->ev.obs[i].region);
+    assert(0 && "curation: a verdict invalidated a truth-consistent obs");
+  }
+}
+
+/* The faithful case: nothing is faulty, so nothing may be curated. */
 static void assert_no_curation(struct engine *e, const char *arch,
                                const char *ctx, unsigned long seed) {
-  for (int i = 0; i < e->ev.n_obs; i++)
-    if (!e->ev.obs[i].valid) {
-      fprintf(stderr,
-              "\nCURATION FAIL %s (%s) seed=%lu: a verdict invalidated a "
-              "truth-consistent obs id=%u type=%d region=%d\n",
-              arch, ctx, seed, e->ev.obs[i].id, (int)e->ev.obs[i].type,
-              (int)e->ev.obs[i].region);
-      assert(0 && "curation: a verdict invalidated a truth-consistent obs");
-    }
+  assert_curation_subset(e, NULL, 0, arch, ctx, seed);
 }
 
 static void prop_check_containment(struct engine *e, const rule_fn *rules,
@@ -553,6 +590,71 @@ static void test_full_engine_faithful_cluster_keeps_directmap(void) {
   assert(contains(po, PO));
   /* (3) Monotonicity: the text cluster did not widen page_offset. */
   assert(po_lo(po) >= base_lo && po_hi(po) <= base_hi);
+#endif
+}
+
+/* Collateral: a misclassified pointer among sound evidence must cost only
+ * itself. The faithful-set case above proves a curator stays quiet when there
+ * is nothing to curate; this is the case where curation SHOULD fire, which is
+ * where over-reach actually lives. A curator that removes the fault and a sound
+ * observation alongside it passes every faithful-set assertion.
+ *
+ * The fault is the misclassification the curators exist for: a direct-map
+ * address tagged REGION_KERNEL_TEXT, ~100 TiB from the text cluster. The
+ * correctly-tagged direct-map leak sits at the same distance and must survive,
+ * so the two differ only in the region they claim -- which is exactly the
+ * distinction the region-blind version of the filter could not draw.
+ *
+ * Two curators independently rule on it: coupling_validate, because the address
+ * is outside the VA band kernel text occupies, and text_cluster_filter, because
+ * it is an outlier from the cluster. The assertion is on the observation being
+ * removed rather than on which rule removed it -- either is a correct ruling,
+ * and pinning one would fail the day the other reached it first. */
+static void test_full_engine_curation_removes_only_the_fault(void) {
+#if defined(__x86_64__)
+  const unsigned long T = 0xffffffff8a000000ul;
+  const unsigned long PO = 0xffff8a4000000000ul;
+  const unsigned long gap = 0x1400000ul;
+  const unsigned long dleak = PO + 0x8000000ul;
+  int nr = 0, nv = 0;
+  const rule_fn *rules = engine_rules(&nr);
+  const verdict_fn *vrules = engine_verdict_rules(&nv);
+
+  static struct engine e;
+  engine_init(&e);
+  add_addr(&e, KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, T, 0, "_stext");
+  add_interior(&e, KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, T + 0x100000ul);
+  add_interior(&e, KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, T + 0x400000ul);
+  add_interior(&e, KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, T + 0x800000ul);
+  add_interior(&e, KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, T + 0xc00000ul);
+  add_interior(&e, KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE, T + gap);
+  /* Sound, and far from the cluster: must survive. */
+  add_addr(&e, KASLD_TYPE_VIRT, REGION_DIRECTMAP, dleak, 0, NULL);
+  add_addr(&e, KASLD_TYPE_PHYS, REGION_RAM, 0x0ul, 0x7ffffffful, NULL);
+  add_scalar(&e, SF_PHYS_MAX_PFN, 0x80000ul);
+  /* The injected fault: the same neighbourhood, claiming to be kernel text. */
+  uint32_t bad = add_addr(&e, KASLD_TYPE_VIRT, REGION_KERNEL_TEXT,
+                          PO + 0x9000000ul, 0, NULL);
+
+  engine_run_full_floored(&e, CONF_INFERRED, rules, nr, vrules, nv);
+
+  /* Nothing but the injected fault was curated. */
+  assert_curation_subset(&e, &bad, 1, "x86_64", "injected-fault", 0);
+
+  /* And it WAS caught -- otherwise the subset assertion above holds vacuously
+   * and this fixture would prove nothing about the filter firing. */
+  int caught = 0;
+  for (int i = 0; i < e.ev.n_obs; i++)
+    if (e.ev.obs[i].id == bad && !e.ev.obs[i].valid)
+      caught = 1;
+  assert(caught);
+
+  /* The sound direct-map leak survived the removal, so page_offset still
+   * resolves and admits the truth. */
+  const struct estimate *po = &e.est[Q_PAGE_OFFSET];
+  assert(!estimate_is_bottom(po, &quantities[Q_PAGE_OFFSET]));
+  assert(contains(po, PO));
+  assert(contains(&e.est[Q_VIRT_IMAGE_BASE], T));
 #endif
 }
 
@@ -2060,6 +2162,7 @@ int main(void) {
   BEGIN_CATEGORY("Full registry against planted leaks");
   RUN(test_full_engine_x86_64_leaky);
   RUN(test_full_engine_faithful_cluster_keeps_directmap);
+  RUN(test_full_engine_curation_removes_only_the_fault);
   RUN(test_full_engine_two_window);
   RUN(test_full_engine_floor_invariant);
   RUN(test_full_engine_property_x86_64);

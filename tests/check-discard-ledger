@@ -1,0 +1,141 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-discard-ledger — evidence that leaves the pipeline is recorded in one
+# place, and that place is what the renderers read.
+#
+# A run that discards evidence resolved from a subset of what was available, so
+# its residual-entropy figure overstates what KASLR retains. A consumer that
+# cannot see the discard reads a bounded answer as a complete one. That is why
+# the discard has to reach the output, and why it has to reach it through one
+# channel rather than each site inventing its own.
+#
+# The failure this guards is a matter of record. Before the ledger there were
+# four mechanisms: two saturation bitmaps reaching --verbose only, a conflict
+# report, a per-group JSON count -- and curation, which reached nothing at all,
+# for six weeks, precisely because no obvious channel existed to register with.
+# A curator silently dropping a sound direct-map leak collapsed a whole quantity
+# and surfaced only when someone noticed a missing row.
+#
+# Three checks:
+#
+#   1. The reason vocabulary is closed and every member has a wire name. A new
+#      reason without one renders as "unknown", which is a discard the reader
+#      cannot act on.
+#   2. Nothing outside the ledger's own implementation keeps a private
+#      drop-counter. A `saturation`-style bitmap in the orchestrator is the
+#      shape the ledger replaced; a new one is the same divergence starting
+#      over.
+#   3. The renderers read the ledger through its accessors rather than reaching
+#      into its storage, so the storage stays swappable.
+#
+# What it deliberately does NOT check: that every site which drops a record
+# calls kasld_discard_record(). That is not decidable by grep -- a discard is a
+# semantic event, not a syntactic one -- and pretending otherwise would give a
+# false assurance. The unit tests and the curation invariant in
+# test_engine_integration cover the behaviour; this covers the plumbing.
+#
+# Pure text, so it needs no build.
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+SRC="$ROOT/src"
+HDR="$SRC/include/kasld/internal.h"
+ORCH="$SRC/orchestrator.c"
+
+if [ -t 1 ]; then
+  RED=$(printf '\033[31m')
+  GREEN=$(printf '\033[32m')
+  RESET=$(printf '\033[0m')
+else
+  RED=
+  GREEN=
+  RESET=
+fi
+
+fail=0
+note() {
+  printf '%scheck-discard-ledger: FAIL%s — %s\n' "$RED" "$RESET" "$1" >&2
+  fail=1
+}
+
+for f in "$HDR" "$ORCH"; do
+  [ -f "$f" ] || {
+    note "$(basename "$f") is missing"
+    exit 1
+  }
+done
+
+# --- 1. every reason has a wire name -----------------------------------------
+# Enum members, minus the DISCARD__COUNT terminator.
+reasons=$(sed -n '/^enum kasld_discard_reason {/,/^};/p' "$HDR" |
+  grep -oE '^  DISCARD_[A-Z_]+' | tr -d ' ' | grep -v '^DISCARD__COUNT$')
+
+[ -n "$reasons" ] || {
+  note "could not read the reason enum from internal.h"
+  exit 1
+}
+
+n_reason=0
+for r in $reasons; do
+  n_reason=$((n_reason + 1))
+  # kasld_discard_reason_name() must have a case arm returning a name for it.
+  sed -n '/^const char \*kasld_discard_reason_name/,/^}/p' "$ORCH" |
+    grep -q "case $r:" ||
+    note "$r has no arm in kasld_discard_reason_name(); it would render as \"unknown\""
+done
+
+# --- 2. no private drop-counter outside the ledger ---------------------------
+# The orchestrator's own saturation bitmap is what the ledger replaced. The
+# engine keeps one deliberately (it is pure and cannot write a global), and it
+# is projected in -- so engine.h is out of scope here, orchestrator.c is not.
+if grep -qE '^static unsigned int [a-z_]*saturation' "$ORCH"; then
+  note "orchestrator.c declares a saturation bitmap again; record discards in the ledger instead"
+fi
+
+# --- 3. capacity sites name their store through a DSRC_ macro ----------------
+# report_discards() matches the source string to choose which cap's prose to
+# print, so a bare literal that drifts by a character silently degrades a
+# specific diagnostic into the generic line -- the failure the ledger exists to
+# stop, reappearing inside the ledger. The macros are the single spelling; a
+# capacity record must use one.
+# A quoted string right after the reason is the hazard. A macro reads as an
+# identifier here, and a table lookup (the engine projection walks one) reads as
+# an expression -- both fine, and the table's own entries are macros.
+bad_src=$(grep -n 'kasld_discard_record(DISCARD_CAPACITY,[[:space:]]*"' "$ORCH" || true)
+if [ -n "$bad_src" ]; then
+  note "a DISCARD_CAPACITY site names its store with a literal instead of a DSRC_ macro:"
+  printf '%s\n' "$bad_src" | sed 's/^/    /' >&2
+fi
+
+# Every DSRC_ macro must have an arm in discard_capacity_detail(), or its entry
+# prints without the sentence that says what filling that store cost.
+detail=$(sed -n '/^static const char \*discard_capacity_detail/,/^}/p' "$ORCH")
+# shellcheck disable=SC2013  # word-splitting is wanted: macro names have no
+# spaces, and piping into `while read` would run the loop in a subshell, where
+# note()'s fail=1 is lost -- the guard would print FAIL and exit 0.
+for m in $(grep -oE '^#define (DSRC_[A-Z_]+)' "$ORCH" | awk '{print $2}'); do
+  printf '%s\n' "$detail" | grep -q "$m" ||
+    note "$m has no arm in discard_capacity_detail(); its entry would print bare"
+done
+
+# --- 4. renderers use the accessors, not the storage -------------------------
+for f in "$SRC"/render.c "$SRC"/render/*.c; do
+  [ -f "$f" ] || continue
+  if grep -q 'discard_ledger\[' "$f"; then
+    note "$(basename "$f") indexes discard_ledger[] directly; use kasld_discard_at()"
+  fi
+done
+
+# The JSON renderer is the machine interface, and the gap that motivated the
+# ledger was precisely that no discard reached it. Assert it still does.
+grep -q 'kasld_discard_total' "$SRC/render/json.c" ||
+  note "render/json.c no longer reports the discard total; the machine interface cannot see dropped evidence"
+
+if [ "$fail" -ne 0 ]; then
+  exit 1
+fi
+printf '%scheck-discard-ledger: OK%s (%s reasons named, one ledger, renderers use the accessors)\n' \
+  "$GREEN" "$RESET" "$n_reason"

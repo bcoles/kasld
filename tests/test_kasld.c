@@ -2009,6 +2009,126 @@ static void test_engine_sync_selects_directmap_base_by_level(void) {
 #endif
 }
 
+/* discard_project_engine(): the engine records what it discarded in its own
+ * state, and this carries it to the ledger. Every bug found in this function so
+ * far was a MISCLASSIFICATION rather than a miscount, so the assertions are on
+ * which reason and which source, not only on the total.
+ *
+ * Two of them are pinned here because both shipped in a draft and both would
+ * have made the ledger lie in the reassuring direction -- reporting healthy
+ * runs as lossy:
+ *
+ *   - An observation can be invalid because a verdict removed it, or because it
+ *     sits below the run's confidence floor. Only the first is a discard. The
+ *     second is the two-window design working, and counting it would report the
+ *     floor gate itself as evidence loss on every floored run.
+ *   - conflicts[] holds constraint IDS, not constraints, so the emitting rule
+ *     comes from a lookup in the constraint store. Reading an origin off the id
+ *     array yields garbage.
+ */
+static void test_discard_project_engine_classifies_correctly(void) {
+  static struct engine e;
+  memset(&e, 0, sizeof(e));
+  kasld_discard_reset();
+
+  /* Three observations, populated directly: this file links the orchestrator
+   * and the engine's pure layers, not evidence.c, and the projection reads the
+   * set rather than caring how it was filled. */
+  const uint32_t curated_id = 11, floored_id = 22, kept_id = 33;
+  const uint32_t ids[3] = {curated_id, floored_id, kept_id};
+  for (int i = 0; i < 3; i++) {
+    struct observation *o = &e.ev.obs[i];
+    memset(o, 0, sizeof(*o));
+    o->id = ids[i];
+    o->value_kind = OBS_ADDRESS;
+    o->type = o->eff_type = KASLD_TYPE_VIRT;
+    o->region = o->eff_region = REGION_KERNEL_TEXT;
+    o->pos = POS_BASE;
+    o->set_mask = LO_SET;
+    o->lo = 0x1000ul * (unsigned long)(i + 1);
+    o->conf = (ids[i] == floored_id) ? CONF_HEURISTIC : CONF_PARSED;
+    /* Only the survivor stays valid. The first was removed by the verdict
+     * below; the second is invalid because it sits under the floor, which no
+     * verdict targets. */
+    o->valid = (ids[i] == kept_id);
+  }
+  e.ev.n_obs = 3;
+
+  struct verdict *v = &e.ev.verdicts[0];
+  memset(v, 0, sizeof(*v));
+  v->observation_id = curated_id;
+  v->kind = V_INVALID;
+  snprintf(v->origin, ORIGIN_LEN, "%s", "text_cluster_filter");
+  e.ev.n_verdicts = 1;
+
+  /* One engine cap, and one rejected constraint whose origin must be resolved
+   * through the constraint store rather than read off the id. */
+  e.saturation = ENGINE_SAT_VERDICTS_FULL;
+  e.constraints[0].id = 4242;
+  snprintf(e.constraints[0].origin, ORIGIN_LEN, "%s", "some_bound_rule");
+  e.n_constraints = 1;
+  e.conflicts[Q_VIRT_IMAGE_BASE][0] = 4242;
+  e.n_conflicts[Q_VIRT_IMAGE_BASE] = 1;
+
+  discard_project_engine(&e);
+
+  /* Exactly three: the curated observation, the cap, the conflict. The
+   * floor-gated observation is NOT among them, and neither is the survivor. */
+  assert(kasld_discard_total() == 3);
+  assert(kasld_discard_count() == 3);
+
+  int saw_curated = 0, saw_capacity = 0, saw_conflict = 0;
+  for (int i = 0; i < kasld_discard_count(); i++) {
+    const struct kasld_discard *d = kasld_discard_at(i);
+    assert(d);
+    switch (d->reason) {
+    case DISCARD_CURATED:
+      /* Attributed to the rule that ruled, not to the observation. */
+      assert(strcmp(d->source, "text_cluster_filter") == 0);
+      assert(d->count == 1);
+      saw_curated++;
+      break;
+    case DISCARD_CAPACITY:
+      assert(strcmp(d->source, DSRC_VERDICTS) == 0);
+      saw_capacity++;
+      break;
+    case DISCARD_CONFLICT:
+      /* Resolved through the store: the id 4242 names some_bound_rule. */
+      assert(strcmp(d->source, "some_bound_rule") == 0);
+      saw_conflict++;
+      break;
+    default:
+      assert(0 && "projection produced a reason it cannot source");
+    }
+  }
+  assert(saw_curated == 1 && saw_capacity == 1 && saw_conflict == 1);
+
+  kasld_discard_reset();
+}
+
+/* A conflict whose constraint is no longer in the store is still counted, under
+ * an empty source. The ledger's job is that the discard is visible even when
+ * its provenance is not -- dropping it would make the store's size decide how
+ * much loss the run admits to. */
+static void test_discard_project_engine_conflict_without_constraint(void) {
+  static struct engine e;
+  memset(&e, 0, sizeof(e));
+  kasld_discard_reset();
+
+  e.n_constraints = 0; /* the id below resolves to nothing */
+  e.conflicts[Q_PAGE_OFFSET][0] = 999;
+  e.n_conflicts[Q_PAGE_OFFSET] = 1;
+
+  discard_project_engine(&e);
+
+  assert(kasld_discard_total() == 1);
+  assert(kasld_discard_count() == 1);
+  assert(kasld_discard_at(0)->reason == DISCARD_CONFLICT);
+  assert(kasld_discard_at(0)->source[0] == '\0');
+
+  kasld_discard_reset();
+}
+
 /* engine_sync_authoritative tightens layout.modules_start/end from observed
  * VIRT/REGION_MODULE_BAND addresses (when inside the validation union),
  * so the rendered band reflects the actual runtime module range rather than
@@ -2362,6 +2482,73 @@ static void test_progress_inflight_balances(void) {
   progress_total = sv_total;
 }
 
+/* The discard ledger aggregates by (reason, source), keeps a truthful total
+ * past its own cap, and says when the breakdown stopped being complete.
+ *
+ * The cap matters more than it looks: the ledger exists so a run cannot quietly
+ * lose evidence, and a ledger that quietly lost ENTRIES would reproduce that
+ * failure one level up. So the total counts every recorded item whether or not
+ * a slot was free, and truncation is stated rather than inferred from a
+ * suspiciously round number of kinds. */
+static void test_discard_ledger_aggregates_and_reports_truncation(void) {
+  kasld_discard_reset();
+  assert(kasld_discard_count() == 0);
+  assert(kasld_discard_total() == 0);
+  assert(!kasld_discard_truncated());
+
+  /* Same (reason, source) folds into one entry with a count. */
+  kasld_discard_record(DISCARD_PARSE, "alpha");
+  kasld_discard_record(DISCARD_PARSE, "alpha");
+  kasld_discard_record(DISCARD_PARSE, "alpha");
+  assert(kasld_discard_count() == 1);
+  assert(kasld_discard_total() == 3);
+  assert(kasld_discard_at(0)->count == 3);
+  assert(kasld_discard_at(0)->reason == DISCARD_PARSE);
+
+  /* Same source, different reason is a different entry -- the pair is the key,
+   * not either half. */
+  kasld_discard_record(DISCARD_BOUNDS, "alpha");
+  assert(kasld_discard_count() == 2);
+
+  /* A NULL source is legal and distinct from a named one. */
+  kasld_discard_record(DISCARD_CURATED, NULL);
+  assert(kasld_discard_count() == 3);
+  assert(kasld_discard_at(2)->source[0] == '\0');
+
+  /* Out-of-range indices report absence rather than reading past the array. */
+  assert(kasld_discard_at(-1) == NULL);
+  assert(kasld_discard_at(kasld_discard_count()) == NULL);
+
+  /* Fill past the cap with distinct pairs. */
+  for (int i = 0; i < MAX_DISCARDS + 8; i++) {
+    char src[ORIGIN_LEN];
+    snprintf(src, sizeof(src), "src%d", i);
+    kasld_discard_record(DISCARD_CAPACITY, src);
+  }
+  assert(kasld_discard_count() == MAX_DISCARDS);
+  assert(kasld_discard_truncated());
+  /* The breakdown stopped growing; the total did not. */
+  assert(kasld_discard_total() == 3 + 1 + 1 + (unsigned)(MAX_DISCARDS + 8));
+
+  /* An out-of-range reason is refused rather than indexed with. */
+  unsigned int before = kasld_discard_total();
+  kasld_discard_record(DISCARD__COUNT, "bogus");
+  assert(kasld_discard_total() == before);
+
+  /* Every reason has a wire name, and they are distinct. */
+  for (int a = 0; a < DISCARD__COUNT; a++) {
+    const char *na = kasld_discard_reason_name((enum kasld_discard_reason)a);
+    assert(na && *na && strcmp(na, "unknown") != 0);
+    for (int b = a + 1; b < DISCARD__COUNT; b++)
+      assert(strcmp(na, kasld_discard_reason_name(
+                            (enum kasld_discard_reason)b)) != 0);
+  }
+
+  kasld_discard_reset();
+  assert(kasld_discard_count() == 0 && kasld_discard_total() == 0 &&
+         !kasld_discard_truncated());
+}
+
 int main(void) {
   TEST_SUITE("test_kasld");
   test_init_layout_engine_bounds();
@@ -2469,6 +2656,9 @@ int main(void) {
 
   BEGIN_CATEGORY("engine_sync_authoritative");
   RUN(test_engine_sync_projects_all_fields);
+  RUN(test_discard_ledger_aggregates_and_reports_truncation);
+  RUN(test_discard_project_engine_classifies_correctly);
+  RUN(test_discard_project_engine_conflict_without_constraint);
   RUN(test_engine_sync_projects_slot_counts);
   RUN(test_engine_sync_selects_directmap_base_by_level);
   RUN(test_engine_sync_anchors_module_band_to_observations);

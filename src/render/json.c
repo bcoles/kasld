@@ -360,6 +360,42 @@ void render_json(const struct summary *s) {
 
   render_environment_json();
 
+  /* What this run threw away. Present unconditionally, empty array included, so
+   * a consumer can tell "nothing was discarded" from "this build does not
+   * report discards" -- the same distinction the tool draws between an absent
+   * source and a denied one.
+   *
+   * It bears on every number below it: a run that discarded evidence resolved
+   * from a subset of what was available, so its residual entropy is an upper
+   * bound on what KASLR actually retained. `total` counts items, `kinds` counts
+   * the distinct (reason, source) pairs the breakdown holds, and `truncated`
+   * says the two disagree because the ledger filled. */
+  printf("  \"discarded\": {\n");
+  printf("    \"total\": %u,\n", kasld_discard_total());
+  printf("    \"kinds\": %d,\n", kasld_discard_count());
+  printf("    \"truncated\": %s,\n",
+         kasld_discard_truncated() ? "true" : "false");
+  printf("    \"entries\": [");
+  /* Separator counts what was EMITTED, not the loop index: the accessor is
+   * contracted to return NULL out of range, and keying the comma off `i` would
+   * put one before the first entry if any were ever skipped -- malformed JSON
+   * from a defensive branch. */
+  int emitted = 0;
+  for (int i = 0; i < kasld_discard_count(); i++) {
+    const struct kasld_discard *d = kasld_discard_at(i);
+    if (!d)
+      continue;
+    printf("%s\n      {\"reason\": \"%s\", \"source\": ", emitted ? "," : "",
+           kasld_discard_reason_name(d->reason));
+    if (d->source[0])
+      json_print_escaped(d->source);
+    else
+      printf("null");
+    printf(", \"count\": %u}", d->count);
+    emitted++;
+  }
+  printf("%s]\n  },\n", emitted ? "\n    " : "");
+
   /* layout */
   printf("  \"layout\": {\n");
   /* The kernel address space the regions below sit in: compile-time bounds from

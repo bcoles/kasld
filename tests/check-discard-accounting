@@ -1,0 +1,175 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-discard-accounting — the discard ledger counts exactly right, in the
+# real binary, with the component worker pool running.
+#
+# The unit tests drive the ledger API directly and they are single-threaded.
+# The build they run in does not define HAVE_PTHREAD, so DISCARD_LOCK() is a
+# no-op there and nothing in `make test` exercises the mutex at all. The
+# orchestrator, meanwhile, parses component output from a pool defaulting to one
+# worker per CPU, and a rejected wire line is recorded from whichever thread
+# read it.
+#
+# That gap is not academic. The first version of this ledger recorded without a
+# lock and inferred "did something else already record this line?" by comparing
+# a global counter before and after the parse. Both are correct single-threaded
+# and neither is correct with workers: the counter loses updates, two threads
+# can append the same (reason, source) pair twice, and a concurrent record
+# between the two reads makes a rejection vanish through the de-duplication
+# test. A ledger that under-counts is worse than no ledger, because it reads as
+# an authoritative "this much was lost".
+#
+# So this drives the shipped binary against components that emit a known number
+# of bad records and asserts the arithmetic exactly. Many components, each
+# emitting several, so the workers genuinely overlap:
+#
+#   N components x M bad records  ->  total == N*M
+#
+# The records cycle through the ways a component can lose one: an unknown
+# confidence, an unknown region, an unknown scalar fact (all parse), and an
+# address outside the region it claims (bounds). So each component contributes
+# two entries, one per reason, and kinds == 2*N.
+#
+# PROBABILISTIC, and sized deliberately. Removing the ledger's mutex and running
+# this caught the corruption in 7 invocations out of 8; an earlier, gentler
+# fixture (12 components, 3 rejects each) caught it in 1 of 5, which is too thin
+# to rely on. The counts below are what moved that rate: enough rejects per
+# component that the workers sit in the parse loop together instead of passing
+# through one at a time, and several runs per invocation. It can still pass
+# against a broken ledger on a quiet machine, so treat a failure as conclusive
+# and a pass as evidence rather than proof.
+#
+# Needs the built binary; run by `make lint` after it exists.
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+
+if [ -t 1 ]; then
+  RED=$(printf '\033[31m')
+  GREEN=$(printf '\033[32m')
+  RESET=$(printf '\033[0m')
+else
+  RED=
+  GREEN=
+  RESET=
+fi
+
+note() {
+  printf '%scheck-discard-accounting: FAIL%s — %s\n' "$RED" "$RESET" "$1" >&2
+}
+
+# Select the host build by its triple, as check-render-parity does. Picking the
+# first binary in build/ that merely RUNS is wrong here: an i686 cross build
+# executes perfectly well on an x86_64 host and then declines the analysis,
+# being a 32-bit build against a 64-bit kernel — so it emits no discarded block
+# and this guard would report a parse failure instead of a real result.
+BIN=
+for t in "$(cc -dumpmachine 2>/dev/null)" "$(${CC:-cc} -dumpmachine 2>/dev/null)"; do
+  [ -n "$t" ] || continue
+  if [ -x "$ROOT/build/$t/kasld" ]; then
+    BIN=$ROOT/build/$t/kasld
+    break
+  fi
+done
+[ -n "$BIN" ] || {
+  printf 'check-discard-accounting: SKIP (no native kasld build; run make first)\n'
+  exit 0
+}
+
+# Optional: validate the whole document parses, when a parser is to hand. Left
+# optional rather than made a hard dependency -- the rest of the guard is the
+# part that must always run.
+JSONCHK=
+if command -v python3 >/dev/null 2>&1; then
+  JSONCHK="python3 -m json.tool"
+elif command -v jq >/dev/null 2>&1; then
+  JSONCHK="jq ."
+fi
+
+TMP=$(mktemp -d) || exit 1
+trap 'rm -rf "$TMP"' EXIT INT TERM
+
+NCOMP=16
+NBAD=30
+i=1
+while [ "$i" -le "$NCOMP" ]; do
+  # Three rejects each: an unknown confidence, an unknown region, and an
+  # unknown scalar fact -- all past the prefix filter, so all genuine
+  # rejections rather than prose. The valid line proves the component is
+  # otherwise being read, so a zero total cannot pass by the run doing nothing.
+  {
+    echo '#!/bin/sh'
+    echo 'echo "ordinary output that must not be counted"'
+    # NBAD rejects, all past the prefix filter so all genuine: unknown
+    # confidence, unknown region, unknown scalar fact. Enough per component
+    # that the workers are inside the parse loop together rather than passing
+    # through it one at a time.
+    j=1
+    while [ "$j" -le "$NBAD" ]; do
+      case $((j % 4)) in
+      0) echo 'echo "V kernel_text pos=base conf=nosuchconf lo=0xffffffff81000000"' ;;
+      1) echo 'echo "V nosuchregion pos=base conf=parsed lo=0xffffffff81000000"' ;;
+      2) echo 'echo "S nosuchfact conf=parsed value=0x1"' ;;
+      # A well-formed record whose address is nowhere near the region it
+      # claims: vmalloc is VAS-bounded, so this is rejected on bounds rather
+      # than on parsing. Keeps the guard covering both reasons a component can
+      # lose a record, which otherwise reach the ledger by different paths and
+      # only one was exercised.
+      *) echo 'echo "V vmalloc pos=base conf=parsed lo=0x1000"' ;;
+      esac
+      j=$((j + 1))
+    done
+    echo 'exit 0'
+  } >"$TMP/bad$i"
+  chmod +x "$TMP/bad$i"
+  i=$((i + 1))
+done
+
+want_total=$((NCOMP * NBAD))
+want_kinds=$((NCOMP * 2)) # parse and bounds, per component
+runs=4
+r=1
+while [ "$r" -le "$runs" ]; do
+  out=$(KASLD_COMPONENT_DIR="$TMP" "$BIN" -q -j 2>/dev/null) || true
+  # Pull the two numbers without a JSON parser: the block is emitted by one
+  # printf sequence, so the field order is fixed.
+  got_total=$(printf '%s\n' "$out" |
+    sed -n '/"discarded"/,/}/p' | sed -n 's/.*"total": \([0-9]*\).*/\1/p' | head -1)
+  got_kinds=$(printf '%s\n' "$out" |
+    sed -n '/"discarded"/,/}/p' | sed -n 's/.*"kinds": \([0-9]*\).*/\1/p' | head -1)
+
+  # The block is hand-written printf, and its entries array carries a separator
+  # per element -- the shape most likely to emit invalid JSON, and the shape
+  # nothing else in the suite checks: the other -j guards grep for a key. A
+  # consumer gets no partial credit for a document that will not parse.
+  if [ -n "$JSONCHK" ]; then
+    printf '%s\n' "$out" | $JSONCHK >/dev/null 2>&1 || {
+      note "run $r: -j output is not well-formed JSON"
+      printf '%s\n' "$out" | tail -20 >&2
+      exit 1
+    }
+  fi
+
+  if [ -z "$got_total" ] || [ -z "$got_kinds" ]; then
+    note "run $r: could not read the discarded block from -j output"
+    exit 1
+  fi
+  if [ "$got_total" != "$want_total" ]; then
+    note "run $r: total=$got_total, expected $want_total ($NCOMP components x $NBAD rejects)"
+    printf '  A short count is the signature of an unsynchronised ledger.\n' >&2
+    exit 1
+  fi
+  if [ "$got_kinds" != "$want_kinds" ]; then
+    note "run $r: kinds=$got_kinds, expected $want_kinds (parse + bounds per component)"
+    printf '  More kinds than that means a (reason, source) pair was appended twice;\n' >&2
+    printf '  fewer means a reason stopped reaching the ledger.\n' >&2
+    exit 1
+  fi
+  r=$((r + 1))
+done
+
+printf '%scheck-discard-accounting: OK%s (%s runs x %s components x %s rejects, exact)\n' \
+  "$GREEN" "$RESET" "$runs" "$NCOMP" "$NBAD"
