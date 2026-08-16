@@ -83,7 +83,6 @@ int rule_x86_64_vmalloc_vmemmap_invariant(const struct evidence_set *ev,
         memset(v, 0, sizeof(*v));
         v->observation_id = vi->id;
         v->kind = V_INVALID;
-        v->conf = vi->conf;
         v->derived_from[0] = vi->id;
         v->derived_from[1] = vj->id;
         v->lineage_count = 2;
@@ -94,7 +93,6 @@ int rule_x86_64_vmalloc_vmemmap_invariant(const struct evidence_set *ev,
         memset(v, 0, sizeof(*v));
         v->observation_id = vj->id;
         v->kind = V_INVALID;
-        v->conf = vj->conf;
         v->derived_from[0] = vi->id;
         v->derived_from[1] = vj->id;
         v->lineage_count = 2;

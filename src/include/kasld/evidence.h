@@ -72,26 +72,34 @@ enum verdict_kind {
   V_INVALID = 0, /* drop the observation from the effective set */
 };
 
+/* A verdict carries no confidence, deliberately. A retraction needs no floor
+ * of its own because the floor is already applied to everything a curation rule
+ * can read: resolve_evidence() gates observations and coverings before
+ * curate_to_fixpoint() runs and again after every round, and a verdict_fn is
+ * handed the evidence set and nothing else. So in a floored run every verdict
+ * is derived purely from at-or-above-floor evidence by construction -- the same
+ * argument that makes constraint rules sound, and the reason a rule cannot
+ * label its way around either.
+ *
+ * The two windows do not share rulings: the caller clears n_verdicts between
+ * them, so a verdict formed under the all-signals run never applies to the
+ * guaranteed one. */
 struct verdict {
   uint32_t observation_id; /* target observation */
   enum verdict_kind kind;
-  /* Lineage and reporting only. evidence_resolve() applies every verdict
-   * regardless of this value, so unlike an observation's or a covering's conf
-   * it is NOT a floor gate -- a curation rule cannot make a retraction
-   * conditional on the run's floor by setting it, and nothing else reads it.
+  /* Intended as the observations the ruling was drawn from, and not yet that.
+   * Three of the four curation rules set derived_from[0] to the target's own
+   * id, duplicating observation_id above; only
+   * x86_64_vmalloc_vmemmap_invariant records the other side of the comparison
+   * that justified the drop. Nothing consumes it, so the gap is inert -- dedup
+   * compares target, kind and origin and ignores lineage on purpose, so two
+   * rules reaching one ruling by different routes collapse to a single entry.
    *
-   * Wiring it to the floor is not a small change, because the writers do not
-   * currently agree on what it means: most set it to the confidence of the
-   * observation being invalidated, while firmware_memmap_holes sets it to the
-   * confidence of the evidence justifying the retraction. Only the second
-   * reading makes a floor test meaningful, so gating on the field as written
-   * would produce arbitrary results. Settle the semantics across every writer
-   * first.
-   *
-   * Coverings are gated at the input instead (see covering_active), which is
-   * what keeps a below-floor map out of the guaranteed window on the verdict
-   * path without depending on this. */
-  enum kasld_confidence conf;
+   * Kept rather than dropped because it is a data field with an obvious
+   * meaning, not a mechanism something could mistake for enforcing soundness.
+   * Anything that starts consuming it has to fix the writers first: a cluster
+   * filter's justification is the cluster, and a map rule's is the covering,
+   * neither of which is the observation being dropped. */
   uint32_t derived_from[MAX_LINEAGE];
   uint8_t lineage_count;
   char origin[ORIGIN_LEN]; /* emitting curation rule */
@@ -116,8 +124,8 @@ uint32_t evidence_add(struct evidence_set *ev, const struct observation *src);
 
 /* Append a covering extent (copied). Assigns and returns a fresh id from the
  * same id space as observations, and sets valid=1. Coverings carry no
- * effective view — they are not curated, only grouped by origin and read by
- * map rules — but they do carry the floor gate's verdict on their confidence.
+ * effective view — they are not curated, and no verdict targets them, only
+ * grouped by origin and read by map rules — but they do take the floor gate.
  * Returns 0 if full. */
 uint32_t evidence_add_covering(struct evidence_set *ev,
                                const struct covering *src);

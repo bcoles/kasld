@@ -87,7 +87,6 @@ int rule_text_cluster_filter(const struct evidence_set *ev, struct verdict *out,
     memset(v, 0, sizeof(*v));
     v->observation_id = o->id;
     v->kind = V_INVALID;
-    v->conf = o->conf;
     v->derived_from[0] = o->id;
     v->lineage_count = 1;
     snprintf(v->origin, ORIGIN_LEN, "text_cluster_filter");

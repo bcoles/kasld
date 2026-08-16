@@ -34,7 +34,6 @@ static struct verdict mk_invalidate(uint32_t id, const char *origin) {
   memset(&v, 0, sizeof(v));
   v.observation_id = id;
   v.kind = V_INVALID;
-  v.conf = CONF_DERIVED;
   snprintf(v.origin, ORIGIN_LEN, "%s", origin);
   return v;
 }

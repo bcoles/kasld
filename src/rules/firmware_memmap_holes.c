@@ -75,7 +75,6 @@ int rule_firmware_memmap_holes(const struct evidence_set *ev,
     memset(v, 0, sizeof(*v));
     v->observation_id = c->id;
     v->kind = V_INVALID;
-    v->conf = c->conf;
     v->derived_from[0] = c->id;
     v->lineage_count = 1;
     snprintf(v->origin, ORIGIN_LEN, "firmware_memmap_holes");
