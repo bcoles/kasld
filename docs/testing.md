@@ -130,6 +130,7 @@ and `make` halts on the first.
 | `check-rule-registry` | every `src/rules/*.c` is registered exactly once in `engine_rules.c` (an unregistered rule compiles but never runs) and is exercised by a dedicated test — by name in `test_engine.c`, or via the integration-tested allowlist |
 | `check-self-edges` | no engine rule reads `est[Q]` and writes `Q` (a "self-edge") outside the reviewed allowlist — each such rule needs a soundness test |
 | `check-extent-callers` | only reviewed whole-map components call `kasld_result_extent` (the covering-completeness contract; a partial map would carve a false gap) |
+| `check-covering-consumers` | every rule reading `ev->coverings[]` is reviewed and calls `covering_active()` first — the read end of the same contract; the floor gate demotes a below-floor map by clearing its valid bit, and a rule that never asks carries it into the guaranteed window regardless of what it emits |
 | `check-truncation` | no silent 64-bit→word narrowing when compiled for 32-bit (compiles a TU with `i686-linux-gnu-gcc`) |
 | `check-addr-parse` | kernel addresses are converted with `kasld_addr_parse` outside a reviewed allowlist — `sscanf("%lx")` reports success on an address wider than the word and hands back a truncated one |
 | `check-absence-vs-denial` | no component reports a denied source as an absent one — a failed probe's reason is in `errno`, and UNAVAILABLE claims the target's build while NOPERM reports its hardening |

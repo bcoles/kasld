@@ -2040,17 +2040,76 @@ static struct observation mk_ram(unsigned long lo, unsigned long hi,
 /* Add one extent of a complete RAM map (a covering). The map rules read
  * ev->coverings[], never obs[] — pos=extent is the wire contract that routes a
  * whole-map source here, bypassing the cross-source merge. */
-static uint32_t add_ram_covering(struct evidence_set *ev, unsigned long lo,
-                                 unsigned long hi, const char *origin) {
+static uint32_t add_ram_covering_conf(struct evidence_set *ev, unsigned long lo,
+                                      unsigned long hi, const char *origin,
+                                      enum kasld_confidence conf) {
   struct covering c;
   memset(&c, 0, sizeof(c));
   c.type = KASLD_TYPE_PHYS;
   c.region = REGION_RAM;
   c.lo = lo;
   c.hi = hi;
-  c.conf = CONF_PARSED;
+  c.conf = conf;
   snprintf(c.origin, ORIGIN_LEN, "%s", origin);
   return evidence_add_covering(ev, &c);
+}
+
+static uint32_t add_ram_covering(struct evidence_set *ev, unsigned long lo,
+                                 unsigned long hi, const char *origin) {
+  return add_ram_covering_conf(ev, lo, hi, origin, CONF_PARSED);
+}
+
+/* A covering below the run's floor is out of scope for the GUARANTEED window,
+ * the same as a below-floor observation. Before coverings carried the gate,
+ * this rested on each consuming rule carrying the map's confidence into what it
+ * emits and the constraint-level gate catching it downstream -- which works
+ * only for a rule emitting constraints. The rule emitting verdicts has nowhere
+ * to carry it to: verdicts are applied unconditionally.
+ *
+ * Both directions are asserted. Floored, the map must not carve; unfloored it
+ * must, or the test would pass equally against a rule that had simply stopped
+ * working. */
+static void test_ram_map_covering_below_floor_is_gated(void) {
+#if !TEXT_TRACKS_DIRECTMAP
+  const rule_fn rules[] = {rule_ram_map_phys_exclude};
+  unsigned long ksize = 0x1000000ul;
+  unsigned long r1lo = PHYS_OFFSET + 0x1000000ul;
+  unsigned long r1hi = PHYS_OFFSET + 0x10000000ul;
+  unsigned long r2lo = PHYS_OFFSET + 0x12000000ul;
+  unsigned long r2hi = PHYS_OFFSET + 0x40000000ul;
+
+  /* One map, emitted at a confidence beneath the sound floor. */
+  static struct engine e;
+  engine_init(&e);
+  struct observation is = mk_scalar(SF_IMAGE_SIZE_MIN, ksize, CONF_PARSED);
+  evidence_add(&e.ev, &is);
+  add_ram_covering_conf(&e.ev, r1lo, r1hi, "firmware_memmap", CONF_HEURISTIC);
+  add_ram_covering_conf(&e.ev, r2lo, r2hi, "firmware_memmap", CONF_HEURISTIC);
+  engine_run_full_floored(&e, CONF_INFERRED, rules, 1, NULL, 0);
+  assert(!has_phys_exclude(&e));
+
+  /* The same map with every signal admitted does carve, so the assertion above
+   * is the floor talking and not a broken fixture. */
+  static struct engine e2;
+  engine_init(&e2);
+  struct observation is2 = mk_scalar(SF_IMAGE_SIZE_MIN, ksize, CONF_PARSED);
+  evidence_add(&e2.ev, &is2);
+  add_ram_covering_conf(&e2.ev, r1lo, r1hi, "firmware_memmap", CONF_HEURISTIC);
+  add_ram_covering_conf(&e2.ev, r2lo, r2hi, "firmware_memmap", CONF_HEURISTIC);
+  engine_run_full_floored(&e2, CONF_BRUTE, rules, 1, NULL, 0);
+  assert(has_phys_exclude(&e2));
+
+  /* And a map at or above the floor still carves in the floored run, so the
+   * gate is a floor test rather than a blanket refusal. */
+  static struct engine e3;
+  engine_init(&e3);
+  struct observation is3 = mk_scalar(SF_IMAGE_SIZE_MIN, ksize, CONF_PARSED);
+  evidence_add(&e3.ev, &is3);
+  add_ram_covering_conf(&e3.ev, r1lo, r1hi, "firmware_memmap", CONF_PARSED);
+  add_ram_covering_conf(&e3.ev, r2lo, r2hi, "firmware_memmap", CONF_PARSED);
+  engine_run_full_floored(&e3, CONF_INFERRED, rules, 1, NULL, 0);
+  assert(has_phys_exclude(&e3));
+#endif
 }
 
 static void test_ram_map_phys_exclude(void) {
@@ -8296,6 +8355,7 @@ int main(void) {
   RUN(test_initrd_phys_exclude);
   RUN(test_phys_reservation_exclude);
   RUN(test_ram_map_phys_exclude);
+  RUN(test_ram_map_covering_below_floor_is_gated);
   RUN(test_cmdline_phys_exclude);
   RUN(test_cmdline_mem_phys_ceiling);
   RUN(test_cmdline_mem_phys_ceiling_no_signal);

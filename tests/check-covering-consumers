@@ -1,0 +1,112 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-covering-consumers — every rule that reads ev->coverings[] asks
+# covering_active() first, and appears on the reviewed list below.
+#
+# Coverings are the one engine input whose completeness cannot be
+# machine-checked: a covering source promises its map is WHOLE, and a partial
+# map carves a false gap. check-extent-callers reviews the four sources that
+# make that promise. This is the other end — the rules that believe it.
+#
+# The floor gate is why the read side needs its own guard. An observation below
+# the run's confidence floor is switched off in resolve_evidence(), so the
+# guaranteed window rests only on evidence at or above it. Coverings take the
+# same gate, but a rule that iterates coverings[] without consulting it reads a
+# below-floor map anyway, and what it emits carries that map into the
+# guaranteed window.
+#
+# Propagating the map's confidence into the emitted constraint is not a
+# substitute, because it only works for a rule that emits constraints. A rule
+# emitting VERDICTS has nowhere to carry it: evidence_resolve() applies every
+# verdict regardless of confidence, and no floor gate exists at that level.
+# Gating the input is what makes this independent of which kind a rule emits.
+#
+# Scope is src/rules/ deliberately. Outside the engine the only readers are the
+# gate itself (evidence.c resets the bit, engine.c clears it below the floor),
+# and a future non-rule reader would be asking a different question — a renderer
+# drawing the RAM map wants what was observed, not what the guaranteed window is
+# entitled to rest on. Widening this to all of src/ would assert a contract that
+# does not apply there.
+#
+# Pure text, so it needs no build.
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+RULES="$ROOT/src/rules"
+
+# Rules reviewed as covering consumers. Adding one here is a statement that its
+# use of a whole-map extent has been read and is correct.
+ALLOW="ram_map_phys_exclude
+firmware_memmap_holes"
+
+if [ -t 1 ]; then
+  RED=$(printf '\033[31m')
+  GREEN=$(printf '\033[32m')
+  RESET=$(printf '\033[0m')
+else
+  RED=
+  GREEN=
+  RESET=
+fi
+
+fail=0
+note() {
+  printf '%scheck-covering-consumers: FAIL%s — %s\n' "$RED" "$RESET" "$1" >&2
+  fail=1
+}
+
+contains() {
+  for _w in $2; do
+    [ "$_w" = "$1" ] && return 0
+  done
+  return 1
+}
+
+[ -d "$RULES" ] || {
+  note "src/rules is missing"
+  exit 1
+}
+
+found=
+for f in "$RULES"/*.c; do
+  [ -f "$f" ] || continue
+  grep -q 'coverings\[' "$f" || continue
+  d=$(basename "$f" .c)
+  found="$found $d"
+
+  if ! contains "$d" "$ALLOW"; then
+    note "$d reads ev->coverings[] but is not on the reviewed ALLOW list"
+    printf '  A covering is a promise that the map is COMPLETE, and a rule\n' >&2
+    printf '  believing it can carve a gap that is not there. Read the rule,\n' >&2
+    printf '  confirm it treats the map as whole, then add it to ALLOW.\n' >&2
+  fi
+
+  # Every covering read must be gated. The floor demotes a below-floor map by
+  # clearing its valid bit and nothing else; a rule that never asks keeps
+  # reading it.
+  if ! grep -q 'covering_active' "$f"; then
+    note "$d reads ev->coverings[] without calling covering_active()"
+    printf '  Below-floor maps stay in coverings[] with valid=0. Skip them:\n' >&2
+    printf '    if (!covering_active(c) || ...) continue;\n' >&2
+  fi
+done
+
+# Keep the list honest in the other direction, exactly as check-extent-callers
+# does for sources: a rule that stopped reading coverings should leave.
+for a in $ALLOW; do
+  if ! contains "$a" "$found"; then
+    note "$a is on ALLOW but no longer reads ev->coverings[] (remove it)"
+  fi
+done
+
+if [ "$fail" -ne 0 ]; then
+  exit 1
+fi
+
+# shellcheck disable=SC2086  # word-split the list into argv to count via $#
+set -- $found
+printf '%scheck-covering-consumers: OK%s (%s rule consumers, all gated and reviewed)\n' \
+  "$GREEN" "$RESET" "$#"

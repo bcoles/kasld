@@ -89,7 +89,7 @@ static int carve_map_gaps(const struct evidence_set *ev, const char *origin,
   enum kasld_confidence mconf = CONF_PARSED;
   for (int i = 0; i < ev->n_coverings; i++) {
     const struct covering *c = &ev->coverings[i];
-    if (c->type != KASLD_TYPE_PHYS || c->hi < c->lo ||
+    if (!covering_active(c) || c->type != KASLD_TYPE_PHYS || c->hi < c->lo ||
         strcmp(c->origin, origin) != 0)
       continue;
     if (ne >= RMPE_MAX_EXTENTS)
@@ -187,9 +187,12 @@ int rule_ram_map_phys_exclude(const struct evidence_set *ev,
   int n = 0;
   for (int i = 0; i < ev->n_coverings && n < out_max; i++) {
     const struct covering *c = &ev->coverings[i];
-    if (c->type != KASLD_TYPE_PHYS)
+    if (!covering_active(c) || c->type != KASLD_TYPE_PHYS)
       continue;
     int seen = 0;
+    /* A gated member still counts as "this map was already handled": the
+     * whole map shares one origin and one confidence, so a below-floor map is
+     * skipped entirely rather than carved from its surviving members. */
     for (int j = 0; j < i; j++) {
       if (ev->coverings[j].type == KASLD_TYPE_PHYS &&
           strcmp(ev->coverings[j].origin, c->origin) == 0) {

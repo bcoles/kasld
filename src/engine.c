@@ -66,10 +66,19 @@ static void resolve_all(struct engine *e, enum kasld_confidence floor) {
  * inputs, regardless of how the rule labels its output. */
 static void resolve_evidence(struct engine *e, enum kasld_confidence floor) {
   evidence_resolve(&e->ev);
-  if (floor > CONF_BRUTE)
+  if (floor > CONF_BRUTE) {
     for (int i = 0; i < e->ev.n_obs; i++)
       if ((int)e->ev.obs[i].conf < (int)floor)
         e->ev.obs[i].valid = 0;
+    /* Coverings take the same gate. Without it a below-floor map reaches the
+     * guaranteed window whenever a consuming rule forgets to carry the
+     * covering's confidence into what it emits -- which the rule emitting
+     * verdicts cannot do at all, verdicts having no floor gate to carry it
+     * to. Gating the input makes that independent of each rule's diligence. */
+    for (int i = 0; i < e->ev.n_coverings; i++)
+      if ((int)e->ev.coverings[i].conf < (int)floor)
+        e->ev.coverings[i].valid = 0;
+  }
 }
 
 /* Estimates compare by value only — binding ids change as constraints get

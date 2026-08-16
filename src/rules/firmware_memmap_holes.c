@@ -28,7 +28,8 @@ int rule_firmware_memmap_holes(const struct evidence_set *ev,
   /* The authoritative System RAM map is a covering tagged "firmware_memmap". */
   int have_map = 0;
   for (int i = 0; i < ev->n_coverings; i++) {
-    if (strcmp(ev->coverings[i].origin, "firmware_memmap") == 0) {
+    if (covering_active(&ev->coverings[i]) &&
+        strcmp(ev->coverings[i].origin, "firmware_memmap") == 0) {
       have_map = 1;
       break;
     }
@@ -57,7 +58,7 @@ int rule_firmware_memmap_holes(const struct evidence_set *ev,
     int fits = 0;
     for (int j = 0; j < ev->n_coverings; j++) {
       const struct covering *m = &ev->coverings[j];
-      if (strcmp(m->origin, "firmware_memmap") != 0)
+      if (!covering_active(m) || strcmp(m->origin, "firmware_memmap") != 0)
         continue;
       unsigned long last = (a > m->hi - (min_image - 1))
                                ? a /* avoid overflow; straddle check below */

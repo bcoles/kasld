@@ -659,6 +659,7 @@ lint :
 	@$(TEST_DIR)/check-rule-registry
 	@$(TEST_DIR)/check-self-edges
 	@$(TEST_DIR)/check-extent-callers
+	@$(TEST_DIR)/check-covering-consumers
 	@$(TEST_DIR)/check-truncation
 	@$(TEST_DIR)/check-addr-parse
 	@$(TEST_DIR)/check-absence-vs-denial

@@ -41,6 +41,7 @@ uint32_t evidence_add_covering(struct evidence_set *ev,
   struct covering *c = &ev->coverings[ev->n_coverings++];
   *c = *src;
   c->id = ev->next_id++;
+  c->valid = 1; /* the floor gate demotes it, if the run has one */
   return c->id;
 }
 
@@ -66,6 +67,11 @@ void evidence_resolve(struct evidence_set *ev) {
     o->eff_region = o->region;
     o->valid = 1;
   }
+  /* Coverings have no effective view and no verdict targets them, but they
+   * share the reset so a re-resolve at a different floor starts from the
+   * source state rather than the previous run's gating. */
+  for (int i = 0; i < ev->n_coverings; i++)
+    ev->coverings[i].valid = 1;
   /* Phase 2: apply verdicts. Order-independent: V_INVALID is a latch (once
    * invalid, stays invalid). */
   for (int i = 0; i < ev->n_verdicts; i++) {

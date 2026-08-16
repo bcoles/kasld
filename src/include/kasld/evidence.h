@@ -54,6 +54,14 @@ struct covering {
   enum kasld_region region;
   unsigned long lo, hi; /* inclusive extent */
   enum kasld_confidence conf;
+  /* 0 when conf is below the floor the run resolved at. Coverings are not
+   * curated -- no verdict targets them -- so unlike an observation's `valid`
+   * this carries only the floor gate. It exists so that gate is structural
+   * here rather than a habit each consuming rule has to keep: a rule that
+   * forgot to propagate covering confidence into what it emits would
+   * otherwise admit a below-floor map into the guaranteed window. Read it
+   * through covering_active(). */
+  int valid;
 };
 
 /* Curation verdict. Currently only invalidation; the enum is kept so a future
@@ -67,6 +75,22 @@ enum verdict_kind {
 struct verdict {
   uint32_t observation_id; /* target observation */
   enum verdict_kind kind;
+  /* Lineage and reporting only. evidence_resolve() applies every verdict
+   * regardless of this value, so unlike an observation's or a covering's conf
+   * it is NOT a floor gate -- a curation rule cannot make a retraction
+   * conditional on the run's floor by setting it, and nothing else reads it.
+   *
+   * Wiring it to the floor is not a small change, because the writers do not
+   * currently agree on what it means: most set it to the confidence of the
+   * observation being invalidated, while firmware_memmap_holes sets it to the
+   * confidence of the evidence justifying the retraction. Only the second
+   * reading makes a floor test meaningful, so gating on the field as written
+   * would produce arbitrary results. Settle the semantics across every writer
+   * first.
+   *
+   * Coverings are gated at the input instead (see covering_active), which is
+   * what keeps a below-floor map out of the guaranteed window on the verdict
+   * path without depending on this. */
   enum kasld_confidence conf;
   uint32_t derived_from[MAX_LINEAGE];
   uint8_t lineage_count;
@@ -91,8 +115,9 @@ void evidence_init(struct evidence_set *ev);
 uint32_t evidence_add(struct evidence_set *ev, const struct observation *src);
 
 /* Append a covering extent (copied). Assigns and returns a fresh id from the
- * same id space as observations. Coverings carry no effective view or valid
- * bit — they are not curated, only grouped by origin and read by map rules.
+ * same id space as observations, and sets valid=1. Coverings carry no
+ * effective view — they are not curated, only grouped by origin and read by
+ * map rules — but they do carry the floor gate's verdict on their confidence.
  * Returns 0 if full. */
 uint32_t evidence_add_covering(struct evidence_set *ev,
                                const struct covering *src);
@@ -109,6 +134,11 @@ void evidence_resolve(struct evidence_set *ev);
 static inline int evidence_active(const struct observation *o) {
   return o->valid;
 }
+
+/* The same question for a covering. Every rule reading coverings[] must ask it
+ * before using the extent, exactly as it would evidence_active() for an
+ * observation: below the run's floor, the map is out of scope. */
+static inline int covering_active(const struct covering *c) { return c->valid; }
 
 /* The kernel image footprint is a two-ended interval [size_min, size_max].
  * These two accessors are the ONLY sanctioned way for a rule to read size; the
