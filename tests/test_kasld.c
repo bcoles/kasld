@@ -1877,6 +1877,84 @@ static void test_engine_sync_projects_all_fields(void) {
   assert(layout.virt_kernel_vas_start == vas_floor_before);
 }
 
+/* Contract test for the candidate COUNTS engine_sync_authoritative() projects.
+ * Separate from the edge test above because a count answers a different
+ * question than a window edge: not "did the field get written" but "was it
+ * counted at the resolved alignment, over evidence at the sound floor, with
+ * interior holes removed".
+ *
+ * Those three are independent, and each has a wrong answer that a window
+ * assertion cannot see -- counting at PAGE_SIZE rather than the resolved
+ * KASLR granularity, ignoring the constraint set so interior holes survive, or
+ * carving at CONF_BRUTE so a heuristic claim narrows the GUARANTEED window.
+ * The fixture is built so all three land on different totals and one exact
+ * assertion separates them. */
+static void test_engine_sync_projects_slot_counts(void) {
+  struct engine e;
+  memset(&e, 0, sizeof(e));
+
+  e.est[Q_VIRT_IMAGE_BASE].lo = FX_TEXT;
+  e.est[Q_VIRT_IMAGE_BASE].hi = FX_TEXT + 0x0e000000ul;
+  e.est[Q_VIRT_KASLR_ALIGN].lo = 0x200000ul;
+  e.est[Q_PHYS_IMAGE_BASE].lo = 0x4000000ul;
+  e.est[Q_PHYS_IMAGE_BASE].hi = 0x3c000000ul;
+  e.est[Q_PHYS_KASLR_ALIGN].lo = 0x200000ul;
+  e.est[Q_VMALLOC_BASE].lo = (unsigned long)PAGE_OFFSET + 0x11000000ul;
+  e.est[Q_VMALLOC_BASE].lo_binding = 1;
+  e.est[Q_VMALLOC_BASE].hi = (unsigned long)PAGE_OFFSET + 0x12000000ul;
+  e.est[Q_VMALLOC_BASE].hi_binding = 1;
+
+  /* A proven hole over one aligned candidate. Excluding a single point rather
+   * than a span is what shows up in the total: splitting a range removes the
+   * excluded candidate but the new range contributes its own floor, so a
+   * point exclude nets exactly -1 while a span nets its own width. */
+  e.constraints[0].q = Q_VIRT_IMAGE_BASE;
+  e.constraints[0].op = C_EXCLUDE;
+  e.constraints[0].value = FX_TEXT + 0x02000000ul;
+  e.constraints[0].value2 = FX_TEXT + 0x02000000ul;
+  e.constraints[0].conf = CONF_PARSED;
+  e.constraints[0].id = 1;
+
+  /* A heuristic hole below the sound floor: the guaranteed count must ignore
+   * it. Deliberately wide -- a below-floor hole that happened to leave the
+   * total unchanged would make the assertion pass for the wrong reason. */
+  e.constraints[1].q = Q_VIRT_IMAGE_BASE;
+  e.constraints[1].op = C_EXCLUDE;
+  e.constraints[1].value = FX_TEXT + 0x04000000ul;
+  e.constraints[1].value2 = FX_TEXT + 0x06000000ul - 1;
+  e.constraints[1].conf = CONF_HEURISTIC;
+  e.constraints[1].id = 2;
+  e.n_constraints = 2;
+
+  layout.virt_kaslr_align = 0;
+  layout.virt_kaslr_slots = 0;
+  layout.phys_kaslr_slots = 0;
+  layout.virt_vmalloc_slots = 0;
+
+  engine_sync_authoritative(&e);
+
+  /* 0x0e000000 of window at 2 MiB granularity is 112 whole strides plus the
+   * floor itself, less the one proven hole. Counting at PAGE_SIZE, dropping
+   * the constraint set, or carving at CONF_BRUTE each lands elsewhere. */
+  assert(layout.virt_kaslr_align == 0x200000ul);
+  assert(layout.virt_kaslr_slots == 112);
+
+  /* Taken on every arch, not only the decoupled ones that resolve a separate
+   * phys window: 0x38000000 at the same granularity, no holes. The align a
+   * coupled arch mirrors from the virt side is the same 2 MiB. */
+  assert(layout.phys_kaslr_slots == 449);
+
+#if RANDOMIZE_MEMORY_ALIGN
+  /* Memory KASLR moves the direct map, vmalloc and vmemmap bases on a coarser
+   * pitch than the image base: 16 MiB of window at that pitch is the floor and
+   * nothing above it. */
+  assert(layout.virt_vmalloc_slots == 0x1000000ul / RANDOMIZE_MEMORY_ALIGN + 1);
+#else
+  /* No memory KASLR here, so no pitch to count on. */
+  assert(layout.virt_vmalloc_slots == 0);
+#endif
+}
+
 /* engine_sync_authoritative tightens layout.modules_start/end from observed
  * VIRT/REGION_MODULE_BAND addresses (when inside the validation union),
  * so the rendered band reflects the actual runtime module range rather than
@@ -2337,6 +2415,7 @@ int main(void) {
 
   BEGIN_CATEGORY("engine_sync_authoritative");
   RUN(test_engine_sync_projects_all_fields);
+  RUN(test_engine_sync_projects_slot_counts);
   RUN(test_engine_sync_anchors_module_band_to_observations);
   RUN(test_engine_sync_module_band_rejects_out_of_union);
   RUN(test_engine_sync_module_band_never_degenerate);

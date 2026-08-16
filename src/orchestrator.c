@@ -2905,23 +2905,23 @@ static int ilog2(unsigned long v) {
  * projection with no engine dependencies); engine_resolve and its engine
  * instance are engine-only (they drive the components + engine.c machinery). */
 static void engine_sync_authoritative(const struct engine *e);
-#ifndef KASLD_TESTING
-static void engine_resolve(struct engine *e);
-static struct engine
-    g_auth_engine; /* holds the GUARANTEED (primary) resolution */
 
 /* Sound floor for the guaranteed window: inputs below this are out of scope, so
  * the window is derived purely from >= floor signals. CONF_INFERRED admits
  * parsed/derived/inferred (proven); heuristic/timing/brute reach the likely
  * window only. The two-window POLICY (which floors, what they mean) lives here;
- * the engine is floor-agnostic. */
+ * the engine is floor-agnostic.
+ *
+ * Outside the engine-only block: this names a confidence level and has no
+ * engine dependency, and the projection above -- which every build compiles --
+ * counts candidates at this floor. */
 #define KASLD_SOUND_FLOOR CONF_INFERRED
 
-#ifndef KASLD_TESTING
 /* Candidate count over q's honest compile-time top — the entropy this
  * architecture's KASLR had before any evidence narrowed it. Counted through
  * quantity_slots() at the same alignment as the residual, so the two are
- * directly comparable. */
+ * directly comparable. Its inputs are the quantity table and the sound floor;
+ * no engine state, so every build has it. */
 static unsigned long quantity_top_slots(enum kasld_quantity q,
                                         unsigned long align) {
   if (!align || !quantities[q].init_top)
@@ -2930,7 +2930,11 @@ static unsigned long quantity_top_slots(enum kasld_quantity q,
   quantities[q].init_top(&top);
   return quantity_slots(q, &top, KASLD_SOUND_FLOOR, NULL, 0, align);
 }
-#endif
+
+#ifndef KASLD_TESTING
+static void engine_resolve(struct engine *e);
+static struct engine
+    g_auth_engine; /* holds the GUARANTEED (primary) resolution */
 
 /* Snapshot of the LIKELY resolution (floor CONF_BRUTE — all signals): the est +
  * constraints quantity_slots() needs, plus the resolver's rejected-constraint
@@ -3100,27 +3104,12 @@ void compute_kaslr_info(struct summary *s) {
   s->kaslr.has_phys = 0;
   s->kaslr.pstext = observed_stext_base(KASLD_TYPE_PHYS, ptext);
 
-  /* Hole-aware slot count: route via quantity_slots() so interior C_EXCLUDE
-   * holes and any C_STRIDE residue class are reflected in the headline entropy
-   * number. Flat (hi-lo)/align is the no-constraints fallback for KASLD_TESTING
-   * builds (the engine instance is compiled out there). */
-#ifndef KASLD_TESTING
-  s->kaslr.vslots =
-      quantity_slots(Q_VIRT_IMAGE_BASE, &g_auth_engine.est[Q_VIRT_IMAGE_BASE],
-                     KASLD_SOUND_FLOOR, g_auth_engine.constraints,
-                     g_auth_engine.n_constraints, layout.virt_kaslr_align);
-#else
-  {
-    unsigned long text_range =
-        layout.virt_kaslr_text_max - layout.virt_kaslr_text_min;
-    /* Closed window: + 1 counts the floor slot, matching quantity_slots(). */
-    s->kaslr.vslots = (layout.virt_kaslr_align && layout.virt_kaslr_text_max)
-                          ? text_range / layout.virt_kaslr_align + 1
-                          : 0;
-  }
-#endif
+  /* Hole-aware slot counts, projected beside the windows they count (see
+   * struct kasld_layout). Interior C_EXCLUDE holes and any C_STRIDE residue
+   * class are already reflected, so the headline entropy follows the estimate
+   * rather than the width of its convex hull. */
+  s->kaslr.vslots = layout.virt_kaslr_slots;
   s->kaslr.vbits = s->kaslr.vslots > 0 ? ilog2(s->kaslr.vslots) : 0;
-#ifndef KASLD_TESTING
   {
     /* The starting candidate count, from the window the kernel draws the image
      * base from -- KASLR_VIRT_TEXT_MIN..MAX, not the quantity's honest top.
@@ -3141,31 +3130,15 @@ void compute_kaslr_info(struct summary *s) {
     unsigned long top = (a && hi > lo) ? (hi - lo) / a + 1 : 0;
     s->kaslr.vtop_slots = top;
     s->kaslr.vbits_top = top > 0 ? ilog2(top) : 0;
-#ifndef KASLD_TESTING
     s->kaslr.varch_slots = quantity_top_slots(Q_VIRT_IMAGE_BASE, a);
-#endif
   }
-#endif
 
 #ifdef KASLR_PHYS_MIN
   {
-#ifndef KASLD_TESTING
-    s->kaslr.pslots =
-        quantity_slots(Q_PHYS_IMAGE_BASE, &g_auth_engine.est[Q_PHYS_IMAGE_BASE],
-                       KASLD_SOUND_FLOOR, g_auth_engine.constraints,
-                       g_auth_engine.n_constraints, layout.phys_kaslr_align);
-#else
-    unsigned long phys_range =
-        layout.phys_kaslr_text_max - layout.phys_kaslr_text_min;
-    s->kaslr.pslots = (layout.phys_kaslr_align && layout.phys_kaslr_text_max)
-                          ? phys_range / layout.phys_kaslr_align + 1
-                          : 0;
-#endif
+    s->kaslr.pslots = layout.phys_kaslr_slots;
     s->kaslr.pbits = s->kaslr.pslots > 0 ? ilog2(s->kaslr.pslots) : 0;
-#ifndef KASLD_TESTING
     s->kaslr.parch_slots =
         quantity_top_slots(Q_PHYS_IMAGE_BASE, layout.phys_kaslr_align);
-#endif
   }
 #endif
 
@@ -3280,64 +3253,28 @@ void compute_kaslr_info(struct summary *s) {
                                  ? layout.virt_module_base_max
                                  : 0;
 
-  /* Hole-aware residual slot counts for the memory-KASLR regions, mirroring the
-   * headline vslots/pslots: routed through quantity_slots() so interior
-   * C_EXCLUDE holes (and any stride class) are reflected in the entropy the
-   * renderer prints, rather than a hole-blind (max-min)/align. Flat division is
-   * the KASLD_TESTING fallback (the engine instance is compiled out there).
-   * Only the both-sided window displays a slot count, so gate on min && max. */
-#ifndef KASLD_TESTING
+  /* Residual slot counts for the memory-KASLR regions, mirroring the headline
+   * vslots/pslots: the projected count already reflects interior C_EXCLUDE
+   * holes and any stride class, so the entropy the renderer prints follows the
+   * estimate rather than the width of its hull. Only a both-sided window
+   * displays a count, so gate on min && max -- a presentation rule, asked here
+   * where those edges are in hand. */
   s->kaslr.virt_page_offset_slots =
       (s->kaslr.virt_page_offset_min && s->kaslr.virt_page_offset_max)
-          ? quantity_slots(Q_PAGE_OFFSET, &g_auth_engine.est[Q_PAGE_OFFSET],
-                           KASLD_SOUND_FLOOR, g_auth_engine.constraints,
-                           g_auth_engine.n_constraints, RANDOMIZE_MEMORY_ALIGN)
+          ? layout.virt_page_offset_slots
           : 0;
   s->kaslr.virt_vmalloc_slots =
       (s->kaslr.virt_vmalloc_min && s->kaslr.virt_vmalloc_max)
-          ? quantity_slots(Q_VMALLOC_BASE, &g_auth_engine.est[Q_VMALLOC_BASE],
-                           KASLD_SOUND_FLOOR, g_auth_engine.constraints,
-                           g_auth_engine.n_constraints, RANDOMIZE_MEMORY_ALIGN)
+          ? layout.virt_vmalloc_slots
           : 0;
   s->kaslr.virt_vmemmap_slots =
       (s->kaslr.virt_vmemmap_min && s->kaslr.virt_vmemmap_max)
-          ? quantity_slots(Q_VMEMMAP_BASE, &g_auth_engine.est[Q_VMEMMAP_BASE],
-                           KASLD_SOUND_FLOOR, g_auth_engine.constraints,
-                           g_auth_engine.n_constraints, RANDOMIZE_MEMORY_ALIGN)
+          ? layout.virt_vmemmap_slots
           : 0;
-  /* The module base is page-granular on every arch that randomizes it (x86_64
-   * draws a whole number of pages; the arm64 bounding box and the
-   * PAGE_OFFSET-derived bands are page-aligned), so PAGE_SIZE is the pitch
-   * rather than RANDOMIZE_MEMORY_ALIGN, which is an x86_64 memory-KASLR
-   * constant and 0 elsewhere. */
   s->kaslr.virt_module_slots =
       (s->kaslr.virt_module_min && s->kaslr.virt_module_max)
-          ? quantity_slots(Q_MODULE_BASE, &g_auth_engine.est[Q_MODULE_BASE],
-                           KASLD_SOUND_FLOOR, g_auth_engine.constraints,
-                           g_auth_engine.n_constraints, PAGE_SIZE)
+          ? layout.virt_module_slots
           : 0;
-#else
-  {
-    unsigned long a = (unsigned long)RANDOMIZE_MEMORY_ALIGN;
-    s->kaslr.virt_page_offset_slots =
-        (a && s->kaslr.virt_page_offset_max > s->kaslr.virt_page_offset_min)
-            ? (s->kaslr.virt_page_offset_max - s->kaslr.virt_page_offset_min) /
-                  a
-            : 0;
-    s->kaslr.virt_vmalloc_slots =
-        (a && s->kaslr.virt_vmalloc_max > s->kaslr.virt_vmalloc_min)
-            ? (s->kaslr.virt_vmalloc_max - s->kaslr.virt_vmalloc_min) / a
-            : 0;
-    s->kaslr.virt_vmemmap_slots =
-        (a && s->kaslr.virt_vmemmap_max > s->kaslr.virt_vmemmap_min)
-            ? (s->kaslr.virt_vmemmap_max - s->kaslr.virt_vmemmap_min) / a
-            : 0;
-    s->kaslr.virt_module_slots =
-        (s->kaslr.virt_module_max > s->kaslr.virt_module_min)
-            ? (s->kaslr.virt_module_max - s->kaslr.virt_module_min) / PAGE_SIZE
-            : 0;
-  }
-#endif
   s->kaslr.virt_page_offset_bits = s->kaslr.virt_page_offset_slots > 0
                                        ? ilog2(s->kaslr.virt_page_offset_slots)
                                        : 0;
@@ -4358,6 +4295,45 @@ static void engine_sync_authoritative(const struct engine *e) {
       layout.modules_end = obs_hi;
     }
   }
+
+  /* Candidate counts, last: every window and alignment this reads is final by
+   * here, and the count must be taken from the same resolution as the window it
+   * counts. quantity_slots() is the only answer that carves the estimate's
+   * interior C_EXCLUDE holes; the alignments are the engine-resolved ones
+   * projected above, not the compile-time defaults.
+   *
+   * Counted unconditionally. Whether a count is worth PRESENTING is a question
+   * about the window's shape -- both edges known, and so on -- which the
+   * summary builder asks where those edges are in hand. Gating here instead
+   * would put a presentation rule in the projection and answer it from fields
+   * that do not exist yet. */
+  layout.virt_kaslr_slots = quantity_slots(
+      Q_VIRT_IMAGE_BASE, &e->est[Q_VIRT_IMAGE_BASE], KASLD_SOUND_FLOOR,
+      e->constraints, e->n_constraints, layout.virt_kaslr_align);
+  /* Both image-base counts are taken here, on every arch. The phys window is
+   * projected under !TEXT_TRACKS_DIRECTMAP above because only a decoupled arch
+   * resolves it separately; the count is still meaningful on a coupled arch,
+   * where the estimate carries the locked-to-virt window. */
+  layout.phys_kaslr_slots = quantity_slots(
+      Q_PHYS_IMAGE_BASE, &e->est[Q_PHYS_IMAGE_BASE], KASLD_SOUND_FLOOR,
+      e->constraints, e->n_constraints, layout.phys_kaslr_align);
+  layout.virt_page_offset_slots =
+      quantity_slots(Q_PAGE_OFFSET, &e->est[Q_PAGE_OFFSET], KASLD_SOUND_FLOOR,
+                     e->constraints, e->n_constraints, RANDOMIZE_MEMORY_ALIGN);
+  layout.virt_vmalloc_slots =
+      quantity_slots(Q_VMALLOC_BASE, &e->est[Q_VMALLOC_BASE], KASLD_SOUND_FLOOR,
+                     e->constraints, e->n_constraints, RANDOMIZE_MEMORY_ALIGN);
+  layout.virt_vmemmap_slots =
+      quantity_slots(Q_VMEMMAP_BASE, &e->est[Q_VMEMMAP_BASE], KASLD_SOUND_FLOOR,
+                     e->constraints, e->n_constraints, RANDOMIZE_MEMORY_ALIGN);
+  /* The module base is page-granular on every arch that randomizes it (x86_64
+   * draws a whole number of pages; the arm64 bounding box and the
+   * PAGE_OFFSET-derived bands are page-aligned), so PAGE_SIZE is the pitch
+   * rather than RANDOMIZE_MEMORY_ALIGN, which is an x86_64 memory-KASLR
+   * constant and 0 elsewhere. */
+  layout.virt_module_slots =
+      quantity_slots(Q_MODULE_BASE, &e->est[Q_MODULE_BASE], KASLD_SOUND_FLOOR,
+                     e->constraints, e->n_constraints, PAGE_SIZE);
 }
 #ifndef KASLD_TESTING
 

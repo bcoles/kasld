@@ -119,6 +119,28 @@ struct kasld_layout {
    * the region's origin. */
   unsigned long virt_module_base_min;
   unsigned long virt_module_base_max;
+
+  /* Candidate counts, projected beside the windows they belong to.
+   *
+   * How many placements a quantity still admits is not (hi - lo) / align: the
+   * estimate's interior C_EXCLUDE holes are carved at READ time, so only
+   * quantity_slots() over the estimate AND its constraint set can answer it. A
+   * flat division is hole-blind and over-counts.
+   *
+   * They live here because that answer needs the engine, and the summary
+   * builder is a consumer of this struct rather than of the engine. Projecting
+   * them at the same moment as the window they count keeps the two describing
+   * one resolution -- and leaves no computation for a build without an engine
+   * to substitute a second, hole-blind definition for.
+   *
+   * Zero means "no count resolved", which is also the value a caller that seeds
+   * this struct directly gets without asking. */
+  unsigned long virt_kaslr_slots;
+  unsigned long phys_kaslr_slots;
+  unsigned long virt_page_offset_slots;
+  unsigned long virt_vmalloc_slots;
+  unsigned long virt_vmemmap_slots;
+  unsigned long virt_module_slots;
 };
 
 /* =========================================================================
