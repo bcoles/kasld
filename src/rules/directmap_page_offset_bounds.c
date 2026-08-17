@@ -10,6 +10,16 @@
 // Reads VIRT REGION_DIRECTMAP leaks; emits a C_UPPER_BOUND on Q_PAGE_OFFSET
 // (the engine's monotone meet drops it if it falls outside the current window).
 //
+// REGION_DIRECTMAP_BAND is read too, as a SEPARATE class capped below the sound
+// floor. A band-tagged address is exact but its region rests on a window test —
+// kasld_addr_is_directmap() means "below the text window", so it also spans
+// vmalloc and vmemmap wherever those are not separately bounded — and what such
+// a value implies about the linear-map base is therefore a guess. Separate
+// rather than merged because this rule bounds from the LOWEST witness: a lower
+// band sample folded into one minimum would displace a bound the guaranteed
+// window had earned. The POS_BASE edge below stays established-only; a base
+// claim states where the region begins, which a range verdict cannot do.
+//
 // Lower bound: the leaked directmap pointer maps SOME physical page P, with
 //   virt_page_offset = V - (P - PHYS_OFFSET).
 // P lies within the direct-mapped physical range [PHYS_OFFSET, max_pfn*PAGE),
@@ -57,72 +67,65 @@
 #include <limits.h>
 #include <string.h>
 
-int rule_directmap_page_offset_bounds(const struct evidence_set *ev,
-                                      const struct estimate *est,
-                                      struct constraint *out, int out_max) {
-  (void)est;
-  if (out_max < 1)
-    return 0;
+/* RANDOMIZE_MEMORY_ALIGN = PUD_SIZE on x86_64 (1 GiB) — the alignment the
+ * kernel's KASLR code places virt_page_offset_base on. Zero on arches without
+ * RANDOMIZE_MEMORY (the mask collapses to 0, alignment is a no-op). */
+#define DPO_ALIGN ((unsigned long)RANDOMIZE_MEMORY_ALIGN)
+#define DPO_MASK (DPO_ALIGN ? (DPO_ALIGN - 1) : 0ul)
 
-  unsigned long vdmap_min = ULONG_MAX, max_pfn = 0;
-  unsigned long base_lo = ULONG_MAX;
-  enum kasld_confidence base_conf = CONF_UNKNOWN;
-  uint32_t src = 0, pfn_src = 0, base_src = 0;
+/* Derive the two bounds from the lowest directmap witness of ONE provenance
+ * class, emitting at `conf`.
+ *
+ * Established (`REGION_DIRECTMAP`) and range-classified
+ * (`REGION_DIRECTMAP_BAND`) witnesses are collected SEPARATELY rather than
+ * mixed into one minimum. This rule bounds from the lowest witness, so folding
+ * a lower band sample into the same minimum would replace a bound the
+ * guaranteed window had earned with a capped one, and that window would
+ * silently lose it. Two passes, one per provenance, let the engine's meet take
+ * the tighter of each inside its own window — the same split
+ * range_from_interior uses for the text family. */
+static int dpo_emit_bounds(const struct evidence_set *ev,
+                           enum kasld_region region, enum kasld_confidence conf,
+                           unsigned long max_pfn, uint32_t pfn_src,
+                           struct constraint *out, int slot, int out_max) {
+  unsigned long vdmap_min = ULONG_MAX;
+  uint32_t src = 0;
   for (int i = 0; i < ev->n_obs; i++) {
     const struct observation *o = &ev->obs[i];
-    if (!o->valid)
+    if (!o->valid || o->value_kind != OBS_ADDRESS)
       continue;
-    if (o->value_kind == OBS_SCALAR && o->scalar_fact == SF_PHYS_MAX_PFN) {
-      max_pfn = o->scalar_value;
-      pfn_src = o->id;
+    if (o->eff_type != KASLD_TYPE_VIRT || o->eff_region != region)
       continue;
-    }
-    if (o->value_kind != OBS_ADDRESS)
-      continue;
-    if (o->eff_type == KASLD_TYPE_VIRT && o->eff_region == REGION_DIRECTMAP) {
-      unsigned long a = obs_anchor(o);
-      if (a < vdmap_min) {
-        vdmap_min = a;
-        src = o->id;
-      }
-      /* A POS_BASE directmap observation asserts the base itself (the located
-       * left edge), feeding the speculative likely edge below. Lowest wins —
-       * the base is the region floor, so the lowest base claim is the soundest.
-       */
-      if (o->pos == POS_BASE && HAS_LO(o) && o->lo < base_lo) {
-        base_lo = o->lo;
-        base_conf = o->conf;
-        base_src = o->id;
-      }
+    unsigned long a = obs_anchor(o);
+    if (a < vdmap_min) {
+      vdmap_min = a;
+      src = o->id;
     }
   }
-  if (vdmap_min == ULONG_MAX)
+  if (vdmap_min == ULONG_MAX || slot >= out_max)
     return 0;
 
-  /* RANDOMIZE_MEMORY_ALIGN = PUD_SIZE on x86_64 (1 GiB) — the alignment
-   * the kernel's KASLR code places virt_page_offset_base on. Zero on arches
-   * without RANDOMIZE_MEMORY (the mask collapses to 0, alignment is a
-   * no-op). Use an alignment mask that defaults to 0 for those. */
-  const unsigned long align = (unsigned long)RANDOMIZE_MEMORY_ALIGN;
-  const unsigned long mask = align ? (align - 1) : 0ul;
-
+  const unsigned long align = DPO_ALIGN;
+  const unsigned long mask = DPO_MASK;
   int n = 0;
+  (void)align;
+
   /* Upper bound: virt_page_offset <= lowest directmap leak, aligned DOWN to
    * PUD. */
   unsigned long upper = vdmap_min & ~mask;
-  struct constraint *c = &out[n++];
+  struct constraint *c = &out[slot + n++];
   memset(c, 0, sizeof(*c));
   c->q = Q_PAGE_OFFSET;
   c->op = C_UPPER_BOUND;
   c->value = upper;
-  c->conf = CONF_INFERRED;
+  c->conf = conf;
   c->derived_from[0] = src;
   c->lineage_count = 1;
   snprintf(c->origin, ORIGIN_LEN, "directmap_page_offset_bounds");
 
   /* Lower bound: virt_page_offset >= V - (max_pfn*PAGE_SIZE - PHYS_OFFSET),
    * aligned UP to PUD. */
-  if (max_pfn && n < out_max) {
+  if (max_pfn && slot + n < out_max) {
     unsigned long span = max_pfn * PAGE_SIZE; /* direct-mapped phys extent */
     if (span / PAGE_SIZE == max_pfn           /* no multiply overflow */
 #if PHYS_OFFSET
@@ -138,12 +141,12 @@ int rule_directmap_page_offset_bounds(const struct evidence_set *ev,
         if (lower < raw_lower)
           lower = raw_lower; /* overflow → keep raw, don't relax bound */
         if (lower <= upper) {
-          struct constraint *lc = &out[n++];
+          struct constraint *lc = &out[slot + n++];
           memset(lc, 0, sizeof(*lc));
           lc->q = Q_PAGE_OFFSET;
           lc->op = C_LOWER_BOUND;
           lc->value = lower;
-          lc->conf = CONF_INFERRED;
+          lc->conf = conf;
           lc->derived_from[0] = src;
           lc->derived_from[1] = pfn_src;
           lc->lineage_count = 2;
@@ -152,6 +155,58 @@ int rule_directmap_page_offset_bounds(const struct evidence_set *ev,
       }
     }
   }
+  return n;
+}
+
+int rule_directmap_page_offset_bounds(const struct evidence_set *ev,
+                                      const struct estimate *est,
+                                      struct constraint *out, int out_max) {
+  (void)est;
+  if (out_max < 1)
+    return 0;
+
+  /* max_pfn is a scalar fact, not tied to either provenance class, so it is
+   * collected once and handed to both passes. */
+  unsigned long max_pfn = 0, base_lo = ULONG_MAX;
+  enum kasld_confidence base_conf = CONF_UNKNOWN;
+  uint32_t pfn_src = 0, base_src = 0;
+  for (int i = 0; i < ev->n_obs; i++) {
+    const struct observation *o = &ev->obs[i];
+    if (!o->valid)
+      continue;
+    if (o->value_kind == OBS_SCALAR && o->scalar_fact == SF_PHYS_MAX_PFN) {
+      max_pfn = o->scalar_value;
+      pfn_src = o->id;
+      continue;
+    }
+    /* A POS_BASE directmap observation asserts the base itself (the located
+     * left edge), feeding the speculative likely edge below. Lowest wins — the
+     * base is the region floor, so the lowest base claim is the soundest. Read
+     * from the ESTABLISHED region only: a base claim is a statement about where
+     * the region begins, which a range verdict cannot make. */
+    if (o->value_kind == OBS_ADDRESS && o->eff_type == KASLD_TYPE_VIRT &&
+        o->eff_region == REGION_DIRECTMAP && o->pos == POS_BASE && HAS_LO(o) &&
+        o->lo < base_lo) {
+      base_lo = o->lo;
+      base_conf = o->conf;
+      base_src = o->id;
+    }
+  }
+
+  const unsigned long align = DPO_ALIGN;
+  const unsigned long mask = DPO_MASK;
+  int n = 0;
+
+  n += dpo_emit_bounds(ev, REGION_DIRECTMAP, CONF_INFERRED, max_pfn, pfn_src,
+                       out, n, out_max);
+  /* Range-classified witnesses, capped below the sound floor: the value is
+   * exact but its REGION rests on a window test, so what it implies about the
+   * linear-map base is a guess. Shapes the likely window and never the
+   * guaranteed one. Without this the family had no consumer at all, and an
+   * address that used to bound Q_PAGE_OFFSET bounded nothing in either window.
+   */
+  n += dpo_emit_bounds(ev, REGION_DIRECTMAP_BAND, CONF_HEURISTIC, max_pfn,
+                       pfn_src, out, n, out_max);
 
   /* Speculative likely edge from a POS_BASE observation: base - align, capped
    * below the sound floor (see header). Shapes the likely window only; the

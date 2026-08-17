@@ -1285,10 +1285,16 @@ static int readout_print_leaks(void) {
     const char *label;
   } interesting[] = {
       {KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, "virt kernel text"},
+      /* Named like "virt module region": the address is real and inside the
+       * admissible text window, but which region it belongs to was not
+       * established. Omitting it would narrow the likely window with no
+       * finding on screen to account for the narrowing. */
+      {KASLD_TYPE_VIRT, REGION_KERNEL_TEXT_BAND, "virt text region"},
       {KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE, "virt kernel image"},
       {KASLD_TYPE_VIRT, REGION_KERNEL_DATA, "virt kernel data"},
       {KASLD_TYPE_VIRT, REGION_KERNEL_BSS, "virt kernel BSS"},
       {KASLD_TYPE_VIRT, REGION_DIRECTMAP, "virt directmap"},
+      {KASLD_TYPE_VIRT, REGION_DIRECTMAP_BAND, "virt directmap region"},
       {KASLD_TYPE_VIRT, REGION_MODULE, "virt module"},
       {KASLD_TYPE_VIRT, REGION_MODULE_BAND, "virt module region"},
       {KASLD_TYPE_PHYS, REGION_KERNEL_TEXT, "phys kernel text"},
@@ -1997,19 +2003,15 @@ static void render_readout(const struct summary *s) {
    * arch property (not a measured quantity), so it recedes from the green/
    * magenta measured rows and explains why physical and virtual bases resolve
    * as separate (or shared) quantities above. Its job is to relate the physical
-   * and virtual text bases, so it only earns its place when there is a physical
-   * dimension to relate to: always on coupled arches (where one leak yields
-   * both — the exploitation-relevant case), and on decoupled arches only when a
-   * physical image base row was actually rendered. Suppressed where no physical
-   * base is shown, so it never asserts a relationship the reader can't see. */
-  int phys_row_shown =
-      (s->kaslr.has_phys || s->kaslr.pslots > 0 || layout.phys_kaslr_text_min ||
-       layout.phys_kaslr_text_max);
-  /* A static arch property, not a measured quantity: presented as a note
-   * rather than as a value row, so it does not sit in the value column
-   * alongside addresses under an abbreviated label its siblings do not use. */
-  if (TEXT_TRACKS_DIRECTMAP || phys_row_shown)
-    printf("\n  %sNote: %s%s\n", c(C_DIM), kasld_coupling_descr(), c(C_RESET));
+   * and virtual text bases, and a physical image base row is always present, so
+   * there is always something to relate to. The postures that would make the
+   * claim misleading never reach here: unsupported and disabled both return
+   * earlier in this function.
+   *
+   * Presented as a note rather than as a value row, so it does not sit in the
+   * value column alongside addresses under an abbreviated label its siblings do
+   * not use. */
+  printf("\n  %sNote: %s%s\n", c(C_DIM), kasld_coupling_descr(), c(C_RESET));
   printf("\n");
 
   readout_print_leaks();

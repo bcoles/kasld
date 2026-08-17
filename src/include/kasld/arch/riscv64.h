@@ -97,6 +97,22 @@
 #define KERNEL_VIRT_TEXT_MIN 0xffffffe000000000ul
 #define KERNEL_VIRT_TEXT_MAX 0xffffffffc0000000ul
 
+// TEXT_WINDOW_EXCLUSIVE is deliberately NOT declared here; the default 0 holds.
+//
+// vmalloc is not the problem — asm/pgtable.h puts it below the linear map
+// (VMALLOC_END == PAGE_OFFSET). The LINEAR MAP is. asm/page.h selects
+// PAGE_OFFSET at runtime from the VA mode in force:
+//
+//   PAGE_OFFSET_L5  0xff60000000000000   (sv57)  <- the value modelled below
+//   PAGE_OFFSET_L4  0xffffaf8000000000   (sv48)
+//   PAGE_OFFSET_L3  0xffffffd600000000   (sv39)
+//
+// On sv39 the linear map begins 40 GiB below KERNEL_VIRT_TEXT_MIN and grows
+// upward with installed memory, so a machine with more than that much RAM maps
+// RAM inside the text window. The api.h assertion cannot catch it: it compares
+// against the sv57 constant this header carries, which clears the window by a
+// wide margin while sv39 does not.
+
 // Modern (v5.10+): KERNEL_LINK_ADDR = 0xffffffff80000000;
 // module region = [PFN_ALIGN(&_end) - 2G, PFN_ALIGN(&_start)], always below
 // kernel text and shifting with KASLR.

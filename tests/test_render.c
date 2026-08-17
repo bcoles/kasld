@@ -971,15 +971,19 @@ static void test_render_window_row_always_graded(void) {
 #endif
 }
 
-/* The Phys/Virt coupling note relates the physical and virtual text bases. On a
- * decoupled arch it is gated on a physical image base row actually being
- * present — shown when one is, suppressed when there is nothing to relate to.
- * (Coupled arches always show it; this checks the decoupled gate.) */
-static void test_render_coupling_gated(void) {
-#if !TEXT_TRACKS_DIRECTMAP
+/* The Phys/Virt coupling line states a static architectural property, so it is
+ * present whenever the readout reaches the layout: every arch has both a
+ * physical and a virtual image base row, so there is always something to
+ * relate. What governs it is the posture — the unsupported and disabled banners
+ * answer the base question themselves and stop before the layout, in text and
+ * markdown alike, so neither may state a coupling there.
+ *
+ * Runs on every arch: the two wordings ("move together (coupled)" and
+ * "randomize independently") share an opening, so one assertion covers both,
+ * and the phrase belongs to kasld_coupling_descr() alone. Nothing here writes
+ * to `layout` — the note no longer depends on its contents. */
+static void test_render_coupling_note(void) {
   struct summary s;
-  unsigned long sp_lo = layout.phys_kaslr_text_min;
-  unsigned long sp_hi = layout.phys_kaslr_text_max;
 
   reset_results();
   reset_comp_logs();
@@ -987,41 +991,36 @@ static void test_render_coupling_gated(void) {
   memset(&s, 0, sizeof(s));
   s.kaslr.vslots = 60; /* keep the regular KASLR readout path */
   s.kaslr.vbits = 6;
+
+  /* KASLR live: stated by both formats that carry it. */
   set_render_mode(0, 0, 0);
-
-  /* No physical base anywhere → the coupling note is suppressed. */
-  layout.phys_kaslr_text_min = 0;
-  layout.phys_kaslr_text_max = 0;
-  s.kaslr.pslots = 0;
-  capture_stdout(wrap_render_summary, &s);
-  /* The readout carries the coupling as a prose note rather than a labelled
-   * value row, so gate on the description itself; markdown keeps the labelled
-   * table row and is asserted on that below. */
-  assert(strstr(render_cap, "physical and virtual text") == NULL);
-
-  /* A physical image base row present → the note is shown. */
-  layout.phys_kaslr_text_min = 0x01000000ul;
-  layout.phys_kaslr_text_max = 0x10000000ul;
   capture_stdout(wrap_render_summary, &s);
   assert(strstr(render_cap, "physical and virtual text") != NULL);
-
-  /* Markdown mirrors the same gate: suppressed with no physical row, shown
-   * once one is present. */
   set_render_mode(0, 0, 1);
-  layout.phys_kaslr_text_min = 0;
-  layout.phys_kaslr_text_max = 0;
-  s.kaslr.pslots = 0;
-  capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "Phys/Virt coupling") == NULL);
-  layout.phys_kaslr_text_min = 0x01000000ul;
-  layout.phys_kaslr_text_max = 0x10000000ul;
   capture_stdout(wrap_render_summary, &s);
   assert(strstr(render_cap, "Phys/Virt coupling") != NULL);
 
-  layout.phys_kaslr_text_min = sp_lo;
-  layout.phys_kaslr_text_max = sp_hi;
+  /* Unsupported: the banner is the whole answer, and no coupling follows it. */
+  s.kaslr.unsupported = 1;
   set_render_mode(0, 0, 0);
-#endif
+  capture_stdout(wrap_render_summary, &s);
+  assert(strstr(render_cap, "physical and virtual text") == NULL);
+  set_render_mode(0, 0, 1);
+  capture_stdout(wrap_render_summary, &s);
+  assert(strstr(render_cap, "Phys/Virt coupling") == NULL);
+  s.kaslr.unsupported = 0;
+
+  /* Disabled: likewise. */
+  s.kaslr.disabled = 1;
+  set_render_mode(0, 0, 0);
+  capture_stdout(wrap_render_summary, &s);
+  assert(strstr(render_cap, "physical and virtual text") == NULL);
+  set_render_mode(0, 0, 1);
+  capture_stdout(wrap_render_summary, &s);
+  assert(strstr(render_cap, "Phys/Virt coupling") == NULL);
+  s.kaslr.disabled = 0;
+
+  set_render_mode(0, 0, 0);
 }
 
 /* A reordered (non-canonical) kernel-text function order surfaces a Caution in
@@ -4287,7 +4286,7 @@ int main(void) {
   RUN(test_render_footer_hint_is_last);
   RUN(test_render_phys_map_descends_strictly);
   RUN(test_render_window_row_always_graded);
-  RUN(test_render_coupling_gated);
+  RUN(test_render_coupling_note);
   RUN(test_render_markdown_text_order_caution);
   RUN(test_render_memory_kaslr_uses_stored_slots);
   RUN(test_render_disabled_base_not_labeled_likely);

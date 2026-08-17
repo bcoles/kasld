@@ -189,9 +189,16 @@ static void record_hit(unsigned long v) {
  * bound the sample carries holds either way. Tagging the ambiguous high band
  * vmalloc (rather than over-claiming direct map) is the conservative choice. */
 static int emit_addr(unsigned long addr, int count) {
-  enum kasld_region region = (addr < (unsigned long)KERNEL_VIRT_TEXT_MAX)
-                                 ? REGION_DIRECTMAP
-                                 : REGION_VMALLOC;
+  /* The timeline is scanned for anything that looks like a kernel address, so
+   * nothing but the value says which region it belongs to. The split above was
+   * one comparison against KERNEL_VIRT_TEXT_MAX, which is the top of the
+   * KASLR-admissible text window rather than any boundary between the linear
+   * map and vmalloc. kasld_addr_classify() answers with the band tag wherever
+   * the windows overlap instead of choosing between two regions it cannot
+   * distinguish. */
+  enum kasld_region region = kasld_addr_classify(addr);
+  if (region == REGION_UNKNOWN)
+    return 0;
   kasld_info("mali timeline leaked kernel pointer: 0x%lx (%s, seen x%d)", addr,
              kasld_region_wire(region), count);
   kasld_result_sample(KASLD_TYPE_VIRT, region, addr, NULL, CONF_PARSED);

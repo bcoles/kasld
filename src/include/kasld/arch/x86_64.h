@@ -31,8 +31,25 @@
 
 // Continuous: CONFIG_RANDOMIZE_MEMORY randomizes the linear-map base within
 // its region, so there is no set to enumerate -- only the window.
+//
+// The upper edge is __START_KERNEL_map, where the kernel IMAGE mapping begins.
+// The linear map lies below it by construction, so the bound holds irrespective
+// of KASLR, of config, and of paging level (the constant is the same at four
+// and five levels); a kernel with memory randomization off keeps
+// __PAGE_OFFSET_BASE_L4/_L5, far below.
+//
+// It is deliberately NOT the tighter CPU_ENTRY_AREA_BASE (0xfffffe0000000000),
+// which is where kernel_randomize_memory() actually stops today. That value is
+// only correct from v4.15: arch/x86/mm/kaslr.c chose vaddr_end by config before
+// commit 1dddd2512511 ("x86/kaslr: Fix the vaddr_end mess"), taking
+// ESPFIX_BASE_ADDR, EFI_VA_END or __START_KERNEL_map. Those three commits are
+// the whole history of the value, and __START_KERNEL_map is the highest of
+// them, so it is the tightest bound that is sound on every kernel this may run
+// against -- and version-gating to get the rest is not available.
+// Spelled as the literal because KERNEL_VIRT_TEXT_MIN is defined below; the
+// assertion beneath that definition keeps the two from drifting apart.
 #define PAGE_OFFSET_MIN KERNEL_VIRT_VAS_START
-#define PAGE_OFFSET_MAX KERNEL_VIRT_VAS_END
+#define PAGE_OFFSET_MAX 0xffffffff80000000ul
 #define PHYS_OFFSET 0ul
 
 // On x86_64, CONFIG_RANDOMIZE_MEMORY makes the runtime PAGE_OFFSET differ
@@ -83,7 +100,19 @@
 // 0xffffffff_c0000000). The RANDOMIZE_BASE_MAX_OFFSET option was later removed.
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/include/asm/page_64_types.h#L50
 #define KERNEL_VIRT_TEXT_MIN 0xffffffff80000000ul
+// PAGE_OFFSET_MAX above is this same boundary (__START_KERNEL_map), written as
+// a literal because it is defined before this line. Tied together here so
+// moving one cannot silently leave the other behind.
+__extension__ _Static_assert(PAGE_OFFSET_MAX == KERNEL_VIRT_TEXT_MIN,
+                             "PAGE_OFFSET_MAX must be __START_KERNEL_map, the "
+                             "boundary KERNEL_VIRT_TEXT_MIN also names");
 #define KERNEL_VIRT_TEXT_MAX 0xffffffffc0000000ul
+
+// The text window holds the kernel image and the module region and nothing
+// else: the linear map is 64 TiB lower, and vmalloc/vmemmap lower still.
+// Ruling out the module band therefore leaves the image, so a bare address
+// here can be attributed by value. See TEXT_WINDOW_EXCLUSIVE in api.h.
+#define TEXT_WINDOW_EXCLUSIVE 1
 
 // MODULES_VADDR = __START_KERNEL_map + KERNEL_IMAGE_SIZE, and KERNEL_IMAGE_SIZE
 // is NOT constant:

@@ -363,26 +363,23 @@ void layout_build(const struct summary *s) {
      * search, and the Range column shows the same ceiling beside it, so it is
      * reported rather than withheld -- but it is not an entropy figure. */
     unsigned long pslots = s->kaslr.pslots;
-    if (s->kaslr.has_phys || s->kaslr.pslots > 0 ||
-        layout.phys_kaslr_text_min || layout.phys_kaslr_text_max) {
-      layout_add("Physical Image Base", GRADE_GUARANTEED, pslots, 0,
-                 layout.phys_kaslr_text_min, layout.phys_kaslr_text_max,
-                 (ppin && show_slide)
+    layout_add("Physical Image Base", GRADE_GUARANTEED, pslots, 0,
+               layout.phys_kaslr_text_min, layout.phys_kaslr_text_max,
+               (ppin && show_slide)
+                   ? readout_slide(s->kaslr.pslide, slide, sizeof(slide))
+                   : NULL,
+               layout.phys_kaslr_align);
+    if (s->kaslr.ptext && !ppin)
+      layout_add("Physical Image Base", GRADE_LIKELY, 1, pslots, s->kaslr.ptext,
+                 s->kaslr.ptext,
+                 show_slide
                      ? readout_slide(s->kaslr.pslide, slide, sizeof(slide))
                      : NULL,
                  layout.phys_kaslr_align);
-      if (s->kaslr.ptext && !ppin)
-        layout_add("Physical Image Base", GRADE_LIKELY, 1, pslots,
-                   s->kaslr.ptext, s->kaslr.ptext,
-                   show_slide
-                       ? readout_slide(s->kaslr.pslide, slide, sizeof(slide))
-                       : NULL,
-                   layout.phys_kaslr_align);
-      else if (!s->kaslr.ptext && s->kaslr.plikely_max)
-        layout_add("Physical Image Base", GRADE_LIKELY, s->kaslr.plikely_slots,
-                   pslots, s->kaslr.plikely_min, s->kaslr.plikely_max, NULL,
-                   layout.phys_kaslr_align);
-    }
+    else if (!s->kaslr.ptext && s->kaslr.plikely_max)
+      layout_add("Physical Image Base", GRADE_LIKELY, s->kaslr.plikely_slots,
+                 pslots, s->kaslr.plikely_min, s->kaslr.plikely_max, NULL,
+                 layout.phys_kaslr_align);
 
     /* The memory-KASLR regions exist as unknowns only where the architecture
      * randomizes them; elsewhere RANDOMIZE_MEMORY_ALIGN is 0 and the engine
@@ -427,6 +424,9 @@ void layout_build(const struct summary *s) {
                      s->kaslr.virt_page_offset_slots, llo, lhi, NULL, dmalign);
         }
       }
+      /* Drawn unconditionally, like the direct-map base above: each is seeded
+       * from its own quantity's honest top, so the window is a real bracket
+       * whatever the engine went on to add to it. */
       layout_add("Vmalloc Base", GRADE_GUARANTEED, s->kaslr.virt_vmalloc_slots,
                  0, s->kaslr.virt_vmalloc_min, s->kaslr.virt_vmalloc_max, NULL,
                  dmalign);
@@ -439,29 +439,21 @@ void layout_build(const struct summary *s) {
 #if RANDOMIZE_MEMORY_ALIGN == 0
     /* The direct-map base is not RANDOMIZED off x86_64, but it is still
      * resolved: on a 32-bit arch it is the VMSPLIT, which the engine bounds
-     * from the boot config or an mmap probe. Drawn when the engine has
-     * something to say, which is the same condition JSON emits it under --
-     * without this the readout hid a resolved quantity that every other format
-     * reported. No Align: the pitch here is not a modelled randomization
-     * granule, and stating one would invent a grid. */
-    if (s->kaslr.virt_page_offset_min || s->kaslr.virt_page_offset_max)
-      layout_add(
-          "Direct Map Base", GRADE_GUARANTEED, s->kaslr.virt_page_offset_slots,
-          s->kaslr.virt_page_offset_top_slots, s->kaslr.virt_page_offset_min,
-          s->kaslr.virt_page_offset_max, NULL, 0);
+     * from the boot config or an mmap probe. No Align: the pitch here is not a
+     * modelled randomization granule, and stating one would invent a grid. */
+    layout_add(
+        "Direct Map Base", GRADE_GUARANTEED, s->kaslr.virt_page_offset_slots,
+        s->kaslr.virt_page_offset_top_slots, s->kaslr.virt_page_offset_min,
+        s->kaslr.virt_page_offset_max, NULL, 0);
 #endif
 
     /* Module region base, on every arch rather than under the memory-KASLR
      * gate: the region exists everywhere, and where it does not move the row
-     * still reports where it is. Drawn only once the engine has bounded it --
-     * an unbounded module base says nothing the other rows do not, and a row
-     * that is always `not narrowed` is noise. Its pitch is PAGE_SIZE, the
-     * granularity every arch's allocator places the region on. */
-    if (s->kaslr.virt_module_min || s->kaslr.virt_module_max) {
-      layout_add("Module Region Base", GRADE_GUARANTEED,
-                 s->kaslr.virt_module_slots, 0, s->kaslr.virt_module_min,
-                 s->kaslr.virt_module_max, NULL, PAGE_SIZE);
-    }
+     * still reports where it is. Its pitch is PAGE_SIZE, the granularity every
+     * arch's allocator places the region on. */
+    layout_add("Module Region Base", GRADE_GUARANTEED,
+               s->kaslr.virt_module_slots, 0, s->kaslr.virt_module_min,
+               s->kaslr.virt_module_max, NULL, PAGE_SIZE);
   }
 }
 

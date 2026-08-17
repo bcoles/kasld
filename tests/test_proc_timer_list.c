@@ -95,8 +95,16 @@ static void test_hashed_batch_declines(void) {
   assert(strstr(cap, "directmap") == NULL);
 }
 
-/* End-to-end: real (aligned, in-VAS) '.base:' values emit the first as a
- * direct-map interior sample. */
+/* End-to-end: real (aligned, in-VAS) '.base:' values emit the first as an
+ * interior sample, with a region that does NOT over-claim.
+ *
+ * The candidate test accepts any kernel VA, because the direct-map window is
+ * empty wherever the linear map and the text window collide, so the region is a
+ * range verdict and must come out as a band tag. Asserted as "some _band tag,
+ * and no bare confident one" rather than by naming a region: which band it is
+ * depends on the host's windows, and a substring test for "directmap" is
+ * satisfied by "directmap_band" — which is how this assertion kept passing
+ * after the region it was written to pin had changed underneath it. */
 static void test_real_emits(void) {
   unsigned long base = (unsigned long)KERNEL_VIRT_VAS_START;
   unsigned long v = base + 0x40;
@@ -106,8 +114,12 @@ static void test_real_emits(void) {
   run_capture();
   char want[64];
   snprintf(want, sizeof(want), "sample=0x%lx", v);
-  assert(strstr(cap, "directmap") != NULL);
   assert(strstr(cap, want) != NULL);
+  assert(strstr(cap, "_band") != NULL);
+  /* The wire field is "V <region> pos=..."; a confident tag would appear with a
+   * trailing space, a band tag never does. */
+  assert(strstr(cap, "V directmap ") == NULL);
+  assert(strstr(cap, "V kernel_text ") == NULL);
 }
 
 int main(void) {

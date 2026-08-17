@@ -323,20 +323,49 @@ static void test_devicetree_elfcorehdr(void) {
  * derives virt_page_offset = virt - phys for a direct-map virtual address.
  * Uses host-arch direct-map constants (this interface is x86-only). ------- */
 static void test_efi_runtime_map(void) {
-  unsigned long virt = 0xffff888000001000UL;
-  unsigned long phys = 0x1000UL;
+  /* Skipped where virt - phys cannot be the linear-map base at all: the arch
+   * anchors the linear map somewhere other than physical zero, so the component
+   * declines by construction and there is nothing to assert. */
+#if EFI_VIRT_MINUS_PHYS_IS_PAGE_OFFSET
+  const unsigned long off = 0xffff888000000000UL; /* x86_64 L4 page_offset */
   /* Only meaningful where the chosen virt is in the host's direct-map window
    * and virt-phys lands in the page-offset window (true on x86_64). */
-  if (!kasld_addr_is_directmap(virt))
+  if (!kasld_addr_is_directmap(off + 0x1000UL))
     return;
+  char want[64];
+  snprintf(want, sizeof(want), "sample=0x%lx", off);
+
+  /* One entry establishes nothing. A single virt/phys pair is one subtraction;
+   * it cannot show that the mapping it came from is linear, and believing it
+   * pinned the guaranteed direct-map base to a wrong value on every UEFI x86_64
+   * machine, where the EFI runtime mapping is a dedicated region rather than
+   * the linear map. */
   stage_text("/sys/firmware/efi/runtime-map/0/virt_addr",
              "0xffff888000001000\n");
   stage_text("/sys/firmware/efi/runtime-map/0/phys_addr", "0x1000\n");
   run_capture(efi_main);
+  assert(strstr(cap, "V virt_page_offset") == NULL);
+
+  /* A second entry at the SAME offset does establish it: one constant offset
+   * shared by independent entries is what being a linear map means. */
+  stage_text("/sys/firmware/efi/runtime-map/1/virt_addr",
+             "0xffff888000002000\n");
+  stage_text("/sys/firmware/efi/runtime-map/1/phys_addr", "0x2000\n");
+  run_capture(efi_main);
   assert(strstr(cap, "V virt_page_offset") != NULL);
-  char want[64];
-  snprintf(want, sizeof(want), "sample=0x%lx", virt - phys);
   assert(strstr(cap, want) != NULL);
+
+  /* Entries that all disagree establish nothing, however many there are — the
+   * shape a real EFI runtime mapping produces, since its virtual addresses
+   * descend while physical addresses ascend. Entry 1's phys is rewritten so no
+   * two of the three share an offset. */
+  stage_text("/sys/firmware/efi/runtime-map/1/phys_addr", "0x3000\n");
+  stage_text("/sys/firmware/efi/runtime-map/2/virt_addr",
+             "0xffff888000009000\n");
+  stage_text("/sys/firmware/efi/runtime-map/2/phys_addr", "0x4000\n");
+  run_capture(efi_main);
+  assert(strstr(cap, "V virt_page_offset") == NULL);
+#endif
 }
 
 /* --- libnvdimm nd_region: resource is "%#llx" text ---------------------- */

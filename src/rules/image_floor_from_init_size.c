@@ -40,10 +40,11 @@
 #include <limits.h>
 #include <string.h>
 
-static int is_kernel_image_obs_region(enum kasld_region r) {
-  return r == REGION_KERNEL_TEXT || r == REGION_KERNEL_IMAGE ||
-         r == REGION_KERNEL_DATA || r == REGION_KERNEL_BSS;
-}
+/* Image membership is is_kernel_image_region() in regions.h, already included
+ * above. A second copy here said the same thing in a different place, which is
+ * how the two drift: REGION_KERNEL_TEXT_BAND must stay out of BOTH, and a rule
+ * carrying its own list would keep admitting a region the shared predicate had
+ * learned to reject. tests/test_engine.c pins the exclusion. */
 
 int rule_image_floor_from_init_size(const struct evidence_set *ev,
                                     const struct estimate *est,
@@ -66,7 +67,7 @@ int rule_image_floor_from_init_size(const struct evidence_set *ev,
     if (!o->valid || o->value_kind != OBS_ADDRESS ||
         o->eff_type != KASLD_TYPE_VIRT)
       continue;
-    if (!is_kernel_image_obs_region(o->eff_region))
+    if (!is_kernel_image_region(o->eff_region))
       continue;
     unsigned long a = obs_anchor(o);
     if (a == 0)

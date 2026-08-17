@@ -269,15 +269,9 @@ void render_markdown(const struct summary *s) {
     /* Phys/virt coupling — the static classification the text readout carries,
      * so a markdown report states whether a physical leak reveals the virtual
      * text base or the two randomize independently. Its job is to relate the
-     * physical and virtual bases, so (mirroring the text readout) it earns a
-     * row only when there is a physical dimension to relate to: always on
-     * coupled arches, and on decoupled arches only when a physical row shows.
-     */
-    int phys_row_shown = s->kaslr.has_phys || s->kaslr.pslots > 0 ||
-                         layout.phys_kaslr_text_min ||
-                         layout.phys_kaslr_text_max;
-    if (TEXT_TRACKS_DIRECTMAP || phys_row_shown)
-      printf("| Phys/Virt coupling | %s |\n", kasld_coupling_descr());
+     * physical and virtual bases, and a physical image base row is always
+     * present, so there is always something to relate to. */
+    printf("| Phys/Virt coupling | %s |\n", kasld_coupling_descr());
 
     printf("\n");
   }

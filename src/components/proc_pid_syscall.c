@@ -239,8 +239,6 @@ int main(void) {
     return 0;
   }
 
-  kasld_info("lowest leaked address: %lx", addr);
-  kasld_info("possible kernel base: %lx", kasld_floor_text_base(addr));
   /* The leaked word is a kernel address; nothing available here establishes
    * that it is TEXT. It is whatever the reading task's call chain left on
    * proc_pid_syscall()'s own stack frame, which differs by architecture: a
@@ -248,15 +246,22 @@ int main(void) {
    * (kernel stacks, lowmem objects) on powerpc and mips, where the image is
    * randomized above them and a direct-map word therefore lands BELOW _text.
    *
-   * An interior-text sample implies image_base <= sample, so tagging a
-   * direct-map word as text truncates the image-base window below the true
-   * base. CONF_HEURISTIC keeps the observation under the sound floor, where
-   * the engine's confidence gate drops it from the floored run entirely: it
-   * shapes the likely window, and cannot bound the guaranteed one. Confirming
-   * text membership needs a text band this component cannot see — it runs
-   * before inference, and that band is the unknown being solved for. */
-  kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr, NULL,
-                      CONF_HEURISTIC);
+   * The uncertainty is about the REGION, not the value: the word is exactly
+   * what the kernel printed. So it is carried by the tag rather than by the
+   * confidence — kasld_addr_classify() returns the band tag wherever the
+   * windows are not exclusive, which on every 32-bit arch is always, and
+   * range_from_interior caps what it derives from a band sample below the sound
+   * floor. Confirming text membership needs a text band this component cannot
+   * see: it runs before inference, and that band is the unknown being solved
+   * for. */
+  enum kasld_region region = kasld_addr_classify(addr);
+  if (region == REGION_UNKNOWN)
+    return 0;
+
+  kasld_info("lowest leaked address: %lx (%s)", addr,
+             kasld_region_wire(region));
+  kasld_info("possible kernel base: %lx", kasld_floor_text_base(addr));
+  kasld_result_sample(KASLD_TYPE_VIRT, region, addr, NULL, CONF_PARSED);
 
   return 0;
 }

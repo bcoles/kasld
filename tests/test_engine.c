@@ -75,6 +75,92 @@ static void test_engine_interior_ceiling(void) {
   assert(e.est[Q_VIRT_IMAGE_BASE].lo == top.lo); /* lower bound unchanged */
 }
 
+/* The band tag is kept out of the guaranteed window by NOT being an image
+ * region: every rule that bounds the image base filters on this predicate, so
+ * admitting the band here would re-open the hole in all of them at once. There
+ * is one definition (regions.h) precisely so this assertion covers them all. */
+static void test_region_band_is_not_image(void) {
+  assert(!is_kernel_image_region(REGION_KERNEL_TEXT_BAND));
+  assert(is_kernel_image_region(REGION_KERNEL_TEXT));
+  assert(is_kernel_image_region(REGION_KERNEL_IMAGE));
+  assert(is_kernel_image_region(REGION_KERNEL_DATA));
+  assert(is_kernel_image_region(REGION_KERNEL_BSS));
+  /* The module split it mirrors, for the same reason. */
+  assert(!is_kernel_image_region(REGION_MODULE_BAND));
+}
+
+/* A REGION_KERNEL_TEXT_BAND sample bounds the base, but only below the sound
+ * floor: the address is exact, its REGION is a range verdict, so the bound it
+ * implies is a guess. The cap is applied where the constraint is built, so it
+ * holds however the caller resolves. */
+static void test_engine_interior_band_capped(void) {
+  struct engine e;
+  engine_init(&e);
+
+  struct estimate top;
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
+  unsigned long sample = top.lo + 0x1234000ul;
+
+  struct observation o = mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT_BAND,
+                                sample, SAMPLE_SET, POS_INTERIOR, CONF_PARSED);
+  evidence_add(&e.ev, &o);
+
+  const rule_fn rules[] = {rule_range_from_interior};
+  engine_run(&e, rules, 1);
+
+  int seen = 0;
+  for (int i = 0; i < e.n_constraints; i++) {
+    const struct constraint *c = &e.constraints[i];
+    if (c->q != Q_VIRT_IMAGE_BASE || c->op != C_UPPER_BOUND)
+      continue;
+    assert(c->value == sample);
+    /* CONF_PARSED went in; the band cap must bring it under the sound floor. */
+    assert(c->conf == CONF_HEURISTIC);
+    seen++;
+  }
+  assert(seen == 1);
+}
+
+/* A band sample lower than an image sample must not DISPLACE the image-derived
+ * ceiling. The rule emits the minimum, so mixing the two classes into one
+ * constraint would silently trade a bound the guaranteed window had earned for
+ * a capped one it cannot use. Two constraints, one per provenance. */
+static void test_engine_interior_band_does_not_displace_image(void) {
+  struct engine e;
+  engine_init(&e);
+
+  struct estimate top;
+  quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
+  unsigned long image_sample = top.lo + 0x2000000ul;
+  unsigned long band_sample =
+      top.lo + 0x1000000ul; /* lower than the image one */
+
+  struct observation oi =
+      mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE, image_sample, SAMPLE_SET,
+             POS_INTERIOR, CONF_PARSED);
+  struct observation ob =
+      mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT_BAND, band_sample, SAMPLE_SET,
+             POS_INTERIOR, CONF_PARSED);
+  evidence_add(&e.ev, &oi);
+  evidence_add(&e.ev, &ob);
+
+  const rule_fn rules[] = {rule_range_from_interior};
+  engine_run(&e, rules, 1);
+
+  int at_image = 0, at_band = 0;
+  for (int i = 0; i < e.n_constraints; i++) {
+    const struct constraint *c = &e.constraints[i];
+    if (c->q != Q_VIRT_IMAGE_BASE || c->op != C_UPPER_BOUND)
+      continue;
+    if (c->value == image_sample && c->conf == CONF_PARSED)
+      at_image++;
+    if (c->value == band_sample && c->conf == CONF_HEURISTIC)
+      at_band++;
+  }
+  assert(at_image == 1); /* the sound ceiling survived the lower band sample */
+  assert(at_band == 1);
+}
+
 /* ========================================================================
  * image_base_grid_align: snap the resolved _text window to the KASLR grid
  * ======================================================================== */
@@ -6242,6 +6328,69 @@ static void test_directmap_page_offset_bounds(void) {
          vd); /* virt_page_offset <= lowest directmap */
 }
 
+/* A REGION_DIRECTMAP_BAND witness bounds page_offset, but only below the sound
+ * floor: the address is exact, its region rests on a window test that also
+ * spans vmalloc and vmemmap, so what it implies about the linear-map base is a
+ * guess. Asserted on the CONSTRAINT rather than the resolved estimate — a
+ * constraint is emitted whether or not it narrows, so this does not depend on
+ * whether the host arch admits more than one base. */
+static void test_directmap_page_offset_band_capped(void) {
+  struct engine e;
+  engine_init(&e);
+  unsigned long vd = po_admissible(0);
+  struct observation o = mk_obs(KASLD_TYPE_VIRT, REGION_DIRECTMAP_BAND, vd,
+                                SAMPLE_SET, POS_INTERIOR, CONF_PARSED);
+  evidence_add(&e.ev, &o);
+  const rule_fn rules[] = {rule_directmap_page_offset_bounds};
+  engine_run(&e, rules, 1);
+
+  int seen = 0;
+  for (int i = 0; i < e.n_constraints; i++) {
+    const struct constraint *c = &e.constraints[i];
+    if (c->q != Q_PAGE_OFFSET || c->op != C_UPPER_BOUND)
+      continue;
+    /* CONF_PARSED went in; the band cap must bring it under the sound floor. */
+    assert(c->conf == CONF_HEURISTIC);
+    seen++;
+  }
+  assert(seen == 1);
+}
+
+/* A band witness LOWER than an established one must not displace it. The rule
+ * bounds from the lowest witness, so merging the two classes into one minimum
+ * would trade a bound the guaranteed window had earned for a capped one it
+ * cannot use. One constraint per provenance. */
+static void test_directmap_page_offset_band_does_not_displace(void) {
+  struct engine e;
+  engine_init(&e);
+  unsigned long est_v = po_admissible(1);
+  unsigned long band_v = po_admissible(0); /* lower than est_v */
+  if (band_v >= est_v)
+    return; /* arch admits a single base; nothing to order */
+
+  struct observation oe = mk_obs(KASLD_TYPE_VIRT, REGION_DIRECTMAP, est_v,
+                                 SAMPLE_SET, POS_INTERIOR, CONF_PARSED);
+  struct observation ob = mk_obs(KASLD_TYPE_VIRT, REGION_DIRECTMAP_BAND, band_v,
+                                 SAMPLE_SET, POS_INTERIOR, CONF_PARSED);
+  evidence_add(&e.ev, &oe);
+  evidence_add(&e.ev, &ob);
+  const rule_fn rules[] = {rule_directmap_page_offset_bounds};
+  engine_run(&e, rules, 1);
+
+  int at_est = 0, at_band = 0;
+  for (int i = 0; i < e.n_constraints; i++) {
+    const struct constraint *c = &e.constraints[i];
+    if (c->q != Q_PAGE_OFFSET || c->op != C_UPPER_BOUND)
+      continue;
+    if (c->conf == CONF_INFERRED)
+      at_est++;
+    if (c->conf == CONF_HEURISTIC)
+      at_band++;
+  }
+  assert(at_est == 1); /* the sound bound survived the lower band witness */
+  assert(at_band == 1);
+}
+
 /* With SF_PHYS_MAX_PFN the directmap leak also yields a sound lower bound:
  * virt_page_offset >= V - (max_pfn*PAGE_SIZE - PHYS_OFFSET). This is what
  * narrows the randomized direct-map base to ~RAM/1GiB candidates from a single
@@ -8246,6 +8395,9 @@ int main(void) {
 
   BEGIN_CATEGORY("Engine core (pilot, convergence, saturation)");
   RUN(test_engine_interior_ceiling);
+  RUN(test_region_band_is_not_image);
+  RUN(test_engine_interior_band_capped);
+  RUN(test_engine_interior_band_does_not_displace_image);
   RUN(test_image_base_grid_align_sound);
   RUN(test_image_base_grid_align_tightens);
   RUN(test_image_base_grid_align_noop);
@@ -8322,6 +8474,8 @@ int main(void) {
   RUN(test_page_offset_from_landmark_window);
 #if __SIZEOF_LONG__ >= 8
   RUN(test_directmap_page_offset_bounds);
+  RUN(test_directmap_page_offset_band_capped);
+  RUN(test_directmap_page_offset_band_does_not_displace);
   RUN(test_directmap_page_offset_lower_bound_from_max_pfn);
   RUN(test_directmap_page_offset_base_likely_edge);
   RUN(test_directmap_page_offset_bounds_pud_aligned);

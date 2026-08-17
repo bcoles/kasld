@@ -136,7 +136,7 @@ The Layout table carries one row per quantity and basis:
 | `Quantity` | what is being located — always a *base*, a single address, not a region |
 | `Basis` | `guaranteed` (proven; contains the true base) or `likely` (the all-signals estimate, a subset of the guaranteed window, and may be wrong) |
 | `Range` | the addresses: a window, a single address where the quantity is pinned, or a one-sided `>=` / `<=` bound. A concrete base carries its `slide` from the compile-time default |
-| `Search space` | how many placements remain, against the set the row narrows — a `guaranteed` row against the window the kernel randomized over, a `likely` row against the `guaranteed` count above it. Reported whether or not evidence narrowed it, so a baseline run states the size of the problem; the denominator is dropped when nothing narrowed, leaving the bare total. `-` means no window is modelled for the quantity, which is the only thing that withholds the figure — "nothing was learned" is carried by `Range` reading `not narrowed` |
+| `Search space` | how many placements remain, against the set the row narrows — a `guaranteed` row against the window the kernel randomized over, a `likely` row against the `guaranteed` count above it. Reported whether or not evidence narrowed it, so a baseline run states the size of the problem; the denominator is dropped when nothing narrowed, leaving the bare total. `-` means no window is modelled for the quantity, which is the only thing that withholds the figure |
 | `Align` | the grid the candidates sit on, which is what reconciles the count with the range |
 
 Every quantity the architecture randomizes gets a row whether or not the engine
@@ -166,9 +166,11 @@ candidates with no module address in evidence at all.
 
 The direct-map base is likewise fixed off x86_64, but still resolved: on a
 32-bit kernel it is the VMSPLIT, read from the boot config or narrowed by an
-mmap probe. Neither quantity is randomized, so neither has a window to sit in;
-both are worth reporting once known, and a row that was always present would
-read `not narrowed` on most machines.
+mmap probe. Neither quantity is randomized there, so neither sits in a
+randomization window — but each still has an architectural bracket, so both rows
+are always present and state it. Where the pitch is not a modelled randomization
+granule the `Align` column reads `-` rather than inventing a grid, and the search
+space follows it.
 
 Addresses are never zero-padded: a 16 MiB physical address would otherwise wear
 the costume of a 64-bit kernel pointer. They are right-aligned instead, so the

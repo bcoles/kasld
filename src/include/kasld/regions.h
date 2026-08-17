@@ -13,7 +13,14 @@
 #ifndef KASLD_REGION_PREDICATES
 #define KASLD_REGION_PREDICATES 1
 
-/* Part of the kernel image: text, data, bss, or the image as a whole. */
+/* Part of the kernel image: text, data, bss, or the image as a whole.
+ *
+ * REGION_KERNEL_TEXT_BAND is deliberately ABSENT. It names an address that fell
+ * inside the admissible text window without any evidence it is in the image, so
+ * admitting it here would let every image-base rule bound the guaranteed window
+ * from a range guess — the failure this split exists to prevent. A rule that
+ * wants band samples names the region itself and caps what it derives; see
+ * range_from_interior, currently the only one. */
 static inline int is_kernel_image_region(enum kasld_region r) {
   switch (r) {
   case REGION_KERNEL_TEXT:

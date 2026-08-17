@@ -150,9 +150,22 @@ int main(void) {
     return 0;
   }
 
-  kasld_info("timer base address: 0x%016lx", base);
-  kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, base, NULL,
-                      CONF_PARSED);
+  /* The candidate test above deliberately accepts any kernel VA, because the
+   * direct-map window is empty wherever the linear map and the text window
+   * collide. That makes the region a range verdict rather than a fact — and a
+   * timer base is per-CPU data, which for dynamic per-CPU chunks comes from
+   * vmalloc, so provenance does not establish direct-map either. Take the tag
+   * from kasld_addr_classify(), which reports the ambiguity instead of
+   * asserting through it. */
+  enum kasld_region region = kasld_addr_classify(base);
+  if (region == REGION_UNKNOWN) {
+    kasld_err("timer base 0x%016lx is not a kernel virtual address", base);
+    return 0;
+  }
+
+  kasld_info("timer base address: 0x%016lx (%s)", base,
+             kasld_region_wire(region));
+  kasld_result_sample(KASLD_TYPE_VIRT, region, base, NULL, CONF_PARSED);
 
   return 0;
 }

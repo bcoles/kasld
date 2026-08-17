@@ -1,0 +1,164 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-text-provenance — a component may claim REGION_KERNEL_TEXT in the sound
+# band only where its SOURCE establishes the address is in the kernel image.
+# Where the region rests on a range test, it must come from
+# kasld_addr_classify(), which returns REGION_KERNEL_TEXT_BAND wherever the
+# windows are not exclusive.
+#
+# The text window is the KASLR-ADMISSIBLE range, not the image's extent, so on
+# most architectures it contains the linear map, the module band, or both: on
+# ppc32/arm32/x86_32 it is [0x40000000, 0xf0000000], and ppc64's begins at
+# PAGE_OFFSET. kasld_addr_is_directmap() is written as "below the text window",
+# which makes that window empty exactly where the two collide — so a classifier
+# that asks the predicates in order resolves every ambiguous address in favour
+# of text, silently and always toward the strongest tag.
+#
+# That matters because an interior-image sample implies image_base <= sample. A
+# direct-map pointer tagged as text, sitting below the real _text, carves the
+# truth out of the guaranteed window. Reproduced: a task_struct address from
+# /proc/spl/kstat/zfs/dbgmsg came back `kernel_text pos=interior conf=parsed` on
+# ppc32, ppc64 and s390, and the same shape in /proc/<pid>/syscall put the true
+# base outside the guaranteed window on 2 of 5 boots of a 5.9 ppc32 kernel.
+#
+# Scope is deliberately at-or-above the sound floor. A sub-floor text claim
+# (side channels, heuristics) cannot bound the guaranteed window whatever its
+# region says, so it needs no provenance review.
+#
+# What this does NOT do: trace the value. A component on the allowlist that
+# later starts classifying by range, or one that calls the classifier and then
+# ignores it, still passes. The check forces the question to be ASKED of every
+# component that claims text in the sound band, and records the answer; it does
+# not prove the answer stays true.
+#
+# Pure text, so it needs no build.
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+COMPONENTS=$ROOT/src/components
+# shellcheck source=tests/lib/guard-scope.sh
+. "$ROOT/tests/lib/guard-scope.sh"
+# shellcheck source=tests/lib/c-code-grep.sh
+. "$ROOT/tests/lib/c-code-grep.sh"
+
+if [ -t 1 ]; then
+  RED=$(printf '\033[31m')
+  GREEN=$(printf '\033[32m')
+  RESET=$(printf '\033[0m')
+else
+  RED=
+  GREEN=
+  RESET=
+fi
+
+# Components whose SOURCE establishes image membership, so the region is a fact
+# rather than a range verdict. One line each, naming what carries the proof.
+allow_file() {
+  case "$1" in
+  # A symbol resolved by name — the name IS the proof.
+  proc_kallsyms.c) return 0 ;;          # _stext, read by name
+  pppd_kallsyms.c) return 0 ;;          # a named symbol's address
+  bpf_verifier_ksym.c) return 0 ;;      # ksym resolved through the uname-keyed table
+  dmesg_android_ion_snapshot.c) return 0 ;; # the last_ion_buf symbol's address
+  dmesg_mmu_idmap.c) return 0 ;;        # virt_to_phys(__idmap_text), a named section
+  # An instruction address: whatever executed was text.
+  perf_event_open.c) return 0 ;;        # sampled kernel instruction pointer
+  perf_lbr_sampling.c) return 0 ;;      # LBR kernel branch addresses
+  perf_text_poke_leak.c) return 0 ;;    # a text_poke target
+  dmesg_backtrace.c) return 0 ;;        # call-trace return addresses
+  dmesg_ex_handler_msr.c) return 0 ;;   # the faulting instruction's address
+  qemu_tcg_iret.c) return 0 ;;          # an exception handler's return address
+  proc_stat_wchan.c) return 0 ;;        # the function the task sleeps in
+  # A structure the kernel published as the image itself.
+  proc_kcore.c) return 0 ;;             # the text segment's ELF program header
+  sysfs_kernel_notes_xen.c) return 0 ;; # XEN_ELFNOTE_ENTRY, the entry point
+  dmesg_riscv_relocation.c) return 0 ;; # the relocated base the kernel printed
+  tracefs_printk_formats.c) return 0 ;; # format strings, in the image's rodata
+  # Declines unless the value lands in the image; pre-3.10 IDT layout only.
+  sidt.c) return 0 ;;
+  # --- linear-map / image members the source identifies, not range-classifies ---
+  # A kmalloc'd object: the allocator places it in the linear map.
+  alsa_seq_ext_ptr.c) return 0 ;;       # a kmalloc'd snd_seq event buffer
+  proc_net_sock_ptr.c) return 0 ;;      # a kmalloc'd struct sock
+  bpf_verifier_log.c) return 0 ;;       # a map/ksym address the verifier printed
+  # The kernel's own account of where its image is.
+  proc_iomem_kernel.c) return 0 ;;      # the "Kernel code" iomem label
+  dmesg_mem_init_kernel_layout.c) return 0 ;; # the kernel's own layout dump
+  dmesg_free_reserved_area.c) return 0 ;;     # the init-memory range it freed
+  sysfs_devicetree_kernel_end.c) return 0 ;;  # linux,kernel-end from firmware
+  dmesg_reserved_mem_opensbi.c) return 0 ;;   # the OpenSBI M-mode reservation
+  # Module band tested FIRST, then the image. The second branch is reachable only
+  # where the module band does NOT cover the text window -- on x86_64 that gap is
+  # exactly [__START_KERNEL_map, MODULES_VADDR], the image itself; on x86_32,
+  # ppc32, arm64, riscv64 and s390 the band spans the whole window and the branch
+  # is dead. So the image tag only ever lands on an image address. See the
+  # component's own comment for why reversing the order would break it.
+  sysfs_iscsi_transport_handle.c) return 0 ;;
+  *) return 1 ;;
+  esac
+}
+
+# The whole family that bounds a quantity, not just text: KERNEL_TEXT/IMAGE/
+# DATA/BSS all satisfy is_kernel_image_region() and so all bound the image
+# base, and DIRECTMAP bounds page_offset. Guarding text alone let a component
+# reach the image family through REGION_KERNEL_DATA instead.
+CLAIMS_REGION='(^|[^A-Za-z0-9_])REGION_(KERNEL_(TEXT|IMAGE|DATA|BSS)|DIRECTMAP)([^A-Za-z0-9_]|$)'
+AT_OR_ABOVE_FLOOR='(^|[^A-Za-z0-9_])CONF_(PARSED|DERIVED|INFERRED)([^A-Za-z0-9_]|$)'
+CLASSIFIER='kasld_addr_classify'
+
+bad=0
+n=0       # components claiming text in the sound band
+nclass=0  # of those, the ones routed through the classifier
+for f in "$COMPONENTS"/*.c; do
+  [ -f "$f" ] || continue
+  base=${f##*/}
+  [ -n "$(c_code_grep "$f" "$CLAIMS_REGION")" ] || continue
+  [ -n "$(c_code_grep "$f" "$AT_OR_ABOVE_FLOOR")" ] || continue
+  n=$((n + 1))
+  allow_file "$base" && continue
+  if [ -n "$(c_code_grep "$f" "$CLASSIFIER")" ]; then
+    nclass=$((nclass + 1))
+    continue
+  fi
+  bad=1
+  echo "${RED}$base: claims an image or linear-map region in the sound band${RESET}"
+  echo "  neither on the reviewed provenance allowlist nor routed through"
+  echo "  kasld_addr_classify()"
+done
+
+# An allowlist entry naming a component that no longer claims text is stale, and
+# a stale entry is how the next real offender gets waved through.
+for stale in proc_kallsyms pppd_kallsyms bpf_verifier_ksym dmesg_android_ion_snapshot \
+  dmesg_mmu_idmap perf_event_open perf_lbr_sampling perf_text_poke_leak \
+  dmesg_backtrace dmesg_ex_handler_msr qemu_tcg_iret proc_stat_wchan proc_kcore \
+  sysfs_kernel_notes_xen dmesg_riscv_relocation tracefs_printk_formats sidt \
+  alsa_seq_ext_ptr proc_net_sock_ptr bpf_verifier_log proc_iomem_kernel \
+  dmesg_mem_init_kernel_layout dmesg_free_reserved_area \
+  sysfs_devicetree_kernel_end dmesg_reserved_mem_opensbi \
+  sysfs_iscsi_transport_handle; do
+  f=$COMPONENTS/$stale.c
+  if [ ! -f "$f" ] || [ -z "$(c_code_grep "$f" "$CLAIMS_REGION")" ]; then
+    echo "${RED}$stale.c: on the allowlist but no longer claims a guarded region${RESET}"
+    bad=1
+  fi
+done
+
+if [ "$bad" -ne 0 ]; then
+  echo
+  echo "The text window is the KASLR-admissible range, not the image's extent,"
+  echo "and on most arches it contains the linear map and the module band. A"
+  echo "component that decides the region by range test must take it from"
+  echo "kasld_addr_classify(), which returns REGION_KERNEL_TEXT_BAND where the"
+  echo "windows are not exclusive. A component whose SOURCE establishes image"
+  echo "membership — a named symbol, an instruction address, an ELF phdr —"
+  echo "belongs on the allowlist above, with the reason on its line."
+  exit 1
+fi
+
+guard_scope "check-text-provenance" "$n" 15
+
+printf '%scheck-text-provenance: OK%s (%d claim a guarded region; %d by provenance, %d classified)\n' \
+  "$GREEN" "$RESET" "$n" "$((n - nclass))" "$nclass"

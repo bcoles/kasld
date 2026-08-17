@@ -393,6 +393,72 @@ __extension__ _Static_assert((unsigned long)KERNEL_PHYS_MAX >
 #error                                                                         \
     "arch header must define LINEAR_MAP_ANCHOR (LM_ANCHOR_PHYS_OFFSET / _DRAM_BASE / _UNKNOWABLE)"
 #endif
+
+/* Is an address inside [KERNEL_VIRT_TEXT_MIN, KERNEL_VIRT_TEXT_MAX] necessarily
+ * part of the kernel image or a module, so that ruling out the module band
+ * leaves only the image?
+ *
+ * That window is the range in which the image base is ADMISSIBLE, not the
+ * image's extent, so the answer is usually no: it spans the linear map on the
+ * VMSPLIT arches and on ppc64, and s390's is the whole address space. Only
+ * where the architecture places nothing else in that range can a bare address
+ * be attributed to the image by its value alone.
+ *
+ * DECLARED rather than computed. Computing it means reasoning about
+ * PAGE_OFFSET, and PAGE_OFFSET does not mean the same thing on every
+ * architecture — it is 0 on s390, where the linear map is the identity map, and
+ * on the VMSPLIT arches it names the split THIS binary was built with rather
+ * than the target's, which is the substitution check-page-offset-substitution
+ * exists to forbid. A declaration cannot make that mistake.
+ *
+ * Defaults to 0, so an architecture that has not considered the question gets
+ * the safe answer: every range-classified address becomes
+ * REGION_KERNEL_TEXT_BAND, which cannot bound the guaranteed window. Declaring
+ * 1 is a claim about the address space, checked below against the one thing the
+ * constants do say.
+ *
+ * Assessed for every architecture against the kernel's own layout headers. Note
+ * what the assertion below can and cannot see: it tests the single PAGE_OFFSET
+ * an arch header carries, so an arch whose kernel SELECTS that value at runtime
+ * can satisfy it on the modelled value and violate it on another. riscv64 is
+ * exactly that case, and is the reason this list is written out rather than
+ * left to the assertion.
+ *
+ *   1  x86_64  — asm/page_64_types.h and pgtable_64_types.h put
+ *                MODULES_VADDR at __START_KERNEL_map + KERNEL_IMAGE_SIZE, so
+ *                the window IS [__START_KERNEL_map, MODULES_VADDR]: the image
+ *                region, closed at the module boundary. The CPU entry area,
+ *                vmalloc, vmemmap and vsyscall all fall outside it.
+ *   0  riscv64 — vmalloc is below the linear map (asm/pgtable.h,
+ *                VMALLOC_END == PAGE_OFFSET) but the LINEAR MAP is the
+ *                occupant: asm/page.h selects PAGE_OFFSET at runtime from the
+ *                VA mode, and PAGE_OFFSET_L3 (sv39) is 0xffffffd600000000 —
+ *                40 GiB below KERNEL_VIRT_TEXT_MIN, growing upward with
+ *                installed RAM. The header models the sv57 value, which clears
+ *                the window by a wide margin; sv39 does not.
+ *   0  arm64   — asm/pgtable.h has VMALLOC_START == MODULES_END ==
+ * KIMAGE_VADDR, so vmalloc begins at the image and spans the window. 0  s390 —
+ * vmalloc bounds are runtime variables, and the window here is effectively the
+ * whole address space. 0  arm32, ppc32, x86_32, riscv32, mips32, mips64, ppc64,
+ * loongarch64 — PAGE_OFFSET >= KERNEL_VIRT_TEXT_MIN, so the linear map starts
+ *                inside the window; the assertion below rejects a 1 here.
+ * The remaining headers (m68k, microblaze, openrisc, sh, sparc) exist for the
+ * dispatch table and error at compile time, so the question does not arise. */
+#ifndef TEXT_WINDOW_EXCLUSIVE
+#define TEXT_WINDOW_EXCLUSIVE 0
+#endif
+/* The one part of that claim the constants can check. kasld_addr_is_directmap()
+ * spans [PAGE_OFFSET, KERNEL_VIRT_TEXT_MIN), so an architecture whose linear
+ * map begins inside the text window collapses that span to nothing and then
+ * reports no direct-map match for any address at all — indistinguishable from
+ * having no linear map. An arch in that state cannot be exclusive. */
+#if TEXT_WINDOW_EXCLUSIVE
+__extension__ _Static_assert((unsigned long)PAGE_OFFSET <
+                                 (unsigned long)KERNEL_VIRT_TEXT_MIN,
+                             "TEXT_WINDOW_EXCLUSIVE claims the text window "
+                             "holds only the image and modules, but the linear "
+                             "map begins inside it");
+#endif
 #ifndef MODULES_ANCHOR
 #error                                                                         \
     "arch header must define MODULES_ANCHOR (MOD_ANCHOR_FIXED / _PAGE_OFFSET / _TEXT / _BRACKETS_TEXT)"
@@ -1353,72 +1419,121 @@ enum kasld_confidence {
  * REGION_UNKNOWN = 0 is the memset-default and is intentionally NOT in
  * the X-list: it's the sentinel, hardcoded with empty section and
  * {0, 0}/NULL VAS so result_in_bounds() short-circuits. */
-#define KASLD_REGION_LIST(X)                                                   \
-  /* ---- Physical landmarks (DRAM-resident and MMIO) -------------------- */  \
-  X(REGION_RAM, "ram", "dram", K_OPEN)                                         \
-  X(REGION_DMA, "dma", "dram", K_OPEN)                                         \
-  X(REGION_DMA32, "dma32", "dram", K_OPEN)                                     \
-  X(REGION_INITRD, "initrd", "dram", K_OPEN)                                   \
-  X(REGION_CMDLINE, "cmdline", "dram", K_OPEN)                                 \
-  X(REGION_CMDLINE_MEMMAP, "cmdline_memmap", "dram", K_OPEN)                   \
-  X(REGION_RESERVED_MEM, "reserved_mem", "dram", K_OPEN)                       \
-  X(REGION_SWIOTLB, "swiotlb", "dram", K_OPEN)                                 \
-  X(REGION_VMCOREINFO, "vmcoreinfo", "dram", K_OPEN)                           \
-  X(REGION_CRASHKERNEL, "crashkernel", "dram", K_OPEN)                         \
-  X(REGION_PMEM, "pmem", "dram", K_OPEN)                                       \
-  X(REGION_ACPI_TABLE, "acpi_table", "dram", K_OPEN)                           \
-  X(REGION_ACPI_NVS, "acpi_nvs", "dram", K_OPEN)                               \
-  X(REGION_EFI_MEMMAP, "efi_memmap", "dram", K_OPEN)                           \
-  /* One PHYS extent per EFI_LOADER_CODE memmap entry — the EFI stub's */      \
-  /* PE/COFF image regions resident at ExitBootServices(). The running */      \
-  /* kernel is exactly one of these on an EFI stub boot; bootloader / driver   \
-   */                                                                          \
-  /* images claim the others. efi_loader_kernel_pick filters by alignment + */ \
-  /* SF_IMAGE_SIZE_MIN size match to identify the running-kernel entry. */     \
-  X(REGION_EFI_LOADER_IMAGE, "efi_loader_image", "dram", K_OPEN)               \
-  X(REGION_NUMA_NODE, "numa_node", "dram", K_OPEN)                             \
-  X(REGION_MMIO, "mmio", "mmio", K_OPEN)                                       \
-  X(REGION_PCI_MMIO, "pci_mmio", "mmio", K_OPEN)                               \
-  /* ---- Kernel image (legitimately exists in both phys and virt) ------- */  \
-  /* K_OPEN keeps PHYS leaks visible alongside VIRT — per-type narrowing   */  \
-  /* lives in the parser / inference layer, not the region table.          */  \
-  /* BASE semantics (POS_BASE): KERNEL_TEXT base == _stext (.text start);  */  \
-  /* text_pin_from_observation subtracts STEXT_OFFSET (the head gap) to    */  \
-  /* recover the image base. KERNEL_IMAGE base == _text (the image base)   */  \
-  /* itself, used directly. Report the IMAGE BASE as KERNEL_IMAGE, never   */  \
-  /* KERNEL_TEXT — mis-tagging it KERNEL_TEXT lands the base a head gap    */  \
-  /* below _text on arm64/loongarch64 (checked by tests/check-text-region).*/  \
-  X(REGION_KERNEL_TEXT, "kernel_text", "text", K_OPEN)                         \
-  X(REGION_KERNEL_DATA, "kernel_data", "data", K_OPEN)                         \
-  X(REGION_KERNEL_BSS, "kernel_bss", "bss", K_OPEN)                            \
-  X(REGION_KERNEL_IMAGE, "kernel_image", "text", K_OPEN)                       \
-  /* The two module regions differ by PROVENANCE, not by address range —    */ \
-  /* both are validated against the same [MODULES_START, MODULES_END] band. */ \
-  /* MODULE: the source structurally KNOWS the address belongs to a loaded  */ \
-  /* module (it read a module's own address — /proc/modules, a sysfs        */ \
-  /* per-module sections entry, a named symbol in a known module).          */ \
-  /* MODULE_BAND: the band itself, OR an address merely CLASSIFIED as a     */ \
-  /* module because it fell inside the band (dmesg parsers, opportunistic   */ \
-  /* pointer leaks, perf JIT/trampoline records).                           */ \
-  /*                                                                        */ \
-  /* The distinction is load-bearing wherever a module address moves a TEXT */ \
-  /* base, because the band overlaps other regions on every such arch: on   */ \
-  /* arm64 a VA_BITS=48 direct map starts at MODULES_START, and on riscv64  */ \
-  /* and s390 the band contains the whole kernel-text range. A              */ \
-  /* range-classified address is then indistinguishable from a module one.  */ \
-  /* So module_text_bracket AND module_text_bound both read MODULE only.    */ \
-  /*                                                                        */ \
-  /* MODULE_BAND is read where the claim is about the REGION rather than a  */ \
-  /* module: the rendered band, and (with POS_BASE) the kernel's own        */ \
-  /* "modules : 0x..." layout line, which pins Q_MODULE_BASE.               */ \
-  /*                                                                        */ \
-  /* Emit MODULE_BAND when in any doubt — it is the weaker, always-safe tag.*/ \
-  X(REGION_MODULE, "module", "module", K_MODULE)                               \
-  X(REGION_MODULE_BAND, "module_band", "module", K_MODULE)                     \
-  /* ---- Direct-map / virtual landmarks --------------------------------- */  \
-  X(REGION_DIRECTMAP, "directmap", "directmap", K_VIRT)                        \
-  X(REGION_PAGE_OFFSET, "virt_page_offset", "pageoffset", K_PAGEOFFSET)        \
-  X(REGION_VMALLOC, "vmalloc", "directmap", K_VIRT)                            \
+#define KASLD_REGION_LIST(X)                                                     \
+  /* ---- Physical landmarks (DRAM-resident and MMIO) -------------------- */    \
+  X(REGION_RAM, "ram", "dram", K_OPEN)                                           \
+  X(REGION_DMA, "dma", "dram", K_OPEN)                                           \
+  X(REGION_DMA32, "dma32", "dram", K_OPEN)                                       \
+  X(REGION_INITRD, "initrd", "dram", K_OPEN)                                     \
+  X(REGION_CMDLINE, "cmdline", "dram", K_OPEN)                                   \
+  X(REGION_CMDLINE_MEMMAP, "cmdline_memmap", "dram", K_OPEN)                     \
+  X(REGION_RESERVED_MEM, "reserved_mem", "dram", K_OPEN)                         \
+  X(REGION_SWIOTLB, "swiotlb", "dram", K_OPEN)                                   \
+  X(REGION_VMCOREINFO, "vmcoreinfo", "dram", K_OPEN)                             \
+  X(REGION_CRASHKERNEL, "crashkernel", "dram", K_OPEN)                           \
+  X(REGION_PMEM, "pmem", "dram", K_OPEN)                                         \
+  X(REGION_ACPI_TABLE, "acpi_table", "dram", K_OPEN)                             \
+  X(REGION_ACPI_NVS, "acpi_nvs", "dram", K_OPEN)                                 \
+  X(REGION_EFI_MEMMAP, "efi_memmap", "dram", K_OPEN)                             \
+  /* One PHYS extent per EFI_LOADER_CODE memmap entry — the EFI stub's */        \
+  /* PE/COFF image regions resident at ExitBootServices(). The running */        \
+  /* kernel is exactly one of these on an EFI stub boot; bootloader / driver     \
+   */                                                                            \
+  /* images claim the others. efi_loader_kernel_pick filters by alignment + */   \
+  /* SF_IMAGE_SIZE_MIN size match to identify the running-kernel entry. */       \
+  X(REGION_EFI_LOADER_IMAGE, "efi_loader_image", "dram", K_OPEN)                 \
+  X(REGION_NUMA_NODE, "numa_node", "dram", K_OPEN)                               \
+  X(REGION_MMIO, "mmio", "mmio", K_OPEN)                                         \
+  X(REGION_PCI_MMIO, "pci_mmio", "mmio", K_OPEN)                                 \
+  /* ---- Kernel image (legitimately exists in both phys and virt) ------- */    \
+  /* K_OPEN keeps PHYS leaks visible alongside VIRT — per-type narrowing   */    \
+  /* lives in the parser / inference layer, not the region table.          */    \
+  /* BASE semantics (POS_BASE): KERNEL_TEXT base == _stext (.text start);  */    \
+  /* text_pin_from_observation subtracts STEXT_OFFSET (the head gap) to    */    \
+  /* recover the image base. KERNEL_IMAGE base == _text (the image base)   */    \
+  /* itself, used directly. Report the IMAGE BASE as KERNEL_IMAGE, never   */    \
+  /* KERNEL_TEXT — mis-tagging it KERNEL_TEXT lands the base a head gap    */    \
+  /* below _text on arm64/loongarch64 (checked by tests/check-text-region).*/    \
+  X(REGION_KERNEL_TEXT, "kernel_text", "text", K_OPEN)                           \
+  /* KERNEL_TEXT vs KERNEL_TEXT_BAND is the same PROVENANCE split as MODULE */                                                                              \
+  /* vs MODULE_BAND below, and exists for the same reason: the windows */                                                                              \
+  /* overlap. KERNEL_TEXT means the source KNOWS the address is in the image     \
+   */                                                                            \
+  /* -- a resolved symbol, a sampled instruction pointer, an ELF phdr, a */                                                                              \
+  /* faulting IP. KERNEL_TEXT_BAND means it merely fell inside the */                                                                              \
+  /* admissible text window, which is the KASLR-possible range rather than */                                                                              \
+  /* the image's extent and on most arches contains the linear map, the */                                                                              \
+  /* module band, or both. On ppc32 KASLR relocates the image throughout */                                                                              \
+  /* lowmem, so a bare pointer there is genuinely inseparable from a kernel */                                                                              \
+  /* stack by range alone. */                                                                              \
+  /*                                                                         */  \
+  /* Load-bearing because an interior-image sample implies image_base <= */                                                                              \
+  /* sample: a non-image address below the real _text carves the truth out */                                                                              \
+  /* of the window that promises to contain it. BAND is therefore absent */                                                                              \
+  /* from is_kernel_image_region(), so no image-base rule can read it */                                                                              \
+  /* by accident; range_from_interior opts in explicitly and caps the bound */                                                                              \
+  /* below the sound floor. */                                                                              \
+  /*                                                                         */  \
+  /* Emit BAND when the region rests on a range test --                          \
+   * kasld_addr_classify()*/                                                     \
+  /* picks it automatically wherever the windows are not exclusive. */                                                                              \
+  X(REGION_KERNEL_TEXT_BAND, "kernel_text_band", "text", K_OPEN)                 \
+  X(REGION_KERNEL_DATA, "kernel_data", "data", K_OPEN)                           \
+  X(REGION_KERNEL_BSS, "kernel_bss", "bss", K_OPEN)                              \
+  X(REGION_KERNEL_IMAGE, "kernel_image", "text", K_OPEN)                         \
+  /* The two module regions differ by PROVENANCE, not by address range —    */   \
+  /* both are validated against the same [MODULES_START, MODULES_END] band. */   \
+  /* MODULE: the source structurally KNOWS the address belongs to a loaded  */   \
+  /* module (it read a module's own address — /proc/modules, a sysfs        */   \
+  /* per-module sections entry, a named symbol in a known module).          */   \
+  /* MODULE_BAND: the band itself, OR an address merely CLASSIFIED as a     */   \
+  /* module because it fell inside the band (dmesg parsers, opportunistic   */   \
+  /* pointer leaks, perf JIT/trampoline records).                           */   \
+  /*                                                                        */   \
+  /* The distinction is load-bearing wherever a module address moves a TEXT */   \
+  /* base, because the band overlaps other regions on every such arch: on   */   \
+  /* arm64 a VA_BITS=48 direct map starts at MODULES_START, and on riscv64  */   \
+  /* and s390 the band contains the whole kernel-text range. A              */   \
+  /* range-classified address is then indistinguishable from a module one.  */   \
+  /* So module_text_bracket AND module_text_bound both read MODULE only.    */   \
+  /*                                                                        */   \
+  /* MODULE_BAND is read where the claim is about the REGION rather than a  */   \
+  /* module: the rendered band, and (with POS_BASE) the kernel's own        */   \
+  /* "modules : 0x..." layout line, which pins Q_MODULE_BASE.               */   \
+  /*                                                                        */   \
+  /* Emit MODULE_BAND when in any doubt — it is the weaker, always-safe tag.*/   \
+  X(REGION_MODULE, "module", "module", K_MODULE)                                 \
+  X(REGION_MODULE_BAND, "module_band", "module", K_MODULE)                       \
+  /* ---- Direct-map / virtual landmarks --------------------------------- */    \
+  X(REGION_DIRECTMAP, "directmap", "directmap", K_VIRT)                          \
+  /* The same PROVENANCE split again, for the linear map. DIRECTMAP means the    \
+   */                                                                            \
+  /* source knew it held a linear-map object -- a slab pointer, a page-table     \
+   */                                                                            \
+  /* entry, an iomem line. DIRECTMAP_BAND means only that the value landed in    \
+   */                                                                            \
+  /* the window kasld_addr_is_directmap() draws, which is "below the text */                                                                              \
+  /* window" rather than "in the linear map", and so also spans vmalloc and */                                                                              \
+  /* vmemmap wherever those are not separately bounded. */                                                                              \
+  /*                                                                          */ \
+  /* Not narrowable to the compile-time VMALLOC_BASE_*: under */                                                                              \
+  /* CONFIG_RANDOMIZE_MEMORY the x86_64 bases are laid out sequentially from     \
+   */                                                                            \
+  /* the defaults, but the linear-map region SHRINKS to the machine's memory     \
+   */                                                                            \
+  /* size (arch/x86/mm/kaslr.c), so vmalloc_base sits far below its own */                                                                              \
+  /* default on a small-memory host and a window closed at that constant */                                                                              \
+  /* would swallow real vmalloc addresses. */                                                                              \
+  /*                                                                          */ \
+  /* Load-bearing because rules bound Q_PAGE_OFFSET from a linear-map */                                                                              \
+  /* address; a vmalloc pointer arriving as DIRECTMAP moves that bound in the    \
+   */                                                                            \
+  /* unsound direction. Emitted only by kasld_addr_classify(); the components    \
+   */                                                                            \
+  /* that KNOW what they leaked keep saying DIRECTMAP. */                                                                              \
+  X(REGION_DIRECTMAP_BAND, "directmap_band", "directmap", K_VIRT)                \
+  X(REGION_PAGE_OFFSET, "virt_page_offset", "pageoffset", K_PAGEOFFSET)          \
+  X(REGION_VMALLOC, "vmalloc", "directmap", K_VIRT)                              \
   X(REGION_VMEMMAP, "vmemmap", "directmap", K_VIRT)
 
 /* Closed-enum vocabulary of kernel memory areas. */
@@ -1446,6 +1561,69 @@ static inline const char *kasld_region_wire(enum kasld_region r) {
     return "unknown";
   const char *s = kasld_region_wire_table[r];
   return s ? s : "unknown";
+}
+
+/* Classify a bare kernel virtual address into the region that contains it,
+ * reporting AMBIGUITY rather than resolving it.
+ *
+ * For a component that leaks an address carrying no evidence of what it points
+ * at — a raw %px pointer, a stale stack word, a %ps function pointer — the
+ * region is decided by which window the value lands in. That only works where
+ * the windows are exclusive, and mostly they are not: the text window is the
+ * KASLR-ADMISSIBLE range, not the image's extent, so it contains the linear map
+ * on ppc32/arm32/x86_32/mips32/riscv32/ppc64/s390 and the module band on nearly
+ * everything. kasld_addr_is_directmap() is already written as "below the text
+ * window", which makes that window empty exactly where the two collide — so a
+ * classifier that asks the predicates in order silently resolves every
+ * ambiguous address in favour of text, the strongest tag available.
+ *
+ * A text claim therefore has to clear two independent bars. The architecture
+ * must put nothing else in that window at all, which it declares as
+ * TEXT_WINDOW_EXCLUSIVE and which defaults to 0; and THIS address must not also
+ * be admitted by the module band or the linear map, which is a per-address
+ * test, so where a window is only partly overlapped — x86_64 text below
+ * MODULES_START is unambiguous, above it is not — precision is kept where it is
+ * real. Failing either bar yields REGION_KERNEL_TEXT_BAND.
+ *
+ * REGION_MODULE is never returned: it asserts the source knew the address
+ * belonged to a loaded module, which a range test cannot establish.
+ *
+ * The DIRECTMAP and VMALLOC answers carry no such band form, and they are
+ * weaker than they look: kasld_addr_is_directmap() means "below the text
+ * window", not "in the linear map", so on x86_64 it spans
+ * [PAGE_OFFSET, KERNEL_VIRT_TEXT_MIN) and swallows vmalloc and vmemmap whole.
+ * Rules that bound page_offset from a direct-map address read REGION_DIRECTMAP,
+ * and a vmalloc pointer arriving under that tag moves the bound in the unsound
+ * direction. Callers that cannot vouch for what they are passing should keep to
+ * the text family and drop the rest, as the current three do.
+ *
+ * Returns REGION_UNKNOWN for anything outside the kernel VAS; callers drop it.
+ */
+static inline enum kasld_region kasld_addr_classify(unsigned long va) {
+  int mod = kasld_addr_is_module_band(va);
+  int dmap = kasld_addr_is_directmap(va);
+
+  if (kasld_addr_is_kernel_text(va)) {
+    /* Two independent reasons the image cannot be asserted. The architecture
+     * may put other things in the window at all (TEXT_WINDOW_EXCLUSIVE), and
+     * even where it does not, THIS address may also be admitted by the module
+     * band or the linear map — on x86_64 the window holds the image below
+     * MODULES_START and modules above it, so the per-address test keeps the
+     * precision a per-architecture answer alone would throw away. */
+    if (!TEXT_WINDOW_EXCLUSIVE || mod || dmap)
+      return REGION_KERNEL_TEXT_BAND;
+    return REGION_KERNEL_TEXT;
+  }
+  if (mod)
+    return REGION_MODULE_BAND;
+  if (dmap)
+    return REGION_DIRECTMAP_BAND;
+  /* Deliberately NOT REGION_VMALLOC. That is the "none of the above" answer,
+   * and rules derive page_offset from the vmalloc base — asserting it from a
+   * value that merely failed three window tests would be the same mistake in a
+   * third place. An address in the kernel VAS that nothing else claims carries
+   * no attribution worth publishing. */
+  return REGION_UNKNOWN;
 }
 
 static inline char kasld_type_wire(enum kasld_addr_type t) {

@@ -3087,21 +3087,37 @@ static struct engine_resolution g_likely;
 static int g_have_likely;
 
 /* Fill a memory-KASLR region's speculative "likely" sub-window from the
- * all-signals snapshot. Emits only when the region's guaranteed row is shown
- * (`shown`) AND the likely estimate is strictly tighter than the guaranteed
- * engine window [g_lo, g_hi] — otherwise there is nothing to add. Mirrors the
- * vtext/ptext likely gating; likely is a subset of guaranteed by construction.
- * A set window is signalled to callers via out_lo and out_hi (both 0 = none).
- */
+ * all-signals snapshot. Emits only when the likely estimate is strictly tighter
+ * than the guaranteed engine window [g_lo, g_hi] — otherwise there is nothing
+ * to add. A set window is signalled to callers via out_lo and out_hi (both 0 =
+ * none).
+ *
+ * The CLAMP is what makes likely ⊆ guaranteed structural, exactly as at the
+ * vtext/ptext boundary: the result is confined to [g_lo, g_hi] and reported
+ * only when non-empty and strictly tighter. Nothing else is needed for the
+ * invariant.
+ *
+ * There was formerly an additional `shown` gate here, set by callers to whether
+ * the region's GUARANTEED row had been narrowed. It was redundant against the
+ * clamp and wrong in effect: it suppressed every likely-only narrowing of these
+ * three quantities, whatever the source. That is precisely what a
+ * range-classified witness produces — REGION_DIRECTMAP_BAND is barred from the
+ * guaranteed window by design, so the likely window is the only one it may
+ * shape, and the gate hid the one contribution it was allowed to make. Its
+ * comment also claimed to test for "no guaranteed row", but render.c adds the
+ * memory-KASLR guaranteed rows unconditionally wherever
+ * RANDOMIZE_MEMORY_ALIGN > 0, so no such case existed.
+ *
+ * A likely row may therefore now sit beside a guaranteed row reading "not
+ * narrowed". That is already how the image base behaves, the row carries
+ * GRADE_LIKELY, and it is strictly more than showing nothing. */
 static void fill_mem_likely(const struct estimate *l, unsigned long g_lo,
-                            unsigned long g_hi, int shown,
-                            unsigned long *out_lo, unsigned long *out_hi) {
+                            unsigned long g_hi, unsigned long *out_lo,
+                            unsigned long *out_hi) {
   *out_lo = 0;
   *out_hi = 0;
-  if (!shown || l->lo > l->hi) /* no guaranteed row, or a bottom estimate */
+  if (l->lo > l->hi) /* a bottom estimate */
     return;
-  /* Clamp into the guaranteed region window so likely ⊆ guaranteed holds
-   * structurally; reports only when non-empty and strictly tighter. */
   kasld_clamp_likely_window(l->lo, l->hi, g_lo, g_hi, out_lo, out_hi);
 }
 #endif
@@ -3142,6 +3158,10 @@ static unsigned long observed_stext_base(enum kasld_addr_type type,
  * same accessor as the resolved estimate so the two cannot describe the lattice
  * differently. Both the rendered singular base and the reported window key off
  * this, so they cannot disagree about whether anything was learned. */
+/* Guarded to its only caller's condition: the coupled-arch branch in
+ * compute_kaslr_info() below. Elsewhere the window is projected whole and
+ * unconditionally, so nothing asks whether it moved. */
+#if TEXT_TRACKS_DIRECTMAP
 static int page_offset_narrowed(void) {
   struct estimate top;
   unsigned long top_lo = 0, top_hi = 0;
@@ -3150,6 +3170,7 @@ static int page_offset_narrowed(void) {
   return layout.virt_page_offset_min > top_lo ||
          layout.virt_page_offset_max < top_hi;
 }
+#endif
 
 void compute_kaslr_info(struct summary *s) {
 #ifndef KASLD_TESTING
@@ -3358,33 +3379,28 @@ void compute_kaslr_info(struct summary *s) {
    * untouched upper edge compares unequal and reports a bound nothing
    * established.
    *
-   * Both edges move together, unlike the vmalloc / vmemmap fields below. Those
-   * start from sentinels outside any real address, so an untightened edge there
-   * means "no bound known" and nulling it alone is honest. This quantity starts
-   * from a real architectural bracket, where an untightened edge is still a
-   * bound — so nulling one edge of a window the engine PINNED would report the
-   * base as unbounded above. Either the window was learned and is reported
-   * whole, or nothing about it was and none of it is. */
-  {
-    const int narrowed = page_offset_narrowed();
-    s->kaslr.virt_page_offset_min = narrowed ? layout.virt_page_offset_min : 0;
-    s->kaslr.virt_page_offset_max = narrowed ? layout.virt_page_offset_max : 0;
-  }
-  s->kaslr.virt_vmalloc_min =
-      (layout.virt_vmalloc_base_min != 0) ? layout.virt_vmalloc_base_min : 0;
-  s->kaslr.virt_vmalloc_max = (layout.virt_vmalloc_base_max != ULONG_MAX)
-                                  ? layout.virt_vmalloc_base_max
-                                  : 0;
-  s->kaslr.virt_vmemmap_min =
-      (layout.virt_vmemmap_base_min != 0) ? layout.virt_vmemmap_base_min : 0;
-  s->kaslr.virt_vmemmap_max = (layout.virt_vmemmap_base_max != ULONG_MAX)
-                                  ? layout.virt_vmemmap_base_max
-                                  : 0;
-  s->kaslr.virt_module_min =
-      (layout.virt_module_base_min != 0) ? layout.virt_module_base_min : 0;
-  s->kaslr.virt_module_max = (layout.virt_module_base_max != ULONG_MAX)
-                                 ? layout.virt_module_base_max
-                                 : 0;
+   * Both edges move together, as they do for the vmalloc / vmemmap fields
+   * below: each of these windows is seeded from its own quantity's honest top,
+   * so an untightened edge is STILL A BOUND and there is no sentinel to test
+   * for. The window is projected whole and unconditionally, exactly as the
+   * image base projects layout.virt_kaslr_text_{min,max}.
+   *
+   * How much the engine learned is carried by the slot counts layout_add()
+   * already takes — "N of M" says some of it was, "M" alone says none of it
+   * was, the way every other row reports it. Nulling an edge to signal the same
+   * thing would instead report a real bracket as no bracket, since fmt_range()
+   * prints "not narrowed" only when both edges are 0, its no-information
+   * fallback. */
+  s->kaslr.virt_page_offset_min = layout.virt_page_offset_min;
+  s->kaslr.virt_page_offset_max = layout.virt_page_offset_max;
+  /* Projected whole, as virt_page_offset is: the seed above is a real bracket,
+   * so there is no sentinel to test for and nothing to null. */
+  s->kaslr.virt_vmalloc_min = layout.virt_vmalloc_base_min;
+  s->kaslr.virt_vmalloc_max = layout.virt_vmalloc_base_max;
+  s->kaslr.virt_vmemmap_min = layout.virt_vmemmap_base_min;
+  s->kaslr.virt_vmemmap_max = layout.virt_vmemmap_base_max;
+  s->kaslr.virt_module_min = layout.virt_module_base_min;
+  s->kaslr.virt_module_max = layout.virt_module_base_max;
 
   /* Residual slot counts for the memory-KASLR regions, mirroring the headline
    * vslots/pslots: the projected count already reflects interior C_EXCLUDE
@@ -3455,29 +3471,26 @@ void compute_kaslr_info(struct summary *s) {
 
 #ifndef KASLD_TESTING
   /* Speculative "likely" sub-windows for the memory-KASLR regions: the engine's
-   * all-signals snapshot may narrow a region below the sound floor (a future
-   * directmap/vmalloc side-channel). Gated on the guaranteed row being shown so
-   * the likely line is always a refinement of a displayed window, never an
-   * orphan. The guaranteed engine windows are the layout.virt_*_base_{min,max}
-   * that engine_sync_authoritative wrote from g_auth_engine. */
+   * all-signals snapshot may narrow a region below the sound floor -- a
+   * range-classified REGION_DIRECTMAP_BAND witness, which is barred from the
+   * guaranteed window by design, or a future directmap/vmalloc side-channel.
+   * Each is a refinement of the guaranteed window because fill_mem_likely()
+   * clamps it into layout.virt_*_base_{min,max} (what engine_sync_authoritative
+   * wrote from g_auth_engine) and reports only when strictly tighter. */
   if (g_have_likely && !s->kaslr.disabled && !s->kaslr.unsupported) {
     /* Each region's likely sub-window is signalled by its own *_likely_max != 0
      * (set by fill_mem_likely only when clamped strictly tighter); renderers
      * gate per-region on that. */
     fill_mem_likely(&g_likely.est[Q_PAGE_OFFSET], layout.virt_page_offset_min,
                     layout.virt_page_offset_max,
-                    s->kaslr.virt_page_offset_min ||
-                        s->kaslr.virt_page_offset_max,
                     &s->kaslr.virt_page_offset_likely_min,
                     &s->kaslr.virt_page_offset_likely_max);
     fill_mem_likely(&g_likely.est[Q_VMALLOC_BASE], layout.virt_vmalloc_base_min,
                     layout.virt_vmalloc_base_max,
-                    s->kaslr.virt_vmalloc_min || s->kaslr.virt_vmalloc_max,
                     &s->kaslr.virt_vmalloc_likely_min,
                     &s->kaslr.virt_vmalloc_likely_max);
     fill_mem_likely(&g_likely.est[Q_VMEMMAP_BASE], layout.virt_vmemmap_base_min,
                     layout.virt_vmemmap_base_max,
-                    s->kaslr.virt_vmemmap_min || s->kaslr.virt_vmemmap_max,
                     &s->kaslr.virt_vmemmap_likely_min,
                     &s->kaslr.virt_vmemmap_likely_max);
 
@@ -5223,10 +5236,9 @@ int main(int argc, char *argv[]) {
   }
 
   /* Seed the engine-bounds carrier with the honest compile-time window.
-   * engine_sync_authoritative() (run from compute_kaslr_info) overwrites the
-   * resolved quantities; the vmalloc/vmemmap *_max sentinels (ULONG_MAX = "no
-   * upper bound known") must start set because the engine writes those edges
-   * only when actually constrained. */
+   * engine_sync_authoritative() (run from compute_kaslr_info) then overwrites
+   * each edge a rule actually bound, and only those — so what is seeded here is
+   * exactly what an unconstrained edge goes on to report. */
   /* The linear-map base's own bracket, not the kernel VAS. Those are different
    * quantities: loongarch64's address space starts a full exabyte below the
    * lowest base it admits, and reading the VAS edge as "the lowest admissible
@@ -5235,12 +5247,35 @@ int main(int argc, char *argv[]) {
    * "still at the top", which is what page_offset_narrowed() tests. */
   layout.virt_page_offset_min = (unsigned long)PAGE_OFFSET_MIN;
   layout.virt_page_offset_max = (unsigned long)PAGE_OFFSET_MAX;
-  layout.virt_vmalloc_base_min = 0;
-  layout.virt_vmalloc_base_max = ULONG_MAX;
-  layout.virt_vmemmap_base_min = 0;
-  layout.virt_vmemmap_base_max = ULONG_MAX;
-  layout.virt_module_base_min = 0;
-  layout.virt_module_base_max = ULONG_MAX;
+  /* Seeded from each quantity's honest top, exactly as virt_page_offset above,
+   * so an untightened edge is a real bound rather than a sentinel. A sentinel
+   * cannot express "no bound known" for these quantities at all:
+   * KERNEL_VIRT_VAS_END IS ULONG_MAX on x86_64, so any marker outside the
+   * address space is indistinguishable from a legitimate upper bound.
+   *
+   * The module region is seeded on every architecture: all of them place
+   * modules somewhere, and every format names the quantity unconditionally.
+   *
+   * vmalloc and vmemmap are seeded only where the architecture randomizes them.
+   * Elsewhere they are not quantities at all — the engine never constrains them
+   * (see top_kernel_vas_window), and the formats name them only under this same
+   * RANDOMIZE_MEMORY_ALIGN, so a window here would have the machine formats
+   * report a quantity the readout does not. Both stay at their static zero,
+   * which every format omits alike. */
+  {
+    struct estimate t;
+    quantities[Q_MODULE_BASE].init_top(&t);
+    quantity_window(Q_MODULE_BASE, &t, &layout.virt_module_base_min,
+                    &layout.virt_module_base_max);
+#if RANDOMIZE_MEMORY_ALIGN > 0
+    quantities[Q_VMALLOC_BASE].init_top(&t);
+    quantity_window(Q_VMALLOC_BASE, &t, &layout.virt_vmalloc_base_min,
+                    &layout.virt_vmalloc_base_max);
+    quantities[Q_VMEMMAP_BASE].init_top(&t);
+    quantity_window(Q_VMEMMAP_BASE, &t, &layout.virt_vmemmap_base_min,
+                    &layout.virt_vmemmap_base_max);
+#endif
+  }
 
   for (int p = 0; p < (int)(sizeof(phases) / sizeof(phases[0])); p++)
     run_phase(&phases[p]); /* merges results after each phase */

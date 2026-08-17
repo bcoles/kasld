@@ -256,9 +256,15 @@ SIDECHANNEL_BINS := $(addprefix $(COMP_DIR)/,$(SIDECHANNEL_COMPONENTS))
 # The recipe always exits 0 so one broken component never halts the wider build.
 # Under V=1 the raw command is echoed and run directly (error ignored via the
 # leading '-'), so the full invocation is visible.
+#   - A real failure also REMOVES the target. The build still does not halt, but
+#     a broken component becomes absent rather than stale: whatever runs it next
+#     fails loudly instead of silently exercising the last binary that compiled.
+#     Without this a component can fail to build while `make` reports success and
+#     the previous binary keeps being tested, which is indistinguishable from the
+#     edit having worked.
 ifeq ($(V),1)
 define cc-component
-	-$(1)
+	-$(1) || rm -f '$@'
 endef
 else
 define cc-component
@@ -268,6 +274,7 @@ define cc-component
 	  : > '$@'; \
 	elif [ -n "$$out" ]; then \
 	  printf '  $(C_TAG)%-5s$(C_RST) %s\n%s\n' CC '$(call disp,$@)' "$$out" >&2; \
+	  [ $$st -eq 0 ] || rm -f '$@'; \
 	else \
 	  printf '  $(C_TAG)%-5s$(C_RST) %s\n' CC '$(call disp,$@)'; \
 	fi
@@ -674,7 +681,7 @@ lint :
 	@$(TEST_DIR)/check-text-floor
 	@$(TEST_DIR)/check-text-region
 	@$(TEST_DIR)/check-confidence-floor
-	@$(TEST_DIR)/check-unattributed-leak-floor
+	@$(TEST_DIR)/check-text-provenance
 	@$(TEST_DIR)/check-arch-macros
 	@$(TEST_DIR)/check-lattice-seam
 	@$(TEST_DIR)/check-page-offset-substitution

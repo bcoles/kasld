@@ -125,12 +125,24 @@ int main(void) {
    * would feed module_text_bound a bogus text-base bound from a non-module
    * address. Classify by range; drop anything that is neither image nor direct
    * map rather than mistag it. */
-  if (kasld_addr_is_kernel_text(addr))
-    kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_DATA, addr,
-                        "nf_conntrack", CONF_PARSED);
-  else if (kasld_addr_is_directmap(addr))
-    kasld_result_sample(KASLD_TYPE_VIRT, REGION_DIRECTMAP, addr, "nf_conntrack",
-                        CONF_PARSED);
+  /* Which of the two it is cannot be decided by range where the windows
+   * overlap: the text window spans the linear map on every VMSPLIT arch and on
+   * ppc64, and testing it first tagged a kmalloc'd pointer in lowmem as
+   * REGION_KERNEL_DATA — an IMAGE region, so it bounded the image base from a
+   * value that is not in the image. kasld_addr_classify() reports that
+   * ambiguity; the one thing the source does establish, and range cannot, is
+   * that a `struct net *` is never text and never module memory, so an
+   * unambiguous image hit is data. */
+  enum kasld_region region = kasld_addr_classify(addr);
+  if (region == REGION_KERNEL_TEXT)
+    region = REGION_KERNEL_DATA;
+  if (region == REGION_UNKNOWN || region == REGION_MODULE_BAND) {
+    kasld_err("leaked pointer %lx is neither kernel image nor linear map",
+              addr);
+    return 0;
+  }
+  kasld_result_sample(KASLD_TYPE_VIRT, region, addr, "nf_conntrack",
+                      CONF_PARSED);
 
   return 0;
 }

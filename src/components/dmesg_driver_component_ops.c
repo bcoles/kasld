@@ -71,43 +71,64 @@ KASLD_META("method:parsed\n"
 
 static const char *needle = " (ops 0x";
 
+/* A `%ps` pointer with CONFIG_KALLSYMS off is a function pointer, but nothing
+ * on the line says whose: kernel text and MODULE text both print this way, and
+ * the module band lies inside the admissible text window on every VMSPLIT arch
+ * and on ppc64. Carry each candidate's classification with it rather than
+ * assuming, and keep the lowest of those that are plausibly kernel image.
+ *
+ * A candidate that classifies outside the text family — an unambiguous module
+ * or direct-map address — is DROPPED, not reported: this component's claim is
+ * about the image, and the rest is someone else's evidence. Previously such an
+ * address passed the bare text-window test and moved the image base. */
+struct lowest {
+  unsigned long addr;
+  enum kasld_region region;
+};
+
 static int on_match(const char *line, void *ctx) {
-  unsigned long *lowest = ctx;
+  struct lowest *lo = ctx;
 
   const char *p = strstr(line, needle);
   if (!p)
     return 1;
 
   unsigned long addr;
-  if (kasld_addr_parse(p + strlen(needle), 16, &addr, NULL) && addr &&
-      kasld_addr_is_kernel_text(addr)) {
-    if (!*lowest || addr < *lowest)
-      *lowest = addr;
+  if (!kasld_addr_parse(p + strlen(needle), 16, &addr, NULL) || !addr)
+    return 1;
+
+  enum kasld_region r = kasld_addr_classify(addr);
+  if (r != REGION_KERNEL_TEXT && r != REGION_KERNEL_TEXT_BAND)
+    return 1;
+
+  if (!lo->addr || addr < lo->addr) {
+    lo->addr = addr;
+    lo->region = r;
   }
 
   return 1; /* keep scanning for lowest */
 }
 
 int main(void) {
-  unsigned long addr = 0;
+  struct lowest lo = {0, REGION_UNKNOWN};
 
   kasld_info("searching dmesg for driver component ops pointers ...");
-  int ds = dmesg_search(" (ops 0x", on_match, &addr);
+  int ds = dmesg_search(" (ops 0x", on_match, &lo);
 
-  if (!addr) {
+  if (!lo.addr) {
     if (ds < 0)
       return KASLD_EXIT_NOPERM;
     kasld_err("driver component ops pointers not found in dmesg");
     return 0;
   }
 
-  kasld_info("lowest leaked address: %lx", addr);
-  kasld_info("possible kernel base: %lx", kasld_floor_text_base(addr));
-  /* The leaked address is a struct component_ops function pointer
-   * (driver bind/unbind) — within kernel text but the specific symbol
-   * varies by driver. */
-  kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr, NULL,
-                      CONF_PARSED);
+  kasld_info("lowest leaked address: %lx (%s)", lo.addr,
+             kasld_region_wire(lo.region));
+  kasld_info("possible kernel base: %lx", kasld_floor_text_base(lo.addr));
+  /* The leaked address is a struct component_ops function pointer (driver
+   * bind/unbind); the specific symbol varies by driver, and on the arches whose
+   * windows overlap so does the region, which the tag carries. */
+  kasld_result_sample(KASLD_TYPE_VIRT, lo.region, lo.addr, NULL, CONF_PARSED);
 
   return 0;
 }

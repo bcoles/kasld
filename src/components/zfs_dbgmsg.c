@@ -93,19 +93,19 @@ static int already_seen(unsigned long v) {
   return 0;
 }
 
-/* Classify a kernel-VAS address into a region and emit it. Virtual-text ranks
- * highest (symbol-grade); direct-map is the typical curthread case. */
+/* Classify a kernel-VAS address into a region and emit it.
+ *
+ * The log prints whatever pointer a message carried — the running task_struct,
+ * a SPA, a function — so nothing but the value itself says which region it
+ * belongs to. Asking the window predicates in order would resolve every
+ * ambiguous address in favour of text, because the text window contains the
+ * linear map on most architectures and kasld_addr_is_directmap() is written as
+ * "below the text window", which is empty exactly where the two collide: a
+ * direct-map task_struct on ppc32/ppc64/s390 came back tagged kernel_text.
+ * kasld_addr_classify() reports that ambiguity instead of resolving it. */
 static int emit_addr(unsigned long addr) {
-  enum kasld_region region;
-  if (kasld_addr_is_kernel_text(addr))
-    region = REGION_KERNEL_TEXT;
-  else if (kasld_addr_is_module_band(addr))
-    region = REGION_MODULE_BAND;
-  else if (kasld_addr_is_directmap(addr))
-    region = REGION_DIRECTMAP;
-  else if (kasld_addr_is_kernel_vas(addr))
-    region = REGION_VMALLOC; /* in kernel VAS, not text/module/direct-map */
-  else
+  enum kasld_region region = kasld_addr_classify(addr);
+  if (region == REGION_UNKNOWN)
     return 0; /* not a kernel virtual address — drop */
 
   kasld_info("dbgmsg leaked kernel pointer: 0x%lx (%s)", addr,

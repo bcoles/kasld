@@ -41,9 +41,29 @@ ALLOW="proc_kallsyms proc_kcore"
 
 # Literal base emission tagged KERNEL_TEXT (drop // and block-comment lines so a
 # comment naming the region does not trip the guard).
-lit=$(grep -rnE 'kasld_result_(base|sized)\(.*REGION_KERNEL_TEXT' "$COMP" 2>/dev/null \
+#
+# REGION_KERNEL_TEXT is matched as a whole token. Without the boundary it also
+# matches REGION_KERNEL_TEXT_BAND, and a band base would then be reported as an
+# unreviewed _stext emitter — pointing at the wrong remedy, since a base derived
+# from a range verdict should not exist at all rather than be allowlisted. That
+# case is caught separately below.
+lit=$(grep -rnE 'kasld_result_(base|sized)\(.*REGION_KERNEL_TEXT([^A-Za-z0-9_]|$)' "$COMP" 2>/dev/null \
       | grep -vE ':[0-9]+:[[:space:]]*(//|\*)' \
       | sed 's/:.*//')
+
+# A BASE tagged with the band region: the position claims "this is _stext" while
+# the region admits the source never established the address is in the image.
+# There is no reviewed form of that, so it is rejected outright.
+band_base=$(grep -rnE 'kasld_result_(base|sized)\(.*REGION_KERNEL_TEXT_BAND' "$COMP" 2>/dev/null \
+      | grep -vE ':[0-9]+:[[:space:]]*(//|\*)' \
+      | sed 's/:.*//' | sort -u)
+if [ -n "$band_base" ]; then
+  printf '%scheck-text-region: FAIL%s — REGION_KERNEL_TEXT_BAND used as a BASE\n' "$RED" "$RESET" >&2
+  printf '%s\n' "$band_base" | sed 's/^/  /' >&2
+  echo "A base says the value IS the region's start; the band tag says the region" >&2
+  echo "was never established. Emit an interior sample, or establish the region." >&2
+  exit 1
+fi
 
 # Table-driven base: a file with an LK_BASE entry table that also references
 # REGION_KERNEL_TEXT (the dmesg_mem_init_kernel_layout style).
