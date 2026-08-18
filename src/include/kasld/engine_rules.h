@@ -68,8 +68,6 @@ static inline int kasld_emit_va_band_verdicts(const struct evidence_set *ev,
     memset(v, 0, sizeof(*v));
     v->observation_id = o->id;
     v->kind = V_INVALID;
-    v->derived_from[0] = o->id;
-    v->lineage_count = 1;
     snprintf(v->origin, ORIGIN_LEN, "%s", origin);
   }
   return n;

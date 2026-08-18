@@ -5,16 +5,17 @@
 // Observations are immutable. Curation rules do NOT mutate observations —
 // they emit *verdicts*. evidence_resolve() applies the
 // verdicts each round to recompute the per-observation `valid` bit and
-// effective region/type. This keeps the source immutable, makes
-// invalidation traceable (lineage on the verdict), and keeps curation in
-// the same pure-recompute shape as estimate resolution.
+// effective region/type. This keeps the source immutable, makes an
+// invalidation traceable to the observation it removed and the rule that
+// removed it, and keeps curation in the same pure-recompute shape as
+// estimate resolution.
 // ---
 // <bcoles@gmail.com>
 
 #ifndef KASLD_EVIDENCE_H
 #define KASLD_EVIDENCE_H
 
-#include "constraint.h" /* MAX_LINEAGE, ORIGIN_LEN */
+#include "constraint.h" /* ORIGIN_LEN */
 #include "observation.h"
 
 #include <stdint.h>
@@ -84,24 +85,25 @@ enum verdict_kind {
  * The two windows do not share rulings: the caller clears n_verdicts between
  * them, so a verdict formed under the all-signals run never applies to the
  * guaranteed one. */
+/* Target, kind, and the rule that ruled -- and nothing else. The pair
+ * (observation_id, origin) IS the explanation: outside its region's VA band,
+ * not in the firmware RAM map, an outlier from the text cluster, in conflict
+ * with the vmalloc/vmemmap invariant. Each rule's own header says the rest.
+ *
+ * No set of contributing observations, as a constraint carries. A curation
+ * ruling rarely rests on a few nameable observations: a map rule rules because
+ * NONE of a firmware map's 7-12 extents contained the candidate, a cluster
+ * filter on a group of five or more with no upper bound, a band predicate on an
+ * architectural axiom and nothing observed at all. A bounded few of those would
+ * assert that those few mattered.
+ *
+ * The limit that leaves: x86_64_vmalloc_vmemmap_invariant compares two
+ * observations, cannot tell which is lying, and drops both. It emits the two
+ * verdicts together under one origin, so the pairing is recoverable for a
+ * single conflict and ambiguous when the rule fires on several at once. */
 struct verdict {
   uint32_t observation_id; /* target observation */
   enum verdict_kind kind;
-  /* Intended as the observations the ruling was drawn from, and not yet that.
-   * Three of the four curation rules set derived_from[0] to the target's own
-   * id, duplicating observation_id above; only
-   * x86_64_vmalloc_vmemmap_invariant records the other side of the comparison
-   * that justified the drop. Nothing consumes it, so the gap is inert -- dedup
-   * compares target, kind and origin and ignores lineage on purpose, so two
-   * rules reaching one ruling by different routes collapse to a single entry.
-   *
-   * Kept rather than dropped because it is a data field with an obvious
-   * meaning, not a mechanism something could mistake for enforcing soundness.
-   * Anything that starts consuming it has to fix the writers first: a cluster
-   * filter's justification is the cluster, and a map rule's is the covering,
-   * neither of which is the observation being dropped. */
-  uint32_t derived_from[MAX_LINEAGE];
-  uint8_t lineage_count;
   char origin[ORIGIN_LEN]; /* emitting curation rule */
 };
 
