@@ -77,6 +77,7 @@ allow_file() {
   sysfs_kernel_notes_xen.c) return 0 ;; # XEN_ELFNOTE_ENTRY, the entry point
   dmesg_riscv_relocation.c) return 0 ;; # the relocated base the kernel printed
   tracefs_printk_formats.c) return 0 ;; # format strings, in the image's rodata
+  tracefs_available_filter_addrs.c) return 0 ;; # fentry call sites, interior kernel text
   # Declines unless the value lands in the image; pre-3.10 IDT layout only.
   sidt.c) return 0 ;;
   # --- linear-map / image members the source identifies, not range-classifies ---
@@ -134,7 +135,8 @@ done
 for stale in proc_kallsyms pppd_kallsyms bpf_verifier_ksym dmesg_android_ion_snapshot \
   dmesg_mmu_idmap perf_event_open perf_lbr_sampling perf_text_poke_leak \
   dmesg_backtrace dmesg_ex_handler_msr qemu_tcg_iret proc_stat_wchan proc_kcore \
-  sysfs_kernel_notes_xen dmesg_riscv_relocation tracefs_printk_formats sidt \
+  sysfs_kernel_notes_xen dmesg_riscv_relocation tracefs_printk_formats \
+  tracefs_available_filter_addrs sidt \
   alsa_seq_ext_ptr proc_net_sock_ptr bpf_verifier_log proc_iomem_kernel \
   dmesg_mem_init_kernel_layout dmesg_free_reserved_area \
   sysfs_devicetree_kernel_end dmesg_reserved_mem_opensbi \

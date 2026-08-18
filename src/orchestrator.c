@@ -785,7 +785,8 @@ const struct kasld_group_gate kasld_group_gates[KASLD_N_GROUP_GATES] = {
     {1001, "radio", "/proc/cmdline (Android, 0440 root:radio)"},
     {1007, "log", "the Android log sources"},
     {3009, "readproc", "other tasks' /proc entries under hidepid"},
-    {3012, "readtracefs", "tracefs printk_formats"},
+    {3012, "readtracefs",
+     "tracefs printk_formats / available_filter_functions_addrs"},
 };
 
 /* Name a gid for display. Two sources, in order of authority:

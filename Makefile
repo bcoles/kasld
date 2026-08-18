@@ -603,6 +603,15 @@ $(TEST_KALLSYMS_BIN): $(TEST_DIR)/test_proc_kallsyms.c $(SRC_DIR)/components/pro
 	$(call ccv,CCLD,$@)
 	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_proc_kallsyms.c -o $@
 
+# tracefs_available_filter_addrs bounding + record skip + address width: the
+# lowest/highest kernel-text witnesses, the __ftrace_invalid_address___ skip,
+# and the refusal of an over-wide address, over a staged KASLD_SYSROOT
+# available_filter_functions_addrs (main renamed).
+TEST_AVAILFILTER_BIN := $(TEST_OBJ_DIR)/test_tracefs_available_filter_addrs
+$(TEST_AVAILFILTER_BIN): $(TEST_DIR)/test_tracefs_available_filter_addrs.c $(SRC_DIR)/components/tracefs_available_filter_addrs.c $(HDRS) | $(TEST_OBJ_DIR)
+	$(call ccv,CCLD,$@)
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_tracefs_available_filter_addrs.c -o $@
+
 # dmesg physical-reservation parsers: the four restructured components
 # (reserved_mem / swiotlb / crashkernel / cma) #included (main renamed) and
 # driven over a staged KASLD_SYSROOT /var/log/dmesg; asserts per-region ranges.
@@ -652,7 +661,7 @@ $(TEST_PARSERS_BIN): $(TEST_DIR)/test_sysfs_parsers.c $(TEST_PARSERS_SRCS) $(HDR
 	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_sysfs_parsers.c -o $@
 
 .PHONY: test
-test : $(KASLD_BIN) $(TEST_BIN) $(TEST_RENDER_BIN) $(TEST_EST_BIN) $(TEST_EV_BIN) $(TEST_ALIGN_BIN) $(TEST_ADDRP_BIN) $(TEST_TWIDTH_BIN) $(TEST_TS_BIN) $(TEST_PREFETCH_SCAN_BIN) $(TEST_CPU_BIN) $(TEST_OUTCOME_BIN) $(TEST_TEXT_ORDER_BIN) $(TEST_KIMG_BIN) $(TEST_ENG_BIN) $(TEST_INT_BIN) $(TEST_DMESG_BIN) $(TEST_BACKTRACE_BIN) $(TEST_BOOTCFG_BIN) $(TEST_KASLRDIS_BIN) $(TEST_DTMEM_BIN) $(TEST_SOCKPTR_BIN) $(TEST_TIMERLIST_BIN) $(TEST_KALLSYMS_BIN) $(TEST_BTF_BIN) $(TEST_DMESG_RESV_BIN) $(TEST_BPE820_BIN) $(TEST_PARSERS_BIN) $(TEST_KCORE_BIN)
+test : $(KASLD_BIN) $(TEST_BIN) $(TEST_RENDER_BIN) $(TEST_EST_BIN) $(TEST_EV_BIN) $(TEST_ALIGN_BIN) $(TEST_ADDRP_BIN) $(TEST_TWIDTH_BIN) $(TEST_TS_BIN) $(TEST_PREFETCH_SCAN_BIN) $(TEST_CPU_BIN) $(TEST_OUTCOME_BIN) $(TEST_TEXT_ORDER_BIN) $(TEST_KIMG_BIN) $(TEST_ENG_BIN) $(TEST_INT_BIN) $(TEST_DMESG_BIN) $(TEST_BACKTRACE_BIN) $(TEST_BOOTCFG_BIN) $(TEST_KASLRDIS_BIN) $(TEST_DTMEM_BIN) $(TEST_SOCKPTR_BIN) $(TEST_TIMERLIST_BIN) $(TEST_KALLSYMS_BIN) $(TEST_AVAILFILTER_BIN) $(TEST_BTF_BIN) $(TEST_DMESG_RESV_BIN) $(TEST_BPE820_BIN) $(TEST_PARSERS_BIN) $(TEST_KCORE_BIN)
 	@$(TEST_DIR)/run-all
 	@$(TEST_DIR)/check-render-width
 	@$(MAKE) --no-print-directory lint
