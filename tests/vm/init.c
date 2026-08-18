@@ -589,7 +589,7 @@ int main(void) {
    * (default restores booted). `capture` mode (below) reconstructs a fixture
    * and never reaches this. */
   int hidden = 0, hardened = 0, perfopen = 0, dmesgopen = 0, bpfopen = 0,
-      capture = 0;
+      tracefsopen = 0, capture = 0;
   {
     int cf = open("/proc/cmdline", O_RDONLY);
     char cb[512];
@@ -608,6 +608,8 @@ int main(void) {
           dmesgopen = 1;
         if (strstr(cb, "bpfopen"))
           bpfopen = 1;
+        if (strstr(cb, "tracefsopen"))
+          tracefsopen = 1;
         if (strstr(cb, "capture"))
           capture = 1;
       }
@@ -717,6 +719,17 @@ int main(void) {
     printf("=== profile: bpf-open — uid=1000, unprivileged_bpf_disabled=0, "
            "kptr_restrict=%s perf_event_paranoid=%s (booted) ===\n",
            b_kptr, b_perf);
+  } else if (tracefsopen) {
+    /* kallsyms hidden (kptr=2) but tracefs group-readable (mounted gid=1000
+     * below): the tracefs address tables carry no kptr_restrict gate, so they
+     * recover the text base where /proc/kallsyms is masked. The "tracing group"
+     * vantage (Android AID_READTRACEFS). */
+    write_file("/proc/sys/kernel/kptr_restrict", "2\n");
+    write_file("/proc/sys/kernel/perf_event_paranoid", b_perf);
+    printf("=== profile: tracefs-open — uid=1000, kptr_restrict=2, "
+           "tracefs gid=1000 (dmesg_restrict=%s perf_event_paranoid=%s "
+           "booted) ===\n",
+           b_dmesg, b_perf);
   } else if (hidden) {
     write_file("/proc/sys/kernel/kptr_restrict", "2\n");
     write_file("/proc/sys/kernel/perf_event_paranoid", b_perf);
@@ -731,6 +744,17 @@ int main(void) {
            b_kptr, b_dmesg, b_perf);
   }
   fflush(stdout);
+
+  /* tracefs-open vantage only: mount tracefs group-readable by the unprivileged
+   * uid so the tracefs components (printk_formats,
+   * available_filter_functions_addrs) read the address tables without root —
+   * the "tracing group" (Android AID_READTRACEFS) scenario. Done as root here,
+   * before run_as drops to uid 1000. gid=1000,mode=755 makes the tree
+   * traversable and leaves the 0440 tables group-readable; a no-op on kernels
+   * built without tracing (the mountpoint is absent). Other profiles never
+   * mount it, so those components stay UNAVAILABLE there. */
+  if (tracefsopen)
+    mount("tracefs", "/sys/kernel/tracing", "tracefs", 0, "gid=1000,mode=755");
 
   /* Run kasld in JSON mode — tests/vm/run reads the window from the -j output,
    * and the ground-truth dump above supplies the comparison value. */
