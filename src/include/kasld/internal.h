@@ -887,7 +887,19 @@ int meta_get_all(const struct component_meta *m, const char *key,
                  const char **values, int max_values);
 void inject_kaslr_defaults(struct summary *s);
 void compute_component_stats(struct summary *s);
-void compute_kaslr_info(struct summary *s);
+/* Declared at file scope: first naming these inside the parameter list below
+ * would give them PROTOTYPE scope -- a distinct type from the definition in
+ * orchestrator.c, which the compiler then reports as a conflicting declaration.
+ */
+struct engine;
+struct engine_resolution;
+
+/* Projects `layout` plus the engine's two resolutions into the summary. The
+ * snapshots are PARAMETERS, not globals: the resolution itself belongs to the
+ * caller, and passing them keeps this whole function compiled -- and testable
+ * -- in the build that does not link the engine, where a caller passes NULL. */
+void compute_kaslr_info(struct summary *s, const struct engine *auth,
+                        const struct engine_resolution *likely);
 
 /* =========================================================================
  * Rendering (defined in render.c)

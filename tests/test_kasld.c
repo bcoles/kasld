@@ -757,8 +757,79 @@ static void test_compute_kaslr_info_uses_kernel_image_anchor(void) {
   r->set_mask = LO_SET;
 
   struct summary s = {0};
-  compute_kaslr_info(&s);
+  compute_kaslr_info(&s, NULL, NULL);
   assert(s.kaslr.vtext == layout.virt_kaslr_text_min + layout.virt_kaslr_align);
+}
+
+/* The engine's resolutions reach the summary as PARAMETERS, so a build that
+ * does not link the engine can still drive the paths that consume them.
+ *
+ * A pinned guaranteed estimate wins over the raw anchor scan: the scan reads
+ * results[] and is blind to the verdicts, so the engine's pin is what decides.
+ */
+static void test_compute_kaslr_info_engine_pin_overrides_raw_anchor(void) {
+  struct engine auth;
+  memset(&auth, 0, sizeof(auth));
+
+  unsigned long raw = layout.virt_kaslr_text_min + layout.virt_kaslr_align;
+  unsigned long pinned =
+      layout.virt_kaslr_text_min + 2 * layout.virt_kaslr_align;
+
+  reset_results();
+  struct result *r = push_result();
+  r->type = KASLD_TYPE_VIRT;
+  r->region = REGION_KERNEL_IMAGE;
+  r->pos = POS_BASE;
+  r->conf = CONF_PARSED;
+  r->lo = raw;
+  r->set_mask = LO_SET;
+
+  /* No snapshot: the raw pick stands, as the tests above already pin. */
+  struct summary s = {0};
+  compute_kaslr_info(&s, NULL, NULL);
+  assert(s.kaslr.vtext == raw);
+
+  /* With a snapshot holding a sound pin, that pin is authoritative. */
+  auth.est[Q_VIRT_IMAGE_BASE].lo = pinned;
+  auth.est[Q_VIRT_IMAGE_BASE].hi = pinned;
+  memset(&s, 0, sizeof(s));
+  compute_kaslr_info(&s, &auth, NULL);
+  assert(s.kaslr.vtext == pinned);
+}
+
+/* The LIKELY snapshot's own consumers: the speculative window is clamped into
+ * the guaranteed one and reported only where it is strictly tighter, so a
+ * likely window narrower than the arch bracket must surface, and one no
+ * tighter must not. */
+static void test_compute_kaslr_info_likely_window_reaches_summary(void) {
+  struct engine auth;
+  struct engine_resolution likely;
+  unsigned long lo = layout.virt_kaslr_text_min + layout.virt_kaslr_align;
+  unsigned long hi = layout.virt_kaslr_text_min + 3 * layout.virt_kaslr_align;
+
+  if (layout.virt_kaslr_text_max <= hi)
+    return; /* arch bracket too narrow to hold a strictly tighter sub-window */
+
+  reset_results();
+  memset(&auth, 0, sizeof(auth));
+  memset(&likely, 0, sizeof(likely));
+  auth.est[Q_VIRT_IMAGE_BASE].lo = layout.virt_kaslr_text_min;
+  auth.est[Q_VIRT_IMAGE_BASE].hi = layout.virt_kaslr_text_max;
+
+  /* No likely snapshot: nothing speculative is reported. */
+  struct summary s = {0};
+  compute_kaslr_info(&s, &auth, NULL);
+  assert(s.kaslr.vlikely_max == 0);
+
+  /* A strictly tighter likely window surfaces, clamped into the guaranteed one.
+   */
+  likely.est[Q_VIRT_IMAGE_BASE].lo = lo;
+  likely.est[Q_VIRT_IMAGE_BASE].hi = hi;
+  memset(&s, 0, sizeof(s));
+  compute_kaslr_info(&s, &auth, &likely);
+  assert(s.kaslr.vlikely_max != 0);
+  assert(s.kaslr.vlikely_min >= layout.virt_kaslr_text_min);
+  assert(s.kaslr.vlikely_max <= layout.virt_kaslr_text_max);
 }
 
 static void test_compute_kaslr_info_falls_back_to_kernel_text(void) {
@@ -772,7 +843,7 @@ static void test_compute_kaslr_info_falls_back_to_kernel_text(void) {
   r->set_mask = LO_SET;
 
   struct summary s = {0};
-  compute_kaslr_info(&s);
+  compute_kaslr_info(&s, NULL, NULL);
   /* A KERNEL_TEXT (_stext) fallback resolves vtext to the image base, i.e. down
    * by the head gap (STEXT_OFFSET): 0 on most arches, nonzero on arm64
    * (0x10000) and loongarch64 (0x20000). */
@@ -1268,7 +1339,7 @@ static void test_synthesized_result_sets_fields_correctly(void) {
 static void test_compute_kaslr_info_no_anchors_yields_zero_vtext(void) {
   reset_results();
   struct summary s = {0};
-  compute_kaslr_info(&s);
+  compute_kaslr_info(&s, NULL, NULL);
   /* No anchors → vtext=0; the slot/entropy fields are still populated from
    * the layout, but vtext itself is the "no information" sentinel. */
   assert(s.kaslr.vtext == 0);
@@ -1726,7 +1797,7 @@ static void test_compute_kaslr_info_sets_decoupled_note(void) {
   r->set_mask = LO_SET;
 
   struct summary s = {0};
-  compute_kaslr_info(&s);
+  compute_kaslr_info(&s, NULL, NULL);
   assert(s.kaslr.vtext == 0);    /* no virt anchor */
   assert(s.decoupled_note == 1); /* note must be set */
 }
@@ -1751,7 +1822,7 @@ static void test_compute_kaslr_info_no_note_when_vtext_present(void) {
   v->set_mask = LO_SET;
 
   struct summary s = {0};
-  compute_kaslr_info(&s);
+  compute_kaslr_info(&s, NULL, NULL);
   assert(s.kaslr.vtext != 0);
   assert(s.decoupled_note == 0);
 }
@@ -1761,7 +1832,7 @@ static void test_compute_kaslr_info_no_note_without_phys_landmark(void) {
   /* No phys leaks at all — note shouldn't fire (there's nothing to
    * explain). */
   struct summary s = {0};
-  compute_kaslr_info(&s);
+  compute_kaslr_info(&s, NULL, NULL);
   assert(s.decoupled_note == 0);
 }
 #endif /* !TEXT_TRACKS_DIRECTMAP */
@@ -2826,6 +2897,8 @@ int main(void) {
 
   BEGIN_CATEGORY("compute_kaslr_info");
   RUN(test_compute_kaslr_info_uses_kernel_image_anchor);
+  RUN(test_compute_kaslr_info_engine_pin_overrides_raw_anchor);
+  RUN(test_compute_kaslr_info_likely_window_reaches_summary);
   RUN(test_compute_kaslr_info_falls_back_to_kernel_text);
   RUN(test_compute_kaslr_info_no_anchors_yields_zero_vtext);
 #if !TEXT_TRACKS_DIRECTMAP

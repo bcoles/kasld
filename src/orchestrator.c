@@ -2906,7 +2906,7 @@ static int result_canonical_cmp(const void *va, const void *vb) {
 /* Collapse same-(type, region, name) records into one. Called by run_phase()
  * once after every component in the phase has finished, so compute_kaslr_info()
  * — and the engine evidence built from results[] — see deduplicated records.
- * The engine itself runs later, in compute_kaslr_info(); nothing infers here.
+ * The engine itself runs later, in emit_summary(); nothing infers here.
  *
  * ORDER-INDEPENDENT: results[] arrives in component completion order, which
  * under the worker pool varies between runs. The pass opens by sorting into a
@@ -3031,12 +3031,17 @@ static int ilog2(unsigned long v) {
 }
 
 /* The layered engine is the sole inference path: resolve every quantity from
- * the collected evidence and write the result into `layout`, which the
- * summary below is computed from (defined after engine_build_evidence). Guarded
- * out of the KASLD_TESTING build, which excludes the engine entirely. */
-/* engine_sync_authoritative is compiled in every build (it is a pure
- * projection with no engine dependencies); engine_resolve and its engine
- * instance are engine-only (they drive the components + engine.c machinery). */
+ * the collected evidence and write the result into `layout`, which the summary
+ * is computed from. Both steps run at emit_summary(), the single caller -- the
+ * summary builder consumes the result and does not decide when it is produced.
+ *
+ * engine_sync_authoritative is compiled in every build (a pure projection with
+ * no engine dependencies); engine_resolve and the engine instances are
+ * engine-only, since they drive the components and the engine.c machinery that
+ * the KASLD_TESTING translation unit does not link. That split is why the
+ * snapshots reach the summary builder as parameters: the type is universal, the
+ * instances are not, and passing them keeps the whole projection compiled --
+ * and reachable from a test -- in a build with no engine. */
 static void engine_sync_authoritative(const struct engine *e);
 
 /* Sound floor for the guaranteed window: inputs below this are out of scope, so
@@ -3064,11 +3069,6 @@ static unsigned long quantity_top_slots(enum kasld_quantity q,
   return quantity_slots(q, &top, KASLD_SOUND_FLOOR, NULL, 0, align);
 }
 
-#ifndef KASLD_TESTING
-static void engine_resolve(struct engine *e);
-static struct engine
-    g_auth_engine; /* holds the GUARANTEED (primary) resolution */
-
 /* Snapshot of the LIKELY resolution (floor CONF_BRUTE — all signals): the est +
  * constraints quantity_slots() needs, plus the resolver's rejected-constraint
  * (conflict) set so the likely window's conflicts can be reported symmetrically
@@ -3083,8 +3083,19 @@ struct engine_resolution {
   int n_conflicts[Q__COUNT];
   uint32_t conflicts[Q__COUNT][ESTIMATE_MAX_CONFLICTS];
 };
+/* The instances and the resolver stay engine-only: they drive the components
+ * and the engine.c machinery, which the KASLD_TESTING translation unit does not
+ * link. The TYPE above is plain data (estimates + constraints) and is compiled
+ * in every build, so compute_kaslr_info can name it in its signature and take
+ * the snapshot as a parameter instead of reaching for a global that does not
+ * exist there. That is what lets the whole projection compile -- and be tested
+ * -- rather than 200 lines of it vanishing under the gate. */
+#ifndef KASLD_TESTING
+static void engine_resolve(struct engine *e);
+static struct engine g_auth_engine; /* the GUARANTEED (primary) resolution */
 static struct engine_resolution g_likely;
 static int g_have_likely;
+#endif
 
 /* Fill a memory-KASLR region's speculative "likely" sub-window from the
  * all-signals snapshot. Emits only when the likely estimate is strictly tighter
@@ -3120,7 +3131,6 @@ static void fill_mem_likely(const struct estimate *l, unsigned long g_lo,
     return;
   kasld_clamp_likely_window(l->lo, l->hi, g_lo, g_hi, out_lo, out_hi);
 }
-#endif
 
 /* The reported text base is the IMAGE BASE (_text). A KERNEL_IMAGE anchor is
  * the image base directly; a KERNEL_TEXT anchor is _stext, normalized down by
@@ -3172,60 +3182,60 @@ static int page_offset_narrowed(void) {
 }
 #endif
 
-void compute_kaslr_info(struct summary *s) {
-#ifndef KASLD_TESTING
-  /* The layered engine is the sole inference path: resolve every quantity from
-   * the collected evidence and write the result into `layout`, which
-   * the rest of this function reads. */
-  engine_resolve(&g_auth_engine);
-  engine_sync_authoritative(&g_auth_engine);
+void compute_kaslr_info(struct summary *s, const struct engine *auth,
+                        const struct engine_resolution *likely) {
+  if (auth) {
+    /* The layered engine is the sole inference path: resolve every quantity
+     * from the collected evidence and write the result into `layout`, which the
+     * rest of this function reads. */
 
-  /* The singular rendered direct-map base follows the LIKELY resolution
-   * wherever the sound one stopped at a window rather than a value. It is a
-   * best-single-answer field — the renderers are its only readers, and the
-   * guaranteed edges travel separately as virt_page_offset_{min,max} — so the
-   * alternative to a likely value is not a sounder one, it is the compile-time
-   * seed: the analysing build's split presented as the target's. On a
-   * moved-VMSPLIT kernel that reads 0xc0000000 beside a guaranteed window of
-   * [0x80000000, 0xbfffffff], which is the one number in the readout that the
-   * evidence contradicts. */
-  {
-    unsigned long po_auth, po_likely;
-    if (!quantity_pinned(Q_PAGE_OFFSET, &g_auth_engine.est[Q_PAGE_OFFSET],
-                         &po_auth)) {
-      if (g_have_likely &&
-          quantity_pinned(Q_PAGE_OFFSET, &g_likely.est[Q_PAGE_OFFSET],
-                          &po_likely) &&
-          po_likely != 0) {
-        layout.virt_page_offset = po_likely;
-      }
+    /* The singular rendered direct-map base follows the LIKELY resolution
+     * wherever the sound one stopped at a window rather than a value. It is a
+     * best-single-answer field — the renderers are its only readers, and the
+     * guaranteed edges travel separately as virt_page_offset_{min,max} — so the
+     * alternative to a likely value is not a sounder one, it is the
+     * compile-time seed: the analysing build's split presented as the target's.
+     * On a moved-VMSPLIT kernel that reads 0xc0000000 beside a guaranteed
+     * window of [0x80000000, 0xbfffffff], which is the one number in the
+     * readout that the evidence contradicts. */
+    {
+      unsigned long po_auth, po_likely;
+      if (!quantity_pinned(Q_PAGE_OFFSET, &auth->est[Q_PAGE_OFFSET],
+                           &po_auth)) {
+        if (likely &&
+            quantity_pinned(Q_PAGE_OFFSET, &likely->est[Q_PAGE_OFFSET],
+                            &po_likely) &&
+            po_likely != 0) {
+          layout.virt_page_offset = po_likely;
+        }
 #if TEXT_TRACKS_DIRECTMAP
-      /* No single likely value either: show the proven FLOOR, the lowest base
-       * the evidence still admits.
-       *
-       * Only where evidence actually narrowed the bracket. With nothing learned
-       * the floor is the architecture's theoretical minimum and no window is
-       * reported beside it to say so, which on arm32 or x86_32 would present
-       * 0x40000000 — a split almost no kernel is built with — as the answer.
-       * The seed is a poorer claim but a better default, and an unnarrowed
-       * window is exactly the case the field is informational for.
-       *
-       * Coupled arches only. There the split is a build choice the evidence can
-       * contradict downward, so a measured floor below the analysing build's
-       * PAGE_OFFSET is the better answer. Decoupled arches randomize the base
-       * UPWARD from their compile-time default, so a floor below it says
-       * nothing — engine_sync_authoritative already moves the field there, and
-       * only once the floor rises above that default. Applying this branch to
-       * them would undo that gate wherever the bracket's own minimum sits lower
-       * than PAGE_OFFSET, which on riscv64 it does. */
-      else if (page_offset_narrowed() && layout.virt_page_offset_min &&
-               layout.virt_page_offset_min <= layout.virt_page_offset_max) {
-        layout.virt_page_offset = layout.virt_page_offset_min;
-      }
+        /* No single likely value either: show the proven FLOOR, the lowest base
+         * the evidence still admits.
+         *
+         * Only where evidence actually narrowed the bracket. With nothing
+         * learned the floor is the architecture's theoretical minimum and no
+         * window is reported beside it to say so, which on arm32 or x86_32
+         * would present 0x40000000 — a split almost no kernel is built with —
+         * as the answer. The seed is a poorer claim but a better default, and
+         * an unnarrowed window is exactly the case the field is informational
+         * for.
+         *
+         * Coupled arches only. There the split is a build choice the evidence
+         * can contradict downward, so a measured floor below the analysing
+         * build's PAGE_OFFSET is the better answer. Decoupled arches randomize
+         * the base UPWARD from their compile-time default, so a floor below it
+         * says nothing — engine_sync_authoritative already moves the field
+         * there, and only once the floor rises above that default. Applying
+         * this branch to them would undo that gate wherever the bracket's own
+         * minimum sits lower than PAGE_OFFSET, which on riscv64 it does. */
+        else if (page_offset_narrowed() && layout.virt_page_offset_min &&
+                 layout.virt_page_offset_min <= layout.virt_page_offset_max) {
+          layout.virt_page_offset = layout.virt_page_offset_min;
+        }
 #endif
+      }
     }
   }
-#endif
 
   /* Virtual image base (_text). Fall back to the engine's pinned singleton
    * (virt_kaslr_disabled_pin etc. land there — engine_sync projects the
@@ -3235,22 +3245,27 @@ void compute_kaslr_info(struct summary *s) {
   if (vtext == 0 && layout.virt_kaslr_text_min == layout.virt_kaslr_text_max)
     vtext = layout.virt_kaslr_text_min;
   unsigned long ptext = anchor_image_base(KASLD_TYPE_PHYS);
-#ifndef KASLD_TESTING
-  /* The raw anchor scan above is verdict-blind (it reads results[], not the
-   * curated evidence set); reconcile it with the engine so the headline base is
-   * never one a verdict rejected. The engine's pinned singleton wins; a raw
-   * pick outside the all-signals window is dropped. */
-  {
-    const struct estimate *gv = &g_auth_engine.est[Q_VIRT_IMAGE_BASE];
-    const struct estimate *lv = &g_likely.est[Q_VIRT_IMAGE_BASE];
-    vtext = kasld_reconcile_concrete_base(vtext, gv->lo, gv->hi, g_have_likely,
-                                          lv->lo, lv->hi);
-    const struct estimate *gp = &g_auth_engine.est[Q_PHYS_IMAGE_BASE];
-    const struct estimate *lp = &g_likely.est[Q_PHYS_IMAGE_BASE];
-    ptext = kasld_reconcile_concrete_base(ptext, gp->lo, gp->hi, g_have_likely,
-                                          lp->lo, lp->hi);
+  if (auth) {
+    /* The raw anchor scan above is verdict-blind (it reads results[], not the
+     * curated evidence set); reconcile it with the engine so the headline base
+     * is never one a verdict rejected. The engine's pinned singleton wins; a
+     * raw pick outside the all-signals window is dropped. */
+    {
+      /* A zeroed stand-in where no likely resolution exists: the helper reads
+       * l_lo/l_hi only under have_likely, so the edges are inert then. */
+      static const struct estimate kNoLikely;
+      const struct estimate *gv = &auth->est[Q_VIRT_IMAGE_BASE];
+      const struct estimate *lv =
+          likely ? &likely->est[Q_VIRT_IMAGE_BASE] : &kNoLikely;
+      vtext = kasld_reconcile_concrete_base(vtext, gv->lo, gv->hi,
+                                            likely != NULL, lv->lo, lv->hi);
+      const struct estimate *gp = &auth->est[Q_PHYS_IMAGE_BASE];
+      const struct estimate *lp =
+          likely ? &likely->est[Q_PHYS_IMAGE_BASE] : &kNoLikely;
+      ptext = kasld_reconcile_concrete_base(ptext, gp->lo, gp->hi,
+                                            likely != NULL, lp->lo, lp->hi);
+    }
   }
-#endif
   s->kaslr.vtext = vtext;
   s->kaslr.vstext = observed_stext_base(KASLD_TYPE_VIRT, vtext);
 
@@ -3321,49 +3336,47 @@ void compute_kaslr_info(struct summary *s) {
     s->kaslr.pbits = 0;
   }
 
-#ifndef KASLD_TESTING
-  /* Speculative "likely" window from the all-signals snapshot (engine_resolve).
+  /* Speculative "likely" window from the all-signals snapshot.
    * The guaranteed window above is layout.{virt,phys}_kaslr_text_{min,max}
-   * (g_auth_engine = the sound resolution). likely is clamped INTO guaranteed
+   * (`auth` = the sound resolution). likely is clamped INTO guaranteed
    * at this boundary so likely ⊆ guaranteed holds structurally (not merely "by
    * construction" assuming rule monotonicity); the clamp also gates on the
    * result being non-empty and strictly tighter than guaranteed. */
-  if (g_have_likely && !s->kaslr.disabled && !s->kaslr.unsupported) {
+  if (likely && !s->kaslr.disabled && !s->kaslr.unsupported) {
     unsigned long clo, chi;
-    if (kasld_clamp_likely_window(g_likely.est[Q_VIRT_IMAGE_BASE].lo,
-                                  g_likely.est[Q_VIRT_IMAGE_BASE].hi,
+    if (kasld_clamp_likely_window(likely->est[Q_VIRT_IMAGE_BASE].lo,
+                                  likely->est[Q_VIRT_IMAGE_BASE].hi,
                                   layout.virt_kaslr_text_min,
                                   layout.virt_kaslr_text_max, &clo, &chi)) {
-      struct estimate lv = g_likely.est[Q_VIRT_IMAGE_BASE]; /* clamped copy */
+      struct estimate lv = likely->est[Q_VIRT_IMAGE_BASE]; /* clamped copy */
       lv.lo = clo;
       lv.hi = chi;
       s->kaslr.vlikely_min = clo;
       s->kaslr.vlikely_max = chi;
       s->kaslr.vlikely_slots = quantity_slots(
-          Q_VIRT_IMAGE_BASE, &lv, CONF_BRUTE, g_likely.constraints,
-          g_likely.n_constraints, layout.virt_kaslr_align);
+          Q_VIRT_IMAGE_BASE, &lv, CONF_BRUTE, likely->constraints,
+          likely->n_constraints, layout.virt_kaslr_align);
       s->kaslr.vlikely_bits =
           s->kaslr.vlikely_slots > 0 ? ilog2(s->kaslr.vlikely_slots) : 0;
     }
 #ifdef KASLR_PHYS_MIN
-    if (kasld_clamp_likely_window(g_likely.est[Q_PHYS_IMAGE_BASE].lo,
-                                  g_likely.est[Q_PHYS_IMAGE_BASE].hi,
+    if (kasld_clamp_likely_window(likely->est[Q_PHYS_IMAGE_BASE].lo,
+                                  likely->est[Q_PHYS_IMAGE_BASE].hi,
                                   layout.phys_kaslr_text_min,
                                   layout.phys_kaslr_text_max, &clo, &chi)) {
-      struct estimate lp = g_likely.est[Q_PHYS_IMAGE_BASE]; /* clamped copy */
+      struct estimate lp = likely->est[Q_PHYS_IMAGE_BASE]; /* clamped copy */
       lp.lo = clo;
       lp.hi = chi;
       s->kaslr.plikely_min = clo;
       s->kaslr.plikely_max = chi;
       s->kaslr.plikely_slots = quantity_slots(
-          Q_PHYS_IMAGE_BASE, &lp, CONF_BRUTE, g_likely.constraints,
-          g_likely.n_constraints, layout.phys_kaslr_align);
+          Q_PHYS_IMAGE_BASE, &lp, CONF_BRUTE, likely->constraints,
+          likely->n_constraints, layout.phys_kaslr_align);
       s->kaslr.plikely_bits =
           s->kaslr.plikely_slots > 0 ? ilog2(s->kaslr.plikely_slots) : 0;
     }
 #endif
   }
-#endif
 
   /* The resolved linear-map window, reported when evidence narrowed it from the
    * architecture's own bracket and suppressed when it did not. The reference
@@ -3432,64 +3445,63 @@ void compute_kaslr_info(struct summary *s) {
   s->kaslr.virt_vmemmap_bits =
       s->kaslr.virt_vmemmap_slots > 0 ? ilog2(s->kaslr.virt_vmemmap_slots) : 0;
 
-#ifndef KASLD_TESTING
-  /* Baseline for the direct-map residual, the counterpart of vbits_top. The
-   * denominator is NOT Q_PAGE_OFFSET's honest top (an addressable range, which
-   * would read as entropy the kernel never had) but the window
-   * kernel_randomize_memory() actually draws page_offset_base from, counted at
-   * the same PUD grain as the residual so the two are comparable.
-   *
-   * The budget window cannot be read back off the resolved estimate: the rule
-   * that models it deliberately emits no page_offset lower bound (the x86_64
-   * direct-map floor is held at the canonical half boundary so low
-   * static-layout addresses are not rejected), so it is re-derived from the
-   * shared model here.
-   *
-   * Gated on the model's own confidence cap reaching the sound floor, not
-   * merely on max_pfn being present: the whole window is sized from that
-   * observation, and a heuristic one would put a sub-floor denominator under a
-   * guaranteed-window numerator — mixing trust levels in a single ratio. Left
-   * at 0 (renderers show the bare residual) whenever the model is unavailable:
-   * off x86_64, unresolved paging level, no max_pfn, or a sub-floor one. */
-  {
-    struct kasld_rm_budget b;
-    if (kasld_rm_budget_from_evidence(&g_auth_engine.ev, g_auth_engine.est,
-                                      &b) &&
-        kasld_conf_min(CONF_INFERRED, b.pfn_conf) >= KASLD_SOUND_FLOOR) {
-      struct estimate budget;
-      memset(&budget, 0, sizeof(budget));
-      budget.lo = b.lo;
-      budget.hi = b.hi;
-      unsigned long top =
-          quantity_slots(Q_PAGE_OFFSET, &budget, KASLD_SOUND_FLOOR, NULL, 0,
-                         RANDOMIZE_MEMORY_ALIGN);
-      s->kaslr.virt_page_offset_top_slots = top;
-      s->kaslr.virt_page_offset_bits_top = top > 0 ? ilog2(top) : 0;
+  if (auth) {
+    /* Baseline for the direct-map residual, the counterpart of vbits_top. The
+     * denominator is NOT Q_PAGE_OFFSET's honest top (an addressable range,
+     * which would read as entropy the kernel never had) but the window
+     * kernel_randomize_memory() actually draws page_offset_base from, counted
+     * at the same PUD grain as the residual so the two are comparable.
+     *
+     * The budget window cannot be read back off the resolved estimate: the rule
+     * that models it deliberately emits no page_offset lower bound (the x86_64
+     * direct-map floor is held at the canonical half boundary so low
+     * static-layout addresses are not rejected), so it is re-derived from the
+     * shared model here.
+     *
+     * Gated on the model's own confidence cap reaching the sound floor, not
+     * merely on max_pfn being present: the whole window is sized from that
+     * observation, and a heuristic one would put a sub-floor denominator under
+     * a guaranteed-window numerator — mixing trust levels in a single ratio.
+     * Left at 0 (renderers show the bare residual) whenever the model is
+     * unavailable: off x86_64, unresolved paging level, no max_pfn, or a
+     * sub-floor one. */
+    {
+      struct kasld_rm_budget b;
+      if (kasld_rm_budget_from_evidence(&auth->ev, auth->est, &b) &&
+          kasld_conf_min(CONF_INFERRED, b.pfn_conf) >= KASLD_SOUND_FLOOR) {
+        struct estimate budget;
+        memset(&budget, 0, sizeof(budget));
+        budget.lo = b.lo;
+        budget.hi = b.hi;
+        unsigned long top =
+            quantity_slots(Q_PAGE_OFFSET, &budget, KASLD_SOUND_FLOOR, NULL, 0,
+                           RANDOMIZE_MEMORY_ALIGN);
+        s->kaslr.virt_page_offset_top_slots = top;
+        s->kaslr.virt_page_offset_bits_top = top > 0 ? ilog2(top) : 0;
+      }
     }
   }
-#endif
 
-#ifndef KASLD_TESTING
   /* Speculative "likely" sub-windows for the memory-KASLR regions: the engine's
    * all-signals snapshot may narrow a region below the sound floor -- a
    * range-classified REGION_DIRECTMAP_BAND witness, which is barred from the
    * guaranteed window by design, or a future directmap/vmalloc side-channel.
    * Each is a refinement of the guaranteed window because fill_mem_likely()
    * clamps it into layout.virt_*_base_{min,max} (what engine_sync_authoritative
-   * wrote from g_auth_engine) and reports only when strictly tighter. */
-  if (g_have_likely && !s->kaslr.disabled && !s->kaslr.unsupported) {
+   * wrote from `auth`) and reports only when strictly tighter. */
+  if (likely && !s->kaslr.disabled && !s->kaslr.unsupported) {
     /* Each region's likely sub-window is signalled by its own *_likely_max != 0
      * (set by fill_mem_likely only when clamped strictly tighter); renderers
      * gate per-region on that. */
-    fill_mem_likely(&g_likely.est[Q_PAGE_OFFSET], layout.virt_page_offset_min,
+    fill_mem_likely(&likely->est[Q_PAGE_OFFSET], layout.virt_page_offset_min,
                     layout.virt_page_offset_max,
                     &s->kaslr.virt_page_offset_likely_min,
                     &s->kaslr.virt_page_offset_likely_max);
-    fill_mem_likely(&g_likely.est[Q_VMALLOC_BASE], layout.virt_vmalloc_base_min,
+    fill_mem_likely(&likely->est[Q_VMALLOC_BASE], layout.virt_vmalloc_base_min,
                     layout.virt_vmalloc_base_max,
                     &s->kaslr.virt_vmalloc_likely_min,
                     &s->kaslr.virt_vmalloc_likely_max);
-    fill_mem_likely(&g_likely.est[Q_VMEMMAP_BASE], layout.virt_vmemmap_base_min,
+    fill_mem_likely(&likely->est[Q_VMEMMAP_BASE], layout.virt_vmemmap_base_min,
                     layout.virt_vmemmap_base_max,
                     &s->kaslr.virt_vmemmap_likely_min,
                     &s->kaslr.virt_vmemmap_likely_max);
@@ -3498,31 +3510,30 @@ void compute_kaslr_info(struct summary *s) {
      * all-signals estimate clamped to the region's likely [min, max]
      * (quantity_ranges carves holes against that clamped interval). */
     if (s->kaslr.virt_page_offset_likely_max) {
-      struct estimate le = g_likely.est[Q_PAGE_OFFSET];
+      struct estimate le = likely->est[Q_PAGE_OFFSET];
       le.lo = s->kaslr.virt_page_offset_likely_min;
       le.hi = s->kaslr.virt_page_offset_likely_max;
       s->kaslr.virt_page_offset_likely_slots =
-          quantity_slots(Q_PAGE_OFFSET, &le, CONF_BRUTE, g_likely.constraints,
-                         g_likely.n_constraints, RANDOMIZE_MEMORY_ALIGN);
+          quantity_slots(Q_PAGE_OFFSET, &le, CONF_BRUTE, likely->constraints,
+                         likely->n_constraints, RANDOMIZE_MEMORY_ALIGN);
     }
     if (s->kaslr.virt_vmalloc_likely_max) {
-      struct estimate le = g_likely.est[Q_VMALLOC_BASE];
+      struct estimate le = likely->est[Q_VMALLOC_BASE];
       le.lo = s->kaslr.virt_vmalloc_likely_min;
       le.hi = s->kaslr.virt_vmalloc_likely_max;
       s->kaslr.virt_vmalloc_likely_slots =
-          quantity_slots(Q_VMALLOC_BASE, &le, CONF_BRUTE, g_likely.constraints,
-                         g_likely.n_constraints, RANDOMIZE_MEMORY_ALIGN);
+          quantity_slots(Q_VMALLOC_BASE, &le, CONF_BRUTE, likely->constraints,
+                         likely->n_constraints, RANDOMIZE_MEMORY_ALIGN);
     }
     if (s->kaslr.virt_vmemmap_likely_max) {
-      struct estimate le = g_likely.est[Q_VMEMMAP_BASE];
+      struct estimate le = likely->est[Q_VMEMMAP_BASE];
       le.lo = s->kaslr.virt_vmemmap_likely_min;
       le.hi = s->kaslr.virt_vmemmap_likely_max;
       s->kaslr.virt_vmemmap_likely_slots =
-          quantity_slots(Q_VMEMMAP_BASE, &le, CONF_BRUTE, g_likely.constraints,
-                         g_likely.n_constraints, RANDOMIZE_MEMORY_ALIGN);
+          quantity_slots(Q_VMEMMAP_BASE, &le, CONF_BRUTE, likely->constraints,
+                         likely->n_constraints, RANDOMIZE_MEMORY_ALIGN);
     }
   }
-#endif
 
 #if !TEXT_TRACKS_DIRECTMAP
   /* On decoupled arches (x86_64, arm64, riscv64, s390): note when physical
@@ -4919,7 +4930,18 @@ static void emit_summary(void) {
   struct summary s = {0};
   compute_component_stats(&s);
   inject_kaslr_defaults(&s);
-  compute_kaslr_info(&s); /* engine resolution + sync to layout */
+  /* Resolution runs HERE, at the single caller, not inside the summary builder:
+   * a function named for building a summary should not also own when the engine
+   * runs. compute_kaslr_info() is then a pure layout+snapshot -> summary
+   * projection, which is what lets it compile (and be tested) whole rather than
+   * with its engine-dependent two thirds cut out by the preprocessor. */
+#ifndef KASLD_TESTING
+  engine_resolve(&g_auth_engine);
+  engine_sync_authoritative(&g_auth_engine);
+  compute_kaslr_info(&s, &g_auth_engine, g_have_likely ? &g_likely : NULL);
+#else
+  compute_kaslr_info(&s, NULL, NULL);
+#endif
   /* cross-region derivations arrive as ordinary CONF_DERIVED component results;
    * there is no separate derive pass. */
   render_summary(&s);
