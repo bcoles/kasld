@@ -801,6 +801,105 @@ static void test_compute_kaslr_info_engine_pin_overrides_raw_anchor(void) {
  * the guaranteed one and reported only where it is strictly tighter, so a
  * likely window narrower than the arch bracket must surface, and one no
  * tighter must not. */
+/* The singular rendered direct-map base follows the LIKELY resolution wherever
+ * the sound one stopped at a window rather than a value. It is a
+ * best-single-answer field, and the alternative to a likely value is not a
+ * sounder one -- it is the compile-time seed, the analysing build's split
+ * presented as the target's.
+ *
+ * Reachable only since the resolutions became parameters; before that the whole
+ * branch was compiled out of this build, and disabling it changed no test.
+ *
+ * The estimates are built through the quantity's own top and narrowed with a
+ * constraint, never by assigning .lo/.hi: Q_PAGE_OFFSET's lattice is declared
+ * in the quantity table and a test that writes the fields has hard-coded an
+ * answer it never asked for.
+ */
+static void test_compute_kaslr_info_directmap_base_follows_likely(void) {
+  const struct quantity_def *qd = &quantities[Q_PAGE_OFFSET];
+  struct engine auth;
+  struct engine_resolution likely;
+  unsigned long pinned = 0, g_lo = 0, g_hi = 0;
+
+  reset_results();
+  memset(&auth, 0, sizeof(auth));
+  memset(&likely, 0, sizeof(likely));
+
+  /* Guaranteed side: the quantity's honest top. On most arches that is a
+   * window -- the state the fallback exists for. On five (loongarch64, mips32,
+   * mips64, ppc64, riscv32) PAGE_OFFSET_MIN == PAGE_OFFSET_MAX, so the top is
+   * already a value.
+   *
+   * Both are asserted rather than one skipped. Returning early on the pinned
+   * arches would leave this reporting PASS on five of twelve targets while
+   * checking nothing, which is the failure the test exists to catch, one level
+   * up. */
+  qd->init_top(&auth.est[Q_PAGE_OFFSET]);
+  quantity_window(Q_PAGE_OFFSET, &auth.est[Q_PAGE_OFFSET], &g_lo, &g_hi);
+  int auth_pinned =
+      quantity_pinned(Q_PAGE_OFFSET, &auth.est[Q_PAGE_OFFSET], &pinned);
+
+  unsigned long before = layout.virt_page_offset;
+
+  /* Likely side: the same top, narrowed to one admissible value. */
+  qd->init_top(&likely.est[Q_PAGE_OFFSET]);
+  struct constraint c;
+  memset(&c, 0, sizeof(c));
+  c.q = Q_PAGE_OFFSET;
+  c.op = C_EQUALS;
+  /* Non-zero: the branch under test refuses a zero base (po_likely != 0), and
+   * s390's direct map starts at 0, so the window FLOOR is not a usable pin
+   * there. The ceiling is admissible on every arch and never zero. */
+  unsigned long pin_want = g_lo ? g_lo : g_hi;
+  assert(pin_want != 0);
+  c.value = pin_want;
+  c.conf = CONF_PARSED;
+  c.id = 1;
+  estimate_meet(&likely.est[Q_PAGE_OFFSET], qd, &c);
+  /* The fixture is asserted, not assumed: a meet that failed to pin would make
+   * every assertion below vacuous. */
+  assert(quantity_pinned(Q_PAGE_OFFSET, &likely.est[Q_PAGE_OFFSET], &pinned));
+  assert(pinned == pin_want);
+
+  /* Seeded to a value no branch here produces, so an assertion can only hold
+   * because the code did what it was meant to. Without it the field already
+   * equals the expected value on some arches and this passes against a
+   * disabled block -- which is how the first version survived every mutation.
+   *
+   * Offset from the expected value rather than a fixed 0: s390's direct map
+   * starts at 0, so a zero sentinel IS the expected value there. */
+  layout.virt_page_offset = pin_want + 1;
+  struct summary s = {0};
+  compute_kaslr_info(&s, &auth, &likely);
+  if (auth_pinned) {
+    /* The sound resolution already answered, so the speculative one must not
+     * overwrite it -- the whole fallback is gated on the guaranteed side NOT
+     * having a value. */
+    assert(layout.virt_page_offset == pin_want + 1);
+  } else {
+    assert(layout.virt_page_offset == pin_want);
+  }
+
+  /* A likely WINDOW is not a single answer, so nothing is taken from it. This
+   * is what stops the branch above being satisfied by "copy the likely floor
+   * unconditionally". Only meaningful where the top is a window; where it is a
+   * pin there is no window to offer and the case above already covers it. */
+  if (!auth_pinned) {
+    memset(&likely, 0, sizeof(likely));
+    qd->init_top(&likely.est[Q_PAGE_OFFSET]);
+    layout.virt_page_offset = pin_want + 1;
+    memset(&s, 0, sizeof(s));
+    compute_kaslr_info(&s, &auth, &likely);
+#if !TEXT_TRACKS_DIRECTMAP
+    /* Coupled arches have a second fallback (the proven floor) that
+     * legitimately moves the field here; decoupled ones do not. */
+    assert(layout.virt_page_offset == pin_want + 1);
+#endif
+  }
+
+  layout.virt_page_offset = before;
+}
+
 static void test_compute_kaslr_info_likely_window_reaches_summary(void) {
   struct engine auth;
   struct engine_resolution likely;
@@ -2899,6 +2998,7 @@ int main(void) {
   RUN(test_compute_kaslr_info_uses_kernel_image_anchor);
   RUN(test_compute_kaslr_info_engine_pin_overrides_raw_anchor);
   RUN(test_compute_kaslr_info_likely_window_reaches_summary);
+  RUN(test_compute_kaslr_info_directmap_base_follows_likely);
   RUN(test_compute_kaslr_info_falls_back_to_kernel_text);
   RUN(test_compute_kaslr_info_no_anchors_yields_zero_vtext);
 #if !TEXT_TRACKS_DIRECTMAP
