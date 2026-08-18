@@ -339,9 +339,20 @@ if [ -s "$KS" ]; then
     0000000000000000|00000000|"") truth_text="" ;;
   esac
 fi
-# Prefer _text; fall back to _stext (they're equal on most kernels).
-truth_vtext=${truth_text:-$truth_stext}
+# _text is the quantity kasld solves and the one its windows bound. _stext is a
+# DIFFERENT symbol: it sits a per-arch head gap above _text -- 0x400 on mips,
+# 0x10000 on arm64, 0x20000 on loongarch64 -- and coincides with it only where
+# that gap is zero.
+#
+# So _stext is not a fallback for _text. Substituting it compared a _stext truth
+# against a _text answer, which reads as an off-by-head-gap mismatch on exactly
+# the arches whose kallsyms exports only _stext (mips does: every recorded boot
+# has _stext and no _text). Where the gap is zero the two genuinely are one
+# address, and that case is restored below; the rest is checked against kasld's
+# own _stext projection instead.
+truth_vtext=$truth_text
 [ -n "$truth_vtext" ] && truth_vtext=$(hex16 "$truth_vtext")
+[ -n "$truth_stext" ] && truth_stext=$(hex16 "$truth_stext")
 [ -n "$truth_end" ]   && truth_end=$(hex16 "$truth_end")
 
 truth_ptext=""
@@ -368,6 +379,9 @@ echo
 printf '%sGround truth:%s\n' "$BOLD" "$RESET"
 if [ -n "$truth_vtext" ]; then
   printf '  virt _text  = 0x%s\n' "$truth_vtext"
+elif [ -n "$truth_stext" ]; then
+  printf '  virt _text  = %s(kallsyms exports _stext 0x%s, not _text)%s\n' \
+    "$DIM" "$truth_stext" "$RESET"
 else
   printf '  virt _text  = %s(unavailable — no --kallsyms?)%s\n' "$DIM" "$RESET"
 fi
@@ -386,6 +400,8 @@ get() { jq -r "$1 // empty" "$JSON" 2>/dev/null; }
 vmin=$(get '.layout.virt_image_base_min')
 vmax=$(get '.layout.virt_image_base_max')
 vtext=$(get '.kaslr.virtual.image_base')
+# Emitted only when it differs from image_base: absent means a zero head gap.
+vstext=$(get '.kaslr.virtual.stext')
 
 pmin=$(get '.layout.phys_kaslr_text_min')
 pmax=$(get '.layout.phys_kaslr_text_max')
@@ -394,6 +410,15 @@ ptext=$(get '.kaslr.physical.image_base')
 [ -n "$vmin" ]  && vmin=$(hex16 "$vmin")
 [ -n "$vmax" ]  && vmax=$(hex16 "$vmax")
 [ -n "$vtext" ] && vtext=$(hex16 "$vtext")
+[ -n "$vstext" ] && vstext=$(hex16 "$vstext")
+
+# No _text truth, a _stext one, and a zero head gap: the symbols are the same
+# address, so the _stext truth IS the _text truth and the checks below can use
+# it. A non-zero gap gets its own check rather than being folded in here.
+if [ -z "$truth_vtext" ] && [ -n "$truth_stext" ] && [ -z "$vstext" ] &&
+  [ -n "$vtext" ]; then
+  truth_vtext=$truth_stext
+fi
 [ -n "$pmin" ]  && pmin=$(hex16 "$pmin")
 [ -n "$pmax" ]  && pmax=$(hex16 "$pmax")
 [ -n "$ptext" ] && ptext=$(hex16 "$ptext")
@@ -412,7 +437,11 @@ if [ -n "$vmin" ] && [ -n "$vmax" ]; then
       fail "virt kaslr window" "[0x$vmin, 0x$vmax] ∌ 0x$truth_vtext"
     fi
   else
-    nare "virt kaslr window" "no kallsyms truth (window: [0x$vmin, 0x$vmax])"
+    if [ -n "$truth_stext" ]; then
+      nare "virt kaslr window" "kallsyms exports _stext, not _text (window: [0x$vmin, 0x$vmax])"
+    else
+      nare "virt kaslr window" "no kallsyms truth (window: [0x$vmin, 0x$vmax])"
+    fi
   fi
 else
   nare "virt kaslr window" "no resolved window in JSON"
@@ -427,9 +456,19 @@ if [ -n "$vtext" ] && [ -n "$truth_vtext" ]; then
   else
     fail "virt image_base"    "resolved 0x$vtext ≠ truth 0x$truth_vtext"
   fi
+elif [ -n "$vtext" ] && [ -n "$truth_stext" ]; then
+  nare "virt image_base"    "resolved 0x$vtext (kallsyms exports _stext, not _text)"
 elif [ -n "$vtext" ]; then
   nare "virt image_base"    "resolved 0x$vtext (no truth)"
 fi
+
+# No _stext check here, deliberately. kasld reports the OBSERVED _stext symbol
+# when kallsyms carries one and only falls back to image base + STEXT_OFFSET
+# otherwise, so on a bundle whose truth came from kallsyms the two sides have
+# the same origin and the comparison is circular -- it passed unchanged with
+# STEXT_OFFSET deliberately set wrong. What does validate the resolution on
+# these arches is `phys image_base` below, whose truth comes from iomem and is
+# independent of kallsyms.
 
 # Phys KASLR window
 if [ -n "$pmin" ] && [ -n "$pmax" ]; then
