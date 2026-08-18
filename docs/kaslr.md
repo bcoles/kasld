@@ -99,8 +99,8 @@ base when it is consumed, so the slide is always measured against `_text`.
 | x86_32 | `0xc0000000` | `PAGE_OFFSET` (3G/1G vmsplit default) | 2 MiB | 248² | ~8 bits |
 | arm64 | `0xffff800080000000`³ | `KIMAGE_VADDR` = `_PAGE_END(VA_BITS_MIN)` + module-region size (`memory.h`) | 64 KiB⁴ | ~1073M | ~30 bits |
 | arm32 | `0xc0008000` | `PAGE_OFFSET` + `TEXT_OFFSET` (`0x8000`, from `arch/arm/Makefile`) | — | — | No KASLR |
-| MIPS32 | `0x80100400` | KSEG0 (`0x80000000`) + 1 MiB + `TEXT_OFFSET` (`0x400`, from `head.S`) | 64 KiB | varies | varies |
-| MIPS64 | `0xffffffff80100400` | CKSEG0 (`0xffffffff80000000`) + 1 MiB + `TEXT_OFFSET` (`0x400`) | 64 KiB | varies | varies |
+| MIPS32 | `0x80100000` | KSEG0 (`0x80000000`) + 1 MiB load offset; `_text` is the linker load address, so the head gap in `head.S` (`0x400`) separates `_stext`, not `_text` | 64 KiB | varies | varies |
+| MIPS64 | `0xffffffff80100000` | CKSEG0 (`0xffffffff80000000`) + 1 MiB load offset; `_stext` sits `0x400` above it, as on MIPS32 | 64 KiB | varies | varies |
 | s390 | `0x3FFE0100000` | `CONFIG_KERNEL_IMAGE_BASE` + `TEXT_OFFSET` (1 MiB) | 16 KiB | ~131K | ~17 bits |
 | PowerPC32 | `0xc0000000` | `PAGE_OFFSET` (3G/1G default); BookE only | 16 KiB¹ | varies | varies |
 | PowerPC64 | `0xc000000000000000` | `PAGE_OFFSET` (Kconfig) | — | — | No KASLR |

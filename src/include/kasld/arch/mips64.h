@@ -69,14 +69,38 @@
 // https://elixir.bootlin.com/linux/v6.12/source/arch/mips/kernel/relocate.c#L276
 #define IMAGE_ALIGN 0x10000ul
 
+// _text IS the linker load address on mips: the linker script sets
+// `_text = .` at LINKER_LOAD_ADDRESS and only then emits HEAD_TEXT, so nothing
+// precedes it and its residue within the 64 KiB KASLR granule is zero.
+//
+// The 0x400 below is the OTHER offset: head.S reserves an exception-vector
+// fill between _text and _stext, so _stext = _text + 0x400. It was carried as
+// IMAGE_BASE_OFFSET (the alignment residue) from the rename that split one
+// conflated TEXT_OFFSET into two, which put a head gap on the residue axis.
+//
+//   arch/mips/kernel/vmlinux.lds.S   . = LINKER_LOAD_ADDRESS; _text = .;
+//   arch/mips/kernel/head.S          __HEAD; .fill 0x400; EXPORT(_stext)
+//   arch/mips/kernel/setup.c         code_resource.start = __pa_symbol(&_text)
+//
+// The fill is conditional -- `#ifndef CONFIG_NO_EXCEPT_FILL`, which
+// MIPS_GENERIC_KERNEL and four other platforms select -- so on those kernels
+// _stext == _text. STEXT_OFFSET is a fallback for _stext-only sources, and on
+// mips it is always the bridge: kallsyms exports _stext and not _text, so no
+// real _text leak ever overrides it. On a NO_EXCEPT_FILL kernel the image base
+// derived from a leaked _stext is therefore 0x400 low. That is inherent -- the
+// two configurations are indistinguishable from _stext alone -- and widening
+// the derivation to cover both would cost the pin.
+#define IMAGE_BASE_OFFSET 0
+
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/mips/kernel/head.S#L67
-#define IMAGE_BASE_OFFSET 0x400
+#define STEXT_OFFSET 0x400ul
 
 // Plausible physical address range for kernel image
 #define KERNEL_PHYS_MIN 0ul
 #define KERNEL_PHYS_MAX (2ul * GB)
 
-// Default: 0xffffffff80100400 (CKSEG0 + 1 MiB load offset + head.S entry).
+// Default: 0xffffffff80100000 (ckseg0 + 1 MiB standard load offset). _stext
+// is a projection at +STEXT_OFFSET (0xffffffff80100400), not the image base.
 // 0x100000: standard MIPS kernel load offset (load-y in arch/mips/Makefile);
 // identical in mips32.h — the arch headers are standalone (no shared include),
 // so the value is mirrored, not factored. Keep the two in sync.
