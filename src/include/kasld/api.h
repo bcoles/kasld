@@ -393,6 +393,10 @@ __extension__ _Static_assert((unsigned long)KERNEL_PHYS_MAX >
 #error                                                                         \
     "arch header must define LINEAR_MAP_ANCHOR (LM_ANCHOR_PHYS_OFFSET / _DRAM_BASE / _UNKNOWABLE)"
 #endif
+#ifndef IMAGE_BASE_RESIDUE_FIXED
+#error                                                                         \
+    "arch header must define IMAGE_BASE_RESIDUE_FIXED (0 or 1) -- see its contract later in this header"
+#endif
 
 /* Is an address inside [KERNEL_VIRT_TEXT_MIN, KERNEL_VIRT_TEXT_MAX] necessarily
  * part of the kernel image or a module, so that ruling out the module band
@@ -841,11 +845,27 @@ static inline unsigned long kasld_page_offset_if_known(void) {
  * true where KASLR places the base on the grid, or a fixed linker offset
  * guarantees it. 0 where the offset is config-dependent (arm32: TEXT_OFFSET
  * varies by config and _stext is padded to the section boundary), so snapping
- * could floor a bound below the true base. Default 1 (the residue is fixed);
- * arches whose residue is not fixed set 0. */
-#ifndef IMAGE_BASE_RESIDUE_FIXED
-#define IMAGE_BASE_RESIDUE_FIXED 1
-#endif
+ * could floor a bound below the true base.
+ *
+ * DECLARED BY EVERY ARCH HEADER; there is no default. A permissive one is the
+ * wrong way round: the failure it admits is a bound raised PAST the true base,
+ * which drops the truth out of the guaranteed window -- the one thing that
+ * window promises. Sixteen of seventeen headers once took "the residue is
+ * fixed" by silence, which is a claim about a kernel's linker layout that
+ * nobody had made.
+ *
+ * State WHICH basis the answer rests on, because they are not equally strong:
+ *
+ *   by construction -- the residue is zero (the image starts on the granule),
+ *     or the arch models no KASLR so the base is the compile-time default and
+ *     the residue is right by definition. Nothing can drift.
+ *   observed        -- the residue is non-zero and emerges from something the
+ *     kernel is free to change, such as the size of a boot-code section. Real
+ *     builds agreeing is evidence, not a guarantee, and 0 is the answer unless
+ *     the sharpening is worth the risk.
+ *
+ * Enforced by the mandatory-macro block near the top of this header; there is
+ * deliberately no #define here to fall back to. */
 
 /* Physical firmware load offset (DRAM base -> phys image base). 0 where
  * firmware loads the image at the DRAM base; riscv64 overrides to 2 MiB

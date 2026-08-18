@@ -293,4 +293,19 @@ static inline unsigned long arch_default_text_base(void) {
 
 #define KASLR_SUPPORTED 1
 
+// OBSERVED, not constructed -- so 0.
+//
+// _text is not the load address here: the linker emits _start, then
+// HEAD_TEXT_SECTION, then ALIGN(PAGE_SIZE), then _text. The residue is
+// therefore roundup(sizeof .head.text, PAGE_SIZE), and that section is built
+// from #ifdef CONFIG_EFI / RISCV_M_MODE / MMU code whose size the kernel is
+// free to change. Three captures agree at 0x2000 (alpine 6.18, debian 6.12,
+// riscv32 mainline 6.15), which is evidence and not a guarantee.
+//
+// Snapping on a residue that is one page out raises a floor past the true
+// base, dropping the truth from the GUARANTEED window. Measured cost of
+// declining: nil -- image_base_grid_align emits no constraint on any fixture.
+// arch/riscv/kernel/vmlinux.lds.S, arch/riscv/kernel/head.S
+#define IMAGE_BASE_RESIDUE_FIXED 0
+
 #endif /* KASLD_RISCV64_H */

@@ -126,4 +126,8 @@
 
 #define KASLR_SUPPORTED 1
 
+// Residue 0: _text IS the linker load address (see IMAGE_BASE_OFFSET above),
+// and KASLR relocates by whole 64 KiB granules, so it stays on the grid.
+#define IMAGE_BASE_RESIDUE_FIXED 1
+
 #endif /* KASLD_MIPS32_H */

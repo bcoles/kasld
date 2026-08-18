@@ -168,4 +168,8 @@ static inline unsigned long arch_default_phys_text_base(void) {
 
 #define KASLR_SUPPORTED 1
 
+// Residue 0: the 2 MiB image offset is a whole number of 64 KiB granules. The
+// 0x20000 head gap is _stext's (STEXT_OFFSET), not the base's.
+#define IMAGE_BASE_RESIDUE_FIXED 1
+
 #endif /* KASLD_LOONGARCH64_H */

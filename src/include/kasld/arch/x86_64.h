@@ -260,6 +260,10 @@ static inline unsigned long arch_default_phys_text_base(void) {
 
 #define KASLR_SUPPORTED 1
 
+// Residue 0: the image base is 2 MiB-aligned by construction, so the grid is
+// plain alignment and there is no sub-offset to get wrong.
+#define IMAGE_BASE_RESIDUE_FIXED 1
+
 // Virtual KASLR range: __START_KERNEL_map + LOAD_PHYSICAL_ADDR to
 // __START_KERNEL_map + KERNEL_IMAGE_SIZE.
 // https://elixir.bootlin.com/linux/v6.12/source/arch/x86/boot/compressed/kaslr.c

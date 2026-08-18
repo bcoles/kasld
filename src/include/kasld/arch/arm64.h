@@ -402,4 +402,8 @@ static inline unsigned long arm64_page_end_for(unsigned long va_bits) {
 
 #define KASLR_SUPPORTED 1
 
+// Residue 0: KIMAGE_VADDR plus a MIN_KIMG_ALIGN-aligned slide, so _text sits on
+// the granule. The 0x10000 head gap is _stext's (STEXT_OFFSET), not the base's.
+#define IMAGE_BASE_RESIDUE_FIXED 1
+
 #endif /* KASLD_ARM64_H */

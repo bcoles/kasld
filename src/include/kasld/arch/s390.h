@@ -227,6 +227,10 @@
 
 #define KASLR_SUPPORTED 1
 
+// Residue 0: the 1 MiB image offset is a whole number of 16 KiB granules, so
+// _text still lands on the grid.
+#define IMAGE_BASE_RESIDUE_FIXED 1
+
 /* s390 opts OUT of the generic compile-time-default disabled-pin: the no-KASLR
  * image base is LAYOUT-DEPENDENT (modern high CONFIG_KERNEL_IMAGE_BASE vs
  * pre-v6.8 low identity-mapped, ~4 TiB apart) and CONFIG_KERNEL_IMAGE_BASE is

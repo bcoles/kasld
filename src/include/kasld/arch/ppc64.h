@@ -114,4 +114,8 @@
 // PPC64 does not have mainline KASLR.
 #define KASLR_SUPPORTED 0
 
+// Residue 0, and no KASLR modelled here -- the base is the compile-time
+// default, so the residue is right by definition either way.
+#define IMAGE_BASE_RESIDUE_FIXED 1
+
 #endif /* KASLD_PPC64_H */

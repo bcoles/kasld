@@ -103,4 +103,10 @@
 // RISC-V 32-bit does not have mainline KASLR.
 #define KASLR_SUPPORTED 0
 
+// Same basis as riscv64: the residue is roundup(sizeof .head.text, PAGE_SIZE),
+// not a constructed constant. No KASLR is modelled here, so nothing turns on
+// it today -- declared 0 so the answer matches the reason rather than the
+// consequence.
+#define IMAGE_BASE_RESIDUE_FIXED 0
+
 #endif /* KASLD_RISCV32_H */

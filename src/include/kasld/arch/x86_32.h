@@ -129,4 +129,7 @@
 
 #define KASLR_SUPPORTED 1
 
+// Residue 0: _text is on the KASLR granule, so the grid is plain alignment.
+#define IMAGE_BASE_RESIDUE_FIXED 1
+
 #endif /* KASLD_X86_32_H */
