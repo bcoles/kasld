@@ -4153,9 +4153,13 @@ static void test_render_hardening_text_no_rand_failed_silent(void) {
  * staged before the first test because the sysroot prefix is resolved once and
  * cached, and it must be the whole suite's view rather than the host's: a test
  * that consults /etc/group passes or fails on which ids the machine running it
- * happens to have assigned. Only /etc/group is staged — nothing else here
- * opens a file, so a miss anywhere else would be a new dependency, not a
- * silent fallback to the host. */
+ * happens to have assigned.
+ *
+ * /etc/group is the only file staged, but far from the only one opened: every
+ * JSON, markdown or hardening render calls kasld_gather_vantage(), which reads
+ * about a dozen sources. They all miss against this tree, which is the intended
+ * answer here — the gatherer's own behaviour is exercised in the orchestrator
+ * suite, where each source is staged and asserted in both directions. */
 static char g_root[256];
 
 static void stage_group_file(void) {

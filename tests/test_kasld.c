@@ -30,11 +30,13 @@
 #include "../src/render/hardening.c"
 #include "../src/render/json.c"
 #include "../src/render/markdown.c"
+
 #include "../src/render/oneline.c"
 #include "../src/render/text.c"
 #include "test_harness.h"
 #include "test_orch_common.h"
 #include "test_po_access.h"
+#include "test_sysroot.h"
 
 #include <assert.h>
 #include <limits.h>
@@ -2549,7 +2551,189 @@ static void test_discard_ledger_aggregates_and_reports_truncation(void) {
          !kasld_discard_truncated());
 }
 
+/* =========================================================================
+ * Vantage gathering
+ *
+ * kasld_gather_vantage() turns a dozen filesystem sources into the confinement
+ * picture every renderer reports. Until these tests it was constrained by
+ * nothing: the function could be replaced by a memset and the suite passed. The
+ * vantage tests that existed filled the struct by hand and asserted on the
+ * FORMATTERS -- a different seam, which would pass just as well against a
+ * gatherer that never set a field.
+ *
+ * So these assert on the struct, and in both directions per source. The
+ * negative direction alone is what the suite already had by accident, and it is
+ * the direction a broken gatherer satisfies for free.
+ *
+ * The identity fields (uid/euid/gid/groups) come from getuid() and getgroups(),
+ * not from a file, so no staging reaches them and they are deliberately not
+ * claimed here.
+ * ========================================================================= */
+
+/* A /proc/self/status with the four fields the gatherer reads, in the kernel's
+ * own layout (tab after the colon, hex capability masks). */
+#define TH_STATUS_BODY                                                         \
+  "Name:\tkasld\n"                                                             \
+  "Seccomp:\t2\n"                                                              \
+  "NoNewPrivs:\t1\n"                                                           \
+  "CapEff:\t000001ffffffffff\n"                                                \
+  "CapBnd:\t0000003fffffffff\n"
+
+static void test_vantage_container_absent_then_present(void) {
+  struct kasld_vantage v;
+
+  /* Nothing staged: not a container, and every oracle unreadable. */
+  th_sysroot_clear();
+  kasld_gather_vantage(&v);
+  assert(v.container == NULL);
+  for (int i = 0; i < KASLD_N_ORACLES; i++)
+    assert(v.oracle_readable[i] == 0);
+
+  /* The docker marker is an empty file -- its existence is the signal. */
+  th_sysroot_clear();
+  th_sysroot_write("/.dockerenv", NULL);
+  kasld_gather_vantage(&v);
+  assert(v.container != NULL && strcmp(v.container, "docker") == 0);
+
+  th_sysroot_clear();
+  th_sysroot_write("/run/.containerenv", NULL);
+  kasld_gather_vantage(&v);
+  assert(v.container != NULL && strcmp(v.container, "podman") == 0);
+
+  /* No marker file, but a cgroup naming the runtime. */
+  th_sysroot_clear();
+  th_sysroot_write("/proc/self/cgroup", "0::/kubepods/besteffort/podabc\n");
+  kasld_gather_vantage(&v);
+  assert(v.container != NULL && strcmp(v.container, "kubernetes") == 0);
+
+  /* /proc/1/cgroup is consulted when /proc/self/cgroup says nothing. */
+  th_sysroot_clear();
+  th_sysroot_write("/proc/self/cgroup", "0::/\n");
+  th_sysroot_write("/proc/1/cgroup", "0::/lxc/ct1\n");
+  kasld_gather_vantage(&v);
+  assert(v.container != NULL && strcmp(v.container, "lxc") == 0);
+
+  th_sysroot_clear();
+}
+
+/* detect_container() calls its order deliberate: marker files before cgroup
+ * contents, most-specific runtime first. An order asserted only by a comment is
+ * the kind that changes without anyone deciding to change it, so stage a
+ * disagreement and pin which side wins. */
+static void test_vantage_container_precedence(void) {
+  struct kasld_vantage v;
+
+  /* Marker file vs a cgroup naming something else: the file wins. */
+  th_sysroot_clear();
+  th_sysroot_write("/.dockerenv", NULL);
+  th_sysroot_write("/proc/self/cgroup", "0::/kubepods/besteffort/podabc\n");
+  kasld_gather_vantage(&v);
+  assert(v.container != NULL && strcmp(v.container, "docker") == 0);
+
+  /* Within the cgroup scan, kubepods outranks a docker substring -- a
+   * kubernetes pod's cgroup path routinely contains both. */
+  th_sysroot_clear();
+  th_sysroot_write("/proc/self/cgroup", "0::/kubepods/docker-abc.scope\n");
+  kasld_gather_vantage(&v);
+  assert(v.container != NULL && strcmp(v.container, "kubernetes") == 0);
+
+  th_sysroot_clear();
+}
+
+static void test_vantage_status_fields_absent_then_present(void) {
+  struct kasld_vantage v;
+
+  /* No /proc/self/status: unknown, not "none". The distinction is the whole
+   * point of the -1 sentinel -- a reader must be able to tell an unreadable
+   * source from a permissive one. */
+  th_sysroot_clear();
+  kasld_gather_vantage(&v);
+  assert(v.seccomp == -1);
+  assert(v.no_new_privs == -1);
+  assert(v.have_caps == 0);
+
+  th_sysroot_clear();
+  th_sysroot_write("/proc/self/status", TH_STATUS_BODY);
+  kasld_gather_vantage(&v);
+  assert(v.seccomp == 2); /* filter mode */
+  assert(v.no_new_privs == 1);
+  assert(v.have_caps == 1);
+  assert(v.cap_eff == 0x000001ffffffffffULL); /* hex, not decimal */
+  assert(v.cap_bnd == 0x0000003fffffffffULL);
+
+  /* CapEff present, CapBnd missing: caps are still valid, the bounding set
+   * reads 0 rather than the file being discarded whole. */
+  th_sysroot_clear();
+  th_sysroot_write("/proc/self/status", "CapEff:\t00000000000000ff\n");
+  kasld_gather_vantage(&v);
+  assert(v.have_caps == 1);
+  assert(v.cap_eff == 0xffULL);
+  assert(v.cap_bnd == 0);
+
+  th_sysroot_clear();
+}
+
+static void test_vantage_mac_absent_then_present(void) {
+  struct kasld_vantage v;
+
+  /* Unreadable securityfs is UNKNOWN, never "no LSM": the list is unreachable
+   * under some policies, and reporting that as unconfined would invert the
+   * finding. */
+  th_sysroot_clear();
+  kasld_gather_vantage(&v);
+  assert(v.lsm_list[0] == '\0');
+  assert(v.sec_context[0] == '\0');
+  assert(v.selinux == SELINUX_UNAVAILABLE);
+
+  th_sysroot_clear();
+  th_sysroot_write("/sys/kernel/security/lsm",
+                   "lockdown,capability,yama,apparmor\n");
+  th_sysroot_write("/proc/self/attr/current", "u:r:shell:s0\n");
+  th_sysroot_write("/sys/fs/selinux/enforce", "1\n");
+  kasld_gather_vantage(&v);
+  assert(strcmp(v.lsm_list, "lockdown,capability,yama,apparmor") == 0);
+  assert(strcmp(v.sec_context, "u:r:shell:s0") == 0);
+  assert(v.selinux == SELINUX_ENFORCING);
+  assert(kasld_vantage_mac_enforcing(&v));
+
+  /* Present but permissive: readable, and not enforcing. A source that exists
+   * and says "off" is a different answer from one that is missing. */
+  th_sysroot_clear();
+  th_sysroot_write("/sys/fs/selinux/enforce", "0\n");
+  kasld_gather_vantage(&v);
+  assert(v.selinux == SELINUX_PERMISSIVE);
+  assert(!kasld_vantage_mac_enforcing(&v));
+
+  th_sysroot_clear();
+}
+
+/* The oracle probes are the readable-source row of every report. Each is staged
+ * on its own so a gatherer that filled the array from a single probe -- or off
+ * by one against kasld_oracle_paths[] -- fails rather than averaging out. */
+static void test_vantage_oracle_readable_each_path(void) {
+  struct kasld_vantage v;
+
+  for (int i = 0; i < KASLD_N_ORACLES; i++) {
+    th_sysroot_clear();
+    th_sysroot_write(kasld_oracle_paths[i], "x\n");
+    kasld_gather_vantage(&v);
+    for (int j = 0; j < KASLD_N_ORACLES; j++)
+      assert(v.oracle_readable[j] == (i == j));
+  }
+
+  /* All of them at once, so "exactly one readable" cannot be what passes. */
+  th_sysroot_clear();
+  for (int i = 0; i < KASLD_N_ORACLES; i++)
+    th_sysroot_write(kasld_oracle_paths[i], "x\n");
+  kasld_gather_vantage(&v);
+  for (int i = 0; i < KASLD_N_ORACLES; i++)
+    assert(v.oracle_readable[i] == 1);
+
+  th_sysroot_clear();
+}
+
 int main(void) {
+  th_sysroot_init();
   TEST_SUITE("test_kasld");
   test_init_layout_engine_bounds();
 
@@ -2656,6 +2840,11 @@ int main(void) {
 
   BEGIN_CATEGORY("engine_sync_authoritative");
   RUN(test_engine_sync_projects_all_fields);
+  RUN(test_vantage_container_absent_then_present);
+  RUN(test_vantage_container_precedence);
+  RUN(test_vantage_status_fields_absent_then_present);
+  RUN(test_vantage_mac_absent_then_present);
+  RUN(test_vantage_oracle_readable_each_path);
   RUN(test_discard_ledger_aggregates_and_reports_truncation);
   RUN(test_discard_project_engine_classifies_correctly);
   RUN(test_discard_project_engine_conflict_without_constraint);
@@ -2666,5 +2855,6 @@ int main(void) {
   RUN(test_engine_sync_module_band_never_degenerate);
   RUN(test_engine_sync_module_band_follows_page_offset);
 
+  th_sysroot_fini();
   return TEST_DONE();
 }

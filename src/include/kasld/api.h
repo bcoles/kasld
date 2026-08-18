@@ -1455,28 +1455,28 @@ enum kasld_confidence {
   /* KERNEL_TEXT — mis-tagging it KERNEL_TEXT lands the base a head gap    */    \
   /* below _text on arm64/loongarch64 (checked by tests/check-text-region).*/    \
   X(REGION_KERNEL_TEXT, "kernel_text", "text", K_OPEN)                           \
-  /* KERNEL_TEXT vs KERNEL_TEXT_BAND is the same PROVENANCE split as MODULE */                                                                              \
-  /* vs MODULE_BAND below, and exists for the same reason: the windows */                                                                              \
+  /* KERNEL_TEXT vs KERNEL_TEXT_BAND is the same PROVENANCE split as MODULE */   \
+  /* vs MODULE_BAND below, and exists for the same reason: the windows */        \
   /* overlap. KERNEL_TEXT means the source KNOWS the address is in the image     \
    */                                                                            \
-  /* -- a resolved symbol, a sampled instruction pointer, an ELF phdr, a */                                                                              \
-  /* faulting IP. KERNEL_TEXT_BAND means it merely fell inside the */                                                                              \
-  /* admissible text window, which is the KASLR-possible range rather than */                                                                              \
-  /* the image's extent and on most arches contains the linear map, the */                                                                              \
-  /* module band, or both. On ppc32 KASLR relocates the image throughout */                                                                              \
-  /* lowmem, so a bare pointer there is genuinely inseparable from a kernel */                                                                              \
-  /* stack by range alone. */                                                                              \
+  /* -- a resolved symbol, a sampled instruction pointer, an ELF phdr, a */      \
+  /* faulting IP. KERNEL_TEXT_BAND means it merely fell inside the */            \
+  /* admissible text window, which is the KASLR-possible range rather than */    \
+  /* the image's extent and on most arches contains the linear map, the */       \
+  /* module band, or both. On ppc32 KASLR relocates the image throughout */      \
+  /* lowmem, so a bare pointer there is genuinely inseparable from a kernel */   \
+  /* stack by range alone. */                                                    \
   /*                                                                         */  \
-  /* Load-bearing because an interior-image sample implies image_base <= */                                                                              \
-  /* sample: a non-image address below the real _text carves the truth out */                                                                              \
-  /* of the window that promises to contain it. BAND is therefore absent */                                                                              \
-  /* from is_kernel_image_region(), so no image-base rule can read it */                                                                              \
-  /* by accident; range_from_interior opts in explicitly and caps the bound */                                                                              \
-  /* below the sound floor. */                                                                              \
+  /* Load-bearing because an interior-image sample implies image_base <= */      \
+  /* sample: a non-image address below the real _text carves the truth out */    \
+  /* of the window that promises to contain it. BAND is therefore absent */      \
+  /* from is_kernel_image_region(), so no image-base rule can read it */         \
+  /* by accident; range_from_interior opts in explicitly and caps the bound */   \
+  /* below the sound floor. */                                                   \
   /*                                                                         */  \
   /* Emit BAND when the region rests on a range test --                          \
    * kasld_addr_classify()*/                                                     \
-  /* picks it automatically wherever the windows are not exclusive. */                                                                              \
+  /* picks it automatically wherever the windows are not exclusive. */           \
   X(REGION_KERNEL_TEXT_BAND, "kernel_text_band", "text", K_OPEN)                 \
   X(REGION_KERNEL_DATA, "kernel_data", "data", K_OPEN)                           \
   X(REGION_KERNEL_BSS, "kernel_bss", "bss", K_OPEN)                              \
@@ -1512,25 +1512,25 @@ enum kasld_confidence {
    */                                                                            \
   /* entry, an iomem line. DIRECTMAP_BAND means only that the value landed in    \
    */                                                                            \
-  /* the window kasld_addr_is_directmap() draws, which is "below the text */                                                                              \
-  /* window" rather than "in the linear map", and so also spans vmalloc and */                                                                              \
-  /* vmemmap wherever those are not separately bounded. */                                                                              \
+  /* the window kasld_addr_is_directmap() draws, which is "below the text */     \
+  /* window" rather than "in the linear map", and so also spans vmalloc and */   \
+  /* vmemmap wherever those are not separately bounded. */                       \
   /*                                                                          */ \
-  /* Not narrowable to the compile-time VMALLOC_BASE_*: under */                                                                              \
+  /* Not narrowable to the compile-time VMALLOC_BASE_*: under */                 \
   /* CONFIG_RANDOMIZE_MEMORY the x86_64 bases are laid out sequentially from     \
    */                                                                            \
   /* the defaults, but the linear-map region SHRINKS to the machine's memory     \
    */                                                                            \
-  /* size (arch/x86/mm/kaslr.c), so vmalloc_base sits far below its own */                                                                              \
-  /* default on a small-memory host and a window closed at that constant */                                                                              \
-  /* would swallow real vmalloc addresses. */                                                                              \
+  /* size (arch/x86/mm/kaslr.c), so vmalloc_base sits far below its own */       \
+  /* default on a small-memory host and a window closed at that constant */      \
+  /* would swallow real vmalloc addresses. */                                    \
   /*                                                                          */ \
-  /* Load-bearing because rules bound Q_PAGE_OFFSET from a linear-map */                                                                              \
+  /* Load-bearing because rules bound Q_PAGE_OFFSET from a linear-map */         \
   /* address; a vmalloc pointer arriving as DIRECTMAP moves that bound in the    \
    */                                                                            \
   /* unsound direction. Emitted only by kasld_addr_classify(); the components    \
    */                                                                            \
-  /* that KNOW what they leaked keep saying DIRECTMAP. */                                                                              \
+  /* that KNOW what they leaked keep saying DIRECTMAP. */                        \
   X(REGION_DIRECTMAP_BAND, "directmap_band", "directmap", K_VIRT)                \
   X(REGION_PAGE_OFFSET, "virt_page_offset", "pageoffset", K_PAGEOFFSET)          \
   X(REGION_VMALLOC, "vmalloc", "directmap", K_VIRT)                              \

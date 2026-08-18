@@ -1,0 +1,120 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-vantage-coverage — every fact source the vantage gatherer reads is
+# staged by a test.
+#
+# kasld_gather_vantage() turns a dozen filesystem sources into the confinement
+# picture every renderer reports. For a long time nothing constrained it:
+# replacing the whole function with a memset left the suite green, because the
+# only tests naming "vantage" filled the struct by hand and asserted on the
+# FORMATTERS. Every source was exercised answering "nothing here" -- which is
+# the answer a broken gatherer gives for free -- and never answering "found it".
+#
+# The tests that close that are per-source and two-directional. This keeps them
+# that way. A source added to the gatherer without a fixture would slip back
+# into the old shape silently: the suite would still pass, and it would still
+# pass if the new probe never worked.
+#
+# So: collect the absolute paths the gatherer and its helpers read, plus the
+# oracle table, and require each to appear in the test file that stages them.
+#
+# WHAT THIS DOES NOT PROVE: that the path is meaningfully asserted, only that a
+# test mentions it. A fixture staging a file and checking nothing would satisfy
+# this. Grep cannot tell staging from decoration, and claiming otherwise would
+# be worse than the narrower promise -- the same limit check-covering-consumers
+# states about itself. The two-directional assertions are the unit tests' job;
+# this is here so a new source cannot arrive without one being written.
+#
+# Pure text, so it needs no build.
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+ORCH="$ROOT/src/orchestrator.c"
+TESTS="$ROOT/tests/test_kasld.c"
+
+if [ -t 1 ]; then
+  RED=$(printf '\033[31m')
+  GREEN=$(printf '\033[32m')
+  RESET=$(printf '\033[0m')
+else
+  RED=
+  GREEN=
+  RESET=
+fi
+
+fail=0
+note() {
+  printf '%scheck-vantage-coverage: FAIL%s — %s\n' "$RED" "$RESET" "$1" >&2
+  fail=1
+}
+
+for f in "$ORCH" "$TESTS"; do
+  [ -f "$f" ] || {
+    note "$(basename "$f") is missing"
+    exit 1
+  }
+done
+
+# The gatherer plus the helpers it reads through: one span, from the first
+# helper to the close of kasld_gather_vantage(). A helper moved outside that
+# span would go unseen, so the source count is printed for a reader to weigh
+# against the function.
+span=$(awk '/^static const char \*detect_container/ { inspan = 1 }
+            inspan { print }
+            /^void kasld_gather_vantage/ { tail = 1 }
+            tail && /^}$/ { exit }' "$ORCH")
+
+# The oracle table lives apart from the gatherer and is read by index, never
+# named at the call, so it is collected separately and allowed a different
+# proof below.
+oracles=$(sed -n '/^const char \*const kasld_oracle_paths\[/,/};/p' "$ORCH" |
+  grep -oE '"/[a-z0-9_./]+"' | tr -d '"' | sort -u)
+literals=$(printf '%s\n' "$span" | grep -oE '"/[a-z0-9_./]+"' | tr -d '"' |
+  sort -u)
+paths=$(printf '%s\n%s\n' "$literals" "$oracles" | sort -u | sed '/^$/d')
+
+[ -n "$literals" ] || {
+  note "read no path literals out of the gatherer; the extraction is broken"
+  exit 1
+}
+
+# Staged by walking kasld_oracle_paths[], which is how a test covers all four
+# without naming any. Accepted ONLY for members of that table -- allowing it for
+# every path would make the whole check below vacuous, which is exactly what an
+# earlier draft of this guard did.
+oracle_loop=0
+if grep -q 'kasld_oracle_paths\[i\]' "$TESTS"; then
+  oracle_loop=1
+fi
+
+n=0
+# shellcheck disable=SC2013  # paths have no spaces, and piping into `while
+# read` would run the loop in a subshell where note()'s fail=1 is lost.
+for p in $paths; do
+  n=$((n + 1))
+  grep -qF "$p" "$TESTS" && continue
+  if [ "$oracle_loop" -eq 1 ] && printf '%s\n' "$oracles" | grep -qxF "$p"; then
+    continue
+  fi
+  note "$p is read by the vantage gatherer but no test stages it"
+done
+
+# The suite must actually CALL the gatherer. Matching the bare name would count
+# a mention in a comment -- including this file's own explanation of why the
+# call matters -- so require the argument.
+grep -q 'kasld_gather_vantage(&' "$TESTS" ||
+  note "no test calls kasld_gather_vantage(); the struct-filling tests do not constrain it"
+
+# Absence has to be asserted too. A suite that only ever stages files would pass
+# against a gatherer that reported everything present.
+grep -q 'th_sysroot_clear' "$TESTS" ||
+  note "no test clears the staged tree; the absent direction is unasserted"
+
+if [ "$fail" -ne 0 ]; then
+  exit 1
+fi
+printf '%scheck-vantage-coverage: OK%s (%s vantage fact sources, each staged by a test)\n' \
+  "$GREEN" "$RESET" "$n"

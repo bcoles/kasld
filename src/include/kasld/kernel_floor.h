@@ -154,6 +154,17 @@ static inline unsigned long kasld_page_offset_floor(void) {
   {
     unsigned long ts = 0;
     if (kasld__ts_cached(&ts) == KASLD_TS_EXACT) {
+#if TASK_SIZE_IS_PAGE_OFFSET
+      /* The boundary IS the linear-map base on this architecture, so the
+       * measurement answers directly and the candidate list is not consulted:
+       * exact on any split, including one the list does not name. Accepted only
+       * within the admissible band, mirroring the `found` test below — a
+       * boundary outside it did not come from a kernel this header describes,
+       * and the compile-time PAGE_OFFSET is the safer answer. */
+      if (ts >= (unsigned long)PAGE_OFFSET_MIN &&
+          ts <= (unsigned long)PAGE_OFFSET_MAX)
+        cached = ts;
+#else
       static const unsigned long cands[] = PAGE_OFFSET_CANDIDATES;
       unsigned long best = 0;
       int found = 0;
@@ -173,6 +184,7 @@ static inline unsigned long kasld_page_offset_floor(void) {
        * candidate is the unsafe direction. */
       if (found)
         cached = best;
+#endif /* TASK_SIZE_IS_PAGE_OFFSET */
     }
   }
 #endif
