@@ -396,6 +396,11 @@ struct map_region {
    * A contained region is drawn indented inside its container's bookends
    * instead of claiming a band of its own. */
   int parent;
+  /* 1 = `end` was COMPUTED from the resolved base and the kernel's own RAM
+   * extent rather than observed; 0 = `end` is an observed or architectural
+   * edge. Every initialiser states it positionally, so a new region cannot
+   * inherit the claim by omission. */
+  int extent_derived;
 };
 
 /* Total order, so the column is byte-identical run to run. Regions really can
@@ -516,6 +521,71 @@ static void print_virtual_layout(void) {
    * "base proven" either way. */
   int dmap_base_pinned = (po_lo == po_hi);
 
+  /* The direct map's reach, DERIVED rather than observed: the linear mapping
+   * covers physical RAM, so it spans max_pfn pages from its base. A component
+   * used to emit this as though it were a leaked address, computed from the
+   * compile-time PAGE_OFFSET -- which the engine then read back as evidence for
+   * that same constant. Taken here instead, from the base the engine resolved,
+   * it reaches the screen without ever entering the evidence set, and it holds
+   * on a kernel whose split differs from this build's, which the constant never
+   * could.
+   *
+   * Gated on a PINNED base. Measured from a floor that is itself a lower bound,
+   * the ceiling would carry both uncertainties while reading as a measurement.
+   * SF_PHYS_MAX_PFN is the kernel's own direct-map extent (/proc/zoneinfo),
+   * taken at or above the sound floor. Each step is guarded against wrap: a
+   * 32-bit highmem span added to a high base wraps the word and would draw a
+   * ceiling BELOW the floor. */
+  unsigned long dmap_end = dmap_base;
+  int dmap_extent_derived = 0;
+  if (dmap_base_pinned) {
+    unsigned long max_pfn = 0, memtotal = 0;
+    int highmem = 0;
+    for (int i = 0; i < num_scalar_facts; i++) {
+      if (scalar_facts[i].fact == SF_PHYS_MAX_PFN &&
+          scalar_facts[i].conf >= CONF_INFERRED)
+        max_pfn = scalar_facts[i].value;
+      else if (scalar_facts[i].fact == SF_PHYS_MEMTOTAL)
+        memtotal = scalar_facts[i].value;
+      else if (scalar_facts[i].fact == SF_PHYS_LOWMEM)
+        highmem = 1;
+    }
+#if ULONG_MAX <= 0xFFFFFFFFul
+    /* max_pfn spans ALL RAM, highmem included, but a 32-bit linear map covers
+     * lowmem only -- so on a highmem kernel it is not the mapping's reach and
+     * would draw a ceiling past where the direct map really ends. LowTotal
+     * would be the right span, but it is fakeable inside a container (lxcfs
+     * reports the cgroup limit), which is why highmem_32bit_bound caps its own
+     * use of it below the sound floor; a drawn band should not rest on it
+     * either.
+     *
+     * So derive only on a kernel proven to have no highmem: SF_PHYS_LOWMEM is
+     * emitted ONLY when HighTotal > 0, and SF_PHYS_MEMTOTAL confirms meminfo
+     * was readable at all -- without that second test an unreadable
+     * /proc/meminfo would look identical to a no-highmem kernel. With no
+     * highmem, all RAM is linearly mapped and max_pfn is the reach exactly. */
+    if (!memtotal || highmem)
+      max_pfn = 0;
+#else
+    (void)memtotal;
+    (void)highmem;
+#endif
+    if (max_pfn) {
+      unsigned long span = max_pfn * PAGE_SIZE;
+      if (span / PAGE_SIZE == max_pfn /* no multiply overflow */
+#if PHYS_OFFSET
+          && span > (unsigned long)PHYS_OFFSET
+#endif
+      ) {
+        unsigned long reach = span - (unsigned long)PHYS_OFFSET;
+        if (reach - 1 <= ULONG_MAX - dmap_base) {
+          dmap_end = dmap_base + reach - 1;
+          dmap_extent_derived = 1;
+        }
+      }
+    }
+  }
+
   /* Kernel text is mapped THROUGH the direct map on coupled arches -- the image
    * sits at PAGE_OFFSET + a small offset, inside the linear mapping, not beside
    * it. Record that as containment rather than trying to stack the two as
@@ -536,16 +606,17 @@ static void print_virtual_layout(void) {
                                      vmod_hi,
                                      0,
                                      MR_MODULES,
-                                     MR_NONE};
-  regions[n++] =
-      (struct map_region){layout.virt_image_base_min,
-                          layout.virt_image_base_max,
-                          "kernel text",
-                          vtext_lo,
-                          vtext_hi,
-                          0,
-                          MR_KERNEL_TEXT,
-                          text_in_directmap ? MR_DIRECTMAP : MR_NONE};
+                                     MR_NONE,
+                                     0};
+  regions[n++] = (struct map_region){layout.virt_image_base_min,
+                                     layout.virt_image_base_max,
+                                     "kernel text",
+                                     vtext_lo,
+                                     vtext_hi,
+                                     0,
+                                     MR_KERNEL_TEXT,
+                                     text_in_directmap ? MR_DIRECTMAP : MR_NONE,
+                                     0};
 
   /* The direct map is shown whenever its base is known. Use the base as both
      start and end — we know the mapping begins there but don't know its true
@@ -556,8 +627,9 @@ static void print_virtual_layout(void) {
   if (dmap_base &&
       (text_in_directmap || dmap_base != layout.virt_image_base_min)) {
     regions[n++] =
-        (struct map_region){dmap_base, dmap_base, "direct map", vdmap_lo,
-                            vdmap_hi,  1,         MR_DIRECTMAP, MR_NONE};
+        (struct map_region){dmap_base,    dmap_end, "direct map",
+                            vdmap_lo,     vdmap_hi, !dmap_extent_derived,
+                            MR_DIRECTMAP, MR_NONE,  dmap_extent_derived};
   }
 
   /* A band must contain the region it names, so it must contain every address
@@ -698,6 +770,12 @@ static void print_virtual_layout(void) {
                r->id == MR_DIRECTMAP && !dmap_base_pinned ? "is a lower bound"
                                                           : "guaranteed",
                open_top ? "" : "; extent unknown");
+    else if (r->extent_derived)
+      /* Says where the ceiling came from. It is not a leak and not a bound the
+       * engine holds; it is arithmetic on the resolved base, and the reader is
+       * told so rather than left to assume the region was observed end to end.
+       */
+      snprintf(tail, sizeof(tail), " (base guaranteed; extent derived)");
     else if (pinned)
       snprintf(tail, sizeof(tail), " (pinned)");
     open_top = 0;

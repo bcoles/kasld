@@ -1278,6 +1278,106 @@ static void test_render_static_base_prefers_engine_window(void) {
  * below an address observed inside it at 0x81d44600 -- and the map drew the
  * constant as the region's floor, ABOVE an address it had just proven was
  * inside the region, labelled "base proven". */
+/* The direct map's ceiling is DERIVED at display time -- the resolved base plus
+ * the kernel's own RAM span -- under gates that cannot be satisfied by
+ * accident. Each is asserted on its own because each fails SILENTLY: a ceiling
+ * computed from the wrong span still draws a perfectly plausible band.
+ *
+ *   base PINNED      -- measured from a floor that is itself a lower bound, the
+ *                       ceiling would carry both uncertainties while reading as
+ *                       a measurement.
+ *   highmem RULED OUT -- max_pfn spans ALL RAM, but a 32-bit linear map covers
+ *                       lowmem only, so on a highmem kernel it names a ceiling
+ *                       past where the mapping really ends (32-bit only).
+ *   meminfo READ      -- without it an unreadable /proc/meminfo is
+ *                       indistinguishable from a kernel that has no highmem.
+ *
+ * Every value is an offset from this arch's own VAS floor, so the test states
+ * real addresses on the arch under test and cannot overflow a 32-bit word. */
+static void test_render_map_directmap_extent_derived(void) {
+  struct summary s;
+  extern int verbose;
+  unsigned long sv_po = layout.virt_page_offset;
+  unsigned long sv_min = layout.virt_page_offset_min;
+  unsigned long sv_max = layout.virt_page_offset_max;
+  unsigned long sv_bmin = layout.virt_image_base_min;
+  unsigned long sv_bmax = layout.virt_image_base_max;
+
+  unsigned long step = 0x100000ul;
+  unsigned long base = layout.virt_kernel_vas_start + step;
+  /* Enough pages to clear PHYS_OFFSET, plus a reach that CONTAINS the text band
+   * placed below. On a coupled arch the image sits inside the linear map, so a
+   * ceiling drawn under it would describe a layout that cannot exist and the
+   * map declines to draw the top edge at all -- which fails on those arches
+   * only, the exact shape of an assertion that passes because of what one host
+   * is. */
+  unsigned long pfn =
+      ((unsigned long)PHYS_OFFSET / PAGE_SIZE) + (step * 20 / PAGE_SIZE);
+  unsigned long reach = pfn * PAGE_SIZE - (unsigned long)PHYS_OFFSET;
+  unsigned long expect_end = base + reach - 1;
+  char abuf[32];
+
+  snprintf(abuf, sizeof(abuf), "0x%lx", expect_end);
+
+  /* --- pinned base, meminfo read, no highmem: the ceiling is derived. --- */
+  reset_results();
+  reset_comp_logs();
+  num_scalar_facts = 0;
+  memset(&s, 0, sizeof(s));
+  scalar_facts[num_scalar_facts].fact = SF_PHYS_MAX_PFN;
+  scalar_facts[num_scalar_facts].value = pfn;
+  scalar_facts[num_scalar_facts++].conf = CONF_PARSED;
+  scalar_facts[num_scalar_facts].fact = SF_PHYS_MEMTOTAL;
+  scalar_facts[num_scalar_facts].value = reach;
+  scalar_facts[num_scalar_facts++].conf = CONF_PARSED;
+
+  layout.virt_page_offset_min = base;
+  layout.virt_page_offset_max = base; /* pinned */
+  layout.virt_page_offset = base;
+  layout.virt_image_base_min = layout.virt_kernel_vas_start + step * 10;
+  layout.virt_image_base_max = layout.virt_image_base_min;
+  s.kaslr.vslots = 60;
+  s.kaslr.vbits = 6;
+  verbose = 1;
+  set_render_mode(0, 0, 0);
+  capture_stdout(wrap_render_summary, &s);
+  assert(strstr(render_cap, "extent derived") != NULL);
+  assert(strstr(render_cap, abuf) != NULL);
+
+  /* --- same facts, base only a lower bound: no derivation. --- */
+  layout.virt_page_offset_max = base + step;
+  capture_stdout(wrap_render_summary, &s);
+  assert(strstr(render_cap, "extent derived") == NULL);
+  assert(strstr(render_cap, abuf) == NULL);
+  layout.virt_page_offset_max = base;
+
+#if ULONG_MAX <= 0xFFFFFFFFul
+  /* --- highmem present: max_pfn is not the linear map's reach. --- */
+  scalar_facts[num_scalar_facts].fact = SF_PHYS_LOWMEM;
+  scalar_facts[num_scalar_facts].value = reach;
+  scalar_facts[num_scalar_facts++].conf = CONF_PARSED;
+  capture_stdout(wrap_render_summary, &s);
+  assert(strstr(render_cap, "extent derived") == NULL);
+  num_scalar_facts--;
+
+  /* --- meminfo unreadable: indistinguishable from no highmem, so decline. ---
+   */
+  scalar_facts[1].fact = SF_PHYS_MAX_PFN; /* drop the MEMTOTAL witness */
+  scalar_facts[1].value = pfn;
+  capture_stdout(wrap_render_summary, &s);
+  assert(strstr(render_cap, "extent derived") == NULL);
+#endif
+
+  verbose = 0;
+  set_render_mode(0, 0, 0);
+  num_scalar_facts = 0;
+  layout.virt_page_offset = sv_po;
+  layout.virt_page_offset_min = sv_min;
+  layout.virt_page_offset_max = sv_max;
+  layout.virt_image_base_min = sv_bmin;
+  layout.virt_image_base_max = sv_bmax;
+}
+
 static void test_render_map_directmap_base_from_engine(void) {
   struct summary s;
   reset_results();
@@ -4285,6 +4385,7 @@ int main(void) {
   RUN(test_render_map_directmap_contains_text);
   RUN(test_render_static_base_prefers_engine_window);
   RUN(test_render_map_directmap_base_from_engine);
+  RUN(test_render_map_directmap_extent_derived);
   RUN(test_render_map_overlapped_band_states_its_ceiling);
   RUN(test_render_map_flag);
   RUN(test_render_footer_hint_is_last);
