@@ -718,6 +718,7 @@ lint :
 	@$(TEST_DIR)/check-covering-consumers
 	@$(TEST_DIR)/check-discard-ledger
 	@$(TEST_DIR)/check-discard-accounting
+	@$(TEST_DIR)/check-discard-report
 	@$(TEST_DIR)/check-vantage-coverage
 	@$(TEST_DIR)/check-test-staging
 	@$(TEST_DIR)/check-truncation

@@ -1,0 +1,254 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-discard-report — what the discard ledger SAYS, in both renderings, with
+# a store actually full.
+#
+# A run that discarded evidence resolved from a subset of what it had, so the
+# residual entropy it reports is an upper bound rather than the answer. The
+# ledger is how a reader learns that, and for a full fixed-size store it also
+# prints which store filled and what filling it cost -- eleven such sentences,
+# one per store.
+#
+# Nothing read them. check-discard-accounting reads `total` and `kinds` out of
+# the JSON; check-discard-ledger requires every DSRC_ macro to HAVE an arm in
+# discard_capacity_detail(). Neither looks at what the tool prints, so all
+# eleven arms could return the empty string with the suite green. And the only
+# test touching DISCARD_CAPACITY called kasld_discard_record() directly -- the
+# alarm tested by its own test button, never by a fire.
+#
+# So: overflow the real binary and read both channels.
+#
+#   1. A component emits more scalar facts than MAX_SCALAR_FACTS holds. The
+#      overflow must appear as capacity/scalar-facts, with its detail sentence,
+#      in --verbose text and in -j, at the same total.
+#   2. The ledger is itself bounded (MAX_DISCARDS distinct kinds). Driven past
+#      that it stops listing kinds but promises the TOTAL stays complete. That
+#      promise is the reason to trust the number at all -- an undercounting
+#      ledger reads as an authoritative "this much was lost" -- so it is
+#      measured, not taken.
+#   3. More executables than MAX_COMPONENTS: the one capacity source a reader is
+#      most likely to hit by accident, and the only one whose detail makes a
+#      claim about what ran.
+#
+# THE COUNTS ARE DIFFERENTIAL, and deliberately. The absolute overflow is
+# (emitted - MAX_SCALAR_FACTS) only when nothing else populated the store, which
+# is true of this host's build and NOT a property of the tool:
+# inject_kaslr_defaults() adds two facts under #if !KASLR_SUPPORTED. Asserting
+# the absolute count would be asserting what this build happens to lack. Two
+# runs differing by a known delta must differ in discards by exactly that delta,
+# whatever the store already held -- which is the claim worth making anyway,
+# that the counter keeps counting past the cap.
+#
+# WHAT THIS DOES NOT COVER: eight of the eleven capacity sources. The engine's
+# seven arrive through discard_project_engine() from saturation bits that no
+# component input can force, and component-log needs an allocation failure.
+# Three sources are reachable from outside the binary; those three are these.
+#
+# Needs the built binary; run by `make lint` after it exists.
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+HDR="$ROOT/src/include/kasld/internal.h"
+
+if [ -t 1 ]; then
+  RED=$(printf '\033[31m')
+  GREEN=$(printf '\033[32m')
+  RESET=$(printf '\033[0m')
+else
+  RED=
+  GREEN=
+  RESET=
+fi
+
+fail=0
+note() {
+  printf '%scheck-discard-report: FAIL%s — %s\n' "$RED" "$RESET" "$1" >&2
+  fail=1
+}
+
+# Read the caps from the header rather than restating them: a bump that this
+# guard did not follow would leave it emitting under a raised cap, overflowing
+# nothing, and passing.
+#
+# cap() only prints. It cannot report its own failure: a command substitution
+# runs in a subshell, so an exit there ends the subshell and returns to a script
+# that carries on with an empty value -- which is how a guard comes to announce
+# FAIL and exit 0. The values are checked below, in the shell that can act.
+cap() { grep -E "^#define $1 [0-9]+" "$HDR" | awk '{print $3}'; }
+MAX_SCALARS=$(cap MAX_SCALAR_FACTS)
+MAX_DISC=$(cap MAX_DISCARDS)
+MAX_COMP=$(cap MAX_COMPONENTS)
+
+for pair in "MAX_SCALAR_FACTS:$MAX_SCALARS" "MAX_DISCARDS:$MAX_DISC" \
+  "MAX_COMPONENTS:$MAX_COMP"; do
+  case ${pair#*:} in
+  '' | *[!0-9]*)
+    note "could not read ${pair%%:*} from internal.h as a number"
+    exit 1
+    ;;
+  esac
+done
+
+# Select the host build by its triple, as check-discard-accounting does: an
+# i686 cross build runs fine on an x86_64 host and then declines the analysis.
+BIN=
+for t in "$(cc -dumpmachine 2>/dev/null)" "$(${CC:-cc} -dumpmachine 2>/dev/null)"; do
+  [ -n "$t" ] || continue
+  if [ -x "$ROOT/build/$t/kasld" ]; then
+    BIN=$ROOT/build/$t/kasld
+    break
+  fi
+done
+[ -n "$BIN" ] || {
+  printf 'check-discard-report: SKIP (no native kasld build; run make first)\n'
+  exit 0
+}
+
+TMP=$(mktemp -d) || exit 1
+trap 'rm -rf "$TMP"' EXIT INT TERM
+
+# --- helpers ----------------------------------------------------------------
+# The entries array is one object per line, so a source's count reads out
+# without a JSON parser.
+json_count() { # <json> <reason> <source>
+  printf '%s\n' "$1" |
+    sed -n "s/.*\"reason\": \"$2\", \"source\": \"$3\", \"count\": \([0-9]*\).*/\1/p" |
+    head -1
+}
+json_field() { # <json> <field>
+  printf '%s\n' "$1" | sed -n '/"discarded"/,/^  }/p' |
+    sed -n "s/.*\"$2\": \([0-9a-z]*\).*/\1/p" | head -1
+}
+# The text row is "  <reason>  <source>  xN — <detail>".
+text_count() { # <text> <reason> <source>
+  printf '%s\n' "$1" | sed -n "s/^  $2  *$3  *x\([0-9]*\).*/\1/p" | head -1
+}
+
+run_json() { KASLD_COMPONENT_DIR="$1" "$BIN" -q -j 2>/dev/null; }
+# shellcheck disable=SC2069  # the order is the point: stderr is redirected
+# to the caller's stdout FIRST, then stdout is discarded, so the capture
+# holds the diagnostics channel alone. The report is written to stderr.
+run_text() { KASLD_COMPONENT_DIR="$1" "$BIN" -v 2>&1 >/dev/null; }
+
+# --- 1. a full scalar-fact store, both channels -----------------------------
+mk_flood() { # <dir> <n>
+  mkdir -p "$1"
+  {
+    echo '#!/bin/sh'
+    i=0
+    while [ "$i" -lt "$2" ]; do
+      echo 'echo "S page_size conf=parsed value=0x1000"'
+      i=$((i + 1))
+    done
+    echo 'exit 0'
+  } >"$1/scalarflood"
+  chmod +x "$1/scalarflood"
+}
+
+DELTA=20
+N1=$((MAX_SCALARS + 36))
+N2=$((N1 + DELTA))
+mk_flood "$TMP/f1" "$N1"
+mk_flood "$TMP/f2" "$N2"
+
+j1=$(run_json "$TMP/f1")
+j2=$(run_json "$TMP/f2")
+t1=$(run_text "$TMP/f1")
+
+c1=$(json_count "$j1" capacity scalar-facts)
+c2=$(json_count "$j2" capacity scalar-facts)
+if [ -z "$c1" ] || [ -z "$c2" ]; then
+  note "emitting $N1 scalar facts into a $MAX_SCALARS-slot store produced no capacity/scalar-facts entry"
+  exit 1
+fi
+if [ "$((c2 - c1))" -ne "$DELTA" ]; then
+  note "$DELTA more emitted facts changed the discard count by $((c2 - c1)), not $DELTA"
+  printf '  The counter stops counting once the store is full.\n' >&2
+fi
+[ "$c1" -ge 36 ] ||
+  note "overflow of a $MAX_SCALARS-slot store by 36 reported only $c1 discards"
+
+# The same run, rendered for a human, must agree with the machine copy.
+tc=$(text_count "$t1" capacity scalar-facts)
+[ -n "$tc" ] ||
+  note "--verbose printed no capacity/scalar-facts row for the run -j reports one for"
+[ "$tc" = "$c1" ] ||
+  note "--verbose says x$tc where -j says $c1 for capacity/scalar-facts"
+
+jt=$(json_field "$j1" total)
+printf '%s\n' "$t1" | grep -q "^\[discarded\] $jt item(s) left the pipeline" ||
+  note "the --verbose header does not report the total -j gives as $jt"
+
+# The detail sentence is the whole reason the text channel exists.
+printf '%s\n' "$t1" | grep -q 'scalar-facts.*— MAX_SCALAR_FACTS reached' ||
+  note "the capacity row prints no detail; discard_capacity_detail() reached nobody"
+
+# --- 2. the ledger past its own capacity ------------------------------------
+# Each component emits one unknown-region and one out-of-bounds record, so it
+# contributes two kinds (parse and bounds) keyed by its own name.
+mk_rejects() { # <dir> <ncomp>
+  mkdir -p "$1"
+  i=1
+  while [ "$i" -le "$2" ]; do
+    {
+      echo '#!/bin/sh'
+      echo 'echo "V nosuchregion pos=base conf=parsed lo=0xffffffff81000000"'
+      echo 'echo "V vmalloc pos=base conf=parsed lo=0x1000"'
+      echo 'exit 0'
+    } >"$1/c$i"
+    chmod +x "$1/c$i"
+    i=$((i + 1))
+  done
+}
+
+NC1=$((MAX_DISC / 2 + 8)) # 2 kinds each, so comfortably past the cap
+NC2=$((NC1 + 5))
+mk_rejects "$TMP/r1" "$NC1"
+mk_rejects "$TMP/r2" "$NC2"
+
+jr1=$(run_json "$TMP/r1")
+jr2=$(run_json "$TMP/r2")
+tr1=$(run_text "$TMP/r1")
+
+k=$(json_field "$jr1" kinds)
+tr=$(json_field "$jr1" truncated)
+tot1=$(json_field "$jr1" total)
+tot2=$(json_field "$jr2" total)
+
+[ "$tr" = "true" ] ||
+  note "$((NC1 * 2)) kinds into a $MAX_DISC-kind ledger did not set truncated"
+[ "$k" = "$MAX_DISC" ] ||
+  note "kinds=$k with the ledger full; expected the cap, $MAX_DISC"
+# The promise: the breakdown stops, the count does not.
+if [ "$((tot2 - tot1))" -ne 10 ]; then
+  note "past the cap, 5 more components changed the total by $((tot2 - tot1)), not 10"
+  printf '  A full ledger that stops counting reports a floor as if it were the figure.\n' >&2
+fi
+printf '%s\n' "$tr1" | grep -q "ledger full at $MAX_DISC distinct kinds" ||
+  note "--verbose does not say the breakdown is incomplete when the ledger is full"
+
+# --- 3. more executables than MAX_COMPONENTS --------------------------------
+mkdir -p "$TMP/many"
+i=1
+while [ "$i" -le "$((MAX_COMP + 1))" ]; do
+  printf '#!/bin/sh\nexit 0\n' >"$TMP/many/c$(printf '%04d' "$i")"
+  chmod +x "$TMP/many/c$(printf '%04d' "$i")"
+  i=$((i + 1))
+done
+
+jm=$(run_json "$TMP/many")
+tm=$(run_text "$TMP/many")
+cm=$(json_count "$jm" capacity components)
+[ "$cm" = "1" ] ||
+  note "$((MAX_COMP + 1)) executables in the component directory gave capacity/components count '$cm', expected 1"
+printf '%s\n' "$tm" | grep -q 'components.*— MAX_COMPONENTS reached' ||
+  note "the components capacity row prints no detail"
+
+if [ "$fail" -ne 0 ]; then
+  exit 1
+fi
+printf '%scheck-discard-report: OK%s (scalar store, ledger cap, component cap — text and json agree)\n' \
+  "$GREEN" "$RESET"
