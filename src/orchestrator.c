@@ -839,7 +839,8 @@ const struct kasld_cap_leak kasld_cap_leaks[KASLD_N_CAP_LEAKS] = {
     {39, "CAP_BPF", "BPF verifier-log pointer"},
 };
 
-/* Detect whether we run inside a container and, if so, the runtime. All reads
+/* Detect whether the run is inside a container and, if so, the runtime. All
+ * reads
  * are unprivileged and SYSROOT-redirectable. Returns a runtime name or NULL
  * (not containerized / undetectable). Marker files are most reliable; cgroup
  * path patterns catch the rest. */
@@ -1039,16 +1040,17 @@ static void print_banner(void) {
          VERSION);
 }
 
-/* Print the container / confinement lines: whether we are containerized, and
- * the seccomp / capability / no-new-privs state that decides which oracles are
+/* Print the container / confinement lines: whether the vantage is
+ * containerized, and the seccomp / capability / no-new-privs state that decides
+ * which oracles are
  * reachable here. Descriptive — the offensive-recon complement to the sysctl
  * block above.
  *
  * The detail lines are printed ONLY when the process is actually confined
  * (containerized, a seccomp filter, or no_new_privs). On a bare unprivileged
  * host their values (Seccomp: none, caps: none, no_new_privs: no) are the
- * DEFAULTS, not restrictions — printing them there reads as "you are confined"
- * when you are not, so we suppress them and show just the container status. */
+ * DEFAULTS, not restrictions — printing them there reads as confinement where
+ * there is none, so they are suppressed and only the container status shows. */
 /* List the cap-gated leaks the effective cap set unlocks (one line each), or
  * nothing if none apply. Shown regardless of confinement: a held cap is a real
  * reachability fact whether or not the process is otherwise restricted. */
@@ -1243,8 +1245,8 @@ int num_results;
 struct scalar_fact_record scalar_facts[MAX_SCALAR_FACTS];
 int num_scalar_facts;
 
-/* Look up region enum by wire name. Linear scan over region_info[] — under
- * 30 entries, negligible cost. Returns REGION_UNKNOWN on miss. */
+/* Look up region enum by wire name. Linear scan over region_info[] — a table
+ * of a few dozen, negligible cost. Returns REGION_UNKNOWN on miss. */
 static enum kasld_region region_from_wire(const char *s) {
   for (int i = 1; i < REGION__COUNT; i++) {
     if (region_info[i].wire_name && strcmp(region_info[i].wire_name, s) == 0)
@@ -1769,8 +1771,8 @@ static char *extract_elf_section(const char *path, const char *section_name) {
 
   int is64 = (e_ident[EI_CLASS] == ELFCLASS64);
 
-  /* Read ELF header fields we need: e_shoff, e_shentsize, e_shnum,
-   * e_shstrndx. Seek past e_ident which we already consumed. */
+  /* Read the ELF header fields used below: e_shoff, e_shentsize, e_shnum,
+   * e_shstrndx. Seek past e_ident, already consumed. */
   uint64_t e_shoff;
   uint16_t e_shentsize, e_shnum, e_shstrndx;
 
@@ -2334,7 +2336,7 @@ static int run_component(const struct component *c) {
   }
 
   if (pid == 0) {
-    /* Child: new process group so we can kill any grandchildren */
+    /* Child: new process group, so any grandchildren die with it */
     setpgid(0, 0);
 
     /* Redirect stdout to pipe, merge stderr into stdout. If either dup2
@@ -3135,8 +3137,8 @@ static void fill_mem_likely(const struct estimate *l, unsigned long g_lo,
 
 /* The reported text base is the IMAGE BASE (_text). A KERNEL_IMAGE anchor is
  * the image base directly; a KERNEL_TEXT anchor is _stext, normalized down by
- * the head gap (no-op where the gap is 0, i.e. every arch but
- * arm64/loongarch64). Returns 0 when no kernel-image/text base anchor exists.
+ * the head gap the arch declares in STEXT_OFFSET (a no-op where that is 0).
+ * Returns 0 when no kernel-image/text base anchor exists.
  */
 static unsigned long anchor_image_base(enum kasld_addr_type type) {
   const struct result *r = select_anchor(type, REGION_KERNEL_IMAGE);
@@ -3606,22 +3608,25 @@ void compute_component_stats(struct summary *s) {
  * -------------------------------------------------------------------------
  */
 void inject_kaslr_defaults(struct summary *s) {
-  /* "Unsupported" is a compile-time property of the arch (KASLR_SUPPORTED=0 on
-   * arm32 / ppc64 / riscv32 / sparc); no runtime signal needed. Surface it for
-   * the renderer banner, and seed the informational default address from the
-   * statically-initialised layout (= KERNEL_VIRT_TEXT_DEFAULT). */
+  /* "Unsupported" is a compile-time property of the arch; no runtime signal
+   * needed. Surface it for the renderer banner, and seed the informational
+   * default address from the statically-initialised layout
+   * (= KERNEL_VIRT_TEXT_DEFAULT). */
   s->kaslr.unsupported = !KASLR_SUPPORTED;
   s->kaslr.default_addr = layout.virt_image_base_default;
 
 #if !KASLR_SUPPORTED
   /* Surface the compile-time arch-off as SF_VIRT_KASLR_DISABLED +
    * SF_PHYS_KASLR_DISABLED so the engine sees it like any runtime detector
-   * signal. Inert today on the four !KASLR_SUPPORTED arches (none satisfies
-   * KASLR_DISABLED_PINS_VIRT_TEXT/PHYS — all four are relocating, bootloader
-   * can still place the image), so no unsound text-base pin: the renderer's
-   * "KASLR not supported" banner + default-addr line shows, the engine
-   * refuses to pin. A future !KASLR_SUPPORTED arch that does satisfy one of
-   * those macros would pin correctly via the same rule path. */
+   * signal.
+   *
+   * Emitting the facts is not pinning. Whether a KASLR-off fact fixes the text
+   * base is KASLR_DISABLED_PINS_VIRT_TEXT / KASLR_DISABLED_PINS_PHYS, which
+   * default to 0 and are raised per arch with the rationale beside them; api.h
+   * states the contract and what obliges an arch to stay at the default. An
+   * arch at the default gets the renderer's "KASLR not supported" banner and
+   * default-addr line while the engine refuses to pin; an arch that raises one
+   * pins through the same rule path a runtime detector uses. */
   if (num_scalar_facts + 1 < MAX_SCALAR_FACTS) {
     struct scalar_fact_record *fv = &scalar_facts[num_scalar_facts++];
     fv->fact = SF_VIRT_KASLR_DISABLED;
@@ -4358,7 +4363,7 @@ static void engine_sync_authoritative(const struct engine *e) {
    * from the compile-time floor (x86_64 RANDOMIZE_MEMORY). Anchor the rendered
    * memory map's direct-map band at the engine's best-known base (pinned, or
    * the proven lower bound). Gated on lo having actually been raised above the
-   * compile-time default, so we never claim more than the engine proved.
+   * compile-time default, so the claim never exceeds what the engine proved.
    *
    * Only layout.virt_page_offset moves — NOT layout.virt_kernel_vas_start. On a
    * decoupled arch the direct-map base is the lowest kernel *mapping* but NOT
@@ -4412,8 +4417,8 @@ static void engine_sync_authoritative(const struct engine *e) {
    *
    * 2 GiB is the MODULES_LEN on both arches; absent a per-arch macro, use
    * the literal constant with this rationale. Gated on virt_image_base_max
-   * being a meaningful (narrowed-or-pinned) value — we keep the static
-   * band when the engine has not narrowed text. */
+   * being a meaningful (narrowed-or-pinned) value — the static band stays
+   * when the engine has not narrowed text. */
 #define KASLD_MODULES_LEN (2ul * 1024 * 1024 * 1024)
   if (vt->hi > vt->lo || vt->lo > (unsigned long)KASLR_VIRT_TEXT_MIN) {
 #if MODULES_BELOW_TEXT_START
@@ -4509,7 +4514,7 @@ static void engine_sync_authoritative(const struct engine *e) {
    * The compile-time MODULES_START/END is the validation UNION across all
    * in-scope kernel-version layouts -- wide on purpose so no real module
    * leak is silently rejected. When proc_modules or sysfs_module_sections
-   * have given us actual module addresses (emitted as VIRT REGION_MODULE
+   * have supplied actual module addresses (emitted as VIRT REGION_MODULE
    * or REGION_MODULE_BAND observations), the runtime band lives in a
    * much smaller span. Tightening the rendered/JSON layout to that
    * observed span makes the diagram reflect reality on this kernel, and
@@ -4518,9 +4523,9 @@ static void engine_sync_authoritative(const struct engine *e) {
    * within a ~128 TiB static union).
    *
    * Soundness: the observed bounds are clamped to the validation union;
-   * we never widen past what MODULES_START/END allows. If observations
-   * fall entirely outside the union (would indicate a kernel layout we
-   * don't yet know about), keep the static window — surfacing the
+   * the bounds never widen past what MODULES_START/END allows. If
+   * observations fall entirely outside the union (which would indicate an
+   * unmodelled kernel layout), keep the static window — surfacing the
    * discrepancy via the wider rendering is more useful than silently
    * shrinking to a single bogus point. */
   {
@@ -5029,7 +5034,7 @@ int main(int argc, char *argv[]) {
 
   /* Conflict check: at most one of the OPT_SECT_FORMAT flags may be
    * effective. Each format setter already clears its siblings, so this is
-   * a courtesy diagnostic — surfacing "you asked for two formats" before
+   * a courtesy diagnostic — surfacing that two formats were asked for before
    * silently going with whichever came last. */
   if (json_output + oneline_output + markdown_output > 1) {
     /* Unreachable today because setters clear siblings, but kept as a
