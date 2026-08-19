@@ -67,6 +67,7 @@ allow_file() {
   # An instruction address: whatever executed was text.
   perf_event_open.c) return 0 ;;        # sampled kernel instruction pointer
   perf_lbr_sampling.c) return 0 ;;      # LBR kernel branch addresses
+  perf_amd_branch_user.c) return 0 ;;   # AMD branch-from kernel .text (SYSRET/ERET)
   perf_text_poke_leak.c) return 0 ;;    # a text_poke target
   dmesg_backtrace.c) return 0 ;;        # call-trace return addresses
   dmesg_ex_handler_msr.c) return 0 ;;   # the faulting instruction's address
@@ -133,7 +134,8 @@ done
 # An allowlist entry naming a component that no longer claims text is stale, and
 # a stale entry is how the next real offender gets waved through.
 for stale in proc_kallsyms pppd_kallsyms bpf_verifier_ksym dmesg_android_ion_snapshot \
-  dmesg_mmu_idmap perf_event_open perf_lbr_sampling perf_text_poke_leak \
+  dmesg_mmu_idmap perf_event_open perf_lbr_sampling perf_amd_branch_user \
+  perf_text_poke_leak \
   dmesg_backtrace dmesg_ex_handler_msr qemu_tcg_iret proc_stat_wchan proc_kcore \
   sysfs_kernel_notes_xen dmesg_riscv_relocation tracefs_printk_formats \
   tracefs_available_filter_addrs sidt \

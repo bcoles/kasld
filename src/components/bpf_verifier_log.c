@@ -11,9 +11,13 @@
 // That mask historically covered only BPF_PSEUDO_MAP_FD and
 // BPF_PSEUDO_MAP_VALUE; BPF_PSEUDO_MAP_IDX, BPF_PSEUDO_MAP_IDX_VALUE and
 // BPF_PSEUDO_BTF_ID were left out, so the log printed the resolved kernel
-// pointer verbatim. For MAP_IDX the value is `(unsigned long)map` — the address
-// of the kmalloc'd `struct bpf_map`, i.e. a kernel direct-map VA. The verifier
-// log is returned to the caller even when the program is rejected.
+// pointer verbatim. This component takes the MAP_IDX case: the value is
+// `(unsigned long)map` — the address of the kmalloc'd `struct bpf_map`, i.e. a
+// kernel direct-map VA. The BTF_ID case leaks a kernel .text address instead
+// and is exploited by the sibling component bpf_verifier_ksym.c — the two split
+// the same disasm.c mask hole between the direct-map and kernel-text
+// quantities. The verifier log is returned to the caller even when the program
+// is rejected.
 //
 //   Data leaked:      a kmalloc'd `struct bpf_map *` (direct-map VA)
 //   Kernel subsystem: kernel/bpf — verifier log (disasm.c print_bpf_insn)
