@@ -639,6 +639,15 @@ $(TEST_KCORE_BIN): $(TEST_DIR)/test_kcore.c $(SRC_DIR)/components/proc_kcore.c $
 	$(call ccv,CCLD,$@)
 	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_kcore.c -o $@
 
+# kernfs_ns_hash salt recovery: the component #included (main renamed) and its
+# pure recovery functions exercised over synthesised cookies — unique recovery,
+# the offset-table base pin, the patched-kernel no-op, and salt discrimination.
+# Host-agnostic (no live getdents64; the seek-cookie path cannot be staged).
+TEST_KERNFS_BIN := $(TEST_OBJ_DIR)/test_kernfs_ns_hash
+$(TEST_KERNFS_BIN): $(TEST_DIR)/test_kernfs_ns_hash.c $(SRC_DIR)/components/kernfs_ns_hash.c $(HDRS) | $(TEST_OBJ_DIR)
+	$(call ccv,CCLD,$@)
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_kernfs_ns_hash.c -o $@
+
 # sysfs / ACPI / DT leak-parser tests: each component #included (main renamed)
 # and driven over a staged KASLD_SYSROOT fixture tree reproducing the kernel ABI.
 TEST_PARSERS_SRCS := $(SRC_DIR)/components/sysfs_efi_runtime_map.c \
@@ -697,7 +706,8 @@ TEST_ALL_BINS := $(TEST_BIN) \
   $(TEST_DMESG_RESV_BIN) \
   $(TEST_BPE820_BIN) \
   $(TEST_PARSERS_BIN) \
-  $(TEST_KCORE_BIN)
+  $(TEST_KCORE_BIN) \
+  $(TEST_KERNFS_BIN)
 
 $(TEST_ALL_BINS): $(TEST_HDRS)
 
