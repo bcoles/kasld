@@ -21,26 +21,20 @@ int proc_net_sock_ptr_main(int argc, char **argv);
 #undef main
 
 #include "test_harness.h"
+#include "test_sysroot.h"
 
 #include <assert.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
-static char g_root[256];
 static char cap[8192];
 
 /* Write `text` as the sysroot's /proc/net/unix (the source the component reads
  * under KASLD_SYSROOT). /proc/net/netlink is left absent — the component scans
  * whichever source is present. */
 static void stage_unix(const char *text) {
-  char path[320];
-  snprintf(path, sizeof(path), "%s/proc/net/unix", g_root);
-  int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-  assert(fd >= 0);
-  size_t n = strlen(text);
-  assert(write(fd, text, n) == (ssize_t)n);
-  close(fd);
+  th_sysroot_write("/proc/net/unix", text);
 }
 
 /* Run the component, capturing its stdout (the wire channel) into `cap`; stderr
@@ -128,16 +122,7 @@ static void test_real_pointers_emit_lowest(void) {
 }
 
 int main(void) {
-  char tmpl[] = "/tmp/kasld_sock_rootXXXXXX";
-  char *r = mkdtemp(tmpl);
-  assert(r != NULL);
-  snprintf(g_root, sizeof(g_root), "%s", r);
-  char dir[320];
-  snprintf(dir, sizeof(dir), "%s/proc", g_root);
-  mkdir(dir, 0755);
-  snprintf(dir, sizeof(dir), "%s/proc/net", g_root);
-  mkdir(dir, 0755);
-  setenv("KASLD_SYSROOT", g_root, 1);
+  th_sysroot_init("proc_net_sock_ptr");
 
   TEST_SUITE("test_proc_net_sock_ptr");
   BEGIN_CATEGORY("hashed-pointer rejection");

@@ -19,23 +19,17 @@ int proc_timer_list_main(void);
 #undef main
 
 #include "test_harness.h"
+#include "test_sysroot.h"
 
 #include <assert.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
-static char g_root[256];
 static char cap[8192];
 
 static void stage_timer_list(const char *text) {
-  char path[320];
-  snprintf(path, sizeof(path), "%s/proc/timer_list", g_root);
-  int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-  assert(fd >= 0);
-  size_t n = strlen(text);
-  assert(write(fd, text, n) == (ssize_t)n);
-  close(fd);
+  th_sysroot_write("/proc/timer_list", text);
 }
 
 static void run_capture(void) {
@@ -123,14 +117,7 @@ static void test_real_emits(void) {
 }
 
 int main(void) {
-  char tmpl[] = "/tmp/kasld_tl_rootXXXXXX";
-  char *r = mkdtemp(tmpl);
-  assert(r != NULL);
-  snprintf(g_root, sizeof(g_root), "%s", r);
-  char dir[320];
-  snprintf(dir, sizeof(dir), "%s/proc", g_root);
-  mkdir(dir, 0755);
-  setenv("KASLD_SYSROOT", g_root, 1);
+  th_sysroot_init("proc_timer_list");
 
   TEST_SUITE("test_proc_timer_list");
   BEGIN_CATEGORY("hashed-pointer rejection");

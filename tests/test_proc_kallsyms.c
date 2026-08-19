@@ -27,6 +27,7 @@ int proc_kallsyms_main(void);
 #undef main
 
 #include "test_harness.h"
+#include "test_sysroot.h"
 
 #include <assert.h>
 #include <fcntl.h>
@@ -34,13 +35,12 @@ int proc_kallsyms_main(void);
 #include <sys/stat.h>
 #include <unistd.h>
 
-static char g_root[256];
 static char cap[8192];
 static int last_rc;
 
 static void stage_kallsyms(const char *text) {
   char path[320];
-  snprintf(path, sizeof(path), "%s/proc/kallsyms", g_root);
+  th_sysroot_stage_path("/proc/kallsyms", path, sizeof(path));
   int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
   assert(fd >= 0);
   size_t n = strlen(text);
@@ -134,12 +134,7 @@ static void test_too_wide_is_not_reported_as_restricted(void) {
 
 int main(void) {
   TEST_SUITE("proc_kallsyms (masked probe + address width)");
-  snprintf(g_root, sizeof(g_root), "/tmp/kasld_ks_rootXXXXXX");
-  assert(mkdtemp(g_root) != NULL);
-  char sub[320];
-  snprintf(sub, sizeof(sub), "%s/proc", g_root);
-  assert(mkdir(sub, 0755) == 0);
-  setenv("KASLD_SYSROOT", g_root, 1);
+  th_sysroot_init("proc_kallsyms");
 
   BEGIN_CATEGORY("kptr_restrict probe");
   RUN(test_masked_kallsyms_is_denied);
@@ -148,10 +143,5 @@ int main(void) {
   RUN(test_too_wide_addresses_are_not_truncated);
   RUN(test_too_wide_is_not_reported_as_restricted);
 
-  snprintf(sub, sizeof(sub), "%s/proc/kallsyms", g_root);
-  unlink(sub);
-  snprintf(sub, sizeof(sub), "%s/proc", g_root);
-  rmdir(sub);
-  rmdir(g_root);
   return TEST_DONE();
 }

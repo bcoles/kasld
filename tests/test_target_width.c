@@ -16,6 +16,7 @@
 
 #include "include/kasld/target_width.h"
 #include "test_harness.h"
+#include "test_sysroot.h"
 
 #include <assert.h>
 #include <fcntl.h>
@@ -23,11 +24,9 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-static char g_root[256];
-
 static void stage_kallsyms(const char *text) {
   char path[320];
-  snprintf(path, sizeof(path), "%s/proc/kallsyms", g_root);
+  th_sysroot_stage_path("/proc/kallsyms", path, sizeof(path));
   if (text == NULL) {
     unlink(path);
     return;
@@ -151,12 +150,7 @@ static void test_refusal_document_shape(void) {
 
 int main(void) {
   TEST_SUITE("Build/target width check (target_width.h)");
-  snprintf(g_root, sizeof(g_root), "/tmp/kasld_tw_rootXXXXXX");
-  assert(mkdtemp(g_root) != NULL);
-  char sub[320];
-  snprintf(sub, sizeof(sub), "%s/proc", g_root);
-  assert(mkdir(sub, 0755) == 0);
-  setenv("KASLD_SYSROOT", g_root, 1);
+  th_sysroot_init("target_width");
 
   BEGIN_CATEGORY("kallsyms column width");
   RUN(test_kallsyms_column_width);
@@ -169,10 +163,5 @@ int main(void) {
   RUN(test_exact_boundary_arch);
   RUN(test_refusal_document_shape);
 
-  snprintf(sub, sizeof(sub), "%s/proc/kallsyms", g_root);
-  unlink(sub);
-  snprintf(sub, sizeof(sub), "%s/proc", g_root);
-  rmdir(sub);
-  rmdir(g_root);
   return TEST_DONE();
 }

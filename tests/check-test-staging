@@ -1,0 +1,92 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-test-staging — a test binary stages its filesystem through
+# test_sysroot.h, and that header removes what it made.
+#
+# A test that consults a fact source needs a tree to point KASLD_SYSROOT at, and
+# for a long time each one built its own: mkdtemp, a few mkdir calls, a private
+# write_file. Fifteen binaries carried a copy, and eleven of them removed
+# nothing, so every passing suite run left a tree per binary under /tmp to
+# accumulate indefinitely. Nothing failed. A leak that only ever costs disk is
+# invisible to a green suite, which is why it ran for so long and why it needs a
+# guard rather than a fix.
+#
+# The fix was one owner: test_sysroot.h makes the root, names it after the
+# binary, and registers its own removal. This keeps that the only owner.
+#
+#   1. mkdtemp() is called in test_sysroot.h and nowhere else. A second caller
+#      is a second root with no owner -- the shape that leaked.
+#   2. KASLD_SYSROOT is set in test_sysroot.h and nowhere else. Pointing the I/O
+#      layer at a directory the header did not make escapes its lifetime just as
+#      completely, without naming mkdtemp.
+#   3. The header registers removal. Both checks above pass against a header
+#      that never cleans up, which is what the tree looked like before.
+#
+# WHAT THIS DOES NOT PROVE: that no test leaks. A test can still create a file
+# by any other means; the guard names the three ways the tree actually leaked.
+# The measurement that settles it is a `make test` bracketed by a count of
+# /tmp/kasld* -- which is how the leak was found, and is not something grep can
+# do.
+#
+# Pure text, so it needs no build.
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+TESTS="$ROOT/tests"
+HDR="$TESTS/test_sysroot.h"
+
+if [ -t 1 ]; then
+  RED=$(printf '\033[31m')
+  GREEN=$(printf '\033[32m')
+  RESET=$(printf '\033[0m')
+else
+  RED=
+  GREEN=
+  RESET=
+fi
+
+fail=0
+note() {
+  printf '%scheck-test-staging: FAIL%s — %s\n' "$RED" "$RESET" "$1" >&2
+  fail=1
+}
+
+[ -f "$HDR" ] || {
+  note "test_sysroot.h is missing"
+  exit 1
+}
+
+# --- 1 & 2. one owner of the root -------------------------------------------
+# The CALL, not the word: two tests name mkdtemp in a feature-test-macro comment
+# because they include this header, and those are accurate.
+n=0
+for f in "$TESTS"/*.c "$TESTS"/*.h; do
+  [ -f "$f" ] || continue
+  [ "$f" = "$HDR" ] && continue
+  n=$((n + 1))
+  if grep -q 'mkdtemp(' "$f"; then
+    note "$(basename "$f") calls mkdtemp(); stage through th_sysroot_init() so the tree is removed"
+  fi
+  if grep -q 'setenv("KASLD_SYSROOT"' "$f"; then
+    note "$(basename "$f") sets KASLD_SYSROOT itself; th_sysroot_init() owns the root and its lifetime"
+  fi
+done
+
+# --- 3. the owner actually cleans up ----------------------------------------
+# Checks 1 and 2 are satisfied by a header that leaks exactly as the copies did,
+# so the removal is asserted rather than assumed.
+init=$(sed -n '/^static void th_sysroot_init/,/^}/p' "$HDR")
+printf '%s\n' "$init" | grep -q 'atexit(th_sysroot_fini)' ||
+  note "th_sysroot_init() does not register th_sysroot_fini(); a passing run would leave its tree"
+
+sed -n '/^static void th_sysroot_fini/,/^}/p' "$HDR" | grep -q 'rmdir(th_sysroot_root)' ||
+  note "th_sysroot_fini() does not remove the root directory"
+
+if [ "$fail" -ne 0 ]; then
+  exit 1
+fi
+printf '%scheck-test-staging: OK%s (%s test files stage through test_sysroot.h, which removes its tree)\n' \
+  "$GREEN" "$RESET" "$n"

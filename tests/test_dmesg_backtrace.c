@@ -21,13 +21,13 @@ int dmesg_backtrace_main(void);
 #undef main
 
 #include "test_harness.h"
+#include "test_sysroot.h"
 
 #include <assert.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
-static char g_root[256];
 static char cap[8192];
 
 /* Write `text` as the sysroot's /var/log/dmesg (the source the component reads
@@ -35,13 +35,7 @@ static char cap[8192];
  * the path, but the file content is re-read each run, so rewriting it per case
  * works. */
 static void stage_dmesg(const char *text) {
-  char path[320];
-  snprintf(path, sizeof(path), "%s/var/log/dmesg", g_root);
-  int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-  assert(fd >= 0);
-  size_t n = strlen(text);
-  assert(write(fd, text, n) == (ssize_t)n);
-  close(fd);
+  th_sysroot_write("/var/log/dmesg", text);
 }
 
 /* Run the component, capturing its stdout (the wire channel) into `cap`;
@@ -171,16 +165,7 @@ static void test_loongarch_pc_ra_parse(void) {
 }
 
 int main(void) {
-  char tmpl[] = "/tmp/kasld_bt_rootXXXXXX";
-  char *r = mkdtemp(tmpl);
-  assert(r != NULL);
-  snprintf(g_root, sizeof(g_root), "%s", r);
-  char dir[300];
-  snprintf(dir, sizeof(dir), "%s/var", g_root);
-  mkdir(dir, 0755);
-  snprintf(dir, sizeof(dir), "%s/var/log", g_root);
-  mkdir(dir, 0755);
-  setenv("KASLD_SYSROOT", g_root, 1);
+  th_sysroot_init("dmesg_backtrace");
 
   TEST_SUITE("test_dmesg_backtrace");
   BEGIN_CATEGORY("oops block parser + CR3 context tag");

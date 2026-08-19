@@ -18,6 +18,7 @@
 #include "../src/include/kasld/kernel_image.h"
 
 #include "test_harness.h"
+#include "test_sysroot.h"
 
 #include <assert.h>
 #include <stdint.h>
@@ -26,23 +27,19 @@
 #include <string.h>
 #include <sys/stat.h>
 
-static char g_root[3072];
-
 /* Write n bytes to <sysroot>/boot/<name>. */
 static void wr(const char *name, const void *buf, size_t n) {
-  char p[4096];
-  snprintf(p, sizeof(p), "%s/boot/%s", g_root, name);
-  FILE *f = fopen(p, "wb");
-  assert(f);
-  assert(fwrite(buf, 1, n, f) == n);
-  fclose(f);
+  char abs[TH_SYSROOT_MAX];
+  snprintf(abs, sizeof(abs), "/boot/%s", name);
+  th_sysroot_write_n(abs, buf, n);
 }
 
 /* Write head bytes then extend the file to `total` bytes (sparse). */
 static void wr_sized(const char *name, const uint8_t *head, size_t headn,
                      long total) {
-  char p[4096];
-  snprintf(p, sizeof(p), "%s/boot/%s", g_root, name);
+  char abs[TH_SYSROOT_MAX], p[TH_SYSROOT_MAX];
+  snprintf(abs, sizeof(abs), "/boot/%s", name);
+  th_sysroot_stage_path(abs, p, sizeof(p));
   FILE *f = fopen(p, "wb");
   assert(f);
   if (headn)
@@ -233,15 +230,7 @@ static void test_rejections(void) {
 }
 
 int main(void) {
-  char tmpl[] = "/tmp/kasld_kimg_XXXXXX";
-  char *d = mkdtemp(tmpl);
-  assert(d != NULL);
-  snprintf(g_root, sizeof(g_root), "%s", d);
-  char bootp[4096];
-  snprintf(bootp, sizeof(bootp), "%s/boot", g_root);
-  assert(mkdir(bootp, 0700) == 0);
-  setenv("KASLD_SYSROOT", g_root,
-         1); /* before the first reader call (cached) */
+  th_sysroot_init("kernel_image");
 
   TEST_SUITE("test_kernel_image");
   BEGIN_CATEGORY("exact readers");

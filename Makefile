@@ -661,7 +661,47 @@ $(TEST_PARSERS_BIN): $(TEST_DIR)/test_sysfs_parsers.c $(TEST_PARSERS_SRCS) $(HDR
 	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_sysfs_parsers.c -o $@
 
 .PHONY: test
-test : $(KASLD_BIN) $(TEST_BIN) $(TEST_RENDER_BIN) $(TEST_EST_BIN) $(TEST_EV_BIN) $(TEST_ALIGN_BIN) $(TEST_ADDRP_BIN) $(TEST_TWIDTH_BIN) $(TEST_TS_BIN) $(TEST_PREFETCH_SCAN_BIN) $(TEST_CPU_BIN) $(TEST_OUTCOME_BIN) $(TEST_TEXT_ORDER_BIN) $(TEST_KIMG_BIN) $(TEST_ENG_BIN) $(TEST_INT_BIN) $(TEST_DMESG_BIN) $(TEST_BACKTRACE_BIN) $(TEST_BOOTCFG_BIN) $(TEST_KASLRDIS_BIN) $(TEST_DTMEM_BIN) $(TEST_SOCKPTR_BIN) $(TEST_TIMERLIST_BIN) $(TEST_KALLSYMS_BIN) $(TEST_AVAILFILTER_BIN) $(TEST_BTF_BIN) $(TEST_DMESG_RESV_BIN) $(TEST_BPE820_BIN) $(TEST_PARSERS_BIN) $(TEST_KCORE_BIN)
+# Test headers carry behaviour, not just declarations: test_harness.h runs the
+# suite, and test_sysroot.h makes the staged tree and registers its removal.
+# They are not in $(HDRS), which is the product's headers, so a test binary had
+# no dependency on them at all -- editing one left every binary stale while the
+# build reported success, and a measurement of the edit measured the build
+# before it.
+TEST_HDRS := $(wildcard $(TEST_DIR)/*.h)
+
+TEST_ALL_BINS := $(TEST_BIN) \
+  $(TEST_RENDER_BIN) \
+  $(TEST_EST_BIN) \
+  $(TEST_EV_BIN) \
+  $(TEST_ALIGN_BIN) \
+  $(TEST_ADDRP_BIN) \
+  $(TEST_TWIDTH_BIN) \
+  $(TEST_TS_BIN) \
+  $(TEST_PREFETCH_SCAN_BIN) \
+  $(TEST_CPU_BIN) \
+  $(TEST_OUTCOME_BIN) \
+  $(TEST_TEXT_ORDER_BIN) \
+  $(TEST_KIMG_BIN) \
+  $(TEST_ENG_BIN) \
+  $(TEST_INT_BIN) \
+  $(TEST_DMESG_BIN) \
+  $(TEST_BACKTRACE_BIN) \
+  $(TEST_BOOTCFG_BIN) \
+  $(TEST_KASLRDIS_BIN) \
+  $(TEST_DTMEM_BIN) \
+  $(TEST_SOCKPTR_BIN) \
+  $(TEST_TIMERLIST_BIN) \
+  $(TEST_KALLSYMS_BIN) \
+  $(TEST_AVAILFILTER_BIN) \
+  $(TEST_BTF_BIN) \
+  $(TEST_DMESG_RESV_BIN) \
+  $(TEST_BPE820_BIN) \
+  $(TEST_PARSERS_BIN) \
+  $(TEST_KCORE_BIN)
+
+$(TEST_ALL_BINS): $(TEST_HDRS)
+
+test : $(KASLD_BIN) $(TEST_ALL_BINS)
 	@$(TEST_DIR)/run-all
 	@$(TEST_DIR)/check-render-width
 	@$(MAKE) --no-print-directory lint
@@ -679,6 +719,7 @@ lint :
 	@$(TEST_DIR)/check-discard-ledger
 	@$(TEST_DIR)/check-discard-accounting
 	@$(TEST_DIR)/check-vantage-coverage
+	@$(TEST_DIR)/check-test-staging
 	@$(TEST_DIR)/check-truncation
 	@$(TEST_DIR)/check-addr-parse
 	@$(TEST_DIR)/check-absence-vs-denial

@@ -20,6 +20,7 @@ int dmesg_kaslr_disabled_main(void);
 #undef main
 
 #include "test_harness.h"
+#include "test_sysroot.h"
 
 #include <assert.h>
 #include <fcntl.h>
@@ -27,17 +28,10 @@ int dmesg_kaslr_disabled_main(void);
 #include <sys/stat.h>
 #include <unistd.h>
 
-static char g_root[256];
 static char cap[8192];
 
 static void stage_dmesg(const char *text) {
-  char path[320];
-  snprintf(path, sizeof(path), "%s/var/log/dmesg", g_root);
-  int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-  assert(fd >= 0);
-  size_t n = strlen(text);
-  assert(write(fd, text, n) == (ssize_t)n);
-  close(fd);
+  th_sysroot_write("/var/log/dmesg", text);
 }
 
 static void run_capture(void) {
@@ -108,16 +102,7 @@ static void test_unknown_disabled_line_emits_nothing(void) {
 }
 
 int main(void) {
-  char tmpl[] = "/tmp/kasld_kd_rootXXXXXX";
-  char *r = mkdtemp(tmpl);
-  assert(r != NULL);
-  snprintf(g_root, sizeof(g_root), "%s", r);
-  char dir[300];
-  snprintf(dir, sizeof(dir), "%s/var", g_root);
-  mkdir(dir, 0755);
-  snprintf(dir, sizeof(dir), "%s/var/log", g_root);
-  mkdir(dir, 0755);
-  setenv("KASLD_SYSROOT", g_root, 1);
+  th_sysroot_init("dmesg_kaslr_disabled");
 
   TEST_SUITE("test_dmesg_kaslr_disabled");
   BEGIN_CATEGORY("KASLR-disabled line classification");

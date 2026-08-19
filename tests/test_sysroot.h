@@ -53,22 +53,38 @@ static void th_sysroot_path(const char *abs, char *out, size_t outsz) {
   assert(n > 0 && (size_t)n < outsz && "staged path too long");
 }
 
+static void th_sysroot_fini(void);
+
 /* Create the staged root and point KASLD_SYSROOT at it.
  *
  * Call once, before anything reads a fact. Under the hermeticity probe that
  * ordering is checked rather than trusted: the probe records absolute paths
  * resolved with no root set, so a non-empty record here means a read already
- * escaped to the host and the rest of this file's isolation is a fiction. */
-static void th_sysroot_init(void) {
+ * escaped to the host and the rest of this file's isolation is a fiction.
+ *
+ * `label` names the binary and goes in the directory name, so a tree that
+ * outlives its run says which test left it.
+ *
+ * Removal is registered here rather than left to the caller. A test that ends
+ * by returning from main() cleans up whether or not it remembers to, which is
+ * what keeps a suite run from depositing a tree per binary every time it
+ * passes. A test that dies on a failed assertion does NOT: abort() runs no
+ * atexit handler, so the tree it was working in survives for a reader. Cleanup
+ * on success, evidence on failure. */
+static void th_sysroot_init(const char *label) {
   assert(th_sysroot_root[0] == '\0' && "th_sysroot_init() called twice");
+  assert(label && *label && "name the binary; the directory carries it");
+  assert(strchr(label, '/') == NULL && "label is a name, not a path");
 #ifdef KASLD_HERMETIC_PROBE
   assert(kasld_hermetic_n == 0 &&
          "th_sysroot_init() must run before the first fact read");
 #endif
-  snprintf(th_sysroot_root, sizeof(th_sysroot_root),
-           "/tmp/kasld_test_rootXXXXXX");
+  int n = snprintf(th_sysroot_root, sizeof(th_sysroot_root),
+                   "/tmp/kasld_%s_XXXXXX", label);
+  assert(n > 0 && (size_t)n < sizeof(th_sysroot_root) && "label too long");
   assert(mkdtemp(th_sysroot_root) != NULL);
   assert(setenv("KASLD_SYSROOT", th_sysroot_root, 1) == 0);
+  assert(atexit(th_sysroot_fini) == 0);
 }
 
 /* mkdir -p over the directory part of a staged path, in place. */
@@ -88,17 +104,35 @@ static void th_sysroot_mkparents(char *full) {
   *slash = '/';
 }
 
-/* Stage `abs` with `contents`. A NULL `contents` writes an empty file, which is
- * what a marker like /.dockerenv actually is. */
-static void th_sysroot_write(const char *abs, const char *contents) {
+/* Stage `abs` with `len` bytes of `buf`. Length-taking because a fact source is
+ * not always text: a zero page, an ELF core header and a kernel image header
+ * are staged as byte buffers, and a NUL is ordinary content in them, not a
+ * terminator. */
+static void th_sysroot_write_n(const char *abs, const void *buf, size_t len) {
   char full[TH_SYSROOT_MAX];
   th_sysroot_path(abs, full, sizeof(full));
   th_sysroot_mkparents(full);
-  FILE *f = fopen(full, "w");
+  FILE *f = fopen(full, "wb");
   assert(f != NULL);
-  if (contents && *contents)
-    assert(fputs(contents, f) >= 0);
+  if (len)
+    assert(fwrite(buf, 1, len, f) == len);
   assert(fclose(f) == 0);
+}
+
+/* Stage `abs` with `contents`. A NULL `contents` writes an empty file, which is
+ * what a marker like /.dockerenv actually is. */
+static void th_sysroot_write(const char *abs, const char *contents) {
+  th_sysroot_write_n(abs, contents, contents ? strlen(contents) : 0);
+}
+
+/* Resolve `abs` to its real location under the root and make its parent
+ * directories, for a test that must use the file APIs directly: an incremental
+ * writer, a sparse file whose SIZE is the fixture, a mode or a symlink. Staging
+ * still goes through here, so such a test is inside the managed tree and is
+ * removed with it. */
+static void th_sysroot_stage_path(const char *abs, char *out, size_t outsz) {
+  th_sysroot_path(abs, out, outsz);
+  th_sysroot_mkparents(out);
 }
 
 static void th_sysroot_rm(const char *abs) {
@@ -163,6 +197,8 @@ static void th_sysroot_clear(void) {
   closedir(d);
 }
 
+/* Remove the tree and the root. Registered by th_sysroot_init(), so calling it
+ * explicitly is optional; the early return makes the second call a no-op. */
 static void th_sysroot_fini(void) {
   if (th_sysroot_root[0] == '\0')
     return;

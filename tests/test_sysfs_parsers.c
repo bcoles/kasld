@@ -133,6 +133,7 @@ int rm_main(void); /* reserved-memory; (void) main, called directly */
 #undef main
 
 #include "test_harness.h"
+#include "test_sysroot.h"
 
 #include <assert.h>
 #include <fcntl.h>
@@ -141,35 +142,9 @@ int rm_main(void); /* reserved-memory; (void) main, called directly */
 #include <sys/types.h>
 #include <unistd.h>
 
-static char g_root[256];
-
-/* mkdir -p of the parent directory of <g_root><rel>, then return the full
- * path in `out`. */
-static void full_path(const char *rel, char *out, size_t n) {
-  snprintf(out, n, "%s%s", g_root, rel);
-}
-
-static void mkparents(const char *path) {
-  char buf[512];
-  snprintf(buf, sizeof(buf), "%s", path);
-  for (char *p = buf + 1; *p; p++) {
-    if (*p == '/') {
-      *p = '\0';
-      mkdir(buf, 0755);
-      *p = '/';
-    }
-  }
-}
-
 /* Write `len` bytes to the sysroot-relative path. */
 static void stage(const char *rel, const void *data, size_t len) {
-  char path[512];
-  full_path(rel, path, sizeof(path));
-  mkparents(path);
-  int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-  assert(fd >= 0);
-  assert(write(fd, data, len) == (ssize_t)len);
-  close(fd);
+  th_sysroot_write_n(rel, data, len);
 }
 
 static void stage_text(const char *rel, const char *text) {
@@ -550,14 +525,7 @@ static void test_pci_resource_per_bar(void) {
 }
 
 int main(void) {
-  /* One sysroot for the whole suite: each parser reads a distinct path, and
-   * kasld_sysroot() caches its value process-wide, so a single root must be
-   * set before any component runs. */
-  char tmpl[] = "/tmp/kasld_parser_rootXXXXXX";
-  char *r = mkdtemp(tmpl);
-  assert(r != NULL);
-  snprintf(g_root, sizeof(g_root), "%s", r);
-  setenv("KASLD_SYSROOT", g_root, 1);
+  th_sysroot_init("sysfs_parsers");
 
   TEST_SUITE("test_sysfs_parsers");
   BEGIN_CATEGORY("sysfs / ACPI / DT leak parsers");

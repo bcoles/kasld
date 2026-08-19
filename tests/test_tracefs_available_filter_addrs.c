@@ -23,6 +23,7 @@ int tracefs_available_filter_addrs_main(int argc, char **argv);
 #undef main
 
 #include "test_harness.h"
+#include "test_sysroot.h"
 
 #include <assert.h>
 #include <fcntl.h>
@@ -30,18 +31,11 @@ int tracefs_available_filter_addrs_main(int argc, char **argv);
 #include <sys/stat.h>
 #include <unistd.h>
 
-static char g_root[256];
 static char cap[8192];
 
 static void stage(const char *text) {
-  char path[512];
-  snprintf(path, sizeof(path),
-           "%s/sys/kernel/tracing/available_filter_functions_addrs", g_root);
-  int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-  assert(fd >= 0);
-  size_t n = strlen(text);
-  assert(write(fd, text, n) == (ssize_t)n);
-  close(fd);
+  th_sysroot_write("/sys/kernel/tracing/available_filter_functions_addrs",
+                   text);
 }
 
 static void run_capture(void) {
@@ -133,17 +127,7 @@ static void test_addr_width_refusal(void) {
 }
 
 int main(void) {
-  char tmpl[] = "/tmp/kasld_aff_rootXXXXXX";
-  assert(mkdtemp(tmpl) != NULL);
-  snprintf(g_root, sizeof(g_root), "%s", tmpl);
-  char dir[400];
-  snprintf(dir, sizeof(dir), "%s/sys", g_root);
-  mkdir(dir, 0755);
-  snprintf(dir, sizeof(dir), "%s/sys/kernel", g_root);
-  mkdir(dir, 0755);
-  snprintf(dir, sizeof(dir), "%s/sys/kernel/tracing", g_root);
-  mkdir(dir, 0755);
-  setenv("KASLD_SYSROOT", g_root, 1);
+  th_sysroot_init("tracefs_aff_addrs");
 
   TEST_SUITE("tracefs_available_filter_addrs");
   BEGIN_CATEGORY("text bounding + record skip");

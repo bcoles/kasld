@@ -2903,7 +2903,7 @@ static void test_vantage_oracle_readable_each_path(void) {
 }
 
 int main(void) {
-  th_sysroot_init();
+  th_sysroot_init("kasld");
   TEST_SUITE("test_kasld");
   test_init_layout_engine_bounds();
 

@@ -29,6 +29,7 @@ int bpe820_main(void);
 #undef main
 
 #include "test_harness.h"
+#include "test_sysroot.h"
 
 #include <assert.h>
 #include <fcntl.h>
@@ -37,19 +38,6 @@ int bpe820_main(void);
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
-
-static char g_root[256];
-
-static void mkparents(const char *path) {
-  char buf[512];
-  snprintf(buf, sizeof(buf), "%s", path);
-  for (char *p = buf + 1; *p; p++)
-    if (*p == '/') {
-      *p = '\0';
-      mkdir(buf, 0755);
-      *p = '/';
-    }
-}
 
 static void put_le(unsigned char *p, unsigned long long v, int n) {
   for (int i = 0; i < n; i++)
@@ -70,13 +58,7 @@ static void e820_set(int idx, unsigned long long addr, unsigned long long size,
 
 static void stage_zeropage(int nent) {
   zp[0x1e8] = (unsigned char)nent;
-  char path[512];
-  snprintf(path, sizeof(path), "%s/sys/kernel/boot_params/data", g_root);
-  mkparents(path);
-  int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-  assert(fd >= 0);
-  assert(write(fd, zp, sizeof(zp)) == (ssize_t)sizeof(zp));
-  close(fd);
+  th_sysroot_write_n("/sys/kernel/boot_params/data", zp, sizeof(zp));
 }
 
 static char cap[16384];
@@ -159,11 +141,7 @@ static void test_boot_params_e820_acpi_bands(void) {
 }
 
 int main(void) {
-  char tmpl[] = "/tmp/kasld_bpe820_rootXXXXXX";
-  char *r = mkdtemp(tmpl);
-  assert(r != NULL);
-  snprintf(g_root, sizeof(g_root), "%s", r);
-  setenv("KASLD_SYSROOT", g_root, 1);
+  th_sysroot_init("boot_params_e820");
 
   TEST_SUITE("test_boot_params_e820");
   BEGIN_CATEGORY("boot_params E820 RAM covering");

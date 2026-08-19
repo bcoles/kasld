@@ -33,6 +33,7 @@ int kcore_test_main(int argc, char **argv);
 #undef main
 
 #include "test_harness.h"
+#include "test_sysroot.h"
 
 #include <assert.h>
 #include <stdint.h>
@@ -41,7 +42,6 @@ int kcore_test_main(int argc, char **argv);
 #include <sys/stat.h>
 #include <unistd.h>
 
-static char g_root[256];
 static char cap[65536];
 
 static void put_le(unsigned char *p, unsigned long long v, int n) {
@@ -55,10 +55,8 @@ static void put_le(unsigned char *p, unsigned long long v, int n) {
  * (malformed-core negative test). */
 static void make_kcore_pp(const unsigned long *vaddr,
                           const unsigned long *paddr, int n, int magic_ok) {
-  char path[512];
-  snprintf(path, sizeof(path), "%s/proc", g_root);
-  mkdir(path, 0755);
-  snprintf(path, sizeof(path), "%s/proc/kcore", g_root);
+  char path[TH_SYSROOT_MAX];
+  th_sysroot_stage_path("/proc/kcore", path, sizeof(path));
 
   unsigned char eh[64] = {0};
   eh[0] = 0x7f;
@@ -207,11 +205,7 @@ static void test_directmap_zero_paddr_ignored(void) {
 #endif /* PHYS_OFFSET_EXACT */
 
 int main(void) {
-  char tmpl[] = "/tmp/kasld_kcore_rootXXXXXX";
-  char *r = mkdtemp(tmpl);
-  assert(r != NULL);
-  snprintf(g_root, sizeof(g_root), "%s", r);
-  setenv("KASLD_SYSROOT", g_root, 1);
+  th_sysroot_init("kcore");
 
   TEST_SUITE("test_kcore");
   BEGIN_CATEGORY("proc_kcore ELF program-header scan");

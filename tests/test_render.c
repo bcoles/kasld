@@ -30,6 +30,7 @@
 #include "../src/render/text.c"
 #include "test_harness.h"
 #include "test_orch_common.h"
+#include "test_sysroot.h"
 
 #include <assert.h>
 #include <limits.h>
@@ -4260,34 +4261,13 @@ static void test_render_hardening_text_no_rand_failed_silent(void) {
  * about a dozen sources. They all miss against this tree, which is the intended
  * answer here — the gatherer's own behaviour is exercised in the orchestrator
  * suite, where each source is staged and asserted in both directions. */
-static char g_root[256];
-
 static void stage_group_file(void) {
-  snprintf(g_root, sizeof(g_root), "/tmp/kasld_render_rootXXXXXX");
-  assert(mkdtemp(g_root) != NULL);
-  char path[320];
-  snprintf(path, sizeof(path), "%s/etc", g_root);
-  assert(mkdir(path, 0755) == 0);
-  snprintf(path, sizeof(path), "%s/etc/group", g_root);
-  FILE *f = fopen(path, "w");
-  assert(f != NULL);
+  th_sysroot_init("render");
   /* 1001 collides with AID_RADIO on purpose; 3009 is left out so the gate
    * table has something to answer for. */
-  fputs("root:x:0:\n"
-        "staff:x:1001:\n"
-        "operators:x:1500:alice,bob\n",
-        f);
-  assert(fclose(f) == 0);
-  setenv("KASLD_SYSROOT", g_root, 1);
-}
-
-static void unstage_group_file(void) {
-  char path[320];
-  snprintf(path, sizeof(path), "%s/etc/group", g_root);
-  unlink(path);
-  snprintf(path, sizeof(path), "%s/etc", g_root);
-  rmdir(path);
-  rmdir(g_root);
+  th_sysroot_write("/etc/group", "root:x:0:\n"
+                                 "staff:x:1001:\n"
+                                 "operators:x:1500:alice,bob\n");
 }
 
 int main(void) {
@@ -4399,6 +4379,5 @@ int main(void) {
   RUN(test_render_json_group_aggregate_is_per_region);
   RUN(test_render_json_groups_split_by_region);
 
-  unstage_group_file();
   return TEST_DONE();
 }

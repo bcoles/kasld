@@ -20,6 +20,7 @@ int boot_config_main(void);
 #undef main
 
 #include "test_harness.h"
+#include "test_sysroot.h"
 
 #include <assert.h>
 #include <fcntl.h>
@@ -28,7 +29,6 @@ int boot_config_main(void);
 #include <sys/utsname.h>
 #include <unistd.h>
 
-static char g_root[256];
 static char cap[8192];
 
 /* KASLR compiled out so the disabled facts fire; CONFIG_PHYSICAL_START gives a
@@ -38,20 +38,10 @@ static const char *CFG =
     "CONFIG_RANDOMIZE_BASE is not set\nCONFIG_PHYSICAL_START=0x1000000\n";
 
 static void write_file(const char *rel, const char *content) {
-  char path[512];
-  snprintf(path, sizeof(path), "%s%s", g_root, rel);
-  int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-  assert(fd >= 0);
-  size_t n = strlen(content);
-  assert(write(fd, content, n) == (ssize_t)n);
-  close(fd);
+  th_sysroot_write(rel, content);
 }
 
-static void rm_file(const char *rel) {
-  char path[512];
-  snprintf(path, sizeof(path), "%s%s", g_root, rel);
-  unlink(path);
-}
+static void rm_file(const char *rel) { th_sysroot_rm(rel); }
 
 /* Run the component, capturing its stdout (the wire channel) into `cap`;
  * the stderr diagnostics are silenced. */
@@ -134,14 +124,7 @@ static void test_keyed_beats_unkeyed(void) {
 }
 
 int main(void) {
-  char tmpl[] = "/tmp/kasld_bc_rootXXXXXX";
-  char *r = mkdtemp(tmpl);
-  assert(r != NULL);
-  snprintf(g_root, sizeof(g_root), "%s", r);
-  char dir[300];
-  snprintf(dir, sizeof(dir), "%s/boot", g_root);
-  mkdir(dir, 0755);
-  setenv("KASLD_SYSROOT", g_root, 1);
+  th_sysroot_init("boot_config");
 
   TEST_SUITE("test_boot_config");
   BEGIN_CATEGORY("kernel-config provenance -> confidence");

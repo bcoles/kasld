@@ -61,6 +61,7 @@ int cma_main(void);
 #undef main
 
 #include "test_harness.h"
+#include "test_sysroot.h"
 
 #include <assert.h>
 #include <fcntl.h>
@@ -70,31 +71,10 @@ int cma_main(void);
 #include <sys/types.h>
 #include <unistd.h>
 
-static char g_root[256];
-
-static void mkparents(const char *path) {
-  char buf[512];
-  snprintf(buf, sizeof(buf), "%s", path);
-  for (char *p = buf + 1; *p; p++) {
-    if (*p == '/') {
-      *p = '\0';
-      mkdir(buf, 0755);
-      *p = '/';
-    }
-  }
-}
-
 /* Overwrite the sysroot's /var/log/dmesg with `text` (the dmesg components fall
  * back to this file under KASLD_SYSROOT). */
 static void stage_dmesg(const char *text) {
-  char path[512];
-  snprintf(path, sizeof(path), "%s/var/log/dmesg", g_root);
-  mkparents(path);
-  int fd = open(path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
-  assert(fd >= 0);
-  size_t len = strlen(text);
-  assert(write(fd, text, len) == (ssize_t)len);
-  close(fd);
+  th_sysroot_write("/var/log/dmesg", text);
 }
 
 /* Run a renamed component main(), capturing its stdout (the wire channel) into
@@ -215,14 +195,7 @@ static void test_cma_size_absent_fallback(void) {
 }
 
 int main(void) {
-  /* One sysroot for the whole suite: kasld_sysroot() caches its value
-   * process-wide, so the root must be set before any component runs. Each test
-   * re-stages /var/log/dmesg (O_TRUNC) with only its own fixture lines. */
-  char tmpl[] = "/tmp/kasld_dmesg_rootXXXXXX";
-  char *r = mkdtemp(tmpl);
-  assert(r != NULL);
-  snprintf(g_root, sizeof(g_root), "%s", r);
-  setenv("KASLD_SYSROOT", g_root, 1);
+  th_sysroot_init("dmesg_reservations");
 
   TEST_SUITE("test_dmesg_reservations");
   BEGIN_CATEGORY("dmesg physical-reservation parsers");

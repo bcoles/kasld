@@ -23,6 +23,7 @@ int sysfs_devicetree_memory_main(void);
 #undef main
 
 #include "test_harness.h"
+#include "test_sysroot.h"
 
 #include <assert.h>
 #include <fcntl.h>
@@ -30,7 +31,6 @@ int sysfs_devicetree_memory_main(void);
 #include <sys/stat.h>
 #include <unistd.h>
 
-static char g_root[256];
 static char g_base[400]; /* <root>/sys/firmware/devicetree/base */
 static char cap[16384];
 
@@ -173,13 +173,11 @@ static void test_overflow_emits_hull_only(void) {
 }
 
 int main(void) {
-  char tmpl[] = "/tmp/kasld_dtm_rootXXXXXX";
-  char *r = mkdtemp(tmpl);
-  assert(r != NULL);
-  snprintf(g_root, sizeof(g_root), "%s", r);
-  snprintf(g_base, sizeof(g_base), "%s/sys/firmware/devicetree/base", g_root);
+  th_sysroot_init("sysfs_devicetree_memory");
+  /* stage_path makes the parents; the base node itself is a directory. */
+  th_sysroot_stage_path("/sys/firmware/devicetree/base", g_base,
+                        sizeof(g_base));
   mkdirs(g_base);
-  setenv("KASLD_SYSROOT", g_root, 1);
 
   /* 2 address cells + 2 size cells (typical 64-bit DT). */
   write_cell("#address-cells", 2);
