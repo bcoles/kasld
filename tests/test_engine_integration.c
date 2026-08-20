@@ -126,6 +126,21 @@ static void add_scalar(struct engine *e, enum kasld_scalar_fact f,
   evidence_add(&e->ev, &o);
 }
 
+/* A direct bound on a quantity (the constraint input channel). Used only by the
+ * x86_64-gated perf-bracket test. */
+__attribute__((unused)) static void
+add_constraint(struct engine *e, enum kasld_quantity q, enum constraint_op op,
+               unsigned long value, enum kasld_confidence conf) {
+  struct observation o;
+  memset(&o, 0, sizeof(o));
+  o.value_kind = OBS_CONSTRAINT;
+  o.c_quantity = q;
+  o.c_op = op;
+  o.scalar_value = value;
+  o.conf = conf;
+  evidence_add(&e->ev, &o);
+}
+
 /* Used only by the x86_64-gated tests, so unused on hosts that compile none of
  * them (same reason as add_addr_conf / add_addr_top above). */
 __attribute__((unused)) static int contains(const struct estimate *e,
@@ -661,9 +676,10 @@ static void test_full_engine_curation_removes_only_the_fault(void) {
 /* Two-window resolution (engine layer): a speculative (timing) base leak
  * tightens the LIKELY window (floor CONF_BRUTE, today's engine_run_full) but is
  * filtered out of the GUARANTEED window (floor CONF_INFERRED), which stays
- * sound. A sub-floor base claim is a floored dense-probe guess, so the engine
- * models it as a +/-1-slot WINDOW (text_pin_from_observation), not an exact
- * pin. Demonstrates both the value (a correct guess brackets likely to one
+ * sound. A POS_BASE claim pins the one slot it names (text_pin_from_observation
+ * no longer widens a sub-floor pin into a slot window — a dense-probe emitter
+ * that can miss by a slot declares that by emitting at CONF_TIMING, the weakest
+ * pin). Demonstrates both the value (a correct guess pins likely to the right
  * slot) and the safety (a wrong guess can't poison guaranteed). */
 static void test_full_engine_two_window(void) {
 #if defined(__x86_64__)
@@ -673,10 +689,8 @@ static void test_full_engine_two_window(void) {
   const unsigned long T =
       0xffffffff8a000000ul; /* a valid, 2 MiB-aligned base */
 
-  const unsigned long ALIGN = 0x200000ul; /* x86_64 KASLR_VIRT_ALIGN (2 MiB) */
-
-  /* (1) Correct speculative leak -> likely brackets T to a one-slot window
-   * [T-align, T] (T at the upper edge); guaranteed brackets it more loosely. */
+  /* (1) Correct speculative leak -> likely pins T (the one slot it names);
+   * guaranteed brackets it more loosely. */
   {
     struct engine e;
     engine_init(&e);
@@ -688,15 +702,15 @@ static void test_full_engine_two_window(void) {
     engine_run_full(&e, rules, nr, vrules, nv); /* likely = floor CONF_BRUTE */
     const struct estimate *L = &e.est[Q_VIRT_IMAGE_BASE];
     const struct estimate *G = &g[Q_VIRT_IMAGE_BASE];
-    assert(contains(G, T)); /* guaranteed holds the truth */
-    assert(G->lo < G->hi);  /* timing leak filtered: unpinned */
-    assert(L->lo == T - ALIGN && L->hi == T); /* +/-1-slot likely window */
-    assert(contains(L, T));                   /* ... which brackets the truth */
+    assert(contains(G, T));           /* guaranteed holds the truth */
+    assert(G->lo < G->hi);            /* timing leak filtered: unpinned */
+    assert(L->lo == T && L->hi == T); /* likely pins the named slot */
+    assert(contains(L, T));           /* ... which is the truth */
     assert(G->lo <= L->lo && L->hi <= G->hi); /* likely subset of guaranteed */
   }
 
-  /* (2) WRONG speculative leak (a far slot) -> the +/-1-slot likely window sits
-   * around W and still excludes the true T, but guaranteed holds it: safety. */
+  /* (2) WRONG speculative leak (a far slot) -> likely pins the wrong slot W and
+   * so excludes the true T, but guaranteed holds it: safety. */
   {
     const unsigned long W = T + 0x2000000ul; /* a different valid slot */
     struct engine e;
@@ -709,10 +723,66 @@ static void test_full_engine_two_window(void) {
     engine_run_full(&e, rules, nr, vrules, nv);
     const struct estimate *L = &e.est[Q_VIRT_IMAGE_BASE];
     const struct estimate *G = &g[Q_VIRT_IMAGE_BASE];
-    assert(L->lo == W - ALIGN &&
-           L->hi == W);      /* likely window around the guess */
-    assert(!contains(L, T)); /* ... excluding the truth */
-    assert(contains(G, T));  /* but guaranteed still holds it */
+    assert(L->lo == W && L->hi == W); /* likely pins the (wrong) named slot */
+    assert(!contains(L, T));          /* ... excluding the truth */
+    assert(contains(G, T));           /* but guaranteed still holds it */
+  }
+#endif
+}
+
+/* The perf goal, end to end. A component that brackets the base from below (a
+ * lower-bound constraint on Q_VIRT_IMAGE_BASE) plus its interior sample leaves
+ * the LIKELY window a two-slot bracket; an independent exact pin inside the
+ * bracket collapses it to that one slot, while the GUARANTEED window ignores
+ * the sub-floor bound and stays sound. This is the shape perf (bracket) +
+ * prefetch (pin) produce on a live x86_64 host. The bound rides the constraint
+ * channel, so its below-_text value is never read as a text anchor. */
+static void test_full_engine_constraint_bracket_and_corroborate(void) {
+#if defined(__x86_64__)
+  int nr = 0, nv = 0;
+  const rule_fn *rules = engine_rules(&nr);
+  const verdict_fn *vrules = engine_verdict_rules(&nv);
+  const unsigned long A = (unsigned long)KASLR_VIRT_ALIGN;
+  const unsigned long T = 0xffffffff8a000000ul; /* true base, grid-aligned */
+
+  /* (1) The bracketing component alone: interior sample (base <= T) + the
+   * lower-bound constraint (base >= T - A) -> likely brackets {T-A, T}. */
+  {
+    struct engine e;
+    engine_init(&e);
+    add_interior(&e, KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, T); /* lowest IP */
+    add_constraint(&e, Q_VIRT_IMAGE_BASE, C_LOWER_BOUND, T - A, CONF_HEURISTIC);
+
+    struct estimate g[Q__COUNT];
+    engine_run_full_floored(&e, CONF_INFERRED, rules, nr, vrules, nv);
+    memcpy(g, e.est, sizeof(g));
+    engine_run_full(&e, rules, nr, vrules, nv); /* likely = floor CONF_BRUTE */
+    const struct estimate *L = &e.est[Q_VIRT_IMAGE_BASE];
+    const struct estimate *G = &g[Q_VIRT_IMAGE_BASE];
+    assert(contains(G, T));               /* guaranteed holds the truth */
+    assert(L->lo == T - A && L->hi == T); /* likely: the two-slot bracket */
+    assert(contains(L, T));
+    assert(G->lo <= L->lo && L->hi <= G->hi); /* likely subset of guaranteed */
+  }
+
+  /* (2) Add an independent exact pin at T (prefetch-shaped, CONF_TIMING) inside
+   * the bracket: the likely window collapses to the single true slot. */
+  {
+    struct engine e;
+    engine_init(&e);
+    add_interior(&e, KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, T);
+    add_constraint(&e, Q_VIRT_IMAGE_BASE, C_LOWER_BOUND, T - A, CONF_HEURISTIC);
+    add_addr_conf(&e, KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE, T, 0, CONF_TIMING,
+                  NULL);
+
+    struct estimate g[Q__COUNT];
+    engine_run_full_floored(&e, CONF_INFERRED, rules, nr, vrules, nv);
+    memcpy(g, e.est, sizeof(g));
+    engine_run_full(&e, rules, nr, vrules, nv);
+    const struct estimate *L = &e.est[Q_VIRT_IMAGE_BASE];
+    const struct estimate *G = &g[Q_VIRT_IMAGE_BASE];
+    assert(L->lo == T && L->hi == T); /* corroboration collapses to one slot */
+    assert(contains(G, T));           /* guaranteed still sound */
   }
 #endif
 }
@@ -2164,6 +2234,7 @@ int main(void) {
   RUN(test_full_engine_faithful_cluster_keeps_directmap);
   RUN(test_full_engine_curation_removes_only_the_fault);
   RUN(test_full_engine_two_window);
+  RUN(test_full_engine_constraint_bracket_and_corroborate);
   RUN(test_full_engine_floor_invariant);
   RUN(test_full_engine_property_x86_64);
   RUN(test_full_engine_property_x86_64_floor);

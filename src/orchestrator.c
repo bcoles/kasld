@@ -353,6 +353,7 @@ static unsigned int discards_total;
 #define DSRC_COMPONENTS "components"
 #define DSRC_COMPONENT_LINES "component-log"
 #define DSRC_CONSTRAINTS "constraints"
+#define DSRC_CONSTRAINT_FACTS "constraint-facts"
 #define DSRC_VERDICTS "verdicts"
 #define DSRC_RULE_EMIT "rule-emit"
 #define DSRC_VRULE_EMIT "verdict-rule-emit"
@@ -1245,6 +1246,12 @@ int num_results;
 struct scalar_fact_record scalar_facts[MAX_SCALAR_FACTS];
 int num_scalar_facts;
 
+/* constraint_fact_record + constraint_facts[]/num_constraint_facts declared in
+ * include/kasld/internal.h; the engine bridge copies these to OBS_CONSTRAINT
+ * observations, which a passthrough rule folds into the meet. */
+struct constraint_fact_record constraint_facts[MAX_CONSTRAINT_FACTS];
+int num_constraint_facts;
+
 /* Look up region enum by wire name. Linear scan over region_info[] — a table
  * of a few dozen, negligible cost. Returns REGION_UNKNOWN on miss. */
 static enum kasld_region region_from_wire(const char *s) {
@@ -1729,6 +1736,56 @@ static int capture_scalar(const char *line, int origin) {
    * filter the component meant to report a fact, and this build did not accept
    * it. The full-table path above records its own reason and returns without
    * reaching here. */
+reject:
+  kasld_discard_record(DISCARD_PARSE, kasld_origin_name(origin));
+  return 0;
+}
+
+/* Parse one `C <quantity> <op> conf=<c> value=0x<hex>` record into
+ * constraint_facts[]. Returns 1 on capture, 0 on reject (unknown quantity,
+ * unsupported/unknown op, bad conf or value, full table). Mirrors
+ * capture_scalar; the channel carries inequality bounds only (>=, <=). */
+static int capture_constraint(const char *line, int origin) {
+  if (line[0] != 'C' || line[1] != ' ')
+    return 0;
+  char qname[32], opname[16], conf_str[16], val_str[40];
+  if (sscanf(line, "C %31s %15s conf=%15s value=%39s", qname, opname, conf_str,
+             val_str) != 4)
+    goto reject;
+  enum kasld_quantity q = kasld_quantity_from_wire(qname);
+  if (q >= Q__COUNT)
+    goto reject;
+  enum constraint_op op;
+  if (!kasld_constraint_op_from_wire(opname, &op))
+    goto reject;
+  /* Whitelist the inequality-bound ops (matches kasld_emit_constraint); an
+   * exact or value2-carrying op reaching here is not carried on this channel.
+   */
+  if (op != C_LOWER_BOUND && op != C_UPPER_BOUND)
+    goto reject;
+  enum kasld_confidence c = conf_from_wire(conf_str);
+  if (c == CONF_UNKNOWN)
+    goto reject;
+  unsigned long v;
+  if (!parse_hex(val_str, &v))
+    goto reject;
+  /* Same lock discipline as capture_scalar. */
+  RESULT_LOCK();
+  if (num_constraint_facts >= MAX_CONSTRAINT_FACTS) {
+    kasld_discard_record(DISCARD_CAPACITY, DSRC_CONSTRAINT_FACTS);
+    RESULT_UNLOCK();
+    return 0;
+  }
+  int idx = num_constraint_facts++;
+  RESULT_UNLOCK();
+  struct constraint_fact_record *cf = &constraint_facts[idx];
+  cf->q = q;
+  cf->op = op;
+  cf->value = v;
+  cf->conf = c;
+  cf->origin = origin;
+  return 1;
+
 reject:
   kasld_discard_record(DISCARD_PARSE, kasld_origin_name(origin));
   return 0;
@@ -2227,8 +2284,11 @@ static int handle_component_line(struct component_log *clog,
    * be counted as any. Only a line past that filter can be rejected in the
    * sense that matters, and only the rejecting site knows whether it was
    * malformed, out of bounds, or refused by a full table. */
-  return (line[0] == 'S') ? capture_scalar(line, origin)
-                          : capture_result(line, comp_method, origin);
+  if (line[0] == 'S')
+    return capture_scalar(line, origin);
+  if (line[0] == 'C')
+    return capture_constraint(line, origin);
+  return capture_result(line, comp_method, origin);
 }
 
 /* Verbose: open a component's output block with a labelled rule, so its
@@ -3916,25 +3976,30 @@ static void engine_build_evidence(struct evidence_set *ev,
              kasld_origin_name(scalar_facts[i].origin));
     evidence_add(ev, &o);
   }
+
+  /* Direct constraints collected from component `C` records. */
+  for (int i = 0; i < num_constraint_facts; i++) {
+    if (origin_set_has(&excluded, constraint_facts[i].origin))
+      continue;
+    struct observation o;
+    memset(&o, 0, sizeof(o));
+    o.value_kind = OBS_CONSTRAINT;
+    o.c_quantity = constraint_facts[i].q;
+    o.c_op = constraint_facts[i].op;
+    o.scalar_value = constraint_facts[i].value;
+    o.conf = constraint_facts[i].conf;
+    snprintf(o.origin, ORIGIN_LEN, "%s",
+             kasld_origin_name(constraint_facts[i].origin));
+    evidence_add(ev, &o);
+  }
 }
 
-/* Resolve the engine over the bridged evidence with the full rule registry. */
+/* Human/wire token for a constraint op. The single source of truth is the wire
+ * table in constraint.h, so the conflict and verbose reporters cannot drift
+ * from the token the channel parses. */
 static const char *constraint_op_name(enum constraint_op op) {
-  switch (op) {
-  case C_LOWER_BOUND:
-    return ">=";
-  case C_UPPER_BOUND:
-    return "<=";
-  case C_EQUALS:
-    return "==";
-  case C_AT_LEAST_ALIGN:
-    return "align>=";
-  case C_EXCLUDE:
-    return "exclude";
-  case C_STRIDE:
-    return "stride";
-  }
-  return "?";
+  const char *w = kasld_constraint_op_wire(op);
+  return w ? w : "?";
 }
 
 /* Print one rejected constraint, tagged with its window (guaranteed / likely).
@@ -4080,6 +4145,9 @@ static const char *discard_capacity_detail(const char *src) {
   if (strcmp(src, DSRC_SCALARS) == 0)
     return "MAX_SCALAR_FACTS reached; further scalar system facts were dropped "
            "at capture";
+  if (strcmp(src, DSRC_CONSTRAINT_FACTS) == 0)
+    return "MAX_CONSTRAINT_FACTS reached; further direct constraints were "
+           "dropped at capture";
   if (strcmp(src, DSRC_COMPONENTS) == 0)
     return "MAX_COMPONENTS reached; the component directory holds more "
            "executables and only the first by name ran";

@@ -31,6 +31,7 @@
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
 #include "include/kasld/cli.h"
+#include "include/kasld/constraint.h"
 #include <errno.h>
 #include <linux/perf_event.h>
 #include <poll.h>
@@ -266,25 +267,30 @@ int main(void) {
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, addr, NULL,
                       CONF_PARSED);
 
-  /* On large-page arches the lowest sampled IP also yields a speculative base
-   * GUESS: flooring it to KASLR_VIRT_ALIGN lands on the image base whenever the
-   * lowest sampled function sits in the base's own slot — the common case on a
-   * busy system, where low text executes constantly. It overshoots by one slot
-   * only when the base's slot holds nothing the sampler caught (un-executed
-   * head/entry text on an idle, freshly booted kernel). So emit it as a base
-   * pin, but at CONF_HEURISTIC: "the floored slot is the base" is a heuristic,
-   * so the pin sits BELOW the sound floor and shapes the speculative LIKELY
-   * window only — never the guaranteed one, which keeps the sound interior
-   * upper bound above. Region KERNEL_IMAGE so the value is read as _text
-   * directly, with no _stext head-gap subtraction. kasld_floor_text_base
-   * preserves the sub-alignment residue so the floor never drops below _text.
+  /* On large-page arches the lowest sampled IP also brackets the base from
+   * below. Flooring it to the KASLR grid lands on the base's own slot whenever
+   * the lowest sampled function sits there — the common case on a busy system,
+   * where low text executes constantly — and overshoots by exactly one slot
+   * when the base's slot holds nothing the sampler caught (un-executed
+   * head/entry text on an idle, freshly booted kernel). So the base is the
+   * floored slot or one slot below it: a LOWER bound of floor - one slot.
+   *
+   * Emit it on the constraint channel rather than as a positional base pin.
+   * The bound value sits one slot below _text, which the anchor rules — which
+   * read a base witness as a located address — would misread as text; a
+   * constraint is not an address, so they never see it. At CONF_HEURISTIC the
+   * bound sits below the sound floor and shapes the speculative LIKELY window
+   * only, never the guaranteed one; combined with the interior sample's sound
+   * upper bound (base <= floored, via grid alignment) it brackets the base to
+   * two slots, which an agreeing exact pin collapses to one.
    *
    * Gated to KASLR_VIRT_ALIGN >= 2 MiB: on fine-granule arches the lowest
-   * sampled IP can sit many slots above the base, so flooring it is not a
-   * within-one-slot guess; there the interior upper bound is the only claim. */
+   * sampled IP can sit many slots above the base, so "within one slot" does not
+   * hold; there the interior upper bound is the only claim. */
 #if KASLR_VIRT_ALIGN >= 2 * MB
-  kasld_result_base(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE,
-                    kasld_floor_text_base(addr), NULL, CONF_HEURISTIC);
+  kasld_emit_constraint(Q_VIRT_IMAGE_BASE, C_LOWER_BOUND,
+                        kasld_floor_text_base(addr) - KASLR_VIRT_ALIGN,
+                        CONF_HEURISTIC);
 #endif
 
   return 0;

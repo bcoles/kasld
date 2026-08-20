@@ -48,7 +48,7 @@ static int emit_min_sample(const struct evidence_set *ev,
   uint32_t src = 0;
   for (int i = 0; i < ev->n_obs; i++) {
     const struct observation *o = &ev->obs[i];
-    if (!o->valid || o->eff_type != type)
+    if (!o->valid || o->value_kind != OBS_ADDRESS || o->eff_type != type)
       continue;
     int is_band = (o->eff_region == REGION_KERNEL_TEXT_BAND);
     if (band ? !is_band : !is_kernel_image_region(o->eff_region))

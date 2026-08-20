@@ -53,6 +53,7 @@
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
 #include "include/kasld/cli.h"
+#include "include/kasld/constraint.h"
 #include "include/kasld/perf_branch.h"
 #include <errno.h>
 #include <linux/perf_event.h>
@@ -176,19 +177,21 @@ int main(int argc, char *argv[]) {
   kasld_result_sample(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, acc.min_addr, NULL,
                       CONF_PARSED);
 
-  /* On large-page arches the lowest sample also yields a speculative base
-   * GUESS: flooring it to the base grid lands on the image base whenever the
-   * lowest sampled branch sits in the base's own slot. Emit it as a base pin at
-   * CONF_HEURISTIC so it shapes only the speculative LIKELY window, never the
-   * guaranteed one (which keeps the sound interior upper bound above). Region
-   * KERNEL_IMAGE so the value is read as _text directly; kasld_floor_text_base
-   * preserves the sub-alignment residue so the floor never drops below _text.
+  /* On large-page arches the lowest sample also brackets the base from below:
+   * flooring it to the base grid lands on the image base whenever the lowest
+   * sampled branch sits in the base's own slot, and one slot high otherwise —
+   * so the base is the floored slot or one below it. Emit the lower bound
+   * (floor - one slot) on the constraint channel at CONF_HEURISTIC so it shapes
+   * only the speculative LIKELY window, never the guaranteed one; the interior
+   * sample keeps the sound upper bound. A below-_text bound is not an address,
+   * so the anchor rules never read it.
    * LBR is x86-only today (KASLR_VIRT_ALIGN = 2 MiB, so the gate always holds);
    * the gate keeps this correct-by-construction should LBR ever gain a finer
    * target, where flooring the lowest sample is not a within-one-slot guess. */
 #if KASLR_VIRT_ALIGN >= 2 * MB
-  kasld_result_base(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE,
-                    kasld_floor_text_base(acc.min_addr), NULL, CONF_HEURISTIC);
+  kasld_emit_constraint(Q_VIRT_IMAGE_BASE, C_LOWER_BOUND,
+                        kasld_floor_text_base(acc.min_addr) - KASLR_VIRT_ALIGN,
+                        CONF_HEURISTIC);
 #endif
   return 0;
 }

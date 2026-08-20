@@ -63,6 +63,7 @@
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
 #include "include/kasld/cli.h"
+#include "include/kasld/constraint.h"
 #include "include/kasld/perf_branch.h"
 #include <errno.h>
 #include <linux/perf_event.h>
@@ -192,12 +193,16 @@ int main(int argc, char *argv[]) {
                       CONF_PARSED);
 
   /* Entry-text branch-from sites sit in the base's own slot, so flooring the
-   * lowest to the base grid is a within-one-slot GUESS: emit it as a
-   * CONF_HEURISTIC base pin shaping only the LIKELY window, never the
-   * guaranteed one. Gated on the 2 MiB grid (x86 only), as in the sibling. */
+   * lowest to the base grid is a within-one-slot GUESS: the base is that slot
+   * or one below it. Emit the lower bound (floor - one slot) on the constraint
+   * channel, at CONF_HEURISTIC so it shapes only the LIKELY window; a below-
+   * _text bound is not an address and so is invisible to the anchor rules. The
+   * interior sample supplies the sound upper bound. Gated on the 2 MiB grid
+   * (x86 only), as in the sibling. */
 #if KASLR_VIRT_ALIGN >= 2 * MB
-  kasld_result_base(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE,
-                    kasld_floor_text_base(acc.min_addr), NULL, CONF_HEURISTIC);
+  kasld_emit_constraint(Q_VIRT_IMAGE_BASE, C_LOWER_BOUND,
+                        kasld_floor_text_base(acc.min_addr) - KASLR_VIRT_ALIGN,
+                        CONF_HEURISTIC);
 #endif
   return 0;
 }

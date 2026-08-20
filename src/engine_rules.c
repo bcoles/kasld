@@ -93,6 +93,9 @@ static const rule_fn k_rules[] = {
     /* Text-base pin from POS_BASE kernel-image observation */
     rule_text_pin_from_observation,
 
+    /* Direct-constraint channel: fold OBS_CONSTRAINT bounds into the meet */
+    rule_constraint_passthrough,
+
     /* Symmetric phys↔virt text-base coupling synthesizer */
     rule_text_base_coupling_synth,
 

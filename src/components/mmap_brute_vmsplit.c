@@ -55,6 +55,7 @@
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
 #include "include/kasld/cli.h"
+#include "include/kasld/constraint.h"
 #include "include/kasld/task_size.h"
 #include <limits.h>
 #include <stdio.h>
@@ -169,11 +170,15 @@ int main(void) {
     /* Everywhere else the split sits BELOW PAGE_OFFSET by a distance the
      * architecture fixes and this probe cannot see (arm32 reserves 16 MiB for
      * modules, ppc32 a smaller gap, riscv32 the fixmap, PCI-IO and vmemmap
-     * regions). The measurement is then a lower bound on the base, emitted as
-     * the window it proves; the upper edge is the highest base the architecture
-     * admits, which holds against any target. */
-    kasld_result_range(KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, addr,
-                       (unsigned long)PAGE_OFFSET_MAX, NULL, CONF_INFERRED);
+     * regions). So the measurement is a pure LOWER BOUND on the base. Emit it
+     * on the constraint channel rather than as a positional range: the value
+     * sits below the linear-map region, which the anchor and coupling rules
+     * (reading a page-offset witness as a located address) would misread; a
+     * constraint is not an address, so they never see it. The range form's
+     * upper edge was PAGE_OFFSET_MAX, which is exactly Q_PAGE_OFFSET's own top,
+     * so stating only the lower bound loses nothing. Sound (gated on `exact`),
+     * hence CONF_INFERRED: it holds in the guaranteed window. */
+    kasld_emit_constraint(Q_PAGE_OFFSET, C_LOWER_BOUND, addr, CONF_INFERRED);
 #endif
   }
 

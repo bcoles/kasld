@@ -104,7 +104,7 @@ int rule_riscv64_fdt_kaslr_seed(const struct evidence_set *ev,
         efi_present = (o->scalar_value != 0);
       continue;
     }
-    if (o->eff_type == KASLD_TYPE_VIRT) {
+    if (o->value_kind == OBS_ADDRESS && o->eff_type == KASLD_TYPE_VIRT) {
       unsigned long a = obs_anchor(o);
       if (o->eff_region == REGION_KERNEL_TEXT ||
           o->eff_region == REGION_KERNEL_IMAGE) {

@@ -16,7 +16,8 @@
 #ifndef KASLD_OBSERVATION_H
 #define KASLD_OBSERVATION_H
 
-#include "api.h" /* NAME_LEN, ORIGIN_LEN wire-field widths */
+#include "api.h"        /* NAME_LEN, ORIGIN_LEN wire-field widths */
+#include "constraint.h" /* enum kasld_quantity, enum constraint_op (OBS_CONSTRAINT) */
 
 #include <stdint.h>
 
@@ -39,18 +40,26 @@ enum kasld_set_bits {
 #define HAS_BASE_ALIGN(r) ((r)->set_mask & BASE_ALIGN_SET)
 #endif
 
-/* An observation carries either an address fact (region + extent — the
- * leak/landmark shape) or a scalar system fact (a bare number with a
- * named meaning). Scalar facts exist because components are the sole
- * inference I/O boundary — a component must be able to emit raw
- * measurements that are NOT addresses (MemTotal, physical-address bits,
- * kernel image size, VA bits). A rule reads these by `scalar_fact` and
- * turns them into constraints; keeping them raw on the observation
- * preserves measure/reason separation (components measure; rules
- * interpret). */
+/* An observation carries one of three input kinds. Components are the sole
+ * inference I/O boundary, so each is something a component must be able to
+ * state:
+ *   - OBS_ADDRESS: a region + extent (the leak/landmark shape).
+ *   - OBS_SCALAR: a bare measurement with a named meaning that is NOT an
+ *     address (MemTotal, physical-address bits, image size, VA bits). A rule
+ *     reads it by `scalar_fact` and turns it into constraints.
+ *   - OBS_CONSTRAINT: an inequality bound on a named quantity the component
+ *     computed but cannot state as a located address (perf's lowest sampled IP
+ *     is a lower bound on the text base that sits below _text). It carries a
+ *     quantity, a bound operator (>= or <=), and a value; a passthrough rule
+ *     emits it as that C_* directly. Because it is not an address, the ~44
+ *     anchor rules (which gate on OBS_ADDRESS) never read it — a below-base
+ *     bound cannot be misread as a text anchor.
+ * Keeping non-address facts raw on the observation preserves measure/reason
+ * separation (components measure; rules interpret). */
 enum obs_value_kind {
   OBS_ADDRESS = 0, /* region + lo/hi/sample (default) */
   OBS_SCALAR,      /* scalar_fact + scalar_value */
+  OBS_CONSTRAINT,  /* c_quantity + c_op + scalar_value (reused as the value) */
 };
 
 /* enum kasld_scalar_fact + its wire table live in api.h (the component-facing
@@ -71,8 +80,12 @@ struct observation {
   enum kasld_position pos;
   /* OBS_SCALAR: */
   enum kasld_scalar_fact scalar_fact;
-  unsigned long scalar_value;
-  /* both: */
+  unsigned long
+      scalar_value; /* OBS_CONSTRAINT reuses this as the bound value */
+  /* OBS_CONSTRAINT: */
+  enum kasld_quantity c_quantity;
+  enum constraint_op c_op;
+  /* all kinds: */
   enum kasld_confidence conf;
   char origin[ORIGIN_LEN]; /* producing component */
 

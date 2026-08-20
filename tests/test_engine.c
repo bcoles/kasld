@@ -1139,6 +1139,20 @@ static struct observation mk_scalar(enum kasld_scalar_fact fact,
   return o;
 }
 
+static struct observation mk_constraint(enum kasld_quantity q,
+                                        enum constraint_op op,
+                                        unsigned long value,
+                                        enum kasld_confidence conf) {
+  struct observation o;
+  memset(&o, 0, sizeof(o));
+  o.value_kind = OBS_CONSTRAINT;
+  o.c_quantity = q;
+  o.c_op = op;
+  o.scalar_value = value; /* OBS_CONSTRAINT reuses scalar_value as the bound */
+  o.conf = conf;
+  return o;
+}
+
 /* phys_ceiling_from_memtotal rule, decoupled arches only. */
 int rule_phys_ceiling_from_memtotal(const struct evidence_set *ev,
                                     const struct estimate *est,
@@ -2582,6 +2596,121 @@ static void test_vmsplit_text_base_nondefault_offset(void) {
   (void)boundary;
   (void)real_text;
 #endif
+}
+
+/* constraint_passthrough: an OBS_CONSTRAINT is folded verbatim into the meet as
+ * the named C_* on its quantity, at its own confidence — no translation. */
+int rule_constraint_passthrough(const struct evidence_set *ev,
+                                const struct estimate *est,
+                                struct constraint *out, int out_max);
+
+static void test_constraint_passthrough_emits_bound(void) {
+  struct engine e;
+  engine_init(&e);
+  unsigned long bound = 0x1000000ul;
+  struct observation o =
+      mk_constraint(Q_VIRT_IMAGE_BASE, C_LOWER_BOUND, bound, CONF_HEURISTIC);
+  evidence_add(&e.ev, &o);
+  /* An exact (C_EQUALS) constraint is NOT carried on this channel: the
+   * passthrough must drop it, so only the inequality bound survives. */
+  struct observation eq = mk_constraint(Q_VIRT_IMAGE_BASE, C_EQUALS,
+                                        bound + 0x400000ul, CONF_PARSED);
+  evidence_add(&e.ev, &eq);
+  const rule_fn rules[] = {rule_constraint_passthrough};
+  engine_run(&e, rules, 1);
+
+  int n = 0;
+  for (int i = 0; i < e.n_constraints; i++) {
+    const struct constraint *c = &e.constraints[i];
+    if (c->q != Q_VIRT_IMAGE_BASE)
+      continue;
+    n++;
+    assert(c->op == C_LOWER_BOUND); /* the C_EQUALS was dropped, not emitted */
+    assert(c->value == bound);
+    assert(c->conf == CONF_HEURISTIC);
+  }
+  assert(n == 1);
+}
+
+/* Soundness: an OBS_CONSTRAINT carrying a value BELOW the true text base (the
+ * perf floor shape) is never read as a located text address by the anchor
+ * rules — it stays a bound. A real text witness pins the base; the below-base
+ * bound coexists without becoming a spurious pin, and the estimate admits the
+ * truth. This is the property the positional-address form failed to provide. */
+static void test_constraint_invisible_to_text_anchor(void) {
+#if defined(__x86_64__)
+  struct engine e;
+  engine_init(&e);
+  unsigned long real_text = 0xffffffff90000000ul;
+  unsigned long below = real_text - 0x200000ul; /* one 2 MiB slot below _text */
+
+  /* A sound text base witness (kallsyms-shaped). */
+  struct observation t = mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE, real_text,
+                                LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
+  /* The perf-shaped below-base lower bound, on the constraint channel. */
+  struct observation c =
+      mk_constraint(Q_VIRT_IMAGE_BASE, C_LOWER_BOUND, below, CONF_HEURISTIC);
+  evidence_add(&e.ev, &t);
+  evidence_add(&e.ev, &c);
+
+  const rule_fn rules[] = {rule_constraint_passthrough,
+                           rule_text_pin_from_observation};
+  engine_run(&e, rules, 2);
+
+  /* The text pin names real_text, and NO pin (C_EQUALS) ever names the
+   * below-base value — the constraint did not masquerade as a text anchor. */
+  int n_pin = 0, n_bound = 0;
+  for (int i = 0; i < e.n_constraints; i++) {
+    const struct constraint *cc = &e.constraints[i];
+    if (cc->q != Q_VIRT_IMAGE_BASE)
+      continue;
+    if (cc->op == C_EQUALS) {
+      n_pin++;
+      assert(cc->value == real_text);
+      assert(cc->value != below);
+    } else if (cc->op == C_LOWER_BOUND) {
+      n_bound++;
+      assert(cc->value == below);
+    }
+  }
+  assert(n_pin == 1);
+  assert(n_bound == 1);
+  /* Truth is admitted (the pin holds; the sub-floor bound never excludes it).
+   */
+  assert(e.est[Q_VIRT_IMAGE_BASE].lo <= real_text &&
+         real_text <= e.est[Q_VIRT_IMAGE_BASE].hi);
+#endif
+}
+
+/* Real completeness guard for the wire tables. The sizeof typedefs beside them
+ * are tautological once the array has an explicit dimension and cannot see a
+ * NULL interior initialiser, so completeness is enforced here: every quantity,
+ * every constraint op, and every scalar fact must map to a non-NULL token that
+ * round-trips. Adding a quantity, op, or scalar fact without a token fails
+ * this. */
+static void test_wire_tables_complete(void) {
+  for (int q = 0; q < Q__COUNT; q++) {
+    const char *w = kasld_quantity_wire((enum kasld_quantity)q);
+    assert(w != NULL);
+    assert(kasld_quantity_from_wire(w) == (enum kasld_quantity)q);
+  }
+  /* The op map is total over constraint_op (the channel carries only the
+   * inequality subset, but the table itself is complete and must round-trip).
+   */
+  for (int op = C_LOWER_BOUND; op <= C_STRIDE; op++) {
+    const char *w = kasld_constraint_op_wire((enum constraint_op)op);
+    enum constraint_op back;
+    assert(w != NULL);
+    assert(kasld_constraint_op_from_wire(w, &back) &&
+           back == (enum constraint_op)op);
+  }
+  /* Backstops the pre-existing scalar wire table (same tautological typedef).
+   */
+  for (int f = SF_NONE + 1; f < SF__COUNT; f++) {
+    const char *w = kasld_scalar_fact_wire((enum kasld_scalar_fact)f);
+    assert(w != NULL);
+    assert(kasld_scalar_fact_from_wire(w) == (enum kasld_scalar_fact)f);
+  }
 }
 
 /* cmdline_memmap_phys_exclude: each PHYS REGION_CMDLINE_MEMMAP extent
@@ -8519,6 +8648,9 @@ int main(void) {
   RUN(test_vmsplit_text_base);
   RUN(test_vmsplit_text_base_unlisted_split_admitted);
   RUN(test_vmsplit_text_base_nondefault_offset);
+  RUN(test_constraint_passthrough_emits_bound);
+  RUN(test_constraint_invisible_to_text_anchor);
+  RUN(test_wire_tables_complete);
   RUN(test_cmdline_memmap_phys_exclude);
   RUN(test_cmdline_memmap_no_image_size);
 #if defined(__x86_64__)

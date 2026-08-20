@@ -36,6 +36,43 @@ enum kasld_quantity {
   Q__COUNT,
 };
 
+/* Q_* <-> wire token, single source of truth for both directions. Header-only
+ * (like kasld_scalar_fact_wire_table in api.h) so a component's emit side and
+ * the orchestrator's parse side share one mapping without linking quantities.c
+ * — the tokens match the human `name` field in that table. */
+static const char *const kasld_quantity_wire_table[Q__COUNT] = {
+    [Q_VIRT_IMAGE_BASE] = "virt_image_base",
+    [Q_PHYS_IMAGE_BASE] = "phys_image_base",
+    [Q_PAGE_OFFSET] = "virt_page_offset",
+    [Q_VMALLOC_BASE] = "virt_vmalloc_base",
+    [Q_VMEMMAP_BASE] = "virt_vmemmap_base",
+    [Q_MODULE_BASE] = "virt_module_base",
+    [Q_VIRT_KASLR_ALIGN] = "virt_kaslr_align",
+    [Q_PHYS_KASLR_ALIGN] = "phys_kaslr_align",
+    [Q_VA_BITS] = "va_bits",
+};
+/* The [Q__COUNT] dimension keeps the table indexable for every Q_* (a missing
+ * entry is a NULL hole, not out of bounds); it does NOT make the table
+ * complete. Completeness — every Q_* has a non-NULL token, and tokens
+ * round-trip — is enforced at runtime by test_wire_tables_complete
+ * (tests/test_engine.c), since a sizeof check cannot see a NULL interior
+ * initialiser. */
+
+static inline const char *kasld_quantity_wire(enum kasld_quantity q) {
+  if ((unsigned)q >= Q__COUNT)
+    return NULL;
+  return kasld_quantity_wire_table[q];
+}
+
+/* Returns Q__COUNT when the token names no known quantity. */
+static inline enum kasld_quantity kasld_quantity_from_wire(const char *s) {
+  for (int i = 0; i < Q__COUNT; i++)
+    if (kasld_quantity_wire_table[i] &&
+        strcmp(s, kasld_quantity_wire_table[i]) == 0)
+      return (enum kasld_quantity)i;
+  return Q__COUNT;
+}
+
 /* Lattice kind selects the meet operation and the bottom test.
  *  - LK_INTERVAL: value is [lo, hi]; meet narrows the interval; bottom = lo>hi.
  *  - LK_MAXALIGN: value is the largest known alignment (power of two); meet

@@ -7,14 +7,15 @@
 // _stext, /proc/iomem "Kernel code") already extracted it as a base, not
 // as an interior sample.
 //
-// An at/above-sound-floor witness is exact -> C_EQUALS pin. A BELOW-floor
-// witness is a floored dense-probe guess (perf, prefetch) carrying inherent
-// +1-slot uncertainty: it can equal the base or sit ONE slot high, but never
-// below it (the probe only sees mapped kernel pages / sampled kernel IPs, all
-// at or above _text). On a large-page arch it is emitted as the
-// [base - align, base] WINDOW instead of a pin, so the likely result brackets
-// the truth rather than committing to one slot. See the soundness note
-// at the emission site. Emit at the observation's confidence:
+// Every POS_BASE witness pins its single named slot -> C_EQUALS, at the
+// witness's own confidence. The engine does not widen a pin: any imprecision in
+// the value is the emitter's to declare. A dense-probe emitter that can land a
+// slot off the true base (prefetch's latency scan, perf's lowest sampled IP)
+// declares it by emitting at CONF_TIMING, the weakest pin, which any better
+// witness overrides — a slot-window uncertainty belongs to that emitter, not
+// hard-coded here for every below-floor pin (it would also wrongly widen an
+// exact offset-table pin like bpf/kernfs that happens to sit below the floor).
+// Emit at the observation's confidence:
 //
 //   VIRT  + KERNEL_TEXT / KERNEL_IMAGE  →  Q_VIRT_IMAGE_BASE  := lo
 //   PHYS  + KERNEL_TEXT / KERNEL_IMAGE  →  Q_PHYS_IMAGE_BASE  := lo
@@ -48,8 +49,8 @@
 #include <string.h>
 
 static int emit_pin(const struct evidence_set *ev, enum kasld_addr_type type,
-                    enum kasld_quantity q, unsigned long align,
-                    struct constraint *out, int slot, int out_max) {
+                    enum kasld_quantity q, struct constraint *out, int slot,
+                    int out_max) {
   if (slot >= out_max)
     return 0;
 
@@ -87,46 +88,15 @@ static int emit_pin(const struct evidence_set *ev, enum kasld_addr_type type,
    * arm64). */
   base = kasld_image_base_from(base, base_is_stext);
 
-  /* A base witness BELOW the sound floor is a floored dense-probe GUESS (perf's
-   * lowest sampled IP, prefetch's latency scan), already aligned down to the
-   * KASLR granule. It can equal the base or sit ONE granule high, never below:
-   * perf's lowest sampled IP lands in the base's own slot only if code there
-   * executed during sampling (on a quiet kernel it may not, landing one slot
-   * up); prefetch resolves the mapped left edge directly, but its timing signal
-   * can still round a noisy pass one slot high. On a large-page arch, model it
-   * as the [base - align, base] WINDOW, which contains the true base in either
-   * case, rather than an exact pin that misses by one slot. The bounds keep the
-   * witness's sub-floor confidence, so they shape the likely window only — the
-   * guaranteed window never sees them. An at/above-floor witness (kallsyms
-   * _stext, iomem "Kernel code") is exact and pins. Gated to align >= 2 MiB: on
-   * a fine granule the lowest observed IP can sit many slots above the base, so
-   * a one-slot window would not bound it (and the dense-probe emitters do not
-   * fire there). */
-  if ((int)conf < (int)CONF_INFERRED && align >= 2 * MB && base > align) {
-    if (slot + 1 >= out_max)
-      return 0;
-    struct constraint *lo = &out[slot];
-    memset(lo, 0, sizeof(*lo));
-    lo->q = q;
-    lo->op = C_LOWER_BOUND;
-    lo->value = base - align;
-    lo->conf = conf;
-    lo->derived_from[0] = src;
-    lo->lineage_count = 1;
-    snprintf(lo->origin, ORIGIN_LEN, "text_pin_from_observation");
-
-    struct constraint *hi = &out[slot + 1];
-    memset(hi, 0, sizeof(*hi));
-    hi->q = q;
-    hi->op = C_UPPER_BOUND;
-    hi->value = base;
-    hi->conf = conf;
-    hi->derived_from[0] = src;
-    hi->lineage_count = 1;
-    snprintf(hi->origin, ORIGIN_LEN, "text_pin_from_observation");
-    return 2;
-  }
-
+  /* A POS_BASE observation is a base pin: emit it as-is (C_EQUALS) at the
+   * witness's own confidence. The value's accuracy is the emitter's concern,
+   * not the engine's — a dense-probe emitter that can land a slot off the true
+   * base (prefetch's latency scan, perf's lowest sampled IP) says so by
+   * emitting at CONF_TIMING/CONF_HEURISTIC, the weakest tiers, which any better
+   * witness overrides; the engine does not second-guess a pin by widening it
+   * into a slot window. An at/above-floor witness (kallsyms _stext, iomem
+   * "Kernel code") and an offset-table pin (bpf/kernfs) alike pin the single
+   * slot they name. */
   struct constraint *c = &out[slot];
   memset(c, 0, sizeof(*c));
   c->q = q;
@@ -144,9 +114,7 @@ int rule_text_pin_from_observation(const struct evidence_set *ev,
                                    struct constraint *out, int out_max) {
   (void)est;
   int n = 0;
-  n += emit_pin(ev, KASLD_TYPE_VIRT, Q_VIRT_IMAGE_BASE,
-                (unsigned long)KASLR_VIRT_ALIGN, out, n, out_max);
-  n += emit_pin(ev, KASLD_TYPE_PHYS, Q_PHYS_IMAGE_BASE,
-                (unsigned long)KASLR_PHYS_ALIGN, out, n, out_max);
+  n += emit_pin(ev, KASLD_TYPE_VIRT, Q_VIRT_IMAGE_BASE, out, n, out_max);
+  n += emit_pin(ev, KASLD_TYPE_PHYS, Q_PHYS_IMAGE_BASE, out, n, out_max);
   return n;
 }

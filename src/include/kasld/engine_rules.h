@@ -329,6 +329,7 @@ R(efi_loader_kernel_pick);
 
 /* Text-base pin from POS_BASE kernel-image observation */
 R(text_pin_from_observation);
+R(constraint_passthrough);
 
 /* Symmetric phys↔virt text-base coupling synthesizer */
 R(text_base_coupling_synth);

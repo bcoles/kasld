@@ -11,6 +11,7 @@
 #define KASLD_INTERNAL_H
 
 #include "api.h"
+#include "constraint.h" /* struct constraint_fact_record enums */
 #include "regions.h" /* canonical is_phys_dram_region / is_kernel_image_region */
 
 #include <stddef.h>
@@ -878,6 +879,23 @@ struct scalar_fact_record {
 #define MAX_SCALAR_FACTS 64
 extern struct scalar_fact_record scalar_facts[MAX_SCALAR_FACTS];
 extern int num_scalar_facts;
+
+/* Direct constraints collected from components' `C` wire records, parallel to
+ * scalar_facts[]. The engine bridge copies these to OBS_CONSTRAINT
+ * observations, which a passthrough rule folds into the meet as the named C_*
+ * constraint. A component uses this channel for a bound on a known quantity it
+ * cannot state as a located address (see kasld_emit_constraint). */
+struct constraint_fact_record {
+  enum kasld_quantity q;
+  enum constraint_op op;
+  unsigned long value;
+  enum kasld_confidence conf;
+  int origin; /* discovery slot of the producing component; -1 if unattributed
+               */
+};
+#define MAX_CONSTRAINT_FACTS 64
+extern struct constraint_fact_record constraint_facts[MAX_CONSTRAINT_FACTS];
+extern int num_constraint_facts;
 
 /* =========================================================================
  * Shared functions (defined in orchestrator.c)
