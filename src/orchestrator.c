@@ -1242,7 +1242,7 @@ int num_results;
 
 /* scalar_fact_record + scalar_facts[]/num_scalar_facts declared in
  * include/kasld/internal.h; the engine bridge copies these to OBS_SCALAR
- * observations and inject_kaslr_defaults / render also read them directly. */
+ * observations and summarize_kaslr_state / render also read them directly. */
 struct scalar_fact_record scalar_facts[MAX_SCALAR_FACTS];
 int num_scalar_facts;
 
@@ -3664,17 +3664,20 @@ void compute_component_stats(struct summary *s) {
 }
 
 /* -------------------------------------------------------------------------
- * Pre-computation: detect KASLR state and inject default address
+ * Pre-computation: what the arch settles before anything is observed
  * -------------------------------------------------------------------------
  */
-void inject_kaslr_defaults(struct summary *s) {
-  /* "Unsupported" is a compile-time property of the arch; no runtime signal
-   * needed. Surface it for the renderer banner, and seed the informational
-   * default address from the statically-initialised layout
-   * (= KERNEL_VIRT_TEXT_DEFAULT). */
-  s->kaslr.unsupported = !KASLR_SUPPORTED;
-  s->kaslr.default_addr = layout.virt_image_base_default;
 
+/* Seed the facts the architecture settles at compile time, before any
+ * component runs.
+ *
+ * Called first because these depend on nothing observed: a component's output
+ * cannot change whether the arch supports KASLR. Seeding into an empty table
+ * also means they cannot be crowded out of it — appended last, they competed
+ * for whatever room components had left, and a full table dropped them with no
+ * record, the one evidence loss that did not reach the ledger. Any overflow
+ * now belongs to a component, where capture_scalar() caps and records it. */
+void seed_arch_kaslr_facts(void) {
 #if !KASLR_SUPPORTED
   /* Surface the compile-time arch-off as SF_VIRT_KASLR_DISABLED +
    * SF_PHYS_KASLR_DISABLED so the engine sees it like any runtime detector
@@ -3686,20 +3689,50 @@ void inject_kaslr_defaults(struct summary *s) {
    * states the contract and what obliges an arch to stay at the default. An
    * arch at the default gets the renderer's "KASLR not supported" banner and
    * default-addr line while the engine refuses to pin; an arch that raises one
-   * pins through the same rule path a runtime detector uses. */
-  if (num_scalar_facts + 1 < MAX_SCALAR_FACTS) {
-    struct scalar_fact_record *fv = &scalar_facts[num_scalar_facts++];
-    fv->fact = SF_VIRT_KASLR_DISABLED;
-    fv->value = 1;
-    fv->conf = CONF_PARSED;
-    fv->origin = ORIGIN_ARCH_SYNTH;
-    struct scalar_fact_record *fp = &scalar_facts[num_scalar_facts++];
-    fp->fact = SF_PHYS_KASLR_DISABLED;
-    fp->value = 1;
-    fp->conf = CONF_PARSED;
-    fp->origin = ORIGIN_ARCH_SYNTH;
+   * pins through the same rule path a runtime detector uses.
+   *
+   * The pair is a single claim -- a virt disable without its phys partner says
+   * something else -- so both slots are taken together or neither is.
+   *
+   * Room is settled by the call ordering, not by the test below: seeded into an
+   * empty table, the pair always fits. The test is kept for what it protects
+   * against, which is not a full table but a future caller moving this after
+   * capture -- unconditional writes would then run off the end of one. It
+   * records rather than returns quietly, so a broken ordering shows up in the
+   * ledger instead of corrupting memory.
+   *
+   * __extension__ silences -Wpedantic: _Static_assert is a C11 keyword gcc
+   * accepts under -std=c99 as an extension, matching REGION_FIELD_CAP above. */
+  __extension__ _Static_assert(MAX_SCALAR_FACTS >= 2,
+                               "the arch-off pair is seeded into an empty "
+                               "scalar_facts[] and must always fit");
+  if (num_scalar_facts + 1 >= MAX_SCALAR_FACTS) {
+    kasld_discard_record(DISCARD_CAPACITY, DSRC_SCALARS);
+    return;
   }
+  struct scalar_fact_record *fv = &scalar_facts[num_scalar_facts++];
+  fv->fact = SF_VIRT_KASLR_DISABLED;
+  fv->value = 1;
+  fv->conf = CONF_PARSED;
+  fv->origin = ORIGIN_ARCH_SYNTH;
+  struct scalar_fact_record *fp = &scalar_facts[num_scalar_facts++];
+  fp->fact = SF_PHYS_KASLR_DISABLED;
+  fp->value = 1;
+  fp->conf = CONF_PARSED;
+  fp->origin = ORIGIN_ARCH_SYNTH;
 #endif
+}
+
+/* Project the collected facts onto the summary's KASLR state. Runs at summary
+ * time, after components: the scan below reads the whole table, so running it
+ * earlier would see only what the arch seeded and miss every detector. */
+void summarize_kaslr_state(struct summary *s) {
+  /* "Unsupported" is a compile-time property of the arch; no runtime signal
+   * needed. Surface it for the renderer banner, and seed the informational
+   * default address from the statically-initialised layout
+   * (= KERNEL_VIRT_TEXT_DEFAULT). */
+  s->kaslr.unsupported = !KASLR_SUPPORTED;
+  s->kaslr.default_addr = layout.virt_image_base_default;
 
   /* "Disabled" is a runtime signal from any detector that observed virtual
    * KASLR off (nokaslr cmdline, no CONFIG_RANDOMIZE_BASE, dmesg "KASLR
@@ -5003,7 +5036,7 @@ static void report_killed_components(void) {
 static void emit_summary(void) {
   struct summary s = {0};
   compute_component_stats(&s);
-  inject_kaslr_defaults(&s);
+  summarize_kaslr_state(&s);
   /* Resolution runs HERE, at the single caller, not inside the summary builder:
    * a function named for building a summary should not also own when the engine
    * runs. compute_kaslr_info() is then a pure layout+snapshot -> summary
@@ -5372,6 +5405,10 @@ int main(int argc, char *argv[]) {
                     &layout.virt_vmemmap_base_max);
 #endif
   }
+
+  /* Before the first component: what the arch settles at compile time goes in
+   * while the table is empty and cannot be crowded out of it. */
+  seed_arch_kaslr_facts();
 
   for (int p = 0; p < (int)(sizeof(phases) / sizeof(phases[0])); p++)
     run_phase(&phases[p]); /* merges results after each phase */

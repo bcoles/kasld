@@ -34,11 +34,11 @@
 # THE COUNTS ARE DIFFERENTIAL, and deliberately. The absolute overflow is
 # (emitted - MAX_SCALAR_FACTS) only when nothing else populated the store, which
 # is true of this host's build and NOT a property of the tool:
-# inject_kaslr_defaults() adds two facts under #if !KASLR_SUPPORTED. Asserting
-# the absolute count would be asserting what this build happens to lack. Two
-# runs differing by a known delta must differ in discards by exactly that delta,
-# whatever the store already held -- which is the claim worth making anyway,
-# that the counter keeps counting past the cap.
+# seed_arch_kaslr_facts() fills two slots before any component runs on a
+# !KASLR_SUPPORTED build. Asserting the absolute count would be asserting what
+# this build happens to lack. Two runs differing by a known delta must differ in
+# discards by exactly that delta, whatever the store already held -- which is
+# the claim worth making anyway, that the counter keeps counting past the cap.
 #
 # WHAT THIS DOES NOT COVER: eight of the eleven capacity sources. The engine's
 # seven arrive through discard_project_engine() from saturation bits that no

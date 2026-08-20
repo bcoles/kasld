@@ -903,7 +903,9 @@ extern int num_constraint_facts;
 const char *meta_get(const struct component_meta *m, const char *key);
 int meta_get_all(const struct component_meta *m, const char *key,
                  const char **values, int max_values);
-void inject_kaslr_defaults(struct summary *s);
+/* Seeded before any component runs; projected onto the summary after. */
+void seed_arch_kaslr_facts(void);
+void summarize_kaslr_state(struct summary *s);
 void compute_component_stats(struct summary *s);
 /* Declared at file scope: first naming these inside the parameter list below
  * would give them PROTOTYPE scope -- a distinct type from the definition in

@@ -1,0 +1,104 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-scalar-seed-order — the arch's compile-time facts are seeded into
+# scalar_facts[] before any component can fill it.
+#
+# On a !KASLR_SUPPORTED arch the orchestrator synthesises SF_VIRT_KASLR_DISABLED
+# and SF_PHYS_KASLR_DISABLED, because the engine takes the arch-off signal the
+# same way it takes a detector's. Those two facts used to be appended at summary
+# time, after every component had had its turn at a 64-slot table, and a full
+# table dropped them with no record -- the one evidence loss that never reached
+# the discard ledger.
+#
+# The fix is ordering, not accounting: seeded first, into an empty table, they
+# cannot be crowded out, and any later overflow belongs to a component where
+# capture_scalar() already caps and records it.
+#
+# Ordering is invisible to the suite. Moving the call back after the phase loop
+# leaves `make test` at full marks and `make lint` clean -- measured, not
+# assumed -- because the affected arches are the three that compile
+# !KASLR_SUPPORTED, and nothing in the suite runs a component flood on one. So
+# the invariant is checked where it is legible: in the source.
+#
+#   1. seed_arch_kaslr_facts() is called exactly once, and before the first
+#      run_phase() call. After it, the drop returns.
+#   2. Only capture_scalar() and seed_arch_kaslr_facts() append to the table. A
+#      third appender is how the divergence started -- two writers with
+#      different capacity behaviour, one of them silent.
+#
+# WHAT THIS DOES NOT PROVE: that seeding works. It proves nothing moved the call
+# or added a writer. The behaviour is verified by running a !KASLR_SUPPORTED
+# build against a flooded component directory, which needs qemu and a staged
+# sysroot and is not something grep can do.
+#
+# Pure text, so it needs no build.
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+ORCH="$ROOT/src/orchestrator.c"
+
+if [ -t 1 ]; then
+  RED=$(printf '\033[31m')
+  GREEN=$(printf '\033[32m')
+  RESET=$(printf '\033[0m')
+else
+  RED=
+  GREEN=
+  RESET=
+fi
+
+fail=0
+note() {
+  printf '%scheck-scalar-seed-order: FAIL%s — %s\n' "$RED" "$RESET" "$1" >&2
+  fail=1
+}
+
+[ -f "$ORCH" ] || {
+  note "orchestrator.c is missing"
+  exit 1
+}
+
+# --- 1. seeded before the first phase runs -----------------------------------
+# The definition line is excluded so only the call site counts.
+calls=$(grep -n 'seed_arch_kaslr_facts()' "$ORCH" | grep -cv '^\([0-9]*\):void ')
+if [ "$calls" -ne 1 ]; then
+  note "seed_arch_kaslr_facts() is called $calls times; expected exactly once"
+fi
+
+seed_ln=$(grep -n '^  seed_arch_kaslr_facts();' "$ORCH" | head -1 | cut -d: -f1)
+phase_ln=$(grep -n 'run_phase(&phases\[p\]);' "$ORCH" | head -1 | cut -d: -f1)
+
+if [ -z "$seed_ln" ]; then
+  note "no top-level call to seed_arch_kaslr_facts() in main()"
+elif [ -z "$phase_ln" ]; then
+  note "could not find the run_phase() loop; the ordering cannot be checked"
+elif [ "$seed_ln" -ge "$phase_ln" ]; then
+  note "seed_arch_kaslr_facts() (line $seed_ln) runs at or after the phase loop (line $phase_ln)"
+  printf '  Seeded after capture, the arch-off pair competes with components for\n' >&2
+  printf '  slots and a full table drops it -- the loss this ordering removes.\n' >&2
+fi
+
+# --- 2. only the two known writers append ------------------------------------
+# awk tracks the enclosing top-level function so an append is attributed rather
+# than merely counted.
+bad=$(awk '
+  /^[a-z_].*\(.*\)[ ]*\{[ ]*$/ { fn = $0; sub(/\(.*/, "", fn); sub(/.* /, "", fn) }
+  /^(static )?[a-z_].*[a-z_]+\(/ && /\{[ ]*$/ { fn2 = $0 }
+  /scalar_facts\[num_scalar_facts\+\+\]/ {
+    if (fn != "capture_scalar" && fn != "seed_arch_kaslr_facts")
+      print NR ": " fn
+  }' "$ORCH")
+
+if [ -n "$bad" ]; then
+  note "scalar_facts[] is appended outside capture_scalar() and seed_arch_kaslr_facts():"
+  printf '%s\n' "$bad" | sed 's/^/    /' >&2
+fi
+
+if [ "$fail" -ne 0 ]; then
+  exit 1
+fi
+printf '%scheck-scalar-seed-order: OK%s (seeded at line %s, before the phase loop at %s; two known writers)\n' \
+  "$GREEN" "$RESET" "$seed_ln" "$phase_ln"
