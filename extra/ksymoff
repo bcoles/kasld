@@ -32,10 +32,12 @@
 #                --virt2phys ADDR   phys = virt − page_offset_base
 #                --phys2page ADDR   struct page = vmemmap_base + pfn * page-size
 #
-# Three ways to supply the runtime text base, picked in priority order:
+# Supply the runtime text base one of two mutually exclusive ways, or let it
+# fall back to stdin:
 #   --from NAME=ADDR    derived from any known runtime symbol address
 #   -b BASE             a hex address (with or without 0x prefix)
-#   stdin               a `kasld -1` line piped in (uses the `text=` field)
+#                       (--from and -b are alternatives; giving both is an error)
+#   stdin               fallback: a `kasld -1` line piped in (uses `text=` field)
 #
 # Usage
 # -----
@@ -148,8 +150,9 @@ hex_ult() {  # a b (hex, no 0x) -> true if a < b unsigned
 # neither can source one. A correction here does NOT reach numeric()/hex16()
 # there -- review all four together. The accept sets differ on purpose (is_hex
 # refuses an 0x prefix, its callers having stripped one; is_dec is decimal-only
-# for --page-shift); what none may do is accept a shell metacharacter, which
-# tests/check-validators asserts against a shared adversarial corpus.
+# for --page-shift and --page-size); what none may do is accept a shell
+# metacharacter, which tests/check-validators asserts against a shared
+# adversarial corpus.
 #
 # @arith-validator
 is_hex() { case "$1" in ''|*[!0-9A-Fa-f]*) return 1 ;; *) return 0 ;; esac; }

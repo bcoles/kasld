@@ -167,7 +167,8 @@ if [ "$fail" = 1 ]; then
   exit 1
 fi
 
-# The scope this guard actually examined. Counted here rather than in the
+# The core rule/component scope this guard counts (the compile scan above also
+# walks src/*.c and src/render/*.c). Counted here rather than in the
 # loop: an unmatched glob leaves the literal pattern, which a loop-side
 # counter would tally as one file and so report a non-empty scope.
 _scanned=0

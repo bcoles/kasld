@@ -65,7 +65,7 @@
  * [po_lo, po_hi]. Soundness rule: undersizing VMALLOC_SIZE only loosens the
  * derived lower bound on PAGE_OFFSET (sound under any mode ambiguity);
  * oversizing it would push the bound above the true PAGE_OFFSET (unsound).
- * We therefore use the SMALLEST VMALLOC_SIZE among modes whose
+ * The SMALLEST VMALLOC_SIZE is therefore used among modes whose
  * PAGE_OFFSET window still overlaps Q_PAGE_OFFSET — SV39 (80 GiB) when
  * possible, else SV48, else SV57. Returns 0 when no known mode is plausible. */
 static unsigned long riscv64_vmalloc_size_from_po(unsigned long po_lo,
@@ -133,7 +133,7 @@ int rule_riscv64_page_offset_from_vmalloc_vmemmap(const struct evidence_set *ev,
   /* VMEMMAP branch — needs VMALLOC_SIZE, which depends on the paging mode.
    *
    * On riscv64 the paging mode lives in Q_PAGE_OFFSET (one discrete value per
-   * mode). We read the current Q_PAGE_OFFSET window and pick the SMALLEST
+   * mode). Read the current Q_PAGE_OFFSET window and pick the SMALLEST
    * VMALLOC_SIZE among still-plausible modes — sound under any remaining
    * ambiguity (see riscv64_vmalloc_size_from_po). */
   if (mm != ULONG_MAX && n < out_max) {

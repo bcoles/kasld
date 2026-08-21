@@ -30,7 +30,7 @@ KASLD_NATIVE=1 tests/replay tests/fixtures/x86_64/* tests/fixtures/x86_32/*
 
 ```sh
 make check          # runs `make test` then prints "OK: host test suite passed."
-make test           # build + run all ten test drivers, then the lint guards
+make test           # build + run all test drivers (~30), then the lint guards
 make lint           # just the static guards (no test-binary build)
 ```
 
@@ -39,6 +39,9 @@ layer) and fuzz harnesses (layer 6 below) live in `build/tests/` and
 `build/fuzz/` respectively — both are siblings of the per-arch deploy tree
 `build/<arch>/`, so neither is reachable by `make install` (which copies
 only the orchestrator binary and the `components/` subdirectory).
+
+The table below is a representative subset; the authoritative list of drivers
+that `make test` builds and runs is `TEST_ALL_BINS` in the Makefile.
 
 | Driver | Covers | Links |
 |--------|--------|-------|

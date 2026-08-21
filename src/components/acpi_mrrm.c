@@ -13,10 +13,11 @@
 // Both attributes are created with __ATTR_RO (S_IRUGO, 0444) — no
 // capability check, world-readable.
 //
-// The base addresses are physical DRAM ranges (addr_base from the ACPI
-// MRRM table, i.e. struct acpi_mrrm_mem_range_entry.addr_base). On
-// architectures with a fixed physical-to-virtual mapping, these convert
-// directly to linear-map kernel virtual addresses.
+// The base addresses are physical DRAM ranges: the sysfs `base` attribute
+// exposes struct mrrm_mem_range_entry.base, which the kernel copies from the
+// ACPI MRRM table entry's addr_base field. On architectures with a fixed
+// physical-to-virtual mapping, these convert directly to linear-map kernel
+// virtual addresses.
 //
 // Leak primitive:
 //   Data leaked:      physical DRAM base addresses from ACPI MRRM table
@@ -114,7 +115,7 @@ int main(void) {
      * Emitted as an interior sample (not a range): an MRRM hi could be high
      * CXL memory, which as a REGION_RAM extent would loosen dram_top; a sample
      * only contributes the base to the phys floor. The directory name (e.g.
-     * "range0") identifies which entry we leaked. */
+     * "range0") identifies which entry leaked. */
     snprintf(label, sizeof(label), "%.32s", ent->d_name);
 
     kasld_found("acpi_mrrm %s: phys = 0x%016llx", label, addr);

@@ -154,7 +154,8 @@ int main(void) {
       continue;
 
     /* A read that exactly fills buf may have been clipped mid-property: the reg
-     * could hold more banks than we can see. The covering below is sound only
+     * could hold more banks than are visible here. The covering below is sound
+     * only
      * if the WHOLE map is emitted, so a possibly-truncated node poisons the
      * entire map — abandon it rather than fake gaps past the last bank seen. */
     if (n == (int)sizeof(buf)) {

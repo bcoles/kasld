@@ -648,7 +648,7 @@ All return `1` on emit, `0` on rejection (stderr warning is written).
 
 | Symbol | Values |
 |---|---|
-| `enum kasld_addr_type` | `KASLD_TYPE_PHYS`, `KASLD_TYPE_VIRT`, `KASLD_TYPE_DEFAULT_VIRT` |
+| `enum kasld_addr_type` | `KASLD_TYPE_UNKNOWN`, `KASLD_TYPE_PHYS`, `KASLD_TYPE_VIRT` |
 | `enum kasld_region` | `REGION_KERNEL_TEXT`, `REGION_RAM`, `REGION_INITRD`, `REGION_PCI_MMIO`, … (see [kasld/api.h](src/include/kasld/api.h) for the full list) |
 | `enum kasld_confidence` | `CONF_PARSED` > `CONF_DERIVED` > `CONF_INFERRED` > `CONF_HEURISTIC` > `CONF_TIMING` > `CONF_BRUTE` |
 

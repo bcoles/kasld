@@ -31,8 +31,9 @@
 //   directmap size, so it uses the MAXIMUM (architectural) directmap size.
 //   vmemmap size is dropped (>= 0) wherever dropping it only loosens a bound.
 //
-//   page_offset : [vaddr_start,                       vaddr_start +
-//   remain_lo/3] vmalloc     : [vaddr_start + dm_min,              vaddr_start
+//   page_offset : upper bound only, vaddr_start + remain_lo/3 (the lower edge
+//   vaddr_start is NOT emitted — see note below)
+//   vmalloc     : [vaddr_start + dm_min,              vaddr_start
 //   + PUD +
 //                  (dm_max + 2*(span - vmalloc_size)) / 3]
 //   vmemmap     : [vaddr_start + dm_min + vmalloc_size, -- ceiling left to the
@@ -42,9 +43,12 @@
 //   where span = vaddr_end - vaddr_start, remain_lo = span - dm_min -
 //   vmalloc_size (an over-estimate of the true remain, hence a sound ceiling).
 //
-// The page_offset lower bound (vaddr_start) needs only the paging level; it
-// holds whether or not RANDOMIZE_MEMORY is active (the un-randomized default
-// base equals vaddr_start). Every size-dependent bound needs SF_PHYS_MAX_PFN.
+// The page_offset lower edge (vaddr_start) is NOT emitted: it would be sound
+// (needing only the paging level, holding whether or not RANDOMIZE_MEMORY is
+// active — the un-randomized default base equals vaddr_start), but the x86_64
+// directmap floor is deliberately kept at the canonical half boundary instead
+// (see the inline note below). Every size-dependent bound needs
+// SF_PHYS_MAX_PFN.
 //
 // The active paging level is taken from a resolved Q_VA_BITS (pinned from a
 // runtime directmap address by x86_64_la57_from_directmap) when present, else

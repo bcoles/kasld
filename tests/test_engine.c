@@ -1238,7 +1238,7 @@ static void test_phys_ceiling_prefers_dram_top_over_memtotal(void) {
 
   /* The dram_top-derived ceiling must admit kernel_phys; the MemTotal-
    * derived ceiling would have rejected it (floor + memtotal = floor +
-   * 0xd2eb0000 < kernel_phys = floor + 0xf18b0000). */
+   * 0x40000000 < kernel_phys = floor + 0x60000000). */
   assert(kernel_phys <= e.est[Q_PHYS_IMAGE_BASE].hi);
 #endif
 }
@@ -6085,7 +6085,7 @@ static void test_kernel_image_phys_bound_lower_from_high_witness(void) {
   engine_init(&e);
   unsigned long P = (unsigned long)PHYS_OFFSET;
   /* Spread = 80 MiB, well below the 256 MiB conflict cap. lo at 200 MiB,
-   * hi at 280 MiB → pmin = 280 - 256 + 1 = 25 MiB (+ P). */
+   * hi at 280 MiB → pmin = 280 MiB - 256 MiB + 1 byte = P + 24 MiB + 1. */
   unsigned long lo_w = P + (200ul * 1024 * 1024);
   unsigned long hi_w = P + (280ul * 1024 * 1024);
   struct observation o_lo = mk_obs(KASLD_TYPE_PHYS, REGION_KERNEL_TEXT, lo_w,

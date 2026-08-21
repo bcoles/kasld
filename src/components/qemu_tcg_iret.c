@@ -263,7 +263,7 @@ static void kaslr(uint64_t frame_off) {
       // Step 3: Use `sgdt` (executable from ring 3) to leak the
       // GDT base address, then compute the address on the kernel
       // exception stack where the fault handler's return address
-      // (a kernel .text pointer) sits just above our fake iret frame.
+      // (a kernel .text pointer) sits just above the fake iret frame.
       "push rax\n"
       "sgdt [rsp]\n"
       "mov rax, qword [rsp+2-8]\n" // GDT base address
@@ -273,7 +273,7 @@ static void kaslr(uint64_t frame_off) {
       // Step 4: Execute iretq. Due to the QEMU bug, iretq in ring 3 reads
       // the frame from where RSP now points (the kernel exception stack) as
       // a ring-0 access instead of faulting. It pops the exception handler's
-      // return address — sitting just above our landmark frame — into RIP,
+      // return address — sitting just above the landmark frame — into RIP,
       // then faults trying to execute that kernel .text address from ring 3.
       // The SIGSEGV handler captures it from the signal context.
       "iretq\n"

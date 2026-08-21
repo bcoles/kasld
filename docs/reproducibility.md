@@ -839,18 +839,18 @@ make test-fixtures    # assert the resolved window contains the truth, per captu
 it runs `extra/validate-bundle` over every captured kernel that carries ground
 truth and asserts `truth ∈ [min, max]`, catching the "window excludes the real
 base" class of bug without a VM. Captures with no recorded truth report `N/A`
-rather than pass. The corpus spans 10 architecture families (Alpine, Debian,
-Ubuntu/Raspbian) and kernels from 4.19 to 7.0:
+rather than pass. The corpus spans 13 architecture families (Alpine, Debian,
+Ubuntu/Raspbian) and kernels from 4.14 to 7.0:
 
 | family | example kernels |
 |--------|-----------------|
 | x86_64, i686 | 5.15 – 7.0 (Alpine, Debian, Ubuntu) |
-| aarch64, armv7 | 5.10 – 7.0 |
-| ppc64, ppc32 | 6.1 – 6.19 |
-| riscv64 | 6.6 – 6.18 |
+| aarch64, armv7 | 4.14 – 7.0 |
+| ppc64, ppc32 | 5.15 – 7.0 |
+| riscv64, riscv32 | 5.10 – 6.18 |
 | s390x | 5.15 – 6.19 |
 | loongarch64 | 6.18 |
-| mips32 | 4.19 – 5.10 |
+| mips32, mips32el, mips64el | 4.19 – 6.15 |
 
 ## Scope
 

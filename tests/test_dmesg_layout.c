@@ -82,10 +82,12 @@ static void test_kernel_line_pins_text_base(void) {
 }
 
 /* An address below the kernel-text window is rejected by the section gate, so
- * the broad "kernel : 0x" needle cannot false-match an unrelated log line. */
+ * the broad "kernel : 0x" needle cannot false-match an unrelated log line. The
+ * accept path for this needle emits REGION_KERNEL_IMAGE (kernel_image), so the
+ * rejection is confirmed by the absence of that token. */
 static void test_kernel_line_below_text_rejected(void) {
   parse_capture("      kernel : 0x1000 - 0xffffffffffffffff", cap, sizeof(cap));
-  assert(strstr(cap, "kernel_text") == NULL);
+  assert(strstr(cap, "kernel_image") == NULL);
 }
 
 /* The ARM/arm64/x86_32 layout ".text : 0x<lo> - 0x<hi>" low edge IS _text (the

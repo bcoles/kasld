@@ -47,7 +47,7 @@ cluster**, not any single primitive:
   - device and driver `ioctl`s (GPU, sound, filesystem, and others);
   - tight `rdtsc` / `rdtscp` timing loops in the side-channel components
     (`databounce`, `echoload`, `entrybleed`, `mincore`, `prefetch`,
-    `zombieload` — compiled `-O0` to preserve the timing).
+    `prefetch_directmap`, `zombieload` — compiled `-O0` to preserve the timing).
 
 Any one of these is unremarkable; **all of them from one process subtree in one
 burst** is the signal. The detection strength comes from co-occurrence and

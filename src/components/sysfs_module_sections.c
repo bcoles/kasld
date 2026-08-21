@@ -127,7 +127,7 @@ static struct module_range get_module_text_sysfs(void) {
 }
 
 int main(void) {
-  /* Pre-check: can we access /sys/module/? */
+  /* Pre-check: is /sys/module/ readable? */
   if (kasld_access("/sys/module/", R_OK) != 0)
     return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM
                                                : KASLD_EXIT_UNAVAILABLE;

@@ -7,13 +7,13 @@
 # A run that discarded evidence resolved from a subset of what it had, so the
 # residual entropy it reports is an upper bound rather than the answer. The
 # ledger is how a reader learns that, and for a full fixed-size store it also
-# prints which store filled and what filling it cost -- eleven such sentences,
+# prints which store filled and what filling it cost -- twelve such sentences,
 # one per store.
 #
 # Nothing read them. check-discard-accounting reads `total` and `kinds` out of
 # the JSON; check-discard-ledger requires every DSRC_ macro to HAVE an arm in
 # discard_capacity_detail(). Neither looks at what the tool prints, so all
-# eleven arms could return the empty string with the suite green. And the only
+# twelve arms could return the empty string with the suite green. And the only
 # test touching DISCARD_CAPACITY called kasld_discard_record() directly -- the
 # alarm tested by its own test button, never by a fire.
 #
@@ -40,9 +40,11 @@
 # discards by exactly that delta, whatever the store already held -- which is
 # the claim worth making anyway, that the counter keeps counting past the cap.
 #
-# WHAT THIS DOES NOT COVER: eight of the eleven capacity sources. The engine's
+# WHAT THIS DOES NOT COVER: nine of the twelve capacity sources. The engine's
 # seven arrive through discard_project_engine() from saturation bits that no
-# component input can force, and component-log needs an allocation failure.
+# component input can force; component-log needs an allocation failure; and
+# constraint-facts fills from the direct-constraint channel, not a component
+# overflow this fixture can drive.
 # Three sources are reachable from outside the binary; those three are these.
 #
 # Needs the built binary; run by `make lint` after it exists.

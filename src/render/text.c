@@ -52,8 +52,10 @@ static void mark_group_printed(enum kasld_addr_type type, const char *section) {
  * whether the address is the region base, an interior sample, or the top edge,
  * so none is ambiguous and the base (the prize) is called out, not left
  * implicit. All three positions are reachable in these rows. Empty
- * only for the shouldn't-reach-here extent/unknown. The caller pads to a fixed
- * width (`%-11s`, the width of " [interior]") where a column follows. */
+ * only for the shouldn't-reach-here extent/unknown. Most callers emit the
+ * string unpadded; readout_print_leaks pads it to posnote_w (12, the width of
+ * " [interior]" plus one, or 17 when an interior span is present) so a column
+ * can follow. */
 static const char *pos_note(const struct result *r) {
   switch (r->pos) {
   case POS_BASE:
@@ -619,8 +621,8 @@ static void print_virtual_layout(void) {
                                      0};
 
   /* The direct map is shown whenever its base is known. Use the base as both
-     start and end — we know the mapping begins there but don't know its true
-     extent. virt_kernel_vas_end would cause unsigned overflow in the gap
+     start and end — the mapping begins there, but its true extent is
+     unknown. virt_kernel_vas_end would cause unsigned overflow in the gap
      arithmetic (end + 1 wraps to 0). The only case still suppressed is a
      decoupled arch whose direct-map base coincides with the text floor: there
      the two are genuinely indistinguishable and nothing is contained. */
@@ -713,7 +715,7 @@ static void print_virtual_layout(void) {
    * label is never below a visible region boundary. virt_kernel_vas_end can be
    * tightened by the virt_page_offset_max inference feedback loop (it reflects
    * the upper bound on PAGE_OFFSET, not the architectural VAS ceiling), so
-   * we clamp it up to the highest region boundary we know about. */
+   * it is clamped up to the highest known region boundary. */
   unsigned long map_top = layout.virt_kernel_vas_end;
   for (int i = 0; i < nb; i++)
     if (bands[i].end > map_top)
@@ -931,7 +933,7 @@ static void print_physical_layout(void) {
     /* 1 iff this entry is a DRAM boundary marker (ram_base / ram_top). These
      * are promoted to bucket EDGES in the bucket construction below — the
      * address prints between boxes (as a footer/header), not as a line
-     * inside a box — so we skip them in the per-bucket leak listing. */
+     * inside a box — so they are skipped in the per-bucket leak listing. */
     int is_dram_edge;
   } ppts[MAX_RESULTS];
   int nppts = 0;
@@ -951,7 +953,7 @@ static void print_physical_layout(void) {
    * BASE markers use the minimum (absolute lowest address) of any record
    * with HAS_LO; TOP markers use the maximum of any record with HAS_HI.
    * The merge pass collapses base+top contributors into one record with
-   * pos=BASE — we must NOT gate boundary selection on `pos`. The
+   * pos=BASE — boundary selection must NOT be gated on `pos`. The
    * `HAS_LO`/`HAS_HI` flags carry the genuine "is this edge known?"
    * signal regardless of pos. */
   enum boundary_edge { BE_LO, BE_HI };
@@ -1123,7 +1125,7 @@ static void print_physical_layout(void) {
   /* On !TEXT_TRACKS_DIRECTMAP arches the phys text base is independently
    * randomized inside [phys_kaslr_text_min, phys_kaslr_text_max]. Inference
    * tightens both ends so this window can be much narrower than the arch
-   * default. When we have a non-trivial window, split the in-DRAM portion
+   * default. Given a non-trivial window, split the in-DRAM portion
    * into above-window / inside-window / below-window. Coupled arches and
    * arches without phys KASLR leave both bounds at 0 — single DRAM box. */
   unsigned long pmin = layout.phys_kaslr_text_min;
@@ -1183,7 +1185,7 @@ static void print_physical_layout(void) {
   int nbuckets = 0;
 
   /* Above-DRAM bucket: leaks whose address > ram_top (typically high MMIO).
-   * Only emitted when we actually have such leaks AND ram_top is known. */
+   * Only emitted when such leaks are present AND ram_top is known. */
   int any_above_dram = 0;
   if (have_ram_top) {
     for (int i = 0; i < nppts; i++) {
@@ -1233,7 +1235,7 @@ static void print_physical_layout(void) {
   }
 
   /* Below-DRAM bucket: leaks whose address < ram_base. Only emitted when
-   * we actually have such leaks. PHYS_OFFSET terminates the column. */
+   * such leaks are present. PHYS_OFFSET terminates the column. */
   int any_below_dram = 0;
   if (have_ram_base && ram_base > (unsigned long)PHYS_OFFSET) {
     for (int i = 0; i < nppts; i++) {
@@ -1382,7 +1384,7 @@ static int readout_print_leaks(void) {
   };
   int n_int = (int)(sizeof(interesting) / sizeof(interesting[0]));
 
-  /* Pre-collect (label, addr, contributing record) tuples so we can print
+  /* Pre-collect (label, addr, contributing record) tuples so as to print
    * a "(N)" header. */
   struct {
     const char *label;
@@ -2048,7 +2050,8 @@ static void render_readout(const struct summary *s) {
      * On every arch where the disabled-pin applies, the engine pins the base
      * to that default (min == max), so this prints the identical line. But
      * where the no-KASLR text base is layout-dependent (legacy riscv64: text
-     * in the linear map at a load offset we can't pin), it resolves to a
+     * in the linear map at a load offset that cannot be pinned), it resolves
+     * to a
      * narrowed *window* instead — showing the static default there would
      * misreport the base (it can sit in an entirely different mapping). */
     readout_static_base_block(s->kaslr.default_addr, s);

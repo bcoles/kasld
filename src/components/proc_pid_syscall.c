@@ -138,8 +138,8 @@ static unsigned long get_kernel_addr_proc_pid_syscall(void) {
       return 0;
     }
 
-    /* Lazy implementation. In practice we only want data after the first 24
-     * bytes (from the fifth value onwards).
+    /* Lazy implementation. In practice only the data after the first 24
+     * bytes (from the fifth value onwards) is used.
      *
      * $ cat /proc/self/syscall
      * 0 0x76f7300000000003 0x4000 0x0 0x8050389c8098fde4 0xee297df0ee297e2c ...

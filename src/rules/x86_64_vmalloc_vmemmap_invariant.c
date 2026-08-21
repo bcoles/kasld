@@ -9,7 +9,8 @@
 //
 //   virt_vmemmap_base ≥ virt_vmalloc_base + VMALLOC_SIZE_TB·1TB + PUD_SIZE
 //
-// (≥ 33 TiB on L4, ≥ 12801 TiB on L5) implies, for any actual witness pair:
+// (≥ 32 TiB + 1 GiB on L4, ≥ 12800 TiB + 1 GiB on L5) implies, for any actual
+// witness pair:
 //
 //   V_mm − V_va ≥ VMALLOC_SIZE_TB·1TB + PUD_SIZE
 //
@@ -19,7 +20,7 @@
 // same class of error.
 //
 // Disposition: emit V_INVALID for BOTH observations involved in the failing
-// pair. We cannot tell which side is wrong from the pair alone; further
+// pair. Which side is wrong cannot be told from the pair alone; further
 // curation (consensus among multiple same-region observations) is left to
 // the regular cluster filters. Invalidating both is the conservative move
 // that prevents an unsound back-bound on Q_PAGE_OFFSET via
@@ -42,7 +43,8 @@ int rule_x86_64_vmalloc_vmemmap_invariant(const struct evidence_set *ev,
                                           struct verdict *out, int out_max) {
 #if defined(__x86_64__)
   /* Gather candidate observations. The verdict applies to ALL such pairs;
-   * we don't try to pick one — if any vmalloc is too close to any vmemmap,
+   * no attempt is made to pick one — if any vmalloc is too close to any
+   * vmemmap,
    * both lineages are tainted. */
   int n = 0;
   for (int i = 0; i < ev->n_obs && n < out_max; i++) {
@@ -65,7 +67,7 @@ int rule_x86_64_vmalloc_vmemmap_invariant(const struct evidence_set *ev,
 
       /* L4 vs L5 — invalidate ONLY when the gap is too small even under
        * the L4 assumption (32 TiB + PUD). On L5 the required gap is far
-       * larger (12800 TiB + PUD), but presuming L5 here would let us
+       * larger (12800 TiB + PUD), but presuming L5 here would
        * invalidate observations that are actually valid under L4 — unsound
        * curation. The verdict is conservative-by-construction: a pair is
        * incompatible only when no plausible mode admits it. */
@@ -76,8 +78,9 @@ int rule_x86_64_vmalloc_vmemmap_invariant(const struct evidence_set *ev,
       if (!bad)
         continue;
 
-      /* Emit V_INVALID for both — conservative: we don't know which is
-       * misclassified. Deduped by the engine via (observation_id, kind). */
+      /* Emit V_INVALID for both — conservative: the pair does not say which
+       * one is misclassified. Deduped by the engine via (observation_id,
+       * kind). */
       if (n < out_max) {
         struct verdict *v = &out[n++];
         memset(v, 0, sizeof(*v));

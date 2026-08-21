@@ -139,6 +139,19 @@ The Layout table carries one row per quantity and basis:
 | `Search space` | how many placements remain, against the set the row narrows — a `guaranteed` row against the window the kernel randomized over, a `likely` row against the `guaranteed` count above it. Reported whether or not evidence narrowed it, so a baseline run states the size of the problem; the denominator is dropped when nothing narrowed, leaving the bare total. `-` means no window is modelled for the quantity, which is the only thing that withholds the figure |
 | `Align` | the grid the candidates sit on, which is what reconciles the count with the range |
 
+The `likely` basis is deliberately conservative — "may be wrong" is a worst-case
+caveat, not a coin toss. KASLD is build-agnostic: it never trusts a version string
+or fingerprint to pin a base, so a signal that *would* fix the base on a specific
+build — a leaked symbol pointer read as the base (e.g. `perf_event_open`), a
+matched compile-time default — is still held below the sound floor to `likely`,
+because the engine cannot assume it is looking at that build. Against a **known
+target** (known hardware, known kernel and configuration) those *deterministic*
+likely results are in practice effectively certain; the genuinely probabilistic
+part is the hardware side channels (`prefetch`, `entrybleed`, …), whose success
+varies from run to run. So a `likely` row is a floor on confidence, read together
+with the source that produced it: a parsed leak is near-certain on a known target;
+a timing oracle is the part that can miss.
+
 Every quantity the architecture randomizes gets a row whether or not the engine
 bounded it, so the set of rows is a property of the machine rather than of the
 run — rows do not appear and vanish between boots. A row the engine never

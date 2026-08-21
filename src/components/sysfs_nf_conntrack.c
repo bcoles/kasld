@@ -1,7 +1,7 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
-// Retrieve kernel pointer to `inet_net` structure from SysFS world-readable
-// filename: `/sys/kernel/slab/nf_conntrack_<pointer>`.
+// Retrieve a kernel `struct net` pointer (init_net) from a SysFS
+// world-readable filename: `/sys/kernel/slab/nf_conntrack_<pointer>`.
 //
 // Patched in kernel v4.6~2^2~2 on 2016-05-14:
 // https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/commit/?id=31b0b385f69d8d5491a4bca288e25e63f1d945d0
@@ -9,7 +9,7 @@
 // But still present in RHEL 7.7 as of 2019. Removed in RHEL 7.8 (2020).
 //
 // Leak primitive:
-//   Data leaked:      kernel pointer to net structure (inet_net)
+//   Data leaked:      kernel `struct net` pointer (init_net)
 //   Kernel subsystem: net/netfilter — /sys/kernel/slab/ directory names
 //   Data structure:   slab cache name containing raw kernel pointer
 //   Address type:     virtual (kernel data)
@@ -106,7 +106,7 @@ static unsigned long get_kernel_addr_conntrack(void) {
 }
 
 int main(void) {
-  /* Pre-check: can we access /sys/kernel/slab/? */
+  /* Pre-check: is /sys/kernel/slab/ readable? */
   if (kasld_access("/sys/kernel/slab/", R_OK) != 0)
     return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM
                                                : KASLD_EXIT_UNAVAILABLE;

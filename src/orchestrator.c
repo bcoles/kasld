@@ -4396,7 +4396,8 @@ static void engine_sync_authoritative(const struct engine *e) {
    * (virt_kaslr_text_*, read by the entropy/slot math in compute_kaslr_info)
    * and the kernel image-placement range (virt_image_base_*, read by the
    * rendered memory map). They must stay equal post-resolution or the diagram's
-   * "kernel text" band disagrees with the reported "Inferred text range". */
+   * "kernel text" band disagrees with the reported "Virtual Image Base" (grade
+   * "guaranteed") range. */
   layout.virt_kaslr_text_min = vt->lo;
   layout.virt_kaslr_text_max = vt->hi;
   layout.virt_image_base_min = vt->lo;

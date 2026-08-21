@@ -89,7 +89,7 @@ static unsigned long get_phys_addr_vmcoreinfo(void) {
 }
 
 int main(void) {
-  /* Pre-check: can we access /sys/kernel/vmcoreinfo? */
+  /* Pre-check: is /sys/kernel/vmcoreinfo readable? */
   if (kasld_access("/sys/kernel/vmcoreinfo", R_OK) != 0)
     return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM
                                                : KASLD_EXIT_UNAVAILABLE;

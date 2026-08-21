@@ -105,7 +105,7 @@
 #define LINUX_ELFNOTE_LTO_INFO 0x101      /* name "Linux" */
 #define FDO_PACKAGING_METADATA 0xCAFE1A7E /* name "FDO" — distro JSON blob */
 
-/* Maximum descriptor we will read. NT_GNU_BUILD_ID is 20 bytes (SHA-1);
+/* Maximum descriptor read. NT_GNU_BUILD_ID is 20 bytes (SHA-1);
  * FDO JSON can run into low hundreds of bytes on rich distro entries;
  * BUILD_SALT is bounded by Kconfig string length (typically under 64).
  * 1024 covers every realistic case while keeping the stack buffer small. */
@@ -187,7 +187,7 @@ int main(void) {
     uint32_t desc_padded = ALIGN4(descsz);
 
     /* Bound the name to a small fixed buffer; anything longer is a
-     * malformed note and we abort the scan rather than allocate. */
+     * malformed note; the scan aborts rather than allocate. */
     if (name_padded == 0 || name_padded > sizeof namebuf) {
       /* Skip the body to stay aligned, but stop interpreting. */
       break;
@@ -200,8 +200,8 @@ int main(void) {
     namebuf[name_padded - 1] = '\0';
 
     /* Read the descriptor, bounded by KNB_MAX_DESC. Anything larger is
-     * skipped (lseek over the padded body) so we can continue the scan
-     * — distros may add notes we do not recognize. */
+     * skipped (lseek over the padded body) so the scan can continue
+     * — distros may add unrecognized notes. */
     if (desc_padded > KNB_MAX_DESC) {
       if (lseek(fd, (off_t)desc_padded, SEEK_CUR) == (off_t)-1)
         break;

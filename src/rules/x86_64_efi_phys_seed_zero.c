@@ -101,7 +101,7 @@ int rule_x86_64_efi_phys_seed_zero(const struct evidence_set *ev,
     return 0;
 
   /* Strong case: find the lowest PHYS REGION_KERNEL_IMAGE anchor. The
-   * dmesg_efi_memmap single-Loader-Code path emits this as samples; we read
+   * dmesg_efi_memmap single-Loader-Code path emits this as samples, read
    * either an extent lo or the lowest sample, whichever is present. */
   unsigned long pin = ULONG_MAX;
   uint32_t pin_src = 0;

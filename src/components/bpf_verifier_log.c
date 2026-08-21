@@ -24,7 +24,7 @@
 //   Address type:     virtual (direct map / linear region)
 //   Method:           parsed (hex token in the returned verifier log)
 //   Patch:            print_bpf_insn masks MAP_IDX/MAP_IDX_VALUE/BTF_ID (v7.2,
-//                     commit 72a85e9464a5). Hole present since fd_idx (v5.20).
+//                     commit 72a85e9464a5). Hole present since fd_idx (v5.14).
 //
 // Scenarios in which the leak is reachable (this component only emits when a
 // real kernel pointer actually comes back, so it self-detects all of these and

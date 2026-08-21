@@ -17,7 +17,7 @@
 // Unlike the single-interval exclusion rules (initrd / cmdline buffer), this
 // rule iterates EVERY observed reservation: a cmdline may carry up to four
 // `memmap=` entries with offset, and each is an independent forbidden zone.
-// The output array is bounded by ENGINE_RULE_MAX_EMIT; we cap silently if a
+// The output array is bounded by ENGINE_RULE_MAX_EMIT; the cap is silent if a
 // pathological cmdline produces more than the engine accepts.
 //
 // Reads PHYS REGION_CMDLINE_MEMMAP observations + SF_IMAGE_SIZE_MIN; emits

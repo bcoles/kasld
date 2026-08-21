@@ -86,7 +86,7 @@ int main(void) {
   /* CONFIG_PHYSICAL_START (x86 LOAD_PHYSICAL_ADDR). The honest-top floors
    * for Q_VIRT_IMAGE_BASE / Q_PHYS_IMAGE_BASE are *widened* to the smallest
    * practical value (2 MiB, the minimum CONFIG_PHYSICAL_START alignment);
-   * when we can learn the real value, the physical_start_lower_bound rule
+   * when the real value is learnable, the physical_start_lower_bound rule
    * raises the floor to the precise position at CONF_PARSED. */
   unsigned long phys_start = get_kconfig_physical_start(fp);
   if (phys_start) {

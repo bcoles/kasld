@@ -92,7 +92,7 @@ static struct module_range get_addr_proc_modules(void) {
 }
 
 int main(void) {
-  /* Pre-check: can we access /proc/modules? */
+  /* Pre-check: is /proc/modules readable? */
   if (kasld_access("/proc/modules", R_OK) != 0)
     return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM
                                                : KASLD_EXIT_UNAVAILABLE;
@@ -103,7 +103,7 @@ int main(void) {
     return 0;
   }
 
-  /* /proc/modules gives us a list of loaded module base addresses.
+  /* /proc/modules lists loaded module base addresses.
    * The component aggregates them into a min/max range — both endpoints
    * are within the module region. (A future version could enumerate
    * each module by name with kasld_result().) */

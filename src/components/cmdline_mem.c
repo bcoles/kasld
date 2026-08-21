@@ -12,7 +12,7 @@
 //
 // /proc/cmdline is world-readable (0444), so the token is observable without
 // privileges. The kernel-side parser is `memparse` (lib/cmdline.c): optional
-// 0x/0 prefix, decimal/hex digits, optional K/M/G/T/P/E suffix — we mirror it
+// 0x/0 prefix, decimal/hex digits, optional K/M/G/T/P/E suffix — mirrored here
 // in kasld_memparse() (cmdline.h) to accept exactly the same input.
 //
 // Scope: x86_32 + x86_64. On other arches `mem=` is parsed only after early

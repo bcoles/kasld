@@ -6,8 +6,10 @@
 #
 # For each fixture under tests/fixtures/<arch>/<host>/, reconstruct a scratch
 # sysroot from its captured filesystem state and run `kasld -v` over it, then
-# sweep the remaining output modes (-j json, -m markdown, -1 oneline, and -H
-# text/markdown/json with the hardening section). The check is that kasld RUNS to
+# sweep the remaining output modes (-1 oneline; -H / -H -m / -H -j for the
+# hardening detail toggle, which also exercises the json and markdown analysis
+# renderers, so bare -j / -m are covered via -H; and -v -m for the markdown
+# document). The check is that kasld RUNS to
 # completion in EVERY output mode — parses the fixture, resolves the engine, and
 # renders that mode — without crashing. The sweep is per-arch crash coverage of
 # every renderer (codegen / relocation / calling-convention faults the host-only
@@ -26,10 +28,12 @@
 #   - Default: run every fixture, using qemu-user for foreign arches. Needs the
 #     cross binaries from `make cross` and qemu-user in QEMU_DIR.
 #
-# Only a crash (death by signal) is a failure. A run yielding no results or no
-# summary is informational: foreign-arch component children do not exec under
-# nested qemu-user, so those fixtures legitimately produce nothing under
-# emulation, and whether a leak/probe component fires is environment-dependent.
+# A failure is a crash (death by signal) in any output mode, or an output-mode
+# assertion failing (a mode that emits no marker, or a document mode that leaks
+# the plain-text run narration). A run yielding no results or no summary is not
+# itself a failure: foreign-arch component children DO exec under nested
+# qemu-user (the harness points KASLD_EXEC_WRAPPER at the host qemu binary), and
+# whether a leak/probe component fires is environment-dependent.
 # Live probes (live:1 in .kasld_meta — perf, timing side-channels, mmap VA
 # sweeps, ioctl/socket leaks, /proc/self) are skipped by the binary itself
 # because KASLD_SYSROOT is set: their result would describe the analysis host,

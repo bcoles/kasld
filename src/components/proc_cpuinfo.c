@@ -254,7 +254,7 @@ static int detect_loongarch_address_sizes(void) {
  * Emitting the base constant as the PAGEOFFSET floor is therefore sound.
  *
  * 4-level: VAS floor = 0xffff800000000000 (47-bit sign extension).
- *          We use the canonical half floor rather than __PAGE_OFFSET_BASE_L4
+ *          Use the canonical half floor rather than __PAGE_OFFSET_BASE_L4
  *          (0xffff888000000000) because the static (non-RANDOMIZE_MEMORY)
  *          layout places the vmemmap at 0xffff800000000000 and LDT remap at
  *          0xffff880000000000; raising the VAS floor higher would silently

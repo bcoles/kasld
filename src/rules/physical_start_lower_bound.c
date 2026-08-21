@@ -9,7 +9,7 @@
 // inside the engine's window — soundness across config variants. The
 // widening admits values that *most* real kernels never reach; this rule
 // pushes the floor back up via a constraint, at confidence reflecting how
-// well we know the value:
+// well the value is known:
 //
 //   - SF_PHYSICAL_START present (parsed from /boot/config or /proc/config.gz):
 //       C_LOWER_BOUND at the *learned* value, CONF_PARSED. Tight + correct.

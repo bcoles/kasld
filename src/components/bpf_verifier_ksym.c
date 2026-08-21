@@ -152,8 +152,9 @@ static const char *const k_funcs[] = {"schedule",
  * kasld_fnv1a64 in include/kasld/hash.h).
  * off[] holds the offset of each k_funcs[] entry from _text (same order); a 0
  * marks a function absent from that build and is ignored. The offsets are
- * _text-relative on every arch — not _stext, which differs by 0x10000 on arm64
- * — so the recovered base is _text directly. A match pins only the LIKELY
+ * _text-relative on every arch — not _stext, which sits a head gap above it
+ * wherever the arch declares a non-zero STEXT_OFFSET — so the recovered base is
+ * _text directly. A match pins only the LIKELY
  * window (CONF_HEURISTIC); the guaranteed window rests on the interior samples,
  * and the
  * >= 2 agreement vote rejects an inconsistent offset set (e.g. from a

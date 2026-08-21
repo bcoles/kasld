@@ -10,7 +10,8 @@
 //   to a slot, is a direct floor on the physical base — C_LOWER_BOUND on
 //   Q_PHYS_IMAGE_BASE.
 //
-//   Coupled (x86-32, MIPS, PPC32 BookE, LoongArch): nothing. The floor those
+//   Coupled (any !TEXT_TRACKS_DIRECTMAP arch — e.g. x86-32, arm32, MIPS, PPC32
+//   BookE, ppc64, riscv32, LoongArch): nothing. The floor those
 //   arches place on their text base is a consequence of the linear-map base and
 //   the architecture's placement rule, not of where DRAM begins, so it belongs
 //   to page_offset_text_floor — where it carries no observation lineage,
@@ -25,7 +26,7 @@
 // below the initrd (ppc64le routinely loads text at phys 0 with the initrd
 // at e.g. 0x2c90000). REGION_RAM with POS_BASE is the canonical "physical
 // RAM starts here" marker that components like proc_zoneinfo /
-// sysfs_devicetree_memory emit; that is what we consume.
+// sysfs_devicetree_memory emit; that is what is consumed here.
 //
 // Only the floor is touched: an incomplete DRAM sample cannot rule out
 // upper slots.

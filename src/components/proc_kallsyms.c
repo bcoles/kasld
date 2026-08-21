@@ -25,7 +25,8 @@
 //   Source: https://elixir.bootlin.com/linux/v6.12/source/kernel/kallsyms.c
 //
 // Mitigations:
-//   kernel.kptr_restrict >= 1 (default since v5.10) masks addresses.
+//   kernel.kptr_restrict >= 1 masks addresses (mainline defaults to 0;
+//   Debian/Ubuntu ship 1).
 //   Bypass requires CAP_SYSLOG or (kptr_restrict=0 + perf_event_paranoid<=1).
 //   On modern kernels, kallsyms_show_value() checks at open() time.
 // ---
@@ -42,8 +43,9 @@ KASLD_EXPLAIN(
     "Reads kernel symbol virtual addresses from /proc/kallsyms. When "
     "kernel.kptr_restrict is 0 (or the reader has CAP_SYSLOG), symbol "
     "addresses are printed in full. The _stext symbol gives the kernel "
-    "text base directly. Since v5.10, kptr_restrict defaults to 1, "
-    "hiding addresses from unprivileged users.");
+    "text base directly. Distributions such as Debian and Ubuntu set "
+    "kptr_restrict to 1 (mainline defaults to 0), hiding addresses from "
+    "unprivileged users.");
 
 KASLD_META("method:parsed\n"
            "phase:inference\n"
@@ -52,7 +54,7 @@ KASLD_META("method:parsed\n"
            "bypass:CAP_SYSLOG\n");
 
 int main(void) {
-  /* Pre-check: can we access /proc/kallsyms? */
+  /* Pre-check: is /proc/kallsyms readable? */
   FILE *f = kasld_fopen("/proc/kallsyms", "r");
   if (!f)
     return (errno == EACCES || errno == EPERM) ? KASLD_EXIT_NOPERM
@@ -60,7 +62,7 @@ int main(void) {
 
   /* Detect kptr_restrict: when restricted, ALL addresses are 0.
    * Some symbols (e.g. __per_cpu_start) are legitimately at address 0,
-   * so check several lines — if every address is 0, we're restricted. */
+   * so check several lines — if every address is 0, the read is restricted. */
   char buf[64];
   int all_zero = 1;
   for (int i = 0; i < 16 && fgets(buf, sizeof(buf), f); i++) {

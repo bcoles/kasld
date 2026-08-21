@@ -25,7 +25,7 @@
 // it the engine keeps the compile-time PAGE_OFFSET (0xc0000000) default, which
 // on a non-3G/1G kernel (e.g. a 2G/2G distro build) is wrong.
 //
-// We gather every virtual kernel-text witness, snap each to its boundary, and
+// Gather every virtual kernel-text witness, snap each to its boundary, and
 // take the boundary with the strongest support (highest confidence, then most
 // independent witnesses). The witness count becomes the constraint's lineage.
 // Pinning the text base to PAGE_OFFSET + IMAGE_BASE_OFFSET would be UNSOUND on

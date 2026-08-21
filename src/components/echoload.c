@@ -4,8 +4,8 @@
 //
 // Exploits the fact that on Meltdown-vulnerable Intel CPUs, a faulting
 // load to a kernel address returns zero (rather than stalling) when the
-// permission check fails. By encoding that zero into a Flush+Reload
-// probe array, we can distinguish mapped kernel pages from unmapped ones:
+// permission check fails. Encoding that zero into a Flush+Reload
+// probe array distinguishes mapped kernel pages from unmapped ones:
 // mapped pages return zero (cache hit on probe[0]); unmapped pages stall
 // and produce no cache fill.
 //

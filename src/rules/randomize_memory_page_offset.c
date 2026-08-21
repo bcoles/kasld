@@ -9,10 +9,11 @@
 //   virt_page_offset == virt_anchor - phys_anchor   (the tightest possible
 //   signal)
 //
-// Emits C_EQUALS on Q_PAGE_OFFSET when the candidate is page-aligned and inside
-// the current virt_page_offset window (the engine's meet drops it otherwise). A
-// cross-origin heuristic (Path 2: min(directmap) - min(RAM base)) would be a
-// looser fallback; not implemented. x86_64 only; inert when no paired
+// Emits C_EQUALS on Q_PAGE_OFFSET when the candidate is PMD-aligned (2 MiB) and
+// inside the current virt_page_offset window (the engine's meet drops it
+// otherwise). When no same-origin pair exists, a CONF_HEURISTIC cross-origin
+// fallback (Path 2: min(DIRECTMAP virt) - min(PHYS RAM base)) reconstructs the
+// directmap base, likely-only. x86_64 only; inert when no paired
 // VIRT directmap + PHYS RAM observation is present.
 // ---
 // <bcoles@gmail.com>

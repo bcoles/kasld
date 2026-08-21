@@ -86,7 +86,7 @@ if grep -s -q Vulnerable /sys/devices/system/cpu/vulnerabilities/reg_file_data_s
 fi
 
 if grep -s -q Vulnerable /sys/devices/system/cpu/vulnerabilities/indirect_target_selection ; then
-  echo "[.] CPU vulnerable to Indirect Target Selection / ITS (CVE-2025-20012)"
+  echo "[.] CPU vulnerable to Indirect Target Selection / ITS (CVE-2024-28956)"
 fi
 
 if grep -s -q Vulnerable /sys/devices/system/cpu/vulnerabilities/tsa ; then

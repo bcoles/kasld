@@ -72,7 +72,7 @@ int rule_phys_ceiling_from_memtotal(const struct evidence_set *ev,
         fconf = o->conf;
         fsrc = o->id;
       }
-      /* dram_top: highest hi we see from any REGION_RAM observation that
+      /* dram_top: highest hi seen from any REGION_RAM observation that
        * carries an extent. POS_BASE observations on REGION_RAM (from
        * proc_zoneinfo's start_pfn) provide phys_floor only; POS_TOP
        * observations provide hi only — both are needed for the span. */

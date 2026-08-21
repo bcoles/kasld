@@ -55,7 +55,8 @@ identical path. Only the front-end component differs.
 Freeing unused kernel memory: 1476K (ffffffff81f41000 - ffffffff820b2000)
 ```
 
-**2. The component** (`dmesg_free_reserved_area`, shown minimally in
+**2. The component** (`dmesg_free_reserved_area`; the same leak is illustrated by
+the minimal component in
 [CONTRIBUTING → Minimal component](../CONTRIBUTING.md#minimal-component)) finds
 the line, parses the start address, recognises it as an address inside the kernel
 image, and prints one tagged line to stdout:
@@ -191,7 +192,7 @@ loop.
 - **Observations** — the collected results plus scalar system facts (kernel
   image size, MemTotal, physical-address bits, …), gathered into an evidence
   set.
-- **Rules** (`../src/rules/*.c`) — ~60 pure functions that read the evidence and
+- **Rules** (`../src/rules/*.c`) — roughly 90 pure functions that read the evidence and
   the current estimates and emit *constraints* (`>=`, `<=`, `=`, alignment,
   membership, exclusion) or *verdicts* (invalidate a result) on the quantities.
   A rule does no I/O and has no side effects, so soundness is provable in
@@ -483,7 +484,7 @@ Key rules for cross-region derivation:
   same-`origin` pairing is the tightest signal: it identifies the same kernel
   object across both address spaces.
 - **`randomize_memory_page_offset`** (x86_64 only) — derives
-  `virt_page_offset_base` (the randomized direct-map start under
+  `virt_page_offset` (the randomized direct-map start under
   `CONFIG_RANDOMIZE_MEMORY`) from a `VIRT/REGION_DIRECTMAP` leak and a
   `PHYS/REGION_RAM` base record, with a 1 GiB alignment check.
 - **`directmap_page_offset_bounds`** — bounds `PAGE_OFFSET` from a
@@ -550,7 +551,7 @@ Because the relation is relative, it holds regardless of where the region sits
 absolutely — which matters, as the region moves with KASLR and so has no fixed
 band to test against. The rule consumes only `REGION_MODULE` (addresses whose
 source knows structurally that they belong to a loaded module), never
-`REGION_MODULE_REGION` (the band itself, or an address classified as module by
+`REGION_MODULE_BAND` (the band itself, or an address classified as module by
 falling inside it): on this architecture the validation band spans most of the
 kernel address space, so a range-classified address carries no information about
 which region it belongs to.

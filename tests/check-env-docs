@@ -54,7 +54,7 @@ trap 'rm -f "$code" "$documented"' EXIT INT TERM
 # The variables kasld(1) is answerable for: those read anywhere OUTSIDE
 # src/components/. A component is a standalone program with its own debugging
 # knobs -- KASLD_ZOMBIELOAD_DEBUG, MALI_MIN_COUNT -- and those belong to it, not
-# to the orchestrator's interface. Documenting them here would put 113
+# to the orchestrator's interface. Documenting them here would put 116
 # components' internals in one page and oblige it to track every one.
 #
 # A variable read in a component AND elsewhere (KASLD_EXPERIMENTAL,

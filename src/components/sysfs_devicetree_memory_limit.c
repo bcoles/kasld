@@ -10,7 +10,7 @@
 //   phys_ram_top <= linux,memory-limit  (when non-zero)
 //
 // A zero value means "no limit"; on those systems the file exists but
-// holds 0, and we emit nothing. On systems where the cap is in effect
+// holds 0, and nothing is emitted. On systems where the cap is in effect
 // (e.g. constrained pseries guests), emit as a PHYS REGION_RAM
 // observation with the TOP edge set so dram_ceiling / phys_*_ceiling
 // rules consume it as the authoritative RAM_TOP.

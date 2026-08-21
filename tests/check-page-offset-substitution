@@ -61,8 +61,10 @@ else
   RESET=
 fi
 
-# Reviewed exceptions. Each is a rule whose whole purpose is to assert the
-# compile-time value, on arches that have declared it architecturally invariant.
+# Reviewed exceptions. One is a pin rule whose whole purpose is to assert the
+# compile-time value on arches that have declared it architecturally invariant;
+# the other two are components whose use of the constant is sound for other
+# reasons (a decoupled-arch direct-map floor; suppressing a redundant emission).
 allow_file() {
   case "$1" in
   # A rule whose whole purpose is to assert the compile-time value, on arches

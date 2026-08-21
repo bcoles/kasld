@@ -23,8 +23,9 @@
 //
 // Leak primitive:
 //   Data leaked:      physical address of EFI memory map buffer (DRAM)
-//   Kernel subsystem: drivers/firmware/efi/fdtparams.c —
-//                     efi_set_params_fdt() writes linux,uefi-mmap-start
+//   Kernel subsystem: drivers/firmware/efi/libstub/fdt.c — the EFI stub
+//                     writes linux,uefi-mmap-start into the FDT chosen node
+//                     (fdtparams.c only reads it back)
 //   Data structure:   FDT chosen node (linux,uefi-mmap-start, u64 BE)
 //   Address type:     physical (DRAM)
 //   Method:           parsed (binary sysfs property)

@@ -28,9 +28,10 @@
 //   Patched in v4.15. No runtime sysctl could restrict access — the
 //   bug was an uninitialized byte in the mincore output vector. x86_64 only.
 //
-// KASLD_BUILD_NO_OPTIMIZE: built -O0 (Makefile) so the optimizer cannot reorder
-// or elide the timing / cache-probe / speculation measurements this technique
-// relies on; a per-function no-opt attribute is not a reliable substitute.
+// KASLD_BUILD_NO_OPTIMIZE: built -O0 (Makefile) so the optimizer cannot elide
+// the info-leak read loop that scans the mincore() output vector for stale
+// kernel pointers; a per-function no-opt attribute is not a reliable
+// substitute.
 // ---
 // <bcoles@gmail.com>
 
@@ -162,7 +163,8 @@ int main(int argc, char *argv[]) {
   if (kasld_skip_live_probe("mincore"))
     return 0;
 
-  /* Live timing side-channel: probes the running kernel through mincore(). */
+  /* Live uninitialised-memory info leak: reads a stale kernel pointer from the
+   * running kernel's mincore() output vector. */
   kasld_info("trying mincore info leak...");
 
   unsigned long addr = get_kernel_addr_mincore();

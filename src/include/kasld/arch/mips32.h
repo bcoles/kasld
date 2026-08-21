@@ -21,7 +21,7 @@
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/mips/include/asm/mach-malta/spaces.h#L36
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/mips/include/asm/mach-generic/spaces.h#L91
 //
-// We use generic and assume kseg0: 0x80000000 - 0x9fffffff
+// Generic, assuming kseg0: 0x80000000 - 0x9fffffff
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/mips/include/asm/mach-generic/spaces.h#L33
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/mips/include/asm/addrspace.h#L98
 #define PAGE_OFFSET 0x80000000ul

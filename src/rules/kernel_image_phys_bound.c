@@ -10,9 +10,10 @@
 //
 // A BSS-resident witness is tightened by the virtual TEXT..DATA gap (the
 // in-image offset between text and data, which transfers 1:1 from virt to
-// phys on every arch where the loader places the image contiguously). When
-// the high witness is far enough above the low that it can only sit at the
-// far end of a max-sized image, the spread also yields a LOWER bound:
+// phys on every arch where the loader places the image contiguously). When hi
+// is large enough that even a max-sized image leaves the base above zero
+// (hi >= MAX_KERNEL_IMAGE_SIZE, independent of lo), it also yields a LOWER
+// bound:
 //
 //   phys_image_base >= hi - MAX_KERNEL_IMAGE_SIZE + 1
 //

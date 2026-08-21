@@ -300,9 +300,9 @@ if [ "$PERTURB" = 1 ]; then
 fi
 
 # Don't gate on exit code: kasld returns the count of failed component
-# subprocesses (sometimes >0 even on a healthy bundle — collect_kasld_results
-# in orchestrator.c maps "no_result"/"unavailable"/"timed_out" through to
-# a non-zero summary on some paths, and under qemu-user every component
+# subprocesses (sometimes >0 even on a healthy bundle — kasld_classify_outcome()
+# maps "no_result"/"unavailable"/"timed_out" outcomes that feed stats.no_result
+# and a non-zero summary on some paths, and under qemu-user every component
 # fails to exec). The output JSON is what matters.
 if [ -n "$RUNNER" ]; then
   KASLD_SYSROOT="$BUNDLE/sysroot" KASLD_UNAME_RELEASE="$REL" \

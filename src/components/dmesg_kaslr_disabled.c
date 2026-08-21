@@ -158,7 +158,7 @@ static int on_match(const char *line, void *ctx) {
  * machine, not the link-time default). VIRTUAL KASLR is independent on
  * the affected arches (arm64 / riscv64 / loongarch64 EFI) and may still
  * succeed via the DTB /chosen/kaslr-seed or an arch RNG (riscv64 Zkr,
- * arm64 RNDR), so we emit ONLY the phys-side fact. */
+ * arm64 RNDR), so ONLY the phys-side fact is emitted. */
 static int on_match_efi(const char *line, void *ctx) {
   struct match_ctx *m = ctx;
   if (strstr(line, "EFI_RNG_PROTOCOL unavailable"))
@@ -196,7 +196,7 @@ int main(void) {
         "Kernel attempted KASLR but randomization did not run "
         "(firmware-/boot-stub-determined placement, not link-time default)");
     /* Distinct from SF_*_KASLR_DISABLED: the boot stub still relocated the
-     * image, so we cannot pin to KERNEL_VIRT_TEXT_DEFAULT. Every dmesg-side
+     * image, so KERNEL_VIRT_TEXT_DEFAULT cannot be pinned. Every dmesg-side
      * "KASLR disabled" reason matched here ("lack of seed", "FDT
      * remapping failure", "CPU has no PRNG", "not enough memory") fails
      * BOTH the virt and the phys randomization paths in the boot stub's

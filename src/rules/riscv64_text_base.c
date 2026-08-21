@@ -90,7 +90,7 @@ int rule_riscv64_text_base(const struct evidence_set *ev,
    * layout — and the engine fixpoint ACCUMULATES constraints across passes, so
    * emitting the modern pin now (before PAGE_OFFSET resolves to legacy) would
    * leave a stale C_EQUALS that outranks the later legacy lower bound. Waiting
-   * for the window's TOP to fall below legacy means we never pin modern on a
+   * for the window's TOP to fall below legacy means modern is never pinned on a
    * kernel that turns out legacy. */
   if (!(po_known && po_hi < (unsigned long)RISCV_LEGACY_PAGE_OFFSET))
     return 0;

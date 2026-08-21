@@ -8,8 +8,8 @@
 //   /sys/devices/system/memory/memoryN/state      ("online"/"offline")
 //
 // All attributes are world-readable (0444). The physical address of
-// each block is: phys_index * block_size. By scanning all online memory
-// blocks, we derive the lowest and highest physical DRAM addresses.
+// each block is: phys_index * block_size. Scanning all online memory
+// blocks gives the lowest and highest physical DRAM addresses.
 //
 // Leak primitive:
 //   Data leaked:      physical DRAM address range (memory block indices)

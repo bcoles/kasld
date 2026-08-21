@@ -137,7 +137,9 @@ header — the decompression buffer requirement, which is larger than the
 final loaded kernel size. On RISC-V (`arch/riscv/mm/init.c`), it is
 `_end − _start` — the actual in-memory kernel size with no overhead.
 On x86, `MODULES_VADDR` is defined as `__START_KERNEL_map +
-KERNEL_IMAGE_SIZE` with no gap, so the ceiling is hard.
+KERNEL_IMAGE_SIZE` with no gap, so the ceiling is hard. (KASLD's `Search
+space` readout counts a closed range and so reports one more slot than this
+column — e.g. `505` on x86_64 where the table shows `504`.)
 
 ³ The arm64 row is the `VA_BITS_MIN = 48` case (4K/16K 4-level, plus 52-bit LVA)
 — the common one. Sub-48 configs place the image higher and randomize over a
@@ -167,7 +169,7 @@ governs only the high bits of the displacement.
 | arm64 | ~1073M | ≈ 50 MiB | ~1073M | <0.01% |
 
 On x86 and RISC-V, where total entropy is ~9 bits (~500 slots), a 3–8%
-reduction is material. On s390 (~17 bits) and arm64 (~25 bits) the
+reduction is material. On s390 (~17 bits) and arm64 (~30 bits) the
 effect is negligible.
 
 ### KASLR runtime states
@@ -318,7 +320,7 @@ modules are either at a fixed address or a constant offset from `PAGE_OFFSET`.
 A single leak from any section is sufficient to derive the others. On
 decoupled architectures like x86_64, each section is randomized independently
 — a physical address reveals nothing about the virtual text base, and the
-direct map base (`virt_page_offset_base`) is randomized separately.
+direct map base (`virt_page_offset`) is randomized separately.
 
 RISC-V64 is notable: the module region is anchored to the kernel image
 (`MODULES_VADDR = PFN_ALIGN(&_end) - SZ_2G`, `MODULES_END = PFN_ALIGN(&_start)`),

@@ -61,7 +61,7 @@ int rule_arm64_va_bits_from_vmemmap(const struct evidence_set *ev,
     return 0;
 
   /* Lowest VMEMMAP observation — any address below the VA48 floor is the
-   * VA52-only witness we need. */
+   * VA52-only witness required. */
   unsigned long lowest = 0;
   enum kasld_confidence conf = CONF_UNKNOWN;
   uint32_t src = 0;

@@ -59,7 +59,7 @@
 
 // Minimum possible kernel base across all vmsplit configurations.
 // CONFIG_VMSPLIT_1G sets PAGE_OFFSET=0x40000000, the lowest possible value.
-// We use this as KERNEL_VIRT_TEXT_MIN to accept kernel addresses from all
+// This is KERNEL_VIRT_TEXT_MIN to accept kernel addresses from all
 // vmsplits.
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/x86/Kconfig#L1474
 #define KERNEL_VIRT_TEXT_MIN 0x40000000ul

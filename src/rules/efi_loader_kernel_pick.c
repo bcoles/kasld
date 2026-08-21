@@ -16,8 +16,10 @@
 //      AllocatePages() call for the kernel image uses this alignment;
 //      bootloader and driver images are typically loaded at 4 KiB page
 //      granularity by other firmware paths. Values: arm64 = 64 KiB
-//      (THREAD_ALIGN, covers 4K/16K/64K pages); riscv64 = PMD_SIZE
-//      = 2 MiB; x86_64 = CONFIG_PHYSICAL_ALIGN = 2 MiB default;
+//      (EFI_KIMG_ALIGN = max(THREAD_ALIGN, SEGMENT_ALIGN); SEGMENT_ALIGN
+//      = 64 KiB dominates on 4K/16K-page kernels, where THREAD_ALIGN is 32 KiB,
+//      while a 64K-page kernel raises THREAD_ALIGN to 128 KiB); riscv64
+//      = PMD_SIZE = 2 MiB; x86_64 = CONFIG_PHYSICAL_ALIGN = 2 MiB default;
 //      loongarch64 = 2 MiB.
 //
 //   2. SIZE — `entry.size ∈ [1.0×, 2.0×] × SF_IMAGE_SIZE_MIN`. The EFI

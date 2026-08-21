@@ -29,8 +29,8 @@
  * extended-Euclidean math comfortably in unsigned long long.
  * ------------------------------------------------------------------------ */
 
-/* Find (g, x, y) with g = gcd(a, b) and a*x + b*y = g. Signed math via
- * intptr_t so coefficients can be negative. */
+/* Find (g, x, y) with g = gcd(a, b) and a*x + b*y = g. Signed long long math
+ * so coefficients can be negative. */
 static long long ext_gcd(long long a, long long b, long long *x, long long *y) {
   if (b == 0) {
     *x = 1;
@@ -77,7 +77,7 @@ static int stride_crt(unsigned long r1, unsigned long m1, unsigned long r2,
    *
    * Reduce (diff/g)*x modulo n = m2/g BEFORE multiplying by m1: that keeps
    * every intermediate below lcm. The naive r1 + m1*(diff/g)*x multiplies three
-   * cofactors each up to the modulus cap (~2^96 at the 2^32 cap), overflowing
+   * cofactors each up to the modulus cap (0xf_ffff_ffff, ~2^36), overflowing
    * 64 bits; the reduced form never exceeds m1 * (m2/g) = lcm. */
   unsigned long long n = m2 / (unsigned long long)g;
   long long dg = diff / g;
@@ -101,10 +101,12 @@ static int stride_crt(unsigned long r1, unsigned long m1, unsigned long r2,
  *
  * Sentinel-vs-value overlap: 0 is both the overflow sentinel AND a legitimate
  * return when floor=0 and offset≡0 (mod stride). Callers must disambiguate
- * before treating "0 means no element exists" — the only existing caller,
- * stride_intersects_interval, does this by re-checking the residue against the
- * floor modulo. If you add a second caller, do the same check or refactor to
- * a `bool overflowed` out-parameter. */
+ * before treating "0 means no element exists". Two callers exist:
+ * stride_intersects_interval re-checks the residue against the floor modulo;
+ * quantity_slots instead relies on the `first == 0 || first > hi` guard, which
+ * discards the sentinel-0 case along with any element past the range top and so
+ * needs no separate residue re-check. A further caller must do one or the
+ * other, or refactor to a `bool overflowed` out-parameter. */
 static unsigned long stride_first_at_or_above(unsigned long floor,
                                               unsigned long stride,
                                               unsigned long offset) {
@@ -379,7 +381,7 @@ void estimate_resolve(enum kasld_quantity q, enum kasld_confidence floor,
   out->saturation = 0;
 
   /* Gather indices of in-scope constraints (this quantity, conf >= floor).
-   * On overflow we silently keep the first ESTIMATE_MAX_WORK in INSERTION
+   * On overflow the first ESTIMATE_MAX_WORK are kept silently, in INSERTION
    * order — the priority sort below would otherwise lose the higher-priority
    * candidates beyond the cap. Surface a saturation bit so --verbose can
    * report it. */

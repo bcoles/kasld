@@ -10,7 +10,7 @@
 //   handoff token is `elfcorehdr=<addr>`, set by kexec_file_load(2) with
 //   KEXEC_FILE_ON_CRASH. The kernel then loads at the deterministic
 //   __NO_KASLR_START_KERNEL address (= CONFIG_KERNEL_IMAGE_BASE +
-//   IMAGE_BASE_OFFSET = our KERNEL_VIRT_TEXT_DEFAULT).
+//   IMAGE_BASE_OFFSET = this build's KERNEL_VIRT_TEXT_DEFAULT).
 //
 // s390 only. x86-64 and arm64 do NOT unconditionally disable KASLR for the
 // kdump kernel — they re-run the KASLR path within the reserved crashkernel

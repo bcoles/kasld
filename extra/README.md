@@ -84,7 +84,7 @@ target, or an architecture the analysis host can only emulate.
 
 ```sh
 # On the target: capture (add --kallsyms to record ground truth for validation).
-extra/collect --kallsyms                    # -> kasld-bundle-<host>-<date>/
+extra/collect --kallsyms                    # -> kasld-bundle-<arch>-<rel>-<ts>/
 
 # Anywhere: replay the exact same facts through kasld, no target needed.
 KASLD_SYSROOT=kasld-bundle-*/sysroot ./build/*/kasld -v

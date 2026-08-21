@@ -10,8 +10,8 @@
 // are different types in different stores.
 //
 // Invariant (enforced at emission, asserted in debug builds): a derived
-// constraint's confidence is <= min of its lineage's confidences — you
-// cannot be more certain than your least-certain input. The sole sanctioned
+// constraint's confidence is <= min of its lineage's confidences — a claim
+// cannot be more certain than its least-certain input. The sole sanctioned
 // exception is the independent-corroboration fusion rule.
 // ---
 // <bcoles@gmail.com>

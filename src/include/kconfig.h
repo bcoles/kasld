@@ -98,7 +98,8 @@ get_kconfig_physical_start(FILE *fp) {
 
 /* Search for CONFIG_PHYSICAL_ALIGN=0x... in the kernel config — the x86
  * KASLR slot granularity (= boot_params.hdr.kernel_alignment). x86 only;
- * Kconfig range is [0x200000, 0x1000000]. Returns the value, or 0 if not
+ * Kconfig minimum is 0x2000 on X86_32 and 0x200000 on X86_64, up to
+ * 0x1000000. Returns the value, or 0 if not
  * found. Fallback for systems where /sys/kernel/boot_params/data is
  * unreadable; boot_params_kaslr_align consumes the value identically via
  * SF_PHYS_KERNEL_ALIGN regardless of source. */
@@ -140,10 +141,13 @@ get_kconfig_kernel_image_base(FILE *fp) {
 /* Check if the kernel was compiled with KASLR support
  * (CONFIG_RANDOMIZE_BASE=y).
  *
- * On x86/x86_64, CONFIG_RANDOMIZE_BASE has CONFIG_RELOCATABLE as a hard
- * Kconfig dependency, so checking CONFIG_RANDOMIZE_BASE alone is sufficient.
- * On all other arches (arm64, s390x, riscv64, powerpc, mips, ...) there is
- * no CONFIG_RELOCATABLE; KASLR requires only CONFIG_RANDOMIZE_BASE.
+ * CONFIG_RANDOMIZE_BASE alone is the signal on every architecture, though not
+ * for one reason: x86 makes CONFIG_RELOCATABLE a hard Kconfig dependency of it,
+ * arm64 has RANDOMIZE_BASE `select RELOCATABLE`, and on s390 the two are
+ * unrelated. Either way a set RANDOMIZE_BASE settles it, and no arch needs
+ * RELOCATABLE read alongside. Several arches that do define RELOCATABLE use it
+ * for purposes of their own (powerpc for kdump, for one), so its state answers
+ * a different question.
  *
  * Returns 1 if KASLR is compiled in, 0 otherwise. */
 static int kconfig_has_kaslr(FILE *fp) {

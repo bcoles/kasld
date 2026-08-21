@@ -16,7 +16,7 @@
 #   <type> <region>[:<name>] pos=<pos> conf=<conf> \
 #       [lo=<hex>] [hi=<hex>|sz=<hex>] [sample=<hex>] [base_align=<hex>]
 #
-#   type:   P (physical), V (virtual)
+#   type:   P (physical), V (virtual), S (scalar-fact), D (derived)
 #   region: closed enum (kernel_text, kernel_data, kernel_bss,
 #           kernel_image, module, module_region, ram, dma, dma32,
 #           initrd, cmdline, cmdline_memmap, reserved_mem, swiotlb,
@@ -73,7 +73,10 @@ skip() { update_counts skip; printf "  ${YELLOW}SKIP${RESET}  %s\n" "$1"; }
 # Hex address comparison helpers (POSIX-safe, unsigned 64-bit)
 #
 # All addresses are normalized to 16-char zero-padded lowercase hex.
-# Lexicographic string comparison of fixed-width hex == unsigned ordering.
+# Comparisons force a string compare by prefixing both operands with "x", so
+# awk does not parse hex containing 'e'/'d' as scientific notation (e.g.
+# "000000002e133000"). With equal-length lowercase hex, lexicographic order is
+# unsigned numeric order ('0'..'9' < 'a'..'f' in ASCII).
 # -------------------------------------------------------------------------
 
 # Normalize a hex string (with or without 0x prefix) to 16-char lowercase
@@ -96,10 +99,10 @@ hex16() {
 }
 
 # hex_le A B  → return 0 (true) if A <= B
-hex_le() { awk -v a="$1" -v b="$2" 'BEGIN { exit !(a <= b) }'; }
+hex_le() { awk -v a="x$1" -v b="x$2" 'BEGIN { exit !(a <= b) }'; }
 
 # hex_ge A B  → return 0 (true) if A >= B
-hex_ge() { awk -v a="$1" -v b="$2" 'BEGIN { exit !(a >= b) }'; }
+hex_ge() { awk -v a="x$1" -v b="x$2" 'BEGIN { exit !(a >= b) }'; }
 
 # hex_in_range ADDR LO HI → return 0 (true) if LO <= ADDR <= HI
 hex_in_range() { hex_ge "$1" "$2" && hex_le "$1" "$3"; }

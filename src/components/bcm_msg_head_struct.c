@@ -68,7 +68,7 @@ KASLD_META("method:heuristic\n"
  * member, so wrapping it in a containing struct (the kernel's own pattern
  * for sending bcm_msg_head + a fixed number of frames in one buffer) is
  * flagged under -Wpedantic. The layout matches the kernel's expected wire
- * format — we deliberately rely on it. Suppress the pedantic warning at
+ * format — relied on deliberately. Suppress the pedantic warning at
  * the two declaration sites rather than hide the kernel-side shape. */
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
@@ -157,7 +157,7 @@ static unsigned long get_kernel_addr_from_bcm_msg_head_struct(void) {
    *
    * Gated to 64-bit hosts only. On a 32-bit kernel `long` is 4 bytes, so
    * `bcm_timeval` is 8 bytes and `ival2` sits at a different offset; the
-   * upper-half-of-tv_sec leak shape doesn't apply. We bail rather than
+   * upper-half-of-tv_sec leak shape doesn't apply. Bail rather than
    * silently produce a non-pointer value. */
 #if __SIZEOF_LONG__ >= 8
   /* __extension__ silences -Wpedantic: _Static_assert is a C11 keyword gcc

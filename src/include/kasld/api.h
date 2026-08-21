@@ -170,7 +170,7 @@ static inline int kasld_mul_ovf(unsigned long a, unsigned long b,
  * alias them); arch headers override when they differ, e.g. x86_64: KERNEL_TEXT
  * [0xffffffff80000000, 0xffffffffc0000000] (1 GiB); KASLR_TEXT  [MIN + 16 MiB,
  * ...]; KASLR_VIRT_ALIGN = 2 MiB. arm64:  KERNEL_TEXT ~128 TiB; KASLR_TEXT ~64
- * TiB; KASLR_VIRT_ALIGN 2 MiB (vs IMAGE_ALIGN 64 KiB).
+ * TiB; KASLR_VIRT_ALIGN 64 KiB (== IMAGE_ALIGN).
  * ========================================================================= */
 
 /* LINEAR_MAP_ANCHOR — WHERE the linear map's physical anchor comes from.
@@ -989,8 +989,9 @@ static inline unsigned long kasld_page_offset_if_known(void) {
  * (CONFIG_RELOCATABLE in practice — x86_32, arm32, ppc, mips), and arches whose
  * no-KASLR base is layout-dependent and resolved by a bespoke rule instead
  * (riscv64: linear-map vs KERNEL_LINK_ADDR text — see rule_riscv64_text_base).
- * The 1-arches (x86_64, arm64, loongarch64, s390) carry their own per-header
- * rationale. */
+ * An arch that sets this explicitly, either way, states why beside the define:
+ * raising it, or declining to raise it despite having a KASLR-off signal to act
+ * on. */
 #ifndef KASLR_DISABLED_PINS_VIRT_TEXT
 #define KASLR_DISABLED_PINS_VIRT_TEXT 0
 #endif
@@ -1425,7 +1426,7 @@ enum kasld_confidence {
  *                / VAS_<kind>_DERIVE in region_info.c. The K_ prefix is
  *                deliberate: arch headers define names like PAGE_OFFSET
  *                and would collide on the `kind` argument before
- *                token-pasting if we used the bare names.
+ *                token-pasting under the bare names.
  *                  K_OPEN       — {0, ULONG_MAX}, NULL (any phys address)
  *                  K_VIRT       — {KERNEL_VIRT_VAS_START, KERNEL_VIRT_VAS_END},
  * NULL (kernel-VAS-bounded virtual-only regions) K_PAGEOFFSET — {0, 0},
@@ -1562,7 +1563,8 @@ enum kasld_region {
 #define X(name, wire, sec, kind) name,
   KASLD_REGION_LIST(X)
 #undef X
-  /* Sentinel. Must be last so we can iterate 0..REGION__COUNT-1. */
+  /* Sentinel. Must be last so iteration over 0..REGION__COUNT-1 covers every
+   * real region. */
   REGION__COUNT,
 };
 

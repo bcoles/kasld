@@ -9,7 +9,7 @@
 //   - the smallest grid point >= the lower bound is still <= _text.
 // Flooring the ceiling and raising the floor to the grid are therefore SOUND
 // sharpenings that never cross _text, even on the sub-offset arches (riscv64
-// +0x2000, arm32 +0x8000, s390 +0x100000, mips +0x400) where a plain
+// +0x2000, arm32 +0x8000, s390 +0x100000) where a plain
 // floor/ceil(v, align) would. Neither drops a candidate: the sub-slot slack
 // outside the first/last grid point holds no valid base. The result is a
 // candidate-exact window — min and max are the lowest and highest positions the

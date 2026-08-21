@@ -17,7 +17,7 @@
 #include <sys/utsname.h>
 
 /* Print a string as a markdown table-cell body. Escapes the column separator
- * '|' (and a preceding '\' so it cannot escape our escape) so a wire-supplied
+ * '|' (and a preceding '\' so it cannot escape the escape) so a wire-supplied
  * name — length-checked but not character-validated on the way in — cannot
  * break the table layout. A control byte (which a whitespace-tokenised wire
  * field should never carry) collapses to a space. */

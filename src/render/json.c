@@ -470,9 +470,9 @@ void render_json(const struct summary *s) {
    *
    *   concept              JSON key(s)                  text label
    *   -------------------  ---------------------------  ---------------------
-   *   guaranteed window    "inferred"/"inferred_phys-   "Inferred text range"
-   *   (sound floor; truth   ical"; range_min/max,        / "Guaranteed range"
-   *    is contained)        slots, entropy_bits
+   *   guaranteed window    "inferred"/"inferred_phys-   "Virtual/Physical Image
+   *   (sound floor; truth   ical"; range_min/max,        Base" (grade
+   *    is contained)        slots, entropy_bits          "guaranteed")
    *   likely window        "likely"/"likely_physical";  "likely (speculative)"
    *   (all signals, subset  + "speculative": true
    *    of guaranteed, may

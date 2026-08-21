@@ -235,7 +235,7 @@ void kasld_discard_reset(void);
  * HAS_BASE_ALIGN are the only correct "is this field meaningful?" checks.
  *
  * `pos` describes what `sample` represents (BASE/TOP/INTERIOR/UNKNOWN).
- * It is NEVER a check for "do we have a known base?" — that is HAS_LO(r).
+ * It is NEVER a check for "is there a known base?" — that is HAS_LO(r).
  *
  * Provenance is an owned, fixed-width bitset. The struct lives in a static
  * results[] table; pointer-to-transient-buffer fields would dangle.

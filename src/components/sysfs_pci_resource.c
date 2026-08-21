@@ -109,8 +109,8 @@ int main(void) {
       if (!start || !end)
         continue;
 
-      /* Skip I/O port BARs (flag bit 0 set = IORESOURCE_IO).
-       * We only care about memory-mapped BARs. */
+      /* Skip I/O port BARs: flag bit 8 set (0x100 = IORESOURCE_IO).
+       * Only memory-mapped BARs matter here. */
       if (flags & 0x100)
         continue;
 

@@ -3,7 +3,8 @@
 // Rule: virtual KASLR ceiling from MemTotal (coupled arches).
 //
 // The coupled-arch counterpart to phys_ceiling_from_memtotal. On a coupled arch
-// (x86-32, MIPS, PPC32 BookE, LoongArch) phys_to_directmap_virt() links
+// (any !TEXT_TRACKS_DIRECTMAP arch — e.g. x86-32, arm32, MIPS, PPC32 BookE,
+// ppc64, riscv32, LoongArch) phys_to_directmap_virt() links
 // physical DRAM to the virtual text window, so the RAM-fits-the-image ceiling
 // maps to a virtual upper bound. It carries the SAME dram_top-vs-MemTotal
 // discipline as phys_ceiling_from_memtotal:
@@ -27,7 +28,8 @@
 // differ (e.g. x86-32 VMSPLIT). It takes the window's UPPER EDGE — a ceiling
 // needs the highest base the target could have — so it fires as soon as the
 // quantity has a window at all, and tightens as the fixpoint narrows it. If
-// nothing: we cannot soundly map the ceiling through an unknown origin. That is
+// nothing: the ceiling cannot be soundly mapped through an unknown origin.
+// That is
 // correct under the "a component may return nothing" principle — absence yields
 // no constraint, never a wrong one.
 // ---

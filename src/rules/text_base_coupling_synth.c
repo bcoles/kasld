@@ -31,13 +31,13 @@
 //   * Requires Q_PAGE_OFFSET narrowed to a single value. On
 //     DIRECTMAP_STATIC arches this is provided by phys_virt_synth (from
 //     paired directmap+DRAM leaks) or page_offset_invariant_pin (on the
-//     architecturally-fixed subset). Without that pin we cannot project
+//     architecturally-fixed subset). Without that pin nothing can project
 //     symbols across the boundary.
-//   * The IMAGE_BASE_OFFSET safety margin accounts for the image header /
-//     EFI-stub slack between the linker-defined _text base and what
-//     components actually observe (e.g. kallsyms _stext vs iomem
-//     "Kernel code" — empirically a 128 KiB gap on LoongArch6.18). Same
-//     convention as kernel_image_phys_bound.
+//   * The IMAGE_BASE_OFFSET safety margin (added as text_off) accounts for the
+//     slack between the linker-defined _text base and what components actually
+//     observe. It is IMAGE_BASE_OFFSET, which is 2 MiB on LoongArch — not the
+//     128 KiB STEXT_OFFSET head gap (_text->_stext), which is normalized
+//     separately. Same convention as kernel_image_phys_bound.
 //   * Emitted at CONF_DERIVED (below CONF_PARSED); any contradicting
 //     witness from a direct observation wins the engine's conflict
 //     resolution rather than being overridden by this synthesizer.

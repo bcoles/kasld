@@ -26,7 +26,7 @@
 //
 // where cumulative_offset(R) sums the region sizes between R's top and
 // text_virt. Undersizing any intermediate term only loosens the floor, so the
-// bound stays sound; we conservatively undersize the runtime-variable
+// bound stays sound; the runtime-variable part is conservatively undersized
 // intermediate sizes (ABS_LOWCORE_MAP_SIZE, MEMCPY_REAL_SIZE, vmalloc_size) to
 // 0 and keep the dominant constants.
 //
@@ -42,7 +42,7 @@
 //   -- abs_lowcore : + ABS_LOWCORE_MAP_SIZE
 //   -- identity    : + vmemmap_size (and below)
 //
-// For each below-text region we take the HIGHEST observation (closest to text
+// For each below-text region take the HIGHEST observation (closest to text
 // => tightest floor) and emit the single MAX floor across all rungs (the engine
 // meet over per-region C_LOWER_BOUNDs collapses to exactly this max).
 //

@@ -6,8 +6,9 @@
 // Each region in the arm64 modern (v5.4+) VAS lives in a fixed sub-band
 // anchored to VA_BITS_MIN = 48 constants:
 //
-//   DIRECTMAP / PAGE_OFFSET   in [PAGE_OFFSET,    _PAGE_END(48)) = [...,
-//   0xffff800000000000) MODULE / MODULE_REGION    in [MODULES_START,
+//   DIRECTMAP / PAGE_OFFSET   in [PAGE_OFFSET,
+//   _PAGE_END(VA_BITS_VALIDATE_MIN = 39)) = [..., 0xffffffc000000000) MODULE /
+//   MODULE_REGION    in [MODULES_START,
 //   MODULES_END]   (union over kernel-version layouts) KERNEL_TEXT /
 //   KERNEL_IMAGE in [KERNEL_VIRT_TEXT_MIN, KERNEL_VIRT_TEXT_MAX] (the
 //   validation range) VMEMMAP                   in [VMEMMAP_START,
@@ -64,8 +65,10 @@
 #define ARM64_VMEMMAP_END 0xffffffffc0000000ul /* −SZ_1G */
 /* VA_BITS=48 VMEMMAP floor; conservative for both VA48 and VA52 (VA52's
  * VMEMMAP extends further down, so any address < VA48 floor is consistent
- * with VA52 vmemmap — we don't invalidate it). Matches the threshold the
- * arm64_va_bits_from_vmemmap rule uses. */
+ * with VA52 vmemmap — it is not invalidated). Matches the threshold the
+ * arm64_va_bits_from_vmemmap rule uses. Currently unused by this verdict: the
+ * REGION_VMEMMAP case only rejects a >= VMEMMAP_END and never consults this
+ * floor discriminator. Retained for reference and parity with that rule. */
 #define ARM64_VA48_VMEMMAP_START 0xfffffdffc0000000ul
 
 #if defined(__aarch64__)

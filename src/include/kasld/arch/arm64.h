@@ -42,7 +42,7 @@
 //   VA_BITS=48: 0xffff000000000000
 //   VA_BITS=52: 0xfff0000000000000
 // https://elixir.bootlin.com/linux/v6.12/source/arch/arm64/include/asm/memory.h#L44
-// We assume 52 va bits (broadest, covers all configs):
+// Assume 52 va bits (broadest, covers all configs):
 #define PAGE_OFFSET 0xfff0000000000000ul
 
 // Derived from the paging mode: PAGE_OFFSET is -(1 << VA_BITS). Q_VA_BITS
@@ -309,7 +309,10 @@ static inline unsigned long arm64_page_end_for(unsigned long va_bits) {
 
 // KASLR randomization window (v4.6+):
 // The KASLR offset from KIMAGE_VADDR is in [BIT(45), BIT(45)+BIT(46)).
-// VA_BITS_MIN is always 48 (4K pages), so the offset range is constant.
+// VA_BITS_MIN is 48 on VA_BITS>=48 builds but equals VA_BITS on sub-48
+// configs (e.g. 39 on 4K/3-level, common on Android; 47 on 16K/52-bit), so
+// the per-formula window is not constant across configs; the _WIDE bounds
+// cover the spread.
 //
 // v6.6   kaslr_early.c: return BIT(VA_BITS_MIN-3) + (seed &
 // GENMASK(VA_BITS_MIN-3,0)); v6.12  kaslr_early.c: range = (VMALLOC_END -

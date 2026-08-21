@@ -54,14 +54,16 @@
 // XKPRANGE starts at 0x8000000000000000 (hardware direct map windows DMW0/1/2).
 // XKVRANGE starts at 0xc000000000000000 (vmalloc, modules, vmemmap).
 // XSPRANGE (0x4000000000000000) is hardware-accessible at PLV0 but unused by
-// Linux. We use XKPRANGE as the floor since no kernel address is below it.
+// Linux. XKPRANGE is the floor since no kernel address is below it.
 // https://elixir.bootlin.com/linux/v6.12/source/arch/loongarch/include/asm/addrspace.h#L107
 #define KERNEL_VIRT_VAS_START 0x8000000000000000ul
 #define KERNEL_VIRT_VAS_END 0xfffffffffffffffful
 
 // https://elixir.bootlin.com/linux/v6.8.5/source/arch/loongarch/Kconfig#L629
 #define KERNEL_VIRT_TEXT_MIN PAGE_OFFSET
-// KASLR offset: get_random_u16() << 16, max ~4 GiB. Use 8 GiB headroom.
+// KASLR offset: get_random_boot() << 16, masked to
+// CONFIG_RANDOMIZE_BASE_MAX_OFFSET (default 16 MiB, max 256 MiB), 64 KiB
+// granularity. Use 8 GiB headroom.
 // https://elixir.bootlin.com/linux/v6.12/source/arch/loongarch/kernel/relocate.c
 #define KERNEL_VIRT_TEXT_MAX 0x9000000200000000ul
 
@@ -161,8 +163,9 @@ static inline unsigned long arch_default_phys_text_base(void) {
   return (unsigned long)IMAGE_BASE_OFFSET;
 }
 
-// KASLR randomization: offset = get_random_u16() << 16, range [0, 0xFFFF0000].
-// Virtual text = PAGE_OFFSET + IMAGE_BASE_OFFSET + offset.
+// KASLR randomization: offset = get_random_boot() << 16, masked to
+// CONFIG_RANDOMIZE_BASE_MAX_OFFSET (default 16 MiB, max 256 MiB), 64 KiB
+// granularity. Virtual text = PAGE_OFFSET + IMAGE_BASE_OFFSET + offset.
 #define KASLR_VIRT_TEXT_MIN (PAGE_OFFSET + IMAGE_BASE_OFFSET)
 #define KASLR_VIRT_TEXT_MAX (PAGE_OFFSET + IMAGE_BASE_OFFSET + 0x100000000ul)
 

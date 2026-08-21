@@ -9,9 +9,9 @@
 # check is pure text (roff "\-" escapes are stripped first), so it needs no
 # groff. When groff is available it additionally lints the roff for warnings.
 #
-# The ksymoff half always runs (it is a shell script); the kasld half soft-skips
-# when no natively-runnable kasld binary is built, matching the other optional
-# guards.
+# The ksymoff half runs wherever its interpreter is present, soft-skipping only
+# when `extra/ksymoff --help` is not runnable; the kasld half soft-skips when no
+# natively-runnable kasld binary is built, matching the other optional guards.
 # ---
 # <bcoles@gmail.com>
 

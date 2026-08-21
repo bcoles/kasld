@@ -7,7 +7,8 @@
 #
 # Most cases use early-exit flags (-V version / -h help) or parse errors, so no
 # component pipeline runs; a single effect check confirms a bundled format flag
-# actually takes effect, driven over a fixture for determinism.
+# actually takes effect, driven with all components skipped (-s '*') for
+# determinism, so it needs no fixture.
 #
 # x86_64 host only (runs the native binary); soft-skips when the host is not
 # x86_64 or the binary is not built, matching the other optional guards.

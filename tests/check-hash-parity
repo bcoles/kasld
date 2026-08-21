@@ -4,8 +4,9 @@
 # check-hash-parity — recompute every hashed offset-table row's key with the
 # shipped kasld_fnv1a64 (include/kasld/hash.h) and assert it matches the stored
 # hash, so the runtime hash and the offline table generator's cannot silently
-# drift. Also asserts per-file hash distinctness and self-tests the hash against
-# pinned vectors. See tests/check_hash_parity.c.
+# drift. Also asserts per-block hash distinctness (within each per-arch #if
+# block; the same uname can legitimately recur across a table's per-arch blocks)
+# and self-tests the hash against pinned vectors. See tests/check_hash_parity.c.
 #
 # With no arguments, checks every component that carries a hashed table
 # (auto-detected by the row signature). Pass one or more component paths to check

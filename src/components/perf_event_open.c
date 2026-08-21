@@ -8,7 +8,7 @@
 // https://blog.lizzie.io/kaslr-and-perf.html
 //
 // Requires:
-// - kernel.perf_event_paranoid < 2 (Default on Ubuntu <= 4.4.0 kernels)
+// - kernel.perf_event_paranoid < 2
 //
 // Leak primitive:
 //   Data leaked:      kernel text virtual addresses (sampled instruction
@@ -193,7 +193,7 @@ static unsigned long get_kernel_addr_perf(int *exit_hint) {
     /* Volatile read of meta->data_head + explicit ACQUIRE fence, rather
      * than __atomic_load_n on the u64: on 32-bit arches the latter emits a
      * libatomic call (__atomic_load_8) that musl does not provide. The data
-     * value is monotonic so a torn read on 32-bit is bounded — at worst we
+     * value is monotonic so a torn read on 32-bit is bounded — at worst it
      * read a value larger than the real head and the inner-loop bounds
      * checks reject the partial record. The volatile pointer matches the
      * struct field's exact type (__u64) so strict-aliasing rules hold. */

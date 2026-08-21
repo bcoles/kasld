@@ -79,8 +79,8 @@ static const char *needle = " (ops 0x";
  *
  * A candidate that classifies outside the text family — an unambiguous module
  * or direct-map address — is DROPPED, not reported: this component's claim is
- * about the image, and the rest is someone else's evidence. Previously such an
- * address passed the bare text-window test and moved the image base. */
+ * about the image, and the rest is someone else's evidence. An out-of-family
+ * module or direct-map address never moves the image base. */
 struct lowest {
   unsigned long addr;
   enum kasld_region region;

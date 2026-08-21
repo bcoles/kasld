@@ -84,7 +84,7 @@ struct nilfs_argv {
 /* struct nilfs_suinfo is 24 bytes on x86_64 */
 #define NILFS_SUINFO_REAL_SIZE 24
 
-/* We request a larger v_size to expose trailing uninitialized bytes */
+/* Request a larger v_size to expose trailing uninitialized bytes */
 #define REQUEST_VSIZE 256
 
 /* Number of entries to request */

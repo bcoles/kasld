@@ -231,7 +231,7 @@ int main(void) {
   }
 
   /* Same trampoline-vs-stext distinction as echoload: KPTI changes
-   * which symbol the prefetch primitive actually finds. */
+   * which symbol this primitive actually finds. */
   bool pti = detect_kpti();
   const char *symbol = pti ? "__entry_text_start" : "_stext";
 

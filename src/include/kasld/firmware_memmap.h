@@ -2,7 +2,7 @@
 //
 // /sys/firmware/memmap "System RAM" interval reader (x86 E820 view), no privs.
 //
-// Each /sys/firmware/memmap/<n>/ has type/start/end files. We collect the
+// Each /sys/firmware/memmap/<n>/ has type/start/end files. Collect the
 // "System RAM" entries as inclusive [start, end] physical extents. All reads go
 // through the kasld_* sysroot wrappers (directory enumerated via kasld_opendir,
 // fields via kasld_fopen), so they honour KASLD_SYSROOT redirection.

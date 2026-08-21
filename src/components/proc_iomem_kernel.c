@@ -101,7 +101,7 @@ int main(void) {
 
   /* Detect CAP_SYS_ADMIN masking by scanning a few lines for a real address.
    * If every line up to a small cap reads as 00000000-00000000, the file is
-   * masked and we cannot use it. */
+   * masked and unusable. */
   int saw_real_addr = 0;
   char line[256];
   long start_pos = ftell(f);

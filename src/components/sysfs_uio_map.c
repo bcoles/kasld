@@ -83,8 +83,8 @@ KASLD_META("method:parsed\n"
  * the driver has exposed for userspace (DMA-coherent buffers, reserved
  * memory, hugepages, ...). The sysfs interface exposes the address but
  * NOT the kernel's underlying memtype (UIO_MEM_PHYS vs UIO_MEM_LOGICAL/
- * UIO_MEM_DMA_COHERENT/...), so we resolve via /proc/iomem: the
- * outermost containing range tells us authoritatively whether the
+ * UIO_MEM_DMA_COHERENT/...), so resolution goes via /proc/iomem: the
+ * outermost containing range says authoritatively whether the
  * address is in "System RAM" or somewhere else (PCI Bus, ACPI Reserved,
  * ...). Iomem entries nest — sub-ranges are listed after their parent —
  * so the first containing match is the outermost.

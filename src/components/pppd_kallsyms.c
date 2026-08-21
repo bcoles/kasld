@@ -1,7 +1,8 @@
 // This file is part of KASLD - https://github.com/bcoles/kasld
 //
-// kptr_restrict %pK check is performed at open(), rather than read(),
-// allowing symbol disclosure using set-uid executables.
+// Prior to v4.8, the kptr_restrict %pK check was performed at read() time
+// rather than at open() time, allowing symbol disclosure using set-uid
+// executables; v4.8 moved the check to open() time.
 // pppd is set-uid root and returns a portion of the first line of
 // user-specified files. On 32-bit systems, the first line
 // of /proc/kallsyms contains the startup symbol.
@@ -21,8 +22,8 @@
 //
 // Mitigations:
 //   Patched in v4.8 (kptr_restrict check at open() instead of read()).
-//   Also gated by kptr_restrict >= 1 (default since v5.10). Requires
-//   set-uid pppd binary to be installed.
+//   Also gated by kptr_restrict >= 1 (the Debian/Ubuntu default; mainline
+//   defaults to 0). Requires set-uid pppd binary to be installed.
 //
 // Subprocess invocation:
 //   posix_spawnp (not popen). The leak relies on pppd's syscall sequence

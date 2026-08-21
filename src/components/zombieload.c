@@ -292,7 +292,7 @@ static void mds_sample_at(int off) {
  *   P+6: byte 6        = 0xFF
  *   P+7: byte 7 (MSB)  = 0xFF
  *
- * We scan each possible 8-byte-aligned position within the 64-byte
+ * Scan each possible 8-byte-aligned position within the 64-byte
  * cache line, looking for the 0xFF signature in the upper bytes.
  * =========================================================================
  */
@@ -335,8 +335,8 @@ static unsigned long analyze_histograms(void) {
       continue;
 
     /* Byte 2: the KASLR low byte. May be 0x00 for bases near the
-     * default (0xFFFFFFFF81000000), in which case our histogram has
-     * no signal (we skip zero in encoding). A low peak count means
+     * default (0xFFFFFFFF81000000), in which case the histogram has
+     * no signal (zero is skipped in encoding). A low peak count means
      * byte 2 is likely 0x00. */
     int byte2 = 0;
     if (peak_cnt[pos + 2] >= MDS_MIN_HITS)

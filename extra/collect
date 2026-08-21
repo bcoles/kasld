@@ -222,8 +222,9 @@ grab_tree() {
 }
 
 # Boot images are multi-MiB and usually root-only (0600). The analysis needs
-# only their *size*: kaslr_ceiling/dram_ceiling stat() them (execute on the
-# directory, not read on the file). So we record the size in sizes.txt and do
+# only their *size*: kernel_image_facts reads it (execute on the directory, not
+# read on the file) and ceiling_from_image_size consumes it. So we record the
+# size in sizes.txt and do
 # NOT store the file itself — committing a tens-of-MiB sparse placeholder per
 # fixture would materialise as that many zero bytes on checkout. The replay
 # harness reconstructs a sparse file of the recorded size on the fly, into a

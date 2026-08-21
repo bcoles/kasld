@@ -12,8 +12,10 @@
 //
 // Independent of the resume= / CONFIG_HIBERNATION path covered by
 // hibernation_nokaslr.c, and of the nokaslr cmdline path covered by
-// proc_cmdline.c — emits SF_VIRT_KASLR_DISABLED, the unified off-signal the
-// engine's virt_/phys_kaslr_disabled_pin rule consumes.
+// proc_cmdline.c. loongarch_kexec_file_nokaslr.c emits both
+// SF_VIRT_KASLR_DISABLED and SF_PHYS_KASLR_DISABLED, the unified off-signals
+// the engine's virt_kaslr_disabled_pin and phys_kaslr_disabled_pin rules
+// consume.
 //
 // LoongArch only — gated at compile time so non-LoongArch builds skip via
 // the Makefile's `cc-component` wrapper instead of shipping an empty

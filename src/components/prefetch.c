@@ -11,7 +11,7 @@
 // Their execution time varies depending on whether the target virtual
 // address has a valid mapping in the page table hierarchy.
 //
-// By timing prefetch across every possible KASLR slot we can identify
+// Timing prefetch across every possible KASLR slot identifies
 // where the kernel text is mapped, defeating KASLR from userspace.
 //
 // On x86_64 with the default 2 MiB alignment there are 512 candidate

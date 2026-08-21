@@ -96,10 +96,6 @@ NCOMP=16
 NBAD=30
 i=1
 while [ "$i" -le "$NCOMP" ]; do
-  # Three rejects each: an unknown confidence, an unknown region, and an
-  # unknown scalar fact -- all past the prefix filter, so all genuine
-  # rejections rather than prose. The valid line proves the component is
-  # otherwise being read, so a zero total cannot pass by the run doing nothing.
   {
     echo '#!/bin/sh'
     echo 'echo "ordinary output that must not be counted"'

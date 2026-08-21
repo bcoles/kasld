@@ -46,7 +46,7 @@ INCLUDES=$ROOT/src/include
 #   dmesg_crashkernel:128,137      sizes in MB (decimal)
 #   dmesg_ex_handler_msr:197       a within-symbol offset, not an address
 #   dmesg_last_pfn:80              a PFN, kept in unsigned long long on purpose
-#   proc_pid_syscall:134           a register, kept in unsigned long long
+#   proc_pid_syscall:161           a register, kept in unsigned long long
 #   sysfs_iommu_reserved_regions:157  a directory index (decimal)
 # Keep alphabetical.
 ALLOW="dmesg_backtrace

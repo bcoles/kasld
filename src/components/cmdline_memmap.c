@@ -20,7 +20,7 @@
 //   memmap=<size>#<start>   ACPI NVS
 //   memmap=<size>           equivalent to mem=<size> (no avoidance entry)
 // Up to 4 with-offset entries are honoured by the kernel; a 5th sets
-// memmap_too_large = true and KASLR bails — we still emit them all (the rule
+// memmap_too_large = true and KASLR bails — all are still emitted (the rule
 // treats each as an exclusion regardless).
 //
 // /proc/cmdline is world-readable (0444). x86 only; the component returns 0
