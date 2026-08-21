@@ -5007,7 +5007,14 @@ static int apply_opt(const struct opt *o, int *i, int argc, char *argv[]) {
  * distinguishable from a clean one in the report itself rather than only in
  * the run narration the progress bar scrolls past. Silent when every component
  * was reaped normally. Names beyond the first three fold into a count, the
- * same way leak provenance does. */
+ * same way leak provenance does.
+ *
+ * Subdued rather than coloured as a caution: a kill costs coverage, never
+ * soundness. Only whole lines a component emitted before it died are read, so
+ * one that is killed contributes fewer observations and the resolved windows
+ * come back wider -- never wrong. A warning colour here would rank a note
+ * about this tool's own run alongside the findings, and imply the values above
+ * it are suspect. */
 static void report_killed_components(void) {
   const char *names[3];
   int shown = 0, n = 0;
@@ -5021,7 +5028,7 @@ static void report_killed_components(void) {
   if (n == 0)
     return;
 
-  printf("%s%d component%s timed out after %ds and %s killed (", c(C_YELLOW), n,
+  printf("%s%d component%s timed out after %ds and %s killed (", c(C_DIM), n,
          n == 1 ? "" : "s", component_timeout, n == 1 ? "was" : "were");
   for (int i = 0; i < shown; i++)
     printf("%s%s", i ? ", " : "", names[i]);

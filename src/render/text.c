@@ -1962,6 +1962,68 @@ static void layout_pad_range(struct layout_row *r, int aw) {
   snprintf(r->cell[2], LAYOUT_CELL, "%s", out);
 }
 
+/* One Range cell, padded to `w` from the cell's PLAIN length -- escape bytes
+ * are not columns, so the pad is counted before any colour is added.
+ *
+ * The endpoints and the note trailing them are different kinds of number. An
+ * endpoint is an address the quantity can take; the note restates that same
+ * placement as a displacement from an un-randomized base, so it is not a
+ * candidate at all. Run together they read as one string, and since every
+ * other row in this column holds "lo - hi", a second hex value trailing the
+ * first invites reading the displacement as a high endpoint. It therefore
+ * carries the colour a non-candidate number carries throughout the readout,
+ * which is also what the same note wears in the static-posture block.
+ *
+ * The note is a suffix of the composed cell, so the split is a length rather
+ * than a re-format; a cell that does not end in its note (a row with no
+ * narrowing carries no endpoints to displace from) prints whole. */
+static void layout_print_range(const struct layout_row *r, int w) {
+  int n = (int)strlen(r->cell[2]);
+  int nl = (int)strlen(r->note);
+  int head = n, k;
+  const char *weight = "", *hue = "";
+  if (r->dim || !nl || n <= nl || strcmp(r->cell[2] + n - nl, r->note) != 0)
+    nl = 0;
+  else
+    /* The note is composed onto the value with a single separating space.
+     * That space belongs to neither field, so it stays outside the emphasis
+     * and the two runs of colour meet cleanly. */
+    head = n - nl - 1;
+  /* A row's emphasis rides on its value, not on the word grading it, and the
+   * two channels answer different questions.
+   *
+   * Colour answers "is this proven?". One hue in a column of otherwise uniform
+   * text is what a reader's eye reaches first, whatever the palette renders it
+   * as, so it falls on the rows narrowed further than the proof supports.
+   *
+   * Weight answers "does this name a single address?" -- the thing the run is
+   * for. A window is a narrowing however tight it is, and a row still holding
+   * hundreds of candidates must not carry the same weight as one holding a
+   * placement. Weight also keeps a tinted value readable, since how much
+   * contrast a hue has against a given background is not something this
+   * program can know and a long hex value is where that costs most.
+   *
+   * So a proven placement is bare weight, an unproven one is weight tinted to
+   * qualify it, an unproven window is tint alone, and the sound window every
+   * quantity starts in takes neither. The Basis word states the grade outright
+   * in every case: the emphasis ranks a row, it does not classify it. */
+  if (!r->dim && strcmp(r->cell[1], GRADE_LIKELY) == 0) {
+    hue = c(C_YELLOW);
+    if (r->lo && r->lo == r->hi)
+      weight = c(C_BOLD);
+  } else if (r->pinned) {
+    weight = c(C_BOLD);
+  }
+  if (*weight || *hue)
+    printf("%s%s%.*s%s", weight, hue, head, r->cell[2], c(C_RESET));
+  else
+    printf("%.*s", head, r->cell[2]);
+  if (nl)
+    printf(" %s%s%s", c(C_CYAN), r->note, c(C_RESET));
+  for (k = n; k < w; k++)
+    putchar(' ');
+}
+
 static void layout_render(void) {
   int w[LAYOUT_COLS], i, col, aw;
   if (!n_layout_rows)
@@ -1993,24 +2055,17 @@ static void layout_render(void) {
     const struct layout_row *r = &layout_rows[i];
     printf("  %s", r->dim ? c(C_DIM) : "");
     printf("%-*s  ", w[0], r->cell[0]);
-    /* Only the grade word is coloured: it is the one cell whose value is a
-     * vocabulary rather than a measurement, so colour discriminates it at a
-     * glance while the word keeps the precision. */
-    if (!r->dim && strcmp(r->cell[1], GRADE_GUARANTEED) == 0)
-      printf("%s%-*s%s", c(C_GREEN), w[1], r->cell[1], c(C_RESET));
-    else if (!r->dim && strcmp(r->cell[1], GRADE_LIKELY) == 0)
-      printf("%s%-*s%s", c(C_YELLOW), w[1], r->cell[1], c(C_RESET));
-    else
-      printf("%-*s", w[1], r->cell[1]);
-    /* A proven single address is the answer the run was for, and with no
-     * headline sentence nothing else marks it. Emphasis rather than colour:
-     * green already means "guaranteed" in the column to the left, and one
-     * colour cannot mean both a grade and a degree of narrowing. */
-    if (r->pinned)
-      printf("  %s%-*s%s  %*s  %s", c(C_BOLD), w[2], r->cell[2], c(C_RESET),
-             w[3], r->cell[3], r->cell[4]);
-    else
-      printf("  %-*s  %*s  %s", w[2], r->cell[2], w[3], r->cell[3], r->cell[4]);
+    /* The grade is a label, read once per row, and it names what the emphasis
+     * on the value already shows; colouring it would draw the eye to the word
+     * instead of to the address the run was for. It also cannot discriminate
+     * much: every quantity draws a guaranteed row whether or not evidence
+     * narrowed it, so a run that resolved nothing carries that word down the
+     * whole column exactly as one that pinned every base does. Plain, in its
+     * own column, it keeps the precision the emphasis cannot state. */
+    printf("%-*s", w[1], r->cell[1]);
+    printf("  ");
+    layout_print_range(r, w[2]);
+    printf("  %*s  %s", w[3], r->cell[3], r->cell[4]);
     if (r->dim)
       printf("%s", c(C_RESET));
     putchar('\n');

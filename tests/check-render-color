@@ -1,0 +1,225 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-render-color — keep coloured output byte-identical to plain output once
+# the escape sequences are stripped, and keep escapes out of the formats that
+# must never carry them.
+#
+# Every other render guard runs the binary through a pipe, where colour is off.
+# They therefore measure one of the two ways the renderer can lay out a line and
+# leave the other unmeasured. That gap matters because the text renderer does
+# not simply wrap a finished cell in colour: it pads a column from the cell's
+# PLAIN length while emitting escapes around part of the text inside it. Get
+# that arithmetic wrong -- count an escape byte as a column, split a cell one
+# character off, drop a reset -- and the table misaligns only under a terminal,
+# which is the one case nothing else here looks at. Plain output stays byte
+# identical through such a regression, so every existing guard stays green.
+#
+# The check is a differential: render each case twice, remove the CSI sequences
+# from the coloured run, and require the two to match exactly. Anything colour
+# adds or removes beyond the escapes themselves is a defect, whether it is a
+# lost character, a stray reset, or a column that moved.
+#
+# A differential passes trivially if the "coloured" run produced no colour, so
+# each case also asserts that escapes were actually emitted. Without that the
+# guard would report success precisely when it had stopped testing anything.
+#
+# Determinism comes from the inputs, not from luck. An empty sysroot makes the
+# engine read no host state, and KASLD_SYSROOT additionally suppresses the live
+# components whose addresses differ from run to run. Stub components then supply
+# fixed observations, so both renders of a case describe the same resolved
+# state. Without the stubs the table resolves nothing, draws no likely row and
+# no slide note, and the branches that emit colour never run at all.
+#
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+
+if [ -t 1 ]; then
+  RED=$(printf '\033[31m')
+  GREEN=$(printf '\033[32m')
+  YELLOW=$(printf '\033[33m')
+  RESET=$(printf '\033[0m')
+else
+  RED=
+  GREEN=
+  YELLOW=
+  RESET=
+fi
+
+# A literal escape character, built once. The textual form "\033" is not a
+# portable pattern: some shells' grep and sed read it as an escape and some read
+# it as the four characters, so a guard written that way silently matches
+# nothing and reports success on every run.
+ESC=$(printf '\033')
+
+QEMU_DIR=${QEMU_DIR:-}
+HOST_TRIPLE=$(cc -dumpmachine 2>/dev/null || echo unknown)
+fail=0
+checked=0
+targets=0
+
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/kasld-color.XXXXXX") || exit 1
+trap 'rm -rf "$WORK"' EXIT INT TERM
+
+EMPTY="$WORK/sysroot"
+STUBS="$WORK/components"
+mkdir -p "$EMPTY" "$STUBS" || exit 1
+
+# A pinned text base is what drives the branches worth covering: the value takes
+# weight, the slide note is composed onto it and coloured separately, and the
+# split between the two is the arithmetic this guard exists for. The address is
+# an arbitrary aligned value in the x86_64 window; targets whose window excludes
+# it discard the observation and still render their own rows, which is a case
+# worth covering too.
+cat >"$STUBS/stub_text_base" <<'STUB'
+#!/bin/sh
+echo "V kernel_text:_text pos=base conf=parsed lo=0xffffffff8b600000"
+STUB
+chmod +x "$STUBS/stub_text_base" || exit 1
+
+# Modes that render through the colouring paths. --verbose draws the same table
+# from a second call site, and the hardening report keeps its own palette, so
+# both are measured rather than assumed to follow the default readout.
+TEXT_MODES="-q
+-q -v
+-q -H"
+
+# Formats that must stay free of escapes whatever the environment asks for:
+# markdown and the machine formats are read by tools and pasted into documents,
+# where an escape byte is corruption rather than presentation.
+PLAIN_FORMATS="-q --markdown
+-q --json
+-q --oneline"
+
+qemu_for() {
+  case "${1%%-*}" in
+  x86_64)      echo qemu-x86_64 ;;
+  i686 | i586) echo qemu-i386 ;;
+  aarch64)     echo qemu-aarch64 ;;
+  arm | armv7) echo qemu-arm ;;
+  armeb)       echo qemu-armeb ;;
+  mips)        echo qemu-mips ;;
+  mipsel)      echo qemu-mipsel ;;
+  mips64)      echo qemu-mips64 ;;
+  mips64el)    echo qemu-mips64el ;;
+  powerpc)     echo qemu-ppc ;;
+  powerpc64)   echo qemu-ppc64 ;;
+  powerpc64le) echo qemu-ppc64le ;;
+  riscv32)     echo qemu-riscv32 ;;
+  riscv64)     echo qemu-riscv64 ;;
+  s390x)       echo qemu-s390x ;;
+  loongarch64) echo qemu-loongarch64 ;;
+  *)           echo "" ;;
+  esac
+}
+
+resolve_qemu() {
+  [ -n "$1" ] || return 1
+  if [ -n "$QEMU_DIR" ]; then
+    [ -x "$QEMU_DIR/$1" ] && { echo "$QEMU_DIR/$1"; return 0; }
+    return 1
+  fi
+  command -v "$1" 2>/dev/null
+}
+
+note() {
+  printf '  %s\n' "$1" >>"$WORK/report"
+}
+
+# One case: plain render versus coloured render with the escapes taken out.
+compare() {
+  tag=$1
+  runner=$2
+  bin=$3
+  mode=$4
+  # shellcheck disable=SC2086
+  KASLD_SYSROOT="$EMPTY" KASLD_COMPONENT_DIR="$STUBS" NO_COLOR=1 \
+    $runner "$bin" $mode >"$WORK/plain" 2>/dev/null
+  # shellcheck disable=SC2086
+  KASLD_SYSROOT="$EMPTY" KASLD_COMPONENT_DIR="$STUBS" CLICOLOR_FORCE=1 \
+    $runner "$bin" $mode >"$WORK/colored" 2>/dev/null
+
+  if ! grep -q "$ESC\[" "$WORK/colored"; then
+    note "$tag: coloured render emitted no escapes; the comparison proves nothing"
+    fail=1
+    return
+  fi
+  sed "s/$ESC\[[0-9;]*m//g" "$WORK/colored" >"$WORK/stripped"
+  if ! cmp -s "$WORK/plain" "$WORK/stripped"; then
+    note "$tag: colour changes the rendered text beyond its escapes"
+    diff "$WORK/plain" "$WORK/stripped" 2>/dev/null | head -6 |
+      sed 's/^/    /' >>"$WORK/report"
+    fail=1
+  fi
+  checked=$((checked + 1))
+}
+
+# One case: a format that must carry no escapes even when colour is forced.
+expect_bare() {
+  tag=$1
+  runner=$2
+  bin=$3
+  mode=$4
+  # shellcheck disable=SC2086
+  KASLD_SYSROOT="$EMPTY" KASLD_COMPONENT_DIR="$STUBS" CLICOLOR_FORCE=1 \
+    $runner "$bin" $mode >"$WORK/bare" 2>/dev/null
+  if grep -q "$ESC\[" "$WORK/bare"; then
+    note "$tag: escape sequences present in a format that must not carry them"
+    fail=1
+  fi
+  checked=$((checked + 1))
+}
+
+: >"$WORK/report"
+
+for bin in "$ROOT"/build/*/kasld; do
+  [ -x "$bin" ] || continue
+  triple=$(basename "$(dirname "$bin")")
+  runner=
+  if [ "$triple" != "$HOST_TRIPLE" ]; then
+    runner=$(resolve_qemu "$(qemu_for "$triple")") || continue
+  fi
+  targets=$((targets + 1))
+
+  # Every target renders the default readout: the row shapes differ per
+  # architecture -- a target without KASLR draws the static block instead of the
+  # table, with a different palette -- so the sweep is what covers those, not the
+  # host alone.
+  compare "$triple [-q]" "$runner" "$bin" "-q"
+
+  # The remaining modes run on the host only. They exercise call sites, not
+  # per-architecture layout, so one target settles them and the sweep stays fast
+  # enough to sit in the default lint run.
+  [ "$triple" = "$HOST_TRIPLE" ] || continue
+  printf '%s\n' "$TEXT_MODES" | while read -r mode; do
+    [ "$mode" = "-q" ] && continue
+    printf '%s\n' "$mode"
+  done >"$WORK/modes"
+  while read -r mode; do
+    compare "$triple [$mode]" "$runner" "$bin" "$mode"
+  done <"$WORK/modes"
+  printf '%s\n' "$PLAIN_FORMATS" >"$WORK/formats"
+  while read -r mode; do
+    expect_bare "$triple [$mode]" "$runner" "$bin" "$mode"
+  done <"$WORK/formats"
+done
+
+if [ "$targets" -eq 0 ]; then
+  printf '%scheck-render-color: SKIP%s (no built binaries to render)\n' \
+    "$YELLOW" "$RESET"
+  exit 0
+fi
+
+if [ "$fail" -ne 0 ]; then
+  printf '%scheck-render-color: FAIL%s (coloured output diverges from plain)\n' \
+    "$RED" "$RESET"
+  cat "$WORK/report"
+  exit 1
+fi
+
+printf '%scheck-render-color: OK%s (%d renders across %d targets; escapes strip to plain)\n' \
+  "$GREEN" "$RESET" "$checked" "$targets"
+exit 0

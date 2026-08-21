@@ -121,10 +121,10 @@ when available (`HAVE_PTHREAD`), matching the normal build.
 
 `make test` finishes by running `make lint` — guards that assert source
 invariants the unit tests can't. Most are pure text over `src/`, so they need no
-build and run in a second; three are not, and it matters when the tree must stay
+build and run in a second; four are not, and it matters when the tree must stay
 frozen: `check-truncation` compiles a translation unit for i686,
-`check-hash-parity` builds `tests/check_hash_parity.c`, and `check-render-width`
-and `check-baseline` execute already-built binaries. Run them
+`check-hash-parity` builds `tests/check_hash_parity.c`, and `check-render-width`,
+`check-baseline` and `check-render-color` execute already-built binaries. Run them
 alone with `make lint` (fast; no driver build). Each exits non-zero on failure,
 and `make` halts on the first.
 
@@ -170,6 +170,7 @@ and `make` halts on the first.
 | `check-posture-summary` | behavioural test for `extra/posture-summary` |
 | `check-baseline` | the structural baseline — what a run with no component at all (`-s '*'`) reports — renders in every output mode and exits with the no-results status, and a run that does gather evidence resolves a window *inside* the baseline window. The baseline is the architectural top over an empty evidence set, so evidence may only narrow it; stated as containment, the check needs no per-architecture table and no ground truth. Also sweeps every cross binary present under qemu-user, which needs no fixture and reaches arch headers no fixture covers |
 | `check-render-parity` | the text readout, the markdown report and JSON name the same set of resolved quantities for a given run. The Layout row model exists so no two formats can describe one resolved state differently, but it only binds a format that consults it: the no-randomization postures once returned before the model was built and then hardcoded the kernel image base, so a quantity the engine had pinned reached JSON while both readouts omitted it. Compares names, never values — formats may present the same bound differently (the text block snaps a window to the alignment grid, markdown prints the raw edges) — and requires every quantity to have a name mapping, so adding one forces stating how each format names it |
+| `check-render-color` | coloured output is byte-identical to plain output once the escape sequences are removed, and markdown, JSON and oneline carry no escapes at all however the environment asks for colour. Every other render guard runs through a pipe, where colour is off, so the escape-emitting path went unmeasured — and it is not a simple wrapping of a finished cell: the text table pads a column from the cell's plain length while colouring part of the text inside it, so a mistake there misaligns the table under a terminal and nowhere else, leaving plain output byte-identical and every other guard green. Each case also asserts the coloured run actually emitted escapes, since a differential against a colourless run passes while proving nothing. Determinism comes from an empty sysroot plus stub components, which also supply the pinned base the coloured branches need |
 | `check-guard-docs` | this table lists exactly the guards `make lint` runs — the same parity check `check-manpages` applies to flags, applied to the guard list itself |
 | `check-readout-docs` | documented sample output uses the renderer's current vocabulary and fits 100 columns (live output is measured separately by `check-render-width`) — the README and `docs/` carry hand-maintained copies of rendered output with nothing tying them to the renderer, so a rename or column change silently leaves them describing a version of the tool that no longer exists |
 | `hardening-fixtures` | the `-H` hardening advisor holds its structural invariants when driven over the captured x86_64 sysroots. `test_render.c` covers the meta → gate → suggestion logic by seeding component logs synthetically; this drives the REAL binary over real captures, which is the path that regressed before. Not named `check-*`: it exercises behaviour over fixtures rather than asserting a source invariant, but `make lint` runs it and it is part of that contract |
