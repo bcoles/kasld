@@ -159,9 +159,6 @@ static void read_hardening_state(struct kasld_hardening *h) {
 
 const char *const kasld_oracle_paths[KASLD_N_ORACLES] = {
     "/proc/kallsyms", "/proc/kcore", "/proc/iomem", "/proc/modules"};
-const char *const kasld_oracle_labels[KASLD_N_ORACLES] = {
-    "Readable /proc/kallsyms:", "Readable /proc/kcore:",
-    "Readable /proc/iomem:", "Readable /proc/modules:"};
 
 /* Held-cap → the kasld leak it unlocks. Bit numbers are the stable capability
  * ABI (linux/capability.h): CAP_SYS_RAWIO=17, CAP_SYS_ADMIN=21, CAP_SYSLOG=34,

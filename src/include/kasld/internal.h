@@ -795,8 +795,6 @@ struct kasld_hardening {
 #define KASLD_N_ORACLES 4
 extern const char *const
     kasld_oracle_paths[KASLD_N_ORACLES]; /* /proc/kallsyms… */
-extern const char *const
-    kasld_oracle_labels[KASLD_N_ORACLES]; /* "Readable …:" */
 
 /* SELinux runtime mode, read from /sys/fs/selinux/enforce. Absent covers both
  * "SELinux is not built in" and "selinuxfs is not reachable from here" — which

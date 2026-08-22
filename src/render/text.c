@@ -2590,9 +2590,13 @@ void render_system_config(void) {
    * log/debug/boot sources. */
   for (int i = 0; i < KASLD_N_ORACLES; i++) {
     int readable = vant->oracle_readable[i];
-    printf("%-30s%s%s%s\n", kasld_oracle_labels[i],
-           readable ? c(C_GREEN) : c(C_DIM), readable ? "yes" : "no",
-           c(C_RESET));
+    /* The heading is built from the path it reports on, so a row cannot come
+     * to name one source while answering for another. The other formats name
+     * the path itself, which is why no heading is carried alongside it. */
+    char label[64];
+    snprintf(label, sizeof(label), "Readable %s:", kasld_oracle_paths[i]);
+    printf("%-30s%s%s%s\n", label, readable ? c(C_GREEN) : c(C_DIM),
+           readable ? "yes" : "no", c(C_RESET));
   }
 
   const char *check_files[][2] = {
