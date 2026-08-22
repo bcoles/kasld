@@ -26,7 +26,7 @@ ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 COMP=$ROOT/src/components
 RULES=$ROOT/src/rules
 
-if [ -t 2 ]; then
+if [ -t 2 ] || [ -n "${KASLD_COLOR:-}" ]; then
   RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); RESET=$(printf '\033[0m')
 else
   RED=; GREEN=; RESET=

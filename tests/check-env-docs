@@ -26,7 +26,7 @@ set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 MAN="$ROOT/man/kasld.1"
 
-if [ -t 1 ]; then
+if [ -t 1 ] || [ -n "${KASLD_COLOR:-}" ]; then
   RED=$(printf '\033[31m')
   GREEN=$(printf '\033[32m')
   RESET=$(printf '\033[0m')

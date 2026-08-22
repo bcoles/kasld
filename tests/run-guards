@@ -1,0 +1,78 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# run-guards — run the static guards concurrently and report them in order.
+#
+# The guards are independent assertions over the source tree: none consumes
+# another's output, and the ones that write anything write under mktemp, so the
+# set is safe to run several at a time. Run serially the wall time is the sum of
+# all of them, and one guard that renders every format dominates that sum.
+#
+# Each guard's stdout and stderr are captured to its own file and printed when
+# every guard launched before it has been printed, so the transcript is
+# byte-identical to a serial run whatever order they finish in. Every guard runs
+# even after one fails, and the exit status is non-zero if any did — a lint
+# sweep is more useful reporting all of its failures than stopping at the first.
+#
+# A guard colours its summary when it is writing to a terminal, and capturing
+# its output to a file means it is not. KASLD_COLOR carries the decision this
+# runner's own stdout supports, so a sweep run at a terminal stays coloured and
+# one whose output is redirected or piped stays plain. An explicit setting is
+# honoured either way.
+#
+# Usage:  tests/run-guards <guard>...   (invoked by `make lint`)
+# Env:    JOBS (default: one per core; JOBS=1 runs them one at a time),
+#         KASLD_COLOR (non-empty forces colour, empty forces plain)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+
+KASLD_COLOR=${KASLD_COLOR:-}
+if [ -t 1 ] && [ -z "$KASLD_COLOR" ]; then KASLD_COLOR=1; fi
+export KASLD_COLOR
+
+[ "$#" -gt 0 ] || { echo "run-guards: no guards given" >&2; exit 2; }
+
+JOBS=${JOBS:-$(nproc 2>/dev/null || echo 1)}
+[ "$JOBS" -ge 1 ] 2>/dev/null || JOBS=1
+
+OUT=$(mktemp -d "${TMPDIR:-/tmp}/kasld-guards.XXXXXX") || {
+  echo "run-guards: mktemp failed" >&2; exit 2; }
+trap 'rm -rf "$OUT"' EXIT
+
+launched=0   # guards started so far
+printed=0    # guards whose output has been emitted
+failed=0
+pids=""      # PIDs of live guards, oldest first
+
+# Reap the oldest running guard, print its captured output, and count a failure.
+# A guard killed by a signal leaves no status file; that counts as a failure
+# rather than passing silently. `wait` on a pid returns however that child
+# ended, so a killed guard cannot stall the sweep.
+reap() {
+  printed=$((printed + 1))
+  reap_pid=${pids%% *}
+  if [ "$reap_pid" = "$pids" ]; then pids=""; else pids=${pids#* }; fi
+  wait "$reap_pid" 2>/dev/null
+  [ -f "$OUT/$printed.out" ] && cat "$OUT/$printed.out"
+  if [ ! -f "$OUT/$printed.rc" ] || [ "$(cat "$OUT/$printed.rc")" != 0 ]; then
+    failed=$((failed + 1))
+  fi
+}
+
+for guard in "$@"; do
+  launched=$((launched + 1))
+  # The index is the launch position, which is also the print position, so the
+  # capture files need no name beyond it.
+  ( "$guard" >"$OUT/$launched.out" 2>&1; echo $? >"$OUT/$launched.rc" ) &
+  pids="${pids:+$pids }$!"
+  [ $((launched - printed)) -ge "$JOBS" ] && reap
+done
+
+while [ "$printed" -lt "$launched" ]; do reap; done
+
+[ "$failed" -eq 0 ] || {
+  printf 'lint: %d of %d guards failed\n' "$failed" "$launched" >&2
+  exit 1
+}

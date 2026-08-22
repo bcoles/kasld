@@ -43,7 +43,7 @@ QUANTITIES="Q_PAGE_OFFSET Q_VA_BITS"
 # touch the representation. Paths are repo-relative.
 ALLOW="src/estimate.c"
 
-if [ -t 1 ]; then
+if [ -t 1 ] || [ -n "${KASLD_COLOR:-}" ]; then
   RED=$(printf '\033[31m')
   GREEN=$(printf '\033[32m')
   RESET=$(printf '\033[0m')

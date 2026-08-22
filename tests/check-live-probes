@@ -72,7 +72,7 @@ mmap_s390_va_bits
 mmap_x86_64_va_bits
 qemu_tcg_iret"
 
-if [ -t 2 ]; then
+if [ -t 2 ] || [ -n "${KASLD_COLOR:-}" ]; then
   RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); RESET=$(printf '\033[0m')
 else
   RED=; GREEN=; RESET=

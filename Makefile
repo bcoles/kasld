@@ -727,54 +727,63 @@ test : $(KASLD_BIN) $(TEST_ALL_BINS)
 # Static guards ("lint"): source-invariant greps, the 32-bit narrowing check,
 # and shellcheck over all shipped shell scripts (extra/ + tests/) — no compiled
 # unit-test binaries. Run after the unit tests by `make test`, and standalone by
-# `make lint`. Each guard exits non-zero on failure; make halts on the first.
+# `make lint`.
+#
+# The guards are independent of each other, so run-guards runs them JOBS at a
+# time (one per core by default, JOBS=1 for one at a time) and prints each one's
+# output in the order listed here rather than the order they finish, so the
+# transcript does not depend on the scheduling. Every guard runs even after one
+# fails, and lint's exit status is non-zero if any did.
+LINT_RUNNER := $(TEST_DIR)/run-guards
+
 .PHONY: lint
 lint :
-	@$(TEST_DIR)/check-rule-registry
-	@$(TEST_DIR)/check-self-edges
-	@$(TEST_DIR)/check-extent-callers
-	@$(TEST_DIR)/check-covering-consumers
-	@$(TEST_DIR)/check-discard-ledger
-	@$(TEST_DIR)/check-discard-accounting
-	@$(TEST_DIR)/check-discard-report
-	@$(TEST_DIR)/check-scalar-seed-order
-	@$(TEST_DIR)/check-vantage-coverage
-	@$(TEST_DIR)/check-test-staging
-	@$(TEST_DIR)/check-truncation
-	@$(TEST_DIR)/check-addr-parse
-	@$(TEST_DIR)/check-absence-vs-denial
-	@$(TEST_DIR)/check-component-output
-	@$(TEST_DIR)/check-component-meta
-	@$(TEST_DIR)/check-component-cap
-	@$(TEST_DIR)/check-log-prefixes
-	@$(TEST_DIR)/check-live-probes
-	@$(TEST_DIR)/check-hash-parity
-	@$(TEST_DIR)/check-text-floor
-	@$(TEST_DIR)/check-text-region
-	@$(TEST_DIR)/check-confidence-floor
-	@$(TEST_DIR)/check-text-provenance
-	@$(TEST_DIR)/check-arch-macros
-	@$(TEST_DIR)/check-lattice-seam
-	@$(TEST_DIR)/check-page-offset-substitution
-	@$(TEST_DIR)/check-render-default
-	@$(TEST_DIR)/check-image-size
-	@$(TEST_DIR)/check-dram-base
-	@$(TEST_DIR)/check-fdt-unflatten
-	@$(TEST_DIR)/check-ksymoff
-	@$(TEST_DIR)/check-manpages
-	@$(TEST_DIR)/check-readout-docs
-	@$(TEST_DIR)/check-guard-docs
-	@$(TEST_DIR)/check-version
-	@$(TEST_DIR)/check-posture-diff
-	@$(TEST_DIR)/check-posture-summary
-	@$(TEST_DIR)/check-validators
-	@$(TEST_DIR)/check-env-docs
-	@$(TEST_DIR)/check-shellcheck
-	@$(TEST_DIR)/check-baseline
-	@$(TEST_DIR)/check-render-parity
-	@$(TEST_DIR)/check-render-color
-	@$(TEST_DIR)/hardening-fixtures
-	@$(TEST_DIR)/cli-flags
+	@$(LINT_RUNNER) \
+	    $(TEST_DIR)/check-rule-registry \
+	    $(TEST_DIR)/check-self-edges \
+	    $(TEST_DIR)/check-extent-callers \
+	    $(TEST_DIR)/check-covering-consumers \
+	    $(TEST_DIR)/check-discard-ledger \
+	    $(TEST_DIR)/check-discard-accounting \
+	    $(TEST_DIR)/check-discard-report \
+	    $(TEST_DIR)/check-scalar-seed-order \
+	    $(TEST_DIR)/check-vantage-coverage \
+	    $(TEST_DIR)/check-test-staging \
+	    $(TEST_DIR)/check-truncation \
+	    $(TEST_DIR)/check-addr-parse \
+	    $(TEST_DIR)/check-absence-vs-denial \
+	    $(TEST_DIR)/check-component-output \
+	    $(TEST_DIR)/check-component-meta \
+	    $(TEST_DIR)/check-component-cap \
+	    $(TEST_DIR)/check-log-prefixes \
+	    $(TEST_DIR)/check-live-probes \
+	    $(TEST_DIR)/check-hash-parity \
+	    $(TEST_DIR)/check-text-floor \
+	    $(TEST_DIR)/check-text-region \
+	    $(TEST_DIR)/check-confidence-floor \
+	    $(TEST_DIR)/check-text-provenance \
+	    $(TEST_DIR)/check-arch-macros \
+	    $(TEST_DIR)/check-lattice-seam \
+	    $(TEST_DIR)/check-page-offset-substitution \
+	    $(TEST_DIR)/check-render-default \
+	    $(TEST_DIR)/check-image-size \
+	    $(TEST_DIR)/check-dram-base \
+	    $(TEST_DIR)/check-fdt-unflatten \
+	    $(TEST_DIR)/check-ksymoff \
+	    $(TEST_DIR)/check-manpages \
+	    $(TEST_DIR)/check-readout-docs \
+	    $(TEST_DIR)/check-guard-docs \
+	    $(TEST_DIR)/check-version \
+	    $(TEST_DIR)/check-posture-diff \
+	    $(TEST_DIR)/check-posture-summary \
+	    $(TEST_DIR)/check-validators \
+	    $(TEST_DIR)/check-env-docs \
+	    $(TEST_DIR)/check-shellcheck \
+	    $(TEST_DIR)/check-baseline \
+	    $(TEST_DIR)/check-render-parity \
+	    $(TEST_DIR)/check-render-color \
+	    $(TEST_DIR)/hardening-fixtures \
+	    $(TEST_DIR)/cli-flags
 
 .PHONY: test-integration
 test-integration : $(TEST_INT_BIN)

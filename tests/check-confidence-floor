@@ -66,7 +66,7 @@ riscv64_fdt_kaslr_seed
 riscv64_text_base
 s390_image_base_from_config"
 
-if [ -t 2 ]; then
+if [ -t 2 ] || [ -n "${KASLD_COLOR:-}" ]; then
   RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); RESET=$(printf '\033[0m')
 else
   RED=; GREEN=; RESET=

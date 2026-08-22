@@ -125,8 +125,19 @@ build and run in a second; four are not, and it matters when the tree must stay
 frozen: `check-truncation` compiles a translation unit for i686,
 `check-hash-parity` builds `tests/check_hash_parity.c`, and `check-render-width`,
 `check-baseline` and `check-render-color` execute already-built binaries. Run them
-alone with `make lint` (fast; no driver build). Each exits non-zero on failure,
-and `make` halts on the first.
+alone with `make lint` (fast; no driver build).
+
+The guards are independent, so they run several at a time — `JOBS` sets how many,
+one per core by default, and `JOBS=1` runs them one at a time. Each one's output
+is printed in the order the `lint` target lists them rather than the order they
+finish, so the transcript does not depend on the scheduling. Each guard exits
+non-zero on failure; every guard runs even after one fails, and `lint` itself
+exits non-zero if any did.
+
+A guard colours its summary when writing to a terminal. The runner captures each
+guard's output to replay it in order, so it passes that decision down in
+`KASLD_COLOR`: a sweep run at a terminal stays coloured, one redirected or piped
+stays plain, and setting `KASLD_COLOR` non-empty or empty forces either.
 
 | Guard | Asserts |
 |-------|---------|

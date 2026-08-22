@@ -64,7 +64,7 @@ for c in i686-unknown-linux-musl-gcc i686-linux-gnu-gcc i686-linux-musl-gcc \
   }
 done
 
-if [ -t 2 ]; then
+if [ -t 2 ] || [ -n "${KASLD_COLOR:-}" ]; then
   RED=$(printf '\033[31m')
   GREEN=$(printf '\033[32m')
   RESET=$(printf '\033[0m')

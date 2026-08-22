@@ -198,8 +198,13 @@ int main(int argc, char **argv) {
     fprintf(stderr, "check-hash-parity: FAIL (%d problem(s))\n", bad);
     return 1;
   }
-  const char *green = isatty(1) ? "\033[32m" : "";
-  const char *reset = isatty(1) ? "\033[0m" : "";
+  /* Colour when writing to a terminal, or when the caller states the terminal
+     it is writing on behalf of: a runner that captures this output to replay it
+     in order leaves stdout a file, and passes its own answer in KASLD_COLOR. */
+  const char *colour_env = getenv("KASLD_COLOR");
+  int colour = isatty(1) || (colour_env != NULL && colour_env[0] != '\0');
+  const char *green = colour ? "\033[32m" : "";
+  const char *reset = colour ? "\033[0m" : "";
   printf("%scheck-hash-parity: OK%s (%zu tables, %zu rows)\n", green, reset,
          ntables, total_rows);
   return 0;
