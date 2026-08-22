@@ -348,6 +348,12 @@ void build_hardening_report(struct hardening_report *r);
  * src/render/text.c; also embedded, color-free, in a markdown code block. */
 void print_memory_map(void);
 
+/* The -v flow's opening blocks, rendered from the environment snapshot: the
+ * tool banner, then the hardening settings, confinement and source
+ * readability of the vantage the analysis ran from. */
+void render_banner(void);
+void render_system_config(void);
+
 void render_hardening_text(void);
 void render_hardening_json(void);
 void render_hardening_markdown(void);

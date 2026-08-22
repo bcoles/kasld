@@ -32,7 +32,7 @@
 
 set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
-ORCH="$ROOT/src/orchestrator.c"
+ENVSRC="$ROOT/src/environment.c"
 TESTS="$ROOT/tests/test_kasld.c"
 
 if [ -t 1 ]; then
@@ -51,7 +51,7 @@ note() {
   fail=1
 }
 
-for f in "$ORCH" "$TESTS"; do
+for f in "$ENVSRC" "$TESTS"; do
   [ -f "$f" ] || {
     note "$(basename "$f") is missing"
     exit 1
@@ -65,12 +65,12 @@ done
 span=$(awk '/^static const char \*detect_container/ { inspan = 1 }
             inspan { print }
             /^void kasld_gather_vantage/ { tail = 1 }
-            tail && /^}$/ { exit }' "$ORCH")
+            tail && /^}$/ { exit }' "$ENVSRC")
 
 # The oracle table lives apart from the gatherer and is read by index, never
 # named at the call, so it is collected separately and allowed a different
 # proof below.
-oracles=$(sed -n '/^const char \*const kasld_oracle_paths\[/,/};/p' "$ORCH" |
+oracles=$(sed -n '/^const char \*const kasld_oracle_paths\[/,/};/p' "$ENVSRC" |
   grep -oE '"/[a-z0-9_./]+"' | tr -d '"' | sort -u)
 literals=$(printf '%s\n' "$span" | grep -oE '"/[a-z0-9_./]+"' | tr -d '"' |
   sort -u)

@@ -14,6 +14,7 @@
 #include "constraint.h" /* struct constraint_fact_record enums */
 #include "regions.h" /* canonical is_phys_dram_region / is_kernel_image_region */
 
+#include <limits.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -728,15 +729,27 @@ extern int markdown_output;
 extern int explain_mode;
 extern int hardening_mode;
 extern int map_mode; /* --map: draw the address-space diagram */
-/* A sysctl whose value could not be read because access was refused, as
- * distinct from -1 ("absent or unparseable"). Both are "unknown" to anything
- * comparing against 0, so existing < 0 / >= 0 checks are unaffected. */
-#define KASLD_SYSCTL_DENIED (-2)
-extern int sysctl_kptr_restrict;
-extern int sysctl_dmesg_restrict;
-extern int sysctl_perf_event_paranoid;
-extern int sysctl_unprivileged_bpf_disabled;
-extern int hashed_pointers;
+/* A hardening value that could not be read, and one whose read was refused.
+ * The refusal is kept apart because these knobs are world-readable: a refusal
+ * is not ordinary file permissions, but something above DAC withholding the
+ * system's own settings.
+ *
+ * Both are the extreme low ints rather than small negatives, because a small
+ * negative is a real setting: kernel.perf_event_paranoid reports -1 for
+ * "unrestricted", and a marker colliding with it would present the most
+ * permissive value the kernel has as "unknown" — the two conclusions this
+ * file works to keep apart. Nothing the kernel reports can reach either.
+ *
+ * Both stay negative, so a `>= threshold` test still reads them as inactive. */
+#define KASLD_SYSCTL_UNREAD (INT_MIN)
+#define KASLD_SYSCTL_DENIED (INT_MIN + 1)
+
+/* 1 when a hardening value was actually observed, whatever it turned out to
+ * be. Prefer this to a sign test: a negative value is not necessarily an
+ * unread one. */
+static inline int kasld_hardening_known(int v) {
+  return v != KASLD_SYSCTL_UNREAD && v != KASLD_SYSCTL_DENIED;
+}
 
 enum lockdown_mode {
   LOCKDOWN_UNAVAILABLE = -1,
@@ -744,12 +757,33 @@ enum lockdown_mode {
   LOCKDOWN_INTEGRITY,
   LOCKDOWN_CONFIDENTIALITY,
 };
-extern enum lockdown_mode sysctl_lockdown;
 
-/* Recon vantage / container-confinement facts, gathered once and shared by the
- * text (verbose system-config block), JSON, and markdown renderers so they
- * can't diverge. All fields are unprivileged /proc reads
- * (SYSROOT-redirectable). */
+/* Runtime hardening state: system-wide settings that gate what any process can
+ * read, whoever it is. Every value carries an "unread" state distinct from a
+ * permissive one, because the two are opposite conclusions and only one of them
+ * was observed. `panic_on_oops` is reported but gates nothing; which of these
+ * are gates is stated by the hardening advisor's own table, not by which
+ * happen to be here. */
+struct kasld_hardening {
+  int kptr_restrict;
+  int dmesg_restrict;
+  /* -1 is a real value here ("unrestricted"), which is why the unread markers
+   * above are not small negatives. */
+  int perf_event_paranoid;
+  /* 0 = unprivileged bpf() allowed, >= 1 = disabled, which blocks the
+   * unprivileged bpf leak components. */
+  int unprivileged_bpf_disabled;
+  int panic_on_oops; /* reported only; gates nothing */
+  /* 1 = %p/%pK print a hashed id (the default, and mitigating); 0 =
+   * no_hash_pointers / hash_pointers=never on the boot cmdline, so pointers
+   * print raw. */
+  int hashed_pointers;
+  enum lockdown_mode lockdown;
+};
+
+/* Recon vantage / container-confinement facts, shared by the text (verbose
+ * system-config block), JSON, and markdown renderers so they can't diverge.
+ * All fields come from unprivileged reads through the SYSROOT layer. */
 /* Supplementary groups kept for the report. A process with more than this is
  * far outside anything the vantage model reasons about; the overflow is
  * reported as a count rather than silently dropped. */
@@ -794,11 +828,25 @@ struct kasld_vantage {
    * /proc/cmdline is 0440 root:radio on Android, the /sys/module section files
    * are 0400, and /proc mounted hidepid=invisible,gid=N hides every other
    * task's entry from a process outside that group. A reader cannot tell why
-   * such a source was denied without seeing the identity that was refused. */
+   * such a source was denied without seeing the identity that was refused.
+   *
+   * Read from /proc/self/status alongside the capability sets above, not from
+   * getuid()/getgroups(): the file resolves through the sysroot layer, so a
+   * captured tree reports the identity it was collected under. The syscalls
+   * answer for the machine running the analysis, and being syscalls they are
+   * invisible to anything that watches which paths a fact came from. They
+   * remain the fallback for a live run whose status file cannot be read. */
+  int have_ids; /* 1 if uid/euid/gid/egid are valid */
   unsigned long uid, euid, gid, egid;
   int ngroups; /* -1 unknown; else count in `groups` */
   unsigned long groups[KASLD_N_GROUPS];
   int groups_truncated; /* more groups than the array holds */
+  /* Each held group's name, resolved when the vantage is taken so no renderer
+   * has to reach for the group database while formatting — and so the database
+   * is walked once for the whole membership rather than once per member. An
+   * entry is empty when nothing could name that id; the number alone is then
+   * reported, which is what the kernel checks anyway. */
+  char group_names[KASLD_N_GROUPS][64];
 };
 void kasld_gather_vantage(struct kasld_vantage *v);
 /* Confined = the confinement detail is meaningful (else the values are the
@@ -835,13 +883,14 @@ struct kasld_group_gate {
 #define KASLD_N_GROUP_GATES 6
 extern const struct kasld_group_gate kasld_group_gates[KASLD_N_GROUP_GATES];
 
-/* Name a gid for display: from /etc/group in the tree being analysed (so an
- * offline replay names THAT tree's groups, which getgrgid would not), falling
- * back to the gate table above for the ids kasld knows gate one of its own
- * sources — the set Android cannot name, its /etc/group being empty. Returns
- * NULL when neither knows it, and the caller prints the number alone. Shared so
- * the text and markdown documents cannot drift apart on what they name. */
-const char *kasld_group_name(unsigned long gid, char *buf, size_t bufsz);
+/* The name of the vantage's `i`th supplementary group, or NULL when nothing
+ * could name it and the caller should print the number alone. Resolved when the
+ * vantage was taken — from /etc/group in the tree being analysed (so an offline
+ * replay names THAT tree's groups, which getgrgid would not), falling back to
+ * the gate table above for the ids kasld knows gate one of its own sources, the
+ * set Android cannot name with its /etc/group empty. Shared so the text and
+ * markdown documents cannot drift apart on what they name. */
+const char *kasld_group_name(const struct kasld_vantage *v, int i);
 
 /* Effective-capability → the kasld leak source it unlocks. Reported from the
  * vantage cap_eff so the confinement view also answers "which cap-gated leaks
@@ -855,6 +904,49 @@ struct kasld_cap_leak {
 };
 #define KASLD_N_CAP_LEAKS 5
 extern const struct kasld_cap_leak kasld_cap_leaks[KASLD_N_CAP_LEAKS];
+
+/* The observing environment, taken once before the first component runs.
+ *
+ * One instant for both halves. The advisor attributes a component's denial by
+ * weighing the hardening settings that were in force against the confinement
+ * the process was under, and those have to describe the same moment for the
+ * attribution to mean anything. Reading them at the two ends of a scan — the
+ * settings before it, the confinement after — describes two.
+ *
+ * Taking it once is also what lets a renderer read it: formatting reaches for
+ * no file, so no output depends on the filesystem still answering the way it
+ * did when the analysis ran. */
+struct kasld_environment {
+  struct kasld_hardening hardening;
+  struct kasld_vantage vantage;
+};
+
+/* Unknown in every field that has an unknown, so an environment that was never
+ * taken reports as unobserved rather than as unconfined. Zeroed storage would
+ * not: SELINUX_PERMISSIVE and LOCKDOWN_NONE are both 0, and a permissive
+ * default is the dangerous direction — it asserts an absence of confinement
+ * that nothing established, which is how "could not look" becomes "nothing
+ * there". */
+#define KASLD_ENV_UNKNOWN                                                      \
+  {                                                                            \
+      .hardening = {.kptr_restrict = KASLD_SYSCTL_UNREAD,                      \
+                    .dmesg_restrict = KASLD_SYSCTL_UNREAD,                     \
+                    .perf_event_paranoid = KASLD_SYSCTL_UNREAD,                \
+                    .unprivileged_bpf_disabled = KASLD_SYSCTL_UNREAD,          \
+                    .panic_on_oops = KASLD_SYSCTL_UNREAD,                      \
+                    .hashed_pointers = KASLD_SYSCTL_UNREAD,                    \
+                    .lockdown = LOCKDOWN_UNAVAILABLE},                         \
+      .vantage = {.seccomp = -1,                                               \
+                  .no_new_privs = -1,                                          \
+                  .selinux = SELINUX_UNAVAILABLE,                              \
+                  .ngroups = -1},                                              \
+  }
+
+extern struct kasld_environment kasld_env;
+
+/* Take the environment: the hardening settings and this process's vantage
+ * within them, at one instant. Called once, before any component runs. */
+void kasld_env_snapshot(void);
 
 extern struct kasld_layout layout;
 extern struct result results[MAX_RESULTS];

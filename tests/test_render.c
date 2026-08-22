@@ -13,6 +13,7 @@
 // ---
 // <bcoles@gmail.com>
 
+#include "../src/environment.c"
 #include "../src/orchestrator.c"
 /* The engine's value model, after orchestrator.c so its feature-test
  * macros are established first. engine_sync_authoritative projects
@@ -378,11 +379,11 @@ static void test_render_json_posture_always_present(void) {
   /* The synthetic component declares a kptr_restrict>=1 gate and succeeded;
    * a readable-but-permissive value makes that gate fire (an active-defense
    * row and a hardening suggestion), so the enforcement surface is emitted. */
-  int saved_kptr = sysctl_kptr_restrict;
-  sysctl_kptr_restrict = 0;
+  int saved_kptr = kasld_env.hardening.kptr_restrict;
+  kasld_env.hardening.kptr_restrict = 0;
   set_render_mode(1, 0, 0);
   capture_stdout(wrap_render_summary, &s);
-  sysctl_kptr_restrict = saved_kptr;
+  kasld_env.hardening.kptr_restrict = saved_kptr;
 
   /* Per-component records with parsed meta, without -H/-v. */
   assert(strstr(render_cap, "\"components\": [") != NULL);
@@ -3290,10 +3291,10 @@ static void test_build_hardening_report(void) {
   reset_results();
   reset_comp_logs();
   num_scalar_facts = 0;
-  sysctl_kptr_restrict = 1;       /* active   (threshold 1) */
-  sysctl_dmesg_restrict = 1;      /* active   (threshold 1) */
-  sysctl_perf_event_paranoid = 0; /* inactive (threshold 2) */
-  sysctl_lockdown = LOCKDOWN_NONE;
+  kasld_env.hardening.kptr_restrict = 1;       /* active   (threshold 1) */
+  kasld_env.hardening.dmesg_restrict = 1;      /* active   (threshold 1) */
+  kasld_env.hardening.perf_event_paranoid = 0; /* inactive (threshold 2) */
+  kasld_env.hardening.lockdown = LOCKDOWN_NONE;
 
   struct component_log *c;
   c = hr_seed_comp("c_kptr_blocked", OUTCOME_ACCESS_DENIED);
@@ -3395,10 +3396,10 @@ static void test_build_hardening_report(void) {
   assert(rep.n_nomit == 1 && strcmp(rep.nomit[0].name, "c_nomit") == 0);
 
   /* Restore globals so later tests see a clean sysctl state. */
-  sysctl_kptr_restrict = 0;
-  sysctl_dmesg_restrict = 0;
-  sysctl_perf_event_paranoid = 0;
-  sysctl_lockdown = LOCKDOWN_NONE;
+  kasld_env.hardening.kptr_restrict = 0;
+  kasld_env.hardening.dmesg_restrict = 0;
+  kasld_env.hardening.perf_event_paranoid = 0;
+  kasld_env.hardening.lockdown = LOCKDOWN_NONE;
   reset_comp_logs();
   num_scalar_facts = 0;
 }
@@ -3647,7 +3648,8 @@ static void test_hardening_unprivileged_bpf_gate(void) {
   reset_results();
   reset_comp_logs();
   num_scalar_facts = 0;
-  sysctl_unprivileged_bpf_disabled = 0; /* inactive (threshold 1) */
+  /* inactive (threshold 1) */
+  kasld_env.hardening.unprivileged_bpf_disabled = 0;
   struct component_log *c = hr_seed_comp("c_bpf_leak", OUTCOME_SUCCESS);
   hr_seed_meta(c, "method", "parsed");
   hr_seed_meta(c, "sysctl", "unprivileged_bpf_disabled>=1");
@@ -3672,7 +3674,8 @@ static void test_hardening_unprivileged_bpf_gate(void) {
   reset_results();
   reset_comp_logs();
   num_scalar_facts = 0;
-  sysctl_unprivileged_bpf_disabled = 2; /* active (>= threshold 1) */
+  /* active (>= threshold 1) */
+  kasld_env.hardening.unprivileged_bpf_disabled = 2;
   c = hr_seed_comp("c_bpf_blocked", OUTCOME_ACCESS_DENIED);
   hr_seed_meta(c, "method", "parsed");
   hr_seed_meta(c, "sysctl", "unprivileged_bpf_disabled>=1");
@@ -3687,9 +3690,43 @@ static void test_hardening_unprivileged_bpf_gate(void) {
     assert(strcmp(rep.gate_suggestions[i].display,
                   "kernel.unprivileged_bpf_disabled") != 0);
 
-  sysctl_unprivileged_bpf_disabled = -1; /* restore unread sentinel */
+  kasld_env.hardening.unprivileged_bpf_disabled = KASLD_SYSCTL_UNREAD;
   reset_comp_logs();
   num_scalar_facts = 0;
+}
+
+/* The verbose block's hardening rows distinguish the three states a value can
+ * be in. A refused read is not an absent one: these knobs are world-readable,
+ * so a refusal is a policy acting on this vantage — information about where the
+ * analysis stands, which "(unavailable)" would discard. And a negative value is
+ * not necessarily either: perf_event_paranoid reports -1 for "unrestricted",
+ * which must print as the setting it is. */
+static void wrap_print_hardening_value(void *a) {
+  print_hardening_value("k:", *(int *)a);
+}
+
+static void test_render_hardening_value_states(void) {
+  int v;
+
+  v = 2;
+  capture_stdout(wrap_print_hardening_value, &v);
+  assert(strstr(render_cap, "2") != NULL);
+  assert(strstr(render_cap, "(") == NULL);
+
+  /* The permissive extreme, not a marker. */
+  v = -1;
+  capture_stdout(wrap_print_hardening_value, &v);
+  assert(strstr(render_cap, "-1") != NULL);
+  assert(strstr(render_cap, "(") == NULL);
+
+  v = KASLD_SYSCTL_UNREAD;
+  capture_stdout(wrap_print_hardening_value, &v);
+  assert(strstr(render_cap, "(unavailable)") != NULL);
+
+  v = KASLD_SYSCTL_DENIED;
+  capture_stdout(wrap_print_hardening_value, &v);
+  assert(strstr(render_cap, "(denied)") != NULL);
+  assert(strstr(render_cap, "(unavailable)") == NULL);
 }
 
 static void wrap_render_hardening_text(void *a) {
@@ -3719,11 +3756,13 @@ static void test_hardening_projection(void) {
   reset_results();
   reset_comp_logs();
   num_scalar_facts = 0;
-  sysctl_kptr_restrict = 1;  /* active   — not a suggestion */
-  sysctl_dmesg_restrict = 1; /* active, but fallback bypass -> suggestion */
-  sysctl_perf_event_paranoid =
+  kasld_env.hardening.kptr_restrict = 1; /* active   — not a suggestion */
+  /* active, but fallback bypass -> suggestion */
+  kasld_env.hardening.dmesg_restrict = 1;
+  kasld_env.hardening.perf_event_paranoid =
       0; /* inactive (threshold 2) — a gate suggestion */
-  sysctl_lockdown = LOCKDOWN_NONE; /* inactive -> lockdown suggestion */
+  /* inactive -> lockdown suggestion */
+  kasld_env.hardening.lockdown = LOCKDOWN_NONE;
 
   struct component_log *c = hr_seed_comp("c_perf_leak", OUTCOME_SUCCESS);
   hr_seed_meta(c, "method", "parsed");
@@ -3809,8 +3848,8 @@ static void test_hardening_projection(void) {
   assert(strstr(render_cap, "projected_posture") == NULL);
 
   set_render_mode(0, 0, 0);
-  sysctl_perf_event_paranoid = 0;
-  sysctl_dmesg_restrict = 0;
+  kasld_env.hardening.perf_event_paranoid = 0;
+  kasld_env.hardening.dmesg_restrict = 0;
   reset_comp_logs();
   num_scalar_facts = 0;
 }
@@ -3824,10 +3863,11 @@ static void test_hardening_projection_no_exposure(void) {
   reset_results();
   reset_comp_logs();
   num_scalar_facts = 0;
-  sysctl_kptr_restrict = 1;
-  sysctl_dmesg_restrict = 1;
-  sysctl_perf_event_paranoid = 2;
-  sysctl_lockdown = LOCKDOWN_NONE; /* inactive -> lockdown suggestion */
+  kasld_env.hardening.kptr_restrict = 1;
+  kasld_env.hardening.dmesg_restrict = 1;
+  kasld_env.hardening.perf_event_paranoid = 2;
+  /* inactive -> lockdown suggestion */
+  kasld_env.hardening.lockdown = LOCKDOWN_NONE;
 
   struct component_log *c = hr_seed_comp("c_lockdown_leak", OUTCOME_SUCCESS);
   hr_seed_meta(c, "method", "parsed");
@@ -3859,7 +3899,7 @@ static void test_hardening_projection_no_exposure(void) {
 
   kasld_test_projection = 0;
   set_render_mode(0, 0, 0);
-  sysctl_lockdown = LOCKDOWN_NONE;
+  kasld_env.hardening.lockdown = LOCKDOWN_NONE;
   reset_comp_logs();
   num_scalar_facts = 0;
 }
@@ -3875,10 +3915,13 @@ static void test_hardening_projection_redundant(void) {
   reset_results();
   reset_comp_logs();
   num_scalar_facts = 0;
-  sysctl_kptr_restrict = 0;  /* inactive -> a suggestion (redundant leak) */
-  sysctl_dmesg_restrict = 1; /* active */
-  sysctl_perf_event_paranoid = 0; /* inactive -> a suggestion (critical leak) */
-  sysctl_lockdown = LOCKDOWN_INTEGRITY; /* active: no lockdown suggestion */
+  /* inactive -> a suggestion (redundant leak) */
+  kasld_env.hardening.kptr_restrict = 0;
+  kasld_env.hardening.dmesg_restrict = 1; /* active */
+  /* inactive -> a suggestion (critical leak) */
+  kasld_env.hardening.perf_event_paranoid = 0;
+  /* active: no lockdown suggestion */
+  kasld_env.hardening.lockdown = LOCKDOWN_INTEGRITY;
 
   struct component_log *c = hr_seed_comp("c_critical", OUTCOME_SUCCESS);
   hr_seed_meta(c, "method", "parsed");
@@ -3893,7 +3936,7 @@ static void test_hardening_projection_redundant(void) {
   /* A gate that governs a component which did NOT succeed: it becomes a
    * suggestion (impact > 0) but silences nothing -> the "no base-leak" verdict.
    */
-  hashed_pointers = 0; /* inactive -> a suggestion */
+  kasld_env.hardening.hashed_pointers = 0; /* inactive -> a suggestion */
   c = hr_seed_comp("c_hashed_denied", OUTCOME_ACCESS_DENIED);
   hr_seed_meta(c, "method", "parsed");
   hr_seed_meta(c, "sysctl", "hashed_pointers>=1");
@@ -3950,10 +3993,10 @@ static void test_hardening_projection_redundant(void) {
 
   kasld_test_projection = 0;
   set_render_mode(0, 0, 0);
-  sysctl_kptr_restrict = 0;
-  sysctl_dmesg_restrict = 0;
-  sysctl_lockdown = LOCKDOWN_NONE;
-  hashed_pointers = 0;
+  kasld_env.hardening.kptr_restrict = 0;
+  kasld_env.hardening.dmesg_restrict = 0;
+  kasld_env.hardening.lockdown = LOCKDOWN_NONE;
+  kasld_env.hardening.hashed_pointers = 0;
   reset_comp_logs();
   num_scalar_facts = 0;
 }
@@ -3968,11 +4011,11 @@ static void test_render_hardening_pointer_hashing_gate(void) {
   num_scalar_facts = 0;
   /* Isolate the pointer-hashing gate — make the three sysctl gates unreadable
    * so only it can surface. */
-  sysctl_kptr_restrict = -1;
-  sysctl_dmesg_restrict = -1;
-  sysctl_perf_event_paranoid = -1;
-  sysctl_lockdown = LOCKDOWN_NONE;
-  hashed_pointers = 1; /* hashing on => gate active */
+  kasld_env.hardening.kptr_restrict = KASLD_SYSCTL_UNREAD;
+  kasld_env.hardening.dmesg_restrict = KASLD_SYSCTL_UNREAD;
+  kasld_env.hardening.perf_event_paranoid = KASLD_SYSCTL_UNREAD;
+  kasld_env.hardening.lockdown = LOCKDOWN_NONE;
+  kasld_env.hardening.hashed_pointers = 1; /* hashing on => gate active */
 
   struct component_log *c = hr_seed_comp("c_pk_leak", OUTCOME_NO_RESULT);
   hr_seed_meta(c, "method", "parsed");
@@ -3998,35 +4041,10 @@ static void test_render_hardening_pointer_hashing_gate(void) {
   assert(rep.n_gate_suggestions == 0);
 
   /* Restore globals so later tests see a clean state. */
-  hashed_pointers = -1;
-  sysctl_lockdown = LOCKDOWN_NONE;
+  kasld_env.hardening.hashed_pointers = KASLD_SYSCTL_UNREAD;
+  kasld_env.hardening.lockdown = LOCKDOWN_NONE;
   reset_comp_logs();
   num_scalar_facts = 0;
-}
-
-/* Group naming. The tree being analysed is the authority, so an offline replay
- * names ITS groups; the gate table covers the ids kasld knows gate one of its
- * own sources, which is the set a tree with an empty /etc/group cannot name —
- * the Android shape. Neither source knowing an id is not an error: the number
- * alone is what the kernel checks.
- *
- * Driven over the staged tree (see main), never the host's own /etc/group: the
- * ids in the gate table are Android's, and whether a given machine happens to
- * use one of them for something else is not a property of the code under test.
- * gid 1001 is staged deliberately, because it is also AID_RADIO — the one id
- * where the two sources disagree, and so the only one that can show which
- * wins. */
-static void test_group_name_resolution(void) {
-  char buf[64];
-  /* Both sources name 1001. The analysed tree is the authority, so its name
-   * must be the answer and the table's must not surface. */
-  const char *n = kasld_group_name(1001, buf, sizeof(buf));
-  assert(n != NULL && strcmp(n, "staff") == 0);
-  /* An id the tree does not name falls back to the gate table. */
-  n = kasld_group_name(3009, buf, sizeof(buf));
-  assert(n != NULL && strcmp(n, "readproc") == 0);
-  /* An id neither source knows resolves to nothing rather than to a guess. */
-  assert(kasld_group_name(4242424, buf, sizeof(buf)) == NULL);
 }
 
 /* Every gate entry must name both the group and what it gates: an entry with a
@@ -4100,16 +4118,35 @@ static void test_hardening_mac_attribution_scope(void) {
   hr_seed_meta(c, "method", "parsed");
   hr_seed_meta(c, "sysctl", "dmesg_restrict>=1");
 
-  sysctl_dmesg_restrict = 0; /* readable and permissive => attributable */
+  /* readable and permissive => attributable */
+  kasld_env.hardening.dmesg_restrict = 0;
   assert(declared_sysctl_gates_permit(c) == 1);
 
-  sysctl_dmesg_restrict = 1; /* the knob was blocking => it explains it */
+  /* the knob was blocking => it explains it */
+  kasld_env.hardening.dmesg_restrict = 1;
   assert(declared_sysctl_gates_permit(c) == 0);
 
-  sysctl_dmesg_restrict = -1; /* absent => unexplained, attribute nothing */
+  /* Absent => unexplained, so attribute nothing. */
+  kasld_env.hardening.dmesg_restrict = KASLD_SYSCTL_UNREAD;
   assert(declared_sysctl_gates_permit(c) == 0);
 
-  sysctl_dmesg_restrict = KASLD_SYSCTL_DENIED; /* refused => policy is acting */
+  /* A negative value that is a real SETTING, not an unread marker, is a knob
+   * that was read and found permissive — so it does not explain the denial and
+   * something else must. perf_event_paranoid reports -1 for "unrestricted";
+   * treating that as unread would silently withdraw the attribution on exactly
+   * the hosts where perf is wide open and the denial therefore came from
+   * somewhere else. */
+  struct component_log *pp =
+      hr_seed_comp("c_perf_permissive", OUTCOME_ACCESS_DENIED);
+  hr_seed_meta(pp, "method", "parsed");
+  hr_seed_meta(pp, "sysctl", "perf_event_paranoid>=2");
+  kasld_env.hardening.perf_event_paranoid = -1;
+  assert(declared_sysctl_gates_permit(pp) == 1);
+  kasld_env.hardening.perf_event_paranoid = KASLD_SYSCTL_UNREAD;
+  assert(declared_sysctl_gates_permit(pp) == 0);
+
+  /* refused => policy is acting */
+  kasld_env.hardening.dmesg_restrict = KASLD_SYSCTL_DENIED;
   assert(declared_sysctl_gates_permit(c) == 1);
 
   /* No declared knob: nothing is known about what should have gated it, so it
@@ -4119,7 +4156,7 @@ static void test_hardening_mac_attribution_scope(void) {
   hr_seed_meta(u, "method", "parsed");
   assert(declared_sysctl_gates_permit(u) == 0);
 
-  sysctl_dmesg_restrict = 0;
+  kasld_env.hardening.dmesg_restrict = 0;
   reset_comp_logs();
 }
 
@@ -4136,7 +4173,7 @@ static void test_hardening_mac_blocked_predicate(void) {
   struct component_log *c = hr_seed_comp("c_gated", OUTCOME_ACCESS_DENIED);
   hr_seed_meta(c, "method", "parsed");
   hr_seed_meta(c, "sysctl", "dmesg_restrict>=1");
-  sysctl_dmesg_restrict = 0;
+  kasld_env.hardening.dmesg_restrict = 0;
 
   assert(mac_blocked(c, &v, -1) == 1);
 
@@ -4153,23 +4190,23 @@ static void test_hardening_mac_blocked_predicate(void) {
   c->outcome = OUTCOME_ACCESS_DENIED;
 
   /* The knob was blocking, so it — not the policy — explains the denial. */
-  sysctl_dmesg_restrict = 1;
+  kasld_env.hardening.dmesg_restrict = 1;
   assert(mac_blocked(c, &v, -1) == 0);
-  sysctl_dmesg_restrict = 0;
+  kasld_env.hardening.dmesg_restrict = 0;
 
   /* seccomp wins the tie for a perf denial it can account for. */
   reset_comp_logs();
   struct component_log *p = hr_seed_comp("c_perf", OUTCOME_ACCESS_DENIED);
   hr_seed_meta(p, "method", "parsed");
   hr_seed_meta(p, "sysctl", "perf_event_paranoid>=2");
-  sysctl_perf_event_paranoid = 0;
+  kasld_env.hardening.perf_event_paranoid = 0;
   v.seccomp = 2;
   assert(mac_blocked(p, &v, 0) == 0); /* host paranoid 0 < 2 => seccomp's */
   v.seccomp = 0;
   assert(mac_blocked(p, &v, 0) == 1); /* no filter => the policy's */
 
-  sysctl_dmesg_restrict = 0;
-  sysctl_perf_event_paranoid = -1;
+  kasld_env.hardening.dmesg_restrict = 0;
+  kasld_env.hardening.perf_event_paranoid = KASLD_SYSCTL_UNREAD;
   reset_comp_logs();
 }
 
@@ -4250,29 +4287,23 @@ static void test_render_hardening_text_no_rand_failed_silent(void) {
   assert(strstr(render_cap, "KASLR posture") == NULL);
 }
 
-/* A tree for the one function in this suite that reads a fact source. It is
- * staged before the first test because the sysroot prefix is resolved once and
- * cached, and it must be the whole suite's view rather than the host's: a test
- * that consults /etc/group passes or fails on which ids the machine running it
- * happens to have assigned.
+/* An empty tree for the whole suite. It is staged before the first test because
+ * the sysroot prefix is resolved once and cached, and it must be the suite's
+ * view rather than the host's.
  *
- * /etc/group is the only file staged, but far from the only one opened: every
- * JSON, markdown or hardening render calls kasld_gather_vantage(), which reads
- * about a dozen sources. They all miss against this tree, which is the intended
- * answer here — the gatherer's own behaviour is exercised in the orchestrator
- * suite, where each source is staged and asserted in both directions. */
-static void stage_group_file(void) {
-  th_sysroot_init("render");
-  /* 1001 collides with AID_RADIO on purpose; 3009 is left out so the gate
-   * table has something to answer for. */
-  th_sysroot_write("/etc/group", "root:x:0:\n"
-                                 "staff:x:1001:\n"
-                                 "operators:x:1500:alice,bob\n");
-}
+ * Nothing is put in it. The renderers here read the environment snapshot, which
+ * this suite leaves unobserved, so no render reaches a fact source at all --
+ * that is the property, and the empty tree is what proves it: under the
+ * hermeticity probe a render that did reach one would resolve a path against
+ * this root and find nothing, and a render that reached PAST it would be
+ * recorded and fail the binary. The gatherer's own behaviour is exercised in
+ * the orchestrator suite, where each source is staged and asserted in both
+ * directions. */
+static void stage_render_sysroot(void) { th_sysroot_init("render"); }
 
 int main(void) {
   TEST_SUITE("render — renderer unit suite");
-  stage_group_file();
+  stage_render_sysroot();
   test_init_layout_engine_bounds();
 
   BEGIN_CATEGORY("Renderer — json_print_escaped");
@@ -4323,8 +4354,8 @@ int main(void) {
   RUN(test_hardening_projection_no_exposure);
   RUN(test_hardening_projection_redundant);
   RUN(test_render_hardening_pointer_hashing_gate);
-  RUN(test_group_name_resolution);
   RUN(test_group_gate_table_is_complete);
+  RUN(test_render_hardening_value_states);
   RUN(test_vantage_mac_posture_helpers);
   RUN(test_hardening_mac_attribution_scope);
   RUN(test_hardening_mac_blocked_predicate);

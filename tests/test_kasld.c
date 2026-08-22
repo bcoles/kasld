@@ -17,6 +17,7 @@
                          fallback. */
 #endif
 
+#include "../src/environment.c"
 #include "../src/orchestrator.c"
 /* The engine's value model, after orchestrator.c so its feature-test
  * macros are established first. engine_sync_authoritative projects
@@ -2735,15 +2736,22 @@ static void test_discard_ledger_aggregates_and_reports_truncation(void) {
  * negative direction alone is what the suite already had by accident, and it is
  * the direction a broken gatherer satisfies for free.
  *
- * The identity fields (uid/euid/gid/groups) come from getuid() and getgroups(),
- * not from a file, so no staging reaches them and they are deliberately not
- * claimed here.
+ * The identity fields (uid/euid/gid/groups) come from the same staged status
+ * file as the rest, so they are asserted here too. They are asserted against
+ * ids DERIVED from the live ones, so a gatherer answering from
+ * getuid()/getgroups() -- which no staging can reach -- fails here on any host,
+ * rather than passing on the ones whose real identity happens to match a
+ * fixture.
  * ========================================================================= */
 
-/* A /proc/self/status with the four fields the gatherer reads, in the kernel's
- * own layout (tab after the colon, hex capability masks). */
+/* A /proc/self/status carrying the fields the gatherer reads, in the kernel's
+ * own layout (tab after the colon, hex capability masks, the identity ids in
+ * real/effective/saved/fs order). */
 #define TH_STATUS_BODY                                                         \
   "Name:\tkasld\n"                                                             \
+  "Uid:\t2000\t2000\t2000\t2000\n"                                             \
+  "Gid:\t2000\t2000\t2000\t2000\n"                                             \
+  "Groups:\t1007 3009 3012 \n"                                                 \
   "Seccomp:\t2\n"                                                              \
   "NoNewPrivs:\t1\n"                                                           \
   "CapEff:\t000001ffffffffff\n"                                                \
@@ -2830,6 +2838,10 @@ static void test_vantage_status_fields_absent_then_present(void) {
   assert(v.have_caps == 1);
   assert(v.cap_eff == 0x000001ffffffffffULL); /* hex, not decimal */
   assert(v.cap_bnd == 0x0000003fffffffffULL);
+  assert(v.have_ids == 1);
+  assert(v.uid == 2000 && v.euid == 2000);
+  assert(v.gid == 2000 && v.egid == 2000);
+  assert(v.ngroups == 3 && v.groups[0] == 1007 && v.groups[2] == 3012);
 
   /* CapEff present, CapBnd missing: caps are still valid, the bounding set
    * reads 0 rather than the file being discarded whole. */
@@ -2839,6 +2851,208 @@ static void test_vantage_status_fields_absent_then_present(void) {
   assert(v.have_caps == 1);
   assert(v.cap_eff == 0xffULL);
   assert(v.cap_bnd == 0);
+
+  th_sysroot_clear();
+}
+
+/* The identity comes out of the staged tree, never out of the running process.
+ *
+ * The staged ids are derived from the live ones, so they cannot coincide with
+ * them on any host: a gatherer that fell back to getuid()/getgroups() fails
+ * here wherever it runs, instead of passing on the machines whose real identity
+ * happens to match a hardcoded fixture. */
+static void test_vantage_identity_is_staged_not_live(void) {
+  struct kasld_vantage v;
+  char body[256];
+  unsigned long live_uid = (unsigned long)getuid();
+  unsigned long live_gid = (unsigned long)getgid();
+
+  snprintf(body, sizeof(body),
+           "Uid:\t%lu\t%lu\t%lu\t%lu\n"
+           "Gid:\t%lu\t%lu\t%lu\t%lu\n"
+           "Groups:\t3009 3012 \n",
+           live_uid + 1, live_uid + 2, live_uid + 1, live_uid + 1, live_gid + 3,
+           live_gid + 4, live_gid + 3, live_gid + 3);
+
+  th_sysroot_clear();
+  th_sysroot_write("/proc/self/status", body);
+  kasld_gather_vantage(&v);
+  assert(v.have_ids == 1);
+  assert(v.uid == live_uid + 1 && v.euid == live_uid + 2);
+  assert(v.gid == live_gid + 3 && v.egid == live_gid + 4);
+  assert(v.ngroups == 2 && v.groups[0] == 3009 && v.groups[1] == 3012);
+  assert(!v.groups_truncated);
+
+  /* A status file with no identity in it: unknown, and still not the live ids.
+   * The other fields it does carry are unaffected. */
+  th_sysroot_clear();
+  th_sysroot_write("/proc/self/status", "Seccomp:\t2\n");
+  kasld_gather_vantage(&v);
+  assert(v.have_ids == 0);
+  assert(v.ngroups == -1);
+  assert(v.seccomp == 2);
+
+  /* A malformed id line yields no identity rather than half of one: the
+   * effective id is what several gates are actually checked against, so a
+   * record naming a real uid beside a missing euid would be worse than none. */
+  th_sysroot_clear();
+  th_sysroot_write("/proc/self/status", "Uid:\t7\nGid:\tnotanumber\n");
+  kasld_gather_vantage(&v);
+  assert(v.have_ids == 0);
+
+  /* No status file at all under a sysroot: unknown. 0 is a real uid, so the
+   * absence has to be carried by have_ids and not by a value in the field. */
+  th_sysroot_clear();
+  kasld_gather_vantage(&v);
+  assert(v.have_ids == 0);
+  assert(v.ngroups == -1);
+
+  th_sysroot_clear();
+}
+
+/* Group naming, resolved when the vantage is taken. The tree being analysed is
+ * the authority, so an offline replay names ITS groups; the gate table covers
+ * the ids kasld knows gate one of its own sources, which is the set a tree with
+ * an empty /etc/group cannot name -- the Android shape. Neither source knowing
+ * an id is not an error: the number alone is what the kernel checks.
+ *
+ * Driven over a staged tree, never the host's own /etc/group: the ids in the
+ * gate table are Android's, and whether a given machine happens to use one of
+ * them for something else is not a property of the code under test. gid 1001 is
+ * staged deliberately, because it is also AID_RADIO -- the one id where the two
+ * sources disagree, and so the only one that can show which wins. */
+static void test_vantage_group_names(void) {
+  struct kasld_vantage v;
+
+  th_sysroot_clear();
+  th_sysroot_write("/proc/self/status", "Uid:\t0\t0\t0\t0\n"
+                                        "Gid:\t0\t0\t0\t0\n"
+                                        "Groups:\t1001 3009 4242424 \n");
+  /* 1001 collides with AID_RADIO on purpose; 3009 is left out so the gate
+   * table has something to answer for. */
+  th_sysroot_write("/etc/group", "root:x:0:\n"
+                                 "staff:x:1001:\n"
+                                 "operators:x:1500:alice,bob\n");
+  kasld_gather_vantage(&v);
+  assert(v.ngroups == 3);
+  /* Both sources name 1001. The analysed tree is the authority, so its name
+   * must be the answer and the table's must not surface. */
+  assert(strcmp(kasld_group_name(&v, 0), "staff") == 0);
+  /* An id the tree does not name falls back to the gate table. */
+  assert(strcmp(kasld_group_name(&v, 1), "readproc") == 0);
+  /* An id neither source knows resolves to nothing rather than to a guess. */
+  assert(kasld_group_name(&v, 2) == NULL);
+  /* Nothing is named beyond the membership. */
+  assert(kasld_group_name(&v, 3) == NULL);
+
+  /* No group database at all: the gate table still names what it knows, and
+   * the rest report by number. This is the Android shape, where /etc/group
+   * exists but is empty. */
+  th_sysroot_clear();
+  th_sysroot_write("/proc/self/status", "Uid:\t0\t0\t0\t0\n"
+                                        "Gid:\t0\t0\t0\t0\n"
+                                        "Groups:\t1001 3012 \n");
+  kasld_gather_vantage(&v);
+  assert(strcmp(kasld_group_name(&v, 0), "radio") == 0);
+  assert(strcmp(kasld_group_name(&v, 1), "readtracefs") == 0);
+
+  th_sysroot_clear();
+}
+
+/* A refused read of a hardening source is not an absent one. Every source read
+ * through the environment module is world-readable, so EACCES/EPERM there is a
+ * policy withholding it — and under a MAC policy a denied path can fail lookup
+ * exactly as a missing one does, leaving errno as the only thing that tells
+ * them apart. The advisor acts on the difference: a denial it can attribute to
+ * policy versus one it must leave unexplained.
+ *
+ * Asserted on the decision itself rather than through a mode-0000 file, which
+ * would answer differently for a root test runner and prove nothing there. */
+static void test_unread_marker_separates_denial_from_absence(void) {
+  errno = EACCES;
+  assert(unread_marker() == KASLD_SYSCTL_DENIED);
+  errno = EPERM;
+  assert(unread_marker() == KASLD_SYSCTL_DENIED);
+
+  errno = ENOENT;
+  assert(unread_marker() == KASLD_SYSCTL_UNREAD);
+  errno = 0;
+  assert(unread_marker() == KASLD_SYSCTL_UNREAD);
+
+  /* Both are unknown to a reader asking only whether a value was observed. */
+  assert(!kasld_hardening_known(KASLD_SYSCTL_DENIED));
+  assert(!kasld_hardening_known(KASLD_SYSCTL_UNREAD));
+}
+
+/* An environment nobody took reads as unobserved, never as unhardened. Zeroed
+ * storage would say the opposite in two fields at once -- SELINUX_PERMISSIVE
+ * and LOCKDOWN_NONE are both 0 -- and "could not look" presented as "nothing
+ * there" is the direction that licenses a wrong conclusion. */
+static void test_environment_defaults_to_unknown(void) {
+  const struct kasld_environment fresh = KASLD_ENV_UNKNOWN;
+
+  assert(!kasld_hardening_known(fresh.hardening.kptr_restrict));
+  assert(!kasld_hardening_known(fresh.hardening.dmesg_restrict));
+  assert(!kasld_hardening_known(fresh.hardening.perf_event_paranoid));
+  assert(!kasld_hardening_known(fresh.hardening.unprivileged_bpf_disabled));
+  assert(!kasld_hardening_known(fresh.hardening.panic_on_oops));
+  assert(!kasld_hardening_known(fresh.hardening.hashed_pointers));
+  assert(fresh.hardening.lockdown == LOCKDOWN_UNAVAILABLE);
+  /* -1 is a real setting for perf_event_paranoid ("unrestricted"), so the
+   * unread marker must not be it -- otherwise the most permissive value the
+   * kernel reports would be indistinguishable from never having looked. */
+  assert(kasld_hardening_known(-1));
+
+  assert(fresh.vantage.seccomp == -1);
+  assert(fresh.vantage.no_new_privs == -1);
+  assert(fresh.vantage.selinux == SELINUX_UNAVAILABLE);
+  assert(fresh.vantage.ngroups == -1);
+  assert(fresh.vantage.have_ids == 0);
+  assert(fresh.vantage.have_caps == 0);
+  assert(fresh.vantage.container == NULL);
+  /* The two that would invert: an unobserved environment must not read as
+   * MAC-free or as confined. */
+  assert(!kasld_vantage_mac_enforcing(&fresh.vantage));
+  assert(!kasld_vantage_confined(&fresh.vantage));
+}
+
+/* A membership longer than the report keeps is reported as truncated, not as a
+ * short list: which groups are held is the point of the field, and a silently
+ * dropped one is a gate the reader cannot account for. */
+static void test_vantage_groups_over_cap(void) {
+  struct kasld_vantage v;
+  char body[1024];
+  int n = snprintf(body, sizeof(body),
+                   "Uid:\t0\t0\t0\t0\n"
+                   "Gid:\t0\t0\t0\t0\n"
+                   "Groups:\t");
+  for (int i = 0; i < KASLD_N_GROUPS + 6; i++)
+    n += snprintf(body + n, sizeof(body) - (size_t)n, "%d ", 100 + i);
+  snprintf(body + n, sizeof(body) - (size_t)n, "\n");
+
+  th_sysroot_clear();
+  th_sysroot_write("/proc/self/status", body);
+  kasld_gather_vantage(&v);
+  assert(v.ngroups == KASLD_N_GROUPS);
+  assert(v.groups_truncated == 1);
+  assert(v.groups[0] == 100);
+  assert(v.groups[KASLD_N_GROUPS - 1] ==
+         (unsigned long)(100 + KASLD_N_GROUPS - 1));
+
+  /* Exactly the cap is not truncation. */
+  n = snprintf(body, sizeof(body),
+               "Uid:\t0\t0\t0\t0\n"
+               "Gid:\t0\t0\t0\t0\n"
+               "Groups:\t");
+  for (int i = 0; i < KASLD_N_GROUPS; i++)
+    n += snprintf(body + n, sizeof(body) - (size_t)n, "%d ", 100 + i);
+  snprintf(body + n, sizeof(body) - (size_t)n, "\n");
+
+  th_sysroot_clear();
+  th_sysroot_write("/proc/self/status", body);
+  kasld_gather_vantage(&v);
+  assert(v.ngroups == KASLD_N_GROUPS);
+  assert(v.groups_truncated == 0);
 
   th_sysroot_clear();
 }
@@ -3016,6 +3230,11 @@ int main(void) {
   RUN(test_vantage_container_absent_then_present);
   RUN(test_vantage_container_precedence);
   RUN(test_vantage_status_fields_absent_then_present);
+  RUN(test_vantage_identity_is_staged_not_live);
+  RUN(test_vantage_groups_over_cap);
+  RUN(test_vantage_group_names);
+  RUN(test_unread_marker_separates_denial_from_absence);
+  RUN(test_environment_defaults_to_unknown);
   RUN(test_vantage_mac_absent_then_present);
   RUN(test_vantage_oracle_readable_each_path);
   RUN(test_discard_ledger_aggregates_and_reports_truncation);

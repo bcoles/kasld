@@ -114,43 +114,43 @@ static void md_static_base_block(const struct summary *s) {
  * values are unprivileged defaults, not restrictions). Oracle readability
  * always shown, as it is the core recon context of a report. */
 static void render_environment_markdown(void) {
-  struct kasld_vantage v;
-  kasld_gather_vantage(&v);
+  const struct kasld_vantage *v = &kasld_env.vantage;
 
   printf("## Environment\n\n");
   printf("| Property | Value |\n");
   printf("|:---------|:------|\n");
-  printf("| Container | %s |\n", v.container ? v.container : "none");
+  printf("| Container | %s |\n", v->container ? v->container : "none");
   char lsmbuf[224];
-  printf("| LSM | %s |\n", kasld_vantage_lsm_str(&v, lsmbuf, sizeof(lsmbuf)));
-  if (v.sec_context[0])
-    printf("| Security context | %s |\n", v.sec_context);
-  if (v.uid != v.euid || v.gid != v.egid)
-    printf("| Identity | uid=%lu gid=%lu (euid=%lu egid=%lu) |\n", v.uid, v.gid,
-           v.euid, v.egid);
+  printf("| LSM | %s |\n", kasld_vantage_lsm_str(v, lsmbuf, sizeof(lsmbuf)));
+  if (v->sec_context[0])
+    printf("| Security context | %s |\n", v->sec_context);
+  if (!v->have_ids)
+    printf("| Identity | unknown |\n");
+  else if (v->uid != v->euid || v->gid != v->egid)
+    printf("| Identity | uid=%lu gid=%lu (euid=%lu egid=%lu) |\n", v->uid,
+           v->gid, v->euid, v->egid);
   else
-    printf("| Identity | uid=%lu gid=%lu |\n", v.uid, v.gid);
-  if (v.ngroups > 0) {
+    printf("| Identity | uid=%lu gid=%lu |\n", v->uid, v->gid);
+  if (v->ngroups > 0) {
     printf("| Supplementary groups | ");
-    for (int i = 0; i < v.ngroups; i++) {
-      char nb[64];
-      const char *nm = kasld_group_name(v.groups[i], nb, sizeof(nb));
+    for (int i = 0; i < v->ngroups; i++) {
+      const char *nm = kasld_group_name(v, i);
       if (nm)
-        printf("%s%lu(%s)", i ? "," : "", v.groups[i], nm);
+        printf("%s%lu(%s)", i ? "," : "", v->groups[i], nm);
       else
-        printf("%s%lu", i ? "," : "", v.groups[i]);
+        printf("%s%lu", i ? "," : "", v->groups[i]);
     }
-    printf("%s |\n", v.groups_truncated ? ",..." : "");
+    printf("%s |\n", v->groups_truncated ? ",..." : "");
   }
-  if (kasld_vantage_confined(&v)) {
-    if (v.seccomp >= 0)
-      printf("| Seccomp | %s |\n", kasld_vantage_seccomp_str(v.seccomp));
+  if (kasld_vantage_confined(v)) {
+    if (v->seccomp >= 0)
+      printf("| Seccomp | %s |\n", kasld_vantage_seccomp_str(v->seccomp));
     char capbuf[24];
-    const char *caps = kasld_vantage_caps(&v, capbuf, sizeof(capbuf));
+    const char *caps = kasld_vantage_caps(v, capbuf, sizeof(capbuf));
     if (caps)
       printf("| Effective capabilities | %s |\n", caps);
-    if (v.no_new_privs >= 0)
-      printf("| No new privileges | %s |\n", v.no_new_privs ? "yes" : "no");
+    if (v->no_new_privs >= 0)
+      printf("| No new privileges | %s |\n", v->no_new_privs ? "yes" : "no");
   }
   printf("\n");
 
@@ -159,13 +159,13 @@ static void render_environment_markdown(void) {
   printf("|:-------|:---------|\n");
   for (int i = 0; i < KASLD_N_ORACLES; i++)
     printf("| `%s` | %s |\n", kasld_oracle_paths[i],
-           v.oracle_readable[i] ? "yes" : "no");
+           v->oracle_readable[i] ? "yes" : "no");
   printf("\n");
 
   /* Cap-gated leaks the effective cap set unlocks (if any). */
   int shown = 0;
-  for (int i = 0; v.have_caps && i < KASLD_N_CAP_LEAKS; i++) {
-    if (!((v.cap_eff >> kasld_cap_leaks[i].bit) & 1ull))
+  for (int i = 0; v->have_caps && i < KASLD_N_CAP_LEAKS; i++) {
+    if (!((v->cap_eff >> kasld_cap_leaks[i].bit) & 1ull))
       continue;
     if (!shown) {
       printf("Capability-reachable leaks:\n\n");

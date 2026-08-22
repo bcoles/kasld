@@ -74,11 +74,12 @@ drive integration test_engine_integration.c $OBJS
 drive estimate    test_estimate.c           "$COV/estimate.o" "$COV/quantities.o"
 drive evidence    test_evidence.c           "$COV/evidence.o"
 
-# Orchestrator internals + render + region_info: test_kasld.c is ONE TU that
-# #includes orchestrator.c/render.c/region_info.c under -DKASLD_TESTING (which
-# compiles out main() + the engine bridge — those lines are only covered by the
-# end-to-end run, tests/coverage-e2e). pthread is added when available, matching
-# what `make test` builds.
+# Orchestrator internals + environment + render + region_info: test_kasld.c is
+# ONE TU that #includes orchestrator.c, environment.c, render.c and
+# region_info.c under -DKASLD_TESTING (which compiles out main() + the engine
+# bridge — those lines are only covered by the end-to-end run,
+# tests/coverage-e2e). pthread is added when available, matching what
+# `make test` builds.
 PTH_C=""; PTH_L=""
 if echo 'int main(void){return 0;}' | $CC -xc - -lpthread -o "$COV/.pthr" 2>/dev/null; then
   PTH_C="-DHAVE_PTHREAD"; PTH_L="-lpthread"; rm -f "$COV/.pthr"
@@ -94,7 +95,7 @@ $CC $CFLAGS "$COV/test_kasld.drv.o" $PTH_L -o "$COV/test_kasld" \
 # an entry per included header (observation.h, api.h, ...) and per test driver,
 # which we drop; header-inline coverage is folded into each TU's .c. Each src
 # .c is covered by exactly one .gcno (its object, or test_kasld's TU for
-# orchestrator/render/region_info), so no double-counting.
+# orchestrator/environment/render/region_info), so no double-counting.
 echo "----------------------------------------------------------------------"
 ( cd "$COV" && $GCOV -n ./*.gcno 2>/dev/null ) | awk '
   # Keep our src/*.c only (abs path from gcc, relative from llvm-cov); this

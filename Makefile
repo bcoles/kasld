@@ -195,6 +195,10 @@ endif
 
 # kasld orchestrator (not a leak component)
 KASLD_SRC      := $(SRC_DIR)/orchestrator.c
+# The observing environment (hardening settings + this process's vantage).
+# Its own translation unit because it answers a different question from the
+# rest: what can be seen from here, rather than where the kernel is.
+ENV_SRC        := $(SRC_DIR)/environment.c
 RENDER_SRC     := $(SRC_DIR)/render.c
 # Per-output-mode renderer translation units. The wildcard means adding a new
 # mode (e.g. src/render/yaml.c) needs no Makefile edit; the cross-file glue
@@ -345,6 +349,10 @@ $(OBJ_DIR)/orchestrator.o: $(KASLD_SRC) $(HDRS) | $(OBJ_DIR)
 	$(call ccv,CC,$@)
 	$(Q)$(CC) $(ALL_CFLAGS) $(PTHREAD_CFLAGS) -I$(SRC_DIR) -DVERSION='"$(VERSION)"' -c $< -o $@
 
+$(OBJ_DIR)/environment.o: $(ENV_SRC) $(HDRS) | $(OBJ_DIR)
+	$(call ccv,CC,$@)
+	$(Q)$(CC) $(ALL_CFLAGS) -I$(SRC_DIR) -c $< -o $@
+
 $(OBJ_DIR)/render.o: $(RENDER_SRC) $(HDRS) | $(OBJ_DIR)
 	$(call ccv,CC,$@)
 	$(Q)$(CC) $(ALL_CFLAGS) -DVERSION='"$(VERSION)"' -I$(SRC_DIR) -c $< -o $@
@@ -368,7 +376,7 @@ $(OBJ_DIR)/rule_%.o: $(SRC_DIR)/rules/%.c $(HDRS) | $(OBJ_DIR)
 	$(call ccv,CC,$@)
 	$(Q)$(CC) $(ALL_CFLAGS) -I$(SRC_DIR) -c $< -o $@
 
-$(KASLD_BIN): $(OBJ_DIR)/orchestrator.o $(OBJ_DIR)/render.o $(RENDER_MODE_OBJS) $(OBJ_DIR)/region_info.o $(ENGINE_OBJS) | $(OBJ_DIR)
+$(KASLD_BIN): $(OBJ_DIR)/orchestrator.o $(OBJ_DIR)/environment.o $(OBJ_DIR)/render.o $(RENDER_MODE_OBJS) $(OBJ_DIR)/region_info.o $(ENGINE_OBJS) | $(OBJ_DIR)
 	$(call ccv,LD,$@)
 	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) $^ $(PTHREAD_LIBS) -o $@
 
@@ -393,7 +401,7 @@ TEST_BIN := $(TEST_OBJ_DIR)/test_kasld
 # test_kasld.c #includes render.c and each src/render/*.c so the renderer's
 # static helpers (e.g. json_print_escaped, section_consensus) are reachable
 # without exporting them across the public API.
-$(TEST_BIN): $(TEST_DIR)/test_kasld.c $(KASLD_SRC) $(RENDER_SRC) $(RENDER_MODE_SRCS) $(HDRS) | $(TEST_OBJ_DIR)
+$(TEST_BIN): $(TEST_DIR)/test_kasld.c $(KASLD_SRC) $(ENV_SRC) $(RENDER_SRC) $(RENDER_MODE_SRCS) $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
 	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) $(PTHREAD_CFLAGS) -DKASLD_TESTING -I$(SRC_DIR) $(TEST_DIR)/test_kasld.c $(PTHREAD_LIBS) -o $@
 
@@ -402,7 +410,7 @@ $(TEST_BIN): $(TEST_DIR)/test_kasld.c $(KASLD_SRC) $(RENDER_SRC) $(RENDER_MODE_S
 # -DKASLD_TESTING + the pthread flags — but exercises render.c / render/*.c.
 TEST_RENDER_BIN := $(TEST_OBJ_DIR)/test_render
 
-$(TEST_RENDER_BIN): $(TEST_DIR)/test_render.c $(KASLD_SRC) $(RENDER_SRC) $(RENDER_MODE_SRCS) $(HDRS) | $(TEST_OBJ_DIR)
+$(TEST_RENDER_BIN): $(TEST_DIR)/test_render.c $(KASLD_SRC) $(ENV_SRC) $(RENDER_SRC) $(RENDER_MODE_SRCS) $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
 	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) $(PTHREAD_CFLAGS) -DKASLD_TESTING -I$(SRC_DIR) $(TEST_DIR)/test_render.c $(PTHREAD_LIBS) -o $@
 

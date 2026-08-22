@@ -48,30 +48,33 @@ enum {
 };
 static const struct sysctl_gate gates[GATE__COUNT] = {
     [GATE_KPTR_RESTRICT] = {"kptr_restrict", "kernel.kptr_restrict", "sysctl",
-                            &sysctl_kptr_restrict, 1},
+                            &kasld_env.hardening.kptr_restrict, 1},
     [GATE_DMESG_RESTRICT] = {"dmesg_restrict", "kernel.dmesg_restrict",
-                             "sysctl", &sysctl_dmesg_restrict, 1},
+                             "sysctl", &kasld_env.hardening.dmesg_restrict, 1},
     [GATE_PERF_EVENT_PARANOID] = {"perf_event_paranoid",
                                   "kernel.perf_event_paranoid", "sysctl",
-                                  &sysctl_perf_event_paranoid, 2},
+                                  &kasld_env.hardening.perf_event_paranoid, 2},
     /* 0 = unprivileged bpf() allowed, >=1 disables it (blocks the unprivileged
      * bpf leak components), so the "value >= threshold blocks" model fits with
      * threshold 1. */
     [GATE_UNPRIVILEGED_BPF] = {"unprivileged_bpf_disabled",
                                "kernel.unprivileged_bpf_disabled", "sysctl",
-                               &sysctl_unprivileged_bpf_disabled, 1},
+                               &kasld_env.hardening.unprivileged_bpf_disabled,
+                               1},
     /* Not a /proc/sys knob — boot-time (no_hash_pointers) — but the same gate
      * plumbing fits: a runtime-readable mitigation that gates %pK address
      * leaks (hashed by default => low-priv readers get an id, not the addr). */
     [GATE_HASHED_POINTERS] = {"hashed_pointers", "kernel pointer hashing (%pK)",
-                              "boot_param", &hashed_pointers, 1},
+                              "boot_param",
+                              &kasld_env.hardening.hashed_pointers, 1},
 };
 static const int ngates = GATE__COUNT;
 
 static int sysctl_gate_active(const struct sysctl_gate *g) {
   /* value_ptr can be NULL if its load-time relocation was not applied; treat an
    * unreadable gate as inactive rather than dereferencing it. */
-  return g->value_ptr && *g->value_ptr >= 0 && *g->value_ptr >= g->threshold;
+  return g->value_ptr && kasld_hardening_known(*g->value_ptr) &&
+         *g->value_ptr >= g->threshold;
 }
 
 /* Check if a component's sysctl meta matches a given gate */
@@ -127,7 +130,8 @@ static int has_mitigation_keys(const struct component_meta *m) {
  * finer than the gate's single "active" level. */
 static int seccomp_blocked_perf(const struct component_log *cl, int seccomp,
                                 int host_paranoid) {
-  if (cl->outcome != OUTCOME_ACCESS_DENIED || seccomp <= 0 || host_paranoid < 0)
+  if (cl->outcome != OUTCOME_ACCESS_DENIED || seccomp <= 0 ||
+      !kasld_hardening_known(host_paranoid))
     return 0;
   const char *vals[8];
   int n = meta_get_all(&cl->meta, "sysctl", vals, 8);
@@ -172,7 +176,7 @@ static int declared_sysctl_gates_permit(const struct component_log *cl) {
         checked++;
         continue;
       }
-      if (*gates[g].value_ptr < 0)
+      if (!kasld_hardening_known(*gates[g].value_ptr))
         return 0;
       if (*gates[g].value_ptr >= thr)
         return 0; /* this knob was blocking — it explains the denial */
@@ -221,10 +225,11 @@ static void project_skipping(const char *const *all, int nall,
 void build_hardening_report(struct hardening_report *r) {
   memset(r, 0, sizeof(*r));
 
-  /* Container confinement, for attributing perf denials to seccomp (below). */
-  struct kasld_vantage vant;
-  kasld_gather_vantage(&vant);
-  int host_paranoid = sysctl_perf_event_paranoid;
+  /* Container confinement, for attributing perf denials to seccomp (below).
+   * From the snapshot taken before the components ran, so the confinement
+   * weighed here is the confinement they ran under. */
+  const struct kasld_vantage *vant = &kasld_env.vantage;
+  int host_paranoid = kasld_env.hardening.perf_event_paranoid;
 
   /* Exposure: non-detection components carrying metadata. */
   for (int i = 0; i < num_components; i++) {
@@ -279,7 +284,7 @@ void build_hardening_report(struct hardening_report *r) {
    * Full counts and the (capped) name lists are kept separately so text can
    * say "blocked N of M" while json dumps the arrays. */
   for (int g = 0; g < ngates; g++) {
-    if (!gates[g].value_ptr || *gates[g].value_ptr < 0)
+    if (!gates[g].value_ptr || !kasld_hardening_known(*gates[g].value_ptr))
       continue;
     struct hr_gate hg;
     memset(&hg, 0, sizeof(hg));
@@ -298,8 +303,9 @@ void build_hardening_report(struct hardening_report *r) {
         hg.gated_names[hg.n_gated_names++] = comp_logs[i].name;
       if (comp_logs[i].outcome == OUTCOME_ACCESS_DENIED &&
           !(g == GATE_PERF_EVENT_PARANOID &&
-            seccomp_blocked_perf(&comp_logs[i], vant.seccomp, host_paranoid)) &&
-          !mac_blocked(&comp_logs[i], &vant, host_paranoid)) {
+            seccomp_blocked_perf(&comp_logs[i], vant->seccomp,
+                                 host_paranoid)) &&
+          !mac_blocked(&comp_logs[i], vant, host_paranoid)) {
         /* Credit a knob only when it actually blocked the component. A
          * seccomp-blocked perf denial goes to the seccomp gate below, and a
          * denial no declared knob explains goes to the MAC gate, rather than
@@ -335,17 +341,17 @@ void build_hardening_report(struct hardening_report *r) {
    * on the host, raising paranoid would also block it. It is only omitted from
    * the paranoid gate's *blocked* credit (above), so no component is double-
    * counted as blocked. */
-  if (vant.seccomp > 0) {
+  if (vant->seccomp > 0) {
     struct hr_gate sg;
     memset(&sg, 0, sizeof(sg));
     sg.display = "seccomp syscall filter";
     sg.surface = "seccomp";
     sg.active = 1;
-    sg.value = vant.seccomp;
+    sg.value = vant->seccomp;
     for (int i = 0; i < num_components; i++) {
       if (!comp_logs[i].ran)
         continue;
-      if (!seccomp_blocked_perf(&comp_logs[i], vant.seccomp, host_paranoid))
+      if (!seccomp_blocked_perf(&comp_logs[i], vant->seccomp, host_paranoid))
         continue;
       sg.gated++;
       sg.blocked++;
@@ -362,18 +368,18 @@ void build_hardening_report(struct hardening_report *r) {
    * Its members are exactly the denials no declared sysctl accounts for, so
    * `gated` and `blocked` are the same set: the report claims a policy denial
    * only where it can rule the alternatives out. */
-  if (kasld_vantage_mac_enforcing(&vant)) {
+  if (kasld_vantage_mac_enforcing(vant)) {
     struct hr_gate mg;
     memset(&mg, 0, sizeof(mg));
-    mg.display = vant.selinux == SELINUX_ENFORCING ? "SELinux policy"
-                                                   : "AppArmor profile";
+    mg.display = vant->selinux == SELINUX_ENFORCING ? "SELinux policy"
+                                                    : "AppArmor profile";
     mg.surface = HR_SURFACE_MAC;
     mg.active = 1;
     mg.value = 1;
     for (int i = 0; i < num_components; i++) {
       if (!comp_logs[i].ran)
         continue;
-      if (!mac_blocked(&comp_logs[i], &vant, host_paranoid))
+      if (!mac_blocked(&comp_logs[i], vant, host_paranoid))
         continue;
       mg.gated++;
       mg.blocked++;
@@ -386,7 +392,7 @@ void build_hardening_report(struct hardening_report *r) {
       r->gates[r->n_gates++] = mg;
   }
 
-  r->lockdown = sysctl_lockdown;
+  r->lockdown = kasld_env.hardening.lockdown;
 
   /* Available hardening. Gate suggestions (inactive gate with gated
    * components), the lockdown suggestion, and the dmesg-fallback suggestion.
@@ -438,7 +444,7 @@ void build_hardening_report(struct hardening_report *r) {
    * a leak that also reads a dmesg log file survives it and stays in the
    * evidence.
    */
-  if (sysctl_lockdown < LOCKDOWN_INTEGRITY) {
+  if (kasld_env.hardening.lockdown < LOCKDOWN_INTEGRITY) {
     int lockdown_gated = 0;
     for (int i = 0; i < num_components; i++) {
       if (!comp_logs[i].ran)
@@ -463,7 +469,7 @@ void build_hardening_report(struct hardening_report *r) {
   /* dmesg-fallback suggestion. It silences exactly the dmesg leaks that
    * succeeded VIA a fallback log file — restricting those files to root removes
    * them (the sysctl itself already blocks the syscall path). */
-  if (sysctl_dmesg_restrict >= 1) {
+  if (kasld_env.hardening.dmesg_restrict >= 1) {
     for (int i = 0; i < num_components; i++) {
       if (!comp_logs[i].ran)
         continue;

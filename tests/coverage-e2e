@@ -3,8 +3,8 @@
 #
 # coverage-e2e — end-to-end line coverage of the REAL kasld binary.
 #
-# Builds the actual orchestrator + render + region_info + engine + rules with
-# --coverage and NO -DKASLD_TESTING, so main(), the engine bridge
+# Builds the actual orchestrator + environment + render + region_info + engine
+# + rules with --coverage and NO -DKASLD_TESTING, so main(), the engine bridge
 # (engine_build_evidence / engine_resolve / engine_sync_authoritative), and the
 # renderers are all compiled in. Runs the binary on the live host and over the
 # x86 (x86_64 + i686) replay fixtures natively, then gcov's the tree. This is the
@@ -53,7 +53,8 @@ rm -rf "$E2E"; mkdir -p "$E2E"
 
 # Instrumented objects: exactly what links into kasld (no KASLD_TESTING).
 OBJS=""
-for s in $ROOT/src/orchestrator.c $ROOT/src/render.c $ROOT/src/region_info.c \
+for s in $ROOT/src/orchestrator.c $ROOT/src/environment.c \
+         $ROOT/src/render.c $ROOT/src/region_info.c \
          $ROOT/src/estimate.c $ROOT/src/quantities.c $ROOT/src/evidence.c \
          $ROOT/src/engine.c $ROOT/src/engine_rules.c \
          $(echo "$ROOT"/src/render/*.c) $(echo "$ROOT"/src/rules/*.c); do

@@ -49,7 +49,7 @@ that `make test` builds and runs is `TEST_ALL_BINS` in the Makefile.
 | `test_evidence` | observation store + verdict application | `evidence.c` |
 | `test_engine` | every rule in `src/rules/` over synthetic evidence | engine core + all rules |
 | `test_engine_integration` | the full production rule registry against leak-bearing evidence | engine core + `engine_rules.c` + all rules |
-| `test_kasld` | orchestrator internals (parse, merge, anchor select), the engine→layout projection, region_info | `orchestrator.c` / `region_info.c` under `-DKASLD_TESTING` |
+| `test_kasld` | orchestrator internals (parse, merge, anchor select), the engine→layout projection, the environment gatherer, region_info | `orchestrator.c` / `environment.c` / `region_info.c` under `-DKASLD_TESTING` |
 | `test_render` | the renderers (text / json / markdown / oneline / hardening) — split out of `test_kasld` | `render.c` / `render/*.c` under `-DKASLD_TESTING` |
 | `test_align` | the text-base floor helpers (`kasld_floor_aligned_suboffset` / `kasld_floor_text_base`) | `api.h` (header-only) |
 | `test_text_order` | the kernel-text ordering classifier (`classify_text_order`) | `text_order.h` (header-only) |

@@ -216,62 +216,68 @@ static void collect_group_keys(enum kasld_addr_type type, const char *section,
 }
 
 /* environment — the recon vantage: container / confinement / which /proc leak
- * oracles are readable here. Shared gather with the text + markdown renderers.
- */
+ * oracles are readable here. The one snapshot the text and markdown renderers
+ * read, so the three cannot describe different moments. */
 static void render_environment_json(void) {
-  struct kasld_vantage v;
-  kasld_gather_vantage(&v);
+  const struct kasld_vantage *v = &kasld_env.vantage;
 
   printf("  \"environment\": {\n");
 
   printf("    \"container\": ");
-  if (v.container)
-    json_print_escaped(v.container);
+  if (v->container)
+    json_print_escaped(v->container);
   else
     printf("null");
 
   printf(",\n    \"seccomp\": ");
-  if (v.seccomp < 0)
+  if (v->seccomp < 0)
     printf("null");
   else
-    json_print_escaped(kasld_vantage_seccomp_str(v.seccomp));
+    json_print_escaped(kasld_vantage_seccomp_str(v->seccomp));
 
   /* Mandatory access control. `lsm` and `security_context` are null when this
    * vantage cannot read them, which is not the same as their being absent;
    * `mac_enforcing` is the only field that asserts anything. */
   printf(",\n    \"lsm\": ");
-  if (v.lsm_list[0])
-    json_print_escaped(v.lsm_list);
+  if (v->lsm_list[0])
+    json_print_escaped(v->lsm_list);
   else
     printf("null");
 
   printf(",\n    \"selinux\": ");
-  if (v.selinux == SELINUX_UNAVAILABLE)
+  if (v->selinux == SELINUX_UNAVAILABLE)
     printf("null");
   else
-    json_print_escaped(v.selinux == SELINUX_ENFORCING ? "enforcing"
-                                                      : "permissive");
+    json_print_escaped(v->selinux == SELINUX_ENFORCING ? "enforcing"
+                                                       : "permissive");
 
   printf(",\n    \"security_context\": ");
-  if (v.sec_context[0])
-    json_print_escaped(v.sec_context);
+  if (v->sec_context[0])
+    json_print_escaped(v->sec_context);
   else
     printf("null");
 
   printf(",\n    \"mac_enforcing\": %s",
-         kasld_vantage_mac_enforcing(&v) ? "true" : "false");
+         kasld_vantage_mac_enforcing(v) ? "true" : "false");
 
-  /* Discretionary identity. `groups` is null when it could not be read, and
-   * carries `truncated` when the process holds more than the report keeps. */
-  printf(",\n    \"uid\": %lu,\n    \"euid\": %lu", v.uid, v.euid);
-  printf(",\n    \"gid\": %lu,\n    \"egid\": %lu", v.gid, v.egid);
+  /* Discretionary identity. The four ids are null together when they could not
+   * be read — 0 is a real uid, so no value in the field can say "unknown".
+   * `groups` is null when it could not be read, and carries `truncated` when
+   * the process holds more than the report keeps. */
+  if (v->have_ids) {
+    printf(",\n    \"uid\": %lu,\n    \"euid\": %lu", v->uid, v->euid);
+    printf(",\n    \"gid\": %lu,\n    \"egid\": %lu", v->gid, v->egid);
+  } else {
+    printf(",\n    \"uid\": null,\n    \"euid\": null");
+    printf(",\n    \"gid\": null,\n    \"egid\": null");
+  }
   printf(",\n    \"groups\": ");
-  if (v.ngroups < 0) {
+  if (v->ngroups < 0) {
     printf("null");
   } else {
     printf("[");
-    for (int i = 0; i < v.ngroups; i++)
-      printf("%s%lu", i ? ", " : "", v.groups[i]);
+    for (int i = 0; i < v->ngroups; i++)
+      printf("%s%lu", i ? ", " : "", v->groups[i]);
     printf("]");
   }
   /* The groups kasld knows gate a source, named. The numeric list above stays
@@ -279,9 +285,9 @@ static void render_environment_json(void) {
   printf(",\n    \"group_gated_sources\": [");
   {
     int first = 1;
-    for (int i = 0; i < v.ngroups; i++) {
+    for (int i = 0; i < v->ngroups; i++) {
       for (int g = 0; g < KASLD_N_GROUP_GATES; g++) {
-        if (kasld_group_gates[g].gid != v.groups[i])
+        if (kasld_group_gates[g].gid != v->groups[i])
           continue;
         printf("%s\n      {\"gid\": %lu, \"name\": ", first ? "" : ",",
                kasld_group_gates[g].gid);
@@ -294,28 +300,28 @@ static void render_environment_json(void) {
     }
     printf("%s]", first ? "" : "\n    ");
   }
-  if (v.groups_truncated)
+  if (v->groups_truncated)
     printf(",\n    \"groups_truncated\": true");
 
   printf(",\n    \"capabilities\": ");
   char capbuf[24];
-  const char *caps = kasld_vantage_caps(&v, capbuf, sizeof(capbuf));
+  const char *caps = kasld_vantage_caps(v, capbuf, sizeof(capbuf));
   if (caps)
     json_print_escaped(caps);
   else
     printf("null");
 
   printf(",\n    \"no_new_privs\": ");
-  if (v.no_new_privs < 0)
+  if (v->no_new_privs < 0)
     printf("null");
   else
-    printf(v.no_new_privs ? "true" : "false");
+    printf(v->no_new_privs ? "true" : "false");
 
   printf(",\n    \"readable_oracles\": {\n");
   for (int i = 0; i < KASLD_N_ORACLES; i++) {
     printf("      ");
     json_print_escaped(kasld_oracle_paths[i]);
-    printf(": %s%s\n", v.oracle_readable[i] ? "true" : "false",
+    printf(": %s%s\n", v->oracle_readable[i] ? "true" : "false",
            i + 1 < KASLD_N_ORACLES ? "," : "");
   }
   printf("    },\n");
@@ -324,8 +330,8 @@ static void render_environment_json(void) {
    * readable_oracles (covers the non-file leaks too). Empty when none apply. */
   printf("    \"cap_reachable_leaks\": [");
   int first = 1;
-  for (int i = 0; v.have_caps && i < KASLD_N_CAP_LEAKS; i++) {
-    if (!((v.cap_eff >> kasld_cap_leaks[i].bit) & 1ull))
+  for (int i = 0; v->have_caps && i < KASLD_N_CAP_LEAKS; i++) {
+    if (!((v->cap_eff >> kasld_cap_leaks[i].bit) & 1ull))
       continue;
     printf("%s\n      {\"capability\": \"%s\", \"source\": ", first ? "" : ",",
            kasld_cap_leaks[i].cap);

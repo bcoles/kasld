@@ -2380,3 +2380,251 @@ void render_text(const struct summary *s) {
   if (hardening_mode)
     render_hardening_text();
 }
+
+/* =========================================================================
+ * Banner and the verbose system-config block
+ *
+ * The -v flow's opening: the tool's own banner, then the environment as it was
+ * taken -- hardening settings, confinement, and which sources this vantage can
+ * read. Every value here comes out of the snapshot, so this block reaches for
+ * no file of its own beyond the readability probes it reports.
+ * =========================================================================
+ */
+/* Print one hardening value from the snapshot.
+ *
+ * A read that was REFUSED is named apart from one that found nothing. These
+ * knobs are world-readable, so a refusal is not ordinary file permissions: it
+ * is a policy acting on this vantage, which is a fact about where the analysis
+ * is standing rather than an absence of information. The value stays unknown
+ * either way; what differs is whether anything is known about why. */
+static void print_hardening_value(const char *label, int value) {
+  if (value == KASLD_SYSCTL_DENIED)
+    printf("%-30s%s(denied)%s\n", label, c(C_DIM), c(C_RESET));
+  else if (!kasld_hardening_known(value))
+    printf("%-30s%s(unavailable)%s\n", label, c(C_DIM), c(C_RESET));
+  else
+    printf("%-30s%d\n", label, value);
+}
+
+/* The banner carries VERSION, which only the product build defines, so what
+ * follows is compiled out of a test binary. Helpers that a test can drive
+ * belong above this line. */
+#ifndef KASLD_TESTING
+void render_banner(void) {
+  struct utsname u;
+  if (kasld_uname(&u) < 0) {
+    perror("uname");
+    return;
+  }
+
+  /* ASCII mode (non-UTF-8 locale or --ascii): the box-art is Unicode block
+   * characters, so emit a plain-text title instead. */
+  if (!unicode_output) {
+    printf("\n  KASLD v%s  --  Kernel ASLR derandomization\n\n", VERSION);
+    return;
+  }
+
+  // Delta Corps Priest 1 font from https://www.asciiart.eu/text-to-ascii-art
+  printf("\n"
+         "     ▄█   ▄█▄    ▄████████    ▄████████  ▄█       ████████▄\n"
+         "    ███ ▄███▀   ███    ███   ███    ███ ███       ███   ▀███\n"
+         "    ███▐██▀     ███    ███   ███    █▀  ███       ███    ███\n"
+         "   ▄█████▀      ███    ███   ███        ███       ███    ███\n"
+         "  ▀▀█████▄    ▀███████████ ▀███████████ ███       ███    ███\n"
+         "    ███▐██▄     ███    ███          ███ ███       ███    ███\n"
+         "    ███ ▀███▄   ███    ███    ▄█    ███ ███▌    ▄ ███   ▄███\n"
+         "    ███   ▀█▀   ███    █▀   ▄████████▀  █████▄▄██ ████████▀\n"
+         "    ▀                                   ▀ v%s\n\n",
+         VERSION);
+}
+
+/* Print the container / confinement lines: whether the vantage is
+ * containerized, and the seccomp / capability / no-new-privs state that decides
+ * which oracles are
+ * reachable here. Descriptive — the offensive-recon complement to the sysctl
+ * block above.
+ *
+ * The detail lines are printed ONLY when the process is actually confined
+ * (containerized, a seccomp filter, or no_new_privs). On a bare unprivileged
+ * host their values (Seccomp: none, caps: none, no_new_privs: no) are the
+ * DEFAULTS, not restrictions — printing them there reads as confinement where
+ * there is none, so they are suppressed and only the container status shows. */
+/* List the cap-gated leaks the effective cap set unlocks (one line each), or
+ * nothing if none apply. Shown regardless of confinement: a held cap is a real
+ * reachability fact whether or not the process is otherwise restricted. */
+static void print_cap_reachable_leaks(const struct kasld_vantage *v) {
+  if (!v->have_caps)
+    return;
+  int shown = 0;
+  for (int i = 0; i < KASLD_N_CAP_LEAKS; i++) {
+    if (!((v->cap_eff >> kasld_cap_leaks[i].bit) & 1ull))
+      continue;
+    if (!shown) {
+      printf("Cap-reachable leaks:\n");
+      shown = 1;
+    }
+    printf("  %-16s -> %s\n", kasld_cap_leaks[i].cap,
+           kasld_cap_leaks[i].source);
+  }
+}
+
+static void print_confinement(const struct kasld_vantage *v) {
+  printf("%-30s%s\n", "Container:", v->container ? v->container : "none");
+  char lsmbuf[224];
+  printf("%-30s%s\n", "LSM:", kasld_vantage_lsm_str(v, lsmbuf, sizeof(lsmbuf)));
+  if (v->sec_context[0])
+    printf("%-30s%s\n", "Security context:", v->sec_context);
+
+  /* Identity is always printed: uid 0 versus anything else is the single
+   * largest determinant of what is readable, and unlike the seccomp/caps
+   * detail below it is meaningful whether or not the process is confined.
+   * The effective ids appear only when they differ — a setuid helper.
+   * "unknown" rather than a number when the ids could not be read, which no
+   * value in the field can express — 0 there would read as root. */
+  if (!v->have_ids)
+    printf("%-30s%s\n", "Identity:", "unknown");
+  else if (v->uid != v->euid || v->gid != v->egid)
+    printf("%-30suid=%lu gid=%lu (euid=%lu egid=%lu)\n", "Identity:", v->uid,
+           v->gid, v->euid, v->egid);
+  else
+    printf("%-30suid=%lu gid=%lu\n", "Identity:", v->uid, v->gid);
+  if (v->ngroups > 0) {
+    /* Named where the tree knows them. The list wraps rather than truncating:
+     * which groups are held is the whole point of the line, and a membership
+     * dropped for width is one the reader cannot account for. */
+    int col = 30;
+    printf("%-30s", "Supplementary groups:");
+    for (int i = 0; i < v->ngroups; i++) {
+      char item[96];
+      const char *nm = kasld_group_name(v, i);
+      if (nm)
+        snprintf(item, sizeof(item), "%lu(%s)", v->groups[i], nm);
+      else
+        snprintf(item, sizeof(item), "%lu", v->groups[i]);
+      int w = (int)strlen(item) + (i ? 1 : 0);
+      if (i && col + w > KASLD_READOUT_COLS) {
+        printf(",\n%-30s", "");
+        col = 30;
+        printf("%s", item);
+        col += (int)strlen(item);
+        continue;
+      }
+      printf("%s%s", i ? "," : "", item);
+      col += w;
+    }
+    if (v->groups_truncated)
+      printf(",...");
+    printf("\n");
+  }
+  /* The seccomp / caps / no-new-privs detail is only meaningful when actually
+   * confined — otherwise those values are the unprivileged defaults. */
+  if (kasld_vantage_confined(v)) {
+    if (v->seccomp >= 0)
+      printf("%-30s%s\n", "Seccomp:", kasld_vantage_seccomp_str(v->seccomp));
+    char capbuf[24];
+    const char *caps = kasld_vantage_caps(v, capbuf, sizeof(capbuf));
+    if (caps)
+      printf("%-30s%s\n", "Effective capabilities:", caps);
+    if (v->no_new_privs >= 0)
+      printf("%-30s%s\n",
+             "No new privileges:", v->no_new_privs == 1 ? "yes" : "no");
+  }
+  print_cap_reachable_leaks(v);
+}
+
+void render_system_config(void) {
+  struct utsname u;
+  if (kasld_uname(&u) < 0) {
+    perror("uname");
+    return;
+  }
+
+  printf("%-30s%s\n", "Kernel release:", u.release);
+  printf("%-30s%s\n", "Kernel version:", u.version);
+  printf("%-30s%s\n", "Kernel arch:", u.machine);
+
+  const struct kasld_hardening *h = &kasld_env.hardening;
+
+  printf("\n");
+  print_hardening_value("kernel.kptr_restrict:", h->kptr_restrict);
+  print_hardening_value("kernel.dmesg_restrict:", h->dmesg_restrict);
+  print_hardening_value("kernel.panic_on_oops:", h->panic_on_oops);
+  print_hardening_value("kernel.perf_event_paranoid:", h->perf_event_paranoid);
+
+  /* Lockdown status */
+  {
+    const char *mode_str;
+    switch (h->lockdown) {
+    case LOCKDOWN_CONFIDENTIALITY:
+      mode_str = "confidentiality";
+      break;
+    case LOCKDOWN_INTEGRITY:
+      mode_str = "integrity";
+      break;
+    case LOCKDOWN_NONE:
+      mode_str = "none";
+      break;
+    default:
+      mode_str = NULL;
+      break;
+    }
+    if (mode_str)
+      printf("%-30s%s\n", "Kernel lockdown:", mode_str);
+    else
+      printf("%-30s%s(unavailable)%s\n", "Kernel lockdown:", c(C_DIM),
+             c(C_RESET));
+  }
+
+  /* The one snapshot feeds the confinement lines and the oracle rows here, and
+   * the JSON/markdown environment blocks read the same object, so no two
+   * formats can describe different moments. */
+  const struct kasld_vantage *vant = &kasld_env.vantage;
+
+  printf("\n");
+  print_confinement(vant);
+
+  printf("\n");
+
+  /* Leak-oracle sources first — the /proc files a container masks (the recon
+   * vantage; shared list with the JSON/markdown environment block), then the
+   * log/debug/boot sources. */
+  for (int i = 0; i < KASLD_N_ORACLES; i++) {
+    int readable = vant->oracle_readable[i];
+    printf("%-30s%s%s%s\n", kasld_oracle_labels[i],
+           readable ? c(C_GREEN) : c(C_DIM), readable ? "yes" : "no",
+           c(C_RESET));
+  }
+
+  const char *check_files[][2] = {
+      {"Readable /var/log/dmesg:", "/var/log/dmesg"},
+      {"Readable /var/log/kern.log:", "/var/log/kern.log"},
+      {"Readable /var/log/syslog:", "/var/log/syslog"},
+      {"Readable debugfs:", "/sys/kernel/debug"},
+      {NULL, NULL},
+  };
+
+  for (int i = 0; check_files[i][0]; i++) {
+    int readable = kasld_access(check_files[i][1], R_OK) == 0;
+    printf("%-30s%s%s%s\n", check_files[i][0], readable ? c(C_GREEN) : c(C_DIM),
+           readable ? "yes" : "no", c(C_RESET));
+  }
+
+  /* Kernel-release-specific paths */
+  char path[KASLD_PATH_MAX];
+  int readable;
+
+  snprintf(path, sizeof(path), "/boot/System.map-%s", u.release);
+  readable = kasld_access(path, R_OK) == 0;
+  printf("%-30s%s%s%s\n",
+         "Readable /boot/System.map:", readable ? c(C_GREEN) : c(C_DIM),
+         readable ? "yes" : "no", c(C_RESET));
+
+  snprintf(path, sizeof(path), "/boot/config-%s", u.release);
+  readable = kasld_access(path, R_OK) == 0;
+  printf("%-30s%s%s%s\n",
+         "Readable /boot/config:", readable ? c(C_GREEN) : c(C_DIM),
+         readable ? "yes" : "no", c(C_RESET));
+
+  printf("\n");
+}
+#endif /* !KASLD_TESTING */
