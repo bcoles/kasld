@@ -416,6 +416,13 @@ x86-only. PIE linking by itself randomizes only the kernel base — every symbol
 keeps a fixed offset from `.text` — so it is a foundation for FG-KASLR, not
 FG-KASLR itself; the per-function reordering is a separate step layered on top.
 
+KASLD does not defeat FG-KASLR, but it can detect when the kernel text has been
+reordered: [function_order_fingerprint.c](../src/components/function_order_fingerprint.c)
+clusters `/proc/kallsyms` by symbol name order (not by address, so it survives
+`kptr_restrict<=1`) and reports when the text no longer follows link order. This
+covers the wider reordered-text class — LTO, AutoFDO, and Propeller builds — not
+only `CONFIG_FG_KASLR`.
+
 See also:
 
 * [[RFC/RFT PATCH 00/19] Link the relocatable x86 kernel as PIE](https://lore.kernel.org/lkml/20260108092526.28586-21-ardb@kernel.org/) (Ard Biesheuvel, January 2026) — the PIE prerequisite for ELF-domain FG-KASLR

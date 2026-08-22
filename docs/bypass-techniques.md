@@ -129,6 +129,16 @@ since kernel version `v3.7-rc1~174^2~57` on 2012-08-27.
 This change pre-dates Linux KASLR by 2 years. However, debugfs may still be
 readable in some non-default configurations.
 
+The following KASLD components read from debugfs:
+
+* [kmemleak.c](../src/components/kmemleak.c) — a direct-map pointer witness from the kmemleak report at `/sys/kernel/debug/kmemleak`
+* [ptdump_kernel_page_tables.c](../src/components/ptdump_kernel_page_tables.c) — the kernel virtual text base (`_text`) from the page-table dump at `/sys/kernel/debug/page_tables/kernel`
+
+The ftrace tracing interface (tracefs, `/sys/kernel/tracing`, historically mounted under debugfs) also exposes kernel text addresses:
+
+* [tracefs_available_filter_addrs.c](../src/components/tracefs_available_filter_addrs.c) — kernel text (and module) virtual addresses from `/sys/kernel/tracing/available_filter_functions_addrs` (independent of `kptr_restrict`)
+* [tracefs_printk_formats.c](../src/components/tracefs_printk_formats.c) — kernel text/rodata virtual addresses from the format strings at `/sys/kernel/tracing/printk_formats`
+
 ### Procfs and sysfs
 
 The `/proc` and `/sys` pseudo-filesystems expose kernel addresses, memory
@@ -144,6 +154,8 @@ The following KASLD components read from `/proc`:
 * [proc_pid_syscall.c](../src/components/proc_pid_syscall.c) — kernel stack pointer from `/proc/<pid>/syscall`
 * [proc_stat_wchan.c](../src/components/proc_stat_wchan.c) — wait channel address from `/proc/<pid>/stat`
 * [proc_timer_list.c](../src/components/proc_timer_list.c) — per-CPU timer base addresses from `/proc/timer_list`
+* [proc_net_sock_ptr.c](../src/components/proc_net_sock_ptr.c) — a kernel socket-object direct-map pointer from the socket field in `/proc/net/unix` (printed with `%pK`: unmasked when `kptr_restrict=0`, or for a `CAP_SYSLOG` reader)
+* [zfs_dbgmsg.c](../src/components/zfs_dbgmsg.c) — kernel virtual addresses from the OpenZFS debug-message log at `/proc/spl/kstat/zfs/dbgmsg` (out-of-tree OpenZFS module; the pointer is printed in full, so it survives `kptr_restrict=2`)
 * [proc_kcore.c](../src/components/proc_kcore.c) — kernel `_stext` (and, on x86_64, the exact direct-map base `page_offset_base`) from the `/proc/kcore` ELF program headers. Unlike the entries above this is **not** an unprivileged leak: opening `/proc/kcore` requires `CAP_SYS_RAWIO` (in the init user namespace) and reads are blocked by kernel lockdown (confidentiality). It targets the container-with-capabilities case — a process granted `CAP_SYS_RAWIO` (e.g. `docker --cap-add=SYS_RAWIO` with system paths unconfined, or `--privileged`) is init-ns root for that check and can read it. The text base is sound on decoupled-text arches only (x86_64/arm64/riscv64/s390), where the kernel text has a dedicated high mapping. The direct-map base is recovered as `p_vaddr - p_paddr + PHYS_OFFSET` from the linear-map (RAM) headers and pinned exactly, but only where `PHYS_OFFSET` is the true runtime physical base (x86_64); elsewhere it is left to the bounding leaks.
 
 The following KASLD components read from `/sys`:
@@ -157,6 +169,9 @@ The following KASLD components read from `/sys`:
 * [sysfs_devicetree_memory.c](../src/components/sysfs_devicetree_memory.c) — memory regions from `/sys/firmware/devicetree/`
 * [sysfs_devicetree_reserved_memory.c](../src/components/sysfs_devicetree_reserved_memory.c) — reserved DRAM region addresses from `/sys/firmware/devicetree/base/reserved-memory/`
 * [sysfs_devicetree_uefi_mmap.c](../src/components/sysfs_devicetree_uefi_mmap.c) — EFI memory map buffer physical address from `/sys/firmware/devicetree/base/chosen/linux,uefi-mmap-*` (UEFI-booted device tree platforms)
+* [sysfs_devicetree_kernel_end.c](../src/components/sysfs_devicetree_kernel_end.c) — physical end of the kernel image from the device-tree chosen node under `/sys/firmware/devicetree/base/chosen/`
+* [sysfs_devicetree_memory_limit.c](../src/components/sysfs_devicetree_memory_limit.c) — the physical-RAM ceiling the kernel was instructed to honour from `/sys/firmware/devicetree/base/chosen/`
+* [sysfs_devicetree_mmio.c](../src/components/sysfs_devicetree_mmio.c) — physical MMIO register bases from every device node in `/sys/firmware/devicetree/base/` (world-readable `0444`, not subject to `kptr_restrict`)
 * [sysfs_efi_runtime_map.c](../src/components/sysfs_efi_runtime_map.c) — EFI runtime map virtual and physical addresses from `/sys/firmware/efi/runtime-map/`
 * [sysfs_firmware_memmap.c](../src/components/sysfs_firmware_memmap.c) — firmware memory map from `/sys/firmware/memmap/`
 * [sysfs_iommu_reserved_regions.c](../src/components/sysfs_iommu_reserved_regions.c) — physical DRAM addresses of IOMMU reserved regions from `/sys/kernel/iommu_groups/*/reserved_regions`
@@ -170,6 +185,7 @@ The following KASLD components read from `/sys`:
 * [sysfs_qcom_rmtfs_mem.c](../src/components/sysfs_qcom_rmtfs_mem.c) — Qualcomm RMTFS reserved physical memory addresses from `/sys/class/rmtfs/`
 * [sysfs_uio_map.c](../src/components/sysfs_uio_map.c) — UIO device memory map physical addresses from `/sys/class/uio/`
 * [sysfs_vmcoreinfo.c](../src/components/sysfs_vmcoreinfo.c) — vmcoreinfo note physical address from `/sys/kernel/vmcoreinfo`
+* [kernfs_ns_hash.c](../src/components/kernfs_ns_hash.c) — a KASLR-linked address (`&init_net`) recovered from the readdir seek cookies (`d_off`) of the namespace-tagged `/sys/class/net` directory: kernfs folds the namespace tag into each entry's name hash, so the leak is unprivileged and independent of `kptr_restrict`
 
 Most of these are mitigated by `kernel.kptr_restrict` (for `/proc/kallsyms`,
 `/proc/modules`, etc.) and root-only permissions on sensitive sysfs entries.
@@ -311,6 +327,12 @@ never involved. The attack surface exists entirely within the emulation layer.
 The following KASLD components exploit syscall and interface leaks:
 
 * [perf_event_open.c](../src/components/perf_event_open.c) — samples kernel instruction pointer addresses via `perf_event_open()` (requires `kernel.perf_event_paranoid < 2`)
+* [perf_ksymbol_leak.c](../src/components/perf_ksymbol_leak.c) — BPF JIT / kprobe / ftrace trampoline addresses from `PERF_RECORD_KSYMBOL` records via `perf_event_open()` (requires `kernel.perf_event_paranoid <= 0` or `CAP_PERFMON`)
+* [perf_lbr_sampling.c](../src/components/perf_lbr_sampling.c) — kernel branch addresses via Last Branch Record sampling through `perf_event_open()` (requires `kernel.perf_event_paranoid <= 1` or `CAP_PERFMON`)
+* [perf_amd_branch_user.c](../src/components/perf_amd_branch_user.c) — kernel `.text` addresses via an AMD branch-record filter bug: a user-only (`PERF_SAMPLE_BRANCH_USER`) request still captures kernel branches, so it leaks even at the default `kernel.perf_event_paranoid=2` when sampling one's own process
+* [bpf_verifier_log.c](../src/components/bpf_verifier_log.c) — a kernel direct-map address from unmasked pointers in the BPF verifier log (requires `kernel.unprivileged_bpf_disabled=0`, or `CAP_BPF`)
+* [bpf_verifier_ksym.c](../src/components/bpf_verifier_ksym.c) — kernel `.text` addresses from the BPF verifier log, resolved against BTF from `/sys/kernel/btf/vmlinux` (requires `kernel.unprivileged_bpf_disabled=0`, or `CAP_BPF`)
+* [alsa_seq_ext_ptr.c](../src/components/alsa_seq_ext_ptr.c) — a kernel direct-map address from an ALSA sequencer variable-length event echoed back through `/dev/snd/seq` (unprivileged with `audio`-group device access; independent of `kptr_restrict`)
 * [mincore.c](../src/components/mincore.c) — `mincore()` heap page disclosure via uninitialized memory (CVE-2017-16994; patched in v4.15)
 * [bcm_msg_head_struct.c](../src/components/bcm_msg_head_struct.c) — CAN BCM `bcm_msg_head` struct uninitialized 4-byte padding hole leaks kernel stack pointer via `recvmsg()` (CVE-2021-34693; patched in v5.12)
 * [pppd_kallsyms.c](../src/components/pppd_kallsyms.c) — set-uid-root `pppd` opens and reads `/proc/kallsyms` as root: pre-v4.8 the `kptr_restrict` `%pK` check ran at `read()` time, which `pppd` performs with root credentials, so the symbols are unrestricted; v4.8 moved the check to `open()`
@@ -369,6 +391,8 @@ The ioctl attack surface is wide because:
 The following KASLD components exploit ioctl info leaks:
 
 * [nilfs2_ioctl.c](../src/components/nilfs2_ioctl.c) — `NILFS_IOCTL_GET_SUINFO` copies an uninitialized `__get_free_pages()` buffer; trailing page bytes contain stale kernel data (v2.6.30–v6.3)
+* [ioctl_mmio_phys.c](../src/components/ioctl_mmio_phys.c) — physical MMIO base addresses from framebuffer (`FBIOGET_FSCREENINFO`) and serial-device `GET` ioctls, both ungated by capability or `kptr_restrict`
+* [mali_timeline.c](../src/components/mali_timeline.c) — kernel virtual addresses from the Arm Mali GPU driver timeline stream on `/dev/mali0` (out-of-tree/third-party driver; CVE-2023-26083, fixed in r43p0+; unaffected by `kptr_restrict`)
 
 See also:
 
