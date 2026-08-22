@@ -588,6 +588,19 @@ $(TEST_SOCKPTR_BIN): $(TEST_DIR)/test_proc_net_sock_ptr.c $(SRC_DIR)/components/
 	$(call ccv,CCLD,$@)
 	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_proc_net_sock_ptr.c -o $@
 
+# ptdump_kernel_page_tables / kmemleak: each component is #included (main
+# renamed) and driven over a staged KASLD_SYSROOT debugfs file to assert the
+# page-table image-base recovery and the kmemleak direct-map witness.
+TEST_PTDUMP_BIN := $(TEST_OBJ_DIR)/test_ptdump
+$(TEST_PTDUMP_BIN): $(TEST_DIR)/test_ptdump.c $(SRC_DIR)/components/ptdump_kernel_page_tables.c $(HDRS) | $(TEST_OBJ_DIR)
+	$(call ccv,CCLD,$@)
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_ptdump.c -o $@
+
+TEST_KMEMLEAK_BIN := $(TEST_OBJ_DIR)/test_kmemleak
+$(TEST_KMEMLEAK_BIN): $(TEST_DIR)/test_kmemleak.c $(SRC_DIR)/components/kmemleak.c $(HDRS) | $(TEST_OBJ_DIR)
+	$(call ccv,CCLD,$@)
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_kmemleak.c -o $@
+
 # proc_timer_list hashed-pointer rejection: same slab/pointer-alignment gate as
 # proc_net_sock_ptr, unit-tested (classify_timer_base) + staged /proc/timer_list.
 TEST_TIMERLIST_BIN := $(TEST_OBJ_DIR)/test_proc_timer_list
@@ -715,6 +728,8 @@ TEST_ALL_BINS := $(TEST_BIN) \
   $(TEST_BPE820_BIN) \
   $(TEST_PARSERS_BIN) \
   $(TEST_KCORE_BIN) \
+  $(TEST_PTDUMP_BIN) \
+  $(TEST_KMEMLEAK_BIN) \
   $(TEST_KERNFS_BIN)
 
 $(TEST_ALL_BINS): $(TEST_HDRS)
