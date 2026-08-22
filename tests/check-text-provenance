@@ -76,6 +76,7 @@ allow_file() {
   proc_stat_wchan.c) return 0 ;;        # the function the task sleeps in
   # A structure the kernel published as the image itself.
   proc_kcore.c) return 0 ;;             # the text segment's ELF program header
+  ptdump_kernel_page_tables.c) return 0 ;; # first mapped run of the high kernel mapping = _text
   sysfs_kernel_notes_xen.c) return 0 ;; # XEN_ELFNOTE_ENTRY, the entry point
   dmesg_riscv_relocation.c) return 0 ;; # the relocated base the kernel printed
   tracefs_printk_formats.c) return 0 ;; # format strings, in the image's rodata
