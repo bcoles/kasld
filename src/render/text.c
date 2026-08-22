@@ -1385,21 +1385,35 @@ static int readout_print_leaks(void) {
   int n_int = (int)(sizeof(interesting) / sizeof(interesting[0]));
 
   /* Pre-collect (label, addr, contributing record) tuples so as to print
-   * a "(N)" header. */
+   * a "(N)" header.
+   *
+   * `is_edge` splits a region's records into the two independent things that
+   * can be known about it, and each row carries only one of them. */
   struct {
     const char *label;
     unsigned long addr;
     const struct result *r;
     unsigned long span_lo, span_hi;
     int is_span;
+    int is_edge;
   } found[32];
   int nf = 0;
 
-  for (int k = 0; k < n_int && nf < (int)(sizeof(found) / sizeof(found[0]));
+  for (int k = 0; k < n_int && nf + 1 < (int)(sizeof(found) / sizeof(found[0]));
        k++) {
-    /* Find the highest-confidence in-bounds record for this (type, region). */
-    const struct result *best = NULL;
-    int best_w = -1;
+    /* A region can carry two independent kinds of observation: a resolved edge
+     * (base or top) and bare interior samples. They answer different questions
+     * -- where the region starts, versus how far it is known to reach -- and
+     * neither subsumes the other, so each takes its own row. Ranking them
+     * against each other would have to discard one, and confidence cannot
+     * order them: an interior sample tying a base on confidence is not a
+     * statement about position at all.
+     *
+     * Within a kind, the highest-confidence record represents it. */
+    const struct result *edge = NULL, *sample = NULL;
+    int edge_w = -1, sample_w = -1;
+    unsigned long slo = 0, shi = 0;
+    int n_samples = 0;
     for (int i = 0; i < num_results; i++) {
       const struct result *r = &results[i];
       if (r->type != interesting[k].type || r->region != interesting[k].region)
@@ -1407,56 +1421,62 @@ static int readout_print_leaks(void) {
       if (!in_bounds(r))
         continue;
       int w = conf_weight(r->conf);
-      if (w > best_w) {
-        best_w = w;
-        best = r;
+      if (HAS_LO(r) || HAS_HI(r)) {
+        if (w > edge_w) {
+          edge_w = w;
+          edge = r;
+        }
+        continue;
       }
+      /* Span endpoints come from the samples alone. Measured across every
+       * record they would take an edge as an endpoint, and the row would
+       * report a resolved base as the low end of an interior span. */
+      unsigned long a = anchor_addr(r);
+      if (w > sample_w) {
+        sample_w = w;
+        sample = r;
+      }
+      if (!n_samples || a < slo)
+        slo = a;
+      if (!n_samples || a > shi)
+        shi = a;
+      n_samples++;
     }
-    if (!best)
-      continue;
-    found[nf].label = interesting[k].label;
-    found[nf].addr = anchor_addr(best);
-    found[nf].r = best;
-    nf++;
+    if (edge) {
+      found[nf].label = interesting[k].label;
+      found[nf].addr = anchor_addr(edge);
+      found[nf].r = edge;
+      found[nf].is_span = 0;
+      found[nf].span_lo = found[nf].span_hi = 0;
+      found[nf].is_edge = 1;
+      nf++;
+    }
+    if (sample) {
+      found[nf].label = interesting[k].label;
+      found[nf].addr = anchor_addr(sample);
+      found[nf].r = sample;
+      /* Distinct samples from independent sources bound the region's observed
+       * extent. Collapsing them onto one address and crediting every source to
+       * it would imply they all found that address, when they each found a
+       * different point. A lone sample has no extent to state and prints as
+       * the single address it is. */
+      found[nf].is_span = shi > slo;
+      found[nf].span_lo = slo;
+      found[nf].span_hi = shi;
+      found[nf].is_edge = 0;
+      nf++;
+    }
   }
 
   if (nf == 0)
     return 0;
 
-  /* Per-row interior-span detection, and the widest address field, up front. A
-   * region with only interior samples (no edge) has no base; its samples bound
-   * a span, shown as "lo - hi". Computing the max field width first lets the
-   * position and origin columns line up whether a row shows one address or a
-   * span. */
+  /* The widest address field, up front, so the position and origin columns
+   * line up whether a row shows one address or a span. */
   int any_span = 0;
-  for (int i = 0; i < nf; i++) {
-    unsigned long lo = found[i].addr, hi = found[i].addr;
-    /* Span when the shown value is an interior sample rather than a resolved
-     * base. Distinct samples from independent sources then bound the region's
-     * observed extent — collapsing them onto one sample address and crediting
-     * every source to it would imply they all found that address, when they
-     * each found a different point that only agrees on the base. A best record
-     * carrying an edge IS the resolved base: show that single value, not a
-     * span. (Gated on best, not on any record: a coexisting base bound no
-     * longer suppresses a genuine multi-sample interior span.) */
-    int span = !(HAS_LO(found[i].r) || HAS_HI(found[i].r));
-    for (int j = 0; j < num_results; j++) {
-      const struct result *r = &results[j];
-      if (r->type != found[i].r->type || r->region != found[i].r->region ||
-          !in_bounds(r))
-        continue;
-      unsigned long a = anchor_addr(r);
-      if (a < lo)
-        lo = a;
-      if (a > hi)
-        hi = a;
-    }
-    found[i].is_span = span && hi > lo;
-    found[i].span_lo = lo;
-    found[i].span_hi = hi;
+  for (int i = 0; i < nf; i++)
     if (found[i].is_span)
       any_span = 1;
-  }
   /* Column widths for the block, computed up front so the position tag, the
    * ".." separator and the provenance continuation each land in one column
    * whatever mix of spans and single addresses the run produced. */
@@ -1510,18 +1530,23 @@ static int readout_print_leaks(void) {
          c(C_RESET), nf, nf == 1 ? "" : "s", total_sources,
          total_sources == 1 ? "" : "s");
   for (int i = 0; i < nf; i++) {
-    /* Credit every component that found this (type, region), not just the one
-     * highest-confidence record: results merge by (type, region, NAME), so the
-     * same address tagged under different symbol names (e.g. _stext from
-     * proc_kallsyms vs an unnamed text leak) lands in separate merged records.
-     * Aggregate provenance across all in-bounds records of this (type, region),
-     * de-duplicated. */
+    /* Credit every component that found this (type, region) IN THIS ROW'S KIND,
+     * not just the one highest-confidence record: results merge by
+     * (type, region, NAME), so the same address tagged under different symbol
+     * names (e.g. _stext from proc_kallsyms vs an unnamed text leak) lands in
+     * separate merged records, and every one of them belongs on the line.
+     *
+     * Filtered by kind because the row states one: a component that resolved an
+     * edge did not contribute a sample to the span beside it, and listing it
+     * there would credit it with a measurement it never made. */
     struct origin_set seen;
     memset(&seen, 0, sizeof(seen));
     for (int j = 0; j < num_results; j++) {
       const struct result *r = &results[j];
       if (r->type != found[i].r->type || r->region != found[i].r->region ||
           !in_bounds(r))
+        continue;
+      if (!!(HAS_LO(r) || HAS_HI(r)) != !!found[i].is_edge)
         continue;
       origin_set_union(&seen, &r->origins);
     }
