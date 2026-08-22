@@ -18,9 +18,18 @@
 # this is a local/CI-with-qemu aid, not part of the host `make test`.
 # Exit status is non-zero if any present target fails (CI-friendly).
 #
+# Compilation, not the qemu runs, dominates the cost: the eight binaries per
+# target come to ~105 translation units against a couple of seconds of emulated
+# execution. Two properties hold that down. The engine core and rule objects are
+# built once per target and linked into both engine binaries, so the rule set
+# costs one compile rather than one per binary. And every compile is a
+# single-source `-c`, the only form ccache can serve; handed several sources at
+# once it declines and forwards to the compiler, caching nothing.
+#
 # Usage:  tests/test-cross [triple...]   (default: the local cross set; CI passes
 #         one triple per matrix job)
-# Env:    QEMU_DIR (default: resolve qemu-<arch> from PATH), CFLAGS, KEEP=1
+# Env:    QEMU_DIR (default: resolve qemu-<arch> from PATH), CFLAGS, KEEP=1,
+#         JOBS (default: one per core), USE_CCACHE=0 to compile without ccache
 # ---
 # <bcoles@gmail.com>
 
@@ -40,7 +49,8 @@ resolve_qemu() {
 # -Werror on the overflow/shift classes: these only manifest on a given word
 # size, so the cross (esp. 32-bit) compile is where a `1ul << 40` shift or a
 # constant overflow gets caught. Kept targeted (not full -Werror) so the test
-# TUs' pre-existing unused-static warnings don't turn fatal.
+# TUs' pre-existing unused-static warnings don't turn fatal. Both are front-end
+# diagnostics and fire at any optimisation level.
 CFLAGS=${CFLAGS:--std=c99 -O2 -static -I$ROOT/src -Werror=shift-count-overflow -Werror=overflow}
 # Every binary this script builds is a test, so the hermeticity probe applies to
 # all of them: a test that reads a kernel fact from the machine running it is
@@ -50,6 +60,16 @@ CFLAGS="$CFLAGS -DKASLD_HERMETIC_PROBE"
 # Targets are independent (separate build dir + binaries each), so build/run
 # them JOBS at a time. Default to one per core; JOBS=1 restores serial order.
 JOBS=${JOBS:-$(nproc 2>/dev/null || echo 1)}
+
+# ccache when it is installed, nothing when it is not — a compiler cache is an
+# optimisation, never a requirement, and a host without one must still run the
+# suite. USE_CCACHE=0 forces the direct compiler. The cache lives wherever
+# ccache itself is configured to put it, so its size limit and eviction stay
+# under the operator's control rather than this script's.
+CCPREFIX=""
+if [ "${USE_CCACHE:-1}" != 0 ]; then
+  CCPREFIX=$(command -v ccache 2>/dev/null) || CCPREFIX=""
+fi
 
 # A UNIQUE build dir per invocation. Two overlapping runs -- or an orphaned
 # run_target subshell whose parent `make` was killed but which lives on and
@@ -79,6 +99,29 @@ RULES=$(echo "$ROOT"/src/rules/*.c)
 
 pass=0; fail=0; skip=0
 
+# compile_obj <src> <out.o> [extra cflags...] — one source, one object, so the
+# result is cacheable. Reads $cc / $triple / $d from the calling run_target.
+compile_obj() {
+  co_src=$1; co_out=$2; shift 2
+  # shellcheck disable=SC2086  # $CCPREFIX/$cc/$CFLAGS are command + flag lists, split intentionally
+  if ! $CCPREFIX $cc $CFLAGS "$@" -c "$co_src" -o "$co_out" 2>"$d/cc.log"; then
+    printf 'FAIL  %-30s (compile %s)\n' "$triple" "${co_src##*/}"
+    show_cc_log "$d/cc.log"
+    return 1
+  fi
+}
+
+# link_bin <out> <object...> [-l...] — link step; libraries follow the objects.
+link_bin() {
+  lb_out=$1; shift
+  # shellcheck disable=SC2086  # $cc/$CFLAGS are command + flag list, split intentionally
+  if ! $cc $CFLAGS "$@" -o "$lb_out" 2>"$d/cc.log"; then
+    printf 'FAIL  %-30s (link %s)\n' "$triple" "${lb_out##*/}"
+    show_cc_log "$d/cc.log"
+    return 1
+  fi
+}
+
 # run_target writes its human-readable line(s) to stdout (the caller redirects
 # this to a per-target .res file) and a single pass/fail/skip token to its .st
 # file, so invocations can run concurrently without sharing shell state.
@@ -92,61 +135,55 @@ run_target() {
   if [ -z "$qemu" ]; then
     printf 'SKIP  %-30s (no qemu: %s)\n' "$triple" "$qbin"; echo skip >"$st"; return
   fi
-  d="$OUT/$triple"; mkdir -p "$d"
+  d="$OUT/$triple"; obj="$d/obj"; sh_obj="$obj/shared"; mkdir -p "$sh_obj"
+  # The engine core and every rule, one object each, shared by the two engine
+  # binaries below so the rule set is built once per target. engine_rules.c is
+  # the registry and belongs only to the integration binary, so it stays out of
+  # the shared set.
+  for src in $CORE $RULES; do
+    compile_obj "$src" "$sh_obj/$(basename "$src" .c).o" || { echo fail >"$st"; return; }
+  done
+  compile_obj "$ROOT/src/engine_rules.c" "$obj/engine_rules.o" || { echo fail >"$st"; return; }
   # Per-rule engine test (every rule via the wildcard) AND the full-registry
   # integration test, both under qemu so each arch-gated rule body executes its
   # active path on its own arch. The tests anchor addresses to the arch's
   # quantity tops / PHYS_OFFSET, so they are portable across 64-bit arches.
   # (This harness has caught real arch bugs this way: a 64-bit shift overflow
   # and PHYS_OFFSET-relative assertion errors.)
-  # shellcheck disable=SC2086  # $cc/$CFLAGS/$CORE/$RULES are command + flag/file lists, split intentionally
-  if ! $cc $CFLAGS "$ROOT/tests/test_engine.c" $CORE $RULES -o "$d/test_engine" 2>"$d/cc.log"; then
-    printf 'FAIL  %-30s (compile test_engine)\n' "$triple"; show_cc_log "$d/cc.log"; echo fail >"$st"; return
-  fi
-  # shellcheck disable=SC2086  # $cc/$CFLAGS/$CORE/$RULES are command + flag/file lists, split intentionally
-  if ! $cc $CFLAGS "$ROOT/tests/test_engine_integration.c" $CORE "$ROOT/src/engine_rules.c" $RULES \
-        -o "$d/test_integration" 2>"$d/cc.log"; then
-    printf 'FAIL  %-30s (compile test_integration)\n' "$triple"; show_cc_log "$d/cc.log"; echo fail >"$st"; return
-  fi
+  compile_obj "$ROOT/tests/test_engine.c" "$obj/test_engine.o" || { echo fail >"$st"; return; }
+  compile_obj "$ROOT/tests/test_engine_integration.c" "$obj/test_integration.o" || { echo fail >"$st"; return; }
   # The parser / result-model / merge / engine-sync unit suite (its renderer
   # half is now test_render, below). It includes the orchestrator + render
   # translation units directly (hence -DKASLD_TESTING and -lpthread) and derives
   # every fixture address from the arch's own layout constants, so it runs on
   # every width and endianness.
-  # shellcheck disable=SC2086  # $cc/$CFLAGS are command + flag list, split intentionally
-  if ! $cc $CFLAGS -DKASLD_TESTING "$ROOT/tests/test_kasld.c" -o "$d/test_kasld" -lpthread 2>"$d/cc.log"; then
-    printf 'FAIL  %-30s (compile test_kasld)\n' "$triple"; show_cc_log "$d/cc.log"; echo fail >"$st"; return
-  fi
+  compile_obj "$ROOT/tests/test_kasld.c" "$obj/test_kasld.o" -DKASLD_TESTING || { echo fail >"$st"; return; }
   # The renderer unit suite (split from test_kasld); same single-TU model.
-  # shellcheck disable=SC2086  # $cc/$CFLAGS are command + flag list, split intentionally
-  if ! $cc $CFLAGS -DKASLD_TESTING "$ROOT/tests/test_render.c" -o "$d/test_render" -lpthread 2>"$d/cc.log"; then
-    printf 'FAIL  %-30s (compile test_render)\n' "$triple"; show_cc_log "$d/cc.log"; echo fail >"$st"; return
-  fi
+  compile_obj "$ROOT/tests/test_render.c" "$obj/test_render.o" -DKASLD_TESTING || { echo fail >"$st"; return; }
   # The estimate-algebra + honest-top soundness suite (links only estimate.c +
   # quantities.c). Its arch-gated interval_admits() asserts validate each arch's
   # honest-top floor/ceiling on its own arch — dormant on the x86_64 host, live
   # here, so a phys/virt floor that excludes a valid base fails on the arch it
   # affects.
-  # shellcheck disable=SC2086  # $cc/$CFLAGS are command + flag list, split intentionally
-  if ! $cc $CFLAGS "$ROOT/tests/test_estimate.c" "$ROOT/src/estimate.c" "$ROOT/src/quantities.c" -o "$d/test_estimate" 2>"$d/cc.log"; then
-    printf 'FAIL  %-30s (compile test_estimate)\n' "$triple"; show_cc_log "$d/cc.log"; echo fail >"$st"; return
-  fi
+  compile_obj "$ROOT/tests/test_estimate.c" "$obj/test_estimate.o" || { echo fail >"$st"; return; }
   # The width-sensitive suites. These are the reason the 32-bit targets matter:
   # kasld_addr_t is the build's word, so on a 64-bit host the too-wide branch of
   # kasld_addr_parse is unreachable and the refusal that the parser exists for
   # never executes. Here it does.
-  # shellcheck disable=SC2086  # $cc/$CFLAGS are command + flag list, split intentionally
-  if ! $cc $CFLAGS "$ROOT/tests/test_addr_parse.c" -o "$d/test_addr_parse" 2>"$d/cc.log"; then
-    printf 'FAIL  %-30s (compile test_addr_parse)\n' "$triple"; show_cc_log "$d/cc.log"; echo fail >"$st"; return
-  fi
-  # shellcheck disable=SC2086  # $cc/$CFLAGS are command + flag list, split intentionally
-  if ! $cc $CFLAGS "$ROOT/tests/test_target_width.c" -o "$d/test_target_width" 2>"$d/cc.log"; then
-    printf 'FAIL  %-30s (compile test_target_width)\n' "$triple"; show_cc_log "$d/cc.log"; echo fail >"$st"; return
-  fi
-  # shellcheck disable=SC2086  # $cc/$CFLAGS are command + flag list, split intentionally
-  if ! $cc $CFLAGS "$ROOT/tests/test_proc_kallsyms.c" -o "$d/test_proc_kallsyms" 2>"$d/cc.log"; then
-    printf 'FAIL  %-30s (compile test_proc_kallsyms)\n' "$triple"; show_cc_log "$d/cc.log"; echo fail >"$st"; return
-  fi
+  for t in test_addr_parse test_target_width test_proc_kallsyms; do
+    compile_obj "$ROOT/tests/$t.c" "$obj/$t.o" || { echo fail >"$st"; return; }
+  done
+
+  # shellcheck disable=SC2086  # the shared-object glob is a file list, split intentionally
+  link_bin "$d/test_engine" "$obj/test_engine.o" $sh_obj/*.o || { echo fail >"$st"; return; }
+  # shellcheck disable=SC2086  # the shared-object glob is a file list, split intentionally
+  link_bin "$d/test_integration" "$obj/test_integration.o" "$obj/engine_rules.o" $sh_obj/*.o || { echo fail >"$st"; return; }
+  link_bin "$d/test_kasld" "$obj/test_kasld.o" -lpthread || { echo fail >"$st"; return; }
+  link_bin "$d/test_render" "$obj/test_render.o" -lpthread || { echo fail >"$st"; return; }
+  link_bin "$d/test_estimate" "$obj/test_estimate.o" "$sh_obj/estimate.o" "$sh_obj/quantities.o" || { echo fail >"$st"; return; }
+  for t in test_addr_parse test_target_width test_proc_kallsyms; do
+    link_bin "$d/$t" "$obj/$t.o" || { echo fail >"$st"; return; }
+  done
   ok=1
   for t in test_engine test_integration test_estimate test_kasld test_render \
            test_addr_parse test_target_width test_proc_kallsyms; do
@@ -213,11 +250,18 @@ if [ "$#" -eq 0 ]; then
   set -- $default_triples
 fi
 
-# Launch up to JOBS targets concurrently, each writing to its own .res/.st;
-# barrier every JOBS launches (POSIX sh has no `wait -n`). Order is recorded so
-# the summary prints deterministically regardless of finish order.
+# Launch up to JOBS targets concurrently, each writing to its own .res/.st.
+# At capacity, wait for the OLDEST target still running and launch the next as
+# soon as it ends, rather than draining all JOBS of them first: one slow arch
+# then delays at most the targets ahead of it in the queue, not a whole batch.
+# `wait <pid>` returns however that child ended — including killed by a signal —
+# so a target that dies without cleaning up after itself cannot stall the run.
+# Order is recorded so the summary prints deterministically regardless of finish
+# order.
 order=""
-running=0
+running=""   # PIDs of live targets, oldest first
+inflight=0
+
 for triple in "$@"; do
   order="$order $triple"
   qbin=$(qemu_for "$triple")
@@ -227,8 +271,14 @@ for triple in "$@"; do
     continue
   fi
   run_target "$triple" "$qbin" >"$OUT/$triple.res" 2>&1 &
-  running=$((running + 1))
-  if [ "$running" -ge "$JOBS" ]; then wait; running=0; fi
+  running="${running:+$running }$!"
+  inflight=$((inflight + 1))
+  if [ "$inflight" -ge "$JOBS" ]; then
+    oldest=${running%% *}
+    if [ "$oldest" = "$running" ]; then running=""; else running=${running#* }; fi
+    wait "$oldest" 2>/dev/null
+    inflight=$((inflight - 1))
+  fi
 done
 wait
 

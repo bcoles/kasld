@@ -128,8 +128,17 @@ jobs:
       # qemu-user, so its arch-gated rule bodies and assertions run their real
       # path — the cross-compile above only proves they compile. Self-contained
       # (no fixtures); compiles the test binaries with this arch's toolchain.
+      #
+      # No compiler cache here. Each job is a fresh runner and nothing restores
+      # one, so every compile would miss while still paying to hash and store
+      # its result — a cold cache costs more than it saves. Pinning the setting
+      # also keeps the step's cost independent of whether the runner image
+      # happens to ship ccache. The harness still shares its rule objects
+      # between the two engine binaries, which is where the saving comes from.
       - name: Cross-arch engine tests (qemu-user)
         if: inputs.run_test_cross
+        env:
+          USE_CCACHE: 0
         run: tests/test-cross "${{ matrix.musl_triple }}"
 
       # Replay mode (manual, via replay.yml): run the real binary just built here

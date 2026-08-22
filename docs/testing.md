@@ -255,12 +255,17 @@ elsewhere, such as a self-built qemu in a non-standard prefix.
 make test-cross        # or: tests/test-cross
 ```
 
-Compiles `test_engine`, `test_engine_integration`, `test_kasld` and
-`test_render` with each cross toolchain and runs them under qemu-user, so
-arch-gated rule bodies
+Compiles eight suites — `test_engine`, `test_engine_integration`,
+`test_estimate`, `test_kasld`, `test_render`, `test_addr_parse`,
+`test_target_width` and `test_proc_kallsyms` — with each cross toolchain and
+runs them under qemu-user, so arch-gated rule bodies
 (`#if defined(__aarch64__)` …) execute on their own architecture instead of
 compiling to no-ops on the host. The engine tests are pure, syscall-free C, so
 this is sound under emulation.
+
+The engine core and `src/rules/*.c` are compiled once per target and linked into
+both engine binaries; `USE_CCACHE=0` compiles without ccache, which is what CI
+sets because a fresh runner restores no cache for a hit to come from.
 
 Covers 17 targets: nine 64-bit (aarch64, riscv64, s390x, mips64, mips64el,
 ppc64, ppc64le, loongarch64, x86_64) and eight 32-bit (i686, arm, armv7, armeb,
