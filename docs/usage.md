@@ -193,8 +193,8 @@ endpoints still form columns.
 KASLD 0.3.1-dev  --  Kernel ASLR derandomization
 Target: x86_64 / 7.0.0
 
-Running 101 of 104 components (3 experimental skipped; use -x to enable)...
-[####################] 100%  101/101  39.1s
+Running 106 of 109 components (3 experimental skipped; use -x to enable)...
+[####################] 100%  106/106  39.1s
 1 component timed out after 30s and was killed (prefetch_directmap)
 
   Quantity             Basis       Range                                    Search space  Align
