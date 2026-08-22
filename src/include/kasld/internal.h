@@ -511,13 +511,23 @@ enum component_outcome {
   OUTCOME_TIMEOUT,
 };
 
-#define META_MAX_ENTRIES 32
-#define META_KEY_LEN 32
-#define META_VALUE_LEN 256
+/* Cap on `key:value` lines kept from one component's .kasld_meta section. The
+ * busiest component in the tree declares 8. Overflow is reported through the
+ * discard ledger rather than dropped quietly: a lost `phase:` reassigns a
+ * component's scheduling and a lost mitigation key changes the hardening
+ * report, so a component that outgrew this must not do so in silence. */
+#define META_MAX_ENTRIES 16
 
+/* One `key:value` pair, as pointers INTO the raw section the component's log
+ * slot owns — not copies. parse_meta() terminates each field in place, so the
+ * whole table costs two pointers per entry over the section itself (under 150
+ * bytes for every component in the tree) instead of a fixed key and value
+ * buffer per slot. Both stay valid for as long as that raw section does, which
+ * is the lifetime of the log slot holding it, so a pointer handed out by
+ * meta_get() is good for the run. */
 struct meta_entry {
-  char key[META_KEY_LEN];
-  char value[META_VALUE_LEN];
+  const char *key;
+  const char *value;
 };
 
 struct component_meta {
@@ -561,6 +571,9 @@ struct component_log {
   int num_lines;
   int lines_cap;
   char *explain;
+  /* The component's .kasld_meta section, owned here. `meta` points into it, so
+   * it outlives every meta_get() the renderers make. */
+  char *meta_raw;
   struct component_meta meta;
 };
 

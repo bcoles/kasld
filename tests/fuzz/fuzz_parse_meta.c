@@ -30,6 +30,15 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
   struct component_meta m = {0};
   parse_meta(buf, &m);
 
+  /* The entries point into buf, which parse_meta terminates in place. Read
+   * every one before the free so a bad pointer or a stray terminator lands as
+   * an out-of-bounds read here rather than passing unnoticed. */
+  for (int i = 0; i < m.num_entries; i++) {
+    volatile size_t sink =
+        strlen(m.entries[i].key) + strlen(m.entries[i].value);
+    (void)sink;
+  }
+
   free(buf);
   return 0;
 }

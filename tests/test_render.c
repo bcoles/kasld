@@ -270,12 +270,12 @@ static void set_rich_render_state(struct summary *s) {
   cl->outcome = OUTCOME_SUCCESS;
   cl->exit_code = 0;
   cl->meta.num_entries = 3;
-  snprintf(cl->meta.entries[0].key, META_KEY_LEN, "method");
-  snprintf(cl->meta.entries[0].value, META_VALUE_LEN, "parsed");
-  snprintf(cl->meta.entries[1].key, META_KEY_LEN, "discloses");
-  snprintf(cl->meta.entries[1].value, META_VALUE_LEN, "virtual");
-  snprintf(cl->meta.entries[2].key, META_KEY_LEN, "sysctl");
-  snprintf(cl->meta.entries[2].value, META_VALUE_LEN, "kptr_restrict>=1");
+  cl->meta.entries[0].key = "method";
+  cl->meta.entries[0].value = "parsed";
+  cl->meta.entries[1].key = "discloses";
+  cl->meta.entries[1].value = "virtual";
+  cl->meta.entries[2].key = "sysctl";
+  cl->meta.entries[2].value = "kptr_restrict>=1";
 
   /* Populate summary KASLR info — drives render_kaslr_text and the JSON /
    * markdown KASLR rows. Values are illustrative (arch-portable enough; the
@@ -3282,9 +3282,11 @@ static struct component_log *hr_seed_comp(const char *name,
 }
 static void hr_seed_meta(struct component_log *cl, const char *k,
                          const char *v) {
+  /* An entry holds pointers into the raw section a log slot owns; here the
+   * caller's string literals stand in for it, and outlive the test. */
   int i = cl->meta.num_entries++;
-  snprintf(cl->meta.entries[i].key, META_KEY_LEN, "%s", k);
-  snprintf(cl->meta.entries[i].value, META_VALUE_LEN, "%s", v);
+  cl->meta.entries[i].key = k;
+  cl->meta.entries[i].value = v;
 }
 
 static void test_build_hardening_report(void) {
