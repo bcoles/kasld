@@ -260,6 +260,18 @@ static void dump_page_tables_hkm(void) {
  * currently-unreferenced objects (the common case on a clean boot). */
 static void dump_kmemleak_objects(void) {
   printf("=== kmemleak objects (/sys/kernel/debug/kmemleak) ===\n");
+  /* Trigger scans so leaked objects age into the report: kmemleak lists an
+   * object only once it has survived a scan still unreferenced. The write
+   * blocks until the scan completes, so two passes suffice. Fails harmlessly
+   * where the interface is absent or unwritable. */
+  for (int s = 0; s < 2; s++) {
+    int w = open("/sys/kernel/debug/kmemleak", O_WRONLY);
+    if (w < 0)
+      break;
+    ssize_t wr = write(w, "scan\n", 5);
+    (void)wr;
+    close(w);
+  }
   FILE *f = fopen("/sys/kernel/debug/kmemleak", "r");
   if (!f) {
     printf("  <absent or unreadable>\n");
