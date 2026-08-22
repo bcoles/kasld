@@ -226,6 +226,55 @@ static const char *const region_syms[] = {"page_offset_base", "vmalloc_base",
  * 0x<value>" line per region that resolves; nothing where kcore/the symbols are
  * absent. Emitted alongside the kallsyms/iomem truth so tests/vm/run can gate
  * each region's resolved window the same way it gates the text base. */
+/* Dump the debugfs page-table walk's kernel-image region, as root, where
+ * CONFIG_PTDUMP_DEBUGFS is built in. The first MAPPED run of the "High Kernel
+ * Mapping" region begins at _text — the landmark ptdump_kernel_page_tables
+ * recovers; an unmapped gap (no protection flags) precedes it. Bounded so a
+ * large walk cannot flood the log. Absent/unreadable prints one line. */
+static void dump_page_tables_hkm(void) {
+  printf("=== page-table dump: High Kernel Mapping "
+         "(/sys/kernel/debug/page_tables/kernel) ===\n");
+  FILE *f = fopen("/sys/kernel/debug/page_tables/kernel", "r");
+  if (!f) {
+    printf("  <absent or unreadable>\n");
+    return;
+  }
+  char line[512];
+  int in = 0, n = 0;
+  while (fgets(line, sizeof line, f)) {
+    if (strstr(line, "---[")) {
+      in = strstr(line, "High Kernel Mapping") != NULL;
+      if (!in && n)
+        break;
+      if (in)
+        fputs(line, stdout);
+      continue;
+    }
+    if (in && n++ < 20)
+      fputs(line, stdout);
+  }
+  fclose(f);
+}
+
+/* Dump the first few kmemleak object lines, as root. Empty on a system with no
+ * currently-unreferenced objects (the common case on a clean boot). */
+static void dump_kmemleak_objects(void) {
+  printf("=== kmemleak objects (/sys/kernel/debug/kmemleak) ===\n");
+  FILE *f = fopen("/sys/kernel/debug/kmemleak", "r");
+  if (!f) {
+    printf("  <absent or unreadable>\n");
+    return;
+  }
+  char line[1024];
+  int n = 0;
+  while (fgets(line, sizeof line, f))
+    if (strstr(line, "unreferenced object") && n++ < 8)
+      fputs(line, stdout);
+  if (!n)
+    printf("  <no leaked objects reported>\n");
+  fclose(f);
+}
+
 static void dump_region_kaslr_truth(void) {
   printf("=== region kaslr truth (/proc/kcore) ===\n");
   int any = 0;
@@ -653,6 +702,8 @@ int main(void) {
   dump_bpf_kfunc_offsets();
   dump_iomem_kernel();
   dump_region_kaslr_truth();
+  dump_page_tables_hkm();
+  dump_kmemleak_objects();
   printf("=== presence probes ===\n");
   printf("/sys/firmware/efi: %d   /proc/device-tree: %d   "
          "/proc/device-tree/chosen/kaslr-seed: %d\n",
