@@ -68,6 +68,13 @@ kernel's real symbol addresses. `validate-bundle` runs the matching `kasld` bina
 over that bundle offline and checks every inferred range against the captured
 ground truth. It exits non-zero if any range excludes the truth. No root needed.
 
+It also lists which vantage sources the bundle carries — the collecting
+process's identity, its MAC label, the active LSM list, the group database, and
+the container markers. Those do not affect an inferred range, so a missing one
+is reported rather than failed; it is reported at all because its absence is
+silent in the analysis, where an unread source and an empty answer both present
+as "unknown".
+
 `--kallsyms` can only record the ground truth when kallsyms is readable
 (`kptr_restrict=0`, or root). Without it the bundle carries no truth and the
 checks report `N/A` rather than `PASS` — still not a failure, just nothing to

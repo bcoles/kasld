@@ -393,6 +393,66 @@ fi
 echo
 
 # ---------------------------------------------------------------------------
+# Vantage completeness.
+#
+# Not a soundness check, and deliberately not counted: a missing vantage source
+# does not move an inferred range. It is reported because its absence is SILENT
+# in the analysis -- kasld says "unknown", or in the container line "none", and
+# a reader has no way to tell a source that answered from one the bundle never
+# carried. Which is the same question the bundle exists to settle for the
+# layout, asked about the observer.
+#
+# Presence of the FIELD, not just the file: a status file stripped of its Uid:
+# line degrades exactly as a missing one does, and a bundle assembled by hand
+# (or scrubbed harder than extra/collect scrubs) is where that happens.
+# ---------------------------------------------------------------------------
+SR=$BUNDLE/sysroot
+
+vant_have() { printf '  %-13s %s%s%s\n' "$1" "$GREEN" "$2" "$RESET"; }
+vant_miss() { printf '  %-13s %s(absent) %s%s\n' "$1" "$YELLOW" "$2" "$RESET"; }
+
+printf '%sVantage sources:%s\n' "$BOLD" "$RESET"
+
+if [ -s "$SR/proc/self/status" ] && grep -q '^Uid:' "$SR/proc/self/status"; then
+  vu=$(awk '$1 == "Uid:" { print $2 }' "$SR/proc/self/status")
+  vg=$(awk '$1 == "Gid:" { print $2 }' "$SR/proc/self/status")
+  ng=$(awk '$1 == "Groups:" { print NF - 1 }' "$SR/proc/self/status")
+  vant_have identity "uid=${vu:-?} gid=${vg:-?}, ${ng:-0} group(s)"
+else
+  vant_miss identity "— the report cannot name the uid, gid or groups it ran as"
+fi
+
+if [ -s "$SR/proc/self/attr/current" ]; then
+  vant_have "mac label" "$(tr -d '\0\n' < "$SR/proc/self/attr/current")"
+else
+  vant_miss "mac label" "— no security context row"
+fi
+
+if [ -s "$SR/sys/kernel/security/lsm" ]; then
+  vant_have "lsm list" "$(tr -d '\0\n' < "$SR/sys/kernel/security/lsm")"
+else
+  vant_miss "lsm list" "— LSM reports as unknown, which is not 'no LSM'"
+fi
+
+if [ -s "$SR/etc/group" ]; then
+  vant_have "group names" "$(grep -c ':' "$SR/etc/group") entries"
+else
+  vant_miss "group names" "— gids report by number unless kasld gates on them"
+fi
+
+# Container detection reads four sources and concludes from ALL of them; a
+# bundle carrying none of them reports "Container: none", which is the answer
+# for a host that is not containerized. Absence is the misleading case here,
+# so the line is about the SET, not any one file.
+if [ -e "$SR/.dockerenv" ] || [ -e "$SR/run/.containerenv" ] ||
+   [ -s "$SR/proc/self/cgroup" ] || [ -s "$SR/proc/1/cgroup" ]; then
+  vant_have container "detectable from the captured markers/cgroups"
+else
+  vant_miss container "— reports 'none', indistinguishable from not captured"
+fi
+echo
+
+# ---------------------------------------------------------------------------
 # Pull engine-resolved ranges from JSON.
 # ---------------------------------------------------------------------------
 get() { jq -r "$1 // empty" "$JSON" 2>/dev/null; }
