@@ -12,6 +12,25 @@
 // C_LOWER_BOUND on Q_VIRT_IMAGE_BASE.
 // MIPS/LoongArch only; inert when no VIRT TEXT/IMAGE or DATA/BSS observation
 // is present.
+//
+// The bound holds only if the placer ran. arch/mips/kernel/relocate.c and
+// arch/loongarch/kernel/relocate.c both return the link address untouched when
+// kaslr_disabled(), leaving offset 0 -- and the no-KASLR base sits at the
+// window floor (loongarch) or just above it (mips, by 0x100000 +
+// IMAGE_BASE_OFFSET), either way far below floor + a whole image. So with
+// KASLR off the bound excludes the truth.
+//
+// That premise cannot be established from a leak. A positive "KASLR ran" fact
+// does not exist: the absence of SF_VIRT_KASLR_DISABLED means the disable was
+// not observed, not that it did not happen, and a vantage with no readable
+// cmdline or config cannot tell the two apart. The lowest text observation does
+// not settle it either -- a text symbol sits above the base, so finding one
+// above the compile-time default proves nothing about the base.
+//
+// Hence CONF_HEURISTIC, below the sound floor: this shapes the speculative
+// result only and can never narrow the guaranteed window. A positive disable
+// signal skips it outright, so a claim already known to be false is not made
+// even speculatively.
 // ---
 // <bcoles@gmail.com>
 
@@ -28,6 +47,14 @@ int rule_min_offset_from_image_size(const struct evidence_set *ev,
 #if defined(__mips__) || defined(__loongarch__)
   if (out_max < 1)
     return 0;
+
+  for (int i = 0; i < ev->n_obs; i++) {
+    const struct observation *o = &ev->obs[i];
+    if (!o->valid || o->value_kind != OBS_SCALAR)
+      continue;
+    if (o->scalar_fact == SF_VIRT_KASLR_DISABLED && o->scalar_value != 0)
+      return 0;
+  }
 
   unsigned long min_text = ULONG_MAX, max_data = 0;
   uint32_t tsrc = 0, dsrc = 0;
@@ -64,7 +91,7 @@ int rule_min_offset_from_image_size(const struct evidence_set *ev,
   c->q = Q_VIRT_IMAGE_BASE;
   c->op = C_LOWER_BOUND;
   c->value = new_min;
-  c->conf = CONF_INFERRED;
+  c->conf = CONF_HEURISTIC;
   c->derived_from[0] = tsrc;
   c->derived_from[1] = dsrc;
   c->lineage_count = 2;

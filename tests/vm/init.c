@@ -548,6 +548,9 @@ int main(void) {
   mount("sysfs", "/sys", "sysfs", 0, "");
   mount("devtmpfs", "/dev", "devtmpfs", 0, "");
   mount("tmpfs", "/tmp", "tmpfs", 0, "");
+  /* debugfs, the source for debugfs-based leak components. Mounts only where
+   * CONFIG_DEBUG_FS is built in; the call fails harmlessly otherwise. */
+  mount("debugfs", "/sys/kernel/debug", "debugfs", 0, "");
 
   /* Before anything reads /proc/modules or /sys/module. */
   load_staged_modules();
