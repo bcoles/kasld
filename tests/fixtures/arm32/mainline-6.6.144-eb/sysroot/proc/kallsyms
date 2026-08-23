@@ -1,0 +1,4 @@
+c0300000 T _stext
+c1200000 D _etext
+c19003c0 T _sinittext
+c19ab60c T _einittext

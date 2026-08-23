@@ -1,0 +1,5 @@
+c0300000 T _stext
+c1400000 D _etext
+c1400000 D __start_rodata
+c1c003c0 T _sinittext
+c1cad11c T _einittext
