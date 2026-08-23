@@ -105,8 +105,12 @@ bump() {
 # ---------------------------------------------------------------------------
 # Hex helpers — normalise to 16-char lowercase for byte-wise comparison.
 # ---------------------------------------------------------------------------
+# Zero is an address, not an absence. Stripping leading zeros from an all-zero
+# value leaves the empty string, and every caller tests the result with -n --
+# so a legitimately-zero edge read as "not resolved". s390's static virtual
+# window floor is 0, which is why nothing on that arch could ever be checked.
 hex16() {
-  printf '%s' "$1" | tr 'A-F' 'a-f' | sed 's/^0x//; s/^0*//' \
+  printf '%s\n' "$1" | tr 'A-F' 'a-f' | sed 's/^0x//; s/^0*//; s/^$/0/' \
     | awk '{ printf "%016s\n", $0 }' | tr ' ' '0'
 }
 # String compare on 16-char zero-padded lowercase hex (the hex16 output).
@@ -402,6 +406,13 @@ if [ -s "$IM" ]; then
   if [ -n "$line" ]; then
     lo=$(printf '%s' "$line" | sed 's/^ *//' | cut -d'-' -f1)
     truth_ptext=$(hex16 "$lo")
+    # An unprivileged read of /proc/iomem reports every range as 0-0. The
+    # kernel is not at physical 0 on any supported arch, so an all-zero start
+    # is a masked field rather than a base -- the same reading the kallsyms
+    # truth above gives a zeroed address.
+    case "$truth_ptext" in
+    0000000000000000) truth_ptext="" ;;
+    esac
   fi
 fi
 

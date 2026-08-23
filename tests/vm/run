@@ -354,6 +354,38 @@ runtime_text_truth() {
   printf '0x%s%08x' "$_rt_hi" "$_rt_d"
 }
 
+# Write the runtime _text into the boot log when the kernel withheld it.
+#
+# The verdicts read the log and nothing else, so the derivation belongs here,
+# once, rather than at each reader. mips exports only _stext, and a verdict that
+# substitutes _stext for _text compares a value a head gap above the quantity
+# kasld solves -- which passes a window whose lower edge sits between the two,
+# hiding an over-narrowing of up to that gap.
+#
+# The appended block says where the value came from, so a reader of the log can
+# tell a derived landmark from one the kernel published.
+append_text_truth() {
+  _at_log=$1 _at_img=$2
+  [ -f "$_at_log" ] || return 0
+  awk '/ _text$/ { exit 1 }' "$_at_log" || return 0
+  _at_st=$(awk '/ _stext$/ { print $1; exit }' "$_at_log")
+  [ -n "$_at_st" ] || return 0
+  [ -f "$_at_img" ] || return 0
+  command -v readelf >/dev/null 2>&1 || return 0
+  _at_syms=$(readelf -sW "$_at_img" 2>/dev/null) || return 0
+  _at_lt=$(printf '%s\n' "$_at_syms" | awk '$8 == "_text"  { print $2; exit }')
+  _at_ls=$(printf '%s\n' "$_at_syms" | awk '$8 == "_stext" { print $2; exit }')
+  [ -n "$_at_lt" ] && [ -n "$_at_ls" ] || return 0
+  _at_gap=$(hex_gap "$_at_lt" "$_at_ls") || return 0
+  _at_lo=$(printf '%s' "$_at_st" | tr 'A-F' 'a-f')
+  _at_hi=${_at_lo%????????}
+  [ "$_at_lo" != "$_at_hi" ] || return 0
+  _at_d=$(( 0x${_at_lo#"$_at_hi"} - _at_gap ))
+  [ "$_at_d" -ge 0 ] || return 0
+  printf '=== derived _text (booted vmlinux head gap) ===\n%s%08x T _text\n' \
+    "$_at_hi" "$_at_d" >> "$_at_log"
+}
+
 verdict() {
   _log=$1
   grep -aq 'KASLD VM DONE' "$_log" || { echo "INCOMPLETE  (boot did not finish; see $_log)"; return 1; }
@@ -885,6 +917,7 @@ EOF
   # Strip CR and NUL bytes: early console output can contain binary noise that
   # makes grep treat the log as binary and skip matches.
   tr -d '\r\000' <"$log" >"$log.clean" && mv "$log.clean" "$log"
+  append_text_truth "$log" "$CACHE/$name-vmlinuz"
 
   if [ "$mode" = capture ]; then
     reconstruct_fixture "$name" "$flavor" "$prefix" "$log" "$CACHE/$name-vmlinuz"
