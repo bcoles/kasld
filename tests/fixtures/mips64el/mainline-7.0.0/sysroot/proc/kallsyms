@@ -1,0 +1,6 @@
+ffffffff810e0400 T _stext
+ffffffff818edcb0 T _etext
+ffffffff818f2000 D __start_rodata
+ffffffff81b28000 T _sinittext
+ffffffff81b28000 T __init_begin
+ffffffff81b5a178 T _einittext
