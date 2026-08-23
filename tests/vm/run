@@ -432,8 +432,8 @@ fixture_arch() {
     armv7|armeb|arm)        echo arm32 ;;
     riscv64)                echo riscv64 ;;
     riscv32)                echo riscv32 ;;
-    mips)                   echo mips32 ;;
-    mipsel)                 echo mips32el ;;
+    mips | mipsel)          echo mips32 ;;
+    mips64 | mips64el)      echo mips64 ;;
     powerpc64le|powerpc64|ppc64le|ppc64) echo ppc64 ;;
     powerpc|ppc)            echo ppc32 ;;
     s390x)                  echo s390 ;;
@@ -552,8 +552,28 @@ reconstruct_fixture() {
   # same directory, and the capture rm -rf's the destination first, so whichever
   # ran last would silently be the one kept.
   _variant=$(printf '%s' "$_name" | cut -s -d- -f4-)
-  _fid=$(printf '%s-%s%s' "$_distro" "$_rel" "${_variant:+-$_variant}" |
-    sed 's/[^A-Za-z0-9._-]/-/g')
+
+  # Byte order, where the arch directory can hold both. There is no per-arch
+  # header for an endianness -- mips32.h serves mips and mipsel alike -- so it is
+  # a property of the capture, not an architecture, and belongs in the id beside
+  # the variant. Without it the two orders resolve to one directory and the
+  # capture rm -rf's it: ppc64 already holds a ppc64 and a ppc64le bundle, kept
+  # apart only by their release strings happening to differ.
+  #
+  # Read from the booted image's ELF header rather than a table of which cell is
+  # which: EI_DATA is the kernel's own statement of its byte order.
+  _endian=
+  case "$_canon" in
+  arm32 | ppc64 | mips32 | mips64)
+    case "$(od -An -tx1 -j5 -N1 "$_kimg" 2>/dev/null | tr -d ' ')" in
+    01) _endian=el ;;
+    02) _endian=eb ;;
+    esac
+    ;;
+  esac
+
+  _fid=$(printf '%s-%s%s%s' "$_distro" "$_rel" "${_endian:+-$_endian}" \
+    "${_variant:+-$_variant}" | sed 's/[^A-Za-z0-9._-]/-/g')
 
   # Boot image: size (sizes.txt) + 4 KiB header prefix, taken host-side from the
   # kernel we booted — mirrors extra/collect's boot_image "hdr" mode.
