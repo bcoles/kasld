@@ -18,7 +18,8 @@
 #
 # The check drives `make fuzz` rather than reassembling its command line, so it
 # cannot pass while the target it is guarding fails. It also pairs each harness
-# with its seed corpus: a harness with no corpus starts from nothing every run.
+# with its corpus and says which have none -- a note, not a verdict: a corpus is
+# grown by fuzzing and is untracked, so a fresh checkout has none of them.
 #
 # Soft dependency: without a compiler that can link -fsanitize=fuzzer this
 # SKIPs, loudly, so a missing toolchain reads as unchecked rather than as
@@ -87,12 +88,16 @@ for f in "$FUZZ_DIR"/fuzz_*.c; do
   fi
 done
 
+# Reported, never fatal. A corpus is grown by running the fuzzer and is
+# untracked by design (.gitignore), so it exists only on a machine that has
+# fuzzed -- a checkout has none, and failing on that would mean this guard could
+# only ever pass where it was not needed. What it says here is a note to whoever
+# is about to fuzz, not a claim about the tree.
 if [ -n "$no_corpus" ]; then
-  printf '%scheck-fuzz-harnesses: FAIL%s — harness with no seed corpus:%s\n' \
-    "$RED" "$RESET" "$no_corpus"
-  printf '  expected %s/<name>/ for each tests/fuzz/fuzz_<name>.c\n' \
+  printf '%scheck-fuzz-harnesses: note%s — no local corpus yet:%s\n' \
+    "$YELLOW" "$RESET" "$no_corpus"
+  printf '  %s/<name>/ is grown by running the fuzzer; these start from nothing\n' \
     "$CORPUS_DIR"
-  exit 1
 fi
 
 guard_scope "check-fuzz-harnesses" "$n" 4
@@ -127,6 +132,9 @@ if [ -n "$missing" ]; then
   exit 1
 fi
 
-printf '%scheck-fuzz-harnesses: OK%s (%d harnesses build and link, each seeded)\n' \
-  "$GREEN" "$RESET" "$n"
+_nc=0
+for _b in $no_corpus; do _nc=$((_nc + 1)); done
+_seeded="$((n - _nc)) of $n have a local corpus"
+printf '%scheck-fuzz-harnesses: OK%s (%d harnesses build and link; %s)\n' \
+  "$GREEN" "$RESET" "$n" "$_seeded"
 exit 0
