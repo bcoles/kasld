@@ -161,6 +161,7 @@ stays plain, and setting `KASLD_COLOR` non-empty or empty forces either.
 | `check-live-probes` | every live probe (reads live kernel/CPU state) is tagged `live:1` and self-guards with `kasld_skip_live_probe()`, so it never runs offline against the analysis host |
 | `check-text-floor` | no component rolls its own text-base floor — they must use the `api.h` helper |
 | `check-shellcheck` | shellcheck over the `extra/` helper scripts |
+| `check-fuzz-harnesses` | every libFuzzer harness under `tests/fuzz/` still builds and links against the tree, and has a seed corpus. A harness names the parser it drives by `#include`ing the source file holding it, which makes it the only test that follows the orchestrator's internals rather than its output — and that is how it rots: moving a global to another object, or retiring one, stops the harness linking while every other test stays green. `make fuzz` sits outside the default build graph so that a missing clang stops nobody, which also means nothing else would ever notice. It drives the real `make fuzz` rather than reassembling its command line, so it cannot pass while the target fails, and it asserts a binary exists for every harness in the tree, so one the build never reached cannot pass as one that built cleanly. Needs a compiler that links `-fsanitize=fuzzer`; skips loudly otherwise |
 | `check-confidence-floor` | no engine rule pins the *guaranteed* window from a guess — a sub-floor signal may shape `likely` only, outside the reviewed allowlist |
 | `check-text-provenance` | a component may claim `REGION_KERNEL_TEXT` in the sound band only where its *source* establishes image membership; where the region rests on a range test it must come from `kasld_addr_classify()`, which returns `REGION_KERNEL_TEXT_BAND` wherever the windows are not exclusive. The text window is the KASLR-*admissible* range, not the image's extent, so on most architectures it contains the linear map, the module band, or both — `[0x40000000, 0xf0000000]` on ppc32/arm32/x86_32, and beginning at `PAGE_OFFSET` on ppc64. `kasld_addr_is_directmap()` is written as "below the text window", which makes that window empty exactly where the two collide, so a classifier asking the predicates in order resolves every ambiguous address in favour of text — silently, and always toward the strongest tag. That matters because an interior-image sample implies `image_base <= sample`: a direct-map pointer tagged as text and sitting below the real `_text` carves the truth out of the guaranteed window. Both halves were reproduced — a `task_struct` from the ZFS debug log came back `kernel_text pos=interior conf=parsed` on ppc32, ppc64 and s390, and the same shape in `/proc/<pid>/syscall` put the true base outside the guaranteed window on 2 of 5 boots of a 5.9 ppc32 kernel. Scope is at-or-above the sound floor, since a sub-floor text claim cannot bound the guaranteed window whatever its region says. The allowlist records *what carries the proof* for each entry — a symbol resolved by name, an instruction address, an ELF program header — and is itself checked for staleness, because an entry naming a component that no longer claims text is how the next real offender gets waved through. It does not trace values: it forces the question to be asked and records the answer |
 | `check-env-docs` | every environment variable read outside `src/components/` has a `kasld(1)` ENVIRONMENT entry, and every entry is actually read. Component-exclusive variables are excluded deliberately: a component is a standalone program whose debugging knobs belong to it, not to the orchestrator's interface, and documenting them would oblige one page to track 118 components' internals. Two of them — `KASLD_COMPONENT_DIR` and `KASLD_EXEC_WRAPPER` — name programs kasld will execute, so an undocumented one is an execution knob invisible to anyone reviewing a `sudoers` rule or a packaging script. The same parity check `check-manpages` applies to flags; documentation fixes the surface once, this keeps it fixed as the surface grows |
@@ -187,10 +188,11 @@ stays plain, and setting `KASLD_COLOR` non-empty or empty forces either.
 | `hardening-fixtures` | the `-H` hardening advisor holds its structural invariants when driven over the captured x86_64 sysroots. `test_render.c` covers the meta → gate → suggestion logic by seeding component logs synthetically; this drives the REAL binary over real captures, which is the path that regressed before. Not named `check-*`: it exercises behaviour over fixtures rather than asserting a source invariant, but `make lint` runs it and it is part of that contract |
 | `cli-flags` | the argument parser, chiefly short-flag bundling (`-fq` == `-f -q`), which `main()`'s option loop cannot be unit-tested for (`main` is compiled out under `-DKASLD_TESTING`). Same note on the name as above |
 
-`check-truncation` needs `i686-linux-gnu-gcc` and `check-shellcheck` needs
-`shellcheck`; both **skip cleanly** (exit 0) when their tool is absent, so
-`make lint` works with just a host compiler. CI installs both, so there they run
-for real.
+`check-truncation` needs `i686-linux-gnu-gcc`, `check-shellcheck` needs
+`shellcheck`, and `check-fuzz-harnesses` needs a compiler that links
+`-fsanitize=fuzzer`; all three **skip cleanly** (exit 0) when their tool is
+absent, so `make lint` works with just a host compiler. CI installs the first
+two, so there they run for real.
 
 ---
 
@@ -497,8 +499,9 @@ in `test_outcome` (layer 1). See `tests/container/README.md`.
 
 - **Layer 1** (`make check`): a C compiler (`cc` / gcc / clang) and `make`.
   Nothing else for the unit tests. The `make lint` guards optionally use
-  `i686-linux-gnu-gcc` (`check-truncation`) and `shellcheck`
-  (`check-shellcheck`); both skip cleanly when absent.
+  `i686-linux-gnu-gcc` (`check-truncation`), `shellcheck` (`check-shellcheck`)
+  and a libFuzzer-capable clang (`check-fuzz-harnesses`); all skip cleanly when
+  absent.
 - **Layers 2–3** (qemu paths): musl-cross toolchains on `PATH` (any source —
   [musl.cc](https://musl.cc/) prebuilt sets, distribution packages, or a local
   build all work; KASLD targets the standard `<arch>-linux-musl-gcc` triples),

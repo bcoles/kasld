@@ -32,7 +32,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
 
   num_results = 0;
   num_scalar_facts = 0;
-  orchestrator_saturation = 0;
+  kasld_discard_reset();
 
   capture_scalar(buf, 0);
 

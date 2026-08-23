@@ -1,0 +1,132 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-fuzz-harnesses — the fuzz harnesses must still build against the tree.
+#
+# A harness under tests/fuzz/ names the parser it drives by #including the
+# source file holding it, which makes it the only test that follows the
+# orchestrator's internals rather than its output. That is also how it rots:
+# move a global into another object, or retire one, and the harness stops
+# linking while every other test stays green.
+#
+# `make fuzz` is deliberately outside the default build graph, so that nobody
+# without clang is stopped by its absence — which also means nothing in `make
+# test` ever discovers that a harness stopped compiling. Five of six had been
+# broken for some time before this guard existed: the seed corpora, the
+# documentation and the security posture all described fuzzing that could not
+# be run.
+#
+# The check drives `make fuzz` rather than reassembling its command line, so it
+# cannot pass while the target it is guarding fails. It also pairs each harness
+# with its seed corpus: a harness with no corpus starts from nothing every run.
+#
+# Soft dependency: without a compiler that can link -fsanitize=fuzzer this
+# SKIPs, loudly, so a missing toolchain reads as unchecked rather than as
+# clean.
+#
+# Usage: tests/check-fuzz-harnesses   (also run by `make lint` / `make test`)
+# Env:   FUZZ_CC (default: clang), JOBS (parallelism for the build)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+FUZZ_DIR=$ROOT/tests/fuzz
+CORPUS_DIR=$FUZZ_DIR/corpus
+# shellcheck source=tests/lib/guard-scope.sh
+. "$ROOT/tests/lib/guard-scope.sh"
+
+if [ -t 1 ] || [ -n "${KASLD_COLOR:-}" ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m')
+  YELLOW=$(printf '\033[33m'); RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; YELLOW=; RESET=
+fi
+
+FUZZ_CC=${FUZZ_CC:-clang}
+if ! command -v "$FUZZ_CC" >/dev/null 2>&1; then
+  printf '%scheck-fuzz-harnesses: SKIP%s (%s not installed)\n' \
+    "$YELLOW" "$RESET" "$FUZZ_CC"
+  exit 0
+fi
+
+TMP=$(mktemp -d "${TMPDIR:-/tmp}/kasld-fuzz.XXXXXX") || {
+  printf '%scheck-fuzz-harnesses: FAIL%s — mktemp\n' "$RED" "$RESET"; exit 1; }
+trap 'rm -rf "$TMP"' EXIT
+
+# A compiler can exist without shipping libFuzzer, and the failure then lands at
+# link time inside the build below, where it would read as a broken harness.
+# Settle which it is up front, on a file that is known good.
+cat >"$TMP/probe.c" <<'EOF'
+#include <stddef.h>
+#include <stdint.h>
+int LLVMFuzzerTestOneInput(const uint8_t *d, size_t n) {
+  (void)d;
+  (void)n;
+  return 0;
+}
+EOF
+if ! "$FUZZ_CC" -fsanitize=fuzzer,address,undefined "$TMP/probe.c" \
+     -o "$TMP/probe" >"$TMP/probe.log" 2>&1; then
+  printf '%scheck-fuzz-harnesses: SKIP%s (%s cannot link -fsanitize=fuzzer)\n' \
+    "$YELLOW" "$RESET" "$FUZZ_CC"
+  exit 0
+fi
+
+# Every harness, and the corpus its name implies: fuzz_parse_meta.c is seeded
+# from corpus/parse_meta/.
+n=0
+no_corpus=
+for f in "$FUZZ_DIR"/fuzz_*.c; do
+  [ -f "$f" ] || continue
+  n=$((n + 1))
+  base=$(basename "$f" .c)
+  seeds=$CORPUS_DIR/${base#fuzz_}
+  if [ ! -d "$seeds" ]; then
+    no_corpus="$no_corpus $base"
+  fi
+done
+
+if [ -n "$no_corpus" ]; then
+  printf '%scheck-fuzz-harnesses: FAIL%s — harness with no seed corpus:%s\n' \
+    "$RED" "$RESET" "$no_corpus"
+  printf '  expected %s/<name>/ for each tests/fuzz/fuzz_<name>.c\n' \
+    "$CORPUS_DIR"
+  exit 1
+fi
+
+guard_scope "check-fuzz-harnesses" "$n" 4
+
+# Build through the real target. MAKEFLAGS is cleared because this may run
+# under `make lint`, whose jobserver this build is not a part of.
+jobs=${JOBS:-$(nproc 2>/dev/null || echo 1)}
+if ! MAKEFLAGS='' MFLAGS='' make -C "$ROOT" -j"$jobs" fuzz \
+     >"$TMP/build.log" 2>&1; then
+  # The backticks quote a make target, not a command substitution.
+  # shellcheck disable=SC2016
+  printf '%scheck-fuzz-harnesses: FAIL%s — `make fuzz` does not build\n' \
+    "$RED" "$RESET"
+  sed -n '/error\|Error\|undefined/p' "$TMP/build.log" | head -20
+  exit 1
+fi
+
+# `make fuzz` reports success for what it chose to build; assert that is every
+# harness in the tree, so a harness the build never reaches cannot pass here as
+# one that built cleanly.
+missing=
+for f in "$FUZZ_DIR"/fuzz_*.c; do
+  [ -f "$f" ] || continue
+  base=$(basename "$f" .c)
+  [ -x "$ROOT/build/fuzz/$base" ] || missing="$missing $base"
+done
+
+if [ -n "$missing" ]; then
+  # shellcheck disable=SC2016
+  printf '%scheck-fuzz-harnesses: FAIL%s — `make fuzz` built no binary for:%s\n' \
+    "$RED" "$RESET" "$missing"
+  exit 1
+fi
+
+printf '%scheck-fuzz-harnesses: OK%s (%d harnesses build and link, each seeded)\n' \
+  "$GREEN" "$RESET" "$n"
+exit 0

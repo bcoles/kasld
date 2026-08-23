@@ -794,6 +794,7 @@ lint :
 	    $(TEST_DIR)/check-validators \
 	    $(TEST_DIR)/check-env-docs \
 	    $(TEST_DIR)/check-shellcheck \
+	    $(TEST_DIR)/check-fuzz-harnesses \
 	    $(TEST_DIR)/check-baseline \
 	    $(TEST_DIR)/check-render-parity \
 	    $(TEST_DIR)/check-render-color \
@@ -903,13 +904,23 @@ test-engine : $(TEST_ENG_BIN)
 FUZZ_CC      ?= clang
 FUZZ_CFLAGS  ?= -O1 -g -fsanitize=fuzzer,address,undefined -DKASLD_TESTING -I src
 FUZZ_OUT     := $(BUILD_DIR)/fuzz
-FUZZ_TARGETS := fuzz_parse_hex fuzz_capture_result fuzz_capture_scalar fuzz_parse_meta fuzz_parse_disposition fuzz_btf
+# Derived from the tree, not listed: a hand-maintained list is a second
+# inventory, and a harness missing from it is never built — which reads as
+# "nothing to report" rather than as a harness nobody compiles.
+FUZZ_TARGETS := $(patsubst tests/fuzz/%.c,%,$(wildcard tests/fuzz/fuzz_*.c))
 FUZZ_BINS    := $(addprefix $(FUZZ_OUT)/,$(FUZZ_TARGETS))
 
-$(FUZZ_OUT)/% : tests/fuzz/%.c
+# A harness names the parser it drives by #including the source file holding
+# it, so most of the program arrives through that one translation unit. What
+# does not is the estimate lattice and the quantity table: the orchestrator
+# reads both, they live in their own objects, and a harness that includes
+# orchestrator.c will not link without them.
+FUZZ_SRCS    := src/estimate.c src/quantities.c
+
+$(FUZZ_OUT)/% : tests/fuzz/%.c $(FUZZ_SRCS)
 	@mkdir -p "$(FUZZ_OUT)"
 	$(call ccv,CCLD,$@)
-	$(Q)$(FUZZ_CC) $(FUZZ_CFLAGS) "$<" -o "$@"
+	$(Q)$(FUZZ_CC) $(FUZZ_CFLAGS) "$<" $(FUZZ_SRCS) -o "$@"
 
 .PHONY: fuzz
 fuzz : $(FUZZ_BINS)

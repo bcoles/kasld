@@ -39,11 +39,12 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
       buf[i] = '\0';
 
   /* Reset orchestrator state so results[] and scalar_facts[] do not grow
-   * unbounded across iterations. Cap saturation flags too — a single fuzz
-   * input shouldn't carry state from the previous one. */
+   * unbounded across iterations, and clear the discard ledger with them: a
+   * single fuzz input should not carry state from the previous one, and a
+   * ledger left full would make every later iteration's caps look reached. */
   num_results = 0;
   num_scalar_facts = 0;
-  orchestrator_saturation = 0;
+  kasld_discard_reset();
 
   capture_result(buf, "fuzz", 0);
 
