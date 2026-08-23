@@ -303,6 +303,57 @@ region_verdict() {
 # verdict <log>: prints "PASS|FAIL|N/A  <detail>" and returns 0 only on PASS/NA.
 # Gates on BOTH axes: the virtual text base AND (on decoupled arches) the physical
 # image base must lie inside their resolved windows.
+# Runtime _text truth for a kernel that does not export _text through kallsyms.
+#
+# mips exports only _stext, at any privilege, so a capture from one carries no
+# truth for the quantity kasld solves. The image that was booted carries both
+# symbols, and the gap between them is this build's fact: runtime _text =
+# runtime _stext - (link _stext - link _text).
+#
+# It has to come from the image. Reconstructing _text from the physical address
+# in /proc/iomem would need PAGE_OFFSET, which cancels against the window the
+# truth is later checked against -- leaving a comparison that holds for any
+# kernel ever built. STEXT_OFFSET is no good either: a per-arch fallback
+# constant, not this build's fact.
+#
+# Only the low word reaches the shell. Arithmetic here is intmax_t, and every
+# mips64 kernel address is above INTMAX_MAX, where dash silently yields 0 --
+# so the halves are compared as strings and only the low 32 bits are subtracted.
+hex_gap() {
+  _ga=$(printf '%s' "$1" | tr 'A-F' 'a-f')
+  _gb=$(printf '%s' "$2" | tr 'A-F' 'a-f')
+  # A 32-bit address is exactly the low word, so the high half is empty -- that
+  # is a valid case, not a missing one. Equal halves is the whole requirement.
+  _gah=${_ga%????????}; _gbh=${_gb%????????}
+  [ "$_ga" != "$_gah" ] && [ "$_gah" = "$_gbh" ] || return 1
+  _gd=$(( 0x${_gb#"$_gbh"} - 0x${_ga#"$_gah"} ))
+  [ "$_gd" -ge 0 ] || return 1
+  printf '%s' "$_gd"
+}
+
+# Echoes the runtime _text as 0x-hex, or nothing when it cannot be established:
+# no image symbols (stripped or compressed), no runtime _stext, or the image
+# already exports _text, in which case the capture needs no recorded truth.
+runtime_text_truth() {
+  _rt_img=$1; _rt_ks=$2
+  [ -f "$_rt_img" ] && [ -s "$_rt_ks" ] || return 0
+  command -v readelf >/dev/null 2>&1 || return 0
+  awk '$3 == "_text" { exit 1 }' "$_rt_ks" || return 0
+  _rt_st=$(awk '$3 == "_stext" { print $1; exit }' "$_rt_ks")
+  [ -n "$_rt_st" ] || return 0
+  _rt_syms=$(readelf -sW "$_rt_img" 2>/dev/null) || return 0
+  _rt_lt=$(printf '%s\n' "$_rt_syms" | awk '$8 == "_text"  { print $2; exit }')
+  _rt_ls=$(printf '%s\n' "$_rt_syms" | awk '$8 == "_stext" { print $2; exit }')
+  [ -n "$_rt_lt" ] && [ -n "$_rt_ls" ] || return 0
+  _rt_gap=$(hex_gap "$_rt_lt" "$_rt_ls") || return 0
+  _rt_lo=$(printf '%s' "$_rt_st" | tr 'A-F' 'a-f')
+  _rt_hi=${_rt_lo%????????}
+  [ "$_rt_lo" != "$_rt_hi" ] || return 0
+  _rt_d=$(( 0x${_rt_lo#"$_rt_hi"} - _rt_gap ))
+  [ "$_rt_d" -ge 0 ] || return 0
+  printf '0x%s%08x' "$_rt_hi" "$_rt_d"
+}
+
 verdict() {
   _log=$1
   grep -aq 'KASLD VM DONE' "$_log" || { echo "INCOMPLETE  (boot did not finish; see $_log)"; return 1; }
@@ -463,7 +514,14 @@ reconstruct_fixture() {
   # flavor=local => a mainline kernel.org build; else an Alpine distro kernel.
   _canon=$(fixture_arch "$_prefix")
   if [ "$_flavor" = local ]; then _distro="mainline"; else _distro="alpine-$ALPINE_VER"; fi
-  _fid=$(printf '%s-%s' "$_distro" "$_rel" | sed 's/[^A-Za-z0-9._-]/-/g')
+  # A cell name is <prefix>-<flavor>-<version>[-<variant>]; the variant is what
+  # makes the boot non-default (a VA size, a VMSPLIT). It has to reach the
+  # fixture id: without it a variant cell and its default sibling resolve to the
+  # same directory, and the capture rm -rf's the destination first, so whichever
+  # ran last would silently be the one kept.
+  _variant=$(printf '%s' "$_name" | cut -s -d- -f4-)
+  _fid=$(printf '%s-%s%s' "$_distro" "$_rel" "${_variant:+-$_variant}" |
+    sed 's/[^A-Za-z0-9._-]/-/g')
 
   # Boot image: size (sizes.txt) + 4 KiB header prefix, taken host-side from the
   # kernel we booted — mirrors extra/collect's boot_image "hdr" mode.
@@ -475,6 +533,8 @@ reconstruct_fixture() {
   else
     : > "$_tmp/sizes.txt"
   fi
+
+  _tvt=$(runtime_text_truth "$_kimg" "$_sr/proc/kallsyms")
 
   _kbin=""
   for _c in "$BUILD_DIR/$_prefix"-*/kasld; do [ -x "$_c" ] && { _kbin=$_c; break; }; done
@@ -493,6 +553,12 @@ reconstruct_fixture() {
     echo "host_scrubbed:    1"
     echo "kallsyms:         1"
     echo "source:           vm ($_name)"
+    # Only where the kernel withholds _text from kallsyms; elsewhere the sysroot
+    # already carries it, and a second copy is a second thing to keep true.
+    if [ -n "$_tvt" ]; then
+      echo "truth_virt_text:  $_tvt"
+      echo "truth_virt_text_source: booted vmlinux symtab (_stext - head gap)"
+    fi
   } > "$_tmp/meta.txt"
 
   dest="$ROOT/tests/fixtures/$_canon/$_fid"

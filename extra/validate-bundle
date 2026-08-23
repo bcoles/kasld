@@ -328,6 +328,7 @@ IM=$BUNDLE/sysroot/proc/iomem
 truth_stext=""
 truth_text=""
 truth_end=""
+truth_text_src=""
 if [ -s "$KS" ]; then
   truth_stext=$(awk '$3 == "_stext"      { print $1 }' "$KS")
   truth_text=$(awk  '$3 == "_text"       { print $1 }' "$KS")
@@ -339,6 +340,42 @@ if [ -s "$KS" ]; then
     0000000000000000|00000000|"") truth_text="" ;;
   esac
 fi
+# A capture may record the runtime _text directly, for kernels that do not
+# export it in kallsyms -- mips exports only _stext, at any privilege, so no
+# amount of root recovers it from that file. The recording harness reads it from
+# the booted kernel's own symbol table.
+#
+# It must come from the kernel's symbols and NOT be reconstructed from an
+# address KASLD reports. The window this truth is checked against is built from
+# the same arch constants a reconstruction would use -- project the physical
+# _text from iomem through PAGE_OFFSET, say, and PAGE_OFFSET cancels against a
+# window anchored on it, leaving a comparison that holds for any kernel ever
+# built. A truth that cannot fail is worse than no truth: it reports as coverage.
+#
+# So the field is trusted only as far as its stated source, which is printed
+# beside it.
+if [ -z "$truth_text" ] && [ -s "$BUNDLE/meta.txt" ]; then
+  _oob=$(awk -F: '/^truth_virt_text:/ { gsub(/[ \t]/, "", $2); print $2 }' \
+    "$BUNDLE/meta.txt" 2>/dev/null | head -1)
+  case "$_oob" in
+  0x* | 0X*) _oob=${_oob#0[xX]} ;;
+  esac
+  case "$_oob" in
+  "" | *[!0-9a-fA-F]*) : ;;
+  *)
+    case "$_oob" in
+    *[1-9a-fA-F]*)
+      truth_text=$_oob
+      truth_text_src=$(awk -F: '/^truth_virt_text_source:/ {
+                         sub(/^[^:]*:[ \t]*/, ""); print }' "$BUNDLE/meta.txt" 2>/dev/null |
+        head -1)
+      [ -n "$truth_text_src" ] || truth_text_src="source not stated"
+      ;;
+    esac
+    ;;
+  esac
+fi
+
 # _text is the quantity kasld solves and the one its windows bound. _stext is a
 # DIFFERENT symbol: it sits a per-arch head gap above _text -- 0x400 on mips,
 # 0x10000 on arm64, 0x20000 on loongarch64 -- and coincides with it only where
@@ -348,8 +385,11 @@ fi
 # against a _text answer, which reads as an off-by-head-gap mismatch on exactly
 # the arches whose kallsyms exports only _stext (mips does: every recorded boot
 # has _stext and no _text). Where the gap is zero the two genuinely are one
-# address, and that case is restored below; the rest is checked against kasld's
-# own _stext projection instead.
+# address, and that case is restored below. Where it is not, the virtual check
+# needs the recorded truth above; without it the bundle reports N/A, which is the
+# honest answer -- nothing here reconstructs _text from _stext, because the gap
+# is a per-build property and STEXT_OFFSET is a fallback constant, not this
+# build's fact.
 truth_vtext=$truth_text
 [ -n "$truth_vtext" ] && truth_vtext=$(hex16 "$truth_vtext")
 [ -n "$truth_stext" ] && truth_stext=$(hex16 "$truth_stext")
@@ -377,7 +417,9 @@ fi
 echo
 
 printf '%sGround truth:%s\n' "$BOLD" "$RESET"
-if [ -n "$truth_vtext" ]; then
+if [ -n "$truth_vtext" ] && [ -n "$truth_text_src" ]; then
+  printf '  virt _text  = 0x%s  (recorded: %s)\n' "$truth_vtext" "$truth_text_src"
+elif [ -n "$truth_vtext" ]; then
   printf '  virt _text  = 0x%s\n' "$truth_vtext"
 elif [ -n "$truth_stext" ]; then
   printf '  virt _text  = %s(kallsyms exports _stext 0x%s, not _text)%s\n' \
