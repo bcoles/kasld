@@ -2,18 +2,27 @@
 //
 // Rule: snap the guaranteed virtual image-base window to the KASLR grid.
 //
-// _text is congruent to IMAGE_BASE_OFFSET modulo the compile-time
-// KASLR_VIRT_ALIGN by construction (the residue is an exact architectural
-// constant — linker script / boot protocol). So for a sound bound on _text:
+// _text is congruent to a fixed RESIDUE modulo the compile-time
+// KASLR_VIRT_ALIGN, where that residue is KERNEL_VIRT_TEXT_DEFAULT mod
+// KASLR_VIRT_ALIGN and comes from nowhere else — it is what
+// kasld_floor_text_base/kasld_ceil_text_base bind. So for a sound bound on
+// _text:
 //   - the largest grid point <= the upper bound is still >= _text, and
 //   - the smallest grid point >= the lower bound is still <= _text.
 // Flooring the ceiling and raising the floor to the grid are therefore SOUND
-// sharpenings that never cross _text, even on the sub-offset arches (riscv64
-// +0x2000, arm32 +0x8000, s390 +0x100000) where a plain
-// floor/ceil(v, align) would. Neither drops a candidate: the sub-slot slack
-// outside the first/last grid point holds no valid base. The result is a
-// candidate-exact window — min and max are the lowest and highest positions the
-// base can actually occupy.
+// sharpenings that never cross _text, even on the arches whose residue is
+// nonzero (riscv64 +0x2000, arm32 +0x8000) where a plain floor/ceil(v, align)
+// would. Neither drops a candidate: the sub-slot slack outside the first/last
+// grid point holds no valid base. The result is a candidate-exact window — min
+// and max are the lowest and highest positions the base can actually occupy.
+//
+// The residue is NOT IMAGE_BASE_OFFSET. That is the gap from where the image is
+// placed to _text, a different quantity that merely coincides with the residue
+// where it happens to be smaller than the granule. The two diverge wherever the
+// gap is a whole multiple of it: s390's gap is 0x100000 against a residue of 0,
+// loongarch64's is 0x200000 against 0. Snapping to a grid offset by the gap
+// would land a whole granule high on both and could put _text outside the
+// window this rule is sharpening.
 //
 // This complements range_from_interior, whose raw interior-sample ceiling is
 // deliberately left un-floored (a plain floor there once rejected the real
