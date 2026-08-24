@@ -38,9 +38,24 @@
 //     observe. It is IMAGE_BASE_OFFSET, which is 2 MiB on LoongArch — not the
 //     128 KiB STEXT_OFFSET head gap (_text->_stext), which is normalized
 //     separately. Same convention as kernel_image_phys_bound.
-//   * Emitted at CONF_DERIVED (below CONF_PARSED); any contradicting
-//     witness from a direct observation wins the engine's conflict
-//     resolution rather than being overridden by this synthesizer.
+//   * Emitted at the confidence of the EDGE it projects, capped at
+//     CONF_DERIVED (below CONF_PARSED); any contradicting witness from a
+//     direct observation wins the engine's conflict resolution rather than
+//     being overridden by this synthesizer.
+//
+//     The guaranteed window does not depend on that: resolving at the sound
+//     floor ignores the sub-floor constraints that could have moved the edge,
+//     so the projection there is taken from an edge that stands on its own.
+//     The tier matters for the all-signals store, which is read by confidence
+//     elsewhere -- a bound stamped CONF_DERIVED while resting on a guess says
+//     something about its own admissibility that is not true. ppc32 makes the
+//     case concrete: ppc32_phys_ceiling models the BookE placement window at
+//     CONF_HEURISTIC, correctly, because BookE and BookS cannot be told apart
+//     at compile time, and on a BookS kernel placed past that window the
+//     narrowing it produces is wrong about this target. Carrying the edge's
+//     confidence keeps the projection no more believable than what it came
+//     from. Same convention as image_base_grid_align, which carries the
+//     confidence of the bound it sharpens.
 //   * Bounds-only emission (no C_EQUALS) — the meet of the four bounds
 //     pins the target when one side is itself pinned.
 //
@@ -98,6 +113,13 @@ int rule_text_base_coupling_synth(const struct evidence_set *ev,
 
   const struct estimate *vt = &est[Q_VIRT_IMAGE_BASE];
   const struct estimate *pt = &est[Q_PHYS_IMAGE_BASE];
+  /* A projection is worth what its source edge is worth, and never more than a
+   * derivation. An untouched edge sits at the quantity's honest top and carries
+   * no confidence of its own; projecting it says nothing, but the bound is
+   * still trivially true, so the tier is simply capped rather than special
+   * cased. */
+#define COUPLING_CONF(edge_conf)                                               \
+  ((edge_conf) < CONF_DERIVED ? (edge_conf) : CONF_DERIVED)
   const unsigned long phys_off = dram_base;
   const unsigned long text_off = (unsigned long)IMAGE_BASE_OFFSET;
   /* virt_to_phys delta: PAGE_OFFSET - PHYS_OFFSET. Positive on every
@@ -122,7 +144,7 @@ int rule_text_base_coupling_synth(const struct evidence_set *ev,
     c->q = Q_PHYS_IMAGE_BASE;
     c->op = C_LOWER_BOUND;
     c->value = vt->lo - v_minus_p - text_off;
-    c->conf = CONF_DERIVED;
+    c->conf = COUPLING_CONF(vt->lo_conf);
     c->lineage_count = 0;
     snprintf(c->origin, ORIGIN_LEN, "text_base_coupling_synth");
   }
@@ -132,7 +154,7 @@ int rule_text_base_coupling_synth(const struct evidence_set *ev,
     c->q = Q_PHYS_IMAGE_BASE;
     c->op = C_UPPER_BOUND;
     c->value = vt->hi - v_minus_p;
-    c->conf = CONF_DERIVED;
+    c->conf = COUPLING_CONF(vt->hi_conf);
     c->lineage_count = 0;
     snprintf(c->origin, ORIGIN_LEN, "text_base_coupling_synth");
   }
@@ -146,7 +168,7 @@ int rule_text_base_coupling_synth(const struct evidence_set *ev,
     c->q = Q_VIRT_IMAGE_BASE;
     c->op = C_LOWER_BOUND;
     c->value = pt->lo + v_minus_p;
-    c->conf = CONF_DERIVED;
+    c->conf = COUPLING_CONF(pt->lo_conf);
     c->lineage_count = 0;
     snprintf(c->origin, ORIGIN_LEN, "text_base_coupling_synth");
   }
@@ -157,10 +179,11 @@ int rule_text_base_coupling_synth(const struct evidence_set *ev,
     c->q = Q_VIRT_IMAGE_BASE;
     c->op = C_UPPER_BOUND;
     c->value = pt->hi + v_minus_p + text_off;
-    c->conf = CONF_DERIVED;
+    c->conf = COUPLING_CONF(pt->hi_conf);
     c->lineage_count = 0;
     snprintf(c->origin, ORIGIN_LEN, "text_base_coupling_synth");
   }
+#undef COUPLING_CONF
   return n;
 #else
   (void)ev;
