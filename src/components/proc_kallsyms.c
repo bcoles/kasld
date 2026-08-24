@@ -114,12 +114,18 @@ int main(void) {
     fclose(ks);
   }
 
-  if (!stext) {
-    kasld_err("_stext not found in /proc/kallsyms");
+  if (!text && !stext) {
+    kasld_err("neither _text nor _stext found in /proc/kallsyms");
     return 0;
   }
 
-  /* _text IS the kernel image base — emit it directly (KERNEL_IMAGE) so the
+  /* Each symbol is reported on its own. They are read independently and either
+   * can be absent -- older mips exports _stext but no _text -- so neither may
+   * gate the other: a symbol that was read is a fact already in hand, and
+   * discarding it because its neighbour is missing loses the strongest witness
+   * there is.
+   *
+   * _text IS the kernel image base — emit it directly (KERNEL_IMAGE) so the
    * engine anchors the image base on the real symbol, with no reliance on the
    * compile-time head gap. _stext is also reported (KERNEL_TEXT) for provenance
    * and as the source for arches/sources that only expose _stext. */
@@ -129,10 +135,12 @@ int main(void) {
                       CONF_PARSED);
   }
 
-  kasld_info("kernel text start (_stext): 0x%lx", stext);
-  kasld_info("possible kernel base: 0x%lx", kasld_floor_text_base(stext));
-  kasld_result_base(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, stext, "_stext",
-                    CONF_PARSED);
+  if (stext) {
+    kasld_info("kernel text start (_stext): 0x%lx", stext);
+    kasld_info("possible kernel base: 0x%lx", kasld_floor_text_base(stext));
+    kasld_result_base(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, stext, "_stext",
+                      CONF_PARSED);
+  }
 
   if (etext)
     kasld_info("kernel text end   (_etext): 0x%lx", etext);

@@ -154,15 +154,14 @@ static const char *const k_funcs[] = {"schedule",
  * marks a function absent from that build and is ignored. The offsets are
  * _text-relative on every arch — not _stext, which sits a head gap above it
  * wherever the arch declares a non-zero STEXT_OFFSET — so the recovered base is
- * _text directly. A match pins only the LIKELY
- * window (CONF_HEURISTIC); the guaranteed window rests on the interior samples,
- * and the
- * >= 2 agreement vote rejects an inconsistent offset set (e.g. from a
- * uname-hash collision). The rows are split into per-arch #if blocks (same arch
- * dispatch as api.h), so each cross-compiled binary carries only its own arch's
- * table and no cross-arch fingerprint collision can arise. On an arch with no
- * rows the table is a single 0-hash placeholder: base_from_offsets() is then a
- * no-op and only the interior bounds are emitted. */
+ * _text directly. A match pins only the LIKELY window (CONF_HEURISTIC); the
+ * guaranteed window rests on the interior samples, and the >= 2 agreement
+ * vote rejects an inconsistent offset set (e.g. from a uname-hash collision).
+ * The rows are split into per-arch #if blocks (same arch dispatch as api.h),
+ * so each cross-compiled binary carries only its own arch's table and no
+ * cross-arch fingerprint collision can arise. On an arch with no rows the
+ * table is a single 0-hash placeholder: base_from_offsets() is then a no-op
+ * and only the interior bounds are emitted. */
 struct kernel_info {
   uint64_t uname_hash;     /* FNV-1a-64 of trimmed "<release> <version>" */
   uint32_t off[MAX_FUNCS]; /* k_funcs[i] - _text; 0 = absent */
