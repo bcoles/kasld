@@ -1,0 +1,3 @@
+region_truth page_offset_base = 0xffff9164c0000000
+region_truth vmalloc_base = 0xffff99e400000000
+region_truth vmemmap_base = 0xfffff388c0000000
