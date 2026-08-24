@@ -84,7 +84,7 @@ static const rule_fn k_rules[] = {
     rule_module_base_bounds,
     rule_module_base_execmem_window,
     rule_module_base_from_text,
-    rule_module_base_from_va_bits,
+    rule_loongarch64_module_base,
     rule_module_base_ppc64_vmalloc,
 
     /* Multi-entry EFI_LOADER_CODE → Q_PHYS_IMAGE_BASE pin */

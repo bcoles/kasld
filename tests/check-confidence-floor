@@ -103,7 +103,7 @@ RULES=$ROOT/src/rules
 #                                 KASLR_*_ALIGN is the MINIMUM over every config
 #                                 it admits -- a value taken from one config is
 #                                 too coarse and excludes the finer-aligned bases
-#   module_base_from_va_bits      computed: vm_map_base + addend + pages. The
+#   loongarch64_module_base       computed: vm_map_base + addend + pages. The
 #                                 shift is the width the KERNEL places the region
 #                                 with, which is not always the width cpuinfo
 #                                 reports (SHIFT_BIAS), and the page term follows
@@ -172,7 +172,7 @@ directmap_kaslr_disabled_pin
 efi_loader_kernel_pick
 initrd_phys_exclude
 kaslr_align_arch_default
-module_base_from_va_bits
+loongarch64_module_base
 module_base_ppc64_vmalloc
 page_offset_from_config
 page_offset_from_leak

@@ -210,7 +210,7 @@ static int detect_ppc64_mmu(void) {
  * What it is NOT is the shift. The field and the printed line differ by one:
  * cpu_vabits is VALEN and M is VALEN + 1, so a consumer placing a region at
  * `0 - (1 << M)` lands a full bit low. SF_VIRT_ADDR_BITS carries the width, and
- * a consumer that needs the shift subtracts one -- module_base_from_va_bits is
+ * a consumer that needs the shift subtracts one -- loongarch64_module_base is
  * the one that does.
  *
  * Note also that an mmap boundary probe CANNOT substitute for this read.

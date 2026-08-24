@@ -7780,9 +7780,9 @@ static void test_module_base_from_text(void) {
  * width as CPUCFG1.VALEN + 1 while vm_map_base shifts by VALEN, so a reported
  * 48 places the region at -(1 << 47); the 2-page term follows the kernel's page
  * size, not the analysing build's. */
-static void test_module_base_from_va_bits(void) {
+static void test_loongarch64_module_base(void) {
   struct engine e;
-  const rule_fn rules[] = {rule_module_base_from_va_bits};
+  const rule_fn rules[] = {rule_loongarch64_module_base};
   struct estimate top;
   quantities[Q_MODULE_BASE].init_top(&top);
 
@@ -8766,7 +8766,7 @@ int main(void) {
   RUN(test_module_base_band_bounds);
   RUN(test_module_base_execmem_window);
   RUN(test_module_base_from_text);
-  RUN(test_module_base_from_va_bits);
+  RUN(test_loongarch64_module_base);
   RUN(test_module_base_ppc64_vmalloc);
 
   BEGIN_CATEGORY("EFI Loader Code disambiguation");

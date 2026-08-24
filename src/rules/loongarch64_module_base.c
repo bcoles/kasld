@@ -38,9 +38,9 @@
 
 #include <string.h>
 
-int rule_module_base_from_va_bits(const struct evidence_set *ev,
-                                  const struct estimate *est,
-                                  struct constraint *out, int out_max) {
+int rule_loongarch64_module_base(const struct evidence_set *ev,
+                                 const struct estimate *est,
+                                 struct constraint *out, int out_max) {
 #if defined(MODULES_BASE_LOONGARCH64_PCI_IOSIZE)
   (void)est;
   if (out_max < 1)
@@ -85,7 +85,7 @@ int rule_module_base_from_va_bits(const struct evidence_set *ev,
   }
   if (psrc && c->lineage_count < MAX_LINEAGE)
     c->derived_from[c->lineage_count++] = psrc;
-  snprintf(c->origin, ORIGIN_LEN, "module_base_from_va_bits");
+  snprintf(c->origin, ORIGIN_LEN, "loongarch64_module_base");
   return 1;
 #else
   (void)ev;
