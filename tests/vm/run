@@ -76,7 +76,7 @@
 #   ALPINE_MIRROR   mirror base URL
 #   BUILD_DIR       kasld build root (default: ./build)
 #   LOONGARCH_BIOS  path to edk2 loongarch firmware (loongarch64 needs UEFI)
-#   TIMEOUT         per-boot timeout seconds (default: 240)
+#   TIMEOUT         per-boot timeout seconds (default: 600)
 #   SPEC_INCLUDE_TIMING  1 = include timing/side-channel (method:timing) rows in
 #                   the speculative-narrowing table; default 0 excludes them
 #                   because their result is hardware- and run-dependent
@@ -274,27 +274,45 @@ phys_verdict() {
 }
 
 # region_verdict <log>: gates the RANDOMIZE_MEMORY region bases (direct map,
-# vmalloc, vmemmap). Each truth the init reads from /proc/kcore (the
+# vmalloc, vmemmap) and, where the init can establish it, the module region
+# base. Each truth the init reads from /proc/kcore (the
 # "region_truth <sym> = 0x..." lines) must lie inside its resolved window
-# (the "virt_<region>_base" {min,max} in -j). Prints:
-#   Y        every captured region truth is inside its window
+# (the "virt_<region>_base" {min,max} in -j). The module entry matters because a
+# region placed by arithmetic on a reported width is pinned exactly, so an error
+# in that arithmetic is a wrong C_EQUALS in the guaranteed window rather than a
+# window merely too wide, and no unit test comparing the rule against its own
+# expression can see it. Prints:
+#   Y        every captured region truth was compared and is inside its window
 #   NA       no region truth captured (arch without RANDOMIZE_MEMORY, or no kcore)
 #   N:<sym>  <sym>'s truth is outside its resolved window (a soundness violation)
+#   ?:<sym>  <sym>'s truth was captured but no window was found to gate it
+#            against — nothing was verified, which is not a pass
 region_verdict() {
   _rlog=$1
   _rany=0
   for _rp in page_offset_base:virt_page_offset_base \
              vmalloc_base:virt_vmalloc_base \
-             vmemmap_base:virt_vmemmap_base; do
+             vmemmap_base:virt_vmemmap_base \
+             modules_vaddr:module_base; do
     _rsym=${_rp%%:*}; _rkey=${_rp#*:}
     _rt=$(grep -am1 -oE "region_truth $_rsym = 0x[0-9a-fA-F]+" "$_rlog" | grep -oE '0x[0-9a-fA-F]+')
     [ -n "$_rt" ] || continue
-    _rany=1
-    _rwin=$(grep -am1 -oE "\"$_rkey\": \{[^}]*\}" "$_rlog")
+    # The window object is read from the key onwards up to its closing brace, so
+    # a pretty-printed one spanning several lines is found as readily as one
+    # written inline. A line-at-a-time match sees only the inline form, and
+    # silently gates nothing where the emitter wraps.
+    _rwin=$(awk -v k="\"$_rkey\":" '
+      { p = index($0, k)
+        if (!f && p) { f = 1; $0 = substr($0, p) }
+        if (f) { buf = buf " " $0; if (index(buf, "}")) { print buf; exit } } }' "$_rlog")
     _rmin=$(printf '%s' "$_rwin" | grep -oE '0x[0-9a-fA-F]+' | sed -n 1p)
     _rmax=$(printf '%s' "$_rwin" | grep -oE '0x[0-9a-fA-F]+' | sed -n 2p)
     _rtn=$(norm "$_rt"); _rlo=$(norm "$_rmin"); _rhi=$(norm "$_rmax")
-    { [ -n "$_rlo" ] && [ -n "$_rhi" ]; } || continue # truth but no window -> can't gate
+    # A truth with no window gates nothing. Report it rather than counting it as
+    # a pass: a silent skip here is indistinguishable from a comparison that
+    # succeeded, which is how a gate comes to hold open.
+    { [ -n "$_rlo" ] && [ -n "$_rhi" ]; } || { echo "?:$_rsym"; return; }
+    _rany=1
     if hexle "$_rlo" "$_rtn" && hexle "$_rtn" "$_rhi"; then :; else echo "N:$_rsym"; return; fi
   done
   [ "$_rany" = 1 ] && echo Y || echo NA
@@ -303,6 +321,32 @@ region_verdict() {
 # verdict <log>: prints "PASS|FAIL|N/A  <detail>" and returns 0 only on PASS/NA.
 # Gates on BOTH axes: the virtual text base AND (on decoupled arches) the physical
 # image base must lie inside their resolved windows.
+# Echo "<_text> <_stext>" (link addresses) from a symbol source, or nothing.
+#
+# Two forms, because the two sources differ: a System.map is text in the same
+# "addr type name" shape as /proc/kallsyms, and a vmlinux is an ELF whose symtab
+# readelf prints. Both state the same two addresses; the map is staged because it
+# is a tenth the size and survives the build tree being pruned.
+sym_pair() {
+  _sp=$1
+  [ -f "$_sp" ] || return 1
+  case "$(od -An -c -N4 "$_sp" 2>/dev/null | tr -d ' ')" in
+  177ELF*)
+    command -v readelf >/dev/null 2>&1 || return 1
+    readelf -sW "$_sp" 2>/dev/null | awk '
+      $8 == "_text"  { t = $2 }
+      $8 == "_stext" { s = $2 }
+      END { if (t != "" && s != "") print t " " s; else exit 1 }'
+    ;;
+  *)
+    awk '
+      $3 == "_text"  { t = $1 }
+      $3 == "_stext" { s = $1 }
+      END { if (t != "" && s != "") print t " " s; else exit 1 }' "$_sp"
+    ;;
+  esac
+}
+
 # Runtime _text truth for a kernel that does not export _text through kallsyms.
 #
 # mips exports only _stext, at any privilege, so a capture from one carries no
@@ -335,16 +379,25 @@ hex_gap() {
 # no image symbols (stripped or compressed), no runtime _stext, or the image
 # already exports _text, in which case the capture needs no recorded truth.
 runtime_text_truth() {
-  _rt_img=$1; _rt_ks=$2
-  [ -f "$_rt_img" ] && [ -s "$_rt_ks" ] || return 0
+  _rt_img=$1; _rt_ks=$2; _rt_map=$3; _rt_vml=$4
+  [ -s "$_rt_ks" ] || return 0
   command -v readelf >/dev/null 2>&1 || return 0
   awk '$3 == "_text" { exit 1 }' "$_rt_ks" || return 0
   _rt_st=$(awk '$3 == "_stext" { print $1; exit }' "$_rt_ks")
   [ -n "$_rt_st" ] || return 0
-  _rt_syms=$(readelf -sW "$_rt_img" 2>/dev/null) || return 0
-  _rt_lt=$(printf '%s\n' "$_rt_syms" | awk '$8 == "_text"  { print $2; exit }')
-  _rt_ls=$(printf '%s\n' "$_rt_syms" | awk '$8 == "_stext" { print $2; exit }')
-  [ -n "$_rt_lt" ] && [ -n "$_rt_ls" ] || return 0
+  # The staged boot image first, then the vmlinux it was made from. arm stages a
+  # zImage and riscv an Image; neither carries a symbol table, so the gap has to
+  # come from the build tree. Taking it from the compile-time STEXT_OFFSET is not
+  # an option: arm32 declares none, and this build puts _stext 0xf8000 above
+  # _text -- the constant is a fallback, not the fact.
+  _rt_pair=''
+  for _rt_src in "$_rt_map" "$_rt_img" "$_rt_vml"; do
+    _rt_pair=$(sym_pair "$_rt_src") && [ -n "$_rt_pair" ] && break
+    _rt_pair=''
+  done
+  [ -n "$_rt_pair" ] || return 0
+  _rt_lt=${_rt_pair%% *}
+  _rt_ls=${_rt_pair##* }
   _rt_gap=$(hex_gap "$_rt_lt" "$_rt_ls") || return 0
   _rt_lo=$(printf '%s' "$_rt_st" | tr 'A-F' 'a-f')
   _rt_hi=${_rt_lo%????????}
@@ -365,17 +418,24 @@ runtime_text_truth() {
 # The appended block says where the value came from, so a reader of the log can
 # tell a derived landmark from one the kernel published.
 append_text_truth() {
-  _at_log=$1 _at_img=$2
+  _at_log=$1 _at_img=$2 _at_map=$3 _at_vml=$4
   [ -f "$_at_log" ] || return 0
   awk '/ _text$/ { exit 1 }' "$_at_log" || return 0
   _at_st=$(awk '/ _stext$/ { print $1; exit }' "$_at_log")
   [ -n "$_at_st" ] || return 0
-  [ -f "$_at_img" ] || return 0
   command -v readelf >/dev/null 2>&1 || return 0
-  _at_syms=$(readelf -sW "$_at_img" 2>/dev/null) || return 0
-  _at_lt=$(printf '%s\n' "$_at_syms" | awk '$8 == "_text"  { print $2; exit }')
-  _at_ls=$(printf '%s\n' "$_at_syms" | awk '$8 == "_stext" { print $2; exit }')
-  [ -n "$_at_lt" ] && [ -n "$_at_ls" ] || return 0
+  # Boot image first, then the vmlinux it came from: arm stages a zImage and
+  # riscv an Image, neither of which carries a symbol table. Without this the
+  # verdict silently falls back to _stext and compares the window against the
+  # wrong quantity -- which is how a window pinned to _stext reads as PASS.
+  _at_pair=''
+  for _at_src in "$_at_map" "$_at_img" "$_at_vml"; do
+    _at_pair=$(sym_pair "$_at_src") && [ -n "$_at_pair" ] && break
+    _at_pair=''
+  done
+  [ -n "$_at_pair" ] || return 0
+  _at_lt=${_at_pair%% *}
+  _at_ls=${_at_pair##* }
   _at_gap=$(hex_gap "$_at_lt" "$_at_ls") || return 0
   _at_lo=$(printf '%s' "$_at_st" | tr 'A-F' 'a-f')
   _at_hi=${_at_lo%????????}
@@ -389,14 +449,29 @@ append_text_truth() {
 verdict() {
   _log=$1
   grep -aq 'KASLD VM DONE' "$_log" || { echo "INCOMPLETE  (boot did not finish; see $_log)"; return 1; }
+  # _text or nothing. _stext is a DIFFERENT symbol, a head gap above the quantity
+  # kasld solves, and substituting it compares the window against the wrong
+  # address -- in the direction that hides a failure, since a window pinned to
+  # _stext then contains the value it is checked against. That is not theory:
+  # armv7-mainline-7.0 reported PASS this way while its window provably excluded
+  # the real base. A cell with no truth is unverified, and says so.
   _truth=$(awk '/ _text$/{print $1; exit}' "$_log")
-  [ -n "$_truth" ] || _truth=$(awk '/ _stext$/{print $1; exit}' "$_log")
   _min=$(grep -am1 -oE '"virt_image_base_min": *"0x[0-9a-fA-F]+"' "$_log" | grep -oE '0x[0-9a-fA-F]+')
   _max=$(grep -am1 -oE '"virt_image_base_max": *"0x[0-9a-fA-F]+"' "$_log" | grep -oE '0x[0-9a-fA-F]+')
   _disabled=$(grep -am1 -oE '"disabled": *(true|false)' "$_log" | awk '{print $2}')
   _t=$(norm "$_truth"); _lo=$(norm "$_min"); _hi=$(norm "$_max")
   _pv=$(phys_verdict "$_log")
-  if [ -z "$_t" ] || [ -z "$_lo" ] || [ -z "$_hi" ]; then
+  # No truth is not the same as no window. A cell whose kernel publishes no
+  # _text, and whose build left no symbol map to derive one from, cannot check
+  # anything -- reporting that as N/A alongside cells that genuinely resolved no
+  # window would let an unverifiable cell read as an unremarkable one. It gets
+  # its own outcome, and the exit status says the run did not verify what it was
+  # asked to.
+  if [ -z "$_t" ]; then
+    echo "UNVERIFIED  no _text truth (kernel exports none; no symbol map to derive it)"
+    return 2
+  fi
+  if [ -z "$_lo" ] || [ -z "$_hi" ]; then
     echo "N/A   truth=${_truth:--} window=[${_min:--},${_max:--}] disabled=${_disabled:-?} phys=$_pv"
     return 0
   fi
@@ -414,6 +489,9 @@ verdict() {
   case "$_rv" in
     N:*)
       echo "FAIL  region ${_rv#N:} OUTSIDE resolved window — soundness violation (text/phys sound)"
+      return 1 ;;
+    \?:*)
+      echo "FAIL  region ${_rv#?:} truth captured but no resolved window to gate it against"
       return 1 ;;
   esac
   _rec=N; [ "$_lo" = "$_hi" ] && _rec=Y
@@ -565,12 +643,21 @@ reconstruct_fixture() {
   _endian=
   case "$_canon" in
   arm32 | ppc64 | mips32 | mips64)
-    case "$(od -An -tx1 -j5 -N1 "$_kimg" 2>/dev/null | tr -d ' ')" in
-    01) _endian=el ;;
-    02) _endian=eb ;;
-    esac
+    # The image first, where it is an ELF. Not every arch boots one: arm stages a
+    # zImage and riscv an Image, which carry no EI_DATA, so the read there yields
+    # neither 01 nor 02 and the suffix would be silently dropped. The cell's own
+    # kasld is the fallback -- built by the target's toolchain, so its byte order
+    # is the target's by construction.
+    for _e_src in "$_kimg" $(ls "$BUILD_DIR/$_prefix"-*/kasld 2>/dev/null); do
+      [ -f "$_e_src" ] || continue
+      case "$(od -An -tx1 -j5 -N1 "$_e_src" 2>/dev/null | tr -d ' ')" in
+      01) _endian=el; break ;;
+      02) _endian=eb; break ;;
+      esac
+    done
     ;;
   esac
+  [ -n "$_endian" ] || echo "  !! $_name: byte order undetermined; fixture id will not carry it" >&2
 
   _fid=$(printf '%s-%s%s%s' "$_distro" "$_rel" "${_endian:+-$_endian}" \
     "${_variant:+-$_variant}" | sed 's/[^A-Za-z0-9._-]/-/g')
@@ -586,7 +673,8 @@ reconstruct_fixture() {
     : > "$_tmp/sizes.txt"
   fi
 
-  _tvt=$(runtime_text_truth "$_kimg" "$_sr/proc/kallsyms")
+  _tvt=$(runtime_text_truth "$_kimg" "$_sr/proc/kallsyms" \
+    "$CACHE/$_name-System.map" "$CACHE/kbuild-$_name/vmlinux")
 
   _kbin=""
   for _c in "$BUILD_DIR/$_prefix"-*/kasld; do [ -x "$_c" ] && { _kbin=$_c; break; }; done
@@ -805,7 +893,18 @@ EOF
   mkdir -p "$work"
   fetch_kernel "$name" "$aarch" "$flavor" "$CACHE/$name-vmlinuz" || { echo "  SKIP  no kernel"; return 3; }
 
-  "$cc" -O2 -static -o "$work/init.bin" "$HERE/init.c" || { echo "  !! init build failed ($cc)"; return 2; }
+  # The payload has to match the kernel's userspace byte order, not just the
+  # toolchain's default. A big-endian arm kernel from ARMv6 on runs userspace
+  # BE8, and an armeb toolchain emits BE32 unless asked: init then takes SIGILL
+  # on its first instruction and the kernel panics killing pid 1, which reads as
+  # a boot failure rather than a build one. Same requirement `make cross` applies
+  # to the kasld binary this init execs.
+  _initf=
+  case "$cc" in
+  *armeb-*) _initf=-mbe8 ;;
+  esac
+  # shellcheck disable=SC2086  # $_initf is one optional flag, deliberately split
+  "$cc" -O2 -static $_initf -o "$work/init.bin" "$HERE/init.c" || { echo "  !! init build failed ($cc)"; return 2; }
 
   rm -rf "$work/root"
   mkdir -p "$work/root/proc" "$work/root/sys" "$work/root/dev" "$work/root/tmp" "$work/root/components"
@@ -937,7 +1036,17 @@ EOF
   # Strip CR and NUL bytes: early console output can contain binary noise that
   # makes grep treat the log as binary and skip matches.
   tr -d '\r\000' <"$log" >"$log.clean" && mv "$log.clean" "$log"
-  append_text_truth "$log" "$CACHE/$name-vmlinuz"
+  # A verdict with no _text compares the window against _stext, which is a head
+  # gap above the quantity kasld solves -- it reads PASS while the true base sits
+  # outside the window. Say so: an unverifiable cell must not look like a clean
+  # one, the same way a missing toolchain SKIPs loudly rather than passing.
+  if append_text_truth "$log" "$CACHE/$name-vmlinuz" \
+    "$CACHE/$name-System.map" "$CACHE/kbuild-$name/vmlinux"; then :; fi
+  if ! grep -aq ' _text$' "$log" 2>/dev/null && grep -aq ' _stext$' "$log" 2>/dev/null; then
+    echo "  !! $name: kernel exports no _text and no vmlinux to derive it from" >&2
+    echo "     (build it: tests/vm/build-kernel $name) — the verdict below" >&2
+    echo "     compares the window against _stext, a head gap too high" >&2
+  fi
 
   if [ "$mode" = capture ]; then
     reconstruct_fixture "$name" "$flavor" "$prefix" "$log" "$CACHE/$name-vmlinuz"

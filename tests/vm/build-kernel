@@ -46,9 +46,10 @@ JOBS=${JOBS:-$(nproc 2>/dev/null || echo 1)}
 # builds the `mainline` (kernel.org) cells. Default build set: the gap arches
 # with no Alpine port, at the current 7.0 pin. Everything else is built only on
 # request (pass the cell name):
-#   armeb-*         — the cross set's only big-endian arm toolchain is ARMv5 BE32,
-#                     which can neither run on an ARMv7 BE8 kernel nor boot a BE32
-#                     kernel under qemu, so the staged kernel cannot be validated.
+#   armeb-*         — builds and boots. The toolchain emits BE32 unless given
+#                     -mbe8, and BE32 cannot execute on the BE8 userspace an arm
+#                     kernel runs from ARMv6 on; `make cross` and the harness's
+#                     init build both pass it.
 #   <arch>-mainline-<ver>  — mainline is the primary matrix: every arch spans a
 #                     set of kernel lines (currently 5.15 LTS, 6.6 LTS, 7.0), so
 #                     each has one cell per version. Pass the matching
@@ -394,6 +395,24 @@ build_one() {
   esac
   [ -f "$img" ] || { echo "  !! no image at $img"; return 1; }
   cp "$img" "$CACHE/$arch-vmlinuz"
+  # Stage the symbol map beside the image, for the same reason the release is
+  # recorded beside it: it says what this kernel IS, and nothing else does.
+  #
+  # Not every kernel publishes _text through kallsyms -- arm and mips export only
+  # _stext, a head gap above the address the analysis solves for. That gap is a
+  # per-build fact (an alignment on arm, a config-gated fill on mips), so the
+  # running kernel cannot be asked for it and a constant cannot stand in. Without
+  # this file a boot on those arches has no ground truth, and a verdict with no
+  # truth is not a verdict.
+  #
+  # Text, ~1.5 MB, in the same "addr type name" form as /proc/kallsyms. It
+  # survives prune_tree() by being staged out rather than left in the tree;
+  # vmlinux carries the same two addresses at ten times the size.
+  if [ -s "$bdir/System.map" ]; then
+    cp "$bdir/System.map" "$CACHE/$arch-System.map"
+  else
+    echo "  !! no System.map in the tree; this cell will have no ground truth" >&2
+  fi
   # Record which kernel this image IS, beside it.
   #
   # The version in a cell name is a label; the source version comes from the
@@ -405,6 +424,16 @@ build_one() {
   # than giving a readable error. Several cells reached exactly
   # that state. Writing the release here makes the mismatch checkable instead of
   # latent; stage-modules refuses when the two disagree.
+  # Module.symvers is what modpost needs to resolve kernel symbols. Without it a
+  # tree can build no further modules and only a full kernel rebuild brings it
+  # back, so it is staged for the same reason as the map: it is cheap to keep and
+  # expensive to recreate. modules.builtin says which drivers were built in
+  # rather than modular, which is what decides whether a module-backed source
+  # exists on this cell at all.
+  for _keep in Module.symvers modules.builtin; do
+    [ -s "$bdir/$_keep" ] && cp "$bdir/$_keep" "$CACHE/$arch-$_keep"
+  done
+
   if [ -f "$bdir/include/config/kernel.release" ]; then
     cp "$bdir/include/config/kernel.release" "$CACHE/$arch-kernel.release"
   fi

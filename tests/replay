@@ -77,7 +77,9 @@ target_for() {
   aarch64)           echo "aarch64-linux-musl qemu-aarch64" ;;
   armv7l | armv6l | armhf | arm)
                      echo "armv7-unknown-linux-musleabi qemu-arm" ;;
-  armeb)             echo "armeb-linux-musleabi qemu-armeb" ;;
+  # armv7b/armv6b is a big-endian arm kernel naming itself; armeb is the
+  # toolchain name for the same target.
+  armeb | armv7b | armv6b) echo "armeb-linux-musleabi qemu-armeb" ;;
   riscv64)           echo "riscv64-linux-musl qemu-riscv64" ;;
   riscv32)           echo "riscv32-linux-musl qemu-riscv32" ;;
   mips)              echo "mips-unknown-linux-musl qemu-mips" ;;

@@ -287,6 +287,30 @@ static void dump_kmemleak_objects(void) {
   fclose(f);
 }
 
+/* loongarch places the module region by arithmetic on a runtime variable:
+ * MODULES_VADDR = vm_map_base + PCI_IOSIZE + 2 * PAGE_SIZE. vm_map_base is
+ * exported, so its value is readable through kcore and the whole address is a
+ * fact rather than a model — in particular the shift that produces it is the
+ * kernel's own, not one recomputed here from a reported width. Emitted under
+ * the region_truth name the resolved module_base window is gated against.
+ * https://elixir.bootlin.com/linux/v7.2/source/arch/loongarch/include/asm/pgtable.h#L98
+ */
+static int dump_loongarch_modules_vaddr(void) {
+#if defined(__loongarch__) && __loongarch_grlen == 64
+  unsigned long addr = kallsyms_addr("vm_map_base"), val;
+  if (!addr || !kcore_read_word(addr, &val))
+    return 0;
+  long ps = sysconf(_SC_PAGESIZE);
+  if (ps <= 0)
+    return 0;
+  printf("region_truth modules_vaddr = 0x%lx\n",
+         val + 0x2000000ul + 2ul * (unsigned long)ps);
+  return 1;
+#else
+  return 0;
+#endif
+}
+
 static void dump_region_kaslr_truth(void) {
   printf("=== region kaslr truth (/proc/kcore) ===\n");
   int any = 0;
@@ -297,6 +321,8 @@ static void dump_region_kaslr_truth(void) {
       any = 1;
     }
   }
+  if (dump_loongarch_modules_vaddr())
+    any = 1;
   if (!any)
     printf("  <none — not randomized on this arch, or kcore unreadable>\n");
   printf("\n");

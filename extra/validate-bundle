@@ -139,7 +139,9 @@ case "$ARCH" in
   i686|i386)           SUB=i686-unknown-linux-musl;    QBIN=qemu-i386 ;;
   aarch64)             SUB=aarch64-linux-musl;         QBIN=qemu-aarch64 ;;
   armv7l|armv6l|armhf|arm) SUB=armv7-unknown-linux-musleabi; QBIN=qemu-arm ;;
-  armeb)               SUB=armeb-linux-musleabi;       QBIN=qemu-armeb ;;
+  # armv7b/armv6b is what a big-endian arm kernel reports for itself; armeb is
+  # the toolchain's name for the same target.
+  armeb | armv7b | armv6b) SUB=armeb-linux-musleabi;   QBIN=qemu-armeb ;;
   riscv64)             SUB=riscv64-linux-musl;         QBIN=qemu-riscv64 ;;
   riscv32)             SUB=riscv32-linux-musl;         QBIN=qemu-riscv32 ;;
   mips)                SUB=mips-unknown-linux-musl;    QBIN=qemu-mips ;;
