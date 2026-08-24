@@ -154,7 +154,15 @@ __attribute__((unused)) static int contains(const struct estimate *e,
  * shared containment core applies to both. */
 #if defined(__x86_64__) || defined(__aarch64__) ||                             \
     ((defined(__riscv) || defined(__riscv__)) && __riscv_xlen == 64) ||        \
-    defined(__s390x__) || defined(__i386__)
+    defined(__s390x__) || defined(__i386__) || defined(__mips64) ||            \
+    defined(__mips64__) || defined(__loongarch64) ||                           \
+    (defined(__loongarch__) && __loongarch_grlen == 64) ||                     \
+    (defined(__mips__) && !defined(__mips64) && !defined(__mips64__)) ||       \
+    (defined(__arm__) && !defined(__aarch64__)) ||                             \
+    ((defined(__powerpc__) || defined(__PPC__)) && !defined(__powerpc64__) &&  \
+     !defined(__ppc64__)) ||                                                   \
+    ((defined(__riscv) || defined(__riscv__)) && __riscv_xlen == 32) ||        \
+    defined(__powerpc64__) || defined(__ppc64__)
 #define KASLD_PROP_ARCH 1
 #endif
 
@@ -183,6 +191,44 @@ static unsigned long prop_aligned(struct prop_rng *r, unsigned long lo,
   return lo + (unsigned long)(prop_rand(r) % slots) * align;
 }
 static int prop_coin(struct prop_rng *r) { return (int)(prop_rand(r) & 1u); }
+
+/* Draw a module-region base in [lo, hi] and offer the engine the two witnesses
+ * a real kernel gives for it. The window is the caller's to compute, because
+ * how the allocator is confined is the arch's own fact — a bounding box around
+ * the image on arm64, a fixed span below it on the text-anchored arches.
+ *
+ * The region base is a SECOND truth, drawn rather than derived: on every one of
+ * these arches the allocator makes its own choice at boot, so a generator that
+ * computed the base from the text slide would be asserting a formula the kernel
+ * does not follow. Returns the drawn base for the containment check.
+ *
+ * Both witnesses are emitted under their own coin, so the property also covers
+ * the runs where one or neither is present. The tags are not interchangeable:
+ * the interior address is REGION_MODULE, which claims the address really
+ * belongs to a module, while the region start is REGION_MODULE_BAND paired with
+ * POS_BASE, which is the layout-block landmark's pair and the only form the pin
+ * reads. Emitting the start as REGION_MODULE leaves the estimate spanning the
+ * declared band — wide enough that containment holds far from the truth, which
+ * is a check that cannot fail. */
+__attribute__((unused)) static unsigned long
+prop_module_region(struct prop_rng *r, struct engine *e, unsigned long lo,
+                   unsigned long hi, unsigned long top) {
+  unsigned long mbase = prop_aligned(r, lo, hi, 0x10000ul);
+  /* `top` is the highest address the region can hand out, which is not the
+   * same question as where its base may fall: the text-anchored arches end
+   * their region AT the image base, so a module address above _text is one
+   * their allocator could never return. Emitting one anyway does not merely
+   * weaken the test — module_text_bound reads the lowest module address as a
+   * bound on the text base, so an impossible module address teaches the engine
+   * a false thing about text and the failure surfaces on a different quantity
+   * than the one being added. */
+  if (prop_coin(r) && top > mbase)
+    add_interior(e, KASLD_TYPE_VIRT, REGION_MODULE,
+                 mbase + (unsigned long)(prop_rand(r) % (top - mbase)));
+  if (prop_coin(r))
+    add_addr(e, KASLD_TYPE_VIRT, REGION_MODULE_BAND, mbase, 0, "module_base");
+  return mbase;
+}
 
 /* Containment via the value-access seam: truth must lie in one of q's resolved
  * ranges (interval minus any C_EXCLUDE holes carved at `floor`). Returns 1 for
@@ -363,10 +409,30 @@ static void prop_check_containment(struct engine *e, const rule_fn *rules,
       }
     }
 
+    /* Containment is asserted on the GUARANTEED window only. The likely window
+     * admits guesses by construction, and a guess that is sound as a model can
+     * still be wrong about a particular target: ppc32_phys_ceiling models the
+     * BookE placement window, correctly, at CONF_HEURISTIC — and a BookS kernel
+     * placed above that window is a configuration the arch admits and that
+     * heuristic misses. Demanding the likely window contain the truth would
+     * assert more than the two-window design promises, and would make a rule
+     * that models one platform of a multi-platform arch unwritable. The
+     * per-constraint check above still runs on the all-signals store, where it
+     * exempts sub-floor constraints for the same reason and catches anything
+     * that turns such a guess into an at-floor claim. */
+    if (pass == 0)
+      continue;
+
     for (int k = 0; k < nchk; k++) {
       const struct estimate *est = &e->est[chk[k].q];
+      /* quantity_admits() rather than a bare edge comparison: on a finite-set
+       * quantity `lo` is a bitmask of live candidates, so comparing a truth
+       * against it asks a question the lattice does not answer — Q_VA_BITS
+       * reads as excluded on every run. The accessor knows which lattice the
+       * quantity uses; truth_in_ranges still carries the interval-only
+       * C_EXCLUDE holes it cannot see. */
       if (estimate_is_bottom(est, &qd[chk[k].q]) ||
-          !contains(est, chk[k].truth) ||
+          !quantity_admits(chk[k].q, est, chk[k].truth) ||
           !truth_in_ranges(chk[k].q, est, e, floor, chk[k].truth)) {
         fprintf(stderr,
                 "\nPROPERTY FAIL %s (%s) seed=%lu q=%d truth=0x%lx "
@@ -1366,7 +1432,11 @@ static void test_full_engine_arm64_va39_sub48(void) {
   add_addr(&e, KASLD_TYPE_VIRT, REGION_DIRECTMAP, po39 + 0x1000000ul, 0, NULL);
   /* A real 39-bit kernel-text leak (_stext), KASLR on (no disabled signal).
    * The engine solves the image base _text = _stext - STEXT_OFFSET. */
-  unsigned long t_stext = arm64_page_end_for(39ul) + 0x80000000ul + 0x202000ul;
+  /* 64 KiB-aligned, as a real arm64 _stext is: KIMAGE_VADDR and the KASLR
+   * slide are both multiples of the 64 KiB granule, so _text and _stext land
+   * on it too. An unaligned value here is unreachable on hardware and only
+   * survived while the witness pinned, which skips the grid check. */
+  unsigned long t_stext = arm64_page_end_for(39ul) + 0x80000000ul + 0x200000ul;
   unsigned long t_text = t_stext - (unsigned long)STEXT_OFFSET;
   add_addr(&e, KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, t_stext, 0, "_stext");
 
@@ -1383,7 +1453,19 @@ static void test_full_engine_arm64_va39_sub48(void) {
    * 48-bit honest-top ceiling (KASLR_VIRT_TEXT_MAX), so only the widened
    * KASLR_VIRT_TEXT_MAX_WIDE admits it. */
   assert(t_text > (unsigned long)KASLR_VIRT_TEXT_MAX);
-  assert(vt->lo == t_text && vt->hi == t_text);
+  /* The witness is _stext with no _text alongside it, so the base is pinned
+   * only where the arch fixes the head gap. arm64's SEGMENT_ALIGN was SZ_2M
+   * under the pre-5.7 CONFIG_DEBUG_ALIGN_RODATA, so it declares a ceiling and
+   * the same witness bounds instead -- the upper edge is still exactly _text,
+   * which is what this case is about: the sub-48 base sits above the old
+   * ceiling and only the widened one admits it. */
+  assert(vt->hi == t_text);
+  if (STEXT_GAP_EXACT) {
+    assert(vt->lo == t_text);
+  } else {
+    assert(vt->lo <= t_text);
+    assert(vt->lo >= t_stext - (unsigned long)STEXT_OFFSET_MAX);
+  }
 #endif
 }
 
@@ -1704,10 +1786,22 @@ static void test_full_engine_property_arm64(void) {
   for (unsigned long seed = 0; seed < ITERS; seed++) {
     struct prop_rng r = {seed * 0x100000001B3ull + 0xA5A5A5A5ull};
 
+    /* The head gap from _text to _stext. Written out rather than read from
+     * STEXT_OFFSET / STEXT_OFFSET_MAX, since a generator drawing from the
+     * constant under test cannot contradict it: 64 KiB is the granule the head
+     * is rounded to, and 2 MiB the segment alignment a kernel that aligns
+     * rodata to a section boundary produces. */
+    const unsigned long heads[] = {0x10000ul, 0x200000ul};
+    unsigned long head =
+        heads[prop_rand(&r) % (sizeof(heads) / sizeof(heads[0]))];
     unsigned long gap =
         (1ul + prop_rand(&r) % 16ul) * 0x100000ul; /* 1..16 MiB */
     unsigned long image =
         gap + (prop_rand(&r) % 16ul) * 0x100000ul; /* >= gap */
+    /* _stext lies inside the image, so a declared minimum size below the head
+     * gap would be evidence contradicting itself. */
+    if (image < head + 0x100000ul)
+      image = head + 0x100000ul;
     /* arm64 couples the virt/phys text residues mod MIN_KIMG_ALIGN (2 MiB) —
      * the granule the kernel image is mapped with; arm64_text_phys_residue pins
      * virt's residue to phys's. Generate both 2 MiB-aligned (residue 0): a
@@ -1729,16 +1823,24 @@ static void test_full_engine_property_arm64(void) {
     engine_init(&e);
 
     if (prop_coin(&r))
-      add_addr(&e, KASLD_TYPE_VIRT, REGION_KERNEL_TEXT,
-               virt + (unsigned long)STEXT_OFFSET, 0, "_stext");
+      add_addr(&e, KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, virt + head, 0,
+               "_stext");
     if (prop_coin(&r))
       add_addr(&e, KASLD_TYPE_VIRT, REGION_KERNEL_DATA, virt + gap, 0,
                "_edata");
     /* Faithful phys _stext = phys image base + the .head.text gap (the same
      * image-internal offset in virt and phys space). */
     if (prop_coin(&r))
-      add_addr(&e, KASLD_TYPE_PHYS, REGION_KERNEL_TEXT,
-               phys + (unsigned long)STEXT_OFFSET, 0, "_stext");
+      add_addr(&e, KASLD_TYPE_PHYS, REGION_KERNEL_TEXT, phys + head, 0,
+               "_stext");
+    /* The image base itself, on both axes. A witness at _text is exact whatever
+     * the head gap turns out to be, so it resolves through a different path in
+     * the pin rule than the _stext witnesses above — where the gap is a range
+     * rather than a single value, the equality is reached only from here. */
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE, virt, 0, "_text");
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_PHYS, REGION_KERNEL_IMAGE, phys, 0, "_text");
     if (prop_coin(&r))
       add_addr(&e, KASLD_TYPE_PHYS, REGION_RAM, 0, memtotal - 1, NULL);
     if (prop_coin(&r))
@@ -1748,9 +1850,23 @@ static void test_full_engine_property_arm64(void) {
     if (prop_coin(&r))
       add_scalar(&e, SF_PHYS_ADDR_BITS, 48);
 
+    /* arm64's allocator draws a bounding box that must contain [_text, _end]
+     * and is at most MODULES_BRACKET_TEXT wide, so its base lies in
+     * [_end - W, _text] — clamped to the band the arch declares. */
+    unsigned long mod_lo = virt + image - (unsigned long)MODULES_BRACKET_TEXT;
+    if (mod_lo < (unsigned long)MODULES_START)
+      mod_lo = (unsigned long)MODULES_START;
+    /* The box contains [_text, _end], so it reaches above the image; it is at
+     * most W wide and cannot leave the declared band. */
+    unsigned long mod_top = mod_lo + (unsigned long)MODULES_BRACKET_TEXT;
+    if (mod_top > (unsigned long)MODULES_END)
+      mod_top = (unsigned long)MODULES_END;
+    unsigned long mbase = prop_module_region(&r, &e, mod_lo, virt, mod_top);
+
     struct prop_check chk[] = {
         {Q_VIRT_IMAGE_BASE, virt},
         {Q_PHYS_IMAGE_BASE, phys},
+        {Q_MODULE_BASE, mbase},
     };
     prop_check_containment(&e, rules, nr, vrules, nv, chk,
                            (int)(sizeof(chk) / sizeof(chk[0])), "arm64", seed);
@@ -1773,10 +1889,22 @@ static void test_full_engine_property_riscv64(void) {
 
     unsigned long gap = (1ul + prop_rand(&r) % 16ul) * 0x100000ul;
     unsigned long image = gap + (prop_rand(&r) % 16ul) * 0x100000ul;
-    unsigned long virt =
+    /* _text is not where the image starts. The linker emits _start, then the
+     * head section rounded up to a page, and only then _text (vmlinux.lds.S:
+     * `_start = .; HEAD_TEXT_SECTION; . = ALIGN(PAGE_SIZE); ... _text = .;`).
+     * That head carries the EFI PE/COFF header, the SBI entry stub and the
+     * paging-mode handoff, and measures 0x2000 on every riscv64 kernel booted.
+     * A _text sitting exactly on the KASLR grid would mean a zero-length head,
+     * which is not an image this arch can produce, so the truth is drawn as
+     * grid + head. The literal is deliberate: reading the arch's own constant
+     * here would make the generator agree with whatever that constant says
+     * rather than test it. */
+    const unsigned long head = 0x2000ul;
+    unsigned long start =
         prop_aligned(&r, (unsigned long)KASLR_VIRT_TEXT_MIN,
-                     (unsigned long)KASLR_VIRT_TEXT_MAX - image,
+                     (unsigned long)KASLR_VIRT_TEXT_MAX - image - head,
                      (unsigned long)KASLR_VIRT_ALIGN);
+    unsigned long virt = start + head;
     unsigned long phys = prop_aligned(&r, (unsigned long)KASLR_PHYS_MIN,
                                       (unsigned long)KASLR_PHYS_MAX - image,
                                       (unsigned long)KASLR_PHYS_ALIGN);
@@ -1804,9 +1932,21 @@ static void test_full_engine_property_riscv64(void) {
     if (prop_coin(&r))
       add_scalar(&e, SF_PHYS_ADDR_BITS, 48);
 
+    /* Text-anchored: the region sits below the image, within a fixed span of
+     * it, so the window slides with the drawn text base. */
+    unsigned long mod_lo = virt - (unsigned long)MODULES_END_TO_TEXT_OFFSET;
+    if (mod_lo < (unsigned long)MODULES_START)
+      mod_lo = (unsigned long)MODULES_START;
+    /* The region ends where the image starts, and the image starts a head
+     * below _text (IMAGE_BASE_OFFSET), so the last address the allocator can
+     * hand out is below _start — not below _text. The gap between the two is
+     * the image's own head, which belongs to no module. */
+    unsigned long mbase = prop_module_region(&r, &e, mod_lo, virt, start);
+
     struct prop_check chk[] = {
         {Q_VIRT_IMAGE_BASE, virt},
         {Q_PHYS_IMAGE_BASE, phys},
+        {Q_MODULE_BASE, mbase},
     };
     prop_check_containment(&e, rules, nr, vrules, nv, chk,
                            (int)(sizeof(chk) / sizeof(chk[0])), "riscv64",
@@ -1862,9 +2002,20 @@ static void test_full_engine_property_s390(void) {
     if (prop_coin(&r))
       add_scalar(&e, SF_PHYS_MEMTOTAL, memtotal);
 
+    /* Text-anchored, as on riscv64: the region lies below the image within a
+     * fixed span, so its window moves with the drawn base. */
+    unsigned long mod_lo = virt - (unsigned long)MODULES_END_TO_TEXT_OFFSET;
+    if (mod_lo < (unsigned long)MODULES_START)
+      mod_lo = (unsigned long)MODULES_START;
+    /* Same shape as riscv64: the region ends where the image starts, a head
+     * below _text. */
+    unsigned long mbase = prop_module_region(
+        &r, &e, mod_lo, virt, virt - (unsigned long)IMAGE_BASE_OFFSET);
+
     struct prop_check chk[] = {
         {Q_VIRT_IMAGE_BASE, virt},
         {Q_PHYS_IMAGE_BASE, phys},
+        {Q_MODULE_BASE, mbase},
     };
     prop_check_containment(&e, rules, nr, vrules, nv, chk,
                            (int)(sizeof(chk) / sizeof(chk[0])), "s390", seed);
@@ -1909,7 +2060,15 @@ static void test_full_engine_property_x86_32(void) {
                                       (unsigned long)KASLR_PHYS_MAX - image,
                                       (unsigned long)KASLR_PHYS_ALIGN);
     /* Coupled: the virtual text base tracks phys in the linear map. */
-    unsigned long virt = fixture_coupled_virt(phys);
+    /* The linear-map base is DRAWN, not read from the compile-time constant.
+     * x86_32's split is a Kconfig choice and the analysing build's value says
+     * nothing about the target's — projecting through PAGE_OFFSET here would
+     * make every iteration agree with this build by construction, which is the
+     * one mistake on this arch the engine is written to avoid. */
+    const unsigned long po_choices[] = PAGE_OFFSET_CANDIDATES;
+    unsigned long po = po_choices[prop_rand(&r) %
+                                  (sizeof(po_choices) / sizeof(po_choices[0]))];
+    unsigned long virt = phys - (unsigned long)PHYS_OFFSET + po;
     unsigned long memtotal = phys + image +
                              (unsigned long)(prop_rand(&r) % 0x08000000ull) +
                              0x02000000ul;
@@ -1922,8 +2081,7 @@ static void test_full_engine_property_x86_32(void) {
      * PAGE_OFFSET is pinned), so the phys-only / virt-only subsets below
      * exercise the coupling reconstruction rather than leaving the two bases
      * independent. */
-    add_addr(&e, KASLD_TYPE_VIRT, REGION_PAGE_OFFSET,
-             (unsigned long)PAGE_OFFSET, 0, "page_offset");
+    add_addr(&e, KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, po, 0, "page_offset");
     if (prop_coin(&r))
       add_addr(&e, KASLD_TYPE_VIRT, REGION_KERNEL_TEXT,
                virt + (unsigned long)STEXT_OFFSET, 0, "_stext");
@@ -1940,12 +2098,775 @@ static void test_full_engine_property_x86_32(void) {
     if (prop_coin(&r))
       add_scalar(&e, SF_PHYS_MEMTOTAL, memtotal);
 
+    /* The module region starts where low memory ends, not at a constant:
+     * MODULES_VADDR is VMALLOC_START, which is high_memory + VMALLOC_OFFSET,
+     * and high_memory is the linear-map base plus however much low memory the
+     * machine has (pgtable_32_areas.h, init_32.c). So the base moves with the
+     * split AND with RAM, and it is COMPUTED here from the same memtotal the
+     * evidence describes rather than drawn on its own — drawing it would put
+     * the region somewhere this machine's memory does not place it. The arch's
+     * MODULES_START_FOR(po) is the floor of that, the value at zero low
+     * memory, which is what makes it a sound bound rather than the base. */
+    unsigned long lowmem = memtotal;
+    if (lowmem > po - (unsigned long)PHYS_OFFSET)
+      lowmem = po - (unsigned long)PHYS_OFFSET;
+    unsigned long mbase = prop_module_region(
+        &r, &e, po + lowmem + 0x800000ul, po + lowmem + 0x800000ul,
+        (unsigned long)MODULES_END_FOR(po));
+
     struct prop_check chk[] = {
         {Q_VIRT_IMAGE_BASE, virt},
         {Q_PHYS_IMAGE_BASE, phys},
+        {Q_PAGE_OFFSET, po},
+        {Q_MODULE_BASE, mbase},
     };
     prop_check_containment(&e, rules, nr, vrules, nv, chk,
                            (int)(sizeof(chk) / sizeof(chk[0])), "x86_32", seed);
+  }
+#endif
+}
+
+/* Property test: riscv32 whole-engine containment. KASLR is off and the split
+ * is fixed by the build, so the image base does not move; what moves is the
+ * board. The linear map is anchored to the base of DRAM, a runtime discovery,
+ * so the same image sits at a different PHYSICAL address on every machine while
+ * its virtual address stays put. The property is that a physical witness from
+ * one board never narrows the virtual base off the one place it can be, and
+ * that the physical base resolved from a DRAM extent tracks the board rather
+ * than the analysing build. */
+static void test_full_engine_property_riscv32(void) {
+#if (defined(__riscv) || defined(__riscv__)) && __riscv_xlen == 32
+  int nr = 0, nv = 0;
+  const rule_fn *rules = engine_rules(&nr);
+  const verdict_fn *vrules = engine_verdict_rules(&nv);
+  const unsigned long ITERS = 2000;
+
+  for (unsigned long seed = 0; seed < ITERS; seed++) {
+    struct prop_rng r = {seed * 0x100000001B3ull + 0x52C332ull};
+
+    unsigned long gap = (1ul + prop_rand(&r) % 8ul) * 0x100000ul;
+    unsigned long image = gap + (prop_rand(&r) % 8ul) * 0x100000ul;
+    /* The board's DRAM base, on the arch's own alignment grid. */
+    unsigned long dram = (unsigned long)(prop_rand(&r) % 32ull) *
+                         (unsigned long)KASLR_VIRT_ALIGN;
+    unsigned long virt = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
+    unsigned long phys = dram + (unsigned long)IMAGE_BASE_OFFSET;
+    unsigned long memtotal =
+        image + 0x04000000ul + (unsigned long)(prop_rand(&r) % 0x10000000ull);
+
+    struct engine e;
+    engine_init(&e);
+
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_VIRT, REGION_KERNEL_TEXT,
+               virt + (unsigned long)STEXT_OFFSET, 0, "_stext");
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_VIRT, REGION_KERNEL_DATA, virt + gap, 0,
+               "_edata");
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_PHYS, REGION_RAM, dram, dram + memtotal - 1,
+               NULL);
+    if (prop_coin(&r))
+      add_scalar(&e, SF_IMAGE_SIZE_MIN, image);
+    if (prop_coin(&r))
+      add_scalar(&e, SF_PHYS_MEMTOTAL, memtotal);
+
+    struct prop_check chk[] = {
+        {Q_VIRT_IMAGE_BASE, virt},
+        {Q_PHYS_IMAGE_BASE, phys},
+        {Q_PAGE_OFFSET, (unsigned long)PAGE_OFFSET},
+    };
+    prop_check_containment(&e, rules, nr, vrules, nv, chk,
+                           (int)(sizeof(chk) / sizeof(chk[0])), "riscv32",
+                           seed);
+  }
+#endif
+}
+
+/* Property test: ppc64 whole-engine containment. KASLR is off, but the kernel
+ * is relocatable: firmware can place the image somewhere other than the bottom
+ * of memory, which is the ordinary case under kdump. The linear map is anchored
+ * at a compile-time PHYS_OFFSET, so that placement carries straight through to
+ * the virtual base — one slide, no randomization. Drawing it is what keeps the
+ * property about the coupling rather than about the default. */
+static void test_full_engine_property_ppc64(void) {
+#if defined(__powerpc64__) || defined(__ppc64__)
+  int nr = 0, nv = 0;
+  const rule_fn *rules = engine_rules(&nr);
+  const verdict_fn *vrules = engine_verdict_rules(&nv);
+  const unsigned long ITERS = 2000;
+
+  for (unsigned long seed = 0; seed < ITERS; seed++) {
+    struct prop_rng r = {seed * 0x100000001B3ull + 0x99C640ull};
+
+    unsigned long gap = (1ul + prop_rand(&r) % 16ul) * 0x100000ul;
+    unsigned long image = gap + (prop_rand(&r) % 16ul) * 0x100000ul;
+    unsigned long phys = prop_aligned(&r, (unsigned long)KASLR_PHYS_MIN,
+                                      (unsigned long)KASLR_PHYS_MAX - image,
+                                      (unsigned long)KASLR_PHYS_ALIGN);
+    unsigned long virt =
+        phys - (unsigned long)PHYS_OFFSET + (unsigned long)PAGE_OFFSET;
+    unsigned long memtotal = phys + image +
+                             (unsigned long)(prop_rand(&r) % 0x40000000ull) +
+                             0x10000000ul;
+
+    struct engine e;
+    engine_init(&e);
+
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_VIRT, REGION_KERNEL_TEXT,
+               virt + (unsigned long)STEXT_OFFSET, 0, "_stext");
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_VIRT, REGION_KERNEL_DATA, virt + gap, 0,
+               "_edata");
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_PHYS, REGION_RAM, 0, memtotal - 1, NULL);
+    if (prop_coin(&r))
+      add_scalar(&e, SF_IMAGE_SIZE_MIN, image);
+    if (prop_coin(&r))
+      add_scalar(&e, SF_PHYS_MEMTOTAL, memtotal);
+
+    struct prop_check chk[] = {
+        {Q_VIRT_IMAGE_BASE, virt},
+        {Q_PHYS_IMAGE_BASE, phys},
+        {Q_PAGE_OFFSET, (unsigned long)PAGE_OFFSET},
+    };
+    prop_check_containment(&e, rules, nr, vrules, nv, chk,
+                           (int)(sizeof(chk) / sizeof(chk[0])), "ppc64", seed);
+  }
+#endif
+}
+
+/* Property test: ppc32 whole-engine containment — the DRAM-anchored arch.
+ *
+ * ppc32 is coupled like x86_32 and mips, but where its linear map starts is
+ * neither a constant nor a menu choice this side can read: the anchor is the
+ * base of DRAM, discovered at runtime, and the split is a free-form Kconfig
+ * value, so the arch models a RANGE rather than a candidate list. The generator
+ * draws across that range, because a rule quietly assuming one of the three
+ * conventional splits would pass a generator that only ever produced them.
+ *
+ * KASLR is on here, so the image moves as well as the map, and the two move
+ * together: one slide, projected through a base the run must infer. A moving
+ * image over an inferred map is what no other covered arch presents.
+ *
+ * The physical base is drawn across the whole admissible window, past the
+ * BookE placement cap. That is deliberate: BookE and BookS cannot be told apart
+ * at compile time, so ppc32_phys_ceiling models the BookE window as a HEURISTIC
+ * and a BookS kernel placed above it is a configuration the arch admits and
+ * that heuristic legitimately misses. Generating only BookE-reachable bases
+ * would hide every rule that turns that miss into a claim the sound floor
+ * admits.
+ *
+ * No physical image-base witness is generated: powerpc declares no "Kernel
+ * code" iomem resource, so the phys side is reached only through the coupling,
+ * which is the vantage a real ppc32 run has.
+ *
+ * Q_MODULE_BASE is not checked — the region is placed relative to the linear
+ * map and the declared band is a floor over kernel-version layouts rather than
+ * the base itself, so there is no truth to state from this side. */
+static void test_full_engine_property_ppc32(void) {
+#if (defined(__powerpc__) || defined(__PPC__)) && !defined(__powerpc64__) &&   \
+    !defined(__ppc64__)
+  int nr = 0, nv = 0;
+  const rule_fn *rules = engine_rules(&nr);
+  const verdict_fn *vrules = engine_verdict_rules(&nv);
+  const unsigned long ITERS = 2000;
+
+  for (unsigned long seed = 0; seed < ITERS; seed++) {
+    struct prop_rng r = {seed * 0x100000001B3ull + 0x9C3201ull};
+
+    unsigned long gap = (1ul + prop_rand(&r) % 8ul) * 0x100000ul;
+    unsigned long image = gap + (prop_rand(&r) % 8ul) * 0x100000ul;
+
+    /* The split, across the whole admissible range at a granularity a real
+     * CONFIG_PAGE_OFFSET keeps. */
+    unsigned long po =
+        prop_aligned(&r, (unsigned long)PAGE_OFFSET_MIN,
+                     (unsigned long)PAGE_OFFSET_MAX + 0x1000000ul, 0x1000000ul);
+
+    /* Coupled, so the physical base must leave the projected virtual base
+     * inside the text window — and on the KASLR grid, which means drawing phys
+     * at the VIRTUAL alignment: the split is coarser than both, so virt and
+     * phys share a residue. */
+    unsigned long vmax = (unsigned long)KASLR_VIRT_TEXT_MAX - image;
+    if (po >= vmax)
+      continue; /* this split leaves no room for an image */
+    unsigned long pmax = vmax - po;
+    if (pmax > (unsigned long)KASLR_PHYS_MAX)
+      pmax = (unsigned long)KASLR_PHYS_MAX;
+    unsigned long phys =
+        prop_aligned(&r, 0ul, pmax, (unsigned long)KASLR_VIRT_ALIGN);
+    unsigned long virt = phys - (unsigned long)PHYS_OFFSET + po;
+    if (virt < (unsigned long)KASLR_VIRT_TEXT_MIN)
+      continue;
+    unsigned long memtotal = phys + image +
+                             (unsigned long)(prop_rand(&r) % 0x10000000ull) +
+                             0x04000000ul;
+
+    struct engine e;
+    engine_init(&e);
+
+    /* The kernel states its own linear-map base in the layout block; without a
+     * resolved split nothing can cross between the two address spaces, which is
+     * what the anchor being a runtime discovery costs here. */
+    add_addr(&e, KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, po, 0, "page_offset");
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_VIRT, REGION_KERNEL_TEXT,
+               virt + (unsigned long)STEXT_OFFSET, 0, "_stext");
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_VIRT, REGION_KERNEL_DATA, virt + gap, 0,
+               "_edata");
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_PHYS, REGION_RAM, 0, memtotal - 1, NULL);
+    if (prop_coin(&r))
+      add_scalar(&e, SF_IMAGE_SIZE_MIN, image);
+    if (prop_coin(&r))
+      add_scalar(&e, SF_PHYS_MEMTOTAL, memtotal);
+
+    struct prop_check chk[] = {
+        {Q_VIRT_IMAGE_BASE, virt},
+        {Q_PHYS_IMAGE_BASE, phys},
+        {Q_PAGE_OFFSET, po},
+    };
+    prop_check_containment(&e, rules, nr, vrules, nv, chk,
+                           (int)(sizeof(chk) / sizeof(chk[0])), "ppc32", seed);
+  }
+#endif
+}
+
+/* Property test: arm32 whole-engine containment — a drawn split over a runtime
+ * DRAM base, with a head gap that only bounds.
+ *
+ * arm32 randomizes nothing: the image base is the compile-time default. What
+ * varies instead is the machine. The split is a Kconfig choice this side cannot
+ * read, the physical base of DRAM is a board fact discovered at boot, and the
+ * gap from _text to _stext is an ALIGN over a section boundary rather than a
+ * constant. So three quantities move per iteration and none of them is KASLR.
+ *
+ * That combination is what makes this arch worth a property despite the static
+ * window: it is the only one where the guaranteed window was observed to
+ * exclude the truth in the field, on a stock kernel that publishes _stext and
+ * no _text. The _stext witness here is emitted at a gap the run cannot know,
+ * which is exactly that vantage.
+ *
+ * The gaps are drawn from the two section sizes the arch builds with — 1 MiB
+ * with 2-level paging, 2 MiB under LPAE — minus the head, which is where
+ * _stext lands once ALIGN has rounded past it. They are written out rather than
+ * read from STEXT_OFFSET_MAX, since a generator drawing from the constant under
+ * test cannot contradict it. */
+static void test_full_engine_property_arm32(void) {
+#if defined(__arm__) && !defined(__aarch64__)
+  int nr = 0, nv = 0;
+  const rule_fn *rules = engine_rules(&nr);
+  const verdict_fn *vrules = engine_verdict_rules(&nv);
+  const unsigned long splits[] = PAGE_OFFSET_CANDIDATES;
+  /* ALIGN(_text + head, SECTION_SIZE) - _text, for the two section sizes. */
+  const unsigned long heads[] = {0x100000ul - 0x8000ul, 0x200000ul - 0x8000ul};
+  const unsigned long ITERS = 2000;
+
+  for (unsigned long seed = 0; seed < ITERS; seed++) {
+    struct prop_rng r = {seed * 0x100000001B3ull + 0xA3B0011ull};
+
+    unsigned long po =
+        splits[prop_rand(&r) % (sizeof(splits) / sizeof(splits[0]))];
+    unsigned long head =
+        heads[prop_rand(&r) % (sizeof(heads) / sizeof(heads[0]))];
+    unsigned long gap = (1ul + prop_rand(&r) % 8ul) * 0x100000ul;
+    unsigned long image = gap + (prop_rand(&r) % 8ul) * 0x100000ul;
+
+    /* The board's DRAM base: a runtime fact on this arch, not a constant. The
+     * linear map puts it at the split, and the image sits IMAGE_BASE_OFFSET
+     * above both. */
+    unsigned long dram = (unsigned long)(prop_rand(&r) % 8ull) * 0x10000000ul;
+    unsigned long virt = po + (unsigned long)IMAGE_BASE_OFFSET;
+    unsigned long phys = dram + (unsigned long)IMAGE_BASE_OFFSET;
+    unsigned long memtotal =
+        image + 0x04000000ul + (unsigned long)(prop_rand(&r) % 0x10000000ull);
+
+    struct engine e;
+    engine_init(&e);
+
+    add_addr(&e, KASLD_TYPE_VIRT, REGION_PAGE_OFFSET, po, 0, "page_offset");
+    /* The vantage the field failure came from: _stext, at a gap this side can
+     * only bound. */
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, virt + head, 0,
+               "_stext");
+    /* The other vantage: _text itself, which the boot-time layout line
+     * publishes directly on this arch. A witness at the image base is exact
+     * whatever the head gap turns out to be, so it resolves through a different
+     * path in the pin rule than the _stext one above — bounded-gap arches reach
+     * the equality only from here. Both are drawn independently so an iteration
+     * may carry either, both, or neither. */
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_VIRT, REGION_KERNEL_IMAGE, virt, 0, "_text");
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_PHYS, REGION_KERNEL_IMAGE, phys, 0, "_text");
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_VIRT, REGION_KERNEL_DATA, virt + head + gap, 0,
+               "_edata");
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_PHYS, REGION_RAM, dram, dram + memtotal - 1,
+               NULL);
+    if (prop_coin(&r))
+      add_scalar(&e, SF_IMAGE_SIZE_MIN, image);
+    if (prop_coin(&r))
+      add_scalar(&e, SF_PHYS_MEMTOTAL, memtotal);
+
+    struct prop_check chk[] = {
+        {Q_VIRT_IMAGE_BASE, virt},
+        {Q_PHYS_IMAGE_BASE, phys},
+        {Q_PAGE_OFFSET, po},
+    };
+    prop_check_containment(&e, rules, nr, vrules, nv, chk,
+                           (int)(sizeof(chk) / sizeof(chk[0])), "arm32", seed);
+  }
+#endif
+}
+
+/* Property test: mips32 whole-engine containment — mips64's axes at 32-bit
+ * width. Same coupling, same fixed linear map, same two head-gap configs; what
+ * differs is that every address, the RAM total and the projections between them
+ * are 32 bits wide, and the machine can hold more memory than the linear map
+ * can reach.
+ *
+ * That last part is the reason this arch is worth its own property rather than
+ * being taken as read from mips64. KSEG0 covers 512 MiB, so a generated
+ * memtotal above it describes a real configuration — a highmem machine — where
+ * projecting a physical address through the linear map overflows the address
+ * width and wraps to a low value. A wrapped phantom below the true base is the
+ * dangerous direction, since a low bound is what carves truth out of the
+ * guaranteed window, and no 64-bit arch can produce it.
+ *
+ * Q_PAGE_OFFSET and Q_MODULE_BASE are regression nets here, as on mips64: KSEG0
+ * and the module region are both fixed by the ISA, so their truths are
+ * constants the engine pins from the same headers this test reads. They catch a
+ * rule that empties or moves one, and nothing more. */
+static void test_full_engine_property_mips32(void) {
+#if defined(__mips__) && !defined(__mips64) && !defined(__mips64__)
+  int nr = 0, nv = 0;
+  const rule_fn *rules = engine_rules(&nr);
+  const verdict_fn *vrules = engine_verdict_rules(&nv);
+  const unsigned long ITERS = 2000;
+
+  for (unsigned long seed = 0; seed < ITERS; seed++) {
+    struct prop_rng r = {seed * 0x100000001B3ull + 0x3D49B5ull};
+
+    unsigned long gap = (1ul + prop_rand(&r) % 8ul) * 0x100000ul;
+    unsigned long image = gap + (prop_rand(&r) % 8ul) * 0x100000ul;
+    /* The image must land where the linear map can still reach its physical
+     * base: KSEG0 is the smaller of the two windows on this arch. */
+    unsigned long vmax =
+        (unsigned long)PAGE_OFFSET + (unsigned long)KASLR_PHYS_MAX;
+    if (vmax > (unsigned long)KASLR_VIRT_TEXT_MAX)
+      vmax = (unsigned long)KASLR_VIRT_TEXT_MAX;
+    unsigned long virt =
+        prop_aligned(&r, (unsigned long)KASLR_VIRT_TEXT_MIN, vmax - image,
+                     (unsigned long)KASLR_VIRT_ALIGN);
+    unsigned long phys =
+        virt - (unsigned long)PAGE_OFFSET + (unsigned long)PHYS_OFFSET;
+    /* The two gaps the arch ships, stated from head.S rather than read from
+     * STEXT_OFFSET/STEXT_OFFSET_MAX — a generator drawing from the constants
+     * under test cannot contradict them. */
+    unsigned long head = prop_coin(&r) ? 0x400ul : 0ul;
+    /* Deliberately allowed past the linear map's reach: a machine with more
+     * RAM than KSEG0 covers is the configuration this arch adds. */
+    unsigned long memtotal = phys + image +
+                             (unsigned long)(prop_rand(&r) % 0x20000000ull) +
+                             0x04000000ul;
+
+    struct engine e;
+    engine_init(&e);
+
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, virt + head, 0,
+               "_stext");
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_VIRT, REGION_KERNEL_DATA, virt + gap, 0,
+               "_edata");
+    /* iomem's "Kernel code" is __pa_symbol(&_text) on mips, so the physical
+     * witness is the image base and carries no head gap. */
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_PHYS, REGION_KERNEL_IMAGE, phys, 0, "_text");
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_PHYS, REGION_RAM, 0, memtotal - 1, NULL);
+    if (prop_coin(&r))
+      add_scalar(&e, SF_IMAGE_SIZE_MIN, image);
+    if (prop_coin(&r))
+      add_scalar(&e, SF_PHYS_MEMTOTAL, memtotal);
+
+    struct prop_check chk[] = {
+        {Q_VIRT_IMAGE_BASE, virt},
+        {Q_PHYS_IMAGE_BASE, phys},
+        {Q_PAGE_OFFSET, (unsigned long)PAGE_OFFSET},
+        {Q_MODULE_BASE, (unsigned long)MODULES_START},
+    };
+    prop_check_containment(&e, rules, nr, vrules, nv, chk,
+                           (int)(sizeof(chk) / sizeof(chk[0])), "mips32", seed);
+  }
+#endif
+}
+
+/* Property test: loongarch64 whole-engine containment — the UNBOUNDED head-gap
+ * arch. Coupled like mips64, with a linear map the build knows, so the shape of
+ * the generator is the same; what only this arch reaches is the third state of
+ * the head-gap contract.
+ *
+ * _stext is ALIGN(sizeof(.head.text), 64K) above _text, and nothing in the
+ * linker script fixes how much head code a build has. The arch therefore states
+ * no ceiling, and a _stext witness may only say _text <= _stext — no floor at
+ * all. The generator draws the gap across several granules rather than fixing
+ * it at the one value measured: a single value would pass just as well
+ * against a rule that had invented a floor, since the invented floor would sit
+ * exactly where that value put it. Varying it is what makes the absence of a
+ * floor observable.
+ *
+ * The gap literals are deliberate. Reading STEXT_OFFSET_MAX would draw from the
+ * unbounded sentinel, and reading STEXT_OFFSET would draw zero every time —
+ * either way the generator would agree with the contract instead of testing it.
+ *
+ * Q_MODULE_BASE is not checked. The region is at a fixed address, but the band
+ * the arch declares is a union over kernel-version layouts held at
+ * MOD_BAND_BOUNDS, so this side has a bound on the base and not the base
+ * itself — there is no truth to state without reading the target's own
+ * MODULES_VADDR.
+ *
+ * What this arch does NOT do is collapse the virtual base to a point the way
+ * mips64 does. With no head-gap ceiling the _stext witness gives an upper edge
+ * only, and the physical witness projects across the coupling with an
+ * IMAGE_BASE_OFFSET safety margin — 2 MiB here — so the resolved window is
+ * about that wide rather than exact. That is the arch behaving as declared, and
+ * it is worth knowing when reading a failure: a truth perturbed by less than
+ * the margin still lies inside the window, so only a larger perturbation
+ * demonstrates this property can fail. */
+static void test_full_engine_property_loongarch64(void) {
+#if defined(__loongarch64) ||                                                  \
+    (defined(__loongarch__) && __loongarch_grlen == 64)
+  int nr = 0, nv = 0;
+  const rule_fn *rules = engine_rules(&nr);
+  const verdict_fn *vrules = engine_verdict_rules(&nv);
+  /* Head sizes a build can produce, each a whole 64 KiB granule. */
+  const unsigned long heads[] = {0x10000ul, 0x20000ul, 0x30000ul};
+  const unsigned long ITERS = 2000;
+
+  for (unsigned long seed = 0; seed < ITERS; seed++) {
+    struct prop_rng r = {seed * 0x100000001B3ull + 0x10A6C4ull};
+
+    unsigned long gap = (1ul + prop_rand(&r) % 16ul) * 0x100000ul;
+    unsigned long image = gap + (prop_rand(&r) % 16ul) * 0x100000ul;
+    unsigned long virt =
+        prop_aligned(&r, (unsigned long)KASLR_VIRT_TEXT_MIN,
+                     (unsigned long)KASLR_VIRT_TEXT_MAX - image,
+                     (unsigned long)KASLR_VIRT_ALIGN);
+    /* Coupled: one slide moves both bases through a map the hardware fixes. */
+    unsigned long phys =
+        virt - (unsigned long)PAGE_OFFSET + (unsigned long)PHYS_OFFSET;
+    unsigned long head =
+        heads[prop_rand(&r) % (sizeof(heads) / sizeof(heads[0]))];
+    unsigned long memtotal = phys + image +
+                             (unsigned long)(prop_rand(&r) % 0x40000000ull) +
+                             0x10000000ul;
+
+    struct engine e;
+    engine_init(&e);
+
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, virt + head, 0,
+               "_stext");
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_VIRT, REGION_KERNEL_DATA, virt + gap, 0,
+               "_edata");
+    /* iomem's "Kernel code" is __pa_symbol(&_text) here, so the physical
+     * witness is the image base and carries no head gap. */
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_PHYS, REGION_KERNEL_IMAGE, phys, 0, "_text");
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_PHYS, REGION_RAM, 0, memtotal - 1, NULL);
+    if (prop_coin(&r))
+      add_scalar(&e, SF_IMAGE_SIZE_MIN, image);
+    if (prop_coin(&r))
+      add_scalar(&e, SF_PHYS_MEMTOTAL, memtotal);
+
+    struct prop_check chk[] = {
+        {Q_VIRT_IMAGE_BASE, virt},
+        {Q_PHYS_IMAGE_BASE, phys},
+        {Q_PAGE_OFFSET, (unsigned long)PAGE_OFFSET},
+    };
+    prop_check_containment(&e, rules, nr, vrules, nv, chk,
+                           (int)(sizeof(chk) / sizeof(chk[0])), "loongarch64",
+                           seed);
+  }
+#endif
+}
+
+/* Property test: x86_64 RANDOMIZE_MEMORY region placement. Separate from the
+ * x86_64 image property because it varies the OTHER randomization on this arch
+ * — the one that moves the direct map, vmalloc and vmemmap rather than the
+ * kernel image — and it is the only place Q_VMALLOC_BASE and Q_VMEMMAP_BASE are
+ * checked at all.
+ *
+ * The three bases are not drawn independently. kernel_randomize_memory() walks
+ * ONE shared entropy budget, in a fixed order, and each region's gap is bounded
+ * by what the previous ones left (arch/x86/mm/kaslr.c):
+ *
+ *   remain = (vaddr_end - vaddr_start) - (dm_size + vmalloc_size +
+ * vmemmap_size) for i in 0..2: e_i   = (rand % (remain/(3-i) + 1)) & PUD_MASK
+ *       base_i = vaddr + e_i
+ *       vaddr  = round_up(base_i + size_i + 1, PUD_SIZE)
+ *       remain -= e_i
+ *
+ * The generator runs exactly that, so the three truths are correlated the way a
+ * real boot correlates them. Drawing them independently would produce layouts
+ * the kernel cannot emit and would test the rules against a fiction — and it is
+ * the correlation, not the individual placement, that the budget bound rests
+ * on.
+ *
+ * Two build-time inputs are drawn as well, since neither is fixed: the physical
+ * padding (CONFIG_RANDOMIZE_MEMORY_PHYSICAL_PADDING, `range 0x0 0x40` in
+ * arch/x86/Kconfig, defaulting to 0xa under MEMORY_HOTPLUG) and RAM. The
+ * padding matters because it enlarges the direct map and so SHRINKS the budget
+ * — a model that assumed the default would be tested only against the
+ * configuration it assumed.
+ *
+ * The layout constants are written out from the kernel rather than read from
+ * the arch header, for the reason every generator here does so: reading them
+ * would make this agree with whatever the header says instead of testing it.
+ *
+ * The three checks do not have the same resolution, and that is inherent rather
+ * than a weakness of the harness. The direct-map base and the vmemmap base are
+ * held to roughly a gigabyte, but the vmalloc base only to about a terabyte:
+ * its window is bounded through the direct map's SIZE, which moves in whole
+ * terabytes and carries a padding this side cannot know. A perturbation smaller
+ * than that stays inside the resolved window legitimately, so a control that
+ * shifts the vmalloc truth by a page or a PUD will pass and prove nothing. */
+static void test_full_engine_property_x86_64_randmem(void) {
+#if defined(__x86_64__)
+  int nr = 0, nv = 0;
+  const rule_fn *rules = engine_rules(&nr);
+  const verdict_fn *vrules = engine_verdict_rules(&nv);
+  /* 4-level layout: __PAGE_OFFSET_BASE_L4, CPU_ENTRY_AREA_BASE,
+   * VMALLOC_SIZE_TB, and the direct map's architectural cap at MAX_PHYSMEM_BITS
+   * = 46. */
+  const unsigned long vaddr_start = 0xffff888000000000ul;
+  const unsigned long vaddr_end = 0xfffffe0000000000ul;
+  const unsigned long one_tb = 1ul << 40;
+  const unsigned long pud = 1ul << 30;
+  const unsigned long vmalloc_tb = 32ul;
+  const unsigned long dm_max_tb = 1ul << (46 - 40);
+  const unsigned long ITERS = 2000;
+
+  for (unsigned long seed = 0; seed < ITERS; seed++) {
+    struct prop_rng r = {seed * 0x100000001B3ull + 0x5A4D0Full};
+
+    /* RAM, and the padding a build may add to the direct map for hotplug. */
+    unsigned long max_pfn =
+        (1ul + (unsigned long)(prop_rand(&r) % 4096ull)) * (one_tb >> 22);
+    unsigned long padding_tb = (unsigned long)(prop_rand(&r) % 0x41ull);
+
+    unsigned long ram_bytes = max_pfn << 12;
+    unsigned long dm_tb = (ram_bytes + one_tb - 1) / one_tb + padding_tb;
+    if (dm_tb > dm_max_tb)
+      dm_tb = dm_max_tb;
+    /* vmemmap covers the direct map one struct page (64 bytes) per 4 KiB. */
+    unsigned long vmemmap_tb = (dm_tb * 64ul + 4095ul) / 4096ul;
+    if (vmemmap_tb == 0)
+      vmemmap_tb = 1;
+
+    unsigned long sizes[3] = {dm_tb * one_tb, vmalloc_tb * one_tb,
+                              vmemmap_tb * one_tb};
+    unsigned long span = vaddr_end - vaddr_start;
+    if (sizes[0] + sizes[1] + sizes[2] >= span)
+      continue; /* the fixed sizes already fill the span; no entropy to place */
+    unsigned long remain = span - sizes[0] - sizes[1] - sizes[2];
+
+    unsigned long vaddr = vaddr_start, base[3];
+    for (int i = 0; i < 3; i++) {
+      unsigned long cap = remain / (unsigned long)(3 - i);
+      unsigned long e = (unsigned long)(prop_rand(&r) % (cap + 1)) & ~(pud - 1);
+      vaddr += e;
+      base[i] = vaddr;
+      vaddr = (vaddr + sizes[i] + 1 + pud - 1) & ~(pud - 1);
+      remain -= e;
+    }
+
+    struct engine e;
+    engine_init(&e);
+    add_scalar(&e, SF_VIRT_ADDR_BITS, 48);
+    add_scalar(&e, SF_PHYS_MAX_PFN, max_pfn);
+    /* A pointer into each region: what a leak of one of them actually is. */
+    if (prop_coin(&r))
+      add_interior(&e, KASLD_TYPE_VIRT, REGION_DIRECTMAP,
+                   base[0] + (unsigned long)(prop_rand(&r) % 0x10000000ull));
+    if (prop_coin(&r))
+      add_interior(&e, KASLD_TYPE_VIRT, REGION_VMALLOC,
+                   base[1] + (unsigned long)(prop_rand(&r) % 0x10000000ull));
+    if (prop_coin(&r))
+      add_interior(&e, KASLD_TYPE_VIRT, REGION_VMEMMAP,
+                   base[2] + (unsigned long)(prop_rand(&r) % 0x10000000ull));
+
+    struct prop_check chk[] = {
+        {Q_PAGE_OFFSET, base[0]},
+        {Q_VMALLOC_BASE, base[1]},
+        {Q_VMEMMAP_BASE, base[2]},
+    };
+    prop_check_containment(&e, rules, nr, vrules, nv, chk,
+                           (int)(sizeof(chk) / sizeof(chk[0])),
+                           "x86_64-randmem", seed);
+  }
+#endif
+}
+
+/* Property test: arm64 linear map and paging config. Separate from the arm64
+ * text property above because it varies a different axis — that one holds the
+ * VA layout still and moves the image; this one moves the layout itself and
+ * leaves the image out.
+ *
+ * arm64 is the only arch whose linear-map base is a function of a CONFIG rather
+ * than a constant or a firmware value: PAGE_OFFSET = -(1 << VA_BITS), with the
+ * map running to _PAGE_END = -(1 << (VA_BITS - 1)). Drawing VA_BITS from the
+ * arch's own candidate list moves both together, which is what makes
+ * containment of Q_PAGE_OFFSET a claim about inference rather than about a
+ * constant — and it is the same draw that makes Q_VA_BITS meaningful, the one
+ * finite-set quantity in the engine and so the only one whose containment runs
+ * through a lattice other than the interval.
+ *
+ * No text base is generated. The kernel image region is anchored to
+ * _PAGE_END(VA_BITS_MIN), and VA_BITS_MIN stays 48 under the 52-bit LVA configs
+ * (asm/memory.h: MODULES_VADDR = _PAGE_END(VA_BITS_MIN), KIMAGE_VADDR =
+ * MODULES_END), so each config admits its own narrow text window rather than
+ * the union the wide bounds describe. Placing an image anywhere in that union
+ * generates kernels arm64 does not build, and the text rules correctly reject
+ * them. Modelling that window per config is what a text axis here would need;
+ * until then the layout axis stands on its own, and the image is covered by the
+ * property above under a fixed VA layout.
+ */
+static void test_full_engine_property_arm64_va(void) {
+#if defined(__aarch64__)
+  int nr = 0, nv = 0;
+  const rule_fn *rules = engine_rules(&nr);
+  const verdict_fn *vrules = engine_verdict_rules(&nv);
+  const unsigned long vas[] = VA_BITS_CANDIDATES;
+  const unsigned long ITERS = 2000;
+
+  for (unsigned long seed = 0; seed < ITERS; seed++) {
+    struct prop_rng r = {seed * 0x100000001B3ull + 0x5A4B3C2Dull};
+
+    unsigned long va = vas[prop_rand(&r) % (sizeof(vas) / sizeof(vas[0]))];
+    unsigned long po = arm64_page_offset_for(va);
+    unsigned long page_end = arm64_page_end_for(va);
+
+    struct engine e;
+    engine_init(&e);
+
+    /* A pointer into the linear map, which is what a direct-map leak is: it
+     * says the map covers this address, not where the map begins. Working back
+     * from it to the config, and from the config to the map's base, is the
+     * inference under test.
+     *
+     * Only from ARM64_VA_BITS_VALIDATE_MIN up. Below it the arch deliberately
+     * declines to corroborate: the accepting band's ceiling is _PAGE_END of
+     * that width, so a narrower kernel's linear map runs above it and its
+     * direct-map leak is ruled invalid by design — a documented completeness
+     * trade on a config needing 16K pages and EXPERT, whose width still
+     * resolves from the mmap probe. Generating a leak there would assert the
+     * arch corroborates evidence it has decided not to. */
+    if (va >= (unsigned long)ARM64_VA_BITS_VALIDATE_MIN && prop_coin(&r))
+      add_interior(&e, KASLD_TYPE_VIRT, REGION_DIRECTMAP,
+                   po + (unsigned long)(prop_rand(&r) % (page_end - po)));
+
+    struct prop_check chk[] = {
+        {Q_PAGE_OFFSET, po},
+        {Q_VA_BITS, va},
+    };
+    prop_check_containment(&e, rules, nr, vrules, nv, chk,
+                           (int)(sizeof(chk) / sizeof(chk[0])), "arm64-va",
+                           seed);
+  }
+#endif
+}
+
+/* Property test: mips64 whole-engine containment — a COUPLED arch whose linear
+ * map the ISA fixes. CKSEG0 makes PAGE_OFFSET a constant this build knows, so
+ * unlike x86_32 no page-offset landmark is needed: the arch axiom pins it and
+ * the coupling rules project from there. What mips64 brings that no other
+ * covered arch does is that pairing — a build-known linear map, a module band
+ * at a fixed address independent of both text and the map, and a head gap that
+ * is a range rather than a constant.
+ *
+ * The head gap is DRAWN, not assumed. mips reserves a fill before _stext only
+ * where the exception fill is compiled in, and several platforms select it out,
+ * so a real _stext witness sits at +0x400 on some kernels and at +0 on others.
+ * Generating one of the two would leave the property silent about the arch as
+ * it ships; generating both is what makes this a claim about mips64 rather than
+ * about one config of it.
+ *
+ * Q_PAGE_OFFSET and Q_MODULE_BASE are checked as a regression net rather than
+ * as a discovery. Both truths are architectural constants the engine pins from
+ * the same headers this test reads, so containment cannot fail here unless a
+ * rule empties or moves one — which is the failure they are here to catch. */
+static void test_full_engine_property_mips64(void) {
+#if defined(__mips64) || defined(__mips64__)
+  int nr = 0, nv = 0;
+  const rule_fn *rules = engine_rules(&nr);
+  const verdict_fn *vrules = engine_verdict_rules(&nv);
+
+  const unsigned long ITERS = 2000;
+  for (unsigned long seed = 0; seed < ITERS; seed++) {
+    struct prop_rng r = {seed * 0x100000001B3ull + 0x6D49B5ull};
+
+    unsigned long gap = (1ul + prop_rand(&r) % 16ul) * 0x100000ul;
+    unsigned long image = gap + (prop_rand(&r) % 16ul) * 0x100000ul;
+    unsigned long virt =
+        prop_aligned(&r, (unsigned long)KASLR_VIRT_TEXT_MIN,
+                     (unsigned long)KASLR_VIRT_TEXT_MAX - image,
+                     (unsigned long)KASLR_VIRT_ALIGN);
+    /* Coupled: text rides in a linear map the hardware places, so one slide
+     * moves both bases and the projection is exact by construction. */
+    unsigned long phys =
+        virt - (unsigned long)PAGE_OFFSET + (unsigned long)PHYS_OFFSET;
+    /* One of the two gaps the arch ships — never a value between them, and
+     * NOT read from STEXT_OFFSET/STEXT_OFFSET_MAX. A generator that drew its
+     * truth from the same constants the engine reads could not contradict
+     * them: understate the range in the header and the generator quietly stops
+     * producing the config that would expose it, so the property confirms the
+     * header instead of testing it. These two are the arch's own facts —
+     * head.S reserves 0x400 before _stext, except where the exception fill is
+     * configured out and the gap is 0. */
+    unsigned long head = prop_coin(&r) ? 0x400ul : 0ul;
+    unsigned long memtotal = phys + image +
+                             (unsigned long)(prop_rand(&r) % 0x20000000ull) +
+                             0x08000000ul;
+
+    struct engine e;
+    engine_init(&e);
+
+    /* A random subset of faithful leaks, all consistent with the truth. */
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, virt + head, 0,
+               "_stext");
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_VIRT, REGION_KERNEL_DATA, virt + gap, 0,
+               "_edata");
+    /* iomem's "Kernel code" is __pa_symbol(&_text) on mips, so the physical
+     * witness is the image base itself and carries no head gap. */
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_PHYS, REGION_KERNEL_IMAGE, phys, 0, "_text");
+    if (prop_coin(&r))
+      add_addr(&e, KASLD_TYPE_PHYS, REGION_RAM, 0, memtotal - 1, NULL);
+    if (prop_coin(&r))
+      add_scalar(&e, SF_IMAGE_SIZE_MIN, image);
+    if (prop_coin(&r))
+      add_scalar(&e, SF_PHYS_MEMTOTAL, memtotal);
+
+    struct prop_check chk[] = {
+        {Q_VIRT_IMAGE_BASE, virt},
+        {Q_PHYS_IMAGE_BASE, phys},
+        {Q_PAGE_OFFSET, (unsigned long)PAGE_OFFSET},
+        {Q_MODULE_BASE, (unsigned long)MODULES_START},
+    };
+    prop_check_containment(&e, rules, nr, vrules, nv, chk,
+                           (int)(sizeof(chk) / sizeof(chk[0])), "mips64", seed);
   }
 #endif
 }
@@ -2080,6 +3001,110 @@ static void test_full_engine_property_x86_32_floor(void) {
     prop_check_floor(rules, nr, vrules, nv, memtotal, image, axes, 2, &r,
                      "x86_32", seed);
   }
+#endif
+}
+
+/* Floor invariant on the arches whose containment properties are above but
+ * whose floor invariant was never exercised. Same property as the x86_64 floor
+ * test — a below-floor pin may shape `likely` and must move NO guaranteed
+ * quantity, while the same pin at CONF_PARSED must — run against each arch's
+ * own rule set, since an arch-specific rule that reads a below-floor signal
+ * into an at-floor constraint is invisible everywhere else.
+ *
+ * All seven are coupled, so the truth is one slide: draw the physical base and
+ * project it through the arch's own linear map. The phys draw is clamped so the
+ * projection stays inside the virtual text window — on the 32-bit arches that
+ * window is the smaller of the two, and an unclamped draw would wrap. */
+static void prop_floor_coupled(const char *arch, unsigned long salt,
+                               unsigned long pmax_cap) {
+#ifdef KASLD_PROP_ARCH
+  int nr = 0, nv = 0;
+  const rule_fn *rules = engine_rules(&nr);
+  const verdict_fn *vrules = engine_verdict_rules(&nv);
+  for (unsigned long seed = 0; seed < 1000; seed++) {
+    struct prop_rng r = {seed * 0x100000001B3ull + salt};
+    unsigned long gap = (1ul + prop_rand(&r) % 8ul) * 0x100000ul;
+    unsigned long image = gap + (prop_rand(&r) % 8ul) * 0x100000ul;
+    if (pmax_cap <= image + (unsigned long)KASLR_PHYS_ALIGN)
+      continue;
+    unsigned long phys =
+        prop_aligned(&r, (unsigned long)KASLR_PHYS_ALIGN, pmax_cap - image,
+                     (unsigned long)KASLR_PHYS_ALIGN);
+    unsigned long virt =
+        phys - (unsigned long)PHYS_OFFSET + (unsigned long)PAGE_OFFSET;
+    unsigned long memtotal = phys + image +
+                             (unsigned long)(prop_rand(&r) % 0x08000000ull) +
+                             0x02000000ul;
+    struct prop_axis axes[] = {
+        {KASLD_TYPE_VIRT, Q_VIRT_IMAGE_BASE, virt,
+         (unsigned long)KASLR_VIRT_ALIGN, (unsigned long)KASLR_VIRT_TEXT_MIN,
+         (unsigned long)KASLR_VIRT_TEXT_MAX},
+        {KASLD_TYPE_PHYS, Q_PHYS_IMAGE_BASE, phys,
+         (unsigned long)KASLR_PHYS_ALIGN, (unsigned long)KASLR_PHYS_ALIGN,
+         pmax_cap},
+    };
+    prop_check_floor(rules, nr, vrules, nv, memtotal, image, axes, 2, &r, arch,
+                     seed);
+  }
+#else
+  (void)arch;
+  (void)salt;
+  (void)pmax_cap;
+#endif
+}
+
+/* The physical span whose projection stays inside the virtual text window. */
+#ifdef KASLD_PROP_ARCH
+static unsigned long prop_coupled_pmax(void) {
+  unsigned long from_virt = (unsigned long)KASLR_VIRT_TEXT_MAX -
+                            (unsigned long)PAGE_OFFSET +
+                            (unsigned long)PHYS_OFFSET;
+  unsigned long p = (unsigned long)KASLR_PHYS_MAX;
+  return from_virt < p ? from_virt : p;
+}
+#endif
+
+static void test_full_engine_property_mips64_floor(void) {
+#if defined(__mips64) || defined(__mips64__)
+  prop_floor_coupled("mips64", 0x6D49F1ull, prop_coupled_pmax());
+#endif
+}
+
+static void test_full_engine_property_mips32_floor(void) {
+#if defined(__mips__) && !defined(__mips64) && !defined(__mips64__)
+  prop_floor_coupled("mips32", 0x3D49F1ull, prop_coupled_pmax());
+#endif
+}
+
+static void test_full_engine_property_loongarch64_floor(void) {
+#if defined(__loongarch64) ||                                                  \
+    (defined(__loongarch__) && __loongarch_grlen == 64)
+  prop_floor_coupled("loongarch64", 0x10A6F1ull, prop_coupled_pmax());
+#endif
+}
+
+static void test_full_engine_property_ppc64_floor(void) {
+#if defined(__powerpc64__) || defined(__ppc64__)
+  prop_floor_coupled("ppc64", 0x99C6F1ull, prop_coupled_pmax());
+#endif
+}
+
+static void test_full_engine_property_riscv32_floor(void) {
+#if (defined(__riscv) || defined(__riscv__)) && __riscv_xlen == 32
+  prop_floor_coupled("riscv32", 0x52C3F1ull, prop_coupled_pmax());
+#endif
+}
+
+static void test_full_engine_property_ppc32_floor(void) {
+#if (defined(__powerpc__) || defined(__PPC__)) && !defined(__powerpc64__) &&   \
+    !defined(__ppc64__)
+  prop_floor_coupled("ppc32", 0x9C32F1ull, prop_coupled_pmax());
+#endif
+}
+
+static void test_full_engine_property_arm32_floor(void) {
+#if defined(__arm__) && !defined(__aarch64__)
+  prop_floor_coupled("arm32", 0xA3B0F1ull, prop_coupled_pmax());
 #endif
 }
 
@@ -2246,6 +3271,22 @@ int main(void) {
   RUN(test_full_engine_property_riscv64);
   RUN(test_full_engine_property_s390);
   RUN(test_full_engine_property_x86_32);
+  RUN(test_full_engine_property_mips64);
+  RUN(test_full_engine_property_arm64_va);
+  RUN(test_full_engine_property_x86_64_randmem);
+  RUN(test_full_engine_property_loongarch64);
+  RUN(test_full_engine_property_mips32);
+  RUN(test_full_engine_property_ppc32);
+  RUN(test_full_engine_property_arm32);
+  RUN(test_full_engine_property_riscv32);
+  RUN(test_full_engine_property_ppc64);
+  RUN(test_full_engine_property_mips64_floor);
+  RUN(test_full_engine_property_mips32_floor);
+  RUN(test_full_engine_property_loongarch64_floor);
+  RUN(test_full_engine_property_ppc64_floor);
+  RUN(test_full_engine_property_riscv32_floor);
+  RUN(test_full_engine_property_ppc32_floor);
+  RUN(test_full_engine_property_arm32_floor);
   RUN(test_full_engine_property_coverage);
   RUN(test_full_engine_curation_settles_before_constraints);
   RUN(test_full_engine_ppc64_hardened_shape);

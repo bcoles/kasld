@@ -84,8 +84,104 @@ static int emit_pin(const struct evidence_set *ev, enum kasld_addr_type type,
 
   /* The engine's text quantity is the IMAGE BASE (_text). A KERNEL_TEXT witness
    * is _stext, so normalize it down by the head gap; a KERNEL_IMAGE witness is
-   * already the image base. No-op where the head gap is 0 (nonzero on arm64,
-   * loongarch64, mips32, mips64). */
+   * already the image base.
+   *
+   * Only where the linker fixes that gap. Where it does not -- arm32 aligns
+   * _stext up to a section boundary, mips reserves a fill only under one config
+   * -- STEXT_OFFSET_MAX exceeds STEXT_OFFSET and the witness cannot say which
+   * value inside the range applies to this build. Pinning there is how the
+   * guaranteed window ends up a gap away from the truth, so the witness bounds
+   * the base instead: it lies in [_stext - MAX, _stext - MIN], and both edges
+   * are sound for every config the arch admits. */
+  if (base_is_stext && !STEXT_GAP_EXACT) {
+    /* The SOUND edges, never STEXT_OFFSET: that is the likely gap, and a bound
+     * drawn from it would exclude every build whose gap is smaller. */
+    unsigned long hi = base - (unsigned long)STEXT_OFFSET_MIN;
+    if (hi > base) /* wrap: the witness sits below the gap itself */
+      return 0;
+
+    /* The upper edge holds for any gap at or above the floor. */
+    struct constraint *cu = &out[slot];
+    memset(cu, 0, sizeof(*cu));
+    cu->q = q;
+    cu->op = C_UPPER_BOUND;
+    cu->value = hi;
+    cu->conf = conf;
+    cu->derived_from[0] = src;
+    cu->lineage_count = 1;
+    snprintf(cu->origin, ORIGIN_LEN, "text_pin_from_observation");
+
+    /* The lower edge only where the arch states a ceiling. Unbounded (the gap
+     * is an alignment over a head section of no fixed size) leaves it to the
+     * rest of the evidence rather than inventing a floor. */
+    if (!STEXT_GAP_BOUNDED)
+      return 1;
+    if (slot + 1 >= out_max)
+      return 1;
+    unsigned long lo = base - (unsigned long)STEXT_OFFSET_MAX;
+    if (lo > hi)
+      return 1;
+
+    struct constraint *cl = &out[slot + 1];
+    memset(cl, 0, sizeof(*cl));
+    cl->q = q;
+    cl->op = C_LOWER_BOUND;
+    cl->value = lo;
+    cl->conf = conf;
+    cl->derived_from[0] = src;
+    cl->lineage_count = 1;
+    snprintf(cl->origin, ORIGIN_LEN, "text_pin_from_observation");
+    int n = 2;
+
+#if STEXT_GAP_ENUMERATED
+    /* Where the arch can enumerate its gaps, the bases between consecutive
+     * candidates are not merely unlikely -- no configuration produces them --
+     * so the span between them comes out. The bounds above already fix the two
+     * ends; each exclude removes one interior span, and the ranges the reader
+     * assembles are the candidate points themselves.
+     *
+     * Sound on the same footing as the bounds: the candidate list is required
+     * to be complete over every configuration the arch admits, so a base this
+     * carves away is one no build of it can have. */
+    {
+      static const unsigned long gaps[] = STEXT_GAP_CANDIDATES;
+      const int ngaps = (int)(sizeof(gaps) / sizeof(gaps[0]));
+      /* The edges come from the list, not from the MIN/MAX macros, so the two
+       * statements of the same fact cannot drift apart: an arch that adds a
+       * candidate without touching its edges would otherwise bound the base by
+       * one set and carve it by another. The macros still answer the separate
+       * question of whether the gap is fixed at all. */
+      if (ngaps > 0) {
+        cu->value = base - gaps[0];
+        cl->value = base - gaps[ngaps - 1];
+        if (cu->value > base || cl->value > cu->value)
+          return 0; /* the witness sits below its own gap */
+      }
+      /* Candidates ascend, so the bases they imply descend; walk the list
+       * downward to visit the bases in ascending order. */
+      for (int g = ngaps - 1; g > 0 && slot + n < out_max; g--) {
+        unsigned long hole_lo = base - gaps[g] + 1; /* just above base(g)   */
+        unsigned long hole_hi =
+            base - gaps[g - 1] - 1; /* just below the next */
+        if (gaps[g] <= gaps[g - 1] || hole_lo > hole_hi)
+          continue; /* adjacent candidates, or an unsorted list: nothing between
+                     */
+        struct constraint *cx = &out[slot + n++];
+        memset(cx, 0, sizeof(*cx));
+        cx->q = q;
+        cx->op = C_EXCLUDE;
+        cx->value = hole_lo;
+        cx->value2 = hole_hi;
+        cx->conf = conf;
+        cx->derived_from[0] = src;
+        cx->lineage_count = 1;
+        snprintf(cx->origin, ORIGIN_LEN, "text_pin_from_observation");
+      }
+    }
+#endif
+    return n;
+  }
+
   base = kasld_image_base_from(base, base_is_stext);
 
   /* A POS_BASE observation is a base pin: emit it as-is (C_EQUALS) at the

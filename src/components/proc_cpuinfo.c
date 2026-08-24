@@ -204,14 +204,20 @@ static int detect_ppc64_mmu(void) {
  * a width of 48. That asymmetry is deliberate and must not be "fixed": on
  * x86_64 a reported 57 is the CPU *capability* and the kernel may still run
  * 4-level, so the width there does not state the active layout. LoongArch has
- * no such split — one CPUCFG field feeds both vm_map_base and this line, so
- * whatever it reports IS what the kernel used.
+ * no such split — one CPUCFG field feeds both vm_map_base and this line, so the
+ * width published here does describe the layout the kernel is running.
+ *
+ * What it is NOT is the shift. The field and the printed line differ by one:
+ * cpu_vabits is VALEN and M is VALEN + 1, so a consumer placing a region at
+ * `0 - (1 << M)` lands a full bit low. SF_VIRT_ADDR_BITS carries the width, and
+ * a consumer that needs the shift subtracts one -- module_base_from_va_bits is
+ * the one that does.
  *
  * Note also that an mmap boundary probe CANNOT substitute for this read.
  * TASK_SIZE64 is `1 << min(cpu_vabits, VA_BITS)`, clamped to the kernel's
  * page-table width, while vm_map_base uses cpu_vabits unclamped. A 16K/3-level
- * kernel on cpu_vabits=48 hardware has VA_BITS=47, so a probe would under-read
- * by a bit and place the module region 128 TiB too high. */
+ * kernel on VALEN=47 hardware has VA_BITS=47, so a probe would under-read and
+ * place the module region 128 TiB too high. */
 static int detect_loongarch_address_sizes(void) {
   char buf[256];
   char *val = cpuinfo_get("Address Sizes", buf, sizeof(buf));

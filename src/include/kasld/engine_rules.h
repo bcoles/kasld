@@ -216,6 +216,15 @@ static inline int kasld_emit_text_residue(const struct evidence_set *ev,
       continue;
     if (o->pos != POS_BASE || !HAS_LO(o))
       continue;
+    /* An _stext witness is normalised to the image base by subtracting the head
+     * gap. Where that gap is a range rather than a single value the subtraction
+     * is only approximate, and the error does not vanish under the modulus: the
+     * residue class it produces need not contain the truth. A residue is an
+     * equality on the low bits, so there is no weaker form to fall back to --
+     * skip the witness. An image-base witness carries no gap and is unaffected.
+     */
+    if (o->eff_region == REGION_KERNEL_TEXT && !STEXT_GAP_EXACT)
+      continue;
     unsigned long base = obs_anchor(o);
     if (base == 0)
       continue;

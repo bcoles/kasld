@@ -928,9 +928,118 @@ static inline unsigned long kasld_page_offset_if_known(void) {
  * consulted — version-proof. The constant only bridges the gap for _stext-only
  * sources (e.g. /proc/iomem "Kernel code") and the _stext display projection
  * when no _text leak exists. Used at two edges: kasld_image_base_from() (IN),
- * _stext display (OUT). */
+ * _stext display (OUT).
+ *
+ * It is an ESTIMATE, not a bound: the gap this build most likely has, which is
+ * what the two edges above want, since both feed the LIKELY answer. It must
+ * never bound the guaranteed window -- STEXT_OFFSET_MIN and STEXT_OFFSET_MAX
+ * are the sound floor and ceiling, and they are what the engine reads.
+ *
+ * The three are one value on an arch whose linker fixes the gap, and that is
+ * the common case; the defaults collapse them so such an arch states one
+ * number. Where they differ, keeping them apart is what stops a floor being
+ * printed as a measurement, or an estimate being trusted as a bound. */
 #ifndef STEXT_OFFSET
 #define STEXT_OFFSET 0ul
+#endif
+
+/* STEXT_OFFSET_MAX — the largest the head gap can be on this arch.
+ *
+ * STEXT_OFFSET is only a usable conversion where the LINKER fixes the gap. It
+ * does not everywhere:
+ *
+ *   arm32  .head.text is followed by ALIGN(1<<SECTION_SHIFT) under
+ *          CONFIG_STRICT_KERNEL_RWX, so _stext is rounded up to a section
+ *          boundary and the gap depends on where _text sits inside the granule
+ *          -- 1 MiB with 2-level paging, 2 MiB under LPAE, and different again
+ *          with CONFIG_ARM_MPU or another TEXT_OFFSET. Observed 0xf8000 on
+ *          both a 6.12 and a 7.0 build, which is the ALIGN, not a constant.
+ *   mips   head.S reserves `.fill 0x400` before EXPORT(_stext) -- a real
+ *          constant, but `#ifndef CONFIG_NO_EXCEPT_FILL`, and five platforms
+ *          select it (MIPS_GENERIC_KERNEL, BMIPS_GENERIC, BCM47XX, LANTIQ,
+ *          MACH_LOONGSON64), where the gap is 0.
+ *
+ * So the gap is a RANGE: it lies in [STEXT_OFFSET_MIN, STEXT_OFFSET_MAX], and
+ * STEXT_OFFSET is the value inside that range this build most likely has.
+ * Where the two edges are equal the gap is exact and a _stext witness
+ * determines the image base. Where they differ it only bounds it, and pinning
+ * would put the guaranteed window a gap away from the truth -- which is what a
+ * _stext-only arm32 kernel did: pinned to _stext, 0xf8000 above the real _text,
+ * with the true base outside the window the tool called guaranteed.
+ *
+ * Both default to STEXT_OFFSET, so an arch whose linker fixes the gap states
+ * one number and keeps the pin. */
+#ifndef STEXT_OFFSET_MIN
+#define STEXT_OFFSET_MIN STEXT_OFFSET
+#endif
+#ifndef STEXT_OFFSET_MAX
+#define STEXT_OFFSET_MAX STEXT_OFFSET
+#endif
+
+/* STEXT_OFFSET_MAX may also say the gap has no ceiling this side can state.
+ *
+ * loongarch64 is the case: _stext is ALIGN(sizeof(.head.text), 64K) above _text
+ * (PECOFF_SEGMENT_ALIGN), so the gap is a multiple of 64 KiB set by however
+ * much head code the build has, and HEAD_TEXT_SECTION fixes no size. arm32's
+ * ceiling is real -- SECTION_SHIFT is at most 21, capping it at 2 MiB -- but
+ * there is no equivalent here, and a chosen number would be a guess with a
+ * soundness claim attached, which is the failure this range exists to remove.
+ *
+ * Unbounded means a _stext witness gives the upper edge only: _text <= _stext,
+ * true for any gap. The lower edge comes from whatever else the engine holds.
+ */
+#define KASLD_STEXT_GAP_UNBOUNDED (~0ul)
+
+/* STEXT_GAP_CANDIDATES — the gap is a SET, where an arch can close one.
+ *
+ * The range above states how far the gap can reach. It does not say the gap can
+ * take every value in between, and on the arches that widened it, it cannot:
+ * the gap is an ALIGN over a handful of config values, so the admissible bases
+ * are a few points rather than a span. Stating the range alone throws that
+ * away, and the cost is real -- on arm64 a _stext witness bounds the base to 31
+ * grid positions where only two are reachable.
+ *
+ * An arch that can enumerate its gaps declares them here, lowest first, and the
+ * two edges are derived from the list so the three cannot disagree. The engine
+ * then carves the space between consecutive candidates out of the estimate,
+ * which is sound for the same reason the range is: every configuration the arch
+ * admits is still inside.
+ *
+ * The bar for declaring one is COMPLETENESS over every configuration, not over
+ * the ones that have been seen. An incomplete set is worse than the range it
+ * replaces, because it excludes a real build while looking tight -- the exact
+ * failure the widening removed. Where a gap depends on something the header
+ * cannot close (arm32's TEXT_OFFSET varies with CONFIG_ARM_MPU; loongarch64's
+ * head section has no fixed size), leave it enumerated by nothing and keep the
+ * range. Same shape as PAGE_OFFSET_CANDIDATES, which sits beside
+ * PAGE_OFFSET_MIN/MAX for the same reason. */
+#ifdef STEXT_GAP_CANDIDATES
+#define STEXT_GAP_ENUMERATED 1
+#else
+#define STEXT_GAP_ENUMERATED 0
+#endif
+
+/* 1 when a _stext witness determines the image base, 0 when it only bounds it.
+ * Keyed on the two SOUND edges: the estimate sits between them and says nothing
+ * about whether the gap is fixed. */
+#define STEXT_GAP_EXACT                                                        \
+  ((unsigned long)STEXT_OFFSET_MAX == (unsigned long)STEXT_OFFSET_MIN)
+
+/* 1 when the gap has a stated ceiling, so the witness gives both edges. */
+#define STEXT_GAP_BOUNDED                                                      \
+  (!STEXT_GAP_EXACT &&                                                         \
+   (unsigned long)STEXT_OFFSET_MAX != KASLD_STEXT_GAP_UNBOUNDED)
+
+/* The estimate must lie inside the sound range, or a consumer reading it would
+ * contradict one that reads the edges. Checked here rather than trusted: the
+ * three are set in separate places in each arch header and drift silently. */
+#if STEXT_OFFSET_MIN > STEXT_OFFSET
+#error "STEXT_OFFSET_MIN exceeds STEXT_OFFSET: the estimate is below the floor"
+#endif
+#if STEXT_OFFSET_MAX != KASLD_STEXT_GAP_UNBOUNDED &&                           \
+    STEXT_OFFSET > STEXT_OFFSET_MAX
+#error                                                                         \
+    "STEXT_OFFSET exceeds STEXT_OFFSET_MAX: the estimate is above the ceiling"
 #endif
 
 /* Alignment granularity the kernel randomizes the CONFIG_RANDOMIZE_MEMORY

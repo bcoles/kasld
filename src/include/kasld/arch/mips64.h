@@ -93,7 +93,15 @@
 #define IMAGE_BASE_OFFSET 0
 
 // https://elixir.bootlin.com/linux/v6.1.1/source/arch/mips/kernel/head.S#L67
+/* head.S reserves `.fill 0x400` before EXPORT(_stext) -- a real constant,
+ * but only #ifndef CONFIG_NO_EXCEPT_FILL, and MIPS_GENERIC_KERNEL,
+ * BMIPS_GENERIC, BCM47XX, LANTIQ and MACH_LOONGSON64 all select it, where
+ * the gap is 0. So the witness bounds the image base, it does not fix it. */
+// Estimate: the .fill 0x400 head.S reserves before EXPORT(_stext), measured on
+// every mips kernel booted. The floor is 0 -- CONFIG_NO_EXCEPT_FILL omits it.
 #define STEXT_OFFSET 0x400ul
+#define STEXT_OFFSET_MIN 0ul
+#define STEXT_OFFSET_MAX 0x400ul
 
 // Plausible physical address range for kernel image
 #define KERNEL_PHYS_MIN 0ul

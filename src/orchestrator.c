@@ -2638,7 +2638,11 @@ static unsigned long anchor_image_base(enum kasld_addr_type type) {
  * (/proc/kallsyms _stext, /proc/iomem "Kernel code"); else project from the
  * image base with the compile-time head gap. select_anchor() is unusable here —
  * it prefers unnamed results, so an unnamed interior kernel_text sample would
- * shadow the _stext base; scan for the base witness directly. */
+ * shadow the _stext base; scan for the base witness directly.
+ *
+ * STEXT_OFFSET is the likely gap, which is what this wants: the projection
+ * feeds a display field that tracks the likely base, not the guaranteed
+ * window. The sound edges are the engine's business and are not read here. */
 static unsigned long observed_stext_base(enum kasld_addr_type type,
                                          unsigned long image_base) {
   for (int i = 0; i < num_results; i++) {

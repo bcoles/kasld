@@ -98,11 +98,14 @@
 //   vm_map_base   = 0 - (1 << cpu_vabits)
 //   MODULES_VADDR = vm_map_base + PCI_IOSIZE + 2 * PAGE_SIZE   (PCI_IOSIZE=32M)
 // Nothing randomizes it, so a resolved width pins the quantity exactly rather
-// than bounding it. Declared as an addend so the rule needs no loongarch
-// literals of its own; the width comes from SF_VIRT_ADDR_BITS.
+// than bounding it. The width comes from SF_VIRT_ADDR_BITS and the page size
+// from SF_PAGE_SIZE, since loongarch admits 4 KiB, 16 KiB and 64 KiB pages and
+// the two-page term differs under each. Only the PCI window is a constant, so
+// only it is stated here; the rest of the placement is loongarch reasoning and
+// lives with the rule.
 // https://elixir.bootlin.com/linux/v7.2/source/arch/loongarch/include/asm/pgtable.h#L98
 // https://elixir.bootlin.com/linux/v7.2/source/arch/loongarch/include/asm/addrspace.h#L141
-#define MODULES_BASE_FROM_VA_BITS_ADDEND (0x2000000ul + 2ul * PAGE_SIZE)
+#define MODULES_BASE_LOONGARCH64_PCI_IOSIZE 0x2000000ul
 
 // EFI_KIMG_ALIGN is SZ_2M, but KASLR offset uses << 16 = 64 KiB granularity.
 // https://elixir.bootlin.com/linux/v6.12/source/arch/loongarch/kernel/relocate.c
@@ -122,12 +125,26 @@
 // https://elixir.bootlin.com/linux/v6.8.5/source/arch/loongarch/Makefile#L99
 #define IMAGE_BASE_OFFSET 0x200000
 
-// Head gap _stext - _text: loongarch64 places a header before _stext, so
-// _stext = _text + 0x20000 (observed on the v6.18 lts kernel). The engine
-// solves the image base (_text); _stext is projected from it with STEXT_OFFSET
-// (a fallback — the real _text symbol is used at runtime when kallsyms is
-// readable).
+// Head gap _stext - _text: loongarch64 places a header before _stext. The
+// engine solves the image base (_text); the gap is a range rather than a single
+// value, so STEXT_OFFSET is its floor and bounds a _stext witness from above.
+/* _stext is ALIGN(sizeof(.head.text), PECOFF_SEGMENT_ALIGN) above _text, and
+ * that ALIGN is unconditional with PECOFF_SEGMENT_ALIGN a 0x10000 literal in
+ * the linker script. HEAD_TEXT_SECTION carries the boot entry and so cannot be
+ * empty, which puts the gap at one whole granule at least -- the floor below.
+ * Above it, the gap is whatever multiple of 64 KiB the head code rounds up to:
+ * 0x20000 on every build measured, but nothing in the script fixes the head's
+ * size, so unlike arm32 there is no architectural ceiling to state. A _stext
+ * witness therefore bounds the image base from above and no further. Where the
+ * kernel exports _text this is never consulted.
+ * https://elixir.bootlin.com/linux/v7.2/source/arch/loongarch/kernel/vmlinux.lds.S#L30
+ */
+// Estimate: 0x20000, two granules, measured on every loongarch64 kernel booted.
+// The floor is one granule -- the ALIGN is unconditional and the head is not
+// empty -- and there is no ceiling, the head having no fixed size.
 #define STEXT_OFFSET 0x20000ul
+#define STEXT_OFFSET_MIN 0x10000ul
+#define STEXT_OFFSET_MAX KASLD_STEXT_GAP_UNBOUNDED
 
 // Plausible physical address range for kernel image
 #define KERNEL_PHYS_MIN 0ul

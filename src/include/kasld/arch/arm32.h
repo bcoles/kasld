@@ -129,15 +129,40 @@
 // arch/arm/Makefile
 #define KERNEL_VIRT_TEXT_DEFAULT (PAGE_OFFSET + IMAGE_BASE_OFFSET)
 
-// STEXT_OFFSET is deliberately left at its 0 default (so _stext is modelled as
-// _text) even though _stext sits ~1 MiB above _text on ARM (e.g. _text
-// 0x80008000, _stext 0x80100000). That gap is _text padded up to ARM's 1 MiB
-// section-mapping boundary, not a fixed architectural constant a single
-// STEXT_OFFSET could carry across configs. It is also unused here: ARM has no
-// text KASLR (the base is the compile-time default), and where kallsyms is
-// readable it yields _text and _stext directly — so the _stext -> _text
-// projection via STEXT_OFFSET is never taken. Contrast arm64/loongarch64,
-// which do model a fixed head gap.
+// The head gap is a RANGE, not a constant. _stext is _text padded up to ARM's
+// section-mapping boundary (vmlinux.lds.S: ALIGN(1<<SECTION_SHIFT) after
+// .head.text under CONFIG_STRICT_KERNEL_RWX), so it depends on where _text
+// lands inside the granule and on the config: 1 MiB with 2-level paging, 2 MiB
+// under LPAE (pgtable-3level.h SECTION_SHIFT 21), different again with
+// CONFIG_ARM_MPU or another TEXT_OFFSET. Measured 0xf8000 on a 6.12 and a 7.0
+// build alike -- the ALIGN, not a constant either could carry.
+//
+// The gap is reached. Not every ARM kernel exports _text: a stock Debian 13
+// armhf kernel and mainline 7.0 both publish _stext alone, so a _stext witness
+// is all there is and the projection runs. Modelled as exact it pinned the
+// guaranteed window to _stext, 0xf8000 above the real _text, putting the true
+// base outside the window -- on both endiannesses, the byte order being
+// irrelevant to it. STEXT_OFFSET_MAX makes the witness bound the image base
+// instead. arm64 differs only in degree -- its gap is one of two segment
+// alignments -- while loongarch64's has a floor but no ceiling at all.
+//
+// The ceiling needs one more link than the ALIGN itself. The gap is
+// ALIGN(_text + sizeof(.head.text), G) - _text, which is G - (_text mod G) only
+// while the head fits in that remainder; a head larger than it rounds up a
+// second granule and the gap reaches 2G. So 0x200000 rests on the head being
+// small against the granule, not on SECTION_SHIFT <= 21 alone. It is: the head
+// runs from _text to __fixup_pv_table, under 1 KiB, against 0xf8000 of
+// remainder on a 1 MiB granule -- everything above it is ALIGN padding. That is
+// the assumption loongarch64 cannot make, its head exceeding its own 64 KiB
+// granule, which is why it states a floor and no ceiling.
+
+// Estimate: ALIGN over the 1 MiB section boundary less the 0x8000 the image
+// base sits inside it -- 0xf8000, measured on every arm32 kernel booted, both
+// endiannesses and both load offsets (0x8000 and 0x208000 share the residue).
+// The floor is 0: the ALIGN is absent without CONFIG_STRICT_KERNEL_RWX.
+#define STEXT_OFFSET 0xf8000ul
+#define STEXT_OFFSET_MIN 0ul
+#define STEXT_OFFSET_MAX 0x200000ul
 
 #define KASLR_SUPPORTED 0
 

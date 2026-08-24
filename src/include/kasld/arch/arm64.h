@@ -249,9 +249,36 @@ static inline unsigned long arm64_page_end_for(unsigned long va_bits) {
 #define IMAGE_BASE_OFFSET 0
 
 // Head gap _stext - _text: arm64 places .head.text (EFI header + early vectors)
-// before _stext, so _stext = _text + 0x10000. The engine solves the image base
-// (_text); _stext is projected from it with STEXT_OFFSET.
+// before _stext, and .text is ALIGN(SEGMENT_ALIGN), so _stext = _text + 0x10000
+// wherever SEGMENT_ALIGN is SZ_64K. The engine solves the image base (_text);
+// _stext is projected from it with STEXT_OFFSET.
+//
+// SEGMENT_ALIGN is not architectural. Before v5.7 it was SZ_2M under
+// CONFIG_DEBUG_ALIGN_RODATA (asm/memory.h, removed by e16e65a02913 "arm64:
+// remove CONFIG_DEBUG_ALIGN_RODATA feature", 2020-03-29), so a pre-5.7 kernel
+// built with it has a gap of up to 2 MiB. The option lived in Kconfig.debug,
+// depended on STRICT_KERNEL_RWX and defaulted off, so it means a hand-built
+// kernel -- but the version cannot be consulted to tell the two apart, and
+// every arm64 build measured here is 5.15 or later, which structurally cannot
+// exhibit it. So the ceiling covers both: 0x10000 wherever the align is SZ_64K,
+// up to 0x200000 where it is SZ_2M.
+//
+// The cost is confined to a vantage that publishes _stext without _text, since
+// emit_pin prefers the lower witness and _text wins wherever it exists. No
+// arm64 kernel observed here is in that vantage: all eight cells
+// across 5.15/6.6/7.0 and every VA variant publish _text, as do both fixtures
+// carrying kallsyms. The gap takes one of two values and nothing between them:
+// it is ALIGN(sizeof(.head.text), SEGMENT_ALIGN), the head is comfortably under
+// 64 KiB (the boot protocol constrains it, and 0x10000 was measured across
+// 5.15/6.6/7.0 and every VA variant), and SEGMENT_ALIGN is the only term that
+// moves -- SZ_64K today, SZ_2M under the pre-v5.7 CONFIG_DEBUG_ALIGN_RODATA.
+// Two aligns, two gaps. Enumerating them leaves a _stext witness admitting two
+// bases instead of the 31 grid positions the range alone allows, on the same
+// head-size assumption the single constant already carried.
+#define STEXT_GAP_CANDIDATES {0x10000ul, 0x200000ul}
 #define STEXT_OFFSET 0x10000ul
+#define STEXT_OFFSET_MIN 0x10000ul
+#define STEXT_OFFSET_MAX 0x200000ul
 
 // Plausible physical address range for kernel image. KERNEL_PHYS_MAX is a RAM
 // heuristic (a defeasible ceiling), NOT an architectural limit — a large

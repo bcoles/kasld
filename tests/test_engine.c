@@ -3863,27 +3863,26 @@ static void test_arm64_text_phys_residue_image_base(void) {
 #endif
 }
 
-/* A KERNEL_TEXT witness is _stext = _text + STEXT_OFFSET; on arm64 STEXT_OFFSET
- * (64 KiB) is NOT a multiple of the 2 MiB modulus, so the residue must come
- * from the normalized image base (_text), not the raw _stext. */
-static void test_arm64_text_phys_residue_stext_normalized(void) {
+/* A KERNEL_TEXT witness is _stext, which is the image base plus the head gap.
+ * Normalizing it back to the base means subtracting that gap, and on arm64 the
+ * gap is a RANGE (64 KiB up to the 2 MiB segment alignment a kernel aligning
+ * rodata to a section boundary produces), not one value. An error inside that
+ * range is not absorbed by the 2 MiB modulus, so the residue class computed
+ * from a guessed gap need not contain the truth. A residue is an equality on
+ * the low bits and has no weaker form, so the witness is skipped: no stride.
+ * The image-base witness above is what still yields one. */
+static void test_arm64_text_phys_residue_stext_declined(void) {
   struct engine e;
   engine_init(&e);
   unsigned long phys_text = 0xa2b10000ul;           /* mod 2 MiB = 0x110000 */
-  unsigned long phys_stext = phys_text + 0x10000ul; /* + arm64 STEXT_OFFSET */
+  unsigned long phys_stext = phys_text + 0x10000ul; /* + a head gap */
   struct observation t = mk_obs(KASLD_TYPE_PHYS, REGION_KERNEL_TEXT, phys_stext,
                                 LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
   evidence_add(&e.ev, &t);
   const rule_fn rules[] = {rule_arm64_text_phys_residue};
   engine_run(&e, rules, 1);
-#if defined(__aarch64__)
-  assert(e.est[Q_VIRT_IMAGE_BASE].stride == 0x200000ul);
-  assert(e.est[Q_VIRT_IMAGE_BASE].stride_offset == (phys_text % 0x200000ul));
-  assert(e.est[Q_VIRT_IMAGE_BASE].stride_offset != (phys_stext % 0x200000ul));
-#else
   (void)phys_text;
   assert(e.est[Q_VIRT_IMAGE_BASE].stride == 0);
-#endif
 }
 
 /* A phys anchor NOT on the image-alignment (64 KiB) grid is a bad witness; the
@@ -3942,27 +3941,21 @@ static void test_arm64_phys_text_residue_image_base(void) {
 #endif
 }
 
-/* A KERNEL_TEXT witness is _stext = _text + STEXT_OFFSET; on arm64 STEXT_OFFSET
- * (64 KiB) is NOT a multiple of the 2 MiB modulus, so the residue must come
- * from the normalized image base (_text), not the raw _stext. */
-static void test_arm64_phys_text_residue_stext_normalized(void) {
+/* The virt -> phys mirror of the _stext case above: the head gap is a range on
+ * arm64, so an _stext witness cannot be normalized to the image base and the
+ * rule emits no residue rather than one that may exclude the truth. */
+static void test_arm64_phys_text_residue_stext_declined(void) {
   struct engine e;
   engine_init(&e);
   unsigned long virt_text = 0xffff9ea2fd110000ul;   /* mod 2 MiB = 0x110000 */
-  unsigned long virt_stext = virt_text + 0x10000ul; /* + arm64 STEXT_OFFSET */
+  unsigned long virt_stext = virt_text + 0x10000ul; /* + a head gap */
   struct observation t = mk_obs(KASLD_TYPE_VIRT, REGION_KERNEL_TEXT, virt_stext,
                                 LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
   evidence_add(&e.ev, &t);
   const rule_fn rules[] = {rule_arm64_phys_text_residue};
   engine_run(&e, rules, 1);
-#if defined(__aarch64__)
-  assert(e.est[Q_PHYS_IMAGE_BASE].stride == 0x200000ul);
-  assert(e.est[Q_PHYS_IMAGE_BASE].stride_offset == (virt_text % 0x200000ul));
-  assert(e.est[Q_PHYS_IMAGE_BASE].stride_offset != (virt_stext % 0x200000ul));
-#else
   (void)virt_text;
   assert(e.est[Q_PHYS_IMAGE_BASE].stride == 0);
-#endif
 }
 
 /* A virt anchor NOT on the image-alignment (64 KiB) grid is a bad witness; the
@@ -7776,24 +7769,65 @@ static void test_module_base_from_text(void) {
 }
 
 /* Where the module region is placed by arithmetic on the VA width alone, a
- * resolved width pins the quantity outright. The width must be the hardware
- * one: an mmap probe measures TASK_SIZE = 1 << min(cpu_vabits, VA_BITS), and
- * feeding a clamped width here would place the region a factor of two too high
- * per clamped bit. */
+ * resolved width and page size pin the quantity outright. The width must be the
+ * hardware one: an mmap probe measures TASK_SIZE = 1 << min(cpu_vabits,
+ * VA_BITS), and feeding a clamped width here would place the region a factor of
+ * two too high per clamped bit.
+ *
+ * The expected addresses are written as literals rather than recomputed from
+ * the rule's own expression, so a wrong shift or a wrong page term fails here
+ * instead of agreeing with itself. On loongarch /proc/cpuinfo reports the VA
+ * width as CPUCFG1.VALEN + 1 while vm_map_base shifts by VALEN, so a reported
+ * 48 places the region at -(1 << 47); the 2-page term follows the kernel's page
+ * size, not the analysing build's. */
 static void test_module_base_from_va_bits(void) {
   struct engine e;
-  engine_init(&e);
   const rule_fn rules[] = {rule_module_base_from_va_bits};
+  struct estimate top;
+  quantities[Q_MODULE_BASE].init_top(&top);
+
+#if defined(MODULES_BASE_LOONGARCH64_PCI_IOSIZE)
+#if defined(__loongarch64) ||                                                  \
+    (defined(__loongarch__) && __loongarch_grlen == 64)
+  /* Reported width 48 -> vm_map_base = 0xffff800000000000, + 32 MiB PCI window
+   * + 2 pages. Checked at all three page sizes loongarch admits. */
+  const struct {
+    unsigned long page_bytes;
+    unsigned long want;
+  } cases[] = {
+      {4096ul, 0xffff800002002000ul},
+      {16384ul, 0xffff800002008000ul},
+      {65536ul, 0xffff800002020000ul},
+  };
+  for (unsigned i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+    engine_init(&e);
+    struct observation vb = mk_scalar(SF_VIRT_ADDR_BITS, 48, CONF_PARSED);
+    struct observation ps =
+        mk_scalar(SF_PAGE_SIZE, cases[i].page_bytes, CONF_PARSED);
+    evidence_add(&e.ev, &vb);
+    evidence_add(&e.ev, &ps);
+    engine_run(&e, rules, 1);
+    assert(e.est[Q_MODULE_BASE].lo == cases[i].want &&
+           e.est[Q_MODULE_BASE].hi == cases[i].want);
+  }
+
+  /* The page size is a required fact where the region depends on it: without
+   * SF_PAGE_SIZE the rule declines rather than assuming the build's own. */
+  engine_init(&e);
+  struct observation vb_only = mk_scalar(SF_VIRT_ADDR_BITS, 48, CONF_PARSED);
+  evidence_add(&e.ev, &vb_only);
+  engine_run(&e, rules, 1);
+  assert(e.est[Q_MODULE_BASE].lo == top.lo &&
+         e.est[Q_MODULE_BASE].hi == top.hi);
+#else
+#error                                                                         \
+    "MODULES_BASE_LOONGARCH64_PCI_IOSIZE declared with no expected value here"
+#endif
+#else
+  engine_init(&e);
   struct observation vb = mk_scalar(SF_VIRT_ADDR_BITS, 48, CONF_PARSED);
   evidence_add(&e.ev, &vb);
   engine_run(&e, rules, 1);
-#if defined(MODULES_BASE_FROM_VA_BITS_ADDEND)
-  unsigned long want =
-      (0ul - (1ul << 48)) + (unsigned long)MODULES_BASE_FROM_VA_BITS_ADDEND;
-  assert(e.est[Q_MODULE_BASE].lo == want && e.est[Q_MODULE_BASE].hi == want);
-#else
-  struct estimate top;
-  quantities[Q_MODULE_BASE].init_top(&top);
   assert(e.est[Q_MODULE_BASE].lo == top.lo &&
          e.est[Q_MODULE_BASE].hi == top.hi);
 #endif
@@ -7866,12 +7900,32 @@ static void test_text_pin_from_observation_virt(void) {
   evidence_add(&e.ev, &o);
   const rule_fn rules[] = {rule_text_pin_from_observation};
   engine_run(&e, rules, 1);
-  /* A KERNEL_TEXT (_stext) witness normalizes down to the image base by the
-   * head gap (STEXT_OFFSET): 0 on most arches, 0x10000 on arm64, 0x20000 on
-   * loongarch64. */
-  unsigned long base = kasld_image_base_from(stext, 1);
-  assert(e.est[Q_VIRT_IMAGE_BASE].lo == base);
-  assert(e.est[Q_VIRT_IMAGE_BASE].hi == base);
+  /* A KERNEL_TEXT witness is _stext, which determines the image base only where
+   * the linker fixes the head gap. Where the sound edges differ -- arm32 aligns
+   * _stext up to a section boundary, mips reserves its fill only under one
+   * config -- the witness bounds the base instead, and asserting a pin here
+   * would be asserting the very over-narrowing the range exists to stop.
+   *
+   * The edges are STEXT_OFFSET_MIN/_MAX. STEXT_OFFSET is the likely gap and has
+   * no business bounding a guaranteed window; asserting against it here would
+   * let a rule that read the estimate pass. */
+  if (STEXT_GAP_EXACT) {
+    unsigned long base = kasld_image_base_from(stext, 1);
+    assert(e.est[Q_VIRT_IMAGE_BASE].lo == base);
+    assert(e.est[Q_VIRT_IMAGE_BASE].hi == base);
+  } else if (STEXT_GAP_BOUNDED) {
+    assert(e.est[Q_VIRT_IMAGE_BASE].lo ==
+           stext - (unsigned long)STEXT_OFFSET_MAX);
+    assert(e.est[Q_VIRT_IMAGE_BASE].hi ==
+           stext - (unsigned long)STEXT_OFFSET_MIN);
+    assert(e.est[Q_VIRT_IMAGE_BASE].lo < e.est[Q_VIRT_IMAGE_BASE].hi);
+  } else {
+    /* Unbounded: the witness gives the upper edge only, and the lower edge is
+     * left where the quantity's own top put it. */
+    assert(e.est[Q_VIRT_IMAGE_BASE].hi ==
+           stext - (unsigned long)STEXT_OFFSET_MIN);
+    assert(e.est[Q_VIRT_IMAGE_BASE].lo == top.lo);
+  }
 }
 
 static void test_text_pin_from_observation_phys(void) {
@@ -7885,11 +7939,21 @@ static void test_text_pin_from_observation_phys(void) {
   evidence_add(&e.ev, &o);
   const rule_fn rules[] = {rule_text_pin_from_observation};
   engine_run(&e, rules, 1);
-  /* A KERNEL_TEXT (_stext) witness normalizes down to the image base by the
-   * head gap (STEXT_OFFSET), on the physical axis as on the virtual. */
-  unsigned long pbase = kasld_image_base_from(ptext, 1);
-  assert(e.est[Q_PHYS_IMAGE_BASE].lo == pbase);
-  assert(e.est[Q_PHYS_IMAGE_BASE].hi == pbase);
+  /* Same on the physical axis: a pin where the gap is exact, a bound where it
+   * is a range. */
+  if (STEXT_GAP_EXACT) {
+    unsigned long pbase = kasld_image_base_from(ptext, 1);
+    assert(e.est[Q_PHYS_IMAGE_BASE].lo == pbase);
+    assert(e.est[Q_PHYS_IMAGE_BASE].hi == pbase);
+  } else if (STEXT_GAP_BOUNDED) {
+    assert(e.est[Q_PHYS_IMAGE_BASE].lo ==
+           ptext - (unsigned long)STEXT_OFFSET_MAX);
+    assert(e.est[Q_PHYS_IMAGE_BASE].hi ==
+           ptext - (unsigned long)STEXT_OFFSET_MIN);
+  } else {
+    assert(e.est[Q_PHYS_IMAGE_BASE].hi ==
+           ptext - (unsigned long)STEXT_OFFSET_MIN);
+  }
 }
 
 static void test_text_pin_from_observation_kernel_image_region(void) {
@@ -8810,11 +8874,11 @@ int main(void) {
   RUN(test_s390_text_segment_mod_interior_skipped);
   RUN(test_s390_text_segment_mod_unaligned_skipped);
   RUN(test_arm64_text_phys_residue_image_base);
-  RUN(test_arm64_text_phys_residue_stext_normalized);
+  RUN(test_arm64_text_phys_residue_stext_declined);
   RUN(test_arm64_text_phys_residue_unaligned_skipped);
   RUN(test_arm64_text_phys_residue_no_anchor);
   RUN(test_arm64_phys_text_residue_image_base);
-  RUN(test_arm64_phys_text_residue_stext_normalized);
+  RUN(test_arm64_phys_text_residue_stext_declined);
   RUN(test_arm64_phys_text_residue_unaligned_skipped);
   RUN(test_arm64_phys_text_residue_no_anchor);
   RUN(test_s390_phys_segment_mod_fires);

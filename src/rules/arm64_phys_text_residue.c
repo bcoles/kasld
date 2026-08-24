@@ -34,7 +34,9 @@
 //   * The anchor is normalised to the image base (_text) with
 //     kasld_image_base_from — a KERNEL_TEXT witness is _stext and is shifted
 //     down by STEXT_OFFSET (64 KiB on arm64), which the 2 MiB modulus does NOT
-//     absorb.
+//     absorb. That shift is exact only where the head gap has a single value;
+//     where it is a range the witness is skipped, since a residue admits no
+//     weaker form than an equality on the low bits.
 //   * A real virt _text is IMAGE_ALIGN-aligned, so its residue is too; a
 //   residue
 //     not on the IMAGE_ALIGN grid signals a bad anchor and is skipped rather
