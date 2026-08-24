@@ -96,9 +96,15 @@ KASLD_WARN_FLAGS   := $(foreach f,$(KASLD_WARN_FLAGS_WANTED),$(call cc-option,$(
 KASLD_HARDEN_FLAGS := $(foreach f,$(KASLD_HARDEN_FLAGS_WANTED),$(call cc-option,$(f)))
 endif
 
-ALL_CFLAGS = -std=c99 $(CFLAGS) $(KASLD_WARN_FLAGS) $(KASLD_HARDEN_FLAGS)
+# Appended, not substituted: a caller adding a flag for one target must not have
+# to restate CFLAGS and lose the warning and hardening sets with it. `make cross`
+# uses these to carry a per-triple requirement.
+EXTRA_CFLAGS =
+EXTRA_LDFLAGS =
+
+ALL_CFLAGS = -std=c99 $(CFLAGS) $(EXTRA_CFLAGS) $(KASLD_WARN_FLAGS) $(KASLD_HARDEN_FLAGS)
 LDFLAGS =
-ALL_LDFLAGS = $(LDFLAGS)
+ALL_LDFLAGS = $(LDFLAGS) $(EXTRA_LDFLAGS)
 
 # Quiet build. The default prints a short kernel-style tag ("  CC  <path>")
 # BEFORE each step runs, so any compiler diagnostics that follow are always
@@ -795,6 +801,8 @@ lint :
 	    $(TEST_DIR)/check-env-docs \
 	    $(TEST_DIR)/check-shellcheck \
 	    $(TEST_DIR)/check-fuzz-harnesses \
+	    $(TEST_DIR)/check-property-arches \
+	    $(TEST_DIR)/check-stext-gap \
 	    $(TEST_DIR)/check-baseline \
 	    $(TEST_DIR)/check-render-parity \
 	    $(TEST_DIR)/check-render-color \
@@ -1007,6 +1015,21 @@ installcheck :
 # GNU is intentionally absent (releases are built with musl). armeb is
 # musl-cross-make-only — cross-tools/musl-cross provides no armeb toolchain.
 
+# Per-triple build requirements, echoed for the cross loop.
+#
+# armeb: the toolchain defaults to BE32 (word-invariant), and a big-endian arm
+# kernel from ARMv6 on runs its userspace BE8 (byte-invariant). A BE32 binary
+# faults on its first instruction there and dies before main(), so an armeb
+# build without -mbe8 cannot run on the kernels it is built to inspect. Under
+# qemu-user it runs either way, which is why the difference goes unnoticed
+# without a VM boot.
+.PHONY: cross-extra-flags
+cross-extra-flags :
+	@case '$(TRIPLE)' in \
+	armeb-*) echo '-mbe8' ;; \
+	*) echo '' ;; \
+	esac
+
 CROSS_TARGETS := \
 	x86_64-unknown-linux-musl x86_64-linux-musl \
 	i686-unknown-linux-musl \
@@ -1031,7 +1054,9 @@ cross :
 	@rc=0; for triple in $(CROSS_TARGETS); do \
 		if command -v $${triple}-gcc >/dev/null 2>&1; then \
 			echo "=== Building for $$triple ==="; \
-			$(MAKE) build CC=$${triple}-gcc || { rc=1; echo "!!! FAILED: $$triple"; }; \
+			xf=$$($(MAKE) --no-print-directory cross-extra-flags TRIPLE=$$triple); \
+			$(MAKE) build CC=$${triple}-gcc EXTRA_CFLAGS="$$xf" EXTRA_LDFLAGS="$$xf" \
+				|| { rc=1; echo "!!! FAILED: $$triple"; }; \
 			echo; \
 		else \
 			echo "=== Skipping $$triple (toolchain not found) ==="; \

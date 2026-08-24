@@ -1,0 +1,112 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-stext-gap — the three statements of the head gap must agree.
+#
+# An architecture describes the _text -> _stext gap up to three ways:
+#
+#   STEXT_OFFSET            the value this build most likely has
+#   STEXT_OFFSET_MIN/_MAX   the sound edges, where the linker does not fix it
+#   STEXT_GAP_CANDIDATES    the admissible values, where the arch can close the
+#                           set
+#
+# They describe one fact, and nothing in the compiler makes them agree. The
+# failure is not symmetric:
+#
+#   * A candidate list whose ends disagree with MIN/MAX bounds the image base
+#     by one set and carves it by another. The rule derives its edges from the
+#     list, so this is currently inert -- but the macros still answer whether
+#     the gap is fixed, and an arch that changed one without the other would
+#     leave two live descriptions of the same quantity.
+#
+#   * Worse: a multi-valued list with MIN == MAX reads as an EXACT gap. The
+#     _stext witness then PINS instead of bounding, which is the unsoundness
+#     the range was introduced to remove -- a guaranteed window a whole gap
+#     away from the truth, silently.
+#
+# So this holds the three to one story: the list ascends, its first element is
+# MIN, its last is MAX, and a list with more than one entry means the gap is not
+# exact.
+#
+# Pure text, so it needs no build.
+#
+# Usage: tests/check-stext-gap   (also run by `make lint` / `make test`)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+ARCH_DIR=$ROOT/src/include/kasld/arch
+
+if [ -t 1 ] || [ -n "${KASLD_COLOR:-}" ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; RESET=
+fi
+
+fail=0
+declared=0
+
+for f in "$ARCH_DIR"/*.h; do
+  [ -f "$f" ] || continue
+  arch=$(basename "$f" .h)
+  list=$(sed -n 's/^#define STEXT_GAP_CANDIDATES *{\(.*\)}.*/\1/p' "$f")
+  [ -n "$list" ] || continue
+  declared=$((declared + 1))
+
+  # The edges the arch states alongside the list. An absent MIN/MAX defaults to
+  # STEXT_OFFSET, so read that as the fallback.
+  off=$(sed -n 's/^#define STEXT_OFFSET  *\(0x[0-9a-fA-F]*\)ul.*/\1/p' "$f" | head -1)
+  min=$(sed -n 's/^#define STEXT_OFFSET_MIN  *\(0x[0-9a-fA-F]*\)ul.*/\1/p' "$f" | head -1)
+  max=$(sed -n 's/^#define STEXT_OFFSET_MAX  *\(0x[0-9a-fA-F]*\)ul.*/\1/p' "$f" | head -1)
+  [ -n "$min" ] || min=$off
+  [ -n "$max" ] || max=$off
+
+  # Intentional word-split: the comma-separated list becomes the positional
+  # parameters, one candidate each.
+  # shellcheck disable=SC2046
+  set -- $(printf '%s' "$list" | tr -d ' ul' | tr ',' ' ')
+  n=$#
+  first=$1
+  last=$(eval printf '%s' "\${$n}")
+
+  if [ "$n" -lt 2 ]; then
+    printf '  %s: candidate list has %s entry; a single value is STEXT_OFFSET, not a set\n' \
+      "$arch" "$n"
+    fail=1
+  fi
+
+  # Ascending, and no duplicates.
+  prev=
+  for v in "$@"; do
+    if [ -n "$prev" ] && [ "$((v))" -le "$((prev))" ]; then
+      printf '  %s: candidate list is not ascending (%s after %s)\n' "$arch" "$v" "$prev"
+      fail=1
+    fi
+    prev=$v
+  done
+
+  [ "$((first))" -eq "$((min))" ] || {
+    printf '  %s: lowest candidate %s but STEXT_OFFSET_MIN %s\n' "$arch" "$first" "$min"
+    fail=1
+  }
+  [ "$((last))" -eq "$((max))" ] || {
+    printf '  %s: highest candidate %s but STEXT_OFFSET_MAX %s\n' "$arch" "$last" "$max"
+    fail=1
+  }
+  [ "$((min))" -ne "$((max))" ] || {
+    printf '  %s: %s candidates but MIN == MAX, which reads as an exact gap --\n' \
+      "$arch" "$n"
+    printf '    a _stext witness would pin instead of bound\n'
+    fail=1
+  }
+done
+
+if [ "$fail" -ne 0 ]; then
+  printf '%scheck-stext-gap: FAIL%s (head-gap declarations disagree)\n' "$RED" "$RESET"
+  exit 1
+fi
+
+printf '%scheck-stext-gap: OK%s (%d arch(es) enumerate the head gap, edges agree)\n' \
+  "$GREEN" "$RESET" "$declared"
+exit 0

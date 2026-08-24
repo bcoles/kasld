@@ -14,6 +14,19 @@
 #      survive in a sample. Add a row when you rename something.
 #   2. Sample width. The readout is designed to fit 100 columns; a documented
 #      sample wider than that is either stale or documents a regression.
+#   3. Sample counts. The component tally in a captured run has to hold
+#      together. It cannot be derived from the tree in full -- how many
+#      components produce a runnable binary depends on which are arch-gated for
+#      the host that captured the sample, which no amount of text tells us -- so
+#      what is checked is what a partial edit breaks: the arithmetic inside a
+#      sample, agreement between samples, the progress line beneath it, and the
+#      one term the source does fix.
+#
+#      That last term is the experimental count: a component declares itself
+#      with `status:experimental` in its KASLD_META, so promoting one out of
+#      experimental changes a number in the README and nothing says so. The
+#      drift this file exists for was that shape -- a count fourteen behind,
+#      found by eye rather than by a gate.
 # ---
 # <bcoles@gmail.com>
 
@@ -31,6 +44,10 @@ else
 fi
 
 fail=0
+# `while read` runs in a subshell here (it is fed by a pipe), so a failure it
+# finds cannot set `fail` directly; it appends to this file instead.
+countfail=$(mktemp) || exit 1
+trap 'rm -f "$countfail"' EXIT
 DOCS="$ROOT/README.md $ROOT/docs/usage.md $ROOT/docs/architecture.md"
 DOCS="$DOCS $ROOT/docs/exploitation.md"
 
@@ -102,8 +119,71 @@ if [ -n "$too_wide" ]; then
   fail=1
 fi
 
+# ---- 3. Sample counts ------------------------------------------------------
+# "Running <ran> of <total> components (<exp> experimental skipped; ...)", and
+# the "100%  <ran>/<ran>" progress line that follows it.
+exp_declared=$(grep -l 'status:experimental' "$ROOT"/src/components/*.c 2>/dev/null |
+               wc -l | tr -d ' ')
+# Intentional word-split of the doc list into grep's argv, as above.
+# shellcheck disable=SC2086
+tally=$(grep -Hn 'Running [0-9]* of [0-9]* components' $DOCS 2>/dev/null || true)
+
+if [ -z "$tally" ]; then
+  printf '%scheck-readout-docs: FAIL%s (no sample carries a component tally --\n' \
+    "$RED" "$RESET"
+  printf '  the count check is asserting nothing; a sample was renamed or removed)\n'
+  fail=1
+fi
+
+seen=
+printf '%s\n' "$tally" | while IFS= read -r hit; do
+  [ -n "$hit" ] || continue
+  file=${hit%%:*}
+  rest=${hit#*:}
+  lno=${rest%%:*}
+  ran=$(printf '%s' "$rest" | sed -n 's/.*Running \([0-9]*\) of .*/\1/p')
+  total=$(printf '%s' "$rest" | sed -n 's/.*Running [0-9]* of \([0-9]*\) components.*/\1/p')
+  exp=$(printf '%s' "$rest" | sed -n 's/.*(\([0-9]*\) experimental skipped.*/\1/p')
+
+  if [ -z "$exp" ]; then
+    printf '  %s:%s tallies components but does not say how many were skipped\n' \
+      "$file" "$lno"
+    echo BAD >>"$countfail"
+    continue
+  fi
+  if [ "$((ran + exp))" -ne "$total" ]; then
+    printf '  %s:%s does not add up: %s ran + %s skipped != %s total\n' \
+      "$file" "$lno" "$ran" "$exp" "$total"
+    echo BAD >>"$countfail"
+  fi
+  if [ "$exp" -ne "$exp_declared" ]; then
+    printf '  %s:%s says %s experimental skipped, but %s components declare status:experimental\n' \
+      "$file" "$lno" "$exp" "$exp_declared"
+    echo BAD >>"$countfail"
+  fi
+  bar=$(sed -n "$((lno + 1)),$((lno + 3))p" "$file" |
+        sed -n 's/.*100%  *\([0-9]*\)\/\([0-9]*\).*/\1 \2/p' | head -1)
+  if [ -n "$bar" ]; then
+    if [ "${bar%% *}" != "$ran" ] || [ "${bar##* }" != "$ran" ]; then
+      printf '  %s:%s runs %s components but its progress line reports %s\n' \
+        "$file" "$lno" "$ran" "$bar"
+      echo BAD >>"$countfail"
+    fi
+  fi
+  if [ -n "$seen" ] && [ "$seen" != "$ran/$total" ]; then
+    printf '  samples disagree: %s vs %s (%s:%s)\n' "$seen" "$ran/$total" "$file" "$lno"
+    echo BAD >>"$countfail"
+  fi
+  seen="$ran/$total"
+done
+
+if [ -s "$countfail" ]; then
+  printf '%scheck-readout-docs: FAIL%s (sample component tallies)\n' "$RED" "$RESET"
+  fail=1
+fi
+
 if [ "$fail" -eq 0 ]; then
-  printf '%scheck-readout-docs: OK%s (samples use current vocabulary, within 100 cols)\n' \
+  printf '%scheck-readout-docs: OK%s (samples use current vocabulary, within 100 cols, tallies consistent)\n' \
     "$GREEN" "$RESET"
 fi
 exit "$fail"

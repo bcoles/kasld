@@ -15,21 +15,30 @@
 # below, where it refines LIKELY only. (See docs/architecture.md, "Two-window
 # resolution", and CONTRIBUTING.md, "Confidence and the two windows".)
 #
-# This check flags every rule that emits a C_EQUALS pin at an at-or-above-floor
-# confidence written as a bare literal (CONF_INFERRED / CONF_DERIVED /
-# CONF_PARSED), whether assigned directly (`->conf = CONF_DERIVED`) or via a
-# conditional (`... ? CONF_DERIVED : CONF_HEURISTIC`) — a ternary that can reach
-# the floor still pins the guaranteed window and must be reviewed. A pin whose
-# confidence is capped to its input via kasld_conf_min() / kasld_edge_conf() is
-# the disciplined form and is not flagged; nor is a pin that inherits an
-# observation's own confidence (its value IS the observed fact). Each flagged
-# rule must be reviewed — is the pinned value a derived fact, not a
-# default/convention? — and added to the ALLOW list below.
+# This check flags EVERY rule that emits a collapsing constraint, whatever
+# confidence it writes and however it writes it, and requires each one to appear
+# in the ALLOW list below with the review that admits it. There is deliberately
+# no attempt to read the confidence out of the source text and exempt the ones
+# that look safe.
+#
+# A confidence-reading form of this check fails OPEN: a rule spelling its
+# confidence in a way the pattern does not anticipate passes silently, and the
+# most common spelling of all — inheriting an observation's own confidence into
+# a value the rule COMPUTED from that observation — carries no confidence
+# literal to match. The value a rule pins is not always the fact it read; where
+# it is a transform, the arithmetic between them is what needs review, and that
+# is invisible to any amount of pattern-matching on confidence. Flagging every
+# pin costs a larger ALLOW list and fails closed instead.
+#
+# What the review must establish for an entry: the pinned value is derived from
+# evidence or a structural fact, not a default or convention; where the value is
+# computed from an observation rather than read from one, the computation holds
+# for every configuration the architecture admits, not just the common one.
 #
 # Scope: engine rules only. A component emitting a kernel-image base at
 # at-or-above-floor confidence is emitting an observed leak; that axis is guarded
-# by check-text-region. This check does NOT prove soundness — only that no
-# at-or-above-floor pin slips in unreviewed.
+# by check-text-region. This check does NOT prove soundness — only that no pin
+# reaches the resolver unreviewed.
 #
 # Usage: tests/check-confidence-floor   (also run by `make test`)
 # ---
@@ -41,30 +50,150 @@ RULES=$ROOT/src/rules
 # shellcheck source=tests/lib/guard-scope.sh
 . "$ROOT/tests/lib/guard-scope.sh"
 
-# Reviewed at-or-above-floor C_EQUALS pins. Each pins a value DERIVED from
-# evidence or a firmware/structural fact, not a bare default/convention — the
-# review that admits an entry here. Keep alphabetical.
-#   page_offset_from_config        parsed CONFIG_PAGE_OFFSET (a read fact)
-#   page_offset_from_leak          parsed exact linear-map base (kcore p_vaddr-p_paddr)
-#   page_offset_invariant_pin      arch-fixed PAGE_OFFSET (MIPS CKSEG0, ppc linear
-#                                  base, etc.); ISA constant, not a guess — gated
-#                                  on PAGE_OFFSET_INVARIANT, inert on configurable
-#                                  arches (x86/arm/riscv64/s390)
-#   phys_virt_synth                page_offset = virt-phys; guaranteed (CONF_DERIVED)
-#                                  only when >= 2 independent origins corroborate,
-#                                  else CONF_HEURISTIC (likely only)
-#   randomize_memory_page_offset   page_offset reconstructed from a directmap leak
-#   riscv64_fdt_kaslr_seed         gated on the observed fdt KASLR seed
-#   riscv64_text_base              gated on a KASLR-disabled signal, conf-capped
-#   s390_image_base_from_config    parsed CONFIG_KERNEL_IMAGE_BASE on KASLR-off
-ALLOW="page_offset_from_config
+# Reviewed constraints. Each line records what the review established: what the
+# value rests on, and -- where the rule computes rather than reads it -- why the
+# computation holds across the configurations the arch admits. Keep alphabetical.
+#   arm64_efi_kimg_align          computed: EFI_KIMG_ALIGN from the observed page
+#                                 size. max(SEGMENT_ALIGN, THREAD_ALIGN) with
+#                                 THREAD_ALIGN 32/32/128 KiB for 4/16/64 KiB pages
+#                                 (64/64/128 under KASAN), so the mapping holds
+#                                 either way; a kernel aligning segments to 2 MiB
+#                                 is only coarser, which an at-least floor admits
+#   arm64_phys_text_residue       computed: the image base's residue mod the 2 MiB
+#                                 mapping granule. An _stext witness is skipped
+#                                 where the head gap is a range -- normalising it
+#                                 would need the exact gap, and the error survives
+#                                 the modulus
+#   arm64_text_phys_residue       the phys -> virt direction of the same pair,
+#                                 same skip
+#   arm64_va_bits_from_directmap  computed: the linear map's VA_BITS bucket.
+#                                 _PAGE_OFFSET(va)/_PAGE_END(va) are disjoint and
+#                                 PAGE_OFFSET is not randomized; the pre-v5.4
+#                                 47/48 layout collision is gated on an
+#                                 independent proof of the modern layout
+#   arm64_va_bits_from_scalar     read: the cpuinfo/probe width itself, filtered
+#                                 to the arch's candidate set
+#   arm64_va_bits_from_vmemmap    computed, but capped at CONF_HEURISTIC: the
+#                                 pre-v5.4 vmemmap overlaps the modern VA52 one,
+#                                 so the witness is ambiguous. Likely window only
+#   base_align_cross_validate     read: the largest alignment a component states a
+#                                 leaked base is known to have. A floor on the
+#                                 slot granularity, not a claim about the grid
+#   boot_params_kaslr_align       read: parsed CONFIG_PHYSICAL_ALIGN, which is the
+#                                 slot granularity itself
+#   cmdline_memmap_phys_exclude   computed: bases whose image would overlap a
+#                                 memmap= reservation the placer refuses. Rests on
+#                                 the image size as well as the reservation, and
+#                                 is capped to the weaker of the two
+#   cmdline_memmap_too_large_phys_pin
+#                                 read: the lowest observed KERNEL_IMAGE phys
+#                                 address, alignment-checked
+#   cmdline_phys_exclude          computed: bases whose image would overlap the
+#                                 bootloader cmdline; same size dependency and cap
+#   directmap_kaslr_disabled_pin  computed: the compile-time defaults for the
+#                                 resolved paging level. kernel_randomize_memory()
+#                                 returns before writing any base, and the L5
+#                                 promotion runs earlier and keys on the active
+#                                 level; all six constants tracked to the kernel
+#   efi_loader_kernel_pick        read: a surviving candidate's own value
+#   initrd_phys_exclude           computed: bases whose image would overlap the
+#                                 initrd; same size dependency and cap
+#   kaslr_align_arch_default      the arch's minimum KASLR granularity, as an
+#                                 at-least floor. Sound only while each arch's
+#                                 KASLR_*_ALIGN is the MINIMUM over every config
+#                                 it admits -- a value taken from one config is
+#                                 too coarse and excludes the finer-aligned bases
+#   module_base_from_va_bits      computed: vm_map_base + addend + pages. The
+#                                 shift is the width the KERNEL places the region
+#                                 with, which is not always the width cpuinfo
+#                                 reports (SHIFT_BIAS), and the page term follows
+#                                 the target's page size, not the build's
+#   module_base_ppc64_vmalloc     computed: VMALLOC_START selected by translation
+#                                 mode and page size. __vmalloc_start is assigned
+#                                 only these constants; Book3E and unmodelled
+#                                 page sizes decline rather than guess
+#   page_offset_from_config       read: parsed CONFIG_PAGE_OFFSET
+#   page_offset_from_leak         read: parsed exact linear-map base (kcore
+#                                 p_vaddr-p_paddr)
+#   page_offset_invariant_pin     arch-fixed PAGE_OFFSET (MIPS CKSEG0, ppc linear
+#                                 base, etc.); ISA constant, not a guess -- gated
+#                                 on PAGE_OFFSET_INVARIANT, inert on configurable
+#                                 arches (x86/arm/riscv64/s390)
+#   phys_kaslr_disabled_pin       gated on a positive KASLR-disabled signal, which
+#                                 is what makes the compile-time default the value
+#                                 actually in use; a learned base is preferred
+#                                 where evidence supplies one
+#   phys_reservation_exclude      computed: bases whose image would fall outside
+#                                 System RAM or inside a region it cannot occupy
+#   phys_virt_synth               page_offset = virt-phys; guaranteed (CONF_DERIVED)
+#                                 only when >= 2 independent origins corroborate,
+#                                 else CONF_HEURISTIC (likely only)
+#   ram_map_phys_exclude          computed: the gaps in a COMPLETE RAM map. Rests
+#                                 on the map being authoritative rather than a
+#                                 partial leak -- a partial one would exclude real
+#                                 RAM
+#   randomize_memory_page_offset  page_offset reconstructed from a directmap leak
+#   riscv64_fdt_kaslr_seed        gated on the observed fdt KASLR seed
+#   riscv64_non_efi_phys_base     computed, but capped at CONF_HEURISTIC: the
+#                                 OpenSBI load offset is a firmware convention.
+#                                 Likely window only
+#   riscv64_text_base             gated on a KASLR-disabled signal, conf-capped
+#   riscv64_va_bits_pin           read: the width implied by the parsed satp mode
+#   s390_image_base_from_config   parsed CONFIG_KERNEL_IMAGE_BASE on KASLR-off
+#   s390_phys_segment_mod         computed: the image base's residue mod the
+#                                 segment size. s390 declares no head gap, so the
+#                                 _stext normalisation is exact
+#   s390_text_segment_mod         the other direction of the same pair
+#   text_pin_from_observation     computed: image base = observed address minus
+#                                 the head gap. Where the gap is not a single
+#                                 value the rule emits bounds instead of a pin
+#   virt_kaslr_disabled_pin       as phys_kaslr_disabled_pin, on the virtual axis
+#   x86_64_efi_phys_seed_zero     read: the observed kernel_image phys address,
+#                                 alignment-checked, on a corroborated zero seed
+#   x86_64_la57_from_directmap    computed: the paging level from a directmap
+#                                 address's top bits. The L5 vmalloc region alone
+#                                 keeps every L5 directmap address below the L4
+#                                 floor, and L4 randomization only moves the base
+#                                 up, so the two ranges cannot meet
+#   x86_64_va_bits_from_scalar    read: the cpuinfo/probe width itself, published
+#                                 only where it states the ACTIVE level
+ALLOW="arm64_efi_kimg_align
+arm64_phys_text_residue
+arm64_text_phys_residue
+arm64_va_bits_from_directmap
+arm64_va_bits_from_scalar
+arm64_va_bits_from_vmemmap
+base_align_cross_validate
+boot_params_kaslr_align
+cmdline_memmap_phys_exclude
+cmdline_memmap_too_large_phys_pin
+cmdline_phys_exclude
+directmap_kaslr_disabled_pin
+efi_loader_kernel_pick
+initrd_phys_exclude
+kaslr_align_arch_default
+module_base_from_va_bits
+module_base_ppc64_vmalloc
+page_offset_from_config
 page_offset_from_leak
 page_offset_invariant_pin
+phys_kaslr_disabled_pin
+phys_reservation_exclude
 phys_virt_synth
+ram_map_phys_exclude
 randomize_memory_page_offset
 riscv64_fdt_kaslr_seed
+riscv64_non_efi_phys_base
 riscv64_text_base
-s390_image_base_from_config"
+riscv64_va_bits_pin
+s390_image_base_from_config
+s390_phys_segment_mod
+s390_text_segment_mod
+text_pin_from_observation
+virt_kaslr_disabled_pin
+x86_64_efi_phys_seed_zero
+x86_64_la57_from_directmap
+x86_64_va_bits_from_scalar"
 
 if [ -t 2 ] || [ -n "${KASLD_COLOR:-}" ]; then
   RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); RESET=$(printf '\033[0m')
@@ -72,23 +201,44 @@ else
   RED=; GREEN=; RESET=
 fi
 
-# 0 if the file emits a C_EQUALS pin at an at-or-above-floor confidence LITERAL:
-# either a bare `conf = CONF_INFERRED/_DERIVED/_PARSED`, or a conditional arm
-# `? CONF_x` / `: CONF_x` (a ternary that can reach the floor — e.g.
-# `n >= 2 ? CONF_DERIVED : CONF_HEURISTIC`). A kasld_conf_min()/kasld_edge_conf()
-# cap passes CONF_x as a call argument `(CONF_x`, matching neither form, so the
-# disciplined cap is (correctly) not flagged. Comments are stripped first, and a
-# `conf =` that wraps onto the next line (clang-format splitting a long
-# `c->conf = CONF_x; /* ... */`) is folded back so the split assignment is seen —
-# detection must not depend on formatting.
+# The constraint kinds this guard reviews: those that collapse a quantity to a
+# point, a residue class, an alignment grid, or carve a hole in it. A bound is
+# deliberately not here -- not because a wrong bound is safe (one placed past
+# the truth excludes it exactly as a wrong pin does), but because the two
+# mechanisms cover different ground. The whole-engine property tests check EVERY
+# at-floor constraint of every kind against a generated truth, mechanically; what
+# they cannot cover is an architecture with no generator, or an evidence shape a
+# generator does not produce. This list is the human half, and it discriminates
+# only while it stays small enough to be read.
+COLLAPSE_OPS='C_EQUALS|C_STRIDE|C_AT_LEAST_ALIGN|C_EXCLUDE'
+
+# Helpers in the shared rule header that emit a collapsing constraint on their
+# caller's behalf. A rule that calls one emits that constraint, though its own
+# file names no op -- which is why scanning rule files alone leaves a rule
+# emitting through a helper unreviewed. Discovered rather than listed, so a new
+# shared emitter brings its callers into scope without touching this guard.
+EMIT_HELPERS=$(awk -v ops="$COLLAPSE_OPS" '
+  /^static inline int kasld_emit_[A-Za-z0-9_]+\(/ {
+    n = $0; sub(/^static inline int /, "", n); sub(/\(.*/, "", n)
+    cur = n; hit = 0; next
+  }
+  cur != "" && $0 ~ ("(\\.|->)op[ \t]*=[ \t]*(" ops ")") { hit = 1 }
+  cur != "" && /^}/ { if (hit) print cur; cur = ""; hit = 0 }
+' "$ROOT/src/include/kasld/engine_rules.h")
+
+# 0 if the file emits a collapsing constraint, directly or through a shared
+# helper. Comments are stripped first so one described in prose does not count;
+# nothing else about the constraint is inspected, by design (see the header).
+# Spacing around the assignment is not fixed by the match: detection must not
+# depend on how the line happens to be formatted.
 is_guaranteed_pin() {
-  grep -qE '(\.|->)op = C_EQUALS' "$1" 2>/dev/null || return 1
-  grep -vE '^[[:space:]]*(//|\*)' "$1" 2>/dev/null \
-    | awk '
-        prev ~ /(\.|->)conf =[[:space:]]*$/ { print prev " " $0; prev=""; next }
-        { if (prev != "") print prev; prev=$0 }
-        END { if (prev != "") print prev }' \
-    | grep -qE '((\.|->)conf =|[?:])[[:space:]]*CONF_(INFERRED|DERIVED|PARSED)'
+  _stripped=$(grep -vE '^[[:space:]]*(//|\*)' "$1" 2>/dev/null)
+  printf '%s\n' "$_stripped" |
+    grep -qE "(\.|->)op[[:space:]]*=[[:space:]]*($COLLAPSE_OPS)" && return 0
+  for _h in $EMIT_HELPERS; do
+    printf '%s\n' "$_stripped" | grep -q "\<$_h\>" && return 0
+  done
+  return 1
 }
 
 contains() { # $1=needle $2=list
@@ -106,24 +256,28 @@ fail=0
 for d in $detected; do
   if ! contains "$d" "$ALLOW"; then
     if [ "$fail" = 0 ]; then
-      printf '%sconfidence-floor guard: new unreviewed at-or-above-floor pin(s):%s\n' "$RED" "$RESET" >&2
+      printf '%sconfidence-floor guard: new unreviewed collapsing constraint(s):%s\n' "$RED" "$RESET" >&2
     fi
     printf '  %s\n' "$d" >&2
     fail=1
   fi
 done
 if [ "$fail" = 1 ]; then
-  printf 'Each emits a C_EQUALS pin at CONF_INFERRED/_DERIVED/_PARSED, reaching the\n' >&2
-  printf 'guaranteed window. Confirm the pinned value is derived from evidence (not a\n' >&2
-  printf 'default/convention) and add it to ALLOW in tests/check-confidence-floor; cap\n' >&2
-  printf 'it at its input via kasld_conf_min(); or demote it to CONF_HEURISTIC.\n' >&2
+  printf 'Each emits a constraint that collapses a quantity to a point, a residue\n' >&2
+  printf 'class or an alignment grid, or carves a hole in it -- directly or through a\n' >&2
+  printf 'shared emitter. Confirm the value is derived from evidence (not a default or\n' >&2
+  printf 'convention), and where the rule COMPUTES it from an observation rather than\n' >&2
+  printf 'reading it, that the computation holds for every configuration the arch\n' >&2
+  printf 'admits. Then record what the review found in ALLOW in\n' >&2
+  printf 'tests/check-confidence-floor. A value resting on a convention belongs at\n' >&2
+  printf 'CONF_HEURISTIC, refining LIKELY only.\n' >&2
 fi
 
 stalehdr=0
 for a in $ALLOW; do
   if ! contains "$a" "$detected"; then
     if [ "$stalehdr" = 0 ]; then
-      printf '%sconfidence-floor guard: allowlisted rule(s) no longer at-or-above-floor pins (remove from ALLOW):%s\n' "$RED" "$RESET" >&2
+      printf '%sconfidence-floor guard: allowlisted rule(s) no longer constrain (remove from ALLOW):%s\n' "$RED" "$RESET" >&2
       stalehdr=1
     fi
     printf '  %s\n' "$a" >&2
@@ -144,4 +298,4 @@ for _f in "$RULES"/*.c; do
 done
 guard_scope "check-confidence-floor" "$_scanned" 50
 
-printf '%sconfidence-floor guard: OK%s (%s reviewed at-or-above-floor pins, none new)\n' "$GREEN" "$RESET" "$#"
+printf '%sconfidence-floor guard: OK%s (%s reviewed constraints, none new)\n' "$GREEN" "$RESET" "$#"

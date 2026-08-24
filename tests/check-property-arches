@@ -1,0 +1,92 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-property-arches — every supported architecture has both whole-engine
+# property tests, and both are actually run.
+#
+# The property tests are the only mechanism aimed at over-narrowing, the bug
+# class the whole engine is organised against: a window that excludes the truth
+# passes every fixed-input test a correct one passes, because a fixed input only
+# knows the machine it was captured from. Two of them exist per architecture and
+# they check different things —
+#
+#   test_full_engine_property_<arch>        containment: over random legal
+#                                           truths and a random subset of
+#                                           faithful leaks, the resolved
+#                                           guaranteed window still contains the
+#                                           truth.
+#   test_full_engine_property_<arch>_floor  the floor invariant: a below-floor
+#                                           signal may shape `likely` and must
+#                                           move NO guaranteed quantity, while
+#                                           the same pin at CONF_PARSED must.
+#
+# Neither is derivable from the other, and both are per-architecture by
+# necessity: each arch's generator encodes its own windows, alignments and
+# layout relations, and its arch-gated rules run nowhere else.
+#
+# Nothing else ties the two together. The arch list inside the test file is a
+# hand-maintained #if chain, so a new architecture header can arrive with no
+# property test of either kind and the whole suite stays green — the same shape
+# as the hand-maintained fuzz-target list that silently stopped building a
+# harness until a guard caught it. This makes the arch headers the inventory and
+# the test file answer to them.
+#
+# Pure text, so it needs no build.
+#
+# Usage: tests/check-property-arches   (also run by `make lint` / `make test`)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+ARCH_DIR=$ROOT/src/include/kasld/arch
+TEST=$ROOT/tests/test_engine_integration.c
+# shellcheck source=tests/lib/guard-scope.sh
+. "$ROOT/tests/lib/guard-scope.sh"
+
+if [ -t 1 ] || [ -n "${KASLD_COLOR:-}" ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; RESET=
+fi
+
+[ -f "$TEST" ] || {
+  printf '%scheck-property-arches: FAIL%s — %s not found\n' \
+    "$RED" "$RESET" "$TEST"
+  exit 1
+}
+
+# The supported architectures are the headers that do NOT declare themselves
+# unsupported. A stub says so with `#error "<name> architecture is not
+# supported!"`; the compile-time self-checks other headers carry are #errors
+# too, so match the sentence rather than the directive.
+n=0
+missing=
+for f in "$ARCH_DIR"/*.h; do
+  [ -f "$f" ] || continue
+  grep -q 'architecture is not supported' "$f" && continue
+  arch=$(basename "$f" .h)
+  n=$((n + 1))
+  for kind in "" "_floor"; do
+    fn="test_full_engine_property_${arch}${kind}"
+    # Defined AND run: a definition nothing calls is a test that never executes.
+    if ! grep -q "^static void ${fn}(void) {" "$TEST" ||
+       ! grep -q "RUN(${fn});" "$TEST"; then
+      missing="$missing $fn"
+    fi
+  done
+done
+
+if [ -n "$missing" ]; then
+  printf '%scheck-property-arches: FAIL%s — missing or unrun:%s\n' \
+    "$RED" "$RESET" "$missing"
+  printf '  every supported arch needs a containment property and a floor\n'
+  printf '  property in tests/test_engine_integration.c, both wired into RUN()\n'
+  exit 1
+fi
+
+guard_scope "check-property-arches" "$n" 8
+
+printf '%scheck-property-arches: OK%s (%d supported arches, containment + floor each)\n' \
+  "$GREEN" "$RESET" "$n"
+exit 0
