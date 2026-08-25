@@ -7,6 +7,12 @@ the ways to defeat KASLR are open-ended — so what KASLD recovers is a lower bo
 on what an attacker can, and what it *fails* to recover says little about a
 target's real security.
 
+## Table of Contents
+
+- [Trust the positive; read no security into the negative](#trust-the-positive-read-no-security-into-the-negative)
+- [Why a run may under-recover](#why-a-run-may-under-recover)
+- [For defenders](#for-defenders)
+
 ## Trust the positive; read no security into the negative
 
 The two directions are not symmetric:

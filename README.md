@@ -34,7 +34,7 @@ Supports:
 * x86 (i386+, amd64)
 * ARM (armv6, armv7, armv8, aarch64)
 * MIPS (mipsbe, mipsel, mips64el)
-* PowerPC (ppc, ppc64)
+* PowerPC (ppc, ppcle, ppc64, ppc64le)
 * RISC-V (riscv32, riscv64)
 * LoongArch (loongarch64)
 * s390
@@ -222,9 +222,9 @@ material reimplemented here).
 
 ## Citing KASLD
 
-KASLD is MIT licensed — attribution is not required for use, but if you
-reference it in research, tooling, exploits, or writing, a citation or link is
-appreciated:
+KASLD is MIT licensed — attribution is not required for use, but a citation or
+link is appreciated wherever it is referenced in research, tooling, exploits, or
+writing:
 
 > **KASLD: Kernel Address Space Layout Derandomization**, Brendan Coles,
 > https://github.com/bcoles/kasld

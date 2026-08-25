@@ -6,6 +6,14 @@ cgroup-constrained namespace, where the kernel is the **host's** but the
 (opt-in: it snapshots the live host and runs live probes, so it is not part of
 the hermetic `make test`).
 
+## Table of Contents
+
+- [The loop it supports](#the-loop-it-supports)
+- [What it checks](#what-it-checks)
+- [Substrates](#substrates)
+- [Helpers](#helpers)
+- [Adding a scenario](#adding-a-scenario)
+
 ## The loop it supports
 
 theorise a container scenario → encode it as a check here → run → fix the code →

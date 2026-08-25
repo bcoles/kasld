@@ -457,11 +457,17 @@ static void test_render_likely_window(void) {
 }
 
 /* A concrete vtext while the guaranteed window is a RANGE is a speculative
- * best-guess. EVERY format surfaces the concrete base graded "likely
+ * best-guess. Every GRADED format surfaces the concrete base as "likely
  * (speculative)": the DEFAULT compact readout as a headline point + the
  * guaranteed window beneath; -v the same with "Guaranteed range"; -j the
- * virtual object marked speculative alongside the inferred range. The word
- * "likely" appears only for this speculative grade. */
+ * virtual object marked speculative alongside the inferred range; markdown
+ * the same row model the readout draws. The word "likely" appears only for
+ * this speculative grade, and those four are what this case covers.
+ *
+ * oneline is not among them and is not exercised here: its fixed schema has
+ * no grade field, so `text=` carries a speculative base as a bare value. A
+ * scraper separates the two cases by `entropy=`, which is measured over the
+ * guaranteed window and is non-zero exactly when the base is not pinned. */
 static void test_render_vtext_speculative(void) {
   struct summary s;
   reset_results();

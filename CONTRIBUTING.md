@@ -23,11 +23,15 @@ end-user material, see [README.md](README.md) and
   - [Regions](#regions)
   - [Confidence](#confidence)
   - [Emitter API](#emitter-api)
+  - [Diagnostics and options](#diagnostics-and-options)
   - [Exit code convention](#exit-code-convention)
   - [Minimal component](#minimal-component)
   - [Component metadata](#component-metadata)
   - [Testing a component](#testing-a-component)
 - [Writing a rule](#writing-a-rule)
+  - [A minimal rule](#a-minimal-rule)
+  - [Constraint operations](#constraint-operations)
+  - [Proving soundness](#proving-soundness)
 - [API reference](#api-reference)
 
 ---
@@ -74,7 +78,7 @@ tagged lines.
 These are independent axes:
 
 - **`pos`** describes what `sample` represents (base / top / interior).
-  It does NOT say "we know the base" — that is a question about whether
+  It does NOT say the base is known — that is a question about whether
   `lo` is set, not about `pos`. Use `HAS_LO(r)` for that.
 - **`conf`** is a trust ranking of how the address was obtained. It does
   NOT describe precision — precision lives in the width of `[lo, hi]`. A
@@ -98,12 +102,40 @@ The complete vocabulary is defined in
 | Group | Constants |
 |---|---|
 | Physical landmarks | `REGION_RAM`, `REGION_DMA`, `REGION_DMA32`, `REGION_INITRD`, `REGION_CMDLINE`, `REGION_CMDLINE_MEMMAP`, `REGION_RESERVED_MEM`, `REGION_SWIOTLB`, `REGION_VMCOREINFO`, `REGION_CRASHKERNEL`, `REGION_PMEM`, `REGION_ACPI_TABLE`, `REGION_ACPI_NVS`, `REGION_EFI_MEMMAP`, `REGION_EFI_LOADER_IMAGE`, `REGION_NUMA_NODE`, `REGION_MMIO`, `REGION_PCI_MMIO` |
-| Kernel image | `REGION_KERNEL_TEXT`, `REGION_KERNEL_DATA`, `REGION_KERNEL_BSS`, `REGION_KERNEL_IMAGE`, `REGION_MODULE`, `REGION_MODULE_REGION` |
-| Direct-map / virtual landmarks | `REGION_DIRECTMAP`, `REGION_PAGE_OFFSET`, `REGION_VMALLOC`, `REGION_VMEMMAP` |
+| Kernel image | `REGION_KERNEL_TEXT`, `REGION_KERNEL_TEXT_BAND`, `REGION_KERNEL_DATA`, `REGION_KERNEL_BSS`, `REGION_KERNEL_IMAGE`, `REGION_MODULE`, `REGION_MODULE_BAND` |
+| Direct-map / virtual landmarks | `REGION_DIRECTMAP`, `REGION_DIRECTMAP_BAND`, `REGION_PAGE_OFFSET`, `REGION_VMALLOC`, `REGION_VMEMMAP` |
 
 Edge-ness (RAM_BASE vs. RAM_TOP, DMA_TOP, etc.) is encoded via the
 emitter helper (`kasld_result_base` vs. `kasld_result_top`), not via
 distinct region constants.
+
+#### The `_BAND` suffix is a provenance claim
+
+Three regions come in pairs — `KERNEL_TEXT` / `KERNEL_TEXT_BAND`, `MODULE` /
+`MODULE_BAND`, `DIRECTMAP` / `DIRECTMAP_BAND` — and the choice between them
+records **how the component knows**, not how confident it is:
+
+- The bare constant asserts the *source* established membership: a resolved
+  symbol, a sampled instruction pointer, an ELF program header, a slab pointer,
+  a `/proc/iomem` line.
+- The `_BAND` constant says only that the value landed inside the region's
+  address window.
+
+The distinction is load-bearing because the windows overlap. A text window is
+the KASLR-*admissible* range rather than the image's extent, so on most
+architectures it also contains the linear map, the module band, or both; the
+arm64 module band spans most of the kernel address space. Rules that bound a
+quantity from module or text membership therefore read only the bare constant —
+a range-classified address carries no information about which region it belongs
+to. Tagging a direct-map pointer as `KERNEL_TEXT` asserts
+`image_base <= sample`, which can carve the true base out of the guaranteed
+window.
+
+Emit the `_BAND` form whenever the address came from a range test, and whenever
+in doubt: it is the weaker, always-safe tag. Where a component holds a bare
+pointer and wants it classified, call `kasld_addr_classify()`, which returns the
+`_BAND` form wherever the windows are not exclusive. `tests/check-text-provenance`
+enforces this for text claims at or above the sound floor.
 
 ### Confidence
 
@@ -173,9 +205,9 @@ warning). Rejection happens for: `CONF_UNKNOWN`, invalid type, invalid
 region, helper-specific preconditions (e.g. `_sized` overflow,
 `_range` with `lo > hi`).
 
-Pass `name = NULL` (or `""`) when the leak only tells you "somewhere in
-this kind of memory" but not the specific instance. Pass a real name
-when you know exactly what's at the address — a kernel symbol
+Pass `name = NULL` (or `""`) when the leak establishes only "somewhere in
+this kind of memory" and not the specific instance. Pass a real name
+when the exact occupant of the address is known — a kernel symbol
 (`hypercall_page`), an ACPI OEM ID (`Cpu0Ist`), a module
 (`nf_conntrack`), a device (`0000:00:14.0`).
 
@@ -261,8 +293,8 @@ The orchestrator classifies each component's outcome using this priority:
 4. **UNAVAILABLE** — exit code 69
 5. **NO_RESULT** — ran successfully but found nothing
 
-The exit code answers "what was your relationship with your data
-source?" — not "did you find results". A component that accessed its
+The exit code answers "what was the relationship with the data
+source?" — not "were results found". A component that accessed its
 data source and found no matching data should exit 0, not 69 or 77.
 The orchestrator already knows whether results were found from the
 tagged output.
@@ -414,7 +446,7 @@ CVE associations. Used by the `--hardening` assessment.
 KASLD_META(
     "method:parsed\n"
     "phase:inference\n"
-    "addr:virtual\n"
+    "discloses:virtual\n"
     "sysctl:dmesg_restrict>=1\n"
     "bypass:CAP_SYSLOG\n"
     "fallback:/var/log/dmesg\n"
@@ -426,18 +458,27 @@ Supported metadata keys:
 
 | Key | Description | Example |
 |---|---|---|
-| `method` | Technique category, used by the hardening report | `parsed`, `heuristic`, `timing`, `brute`, `detection` |
+| `method` | **Required.** Technique category, used by the hardening report | `parsed`, `heuristic`, `timing`, `brute`, `detection` |
+| `discloses` | **Required.** What the technique leaks | `virtual`, `physical`, `both`, `facts` |
 | `phase` | Scheduling phase | `inference` (default when omitted), `probing` |
-| `addr` | Address type leaked | `virtual`, `physical`, `both` |
 | `live` | Result comes from live runtime state, not a captured file — skipped offline | `1` |
 | `sysctl` | Runtime sysctl gate | `dmesg_restrict>=1`, `kptr_restrict>=1` |
 | `bypass` | Condition that bypasses the gate | `CAP_SYSLOG`, `adm group` |
 | `fallback` | Alternative data source | `/var/log/dmesg` |
 | `lockdown` | Blocked by kernel lockdown | `integrity`, `confidentiality` |
+| `hardware` | CPU feature or erratum the technique needs, placing it in the hardware side-channel section | `prefetch side-channel (mitigated by KPTI)` |
 | `config` | Kernel compile-time config dependency | `CONFIG_E820_TABLE` |
 | `cve` | Associated CVE identifier | `CVE-2022-4543` |
 | `patch` | Kernel version where the leak was patched | `v4.10`, `v6.2` |
 | `status` | Opt-in gate; the component runs only with `-x` | `experimental` |
+
+`method` and `discloses` are mandatory — `tests/check-component-meta` fails the
+build without them, and rejects a `discloses` value outside the four above.
+`discloses` names what the *technique* leaks, a static property of the component,
+as distinct from what a given run observed. The JSON publishes every component's
+metadata block, and the compile-time-surface and hardware-side-channel sections
+of the hardening report fall back to `discloses` because they list a component
+whether or not it produced anything.
 
 Each component should also include structured comment blocks in its file
 header documenting the leak primitive and mitigations:
@@ -632,7 +673,7 @@ The complete component API is in [`src/include/kasld/api.h`](src/include/kasld/a
 [`src/include/kasld/internal.h`](src/include/kasld/internal.h) (exit
 codes — components don't include this directly).
 
-**Emitter helpers** — pick the one matching what you know:
+**Emitter helpers** — pick the one matching what is known:
 
 | Helper | Use |
 |---|---|
@@ -682,4 +723,3 @@ directly via the constants in `kasld/api.h`'s include chain):
 | `DIRECTMAP_STATIC` | 1 where the directmap projection is sound at compile time |
 | `phys_to_directmap_virt(p)` | Convert phys → directmap virt (defined only on sound arches) |
 | `directmap_virt_to_phys(v)` | Inverse — same gate as above |
-```

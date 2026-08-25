@@ -12,6 +12,13 @@ the observability analogue of [limitations.md](limitations.md): where that
 document gives an honest bound on what a *result* means, this one gives an
 honest bound on what a *run* emits.
 
+## Table of Contents
+
+- [The default footprint is an upper bound, not a baseline](#the-default-footprint-is-an-upper-bound-not-a-baseline)
+- [The behavioural signature](#the-behavioural-signature)
+- [For a detection engineer](#for-a-detection-engineer)
+- [For an operator on a monitored estate](#for-an-operator-on-a-monitored-estate)
+
 ## The default footprint is an upper bound, not a baseline
 
 What a full run emits is the **upper bound** of observability, not what a tuned

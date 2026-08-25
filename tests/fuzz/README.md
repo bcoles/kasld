@@ -12,11 +12,19 @@ fuzzed for over-read / overflow / unbounded-loop safety.
 | Harness | Target | Wire format |
 |---|---|---|
 | `fuzz_parse_hex` | `parse_hex(s, *out)` | `0x` + hex digits |
-| `fuzz_capture_result` | `capture_result(line, method, origin)` | `<P|V> <region>[:<name>] pos=<pos> conf=<conf> [lo=...] [hi=...|sz=...] [sample=...] [base_align=...]` |
+| `fuzz_capture_result` | `capture_result(line, method, origin)` | `<P\|V> <region>[:<name>] pos=<pos> conf=<conf> [lo=...] [hi=...\|sz=...] [sample=...] [base_align=...]` |
 | `fuzz_capture_scalar` | `capture_scalar(line, origin)` | `S <fact> conf=<c> value=0x<hex>` |
 | `fuzz_parse_meta` | `parse_meta(raw, *m)` | newline-delimited `key:value` pairs |
 | `fuzz_parse_disposition` | `parse_disposition(s, *d)` | `cat=<category> [gate=<token>] [msg="<text>"]` (the `R`-line body) |
 | `fuzz_btf` | `btf_struct_size(buf, len, name)` | BTF blob: header + type / string sections |
+
+## Table of Contents
+
+- [Build and run](#build-and-run)
+- [Seed corpus](#seed-corpus)
+- [What a finding looks like](#what-a-finding-looks-like)
+- [Scope](#scope)
+- [CI](#ci)
 
 ## Build and run
 

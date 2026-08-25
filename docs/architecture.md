@@ -28,6 +28,7 @@ mechanics of adding a component or rule, see
   - [Estimate narrowing and the store-vs-read seam](#estimate-narrowing-and-the-store-vs-read-seam)
   - [Design invariants: seams in the data flow](#design-invariants-seams-in-the-data-flow)
 - [The tagged-line protocol](#the-tagged-line-protocol)
+- [Coverings vs observations](#coverings-vs-observations)
 - [Cross-region derivation](#cross-region-derivation)
   - [Component-level derivation](#component-level-derivation)
   - [Inference-time derivation](#inference-time-derivation)
@@ -322,14 +323,18 @@ Both windows are **build-agnostic**: the engine never assumes which kernel image
 it is looking at, and never trusts a version string or fingerprint to pin a base,
 so it reports the widest window that is *sound* (guaranteed) and, beneath it, the
 widest that is *plausible* (likely), across every configuration the architecture
-admits. Each rule works the same way — it extracts only the build-agnostic content
+admits.
+
+Each rule works the same way — it extracts only the build-agnostic content
 of a leak: the relationship that holds on *any* build (this pointer lies in region
 Y; this value is at least the region base). A leak often carries more: on one
 specific kernel it sits a fixed, known number of bytes from its region (or from
 `_text`), enough to pin the quantity. That offset shifts from build to build,
 though, so a rule that used it would be wrong on every other build — it is
 deliberately left out, and the window is reported instead. The window is therefore
-the tightest answer a build-agnostic tool can give. On a known target it could in
+the tightest answer a build-agnostic tool can give.
+
+On a known target it could in
 principle be narrowed further, even to a single base, from that build's own fixed
 offsets — but that is reasoning done externally, by hand, against KASLD's output:
 the engine has no mechanism to take a build-specific offset as input, applies

@@ -20,6 +20,7 @@ together see [architecture.md](architecture.md).
 - [Quick start](#quick-start)
 - [Vantage](#vantage)
 - [Command-line options](#command-line-options)
+  - [Accessibility](#accessibility)
 - [Output modes](#output-modes)
   - [Default text mode](#default-text-mode)
   - [Verbose (`-v`)](#verbose--v)
@@ -29,6 +30,8 @@ together see [architecture.md](architecture.md).
 - [Explain mode](#explain-mode)
 - [Hardening assessment](#hardening-assessment)
 - [Continuous integration](#continuous-integration)
+  - [Regression gate (`extra/posture-diff`)](#regression-gate-extraposture-diff)
+  - [Fleet summary (`extra/posture-summary`)](#fleet-summary-extraposture-summary)
 
 ## Quick start
 
@@ -231,12 +234,15 @@ and the virtual + physical address-space diagram (also available on its own
 via `--map`). The KASLR analysis section draws the same **Layout** table the
 default readout does, then adds only what its columns cannot carry: `_stext`
 where a quantity has one, the compile-time default a slide is measured from,
-and the residual expressed in bits. The
-system-config block reports the recon vantage: whether the process is
+and the residual expressed in bits.
+
+The system-config block reports the recon vantage: whether the process is
 containerized, which mandatory-access-control policy is in force, the security
 context and the uid/gid/groups this process runs under, and — when it is
 confined — its seccomp / capability / no-new-privs state, plus which `/proc`
-leak oracles are readable here. The identity is not redundant with the
+leak oracles are readable here.
+
+The identity is not redundant with the
 capability set: several sources answer to discretionary permissions alone, so a
 denial is only explicable with the uid and groups that were refused in view.
 Group names come from `/etc/group` in the tree being analysed, so an offline
@@ -464,7 +470,7 @@ arch=x86_64 kaslr=on text=0xffffffffa2e00000 stext=na slide=+0x21e00000(56832819
 | --- | --- |
 | `arch` | kernel machine (`uname`), or `unknown` |
 | `kaslr` | `on` \| `off` \| `unsupported` \| `failed` (`failed` = randomization failed at boot: effective 0 bits, deterministic per boot — distinct from `off`, a deliberate opt-out at the link-time default) |
-| `text` | virtual image base (`_text`); engine-resolved, never a leak |
+| `text` | virtual image base (`_text`); engine-resolved, never a leak. This is the best concrete answer, which may rest on a sub-floor signal; the line carries no speculative marker, so read `entropy` alongside it — `0bits` means one surviving candidate, i.e. proven |
 | `stext` | virtual `_stext`, when it differs from the image base |
 | `slide` | virtual KASLR slide, signed `±0xHEX(decimal)` |
 | `entropy` | virtual residual entropy over the guaranteed window, `Nbits`; present whenever a window was resolved — an unpinned window reports its N bits, a pin reports `0bits`. `na` only when KASLR is off/unsupported |
@@ -557,24 +563,28 @@ kasld -j | jq '[.components[]
 markdown tables). It carries the same **Layout** table as the text readout,
 with the same five columns and the same rows — both are rendered from one row
 model, so the two views cannot describe the same resolved state differently.
+
 Beneath it a short table holds what those columns have no room for: `_stext`
 where a quantity has one, the compile-time default a slide is measured from,
 and the **Phys/Virt coupling** classification. When the kernel-text function
 order is reordered (FG-KASLR / LTO / AutoFDO / Propeller), a **Caution** note
 warns that a leaked address no longer resolves the rest of the symbols via a
-generic `System.map`. When KASLR is disabled or unsupported there is no slide,
+generic `System.map`.
+
+When KASLR is disabled or unsupported there is no slide,
 so the resolved quantities themselves are the answer: the same rows the Layout
 table would carry, written as lines rather than a table because with nothing
 randomized the `Search space` and `Align` columns hold nothing. They are drawn
 from the same row model, so a posture that reports fewer quantities than another
 format is not possible. A remark follows where the compile-time default is not
-the resolved base, saying whether the evidence rules the default out. The leak table credits the component(s) that
-produced each address. With `--verbose`, a `## Address space` section
+the resolved base, saying whether the evidence rules the default out.
+
+The leak table credits the component(s) that produced each address. With
+`--verbose`, a `## Address space` section
 embeds the virtual and physical ASCII address-space maps in a fenced code
 block (the same diagrams the text readout draws). An `## Environment`
 section reports the recon vantage (container / confinement / readable
-oracles). With `-H` it also
-appends the hardening assessment (see below).
+oracles). With `-H` it also appends the hardening assessment (see below).
 
 ## Explain mode
 
@@ -674,6 +684,7 @@ In JSON, the assessment is the top-level `hardening` object, with fields
 `active_defenses`, `lockdown`, `available_hardening`,
 `patched_vulnerabilities`, `compile_time_surface`,
 `hardware_side_channels`, and `no_mitigation`.
+
 Each `active_defenses` and `available_hardening` entry carries a
 `surface` — the enforcement lever the change lives on (`sysctl`,
 `boot_param`, `lsm`, `mac`, `file_permissions`, or `seccomp`) — so a report can
@@ -682,11 +693,13 @@ both LSMs but are different levers, so they carry `lsm` and `mac` separately.
 A denial is credited to the `mac` surface only when the component declares
 sysctl gates and none of them accounts for it, so an ordinary file-permission
 denial is never reported as a policy decision.
+
 When the engine resolves a guaranteed base window, each `available_hardening`
 entry also carries `silences` (base-leaks it removes) and a `projected`
 object (the residual entropy with every other suggestion applied, and the
 bits forfeited by omitting this one), and a top-level `projected_posture`
 reports the `current` and `all_suggestions_applied` postures.
+
 Markdown output (`-m -H`) appends the same assessment as a
 `## Hardening Assessment` section; each Available-hardening suggestion
 ends with its enforcement surface as a trailing `` [`lever`] `` tag
@@ -697,8 +710,8 @@ ends with its enforcement surface as a trailing `` [`lever`] `` tag
 KASLD has no built-in pass/fail flag: it *measures*, and the CI script
 *decides*. A single `-j` blob carries every value a policy would key on —
 including the whole `hardening` object — so a regression gate is a one-line
-`jq` predicate, more flexible than a baked-in threshold, and it composes any
-policy you like. A distro or kernel builder can fail the build when a freshly
+`jq` predicate, more flexible than a baked-in threshold, and it composes into
+any policy. A distro or kernel builder can fail the build when a freshly
 built kernel's KASLR posture regresses below policy. The same blob is the unit
 a fleet layer baselines and diffs: capture one per host, compare a later run,
 and alert on any guaranteed-bit regression.
@@ -793,8 +806,8 @@ web01    x86_64  6.15.6      active  9b     31b    1/70   1     Enable kernel lo
 Each row carries only the boot-stable posture — KASLR state, guaranteed
 residual entropy (virtual/physical), leaks succeeded/total, unpatched CVE-class
 count, and the most load-bearing hardening action. The host label is the
-snapshot's filename (`-j` carries no hostname), so name each file after its
-host when you collect it; this tool does no collection or transport itself.
+snapshot's filename (`-j` carries no hostname), so each file must be named after
+its host at collection time; this tool does no collection or transport itself.
 Output is an aligned text table by default, or `--markdown` (issue trackers),
 `--csv` (spreadsheets), or `--json` (further tooling). A file that is not a
 valid `kasld -j` snapshot is skipped with a warning rather than aborting the

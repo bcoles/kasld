@@ -100,12 +100,13 @@ bundle). See [reproducibility.md](../docs/reproducibility.md#1-on-the-local-kern
 
 ### Validate a live run against ground truth
 
-On a system where you have root, `check-results` compares a live `kasld` run
-against the kernel's real addresses (`/proc/kallsyms`, `/proc/iomem`, …):
+Where root is available, `check-results` compares a live `kasld` run
+against the kernel's real addresses (`/proc/kallsyms`, `/proc/iomem`, …).
+It reads tagged lines from a pipe or a saved report — root covers the
+ground-truth reads only, and `kasld` itself stays unprivileged:
 
 ```sh
-sudo extra/check-results                                   # runs kasld itself
-./build/*/kasld -v 2>&1 | sudo extra/check-results         # or validate a piped run
+./build/*/kasld -v 2>&1 | sudo extra/check-results         # validate a piped run
 sudo extra/check-results results.txt                       # or a saved report
 ```
 
@@ -116,8 +117,9 @@ lowers `kptr_restrict`, prints the base symbols from `/proc/kallsyms`, and resto
 ### Watch a fleet, gate CI
 
 The two `posture-*` tools scale the single-host view to an estate and to CI. They
-do no collection or transport themselves — your own fan-out supplies the snapshots
-(the file's basename is the host label, since `kasld -j` carries no hostname):
+do no collection or transport themselves — the caller's own fan-out supplies the
+snapshots (the file's basename is the host label, since `kasld -j` carries no
+hostname):
 
 ```sh
 # One kasld -j per host, then summarise the whole fleet at a glance.
