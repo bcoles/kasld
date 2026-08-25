@@ -1,0 +1,112 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-doc-structure — a document's own scaffolding stays intact.
+#
+# Three failures that markdown accepts silently and a reader meets as a broken
+# page. None needs a build; all are pure text over the committed .md files.
+#
+#   1. Fence balance. An unclosed ``` swallows the rest of the document into a
+#      code block. Nothing errors, and the diff of the offending commit looks
+#      like an ordinary edit.
+#   2. Table-of-contents parity. A heading added without its TOC line is
+#      invisible to anyone navigating by the contents list -- which, in a
+#      900-line reference, is how the section is reached at all. Checked only
+#      for documents that HAVE a TOC; adding one is a choice, keeping it
+#      complete is not.
+#   3. Stated section counts. A document that opens "has seven test layers" and
+#      then carries a different number of numbered sections is wrong in the one
+#      sentence a reader takes on trust before reading further.
+#
+# What this does NOT check is whether the prose is true -- that a claim about
+# behaviour still matches the code. No text check reaches that; the defence
+# there is to not restate in prose what a generated table already says.
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+
+if [ -t 1 ] || [ -n "${KASLD_COLOR:-}" ]; then
+  RED=$(printf '\033[31m')
+  GREEN=$(printf '\033[32m')
+  RESET=$(printf '\033[0m')
+else
+  RED=
+  GREEN=
+  RESET=
+fi
+
+cd "$ROOT" || exit 2
+docs=$(ls README.md CONTRIBUTING.md docs/*.md extra/README.md tests/*/README.md 2>/dev/null)
+
+fail=0
+nfile=0
+for f in $docs; do
+  nfile=$((nfile + 1))
+  awk -v F="$f" -v RED="$RED" -v RESET="$RESET" '
+    /^```/ { fence++ }
+    # Headings and TOC links, outside fenced blocks.
+    /^```/ { infence = !infence; next }
+    !infence && /^#{2,3} / {
+      h = $0; sub(/^#+ +/, "", h); sub(/ +$/, "", h)
+      hd[++nh] = h
+    }
+    !infence && /\]\(#[A-Za-z0-9_-]+\)/ {
+      s = $0
+      while (match(s, /\]\(#[A-Za-z0-9_-]+\)/)) {
+        a = substr(s, RSTART + 3, RLENGTH - 4); seen[a] = 1
+        s = substr(s, RSTART + RLENGTH)
+      }
+      if ($0 ~ /^[ \t]*-/) toc[++nt] = 1
+    }
+    !infence && /^#{1,2} (Table of Contents|Contents)[ \t]*$/ { hastoc = 1 }
+    function slug(s,   t) {
+      t = s; gsub(/`/, "", t); t = tolower(t)
+      gsub(/[^a-z0-9 _-]/, "", t)
+      sub(/^ +/, "", t); sub(/ +$/, "", t)
+      gsub(/ /, "-", t)
+      return t
+    }
+    END {
+      bad = 0
+      if (fence % 2) {
+        printf "%s  unbalanced code fence%s (%d ``` markers): %s\n", RED, RESET, fence, F
+        bad = 1
+      }
+      if (hastoc)
+        for (i = 1; i <= nh; i++) {
+          if (hd[i] ~ /^(Table of Contents|Contents)$/) continue
+          if (!(slug(hd[i]) in seen)) {
+            printf "%s  heading absent from its TOC%s: %s -> %s\n", RED, RESET, F, hd[i]
+            bad = 1
+          }
+        }
+      exit bad
+    }' "$f" || fail=1
+done
+
+# Stated section counts: "has <word> <noun>" against the numbered `## N.` sections.
+for f in $docs; do
+  stated=$(grep -oE 'has (one|two|three|four|five|six|seven|eight|nine|ten) [a-z]+ (layers|sections|phases|stages)' "$f" 2>/dev/null | head -1)
+  [ -n "$stated" ] || continue
+  word=$(printf '%s\n' "$stated" | awk '{print $2}')
+  num=$(awk -v w="$word" 'BEGIN {
+    split("one two three four five six seven eight nine ten", a, " ")
+    for (i in a) if (a[i] == w) { print i; exit }
+  }')
+  actual=$(grep -cE '^## [0-9]+\. ' "$f")
+  if [ -n "$num" ] && [ "$num" -ne "$actual" ]; then
+    printf '%s  stated count disagrees with the numbered sections%s: %s ("%s" but %d sections)\n' \
+      "$RED" "$RESET" "$f" "$stated" "$actual"
+    fail=1
+  fi
+done
+
+if [ "$fail" -eq 0 ]; then
+  printf '%scheck-doc-structure: OK%s (%d documents: fences, TOCs, stated counts)\n' \
+    "$GREEN" "$RESET" "$nfile"
+else
+  printf '%scheck-doc-structure: FAIL%s\n' "$RED" "$RESET"
+fi
+exit "$fail"

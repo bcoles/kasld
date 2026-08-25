@@ -1,0 +1,106 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-doc-identifiers — documentation names things that exist.
+#
+# Two parities, both the shape check-manpages applies to flags:
+#
+#   1. Project identifiers. A `REGION_*` / `Q_*` / `SF_*` / `C_*` / `CONF_*` /
+#      `V_*` / `GATE_*` / `MOD_ANCHOR_*` / `LM_ANCHOR_*` / `KASLD_*` token cited
+#      in backticks must appear somewhere in the tree. A doc naming a constant
+#      that does not exist reads exactly like one naming a constant that does,
+#      and the reader has no way to tell -- CONTRIBUTING.md carried
+#      REGION_MODULE_REGION, a name nothing has ever defined, beside the real
+#      constants in the same table. The same check catches the commoner
+#      direction: a constant renamed in src while the docs keep the old spelling.
+#   2. KASLD_META keys. Every key the component-metadata table documents must
+#      appear as a string literal in src. The table once documented `addr:`,
+#      which no code reads -- a component author following it shipped metadata
+#      the orchestrator ignored.
+#
+# Scope is deliberately the whole tree, not src/ alone: several documented
+# KASLD_* names are read by the shell harnesses rather than by C, and checking
+# only src/ reports those as missing.
+#
+# CONFIG_* is out of scope by construction -- those are the kernel's symbols,
+# not this tree's, so their absence here proves nothing. Bare lowercase function
+# names are out for the same reason: prose legitimately names kernel functions.
+#
+# ALLOW below is for a doc that deliberately names a retired spelling.
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+
+if [ -t 1 ] || [ -n "${KASLD_COLOR:-}" ]; then
+  RED=$(printf '\033[31m')
+  GREEN=$(printf '\033[32m')
+  RESET=$(printf '\033[0m')
+else
+  RED=
+  GREEN=
+  RESET=
+fi
+
+cd "$ROOT" || exit 2
+
+# Identifiers a document may name although the tree does not define them.
+# Each entry needs a reason; an empty list is the healthy state.
+# REGION_MODULE_REGION: docs/testing.md's note for this guard cites it as the
+# worked example of a name nothing defines. Naming the disease is the point of
+# that paragraph, so the citation is deliberate rather than drift.
+ALLOW="REGION_MODULE_REGION"
+
+docs=$(ls README.md CONTRIBUTING.md docs/*.md extra/README.md tests/*/README.md 2>/dev/null)
+tree=$(mktemp)
+# This script is excluded from its own corpus: the header above names retired
+# spellings as examples, and including it would let any identifier it mentions
+# satisfy the check it exists to make.
+for s in src/include/kasld/*.h src/include/kasld/arch/*.h src/*.c src/*/*.c \
+         src/components/*.c src/rules/*.c tests/*.c tests/check-* tests/replay \
+         tests/test-cross tests/vm/run tests/vm/build-kernel extra/* Makefile; do
+  [ "$s" = "tests/check-doc-identifiers" ] && continue
+  cat "$s" >>"$tree" 2>/dev/null
+done
+
+fail=0
+n=0
+# The backticks in the pattern are literal markdown code-span syntax, not
+# command substitution.
+# shellcheck disable=SC2016
+for f in $docs; do
+  for id in $(grep -oE '`(REGION_|Q_|SF_|C_[A-Z]|CONF_|V_|GATE_|MOD_ANCHOR_|LM_ANCHOR_|KASLD_)[A-Z0-9_]*`' "$f" 2>/dev/null |
+              tr -d '`' | sort -u); do
+    n=$((n + 1))
+    case " $ALLOW " in *" $id "*) continue ;; esac
+    if ! grep -qw -- "$id" "$tree"; then
+      printf '%s  names an identifier the tree does not define%s: %s -> %s\n' \
+        "$RED" "$RESET" "$f" "$id"
+      fail=1
+    fi
+  done
+done
+
+# KASLD_META key table (CONTRIBUTING.md) against the keys the code reads.
+keys=$(awk '/^\| Key \| Description \| Example \|/ { intbl = 1; next }
+            intbl && !/^\|/ { exit }
+            intbl && /^\| `/ { gsub(/^\| `|` \|.*/, ""); print }' CONTRIBUTING.md)
+nk=0
+for k in $keys; do
+  nk=$((nk + 1))
+  grep -q "\"$k\"" "$tree" || {
+    printf '%s  documents a KASLD_META key no code reads%s: %s\n' "$RED" "$RESET" "$k"
+    fail=1
+  }
+done
+
+rm -f "$tree"
+
+if [ "$fail" -eq 0 ]; then
+  printf '%scheck-doc-identifiers: OK%s (%d citations, %d metadata keys)\n' \
+    "$GREEN" "$RESET" "$n" "$nk"
+else
+  printf '%scheck-doc-identifiers: FAIL%s\n' "$RED" "$RESET"
+fi
+exit "$fail"

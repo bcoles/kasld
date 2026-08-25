@@ -16,7 +16,7 @@ jobs:
       # shellcheck lets `make check`'s lint guards run tests/check-shellcheck
       # over all shipped shell scripts (extra/ + tests/); it soft-skips when absent.
       # jq lets tests/validate-fixtures run extra/validate-bundle; it soft-skips too.
-      run: sudo apt-get update && sudo apt-get install -y zlib1g-dev gcc-i686-linux-gnu shellcheck jq
+      run: sudo apt-get update && sudo apt-get install -y zlib1g-dev gcc-i686-linux-gnu shellcheck jq libxml2-utils
 
     - name: Build
       run: make

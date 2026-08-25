@@ -793,6 +793,9 @@ lint :
 	    $(TEST_DIR)/check-ksymoff \
 	    $(TEST_DIR)/check-manpages \
 	    $(TEST_DIR)/check-readout-docs \
+	    $(TEST_DIR)/check-doc-structure \
+	    $(TEST_DIR)/check-doc-identifiers \
+	    $(TEST_DIR)/check-diagram-data \
 	    $(TEST_DIR)/check-guard-docs \
 	    $(TEST_DIR)/check-version \
 	    $(TEST_DIR)/check-posture-diff \
