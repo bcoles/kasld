@@ -41,23 +41,38 @@ static void write_file(const char *path, const char *val) {
   }
 }
 
-/* Read the first line of `path` into buf (newline-stripped); empty on failure.
- * Used to capture the kernel's own booted sysctl values as facts. */
-static void read_sysctl(const char *path, char *buf, size_t sz) {
+/* Read the first line of `path` into buf (newline-stripped). Returns 1 when the
+ * sysctl exists and was read, 0 when it does not. Callers need the two apart:
+ * a kernel built without CONFIG_PERF_EVENTS has no perf_event_paranoid, and one
+ * without CONFIG_BPF_SYSCALL no unprivileged_bpf_disabled, and reporting either
+ * as its upstream default would make "this kernel has no such knob"
+ * indistinguishable from "the knob is at its default". */
+static int read_sysctl(const char *path, char *buf, size_t sz) {
   buf[0] = '\0';
   int fd = open(path, O_RDONLY);
   if (fd < 0)
-    return;
+    return 0;
   ssize_t n = read(fd, buf, sz - 1);
   close(fd);
   if (n <= 0) {
     buf[0] = '\0';
-    return;
+    return 0;
   }
   buf[n] = '\0';
   char *nl = strchr(buf, '\n');
   if (nl)
     *nl = '\0';
+  return 1;
+}
+
+/* The value now in force at `path`, or "absent" where the kernel has no such
+ * knob. A profile banner is the boot log's record of the vantage the analysis
+ * ran under, so it states what is in force rather than what was intended:
+ * write_file() is best-effort, a write to a sysctl the kernel does not have
+ * fails silently, and a banner echoing the value it meant to set would assert a
+ * posture that was never applied. */
+static const char *in_force(const char *path, char *buf, size_t sz) {
+  return read_sysctl(path, buf, sz) ? buf : "absent";
 }
 
 static void dump_file(const char *path, const char *label) {
@@ -673,11 +688,16 @@ int main(void) {
    * + perf_event_paranoid=0 (a dev/CI host permitting perf); perf<=1 ALSO
    * unlocks kallsyms, the realistic recovery path there, so kptr stays at its
    * booted default. dmesg-open  (`dmesgopen`) — default + dmesg_restrict=0
-   * (dmesg log readable). hardened    (`hardened`)  — kptr=2, dmesg=1, perf=3:
-   * the file-only floor. The root ground-truth capture (kptr temporarily 0) is
-   * the only privileged step; every branch then sets kptr/perf explicitly
-   * (default restores booted). `capture` mode (below) reconstructs a fixture
-   * and never reaches this. */
+   * (dmesg log readable). bpf-open    (`bpfopen`)   — default +
+   * unprivileged_bpf_disabled=0, the only setting under which the bpf
+   * verifier-log leaks fire. tracefs-open (`tracefsopen`) — kptr_restrict=2
+   * with tracefs mounted gid=1000, the "tracing group" vantage: those tables
+   * carry no kptr_restrict gate, so they recover the base where kallsyms is
+   * masked. hardened    (`hardened`)  — kptr=2, dmesg=1, perf=3,
+   * unprivileged_bpf_disabled=2: the file-only floor. The root ground-truth
+   * capture (kptr temporarily 0) is the only privileged step; every branch
+   * then sets kptr/perf explicitly (default restores booted). `capture` mode
+   * (below) reconstructs a fixture and never reaches this. */
   int hidden = 0, hardened = 0, perfopen = 0, dmesgopen = 0, bpfopen = 0,
       tracefsopen = 0, capture = 0;
   {
@@ -713,18 +733,24 @@ int main(void) {
    * distro kernels may compile 1). Empties (absent sysctl) fall back to
    * upstream defaults so the restore-writes below are always valid. */
   char b_kptr[16], b_perf[16], b_dmesg[16];
-  read_sysctl("/proc/sys/kernel/kptr_restrict", b_kptr, sizeof b_kptr);
-  read_sysctl("/proc/sys/kernel/perf_event_paranoid", b_perf, sizeof b_perf);
-  read_sysctl("/proc/sys/kernel/dmesg_restrict", b_dmesg, sizeof b_dmesg);
-  if (!b_kptr[0])
-    strcpy(b_kptr, "0");
-  if (!b_perf[0])
-    strcpy(b_perf, "2");
-  if (!b_dmesg[0])
-    strcpy(b_dmesg, "0");
+  int has_kptr =
+      read_sysctl("/proc/sys/kernel/kptr_restrict", b_kptr, sizeof b_kptr);
+  int has_perf = read_sysctl("/proc/sys/kernel/perf_event_paranoid", b_perf,
+                             sizeof b_perf);
+  int has_dmesg =
+      read_sysctl("/proc/sys/kernel/dmesg_restrict", b_dmesg, sizeof b_dmesg);
+  /* Report before substituting, so an absent knob is not read as its default.
+   */
   printf("=== booted sysctls: kptr_restrict=%s perf_event_paranoid=%s "
          "dmesg_restrict=%s ===\n",
-         b_kptr, b_perf, b_dmesg);
+         has_kptr ? b_kptr : "absent", has_perf ? b_perf : "absent",
+         has_dmesg ? b_dmesg : "absent");
+  if (!has_kptr)
+    strcpy(b_kptr, "0");
+  if (!has_perf)
+    strcpy(b_perf, "2");
+  if (!has_dmesg)
+    strcpy(b_dmesg, "0");
 
   /* Capture ground truth as root with kallsyms readable (needs kptr=0). perf is
    * opened only for the capture pass; the analysis profiles below each set
@@ -775,13 +801,24 @@ int main(void) {
    * hardened forces it off; the dedicated bpf-open profile forces it on to
    * exercise the bpf verifier-log leaks — the perf-open equivalent for a host
    * that permits unprivileged bpf(). */
+  /* One scratch buffer per sysctl named in a banner, never shared: the order in
+   * which printf's arguments are evaluated is unspecified, so two in_force()
+   * calls writing the same buffer could both report the second value. */
+  char fk[16], fp[16], fd[16], fb[16];
+#define KPTR_NOW in_force("/proc/sys/kernel/kptr_restrict", fk, sizeof fk)
+#define PERF_NOW in_force("/proc/sys/kernel/perf_event_paranoid", fp, sizeof fp)
+#define DMESG_NOW in_force("/proc/sys/kernel/dmesg_restrict", fd, sizeof fd)
+#define BPF_NOW                                                                \
+  in_force("/proc/sys/kernel/unprivileged_bpf_disabled", fb, sizeof fb)
   if (hardened) {
     write_file("/proc/sys/kernel/kptr_restrict", "2\n");
     write_file("/proc/sys/kernel/dmesg_restrict", "1\n");
     write_file("/proc/sys/kernel/perf_event_paranoid", "3\n");
     write_file("/proc/sys/kernel/unprivileged_bpf_disabled", "2\n");
-    printf("=== profile: hardened — uid=1000, kptr_restrict=2, "
-           "dmesg_restrict=1, perf_event_paranoid=3 (file-only floor) ===\n");
+    printf("=== profile: hardened — uid=1000, kptr_restrict=%s, "
+           "dmesg_restrict=%s, perf_event_paranoid=%s, "
+           "unprivileged_bpf_disabled=%s (file-only floor) ===\n",
+           KPTR_NOW, DMESG_NOW, PERF_NOW, BPF_NOW);
   } else if (perfopen) {
     /* default + perf relaxed (a host permitting unprivileged perf). perf<=1
      * also unlocks /proc/kallsyms (kallsyms_for_perf), the realistic recovery
@@ -789,16 +826,16 @@ int main(void) {
     write_file("/proc/sys/kernel/kptr_restrict", b_kptr);
     write_file("/proc/sys/kernel/perf_event_paranoid", "0\n");
     printf("=== profile: perf-open — uid=1000, kptr_restrict=%s (booted), "
-           "perf_event_paranoid=0, dmesg_restrict=%s (booted) ===\n",
-           b_kptr, b_dmesg);
+           "perf_event_paranoid=%s, dmesg_restrict=%s (booted) ===\n",
+           KPTR_NOW, PERF_NOW, DMESG_NOW);
   } else if (dmesgopen) {
     /* default + dmesg log opened; kptr/perf stay at their booted defaults. */
     write_file("/proc/sys/kernel/kptr_restrict", b_kptr);
     write_file("/proc/sys/kernel/dmesg_restrict", "0\n");
     write_file("/proc/sys/kernel/perf_event_paranoid", b_perf);
     printf("=== profile: dmesg-open — uid=1000, kptr_restrict=%s (booted), "
-           "dmesg_restrict=0, perf_event_paranoid=%s (booted) ===\n",
-           b_kptr, b_perf);
+           "dmesg_restrict=%s, perf_event_paranoid=%s (booted) ===\n",
+           KPTR_NOW, DMESG_NOW, PERF_NOW);
   } else if (bpfopen) {
     /* default + unprivileged bpf() enabled (a host permitting it; only there do
      * the bpf verifier-log leaks fire). Other knobs stay at their booted
@@ -808,9 +845,9 @@ int main(void) {
     write_file("/proc/sys/kernel/kptr_restrict", b_kptr);
     write_file("/proc/sys/kernel/perf_event_paranoid", b_perf);
     write_file("/proc/sys/kernel/unprivileged_bpf_disabled", "0\n");
-    printf("=== profile: bpf-open — uid=1000, unprivileged_bpf_disabled=0, "
+    printf("=== profile: bpf-open — uid=1000, unprivileged_bpf_disabled=%s, "
            "kptr_restrict=%s perf_event_paranoid=%s (booted) ===\n",
-           b_kptr, b_perf);
+           BPF_NOW, KPTR_NOW, PERF_NOW);
   } else if (tracefsopen) {
     /* kallsyms hidden (kptr=2) but tracefs group-readable (mounted gid=1000
      * below): the tracefs address tables carry no kptr_restrict gate, so they
@@ -818,22 +855,22 @@ int main(void) {
      * vantage (Android AID_READTRACEFS). */
     write_file("/proc/sys/kernel/kptr_restrict", "2\n");
     write_file("/proc/sys/kernel/perf_event_paranoid", b_perf);
-    printf("=== profile: tracefs-open — uid=1000, kptr_restrict=2, "
+    printf("=== profile: tracefs-open — uid=1000, kptr_restrict=%s, "
            "tracefs gid=1000 (dmesg_restrict=%s perf_event_paranoid=%s "
            "booted) ===\n",
-           b_dmesg, b_perf);
+           KPTR_NOW, DMESG_NOW, PERF_NOW);
   } else if (hidden) {
     write_file("/proc/sys/kernel/kptr_restrict", "2\n");
     write_file("/proc/sys/kernel/perf_event_paranoid", b_perf);
-    printf("=== profile: kptr-hidden — uid=1000, kptr_restrict=2, "
+    printf("=== profile: kptr-hidden — uid=1000, kptr_restrict=%s, "
            "dmesg_restrict=%s perf_event_paranoid=%s (booted) ===\n",
-           b_dmesg, b_perf);
+           KPTR_NOW, DMESG_NOW, PERF_NOW);
   } else {
     write_file("/proc/sys/kernel/kptr_restrict", b_kptr);
     write_file("/proc/sys/kernel/perf_event_paranoid", b_perf);
     printf("=== profile: default — uid=1000, kptr_restrict=%s "
            "dmesg_restrict=%s perf_event_paranoid=%s (all booted) ===\n",
-           b_kptr, b_dmesg, b_perf);
+           KPTR_NOW, DMESG_NOW, PERF_NOW);
   }
   fflush(stdout);
 

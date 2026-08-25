@@ -36,6 +36,9 @@
 #                                # (mainline cells: tests/vm/stage-modules)
 #   tests/vm/run spec-table      # render only the speculative-narrowing table
 #                                # (cells where the likely window beats guaranteed)
+#   tests/vm/run chart           # render the matrix as an SVG range chart, one
+#                                # row per arch, to stdout:
+#                                #   tests/vm/run chart > docs/diagrams/entropy-by-arch.svg
 #   tests/vm/run table --with-timing        # include timing/side-channel rows in
 #   tests/vm/run spec-table --with-timing   # the speculative-narrowing table
 #                                # (excluded by default — see SPEC_INCLUDE_TIMING)
@@ -52,7 +55,10 @@
 #   kptr-hidden default + kptr_restrict=2 — isolates kptr (perf already gates kallsyms)
 #   perf-open   default + perf_event_paranoid=0 — unlocks kallsyms + the perf leak
 #   dmesg-open  default + dmesg_restrict=0 — dmesg log readable
-#   hardened    kptr=2 + dmesg_restrict=1 + perf=3 — unprivileged floor
+#   bpf-open    default + unprivileged_bpf_disabled=0 — the only setting under
+#               which the bpf verifier-log leaks fire
+#   hardened    kptr=2 + dmesg_restrict=1 + perf=3 + unprivileged_bpf_disabled=2
+#               — unprivileged floor
 #   nokaslr     boot with `nokaslr` — verifies the KASLR-disabled pin
 #   no5lvl      boot with `no5lvl` — x86_64 drops to 4-level paging, riscv64 to
 #               SV48. Both move PAGE_OFFSET, so this is what exercises a
@@ -1416,6 +1422,99 @@ cmd_table() {
   cmd_spec_table
 }
 
+# Render the results matrix as an SVG range chart (docs/diagrams/entropy-by-arch.svg).
+# Reads cmd_table's own rows rather than the boot logs, so the chart and the
+# matrix cannot disagree: one extraction path, two renderings. One row per
+# architecture, spanning every kernel line and configuration tested — the spread
+# is real (a different VA width or kernel line is a different window), so it is
+# drawn as a range rather than collapsed to a single number.
+cmd_chart() {
+  cmd_table | awk -F'|' '
+    function bits(s) {                 # "exact"->0, "N bits"->N, else -1
+      gsub(/^ +| +$/, "", s)
+      if (s == "exact") return 0
+      if (s ~ /^[0-9]+ bits$/) { sub(/ bits$/, "", s); return s + 0 }
+      return -1
+    }
+    NF > 6 {
+      a = $2; scen = $5; k = $6; v = bits($7)
+      gsub(/^ +| +$/, "", a); gsub(/^ +| +$/, "", scen); gsub(/^ +| +$/, "", k)
+      if (k != "on" && k != "off") next   # header and |---| separator rows
+      seen[a] = 1
+      if (!(a SUBSEP $3 in kseen)) { kseen[a SUBSEP $3] = 1; kcount[a]++ }
+      if (k != "on" || v < 0) next
+      on[a] = 1
+      if (scen == "perf-open") {
+        if (!(a in pflo) || v < pflo[a]) pflo[a] = v
+        if (!(a in pfhi) || v > pfhi[a]) pfhi[a] = v
+      } else {
+        if (!(a in lo) || v < lo[a]) lo[a] = v
+        if (!(a in hi) || v > hi[a]) hi[a] = v
+      }
+    }
+    END {
+      for (a in seen)
+        if (a in on) printf "%s|%d|%d|%d|%d|%d\n", a, hi[a], lo[a], \
+             (a in pflo ? pflo[a] : -1), (a in pfhi ? pfhi[a] : -1), kcount[a]
+        else printf "%s|-1|-1|-1|-1|%d\n", a, kcount[a]
+    }' | LC_ALL=C sort -t'|' -k2,2nr -k1,1 | awk -F'|' '
+    BEGIN { L = 132; R = 830; TOP = 112; RH = 28; MAXB = 40; n = 0 }
+    { arch[n] = $1; hi[n] = $2 + 0; lo[n] = $3 + 0
+      pflo[n] = $4 + 0; pfhi[n] = $5 + 0; nk[n] = $6 + 0; n++ }
+    function X(b) { return L + (R - L) * b / MAXB }
+    END {
+      H = TOP + RH * n + 74
+      printf "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"960\" height=\"%d\"", H
+      printf " viewBox=\"0 0 960 %d\" font-family=\"sans-serif\">\n", H
+      print "  <style>"
+      print "      .title { font-size: 22px; font-weight: 700; fill: #1b5e20; }"
+      print "      .sub   { font-size: 13px; fill: #546e7a; }"
+      print "      .arch  { font-family: monospace; font-size: 13px; fill: #37474f; }"
+      print "      .val   { font-family: monospace; font-size: 11.5px; fill: #455a64; }"
+      print "      .note  { font-size: 11.5px; fill: #607d8b; }"
+      print "      .axis  { font-size: 11px; fill: #607d8b; }"
+      print "      .guide { stroke: #cfd8dc; stroke-width: 1; stroke-dasharray: 3 3; }"
+      print "  </style>"
+      printf "  <rect width=\"960\" height=\"%d\" fill=\"#ffffff\"/>\n", H
+      print "  <text class=\"title\" x=\"24\" y=\"34\">Residual KASLR entropy by architecture</text>"
+      print "  <text class=\"sub\" x=\"24\" y=\"57\">Guaranteed window, virtual image base. The bar spans every kernel line and configuration tested;</text>"
+      print "  <text class=\"sub\" x=\"24\" y=\"75\">a longer bar means more entropy survived. Lower is weaker KASLR.</text>"
+      for (t = 0; t <= MAXB; t += 5) {
+        printf "  <line class=\"guide\" x1=\"%.1f\" y1=\"%d\" x2=\"%.1f\" y2=\"%d\"/>\n", X(t), TOP-16, X(t), TOP+RH*n-10
+        printf "  <text class=\"axis\" x=\"%.1f\" y=\"%d\" text-anchor=\"middle\">%d</text>\n", X(t), TOP-22, t
+      }
+      printf "  <text class=\"axis\" x=\"%d\" y=\"%d\" text-anchor=\"end\">bits</text>\n", L-10, TOP-22
+      for (i = 0; i < n; i++) {
+        y = TOP + i * RH
+        printf "  <text class=\"arch\" x=\"%d\" y=\"%d\" text-anchor=\"end\">%s</text>\n", L-12, y+4, arch[i]
+        if (hi[i] < 0) {
+          printf "  <line x1=\"%.1f\" y1=\"%d\" x2=\"%.1f\" y2=\"%d\" stroke=\"#eceff1\" stroke-width=\"11\" stroke-linecap=\"round\"/>\n", X(0), y, X(MAXB), y
+          printf "  <text class=\"val\" x=\"%.1f\" y=\"%d\" fill=\"#90a4ae\">KASLR off on %s</text>\n", X(0)+12, y+4, (nk[i] == 1 ? "its only kernel" : sprintf("all %d kernels", nk[i]))
+          continue
+        }
+        x0 = X(lo[i]); x1 = X(hi[i]); if (x1 < x0 + 4) x1 = x0 + 4
+        resists = (pfhi[i] > 0)
+        col = resists ? "#e65100" : "#2e7d32"
+        printf "  <line x1=\"%.1f\" y1=\"%d\" x2=\"%.1f\" y2=\"%d\" stroke=\"%s\" stroke-width=\"11\" stroke-linecap=\"round\" opacity=\"0.85\"/>\n", x0, y, x1, y, col
+        lab = (lo[i] == hi[i]) ? sprintf("%d bits", lo[i]) : sprintf("%d-%d bits", lo[i], hi[i])
+        if (resists) lab = lab "  (perf-open gains nothing)"
+        printf "  <text class=\"val\" x=\"%.1f\" y=\"%d\" fill=\"%s\">%s</text>\n", x1+10, y+4, resists ? col : "#455a64", lab
+        if (!resists && pflo[i] == 0)
+          printf "  <circle cx=\"%.1f\" cy=\"%d\" r=\"5.5\" fill=\"#ffffff\" stroke=\"#1b5e20\" stroke-width=\"2.5\"/>\n", X(0), y
+      }
+      ly = TOP + RH * n + 20
+      printf "  <line x1=\"24\" y1=\"%d\" x2=\"936\" y2=\"%d\" stroke=\"#eceff1\" stroke-width=\"1\"/>\n", ly-14, ly-14
+      printf "  <rect x=\"24\" y=\"%d\" width=\"26\" height=\"9\" rx=\"4\" fill=\"#2e7d32\" opacity=\"0.85\"/>\n", ly
+      printf "  <text class=\"note\" x=\"58\" y=\"%d\">entropy surviving every profile except perf-open</text>\n", ly+8
+      printf "  <circle cx=\"352\" cy=\"%d\" r=\"5.5\" fill=\"#ffffff\" stroke=\"#1b5e20\" stroke-width=\"2.5\"/>\n", ly+4
+      printf "  <text class=\"note\" x=\"366\" y=\"%d\">perf-open recovers the base exactly</text>\n", ly+8
+      printf "  <rect x=\"610\" y=\"%d\" width=\"26\" height=\"9\" rx=\"4\" fill=\"#e65100\" opacity=\"0.85\"/>\n", ly
+      printf "  <text class=\"note\" x=\"644\" y=\"%d\">perf-open gains nothing</text>\n", ly+8
+      printf "  <text class=\"note\" x=\"24\" y=\"%d\">The MIPS kernels come from malta_defconfig, which does not enable CONFIG_PERF_EVENTS, so perf-open unlocks neither perf sampling nor the symbol table.</text>\n", ly+28
+      print "</svg>"
+    }'
+}
+
 # ---- dispatch ----
 # Cell list, ordered alphabetically by architecture (the rendered tables and the
 # boot loop both consume this). A stable sort keyed on the arch prefix
@@ -1427,6 +1526,7 @@ arches=$(echo "$TABLE" | awk -F'|' 'NF>1{gsub(/ /,"",$1); print $1}' |
 case "${1:-}" in
   table | --table)           cmd_table; exit $? ;;
   spec-table | --spec-table) cmd_spec_table; exit $? ;;
+  chart | --chart)           cmd_chart; exit $? ;;
   fetch-modules)             shift; cmd_fetch_modules "$@"; exit $? ;;
 esac
 

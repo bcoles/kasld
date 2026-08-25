@@ -14,6 +14,16 @@ It is the cross-architecture, end-to-end counterpart of the single-host check
 and runs* over captured fixtures, this proves the inferred window *contains the
 real base* on a live kernel, across architectures and attacker profiles.
 
+## Table of Contents
+
+- [Prerequisites](#prerequisites)
+- [Usage](#usage)
+- [Profiles](#profiles)
+- [Architectures](#architectures)
+  - [Gap architectures (built from kernel.org)](#gap-architectures-built-from-kernelorg)
+  - [Two kernel versions per arch (the `-mainline` cells)](#two-kernel-versions-per-arch-the--mainline-cells)
+- [Notes and limitations](#notes-and-limitations)
+
 ## Prerequisites
 
 - `make cross` already run, with the same cross toolchains on PATH (see the
@@ -37,6 +47,7 @@ tests/vm/run aarch64-alpine-6.12      # one cell
 tests/vm/run aarch64-alpine-6.12 hardened
 tests/vm/run all hardened             # every cell in one profile
 tests/vm/run table                    # results matrix + speculative-narrowing table
+tests/vm/run chart                    # results matrix as an SVG range chart (stdout)
 tests/vm/run spec-table               # only the speculative-narrowing table
 tests/vm/run spec-table --with-timing # ...also listing timing/side-channel rows
 tests/vm/run aarch64-alpine-6.12 capture # build a truth-bearing fixture from a live boot
@@ -75,6 +86,11 @@ not a column), then a speculative-narrowing table showing any cells where the
 likely best-guess window beats the guaranteed one and what signal drove it — the
 published tables in [docs/reproducibility.md](../../docs/reproducibility.md) are
 generated this way.
+
+`tests/vm/run chart` renders the same rows as an SVG range chart, one row per
+architecture, written to stdout — the committed copy is
+`docs/diagrams/entropy-by-arch.svg`. It reads `cmd_table`'s output rather than
+the boot logs, so the chart and the matrix cannot disagree.
 
 The speculative-narrowing table excludes microarchitectural side-channel
 narrowings (`method:timing` — cache/speculation oracles such as `prefetch` and
@@ -177,7 +193,7 @@ tests/vm/run mipsel-mainline-7.0           # boot it, verdict
 | riscv32 | `riscv` / `defconfig` + `32-bit.config` | `qemu-system-riscv32 -M virt` |
 | ppc32 | `powerpc` / `mpc85xx_defconfig` (BE) | `qemu-system-ppc -M ppce500` |
 | powerpc64 | `powerpc` / `ppc64_defconfig` (BE) | `qemu-system-ppc64 -M pseries` |
-| armeb (blocked) | `arm` / `multi_v7_defconfig` + BE | `qemu-system-arm -M virt` |
+| armeb | `arm` / `multi_v7_defconfig` + BE | `qemu-system-arm -M virt` |
 
 Validation status of the gap arches (built fresh from kernel.org, booted here):
 
@@ -196,14 +212,17 @@ Validation status of the gap arches (built fresh from kernel.org, booted here):
 - `powerpc64` — boots PASS on `-M pseries` (`power9`, console `hvc0`), but the
   board delivers no KASLR seed, so the kernel boots unrandomized; the base is
   pinned via the disabled-base path, not a KASLR defeat.
-- `armeb` — blocked on both ends, by the toolchain and by qemu, not the recipe.
-  The only big-endian arm toolchain `make cross` provides
-  (`armeb-linux-musleabi`) emits **ARMv5 BE32** code, so: against an ARMv7 **BE8**
-  `multi_v7` kernel every instruction is byte-swapped and init SIGILLs; against a
-  byte-order-matched v5 kernel (`versatile_defconfig` on `-M versatilepb`) qemu
-  produces no output at all — it cannot boot a BE32 ARM Linux kernel (confirmed
-  with an uncompressed `Image` + `earlycon`). Validating armeb needs a BE8-capable
-  armv7 toolchain, which is not among the musl-cross set.
+- `armeb` — verified end-to-end on `-M virt`, boots PASS. It needs `-mbe8` on
+  both payloads. A big-endian arm kernel runs its userspace **BE8**
+  (byte-invariant) from ARMv6 on, while `make cross`'s only big-endian arm
+  toolchain (`armeb-linux-musleabi`) emits **BE32** (word-invariant) unless
+  asked: a BE32 binary faults on its first instruction there, and since the
+  faulting binary is `init`, the kernel panics killing pid 1 and the run reads
+  as a boot failure rather than a build one. `-mbe8` produces BE8 instead; the
+  Makefile passes it for the `armeb-*` triple when building `kasld`, and `run`
+  passes it when building the init it stages alongside. Under qemu-user a BE32
+  binary runs either way, which is why only a full VM boot surfaces the
+  difference.
 
 These rows skip cleanly in `tests/vm/run` until `build-kernel` populates the
 cache, so the Alpine arches are unaffected. Stock upstream defconfigs are used
