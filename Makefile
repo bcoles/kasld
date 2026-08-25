@@ -155,10 +155,13 @@ endif
 
 VERSION := $(shell cat VERSION 2>/dev/null || echo unknown)
 
-# Target triple ($(CC)) vs. the host's native triple (always plain `cc`). When
-# they differ we are cross-compiling, so link static — the target loader/libs
-# are not on this host. $(_ARCH) also names the per-arch build subdirectory.
-HOST_ARCH := $(shell cc -dumpmachine)
+# Target triple ($(CC)) vs. the host's native triple. When they differ the build
+# is a cross-compile, so link static — the target loader/libs are not on this host.
+# $(_ARCH) also names the per-arch build subdirectory. The native triple comes
+# from a native compiler, not from $(CC) (which may itself be a cross compiler):
+# try `cc`, then gcc/clang, so a host with no `cc` symlink does not misread a
+# native build as cross (and add a spurious -static) or print `cc: not found`.
+HOST_ARCH := $(shell cc -dumpmachine 2>/dev/null || gcc -dumpmachine 2>/dev/null || clang -dumpmachine 2>/dev/null)
 _ARCH := $(shell $(CC) -dumpmachine)
 
 ifneq ($(_ARCH),$(HOST_ARCH))
