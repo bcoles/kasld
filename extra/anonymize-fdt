@@ -35,20 +35,39 @@ command -v dtc >/dev/null 2>&1 || {
   exit 2
 }
 
+# Every temporary file is allocated by mktemp and removed by the trap, so an
+# error or a signal part-way through a file does not leave one behind. Names are
+# never derived from each other: the temporary directory is shared and
+# world-writable, and a name built by appending to another (`$clean.report`) is
+# predictable from the moment the first one appears, so anyone on the host could
+# pre-create it as a symlink and have the redirection below write through it.
+dts=''
+clean=''
+report=''
+cleanup() {
+  # `if` rather than `[ ... ] && rm`: under `set -e` an unset name would make the
+  # && list return non-zero and abandon the removals after it.
+  if [ -n "$dts" ]; then rm -f "$dts"; fi
+  if [ -n "$clean" ]; then rm -f "$clean"; fi
+  if [ -n "$report" ]; then rm -f "$report"; fi
+  return 0
+}
+trap cleanup EXIT INT TERM HUP
+
 for dtb in "$@"; do
   if [ ! -f "$dtb" ]; then
     echo "skip (not a file): $dtb" >&2
     continue
   fi
   cp -f "$dtb" "$dtb.orig"
-  dts=$(mktemp)
-  clean=$(mktemp)
+  dts=$(mktemp) || { echo "anonymize-fdt: mktemp failed" >&2; exit 1; }
+  clean=$(mktemp) || { echo "anonymize-fdt: mktemp failed" >&2; exit 1; }
+  report=$(mktemp) || { echo "anonymize-fdt: mktemp failed" >&2; exit 1; }
   dtc -I dtb -O dts -o "$dts" "$dtb" 2>/dev/null
 
   # Drop any property assignment whose name is in SCRUB, handling values that
   # span multiple lines (keep dropping until the terminating ';'). Names of the
   # removed properties (and a trailing count) go to the report on stderr.
-  report="$clean.report"
   awk -v scrub="$SCRUB" '
     BEGIN { n = split(scrub, a, " "); for (i = 1; i <= n; i++) deny[a[i]] = 1 }
     skip { if ($0 ~ /;[[:space:]]*$/) skip = 0; next }
@@ -72,5 +91,8 @@ for dtb in "$@"; do
   grep '^  removed:' "$report" >&2 || true
   echo "$dtb: removed ${n} identifying propert$([ "$n" = 1 ] && echo y || echo ies); backup at $dtb.orig"
   echo "  review: dtc -I dtb -O dts $dtb | less"
-  rm -f "$dts" "$clean" "$report"
+  cleanup
+  dts=''
+  clean=''
+  report=''
 done
