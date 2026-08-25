@@ -1,0 +1,98 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="544" viewBox="0 0 960 544" font-family="sans-serif">
+  <style>
+      .title { font-size: 22px; font-weight: 700; fill: #1b5e20; }
+      .sub   { font-size: 13px; fill: #546e7a; }
+      .arch  { font-family: monospace; font-size: 13px; fill: #37474f; }
+      .val   { font-family: monospace; font-size: 11.5px; fill: #455a64; }
+      .note  { font-size: 11.5px; fill: #607d8b; }
+      .axis  { font-size: 11px; fill: #607d8b; }
+      .guide { stroke: #cfd8dc; stroke-width: 1; stroke-dasharray: 3 3; }
+  </style>
+  <rect width="960" height="544" fill="#ffffff"/>
+  <text class="title" x="24" y="34">When each architecture gained KASLR, and when it was turned on</text>
+  <text class="sub" x="24" y="57">Upstream mainline. The pale segment is the stretch where the support existed but a stock build still shipped it</text>
+  <text class="sub" x="24" y="75">off; the green segment begins where KASLR became the default. Four architectures have never left the pale segment.</text>
+  <line class="guide" x1="172.0" y1="134" x2="172.0" y2="426"/>
+  <text class="axis" x="172.0" y="128" text-anchor="middle">2013</text>
+  <line class="guide" x1="261.7" y1="134" x2="261.7" y2="426"/>
+  <text class="axis" x="261.7" y="128" text-anchor="middle">2015</text>
+  <line class="guide" x1="351.4" y1="134" x2="351.4" y2="426"/>
+  <text class="axis" x="351.4" y="128" text-anchor="middle">2017</text>
+  <line class="guide" x1="441.1" y1="134" x2="441.1" y2="426"/>
+  <text class="axis" x="441.1" y="128" text-anchor="middle">2019</text>
+  <line class="guide" x1="530.9" y1="134" x2="530.9" y2="426"/>
+  <text class="axis" x="530.9" y="128" text-anchor="middle">2021</text>
+  <line class="guide" x1="620.6" y1="134" x2="620.6" y2="426"/>
+  <text class="axis" x="620.6" y="128" text-anchor="middle">2023</text>
+  <line class="guide" x1="710.3" y1="134" x2="710.3" y2="426"/>
+  <text class="axis" x="710.3" y="128" text-anchor="middle">2025</text>
+  <line class="guide" x1="800.0" y1="134" x2="800.0" y2="426"/>
+  <text class="axis" x="800.0" y="128" text-anchor="middle">2027</text>
+  <text class="arch" x="136" y="154" text-anchor="end">x86_32</text>
+  <text class="val" x="195.1" y="154" text-anchor="end">v3.14</text>
+  <line x1="207.1" y1="150" x2="364.7" y2="150" stroke="#ffe0b2" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="207.1" cy="150" r="6" fill="#ffffff" stroke="#e65100" stroke-width="2.5"/>
+  <text class="val" x="364.7" y="140" text-anchor="middle" fill="#2e7d32">v4.12</text>
+  <line x1="364.7" y1="150" x2="800" y2="150" stroke="#c8e6c9" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="364.7" cy="150" r="6" fill="#2e7d32" stroke="#1b5e20" stroke-width="1.5"/>
+  <text class="val" x="812" y="154" fill="#455a64">on by default</text>
+  <text class="arch" x="136" y="186" text-anchor="end">x86_64</text>
+  <text class="val" x="195.1" y="186" text-anchor="end">v3.14</text>
+  <line x1="207.1" y1="182" x2="364.7" y2="182" stroke="#ffe0b2" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="207.1" cy="182" r="6" fill="#ffffff" stroke="#e65100" stroke-width="2.5"/>
+  <text class="val" x="364.7" y="172" text-anchor="middle" fill="#2e7d32">v4.12</text>
+  <line x1="364.7" y1="182" x2="800" y2="182" stroke="#c8e6c9" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="364.7" cy="182" r="6" fill="#2e7d32" stroke="#1b5e20" stroke-width="1.5"/>
+  <text class="val" x="812" y="186" fill="#455a64">on by default</text>
+  <text class="arch" x="136" y="218" text-anchor="end">arm64</text>
+  <text class="val" x="301.1" y="218" text-anchor="end">v4.6</text>
+  <line x1="313.1" y1="214" x2="462.8" y2="214" stroke="#ffe0b2" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="313.1" cy="214" r="6" fill="#ffffff" stroke="#e65100" stroke-width="2.5"/>
+  <text class="val" x="462.8" y="204" text-anchor="middle" fill="#2e7d32">v5.3</text>
+  <line x1="462.8" y1="214" x2="800" y2="214" stroke="#c8e6c9" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="462.8" cy="214" r="6" fill="#2e7d32" stroke="#1b5e20" stroke-width="1.5"/>
+  <text class="val" x="812" y="218" fill="#455a64">on by default</text>
+  <text class="arch" x="136" y="250" text-anchor="end">MIPS32</text>
+  <text class="val" x="311.0" y="250" text-anchor="end">v4.7</text>
+  <line x1="323.0" y1="246" x2="800" y2="246" stroke="#ffe0b2" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="323.0" cy="246" r="6" fill="#ffffff" stroke="#e65100" stroke-width="2.5"/>
+  <text class="val" x="812" y="250" fill="#e65100">off by default</text>
+  <text class="arch" x="136" y="282" text-anchor="end">MIPS64</text>
+  <text class="val" x="311.0" y="282" text-anchor="end">v4.7</text>
+  <line x1="323.0" y1="278" x2="800" y2="278" stroke="#ffe0b2" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="323.0" cy="278" r="6" fill="#ffffff" stroke="#e65100" stroke-width="2.5"/>
+  <text class="val" x="812" y="282" fill="#e65100">off by default</text>
+  <text class="arch" x="136" y="314" text-anchor="end">s390</text>
+  <text class="val" x="443.8" y="314" text-anchor="end">v5.2</text>
+  <line x1="455.8" y1="310" x2="800" y2="310" stroke="#c8e6c9" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="455.8" cy="310" r="6" fill="#2e7d32" stroke="#1b5e20" stroke-width="1.5"/>
+  <text class="val" x="812" y="314" fill="#455a64">on by default</text>
+  <text class="arch" x="136" y="346" text-anchor="end">PowerPC32</text>
+  <text class="val" x="468.0" y="346" text-anchor="end">v5.5</text>
+  <line x1="480.0" y1="342" x2="800" y2="342" stroke="#ffe0b2" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="480.0" cy="342" r="6" fill="#ffffff" stroke="#e65100" stroke-width="2.5"/>
+  <text class="val" x="812" y="346" fill="#e65100">off by default</text>
+  <text class="arch" x="136" y="378" text-anchor="end">LoongArch</text>
+  <text class="val" x="615.3" y="378" text-anchor="end">v6.3</text>
+  <line x1="627.3" y1="374" x2="651.2" y2="374" stroke="#ffe0b2" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="627.3" cy="374" r="6" fill="#ffffff" stroke="#e65100" stroke-width="2.5"/>
+  <text class="val" x="651.2" y="364" text-anchor="middle" fill="#2e7d32">v6.6</text>
+  <line x1="651.2" y1="374" x2="800" y2="374" stroke="#c8e6c9" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="651.2" cy="374" r="6" fill="#2e7d32" stroke="#1b5e20" stroke-width="1.5"/>
+  <text class="val" x="812" y="378" fill="#455a64">on by default</text>
+  <text class="arch" x="136" y="410" text-anchor="end">RISC-V64</text>
+  <text class="val" x="639.0" y="410" text-anchor="end">v6.6</text>
+  <line x1="651.0" y1="406" x2="800" y2="406" stroke="#ffe0b2" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="651.0" cy="406" r="6" fill="#ffffff" stroke="#e65100" stroke-width="2.5"/>
+  <text class="val" x="812" y="410" fill="#e65100">off by default</text>
+  <line x1="24" y1="452" x2="936" y2="452" stroke="#eceff1" stroke-width="1"/>
+  <line x1="24" y1="472" x2="56" y2="472" stroke="#ffe0b2" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="30" cy="472" r="6" fill="#ffffff" stroke="#e65100" stroke-width="2.5"/>
+  <text class="note" x="66" y="476">support added, but shipped off by default</text>
+  <line x1="330" y1="472" x2="362" y2="472" stroke="#c8e6c9" stroke-width="3" stroke-linecap="round"/>
+  <circle cx="336" cy="472" r="6" fill="#2e7d32" stroke="#1b5e20" stroke-width="1.5"/>
+  <text class="note" x="372" y="476">on by default from here</text>
+  <text class="note" x="24" y="500">s390 is the only architecture that shipped KASLR on from the release that introduced it; x86 waited three and a half</text>
+  <text class="note" x="24" y="516">years, arm64 over three, and LoongArch six months. Architectures with no KASLR support in mainline at all: arm32,</text>
+  <text class="note" x="24" y="532">PowerPC64, sparc, SuperH (sh), m68k, MicroBlaze, OpenRISC.</text>
+</svg>
