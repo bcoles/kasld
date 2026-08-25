@@ -45,6 +45,20 @@ else
 fi
 
 cd "$ROOT" || exit 2
+
+# Scratch for the two hand-offs below: a `while` loop on the right of a pipe
+# runs in a subshell, so a finding recorded there cannot set `fail` in this
+# shell and is passed back through a file instead. The files live in a private
+# directory rather than under a predictable name in the shared temporary
+# directory, where another user could pre-create the path as a symlink for the
+# redirection to write through. mktemp -d gives a 0700 directory nobody else can
+# create in, which makes the names inside it safe to derive.
+TMP=$(mktemp -d "${TMPDIR:-/tmp}/kasld-diagram.XXXXXX") || {
+  printf '%scheck-diagram-data: FAIL%s — mktemp\n' "$RED" "$RESET"
+  exit 2
+}
+trap 'rm -rf "$TMP"' EXIT INT TERM HUP
+
 fail=0
 nd=0
 
@@ -133,21 +147,20 @@ if [ -f "$SVG" ]; then
   while IFS="$(printf '\t')" read -r arch ver; do
     grep -q ">$arch<" "$SVG" || { echo "MISSARCH $arch"; continue; }
     grep -q ">$ver<" "$SVG" || echo "MISSVER $arch $ver"
-  done >/tmp/.kd.$$ 2>/dev/null
+  done >"$TMP/kd" 2>/dev/null
   while read -r kind rest; do
     case $kind in
       MISSARCH) printf '%s  history-table arch missing from the timeline%s: %s\n' "$RED" "$RESET" "$rest"; fail=1 ;;
       MISSVER)  printf '%s  timeline version disagrees with the history table%s: %s\n' "$RED" "$RESET" "$rest"; fail=1 ;;
     esac
-  done </tmp/.kd.$$
-  rm -f /tmp/.kd.$$
+  done <"$TMP/kd"
 fi
 
 # ---- vmsplit.svg vs the vmsplit table ------------------------------------
 SVG=docs/diagrams/vmsplit.svg
 if [ -f "$SVG" ]; then
   awk -F'|' '/^\| [0-9]G/ { gsub(/^ +| +$/,"",$2); gsub(/^ +| +`|` +$/,"",$3); print $2 "\t" $3 }' \
-      "$KAS" >/tmp/.vs.$$ 2>/dev/null
+      "$KAS" >"$TMP/vs" 2>/dev/null
   while IFS="$(printf '\t')" read -r name po; do
     [ -n "$name" ] || continue
     grep -q ">$name<" "$SVG" || {
@@ -158,8 +171,7 @@ if [ -f "$SVG" ]; then
       printf '%s  vmsplit PAGE_OFFSET disagrees with the table%s: %s (%s)\n' "$RED" "$RESET" "$name" "$po"
       fail=1
     }
-  done </tmp/.vs.$$
-  rm -f /tmp/.vs.$$
+  done <"$TMP/vs"
 fi
 
 if [ "$fail" -eq 0 ]; then
