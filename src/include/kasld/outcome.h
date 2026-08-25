@@ -25,6 +25,10 @@
  *   SIGSYS      a seccomp SCMP_ACT_KILL denial (the strict-container analogue
  *               of the EPERM that SCMP_ACT_ERRNO returns) → access denied, not
  *               a bare signal death.
+ *   signalled   any other fatal signal → crashed. Below the two cases above
+ *               because both also arrive as a signal death and mean something
+ *               more specific; above the exit-code cases because a component
+ *               that died on a signal never chose an exit code.
  *   exit 77/69  the component's self-reported KASLD_EXIT_NOPERM (access denied)
  *               / KASLD_EXIT_UNAVAILABLE (feature absent).
  *   otherwise   no result. */
@@ -36,6 +40,8 @@ kasld_classify_outcome(int status, int timed_out, int had_tagged) {
     return OUTCOME_TIMEOUT;
   if (WIFSIGNALED(status) && WTERMSIG(status) == SIGSYS)
     return OUTCOME_ACCESS_DENIED;
+  if (WIFSIGNALED(status))
+    return OUTCOME_CRASHED;
   int rc = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
   if (rc == KASLD_EXIT_NOPERM)
     return OUTCOME_ACCESS_DENIED;

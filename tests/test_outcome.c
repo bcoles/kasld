@@ -52,12 +52,26 @@ static void test_exit_codes(void) {
   assert(kasld_classify_outcome(st_exited(1), 0, 0) == OUTCOME_NO_RESULT);
 }
 
-/* A non-SIGSYS fatal signal (a crash) is not an access denial. */
-static void test_other_signal_is_no_result(void) {
-  assert(kasld_classify_outcome(st_signaled(SIGSEGV), 0, 0) ==
-         OUTCOME_NO_RESULT);
-  assert(kasld_classify_outcome(st_signaled(SIGABRT), 0, 0) ==
-         OUTCOME_NO_RESULT);
+/* A non-SIGSYS fatal signal is a crash: neither an access denial nor the
+ * "ran, found nothing" a clean exit reports. The distinction is the point —
+ * a component killed by its own input must not read as an empty run. */
+static void test_other_signal_is_crashed(void) {
+  assert(kasld_classify_outcome(st_signaled(SIGSEGV), 0, 0) == OUTCOME_CRASHED);
+  assert(kasld_classify_outcome(st_signaled(SIGABRT), 0, 0) == OUTCOME_CRASHED);
+  assert(kasld_classify_outcome(st_signaled(SIGBUS), 0, 0) == OUTCOME_CRASHED);
+  assert(kasld_classify_outcome(st_signaled(SIGILL), 0, 0) == OUTCOME_CRASHED);
+  /* A clean exit with no output stays NO_RESULT, so the two are separable. */
+  assert(kasld_classify_outcome(st_exited(0), 0, 0) == OUTCOME_NO_RESULT);
+}
+
+/* The two signal deaths that mean something more specific keep their own
+ * classification: a crash must not swallow either. */
+static void test_crash_does_not_shadow_the_specific_signals(void) {
+  assert(kasld_classify_outcome(st_signaled(SIGSYS), 0, 0) ==
+         OUTCOME_ACCESS_DENIED);
+  assert(kasld_classify_outcome(st_signaled(SIGKILL), 1, 0) == OUTCOME_TIMEOUT);
+  assert(kasld_classify_outcome(st_signaled(SIGSEGV), 1, 0) == OUTCOME_TIMEOUT);
+  assert(kasld_classify_outcome(st_signaled(SIGSEGV), 0, 1) == OUTCOME_SUCCESS);
 }
 
 int main(void) {
@@ -67,6 +81,7 @@ int main(void) {
   RUN(test_timeout_beats_status);
   RUN(test_sigsys_is_access_denied);
   RUN(test_exit_codes);
-  RUN(test_other_signal_is_no_result);
+  RUN(test_other_signal_is_crashed);
+  RUN(test_crash_does_not_shadow_the_specific_signals);
   return TEST_DONE();
 }

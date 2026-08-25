@@ -509,6 +509,12 @@ enum component_outcome {
   OUTCOME_UNAVAILABLE,
   OUTCOME_ACCESS_DENIED,
   OUTCOME_TIMEOUT,
+  /* Died on a fatal signal that was not the seccomp SIGSYS (which is a denial,
+   * not a fault) and was not this orchestrator's own timeout kill. Separate
+   * from OUTCOME_NO_RESULT because the two are otherwise indistinguishable in
+   * every output: a component that faulted part-way through has not "found
+   * nothing", and the input that killed it may be reproducible. */
+  OUTCOME_CRASHED,
 };
 
 /* Cap on `key:value` lines kept from one component's .kasld_meta section. The
@@ -584,6 +590,7 @@ struct component_stats {
   int unavailable;
   int access_denied;
   int timed_out;
+  int crashed;
 };
 
 /* =========================================================================

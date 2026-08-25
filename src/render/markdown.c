@@ -198,6 +198,8 @@ void render_markdown(const struct summary *s) {
       printf(", %d access denied", s->stats.access_denied);
     if (s->stats.timed_out)
       printf(", %d timed out", s->stats.timed_out);
+    if (s->stats.crashed)
+      printf(", %d crashed", s->stats.crashed);
     if (s->stats.no_result)
       printf(", %d no result", s->stats.no_result);
     printf("*\n\n");

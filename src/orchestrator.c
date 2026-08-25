@@ -3064,6 +3064,7 @@ void compute_component_stats(struct summary *s) {
   s->stats.unavailable = 0;
   s->stats.access_denied = 0;
   s->stats.timed_out = 0;
+  s->stats.crashed = 0;
 
   /* comp_logs[] is indexed by discovery slot and sparse: a filtered component,
    * or one whose phase did not run, leaves its slot untouched. */
@@ -3086,6 +3087,9 @@ void compute_component_stats(struct summary *s) {
       break;
     case OUTCOME_NO_RESULT:
       s->stats.no_result++;
+      break;
+    case OUTCOME_CRASHED:
+      s->stats.crashed++;
       break;
     }
   }
@@ -4434,38 +4438,73 @@ static int apply_opt(const struct opt *o, int *i, int argc, char *argv[]) {
   return o->set(val);
 }
 
-/* Name the components the orchestrator killed, so a run with kills is
- * distinguishable from a clean one in the report itself rather than only in
- * the run narration the progress bar scrolls past. Silent when every component
- * was reaped normally. Names beyond the first three fold into a count, the
- * same way leak provenance does.
+/* Abnormal-termination reports.
  *
- * Subdued rather than coloured as a caution: a kill costs coverage, never
- * soundness. Only whole lines a component emitted before it died are read, so
- * one that is killed contributes fewer observations and the resolved windows
- * come back wider -- never wrong. A warning colour here would rank a note
- * about this tool's own run alongside the findings, and imply the values above
- * it are suspect. */
-static void report_killed_components(void) {
-  const char *names[3];
-  int shown = 0, n = 0;
+ * Name the components that did not reap normally, so a run carrying a kill or
+ * a fault is distinguishable from a clean one in the report itself rather than
+ * only in the run narration the progress bar scrolls past. Silent when every
+ * component was reaped normally. Names beyond the first three fold into a
+ * count, the same way leak provenance does.
+ *
+ * Subdued rather than coloured as a caution: neither ending costs soundness,
+ * only coverage. Only whole lines a component emitted before it died are read,
+ * so one that ends early contributes fewer observations and the resolved
+ * windows come back wider -- never wrong. A warning colour here would rank a
+ * note about this tool's own run alongside the findings, and imply the values
+ * above it are suspect. */
+#define OUTCOME_NAMES_SHOWN 3
+
+/* Collect the names of components that reached `want`, up to `max` of them.
+ * Returns the total, which may exceed what was stored. */
+static int collect_outcome_names(enum component_outcome want,
+                                 const char **names, int max, int *shown) {
+  int n = 0;
+  *shown = 0;
   for (int i = 0; i < num_components; i++) {
-    if (!comp_logs[i].ran || comp_logs[i].outcome != OUTCOME_TIMEOUT)
+    if (!comp_logs[i].ran || comp_logs[i].outcome != want)
       continue;
-    if (shown < (int)(sizeof(names) / sizeof(names[0])))
-      names[shown++] = comp_logs[i].name;
+    if (*shown < max)
+      names[(*shown)++] = comp_logs[i].name;
     n++;
   }
-  if (n == 0)
-    return;
+  return n;
+}
 
-  printf("%s%d component%s timed out after %ds and %s killed (", c(C_DIM), n,
-         n == 1 ? "" : "s", component_timeout, n == 1 ? "was" : "were");
+/* Print the trailing "(a, b, c, +N more)" once the sentence before it is
+ * written. */
+static void print_outcome_names(const char **names, int shown, int n) {
   for (int i = 0; i < shown; i++)
     printf("%s%s", i ? ", " : "", names[i]);
   if (n > shown)
     printf(", +%d more", n - shown);
   printf(")%s\n", c(C_RESET));
+}
+
+/* Components the orchestrator killed for outrunning the timeout. */
+static void report_killed_components(void) {
+  const char *names[OUTCOME_NAMES_SHOWN];
+  int shown, n = collect_outcome_names(OUTCOME_TIMEOUT, names,
+                                       OUTCOME_NAMES_SHOWN, &shown);
+  if (n == 0)
+    return;
+
+  printf("%s%d component%s timed out after %ds and %s killed (", c(C_DIM), n,
+         n == 1 ? "" : "s", component_timeout, n == 1 ? "was" : "were");
+  print_outcome_names(names, shown, n);
+}
+
+/* Components that died on a signal. Named rather than left to the tally
+ * because a fault is reproducible: which component died is the whole of the
+ * report. */
+static void report_crashed_components(void) {
+  const char *names[OUTCOME_NAMES_SHOWN];
+  int shown, n = collect_outcome_names(OUTCOME_CRASHED, names,
+                                       OUTCOME_NAMES_SHOWN, &shown);
+  if (n == 0)
+    return;
+
+  printf("%s%d component%s died on a signal (", c(C_DIM), n, n == 1 ? "" : "s");
+  print_outcome_names(names, shown, n);
 }
 
 /* Orchestration-layer summary emit: build the summary, run resolution (stats,
@@ -4858,6 +4897,7 @@ int main(int argc, char *argv[]) {
     progress_finish();
     printf("\n");
     report_killed_components();
+    report_crashed_components();
     printf("\n");
   }
 
