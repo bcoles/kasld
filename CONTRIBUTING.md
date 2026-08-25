@@ -14,6 +14,9 @@ runtime states — see [docs/architecture.md](docs/architecture.md). For
 end-user material, see [README.md](README.md) and
 [docs/usage.md](docs/usage.md).
 
+To report a security vulnerability in this project, use the private process in
+[SECURITY.md](SECURITY.md) rather than the issue tracker.
+
 ## Table of Contents
 
 - [Architecture in brief](#architecture-in-brief)
