@@ -2,7 +2,10 @@
 # This file is part of KASLD - https://github.com/bcoles/kasld
 #
 # Temporarily weaken kernel hardening settings for KASLD testing.
-# Saves current values and restores them on exit (or SIGINT/SIGTERM).
+# Saves current values and restores them on exit (or SIGINT/SIGTERM/SIGHUP).
+#
+# The settings are system-wide: every process on the host runs unrestricted for
+# as long as this script holds them down, not just KASLD.
 #
 # This script is intended for testing on systems you control.
 # DO NOT run this on production systems.
@@ -55,6 +58,9 @@ saved_perf=$(sysctl -n kernel.perf_event_paranoid 2>/dev/null) || saved_perf=""
 saved_bpf=$(sysctl -n kernel.unprivileged_bpf_disabled 2>/dev/null) || saved_bpf=""
 
 restore() {
+  # Disarm first: the EXIT trap would otherwise fire again on the exit below and
+  # restore a second time.
+  trap - INT TERM HUP EXIT
   echo
   echo "[*] Restoring kernel settings ..."
   [ -n "$saved_dmesg" ] && sysctl -q kernel.dmesg_restrict="$saved_dmesg"
@@ -68,7 +74,7 @@ restore() {
   exit 0
 }
 
-trap restore INT TERM EXIT
+trap restore INT TERM HUP EXIT
 
 echo "[*] Current settings:"
 [ -n "$saved_dmesg" ] && echo "  kernel.dmesg_restrict            = $saved_dmesg"
@@ -103,7 +109,12 @@ echo "[*] Hardening weakened. Run KASLD in another terminal."
 echo "[*] Press Ctrl+C to restore settings and exit."
 echo
 
-# Wait until interrupted
+# Wait until interrupted. The sleep runs in the background with the shell
+# blocked in `wait`, because a shell defers a trapped signal until the current
+# foreground command finishes: behind a day-long foreground sleep, a signal that
+# does not also reach the sleep would leave the settings weakened for the rest
+# of the day. `wait` is interrupted by the signal, so restore() runs at once.
 while true; do
-  sleep 86400
+  sleep 86400 &
+  wait "$!" || true
 done

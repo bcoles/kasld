@@ -9,6 +9,10 @@
 # the matching kallsyms lines go to stdout. Restoration runs from a trap, so an
 # interrupted or failing read still returns kptr_restrict to its original value.
 #
+# kptr_restrict is a system-wide setting: for the few reads below, every process
+# on the host sees unhashed kernel pointers, not just this one. A SIGKILL leaves
+# it at 0 until it is set back by hand or the machine reboots.
+#
 # Requires:
 # - sudo privileges (to set kptr_restrict and read unhashed kallsyms)
 # - CONFIG_KALLSYMS=y
@@ -23,6 +27,9 @@ lowered=0
 saved_kptr=$(sysctl -n kernel.kptr_restrict 2>/dev/null) || saved_kptr=""
 
 restore() {
+  # Disarm first: the EXIT trap would otherwise restore a second time when a
+  # signal trap returns.
+  trap - INT TERM HUP EXIT
   [ "$lowered" = "1" ] || return
   if sudo sysctl -q kernel.kptr_restrict="$saved_kptr" 2>/dev/null; then
     echo "[*] kernel.kptr_restrict: 0 -> $saved_kptr (restored)" >&2
@@ -31,7 +38,7 @@ restore() {
   fi
 }
 
-trap restore INT TERM EXIT
+trap restore INT TERM HUP EXIT
 
 if [ -n "$saved_kptr" ]; then
   if sudo sysctl -q kernel.kptr_restrict=0 2>/dev/null; then

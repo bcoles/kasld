@@ -68,8 +68,11 @@ and the same change reads as an improvement (`OK: no posture regression`).
 
 `weaken-kernel-hardening` relaxes `kptr_restrict`, `dmesg_restrict`,
 `perf_event_paranoid`, and `unprivileged_bpf_disabled` — a **testing** convenience,
-never for production. It restores the saved values on `Ctrl+C`, `SIGTERM`, or normal
-exit, so the weakened state never outlives the process.
+never for production. The sysctls are system-wide, so every process on the host
+runs unrestricted while it holds them down. It restores the saved values on
+`Ctrl+C`, `SIGTERM`, `SIGHUP`, or normal exit. `SIGKILL` cannot be trapped: a hard
+kill leaves the sysctls relaxed until they are restored by hand or the host
+reboots.
 
 `posture-diff` compares only the **boot-stable** posture — guaranteed entropy
 (virtual and physical), KASLR state, unpatched CVE-class leaks, and disabled
