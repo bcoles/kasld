@@ -13,10 +13,17 @@ jobs:
     - uses: actions/checkout@v6
 
     - name: Install dependencies
-      # shellcheck lets `make check`'s lint guards run tests/check-shellcheck
-      # over all shipped shell scripts (extra/ + tests/); it soft-skips when absent.
-      # jq lets tests/validate-fixtures run extra/validate-bundle; it soft-skips too.
-      run: sudo apt-get update && sudo apt-get install -y zlib1g-dev gcc-i686-linux-gnu shellcheck jq libxml2-utils
+      # Each guard below soft-skips when its tool is absent, so an unprovisioned
+      # tool reads as "clean" while the check silently never runs. Install them
+      # so `make check`'s lint gate is real:
+      #   shellcheck            check-shellcheck over all shipped shell scripts
+      #   jq                    validate-fixtures -> extra/validate-bundle
+      #   libxml2-utils         check-diagram-data (xmllint over the SVGs)
+      #   device-tree-compiler  check-fdt-unflatten (builds a DTB with dtc)
+      #   python3               check-fdt-unflatten / hardening-fixtures helpers
+      #   clang                 check-fuzz-harnesses (a -fsanitize=fuzzer compiler)
+      #   groff                 check-manpages (roff lint of the man pages)
+      run: sudo apt-get update && sudo apt-get install -y zlib1g-dev gcc-i686-linux-gnu shellcheck jq libxml2-utils device-tree-compiler python3 clang groff
 
     - name: Build
       run: make
