@@ -24,6 +24,12 @@
 # silent partial bundle. Fatal setup failures are checked explicitly.
 set -u
 
+# A bundle holds /proc/cmdline, dmesg, and with --kallsyms the kernel's real
+# symbol addresses. It sits in the working directory until it is reviewed and
+# shared, so create it readable only by the user who ran the capture rather than
+# at whatever the ambient umask allows.
+umask 077
+
 PROG=$(basename "$0")
 COLLECT_VERSION=2
 
@@ -270,6 +276,7 @@ for f in \
   /proc/iomem /proc/modules /proc/version \
   /proc/sys/kernel/kptr_restrict /proc/sys/kernel/dmesg_restrict \
   /proc/sys/kernel/perf_event_paranoid /proc/sys/kernel/randomize_va_space \
+  /proc/sys/kernel/unprivileged_bpf_disabled \
   /sys/kernel/security/lockdown \
   /sys/kernel/boot_params/data /sys/kernel/boot_params/setup_data \
   /sys/kernel/notes
@@ -320,7 +327,12 @@ committing this capture."
   echo "$w" >&2
   echo "$w" >> "$NOTES"
 fi
-[ -e /sys/firmware/efi ] && echo "present: /sys/firmware/efi" >> "$NOTES"
+# efi_present probes this path itself (kasld_access), so the directory must
+# exist in the sysroot; a bare directory cannot be captured by grab.
+if [ -e /sys/firmware/efi ]; then
+  echo "present: /sys/firmware/efi" >> "$NOTES"
+  mkdir -p "$OUT/sysroot/sys/firmware/efi"
+fi
 
 # /boot: copy the config (small), mirror the big images as sparse placeholders.
 grab "/boot/config-$REL"
