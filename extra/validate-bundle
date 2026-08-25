@@ -218,10 +218,10 @@ run_kasld_sysroot() {
 # or EMPTY (no window resolved) / PARSE-ERROR (bad JSON).
 guaranteed_sig() {
   jq -e . "$1" >/dev/null 2>&1 || { printf 'PARSE-ERROR\n'; return; }
-  s=$(jq -r '(.layout // {})
-             | [.virt_image_base_min, .virt_image_base_max,
-                .phys_kaslr_text_min, .phys_kaslr_text_max,
-                .virt_page_offset_min, .virt_page_offset_max]
+  s=$(jq -r '[.layout.virt_image_base_min, .layout.virt_image_base_max,
+              .layout.phys_kaslr_text_min, .layout.phys_kaslr_text_max,
+              .kaslr.memory_kaslr.virt_page_offset_base.min,
+              .kaslr.memory_kaslr.virt_page_offset_base.max]
              | map(if . == null then "." else tostring end) | join("|")' "$1")
   case "$s" in
     '.|.|.|.|.|.') printf 'EMPTY\n' ;;
