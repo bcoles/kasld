@@ -124,8 +124,7 @@ int main(void) {
   kasld_info("lowest reserved mem physical address:  0x%016lx", r.lo);
   kasld_info("highest reserved mem physical address: 0x%016lx", r.hi);
 
-  /* Per-region forbidden bands are emitted in on_match(); the directmap
-   * projection below derives one virtual landmark from the lowest region. */
+  /* Per-region forbidden bands are emitted in on_match(). */
 
   return 0;
 }

@@ -23,7 +23,8 @@
 //   Data leaked:      physical DRAM base address (OpenSBI M-mode reservation)
 //   Kernel subsystem: drivers/of/fdt_reserved_mem — mmode_resv0 DT node
 //   Data structure:   reserved memory node (physical address of DRAM base)
-//   Address type:     physical (DRAM)
+//   Address type:     physical (DRAM); on linear-map-coupled RISC-V also a
+//                     derived virtual kernel-image landmark
 //   Method:           parsed (dmesg string)
 //   Status:           unfixed (printed unconditionally on RISC-V with OpenSBI)
 //   Access check:     do_syslog() → check_syslog_permissions(); gated by

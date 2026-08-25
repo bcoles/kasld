@@ -184,8 +184,7 @@ int main(void) {
   if (r.hi && r.hi != r.lo)
     kasld_info("crashkernel end:   0x%016lx", r.hi);
 
-  /* Per-region forbidden bands are emitted in the parse callbacks; the
-   * directmap projection below derives one virtual landmark from the lowest. */
+  /* Per-region forbidden bands are emitted in the parse callbacks. */
 
   return 0;
 }

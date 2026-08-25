@@ -315,7 +315,7 @@ static uint32_t base_offset_lookup(void) {
 /* Scan candidate bases b in [lo, hi] step `step`, testing salt = b + off, and
  * return 1 with the UNIQUE matching salt in *salt; 0 if none or ambiguous.
  * A wrong candidate cannot reproduce every cookie, so a lone survivor is the
- * true salt. Split out so the recovery is testable over a bounded window. */
+ * true salt. Split out so the recovery runs over a bounded window. */
 static int kernfs_scan(const struct kernfs_pair *pr, int n, unsigned long lo,
                        unsigned long hi, unsigned long step, uint32_t off,
                        unsigned long *salt) {

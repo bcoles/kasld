@@ -62,7 +62,7 @@ KASLD_META("method:parsed\n"
  * heavily-fragmented map degrades to hull-only rather than flooding evidence or
  * emitting a partial (unsound) set. */
 #define SMB_MAX_INDICES                                                        \
-  4096                  /* online blocks we can collect to merge into runs */
+  4096                  /* online blocks collected to merge into runs      */
 #define SMB_MAX_RUNS 64 /* matches the exclude rule's per-map extent cap   */
 
 int main(void) {

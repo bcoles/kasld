@@ -176,8 +176,7 @@ int main(void) {
   }
 
   /* CMA pools are firmware/kernel-reserved memory carved out of DRAM —
-   * each is emitted as its own RESERVED_MEM band in the parse callbacks. The
-   * directmap projection below derives one virtual landmark from the lowest. */
+   * each is emitted as its own RESERVED_MEM band in the parse callbacks. */
   kasld_info("lowest reserved pool:  0x%016lx", r.lo);
   if (r.hi && r.hi != r.lo)
     kasld_info("highest reserved pool: 0x%016lx", r.hi);

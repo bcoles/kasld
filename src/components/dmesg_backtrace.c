@@ -276,8 +276,8 @@ static void scan_directmap(const char *line, struct btctx *c) {
  * text; tp/sp are not, but LoongArch is coupled (text and data share the
  * 0x9000... window) so they cannot be excluded by address range — hence the two
  * registers are read positionally by field name rather than range-scanned.
- * Always compiled (so it is unit-testable); only invoked on LoongArch, where
- * the marked-unused attribute is moot. */
+ * Always compiled; only invoked on LoongArch, where the marked-unused
+ * attribute is moot. */
 __attribute__((unused)) static void
 parse_loongarch_pc_ra(const char *line, unsigned long *pc, unsigned long *ra) {
   *pc = 0;

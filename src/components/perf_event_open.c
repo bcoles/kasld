@@ -14,7 +14,7 @@
 //   Data leaked:      kernel text virtual addresses (sampled instruction
 //   pointers) Kernel subsystem: kernel/events — perf_event_open syscall Data
 //   structure:   struct perf_event → sample IP (instruction pointer) Address
-//   type:     virtual (kernel text) Method:           exact (perf event
+//   type:     virtual (kernel text) Method:           parsed (perf event
 //   sampling) Status:           gated by design (perf_event_paranoid)
 //   Access check:     perf_event_open() checks perf_event_paranoid; requires
 //                     CAP_PERFMON or CAP_SYS_ADMIN

@@ -7,7 +7,7 @@
 // - x86_64:  virtual address width -> 4-level vs 5-level paging
 // - riscv64: MMU mode (sv39/sv48/sv57) -> deterministic PAGE_OFFSET
 //
-// Detection component — does not leak an address.
+// Detection component — leaks no randomized (KASLR) address.
 //   Purpose: reads /proc/cpuinfo to extract architecture-specific
 //   information (address width, MMU mode) that constrains the kernel
 //   virtual address layout. /proc/cpuinfo is world-readable (0444).

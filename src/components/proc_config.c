@@ -8,7 +8,7 @@
 // Uses zlib for native gzip decompression when available (HAVE_ZLIB),
 // otherwise falls back to popen("zcat").
 //
-// Detection component — does not leak an address.
+// Detection component — leaks no randomized (KASLR) address.
 //   Purpose: reads /proc/config.gz to determine whether
 //   CONFIG_RANDOMIZE_BASE is set (KASLR compiled in) and what the
 //   32-bit vmsplit (CONFIG_PAGE_OFFSET) is.

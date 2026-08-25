@@ -26,8 +26,8 @@
 // Zen 3 or LBR-V2 on Zen 4 (both accept ANY|PLM); one attr covers both. Only
 // branch-FROM carries the kernel leak, so only from-endpoints are kept.
 //
-// NOT VALIDATED against a live leak: the branch-from disclosure has not been
-// observed firing on real hardware.
+// Untested: no AMD BRS/LBR-V2 hardware available; the branch-from disclosure
+// has not been observed firing on real hardware.
 //
 // Leak primitive:
 //   Data leaked:      kernel .text addresses (branch-from of SYSRET/ERET/IRET)

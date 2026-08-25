@@ -2,7 +2,7 @@
 //
 // Read kernel-image extents from /proc/iomem ("Kernel code/data/bss").
 //
-// Detection component — emits memory extents the kernel itself published.
+// Parsed physical kernel-image leak — emits the extents the kernel published.
 //   Purpose: x86 /proc/iomem nests three top-level "System RAM" sub-entries
 //   labeled "Kernel code", "Kernel data", and "Kernel bss". Each is the
 //   exact physical range the corresponding ELF section was loaded at.

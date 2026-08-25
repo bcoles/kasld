@@ -73,7 +73,7 @@ KASLD_META("method:parsed\n"
            "patch:v4.10\n");
 
 /* Parse a "Freeing <name> memory: <size>K (<start> - <end>)" line.
- * Emits a kasld_result() for the start address. Returns 1 on success. */
+ * Emits a kasld_result_sample() for the start address. Returns 1 on success. */
 static int on_match(const char *line, void *ctx) {
   (void)ctx;
   const char *name_start;

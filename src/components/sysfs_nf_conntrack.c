@@ -64,7 +64,7 @@ static unsigned long get_kernel_addr_conntrack(void) {
   struct dirent *dir;
   DIR *d;
 
-  kasld_info("trying %snf_contrack_* ...", path);
+  kasld_info("trying %snf_conntrack_* ...", path);
 
   d = kasld_opendir(path);
   if (d == NULL) {

@@ -20,7 +20,7 @@
 KASLD_EXPLAIN(
     "Checks /proc/cmdline for the nokaslr boot flag. If present, KASLR "
     "was disabled at boot and the default text base is the actual "
-    "kernel base. /proc/cmdline is world-readable (0444);.");
+    "kernel base. /proc/cmdline is world-readable (0444).");
 
 KASLD_META("method:detection\n"
            "phase:inference\n"

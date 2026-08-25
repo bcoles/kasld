@@ -60,7 +60,7 @@ static const char *const probe_tails[] = {
 /* Minimums below which the span is statistically meaningless -> abstain. */
 #define MIN_PROBES 6
 #define MIN_T_SYMS 1000
-#define REORDER_RATIO 0.30 /* span/total_T at/above which we flag reordered */
+#define REORDER_RATIO 0.30 /* span/total_T threshold for the reordered flag */
 
 KASLD_EXPLAIN(
     "Measures how far the kernel/sys.c syscall wrappers are scattered across "

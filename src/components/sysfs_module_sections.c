@@ -145,8 +145,8 @@ int main(void) {
   kasld_info("lowest leaked module text address:  %lx", range.lo);
   if (range.hi != range.lo) {
     kasld_info("highest leaked module text address: %lx", range.hi);
-    /* Pair of base+top samples for the same MODULE region: the merge pass
-     * will combine them into a full extent. */
+    /* Emit the lowest and highest section addresses as a single bounded
+     * MODULE range. */
     kasld_result_range(KASLD_TYPE_VIRT, REGION_MODULE, range.lo, range.hi, NULL,
                        CONF_PARSED);
   } else {

@@ -11,7 +11,7 @@
 //   Data leaked:      kernel stack pointer (uninitialized struct padding)
 //   Kernel subsystem: net/can — CAN BCM (net/can/bcm.c)
 //   Data structure:   struct bcm_msg_head (4-byte padding hole after flags)
-//   Address type:     virtual (kernel stack)
+//   Address type:     virtual (kernel text, recovered from stack padding)
 //   Method:           heuristic
 //   CVE:              CVE-2021-34693
 //   Patched:          v5.12 (multiple commits)

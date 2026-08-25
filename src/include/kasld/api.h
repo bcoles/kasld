@@ -473,7 +473,7 @@ __extension__ _Static_assert(MODULES_ANCHOR == MOD_ANCHOR_FIXED ||
                                  MODULES_ANCHOR == MOD_ANCHOR_BRACKETS_TEXT,
                              "MODULES_ANCHOR must be one of the four "
                              "MOD_ANCHOR_* answers");
-/* Derived, never declared: one anchor, so these can no longer disagree. */
+/* Derived, never declared: one anchor, so these cannot disagree. */
 #define MODULES_RELATIVE_TO_TEXT (MODULES_ANCHOR == MOD_ANCHOR_TEXT)
 #define MODULES_RELATIVE_TO_PAGE_OFFSET                                        \
   (MODULES_ANCHOR == MOD_ANCHOR_PAGE_OFFSET)
@@ -2356,10 +2356,12 @@ typedef int make_iso_compilers_happy;
 
 /* Machine-readable metadata in a dedicated ELF section. Newline-delimited
  * key:value pairs. Recognised keys:
- *   method:  Technique category for the hardening report.
- *            Values: parsed, heuristic, timing, brute, detection.
+ *   method:  Technique category for the hardening report. Values: parsed,
+ *            heuristic, inferred, timing, brute, detection.
  *   phase:   "inference" (default) or "probing".
- *   addr:    "virtual" or "physical".
+ *   discloses: what the component reveals — "virtual", "physical" or "both"
+ *            (a kernel address of that kind), or "facts" (scalar system facts
+ *            only, no address).
  *   live:    "1" — the result derives from live runtime state of the
  *            executing kernel/CPU (a syscall, a CPU instruction, a timing
  *            measurement, a setuid helper, or a self-referential /proc/self
@@ -2367,15 +2369,24 @@ typedef int make_iso_compilers_happy;
  *            reproduced from a copied tree. The orchestrator skips such
  *            components when KASLD_SYSROOT is set (offline analysis).
  *   status:  "experimental" — opt-in via -x.
+ *
+ * Hardening-report inputs — a technique names what would neutralise it:
  *   sysctl:  Mitigating sysctl.
- *   bypass:  Capability that bypasses the mitigation.
+ *   config:  Kernel config the technique depends on (may repeat).
  *   patch:   Kernel version that closed the bug.
  *   cve:     Associated CVE.
+ *   lockdown: Lockdown mode that blocks the technique.
  *   hardware: Hardware requirement -- the positive condition the leak needs
  *            (e.g. "TSX required", "prefetch side-channel"). A feature that
  *            disables the leak goes in a trailing "(mitigated by <feature>)",
  *            never as the bare value: KPTI, UMIP and the like name the
  *            mitigation, not the requirement.
+ *   bypass:  Capability that bypasses the mitigation.
+ *   fallback: Path of the alternative source (e.g. /var/log/dmesg); the report
+ *            reads only whether the key is present. The technique also reads a
+ *            log-file fallback, not only a restricted syscall, so the report
+ *            can distinguish a syscall restriction (dmesg_restrict) from a
+ *            file-permission fix.
  */
 #define KASLD_META(text)                                                       \
   __attribute__((                                                              \

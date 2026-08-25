@@ -87,8 +87,8 @@ int rule_range_from_interior(const struct evidence_set *ev,
                              const struct estimate *est, struct constraint *out,
                              int out_max) {
   int n = 0;
-  (void)
-      est; /* no longer reads the alignment quantities — raw sample is sound */
+  (void)est; /* unused: a raw interior sample is sound without the alignment
+                quantities */
 
   n += emit_min_sample(ev, KASLD_TYPE_VIRT, Q_VIRT_IMAGE_BASE, 0, out, n,
                        out_max);

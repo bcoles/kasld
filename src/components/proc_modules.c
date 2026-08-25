@@ -106,7 +106,7 @@ int main(void) {
   /* /proc/modules lists loaded module base addresses.
    * The component aggregates them into a min/max range — both endpoints
    * are within the module region. (A future version could enumerate
-   * each module by name with kasld_result().) */
+   * each module by name with kasld_result_sample().) */
   /* REGION_MODULE, not REGION_MODULE_BAND: each address is a loaded
    * module's own base, read from a per-module record — the region is known
    * structurally, not inferred from the address falling in a band. That is

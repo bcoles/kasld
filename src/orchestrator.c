@@ -1225,9 +1225,9 @@ static char *extract_elf_section(const char *path, const char *section_name) {
    * the orchestrator executes from its real location (execl below). It is a
    * runtime artifact, not a captured fact, so it must be read from the live
    * tree regardless of KASLD_SYSROOT — see sysroot.h on runtime-primitive
-   * escapes. Under replay this would otherwise resolve into the fixture (where
-   * the binary does not exist), returning empty meta and silently disabling
-   * every meta- driven hardening section. */
+   * escapes. Under replay this would otherwise resolve into the captured tree
+   * (where the binary does not exist), returning empty meta and silently
+   * disabling every meta-driven hardening section. */
   FILE *f = fopen(path, "rb");
   if (!f)
     return NULL;

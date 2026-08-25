@@ -39,8 +39,7 @@
 // Typical output on an Intel VT-d system with USB RMRR:
 //
 //   iommu_group 0: reserved 0x000000007e300000 - 0x000000007e31ffff
-//   P dram 0x000000007e300000 reserved_mem:0
-//   P dram 0x000000007e31ffff reserved_mem:0
+//   P reserved_mem:0 pos=base conf=parsed lo=0x7e300000 hi=0x7e31ffff
 //
 // Leak primitive:
 //   Data leaked:      physical DRAM addresses (IOMMU group reserved / direct

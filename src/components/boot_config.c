@@ -3,7 +3,8 @@
 // Check kernel config for CONFIG_RELOCATABLE, CONFIG_RANDOMIZE_BASE,
 // and CONFIG_PAGE_OFFSET (32-bit vmsplit).
 //
-// Detection component — does not leak an address.
+// Detection component; on 32-bit vmsplit arches also emits the parsed
+// CONFIG_PAGE_OFFSET as the page-offset base.
 //   Purpose: reads /boot/config-$(uname -r) to determine whether
 //   CONFIG_RANDOMIZE_BASE is set (KASLR compiled in) and what the
 //   32-bit vmsplit (CONFIG_PAGE_OFFSET) is. Readable when /boot is

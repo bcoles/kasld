@@ -42,7 +42,7 @@
 //   Kernel subsystem: arch/x86/xen — /sys/kernel/notes (ELF notes)
 //   Data structure:   Xen ELF notes (XEN_ELFNOTE_ENTRY,
 //   XEN_ELFNOTE_HYPERCALL_PAGE) Address type:     virtual (kernel text) Method:
-//   exact (ELF note parsing) Patched:          v6.9 (CVE-2024-26816,
+//   parsed (ELF note parsing) Patched:          v6.9 (CVE-2024-26816,
 //   aaa8736370db); hardened v6.13 (223abe96ac0d) Status:           fixed in
 //   v6.9 Access check:     none (world-readable /sys/kernel/notes, 0444)
 //   Source:
