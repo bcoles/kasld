@@ -125,21 +125,28 @@ builds, `1` on Alpine). The other profiles move away from that booted baseline:
   `dmesg_restrict=1` (Alpine); on the mainline builds dmesg is already open.
 - `bpf-open` — `default` plus `unprivileged_bpf_disabled=0`: unprivileged
   `bpf()` permitted, which the BPF verifier-log leaks require. The `perf-open`
-  equivalent for the BPF axis. **Every** cell here boots with unprivileged BPF
-  *disabled*, so `default` always reflects an attacker who cannot call `bpf()`:
-  the distro cells ship `CONFIG_BPF_UNPRIV_DEFAULT_OFF`, and the mainline cells
-  are built with it forced on, because an older defconfig would otherwise boot
-  `bpf()` wide open — not a posture any current kernel ships, and it would make
-  `default` measure something no user faces.
+  equivalent for the BPF axis. Cells fall into three groups. Where the kernel has
+  `CONFIG_BPF_SYSCALL` and unprivileged use is locked off — the distro cells ship
+  `CONFIG_BPF_UNPRIV_DEFAULT_OFF`, the mainline ones are built with it forced on
+  — that lock is what this profile relaxes, and `default` reflects an attacker
+  who cannot call `bpf()`. Roughly half the mainline cells do not set
+  `CONFIG_BPF_SYSCALL` at all — among them every `x86_64`, `i686`, `armv7`,
+  `armeb`, `ppc32` and MIPS build — so there is no `bpf()` and no
+  `unprivileged_bpf_disabled` sysctl to relax; the profile is a no-op there, and
+  the boot log records the knob as `absent`. On the 5.15 mainline cells that do
+  have `CONFIG_BPF_SYSCALL` the forced lock did not take, so those boot with
+  unprivileged `bpf()` already permitted and `default` measures the same vantage
+  `bpf-open` does.
   The row is shown on **every** cell, like the other sysctl profiles, including
   where it reads the same as `default` — that is a result, not an absence, and
-  it is the one this profile most often reports. A row matching `default` says
-  unprivileged `bpf()` was permitted and still leaked nothing; a missing row
-  would leave a reader unable to tell that from a cell nobody ran. On the
-  mainline cells it yields nothing for a reason worth stating, because it is not
-  "BPF was already on": the verifier-log component reports `unavailable` there.
-  Its offset table is keyed by `uname` and built from a corpus of published
-  distro kernels, which a locally built `7.0.0` is not in.
+  it is the one this profile most often reports. Where the syscall exists, a row
+  matching `default` says unprivileged `bpf()` was permitted and still leaked
+  nothing; where it does not, the row says there was never a syscall to permit.
+  A missing row would leave a reader unable to tell either case from a cell
+  nobody ran. On a mainline cell that does have `bpf()`, the verifier-log
+  components would still report `unavailable`: their offset table is keyed by
+  `uname` and built from a corpus of published distro kernels, which a locally
+  built `7.0.0` is not in.
 - `hardened` — `kptr_restrict=2`, `dmesg_restrict=1`, `perf_event_paranoid=3`,
   `unprivileged_bpf_disabled=2`: the realistic attacker floor, where only
   file-derived facts survive.
@@ -150,10 +157,10 @@ See [tests/vm/README.md](../tests/vm/README.md) for the full arch list and optio
 Every architecture is booted on mainline kernel.org kernels — the LTS lines 5.15
 and 6.6 and current 7.0 — cross-built from pinned source by `tests/vm/build-kernel`
 (a stock upstream defconfig plus fixed config overlays: endianness, devtmpfs, and
-text KASLR for riscv64 and ppc32). Eight of
-them additionally boot a publicly-fetchable Alpine distro kernel; the other six —
-`mips`, `mipsel`, `mips64el`, `powerpc64`, `ppc32`, `riscv32` — have no Alpine
-port, so mainline is their only source. Cells are named `<arch>-<distro>-<line>`;
+text KASLR for riscv64 and ppc32). Of the fifteen, eight additionally boot a
+publicly-fetchable Alpine distro kernel; the other seven — `armeb`, `mips`,
+`mipsel`, `mips64el`, `powerpc64`, `ppc32`, `riscv32` — have no Alpine port, so
+mainline is their only source. Cells are named `<arch>-<distro>-<line>`;
 for a mainline cell the version in the name is a label and `LINUX_VERSION` sets
 the source:
 
@@ -162,9 +169,11 @@ LINUX_VERSION=5.15.211 tests/vm/build-kernel ppc32-mainline-5.15  # cross-build 
 tests/vm/run ppc32-mainline-5.15                                  # boot it, verdict
 ```
 
-`armeb` is not covered: the only big-endian arm toolchain in the cross set emits
-ARMv5 BE32 code, which can neither run on an ARMv7 BE8 kernel nor boot a BE32
-kernel under qemu.
+`armeb` needs `-mbe8` on both payloads. The cross set's big-endian arm toolchain
+emits BE32 by default, which cannot run on the BE8 userspace an arm kernel
+provides from ARMv6 on — it takes SIGILL on its first instruction. `-mbe8`
+produces BE8 instead, and `make cross` passes it for the armeb triple, as does
+the VM harness for the init it stages beside kasld.
 
 ### Architecture characterization
 
@@ -222,91 +231,58 @@ truth is the invariant behind the whole page.
 ### Results matrix: image base
 
 This is the core soundness result — the virtual kernel-text base and, on
-decoupled architectures, the physical image base. The region bases and the
-kernel-configuration axis have their own subsections below. The snapshot is
+decoupled architectures, the physical image base. Every cell is sound: the true
+base lies inside the **guaranteed** window on *both* axes, and a cell whose
+window excludes the truth is withheld, never published. The snapshot is
 generated by `tests/vm/run all <scenario>` followed by `tests/vm/run table`.
-Every cell is sound — the true base lies inside the **guaranteed** window (the one
-resolved at the sound floor), on *both* the virtual and the physical axis.
 
 The guaranteed window is resolved purely from signals at or above the sound floor
 and **never depends on a timing or microarchitectural side channel** — that is
 what makes the *soundness verdict* reproducible run to run and machine to
 machine: every cell contains the truth on every boot, on any host.
 
-The residual **bit counts** are a sample, not a constant, and the distinction
-matters when reading a one-bit difference between two runs. Where a window's
-ceiling comes from a leak positioned relative to the kernel image, the ceiling
-moves with the base and the width moves with it — the loongarch64 `bpf-open`
-cell is the clearest case, its ceiling landing a fixed distance above `_text`
-on every boot, so its span tracks that boot's KASLR draw and the figure varies
-by about a bit. Re-running the 22 mips / ppc64 / riscv32 / loongarch64 cells
-across all seven profiles moved exactly one of 154 rows, so the effect is
-narrow, but a row that differs by a bit from a previous publication has not
-necessarily changed behaviour. The same caution applies WITHIN this table: each
-profile is its own boot, so two rows of one cell differing by a bit is not by
-itself evidence that the profile did anything — read a profile's effect from the
-component it unlocks, not from a one-bit step. What reproduces exactly is
-containment; the bits are what one boot measured.
+The shape of the result, one row per architecture. `tests/vm/run chart` renders
+it from the same rows as the table below, so the two cannot disagree:
 
-They are a floor, not a ceiling: the residual bits are the *most* KASLR entropy
-that survives sound, reproducible inference, and a microarchitectural oracle
-(e.g. `prefetch`) can strip more on top — to `exact` when it succeeds — on capable
-hardware. Those gains are real but hardware-dependent (whether the oracle fires
-varies by CPU and by run), so they are discussed in
-[Speculative narrowing](#speculative-narrowing-the-likely-window) below and
-listed by `tests/vm/run spec-table --with-timing` — but, for the same
-reproducibility reason, kept out of the default table there too, not scored here.
+![Residual KASLR entropy by architecture: a horizontal range bar per architecture spanning the guaranteed residual across every kernel line and configuration tested, from s390x at 17-39 bits and aarch64 at 15-32 down to x86_64 at 0-9 and i686 at 5-8; a ring at zero marks the architectures where perf-open recovers the base exactly, the three MIPS architectures are drawn apart because perf-open gains nothing there, and five architectures boot with KASLR off on every kernel](diagrams/entropy-by-arch.svg)
 
-`source` is the kernel: `alpine` (a distro kernel) or `mainline` (a vanilla
-kernel.org build via `tests/vm/build-kernel`). `virt residual` and `phys
-residual` say how much KASLR entropy KASLD could *not* strip from the virtual
-text base and the physical image base — i.e. how effectively KASLR was defeated
-on each axis; the cell vocabulary (`exact` / `<n> bits` / `—` / `coupled`) is
-the one defined in [Architecture characterization](#architecture-characterization)
-above. The `phys residual` column carries an independent bit count only on the
-*decoupled* arches (x86-64, arm64, riscv64, s390); on every *coupled* arch the
-physical base is `phys = virt - <arch constant>`, so it reads `coupled` and the
-virtual result already determines it.
+A bar spans every kernel line and configuration tested rather than naming one
+number, because the spread is real: a different VA width or kernel line is a
+different window, not noise.
 
-Soundness is gated on both axes: a cell whose physical window excludes the true
-physical base is withheld exactly like a virtual violation, never published.
+Reading a cell. `source` is the kernel: `alpine` (a distro kernel) or `mainline`
+(a vanilla kernel.org build via `tests/vm/build-kernel`). `virt residual` and
+`phys residual` say how much KASLR entropy KASLD could *not* strip from each
+axis; the vocabulary (`exact` / `<n> bits` / `—` / `coupled`) is defined in
+[Architecture characterization](#architecture-characterization) above. `phys
+residual` carries an independent count only on the *decoupled* arches; elsewhere
+it reads `coupled`, and the virtual result already determines it.
 
-The axes are architecture × kernel line × reader profile: each architecture is
-booted on the mainline LTS lines 5.15 and 6.6 and on current 7.0 — plus an Alpine
-distro kernel where a port exists — under each of the six reader profiles
-(`default`, `kptr-hidden`, `perf-open`, `dmesg-open`, `bpf-open`, `hardened`).
-Every profile is run on every cell and gets a row on every cell, including where
-it reads the same as `default` — a profile that changed nothing is a result, and
-the table would otherwise leave that indistinguishable from a cell nobody ran.
+The bits are a **floor, not a ceiling**: they are the most KASLR entropy that
+survives sound, reproducible inference, and a microarchitectural oracle can
+strip more on capable hardware — see
+[Speculative narrowing](#speculative-narrowing-the-likely-window) below. They are
+also one boot's sample rather than a constant: a row whose ceiling comes from a
+leak positioned relative to the kernel image has a span that tracks that boot's
+KASLR draw, so it can move a bit or two between runs, in either direction. Read
+a profile's effect from the component it unlocks, not from a small step.
 
-A **kernel-configuration** axis is partially covered, on the two configuration
-choices that move the memory map KASLD has to model. Those cells carry the
-config in the release column — `7.0.0 (va39)`, `7.0.0 (vmsplit2g)` — and are
-purpose-built kernels rather than variants of the base cell's image:
-
-- **VA-bits / paging mode** on `aarch64`: 36, 39, 42 and 47 alongside the
-  default 48, each a different `PAGE_OFFSET` and a different text band. On
-  `x86_64` and `riscv64` the same axis is reached from one image through the
-  `no5lvl` / `no4lvl` / `la57` boot parameters instead of a separate build.
-- **VMSPLIT** on `armv7` and `i686`: a 2G/2G user/kernel split against the
-  default 3G/1G, which moves `PAGE_OFFSET` itself.
-
-Endianness and individual `CONFIG_*` toggles remain out of scope
-(see [Scope](#scope) below).
+Every profile is run on every cell and gets a row, including where it reads the
+same as `default` — a profile that changed nothing is a result, and the table
+would otherwise leave that indistinguishable from a cell nobody ran. Cells
+carrying a configuration in the release column (`7.0.0 (va39)`,
+`7.0.0 (vmsplit2g)`) are purpose-built kernels on the config axis; see
+[Kernel-configuration sensitivity](#kernel-configuration-sensitivity).
 
 Two conventions explain rows that would otherwise look like gaps. An
-architecture predating a kernel line simply has no row for it (LoongArch,
-mainlined in 6.1, has no 5.15 row). Separately, a
-cell may show `KASLR: off` where its neighbours on the same architecture show
-`on` — the three MIPS cells on the 6.6 line do. That is deliberate and is not a
-KASLD limitation: on that line MIPS Oopses in the exception path once the kernel
-actually relocates (the same image boots fine with `nokaslr`), so the cell is
-built without `CONFIG_RANDOMIZE_BASE` rather than left to die before the
-analysis runs. All three pinned lines were booted on every width to place the
-exclusion exactly, so it names the one line that breaks rather than guessing a
-range. The cell is still a real soundness test: an unprivileged process cannot
-read `CONFIG_RANDOMIZE_BASE`, so KASLD reports the conservative KASLR-possible
-window, and that window has to contain the fixed base like any other.
+architecture predating a kernel line has no row for it (LoongArch, mainlined in
+6.1, has no 5.15 row). And a cell may show `KASLR: off` where its neighbours on
+the same architecture show `on`: the three MIPS cells on the 6.6 line are built
+without `CONFIG_RANDOMIZE_BASE`, because on that line MIPS Oopses in the
+exception path once the kernel actually relocates. Those cells still test
+soundness — an unprivileged process cannot read `CONFIG_RANDOMIZE_BASE`, so
+KASLD reports the conservative KASLR-possible window, which must contain the
+fixed base like any other.
 
 | arch | release | source | scenario | KASLR | virt residual | phys residual |
 |------|---------|--------|----------|-------|---------------|---------------|
@@ -358,6 +334,24 @@ window, and that window has to contain the fixed base like any other.
 | aarch64 | 7.0.0 (va36) | mainline | dmesg-open | on | 19 bits | 14 bits |
 | aarch64 | 7.0.0 (va36) | mainline | bpf-open | on | 19 bits | 14 bits |
 | aarch64 | 7.0.0 (va36) | mainline | hardened | on | 19 bits | 14 bits |
+| armeb | 5.15.211 | mainline | default | off | — | — |
+| armeb | 5.15.211 | mainline | kptr-hidden | off | — | — |
+| armeb | 5.15.211 | mainline | perf-open | off | — | — |
+| armeb | 5.15.211 | mainline | dmesg-open | off | — | — |
+| armeb | 5.15.211 | mainline | bpf-open | off | — | — |
+| armeb | 5.15.211 | mainline | hardened | off | — | — |
+| armeb | 6.6.144 | mainline | default | off | — | — |
+| armeb | 6.6.144 | mainline | kptr-hidden | off | — | — |
+| armeb | 6.6.144 | mainline | perf-open | off | — | — |
+| armeb | 6.6.144 | mainline | dmesg-open | off | — | — |
+| armeb | 6.6.144 | mainline | bpf-open | off | — | — |
+| armeb | 6.6.144 | mainline | hardened | off | — | — |
+| armeb | 7.0.0 | mainline | default | off | — | — |
+| armeb | 7.0.0 | mainline | kptr-hidden | off | — | — |
+| armeb | 7.0.0 | mainline | perf-open | off | — | — |
+| armeb | 7.0.0 | mainline | dmesg-open | off | — | — |
+| armeb | 7.0.0 | mainline | bpf-open | off | — | — |
+| armeb | 7.0.0 | mainline | hardened | off | — | — |
 | armv7 | 6.12.81-0-lts | alpine | default | off | — | — |
 | armv7 | 6.12.81-0-lts | alpine | kptr-hidden | off | — | — |
 | armv7 | 6.12.81-0-lts | alpine | perf-open | off | — | — |
@@ -418,30 +412,30 @@ window, and that window has to contain the fixed base like any other.
 | i686 | 7.0.0 (vmsplit2g) | mainline | dmesg-open | on | 8 bits | coupled |
 | i686 | 7.0.0 (vmsplit2g) | mainline | bpf-open | on | 8 bits | coupled |
 | i686 | 7.0.0 (vmsplit2g) | mainline | hardened | on | 8 bits | coupled |
-| loongarch64 | 6.18.44-0-lts | alpine | default | on | 14 bits | coupled |
-| loongarch64 | 6.18.44-0-lts | alpine | kptr-hidden | on | 14 bits | coupled |
+| loongarch64 | 6.18.44-0-lts | alpine | default | on | 10 bits | coupled |
+| loongarch64 | 6.18.44-0-lts | alpine | kptr-hidden | on | 10 bits | coupled |
 | loongarch64 | 6.18.44-0-lts | alpine | perf-open | on | exact | coupled |
-| loongarch64 | 6.18.44-0-lts | alpine | dmesg-open | on | 14 bits | coupled |
+| loongarch64 | 6.18.44-0-lts | alpine | dmesg-open | on | 11 bits | coupled |
 | loongarch64 | 6.18.44-0-lts | alpine | bpf-open | on | 10 bits | coupled |
-| loongarch64 | 6.18.44-0-lts | alpine | hardened | on | 14 bits | coupled |
-| loongarch64 | 6.6.144 | mainline | default | on | 14 bits | coupled |
-| loongarch64 | 6.6.144 | mainline | kptr-hidden | on | 14 bits | coupled |
+| loongarch64 | 6.18.44-0-lts | alpine | hardened | on | 10 bits | coupled |
+| loongarch64 | 6.6.144 | mainline | default | on | 11 bits | coupled |
+| loongarch64 | 6.6.144 | mainline | kptr-hidden | on | 10 bits | coupled |
 | loongarch64 | 6.6.144 | mainline | perf-open | on | exact | coupled |
-| loongarch64 | 6.6.144 | mainline | dmesg-open | on | 14 bits | coupled |
-| loongarch64 | 6.6.144 | mainline | bpf-open | on | 14 bits | coupled |
-| loongarch64 | 6.6.144 | mainline | hardened | on | 14 bits | coupled |
+| loongarch64 | 6.6.144 | mainline | dmesg-open | on | 11 bits | coupled |
+| loongarch64 | 6.6.144 | mainline | bpf-open | on | 11 bits | coupled |
+| loongarch64 | 6.6.144 | mainline | hardened | on | 11 bits | coupled |
 | loongarch64 | 7.0.0 | mainline | default | on | 14 bits | coupled |
 | loongarch64 | 7.0.0 | mainline | kptr-hidden | on | 14 bits | coupled |
 | loongarch64 | 7.0.0 | mainline | perf-open | on | exact | coupled |
 | loongarch64 | 7.0.0 | mainline | dmesg-open | on | 14 bits | coupled |
 | loongarch64 | 7.0.0 | mainline | bpf-open | on | 14 bits | coupled |
 | loongarch64 | 7.0.0 | mainline | hardened | on | 14 bits | coupled |
-| mips | 5.15.211 | mainline | default | on | 11 bits | coupled |
-| mips | 5.15.211 | mainline | kptr-hidden | on | 11 bits | coupled |
-| mips | 5.15.211 | mainline | perf-open | on | 11 bits | coupled |
-| mips | 5.15.211 | mainline | dmesg-open | on | 11 bits | coupled |
-| mips | 5.15.211 | mainline | bpf-open | on | 11 bits | coupled |
-| mips | 5.15.211 | mainline | hardened | on | 11 bits | coupled |
+| mips | 5.15.211 | mainline | default | on | 8 bits | coupled |
+| mips | 5.15.211 | mainline | kptr-hidden | on | 8 bits | coupled |
+| mips | 5.15.211 | mainline | perf-open | on | 8 bits | coupled |
+| mips | 5.15.211 | mainline | dmesg-open | on | 8 bits | coupled |
+| mips | 5.15.211 | mainline | bpf-open | on | 8 bits | coupled |
+| mips | 5.15.211 | mainline | hardened | on | 8 bits | coupled |
 | mips | 6.6.144 | mainline | default | off | — | — |
 | mips | 6.6.144 | mainline | kptr-hidden | off | — | — |
 | mips | 6.6.144 | mainline | perf-open | off | — | — |
@@ -454,12 +448,12 @@ window, and that window has to contain the fixed base like any other.
 | mips | 7.0.0 | mainline | dmesg-open | on | 11 bits | coupled |
 | mips | 7.0.0 | mainline | bpf-open | on | 11 bits | coupled |
 | mips | 7.0.0 | mainline | hardened | on | 11 bits | coupled |
-| mips64el | 5.15.211 | mainline | default | on | 14 bits | coupled |
-| mips64el | 5.15.211 | mainline | kptr-hidden | on | 14 bits | coupled |
-| mips64el | 5.15.211 | mainline | perf-open | on | 14 bits | coupled |
-| mips64el | 5.15.211 | mainline | dmesg-open | on | 14 bits | coupled |
-| mips64el | 5.15.211 | mainline | bpf-open | on | 14 bits | coupled |
-| mips64el | 5.15.211 | mainline | hardened | on | 14 bits | coupled |
+| mips64el | 5.15.211 | mainline | default | on | 8 bits | coupled |
+| mips64el | 5.15.211 | mainline | kptr-hidden | on | 8 bits | coupled |
+| mips64el | 5.15.211 | mainline | perf-open | on | 8 bits | coupled |
+| mips64el | 5.15.211 | mainline | dmesg-open | on | 8 bits | coupled |
+| mips64el | 5.15.211 | mainline | bpf-open | on | 8 bits | coupled |
+| mips64el | 5.15.211 | mainline | hardened | on | 8 bits | coupled |
 | mips64el | 6.6.144 | mainline | default | off | — | — |
 | mips64el | 6.6.144 | mainline | kptr-hidden | off | — | — |
 | mips64el | 6.6.144 | mainline | perf-open | off | — | — |
@@ -472,12 +466,12 @@ window, and that window has to contain the fixed base like any other.
 | mips64el | 7.0.0 | mainline | dmesg-open | on | 14 bits | coupled |
 | mips64el | 7.0.0 | mainline | bpf-open | on | 14 bits | coupled |
 | mips64el | 7.0.0 | mainline | hardened | on | 14 bits | coupled |
-| mipsel | 5.15.211 | mainline | default | on | 11 bits | coupled |
-| mipsel | 5.15.211 | mainline | kptr-hidden | on | 11 bits | coupled |
-| mipsel | 5.15.211 | mainline | perf-open | on | 11 bits | coupled |
-| mipsel | 5.15.211 | mainline | dmesg-open | on | 11 bits | coupled |
-| mipsel | 5.15.211 | mainline | bpf-open | on | 11 bits | coupled |
-| mipsel | 5.15.211 | mainline | hardened | on | 11 bits | coupled |
+| mipsel | 5.15.211 | mainline | default | on | 8 bits | coupled |
+| mipsel | 5.15.211 | mainline | kptr-hidden | on | 8 bits | coupled |
+| mipsel | 5.15.211 | mainline | perf-open | on | 8 bits | coupled |
+| mipsel | 5.15.211 | mainline | dmesg-open | on | 8 bits | coupled |
+| mipsel | 5.15.211 | mainline | bpf-open | on | 8 bits | coupled |
+| mipsel | 5.15.211 | mainline | hardened | on | 8 bits | coupled |
 | mipsel | 6.6.144 | mainline | default | off | — | — |
 | mipsel | 6.6.144 | mainline | kptr-hidden | off | — | — |
 | mipsel | 6.6.144 | mainline | perf-open | off | — | — |
@@ -508,22 +502,22 @@ window, and that window has to contain the fixed base like any other.
 | powerpc64 | 7.0.0 | mainline | dmesg-open | off | — | — |
 | powerpc64 | 7.0.0 | mainline | bpf-open | off | — | — |
 | powerpc64 | 7.0.0 | mainline | hardened | off | — | — |
-| ppc32 | 5.15.211 | mainline | default | on | 14 bits | coupled |
+| ppc32 | 5.15.211 | mainline | default | on | 13 bits | coupled |
 | ppc32 | 5.15.211 | mainline | kptr-hidden | on | 14 bits | coupled |
 | ppc32 | 5.15.211 | mainline | perf-open | on | exact | coupled |
 | ppc32 | 5.15.211 | mainline | dmesg-open | on | 14 bits | coupled |
-| ppc32 | 5.15.211 | mainline | bpf-open | on | 13 bits | coupled |
+| ppc32 | 5.15.211 | mainline | bpf-open | on | 14 bits | coupled |
 | ppc32 | 5.15.211 | mainline | hardened | on | 14 bits | coupled |
 | ppc32 | 6.6.144 | mainline | default | on | 14 bits | coupled |
 | ppc32 | 6.6.144 | mainline | kptr-hidden | on | 14 bits | coupled |
 | ppc32 | 6.6.144 | mainline | perf-open | on | exact | coupled |
 | ppc32 | 6.6.144 | mainline | dmesg-open | on | 14 bits | coupled |
-| ppc32 | 6.6.144 | mainline | bpf-open | on | 12 bits | coupled |
+| ppc32 | 6.6.144 | mainline | bpf-open | on | 13 bits | coupled |
 | ppc32 | 6.6.144 | mainline | hardened | on | 14 bits | coupled |
 | ppc32 | 7.0.0 | mainline | default | on | 14 bits | coupled |
-| ppc32 | 7.0.0 | mainline | kptr-hidden | on | 11 bits | coupled |
+| ppc32 | 7.0.0 | mainline | kptr-hidden | on | 14 bits | coupled |
 | ppc32 | 7.0.0 | mainline | perf-open | on | exact | coupled |
-| ppc32 | 7.0.0 | mainline | dmesg-open | on | 14 bits | coupled |
+| ppc32 | 7.0.0 | mainline | dmesg-open | on | 11 bits | coupled |
 | ppc32 | 7.0.0 | mainline | bpf-open | on | 14 bits | coupled |
 | ppc32 | 7.0.0 | mainline | hardened | on | 14 bits | coupled |
 | ppc64le | 6.12.81-0-lts | alpine | default | off | — | — |
@@ -574,18 +568,24 @@ window, and that window has to contain the fixed base like any other.
 | riscv64 | 6.18.44-0-lts | alpine | dmesg-open | off | — | — |
 | riscv64 | 6.18.44-0-lts | alpine | bpf-open | off | — | — |
 | riscv64 | 6.18.44-0-lts | alpine | hardened | off | — | — |
+| riscv64 | 6.18.44-0-lts | alpine | no5lvl | off | — | — |
+| riscv64 | 6.18.44-0-lts | alpine | no4lvl | off | — | — |
 | riscv64 | 5.15.211 | mainline | default | off | — | — |
 | riscv64 | 5.15.211 | mainline | kptr-hidden | off | — | — |
 | riscv64 | 5.15.211 | mainline | perf-open | off | — | — |
 | riscv64 | 5.15.211 | mainline | dmesg-open | off | — | — |
 | riscv64 | 5.15.211 | mainline | bpf-open | off | — | — |
 | riscv64 | 5.15.211 | mainline | hardened | off | — | — |
+| riscv64 | 5.15.211 | mainline | no5lvl | off | — | — |
+| riscv64 | 5.15.211 | mainline | no4lvl | off | — | — |
 | riscv64 | 6.6.144 | mainline | default | on | exact | 9 bits |
 | riscv64 | 6.6.144 | mainline | kptr-hidden | on | exact | 9 bits |
 | riscv64 | 6.6.144 | mainline | perf-open | on | exact | 9 bits |
 | riscv64 | 6.6.144 | mainline | dmesg-open | on | exact | 9 bits |
 | riscv64 | 6.6.144 | mainline | bpf-open | on | exact | 9 bits |
-| riscv64 | 6.6.144 | mainline | hardened | on | 16 bits | 9 bits |
+| riscv64 | 6.6.144 | mainline | hardened | on | 3 bits | 9 bits |
+| riscv64 | 6.6.144 | mainline | no5lvl | on | exact | 9 bits |
+| riscv64 | 6.6.144 | mainline | no4lvl | on | exact | 9 bits |
 | riscv64 | 7.0.0 | mainline | default | on | 16 bits | 9 bits |
 | riscv64 | 7.0.0 | mainline | kptr-hidden | on | 16 bits | 9 bits |
 | riscv64 | 7.0.0 | mainline | perf-open | on | exact | 9 bits |
@@ -618,24 +618,30 @@ window, and that window has to contain the fixed base like any other.
 | s390x | 7.0.0 | mainline | dmesg-open | on | 39 bits | 10 bits |
 | s390x | 7.0.0 | mainline | bpf-open | on | 39 bits | 10 bits |
 | s390x | 7.0.0 | mainline | hardened | on | 39 bits | 10 bits |
-| x86_64 | 6.12.81-0-virt | alpine | default | on | 6 bits | 6 bits |
-| x86_64 | 6.12.81-0-virt | alpine | kptr-hidden | on | 6 bits | 6 bits |
+| x86_64 | 6.12.81-0-virt | alpine | default | on | 2 bits | 6 bits |
+| x86_64 | 6.12.81-0-virt | alpine | kptr-hidden | on | 2 bits | 6 bits |
 | x86_64 | 6.12.81-0-virt | alpine | perf-open | on | exact | 6 bits |
-| x86_64 | 6.12.81-0-virt | alpine | dmesg-open | on | 6 bits | 6 bits |
-| x86_64 | 6.12.81-0-virt | alpine | bpf-open | on | 1 bit | 6 bits |
-| x86_64 | 6.12.81-0-virt | alpine | hardened | on | 6 bits | 6 bits |
-| x86_64 | 5.15.211 | mainline | default | on | 9 bits | 9 bits |
-| x86_64 | 5.15.211 | mainline | kptr-hidden | on | 9 bits | 9 bits |
+| x86_64 | 6.12.81-0-virt | alpine | dmesg-open | on | exact | 6 bits |
+| x86_64 | 6.12.81-0-virt | alpine | bpf-open | on | exact | 6 bits |
+| x86_64 | 6.12.81-0-virt | alpine | hardened | on | 2 bits | 6 bits |
+| x86_64 | 6.12.81-0-virt | alpine | no5lvl | on | 2 bits | 6 bits |
+| x86_64 | 6.12.81-0-virt | alpine | la57 | on | exact | 6 bits |
+| x86_64 | 5.15.211 | mainline | default | on | 5 bits | 9 bits |
+| x86_64 | 5.15.211 | mainline | kptr-hidden | on | 5 bits | 9 bits |
 | x86_64 | 5.15.211 | mainline | perf-open | on | exact | 9 bits |
-| x86_64 | 5.15.211 | mainline | dmesg-open | on | 9 bits | 9 bits |
-| x86_64 | 5.15.211 | mainline | bpf-open | on | 9 bits | 9 bits |
-| x86_64 | 5.15.211 | mainline | hardened | on | 9 bits | 9 bits |
-| x86_64 | 6.6.144 | mainline | default | on | 9 bits | 9 bits |
-| x86_64 | 6.6.144 | mainline | kptr-hidden | on | 9 bits | 9 bits |
+| x86_64 | 5.15.211 | mainline | dmesg-open | on | 5 bits | 9 bits |
+| x86_64 | 5.15.211 | mainline | bpf-open | on | 5 bits | 9 bits |
+| x86_64 | 5.15.211 | mainline | hardened | on | 5 bits | 9 bits |
+| x86_64 | 5.15.211 | mainline | no5lvl | on | 5 bits | 9 bits |
+| x86_64 | 5.15.211 | mainline | la57 | on | 5 bits | 9 bits |
+| x86_64 | 6.6.144 | mainline | default | on | 5 bits | 9 bits |
+| x86_64 | 6.6.144 | mainline | kptr-hidden | on | 5 bits | 9 bits |
 | x86_64 | 6.6.144 | mainline | perf-open | on | exact | 9 bits |
-| x86_64 | 6.6.144 | mainline | dmesg-open | on | 9 bits | 9 bits |
-| x86_64 | 6.6.144 | mainline | bpf-open | on | 9 bits | 9 bits |
-| x86_64 | 6.6.144 | mainline | hardened | on | 9 bits | 9 bits |
+| x86_64 | 6.6.144 | mainline | dmesg-open | on | 5 bits | 9 bits |
+| x86_64 | 6.6.144 | mainline | bpf-open | on | 5 bits | 9 bits |
+| x86_64 | 6.6.144 | mainline | hardened | on | 5 bits | 9 bits |
+| x86_64 | 6.6.144 | mainline | no5lvl | on | 5 bits | 9 bits |
+| x86_64 | 6.6.144 | mainline | la57 | on | 5 bits | 9 bits |
 | x86_64 | 7.0.0 | mainline | default | on | 9 bits | 9 bits |
 | x86_64 | 7.0.0 | mainline | kptr-hidden | on | 9 bits | 9 bits |
 | x86_64 | 7.0.0 | mainline | perf-open | on | exact | 9 bits |
@@ -645,64 +651,39 @@ window, and that window has to contain the fixed base like any other.
 | x86_64 | 7.0.0 | mainline | no5lvl | on | 9 bits | 9 bits |
 | x86_64 | 7.0.0 | mainline | la57 | on | 9 bits | 9 bits |
 
-Every profile runs unprivileged, and on a stock kernel `default` is *not*
-`exact`: at the upstream
+What the profiles do is described in [§2](#2-live-across-architectures) above;
+what the table adds is where a profile makes no difference, and why.
+
+On a stock kernel `default` is *not* `exact`: at the upstream
 `perf_event_paranoid=2`, `/proc/kallsyms` is zeroed even with `kptr_restrict=0`
 (`kallsyms_show_value()` needs `perf_event_paranoid<=1` or `CAP_SYSLOG`), so the
-symbol table contributes nothing and the virtual base comes from sound inference
-alone — e.g. 6 bits on Alpine `x86_64`, 9 bits on mainline `x86_64`, 5 bits on
-`i686`. `kptr-hidden` adds `kptr_restrict=2` on top and lands on the same
-numbers, because perf already gated kallsyms: raising `kptr_restrict` removes a
-source that was already dark. (`kptr-hidden` is identical to `default` on every
-cell here. On a host with live network sockets it could differ, because
-`kptr_restrict` also gates the `%pK` `/proc/net` socket pointers KASLD reads —
-but those bound the direct map / page-offset, never the text image base the
-matrix scores, so the difference would show up only in a memory-region window,
-not this table.)
+base comes from sound inference alone. `kptr-hidden` therefore lands on the same
+numbers — it removes a source that was already dark.
 
-`perf-open` is the profile that recovers `exact` on every KASLR-on cell. Dropping
-`perf_event_paranoid` to 0 simultaneously un-zeroes `/proc/kallsyms` (a sound
-`proc_kallsyms` pin) and permits the `perf_event_open` text-poke leak — either
-alone pins the virtual base. The recovery is thus a *perf* relaxation, not a
-`kptr_restrict` one: a stock `kptr_restrict=0` kernel is not derandomized by the
-symbol table until perf is also relaxed. `dmesg-open` re-opens the ring buffer
-where a kernel shipped `dmesg_restrict=1` (Alpine); across this corpus that
-exposed no additional kernel-text landmark, so its guaranteed windows match
-`default`. `hardened` (`kptr_restrict=2`, `dmesg_restrict=1`,
-`perf_event_paranoid=3`) strips every relaxable source and is the widest column;
-its bits are what sound inference bounds with no leak at all.
+`perf-open` is the profile that recovers the base, and it does so on every
+KASLR-on cell whose kernel is built with `CONFIG_PERF_EVENTS`. The MIPS cells
+are the exception, and they show why its two unlocks are really one lever:
+`malta_defconfig` does not set `CONFIG_PERF_EVENTS`, so `perf_event_open` is
+absent — and `kallsyms_show_value()` reaches its `kallsyms_for_perf()` shortcut
+only inside that same `#ifdef`, leaving `kptr_restrict=0` to fall through to a
+`CAP_SYSLOG` check an unprivileged reader fails. The symbol table is readable
+and wholly zeroed at once, the sysctl the profile writes does not exist, and
+every profile reports the same window there.
 
-The `phys residual` moves independently: the physical image base is read from
-`/proc/iomem`, whose `Kernel code` addresses the kernel zeroes for a non-root
-reader regardless of `kptr_restrict` *or* `perf_event_paranoid`. So on most
-decoupled arches (x86-64, arm64, riscv64) the physical axis stays at `<n> bits`
-under *every* profile, including `perf-open`: the perf unlock recovers the
-virtual text base but not the physical one, which a *root* reader would have
-pinned exact. s390 is the exception on some lines — a sound source unlocked with
-perf resolves its physical base to `exact` too (5.15/6.6 mainline), while on the
-others (7.0 mainline, Alpine) it stays at its bounded `10 bits`.
+The `phys residual` moves independently, because `/proc/iomem` zeroes its
+`Kernel code` addresses for any non-root reader regardless of `kptr_restrict` or
+`perf_event_paranoid`. So the physical axis is largely unmoved by the profiles:
+the perf unlock recovers the virtual text base, not the physical one.
 
-Several architectures show KASLR `off`: under the default qemu machine they
-receive no KASLR seed (or the port has no text KASLR), so the kernel boots
-unrandomized. `residual` is `—` for every `off` row — there is
-no randomness to strip — but KASLD still bounds, and on seedless arches pins, the
-fixed base soundly via the disabled-base path (from arch constants plus the
-world-readable device-tree). It simply is not a KASLR-defeat result, so the
-column does not score it.
-
-riscv64 is the mixed case. Its text KASLR (`RANDOMIZE_BASE`) needs both a kernel
-built for it *and* a boot-supplied seed, and qemu's `virt` machine provides
-neither by default — hence the seedless `off` rows above. The mainline 6.6 and
-7.0 cells are therefore built with `RANDOMIZE_BASE` and booted with a fresh
-per-boot `kaslr-seed` spliced into the device tree, so they randomize like the
-other 64-bit arches: the base moves every boot and the truth stays inside the
-window. The 5.15 cell predates riscv KASLR (added in 5.18) and the Alpine kernel
-is not built with it, so both stay honestly `off`. The two enabled lines differ
-in recovery for a config reason: 6.6's stock `defconfig` sets `CONFIG_DEBUG_VM`,
-so `mem_init()` prints a kernel-layout line that pins `_text` from readable dmesg
-(defeated only under `hardened`, which restricts dmesg); 7.0 drops `DEBUG_VM`,
-leaving inference to bound the base to 16 bits until `perf-open` unlocks the
-symbol table for an exact pin.
+Architectures showing KASLR `off` receive no seed under the default qemu machine
+(or the port has no text KASLR), so the kernel boots unrandomized and `residual`
+reads `—`. KASLD still bounds the fixed base soundly via the disabled-base path;
+it is simply not a KASLR-defeat result, so the column does not score it. riscv64
+is the mixed case: its text KASLR needs both a kernel built for it and a
+boot-supplied seed, so the mainline 6.6 and 7.0 cells are built with
+`RANDOMIZE_BASE` and booted with a per-boot `kaslr-seed` spliced into the device
+tree, while 5.15 (predating riscv KASLR) and the Alpine kernel stay honestly
+`off`.
 
 ### Memory-KASLR region bases
 
@@ -733,20 +714,21 @@ independent base to randomize.
 
 ### Kernel-configuration sensitivity
 
-The matrix above fixes **one stock configuration per architecture**. A kernel's
-paging mode and virtual-address width — x86_64 4- vs 5-level paging, `aarch64`
-VA39 / VA48 / VA52 across 4K / 16K / 64K pages, the 32-bit VMSPLIT variants —
-shift the layout windows and are a distinct axis. This axis is a direct test of
-the engine's *structural* soundness: a wrong paging assumption or an over-coarse
-alignment moves the image-base window, which is exactly the window the soundness
-gate already checks (it is how past VA-bits and alignment bugs surfaced).
+The matrix covers this axis in part. A kernel's paging mode and virtual-address
+width — x86_64 4- vs 5-level paging, `aarch64` VA36 / VA39 / VA42 / VA47
+alongside the default VA48, the 32-bit VMSPLIT variants — shift the layout
+windows and are a distinct axis from the kernel line. This axis is a direct test
+of the engine's *structural* soundness: a wrong paging assumption or an
+over-coarse alignment moves the image-base window, which is exactly the window
+the soundness gate already checks (it is how past VA-bits and alignment bugs
+surfaced), so each configuration cell is another soundness data point.
 
-Covering it requires purpose-built kernels — config overlays over the stock
-defconfig — which are not yet in the matrix, so the results here hold the
-configuration axis fixed. This is a stated scope boundary, not a silent one:
-expanding into it is planned, and each new configuration cell is another
-soundness data point (any unsoundness it surfaces is the bug the exercise exists
-to find).
+On `aarch64` the width fixes the page size, so those four cells also span all
+three granules — VA39 at 4K, VA36 and VA47 at 16K, VA42 at 64K. VA52 is the one
+width left uncovered. `x86_64` and `riscv64` reach the same axis from a single
+image through the `no5lvl` / `no4lvl` / `la57` boot parameters, and `armv7` and
+`i686` carry a purpose-built 2G/2G split against the default 3G/1G. The
+configuration axes still outside the matrix are listed under [Scope](#scope).
 
 ### Speculative narrowing (the likely window)
 
@@ -758,76 +740,60 @@ best-guess, always a subset of guaranteed, and — unlike guaranteed — it is *
 gated to contain the truth. It surfaces in `-j` JSON as the `likely` /
 `likely_physical` objects, emitted only when strictly tighter than guaranteed.
 
-`tests/vm/run spec-table` renders a table of the cells where the likely window
-beats guaranteed, but by default lists only *reproducible* narrowings:
-deterministic `parsed` signals (a file, a leaked pointer, a config default) that
-beat the sound floor the same way on every run. On this run there is exactly one:
-the `x86_64` Alpine cell under `bpf-open`, where the BPF verifier-log offset
-table (`bpf_verifier_ksym`) matches the running kernel and recovers the base past
-its 1-bit guaranteed window to `exact`. It is a deterministic table lookup, not a
-timing guess, so it survives the filter. (`prefetch` independently agrees on the
-same base, but the `via` column credits the parsed `bpf_verifier_ksym` match that
-makes the row reproducible, not the timing signal that merely concurs.) It
-appears only under `bpf-open`: under the realistic `default`,
-Alpine locks unprivileged `bpf()` at `2`, the leak is absent, and the reproducible
-likely window equals guaranteed on every cell.
+`tests/vm/run spec-table` lists the cells where the likely window beats
+guaranteed, and by default only the *reproducible* narrowings: deterministic
+`parsed` signals — a file, a leaked pointer, a config default — that beat the
+sound floor the same way on every run.
 
-That is the expected outcome once the profiles and rules are correct. Where a
+Which cells appear, and which component supplies each, is not recorded here.
+Membership turns over as leaks are patched upstream and as the kernel matrix
+moves, so the command is the answer; a list transcribed into this document would
+describe kernels that are no longer in the run.
+
+The shape, however, is stable, and it is the expected outcome once the profiles
+and rules are correct: few rows, and only from a narrow band of signal. Where a
 perf or kallsyms signal exists it is a *sound* pin, so it resolves the
 **guaranteed** window under `perf-open` (to `exact`), never the likely one — a
 sound signal has nothing left to narrow. And the memory-map heuristics that bound
 RAM from world-readable facts (`/proc/zoneinfo` spans, the device-tree `memory`
 node, dmesg zone lines) never tighten past the placement-tracking guaranteed
-ceiling on any arch here, so they add no `likely`-only row either. Nearly every parsed
-signal thus lands in the guaranteed matrix or contributes nothing — the
-`bpf-open` BPF leak above is the one exception, a parsed match that both lands in
-the guaranteed matrix (at 1 bit) and narrows the likely window further to
-`exact`. Apart from it, the only cells whose likely window beats guaranteed are
-narrowed by a *timing* side channel, excluded by default for reproducibility
-(below).
+ceiling on any arch here, so they add no `likely`-only row either. Most parsed
+signals thus land in the guaranteed matrix or contribute nothing; a signal shows
+up here only when it is reproducible AND sub-floor, which is a narrow band to
+occupy. The BPF verifier-log table is the counter-example worth noting: it used
+to be listed here, and no longer is, because its match now resolves the
+guaranteed window itself under `bpf-open` — a signal that graduates out of
+`likely` is the outcome to want.
 
 Absolute recovery is monotonic in how much the profile relaxes: `perf-open`
 recovers the most, `hardened` the least, with `default`/`kptr-hidden`/`dmesg-open`
 between — read that off the guaranteed matrix above, not the likely window.
 
-**Timing side-channel narrowings are excluded by default** — 16 would appear on
-this run, every one an x86_64 cell narrowed by `prefetch` (both the Alpine and
-mainline kernels, on every profile but `perf-open`, which is already `exact`) —
-but they work, and they materially improve recovery. The likely window can also
-be narrowed by a microarchitectural side channel: a cache or speculation timing
-oracle such as `prefetch` or `entrybleed` that survives even
-`perf_event_paranoid=3`, pinning the base where no parsed signal can. On this run
-`prefetch` narrowed the `x86_64` Alpine `hardened` cell from its 6-bit guaranteed
-window all the way to `exact` — a full KASLR defeat on the profile that strips
-every file-derived leak — and the mainline `hardened` cells from 9 bits to a
-single bit.
-They are omitted **only** because a timing oracle's success is a function of the
-host CPU and varies from run to run, even on the same machine, so including them
-would make the results irreproducible — not because the technique fails. On
-capable hardware these side channels routinely strip more entropy than the
-guaranteed matrix shows. They are validated separately (see [Scope](#scope));
-`tests/vm/run spec-table --with-timing` adds them to the table below, which by
-default carries only the parsed narrowings.
+**Timing side-channel narrowings are excluded by default, and no figure for them
+is published here.** The likely window can also be narrowed by a
+microarchitectural side channel — a cache or speculation oracle such as
+`prefetch` or `entrybleed` that survives even `perf_event_paranoid=3`, pinning
+the base where no parsed signal can. Such rows do appear in these runs, and they
+are withheld for two independent reasons.
 
-The table below is the **default** `spec-table`: the narrowings that survive the
-reproducibility filter, which are the parsed ones. It is not the timing table —
-a timing row is a snapshot of one host's microarchitecture and is deliberately
-not published here.
+The first is reproducibility, and it is the whole reason the two are treated
+differently. A parsed narrowing reproduces on any machine that boots the same
+image: the signal is in the file, so the reader gets the same answer as the run
+that produced it. A timing oracle's success is instead a function of the host
+CPU — on a mitigated part (microcode or hypervisor Spectre-v2 defences) or a
+lower microarchitecture the `prefetch` signal flattens, and the same cell narrows
+less or not at all. It varies run to run on one machine, so a number derived from
+one run is not a result a reader can check.
 
-| arch | release | source | scenario | guaranteed | likely | via | method | truth ∈ likely |
-|------|---------|--------|----------|------------|--------|-----|--------|:---:|
-| x86_64 | 6.12.81-0-virt | alpine | bpf-open | 1 bit | exact | `bpf_verifier_ksym` | parsed | yes |
-
-That single row is the whole point of the distinction. It is a *parsed* leak —
-the BPF verifier-log offset table recognised this kernel's `uname` — so it
-reproduces on any machine that boots the same image, and it takes the base from
-a 1-bit guaranteed window to `exact`. The timing rows would not reproduce: on a
-mitigated CPU (microcode or hypervisor Spectre-v2 defences) or a lower
-microarchitecture the `prefetch` signal flattens and those rows narrow less or
-vanish. That is why they are gated behind `--with-timing` and why only the
-guaranteed matrix above is published — not because the technique fails.
-(`perf-open` is absent because its base is already `exact` in the guaranteed
-window, leaving nothing to add.)
+The second is that this harness is
+the wrong instrument for the measurement. The x86-64 cells boot under KVM, where a
+prefetch-timing signal can be an artifact of nested paging rather than the
+behaviour it is taken to demonstrate — so a bit-count obtained here would
+characterise the hypervisor as much as the technique, in either direction.
+Neither reason is that the technique fails; these channels are validated
+separately, against hardware, and are out of the matrix's scope (see
+[Scope](#scope)). `tests/vm/run spec-table --with-timing` will list them for
+anyone reproducing the run locally, with the same caveat attached.
 
 ## 3. Offline, over a captured corpus
 
