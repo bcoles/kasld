@@ -439,25 +439,31 @@ void build_hardening_report(struct hardening_report *r) {
         all[nall++] = r->gates[i].silenced_names[k];
   }
 
-  /* Lockdown suggestion. It silences only the lockdown-gated leaks that
-   * succeeded with NO file fallback: lockdown blocks the klogctl() syscall, so
-   * a leak that also reads a dmesg log file survives it and stays in the
-   * evidence.
-   */
+  /* Lockdown suggestion. A lockdown-gated leak reads a kernel-memory interface
+   * kernel lockdown closes, such as /proc/kcore (LOCKDOWN_KCORE, a
+   * confidentiality-level restriction). Recommend the strongest mode the gated
+   * leaks require, from the level each declares -- so the mode and the impact
+   * count below rest on the same set, and a gated leak that ran without
+   * succeeding still names the mode that would close it. */
   if (kasld_env.hardening.lockdown < LOCKDOWN_INTEGRITY) {
     int lockdown_gated = 0;
+    int suggest_mode = LOCKDOWN_INTEGRITY;
     for (int i = 0; i < num_components; i++) {
       if (!comp_logs[i].ran)
         continue;
-      if (!meta_get(&comp_logs[i].meta, "lockdown"))
+      const char *ld = meta_get(&comp_logs[i].meta, "lockdown");
+      if (!ld)
         continue;
       lockdown_gated++;
+      if (strcmp(ld, "confidentiality") == 0)
+        suggest_mode = LOCKDOWN_CONFIDENTIALITY;
       if (comp_logs[i].outcome == OUTCOME_SUCCESS &&
           !meta_get(&comp_logs[i].meta, "fallback") && n_ld < MAX_COMPONENTS)
         ld_sil[n_ld++] = comp_logs[i].name;
     }
     if (lockdown_gated > 0) {
       r->suggest_lockdown = 1;
+      r->lockdown_suggest_mode = suggest_mode;
       r->lockdown_impact = lockdown_gated;
       r->lockdown_silences = n_ld;
       for (int k = 0; k < n_ld; k++)
@@ -1017,9 +1023,13 @@ void render_hardening_text(void) {
 
   if (rep.suggest_lockdown) {
     any_suggestions = 1;
-    printf("  %s%s%s Enable kernel lockdown (integrity mode)  [%s]\n",
-           c(C_CYAN), GLYPH_ARROW, c(C_RESET), HR_SURFACE_LOCKDOWN);
-    printf("    blocks klogctl() even with CAP_SYSLOG\n");
+    printf("  %s%s%s Enable kernel lockdown (%s mode)  [%s]\n", c(C_CYAN),
+           GLYPH_ARROW, c(C_RESET),
+           rep.lockdown_suggest_mode >= LOCKDOWN_CONFIDENTIALITY
+               ? "confidentiality"
+               : "integrity",
+           HR_SURFACE_LOCKDOWN);
+    printf("    blocks the kernel-memory interfaces these leaks read\n");
     if (rep.lockdown_has_projection)
       print_necessity(rep.lockdown_silences, exposure, rep.all_vbits,
                       rep.lockdown_skip_vbits, rep.all_pbits,
@@ -1375,11 +1385,14 @@ void render_hardening_json(void) {
       printf(",\n");
     first_sug = 0;
     printf("      {\n");
-    printf("        \"action\": \"Enable kernel lockdown (integrity mode)\","
-           "\n");
+    printf("        \"action\": \"Enable kernel lockdown (%s mode)\",\n",
+           rep.lockdown_suggest_mode >= LOCKDOWN_CONFIDENTIALITY
+               ? "confidentiality"
+               : "integrity");
     printf("        \"surface\": \"%s\",\n", HR_SURFACE_LOCKDOWN);
     printf("        \"impact\": %d,\n", rep.lockdown_impact);
-    printf("        \"detail\": \"Blocks klogctl() even with CAP_SYSLOG\"%s\n",
+    printf("        \"detail\": \"Blocks the kernel-memory interfaces these "
+           "leaks read\"%s\n",
            rep.lockdown_has_projection ? "," : "");
     if (rep.lockdown_has_projection)
       json_print_projected(rep.lockdown_silences, rep.all_vbits,
@@ -1659,8 +1672,11 @@ void render_hardening_markdown(void) {
   }
   if (rep.suggest_lockdown) {
     any_sug = 1;
-    printf("- Enable kernel lockdown (integrity mode) - blocks klogctl() even "
-           "with CAP_SYSLOG");
+    printf("- Enable kernel lockdown (%s mode) - blocks the kernel-memory "
+           "interfaces these leaks read",
+           rep.lockdown_suggest_mode >= LOCKDOWN_CONFIDENTIALITY
+               ? "confidentiality"
+               : "integrity");
     if (rep.lockdown_has_projection)
       md_print_necessity(rep.lockdown_silences, exposure, rep.all_vbits,
                          rep.lockdown_skip_vbits, rep.all_pbits,

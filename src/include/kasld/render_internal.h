@@ -215,6 +215,7 @@ struct hardening_report {
   struct hr_suggestion gate_suggestions[HR_SUGG_MAX];
   int n_gate_suggestions;
   int suggest_lockdown, lockdown_impact;
+  int lockdown_suggest_mode; /* enum lockdown_mode the suggestion recommends */
   int suggest_dmesg_fallback, dmesg_fallback_count; /* text-only suggestion */
 
   /* Projected posture: current guaranteed residual entropy, and the

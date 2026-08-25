@@ -3782,7 +3782,7 @@ static void test_hardening_projection(void) {
   hr_seed_meta(c, "method", "parsed");
   hr_seed_meta(c, "lockdown", "yes");
   hr_seed_meta(c, "discloses", "virtual");
-  /* No fallback, so lockdown silences the klogctl path: lockdown set size 1. */
+  /* No fallback, so enabling lockdown silences it: lockdown set size 1. */
 
   c = hr_seed_comp("c_dmesg_fallback", OUTCOME_SUCCESS);
   hr_seed_meta(c, "method", "parsed");

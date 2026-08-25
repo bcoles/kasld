@@ -88,7 +88,7 @@ the vantage. See [limitations.md](limitations.md).
 -c, --color         Colorize text output (auto-detected for TTYs)
 -a, --ascii         ASCII-only output: no Unicode glyphs or banner
                     (auto-enabled in a non-UTF-8 locale)
--q, --quiet         Suppress progress indicator and warnings
+-q, --quiet         Suppress banner, progress, and warnings
 -v, --verbose       Add banner, system-config block, per-component logs,
                     per-region Results table, KASLR analysis, and the
                     virtual + physical memory-layout maps. The default
@@ -96,7 +96,7 @@ the vantage. See [limitations.md](limitations.md).
                     readout; -v restores the full detail.
 -e, --explain       Show technique explanations before each component
 -f, --fast          Use 2s per-component timeout (fast scan mode)
--w, --workers N     Parallel inference workers (default: nproc; 0 = sequential)
+-w, --workers N     Parallel component workers (default: nproc; 0 = sequential)
 -x, --experimental  Enable experimental components
 -s, --skip PATTERN  Skip matching components (glob, comma-separated; multiple --skip flags accumulate)
 -H, --hardening     Append the hardening assessment to text/markdown output
@@ -800,7 +800,7 @@ extra/posture-summary snap/*.json
 host     arch    kernel      kaslr   vbits  pbits  leaks  cves  top-fix
 cache03  x86_64  6.12.81     active  9b     31b    2/71   0     Set kernel.perf_event_paranoid = 2
 db02     aarch64 6.12.90     active  16b    16b    0/68   0     -
-web01    x86_64  6.15.6      active  9b     31b    1/70   1     Enable kernel lockdown (integrity mode)
+web01    x86_64  6.15.6      active  9b     31b    1/70   1     Enable kernel lockdown (confidentiality mode)
 ```
 
 Each row carries only the boot-stable posture — KASLR state, guaranteed
