@@ -138,9 +138,11 @@ numeric() {
   return 0 # never fail the substitution (a rejected value is just empty output)
 }
 
-# Validate a rendered "Inferred ... text range" window against ground truth: the
-# real kernel base must fall inside the inferred candidate window. Catches
-# resolved-inference errors that no single leaked result reveals.
+# Validate a resolved image-base window (the rendered "guaranteed" row) against
+# ground truth: the real _text base must fall inside it. Catches over-narrowing
+# in the engine's resolution that no single leaked result reveals -- including
+# resolution over the live-only leaks (perf, prefetch, side channels) that an
+# offline replay cannot exercise.
 # Usage: validate_inferred LABEL TRUTH16 RENDERED_LINE
 validate_inferred() {
   _label="$1"; _truth="$2"; _line="$3"
@@ -222,6 +224,7 @@ echo
 # -------------------------------------------------------------------------
 # Extract ground truth from /proc/kallsyms
 # -------------------------------------------------------------------------
+truth_text=$(awk '$3 == "_text" { print $1 }' /proc/kallsyms 2>/dev/null)
 truth_stext=$(awk '$3 == "_stext" { print $1 }' /proc/kallsyms 2>/dev/null)
 truth_etext=$(awk '$3 == "_etext" { print $1 }' /proc/kallsyms 2>/dev/null)
 truth_sdata=$(awk '$3 == "_sdata" { print $1 }' /proc/kallsyms 2>/dev/null)
@@ -230,10 +233,11 @@ truth_sdata=$(awk '$3 == "_sdata" { print $1 }' /proc/kallsyms 2>/dev/null)
 case "$truth_stext" in
   0000000000000000|00000000)
     echo "warning: /proc/kallsyms symbols are zeroed (kptr_restrict?)" >&2
-    truth_stext="" ;;
+    truth_text="" truth_stext="" ;;
 esac
 
 # Normalize to 16-char hex
+if [ -n "$truth_text" ]; then truth_text=$(hex16 "$truth_text"); fi
 if [ -n "$truth_stext" ]; then truth_stext=$(hex16 "$truth_stext"); fi
 if [ -n "$truth_etext" ]; then truth_etext=$(hex16 "$truth_etext"); fi
 if [ -n "$truth_sdata" ]; then truth_sdata=$(hex16 "$truth_sdata"); fi
@@ -835,15 +839,19 @@ printf '%s\n' "$tagged_lines" | while IFS= read -r line; do
 done
 
 # -------------------------------------------------------------------------
-# Validate the engine's RESOLVED text windows (rendered summary), not just the
-# per-component leaks: the real kernel base must fall inside the inferred
-# candidate window. Present in --verbose output when the base is inferred
-# rather than leaked/pinned; absent otherwise (the call no-ops).
+# Validate the engine's RESOLVED image-base windows (rendered summary), not just
+# the per-component leaks: the real _text base must fall inside the guaranteed
+# window. The window is the image base (_text), so both sides compare _text to
+# _text -- virt _text from /proc/kallsyms, phys _text from /proc/iomem "Kernel
+# code" (whose start the kernel sets to __pa_symbol(_text)). Comparing _stext
+# here would false-fail on arches whose _text->_stext head gap is non-zero.
+# The guaranteed row is always rendered by `kasld -v`; piping a single
+# component's output has no window, and validate_inferred skips it.
 # -------------------------------------------------------------------------
-virt_win=$(printf '%s\n' "$raw_input" | grep 'Inferred text range:' | head -1)
-phys_win=$(printf '%s\n' "$raw_input" | grep 'Inferred phys text range:' | head -1)
-validate_inferred "Inferred virt text window" "$truth_stext" "$virt_win"
-validate_inferred "Inferred phys text window" "$truth_ptext_lo" "$phys_win"
+virt_win=$(printf '%s\n' "$raw_input" | grep 'Virtual Image Base' | grep 'guaranteed' | head -1)
+phys_win=$(printf '%s\n' "$raw_input" | grep 'Physical Image Base' | grep 'guaranteed' | head -1)
+validate_inferred "Resolved virt image-base window" "$truth_text" "$virt_win"
+validate_inferred "Resolved phys image-base window" "$truth_ptext_lo" "$phys_win"
 
 # -------------------------------------------------------------------------
 # RAM-map coverage. A `pos=extent` line is one member of a COMPLETE single-source
