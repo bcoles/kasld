@@ -42,6 +42,16 @@
  * hard cap (the previous fixed cap of 64 silently truncated noisy components).
  * Non-verbose runs never allocate. */
 #define COMPONENT_LINES_INITIAL_CAP 16
+
+/* Ceiling on the stdout one component's captured lines may retain under
+   --verbose. Bytes rather than a line count: the two are only the same thing if
+   every line is the same length, and the resource being bounded is memory. The
+   busiest component in the tree emits about 80 lines averaging 40 characters,
+   so a megabyte is four orders of magnitude of headroom; what it bounds is a
+   component that loops, or one written to make the orchestrator grow. Reaching
+   it stops the capture and records a DISCARD_CAPACITY entry, so a truncated log
+   says so rather than being silently short. */
+#define COMPONENT_LINES_MAX_BYTES (1024UL * 1024UL)
 #define MAX_LINE_LEN 512
 
 /* =========================================================================
@@ -576,10 +586,14 @@ struct component_log {
    * by run_component() only when verbose mode is active; non-verbose runs
    * leave `lines` == NULL and `lines_cap` == 0 so the per-component overhead
    * is a few pointers rather than 32 KiB. Each `lines[i]` is a malloc'd
-   * NUL-terminated string (up to MAX_LINE_LEN-1 bytes of payload). */
+   * NUL-terminated string sized to its own content, not to MAX_LINE_LEN: a
+   * component line averages ~40 characters, so a fixed slot would spend an
+   * order of magnitude more than it holds. `lines_bytes` is the running total
+   * those allocations account for, bounded by COMPONENT_LINES_MAX_BYTES. */
   char **lines;
   int num_lines;
   int lines_cap;
+  size_t lines_bytes;
   char *explain;
   /* The component's .kasld_meta section, owned here. `meta` points into it, so
    * it outlives every meta_get() the renderers make. */

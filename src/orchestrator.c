@@ -1725,33 +1725,41 @@ static int handle_component_line(struct component_log *clog,
     putchar('\n');
   }
 
-  /* Capture line for verbose / JSON-with-output. Allocated on first use and
-   * grown geometrically — no fixed cap, so noisy components do not silently
-   * lose their tail. Non-verbose runs never enter this branch and never
-   * allocate. Allocation failures degrade gracefully: the line is dropped (and
-   * counts as truncated), but capture continues for subsequent lines. clog is
-   * per-thread, so its realloc/malloc need no lock; only the shared saturation
-   * flag does (this runs from any worker thread). */
+  /* Capture line for verbose / JSON-with-output. The pointer array is allocated
+   * on first use and grown geometrically; each line is allocated to its own
+   * length, and the running total is held under COMPONENT_LINES_MAX_BYTES so a
+   * component that never stops printing cannot grow this process without
+   * bound. Non-verbose runs never enter this branch and never allocate.
+   * Reaching the ceiling, or an allocation failing, drops the line and records
+   * it — capture then continues for later lines, which stay dropped while the
+   * total is at the ceiling. clog is per-thread, so its realloc/malloc need no
+   * lock; only the shared ledger does (this runs from any worker thread). */
   if (clog && verbose) {
     int dropped = 0;
-    if (clog->num_lines >= clog->lines_cap) {
-      int new_cap =
-          clog->lines_cap ? clog->lines_cap * 2 : COMPONENT_LINES_INITIAL_CAP;
-      char **bigger = realloc(clog->lines, (size_t)new_cap * sizeof(char *));
-      if (bigger) {
-        clog->lines = bigger;
-        clog->lines_cap = new_cap;
-      } else {
-        dropped = 1;
+    size_t n = strlen(line);
+    if (clog->lines_bytes + n + 1 > COMPONENT_LINES_MAX_BYTES) {
+      dropped = 1;
+    } else {
+      if (clog->num_lines >= clog->lines_cap) {
+        int new_cap =
+            clog->lines_cap ? clog->lines_cap * 2 : COMPONENT_LINES_INITIAL_CAP;
+        char **bigger = realloc(clog->lines, (size_t)new_cap * sizeof(char *));
+        if (bigger) {
+          clog->lines = bigger;
+          clog->lines_cap = new_cap;
+        } else {
+          dropped = 1;
+        }
       }
-    }
-    if (clog->num_lines < clog->lines_cap) {
-      char *copy = malloc(MAX_LINE_LEN);
-      if (copy) {
-        snprintf(copy, MAX_LINE_LEN, "%s", line);
-        clog->lines[clog->num_lines++] = copy;
-      } else {
-        dropped = 1;
+      if (clog->num_lines < clog->lines_cap) {
+        char *copy = malloc(n + 1);
+        if (copy) {
+          memcpy(copy, line, n + 1);
+          clog->lines[clog->num_lines++] = copy;
+          clog->lines_bytes += n + 1;
+        } else {
+          dropped = 1;
+        }
       }
     }
     if (dropped) {
@@ -1869,6 +1877,7 @@ static int run_component(const struct component *c) {
   clog->lines = NULL;
   clog->num_lines = 0;
   clog->lines_cap = 0;
+  clog->lines_bytes = 0;
   clog->explain = explain_str; /* ownership transfers to the log slot */
   explain_str = NULL;
 
