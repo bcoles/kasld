@@ -284,6 +284,76 @@ soundness — an unprivileged process cannot read `CONFIG_RANDOMIZE_BASE`, so
 KASLD reports the conservative KASLR-possible window, which must contain the
 fixed base like any other.
 
+The summary names the two scenarios that carry the result: `default` is the
+ordinary unprivileged vantage, and `perf-open` is the one that moves the answer
+on most architectures. The remaining scenarios — `kptr-hidden`, `dmesg-open`,
+`bpf-open`, `hardened`, and the x86 paging modes — restate their cell's
+`default` in all but 14 rows, and the fold beneath carries every one of them.
+
+| arch | release | source | KASLR | default (virt / phys) | perf-open (virt / phys) |
+|------|---------|--------|-------|-----------------------|-------------------------|
+| aarch64 | 6.12.81-0-virt | alpine | on | 31 bits / 14 bits | exact / 9 bits |
+| aarch64 | 5.15.211 | mainline | on | 31 bits / 14 bits | exact / 9 bits |
+| aarch64 | 6.6.144 | mainline | on | 31 bits / 14 bits | exact / 9 bits |
+| aarch64 | 7.0.0 | mainline | on | 31 bits / 14 bits | exact / 9 bits |
+| aarch64 | 7.0.0 (va39) | mainline | on | 22 bits / 14 bits | exact / 9 bits |
+| aarch64 | 7.0.0 (va47) | mainline | on | 32 bits / 14 bits | exact / 9 bits |
+| aarch64 | 7.0.0 (va42) | mainline | on | 24 bits / 13 bits | exact / 9 bits |
+| aarch64 | 7.0.0 (va36) | mainline | on | 19 bits / 14 bits | exact / 9 bits |
+| armeb | 5.15.211 | mainline | off | — / — | — / — |
+| armeb | 6.6.144 | mainline | off | — / — | — / — |
+| armeb | 7.0.0 | mainline | off | — / — | — / — |
+| armv7 | 6.12.81-0-lts | alpine | off | — / — | — / — |
+| armv7 | 5.15.211 | mainline | off | — / — | — / — |
+| armv7 | 6.6.144 | mainline | off | — / — | — / — |
+| armv7 | 7.0.0 | mainline | off | — / — | — / — |
+| armv7 | 7.0.0 (vmsplit2g) | mainline | off | — / — | — / — |
+| i686 | 6.12.81-0-lts | alpine | on | 5 bits / coupled | exact / coupled |
+| i686 | 5.15.211 | mainline | on | 8 bits / coupled | exact / coupled |
+| i686 | 6.6.144 | mainline | on | 8 bits / coupled | exact / coupled |
+| i686 | 7.0.0 | mainline | on | 8 bits / coupled | exact / coupled |
+| i686 | 7.0.0 (vmsplit2g) | mainline | on | 8 bits / coupled | exact / coupled |
+| loongarch64 | 6.18.44-0-lts | alpine | on | 10 bits / coupled | exact / coupled |
+| loongarch64 | 6.6.144 | mainline | on | 11 bits / coupled | exact / coupled |
+| loongarch64 | 7.0.0 | mainline | on | 14 bits / coupled | exact / coupled |
+| mips | 5.15.211 | mainline | on | 8 bits / coupled | 8 bits / coupled |
+| mips | 6.6.144 | mainline | off | — / — | — / — |
+| mips | 7.0.0 | mainline | on | 11 bits / coupled | 11 bits / coupled |
+| mips64el | 5.15.211 | mainline | on | 8 bits / coupled | 8 bits / coupled |
+| mips64el | 6.6.144 | mainline | off | — / — | — / — |
+| mips64el | 7.0.0 | mainline | on | 14 bits / coupled | 14 bits / coupled |
+| mipsel | 5.15.211 | mainline | on | 8 bits / coupled | 8 bits / coupled |
+| mipsel | 6.6.144 | mainline | off | — / — | — / — |
+| mipsel | 7.0.0 | mainline | on | 11 bits / coupled | 11 bits / coupled |
+| powerpc64 | 5.15.211 | mainline | off | — / — | — / — |
+| powerpc64 | 6.6.144 | mainline | off | — / — | — / — |
+| powerpc64 | 7.0.0 | mainline | off | — / — | — / — |
+| ppc32 | 5.15.211 | mainline | on | 13 bits / coupled | exact / coupled |
+| ppc32 | 6.6.144 | mainline | on | 14 bits / coupled | exact / coupled |
+| ppc32 | 7.0.0 | mainline | on | 14 bits / coupled | exact / coupled |
+| ppc64le | 6.12.81-0-lts | alpine | off | — / — | — / — |
+| ppc64le | 5.15.211 | mainline | off | — / — | — / — |
+| ppc64le | 6.6.144 | mainline | off | — / — | — / — |
+| ppc64le | 7.0.0 | mainline | off | — / — | — / — |
+| riscv32 | 5.15.211 | mainline | off | — / — | — / — |
+| riscv32 | 6.6.144 | mainline | off | — / — | — / — |
+| riscv32 | 7.0.0 | mainline | off | — / — | — / — |
+| riscv64 | 6.18.44-0-lts | alpine | off | — / — | — / — |
+| riscv64 | 5.15.211 | mainline | off | — / — | — / — |
+| riscv64 | 6.6.144 | mainline | on | exact / 9 bits | exact / 9 bits |
+| riscv64 | 7.0.0 | mainline | on | 16 bits / 9 bits | exact / 9 bits |
+| s390x | 6.12.81-0-lts | alpine | on | 39 bits / 10 bits | exact / 10 bits |
+| s390x | 5.15.211 | mainline | on | 17 bits / 10 bits | exact / exact |
+| s390x | 6.6.144 | mainline | on | 17 bits / 10 bits | exact / exact |
+| s390x | 7.0.0 | mainline | on | 39 bits / 10 bits | exact / 10 bits |
+| x86_64 | 6.12.81-0-virt | alpine | on | 2 bits / 6 bits | exact / 6 bits |
+| x86_64 | 5.15.211 | mainline | on | 5 bits / 9 bits | exact / 9 bits |
+| x86_64 | 6.6.144 | mainline | on | 5 bits / 9 bits | exact / 9 bits |
+| x86_64 | 7.0.0 | mainline | on | 9 bits / 9 bits | exact / 9 bits |
+
+<details>
+<summary>Full results matrix — every scenario, 364 rows</summary>
+
 | arch | release | source | scenario | KASLR | virt residual | phys residual |
 |------|---------|--------|----------|-------|---------------|---------------|
 | aarch64 | 6.12.81-0-virt | alpine | default | on | 31 bits | 14 bits |
@@ -651,6 +721,8 @@ fixed base like any other.
 | x86_64 | 7.0.0 | mainline | no5lvl | on | 9 bits | 9 bits |
 | x86_64 | 7.0.0 | mainline | la57 | on | 9 bits | 9 bits |
 
+</details>
+
 What the profiles do is described in [§2](#2-live-across-architectures) above;
 what the table adds is where a profile makes no difference, and why.
 
@@ -812,8 +884,8 @@ make test-fixtures    # assert the resolved window contains the truth, per captu
 it runs `extra/validate-bundle` over every captured kernel that carries ground
 truth and asserts `truth ∈ [min, max]`, catching the "window excludes the real
 base" class of bug without a VM. Captures with no recorded truth report `N/A`
-rather than pass. The corpus spans 13 architecture families (Alpine, Debian,
-Ubuntu/Raspbian) and kernels from 4.14 to 7.0:
+rather than pass. The corpus spans 13 architecture variants across
+distributions (Alpine, Debian, Ubuntu/Raspbian) and kernels from 4.14 to 7.0:
 
 | family | example kernels |
 |--------|-----------------|

@@ -35,11 +35,12 @@ The distinctive shape is a **process-tree burst plus a dense sensitive-syscall
 cluster**, not any single primitive:
 
 - **Process fan-out.** One parent spawns ~100+ component binaries (the run
-  banner prints `Running N components`), each a separate `execve` of a helper
-  out of a `components/` or `libexec/kasld/` directory, each reading a targeted
-  source and exiting — all within a few seconds. Very little benign software has
-  this shape: one process forking dozens of differently-named children that each
-  read one sensitive source and exit.
+  banner prints `Running N of M components (K experimental skipped; …)`),
+  each a separate `execve` of a helper out of a `components/` or
+  `libexec/kasld/` directory, each reading a targeted source and exiting —
+  all within a few seconds. Very little benign software has this shape: one
+  process forking dozens of differently-named children that each read one
+  sensitive source and exit.
 
 - **A dense cluster of sensitive interfaces.** Across the component set, one run
   categorically touches:

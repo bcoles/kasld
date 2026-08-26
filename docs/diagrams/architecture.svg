@@ -26,7 +26,7 @@
   <text x="140" y="176" class="monos">emit via typed emitters in kasld/api.h: kasld_result_base/_top/_range/_sample/_sized, kasld_emit_scalar</text>
 
   <!-- gap 1: caption above, arrow below -->
-  <text x="140" y="204" class="monos">stdout protocol &#8212; V &lt;region&gt; pos=.. conf=.. lo=0x..&#160; |&#160; P ..&#160; |&#160; S &lt;fact&gt; value=0x..</text>
+  <text x="140" y="204" class="monos">stdout protocol &#8212; V/P &lt;region&gt; pos=.. conf=.. lo=0x.. | S &lt;fact&gt; value=0x.. | C &lt;quantity&gt; &lt;op&gt; value=0x..</text>
   <path d="M480 214 L480 230" class="flow"/>
 
   <!-- Orchestrator -->

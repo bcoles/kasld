@@ -208,10 +208,12 @@ stays plain, and setting `KASLD_COLOR` non-empty or empty forces either.
 | `check-render-parity` | the text readout, the markdown report and JSON name the same set of resolved quantities for a given run † |
 | `check-render-color` | coloured output is byte-identical to plain output once the escape sequences are removed, and markdown, JSON and oneline carry no escapes at all † |
 | `check-guard-docs` | this table lists exactly the guards `make lint` runs — the same parity check `check-manpages` applies to flags, applied to the guard list itself |
+| `check-matrix-summary` | the summary table in `docs/reproducibility.md` restates the full per-scenario matrix it precedes: same cells, same KASLR state, same `default` and `perf-open` results in both directions |
 | `check-readout-docs` | documented sample output uses the renderer's current vocabulary and fits 100 columns (live output is measured separately by `check-render-width`) † |
 | `check-doc-structure` | every committed `.md` has balanced code fences, a complete table of contents where it has one, and a stated section count that matches its numbered sections † |
 | `check-doc-identifiers` | documentation names things that exist: project identifiers cited in backticks resolve somewhere in the tree, and every documented `KASLD_META` key is read by the code † |
 | `check-diagram-data` | a diagram drawn from a table still agrees with it: every architecture, version and constant the source table names appears in the SVG and nothing else does, and every diagram is referenced, well-formed, and free of glyphs a generic sans-serif may not carry † |
+| `check-arch-axes` | every axis an `arch/<arch>.h` must define is documented, and every axis documented as mandatory is really one `api.h` refuses to compile without |
 | `hardening-fixtures` | the `-H` hardening advisor holds its structural invariants when driven over the captured x86_64 sysroots † |
 | `cli-flags` | the argument parser, chiefly short-flag bundling (`-fq` == `-f -q`), which `main()`'s option loop cannot be unit-tested for (`main` is compiled out under `-DKASLD_TESTING`). Same note on the name as above |
 
@@ -857,7 +859,8 @@ Opt-in (`make test-container`, not part of hermetic `make test`): it snapshots
 the live host and runs live restrictions. Each LIVE check note-skips cleanly when
 its facility (seccomp, unprivileged userns, `systemd --user`, ≥2 CPUs) is
 unavailable. The one behaviour worth guarding hermetically — the reaped-status →
-outcome classification, incl. the SIGSYS→`access_denied` mapping — is unit-tested
+outcome classification, incl. the SIGSYS→`access_denied` mapping and the
+any-other-fatal-signal→`crashed` one that must not swallow it — is unit-tested
 in `test_outcome` (layer 1). See `tests/container/README.md`.
 
 ---

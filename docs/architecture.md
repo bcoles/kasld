@@ -190,9 +190,14 @@ loop.
 
 ### Three layers
 
-- **Observations** — the collected results plus scalar system facts (kernel
-  image size, MemTotal, physical-address bits, …), gathered into an evidence
-  set.
+- **Observations** — the evidence set, in three kinds: address results; *scalar
+  system facts* (kernel image size, MemTotal, physical-address bits, …); and
+  *direct constraints*, an inequality bound on a named quantity that a component
+  computed but cannot state as a located address. A `perf` sample taken below
+  `_text` is the worked case: it bounds the text base from below while being no
+  address in the text region. Because a constraint is not an address, the anchor
+  rules — which gate on the address kind — never read one, so a sub-`_text`
+  bound cannot be misread as a text anchor.
 - **Rules** (`../src/rules/*.c`) — roughly 90 pure functions that read the evidence and
   the current estimates and emit *constraints* (`>=`, `<=`, `=`, alignment,
   membership, exclusion) or *verdicts* (invalidate a result) on the quantities.
@@ -416,8 +421,9 @@ V vmalloc pos=interior conf=heuristic sample=0xffffc90000123456
 P ram pos=extent conf=parsed lo=0x100000 hi=0x7fedffff
 ```
 
-Address records begin with `P` or `V`; two further tagged kinds share the
-channel — `S` (a scalar system fact, via `kasld_emit_scalar()`) and `R` (a
+Address records begin with `P` or `V`; three further tagged kinds share the
+channel — `S` (a scalar system fact, via `kasld_emit_scalar()`), `C` (a direct
+constraint on a named quantity, via `kasld_emit_constraint()`), and `R` (a
 component *disposition*: why it produced no tagged result, via the disposition
 emitters). Any other line is a diagnostic and ignored, so components can print
 freely. A component may emit zero, one, or multiple tagged lines, and it never
@@ -521,7 +527,17 @@ Key rules for cross-region derivation:
 
 Whether a physical leak reveals the virtual text base is governed by two
 orthogonal per-architecture flags — `TEXT_TRACKS_DIRECTMAP` and
-`DIRECTMAP_STATIC`. The quadrant they form, and which arch lives where, is
+`DIRECTMAP_STATIC`. They are two of seven mandatory axes an architecture header
+answers; the others are covered in
+[Adding an architecture](../CONTRIBUTING.md#adding-an-architecture). Each axis
+is a separate question, and the reason they are not collapsed into fewer flags
+is that a *permissive* answer to one must never license an operation that
+depends on another. "The base holds still at runtime", "text rides inside the
+linear map", "this build knows the base" and "the anchor the kernel used is
+recoverable" are four different claims, and arm64 answers them differently from
+each other. A proxy flag that fails restrictively costs precision; one that
+fails permissively licenses an unsound projection, which is why each question
+gets its own answer rather than being inferred from a neighbour. The quadrant they form, and which arch lives where, is
 covered in [kaslr.md → Physical and virtual KASLR](kaslr.md#physical-and-virtual-kaslr).
 
 On **coupled** architectures (x86_32, arm32, MIPS, PowerPC, LoongArch, riscv32),

@@ -35,6 +35,10 @@ To report a security vulnerability in this project, use the private process in
   - [A minimal rule](#a-minimal-rule)
   - [Constraint operations](#constraint-operations)
   - [Proving soundness](#proving-soundness)
+- [Adding an architecture](#adding-an-architecture)
+  - [Why the axes are separate questions](#why-the-axes-are-separate-questions)
+  - [Choosing each answer](#choosing-each-answer)
+  - [Wiring it up, and proving it](#wiring-it-up-and-proving-it)
 - [API reference](#api-reference)
 
 ---
@@ -218,6 +222,18 @@ A component that detects KASLR being switched off (or unsupported, or having
 failed to randomize) emits scalar facts via `kasld_emit_scalar()` instead of an
 address; which facts, and how the engine consumes each, are documented in
 [docs/architecture.md → KASLR runtime states](docs/architecture.md#kaslr-runtime-states).
+
+A bound a component *computes* but cannot state as a located address goes on a
+third channel: `kasld_emit_constraint(quantity, op, value, conf)` emits a `C`
+line naming a quantity from the engine's own vocabulary. It lives in
+`kasld/constraint.h`, which `api.h` does not pull in — a component using it
+includes that header too. `perf`'s lowest sampled instruction pointer is the
+worked case — it sits below `_text`, so it bounds the image base from below
+while being no address in the text region. The channel carries the two
+inequality ops only, `C_LOWER_BOUND` and `C_UPPER_BOUND`; an exact value belongs
+on an address record, and any other op is rejected at the call rather than
+emitted. Because a constraint is not an address, the anchor rules never read
+one, so a sub-`_text` bound cannot be mistaken for a text anchor.
 
 A leak or probe that ends without a tagged result can report *why* with a
 **disposition** — a short `R` line in a closed category that refines the exit
@@ -461,7 +477,7 @@ Supported metadata keys:
 
 | Key | Description | Example |
 |---|---|---|
-| `method` | **Required.** Technique category, used by the hardening report | `parsed`, `heuristic`, `timing`, `brute`, `detection` |
+| `method` | **Required.** Technique category, used by the hardening report | `parsed`, `heuristic`, `inferred`, `timing`, `brute`, `detection` |
 | `discloses` | **Required.** What the technique leaks | `virtual`, `physical`, `both`, `facts` |
 | `phase` | Scheduling phase | `inference` (default when omitted), `probing` |
 | `live` | Result comes from live runtime state, not a captured file — skipped offline | `1` |
@@ -669,6 +685,109 @@ and [Cross-region derivation](docs/architecture.md#cross-region-derivation).
 
 ---
 
+## Adding an architecture
+
+A new architecture is one header under `src/include/kasld/arch/`. It answers a
+fixed set of questions about how that architecture lays memory out, and `api.h`
+refuses to compile a header that leaves any of the mandatory ones unanswered —
+the seven listed under [Mandatory axes](#api-reference) below. Nothing here is
+inferred from a neighbouring header: an answer copied from the closest-looking
+architecture is the failure this section exists to prevent.
+
+### Why the axes are separate questions
+
+Several axes look like restatements of one another and are not. The reason they
+are kept apart is asymmetric risk: an axis answered too *restrictively* costs
+precision — a window stays wider than it needed to be — while one answered too
+*permissively* licenses an operation that is not sound, and the arithmetic that
+follows has nothing in it to notice. Collapsing two questions into one flag
+picks a side for whichever architecture arrives next.
+
+"The linear map's base holds still at runtime" (`DIRECTMAP_STATIC`), "kernel
+text rides at a fixed offset inside the linear map" (`TEXT_TRACKS_DIRECTMAP`),
+"this build can know the target's base" (`PAGE_OFFSET_KNOWN_AT_BUILD`, derived
+from `PAGE_OFFSET_MIN == PAGE_OFFSET_MAX`) and "the anchor the kernel actually
+used is recoverable" (`LINEAR_MAP_ANCHOR`) are four different claims. arm64
+answers them differently from each other, which is what forced them apart.
+
+`DIRECTMAP_STATIC` and `TEXT_TRACKS_DIRECTMAP` hold the *same value on every
+architecture in the tree today*, so no existing header demonstrates the
+difference and neither can be read off the other by example. Pick by the
+question being asked.
+
+### Choosing each answer
+
+**`PAGE_OFFSET_MIN` / `PAGE_OFFSET_MAX`** — the bracket containing every
+linear-map base the architecture admits, stated as literals because they appear
+in `#if` arithmetic. Enumerate what the architecture really allows: every
+`VMSPLIT` variant, VA-width and paging-level configuration, not the one a
+typical distro ships. Equal values mean the analysing binary knows the target's
+base, which is what gates the compile-time projection macros; a bracket that is
+too narrow excludes a legitimate kernel from its own window.
+
+**`LINEAR_MAP_ANCHOR`** — where the physical address the kernel maps at
+`PAGE_OFFSET` comes from, since a rule pairing a direct-map virtual with a
+physical reconstructs the base as `virt - phys + anchor`. `LM_ANCHOR_PHYS_OFFSET`
+where the kernel maps physical 0 at the linear-map base, so the compile-time
+constant is right by construction. `LM_ANCHOR_DRAM_BASE` where the kernel takes
+the anchor from the base of DRAM at boot, so only evidence supplies it.
+`LM_ANCHOR_UNKNOWABLE` where it is displaced by an amount no unprivileged
+observation recovers — rules then decline, and there is no one-sided fallback
+because the displacement has no fixed direction. This axis has no default
+precisely because a missing answer would become `PHYS_OFFSET` and reintroduce
+the substitution it exists to prevent.
+
+**`MODULES_ANCHOR`** — what the module band's position is fixed to, as one of
+four alternatives rather than a set of booleans, so the exclusivity is
+structural. `MOD_ANCHOR_FIXED` for a fixed range independent of image and map;
+`MOD_ANCHOR_PAGE_OFFSET` for a fixed delta from `PAGE_OFFSET`, which also needs
+`MODULES_START_FOR` / `MODULES_END_FOR`; `MOD_ANCHOR_TEXT` where the band slides
+with text KASLR; `MOD_ANCHOR_BRACKETS_TEXT` for a window centred on the image,
+`MODULES_BRACKET_TEXT` wide either side.
+
+**`TEXT_TRACKS_DIRECTMAP`** — whether a physical bound may propagate to the
+virtual text base. **`DIRECTMAP_STATIC`** — whether a direct-map base
+reconstructed from a leak may be pinned rather than kept as a window. Neither
+gates the compile-time projections; that is `PAGE_OFFSET_KNOWN_AT_BUILD`'s job,
+since projecting requires knowing the base *here*, not merely that the target
+holds it still.
+
+**`IMAGE_BASE_RESIDUE_FIXED`** — whether `_text`'s residue modulo
+`KASLR_VIRT_ALIGN` is an architectural constant. Answer 1 only if the linker
+fixes it for every configuration the architecture admits. Where the residue is
+config-dependent the grid-snap rule must stay inert, because snapping on a
+residue even one page out raises a floor past the true base and drops the truth
+out of the guaranteed window.
+
+Every other axis an architecture header may define is **optional**, and `api.h`
+supplies a default when it is omitted. Each default is the conservative answer
+— the weakest module-band level, "the projection is not exact", a zero head gap
+— so leaving one out costs precision and never soundness. Read the `#ifndef`
+block for the contract each answers before overriding it.
+
+### Wiring it up, and proving it
+
+Add the header to the `#if defined(...)` dispatcher in `api.h`, which selects
+one arch header per build. Cite the kernel source each answer comes from in a
+comment beside it: an axis whose justification is not traceable to
+`arch/<arch>/` in the kernel tree cannot be re-checked when the kernel moves.
+
+Then, by exit status rather than by reading output:
+
+- `make cross` — the header compiles under every target, and a mandatory axis
+  left out fails here rather than later.
+- `make test-cross` — the per-architecture windows hold under emulation. This
+  is what settles a cross-architecture change.
+- `tests/check-property-arches` — containment and floor properties for each
+  supported architecture.
+- `tests/check-arch-axes` — the mandatory set and its documentation agree.
+
+A window that is too wide passes every test a correct one does, so green tests
+do not by themselves establish that a narrowing answer was right. State what
+makes each restrictive answer sound, in the header, next to the answer.
+
+---
+
 ## API reference
 
 The complete component API is in [`src/include/kasld/api.h`](src/include/kasld/api.h)
@@ -726,3 +845,24 @@ directly via the constants in `kasld/api.h`'s include chain):
 | `DIRECTMAP_STATIC` | 1 where the directmap projection is sound at compile time |
 | `phys_to_directmap_virt(p)` | Convert phys → directmap virt (defined only on sound arches) |
 | `directmap_virt_to_phys(v)` | Inverse — same gate as above |
+
+**Mandatory axes** — `api.h` refuses to compile an `arch/<arch>.h` that omits
+any of these, and the enum-valued ones are `_Static_assert`ed to their listed
+values, so a typo fails the build rather than expanding to `0`. Each names a
+separate question: a permissive answer to one does not license the others.
+
+| Symbol | Values | Answers |
+|---|---|---|
+| `PAGE_OFFSET_MIN` / `PAGE_OFFSET_MAX` | literal addresses | Which linear-map bases the architecture admits — equal values mean this build knows the target's base |
+| `LINEAR_MAP_ANCHOR` | `LM_ANCHOR_PHYS_OFFSET` / `LM_ANCHOR_DRAM_BASE` / `LM_ANCHOR_UNKNOWABLE` | Where the physical address that maps to `PAGE_OFFSET` comes from |
+| `MODULES_ANCHOR` | `MOD_ANCHOR_FIXED` / `MOD_ANCHOR_PAGE_OFFSET` / `MOD_ANCHOR_TEXT` / `MOD_ANCHOR_BRACKETS_TEXT` | What the module band's position is fixed to |
+| `TEXT_TRACKS_DIRECTMAP` | 0 / 1 | Whether kernel text slides with the linear map |
+| `DIRECTMAP_STATIC` | 0 / 1 | Whether the compile-time direct-map projection holds at runtime |
+| `IMAGE_BASE_RESIDUE_FIXED` | 0 / 1 | Whether `_text`'s residue modulo `KASLR_VIRT_ALIGN` is an architectural constant rather than config-dependent |
+
+A larger set of arch axes is *optional*: `api.h` supplies a default when the
+header omits one, and every default is the conservative answer — the weakest
+module-band level, "the projection is not exact", a zero head gap. Omitting one
+therefore costs precision, never soundness. They are defined alongside the
+mandatory set in [`api.h`](src/include/kasld/api.h), each with the contract it
+answers.

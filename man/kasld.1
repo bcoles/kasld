@@ -24,6 +24,20 @@ under the installed documentation.
 On architectures without KASLR the engine locates the bootloader-chosen load
 address.
 .PP
+Every quantity in the readout carries a grade.
+.B guaranteed
+names the window the evidence proves contains the true value: it is resolved
+only from facts at or above the soundness floor, so the truth is never outside
+it.
+.B likely
+names a narrower answer drawn from every available signal, including timing
+side channels and configuration heuristics \(em usually correct, and always
+contained within the guaranteed window, but capable of being wrong.
+A concrete base is reported as
+.B likely
+whenever the guaranteed window is still a range, so the grade, not the width,
+is what separates a proven address from a good guess.
+.PP
 Each leak technique is a standalone component binary, discovered and executed
 at run time (see
 .B FILES
