@@ -2075,8 +2075,16 @@ kasld_scalar_fact_from_wire(const char *s) {
  * Rejection happens for: CONF_UNKNOWN, invalid type, invalid region,
  * helper-specific preconditions (e.g. _sized overflow).
  * `name = NULL` or `""` means no specific instance (the wire form omits
- * the `:name` suffix). Names with leading/trailing whitespace or unsupported
- * chars are NOT validated here — the parser at ingest is the gatekeeper.
+ * the `:name` suffix).
+ *
+ * The character set is not checked here; the parser at ingest enforces it, and
+ * what it enforces is this: a name is made only of printable ASCII excluding
+ * space, 0x21..0x7E, and a record carrying anything else is rejected whole
+ * rather than truncated or scrubbed. The same rule governs a disposition's
+ * `gate`, while its quoted `msg` additionally admits the space. Every source
+ * these fields draw on is ASCII by its own specification, so a byte outside
+ * the set is an artefact; and since all three reach a terminal, a control byte
+ * among them is an escape sequence rather than a cosmetic flaw.
  * ========================================================================= */
 
 static inline int kasld__emit_check(enum kasld_addr_type t, enum kasld_region r,

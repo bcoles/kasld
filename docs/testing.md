@@ -208,6 +208,7 @@ stays plain, and setting `KASLD_COLOR` non-empty or empty forces either.
 | `check-baseline` | the no-component baseline (`-s '*'`) renders in every output mode and exits with the no-results status, and a run that gathers evidence resolves a window *inside* it † |
 | `check-render-parity` | the text readout, the markdown report and JSON name the same set of resolved quantities for a given run † |
 | `check-render-color` | coloured output is byte-identical to plain output once the escape sequences are removed, and markdown, JSON and oneline carry no escapes at all † |
+| `check-wire-text` | a component cannot put an escape sequence on the terminal: a record whose `name`, or a disposition whose `gate` or `msg`, leaves printable ASCII is rejected, and the verbose echo of component output strips control bytes † |
 | `check-guard-docs` | this table lists exactly the guards `make lint` runs — the same parity check `check-manpages` applies to flags, applied to the guard list itself |
 | `check-matrix-summary` | the summary table in `docs/reproducibility.md` restates the full per-scenario matrix it precedes: same cells, same KASLR state, same `default` and `perf-open` results in both directions |
 | `check-readout-docs` | documented sample output uses the renderer's current vocabulary and fits 100 columns (live output is measured separately by `check-render-width`) † |

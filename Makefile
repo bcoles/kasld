@@ -820,6 +820,7 @@ lint :
 	    $(TEST_DIR)/check-baseline \
 	    $(TEST_DIR)/check-render-parity \
 	    $(TEST_DIR)/check-render-color \
+	    $(TEST_DIR)/check-wire-text \
 	    $(TEST_DIR)/hardening-fixtures \
 	    $(TEST_DIR)/cli-flags
 

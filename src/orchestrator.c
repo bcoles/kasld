@@ -780,6 +780,40 @@ struct parsed_tail {
   unsigned long lo, hi, sz, sample, base_align;
 };
 
+/* Is a free-text wire field made only of characters the protocol admits?
+ *
+ * `name`, `gate` and `msg` are the three fields a component fills with text of
+ * its own choosing, and all three reach the operator's terminal — `gate` and
+ * `msg` through the hardening report. A control byte among them is an escape
+ * sequence: cursor movement and erase-line can redraw a finding as its
+ * opposite in the very report meant to expose it.
+ *
+ * The admissible set is per field rather than global. `name` and `gate` are
+ * identifiers, and every source that fills them is ASCII by its own
+ * specification — kernel symbols are C identifiers, device-tree node names are
+ * checked against a fixed set by dtc, ACPI signatures and OEM ids are ASCII by
+ * the ACPI spec, a PCI BDF is hex with `:` and `.`. `msg` is quoted prose and
+ * so admits the space as well.
+ *
+ * Bytes at or above 0x80 are excluded with the controls. Nothing that fills
+ * these fields produces one, and admitting them would admit both the C1
+ * controls — which a terminal in an 8-bit locale acts on, no ESC byte needed —
+ * and confusable characters, neither of which a line-oriented ASCII protocol
+ * has a reason to carry. Note the range cannot be split byte-wise: 0x80..0x9F
+ * is also the UTF-8 continuation range, so banning C1 alone would corrupt any
+ * multi-byte sequence, and permitting it would leave the controls intact. */
+static int wire_text_ok(const char *s, int allow_space) {
+  for (; *s; s++) {
+    unsigned char c = (unsigned char)*s;
+    if (c >= 0x21 && c <= 0x7e)
+      continue;
+    if (allow_space && c == 0x20)
+      continue;
+    return 0;
+  }
+  return 1;
+}
+
 /* Split a "region[:name]" wire token into a resolved region + name_buf (sized
  * NAME_LEN). The split is on the FIRST `:` only — names may contain subsequent
  * colons (e.g. PCI BDF "0000:00:14.0"); region wire names are short
@@ -805,6 +839,10 @@ static enum kasld_region parse_region_field(const char *region_field,
       return REGION_UNKNOWN;
     memcpy(name_buf, name_src, nlen);
     name_buf[nlen] = '\0';
+    if (!wire_text_ok(name_buf, 0)) { /* control bytes reach the terminal */
+      name_buf[0] = '\0';
+      return REGION_UNKNOWN;
+    }
   } else {
     size_t rlen = strlen(region_field);
     if (rlen >= sizeof(region_str))
@@ -1618,6 +1656,8 @@ static int parse_disposition(const char *s, struct component_disposition *d) {
       tmp.gate[n] = '\0';
       if (n == 0)
         return 0; /* gate= naming nothing */
+      if (!wire_text_ok(tmp.gate, 0))
+        return 0; /* control bytes reach the hardening report */
     } else if (klen == 3 && memcmp(key, "msg", 3) == 0) {
       size_t n = 0;
       if (seen_msg)
@@ -1635,6 +1675,8 @@ static int parse_disposition(const char *s, struct component_disposition *d) {
         return 0; /* unterminated */
       s++;
       tmp.message[n] = '\0';
+      if (!wire_text_ok(tmp.message, 1))
+        return 0; /* quoted prose, but still no control bytes */
     } else {
       return 0; /* unknown key (spec: no forward-compat silence) */
     }
@@ -1661,8 +1703,27 @@ static int handle_component_line(struct component_log *clog,
   memcpy(line, content, len);
   line[len] = '\0';
 
-  if (verbose && plain_output())
-    printf("%s\n", line);
+  /* Echoed verbatim except for control bytes: DEL and everything below 0x20,
+   * including a stray CR that would redraw the line just printed. What a filter
+   * removes here is an escape sequence on a line that never reaches a parser
+   * and so is never rejected by one — the same terminal the readout protects,
+   * reached through the debugging channel instead.
+   *
+   * The range is narrower than the one wire_text_ok() applies to the wire's
+   * free-text fields, which also refuse everything at or above 0x80. That is
+   * deliberate rather than an omission: those fields are identifiers whose
+   * sources are ASCII by their own specifications, while a diagnostic line
+   * quotes arbitrary kernel text — a dmesg line, a /proc string — where a high
+   * byte can be legitimate UTF-8 that the operator asked to see. The residue is
+   * that a raw C1 byte survives here, which a terminal in an 8-bit locale would
+   * act on; mangling quoted kernel text on every run is the worse trade. */
+  if (verbose && plain_output()) {
+    for (const char *p = line; *p; p++) {
+      unsigned char c = (unsigned char)*p;
+      putchar((c < 0x20 || c == 0x7f) ? '?' : c);
+    }
+    putchar('\n');
+  }
 
   /* Capture line for verbose / JSON-with-output. Allocated on first use and
    * grown geometrically — no fixed cap, so noisy components do not silently

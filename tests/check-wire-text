@@ -1,0 +1,166 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-wire-text — a component cannot put an escape sequence on the operator's
+# terminal.
+#
+# Three wire fields carry text a component chooses: a result's `name`, and a
+# disposition's `gate` and `msg`. All three are rendered, `gate` and `msg` into
+# the hardening report, which is the output an operator forwards. A control byte
+# among them is not a cosmetic flaw: cursor-movement and erase-line sequences
+# redraw what was already printed, so a finding can be made to read as its
+# opposite by the report meant to expose it.
+#
+# Two paths carry such a byte and both are covered here. The parser rejects a
+# record whose free-text field leaves printable ASCII, so nothing reaches the
+# rendered readout. `--verbose` additionally echoes each component line before
+# any parser sees it, so that echo strips control bytes rather than relying on
+# the rejection.
+#
+# check-render-color proves KASLD's OWN escapes strip back to the plain
+# rendering. It says nothing about escapes arriving in data, which is the gap
+# this guard covers.
+#
+# The stubs are shell scripts: the orchestrator execs whatever is executable in
+# the component directory, so no compiler is needed and the guard runs anywhere
+# the host binary does.
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+
+if [ -t 1 ] || [ -n "${KASLD_COLOR:-}" ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); YELLOW=$(printf '\033[33m')
+  RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; YELLOW=; RESET=
+fi
+
+# Literal control bytes, built once. The textual form "\033" is not a portable
+# pattern -- some greps read it as an escape and some as four characters, so a
+# guard written that way matches nothing and reports success on every run.
+ESC=$(printf '\033')
+CR=$(printf '\r')
+
+HOST_TRIPLE=$(cc -dumpmachine 2>/dev/null || echo unknown)
+BIN="$ROOT/build/$HOST_TRIPLE/kasld"
+if [ ! -x "$BIN" ]; then
+  printf '%swire-text guard: SKIP%s (no host binary at %s; run make first)\n' \
+    "$YELLOW" "$RESET" "$BIN"
+  exit 0
+fi
+
+WORK=$(mktemp -d "${TMPDIR:-/tmp}/kasld-wiretext.XXXXXX") || exit 1
+trap 'rm -rf "$WORK"' EXIT INT TERM
+EMPTY="$WORK/sysroot"
+STUBS="$WORK/components"
+mkdir -p "$EMPTY" "$STUBS" || exit 1
+
+# An empty sysroot keeps the run hermetic: no host fact is read, so the output
+# is the stubs' contribution and the architectural defaults.
+
+# A clean record, so a run that rejects everything cannot pass by accident.
+cat >"$STUBS/stub_clean" <<'STUB'
+#!/bin/sh
+echo "V kernel_text:cleanname pos=base conf=parsed lo=0xffffffff8b600000"
+STUB
+
+# One stub per hostile field. Each carries an erase-line and a colour sequence,
+# the pair that rewrites a rendered line in place.
+cat >"$STUBS/stub_name" <<'STUB'
+#!/bin/sh
+printf 'V module:ev\033[2K\rHOSTILENAME pos=base conf=parsed lo=0xffffffffc0abc000\n'
+STUB
+
+cat >"$STUBS/stub_gate" <<'STUB'
+#!/bin/sh
+printf 'R cat=mitigation gate=kpti\033[2K\rHOSTILEGATE msg="blocked"\n'
+exit 69
+STUB
+
+cat >"$STUBS/stub_msg" <<'STUB'
+#!/bin/sh
+printf 'R cat=mitigation gate=kpti msg="blocked \033[7mHOSTILEMSG\033[0m here"\n'
+exit 69
+STUB
+
+# A high byte, covering the other half of the rule. The admissible set stops at
+# 0x7E, not merely below 0x20: 0x80..0x9F is the C1 control range, which a
+# terminal in an 8-bit locale acts on with no ESC byte involved, and it cannot
+# be excluded byte-wise without also excluding UTF-8 continuation bytes. A guard
+# that only emitted ESC would keep passing if that half were dropped.
+cat >"$STUBS/stub_highbyte" <<'STUB'
+#!/bin/sh
+printf 'V module:hi\233HOSTILEHIGH pos=base conf=parsed lo=0xffffffffc0def000\n'
+STUB
+
+chmod +x "$STUBS"/stub_* || exit 1
+
+fail=0
+checked=0
+
+# Every mode that renders component-supplied text: the default readout, the
+# verbose readout (which also echoes raw component lines), and the hardening
+# report (where a disposition's gate and msg are shown).
+for mode in "-q" "-q -v" "-q -H"; do
+  # shellcheck disable=SC2086  # $mode is a deliberate word-split option list
+  out=$(KASLD_SYSROOT="$EMPTY" KASLD_COMPONENT_DIR="$STUBS" \
+        "$BIN" $mode 2>&1) || true
+  checked=$((checked + 1))
+
+  case $out in
+  *"$ESC"*)
+    printf '%s  escape byte reached the terminal%s: kasld %s\n' \
+      "$RED" "$RESET" "$mode"
+    fail=1 ;;
+  esac
+  case $out in
+  *"$CR"*)
+    printf '%s  carriage return reached the terminal%s: kasld %s\n' \
+      "$RED" "$RESET" "$mode"
+    fail=1 ;;
+  esac
+
+  # A record whose free-text field left printable ASCII must not RENDER,
+  # whichever byte took it out of the set. Under --verbose the raw component
+  # line is echoed on purpose, so the marker legitimately appears there with its
+  # control bytes already neutralised; the rendered readout is every other line.
+  # Dropping the echoed lines -- those that still carry a wire tag -- separates
+  # the two without needing to know the readout's layout.
+  # -a: the output can carry a high byte, and grep would otherwise report
+  # "binary file matches" instead of the lines, leaving the check below with
+  # nothing to search and passing vacuously.
+  rendered=$(printf '%s\n' "$out" | LC_ALL=C grep -av '^[VPSR] ' || true)
+  for marker in HOSTILENAME HOSTILEGATE HOSTILEMSG HOSTILEHIGH; do
+    case $rendered in
+    *"$marker"*)
+      printf '%s  a rejected record rendered anyway%s: %s in kasld %s\n' \
+        "$RED" "$RESET" "$marker" "$mode"
+      fail=1 ;;
+    esac
+  done
+
+  # The clean record must still render: a guard that passes because nothing at
+  # all was accepted would report success on a parser that rejects everything.
+  # Checked under --verbose, the mode that lists a record's name at all; the
+  # default readout reports resolved quantities rather than per-record labels.
+  case $mode in
+  "-q -v")
+    case $out in
+    *cleanname*) ;;
+    *)
+      printf '%s  the clean record did not render%s: kasld %s\n' \
+        "$RED" "$RESET" "$mode"
+      fail=1 ;;
+    esac ;;
+  esac
+done
+
+if [ "$fail" -eq 0 ]; then
+  printf '%swire-text guard: OK%s (%d modes, 4 hostile records, none rendered)\n' \
+    "$GREEN" "$RESET" "$checked"
+else
+  printf '%swire-text guard: FAIL%s\n' "$RED" "$RESET"
+fi
+exit "$fail"
