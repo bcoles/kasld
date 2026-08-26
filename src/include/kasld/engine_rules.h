@@ -93,6 +93,39 @@ kasld_scalar_fact_value(const struct evidence_set *ev,
   return 0;
 }
 
+/* The observed kernel page size, or 0 when none is trustworthy.
+ *
+ * One answer to "is there a page size I may use", so consumers do not each
+ * invent a bracket. SF_PAGE_SIZE crosses the tagged-line protocol, so it is a
+ * parse and is checked like one: a value the architecture does not admit, or
+ * one that is not a power of two, is an artefact rather than a measurement.
+ * The bracket is the arch's own PAGE_SIZE_MIN / PAGE_SIZE_MAX axis rather than
+ * a round number, so it tightens wherever an arch states a narrower range.
+ *
+ * Returning 0 means "unknown", never "assume the usual": a rule that converts
+ * a page-frame number with a guessed size understates a physical address by up
+ * to 64x on the architectures that admit several, and a bound derived from an
+ * understated span lands past the truth it should contain. Where the
+ * architecture admits exactly one size, PAGE_SIZE_MIN is that size and needs
+ * no observation. */
+static inline unsigned long
+kasld_page_size_observed(const struct evidence_set *ev,
+                         enum kasld_confidence *conf, uint32_t *src) {
+  unsigned long ps = kasld_scalar_fact_value(ev, SF_PAGE_SIZE, conf, src);
+
+  if (ps && (ps & (ps - 1)) == 0 && ps >= (unsigned long)PAGE_SIZE_MIN &&
+      ps <= (unsigned long)PAGE_SIZE_MAX)
+    return ps;
+
+  /* Reject cleanly: a caller that ignores the return must not find a
+   * confidence or a lineage id left behind from a value that was refused. */
+  if (conf)
+    *conf = CONF_UNKNOWN;
+  if (src)
+    *src = 0;
+  return 0;
+}
+
 /* Shared skeleton for the virt/phys KASLR-disabled text pins. On a positive
  * `signal` scalar, pin quantity `q` to the KASLR-off base — but the VALUE and
  * its confidence differ by whether the base is a fact or a guess:

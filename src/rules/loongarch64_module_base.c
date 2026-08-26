@@ -60,11 +60,8 @@ int rule_loongarch64_module_base(const struct evidence_set *ev,
 
   enum kasld_confidence pconf = CONF_UNKNOWN;
   uint32_t psrc = 0;
-  unsigned long page_bytes =
-      kasld_scalar_fact_value(ev, SF_PAGE_SIZE, &pconf, &psrc);
-  /* A page size that is not a plausible power of two is a parse artefact. */
-  if (!page_bytes || (page_bytes & (page_bytes - 1)) ||
-      page_bytes > (1ul << 20))
+  unsigned long page_bytes = kasld_page_size_observed(ev, &pconf, &psrc);
+  if (!page_bytes)
     return 0;
   /* Two facts, so the pin is only as good as the weaker of them. */
   conf = kasld_conf_min(conf, pconf);

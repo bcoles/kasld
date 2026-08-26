@@ -150,19 +150,12 @@ static int dpo_emit_bounds(const struct evidence_set *ev,
   {
     enum kasld_confidence ps_conf = CONF_UNKNOWN;
     uint32_t ps_src = 0;
-    unsigned long ps =
-        kasld_scalar_fact_value(ev, SF_PAGE_SIZE, &ps_conf, &ps_src);
-    /* This value crossed the tagged-line protocol, so it is a parse and is
-     * checked like one: a page size outside what the architecture admits, or
-     * one that is not a power of two, is an artefact rather than a
-     * measurement. The bracket is the arch's own declared axis rather than a
-     * round number, so it tightens automatically wherever an arch states a
-     * narrower range. (proc_zoneinfo asks sysconf instead and deliberately
-     * does not check: there the syscall is more authoritative about the
-     * running kernel than this build's axis is.) */
-    if (ps && (ps & (ps - 1)) == 0 && ps >= (unsigned long)PAGE_SIZE_MIN &&
-        ps <= (unsigned long)PAGE_SIZE_MAX &&
-        max_pfn <= (unsigned long)-1 / ps) {
+    /* Validated against the arch's axis by the accessor. (proc_zoneinfo asks
+     * sysconf instead and deliberately does not check: there the syscall is
+     * more authoritative about the running kernel than this build's axis is.)
+     */
+    unsigned long ps = kasld_page_size_observed(ev, &ps_conf, &ps_src);
+    if (ps && max_pfn <= (unsigned long)-1 / ps) {
       span = max_pfn * ps;
       /* Three facts now, so the bound is only as good as the weakest of them:
        * a page size observed below the sound floor must not lift a bound above

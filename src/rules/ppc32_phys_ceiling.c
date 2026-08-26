@@ -72,15 +72,22 @@ int rule_ppc32_phys_ceiling(const struct evidence_set *ev,
       max_pfn = o->scalar_value;
       pfn_src = o->id;
       break;
-    case SF_PAGE_SIZE:
-      page_size = o->scalar_value;
-      break;
     default:
       break;
     }
   }
-  if (page_size == 0)
-    page_size = 0x1000ul;
+
+  page_size = kasld_page_size_observed(ev, NULL, NULL);
+  /* No compile-time fallback. ppc32 admits 4, 16, 64 and 256 KiB pages
+   * (PAGE_SIZE_MIN / PAGE_SIZE_MAX), so assuming the smallest would divide the
+   * RAM figure below by up to 64. That figure decides the BookE branch, which
+   * bounds the image base to the UNRANDOMISED placement at CONF_INFERRED: an
+   * understated RAM total makes a randomised kernel look like one with too
+   * little memory to randomise, and the true base is carved out of the
+   * guaranteed window. Without a page size the max_pfn path is skipped and the
+   * MemTotal path -- already capped below the sound floor -- carries whatever
+   * it can.
+   */
 
   /* RAM size for the BookE decision. Prefer max_pfn (host-true zoneinfo, and
    * the spanned extent the kernel's own KASLR actually measures) at the sound
@@ -91,7 +98,7 @@ int rule_ppc32_phys_ceiling(const struct evidence_set *ev,
   unsigned long ram = 0;
   uint32_t src = 0;
   int from_max_pfn = 0;
-  if (max_pfn > 0 && max_pfn < (~0ul / page_size)) {
+  if (page_size > 0 && max_pfn > 0 && max_pfn < (~0ul / page_size)) {
     ram = (max_pfn + 1ul) * page_size;
     src = pfn_src;
     from_max_pfn = 1;

@@ -113,6 +113,13 @@ struct kasld_layout layout = {
     .virt_kaslr_text_min = KASLR_VIRT_TEXT_MIN,
     .virt_kaslr_text_max = KASLR_VIRT_TEXT_MAX,
     .virt_kaslr_align = KASLR_VIRT_ALIGN,
+    /* Smallest page the architecture admits. The module band is placed on
+       page boundaries, so this is the finest grid its base can sit on until
+       an observation says the target's pages are larger. Erring small
+       overstates the slot count, which overstates residual entropy -- an
+       upper bound on what KASLR retains, so never a claim of more recovery
+       than was achieved. */
+    .virt_module_align = PAGE_SIZE_MIN,
     .phys_kaslr_text_min = _PHYS_KASLR_TEXT_MIN,
     .phys_kaslr_text_max = _PHYS_KASLR_TEXT_MAX,
     .phys_kaslr_align = _PHYS_KASLR_ALIGN,
@@ -2931,6 +2938,7 @@ void compute_kaslr_info(struct summary *s, const struct engine *auth,
       (s->kaslr.virt_module_min && s->kaslr.virt_module_max)
           ? layout.virt_module_slots
           : 0;
+  s->kaslr.virt_module_align = layout.virt_module_align;
   s->kaslr.virt_page_offset_bits = s->kaslr.virt_page_offset_slots > 0
                                        ? ilog2(s->kaslr.virt_page_offset_slots)
                                        : 0;
@@ -4138,9 +4146,15 @@ static void engine_sync_authoritative(const struct engine *e) {
    * the pitch
    * rather than RANDOMIZE_MEMORY_ALIGN, which is an x86_64 memory-KASLR
    * constant and 0 elsewhere. */
-  layout.virt_module_slots =
-      quantity_slots(Q_MODULE_BASE, &e->est[Q_MODULE_BASE], KASLD_SOUND_FLOOR,
-                     e->constraints, e->n_constraints, KASLD_LAYOUT_GRANULE);
+  /* The pitch is the TARGET kernel's page. An observation replaces the
+   * compile-time floor the layout starts at; without one that floor stands,
+   * which is the conservative direction (see its definition). */
+  unsigned long obs_page = kasld_page_size_observed(&e->ev, NULL, NULL);
+  if (obs_page)
+    layout.virt_module_align = obs_page;
+  layout.virt_module_slots = quantity_slots(
+      Q_MODULE_BASE, &e->est[Q_MODULE_BASE], KASLD_SOUND_FLOOR, e->constraints,
+      e->n_constraints, layout.virt_module_align);
 }
 #ifndef KASLD_TESTING
 

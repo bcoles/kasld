@@ -72,13 +72,12 @@ int rule_s390_image_base_from_config(const struct evidence_set *ev,
     case SF_PHYS_MEMTOTAL:
       memtotal = o->scalar_value;
       break;
-    case SF_PAGE_SIZE:
-      page_size = o->scalar_value;
-      break;
     default:
       break;
     }
   }
+
+  page_size = kasld_page_size_observed(ev, NULL, NULL);
   if (!have_sel)
     return 0;
 
@@ -135,8 +134,12 @@ int rule_s390_image_base_from_config(const struct evidence_set *ev,
 
   /* Identity-mapped layout: cap at the top of spanned physical RAM (virt ==
    * phys). max_pfn is the principled top; MemTotal is the fallback. */
+  /* s390 admits exactly one page size, so PAGE_SIZE_MIN is that size and an
+   * observation can only agree with it. Stated through the axis rather than as
+   * a literal, so an architecture that ever admits several cannot inherit a
+   * silent 4 KiB assumption here. */
   if (page_size == 0)
-    page_size = 0x1000ul;
+    page_size = (unsigned long)PAGE_SIZE_MIN;
   unsigned long ram_top = 0;
   if (max_pfn > 0 && max_pfn < (~0ul / page_size)) {
     ram_top = (max_pfn + 1ul) * page_size; /* last RAM byte < this */

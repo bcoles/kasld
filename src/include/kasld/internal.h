@@ -158,6 +158,10 @@ struct kasld_layout {
   unsigned long virt_vmalloc_slots;
   unsigned long virt_vmemmap_slots;
   unsigned long virt_module_slots;
+  /* Slot pitch the module-band count was taken at: the target's page size
+     where it is known, PAGE_SIZE_MIN where it is not. Carried rather than
+     recomputed so the count and the pitch shown beside it cannot disagree. */
+  unsigned long virt_module_align;
 };
 
 /* =========================================================================
@@ -704,6 +708,7 @@ struct kaslr_info {
   unsigned long virt_vmalloc_slots, virt_vmalloc_likely_slots;
   unsigned long virt_vmemmap_slots, virt_vmemmap_likely_slots;
   unsigned long virt_module_slots;
+  unsigned long virt_module_align;
 };
 
 struct summary {
