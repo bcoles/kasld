@@ -6,7 +6,7 @@
 // and CONFIG_PAGE_OFFSET (32-bit vmsplit).
 //
 // Uses zlib for native gzip decompression when available (HAVE_ZLIB),
-// otherwise falls back to popen("zcat").
+// otherwise spawns zcat with the open descriptor on its standard input.
 //
 // Detection component — leaks no randomized (KASLR) address.
 //   Purpose: reads /proc/config.gz to determine whether
@@ -33,9 +33,11 @@
 #include "include/kconfig.h"
 #include "include/text_order.h"
 #include <errno.h>
+#include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 #ifdef HAVE_ZLIB
@@ -61,27 +63,35 @@ KASLD_META("method:detection\n"
 static int proc_config_exit = KASLD_EXIT_UNAVAILABLE;
 
 /* Decompress /proc/config.gz into a seekable FILE*.
- * Uses zlib if available, otherwise falls back to popen("zcat"). */
+ * Uses zlib where it is linked, otherwise spawns zcat.
+ *
+ * The file is opened ONCE and thereafter identified only by its descriptor,
+ * never by name. That is what keeps the name out of the decompressor: zcat
+ * reads standard input when given no file argument, so the child is handed the
+ * descriptor and no path at all -- there is no command string, no argument
+ * vector, and so nothing to quote. It also collapses the check and the use into
+ * one syscall, where a separate access() would leave a window in which the name
+ * could come to mean a different file. */
 static FILE *open_proc_config(void) {
   FILE *fp;
   char buf[4096];
-  /* gzopen()/popen() don't go through the kasld_* wrappers, so resolve the
-   * KASLD_SYSROOT path explicitly and use it for both decompression paths. */
-  char pathbuf[KASLD_PATH_MAX];
-  const char *cfg = kasld_resolve(PROC_CONFIG_GZ, pathbuf, sizeof(pathbuf));
 
   kasld_info("checking %s ...", PROC_CONFIG_GZ);
 
-  if (kasld_access(PROC_CONFIG_GZ, R_OK) != 0) {
+  int fd = kasld_open(PROC_CONFIG_GZ, O_RDONLY);
+  if (fd < 0) {
     /* Preserve WHY across the NULL return: a denied config is the target's
-     * hardening, an absent one is how it was built. */
+     * hardening, an absent one is how it was built. open() reports the same
+     * EACCES/EPERM the exit classifier keys on. */
     proc_config_exit = kasld_exit_for_errno();
     kasld_err("Could not read %s", PROC_CONFIG_GZ);
     return NULL;
   }
 
 #ifdef HAVE_ZLIB
-  gzFile gz = gzopen(cfg, "rb");
+  /* gzdopen takes ownership of fd: gzclose closes it, and on failure the
+   * descriptor is closed below before the spawn path would have used it. */
+  gzFile gz = gzdopen(fd, "rb");
   if (gz) {
     fp = tmpfile();
     if (fp) {
@@ -93,45 +103,98 @@ static FILE *open_proc_config(void) {
       return fp;
     }
     gzclose(gz);
+    return NULL; /* tmpfile() failed; the descriptor went with gzclose */
   }
-#endif
+  close(fd);
+  return NULL; /* zlib is linked, so there is no second decompressor to try */
+#else
 
-  /* Fallback when zlib is not linked (e.g. the static cross builds): decompress
-   * via zcat and buffer into a seekable tmpfile. Interpolating `cfg` into the
-   * shell command is safe: it is the fixed literal "/proc/config.gz", or that
-   * literal under the KASLD_SYSROOT prefix — an environment variable set by the
-   * same user who runs kasld. kasld is never setuid, so no privilege boundary
-   * is crossed and the double-quoting is sufficient (no untrusted input reaches
-   * the shell). */
-  char cmd[KASLD_PATH_MAX + 16];
-  snprintf(cmd, sizeof(cmd), "zcat \"%s\"", cfg);
-  FILE *proc = popen(cmd, "r");
+  /* No zlib (the static cross builds have none: no musl toolchain ships it, so
+   * this is the only decompressor there). Spawn zcat directly rather than
+   * through a shell -- popen would run /bin/sh, and a shell expands $( ) even
+   * inside double quotes, so a resolved path containing one would execute.
+   * zcat reads standard input with no file argument, so the child receives the
+   * open descriptor and never the name.
+   *
+   * execvp, not execv: zcat is /bin/zcat on some systems and /usr/bin/zcat on
+   * others, and busybox installs it wherever its links live. PATH belongs to
+   * the user running kasld, which is the same trust the shell form already
+   * assumed. */
+  int pipefd[2];
+  if (pipe(pipefd) != 0) {
+    perror("[-] pipe");
+    close(fd);
+    return NULL;
+  }
+
+  pid_t pid = fork();
+  if (pid < 0) {
+    perror("[-] fork");
+    close(pipefd[0]);
+    close(pipefd[1]);
+    close(fd);
+    return NULL;
+  }
+  if (pid == 0) {
+    if (dup2(fd, STDIN_FILENO) < 0 || dup2(pipefd[1], STDOUT_FILENO) < 0)
+      _exit(127);
+    close(pipefd[0]);
+    close(pipefd[1]);
+    close(fd);
+    /* A modifiable array rather than a cast of the literal: execvp's argv is
+     * char *const[], and casting away const on a string literal is the one
+     * thing -Wcast-qual is looking for. */
+    char zcat[] = "zcat";
+    char *const argv[] = {zcat, NULL};
+    execvp(zcat, argv);
+    _exit(127); /* zcat absent; the empty output below reports it */
+  }
+
+  close(pipefd[1]);
+  close(fd);
+  FILE *proc = fdopen(pipefd[0], "r");
   if (!proc) {
-    perror("[-] popen");
+    perror("[-] fdopen");
+    close(pipefd[0]);
+    waitpid(pid, NULL, 0);
     return NULL;
   }
 
   fp = tmpfile();
   if (!fp) {
     perror("[-] tmpfile");
-    pclose(proc);
+    fclose(proc);
+    waitpid(pid, NULL, 0);
     return NULL;
   }
 
   size_t n;
   while ((n = fread(buf, 1, sizeof(buf), proc)) > 0)
     fwrite(buf, 1, n, fp);
-  pclose(proc);
+  fclose(proc);
+
+  /* Reap before judging the output. The empty-output test below stays the
+   * arbiter -- a child that emitted a whole config and then exited non-zero
+   * has still done the job -- but where there is nothing to show, the status
+   * separates "zcat is not installed" (127 from the failed exec) from "the
+   * file was not gzip". */
+  int status = 0;
+  while (waitpid(pid, &status, 0) < 0 && errno == EINTR)
+    ;
 
   fseek(fp, 0, SEEK_END);
   if (ftell(fp) <= 0) {
-    kasld_err("Failed to decompress %s", PROC_CONFIG_GZ);
+    if (WIFEXITED(status) && WEXITSTATUS(status) == 127)
+      kasld_err("zcat not found; cannot decompress %s", PROC_CONFIG_GZ);
+    else
+      kasld_err("Failed to decompress %s", PROC_CONFIG_GZ);
     fclose(fp);
     return NULL;
   }
   rewind(fp);
 
   return fp;
+#endif
 }
 
 static int kaslr_disabled_from_config(FILE *fp) {
