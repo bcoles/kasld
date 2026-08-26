@@ -16,9 +16,9 @@
 #   <type> <region>[:<name>] pos=<pos> conf=<conf> \
 #       [lo=<hex>] [hi=<hex>|sz=<hex>] [sample=<hex>] [base_align=<hex>]
 #
-#   type:   P (physical), V (virtual), S (scalar-fact), D (derived)
+#   type:   P (physical), V (virtual), S (scalar-fact), R (disposition)
 #   region: closed enum (kernel_text, kernel_data, kernel_bss,
-#           kernel_image, module, module_region, ram, dma, dma32,
+#           kernel_image, module, module_band, ram, dma, dma32,
 #           initrd, cmdline, cmdline_memmap, reserved_mem, swiotlb,
 #           vmcoreinfo, crashkernel, pmem, acpi_table, acpi_nvs,
 #           efi_memmap, numa_node, mmio, pci_mmio, directmap,
@@ -144,7 +144,15 @@ numeric() {
 # Usage: validate_inferred LABEL TRUTH16 RENDERED_LINE
 validate_inferred() {
   _label="$1"; _truth="$2"; _line="$3"
-  [ -n "$_line" ] || return # window not rendered (base leaked/pinned)
+  # No window to check: the base was leaked or pinned outright, so nothing was
+  # rendered to validate. Reported as a skip like every other inapplicable
+  # check, and with an explicit status -- a bare `return` here carries the
+  # status of the failed test above it, which under `set -e` ends the run at the
+  # call site and takes the remaining checks and the summary with it.
+  [ -n "$_line" ] || {
+    skip "$_label — window not rendered (base leaked/pinned)"
+    return 0
+  }
   if [ -z "$_truth" ]; then
     skip "$_label — no ground truth"
     return
@@ -186,9 +194,21 @@ else
   exit 1
 fi
 
+# SECURITY: strip C0 control characters and DEL before any value is extracted.
+# Every field printed below comes from this input; the input is untrusted (its
+# natural source is the machine under assessment); and this script runs as root.
+# An escape sequence reaching the terminal can move the cursor, erase the line
+# just written and redraw it, so a FAIL can be made to read as a PASS by the
+# very report meant to expose it. Newline and tab are kept -- they separate
+# records and fields. Bytes >= 0x80 are kept too: they carry UTF-8, and deleting
+# them would corrupt text rather than protect anything.
+# @ctrl-filter -- the same property is asserted for extra/ksymoff, which strips
+# control characters from its file-derived fields; review the two together.
+raw_input=$(printf '%s\n' "$tagged_lines" | tr -d '\000-\010\013-\037\177')
+
 # Filter to tagged lines only (drops `[infer]`, `[parser]`, banner, etc.)
-raw_input="$tagged_lines" # full input, incl. the rendered summary lines
-tagged_lines=$(printf '%s\n' "$raw_input" | grep '^[VPDS] ' || true)
+# raw_input is the full input, incl. the rendered summary lines.
+tagged_lines=$(printf '%s\n' "$raw_input" | grep '^[VPS] ' || true)
 
 if [ -z "$tagged_lines" ]; then
   echo "error: no tagged lines found" >&2
@@ -407,7 +427,7 @@ printf '%s\n' "$tagged_lines" | while IFS= read -r line; do
       continue
     fi
     case "$region_name" in
-      image_size|init_size)
+      image_size_min|image_size_max)
         # A kernel image (or its init region) cannot exceed the RAM it lives in.
         if [ "$value" = "0x0" ] || [ "$value" = "0" ]; then
           skip "S $region_name — zero"
@@ -479,6 +499,21 @@ printf '%s\n' "$tagged_lines" | while IFS= read -r line; do
           else
             fail "S phys_memtotal=$value — exceeds physical RAM span (0x$(printf '%x' "$_ramspan"))"
           fi
+        fi
+        ;;
+      virt_page_offset)
+        # The exact left edge of the linear map. Whatever emits this pins
+        # PAGE_OFFSET outright rather than bounding it, so a wrong value
+        # mis-places the direct map and, on the architectures where text rides
+        # in it, kernel text with it. Ground truth is the same page_offset_base,
+        # derived here from /proc/kcore by this script's own reader — so the
+        # comparison is between two independent parses of the same bytes.
+        if [ -z "$truth_page_offset" ]; then
+          skip "S virt_page_offset=$value — no /proc/kcore page_offset_base"
+        elif [ "$(hex16 "$value")" = "$truth_page_offset" ]; then
+          pass "S virt_page_offset=$value — matches /proc/kcore page_offset_base"
+        else
+          fail "S virt_page_offset=$value — != page_offset_base 0x$truth_page_offset (/proc/kcore)"
         fi
         ;;
       physical_start)
@@ -614,7 +649,7 @@ printf '%s\n' "$tagged_lines" | while IFS= read -r line; do
       ;;
 
     # ---- Virtual: modules ----------------------------------------------
-    "V module"|"V module_region")
+    "V module"|"V module_band")
       if [ -z "$truth_mod_lo" ]; then
         skip "$desc — no modules loaded"
         continue
@@ -666,7 +701,32 @@ printf '%s\n' "$tagged_lines" | while IFS= read -r line; do
       ;;
 
     "V virt_page_offset")
-      skip "$desc — informational (PAGE_OFFSET)"
+      # The region names PAGE_OFFSET itself, so page_offset_base is the value
+      # to compare against. What the record claims varies by form, and the
+      # check follows it rather than assuming the tightest one:
+      #   both edges  a window PAGE_OFFSET lies in -> truth must fall inside it
+      #   base only   the base itself             -> exact match
+      #   otherwise   an address in the linear map -> truth is at or below it,
+      #               which also holds if the record turns out to be the base
+      if [ -z "$truth_page_offset" ]; then
+        skip "$desc — no /proc/kcore page_offset_base"
+      elif [ -n "$hi" ]; then
+        if hex_in_range "$truth_page_offset" "$addr" "$hi"; then
+          pass "$desc — page_offset_base 0x$truth_page_offset within [0x$addr - 0x$hi]"
+        else
+          fail "$desc — page_offset_base 0x$truth_page_offset outside [0x$addr - 0x$hi]"
+        fi
+      elif [ "$pos" = "base" ]; then
+        if [ "$addr" = "$truth_page_offset" ]; then
+          pass "$desc — matches /proc/kcore page_offset_base"
+        else
+          fail "$desc — 0x$addr != page_offset_base 0x$truth_page_offset (/proc/kcore)"
+        fi
+      elif hex_le "$truth_page_offset" "$addr"; then
+        pass "$desc — at/above page_offset_base 0x$truth_page_offset"
+      else
+        fail "$desc — 0x$addr below page_offset_base 0x$truth_page_offset (/proc/kcore)"
+      fi
       ;;
 
     # ---- Physical: kernel image regions --------------------------------
