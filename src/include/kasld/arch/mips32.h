@@ -29,6 +29,16 @@
 #define PAGE_OFFSET_INVARIANT 1
 // KSEG0, fixed by the MIPS ISA.
 #define PAGE_OFFSET_CANDIDATES {0x80000000ul}
+// Admissible kernel page sizes on this architecture. PAGE_SIZE_KNOWN_AT_BUILD
+// is derived from the pair in api.h and gates pfn_to_phys(); a page-frame
+// number may only be converted with a compile-time constant where the two
+// edges coincide. Where they differ the runtime SF_PAGE_SIZE observation is
+// the only sound multiplier.
+// mips admits 4, 16 and 64 KiB pages generally
+// (HAVE_PAGE_SIZE_{4,16,64}KB in arch/mips/Kconfig), and 8 or 32 KiB on Octeon.
+#define PAGE_SIZE_MIN 0x1000ul
+#define PAGE_SIZE_MAX 0x10000ul
+
 #define PAGE_OFFSET_MIN 0x80000000ul
 #define PAGE_OFFSET_MAX 0x80000000ul
 

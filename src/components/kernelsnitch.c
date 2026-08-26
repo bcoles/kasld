@@ -61,6 +61,11 @@
 #error "Architecture is not supported"
 #endif
 
+/* The comments below describe the kernel's futex and slab arithmetic in the
+ * kernel's own terms, where the unit is PAGE_SIZE. The code spells that unit
+ * KASLD_LAYOUT_GRANULE, and the two are the same number here: x86_64 admits
+ * one page size, 4 KiB, which is why this component is gated to it above. */
+
 #define _GNU_SOURCE
 #include "include/kasld/api.h"
 #include "include/kasld/cli.h"
@@ -230,8 +235,8 @@ static inline uint32_t jhash2_4(const uint32_t *k, uint32_t initval) {
 static inline uint32_t futex_bucket(unsigned long mm, unsigned long uaddr,
                                     unsigned int hashsize) {
   uint32_t k[4];
-  unsigned long page_addr = uaddr & ~(PAGE_SIZE - 1);
-  unsigned int offset = (unsigned int)(uaddr & (PAGE_SIZE - 1));
+  unsigned long page_addr = uaddr & ~(KASLD_LAYOUT_GRANULE - 1);
+  unsigned int offset = (unsigned int)(uaddr & (KASLD_LAYOUT_GRANULE - 1));
   k[0] = (uint32_t)(mm & 0xffffffff);
   k[1] = (uint32_t)((uint64_t)mm >> 32);
   k[2] = (uint32_t)(page_addr & 0xffffffff);
@@ -415,7 +420,7 @@ static int find_collisions(unsigned long *collisions, int *num_collisions,
   unsigned long num_probes = (unsigned long)hashsize * MAX_COLLISIONS * 4;
   if (num_probes < 65536)
     num_probes = 65536;
-  unsigned long max_probes = FUTEX_REGION_SZ / PAGE_SIZE;
+  unsigned long max_probes = FUTEX_REGION_SZ / KASLD_LAYOUT_GRANULE;
   if (num_probes > max_probes)
     num_probes = max_probes;
 
@@ -434,9 +439,9 @@ static int find_collisions(unsigned long *collisions, int *num_collisions,
   uint64_t confirm_threshold = baseline * COLLISION_MULT;
 
   unsigned long stride = FUTEX_REGION_SZ / num_probes;
-  stride = (stride + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
-  if (stride < PAGE_SIZE)
-    stride = PAGE_SIZE;
+  stride = (stride + KASLD_LAYOUT_GRANULE - 1) & ~(KASLD_LAYOUT_GRANULE - 1);
+  if (stride < KASLD_LAYOUT_GRANULE)
+    stride = KASLD_LAYOUT_GRANULE;
 
   fprintf(stderr,
           "[.] probe: baseline=%lu cycles, num_probes=%lu, "
@@ -543,15 +548,17 @@ static void *search_fn(void *arg) {
   unsigned long local_count = 0;
 
   /* Precompute loop-invariant hash inputs for pile_addr. */
-  unsigned long p_page = ctx->pile_addr & ~(unsigned long)(PAGE_SIZE - 1);
-  uint32_t p_off = (uint32_t)(ctx->pile_addr & (PAGE_SIZE - 1));
+  unsigned long p_page =
+      ctx->pile_addr & ~(unsigned long)(KASLD_LAYOUT_GRANULE - 1);
+  uint32_t p_off = (uint32_t)(ctx->pile_addr & (KASLD_LAYOUT_GRANULE - 1));
   uint32_t p_plo = (uint32_t)(p_page & 0xffffffffUL);
   uint32_t p_phi = (uint32_t)((uint64_t)p_page >> 32);
   uint32_t p_base = JHASH_INITVAL + 16u + p_off;
 
   /* Precompute loop-invariant hash inputs for collisions[0]. */
-  unsigned long c0_page = ctx->collisions[0] & ~(unsigned long)(PAGE_SIZE - 1);
-  uint32_t c0_off = (uint32_t)(ctx->collisions[0] & (PAGE_SIZE - 1));
+  unsigned long c0_page =
+      ctx->collisions[0] & ~(unsigned long)(KASLD_LAYOUT_GRANULE - 1);
+  uint32_t c0_off = (uint32_t)(ctx->collisions[0] & (KASLD_LAYOUT_GRANULE - 1));
   uint32_t c0_plo = (uint32_t)(c0_page & 0xffffffffUL);
   uint32_t c0_phi = (uint32_t)((uint64_t)c0_page >> 32);
   uint32_t c0_base = JHASH_INITVAL + 16u + c0_off;
@@ -644,7 +651,7 @@ static unsigned long brute_force_mm(unsigned long *collisions,
    * so valid mm offsets (mod PAGE_SIZE) cycle through
    * {k*slab_size mod PAGE_SIZE}. Stepping by gcd(slab_size, PAGE_SIZE)
    * hits every such residue. */
-  unsigned long step = gcd_ul(mm_step, (unsigned long)PAGE_SIZE);
+  unsigned long step = gcd_ul(mm_step, (unsigned long)KASLD_LAYOUT_GRANULE);
   unsigned long mm_start = POB_MIN;
   unsigned long mm_end = POB_MAX + phys_mem;
   unsigned long total_iters = (mm_end - mm_start) / step;

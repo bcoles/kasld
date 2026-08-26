@@ -28,6 +28,16 @@
 // book3s64 linear-mapping base. arch/powerpc/Kconfig declares it under
 // `if PPC64` as a hex with no prompt, so it cannot be configured.
 #define PAGE_OFFSET_CANDIDATES {0xc000000000000000ul}
+// Admissible kernel page sizes on this architecture. PAGE_SIZE_KNOWN_AT_BUILD
+// is derived from the pair in api.h and gates pfn_to_phys(); a page-frame
+// number may only be converted with a compile-time constant where the two
+// edges coincide. Where they differ the runtime SF_PAGE_SIZE observation is
+// the only sound multiplier.
+// 64-bit powerpc (Book3S) admits 4 and 64 KiB pages
+// (PPC_4K_PAGES / PPC_64K_PAGES gated on PPC_BOOK3S_64, arch/powerpc/Kconfig).
+#define PAGE_SIZE_MIN 0x1000ul
+#define PAGE_SIZE_MAX 0x10000ul
+
 #define PAGE_OFFSET_MIN 0xc000000000000000ul
 #define PAGE_OFFSET_MAX 0xc000000000000000ul
 

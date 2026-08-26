@@ -1319,9 +1319,19 @@ static void test_render_map_directmap_extent_derived(void) {
    * map declines to draw the top edge at all -- which fails on those arches
    * only, the exact shape of an assertion that passes because of what one host
    * is. */
+  /* A page-frame count is in the TARGET kernel's pages, so the extent is drawn
+   * with that kernel's page size: the compile-time one where the architecture
+   * admits a single size, and the observed SF_PAGE_SIZE where it admits
+   * several. The test supplies the observation on the latter, since the
+   * renderer declines to draw an extent it cannot compute soundly. */
+#ifdef pfn_to_phys
+  const unsigned long tgt_page = (unsigned long)PAGE_SIZE_MIN;
+#else
+  const unsigned long tgt_page = 65536ul; /* a 64 KiB-page target */
+#endif
   unsigned long pfn =
-      ((unsigned long)PHYS_OFFSET / PAGE_SIZE) + (step * 20 / PAGE_SIZE);
-  unsigned long reach = pfn * PAGE_SIZE - (unsigned long)PHYS_OFFSET;
+      ((unsigned long)PHYS_OFFSET / tgt_page) + (step * 20 / tgt_page);
+  unsigned long reach = pfn * tgt_page - (unsigned long)PHYS_OFFSET;
   unsigned long expect_end = base + reach - 1;
   char abuf[32];
 
@@ -1338,6 +1348,11 @@ static void test_render_map_directmap_extent_derived(void) {
   scalar_facts[num_scalar_facts].fact = SF_PHYS_MEMTOTAL;
   scalar_facts[num_scalar_facts].value = reach;
   scalar_facts[num_scalar_facts++].conf = CONF_PARSED;
+#ifndef pfn_to_phys
+  scalar_facts[num_scalar_facts].fact = SF_PAGE_SIZE;
+  scalar_facts[num_scalar_facts].value = tgt_page;
+  scalar_facts[num_scalar_facts++].conf = CONF_PARSED;
+#endif
 
   layout.virt_page_offset_min = base;
   layout.virt_page_offset_max = base; /* pinned */

@@ -149,7 +149,7 @@ static inline int kasld__ts_nothing_above(kasld_ts_step_fn step,
  * and so an answer far below the truth. */
 static inline unsigned long kasld__ts_probe_len(void) {
   long v = sysconf(_SC_PAGESIZE);
-  return (v > 0) ? (unsigned long)v : PAGE_SIZE;
+  return (v > 0) ? (unsigned long)v : KASLD_LAYOUT_GRANULE;
 }
 
 /* Probe one page, without ever displacing a live mapping.

@@ -13,7 +13,25 @@
 #ifndef KASLD_API_H
 #define KASLD_API_H
 
-#define PAGE_SIZE 0x1000ul
+/* The 4 KiB granule the kernel's own layout arithmetic is written in: the unit
+ * behind expressions lifted from kernel source, such as x86_64's module
+ * randomization span of `1024 * PAGE_SIZE`. It is a fixed number that stays 4
+ * KiB whatever the analysed machine runs.
+ *
+ * It is NOT the target's page size, and must never stand in for one. Four of
+ * the eight supported architecture families admit several page sizes -- arm64
+ * and loongarch64 4/16/64 KiB, mips 4/8/16/32/64 KiB, powerpc 4/16/64/256 KiB
+ * -- so on those a page-frame number converted with this constant is wrong by
+ * up to 64x. Where the target's page size is genuinely needed, it comes from
+ * the SF_PAGE_SIZE observation at runtime; pfn_to_phys() below exists only on
+ * the architectures where the two coincide, so a conversion that needs the
+ * runtime value cannot reach this constant by accident.
+ *
+ * Deliberately not spelled PAGE_SIZE: that name belongs to the C library on
+ * some targets (musl defines it under _GNU_SOURCE wherever the ABI fixes a
+ * page size), and a macro named for a machine property invites exactly the
+ * substitution the paragraph above forbids. */
+#define KASLD_LAYOUT_GRANULE 0x1000ul
 #define KB 0x400ul
 #define MB 0x100000ul
 #define GB 0x40000000ul
@@ -383,6 +401,14 @@ __extension__ _Static_assert((unsigned long)KERNEL_PHYS_MAX >
  *
  * Treating them as one flag would silently pick a side on whichever arch
  * arrives first. */
+#ifndef PAGE_SIZE_MIN
+#error                                                                         \
+    "arch header must define PAGE_SIZE_MIN / PAGE_SIZE_MAX (the page sizes the arch admits)"
+#endif
+#ifndef PAGE_SIZE_MAX
+#error                                                                         \
+    "arch header must define PAGE_SIZE_MIN / PAGE_SIZE_MAX (the page sizes the arch admits)"
+#endif
 #ifndef DIRECTMAP_STATIC
 #error "arch header must define DIRECTMAP_STATIC (0 or 1)"
 #endif
@@ -776,6 +802,55 @@ static inline unsigned long kasld__directmap_virt_to_phys(unsigned long v) {
 #if defined(phys_to_directmap_virt) && !PAGE_OFFSET_KNOWN_AT_BUILD
 #error                                                                         \
     "the compile-time directmap projection requires PAGE_OFFSET_KNOWN_AT_BUILD"
+#endif
+
+/* =========================================================================
+ * Page-frame number conversion
+ *
+ * 1 iff this architecture admits exactly one page size, so a page-frame number
+ * -- which counts the TARGET kernel's pages -- can be converted to a byte
+ * address with a compile-time constant. Derived from the arch header's pair,
+ * never declared: an arch cannot then claim a page size it does not admit, and
+ * a mistyped axis value fails to compile instead of expanding to 0.
+ *
+ * Where the edges differ the multiplier is not knowable at build time, and the
+ * error is not small: mips and loongarch64 reach 64 KiB and 32-bit powerpc
+ * reaches 256 KiB, so a PFN converted at 4 KiB understates a physical address
+ * by up to 64x. Understating the top of physical memory is precisely how a
+ * bound derived from it lands past truth, which is why this is a gate rather
+ * than a comment.
+ * ========================================================================= */
+#define PAGE_SIZE_KNOWN_AT_BUILD (PAGE_SIZE_MIN == PAGE_SIZE_MAX)
+
+#if PAGE_SIZE_KNOWN_AT_BUILD
+/* pfn_to_phys(pfn): first byte of the frame. phys_to_pfn(p): the frame holding
+ * `p`. Defined ONLY where the page size is single-valued, so a conversion that
+ * needs the target's runtime size cannot silently reach a constant instead:
+ * the call does not compile on the arches where the constant would be wrong.
+ * Callers must #ifdef and take SF_PAGE_SIZE on the other path.
+ *
+ * pfn_to_phys returns 0 on overflow rather than a wrapped address, so a caller
+ * bounding a window from it cannot be handed a small number for a huge frame.
+ */
+static inline unsigned long kasld__pfn_to_phys(unsigned long pfn) {
+  if (pfn > (unsigned long)-1 / (unsigned long)PAGE_SIZE_MIN)
+    return 0;
+  return pfn * (unsigned long)PAGE_SIZE_MIN;
+}
+static inline unsigned long kasld__phys_to_pfn(unsigned long p) {
+  return p / (unsigned long)PAGE_SIZE_MIN;
+}
+#define pfn_to_phys(pfn) kasld__pfn_to_phys((unsigned long)(pfn))
+#define phys_to_pfn(p) kasld__phys_to_pfn((unsigned long)(p))
+#endif
+
+/* Self-enforcing restatement of the gate above, in the same shape as the
+ * directmap projection's. Trivially satisfied as written; widening the
+ * condition to a predicate that does not imply PAGE_SIZE_KNOWN_AT_BUILD breaks
+ * the build on the arches where the multiplier would be a guess, rather than
+ * quietly producing physical addresses computed from the wrong page size. */
+#if defined(pfn_to_phys) && !PAGE_SIZE_KNOWN_AT_BUILD
+#error "pfn_to_phys requires PAGE_SIZE_KNOWN_AT_BUILD"
 #endif
 
 /* The linear-map base where this build genuinely knows it, 0 where it does not.

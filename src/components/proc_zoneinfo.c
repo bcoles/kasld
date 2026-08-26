@@ -77,6 +77,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 KASLD_EXPLAIN(
     "Reads /proc/zoneinfo to extract the start_pfn and spanned page "
@@ -140,16 +141,52 @@ int main(void) {
     return 0;
   }
 
-  /* Clamp PFNs before the byte conversion: on a 32-bit (PAE) kernel a PFN
-   * above ULONG_MAX / PAGE_SIZE wraps unsigned long and would yield a bogus
-   * too-low RAM bound (and a wrapped direct-map projection below). */
   unsigned long hi_use = hi_end_pfn > hi_pfn ? hi_end_pfn : hi_pfn;
-  if (lo_pfn > ULONG_MAX / PAGE_SIZE)
-    lo_pfn = ULONG_MAX / PAGE_SIZE;
-  if (hi_use > ULONG_MAX / PAGE_SIZE)
-    hi_use = ULONG_MAX / PAGE_SIZE;
-  unsigned long lo = lo_pfn * PAGE_SIZE;
-  unsigned long hi = hi_use * PAGE_SIZE - 1;
+
+  /* A zoneinfo PFN counts the pages of the kernel that published the file, so
+   * the multiplier must be that kernel's page size.
+   *
+   * Where the architecture admits exactly one size that constant is it. Where
+   * it admits several -- arm64, mips, powerpc, loongarch64 -- a compile-time
+   * constant would be wrong by up to 64x, so the size is asked of the running
+   * kernel. That answer describes the running kernel and nothing else: under
+   * KASLD_SYSROOT the file came from a captured tree whose page size nothing
+   * here knows, so the conversion is declined rather than made with the
+   * analysing host's.
+   *
+   * The multiply is written out rather than routed through pfn_to_phys()
+   * because the two want different answers at the top of the range: this site
+   * CLAMPS an out-of-range PFN to keep a bound, where pfn_to_phys() returns 0
+   * and declines. Clamping is what keeps a 32-bit (PAE) kernel's high PFNs
+   * from wrapping unsigned long into a bogus too-low RAM bound. */
+#if PAGE_SIZE_KNOWN_AT_BUILD
+  unsigned long page_size = (unsigned long)PAGE_SIZE_MIN;
+#else
+  unsigned long page_size = 0;
+  if (!kasld_sysroot()) {
+    long p = sysconf(_SC_PAGESIZE);
+    if (p > 0)
+      page_size = (unsigned long)p;
+  }
+  /* Taken as reported, without a plausibility bracket: sysconf answers for the
+   * kernel running this process, which is more authoritative about that
+   * kernel's page size than this build's PAGE_SIZE_MIN / PAGE_SIZE_MAX axis
+   * is. A value outside that bracket would mean the axis is wrong, and
+   * rejecting it here would hide that rather than surface it. The engine rules
+   * that read the same quantity off the wire do check it, because there it has
+   * been through the tagged-line protocol and can be an artefact. */
+  if (!page_size)
+    return kasld_disp_absent("page size unknown for a captured tree on an "
+                             "architecture that admits several; zone PFNs "
+                             "cannot be converted to addresses");
+#endif
+
+  if (lo_pfn > ULONG_MAX / page_size)
+    lo_pfn = ULONG_MAX / page_size;
+  if (hi_use > ULONG_MAX / page_size)
+    hi_use = ULONG_MAX / page_size;
+  unsigned long lo = lo_pfn * page_size;
+  unsigned long hi = hi_use * page_size - 1;
 
   /* lo: the start of the lowest published zone — a sound RAM witness but
    * NOT a floor pin (reserved low memory below the lowest zone is

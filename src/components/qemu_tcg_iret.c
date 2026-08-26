@@ -324,7 +324,7 @@ static uint64_t get_kernel_text_addr_using_qemu_tcg_iret(void) {
   // a fallback stack for the path where iretq pops the landmark frame and
   // jumps to 0x133a000 instead of leaking; this growsdown mapping at
   // 0x1338000 is adjacent to that target.
-  mmap((void *)0x1338000, PAGE_SIZE * 2, PROT_READ | PROT_WRITE,
+  mmap((void *)0x1338000, KASLD_LAYOUT_GRANULE * 2, PROT_READ | PROT_WRITE,
        MAP_PRIVATE | MAP_FIXED | MAP_ANONYMOUS | MAP_GROWSDOWN | MAP_POPULATE,
        -1, 0);
 

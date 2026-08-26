@@ -50,6 +50,16 @@
 // excludes that 2 GiB build, which is a guaranteed-window soundness bug, not a
 // precision gain. What the paging mode does prove is carried by Q_VA_BITS and
 // applied by the coupling rule.
+// Admissible kernel page sizes on this architecture. PAGE_SIZE_KNOWN_AT_BUILD
+// is derived from the pair in api.h and gates pfn_to_phys(); a page-frame
+// number may only be converted with a compile-time constant where the two
+// edges coincide. Where they differ the runtime SF_PAGE_SIZE observation is
+// the only sound multiplier.
+// riscv fixes the base page at 4 KiB under every Sv mode;
+// arch/riscv selects HAVE_PAGE_SIZE_4KB and offers no alternative.
+#define PAGE_SIZE_MIN 0x1000ul
+#define PAGE_SIZE_MAX 0x1000ul
+
 #define PAGE_OFFSET_MIN KERNEL_VIRT_VAS_START
 #define PAGE_OFFSET_MAX KERNEL_VIRT_VAS_END
 

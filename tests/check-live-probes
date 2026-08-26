@@ -65,11 +65,18 @@ SIG='perf_event_open|SYS_perf_event_open|__NR_perf_event_open|rdtsc|sidechannel\
 # Reviewed live probes whose liveness is not greppable: mmap VA-boundary sweeps
 # (mmap alone is too common a call to signature on) and the iret CPU probe. Keep
 # alphabetical.
+# page_size: sysconf(_SC_PAGESIZE) is a live primitive without looking like one
+# — it reads the auxiliary vector of the process the kernel started, so it
+# answers for the executing kernel and nothing else. A captured tree carries no
+# page size, and the analysing host's is not the target's: the rules that
+# multiply a page-frame number by it would otherwise convert a replayed arm64
+# capture at the x86_64 host's 4 KiB.
 NAME_ALLOW="mmap_arm64_va_bits
 mmap_brute_vmsplit
 mmap_riscv64_va_bits
 mmap_s390_va_bits
 mmap_x86_64_va_bits
+page_size
 qemu_tcg_iret"
 
 if [ -t 2 ] || [ -n "${KASLD_COLOR:-}" ]; then

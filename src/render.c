@@ -449,11 +449,11 @@ void layout_build(const struct summary *s) {
 
     /* Module region base, on every arch rather than under the memory-KASLR
      * gate: the region exists everywhere, and where it does not move the row
-     * still reports where it is. Its pitch is PAGE_SIZE, the granularity every
+     * still reports where it is. Its pitch is KASLD_LAYOUT_GRANULE, the
      * arch's allocator places the region on. */
     layout_add("Module Region Base", GRADE_GUARANTEED,
                s->kaslr.virt_module_slots, 0, s->kaslr.virt_module_min,
-               s->kaslr.virt_module_max, NULL, PAGE_SIZE);
+               s->kaslr.virt_module_max, NULL, KASLD_LAYOUT_GRANULE);
   }
 }
 

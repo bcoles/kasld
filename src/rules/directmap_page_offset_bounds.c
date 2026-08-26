@@ -24,7 +24,13 @@
 //   virt_page_offset = V - (P - PHYS_OFFSET).
 // P lies within the direct-mapped physical range [PHYS_OFFSET, max_pfn*PAGE),
 // so P is maximised at the top of the direct map and the base is minimised:
-//   virt_page_offset >= V - (max_pfn*PAGE_SIZE - PHYS_OFFSET).
+//   virt_page_offset >= V - (max_pfn pages - PHYS_OFFSET).
+// A page here is the TARGET kernel's page, never this build's: four of the
+// eight architecture families admit several sizes, and converting max_pfn at
+// 4 KiB on a 64 KiB-page kernel understates the span 16x, which lifts the bound
+// above the true base. The multiplier is pfn_to_phys() where the arch admits
+// one size and the observed SF_PAGE_SIZE where it does not; absent both, no
+// lower bound is emitted.
 // max_pfn (SF_PHYS_MAX_PFN, /proc/zoneinfo) is the kernel's own direct-map
 // extent — the SOUND, tight span (not MemTotal, which undercounts physical
 // address space by the reserved/firmware regions and would make the bound too
@@ -123,11 +129,52 @@ static int dpo_emit_bounds(const struct evidence_set *ev,
   c->lineage_count = 1;
   snprintf(c->origin, ORIGIN_LEN, "directmap_page_offset_bounds");
 
-  /* Lower bound: virt_page_offset >= V - (max_pfn*PAGE_SIZE - PHYS_OFFSET),
-   * aligned UP to PUD. */
-  if (max_pfn && slot + n < out_max) {
-    unsigned long span = max_pfn * PAGE_SIZE; /* direct-mapped phys extent */
-    if (span / PAGE_SIZE == max_pfn           /* no multiply overflow */
+  /* Lower bound: virt_page_offset >= V - (max_pfn pages - PHYS_OFFSET),
+   * aligned UP to PUD.
+   *
+   * The span is sound only while it is at least the true top of physical
+   * memory: understate it and `reach` shrinks with it, so the bound lands
+   * ABOVE the true base and the guaranteed window excludes it. max_pfn counts
+   * the TARGET kernel's pages, so the multiplier is that kernel's page size --
+   * pfn_to_phys() where the architecture admits exactly one, and the observed
+   * SF_PAGE_SIZE where it admits several. Without either there is no sound
+   * span and so no lower bound: declining costs a bound, guessing costs the
+   * guarantee. pfn_to_phys() returns 0 on overflow, and the explicit check
+   * covers the runtime path. */
+  unsigned long span = 0;
+  enum kasld_confidence span_conf = conf;
+  uint32_t span_src = 0;
+#ifdef pfn_to_phys
+  span = pfn_to_phys(max_pfn);
+#else
+  {
+    enum kasld_confidence ps_conf = CONF_UNKNOWN;
+    uint32_t ps_src = 0;
+    unsigned long ps =
+        kasld_scalar_fact_value(ev, SF_PAGE_SIZE, &ps_conf, &ps_src);
+    /* This value crossed the tagged-line protocol, so it is a parse and is
+     * checked like one: a page size outside what the architecture admits, or
+     * one that is not a power of two, is an artefact rather than a
+     * measurement. The bracket is the arch's own declared axis rather than a
+     * round number, so it tightens automatically wherever an arch states a
+     * narrower range. (proc_zoneinfo asks sysconf instead and deliberately
+     * does not check: there the syscall is more authoritative about the
+     * running kernel than this build's axis is.) */
+    if (ps && (ps & (ps - 1)) == 0 && ps >= (unsigned long)PAGE_SIZE_MIN &&
+        ps <= (unsigned long)PAGE_SIZE_MAX &&
+        max_pfn <= (unsigned long)-1 / ps) {
+      span = max_pfn * ps;
+      /* Three facts now, so the bound is only as good as the weakest of them:
+       * a page size observed below the sound floor must not lift a bound above
+       * it. */
+      span_conf = kasld_conf_min(conf, ps_conf);
+      span_src = ps_src;
+    }
+  }
+#endif
+
+  if (max_pfn && span && slot + n < out_max) {
+    if (1
 #if PHYS_OFFSET
         && span >= (unsigned long)PHYS_OFFSET
 #endif
@@ -146,10 +193,16 @@ static int dpo_emit_bounds(const struct evidence_set *ev,
           lc->q = Q_PAGE_OFFSET;
           lc->op = C_LOWER_BOUND;
           lc->value = lower;
-          lc->conf = conf;
+          lc->conf = span_conf;
           lc->derived_from[0] = src;
           lc->derived_from[1] = pfn_src;
           lc->lineage_count = 2;
+          /* The observed page size is the third input wherever the span was
+           * computed from one, so the bound names it too. */
+          if (span_src) {
+            lc->derived_from[2] = span_src;
+            lc->lineage_count = 3;
+          }
           snprintf(lc->origin, ORIGIN_LEN, "directmap_page_offset_bounds");
         }
       }

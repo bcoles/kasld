@@ -51,6 +51,16 @@
 #define PAGE_OFFSET 0ul
 
 // Continuous: __identity_base shifts at boot, so only the window is known.
+// Admissible kernel page sizes on this architecture. PAGE_SIZE_KNOWN_AT_BUILD
+// is derived from the pair in api.h and gates pfn_to_phys(); a page-frame
+// number may only be converted with a compile-time constant where the two
+// edges coincide. Where they differ the runtime SF_PAGE_SIZE observation is
+// the only sound multiplier.
+// s390 fixes the base page at 4 KiB; arch/s390 selects
+// HAVE_PAGE_SIZE_4KB and offers no alternative.
+#define PAGE_SIZE_MIN 0x1000ul
+#define PAGE_SIZE_MAX 0x1000ul
+
 #define PAGE_OFFSET_MIN KERNEL_VIRT_VAS_START
 #define PAGE_OFFSET_MAX KERNEL_VIRT_VAS_END
 

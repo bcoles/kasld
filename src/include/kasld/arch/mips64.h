@@ -22,6 +22,16 @@
 // KERNEL_VIRT_VAS_START (0x8000000000000000) -- the kernel address space
 // begins well below the linear map here.
 #define PAGE_OFFSET_CANDIDATES {0xffffffff80000000ul}
+// Admissible kernel page sizes on this architecture. PAGE_SIZE_KNOWN_AT_BUILD
+// is derived from the pair in api.h and gates pfn_to_phys(); a page-frame
+// number may only be converted with a compile-time constant where the two
+// edges coincide. Where they differ the runtime SF_PAGE_SIZE observation is
+// the only sound multiplier.
+// mips admits 4, 16 and 64 KiB pages generally, plus 8
+// and 32 KiB on Cavium Octeon (HAVE_PAGE_SIZE_{8,32}KB, arch/mips/Kconfig).
+#define PAGE_SIZE_MIN 0x1000ul
+#define PAGE_SIZE_MAX 0x10000ul
+
 #define PAGE_OFFSET_MIN 0xffffffff80000000ul
 #define PAGE_OFFSET_MAX 0xffffffff80000000ul
 

@@ -40,6 +40,16 @@
 // Hard-coded in arch/riscv/include/asm/page.h for 32-bit MMU builds; riscv
 // has no CONFIG_PAGE_OFFSET for rv32, so there is nothing to vary.
 #define PAGE_OFFSET_CANDIDATES {0xc0000000ul}
+// Admissible kernel page sizes on this architecture. PAGE_SIZE_KNOWN_AT_BUILD
+// is derived from the pair in api.h and gates pfn_to_phys(); a page-frame
+// number may only be converted with a compile-time constant where the two
+// edges coincide. Where they differ the runtime SF_PAGE_SIZE observation is
+// the only sound multiplier.
+// riscv fixes the base page at 4 KiB under every Sv mode;
+// arch/riscv selects HAVE_PAGE_SIZE_4KB and offers no alternative.
+#define PAGE_SIZE_MIN 0x1000ul
+#define PAGE_SIZE_MAX 0x1000ul
+
 #define PAGE_OFFSET_MIN 0xc0000000ul
 #define PAGE_OFFSET_MAX 0xc0000000ul
 

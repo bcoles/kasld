@@ -690,7 +690,7 @@ and [Cross-region derivation](docs/architecture.md#cross-region-derivation).
 A new architecture is one header under `src/include/kasld/arch/`. It answers a
 fixed set of questions about how that architecture lays memory out, and `api.h`
 refuses to compile a header that leaves any of the mandatory ones unanswered —
-the seven listed under [Mandatory axes](#api-reference) below. Nothing here is
+the eight listed under [Mandatory axes](#api-reference) below. Nothing here is
 inferred from a neighbouring header: an answer copied from the closest-looking
 architecture is the failure this section exists to prevent.
 
@@ -724,6 +724,19 @@ in `#if` arithmetic. Enumerate what the architecture really allows: every
 typical distro ships. Equal values mean the analysing binary knows the target's
 base, which is what gates the compile-time projection macros; a bracket that is
 too narrow excludes a legitimate kernel from its own window.
+
+**`PAGE_SIZE_MIN` / `PAGE_SIZE_MAX`** — the bracket containing every page size
+the architecture admits, taken from the `HAVE_PAGE_SIZE_*` selectors in the
+kernel's own `arch/<arch>/Kconfig` rather than from what a distro ships. Six of
+the twelve supported architectures fix one size and six do not: arm64,
+loongarch64 and mips reach 64 KiB, and 32-bit powerpc reaches 256 KiB. Equal
+values mean the analysing binary knows the target's page size, which is what
+gates `pfn_to_phys()` — a page-frame number counts the *target* kernel's pages,
+so converting one to a byte address with this build's constant is wrong by up to
+64x where the two differ. Where they differ the multiplier must come from the
+`SF_PAGE_SIZE` observation, and a rule with neither declines rather than
+guessing: the quantities built on such a span are bounds, and an understated
+span moves a bound past the truth it is supposed to contain.
 
 **`LINEAR_MAP_ANCHOR`** — where the physical address the kernel maps at
 `PAGE_OFFSET` comes from, since a rule pairing a direct-map virtual with a
@@ -854,6 +867,7 @@ separate question: a permissive answer to one does not license the others.
 | Symbol | Values | Answers |
 |---|---|---|
 | `PAGE_OFFSET_MIN` / `PAGE_OFFSET_MAX` | literal addresses | Which linear-map bases the architecture admits — equal values mean this build knows the target's base |
+| `PAGE_SIZE_MIN` / `PAGE_SIZE_MAX` | literal sizes | Which page sizes the architecture admits — equal values mean this build knows the target's page size, and only then may a page-frame number be converted with a constant |
 | `LINEAR_MAP_ANCHOR` | `LM_ANCHOR_PHYS_OFFSET` / `LM_ANCHOR_DRAM_BASE` / `LM_ANCHOR_UNKNOWABLE` | Where the physical address that maps to `PAGE_OFFSET` comes from |
 | `MODULES_ANCHOR` | `MOD_ANCHOR_FIXED` / `MOD_ANCHOR_PAGE_OFFSET` / `MOD_ANCHOR_TEXT` / `MOD_ANCHOR_BRACKETS_TEXT` | What the module band's position is fixed to |
 | `TEXT_TRACKS_DIRECTMAP` | 0 / 1 | Whether kernel text slides with the linear map |

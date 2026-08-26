@@ -315,7 +315,8 @@ static void on_line(char *line, void *vctx) {
     const char *p = cr3 + 4;
     unsigned long v;
     if (next_addr_token(&p, &v) && v) {
-      v &= ~(unsigned long)(PAGE_SIZE - 1); /* strip PCID/ASID low bits */
+      v &= ~(unsigned long)(KASLD_LAYOUT_GRANULE -
+                            1); /* strip PCID/ASID low bits */
       if (!c->cr3 || v < c->cr3) {
         c->cr3 = v;
         c->cr3_swapper = c->ctx_known ? c->ctx_swapper : 0;

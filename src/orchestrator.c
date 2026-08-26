@@ -4131,12 +4131,13 @@ static void engine_sync_authoritative(const struct engine *e) {
                      e->constraints, e->n_constraints, RANDOMIZE_MEMORY_ALIGN);
   /* The module base is page-granular on every arch that randomizes it (x86_64
    * draws a whole number of pages; the arm64 bounding box and the
-   * PAGE_OFFSET-derived bands are page-aligned), so PAGE_SIZE is the pitch
+   * PAGE_OFFSET-derived bands are page-aligned), so KASLD_LAYOUT_GRANULE is
+   * the pitch
    * rather than RANDOMIZE_MEMORY_ALIGN, which is an x86_64 memory-KASLR
    * constant and 0 elsewhere. */
   layout.virt_module_slots =
       quantity_slots(Q_MODULE_BASE, &e->est[Q_MODULE_BASE], KASLD_SOUND_FLOOR,
-                     e->constraints, e->n_constraints, PAGE_SIZE);
+                     e->constraints, e->n_constraints, KASLD_LAYOUT_GRANULE);
 }
 #ifndef KASLD_TESTING
 

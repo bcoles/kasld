@@ -541,7 +541,7 @@ static void print_virtual_layout(void) {
   unsigned long dmap_end = dmap_base;
   int dmap_extent_derived = 0;
   if (dmap_base_pinned) {
-    unsigned long max_pfn = 0, memtotal = 0;
+    unsigned long max_pfn = 0, memtotal = 0, obs_page_size = 0;
     int highmem = 0;
     for (int i = 0; i < num_scalar_facts; i++) {
       if (scalar_facts[i].fact == SF_PHYS_MAX_PFN &&
@@ -551,6 +551,9 @@ static void print_virtual_layout(void) {
         memtotal = scalar_facts[i].value;
       else if (scalar_facts[i].fact == SF_PHYS_LOWMEM)
         highmem = 1;
+      else if (scalar_facts[i].fact == SF_PAGE_SIZE &&
+               scalar_facts[i].conf >= CONF_INFERRED)
+        obs_page_size = scalar_facts[i].value;
     }
 #if ULONG_MAX <= 0xFFFFFFFFul
     /* max_pfn spans ALL RAM, highmem included, but a 32-bit linear map covers
@@ -572,9 +575,21 @@ static void print_virtual_layout(void) {
     (void)memtotal;
     (void)highmem;
 #endif
-    if (max_pfn) {
-      unsigned long span = max_pfn * PAGE_SIZE;
-      if (span / PAGE_SIZE == max_pfn /* no multiply overflow */
+    /* max_pfn counts the target kernel's pages, so the multiplier is that
+     * kernel's page size: the compile-time one only where the architecture
+     * admits a single size, and the observed SF_PAGE_SIZE otherwise. With
+     * neither, no extent is drawn -- an understated span would draw the direct
+     * map ending below where it really does. */
+#ifdef pfn_to_phys
+    unsigned long span = max_pfn ? pfn_to_phys(max_pfn) : 0;
+    (void)obs_page_size; /* the arch admits one page size; the constant is it */
+#else
+    unsigned long span = 0;
+    if (max_pfn && obs_page_size && max_pfn <= ULONG_MAX / obs_page_size)
+      span = max_pfn * obs_page_size;
+#endif
+    if (span) {
+      if (1
 #if PHYS_OFFSET
           && span > (unsigned long)PHYS_OFFSET
 #endif

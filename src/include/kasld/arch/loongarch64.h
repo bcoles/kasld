@@ -48,6 +48,16 @@
 // The DMW1 direct-mapped window base, fixed by the architecture. Above
 // KERNEL_VIRT_VAS_START (0x8000000000000000), as on mips64.
 #define PAGE_OFFSET_CANDIDATES {0x9000000000000000ul}
+// Admissible kernel page sizes on this architecture. PAGE_SIZE_KNOWN_AT_BUILD
+// is derived from the pair in api.h and gates pfn_to_phys(); a page-frame
+// number may only be converted with a compile-time constant where the two
+// edges coincide. Where they differ the runtime SF_PAGE_SIZE observation is
+// the only sound multiplier.
+// loongarch admits 4, 16 and 64 KiB pages (the
+// {4,16,64}KB_*LEVEL page-table choices in arch/loongarch/Kconfig).
+#define PAGE_SIZE_MIN 0x1000ul
+#define PAGE_SIZE_MAX 0x10000ul
+
 #define PAGE_OFFSET_MIN 0x9000000000000000ul
 #define PAGE_OFFSET_MAX 0x9000000000000000ul
 

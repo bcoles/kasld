@@ -6424,6 +6424,30 @@ int rule_directmap_page_offset_bounds(const struct evidence_set *ev,
                                       const struct estimate *est,
                                       struct constraint *out, int out_max);
 
+/* The page size the directmap bound will convert a PFN with, and whether the
+ * test must supply it as evidence.
+ *
+ * Where the architecture admits exactly one size the rule uses the compile-time
+ * constant and no observation is needed. Where it admits several the rule
+ * requires SF_PAGE_SIZE and declines without it, so the tests below add one --
+ * deliberately 64 KiB rather than 4 KiB, since a target whose pages are larger
+ * than this build's constant is the case the gate exists for: the expected
+ * reach is then sixteen times what the old compile-time multiply produced, and
+ * an assertion written against the constant would fail here rather than
+ * silently agreeing. */
+#ifdef pfn_to_phys
+#define DPO_TEST_PAGE_SIZE ((unsigned long)PAGE_SIZE_MIN)
+#define DPO_ADD_PAGE_SIZE(e) ((void)0)
+#else
+#define DPO_TEST_PAGE_SIZE 65536ul
+#define DPO_ADD_PAGE_SIZE(e)                                                   \
+  do {                                                                         \
+    struct observation ps_ =                                                   \
+        mk_scalar(SF_PAGE_SIZE, DPO_TEST_PAGE_SIZE, CONF_PARSED);              \
+    evidence_add(&(e).ev, &ps_);                                               \
+  } while (0)
+#endif
+
 static void test_image_size_text_data_gap(void) {
   struct engine e;
   engine_init(&e);
@@ -6557,8 +6581,10 @@ static void test_directmap_page_offset_lower_bound_from_max_pfn(void) {
   evidence_add(&e.ev, &o);
   evidence_add(&e.ev, &mp);
   const rule_fn rules[] = {rule_directmap_page_offset_bounds};
+  DPO_ADD_PAGE_SIZE(e);
   engine_run_full_floored(&e, CONF_INFERRED, rules, 1, NULL, 0);
-  unsigned long reach = max_pfn * PAGE_SIZE - (unsigned long)PHYS_OFFSET;
+  unsigned long reach =
+      max_pfn * DPO_TEST_PAGE_SIZE - (unsigned long)PHYS_OFFSET;
   unsigned long expect_lo = vd - reach;
   assert(po_hi(&e.est[Q_PAGE_OFFSET]) == vd); /* base <= leak */
   assert(po_lo(&e.est[Q_PAGE_OFFSET]) ==
@@ -6585,7 +6611,8 @@ static void test_directmap_page_offset_base_likely_edge(void) {
   unsigned long vd =
       po_lo(&top) + 0x11000000000ul;  /* PUD-aligned base in-window */
   unsigned long max_pfn = 0x340000ul; /* ~13 GiB direct-mapped RAM */
-  unsigned long reach = max_pfn * PAGE_SIZE - (unsigned long)PHYS_OFFSET;
+  unsigned long reach =
+      max_pfn * DPO_TEST_PAGE_SIZE - (unsigned long)PHYS_OFFSET;
   const unsigned long align = (unsigned long)RANDOMIZE_MEMORY_ALIGN;
   const rule_fn rules[] = {rule_directmap_page_offset_bounds};
   struct observation o = mk_obs(KASLD_TYPE_VIRT, REGION_DIRECTMAP, vd,
@@ -6599,6 +6626,7 @@ static void test_directmap_page_offset_base_likely_edge(void) {
   engine_init(&e);
   evidence_add(&e.ev, &o);
   evidence_add(&e.ev, &mp);
+  DPO_ADD_PAGE_SIZE(e);
   engine_run(&e, rules, 1);
   assert(po_hi(&e.est[Q_PAGE_OFFSET]) == vd);
   if (align >= 2ul * 1024 * 1024)
@@ -6612,10 +6640,114 @@ static void test_directmap_page_offset_base_likely_edge(void) {
   engine_init(&e);
   evidence_add(&e.ev, &o);
   evidence_add(&e.ev, &mp);
+  DPO_ADD_PAGE_SIZE(e);
   engine_run_full_floored(&e, CONF_INFERRED, rules, 1, NULL, 0);
   assert(po_hi(&e.est[Q_PAGE_OFFSET]) == vd);
   assert(po_lo(&e.est[Q_PAGE_OFFSET]) ==
          vd - reach); /* unchanged by the edge */
+}
+
+/* The page size the span is computed with is the TARGET kernel's, not this
+ * build's. Converting a page-frame number with a smaller size understates the
+ * direct-mapped extent, which shortens `reach` and lifts the lower bound —
+ * past the true base, out of the guaranteed window. That is the failure the
+ * PAGE_SIZE_KNOWN_AT_BUILD gate exists to prevent, so assert it directly:
+ * place the truth where a 4 KiB multiply would exclude it, and require the
+ * resolved window to contain it anyway.
+ *
+ * On an architecture that admits several page sizes the rule takes the size
+ * from SF_PAGE_SIZE; withholding it must yield no lower bound at all rather
+ * than one computed from a guess. */
+static void test_directmap_page_offset_span_uses_target_page_size(void) {
+  if (po_is_fixed())
+    return;
+
+  struct estimate top;
+  quantities[Q_PAGE_OFFSET].init_top(&top);
+  const unsigned long max_pfn = 0x340000ul; /* frames, in TARGET pages */
+  const unsigned long vd = po_lo(&top) + 0x11000000000ul;
+  const rule_fn rules[] = {rule_directmap_page_offset_bounds};
+
+  /* Truth sits below where a 4 KiB multiply would put the bound, and inside
+   * the extent the real page size gives. Only correct conversion contains it.
+   */
+  const unsigned long reach_true =
+      max_pfn * DPO_TEST_PAGE_SIZE - (unsigned long)PHYS_OFFSET;
+  const unsigned long truth = vd - reach_true + 1;
+
+  struct engine e;
+  engine_init(&e);
+  struct observation o = mk_obs(KASLD_TYPE_VIRT, REGION_DIRECTMAP, vd,
+                                LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
+  struct observation mp = mk_scalar(SF_PHYS_MAX_PFN, max_pfn, CONF_PARSED);
+  evidence_add(&e.ev, &o);
+  evidence_add(&e.ev, &mp);
+  DPO_ADD_PAGE_SIZE(e);
+  engine_run_full_floored(&e, CONF_INFERRED, rules, 1, NULL, 0);
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) <= truth);
+  assert(po_hi(&e.est[Q_PAGE_OFFSET]) >= truth);
+
+#ifndef pfn_to_phys
+  /* No page size observed: the span is unknown, so no lower bound may be
+   * emitted. The window keeps its honest top rather than a guessed floor. */
+  struct engine e2;
+  engine_init(&e2);
+  struct observation o2 = mk_obs(KASLD_TYPE_VIRT, REGION_DIRECTMAP, vd,
+                                 LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
+  struct observation mp2 = mk_scalar(SF_PHYS_MAX_PFN, max_pfn, CONF_PARSED);
+  evidence_add(&e2.ev, &o2);
+  evidence_add(&e2.ev, &mp2);
+  engine_run_full_floored(&e2, CONF_INFERRED, rules, 1, NULL, 0);
+  assert(po_lo(&e2.est[Q_PAGE_OFFSET]) == po_lo(&top));
+  assert(po_lo(&e2.est[Q_PAGE_OFFSET]) <= truth);
+#endif
+}
+
+/* The span rests on three facts — the directmap witness, max_pfn, and (where
+ * the architecture admits several page sizes) the observed page size. The
+ * emitted bound may therefore be no stronger than the weakest of them: a page
+ * size seen below the sound floor must not carry a bound into the guaranteed
+ * window. Inert where the page size is an architectural constant, since then
+ * there is no third fact to be weak. */
+static void test_directmap_page_offset_span_conf_follows_page_size(void) {
+#ifndef pfn_to_phys
+  if (po_is_fixed())
+    return;
+  struct estimate top;
+  quantities[Q_PAGE_OFFSET].init_top(&top);
+  const unsigned long max_pfn = 0x340000ul;
+  const unsigned long vd = po_lo(&top) + 0x11000000000ul;
+  const rule_fn rules[] = {rule_directmap_page_offset_bounds};
+
+  struct engine e;
+  engine_init(&e);
+  struct observation o = mk_obs(KASLD_TYPE_VIRT, REGION_DIRECTMAP, vd,
+                                LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
+  struct observation mp = mk_scalar(SF_PHYS_MAX_PFN, max_pfn, CONF_PARSED);
+  struct observation ps =
+      mk_scalar(SF_PAGE_SIZE, DPO_TEST_PAGE_SIZE, CONF_HEURISTIC);
+  evidence_add(&e.ev, &o);
+  evidence_add(&e.ev, &mp);
+  evidence_add(&e.ev, &ps);
+  engine_run_full_floored(&e, CONF_INFERRED, rules, 1, NULL, 0);
+  /* Floored at CONF_INFERRED, a heuristic page size cannot contribute, so the
+   * lower edge stays at the quantity's honest top. */
+  assert(po_lo(&e.est[Q_PAGE_OFFSET]) == po_lo(&top));
+
+  /* The same page size at CONF_PARSED does reach the guaranteed window. */
+  struct engine e2;
+  engine_init(&e2);
+  struct observation o2 = mk_obs(KASLD_TYPE_VIRT, REGION_DIRECTMAP, vd,
+                                 LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
+  struct observation mp2 = mk_scalar(SF_PHYS_MAX_PFN, max_pfn, CONF_PARSED);
+  struct observation ps2 =
+      mk_scalar(SF_PAGE_SIZE, DPO_TEST_PAGE_SIZE, CONF_PARSED);
+  evidence_add(&e2.ev, &o2);
+  evidence_add(&e2.ev, &mp2);
+  evidence_add(&e2.ev, &ps2);
+  engine_run_full_floored(&e2, CONF_INFERRED, rules, 1, NULL, 0);
+  assert(po_lo(&e2.est[Q_PAGE_OFFSET]) > po_lo(&top));
+#endif
 }
 
 /* virt_page_offset_base on x86_64 RANDOMIZE_MEMORY is PUD-aligned (1 GiB) by
@@ -6645,6 +6777,7 @@ static void test_directmap_page_offset_bounds_pud_aligned(void) {
   const rule_fn rules[] = {rule_directmap_page_offset_bounds};
   /* Guaranteed window: the sound aligned bounds, without the below-floor base
    * edge (which would narrow the lower edge past the max_pfn span). */
+  DPO_ADD_PAGE_SIZE(e);
   engine_run_full_floored(&e, CONF_INFERRED, rules, 1, NULL, 0);
   /* Upper aligned DOWN: low PUD bits cleared. */
   assert((po_hi(&e.est[Q_PAGE_OFFSET]) & (pud - 1)) == 0);
@@ -6653,7 +6786,8 @@ static void test_directmap_page_offset_bounds_pud_aligned(void) {
   /* Lower aligned UP: low PUD bits cleared, AND no less restrictive than raw.
    */
   assert((po_lo(&e.est[Q_PAGE_OFFSET]) & (pud - 1)) == 0);
-  unsigned long reach = max_pfn * PAGE_SIZE - (unsigned long)PHYS_OFFSET;
+  unsigned long reach =
+      max_pfn * DPO_TEST_PAGE_SIZE - (unsigned long)PHYS_OFFSET;
   unsigned long raw_lower = vd - reach;
   assert(po_lo(&e.est[Q_PAGE_OFFSET]) >= raw_lower);
   assert(po_lo(&e.est[Q_PAGE_OFFSET]) <= raw_lower + (pud - 1));
@@ -8692,6 +8826,8 @@ int main(void) {
   RUN(test_directmap_page_offset_band_does_not_displace);
   RUN(test_directmap_page_offset_lower_bound_from_max_pfn);
   RUN(test_directmap_page_offset_base_likely_edge);
+  RUN(test_directmap_page_offset_span_uses_target_page_size);
+  RUN(test_directmap_page_offset_span_conf_follows_page_size);
   RUN(test_directmap_page_offset_bounds_pud_aligned);
   RUN(test_randomize_memory_page_offset);
   RUN(test_randomize_memory_page_offset_path2);
