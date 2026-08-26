@@ -31,6 +31,22 @@
 
 set -u
 ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# Tables are read by column name, never by position — see the header of
+# md-table.sh for why a positional reader fails silently rather than loudly.
+# shellcheck source=tests/lib/md-table.sh
+. "$ROOT/tests/lib/md-table.sh"
+
+# require_rows <label> <file> — a table that yielded nothing is a broken guard,
+# not a passing one. Every membership check below iterates the extracted set, so
+# an empty set makes both directions vacuously true; that is exactly the state a
+# renamed column or a moved table produces.
+require_rows() {
+  [ -s "$2" ] && return 0
+  printf '%s  %s: no rows read from the source table%s (renamed column, or the table moved)\n' \
+    "$RED" "$1" "$RESET"
+  fail=1
+  return 1
+}
 
 if [ -t 1 ] || [ -n "${KASLD_COLOR:-}" ]; then
   RED=$(printf '\033[31m')
@@ -115,7 +131,12 @@ fi
 SVG=docs/diagrams/entropy-by-arch.svg
 MTX=docs/reproducibility.md
 if [ -f "$SVG" ]; then
-  tbl=$(awk -F'|' 'NF>6 && ($6 ~ /^ *(on|off) *$/) { gsub(/^ +| +$/,"",$2); print $2 }' "$MTX" | sort -u)
+  # "scenario" identifies the per-scenario matrix specifically: the summary
+  # table above it names arch, release and source but no scenario, so the two
+  # cannot be confused however either one grows.
+  md_table_select "$MTX" 'arch,scenario,KASLR' arch | sort -u >"$TMP/mtx"
+  require_rows "results matrix" "$TMP/mtx" || :
+  tbl=$(cat "$TMP/mtx")
   plot=$(grep -oE 'text-anchor="end">[a-z0-9_]+</text>' "$SVG" |
          sed 's/.*>\(.*\)<.*/\1/' | grep -v '^bits$' | sort -u)
   for a in $tbl; do
@@ -136,14 +157,17 @@ fi
 SVG=docs/diagrams/kaslr-adoption.svg
 KAS=docs/kaslr.md
 if [ -f "$SVG" ]; then
-  # $3 is "KASLR Added", $5 is "Enabled by Default": both name a release the
-  # timeline must plot. A "$5" of No or an em dash means it never became the
-  # default, so there is no second event to check for.
-  awk -F'|' '/^\| [A-Za-z]/ && $3 ~ /v[0-9]/ {
-        gsub(/^ +| +$/,"",$2); gsub(/^ +| +$/,"",$3); gsub(/^ +| +$/,"",$5)
-        match($3, /v[0-9]+\.[0-9]+/); print $2 "\t" substr($3, RSTART, RLENGTH)
-        if (match($5, /v[0-9]+\.[0-9]+/)) print $2 "\t" substr($5, RSTART, RLENGTH)
-      }' "$KAS" |
+  # "KASLR Added" and "Enabled by Default" each name a release the timeline must
+  # plot. An architecture that never gained KASLR carries an em dash rather than
+  # a version and has no event; one that never became the default has only the
+  # first of the two.
+  md_table_select "$KAS" 'Architecture,KASLR Added,Date Enabled' \
+    'Architecture' 'KASLR Added' 'Enabled by Default' >"$TMP/hist"
+  require_rows "KASLR history table" "$TMP/hist" || :
+  awk -F'\t' '$2 ~ /v[0-9]/ {
+        if (match($2, /v[0-9]+\.[0-9]+/)) print $1 "\t" substr($2, RSTART, RLENGTH)
+        if (match($3, /v[0-9]+\.[0-9]+/)) print $1 "\t" substr($3, RSTART, RLENGTH)
+      }' "$TMP/hist" |
   while IFS="$(printf '\t')" read -r arch ver; do
     grep -q ">$arch<" "$SVG" || { echo "MISSARCH $arch"; continue; }
     grep -q ">$ver<" "$SVG" || echo "MISSVER $arch $ver"
@@ -159,8 +183,8 @@ fi
 # ---- vmsplit.svg vs the vmsplit table ------------------------------------
 SVG=docs/diagrams/vmsplit.svg
 if [ -f "$SVG" ]; then
-  awk -F'|' '/^\| [0-9]G/ { gsub(/^ +| +$/,"",$2); gsub(/^ +| +`|` +$/,"",$3); print $2 "\t" $3 }' \
-      "$KAS" >"$TMP/vs" 2>/dev/null
+  md_table_select "$KAS" 'Split,PAGE_OFFSET,User / Kernel' 'Split' 'PAGE_OFFSET' >"$TMP/vs"
+  require_rows "vmsplit table" "$TMP/vs" || :
   while IFS="$(printf '\t')" read -r name po; do
     [ -n "$name" ] || continue
     grep -q ">$name<" "$SVG" || {

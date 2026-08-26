@@ -1,0 +1,93 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-arch-axes — every axis an arch header MUST define is documented, and
+# every axis documented is really mandatory.
+#
+# api.h refuses to compile an arch/<arch>.h that omits any of these, so the
+# contract is already enforced against the seventeen headers in the tree. What
+# nothing enforced is that a porter can find out what the axes MEAN: the set had
+# grown to ten while the published documentation described two of them, and the
+# eleventh would have arrived just as invisibly. A compile error naming a macro
+# tells an author that it is required, not what answering 0 rather than 1
+# licenses the engine to do.
+#
+# Parity runs both ways, as in check-env-docs. An undocumented axis is a porter
+# guessing; a documented one that is no longer mandatory is a table describing a
+# contract that has moved.
+#
+# The mandatory set is read from api.h as the macros guarded by an #ifndef whose
+# body is an #error -- the encoding of "the arch header must define this". The
+# include guard matches that shape too and is excluded by name.
+#
+# Pure text, so it needs no build.
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+API="$ROOT/src/include/kasld/api.h"
+DOC="$ROOT/CONTRIBUTING.md"
+
+if [ -t 1 ] || [ -n "${KASLD_COLOR:-}" ]; then
+  RED=$(printf '\033[31m')
+  GREEN=$(printf '\033[32m')
+  RESET=$(printf '\033[0m')
+else
+  RED=
+  GREEN=
+  RESET=
+fi
+
+fail=0
+[ -f "$API" ] || { printf '%scheck-arch-axes: FAIL%s (missing %s)\n' "$RED" "$RESET" "$API"; exit 1; }
+[ -f "$DOC" ] || { printf '%scheck-arch-axes: FAIL%s (missing %s)\n' "$RED" "$RESET" "$DOC"; exit 1; }
+
+# Mandatory: `#ifndef X` whose block contains an `#error`. KASLD_API_H is the
+# file's own include guard, which has the same shape and is not an axis.
+required=$(awk '
+  /^#ifndef [A-Za-z_][A-Za-z0-9_]*/ { m = $2; next }
+  /^#error/ { if (m != "" && m != "KASLD_API_H") print m; m = "" }
+  /^#endif/ { m = "" }
+' "$API" | sort -u)
+
+[ -n "$required" ] || {
+  printf '%scheck-arch-axes: FAIL%s (no mandatory axes found in api.h -- has the #ifndef/#error idiom changed?)\n' \
+    "$RED" "$RESET"
+  exit 1
+}
+
+# Documented: named in the Symbol column of the Mandatory axes table. Restricted
+# to that column so neither a passing mention in prose nor an enum value listed
+# under Values counts as an entry, matching how check-env-docs requires a real
+# ENVIRONMENT entry rather than a mention.
+# shellcheck disable=SC2016  # the backticks are markdown code ticks, matched literally
+documented=$(awk -F'|' '
+  /^\*\*Mandatory axes\*\*/ { intbl = 1 }
+  intbl && /^$/ && seen { intbl = 0 }
+  intbl && /^\|/ { seen = 1; print $2 }
+' "$DOC" | grep -oE '`[A-Z][A-Z0-9_]+`' | tr -d '`' | sort -u)
+
+n_req=0
+for a in $required; do
+  n_req=$((n_req + 1))
+  printf '%s\n' "$documented" | grep -qx "$a" || {
+    printf '%s  arch header must define it, but no entry documents it%s: %s\n' "$RED" "$RESET" "$a"
+    fail=1
+  }
+done
+
+for a in $documented; do
+  printf '%s\n' "$required" | grep -qx "$a" || {
+    printf '%s  documented as a mandatory axis but api.h does not require it%s: %s\n' "$RED" "$RESET" "$a"
+    fail=1
+  }
+done
+
+if [ "$fail" -eq 0 ]; then
+  printf '%scheck-arch-axes: OK%s (%d mandatory axes, api.h and CONTRIBUTING agree)\n' \
+    "$GREEN" "$RESET" "$n_req"
+else
+  printf '%scheck-arch-axes: FAIL%s\n' "$RED" "$RESET"
+fi
+exit "$fail"

@@ -1,0 +1,129 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-matrix-summary — the summary table agrees with the matrix it summarises.
+#
+# docs/reproducibility.md leads with a per-cell summary and keeps the full
+# per-scenario matrix behind a fold. Both are transcribed from the same boot
+# logs, so nothing but this makes them agree: regenerate the matrix, paste it,
+# forget the summary, and the page states two different results for the same
+# run. The summary is the half a reader sees first and the half nobody diffs.
+#
+# Asserted, for every row of the summary:
+#   - the cell (arch, release, source) exists in the matrix
+#   - KASLR matches the matrix's `default` row for that cell
+#   - the `default` and `perf-open` columns restate that cell's matrix rows,
+#     as "<virt> / <phys>"
+# and, in the other direction, that every matrix cell has a summary row, so a
+# newly booted architecture cannot be added to one table alone.
+#
+# The prose around the two tables states two counts — how many rows the fold
+# holds, and how many of the omitted scenarios depart from their cell's
+# `default` — and both are checked against the tables. A stated count is the
+# thing that rots first: one more booted cell moves it, and nothing about
+# regenerating a table draws the eye to a sentence forty lines above it.
+#
+# Each count is read through a fixed phrase. Rewording either sentence makes
+# this guard fail rather than quietly stop checking, which is the failure worth
+# having: the message names the phrase it could not find, so the fix is either
+# to restore the wording or to update the pattern here.
+#
+# Usage: tests/check-matrix-summary   (also run by `make lint` / `make test`)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/md-table.sh
+. "$ROOT/tests/lib/md-table.sh"
+
+if [ -t 1 ] || [ -n "${KASLD_COLOR:-}" ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; RESET=
+fi
+
+DOC=$ROOT/docs/reproducibility.md
+TMP=$(mktemp -d "${TMPDIR:-/tmp}/kasld-mtxsum.XXXXXX") || exit 1
+trap 'rm -rf "$TMP"' EXIT INT TERM
+
+fail=0
+note() { printf '%s  %s%s\n' "$RED" "$1" "$RESET"; fail=1; }
+
+# "scenario" appears only in the full matrix; "default (virt / phys)" only in
+# the summary. Each name picks out one table however the other one grows.
+md_table_select "$DOC" 'arch,scenario,KASLR' \
+  'arch' 'release' 'source' 'scenario' 'KASLR' 'virt residual' 'phys residual' >"$TMP/full"
+md_table_select "$DOC" 'arch,release,default (virt / phys)' \
+  'arch' 'release' 'source' 'KASLR' 'default (virt / phys)' 'perf-open (virt / phys)' >"$TMP/sum"
+
+[ -s "$TMP/full" ] || note "no rows read from the full matrix (renamed column, or the table moved)"
+[ -s "$TMP/sum" ]  || note "no rows read from the summary (renamed column, or the table moved)"
+if [ "$fail" -ne 0 ]; then
+  printf '%scheck-matrix-summary: FAIL%s\n' "$RED" "$RESET" >&2
+  exit 1
+fi
+
+# Matrix rows, keyed by cell and scenario, as the summary would render them.
+awk -F'\t' '{ print $1 "\t" $2 "\t" $3 "\t" $4 "\t" $5 "\t" $6 " / " $7 }' "$TMP/full" >"$TMP/fullk"
+
+nrow=0
+while IFS="$(printf '\t')" read -r arch rel src kaslr def perf; do
+  nrow=$((nrow + 1))
+  for pair in "default	$def" "perf-open	$perf"; do
+    scen=${pair%%	*}; want=${pair#*	}
+    got=$(awk -F'\t' -v a="$arch" -v r="$rel" -v s="$src" -v sc="$scen" \
+            '$1==a && $2==r && $3==s && $4==sc { print $5 "\t" $6 }' "$TMP/fullk")
+    if [ -z "$got" ]; then
+      note "summary row has no $scen row in the matrix: $arch $rel ($src)"
+      continue
+    fi
+    gk=${got%%	*}; gv=${got#*	}
+    [ "$gk" = "$kaslr" ] || note "KASLR disagrees for $arch $rel ($src) $scen: summary=$kaslr matrix=$gk"
+    [ "$gv" = "$want" ] || note "$scen disagrees for $arch $rel ($src): summary=$want matrix=$gv"
+  done
+done <"$TMP/sum"
+
+# Every matrix cell must appear in the summary, so a new cell cannot land in the
+# fold alone and go unmentioned above it.
+cut -f1-3 "$TMP/fullk" | sort -u >"$TMP/cells"
+cut -f1-3 "$TMP/sum" | sort -u >"$TMP/scells"
+while IFS= read -r c; do
+  grep -Fqx "$c" "$TMP/scells" || note "matrix cell missing from the summary: $(printf '%s' "$c" | tr '\t' ' ')"
+done <"$TMP/cells"
+
+# --- the two counts the prose states -------------------------------------
+# Each is read through a phrase that lies on ONE line: a pattern spanning a
+# line break matches nothing once the paragraph is rewrapped, which is a
+# silent stop rather than a failure. The extraction runs in this shell, not a
+# subshell, so a missing phrase can set the failure flag.
+fold_actual=$(wc -l <"$TMP/full" | tr -d ' ')
+fold_stated=$(sed -n 's|.*Full results matrix — every scenario, \([0-9][0-9]*\) rows.*|\1|p' "$DOC" | head -1)
+if [ -z "$fold_stated" ]; then
+  note "the <summary> stating the fold's row count was reworded — restore the phrasing or update this guard"
+elif [ "$fold_stated" != "$fold_actual" ]; then
+  note "the fold says $fold_stated rows; the matrix has $fold_actual"
+fi
+
+# Rows of a scenario the summary does not show, whose result departs from that
+# cell's own `default` — the count the prose calls out as the summary's cost.
+exc_actual=$(awk -F'\t' '
+  { k = $1 "|" $2 "|" $3; o = $6 " / " $7
+    if ($4 == "default") def[k] = o; else other[NR] = k "\t" $4 "\t" o }
+  END { n = 0
+    for (i in other) { split(other[i], f, "\t")
+      if (f[2] != "perf-open" && f[3] != def[f[1]]) n++ }
+    print n }' "$TMP/full")
+exc_stated=$(sed -n 's|.*in all but \([0-9][0-9]*\) rows.*|\1|p' "$DOC" | head -1)
+if [ -z "$exc_stated" ]; then
+  note "the sentence stating how many rows depart from default was reworded — restore the phrasing or update this guard"
+elif [ "$exc_stated" != "$exc_actual" ]; then
+  note "the prose says $exc_stated rows depart from default; the matrix has $exc_actual"
+fi
+
+if [ "$fail" -ne 0 ]; then
+  printf '%scheck-matrix-summary: FAIL%s (summary and matrix disagree)\n' "$RED" "$RESET" >&2
+  exit 1
+fi
+printf '%scheck-matrix-summary: OK%s (%d summary rows agree with %s matrix rows; %s departing, as stated)\n' \
+  "$GREEN" "$RESET" "$nrow" "$fold_actual" "$exc_actual"
