@@ -13,6 +13,32 @@
 # This check FAILS if any src/components/*.c lacks a KASLD_META(...) declaration,
 # or carries one with no method: key (the field that classifies the component), or
 # no discloses: key naming what it leaks.
+#
+# It also holds the method:/discloses: VOCABULARY together. The same list is
+# written in three places -- the allowed sets below, the KASLD_META key reference
+# in src/include/kasld/api.h, and the metadata table in CONTRIBUTING.md -- and it
+# discriminates only while all three agree. Both failure directions have been
+# seen: a value carried by shipped components that neither document named, and a
+# name borrowed from the confidence ladder documented as a method, where it means
+# nothing (the ladder grades a RECORD's trust, this names a TECHNIQUE, and the one
+# component emitting CONF_DERIVED records parses a file). Neither is visible at
+# runtime, because only "detection" is ever branched on and every other value is
+# printed verbatim.
+#
+# So the sets below are the source of truth, and three things are asserted about
+# each: every component carries a value from it, both documents name exactly it,
+# and every value in it is carried by at least one component.
+#
+# That last one is what catches a name imported from a neighbouring vocabulary:
+# such a value has no component to point at, so it cannot be added to the list and
+# then documented. The cost is that retiring the last component of a category
+# means dropping the value in the same change, which is the correct prompt.
+#
+# The documents are read as text, so their present shape is load-bearing: the
+# api.h method entry lists its values after "Values:" and closes the sentence with
+# a period, its discloses entry quotes each value, and CONTRIBUTING.md carries one
+# table row per key with the values in the last column. Rewriting either away from
+# that shape fails this check rather than passing silently.
 # ---
 # <bcoles@gmail.com>
 
@@ -28,8 +54,24 @@ else
   RED=; GREEN=; RESET=
 fi
 
+# The two closed vocabularies. Source of truth for the documents and for the
+# per-component checks alike; see the note above before adding a value.
+METHOD_VALUES='parsed heuristic inferred timing brute detection'
+DISCLOSES_VALUES='virtual physical both facts'
+
+meth_alt=$(printf '%s' "$METHOD_VALUES" | tr ' ' '|')
+disc_alt=$(printf '%s' "$DISCLOSES_VALUES" | tr ' ' '|')
+
+# Space- or comma-separated words -> sorted and space-separated, so two
+# vocabularies can be compared as sets regardless of how either was written.
+norm() {
+  printf '%s' "$1" | tr ',' ' ' | tr -s ' ' '\n' | grep -v '^$' | sort -u |
+    tr '\n' ' '
+}
+
 rc=0
 missing=""
+badmethod=""
 nomethod=""
 badhw=""
 nodisc=""
@@ -43,6 +85,9 @@ for f in "$COMP"/*.c; do
     rc=1
   elif ! grep -qE 'method:' "$f"; then
     nomethod="$nomethod $base"
+    rc=1
+  elif ! grep -qE '"method:('"$meth_alt"')\\n"' "$f"; then
+    badmethod="$badmethod $base"
     rc=1
   fi
 
@@ -65,7 +110,7 @@ for f in "$COMP"/*.c; do
   if ! grep -qE '"discloses:' "$f"; then
     nodisc="$nodisc $base"
     rc=1
-  elif ! grep -qE '"discloses:(virtual|physical|both|facts)\\n"' "$f"; then
+  elif ! grep -qE '"discloses:('"$disc_alt"')\\n"' "$f"; then
     baddisc="$baddisc $base"
     rc=1
   fi
@@ -83,6 +128,60 @@ for f in "$COMP"/*.c; do
   fi
 done
 
+# ---- Vocabulary parity: the sets above against the tree and the documents ---
+API="$ROOT/src/include/kasld/api.h"
+MD="$ROOT/CONTRIBUTING.md"
+
+used_method=$(grep -ho '"method:[a-z]*' "$COMP"/*.c | sed 's/"method://')
+used_disc=$(grep -ho '"discloses:[a-z]*' "$COMP"/*.c | sed 's/"discloses://')
+
+want_method=$(norm "$METHOD_VALUES")
+want_disc=$(norm "$DISCLOSES_VALUES")
+
+api_method=$(norm "$(sed -n '/^ \*   method:/,/^ \*   phase:/p' "$API" |
+                     tr '\n' ' ' | sed -E 's/.*Values:([^.]*)\..*/\1/' | tr -d '*')")
+api_disc=$(norm "$(sed -n '/^ \*   discloses:/,/^ \*   live:/p' "$API" |
+                   grep -o '"[a-z]*"' | tr -d '"' | tr '\n' ' ')")
+# The backticks are literal table markup, not command substitution, so both
+# patterns must stay single-quoted.
+# shellcheck disable=SC2016
+md_method=$(norm "$(grep -E '^\| `method` \|' "$MD" |
+                    awk -F'|' '{ print $(NF - 1) }' | tr -d '` ')")
+# shellcheck disable=SC2016
+md_disc=$(norm "$(grep -E '^\| `discloses` \|' "$MD" |
+                  awk -F'|' '{ print $(NF - 1) }' | tr -d '` ')")
+
+# <key> <document> <documented set> <expected set>
+vocab_cmp() {
+  [ "$3" = "$4" ] && return 0
+  printf '%scheck-component-meta: FAIL%s — %s: vocabulary in %s is not the one this check allows:\n' \
+    "$RED" "$RESET" "$1" "$2"
+  printf '  documented: %s\n' "$3"
+  printf '  allowed:    %s\n' "$4"
+  return 1
+}
+
+vocab_cmp method    "src/include/kasld/api.h" "$api_method" "$want_method" || rc=1
+vocab_cmp discloses "src/include/kasld/api.h" "$api_disc" "$want_disc" || rc=1
+vocab_cmp method    "CONTRIBUTING.md" "$md_method" "$want_method" || rc=1
+vocab_cmp discloses "CONTRIBUTING.md" "$md_disc" "$want_disc" || rc=1
+
+# A value no component carries names a category the tree does not have.
+unused=""
+for v in $METHOD_VALUES; do
+  printf '%s\n' "$used_method" | grep -qx "$v" || unused="$unused method:$v"
+done
+for v in $DISCLOSES_VALUES; do
+  printf '%s\n' "$used_disc" | grep -qx "$v" || unused="$unused discloses:$v"
+done
+if [ -n "$unused" ]; then
+  printf '%scheck-component-meta: FAIL%s — allowed value no component carries:\n' "$RED" "$RESET"
+  for c in $unused; do printf '  %s\n' "$c"; done
+  printf '  either a component should declare it, or drop it here and from both\n'
+  printf '  api.h and CONTRIBUTING.md\n'
+  rc=1
+fi
+
 if [ -n "$missing" ]; then
   printf '%scheck-component-meta: FAIL%s — missing KASLD_META:\n' "$RED" "$RESET"
   for c in $missing; do printf '  %s\n' "$c"; done
@@ -90,6 +189,10 @@ fi
 if [ -n "$nomethod" ]; then
   printf '%scheck-component-meta: FAIL%s — KASLD_META without a method: key:\n' "$RED" "$RESET"
   for c in $nomethod; do printf '  %s\n' "$c"; done
+fi
+if [ -n "$badmethod" ]; then
+  printf '%scheck-component-meta: FAIL%s — method: must be one of %s:\n' "$RED" "$RESET" "$METHOD_VALUES"
+  for c in $badmethod; do printf '  %s\n' "$c"; done
 fi
 if [ -n "$nodisc" ]; then
   printf '%scheck-component-meta: FAIL%s — KASLD_META without a discloses: key:\n' "$RED" "$RESET"
@@ -106,6 +209,6 @@ fi
 if [ "$rc" -eq 0 ]; then
 guard_scope "check-component-meta" "$n" 80
 
-  printf '%scheck-component-meta: OK%s (%d components, all declare KASLD_META with method: and discloses:)\n' "$GREEN" "$RESET" "$n"
+  printf '%scheck-component-meta: OK%s (%d components, all declare KASLD_META with method: and discloses:; vocabulary matches api.h and CONTRIBUTING.md)\n' "$GREEN" "$RESET" "$n"
 fi
 exit $rc
