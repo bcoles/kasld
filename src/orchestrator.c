@@ -4378,10 +4378,23 @@ static void usage_print_section(enum opt_section sect, int col) {
                o->long_name, o->arg_name);
     else
       snprintf(prefix, sizeof(prefix), "  %s, %s", o->short_name, o->long_name);
-    if (o->help_has_int_arg)
-      printf("%-*s  " /*help*/, col, prefix), printf(o->help, o->help_arg_int),
-          printf("\n");
-    else
+    if (o->help_has_int_arg) {
+      printf("%-*s  " /*help*/, col, prefix);
+      /* The one format in this program that is not a literal at its call. Every
+       * o->help is a literal in the option table, and help_has_int_arg marks
+       * the entries carrying the single %d that help_arg_int fills, so the
+       * pairing is fixed at compile time -- just not where the compiler can see
+       * it. Scoped to this call so the check stays live everywhere else. */
+#if defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-nonliteral"
+#endif
+      printf(o->help, o->help_arg_int);
+#if defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
+      printf("\n");
+    } else
       printf("%-*s  %s\n", col, prefix, o->help);
   }
   printf("\n");

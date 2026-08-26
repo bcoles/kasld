@@ -65,16 +65,15 @@
  * BSS): the exact footprint. Returns 0 on failure. */
 __attribute__((unused)) static unsigned long
 kasld_image_size_from_header(const char *release) {
-  const char *const paths[] = {
-      "/boot/Image-%s",
-      "/boot/vmlinuz-%s",
-      NULL,
-  };
+  /* Prefixes rather than formats: a format reaching snprintf through an array
+   * cannot be checked against its argument, while one literal with the varying
+   * part passed as an argument is checked in full. */
+  static const char *const prefix[] = {"/boot/Image-", "/boot/vmlinuz-"};
   char path[256];
   uint8_t hdr[60];
 
-  for (int i = 0; paths[i] != NULL; i++) {
-    snprintf(path, sizeof(path), paths[i], release);
+  for (unsigned i = 0; i < sizeof(prefix) / sizeof(prefix[0]); i++) {
+    snprintf(path, sizeof(path), "%s%s", prefix[i], release);
     FILE *fp = kasld_fopen(path, "rb");
     if (!fp)
       continue;
@@ -303,12 +302,15 @@ __attribute__((unused)) static unsigned long kasld_gzip_isize(FILE *fp,
  * found. */
 __attribute__((unused)) static unsigned long
 kasld_image_size_from_gzip(const char *release) {
-  const char *const paths[] = {"/boot/vmlinuz-%s", "/boot/Image-%s", NULL};
+  /* Prefixes rather than formats: a format reaching snprintf through an array
+   * cannot be checked against its argument, while one literal with the varying
+   * part passed as an argument is checked in full. */
+  static const char *const prefix[] = {"/boot/vmlinuz-", "/boot/Image-"};
   char path[256];
   uint8_t hdr[28];
 
-  for (int i = 0; paths[i] != NULL; i++) {
-    snprintf(path, sizeof(path), paths[i], release);
+  for (unsigned i = 0; i < sizeof(prefix) / sizeof(prefix[0]); i++) {
+    snprintf(path, sizeof(path), "%s%s", prefix[i], release);
     FILE *fp = kasld_fopen(path, "rb");
     if (!fp)
       continue;

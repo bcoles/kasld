@@ -105,12 +105,15 @@ static int scan_framebuffers(void) {
 /* TIOCGSERIAL returns serial_struct.iomem_base = uport->mapbase, the physical
  * MMIO base of an MMIO-mapped UART (0 for legacy port-I/O 8250). */
 static int scan_serial(void) {
-  static const char *const fmts[] = {"/dev/ttyS%d", "/dev/ttyAMA%d", NULL};
+  /* Prefixes rather than formats: a format reaching snprintf through an array
+   * cannot be checked against its argument, while one literal with the varying
+   * parts passed as arguments is checked in full. */
+  static const char *const prefix[] = {"/dev/ttyS", "/dev/ttyAMA"};
   int found = 0;
-  for (int t = 0; fmts[t]; t++) {
+  for (unsigned t = 0; t < sizeof(prefix) / sizeof(prefix[0]); t++) {
     for (int i = 0; i < 4; i++) {
       char dev[32];
-      snprintf(dev, sizeof(dev), fmts[t], i);
+      snprintf(dev, sizeof(dev), "%s%d", prefix[t], i);
       int fd = kasld_open(dev, O_RDONLY | O_NONBLOCK | O_NOCTTY);
       if (fd < 0)
         continue;

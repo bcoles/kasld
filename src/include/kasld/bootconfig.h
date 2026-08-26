@@ -42,15 +42,21 @@ __attribute__((unused)) static FILE *kasld_open_boot_config(int *is_unkeyed) {
 
   struct utsname uts;
   if (kasld_uname(&uts) == 0) {
-    const char *fmts[] = {
-        "/boot/config-%s",
-        "/lib/modules/%s/build/.config",
-        "/lib/modules/%s/config",
-        NULL,
+    /* Split either side of the release rather than held as three format
+     * strings: a format reaching snprintf through an array cannot be checked
+     * against its argument, while one literal with the varying parts passed as
+     * arguments is checked in full. */
+    static const struct {
+      const char *pre, *post;
+    } cand[] = {
+        {"/boot/config-", ""},
+        {"/lib/modules/", "/build/.config"},
+        {"/lib/modules/", "/config"},
     };
     char path[256];
-    for (int i = 0; fmts[i]; i++) {
-      snprintf(path, sizeof(path), fmts[i], uts.release);
+    for (unsigned i = 0; i < sizeof(cand) / sizeof(cand[0]); i++) {
+      snprintf(path, sizeof(path), "%s%s%s", cand[i].pre, uts.release,
+               cand[i].post);
       FILE *fp = kasld_fopen(path, "r");
       if (fp)
         return fp;

@@ -62,7 +62,7 @@ KASLD_WARN_FLAGS_WANTED := \
     -Wshadow -Wstrict-prototypes -Wmissing-prototypes \
     -Wmissing-declarations -Wpointer-arith -Wcast-align \
     -Wcast-qual -Wwrite-strings -Wundef \
-    -Wold-style-definition -Wredundant-decls \
+    -Wold-style-definition -Wredundant-decls -Wformat=2 \
     -Wbad-function-cast -Wfloat-equal -Wnested-externs \
     -Wnull-dereference -Wlogical-op -Wduplicated-cond \
     -Wduplicated-branches -Wrestrict -Wvla -Walloca \
