@@ -51,7 +51,24 @@ resolve_qemu() {
 # constant overflow gets caught. Kept targeted (not full -Werror) so the test
 # TUs' pre-existing unused-static warnings don't turn fatal. Both are front-end
 # diagnostics and fire at any optimisation level.
-CFLAGS=${CFLAGS:--std=c99 -O2 -static -I$ROOT/src -Werror=shift-count-overflow -Werror=overflow}
+# The same warning set the native build carries, so a diagnostic is not a
+# function of which build happened to compile the file. This is the only build
+# that compiles a test's arch-gated bodies on their own arch, so a warning
+# reachable nowhere else is reachable here.
+#
+# Three exclusions, each because the diagnostic describes this harness rather
+# than the code. -Wno-type-limits: the property generators clamp against per-arch
+# bounds, and a bound that is 0 on one arch makes its comparison tautological
+# there while remaining load-bearing on the other sixteen. -Wno-unused-function
+# and -Wno-unused-variable: a test binary links whole shipped translation units
+# and calls part of each, so most of what it pulls in is legitimately unreached
+# -- silencing that in the source would mean annotating shipped code to suit a
+# test link. -Wredundant-decls is left out for the same reason.
+KASLD_TEST_WARN="-Wall -Wextra -Wno-type-limits -Wno-unused-function\
+ -Wno-unused-variable -Wshadow -Wcast-align -Wcast-qual -Wpointer-arith -Wundef\
+ -Wvla -Wnull-dereference -Wlogical-op -Wduplicated-cond -Wduplicated-branches\
+ -Wwrite-strings -Wbad-function-cast"
+CFLAGS=${CFLAGS:--std=c99 -O2 -static -I$ROOT/src -Werror=shift-count-overflow -Werror=overflow $KASLD_TEST_WARN}
 # Every binary this script builds is a test, so the hermeticity probe applies to
 # all of them: a test that reads a kernel fact from the machine running it is
 # asserting against that machine, on any architecture. Appended rather than put
@@ -94,6 +111,22 @@ show_cc_log() {
   fi
 }
 
+# A compile that SUCCEEDS still has something to say. The log was written either
+# way and read only on failure, so a warning on a passing build was captured to a
+# file and dropped -- including one from the -Werror= classes above, which are
+# fatal only when they fire as errors. A cross build is where a word-size
+# diagnostic appears at all, so silence there is the one place it costs most.
+#
+# Reported without failing the target: the exit status is the compiler's verdict
+# and is not overridden here. run_target's output is collected per target and
+# printed whole, so one header carries the attribution and the diagnostic keeps
+# the compiler's own layout -- the caret lines are the useful half.
+show_cc_diagnostics() {
+  [ -s "$1" ] || return 0
+  printf 'WARN  %-30s (%s)\n' "$triple" "$2"
+  sed 's/^/      /' "$1"
+}
+
 CORE="$ROOT/src/estimate.c $ROOT/src/quantities.c $ROOT/src/evidence.c $ROOT/src/engine.c"
 RULES=$(echo "$ROOT"/src/rules/*.c)
 
@@ -109,6 +142,7 @@ compile_obj() {
     show_cc_log "$d/cc.log"
     return 1
   fi
+  show_cc_diagnostics "$d/cc.log" "compile ${co_src##*/}"
 }
 
 # link_bin <out> <object...> [-l...] — link step; libraries follow the objects.
@@ -120,6 +154,7 @@ link_bin() {
     show_cc_log "$d/cc.log"
     return 1
   fi
+  show_cc_diagnostics "$d/cc.log" "link ${lb_out##*/}"
 }
 
 # run_target writes its human-readable line(s) to stdout (the caller redirects
@@ -150,8 +185,14 @@ run_target() {
   # quantity tops / PHYS_OFFSET, so they are portable across 64-bit arches.
   # (This harness has caught real arch bugs this way: a 64-bit shift overflow
   # and PHYS_OFFSET-relative assertion errors.)
-  compile_obj "$ROOT/tests/test_engine.c" "$obj/test_engine.o" || { echo fail >"$st"; return; }
-  compile_obj "$ROOT/tests/test_engine_integration.c" "$obj/test_integration.o" || { echo fail >"$st"; return; }
+  # The two engine TUs carry only test code, so the unused-* checks mean here
+  # what they mean natively: a test body no arch reaches. Everything else this
+  # script builds links whole shipped translation units and uses part of each,
+  # where the same check would only describe the link.
+  compile_obj "$ROOT/tests/test_engine.c" "$obj/test_engine.o" \
+    -Wunused-function -Wunused-variable || { echo fail >"$st"; return; }
+  compile_obj "$ROOT/tests/test_engine_integration.c" "$obj/test_integration.o" \
+    -Wunused-function -Wunused-variable || { echo fail >"$st"; return; }
   # The parser / result-model / merge / engine-sync unit suite (its renderer
   # half is now test_render, below). It includes the orchestrator + render
   # translation units directly (hence -DKASLD_TESTING and -lpthread) and derives

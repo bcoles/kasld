@@ -3015,8 +3015,9 @@ static void test_full_engine_property_x86_32_floor(void) {
  * project it through the arch's own linear map. The phys draw is clamped so the
  * projection stays inside the virtual text window — on the 32-bit arches that
  * window is the smaller of the two, and an unclamped draw would wrap. */
-static void prop_floor_coupled(const char *arch, unsigned long salt,
-                               unsigned long pmax_cap) {
+__attribute__((unused)) static void prop_floor_coupled(const char *arch,
+                                                       unsigned long salt,
+                                                       unsigned long pmax_cap) {
 #ifdef KASLD_PROP_ARCH
   int nr = 0, nv = 0;
   const rule_fn *rules = engine_rules(&nr);
@@ -3055,7 +3056,7 @@ static void prop_floor_coupled(const char *arch, unsigned long salt,
 
 /* The physical span whose projection stays inside the virtual text window. */
 #ifdef KASLD_PROP_ARCH
-static unsigned long prop_coupled_pmax(void) {
+__attribute__((unused)) static unsigned long prop_coupled_pmax(void) {
   unsigned long from_virt = (unsigned long)KASLR_VIRT_TEXT_MAX -
                             (unsigned long)PAGE_OFFSET +
                             (unsigned long)PHYS_OFFSET;

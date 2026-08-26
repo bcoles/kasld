@@ -2048,7 +2048,7 @@ int rule_phys_reservation_exclude(const struct evidence_set *ev,
                                   const struct estimate *est,
                                   struct constraint *out, int out_max);
 
-static int has_phys_exclude(const struct engine *e) {
+__attribute__((unused)) static int has_phys_exclude(const struct engine *e) {
   for (int i = 0; i < e->n_constraints; i++)
     if (e->constraints[i].q == Q_PHYS_IMAGE_BASE &&
         e->constraints[i].op == C_EXCLUDE)
@@ -2122,8 +2122,8 @@ int rule_ram_map_phys_exclude(const struct evidence_set *ev,
                               const struct estimate *est,
                               struct constraint *out, int out_max);
 
-static struct observation mk_ram(unsigned long lo, unsigned long hi,
-                                 const char *origin) {
+__attribute__((unused)) static struct observation
+mk_ram(unsigned long lo, unsigned long hi, const char *origin) {
   struct observation o;
   memset(&o, 0, sizeof(o));
   o.value_kind = OBS_ADDRESS;
@@ -2154,8 +2154,9 @@ static uint32_t add_ram_covering_conf(struct evidence_set *ev, unsigned long lo,
   return evidence_add_covering(ev, &c);
 }
 
-static uint32_t add_ram_covering(struct evidence_set *ev, unsigned long lo,
-                                 unsigned long hi, const char *origin) {
+__attribute__((unused)) static uint32_t
+add_ram_covering(struct evidence_set *ev, unsigned long lo, unsigned long hi,
+                 const char *origin) {
   return add_ram_covering_conf(ev, lo, hi, origin, CONF_PARSED);
 }
 
@@ -2838,7 +2839,7 @@ static void seed_zero_setup(struct engine *e, unsigned long base, int with_mem,
 }
 #endif
 
-static void test_x86_64_efi_phys_seed_zero_mem(void) {
+__attribute__((unused)) static void test_x86_64_efi_phys_seed_zero_mem(void) {
 #if defined(__x86_64__)
   unsigned long base =
       (unsigned long)KASLR_PHYS_MIN + 0x4000000ul; /* 16+64 MiB */
@@ -2856,7 +2857,8 @@ static void test_x86_64_efi_phys_seed_zero_mem(void) {
 #endif
 }
 
-static void test_x86_64_efi_phys_seed_zero_memmap(void) {
+__attribute__((unused)) static void
+test_x86_64_efi_phys_seed_zero_memmap(void) {
 #if defined(__x86_64__)
   unsigned long base = (unsigned long)KASLR_PHYS_MIN + 0x4000000ul;
   base &= ~((unsigned long)KASLR_PHYS_ALIGN - 1);
@@ -2871,7 +2873,8 @@ static void test_x86_64_efi_phys_seed_zero_memmap(void) {
 #endif
 }
 
-static void test_x86_64_efi_phys_seed_zero_hugepages(void) {
+__attribute__((unused)) static void
+test_x86_64_efi_phys_seed_zero_hugepages(void) {
 #if defined(__x86_64__)
   unsigned long base = (unsigned long)KASLR_PHYS_MIN + 0x4000000ul;
   base &= ~((unsigned long)KASLR_PHYS_ALIGN - 1);
@@ -2887,7 +2890,8 @@ static void test_x86_64_efi_phys_seed_zero_hugepages(void) {
 }
 
 /* No cmdline trigger → no pin (seed remains random). */
-static void test_x86_64_efi_phys_seed_zero_no_trigger(void) {
+__attribute__((unused)) static void
+test_x86_64_efi_phys_seed_zero_no_trigger(void) {
 #if defined(__x86_64__)
   unsigned long base = (unsigned long)KASLR_PHYS_MIN + 0x4000000ul;
   base &= ~((unsigned long)KASLR_PHYS_ALIGN - 1);
@@ -2904,7 +2908,8 @@ static void test_x86_64_efi_phys_seed_zero_no_trigger(void) {
 }
 
 /* No EFI → no pin (the trigger only matters via the EFI stub). */
-static void test_x86_64_efi_phys_seed_zero_no_efi(void) {
+__attribute__((unused)) static void
+test_x86_64_efi_phys_seed_zero_no_efi(void) {
 #if defined(__x86_64__)
   struct engine e;
   engine_init(&e);
@@ -2927,7 +2932,8 @@ static void test_x86_64_efi_phys_seed_zero_no_efi(void) {
 }
 
 /* No kernel_image observation → fallback case (deferred); no pin emitted. */
-static void test_x86_64_efi_phys_seed_zero_no_kernel_image(void) {
+__attribute__((unused)) static void
+test_x86_64_efi_phys_seed_zero_no_kernel_image(void) {
 #if defined(__x86_64__)
   struct engine e;
   engine_init(&e);
@@ -3207,7 +3213,7 @@ int rule_x86_64_page_offset_from_vmalloc_vmemmap(const struct evidence_set *ev,
                                                  struct constraint *out,
                                                  int out_max);
 
-static void test_x86_64_po_from_vmalloc(void) {
+__attribute__((unused)) static void test_x86_64_po_from_vmalloc(void) {
 #if defined(__x86_64__)
   struct engine e;
   engine_init(&e);
@@ -3243,7 +3249,7 @@ static void test_x86_64_po_from_vmalloc(void) {
 
 /* VMEMMAP observation alone: tighter bound, additional vmalloc+pud subtraction.
  */
-static void test_x86_64_po_from_vmemmap(void) {
+__attribute__((unused)) static void test_x86_64_po_from_vmemmap(void) {
 #if defined(__x86_64__)
   struct engine e;
   engine_init(&e);
@@ -3275,7 +3281,8 @@ static void test_x86_64_po_from_vmemmap(void) {
 }
 
 /* No SF_PHYS_MAX_PFN → no bound (the rule needs directmap_size). */
-static void test_x86_64_po_from_vmalloc_no_max_pfn(void) {
+__attribute__((unused)) static void
+test_x86_64_po_from_vmalloc_no_max_pfn(void) {
 #if defined(__x86_64__)
   struct engine e;
   engine_init(&e);
@@ -3301,7 +3308,8 @@ static void test_x86_64_po_from_vmalloc_no_max_pfn(void) {
  * branch must fire and must never emit a bound below the pinned truth. The pin
  * dominates the resolved estimate, so the L5 selection is asserted on the
  * EMITTED constraint rather than the resolved interval. */
-static void test_x86_64_po_from_vmemmap_pinned_l5(void) {
+__attribute__((unused)) static void
+test_x86_64_po_from_vmemmap_pinned_l5(void) {
 #if defined(__x86_64__)
   struct engine e;
   engine_init(&e);
@@ -3367,7 +3375,8 @@ static void test_x86_64_po_from_vmemmap_pinned_l5(void) {
  * upper bound far below the truth. The soundness assertion (every emitted bound
  * >= the pinned truth) fails if the territory check is dropped and L5 is used.
  */
-static void test_x86_64_po_from_vmemmap_pinned_l4_keeps_l4(void) {
+__attribute__((unused)) static void
+test_x86_64_po_from_vmemmap_pinned_l4_keeps_l4(void) {
 #if defined(__x86_64__)
   struct engine e;
   engine_init(&e);
@@ -3428,7 +3437,8 @@ static void test_x86_64_po_from_vmemmap_pinned_l4_keeps_l4(void) {
 int rule_x86_64_vmalloc_vmemmap_invariant(const struct evidence_set *ev,
                                           struct verdict *out, int out_max);
 
-static void test_x86_64_vmalloc_vmemmap_invariant_violation(void) {
+__attribute__((unused)) static void
+test_x86_64_vmalloc_vmemmap_invariant_violation(void) {
 #if defined(__x86_64__)
   struct engine e;
   engine_init(&e);
@@ -3459,7 +3469,8 @@ static void test_x86_64_vmalloc_vmemmap_invariant_violation(void) {
 }
 
 /* Compliant pair (vmemmap is 34 TiB above vmalloc) — neither invalidated. */
-static void test_x86_64_vmalloc_vmemmap_invariant_ok(void) {
+__attribute__((unused)) static void
+test_x86_64_vmalloc_vmemmap_invariant_ok(void) {
 #if defined(__x86_64__)
   struct engine e;
   engine_init(&e);
@@ -4207,7 +4218,8 @@ int rule_cmdline_memmap_too_large_phys_pin(const struct evidence_set *ev,
                                            const struct estimate *est,
                                            struct constraint *out, int out_max);
 
-static void test_cmdline_memmap_too_large_phys_pin(void) {
+__attribute__((unused)) static void
+test_cmdline_memmap_too_large_phys_pin(void) {
 #if defined(__x86_64__)
   unsigned long base = (unsigned long)KASLR_PHYS_MIN + 0x4000000ul;
   base &= ~((unsigned long)KASLR_PHYS_ALIGN - 1);
@@ -4232,7 +4244,8 @@ static void test_cmdline_memmap_too_large_phys_pin(void) {
 }
 
 /* Count ≤ 4 → no pin (kernel honours the entries; KASLR continues). */
-static void test_cmdline_memmap_too_large_phys_pin_under_threshold(void) {
+__attribute__((unused)) static void
+test_cmdline_memmap_too_large_phys_pin_under_threshold(void) {
 #if defined(__x86_64__)
   unsigned long base = (unsigned long)KASLR_PHYS_MIN + 0x4000000ul;
   base &= ~((unsigned long)KASLR_PHYS_ALIGN - 1);
@@ -4261,7 +4274,8 @@ int rule_physical_start_lower_bound(const struct evidence_set *ev,
                                     const struct estimate *est,
                                     struct constraint *out, int out_max);
 
-static void test_physical_start_lower_bound_learned(void) {
+__attribute__((unused)) static void
+test_physical_start_lower_bound_learned(void) {
 #if defined(__x86_64__)
   struct engine e;
   engine_init(&e);
@@ -4281,7 +4295,8 @@ static void test_physical_start_lower_bound_learned(void) {
 /* No SF_PHYSICAL_START → heuristic falls back to compile-time
  * KASLR_VIRT_TEXT_MIN (same value the pre-widening top had). Default-config
  * kernels keep their tight window. */
-static void test_physical_start_lower_bound_heuristic(void) {
+__attribute__((unused)) static void
+test_physical_start_lower_bound_heuristic(void) {
 #if defined(__x86_64__)
   struct engine e;
   engine_init(&e);
@@ -4295,7 +4310,8 @@ static void test_physical_start_lower_bound_heuristic(void) {
 /* The heuristic floor is overridable: a real text leak BELOW
  * KASLR_VIRT_TEXT_MIN survives (compile-time floor is a heuristic, the leak is
  * parsed and wins via the resolver's confidence priority). */
-static void test_physical_start_lower_bound_leak_below_heuristic(void) {
+__attribute__((unused)) static void
+test_physical_start_lower_bound_leak_below_heuristic(void) {
 #if defined(__x86_64__)
   struct engine e;
   engine_init(&e);
@@ -4653,7 +4669,8 @@ int rule_arm64_va_bits_from_directmap(const struct evidence_set *ev,
                                       struct constraint *out, int out_max);
 
 /* Emit a single DIRECTMAP virtual leak at `addr`. */
-static void add_directmap(struct engine *e, unsigned long addr) {
+__attribute__((unused)) static void add_directmap(struct engine *e,
+                                                  unsigned long addr) {
   struct observation o = mk_obs(KASLD_TYPE_VIRT, REGION_DIRECTMAP, addr,
                                 LO_SET | SAMPLE_SET, POS_BASE, CONF_PARSED);
   evidence_add(&e->ev, &o);
@@ -4661,7 +4678,8 @@ static void add_directmap(struct engine *e, unsigned long addr) {
 
 /* True if the finite-set estimate holds exactly the single candidate `value`.
  */
-static int finset_is(const struct estimate *est, unsigned long value) {
+__attribute__((unused)) static int finset_is(const struct estimate *est,
+                                             unsigned long value) {
   const struct quantity_def *qd = &quantities[Q_VA_BITS];
   unsigned long want = 0;
   for (int i = 0; i < qd->n_candidates; i++)
@@ -6138,8 +6156,8 @@ int rule_efi_loader_kernel_pick(const struct evidence_set *ev,
 /* Build a PHYS REGION_EFI_LOADER_IMAGE observation with both LO and HI set
  * (the shape dmesg_efi_memmap emits via kasld_result_sized). mk_obs() only
  * fills lo from the address argument, so patch hi explicitly. */
-static struct observation mk_efi_loader_entry(unsigned long lo,
-                                              unsigned long hi) {
+__attribute__((unused)) static struct observation
+mk_efi_loader_entry(unsigned long lo, unsigned long hi) {
   struct observation o = mk_obs(KASLD_TYPE_PHYS, REGION_EFI_LOADER_IMAGE, lo,
                                 LO_SET | HI_SET, POS_BASE, CONF_PARSED);
   o.hi = hi;
@@ -6671,7 +6689,7 @@ static void test_base_align_cross_validate(void) {
   assert(e.est[Q_VIRT_KASLR_ALIGN].lo >= 0x400000ul);
 }
 
-static void test_randomize_memory_page_offset(void) {
+__attribute__((unused)) static void test_randomize_memory_page_offset(void) {
   /* x86_64-only rule (RANDOMIZE_MEMORY); the synthetic direct-map base sits
    * 8.8 TiB above the floor, beyond a 32-bit `unsigned long`. */
 #if defined(__x86_64__)
@@ -6731,7 +6749,8 @@ static void test_firmware_memmap_holes(void) {
 }
 
 /* randomize_memory_page_offset Path 2: cross-origin directmap - RAM base. */
-static void test_randomize_memory_page_offset_path2(void) {
+__attribute__((unused)) static void
+test_randomize_memory_page_offset_path2(void) {
   /* x86_64-only rule; the PUD-aligned base literal exceeds a 32-bit long. */
 #if defined(__x86_64__)
   struct engine e;
@@ -7018,7 +7037,8 @@ static void test_phys_virt_synth_corroboration(void) {
  * size, not L5 — committing the larger L5 size on an L4 box would push the
  * lower bound above the true vmemmap base. Only a RESOLVED page_offset below
  * the L4 VAS commits L5. Mirrors x86_64_vmalloc_base_bound's guard. */
-static void test_x86_64_vmemmap_base_bound_unresolved_po_keeps_l4(void) {
+__attribute__((unused)) static void
+test_x86_64_vmemmap_base_bound_unresolved_po_keeps_l4(void) {
 #if defined(__x86_64__)
   struct engine e;
   engine_init(&e);
@@ -7329,7 +7349,7 @@ int rule_riscv64_non_efi_phys_base(const struct evidence_set *,
 
 /* arm64: SF_PAGE_SIZE + a directmap leak -> Q_PAGE_OFFSET upper bound, snapped
  * down to the MEMSTART alignment (1 GiB for 4 KiB pages). */
-static void test_arm64_memstart_align(void) {
+__attribute__((unused)) static void test_arm64_memstart_align(void) {
   struct engine e;
   engine_init(&e);
   struct estimate top;
@@ -8209,7 +8229,8 @@ static void test_arm64_va_bits_constants_agree(void) {
  * OUTSIDE a pinned window. Truth is the compile-time default, which
  * virt_kaslr_disabled_pin supplies; this test only requires that the seed rule
  * add nothing. */
-static void test_riscv64_fdt_kaslr_seed_declines_when_kaslr_off(void) {
+__attribute__((unused)) static void
+test_riscv64_fdt_kaslr_seed_declines_when_kaslr_off(void) {
   struct estimate top;
   quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
   const rule_fn rules[] = {rule_riscv64_fdt_kaslr_seed};
@@ -8239,7 +8260,7 @@ static void test_riscv64_fdt_kaslr_seed_declines_when_kaslr_off(void) {
          e.est[Q_VIRT_IMAGE_BASE].hi == top.hi);
 }
 
-static void test_riscv64_fdt_kaslr_seed(void) {
+__attribute__((unused)) static void test_riscv64_fdt_kaslr_seed(void) {
   struct estimate top;
   quantities[Q_VIRT_IMAGE_BASE].init_top(&top);
   /* 32-bit-safe seed. 25 MiB is deliberately NOT a PMD multiple of the PUD
@@ -8327,7 +8348,7 @@ static void test_riscv64_fdt_kaslr_seed(void) {
  * firmware placement (2 MiB) plus the .head.text length (0x2000), which lands
  * the pin at phys `_stext`. Omitting IMAGE_BASE_OFFSET would land it 0x2000
  * below the iomem "Kernel code" entry, excluding the true phys text base. */
-static void test_riscv64_non_efi_phys_base(void) {
+__attribute__((unused)) static void test_riscv64_non_efi_phys_base(void) {
   struct engine e;
   engine_init(&e);
 #if defined(KASLR_PHYS_MIN)
@@ -8408,7 +8429,7 @@ static int rule_lobound_page_offset(const struct evidence_set *ev,
  * the linear map. The rule emits a SOUND lower bound (PAGE_OFFSET + head) and
  * must NOT pin to the modern KERNEL_LINK default (the bug this fixes pinned
  * 128 GiB high). The resolved window contains a legacy _stext. */
-static void test_riscv64_text_base_legacy(void) {
+__attribute__((unused)) static void test_riscv64_text_base_legacy(void) {
   /* Whole body guarded: the 64-bit PAGE_OFFSET literals overflow a 32-bit
    * unsigned long, and the rule is riscv64-only anyway. */
 #if defined(__riscv) && __riscv_xlen == 64
@@ -8471,7 +8492,7 @@ static void test_riscv64_text_base_legacy(void) {
  * scoped to the correct layout). The modern branch only fires once PAGE_OFFSET
  * is resolved below legacy, so the test must establish that (a modern sv39
  * PAGE_OFFSET). */
-static void test_riscv64_text_base_modern(void) {
+__attribute__((unused)) static void test_riscv64_text_base_modern(void) {
 #if defined(__riscv) && __riscv_xlen == 64
   struct engine e;
   engine_init(&e);

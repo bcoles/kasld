@@ -416,7 +416,12 @@ void build_hardening_report(struct hardening_report *r) {
   /* Each suggestion's silenced set is accumulated into the hardened union `all`
    * (deduped below); the lockdown/dmesg sets are kept for the leave-one-out
    * pass. All sets are bounded by the component count. */
-  const char *all[MAX_COMPONENTS];
+  /* Only the first nall entries carry a name, and only the first nuniq of those
+   * survive the dedup below -- but the whole array is handed to
+   * kasld_project_posture as a pointer, where the count is the only thing
+   * bounding the read. Defined in full so the call is well-formed at any count,
+   * including the empty one. */
+  const char *all[MAX_COMPONENTS] = {0};
   int nall = 0;
   const char *ld_sil[MAX_COMPONENTS];
   int n_ld = 0;
