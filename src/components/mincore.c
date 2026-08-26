@@ -126,7 +126,20 @@ static unsigned long get_kernel_addr_mincore(void) {
 
     unsigned long n;
     /* Slide an unsigned-long-wide window over buf; stop before the read would
-     * run past the page-sized allocation (buf[n .. n+sizeof(long)-1]). */
+     * run past the page-sized allocation (buf[n .. n+sizeof(long)-1]).
+     *
+     * The window advances one BYTE at a time, so most reads are unaligned by
+     * construction: the leaked pointer sits at an offset this side does not
+     * know, and stepping by sizeof(long) would skip three candidate positions
+     * in four. The cast therefore does increase the required alignment, which
+     * is safe only because this file refuses to compile off x86-64 (see the
+     * gate at the top), where an unaligned load is permitted. On a
+     * strict-alignment target the same scan would have to be assembled
+     * byte-wise instead. */
+#if defined(__clang__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wcast-align"
+#endif
     for (n = 0; n + sizeof(unsigned long) <= page; n++) {
       addr = *(unsigned long *)(&buf[n]);
       /* Kernel address space */
@@ -137,6 +150,9 @@ static unsigned long get_kernel_addr_mincore(void) {
         return addr;
       }
     }
+#if defined(__clang__)
+#pragma GCC diagnostic pop
+#endif
   }
 
   if (munmap((void *)0x66000000, len))

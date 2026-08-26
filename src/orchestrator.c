@@ -258,8 +258,11 @@ static void progress_paint(int done, int total, int inflight) {
 }
 
 /* Emit a diagnostic on its own line without corrupting the bar. Safe from any
- * thread, and a plain stderr write when no bar is drawn. */
-static void progress_note(const char *fmt, ...) {
+ * thread, and a plain stderr write when no bar is drawn. The format attribute
+ * carries the check to the callers, which is the only place it can happen once
+ * the format has entered a va_list. */
+__attribute__((format(printf, 1, 2))) static void progress_note(const char *fmt,
+                                                                ...) {
   va_list ap;
   RESULT_LOCK();
   int inflight = progress_inflight;

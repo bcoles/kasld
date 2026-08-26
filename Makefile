@@ -71,6 +71,7 @@ KASLD_WARN_FLAGS_WANTED := \
     -Werror=incompatible-pointer-types \
     -Werror=return-type \
     -Werror=format-security \
+    -Werror=format \
     -Werror=frame-larger-than=2097152
 KASLD_HARDEN_FLAGS_WANTED := -fstack-protector-strong -D_FORTIFY_SOURCE=2
 
@@ -311,10 +312,14 @@ $(OBJ_DIR):
 $(TEST_OBJ_DIR):
 	@mkdir -p "$(TEST_OBJ_DIR)"
 
-# Validate headers before building components
+# Validate headers before building components. -Wno-unused-function because the
+# point of this check is to compile the header as a translation unit of its own,
+# where every static inline it defines is unused by construction; the check stays
+# live for every real compile.
 .PHONY: check-headers
 check-headers: | $(COMP_DIR)
-	$(Q)$(CC) $(ALL_CFLAGS) -xc -fsyntax-only $(SRC_DIR)/include/kasld/api.h
+	$(Q)$(CC) $(ALL_CFLAGS) -Wno-unused-function -xc -fsyntax-only \
+	    $(SRC_DIR)/include/kasld/api.h
 
 $(COMP_DIR)/%: $(COMP_SRC_DIR)/%.c $(HDRS) | $(COMP_DIR)
 	$(call cc-component, $(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $< -o $@)
@@ -779,6 +784,7 @@ lint :
 	    $(TEST_DIR)/check-component-output \
 	    $(TEST_DIR)/check-component-meta \
 	    $(TEST_DIR)/check-component-cap \
+	    $(TEST_DIR)/check-components-built \
 	    $(TEST_DIR)/check-log-prefixes \
 	    $(TEST_DIR)/check-live-probes \
 	    $(TEST_DIR)/check-hash-parity \

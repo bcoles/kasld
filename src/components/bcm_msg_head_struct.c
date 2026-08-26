@@ -68,10 +68,19 @@ KASLD_META("method:heuristic\n"
  * member, so wrapping it in a containing struct (the kernel's own pattern
  * for sending bcm_msg_head + a fixed number of frames in one buffer) is
  * flagged under -Wpedantic. The layout matches the kernel's expected wire
- * format — relied on deliberately. Suppress the pedantic warning at
- * the two declaration sites rather than hide the kernel-side shape. */
+ * format — relied on deliberately: bcm_send_to_user() allocates
+ * sizeof(*head) + datalen and appends the frames straight after the head, so a
+ * containing struct is what the socket actually reads. Suppress at the two
+ * declaration sites rather than hide the kernel-side shape.
+ *
+ * Two spellings of one complaint: gcc reports it as -Wpedantic, clang as
+ * -Wgnu-variable-sized-type-not-at-end. Naming both keeps the suppression as
+ * narrow as the construct it covers, on either compiler. */
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wpedantic"
+#if defined(__clang__)
+#pragma GCC diagnostic ignored "-Wgnu-variable-sized-type-not-at-end"
+#endif
 
 static void rxsetup_sock(int sock) {
   struct sockaddr_can sa;

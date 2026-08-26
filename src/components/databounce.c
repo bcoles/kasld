@@ -113,15 +113,6 @@ KASLD_META("method:timing\n"
            "hardware:TSX required (mitigated by tsx=off)\n");
 
 /* =========================================================================
- * TSX xabort
- * =========================================================================
- */
-
-static inline __attribute__((always_inline)) void xabort_wrapper(void) {
-  __asm__ volatile(".byte 0xc6,0xf8,0x00" ::: "memory");
-}
-
-/* =========================================================================
  * Data Bounce single sweep
  * =========================================================================
  *

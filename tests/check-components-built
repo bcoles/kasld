@@ -1,0 +1,90 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-components-built — every component source produced a build artefact.
+#
+# The component recipe exits 0 whatever the compiler said, on purpose: with 118
+# independent leaf targets, one that will not compile must not stop the other
+# 117 from being built and tested. What it does instead is REMOVE the target, so
+# a broken component becomes absent rather than stale and is not silently
+# exercised as the last binary that happened to compile.
+#
+# That leaves the failure to be noticed by something. Nothing noticed it. The
+# orchestrator finds components by scanning the directory, so an absent one is
+# simply a smaller set -- 117 components, reported as success -- and no guard
+# compared what was built against what exists in source. A component could stop
+# compiling and `make`, `make test` and `make cross` would all stay green.
+#
+# The recipe already writes the distinction to disk, so this reads it rather
+# than tracking anything of its own:
+#
+#   non-empty file  compiled
+#   empty file      arch-gated, skipped by the `#error "Architecture is not
+#                   supported"` path, which writes an empty target deliberately
+#   absent          the compiler failed
+#
+# A count is not used and must not be: a fixed expected number rots the moment a
+# component is added, which is the failure mode this file exists to prevent, one
+# level up. The source directory is the inventory and the build answers to it.
+#
+# Usage: tests/check-components-built   (also run by `make test`)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/guard-scope.sh
+. "$ROOT/tests/lib/guard-scope.sh"
+
+if [ -t 2 ] || [ -n "${KASLD_COLOR:-}" ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m')
+  YELLOW=$(printf '\033[33m'); RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; YELLOW=; RESET=
+fi
+
+# The native triple, resolved the same way the build resolves it. Probing
+# build/*/ and taking the first that exists would pick a cross directory --
+# i686 sorts before x86_64 -- and check a set this host never built.
+COMP=
+for t in "$(cc -dumpmachine 2>/dev/null)" "$(${CC:-cc} -dumpmachine 2>/dev/null)"; do
+  [ -n "$t" ] || continue
+  if [ -d "$ROOT/build/$t/components" ]; then
+    COMP=$ROOT/build/$t/components
+    break
+  fi
+done
+[ -n "$COMP" ] || {
+  printf '%scheck-components-built: SKIP%s (no native component build; run make first)\n' \
+    "$YELLOW" "$RESET"
+  exit 0
+}
+
+missing=; nsrc=0; nbuilt=0; nskipped=0
+for src in "$ROOT"/src/components/*.c; do
+  [ -f "$src" ] || continue
+  nsrc=$((nsrc + 1))
+  name=$(basename "$src" .c)
+  if [ ! -e "$COMP/$name" ]; then
+    missing="$missing $name"
+  elif [ -s "$COMP/$name" ]; then
+    nbuilt=$((nbuilt + 1))
+  else
+    nskipped=$((nskipped + 1))
+  fi
+done
+
+if [ -n "$missing" ]; then
+  printf '%scheck-components-built: FAIL%s (component source with no build artefact)\n' \
+    "$RED" "$RESET" >&2
+  for m in $missing; do printf '  %s\n' "$m" >&2; done
+  printf 'The compile failed and the recipe removed the target. Re-run make and\n' >&2
+  printf 'read the CC line for that component; the diagnostic is printed there even\n' >&2
+  printf 'though the build reports success.\n' >&2
+  exit 1
+fi
+
+guard_scope "check-components-built" "$nsrc" 50
+
+printf '%scheck-components-built: OK%s (%s built, %s architecture-gated, %s sources)\n' \
+  "$GREEN" "$RESET" "$nbuilt" "$nskipped" "$nsrc"

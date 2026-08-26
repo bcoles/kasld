@@ -44,8 +44,14 @@ static inline int kasld_is_verbose(void) {
 }
 
 /* Emit `[<level>] <msg>\n` to stderr. `gated` lines print only when verbose.
- * Prefer the wrappers below; the level alphabet is closed at '.', '-', '+'. */
-static inline void kasld_logf(char level, int gated, const char *fmt, ...) {
+ * Prefer the wrappers below; the level alphabet is closed at '.', '-', '+'.
+ *
+ * The format attribute is what makes every CALLER checkable: the format reaches
+ * vfprintf through a va_list, where a compiler can no longer relate it to the
+ * arguments, so without this the check is lost at the one place a mismatch
+ * would print a plausible wrong address rather than fail. */
+__attribute__((format(printf, 3, 4))) static inline void
+kasld_logf(char level, int gated, const char *fmt, ...) {
   if (gated && !kasld_is_verbose())
     return;
   va_list ap;
