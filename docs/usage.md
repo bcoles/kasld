@@ -305,75 +305,75 @@ Components: 94 total, 24 succeeded, 26 unavailable, 44 no result
 ========================================
 
 Kernel text (virtual) / kernel_text [2]:
-  0xffffffff8fe00000  kernel_text:_stext [base] (proc_kallsyms, parsed)
-  0xffffffff900a9fc9  kernel_text [interior] (perf_event_open, parsed)
-  ==> 0xffffffff8fe00000  (parsed, 1 source, 1 conflict)
+  0xffffffff8fe00000  kernel_text:_stext [base] (proc_kallsyms)
+  0xffffffff900a9fc9  kernel_text [interior] (perf_event_open)
+  ==> 0xffffffff8fe00000  (method: parsed, 1 source, 1 conflict)
       range: 0xffffffff8fe00000 - 0xffffffff900a9fc9  (2.7 MiB)
 
 Kernel text (virtual) / kernel_image [3]:
-  0xffffffff8fe00000  kernel_image:_text [base] (proc_kallsyms, parsed)
-  0xffffffff8fe00000  kernel_image [base] (prefetch, timing)
-  0xffffffff90000000  kernel_image [base] (perf_event_open, parsed)
-  ==> 0xffffffff8fe00000  (parsed, 2 sources, 1 conflict)
+  0xffffffff8fe00000  kernel_image:_text [base] (proc_kallsyms)
+  0xffffffff8fe00000  kernel_image [base] (prefetch)
+  0xffffffff90000000  kernel_image [base] (perf_event_open)
+  ==> 0xffffffff8fe00000  (method: parsed, 2 sources, 1 conflict)
       range: 0xffffffff8fe00000 - 0xffffffff90000000  (2.0 MiB)
 
 ----------------------------------------
 Kernel text (physical) / kernel_image [1]:
-  0x0000000034600000  kernel_image:kernel_code [base] (proc_iomem_kernel, parsed)
-  ==> 0x0000000034600000  (parsed, 1 source)
+  0x0000000034600000  kernel_image:kernel_code [base] (proc_iomem_kernel)
+  ==> 0x0000000034600000  (method: parsed, 1 source)
 
 ----------------------------------------
 Kernel data (physical) / kernel_data [1]:
-  0x0000000036000000  kernel_data:kernel_data [base] (proc_iomem_kernel, parsed)
-  ==> 0x0000000036000000  (parsed, 1 source)
+  0x0000000036000000  kernel_data:kernel_data [base] (proc_iomem_kernel)
+  ==> 0x0000000036000000  (method: parsed, 1 source)
 
 ----------------------------------------
 Kernel BSS (physical) / kernel_bss [1]:
-  0x0000000036b34000  kernel_bss:kernel_bss [base] (proc_iomem_kernel, parsed)
-  ==> 0x0000000036b34000  (parsed, 1 source)
+  0x0000000036b34000  kernel_bss:kernel_bss [base] (proc_iomem_kernel)
+  ==> 0x0000000036b34000  (method: parsed, 1 source)
 
 ----------------------------------------
 Physical DRAM / ram [6]:
-  0x0000000000000000  ram (boot_params_e820, parsed)
-  0x0000000000000000  ram (firmware_memmap, parsed)
-  0x0000000000001000  ram [interior] (dmesg_free_area_init_node, proc_zoneinfo, parsed)
-  0x0000000000100000  ram [base] (boot_params_e820, dmesg_e820_memory_map, dmesg_free_area_init_node, dmesg_last_pfn, proc_zoneinfo, sysfs_firmware_memmap, parsed)
-  0x0000000000100000  ram (firmware_memmap, parsed)
-  0x0000000000100000  ram (boot_params_e820, parsed)
-  ==> 0x0000000000100000  (parsed, 3 sources, 3 conflicts)
+  0x0000000000000000  ram (boot_params_e820)
+  0x0000000000000000  ram (firmware_memmap)
+  0x0000000000001000  ram [interior] (dmesg_free_area_init_node, proc_zoneinfo)
+  0x0000000000100000  ram [base] (boot_params_e820, dmesg_e820_memory_map, dmesg_free_area_init_node, dmesg_last_pfn, proc_zoneinfo, sysfs_firmware_memmap)
+  0x0000000000100000  ram (firmware_memmap)
+  0x0000000000100000  ram (boot_params_e820)
+  ==> 0x0000000000100000  (method: parsed, 3 sources, 3 conflicts)
       range: 0x0000000000000000 - 0x0000000000100000  (1.0 MiB)
 
 ----------------------------------------
 Physical DRAM / initrd [1]:
-  0x000000003efc2000  initrd [base] (boot_params_e820, dmesg_ramdisk, parsed)
-  ==> 0x000000003efc2000  (parsed, 1 source)
+  0x000000003efc2000  initrd [base] (boot_params_e820, dmesg_ramdisk)
+  ==> 0x000000003efc2000  (method: parsed, 1 source)
 
 ----------------------------------------
 Physical DRAM / cmdline [1]:
-  0x0000000000020000  cmdline [base] (cmdline_region, parsed)
-  ==> 0x0000000000020000  (parsed, 1 source)
+  0x0000000000020000  cmdline [base] (cmdline_region)
+  ==> 0x0000000000020000  (method: parsed, 1 source)
 
 ----------------------------------------
 Physical DRAM / numa_node [1]:
-  0x000000003ffdefff  numa_node [interior] (dmesg_node_data, parsed)
-  ==> 0x000000003ffdefff  (parsed, 1 source)
+  0x000000003ffdefff  numa_node [interior] (dmesg_node_data)
+  ==> 0x000000003ffdefff  (method: parsed, 1 source)
 
 ----------------------------------------
 Physical DRAM / vmcoreinfo [1]:
-  0x00000000011ee000  vmcoreinfo [interior] (sysfs_vmcoreinfo, parsed)
-  ==> 0x00000000011ee000  (parsed, 1 source)
+  0x00000000011ee000  vmcoreinfo [interior] (sysfs_vmcoreinfo)
+  ==> 0x00000000011ee000  (method: parsed, 1 source)
 
 ----------------------------------------
 Physical MMIO / pci_mmio [8]:
-  0x00000000000c0000  pci_mmio:0000:00:01.0 [base] (sysfs_pci_resource, parsed)
-  0x00000000fd000000  pci_mmio:0000:00:01.0 [base] (sysfs_pci_resource, parsed)
-  0x00000000feb40000  pci_mmio:0000:00:02.0 [base] (sysfs_pci_resource, parsed)
-  0x00000000feb80000  pci_mmio:0000:00:02.0 [base] (sysfs_pci_resource, parsed)
-  0x00000000feba0000  pci_mmio:0000:00:02.0 [base] (sysfs_pci_resource, parsed)
-  0x00000000febd0000  pci_mmio:0000:00:02.0 [base] (sysfs_pci_resource, parsed)
-  0x00000000febd4000  pci_mmio:0000:00:01.0 [base] (sysfs_pci_resource, parsed)
-  0x00000000febd5000  pci_mmio:0000:00:1f.2 [base] (sysfs_pci_resource, parsed)
-  ==> 0x00000000000c0000  (parsed, 1 source, 7 conflicts)
+  0x00000000000c0000  pci_mmio:0000:00:01.0 [base] (sysfs_pci_resource)
+  0x00000000fd000000  pci_mmio:0000:00:01.0 [base] (sysfs_pci_resource)
+  0x00000000feb40000  pci_mmio:0000:00:02.0 [base] (sysfs_pci_resource)
+  0x00000000feb80000  pci_mmio:0000:00:02.0 [base] (sysfs_pci_resource)
+  0x00000000feba0000  pci_mmio:0000:00:02.0 [base] (sysfs_pci_resource)
+  0x00000000febd0000  pci_mmio:0000:00:02.0 [base] (sysfs_pci_resource)
+  0x00000000febd4000  pci_mmio:0000:00:01.0 [base] (sysfs_pci_resource)
+  0x00000000febd5000  pci_mmio:0000:00:1f.2 [base] (sysfs_pci_resource)
+  ==> 0x00000000000c0000  (method: parsed, 1 source, 7 conflicts)
       range: 0x00000000000c0000 - 0x00000000febd5000  (4.0 GiB)
 
 ----------------------------------------

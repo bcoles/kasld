@@ -314,26 +314,6 @@ static inline const char *kasld_method_set_strongest(uint16_t set) {
   return "unknown";
 }
 
-/* Format a method set strongest-first as "parsed+timing" into buf ("unknown" if
- * empty). Surfaces method diversity where a single line has room (verbose). */
-static inline void kasld_method_set_str(uint16_t set, char *buf, size_t sz) {
-  if (sz == 0)
-    return;
-  buf[0] = '\0';
-  size_t o = 0;
-  for (int m = KM_COUNT - 1; m >= 0; m--) {
-    if (!(set & (1u << m)))
-      continue;
-    int w = snprintf(buf + o, sz - o, "%s%s", o ? "+" : "",
-                     kasld_method_name((enum kasld_method)m));
-    if (w < 0 || (size_t)w >= sz - o)
-      break;
-    o += (size_t)w;
-  }
-  if (o == 0)
-    snprintf(buf, sz, "unknown");
-}
-
 /* Provenance: which components contributed a record.
  *
  * A component's identity is its slot in the discovery table, assigned once

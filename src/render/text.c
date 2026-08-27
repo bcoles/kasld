@@ -129,9 +129,17 @@ static void print_group(enum kasld_addr_type type, const char *section,
   for (int k = 0; k < n_indices; k++) {
     struct result *r = &results[indices[k]];
 
-    /* Compact form shows region (and ":name" when known); verbose adds
-     * origin and method in parentheses. region+name tells the reader
-     * what the address is; origin tells them which component found it. */
+    /* Compact form shows region (and ":name" when known); verbose adds the
+     * contributing components in parentheses. region+name tells the reader what
+     * the address is; the components tell them who found it.
+     *
+     * The parenthetical carries component names and nothing else. A technique
+     * category is a property of a component, not of a record: every contributor
+     * states its own in its block header, and the group's consensus line states
+     * the one behind the pick. Listed here it would repeat that per record, in
+     * a vocabulary sharing five of six words with the confidence ladder, as a
+     * bare lowercase token indistinguishable in form from the component names
+     * beside it. */
     char rn[64 + NAME_LEN + 2];
     if (r->name[0])
       snprintf(rn, sizeof(rn), "%s:%s", kasld_region_wire(r->region), r->name);
@@ -142,14 +150,12 @@ static void print_group(enum kasld_addr_type type, const char *section,
 
     if (!in_bounds(r)) {
       if (verbose) {
-        char mbuf[64];
-        kasld_method_set_str(r->method_set, mbuf, sizeof mbuf);
         printf("  %s0x%016lx%s  %s%s %s(", c(C_RED), a, c(C_RESET), rn,
                pos_note(r), c(C_DIM));
         for (int j = origin_set_next(&r->origins, 0), oi = 0; j >= 0;
              j = origin_set_next(&r->origins, j + 1), oi++)
           printf("%s%s", oi ? ", " : "", kasld_origin_name(j));
-        printf(", %s, stale)%s\n", mbuf, c(C_RESET));
+        printf(", stale)%s\n", c(C_RESET));
       } else
         printf("  %s0x%016lx%s  %s%s %s(stale)%s\n", c(C_RED), a, c(C_RESET),
                rn, pos_note(r), c(C_DIM), c(C_RESET));
@@ -157,14 +163,12 @@ static void print_group(enum kasld_addr_type type, const char *section,
     }
 
     if (verbose) {
-      char mbuf[64];
-      kasld_method_set_str(r->method_set, mbuf, sizeof mbuf);
       printf("  %s0x%016lx%s  %s%s %s(", c(C_GREEN), a, c(C_RESET), rn,
              pos_note(r), c(C_DIM));
       for (int j = origin_set_next(&r->origins, 0), oi = 0; j >= 0;
            j = origin_set_next(&r->origins, j + 1), oi++)
         printf("%s%s", oi ? ", " : "", kasld_origin_name(j));
-      printf(", %s)%s\n", mbuf, c(C_RESET));
+      printf(")%s\n", c(C_RESET));
     } else
       printf("  %s0x%016lx%s  %s%s\n", c(C_GREEN), a, c(C_RESET), rn,
              pos_note(r));
@@ -186,7 +190,7 @@ static void print_group(enum kasld_addr_type type, const char *section,
     section_consensus_info(type, section, region_filter, &bm, &ns, &nc, &io);
     /* A lone interior sample is a point inside the region, not its base — say
      * so, rather than presenting it as the resolved address. */
-    printf("  %s==>%s 0x%016lx  %s(%s, %s%d source%s)%s\n", c(C_CYAN),
+    printf("  %s==>%s 0x%016lx  %s(method: %s, %s%d source%s)%s\n", c(C_CYAN),
            c(C_RESET), addrs[0], c(C_DIM), bm, io ? "interior sample; " : "",
            ns, ns == 1 ? "" : "s", c(C_RESET));
   } else if (n_addrs > 1) {
@@ -201,8 +205,8 @@ static void print_group(enum kasld_addr_type type, const char *section,
        * no single base to pick, and the samples corroborate rather than
        * conflict, so the count is "N samples from M sources", never conflicts.
        */
-      printf("  %s==>%s spans 0x%016lx - 0x%016lx  %s(%s; %d samples, %d "
-             "source%s; %s)%s\n",
+      printf("  %s==>%s spans 0x%016lx - 0x%016lx  %s(method: %s; %d "
+             "samples, %d source%s; %s)%s\n",
              c(C_CYAN), c(C_RESET), addrs[0], addrs[n_addrs - 1], c(C_DIM), bm,
              n_addrs, ns, ns == 1 ? "" : "s",
              human_size(span, hbuf, sizeof(hbuf)), c(C_RESET));
@@ -212,11 +216,12 @@ static void print_group(enum kasld_addr_type type, const char *section,
        * coverings and for corroborating interior/top records), so it is printed
        * only when a real disagreement exists. */
       if (nc > 0)
-        printf("  %s==>%s 0x%016lx  %s(%s, %d source%s, %d conflict%s)%s\n",
+        printf("  %s==>%s 0x%016lx  %s(method: %s, %d source%s, %d "
+               "conflict%s)%s\n",
                c(C_CYAN), c(C_RESET), consensus, c(C_DIM), bm, ns,
                ns == 1 ? "" : "s", nc, nc == 1 ? "" : "s", c(C_RESET));
       else
-        printf("  %s==>%s 0x%016lx  %s(%s, %d source%s)%s\n", c(C_CYAN),
+        printf("  %s==>%s 0x%016lx  %s(method: %s, %d source%s)%s\n", c(C_CYAN),
                c(C_RESET), consensus, c(C_DIM), bm, ns, ns == 1 ? "" : "s",
                c(C_RESET));
       printf("  %s   %s range: 0x%016lx - 0x%016lx  (%s)\n", c(C_CYAN),

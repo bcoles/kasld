@@ -1814,9 +1814,20 @@ static void print_component_banner(const char *name, const char *method) {
   printf("\n%s%s%s %s%s%s", c(C_DIM), bar2, c(C_RESET), c(C_BOLD), name,
          c(C_RESET));
   if (method && *method) {
-    printf(" %s%s%s %s%s%s", c(C_DIM), dot, c(C_RESET), c(C_DIM), method,
-           c(C_RESET));
-    cols += 3 + (int)strlen(method); /* " . " + method */
+    /* Labelled, because the value alone does not say which vocabulary it comes
+     * from. It names a technique category, and five of that vocabulary's six
+     * words -- parsed, inferred, heuristic, timing, brute -- are also rungs of
+     * the confidence ladder, which grades an individual record's trust instead.
+     * A bare word heading a block that produced nothing therefore reads as a
+     * verdict on values the component never emitted, and a component whose
+     * technique parses a file can carry records grading lower than the word
+     * above them. The label is what keeps the two apart. */
+    static const char label[] = "method: ";
+    printf(" %s%s%s %s%s%s%s", c(C_DIM), dot, c(C_RESET), c(C_DIM), label,
+           method, c(C_RESET));
+    /* " . " + label + value; the label's width is taken from the string itself
+     * so the two cannot drift apart. */
+    cols += 3 + (int)(sizeof(label) - 1) + (int)strlen(method);
   }
   putchar(' ');
   cols += 1;
