@@ -80,10 +80,10 @@
 #endif
 
 #define _GNU_SOURCE
-#include "include/kasld/api.h"
-#include "include/kasld/cli.h"
 #include "include/cmdline.h"
 #include "include/dmesg.h"
+#include "include/kasld/api.h"
+#include "include/kasld/cli.h"
 #include "include/kasld/kaslr_default.h"
 #include <sched.h>
 #include <setjmp.h>
@@ -146,8 +146,8 @@ KASLD_META("method:timing\n"
 
 /* Reached only where the oracle has already proved itself, so the budget bounds
  * a scan expected to succeed rather than a speculative one. A VA_BITS=39 window
- * is ~97k slots and finishes in seconds; wider paging modes exhaust this and say
- * so, and -t raises it. */
+ * is ~97k slots and finishes in seconds; wider paging modes exhaust this and
+ * say so, and -t raises it. */
 #define DEFAULT_BUDGET_S 30
 
 /* Per-slot firehose. -v carries the calibration table and the edge walk, which
@@ -285,8 +285,8 @@ static double median_of(const double *v, size_t n) {
  * calibration misclassifies everything once the governor changes its mind
  * mid-sweep. The gap between mapped and unmapped is a stable FRACTION of the
  * floor -- 18-24% on the A72 and 10-13% on the A53, each steady while its own
- * absolute times triple -- so the comparison is made against a running median of
- * recent unmapped slots and scaled to it. */
+ * absolute times triple -- so the comparison is made against a running median
+ * of recent unmapped slots and scaled to it. */
 static double g_gap_ratio;
 static int g_mapped_is_slower;
 
@@ -309,7 +309,8 @@ static void ring_push(double v) {
  * were feeding the floor, every subsequent slot then read "mapped" too. The
  * floor could never catch up, and the run grew to 74 MiB before the size test
  * rejected it. Bounding the band above breaks that feedback: an excursion
- * beyond it is treated as a floor shift and folded into the baseline instead. */
+ * beyond it is treated as a floor shift and folded into the baseline instead.
+ */
 #define BAND_LO 0.5
 #define BAND_HI 3.0
 
@@ -378,9 +379,8 @@ static int give_up(const char *msg) {
 
 static unsigned long detect_va_bits(double *mapped_ref, double *unmapped_ref) {
   static const unsigned long cand[] = VA_BITS_CANDIDATES;
-  static const unsigned long off[VA_ROUNDS] = {64ul << 20, 128ul << 20,
-                                               192ul << 20, 96ul << 20,
-                                               160ul << 20};
+  static const unsigned long off[VA_ROUNDS] = {
+      64ul << 20, 128ul << 20, 192ul << 20, 96ul << 20, 160ul << 20};
   size_t n = sizeof(cand) / sizeof(cand[0]), i, r, best_i = 0;
   double per[16][VA_ROUNDS], ratio[16][VA_ROUNDS], row_med[VA_ROUNDS];
   double med[16], dev[16];
@@ -497,10 +497,10 @@ int main(int argc, char **argv) {
 
   /* Nothing to search for when the base is not randomized -- checked FIRST.
    *
-   * arch/arm64/kernel/pi/kaslr_early.c leaves the image at KIMAGE_VADDR on three
-   * paths: a nokaslr command line, CONFIG_RANDOMIZE_BASE=n, or no seed from
-   * either the FDT or RNDR. Two are cheap to observe and are checked here; the
-   * third would need the kernel config and does not need to be.
+   * arch/arm64/kernel/pi/kaslr_early.c leaves the image at KIMAGE_VADDR on
+   * three paths: a nokaslr command line, CONFIG_RANDOMIZE_BASE=n, or no seed
+   * from either the FDT or RNDR. Two are cheap to observe and are checked here;
+   * the third would need the kernel config and does not need to be.
    *
    * Ordered ahead of calibration deliberately. These are deterministic fact
    * reads costing microseconds, where calibration is a timing measurement that
@@ -515,8 +515,9 @@ int main(int argc, char **argv) {
    * second source.
    *
    * This is a fast path, not a correctness gate. Missing a way for KASLR to be
-   * off costs a scan that finds nothing and declines -- wasteful, never wrong --
-   * so a future kernel growing a fourth path degrades runtime, not the answer.
+   * off costs a scan that finds nothing and declines -- wasteful, never wrong
+   * -- so a future kernel growing a fourth path degrades runtime, not the
+   * answer.
    *
    * The seed test is kasld_kaslr_disabled_text_default() rather than an
    * open-coded one, so the arch's notion of "no seed" lives in one place: it
@@ -659,8 +660,9 @@ int main(int argc, char **argv) {
 
     if (debug_mode)
       kasld_info("slot 0x%016lx %8.1f ns (floor %8.1f) %s", addr, t, baseline,
-                 cls == SLOT_MAPPED ? "mapped"
-                                    : cls == SLOT_OUTLIER ? "outlier" : "-");
+                 cls == SLOT_MAPPED    ? "mapped"
+                 : cls == SLOT_OUTLIER ? "outlier"
+                                       : "-");
 
     if (!mapped) {
       ring_push(t); /* unmapped samples and clock excursions both define it */
@@ -695,8 +697,7 @@ int main(int argc, char **argv) {
         /* Walk to the far side of the run to size it, but no further than a
          * plausible image: unbounded, this walks a large mapped region for
          * minutes with no budget check, which is what hung a field run. */
-        for (a = edge;
-             a < top && a < edge + ((EXTENT_MAX_MB + 8) << 20);
+        for (a = edge; a < top && a < edge + ((EXTENT_MAX_MB + 8) << 20);
              a += SCAN_STEP) {
           if (is_mapped_at(a, ITERS_SCAN, ring_baseline(unmapped_ref), NULL)) {
             end = a;
@@ -718,7 +719,8 @@ int main(int argc, char **argv) {
          * measured from `edge`, which sits at or below the slot the loop has
          * reached, so assigning it unconditionally can move the cursor
          * BACKWARDS; the run is then re-detected, re-confirmed and re-rejected
-         * at the same address forever. That is the loop that hung both boards. */
+         * at the same address forever. That is the loop that hung both boards.
+         */
         if (end > addr)
           addr = end;
       } else {
@@ -798,8 +800,8 @@ int main(int argc, char **argv) {
   }
 
   if (!is_mapped_at(base, ITERS_CONFIRM, ring_baseline(unmapped_ref), NULL) ||
-      is_mapped_at(base - FINE_STEP, ITERS_CONFIRM,
-                   ring_baseline(unmapped_ref), NULL)) {
+      is_mapped_at(base - FINE_STEP, ITERS_CONFIRM, ring_baseline(unmapped_ref),
+                   NULL)) {
     kasld_err("edge at 0x%016lx did not confirm on re-measurement", base);
     return give_up("edge unstable on confirmation; a quieter run may resolve "
                    "it");
