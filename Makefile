@@ -1092,7 +1092,11 @@ cross-extra-flags :
 # list, so it names its triple rather than relying on that list.
 ZLIB_VERSION := 1.3.1
 ZLIB_SHA256  := 9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23
-ZLIB_URL     := https://zlib.net/fossils/zlib-$(ZLIB_VERSION).tar.gz
+# Two sources, same bytes. The GitHub release is first because the release
+# matrix fans out twenty-two jobs that all fetch this at once, which zlib.net
+# is a single host serving; it stays as the fallback.
+ZLIB_URLS    := https://github.com/madler/zlib/releases/download/v$(ZLIB_VERSION)/zlib-$(ZLIB_VERSION).tar.gz \
+                https://zlib.net/fossils/zlib-$(ZLIB_VERSION).tar.gz
 
 .PHONY: cross-deps
 cross-deps :
@@ -1101,14 +1105,31 @@ cross-deps :
 	  { echo "cross-deps: sha256sum not found" >&2; exit 1; }; \
 	src='$(DEPS_DIR)/src'; mkdir -p "$$src"; \
 	tb="$${KASLD_ZLIB_TARBALL:-$$src/zlib-$(ZLIB_VERSION).tar.gz}"; \
-	if [ ! -f "$$tb" ]; then \
+	ok() { [ -f "$$1" ] && \
+	  [ "$$(sha256sum <"$$1" | cut -d' ' -f1)" = '$(ZLIB_SHA256)' ]; }; \
+	if ! ok "$$tb"; then \
+	  if [ -n "$${KASLD_ZLIB_TARBALL:-}" ]; then \
+	    echo "cross-deps: KASLD_ZLIB_TARBALL=$$tb is not zlib-$(ZLIB_VERSION)" >&2; \
+	    echo "  expected $(ZLIB_SHA256)" >&2; \
+	    echo "  got      $$(sha256sum <"$$tb" 2>/dev/null | cut -d' ' -f1)" >&2; \
+	    exit 1; \
+	  fi; \
 	  command -v curl >/dev/null 2>&1 || \
 	    { echo "cross-deps: curl not found; set KASLD_ZLIB_TARBALL" >&2; exit 1; }; \
-	  echo "  FETCH zlib-$(ZLIB_VERSION)"; \
-	  curl -fsSL --retry 3 --retry-delay 2 -o "$$tb" '$(ZLIB_URL)'; \
+	  rm -f "$$tb"; \
+	  for url in $(ZLIB_URLS); do \
+	    echo "  FETCH zlib-$(ZLIB_VERSION) ($$url)"; \
+	    curl -fsSL --retry 3 --retry-delay 2 -o "$$tb.part" "$$url" || continue; \
+	    if ok "$$tb.part"; then mv -f "$$tb.part" "$$tb"; break; fi; \
+	    echo "  checksum mismatch from $$url" >&2; \
+	    echo "    expected $(ZLIB_SHA256)" >&2; \
+	    echo "    got      $$(sha256sum <"$$tb.part" | cut -d' ' -f1)" >&2; \
+	    rm -f "$$tb.part"; \
+	  done; \
+	  rm -f "$$tb.part"; \
 	fi; \
-	echo "$(ZLIB_SHA256)  $$tb" | sha256sum -c - >/dev/null || \
-	  { echo "cross-deps: checksum mismatch for $$tb" >&2; exit 1; }; \
+	ok "$$tb" || \
+	  { echo "cross-deps: no source matching $(ZLIB_SHA256)" >&2; exit 1; }; \
 	built=0; have=0; absent=0; \
 	for triple in $${TRIPLE:-$(CROSS_TARGETS)}; do \
 	  command -v $${triple}-gcc >/dev/null 2>&1 || { absent=$$((absent+1)); continue; }; \
