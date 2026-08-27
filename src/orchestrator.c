@@ -4749,6 +4749,20 @@ int main(int argc, char *argv[]) {
       color_output = isatty(STDOUT_FILENO);
   }
 
+  /* A privilege-gaining exec had its KASLD_* settings dropped before main()
+   * ran. Nothing else in the run says so, and the difference is not cosmetic:
+   * a discarded KASLD_SYSROOT means the readout describes this machine rather
+   * than the captured tree the caller named.
+   *
+   * Printed even under --quiet, which suppresses progress noise rather than a
+   * caveat on the answer, and unconditional because the variables are gone by
+   * the time this could ask which of them were set. */
+  if (kasld_exec_gained_privilege())
+    fprintf(stderr,
+            "warning: elevated privileges (set-uid, set-gid or file "
+            "capabilities); KASLD_* environment settings are not honoured, so "
+            "this readout describes the local system\n");
+
   /* Take the environment before anything else looks at the system: every
    * format's readout, the "KASLR disabled" branch and the hardening advisor
    * read it, and the advisor weighs a component's denial against the settings
