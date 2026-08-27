@@ -105,8 +105,34 @@ jobs:
           fi
           echo "$root/$t/bin" >> "$GITHUB_PATH"
 
+      # Static zlib for this target. No musl toolchain ships one, so without it
+      # HAVE_ZLIB is empty and proc_config decompresses /proc/config.gz by
+      # running zcat from the target's PATH — which a minimal userland need not
+      # have, in a binary shipped precisely to be self-contained. Pinned by
+      # version and checksum in the Makefile. Cached like the toolchain: the
+      # source is a fixed tarball and the build is deterministic.
+      - name: Cache zlib prefix
+        uses: actions/cache@v4
+        with:
+          path: build/deps
+          key: zlib-${{ matrix.musl_triple }}-${{ hashFiles('Makefile') }}
+
+      - name: Build zlib for this target
+        run: make cross-deps TRIPLE=${{ matrix.musl_triple }}
+
       - name: Build
-        run: make build CC=${{ matrix.musl_triple }}-gcc
+        run: |
+          set -euo pipefail
+          xf="$(make --no-print-directory cross-extra-flags TRIPLE=${{ matrix.musl_triple }})"
+          make build CC=${{ matrix.musl_triple }}-gcc EXTRA_CFLAGS="$xf" EXTRA_LDFLAGS="$xf"
+
+      # A release binary that still shells out to zcat is the failure this whole
+      # step exists to prevent, and it is invisible in a build log.
+      - name: Verify zlib is linked
+        run: |
+          set -euo pipefail
+          b="build/$(${{ matrix.musl_triple }}-gcc -dumpmachine)/components/proc_config"
+          ${{ matrix.musl_triple }}-nm "$b" | grep -qi inflate
 
       - name: Identify build directory
         id: builddir

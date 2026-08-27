@@ -175,6 +175,11 @@ BUILD_DIR := ./build
 # sibling obj/ subdir so they do not clutter that deployable tree — the same
 # separation components/ already has.
 ARCH_DIR := $(BUILD_DIR)/$(_ARCH)
+# Cross-build dependencies, one prefix per target triple (see cross-deps).
+# Defined here rather than beside that target because the proc_config rule
+# expands it far earlier in this file, and a prerequisite is expanded when the
+# rule is read.
+DEPS_DIR := $(BUILD_DIR)/deps
 OBJ_DIR := $(ARCH_DIR)/obj
 COMP_DIR := $(ARCH_DIR)/components
 # Test executables live apart from the deployable product (kasld + components)
@@ -332,9 +337,16 @@ $(COMP_DIR)/dmesg_ex_handler_msr: $(COMP_SRC_DIR)/offsets/dmesg_ex_handler_msr.i
 $(COMP_DIR)/entrybleed: $(COMP_SRC_DIR)/offsets/entrybleed.inc
 $(COMP_DIR)/qemu_tcg_iret: $(COMP_SRC_DIR)/offsets/qemu_tcg_iret.inc
 
-# proc_config: link with zlib when available for native gzip decompression
+# proc_config: link with zlib when available for native gzip decompression.
+#
+# The cross-deps prefix is a prerequisite where it exists, so populating it
+# rebuilds this component. Without that, gaining zlib changes which RULE applies
+# and leaves the object alone: the build reports success while shipping the
+# binary that shells out to zcat. $(wildcard) yields nothing when the prefix is
+# absent, which is every host build and every cross build before cross-deps.
+ZLIB_DEP := $(wildcard $(DEPS_DIR)/$(_ARCH)/lib/libz.a)
 ifeq ($(HAVE_ZLIB),1)
-$(COMP_DIR)/proc_config: $(COMP_SRC_DIR)/proc_config.c $(HDRS) | $(COMP_DIR)
+$(COMP_DIR)/proc_config: $(COMP_SRC_DIR)/proc_config.c $(HDRS) $(ZLIB_DEP) | $(COMP_DIR)
 	$(call cc-component, $(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) -DHAVE_ZLIB $< -lz -o $@)
 endif
 
@@ -1039,12 +1051,82 @@ installcheck :
 # build without -mbe8 cannot run on the kernels it is built to inspect. Under
 # qemu-user it runs either way, which is why the difference goes unnoticed
 # without a VM boot.
-.PHONY: cross-extra-flags
-cross-extra-flags :
+.PHONY: cross-arch-flags
+cross-arch-flags :
 	@case '$(TRIPLE)' in \
 	armeb-*) echo '-mbe8' ;; \
 	*) echo '' ;; \
 	esac
+
+# What the cross loop passes: the arch flags above, plus the dependency prefix
+# for this triple when `cross-deps` has populated one. Absent, the flags are the
+# arch flags alone and the zlib probe simply fails, which is the state every
+# cross build was in before: proc_config decompresses by running zcat instead.
+# Kept separate from cross-arch-flags because zlib itself is compiled with the
+# arch flags and must not be told to search a prefix it is being built into.
+.PHONY: cross-extra-flags
+cross-extra-flags :
+	@af=$$($(MAKE) --no-print-directory cross-arch-flags TRIPLE='$(TRIPLE)'); \
+	pfx='$(DEPS_DIR)/$(TRIPLE)'; \
+	if [ -f "$$pfx/lib/libz.a" ]; then \
+	  echo "$$af -I$(CURDIR)/$$pfx/include -L$(CURDIR)/$$pfx/lib"; \
+	else \
+	  echo "$$af"; \
+	fi
+
+# Static zlib for the cross targets. No musl toolchain ships one, so without
+# this every cross build has HAVE_ZLIB empty and proc_config decompresses
+# /proc/config.gz by running zcat from the target's PATH — which a minimal or
+# embedded userland need not have, in a binary whose whole point is to be
+# self-contained.
+#
+# Pinned by version and checksum: the build must not vary with whatever upstream
+# publishes today. Set KASLD_ZLIB_TARBALL to a local copy to build offline; the
+# checksum is verified either way.
+#
+# Not part of `cross`. Building a dependency is a separate, network-touching
+# step, and `cross` stays usable without it.
+#
+# TRIPLE=<triple> builds one target instead of every present toolchain. The
+# release matrix carries float and ABI variants that CROSS_TARGETS does not
+# list, so it names its triple rather than relying on that list.
+ZLIB_VERSION := 1.3.1
+ZLIB_SHA256  := 9a93b2b7dfdac77ceba5a558a580e74667dd6fede4585b91eefb60f03b72df23
+ZLIB_URL     := https://zlib.net/fossils/zlib-$(ZLIB_VERSION).tar.gz
+
+.PHONY: cross-deps
+cross-deps :
+	@set -e; \
+	command -v sha256sum >/dev/null 2>&1 || \
+	  { echo "cross-deps: sha256sum not found" >&2; exit 1; }; \
+	src='$(DEPS_DIR)/src'; mkdir -p "$$src"; \
+	tb="$${KASLD_ZLIB_TARBALL:-$$src/zlib-$(ZLIB_VERSION).tar.gz}"; \
+	if [ ! -f "$$tb" ]; then \
+	  command -v curl >/dev/null 2>&1 || \
+	    { echo "cross-deps: curl not found; set KASLD_ZLIB_TARBALL" >&2; exit 1; }; \
+	  echo "  FETCH zlib-$(ZLIB_VERSION)"; \
+	  curl -fsSL --retry 3 --retry-delay 2 -o "$$tb" '$(ZLIB_URL)'; \
+	fi; \
+	echo "$(ZLIB_SHA256)  $$tb" | sha256sum -c - >/dev/null || \
+	  { echo "cross-deps: checksum mismatch for $$tb" >&2; exit 1; }; \
+	built=0; have=0; absent=0; \
+	for triple in $${TRIPLE:-$(CROSS_TARGETS)}; do \
+	  command -v $${triple}-gcc >/dev/null 2>&1 || { absent=$$((absent+1)); continue; }; \
+	  pfx='$(DEPS_DIR)'/$$triple; \
+	  if [ -f "$$pfx/lib/libz.a" ]; then have=$$((have+1)); continue; fi; \
+	  af=$$($(MAKE) --no-print-directory cross-arch-flags TRIPLE=$$triple); \
+	  wd='$(DEPS_DIR)'/work/$$triple; rm -rf "$$wd"; mkdir -p "$$wd"; \
+	  tar xzf "$$tb" -C "$$wd" --strip-components=1; \
+	  ( cd "$$wd" && CHOST=$$triple CC=$${triple}-gcc AR=$${triple}-ar \
+	      RANLIB=$${triple}-ranlib CFLAGS="-O2 $$af" \
+	      ./configure --static --prefix='$(CURDIR)'/$$pfx >configure.log 2>&1 \
+	    && $(MAKE) libz.a >build.log 2>&1 \
+	    && $(MAKE) install >>build.log 2>&1 ) \
+	    || { echo "!!! zlib FAILED: $$triple (logs in $$wd)" >&2; exit 1; }; \
+	  rm -rf "$$wd"; \
+	  echo "  ZLIB  $$triple"; built=$$((built+1)); \
+	done; \
+	echo "cross-deps: $$built built, $$have already present, $$absent toolchain-absent"
 
 CROSS_TARGETS := \
 	x86_64-unknown-linux-musl x86_64-linux-musl \
@@ -1103,7 +1185,9 @@ print-deps:
 	@echo "                          kasld runs sequentially without it;"
 	@echo "                          kernelsnitch is skipped without it."
 	@printf '  zlib      present: %-3s  native /proc/config.gz decompression (proc_config)\n' "$(if $(HAVE_ZLIB),yes,no)"
-	@echo "                          proc_config still builds without it."
+	@echo "                          proc_config still builds without it, running"
+	@echo "                          zcat instead. Cross builds get it from"
+	@echo "                          make cross-deps; no musl toolchain ships one."
 	@echo
 	@echo "Per-component compile/link flag exceptions:"
 	@echo "  -O0 (timing-sensitive side channels):"
@@ -1148,6 +1232,7 @@ help:
 	@echo "      build           Build kasld and all components (default)"
 	@echo "      run             Build and run kasld"
 	@echo "      cross           Cross-compile for all supported architectures"
+	@echo "      cross-deps      Build static zlib for the cross targets (network)"
 	@echo "      coverage        Host unit-test coverage report (gcov)"
 	@echo "      coverage-e2e    End-to-end coverage over x86 fixtures (gcov)"
 	@echo "      install         Install to PREFIX (default: /usr/local)"
