@@ -22,6 +22,7 @@ basis for each.
 | `bcm_msg_head_struct` | Norbert Slusarek | https://www.openwall.com/lists/oss-security/2021/06/15/1/2 | Adapted from the author's minimal bug reproducer (CVE-2021-34693) and reimplemented. |
 | `sysfs_kernel_notes_xen` | Nassim-Asrir (@p1k4l4) | https://github.com/Nassim-Asrir/ZDI-24-020 | Technique credit; reimplemented in KASLD's own code. |
 | `prefetch` | Daniel Gruss et al. (technique); Will (timing asm) | https://gruss.cc/files/prefetch.pdf ; EntryBleed | Implements the published technique; adapts the EntryBleed timing asm. |
+| `arm64_tlb_fault_timing` | Milad Seddigh, Mahdi Esfahani, Sarani Bhattacharya, Mohammad Reza Aref, Hadi Soleimany | https://dl.acm.org/doi/10.1145/3560834.3563823 | Implements the published technique in KASLD's own code; no upstream code used. |
 | `zombieload` | ZombieLoad authors (Michael Schwarz, Moritz Lipp, et al., IAIK) | https://github.com/IAIK/ZombieLoad | Implements the published technique in KASLD's own code (`src/include/sidechannel.h`). |
 
 Each component's full credit and reference URLs are in its file header under

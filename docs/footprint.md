@@ -53,9 +53,17 @@ cluster**, not any single primitive:
     `/proc/config.gz`;
   - `/sys/firmware/*` (memmap, EFI), `/sys/.../resource`, and device files;
   - device and driver `ioctl`s (GPU, sound, filesystem, and others);
-  - tight `rdtsc` / `rdtscp` timing loops in the side-channel components
+  - tight `rdtsc` / `rdtscp` timing loops in the x86 side-channel components
     (`databounce`, `echoload`, `entrybleed`, `mincore`, `prefetch`,
-    `prefetch_directmap`, `zombieload` — compiled `-O0` to preserve the timing).
+    `prefetch_directmap`, `zombieload` — compiled `-O0` to preserve the timing);
+  - **a sustained storm of handled `SIGSEGV`s** from `arm64_tlb_fault_timing`,
+    which times the kernel's fault path and so must take the fault it is
+    measuring. A successful scan issues on the order of a million faulting
+    stores to kernel addresses in a few seconds. Unlike a timing loop, which is
+    only unusual in context, a process taking hundreds of thousands of
+    segmentation faults per second and surviving them is distinctive on its
+    own, and is visible to anything watching fault counters or `perf` software
+    events without needing to correlate anything else.
 
 Any one of these is unremarkable; **all of them from one process subtree in one
 burst** is the signal. The detection strength comes from co-occurrence and
