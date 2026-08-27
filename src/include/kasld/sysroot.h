@@ -27,6 +27,7 @@
 #define KASLD_SYSROOT_H
 
 #include <dirent.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -90,8 +91,13 @@ __attribute__((unused)) static void kasld_hermetic_record(const char *abs) {
 
 /* Resolve an absolute fact path against the sysroot. With no sysroot set (or
  * a non-absolute path), returns `abs` unchanged. Otherwise writes
- * "<root><abs>" into buf and returns it; if that would not fit, falls back to
- * `abs` (a miss against the live tree is safer than a truncated path). */
+ * "<root><abs>" into buf and returns it.
+ *
+ * Returns NULL if the prefixed path does not fit. buf is KASLD_PATH_MAX at
+ * every call site, so a path that does not fit is already longer than one the
+ * kernel will open: there is no reading it either way. Callers must check, and
+ * fail the read with ENAMETOOLONG. Returning `abs` instead would read the
+ * analysing machine's own file while a sysroot named another tree. */
 __attribute__((unused)) static const char *
 kasld_resolve(const char *abs, char *buf, size_t bufsz) {
   const char *root = kasld_sysroot();
@@ -105,7 +111,7 @@ kasld_resolve(const char *abs, char *buf, size_t bufsz) {
   rl = strlen(root);
   al = strlen(abs);
   if (rl + al + 1 > bufsz)
-    return abs;
+    return NULL;
   memcpy(buf, root, rl);
   memcpy(buf + rl, abs, al + 1);
   return buf;
@@ -114,25 +120,45 @@ kasld_resolve(const char *abs, char *buf, size_t bufsz) {
 __attribute__((unused)) static FILE *kasld_fopen(const char *path,
                                                  const char *mode) {
   char buf[KASLD_PATH_MAX];
-  return fopen(kasld_resolve(path, buf, sizeof(buf)), mode);
+  const char *p = kasld_resolve(path, buf, sizeof(buf));
+  if (!p) {
+    errno = ENAMETOOLONG;
+    return NULL;
+  }
+  return fopen(p, mode);
 }
 
 /* Read-only open() only — kasld never creates files, so no mode arg (and
  * thus no variadic wrapper) is needed. */
 __attribute__((unused)) static int kasld_open(const char *path, int flags) {
   char buf[KASLD_PATH_MAX];
-  return open(kasld_resolve(path, buf, sizeof(buf)), flags);
+  const char *p = kasld_resolve(path, buf, sizeof(buf));
+  if (!p) {
+    errno = ENAMETOOLONG;
+    return -1;
+  }
+  return open(p, flags);
 }
 
 __attribute__((unused)) static int kasld_stat(const char *path,
                                               struct stat *st) {
   char buf[KASLD_PATH_MAX];
-  return stat(kasld_resolve(path, buf, sizeof(buf)), st);
+  const char *p = kasld_resolve(path, buf, sizeof(buf));
+  if (!p) {
+    errno = ENAMETOOLONG;
+    return -1;
+  }
+  return stat(p, st);
 }
 
 __attribute__((unused)) static int kasld_access(const char *path, int mode) {
   char buf[KASLD_PATH_MAX];
-  return access(kasld_resolve(path, buf, sizeof(buf)), mode);
+  const char *p = kasld_resolve(path, buf, sizeof(buf));
+  if (!p) {
+    errno = ENAMETOOLONG;
+    return -1;
+  }
+  return access(p, mode);
 }
 
 /* opendir() through the sysroot. Entry names are returned as-is (relative to
@@ -140,7 +166,12 @@ __attribute__((unused)) static int kasld_access(const char *path, int mode) {
  * directory prefix and re-resolve via the other wrappers. */
 __attribute__((unused)) static DIR *kasld_opendir(const char *path) {
   char buf[KASLD_PATH_MAX];
-  return opendir(kasld_resolve(path, buf, sizeof(buf)));
+  const char *p = kasld_resolve(path, buf, sizeof(buf));
+  if (!p) {
+    errno = ENAMETOOLONG;
+    return NULL;
+  }
+  return opendir(p);
 }
 
 /* Read the first line of a fact file into buf: NUL-terminated, trailing

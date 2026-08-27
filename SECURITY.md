@@ -14,13 +14,21 @@ with a pointer to where it belongs rather than an advisory.
 
 KASLD runs each component as a separate program and parses its output in the
 orchestrator, which is usually the more privileged process in a run. That
-asymmetry is where the interesting surface is:
+asymmetry, and the untrusted input a run consumes, are where the interesting
+surface is:
 
 - **Orchestrator parsing.** `src/orchestrator.c` consumes component stdout, ELF
   section payloads and `dmesg` — input an unprivileged process can influence —
   inside the privileged process. Memory-safety, over-read or unbounded-loop
   bugs there are a genuine exposure surface; `tests/fuzz` covers these parsers,
   so a crashing input is directly actionable.
+- **Captured trees.** `KASLD_SYSROOT` redirects every kernel-fact path a run
+  reads to a copy of another system's `/proc`, `/sys` and `/boot`, and
+  `extra/collect` produces such trees to be analysed elsewhere. A tree is
+  untrusted input — it comes from the machine under investigation, and its
+  directory names and extraction path are as much a part of it as its file
+  contents. Analysing one must not execute code from it, read outside it, or
+  fall back to the analysing host's own state.
 - **The `extra/` helpers.** Several are documented as being run under `sudo`,
   so anything in one of them that mishandles untrusted input does so as root.
 - **Unintended execution or privilege change.** `KASLD_COMPONENT_DIR` and

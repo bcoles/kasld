@@ -1,0 +1,75 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-sysroot-containment — a sysroot too long to build a path with must not
+# send the read back to the analysing machine.
+#
+# kasld_resolve() writes "<KASLD_SYSROOT><path>" into a KASLD_PATH_MAX buffer.
+# Where the two do not fit, returning the bare path reads the analysing host's
+# own /proc and /sys while the output presents the result as a captured tree.
+# Nothing is salvageable at that point — the prefixed path is already longer
+# than one the kernel will open — so the read fails with ENAMETOOLONG.
+#
+# Two sysroots that name nothing are compared: one short, one long enough to
+# overflow. Both must yield the same facts. Whether the run reads anything is
+# not assumed: a live run supplies the control, and a host exposing no more
+# than the empty sysroot does leaves nothing to detect, so the guard skips
+# rather than passing on an absence.
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+
+if [ -t 1 ] || [ -n "${KASLD_COLOR:-}" ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); YELLOW=$(printf '\033[33m')
+  RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; YELLOW=; RESET=
+fi
+
+HOST_TRIPLE=$(cc -dumpmachine 2>/dev/null || echo unknown)
+BIN="$ROOT/build/$HOST_TRIPLE/kasld"
+if [ ! -x "$BIN" ]; then
+  printf '%ssysroot-containment guard: SKIP%s (no host binary at %s; run make first)\n' \
+    "$YELLOW" "$RESET" "$BIN"
+  exit 0
+fi
+
+# Neither root exists, so neither can supply a fact. The long one is sized past
+# KASLD_PATH_MAX (4096) once any fact path is appended; awk builds it because a
+# 4091-character literal is not something to keep in a source file.
+SHORT=/nonexistent-sysroot
+LONG=$(awk 'BEGIN { s = "/"; while (length(s) < 4091) s = s "aaaaaaaaaa";
+                    print substr(s, 1, 4091) }')
+
+# Facts a run actually read: --verbose echoes each component's wire lines, and
+# every fact a component emits is one of them.
+facts() { # $1 = KASLD_SYSROOT value, empty for a live run
+  if [ -z "$1" ]; then
+    "$BIN" -q -v 2>&1 | grep -c '^[VPSR] '
+  else
+    KASLD_SYSROOT="$1" "$BIN" -q -v 2>&1 | grep -c '^[VPSR] '
+  fi
+}
+
+live=$(facts '')
+short=$(facts "$SHORT")
+long=$(facts "$LONG")
+
+if [ "$((live - short))" -lt 10 ]; then
+  printf '%ssysroot-containment guard: SKIP%s (host exposes %d facts, empty sysroot %d; too few to detect a fallback)\n' \
+    "$YELLOW" "$RESET" "$live" "$short"
+  exit 0
+fi
+
+if [ "$long" -ne "$short" ]; then
+  printf '%ssysroot-containment guard: FAIL%s\n' "$RED" "$RESET"
+  printf '  an over-long KASLD_SYSROOT read %d facts; a short one reads %d\n' \
+    "$long" "$short"
+  printf '  (the live host reads %d) — a read escaped the sysroot\n' "$live"
+  exit 1
+fi
+
+printf '%ssysroot-containment guard: OK%s (over-long and short sysroots both read %d facts; live host %d)\n' \
+  "$GREEN" "$RESET" "$short" "$live"

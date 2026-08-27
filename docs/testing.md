@@ -209,6 +209,7 @@ stays plain, and setting `KASLD_COLOR` non-empty or empty forces either.
 | `check-render-parity` | the text readout, the markdown report and JSON name the same set of resolved quantities for a given run † |
 | `check-render-color` | coloured output is byte-identical to plain output once the escape sequences are removed, and markdown, JSON and oneline carry no escapes at all † |
 | `check-wire-text` | a component cannot put an escape sequence on the terminal: a record whose `name`, or a disposition whose `gate` or `msg`, leaves printable ASCII is rejected, and the verbose echo of component output strips control bytes † |
+| `check-sysroot-containment` | a `KASLD_SYSROOT` too long to build a fact path with fails the read instead of falling back to the analysing host's own `/proc` and `/sys` † |
 | `check-guard-docs` | this table lists exactly the guards `make lint` runs — the same parity check `check-manpages` applies to flags, applied to the guard list itself |
 | `check-matrix-summary` | the summary table in `docs/reproducibility.md` restates the full per-scenario matrix it precedes: same cells, same KASLR state, same `default` and `perf-open` results in both directions |
 | `check-readout-docs` | documented sample output uses the renderer's current vocabulary and fits 100 columns (live output is measured separately by `check-render-width`) † |
@@ -509,6 +510,35 @@ Each case also asserts the coloured run actually emitted escapes, since a
 differential against a colourless run passes while proving nothing. Determinism
 comes from an empty sysroot plus stub components, which also supply the pinned
 base the coloured branches need.
+
+**`check-wire-text`** — A component's free text is data, and the fields
+carrying it — a result's `name`, a disposition's `gate` and `msg` — are
+rendered into the report an operator forwards. An erase-line sequence among
+them redraws a line already printed, so a finding can be made to read as its
+opposite by the report meant to expose it. `check-render-color` proves KASLD's
+own escapes strip back to the plain rendering, which says nothing about escapes
+arriving in data.
+
+The admissible set stops at 0x7E rather than merely above 0x1F, because
+0x80..0x9F is the C1 control range and a terminal in an 8-bit locale acts on it
+with no ESC byte involved. Both halves are exercised. The guard also reads its
+own output with `grep -a`: without it a high byte makes grep report a binary
+match instead of lines, leaving the check searching nothing and passing against
+the very build it targets.
+
+**`check-sysroot-containment`** — `kasld_resolve()` composes
+`<KASLD_SYSROOT><path>` into a `KASLD_PATH_MAX` buffer, and returning the bare
+path where the two do not fit sends the read to the analysing machine's own
+`/proc` and `/sys` while the output still presents a captured tree. It is not a
+truncation trade-off: a prefixed path overflowing 4096 bytes is already longer
+than one the kernel will open, so the fallback never salvaged a read that would
+otherwise have worked. Before the fix, a 4091-byte sysroot naming nothing read
+124 facts where a short one naming nothing read 3.
+
+Both roots name nothing, so a difference between them can only be a read that
+escaped. A live run supplies the control: a host exposing no more facts than
+the empty sysroot does leaves nothing to detect, and the guard skips rather
+than passing on an absence.
 
 **`check-doc-structure`** — Three failures markdown accepts silently and a
 reader meets as a broken page: an unclosed fence swallows the rest of the
