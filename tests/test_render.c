@@ -14,7 +14,15 @@
 // <bcoles@gmail.com>
 
 #include "../src/environment.c"
+/* The orchestrator is compiled into this test, so every static it does not
+ * happen to call is unused here. Suppressed at the include rather than by
+ * tagging the definitions: they are production code, and the property is a
+ * fact about this translation unit, not about them. */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-function"
+#pragma GCC diagnostic ignored "-Wunused-variable"
 #include "../src/orchestrator.c"
+#pragma GCC diagnostic pop
 /* The engine's value model, after orchestrator.c so its feature-test
  * macros are established first. engine_sync_authoritative projects
  * resolved estimates into `layout`, and reading an estimate means knowing
@@ -23,7 +31,10 @@
 #include "../src/estimate.c"
 #include "../src/quantities.c"
 #include "../src/region_info.c"
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-function"
 #include "../src/render.c"
+#pragma GCC diagnostic pop
 #include "../src/render/hardening.c"
 #include "../src/render/json.c"
 #include "../src/render/markdown.c"
@@ -371,7 +382,6 @@ static void test_render_json_with_rich_content(void) {
  * suggestion's enforcement surface and the hardware side-channel section. Raw
  * component stdout stays behind --verbose. */
 static void test_render_json_posture_always_present(void) {
-  extern int hardening_mode, verbose;
   struct summary s;
   set_rich_render_state(&s);
   hardening_mode = 0; /* NOT in hardening mode */
@@ -411,7 +421,6 @@ static void test_render_likely_window(void) {
   reset_comp_logs();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
-  extern int verbose;
 
   /* Guaranteed window is a range (no concrete vtext/ptext) with a tighter
    * speculative likely window. The likely sub-line/JSON read only s->kaslr,
@@ -474,7 +483,6 @@ static void test_render_vtext_speculative(void) {
   reset_comp_logs();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
-  extern int verbose;
   unsigned long sv_lo = layout.virt_kaslr_text_min,
                 sv_hi = layout.virt_kaslr_text_max,
                 sv_al = layout.virt_kaslr_align;
@@ -671,7 +679,6 @@ static void test_render_memory_likely_window(void) {
   reset_comp_logs();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
-  extern int verbose;
 
   s.kaslr.vslots = 60; /* keep render_kaslr_text from early-returning */
   s.kaslr.vbits = 6;
@@ -1080,7 +1087,6 @@ static void test_render_memory_kaslr_uses_stored_slots(void) {
   reset_comp_logs();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
-  extern int verbose;
 
   s.kaslr.vslots = 60; /* keep render_kaslr_text from early-returning */
   s.kaslr.vbits = 6;
@@ -1170,7 +1176,6 @@ static void check_static_base_case(int posture_disabled, unsigned long lo,
                                    const char *want_verdict, int json_mode,
                                    int md_mode, int want_verbose) {
   struct summary s;
-  extern int verbose;
   reset_results();
   reset_comp_logs();
   num_scalar_facts = 0;
@@ -1304,7 +1309,6 @@ static void test_render_static_base_prefers_engine_window(void) {
  * real addresses on the arch under test and cannot overflow a 32-bit word. */
 static void test_render_map_directmap_extent_derived(void) {
   struct summary s;
-  extern int verbose;
   unsigned long sv_po = layout.virt_page_offset;
   unsigned long sv_min = layout.virt_page_offset_min;
   unsigned long sv_max = layout.virt_page_offset_max;
@@ -1407,7 +1411,6 @@ static void test_render_map_directmap_base_from_engine(void) {
   reset_comp_logs();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
-  extern int verbose;
 
   unsigned long sv_po = layout.virt_page_offset;
   unsigned long sv_min = layout.virt_page_offset_min;
@@ -1496,7 +1499,6 @@ static void test_render_map_overlapped_band_states_its_ceiling(void) {
   reset_comp_logs();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
-  extern int verbose;
 
   unsigned long sv_ms = layout.modules_start;
   unsigned long sv_me = layout.modules_end;
@@ -1573,8 +1575,6 @@ static void test_render_footer_hint_is_last(void) {
   reset_comp_logs();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
-  extern int verbose;
-  extern int map_mode;
   s.kaslr.vslots = 60;
   s.kaslr.vbits = 6;
   verbose = 0;
@@ -1633,8 +1633,6 @@ static void test_render_phys_map_descends_strictly(void) {
   reset_comp_logs();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
-  extern int verbose;
-  extern int map_mode;
   s.kaslr.vslots = 60;
   s.kaslr.vbits = 6;
   verbose = 0;
@@ -1691,8 +1689,6 @@ static void test_render_map_flag(void) {
   reset_comp_logs();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
-  extern int verbose;
-  extern int map_mode;
   s.kaslr.vslots = 60;
   s.kaslr.vbits = 6;
 
@@ -1737,7 +1733,6 @@ static void test_render_map_band_contains_its_leaks(void) {
   reset_comp_logs();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
-  extern int verbose;
   unsigned long sv_max = layout.virt_image_base_max;
 
   /* Narrow the base window so there is room between its ceiling and the next
@@ -1835,7 +1830,6 @@ static void test_render_map_ceiling_covers_high_mmio(void) {
   reset_comp_logs();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
-  extern int verbose;
 
   /* Small, so both fit a 32-bit unsigned long; the property under test is
    * only that the MMIO point sits above the leaked DRAM top. */
@@ -1907,7 +1901,6 @@ static void test_render_map_phys_buckets_partition(void) {
   reset_comp_logs();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
-  extern int verbose;
 
   unsigned long sv_min = layout.phys_kaslr_text_min;
   unsigned long sv_max = layout.phys_kaslr_text_max;
@@ -1985,7 +1978,6 @@ static void test_render_map_directmap_contains_text(void) {
   reset_comp_logs();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
-  extern int verbose;
 
   unsigned long sv_po = layout.virt_page_offset;
   /* The coupled default: the direct map begins exactly where the kernel image
@@ -2046,7 +2038,6 @@ static void test_render_map_draws_topmost_band_ceiling(void) {
   reset_comp_logs();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
-  extern int verbose;
 
   unsigned long sv_po = layout.virt_page_offset;
   unsigned long sv_tmin = layout.virt_image_base_min;
@@ -2160,7 +2151,6 @@ static void test_render_phys_ceiling_covers_bucket_footers(void) {
   reset_comp_logs();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
-  extern int verbose;
 
   unsigned long sv_min = layout.phys_kaslr_text_min;
   unsigned long sv_max = layout.phys_kaslr_text_max;
@@ -2205,7 +2195,6 @@ static void test_render_disabled_base_not_labeled_likely(void) {
   reset_comp_logs();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
-  extern int verbose;
 
   s.kaslr.disabled = 1;
   unsigned long vt = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
@@ -2275,7 +2264,6 @@ static void test_render_leak_discloses_interior(void) {
 static void test_render_markdown_with_rich_content(void) {
   struct summary s;
   set_rich_render_state(&s);
-  extern int verbose;
   verbose = 1; /* per-record Evidence table (with the Pos column) */
   set_render_mode(0, 0, 1);
   capture_stdout(wrap_render_summary, &s);
@@ -2463,7 +2451,6 @@ static void test_render_oneline_entropy_and_failed(void) {
  * compile-time-default remark must NOT appear, since the image did move. */
 static void test_render_randomization_failed_posture(void) {
   struct summary s;
-  extern int verbose;
   /* The arch's own resolved window is left exactly as it is: this test is
      about the posture line, not about any particular bounds, and narrowing
      the window here would push the shared fixture's text result out of

@@ -28,6 +28,14 @@
 #ifndef KASLD_TEST_SYSROOT_H
 #define KASLD_TEST_SYSROOT_H
 
+/* Every includer uses a subset of the helpers below, so the rest are unused in
+ * any given translation unit. Suppressed here rather than by tagging each
+ * definition: the definitions are matched verbatim by tests/check-test-staging,
+ * which reads their bodies to confirm the root is registered for removal, and
+ * an attribute between `static` and the return type breaks that match. */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-function"
+
 #include <assert.h>
 #include <dirent.h>
 #include <stdio.h>
@@ -206,5 +214,7 @@ static void th_sysroot_fini(void) {
   (void)rmdir(th_sysroot_root);
   th_sysroot_root[0] = '\0';
 }
+
+#pragma GCC diagnostic pop
 
 #endif /* KASLD_TEST_SYSROOT_H */

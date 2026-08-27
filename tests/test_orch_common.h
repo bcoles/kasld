@@ -12,6 +12,11 @@
 #ifndef KASLD_TEST_ORCH_COMMON_H
 #define KASLD_TEST_ORCH_COMMON_H
 
+/* Helpers shared by the orchestrator tests; each includer uses a subset, so the
+ * rest are unused in any one translation unit. */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-function"
+
 #include <assert.h>
 #include <limits.h>
 
@@ -87,5 +92,7 @@ static struct component_log *seed_comp_log(const char *name) {
 static const char *first_origin(const struct result *r) {
   return kasld_origin_name(origin_set_next(&r->origins, 0));
 }
+
+#pragma GCC diagnostic pop
 
 #endif /* KASLD_TEST_ORCH_COMMON_H */

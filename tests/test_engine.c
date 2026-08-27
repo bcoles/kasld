@@ -20,16 +20,9 @@
 #include <stdio.h>
 #include <string.h>
 
-/* The real ported rule under test. */
-int rule_range_from_interior(const struct evidence_set *ev,
-                             const struct estimate *est, struct constraint *out,
-                             int out_max);
-int rule_image_base_grid_align(const struct evidence_set *ev,
-                               const struct estimate *est,
-                               struct constraint *out, int out_max);
-int rule_image_base_resolved_grid_align(const struct evidence_set *ev,
-                                        const struct estimate *est,
-                                        struct constraint *out, int out_max);
+/* Rule prototypes come from engine_rules.h, which declares every registered
+ * rule through one macro; restating them here would be the same declaration
+ * twice and would drift the moment a signature changed in one place only. */
 
 static struct observation mk_obs(enum kasld_addr_type type,
                                  enum kasld_region region, unsigned long addr,
@@ -354,9 +347,6 @@ static void test_arm64_text_base_off_2mib_stays_in_window(void) {
  * NOT relax this into a modern-layout floor for va==47. The complementary
  * test_arm64_text_base_modern_floor_when_unambiguous pins the other direction.
  */
-int rule_arm64_text_base(const struct evidence_set *ev,
-                         const struct estimate *est, struct constraint *out,
-                         int out_max);
 
 static void test_arm64_text_base_admits_old_layout(void) {
   /* 64-bit addresses; the rule is arch-gated, so the whole body is aarch64-only
@@ -1108,9 +1098,6 @@ static void test_engine_saturation_conflicts_full(void) {
 /* ========================================================================
  * ceiling_from_image_size rule
  * ======================================================================== */
-int rule_ceiling_from_image_size(const struct evidence_set *ev,
-                                 const struct estimate *est,
-                                 struct constraint *out, int out_max);
 
 static struct observation mk_image_size(unsigned long bytes,
                                         enum kasld_confidence conf) {
@@ -1154,9 +1141,6 @@ static struct observation mk_constraint(enum kasld_quantity q,
 }
 
 /* phys_ceiling_from_memtotal rule, decoupled arches only. */
-int rule_phys_ceiling_from_memtotal(const struct evidence_set *ev,
-                                    const struct estimate *est,
-                                    struct constraint *out, int out_max);
 
 /* MemTotal + an observed physical DRAM floor yield the aligned phys ceiling
  * phys_floor + MemTotal - 4MiB, matching the legacy plugin. */
@@ -1418,9 +1402,6 @@ static void test_ceiling_oversized_image(void) {
 
 /* dram_floor_bound rule: min phys DRAM -> a lower bound on the
  * kernel base (phys on decoupled arches, virt on coupled). */
-int rule_dram_floor_bound(const struct evidence_set *ev,
-                          const struct estimate *est, struct constraint *out,
-                          int out_max);
 
 static void test_dram_floor_bound(void) {
   struct engine e;
@@ -1468,10 +1449,6 @@ static void test_dram_floor_bound(void) {
   assert(e.est[Q_VIRT_IMAGE_BASE].lo <= lowest_text);
 #endif
 }
-
-int rule_page_offset_text_floor(const struct evidence_set *ev,
-                                const struct estimate *est,
-                                struct constraint *out, int out_max);
 
 /* page_offset_text_floor: on a coupled arch the image sits inside the linear
  * map, so the LOWEST base the resolved window admits floors the text base. Pure
@@ -1549,9 +1526,6 @@ static void test_dram_floor_ignores_non_ram_dram_regions(void) {
 }
 
 /* page_offset_from_landmark rule. */
-int rule_page_offset_from_landmark(const struct evidence_set *ev,
-                                   const struct estimate *est,
-                                   struct constraint *out, int out_max);
 
 /* Pick a landmark inside Q_PAGE_OFFSET's window. A fixed +1 GiB overflowed
  * on arches where top.lo sits high in a 32-bit address space (ppc32:
@@ -1627,9 +1601,6 @@ static void test_page_offset_none(void) {
 }
 
 /* virt_ceiling_from_memtotal (coupled arches): cross-quantity rule. */
-int rule_virt_ceiling_from_memtotal(const struct evidence_set *ev,
-                                    const struct estimate *est,
-                                    struct constraint *out, int out_max);
 
 /* page_offset_from_landmark pins Q_PAGE_OFFSET, then (on a coupled arch)
  * virt_ceiling_from_memtotal reads that pinned value to bound Q_VIRT_IMAGE_BASE
@@ -1675,9 +1646,6 @@ static void test_virt_ceiling_from_memtotal(void) {
 }
 
 /* phys_bits_ceiling: CPU physical-address-width ceiling. */
-int rule_phys_bits_ceiling(const struct evidence_set *ev,
-                           const struct estimate *est, struct constraint *out,
-                           int out_max);
 
 static void test_phys_bits_ceiling(void) {
   /* Models a 46-bit physical-address width: `1UL << 46` is undefined on a
@@ -1726,8 +1694,6 @@ static void test_phys_bits_absent(void) {
 }
 
 /* dram_ceiling (coupled): top-of-RAM ceiling, cross-quantity. */
-int rule_dram_ceiling(const struct evidence_set *ev, const struct estimate *est,
-                      struct constraint *out, int out_max);
 
 static void test_dram_ceiling(void) {
   struct engine e;
@@ -1833,8 +1799,6 @@ static void test_dram_ceiling_no_highmem_wrap(void) {
 /* coupling_validate: a curation/verdict rule. Exercises the engine's
  * verdict path (emit verdict -> evidence_resolve -> observation invalidated).
  */
-int rule_coupling_validate(const struct evidence_set *ev, struct verdict *out,
-                           int out_max);
 
 static void test_coupling_validate(void) {
 #if defined(__x86_64__)
@@ -1871,8 +1835,6 @@ static void test_coupling_validate(void) {
 
 /* text_cluster_filter: set-based curation — invalidate VIRT outliers
  * far from the cluster median, keep the cluster. */
-int rule_text_cluster_filter(const struct evidence_set *ev, struct verdict *out,
-                             int out_max);
 
 static void test_text_cluster_filter(void) {
   /* Models a 64-bit kernel-text base with a 2 GiB-distant outlier; neither the
@@ -1946,9 +1908,6 @@ static void test_text_cluster_filter_spares_directmap(void) {
 
 /* initrd_phys_exclude: a C_EXCLUDE rule — carves the initrd
  * forbidden zone out of Q_PHYS_IMAGE_BASE's candidate set. */
-int rule_initrd_phys_exclude(const struct evidence_set *ev,
-                             const struct estimate *est, struct constraint *out,
-                             int out_max);
 
 static void test_initrd_phys_exclude(void) {
 #if !TEXT_TRACKS_DIRECTMAP
@@ -1996,9 +1955,6 @@ static void test_initrd_phys_exclude(void) {
 /* cmdline_phys_exclude: the kernel placement code refuses to overlap the
  * bootloader cmdline buffer, so its phys range is a forbidden band in
  * Q_PHYS_IMAGE_BASE — same C_EXCLUDE mechanism as the initrd hole. */
-int rule_cmdline_phys_exclude(const struct evidence_set *ev,
-                              const struct estimate *est,
-                              struct constraint *out, int out_max);
 
 static void test_cmdline_phys_exclude(void) {
 #if !TEXT_TRACKS_DIRECTMAP
@@ -2044,9 +2000,6 @@ static void test_cmdline_phys_exclude(void) {
 /* phys_reservation_exclude: a leaked extent of a region the kernel image can't
  * occupy (crashkernel, MMIO, ...) carves a forbidden band out of the candidate
  * set; a plain-RAM extent of the same shape does NOT. */
-int rule_phys_reservation_exclude(const struct evidence_set *ev,
-                                  const struct estimate *est,
-                                  struct constraint *out, int out_max);
 
 __attribute__((unused)) static int has_phys_exclude(const struct engine *e) {
   for (int i = 0; i < e->n_constraints; i++)
@@ -2118,9 +2071,6 @@ static void test_phys_reservation_exclude(void) {
  * RAM map are forbidden bands. Carves each whole-map origin (firmware_memmap +
  * device-tree); a partial-leak origin, or adjacent extents with no gap, emit
  * nothing. */
-int rule_ram_map_phys_exclude(const struct evidence_set *ev,
-                              const struct estimate *est,
-                              struct constraint *out, int out_max);
 
 __attribute__((unused)) static struct observation
 mk_ram(unsigned long lo, unsigned long hi, const char *origin) {
@@ -2326,9 +2276,6 @@ static void test_ram_map_phys_exclude(void) {
 
 /* cmdline_mem_phys_ceiling: `mem=N` + SF_IMAGE_SIZE_MIN → C_UPPER_BOUND
  * on Q_PHYS_IMAGE_BASE at (mem - ksize), aligned down. Decoupled arches. */
-int rule_cmdline_mem_phys_ceiling(const struct evidence_set *ev,
-                                  const struct estimate *est,
-                                  struct constraint *out, int out_max);
 
 static void test_cmdline_mem_phys_ceiling(void) {
 #if !TEXT_TRACKS_DIRECTMAP
@@ -2376,10 +2323,6 @@ static void test_cmdline_mem_phys_ceiling_no_signal(void) {
  * on its own arch and stays inert (emits no constraint) elsewhere, so it is
  * meaningfully exercised under make test-cross rather than only on the host.
  * ------------------------------------------------------------------------ */
-
-int rule_cmdline_mem_virt_ceiling(const struct evidence_set *ev,
-                                  const struct estimate *est,
-                                  struct constraint *out, int out_max);
 
 /* cmdline_mem_virt_ceiling (coupled arches): `mem=N` + SF_IMAGE_SIZE_MIN + a
  * pinned Q_PAGE_OFFSET -> C_UPPER_BOUND on Q_VIRT_IMAGE_BASE at
@@ -2465,10 +2408,6 @@ static void test_cmdline_mem_virt_ceiling_no_highmem_wrap(void) {
 #endif
 }
 
-int rule_riscv64_va_bits_pin(const struct evidence_set *ev,
-                             const struct estimate *est, struct constraint *out,
-                             int out_max);
-
 /* riscv64_va_bits_pin: SF_VIRT_ADDR_BITS (mmu : svN) -> C_EQUALS Q_VA_BITS. */
 static void test_riscv64_va_bits_pin(void) {
   struct engine e;
@@ -2489,10 +2428,6 @@ static void test_riscv64_va_bits_pin(void) {
     assert(e.constraints[i].q != Q_VA_BITS); /* inert off riscv64 */
 #endif
 }
-
-int rule_vmsplit_text_base(const struct evidence_set *ev,
-                           const struct estimate *est, struct constraint *out,
-                           int out_max);
 
 /* vmsplit_text_base (arm32, no KASLR): a virtual kernel-text witness snaps to
  * its 1 GiB VMSPLIT boundary, pinning Q_PAGE_OFFSET to that boundary and
@@ -2569,9 +2504,6 @@ static void test_vmsplit_text_base_unlisted_split_admitted(void) {
  * admits the real _text — alone it stays sound, and with
  * text_pin_from_observation the observed base pins it exactly (the bug pinned
  * 0x...08000 and excluded truth). */
-int rule_text_pin_from_observation(const struct evidence_set *ev,
-                                   const struct estimate *est,
-                                   struct constraint *out, int out_max);
 
 static void test_vmsplit_text_base_nondefault_offset(void) {
   struct engine e;
@@ -2601,9 +2533,6 @@ static void test_vmsplit_text_base_nondefault_offset(void) {
 
 /* constraint_passthrough: an OBS_CONSTRAINT is folded verbatim into the meet as
  * the named C_* on its quantity, at its own confidence — no translation. */
-int rule_constraint_passthrough(const struct evidence_set *ev,
-                                const struct estimate *est,
-                                struct constraint *out, int out_max);
 
 static void test_constraint_passthrough_emits_bound(void) {
   struct engine e;
@@ -2717,9 +2646,6 @@ static void test_wire_tables_complete(void) {
 /* cmdline_memmap_phys_exclude: each PHYS REGION_CMDLINE_MEMMAP extent
  * + SF_IMAGE_SIZE_MIN → C_EXCLUDE on Q_PHYS_IMAGE_BASE over the inclusive hole.
  * Iterates ALL reservations (up to engine cap). */
-int rule_cmdline_memmap_phys_exclude(const struct evidence_set *ev,
-                                     const struct estimate *est,
-                                     struct constraint *out, int out_max);
 
 static void test_cmdline_memmap_phys_exclude(void) {
 #if !TEXT_TRACKS_DIRECTMAP
@@ -2799,9 +2725,6 @@ static void test_cmdline_memmap_no_image_size(void) {
  * carries a memory-rewriting trigger (mem= / memmap= / hugepages=) AND a PHYS
  * kernel_image observation is in evidence (single-Loader-Code-entry path),
  * pin Q_PHYS_IMAGE_BASE to the kernel_image lo. x86_64-only. */
-int rule_x86_64_efi_phys_seed_zero(const struct evidence_set *ev,
-                                   const struct estimate *est,
-                                   struct constraint *out, int out_max);
 
 #if defined(__x86_64__)
 /* Helper: build evidence with EFI present + a kernel_image at `base` +
@@ -2955,12 +2878,6 @@ test_x86_64_efi_phys_seed_zero_no_kernel_image(void) {
 /* highmem_32bit_bound (coupled 32-bit) + ppc64_firmware_ceiling (ppc64):
  * batch of in-process parity ceilings. Active paths run when cross-built for
  * the relevant arch; inert (no-op) on the x86_64 host. */
-int rule_highmem_32bit_bound(const struct evidence_set *ev,
-                             const struct estimate *est, struct constraint *out,
-                             int out_max);
-int rule_ppc64_firmware_ceiling(const struct evidence_set *ev,
-                                const struct estimate *est,
-                                struct constraint *out, int out_max);
 
 static void test_highmem_32bit_bound(void) {
   struct engine e;
@@ -3042,9 +2959,6 @@ static void test_ppc64_firmware_ceiling(void) {
 
 /* x86_32_vmsplit_ceiling: cross-quantity ceiling = virt_page_offset + 512 MiB.
  */
-int rule_x86_32_vmsplit_ceiling(const struct evidence_set *ev,
-                                const struct estimate *est,
-                                struct constraint *out, int out_max);
 
 static void test_x86_32_vmsplit_ceiling(void) {
   struct engine e;
@@ -3073,12 +2987,6 @@ static void test_x86_32_vmsplit_ceiling(void) {
  * bound; the vmemmap rule chains that -> Q_VMEMMAP_BASE lower bound and adds an
  * upper bound from max_pfn. Cross-quantity, multi-pass. x86_64 only; inert (no
  * constraint) elsewhere. */
-int rule_x86_64_vmalloc_base_bound(const struct evidence_set *ev,
-                                   const struct estimate *est,
-                                   struct constraint *out, int out_max);
-int rule_x86_64_vmemmap_base_bound(const struct evidence_set *ev,
-                                   const struct estimate *est,
-                                   struct constraint *out, int out_max);
 
 /* 64-bit-only block: these model x86_64 RANDOMIZE_MEMORY (vmalloc/vmemmap) and
  * 64-bit VA-bits/paging layouts with addresses that do not fit a 32-bit
@@ -3208,10 +3116,6 @@ static void test_x86_64_vmalloc_upper_l4_when_po_unresolved(void) {
 /* x86_64_page_offset_from_vmalloc_vmemmap, backward chain): a leaked
  * VMALLOC virtual address bounds Q_PAGE_OFFSET from above by the directmap
  * size + PUD gap. */
-int rule_x86_64_page_offset_from_vmalloc_vmemmap(const struct evidence_set *ev,
-                                                 const struct estimate *est,
-                                                 struct constraint *out,
-                                                 int out_max);
 
 __attribute__((unused)) static void test_x86_64_po_from_vmalloc(void) {
 #if defined(__x86_64__)
@@ -3434,8 +3338,6 @@ test_x86_64_po_from_vmemmap_pinned_l4_keeps_l4(void) {
 /* x86_64_vmalloc_vmemmap_invariant: a too-close vmalloc/vmemmap pair
  * → both observations invalidated. The required gap is VMALLOC_SIZE_TB·1TB
  * + PUD_SIZE = ≥33 TiB on L4. */
-int rule_x86_64_vmalloc_vmemmap_invariant(const struct evidence_set *ev,
-                                          struct verdict *out, int out_max);
 
 __attribute__((unused)) static void
 test_x86_64_vmalloc_vmemmap_invariant_violation(void) {
@@ -3501,9 +3403,6 @@ test_x86_64_vmalloc_vmemmap_invariant_ok(void) {
 /* arm64_va_bits_from_vmemmap: a VIRT/VMEMMAP observation below the
  * VA_BITS=48 VMEMMAP_START floor (0xfffffdffc0000000) cannot lie in VA48's
  * vmemmap → pin Q_VA_BITS=52 + the matching PAGE_OFFSET ceiling. */
-int rule_arm64_va_bits_from_vmemmap(const struct evidence_set *ev,
-                                    const struct estimate *est,
-                                    struct constraint *out, int out_max);
 
 static void test_arm64_va_bits_from_vmemmap_pins_52(void) {
   struct engine e;
@@ -3586,9 +3485,6 @@ static void test_arm64_va_bits_from_vmemmap_is_heuristic(void) {
  * map base proves the modern layout and recovers the tight VA47 floor
  * _PAGE_END(47)+128M. Without such a witness — or with a low old-layout vmemmap
  * — the rule is inert so arm64_text_base's honest floor is preserved. */
-int rule_arm64_va47_modern_floor(const struct evidence_set *ev,
-                                 const struct estimate *est,
-                                 struct constraint *out, int out_max);
 
 static void test_arm64_va47_modern_floor(void) {
 #if defined(__aarch64__)
@@ -3642,9 +3538,6 @@ static void test_arm64_va47_modern_floor(void) {
 
 /* s390_text_from_vmalloc: a VIRT/VMALLOC observation pushes the text
  * base lower bound up by exactly MODULES_LEN (= SZ_2G) + 1. */
-int rule_s390_text_from_belows(const struct evidence_set *ev,
-                               const struct estimate *est,
-                               struct constraint *out, int out_max);
 
 static void test_s390_text_from_vmalloc_lo_bound(void) {
   struct engine e;
@@ -3775,9 +3668,6 @@ static void test_s390_text_from_vmemmap_no_obs(void) {
 
 /* s390_text_segment_mod: a PHYS/KERNEL_IMAGE observation pins
  * Q_VIRT_IMAGE_BASE's stride class to (phys mod 1 MiB). */
-int rule_s390_text_segment_mod(const struct evidence_set *ev,
-                               const struct estimate *est,
-                               struct constraint *out, int out_max);
 
 static void test_s390_text_segment_mod_fires(void) {
   struct engine e;
@@ -3845,9 +3735,6 @@ static void test_s390_text_segment_mod_unaligned_skipped(void) {
 
 /* arm64_text_phys_residue: a PHYS KERNEL_IMAGE base pins Q_VIRT_IMAGE_BASE's
  * stride class to (phys_text mod 2 MiB) — the arm64 virt/phys text coupling. */
-int rule_arm64_text_phys_residue(const struct evidence_set *ev,
-                                 const struct estimate *est,
-                                 struct constraint *out, int out_max);
 
 static void test_arm64_text_phys_residue_image_base(void) {
   struct engine e;
@@ -3922,9 +3809,6 @@ static void test_arm64_text_phys_residue_no_anchor(void) {
 /* arm64_phys_text_residue: a VIRT KERNEL_IMAGE base pins Q_PHYS_IMAGE_BASE's
  * stride class to (virt_text mod 2 MiB) — the reverse of
  * arm64_text_phys_residue and the arm64 mirror of s390_phys_segment_mod. */
-int rule_arm64_phys_text_residue(const struct evidence_set *ev,
-                                 const struct estimate *est,
-                                 struct constraint *out, int out_max);
 
 static void test_arm64_phys_text_residue_image_base(void) {
   struct engine e;
@@ -3994,9 +3878,6 @@ static void test_arm64_phys_text_residue_no_anchor(void) {
 /* s390_phys_segment_mod: a VIRT KERNEL_IMAGE base pins Q_PHYS_IMAGE_BASE's
  * stride class to (virt_text mod 1 MiB) — the reverse of s390_text_segment_mod.
  */
-int rule_s390_phys_segment_mod(const struct evidence_set *ev,
-                               const struct estimate *est,
-                               struct constraint *out, int out_max);
 
 static void test_s390_phys_segment_mod_fires(void) {
   struct engine e;
@@ -4048,9 +3929,6 @@ static void test_s390_phys_segment_mod_no_anchor(void) {
  * s390, the boot stub places the kernel image at low physical memory
  * (IMAGE_BASE_OFFSET on pre-v6.8, or ALIGN(mem_safe_offset, 1MiB) on v6.8+).
  * The rule emits a 256 MiB upper bound at CONF_HEURISTIC. */
-int rule_s390_text_no_random(const struct evidence_set *ev,
-                             const struct estimate *est, struct constraint *out,
-                             int out_max);
 
 static void test_s390_text_no_random_fires_with_signal(void) {
 #if defined(__s390__) || defined(__s390x__)
@@ -4108,9 +3986,6 @@ static void test_s390_text_no_random_admits_empirical_phys(void) {
  * numbers — a positive value (CONFIG_KERNEL_IMAGE_BASE) floors the image base
  * at the modern high layout; 0 (knob absent) caps it at the top of RAM for the
  * pre-v6.8 identity-mapped layout. */
-int rule_s390_image_base_from_config(const struct evidence_set *ev,
-                                     const struct estimate *est,
-                                     struct constraint *out, int out_max);
 
 /* Modern: CONFIG_KERNEL_IMAGE_BASE > 0 floors Q_VIRT_IMAGE_BASE at that value,
  * recovering tightness lost to the historical-layout honest floor (0) while
@@ -4214,9 +4089,6 @@ static void test_s390_image_base_from_config_inert_without_fact(void) {
 /* cmdline_memmap_too_large_phys_pin: cmdline carries 5+ memmap=
  * tokens with offset → SF_CMDLINE_MEMMAP_COUNT > 4 + a PHYS kernel_image
  * observation pins Q_PHYS_IMAGE_BASE bilaterally. */
-int rule_cmdline_memmap_too_large_phys_pin(const struct evidence_set *ev,
-                                           const struct estimate *est,
-                                           struct constraint *out, int out_max);
 
 __attribute__((unused)) static void
 test_cmdline_memmap_too_large_phys_pin(void) {
@@ -4270,9 +4142,6 @@ test_cmdline_memmap_too_large_phys_pin_under_threshold(void) {
  * push Q_VIRT_IMAGE_BASE.lo + Q_PHYS_IMAGE_BASE.lo to the precise floor at
  * CONF_PARSED; without the scalar, fall back to compile-time
  * KASLR_VIRT_TEXT_MIN at CONF_HEURISTIC (overridable by any real evidence). */
-int rule_physical_start_lower_bound(const struct evidence_set *ev,
-                                    const struct estimate *est,
-                                    struct constraint *out, int out_max);
 
 __attribute__((unused)) static void
 test_physical_start_lower_bound_learned(void) {
@@ -4334,8 +4203,6 @@ test_physical_start_lower_bound_leak_below_heuristic(void) {
 
 /* arm64_coupling_validate: VIRT observations whose tagged region
  * disagrees with the address band are invalidated. */
-int rule_arm64_coupling_validate(const struct evidence_set *ev,
-                                 struct verdict *out, int out_max);
 
 static void test_arm64_coupling_validate_module_outside_band(void) {
   struct engine e;
@@ -4447,8 +4314,6 @@ static void test_coupling_validate_text_in_validation_outside_kaslr(void) {
 
 /* riscv64_coupling_validate: per-region VA-band verdict, sibling of
  * coupling_validate / arm64_coupling_validate. */
-int rule_riscv64_coupling_validate(const struct evidence_set *ev,
-                                   struct verdict *out, int out_max);
 
 static void test_riscv64_coupling_validate_module_outside_band(void) {
 #if (defined(__riscv) || defined(__riscv__)) && __riscv_xlen == 64
@@ -4485,8 +4350,6 @@ static void test_riscv64_coupling_validate_text_inside_validation(void) {
 
 /* loongarch64_coupling_validate: per-region VA-band verdict, sibling of
  * the other coupling_validate rules. */
-int rule_loongarch64_coupling_validate(const struct evidence_set *ev,
-                                       struct verdict *out, int out_max);
 
 static void test_loongarch64_coupling_validate_directmap_in_xkprange(void) {
 #if defined(__loongarch__) && __loongarch_grlen == 64
@@ -4523,10 +4386,6 @@ static void test_loongarch64_coupling_validate_directmap_in_xkvrange(void) {
 /* riscv64_page_offset_from_vmalloc_vmemmap: VMALLOC observation
  * → virt_page_offset > V_va (no mode dependency); VMEMMAP observation →
  * virt_page_offset > V_mm + VMALLOC_SIZE, gated on Q_VA_BITS pinned. */
-int rule_riscv64_page_offset_from_vmalloc_vmemmap(const struct evidence_set *ev,
-                                                  const struct estimate *est,
-                                                  struct constraint *out,
-                                                  int out_max);
 
 static void test_riscv64_po_from_vmalloc(void) {
   struct engine e;
@@ -4661,12 +4520,6 @@ static void test_riscv64_po_from_vmalloc_vmemmap_no_obs(void) {
  * pins Q_VA_BITS (C_EQUALS) and tightens the Q_PAGE_OFFSET window to match
  * legacy. x86_64 (L4/L5) is active on the host; arm64 (VA48/VA52) is inert
  * here and exercised only when cross-built. */
-int rule_x86_64_la57_from_directmap(const struct evidence_set *ev,
-                                    const struct estimate *est,
-                                    struct constraint *out, int out_max);
-int rule_arm64_va_bits_from_directmap(const struct evidence_set *ev,
-                                      const struct estimate *est,
-                                      struct constraint *out, int out_max);
 
 /* Emit a single DIRECTMAP virtual leak at `addr`. */
 __attribute__((unused)) static void add_directmap(struct engine *e,
@@ -4848,9 +4701,6 @@ static void test_va_bits_arm64_unambiguous_va48_pins(void) {
 /* x86_64_randomize_memory_budget: the shared entropy budget confines all three
  * region bases to a band above vaddr_start, leak-free, from max_pfn + a
  * resolved paging level. A directmap leak resolves Q_VA_BITS=48 (L4). */
-int rule_x86_64_randomize_memory_budget(const struct evidence_set *ev,
-                                        const struct estimate *est,
-                                        struct constraint *out, int out_max);
 
 static void test_x86_64_randomize_memory_budget(void) {
   struct engine e;
@@ -5020,9 +4870,6 @@ static void test_x86_64_randomize_memory_budget_inert(void) {
 /* arm64_page_offset_from_va_bits: a resolved Q_VA_BITS pins the exact
  * linear-map virtual base -(1<<VA_BITS), even with no directmap/vmemmap leak
  * present. */
-int rule_arm64_page_offset_from_va_bits(const struct evidence_set *ev,
-                                        const struct estimate *est,
-                                        struct constraint *out, int out_max);
 
 /* Narrow a FINSET estimate to the single candidate `value`. */
 static void resolve_finset(struct estimate *e, unsigned long value) {
@@ -5060,9 +4907,6 @@ static void test_arm64_page_offset_from_va_bits(void) {
 
 /* x86_64_va_bits_from_scalar: SF_VIRT_ADDR_BITS (the active paging width, from
  * the mmap probe or the 48-gated cpuinfo read) pins Q_VA_BITS on x86_64. */
-int rule_x86_64_va_bits_from_scalar(const struct evidence_set *ev,
-                                    const struct estimate *est,
-                                    struct constraint *out, int out_max);
 
 static void test_x86_64_va_bits_from_scalar(void) {
   struct engine e;
@@ -5093,10 +4937,6 @@ static void test_x86_64_va_bits_from_scalar(void) {
 /* x86_64_page_offset_floor_from_va_bits: a resolved level raises the directmap
  * floor to that level's canonical value (tightening the loose L5 floor
  * proc_cpuinfo emits on an LA57-capable part booted 4-level). */
-int rule_x86_64_page_offset_floor_from_va_bits(const struct evidence_set *ev,
-                                               const struct estimate *est,
-                                               struct constraint *out,
-                                               int out_max);
 
 static void test_x86_64_page_offset_floor_from_va_bits(void) {
   struct engine e;
@@ -5121,9 +4961,6 @@ static void test_x86_64_page_offset_floor_from_va_bits(void) {
 /* arm64_va_bits_from_scalar + arm64_page_offset_from_va_bits chain: the mmap
  * probe's active-width scalar resolves Q_VA_BITS, which derives PAGE_OFFSET —
  * the leak-free path that replaces the direct page_offset landmark. */
-int rule_arm64_va_bits_from_scalar(const struct evidence_set *ev,
-                                   const struct estimate *est,
-                                   struct constraint *out, int out_max);
 
 static void test_arm64_va_bits_from_scalar(void) {
   struct engine e;
@@ -5149,18 +4986,6 @@ static void test_arm64_va_bits_from_scalar(void) {
 /* KASLR alignment quantities (LK_MAXALIGN). The arch-default baseline pins the
  * minimum granularity; boot_params (x86_64) and EFI_KIMG_ALIGN (arm64) raise it
  * from config/page_size evidence. */
-int rule_kaslr_align_arch_default(const struct evidence_set *ev,
-                                  const struct estimate *est,
-                                  struct constraint *out, int out_max);
-int rule_boot_params_kaslr_align(const struct evidence_set *ev,
-                                 const struct estimate *est,
-                                 struct constraint *out, int out_max);
-int rule_image_floor_from_init_size(const struct evidence_set *ev,
-                                    const struct estimate *est,
-                                    struct constraint *out, int out_max);
-int rule_arm64_efi_kimg_align(const struct evidence_set *ev,
-                              const struct estimate *est,
-                              struct constraint *out, int out_max);
 
 static void test_kaslr_align_arch_default(void) {
   struct engine e;
@@ -5313,9 +5138,6 @@ static void test_resolved_grid_align_pins_x86_64(void) {
  * when it would otherwise overlap. File-derived scalar; inert where the
  * option is absent OR when no kernel_length signal is available
  * (without the width we can't size the bump). */
-int rule_config_max_offset_ceiling(const struct evidence_set *ev,
-                                   const struct estimate *est,
-                                   struct constraint *out, int out_max);
 
 static void test_config_max_offset_ceiling(void) {
   struct engine e;
@@ -5458,9 +5280,6 @@ static void test_config_max_offset_absent(void) {
 /* page_offset_invariant_pin: on arches where PAGE_OFFSET is architecturally
  * invariant (mips, ppc64) it pins Q_PAGE_OFFSET to PAGE_OFFSET; inert (honest
  * window kept) elsewhere. */
-int rule_page_offset_invariant_pin(const struct evidence_set *ev,
-                                   const struct estimate *est,
-                                   struct constraint *out, int out_max);
 
 static void test_page_offset_invariant_pin(void) {
   struct engine e;
@@ -5482,9 +5301,6 @@ static void test_page_offset_invariant_pin(void) {
 
 /* page_offset_from_config: on VMSPLIT arches (PAGE_OFFSET_FROM_CONFIG) it pins
  * Q_PAGE_OFFSET to the parsed CONFIG_PAGE_OFFSET; inert elsewhere. */
-int rule_page_offset_from_config(const struct evidence_set *ev,
-                                 const struct estimate *est,
-                                 struct constraint *out, int out_max);
 
 static void test_page_offset_from_config(void) {
   struct engine e;
@@ -5517,9 +5333,6 @@ static void test_page_offset_from_config(void) {
 /* page_offset_from_leak: a leaked exact linear-map base (SF_VIRT_PAGE_OFFSET,
  * e.g. proc_kcore's p_vaddr - p_paddr) pins Q_PAGE_OFFSET outright. Unlike the
  * config rule this is arch-agnostic — it fires wherever the fact is present. */
-int rule_page_offset_from_leak(const struct evidence_set *ev,
-                               const struct estimate *est,
-                               struct constraint *out, int out_max);
 
 static void test_page_offset_from_leak(void) {
   struct engine e;
@@ -5560,15 +5373,6 @@ static void test_page_offset_from_leak_inert(void) {
  * (arm64/riscv64/s390 own their layout-dependent no-KASLR base in a bespoke
  * rule). The window-containment check guards against a computed default outside
  * the honest top. */
-int rule_virt_kaslr_disabled_pin(const struct evidence_set *ev,
-                                 const struct estimate *est,
-                                 struct constraint *out, int out_max);
-int rule_phys_kaslr_disabled_pin(const struct evidence_set *ev,
-                                 const struct estimate *est,
-                                 struct constraint *out, int out_max);
-int rule_text_pin_from_observation(const struct evidence_set *ev,
-                                   const struct estimate *est,
-                                   struct constraint *out, int out_max);
 
 static void test_virt_kaslr_disabled_pin(void) {
   struct engine e;
@@ -5751,9 +5555,6 @@ static void test_virt_kaslr_disabled_pin_no_signal_no_pin(void) {
 /* directmap_kaslr_disabled_pin: KASAN (or nokaslr) leaves page_offset / vmalloc
  * / vmemmap at their compile-time L4/L5 defaults; the level comes from
  * SF_VIRT_ADDR_BITS. x86_64 only. */
-int rule_directmap_kaslr_disabled_pin(const struct evidence_set *ev,
-                                      const struct estimate *est,
-                                      struct constraint *out, int out_max);
 
 static void test_directmap_kaslr_disabled_pin(void) {
 #if defined(__x86_64__)
@@ -5975,15 +5776,6 @@ static void test_phys_kaslr_disabled_pin_inert_on_decoupled(void) {
 /* --- Leak-derived phys rules (decoupled). Active on the x86_64 host; these
  * are dormant on the offline corpus (no leaks) and need live-host validation.
  */
-int rule_mmio_floor_phys_ceiling(const struct evidence_set *ev,
-                                 const struct estimate *est,
-                                 struct constraint *out, int out_max);
-int rule_phys_hole_filter(const struct evidence_set *ev,
-                          const struct estimate *est, struct constraint *out,
-                          int out_max);
-int rule_kernel_image_phys_bound(const struct evidence_set *ev,
-                                 const struct estimate *est,
-                                 struct constraint *out, int out_max);
 
 /* Emit a PHYS address observation with an explicit [lo,hi] extent. */
 static void add_phys_extent(struct engine *e, enum kasld_region region,
@@ -6148,10 +5940,6 @@ static void test_kernel_image_phys_bound_lower_conf(void) {
   }
   assert(seen_inferred_raw);
 }
-
-int rule_efi_loader_kernel_pick(const struct evidence_set *ev,
-                                const struct estimate *est,
-                                struct constraint *out, int out_max);
 
 /* Build a PHYS REGION_EFI_LOADER_IMAGE observation with both LO and HI set
  * (the shape dmesg_efi_memmap emits via kasld_result_sized). mk_obs() only
@@ -6416,13 +6204,6 @@ static void test_efi_loader_kernel_pick_lowerbound_below_floor(void) {
   assert(e.est[Q_PHYS_IMAGE_BASE].hi == top.hi);
 #endif
 }
-
-int rule_image_size_text_data_gap(const struct evidence_set *ev,
-                                  const struct estimate *est,
-                                  struct constraint *out, int out_max);
-int rule_directmap_page_offset_bounds(const struct evidence_set *ev,
-                                      const struct estimate *est,
-                                      struct constraint *out, int out_max);
 
 /* The page size the directmap bound will convert a PFN with, and whether the
  * test must supply it as evidence.
@@ -6797,13 +6578,6 @@ static void test_directmap_page_offset_bounds_pud_aligned(void) {
 }
 #endif /* __SIZEOF_LONG__ >= 8 (randomized direct-map bounds) */
 
-int rule_base_align_cross_validate(const struct evidence_set *ev,
-                                   const struct estimate *est,
-                                   struct constraint *out, int out_max);
-int rule_randomize_memory_page_offset(const struct evidence_set *ev,
-                                      const struct estimate *est,
-                                      struct constraint *out, int out_max);
-
 static void test_base_align_cross_validate(void) {
   struct engine e;
   engine_init(&e);
@@ -6850,9 +6624,6 @@ __attribute__((unused)) static void test_randomize_memory_page_offset(void) {
   }
 #endif
 }
-
-int rule_firmware_memmap_holes(const struct evidence_set *ev,
-                               struct verdict *out, int out_max);
 
 static void test_firmware_memmap_holes(void) {
 #if defined(__x86_64__)
@@ -6923,9 +6694,6 @@ test_randomize_memory_page_offset_path2(void) {
 
 /* phys_virt_synth: same-origin directmap + DRAM leaks reconstruct
  * virt_page_offset = virt - phys + PHYS_OFFSET, pinned when origins agree. */
-int rule_phys_virt_synth(const struct evidence_set *ev,
-                         const struct estimate *est, struct constraint *out,
-                         int out_max);
 
 /* The rule needs the physical address the linear map anchors at; the
  * architecture's LINEAR_MAP_ANCHOR says where that comes from, and one of the
@@ -7426,9 +7194,6 @@ static void test_xkphys_decode(void) {
 /* s390_paging_level: SF_VIRT_ADDR_BITS (from the mmap probe) -> text-base
  * ceiling at 1<<va_bits. On s390 a 3-level probe (va_bits=42) drops the ceiling
  * to 4 TiB; inert on other arches (the quantity stays at its honest top). */
-int rule_s390_paging_level(const struct evidence_set *ev,
-                           const struct estimate *est, struct constraint *out,
-                           int out_max);
 
 static void test_s390_paging_level(void) {
   struct engine e;
@@ -7460,26 +7225,6 @@ static void test_s390_paging_level(void) {
  * test is compiled for the rule's arch (see `make test-cross`). Completes the
  * per-rule matrix so every rule has a named test.
  * ======================================================================== */
-int rule_arm64_memstart_align(const struct evidence_set *,
-                              const struct estimate *, struct constraint *,
-                              int);
-int rule_min_offset_from_image_size(const struct evidence_set *,
-                                    const struct estimate *,
-                                    struct constraint *, int);
-int rule_module_text_bound(const struct evidence_set *, const struct estimate *,
-                           struct constraint *, int);
-int rule_module_text_bracket(const struct evidence_set *,
-                             const struct estimate *, struct constraint *, int);
-int rule_module_base_bounds(const struct evidence_set *,
-                            const struct estimate *, struct constraint *, int);
-int rule_ppc32_phys_ceiling(const struct evidence_set *,
-                            const struct estimate *, struct constraint *, int);
-int rule_riscv64_fdt_kaslr_seed(const struct evidence_set *,
-                                const struct estimate *, struct constraint *,
-                                int);
-int rule_riscv64_non_efi_phys_base(const struct evidence_set *,
-                                   const struct estimate *, struct constraint *,
-                                   int);
 
 /* arm64: SF_PAGE_SIZE + a directmap leak -> Q_PAGE_OFFSET upper bound, snapped
  * down to the MEMSTART alignment (1 GiB for 4 KiB pages). */
@@ -8172,9 +7917,6 @@ static void test_text_pin_from_observation_no_obs_inert(void) {
 /* text_base_coupling_synth: on TEXT_TRACKS_DIRECTMAP arches with
  * Q_PAGE_OFFSET pinned, propagates each text-base side onto the other.
  * Inert on decoupled arches (asserts a no-op on the host build path). */
-int rule_text_base_coupling_synth(const struct evidence_set *ev,
-                                  const struct estimate *est,
-                                  struct constraint *out, int out_max);
 /* rule_page_offset_invariant_pin prototype already declared above. */
 
 static void test_text_base_coupling_synth_virt_to_phys(void) {
@@ -8520,10 +8262,6 @@ __attribute__((unused)) static void test_riscv64_non_efi_phys_base(void) {
   (void)e; /* arch has no physical KASLR quantity */
 #endif
 }
-
-int rule_riscv64_text_base(const struct evidence_set *ev,
-                           const struct estimate *est, struct constraint *out,
-                           int out_max);
 
 /* Test helper: LOWER-bound Q_PAGE_OFFSET from a REGION_PAGE_OFFSET base
  * observation (C_LOWER_BOUND). This mirrors how the real CONFIG_PAGE_OFFSET

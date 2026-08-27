@@ -18,7 +18,15 @@
 #endif
 
 #include "../src/environment.c"
+/* The orchestrator is compiled into this test, so every static it does not
+ * happen to call is unused here. Suppressed at the include rather than by
+ * tagging the definitions: they are production code, and the property is a
+ * fact about this translation unit, not about them. */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-function"
+#pragma GCC diagnostic ignored "-Wunused-variable"
 #include "../src/orchestrator.c"
+#pragma GCC diagnostic pop
 /* The engine's value model, after orchestrator.c so its feature-test
  * macros are established first. engine_sync_authoritative projects
  * resolved estimates into `layout`, and reading an estimate means knowing
@@ -33,7 +41,10 @@
 #include "../src/render/markdown.c"
 
 #include "../src/render/oneline.c"
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-function"
 #include "../src/render/text.c"
+#pragma GCC diagnostic pop
 #include "test_harness.h"
 #include "test_orch_common.h"
 #include "test_po_access.h"

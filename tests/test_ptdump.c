@@ -19,7 +19,12 @@
  * coupled-text arches, int main(int, char **) elsewhere), so it is not
  * forward-declared here — the include below defines the renamed function. */
 #define main ptdump_main
+/* No prototype for the renamed main: its signature is arch-dependent, as the
+ * note above says, so there is nothing portable to declare it as. */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmissing-prototypes"
 #include "../src/components/ptdump_kernel_page_tables.c"
+#pragma GCC diagnostic pop
 #undef main
 
 #include "test_harness.h"
