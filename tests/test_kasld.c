@@ -3127,6 +3127,54 @@ static void test_vantage_oracle_readable_each_path(void) {
   th_sysroot_clear();
 }
 
+/* The removal half of the privilege-gaining environment guard. The detection
+ * half is not exercisable here: this process gained no privilege at exec, and
+ * making one that did needs a set-uid install.
+ *
+ * A synthetic prefix is used rather than the real KASLD_ one. Dropping that
+ * prefix in-process would take the staged KASLD_SYSROOT with it and send every
+ * later test to the live host — which is the hazard, not an inconvenience. */
+static void test_env_drop_prefix_removes_only_the_prefix(void) {
+  setenv("KASLDTEST_ALPHA", "1", 1);
+  setenv("KASLDTEST_BETA", "2", 1);
+  setenv("KASLDTESTNOUNDERSCORE", "keep", 1);
+  setenv("PATH_KASLDTEST_MIDDLE", "keep", 1);
+
+  assert(getenv("KASLDTEST_ALPHA") != NULL);
+  assert(getenv("PATH") != NULL);
+
+  kasld_env_drop_prefix("KASLDTEST_");
+
+  /* Every name carrying the prefix goes, including one no read site knows
+   * about — the property that keeps a variable added later covered. */
+  assert(getenv("KASLDTEST_ALPHA") == NULL);
+  assert(getenv("KASLDTEST_BETA") == NULL);
+
+  /* A name merely beginning with the same letters, or carrying them in the
+   * middle, is not the prefix and stays. */
+  assert(getenv("KASLDTESTNOUNDERSCORE") != NULL);
+  assert(getenv("PATH_KASLDTEST_MIDDLE") != NULL);
+
+  /* Unrelated entries survive, the staged sysroot among them, and the block is
+   * still a well-formed environment that setenv and getenv work over. */
+  assert(getenv("PATH") != NULL);
+  assert(getenv("KASLD_SYSROOT") != NULL);
+  setenv("KASLDTEST_GAMMA", "3", 1);
+  assert(getenv("KASLDTEST_GAMMA") != NULL);
+
+  kasld_env_drop_prefix("KASLDTEST_");
+  assert(getenv("KASLDTEST_GAMMA") == NULL);
+  assert(getenv("KASLDTESTNOUNDERSCORE") != NULL);
+}
+
+/* An ordinary run must not lose its environment: the constructor has already
+ * run by the time any test does, and it must have changed nothing. */
+static void test_unprivileged_exec_keeps_its_environment(void) {
+  assert(kasld_exec_gained_privilege() == 0);
+  assert(getenv("PATH") != NULL);
+  assert(getenv("KASLD_SYSROOT") != NULL);
+}
+
 int main(void) {
   th_sysroot_init("kasld");
   TEST_SUITE("test_kasld");
@@ -3246,6 +3294,8 @@ int main(void) {
   RUN(test_vantage_group_names);
   RUN(test_unread_marker_separates_denial_from_absence);
   RUN(test_environment_defaults_to_unknown);
+  RUN(test_env_drop_prefix_removes_only_the_prefix);
+  RUN(test_unprivileged_exec_keeps_its_environment);
   RUN(test_vantage_mac_absent_then_present);
   RUN(test_vantage_oracle_readable_each_path);
   RUN(test_discard_ledger_aggregates_and_reports_truncation);

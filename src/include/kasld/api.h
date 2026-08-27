@@ -1228,6 +1228,8 @@ static inline unsigned long arch_default_phys_text_base(void) { return 0; }
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/auxv.h>
+#include <unistd.h>
 
 /* Filesystem-fact reads route through the KASLD_SYSROOT redirection layer so a
  * copied filesystem tree can be analyzed offline. api.h is kasld's universal
@@ -2425,6 +2427,72 @@ static inline int kasld_disp_inconclusive(const char *msg) {
  * printf call order in each component. */
 __attribute__((constructor)) static void kasld_init_buffering(void) {
   setvbuf(stdout, NULL, _IOLBF, 0);
+}
+
+/* environ is undeclared under a strict -std=c99 compile and declared by
+ * unistd.h under a feature-test macro, so this covers the first case and the
+ * pragma the second, whichever order a translation unit reaches them in. */
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wredundant-decls"
+extern char **environ;
+#pragma GCC diagnostic pop
+
+/* Unlink every environment entry whose name starts with `prefix`.
+ *
+ * The entries are removed from environ directly. unsetenv() is the obvious
+ * call and is not declared under a strict -std=c99 compile, whereas environ
+ * needs no library function at all; getenv() reads the same array, so a name
+ * removed here is a name no later read can find. The strings themselves are
+ * left alone — they may not be the allocator's to release. */
+__attribute__((unused)) static void kasld_env_drop_prefix(const char *prefix) {
+  size_t n = strlen(prefix);
+  char **src, **dst;
+
+  if (environ == NULL)
+    return;
+  for (src = dst = environ; *src != NULL; src++) {
+    if (strncmp(*src, prefix, n) == 0)
+      continue;
+    *dst++ = *src;
+  }
+  *dst = NULL;
+}
+
+/* Non-zero when this exec gained privilege: a set-uid or set-gid binary, or
+ * one carrying file capabilities.
+ *
+ * AT_SECURE is the kernel's own verdict and the only one of the two tests that
+ * accounts for file capabilities; the uid/gid comparison stands in where the
+ * auxiliary vector carries no such entry. */
+__attribute__((unused)) static int kasld_exec_gained_privilege(void) {
+  unsigned long secure;
+  int gained;
+
+  errno = 0;
+  secure = getauxval(AT_SECURE);
+  gained = (secure == 0 && errno != 0)
+               ? (getuid() != geteuid()) || (getgid() != getegid())
+               : (secure != 0);
+  errno = 0;
+  return gained;
+}
+
+/* An exec that gained privilege holds rights its caller does not, while the
+ * caller still chose the environment it started in. KASLD_COMPONENT_DIR and
+ * KASLD_EXEC_WRAPPER name programs this process executes and KASLD_SYSROOT
+ * names the files it reads, so honouring them there lends those rights to
+ * whoever set them. The dynamic loader strips only the variables it owns;
+ * these are not among them.
+ *
+ * The whole KASLD_ prefix goes, so a variable added later needs no change
+ * here. Dropping the entries rather than ignoring them at each read also
+ * cleans the environment the orchestrator's component children inherit, which
+ * matters because those children gain no privilege of their own at exec and so
+ * cannot detect the case themselves. Nothing aborts: a privileged install
+ * still runs, on its own configuration rather than a caller's. */
+__attribute__((constructor)) static void kasld_drop_inherited_env(void) {
+  if (kasld_exec_gained_privilege())
+    kasld_env_drop_prefix("KASLD_");
 }
 
 /* Suppress -Wpedantic "ISO C forbids an empty translation unit". */
