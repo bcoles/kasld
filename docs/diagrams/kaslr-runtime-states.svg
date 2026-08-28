@@ -24,7 +24,7 @@
   <!-- decision nodes (left) -->
   <rect x="48" y="100" width="372" height="60" rx="8" fill="#eceff1" stroke="#78909c" stroke-width="1.5"/>
   <text x="64" y="126" class="q">Architecture has KASLR machinery?</text>
-  <text x="64" y="146" class="qs">no: arm32, PowerPC64, RISC-V32, SPARC</text>
+  <text x="64" y="146" class="qs">no: arm32, PowerPC64, RISC-V32, SPARC, +4 more</text>
 
   <rect x="48" y="190" width="372" height="74" rx="8" fill="#eceff1" stroke="#78909c" stroke-width="1.5"/>
   <text x="64" y="214" class="q">Opted out of KASLR?</text>

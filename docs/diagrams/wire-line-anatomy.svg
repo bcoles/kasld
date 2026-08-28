@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="960" height="642" viewBox="0 0 960 642" font-family="sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="664" viewBox="0 0 960 664" font-family="sans-serif">
   <defs>
     <style>
       .title { font-size: 22px; font-weight: 700; fill: #263238; }
@@ -47,7 +47,7 @@
   <text x="48" y="212" class="panel">Field vocabulary</text>
 
   <text x="48"  y="240" class="key" fill="#1976d2">type</text>
-  <text x="150" y="240" class="val">V = virtual address &#160;|&#160; P = physical address &#160;&#160;(S = scalar fact, emitted as its own record)</text>
+  <text x="150" y="240" class="val">V = virtual address &#160;|&#160; P = physical address &#160;&#160;(S = scalar fact, C = constraint &#8212; each its own record)</text>
   <text x="48"  y="266" class="key" fill="#2e7d32">region</text>
   <text x="150" y="266" class="val">what is at the address: kernel_text, kernel_image, module, directmap, vmalloc, vmemmap, ram, mmio, ...</text>
   <text x="48"  y="292" class="key" fill="#7b1fa2">name</text>
@@ -60,14 +60,15 @@
   <text x="150" y="370" class="val">lo= &#160; hi= &#160; sample= &#160; base_align=  &#160;&#160;(hex). A bounded extent carries both lo= and hi=.</text>
 
   <!-- variants panel -->
-  <rect x="32" y="412" width="896" height="200" rx="8" fill="#eef3f8" stroke="#b0bec5"/>
-  <text x="48" y="436" class="panel">The five emitter outputs</text>
-  <text x="48" y="462" class="mono">kasld_result_base   &#8594;  V &lt;region&gt; pos=base conf=&lt;c&gt; lo=0x..</text>
-  <text x="48" y="484" class="mono">kasld_result_top    &#8594;  V &lt;region&gt; pos=top conf=&lt;c&gt; hi=0x..</text>
-  <text x="48" y="506" class="mono">kasld_result_range  &#8594;  V &lt;region&gt;:&lt;name&gt; pos=base conf=&lt;c&gt; lo=0x.. hi=0x..</text>
-  <text x="48" y="528" class="mono">kasld_result_sample &#8594;  V &lt;region&gt;:&lt;name&gt; pos=interior conf=&lt;c&gt; sample=0x..</text>
-  <text x="48" y="550" class="mono">kasld_emit_scalar   &#8594;  S &lt;fact&gt; conf=&lt;c&gt; value=0x..</text>
+  <rect x="32" y="412" width="896" height="222" rx="8" fill="#eef3f8" stroke="#b0bec5"/>
+  <text x="48" y="436" class="panel">The six emitter outputs</text>
+  <text x="48" y="462" class="mono">kasld_result_base     &#8594;  V &lt;region&gt; pos=base conf=&lt;c&gt; lo=0x..</text>
+  <text x="48" y="484" class="mono">kasld_result_top      &#8594;  V &lt;region&gt; pos=top conf=&lt;c&gt; hi=0x..</text>
+  <text x="48" y="506" class="mono">kasld_result_range    &#8594;  V &lt;region&gt;:&lt;name&gt; pos=base conf=&lt;c&gt; lo=0x.. hi=0x..</text>
+  <text x="48" y="528" class="mono">kasld_result_sample   &#8594;  V &lt;region&gt;:&lt;name&gt; pos=interior conf=&lt;c&gt; sample=0x..</text>
+  <text x="48" y="550" class="mono">kasld_emit_scalar     &#8594;  S &lt;fact&gt; conf=&lt;c&gt; value=0x..</text>
+  <text x="48" y="572" class="mono">kasld_emit_constraint &#8594;  C &lt;quantity&gt; &lt;op&gt; conf=&lt;c&gt; value=0x..</text>
 
-  <text x="48" y="584" class="note">origin (the component name) is NOT on the wire &#8212; the orchestrator fills r-&gt;origin from the subprocess identity.</text>
-  <text x="48" y="602" class="note">kasld_result_sized takes lo + size and normalizes to the same lo= / hi= form as kasld_result_range.</text>
+  <text x="48" y="606" class="note">origin (the component name) is NOT on the wire &#8212; the orchestrator fills r-&gt;origin from the subprocess identity.</text>
+  <text x="48" y="624" class="note">kasld_result_sized takes lo + size and normalizes to the same lo= / hi= form as kasld_result_range.</text>
 </svg>

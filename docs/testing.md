@@ -492,10 +492,16 @@ returned before the model was built and then hardcoded the kernel image base,
 so a quantity the engine had pinned reached JSON while both readouts omitted
 it.
 
-Compares names, never values — formats may present the same bound differently
-(the text block snaps a window to the alignment grid, markdown prints the raw
-edges) — and requires every quantity to have a name mapping, so adding one
-forces stating how each format names it.
+Compares text and markdown row for row — quantity, grade, range, search space
+and pitch, normalised so neither format's column padding nor its scaffolding
+counts — because a renderer that alters a displayed value or drops a grade
+changes none of the names. Both had happened: one renderer snapped a window onto
+the alignment grid while the others printed the raw edges, and two
+posture-specific renderers dropped the likely grade outright. The JSON arm stays
+a one-way name check, since the readout draws a row per randomized quantity
+whether or not it is bounded while JSON emits one only when it has something to
+say; every quantity must still have a name mapping, so adding one forces stating
+how each format names it.
 
 **`check-render-color`** — Coloured output is byte-identical to plain output
 once the escape sequences are removed, and markdown, JSON and oneline carry no

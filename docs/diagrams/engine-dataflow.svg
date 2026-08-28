@@ -26,13 +26,15 @@
   <rect x="40" y="92" width="900" height="118" rx="8" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.5"/>
   <text x="60" y="120" class="lbl" fill="#1b5e20">Layer 1 &#8212; Observations</text>
   <text x="900" y="120" class="monos" text-anchor="end">evidence.c &#183; observation.h</text>
-  <text x="60" y="144" class="mono">struct evidence_set: component results + scalar system facts, each carrying a trust level (confidence).</text>
-  <rect x="60" y="156" width="270" height="40" rx="5" fill="#c8e6c9" stroke="#43a047"/>
-  <text x="74" y="181" class="chip">observations: V / P (lo,hi,sample)</text>
-  <rect x="350" y="156" width="270" height="40" rx="5" fill="#c8e6c9" stroke="#43a047"/>
-  <text x="364" y="181" class="chip">scalar facts: SF_* (image size, MemTotal)</text>
-  <rect x="640" y="156" width="280" height="40" rx="5" fill="#c8e6c9" stroke="#43a047"/>
-  <text x="654" y="181" class="chip">conf: parsed&gt;derived&gt;inferred&gt;heuristic..</text>
+  <text x="60" y="144" class="mono">struct evidence_set: results, scalar facts, and direct constraints, each carrying a trust level (confidence).</text>
+  <rect x="60" y="156" width="200" height="40" rx="5" fill="#c8e6c9" stroke="#43a047"/>
+  <text x="74" y="181" class="chip">observations: V / P</text>
+  <rect x="270" y="156" width="200" height="40" rx="5" fill="#c8e6c9" stroke="#43a047"/>
+  <text x="284" y="181" class="chip">scalar facts: SF_*</text>
+  <rect x="480" y="156" width="200" height="40" rx="5" fill="#c8e6c9" stroke="#43a047"/>
+  <text x="494" y="181" class="chip">constraints: C bounds</text>
+  <rect x="690" y="156" width="200" height="40" rx="5" fill="#c8e6c9" stroke="#43a047"/>
+  <text x="704" y="181" class="chip">conf: parsed..brute</text>
 
   <!-- gap 1 -->
   <text x="60" y="232" class="monos">rule_fn(ev, est, out, out_max)&#160; verdict_fn(ev, out, out_max) &#8212; pure: no I/O, no globals, no side effects</text>
