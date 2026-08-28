@@ -338,6 +338,10 @@ extern struct layout_row layout_rows[LAYOUT_MAX_ROWS];
 extern int n_layout_rows;
 extern const char *const layout_hdr[LAYOUT_COLS];
 void layout_build(const struct summary *s);
+/* True when any row carries a bound -- the model's own answer to "is there a
+ * table to draw", which every format asks instead of inferring it from the
+ * summary's slot counts. */
+int layout_has_resolved(void);
 
 /* Build the model from the global component logs / scalar facts / gates. */
 void build_hardening_report(struct hardening_report *r);

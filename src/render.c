@@ -223,7 +223,7 @@ struct layout_row layout_rows[LAYOUT_MAX_ROWS];
 int n_layout_rows;
 
 const char *const layout_hdr[LAYOUT_COLS] = {"Quantity", "Basis", "Range",
-                                             "Search space", "Align"};
+                                             "Candidates", "Align"};
 
 /* The candidate count, against the set the row narrows: a guaranteed row
  * narrows the window the kernel randomized over, a likely row narrows the
@@ -456,6 +456,22 @@ void layout_build(const struct summary *s) {
                s->kaslr.virt_module_slots, 0, s->kaslr.virt_module_min,
                s->kaslr.virt_module_max, NULL, s->kaslr.virt_module_align);
   }
+}
+
+/* Whether the row model resolved anything worth drawing.
+ *
+ * A row is dim exactly when neither edge was bounded, so a model with no
+ * un-dim row describes a run that resolved nothing and has no table to show.
+ * Asked of the model rather than of the summary's slot counts: the two agree
+ * wherever KASLR ran, and diverge exactly where it did not -- a disabled kernel
+ * has no slots to count, since nothing was randomized, while its rows carry a
+ * fully resolved window. A format gating on the counts therefore drew nothing
+ * in the one posture whose answer is already known. */
+int layout_has_resolved(void) {
+  for (int i = 0; i < n_layout_rows; i++)
+    if (!layout_rows[i].dim)
+      return 1;
+  return 0;
 }
 
 /* A memory-KASLR region (page_offset / vmalloc / vmemmap) has a narrowed edge:

@@ -139,7 +139,7 @@ The Layout table carries one row per quantity and basis:
 | `Quantity` | what is being located — always a *base*, a single address, not a region |
 | `Basis` | `guaranteed` (proven; contains the true base) or `likely` (the all-signals estimate, a subset of the guaranteed window, and may be wrong) |
 | `Range` | the addresses: a window, a single address where the quantity is pinned, or a one-sided `>=` / `<=` bound. A concrete base carries its `slide` from the compile-time default |
-| `Search space` | how many placements remain, against the set the row narrows — a `guaranteed` row against the window the kernel randomized over, a `likely` row against the `guaranteed` count above it. Reported whether or not evidence narrowed it, so a baseline run states the size of the problem; the denominator is dropped when nothing narrowed, leaving the bare total. `-` means no window is modelled for the quantity, which is the only thing that withholds the figure |
+| `Candidates` | how many placements remain, against the set the row narrows — a `guaranteed` row against the window the kernel randomized over, a `likely` row against the `guaranteed` count above it. Reported whether or not evidence narrowed it, so a baseline run states the size of the problem; the denominator is dropped when nothing narrowed, leaving the bare total. `-` means no window is modelled for the quantity, which is the only thing that withholds the figure |
 | `Align` | the grid the candidates sit on, which is what reconciles the count with the range |
 
 The `likely` basis is deliberately conservative — "may be wrong" is a worst-case
@@ -200,15 +200,15 @@ Running 106 of 109 components (3 experimental skipped; use -x to enable)...
 [####################] 100%  106/106  39.1s
 1 component timed out after 30s and was killed (prefetch_directmap)
 
-  Quantity             Basis       Range                                    Search space  Align
-  -------------------  ----------  ---------------------------------------  ------------  -----
-  Virtual Image Base   guaranteed  0xffffffffa2e00000 slide +0x21e00000         1 of 505  2 MiB
-  Physical Image Base  guaranteed            0x200000 -         0x3d400000           481  2 MiB
-  Physical Image Base  likely               0x1000000 -         0x3c345000    474 of 481  2 MiB
-  Direct Map Base      guaranteed  0xffff800000000000 - 0xffffa4aa80000000         37547  1 GiB
-  Vmalloc Base         guaranteed  0xffff898000000000 - 0xffffd6d580000000         79191  1 GiB
-  Vmemmap Base         guaranteed  0xffffa98040000000 - 0xfffffd0000000000         85504  1 GiB
-  Module Region Base   guaranteed  0xffffffffc0000000 - 0xffffffffc0400000          1025  4 KiB
+  Quantity             Basis       Range                                    Candidates  Align
+  -------------------  ----------  ---------------------------------------  ----------  -----
+  Virtual Image Base   guaranteed  0xffffffffa2e00000 slide +0x21e00000       1 of 505  2 MiB
+  Physical Image Base  guaranteed            0x200000 -         0x3d400000         481  2 MiB
+  Physical Image Base  likely               0x1000000 -         0x3c345000  474 of 481  2 MiB
+  Direct Map Base      guaranteed  0xffff800000000000 - 0xffffa4aa80000000       37547  1 GiB
+  Vmalloc Base         guaranteed  0xffff898000000000 - 0xffffd6d580000000       79191  1 GiB
+  Vmemmap Base         guaranteed  0xffffa98040000000 - 0xfffffd0000000000       85504  1 GiB
+  Module Region Base   guaranteed  0xffffffffc0000000 - 0xffffffffc0400000        1025  4 KiB
 
   Note: physical and virtual text randomize independently
 
@@ -378,13 +378,13 @@ Physical MMIO / pci_mmio [8]:
 
 ----------------------------------------
 KASLR analysis:
-  Quantity             Basis       Range                                    Search space  Align
-  -------------------  ----------  ---------------------------------------  ------------  -----
-  Virtual Image Base   guaranteed  0xffffffff8fe00000 slide +0xee00000          1 of 505  2 MiB
-  Physical Image Base  guaranteed          0x34600000 slide +0x33600000                1  2 MiB
-  Direct Map Base      guaranteed  >= 0xffff800000000000                               -  1 GiB
-  Vmalloc Base         guaranteed  0xffff810040000000 - 0xffffdcffc0000000         94206  1 GiB
-  Vmemmap Base         guaranteed  0xffffa10080000000 - 0xfffffd0000000000         94206  1 GiB
+  Quantity             Basis       Range                                    Candidates  Align
+  -------------------  ----------  ---------------------------------------  ----------  -----
+  Virtual Image Base   guaranteed  0xffffffff8fe00000 slide +0xee00000        1 of 505  2 MiB
+  Physical Image Base  guaranteed          0x34600000 slide +0x33600000              1  2 MiB
+  Direct Map Base      guaranteed  >= 0xffff800000000000                             -  1 GiB
+  Vmalloc Base         guaranteed  0xffff810040000000 - 0xffffdcffc0000000       94206  1 GiB
+  Vmemmap Base         guaranteed  0xffffa10080000000 - 0xfffffd0000000000       94206  1 GiB
 
   Compile-time default: 0xffffffff81000000
   Virtual entropy:      ~0 of 9 bits
@@ -574,7 +574,7 @@ generic `System.map`.
 When KASLR is disabled or unsupported there is no slide,
 so the resolved quantities themselves are the answer: the same rows the Layout
 table would carry, written as lines rather than a table because with nothing
-randomized the `Search space` and `Align` columns hold nothing. They are drawn
+randomized the `Candidates` and `Align` columns hold nothing. They are drawn
 from the same row model, so a posture that reports fewer quantities than another
 format is not possible. A remark follows where the compile-time default is not
 the resolved base, saying whether the evidence rules the default out.

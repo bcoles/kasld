@@ -71,42 +71,27 @@ static void print_group_sources(enum kasld_addr_type type,
  * an engine pin -- naming it after the default would describe a coincidence as
  * a provenance. An edge the engine never resolved is reported as the one-sided
  * bound it is, rather than as a range starting at 0. */
-/* The resolved quantities for the no-randomization postures, from the same rows
- * the Layout table renders. Presented as lines rather than a table because with
- * nothing randomized the Search space and Align columns carry nothing -- but
- * the SET of quantities comes from the model, so this cannot say something
- * different from the text readout or from JSON, which is what it did while it
- * hardcoded the image base. */
-static void md_static_base_block(const struct summary *s) {
+/* The compile-time default, judged against the resolved window, for the
+ * postures where nothing randomized the image. The window itself is reported by
+ * the same Layout table every other posture carries; this adds only whether the
+ * build's own default is still a candidate, and it is never the answer -- the
+ * default is a constant of THIS build, which a differently configured kernel
+ * does not honour. Judged on the first resolved quantity, the image base, the
+ * only one carrying a compile-time default at all. */
+static void md_default_remark(const struct summary *s) {
   char ab[40], rb[160];
   const char *rem;
-  unsigned long rem_lo = 0, rem_hi = 0;
-  int drawn = 0;
   for (int i = 0; i < n_layout_rows; i++) {
     const struct layout_row *r = &layout_rows[i];
     if (r->dim || strcmp(r->cell[1], GRADE_GUARANTEED) != 0)
       continue;
-    if (r->lo && r->lo == r->hi)
-      printf("**%s:** `0x%016lx`\n\n", r->cell[0], r->lo);
-    else if (r->lo && r->hi)
-      printf("**%s:** `0x%016lx` - `0x%016lx`\n\n", r->cell[0], r->lo, r->hi);
-    else if (r->hi)
-      printf("**%s:** <= `0x%016lx`\n\n", r->cell[0], r->hi);
-    else
-      printf("**%s:** >= `0x%016lx`\n\n", r->cell[0], r->lo);
-    if (!drawn) {
-      rem_lo = r->lo;
-      rem_hi = r->hi;
-    }
-    drawn = 1;
-  }
-  if (!drawn)
+    snprintf(ab, sizeof(ab), "`0x%016lx`", s->kaslr.default_addr);
+    rem = default_base_remark(s->kaslr.default_addr, r->lo, r->hi, ab, rb,
+                              sizeof(rb));
+    if (rem)
+      printf("%s\n\n", rem);
     return;
-  snprintf(ab, sizeof(ab), "`0x%016lx`", s->kaslr.default_addr);
-  rem = default_base_remark(s->kaslr.default_addr, rem_lo, rem_hi, ab, rb,
-                            sizeof(rb));
-  if (rem)
-    printf("%s\n\n", rem);
+  }
 }
 
 /* Environment / recon vantage — same gather + confined-gating as the text
@@ -215,11 +200,9 @@ void render_markdown(const struct summary *s) {
 
   if (s->kaslr.unsupported) {
     printf("> **KASLR is not supported on this architecture**\n\n");
-    md_static_base_block(s);
   } else if (s->kaslr.disabled) {
     printf("> **KASLR is disabled** (nokaslr / RANDOMIZE_BASE=n / "
            "hibernation)\n\n");
-    md_static_base_block(s);
   } else if (s->kaslr.randomization_failed) {
     /* The stub relocated the image with no randomness: neither randomized nor
      * at the link-time default, so no static base line follows — the KASLR
@@ -234,10 +217,15 @@ void render_markdown(const struct summary *s) {
   /* KASLR analysis. Mirrors render_kaslr_text: shown only when there is a
    * concrete base, a narrowed text range, or a Memory-KASLR bound — and never
    * when KASLR is disabled/unsupported (covered by the banner above). */
-  int mem_kaslr = summary_has_memory_kaslr(s);
-  if (!s->kaslr.disabled && !s->kaslr.unsupported &&
-      (s->kaslr.vtext || s->kaslr.has_phys || s->kaslr.vslots > 0 ||
-       s->kaslr.pslots > 0 || mem_kaslr)) {
+  /* Drawn in every posture: the row model decides which quantities a format
+   * presents, and a posture excluded from the table ends up presenting its own
+   * selection instead -- which dropped the likely grade, so a kernel with KASLR
+   * off reported the proven window and never the resolved base.
+   *
+   * The model, not the summary's slot counts, decides whether there is a table
+   * at all: a disabled kernel randomized nothing and so has no slots to count,
+   * while its rows carry a resolved window. */
+  if (layout_has_resolved()) {
     printf("## Layout\n\n");
     /* The same five columns as the text readout, from the same rows: a
      * representation difference between the two views is fine, a difference in
@@ -272,10 +260,20 @@ void render_markdown(const struct summary *s) {
      * so a markdown report states whether a physical leak reveals the virtual
      * text base or the two randomize independently. Its job is to relate the
      * physical and virtual bases, and a physical image base row is always
-     * present, so there is always something to relate to. */
-    printf("| Phys/Virt coupling | %s |\n", kasld_coupling_descr());
+     * present, so there is always something to relate to.
+     *
+     * Gated to the postures where it describes the run, as the text readout
+     * gates it: it says the two bases randomize independently, which on a
+     * kernel that randomized neither reads as a claim about behaviour that did
+     * not occur. */
+    if (!s->kaslr.disabled && !s->kaslr.unsupported)
+      printf("| Phys/Virt coupling | %s |\n", kasld_coupling_descr());
 
     printf("\n");
+    /* Below the table, matching the text readout: the remark judges the
+     * build's default against the window the table has just reported. */
+    if (s->kaslr.disabled || s->kaslr.unsupported)
+      md_default_remark(s);
   }
 
   /* Non-canonical kernel-text function order caution — the table analogue of

@@ -283,18 +283,25 @@ static const char *entropy_phrase(int bits, int bits_top, char *buf,
  * slide (slide / align), which the table already carries. */
 static void render_kaslr_text(const struct summary *s) {
   char ebuf[48];
-  if (s->kaslr.disabled || s->kaslr.unsupported)
-    return;
-  if (!s->kaslr.vtext && !s->kaslr.ptext && s->kaslr.vslots == 0 &&
-      s->kaslr.pslots == 0)
+  /* Verbose renders this table instead of the readout, so it builds the rows
+   * itself: render_readout() is the !verbose path and never runs here. Built
+   * before the guard below, which reads the model it produces. */
+  layout_build(s);
+
+  /* Drawn in every posture, from the shared row model. A posture that renders
+   * its own shape also ends up choosing its own rows, and each one that did
+   * dropped the likely grade -- so a kernel with KASLR off reported the proven
+   * window and never the base the engine had actually resolved.
+   *
+   * The model, not the summary's slot counts, decides whether there is a table:
+   * a disabled kernel randomized nothing and so has no slots to count, while
+   * its rows carry a resolved window. */
+  if (!layout_has_resolved())
     return;
 
   printf("%s%s%s\n", c(C_DIM), "----------------------------------------",
          c(C_RESET));
   printf("%sKASLR analysis:%s\n", c(C_BOLD), c(C_RESET));
-  /* Verbose renders this table instead of the readout, so it builds the rows
-   * itself: render_readout() is the !verbose path and never runs here. */
-  layout_build(s);
   layout_render();
   printf("\n");
 
@@ -1619,29 +1626,6 @@ static int readout_print_leaks(void) {
   return nf;
 }
 
-/* ---- Compact readout: one block per resolved quantity -------------------
- *
- * A block is a header line naming the quantity and stating its status, then
- * one indented row per epistemic grade. The quantity name owns a line rather
- * than a fixed-width label column, so a long name cannot consume the value
- * column, and a continuation row is owned by its indentation instead of by
- * position alone.
- *
- * Grade is a column on every value row. Within one readout some quantities
- * carry a speculative window and others do not, so an unlabelled row reads as
- * an unstated grade rather than as "guaranteed".
- *
- * Addresses are right-aligned to the widest address in their own block and
- * never zero-padded: relative magnitude stays legible, and a 16 MiB physical
- * address does not wear the costume of a 64-bit kernel pointer.
- * ------------------------------------------------------------------------- */
-#define READOUT_GRADE_W 18 /* "guaranteed _stext" + 1 */
-/* Sized so the status opens at the same column the value fields start at
- * (26), clear of the grade column below it. At 21 the status opened at 24 --
- * inside the grade field, so its "(" landed on top of the ")" of
- * "likely (speculative)" on the row beneath. */
-#define READOUT_LABEL_W 23
-
 static int readout_hex_digits(unsigned long v) {
   int n = 0;
   do {
@@ -1672,153 +1656,6 @@ static const char *readout_addr(unsigned long v, int digits, char *buf,
   return buf;
 }
 
-/* A displayed window edge must be a value the quantity can actually take:
- * snap the floor up and the ceiling down onto the candidate grid. An edge off
- * the grid is a *bound*, and printing it where a candidate is expected invites
- * the reader to treat a bound as an answer. Left untouched if snapping would
- * wrap or invert the window. */
-static void readout_snap(unsigned long *lo, unsigned long *hi,
-                         unsigned long align) {
-  if (!align || !*lo || !*hi)
-    return;
-  unsigned long m = align - 1;
-  if (*lo > ULONG_MAX - m)
-    return;
-  unsigned long l = (*lo + m) & ~m, h = *hi & ~m;
-  if (l >= *lo && h <= *hi && l <= h) {
-    *lo = l;
-    *hi = h;
-  }
-}
-
-/* Blocks are separated by a blank line so a quantity's rows read as one unit;
- * reset per readout by render_readout(). */
-static int readout_block_n;
-
-/* One address-field width and one count-field width for the whole Layout
- * section, so the ".." separator, the high endpoint and the candidate count
- * each form a single column down the section rather than one per block. */
-static int readout_addr_w = 1;
-static int readout_count_w = 1;
-
-static void readout_head(const char *label, const char *status) {
-  if (readout_block_n++)
-    printf("\n");
-  printf("  %s%s%s", c(C_BOLD), label, c(C_RESET));
-  if (status && *status) {
-    /* Pad to the widest quantity name so statuses form a scannable column.
-     * Unlike the old label column this one abuts prose, never an address, so a
-     * name that outgrows the pad merely shifts its own status. */
-    /* Parenthesised, and deliberately not sharing a column with the value
-     * rows below: this is a verdict about the quantity, not a value. It cannot
-     * align with the addresses in any case -- those are right-aligned, so a
-     * short physical address and a long virtual one start in different
-     * columns. The brackets make the difference explicit rather than leaving
-     * it to read as a near-miss. */
-    int pad = READOUT_LABEL_W - (int)strlen(label);
-    printf("%*s%s(%s)%s", pad > 1 ? pad : 1, "", c(C_YELLOW), status,
-           c(C_RESET));
-  }
-  printf("\n");
-}
-
-/* One resolved address at `grade`. `note` (the slide) trails the value rather
- * than sitting between the value and its grade: it is the same value in
- * another coordinate system, not a separate metric. */
-static void readout_point(const char *grade, unsigned long v, int digits,
-                          const char *note) {
-  char ab[40];
-  printf("    %-*s%s%s%s", READOUT_GRADE_W, grade, c(C_GREEN),
-         readout_addr(v, digits, ab, sizeof(ab)), c(C_RESET));
-  if (note && *note)
-    /* One space, so the note opens in the same column the ".." separator does
-     * on a window row: column N is where a row's continuation begins, whether
-     * that continuation is a high endpoint or a displacement. Two spaces put
-     * it one column right of the separator, which read as a failed match. */
-    printf(" %s%s%s", c(C_CYAN), note, c(C_RESET));
-  printf("\n");
-}
-
-/* A window at `grade`: first and last candidate, then how many, at what pitch,
- * and what entropy that count leaves. Both edges are inclusive and on the grid,
- * so the printed count reconciles with the printed edges.
- *
- * The residual sits on the row whose count it restates, not on the block
- * header: a header carries no grade, so an entropy figure parked there is read
- * as belonging to whichever row happens to sit under it -- which, in the
- * concrete-base form, is the speculative one it does not describe. Stated here,
- * every window row is self-describing and a point row (which has no spread)
- * correctly carries neither figure. */
-static void readout_window(const char *grade, unsigned long lo,
-                           unsigned long hi, int digits, unsigned long slots,
-                           int count_w, unsigned long align, int bits,
-                           int bits_top) {
-  char a1[40], a2[40], gb[32], eb[48];
-  printf("    %-*s%s .. %s", READOUT_GRADE_W, grade,
-         readout_addr(lo, digits, a1, sizeof(a1)),
-         readout_addr(hi, digits, a2, sizeof(a2)));
-  if (slots > 0) {
-    /* Right-aligned to the widest count in this block, so the pitch that
-     * follows it lines up between a block's likely and guaranteed rows. */
-    if (align)
-      printf("  %s%*lu x %s%s", c(C_MAGENTA), count_w, slots,
-             kasld_grain(align, gb, sizeof(gb)), c(C_RESET));
-    else
-      printf("  %s%*lu candidates%s", c(C_MAGENTA), count_w, slots, c(C_RESET));
-    printf("  %s%s%s", c(C_DIM), entropy_phrase(bits, bits_top, eb, sizeof(eb)),
-           c(C_RESET));
-  }
-  printf("\n");
-}
-
-/* Half-bound form: only one edge proven. */
-static void readout_halfbound(const char *grade, const char *op,
-                              unsigned long v, int digits) {
-  char ab[40];
-  printf("    %-*s%s %s%s%s\n", READOUT_GRADE_W, grade, op, c(C_CYAN),
-         readout_addr(v, digits, ab, sizeof(ab)), c(C_RESET));
-}
-
-/* Status for a quantity's header. Only a pin has one: the residual entropy of
- * a window belongs beside the slot count it restates, on the window row
- * itself. A pinned quantity's row is a bare address with no count to carry
- * that verdict, so the header states it. */
-#define READOUT_PINNED "pinned"
-
-/* Window-only form: no concrete base was resolved. The speculative sub-window,
- * when present, sits above the proven one -- the same likely-over-guaranteed
- * order the concrete-base form uses. Each window states its own residual. */
-static void readout_window_block(const char *label, unsigned long lo,
-                                 unsigned long hi, unsigned long llo,
-                                 unsigned long lhi, unsigned long slots,
-                                 unsigned long lslots, int bits, int bits_top,
-                                 unsigned long align) {
-  if (!lo && !hi)
-    return;
-  int pinned = (lo == hi && lo != 0);
-  readout_snap(&lo, &hi, align);
-  readout_snap(&llo, &lhi, align);
-  int w = readout_addr_w;
-  readout_head(label, pinned ? READOUT_PINNED : NULL);
-  if (pinned) {
-    readout_point(GRADE_GUARANTEED, lo, w, NULL);
-    return;
-  }
-  /* A speculative sub-window is measured against its own width alone: the
-   * baseline that makes the proven residual interpretable is a statement about
-   * what the kernel randomized, not about how far a guess narrowed it. */
-  if (lhi && llo && lhi >= llo)
-    readout_window(GRADE_LIKELY, llo, lhi, w, lslots, readout_count_w, align, 0,
-                   0);
-  if (lo && hi && hi >= lo)
-    readout_window(GRADE_GUARANTEED, lo, hi, w, slots, readout_count_w, align,
-                   bits, bits_top);
-  else if (lo)
-    readout_halfbound(GRADE_GUARANTEED, ">=", lo, w);
-  else if (hi)
-    readout_halfbound(GRADE_GUARANTEED, "<=", hi, w);
-}
-
 /* The shared compile-time-default remark, indented into the Layout block and
  * set off from the value rows above it. Addresses in the readout are never
  * zero-padded, so the remark renders the default the same way. */
@@ -1832,106 +1669,27 @@ static void readout_default_remark(unsigned long def, unsigned long lo,
     printf("\n  %s%s%s\n", c(C_DIM), rem, c(C_RESET));
 }
 
-/* The "no slide" image-base block, shared by the KASLR-unsupported and
- * KASLR-disabled readouts. Both answer the same question with the same
- * evidence, and both must answer it from the ENGINE, not from the compile-time
- * default: the default is a build-time constant that a differently-configured
- * kernel simply does not honour. arm32 is the standing witness -- an Alpine
- * armv7 kernel built VMSPLIT_2G has _text at 0x80008000, and printing the arch
- * default 0xc0008000 as the answer states a wrong address at the GUARANTEED
- * grade while the engine's own window (which contains the truth) sits unused.
- * The default is never the answer here: with nothing resolved the block prints
- * nothing, and the caller keeps the heading off the page.
- *
- * The base carries no status. The line above the block already states the
- * posture in words, so "no slide" / "no randomization" only restates it, and
- * the two postures would otherwise wear different qualifiers for the same
- * kind of result. */
-static void readout_static_base_block(unsigned long default_addr,
-                                      const struct summary *s) {
-  int drawn = 0;
-  unsigned long rem_lo = 0, rem_hi = 0;
-  (void)s;
-  /* Every quantity the engine resolved, from the same rows the table renders --
-   * not the image base alone. The block shape differs from the table because
-   * with nothing randomized there is no window to count against, but WHICH
-   * quantities appear must not: a posture that picks its own would drift from
-   * the other formats, and did (a pinned module region base reached JSON while
-   * this block showed only the image base).
-   *
-   * A likely row is folded into its guaranteed row rather than drawn
-   * separately, since readout_window_block presents both grades under one
-   * heading. */
-  for (int i = 0; i < n_layout_rows; i++) {
-    const struct layout_row *r = &layout_rows[i];
-    const struct layout_row *lk = NULL;
-    if (r->dim || strcmp(r->cell[1], GRADE_GUARANTEED) != 0)
-      continue; /* unbounded, or a likely row already folded in below */
-    if (i + 1 < n_layout_rows &&
-        strcmp(layout_rows[i + 1].cell[0], r->cell[0]) == 0 &&
-        strcmp(layout_rows[i + 1].cell[1], GRADE_LIKELY) == 0)
-      lk = &layout_rows[i + 1];
-    if (!drawn) {
-      readout_block_n = 0;
-      printf("%sLayout%s\n", c(C_BOLD), c(C_RESET));
-    }
-    readout_window_block(r->cell[0], r->lo, r->hi, lk ? lk->lo : 0,
-                         lk ? lk->hi : 0, r->slots, lk ? lk->slots : 0, 0, 0,
-                         r->align);
-    /* The remark belongs to the image base -- the only quantity carrying a
-     * compile-time default -- but it closes the whole block rather than
-     * interrupting it between rows, so hold the bounds it is judged against. */
-    if (!drawn) {
-      rem_lo = r->lo;
-      rem_hi = r->hi;
-    }
-    drawn = 1;
-  }
-  if (drawn)
-    readout_default_remark(default_addr, rem_lo, rem_hi);
-}
-
-/* The verbose-mode image base for the no-slide postures, answered from the same
- * place the readout answers it: the engine. The banner above already names the
- * posture, so the base carries no qualifier. An edge the engine never resolved
- * is shown as the one-sided bound it is, rather than as a range starting at 0.
- */
-static void verbose_static_base_block(unsigned long default_addr) {
+/* The compile-time default, judged against the resolved window, for the
+ * postures where nothing randomized the image. The window itself is reported by
+ * the same table every other posture draws; this adds only whether the build's
+ * own default is still a candidate. It is never the answer: the default is a
+ * constant of THIS build, and a differently configured kernel does not honour
+ * it -- an armv7 kernel built VMSPLIT_2G puts _text at 0x80008000 while the
+ * arch default reads 0xc0008000. Judged on the first resolved quantity, the
+ * image base, the only one carrying a compile-time default at all. */
+static void verbose_default_remark(unsigned long default_addr) {
   char ab[40], rb[160];
   const char *rem;
-  unsigned long rem_lo = 0, rem_hi = 0;
-  int drawn = 0;
-  /* Same rows as the readout and the markdown report -- verbose is a third
-   * view of one resolved state, not a third opinion about which quantities it
-   * contains. */
   for (int i = 0; i < n_layout_rows; i++) {
     const struct layout_row *r = &layout_rows[i];
     if (r->dim || strcmp(r->cell[1], GRADE_GUARANTEED) != 0)
       continue;
-    if (r->lo && r->lo == r->hi)
-      printf("%s: %s0x%016lx%s\n", r->cell[0], c(C_GREEN), r->lo, c(C_RESET));
-    else if (r->lo && r->hi)
-      printf("%s: %s0x%016lx - 0x%016lx%s\n", r->cell[0], c(C_GREEN), r->lo,
-             r->hi, c(C_RESET));
-    else if (r->hi)
-      printf("%s: %s<= 0x%016lx%s\n", r->cell[0], c(C_GREEN), r->hi,
-             c(C_RESET));
-    else
-      printf("%s: %s>= 0x%016lx%s\n", r->cell[0], c(C_GREEN), r->lo,
-             c(C_RESET));
-    if (!drawn) {
-      rem_lo = r->lo;
-      rem_hi = r->hi;
-    }
-    drawn = 1;
-  }
-  if (!drawn)
+    snprintf(ab, sizeof(ab), "0x%016lx", default_addr);
+    rem = default_base_remark(default_addr, r->lo, r->hi, ab, rb, sizeof(rb));
+    if (rem)
+      printf("%s%s%s\n\n", c(C_DIM), rem, c(C_RESET));
     return;
-  snprintf(ab, sizeof(ab), "0x%016lx", default_addr);
-  rem = default_base_remark(default_addr, rem_lo, rem_hi, ab, rb, sizeof(rb));
-  if (rem)
-    printf("%s%s%s\n", c(C_DIM), rem, c(C_RESET));
-  printf("\n");
+  }
 }
 
 /* ---------------------------------------------------------------------------
@@ -1944,7 +1702,7 @@ static void verbose_static_base_block(unsigned long default_addr) {
  *                 a blank cell in a table means "no value", not "same as
  *                 above", and markdown has no rowspan to borrow.
  *   Basis         which of the two windows the row reports.
- *   Search space  how many placements survive, and out of how many where the
+ *   Candidates    how many placements survive, and out of how many where the
  *                 kernel's own randomization window is modelled. It leads the
  *                 numeric columns because it is the brute-force cost of the
  *                 row -- the figure a reader compares between quantities --
@@ -1991,19 +1749,25 @@ static void layout_pad_range(struct layout_row *r, int aw) {
   const char *sep = r->note[0] ? " " : "";
   if (!r->lo && !r->hi)
     return;
-  if (r->lo && r->hi && r->lo != r->hi)
+  /* Presented exactly as the engine resolved them. Moving an edge onto the
+   * candidate grid is a narrowing, and a narrowing is the engine's to make and
+   * to prove: done here it would hold only for this format, and the readout
+   * would report a different window from the one markdown and json report for
+   * the same run. */
+  unsigned long lo = r->lo, hi = r->hi;
+  if (lo && hi && lo != hi)
     snprintf(out, sizeof(out), "%s - %s%s%s",
-             readout_addr(r->lo, aw, a1, sizeof(a1)),
-             readout_addr(r->hi, aw, a2, sizeof(a2)), sep, r->note);
-  else if (r->lo && r->hi)
-    snprintf(out, sizeof(out), "%s%s%s",
-             readout_addr(r->lo, aw, a1, sizeof(a1)), sep, r->note);
-  else if (r->lo)
+             readout_addr(lo, aw, a1, sizeof(a1)),
+             readout_addr(hi, aw, a2, sizeof(a2)), sep, r->note);
+  else if (lo && hi)
+    snprintf(out, sizeof(out), "%s%s%s", readout_addr(lo, aw, a1, sizeof(a1)),
+             sep, r->note);
+  else if (lo)
     snprintf(out, sizeof(out), ">= %s%s%s",
-             readout_addr(r->lo, aw, a1, sizeof(a1)), sep, r->note);
+             readout_addr(lo, aw, a1, sizeof(a1)), sep, r->note);
   else
     snprintf(out, sizeof(out), "<= %s%s%s",
-             readout_addr(r->hi, aw, a1, sizeof(a1)), sep, r->note);
+             readout_addr(hi, aw, a1, sizeof(a1)), sep, r->note);
   snprintf(r->cell[2], LAYOUT_CELL, "%s", out);
 }
 
@@ -2131,44 +1895,29 @@ static void render_readout(const struct summary *s) {
    * base while JSON reported every quantity the engine had resolved. */
   layout_build(s);
 
-  /* Special-case: arch with no KASLR support, or KASLR disabled. Both present
-   * the resolved quantities as a block rather than a table: with nothing
-   * randomized there is no window to compare against, so the table's columns
-   * would be mostly empty. */
-  if (s->kaslr.unsupported) {
+  /* The posture, stated in words, above one table drawn the same way in every
+   * posture.
+   *
+   * The table's own rule is that a quantity gets a row whether or not the
+   * engine bounded it, so the readout's shape is a property of the
+   * architecture rather than of the run. A posture that renders a different
+   * shape breaks that rule one level up: two runs of one target across a
+   * reboot that changed the posture could not be compared, and a reader who
+   * knew one form did not recognise the other. Where randomization does not
+   * apply, Candidates and Align carry the table's own mark for a cell with
+   * nothing to report rather than a fabricated count.
+   *
+   * Randomization-failed is not the disabled posture -- the boot stub did
+   * relocate the image, so it sits at neither a random base nor the link-time
+   * default -- but all three want the same treatment here: say which kind of
+   * system this is, then report the engine's windows. */
+  if (s->kaslr.unsupported)
     printf("KASLR not supported on this architecture.\n\n");
-    readout_static_base_block(s->kaslr.default_addr, s);
-    printf("\n");
-    readout_print_leaks();
-    return;
-  }
-  if (s->kaslr.disabled) {
+  else if (s->kaslr.disabled)
     printf("%sKASLR is disabled on this kernel%s "
            "(nokaslr / RANDOMIZE_BASE=n / hibernation).\n\n",
            c(C_YELLOW), c(C_RESET));
-    /* Prefer the engine-RESOLVED image base over the compile-time default.
-     * On every arch where the disabled-pin applies, the engine pins the base
-     * to that default (min == max), so this prints the identical line. But
-     * where the no-KASLR text base is layout-dependent (legacy riscv64: text
-     * in the linear map at a load offset that cannot be pinned), it resolves
-     * to a
-     * narrowed *window* instead — showing the static default there would
-     * misreport the base (it can sit in an entirely different mapping). */
-    readout_static_base_block(s->kaslr.default_addr, s);
-    printf("\n");
-    readout_print_leaks();
-    return;
-  }
-
-  /* Randomization failed: the boot stub ran and relocated the image, but had
-   * no randomness to place it with. NOT the disabled posture -- the image did
-   * move, so it is neither randomized nor at the link-time default, and the
-   * engine's own windows remain the answer. The readout therefore states the
-   * posture and continues into the regular path rather than branching away to
-   * a single base line. Without this the output is indistinguishable from an
-   * active kernel whose window simply never narrowed, and a reader has no way
-   * to know the entropy is gone. */
-  if (s->kaslr.randomization_failed)
+  else if (s->kaslr.randomization_failed)
     printf("%sKASLR randomization did not run on this kernel%s "
            "(no seed / no PRNG).\nThe boot stub still placed the image, so it "
            "is not at the compile-time default.\n\n",
@@ -2180,20 +1929,45 @@ static void render_readout(const struct summary *s) {
    * none, because the tool has nothing to say about it. */
   layout_render();
 
-  /* Coupling closes the bounds table as a single dim line: it is a static
-   * arch property (not a measured quantity), so it recedes from the green/
-   * magenta measured rows and explains why physical and virtual bases resolve
-   * as separate (or shared) quantities above. Its job is to relate the physical
-   * and virtual text bases, and a physical image base row is always present, so
-   * there is always something to relate to. The postures that would make the
-   * claim misleading never reach here: unsupported and disabled both return
-   * earlier in this function.
-   *
-   * Presented as a note rather than as a value row, so it does not sit in the
-   * value column alongside addresses under an abbreviated label its siblings do
-   * not use. */
-  printf("\n  %sNote: %s%s\n", c(C_DIM), kasld_coupling_descr(), c(C_RESET));
-  printf("\n");
+  if (s->kaslr.unsupported || s->kaslr.disabled) {
+    /* Where nothing randomized the image, whether the compile-time default is
+     * still a candidate is worth stating -- but only that. The default is
+     * never the answer: it is a constant of THIS build, and a differently
+     * configured kernel does not honour it (an armv7 kernel built VMSPLIT_2G
+     * puts _text at 0x80008000 while the arch default reads 0xc0008000). The
+     * engine's window is the answer; the remark says how the default sits
+     * against it, judged on the first resolved quantity -- the image base, the
+     * only one carrying a compile-time default at all. */
+    unsigned long rem_lo = 0, rem_hi = 0;
+    for (int i = 0; i < n_layout_rows; i++) {
+      const struct layout_row *r = &layout_rows[i];
+      if (r->dim || strcmp(r->cell[1], GRADE_GUARANTEED) != 0)
+        continue;
+      rem_lo = r->lo;
+      rem_hi = r->hi;
+      break;
+    }
+    if (rem_lo || rem_hi)
+      readout_default_remark(s->kaslr.default_addr, rem_lo, rem_hi);
+    printf("\n");
+  } else {
+    /* Coupling closes the bounds table as a single dim line: it is a static
+     * arch property (not a measured quantity), so it recedes from the measured
+     * rows above and explains why physical and virtual bases resolve as
+     * separate (or shared) quantities. Its job is to relate the physical and
+     * virtual text bases, and a physical image base row is always present, so
+     * there is always something to relate to.
+     *
+     * Gated to the postures where it describes the run: it says the two bases
+     * randomize independently, which on a kernel that randomized neither reads
+     * as a claim about behaviour that did not occur.
+     *
+     * Presented as a note rather than as a value row, so it does not sit in the
+     * value column alongside addresses under an abbreviated label its siblings
+     * do not use. */
+    printf("\n  %sNote: %s%s\n", c(C_DIM), kasld_coupling_descr(), c(C_RESET));
+    printf("\n");
+  }
 
   readout_print_leaks();
 
@@ -2322,7 +2096,7 @@ void render_text(const struct summary *s) {
   if (s->kaslr.unsupported) {
     printf("%s** KASLR is not supported on this architecture **%s\n\n",
            c(C_YELLOW), c(C_RESET));
-    verbose_static_base_block(s->kaslr.default_addr);
+    verbose_default_remark(s->kaslr.default_addr);
   } else if (s->kaslr.disabled) {
     printf("%s** KASLR is disabled **%s\n\n", c(C_YELLOW), c(C_RESET));
     printf("Detected by:\n");
@@ -2341,7 +2115,7 @@ void render_text(const struct summary *s) {
                              : "(unknown)");
     }
     printf("\n");
-    verbose_static_base_block(s->kaslr.default_addr);
+    verbose_default_remark(s->kaslr.default_addr);
   } else if (s->kaslr.randomization_failed) {
     /* The stub relocated the image with no randomness: neither randomized nor
      * at the link-time default. Stated here so the verbose report is not

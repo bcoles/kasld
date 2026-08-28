@@ -69,7 +69,7 @@ retired_check() {
 
 retired_check 'Leaks (' 'Evidence ('
 retired_check '## Leak Results' '## Evidence'
-retired_check 'not derandomized' 'a Search space count'
+retired_check 'not derandomized' 'a Candidates count'
 retired_check 'Virtual memory layout' 'Virtual address space'
 retired_check 'Physical memory layout' 'Physical address space'
 retired_check '## Memory layout' '## Address space'
@@ -79,7 +79,7 @@ retired_check '(base proven; extent unknown)' '(base proven) / (base is a lower 
 retired_check 'Virtual address space (coupled):' 'Virtual address space (coupled, not to scale):'
 retired_check 'Virtual address space (decoupled):' 'Virtual address space (decoupled, not to scale):'
 retired_check 'Physical address space:' 'Physical address space (not to scale):'
-retired_check ' candidates,' ' a Search space count'
+retired_check ' candidates,' ' a Candidates count'
 # The compile-time default is not a value row and no posture names a base after
 # it: it is the origin a slide is measured from, and elsewhere a remark.
 retired_check 'Default image base' 'from compile-time default 0x...'
@@ -91,7 +91,7 @@ retired_check 'assumes default config' 'the engine-resolved base'
 retired_check '(default for arch)' 'the engine-resolved base'
 # The readout is a table: one row per (quantity, basis), the candidate count in
 # its own headed column. The two grades are one word each.
-retired_check 'narrowed to ~' 'a Search space count on the row'
+retired_check 'narrowed to ~' 'a Candidates count on the row'
 retired_check 'likely (speculative)' 'likely'
 retired_check 'best guess' 'likely'
 retired_check 'Inferred text range' 'Guaranteed text range'

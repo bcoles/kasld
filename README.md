@@ -79,15 +79,15 @@ Running 106 of 109 components (3 experimental skipped; use -x to enable)...
 [####################] 100%  106/106  39.1s
 1 component timed out after 30s and was killed (prefetch_directmap)
 
-  Quantity             Basis       Range                                    Search space  Align
-  -------------------  ----------  ---------------------------------------  ------------  -----
-  Virtual Image Base   guaranteed  0xffffffffa2e00000 slide +0x21e00000         1 of 505  2 MiB
-  Physical Image Base  guaranteed            0x200000 -         0x3d400000           481  2 MiB
-  Physical Image Base  likely               0x1000000 -         0x3c345000    474 of 481  2 MiB
-  Direct Map Base      guaranteed  0xffff800000000000 - 0xffffa4aa80000000         37547  1 GiB
-  Vmalloc Base         guaranteed  0xffff898000000000 - 0xffffd6d580000000         79191  1 GiB
-  Vmemmap Base         guaranteed  0xffffa98040000000 - 0xfffffd0000000000         85504  1 GiB
-  Module Region Base   guaranteed  0xffffffffc0000000 - 0xffffffffc0400000          1025  4 KiB
+  Quantity             Basis       Range                                    Candidates  Align
+  -------------------  ----------  ---------------------------------------  ----------  -----
+  Virtual Image Base   guaranteed  0xffffffffa2e00000 slide +0x21e00000       1 of 505  2 MiB
+  Physical Image Base  guaranteed            0x200000 -         0x3d400000         481  2 MiB
+  Physical Image Base  likely               0x1000000 -         0x3c345000  474 of 481  2 MiB
+  Direct Map Base      guaranteed  0xffff800000000000 - 0xffffa4aa80000000       37547  1 GiB
+  Vmalloc Base         guaranteed  0xffff898000000000 - 0xffffd6d580000000       79191  1 GiB
+  Vmemmap Base         guaranteed  0xffffa98040000000 - 0xfffffd0000000000       85504  1 GiB
+  Module Region Base   guaranteed  0xffffffffc0000000 - 0xffffffffc0400000        1025  4 KiB
 
   Note: physical and virtual text randomize independently
 

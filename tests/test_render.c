@@ -576,7 +576,7 @@ static void test_render_windowed_base_likely_order(void) {
   capture_stdout(wrap_render_summary, &s);
   /* A graded residual, not a binary verdict: both windows are narrowings, so
    * "not derandomized" would contradict them. The residual is the candidate
-   * count in the row's own Search space cell. */
+   * count in the row's own Candidates cell. */
   assert(strstr(render_cap, "1391") != NULL);
   assert(strstr(render_cap, "not derandomized") == NULL);
   {
@@ -1101,7 +1101,7 @@ static void test_render_memory_kaslr_uses_stored_slots(void) {
   verbose = 0;
   set_render_mode(0, 0, 0);
 
-  /* The engine-supplied count is used verbatim in the row's Search space
+  /* The engine-supplied count is used verbatim in the row's Candidates
      cell; a naive (max-min)/align would give a different number. */
   {
     const char *row = strstr(render_cap, "Direct Map Base");
@@ -1200,11 +1200,11 @@ static void check_static_base_case(int posture_disabled, unsigned long lo,
   layout.virt_kaslr_text_min = sv_lo;
   layout.virt_kaslr_text_max = sv_hi;
 
-  /* The compact readout right-aligns addresses without zero-filling; the
-   * verbose block and markdown pad to 16 digits. The two forms coincide for a
-   * high 64-bit address and differ everywhere else, so the expected string
-   * follows the format under test rather than assuming one width. */
-  const char *afmt = (md_mode || want_verbose) ? "0x%016lx" : "0x%lx";
+  /* Every format renders the resolved window through the shared Layout table,
+   * which right-aligns addresses without zero-filling, so one expected string
+   * serves all three. A per-format width here would only re-assert that the
+   * formats spell a value differently, which is the thing they no longer do. */
+  const char *afmt = "0x%lx";
   char abuf[40];
   if (lo) {
     snprintf(abuf, sizeof(abuf), afmt, lo);
@@ -3221,11 +3221,11 @@ static void test_render_readout_disabled_range_no_entropy(void) {
   layout.virt_kaslr_text_max = saved_max;
   /* Plain range, no fabricated entropy: a hex range but no "bits"/"candidates".
    */
-  /* The static postures render from the shared row model, so the quantity
-   * wears the same name it does in the table -- not a second label for the
-   * same thing. */
+  /* Every posture renders the same table from the shared row model, so the
+   * quantity wears the name and the range spelling it wears when KASLR is
+   * active -- not a second label and a second grammar for the same thing. */
   assert(strstr(render_cap, "Virtual Image Base") != NULL);
-  assert(strstr(render_cap, " .. ") != NULL);
+  assert(strstr(render_cap, " - ") != NULL);
   assert(strstr(render_cap, "bits") == NULL);
   assert(strstr(render_cap, "candidates") == NULL);
 }

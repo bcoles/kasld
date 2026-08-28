@@ -49,6 +49,11 @@ else
 fi
 
 fail=0
+# Scratch pair for the row diff. POSIX sh has no process substitution, so the
+# two normalised row lists are compared through files.
+TMP_T=$(mktemp) || exit 1
+TMP_M=$(mktemp) || exit 1
+trap 'rm -f "$TMP_T" "$TMP_M"' EXIT INT TERM
 note() {
   printf '  FAIL: %s\n' "$1"
   fail=1
@@ -83,6 +88,26 @@ md_quantities() {
     sort -u
 }
 
+# The full content of each Layout row, normalised so two formats that agree can
+# be compared directly. Whitespace and the markdown scaffolding (pipes, code
+# spans) are removed entirely rather than parsed: the text table right-aligns
+# inside its columns, so a range carries padding spaces that no field split
+# survives, while markdown carries none. Stripping both to the same shape
+# compares what the row SAYS -- quantity, grade, range, count, pitch -- without
+# asserting how either format lays it out.
+#
+# Names alone were compared here once, which is what let two renderers drop the
+# likely grade unnoticed and let one of them narrow a displayed edge that the
+# others left alone. Both are content, and neither changes which quantities a
+# format names.
+text_rows() {
+  sed -n 's/^  \([A-Z][A-Za-z0-9 ]*Base\)  */\1|/p' | tr -d ' `|' | sort
+}
+
+md_rows() {
+  sed -n 's/^| \([A-Z][A-Za-z0-9 ]*Base\) |/\1|/p' | tr -d ' `|' | sort
+}
+
 # One target (binary + optional qemu + optional sysroot), all three formats.
 # shellcheck disable=SC2086  # $q is an optional interpreter prefix, intentionally split
 compare_one() {
@@ -101,6 +126,17 @@ compare_one() {
     note "$label: text and markdown name different quantities"
     printf '        text:     %s\n' "$(echo "$t" | tr '\n' ' ')"
     printf '        markdown: %s\n' "$(echo "$m" | tr '\n' ' ')"
+    return
+  fi
+
+  # Text vs markdown, by content: same quantities, same grades, same values.
+  tr_=$(run | text_rows)
+  mr=$(run -m | md_rows)
+  if [ "$tr_" != "$mr" ]; then
+    note "$label: text and markdown report different rows"
+    printf '%s\n' "$tr_" >"$TMP_T"
+    printf '%s\n' "$mr" >"$TMP_M"
+    diff "$TMP_T" "$TMP_M" 2>/dev/null | head -6 | sed 's/^/        /'
     return
   fi
 
@@ -218,5 +254,5 @@ if [ "$fail" -ne 0 ]; then
     "$RED" "$RESET" >&2
   exit 1
 fi
-printf '%scheck-render-parity: OK%s (%d runs; text/markdown/json name the same quantities)\n' \
+printf '%scheck-render-parity: OK%s (%d runs; text/markdown agree row for row, json names nothing new)\n' \
   "$GREEN" "$RESET" "$n"

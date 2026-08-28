@@ -32,7 +32,7 @@ else
   RESET=
 fi
 
-# 110, not 100: the Search space column reports a size whether or not evidence
+# 110, not 100: the Candidates column reports a size whether or not evidence
 # narrowed it, so a run with NO evidence — the structural baseline, and the
 # widest the table can get — carries the physical addressing limit in full
 # ("2147483641 of 2147483648", 24 columns). Real runs narrow that and land at
