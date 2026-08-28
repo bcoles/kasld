@@ -28,6 +28,7 @@
 #include "include/kasld/outcome.h"
 #include "include/kasld/randomize_memory.h"
 #include "include/kasld/render_internal.h"
+#include "include/kasld/report.h"
 #include "include/kasld/target_width.h"
 
 #include <dirent.h>
@@ -2672,6 +2673,10 @@ struct engine_resolution {
 static void engine_resolve(struct engine *e);
 static struct engine g_auth_engine; /* the GUARANTEED (primary) resolution */
 static struct engine_resolution g_likely;
+/* The report model for this run. Built once from the two resolutions above and
+ * read by every format; nothing consumes it yet, and the formats migrate onto
+ * it one section at a time. */
+static struct kasld_report g_report;
 static int g_have_likely;
 #endif
 
@@ -3800,6 +3805,22 @@ static void engine_resolve(struct engine *e) {
   e->ev.n_verdicts = 0;
   engine_run_full_floored(e, KASLD_SOUND_FLOOR, rules, n_rules, vrules,
                           n_vrules);
+
+  /* Build the report model, here, where both resolutions are in hand and
+   * nothing has been rendered yet. The two-window POLICY is this layer's --
+   * which floors were used, and what they mean -- so each view carries the
+   * floor it was resolved at rather than the builder assuming one. */
+  {
+    struct kasld_resolution_view guar = {e->est, e->constraints,
+                                         e->n_constraints, KASLD_SOUND_FLOOR};
+    struct kasld_resolution_view lik = {NULL, NULL, 0, CONF_BRUTE};
+    if (g_have_likely) {
+      lik.est = g_likely.est;
+      lik.cs = g_likely.constraints;
+      lik.n_cs = g_likely.n_constraints;
+    }
+    kasld_report_build(guar, lik, &g_report);
+  }
 
   /* Project after the GUARANTEED run, and only that one. The likely run admits
    * every signal, so it curates and conflicts more freely by design; counting

@@ -215,6 +215,11 @@ KASLD_SRC      := $(SRC_DIR)/orchestrator.c
 # rest: what can be seen from here, rather than where the kernel is.
 ENV_SRC        := $(SRC_DIR)/environment.c
 RENDER_SRC     := $(SRC_DIR)/render.c
+# The report model: one finished description of a run, built from the engine and
+# consumed by every format. Its own translation unit because it is neither the
+# engine nor a renderer -- it is the seam between them, and the only place that
+# decides what a run reports.
+REPORT_SRC     := $(SRC_DIR)/report.c
 # Per-output-mode renderer translation units. The wildcard means adding a new
 # mode (e.g. src/render/yaml.c) needs no Makefile edit; the cross-file glue
 # (shared helpers, per-mode entry points) lives in include/kasld/render_internal.h.
@@ -389,6 +394,10 @@ $(OBJ_DIR)/render_%.o: $(SRC_DIR)/render/%.c $(HDRS) | $(OBJ_DIR)
 	$(call ccv,CC,$@)
 	$(Q)$(CC) $(ALL_CFLAGS) -DVERSION='"$(VERSION)"' -I$(SRC_DIR) -c $< -o $@
 
+$(OBJ_DIR)/report.o: $(REPORT_SRC) $(HDRS) | $(OBJ_DIR)
+	$(call ccv,CC,$@)
+	$(Q)$(CC) $(ALL_CFLAGS) -I$(SRC_DIR) -c $< -o $@
+
 $(OBJ_DIR)/region_info.o: $(REGIONS_SRC) $(HDRS) | $(OBJ_DIR)
 	$(call ccv,CC,$@)
 	$(Q)$(CC) $(ALL_CFLAGS) -c $< -o $@
@@ -402,7 +411,7 @@ $(OBJ_DIR)/rule_%.o: $(SRC_DIR)/rules/%.c $(HDRS) | $(OBJ_DIR)
 	$(call ccv,CC,$@)
 	$(Q)$(CC) $(ALL_CFLAGS) -I$(SRC_DIR) -c $< -o $@
 
-$(KASLD_BIN): $(OBJ_DIR)/orchestrator.o $(OBJ_DIR)/environment.o $(OBJ_DIR)/render.o $(RENDER_MODE_OBJS) $(OBJ_DIR)/region_info.o $(ENGINE_OBJS) | $(OBJ_DIR)
+$(KASLD_BIN): $(OBJ_DIR)/orchestrator.o $(OBJ_DIR)/environment.o $(OBJ_DIR)/render.o $(OBJ_DIR)/report.o $(RENDER_MODE_OBJS) $(OBJ_DIR)/region_info.o $(ENGINE_OBJS) | $(OBJ_DIR)
 	$(call ccv,LD,$@)
 	$(Q)$(CC) $(ALL_CFLAGS) $(ALL_LDFLAGS) $^ $(PTHREAD_LIBS) -o $@
 
@@ -681,6 +690,14 @@ $(TEST_BPE820_BIN): $(TEST_DIR)/test_boot_params_e820.c $(SRC_DIR)/components/bo
 # proc_kcore ELF program-header scan: the component #included (main renamed) and
 # driven over a staged KASLD_SYSROOT /proc/kcore; the only coverage of the parse
 # (the live component is CAP_SYS_RAWIO-gated, so it is dark in the fixtures).
+# The report model builder. Pure data in, pure data out -- no engine, no
+# renderer, no host -- so the test needs neither a staged sysroot nor a built
+# component, and asserts invariants rather than agreement with any format.
+TEST_REPORT_BIN := $(TEST_OBJ_DIR)/test_report
+$(TEST_REPORT_BIN): $(TEST_DIR)/test_report.c $(REPORT_SRC) $(ESTIMATE_SRC) $(QUANTITIES_SRC) $(HDRS) | $(TEST_OBJ_DIR)
+	$(call ccv,CCLD,$@)
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_report.c -o $@
+
 TEST_KCORE_BIN := $(TEST_OBJ_DIR)/test_kcore
 $(TEST_KCORE_BIN): $(TEST_DIR)/test_kcore.c $(SRC_DIR)/components/proc_kcore.c $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
@@ -754,6 +771,7 @@ TEST_ALL_BINS := $(TEST_BIN) \
   $(TEST_BPE820_BIN) \
   $(TEST_PARSERS_BIN) \
   $(TEST_KCORE_BIN) \
+  $(TEST_REPORT_BIN) \
   $(TEST_PTDUMP_BIN) \
   $(TEST_KMEMLEAK_BIN) \
   $(TEST_KERNFS_BIN)
