@@ -227,7 +227,7 @@ KASLD_META("method:timing\n"
  * sweep from a clean one, and nothing here can. Its direction of error is the
  * safe one: declining a legitimate run costs a technique, admitting a
  * disturbed one costs an address that is wrong without looking wrong. */
-#define SWEEP_MARK_CAP (NUM_SLOTS / 8)
+#define SWEEP_MARK_CAP ((int)(NUM_SLOTS / 8))
 
 /* Shortest run that may be read as an image at all, whatever share it holds. */
 #define BAND_MIN 6
