@@ -187,6 +187,10 @@ static void stage_window(struct kasld_report_window *w, unsigned long lo,
   w->has_hi = hi != 0;
   w->present = w->has_lo || w->has_hi;
   w->candidates = cand;
+  /* Through the builder's own conversion, not a second one here: a test that
+   * reimplemented it could agree with itself while disagreeing with what ships.
+   */
+  w->bits = report_bits(cand);
 }
 
 static struct kasld_report_quantity *
@@ -2339,7 +2343,10 @@ static void test_render_disabled_base_not_labeled_likely(void) {
    * same thing. */
   assert(strstr(render_cap, "Virtual Image Base") != NULL);
   char pinhex[32];
-  snprintf(pinhex, sizeof(pinhex), "0x%016lx", vt);
+  /* Built unpadded: the Layout rows markdown draws are the ones the readout
+   * draws, and they right-align addresses rather than zero-filling them, so
+   * "0x%016lx" matches only on arches whose addresses fill 16 hex digits. */
+  snprintf(pinhex, sizeof(pinhex), "0x%lx", vt);
   assert(strstr(render_cap, pinhex) != NULL);
 
   layout.virt_kaslr_text_min = smin;

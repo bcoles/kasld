@@ -85,7 +85,7 @@ static void md_default_remark(const struct summary *s) {
     const struct layout_row *r = &layout_rows[i];
     if (r->dim || strcmp(r->cell[1], GRADE_GUARANTEED) != 0)
       continue;
-    snprintf(ab, sizeof(ab), "`0x%016lx`", s->kaslr.default_addr);
+    snprintf(ab, sizeof(ab), "`0x%lx`", s->kaslr.default_addr);
     rem = default_base_remark(s->kaslr.default_addr, r->lo, r->hi, ab, rb,
                               sizeof(rb));
     if (rem)

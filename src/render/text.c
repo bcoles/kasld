@@ -1676,7 +1676,12 @@ static void readout_default_remark(unsigned long def, unsigned long lo,
  * constant of THIS build, and a differently configured kernel does not honour
  * it -- an armv7 kernel built VMSPLIT_2G puts _text at 0x80008000 while the
  * arch default reads 0xc0008000. Judged on the first resolved quantity, the
- * image base, the only one carrying a compile-time default at all. */
+ * image base, the only one carrying a compile-time default at all.
+ *
+ * The default is rendered the way the table above it renders every other
+ * address -- unpadded. Zero-filling to 16 digits dresses a 32-bit constant as a
+ * 64-bit one, and puts two spellings of the same kind of address in one
+ * block. */
 static void verbose_default_remark(unsigned long default_addr) {
   char ab[40], rb[160];
   const char *rem;
@@ -1684,7 +1689,7 @@ static void verbose_default_remark(unsigned long default_addr) {
     const struct layout_row *r = &layout_rows[i];
     if (r->dim || strcmp(r->cell[1], GRADE_GUARANTEED) != 0)
       continue;
-    snprintf(ab, sizeof(ab), "0x%016lx", default_addr);
+    snprintf(ab, sizeof(ab), "0x%lx", default_addr);
     rem = default_base_remark(default_addr, r->lo, r->hi, ab, rb, sizeof(rb));
     if (rem)
       printf("%s%s%s\n\n", c(C_DIM), rem, c(C_RESET));
