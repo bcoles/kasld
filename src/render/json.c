@@ -617,27 +617,47 @@ void render_json(const struct summary *s) {
    * module may occupy, while this is bounded above by the lowest module seen.
    * A sibling of virtual/physical rather than a memory_kaslr member: the
    * module region exists on every architecture, whereas memory_kaslr is the
-   * x86_64 CONFIG_RANDOMIZE_MEMORY chain. Emitted only once the engine has
-   * bounded it; an untightened side emits null. */
+   * x86_64 CONFIG_RANDOMIZE_MEMORY chain.
+   *
+   * Emitted because the machine HAS the quantity, not because this run
+   * narrowed it: the architectural window is itself an answer, and a consumer
+   * that keys on presence-of-key cannot tell a region that does not exist from
+   * one nothing was learned about if the key disappears in both cases. An
+   * unstated edge emits null. */
   {
     const struct kasld_report_quantity *it =
         kasld_report_find(rep, Q_MODULE_BASE);
-    if (it && it->guaranteed.present) {
+    if (it) {
       printf(",\n    \"module_base\": {\n");
       printf("      \"min\": ");
       json_addr_or_null(it->guaranteed.has_lo, it->guaranteed.lo);
       printf(",\n      \"max\": ");
       json_addr_or_null(it->guaranteed.has_hi, it->guaranteed.hi);
-      printf(",\n      \"slots\": %lu\n", it->guaranteed.candidates);
-      printf("    }");
+      /* The same figures its siblings in memory_kaslr carry, for the same
+       * reason: a module region base is a window over an address like any
+       * other, and withholding its residual entropy or its speculative
+       * sub-window would report one quantity of a kind differently from the
+       * rest. */
+      if (it->guaranteed.candidates > 0)
+        printf(",\n      \"slots\": %lu,\n      \"entropy_bits\": %d",
+               it->guaranteed.candidates, it->guaranteed.bits);
+      if (kasld_report_likely_is_tighter(it)) {
+        printf(",\n      \"likely\": { \"min\": \"0x%016lx\", "
+               "\"max\": \"0x%016lx\"",
+               it->likely.lo, it->likely.hi);
+        if (it->likely.candidates > 0)
+          printf(", \"slots\": %lu", it->likely.candidates);
+        printf(", \"speculative\": true }");
+      }
+      printf("\n    }");
     }
   }
 
   /* Memory KASLR (CONFIG_RANDOMIZE_MEMORY) — directmap / vmalloc / vmemmap
-   * base bounds derived from the structural placement chain. Emitted when the
-   * engine holds a bound on at least one of the regions this architecture
-   * randomizes. An unstated edge emits JSON `null` so consumers can
-   * distinguish "no bound" from "bound that happens to be zero". */
+   * base bounds derived from the structural placement chain. Every region this
+   * architecture randomizes is named, whether or not this run narrowed it. An
+   * unstated edge emits JSON `null` so consumers can distinguish "no bound"
+   * from "bound that happens to be zero". */
   {
     /* Which regions this machine has is the model's answer, not a per-format
      * list: an architecture that does not randomize a region carries no item
@@ -648,11 +668,9 @@ void render_json(const struct summary *s) {
     static const char *const mem_key[] = {
         "virt_page_offset_base", "virt_vmalloc_base", "virt_vmemmap_base"};
     int any = 0;
-    for (size_t i = 0; i < sizeof(mem_q) / sizeof(mem_q[0]); i++) {
-      const struct kasld_report_quantity *it = kasld_report_find(rep, mem_q[i]);
-      if (it && it->guaranteed.present)
+    for (size_t i = 0; i < sizeof(mem_q) / sizeof(mem_q[0]); i++)
+      if (kasld_report_find(rep, mem_q[i]))
         any = 1;
-    }
     if (any) {
       int first = 1;
       printf(",\n    \"memory_kaslr\": {\n");
@@ -660,7 +678,7 @@ void render_json(const struct summary *s) {
         const struct kasld_report_quantity *it =
             kasld_report_find(rep, mem_q[i]);
         const struct kasld_report_window *g;
-        if (!it || !it->guaranteed.present)
+        if (!it)
           continue;
         g = &it->guaranteed;
         printf("%s      \"%s\": { \"min\": ", first ? "" : ",\n", mem_key[i]);
@@ -687,6 +705,34 @@ void render_json(const struct summary *s) {
         }
         printf(" }");
         first = 0;
+      }
+      printf("\n    }");
+    }
+  }
+
+  /* Paging level (Q_VA_BITS): the address-space size, in bits. A finite set of
+   * admissible sizes rather than a window, so it carries values instead of
+   * endpoints -- and it is a member only where the architecture admits more
+   * than one size. Where it admits exactly one there is nothing unknown, and a
+   * key stating the sole possibility would read as a measurement.
+   *
+   * A resolved level is `values` holding a single entry; a consumer needs no
+   * separate "resolved" flag, and none is emitted, because a count of one IS
+   * the resolution. */
+  {
+    const struct kasld_report_quantity *it = kasld_report_find(rep, Q_VA_BITS);
+    if (it) {
+      printf(",\n    \"va_bits\": {\n      \"values\": [");
+      for (int i = 0; i < it->guaranteed.n_values; i++)
+        printf("%s%lu", i ? ", " : "", it->guaranteed.values[i]);
+      printf("],\n      \"candidates\": %lu,\n      \"entropy_bits\": %d",
+             it->guaranteed.candidates, it->guaranteed.bits);
+      if (kasld_report_likely_is_tighter(it)) {
+        printf(",\n      \"likely\": { \"values\": [");
+        for (int i = 0; i < it->likely.n_values; i++)
+          printf("%s%lu", i ? ", " : "", it->likely.values[i]);
+        printf("], \"candidates\": %lu, \"speculative\": true }",
+               it->likely.candidates);
       }
       printf("\n    }");
     }

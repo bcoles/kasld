@@ -69,22 +69,28 @@ json_key_for() {
   "Vmalloc Base")        echo virt_vmalloc_base ;;
   "Vmemmap Base")        echo virt_vmemmap_base ;;
   "Module Region Base")  echo module_base ;;
+  "Paging Level")        echo va_bits ;;
   *)                     echo "" ;;
   esac
 }
 
-# The quantity names a text readout presents, deduplicated. Covers both shapes:
-# the table (leading two spaces, name padded into the first column) and the
-# static-posture block (a bold heading at the same indent). Both are matched by
-# their trailing "... Base" label, which every quantity name ends with.
+# The quantity names a text readout presents, deduplicated.
+#
+# Anchored on the GRADE column rather than on the label's last word. Matching
+# "... Base" caught only the quantities whose names happen to end that way, so
+# the paging level -- a set of admissible address-space sizes, named "Paging
+# Level" -- was invisible here: a format could report it, or fail to, and this
+# guard would say nothing either way. Every Layout row carries a grade in its
+# second column whatever the quantity is called, so keying on that catches a new
+# quantity without anyone remembering to widen a pattern.
 text_quantities() {
-  sed -n 's/^  \([A-Z][A-Za-z0-9 ]*Base\) .*/\1/p;s/^  \([A-Z][A-Za-z0-9 ]*Base\)$/\1/p' |
+  sed -n 's/^  \([A-Za-z][A-Za-z0-9 ]*[A-Za-z]\)  *guaranteed .*/\1/p;s/^  \([A-Za-z][A-Za-z0-9 ]*[A-Za-z]\)  *likely .*/\1/p' |
     sort -u
 }
 
-# Same, from markdown: table rows "| Name | ..." and static lines "**Name:**".
+# Same, from markdown's table rows.
 md_quantities() {
-  sed -n 's/^| \([A-Z][A-Za-z0-9 ]*Base\) |.*/\1/p;s/^\*\*\([A-Z][A-Za-z0-9 ]*Base\):\*\*.*/\1/p' |
+  sed -n 's/^| \([A-Za-z][A-Za-z0-9 ]*[A-Za-z]\) | guaranteed |.*/\1/p;s/^| \([A-Za-z][A-Za-z0-9 ]*[A-Za-z]\) | likely |.*/\1/p' |
     sort -u
 }
 
@@ -101,11 +107,13 @@ md_quantities() {
 # others left alone. Both are content, and neither changes which quantities a
 # format names.
 text_rows() {
-  sed -n 's/^  \([A-Z][A-Za-z0-9 ]*Base\)  */\1|/p' | tr -d ' `|' | sort
+  sed -n 's/^  \([A-Za-z][A-Za-z0-9 ]*[A-Za-z]\)  *\(guaranteed\)  */\1|\2|/p;s/^  \([A-Za-z][A-Za-z0-9 ]*[A-Za-z]\)  *\(likely\)  */\1|\2|/p' |
+    tr -d ' `|' | sort
 }
 
 md_rows() {
-  sed -n 's/^| \([A-Z][A-Za-z0-9 ]*Base\) |/\1|/p' | tr -d ' `|' | sort
+  sed -n 's/^| \([A-Za-z][A-Za-z0-9 ]*[A-Za-z]\) | \(guaranteed\) |/\1|\2|/p;s/^| \([A-Za-z][A-Za-z0-9 ]*[A-Za-z]\) | \(likely\) |/\1|\2|/p' |
+    tr -d ' `|' | sort
 }
 
 # One target (binary + optional qemu + optional sysroot), all three formats.
@@ -165,6 +173,26 @@ compare_one() {
     done
     [ "$found" -eq 1 ] ||
       note "$label: JSON reports \"$key\" but the readout names no quantity for it"
+  done
+
+  # And the other way, for the quantities whose presence is a property of the
+  # MACHINE rather than of the run. json emits these because the architecture
+  # has the unknown, not because this run narrowed it -- the same rule the
+  # readout draws its rows by -- so for these the two sets must match exactly.
+  #
+  # The image-base windows are deliberately not in this list: a pinned base is
+  # reported as "virtual"/"physical" instead of "inferred", so one readout label
+  # legitimately maps to either of two keys, which is a presentation choice
+  # rather than a membership difference.
+  for name in $(echo "$t" | tr ' ' '_'); do
+    disp=$(echo "$name" | tr '_' ' ')
+    case "$(json_key_for "$disp")" in
+    virt_page_offset_base | virt_vmalloc_base | virt_vmemmap_base | \
+      module_base | va_bits)
+      printf '%s\n' "$j" | grep -q "\"$(json_key_for "$disp")\": {" ||
+        note "$label: the readout names \"$disp\" but JSON omits \"$(json_key_for "$disp")\""
+      ;;
+    esac
   done
 }
 

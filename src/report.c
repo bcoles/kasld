@@ -313,6 +313,12 @@ int kasld_report_likely_is_tighter(const struct kasld_report_quantity *it) {
     return 0;
   l = &it->likely;
   g = &it->guaranteed;
+  /* A set has no endpoints, so the count is the only thing there is to compare
+   * -- and for a set it is exact, since the values are enumerated rather than
+   * counted over a grid. An interval is compared by its BOUNDS instead: a count
+   * there can be absent while the bounds are real. */
+  if (l->shape == RSHAPE_SET || g->shape == RSHAPE_SET)
+    return l->shape == g->shape && l->candidates < g->candidates;
   if (l->has_lo && (!g->has_lo || l->lo > g->lo))
     return 1;
   if (l->has_hi && (!g->has_hi || l->hi < g->hi))

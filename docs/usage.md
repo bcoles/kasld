@@ -509,11 +509,21 @@ differ from the text labels; the mapping is:
 | Guaranteed window (sound floor; contains the true base) | `inferred` / `inferred_physical` | `guaranteed` in the Layout table (readout and `-v` draw the same one) |
 | Likely window (all signals; a subset of the guaranteed window; may be wrong) | `likely` / `likely_physical` (with `"speculative": true`) | `likely` in the Layout table |
 | Headline concrete base | `virtual` / `physical` → `image_base` | "Virtual / Physical image base" |
+| Paging level (a set of sizes, not a window) | `va_bits` → `values` | `Paging Level` in the Layout table |
 
 So `inferred*` is the guaranteed window and `likely*` is the speculative
 best-guess, always contained within it. Memory-KASLR regions
 (`memory_kaslr`) carry the same guaranteed `min`/`max` and an optional
 nested `likely` object.
+
+Which quantities appear is a property of the **machine**, not of the run: an
+architecture that does not randomize its vmalloc base has no such unknown and
+reports none, while one that does reports it whether or not this run narrowed it
+— an un-narrowed quantity states the architectural window, which is itself an
+answer. So a key is absent only where the target has no such unknown, and its
+presence never depends on how much a particular run learned. `va_bits` follows
+the same rule: it appears only where the architecture admits more than one
+address-space size.
 
 A non-zero exit can replace the report rather than accompany it: on exit 3 the
 document is `{"error": {...}}`, carrying no `layout` or `kaslr` key so that no

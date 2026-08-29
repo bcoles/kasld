@@ -242,6 +242,60 @@ int main(void) {
     }
   }
 
+  /* 5. A set narrows by losing values, not by moving edges. The tighter-query
+   *    is what every format asks before presenting a speculative window, so a
+   *    shape it cannot compare is a shape whose likely view silently never
+   *    appears -- which is how one quantity comes to be reported differently
+   *    from its neighbours. */
+  if (quantities[Q_VA_BITS].n_candidates > 1) {
+    const struct kasld_report_quantity *it;
+    tops(gest);
+    tops(lest);
+    gv.est = gest;
+    gv.cs = NULL;
+    gv.n_cs = 0;
+    lv.est = lest;
+    lv.cs = NULL;
+    lv.n_cs = 0;
+
+    /* Identical sets: the likely view reached the same answer, and saying so
+     * twice would restate the proven one under a weaker grade. */
+    kasld_report_build(gv, lv, NULL, RPOSTURE_RANDOMIZED, &r);
+    it = kasld_report_find(&r, Q_VA_BITS);
+    CHECK(it != NULL);
+    CHECK(it->guaranteed.shape == RSHAPE_SET);
+    CHECK(!kasld_report_likely_is_tighter(it));
+
+    /* Narrow the likely view through the lattice, not by clearing a bit: on
+     * LK_FINSET `lo` is a live-candidate bitmask, and a test that edited it
+     * directly would encode this quantity's current representation as though it
+     * were the contract. */
+    {
+      struct constraint c;
+      memset(&c, 0, sizeof(c));
+      c.q = Q_VA_BITS;
+      c.op = C_EXCLUDE;
+      c.value = quantities[Q_VA_BITS].candidates[0];
+      c.value2 = c.value;
+      c.conf = CONF_PARSED;
+      estimate_meet(&lest[Q_VA_BITS], &quantities[Q_VA_BITS], &c);
+    }
+    kasld_report_build(gv, lv, NULL, RPOSTURE_RANDOMIZED, &r);
+    it = kasld_report_find(&r, Q_VA_BITS);
+    CHECK(it != NULL);
+    CHECK(kasld_report_likely_is_tighter(it));
+    CHECK(it->likely.candidates < it->guaranteed.candidates);
+    CHECK(it->likely.n_values == (int)it->likely.candidates);
+    if (check_item(it))
+      return 1;
+  } else {
+    /* Stated rather than skipped silently: on an architecture admitting one
+     * address-space size there is no set quantity to compare, and a run that
+     * printed OK without saying so would look like coverage. */
+    printf("test_report: set-narrowing case not exercised "
+           "(this architecture admits one address-space size)\n");
+  }
+
   printf("test_report: OK (%d checks)\n", checks);
   return 0;
 }

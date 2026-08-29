@@ -324,11 +324,22 @@ struct layout_row {
   unsigned long align;
   char note[32];
   int dim; /* nothing bounded: the row recedes */
-  /* A proven single address -- the quantity is solved. Set only for a
-   * guaranteed row of one candidate: a likely row can also hold one address,
-   * but that is the best guess, and emphasising it would make an unproven
-   * value the most prominent thing on screen. */
-  int pinned;
+  /* The row's window names ONE address rather than a span.
+   *
+   * Grade-free on purpose. The readout's emphasis encodes two independent
+   * things -- weight says a row names a single address, hue says it is
+   * unproven -- and a flag carrying both would entangle them where it is set
+   * while they still read as orthogonal where they are drawn. The name states
+   * the test it performs, so it cannot be reached for as a general "solved": a
+   * quantity can be resolved without being an address, and the emphasis this
+   * drives belongs to addresses. */
+  int one_address;
+  /* The row states a SET of admissible values, not a window. Its Window cell
+   * holds the values themselves and `lo`/`hi` are unset, so a format that
+   * judges a compile-time default against a row's bounds must skip it: a set
+   * has no bounds to judge against, and reading its zeroed edges as a window
+   * would rule the default out on every run. */
+  int is_set;
 };
 extern struct layout_row layout_rows[LAYOUT_MAX_ROWS];
 extern int n_layout_rows;

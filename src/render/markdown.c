@@ -83,7 +83,9 @@ static void md_default_remark(const struct summary *s) {
   const char *rem;
   for (int i = 0; i < n_layout_rows; i++) {
     const struct layout_row *r = &layout_rows[i];
-    if (r->dim || strcmp(r->cell[1], GRADE_GUARANTEED) != 0)
+    /* A set row carries no window, so there is nothing for the default to be
+     * judged against; its zeroed edges are not bounds. */
+    if (r->dim || r->is_set || strcmp(r->cell[1], GRADE_GUARANTEED) != 0)
       continue;
     snprintf(ab, sizeof(ab), "`0x%lx`", s->kaslr.default_addr);
     rem = default_base_remark(s->kaslr.default_addr, r->lo, r->hi, ab, rb,

@@ -245,10 +245,12 @@ kasld_report_find(const struct kasld_report *r, enum kasld_quantity q);
  * is a query rather than a field because it is derived from the two windows,
  * and a stored copy of a derived fact goes stale.
  *
- * Compared by BOUNDS, not by candidate count: a count can be absent while the
- * bounds are real, and the two windows are frequently identical -- the likely
- * resolution simply reaches the same answer -- in which case presenting it
- * again restates the proven window under a weaker grade. */
+ * An interval is compared by BOUNDS, not by candidate count: a count can be
+ * absent while the bounds are real, and the two windows are frequently
+ * identical -- the likely resolution simply reaches the same answer -- in which
+ * case presenting it again restates the proven window under a weaker grade. A
+ * set has no endpoints, so it is compared by its count, which for a set is
+ * exact because the values are enumerated rather than counted over a grid. */
 int kasld_report_likely_is_tighter(const struct kasld_report_quantity *it);
 
 void kasld_report_build(struct kasld_resolution_view guaranteed,

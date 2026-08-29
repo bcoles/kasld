@@ -1687,7 +1687,9 @@ static void verbose_default_remark(unsigned long default_addr) {
   const char *rem;
   for (int i = 0; i < n_layout_rows; i++) {
     const struct layout_row *r = &layout_rows[i];
-    if (r->dim || strcmp(r->cell[1], GRADE_GUARANTEED) != 0)
+    /* A set row carries no window, so there is nothing for the default to be
+     * judged against; its zeroed edges are not bounds. */
+    if (r->dim || r->is_set || strcmp(r->cell[1], GRADE_GUARANTEED) != 0)
       continue;
     snprintf(ab, sizeof(ab), "0x%lx", default_addr);
     rem = default_base_remark(default_addr, r->lo, r->hi, ab, rb, sizeof(rb));
@@ -1820,14 +1822,15 @@ static void layout_print_range(const struct layout_row *r, int w) {
    * So a proven placement is bare weight, an unproven one is weight tinted to
    * qualify it, an unproven window is tint alone, and the sound window every
    * quantity starts in takes neither. The Basis word states the grade outright
-   * in every case: the emphasis ranks a row, it does not classify it. */
-  if (!r->dim && strcmp(r->cell[1], GRADE_LIKELY) == 0) {
+   * in every case: the emphasis ranks a row, it does not classify it.
+   *
+   * The two are asked separately below, because they are separate: a flag
+   * answering both at once would entangle them where it is set while they
+   * still read as orthogonal here. */
+  if (!r->dim && strcmp(r->cell[1], GRADE_LIKELY) == 0)
     hue = c(C_YELLOW);
-    if (r->lo && r->lo == r->hi)
-      weight = c(C_BOLD);
-  } else if (r->pinned) {
+  if (r->one_address)
     weight = c(C_BOLD);
-  }
   if (*weight || *hue)
     printf("%s%s%.*s%s", weight, hue, head, r->cell[2], c(C_RESET));
   else

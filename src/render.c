@@ -320,8 +320,40 @@ static void layout_add(const char *quantity, const char *basis,
   snprintf(r->cell[4], LAYOUT_CELL, "%s",
            align ? kasld_grain(align, gb, sizeof(gb)) : "-");
   r->dim = (!lo && !hi);
-  r->pinned =
-      (strcmp(basis, GRADE_GUARANTEED) == 0 && lo && lo == hi && slots == 1);
+  r->one_address = (lo && lo == hi);
+}
+
+/* A row stating a set of admissible values.
+ *
+ * The Window cell holds the values, comma-separated, because that IS the set --
+ * writing them out is not a flattening the way squeezing them into endpoints
+ * would be. There is no grid under a set, so the Grain cell stays empty, and
+ * the count is exact rather than an upper bound: the values are enumerated, not
+ * counted over a pitch. */
+static void layout_add_set(const char *quantity, const char *basis,
+                           const unsigned long *values, int n_values,
+                           unsigned long top) {
+  struct layout_row *r;
+  int used = 0;
+  if (n_layout_rows >= LAYOUT_MAX_ROWS || n_values <= 0)
+    return;
+  r = &layout_rows[n_layout_rows++];
+  memset(r, 0, sizeof(*r));
+  snprintf(r->cell[0], LAYOUT_CELL, "%s", quantity);
+  snprintf(r->cell[1], LAYOUT_CELL, "%s", basis);
+  for (int i = 0; i < n_values && used < LAYOUT_CELL - 1; i++)
+    used += snprintf(r->cell[2] + used, (size_t)(LAYOUT_CELL - used), "%s%lu",
+                     i ? ", " : "", values[i]);
+  layout_fmt_space(r->cell[3], LAYOUT_CELL, (unsigned long)n_values, top);
+  snprintf(r->cell[4], LAYOUT_CELL, "-");
+  r->slots = (unsigned long)n_values;
+  r->top = top;
+  r->is_set = 1;
+  /* `one_address` stays clear even for a set resolved to a single value: a
+   * paging level is a parameter of the search, not a placement recovered by it,
+   * so it does not take the weight the readout reserves for an address. A
+   * single remaining value is already legible as resolved -- it is the only one
+   * in the cell. */
 }
 
 /* Build the rows for this run, in the fixed order the readout presents.
@@ -350,12 +382,19 @@ void layout_build(void) {
     const struct kasld_report_window *g = &it->guaranteed;
     int pinned;
 
-    /* A set of admissible values is not a window, and this table's Window cell
-     * can only render endpoints. The item exists and the formats that read the
-     * model directly can state it; the row model cannot yet, so it draws none
-     * rather than flattening a set into a range it is not. */
-    if (g->shape == RSHAPE_SET)
+    /* A set of admissible values is not a window: it has no endpoints and no
+     * grid, so it gets a row shaped for a set rather than being squeezed into
+     * the range cell. */
+    if (g->shape == RSHAPE_SET) {
+      if (!g->present)
+        continue;
+      layout_add_set(it->label, GRADE_GUARANTEED, g->values, g->n_values,
+                     it->search_top);
+      if (kasld_report_likely_is_tighter(it))
+        layout_add_set(it->label, GRADE_LIKELY, it->likely.values,
+                       it->likely.n_values, g->candidates);
       continue;
+    }
     if (!g->present)
       continue;
 
