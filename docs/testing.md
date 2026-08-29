@@ -554,7 +554,7 @@ layers" is the one claim a reader takes on trust before reading further. TOC
 parity is checked only where a document has a TOC -- adding one is a choice,
 keeping it complete is not.
 
-**`check-diagram-data`** — Three of the fifteen diagrams plot data that lives
+**`check-diagram-data`** — Three of the sixteen diagrams plot data that lives
 in a markdown table elsewhere in `docs/`. Nothing tied the two together, and an
 SVG drifts more quietly than prose: nobody reads its diff, and a stale chart
 looks exactly like a current one. The generated chart once drew the source

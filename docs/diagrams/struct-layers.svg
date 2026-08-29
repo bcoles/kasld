@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="763" viewBox="0 0 960 763" font-family="sans-serif">
+  <style>
+      .title { font-size: 22px; font-weight: 700; fill: #37474f; }
+      .sub   { font-size: 13px; fill: #546e7a; }
+      .band  { font-size: 13px; font-weight: 700; fill: #455a64; }
+      .hdr   { font-family: monospace; font-size: 12px; font-weight: 700; }
+      .fld   { font-family: monospace; font-size: 11px; fill: #37474f; }
+      .note  { font-size: 10.5px; fill: #78909c; }
+      .flow  { fill: none; stroke: #546e7a; stroke-width: 1.6; marker-end: url(#a); }
+      .alab  { font-size: 10.5px; fill: #607d8b; font-family: monospace; }
+  </style>
+  <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6"
+      orient="auto"><path d="M0 0 L10 5 L0 10 z" fill="#546e7a"/></marker></defs>
+  <rect width="960" height="763" fill="#ffffff"/>
+  <text class="title" x="32" y="34">KASLD &#8212; Data Structures by Layer</text>
+  <text class="sub" x="32" y="57">Each layer owns one struct, and the arrow between two layers is where the data changes form. A field is</text>
+  <text class="sub" x="32" y="75">only meaningful in the layer that owns it; nothing below reaches back up.</text>
+  <text class="band" x="32" y="122">Component</text>
+  <rect x="150" y="100" width="560" height="64" rx="7" fill="#e3f2fd" stroke="#1976d2" stroke-width="1.4"/>
+  <text class="hdr" x="164" y="120" fill="#0d47a1">text on stdout &#8212; no struct crosses the process boundary</text>
+  <text class="fld" x="164" y="138">V kernel_text:_stext pos=base conf=parsed lo=0x..</text>
+  <text class="fld" x="164" y="155">S &lt;fact&gt; ...   C &lt;quantity&gt; &lt;op&gt; ...   R &lt;disposition&gt;</text>
+  <text class="note" x="726" y="120">one line per finding;</text>
+  <text class="note" x="726" y="134">the emitters fix the shape</text>
+  <path d="M210 166 L210 190" class="flow"/>
+  <text class="alab" x="224" y="184">parse</text>
+  <text class="band" x="32" y="216">Orchestrator</text>
+  <rect x="150" y="194" width="560" height="64" rx="7" fill="#fff3e0" stroke="#ef6c00" stroke-width="1.4"/>
+  <text class="hdr" x="164" y="214" fill="#e65100">struct result &#8212; one parsed address record</text>
+  <text class="fld" x="164" y="232">type &#183; region &#183; name &#183; lo &#183; hi &#183; sample &#183; base_align &#183; set_mask</text>
+  <text class="fld" x="164" y="249">pos &#183; conf &#183; origins &#183; method_set</text>
+  <text class="note" x="726" y="214">siblings carry the other</text>
+  <text class="note" x="726" y="228">wire kinds: scalar_fact_record,</text>
+  <text class="note" x="726" y="242">constraint_fact_record,</text>
+  <text class="note" x="726" y="256">component_disposition</text>
+  <path d="M210 260 L210 284" class="flow"/>
+  <text class="alab" x="224" y="278">engine_build_evidence()</text>
+  <text class="band" x="32" y="310">Evidence</text>
+  <rect x="150" y="288" width="560" height="98" rx="7" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.4"/>
+  <text class="hdr" x="164" y="308" fill="#1b5e20">struct evidence_set &#8212; what the engine reads</text>
+  <text class="fld" x="164" y="326">obs[] &#183; verdicts[] &#183; coverings[]</text>
+  <text class="fld" x="164" y="343">struct observation: value_kind &#183; type &#183; region &#183; name &#183; pos &#183; conf &#183; origin</text>
+  <text class="fld" x="164" y="360">OBS_ADDRESS: lo &#183; hi &#183; sample &#160;&#160;&#8226;&#160;&#160; OBS_SCALAR: scalar_fact &#183; scalar_value</text>
+  <text class="fld" x="164" y="377">OBS_CONSTRAINT: c_quantity &#183; c_op &#183; scalar_value (reused as the bound)</text>
+  <text class="note" x="726" y="308">value_kind selects which</text>
+  <text class="note" x="726" y="322">fields are live; anchor rules</text>
+  <text class="note" x="726" y="336">gate on OBS_ADDRESS</text>
+  <path d="M210 388 L210 412" class="flow"/>
+  <text class="alab" x="224" y="406">rules read ev + est</text>
+  <text class="band" x="32" y="438">Rules</text>
+  <rect x="150" y="416" width="560" height="64" rx="7" fill="#e8f5e9" stroke="#43a047" stroke-width="1.4"/>
+  <text class="hdr" x="164" y="436" fill="#1b5e20">struct constraint &#8212; what a rule emits</text>
+  <text class="fld" x="164" y="454">q &#183; op &#183; value &#183; value2 &#183; conf &#183; origin</text>
+  <text class="fld" x="164" y="471">struct verdict &#8212; invalidates one observation instead</text>
+  <text class="note" x="726" y="436">append-only; order does</text>
+  <text class="note" x="726" y="450">not matter, so the set is</text>
+  <text class="note" x="726" y="464">replayed to a fixpoint</text>
+  <path d="M210 482 L210 506" class="flow"/>
+  <text class="alab" x="224" y="500">meet / narrow</text>
+  <text class="band" x="32" y="532">Estimates</text>
+  <rect x="150" y="510" width="560" height="64" rx="7" fill="#e8f5e9" stroke="#2e7d32" stroke-width="1.4"/>
+  <text class="hdr" x="164" y="530" fill="#1b5e20">struct estimate &#8212; one per quantity, narrowing only</text>
+  <text class="fld" x="164" y="548">kind &#183; lo &#183; hi &#183; stride &#183; stride_offset</text>
+  <text class="fld" x="164" y="565">lo_binding &#183; hi_binding &#183; lo_conf &#183; hi_conf</text>
+  <text class="note" x="726" y="530">the *_conf fields are what</text>
+  <text class="note" x="726" y="544">the sound floor filters on to</text>
+  <text class="note" x="726" y="558">build the guaranteed window</text>
+  <path d="M210 576 L210 600" class="flow"/>
+  <text class="alab" x="224" y="594">engine_sync_authoritative()</text>
+  <text class="band" x="32" y="626">Render</text>
+  <rect x="150" y="604" width="560" height="64" rx="7" fill="#f3e5f5" stroke="#8e24aa" stroke-width="1.4"/>
+  <text class="hdr" x="164" y="624" fill="#4a148c">struct summary.kaslr_info &#8212; the resolved answer</text>
+  <text class="fld" x="164" y="642">vtext &#183; vstext &#183; vslide &#183; vslots &#183; vbits</text>
+  <text class="fld" x="164" y="659">ptext &#183; pstext &#183; disabled &#183; unsupported &#183; randomization_failed</text>
+  <text class="note" x="726" y="624">projected from the estimates</text>
+  <text class="note" x="726" y="638">by engine_sync_authoritative()</text>
+  <text class="note" x="726" y="652">into the kasld_layout global</text>
+  <line x1="32" y1="694" x2="928" y2="694" stroke="#eceff1"/>
+  <text class="note" x="32" y="712">Twenty-five structs are declared; these six are the ones that cross a layer boundary. The rest are local to one layer.</text>
+  <text class="note" x="32" y="727">confidence travels the whole way &#8212; result.conf becomes observation.conf becomes constraint.conf, and estimate's lo_conf / hi_conf</text>
+  <text class="note" x="32" y="742">record which trust level set each edge. That is what lets the sound floor rebuild a guaranteed window from the same data.</text>
+</svg>

@@ -23,7 +23,7 @@
 # things plotted does not move, and a diagram plotting something the table never
 # mentioned is the failure worth catching.
 #
-# The remaining twelve diagrams are conceptual -- they illustrate a mechanism
+# The remaining thirteen diagrams are conceptual -- they illustrate a mechanism
 # rather than plot a table -- so they have no source to be checked against. They
 # are still covered by the structural checks below, which apply to all fifteen.
 # ---
