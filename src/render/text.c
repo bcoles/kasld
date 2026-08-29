@@ -1587,12 +1587,17 @@ static int readout_print_leaks(void) {
     snprintf(t, sizeof(t), "0x%lx",
              found[i].is_span ? found[i].span_lo : found[i].addr);
     snprintf(a1, sizeof(a1), "%*s", digits + 2, t);
-    printf("  %-*s%-*s%s%s%s", label_w, found[i].label, posnote_w, pn,
-           c(C_GREEN), a1, c(C_RESET));
+    /* No hue. Every address here would carry it, and a colour covering a whole
+     * column distinguishes nothing -- it only grows with the number of
+     * findings, which is where a run with real coverage needs the screen
+     * quietest. The provenance line below is dimmed, so the value is already
+     * the brightest thing on its line, and the hue stays reserved for the
+     * Layout table, where it grades an answer. */
+    printf("  %-*s%-*s%s", label_w, found[i].label, posnote_w, pn, a1);
     if (found[i].is_span) {
       snprintf(t, sizeof(t), "0x%lx", found[i].span_hi);
       snprintf(a2, sizeof(a2), "%*s", digits + 2, t);
-      printf(" - %s%s%s", c(C_GREEN), a2, c(C_RESET));
+      printf(" - %s", a2);
     }
     printf("\n");
 
@@ -1702,13 +1707,13 @@ static void verbose_default_remark(unsigned long default_addr) {
 /* ---------------------------------------------------------------------------
  * The Layout table.
  *
- * One row per (quantity, basis). Cells are formatted into fixed buffers before
- * anything prints, so the columns are sized to the run's own content.
+ * One row per (quantity, certainty). Cells are formatted into fixed buffers
+ * before anything prints, so the columns are sized to the run's own content.
  *
  *   Quantity      what is being located. Repeated on a quantity's second row:
  *                 a blank cell in a table means "no value", not "same as
  *                 above", and markdown has no rowspan to borrow.
- *   Basis         which of the two windows the row reports.
+ *   Certainty     which of the two windows the row reports.
  *   Candidates    how many placements survive, and out of how many where the
  *                 kernel's own randomization window is modelled. It leads the
  *                 numeric columns because it is the brute-force cost of the
@@ -1716,8 +1721,8 @@ static void verbose_default_remark(unsigned long default_addr) {
  *                 and because a right-aligned count against a fixed left edge
  *                 stays a column, where a trailing one shreds against ranges
  *                 whose printed width varies by twenty characters.
- *   Range         the addresses.
- *   Align         the grid the candidates sit on; what reconciles the count
+ *   Window        the addresses.
+ *   Grain         the grid the candidates sit on; what reconciles the count
  *                 with the range.
  *
  * A quantity the engine never bounded still gets a row, so the set of rows is
@@ -1808,9 +1813,17 @@ static void layout_print_range(const struct layout_row *r, int w) {
   /* A row's emphasis rides on its value, not on the word grading it, and the
    * two channels answer different questions.
    *
-   * Colour answers "is this proven?". One hue in a column of otherwise uniform
-   * text is what a reader's eye reaches first, whatever the palette renders it
-   * as, so it falls on the rows narrowed further than the proof supports.
+   * Colour answers "how far can this be trusted?", and only where the row
+   * carries an answer at all: green on a proven placement, yellow on one
+   * narrowed further than the proof supports. A guaranteed window takes
+   * neither -- it is proven, but it names no answer to act on, and it is the
+   * state every quantity starts in, so tinting it would put a hue on nearly
+   * every row and leave the colour distinguishing nothing.
+   *
+   * The two hues are ranked the way the results are: the proven answer is the
+   * best outcome a run has, so it must not read as the quieter of the two.
+   * Weight alone cannot carry that, since bold white is less urgent to the eye
+   * than any colour.
    *
    * Weight answers "does this name a single address?" -- the thing the run is
    * for. A window is a narrowing however tight it is, and a row still holding
@@ -1821,14 +1834,22 @@ static void layout_print_range(const struct layout_row *r, int w) {
    *
    * So a proven placement is bare weight, an unproven one is weight tinted to
    * qualify it, an unproven window is tint alone, and the sound window every
-   * quantity starts in takes neither. The Basis word states the grade outright
-   * in every case: the emphasis ranks a row, it does not classify it.
+   * quantity starts in takes neither. The Certainty word states the grade
+   * outright in every case: the emphasis ranks a row, it does not classify it,
+   * so nothing here rests on a reader telling two hues apart.
    *
-   * The two are asked separately below, because they are separate: a flag
-   * answering both at once would entangle them where it is set while they
-   * still read as orthogonal here. */
-  if (!r->dim && strcmp(r->cell[1], GRADE_LIKELY) == 0)
-    hue = c(C_YELLOW);
+   * The two are asked separately below, and they are not independent: green
+   * needs a single address as well as a proven one, so hue reads whether the
+   * row names an answer just as weight does. They stay separate questions all
+   * the same -- weight asks WHETHER there is an answer, hue asks how far it can
+   * be trusted -- and a single flag answering both would fix their relationship
+   * where it was set rather than here, where the ranking is decided. */
+  if (!r->dim) {
+    if (strcmp(r->cell[1], GRADE_LIKELY) == 0)
+      hue = c(C_YELLOW);
+    else if (r->one_address)
+      hue = c(C_GREEN);
+  }
   if (r->one_address)
     weight = c(C_BOLD);
   if (*weight || *hue)
