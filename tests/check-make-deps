@@ -1,0 +1,131 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-make-deps — a target that #includes a source must declare it as a
+# prerequisite.
+#
+# The test and fuzz binaries do not compile the program's objects and link them;
+# each one #includes the sources it drives, so the whole program arrives through
+# a single translation unit. That makes the #include list the real dependency
+# set, and make cannot see it: naming only the harness source and a couple of
+# objects leaves every other source undeclared, so editing one of them does not
+# relink. The binary on disk stays as it was and the suite passes against code
+# that is no longer in the tree.
+#
+# Nothing else catches it. A stale binary runs, exits 0, and reports the results
+# of the source it was built from -- the failure presents as a guard PASSING,
+# which is why it survived long enough for a missing object to reach CI while
+# the local build was green.
+#
+# The prerequisites are read from make's own database rather than by parsing the
+# Makefile, so variables and wildcards are expanded exactly as the build expands
+# them, and this cannot drift from what make actually believes.
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+cd "$ROOT" || exit 1
+
+if [ -t 1 ] || [ -n "${KASLD_COLOR:-}" ]; then
+  YELLOW=$(printf '\033[33m'); RESET=$(printf '\033[0m')
+else
+  YELLOW=; RESET=
+fi
+
+# Scratch outside the working tree, removed on every exit path: a guard must not
+# leave a file behind in the repository it is checking, and an interrupted run
+# is exactly when it would.
+DB=$(mktemp) || exit 1
+trap 'rm -f "$DB"' EXIT INT TERM
+
+command -v python3 >/dev/null 2>&1 || {
+  printf '%scheck-make-deps: SKIP%s (needs python3)\n' "$YELLOW" "$RESET"
+  exit 0
+}
+
+# -p prints the rule database; -n keeps it from running any recipe.
+make -pn 2>/dev/null > "$DB" || :
+[ -s "$DB" ] || {
+  printf '%scheck-make-deps: SKIP%s (make -pn produced no database)\n' \
+    "$YELLOW" "$RESET"
+  exit 0
+}
+
+python3 - "$DB" <<'PY'
+import glob, os, re, sys
+
+db = open(sys.argv[1]).read().splitlines()
+
+# Rules for the built test and fuzz binaries, with prerequisites as make
+# expanded them. Both shapes must be read. An explicit rule names its target;
+# a PATTERN rule (build/fuzz/%) carries the prerequisites for every target it
+# builds, and make also emits a bare "build/fuzz/fuzz_btf:" line with none at
+# all. Reading only the explicit lines finds those empty entries, skips them for
+# having no harness source, and reports a clean run -- while checking nothing.
+# The fuzz harnesses are built by a pattern rule, so that blind spot covered the
+# one target class that has actually shipped a stale binary.
+prereq = {}
+patterns = []
+for ln in db:
+    m = re.match(r'^(build/(?:tests|fuzz)/[A-Za-z0-9_]+):\s*(.*)$', ln)
+    if m:
+        prereq.setdefault(m.group(1), set()).update(m.group(2).split())
+        continue
+    m = re.match(r'^build/(tests|fuzz)/%\s*:\s*(.*)$', ln)
+    if m:
+        patterns.append((m.group(1), m.group(2).split()))
+
+# Expand each pattern rule over the harness sources it can build from.
+for outdir, pre in patterns:
+    stem_src = [p for p in pre if '%' in p and p.endswith('.c')]
+    if not stem_src:
+        continue
+    for tmpl in stem_src:
+        for path in glob.glob(tmpl.replace('%', '*')):
+            stem = os.path.basename(path)[:-2]
+            tgt = 'build/%s/%s' % (outdir, stem)
+            resolved = {p.replace('%', stem) for p in pre}
+            prereq.setdefault(tgt, set()).update(resolved)
+
+def norm(p):
+    return os.path.normpath(p.lstrip('./'))
+
+gaps, checked, checked_targets = [], 0, []
+for tgt, pre in sorted(prereq.items()):
+    srcs = [p for p in pre if p.startswith('tests/') and p.endswith('.c')]
+    if not srcs:
+        continue
+    checked += 1
+    checked_targets.append(tgt)
+    included = set()
+    for s in srcs:
+        if not os.path.exists(s):
+            continue
+        text = open(s, encoding='utf-8', errors='replace').read()
+        for m in re.finditer(r'#\s*include\s+"((?:\.\./)+src/[^"]+\.c)"', text):
+            included.add(norm(os.path.join(os.path.dirname(s), m.group(1))))
+    declared = {norm(p) for p in pre}
+    missing = sorted(i for i in included if i not in declared)
+    if missing:
+        gaps.append((tgt, missing))
+
+if gaps:
+    for tgt, missing in gaps:
+        print("  FAIL: %s does not declare what it includes:" % tgt)
+        for m in missing:
+            print("        %s" % m)
+    print("check-make-deps: a source edit would leave these binaries stale",
+          file=sys.stderr)
+    sys.exit(1)
+
+n_fuzz = sum(1 for t in checked_targets if t.startswith('build/fuzz/'))
+n_test = checked - n_fuzz
+if n_fuzz == 0 or n_test == 0:
+    print("check-make-deps: checked %d test and %d fuzz targets -- a category "
+          "at zero means the rule shape was not recognised, not that it is "
+          "clean" % (n_test, n_fuzz), file=sys.stderr)
+    sys.exit(1)
+print("check-make-deps: OK (%d test + %d fuzz targets; every #included source "
+      "is a prerequisite)" % (n_test, n_fuzz))
+PY

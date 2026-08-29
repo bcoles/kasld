@@ -241,6 +241,15 @@ RULE_SRCS        := $(wildcard $(SRC_DIR)/rules/*.c)
 
 # ENGINE_CORE = the engine minus its rule registry (estimate/quantities/
 # evidence/engine); ENGINE_CORE_SRCS adds the registry — the full product path.
+# The sources a whole-program test reaches by #including orchestrator.c: the
+# lattice, the quantity table, the region table and the report builder. Named as
+# a group because two test binaries pull in all four, and a rule that lists the
+# orchestrator without them relinks on an orchestrator edit but not on a change
+# to what the orchestrator calls -- leaving a test that passes against code that
+# is no longer there. tests/check-make-deps holds every such rule to this.
+ENGINE_MODEL_SRCS := $(ESTIMATE_SRC) $(QUANTITIES_SRC) $(REGIONS_SRC) \
+                     $(REPORT_SRC)
+
 ENGINE_CORE      := $(ESTIMATE_SRC) $(QUANTITIES_SRC) $(EVIDENCE_SRC) $(ENGINE_SRC)
 ENGINE_CORE_SRCS := $(ENGINE_CORE) $(ENGINE_RULES_SRC)
 ENGINE_OBJS      := $(patsubst $(SRC_DIR)/%.c,$(OBJ_DIR)/%.o,$(ENGINE_CORE_SRCS)) \
@@ -436,7 +445,7 @@ TEST_BIN := $(TEST_OBJ_DIR)/test_kasld
 # test_kasld.c #includes render.c and each src/render/*.c so the renderer's
 # static helpers (e.g. json_print_escaped, section_consensus) are reachable
 # without exporting them across the public API.
-$(TEST_BIN): $(TEST_DIR)/test_kasld.c $(KASLD_SRC) $(ENV_SRC) $(RENDER_SRC) $(RENDER_MODE_SRCS) $(HDRS) | $(TEST_OBJ_DIR)
+$(TEST_BIN): $(TEST_DIR)/test_kasld.c $(KASLD_SRC) $(ENV_SRC) $(RENDER_SRC) $(RENDER_MODE_SRCS) $(ENGINE_MODEL_SRCS) $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
 	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) $(PTHREAD_CFLAGS) -DKASLD_TESTING -I$(SRC_DIR) $(TEST_DIR)/test_kasld.c $(PTHREAD_LIBS) -o $@
 
@@ -445,7 +454,7 @@ $(TEST_BIN): $(TEST_DIR)/test_kasld.c $(KASLD_SRC) $(ENV_SRC) $(RENDER_SRC) $(RE
 # -DKASLD_TESTING + the pthread flags — but exercises render.c / render/*.c.
 TEST_RENDER_BIN := $(TEST_OBJ_DIR)/test_render
 
-$(TEST_RENDER_BIN): $(TEST_DIR)/test_render.c $(KASLD_SRC) $(ENV_SRC) $(RENDER_SRC) $(RENDER_MODE_SRCS) $(HDRS) | $(TEST_OBJ_DIR)
+$(TEST_RENDER_BIN): $(TEST_DIR)/test_render.c $(KASLD_SRC) $(ENV_SRC) $(RENDER_SRC) $(RENDER_MODE_SRCS) $(ENGINE_MODEL_SRCS) $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
 	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) $(PTHREAD_CFLAGS) -DKASLD_TESTING -I$(SRC_DIR) $(TEST_DIR)/test_render.c $(PTHREAD_LIBS) -o $@
 
@@ -845,6 +854,7 @@ lint :
 	    $(TEST_DIR)/check-env-docs \
 	    $(TEST_DIR)/check-shellcheck \
 	    $(TEST_DIR)/check-fuzz-harnesses \
+	    $(TEST_DIR)/check-make-deps \
 	    $(TEST_DIR)/check-property-arches \
 	    $(TEST_DIR)/check-stext-gap \
 	    $(TEST_DIR)/check-baseline \

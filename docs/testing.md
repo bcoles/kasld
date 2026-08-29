@@ -185,6 +185,7 @@ stays plain, and setting `KASLD_COLOR` non-empty or empty forces either.
 | `check-text-floor` | no component rolls its own text-base floor — they must use the `api.h` helper |
 | `check-shellcheck` | shellcheck over the `extra/` helper scripts |
 | `check-fuzz-harnesses` | every libFuzzer harness under `tests/fuzz/` still builds and links against the tree, and has a seed corpus † |
+| `check-make-deps` | every test and fuzz binary declares as a make prerequisite each source it reaches by `#include`, so an edit to one of them relinks rather than leaving a stale binary that passes against code no longer in the tree † |
 | `check-property-arches` | every supported architecture has BOTH whole-engine property tests — `test_full_engine_property_<arch>` and `..._floor` — defined and wired into the `RUN()` list † |
 | `check-stext-gap` | the three statements of an architecture's `_text`→`_stext` head gap agree: `STEXT_OFFSET`, `STEXT_OFFSET_MIN`/`_MAX`, and `STEXT_GAP_CANDIDATES` † |
 | `check-confidence-floor` | every engine rule that emits a *collapsing* constraint — `C_EQUALS`, `C_STRIDE`, `C_AT_LEAST_ALIGN`, or `C_EXCLUDE` — is on a reviewed allowlist, each entry recording what the value rests on † |
@@ -222,8 +223,9 @@ stays plain, and setting `KASLD_COLOR` non-empty or empty forces either.
 
 `check-truncation` needs `i686-linux-gnu-gcc`, `check-shellcheck` needs
 `shellcheck`, `check-fuzz-harnesses` needs a compiler that links
-`-fsanitize=fuzzer`, and `check-diagram-data` uses `xmllint` for its
-well-formedness pass; all four **skip cleanly** (exit 0) when their tool is
+`-fsanitize=fuzzer`, `check-make-deps` needs `python3` and a `make` that prints
+its rule database (`-p`), and `check-diagram-data` uses `xmllint` for its
+well-formedness pass; all five **skip cleanly** (exit 0) when their tool is
 absent, so `make lint` works with just a host compiler. CI installs all but
 the fuzzer toolchain, so there they run for real. `check-diagram-data` skips
 only that one pass — its table-parity and structural checks need nothing
