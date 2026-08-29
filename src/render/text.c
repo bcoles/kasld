@@ -56,6 +56,22 @@ static void mark_group_printed(enum kasld_addr_type type, const char *section) {
  * string unpadded; readout_print_leaks pads it to posnote_w (12, the width of
  * " [interior]" plus one, or 17 when an interior span is present) so a column
  * can follow. */
+/* The position word, bare. `pos_note()` brackets it for prose lines where it
+ * qualifies an address inline; in a table the column header names it, so the
+ * brackets would say the same thing twice. */
+static const char *pos_word(const struct result *r) {
+  switch (r->pos) {
+  case POS_BASE:
+    return "base";
+  case POS_INTERIOR:
+    return "interior";
+  case POS_TOP:
+    return "top";
+  default:
+    return "";
+  }
+}
+
 static const char *pos_note(const struct result *r) {
   switch (r->pos) {
   case POS_BASE:
@@ -1384,6 +1400,14 @@ void print_memory_map(void) {
 /* List the kernel-locating leaks that drive the readout. One line per
  * (type, region) consensus pick — skipping noise (generic DRAM/MMIO
  * extents, virt_page_offset metadata). */
+/* The evidence table's columns. Region and Position say what kind of claim the
+ * row makes, Address carries it, and Sources counts the components that
+ * independently produced it -- a corroboration count, which is what a reader
+ * weighs a finding by. The component NAMES are detail rather than headline, and
+ * printing them costs a second line per finding, so they live in -v. */
+static const char *const ev_hdr[] = {"Region", "Position", "Address",
+                                     "Sources"};
+
 static int readout_print_leaks(void) {
   /* Regions worth surfacing in the headline list. */
   struct {
@@ -1527,10 +1551,14 @@ static int readout_print_leaks(void) {
         digits = n;
     }
   }
-  label_w += 2;
-  /* pos_note() strings carry a leading space, which serves as this column's
-   * gutter. */
-  const int posnote_w = (any_span ? 16 : 11) + 1;
+  /* Columns are sized to the run's own content, header included, exactly as
+   * the Layout table sizes its own -- the two tables sit one above the other
+   * and a reader should not have to learn a second set of rules to read the
+   * lower one. */
+  if (label_w < (int)strlen(ev_hdr[0]))
+    label_w = (int)strlen(ev_hdr[0]);
+  const int posnote_w =
+      (any_span ? (int)strlen("interior span") : (int)strlen("interior"));
 
   /* Count distinct contributing components across the whole block: a finding
    * is a (type, region) group, and several components can corroborate one, so
@@ -1556,16 +1584,21 @@ static int readout_print_leaks(void) {
   printf("%sEvidence%s  (%d finding%s, %d component%s)\n", c(C_BOLD),
          c(C_RESET), nf, nf == 1 ? "" : "s", total_sources,
          total_sources == 1 ? "" : "s");
+
+  /* Render each row's cells before any of them print, so the address and source
+   * columns can be sized to what they actually hold. */
+  char cell_addr[sizeof(found) / sizeof(found[0])][96];
+  const char *cell_pos[sizeof(found) / sizeof(found[0])];
+  int cell_src[sizeof(found) / sizeof(found[0])];
+  int addr_w = (int)strlen(ev_hdr[2]), src_w = (int)strlen(ev_hdr[3]);
+
   for (int i = 0; i < nf; i++) {
+    char t[32], lo[40];
+    int n;
     /* Credit every component that found this (type, region) IN THIS ROW'S KIND,
-     * not just the one highest-confidence record: results merge by
-     * (type, region, NAME), so the same address tagged under different symbol
-     * names (e.g. _stext from proc_kallsyms vs an unnamed text leak) lands in
-     * separate merged records, and every one of them belongs on the line.
-     *
-     * Filtered by kind because the row states one: a component that resolved an
-     * edge did not contribute a sample to the span beside it, and listing it
-     * there would credit it with a measurement it never made. */
+     * not merely the one record that represents it: a finding corroborated by
+     * five components and one found once are not the same finding, and the
+     * count is the only thing on the row that says which this is. */
     struct origin_set seen;
     memset(&seen, 0, sizeof(seen));
     for (int j = 0; j < num_results; j++) {
@@ -1577,57 +1610,53 @@ static int readout_print_leaks(void) {
         continue;
       origin_set_union(&seen, &r->origins);
     }
-    int ns = origin_set_count(&seen);
+    cell_src[i] = origin_set_count(&seen);
+    cell_pos[i] = found[i].is_span ? "interior span" : pos_word(found[i].r);
 
-    /* The extent-position tag precedes the value it qualifies: a reader should
-     * know what kind of address is coming before reading it, not after. */
-    const char *pn =
-        found[i].is_span ? " [interior span]" : pos_note(found[i].r);
-    char a1[40], a2[40], t[32];
+    /* The low address is right-aligned within the widest hex value the block
+     * draws, so a lone address lines up with the low end of every span beside
+     * it and the column reads as one ladder of addresses. */
     snprintf(t, sizeof(t), "0x%lx",
              found[i].is_span ? found[i].span_lo : found[i].addr);
-    snprintf(a1, sizeof(a1), "%*s", digits + 2, t);
-    /* No hue. Every address here would carry it, and a colour covering a whole
-     * column distinguishes nothing -- it only grows with the number of
-     * findings, which is where a run with real coverage needs the screen
-     * quietest. The provenance line below is dimmed, so the value is already
-     * the brightest thing on its line, and the hue stays reserved for the
-     * Layout table, where it grades an answer. */
-    printf("  %-*s%-*s%s", label_w, found[i].label, posnote_w, pn, a1);
+    snprintf(lo, sizeof(lo), "%*s", digits + 2, t);
     if (found[i].is_span) {
+      char hi[40];
       snprintf(t, sizeof(t), "0x%lx", found[i].span_hi);
-      snprintf(a2, sizeof(a2), "%*s", digits + 2, t);
-      printf(" - %s", a2);
+      /* Padded into its own buffer first: composing with a runtime "%*s" width
+       * leaves the result's length unbounded to the compiler, and the two ends
+       * are the same shape anyway. */
+      snprintf(hi, sizeof(hi), "%*s", digits + 2, t);
+      snprintf(cell_addr[i], sizeof(cell_addr[i]), "%s - %s", lo, hi);
+    } else {
+      snprintf(cell_addr[i], sizeof(cell_addr[i]), "%s", lo);
     }
-    printf("\n");
-
-    if (ns == 0)
-      continue;
-    /* Provenance on its own line, introduced by "from" and aligned under the
-     * value: bare parenthesised names read as kernel symbols rather than as
-     * the components that produced the finding. */
-    const int indent = 2 + label_w + posnote_w + 5; /* under "from " */
-    int col = indent;
-    printf("  %-*s%sfrom ", label_w + posnote_w, "", c(C_DIM));
-    for (int slot = origin_set_next(&seen, 0), idx = 0; slot >= 0;
-         slot = origin_set_next(&seen, slot + 1), idx++) {
-      const char *nm = kasld_origin_name(slot);
-      int need = (int)strlen(nm) + (idx ? 2 : 0);
-      /* Wrap rather than truncate: which components corroborate a finding is
-       * the whole point of the line, so a long list continues on the next one
-       * at the same column instead of folding into "+N more". A wrap emits the
-       * separating comma at the current column, so the last name on a line must
-       * end one short of the budget. */
-      if (idx && col + need > READOUT_MAX_COLS - 1) {
-        printf(",\n%*s%s", indent, "", nm);
-        col = indent + (int)strlen(nm);
-      } else {
-        printf("%s%s", idx ? ", " : "", nm);
-        col += need;
-      }
-    }
-    printf("%s\n", c(C_RESET));
+    n = (int)strlen(cell_addr[i]);
+    if (n > addr_w)
+      addr_w = n;
+    n = cell_src[i] < 10 ? 1 : (cell_src[i] < 100 ? 2 : 3);
+    if (n > src_w)
+      src_w = n;
   }
+
+  printf("  %s%-*s  %-*s  %-*s  %*s%s\n", c(C_BOLD), label_w, ev_hdr[0],
+         posnote_w, ev_hdr[1], addr_w, ev_hdr[2], src_w, ev_hdr[3], c(C_RESET));
+  printf("  ");
+  for (int k = 0; k < label_w; k++)
+    putchar('-');
+  printf("  ");
+  for (int k = 0; k < posnote_w; k++)
+    putchar('-');
+  printf("  ");
+  for (int k = 0; k < addr_w; k++)
+    putchar('-');
+  printf("  ");
+  for (int k = 0; k < src_w; k++)
+    putchar('-');
+  putchar('\n');
+
+  for (int i = 0; i < nf; i++)
+    printf("  %-*s  %-*s  %-*s  %*d\n", label_w, found[i].label, posnote_w,
+           cell_pos[i], addr_w, cell_addr[i], src_w, cell_src[i]);
   return nf;
 }
 

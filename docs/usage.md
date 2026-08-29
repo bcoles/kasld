@@ -213,13 +213,19 @@ Running 106 of 109 components (3 experimental skipped; use -x to enable)...
   Note: physical and virtual text randomize independently
 
 Evidence  (2 findings, 4 components)
-  virt kernel text    [interior] 0xffffffffa309cab5
-                                 from perf_event_open, perf_text_poke_leak, proc_kallsyms
-  virt kernel image   [base]     0xffffffffa2e00000
-                                 from perf_event_open, prefetch, proc_kallsyms
+  Region             Position  Address             Sources
+  -----------------  --------  ------------------  -------
+  virt kernel text   interior  0xffffffffa309cab5        3
+  virt kernel image  base      0xffffffffa2e00000        3
 
 [-v: detailed results, memory map, system info]  [-H: hardening assessment]
 ```
+
+The **Evidence** table says where the answers came from: one row per region
+per kind of observation, `Position` distinguishing a witness to the region's
+base from an interior sample that only bounds it, and `Sources` counting the
+components that independently produced the finding. The components are named
+individually under `-v`.
 
 Terms in this readout (slide, directmap, coupling, slot, search space) are defined in
 the [kaslr.md glossary](kaslr.md#glossary); the engine vocabulary behind them

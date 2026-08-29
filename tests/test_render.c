@@ -279,6 +279,32 @@ static void test_build_report(const struct summary *s, struct kasld_report *r) {
              s->kaslr.virt_module_align);
 }
 
+/* The Sources count on the evidence row naming `label`, and `pos` where given
+ * -- a region can draw two rows, one per kind of observation, so the label
+ * alone does not identify one. Returns -1 when no such row was drawn.
+ *
+ * The count is read as the row's last whitespace-separated field rather than by
+ * column offset, because the table sizes its columns to the run's content. */
+static int evidence_sources(const char *cap, const char *label,
+                            const char *pos) {
+  const char *p = cap;
+  while ((p = strstr(p, label)) != NULL) {
+    const char *eol = strchr(p, '\n'), *tail;
+    char line[256];
+    if (!eol || (size_t)(eol - p) >= sizeof(line))
+      return -1;
+    snprintf(line, (size_t)(eol - p) + 1, "%s", p);
+    p = eol;
+    if (pos && !strstr(line, pos))
+      continue;
+    tail = line + strlen(line);
+    while (tail > line && tail[-1] != ' ')
+      tail--;
+    return (int)strtol(tail, NULL, 10);
+  }
+  return -1;
+}
+
 static void wrap_render_summary(void *arg) {
   struct kasld_report rep;
   test_build_report((const struct summary *)arg, &rep);
@@ -2377,7 +2403,12 @@ static void test_render_leak_discloses_interior(void) {
   set_render_mode(0, 0, 0); /* readout */
   capture_stdout(wrap_render_summary, &s);
 
-  assert(strstr(render_cap, "[interior]") != NULL);
+  /* The row states the position in its own column, so a reader cannot take the
+   * sample for the region's base. Asserted on that row rather than anywhere on
+   * screen: "interior" appearing somewhere proves nothing about which finding
+   * carries it. */
+  assert(evidence_sources(render_cap, "virt kernel text", "interior") == 1);
+  assert(evidence_sources(render_cap, "virt kernel text", "base") == -1);
 }
 
 static void test_render_markdown_with_rich_content(void) {
@@ -2636,12 +2667,27 @@ static void test_render_text_lists_all_origins(void) {
   seed_multi_origin_text_result(&s);
   set_render_mode(0, 0, 0); /* text */
   capture_stdout(wrap_render_summary, &s);
-  /* All three contributing origins must appear in the Leaks section. */
+
+  /* The evidence table counts contributors rather than naming them, so what the
+   * default must get right is the COUNT: all three origins credited to the one
+   * finding, not just the record that represents it. Asserted on the row's own
+   * trailing field, since a bare "3" could match any digit on screen. */
+  assert(strstr(render_cap, "virt kernel text") != NULL);
+  /* The base leak self-discloses its position, not just interior/top. */
+  assert(strstr(render_cap, "base") != NULL);
+  /* At least the three seeded here: the row credits every contributor, not the
+   * single record that represents the finding. The exact figure is not pinned
+   * because the rich state this builds on seeds origins of its own, and a test
+   * that hardcoded the total would fail whenever that fixture gained one. */
+  assert(evidence_sources(render_cap, "virt kernel text", NULL) >= 3);
+
+  /* The names themselves are detail, and -v is where they live. */
+  verbose = 1;
+  capture_stdout(wrap_render_summary, &s);
+  verbose = 0;
   assert(strstr(render_cap, "prefetch") != NULL);
   assert(strstr(render_cap, "perf_event_open") != NULL);
   assert(strstr(render_cap, "perf_lbr_sampling") != NULL);
-  /* The base leak self-discloses its position, not just interior/top. */
-  assert(strstr(render_cap, "[base]") != NULL);
 }
 
 /* The leaks bracket must aggregate provenance across SEPARATE merged records of
@@ -2663,6 +2709,12 @@ static void test_render_text_leaks_aggregates_across_records(void) {
       addr = anchor_addr(&results[i]);
       break;
     }
+  /* The Sources count before the second record exists. */
+  set_render_mode(0, 0, 0); /* text */
+  capture_stdout(wrap_render_summary, &s);
+  int before = evidence_sources(render_cap, "virt kernel text", NULL);
+  assert(before > 0);
+
   struct result *r = push_result();
   r->type = KASLD_TYPE_VIRT;
   r->region = REGION_KERNEL_TEXT;
@@ -2673,15 +2725,14 @@ static void test_render_text_leaks_aggregates_across_records(void) {
   snprintf(r->name, NAME_LEN, "_stext");
   add_origin(r, "proc_kallsyms");
 
-  /* The first record supplies 3 origins and this separate record supplies a
-   * fourth, so seeing proc_kallsyms named in the default readout proves the
-   * provenance line reaches across records rather than listing one record's
-   * set. (The list wraps rather than truncating, so every contributor is
-   * named.) */
-  set_render_mode(0, 0, 0); /* text */
+  /* One further distinct origin, carried on a SEPARATE record, must raise the
+   * finding's count by exactly one. That is the whole claim: the row credits
+   * every record of the (type, region), not the single one that represents it.
+   * Counting is a stronger test than naming was -- a row that listed only the
+   * representing record's origins would still have contained the name, since
+   * both records sit under the same finding. */
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, "prefetch") != NULL);
-  assert(strstr(render_cap, "proc_kallsyms") != NULL);
+  assert(evidence_sources(render_cap, "virt kernel text", NULL) == before + 1);
 
   /* Verbose lists every aggregated contributor by name, including the one from
    * the separate record. */
@@ -2830,8 +2881,11 @@ static void test_render_text_leaks_count_is_groups_not_contributors(void) {
   assert(strstr(render_cap, "components)") != NULL);
   assert(strstr(render_cap, "virt kernel text") != NULL);
   assert(strstr(render_cap, "virt directmap") != NULL);
-  assert(strstr(render_cap, "origin_a") != NULL);
-  assert(strstr(render_cap, "origin_b") != NULL);
+  /* Both seeded contributors are credited to the text row, and the directmap
+   * row carries its own single one -- the counts are per finding, so a row's
+   * figure never borrows from its neighbour. */
+  assert(evidence_sources(render_cap, "virt kernel text", NULL) >= 2);
+  assert(evidence_sources(render_cap, "virt directmap", NULL) >= 1);
 }
 
 /* Even richer state: in addition to set_rich_render_state(), seed
@@ -3128,9 +3182,11 @@ static void test_render_evidence_distinct_interior_samples_span(void) {
   char hex2[24];
   snprintf(hex2, sizeof hex2, "0x%lx", s2);
   assert(strstr(render_cap, hex2) != NULL);
-  assert(strstr(render_cap, "alsa_synth") != NULL);
-  assert(strstr(render_cap, "dmesg_synth") != NULL);
-  assert(strstr(render_cap, "prefetch_synth") != NULL);
+  /* All three stay credited, and to the right rows: the two interior samples
+   * to the span, the base bound to its own. A row crediting every record of the
+   * region regardless of kind would put 3 on both. */
+  assert(evidence_sources(render_cap, "virt directmap", "interior span") == 2);
+  assert(evidence_sources(render_cap, "virt directmap", "base") == 1);
 }
 
 /* section_consensus / section_consensus_pick: every observation in a
