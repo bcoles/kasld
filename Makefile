@@ -966,12 +966,32 @@ FUZZ_BINS    := $(addprefix $(FUZZ_OUT)/,$(FUZZ_TARGETS))
 
 # A harness names the parser it drives by #including the source file holding
 # it, so most of the program arrives through that one translation unit. What
-# does not is the estimate lattice and the quantity table: the orchestrator
-# reads both, they live in their own objects, and a harness that includes
-# orchestrator.c will not link without them.
-FUZZ_SRCS    := src/estimate.c src/quantities.c
+# does not is the estimate lattice, the quantity table and the report builder:
+# the orchestrator reads all three, they live in their own objects, and a
+# harness that includes orchestrator.c will not link without them.
+FUZZ_SRCS    := src/estimate.c src/quantities.c src/report.c
 
-$(FUZZ_OUT)/% : tests/fuzz/%.c $(FUZZ_SRCS)
+# Everything a harness could pull in through its #include, plus the headers
+# those read. Prerequisites, not inputs: the sources arrive through the
+# harness's own translation unit, but without naming them here a harness never
+# relinks when one of them changes -- an edit to the orchestrator leaves a stale
+# binary in place, the guard links nothing, and it passes. That is how a missing
+# object reached CI from a green local run.
+#
+# Deliberately a wildcard rather than the list of files today's harnesses name.
+# A hand-kept list has to be extended whenever a harness includes something new,
+# and forgetting reinstates exactly the silent staleness this exists to prevent
+# -- a failure that shows up as a guard passing, which is the hardest kind to
+# notice. Relinking all six costs about four seconds.
+FUZZ_DEPS    := $(wildcard src/*.c src/render/*.c src/rules/*.c \
+                           src/components/*.c src/include/kasld/*.h \
+                           src/include/kasld/arch/*.h)
+
+# Makefile included: the link line itself lives here, so a change to which
+# objects are linked has to invalidate the binaries too. Without it, dropping an
+# object from FUZZ_SRCS leaves working binaries in place and the guard passes on
+# a link that would no longer succeed.
+$(FUZZ_OUT)/% : tests/fuzz/%.c $(FUZZ_SRCS) $(FUZZ_DEPS) Makefile
 	@mkdir -p "$(FUZZ_OUT)"
 	$(call ccv,CCLD,$@)
 	$(Q)$(FUZZ_CC) $(FUZZ_CFLAGS) "$<" $(FUZZ_SRCS) -o "$@"
