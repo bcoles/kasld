@@ -1023,12 +1023,16 @@ void compute_component_stats(struct summary *s);
 struct engine;
 struct engine_resolution;
 
-/* Projects `layout` plus the engine's two resolutions into the summary. The
- * snapshots are PARAMETERS, not globals: the resolution itself belongs to the
- * caller, and passing them keeps this whole function compiled -- and testable
- * -- in the build that does not link the engine, where a caller passes NULL. */
+struct kasld_report; /* kasld/report.h; a pointer is all this needs */
+
+/* Projects `layout` plus the engine's two resolutions into the summary, and
+ * builds the report model from them. The snapshots and the report are
+ * PARAMETERS, not globals: the resolution itself belongs to the caller, and
+ * passing them keeps this whole function compiled -- and testable -- in the
+ * build that does not link the engine, where a caller passes NULL. */
 void compute_kaslr_info(struct summary *s, const struct engine *auth,
-                        const struct engine_resolution *likely);
+                        const struct engine_resolution *likely,
+                        struct kasld_report *report);
 
 /* =========================================================================
  * Rendering (defined in render.c)
@@ -1036,6 +1040,6 @@ void compute_kaslr_info(struct summary *s, const struct engine *auth,
 /* Pure consumer: render an already-resolved summary. The orchestrator runs
  * the engine (compute_kaslr_info) before calling this, so the renderer never
  * triggers inference. */
-void render_summary(const struct summary *s);
+void render_summary(const struct summary *s, const struct kasld_report *rep);
 
 #endif /* KASLD_INTERNAL_H */

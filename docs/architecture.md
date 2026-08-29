@@ -9,6 +9,12 @@ observations and reporting each value with its provenance.
 
 ![KASLD system architecture: components emit tagged lines, the orchestrator merges them, the engine resolves the layout, the renderer reports it](diagrams/architecture.svg)
 
+Where that diagram shows the stages, this one shows what travels between them —
+the struct each layer owns, its fields, and the call that converts one into the
+next:
+
+![Data structures by layer: six structs cross a layer boundary. A component emits text on stdout, so no struct crosses the process boundary; the orchestrator parses each address record into struct result (type, region, name, lo, hi, sample, base_align, set_mask, pos, conf, origins, method_set); engine_build_evidence() gathers those into struct evidence_set (obs, verdicts, coverings), whose struct observation carries value_kind, type, region, name, pos, conf and origin, with value_kind selecting whether lo/hi/sample, scalar_fact, or c_quantity and c_op are live; rules read evidence and estimates and emit struct constraint (q, op, value, value2, conf, origin) or a verdict invalidating an observation; meet and narrow apply those to struct estimate (kind, lo, hi, stride, stride_offset, lo_binding, hi_binding, lo_conf, hi_conf), one per quantity, which only ever narrows; and engine_sync_authoritative() projects the resolved estimates into struct summary.kaslr_info (vtext, vstext, vslide, vslots, vbits, ptext, pstext, disabled, unsupported, randomization_failed) for the renderer. Confidence travels the whole way, and estimate's lo_conf and hi_conf record which trust level set each edge](diagrams/struct-layers.svg)
+
 This document is the conceptual reference for how KASLD works. For the actionable
 mechanics of adding a component or rule, see
 [CONTRIBUTING.md](../CONTRIBUTING.md); for the CLI, see
@@ -24,9 +30,9 @@ mechanics of adding a component or rule, see
   - [Three layers](#three-layers)
   - [A constraint feeding the next pass](#a-constraint-feeding-the-next-pass)
   - [Soundness, monotonicity, and termination](#soundness-monotonicity-and-termination)
-  - [Two-window resolution: guaranteed and likely](#two-window-resolution-guaranteed-and-likely)
   - [Estimate narrowing and the store-vs-read seam](#estimate-narrowing-and-the-store-vs-read-seam)
   - [Design invariants: seams in the data flow](#design-invariants-seams-in-the-data-flow)
+- [Two-window resolution: guaranteed and likely](#two-window-resolution-guaranteed-and-likely)
 - [The tagged-line protocol](#the-tagged-line-protocol)
 - [Coverings vs observations](#coverings-vs-observations)
 - [Cross-region derivation](#cross-region-derivation)
@@ -100,7 +106,7 @@ raise the floor (DRAM bounds) and the 2 MiB `IMAGE_ALIGN` slot grid is applied.
 With only this one leak the result is still a window — several slots wide:
 
 ```
-  Quantity            Basis       Range                                    Candidates  Align
+  Quantity            Certainty   Window                                   Candidates  Grain
   ------------------  ----------  ---------------------------------------  ----------  -----
   Virtual Image Base  guaranteed  0xffffffff81000000 - 0xffffffff81e00000    8 of 505  2 MiB
 ```
@@ -115,7 +121,7 @@ narrowed window above, or, once the constraints collapse to one slot, the pinned
 base and its slide:
 
 ```
-  Quantity            Basis       Range                               Candidates  Align
+  Quantity            Certainty   Window                              Candidates  Grain
   ------------------  ----------  ----------------------------------  ----------  -----
   Virtual Image Base  guaranteed  0xffffffff81e00000 slide +0xe00000    1 of 505  2 MiB
 ```
@@ -270,7 +276,46 @@ So "soundness is provable in isolation" above means exactly this: termination an
 monotonicity are guaranteed by the engine's structure, leaving each rule with a
 single, locally-checkable obligation — *do not exclude the truth*.
 
-### Two-window resolution: guaranteed and likely
+### Estimate narrowing and the store-vs-read seam
+
+Each quantity starts at the widest value its architecture could produce — its
+*honest top* — and every constraint narrows it. Rules raise floors
+(`C_LOWER_BOUND`), lower ceilings (`C_UPPER_BOUND`), snap to alignment
+(`C_AT_LEAST_ALIGN`), pin a value (`C_EQUALS`), or carve out a forbidden
+sub-range (`C_EXCLUDE`). Because every step is a subset of the one before, the
+soundness obligation above falls on each constraint individually: narrow toward
+the truth, never past it.
+
+![A quantity narrowing on an address axis as each constraint applies, then the convex-hull store versus the hole-carving read](diagrams/estimate-narrowing.svg)
+
+There is one subtlety worth calling out. The stored estimate for an interval
+quantity is a **convex hull**: a single `[lo, hi]` interval, trimmed only at its
+ends. An interior `C_EXCLUDE` hole is not representable in that single interval,
+so it is **not** persisted in storage — it is carved at *read* time by the
+`quantity_ranges()` / `quantity_slots()` accessors, and multiple holes compose
+there. The consequence: what the engine stores (one end-trimmed interval) is
+deliberately not what consumers read (the interval minus its holes). Any code
+that reads the raw stored interval instead of going through the accessors will
+see a value with its holes filled back in.
+
+### Design invariants: seams in the data flow
+
+KASLD's correctness rests on a handful of boundaries — *seams* — where data
+changes representation, trust, or ownership, each held by one invariant:
+
+![Seven seams in the KASLD data flow, each annotated with the invariant that holds it](diagrams/seams.svg)
+
+The load-bearing ones: the **wire seam** (a component's `origin` is filled by the
+orchestrator, never trusted from the wire); the **bridge seam**
+(`engine_build_evidence()` is the only crossing into the engine, which never
+sees raw I/O); the **monotone seam** (estimates only narrow, proven per-rule);
+the **store-vs-read seam** described above; and the **authoritative-sync seam**
+(the engine must project every renderer-read field, or a stale value leaks
+through).
+
+---
+
+## Two-window resolution: guaranteed and likely
 
 Historically a leak pinned the kernel base outright. Those leaks are now rare, so
 the engine usually bounds the base rather than locating it — and reports how
@@ -346,45 +391,6 @@ the engine has no mechanism to take a build-specific offset as input, applies
 none, and none is planned. ("likely" is not that mechanism — it is still KASLD's
 own signals applied *without* assuming a build.)
 
-### Estimate narrowing and the store-vs-read seam
-
-Each quantity starts at the widest value its architecture could produce — its
-*honest top* — and every constraint narrows it. Rules raise floors
-(`C_LOWER_BOUND`), lower ceilings (`C_UPPER_BOUND`), snap to alignment
-(`C_AT_LEAST_ALIGN`), pin a value (`C_EQUALS`), or carve out a forbidden
-sub-range (`C_EXCLUDE`). Because every step is a subset of the one before, the
-soundness obligation above falls on each constraint individually: narrow toward
-the truth, never past it.
-
-![A quantity narrowing on an address axis as each constraint applies, then the convex-hull store versus the hole-carving read](diagrams/estimate-narrowing.svg)
-
-There is one subtlety worth calling out. The stored estimate for an interval
-quantity is a **convex hull**: a single `[lo, hi]` interval, trimmed only at its
-ends. An interior `C_EXCLUDE` hole is not representable in that single interval,
-so it is **not** persisted in storage — it is carved at *read* time by the
-`quantity_ranges()` / `quantity_slots()` accessors, and multiple holes compose
-there. The consequence: what the engine stores (one end-trimmed interval) is
-deliberately not what consumers read (the interval minus its holes). Any code
-that reads the raw stored interval instead of going through the accessors will
-see a value with its holes filled back in.
-
-### Design invariants: seams in the data flow
-
-KASLD's correctness rests on a handful of boundaries — *seams* — where data
-changes representation, trust, or ownership, each held by one invariant:
-
-![Seven seams in the KASLD data flow, each annotated with the invariant that holds it](diagrams/seams.svg)
-
-The load-bearing ones: the **wire seam** (a component's `origin` is filled by the
-orchestrator, never trusted from the wire); the **bridge seam**
-(`engine_build_evidence()` is the only crossing into the engine, which never
-sees raw I/O); the **monotone seam** (estimates only narrow, proven per-rule);
-the **store-vs-read seam** described above; and the **authoritative-sync seam**
-(the engine must project every renderer-read field, or a stale value leaks
-through).
-
----
-
 ## The tagged-line protocol
 
 Components communicate results to the orchestrator via tagged lines on stdout:
@@ -393,7 +399,7 @@ Components communicate results to the orchestrator via tagged lines on stdout:
 <type> <region>[:<name>] pos=<pos> conf=<conf> [lo=<hex>] [hi=<hex>|sz=<hex>] [sample=<hex>] [base_align=<hex>]
 ```
 
-![Field-by-field anatomy of a tagged result line, the field vocabulary, and the five emitter outputs](diagrams/wire-line-anatomy.svg)
+![Field-by-field anatomy of a tagged result line, the field vocabulary, and the six emitter outputs](diagrams/wire-line-anatomy.svg)
 
 | Field | Format | Description |
 |---|---|---|

@@ -286,7 +286,7 @@ static void render_kaslr_text(const struct summary *s) {
   /* Verbose renders this table instead of the readout, so it builds the rows
    * itself: render_readout() is the !verbose path and never runs here. Built
    * before the guard below, which reads the model it produces. */
-  layout_build(s);
+  layout_build();
 
   /* Drawn in every posture, from the shared row model. A posture that renders
    * its own shape also ends up choosing its own rows, and each one that did
@@ -1592,7 +1592,7 @@ static int readout_print_leaks(void) {
     if (found[i].is_span) {
       snprintf(t, sizeof(t), "0x%lx", found[i].span_hi);
       snprintf(a2, sizeof(a2), "%*s", digits + 2, t);
-      printf(" .. %s%s%s", c(C_GREEN), a2, c(C_RESET));
+      printf(" - %s%s%s", c(C_GREEN), a2, c(C_RESET));
     }
     printf("\n");
 
@@ -1893,7 +1893,7 @@ static void render_readout(const struct summary *s) {
    * presents, and a posture that returns before building it has to decide again
    * for itself -- which is how the static postures came to show only the image
    * base while JSON reported every quantity the engine had resolved. */
-  layout_build(s);
+  layout_build();
 
   /* The posture, stated in words, above one table drawn the same way in every
    * posture.
@@ -2091,7 +2091,7 @@ void render_text(const struct summary *s) {
 
   /* Verbose has its own static-posture blocks below and never reaches
    * render_readout(), so it builds the rows they read. */
-  layout_build(s);
+  layout_build();
 
   if (s->kaslr.unsupported) {
     printf("%s** KASLR is not supported on this architecture **%s\n\n",

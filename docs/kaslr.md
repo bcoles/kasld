@@ -467,7 +467,7 @@ For KASLD's own engine and tool vocabulary (quantity, estimate, covering, rule,
   [Default text base](#default-text-base-and-kaslr-alignment).
 - **`IMAGE_ALIGN` / KASLR slot** — the randomization granularity. The kernel lands
   at `default + N × IMAGE_ALIGN`; each candidate position is one slot. The
-  readout's `Align` column carries it. See
+  readout's `Grain` column carries it. See
   [Default text base](#default-text-base-and-kaslr-alignment).
 - **search space** — how many slots a quantity could still be in, given the
   evidence. The readout states it against the set the row narrows (`24 of 505`),

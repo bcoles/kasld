@@ -122,7 +122,7 @@ int main(void) {
   lv.cs = NULL;
   lv.n_cs = 0;
   lv.floor = CONF_BRUTE;
-  kasld_report_build(gv, lv, &r);
+  kasld_report_build(gv, lv, NULL, RPOSTURE_RANDOMIZED, &r);
 
   CHECK(r.n_quantities > 0);
   for (int i = 0; i < r.n_quantities; i++) {
@@ -153,7 +153,7 @@ int main(void) {
   lv.est = lest;
   lv.cs = NULL;
   lv.n_cs = 0;
-  kasld_report_build(gv, lv, &r);
+  kasld_report_build(gv, lv, NULL, RPOSTURE_RANDOMIZED, &r);
 
   for (int i = 0; i < r.n_quantities; i++) {
     const struct kasld_report_quantity *it = &r.quantities[i];
@@ -189,7 +189,7 @@ int main(void) {
     gv.cs = cs;
     gv.n_cs = 1;
     lv.est = NULL;
-    kasld_report_build(gv, lv, &r);
+    kasld_report_build(gv, lv, NULL, RPOSTURE_RANDOMIZED, &r);
 
     for (int i = 0; i < r.n_quantities; i++) {
       const struct kasld_report_quantity *it = &r.quantities[i];
@@ -226,7 +226,7 @@ int main(void) {
     gv.n_cs = 1;
     gv.floor = CONF_INFERRED;
     lv.est = NULL;
-    kasld_report_build(gv, lv, &r);
+    kasld_report_build(gv, lv, NULL, RPOSTURE_RANDOMIZED, &r);
 
     for (int i = 0; i < r.n_quantities; i++) {
       const struct kasld_report_quantity *it = &r.quantities[i];

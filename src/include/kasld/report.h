@@ -160,12 +160,44 @@ struct kasld_report_quantity {
   int has_point;
   unsigned long point;
   enum kasld_anchor_kind anchor;
+  long slide; /* displacement from the un-randomized base */
+  int has_slide;
 };
 
-/* The report. Sections are added as the migration proceeds; quantities is the
- * first, and the rest (target identity, posture, evidence, map, components,
- * environment, notes) follow the same rule -- decided here, drawn there. */
+/* What kind of system this is, with respect to randomization.
+ *
+ * A field, not a branch. Formats state it in words and then draw the same items
+ * they always draw -- the posture changes what the values ARE, never which
+ * items exist, so a reader who has seen one posture recognises the next and two
+ * runs across a reboot that changed it remain comparable. */
+enum kasld_posture {
+  RPOSTURE_RANDOMIZED = 0, /* KASLR ran */
+  RPOSTURE_DISABLED,    /* deliberately off: nokaslr, RANDOMIZE_BASE=n, ... */
+  RPOSTURE_UNSUPPORTED, /* the architecture has no KASLR */
+  RPOSTURE_FAILED       /* the stub ran with no randomness to place with */
+};
+
+/* A concrete value picked for a quantity, supplied by the caller.
+ *
+ * Not derivable from the estimates: the headline base is chosen by scanning the
+ * observations and reconciling that pick against the engine, which is the
+ * orchestrator's job. The model records it, and records HOW it was witnessed --
+ * an interior sample bounds the base from above rather than being it, and that
+ * distinction is lost the moment the value becomes a bare address. */
+struct kasld_report_point {
+  int present;
+  unsigned long value;
+  enum kasld_anchor_kind anchor;
+  long slide;
+  int has_slide;
+};
+
+/* The report. Sections are added as the migration proceeds; quantities and
+ * posture are the first, and the rest (target identity, evidence, map,
+ * components, environment, notes) follow the same rule -- decided here, drawn
+ * there. */
 struct kasld_report {
+  enum kasld_posture posture;
   struct kasld_report_quantity quantities[Q__COUNT];
   int n_quantities;
 };
@@ -190,8 +222,12 @@ struct kasld_resolution_view {
 /* Build the model from the two resolutions the orchestrator holds: the floored
  * run (guaranteed) and the all-signals run (likely). `likely.est` may be NULL,
  * in which case every item's likely window is absent. */
+/* `points` is indexed by quantity and may be NULL; entries whose `present` is 0
+ * contribute nothing. `posture` is the caller's, for the same reason the floors
+ * are: it is policy, not something the estimates state. */
 void kasld_report_build(struct kasld_resolution_view guaranteed,
                         struct kasld_resolution_view likely,
-                        struct kasld_report *out);
+                        const struct kasld_report_point *points,
+                        enum kasld_posture posture, struct kasld_report *out);
 
 #endif /* KASLD_REPORT_H */

@@ -231,8 +231,10 @@ static void build_window(struct kasld_report_window *w, enum kasld_quantity q,
 
 void kasld_report_build(struct kasld_resolution_view guaranteed,
                         struct kasld_resolution_view likely,
-                        struct kasld_report *out) {
+                        const struct kasld_report_point *points,
+                        enum kasld_posture posture, struct kasld_report *out) {
   memset(out, 0, sizeof(*out));
+  out->posture = posture;
   if (!guaranteed.est)
     return;
 
@@ -267,5 +269,13 @@ void kasld_report_build(struct kasld_resolution_view guaranteed,
 
     build_window(&it->guaranteed, q, guaranteed, grain);
     build_window(&it->likely, q, likely, grain);
+
+    if (points && points[q].present) {
+      it->has_point = 1;
+      it->point = points[q].value;
+      it->anchor = points[q].anchor;
+      it->slide = points[q].slide;
+      it->has_slide = points[q].has_slide;
+    }
   }
 }

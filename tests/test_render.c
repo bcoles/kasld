@@ -31,6 +31,7 @@
 #include "../src/estimate.c"
 #include "../src/quantities.c"
 #include "../src/region_info.c"
+#include "../src/report.c"
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-function"
 #include "../src/render.c"
@@ -165,8 +166,119 @@ static void test_md_print_cell_escaping(void) {
 /* render_summary dispatcher: a synthetic minimal summary should hit one of
  * render_text / render_json / render_oneline / render_markdown depending on
  * the global mode flags. Verifies the dispatch + minimal banner output. */
+/* Stage a report model equivalent to the state a test set up.
+ *
+ * The tests stage a RESOLVED run by filling `layout` and `s.kaslr` directly --
+ * they have no engine to resolve one for them -- and layout_build now projects
+ * the model rather than those globals. This turns that staging into the model
+ * it stands for, so a test keeps expressing itself in the values it already
+ * used, and what is under test stays the projection rather than this mapping.
+ *
+ * Deliberately mechanical: it asserts nothing and decides nothing. Anything it
+ * had to be clever about would be a sign the model cannot express what a test
+ * needs to say, which is the thing worth discovering. */
+static void stage_window(struct kasld_report_window *w, unsigned long lo,
+                         unsigned long hi, unsigned long cand) {
+  memset(w, 0, sizeof(*w));
+  w->shape = RSHAPE_INTERVAL;
+  w->lo = lo;
+  w->hi = hi;
+  w->has_lo = lo != 0;
+  w->has_hi = hi != 0;
+  w->present = w->has_lo || w->has_hi;
+  w->candidates = cand;
+}
+
+static struct kasld_report_quantity *
+stage_item(struct kasld_report *r, enum kasld_quantity q, const char *label,
+           unsigned long lo, unsigned long hi, unsigned long cand,
+           unsigned long top, unsigned long grain) {
+  struct kasld_report_quantity *it = &r->quantities[r->n_quantities++];
+  memset(it, 0, sizeof(*it));
+  it->q = q;
+  it->key = quantities[q].name;
+  it->label = label;
+  it->align_min = grain;
+  it->entropy_top = top;
+  it->search_top = top;
+  stage_window(&it->guaranteed, lo, hi, cand);
+  return it;
+}
+
+static void test_build_report(const struct summary *s, struct kasld_report *r) {
+  struct kasld_report_quantity *it;
+  memset(r, 0, sizeof(*r));
+  r->posture = s->kaslr.unsupported            ? RPOSTURE_UNSUPPORTED
+               : s->kaslr.disabled             ? RPOSTURE_DISABLED
+               : s->kaslr.randomization_failed ? RPOSTURE_FAILED
+                                               : RPOSTURE_RANDOMIZED;
+
+  it =
+      stage_item(r, Q_VIRT_IMAGE_BASE, "Virtual Image Base",
+                 layout.virt_kaslr_text_min, layout.virt_kaslr_text_max,
+                 s->kaslr.vslots, s->kaslr.vtop_slots, layout.virt_kaslr_align);
+  if (s->kaslr.vtext) {
+    it->has_point = 1;
+    it->point = s->kaslr.vtext;
+    it->anchor = RANCHOR_BASE;
+    it->slide = s->kaslr.vslide;
+    it->has_slide = r->posture == RPOSTURE_RANDOMIZED;
+  } else if (s->kaslr.vlikely_max) {
+    stage_window(&it->likely, s->kaslr.vlikely_min, s->kaslr.vlikely_max,
+                 s->kaslr.vlikely_slots);
+  }
+  if (layout.virt_kaslr_text_min == layout.virt_kaslr_text_max &&
+      layout.virt_kaslr_text_min)
+    it->has_slide = r->posture == RPOSTURE_RANDOMIZED;
+
+  it = stage_item(r, Q_PHYS_IMAGE_BASE, "Physical Image Base",
+                  layout.phys_kaslr_text_min, layout.phys_kaslr_text_max,
+                  s->kaslr.pslots, 0, layout.phys_kaslr_align);
+  if (s->kaslr.ptext) {
+    it->has_point = 1;
+    it->point = s->kaslr.ptext;
+    it->anchor = RANCHOR_BASE;
+    it->slide = s->kaslr.pslide;
+    it->has_slide = r->posture == RPOSTURE_RANDOMIZED;
+  } else if (s->kaslr.plikely_max) {
+    stage_window(&it->likely, s->kaslr.plikely_min, s->kaslr.plikely_max,
+                 s->kaslr.plikely_slots);
+  }
+  if (layout.phys_kaslr_text_min == layout.phys_kaslr_text_max &&
+      layout.phys_kaslr_text_min)
+    it->has_slide = r->posture == RPOSTURE_RANDOMIZED;
+
+#if RANDOMIZE_MEMORY_ALIGN > 0
+  it = stage_item(r, Q_PAGE_OFFSET, "Direct Map Base",
+                  s->kaslr.virt_page_offset_min, s->kaslr.virt_page_offset_max,
+                  s->kaslr.virt_page_offset_slots,
+                  s->kaslr.virt_page_offset_top_slots,
+                  (unsigned long)RANDOMIZE_MEMORY_ALIGN);
+  if (s->kaslr.virt_page_offset_likely_max)
+    stage_window(&it->likely, s->kaslr.virt_page_offset_likely_min,
+                 s->kaslr.virt_page_offset_likely_max,
+                 s->kaslr.virt_page_offset_likely_slots);
+  stage_item(r, Q_VMALLOC_BASE, "Vmalloc Base", s->kaslr.virt_vmalloc_min,
+             s->kaslr.virt_vmalloc_max, s->kaslr.virt_vmalloc_slots, 0,
+             (unsigned long)RANDOMIZE_MEMORY_ALIGN);
+  stage_item(r, Q_VMEMMAP_BASE, "Vmemmap Base", s->kaslr.virt_vmemmap_min,
+             s->kaslr.virt_vmemmap_max, s->kaslr.virt_vmemmap_slots, 0,
+             (unsigned long)RANDOMIZE_MEMORY_ALIGN);
+#else
+  stage_item(r, Q_PAGE_OFFSET, "Direct Map Base", s->kaslr.virt_page_offset_min,
+             s->kaslr.virt_page_offset_max, s->kaslr.virt_page_offset_slots,
+             s->kaslr.virt_page_offset_top_slots, 0);
+#endif
+
+  stage_item(r, Q_MODULE_BASE, "Module Region Base", s->kaslr.virt_module_min,
+             s->kaslr.virt_module_max, s->kaslr.virt_module_slots, 0,
+             s->kaslr.virt_module_align);
+}
+
 static void wrap_render_summary(void *arg) {
-  render_summary((const struct summary *)arg);
+  struct kasld_report rep;
+  test_build_report((const struct summary *)arg, &rep);
+  render_summary((const struct summary *)arg, &rep);
 }
 
 static void set_render_mode(int json, int oneline, int markdown) {

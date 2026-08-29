@@ -79,7 +79,7 @@ Running 106 of 109 components (3 experimental skipped; use -x to enable)...
 [####################] 100%  106/106  39.1s
 1 component timed out after 30s and was killed (prefetch_directmap)
 
-  Quantity             Basis       Range                                    Candidates  Align
+  Quantity             Certainty   Window                                   Candidates  Grain
   -------------------  ----------  ---------------------------------------  ----------  -----
   Virtual Image Base   guaranteed  0xffffffffa2e00000 slide +0x21e00000       1 of 505  2 MiB
   Physical Image Base  guaranteed            0x200000 -         0x3d400000         481  2 MiB

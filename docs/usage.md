@@ -137,10 +137,10 @@ The Layout table carries one row per quantity and basis:
 | Column | What it holds |
 |:-------|:--------------|
 | `Quantity` | what is being located — always a *base*, a single address, not a region |
-| `Basis` | `guaranteed` (proven; contains the true base) or `likely` (the all-signals estimate, a subset of the guaranteed window, and may be wrong) |
-| `Range` | the addresses: a window, a single address where the quantity is pinned, or a one-sided `>=` / `<=` bound. A concrete base carries its `slide` from the compile-time default |
+| `Certainty` | `guaranteed` (proven; contains the true base) or `likely` (the all-signals estimate, a subset of the guaranteed window, and may be wrong) |
+| `Window` | the addresses: a window, a single address where the quantity is pinned, or a one-sided `>=` / `<=` bound. A concrete base carries its `slide` from the compile-time default |
 | `Candidates` | how many placements remain, against the set the row narrows — a `guaranteed` row against the window the kernel randomized over, a `likely` row against the `guaranteed` count above it. Reported whether or not evidence narrowed it, so a baseline run states the size of the problem; the denominator is dropped when nothing narrowed, leaving the bare total. `-` means no window is modelled for the quantity, which is the only thing that withholds the figure |
-| `Align` | the grid the candidates sit on, which is what reconciles the count with the range |
+| `Grain` | the spacing the candidates sit on, which is what reconciles the count with the window. A lower bound: the engine resolves alignment as "at least this", so a coarser true alignment means fewer real candidates than stated |
 
 The `likely` basis is deliberately conservative — "may be wrong" is a worst-case
 caveat, not a coin toss. KASLD is build-agnostic: it never trusts a version string
@@ -185,7 +185,7 @@ The direct-map base is likewise fixed off x86_64, but still resolved: on a
 mmap probe. Neither quantity is randomized there, so neither sits in a
 randomization window — but each still has an architectural bracket, so both rows
 are always present and state it. Where the pitch is not a modelled randomization
-granule the `Align` column reads `-` rather than inventing a grid, and the search
+granule the `Grain` column reads `-` rather than inventing a grid, and the search
 space follows it.
 
 Addresses are never zero-padded: a 16 MiB physical address would otherwise wear
@@ -200,7 +200,7 @@ Running 106 of 109 components (3 experimental skipped; use -x to enable)...
 [####################] 100%  106/106  39.1s
 1 component timed out after 30s and was killed (prefetch_directmap)
 
-  Quantity             Basis       Range                                    Candidates  Align
+  Quantity             Certainty   Window                                   Candidates  Grain
   -------------------  ----------  ---------------------------------------  ----------  -----
   Virtual Image Base   guaranteed  0xffffffffa2e00000 slide +0x21e00000       1 of 505  2 MiB
   Physical Image Base  guaranteed            0x200000 -         0x3d400000         481  2 MiB
@@ -378,7 +378,7 @@ Physical MMIO / pci_mmio [8]:
 
 ----------------------------------------
 KASLR analysis:
-  Quantity             Basis       Range                                    Candidates  Align
+  Quantity             Certainty   Window                                   Candidates  Grain
   -------------------  ----------  ---------------------------------------  ----------  -----
   Virtual Image Base   guaranteed  0xffffffff8fe00000 slide +0xee00000        1 of 505  2 MiB
   Physical Image Base  guaranteed          0x34600000 slide +0x33600000              1  2 MiB
@@ -574,7 +574,7 @@ generic `System.map`.
 When KASLR is disabled or unsupported there is no slide,
 so the resolved quantities themselves are the answer: the same rows the Layout
 table would carry, written as lines rather than a table because with nothing
-randomized the `Candidates` and `Align` columns hold nothing. They are drawn
+randomized the `Candidates` and `Grain` columns hold nothing. They are drawn
 from the same row model, so a posture that reports fewer quantities than another
 format is not possible. A remark follows where the compile-time default is not
 the resolved base, saying whether the evidence rules the default out.

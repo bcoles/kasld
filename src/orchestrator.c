@@ -2720,13 +2720,21 @@ static void fill_mem_likely(const struct estimate *l, unsigned long g_lo,
  * the head gap the arch declares in STEXT_OFFSET (a no-op where that is 0).
  * Returns 0 when no kernel-image/text base anchor exists.
  */
-static unsigned long anchor_image_base(enum kasld_addr_type type) {
+static unsigned long anchor_image_base(enum kasld_addr_type type,
+                                       enum kasld_position *pos_out) {
   const struct result *r = select_anchor(type, REGION_KERNEL_IMAGE);
   int is_stext = 0;
   if (!r) {
     r = select_anchor(type, REGION_KERNEL_TEXT);
     is_stext = 1;
   }
+  /* Report HOW the address was witnessed, not just the address. A base witness
+   * states where the region starts; an interior sample states only that the
+   * region contains that point, so the base lies at or below it. Discarding the
+   * distinction here is what leaves a later consumer holding a bare number it
+   * can only present as the base. */
+  if (pos_out)
+    *pos_out = r ? r->pos : POS_INTERIOR;
   return kasld_image_base_from(anchor_addr(r), is_stext);
 }
 
@@ -2770,7 +2778,8 @@ static int page_offset_narrowed(void) {
 #endif
 
 void compute_kaslr_info(struct summary *s, const struct engine *auth,
-                        const struct engine_resolution *likely) {
+                        const struct engine_resolution *likely,
+                        struct kasld_report *report) {
   if (auth) {
     /* The layered engine is the sole inference path: resolve every quantity
      * from the collected evidence and write the result into `layout`, which the
@@ -2828,10 +2837,14 @@ void compute_kaslr_info(struct summary *s, const struct engine *auth,
    * (virt_kaslr_disabled_pin etc. land there — engine_sync projects the
    * resolved window onto virt_kaslr_text_min/max, so min==max means "pinned").
    */
-  unsigned long vtext = anchor_image_base(KASLD_TYPE_VIRT);
-  if (vtext == 0 && layout.virt_kaslr_text_min == layout.virt_kaslr_text_max)
+  enum kasld_position vpos = POS_INTERIOR, ppos = POS_INTERIOR;
+  unsigned long vtext = anchor_image_base(KASLD_TYPE_VIRT, &vpos);
+  if (vtext == 0 && layout.virt_kaslr_text_min == layout.virt_kaslr_text_max) {
     vtext = layout.virt_kaslr_text_min;
-  unsigned long ptext = anchor_image_base(KASLD_TYPE_PHYS);
+    vpos = POS_BASE; /* an engine pin IS the base, not a sample inside it */
+  }
+  unsigned long ptext = anchor_image_base(KASLD_TYPE_PHYS, &ppos);
+  unsigned long vraw = vtext, praw = ptext;
   if (auth) {
     /* The raw anchor scan above is verdict-blind (it reads results[], not the
      * curated evidence set); reconcile it with the engine so the headline base
@@ -2852,7 +2865,15 @@ void compute_kaslr_info(struct summary *s, const struct engine *auth,
       ptext = kasld_reconcile_concrete_base(ptext, gp->lo, gp->hi,
                                             likely != NULL, lp->lo, lp->hi);
     }
+    /* Where reconciliation replaced the raw pick, the value is the engine's
+     * pinned singleton rather than the observation's anchor -- a base. */
+    if (vtext != vraw)
+      vpos = POS_BASE;
+    if (ptext != praw)
+      ppos = POS_BASE;
   }
+  (void)vraw;
+  (void)praw;
   s->kaslr.vtext = vtext;
   s->kaslr.vstext = observed_stext_base(KASLD_TYPE_VIRT, vtext);
 
@@ -3148,6 +3169,57 @@ void compute_kaslr_info(struct summary *s, const struct engine *auth,
       s->decoupled_note = 1;
   }
 #endif
+
+  /* Build the report model, last: this is the first point at which BOTH
+   * resolutions and the concrete bases chosen from the observations exist, and
+   * nothing has been rendered yet.
+   *
+   * The bases are supplied rather than derived because they are not engine
+   * facts -- the headline value is picked by scanning the observations and
+   * reconciled against the engine, which is this layer's judgement. What the
+   * model records with each is HOW it was witnessed, so a later consumer cannot
+   * present a point known only to lie inside the region as the region's base.
+   */
+  if (auth && report) {
+    struct kasld_report_point pts[Q__COUNT];
+    struct kasld_resolution_view gv, lv;
+    enum kasld_posture posture = RPOSTURE_RANDOMIZED;
+
+    if (s->kaslr.unsupported)
+      posture = RPOSTURE_UNSUPPORTED;
+    else if (s->kaslr.disabled)
+      posture = RPOSTURE_DISABLED;
+    else if (s->kaslr.randomization_failed)
+      posture = RPOSTURE_FAILED;
+
+    memset(pts, 0, sizeof(pts));
+    if (s->kaslr.vtext) {
+      pts[Q_VIRT_IMAGE_BASE].present = 1;
+      pts[Q_VIRT_IMAGE_BASE].value = s->kaslr.vtext;
+      pts[Q_VIRT_IMAGE_BASE].anchor =
+          vpos == POS_BASE ? RANCHOR_BASE : RANCHOR_INTERIOR;
+      pts[Q_VIRT_IMAGE_BASE].slide = s->kaslr.vslide;
+      pts[Q_VIRT_IMAGE_BASE].has_slide = posture == RPOSTURE_RANDOMIZED;
+    }
+    if (s->kaslr.ptext) {
+      pts[Q_PHYS_IMAGE_BASE].present = 1;
+      pts[Q_PHYS_IMAGE_BASE].value = s->kaslr.ptext;
+      pts[Q_PHYS_IMAGE_BASE].anchor =
+          ppos == POS_BASE ? RANCHOR_BASE : RANCHOR_INTERIOR;
+      pts[Q_PHYS_IMAGE_BASE].slide = s->kaslr.pslide;
+      pts[Q_PHYS_IMAGE_BASE].has_slide = posture == RPOSTURE_RANDOMIZED;
+    }
+
+    gv.est = auth->est;
+    gv.cs = auth->constraints;
+    gv.n_cs = auth->n_constraints;
+    gv.floor = KASLD_SOUND_FLOOR;
+    lv.est = likely ? likely->est : NULL;
+    lv.cs = likely ? likely->constraints : NULL;
+    lv.n_cs = likely ? likely->n_constraints : 0;
+    lv.floor = CONF_BRUTE;
+    kasld_report_build(gv, lv, pts, posture, report);
+  }
 }
 
 /* -------------------------------------------------------------------------
@@ -3805,22 +3877,6 @@ static void engine_resolve(struct engine *e) {
   e->ev.n_verdicts = 0;
   engine_run_full_floored(e, KASLD_SOUND_FLOOR, rules, n_rules, vrules,
                           n_vrules);
-
-  /* Build the report model, here, where both resolutions are in hand and
-   * nothing has been rendered yet. The two-window POLICY is this layer's --
-   * which floors were used, and what they mean -- so each view carries the
-   * floor it was resolved at rather than the builder assuming one. */
-  {
-    struct kasld_resolution_view guar = {e->est, e->constraints,
-                                         e->n_constraints, KASLD_SOUND_FLOOR};
-    struct kasld_resolution_view lik = {NULL, NULL, 0, CONF_BRUTE};
-    if (g_have_likely) {
-      lik.est = g_likely.est;
-      lik.cs = g_likely.constraints;
-      lik.n_cs = g_likely.n_constraints;
-    }
-    kasld_report_build(guar, lik, &g_report);
-  }
 
   /* Project after the GUARANTEED run, and only that one. The likely run admits
    * every signal, so it curates and conflicts more freely by design; counting
@@ -4656,13 +4712,18 @@ static void emit_summary(void) {
 #ifndef KASLD_TESTING
   engine_resolve(&g_auth_engine);
   engine_sync_authoritative(&g_auth_engine);
-  compute_kaslr_info(&s, &g_auth_engine, g_have_likely ? &g_likely : NULL);
+  compute_kaslr_info(&s, &g_auth_engine, g_have_likely ? &g_likely : NULL,
+                     &g_report);
 #else
-  compute_kaslr_info(&s, NULL, NULL);
+  compute_kaslr_info(&s, NULL, NULL, NULL);
 #endif
   /* cross-region derivations arrive as ordinary CONF_DERIVED component results;
    * there is no separate derive pass. */
-  render_summary(&s);
+#ifndef KASLD_TESTING
+  render_summary(&s, &g_report);
+#else
+  render_summary(&s, NULL);
+#endif
 }
 
 int main(int argc, char *argv[]) {

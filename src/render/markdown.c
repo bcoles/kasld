@@ -196,7 +196,7 @@ void render_markdown(const struct summary *s) {
   /* Built before the posture branches for the same reason the text readout
    * does it: the row model decides which quantities a format presents, and a
    * branch that returns before building it decides again for itself. */
-  layout_build(s);
+  layout_build();
 
   if (s->kaslr.unsupported) {
     printf("> **KASLR is not supported on this architecture**\n\n");
@@ -230,7 +230,7 @@ void render_markdown(const struct summary *s) {
     /* The same five columns as the text readout, from the same rows: a
      * representation difference between the two views is fine, a difference in
      * what they say is the bug this layer has had corrected twice. */
-    layout_build(s);
+    layout_build();
     printf("|");
     for (int col = 0; col < LAYOUT_COLS; col++)
       printf(" %s |", layout_hdr[col]);

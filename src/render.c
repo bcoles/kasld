@@ -22,6 +22,7 @@
 
 #include "include/kasld/internal.h"
 #include "include/kasld/render_internal.h"
+#include "include/kasld/report.h"
 
 #include <limits.h>
 #include <stdio.h>
@@ -222,8 +223,23 @@ const char *disclosure_descr(const char *declared) {
 struct layout_row layout_rows[LAYOUT_MAX_ROWS];
 int n_layout_rows;
 
-const char *const layout_hdr[LAYOUT_COLS] = {"Quantity", "Basis", "Range",
-                                             "Candidates", "Align"};
+/* Column names, chosen for what each cell actually holds.
+ *
+ * Certainty, not Basis: the cell says how much the claim can be trusted, and
+ * "guaranteed" is a level of assurance rather than a foundation.
+ *
+ * Window, not Range: the cell holds a pin, a half-bound, or a span whose
+ * interior may be carved -- "range" is accurate for only one of the three and
+ * asserts a contiguity the others do not have.
+ *
+ * Candidates, not a count of placements or slots: the quantity being counted is
+ * not always a location, and a paging level has candidates but no slots.
+ *
+ * Grain, not Align: the cell gives the spacing the candidates sit on, which is
+ * what makes the count beside it mean anything, and does not claim the value is
+ * exact where the engine knows only a floor. */
+const char *const layout_hdr[LAYOUT_COLS] = {"Quantity", "Certainty", "Window",
+                                             "Candidates", "Grain"};
 
 /* The candidate count, against the set the row narrows: a guaranteed row
  * narrows the window the kernel randomized over, a likely row narrows the
@@ -238,7 +254,7 @@ const char *const layout_hdr[LAYOUT_COLS] = {"Quantity", "Basis", "Range",
  * and vmemmap, whose randomization windows are not modelled at all, and the
  * direct map on a run with no max_pfn, since its window is sized from that
  * observation rather than fixed by the architecture. "Nothing was learned" is
- * carried by the Range column reading `not narrowed`, not by a blank here.
+ * carried by the Window column reading `not narrowed`, not by a blank here.
  *
  * `top` is a raw count: 2^bits would over-state it, since ilog2 rounds up. It
  * is dropped as a denominator when it does not exceed the row's own count,
@@ -310,151 +326,110 @@ static void layout_add(const char *quantity, const char *basis,
 
 /* Build the rows for this run, in the fixed order the readout presents.
  */
-void layout_build(const struct summary *s) {
+/* Whether the all-signals window says anything the proven one does not.
+ *
+ * Compared by BOUNDS, not by candidate count: a count can be absent while the
+ * bounds are real, and the two windows are frequently identical -- the likely
+ * resolution simply reaches the same answer -- in which case a second row would
+ * restate the first under a weaker grade. */
+static int likely_is_tighter(const struct kasld_report_window *l,
+                             const struct kasld_report_window *g) {
+  if (l->has_lo && (!g->has_lo || l->lo > g->lo))
+    return 1;
+  if (l->has_hi && (!g->has_hi || l->hi < g->hi))
+    return 1;
+  return 0;
+}
+
+/* Project the report model into the table's rows.
+ *
+ * One loop over the items, not a passage per quantity: the model decides which
+ * unknowns this machine has and what is proven about each, so a format's job is
+ * to lay them out, never to choose them. That is what stops two formats naming
+ * different sets, and what stops a posture quietly presenting its own.
+ *
+ * An item becomes one row, or two where a speculative answer exists beneath the
+ * proven window. A row is a presentation of a grade; the item carries both
+ * grades, and which of them becomes a row is decided here rather than stored.
+ */
+void layout_build(void) {
+  const struct kasld_report *rep = render_report();
+  char note[48];
+
   n_layout_rows = 0;
+  if (!rep)
+    return;
 
-  /* A slide is a displacement from the un-randomized base, so it only carries
-   * meaning where something randomized. In the static postures the banner above
-   * the rows already states that nothing did, and the note would restate it in
-   * a form ("slide +0x2f8000") that reads as evidence of movement. Decided once
-   * here rather than by having a separate renderer for those postures. */
-  const int show_slide = !(s->kaslr.unsupported || s->kaslr.disabled);
+  for (int i = 0; i < rep->n_quantities; i++) {
+    const struct kasld_report_quantity *it = &rep->quantities[i];
+    const struct kasld_report_window *g = &it->guaranteed;
+    int pinned;
 
-  {
-    int vpin = (layout.virt_kaslr_text_min == layout.virt_kaslr_text_max &&
-                layout.virt_kaslr_text_min != 0);
-    /* Reported whether or not evidence narrowed it: the virtual top is the
-     * window the kernel randomized over, so its size is a real search space
-     * even untouched -- that count is the same figure already shown as the
-     * denominator once something does narrow. */
-    unsigned long vslots = s->kaslr.vslots;
-    int ppin = (layout.phys_kaslr_text_min == layout.phys_kaslr_text_max &&
-                layout.phys_kaslr_text_min != 0);
-    char slide[48];
+    /* A set of admissible values is not a window, and this table's Window cell
+     * can only render endpoints. The item exists and the formats that read the
+     * model directly can state it; the row model cannot yet, so it draws none
+     * rather than flattening a set into a range it is not. */
+    if (g->shape == RSHAPE_SET)
+      continue;
+    if (!g->present)
+      continue;
 
-    /* Virtual image base. A pin is a single guaranteed row carrying its slide;
-     * otherwise the proven window, plus the speculative answer beneath it --
-     * either a concrete base (which IS that answer, so the likely window would
-     * only restate it) or a narrower window. */
-    layout_add("Virtual Image Base", GRADE_GUARANTEED, vslots,
-               s->kaslr.vtop_slots, layout.virt_kaslr_text_min,
-               layout.virt_kaslr_text_max,
-               (vpin && show_slide)
-                   ? readout_slide(s->kaslr.vslide, slide, sizeof(slide))
+    pinned = g->has_lo && g->has_hi && g->lo == g->hi;
+
+    /* A slide is a displacement from the un-randomized base, so it carries
+     * meaning only where something randomized. In the static postures the line
+     * above the table already says nothing did, and the note would restate it
+     * in a form that reads as evidence of movement. */
+    layout_add(it->label, GRADE_GUARANTEED, g->candidates, it->entropy_top,
+               g->has_lo ? g->lo : 0, g->has_hi ? g->hi : 0,
+               (pinned && it->has_slide)
+                   ? readout_slide(it->slide, note, sizeof(note))
                    : NULL,
-               layout.virt_kaslr_align);
-    if (s->kaslr.vtext && !vpin)
-      layout_add("Virtual Image Base", GRADE_LIKELY, 1, vslots, s->kaslr.vtext,
-                 s->kaslr.vtext,
-                 show_slide
-                     ? readout_slide(s->kaslr.vslide, slide, sizeof(slide))
-                     : NULL,
-                 layout.virt_kaslr_align);
-    else if (!s->kaslr.vtext && s->kaslr.vlikely_max)
-      layout_add("Virtual Image Base", GRADE_LIKELY, s->kaslr.vlikely_slots,
-                 vslots, s->kaslr.vlikely_min, s->kaslr.vlikely_max, NULL,
-                 layout.virt_kaslr_align);
+               it->align_min);
 
-    /* Physical image base. Its top is an addressable-range bound rather than a
-     * randomization window: unlike the virtual top it is a bound on what is
-     * ADDRESSABLE, so an un-narrowed count states how many aligned addresses
-     * exist rather than how many the kernel chose among (physical placement is
-     * bounded by installed RAM, far below this). It is still the set left to
-     * search, and the Range column shows the same ceiling beside it, so it is
-     * reported rather than withheld -- but it is not an entropy figure. */
-    unsigned long pslots = s->kaslr.pslots;
-    layout_add("Physical Image Base", GRADE_GUARANTEED, pslots, 0,
-               layout.phys_kaslr_text_min, layout.phys_kaslr_text_max,
-               (ppin && show_slide)
-                   ? readout_slide(s->kaslr.pslide, slide, sizeof(slide))
-                   : NULL,
-               layout.phys_kaslr_align);
-    if (s->kaslr.ptext && !ppin)
-      layout_add("Physical Image Base", GRADE_LIKELY, 1, pslots, s->kaslr.ptext,
-                 s->kaslr.ptext,
-                 show_slide
-                     ? readout_slide(s->kaslr.pslide, slide, sizeof(slide))
-                     : NULL,
-                 layout.phys_kaslr_align);
-    else if (!s->kaslr.ptext && s->kaslr.plikely_max)
-      layout_add("Physical Image Base", GRADE_LIKELY, s->kaslr.plikely_slots,
-                 pslots, s->kaslr.plikely_min, s->kaslr.plikely_max, NULL,
-                 layout.phys_kaslr_align);
+    if (pinned)
+      continue; /* the proven row already states the single answer */
 
-    /* The memory-KASLR regions exist as unknowns only where the architecture
-     * randomizes them; elsewhere RANDOMIZE_MEMORY_ALIGN is 0 and the engine
-     * never constrains them, so no row is drawn. */
-#if RANDOMIZE_MEMORY_ALIGN > 0
-    {
-      unsigned long dmalign = (unsigned long)RANDOMIZE_MEMORY_ALIGN;
+    /* The speculative answer beneath the proven window: a concrete base where
+     * one was picked, otherwise the narrower all-signals window. A concrete
+     * base IS that answer, so a window alongside it would only restate it. */
+    if (it->has_point) {
       layout_add(
-          "Direct Map Base", GRADE_GUARANTEED, s->kaslr.virt_page_offset_slots,
-          s->kaslr.virt_page_offset_top_slots, s->kaslr.virt_page_offset_min,
-          s->kaslr.virt_page_offset_max, NULL, dmalign);
-      /* A single-slot likely bracket is a base pin, not a window: report the
-       * address itself. The direct map has no compile-time default to slide
-       * from, but it does have a RANDOMIZE_MEMORY offset from the
-       * un-randomized base -- the same value in another coordinate system, so
-       * it takes the slide's place. */
-      if (s->kaslr.virt_page_offset_likely_max) {
-        unsigned long llo = s->kaslr.virt_page_offset_likely_min;
-        unsigned long lhi = s->kaslr.virt_page_offset_likely_max;
-        int concrete = llo && lhi >= llo && (lhi - llo) <= dmalign;
-        char off[48];
-        if (concrete) {
-          /* Measured from the base for the paging level actually in force,
-           * which the engine projected. x86_64's two un-randomized bases are
-           * 59.6 PiB apart, so a compile-time one renders the other level's
-           * offset as a large negative number that still reads as a
-           * measurement. Unresolved level: no annotation, no denominator for
-           * the reader to misread. */
-          const char *note = NULL;
-          unsigned long ref = layout.virt_page_offset_unrandomized;
-          if (ref) {
-            long d = (long)(lhi - ref);
-            snprintf(off, sizeof(off), "off %s0x%lx", d < 0 ? "-" : "+",
-                     (unsigned long)(d < 0 ? -d : d));
-            note = off;
-          }
-          layout_add("Direct Map Base", GRADE_LIKELY, 1,
-                     s->kaslr.virt_page_offset_slots, lhi, lhi, note, dmalign);
-        } else {
-          layout_add("Direct Map Base", GRADE_LIKELY,
-                     s->kaslr.virt_page_offset_likely_slots,
-                     s->kaslr.virt_page_offset_slots, llo, lhi, NULL, dmalign);
-        }
+          it->label, GRADE_LIKELY, 1, g->candidates, it->point, it->point,
+          it->has_slide ? readout_slide(it->slide, note, sizeof(note)) : NULL,
+          it->align_min);
+    } else if (it->likely.present && likely_is_tighter(&it->likely, g)) {
+      const struct kasld_report_window *l = &it->likely;
+      /* A bracket no wider than one grain holds a single candidate, so it is a
+       * base rather than a window -- report the address, not the bracket. The
+       * edges need not coincide: adjacent grid points are one grain apart and
+       * still name one placement. */
+      int lpin =
+          l->has_lo && l->has_hi &&
+          (it->align_min ? (l->hi - l->lo) <= it->align_min : l->lo == l->hi);
+      const char *n = NULL;
+      /* A single-candidate bracket is a pin, not a window: report the address.
+       * The direct map has no compile-time default to slide from, but it does
+       * have an offset from the base the kernel would have used un-randomized
+       * -- the same value in another coordinate system, so it takes the slide's
+       * place. Measured from the base for the paging level actually in force:
+       * the two are 59.6 PiB apart, so the wrong one renders as a large
+       * negative number that still reads as a measurement. */
+      if (lpin && it->q == Q_PAGE_OFFSET &&
+          layout.virt_page_offset_unrandomized) {
+        long d = (long)(l->hi - layout.virt_page_offset_unrandomized);
+        snprintf(note, sizeof(note), "off %s0x%lx", d < 0 ? "-" : "+",
+                 (unsigned long)(d < 0 ? -d : d));
+        n = note;
       }
-      /* Drawn unconditionally, like the direct-map base above: each is seeded
-       * from its own quantity's honest top, so the window is a real bracket
-       * whatever the engine went on to add to it. */
-      layout_add("Vmalloc Base", GRADE_GUARANTEED, s->kaslr.virt_vmalloc_slots,
-                 0, s->kaslr.virt_vmalloc_min, s->kaslr.virt_vmalloc_max, NULL,
-                 dmalign);
-      layout_add("Vmemmap Base", GRADE_GUARANTEED, s->kaslr.virt_vmemmap_slots,
-                 0, s->kaslr.virt_vmemmap_min, s->kaslr.virt_vmemmap_max, NULL,
-                 dmalign);
+      if (lpin)
+        layout_add(it->label, GRADE_LIKELY, 1, g->candidates, l->hi, l->hi, n,
+                   it->align_min);
+      else
+        layout_add(it->label, GRADE_LIKELY, l->candidates, g->candidates,
+                   l->has_lo ? l->lo : 0, l->has_hi ? l->hi : 0, NULL,
+                   it->align_min);
     }
-#endif
-
-#if RANDOMIZE_MEMORY_ALIGN == 0
-    /* The direct-map base is not RANDOMIZED off x86_64, but it is still
-     * resolved: on a 32-bit arch it is the VMSPLIT, which the engine bounds
-     * from the boot config or an mmap probe. No Align: the pitch here is not a
-     * modelled randomization granule, and stating one would invent a grid. */
-    layout_add(
-        "Direct Map Base", GRADE_GUARANTEED, s->kaslr.virt_page_offset_slots,
-        s->kaslr.virt_page_offset_top_slots, s->kaslr.virt_page_offset_min,
-        s->kaslr.virt_page_offset_max, NULL, 0);
-#endif
-
-    /* Module region base, on every arch rather than under the memory-KASLR
-     * gate: the region exists everywhere, and where it does not move the row
-     * still reports where it is. The pitch is the page granularity every
-     * arch's allocator places the region on, resolved once beside the slot
-     * count so the two describe the same grid. */
-    layout_add("Module Region Base", GRADE_GUARANTEED,
-               s->kaslr.virt_module_slots, 0, s->kaslr.virt_module_min,
-               s->kaslr.virt_module_max, NULL, s->kaslr.virt_module_align);
   }
 }
 
@@ -759,7 +734,19 @@ int count_derived(void) {
  * never drives inference.
  * -------------------------------------------------------------------------
  */
-void render_summary(const struct summary *s) {
+/* The report model for the run being rendered.
+ *
+ * Held here for the duration of a render rather than threaded through every
+ * format, because layout_build() is called from five places inside the format
+ * modules and none of them should have to carry it. Transitional: it replaces
+ * reads of four separate globals with one pointer to the finished model, and it
+ * goes away when the formats take the model as a parameter. */
+static const struct kasld_report *g_render_report;
+
+const struct kasld_report *render_report(void) { return g_render_report; }
+
+void render_summary(const struct summary *s, const struct kasld_report *rep) {
+  g_render_report = rep;
   if (json_output)
     render_json(s);
   else if (oneline_output)

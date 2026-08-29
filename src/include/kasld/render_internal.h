@@ -337,7 +337,11 @@ struct layout_row {
 extern struct layout_row layout_rows[LAYOUT_MAX_ROWS];
 extern int n_layout_rows;
 extern const char *const layout_hdr[LAYOUT_COLS];
-void layout_build(const struct summary *s);
+void layout_build(void);
+/* The report model for the run being rendered, or NULL where none was built
+ * (the engine-less test build). Formats read the model through this while the
+ * migration is under way. */
+const struct kasld_report *render_report(void);
 /* True when any row carries a bound -- the model's own answer to "is there a
  * table to draw", which every format asks instead of inferring it from the
  * summary's slot counts. */
