@@ -10,6 +10,7 @@
 
 #include "include/kasld/internal.h"
 #include "include/kasld/render_internal.h"
+#include "include/kasld/report.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -217,6 +218,18 @@ static void collect_group_keys(enum kasld_addr_type type, const char *section,
   }
 }
 
+/* An address, or JSON `null` where the edge is unstated.
+ *
+ * `hi == 0` is not the address zero, it is "no bound claimed", and the two must
+ * not render alike -- a consumer that reads a missing bound as 0x0 concludes
+ * the window starts at the bottom of the address space. */
+static void json_addr_or_null(int has, unsigned long v) {
+  if (has)
+    printf("\"0x%016lx\"", v);
+  else
+    printf("null");
+}
+
 /* environment — the recon vantage: container / confinement / which /proc leak
  * oracles are readable here. The one snapshot the text and markdown renderers
  * read, so the three cannot describe different moments. */
@@ -348,6 +361,7 @@ static void render_environment_json(void) {
 void render_json(const struct summary *s) {
   struct utsname u;
   int have_uname = (kasld_uname(&u) == 0);
+  const struct kasld_report *rep = render_report();
 
   printf("{\n");
   printf("  \"version\": \"%s\",\n", VERSION);
@@ -605,85 +619,77 @@ void render_json(const struct summary *s) {
    * module region exists on every architecture, whereas memory_kaslr is the
    * x86_64 CONFIG_RANDOMIZE_MEMORY chain. Emitted only once the engine has
    * bounded it; an untightened side emits null. */
-  if (s->kaslr.virt_module_min || s->kaslr.virt_module_max) {
-    printf(",\n    \"module_base\": {\n");
-    printf("      \"min\": ");
-    if (s->kaslr.virt_module_min)
-      printf("\"0x%016lx\",\n", s->kaslr.virt_module_min);
-    else
-      printf("null,\n");
-    printf("      \"max\": ");
-    if (s->kaslr.virt_module_max)
-      printf("\"0x%016lx\",\n", s->kaslr.virt_module_max);
-    else
-      printf("null,\n");
-    printf("      \"slots\": %lu\n", s->kaslr.virt_module_slots);
-    printf("    }");
+  {
+    const struct kasld_report_quantity *it =
+        kasld_report_find(rep, Q_MODULE_BASE);
+    if (it && it->guaranteed.present) {
+      printf(",\n    \"module_base\": {\n");
+      printf("      \"min\": ");
+      json_addr_or_null(it->guaranteed.has_lo, it->guaranteed.lo);
+      printf(",\n      \"max\": ");
+      json_addr_or_null(it->guaranteed.has_hi, it->guaranteed.hi);
+      printf(",\n      \"slots\": %lu\n", it->guaranteed.candidates);
+      printf("    }");
+    }
   }
 
   /* Memory KASLR (CONFIG_RANDOMIZE_MEMORY) — directmap / vmalloc / vmemmap
-   * base bounds derived from the structural placement chain. Emitted only
-   * when at least one region has been narrowed from its compile-time
-   * default. Untightened sides emit JSON `null` so consumers can
+   * base bounds derived from the structural placement chain. Emitted when the
+   * engine holds a bound on at least one of the regions this architecture
+   * randomizes. An unstated edge emits JSON `null` so consumers can
    * distinguish "no bound" from "bound that happens to be zero". */
-  if (summary_has_memory_kaslr(s)) {
-    printf(",\n    \"memory_kaslr\": {\n");
-    int first = 1;
-    struct {
-      const char *name;
-      unsigned long min, max, lmin, lmax;
-      unsigned long slots, lslots;
-      int bits;
-    } regions[] = {
-        {"virt_page_offset_base", s->kaslr.virt_page_offset_min,
-         s->kaslr.virt_page_offset_max, s->kaslr.virt_page_offset_likely_min,
-         s->kaslr.virt_page_offset_likely_max, s->kaslr.virt_page_offset_slots,
-         s->kaslr.virt_page_offset_likely_slots,
-         s->kaslr.virt_page_offset_bits},
-        {"virt_vmalloc_base", s->kaslr.virt_vmalloc_min,
-         s->kaslr.virt_vmalloc_max, s->kaslr.virt_vmalloc_likely_min,
-         s->kaslr.virt_vmalloc_likely_max, s->kaslr.virt_vmalloc_slots,
-         s->kaslr.virt_vmalloc_likely_slots, s->kaslr.virt_vmalloc_bits},
-        {"virt_vmemmap_base", s->kaslr.virt_vmemmap_min,
-         s->kaslr.virt_vmemmap_max, s->kaslr.virt_vmemmap_likely_min,
-         s->kaslr.virt_vmemmap_likely_max, s->kaslr.virt_vmemmap_slots,
-         s->kaslr.virt_vmemmap_likely_slots, s->kaslr.virt_vmemmap_bits},
-    };
-    for (size_t i = 0; i < sizeof(regions) / sizeof(regions[0]); i++) {
-      if (!regions[i].min && !regions[i].max)
-        continue;
-      printf("%s      \"%s\": { \"min\": ", first ? "" : ",\n",
-             regions[i].name);
-      if (regions[i].min)
-        printf("\"0x%016lx\"", regions[i].min);
-      else
-        printf("null");
-      printf(", \"max\": ");
-      if (regions[i].max)
-        printf("\"0x%016lx\"", regions[i].max);
-      else
-        printf("null");
-      /* The hole-aware candidate count and its residual entropy. A consumer
-       * cannot derive these from min/max: interior C_EXCLUDE holes are carved
-       * at read time inside quantity_slots() and never appear on the wire, so
-       * (max - min) / align is the hole-blind number, not this one. */
-      if (regions[i].slots > 0)
-        printf(", \"slots\": %lu, \"entropy_bits\": %d", regions[i].slots,
-               regions[i].bits);
-      /* Speculative sub-window from the all-signals snapshot; subset of
-       * [min, max] and may be wrong. Absent unless a sub-floor signal narrowed
-       * the region. */
-      if (regions[i].lmax || regions[i].lmin) {
-        printf(", \"likely\": { \"min\": \"0x%016lx\", \"max\": \"0x%016lx\"",
-               regions[i].lmin, regions[i].lmax);
-        if (regions[i].lslots > 0)
-          printf(", \"slots\": %lu", regions[i].lslots);
-        printf(", \"speculative\": true }");
-      }
-      printf(" }");
-      first = 0;
+  {
+    /* Which regions this machine has is the model's answer, not a per-format
+     * list: an architecture that does not randomize a region carries no item
+     * for it, so asking the model is what keeps the emitted set the same set
+     * the other formats name. */
+    static const enum kasld_quantity mem_q[] = {Q_PAGE_OFFSET, Q_VMALLOC_BASE,
+                                                Q_VMEMMAP_BASE};
+    static const char *const mem_key[] = {
+        "virt_page_offset_base", "virt_vmalloc_base", "virt_vmemmap_base"};
+    int any = 0;
+    for (size_t i = 0; i < sizeof(mem_q) / sizeof(mem_q[0]); i++) {
+      const struct kasld_report_quantity *it = kasld_report_find(rep, mem_q[i]);
+      if (it && it->guaranteed.present)
+        any = 1;
     }
-    printf("\n    }");
+    if (any) {
+      int first = 1;
+      printf(",\n    \"memory_kaslr\": {\n");
+      for (size_t i = 0; i < sizeof(mem_q) / sizeof(mem_q[0]); i++) {
+        const struct kasld_report_quantity *it =
+            kasld_report_find(rep, mem_q[i]);
+        const struct kasld_report_window *g;
+        if (!it || !it->guaranteed.present)
+          continue;
+        g = &it->guaranteed;
+        printf("%s      \"%s\": { \"min\": ", first ? "" : ",\n", mem_key[i]);
+        json_addr_or_null(g->has_lo, g->lo);
+        printf(", \"max\": ");
+        json_addr_or_null(g->has_hi, g->hi);
+        /* The hole-aware candidate count and its residual entropy. A consumer
+         * cannot derive these from min/max: interior C_EXCLUDE holes are carved
+         * at read time and never appear on the wire, so (max - min) / align is
+         * the hole-blind number, not this one. */
+        if (g->candidates > 0)
+          printf(", \"slots\": %lu, \"entropy_bits\": %d", g->candidates,
+                 g->bits);
+        /* Speculative sub-window from the all-signals snapshot; subset of
+         * [min, max] and may be wrong. Emitted only where it says something the
+         * proven window does not -- the same question every format asks, asked
+         * once in the model so they cannot answer it differently. */
+        if (kasld_report_likely_is_tighter(it)) {
+          printf(", \"likely\": { \"min\": \"0x%016lx\", \"max\": \"0x%016lx\"",
+                 it->likely.lo, it->likely.hi);
+          if (it->likely.candidates > 0)
+            printf(", \"slots\": %lu", it->likely.candidates);
+          printf(", \"speculative\": true }");
+        }
+        printf(" }");
+        first = 0;
+      }
+      printf("\n    }");
+    }
   }
 
   printf("\n  },\n");

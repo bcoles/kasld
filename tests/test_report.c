@@ -77,8 +77,13 @@ static int check_item(const struct kasld_report_quantity *it) {
       CHECK(it->align_min > 0);
       if (w->has_lo && w->has_hi)
         CHECK(w->lo <= w->hi);
-      /* A present window admits at least one value, or it is not a window. */
-      CHECK(w->candidates > 0);
+      /* A count is claimed for a both-sided window and withheld for a
+       * one-sided one, which is unbounded -- counting it from the lattice
+       * floor would state a number the missing edge contradicts. */
+      if (w->has_lo && w->has_hi)
+        CHECK(w->candidates > 0);
+      else
+        CHECK(w->candidates == 0 && w->bits == 0);
     }
 
     /* The engine cannot resolve more possibilities than it was willing to

@@ -30,6 +30,11 @@
 //   pslide    physical KASLR slide (decoupled arches only)
 //   pentropy  physical residual entropy (same window/`na` rule as entropy)
 //   dmap      direct-map base (PAGE_OFFSET); engine-resolved floor/pin
+//   vmalloc   vmalloc base -- the proven floor, as `dmap` reports its own
+//   vmemmap   vmemmap base
+//   module    module region base
+//   vabits    resolved address-space size in bits (the paging level), once one
+//             candidate remains
 //   dram      physical DRAM extent: [0xLO..0xHI](size)
 //   results   count of merged result records (post-merge wire records — not
 //             the raw component count, nor a distinct "leaks" tally)
@@ -41,6 +46,7 @@
 
 #include "include/kasld/internal.h"
 #include "include/kasld/render_internal.h"
+#include "include/kasld/report.h"
 
 #include <stdio.h>
 #include <sys/utsname.h>
@@ -73,8 +79,14 @@ void render_oneline(const struct summary *s) {
    * engine-resolved base (a pin, or a concrete base reconciled against the
    * likely window) — never a raw leak consensus, so an interior text sample
    * cannot surface here. `na` when unresolved. */
-  if (s->kaslr.vtext)
-    printf(" text=0x%lx", s->kaslr.vtext);
+  const struct kasld_report *rep = render_report();
+  const struct kasld_report_quantity *qv =
+      kasld_report_find(rep, Q_VIRT_IMAGE_BASE);
+  const struct kasld_report_quantity *qp =
+      kasld_report_find(rep, Q_PHYS_IMAGE_BASE);
+
+  if (qv && qv->has_point)
+    printf(" text=0x%lx", qv->point);
   else
     printf(" text=na");
 
@@ -83,10 +95,10 @@ void render_oneline(const struct summary *s) {
   else
     printf(" stext=na");
 
-  if (s->kaslr.vtext) {
-    long abs_vs = s->kaslr.vslide < 0 ? -s->kaslr.vslide : s->kaslr.vslide;
-    printf(" slide=%s0x%lx(%ld)", s->kaslr.vslide < 0 ? "-" : "+",
-           (unsigned long)abs_vs, s->kaslr.vslide);
+  if (qv && qv->has_point && qv->has_slide) {
+    long abs_vs = qv->slide < 0 ? -qv->slide : qv->slide;
+    printf(" slide=%s0x%lx(%ld)", qv->slide < 0 ? "-" : "+",
+           (unsigned long)abs_vs, qv->slide);
   } else {
     printf(" slide=na");
   }
@@ -98,15 +110,15 @@ void render_oneline(const struct summary *s) {
    * inferred.entropy_bits. `na` only when there is no window — KASLR
    * off/unsupported zero the slot count. (In the `failed` posture the window is
    * still the proven residual; `kaslr=failed` is the effective-zero signal.) */
-  if (s->kaslr.vslots > 0)
-    printf(" entropy=%dbits", s->kaslr.vbits);
+  if (qv && qv->guaranteed.present && qv->guaranteed.candidates > 0)
+    printf(" entropy=%dbits", qv->guaranteed.bits);
   else
     printf(" entropy=na");
 
   /* Physical image base + _stext + slide + residual entropy — sibling block.
    * Same rule: the engine-resolved base only, never a leak consensus. */
-  if (s->kaslr.ptext)
-    printf(" ptext=0x%lx", s->kaslr.ptext);
+  if (qp && qp->has_point)
+    printf(" ptext=0x%lx", qp->point);
   else
     printf(" ptext=na");
 
@@ -115,16 +127,16 @@ void render_oneline(const struct summary *s) {
   else
     printf(" pstext=na");
 
-  if (s->kaslr.has_phys && s->kaslr.ptext) {
-    long abs_ps = s->kaslr.pslide < 0 ? -s->kaslr.pslide : s->kaslr.pslide;
-    printf(" pslide=%s0x%lx(%ld)", s->kaslr.pslide < 0 ? "-" : "+",
-           (unsigned long)abs_ps, s->kaslr.pslide);
+  if (s->kaslr.has_phys && qp && qp->has_point && qp->has_slide) {
+    long abs_ps = qp->slide < 0 ? -qp->slide : qp->slide;
+    printf(" pslide=%s0x%lx(%ld)", qp->slide < 0 ? "-" : "+",
+           (unsigned long)abs_ps, qp->slide);
   } else {
     printf(" pslide=na");
   }
 
-  if (s->kaslr.pslots > 0)
-    printf(" pentropy=%dbits", s->kaslr.pbits);
+  if (qp && qp->guaranteed.present && qp->guaranteed.candidates > 0)
+    printf(" pentropy=%dbits", qp->guaranteed.bits);
   else
     printf(" pentropy=na");
 
@@ -153,6 +165,45 @@ void render_oneline(const struct summary *s) {
     printf(" dmap=0x%lx", dmap);
   else
     printf(" dmap=na");
+
+  /* The remaining resolved quantities, on the same terms as the keys above: a
+   * key per unknown this machine has, `na` where the run resolved nothing.
+   *
+   * They were absent while this renderer read the summary field by field, which
+   * meant a scraper could see the direct-map base but not the vmalloc or
+   * vmemmap bases beside it, nor the module region, nor the paging level -- all
+   * of which the engine had resolved. A key is emitted for every quantity the
+   * model carries, so what appears here follows what the machine HAS rather
+   * than which fields this renderer happened to name.
+   *
+   * A window reports its proven floor, as `dmap` does: the lowest address the
+   * quantity can occupy. A finite set reports its value once one remains. */
+  {
+    static const struct {
+      enum kasld_quantity q;
+      const char *key;
+    } extra[] = {{Q_VMALLOC_BASE, "vmalloc"},
+                 {Q_VMEMMAP_BASE, "vmemmap"},
+                 {Q_MODULE_BASE, "module"},
+                 {Q_VA_BITS, "vabits"}};
+    for (size_t i = 0; i < sizeof(extra) / sizeof(extra[0]); i++) {
+      const struct kasld_report_quantity *q =
+          kasld_report_find(rep, extra[i].q);
+      const struct kasld_report_window *w = q ? &q->guaranteed : NULL;
+      if (!w || !w->present) {
+        printf(" %s=na", extra[i].key);
+      } else if (w->shape == RSHAPE_SET) {
+        if (w->n_values == 1)
+          printf(" %s=%lu", extra[i].key, w->values[0]);
+        else
+          printf(" %s=na", extra[i].key);
+      } else if (w->has_lo) {
+        printf(" %s=0x%lx", extra[i].key, w->lo);
+      } else {
+        printf(" %s=na", extra[i].key);
+      }
+    }
+  }
 
   /* Physical DRAM range. Gate on either edge being set, not on pdram_lo alone:
    * DRAM legitimately starts at phys 0 (x86, s390), so a zero base is a real

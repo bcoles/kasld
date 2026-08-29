@@ -326,21 +326,6 @@ static void layout_add(const char *quantity, const char *basis,
 
 /* Build the rows for this run, in the fixed order the readout presents.
  */
-/* Whether the all-signals window says anything the proven one does not.
- *
- * Compared by BOUNDS, not by candidate count: a count can be absent while the
- * bounds are real, and the two windows are frequently identical -- the likely
- * resolution simply reaches the same answer -- in which case a second row would
- * restate the first under a weaker grade. */
-static int likely_is_tighter(const struct kasld_report_window *l,
-                             const struct kasld_report_window *g) {
-  if (l->has_lo && (!g->has_lo || l->lo > g->lo))
-    return 1;
-  if (l->has_hi && (!g->has_hi || l->hi < g->hi))
-    return 1;
-  return 0;
-}
-
 /* Project the report model into the table's rows.
  *
  * One loop over the items, not a passage per quantity: the model decides which
@@ -398,7 +383,7 @@ void layout_build(void) {
           it->label, GRADE_LIKELY, 1, g->candidates, it->point, it->point,
           it->has_slide ? readout_slide(it->slide, note, sizeof(note)) : NULL,
           it->align_min);
-    } else if (it->likely.present && likely_is_tighter(&it->likely, g)) {
+    } else if (kasld_report_likely_is_tighter(it)) {
       const struct kasld_report_window *l = &it->likely;
       /* A bracket no wider than one grain holds a single candidate, so it is a
        * base rather than a window -- report the address, not the bracket. The
@@ -447,15 +432,6 @@ int layout_has_resolved(void) {
     if (!layout_rows[i].dim)
       return 1;
   return 0;
-}
-
-/* A memory-KASLR region (page_offset / vmalloc / vmemmap) has a narrowed edge:
- * the gate every renderer uses to decide whether to emit the Memory-KASLR
- * section. Pure read of the resolved summary. */
-int summary_has_memory_kaslr(const struct summary *s) {
-  return s->kaslr.virt_page_offset_min || s->kaslr.virt_page_offset_max ||
-         s->kaslr.virt_vmalloc_min || s->kaslr.virt_vmalloc_max ||
-         s->kaslr.virt_vmemmap_min || s->kaslr.virt_vmemmap_max;
 }
 
 /* -------------------------------------------------------------------------

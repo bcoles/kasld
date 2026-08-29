@@ -117,6 +117,24 @@ static unsigned long q_grain(enum kasld_quantity q,
   }
 }
 
+/* Bits of entropy from a candidate count: ceil(log2(v)) for v >= 1, 0 for 0.
+ *
+ * CEIL, not floor: the user-facing question is how much brute-force work
+ * remains, and 13 candidates is ~4 bits of worst-case work rather than 3.
+ * Power-of-two inputs are unaffected. */
+static int report_bits(unsigned long v) {
+  int r = 0;
+  unsigned long n;
+  if (v <= 1)
+    return 0;
+  n = v;
+  while (n >>= 1)
+    r++;
+  if ((v & (v - 1)) != 0)
+    r++;
+  return r;
+}
+
 /* The window the kernel's own randomization draws from, in candidates.
  *
  * A static property of the architecture, so it is read from the arch header
@@ -212,6 +230,7 @@ static void build_window(struct kasld_report_window *w, enum kasld_quantity q,
         w->values[w->n_values++] = qd->candidates[i];
     w->present = w->n_values > 0;
     w->candidates = (unsigned long)w->n_values;
+    w->bits = report_bits(w->candidates);
     return;
   }
   case LK_MAXALIGN:
@@ -225,7 +244,15 @@ static void build_window(struct kasld_report_window *w, enum kasld_quantity q,
   if (!w->present)
     return;
 
-  w->candidates = quantity_slots(q, e, v.floor, v.cs, v.n_cs, grain);
+  /* A count needs both edges. A one-sided bound is real information -- "the
+   * module base is at or below X" -- but it is UNBOUNDED, and counting it from
+   * zero would state a number that contradicts the missing edge beside it. The
+   * module base tops out at [0, VAS_END] precisely so an un-narrowed one reads
+   * as unbounded rather than as a window, and a count would undo that. */
+  if (w->has_lo && w->has_hi) {
+    w->candidates = quantity_slots(q, e, v.floor, v.cs, v.n_cs, grain);
+    w->bits = report_bits(w->candidates);
+  }
   collect_holes(w, q, v.floor, v.cs, v.n_cs);
 }
 
@@ -278,4 +305,27 @@ void kasld_report_build(struct kasld_resolution_view guaranteed,
       it->has_slide = points[q].has_slide;
     }
   }
+}
+
+int kasld_report_likely_is_tighter(const struct kasld_report_quantity *it) {
+  const struct kasld_report_window *l, *g;
+  if (!it || !it->likely.present)
+    return 0;
+  l = &it->likely;
+  g = &it->guaranteed;
+  if (l->has_lo && (!g->has_lo || l->lo > g->lo))
+    return 1;
+  if (l->has_hi && (!g->has_hi || l->hi < g->hi))
+    return 1;
+  return 0;
+}
+
+const struct kasld_report_quantity *
+kasld_report_find(const struct kasld_report *r, enum kasld_quantity q) {
+  if (!r)
+    return NULL;
+  for (int i = 0; i < r->n_quantities; i++)
+    if (r->quantities[i].q == q)
+      return &r->quantities[i];
+  return NULL;
 }

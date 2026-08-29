@@ -98,6 +98,13 @@ struct kasld_report_window {
    * engine; never recomputed by a consumer, which could only produce the
    * hull-blind number. */
   unsigned long candidates;
+
+  /* The same figure in bits: ceil(log2(candidates)), 0 for none. Carried rather
+   * than left to each format, because converting it is deriving, and a format
+   * that derives is a format that can differ. Ceiling, not floor: the question
+   * is how much brute-force work remains, and 13 candidates is ~4 bits of
+   * worst-case work rather than 3. */
+  int bits;
 };
 
 /* One unknown about the target, with everything proven about it.
@@ -225,6 +232,25 @@ struct kasld_resolution_view {
 /* `points` is indexed by quantity and may be NULL; entries whose `present` is 0
  * contribute nothing. `posture` is the caller's, for the same reason the floors
  * are: it is policy, not something the estimates state. */
+/* The item for a quantity, or NULL where this machine has no such unknown.
+ * Membership is per machine, so a format asks rather than assuming. */
+const struct kasld_report_quantity *
+kasld_report_find(const struct kasld_report *r, enum kasld_quantity q);
+
+/* Whether the all-signals window says anything the proven one does not.
+ *
+ * Every format needs this to decide whether a speculative window is worth
+ * presenting, and it must be one answer: two formats deriving it separately is
+ * how the same run comes to carry a likely window in one and not the other. It
+ * is a query rather than a field because it is derived from the two windows,
+ * and a stored copy of a derived fact goes stale.
+ *
+ * Compared by BOUNDS, not by candidate count: a count can be absent while the
+ * bounds are real, and the two windows are frequently identical -- the likely
+ * resolution simply reaches the same answer -- in which case presenting it
+ * again restates the proven window under a weaker grade. */
+int kasld_report_likely_is_tighter(const struct kasld_report_quantity *it);
+
 void kasld_report_build(struct kasld_resolution_view guaranteed,
                         struct kasld_resolution_view likely,
                         const struct kasld_report_point *points,

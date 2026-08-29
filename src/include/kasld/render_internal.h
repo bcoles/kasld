@@ -97,10 +97,6 @@ extern const char *const kasld_render_sections[];
 int kaslr_virt_is_window(void);
 int kaslr_phys_is_window(void);
 
-/* 1 when any memory-KASLR region (page_offset/vmalloc/vmemmap) has a narrowed
- * edge — the gate for emitting the Memory-KASLR section. */
-int summary_has_memory_kaslr(const struct summary *s);
-
 /* -------------------------------------------------------------------------
  * Per-mode entry points — each is defined in one src/render/<mode>.c file.
  * render_summary() in render.c dispatches to these based on the output flags.

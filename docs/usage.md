@@ -463,7 +463,7 @@ or not applicable to the arch/run renders the sentinel `na` (never a
 fabricated, defaulted, or leaked value):
 
 ```
-arch=x86_64 kaslr=on text=0xffffffffa2e00000 stext=na slide=+0x21e00000(568328192) entropy=0bits ptext=na pstext=na pslide=na pentropy=9bits dmap=0xffff800000000000 dram=[0x0..0x3ffdefff](1023.9 MiB) results=27
+arch=x86_64 kaslr=on text=0xffffffffa2e00000 stext=na slide=+0x21e00000(568328192) entropy=0bits ptext=na pstext=na pslide=na pentropy=9bits dmap=0xffff800000000000 vmalloc=na vmemmap=na module=na vabits=na dram=[0x0..0x3ffdefff](1023.9 MiB) results=27
 ```
 
 | Key | Meaning |
@@ -479,6 +479,10 @@ arch=x86_64 kaslr=on text=0xffffffffa2e00000 stext=na slide=+0x21e00000(56832819
 | `pslide` | physical KASLR slide (decoupled arches only) |
 | `pentropy` | physical residual entropy (same window / `na` rule as `entropy`) |
 | `dmap` | direct-map base (`PAGE_OFFSET`): the engine-resolved pin or proven floor, never the compile-time constant — except where the architecture guarantees that constant is the runtime value. `na` when neither is established |
+| `vmalloc` | vmalloc base — the proven floor, on the same terms as `dmap`. `na` where the architecture does not randomize the region, so there is no such unknown |
+| `vmemmap` | vmemmap base, same rule as `vmalloc` |
+| `module` | module region base |
+| `vabits` | resolved address-space size in bits (the paging level), once one candidate remains. `na` where the architecture admits only one size, so nothing is unknown |
 | `dram` | physical DRAM extent, `[0xLO..0xHI](size)` |
 | `results` | count of merged result records (not the raw component count) |
 
