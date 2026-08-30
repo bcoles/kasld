@@ -581,8 +581,15 @@ void render_json(const struct summary *s) {
      * posture. */
     printf("      \"slide_bytes\": %ld,\n", rv->slide);
     printf("      \"entropy_bits\": %d,\n", rv->guaranteed.bits);
-    if (rv->top_bits > 0)
-      printf("      \"entropy_bits_initial\": %d,\n", rv->top_bits);
+    /* The set the residual is measured against, in BOTH units. ilog2 rounds,
+     * so the bit figure cannot be turned back into the count the readout states
+     * beside it ("32 of 505", where 2^9 is 512); a consumer wanting the ratio
+     * needs the slots. Omitted entirely where no set is modelled, which is the
+     * same thing a bare count says in the readout. */
+    if (rv->entropy_top > 0)
+      printf("      \"slots_initial\": %lu,\n"
+             "      \"entropy_bits_initial\": %d,\n",
+             rv->entropy_top, rv->top_bits);
     /* Whether the counts above are exact or ceilings. The grain they stand on
      * is a lower bound wherever the engine resolves alignment with
      * C_AT_LEAST_ALIGN and nothing caps it, so a kernel built more coarsely
@@ -608,8 +615,10 @@ void render_json(const struct summary *s) {
     json_addr_pair("range_min", "range_max", &rv->guaranteed);
     if (rv->guaranteed.candidates > 0) {
       printf(",\n      \"slots\": %lu", rv->guaranteed.candidates);
-      if (rv->top_bits > 0)
-        printf(",\n      \"entropy_bits_initial\": %d", rv->top_bits);
+      if (rv->entropy_top > 0)
+        printf(",\n      \"slots_initial\": %lu"
+               ",\n      \"entropy_bits_initial\": %d",
+               rv->entropy_top, rv->top_bits);
       printf(",\n      \"entropy_bits\": %d", rv->guaranteed.bits);
     }
     json_excluded(&rv->guaranteed);
@@ -641,6 +650,10 @@ void render_json(const struct summary *s) {
      * posture (and is null where the architecture defines none). */
     printf("      \"slide_bytes\": %ld,\n", rp->slide);
     printf("      \"entropy_bits\": %d,\n", rp->guaranteed.bits);
+    if (rp->entropy_top > 0)
+      printf("      \"slots_initial\": %lu,\n"
+             "      \"entropy_bits_initial\": %d,\n",
+             rp->entropy_top, rp->top_bits);
     /* Whether the counts above are exact or ceilings. The grain they stand on
      * is a lower bound wherever the engine resolves alignment with
      * C_AT_LEAST_ALIGN and nothing caps it, so a kernel built more coarsely
@@ -659,6 +672,10 @@ void render_json(const struct summary *s) {
     printf(",\n    \"inferred_physical\": {\n");
     json_addr_pair("range_min", "range_max", &rp->guaranteed);
     printf(",\n      \"slots\": %lu,\n", rp->guaranteed.candidates);
+    if (rp->entropy_top > 0)
+      printf("      \"slots_initial\": %lu,\n"
+             "      \"entropy_bits_initial\": %d,\n",
+             rp->entropy_top, rp->top_bits);
     printf("      \"entropy_bits\": %d", rp->guaranteed.bits);
     json_excluded(&rp->guaranteed);
     printf("\n");
@@ -753,10 +770,14 @@ void render_json(const struct summary *s) {
          * cannot derive these from min/max: interior C_EXCLUDE holes are carved
          * at read time and never appear on the wire, so (max - min) / align is
          * the hole-blind number, not this one. */
-        if (g->candidates > 0)
+        if (g->candidates > 0) {
           printf(", \"slots\": %lu, \"entropy_bits\": %d, "
                  "\"slots_upper_bound\": %s",
                  g->candidates, g->bits, it->align_exact ? "false" : "true");
+          if (it->entropy_top > 0)
+            printf(", \"slots_initial\": %lu, \"entropy_bits_initial\": %d",
+                   it->entropy_top, it->top_bits);
+        }
         /* Speculative sub-window from the all-signals snapshot; subset of
          * [min, max] and may be wrong. Emitted only where it says something the
          * proven window does not -- the same question every format asks, asked

@@ -139,7 +139,7 @@ The Layout table carries one row per quantity and basis:
 | `Quantity` | what is being located — always a *base*, a single address, not a region |
 | `Certainty` | `guaranteed` (proven; contains the true base) or `likely` (the all-signals estimate, a subset of the guaranteed window, and may be wrong) |
 | `Window` | the addresses: a window, a single address where the quantity is pinned, or a one-sided `>=` / `<=` bound. A concrete base carries its `slide` from the compile-time default |
-| `Candidates` | how many placements remain, against the set the row narrows — a `guaranteed` row against the window the kernel randomized over, a `likely` row against the `guaranteed` count above it. Reported whether or not evidence narrowed it, so a baseline run states the size of the problem; the denominator is dropped when nothing narrowed, leaving the bare total. `-` means no window is modelled for the quantity, and `- of N` means the window has an unstated edge, so it is unbounded and what remains cannot be counted — `N` is still the set the row narrows |
+| `Candidates` | how many placements remain, against the set the row narrows — a `guaranteed` row against the window the kernel randomized over, a `likely` row against the `guaranteed` count above it. Reported whether or not evidence narrowed it, so a baseline run states the size of the problem. `N of M` whenever that set is modelled, **including `N of N`**, which says the set is known and evidence excluded nothing from it. A bare `N` means the opposite: no set is modelled for this quantity, so there is nothing to state the count against — as on the memory-KASLR regions outside x86_64, and on any row whose modelled set is smaller than the count and therefore cannot serve as its denominator. `-` means no window is modelled at all, and `- of N` means the window has an unstated edge, so it is unbounded and what remains cannot be counted — `N` is still the set the row narrows |
 | `Grain` | the spacing the candidates sit on, which is what reconciles the count with the window. Prefixed `>=` where it is only a lower bound — the engine resolves image-base alignment as "at least this", so a coarser true alignment means fewer real candidates than stated and the count beside it is a ceiling. Unprefixed where the architecture fixes the pitch, as the memory-randomization grid does, and the count is exact |
 
 A key naming a quantity reports one of exactly three things: `0xADDR` where the
@@ -775,6 +775,12 @@ The fields a gate keys on:
 - `.kaslr.likely.entropy_bits` — the **speculative** residual (the narrower
   best-guess window). Gate here to also fail when a speculative technique could
   plausibly recover the base, accepting that this window is unproven.
+- `slots_initial` / `entropy_bits_initial` — the set the residual is measured
+  against, in both units: `slots` out of `slots_initial` is the ratio the
+  readout prints (`32 of 505`). Both are omitted where no such set is modelled
+  for the quantity, which is the same thing a bare count means in the readout.
+  Take the ratio from the slots, not the bits: `ilog2` rounds, so
+  `2^entropy_bits_initial` is 512 where the set holds 505.
 - `slots_upper_bound` — beside every `slots` figure: `true` where the grain the
   count stands on is a lower bound, so a kernel aligned more coarsely than the
   engine could prove sits on fewer placements than `slots` says. A gate reading

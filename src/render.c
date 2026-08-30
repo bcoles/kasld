@@ -277,9 +277,19 @@ static void layout_fmt_space(char *buf, size_t sz, unsigned long slots,
      * total, because there the count and the denominator are one figure and
      * `slots` carries it. */
     snprintf(buf, sz, "- of %lu", top);
-  else if (top > slots)
+  else if (top >= slots)
+    /* Stated whenever a baseline exists, including where it equals the count.
+     * "N of N" says the set the row narrows is known and evidence excluded
+     * nothing from it; a bare count says no baseline is modelled for this
+     * quantity at all. Collapsing those two onto a bare count made them
+     * indistinguishable, and the documented reading -- "nothing narrowed" --
+     * was the wrong one for whichever quantity had no model. */
     snprintf(buf, sz, "%lu of %lu", slots, top);
   else
+    /* A baseline below the count is not a baseline this row can stand on: the
+     * count would exceed the set it is counted against. Withheld rather than
+     * printed as an incoherent ratio, which puts the row in the same state as
+     * having no model -- which is what it amounts to. */
     snprintf(buf, sz, "%lu", slots);
 }
 

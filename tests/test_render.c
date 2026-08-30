@@ -1422,6 +1422,50 @@ static void test_render_memory_kaslr_uses_stored_slots(void) {
  * Staged with the interior sample at HIGHER confidence than the base, because
  * that is the ordering under which a position-blind pick goes wrong; with the
  * base ranked top, both a correct and an incorrect rule return it. */
+/* A baseline that equals the count is stated, not collapsed to a bare number.
+ *
+ * Three states share the Candidates cell: no baseline is modelled, a baseline
+ * exists and evidence narrowed below it, and a baseline exists that evidence
+ * did not narrow at all. The last two both printed a bare count, so a reader
+ * could not tell "the kernel had this many choices and none were excluded" from
+ * "no baseline is modelled for this quantity" -- and the documented reading was
+ * the wrong one for whichever quantity had no model.
+ *
+ * Asserted in both directions from one staging, since the difference is the
+ * whole point: same count, baseline present versus absent. */
+static void test_render_baseline_equal_to_count_is_stated(void) {
+  struct summary s;
+
+  /* Baseline present and equal to the count. */
+  reset_results();
+  reset_comp_logs();
+  stage_likely_reset();
+  num_scalar_facts = 0;
+  memset(&s, 0, sizeof(s));
+  memset(&t_stage, 0, sizeof(t_stage));
+  t_stage.vslots = 505;
+  t_stage.vtop_slots = 505;
+  verbose = 1;
+  capture_stdout(wrap_render_summary, &s);
+  verbose = 0;
+  assert(strstr(render_cap, "505 of 505") != NULL);
+
+  /* Same count, no baseline: bare, which is now the only thing bare says. */
+  reset_results();
+  reset_comp_logs();
+  stage_likely_reset();
+  num_scalar_facts = 0;
+  memset(&s, 0, sizeof(s));
+  memset(&t_stage, 0, sizeof(t_stage));
+  t_stage.vslots = 505;
+  t_stage.vtop_slots = 0;
+  verbose = 1;
+  capture_stdout(wrap_render_summary, &s);
+  verbose = 0;
+  assert(strstr(render_cap, "505 of") == NULL);
+  assert(strstr(render_cap, "505") != NULL);
+}
+
 static void test_render_markdown_evidence_names_the_edge(void) {
   struct summary s;
   /* From the arch's own text window, not written as addresses: a literal here
@@ -5180,6 +5224,7 @@ int main(void) {
   RUN(test_render_directmap_offset_follows_paging_level);
   RUN(test_render_json_publishes_unrandomized_directmap_base);
   RUN(test_render_entropy_states_its_baseline);
+  RUN(test_render_baseline_equal_to_count_is_stated);
   RUN(test_render_markdown_evidence_names_the_edge);
   RUN(test_render_grain_states_a_floor_as_one);
   RUN(test_render_memory_kaslr_slots_reach_machine_formats);
