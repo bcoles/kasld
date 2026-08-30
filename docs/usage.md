@@ -777,7 +777,10 @@ The fields a gate keys on:
   plausibly recover the base, accepting that this window is unproven.
 - `slots_initial` / `entropy_bits_initial` — the set the residual is measured
   against, in both units: `slots` out of `slots_initial` is the ratio the
-  readout prints (`32 of 505`). Both are omitted where no such set is modelled
+  readout prints (`32 of 505`). The paging level is a set of admissible sizes
+  rather than a window, so it carries `candidates_initial` beside `candidates`
+  for the same purpose — `1 of 2` says one of the two levels this target could
+  be running. Both are omitted where no such set is modelled
   for the quantity, which is the same thing a bare count means in the readout.
   Take the ratio from the slots, not the bits: `ilog2` rounds, so
   `2^entropy_bits_initial` is 512 where the set holds 505.

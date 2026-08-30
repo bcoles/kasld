@@ -811,8 +811,16 @@ void render_json(const struct summary *s) {
       printf(",\n    \"va_bits\": {\n      \"values\": [");
       for (int i = 0; i < it->guaranteed.n_values; i++)
         printf("%s%lu", i ? ", " : "", it->guaranteed.values[i]);
-      printf("],\n      \"candidates\": %lu,\n      \"entropy_bits\": %d",
-             it->guaranteed.candidates, it->guaranteed.bits);
+      printf("],\n      \"candidates\": %lu", it->guaranteed.candidates);
+      /* The set the count is against: for a SET quantity that is the values
+       * the architecture admits (`search_top`), not a randomization window --
+       * "1 of 2" says one of the two paging levels this target could be
+       * running. Named `candidates_initial` rather than `slots_initial`
+       * because a paging level sits on no grid, keeping the distinction
+       * `candidates` already draws. */
+      if (it->search_top > 0)
+        printf(",\n      \"candidates_initial\": %lu", it->search_top);
+      printf(",\n      \"entropy_bits\": %d", it->guaranteed.bits);
       if (kasld_report_likely_is_tighter(it)) {
         printf(",\n      \"likely\": { \"values\": [");
         for (int i = 0; i < it->likely.n_values; i++)

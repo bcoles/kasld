@@ -2,8 +2,9 @@
 # This file is part of KASLD - https://github.com/bcoles/kasld
 #
 # check-render-parity — the text readout, the markdown report and JSON must
-# name the SAME set of resolved quantities for a given run, and every region the
-# readout evidences must reach the markdown report.
+# name the SAME set of resolved quantities for a given run, agree on every count
+# AND on the set each count is measured against, and every region the readout
+# evidences must reach the markdown report.
 #
 # The Layout row model exists so no two formats can describe the same resolved
 # state differently, but it only binds a format that consults it. The
@@ -241,6 +242,32 @@ WHERE = {
     ("Paging Level", "likely"):            [("va_bits", "likely", "candidates")],
 }
 
+# Where each (quantity, grade) states the SET its count is measured against. A
+# guaranteed row counts against the window the kernel randomized over, published
+# beside the count; a likely row counts against the guaranteed count above it,
+# which json already carries as that quantity's own `slots`. The paging level is
+# a set rather than a window, so it counts against the values the architecture
+# admits and names them `candidates_initial`.
+BASE = {
+    ("Virtual Image Base", "guaranteed"):  [("inferred", "slots_initial"),
+                                            ("virtual", "slots_initial")],
+    ("Virtual Image Base", "likely"):      [("inferred", "slots"), ("virtual", "slots")],
+    ("Physical Image Base", "guaranteed"): [("inferred_physical", "slots_initial"),
+                                            ("physical", "slots_initial")],
+    ("Physical Image Base", "likely"):     [("inferred_physical", "slots"),
+                                            ("physical", "slots")],
+    ("Direct Map Base", "guaranteed"):     [("memory_kaslr", "virt_page_offset_base", "slots_initial")],
+    ("Direct Map Base", "likely"):         [("memory_kaslr", "virt_page_offset_base", "slots")],
+    ("Vmalloc Base", "guaranteed"):        [("memory_kaslr", "virt_vmalloc_base", "slots_initial")],
+    ("Vmalloc Base", "likely"):            [("memory_kaslr", "virt_vmalloc_base", "slots")],
+    ("Vmemmap Base", "guaranteed"):        [("memory_kaslr", "virt_vmemmap_base", "slots_initial")],
+    ("Vmemmap Base", "likely"):            [("memory_kaslr", "virt_vmemmap_base", "slots")],
+    ("Module Region Base", "guaranteed"):  [("module_base", "slots_initial")],
+    ("Module Region Base", "likely"):      [("module_base", "slots")],
+    ("Paging Level", "guaranteed"):        [("va_bits", "candidates_initial")],
+    ("Paging Level", "likely"):            [("va_bits", "candidates")],
+}
+
 # A row: label, grade, then the Candidates cell ("N" or "N of M") and the Grain
 # cell at the end. Read from the RIGHT, because the Window cell right-aligns its
 # addresses and so contains runs of spaces that no column split survives.
@@ -263,7 +290,7 @@ for line in text.splitlines():
     cell = t.group("cell")
     if cell.startswith("-"):
         continue                      # no count stated; nothing to compare
-    m = re.match(r"(\d+)", cell)
+    m = re.match(r"(\d+)(?: of (\d+))?", cell)
     key = (h.group("label"), h.group("grade"))
     paths = WHERE.get(key)
     if paths is None:
@@ -279,6 +306,34 @@ for line in text.splitlines():
             bad.append("%s [%s]: readout says %d, json says %d"
                        % (key[0], key[1], want, got))
         break
+
+    # The baseline, where the readout states one. Compared the same way and for
+    # the same reason: json is built from the engine independently, so a figure
+    # that differs is a format asserting something the resolution did not say.
+    # One way only -- json may publish a baseline the readout withholds, since
+    # the readout suppresses a baseline smaller than its own count rather than
+    # print an incoherent ratio.
+    if m.group(2) is None:
+        continue
+    bpaths = BASE.get(key)
+    if bpaths is None:
+        bad.append("%s [%s] states a baseline with no json mapping" % key)
+        continue
+    want_base = int(m.group(2))
+    seen = False
+    for path in bpaths:
+        got = dig(*path)
+        if got is None:
+            continue
+        seen = True
+        checked += 1
+        if got != want_base:
+            bad.append("%s [%s]: readout counts against %d, json says %d"
+                       % (key[0], key[1], want_base, got))
+        break
+    if not seen:
+        bad.append("%s [%s]: readout counts against %d, json publishes no "
+                   "baseline" % (key[0], key[1], want_base))
 
 if bad:
     print("; ".join(bad))
@@ -476,5 +531,5 @@ if [ "$fail" -ne 0 ]; then
     "$RED" "$RESET" >&2
   exit 1
 fi
-printf '%scheck-render-parity: OK%s (%d runs; text/markdown agree row for row, readout and json agree on every count, json names nothing new, every evidenced region reaches markdown)\n' \
+printf '%scheck-render-parity: OK%s (%d runs; text/markdown agree row for row, readout and json agree on every count and baseline, json names nothing new, every evidenced region reaches markdown)\n' \
   "$GREEN" "$RESET" "$n"

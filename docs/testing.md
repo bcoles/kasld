@@ -211,7 +211,7 @@ stays plain, and setting `KASLD_COLOR` non-empty or empty forces either.
 | `check-posture-diff` | behavioural test for `extra/posture-diff` |
 | `check-posture-summary` | behavioural test for `extra/posture-summary` |
 | `check-baseline` | the no-component baseline (`-s '*'`) renders in every output mode and exits with the no-results status, and a run that gathers evidence resolves a window *inside* it † |
-| `check-render-parity` | the text readout, the markdown report and JSON name the same set of resolved quantities for a given run, and every region the readout lists evidence for is carried by the markdown report under its section name † |
+| `check-render-parity` | the text readout, the markdown report and JSON name the same set of resolved quantities for a given run, agree on every candidate count and on the set each is measured against, and every region the readout lists evidence for is carried by the markdown report under its section name † |
 | `check-render-color` | coloured output is byte-identical to plain output once the escape sequences are removed, and markdown, JSON and oneline carry no escapes at all † |
 | `check-wire-text` | a component cannot put an escape sequence on the terminal: a record whose `name`, or a disposition whose `gate` or `msg`, leaves printable ASCII is rejected, and the verbose echo of component output strips control bytes † |
 | `check-sysroot-containment` | a `KASLD_SYSROOT` too long to build a fact path with fails the read instead of falling back to the analysing host's own `/proc` and `/sys` † |
