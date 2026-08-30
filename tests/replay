@@ -102,6 +102,10 @@ target_for() {
   mips64)            echo "mips64-unknown-linux-musl qemu-mips64" ;;
   mips64el)          echo "mips64el-unknown-linux-musl qemu-mips64el" ;;
   ppc | powerpc)     echo "powerpc-linux-musl qemu-ppc" ;;
+  # 32-bit little-endian powerpc. A cross target exists; qemu ships no ppcle
+  # linux-user binary, so the build dir resolves and the skip names the runner
+  # that is missing.
+  ppcle | powerpcle) echo "powerpcle-unknown-linux-musl qemu-ppcle" ;;
   ppc64 | powerpc64) echo "powerpc64-unknown-linux-musl qemu-ppc64" ;;
   ppc64le | powerpc64le)
                      echo "powerpc64le-unknown-linux-musl qemu-ppc64le" ;;

@@ -105,12 +105,18 @@ canonical_arch() {
     mips64|mips64el)              echo mips64 ;;
     mips|mipsel)                  echo mips32 ;;
     ppc64|ppc64le|powerpc64)      echo ppc64 ;;
-    ppc|powerpc|powerpc32)        echo ppc32 ;;
+    ppc|ppcle|powerpc|powerpc32)  echo ppc32 ;;
     riscv64)                      echo riscv64 ;;
     riscv32)                      echo riscv32 ;;
     loongarch64|loong64)          echo loongarch64 ;;
     s390x|s390)                   echo s390 ;;
     sparc64|sparc)                echo sparc ;;
+    # SuperH patches its CPU family over the tail of the machine string, so
+    # the report is sh2 / sh2a / sh3 / sh4 / sh4a / sh4al-dsp, never bare sh.
+    sh*)                          echo sh ;;
+    m68k)                         echo m68k ;;
+    microblaze|microblazeel)      echo microblaze ;;
+    openrisc|or1k)                echo openrisc ;;
     *)                            echo "unknown" ;;
   esac
 }
@@ -171,6 +177,18 @@ sanitize() { printf '%s' "$1" | tr -c 'A-Za-z0-9._-' '_'; }
 
 TS=$(date -u +%Y%m%d%H%M%S 2>/dev/null || echo 0)
 FIXTURE_ID="$(sanitize "$DISTRO")-$(sanitize "$REL")"
+# Five canonical arches run kernels of either byte order, so one of them can
+# hold the same distro and release twice and the id has to separate the two.
+# -eb is big-endian, -el little. A byte order the probe could not read leaves
+# the id unsuffixed rather than asserting one.
+case "$KARCH" in
+  arm32|mips32|mips64|ppc32|ppc64)
+    case "$ENDIAN" in
+      big)    FIXTURE_ID="$FIXTURE_ID-eb" ;;
+      little) FIXTURE_ID="$FIXTURE_ID-el" ;;
+    esac
+    ;;
+esac
 if [ -z "$OUT" ]; then
   OUT="./kasld-bundle-$(sanitize "$KARCH")-$(sanitize "$REL")-$TS"
 fi

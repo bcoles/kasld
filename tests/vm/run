@@ -505,20 +505,6 @@ verdict() {
   return 0
 }
 
-# Byte order of a cell, from the build prefix (deterministic per TABLE row).
-# extra/collect reads the same fact out of its own ELF header; here the prefix
-# is authoritative and needs no guest-side probe.
-prefix_endianness() {
-  case "$1" in
-    x86_64 | i686 | i386 | x86 | aarch64 | armv7 | arm | riscv32 | riscv64 |\
-    loongarch64 | mipsel | mips64el | ppc64le | powerpc64le)
-      echo little ;;
-    armeb | mips | mips64 | ppc32 | powerpc | ppc | powerpc64 | ppc64 | s390x)
-      echo big ;;
-    *) echo unknown ;;
-  esac
-}
-
 # Canonical arch dir name under tests/fixtures/ (kasld's arch naming, which
 # differs from uname_m_raw: aarch64 -> arm64, ppc64le -> ppc64, ...). Keyed on
 # the build prefix, which is deterministic per TABLE row.
@@ -642,8 +628,6 @@ reconstruct_fixture() {
   case "$_prefix" in
   mips | mipsel | mips64 | mips64el) _uname=$_prefix ;;
   esac
-  _endian=$(prefix_endianness "$_prefix")
-
   # flavor=local => a mainline kernel.org build; else an Alpine distro kernel.
   _canon=$(fixture_arch "$_prefix")
   if [ "$_flavor" = local ]; then _distro="mainline"; else _distro="alpine-$ALPINE_VER"; fi
@@ -654,35 +638,39 @@ reconstruct_fixture() {
   # ran last would silently be the one kept.
   _variant=$(printf '%s' "$_name" | cut -s -d- -f4-)
 
-  # Byte order, where the arch directory can hold both. There is no per-arch
-  # header for an endianness -- mips32.h serves mips and mipsel alike -- so it is
-  # a property of the capture, not an architecture, and belongs in the id beside
-  # the variant. Without it the two orders resolve to one directory and the
-  # capture rm -rf's it: ppc64 already holds a ppc64 and a ppc64le bundle, kept
-  # apart only by their release strings happening to differ.
-  #
-  # Read from the booted image's ELF header rather than a table of which cell is
-  # which: EI_DATA is the kernel's own statement of its byte order.
-  _endian=
+  # Byte order, read from the booted image's ELF header rather than a table of
+  # which cell is which: EI_DATA is the kernel's own statement of it. The image
+  # first, where it is an ELF. Not every arch boots one: arm stages a zImage and
+  # riscv an Image, which carry no EI_DATA, so the read there yields neither 01
+  # nor 02. The cell's own kasld is the fallback -- built by the target's
+  # toolchain, so its byte order is the target's by construction. The spelling
+  # is the one extra/collect records, since both fill the same meta field.
+  _endian=unknown
+  for _e_src in "$_kimg" $(ls "$BUILD_DIR/$_prefix"-*/kasld 2>/dev/null); do
+    [ -f "$_e_src" ] || continue
+    case "$(od -An -tx1 -j5 -N1 "$_e_src" 2>/dev/null | tr -d ' ')" in
+    01) _endian=little; break ;;
+    02) _endian=big; break ;;
+    esac
+  done
+
+  # The id carries it on the arch directories that can hold both orders. There
+  # is no per-arch header for an endianness -- mips32.h serves mips and mipsel
+  # alike -- so it is a property of the capture, not an architecture, and
+  # belongs in the id beside the variant. Without it the two orders resolve to
+  # one directory and the capture rm -rf's it: ppc64 already holds a ppc64 and
+  # a ppc64le bundle, kept apart only by their release strings happening to
+  # differ.
+  _esuf=
   case "$_canon" in
-  arm32 | ppc64 | mips32 | mips64)
-    # The image first, where it is an ELF. Not every arch boots one: arm stages a
-    # zImage and riscv an Image, which carry no EI_DATA, so the read there yields
-    # neither 01 nor 02 and the suffix would be silently dropped. The cell's own
-    # kasld is the fallback -- built by the target's toolchain, so its byte order
-    # is the target's by construction.
-    for _e_src in "$_kimg" $(ls "$BUILD_DIR/$_prefix"-*/kasld 2>/dev/null); do
-      [ -f "$_e_src" ] || continue
-      case "$(od -An -tx1 -j5 -N1 "$_e_src" 2>/dev/null | tr -d ' ')" in
-      01) _endian=el; break ;;
-      02) _endian=eb; break ;;
-      esac
-    done
+  arm32 | ppc32 | ppc64 | mips32 | mips64)
+    case "$_endian" in little) _esuf=el ;; big) _esuf=eb ;; esac
+    [ -n "$_esuf" ] ||
+      echo "  !! $_name: byte order undetermined; fixture id will not carry it" >&2
     ;;
   esac
-  [ -n "$_endian" ] || echo "  !! $_name: byte order undetermined; fixture id will not carry it" >&2
 
-  _fid=$(printf '%s-%s%s%s' "$_distro" "$_rel" "${_endian:+-$_endian}" \
+  _fid=$(printf '%s-%s%s%s' "$_distro" "$_rel" "${_esuf:+-$_esuf}" \
     "${_variant:+-$_variant}" | sed 's/[^A-Za-z0-9._-]/-/g')
 
   # Boot image: size (sizes.txt) + 4 KiB header prefix, taken host-side from the
