@@ -127,12 +127,20 @@ hex_in() { hex_ge "$1" "$2" && hex_le "$1" "$3"; }
 # the bundle is for a foreign arch.
 # ---------------------------------------------------------------------------
 ARCH=$(awk -F: '/^uname_m_raw:/ { gsub(/[ \t]/, "", $2); print $2 }' "$BUNDLE/meta.txt")
+ENDIAN=$(awk -F: '/^endianness:/ { gsub(/[ \t]/, "", $2); print $2 }' "$BUNDLE/meta.txt")
+# MIPS reports "mips"/"mips64" from `uname -m` whatever its byte order (arm,
+# arm64 and powerpc all encode it in the machine string), so the bundle's
+# `endianness:` field supplies what the machine string cannot. A bundle
+# without the field, or with `unknown`, leaves the raw string standing.
+case "$ARCH" in
+  mips | mips64) [ "$ENDIAN" = little ] && ARCH="${ARCH}el" ;;
+esac
 REL=$(awk -F: '/^kernel_release:/ { gsub(/[ \t]/, "", $2); print $2 }' "$BUNDLE/meta.txt")
 DISTRO=$(awk -F: '/^distro:/ { gsub(/[ \t]/, "", $2); print $2 }' "$BUNDLE/meta.txt")
 HOST_ARCH=$(uname -m)
 QEMU_DIR=${QEMU_DIR:-}   # empty: resolve qemu-<arch> from PATH (as tests/replay)
 
-# Reuse the same uname_m_raw → "<build-subdir> <qemu-binary>" mapping as
+# Reuse the same machine → "<build-subdir> <qemu-binary>" mapping as
 # tests/replay, so behaviour stays consistent.
 case "$ARCH" in
   x86_64)              SUB=x86_64-linux-gnu;           QBIN=qemu-x86_64 ;;

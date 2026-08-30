@@ -31,7 +31,7 @@ set -u
 umask 077
 
 PROG=$(basename "$0")
-COLLECT_VERSION=2
+COLLECT_VERSION=3
 
 die() { echo "$PROG: $*" >&2; exit 2; }
 need_val() { [ "$1" -ge 2 ] || die "$2 requires a value"; }
@@ -115,8 +115,39 @@ canonical_arch() {
   esac
 }
 
+# Byte order of the running kernel, from the ELF identification of the
+# executable performing the read (EI_DATA at byte 5: 1 = little, 2 = big).
+# /proc/self resolves to that process, which is a native binary, and a process
+# always shares its kernel's byte order — so the header is a faithful
+# witness and needs no privilege to read.
+#
+# Recorded as its own field because `uname -m` cannot express byte order on
+# every architecture: arch/mips/Makefile sets UTS_MACHINE to "mips" under
+# CONFIG_32BIT and "mips64" under CONFIG_64BIT with no endianness term, so
+# both orders report the same string. SuperH (the CPU family, "sh4") and
+# microblaze (the bare arch name) are equally blind; arm ("armv7b"), arm64
+# ("aarch64_be") and powerpc ("ppc64le") do encode it.
+detect_endianness() {
+  _b=$(dd if=/proc/self/exe bs=6 count=1 2>/dev/null | od -An -tu1 2>/dev/null)
+  [ -z "$_b" ] && _b=$(od -An -tu1 -N 6 /proc/self/exe 2>/dev/null)
+  # Positional split of the six decimal byte values; the split is the point.
+  # shellcheck disable=SC2086
+  set -- $_b
+  if [ "${1:-}" != 127 ] || [ "${2:-}" != 69 ] || [ "${3:-}" != 76 ] ||
+     [ "${4:-}" != 70 ]; then
+    echo unknown
+    return
+  fi
+  case "${6:-}" in
+    1) echo little ;;
+    2) echo big ;;
+    *) echo unknown ;;
+  esac
+}
+
 RAW_ARCH=$(uname -m 2>/dev/null || echo unknown)
 KARCH=$(canonical_arch "$RAW_ARCH")
+ENDIAN=$(detect_endianness)
 REL=$(uname -r 2>/dev/null || echo unknown)
 
 # Distro id from os-release, best-effort. Parsed (not sourced) so we never
@@ -441,6 +472,7 @@ fi
   echo "collect_version:  $COLLECT_VERSION"
   echo "collected_utc:    $(date -u 2>/dev/null || echo unknown)"
   echo "uname_m_raw:      $RAW_ARCH"
+  echo "endianness:       $ENDIAN"
   echo "arch_canonical:   $KARCH"
   echo "kernel_release:   $REL"
   echo "distro:           $DISTRO"

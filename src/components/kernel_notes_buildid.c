@@ -46,11 +46,14 @@
 // No tagged results, no scalar facts. The fingerprint is opaque to the
 // inference engine and the orchestrator just prints it under -v.
 //
-// Endianness: the orchestrator and component are built for the target
-// arch; /sys/kernel/notes is written by the host kernel in host
-// endianness, so the uint32_t reads match without conversion. Big-endian
-// targets (ppc / ppc64-BE, s390) parse correctly under the matching
-// cross-built binary.
+// Endianness: /sys/kernel/notes is written by the running kernel in its
+// own byte order and read here with unconverted uint32_t loads, so the
+// parse is correct exactly when the binary's byte order matches the
+// kernel's — true by construction on a real host, and not checked.
+// Replaying a capture under a binary built for the other byte order
+// mis-reads the note headers. The output is informational (build id,
+// salt, LTO flag, packaging metadata): no address, no tagged result, no
+// scalar fact.
 //
 // Leak primitive:
 //   Data leaked:      vmlinux build-id, build salt, LTO flag, FDO metadata

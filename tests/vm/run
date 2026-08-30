@@ -505,6 +505,20 @@ verdict() {
   return 0
 }
 
+# Byte order of a cell, from the build prefix (deterministic per TABLE row).
+# extra/collect reads the same fact out of its own ELF header; here the prefix
+# is authoritative and needs no guest-side probe.
+prefix_endianness() {
+  case "$1" in
+    x86_64 | i686 | i386 | x86 | aarch64 | armv7 | arm | riscv32 | riscv64 |\
+    loongarch64 | mipsel | mips64el | ppc64le | powerpc64le)
+      echo little ;;
+    armeb | mips | mips64 | ppc32 | powerpc | ppc | powerpc64 | ppc64 | s390x)
+      echo big ;;
+    *) echo unknown ;;
+  esac
+}
+
 # Canonical arch dir name under tests/fixtures/ (kasld's arch naming, which
 # differs from uname_m_raw: aarch64 -> arm64, ppc64le -> ppc64, ...). Keyed on
 # the build prefix, which is deterministic per TABLE row.
@@ -621,11 +635,14 @@ reconstruct_fixture() {
   # uname -m on MIPS carries no endianness — BE and LE both report `mips` /
   # `mips64` — so validate-bundle and replay would resolve the wrong-endian
   # binary. The build prefix does encode it (mips / mipsel / mips64el) and
-  # matches their arch keys; use it for MIPS.
+  # matches their arch keys; use it for MIPS. The `endianness:` field below
+  # states the same fact for every arch and is what a capture made by
+  # extra/collect (which only has the blind `uname -m`) relies on.
   _uname=${_mach:-$_prefix}
   case "$_prefix" in
   mips | mipsel | mips64 | mips64el) _uname=$_prefix ;;
   esac
+  _endian=$(prefix_endianness "$_prefix")
 
   # flavor=local => a mainline kernel.org build; else an Alpine distro kernel.
   _canon=$(fixture_arch "$_prefix")
@@ -690,6 +707,7 @@ reconstruct_fixture() {
     echo "collect_version:  1"
     echo "collected_utc:    $(date -u 2>/dev/null || echo unknown)"
     echo "uname_m_raw:      $_uname"
+    echo "endianness:       $_endian"
     echo "arch_canonical:   $_canon"
     echo "kernel_release:   $_rel"
     echo "distro:           $_distro"

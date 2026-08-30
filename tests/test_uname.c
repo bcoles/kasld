@@ -29,8 +29,7 @@
 #define STAGED_VERSION "#1-Alpine SMP Sat, 16 May 2026 10:46:17 +0000"
 #define STAGED_LINE                                                            \
   "Linux version " STAGED_RELEASE " (buildozer@build-3-15-x86_64) (gcc "       \
-                                  "(Alpine 12.2.1) 12.2.1) " STAGED_VERSION    \
-  "\n"
+  "(Alpine 12.2.1) 12.2.1) " STAGED_VERSION "\n"
 
 static void stage_version(const char *line) {
   if (line == NULL) {

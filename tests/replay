@@ -67,9 +67,24 @@ resolve_qemu() {
   fi
 }
 
-# Map a raw `uname -m` to "<build-subdir> <qemu-binary>". Endianness lives in
-# the raw machine string (mips vs mipsel, ppc64 vs ppc64le), which is why this
-# keys on uname_m_raw, not the coarser canonical arch.
+# `uname -m` encodes byte order on most architectures — arm reports armv7b,
+# arm64 aarch64_be, powerpc ppc64le — which is why this keys on uname_m_raw
+# rather than the coarser canonical arch. MIPS is the exception: it reports
+# "mips"/"mips64" whatever the byte order, so a bundle's `endianness:` field
+# has to supply what the machine string cannot. SuperH and microblaze are
+# equally blind but have no entry below and no cross target, so they skip
+# either way.
+#
+# $1 = uname_m_raw, $2 = endianness (little/big/unknown/empty). A bundle
+# without the field, or with `unknown`, leaves the raw string standing.
+effective_machine() {
+  case "$1" in
+  mips | mips64) [ "${2:-}" = little ] && { echo "${1}el"; return; } ;;
+  esac
+  echo "$1"
+}
+
+# Map a raw `uname -m` to "<build-subdir> <qemu-binary>".
 target_for() {
   case "$1" in
   x86_64)            echo "x86_64-linux-musl qemu-x86_64" ;;
@@ -147,7 +162,7 @@ run_fixture() {
     printf 'SKIP  %-44s (no meta.txt/sizes.txt)\n' "$name"; echo skip >"$st"; return
   fi
 
-  machine=$(meta "$d" uname_m_raw)
+  machine=$(effective_machine "$(meta "$d" uname_m_raw)" "$(meta "$d" endianness)")
   release=$(meta "$d" kernel_release)
 
   if [ "${KASLD_NATIVE:-0}" = 1 ]; then
