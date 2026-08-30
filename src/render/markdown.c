@@ -181,8 +181,8 @@ static void render_environment_markdown(void) {
 }
 
 void render_markdown(const struct summary *s) {
-  struct utsname u;
-  int have_uname = (kasld_uname(&u) == 0);
+  struct utsname u = kasld_env.uts;
+  int have_uname = kasld_env.have_uts;
 
   /* Header info */
   printf("# KASLD Results\n\n");

@@ -142,8 +142,8 @@ static void oneline_quantity(const char *key,
 }
 
 void render_oneline(const struct summary *s) {
-  struct utsname u;
-  int have_uname = (kasld_uname(&u) == 0);
+  struct utsname u = kasld_env.uts;
+  int have_uname = kasld_env.have_uts;
 
   /* arch */
   printf("arch=%s", have_uname ? u.machine : "unknown");

@@ -17,6 +17,7 @@
 #include <limits.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <sys/utsname.h>
 
 #ifndef VERSION
 #define VERSION "unknown"
@@ -921,6 +922,11 @@ extern const struct kasld_cap_leak kasld_cap_leaks[KASLD_N_CAP_LEAKS];
 struct kasld_environment {
   struct kasld_hardening hardening;
   struct kasld_vantage vantage;
+  /* The target's identity, taken once with everything else in this struct: one
+   * acquisition per run, so no two output formats can name a different kernel
+   * and no renderer reaches for a fact of its own. */
+  struct utsname uts;
+  int have_uts;
 };
 
 /* Unknown in every field that has an unknown, so an environment that was never

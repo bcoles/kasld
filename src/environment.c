@@ -516,6 +516,8 @@ const char *kasld_vantage_seccomp_str(int seccomp) {
 }
 
 void kasld_env_snapshot(void) {
+  /* Identity first, with the rest: one acquisition for every format. */
+  kasld_env.have_uts = (kasld_uname(&kasld_env.uts) == 0);
   read_hardening_state(&kasld_env.hardening);
   kasld_gather_vantage(&kasld_env.vantage);
 }

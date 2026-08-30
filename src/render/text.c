@@ -18,7 +18,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/utsname.h>
-#include <unistd.h>
 
 /* Group key for "already printed" tracking. Sections are short, fixed
  * strings from region_info[].section_name — copy by pointer (those are
@@ -1177,19 +1176,29 @@ static void print_physical_layout(void) {
     }
   }
 
-  /* sysconf fallback for the top label when no ram_top leak was captured. */
+  /* Estimated top, for when no ram_top edge was observed. It comes from the
+   * evidence: SF_PHYS_MEMTOTAL is the target's figure, and carries a confidence
+   * and an origin. A renderer-side sysconf(_SC_PHYS_PAGES) answers for the
+   * machine running the analysis and does not honour KASLD_SYSROOT. */
   unsigned long ram_end = 0;
-  long pages = sysconf(_SC_PHYS_PAGES);
-  long page_size = sysconf(_SC_PAGE_SIZE);
-  if (pages > 0 && page_size > 0)
-    ram_end = PHYS_OFFSET + (unsigned long)pages * (unsigned long)page_size;
+  {
+    unsigned long memtotal = 0;
+    for (int i = 0; i < num_scalar_facts; i++)
+      if (scalar_facts[i].fact == SF_PHYS_MEMTOTAL) {
+        memtotal = scalar_facts[i].value;
+        break;
+      }
+    if (memtotal)
+      ram_end = (unsigned long)PHYS_OFFSET + memtotal;
+  }
   if (nppts > 0 && ppts[0].addr > ram_end)
     ram_end = ppts[0].addr;
 
-  /* Top label: a leaked DRAM edge (ram_top) is measured; the sysconf figure is
-   * an estimate — mark it so the reader can tell an observed edge from a
-   * derived one. The ceiling must also sit above everything drawn beneath it
-   * (points AND bucket footers), so it is only finalised and printed once the
+  /* Top label: a leaked DRAM edge (ram_top) is measured; the figure derived
+   * from total memory is an estimate — mark it so the reader can tell an
+   * observed edge from a derived one. The ceiling must also sit above
+   * everything drawn beneath it (points AND bucket footers), so it is only
+   * finalised and printed once the
    * buckets exist — see the fold-in below the bucket construction. */
   unsigned long top_label = have_ram_top ? ram_top : ram_end;
   int top_is_estimate = !have_ram_top;
@@ -1197,8 +1206,8 @@ static void print_physical_layout(void) {
    * drew those points outside the map that lists them -- and, when the
    * above-DRAM band's own footer is ram_top too, printed one address as both
    * bookends of a band holding points gigabytes higher. ppts[] is ordered high
-   * to low, so its head is the highest point shown. (The sysconf path already
-   * did this; the leaked path did not.) */
+   * to low, so its head is the highest point shown. (The derived path already
+   * does this; the leaked path does not.) */
   if (nppts > 0 && ppts[0].addr > top_label) {
     top_label = ppts[0].addr;
     top_is_estimate = 0; /* an observed address, however it was reached */
@@ -1338,7 +1347,7 @@ static void print_physical_layout(void) {
    * draw, and the bucket footers are edges too. The `[pmax + 1, dram_hi]`
    * bucket carries `pmax` as its footer, and pmax -- the engine's proven
    * ceiling on the physical image base -- routinely sits above both the leaked
-   * ram_top and the sysconf estimate (any host with no DRAM-extent observation,
+   * ram_top and the derived estimate (any host with no DRAM-extent observation,
    * where pmax stays at the arch default). Printing the ceiling first and the
    * footer after ran the column non-monotonic: an address above the stated top
    * of the map. pmax itself is engine state and is NOT clipped -- truncating it
@@ -1361,10 +1370,11 @@ static void print_physical_layout(void) {
   for (int b = 0; b < nbuckets; b++)
     w = map_addr_w(w, buckets[b].footer_addr);
 
-  /* The RAM top is either an address something reported or the sysconf
-   * page-count estimate. "likely (speculative)" is the readout's word for a
-   * value that is not proven; the map used to coin "(estimated)" for the same
-   * idea two blocks further down the same screen. */
+  /* The RAM top is either an address something reported or the estimate
+   * derived from the target's total memory. "likely (speculative)" is the
+   * readout's word for a value that is not proven, and the map says the same
+   * thing the same way rather than coining "(estimated)" two blocks further
+   * down the same screen. */
   if (top_label)
     print_map_addr(w, top_label, top_is_estimate ? "  likely" : NULL);
   else
@@ -2349,11 +2359,10 @@ static void print_hardening_value(const char *label, int value) {
  * belong above this line. */
 #ifndef KASLD_TESTING
 void render_banner(void) {
-  struct utsname u;
-  if (kasld_uname(&u) < 0) {
-    perror("uname");
+  /* No identity, no banner. The art shows none of it, but a run that cannot
+   * name the target has nothing to head. */
+  if (!kasld_env.have_uts)
     return;
-  }
 
   /* ASCII mode (non-UTF-8 locale or --ascii): the box-art is Unicode block
    * characters, so emit a plain-text title instead. */
@@ -2472,11 +2481,9 @@ static void print_confinement(const struct kasld_vantage *v) {
 }
 
 void render_system_config(void) {
-  struct utsname u;
-  if (kasld_uname(&u) < 0) {
-    perror("uname");
+  struct utsname u = kasld_env.uts;
+  if (!kasld_env.have_uts)
     return;
-  }
 
   printf("%-30s%s\n", "Kernel release:", u.release);
   printf("%-30s%s\n", "Kernel version:", u.version);

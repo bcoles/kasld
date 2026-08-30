@@ -2578,6 +2578,66 @@ static void test_render_oneline_with_rich_content(void) {
  * two has nothing to reconcile with -- while anyone brute-forcing the hull
  * spends effort on placements already ruled out. On one x86_64 host that is 647
  * of 6616 physical placements. */
+/* The physical map's derived ceiling follows the TARGET's memory, not the
+ * analysing host's.
+ *
+ * With no observed DRAM top the map derives one. It used to call
+ * sysconf(_SC_PHYS_PAGES), which answers for the machine running the analysis
+ * and ignores KASLD_SYSROOT -- so replaying a capture drew the ceiling from
+ * whichever computer opened it, an order of magnitude out for a 1 GB target on
+ * this host. The engine already carries the target's figure as
+ * SF_PHYS_MEMTOTAL.
+ *
+ * Asserted as a RELATIONSHIP rather than an exact top: the ceiling is folded in
+ * against the band footers and the physical window afterwards, so which value
+ * ends up printed depends on the rest of the map. What must hold is that
+ * changing the target's memory changes the map -- a host-bound source could
+ * not. The two figures straddle nothing else: both sit above the arch's
+ * physical image ceiling, so the derived value is what the column prints. */
+static void render_map_with_memtotal(struct summary *s,
+                                     unsigned long memtotal) {
+  reset_results();
+  reset_comp_logs();
+  stage_likely_reset();
+  num_scalar_facts = 0;
+  memset(s, 0, sizeof(*s));
+
+  scalar_facts[num_scalar_facts].fact = SF_PHYS_MEMTOTAL;
+  scalar_facts[num_scalar_facts].value = memtotal;
+  scalar_facts[num_scalar_facts++].conf = CONF_PARSED;
+
+  /* A physical point far below the derived ceiling, and deliberately no
+   * ram_top: an observed edge would win and the estimate would not be drawn. */
+  {
+    struct result *r = push_result();
+    r->type = KASLD_TYPE_PHYS;
+    r->region = REGION_KERNEL_IMAGE;
+    r->pos = POS_BASE;
+    r->conf = CONF_PARSED;
+    r->lo = (unsigned long)PHYS_OFFSET + 0x100000ul;
+    r->set_mask = LO_SET;
+    add_origin(r, "synthetic_test");
+    r->method_set = 1u << KM_PARSED;
+  }
+
+  verbose = 1;
+  set_render_mode(0, 0, 0);
+  capture_stdout(wrap_render_summary, s);
+  verbose = 0;
+  set_render_mode(0, 0, 0);
+}
+
+static void test_render_map_ceiling_from_target_not_host(void) {
+  struct summary s;
+  char small[RENDER_CAP_BUF];
+
+  render_map_with_memtotal(&s, 0x800000000ul); /* 32 GiB */
+  snprintf(small, sizeof small, "%s", render_cap);
+
+  render_map_with_memtotal(&s, 0x1000000000ul); /* 64 GiB */
+  assert(strcmp(small, render_cap) != 0);
+}
+
 static void test_render_excluded_ranges_are_disclosed(void) {
   struct summary s;
 
@@ -4856,6 +4916,7 @@ int main(void) {
   RUN(test_render_json_posture_always_present);
   RUN(test_render_markdown_with_rich_content);
   RUN(test_render_oneline_with_rich_content);
+  RUN(test_render_map_ceiling_from_target_not_host);
   RUN(test_render_excluded_ranges_are_disclosed);
   RUN(test_render_directmap_residual_has_a_denominator);
   RUN(test_render_oneline_set_value_is_not_hex);
