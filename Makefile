@@ -855,6 +855,7 @@ lint :
 	    $(TEST_DIR)/check-shellcheck \
 	    $(TEST_DIR)/check-fuzz-harnesses \
 	    $(TEST_DIR)/check-make-deps \
+	    $(TEST_DIR)/check-render-model-only \
 	    $(TEST_DIR)/check-property-arches \
 	    $(TEST_DIR)/check-stext-gap \
 	    $(TEST_DIR)/check-baseline \

@@ -1,0 +1,81 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-render-model-only — a renderer reads resolved quantities from the report
+# model, never from the summary.
+#
+# The model exists so one place decides what a run reports. It only binds a
+# format that consults it, and `render_summary()` hands every renderer the
+# summary as well — so each has a second source for the same facts, carrying
+# bare scalars with nothing attached to say whether a value was established.
+# Reaching for the unqualified one is how a ceiling got published as an image
+# base, how a slide got measured from it, and how `_stext` got asserted beside a
+# base that had not been resolved. None of those look wrong at the call site:
+# `s->kaslr.vtext` reads like the answer.
+#
+# The fields listed here are the ones carrying a QUANTITY's value, count or
+# entropy — the things the model reconciles. Fields describing the run rather
+# than a quantity (posture flags, component tallies) are not listed: a renderer
+# may read those freely.
+#
+# ALLOW below is at zero: every renderer takes its resolved values from the
+# model. It stays as the mechanism, not as a residue -- a new reach-around
+# raises a file's count above its allowance and fails here, and a migration that
+# removes the last one in a file must lower the allowance so the list keeps
+# naming exactly what is left rather than quietly permitting a return.
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+cd "$ROOT" || exit 1
+
+if [ -t 1 ] || [ -n "${KASLD_COLOR:-}" ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; RESET=
+fi
+
+# Summary fields that carry a quantity's value, count or entropy.
+# `default_addr` is deliberately NOT here: it is the build's own link-time
+# constant, not something the engine resolves, so reading it asserts no
+# resolution and there is nothing for the model to reconcile it against.
+FIELDS='vtext|ptext|vstext|pstext|vslide|pslide|vslots|pslots|vbits|pbits|vbits_top|vlikely_[a-z_]*|plikely_[a-z_]*|virt_page_offset[a-z_]*|virt_vmalloc[a-z_]*|virt_vmemmap[a-z_]*|virt_module[a-z_]*'
+
+# Call sites not yet migrated, as "<file> <count>". A file absent from this list
+# may have none at all.
+ALLOW='
+src/render.c 0
+src/render/text.c 0
+src/render/json.c 0
+src/render/markdown.c 0
+src/render/oneline.c 0
+'
+
+fail=0
+for f in src/render.c src/render/*.c; do
+  n=$(grep -oE "s->kaslr\.($FIELDS)" "$f" 2>/dev/null | wc -l | tr -d ' ')
+  want=$(printf '%s\n' "$ALLOW" | awk -v f="$f" '$1 == f { print $2 }')
+  [ -n "$want" ] || want=0
+  if [ "$n" -gt "$want" ]; then
+    printf '  FAIL: %s reads %s summary quantity fields, allowed %s\n' \
+      "$f" "$n" "$want"
+    printf '        the model is the source: kasld_report_find() and\n'
+    printf '        kasld_report_value(). A new one may not be added.\n'
+    fail=1
+  elif [ "$n" -lt "$want" ]; then
+    printf '  FAIL: %s now reads %s, allowed %s — lower the allowance\n' \
+      "$f" "$n" "$want"
+    printf '        so the list keeps naming exactly what is left.\n'
+    fail=1
+  fi
+done
+
+if [ "$fail" -ne 0 ]; then
+  printf '%scheck-render-model-only: a renderer takes a resolved value from the summary%s\n' \
+    "$RED" "$RESET" >&2
+  exit 1
+fi
+total=$(printf '%s\n' "$ALLOW" | awk '{ s += $2 } END { print s+0 }')
+printf '%scheck-render-model-only: OK%s (%d call sites left to migrate)\n' \
+  "$GREEN" "$RESET" "$total"

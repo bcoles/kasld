@@ -185,6 +185,7 @@ stays plain, and setting `KASLD_COLOR` non-empty or empty forces either.
 | `check-text-floor` | no component rolls its own text-base floor — they must use the `api.h` helper |
 | `check-shellcheck` | shellcheck over the `extra/` helper scripts |
 | `check-fuzz-harnesses` | every libFuzzer harness under `tests/fuzz/` still builds and links against the tree, and has a seed corpus † |
+| `check-render-model-only` | no renderer reads a resolved quantity — a base, count, slide or entropy figure — from the summary struct; the report model is the only source, so a format cannot present a value the model withheld or a figure the engine did not compute |
 | `check-make-deps` | every test and fuzz binary declares as a make prerequisite each source it reaches by `#include`, so an edit to one of them relinks rather than leaving a stale binary that passes against code no longer in the tree † |
 | `check-property-arches` | every supported architecture has BOTH whole-engine property tests — `test_full_engine_property_<arch>` and `..._floor` — defined and wired into the `RUN()` list † |
 | `check-stext-gap` | the three statements of an architecture's `_text`→`_stext` head gap agree: `STEXT_OFFSET`, `STEXT_OFFSET_MIN`/`_MAX`, and `STEXT_GAP_CANDIDATES` † |
