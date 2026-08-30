@@ -2581,19 +2581,18 @@ static void test_render_oneline_with_rich_content(void) {
 /* The physical map's derived ceiling follows the TARGET's memory, not the
  * analysing host's.
  *
- * With no observed DRAM top the map derives one. It used to call
- * sysconf(_SC_PHYS_PAGES), which answers for the machine running the analysis
- * and ignores KASLD_SYSROOT -- so replaying a capture drew the ceiling from
- * whichever computer opened it, an order of magnitude out for a 1 GB target on
- * this host. The engine already carries the target's figure as
- * SF_PHYS_MEMTOTAL.
+ * With no observed DRAM top the map derives one, and the figure has to come
+ * from the evidence. sysconf(_SC_PHYS_PAGES) answers for the machine running
+ * the analysis and does not honour KASLD_SYSROOT, so a renderer calling it
+ * describes whichever computer opened a capture rather than the target, and is
+ * wrong by however much the two machines differ. The engine carries the
+ * target's own figure as SF_PHYS_MEMTOTAL.
  *
  * Asserted as a RELATIONSHIP rather than an exact top: the ceiling is folded in
  * against the band footers and the physical window afterwards, so which value
  * ends up printed depends on the rest of the map. What must hold is that
  * changing the target's memory changes the map -- a host-bound source could
- * not. The two figures straddle nothing else: both sit above the arch's
- * physical image ceiling, so the derived value is what the column prints. */
+ * not. */
 static void render_map_with_memtotal(struct summary *s,
                                      unsigned long memtotal) {
   reset_results();
@@ -2630,11 +2629,28 @@ static void render_map_with_memtotal(struct summary *s,
 static void test_render_map_ceiling_from_target_not_host(void) {
   struct summary s;
   char small[RENDER_CAP_BUF];
+  unsigned long ceiling = layout.phys_kaslr_text_max;
 
-  render_map_with_memtotal(&s, 0x800000000ul); /* 32 GiB */
+  /* Both figures are taken from the arch's own physical ceiling rather than
+   * written as addresses. A derived ceiling only reaches the column when it
+   * sits above that ceiling, and which addresses do so is a different answer on
+   * each of the targets this compiles for -- written as one arch's numbers it
+   * truncates to zero wherever an unsigned long is 32 bits.
+   *
+   * Two ways the case cannot arise, both skipped rather than asserted around:
+   * an arch modelling no physical KASLR window has no ceiling to sit above, and
+   * one whose ceiling leaves no headroom in an unsigned long has no figure that
+   * can. The first is most of them, so this covers fewer arches than it
+   * compiles for. */
+  if (ceiling == 0 || ceiling > (ULONG_MAX - (unsigned long)PHYS_OFFSET) / 4) {
+    fprintf(stderr, "(skipped: no headroom above the physical ceiling) ");
+    return;
+  }
+
+  render_map_with_memtotal(&s, ceiling * 2);
   snprintf(small, sizeof small, "%s", render_cap);
 
-  render_map_with_memtotal(&s, 0x1000000000ul); /* 64 GiB */
+  render_map_with_memtotal(&s, ceiling * 4);
   assert(strcmp(small, render_cap) != 0);
 }
 
