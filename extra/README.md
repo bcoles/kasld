@@ -126,12 +126,18 @@ snapshots (the file's basename is the host label, since `kasld -j` carries no
 hostname):
 
 ```sh
-# One kasld -j per host, then summarise the whole fleet at a glance.
-for h in $(cat hosts); do ssh "$h" 'kasld -j' > "snap/$h.json"; done
+# One kasld -j per host, then summarise the whole fleet at a glance. kasld
+# exits 1 on a host that yields no results, which is still a valid snapshot;
+# anything above that means no snapshot was taken.
+for h in $(cat hosts); do
+  rc=0; ssh "$h" 'kasld -j' > "snap/$h.json" || rc=$?
+  [ "$rc" -le 1 ] || echo "$h: no snapshot (exit $rc)" >&2
+done
 extra/posture-summary --markdown snap/*.json
 
 # In CI: fail the build if a target's posture regressed against a saved baseline.
-kasld -j > current.json
+rc=0; kasld -j > current.json || rc=$?
+[ "$rc" -le 1 ] || exit "$rc"
 extra/posture-diff baseline.json current.json || echo "KASLR posture regressed"
 ```
 

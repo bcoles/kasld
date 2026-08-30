@@ -205,8 +205,8 @@ endpoints still form columns.
 KASLD 0.3.1-dev  --  Kernel Address Space Layout Derandomization
 Target: x86_64 / 7.0.0
 
-Running 106 of 109 components (3 experimental skipped; use -x to enable)...
-[####################] 100%  106/106  39.1s
+Running 107 of 110 components (3 experimental skipped; use -x to enable)...
+[####################] 100%  107/107  39.1s
 1 component timed out after 30s and was killed (prefetch_directmap)
 
   Quantity             Certainty   Window                                   Candidates  Grain
@@ -794,20 +794,45 @@ above, the base sits at that window's last slot by construction.
   `uname`, so this is "a CVE-class leak worked here", never "the kernel is
   version X". Empty means none did.
 
-Each gate below exits non-zero on a policy breach:
+The exit status reports whether the scan *ran*, not whether the host passed:
+
+- `0` — ran to completion; at least one leak produced a result.
+- `1` — ran to completion; no leak produced a result. This is a healthy host,
+  not an error: the KASLR window analysis and, with `-H`, the hardening report
+  are still written.
+- `2` — usage error, conflicting output-format flags, or the component
+  directory could not be found.
+- `3` — the target kernel addresses memory more widely than this build can
+  represent, which is a 32-bit build against a 64-bit kernel. No analysis is
+  attempted, and the output carries no layout or KASLR fields.
+
+So `0` and `1` both mean the scan is valid, and `2` and `3` mean there is no
+scan. A gate takes its verdict from the JSON and reads the status only to tell
+those two bands apart. Capture it with `|| rc=$?`: under `set -e`, which is on
+by default for a GitHub Actions `run:` step, a plain `rc=$?` on the following
+line never runs, because the failing command has already killed the script.
+
+Each gate below exits non-zero on a policy breach. One scan feeds all of them,
+so every gate judges the same moment rather than re-running the analysis:
 
 ```sh
+set -euo pipefail
+
+# Exit 1 is a healthy host; only 2 and 3 mean the scan did not happen.
+rc=0; kasld -j > kasld.json || rc=$?
+[ "$rc" -le 1 ] || { echo "kasld did not complete (exit $rc)"; exit "$rc"; }
+
 # Fail if the guaranteed base entropy drops below 12 bits.
-bits=$(kasld -j | jq '.kaslr.inferred.entropy_bits')
+bits=$(jq '.kaslr.inferred.entropy_bits' kasld.json)
 [ "$bits" -ge 12 ] || { echo "KASLR regressed: $bits guaranteed bits"; exit 1; }
 
 # Fail if KASLR is off (disabled, or unsupported for this arch/config).
-if kasld -j | jq -e '.kaslr.disabled or .kaslr.unsupported' >/dev/null; then
+if jq -e '.kaslr.disabled or .kaslr.unsupported' kasld.json >/dev/null; then
   echo "KASLR not active"; exit 1
 fi
 
 # Fail if any CVE-class leak succeeded.
-n=$(kasld -j | jq '.hardening.patched_vulnerabilities.possibly_unpatched | length')
+n=$(jq '.hardening.patched_vulnerabilities.possibly_unpatched | length' kasld.json)
 [ "$n" -eq 0 ] || { echo "$n CVE-class leak(s) succeeded"; exit 1; }
 ```
 
@@ -823,9 +848,12 @@ snapshot as a baseline and compare a later run against it with
 exits non-zero if the KASLR posture regressed:
 
 ```sh
-kasld -j > baseline.json            # once, when the host is known-good
+# Both captures use the status convention above: 0 and 1 are valid snapshots.
+rc=0; kasld -j > baseline.json || rc=$?   # once, when the host is known-good
+[ "$rc" -le 1 ] || exit "$rc"
 # … later, or in CI …
-kasld -j > current.json
+rc=0; kasld -j > current.json || rc=$?
+[ "$rc" -le 1 ] || exit "$rc"
 extra/posture-diff baseline.json current.json || echo "posture regressed"
 ```
 

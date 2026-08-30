@@ -75,8 +75,8 @@ The default text mode prints an answer-first overview:
 KASLD 0.3.1-dev  --  Kernel Address Space Layout Derandomization
 Target: x86_64 / 7.0.0
 
-Running 106 of 109 components (3 experimental skipped; use -x to enable)...
-[####################] 100%  106/106  39.1s
+Running 107 of 110 components (3 experimental skipped; use -x to enable)...
+[####################] 100%  107/107  39.1s
 1 component timed out after 30s and was killed (prefetch_directmap)
 
   Quantity             Certainty   Window                                   Candidates  Grain

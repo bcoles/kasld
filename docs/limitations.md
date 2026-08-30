@@ -10,6 +10,7 @@ target's real security.
 ## Table of Contents
 
 - [Trust the positive; read no security into the negative](#trust-the-positive-read-no-security-into-the-negative)
+- [What the guarantee assumes about its inputs](#what-the-guarantee-assumes-about-its-inputs)
 - [Why a run may under-recover](#why-a-run-may-under-recover)
 - [For defenders](#for-defenders)
 
@@ -30,6 +31,55 @@ The two directions are not symmetric:
 The reported residual (surviving slots / bits of entropy) is therefore an **upper
 bound on the protection that survives** — the best case for the defender, not a
 measured security level. A better-resourced attacker generally strips more.
+
+## What the guarantee assumes about its inputs
+
+The guaranteed window is a statement about the kernel whose `/proc` and `/sys`
+were read. It assumes those files are that kernel's own.
+
+Ordinary confinement is accounted for. A memory cgroup reports its limit through
+`/proc/meminfo`, so a container reads a `MemTotal` far below the machine's — and
+that value is deliberately held below the sound floor, where it shapes only the
+speculative window. `make test-fixtures-perturb` asserts exactly this across the
+whole fixture corpus: shrinking `MemTotal` must not move the guaranteed window.
+
+A substituted fact source goes further. The no-KASLR base is fixed exactly by
+`CONFIG_PHYSICAL_START` together with a kernel alignment, so a source supplying
+that pair narrows the guaranteed window to a single address:
+
+- `CONFIG_PHYSICAL_START` is read only from a kernel configuration —
+  `/boot/config-<release>`, `/lib/modules/<release>/{build/.config,config}`, or
+  `/proc/config.gz`.
+- The alignment may come from one of those or, on x86, from the real
+  `boot_params` header — so a substituted configuration setting only
+  `CONFIG_PHYSICAL_START` can still complete the pair.
+
+With no alignment from anywhere the value raises a floor instead of pinning,
+because the kernel rounds an unaligned `CONFIG_PHYSICAL_START` up.
+
+`/proc/cmdline` carrying `nokaslr` does not reach that far on its own. A kernel
+booted that way did not randomise, but the base it settled on is known only when
+the pair above is readable; otherwise the compile-time default stands in as a
+guess and shapes the speculative window alone, so a build with a non-default
+`CONFIG_PHYSICAL_START` never has its true base excluded from the guarantee.
+
+Each inference is correct from a truthful source. What differs is how much reach
+substituting one takes. `/proc/config.gz` is not namespaced, so a container
+reads the host's real one and overriding it means a deliberate bind-mount by
+whoever builds the namespace. The on-disk kernel configurations need no such
+thing: they are ordinary files in the analysed filesystem, which in a container
+is the image's rather than the kernel's. They are trusted because a
+release-keyed path is installed by the running kernel's own package — which
+holds on a host, where `/boot` and the kernel are the same system's, and does
+not hold for an image that merely contains a file of that name. The release is
+readable through `uname`, so the keying identifies the intended kernel; it does
+not establish who wrote the file. An unkeyed `/boot/config` is already treated
+as a best-effort fallback and cannot move the guaranteed window.
+
+The practical form of the assumption: a result describes the tree the run read.
+Where that tree was assembled by someone else — a captured bundle, a container
+image, a `/proc` entry mounted over — the result is a statement about that tree,
+not about the kernel underneath it.
 
 ## Why a run may under-recover
 

@@ -393,7 +393,7 @@ to be asked and records the answer.
 actually read. Component-exclusive variables are excluded deliberately: a
 component is a standalone program whose debugging knobs belong to it, not to
 the orchestrator's interface, and documenting them would oblige one page to
-track 118 components' internals. Two of them — `KASLD_COMPONENT_DIR` and
+track 120 components' internals. Two of them — `KASLD_COMPONENT_DIR` and
 `KASLD_EXEC_WRAPPER` — name programs kasld will execute, so an undocumented one
 is an execution knob invisible to anyone reviewing a `sudoers` rule or a
 packaging script. The same parity check `check-manpages` applies to flags;
