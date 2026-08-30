@@ -2634,20 +2634,6 @@ static void engine_sync_authoritative(const struct engine *e);
  * counts candidates at this floor. */
 #define KASLD_SOUND_FLOOR CONF_INFERRED
 
-/* Candidate count over q's honest compile-time top — the entropy this
- * architecture's KASLR had before any evidence narrowed it. Counted through
- * quantity_slots() at the same alignment as the residual, so the two are
- * directly comparable. Its inputs are the quantity table and the sound floor;
- * no engine state, so every build has it. */
-static unsigned long quantity_top_slots(enum kasld_quantity q,
-                                        unsigned long align) {
-  if (!align || !quantities[q].init_top)
-    return 0;
-  struct estimate top;
-  quantities[q].init_top(&top);
-  return quantity_slots(q, &top, KASLD_SOUND_FLOOR, NULL, 0, align);
-}
-
 /* Snapshot of the LIKELY resolution (floor CONF_BRUTE — all signals): the est +
  * constraints quantity_slots() needs, plus the resolver's rejected-constraint
  * (conflict) set so the likely window's conflicts can be reported symmetrically
@@ -2903,41 +2889,6 @@ void compute_kaslr_info(struct summary *s, const struct engine *auth,
   s->kaslr.has_phys = 0;
   s->kaslr.pstext = observed_stext_base(KASLD_TYPE_PHYS);
 
-  /* Hole-aware slot counts, projected beside the windows they count (see
-   * struct kasld_layout). Interior C_EXCLUDE holes and any C_STRIDE residue
-   * class are already reflected, so the headline entropy follows the estimate
-   * rather than the width of its convex hull. */
-  s->kaslr.vslots = layout.virt_kaslr_slots;
-  {
-    /* The starting candidate count, from the window the kernel draws the image
-     * base from -- KASLR_VIRT_TEXT_MIN..MAX, not the quantity's honest top.
-     * The honest top is deliberately widened to admit configurations the model
-     * cannot rule out (a sub-48 arm64 VA, a smaller CONFIG_PHYSICAL_START), so
-     * it is not a window the kernel ever used: on arm64 it over-states the
-     * count fourfold, on riscv64 by 127x. The tight pair is exactly what
-     * find_random_virt_addr() draws from on x86_64.
-     *
-     * A resolved estimate can be WIDER than this window, since the estimate
-     * uses the honest top -- a kernel built below the default
-     * CONFIG_PHYSICAL_START, say. The renderer prints "of N" only where N
-     * exceeds the count, so that degrades to a bare count rather than an
-     * incoherent ratio. */
-    unsigned long a = layout.virt_kaslr_align;
-    unsigned long lo = (unsigned long)KASLR_VIRT_TEXT_MIN;
-    unsigned long hi = (unsigned long)KASLR_VIRT_TEXT_MAX;
-    unsigned long top = (a && hi > lo) ? (hi - lo) / a + 1 : 0;
-    s->kaslr.vtop_slots = top;
-    s->kaslr.varch_slots = quantity_top_slots(Q_VIRT_IMAGE_BASE, a);
-  }
-
-#ifdef KASLR_PHYS_MIN
-  {
-    s->kaslr.pslots = layout.phys_kaslr_slots;
-    s->kaslr.parch_slots =
-        quantity_top_slots(Q_PHYS_IMAGE_BASE, layout.phys_kaslr_align);
-  }
-#endif
-
   if (s->kaslr.vtext) {
     s->kaslr.vslide = (long)(s->kaslr.vtext - layout.virt_image_base_default);
   }
@@ -2956,9 +2907,7 @@ void compute_kaslr_info(struct summary *s, const struct engine *auth,
      * count there would dress KASLD's uncertainty about a deterministic offset
      * up as brute-force entropy it does not have. The range is still shown. */
     s->kaslr.vslide = 0;
-    s->kaslr.vslots = 0;
     s->kaslr.pslide = 0;
-    s->kaslr.pslots = 0;
   }
 
   /* Speculative "likely" window from the all-signals snapshot.
@@ -3010,10 +2959,10 @@ void compute_kaslr_info(struct summary *s, const struct engine *auth,
   s->kaslr.virt_module_min = layout.virt_module_base_min;
   s->kaslr.virt_module_max = layout.virt_module_base_max;
 
-  /* Residual slot counts for the memory-KASLR regions, mirroring the headline
-   * vslots/pslots: the projected count already reflects interior C_EXCLUDE
-   * holes and any stride class, so the entropy the renderer prints follows the
-   * estimate rather than the width of its hull. Only a both-sided window
+  /* Residual slot counts for the memory-KASLR regions: the projected count
+   * already reflects interior C_EXCLUDE holes and any stride class, so the
+   * entropy the renderer prints follows the estimate rather than the width of
+   * its hull. Only a both-sided window
    * displays a count, so gate on min && max -- a presentation rule, asked here
    * where those edges are in hand. */
   s->kaslr.virt_page_offset_slots =
@@ -3033,13 +2982,6 @@ void compute_kaslr_info(struct summary *s, const struct engine *auth,
           ? layout.virt_module_slots
           : 0;
   s->kaslr.virt_module_align = layout.virt_module_align;
-  s->kaslr.virt_page_offset_bits = s->kaslr.virt_page_offset_slots > 0
-                                       ? ilog2(s->kaslr.virt_page_offset_slots)
-                                       : 0;
-  s->kaslr.virt_vmalloc_bits =
-      s->kaslr.virt_vmalloc_slots > 0 ? ilog2(s->kaslr.virt_vmalloc_slots) : 0;
-  s->kaslr.virt_vmemmap_bits =
-      s->kaslr.virt_vmemmap_slots > 0 ? ilog2(s->kaslr.virt_vmemmap_slots) : 0;
 
   if (auth) {
     /* Baseline for the direct-map residual, the counterpart of vbits_top. The
@@ -3073,7 +3015,6 @@ void compute_kaslr_info(struct summary *s, const struct engine *auth,
             quantity_slots(Q_PAGE_OFFSET, &budget, KASLD_SOUND_FLOOR, NULL, 0,
                            RANDOMIZE_MEMORY_ALIGN);
         s->kaslr.virt_page_offset_top_slots = top;
-        s->kaslr.virt_page_offset_bits_top = top > 0 ? ilog2(top) : 0;
       }
     }
   }
@@ -3105,30 +3046,6 @@ void compute_kaslr_info(struct summary *s, const struct engine *auth,
     /* Hole-aware slot count for each likely sub-window: count over the
      * all-signals estimate clamped to the region's likely [min, max]
      * (quantity_ranges carves holes against that clamped interval). */
-    if (s->kaslr.virt_page_offset_likely_max) {
-      struct estimate le = likely->est[Q_PAGE_OFFSET];
-      le.lo = s->kaslr.virt_page_offset_likely_min;
-      le.hi = s->kaslr.virt_page_offset_likely_max;
-      s->kaslr.virt_page_offset_likely_slots =
-          quantity_slots(Q_PAGE_OFFSET, &le, CONF_BRUTE, likely->constraints,
-                         likely->n_constraints, RANDOMIZE_MEMORY_ALIGN);
-    }
-    if (s->kaslr.virt_vmalloc_likely_max) {
-      struct estimate le = likely->est[Q_VMALLOC_BASE];
-      le.lo = s->kaslr.virt_vmalloc_likely_min;
-      le.hi = s->kaslr.virt_vmalloc_likely_max;
-      s->kaslr.virt_vmalloc_likely_slots =
-          quantity_slots(Q_VMALLOC_BASE, &le, CONF_BRUTE, likely->constraints,
-                         likely->n_constraints, RANDOMIZE_MEMORY_ALIGN);
-    }
-    if (s->kaslr.virt_vmemmap_likely_max) {
-      struct estimate le = likely->est[Q_VMEMMAP_BASE];
-      le.lo = s->kaslr.virt_vmemmap_likely_min;
-      le.hi = s->kaslr.virt_vmemmap_likely_max;
-      s->kaslr.virt_vmemmap_likely_slots =
-          quantity_slots(Q_VMEMMAP_BASE, &le, CONF_BRUTE, likely->constraints,
-                         likely->n_constraints, RANDOMIZE_MEMORY_ALIGN);
-    }
   }
 
 #if !TEXT_TRACKS_DIRECTMAP
@@ -3904,15 +3821,19 @@ void kasld_project_posture(const char *const *exclude, int n_exclude,
   engine_run_full_floored(&pe, KASLD_SOUND_FLOOR, rules, n_rules, vrules,
                           n_vrules);
   out->available = 1;
-  out->vslots = quantity_slots(Q_VIRT_IMAGE_BASE, &pe.est[Q_VIRT_IMAGE_BASE],
-                               KASLD_SOUND_FLOOR, pe.constraints,
-                               pe.n_constraints, layout.virt_kaslr_align);
-  out->vbits = out->vslots > 0 ? ilog2(out->vslots) : 0;
+  {
+    unsigned long slots = quantity_slots(
+        Q_VIRT_IMAGE_BASE, &pe.est[Q_VIRT_IMAGE_BASE], KASLD_SOUND_FLOOR,
+        pe.constraints, pe.n_constraints, layout.virt_kaslr_align);
+    out->vbits = slots > 0 ? ilog2(slots) : 0;
+  }
 #ifdef KASLR_PHYS_MIN
-  out->pslots = quantity_slots(Q_PHYS_IMAGE_BASE, &pe.est[Q_PHYS_IMAGE_BASE],
-                               KASLD_SOUND_FLOOR, pe.constraints,
-                               pe.n_constraints, layout.phys_kaslr_align);
-  out->pbits = out->pslots > 0 ? ilog2(out->pslots) : 0;
+  {
+    unsigned long slots = quantity_slots(
+        Q_PHYS_IMAGE_BASE, &pe.est[Q_PHYS_IMAGE_BASE], KASLD_SOUND_FLOOR,
+        pe.constraints, pe.n_constraints, layout.phys_kaslr_align);
+    out->pbits = slots > 0 ? ilog2(slots) : 0;
+  }
 #endif
 }
 #endif /* !KASLD_TESTING (engine_resolve/build need the components+engine.c)   \
@@ -3953,8 +3874,6 @@ void kasld_project_posture(const char *const *exclude, int n_exclude,
   } else {
     out->vbits = 4 + n_exclude;
   }
-  out->vslots = 1UL << out->vbits;
-  out->pslots = 1UL << out->pbits;
 }
 #endif
 

@@ -196,9 +196,9 @@ void render_oneline(const struct summary *s) {
   }
 
   /* Residual entropy over the guaranteed window — the bits of the base the
-   * evidence could not strip. Shown whenever the engine resolved a window
-   * (vslots > 0): the unpinned windowed case (where the residual is the whole
-   * point) reports its N bits, and a pin reports 0 bits. Matches the JSON
+   * evidence could not strip. Shown whenever the engine resolved a window with
+   * candidates in it: the unpinned windowed case (where the residual is the
+   * whole point) reports its N bits, and a pin reports 0 bits. Matches the JSON
    * inferred.entropy_bits. `na` only when there is no window — KASLR
    * off/unsupported zero the slot count. (In the `failed` posture the window is
    * still the proven residual; `kaslr=failed` is the effective-zero signal.) */

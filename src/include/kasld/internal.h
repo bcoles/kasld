@@ -611,13 +611,11 @@ struct kaslr_info {
   unsigned long
       vstext; /* _stext for display: observed symbol, else _text + head gap */
   long vslide;
-  unsigned long vslots;
   /* Physical KASLR */
   unsigned long ptext;  /* phys image base (_text) */
   unsigned long pstext; /* phys _stext for display: observed symbol, else _text
                            + head gap */
   long pslide;
-  unsigned long pslots;
   int has_phys;
   /* Entropy the virtual KASLR window started with, counted over
    * Q_VIRT_IMAGE_BASE's honest top at the same alignment as vbits. The
@@ -630,16 +628,8 @@ struct kaslr_info {
    * physical and direct-map tops are addressable-range bounds rather than
    * randomization windows, so a denominator drawn from them would read as
    * KASLR entropy the kernel never had. (The direct map does get a baseline —
-   * see virt_page_offset_bits_top — but from the RANDOMIZE_MEMORY budget
+   * see virt_page_offset_top_slots — but from the RANDOMIZE_MEMORY budget
    * model, not from Q_PAGE_OFFSET's top.) */
-  /* The same baseline as a raw candidate count. ilog2 rounds up, so
-   * 2^vbits_top over-states it and cannot stand in for "N of M". */
-  unsigned long vtop_slots;
-  /* Candidates spanned by each image base's architectural top. That top is
-   * widened to admit configurations the model cannot rule out, so a count equal
-   * to it means nothing was narrowed at all -- and the figure is a limit of the
-   * address space rather than a search space, so it is withheld. */
-  unsigned long varch_slots, parch_slots;
   /* Memory KASLR (x86_64 CONFIG_RANDOMIZE_MEMORY) */
   unsigned long virt_page_offset_min;
   unsigned long virt_page_offset_max;
@@ -658,35 +648,20 @@ struct kaslr_info {
   unsigned long virt_page_offset_likely_min, virt_page_offset_likely_max;
   unsigned long virt_vmalloc_likely_min, virt_vmalloc_likely_max;
   unsigned long virt_vmemmap_likely_min, virt_vmemmap_likely_max;
-  /* Hole-aware residual slot counts for the memory-KASLR regions above, from
-   * quantity_slots() over the resolved estimates (so interior C_EXCLUDE holes
-   * are excluded, matching the headline vslots/pslots). Renderers derive bits
-   * via ilog2. 0 when the region is unresolved / not a both-sided window. */
-  unsigned long virt_page_offset_slots, virt_page_offset_likely_slots;
-  /* Residual entropy over each window, derived from the hole-aware slot counts
-   * at the engine boundary. Carried here rather than recomputed in a renderer:
-   * the same quantity must not be derived two ways. */
-  int virt_page_offset_bits, virt_vmalloc_bits, virt_vmemmap_bits;
-  /* The direct map's starting candidate count, from the same budget window
-   * virt_page_offset_bits_top is taken from. Carried raw as well as in bits:
-   * ilog2 rounds up, so 2^bits_top over-states the baseline and cannot be used
-   * to say "N of M". 0 where the budget model could not be evaluated. */
+  /* Hole-aware residual slot count for the direct map, from quantity_slots()
+   * over the resolved estimate, so interior C_EXCLUDE holes are excluded. 0
+   * when the region is unresolved or is not a both-sided window. */
+  unsigned long virt_page_offset_slots;
+  /* The direct map's starting candidate count, from the budget window
+   * kernel_randomize_memory() draws page_offset_base from. Carried raw rather
+   * than in bits: ilog2 rounds up, so a bit count over-states the baseline and
+   * cannot be used to say "N of M". 0 where the budget model could not be
+   * evaluated soundly -- no max_pfn, an unresolved paging level, or a max_pfn
+   * observation below the sound floor, which would put a sub-floor denominator
+   * under a guaranteed-window numerator. */
   unsigned long virt_page_offset_top_slots;
-  /* Entropy the direct-map base started with, i.e. the baseline that makes
-   * virt_page_offset_bits interpretable, counted the same way (PUD-granular
-   * candidates through quantity_slots, then ilog2).
-   *
-   * NOT Q_PAGE_OFFSET's honest top, which is an addressable range rather than
-   * a randomization window: the denominator is the window
-   * kernel_randomize_memory() actually draws page_offset_base from, modelled
-   * in randomize_memory.h. x86_64-only (RANDOMIZE_MEMORY is), and 0 whenever
-   * that model cannot be evaluated soundly — no max_pfn, unresolved paging
-   * level, or a max_pfn observation below the sound floor, which would put a
-   * sub-floor denominator under a guaranteed-window numerator. Renderers
-   * degrade to the bare residual at 0. */
-  int virt_page_offset_bits_top;
-  unsigned long virt_vmalloc_slots, virt_vmalloc_likely_slots;
-  unsigned long virt_vmemmap_slots, virt_vmemmap_likely_slots;
+  unsigned long virt_vmalloc_slots;
+  unsigned long virt_vmemmap_slots;
   unsigned long virt_module_slots;
   unsigned long virt_module_align;
 };
@@ -706,7 +681,6 @@ struct summary {
 struct projected_posture {
   int available;
   int vbits, pbits; /* guaranteed residual entropy, bits (virt / phys base) */
-  unsigned long vslots, pslots;
 };
 
 /* Re-resolve the guaranteed window with the named component origins'
