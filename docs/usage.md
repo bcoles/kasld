@@ -139,8 +139,17 @@ The Layout table carries one row per quantity and basis:
 | `Quantity` | what is being located — always a *base*, a single address, not a region |
 | `Certainty` | `guaranteed` (proven; contains the true base) or `likely` (the all-signals estimate, a subset of the guaranteed window, and may be wrong) |
 | `Window` | the addresses: a window, a single address where the quantity is pinned, or a one-sided `>=` / `<=` bound. A concrete base carries its `slide` from the compile-time default |
-| `Candidates` | how many placements remain, against the set the row narrows — a `guaranteed` row against the window the kernel randomized over, a `likely` row against the `guaranteed` count above it. Reported whether or not evidence narrowed it, so a baseline run states the size of the problem; the denominator is dropped when nothing narrowed, leaving the bare total. `-` means no window is modelled for the quantity, which is the only thing that withholds the figure |
+| `Candidates` | how many placements remain, against the set the row narrows — a `guaranteed` row against the window the kernel randomized over, a `likely` row against the `guaranteed` count above it. Reported whether or not evidence narrowed it, so a baseline run states the size of the problem; the denominator is dropped when nothing narrowed, leaving the bare total. `-` means no window is modelled for the quantity, and `- of N` means the window has an unstated edge, so it is unbounded and what remains cannot be counted — `N` is still the set the row narrows |
 | `Grain` | the spacing the candidates sit on, which is what reconciles the count with the window. A lower bound: the engine resolves alignment as "at least this", so a coarser true alignment means fewer real candidates than stated |
+
+A key naming a quantity reports one of exactly three things: `0xADDR` where the
+engine resolved it, `[0xLO..0xHI]` where it only bounded it (a missing edge is
+omitted, as `[..0xHI]`), or `na` where nothing is known. A bare address is the
+signal to act on, and the absence of a `[` is how to test for it — a window's
+floor is not the base, and translating an address through one gives a wrong
+answer rather than an approximate one. Keys carrying a measurement or a property
+of the run rather than an answer — `arch`, `kaslr`, `entropy`, `pentropy`,
+`dram`, `results` — are always present and follow their own forms.
 
 The `likely` basis is deliberately conservative — "may be wrong" is a worst-case
 caveat, not a coin toss. KASLD is build-agnostic: it never trusts a version string
@@ -469,7 +478,7 @@ or not applicable to the arch/run renders the sentinel `na` (never a
 fabricated, defaulted, or leaked value):
 
 ```
-arch=x86_64 kaslr=on text=0xffffffffa2e00000 stext=na slide=+0x21e00000(568328192) entropy=0bits ptext=na pstext=na pslide=na pentropy=9bits dmap=0xffff800000000000 vmalloc=na vmemmap=na module=na vabits=na dram=[0x0..0x3ffdefff](1023.9 MiB) results=27
+arch=x86_64 kaslr=on text=0xffffffffa2e00000 stext=na slide=+0x21e00000(568328192) entropy=0bits ptext=[0x1000000..0x3ffdefff] pstext=na pslide=na pentropy=9bits dmap=0xffff800000000000 vmalloc=na vmemmap=na module=[0xffffffffc0000000..0xffffffffc0400000] vabits=na dram=[0x0..0x3ffdefff] results=27
 ```
 
 | Key | Meaning |
@@ -484,12 +493,12 @@ arch=x86_64 kaslr=on text=0xffffffffa2e00000 stext=na slide=+0x21e00000(56832819
 | `pstext` | physical `_stext`, when it differs from the physical image base |
 | `pslide` | physical KASLR slide (decoupled arches only) |
 | `pentropy` | physical residual entropy (same window / `na` rule as `entropy`) |
-| `dmap` | direct-map base (`PAGE_OFFSET`): the engine-resolved pin or proven floor, never the compile-time constant — except where the architecture guarantees that constant is the runtime value. `na` when neither is established |
-| `vmalloc` | vmalloc base — the proven floor, on the same terms as `dmap`. `na` where the architecture does not randomize the region, so there is no such unknown |
-| `vmemmap` | vmemmap base, same rule as `vmalloc` |
-| `module` | module region base |
-| `vabits` | resolved address-space size in bits (the paging level), once one candidate remains. `na` where the architecture admits only one size, so nothing is unknown |
-| `dram` | physical DRAM extent, `[0xLO..0xHI](size)` |
+| `dmap` | direct-map base (`PAGE_OFFSET`), per the value grammar below; never the compile-time constant |
+| `vmalloc` | vmalloc base, same. `na` where the architecture does not randomize the region, so there is no such unknown |
+| `vmemmap` | vmemmap base, same |
+| `module` | module region base, same |
+| `vabits` | address-space size in bits (the paging level): the value once one candidate remains, otherwise the candidates as a comma list (`48,57`). `na` where the architecture admits only one size, so nothing is unknown |
+| `dram` | physical DRAM extent, `[0xLO..0xHI]`. The span's size is not printed beside it: it is derivable from the edges, and a bracketed size carried a space, which made this the one value a whitespace tokenizer could not split into a key and a value |
 | `results` | count of merged result records (not the raw component count) |
 
 `na` carries the same "no value asserted" guarantee the human formats

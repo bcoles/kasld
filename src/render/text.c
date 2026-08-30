@@ -11,6 +11,7 @@
 
 #include "include/kasld/internal.h"
 #include "include/kasld/render_internal.h"
+#include "include/kasld/report.h"
 
 #include <limits.h>
 #include <stdio.h>
@@ -321,27 +322,38 @@ static void render_kaslr_text(const struct summary *s) {
   layout_render();
   printf("\n");
 
-  if (s->kaslr.vstext && s->kaslr.vstext != s->kaslr.vtext)
-    printf("  %-*s 0x%016lx\n", KASLR_LABEL_W,
-           "Virtual _stext:", s->kaslr.vstext);
-  if (s->kaslr.pstext && s->kaslr.pstext != s->kaslr.ptext)
-    printf("  %-*s 0x%016lx\n", KASLR_LABEL_W,
-           "Physical _stext:", s->kaslr.pstext);
-  if (s->kaslr.vtext)
-    printf("  %-*s 0x%016lx\n", KASLR_LABEL_W,
-           "Compile-time default:", layout.virt_image_base_default);
-  if (s->kaslr.vslots > 0)
-    printf(
-        "  %-*s %s\n", KASLR_LABEL_W, "Virtual entropy:",
-        entropy_phrase(s->kaslr.vbits, s->kaslr.vbits_top, ebuf, sizeof(ebuf)));
-  if (s->kaslr.pslots > 0)
-    printf("  %-*s %s\n", KASLR_LABEL_W, "Physical entropy:",
-           entropy_phrase(s->kaslr.pbits, 0, ebuf, sizeof(ebuf)));
-  if (s->kaslr.virt_page_offset_slots > 0)
-    printf("  %-*s %s\n", KASLR_LABEL_W, "Direct map entropy:",
-           entropy_phrase(s->kaslr.virt_page_offset_bits,
-                          s->kaslr.virt_page_offset_bits_top, ebuf,
-                          sizeof(ebuf)));
+  {
+    const struct kasld_report *rep = render_report();
+    const struct kasld_report_quantity *iv =
+        kasld_report_find(rep, Q_VIRT_IMAGE_BASE);
+    const struct kasld_report_quantity *ip =
+        kasld_report_find(rep, Q_PHYS_IMAGE_BASE);
+    const struct kasld_report_quantity *id =
+        kasld_report_find(rep, Q_PAGE_OFFSET);
+
+    if (iv && iv->has_stext)
+      printf("  %-*s 0x%016lx\n", KASLR_LABEL_W, "Virtual _stext:", iv->stext);
+    if (ip && ip->has_stext)
+      printf("  %-*s 0x%016lx\n", KASLR_LABEL_W, "Physical _stext:", ip->stext);
+    /* Beside a resolved base, which is what the default is a remark on. */
+    if (iv && iv->has_point)
+      printf("  %-*s 0x%016lx\n", KASLR_LABEL_W,
+             "Compile-time default:", layout.virt_image_base_default);
+    /* Residual entropy against what it narrows, both from the model: the two
+     * figures have to come from one place or the pair can disagree. */
+    if (iv && iv->guaranteed.candidates > 0)
+      printf("  %-*s %s\n", KASLR_LABEL_W, "Virtual entropy:",
+             entropy_phrase(iv->guaranteed.bits, iv->top_bits, ebuf,
+                            sizeof(ebuf)));
+    if (ip && ip->guaranteed.candidates > 0)
+      printf("  %-*s %s\n", KASLR_LABEL_W, "Physical entropy:",
+             entropy_phrase(ip->guaranteed.bits, ip->top_bits, ebuf,
+                            sizeof(ebuf)));
+    if (id && id->guaranteed.candidates > 0)
+      printf("  %-*s %s\n", KASLR_LABEL_W, "Direct map entropy:",
+             entropy_phrase(id->guaranteed.bits, id->top_bits, ebuf,
+                            sizeof(ebuf)));
+  }
   printf("\n");
 }
 

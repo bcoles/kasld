@@ -11,6 +11,7 @@
 
 #include "include/kasld/internal.h"
 #include "include/kasld/render_internal.h"
+#include "include/kasld/report.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -250,13 +251,23 @@ void render_markdown(const struct summary *s) {
      * quantity, and which slot the resolved base occupies. */
     printf("| Metric | Value |\n");
     printf("|:-------|:------|\n");
-    if (s->kaslr.vstext && s->kaslr.vstext != s->kaslr.vtext)
-      printf("| Virtual _stext | `0x%016lx` |\n", s->kaslr.vstext);
-    if (s->kaslr.pstext && s->kaslr.pstext != s->kaslr.ptext)
-      printf("| Physical _stext | `0x%016lx` |\n", s->kaslr.pstext);
-    if (s->kaslr.vtext)
-      printf("| Compile-time default | `0x%016lx` |\n",
-             layout.virt_image_base_default);
+    {
+      const struct kasld_report *rep = render_report();
+      const struct kasld_report_quantity *iv =
+          kasld_report_find(rep, Q_VIRT_IMAGE_BASE);
+      const struct kasld_report_quantity *ip =
+          kasld_report_find(rep, Q_PHYS_IMAGE_BASE);
+      if (iv && iv->has_stext)
+        printf("| Virtual _stext | `0x%016lx` |\n", iv->stext);
+      if (ip && ip->has_stext)
+        printf("| Physical _stext | `0x%016lx` |\n", ip->stext);
+      /* Stated beside a resolved base, which is what it is a remark on: with
+       * the base unresolved the table above already shows the window the
+       * default is judged against. */
+      if (iv && iv->has_point)
+        printf("| Compile-time default | `0x%016lx` |\n",
+               layout.virt_image_base_default);
+    }
 
     /* Phys/virt coupling — the static classification the text readout carries,
      * so a markdown report states whether a physical leak reveals the virtual

@@ -2747,15 +2747,37 @@ static unsigned long anchor_image_base(enum kasld_addr_type type,
  * STEXT_OFFSET is the likely gap, which is what this wants: the projection
  * feeds a display field that tracks the likely base, not the guaranteed
  * window. The sound edges are the engine's business and are not read here. */
-static unsigned long observed_stext_base(enum kasld_addr_type type,
-                                         unsigned long image_base) {
+/* _stext, where it was OBSERVED. Zero otherwise.
+ *
+ * Only an observation can establish it. The obvious derivation -- the image
+ * base plus the architecture's head gap -- is unsound on every architecture
+ * that has a gap at all, because the arch headers declare the gap as a RANGE
+ * and STEXT_OFFSET is merely its nominal value: arm32 0..2 MiB, arm64
+ * 64 KiB..2 MiB, mips 0..1 KiB, loongarch64 64 KiB upwards without a ceiling.
+ * Adding the nominal figure states one address out of a span of candidates.
+ * Where the gap is zero there is nothing to derive and _stext IS the image
+ * base, which every format suppresses rather than print one address twice.
+ *
+ * The record is chosen by CONFIDENCE and must be in bounds. Taking the first
+ * match in array order let a sub-floor timing guess stand in for a kallsyms
+ * read, and skipping the bounds test let a stale address through -- neither is
+ * visible at the point the value is printed, where it is just an address. */
+static unsigned long observed_stext_base(enum kasld_addr_type type) {
+  const struct result *best = NULL;
+  int best_w = -1;
   for (int i = 0; i < num_results; i++) {
     const struct result *r = &results[i];
-    if (r->type == type && r->region == REGION_KERNEL_TEXT &&
-        r->pos == POS_BASE && HAS_LO(r))
-      return r->lo;
+    int w;
+    if (r->type != type || r->region != REGION_KERNEL_TEXT ||
+        r->pos != POS_BASE || !HAS_LO(r) || !result_in_bounds(r, &layout))
+      continue;
+    w = conf_weight(r->conf);
+    if (w > best_w) {
+      best_w = w;
+      best = r;
+    }
   }
-  return image_base ? image_base + (unsigned long)STEXT_OFFSET : 0;
+  return best ? best->lo : 0;
 }
 
 /* Did evidence move either edge of Q_PAGE_OFFSET off the architecture's own
@@ -2875,11 +2897,11 @@ void compute_kaslr_info(struct summary *s, const struct engine *auth,
   (void)vraw;
   (void)praw;
   s->kaslr.vtext = vtext;
-  s->kaslr.vstext = observed_stext_base(KASLD_TYPE_VIRT, vtext);
+  s->kaslr.vstext = observed_stext_base(KASLD_TYPE_VIRT);
 
   s->kaslr.ptext = ptext;
   s->kaslr.has_phys = 0;
-  s->kaslr.pstext = observed_stext_base(KASLD_TYPE_PHYS, ptext);
+  s->kaslr.pstext = observed_stext_base(KASLD_TYPE_PHYS);
 
   /* Hole-aware slot counts, projected beside the windows they count (see
    * struct kasld_layout). Interior C_EXCLUDE holes and any C_STRIDE residue
@@ -3200,6 +3222,7 @@ void compute_kaslr_info(struct summary *s, const struct engine *auth,
           vpos == POS_BASE ? RANCHOR_BASE : RANCHOR_INTERIOR;
       pts[Q_VIRT_IMAGE_BASE].slide = s->kaslr.vslide;
       pts[Q_VIRT_IMAGE_BASE].has_slide = posture == RPOSTURE_RANDOMIZED;
+      pts[Q_VIRT_IMAGE_BASE].stext = s->kaslr.vstext;
     }
     if (s->kaslr.ptext) {
       pts[Q_PHYS_IMAGE_BASE].present = 1;
@@ -3208,6 +3231,7 @@ void compute_kaslr_info(struct summary *s, const struct engine *auth,
           ppos == POS_BASE ? RANCHOR_BASE : RANCHOR_INTERIOR;
       pts[Q_PHYS_IMAGE_BASE].slide = s->kaslr.pslide;
       pts[Q_PHYS_IMAGE_BASE].has_slide = posture == RPOSTURE_RANDOMIZED;
+      pts[Q_PHYS_IMAGE_BASE].stext = s->kaslr.pstext;
     }
 
     gv.est = auth->est;

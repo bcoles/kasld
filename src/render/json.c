@@ -223,6 +223,11 @@ static void collect_group_keys(enum kasld_addr_type type, const char *section,
  * `hi == 0` is not the address zero, it is "no bound claimed", and the two must
  * not render alike -- a consumer that reads a missing bound as 0x0 concludes
  * the window starts at the bottom of the address space. */
+/* A window's two edges as a named pair, on the terms the model states them:
+ * an unstated edge is JSON null, never the address zero. */
+static void json_addr_pair(const char *lo_key, const char *hi_key,
+                           const struct kasld_report_window *w);
+
 static void json_addr_or_null(int has, unsigned long v) {
   if (has)
     printf("\"0x%016lx\"", v);
@@ -233,6 +238,14 @@ static void json_addr_or_null(int has, unsigned long v) {
 /* environment — the recon vantage: container / confinement / which /proc leak
  * oracles are readable here. The one snapshot the text and markdown renderers
  * read, so the three cannot describe different moments. */
+static void json_addr_pair(const char *lo_key, const char *hi_key,
+                           const struct kasld_report_window *w) {
+  printf("      \"%s\": ", lo_key);
+  json_addr_or_null(w->has_lo, w->lo);
+  printf(",\n      \"%s\": ", hi_key);
+  json_addr_or_null(w->has_hi, w->hi);
+}
+
 static void render_environment_json(void) {
   const struct kasld_vantage *v = &kasld_env.vantage;
 
@@ -524,20 +537,31 @@ void render_json(const struct summary *s) {
    * base came from a sub-sound-floor leak: it is a speculative best-guess, not
    * proven. Mark it, and ALSO emit the guaranteed range (inferred) so consumers
    * still get the sound window. */
-  int v_spec = s->kaslr.vtext && kaslr_virt_is_window();
-  if (s->kaslr.vtext) {
+  /* The concrete base comes from the MODEL, which records one only where a
+   * resolution admits exactly that address. Read from the summary it was a bare
+   * pick from the observations, so an interior sample -- an address proven to
+   * lie inside the image, hence an upper bound on its base -- was published
+   * here as `image_base`, with a slide measured from it. Marking it speculative
+   * did not make it a base. Where the model withholds a point the block is
+   * omitted and `inferred` carries the window, which is the honest answer. */
+  const struct kasld_report_quantity *rv =
+      kasld_report_find(rep, Q_VIRT_IMAGE_BASE);
+  /* A concrete base shown while the proven window is still a range is a guess,
+   * and both the base block and the window block key off that. */
+  int v_spec = rv && rv->has_point && kaslr_virt_is_window();
+  if (rv && rv->has_point) {
     printf(",\n    \"virtual\": {\n");
-    printf("      \"image_base\": \"0x%016lx\",\n", s->kaslr.vtext);
-    if (s->kaslr.vstext && s->kaslr.vstext != s->kaslr.vtext)
-      printf("      \"stext\": \"0x%016lx\",\n", s->kaslr.vstext);
+    printf("      \"image_base\": \"0x%016lx\",\n", rv->point);
+    if (rv->has_stext)
+      printf("      \"stext\": \"0x%016lx\",\n", rv->stext);
     /* `slide_bytes` is this base measured against
      * `layout.virt_image_base_default`, which carries that constant for every
      * posture. */
-    printf("      \"slide_bytes\": %ld,\n", s->kaslr.vslide);
-    printf("      \"entropy_bits\": %d,\n", s->kaslr.vbits);
-    if (s->kaslr.vbits_top > 0)
-      printf("      \"entropy_bits_initial\": %d,\n", s->kaslr.vbits_top);
-    printf("      \"slots\": %lu", s->kaslr.vslots);
+    printf("      \"slide_bytes\": %ld,\n", rv->slide);
+    printf("      \"entropy_bits\": %d,\n", rv->guaranteed.bits);
+    if (rv->top_bits > 0)
+      printf("      \"entropy_bits_initial\": %d,\n", rv->top_bits);
+    printf("      \"slots\": %lu", rv->guaranteed.candidates);
     if (v_spec)
       printf(",\n      \"speculative\": true");
     printf("\n    }");
@@ -549,16 +573,14 @@ void render_json(const struct summary *s) {
    * simply wrong, so suppressing it left a machine consumer with nothing.
    * Slots and entropy stay gated on a live slot count: KASLR off means no
    * residual entropy, but it does not mean no window. */
-  if ((layout.virt_kaslr_text_min || layout.virt_kaslr_text_max) &&
-      (v_spec || !s->kaslr.vtext)) {
+  if (rv && rv->guaranteed.present && (v_spec || !rv->has_point)) {
     printf(",\n    \"inferred\": {\n");
-    printf("      \"range_min\": \"0x%016lx\",\n", layout.virt_kaslr_text_min);
-    printf("      \"range_max\": \"0x%016lx\"", layout.virt_kaslr_text_max);
-    if (s->kaslr.vslots > 0) {
-      printf(",\n      \"slots\": %lu", s->kaslr.vslots);
-      if (s->kaslr.vbits_top > 0)
-        printf(",\n      \"entropy_bits_initial\": %d", s->kaslr.vbits_top);
-      printf(",\n      \"entropy_bits\": %d", s->kaslr.vbits);
+    json_addr_pair("range_min", "range_max", &rv->guaranteed);
+    if (rv->guaranteed.candidates > 0) {
+      printf(",\n      \"slots\": %lu", rv->guaranteed.candidates);
+      if (rv->top_bits > 0)
+        printf(",\n      \"entropy_bits_initial\": %d", rv->top_bits);
+      printf(",\n      \"entropy_bits\": %d", rv->guaranteed.bits);
     }
     printf("\n    }");
   }
@@ -566,48 +588,47 @@ void render_json(const struct summary *s) {
   /* Speculative "likely" window: a subset of the guaranteed (inferred/virtual)
    * window above, narrowed by sub-sound-floor signals; may be wrong. Emitted
    * only when actually tighter than guaranteed. */
-  if (s->kaslr.vlikely_max != 0) {
+  if (rv && kasld_report_likely_is_tighter(rv)) {
     printf(",\n    \"likely\": {\n");
-    printf("      \"range_min\": \"0x%016lx\",\n", s->kaslr.vlikely_min);
-    printf("      \"range_max\": \"0x%016lx\",\n", s->kaslr.vlikely_max);
-    printf("      \"slots\": %lu,\n", s->kaslr.vlikely_slots);
-    printf("      \"entropy_bits\": %d,\n", s->kaslr.vlikely_bits);
+    json_addr_pair("range_min", "range_max", &rv->likely);
+    printf(",\n      \"slots\": %lu,\n", rv->likely.candidates);
+    printf("      \"entropy_bits\": %d,\n", rv->likely.bits);
     printf("      \"speculative\": true\n");
     printf("    }");
   }
 
-  int p_spec = s->kaslr.has_phys && kaslr_phys_is_window();
-  if (s->kaslr.has_phys) {
+  const struct kasld_report_quantity *rp =
+      kasld_report_find(rep, Q_PHYS_IMAGE_BASE);
+  int p_spec = rp && rp->has_point && kaslr_phys_is_window();
+  if (rp && rp->has_point) {
     printf(",\n    \"physical\": {\n");
-    printf("      \"image_base\": \"0x%016lx\",\n", s->kaslr.ptext);
-    if (s->kaslr.pstext && s->kaslr.pstext != s->kaslr.ptext)
-      printf("      \"stext\": \"0x%016lx\",\n", s->kaslr.pstext);
+    printf("      \"image_base\": \"0x%016lx\",\n", rp->point);
+    if (rp->has_stext)
+      printf("      \"stext\": \"0x%016lx\",\n", rp->stext);
     /* `slide_bytes` is this base measured against
      * `layout.phys_image_base_default`, which carries that constant for every
      * posture (and is null where the architecture defines none). */
-    printf("      \"slide_bytes\": %ld,\n", s->kaslr.pslide);
-    printf("      \"entropy_bits\": %d,\n", s->kaslr.pbits);
-    printf("      \"slots\": %lu", s->kaslr.pslots);
+    printf("      \"slide_bytes\": %ld,\n", rp->slide);
+    printf("      \"entropy_bits\": %d,\n", rp->guaranteed.bits);
+    printf("      \"slots\": %lu", rp->guaranteed.candidates);
     if (p_spec)
       printf(",\n      \"speculative\": true");
     printf("\n    }");
   }
-  if (!s->kaslr.disabled && !s->kaslr.unsupported && s->kaslr.pslots > 0 &&
-      (p_spec || !s->kaslr.has_phys)) {
+  if (!s->kaslr.disabled && !s->kaslr.unsupported && rp &&
+      rp->guaranteed.candidates > 0 && (p_spec || !rp->has_point)) {
     printf(",\n    \"inferred_physical\": {\n");
-    printf("      \"range_min\": \"0x%016lx\",\n", layout.phys_kaslr_text_min);
-    printf("      \"range_max\": \"0x%016lx\",\n", layout.phys_kaslr_text_max);
-    printf("      \"slots\": %lu,\n", s->kaslr.pslots);
-    printf("      \"entropy_bits\": %d\n", s->kaslr.pbits);
+    json_addr_pair("range_min", "range_max", &rp->guaranteed);
+    printf(",\n      \"slots\": %lu,\n", rp->guaranteed.candidates);
+    printf("      \"entropy_bits\": %d\n", rp->guaranteed.bits);
     printf("    }");
   }
 
-  if (s->kaslr.plikely_max != 0) {
+  if (rp && kasld_report_likely_is_tighter(rp)) {
     printf(",\n    \"likely_physical\": {\n");
-    printf("      \"range_min\": \"0x%016lx\",\n", s->kaslr.plikely_min);
-    printf("      \"range_max\": \"0x%016lx\",\n", s->kaslr.plikely_max);
-    printf("      \"slots\": %lu,\n", s->kaslr.plikely_slots);
-    printf("      \"entropy_bits\": %d,\n", s->kaslr.plikely_bits);
+    json_addr_pair("range_min", "range_max", &rp->likely);
+    printf(",\n      \"slots\": %lu,\n", rp->likely.candidates);
+    printf("      \"entropy_bits\": %d,\n", rp->likely.bits);
     printf("      \"speculative\": true\n");
     printf("    }");
   }

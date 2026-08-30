@@ -227,10 +227,15 @@ static void test_build_report(const struct summary *s, struct kasld_report *r) {
     it->anchor = RANCHOR_BASE;
     it->slide = s->kaslr.vslide;
     it->has_slide = r->posture == RPOSTURE_RANDOMIZED;
-  } else if (s->kaslr.vlikely_max) {
+  }
+  /* Independently of the point, not instead of it: the orchestrator fills the
+   * concrete base and the likely resolution from separate sources, and a run
+   * commonly has both -- the observation that supplies the base is the same one
+   * the engine narrows with. Staging them as alternatives modelled a state the
+   * orchestrator cannot produce. */
+  if (s->kaslr.vlikely_max)
     stage_window(&it->likely, s->kaslr.vlikely_min, s->kaslr.vlikely_max,
                  s->kaslr.vlikely_slots);
-  }
   if (layout.virt_kaslr_text_min == layout.virt_kaslr_text_max &&
       layout.virt_kaslr_text_min)
     it->has_slide = r->posture == RPOSTURE_RANDOMIZED;
@@ -244,10 +249,10 @@ static void test_build_report(const struct summary *s, struct kasld_report *r) {
     it->anchor = RANCHOR_BASE;
     it->slide = s->kaslr.pslide;
     it->has_slide = r->posture == RPOSTURE_RANDOMIZED;
-  } else if (s->kaslr.plikely_max) {
+  }
+  if (s->kaslr.plikely_max)
     stage_window(&it->likely, s->kaslr.plikely_min, s->kaslr.plikely_max,
                  s->kaslr.plikely_slots);
-  }
   if (layout.phys_kaslr_text_min == layout.phys_kaslr_text_max &&
       layout.phys_kaslr_text_min)
     it->has_slide = r->posture == RPOSTURE_RANDOMIZED;
@@ -273,6 +278,24 @@ static void test_build_report(const struct summary *s, struct kasld_report *r) {
              s->kaslr.virt_page_offset_max, s->kaslr.virt_page_offset_slots,
              s->kaslr.virt_page_offset_top_slots, 0);
 #endif
+
+  /* The paging level: a SET, and the only quantity of that shape. Staged so a
+   * format's handling of a set is exercised at all -- without it every
+   * assertion about `vabits` passes on the `na` that a missing item produces,
+   * which is how a set value formatted as an address went unnoticed. */
+  if (quantities[Q_VA_BITS].n_candidates > 1) {
+    struct kasld_report_quantity *sv = &r->quantities[r->n_quantities++];
+    memset(sv, 0, sizeof(*sv));
+    sv->q = Q_VA_BITS;
+    sv->key = quantities[Q_VA_BITS].name;
+    sv->label = "Paging Level";
+    sv->search_top = (unsigned long)quantities[Q_VA_BITS].n_candidates;
+    sv->guaranteed.present = 1;
+    sv->guaranteed.shape = RSHAPE_SET;
+    sv->guaranteed.n_values = 1;
+    sv->guaranteed.values[0] = quantities[Q_VA_BITS].candidates[0];
+    sv->guaranteed.candidates = 1;
+  }
 
   stage_item(r, Q_MODULE_BASE, "Module Region Base", s->kaslr.virt_module_min,
              s->kaslr.virt_module_max, s->kaslr.virt_module_slots, 0,
@@ -495,12 +518,19 @@ static void test_render_oneline_dmap_not_asserted_when_unpinned(void) {
   set_render_mode(0, 0, 0);
 
   /* On an arch where the compile-time value is guaranteed, naming it is sound
-   * and the field may carry it; where it is not, the only honest answers are a
-   * resolved address or `na`. */
+   * and the field may carry it. Where it is not, the value must not be a BARE
+   * address: that is the form reserved for a resolved base, and nothing here
+   * resolved one. The windowed and `na` forms both say so honestly, so the
+   * assertion is on the grammar rather than on which of the two appears. */
 #if PAGE_OFFSET_INVARIANT
   assert(strstr(render_cap, "dmap=") != NULL);
 #else
-  assert(strstr(render_cap, "dmap=na") != NULL);
+  {
+    const char *v = strstr(render_cap, "dmap=");
+    assert(v != NULL);
+    v += strlen("dmap=");
+    assert(*v == '[' || strncmp(v, "na", 2) == 0);
+  }
 #endif
 }
 
@@ -633,6 +663,15 @@ static void test_render_vtext_speculative(void) {
   s.kaslr.vslide = 0x10000000l;
   s.kaslr.vslots = 60;
   s.kaslr.vbits = 6;
+  /* The engine's likely resolution, pinned at the same observation the concrete
+   * base was picked from. Staged because that is what a run HAS: the anchor
+   * scan and the engine read the same observation, so a base witness both
+   * supplies the headline value and pins the speculative window. A concrete
+   * base with no window behind it is not a state the orchestrator reaches, and
+   * a row drawn from one would be asserting a count no resolution produced. */
+  s.kaslr.vlikely_min = s.kaslr.vtext;
+  s.kaslr.vlikely_max = s.kaslr.vtext;
+  s.kaslr.vlikely_slots = 1;
   layout.virt_kaslr_text_min = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
   layout.virt_kaslr_text_max =
       (unsigned long)KERNEL_VIRT_TEXT_DEFAULT + 0x3c000000ul;
@@ -884,8 +923,14 @@ static void test_render_directmap_base_promoted(void) {
   s.kaslr.virt_page_offset_min = (unsigned long)PAGE_OFFSET_BASE_L4;
   s.kaslr.virt_page_offset_max = base; /* guaranteed window top */
   s.kaslr.virt_page_offset_slots = 21;
-  s.kaslr.virt_page_offset_likely_min = base - align; /* one-slot bracket */
-  s.kaslr.virt_page_offset_likely_max = base;         /* best-guess base */
+  /* A genuine pin, which is what "promoted" means: the engine resolved the
+   * direct-map base to one value, and the count says so. A bracket one grain
+   * WIDE is not this -- [base - align, base] has a grid point at each end, so
+   * the engine counts two candidates, and an offset measured from one of them
+   * is not a measurement of the base. */
+  s.kaslr.virt_page_offset_likely_min = base;
+  s.kaslr.virt_page_offset_likely_max = base;
+  s.kaslr.virt_page_offset_likely_slots = 1;
 
   set_render_mode(0, 0, 0); /* default text readout */
   capture_stdout(wrap_render_summary, &s);
@@ -924,8 +969,14 @@ static void test_render_directmap_base_promoted_unbounded(void) {
   unsigned long base = (unsigned long)PAGE_OFFSET_BASE_L4 + 20ul * align;
   s.kaslr.virt_page_offset_min = (unsigned long)PAGE_OFFSET_BASE_L4; /* floor */
   s.kaslr.virt_page_offset_max = 0; /* UNBOUNDED above (no sound ceiling) */
-  s.kaslr.virt_page_offset_likely_min = base - align; /* one-slot bracket */
-  s.kaslr.virt_page_offset_likely_max = base;         /* best-guess base */
+  /* A genuine pin, which is what "promoted" means: the engine resolved the
+   * direct-map base to one value, and the count says so. A bracket one grain
+   * WIDE is not this -- [base - align, base] has a grid point at each end, so
+   * the engine counts two candidates, and an offset measured from one of them
+   * is not a measurement of the base. */
+  s.kaslr.virt_page_offset_likely_min = base;
+  s.kaslr.virt_page_offset_likely_max = base;
+  s.kaslr.virt_page_offset_likely_slots = 1;
 
   set_render_mode(0, 0, 0); /* default text readout */
   capture_stdout(wrap_render_summary, &s);
@@ -975,8 +1026,12 @@ static void test_render_directmap_offset_follows_paging_level(void) {
     s.kaslr.virt_page_offset_min = refs[i];
     s.kaslr.virt_page_offset_max = base;
     s.kaslr.virt_page_offset_slots = 21;
-    s.kaslr.virt_page_offset_likely_min = base - align;
+    /* Pinned, so the offset annotates a resolved value rather than one end of
+     * a bracket: a window one grain wide holds a grid point at each end, which
+     * is two candidates, and an offset from one of them measures nothing. */
+    s.kaslr.virt_page_offset_likely_min = base;
     s.kaslr.virt_page_offset_likely_max = base;
+    s.kaslr.virt_page_offset_likely_slots = 1;
 
     set_render_mode(0, 0, 0);
     capture_stdout(wrap_render_summary, &s);
@@ -1007,8 +1062,12 @@ static void test_render_directmap_offset_follows_paging_level(void) {
     s.kaslr.virt_page_offset_min = (unsigned long)PAGE_OFFSET_BASE_L4;
     s.kaslr.virt_page_offset_max = base;
     s.kaslr.virt_page_offset_slots = 21;
-    s.kaslr.virt_page_offset_likely_min = base - align;
+    /* Pinned, so the offset annotates a resolved value rather than one end of
+     * a bracket: a window one grain wide holds a grid point at each end, which
+     * is two candidates, and an offset from one of them measures nothing. */
+    s.kaslr.virt_page_offset_likely_min = base;
     s.kaslr.virt_page_offset_likely_max = base;
+    s.kaslr.virt_page_offset_likely_slots = 1;
 
     set_render_mode(0, 0, 0);
     capture_stdout(wrap_render_summary, &s);
@@ -2444,6 +2503,101 @@ static void test_render_oneline_with_rich_content(void) {
  * engine-resolved layout.virt_page_offset), never an interior linear-map
  * sample. Seed an interior directmap leak alongside a resolved base and assert
  * the base — not the leak — is what `dmap=` prints. */
+/* A region key states a BARE address only where the engine resolved the region
+ * to one, and the window otherwise -- the grammar every value key on that line
+ * follows.
+ *
+ * The floor alone was reported instead, under a key named for the base, on
+ * windows that commonly admit tens of thousands of placements. A scraper cannot
+ * tell that from a resolved base, and a floor put through a direct-map
+ * translation gives a wrong address rather than an approximate one. The window
+ * says the same thing without the ambiguity, and says more of it. */
+/* Every token on the oneline splits into a key and a value.
+ *
+ * The line is documented as whitespace-separated key=value pairs, and one value
+ * broke that: the DRAM extent carried its size as "(13.0 GiB)", so the obvious
+ * tokenizer produced a trailing "GiB)" with no `=` in it. A format whose
+ * contract is a stable key set has to be splittable by that contract. */
+/* A set's values are not addresses, and must not be formatted as ones.
+ *
+ * The paging level is a count of bits: 48, not 0x30. It shares the value
+ * grammar's "resolved" state with the address quantities, so a helper that
+ * reads the value before reading the SHAPE formats it through the address path
+ * and publishes a plausible-looking wrong number. */
+static void test_render_oneline_set_value_is_not_hex(void) {
+  struct summary s;
+  /* Only where the architecture has a set quantity to report at all. */
+  if (quantities[Q_VA_BITS].n_candidates <= 1)
+    return;
+  set_rich_render_state(&s);
+  set_render_mode(0, 1, 0);
+  capture_stdout(wrap_render_summary, &s);
+  set_render_mode(0, 0, 0);
+  {
+    const char *v = strstr(render_cap, " vabits=");
+    assert(v != NULL);
+    v += strlen(" vabits=");
+    /* Decimal, or the `na` sentinel -- never `0x`. */
+    assert(strncmp(v, "0x", 2) != 0);
+  }
+}
+
+static void test_render_oneline_tokens_are_key_value(void) {
+  struct summary s;
+  char *tok, *save, buf[RENDER_CAP_BUF];
+
+  set_rich_render_state(&s);
+  set_render_mode(0, 1, 0);
+  capture_stdout(wrap_render_summary, &s);
+  set_render_mode(0, 0, 0);
+
+  snprintf(buf, sizeof buf, "%s", render_cap);
+  for (tok = strtok_r(buf, " \t\n", &save); tok;
+       tok = strtok_r(NULL, " \t\n", &save)) {
+    const char *eq = strchr(tok, '=');
+    assert(eq != NULL); /* a token with no '=' is not a pair */
+    assert(eq != tok);  /* nor is one with an empty key */
+  }
+}
+
+static void test_render_oneline_region_key_needs_one_candidate(void) {
+  struct summary s;
+  unsigned long base;
+
+  set_rich_render_state(&s);
+  base =
+      s.kaslr.virt_module_min ? s.kaslr.virt_module_min : 0xffffffffc0000000ul;
+
+  /* A window with room in it: the window is stated, never a bare address. The
+   * bare form is reserved for a resolved value, and a consumer tests for it by
+   * the absence of a bracket. */
+  s.kaslr.virt_module_min = base;
+  s.kaslr.virt_module_max = base + 0x400000ul;
+  s.kaslr.virt_module_slots = 1025;
+  set_render_mode(0, 1, 0);
+  capture_stdout(wrap_render_summary, &s);
+  {
+    char want[64];
+    const char *v = strstr(render_cap, "module=");
+    assert(v != NULL);
+    assert(v[strlen("module=")] == '[');
+    snprintf(want, sizeof want, "module=[0x%lx..0x%lx]", base,
+             base + 0x400000ul);
+    assert(strstr(render_cap, want) != NULL);
+  }
+
+  /* The same region resolved: the address, now that it is one. */
+  s.kaslr.virt_module_max = base;
+  s.kaslr.virt_module_slots = 1;
+  capture_stdout(wrap_render_summary, &s);
+  set_render_mode(0, 0, 0);
+  {
+    char hex[32];
+    snprintf(hex, sizeof hex, "module=0x%lx", base);
+    assert(strstr(render_cap, hex) != NULL);
+  }
+}
+
 static void test_render_oneline_dmap_is_base_not_interior(void) {
   struct summary s;
   set_rich_render_state(&s);
@@ -2462,9 +2616,12 @@ static void test_render_oneline_dmap_is_base_not_interior(void) {
   add_origin(r, "synthetic_test");
   r->method_set = 1u << KM_PARSED;
 
-  /* Engine-resolved base: virt_page_offset_min signals it, layout carries the
-   * rendered anchor. */
+  /* Engine-resolved base: the window admits exactly this address. A floor
+   * alone is not a resolved base -- `dmap=` states a value only where one
+   * candidate remains, since a floor cannot be translated through. */
   s.kaslr.virt_page_offset_min = base;
+  s.kaslr.virt_page_offset_max = base;
+  s.kaslr.virt_page_offset_slots = 1;
   unsigned long saved = layout.virt_page_offset;
   layout.virt_page_offset = base;
 
@@ -2480,11 +2637,11 @@ static void test_render_oneline_dmap_is_base_not_interior(void) {
 /* oneline `text=` presents the engine-resolved image base only, never a raw
  * leak consensus. set_rich_render_state seeds an in-bounds VIRT text base leak
  * (which the old consensus fallback would surface); with the engine reporting
- * no resolved base (vtext==0), `text=` renders the `na` sentinel — an
+ * no resolved base (vtext==0), `text=` does not render a bare address — an
  * unresolved base is not backfilled from a leak (sibling of the dmap=
- * base/interior rule). The fixed schema keeps the key present; only the value
- * degrades to na, so `na` carries the same "no value asserted" guarantee the
- * old key-omission did. */
+ * base/interior rule). The fixed schema keeps the key present; the value
+ * degrades to the proven window, or to `na` where there is not even one, and
+ * neither form asserts a base. */
 static void test_render_oneline_text_na_when_engine_unresolved(void) {
   struct summary s;
   set_rich_render_state(&s);
@@ -2496,11 +2653,19 @@ static void test_render_oneline_text_na_when_engine_unresolved(void) {
   capture_stdout(wrap_render_summary, &s);
   set_render_mode(0, 0, 0);
 
-  /* Key present as the sentinel; the seeded leak base is not surfaced. */
-  assert(strstr(render_cap, " text=na") != NULL);
-  char leakbuf[32];
-  snprintf(leakbuf, sizeof(leakbuf), "text=0x%lx", leak);
-  assert(strstr(render_cap, leakbuf) == NULL);
+  /* The key is present, and its value is not a bare address: the bare form
+   * means "resolved", and nothing resolved a base here. What it may carry is
+   * the proven window, which is a statement about bounds rather than the leak
+   * -- and the leak's own address must not appear as the value either. */
+  {
+    const char *v = strstr(render_cap, " text=");
+    char leakbuf[32];
+    assert(v != NULL);
+    v += strlen(" text=");
+    assert(*v == '[' || strncmp(v, "na", 2) == 0);
+    snprintf(leakbuf, sizeof(leakbuf), " text=0x%lx", leak);
+    assert(strstr(render_cap, leakbuf) == NULL);
+  }
 }
 
 /* Contract lock for the fixed oneline schema: every documented key must appear
@@ -2515,9 +2680,29 @@ static void test_render_oneline_schema_is_stable(void) {
   struct summary s;
   memset(&s, 0, sizeof(s));
 
+  /* "Nothing resolved" has to be made true, not assumed: `layout` is a global
+   * and holds whatever the previous test left in it, so a window would survive
+   * into this run and the value keys would honestly report it. Clearing the
+   * windows is what makes `na` the correct answer here rather than an accident
+   * of test order. */
+  unsigned long sv[6] = {
+      layout.virt_kaslr_text_min,  layout.virt_kaslr_text_max,
+      layout.phys_kaslr_text_min,  layout.phys_kaslr_text_max,
+      layout.virt_page_offset_min, layout.virt_page_offset_max};
+  layout.virt_kaslr_text_min = layout.virt_kaslr_text_max = 0;
+  layout.phys_kaslr_text_min = layout.phys_kaslr_text_max = 0;
+  layout.virt_page_offset_min = layout.virt_page_offset_max = 0;
+
   set_render_mode(0, 1, 0);
   capture_stdout(wrap_render_summary, &s);
   set_render_mode(0, 0, 0);
+
+  layout.virt_kaslr_text_min = sv[0];
+  layout.virt_kaslr_text_max = sv[1];
+  layout.phys_kaslr_text_min = sv[2];
+  layout.phys_kaslr_text_max = sv[3];
+  layout.virt_page_offset_min = sv[4];
+  layout.virt_page_offset_max = sv[5];
 
   static const char *const keys[] = {
       "arch=",     "kaslr=",  " text=",    " stext=",  " slide=",
@@ -2556,7 +2741,14 @@ static void test_render_oneline_entropy_and_failed(void) {
   s.kaslr.pbits = 6;
   set_render_mode(0, 1, 0);
   capture_stdout(wrap_render_summary, &s);
-  assert(strstr(render_cap, " text=na") != NULL);        /* no concrete base */
+  {
+    /* No concrete base: not a bare address. The window may be reported in its
+     * place, which states bounds rather than an answer. */
+    const char *v = strstr(render_cap, " text=");
+    assert(v != NULL);
+    v += strlen(" text=");
+    assert(*v == '[' || strncmp(v, "na", 2) == 0);
+  }
   assert(strstr(render_cap, " entropy=9bits") != NULL);  /* residual shown */
   assert(strstr(render_cap, " pentropy=6bits") != NULL); /* phys too */
   assert(strstr(render_cap, " kaslr=on") != NULL);
@@ -4511,6 +4703,9 @@ int main(void) {
   RUN(test_render_json_posture_always_present);
   RUN(test_render_markdown_with_rich_content);
   RUN(test_render_oneline_with_rich_content);
+  RUN(test_render_oneline_set_value_is_not_hex);
+  RUN(test_render_oneline_tokens_are_key_value);
+  RUN(test_render_oneline_region_key_needs_one_candidate);
   RUN(test_render_oneline_dmap_is_base_not_interior);
   RUN(test_render_oneline_text_na_when_engine_unresolved);
   RUN(test_render_oneline_schema_is_stable);

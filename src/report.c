@@ -199,6 +199,21 @@ static void collect_holes(struct kasld_report_window *w, enum kasld_quantity q,
   }
 }
 
+/* Whether an estimate states an edge at all.
+ *
+ * One definition, because this is a JUDGEMENT rather than a field read: a zero
+ * edge is taken as unstated rather than as a bound at zero. That is right for a
+ * quantity whose lattice floor is zero precisely so an un-narrowed one reads as
+ * unbounded -- the module base -- and it is conservative elsewhere, since the
+ * cost is withholding a count rather than asserting a wrong one.
+ *
+ * It is not right everywhere: a linear-map base of zero is a real result on an
+ * s390 built without CONFIG_RANDOMIZE_IDENTITY_BASE. Carrying presence
+ * explicitly is the fix, and having the rule in one place is what makes that a
+ * single edit rather than a hunt through every reader. */
+static int est_states_lo(const struct estimate *e) { return e->lo != 0; }
+static int est_states_hi(const struct estimate *e) { return e->hi != 0; }
+
 /* Project one resolution's estimate for one quantity into a reported window. */
 static void build_window(struct kasld_report_window *w, enum kasld_quantity q,
                          struct kasld_resolution_view v, unsigned long grain) {
@@ -213,8 +228,8 @@ static void build_window(struct kasld_report_window *w, enum kasld_quantity q,
     w->shape = RSHAPE_INTERVAL;
     w->lo = e->lo;
     w->hi = e->hi;
-    w->has_lo = e->lo != 0;
-    w->has_hi = e->hi != 0;
+    w->has_lo = est_states_lo(e);
+    w->has_hi = est_states_hi(e);
     w->stride = e->stride;
     w->stride_offset = e->stride_offset;
     break;
@@ -236,7 +251,7 @@ static void build_window(struct kasld_report_window *w, enum kasld_quantity q,
   case LK_MAXALIGN:
     w->shape = RSHAPE_FLOOR;
     w->lo = e->lo;
-    w->has_lo = e->lo != 0;
+    w->has_lo = est_states_lo(e);
     w->has_hi = 0;
     break;
   }
@@ -289,20 +304,60 @@ void kasld_report_build(struct kasld_resolution_view guaranteed,
       it->search_top = (unsigned long)quantities[q].n_candidates;
     } else if (quantities[q].init_top) {
       quantities[q].init_top(&top);
-      it->search_top =
-          quantity_slots(q, &top, guaranteed.floor, NULL, 0, grain);
+      /* Counted on the same terms a resolved window is counted on: a top with
+       * an unstated edge is unbounded and states no count. The module base is
+       * one -- its floor is zero so an un-narrowed one reads as unbounded --
+       * and counting it here while build_window() withholds the resolved count
+       * would leave a denominator standing over a numerator that was
+       * deliberately not stated. */
+      if (est_states_lo(&top) && est_states_hi(&top))
+        it->search_top =
+            quantity_slots(q, &top, guaranteed.floor, NULL, 0, grain);
     }
     it->entropy_top = q_entropy_top(q, grain);
 
     build_window(&it->guaranteed, q, guaranteed, grain);
     build_window(&it->likely, q, likely, grain);
 
+    it->top_bits = report_bits(
+        it->guaranteed.shape == RSHAPE_SET ? it->search_top : it->entropy_top);
+
+    /* The concrete base, reconciled against what was resolved.
+     *
+     * The caller picks it by scanning the observations, so it arrives as a bare
+     * address that may be a witness to the region's base or merely a point
+     * inside it. Either way the observation behind it has ALREADY been given to
+     * the engine, so whatever it establishes is in the windows above: a base
+     * witness pins them, an interior sample bounds them and becomes the top
+     * edge. The point therefore never adds information -- it can only name one
+     * of the values a window admits.
+     *
+     * So it is recorded only where a window agrees it is the answer: exactly
+     * one candidate, and that candidate is this address. Anything else is a
+     * guess the resolution does not support, and handing it to the formats
+     * unqualified is what let one of them present a ceiling as the base and
+     * count it as a single candidate while the engine counted thirty-three.
+     *
+     * Reconciled against the LIKELY window where there is one -- the point is
+     * the all-signals answer, and that is the resolution it must agree with --
+     * falling back to the proven window otherwise. */
     if (points && points[q].present) {
-      it->has_point = 1;
-      it->point = points[q].value;
-      it->anchor = points[q].anchor;
-      it->slide = points[q].slide;
-      it->has_slide = points[q].has_slide;
+      const struct kasld_report_window *w =
+          it->likely.present ? &it->likely : &it->guaranteed;
+      int names_one = w->present && w->candidates == 1 && w->has_lo &&
+                      w->has_hi && w->lo == w->hi;
+      if (names_one && points[q].value == w->lo) {
+        it->has_point = 1;
+        it->point = points[q].value;
+        it->anchor = points[q].anchor;
+        it->slide = points[q].slide;
+        it->has_slide = points[q].has_slide;
+        /* Only alongside a resolved base, and only where it differs from it. */
+        if (points[q].stext && points[q].stext != it->point) {
+          it->has_stext = 1;
+          it->stext = points[q].stext;
+        }
+      }
     }
   }
 }
@@ -324,6 +379,32 @@ int kasld_report_likely_is_tighter(const struct kasld_report_quantity *it) {
   if (l->has_hi && (!g->has_hi || l->hi < g->hi))
     return 1;
   return 0;
+}
+
+int kasld_report_value(const struct kasld_report_quantity *it,
+                       unsigned long *out) {
+  const struct kasld_report_window *w;
+  if (!it || !out)
+    return 0;
+  /* The concrete base where one was reconciled, else a window that admits a
+   * single value. Both are answers; a window with room in it is not. */
+  if (it->has_point) {
+    *out = it->point;
+    return 1;
+  }
+  w = it->likely.present ? &it->likely : &it->guaranteed;
+  if (!w->present)
+    return 0;
+  if (w->shape == RSHAPE_SET) {
+    if (w->n_values != 1)
+      return 0;
+    *out = w->values[0];
+    return 1;
+  }
+  if (w->candidates != 1 || !w->has_lo || !w->has_hi || w->lo != w->hi)
+    return 0;
+  *out = w->lo;
+  return 1;
 }
 
 const struct kasld_report_quantity *

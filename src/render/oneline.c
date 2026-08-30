@@ -4,42 +4,61 @@
 // key=value pairs intended for log scrapes and CI banners.
 //
 // FIXED SCHEMA: every key below appears on every line, in this order, so a
-// scraper can rely on `field=` being present and match it unconditionally. A
-// value that is unresolved, or not applicable to the arch/run, renders the
-// sentinel `na` — never a fabricated, defaulted, or leaked value. This mirrors
-// the always-present contract of the JSON `environment` object, and
+// scraper can rely on `field=` being present and match it unconditionally. This
+// mirrors the always-present contract of the JSON `environment` object, and
 // deliberately diverges from the human formats' "omit unresolved rows"
 // philosophy: oneline is a machine surface where a stable key set matters more
-// than terseness. `na` for a base/slide/window is the exact soundness
-// guarantee the human forms express by omission — no value is asserted.
+// than terseness.
+//
+// VALUE GRAMMAR: a key naming a quantity reports one of three things, and never
+// anything else —
+//
+//   0xADDR          the engine resolved it to this address; act on it
+//   [0xLO..0xHI]    it bounded it to this window; a missing edge is omitted,
+//                   as `[..0xHI]`
+//   na              nothing is known
+//
+// A bare address is the signal a consumer wants, and the absence of a `[` is
+// how to test for it. No fabricated, defaulted or leaked value is ever
+// asserted: a window's floor is NOT the base, so it appears as part of the
+// window rather than alone under a key named for the base — reporting it alone
+// asserted a value the engine had merely bounded, and arithmetic on it is wrong
+// rather than approximate. A finite set lists its values (`48,57`), because
+// those ARE the answer set and endpoints would imply everything between them.
+//
+// Keys carrying a measurement or a property of the run rather than an answer to
+// an unknown — arch, kaslr, entropy, pentropy, dram, results — are always
+// present and follow the forms described below.
 //
 // Keys, in order:
 //   arch      kernel machine (uname), or `unknown`
 //   kaslr     on | off | unsupported | failed  (failed = randomization failed
 //             at boot: effective 0 bits, deterministic per boot — distinct from
 //             off, a deliberate opt-out at the link-time default)
-//   text      virtual image base (_text); engine-resolved base, never a leak
+//   text      virtual image base (_text), per the value grammar above; never a
+//             raw leak consensus
 //   stext     virtual _stext, when it differs from the image base
 //   slide     virtual KASLR slide, signed: ±0xHEX(decimal)
 //   entropy   virtual residual entropy over the guaranteed window, `Nbits`;
 //             present whenever a window was resolved (an unpinned window
 //             reports its N bits; a pin reports 0bits). `na` only when KASLR is
 //             off/unsupported (no window).
-//   ptext     physical image base (_text)
+//   ptext     physical image base (_text), per the value grammar
 //   pstext    physical _stext, when it differs from the physical image base
 //   pslide    physical KASLR slide (decoupled arches only)
 //   pentropy  physical residual entropy (same window/`na` rule as entropy)
-//   dmap      direct-map base (PAGE_OFFSET); engine-resolved floor/pin
-//   vmalloc   vmalloc base -- the proven floor, as `dmap` reports its own
-//   vmemmap   vmemmap base
-//   module    module region base
-//   vabits    resolved address-space size in bits (the paging level), once one
-//             candidate remains
-//   dram      physical DRAM extent: [0xLO..0xHI](size)
+//   dmap      direct-map base (PAGE_OFFSET), per the value grammar; never the
+//             compile-time constant
+//   vmalloc   vmalloc base, same
+//   vmemmap   vmemmap base, same
+//   module    module region base, same
+//   vabits    address-space size in bits (the paging level): the value once one
+//             candidate remains, else the candidates as a comma list
+//   dram      physical DRAM extent: [0xLO..0xHI]
 //   results   count of merged result records (post-merge wire records — not
 //             the raw component count, nor a distinct "leaks" tally)
 //
-// Cross-file helpers (section_consensus, section_range, human_size) are
+// Cross-file helpers (section_consensus, section_range) are
 // declared in include/kasld/render_internal.h and defined in render.c.
 // ---
 // <bcoles@gmail.com>
@@ -50,6 +69,77 @@
 
 #include <stdio.h>
 #include <sys/utsname.h>
+
+/* One quantity, in the line's value grammar.
+ *
+ * Three states, one rule, and the same rule for every quantity key:
+ *
+ *   0xADDR              the engine resolved the quantity to this address
+ *   [0xLO..0xHI]        it bounded the quantity to this window
+ *   na                  it knows nothing
+ *
+ * A bare address means "act on this"; a bracket means "not yet, but it lies in
+ * here". The distinction is the signal a consumer most wants, and the absence
+ * of a `[` is how they test for it. The bracket form is the one `dram=` already
+ * uses, so this adds no shape a scraper does not already parse.
+ *
+ * The window matters because withholding it says less than the tool knows. A
+ * floor alone was reported here once, under a key named for the base -- that
+ * asserted a value the engine had merely bounded, and arithmetic on it is wrong
+ * rather than approximate. Reporting the window instead asserts nothing false
+ * and keeps what was learned; a half-bounded window omits the edge it does not
+ * have.
+ *
+ * A finite set is not a window: its values are listed, because they ARE the
+ * answer set, and squeezing them into endpoints would name two values that
+ * happen to be extremes as though everything between them were admissible. */
+static void oneline_quantity(const char *key,
+                             const struct kasld_report_quantity *q) {
+  const struct kasld_report_window *w = q ? &q->guaranteed : NULL;
+
+  unsigned long v;
+
+  if (!w || !w->present) {
+    printf(" %s=na", key);
+    return;
+  }
+  /* A set is handled before anything else because its values are not
+   * ADDRESSES: a paging level is a count of bits, and printing 48 through the
+   * address path yields `0x30`. The shape has to be read before the value is
+   * formatted, not after. */
+  if (w->shape == RSHAPE_SET) {
+    if (w->n_values <= 0) {
+      printf(" %s=na", key);
+      return;
+    }
+    printf(" %s=", key);
+    for (int i = 0; i < w->n_values; i++)
+      printf("%s%lu", i ? "," : "", w->values[i]);
+    return;
+  }
+  /* The resolved address, asked for the one way it is asked anywhere: the model
+   * answers only where a resolution admits exactly this address, so what comes
+   * back is an answer and not a guess dressed as one. Testing the windows here
+   * instead would be a second copy of that judgement, free to drift from the
+   * one every other format uses. */
+  if (kasld_report_value(q, &v)) {
+    printf(" %s=0x%lx", key, v);
+    return;
+  }
+  if (w->has_lo && w->has_hi) {
+    printf(" %s=[0x%lx..0x%lx]", key, w->lo, w->hi);
+    return;
+  }
+  if (w->has_hi) {
+    printf(" %s=[..0x%lx]", key, w->hi);
+    return;
+  }
+  if (w->has_lo) {
+    printf(" %s=[0x%lx..]", key, w->lo);
+    return;
+  }
+  printf(" %s=na", key);
+}
 
 void render_oneline(const struct summary *s) {
   struct utsname u;
@@ -85,13 +175,15 @@ void render_oneline(const struct summary *s) {
   const struct kasld_report_quantity *qp =
       kasld_report_find(rep, Q_PHYS_IMAGE_BASE);
 
-  if (qv && qv->has_point)
-    printf(" text=0x%lx", qv->point);
-  else
-    printf(" text=na");
+  oneline_quantity("text", qv);
 
-  if (s->kaslr.vtext && s->kaslr.vstext && s->kaslr.vstext != s->kaslr.vtext)
-    printf(" stext=0x%lx", s->kaslr.vstext);
+  /* Only where the image base itself resolved. _stext is that base plus the
+   * architecture's head gap, or an observation of the same region -- so with
+   * the base unresolved there is nothing to add the gap to, and asserting an
+   * address here while `text=` shows a window states more than was
+   * established. */
+  if (qv && qv->has_stext)
+    printf(" stext=0x%lx", qv->stext);
   else
     printf(" stext=na");
 
@@ -117,13 +209,10 @@ void render_oneline(const struct summary *s) {
 
   /* Physical image base + _stext + slide + residual entropy — sibling block.
    * Same rule: the engine-resolved base only, never a leak consensus. */
-  if (qp && qp->has_point)
-    printf(" ptext=0x%lx", qp->point);
-  else
-    printf(" ptext=na");
+  oneline_quantity("ptext", qp);
 
-  if (s->kaslr.ptext && s->kaslr.pstext && s->kaslr.pstext != s->kaslr.ptext)
-    printf(" pstext=0x%lx", s->kaslr.pstext);
+  if (qp && qp->has_stext)
+    printf(" pstext=0x%lx", qp->stext);
   else
     printf(" pstext=na");
 
@@ -140,31 +229,24 @@ void render_oneline(const struct summary *s) {
   else
     printf(" pentropy=na");
 
-  /* Direct-map base (PAGE_OFFSET): the engine-resolved base — a pinned value or
-   * the proven aligned floor — not an interior linear-map sample. On randomized
-   * arches show it once the engine has established it (via a directmap leak);
-   * where the compile-time value is the guaranteed runtime one, a directmap
-   * leak confirms the linear map and that constant IS the base. `na` otherwise.
+  /* Direct-map base (PAGE_OFFSET): the address once the engine resolves the
+   * region to one, never an interior linear-map sample and never the
+   * compile-time constant.
    *
-   * The licence for the second clause is kasld_page_offset_if_known(), which
-   * yields the constant only where a single base is admissible and 0 otherwise.
-   * "KASLR does not move the base" is NOT that licence — it is a different
-   * claim from knowing where the base is: arm32 and x86_32 are DIRECTMAP_STATIC
-   * yet their PAGE_OFFSET varies with VMSPLIT, and printing the constant there
-   * asserts, in the machine-readable mode, a base the engine had merely
-   * bounded.
+   * A proven FLOOR is not the base. Reporting one here asserted, in the
+   * machine-readable mode, a base the engine had merely bounded -- and a floor
+   * is not a weaker answer but a wrong input, since translating an address
+   * through it lands somewhere the kernel never mapped. Where the architecture
+   * admits a single base the engine pins it and the value appears; where it
+   * does not, `na`. arm32 and x86_32 are DIRECTMAP_STATIC yet their PAGE_OFFSET
+   * varies with VMSPLIT, so "KASLR does not move the base" was never licence to
+   * state one.
    *
-   * The value comes from the ENGINE, not from layout.virt_page_offset. That
-   * field is only assigned on a coupled arch once the engine PINS the base, so
-   * reading it where the engine had merely established a floor yields the
-   * compile-time seed again -- the same wrong answer by a second route. */
-  unsigned long dmap = s->kaslr.virt_page_offset_min;
-  if (!dmap && section_consensus(KASLD_TYPE_VIRT, "directmap", REGION_UNKNOWN))
-    dmap = kasld_page_offset_if_known();
-  if (dmap)
-    printf(" dmap=0x%lx", dmap);
-  else
-    printf(" dmap=na");
+   * From the model rather than layout.virt_page_offset, which is seeded from
+   * the compile-time constant and only replaced once the engine pins the
+   * quantity -- so on a kernel whose split differs from the build default it is
+   * a stale constant rather than a measurement. */
+  oneline_quantity("dmap", kasld_report_find(rep, Q_PAGE_OFFSET));
 
   /* The remaining resolved quantities, on the same terms as the keys above: a
    * key per unknown this machine has, `na` where the run resolved nothing.
@@ -176,8 +258,18 @@ void render_oneline(const struct summary *s) {
    * model carries, so what appears here follows what the machine HAS rather
    * than which fields this renderer happened to name.
    *
-   * A window reports its proven floor, as `dmap` does: the lowest address the
-   * quantity can occupy. A finite set reports its value once one remains. */
+   * A value is stated only where the quantity RESOLVED to one, and `na`
+   * otherwise -- the rule every other value key on this line follows, and the
+   * one the schema above promises: no fabricated, defaulted or leaked value.
+   *
+   * A window's floor is not that value. It was emitted here, under a key named
+   * for the base, on a window that commonly admits tens of thousands of
+   * placements; a scraper reading `vmalloc=` as the vmalloc base got a lower
+   * bound, and arithmetic on it -- translating an address through the direct
+   * map, say -- is wrong rather than approximate. The floor is a window EDGE,
+   * and the formats that can express a window keep it: the readout row, the
+   * markdown table, and json's per-region min/max/slots. A single scalar is the
+   * one place it cannot be said correctly. */
   {
     static const struct {
       enum kasld_quantity q;
@@ -186,39 +278,27 @@ void render_oneline(const struct summary *s) {
                  {Q_VMEMMAP_BASE, "vmemmap"},
                  {Q_MODULE_BASE, "module"},
                  {Q_VA_BITS, "vabits"}};
-    for (size_t i = 0; i < sizeof(extra) / sizeof(extra[0]); i++) {
-      const struct kasld_report_quantity *q =
-          kasld_report_find(rep, extra[i].q);
-      const struct kasld_report_window *w = q ? &q->guaranteed : NULL;
-      if (!w || !w->present) {
-        printf(" %s=na", extra[i].key);
-      } else if (w->shape == RSHAPE_SET) {
-        if (w->n_values == 1)
-          printf(" %s=%lu", extra[i].key, w->values[0]);
-        else
-          printf(" %s=na", extra[i].key);
-      } else if (w->has_lo) {
-        printf(" %s=0x%lx", extra[i].key, w->lo);
-      } else {
-        printf(" %s=na", extra[i].key);
-      }
-    }
+    for (size_t i = 0; i < sizeof(extra) / sizeof(extra[0]); i++)
+      oneline_quantity(extra[i].key, kasld_report_find(rep, extra[i].q));
   }
 
-  /* Physical DRAM range. Gate on either edge being set, not on pdram_lo alone:
-   * DRAM legitimately starts at phys 0 (x86, s390), so a zero base is a real
-   * range, not an absent one. section_range zeroes both edges when nothing
-   * matched. `na` when nothing matched. */
+  /* Physical DRAM extent, in the same bracket form every other span uses. Gate
+   * on either edge being set, not on pdram_lo alone: DRAM legitimately starts
+   * at phys 0 (x86, s390), so a zero base is a real range, not an absent one.
+   * section_range zeroes both edges when nothing matched.
+   *
+   * The span's size is not printed beside it. It carried a space -- "(13.0
+   * GiB)" -- which made this the one value on a whitespace-separated line that
+   * a consumer could not split into a key and a value: the obvious tokenizer
+   * yielded a trailing "GiB)" with no `=` in it. The figure is also derivable
+   * from the edges, so nothing is lost that a reader cannot recover, and the
+   * human formats print it where there is room to. */
   unsigned long pdram_lo, pdram_hi;
   section_range(KASLD_TYPE_PHYS, "dram", REGION_UNKNOWN, &pdram_lo, &pdram_hi);
-  if (pdram_lo || pdram_hi) {
-    char hbuf[32];
-    unsigned long top = pdram_hi ? pdram_hi : pdram_lo;
-    printf(" dram=[0x%lx..0x%lx](%s)", pdram_lo, top,
-           human_size(top - pdram_lo, hbuf, sizeof(hbuf)));
-  } else {
+  if (pdram_lo || pdram_hi)
+    printf(" dram=[0x%lx..0x%lx]", pdram_lo, pdram_hi ? pdram_hi : pdram_lo);
+  else
     printf(" dram=na");
-  }
 
   /* Count of merged result records (always present). */
   printf(" results=%d", num_results);

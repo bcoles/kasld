@@ -158,6 +158,15 @@ struct kasld_report_quantity {
   unsigned long entropy_top;
   unsigned long search_top;
 
+  /* The denominator above, in bits: what the quantity's residual entropy is
+   * measured against. Carried rather than left to each format, for the reason
+   * `bits` is -- converting a count to bits is deriving, and a format that
+   * derives is a format that can differ. Which denominator applies depends on
+   * the KIND of quantity: an interval narrows the window the kernel randomizes
+   * over, a set narrows the values the architecture admits. Zero where the
+   * architecture models no such set, which is not the same as zero bits. */
+  int top_bits;
+
   struct kasld_report_window guaranteed; /* sound floor: contains the truth */
   struct kasld_report_window likely; /* all signals: a subset, may be wrong */
 
@@ -169,6 +178,19 @@ struct kasld_report_quantity {
   enum kasld_anchor_kind anchor;
   long slide; /* displacement from the un-randomized base */
   int has_slide;
+
+  /* The region's _stext, where a component OBSERVED it and the base above is
+   * resolved. Recorded beside the base rather than as a quantity of its own,
+   * because it is not one: nothing searches for it independently.
+   *
+   * Never derived. The obvious derivation -- base plus the architecture's head
+   * gap -- is unsound wherever the gap is non-zero, since every arch header
+   * declaring one declares a RANGE and the constant is only its nominal value.
+   * Suppressed where it equals the base, which is every architecture whose gap
+   * is zero: one address under two names invites a search for a difference that
+   * is not there. */
+  int has_stext;
+  unsigned long stext;
 };
 
 /* What kind of system this is, with respect to randomization.
@@ -197,6 +219,9 @@ struct kasld_report_point {
   enum kasld_anchor_kind anchor;
   long slide;
   int has_slide;
+  /* An observed _stext for the same region, or 0. Supplied, not derived: only
+   * the caller sees the observations. */
+  unsigned long stext;
 };
 
 /* The report. Sections are added as the migration proceeds; quantities and
@@ -252,6 +277,19 @@ kasld_report_find(const struct kasld_report *r, enum kasld_quantity q);
  * set has no endpoints, so it is compared by its count, which for a set is
  * exact because the values are enumerated rather than counted over a grid. */
 int kasld_report_likely_is_tighter(const struct kasld_report_quantity *it);
+
+/* The quantity's resolved value, into `*out`. Returns 0 -- and leaves `*out`
+ * untouched -- unless a resolution admits exactly this one address.
+ *
+ * The single way to ask "what is this quantity?". A window's edge is NOT the
+ * answer: `lo` is the lowest address the quantity may occupy, and on a window
+ * admitting tens of thousands of placements it is a bound. Reading it as the
+ * value produces an address the kernel never used, and arithmetic on it -- a
+ * direct-map translation, say -- is wrong rather than approximate. Every format
+ * that wants a scalar asks here, so no format has to re-derive when an edge
+ * counts as an answer, and none can get it wrong separately. */
+int kasld_report_value(const struct kasld_report_quantity *it,
+                       unsigned long *out);
 
 void kasld_report_build(struct kasld_resolution_view guaranteed,
                         struct kasld_resolution_view likely,

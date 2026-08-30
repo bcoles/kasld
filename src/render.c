@@ -267,7 +267,16 @@ static void layout_fmt_space(char *buf, size_t sz, unsigned long slots,
   if (!slots && !top)
     snprintf(buf, sz, "-");
   else if (!slots)
-    snprintf(buf, sz, "%lu", top);
+    /* No count, but the set it would have been counted against is known. The
+     * denominator alone was printed here, which in a column headed Candidates
+     * asserts that figure AS the count -- and it is not one: a window with an
+     * unstated edge is unbounded, so what remains is not knowable, while the
+     * denominator is merely the size of the set the row narrows. Stating it as
+     * "- of N" keeps the size of the problem visible and says outright that
+     * nothing was counted. A run that narrowed nothing still shows a bare
+     * total, because there the count and the denominator are one figure and
+     * `slots` carries it. */
+    snprintf(buf, sz, "- of %lu", top);
   else if (top > slots)
     snprintf(buf, sz, "%lu of %lu", slots, top);
   else
@@ -296,7 +305,12 @@ static void layout_fmt_range(char *buf, size_t sz, unsigned long lo,
 
 /* A row. `slots` of 0 withholds the search space -- the caller decides what is
  * a bound worth acting on; `top` is the set the row narrows, and is dropped
- * unless it exceeds `slots`. */
+ * unless it exceeds `slots`.
+ *
+ * Not called directly by the projection below: it takes loose scalars, which is
+ * what let a row state a number no window held. layout_add_window() is the way
+ * in; this stays private to it and to the set-shaped row, which has values
+ * rather than edges. */
 static void layout_add(const char *quantity, const char *basis,
                        unsigned long slots, unsigned long top, unsigned long lo,
                        unsigned long hi, const char *note,
@@ -321,6 +335,63 @@ static void layout_add(const char *quantity, const char *basis,
            align ? kasld_grain(align, gb, sizeof(gb)) : "-");
   r->dim = (!lo && !hi);
   r->one_address = (lo && lo == hi);
+}
+
+/* The set a row narrows: the kernel's own randomization window for a proven
+ * row, and the proven row's own count for the speculative one beneath it.
+ * Determined by which grade the row carries, so no caller chooses it. */
+static unsigned long layout_row_top(const struct kasld_report_quantity *it,
+                                    const char *basis) {
+  if (strcmp(basis, GRADE_GUARANTEED) != 0)
+    return it->guaranteed.candidates;
+  /* What the proven row narrows depends on the KIND of quantity. An interval
+   * narrows the window the kernel randomizes over, and where the architecture
+   * models no such window there is no denominator to state -- a region base is
+   * bounded by structure rather than by a randomization range. A set narrows
+   * the values the architecture admits, and that count is its denominator: "1
+   * of 2" says one of the two paging levels this target could be running. */
+  return it->guaranteed.shape == RSHAPE_SET ? it->search_top : it->entropy_top;
+}
+
+/* The slide note for a row, or NULL.
+ *
+ * A slide is the displacement of a RESOLVED value from the un-randomized base,
+ * so it belongs to a window that names one address and to no other: measured
+ * from one end of a range it is not a measurement of anything. The picked base
+ * must also BE that address -- the slide was computed from the pick, and
+ * attaching it to a window resolved elsewhere would label one value with the
+ * displacement of another. */
+static const char *layout_row_slide(const struct kasld_report_quantity *it,
+                                    const struct kasld_report_window *w,
+                                    char *buf, size_t bufsz) {
+  if (!it->has_slide || w->candidates != 1 || !w->has_lo || !w->has_hi)
+    return NULL;
+  if (w->lo != w->hi)
+    return NULL;
+  if (it->has_point && it->point != w->lo)
+    return NULL;
+  return readout_slide(it->slide, buf, bufsz);
+}
+
+/* One row, drawn from one resolved window.
+ *
+ * Everything the row states is read from the model: the addresses from the
+ * window's edges, the count from the window's own `candidates`, the pitch from
+ * the item's grain. A caller supplies WHICH window to draw and, at most, a note
+ * beside it -- it cannot supply the numbers.
+ *
+ * That is the whole point of the signature. The previous one took the count as
+ * a plain parameter, and a caller that believed it had the answer could pass a
+ * literal beside a window holding many candidates: a row read "1 of 472" while
+ * the engine, and json reading the same engine, said 33. A format that can
+ * assert a count can contradict the engine, and two formats asserting
+ * separately can contradict each other. Here there is nothing to assert. */
+static void layout_add_window(const struct kasld_report_quantity *it,
+                              const char *basis,
+                              const struct kasld_report_window *w,
+                              const char *note) {
+  layout_add(it->label, basis, w->candidates, layout_row_top(it, basis),
+             w->has_lo ? w->lo : 0, w->has_hi ? w->hi : 0, note, it->align_min);
 }
 
 /* A row stating a set of admissible values.
@@ -389,10 +460,10 @@ void layout_build(void) {
       if (!g->present)
         continue;
       layout_add_set(it->label, GRADE_GUARANTEED, g->values, g->n_values,
-                     it->search_top);
+                     layout_row_top(it, GRADE_GUARANTEED));
       if (kasld_report_likely_is_tighter(it))
         layout_add_set(it->label, GRADE_LIKELY, it->likely.values,
-                       it->likely.n_values, g->candidates);
+                       it->likely.n_values, layout_row_top(it, GRADE_LIKELY));
       continue;
     }
     if (!g->present)
@@ -404,55 +475,47 @@ void layout_build(void) {
      * meaning only where something randomized. In the static postures the line
      * above the table already says nothing did, and the note would restate it
      * in a form that reads as evidence of movement. */
-    layout_add(it->label, GRADE_GUARANTEED, g->candidates, it->entropy_top,
-               g->has_lo ? g->lo : 0, g->has_hi ? g->hi : 0,
-               (pinned && it->has_slide)
-                   ? readout_slide(it->slide, note, sizeof(note))
-                   : NULL,
-               it->align_min);
+    layout_add_window(it, GRADE_GUARANTEED, g,
+                      layout_row_slide(it, g, note, sizeof(note)));
 
     if (pinned)
       continue; /* the proven row already states the single answer */
 
-    /* The speculative answer beneath the proven window: a concrete base where
-     * one was picked, otherwise the narrower all-signals window. A concrete
-     * base IS that answer, so a window alongside it would only restate it. */
-    if (it->has_point) {
-      layout_add(
-          it->label, GRADE_LIKELY, 1, g->candidates, it->point, it->point,
-          it->has_slide ? readout_slide(it->slide, note, sizeof(note)) : NULL,
-          it->align_min);
-    } else if (kasld_report_likely_is_tighter(it)) {
+    /* The speculative window beneath the proven one, where the all-signals
+     * resolution reached further.
+     *
+     * The concrete headline base is NOT drawn here, and that is deliberate. It
+     * is picked by scanning the observations, and the observation it comes from
+     * has already been given to the engine -- so whatever it establishes is in
+     * this window already. Where it witnesses a base the engine pinned it, and
+     * the window says one candidate; where it is an interior sample the engine
+     * bounded the region, and the window's top edge IS that sample. Drawing the
+     * point beside the window therefore adds nothing in the first case and
+     * contradicts the window in the second, by presenting a ceiling as an
+     * answer and one candidate where the engine counted many. The window is the
+     * authority on how much is left; a picked address can only ever name one of
+     * the values it admits. */
+    if (kasld_report_likely_is_tighter(it)) {
       const struct kasld_report_window *l = &it->likely;
-      /* A bracket no wider than one grain holds a single candidate, so it is a
-       * base rather than a window -- report the address, not the bracket. The
-       * edges need not coincide: adjacent grid points are one grain apart and
-       * still name one placement. */
-      int lpin =
-          l->has_lo && l->has_hi &&
-          (it->align_min ? (l->hi - l->lo) <= it->align_min : l->lo == l->hi);
       const char *n = NULL;
-      /* A single-candidate bracket is a pin, not a window: report the address.
-       * The direct map has no compile-time default to slide from, but it does
+      /* The direct map has no compile-time default to slide from, but it does
        * have an offset from the base the kernel would have used un-randomized
        * -- the same value in another coordinate system, so it takes the slide's
-       * place. Measured from the base for the paging level actually in force:
+       * place. Shown only once the window admits a single value, since an
+       * offset measured from one end of a range is not a measurement of the
+       * base. Measured against the base for the paging level actually in force:
        * the two are 59.6 PiB apart, so the wrong one renders as a large
        * negative number that still reads as a measurement. */
-      if (lpin && it->q == Q_PAGE_OFFSET &&
+      if (l->candidates == 1 && l->has_hi && it->q == Q_PAGE_OFFSET &&
           layout.virt_page_offset_unrandomized) {
         long d = (long)(l->hi - layout.virt_page_offset_unrandomized);
         snprintf(note, sizeof(note), "off %s0x%lx", d < 0 ? "-" : "+",
                  (unsigned long)(d < 0 ? -d : d));
         n = note;
       }
-      if (lpin)
-        layout_add(it->label, GRADE_LIKELY, 1, g->candidates, l->hi, l->hi, n,
-                   it->align_min);
-      else
-        layout_add(it->label, GRADE_LIKELY, l->candidates, g->candidates,
-                   l->has_lo ? l->lo : 0, l->has_hi ? l->hi : 0, NULL,
-                   it->align_min);
+      if (!n)
+        n = layout_row_slide(it, l, note, sizeof(note));
+      layout_add_window(it, GRADE_LIKELY, l, n);
     }
   }
 }

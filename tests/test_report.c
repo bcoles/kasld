@@ -296,6 +296,70 @@ int main(void) {
            "(this architecture admits one address-space size)\n");
   }
 
+  /* 6. A concrete base is recorded only where a resolution agrees it is the
+   *    answer. The caller picks it from the observations and cannot know what
+   *    the engine made of them, so the model is what reconciles the two -- and
+   *    a point offered unqualified is what lets a format present a bound as a
+   *    value and count it as one candidate. */
+  {
+    struct kasld_report_point pts[Q__COUNT];
+    const struct kasld_report_quantity *it;
+    unsigned long lo, span;
+
+    tops(gest);
+    lo = gest[Q_VIRT_IMAGE_BASE].lo;
+    span = gest[Q_VIRT_IMAGE_BASE].hi - lo;
+    gv.est = gest;
+    gv.cs = NULL;
+    gv.n_cs = 0;
+    gv.floor = CONF_INFERRED;
+    lv.est = NULL;
+
+    /* A point inside a window that admits many values: not the answer, so the
+     * model does not offer it as one. */
+    memset(pts, 0, sizeof(pts));
+    pts[Q_VIRT_IMAGE_BASE].present = 1;
+    pts[Q_VIRT_IMAGE_BASE].value = lo + span / 2;
+    pts[Q_VIRT_IMAGE_BASE].anchor = RANCHOR_INTERIOR;
+    kasld_report_build(gv, lv, pts, RPOSTURE_RANDOMIZED, &r);
+    it = kasld_report_find(&r, Q_VIRT_IMAGE_BASE);
+    CHECK(it != NULL);
+    CHECK(it->guaranteed.candidates > 1);
+    CHECK(!it->has_point);
+
+    /* The same window narrowed to one value, with the point naming it: now it
+     * is the answer, and the model says so. */
+    tops(gest);
+    gest[Q_VIRT_IMAGE_BASE].hi = gest[Q_VIRT_IMAGE_BASE].lo;
+    memset(pts, 0, sizeof(pts));
+    pts[Q_VIRT_IMAGE_BASE].present = 1;
+    pts[Q_VIRT_IMAGE_BASE].value = gest[Q_VIRT_IMAGE_BASE].lo;
+    pts[Q_VIRT_IMAGE_BASE].anchor = RANCHOR_BASE;
+    kasld_report_build(gv, lv, pts, RPOSTURE_RANDOMIZED, &r);
+    it = kasld_report_find(&r, Q_VIRT_IMAGE_BASE);
+    CHECK(it != NULL);
+    CHECK(it->guaranteed.candidates == 1);
+    CHECK(it->has_point && it->point == gest[Q_VIRT_IMAGE_BASE].lo);
+
+    /* A pinned window and a point that names a DIFFERENT address: the two
+     * disagree, so neither is presented as the answer. */
+    memset(pts, 0, sizeof(pts));
+    pts[Q_VIRT_IMAGE_BASE].present = 1;
+    pts[Q_VIRT_IMAGE_BASE].value = gest[Q_VIRT_IMAGE_BASE].lo + 0x1000ul;
+    pts[Q_VIRT_IMAGE_BASE].anchor = RANCHOR_BASE;
+    kasld_report_build(gv, lv, pts, RPOSTURE_RANDOMIZED, &r);
+    it = kasld_report_find(&r, Q_VIRT_IMAGE_BASE);
+    CHECK(it != NULL);
+    CHECK(!it->has_point);
+  }
+
+  /* The tally run-all reads to decide whether a suite ran and what it found.
+   * Emitted in the shared harness's shape -- "<pass>/<total> tests passed" on
+   * stderr -- because that string is the contract between a suite and the
+   * runner, and a suite that prints anything else is reported as having failed
+   * to run at all. Every check here is a pass by the time this is reached: a
+   * failing one returns above. */
+  fprintf(stderr, "%d/%d tests passed\n", checks, checks);
   printf("test_report: OK (%d checks)\n", checks);
   return 0;
 }
