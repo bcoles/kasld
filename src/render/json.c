@@ -370,7 +370,7 @@ static void render_environment_json(void) {
   printf(",\n    \"readable_oracles\": {\n");
   for (int i = 0; i < KASLD_N_ORACLES; i++) {
     printf("      ");
-    json_print_escaped(kasld_oracle_paths[i]);
+    json_print_escaped(v->oracle_path[i]);
     printf(": %s%s\n", v->oracle_readable[i] ? "true" : "false",
            i + 1 < KASLD_N_ORACLES ? "," : "");
   }

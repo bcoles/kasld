@@ -157,8 +157,18 @@ static void read_hardening_state(struct kasld_hardening *h) {
  * (text verbose block, JSON, markdown) so they can't diverge. Outside the
  * KASLD_TESTING guard because the render modules link against these. ------- */
 
-const char *const kasld_oracle_paths[KASLD_N_ORACLES] = {
-    "/proc/kallsyms", "/proc/kcore", "/proc/iomem", "/proc/modules"};
+const struct kasld_oracle kasld_oracles[KASLD_N_ORACLES] = {
+    {"/proc/kallsyms", NULL, 0},
+    {"/proc/kcore", NULL, 0},
+    {"/proc/iomem", NULL, 0},
+    {"/proc/modules", NULL, 0},
+    {"/var/log/dmesg", NULL, 0},
+    {"/var/log/kern.log", NULL, 0},
+    {"/var/log/syslog", NULL, 0},
+    {"/sys/kernel/debug", "debugfs", 0},
+    {"/boot/System.map-", "/boot/System.map", 1},
+    {"/boot/config-", "/boot/config", 1},
+};
 
 /* Held-cap → the kasld leak it unlocks. Bit numbers are the stable capability
  * ABI (linux/capability.h): CAP_SYS_RAWIO=17, CAP_SYS_ADMIN=21, CAP_SYSLOG=34,
@@ -424,8 +434,20 @@ void kasld_gather_vantage(struct kasld_vantage *v) {
     v->cap_eff = strtoull(st.cap_eff, NULL, 16);
     v->cap_bnd = st.cap_bnd[0] ? strtoull(st.cap_bnd, NULL, 16) : 0;
   }
-  for (int i = 0; i < KASLD_N_ORACLES; i++)
-    v->oracle_readable[i] = kasld_access(kasld_oracle_paths[i], R_OK) == 0;
+  /* Resolved and probed here rather than where they are printed: the two
+   * release-suffixed paths need the identity taken at the top of
+   * kasld_env_snapshot(), and every format has to answer from one moment. A
+   * run with no identity probes the bare prefix, which is not a file. */
+  const char *release = kasld_env.have_uts ? kasld_env.uts.release : "";
+  for (int i = 0; i < KASLD_N_ORACLES; i++) {
+    if (kasld_oracles[i].release_suffixed)
+      snprintf(v->oracle_path[i], sizeof v->oracle_path[i], "%s%s",
+               kasld_oracles[i].path, release);
+    else
+      snprintf(v->oracle_path[i], sizeof v->oracle_path[i], "%s",
+               kasld_oracles[i].path);
+    v->oracle_readable[i] = kasld_access(v->oracle_path[i], R_OK) == 0;
+  }
 
   /* Discretionary identity: the uid/gid pair the kernel checks first, and the
    * supplementary groups that decide the group-gated sources.

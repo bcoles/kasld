@@ -1,0 +1,103 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-render-no-acquire — a renderer formats what the run established; it does
+# not go and find out for itself.
+#
+# Every fact about the target reaches the render layer through the summary, the
+# report model or the environment snapshot, each taken once at a known moment.
+# A renderer that opens a file or asks the C library instead answers from a
+# different moment, and answers only for the format it sits in: the physical
+# map drew its ceiling from sysconf(_SC_PHYS_PAGES), which describes the machine
+# running the analysis rather than the target and ignores a replayed tree, and
+# six readable-source rows were probed at draw time where json and markdown
+# could not see them at all.
+#
+# Neither looked wrong at the call site. Both are invisible to a test that
+# stages engine state and asserts on output, because the renderer never consults
+# the state it was handed.
+#
+# Terminal and locale queries are not listed: isatty(), getenv("NO_COLOR") and
+# nl_langinfo() describe the OUTPUT, not the target, and belong exactly where
+# the output is written.
+#
+# ALLOW below is at zero. It stays as the mechanism rather than as a residue --
+# a new acquisition raises a file's count above its allowance and fails here.
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+cd "$ROOT" || exit 1
+
+if [ -t 1 ] || [ -n "${KASLD_COLOR:-}" ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m'); RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; RESET=
+fi
+
+# Calls that acquire a fact about the target: the sysroot-aware file wrappers,
+# and the libc queries that answer for the running machine whatever the sysroot
+# says.
+ACQUIRE='kasld_access|kasld_open|kasld_opendir|kasld_fopen|kasld_stat|kasld_read_file_line|kasld_uname|kasld_uname_fingerprint|kasld_resolve|sysconf|sysinfo|uname|getauxval|popen|opendir|fopen'
+
+# Acquisitions not yet moved out of a renderer, as "<file> <count>". A file
+# absent from this list may have none at all.
+ALLOW='
+src/render.c 0
+src/render/text.c 0
+src/render/json.c 0
+src/render/markdown.c 0
+src/render/oneline.c 0
+src/render/hardening.c 0
+'
+
+# Comments are stripped first. A guard that trips on prose is a guard someone
+# reaches for a workaround around: the note explaining WHY the physical map must
+# not call sysconf() names the call, and naming it is the point.
+strip_comments() {
+  awk '
+    {
+      line = $0; out = ""
+      while (length(line)) {
+        if (inblock) {
+          i = index(line, "*/")
+          if (i == 0) { line = ""; break }
+          line = substr(line, i + 2); inblock = 0; continue
+        }
+        i = index(line, "/*"); j = index(line, "//")
+        if (j > 0 && (i == 0 || j < i)) { out = out substr(line, 1, j - 1); break }
+        if (i == 0) { out = out line; break }
+        out = out substr(line, 1, i - 1)
+        line = substr(line, i + 2); inblock = 1
+      }
+      print out
+    }' "$1"
+}
+
+fail=0
+for f in src/render.c src/render/*.c; do
+  n=$(strip_comments "$f" | grep -oE "\\b($ACQUIRE)[[:space:]]*\\(" 2>/dev/null | wc -l | tr -d ' ')
+  want=$(printf '%s\n' "$ALLOW" | awk -v f="$f" '$1 == f { print $2 }')
+  [ -n "$want" ] || want=0
+  if [ "$n" -gt "$want" ]; then
+    printf '  FAIL: %s acquires %s target facts, allowed %s\n' "$f" "$n" "$want"
+    printf '        the run acquires; the renderer formats. Read it from the\n'
+    printf '        summary, the report model or kasld_env.\n'
+    fail=1
+  elif [ "$n" -lt "$want" ]; then
+    printf '  FAIL: %s now acquires %s, allowed %s — lower the allowance\n' \
+      "$f" "$n" "$want"
+    printf '        so the list keeps naming exactly what is left.\n'
+    fail=1
+  fi
+done
+
+if [ "$fail" -ne 0 ]; then
+  printf '%scheck-render-no-acquire: a renderer reaches for a fact of its own%s\n' \
+    "$RED" "$RESET" >&2
+  exit 1
+fi
+total=$(printf '%s\n' "$ALLOW" | awk '{ s += $2 } END { print s+0 }')
+printf '%scheck-render-no-acquire: OK%s (%d acquisitions left to move)\n' \
+  "$GREEN" "$RESET" "$total"

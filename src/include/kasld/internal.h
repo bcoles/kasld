@@ -797,9 +797,24 @@ struct kasld_hardening {
  * dropping entries. */
 #define KASLD_READOUT_COLS 108
 #define KASLD_N_GROUPS 24
-#define KASLD_N_ORACLES 4
-extern const char *const
-    kasld_oracle_paths[KASLD_N_ORACLES]; /* /proc/kallsyms… */
+#define KASLD_N_ORACLES 10
+/* A resolved oracle path: the longest template plus a kernel release, which
+ * utsname bounds at 65 bytes. */
+#define KASLD_ORACLE_PATH_MAX 128
+
+/* A source kasld may read, named once so no output format can report a
+ * different set from another. `path` is probed as it stands, unless
+ * `release_suffixed`, where the running kernel's release is appended and the
+ * result is what was actually probed. `label` heads the readout's row; NULL
+ * heads it with the path, which is the safer default -- a row cannot come to
+ * name one source while answering for another -- and is what every entry whose
+ * path is already short enough to print uses. */
+struct kasld_oracle {
+  const char *path;
+  const char *label;
+  int release_suffixed;
+};
+extern const struct kasld_oracle kasld_oracles[KASLD_N_ORACLES];
 
 /* SELinux runtime mode, read from /sys/fs/selinux/enforce. Absent covers both
  * "SELinux is not built in" and "selinuxfs is not reachable from here" — which
@@ -817,7 +832,11 @@ struct kasld_vantage {
   int no_new_privs;      /* -1 unknown; 0/1 */
   int have_caps;         /* 1 if cap_eff/cap_bnd are valid */
   unsigned long long cap_eff, cap_bnd;
-  int oracle_readable[KASLD_N_ORACLES]; /* per kasld_oracle_paths[] */
+  int oracle_readable[KASLD_N_ORACLES]; /* per kasld_oracles[] */
+  /* The path each probe actually opened, resolved once at snapshot time. Every
+   * format names this rather than the template, so a release-suffixed source is
+   * reported as the file it was. */
+  char oracle_path[KASLD_N_ORACLES][KASLD_ORACLE_PATH_MAX];
   /* Mandatory access control. `lsm_list` is securityfs's active-LSM list when
    * readable and "" otherwise (it is unreachable under some policies, so an
    * empty list is "unknown", never "no LSM"). `sec_context` is this process's

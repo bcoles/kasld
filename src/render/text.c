@@ -2536,44 +2536,19 @@ void render_system_config(void) {
    * log/debug/boot sources. */
   for (int i = 0; i < KASLD_N_ORACLES; i++) {
     int readable = vant->oracle_readable[i];
-    /* The heading is built from the path it reports on, so a row cannot come
-     * to name one source while answering for another. The other formats name
-     * the path itself, which is why no heading is carried alongside it. */
+    /* Where the table carries no label the heading is built from the path the
+     * row reports on, so it cannot come to name one source while answering for
+     * another. A label is there for the paths too long to head a 30-column
+     * field -- the release-suffixed ones -- and for debugfs, which is named
+     * after the filesystem rather than its mount point. The other formats name
+     * the resolved path in every case. */
+    const char *name =
+        kasld_oracles[i].label ? kasld_oracles[i].label : vant->oracle_path[i];
     char label[64];
-    snprintf(label, sizeof(label), "Readable %s:", kasld_oracle_paths[i]);
+    snprintf(label, sizeof(label), "Readable %s:", name);
     printf("%-30s%s%s%s\n", label, readable ? c(C_GREEN) : c(C_DIM),
            readable ? "yes" : "no", c(C_RESET));
   }
-
-  const char *check_files[][2] = {
-      {"Readable /var/log/dmesg:", "/var/log/dmesg"},
-      {"Readable /var/log/kern.log:", "/var/log/kern.log"},
-      {"Readable /var/log/syslog:", "/var/log/syslog"},
-      {"Readable debugfs:", "/sys/kernel/debug"},
-      {NULL, NULL},
-  };
-
-  for (int i = 0; check_files[i][0]; i++) {
-    int readable = kasld_access(check_files[i][1], R_OK) == 0;
-    printf("%-30s%s%s%s\n", check_files[i][0], readable ? c(C_GREEN) : c(C_DIM),
-           readable ? "yes" : "no", c(C_RESET));
-  }
-
-  /* Kernel-release-specific paths */
-  char path[KASLD_PATH_MAX];
-  int readable;
-
-  snprintf(path, sizeof(path), "/boot/System.map-%s", u.release);
-  readable = kasld_access(path, R_OK) == 0;
-  printf("%-30s%s%s%s\n",
-         "Readable /boot/System.map:", readable ? c(C_GREEN) : c(C_DIM),
-         readable ? "yes" : "no", c(C_RESET));
-
-  snprintf(path, sizeof(path), "/boot/config-%s", u.release);
-  readable = kasld_access(path, R_OK) == 0;
-  printf("%-30s%s%s%s\n",
-         "Readable /boot/config:", readable ? c(C_GREEN) : c(C_DIM),
-         readable ? "yes" : "no", c(C_RESET));
 
   printf("\n");
 }

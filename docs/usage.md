@@ -254,8 +254,9 @@ and the residual expressed in bits.
 The system-config block reports the recon vantage: whether the process is
 containerized, which mandatory-access-control policy is in force, the security
 context and the uid/gid/groups this process runs under, and — when it is
-confined — its seccomp / capability / no-new-privs state, plus which `/proc`
-leak oracles are readable here.
+confined — its seccomp / capability / no-new-privs state, plus which leak
+sources are readable here: the `/proc` oracles, the system logs, debugfs, and
+the `System.map` and kernel config for the running release.
 
 The identity is not redundant with the
 capability set: several sources answer to discretionary permissions alone, so a
@@ -558,7 +559,9 @@ The `environment` object is the recon vantage: `container`, `seccomp`, `lsm`,
 `no_new_privs`, `uid`, `euid`, `gid`, `egid`, `groups` (null when unreadable,
 with `groups_truncated` when the process holds more than the report keeps),
 `group_gated_sources` (those of them kasld knows gate a source it reads, named),
-and a `readable_oracles` map for the `/proc` leak sources
+and a `readable_oracles` map of the sources probed for readability — the
+`/proc` oracles, the system logs, debugfs, and the `/boot` `System.map` and
+config, the last two keyed by the path including the running kernel release
 (fields are a `null` or enum when they do not apply). `lsm`, `selinux` and
 `security_context` are `null` when this vantage cannot read them, which is not
 the same as their being absent — an enforcing policy commonly hides its own

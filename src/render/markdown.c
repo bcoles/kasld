@@ -160,7 +160,7 @@ static void render_environment_markdown(void) {
   printf("| Source | Readable |\n");
   printf("|:-------|:---------|\n");
   for (int i = 0; i < KASLD_N_ORACLES; i++)
-    printf("| `%s` | %s |\n", kasld_oracle_paths[i],
+    printf("| `%s` | %s |\n", v->oracle_path[i],
            v->oracle_readable[i] ? "yes" : "no");
   printf("\n");
 

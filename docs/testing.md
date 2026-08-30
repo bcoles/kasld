@@ -186,6 +186,7 @@ stays plain, and setting `KASLD_COLOR` non-empty or empty forces either.
 | `check-shellcheck` | shellcheck over the `extra/` helper scripts |
 | `check-fuzz-harnesses` | every libFuzzer harness under `tests/fuzz/` still builds and links against the tree, and has a seed corpus † |
 | `check-render-model-only` | no renderer reads a resolved quantity — a base, count, slide or entropy figure — from the summary struct; the report model is the only source, so a format cannot present a value the model withheld or a figure the engine did not compute |
+| `check-render-no-acquire` | no renderer acquires a fact about the target — no file probe, no `sysconf()`, no `uname()`; every fact reaches the render layer through the summary, the report model or the environment snapshot, so all formats answer from one moment and a replayed tree is described rather than the machine replaying it |
 | `check-make-deps` | every test and fuzz binary declares as a make prerequisite each source it reaches by `#include`, so an edit to one of them relinks rather than leaving a stale binary that passes against code no longer in the tree † |
 | `check-property-arches` | every supported architecture has BOTH whole-engine property tests — `test_full_engine_property_<arch>` and `..._floor` — defined and wired into the `RUN()` list † |
 | `check-stext-gap` | the three statements of an architecture's `_text`→`_stext` head gap agree: `STEXT_OFFSET`, `STEXT_OFFSET_MIN`/`_MAX`, and `STEXT_GAP_CANDIDATES` † |

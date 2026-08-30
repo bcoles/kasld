@@ -3118,13 +3118,23 @@ static void test_vantage_mac_absent_then_present(void) {
 
 /* The oracle probes are the readable-source row of every report. Each is staged
  * on its own so a gatherer that filled the array from a single probe -- or off
- * by one against kasld_oracle_paths[] -- fails rather than averaging out. */
+ * by one against the table -- fails rather than averaging out.
+ *
+ * Staged by the path the gatherer resolved, not by the table's template: two
+ * entries carry the kernel release, and a test staging the template would
+ * probe one file and assert on another. */
 static void test_vantage_oracle_readable_each_path(void) {
   struct kasld_vantage v;
+  char probed[KASLD_N_ORACLES][KASLD_ORACLE_PATH_MAX];
+
+  th_sysroot_clear();
+  kasld_gather_vantage(&v);
+  for (int i = 0; i < KASLD_N_ORACLES; i++)
+    snprintf(probed[i], sizeof probed[i], "%s", v.oracle_path[i]);
 
   for (int i = 0; i < KASLD_N_ORACLES; i++) {
     th_sysroot_clear();
-    th_sysroot_write(kasld_oracle_paths[i], "x\n");
+    th_sysroot_write(probed[i], "x\n");
     kasld_gather_vantage(&v);
     for (int j = 0; j < KASLD_N_ORACLES; j++)
       assert(v.oracle_readable[j] == (i == j));
@@ -3133,12 +3143,59 @@ static void test_vantage_oracle_readable_each_path(void) {
   /* All of them at once, so "exactly one readable" cannot be what passes. */
   th_sysroot_clear();
   for (int i = 0; i < KASLD_N_ORACLES; i++)
-    th_sysroot_write(kasld_oracle_paths[i], "x\n");
+    th_sysroot_write(probed[i], "x\n");
   kasld_gather_vantage(&v);
   for (int i = 0; i < KASLD_N_ORACLES; i++)
     assert(v.oracle_readable[i] == 1);
 
   th_sysroot_clear();
+}
+
+/* A release-suffixed oracle is probed as the file it is, and the path the
+ * report names is the one that was opened.
+ *
+ * The release is staged rather than taken from this host, so the assertion
+ * cannot pass because the host's own release happens to appear. The staged
+ * value collides with nothing: no real kernel is called this. */
+static void test_vantage_oracle_release_suffixed_paths(void) {
+  struct kasld_vantage v;
+  const char *release = "9.9.9-kasld-test";
+  struct kasld_environment saved = kasld_env;
+  int checked = 0;
+  char staged[KASLD_ORACLE_PATH_MAX];
+
+  kasld_env.have_uts = 1;
+  snprintf(kasld_env.uts.release, sizeof kasld_env.uts.release, "%s", release);
+
+  th_sysroot_clear();
+  kasld_gather_vantage(&v);
+  for (int i = 0; i < KASLD_N_ORACLES; i++) {
+    if (!kasld_oracles[i].release_suffixed) {
+      /* An unsuffixed entry must not acquire the release. */
+      assert(strstr(v.oracle_path[i], release) == NULL);
+      assert(strcmp(v.oracle_path[i], kasld_oracles[i].path) == 0);
+      continue;
+    }
+    snprintf(staged, sizeof staged, "%s%s", kasld_oracles[i].path, release);
+    assert(strcmp(v.oracle_path[i], staged) == 0);
+    checked++;
+
+    /* Readable only when the suffixed file is the one staged: a gatherer
+     * probing the bare template would read the wrong path. */
+    th_sysroot_clear();
+    th_sysroot_write(kasld_oracles[i].path, "x\n");
+    kasld_gather_vantage(&v);
+    assert(v.oracle_readable[i] == 0);
+
+    th_sysroot_clear();
+    th_sysroot_write(staged, "x\n");
+    kasld_gather_vantage(&v);
+    assert(v.oracle_readable[i] == 1);
+  }
+  assert(checked == 2);
+
+  th_sysroot_clear();
+  kasld_env = saved;
 }
 
 /* The removal half of the privilege-gaining environment guard. The detection
@@ -3312,6 +3369,7 @@ int main(void) {
   RUN(test_unprivileged_exec_keeps_its_environment);
   RUN(test_vantage_mac_absent_then_present);
   RUN(test_vantage_oracle_readable_each_path);
+  RUN(test_vantage_oracle_release_suffixed_paths);
   RUN(test_discard_ledger_aggregates_and_reports_truncation);
   RUN(test_discard_project_engine_classifies_correctly);
   RUN(test_discard_project_engine_conflict_without_constraint);
