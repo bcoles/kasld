@@ -2,7 +2,8 @@
 # This file is part of KASLD - https://github.com/bcoles/kasld
 #
 # check-render-parity — the text readout, the markdown report and JSON must
-# name the SAME set of resolved quantities for a given run.
+# name the SAME set of resolved quantities for a given run, and every region the
+# readout evidences must reach the markdown report.
 #
 # The Layout row model exists so no two formats can describe the same resolved
 # state differently, but it only binds a format that consults it. The
@@ -56,7 +57,8 @@ TMP_T=$(mktemp) || exit 1
 TMP_M=$(mktemp) || exit 1
 TMP_RAW=$(mktemp) || exit 1
 TMP_J=$(mktemp) || exit 1
-trap 'rm -f "$TMP_T" "$TMP_M" "$TMP_RAW" "$TMP_J"' EXIT INT TERM
+TMP_E=$(mktemp) || exit 1
+trap 'rm -f "$TMP_T" "$TMP_M" "$TMP_RAW" "$TMP_J" "$TMP_E"' EXIT INT TERM
 note() {
   printf '  FAIL: %s\n' "$1"
   fail=1
@@ -117,6 +119,64 @@ text_rows() {
 md_rows() {
   sed -n 's/^| \([A-Za-z][A-Za-z0-9 ]*[A-Za-z]\) | \(guaranteed\) |/\1|\2|/p;s/^| \([A-Za-z][A-Za-z0-9 ]*[A-Za-z]\) | \(likely\) |/\1|\2|/p' |
     tr -d ' `|' | sort
+}
+
+# The Evidence sections, compared one way: readout into markdown.
+#
+# The two sections answer different questions on purpose -- the readout reports
+# the position of each region whose placement is a resolved quantity, keyed by
+# region and kind, while markdown reports the extent observed per section, over a
+# wider set that includes DRAM and MMIO. So equality is the wrong assertion, and
+# the checkable invariant is containment: a region the readout claims evidence
+# for must appear in markdown's table too. The reverse is expected to differ.
+#
+# What this catches is one section gaining or losing a group the other still
+# reports -- the drift that went unnoticed while the two grouped on different
+# keys with nothing comparing them.
+
+# Readout Evidence rows: the region label of each row, deduplicated. A row is
+# "  <region label>  <position>  <address>", and the position word is what makes
+# the shape unambiguous against the Layout table above it. One expression per
+# position word rather than an alternation, which is not in POSIX BRE.
+text_evidence() {
+  sed -n \
+    's/^  \([a-zA-Z][a-zA-Z0-9 ]*[a-zA-Z]\)  *base  *0x.*/\1/p;
+     s/^  \([a-zA-Z][a-zA-Z0-9 ]*[a-zA-Z]\)  *top  *0x.*/\1/p;
+     s/^  \([a-zA-Z][a-zA-Z0-9 ]*[a-zA-Z]\)  *interior span  *0x.*/\1/p;
+     s/^  \([a-zA-Z][a-zA-Z0-9 ]*[a-zA-Z]\)  *interior  *0x.*/\1/p' |
+    sort -u
+}
+
+# Markdown Evidence rows: the section display name of each, scoped to the
+# section so the Layout table's pipes are not read as evidence. The range ends
+# at the next heading; the header and separator rows are dropped by name.
+md_evidence() {
+  sed -n '/^## Evidence/,/^## [A-Z]/p' |
+    sed -n 's/^| \([^|]*\) | .*/\1/p' |
+    sed 's/  *$//' |
+    grep -v '^Section$' |
+    grep -v '^:*-*:*$' |
+    sort -u
+}
+
+# Readout region label -> the markdown section that must carry it. Many-to-one:
+# an image and a text region are both reported under the text section. A label
+# with no entry fails, the same discipline json_key_for() applies -- a new
+# region should require stating where it surfaces, not discover years later that
+# one format never learned about it.
+md_section_for() {
+  case $1 in
+  "virt kernel text" | "virt text region" | "virt kernel image")
+    echo "Kernel text (virtual)" ;;
+  "virt kernel data") echo "Kernel data (virtual)" ;;
+  "virt kernel BSS") echo "Kernel BSS (virtual)" ;;
+  "virt directmap" | "virt directmap region") echo "Direct map (virtual)" ;;
+  "virt module" | "virt module region") echo "Kernel modules (virtual)" ;;
+  "phys kernel text" | "phys kernel image") echo "Kernel text (physical)" ;;
+  "phys kernel data") echo "Kernel data (physical)" ;;
+  "phys kernel BSS") echo "Kernel BSS (physical)" ;;
+  *) echo "" ;;
+  esac
 }
 
 # The candidate count each format states for a quantity and grade, compared
@@ -260,6 +320,23 @@ compare_one() {
     return
   fi
 
+  # Evidence, one way: every region the readout evidences must be carried by
+  # markdown's table under its section name.
+  me=$(run -m | md_evidence)
+  # Read from a file, not from a pipe: `cmd | while` runs the loop in a
+  # subshell, where note() would set the failure flag and lose it with the
+  # subshell -- the guard would print FAIL and still exit 0.
+  run | text_evidence >"$TMP_E"
+  while IFS= read -r lbl; do
+    [ -n "$lbl" ] || continue
+    want=$(md_section_for "$lbl")
+    if [ -z "$want" ]; then
+      note "$label: evidence region \"$lbl\" has no entry in md_section_for()"
+    elif ! printf '%s\n' "$me" | grep -qxF "$want"; then
+      note "$label: readout evidences \"$lbl\" but markdown has no \"$want\" row"
+    fi
+  done <"$TMP_E"
+
   # Text vs JSON. Not a two-way name match: the two apply different policies on
   # purpose. The readout draws a row for every quantity the architecture
   # randomizes, bounded or not, so the set of rows is a property of the machine
@@ -399,5 +476,5 @@ if [ "$fail" -ne 0 ]; then
     "$RED" "$RESET" >&2
   exit 1
 fi
-printf '%scheck-render-parity: OK%s (%d runs; text/markdown agree row for row, readout and json agree on every count, json names nothing new)\n' \
+printf '%scheck-render-parity: OK%s (%d runs; text/markdown agree row for row, readout and json agree on every count, json names nothing new, every evidenced region reaches markdown)\n' \
   "$GREEN" "$RESET" "$n"

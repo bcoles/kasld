@@ -211,7 +211,7 @@ stays plain, and setting `KASLD_COLOR` non-empty or empty forces either.
 | `check-posture-diff` | behavioural test for `extra/posture-diff` |
 | `check-posture-summary` | behavioural test for `extra/posture-summary` |
 | `check-baseline` | the no-component baseline (`-s '*'`) renders in every output mode and exits with the no-results status, and a run that gathers evidence resolves a window *inside* it † |
-| `check-render-parity` | the text readout, the markdown report and JSON name the same set of resolved quantities for a given run † |
+| `check-render-parity` | the text readout, the markdown report and JSON name the same set of resolved quantities for a given run, and every region the readout lists evidence for is carried by the markdown report under its section name † |
 | `check-render-color` | coloured output is byte-identical to plain output once the escape sequences are removed, and markdown, JSON and oneline carry no escapes at all † |
 | `check-wire-text` | a component cannot put an escape sequence on the terminal: a record whose `name`, or a disposition whose `gate` or `msg`, leaves printable ASCII is rejected, and the verbose echo of component output strips control bytes † |
 | `check-sysroot-containment` | a `KASLD_SYSROOT` too long to build a fact path with fails the read instead of falling back to the analysing host's own `/proc` and `/sys` † |
@@ -497,7 +497,11 @@ exists so no two formats can describe one resolved state differently, but it
 only binds a format that consults it: the no-randomization postures once
 returned before the model was built and then hardcoded the kernel image base,
 so a quantity the engine had pinned reached JSON while both readouts omitted
-it.
+it. It also compares the Evidence sections, one way: the readout reports the
+position of each region whose placement is a resolved quantity, while the
+markdown report reports the extent observed per section over a wider set, so
+containment rather than equality is the invariant — a region the readout
+evidences must appear in the markdown table.
 
 Compares text and markdown row for row — quantity, grade, range, search space
 and pitch, normalised so neither format's column padding nor its scaffolding
