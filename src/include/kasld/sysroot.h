@@ -192,20 +192,68 @@ __attribute__((unused)) static int kasld_read_file_line(const char *path,
   return 0;
 }
 
-/* uname(2) with an override of the kernel release. Components build
- * release-named /boot paths (vmlinuz-<rel>, config-<rel>, System.map-<rel>)
- * from uname().release, so when reading a copied tree the release must match
- * that tree, not the host's. KASLD_SYSROOT redirects the path; this supplies
- * the release in it. The override is needed because it propagates to
- * subprocesses via the environment, whereas qemu-user's QEMU_UNAME is not
- * honored after the self-re-exec qemu performs for a foreign-arch child. Unset
- * (normal runs) => exact uname() pass-through. Only .release is overridden;
- * .machine is the emulated arch (already correct under qemu) and compile-time
- * on native. */
+/* Fill release and version from a captured /proc/version. The kernel writes
+ * "<sysname> version <release> (<by>@<host>) (<compiler>) <version>", where
+ * <version> is utsname.version and begins with '#' followed by the build
+ * number. Both fields are left untouched unless the whole line parses. */
+__attribute__((unused)) static int
+kasld_uname_from_proc_version(struct utsname *u) {
+  char line[512];
+  char *rel, *end, *ver;
+  size_t n;
+
+  if (kasld_read_file_line("/proc/version", line, sizeof(line)) != 0)
+    return -1;
+  /* First match only: a compiler string can carry its own " version ". */
+  rel = strstr(line, " version ");
+  if (!rel)
+    return -1;
+  rel += sizeof(" version ") - 1;
+  end = strchr(rel, ' ');
+  if (!end || end == rel)
+    return -1;
+  /* The compiler string is parenthesized and carries no '#', but anchor on the
+   * build number anyway so only a utsname.version can start the tail. */
+  for (ver = end; (ver = strchr(ver, '#')) != NULL; ver++)
+    if (ver[1] >= '0' && ver[1] <= '9')
+      break;
+  if (!ver)
+    return -1;
+
+  /* utsname.version is 64 chars plus NUL, the same width the kernel truncates
+   * to, so a long version clips here exactly as it does live and the two
+   * compose the same fingerprint. */
+  *end = '\0';
+  n = sizeof(u->release) - 1;
+  strncpy(u->release, rel, n);
+  u->release[n] = '\0';
+  n = sizeof(u->version) - 1;
+  strncpy(u->version, ver, n);
+  u->version[n] = '\0';
+  return 0;
+}
+
+/* uname(2) with the kernel identity taken from the tree under analysis.
+ *
+ * Components build release-named /boot paths (vmlinuz-<rel>, config-<rel>,
+ * System.map-<rel>) from uname().release, and the offset-table components key
+ * on "<release> <version>", so both fields have to describe the captured
+ * kernel rather than the machine running the analysis. Under KASLD_SYSROOT
+ * they come from the captured /proc/version, which carries both.
+ *
+ * KASLD_UNAME_RELEASE overrides the release afterwards; it is what a run
+ * without a captured /proc/version has, and it propagates to subprocesses via
+ * the environment, whereas qemu-user's QEMU_UNAME is not honored after the
+ * self-re-exec qemu performs for a foreign-arch child. With neither set
+ * (normal runs) => exact uname() pass-through. .machine is never overridden:
+ * it is the emulated arch under qemu, and compile-time on native. */
 __attribute__((unused)) static int kasld_uname(struct utsname *u) {
   int rc = uname(u);
   if (rc == 0) {
-    const char *rel = getenv("KASLD_UNAME_RELEASE");
+    const char *rel;
+    if (kasld_sysroot())
+      kasld_uname_from_proc_version(u);
+    rel = getenv("KASLD_UNAME_RELEASE");
     if (rel && *rel) {
       size_t n = sizeof(u->release) - 1;
       strncpy(u->release, rel, n);

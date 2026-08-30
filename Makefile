@@ -660,6 +660,15 @@ $(TEST_TWIDTH_BIN): $(TEST_DIR)/test_target_width.c $(HDRS) | $(TEST_OBJ_DIR)
 	$(call ccv,CCLD,$@)
 	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_target_width.c -o $@
 
+# Kernel identity under KASLD_SYSROOT (header-only): release and version taken
+# from a captured /proc/version, the environment override, and the fallbacks
+# that must leave uname(2)'s own fields alone.
+TEST_UNAME_BIN := $(TEST_OBJ_DIR)/test_uname
+
+$(TEST_UNAME_BIN): $(TEST_DIR)/test_uname.c $(HDRS) | $(TEST_OBJ_DIR)
+	$(call ccv,CCLD,$@)
+	$(Q)$(CC) $(TEST_ALL_CFLAGS) $(ALL_LDFLAGS) -I$(SRC_DIR) $(TEST_DIR)/test_uname.c -o $@
+
 # proc_kallsyms masked-probe + address width: the kptr_restrict all-zero
 # detection and the refusal of a symbol address wider than this build's word,
 # over a staged /proc/kallsyms (main renamed).
@@ -758,6 +767,7 @@ TEST_ALL_BINS := $(TEST_BIN) \
   $(TEST_ALIGN_BIN) \
   $(TEST_ADDRP_BIN) \
   $(TEST_TWIDTH_BIN) \
+  $(TEST_UNAME_BIN) \
   $(TEST_TS_BIN) \
   $(TEST_PREFETCH_SCAN_BIN) \
   $(TEST_CPU_BIN) \
@@ -856,6 +866,7 @@ lint :
 	    $(TEST_DIR)/check-shellcheck \
 	    $(TEST_DIR)/check-fuzz-harnesses \
 	    $(TEST_DIR)/check-make-deps \
+	    $(TEST_DIR)/check-suite-registry \
 	    $(TEST_DIR)/check-render-model-only \
 	    $(TEST_DIR)/check-render-no-acquire \
 	    $(TEST_DIR)/check-property-arches \

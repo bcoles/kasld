@@ -89,7 +89,8 @@ target, or an architecture the analysis host can only emulate.
 # On the target: capture (add --kallsyms to record ground truth for validation).
 extra/collect --kallsyms                    # -> kasld-bundle-<arch>-<rel>-<ts>/
 
-# Anywhere: replay the exact same facts through kasld, no target needed.
+# Anywhere: replay the exact same facts through kasld, no target needed. The
+# report names the captured kernel, not the one running the replay.
 KASLD_SYSROOT=kasld-bundle-*/sysroot ./build/*/kasld -v
 
 # And check the engine stayed sound over that capture (truth ∈ every range):

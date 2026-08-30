@@ -203,7 +203,10 @@ Directory to load component binaries from, overriding the default search
 .B KASLD_SYSROOT
 Treat this path as the filesystem root when reading kernel facts, for offline
 replay of a captured tree. Components that depend on live runtime state are
-skipped.
+skipped. The kernel release and version are taken from the captured
+.IR /proc/version ,
+so the report names the captured kernel rather than the one running the
+analysis.
 .TP
 .B KASLD_EXPERIMENTAL
 When set, enable experimental components, equivalent to
@@ -224,10 +227,10 @@ enable verbose output, equivalent to
 .TP
 .B KASLD_UNAME_RELEASE
 Override the kernel release reported by
-.BR uname (2),
-so a captured tree replays under the release it was taken from rather than
-the running one. Used with
-.BR KASLD_SYSROOT .
+.BR uname (2).
+Takes precedence over the release read from a captured
+.IR /proc/version ,
+and supplies it for a captured tree that has none.
 .TP
 .B KASLD_DEBUG_CONSTRAINTS
 When set, print each inference constraint and the resulting bounds to standard

@@ -189,6 +189,7 @@ stays plain, and setting `KASLD_COLOR` non-empty or empty forces either.
 | `check-render-model-only` | no renderer reads a resolved quantity — a base, count, slide or entropy figure — from the summary struct; the report model is the only source, so a format cannot present a value the model withheld or a figure the engine did not compute |
 | `check-render-no-acquire` | no renderer acquires a fact about the target — no file probe, no `sysconf()`, no `uname()`; every fact reaches the render layer through the summary, the report model or the environment snapshot, so all formats answer from one moment and a replayed tree is described rather than the machine replaying it |
 | `check-make-deps` | every test and fuzz binary declares as a make prerequisite each source it reaches by `#include`, so an edit to one of them relinks rather than leaving a stale binary that passes against code no longer in the tree † |
+| `check-suite-registry` | every unit-test binary the Makefile builds is also executed by `tests/run-all`, so a suite cannot be added, compiled on every build and never run while `make test` reports a clean pass † |
 | `check-property-arches` | every supported architecture has BOTH whole-engine property tests — `test_full_engine_property_<arch>` and `..._floor` — defined and wired into the `RUN()` list † |
 | `check-stext-gap` | the three statements of an architecture's `_text`→`_stext` head gap agree: `STEXT_OFFSET`, `STEXT_OFFSET_MIN`/`_MAX`, and `STEXT_GAP_CANDIDATES` † |
 | `check-confidence-floor` | every engine rule that emits a *collapsing* constraint — `C_EQUALS`, `C_STRIDE`, `C_AT_LEAST_ALIGN`, or `C_EXCLUDE` — is on a reviewed allowlist, each entry recording what the value rests on † |
@@ -226,9 +227,10 @@ stays plain, and setting `KASLD_COLOR` non-empty or empty forces either.
 
 `check-truncation` needs `i686-linux-gnu-gcc`, `check-shellcheck` needs
 `shellcheck`, `check-fuzz-harnesses` needs a compiler that links
-`-fsanitize=fuzzer`, `check-make-deps` needs `python3` and a `make` that prints
-its rule database (`-p`), and `check-diagram-data` uses `xmllint` for its
-well-formedness pass; all five **skip cleanly** (exit 0) when their tool is
+`-fsanitize=fuzzer`, `check-make-deps` and `check-suite-registry` need
+`python3` and a `make` that prints its rule database (`-p`), and
+`check-diagram-data` uses `xmllint` for its
+well-formedness pass; all six **skip cleanly** (exit 0) when their tool is
 absent, so `make lint` works with just a host compiler. CI installs all but
 the fuzzer toolchain, so there they run for real. `check-diagram-data` skips
 only that one pass — its table-parity and structural checks need nothing

@@ -1,0 +1,88 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# Every built unit-test binary is executed by tests/run-all.
+#
+# The Makefile decides what gets BUILT (TEST_ALL_BINS) and run-all keeps its own
+# hand-maintained list of what gets RUN. Nothing tied the two together: adding a
+# test target and forgetting the run-all entry produces a binary that compiles
+# on every build, is never executed, and asserts nothing -- while `make test`
+# reports a clean run and the tally line counts only the suites that did run.
+# The failure presents as a PASS, so no amount of reading the transcript finds
+# it.
+#
+# The build side is read from make's own database rather than by parsing the
+# Makefile, so the list is exactly what make will build.
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+cd "$ROOT" || exit 1
+
+if [ -t 1 ] || [ -n "${KASLD_COLOR:-}" ]; then
+  RED=$(printf '\033[31m'); YELLOW=$(printf '\033[33m'); RESET=$(printf '\033[0m')
+else
+  RED=; YELLOW=; RESET=
+fi
+
+DB=$(mktemp) || exit 1
+trap 'rm -f "$DB"' EXIT INT TERM
+
+command -v python3 >/dev/null 2>&1 || {
+  printf '%scheck-suite-registry: SKIP%s (needs python3)\n' "$YELLOW" "$RESET"
+  exit 0
+}
+
+# -p prints the variable and rule database; -n runs no recipe.
+make -pn 2>/dev/null > "$DB" || :
+[ -s "$DB" ] || {
+  printf '%scheck-suite-registry: SKIP%s (make -pn produced no database)\n' \
+    "$YELLOW" "$RESET"
+  exit 0
+}
+
+python3 - "$DB" "$RED" "$RESET" <<'PY'
+import re, sys
+
+db, RED, RESET = open(sys.argv[1]).read(), sys.argv[2], sys.argv[3]
+
+# make prints TEST_ALL_BINS already expanded, so this is the exact set of
+# binaries the build produces -- not a re-derivation of it.
+m = re.search(r'^TEST_ALL_BINS\s*:?=\s*(.*)$', db, re.M)
+if not m:
+    print('%scheck-suite-registry: FAIL%s (TEST_ALL_BINS not in the database)'
+          % (RED, RESET))
+    sys.exit(1)
+
+built = {p.rsplit('/', 1)[-1] for p in m.group(1).split()}
+
+if not built:
+    print('%scheck-suite-registry: FAIL%s (no test binaries resolved)'
+          % (RED, RESET))
+    sys.exit(1)
+
+run = set()
+for ln in open('tests/run-all'):
+    if ln.startswith('SUITES='):
+        run = set(ln.split('=', 1)[1].strip().strip('"').split())
+        break
+
+if not run:
+    print('%scheck-suite-registry: FAIL%s (run-all declares no SUITES)'
+          % (RED, RESET))
+    sys.exit(1)
+
+unrun = sorted(built - run)
+unbuilt = sorted(run - built)
+if unrun or unbuilt:
+    print('%scheck-suite-registry: FAIL%s' % (RED, RESET))
+    for s in unrun:
+        print('  built but never run:  %s (add it to SUITES in tests/run-all)' % s)
+    for s in unbuilt:
+        print('  run but never built:  %s (no Makefile target)' % s)
+    sys.exit(1)
+
+print('check-suite-registry: OK (%d unit-test suites, all built and all run)'
+      % len(built))
+PY
