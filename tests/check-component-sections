@@ -1,0 +1,92 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-component-sections — every built component carries its metadata sections.
+#
+# KASLD_META and KASLD_EXPLAIN place their text in the .kasld_meta and
+# .kasld_explain ELF SECTIONS via __attribute__((used, section(...))). The
+# orchestrator reads them back out of the binary to assign phases, print
+# --explain, and build the hardening report.
+#
+# check-component-meta holds the DECLARATION: every src/components/*.c has a
+# KASLD_META(...) with a vocabulary that agrees across the tree. It reads source
+# and cannot see whether the declaration reached the binary. Nothing did, and the
+# gap is not theoretical: renaming the section in the attribute leaves every
+# source declaring metadata, every guard passing, and `--explain` producing
+# nothing at all. A linker or compiler flag that discards unreferenced sections
+# does the same thing without touching a line of source.
+#
+# This reads the built binaries instead. Both sections must be present and carry
+# bytes -- an empty section is a component whose metadata compiled to nothing,
+# which reads identically to a missing one at runtime.
+#
+# Every triple built is checked, not just the host's: the attribute is
+# arch-independent but the link is not, and readelf reads a foreign ELF as
+# readily as a native one. A stripped build is checked the same way, which is
+# what makes stripping a release safe to claim -- the sections either survived
+# or this fails.
+#
+# Usage: tests/check-component-sections   (also run by `make test`)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+# shellcheck source=tests/lib/guard-scope.sh
+. "$ROOT/tests/lib/guard-scope.sh"
+
+if [ -t 2 ] || [ -n "${KASLD_COLOR:-}" ]; then
+  RED=$(printf '\033[31m'); GREEN=$(printf '\033[32m')
+  YELLOW=$(printf '\033[33m'); RESET=$(printf '\033[0m')
+else
+  RED=; GREEN=; YELLOW=; RESET=
+fi
+
+command -v readelf >/dev/null 2>&1 || {
+  printf '%scheck-component-sections: SKIP%s (no readelf)\n' "$YELLOW" "$RESET"
+  exit 0
+}
+
+bad=; nchecked=0; ntriples=0
+for d in "$ROOT"/build/*/components; do
+  [ -d "$d" ] || continue
+  ntriples=$((ntriples + 1))
+  triple=$(basename "$(dirname "$d")")
+  for f in "$d"/*; do
+    # Empty files are the architecture-gated stamp, not a component binary.
+    if [ ! -f "$f" ] || [ ! -s "$f" ]; then
+      continue
+    fi
+    nchecked=$((nchecked + 1))
+    for sec in .kasld_meta .kasld_explain; do
+      # Section present AND non-zero size; a zero-size section exists and says
+      # nothing, which reads the same as absent at runtime. The "[ 5]" index
+      # readelf prints splits into two fields while "[15]" is one, so the column
+      # positions move with the section count -- strip the index before reading
+      # them rather than counting from the left.
+      sz=$(readelf -S -W "$f" 2>/dev/null \
+           | sed 's/^ *\[ *[0-9]*\] *//' \
+           | awk -v s="$sec" '$1 == s { print $5; exit }')
+      case "$sz" in
+        "" ) bad="$bad $triple/$(basename "$f"):$sec:absent" ;;
+        *[!0]* ) ;;
+        * ) bad="$bad $triple/$(basename "$f"):$sec:empty" ;;
+      esac
+    done
+  done
+done
+
+if [ -n "$bad" ]; then
+  printf '%scheck-component-sections: FAIL%s (metadata missing from built components)\n' \
+    "$RED" "$RESET" >&2
+  for b in $bad; do printf '  %s\n' "$b" >&2; done
+  printf 'KASLD_META/KASLD_EXPLAIN place their text in ELF sections the orchestrator\n' >&2
+  printf 'reads back. Check the section attribute in api.h and any link flag that\n' >&2
+  printf 'discards unreferenced sections.\n' >&2
+  exit 1
+fi
+
+guard_scope "check-component-sections" "$nchecked" 50
+
+printf '%scheck-component-sections: OK%s (%s binaries across %s build(s) carry both sections)\n' \
+  "$GREEN" "$RESET" "$nchecked" "$ntriples"

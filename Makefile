@@ -824,6 +824,7 @@ lint :
 	    $(TEST_DIR)/check-component-meta \
 	    $(TEST_DIR)/check-component-cap \
 	    $(TEST_DIR)/check-components-built \
+	    $(TEST_DIR)/check-component-sections \
 	    $(TEST_DIR)/check-log-prefixes \
 	    $(TEST_DIR)/check-live-probes \
 	    $(TEST_DIR)/check-hash-parity \
@@ -1047,6 +1048,44 @@ install : build
 	install -d "$(DESTDIR)$(PREFIX)/share/man/man1"
 	install -m 644 man/kasld.1 man/ksymoff.1 "$(DESTDIR)$(PREFIX)/share/man/man1/"
 
+# STRIP defaults to the toolchain's, so a cross-installed tree gets binutils
+# matching the binaries rather than the host's. CROSS_COMPILE is honoured for
+# the same reason: applying the host strip to a foreign ELF fails, and failing
+# loudly at install time is better than shipping whatever it left behind.
+STRIP ?= $(CROSS_COMPILE)strip
+
+# install-strip — install, then strip what was installed. The GNU Coding
+# Standards name, since that is what packaging tooling already looks for.
+#
+# Debug info is 70% of the tree: an unstripped aarch64 build is 18 MiB against
+# 5.4 MiB stripped, which on a small flash rootfs decides whether it fits. What
+# makes this safe is that a component's metadata lives in .kasld_meta and
+# .kasld_explain, ELF SECTIONS that strip preserves -- not in the symbol table.
+# So --explain and the hardening report survive; installcheck proves it rather
+# than this comment asserting it.
+#
+# The installed copy is stripped, never build/: stripping there would leave make
+# holding up-to-date targets whose debug info is gone, and every later debugging
+# session would pay for it silently.
+#
+# Only ELF files are passed to strip. ksymoff installs into the same bin/ and is
+# a shell script, which strip rejects outright -- and a future script alongside
+# it would break this target the same way, so the type is tested rather than the
+# name being special-cased.
+.PHONY: install-strip
+install-strip : install
+	@n=0; \
+	for f in "$(DESTDIR)$(PREFIX)/bin"/* "$(DESTDIR)$(PREFIX)/libexec/kasld"/*; do \
+	  [ -f "$$f" ] || continue; \
+	  case "$$(od -An -c -N4 "$$f" 2>/dev/null | tr -d ' ')" in \
+	    177ELF*) ;; \
+	    *) continue ;; \
+	  esac; \
+	  $(STRIP) "$$f" || exit 1; \
+	  n=$$((n + 1)); \
+	done; \
+	echo "install-strip: stripped $$n binaries in $(DESTDIR)$(PREFIX)" 
+
 .PHONY: uninstall
 uninstall :
 	rm -f "$(DESTDIR)$(PREFIX)/bin/kasld"
@@ -1068,6 +1107,12 @@ uninstall :
 # JSON parser. On a broken layout the binary prints "cannot find component
 # directory" and emits no records, so the count is 0 and the check fails.
 .PHONY: installcheck
+# Component metadata lives in the .kasld_explain / .kasld_meta ELF sections, which
+# is what makes install-strip safe -- but discovery proves only that the binaries
+# RUN. Removing both sections leaves every component executable and the count
+# unchanged, so this check reported OK while --explain was gutted to nothing. The
+# two assertions after it hold the sections themselves, against whatever the
+# packaging pipeline did -- ours or a distro's.
 installcheck :
 	@bin="$(DESTDIR)$(PREFIX)/bin/kasld"; \
 	if [ ! -x "$$bin" ]; then \
@@ -1083,7 +1128,21 @@ installcheck :
 	  echo "installcheck: FAIL - bin/kasld discovered no components" >&2; \
 	  echo "  expected component binaries in $(DESTDIR)$(PREFIX)/libexec/kasld/" >&2; \
 	  exit 1; \
-	fi
+	fi; \
+	e=$$("$$bin" --explain 2>/dev/null | grep -c 'Reads\|Parses\|Probes\|Searches'); \
+	if [ "$$e" -lt 20 ]; then \
+	  echo "installcheck: FAIL - --explain yielded $$e technique lines" >&2; \
+	  echo "  the .kasld_explain section is missing from the installed components;" >&2; \
+	  echo "  a strip that removes ELF sections, not just symbols, will do this" >&2; \
+	  exit 1; \
+	fi; \
+	h=$$("$$bin" -H 2>/dev/null | wc -l); \
+	if [ "$$h" -lt 20 ]; then \
+	  echo "installcheck: FAIL - hardening report was $$h lines" >&2; \
+	  echo "  the .kasld_meta section is missing from the installed components" >&2; \
+	  exit 1; \
+	fi; \
+	echo "installcheck: OK (metadata intact: $$e explain lines, $$h hardening lines)"
 
 
 # Cross-compile all supported architectures with `make cross` — a local,
