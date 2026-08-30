@@ -655,7 +655,20 @@ values:
     object with one that exposes such a field — the freed `seq_operations` of an
     `open("/proc/…")` file landing in a use-after-free slot is the archetype —
     yields a `.text`/`.data` pointer directly.
-  * **Deferred-work callbacks** — `timer_list.function`, `work_struct.func`.
+  * **Deferred-work callbacks** — `timer_list.function`, `work_struct.func` and
+    `rcu_head.func` each park a `.text` pointer in the object while it waits for
+    its deferred work to run. `rcu_head` is the most widely reachable of the
+    three: it is conventionally the *first* member of an RCU-freed object
+    (`user_key_payload`, `bpf_prog_array`, `key_tag`), and `struct callback_head`
+    is `{ next; func; }`, so the pointer sits in the allocation's second word and
+    is live between `call_rcu()` and the grace period expiring.
+  * **List anchors** — a `list_head` in a heap object points at its neighbours,
+    and for the member adjacent to the head that neighbour is the *static* head
+    itself. The task list is anchored at `init_task.tasks`
+    (`init/init_task.c`), so a `task_struct`'s `tasks.next` / `tasks.prev` can be
+    `&init_task.tasks` outright — a fixed `.data` symbol from a single read,
+    where pointer-chasing below needs a traversal. Any list whose head is a
+    global behaves the same way.
   * **Pointer-chasing** — leak any object pointer (a `task_struct`, a namespace),
     then traverse to one whose target is a fixed `.data`/`.bss` symbol (`init_task`,
     `init_cred`, `init_net`, `init_pid_ns`, `init_mm`, `init_ipc_ns`); the
@@ -667,6 +680,29 @@ neighbour, a self-reference, a back-pointer — bounds `page_offset` regardless 
 which object it belongs to. This is the data-only pivot: the recovered base makes a
 sprayed or target object (`cred`, page-table pages, a `pipe_buffer`) addressable,
 then feeds a data-only read/write primitive such as `pipe_buffer.page` AARW.
+
+**To the module, vmalloc and vmemmap bases**, the same reads serve — what decides
+which base falls out is where the leaked pointer lands, not which object it came
+from:
+
+  * **Module region** — a pointer into a loaded module's text or data: the
+    `file_operations` of a module-backed device, or a symbol the module exports.
+    Module text is allocated by `execmem_alloc(EXECMEM_MODULE_TEXT)`
+    (`kernel/module/main.c`). What such a pointer is worth depends on the
+    architecture's module anchor: on x86_64 `MODULES_VADDR` is
+    `__START_KERNEL_map + KERNEL_IMAGE_SIZE`, a fixed offset from the image, so
+    the pointer bounds the text base as well; on arm64 the band tracks the image
+    and gives a two-sided bound; where the band is a fixed range it bounds only
+    itself.
+  * **vmalloc region** — a kernel stack pointer is the readiest source: under
+    `CONFIG_VMAP_STACK` stacks come from `__vmalloc_node()` (`kernel/fork.c`), so
+    a saved stack address, a `task_struct.stack`, or a pointer to any kernel
+    local bounds `vmalloc_base`. BPF JIT allocations land in the same region.
+  * **vmemmap region** — any `struct page *`. `pipe_buffer.page` is the archetype
+    (it is the structure's first member), and `skb` fragments or a page-table
+    object's `struct page` serve identically. Because the array is indexed by
+    PFN, a `struct page *` whose PFN is also known yields the base outright
+    rather than a bound.
 
 The `msg_msg` structure is the usual delivery vehicle for either: corrupting its
 `m_ts` length or `next` pointer turns a one-shot overflow into a controlled
@@ -683,6 +719,8 @@ Leaking a kernel pointer from a reachable object (`msg_msg` and related objects)
   * [[corCTF 2021] Wall Of Perdition: Utilizing msg_msg Objects For Arbitrary Read And Arbitrary Write In The Linux Kernel](https://syst3mfailure.io/wall-of-perdition)
   * [[CVE-2021-42008] Exploiting A 16-Year-Old Vulnerability In The Linux 6pack Driver](https://syst3mfailure.io/sixpack-slab-out-of-bounds)
   * [CVE-2022-0185: Linux kernel slab out-of-bounds write: exploit and writeup](https://www.openwall.com/lists/oss-security/2022/01/25/14) — partial-overwrite of `msg_msg.m_ts` extends the read to leak `init_ipc_ns` via a sprayed `shm_file_data`
+  * [Linux Kernel Exploit (CVE-2022-32250) with mqueue](https://theori.io/blog/linux-kernel-exploit-cve-2022-32250-with-mqueue) (Frontier Squad, Theori, 2022) — the `rcu_head.func` leak in use: a `user_key_payload` groomed below the UAF chunk, read out via `do_mq_timedreceive`
+  * [Abusing RCU callbacks with a Use-After-Free read to defeat KASLR](https://anatomic.rip/abusing_rcu_callbacks_to_defeat_kaslr/) — the same primitive stated in the general case
   * [\[CVE-2022-1786\] A Journey To The Dawn | kylebot's Blog](https://blog.kylebot.net/2022/10/16/CVE-2022-1786/) — `timerfd_ctx` list pointers and armed-timer `.text` callbacks
   * [HTB UNI CTF 2021: Steam Driver Kernel Pwnable](https://www.hackthebox.com/blog/uni-ctf-writeup-steam-driver) — `msg_msg` user-copy KASLR rebase
   * [Escaping the Google kCTF Container with a Data-Only Exploit](https://h0mbre.github.io/kCTF_Data_Only_Exploit/) (h0mbre) — `init_task`/`cred` traversal, data-only
