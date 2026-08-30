@@ -314,7 +314,11 @@ void kasld_report_build(struct kasld_resolution_view guaranteed,
         it->search_top =
             quantity_slots(q, &top, guaranteed.floor, NULL, 0, grain);
     }
-    it->entropy_top = q_entropy_top(q, grain);
+    /* The caller's denominator where it has one -- it may know a window the
+     * builder cannot derive -- and the architecture's own otherwise. */
+    it->entropy_top = (points && points[q].entropy_top)
+                          ? points[q].entropy_top
+                          : q_entropy_top(q, grain);
 
     build_window(&it->guaranteed, q, guaranteed, grain);
     build_window(&it->likely, q, likely, grain);

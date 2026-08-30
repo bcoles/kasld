@@ -222,6 +222,17 @@ struct kasld_report_point {
   /* An observed _stext for the same region, or 0. Supplied, not derived: only
    * the caller sees the observations. */
   unsigned long stext;
+
+  /* The set this quantity's residual is measured against, where the caller
+   * knows it and the builder cannot. The direct map is the case: its
+   * denominator is the window kernel_randomize_memory() draws from, sized from
+   * engine evidence the builder does not see, and NOT the quantity's honest top
+   * -- an addressable range would read as entropy the kernel never had. Zero
+   * leaves the builder's own answer standing.
+   *
+   * Read whether or not `present` is set: that flag is about the concrete
+   * value, and a denominator is known in runs that resolved no base. */
+  unsigned long entropy_top;
 };
 
 /* The report. Sections are added as the migration proceeds; quantities and

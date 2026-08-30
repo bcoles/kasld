@@ -221,6 +221,11 @@ stage_item(struct kasld_report *r, enum kasld_quantity q, const char *label,
   it->align_min = grain;
   it->entropy_top = top;
   it->search_top = top;
+  /* Through the builder's own conversion, as `bits` is: a denominator staged
+   * without its bit count renders as a bare residual, and an assertion about
+   * "N of M bits" then fails for a reason that has nothing to do with the
+   * renderer under test. */
+  it->top_bits = report_bits(top);
   stage_window(&it->guaranteed, lo, hi, cand);
   return it;
 }
@@ -2544,6 +2549,44 @@ static void test_render_oneline_with_rich_content(void) {
  * grammar's "resolved" state with the address quantities, so a helper that
  * reads the value before reading the SHAPE formats it through the address path
  * and publishes a plausible-looking wrong number. */
+/* The direct map's residual is measured against the budget window the kernel
+ * draws page_offset_base from, not against nothing.
+ *
+ * That denominator is derived from engine evidence and cannot be reached from
+ * the estimates, so the caller supplies it to the model. When it stopped being
+ * supplied the readout quietly changed from "~4 of 15 bits" to "~4 bits" and
+ * the row's count lost its denominator -- no assertion noticed, because
+ * nothing tied the two together. */
+static void test_render_directmap_residual_has_a_denominator(void) {
+#if RANDOMIZE_MEMORY_ALIGN > 0
+  struct summary s;
+  set_rich_render_state(&s);
+  s.kaslr.virt_page_offset_min = (unsigned long)PAGE_OFFSET_BASE_L4;
+  s.kaslr.virt_page_offset_max = (unsigned long)PAGE_OFFSET_BASE_L4 +
+                                 12ul * (unsigned long)RANDOMIZE_MEMORY_ALIGN;
+  s.kaslr.virt_page_offset_slots = 13;
+  s.kaslr.virt_page_offset_top_slots = 16384;
+
+  verbose = 1;
+  set_render_mode(0, 0, 0);
+  capture_stdout(wrap_render_summary, &s);
+  verbose = 0;
+  set_render_mode(0, 0, 0);
+
+  /* The phrase carries both figures: "~N of M bits", never the bare residual.
+   */
+  {
+    const char *e = strstr(render_cap, "Direct map entropy:");
+    const char *eol;
+    assert(e != NULL);
+    eol = strchr(e, '\n');
+    assert(eol != NULL);
+    assert(memchr(e, 'o', (size_t)(eol - e)) != NULL);
+    assert(strstr(e, " of ") != NULL && strstr(e, " of ") < eol);
+  }
+#endif
+}
+
 static void test_render_oneline_set_value_is_not_hex(void) {
   struct summary s;
   /* Only where the architecture has a set quantity to report at all. */
@@ -4750,6 +4793,7 @@ int main(void) {
   RUN(test_render_json_posture_always_present);
   RUN(test_render_markdown_with_rich_content);
   RUN(test_render_oneline_with_rich_content);
+  RUN(test_render_directmap_residual_has_a_denominator);
   RUN(test_render_oneline_set_value_is_not_hex);
   RUN(test_render_oneline_tokens_are_key_value);
   RUN(test_render_oneline_region_key_needs_one_candidate);

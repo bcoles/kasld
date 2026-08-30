@@ -3180,6 +3180,10 @@ void compute_kaslr_info(struct summary *s, const struct engine *auth,
       posture = RPOSTURE_FAILED;
 
     memset(pts, 0, sizeof(pts));
+    /* The direct map's residual is measured against the budget window, which is
+     * derived from engine evidence here and cannot be reached from the
+     * estimates alone. */
+    pts[Q_PAGE_OFFSET].entropy_top = s->kaslr.virt_page_offset_top_slots;
     if (s->kaslr.vtext) {
       pts[Q_VIRT_IMAGE_BASE].present = 1;
       pts[Q_VIRT_IMAGE_BASE].value = s->kaslr.vtext;

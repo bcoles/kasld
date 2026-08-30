@@ -360,6 +360,48 @@ int main(void) {
    * to run at all. Every check here is a pass by the time this is reached: a
    * failing one returns above. */
   fprintf(stderr, "%d/%d tests passed\n", checks, checks);
+  /* 7. A caller-supplied denominator wins over the architecture's own.
+   *
+   *    The direct map's residual is measured against the window the kernel
+   *    draws page_offset_base from, which is sized from engine evidence the
+   *    builder cannot see. Losing that supply changed a readout from
+   *    "~4 of 15 bits" to "~4 bits" with nothing failing, because the render
+   *    harness stages the denominator itself and never exercised the wiring. */
+  {
+    struct kasld_report_point pts[Q__COUNT];
+    const struct kasld_report_quantity *it;
+    unsigned long unsupplied;
+
+    tops(gest);
+    gv.est = gest;
+    gv.cs = NULL;
+    gv.n_cs = 0;
+    gv.floor = CONF_INFERRED;
+    lv.est = NULL;
+
+    /* Nothing supplied: the builder's own answer stands, whatever it is. Kept
+     * as the baseline the supplied case must differ from -- asserting only
+     * that the supplied value arrives would pass on a builder that ignored the
+     * supply and happened to compute the same figure. */
+    memset(pts, 0, sizeof(pts));
+    kasld_report_build(gv, lv, pts, RPOSTURE_RANDOMIZED, &r);
+    it = kasld_report_find(&r, Q_PAGE_OFFSET);
+    CHECK(it != NULL);
+    unsupplied = it->entropy_top;
+    CHECK(unsupplied != 16384);
+
+    memset(pts, 0, sizeof(pts));
+    pts[Q_PAGE_OFFSET].entropy_top = 16384;
+    kasld_report_build(gv, lv, pts, RPOSTURE_RANDOMIZED, &r);
+    it = kasld_report_find(&r, Q_PAGE_OFFSET);
+    CHECK(it != NULL);
+    CHECK(it->entropy_top == 16384);
+    CHECK(it->top_bits == 14);
+    /* Carried without a concrete value beside it: a denominator is known in
+     * runs that resolved no base, so it must not be gated on `present`. */
+    CHECK(!it->has_point);
+  }
+
   printf("test_report: OK (%d checks)\n", checks);
   return 0;
 }
