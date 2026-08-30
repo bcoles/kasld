@@ -526,6 +526,14 @@ differ from the text labels; the mapping is:
 | Headline concrete base | `virtual` / `physical` → `image_base` | "Virtual / Physical image base" |
 | Paging level (a set of sizes, not a window) | `va_bits` → `values` | `Paging Level` in the Layout table |
 
+A window's `range_min`/`range_max` are its convex **hull**, not its candidate
+set: the engine carves sub-ranges out of the interior, and `slots` already
+counts only what survives. Where any were carved, `excluded` lists the ranges
+the report retains and `excluded_total` says how many there were — so a
+consumer can tell a truncated list from a complete one, and can skip addresses
+already ruled out rather than working through the whole hull. The readout notes
+that they exist, `-v` and the markdown report list them.
+
 So `inferred*` is the guaranteed window and `likely*` is the speculative
 best-guess, always contained within it. Memory-KASLR regions
 (`memory_kaslr`) carry the same guaranteed `min`/`max` and an optional

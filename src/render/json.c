@@ -246,6 +246,28 @@ static void json_addr_pair(const char *lo_key, const char *hi_key,
   json_addr_or_null(w->has_hi, w->hi);
 }
 
+/* The sub-ranges carved out of a window's interior, if any.
+ *
+ * The min/max above are the window's HULL, not its candidate set: the engine
+ * excludes interior sub-ranges -- reserved physical memory, holes in the map --
+ * and `slots` already counts what survives. So a consumer reading only the
+ * edges brute-forces addresses the engine has already ruled out. On one x86_64
+ * host that is 647 of 6616 physical placements, about a ninth of the search.
+ *
+ * `excluded_total` is how many were carved; the array holds as many as the
+ * model retains, so a consumer can tell a complete list from a truncated one
+ * rather than assuming the ranges it sees are all of them. */
+static void json_excluded(const struct kasld_report_window *w) {
+  if (w->n_excluded <= 0)
+    return;
+  printf(",\n      \"excluded_total\": %d", w->n_excluded);
+  printf(",\n      \"excluded\": [");
+  for (int i = 0; i < w->excluded_listed; i++)
+    printf("%s\n        { \"min\": \"0x%016lx\", \"max\": \"0x%016lx\" }",
+           i ? "," : "", w->excluded[i].lo, w->excluded[i].hi);
+  printf("\n      ]");
+}
+
 static void render_environment_json(void) {
   const struct kasld_vantage *v = &kasld_env.vantage;
 
@@ -582,6 +604,7 @@ void render_json(const struct summary *s) {
         printf(",\n      \"entropy_bits_initial\": %d", rv->top_bits);
       printf(",\n      \"entropy_bits\": %d", rv->guaranteed.bits);
     }
+    json_excluded(&rv->guaranteed);
     printf("\n    }");
   }
 
@@ -620,7 +643,9 @@ void render_json(const struct summary *s) {
     printf(",\n    \"inferred_physical\": {\n");
     json_addr_pair("range_min", "range_max", &rp->guaranteed);
     printf(",\n      \"slots\": %lu,\n", rp->guaranteed.candidates);
-    printf("      \"entropy_bits\": %d\n", rp->guaranteed.bits);
+    printf("      \"entropy_bits\": %d", rp->guaranteed.bits);
+    json_excluded(&rp->guaranteed);
+    printf("\n");
     printf("    }");
   }
 

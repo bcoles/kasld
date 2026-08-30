@@ -279,6 +279,21 @@ static const char *entropy_phrase(int bits, int bits_top, char *buf,
   return buf;
 }
 
+/* One quantity's excluded interior ranges, where it has any. */
+static void readout_excluded(const char *label,
+                             const struct kasld_report_quantity *it) {
+  const struct kasld_report_window *w;
+  if (!it || it->guaranteed.n_excluded <= 0)
+    return;
+  w = &it->guaranteed;
+  printf("  %s excludes %d range%s%s:\n", label, w->n_excluded,
+         w->n_excluded == 1 ? "" : "s",
+         w->excluded_listed < w->n_excluded ? " (first few)" : "");
+  for (int i = 0; i < w->excluded_listed; i++)
+    printf("      %s0x%lx - 0x%lx%s\n", c(C_DIM), w->excluded[i].lo,
+           w->excluded[i].hi, c(C_RESET));
+}
+
 /* The verbose KASLR analysis: the same Layout table the readout draws, then
  * only what its five columns cannot carry.
  *
@@ -353,6 +368,18 @@ static void render_kaslr_text(void) {
       printf("  %-*s %s\n", KASLR_LABEL_W, "Direct map entropy:",
              entropy_phrase(id->guaranteed.bits, id->top_bits, ebuf,
                             sizeof(ebuf)));
+
+    /* The sub-ranges carved out of a window's interior.
+     *
+     * The table above draws each window's HULL, and the count beside it already
+     * excludes these -- so the two disagree by exactly this much, and a reader
+     * reconciling them has nothing to reconcile with. Naming the ranges is also
+     * what makes the count actionable: brute-forcing the hull spends effort on
+     * placements the engine ruled out. Listed here rather than in the table,
+     * which has no column for a set of ranges. */
+    readout_excluded("Virtual image base", iv);
+    readout_excluded("Physical image base", ip);
+    readout_excluded("Direct map base", id);
   }
   printf("\n");
 }
@@ -2037,6 +2064,26 @@ static void render_readout(const struct summary *s) {
      * do not use. */
     printf("\n  %sNote: %s%s\n", c(C_DIM), kasld_coupling_descr(), c(C_RESET));
     printf("\n");
+  }
+
+  /* Why the Window and Candidates cells disagree.
+   *
+   * The window is a hull; the count already excludes the sub-ranges carved out
+   * of it. Without saying so the two figures beside each other cannot be
+   * reconciled -- a reader sees a range and a smaller number and has no way to
+   * know which addresses are missing. The readout has no room for the ranges,
+   * so it says how many and where to read them; -v and the machine formats
+   * carry the list. */
+  {
+    const struct kasld_report *rp = render_report();
+    int carved = 0;
+    if (rp)
+      for (int i = 0; i < rp->n_quantities; i++)
+        carved += rp->quantities[i].guaranteed.n_excluded;
+    if (carved > 0)
+      printf("\n  %sNote: %d sub-range%s excluded from the windows above; the "
+             "counts\n        already reflect them (-v lists the ranges).%s\n",
+             c(C_DIM), carved, carved == 1 ? "" : "s", c(C_RESET));
   }
 
   readout_print_leaks();

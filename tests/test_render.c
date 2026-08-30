@@ -203,10 +203,17 @@ static void stage_window(struct kasld_report_window *w, unsigned long lo,
  * how an assertion comes to pass for the wrong reason. */
 static unsigned long t_vlikely_lo, t_vlikely_hi, t_vlikely_slots;
 static unsigned long t_plikely_lo, t_plikely_hi, t_plikely_slots;
+/* One carved interior range for the virtual image base, and the total carved --
+ * which may exceed what the model retains, so a format can be checked for
+ * disclosing the truncation as well as the range. */
+static unsigned long t_excl_lo, t_excl_hi;
+static int t_excl_total;
 
 static void stage_likely_reset(void) {
   t_vlikely_lo = t_vlikely_hi = t_vlikely_slots = 0;
   t_plikely_lo = t_plikely_hi = t_plikely_slots = 0;
+  t_excl_lo = t_excl_hi = 0;
+  t_excl_total = 0;
 }
 
 static struct kasld_report_quantity *
@@ -256,6 +263,12 @@ static void test_build_report(const struct summary *s, struct kasld_report *r) {
    * orchestrator cannot produce. */
   if (t_vlikely_hi)
     stage_window(&it->likely, t_vlikely_lo, t_vlikely_hi, t_vlikely_slots);
+  if (t_excl_total > 0) {
+    it->guaranteed.n_excluded = t_excl_total;
+    it->guaranteed.excluded_listed = 1;
+    it->guaranteed.excluded[0].lo = t_excl_lo;
+    it->guaranteed.excluded[0].hi = t_excl_hi;
+  }
   if (layout.virt_kaslr_text_min == layout.virt_kaslr_text_max &&
       layout.virt_kaslr_text_min)
     it->has_slide = r->posture == RPOSTURE_RANDOMIZED;
@@ -2557,6 +2570,56 @@ static void test_render_oneline_with_rich_content(void) {
  * supplied the readout quietly changed from "~4 of 15 bits" to "~4 bits" and
  * the row's count lost its denominator -- no assertion noticed, because
  * nothing tied the two together. */
+/* A window's excluded interior ranges are disclosed, not merely counted.
+ *
+ * The range a format prints is the convex HULL; the engine carves sub-ranges
+ * out of it, and the candidate count already reflects them. So the count and
+ * the range disagree by exactly the carved amount, and a reader reconciling the
+ * two has nothing to reconcile with -- while anyone brute-forcing the hull
+ * spends effort on placements already ruled out. On one x86_64 host that is 647
+ * of 6616 physical placements. */
+static void test_render_excluded_ranges_are_disclosed(void) {
+  struct summary s;
+
+  set_rich_render_state(&s);
+  /* One carved range, and a total larger than the number listed, so the
+   * truncation is visible too. */
+  t_excl_lo = layout.virt_kaslr_text_min + 0x1000ul;
+  t_excl_hi = layout.virt_kaslr_text_min + 0x2000ul;
+  t_excl_total = 3;
+
+  verbose = 1;
+  set_render_mode(0, 0, 0);
+  capture_stdout(wrap_render_summary, &s);
+  verbose = 0;
+  set_render_mode(0, 0, 0);
+  {
+    char hex[40];
+    assert(strstr(render_cap, "excludes 3 ranges") != NULL);
+    snprintf(hex, sizeof hex, "0x%lx - 0x%lx", t_excl_lo, t_excl_hi);
+    assert(strstr(render_cap, hex) != NULL);
+  }
+
+  /* The default readout has no room for the ranges, but must still say why its
+   * Window and Candidates cells disagree -- that reconciliation gap is the
+   * whole complaint, and it is the format most people see. */
+  set_render_mode(0, 0, 0);
+  capture_stdout(wrap_render_summary, &s);
+  assert(strstr(render_cap, "sub-range") != NULL);
+  assert(strstr(render_cap, "3") != NULL);
+
+  /* Markdown is a document with room, so it lists them like -v does. */
+  set_render_mode(0, 0, 1);
+  capture_stdout(wrap_render_summary, &s);
+  set_render_mode(0, 0, 0);
+  {
+    char hex[48];
+    assert(strstr(render_cap, "excludes 3 ranges") != NULL);
+    snprintf(hex, sizeof hex, "`0x%016lx` - `0x%016lx`", t_excl_lo, t_excl_hi);
+    assert(strstr(render_cap, hex) != NULL);
+  }
+}
+
 static void test_render_directmap_residual_has_a_denominator(void) {
 #if RANDOMIZE_MEMORY_ALIGN > 0
   struct summary s;
@@ -4793,6 +4856,7 @@ int main(void) {
   RUN(test_render_json_posture_always_present);
   RUN(test_render_markdown_with_rich_content);
   RUN(test_render_oneline_with_rich_content);
+  RUN(test_render_excluded_ranges_are_disclosed);
   RUN(test_render_directmap_residual_has_a_denominator);
   RUN(test_render_oneline_set_value_is_not_hex);
   RUN(test_render_oneline_tokens_are_key_value);

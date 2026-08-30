@@ -72,6 +72,20 @@ static void print_group_sources(enum kasld_addr_type type,
  * an engine pin -- naming it after the default would describe a coincidence as
  * a provenance. An edge the engine never resolved is reported as the one-sided
  * bound it is, rather than as a range starting at 0. */
+/* One quantity's excluded interior ranges, as a list under the table. */
+static void md_excluded(const char *label,
+                        const struct kasld_report_quantity *it) {
+  const struct kasld_report_window *w;
+  if (!it || it->guaranteed.n_excluded <= 0)
+    return;
+  w = &it->guaranteed;
+  printf("\n%s excludes %d range%s%s:\n\n", label, w->n_excluded,
+         w->n_excluded == 1 ? "" : "s",
+         w->excluded_listed < w->n_excluded ? " (first few)" : "");
+  for (int i = 0; i < w->excluded_listed; i++)
+    printf("- `0x%016lx` - `0x%016lx`\n", w->excluded[i].lo, w->excluded[i].hi);
+}
+
 /* The compile-time default, judged against the resolved window, for the
  * postures where nothing randomized the image. The window itself is reported by
  * the same Layout table every other posture carries; this adds only whether the
@@ -267,6 +281,17 @@ void render_markdown(const struct summary *s) {
       if (iv && iv->has_point)
         printf("| Compile-time default | `0x%016lx` |\n",
                layout.virt_image_base_default);
+
+      /* The sub-ranges carved out of each window's interior.
+       *
+       * The Window column above draws the convex HULL, and the count beside it
+       * already excludes these -- so the two disagree by exactly this much, and
+       * naming the ranges is what makes the count actionable: a reader working
+       * through the hull would spend effort on placements the engine ruled out.
+       * A document has room to list them, so it lists them. */
+      md_excluded("Virtual image base", iv);
+      md_excluded("Physical image base", ip);
+      md_excluded("Direct map base", kasld_report_find(rep, Q_PAGE_OFFSET));
     }
 
     /* Phys/virt coupling — the static classification the text readout carries,
