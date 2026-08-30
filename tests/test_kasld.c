@@ -913,7 +913,7 @@ static void test_compute_kaslr_info_directmap_base_follows_likely(void) {
   layout.virt_page_offset = before;
 }
 
-static void test_compute_kaslr_info_likely_window_reaches_summary(void) {
+static void test_compute_kaslr_info_likely_window_reaches_the_model(void) {
   struct engine auth;
   struct engine_resolution likely;
   unsigned long lo = layout.virt_kaslr_text_min + layout.virt_kaslr_align;
@@ -928,20 +928,33 @@ static void test_compute_kaslr_info_likely_window_reaches_summary(void) {
   auth.est[Q_VIRT_IMAGE_BASE].lo = layout.virt_kaslr_text_min;
   auth.est[Q_VIRT_IMAGE_BASE].hi = layout.virt_kaslr_text_max;
 
-  /* No likely snapshot: nothing speculative is reported. */
-  struct summary s = {0};
-  compute_kaslr_info(&s, &auth, NULL, NULL);
-  assert(s.kaslr.vlikely_max == 0);
+  /* Asserted on the report model, which is where the likely window lives: the
+   * summary never carried it usefully and no longer carries it at all. The
+   * claim is unchanged -- a speculative window appears only when one was
+   * resolved, and lies inside the proven one. */
+  {
+    struct summary s = {0};
+    struct kasld_report rep;
+    const struct kasld_report_quantity *it;
 
-  /* A strictly tighter likely window surfaces, clamped into the guaranteed one.
-   */
-  likely.est[Q_VIRT_IMAGE_BASE].lo = lo;
-  likely.est[Q_VIRT_IMAGE_BASE].hi = hi;
-  memset(&s, 0, sizeof(s));
-  compute_kaslr_info(&s, &auth, &likely, NULL);
-  assert(s.kaslr.vlikely_max != 0);
-  assert(s.kaslr.vlikely_min >= layout.virt_kaslr_text_min);
-  assert(s.kaslr.vlikely_max <= layout.virt_kaslr_text_max);
+    /* No likely snapshot: nothing speculative is reported. */
+    compute_kaslr_info(&s, &auth, NULL, &rep);
+    it = kasld_report_find(&rep, Q_VIRT_IMAGE_BASE);
+    assert(it != NULL);
+    assert(!kasld_report_likely_is_tighter(it));
+
+    /* A strictly tighter likely window surfaces, clamped into the guaranteed
+     * one. */
+    likely.est[Q_VIRT_IMAGE_BASE].lo = lo;
+    likely.est[Q_VIRT_IMAGE_BASE].hi = hi;
+    memset(&s, 0, sizeof(s));
+    compute_kaslr_info(&s, &auth, &likely, &rep);
+    it = kasld_report_find(&rep, Q_VIRT_IMAGE_BASE);
+    assert(it != NULL);
+    assert(kasld_report_likely_is_tighter(it));
+    assert(it->likely.has_lo && it->likely.lo >= it->guaranteed.lo);
+    assert(it->likely.has_hi && it->likely.hi <= it->guaranteed.hi);
+  }
 }
 
 static void test_compute_kaslr_info_falls_back_to_kernel_text(void) {
@@ -3271,7 +3284,7 @@ int main(void) {
   BEGIN_CATEGORY("compute_kaslr_info");
   RUN(test_compute_kaslr_info_uses_kernel_image_anchor);
   RUN(test_compute_kaslr_info_engine_pin_overrides_raw_anchor);
-  RUN(test_compute_kaslr_info_likely_window_reaches_summary);
+  RUN(test_compute_kaslr_info_likely_window_reaches_the_model);
   RUN(test_compute_kaslr_info_directmap_base_follows_likely);
   RUN(test_compute_kaslr_info_falls_back_to_kernel_text);
   RUN(test_compute_kaslr_info_no_anchors_yields_zero_vtext);

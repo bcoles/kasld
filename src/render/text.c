@@ -298,7 +298,7 @@ static const char *entropy_phrase(int bits, int bits_top, char *buf,
  * -- for a ceiling-type leak the base sits at the window's top edge by
  * construction. The position that is a fact about the target follows from the
  * slide (slide / align), which the table already carries. */
-static void render_kaslr_text(const struct summary *s) {
+static void render_kaslr_text(void) {
   char ebuf[48];
   /* Verbose renders this table instead of the readout, so it builds the rows
    * itself: render_readout() is the !verbose path and never runs here. Built
@@ -2261,7 +2261,7 @@ void render_text(const struct summary *s) {
     mark_group_printed(r->type, sec);
   }
 
-  render_kaslr_text(s);
+  render_kaslr_text();
   render_derived_text(s);
 
   printf("%s%s%s\n", c(C_DIM), "----------------------------------------",

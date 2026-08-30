@@ -193,6 +193,22 @@ static void stage_window(struct kasld_report_window *w, unsigned long lo,
   w->bits = report_bits(cand);
 }
 
+/* Test-local staging for the speculative windows.
+ *
+ * The orchestrator builds these into the model from the engine's second
+ * resolution; the summary never carried them usefully and no longer has fields
+ * for them. A test that wants a speculative window sets these, and
+ * stage_likely_reset() clears them -- they are globals, and a window left over
+ * from the previous test would stage a state this one did not ask for, which is
+ * how an assertion comes to pass for the wrong reason. */
+static unsigned long t_vlikely_lo, t_vlikely_hi, t_vlikely_slots;
+static unsigned long t_plikely_lo, t_plikely_hi, t_plikely_slots;
+
+static void stage_likely_reset(void) {
+  t_vlikely_lo = t_vlikely_hi = t_vlikely_slots = 0;
+  t_plikely_lo = t_plikely_hi = t_plikely_slots = 0;
+}
+
 static struct kasld_report_quantity *
 stage_item(struct kasld_report *r, enum kasld_quantity q, const char *label,
            unsigned long lo, unsigned long hi, unsigned long cand,
@@ -233,9 +249,8 @@ static void test_build_report(const struct summary *s, struct kasld_report *r) {
    * commonly has both -- the observation that supplies the base is the same one
    * the engine narrows with. Staging them as alternatives modelled a state the
    * orchestrator cannot produce. */
-  if (s->kaslr.vlikely_max)
-    stage_window(&it->likely, s->kaslr.vlikely_min, s->kaslr.vlikely_max,
-                 s->kaslr.vlikely_slots);
+  if (t_vlikely_hi)
+    stage_window(&it->likely, t_vlikely_lo, t_vlikely_hi, t_vlikely_slots);
   if (layout.virt_kaslr_text_min == layout.virt_kaslr_text_max &&
       layout.virt_kaslr_text_min)
     it->has_slide = r->posture == RPOSTURE_RANDOMIZED;
@@ -250,9 +265,8 @@ static void test_build_report(const struct summary *s, struct kasld_report *r) {
     it->slide = s->kaslr.pslide;
     it->has_slide = r->posture == RPOSTURE_RANDOMIZED;
   }
-  if (s->kaslr.plikely_max)
-    stage_window(&it->likely, s->kaslr.plikely_min, s->kaslr.plikely_max,
-                 s->kaslr.plikely_slots);
+  if (t_plikely_hi)
+    stage_window(&it->likely, t_plikely_lo, t_plikely_hi, t_plikely_slots);
   if (layout.phys_kaslr_text_min == layout.phys_kaslr_text_max &&
       layout.phys_kaslr_text_min)
     it->has_slide = r->posture == RPOSTURE_RANDOMIZED;
@@ -343,6 +357,7 @@ static void set_render_mode(int json, int oneline, int markdown) {
 static void test_render_summary_text_mode_minimal(void) {
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   struct summary s;
   memset(&s, 0, sizeof(s));
@@ -356,6 +371,7 @@ static void test_render_summary_text_mode_minimal(void) {
 static void test_render_summary_json_mode_minimal(void) {
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   struct summary s;
   memset(&s, 0, sizeof(s));
@@ -370,6 +386,7 @@ static void test_render_summary_json_mode_minimal(void) {
 static void test_render_summary_oneline_mode_minimal(void) {
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   struct summary s;
   memset(&s, 0, sizeof(s));
@@ -388,6 +405,7 @@ static void test_render_summary_oneline_mode_minimal(void) {
 static void test_render_summary_markdown_mode_minimal(void) {
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   struct summary s;
   memset(&s, 0, sizeof(s));
@@ -412,6 +430,7 @@ static void test_render_summary_markdown_mode_minimal(void) {
 static void set_rich_render_state(struct summary *s) {
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   memset(s, 0, sizeof(*s));
 
@@ -459,7 +478,6 @@ static void set_rich_render_state(struct summary *s) {
   s->kaslr.vtext = vt;
   s->kaslr.vslide = 0x10000000;
   s->kaslr.vslots = 512;
-  s->kaslr.vbits = 9;
   s->stats.total = 1;
   s->stats.succeeded = 1;
 }
@@ -492,6 +510,7 @@ static void test_render_oneline_dmap_not_asserted_when_unpinned(void) {
   struct summary s;
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
 
@@ -591,6 +610,7 @@ static void test_render_likely_window(void) {
   struct summary s;
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
 
@@ -598,11 +618,9 @@ static void test_render_likely_window(void) {
    * speculative likely window. The likely sub-line/JSON read only s->kaslr,
    * not layout, so this mutates no global but verbose. */
   s.kaslr.vslots = 60;
-  s.kaslr.vbits = 6;
-  s.kaslr.vlikely_min = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT + 0x19000000ul;
-  s.kaslr.vlikely_max = s.kaslr.vlikely_min; /* a single slot */
-  s.kaslr.vlikely_slots = 1;
-  s.kaslr.vlikely_bits = 0;
+  t_vlikely_lo = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT + 0x19000000ul;
+  t_vlikely_hi = t_vlikely_lo; /* a single slot */
+  t_vlikely_slots = 1;
 
   verbose = 1; /* the KASLR analysis block shows in the verbose text flow */
   set_render_mode(0, 0, 0); /* text */
@@ -612,8 +630,7 @@ static void test_render_likely_window(void) {
      range: the row states the address and a search space of one. */
   {
     char one[32];
-    snprintf(one, sizeof(one), "0x%lx - 0x%lx", s.kaslr.vlikely_min,
-             s.kaslr.vlikely_min);
+    snprintf(one, sizeof(one), "0x%lx - 0x%lx", t_vlikely_lo, t_vlikely_lo);
     assert(strstr(render_cap, one) == NULL);
     assert(strstr(render_cap, "1 slots") == NULL);
   }
@@ -653,6 +670,7 @@ static void test_render_vtext_speculative(void) {
   struct summary s;
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
   unsigned long sv_lo = layout.virt_kaslr_text_min,
@@ -662,16 +680,15 @@ static void test_render_vtext_speculative(void) {
   s.kaslr.vtext = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT + 0x10000000ul;
   s.kaslr.vslide = 0x10000000l;
   s.kaslr.vslots = 60;
-  s.kaslr.vbits = 6;
   /* The engine's likely resolution, pinned at the same observation the concrete
    * base was picked from. Staged because that is what a run HAS: the anchor
    * scan and the engine read the same observation, so a base witness both
    * supplies the headline value and pins the speculative window. A concrete
    * base with no window behind it is not a state the orchestrator reaches, and
    * a row drawn from one would be asserting a count no resolution produced. */
-  s.kaslr.vlikely_min = s.kaslr.vtext;
-  s.kaslr.vlikely_max = s.kaslr.vtext;
-  s.kaslr.vlikely_slots = 1;
+  t_vlikely_lo = s.kaslr.vtext;
+  t_vlikely_hi = s.kaslr.vtext;
+  t_vlikely_slots = 1;
   layout.virt_kaslr_text_min = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
   layout.virt_kaslr_text_max =
       (unsigned long)KERNEL_VIRT_TEXT_DEFAULT + 0x3c000000ul;
@@ -730,6 +747,7 @@ static void test_render_windowed_base_likely_order(void) {
   struct summary s;
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
   unsigned long sv_vlo = layout.virt_kaslr_text_min,
@@ -746,12 +764,11 @@ static void test_render_windowed_base_likely_order(void) {
    * window (same low edge, lower top) and a slot grain. */
   s.kaslr.has_phys = 1;
   s.kaslr.pslots = 1391;
-  s.kaslr.pbits = 11;
   layout.phys_kaslr_text_min = 0x01000000ul;
   layout.phys_kaslr_text_max = 0xbffffffful;
   layout.phys_kaslr_align = 0x200000ul; /* 2 MiB */
-  s.kaslr.plikely_min = 0x01000000ul;
-  s.kaslr.plikely_max = 0x2a447000ul;
+  t_plikely_lo = 0x01000000ul;
+  t_plikely_hi = 0x2a447000ul;
 
   set_render_mode(0, 0, 0); /* default compact readout */
   capture_stdout(wrap_render_summary, &s);
@@ -795,11 +812,11 @@ static void test_render_directmap_entropy_denominator(void) {
   struct summary s;
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
 
   s.kaslr.vslots = 60; /* keep render_kaslr_text from early-returning */
-  s.kaslr.vbits = 6;
   /* A narrowed, non-pinned direct-map window (no likely sub-window, so the
    * bare-window row renders). Offsets from the arch PAGE_OFFSET macro so the
    * constants fit `unsigned long` on 32-bit arches. */
@@ -858,11 +875,11 @@ static void test_render_memory_likely_window(void) {
   struct summary s;
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
 
   s.kaslr.vslots = 60; /* keep render_kaslr_text from early-returning */
-  s.kaslr.vbits = 6;
   /* Guaranteed direct-map (page_offset) range with a tighter pinned likely
    * best-guess. Based on the arch PAGE_OFFSET macro so the constants fit
    * `unsigned long` on 32-bit arches too (matches set_richer_render_state). */
@@ -906,11 +923,11 @@ static void test_render_directmap_base_promoted(void) {
   struct summary s;
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
 
   s.kaslr.vslots = 60; /* keep the regular KASLR readout path */
-  s.kaslr.vbits = 6;
   /* Base above the un-randomized direct-map base, so the displayed offset is
    * the realistic small positive value it always is on a live kernel
    * (page_offset_base >= the level's __PAGE_OFFSET_BASE). Which base that is
@@ -958,11 +975,11 @@ static void test_render_directmap_base_promoted_unbounded(void) {
   struct summary s;
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
 
   s.kaslr.vslots = 60;
-  s.kaslr.vbits = 6;
   unsigned long sv_ref = layout.virt_page_offset_unrandomized;
   layout.virt_page_offset_unrandomized = (unsigned long)PAGE_OFFSET_BASE_L4;
   unsigned long align = (unsigned long)RANDOMIZE_MEMORY_ALIGN;
@@ -1016,13 +1033,13 @@ static void test_render_directmap_offset_follows_paging_level(void) {
     struct summary s;
     reset_results();
     reset_comp_logs();
+    stage_likely_reset();
     num_scalar_facts = 0;
     memset(&s, 0, sizeof(s));
 
     unsigned long base = refs[i] + 20ul * align;
     layout.virt_page_offset_unrandomized = refs[i];
     s.kaslr.vslots = 60;
-    s.kaslr.vbits = 6;
     s.kaslr.virt_page_offset_min = refs[i];
     s.kaslr.virt_page_offset_max = base;
     s.kaslr.virt_page_offset_slots = 21;
@@ -1052,13 +1069,13 @@ static void test_render_directmap_offset_follows_paging_level(void) {
     struct summary s;
     reset_results();
     reset_comp_logs();
+    stage_likely_reset();
     num_scalar_facts = 0;
     memset(&s, 0, sizeof(s));
 
     unsigned long base = (unsigned long)PAGE_OFFSET_BASE_L4 + 20ul * align;
     layout.virt_page_offset_unrandomized = 0;
     s.kaslr.vslots = 60;
-    s.kaslr.vbits = 6;
     s.kaslr.virt_page_offset_min = (unsigned long)PAGE_OFFSET_BASE_L4;
     s.kaslr.virt_page_offset_max = base;
     s.kaslr.virt_page_offset_slots = 21;
@@ -1103,6 +1120,7 @@ static void test_render_json_publishes_unrandomized_directmap_base(void) {
     struct summary s;
     reset_results();
     reset_comp_logs();
+    stage_likely_reset();
     num_scalar_facts = 0;
     memset(&s, 0, sizeof(s));
 
@@ -1133,11 +1151,10 @@ static void test_render_entropy_states_its_baseline(void) {
   struct summary s;
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
   s.kaslr.vslots = 24;
-  s.kaslr.vbits = 5;
-  s.kaslr.vbits_top = 9;
   s.kaslr.vtop_slots = 512;
 
   set_render_mode(0, 0, 0);
@@ -1161,12 +1178,12 @@ static void test_render_window_row_always_graded(void) {
   struct summary s;
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
 
   unsigned long align = (unsigned long)RANDOMIZE_MEMORY_ALIGN;
   s.kaslr.vslots = 60;
-  s.kaslr.vbits = 6;
   /* A bounded direct-map window and deliberately NO likely window. */
   s.kaslr.virt_page_offset_min = (unsigned long)PAGE_OFFSET_BASE_L4;
   s.kaslr.virt_page_offset_max =
@@ -1203,10 +1220,10 @@ static void test_render_coupling_note(void) {
 
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
   s.kaslr.vslots = 60; /* keep the regular KASLR readout path */
-  s.kaslr.vbits = 6;
 
   /* KASLR live: stated by both formats that carry it. */
   set_render_mode(0, 0, 0);
@@ -1247,10 +1264,10 @@ static void test_render_markdown_text_order_caution(void) {
   struct summary s;
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
   s.kaslr.vslots = 60; /* keep the KASLR readout path alive */
-  s.kaslr.vbits = 6;
 
   scalar_facts[num_scalar_facts].fact = SF_TEXT_ORDER;
   scalar_facts[num_scalar_facts].value = TEXT_ORDER_STATIC;
@@ -1286,11 +1303,11 @@ static void test_render_memory_kaslr_uses_stored_slots(void) {
   struct summary s;
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
 
   s.kaslr.vslots = 60; /* keep render_kaslr_text from early-returning */
-  s.kaslr.vbits = 6;
   /* Both-sided direct-map window (portable constants). */
   s.kaslr.virt_page_offset_min = (unsigned long)PAGE_OFFSET + 0x01000000ul;
   s.kaslr.virt_page_offset_max = (unsigned long)PAGE_OFFSET + 0x09000000ul;
@@ -1327,10 +1344,10 @@ static void test_render_memory_kaslr_slots_reach_machine_formats(void) {
   struct summary s;
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
   s.kaslr.vslots = 60;
-  s.kaslr.vbits = 6;
   unsigned long align = (unsigned long)RANDOMIZE_MEMORY_ALIGN;
   s.kaslr.virt_page_offset_min = (unsigned long)PAGE_OFFSET_BASE_L4;
   s.kaslr.virt_page_offset_max =
@@ -1379,6 +1396,7 @@ static void check_static_base_case(int posture_disabled, unsigned long lo,
   struct summary s;
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
 
@@ -1545,6 +1563,7 @@ static void test_render_map_directmap_extent_derived(void) {
   /* --- pinned base, meminfo read, no highmem: the ceiling is derived. --- */
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
   scalar_facts[num_scalar_facts].fact = SF_PHYS_MAX_PFN;
@@ -1565,7 +1584,6 @@ static void test_render_map_directmap_extent_derived(void) {
   layout.virt_image_base_min = layout.virt_kernel_vas_start + step * 10;
   layout.virt_image_base_max = layout.virt_image_base_min;
   s.kaslr.vslots = 60;
-  s.kaslr.vbits = 6;
   verbose = 1;
   set_render_mode(0, 0, 0);
   capture_stdout(wrap_render_summary, &s);
@@ -1610,6 +1628,7 @@ static void test_render_map_directmap_base_from_engine(void) {
   struct summary s;
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
 
@@ -1637,7 +1656,6 @@ static void test_render_map_directmap_base_from_engine(void) {
   layout.virt_image_base_max = layout.virt_image_base_min;
 
   s.kaslr.vslots = 60;
-  s.kaslr.vbits = 6;
   verbose = 1;
   set_render_mode(0, 0, 0);
   capture_stdout(wrap_render_summary, &s);
@@ -1698,6 +1716,7 @@ static void test_render_map_overlapped_band_states_its_ceiling(void) {
   struct summary s;
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
 
@@ -1722,7 +1741,6 @@ static void test_render_map_overlapped_band_states_its_ceiling(void) {
   layout.virt_image_base_max = base + step * 10;
 
   s.kaslr.vslots = 60;
-  s.kaslr.vbits = 6;
   verbose = 1;
   set_render_mode(0, 0, 0);
   capture_stdout(wrap_render_summary, &s);
@@ -1774,10 +1792,10 @@ static void test_render_footer_hint_is_last(void) {
   struct summary s;
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
   s.kaslr.vslots = 60;
-  s.kaslr.vbits = 6;
   verbose = 0;
 
   /* No --map: the hint stands alone and offers the map. */
@@ -1832,10 +1850,10 @@ static void test_render_phys_map_descends_strictly(void) {
   struct summary s;
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
   s.kaslr.vslots = 60;
-  s.kaslr.vbits = 6;
   verbose = 0;
   map_mode = 1;
 
@@ -1888,10 +1906,10 @@ static void test_render_map_flag(void) {
   struct summary s;
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
   s.kaslr.vslots = 60;
-  s.kaslr.vbits = 6;
 
   /* Default readout: no diagram. */
   verbose = 0;
@@ -1932,6 +1950,7 @@ static void test_render_map_band_contains_its_leaks(void) {
   struct summary s;
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
   unsigned long sv_max = layout.virt_image_base_max;
@@ -1971,7 +1990,6 @@ static void test_render_map_band_contains_its_leaks(void) {
   r->method_set = 1u << KM_PARSED;
 
   s.kaslr.vslots = 60;
-  s.kaslr.vbits = 6;
   verbose = 1;
   set_render_mode(0, 0, 0);
   capture_stdout(wrap_render_summary, &s);
@@ -2029,6 +2047,7 @@ static void test_render_map_ceiling_covers_high_mmio(void) {
   struct summary s;
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
 
@@ -2058,7 +2077,6 @@ static void test_render_map_ceiling_covers_high_mmio(void) {
   r2->method_set = 1u << KM_PARSED;
 
   s.kaslr.vslots = 60;
-  s.kaslr.vbits = 6;
   verbose = 1;
   set_render_mode(0, 0, 0);
   capture_stdout(wrap_render_summary, &s);
@@ -2100,6 +2118,7 @@ static void test_render_map_phys_buckets_partition(void) {
   struct summary s;
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
 
@@ -2138,7 +2157,6 @@ static void test_render_map_phys_buckets_partition(void) {
   r2->method_set = 1u << KM_PARSED;
 
   s.kaslr.vslots = 60;
-  s.kaslr.vbits = 6;
   verbose = 1;
   set_render_mode(0, 0, 0);
   capture_stdout(wrap_render_summary, &s);
@@ -2177,6 +2195,7 @@ static void test_render_map_directmap_contains_text(void) {
   struct summary s;
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
 
@@ -2186,7 +2205,6 @@ static void test_render_map_directmap_contains_text(void) {
   layout.virt_page_offset = layout.virt_image_base_min;
 
   s.kaslr.vslots = 60;
-  s.kaslr.vbits = 6;
   verbose = 1;
   set_render_mode(0, 0, 0);
   capture_stdout(wrap_render_summary, &s);
@@ -2237,6 +2255,7 @@ static void test_render_map_draws_topmost_band_ceiling(void) {
   struct summary s;
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
 
@@ -2258,7 +2277,6 @@ static void test_render_map_draws_topmost_band_ceiling(void) {
   layout.modules_end = vas_lo + 6 * q;
 
   s.kaslr.vslots = 60;
-  s.kaslr.vbits = 6;
   verbose = 1;
   set_render_mode(0, 0, 0);
   capture_stdout(wrap_render_summary, &s);
@@ -2350,6 +2368,7 @@ static void test_render_phys_ceiling_covers_bucket_footers(void) {
   struct summary s;
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
 
@@ -2365,7 +2384,6 @@ static void test_render_phys_ceiling_covers_bucket_footers(void) {
   layout.phys_kaslr_text_max = ULONG_MAX - 1;
 
   s.kaslr.vslots = 60;
-  s.kaslr.vbits = 6;
   verbose = 1;
   set_render_mode(0, 0, 0);
   capture_stdout(wrap_render_summary, &s);
@@ -2394,6 +2412,7 @@ static void test_render_disabled_base_not_labeled_likely(void) {
   struct summary s;
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
 
@@ -2446,6 +2465,7 @@ static void test_render_leak_discloses_interior(void) {
   struct summary s;
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   memset(&s, 0, sizeof(s));
 
@@ -2676,6 +2696,7 @@ static void test_render_oneline_text_na_when_engine_unresolved(void) {
 static void test_render_oneline_schema_is_stable(void) {
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   struct summary s;
   memset(&s, 0, sizeof(s));
@@ -2730,15 +2751,14 @@ static void test_render_oneline_entropy_and_failed(void) {
   struct summary s;
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
 
   /* Unpinned windowed case: a resolved window (vslots/pslots), no concrete
    * base. Residual entropy must still surface for both virt and phys. */
   memset(&s, 0, sizeof(s));
   s.kaslr.vslots = 512;
-  s.kaslr.vbits = 9;
   s.kaslr.pslots = 64;
-  s.kaslr.pbits = 6;
   set_render_mode(0, 1, 0);
   capture_stdout(wrap_render_summary, &s);
   {
@@ -2757,7 +2777,6 @@ static void test_render_oneline_entropy_and_failed(void) {
   memset(&s, 0, sizeof(s));
   s.kaslr.vtext = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
   s.kaslr.vslots = 1;
-  s.kaslr.vbits = 0;
   capture_stdout(wrap_render_summary, &s);
   assert(strstr(render_cap, " entropy=0bits") != NULL);
   assert(strstr(render_cap, " entropy=na") == NULL);
@@ -2768,7 +2787,6 @@ static void test_render_oneline_entropy_and_failed(void) {
   memset(&s, 0, sizeof(s));
   s.kaslr.randomization_failed = 1;
   s.kaslr.vslots = 512;
-  s.kaslr.vbits = 9;
   capture_stdout(wrap_render_summary, &s);
   assert(strstr(render_cap, " kaslr=failed") != NULL);
   assert(strstr(render_cap, " kaslr=on") == NULL);
@@ -2810,12 +2828,12 @@ static void test_render_randomization_failed_posture(void) {
   for (size_t i = 0; i < sizeof(modes) / sizeof(modes[0]); i++) {
     reset_results();
     reset_comp_logs();
+    stage_likely_reset();
     num_scalar_facts = 0;
     memset(&s, 0, sizeof(s));
     s.kaslr.randomization_failed = 1;
     s.kaslr.default_addr = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
     s.kaslr.vslots = 7;
-    s.kaslr.vbits = 3;
 
     verbose = modes[i].verb;
     set_render_mode(modes[i].json, 0, modes[i].md);
@@ -3185,6 +3203,7 @@ static void test_render_derived_text(void) {
 static void seed_two_regions_one_section(struct summary *s) {
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   memset(s, 0, sizeof(*s));
 
@@ -3326,6 +3345,7 @@ static void wrap_readout_leaks(void *arg) {
 static void test_render_evidence_distinct_interior_samples_span(void) {
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   unsigned long base = (unsigned long)PAGE_OFFSET;
   unsigned long s1 =
@@ -3537,6 +3557,7 @@ static void test_render_json_with_memory_kaslr(void) {
 static void test_render_derived_text_range_form(void) {
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   struct summary s;
   memset(&s, 0, sizeof(s));
@@ -3570,6 +3591,7 @@ static void test_render_derived_text_range_form(void) {
 static void test_render_readout_disabled_range_no_entropy(void) {
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   struct summary s;
   memset(&s, 0, sizeof(s));
@@ -3577,7 +3599,6 @@ static void test_render_readout_disabled_range_no_entropy(void) {
   s.kaslr.disabled = 1;
   s.kaslr.vslots =
       0; /* KASLR off ⇒ no entropy, as compute_kaslr_info sets it */
-  s.kaslr.vbits = 0;
   unsigned long saved_min = layout.virt_kaslr_text_min;
   unsigned long saved_max = layout.virt_kaslr_text_max;
   layout.virt_kaslr_text_min = vt;
@@ -3667,6 +3688,7 @@ static void hr_seed_meta(struct component_log *cl, const char *k,
 static void test_build_hardening_report(void) {
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   kasld_env.hardening.kptr_restrict = 1;       /* active   (threshold 1) */
   kasld_env.hardening.dmesg_restrict = 1;      /* active   (threshold 1) */
@@ -3778,6 +3800,7 @@ static void test_build_hardening_report(void) {
   kasld_env.hardening.perf_event_paranoid = 0;
   kasld_env.hardening.lockdown = LOCKDOWN_NONE;
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
 }
 
@@ -3810,6 +3833,7 @@ static void test_render_json_disposition(void) {
   assert(strstr(render_cap, "not an Intel CPU") != NULL);
 
   reset_comp_logs();
+  stage_likely_reset();
 }
 
 /* A mitigation disposition is confirmed active in the hardening report; absent
@@ -3922,6 +3946,7 @@ static void test_render_hardening_confirmed_mitigations(void) {
   assert(strstr(render_cap, "\"gate\": \"kpti\"") != NULL);
 
   reset_comp_logs();
+  stage_likely_reset();
 }
 
 /* Interior samples corroborate an extent; they are not competing base claims.
@@ -3955,6 +3980,7 @@ static void stage_vt_base(unsigned long lo, const char *origin) {
 static void test_section_interior_only_and_conflicts(void) {
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   const unsigned long vt = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
   const char *sec = "text"; /* REGION_KERNEL_TEXT's section name */
@@ -3995,6 +4021,7 @@ static void test_section_interior_only_and_conflicts(void) {
 static void test_render_interior_only_surface(void) {
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   const unsigned long vt = (unsigned long)KERNEL_VIRT_TEXT_DEFAULT;
   stage_vt_interior(vt + 0x1000, "comp_a");
@@ -4024,6 +4051,7 @@ static void test_hardening_unprivileged_bpf_gate(void) {
   /* Inactive gate + succeeded leak -> a suggestion. */
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   /* inactive (threshold 1) */
   kasld_env.hardening.unprivileged_bpf_disabled = 0;
@@ -4050,6 +4078,7 @@ static void test_hardening_unprivileged_bpf_gate(void) {
   /* Active gate + denied leak -> credited as blocking, not a suggestion. */
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   /* active (>= threshold 1) */
   kasld_env.hardening.unprivileged_bpf_disabled = 2;
@@ -4069,6 +4098,7 @@ static void test_hardening_unprivileged_bpf_gate(void) {
 
   kasld_env.hardening.unprivileged_bpf_disabled = KASLD_SYSCTL_UNREAD;
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
 }
 
@@ -4132,6 +4162,7 @@ static void wrap_render_hardening_markdown(void *a) {
 static void test_hardening_projection(void) {
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   kasld_env.hardening.kptr_restrict = 1; /* active   — not a suggestion */
   /* active, but fallback bypass -> suggestion */
@@ -4228,6 +4259,7 @@ static void test_hardening_projection(void) {
   kasld_env.hardening.perf_event_paranoid = 0;
   kasld_env.hardening.dmesg_restrict = 0;
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
 }
 
@@ -4239,6 +4271,7 @@ static void test_hardening_projection(void) {
 static void test_hardening_projection_no_exposure(void) {
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   kasld_env.hardening.kptr_restrict = 1;
   kasld_env.hardening.dmesg_restrict = 1;
@@ -4278,6 +4311,7 @@ static void test_hardening_projection_no_exposure(void) {
   set_render_mode(0, 0, 0);
   kasld_env.hardening.lockdown = LOCKDOWN_NONE;
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
 }
 
@@ -4291,6 +4325,7 @@ static void test_hardening_projection_no_exposure(void) {
 static void test_hardening_projection_redundant(void) {
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   /* inactive -> a suggestion (redundant leak) */
   kasld_env.hardening.kptr_restrict = 0;
@@ -4375,6 +4410,7 @@ static void test_hardening_projection_redundant(void) {
   kasld_env.hardening.lockdown = LOCKDOWN_NONE;
   kasld_env.hardening.hashed_pointers = 0;
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
 }
 
@@ -4385,6 +4421,7 @@ static void test_hardening_projection_redundant(void) {
 static void test_render_hardening_pointer_hashing_gate(void) {
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   /* Isolate the pointer-hashing gate — make the three sysctl gates unreadable
    * so only it can surface. */
@@ -4421,6 +4458,7 @@ static void test_render_hardening_pointer_hashing_gate(void) {
   kasld_env.hardening.hashed_pointers = KASLD_SYSCTL_UNREAD;
   kasld_env.hardening.lockdown = LOCKDOWN_NONE;
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
 }
 
@@ -4491,6 +4529,7 @@ static void test_vantage_mac_posture_helpers(void) {
  * never attributed, which is what keeps ordinary DAC denials out. */
 static void test_hardening_mac_attribution_scope(void) {
   reset_comp_logs();
+  stage_likely_reset();
   struct component_log *c = hr_seed_comp("c_gated", OUTCOME_ACCESS_DENIED);
   hr_seed_meta(c, "method", "parsed");
   hr_seed_meta(c, "sysctl", "dmesg_restrict>=1");
@@ -4529,12 +4568,14 @@ static void test_hardening_mac_attribution_scope(void) {
   /* No declared knob: nothing is known about what should have gated it, so it
    * stays unattributed however the denial arose. */
   reset_comp_logs();
+  stage_likely_reset();
   struct component_log *u = hr_seed_comp("c_ungated", OUTCOME_ACCESS_DENIED);
   hr_seed_meta(u, "method", "parsed");
   assert(declared_sysctl_gates_permit(u) == 0);
 
   kasld_env.hardening.dmesg_restrict = 0;
   reset_comp_logs();
+  stage_likely_reset();
 }
 
 /* The full attribution predicate. A denial is credited to the policy only when
@@ -4542,6 +4583,7 @@ static void test_hardening_mac_attribution_scope(void) {
  * more specific mechanism — has not already claimed it. */
 static void test_hardening_mac_blocked_predicate(void) {
   reset_comp_logs();
+  stage_likely_reset();
   struct kasld_vantage v;
   memset(&v, 0, sizeof(v));
   v.selinux = SELINUX_ENFORCING;
@@ -4573,6 +4615,7 @@ static void test_hardening_mac_blocked_predicate(void) {
 
   /* seccomp wins the tie for a perf denial it can account for. */
   reset_comp_logs();
+  stage_likely_reset();
   struct component_log *p = hr_seed_comp("c_perf", OUTCOME_ACCESS_DENIED);
   hr_seed_meta(p, "method", "parsed");
   hr_seed_meta(p, "sysctl", "perf_event_paranoid>=2");
@@ -4585,6 +4628,7 @@ static void test_hardening_mac_blocked_predicate(void) {
   kasld_env.hardening.dmesg_restrict = 0;
   kasld_env.hardening.perf_event_paranoid = KASLD_SYSCTL_UNREAD;
   reset_comp_logs();
+  stage_likely_reset();
 }
 
 /* SF_VIRT_KASLR_RANDOMIZATION_FAILED surfaces in the text hardening report as a
@@ -4595,6 +4639,7 @@ static void test_hardening_mac_blocked_predicate(void) {
 static void test_render_hardening_text_rand_failed_surfaces(void) {
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   struct summary s;
   set_rich_render_state(&s);
@@ -4619,6 +4664,7 @@ static void test_render_hardening_text_rand_failed_surfaces(void) {
 static void test_render_hardening_json_rand_failed_state(void) {
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   struct summary s;
   set_rich_render_state(&s);
@@ -4651,6 +4697,7 @@ static void test_render_hardening_json_rand_failed_state(void) {
 static void test_render_hardening_text_no_rand_failed_silent(void) {
   reset_results();
   reset_comp_logs();
+  stage_likely_reset();
   num_scalar_facts = 0;
   struct summary s;
   set_rich_render_state(&s);

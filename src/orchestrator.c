@@ -2908,7 +2908,6 @@ void compute_kaslr_info(struct summary *s, const struct engine *auth,
    * class are already reflected, so the headline entropy follows the estimate
    * rather than the width of its convex hull. */
   s->kaslr.vslots = layout.virt_kaslr_slots;
-  s->kaslr.vbits = s->kaslr.vslots > 0 ? ilog2(s->kaslr.vslots) : 0;
   {
     /* The starting candidate count, from the window the kernel draws the image
      * base from -- KASLR_VIRT_TEXT_MIN..MAX, not the quantity's honest top.
@@ -2928,14 +2927,12 @@ void compute_kaslr_info(struct summary *s, const struct engine *auth,
     unsigned long hi = (unsigned long)KASLR_VIRT_TEXT_MAX;
     unsigned long top = (a && hi > lo) ? (hi - lo) / a + 1 : 0;
     s->kaslr.vtop_slots = top;
-    s->kaslr.vbits_top = top > 0 ? ilog2(top) : 0;
     s->kaslr.varch_slots = quantity_top_slots(Q_VIRT_IMAGE_BASE, a);
   }
 
 #ifdef KASLR_PHYS_MIN
   {
     s->kaslr.pslots = layout.phys_kaslr_slots;
-    s->kaslr.pbits = s->kaslr.pslots > 0 ? ilog2(s->kaslr.pslots) : 0;
     s->kaslr.parch_slots =
         quantity_top_slots(Q_PHYS_IMAGE_BASE, layout.phys_kaslr_align);
   }
@@ -2960,10 +2957,8 @@ void compute_kaslr_info(struct summary *s, const struct engine *auth,
      * up as brute-force entropy it does not have. The range is still shown. */
     s->kaslr.vslide = 0;
     s->kaslr.vslots = 0;
-    s->kaslr.vbits = 0;
     s->kaslr.pslide = 0;
     s->kaslr.pslots = 0;
-    s->kaslr.pbits = 0;
   }
 
   /* Speculative "likely" window from the all-signals snapshot.
@@ -2972,41 +2967,11 @@ void compute_kaslr_info(struct summary *s, const struct engine *auth,
    * at this boundary so likely ⊆ guaranteed holds structurally (not merely "by
    * construction" assuming rule monotonicity); the clamp also gates on the
    * result being non-empty and strictly tighter than guaranteed. */
-  if (likely && !s->kaslr.disabled && !s->kaslr.unsupported) {
-    unsigned long clo, chi;
-    if (kasld_clamp_likely_window(likely->est[Q_VIRT_IMAGE_BASE].lo,
-                                  likely->est[Q_VIRT_IMAGE_BASE].hi,
-                                  layout.virt_kaslr_text_min,
-                                  layout.virt_kaslr_text_max, &clo, &chi)) {
-      struct estimate lv = likely->est[Q_VIRT_IMAGE_BASE]; /* clamped copy */
-      lv.lo = clo;
-      lv.hi = chi;
-      s->kaslr.vlikely_min = clo;
-      s->kaslr.vlikely_max = chi;
-      s->kaslr.vlikely_slots = quantity_slots(
-          Q_VIRT_IMAGE_BASE, &lv, CONF_BRUTE, likely->constraints,
-          likely->n_constraints, layout.virt_kaslr_align);
-      s->kaslr.vlikely_bits =
-          s->kaslr.vlikely_slots > 0 ? ilog2(s->kaslr.vlikely_slots) : 0;
-    }
-#ifdef KASLR_PHYS_MIN
-    if (kasld_clamp_likely_window(likely->est[Q_PHYS_IMAGE_BASE].lo,
-                                  likely->est[Q_PHYS_IMAGE_BASE].hi,
-                                  layout.phys_kaslr_text_min,
-                                  layout.phys_kaslr_text_max, &clo, &chi)) {
-      struct estimate lp = likely->est[Q_PHYS_IMAGE_BASE]; /* clamped copy */
-      lp.lo = clo;
-      lp.hi = chi;
-      s->kaslr.plikely_min = clo;
-      s->kaslr.plikely_max = chi;
-      s->kaslr.plikely_slots = quantity_slots(
-          Q_PHYS_IMAGE_BASE, &lp, CONF_BRUTE, likely->constraints,
-          likely->n_constraints, layout.phys_kaslr_align);
-      s->kaslr.plikely_bits =
-          s->kaslr.plikely_slots > 0 ? ilog2(s->kaslr.plikely_slots) : 0;
-    }
-#endif
-  }
+  /* The likely windows are NOT projected onto the summary. The report model
+   * builds them from `likely->est` itself, and every format reads them there;
+   * these fields were computed, stored, and consumed by nothing. The slot
+   * counts existed only to feed the bit counts, and the bit counts only to be
+   * rendered. */
 
   /* The resolved linear-map window, reported when evidence narrowed it from the
    * architecture's own bracket and suppressed when it did not. The reference

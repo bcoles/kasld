@@ -611,14 +611,12 @@ struct kaslr_info {
       vstext; /* _stext for display: observed symbol, else _text + head gap */
   long vslide;
   unsigned long vslots;
-  int vbits;
   /* Physical KASLR */
   unsigned long ptext;  /* phys image base (_text) */
   unsigned long pstext; /* phys _stext for display: observed symbol, else _text
                            + head gap */
   long pslide;
   unsigned long pslots;
-  int pbits;
   int has_phys;
   /* Entropy the virtual KASLR window started with, counted over
    * Q_VIRT_IMAGE_BASE's honest top at the same alignment as vbits. The
@@ -633,7 +631,6 @@ struct kaslr_info {
    * KASLR entropy the kernel never had. (The direct map does get a baseline —
    * see virt_page_offset_bits_top — but from the RANDOMIZE_MEMORY budget
    * model, not from Q_PAGE_OFFSET's top.) */
-  int vbits_top;
   /* The same baseline as a raw candidate count. ilog2 rounds up, so
    * 2^vbits_top over-states it and cannot stand in for "N of M". */
   unsigned long vtop_slots;
@@ -642,18 +639,6 @@ struct kaslr_info {
    * to it means nothing was narrowed at all -- and the figure is a limit of the
    * address space rather than a search space, so it is withheld. */
   unsigned long varch_slots, parch_slots;
-  /* Speculative "likely" window: the engine resolved a second time with ALL
-   * signals, including those below the sound floor (timing/heuristic/brute).
-   * It is a subset of the guaranteed window in the vtext/ptext fields above and
-   * MAY be wrong. Each window's presence is signalled by its own *_max != 0
-   * sentinel (set only when clamped strictly tighter than guaranteed);
-   * renderers gate per-window on that. */
-  unsigned long vlikely_min, vlikely_max;
-  unsigned long vlikely_slots;
-  int vlikely_bits;
-  unsigned long plikely_min, plikely_max;
-  unsigned long plikely_slots;
-  int plikely_bits;
   /* Memory KASLR (x86_64 CONFIG_RANDOMIZE_MEMORY) */
   unsigned long virt_page_offset_min;
   unsigned long virt_page_offset_max;
