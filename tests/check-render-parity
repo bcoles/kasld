@@ -49,11 +49,14 @@ else
 fi
 
 fail=0
+PY=$(command -v python3 2>/dev/null)
 # Scratch pair for the row diff. POSIX sh has no process substitution, so the
 # two normalised row lists are compared through files.
 TMP_T=$(mktemp) || exit 1
 TMP_M=$(mktemp) || exit 1
-trap 'rm -f "$TMP_T" "$TMP_M"' EXIT INT TERM
+TMP_RAW=$(mktemp) || exit 1
+TMP_J=$(mktemp) || exit 1
+trap 'rm -f "$TMP_T" "$TMP_M" "$TMP_RAW" "$TMP_J"' EXIT INT TERM
 note() {
   printf '  FAIL: %s\n' "$1"
   fail=1
@@ -116,6 +119,115 @@ md_rows() {
     tr -d ' `|' | sort
 }
 
+# The candidate count each format states for a quantity and grade, compared
+# between the readout and json.
+#
+# This is the only comparison here that can catch a WRONG VALUE. The text/
+# markdown row diff above compares two formats that draw from the same row
+# array, so they cannot disagree about a number -- that check finds formatting
+# divergence and nothing else. json is built from the engine independently, so a
+# count that differs is a format asserting something the resolution did not say.
+#
+# It is exactly the gap a real defect went through: a readout row read "1 of 472"
+# for a base the engine had narrowed to 33, and json said 33 on the same run.
+# Nothing compared them.
+#
+# Compared only where BOTH formats state a count. Which quantities each one
+# emits is a presentation policy that legitimately differs, and this is a check
+# on values, not on membership -- membership is covered above.
+#
+# Needs python3, and skips without it, so the checks above keep running
+# everywhere.
+compare_counts() {
+  label=$1 txt=$2 jsn=$3
+  [ -n "$PY" ] || return 0
+  out=$("$PY" - "$txt" "$jsn" <<'PY'
+import json, re, sys
+
+text = open(sys.argv[1], encoding="utf-8", errors="replace").read()
+try:
+    doc = json.load(open(sys.argv[2], encoding="utf-8", errors="replace"))
+except Exception:
+    sys.exit(0)                      # a non-JSON run is not this check's business
+k = doc.get("kaslr") or {}
+
+def dig(*path):
+    cur = k
+    for p in path:
+        if not isinstance(cur, dict) or p not in cur:
+            return None
+        cur = cur[p]
+    return cur if isinstance(cur, int) else None
+
+# Where each (quantity, grade) states its count in json. The image base has two
+# possible homes for the proven count: json reports the concrete base under
+# "virtual" where one was picked and the window under "inferred" otherwise, and
+# both carry the same figure.
+WHERE = {
+    ("Virtual Image Base", "guaranteed"):  [("inferred", "slots"), ("virtual", "slots")],
+    ("Virtual Image Base", "likely"):      [("likely", "slots")],
+    ("Physical Image Base", "guaranteed"): [("inferred_physical", "slots"),
+                                            ("physical", "slots")],
+    ("Physical Image Base", "likely"):     [("likely_physical", "slots")],
+    ("Direct Map Base", "guaranteed"):     [("memory_kaslr", "virt_page_offset_base", "slots")],
+    ("Direct Map Base", "likely"):         [("memory_kaslr", "virt_page_offset_base", "likely", "slots")],
+    ("Vmalloc Base", "guaranteed"):        [("memory_kaslr", "virt_vmalloc_base", "slots")],
+    ("Vmalloc Base", "likely"):            [("memory_kaslr", "virt_vmalloc_base", "likely", "slots")],
+    ("Vmemmap Base", "guaranteed"):        [("memory_kaslr", "virt_vmemmap_base", "slots")],
+    ("Vmemmap Base", "likely"):            [("memory_kaslr", "virt_vmemmap_base", "likely", "slots")],
+    ("Module Region Base", "guaranteed"):  [("module_base", "slots")],
+    ("Module Region Base", "likely"):      [("module_base", "likely", "slots")],
+    ("Paging Level", "guaranteed"):        [("va_bits", "candidates")],
+    ("Paging Level", "likely"):            [("va_bits", "likely", "candidates")],
+}
+
+# A row: label, grade, then the Candidates cell ("N" or "N of M") and the Grain
+# cell at the end. Read from the RIGHT, because the Window cell right-aligns its
+# addresses and so contains runs of spaces that no column split survives.
+HEAD = re.compile(r"^  (?P<label>[A-Za-z][A-Za-z0-9 ]*[A-Za-z])  +"
+                  r"(?P<grade>guaranteed|likely)  ")
+# The Candidates cell and the Grain cell, read from the right. The cell is
+# matched WHOLE rather than by grabbing its last number: "- of 4194305" states
+# no count -- the window has an unstated edge -- and taking the 4194305 from it
+# would compare a denominator against json's count and call the difference a
+# disagreement.
+TAIL = re.compile(r"(?:^|\s)(?P<cell>-(?: of \d+)?|\d+(?: of \d+)?)"
+                  r"\s+(?:-|[\d.]+\s[A-Za-z]+)\s*$")
+
+bad, checked = [], 0
+for line in text.splitlines():
+    h = HEAD.match(line)
+    t = TAIL.search(line)
+    if not h or not t:
+        continue
+    cell = t.group("cell")
+    if cell.startswith("-"):
+        continue                      # no count stated; nothing to compare
+    m = re.match(r"(\d+)", cell)
+    key = (h.group("label"), h.group("grade"))
+    paths = WHERE.get(key)
+    if paths is None:
+        bad.append("%s [%s] has no json count mapping" % key)
+        continue
+    for path in paths:
+        got = dig(*path)
+        if got is None:
+            continue
+        checked += 1
+        want = int(m.group(1))
+        if got != want:
+            bad.append("%s [%s]: readout says %d, json says %d"
+                       % (key[0], key[1], want, got))
+        break
+
+if bad:
+    print("; ".join(bad))
+    sys.exit(1)
+sys.exit(0)
+PY
+  ) || { note "$label: $out"; return; }
+}
+
 # One target (binary + optional qemu + optional sysroot), all three formats.
 # shellcheck disable=SC2086  # $q is an optional interpreter prefix, intentionally split
 compare_one() {
@@ -160,6 +272,11 @@ compare_one() {
     [ -n "$(json_key_for "$disp")" ] ||
       note "$label: quantity \"$disp\" has no entry in json_key_for()"
   done
+  # The values themselves, against the engine's own numbers.
+  run >"$TMP_RAW"
+  printf '%s\n' "$j" >"$TMP_J"
+  compare_counts "$label" "$TMP_RAW" "$TMP_J"
+
   for key in inferred inferred_physical virt_page_offset_base \
     virt_vmalloc_base virt_vmemmap_base module_base; do
     # Anchored to an object key ("name": {), never a bare occurrence: the
@@ -282,5 +399,5 @@ if [ "$fail" -ne 0 ]; then
     "$RED" "$RESET" >&2
   exit 1
 fi
-printf '%scheck-render-parity: OK%s (%d runs; text/markdown agree row for row, json names nothing new)\n' \
+printf '%scheck-render-parity: OK%s (%d runs; text/markdown agree row for row, readout and json agree on every count, json names nothing new)\n' \
   "$GREEN" "$RESET" "$n"
