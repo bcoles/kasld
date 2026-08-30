@@ -313,8 +313,8 @@ static void layout_fmt_range(char *buf, size_t sz, unsigned long lo,
  * rather than edges. */
 static void layout_add(const char *quantity, const char *basis,
                        unsigned long slots, unsigned long top, unsigned long lo,
-                       unsigned long hi, const char *note,
-                       unsigned long align) {
+                       unsigned long hi, const char *note, unsigned long align,
+                       int align_exact) {
   char gb[32];
   struct layout_row *r;
   if (n_layout_rows >= LAYOUT_MAX_ROWS)
@@ -331,10 +331,30 @@ static void layout_add(const char *quantity, const char *basis,
   r->top = top;
   r->align = align;
   snprintf(r->note, sizeof(r->note), "%s", note ? note : "");
-  snprintf(r->cell[4], LAYOUT_CELL, "%s",
-           align ? kasld_grain(align, gb, sizeof(gb)) : "-");
+  /* A grain the engine knows only a floor for is marked as one, in the same
+   * vocabulary the Window cell uses for a one-sided bound. The mark is not
+   * decoration: a coarser true alignment means fewer candidates than the count
+   * beside it, so the number is a ceiling wherever this appears. */
+  r->align_exact = align_exact;
+  if (!align)
+    snprintf(r->cell[4], LAYOUT_CELL, "-");
+  else if (align_exact)
+    snprintf(r->cell[4], LAYOUT_CELL, "%s", kasld_grain(align, gb, sizeof(gb)));
+  else
+    snprintf(r->cell[4], LAYOUT_CELL, ">= %s",
+             kasld_grain(align, gb, sizeof(gb)));
   r->dim = (!lo && !hi);
   r->one_address = (lo && lo == hi);
+}
+
+/* Whether any row drawn states a grain it knows only a floor for. Read from the
+ * rows rather than recomputed, so the note a format prints and the marks in the
+ * cells cannot disagree about which rows they describe. */
+int layout_any_grain_floor(void) {
+  for (int i = 0; i < n_layout_rows; i++)
+    if (layout_rows[i].align && !layout_rows[i].align_exact)
+      return 1;
+  return 0;
 }
 
 /* The set a row narrows: the kernel's own randomization window for a proven
@@ -391,7 +411,8 @@ static void layout_add_window(const struct kasld_report_quantity *it,
                               const struct kasld_report_window *w,
                               const char *note) {
   layout_add(it->label, basis, w->candidates, layout_row_top(it, basis),
-             w->has_lo ? w->lo : 0, w->has_hi ? w->hi : 0, note, it->align_min);
+             w->has_lo ? w->lo : 0, w->has_hi ? w->hi : 0, note, it->align_min,
+             it->align_exact);
 }
 
 /* A row stating a set of admissible values.

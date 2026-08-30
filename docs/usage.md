@@ -140,7 +140,7 @@ The Layout table carries one row per quantity and basis:
 | `Certainty` | `guaranteed` (proven; contains the true base) or `likely` (the all-signals estimate, a subset of the guaranteed window, and may be wrong) |
 | `Window` | the addresses: a window, a single address where the quantity is pinned, or a one-sided `>=` / `<=` bound. A concrete base carries its `slide` from the compile-time default |
 | `Candidates` | how many placements remain, against the set the row narrows — a `guaranteed` row against the window the kernel randomized over, a `likely` row against the `guaranteed` count above it. Reported whether or not evidence narrowed it, so a baseline run states the size of the problem; the denominator is dropped when nothing narrowed, leaving the bare total. `-` means no window is modelled for the quantity, and `- of N` means the window has an unstated edge, so it is unbounded and what remains cannot be counted — `N` is still the set the row narrows |
-| `Grain` | the spacing the candidates sit on, which is what reconciles the count with the window. A lower bound: the engine resolves alignment as "at least this", so a coarser true alignment means fewer real candidates than stated |
+| `Grain` | the spacing the candidates sit on, which is what reconciles the count with the window. Prefixed `>=` where it is only a lower bound — the engine resolves image-base alignment as "at least this", so a coarser true alignment means fewer real candidates than stated and the count beside it is a ceiling. Unprefixed where the architecture fixes the pitch, as the memory-randomization grid does, and the count is exact |
 
 A key naming a quantity reports one of exactly three things: `0xADDR` where the
 engine resolved it, `[0xLO..0xHI]` where it only bounded it (a missing edge is
@@ -210,10 +210,10 @@ Running 106 of 109 components (3 experimental skipped; use -x to enable)...
 1 component timed out after 30s and was killed (prefetch_directmap)
 
   Quantity             Certainty   Window                                   Candidates  Grain
-  -------------------  ----------  ---------------------------------------  ----------  -----
-  Virtual Image Base   guaranteed  0xffffffffa2e00000 slide +0x21e00000       1 of 505  2 MiB
-  Physical Image Base  guaranteed            0x200000 -         0x3d400000         481  2 MiB
-  Physical Image Base  likely               0x1000000 -         0x3c345000  474 of 481  2 MiB
+  -------------------  ----------  ---------------------------------------  ----------  --------
+  Virtual Image Base   guaranteed  0xffffffffa2e00000 slide +0x21e00000       1 of 505  >= 2 MiB
+  Physical Image Base  guaranteed            0x200000 -         0x3d400000         481  >= 2 MiB
+  Physical Image Base  likely               0x1000000 -         0x3c345000  474 of 481  >= 2 MiB
   Direct Map Base      guaranteed  0xffff800000000000 - 0xffffa4aa80000000       37547  1 GiB
   Vmalloc Base         guaranteed  0xffff898000000000 - 0xffffd6d580000000       79191  1 GiB
   Vmemmap Base         guaranteed  0xffffa98040000000 - 0xfffffd0000000000       85504  1 GiB
@@ -395,9 +395,9 @@ Physical MMIO / pci_mmio [8]:
 ----------------------------------------
 KASLR analysis:
   Quantity             Certainty   Window                                   Candidates  Grain
-  -------------------  ----------  ---------------------------------------  ----------  -----
-  Virtual Image Base   guaranteed  0xffffffff8fe00000 slide +0xee00000        1 of 505  2 MiB
-  Physical Image Base  guaranteed          0x34600000 slide +0x33600000              1  2 MiB
+  -------------------  ----------  ---------------------------------------  ----------  --------
+  Virtual Image Base   guaranteed  0xffffffff8fe00000 slide +0xee00000        1 of 505  >= 2 MiB
+  Physical Image Base  guaranteed          0x34600000 slide +0x33600000              1  >= 2 MiB
   Direct Map Base      guaranteed  >= 0xffff800000000000                             -  1 GiB
   Vmalloc Base         guaranteed  0xffff810040000000 - 0xffffdcffc0000000       94206  1 GiB
   Vmemmap Base         guaranteed  0xffffa10080000000 - 0xfffffd0000000000       94206  1 GiB
@@ -764,6 +764,11 @@ The fields a gate keys on:
 - `.kaslr.likely.entropy_bits` — the **speculative** residual (the narrower
   best-guess window). Gate here to also fail when a speculative technique could
   plausibly recover the base, accepting that this window is unproven.
+- `slots_upper_bound` — beside every `slots` figure: `true` where the grain the
+  count stands on is a lower bound, so a kernel aligned more coarsely than the
+  engine could prove sits on fewer placements than `slots` says. A gate reading
+  `slots` as an exact search space should treat a `true` here as "at most this
+  many".
 - `.kaslr.disabled` / `.kaslr.unsupported` — booleans: KASLR opted out, or not
   applicable to the arch/config.
 

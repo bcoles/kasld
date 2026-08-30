@@ -402,6 +402,72 @@ int main(void) {
     CHECK(!it->has_point);
   }
 
+  /* 9. A quantity a constraint pinned at zero is reported, and one whose edge
+   *    is merely the lattice floor is not.
+   *
+   *    Both edges of a pin at zero hold the value zero, so a presence test
+   *    reading the value alone drops the whole quantity -- the engine resolves
+   *    it exactly and the report says it knows nothing. This is not exotic: an
+   *    s390 built without CONFIG_RANDOMIZE_IDENTITY_BASE has __identity_base ==
+   *    0, so the stock configuration's linear-map base is zero.
+   *
+   *    Asserted against its own opposite. The same quantity left at a zero
+   *    lattice floor, with nothing bound to it, must still read as unstated --
+   *    otherwise the fix trades a dropped pin for a window counted from a floor
+   *    no evidence established. */
+  {
+    const struct kasld_report_quantity *it;
+    enum kasld_quantity zq = Q__COUNT;
+
+    /* Any member whose top starts at a zero lower edge will do; picking it from
+     * the table rather than naming one keeps this true of whichever quantities
+     * the arch admits. */
+    tops(gest);
+    for (int q = 0; q < Q__COUNT; q++)
+      if (q_is_member((enum kasld_quantity)q) && gest[q].kind == LK_INTERVAL &&
+          gest[q].lo == 0 && gest[q].hi != 0) {
+        zq = (enum kasld_quantity)q;
+        break;
+      }
+    if (zq == Q__COUNT) {
+      printf("test_report: (skipped: no member opens at a zero edge here)\n");
+    } else {
+      gv.est = gest;
+      gv.cs = NULL;
+      gv.n_cs = 0;
+      gv.floor = CONF_INFERRED;
+      lv.est = NULL;
+      lv.cs = NULL;
+      lv.n_cs = 0;
+      lv.floor = CONF_BRUTE;
+
+      /* Unbound zero floor: one-sided, and no count taken from it. */
+      kasld_report_build(gv, lv, NULL, RPOSTURE_RANDOMIZED, &r);
+      it = kasld_report_find(&r, zq);
+      CHECK(it != NULL);
+      CHECK(!it->guaranteed.has_lo);
+      CHECK(it->guaranteed.candidates == 0);
+
+      /* Pinned at zero by a constraint. Ids start at 1, so a binding is what
+       * separates this state from the one above -- the values are identical. */
+      tops(gest);
+      gest[zq].kind = LK_INTERVAL;
+      gest[zq].lo = 0;
+      gest[zq].hi = 0;
+      gest[zq].lo_binding = 1;
+      gest[zq].hi_binding = 1;
+      gest[zq].lo_conf = CONF_PARSED;
+      gest[zq].hi_conf = CONF_PARSED;
+      kasld_report_build(gv, lv, NULL, RPOSTURE_RANDOMIZED, &r);
+      it = kasld_report_find(&r, zq);
+      CHECK(it != NULL);
+      CHECK(it->guaranteed.present);
+      CHECK(it->guaranteed.has_lo && it->guaranteed.has_hi);
+      CHECK(it->guaranteed.lo == 0 && it->guaranteed.hi == 0);
+      CHECK(it->guaranteed.candidates == 1);
+    }
+  }
+
   printf("test_report: OK (%d checks)\n", checks);
   return 0;
 }

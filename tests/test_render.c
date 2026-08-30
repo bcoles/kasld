@@ -226,6 +226,11 @@ stage_item(struct kasld_report *r, enum kasld_quantity q, const char *label,
   it->key = quantities[q].name;
   it->label = label;
   it->align_min = grain;
+  /* Exactness from the builder's own rule rather than restated here: a harness
+   * deciding it separately would drift from what a real run produces, and the
+   * grain cell would then be marked one way in tests and another in the field.
+   */
+  it->align_exact = q_grain_exact(q);
   it->entropy_top = top;
   it->search_top = top;
   /* Through the builder's own conversion, as `bits` is: a denominator staged
@@ -1357,6 +1362,51 @@ static void test_render_memory_kaslr_uses_stored_slots(void) {
  * memory-KASLR windows. A consumer cannot recompute it: interior C_EXCLUDE
  * holes are carved at read time inside quantity_slots() and never reach the
  * wire, so (max - min) / align is the hole-blind figure, not this one. */
+/* The Grain cell distinguishes a pitch from a floor under one, and the count
+ * beside a floor is published as a ceiling.
+ *
+ * An image base's alignment is resolved with C_AT_LEAST_ALIGN and nothing caps
+ * it, so a kernel built more coarsely aligned sits on fewer placements than the
+ * row states. Printing the alignment bare states it as fact, and the count
+ * beside it then reads as exact.
+ *
+ * Asserted against the builder's own rule rather than against a list of
+ * quantities, so the arch decides which rows are which: where the architecture
+ * fixes the memory-randomization pitch the memory rows are exact, and where it
+ * does not they are floors like the image bases. */
+static void test_render_grain_states_a_floor_as_one(void) {
+  struct summary s;
+  const char *line;
+
+  reset_results();
+  reset_comp_logs();
+  stage_likely_reset();
+  num_scalar_facts = 0;
+  memset(&s, 0, sizeof(s));
+  s.kaslr.vslots = 60;
+  s.kaslr.vtext = (unsigned long)KASLR_VIRT_TEXT_MIN;
+
+  set_render_mode(0, 0, 1); /* markdown: one row per line, no width budget */
+  capture_stdout(wrap_render_summary, &s);
+  set_render_mode(0, 0, 0);
+
+  /* The image base is a floor on every arch: no rule caps its alignment. */
+  line = strstr(render_cap, "| Virtual Image Base |");
+  assert(line != NULL);
+  {
+    const char *eol = strchr(line, '\n');
+    assert(eol != NULL);
+    assert(memchr(line, '>', (size_t)(eol - line)) != NULL);
+  }
+
+  /* json publishes the same judgement as a field rather than a glyph. */
+  set_render_mode(1, 0, 0);
+  capture_stdout(wrap_render_summary, &s);
+  set_render_mode(0, 0, 0);
+  assert(strstr(render_cap, "\"slots_upper_bound\": true") != NULL);
+  assert(q_grain_exact(Q_VIRT_IMAGE_BASE) == 0);
+}
+
 static void test_render_memory_kaslr_slots_reach_machine_formats(void) {
 #if RANDOMIZE_MEMORY_ALIGN > 0
   struct summary s;
@@ -4999,6 +5049,7 @@ int main(void) {
   RUN(test_render_directmap_offset_follows_paging_level);
   RUN(test_render_json_publishes_unrandomized_directmap_base);
   RUN(test_render_entropy_states_its_baseline);
+  RUN(test_render_grain_states_a_floor_as_one);
   RUN(test_render_memory_kaslr_slots_reach_machine_formats);
   RUN(test_render_map_band_contains_its_leaks);
   RUN(test_render_map_ceiling_covers_high_mmio);

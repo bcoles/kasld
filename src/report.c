@@ -74,8 +74,28 @@ static int q_is_member(enum kasld_quantity q) {
  * quantity that sits on no modelled grid returns 0, and has no candidate count
  * to state; that is a property of the quantity, not a judgement about whether
  * the count is worth showing. */
-static unsigned long q_grain(enum kasld_quantity q,
-                             const struct estimate *est) {
+/* Whether a quantity's grain is the pitch itself or only a floor under it.
+ *
+ * A property of the quantity and the architecture rather than of the evidence,
+ * which is what lets a caller ask without an estimate in hand. Exact only where
+ * the kernel's own layout code fixes the pitch: the memory-randomization grid.
+ * Both image bases resolve their alignment with C_AT_LEAST_ALIGN and nothing
+ * caps it, so a kernel built more coarsely aligned than the engine could prove
+ * has fewer candidates than a count on this grain states. */
+static int q_grain_exact(enum kasld_quantity q) {
+  switch (q) {
+  case Q_PAGE_OFFSET:
+  case Q_VMALLOC_BASE:
+  case Q_VMEMMAP_BASE:
+    return RANDOMIZE_MEMORY_ALIGN > 0;
+  default:
+    return 0;
+  }
+}
+
+static unsigned long q_grain(enum kasld_quantity q, const struct estimate *est,
+                             int *exact) {
+  *exact = q_grain_exact(q);
   switch (q) {
   /* The resolved alignment or the architecture's own, whichever is coarser.
    *
@@ -105,7 +125,8 @@ static unsigned long q_grain(enum kasld_quantity q,
     return (unsigned long)RANDOMIZE_MEMORY_ALIGN;
 #else
     /* Not randomized here, but still bounded, and a base is page-granular at
-     * worst -- so there is a real pitch to count on. */
+     * worst -- so there is a real pitch to count on. "At worst" is what makes
+     * it a floor: a coarser true grain would mean fewer candidates. */
     return KASLD_LAYOUT_GRANULE;
 #endif
   case Q_MODULE_BASE:
@@ -201,18 +222,28 @@ static void collect_holes(struct kasld_report_window *w, enum kasld_quantity q,
 
 /* Whether an estimate states an edge at all.
  *
- * One definition, because this is a JUDGEMENT rather than a field read: a zero
- * edge is taken as unstated rather than as a bound at zero. That is right for a
- * quantity whose lattice floor is zero precisely so an un-narrowed one reads as
- * unbounded -- the module base -- and it is conservative elsewhere, since the
- * cost is withholding a count rather than asserting a wrong one.
+ * One definition, because this is a JUDGEMENT rather than a field read. An edge
+ * is stated either when it holds a value or when a constraint put it where it
+ * is: `lo_binding` names the constraint that last bound the edge and ids start
+ * at 1, so zero means nothing has narrowed it and the edge is still the
+ * architecture's own offer.
  *
- * It is not right everywhere: a linear-map base of zero is a real result on an
- * s390 built without CONFIG_RANDOMIZE_IDENTITY_BASE. Carrying presence
- * explicitly is the fix, and having the rule in one place is what makes that a
- * single edit rather than a hunt through every reader. */
-static int est_states_lo(const struct estimate *e) { return e->lo != 0; }
-static int est_states_hi(const struct estimate *e) { return e->hi != 0; }
+ * The value alone is not enough. Zero is a real answer for some quantities: an
+ * s390 built without CONFIG_RANDOMIZE_IDENTITY_BASE has __identity_base == 0,
+ * which is that configuration's linear-map base, and a value-only test drops a
+ * pin at zero on both edges at once -- reporting a quantity the engine resolved
+ * exactly as one it knows nothing about.
+ *
+ * The binding alone is not enough either: a quantity whose lattice floor is
+ * zero starts there so that an un-narrowed one reads as unbounded rather than
+ * as a window counted from zero. The module base is the case. Both tests
+ * together keep that reading and admit the pin. */
+static int est_states_lo(const struct estimate *e) {
+  return e->lo != 0 || e->lo_binding != 0;
+}
+static int est_states_hi(const struct estimate *e) {
+  return e->hi != 0 || e->hi_binding != 0;
+}
 
 /* Project one resolution's estimate for one quantity into a reported window. */
 static void build_window(struct kasld_report_window *w, enum kasld_quantity q,
@@ -295,7 +326,7 @@ void kasld_report_build(struct kasld_resolution_view guaranteed,
     it->key = quantities[q].name;
     it->label = q_labels[q];
 
-    grain = q_grain(q, guaranteed.est);
+    grain = q_grain(q, guaranteed.est, &it->align_exact);
     it->align_min = grain;
 
     /* What the engine was willing to consider, counted the same way the

@@ -131,6 +131,14 @@ struct kasld_report_quantity {
    * quantity sits on no modelled grid at all. */
   unsigned long align_min;
 
+  /* Whether `align_min` is the grain or only a floor under it. Set where the
+   * pitch is fixed by the architecture's own randomization -- there the count
+   * beside it is a count. Clear elsewhere, including on both image bases, where
+   * the alignment is resolved with C_AT_LEAST_ALIGN and a kernel built with a
+   * coarser CONFIG_PHYSICAL_ALIGN has fewer candidates than the row states. A
+   * zero-initialized item claims nothing, which is the safe direction. */
+  int align_exact;
+
   /* Two denominators, because there are two different "out of how many" and
    * they are not interchangeable.
    *

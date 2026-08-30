@@ -379,6 +379,15 @@ static void render_kaslr_text(void) {
     readout_excluded("Virtual image base", iv);
     readout_excluded("Physical image base", ip);
     readout_excluded("Direct map base", id);
+
+    /* What a floor grain costs the count beside it. The table marks the grain
+     * itself, but the consequence is a row over: a kernel built more coarsely
+     * aligned than the engine could prove sits on fewer placements than the
+     * Candidates cell states, so those numbers are ceilings. Said once, from
+     * the rows themselves, rather than repeated per row. */
+    if (layout_any_grain_floor())
+      printf("  %s\n", "A \">=\" grain is a lower bound: a kernel aligned "
+                       "more coarsely has fewer candidates than stated.");
   }
   printf("\n");
 }

@@ -583,7 +583,15 @@ void render_json(const struct summary *s) {
     printf("      \"entropy_bits\": %d,\n", rv->guaranteed.bits);
     if (rv->top_bits > 0)
       printf("      \"entropy_bits_initial\": %d,\n", rv->top_bits);
-    printf("      \"slots\": %lu", rv->guaranteed.candidates);
+    /* Whether the counts above are exact or ceilings. The grain they stand on
+     * is a lower bound wherever the engine resolves alignment with
+     * C_AT_LEAST_ALIGN and nothing caps it, so a kernel built more coarsely
+     * aligned sits on fewer placements than `slots` states. Emitted beside the
+     * figures it qualifies rather than left for a consumer to infer from the
+     * architecture. */
+    printf("      \"slots\": %lu,\n", rv->guaranteed.candidates);
+    printf("      \"slots_upper_bound\": %s",
+           rv->align_exact ? "false" : "true");
     if (v_spec)
       printf(",\n      \"speculative\": true");
     printf("\n    }");
@@ -633,7 +641,15 @@ void render_json(const struct summary *s) {
      * posture (and is null where the architecture defines none). */
     printf("      \"slide_bytes\": %ld,\n", rp->slide);
     printf("      \"entropy_bits\": %d,\n", rp->guaranteed.bits);
-    printf("      \"slots\": %lu", rp->guaranteed.candidates);
+    /* Whether the counts above are exact or ceilings. The grain they stand on
+     * is a lower bound wherever the engine resolves alignment with
+     * C_AT_LEAST_ALIGN and nothing caps it, so a kernel built more coarsely
+     * aligned sits on fewer placements than `slots` states. Emitted beside the
+     * figures it qualifies rather than left for a consumer to infer from the
+     * architecture. */
+    printf("      \"slots\": %lu,\n", rp->guaranteed.candidates);
+    printf("      \"slots_upper_bound\": %s",
+           rp->align_exact ? "false" : "true");
     if (p_spec)
       printf(",\n      \"speculative\": true");
     printf("\n    }");
@@ -685,8 +701,10 @@ void render_json(const struct summary *s) {
        * sub-window would report one quantity of a kind differently from the
        * rest. */
       if (it->guaranteed.candidates > 0)
-        printf(",\n      \"slots\": %lu,\n      \"entropy_bits\": %d",
-               it->guaranteed.candidates, it->guaranteed.bits);
+        printf(",\n      \"slots\": %lu,\n      \"entropy_bits\": %d,\n"
+               "      \"slots_upper_bound\": %s",
+               it->guaranteed.candidates, it->guaranteed.bits,
+               it->align_exact ? "false" : "true");
       if (kasld_report_likely_is_tighter(it)) {
         printf(",\n      \"likely\": { \"min\": \"0x%016lx\", "
                "\"max\": \"0x%016lx\"",
@@ -736,8 +754,9 @@ void render_json(const struct summary *s) {
          * at read time and never appear on the wire, so (max - min) / align is
          * the hole-blind number, not this one. */
         if (g->candidates > 0)
-          printf(", \"slots\": %lu, \"entropy_bits\": %d", g->candidates,
-                 g->bits);
+          printf(", \"slots\": %lu, \"entropy_bits\": %d, "
+                 "\"slots_upper_bound\": %s",
+                 g->candidates, g->bits, it->align_exact ? "false" : "true");
         /* Speculative sub-window from the all-signals snapshot; subset of
          * [min, max] and may be wrong. Emitted only where it says something the
          * proven window does not -- the same question every format asks, asked
