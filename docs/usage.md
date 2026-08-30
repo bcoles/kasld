@@ -202,7 +202,7 @@ the costume of a 64-bit kernel pointer. They are right-aligned instead, so the
 endpoints still form columns.
 
 ```
-KASLD 0.3.1-dev  --  Kernel ASLR derandomization
+KASLD 0.3.1-dev  --  Kernel Address Space Layout Derandomization
 Target: x86_64 / 7.0.0
 
 Running 106 of 109 components (3 experimental skipped; use -x to enable)...

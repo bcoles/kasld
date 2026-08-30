@@ -2358,7 +2358,8 @@ void render_banner(void) {
   /* ASCII mode (non-UTF-8 locale or --ascii): the box-art is Unicode block
    * characters, so emit a plain-text title instead. */
   if (!unicode_output) {
-    printf("\n  KASLD v%s  --  Kernel ASLR derandomization\n\n", VERSION);
+    printf("\n  KASLD %s  --  Kernel Address Space Layout Derandomization\n\n",
+           VERSION);
     return;
   }
 

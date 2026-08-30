@@ -4982,8 +4982,8 @@ int main(int argc, char *argv[]) {
      * knows what's running and against what host before the progress
      * bar starts (header → work → results). The readout that follows
      * the progress bar omits this block; see render_readout(). */
-    printf("%sKASLD %s%s  --  Kernel ASLR derandomization\n", c(C_BOLD),
-           VERSION, c(C_RESET));
+    printf("%sKASLD %s%s  --  Kernel Address Space Layout Derandomization\n",
+           c(C_BOLD), VERSION, c(C_RESET));
     struct utsname u;
     if (kasld_uname(&u) == 0)
       printf("%sTarget: %s / %s%s\n", c(C_DIM), u.machine, u.release,

@@ -72,7 +72,7 @@ can temporarily relax these settings (requires root).
 The default text mode prints an answer-first overview:
 
 ```
-KASLD 0.3.1-dev  --  Kernel ASLR derandomization
+KASLD 0.3.1-dev  --  Kernel Address Space Layout Derandomization
 Target: x86_64 / 7.0.0
 
 Running 106 of 109 components (3 experimental skipped; use -x to enable)...
