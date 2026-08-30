@@ -236,6 +236,17 @@ base from an interior sample that only bounds it, and `Sources` counting the
 components that independently produced the finding. The components are named
 individually under `-v`.
 
+The markdown report (`-m`) carries a section under the same heading that answers
+a different question, and the difference is deliberate. It reports one row per
+**section** — the address range observed for it, with the contributing
+components named rather than counted — over a wider set: the readout lists only
+regions whose position is a resolved quantity, so physical DRAM and MMIO extents
+appear in the markdown report and in the `-v` address-space diagram but not in
+the readout's table. Where a markdown row spans a resolved base and an interior
+sample it states the extent those two together witness, which is not a range the
+engine resolved; the readout splits the same evidence into a `base` row and an
+`interior` row because it is answering about position rather than extent.
+
 Terms in this readout (slide, directmap, coupling, slot, search space) are defined in
 the [kaslr.md glossary](kaslr.md#glossary); the engine vocabulary behind them
 (quantity, estimate, honest top) is in the

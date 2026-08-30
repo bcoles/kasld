@@ -1409,6 +1409,77 @@ static void test_render_memory_kaslr_uses_stored_slots(void) {
  * quantities, so the arch decides which rows are which: where the architecture
  * fixes the memory-randomization pitch the memory rows are exact, and where it
  * does not they are floors like the image bases. */
+/* A markdown Evidence group that carries an edge is named by that edge.
+ *
+ * The output contract fixes this: a group carrying an edge resolves to a base
+ * address, and only a group of interior samples alone resolves to the span they
+ * prove is inside the region. Two ways to break it, both of which produce a
+ * plausible-looking row -- span the base against the interior samples beside
+ * it, or represent the group with section_consensus(), which ranks confidence
+ * above position and so hands back an interior sample whenever one outranks the
+ * base.
+ *
+ * Staged with the interior sample at HIGHER confidence than the base, because
+ * that is the ordering under which a position-blind pick goes wrong; with the
+ * base ranked top, both a correct and an incorrect rule return it. */
+static void test_render_markdown_evidence_names_the_edge(void) {
+  struct summary s;
+  /* From the arch's own text window, not written as addresses: a literal here
+   * is one arch's number compiled for all of them, and truncates where an
+   * unsigned long is 32 bits. */
+  const unsigned long base = (unsigned long)KASLR_VIRT_TEXT_MIN;
+  const unsigned long inside = base + 0x234000ul;
+  char addr[32];
+
+  if (!base || inside <= base) {
+    fprintf(stderr, "(skipped: no usable text window on this target) ");
+    return;
+  }
+
+  reset_results();
+  reset_comp_logs();
+  stage_likely_reset();
+  num_scalar_facts = 0;
+  memset(&s, 0, sizeof(s));
+  memset(&t_stage, 0, sizeof(t_stage));
+
+  {
+    struct result *r = push_result();
+    r->type = KASLD_TYPE_VIRT;
+    r->region = REGION_KERNEL_IMAGE;
+    r->pos = POS_BASE;
+    r->conf = CONF_INFERRED;
+    r->lo = base;
+    r->set_mask = LO_SET;
+    add_origin(r, "synthetic_base");
+    r->method_set = 1u << KM_PARSED;
+  }
+  {
+    struct result *r = push_result();
+    r->type = KASLD_TYPE_VIRT;
+    r->region = REGION_KERNEL_IMAGE;
+    r->pos = POS_INTERIOR;
+    r->conf = CONF_PARSED; /* outranks the base */
+    r->sample = inside;
+    r->set_mask = SAMPLE_SET;
+    add_origin(r, "synthetic_interior");
+    r->method_set = 1u << KM_PARSED;
+  }
+
+  set_render_mode(0, 0, 1);
+  capture_stdout(wrap_render_summary, &s);
+  set_render_mode(0, 0, 0);
+
+  snprintf(addr, sizeof addr, "`0x%016lx`", base);
+  assert(strstr(render_cap, addr) != NULL);
+  /* The interior sample must not stand in for the group's address, whether as
+   * the anchor itself or as the far end of a span rooted at the base. */
+  snprintf(addr, sizeof addr, "`0x%016lx` |", inside);
+  assert(strstr(render_cap, addr) == NULL);
+  snprintf(addr, sizeof addr, "- `0x%016lx`", inside);
+  assert(strstr(render_cap, addr) == NULL);
+}
+
 static void test_render_grain_states_a_floor_as_one(void) {
   struct summary s;
   const char *line;
@@ -5109,6 +5180,7 @@ int main(void) {
   RUN(test_render_directmap_offset_follows_paging_level);
   RUN(test_render_json_publishes_unrandomized_directmap_base);
   RUN(test_render_entropy_states_its_baseline);
+  RUN(test_render_markdown_evidence_names_the_edge);
   RUN(test_render_grain_states_a_floor_as_one);
   RUN(test_render_memory_kaslr_slots_reach_machine_formats);
   RUN(test_render_map_band_contains_its_leaks);

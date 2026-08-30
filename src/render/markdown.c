@@ -473,19 +473,38 @@ void render_markdown(const struct summary *s) {
         if (!count)
           continue;
 
-        unsigned long consensus =
-            section_consensus(type_order[t], section_order[si], REGION_UNKNOWN);
+        /* What kind of address a group resolves to. A group carrying an edge
+         * resolves to its consensus base: spanning it against the interior
+         * samples beside it would answer about the region's extent under a
+         * heading that answers about its position, and would print a resolved
+         * base as the low end of a range the engine never resolved. Only a
+         * group with no edge to name has an extent instead of a base.
+         *
+         * dram and mmio are the exception, and not an interior-only one: they
+         * are multi-segment coverings where every segment carries its own base,
+         * so the covering IS the answer and a single address would misreport
+         * it. Same rule the json group objects use. */
+        int interior_only = section_is_interior_only(
+            type_order[t], section_order[si], REGION_UNKNOWN);
+        int covering = strcmp(section_order[si], "dram") == 0 ||
+                       strcmp(section_order[si], "mmio") == 0;
         unsigned long lo, hi;
         section_range(type_order[t], section_order[si], REGION_UNKNOWN, &lo,
                       &hi);
 
-        if (hi && hi != lo) {
-          unsigned long span = hi - lo;
+        unsigned long edge = 0;
+        int has_edge = !covering && !interior_only &&
+                       section_edge_addr(type_order[t], section_order[si],
+                                         REGION_UNKNOWN, &edge);
+        if (has_edge)
+          printf("| %s | `0x%016lx` | ", name, edge);
+        else if (hi && hi != lo)
           printf("| %s | `0x%016lx` - `0x%016lx` (%s) | ", name, lo, hi,
-                 human_size(span, hbuf, sizeof(hbuf)));
-        } else {
-          printf("| %s | `0x%016lx` | ", name, consensus);
-        }
+                 human_size(hi - lo, hbuf, sizeof(hbuf)));
+        else
+          printf("| %s | `0x%016lx` | ", name,
+                 section_consensus(type_order[t], section_order[si],
+                                   REGION_UNKNOWN));
         print_group_sources(type_order[t], section_order[si]);
         printf(" |\n");
       }

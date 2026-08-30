@@ -695,6 +695,40 @@ section_consensus_pick(enum kasld_addr_type type, const char *section,
   return anchor;
 }
 
+/* The address that represents an edge-carrying group.
+ *
+ * NOT section_consensus(): that ranks confidence above position, so a
+ * high-confidence interior sample outranks a base and the group is represented
+ * by an address inside the region rather than the edge of it. Here only records
+ * stating an edge are eligible, and the strongest of those wins -- the same
+ * choice the readout's Evidence rows make, so two formats naming the same group
+ * name the same address.
+ *
+ * Returns 0 when the group states no edge at all; the caller then has an extent
+ * to report rather than a position. */
+int section_edge_addr(enum kasld_addr_type type, const char *section,
+                      enum kasld_region region_filter, unsigned long *out) {
+  const struct result *edge = NULL;
+  int best_w = -1;
+  for (int i = 0; i < num_results; i++) {
+    const struct result *r = &results[i];
+    if (r->type != type || strcmp(result_section(r), section) != 0)
+      continue;
+    if (region_filter != REGION_UNKNOWN && r->region != region_filter)
+      continue;
+    if (!in_bounds(r) || !(HAS_LO(r) || HAS_HI(r)))
+      continue;
+    if (conf_weight(r->conf) > best_w) {
+      best_w = conf_weight(r->conf);
+      edge = r;
+    }
+  }
+  if (!edge)
+    return 0;
+  *out = anchor_addr(edge);
+  return 1;
+}
+
 /* Count the distinct component origins contributing in-bounds records to a
  * (type, section, optional region_filter). A record may credit several
  * components (merged provenance); each distinct origin counts once. */

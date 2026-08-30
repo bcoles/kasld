@@ -75,6 +75,8 @@ void section_consensus_info(enum kasld_addr_type type, const char *section,
 
 /* Distinct contributing components, and "no edge record, only interior samples"
  * predicate, for a (type, section, optional region_filter). */
+int section_edge_addr(enum kasld_addr_type type, const char *section,
+                      enum kasld_region region_filter, unsigned long *out);
 int section_source_count(enum kasld_addr_type type, const char *section,
                          enum kasld_region region_filter);
 int section_is_interior_only(enum kasld_addr_type type, const char *section,
