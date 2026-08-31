@@ -357,16 +357,6 @@ static void layout_add(const char *quantity, const char *basis,
   r->one_address = (lo && lo == hi);
 }
 
-/* Whether any row drawn states a grain it knows only a floor for. Read from the
- * rows rather than recomputed, so the note a format prints and the marks in the
- * cells cannot disagree about which rows they describe. */
-int layout_any_grain_floor(void) {
-  for (int i = 0; i < n_layout_rows; i++)
-    if (layout_rows[i].align && !layout_rows[i].align_exact)
-      return 1;
-  return 0;
-}
-
 /* The set a row narrows: the kernel's own randomization window for a proven
  * row, and the proven row's own count for the speculative one beneath it.
  * Determined by which grade the row carries, so no caller chooses it. */

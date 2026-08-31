@@ -142,11 +142,30 @@ struct kasld_report_quantity {
   /* Two denominators, because there are two different "out of how many" and
    * they are not interchangeable.
    *
-   * `entropy_top` is what the KERNEL chose among: the window its own KASLR
-   * draws from. This is the denominator a reader wants -- "8 of 505" means 8 of
-   * the places the kernel could have put itself. Zero where the architecture
-   * defines no such window for this quantity, which is not the same as having
-   * no candidates.
+   * `entropy_top` is an UPPER BOUND on what the kernel chose among: the window
+   * its own KASLR draws from, counted at the finest grain this build can prove.
+   * This is the denominator a reader wants -- "8 of 505" means 8 of the places
+   * the kernel could have put itself -- but the true figure can be smaller, in
+   * two ways that do not cancel:
+   *
+   *   - the count divides the window by `align_min`, which is a floor (see
+   *     it), so a kernel aligned more coarsely than this build can prove sat
+   *     on fewer places than are counted here; and
+   *   - a window the model DERIVES rather than reads from the architecture is
+   *     itself deliberately generous. The direct map's comes from the
+   *     RANDOMIZE_MEMORY budget evaluated with the smallest admissible
+   *     direct-map size, because the true size turns on build options this
+   *     binary cannot see.
+   *
+   * Exact only where the window is an architectural constant AND the build
+   * used the architecture's own alignment. The slack runs one way -- never
+   * below the kernel's true count -- so a residual stated against it never
+   * overstates what remains to be searched; what it can overstate is the
+   * entropy the kernel started with, and so how much of it was stripped.
+   *
+   * Nothing decides on this figure: it is presented, never gated. Zero where
+   * the architecture defines no such window for this quantity, which is not
+   * the same as having no candidates.
    *
    * `search_top` is what the ENGINE was willing to consider, and is
    * deliberately wider: the kernel window bakes in build options this binary

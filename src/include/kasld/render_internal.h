@@ -379,5 +379,4 @@ void render_hardening_text(void);
 void render_hardening_json(void);
 void render_hardening_markdown(void);
 
-int layout_any_grain_floor(void);
 #endif /* KASLD_RENDER_INTERNAL_H */

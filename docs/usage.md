@@ -784,7 +784,13 @@ The fields a gate keys on:
   plausibly recover the base, accepting that this window is unproven.
 - `slots_initial` / `entropy_bits_initial` — the set the residual is measured
   against, in both units: `slots` out of `slots_initial` is the ratio the
-  readout prints (`32 of 505`). The paging level is a set of admissible sizes
+  readout prints (`32 of 505`). An **upper bound** on the set the kernel drew
+  from, not an identity: the count rests on an alignment this build can only
+  bound from below, and a derived window (the direct map's) is evaluated
+  generously because its true size turns on build options a userspace binary
+  cannot read. The slack runs one way, so a residual stated against it never
+  overstates what is left to search — but the starting entropy, and so the
+  apparent reduction, can be flattering. The paging level is a set of admissible sizes
   rather than a window, so it carries `candidates_initial` beside `candidates`
   for the same purpose — `1 of 2` says one of the two levels this target could
   be running. Both are omitted where no such set is modelled

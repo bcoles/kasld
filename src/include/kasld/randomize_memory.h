@@ -84,6 +84,11 @@ struct kasld_rm_budget {
   uint32_t pfn_src;               /* observation id, for lineage */
   enum kasld_confidence pfn_conf; /* confidence of that observation */
   unsigned long lo, hi;           /* page_offset budget window */
+  /* The same window for vmalloc_base, the second region drawn. Carried here
+   * for the same reason the first pair is: the rule turns it into bounds and
+   * the summary needs its SIZE as a denominator, and two consumers deriving it
+   * separately is how they come to disagree. Zero when the model declines. */
+  unsigned long vmalloc_lo, vmalloc_hi;
 };
 
 #if defined(__x86_64__)
@@ -172,6 +177,24 @@ kasld_rm_budget_from_evidence(const struct evidence_set *ev,
 
   b.lo = b.lv.vaddr_start;
   b.hi = (b.lv.vaddr_start + (span - dm_min - vmalloc_sz) / 3) & ~(pud - 1);
+
+  /* vmalloc sits after the direct map, so its floor is the smallest that map
+   * can be. Its ceiling combines the two ways the size enters -- the region is
+   * pushed up by a larger direct map but the budget left to push it is
+   * correspondingly smaller -- and the sum rises with the size, so soundness
+   * takes dm_max here where the page_offset ceiling above takes dm_min.
+   * Both edges are PUD-granular, as the base itself is. */
+  {
+    unsigned long dm_max = b.lv.dm_max_tb * one_tb;
+    unsigned long num = dm_max + 2ul * (span - vmalloc_sz);
+    unsigned long upper = (b.lv.vaddr_start + pud + num / 3) & ~(pud - 1);
+    b.vmalloc_lo = b.lv.vaddr_start + dm_min;
+    /* Withheld rather than clamped where it says nothing: above the region
+     * group's own ceiling, or below the floor it would have to sit on. */
+    if (upper < b.lv.vaddr_end && upper > b.vmalloc_lo)
+      b.vmalloc_hi = upper;
+  }
+
   *out = b;
   return 1;
 }

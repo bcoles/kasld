@@ -92,8 +92,6 @@ int rule_x86_64_randomize_memory_budget(const struct evidence_set *ev,
     return 0;
 
   const unsigned long one_tb = 1ul << TB_SHIFT;
-  const unsigned long pud = 1ul << PUD_SHIFT;
-  const unsigned long span = b.lv.vaddr_end - b.lv.vaddr_start;
 
   int n = 0;
 
@@ -117,7 +115,6 @@ int rule_x86_64_randomize_memory_budget(const struct evidence_set *ev,
 
   unsigned long dm_min = dm_min_tb * one_tb;
   unsigned long vmalloc_sz = b.lv.vmalloc_tb * one_tb;
-  unsigned long dm_max = b.lv.dm_max_tb * one_tb;
 
   const enum kasld_confidence cap = kasld_conf_min(CONF_INFERRED, b.pfn_conf);
 
@@ -142,7 +139,7 @@ int rule_x86_64_randomize_memory_budget(const struct evidence_set *ev,
     memset(c, 0, sizeof(*c));
     c->q = Q_VMALLOC_BASE;
     c->op = C_LOWER_BOUND;
-    c->value = b.lv.vaddr_start + dm_min;
+    c->value = b.vmalloc_lo;
     c->conf = cap;
     c->derived_from[0] = b.pfn_src;
     c->lineage_count = 1;
@@ -153,17 +150,14 @@ int rule_x86_64_randomize_memory_budget(const struct evidence_set *ev,
    * combined over the actual directmap size = vaddr_start + PUD +
    * (dm_max + 2*(span - vmalloc_size)) / 3 (increasing in dm => dm_max). */
   if (n < out_max) {
-    unsigned long num = dm_max + 2ul * (span - vmalloc_sz);
-    unsigned long upper = (b.lv.vaddr_start + pud + num / 3) & ~(pud - 1);
-    /* vmalloc_base is PUD-granular too; floor to align + tighten (see above).
-     */
-    /* Only emit when it actually sits below the region-group ceiling. */
-    if (upper < b.lv.vaddr_end && upper > b.lv.vaddr_start + dm_min) {
+    /* Both edges come from the shared budget, which withholds the ceiling
+     * where it would say nothing. */
+    if (b.vmalloc_hi) {
       struct constraint *c = &out[n++];
       memset(c, 0, sizeof(*c));
       c->q = Q_VMALLOC_BASE;
       c->op = C_UPPER_BOUND;
-      c->value = upper;
+      c->value = b.vmalloc_hi;
       c->conf = cap;
       c->derived_from[0] = b.pfn_src;
       c->lineage_count = 1;

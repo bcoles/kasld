@@ -660,6 +660,11 @@ struct kaslr_info {
    * observation below the sound floor, which would put a sub-floor denominator
    * under a guaranteed-window numerator. */
   unsigned long virt_page_offset_top_slots;
+  /* The same figure for vmalloc_base, from the same budget. Carried separately
+   * because the two regions draw from the shared budget in sequence and their
+   * windows differ: vmalloc's floor sits above the direct map it follows. 0
+   * where the model could not be evaluated. */
+  unsigned long virt_vmalloc_top_slots;
   unsigned long virt_vmalloc_slots;
   unsigned long virt_vmemmap_slots;
   unsigned long virt_module_slots;

@@ -3015,6 +3015,18 @@ void compute_kaslr_info(struct summary *s, const struct engine *auth,
             quantity_slots(Q_PAGE_OFFSET, &budget, KASLD_SOUND_FLOOR, NULL, 0,
                            RANDOMIZE_MEMORY_ALIGN);
         s->kaslr.virt_page_offset_top_slots = top;
+
+        /* vmalloc's own share of the same budget. Gated on the model having
+         * produced a ceiling for it -- it withholds one where it would sit
+         * outside the region group -- so a missing edge leaves the row with a
+         * bare count rather than a denominator counted from nothing. */
+        if (b.vmalloc_hi) {
+          budget.lo = b.vmalloc_lo;
+          budget.hi = b.vmalloc_hi;
+          s->kaslr.virt_vmalloc_top_slots =
+              quantity_slots(Q_VMALLOC_BASE, &budget, KASLD_SOUND_FLOOR, NULL,
+                             0, RANDOMIZE_MEMORY_ALIGN);
+        }
       }
     }
   }
@@ -3101,6 +3113,7 @@ void compute_kaslr_info(struct summary *s, const struct engine *auth,
      * derived from engine evidence here and cannot be reached from the
      * estimates alone. */
     pts[Q_PAGE_OFFSET].entropy_top = s->kaslr.virt_page_offset_top_slots;
+    pts[Q_VMALLOC_BASE].entropy_top = s->kaslr.virt_vmalloc_top_slots;
     if (s->kaslr.vtext) {
       pts[Q_VIRT_IMAGE_BASE].present = 1;
       pts[Q_VIRT_IMAGE_BASE].value = s->kaslr.vtext;
