@@ -1471,6 +1471,67 @@ static void test_render_readout_has_no_double_blank(void) {
   assert(worst <= 1);
 }
 
+/* The verbose block states a baseline the model carries.
+ *
+ * This is the one loss no other guard here can see. The corpus diffs that
+ * justify renderer changes render the DEFAULT readout; `tests/replay` runs
+ * every mode but only checks the binary survives; `check-render-parity`
+ * compares the formats against EACH OTHER, so a figure that disappears from all
+ * of them at once leaves them in perfect agreement. That is exactly how the
+ * direct map's
+ * "~4 of 15 bits" once shipped as "~4 bits" -- the commit was justified by a
+ * corpus diff over the Layout rows, and the line that lost its denominator was
+ * not a Layout row.
+ *
+ * Asserted as a relation against the model rather than against saved output: a
+ * golden file would need one per fixture per architecture, would fail on every
+ * intentional change, and would be regenerated on sight. */
+static void test_render_verbose_states_the_baseline(void) {
+  struct summary s;
+  const char *line, *eol;
+
+  reset_results();
+  reset_comp_logs();
+  stage_likely_reset();
+  num_scalar_facts = 0;
+  memset(&s, 0, sizeof(s));
+  memset(&t_stage, 0, sizeof(t_stage));
+  t_stage.vslots = 60;
+  t_stage.vtop_slots = 505;
+  verbose = 1;
+  capture_stdout(wrap_render_summary, &s);
+  verbose = 0;
+
+  line = strstr(render_cap, "Virtual entropy:");
+  assert(line != NULL);
+  eol = strchr(line, '\n');
+  assert(eol != NULL);
+  /* The baseline is carried, so the line must state what the residual is
+   * measured against. */
+  assert(memchr(line, 'o', (size_t)(eol - line)) != NULL &&
+         strstr(line, " of ") != NULL && strstr(line, " of ") < eol);
+
+  /* The converse, so the assertion above cannot pass on a line that always
+   * says "of": with no baseline modelled, the residual stands alone. */
+  reset_results();
+  reset_comp_logs();
+  stage_likely_reset();
+  num_scalar_facts = 0;
+  memset(&s, 0, sizeof(s));
+  memset(&t_stage, 0, sizeof(t_stage));
+  t_stage.vslots = 60;
+  t_stage.vtop_slots = 0;
+  verbose = 1;
+  capture_stdout(wrap_render_summary, &s);
+  verbose = 0;
+
+  line = strstr(render_cap, "Virtual entropy:");
+  assert(line != NULL);
+  eol = strchr(line, '\n');
+  assert(eol != NULL);
+  assert(strstr(line, " of ") == NULL || strstr(line, " of ") > eol);
+}
+
 static void test_render_baseline_equal_to_count_is_stated(void) {
   struct summary s;
 
@@ -5263,6 +5324,7 @@ int main(void) {
   RUN(test_render_json_publishes_unrandomized_directmap_base);
   RUN(test_render_entropy_states_its_baseline);
   RUN(test_render_readout_has_no_double_blank);
+  RUN(test_render_verbose_states_the_baseline);
   RUN(test_render_baseline_equal_to_count_is_stated);
   RUN(test_render_markdown_evidence_names_the_edge);
   RUN(test_render_grain_states_a_floor_as_one);

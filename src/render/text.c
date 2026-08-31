@@ -271,7 +271,12 @@ static void layout_render(void);
  * recovered. */
 static const char *entropy_phrase(int bits, int bits_top, char *buf,
                                   size_t bufsz) {
-  if (bits_top > bits)
+  /* Stated whenever a baseline exists, equal figures included, so that a bare
+   * "~N bits" means no baseline is modelled -- the same rule the Layout table's
+   * Candidates cell follows. `bits_top > 0` is what separates "no baseline"
+   * from one that happens to be zero. A baseline below the residual is not one
+   * this line can stand on, and is withheld rather than inverted. */
+  if (bits_top > 0 && bits_top >= bits)
     snprintf(buf, bufsz, "~%d of %d bits", bits, bits_top);
   else
     snprintf(buf, bufsz, "~%d bits", bits);
