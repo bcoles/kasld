@@ -161,15 +161,29 @@ if command -v jq >/dev/null 2>&1; then
       # Each window is optional in the schema -- a quantity the architecture
       # does not randomize carries none -- so only pairs both runs report are
       # compared. Every violating window is reported, not just the first.
+      # A quantity the full run pins to one value carries no window at all: the
+      # schema reports it as kaslr.virtual/.physical with an image_base. That
+      # form has to be contained too, and checking only the window form skipped
+      # it silently -- the strongest result went unasserted.
       viol=$(printf '%s\n%s\n' "$b" "$f" | jq -rs '
-        ["inferred", "likely", "inferred_physical", "likely_physical"][] as $k
+        (["inferred", "likely", "inferred_physical", "likely_physical"][] as $k
         | (.[0].kaslr[$k] // empty) as $base
         | (.[1].kaslr[$k] // empty) as $full
         | select($base and $full)
         | select($full.range_min < $base.range_min
                  or $full.range_max > $base.range_max)
         | "\($k): resolved [\($full.range_min), \($full.range_max)] is not "
-          + "inside baseline [\($base.range_min), \($base.range_max)]"')
+          + "inside baseline [\($base.range_min), \($base.range_max)]"),
+        ({"virtual": ["inferred", "likely"],
+          "physical": ["inferred_physical", "likely_physical"]}
+         | to_entries[]) as $e
+        | (.[1].kaslr[$e.key].image_base // empty) as $pt
+        | $e.value[] as $k
+        | (.[0].kaslr[$k] // empty) as $base
+        | select($pt and $base)
+        | select($pt < $base.range_min or $pt > $base.range_max)
+        | "\($e.key): resolved \($pt) is not inside baseline \($k) "
+          + "[\($base.range_min), \($base.range_max)]"')
       [ -z "$viol" ] || printf '%s\n' "$viol" | while IFS= read -r v; do
         printf '    FAIL: %s\n' "$v"
       done
@@ -180,12 +194,18 @@ if command -v jq >/dev/null 2>&1; then
       # this the check passes whether or not it tested anything -- which it
       # silently did when the fixture and the binary disagreed on architecture.
       narrowed=$(printf '%s\n%s\n' "$b" "$f" | jq -rs '
-        [["inferred", "likely", "inferred_physical", "likely_physical"][] as $k
+        [(["inferred", "likely", "inferred_physical", "likely_physical"][] as $k
          | (.[0].kaslr[$k] // empty) as $base
          | (.[1].kaslr[$k] // empty) as $full
          | select($base and $full)
          | select($full.range_min > $base.range_min
-                  or $full.range_max < $base.range_max)] | length')
+                  or $full.range_max < $base.range_max)),
+         ({"virtual": ["inferred", "likely"],
+           "physical": ["inferred_physical", "likely_physical"]}
+          | to_entries[]) as $e
+         | (.[1].kaslr[$e.key].image_base // empty) as $pt
+         | $e.value[] as $k
+         | select($pt and (.[0].kaslr[$k] // empty))] | length')
       if [ "${narrowed:-0}" -gt 0 ]; then
         monotonic=checked
       else
