@@ -116,7 +116,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
   lv = gv;
   lv.floor = CONF_BRUTE;
 
-  kasld_report_build(gv, lv, NULL, RPOSTURE_RANDOMIZED, &rep);
+  kasld_report_build(gv, lv, NULL, RPOSTURE_RANDOMIZED, 0, &rep);
 
   /* Read every field a format reads, so a bad projection is caught even where
    * no renderer is linked into this harness. */

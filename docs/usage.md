@@ -490,7 +490,7 @@ or not applicable to the arch/run renders the sentinel `na` (never a
 fabricated, defaulted, or leaked value):
 
 ```
-arch=x86_64 kaslr=on text=0xffffffffa2e00000 stext=na slide=+0x21e00000(568328192) entropy=0bits ptext=[0x1000000..0x3ffdefff] pstext=na pslide=na pentropy=9bits dmap=0xffff800000000000 vmalloc=na vmemmap=na module=[0xffffffffc0000000..0xffffffffc0400000] vabits=na dram=[0x0..0x3ffdefff] results=27
+arch=x86_64 kaslr=on text=0xffffffffa2e00000 stext=na slide=+0x21e00000(568328192) entropy=0bits ptext=[0x1000000..0x3ffdefff] pstext=na pslide=na pentropy=9bits dmap=0xffff800000000000 vmalloc=na vmemmap=na module=[0xffffffffc0000000..0xffffffffc0400000] vabits=na dram=[0x0..0x3ffdefff] results=27 replay=no
 ```
 
 | Key | Meaning |
@@ -512,6 +512,7 @@ arch=x86_64 kaslr=on text=0xffffffffa2e00000 stext=na slide=+0x21e00000(56832819
 | `vabits` | address-space size in bits (the paging level): the value once one candidate remains, otherwise the candidates as a comma list (`48,57`). `na` where the architecture admits only one size, so nothing is unknown |
 | `dram` | physical DRAM extent, `[0xLO..0xHI]`. The span's size is not printed beside it: it is derivable from the edges, and a bracketed size carried a space, which made this the one value a whitespace tokenizer could not split into a key and a value |
 | `results` | count of merged result records (not the raw component count) |
+| `replay` | `yes` \| `no` — whether the facts were read from a captured tree (`KASLD_SYSROOT`) rather than the running system. A replayed line names the captured kernel throughout, so nothing else on it separates a capture from a live snapshot |
 
 `na` carries the same "no value asserted" guarantee the human formats
 express by omitting a row; `extra/ksymoff` anchors on `text=0x…`, so a
@@ -527,6 +528,12 @@ diff against a baseline or aggregate across hosts. (`--verbose` is the sole
 addition: it appends each component's raw stdout `output` lines.) See
 [docs/exploitation.md](exploitation.md) for how the JSON plugs into an exploit —
 control-flow and data-only strategies, a pwntools template, and `ksymoff`.
+
+A top-level `replay` boolean says whether the facts were read from a captured
+tree (via `KASLD_SYSROOT`) rather than from the running system. It is always
+present. A replayed document names the captured kernel in every field, so
+nothing else in it separates a capture from a live snapshot — a fleet or CI
+layer that handles both should key on this rather than infer it.
 
 The KASLR object reports two windows plus a headline base. The key names
 differ from the text labels; the mapping is:

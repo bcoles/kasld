@@ -183,11 +183,13 @@ static void render_environment_markdown(void) {
 void render_markdown(const struct summary *s) {
   struct utsname u = kasld_env.uts;
   int have_uname = kasld_env.have_uts;
+  const struct kasld_report *rep = render_report();
 
   /* Header info */
   printf("# KASLD Results\n\n");
   if (have_uname)
-    printf("**Kernel:** %s (%s, %s)\n\n", u.release, u.machine, u.version);
+    printf("**Kernel:** %s (%s, %s)%s\n\n", u.release, u.machine, u.version,
+           (rep && rep->replay) ? " — *replayed capture*" : "");
 
   /* Component outcome summary */
   if (s->stats.total > 0) {

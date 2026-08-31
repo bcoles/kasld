@@ -302,6 +302,12 @@ void render_oneline(const struct summary *s) {
 
   /* Count of merged result records (always present). */
   printf(" results=%d", num_results);
+  /* Unconditional, like every other key: this format promises a fixed set so a
+   * scraper can match `replay=` without testing for it. */
+  {
+    const struct kasld_report *rep = render_report();
+    printf(" replay=%s", (rep && rep->replay) ? "yes" : "no");
+  }
 
   printf("\n");
 }

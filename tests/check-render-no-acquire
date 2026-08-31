@@ -39,7 +39,7 @@ fi
 # Calls that acquire a fact about the target: the sysroot-aware file wrappers,
 # and the libc queries that answer for the running machine whatever the sysroot
 # says.
-ACQUIRE='kasld_access|kasld_open|kasld_opendir|kasld_fopen|kasld_stat|kasld_read_file_line|kasld_uname|kasld_uname_fingerprint|kasld_resolve|sysconf|sysinfo|uname|getauxval|popen|opendir|fopen'
+ACQUIRE='kasld_access|kasld_open|kasld_opendir|kasld_fopen|kasld_stat|kasld_read_file_line|kasld_uname|kasld_uname_fingerprint|kasld_resolve|kasld_sysroot|sysconf|sysinfo|uname|getauxval|popen|opendir|fopen'
 
 # Acquisitions not yet moved out of a renderer, as "<file> <count>". A file
 # absent from this list may have none at all.

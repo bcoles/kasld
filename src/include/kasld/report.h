@@ -249,6 +249,15 @@ struct kasld_report_point {
  * there. */
 struct kasld_report {
   enum kasld_posture posture;
+  /* The facts behind this report were read from a redirected tree rather than
+   * from the running system, so the document describes a capture and not the
+   * machine that produced it. Stated rather than left to be inferred: a replay
+   * names the captured kernel throughout, which is correct and which leaves the
+   * document internally consistent with nothing to give it away. Caller-
+   * supplied for the same reason `posture` is -- the estimates do not state it,
+   * and the builder takes plain data so it can be tested without an
+   * environment. */
+  int replay;
   struct kasld_report_quantity quantities[Q__COUNT];
   int n_quantities;
 };
@@ -313,6 +322,7 @@ int kasld_report_value(const struct kasld_report_quantity *it,
 void kasld_report_build(struct kasld_resolution_view guaranteed,
                         struct kasld_resolution_view likely,
                         const struct kasld_report_point *points,
-                        enum kasld_posture posture, struct kasld_report *out);
+                        enum kasld_posture posture, int replay,
+                        struct kasld_report *out);
 
 #endif /* KASLD_REPORT_H */

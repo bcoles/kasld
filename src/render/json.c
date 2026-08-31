@@ -400,6 +400,9 @@ void render_json(const struct summary *s) {
 
   printf("{\n");
   printf("  \"version\": \"%s\",\n", VERSION);
+  /* Provenance, always present: a replay names the captured kernel throughout,
+   * so nothing else in the document distinguishes it from a live snapshot. */
+  printf("  \"replay\": %s,\n", (rep && rep->replay) ? "true" : "false");
   printf("  \"arch\": \"%s\",\n", have_uname ? u.machine : "unknown");
 
   /* kernel */

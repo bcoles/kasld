@@ -3128,7 +3128,7 @@ void compute_kaslr_info(struct summary *s, const struct engine *auth,
     lv.cs = likely ? likely->constraints : NULL;
     lv.n_cs = likely ? likely->n_constraints : 0;
     lv.floor = CONF_BRUTE;
-    kasld_report_build(gv, lv, pts, posture, report);
+    kasld_report_build(gv, lv, pts, posture, kasld_sysroot() != NULL, report);
   }
 }
 
@@ -4779,7 +4779,7 @@ int main(int argc, char *argv[]) {
   kasld_env_snapshot();
   if (verbose && !quiet && plain_output()) {
     render_banner();
-    render_system_config();
+    render_system_config(kasld_sysroot() != NULL);
   }
 
   /* A build narrower than the target kernel cannot model it. The arch header is
@@ -4905,8 +4905,8 @@ int main(int argc, char *argv[]) {
            c(C_BOLD), VERSION, c(C_RESET));
     struct utsname u;
     if (kasld_uname(&u) == 0)
-      printf("%sTarget: %s / %s%s\n", c(C_DIM), u.machine, u.release,
-             c(C_RESET));
+      printf("%sTarget: %s / %s%s%s\n", c(C_DIM), u.machine, u.release,
+             kasld_sysroot() ? " (replayed capture)" : "", c(C_RESET));
     printf("\n");
 
     clock_gettime(CLOCK_MONOTONIC, &progress_start);

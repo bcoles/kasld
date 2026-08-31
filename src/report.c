@@ -305,9 +305,11 @@ static void build_window(struct kasld_report_window *w, enum kasld_quantity q,
 void kasld_report_build(struct kasld_resolution_view guaranteed,
                         struct kasld_resolution_view likely,
                         const struct kasld_report_point *points,
-                        enum kasld_posture posture, struct kasld_report *out) {
+                        enum kasld_posture posture, int replay,
+                        struct kasld_report *out) {
   memset(out, 0, sizeof(*out));
   out->posture = posture;
+  out->replay = replay;
   if (!guaranteed.est)
     return;
 

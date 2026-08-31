@@ -373,7 +373,7 @@ void print_memory_map(void);
  * tool banner, then the hardening settings, confinement and source
  * readability of the vantage the analysis ran from. */
 void render_banner(void);
-void render_system_config(void);
+void render_system_config(int replay);
 
 void render_hardening_text(void);
 void render_hardening_json(void);

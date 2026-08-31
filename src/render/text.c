@@ -2489,7 +2489,9 @@ static void print_confinement(const struct kasld_vantage *v) {
   print_cap_reachable_leaks(v);
 }
 
-void render_system_config(void) {
+/* `replay` is the caller's: this block renders BEFORE the components run, so
+ * the report model does not exist yet and the fact cannot be read from it. */
+void render_system_config(int replay) {
   struct utsname u = kasld_env.uts;
   if (!kasld_env.have_uts)
     return;
@@ -2497,6 +2499,11 @@ void render_system_config(void) {
   printf("%-30s%s\n", "Kernel release:", u.release);
   printf("%-30s%s\n", "Kernel version:", u.version);
   printf("%-30s%s\n", "Kernel arch:", u.machine);
+  /* Stated only when it applies: a live run is the ordinary case, and a row
+   * reading "live system" on every host would be noise rather than a finding.
+   */
+  if (replay)
+    printf("%-30s%s\n", "Fact source:", "replayed capture");
 
   const struct kasld_hardening *h = &kasld_env.hardening;
 
