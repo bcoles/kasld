@@ -53,10 +53,10 @@ rm -rf "$E2E"; mkdir -p "$E2E"
 
 # Instrumented objects: exactly what links into kasld (no KASLD_TESTING).
 OBJS=""
-for s in $ROOT/src/orchestrator.c $ROOT/src/environment.c \
-         $ROOT/src/render.c $ROOT/src/region_info.c \
-         $ROOT/src/estimate.c $ROOT/src/quantities.c $ROOT/src/evidence.c \
-         $ROOT/src/engine.c $ROOT/src/engine_rules.c \
+# Globbed rather than listed: a core source added to src/ but not named here
+# compiles everywhere else and fails only at this link, which no other target
+# reaches -- src/report.c was missing from the moment it was added.
+for s in $(echo "$ROOT"/src/*.c) \
          $(echo "$ROOT"/src/render/*.c) $(echo "$ROOT"/src/rules/*.c); do
   o="$E2E/$(basename "${s%.c}").o"
   $CC $CFLAGS -c "$s" -o "$o" || { echo "coverage-e2e: compile failed: $s" >&2; exit 1; }
@@ -75,7 +75,6 @@ meta() { grep -E "^$2:" "$1/meta.txt" 2>/dev/null | head -1 | sed -E 's/^[^:]*:[
 for d in "$FIX"/x86_64/*/ "$FIX"/i686/*/; do
   { [ -d "$d" ] && [ -f "$d/meta.txt" ] && [ -f "$d/sizes.txt" ]; } || continue
   case "$(meta "$d" uname_m_raw)" in x86_64|i686|i386) ;; *) continue ;; esac
-  rel=$(meta "$d" kernel_release)
   sc=$(mktemp -d); cp -a "$d/sysroot" "$sc/r"
   while read -r sz path; do
     [ -z "$sz" ] || [ -z "$path" ] && continue
@@ -86,7 +85,7 @@ for d in "$FIX"/x86_64/*/ "$FIX"/i686/*/; do
   # -c forced color (ANSI paths), and the -H hardening add-on over both text
   # and JSON. Each is a distinct family of render.c branches.
   for mode in "-v" "-j" "-1" "-m" "-c" "-H" "-j -H"; do
-    KASLD_UNAME_RELEASE="$rel" KASLD_SYSROOT="$sc/r" KASLD_COMPONENT_DIR="$COMP" \
+    KASLD_SYSROOT="$sc/r" KASLD_COMPONENT_DIR="$COMP" \
       "$E2E/kasld" $mode >/dev/null 2>&1 && runs=$((runs+1))
   done
   rm -rf "$sc"

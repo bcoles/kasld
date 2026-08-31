@@ -167,7 +167,6 @@ run_fixture() {
   fi
 
   machine=$(effective_machine "$(meta "$d" uname_m_raw)" "$(meta "$d" endianness)")
-  release=$(meta "$d" kernel_release)
 
   if [ "${KASLD_NATIVE:-0}" = 1 ]; then
     # No qemu: only fixtures the host can run directly; binary from build/.
@@ -221,12 +220,18 @@ run_fixture() {
     truncate -s "$sz" "$sc/r$path" 2>/dev/null
   done < "$d/sizes.txt"
 
-  # Release handling: QEMU_UNAME sets the top-level process's uname, but is
-  # NOT honored after qemu's self-re-exec for foreign-arch component children
-  # — so KASLD_UNAME_RELEASE (read by kasld_uname(), propagated via the
-  # environment) is what actually gives every process the fixture's release
-  # for /boot path construction. Both are set; the latter is the load-bearing
-  # one.
+  # Release handling: nothing is set, deliberately. Each process reads the
+  # fixture's release and version from the captured /proc/version through the
+  # sysroot it already inherits, so KASLD_SYSROOT alone gives every component
+  # the identity it needs to build a /boot path or a build fingerprint. This
+  # is also the recipe the documentation gives, so the sweep exercises what a
+  # user runs.
+  #
+  # KASLD_UNAME_RELEASE would override the release and cover a fixture whose
+  # capture states none, which is exactly why it is absent here: setting it
+  # would keep the sweep green if the /proc/version read ever broke. QEMU_UNAME
+  # is not a substitute either way — qemu does not honor it after the
+  # self-re-exec it performs for a foreign-arch component child.
   #
   # KASLD_EXEC_WRAPPER lets the orchestrator's component children execve
   # through the host-arch qemu wrapper instead of trying to execve a guest-
@@ -235,7 +240,7 @@ run_fixture() {
   # fixture) we point KASLD_EXEC_WRAPPER at it; for native-arch fixtures
   # $runner is empty and KASLD_EXEC_WRAPPER stays unset, so the orchestrator
   # takes the production direct-execve path.
-  QEMU_UNAME="$release" KASLD_UNAME_RELEASE="$release" KASLD_SYSROOT="$sc/r" \
+  KASLD_SYSROOT="$sc/r" \
     KASLD_COMPONENT_DIR="$comps" KASLD_EXEC_WRAPPER="$runner" \
     $runner "$kasld" -v > "$sc/replay.txt" 2>/dev/null
   rc=$?
@@ -272,7 +277,7 @@ run_fixture() {
     while IFS="$(printf '\t')" read -r mflags marker; do
       [ -n "$mflags" ] || continue
       # shellcheck disable=SC2086  # $runner (may be empty) and $mflags (flag list) split intentionally
-      QEMU_UNAME="$release" KASLD_UNAME_RELEASE="$release" KASLD_SYSROOT="$sc/r" \
+      KASLD_SYSROOT="$sc/r" \
         KASLD_COMPONENT_DIR="$comps" KASLD_EXEC_WRAPPER="$runner" \
         $runner "$kasld" $mflags > "$sc/mode.txt" 2>/dev/null
       mrc=$?
