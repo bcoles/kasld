@@ -1,0 +1,100 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# check-hostname-scrub — guard that anonymizing a capture removes the host's
+# name without damaging names that merely contain it.
+#
+# extra/collect --anonymize replaces the machine's hostname wherever it appears
+# in a captured file. Matched as a bare substring that also rewrites any longer
+# name containing it. The case that bites is a guest called "debian": every
+# stock Debian kernel reports
+#
+#   Linux version 6.6.13-686 (debian-kernel@lists.debian.org) ...
+#
+# and a substring replacement turns that into HOST-kernel@lists.HOST.org,
+# destroying the distro's build address — a published fact identifying nobody —
+# while protecting an identity the string never carried. A reader of the fixture
+# then sees a redaction where the truth was.
+#
+# A hostname is spelled from letters, digits, hyphen and dot, so an adjacent
+# character from that set means the match belongs to a longer name. This checks
+# the four cases that distinguish the two behaviours: a name embedded in a
+# longer one survives, a name standing alone is replaced, a name reached through
+# a dot survives, and two adjacent occurrences are both replaced (the second is
+# missed by a single pass, because the first consumes the delimiter between
+# them).
+#
+# Exercises the real scrub_secrets from extra/collect rather than a copy, so the
+# guard cannot drift away from the code it guards.
+# ---
+# <bcoles@gmail.com>
+
+set -u
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+COLLECT=$ROOT/extra/collect
+
+[ -r "$COLLECT" ] || { echo "check-hostname-scrub: no extra/collect" >&2; exit 1; }
+
+# Lift the function under test out of collect. Sourcing collect itself would run
+# a capture.
+FN=$(sed -n '/^scrub_secrets() {$/,/^}$/p' "$COLLECT")
+case "$FN" in
+  *"sed"*) ;;
+  *) echo "check-hostname-scrub: scrub_secrets not found in extra/collect" >&2; exit 1 ;;
+esac
+eval "$FN"
+
+TMP=$(mktemp -d) || exit 1
+trap 'rm -rf "$TMP"' EXIT INT TERM
+
+rc=0
+# $1 name, $2 hostname, $3 input, $4 expected
+expect() {
+  # The stub has to read a variable, not a positional: $2 inside the function
+  # body is the stub's own argument list, which is empty when scrub_secrets
+  # calls it.
+  SCRUB_HOST=$2
+  # Called from scrub_secrets, which shellcheck cannot see through the eval.
+  # shellcheck disable=SC2317
+  hostname() { echo "$SCRUB_HOST"; }
+  printf '%s\n' "$3" > "$TMP/f"
+  scrub_secrets "$TMP/f"
+  got=$(cat "$TMP/f")
+  if [ "$got" != "$4" ]; then
+    printf 'check-hostname-scrub: FAIL %s\n  hostname: %s\n  input:    %s\n  expect:   %s\n  got:      %s\n' \
+      "$1" "$2" "$3" "$4" "$got" >&2
+    rc=1
+  fi
+}
+
+expect "embedded in a longer name" debian \
+  'Linux version 6.6.13-686 (debian-kernel@lists.debian.org) (gcc-13)' \
+  'Linux version 6.6.13-686 (debian-kernel@lists.debian.org) (gcc-13)'
+
+expect "standing alone" debian \
+  'Linux version 1.0 (builder@debian) #1 SMP' \
+  'Linux version 1.0 (builder@HOST) #1 SMP'
+
+expect "reached through a dot" box \
+  'sent to box.example.org today' \
+  'sent to box.example.org today'
+
+expect "two adjacent occurrences" node1 \
+  'node1 node1 up' \
+  'HOST HOST up'
+
+expect "at both ends of the line" node1 \
+  'node1' \
+  'HOST'
+
+# The rest of the scrub must keep working alongside it.
+expect "uuid still redacted" irrelevanthost \
+  'root=UUID=123e4567-e89b-12d3-a456-426614174000 ro' \
+  'root=[redacted] ro'
+
+expect "mac still redacted" irrelevanthost \
+  'link 00:11:22:33:44:55 up' \
+  'link [mac] up'
+
+[ "$rc" -eq 0 ] && echo "check-hostname-scrub: OK (7 cases; whole-name match, embedded names kept)"
+exit $rc

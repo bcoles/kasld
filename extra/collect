@@ -445,7 +445,20 @@ scrub_secrets() {
     -e 's/([A-Za-z_]*(token|key|secret|pass|cred)[A-Za-z_]*)=[^[:space:]]*/\1=[redacted]/Ig' \
     "$f" > "$f.tmp" 2>/dev/null && mv "$f.tmp" "$f"
   if [ -n "${H:-}" ]; then
-    sed "s/$H/HOST/g" "$f" > "$f.tmp" 2>/dev/null && mv "$f.tmp" "$f"
+    # Replace the hostname only where it stands as a whole name. As a bare
+    # substring it also rewrites any longer name that contains it: a host called
+    # "debian" turns debian-kernel@lists.debian.org, the distro's build address
+    # in /proc/version, into HOST-kernel@lists.HOST.org -- a fact destroyed to
+    # protect an identity that was never there. A hostname is spelled from
+    # letters, digits, hyphen and dot, so an adjacent character from that set
+    # means the match belongs to a longer name and not to this machine. Dot is
+    # the only one of them that is also a regular-expression metacharacter.
+    # The expression runs twice because a match consumes the delimiter on each
+    # side, which would otherwise skip the second of two adjacent occurrences.
+    He=$(printf '%s' "$H" | sed 's/\./\\./g')
+    sed -E -e "s/(^|[^A-Za-z0-9.-])$He([^A-Za-z0-9.-]|\$)/\1HOST\2/g" \
+           -e "s/(^|[^A-Za-z0-9.-])$He([^A-Za-z0-9.-]|\$)/\1HOST\2/g" \
+      "$f" > "$f.tmp" 2>/dev/null && mv "$f.tmp" "$f"
   fi
 }
 

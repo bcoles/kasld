@@ -175,6 +175,7 @@ stays plain, and setting `KASLD_COLOR` non-empty or empty forces either.
 | `check-covering-consumers` | every rule reading `ev->coverings[]` is reviewed and calls `covering_active()` first — the read end of the same contract; the floor gate demotes a below-floor map by clearing its valid bit, and a rule that never asks carries it into the guaranteed window regardless of what it emits |
 | `check-truncation` | no silent 64-bit→word narrowing when compiled for 32-bit (compiles a TU with `i686-linux-gnu-gcc`) |
 | `check-addr-parse` | kernel addresses are converted with `kasld_addr_parse` outside a reviewed allowlist — `sscanf("%lx")` reports success on an address wider than the word and hands back a truncated one |
+| `check-hostname-scrub` | anonymizing a capture replaces the hostname only where it stands as a whole name — matched as a bare substring, a host called `debian` rewrites the distro build address in `/proc/version` |
 | `check-absence-vs-denial` | no component reports a denied source as an absent one — a failed probe's reason is in `errno`, and UNAVAILABLE claims the target's build while NOPERM reports its hardening |
 | `check-component-output` | components write only wire lines to stdout (stdout is the machine channel; diagnostics go to stderr) |
 | `check-component-meta` | every component declares `KASLD_META` with a `method:` key |

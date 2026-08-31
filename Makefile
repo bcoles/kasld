@@ -829,6 +829,7 @@ lint :
 	    $(TEST_DIR)/check-test-staging \
 	    $(TEST_DIR)/check-truncation \
 	    $(TEST_DIR)/check-addr-parse \
+	    $(TEST_DIR)/check-hostname-scrub \
 	    $(TEST_DIR)/check-absence-vs-denial \
 	    $(TEST_DIR)/check-component-output \
 	    $(TEST_DIR)/check-component-meta \
