@@ -268,7 +268,6 @@ void render_markdown(const struct summary *s) {
     printf("| Metric | Value |\n");
     printf("|:-------|:------|\n");
     {
-      const struct kasld_report *rep = render_report();
       const struct kasld_report_quantity *iv =
           kasld_report_find(rep, Q_VIRT_IMAGE_BASE);
       const struct kasld_report_quantity *ip =
