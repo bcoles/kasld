@@ -1,0 +1,57 @@
+Name:	cat
+Umask:	0077
+State:	R (running)
+Tgid:	1760
+Ngid:	0
+Pid:	1760
+PPid:	1691
+TracerPid:	0
+Uid:	0	0	0	0
+Gid:	0	0	0	0
+FDSize:	64
+Groups:	0 0 1 2 3 4 6 10 11 20 26 27 
+NStgid:	1760
+NSpid:	1760
+NSpgid:	1691
+NSsid:	1679
+VmPeak:	    1892 kB
+VmSize:	    1892 kB
+VmLck:	       0 kB
+VmPin:	       0 kB
+VmHWM:	       4 kB
+VmRSS:	       4 kB
+RssAnon:	       4 kB
+RssFile:	       0 kB
+RssShmem:	       0 kB
+VmData:	      84 kB
+VmStk:	     132 kB
+VmExe:	     968 kB
+VmLib:	     676 kB
+VmPTE:	      42 kB
+VmSwap:	       0 kB
+HugetlbPages:	       0 kB
+CoreDumping:	0
+THP_enabled:	1
+Threads:	1
+SigQ:	0/7910
+SigPnd:	0000000000000000
+ShdPnd:	0000000000000000
+SigBlk:	0000000000000000
+SigIgn:	0000000000000000
+SigCgt:	0000000000000000
+CapInh:	0000000000000000
+CapPrm:	000001ffffffffff
+CapEff:	000001ffffffffff
+CapBnd:	000001ffffffffff
+CapAmb:	0000000000000000
+NoNewPrivs:	0
+Seccomp:	0
+Seccomp_filters:	0
+Speculation_Store_Bypass:	unknown
+SpeculationIndirectBranch:	unsupported
+Cpus_allowed:	1
+Cpus_allowed_list:	0
+Mems_allowed:	1
+Mems_allowed_list:	0
+voluntary_ctxt_switches:	0
+nonvoluntary_ctxt_switches:	2

@@ -1,0 +1,7 @@
+c0000000 T _stext
+c0000000 T _text
+c0c0e000 D _etext
+c12c0000 T _sinittext
+c12c0000 T __init_begin
+c12c0000 T __end_rodata
+c1313000 T _einittext

@@ -1,29 +1,29 @@
-00000000-00000000 : Reserved
-00000000-00000000 : System RAM
-00000000-00000000 : Reserved
-00000000-00000000 : PCI Bus 0000:00
-  00000000-00000000 : Video RAM area
-00000000-00000000 : Video ROM
-00000000-00000000 : Adapter ROM
-00000000-00000000 : Adapter ROM
-00000000-00000000 : Reserved
-  00000000-00000000 : System ROM
-00000000-00000000 : System RAM
-  00000000-00000000 : Kernel code
-  00000000-00000000 : Kernel rodata
-  00000000-00000000 : Kernel data
-  00000000-00000000 : Kernel bss
-00000000-00000000 : Reserved
-00000000-00000000 : PCI Bus 0000:00
-  00000000-00000000 : 0000:00:02.0
-    00000000-00000000 : bochs-drm
-  00000000-00000000 : 0000:00:03.0
-  00000000-00000000 : 0000:00:03.0
-    00000000-00000000 : e1000
-  00000000-00000000 : 0000:00:02.0
-    00000000-00000000 : bochs-drm
-00000000-00000000 : IOAPIC 0
-00000000-00000000 : HPET 0
-  00000000-00000000 : PNP0103:00
-00000000-00000000 : Reserved
-  00000000-00000000 : Local APIC
+00000000-00000fff : Reserved
+00001000-0009fbff : System RAM
+0009fc00-0009ffff : Reserved
+000a0000-000bffff : PCI Bus 0000:00
+  000a0000-000bffff : Video RAM area
+000c0000-000c99ff : Video ROM
+000ca000-000cadff : Adapter ROM
+000cb000-000cb5ff : Adapter ROM
+000f0000-000fffff : Reserved
+  000f0000-000fffff : System ROM
+00100000-3ffdffff : System RAM
+  18000000-189c1c7a : Kernel code
+  189c2000-18cf4fff : Kernel rodata
+  18cf5000-18e3297f : Kernel data
+  18f59000-18fcdfff : Kernel bss
+3ffe0000-3fffffff : Reserved
+40000000-febfffff : PCI Bus 0000:00
+  fd000000-fdffffff : 0000:00:02.0
+    fd000000-fdffffff : bochs-drm
+  feb80000-febbffff : 0000:00:03.0
+  febc0000-febdffff : 0000:00:03.0
+    febc0000-febdffff : e1000
+  febf0000-febf0fff : 0000:00:02.0
+    febf0000-febf0fff : bochs-drm
+fec00000-fec003ff : IOAPIC 0
+fed00000-fed003ff : HPET 0
+  fed00000-fed003ff : PNP0103:00
+fffc0000-ffffffff : Reserved
+  ffffc000-ffffcfff : Local APIC

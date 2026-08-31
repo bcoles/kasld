@@ -1,12 +1,18 @@
 absent: /sys/kernel/boot_params/data
 absent: /sys/kernel/boot_params/setup_data
 absent: /sys/firmware/memmap
+absent: /sys/fs/selinux/enforce
+absent: /sys/fs/selinux/policyvers
+absent: /sys/fs/selinux/mls
+absent: /.dockerenv
+absent: /run/.containerenv
+absent: /sys/class/iscsi_transport
 absent: /proc/device-tree/rtas
 absent: /sys/firmware/devicetree/base/rtas
+WARNING: captured /sys/firmware/fdt may contain board-identifying data (serial number, MAC address). Run extra/anonymize-fdt on it before sharing or committing this capture.
 present: /sys/firmware/efi
 absent: /proc/config.gz
-size-only (header unreadable): /boot/vmlinuz-6.8.0-41-generic
+header: /boot/vmlinuz-6.8.0-41-generic (4096B prefix; full size 38600704 in sizes.txt)
 absent: /boot/Image-6.8.0-41-generic
 absent: /boot/vmlinux-6.8.0-41-generic
-skipped: /proc/kallsyms (use --kallsyms to include)
-unavailable: dmesg
+anonymized: host identity, CPU brand, UUIDs/MACs, sensitive cmdline values redacted

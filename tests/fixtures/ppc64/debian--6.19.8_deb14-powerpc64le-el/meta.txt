@@ -1,10 +1,11 @@
-collect_version:  1
-collected_utc:    Sat May 23 17:09:12 UTC 2026
+collect_version:  3
+collected_utc:    Sun Aug 30 18:01:07 UTC 2026
 uname_m_raw:      ppc64le
+endianness:       little
 arch_canonical:   ppc64
 kernel_release:   6.19.8+deb14-powerpc64le
 distro:           debian-
-kasld:            kasld 0.1.2-dev
-suggested_fixture: tests/fixtures/ppc64/debian--6.19.8_deb14-powerpc64le/
-anonymized:       0
-kallsyms:         0
+kasld:            kasld 0.3.1-dev
+suggested_fixture: tests/fixtures/ppc64/debian--6.19.8_deb14-powerpc64le-el/
+anonymized:       1
+kallsyms:         1

@@ -1,13 +1,20 @@
 absent: /sys/kernel/boot_params/setup_data
+unreadable: /proc/self/attr/current
+absent: /sys/fs/selinux/enforce
+absent: /sys/fs/selinux/policyvers
+absent: /sys/fs/selinux/mls
+absent: /.dockerenv
+absent: /run/.containerenv
+absent: /sys/class/iscsi_transport
 absent: /proc/device-tree/chosen
 absent: /proc/device-tree/rtas
 absent: /sys/firmware/devicetree/base/chosen
 absent: /sys/firmware/devicetree/base/rtas
+absent: /sys/firmware/fdt
 absent: /boot/config-5.15.86-0-virt
 absent: /proc/config.gz
 absent: /boot/vmlinuz-5.15.86-0-virt
 absent: /boot/Image-5.15.86-0-virt
 absent: /boot/vmlinux-5.15.86-0-virt
 absent: /boot/System.map-5.15.86-0-virt
-skipped: /proc/kallsyms (use --kallsyms to include)
-unavailable: dmesg
+anonymized: host identity, CPU brand, UUIDs/MACs, sensitive cmdline values redacted

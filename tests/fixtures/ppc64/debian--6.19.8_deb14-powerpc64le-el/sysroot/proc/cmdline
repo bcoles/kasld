@@ -1,1 +1,1 @@
-root=LABEL=rootfs console=hvc0
+root=[redacted] console=hvc0

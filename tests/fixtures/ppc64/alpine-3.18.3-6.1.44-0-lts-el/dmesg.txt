@@ -1,0 +1,306 @@
+random: crng init done
+radix-mmu: Page sizes from device-tree:
+radix-mmu: Page size shift = 12 AP=0x0
+radix-mmu: Page size shift = 16 AP=0x5
+radix-mmu: Page size shift = 21 AP=0x1
+radix-mmu: Page size shift = 30 AP=0x2
+Activating Kernel Userspace Access Prevention
+Activating Kernel Userspace Execution Prevention
+radix-mmu: Mapped 0x0000000000000000-0x0000000002600000 with 2.00 MiB pages (exec)
+radix-mmu: Mapped 0x0000000002600000-0x0000000080000000 with 2.00 MiB pages
+lpar: Using radix MMU under hypervisor
+Linux version 6.1.44-0-lts (buildozer@build-3-18-ppc64le) (gcc (Alpine 12.2.1_git20220924-r10) 12.2.1 20220924, GNU ld (GNU Binutils) 2.40) #1-Alpine SMP Wed, 09 Aug 2023 09:39:37 +0000
+Found initrd at 0xc000000004b00000:0xc00000000543231e
+Hardware name: IBM pSeries (emulated by qemu) POWER10 (raw) 0x801200 0xf000006 of:SLOF,git-47457c pSeries
+Partition configured for 2 cpus.
+CPU maps initialized for 1 thread per core
+ (thread shift is 0)
+Allocated 3344 bytes for 2 pacas
+numa: Partition configured for 1 NUMA nodes.
+-----------------------------------------------------
+phys_mem_size     = 0x80000000
+dcache_bsize      = 0x80
+icache_bsize      = 0x80
+cpu_features      = 0x000c00eb8f4f9187
+  possible        = 0x000ffbfbcf5fb187
+  always          = 0x0000000380008181
+cpu_user_features = 0xdc0065c2 0xaef60000
+mmu_features      = 0x3c007641
+firmware_features = 0x00000a85455a445f
+vmalloc start     = 0xc008000000000000
+IO start          = 0xc00a000000000000
+vmemmap start     = 0xc00c000000000000
+-----------------------------------------------------
+numa:   NODE_DATA [mem 0x7ff8ac00-0x7ff8ffff]
+rfi-flush: fallback displacement flush available
+rfi-flush: ori type flush available
+rfi-flush: mttrig type flush available
+rfi-flush: patched 12 locations (ori+mttrig type flush)
+count-cache-flush: hardware flush enabled.
+link-stack-flush: software flush enabled.
+entry-flush: patched 61 locations (ori+mttrig type flush)
+uaccess-flush: patched 1 locations (ori+mttrig type flush)
+stf-barrier: eieio barrier available
+stf-barrier: patched 61 entry locations (eieio barrier)
+stf-barrier: patched 12 exit locations (eieio barrier)
+PPC64 nvram contains 65536 bytes
+barrier-nospec: using ORI speculation barrier
+barrier-nospec: patched 358 locations
+Top of RAM: 0x80000000, Total RAM: 0x80000000
+Memory hole size: 0MB
+Zone ranges:
+  Normal   [mem 0x0000000000000000-0x000000007fffffff]
+Movable zone start for each node
+Early memory node ranges
+  node   0: [mem 0x0000000000000000-0x000000007fffffff]
+Initmem setup node 0 [mem 0x0000000000000000-0x000000007fffffff]
+percpu: Embedded 10 pages/cpu s596136 r0 d59224 u655360
+pcpu-alloc: s596136 r0 d59224 u655360 alloc=10*65536
+pcpu-alloc: [0] 0 [0] 1 
+Fallback order for Node 0: 0 
+Built 1 zonelists, mobility grouping on.  Total pages: 32736
+Policy zone: Normal
+Kernel command line: BOOT_IMAGE=[redacted] root=[redacted] ro modules=sd-mod,usb-storage,ext4 quiet rootfstype=ext4
+Unknown kernel command line parameters "BOOT_IMAGE=[redacted] modules=sd-mod,usb-storage,ext4", will be passed to user space.
+Dentry cache hash table entries: 262144 (order: 5, 2097152 bytes, linear)
+Inode-cache hash table entries: 131072 (order: 4, 1048576 bytes, linear)
+mem auto-init: stack:all(zero), heap alloc:on, heap free:off
+Memory: 2021120K/2097152K available (16960K kernel code, 2496K rwdata, 15808K rodata, 5696K init, 1288K bss, 76032K reserved, 0K cma-reserved)
+SLUB: HWalign=128, Order=0-3, MinObjects=0, CPUs=2, Nodes=1
+ftrace: allocating 36960 entries in 14 pages
+ftrace: allocated 14 pages with 3 groups
+trace event string verifier disabled
+rcu: Hierarchical RCU implementation.
+rcu: 	RCU restricting CPUs from NR_CPUS=2048 to nr_cpu_ids=2.
+	Rude variant of Tasks RCU enabled.
+	Tracing variant of Tasks RCU enabled.
+rcu: RCU calculated value of scheduler-enlistment delay is 10 jiffies.
+rcu: Adjusting geometry for rcu_fanout_leaf=16, nr_cpu_ids=2
+NR_IRQS: 512, nr_irqs: 512, preallocated irqs: 16
+xive: Using IRQ range [0-1]
+xive: Interrupt handling initialized with spapr backend
+xive: Using priority 6 for all interrupts
+xive: Using 64kB queues
+rcu: srcu_init: Setting srcu_struct sizes based on contention.
+time_init: decrementer frequency = 512.000000 MHz
+time_init: processor frequency   = 1000.000000 MHz
+time_init: 56 bit decrementer (max: 7fffffffffffff)
+clocksource: timebase: mask: 0xffffffffffffffff max_cycles: 0x761537d007, max_idle_ns: 440795202126 ns
+clocksource: timebase mult[1f40000] shift[24] registered
+clockevent: decrementer mult[83126f] shift[24] cpu[0]
+Console: colour dummy device 80x25
+printk: console [tty0] enabled
+pid_max: default: 32768 minimum: 301
+LSM: Security Framework initializing
+landlock: Up and running.
+Yama: becoming mindful.
+Mount-cache hash table entries: 8192 (order: 0, 65536 bytes, linear)
+Mountpoint-cache hash table entries: 8192 (order: 0, 65536 bytes, linear)
+cblist_init_generic: Setting adjustable number of callback queues.
+cblist_init_generic: Setting shift to 1 and lim to 1.
+cblist_init_generic: Setting adjustable number of callback queues.
+cblist_init_generic: Setting shift to 1 and lim to 1.
+POWER10 performance monitor hardware support registered
+rcu: Hierarchical SRCU implementation.
+rcu: 	Max phase no-delay instances is 1000.
+smp: Bringing up secondary CPUs ...
+smp: Brought up 1 node, 2 CPUs
+numa: Node 0 CPUs: 0-1
+devtmpfs: initialized
+PCI host bridge /pci@800000020000000  ranges:
+  IO 0x0000200000000000..0x000020000000ffff -> 0x0000000000000000
+ MEM 0x0000200080000000..0x00002000ffffffff -> 0x0000000080000000 
+ MEM 0x0000210000000000..0x000021ffffffffff -> 0x0000210000000000 
+PCI: OF: PROBE_ONLY disabled
+clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 19112604462750000 ns
+futex hash table entries: 512 (order: 0, 65536 bytes, linear)
+NET: Registered PF_NETLINK/PF_ROUTE protocol family
+audit: initializing netlink subsys (disabled)
+audit: type=2000 audit(1788156093.240:1): state=initialized audit_enabled=0 res=1
+cpuidle: using governor menu
+RTAS daemon started
+pstore: Registered nvram as persistent store backend
+EEH: pSeries platform initialized
+PCI: Probing PCI hardware
+PCI host bridge to bus 0000:00
+pci_bus 0000:00: root bus resource [io  0x10000-0x1ffff] (bus address [0x0000-0xffff])
+pci_bus 0000:00: root bus resource [mem 0x200080000000-0x2000ffffffff] (bus address [0x80000000-0xffffffff])
+pci_bus 0000:00: root bus resource [mem 0x210000000000-0x21ffffffffff 64bit]
+pci_bus 0000:00: root bus resource [bus 00-ff]
+pci 0000:00:00.0: No hypervisor support for SR-IOV on this device, IOV BARs disabled.
+pci 0000:00:01.0: No hypervisor support for SR-IOV on this device, IOV BARs disabled.
+pci 0000:00:02.0: No hypervisor support for SR-IOV on this device, IOV BARs disabled.
+pci 0000:00:03.0: No hypervisor support for SR-IOV on this device, IOV BARs disabled.
+pci 0000:00:04.0: No hypervisor support for SR-IOV on this device, IOV BARs disabled.
+IOMMU table initialized, virtual merging enabled
+PCI 0000:00 Cannot reserve Legacy IO [io  0x10000-0x10fff]
+pci_bus 0000:00: resource 4 [io  0x10000-0x1ffff]
+pci_bus 0000:00: resource 5 [mem 0x200080000000-0x2000ffffffff]
+pci_bus 0000:00: resource 6 [mem 0x210000000000-0x21ffffffffff 64bit]
+pci 0000:00:00.0: Adding to iommu group 0
+pci 0000:00:01.0: Adding to iommu group 0
+pci 0000:00:02.0: Adding to iommu group 0
+pci 0000:00:03.0: Adding to iommu group 0
+pci 0000:00:04.0: Adding to iommu group 0
+EEH: No capable adapters found: recovery disabled.
+PCI: Probing PCI hardware done
+kprobes: kprobe jump-optimization is enabled. All kprobes are optimized if possible.
+HugeTLB: registered 2.00 MiB page size, pre-allocated 0 pages
+HugeTLB: 0 KiB vmemmap can be freed for a 2.00 MiB page
+HugeTLB: registered 1.00 GiB page size, pre-allocated 0 pages
+HugeTLB: 0 KiB vmemmap can be freed for a 1.00 GiB page
+iommu: Default domain type: Translated 
+iommu: DMA domain TLB invalidation policy: lazy mode 
+SCSI subsystem initialized
+pps_core: LinuxPPS API ver. 1 registered
+pps_core: Software ver. 5.3.6 - Copyright 2005-2007 Rodolfo Giometti <giometti@linux.it>
+PTP clock support registered
+Advanced Linux Sound Architecture Driver Initialized.
+pci 0000:00:00.0: vgaarb: setting as boot VGA device
+pci 0000:00:00.0: vgaarb: bridge control possible
+pci 0000:00:00.0: vgaarb: VGA device added: decodes=io+mem,owns=mem,locks=none
+vgaarb: loaded
+clocksource: Switched to clocksource timebase
+NET: Registered PF_INET protocol family
+IP idents hash table entries: 32768 (order: 2, 262144 bytes, linear)
+tcp_listen_portaddr_hash hash table entries: 4096 (order: 0, 65536 bytes, linear)
+Table-perturb hash table entries: 65536 (order: 2, 262144 bytes, linear)
+TCP established hash table entries: 16384 (order: 1, 131072 bytes, linear)
+TCP bind hash table entries: 16384 (order: 3, 524288 bytes, linear)
+TCP: Hash tables configured (established 16384 bind 16384)
+UDP hash table entries: 2048 (order: 0, 65536 bytes, linear)
+UDP-Lite hash table entries: 2048 (order: 0, 65536 bytes, linear)
+NET: Registered PF_UNIX/PF_LOCAL protocol family
+NET: Registered PF_XDP protocol family
+PCI: CLS 0 bytes, default 128
+Initialise system trusted keyrings
+workingset: timestamp_bits=38 max_order=15 bucket_order=0
+Trying to unpack rootfs image as initramfs...
+zbud: loaded
+Key type asymmetric registered
+Asymmetric key parser 'x509' registered
+Freeing initrd memory: 9408K
+kworker/u4:4 (64) used greatest stack depth: 13536 bytes left
+kworker/u4:2 (42) used greatest stack depth: 12928 bytes left
+kworker/u4:2 (49) used greatest stack depth: 11904 bytes left
+modprobe (69) used greatest stack depth: 10992 bytes left
+alg: self-tests for CTR-KDF (hmac(sha256)) passed
+Block layer SCSI generic (bsg) driver version 0.4 loaded (major 248)
+io scheduler mq-deadline registered
+io scheduler kyber registered
+io scheduler bfq registered
+shpchp: Standard Hot Plug PCI Controller Driver version: 0.4
+PowerPC PowerNV PCI Hotplug Driver version: 0.1
+IPMI message handler: version 39.2
+ipmi device interface
+HVCS: Driver registered.
+Serial: 8250/16550 driver, 4 ports, IRQ sharing disabled
+Non-volatile memory driver v1.3
+brd: module loaded
+loop: module loaded
+st: Version 20160209, fixed bufsize 32768, s/g segs 256
+e100: Intel(R) PRO/100 Network Driver
+e100: Copyright(c) 1999-2006 Intel Corporation
+e1000: Intel(R) PRO/1000 Network Driver
+e1000: Copyright (c) 1999-2006 Intel Corporation.
+e1000e: Intel(R) PRO/1000 Network Driver
+e1000e: Copyright(c) 1999 - 2015 Intel Corporation.
+device-mapper: uevent: version 1.0.3
+device-mapper: ioctl: 4.47.0-ioctl (2022-07-28) initialised: dm-devel@redhat.com
+pseries_idle_driver registered
+NET: Registered PF_PACKET protocol family
+Key type dns_resolver registered
+drmem: No dynamic reconfiguration memory found
+Running feature fixup self-tests ...
+Running code patching self-tests ...
+Running MSI bitmap self-tests ...
+registered taskstats version 1
+Loading compiled-in X.509 certificates
+Loaded X.509 cert 'alpinelinux.org: Alpine Linux kernel key: b3d539c3b2837be06bfe77c5d83ab27239e6a1fa'
+zswap: loaded using pool lzo/zbud
+Key type .fscrypt registered
+Key type fscrypt-provisioning registered
+pstore: Using crash dump compression: zstd
+ALSA device list:
+  No soundcards found.
+Freeing unused kernel image (initmem) memory: 5696K
+Checked W+X mappings: passed, no W+X pages found
+Run /init as init process
+  with arguments:
+    /init
+  with environment:
+    HOME=/
+    TERM=linux
+    BOOT_IMAGE=[redacted]
+    modules=sd-mod,usb-storage,ext4
+Alpine Init 3.8.1-r0
+Loading boot drivers...
+usbcore: registered new interface driver usbfs
+usbcore: registered new interface driver hub
+usbcore: registered new device driver usb
+usbcore: registered new interface driver usb-storage
+Loading boot drivers: ok.
+Mounting root...
+synth uevent: /devices/vio: failed to send uevent
+vio vio: uevent: failed to send synthetic uevent: -19
+ibmvscsi 71000003: SRP_VERSION: 16.a
+ibmvscsi 71000003: Maximum ID: 64 Maximum LUN: 32 Maximum Channel: 3
+scsi host0: IBM POWER Virtual SCSI Adapter 1.5.9
+ibmvscsi 71000003: partner initialization complete
+ibmvscsi 71000003: host srp version: 16.a, host partition qemu (0), OS 2, max io 2097152
+ibmvscsi 71000003: sent SRP login
+ibmvscsi 71000003: SRP_LOGIN succeeded
+scsi 0:0:2:0: CD-ROM            QEMU     QEMU CD-ROM      2.5+ PQ: 0 ANSI: 5
+sr 0:0:2:0: Power-on or device reset occurred
+sr 0:0:2:0: [sr0] scsi3-mmc drive: 16x/50x cd/rw xa/form2 cdda tray
+cdrom: Uniform CD-ROM driver Revision: 3.20
+sr 0:0:2:0: Attached scsi CD-ROM sr0
+sr 0:0:2:0: Attached scsi generic sg0 type 5
+xhci_hcd 0000:00:01.0: xHCI Host Controller
+xhci_hcd 0000:00:01.0: new USB bus registered, assigned bus number 1
+xhci_hcd 0000:00:01.0: ibm,query-pe-dma-windows(2026) 800 8000000 20000000 returned 0, lb=2000000000 ps=107 wn=1
+xhci_hcd 0000:00:01.0: ibm,create-pe-dma-window(2027) 800 8000000 20000000 18 1f returned 0 (liobn = 0x80000001 starting addr = 8000000 0)
+xhci_hcd 0000:00:01.0: hcc params 0x00087001 hci version 0x100 quirks 0x0000000000000014
+xhci_hcd 0000:00:01.0: xHCI Host Controller
+xhci_hcd 0000:00:01.0: new USB bus registered, assigned bus number 2
+xhci_hcd 0000:00:01.0: Host supports USB 3.0 SuperSpeed
+hub 1-0:1.0: USB hub found
+hub 1-0:1.0: 4 ports detected
+usb usb2: We don't know the algorithms for LPM for this host, disabling LPM.
+hub 2-0:1.0: USB hub found
+hub 2-0:1.0: 4 ports detected
+virtio-pci 0000:00:02.0: enabling device (0100 -> 0103)
+virtio-pci 0000:00:03.0: enabling device (0100 -> 0103)
+virtio-pci 0000:00:04.0: enabling device (0100 -> 0103)
+usb 1-1: new high-speed USB device number 2 using xhci_hcd
+virtio_blk virtio0: 2/0/0 default/read/poll queues
+virtio_blk virtio0: [vda] 41943040 512-byte logical blocks (21.5 GB/20.0 GiB)
+ vda: vda1 vda2 vda3 vda4
+virtio_blk virtio1: 2/0/0 default/read/poll queues
+virtio_blk virtio1: [vdb] 35968 512-byte logical blocks (18.4 MB/17.6 MiB)
+virtio_blk virtio2: 2/0/0 default/read/poll queues
+virtio_blk virtio2: [vdc] 393216 512-byte logical blocks (201 MB/192 MiB)
+usb 1-2: new high-speed USB device number 3 using xhci_hcd
+usbcore: registered new interface driver usbhid
+usbhid: USB HID core driver
+input: QEMU QEMU USB Keyboard as /devices/pci0000:00/0000:00:01.0/usb1/1-1/1-1:1.0/0003:0627:0001.0001/input/input0
+hid-generic 0003:0627:0001.0001: input: USB HID v1.11 Keyboard [QEMU QEMU USB Keyboard] on usb-0000:00:01.0-1/input0
+input: QEMU QEMU USB Mouse as /devices/pci0000:00/0000:00:01.0/usb1/1-2/1-2:1.0/0003:0627:0001.0002/input/input1
+hid-generic 0003:0627:0001.0002: input: USB HID v0.01 Mouse [QEMU QEMU USB Mouse] on usb-0000:00:01.0-2/input0
+mdev (1933) used greatest stack depth: 10832 bytes left
+mdev (2278) used greatest stack depth: 10784 bytes left
+nlplug-findfs (783) used greatest stack depth: 6832 bytes left
+EXT4-fs (vda4): orphan cleanup on readonly fs
+EXT4-fs (vda4): mounted filesystem with ordered data mode. Quota mode: disabled.
+Mounting root: ok.
+fbcon: Taking over console
+mousedev: PS/2 mouse device common for all mice
+rtc-generic rtc-generic: registered as rtc0
+rtc-generic rtc-generic: setting system clock to 2026-08-31T06:04:04 UTC (1788156244)
+ibmveth: IBM Power Virtual Ethernet Driver 1.06
+NET: Registered PF_INET6 protocol family
+Segment Routing with IPv6
+In-situ OAM (IOAM) with IPv6
+EXT4-fs (vda4): re-mounted. Quota mode: disabled.
+EXT4-fs (vda4): re-mounted. Quota mode: disabled.
+EXT4-fs (vda2): mounted filesystem with ordered data mode. Quota mode: disabled.

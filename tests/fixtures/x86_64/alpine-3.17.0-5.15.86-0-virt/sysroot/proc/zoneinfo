@@ -1,12 +1,12 @@
 Node 0, zone      DMA
   per-node stats
-      nr_inactive_anon 583
+      nr_inactive_anon 568
       nr_active_anon 23
-      nr_inactive_file 52641
-      nr_active_file 4829
+      nr_inactive_file 2396
+      nr_active_file 2543
       nr_unevictable 0
-      nr_slab_reclaimable 7422
-      nr_slab_unreclaimable 2367
+      nr_slab_reclaimable 4928
+      nr_slab_unreclaimable 2331
       nr_isolated_anon 0
       nr_isolated_file 0
       workingset_nodes 0
@@ -17,10 +17,10 @@ Node 0, zone      DMA
       workingset_restore_anon 0
       workingset_restore_file 0
       workingset_nodereclaim 0
-      nr_anon_pages 561
-      nr_mapped    511
-      nr_file_pages 57498
-      nr_dirty     8307
+      nr_anon_pages 555
+      nr_mapped    503
+      nr_file_pages 4984
+      nr_dirty     340
       nr_writeback 0
       nr_writeback_temp 0
       nr_shmem     28
@@ -31,13 +31,13 @@ Node 0, zone      DMA
       nr_anon_transparent_hugepages 0
       nr_vmscan_write 0
       nr_vmscan_immediate_reclaim 0
-      nr_dirtied   54303
-      nr_written   44813
+      nr_dirtied   443
+      nr_written   93
       nr_kernel_misc_reclaimable 0
       nr_foll_pin_acquired 0
       nr_foll_pin_released 0
-      nr_kernel_stack 1240
-      nr_page_table_pages 131
+      nr_kernel_stack 1208
+      nr_page_table_pages 135
       nr_swapcached 0
   pages free     3840
         min      173
@@ -73,7 +73,7 @@ Node 0, zone      DMA
   node_unreclaimable:  0
   start_pfn:           1
 Node 0, zone    DMA32
-  pages free     164655
+  pages free     221900
         min      11090
         low      13862
         high     16634
@@ -82,25 +82,25 @@ Node 0, zone    DMA32
         managed  247987
         cma      0
         protection: (0, 0, 0, 0)
-      nr_free_pages 164655
-      nr_zone_inactive_anon 583
+      nr_free_pages 221900
+      nr_zone_inactive_anon 568
       nr_zone_active_anon 23
-      nr_zone_inactive_file 52641
-      nr_zone_active_file 4829
+      nr_zone_inactive_file 2396
+      nr_zone_active_file 2543
       nr_zone_unevictable 0
-      nr_zone_write_pending 8307
+      nr_zone_write_pending 350
       nr_mlock     0
       nr_bounce    0
       nr_zspages   0
       nr_free_cma  0
   pagesets
     cpu: 0
-              count: 4977
+              count: 5444
               high:  6931
               batch: 63
   vm stats threshold: 16
     cpu: 1
-              count: 5926
+              count: 3635
               high:  6931
               batch: 63
   vm stats threshold: 16

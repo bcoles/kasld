@@ -1,43 +1,43 @@
-00000000-00000000 : Reserved
-00000000-00000000 : System RAM
-00000000-00000000 : Reserved
-00000000-00000000 : PCI Bus 0000:00
-00000000-00000000 : Video ROM
-00000000-00000000 : Adapter ROM
-00000000-00000000 : Adapter ROM
-00000000-00000000 : Adapter ROM
-00000000-00000000 : Reserved
-  00000000-00000000 : System ROM
-00000000-00000000 : System RAM
-  00000000-00000000 : Kernel code
-  00000000-00000000 : Kernel rodata
-  00000000-00000000 : Kernel data
-  00000000-00000000 : Kernel bss
-00000000-00000000 : Reserved
-00000000-00000000 : PCI Bus 0000:00
-00000000-00000000 : PCI ECAM 0000 [bus 00-ff]
-  00000000-00000000 : Reserved
-    00000000-00000000 : pnp 00:05
-00000000-00000000 : PCI Bus 0000:00
-  00000000-00000000 : 0000:00:01.0
-    00000000-00000000 : bochs-drm
-  00000000-00000000 : 0000:00:03.0
-    00000000-00000000 : virtio-pci-modern
-  00000000-00000000 : 0000:00:02.0
-  00000000-00000000 : 0000:00:02.0
-    00000000-00000000 : e1000
-  00000000-00000000 : 0000:00:01.0
-    00000000-00000000 : bochs-drm
-  00000000-00000000 : 0000:00:03.0
-  00000000-00000000 : 0000:00:1f.2
-    00000000-00000000 : ahci
-00000000-00000000 : IOAPIC 0
-00000000-00000000 : HPET 0
-  00000000-00000000 : PNP0103:00
-00000000-00000000 : Reserved
-  00000000-00000000 : iTCO_wdt.1.auto
-    00000000-00000000 : iTCO_wdt.1.auto iTCO_wdt.1.auto
-00000000-00000000 : Reserved
-00000000-00000000 : Reserved
-00000000-00000000 : PCI Bus 0000:00
-00000000-00000000 : Reserved
+00000000-00000fff : Reserved
+00001000-0009fbff : System RAM
+0009fc00-0009ffff : Reserved
+000a0000-000bffff : PCI Bus 0000:00
+000c0000-000c99ff : Video ROM
+000ca000-000cadff : Adapter ROM
+000cb000-000cb5ff : Adapter ROM
+000cb800-000cdbff : Adapter ROM
+000f0000-000fffff : Reserved
+  000f0000-000fffff : System ROM
+00100000-3ffdbfff : System RAM
+  18200000-1937599f : Kernel code
+  19400000-1a0bdfff : Kernel rodata
+  1a200000-1a54573f : Kernel data
+  1ae99000-1b3fffff : Kernel bss
+3ffdc000-3fffffff : Reserved
+40000000-afffffff : PCI Bus 0000:00
+b0000000-bfffffff : PCI ECAM 0000 [bus 00-ff]
+  b0000000-bfffffff : Reserved
+    b0000000-bfffffff : pnp 00:05
+c0000000-febfffff : PCI Bus 0000:00
+  fd000000-fdffffff : 0000:00:01.0
+    fd000000-fdffffff : bochs-drm
+  fe000000-fe003fff : 0000:00:03.0
+    fe000000-fe003fff : virtio-pci-modern
+  feb80000-febbffff : 0000:00:02.0
+  febc0000-febdffff : 0000:00:02.0
+    febc0000-febdffff : e1000
+  febf0000-febf0fff : 0000:00:01.0
+    febf0000-febf0fff : bochs-drm
+  febf1000-febf1fff : 0000:00:03.0
+  febf2000-febf2fff : 0000:00:1f.2
+    febf2000-febf2fff : ahci
+fec00000-fec003ff : IOAPIC 0
+fed00000-fed003ff : HPET 0
+  fed00000-fed003ff : PNP0103:00
+fed1c000-fed1ffff : Reserved
+  fed1f410-fed1f414 : iTCO_wdt.1.auto
+    fed1f410-fed1f414 : iTCO_wdt.1.auto iTCO_wdt.1.auto
+feffc000-feffffff : Reserved
+fffc0000-ffffffff : Reserved
+100000000-8ffffffff : PCI Bus 0000:00
+fd00000000-ffffffffff : Reserved

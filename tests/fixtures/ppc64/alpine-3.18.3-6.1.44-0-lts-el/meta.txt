@@ -1,10 +1,11 @@
-collect_version:  1
-collected_utc:    Sun May 24 02:42:48 UTC 2026
+collect_version:  3
+collected_utc:    Mon Aug 31 06:05:19 UTC 2026
 uname_m_raw:      ppc64le
+endianness:       little
 arch_canonical:   ppc64
 kernel_release:   6.1.44-0-lts
 distro:           alpine-3.18.3
-kasld:            kasld 0.1.2-dev
-suggested_fixture: tests/fixtures/ppc64/alpine-3.18.3-6.1.44-0-lts/
-anonymized:       0
-kallsyms:         0
+kasld:            kasld 0.3.1-dev
+suggested_fixture: tests/fixtures/ppc64/alpine-3.18.3-6.1.44-0-lts-el/
+anonymized:       1
+kallsyms:         1

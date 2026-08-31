@@ -1,0 +1,6 @@
+ffffffff80002000 T _stext
+ffffffff80002000 T _text
+ffffffff8097ec92 T _etext
+ffffffff80a00000 T _sinittext
+ffffffff80a00000 T __init_begin
+ffffffff80a51470 T _einittext

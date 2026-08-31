@@ -1,0 +1,6 @@
+d8000000 T _stext
+d8000000 T _text
+d89c1c7b T _etext
+d8e4a000 T _sinittext
+d8e4a000 D __init_begin
+d8eb7f91 T _einittext

@@ -1,10 +1,11 @@
-collect_version:  1
-collected_utc:    Sat May 23 15:24:39 UTC 2026
+collect_version:  3
+collected_utc:    Sun Aug 30 17:57:42 UTC 2026
 uname_m_raw:      i686
+endianness:       little
 arch_canonical:   x86_32
 kernel_release:   6.6.13-686
 distro:           debian-
-kasld:            kasld 0.1.2-dev
+kasld:            kasld 0.3.1-dev
 suggested_fixture: tests/fixtures/x86_32/debian--6.6.13-686/
-anonymized:       0
-kallsyms:         0
+anonymized:       1
+kallsyms:         1

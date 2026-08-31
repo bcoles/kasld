@@ -2,7 +2,7 @@ system type		: MIPS Malta
 machine			: mti,malta
 processor		: 0
 cpu model		: MIPS 24Kc V0.0  FPU V0.0
-BogoMIPS		: 866.30
+BogoMIPS		: 841.72
 wait instruction	: yes
 microsecond timers	: yes
 tlb_entries		: 16

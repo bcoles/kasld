@@ -1,12 +1,12 @@
 Node 0, zone      DMA
   per-node stats
-      nr_inactive_anon 561
-      nr_active_anon 22
-      nr_inactive_file 48334
-      nr_active_file 8770
+      nr_inactive_anon 563
+      nr_active_anon 24
+      nr_inactive_file 2349
+      nr_active_file 2579
       nr_unevictable 0
-      nr_slab_reclaimable 6887
-      nr_slab_unreclaimable 1806
+      nr_slab_reclaimable 4456
+      nr_slab_unreclaimable 1737
       nr_isolated_anon 0
       nr_isolated_file 0
       workingset_nodes 0
@@ -17,10 +17,10 @@ Node 0, zone      DMA
       workingset_restore_anon 0
       workingset_restore_file 0
       workingset_nodereclaim 0
-      nr_anon_pages 560
-      nr_mapped    564
-      nr_file_pages 57127
-      nr_dirty     0
+      nr_anon_pages 559
+      nr_mapped    569
+      nr_file_pages 4951
+      nr_dirty     474
       nr_writeback 0
       nr_writeback_temp 0
       nr_shmem     23
@@ -31,15 +31,15 @@ Node 0, zone      DMA
       nr_anon_transparent_hugepages 0
       nr_vmscan_write 0
       nr_vmscan_immediate_reclaim 0
-      nr_dirtied   86978
-      nr_written   66161
+      nr_dirtied   561
+      nr_written   87
       nr_kernel_misc_reclaimable 0
       nr_foll_pin_acquired 0
       nr_foll_pin_released 0
-      nr_kernel_stack 968
-      nr_page_table_pages 92
+      nr_kernel_stack 1024
+      nr_page_table_pages 94
       nr_swapcached 0
-  pages free     439301
+  pages free     492776
         min      1423
         low      1929
         high     2435
@@ -48,13 +48,13 @@ Node 0, zone      DMA
         managed  508643
         cma      0
         protection: (0, 0, 0)
-      nr_free_pages 439301
-      nr_zone_inactive_anon 561
-      nr_zone_active_anon 22
-      nr_zone_inactive_file 48334
-      nr_zone_active_file 8770
+      nr_free_pages 492776
+      nr_zone_inactive_anon 563
+      nr_zone_active_anon 24
+      nr_zone_inactive_file 2349
+      nr_zone_active_file 2579
       nr_zone_unevictable 0
-      nr_zone_write_pending 0
+      nr_zone_write_pending 474
       nr_mlock     0
       nr_bounce    0
       nr_zspages   0
@@ -67,7 +67,7 @@ Node 0, zone      DMA
       numa_other   0
   pagesets
     cpu: 0
-              count: 345
+              count: 1402
               high:  1929
               batch: 63
   vm stats threshold: 10

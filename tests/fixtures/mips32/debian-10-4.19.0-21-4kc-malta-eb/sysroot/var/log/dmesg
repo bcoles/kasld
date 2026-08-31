@@ -1,0 +1,238 @@
+[    0.000000] Linux version 4.19.0-21-4kc-malta (debian-kernel@lists.debian.org) (gcc version 8.3.0 (Debian 8.3.0-6)) #1 SMP Debian 4.19.249-2 (2022-06-30)
+[    0.000000] earlycon: uart8250 at I/O port 0x3f8 (options '38400n8')
+[    0.000000] bootconsole [uart8250] enabled
+[    0.000000] CPU0 revision is: 00019300 (MIPS 24Kc)
+[    0.000000] FPU revision is: 00739300
+[    0.000000] MIPS: machine is mti,malta
+[    0.000000] Software DMA cache coherency enabled
+[    0.000000] Determined physical RAM map:
+[    0.000000]  memory: 0ffff000 @ 00000000 (usable)
+[    0.000000] Kernel relocated by 0x(ptrval)
+[    0.000000]  .text @ 0x(ptrval)
+[    0.000000]  .data @ 0x(ptrval)
+[    0.000000]  .bss  @ 0x(ptrval)
+[    0.000000] Initial ramdisk at: 0x8e9a0000 (23375629 bytes)
+[    0.000000] Primary instruction cache 2kB, VIPT, 2-way, linesize 16 bytes.
+[    0.000000] Primary data cache 2kB, 2-way, VIPT, no aliases, linesize 16 bytes
+[    0.000000] Zone ranges:
+[    0.000000]   DMA      [mem 0x0000000000000000-0x0000000000ffffff]
+[    0.000000]   Normal   [mem 0x0000000001000000-0x000000000fffefff]
+[    0.000000] Movable zone start for each node
+[    0.000000] Early memory node ranges
+[    0.000000]   node   0: [mem 0x0000000000000000-0x000000000fffefff]
+[    0.000000] Initmem setup node 0 [mem 0x0000000000000000-0x000000000fffefff]
+[    0.000000] On node 0 totalpages: 65535
+[    0.000000]   DMA zone: 36 pages used for memmap
+[    0.000000]   DMA zone: 0 pages reserved
+[    0.000000]   DMA zone: 4096 pages, LIFO batch:0
+[    0.000000]   Normal zone: 540 pages used for memmap
+[    0.000000]   Normal zone: 61439 pages, LIFO batch:15
+[    0.000000] percpu: Embedded 17 pages/cpu s40272 r8192 d21168 u69632
+[    0.000000] pcpu-alloc: s40272 r8192 d21168 u69632 alloc=17*4096
+[    0.000000] pcpu-alloc: [0] 0 
+[    0.000000] Built 1 zonelists, mobility grouping on.  Total pages: 64959
+[    0.000000] Kernel command line: rd_start=0xffffffff8e9a0000 rd_size=23375629 root=[redacted] console=ttyS0 init=/bin/sh rw
+[    0.000000] Dentry cache hash table entries: 32768 (order: 5, 131072 bytes)
+[    0.000000] Inode-cache hash table entries: 16384 (order: 4, 65536 bytes)
+[    0.000000] Writing ErrCtl register=00000000
+[    0.000000] Readback ErrCtl register=00000000
+[    0.000000] Memory: 223972K/262140K available (7436K kernel code, 547K rwdata, 1616K rodata, 1844K init, 273K bss, 38168K reserved, 0K cma-reserved)
+[    0.000000] SLUB: HWalign=64, Order=0-3, MinObjects=0, CPUs=1, Nodes=1
+[    0.000000] ftrace: allocating 22823 entries in 45 pages
+[    0.000000] rcu: Hierarchical RCU implementation.
+[    0.000000] rcu: 	RCU restricting CPUs from NR_CPUS=2 to nr_cpu_ids=1.
+[    0.000000] rcu: Adjusting geometry for rcu_fanout_leaf=16, nr_cpu_ids=1
+[    0.000000] NR_IRQS: 256
+[    0.000000] CPU frequency 320.00 MHz
+[    0.000000] clocksource: MIPS: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 11945251545 ns
+[    0.000154] sched_clock: 32 bits at 160MHz, resolution 6ns, wraps every 13421630460ns
+[    0.006525] Console: colour dummy device 80x25
+[    0.008381] Calibrating delay loop... 872.44 BogoMIPS (lpj=1744896)
+[    0.097211] pid_max: default: 32768 minimum: 301
+[    0.098750] Security Framework initialized
+[    0.099110] Yama: disabled by default; enable with sysctl kernel.yama.*
+[    0.101625] AppArmor: AppArmor initialized
+[    0.102318] Mount-cache hash table entries: 1024 (order: 0, 4096 bytes)
+[    0.102605] Mountpoint-cache hash table entries: 1024 (order: 0, 4096 bytes)
+[    0.130982] Performance counters: No available PMU.
+[    0.132182] rcu: Hierarchical SRCU implementation.
+[    0.136959] smp: Bringing up secondary CPUs ...
+[    0.137257] smp: Brought up 1 node, 1 CPU
+[    0.145854] devtmpfs: initialized
+[    0.153465] clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 7645041785100000 ns
+[    0.154061] futex hash table entries: 256 (order: 2, 16384 bytes)
+[    0.161384] NET: Registered protocol family 16
+[    0.163329] audit: initializing netlink subsys (disabled)
+[    0.174686] audit: type=2000 audit(1788112208.152:1): state=initialized audit_enabled=0 res=1
+[    0.175808] FPU Affinity set after 6976 emulations
+[    0.200533] vgaarb: loaded
+[    0.201774] SCSI subsystem initialized
+[    0.202878] libata version 3.00 loaded.
+[    0.204460] PCI host bridge to bus 0000:00
+[    0.205422] pci_bus 0000:00: root bus resource [mem 0x10000000-0x17ffffff]
+[    0.205792] pci_bus 0000:00: root bus resource [io  0x1000-0x1fffff]
+[    0.206203] pci_bus 0000:00: root bus resource [??? 0x00000000 flags 0x0]
+[    0.207017] pci_bus 0000:00: No busn resource found for root bus, will use [bus 00-ff]
+[    0.208370] pci 0000:00:00.0: [2046:ab11] type 00 class 0x100000
+[    0.209230] pci 0000:00:00.0: reg 0x10: [mem 0x08000000-0x0800000f]
+[    0.209318] pci 0000:00:00.0: reg 0x14: [io  0x8000000-0x8000003]
+[    0.209410] pci 0000:00:00.0: reg 0x18: can't handle BAR above 4GB (bus address 0x1f00000010)
+[    0.209815] pci 0000:00:00.0: reg 0x18: [mem size 0x00000010 64bit pref]
+[    0.209842] pci 0000:00:00.0: reg 0x20: [mem 0x00e00000-0x00e0000f]
+[    0.209870] pci 0000:00:00.0: reg 0x24: [mem 0x01000010-0x0100001f 64bit]
+[    0.212029] pci 0000:00:0a.0: [8086:7110] type 00 class 0x060100
+[    0.212622] pci 0000:00:0a.1: [8086:7111] type 00 class 0x010180
+[    0.212692] pci 0000:00:0a.1: reg 0x20: [io  0x0000-0x000f]
+[    0.212747] pci 0000:00:0a.1: legacy IDE quirk: reg 0x10: [io  0x01f0-0x01f7]
+[    0.213111] pci 0000:00:0a.1: legacy IDE quirk: reg 0x14: [io  0x03f6]
+[    0.213390] pci 0000:00:0a.1: legacy IDE quirk: reg 0x18: [io  0x0170-0x0177]
+[    0.213680] pci 0000:00:0a.1: legacy IDE quirk: reg 0x1c: [io  0x0376]
+[    0.214296] pci 0000:00:0a.2: [8086:7112] type 00 class 0x0c0300
+[    0.214378] pci 0000:00:0a.2: reg 0x20: [io  0x0000-0x001f]
+[    0.214588] pci 0000:00:0a.3: [8086:7113] type 00 class 0x068000
+[    0.215493] pci 0000:00:0a.3: quirk: [io  0x1000-0x103f] claimed by PIIX4 ACPI
+[    0.215830] pci 0000:00:0a.3: quirk: [io  0x1100-0x110f] claimed by PIIX4 SMB
+[    0.216617] pci 0000:00:0b.0: [1022:2000] type 00 class 0x020000
+[    0.216660] pci 0000:00:0b.0: reg 0x10: [io  0x0000-0x001f]
+[    0.216676] pci 0000:00:0b.0: reg 0x14: [mem 0x00000000-0x0000001f]
+[    0.216720] pci 0000:00:0b.0: reg 0x30: [mem 0x00000000-0x0003ffff pref]
+[    0.216961] pci 0000:00:12.0: [1013:00b8] type 00 class 0x030000
+[    0.217001] pci 0000:00:12.0: reg 0x10: [mem 0x00000000-0x01ffffff pref]
+[    0.217016] pci 0000:00:12.0: reg 0x14: [mem 0x00000000-0x00000fff]
+[    0.217060] pci 0000:00:12.0: reg 0x30: [mem 0x00000000-0x0000ffff pref]
+[    0.217344] pci 0000:00:12.0: vgaarb: VGA device added: decodes=io+mem,owns=none,locks=none
+[    0.218243] pci_bus 0000:00: busn_res: [bus 00-ff] end is updated to 00
+[    0.219246] pci 0000:00:12.0: BAR 0: assigned [mem 0x10000000-0x11ffffff pref]
+[    0.219775] pci 0000:00:0b.0: BAR 6: assigned [mem 0x12000000-0x1203ffff pref]
+[    0.220248] pci 0000:00:12.0: BAR 6: assigned [mem 0x12040000-0x1204ffff pref]
+[    0.220620] pci 0000:00:12.0: BAR 1: assigned [mem 0x12050000-0x12050fff]
+[    0.221064] pci 0000:00:0a.2: BAR 4: assigned [io  0x1040-0x105f]
+[    0.221383] pci 0000:00:0b.0: BAR 0: assigned [io  0x1060-0x107f]
+[    0.221685] pci 0000:00:0b.0: BAR 1: assigned [mem 0x12051000-0x1205101f]
+[    0.222071] pci 0000:00:00.0: BAR 0: assigned [mem 0x12051020-0x1205102f]
+[    0.222437] pci 0000:00:00.0: BAR 0: error updating (0x12051020 != 0x001020)
+[    0.222832] pci 0000:00:00.0: BAR 2: assigned [mem 0x12051030-0x1205103f 64bit pref]
+[    0.223316] pci 0000:00:00.0: BAR 2: error updating (0x1205103c != 0x00103c)
+[    0.223797] pci 0000:00:00.0: BAR 4: assigned [mem 0x12051040-0x1205104f]
+[    0.224184] pci 0000:00:00.0: BAR 4: error updating (0x12051040 != 0x001040)
+[    0.224520] pci 0000:00:00.0: BAR 5: assigned [mem 0x12051050-0x1205105f 64bit]
+[    0.224872] pci 0000:00:00.0: BAR 5: error updating (0x12051054 != 0x001054)
+[    0.225275] pci 0000:00:0a.1: BAR 4: assigned [io  0x1080-0x108f]
+[    0.225572] pci 0000:00:00.0: BAR 1: assigned [io  0x1090-0x1093]
+[    0.239839] clocksource: Switched to clocksource MIPS
+[    0.322567] VFS: Disk quotas dquot_6.6.0
+[    0.323066] VFS: Dquot-cache hash table entries: 1024 (order 0, 4096 bytes)
+[    0.326887] AppArmor: AppArmor Filesystem Enabled
+[    0.341217] NET: Registered protocol family 2
+[    0.342352] IP idents hash table entries: 4096 (order: 3, 32768 bytes)
+[    0.350235] tcp_listen_portaddr_hash hash table entries: 512 (order: 0, 6144 bytes)
+[    0.350788] TCP established hash table entries: 2048 (order: 1, 8192 bytes)
+[    0.351355] TCP bind hash table entries: 2048 (order: 2, 16384 bytes)
+[    0.352084] TCP: Hash tables configured (established 2048 bind 2048)
+[    0.353605] UDP hash table entries: 256 (order: 1, 8192 bytes)
+[    0.354040] UDP-Lite hash table entries: 256 (order: 1, 8192 bytes)
+[    0.355877] NET: Registered protocol family 1
+[    0.356391] NET: Registered protocol family 44
+[    0.357367] pci 0000:00:0a.2: enabling device (0000 -> 0001)
+[    0.358530] PCI: CLS 0 bytes, default 16
+[    0.362566] Unpacking initramfs...
+[    1.369833] Freeing initrd memory: 22824K
+[    1.375962] Initialise system trusted keyrings
+[    1.377721] Key type blacklist registered
+[    1.378859] workingset: timestamp_bits=14 max_order=16 bucket_order=2
+[    1.386536] zbud: loaded
+[    2.867032] Key type asymmetric registered
+[    2.867390] Asymmetric key parser 'x509' registered
+[    2.868194] Block layer SCSI generic (bsg) driver version 0.4 loaded (major 252)
+[    2.869122] io scheduler noop registered
+[    2.869320] io scheduler deadline registered
+[    2.869891] io scheduler cfq registered (default)
+[    2.870141] io scheduler mq-deadline registered
+[    2.874553] cirrusfb 0000:00:12.0: enabling device (0000 -> 0002)
+[    2.876334] cirrusfb 0000:00:12.0: Cirrus Logic chipset on PCI bus, RAM (4096 kB) at 0x10000000
+[    3.014199] Console: switching to colour frame buffer device 80x30
+[    3.029003] Serial: 8250/16550 driver, 4 ports, IRQ sharing enabled
+[    3.035202] console [ttyS0] disabled
+[    3.050710] serial8250.0: ttyS0 at I/O 0x3f8 (irq = 4, base_baud = 115200) is a 16550A
+[    3.052288] console [ttyS0] enabled
+[    3.052798] bootconsole [uart8250] disabled
+[    3.066247] serial8250.0: ttyS1 at I/O 0x2f8 (irq = 3, base_baud = 115200) is a 16550A
+[    3.080174] serial8250.0: ttyS2 at MMIO 0x1f000900 (irq = 20, base_baud = 230400) is a 16550A
+[    3.085329] mousedev: PS/2 mouse device common for all mice
+[    3.090110] rtc_cmos 70.rtc: registered as rtc0
+[    3.090949] rtc_cmos 70.rtc: alarms up to one day, 242 bytes nvram
+[    3.093655] ledtrig-cpu: registered to indicate activity on CPUs
+[    3.095981] NET: Registered protocol family 10
+[    3.369259] Segment Routing with IPv6
+[    3.369947] mip6: Mobile IPv6
+[    3.370215] NET: Registered protocol family 17
+[    3.370828] mpls_gso: MPLS GSO support
+[    3.372615] registered taskstats version 1
+[    3.372897] Loading compiled-in X.509 certificates
+[    3.505223] Loaded X.509 cert 'Debian Secure Boot CA: 6ccece7e4c6c0d1f6149f3dd27dfcc5cbb419ea1'
+[    3.506046] Loaded X.509 cert 'Debian Secure Boot Signer 2021 - linux: 4b6ef5abca669825178e052c84667ccbc0531f8c'
+[    3.506461] Problem parsing in-kernel X.509 certificate list
+[    3.507501] zswap: loaded using pool lzo/zbud
+[    3.508713] AppArmor: AppArmor sha1 policy hashing enabled
+[    3.510391] rtc_cmos 70.rtc: setting system clock to 2026-08-30 17:50:13 UTC (1788112213)
+[    3.574704] Freeing unused kernel memory: 1844K
+[    3.575070] This architecture does not have kernel memory protection.
+[    3.575514] Run /init as init process
+[    3.849098] spurious 8259A interrupt: IRQ7.
+[    5.012286] ata_piix 0000:00:0a.1: version 2.13
+[    5.012578] ata_piix 0000:00:0a.1: enabling device (0000 -> 0001)
+[    5.021340] pcnet32: pcnet32.c:v1.35 21.Apr.2008 tsbogend@alpha.franken.de
+[    5.021839] pcnet32 0000:00:0b.0: enabling device (0000 -> 0003)
+[    5.023297] pcnet32: PCnet/PCI II 79C970A at 0x1060, [mac]
+[    5.042575] usbcore: registered new interface driver usbfs
+[    5.043396] usbcore: registered new interface driver hub
+[    5.044158]  assigned IRQ 10
+[    5.046484] pcnet32: eth0: registered as PCnet/PCI II 79C970A
+[    5.056230] pcnet32: 1 cards_found
+[    5.060073] scsi host0: ata_piix
+[    5.063188] usbcore: registered new device driver usb
+[    5.074805] ehci_hcd: USB 2.0 'Enhanced' Host Controller (EHCI) Driver
+[    5.077406] scsi host1: ata_piix
+[    5.078397] ata1: PATA max UDMA/33 cmd 0x1f0 ctl 0x3f6 bmdma 0x1080 irq 14
+[    5.078728] ata2: PATA max UDMA/33 cmd 0x170 ctl 0x376 bmdma 0x1088 irq 15
+[    5.094923] uhci_hcd: USB Universal Host Controller Interface driver
+[    5.104896] uhci_hcd 0000:00:0a.2: UHCI Host Controller
+[    5.105651] uhci_hcd 0000:00:0a.2: new USB bus registered, assigned bus number 1
+[    5.106455] uhci_hcd 0000:00:0a.2: detected 2 ports
+[    5.107018] uhci_hcd 0000:00:0a.2: irq 11, io base 0x00001040
+[    5.144244] usb usb1: New USB device found, idVendor=1d6b, idProduct=0001, bcdDevice= 4.19
+[    5.144666] usb usb1: New USB device strings: Mfr=3, Product=2, SerialNumber=1
+[    5.145102] usb usb1: Product: UHCI Host Controller
+[    5.145312] usb usb1: Manufacturer: Linux 4.19.0-21-4kc-malta uhci_hcd
+[    5.145577] usb usb1: SerialNumber: 0000:00:0a.2
+[    5.173272] hub 1-0:1.0: USB hub found
+[    5.179784] hub 1-0:1.0: 2 ports detected
+[    5.245086] ata1.00: ATA-7: QEMU HARDDISK, 2.5+, max UDMA/100
+[    5.245410] ata1.00: 41943040 sectors, multi 16: LBA48 
+[    5.245794] ata1.01: ATA-7: QEMU HARDDISK, 2.5+, max UDMA/100
+[    5.246077] ata1.01: 35768 sectors, multi 16: LBA48 
+[    5.247391] ata2.01: NODEV after polling detection
+[    5.247664] ata2.00: ATA-7: QEMU HARDDISK, 2.5+, max UDMA/100
+[    5.247964] ata2.00: 393216 sectors, multi 16: LBA48 
+[    5.293129] scsi 0:0:0:0: Direct-Access     ATA      QEMU HARDDISK    2.5+ PQ: 0 ANSI: 5
+[    5.317590] scsi 0:0:1:0: Direct-Access     ATA      QEMU HARDDISK    2.5+ PQ: 0 ANSI: 5
+[    5.322089] sd 0:0:0:0: [sda] 41943040 512-byte logical blocks: (21.5 GB/20.0 GiB)
+[    5.323178] sd 0:0:0:0: [sda] Write Protect is off
+[    5.323778] sd 0:0:0:0: [sda] Mode Sense: 00 3a 00 00
+[    5.330907] sd 0:0:1:0: [sdb] 35768 512-byte logical blocks: (18.3 MB/17.5 MiB)
+[    5.331287] sd 0:0:1:0: [sdb] Write Protect is off
+[    5.331504] sd 0:0:1:0: [sdb] Mode Sense: 00 3a 00 00
+[    5.331951] sd 0:0:1:0: [sdb] Write cache: enabled, read cache: enabled, doesn't support DPO or FUA
+[    5.333985] sd 0:0:0:0: [sda] Write cache: enabled, read cache: enabled, doesn't support DPO or FUA
+[    5.345341] scsi 1:0:0:0: Direct-Access     ATA      QEMU HARDDISK    2.5+ PQ: 0 ANSI: 5
+[    5.360430] sd 1:0:0:0: [sdc] 393216 512-byte logical blocks: (201 MB/192 MiB)
+[    5.363338]  sda: sda1 sda2 < sda5 >
+[    5.364523] sd 1:0:0:0: [sdc] Write Protect is off
+[    5.364742] sd 1:0:0:0: [sdc] Mode Sense: 00 3a 00 00
+[    5.364812] sd 1:0:0:0: [sdc] Write cache: enabled, read cache: enabled, doesn't support DPO or FUA
+[    5.390418] sd 0:0:1:0: [sdb] Attached SCSI disk
+[    5.392396] sd 1:0:0:0: [sdc] Attached SCSI disk
+[    5.400420] sd 0:0:0:0: [sda] Attached SCSI disk
+[    6.188205] pcnet32 0000:00:0b.0 enp0s11: renamed from eth0
+[    7.534744] EXT4-fs (sda1): mounted filesystem with ordered data mode. Opts: (null)
+[   13.057470] random: crng init done

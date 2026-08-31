@@ -1,0 +1,133 @@
+[    0.363806] Linux version 5.15.85-0-lts (buildozer@build-3-17-s390x) (gcc (Alpine 12.2.1_git20220924-r4) 12.2.1 20220924, GNU ld (GNU Binutils) 2.39) #1-Alpine SMP Thu, 22 Dec 2022 08:57:12 +0000
+[    0.367258] setup: Linux is running under KVM in 64-bit mode
+[    0.385799] setup: Relocating AMODE31 section of size 0x00003000
+[    0.386563] setup: The maximum memory size is 2048MB
+[    0.391778] cpu: 1 configured CPUs, 0 standby CPUs
+[    0.481375] Write protected kernel read-only data: 12100k
+[    0.809713] Zone ranges:
+[    0.811636]   DMA      [mem 0x0000000000000000-0x000000007fffffff]
+[    0.812893]   Normal   empty
+[    0.812959] Movable zone start for each node
+[    0.813017] Early memory node ranges
+[    0.813058]   node   0: [mem 0x0000000000000000-0x000000007fffffff]
+[    0.814174] Initmem setup node 0 [mem 0x0000000000000000-0x000000007fffffff]
+[    0.867143] percpu: Embedded 31 pages/cpu s87296 r8192 d31488 u126976
+[    0.868230] pcpu-alloc: s87296 r8192 d31488 u126976 alloc=31*4096
+[    0.868353] pcpu-alloc: [0] 0 
+[    0.870928] Built 1 zonelists, mobility grouping on.  Total pages: 516096
+[    0.871016] Policy zone: DMA
+[    0.871243] Kernel command line: root=[redacted] modules=sd-mod,usb-storage,ext4 quiet rootfstype=ext4
+[    0.872592] Unknown kernel command line parameters "modules=sd-mod,usb-storage,ext4", will be passed to user space.
+[    0.873452] Dentry cache hash table entries: 262144 (order: 9, 2097152 bytes, linear)
+[    0.873955] Inode-cache hash table entries: 131072 (order: 8, 1048576 bytes, linear)
+[    0.876098] mem auto-init: stack:byref(zero), heap alloc:on, heap free:off
+[    0.912305] Memory: 2025120K/2097152K available (9688K kernel code, 1944K rwdata, 2412K rodata, 3496K init, 5668K bss, 72032K reserved, 0K cma-reserved)
+[    0.933024] SLUB: HWalign=256, Order=0-3, MinObjects=0, CPUs=1, Nodes=1
+[    0.933432] kmemleak: Kernel memory leak detector disabled
+[    0.935652] ftrace: allocating 26383 entries in 104 pages
+[    1.139955] ftrace: allocated 104 pages with 3 groups
+[    1.152205] rcu: Hierarchical RCU implementation.
+[    1.152448] rcu: 	RCU restricting CPUs from NR_CPUS=256 to nr_cpu_ids=1.
+[    1.152741] 	Rude variant of Tasks RCU enabled.
+[    1.152773] 	Tracing variant of Tasks RCU enabled.
+[    1.152864] rcu: RCU calculated value of scheduler-enlistment delay is 10 jiffies.
+[    1.152912] rcu: Adjusting geometry for rcu_fanout_leaf=16, nr_cpu_ids=1
+[    1.222714] NR_IRQS: 3, nr_irqs: 3, preallocated irqs: 3
+[    1.228422] kfence: initialized - using 2097152 bytes for 255 objects at 0x(____ptrval____)-0x(____ptrval____)
+[    1.230889] clocksource: tod: mask: 0xffffffffffffffff max_cycles: 0x3b0a9be803b0a9, max_idle_ns: 1805497147909793 ns
+[    1.235398] random: crng init done
+[    1.240780] Console: colour dummy device 80x25
+[    1.251274] printk: console [ttysclp0] enabled
+[    1.258008] Calibrating delay loop (skipped)... 13370.00 BogoMIPS preset
+[    1.258128] pid_max: default: 32768 minimum: 301
+[    1.259705] LSM: Security Framework initializing
+[    1.261403] landlock: Up and running.
+[    1.261446] Yama: becoming mindful.
+[    1.267081] Mount-cache hash table entries: 4096 (order: 3, 32768 bytes, linear)
+[    1.267388] Mountpoint-cache hash table entries: 4096 (order: 3, 32768 bytes, linear)
+[    1.333631] rcu: Hierarchical SRCU implementation.
+[    1.350623] smp: Bringing up secondary CPUs ...
+[    1.350884] smp: Brought up 1 node, 1 CPU
+[    1.380384] devtmpfs: initialized
+[    1.399410] clocksource: jiffies: mask: 0xffffffff max_cycles: 0xffffffff, max_idle_ns: 19112604462750000 ns
+[    1.400093] futex hash table entries: 256 (order: 4, 65536 bytes, linear)
+[    1.418952] NET: Registered PF_NETLINK/PF_ROUTE protocol family
+[    1.425116] audit: initializing netlink subsys (disabled)
+[    1.436125] Spectre V2 mitigation: execute trampolines
+[    1.445716] audit: type=2000 audit(1788156072.345:1): state=initialized audit_enabled=0 res=1
+[    1.514780] iommu: Default domain type: Translated 
+[    1.514967] iommu: DMA domain TLB invalidation policy: strict mode 
+[    1.541998] NetLabel: Initializing
+[    1.542090] NetLabel:  domain hash size = 128
+[    1.542136] NetLabel:  protocols = UNLABELED CIPSOv4 CALIPSO
+[    1.543456] NetLabel:  unlabeled traffic allowed by default
+[    2.235820] VFS: Disk quotas dquot_6.6.0
+[    2.236775] VFS: Dquot-cache hash table entries: 512 (order 0, 4096 bytes)
+[    2.239456] hugetlbfs: disabling because there are no supported hugepage sizes
+[    2.378017] NET: Registered PF_INET protocol family
+[    2.380682] IP idents hash table entries: 32768 (order: 6, 262144 bytes, linear)
+[    2.390491] tcp_listen_portaddr_hash hash table entries: 1024 (order: 2, 16384 bytes, linear)
+[    2.390896] Table-perturb hash table entries: 65536 (order: 6, 262144 bytes, linear)
+[    2.391126] TCP established hash table entries: 16384 (order: 5, 131072 bytes, linear)
+[    2.394348] TCP bind hash table entries: 16384 (order: 6, 262144 bytes, linear)
+[    2.394711] TCP: Hash tables configured (established 16384 bind 16384)
+[    2.396816] UDP hash table entries: 1024 (order: 3, 32768 bytes, linear)
+[    2.397296] UDP-Lite hash table entries: 1024 (order: 3, 32768 bytes, linear)
+[    2.400726] NET: Registered PF_UNIX/PF_LOCAL protocol family
+[    2.401290] PCI: CLS 0 bytes, default 256
+[    2.418716] Trying to unpack rootfs image as initramfs...
+[    2.456442] kvm-s390: SIE is not available
+[    2.457474] hypfs: The hardware system does not support hypfs
+[    2.470062] Initialise system trusted keyrings
+[    2.484912] workingset: timestamp_bits=45 max_order=19 bucket_order=0
+[    2.510950] zbud: loaded
+[    2.736784] Key type asymmetric registered
+[    2.737140] Asymmetric key parser 'x509' registered
+[    2.739459] Block layer SCSI generic (bsg) driver version 0.4 loaded (major 249)
+[    2.743502] io scheduler mq-deadline registered
+[    2.743825] io scheduler kyber registered
+[    2.745734] io scheduler bfq registered
+[    2.758436] shpchp: Standard Hot Plug PCI Controller Driver version: 0.4
+[    2.761433] hvc_iucv: The z/VM IUCV HVC device driver cannot be used without z/VM
+[    3.026388] brd: module loaded
+[    3.056609] mpls_gso: MPLS GSO support
+[    3.058594] cio: Channel measurement facility initialized using format extended (mode autodetected)
+[    3.066586] sclp_sd: Store Data request failed (eq=2, di=3, response=0x40f0, flags=0x00, status=0, rc=-5)
+[    3.078637] ap: The hardware system does not support AP instructions
+[    3.096135] registered taskstats version 1
+[    3.096440] Loading compiled-in X.509 certificates
+[    3.100644] zswap: loaded using pool lzo/zbud
+[    3.178480] Key type .fscrypt registered
+[    3.178583] Key type fscrypt-provisioning registered
+[    3.438063] Freeing initrd memory: 5932K
+[    3.797932] Key type encrypted registered
+[    3.837122] Freeing unused kernel image (initmem) memory: 3496K
+[    3.856540] Write protected read-only-after-init data: 64k
+[    4.281179] Checked W+X mappings: passed, no unexpected W+X pages found
+[    4.283609] Run /init as init process
+[    4.283673]   with arguments:
+[    4.283704]     /init
+[    4.283731]   with environment:
+[    4.283758]     HOME=/
+[    4.283782]     TERM=linux
+[    4.283801]     modules=sd-mod,usb-storage,ext4
+[    4.891395] Alpine Init 3.7.0-r0
+[    4.942491] Loading boot drivers...
+[    5.244356] SCSI subsystem initialized
+[    5.481834] loop: module loaded
+[    5.517344] Loading boot drivers: ok.
+[    5.618963] Mounting root...
+[    8.160973] virtio_blk virtio1: [vda] 41943040 512-byte logical blocks (21.5 GB/20.0 GiB)
+[    8.231741]  vda: vda1 vda2 vda3
+[    8.258542] virtio_blk virtio2: [vdb] 36408 512-byte logical blocks (18.6 MB/17.8 MiB)
+[    8.313201] virtio_blk virtio3: [vdc] 393216 512-byte logical blocks (201 MB/192 MiB)
+[   34.316010] EXT4-fs (vda3): mounted filesystem with ordered data mode. Opts: (null). Quota mode: none.
+[   34.329282] Mounting root: ok.
+[  100.045581] NET: Registered PF_PACKET protocol family
+[  100.793639] NET: Registered PF_INET6 protocol family
+[  101.238118] Segment Routing with IPv6
+[  101.238731] In-situ OAM (IOAM) with IPv6
+[  106.650109] EXT4-fs (vda3): re-mounted. Opts: (null). Quota mode: none.
+[  107.644599] EXT4-fs (vda3): re-mounted. Opts: (null). Quota mode: none.
+[  109.629211] Adding 4068348k swap on /dev/vda2.  Priority:-2 extents:1 across:4068348k FS
+[  111.317991] EXT4-fs (vda1): mounted filesystem with ordered data mode. Opts: (null). Quota mode: none.

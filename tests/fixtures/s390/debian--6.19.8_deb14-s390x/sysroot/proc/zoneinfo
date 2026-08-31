@@ -1,12 +1,12 @@
 Node 0, zone      DMA
   per-node stats
       nr_inactive_anon 0
-      nr_active_anon 2548
-      nr_inactive_file 65839
-      nr_active_file 16849
+      nr_active_anon 2841
+      nr_inactive_file 3243
+      nr_active_file 15066
       nr_unevictable 0
-      nr_slab_reclaimable 4101
-      nr_slab_unreclaimable 3239
+      nr_slab_reclaimable 1103
+      nr_slab_unreclaimable 2792
       nr_isolated_anon 0
       nr_isolated_file 0
       workingset_nodes 0
@@ -17,10 +17,10 @@ Node 0, zone      DMA
       workingset_restore_anon 0
       workingset_restore_file 0
       workingset_nodereclaim 0
-      nr_anon_pages 2537
-      nr_mapped    5941
-      nr_file_pages 82705
-      nr_dirty     12
+      nr_anon_pages 2842
+      nr_mapped    5559
+      nr_file_pages 18333
+      nr_dirty     526
       nr_writeback 0
       nr_shmem     21
       nr_shmem_hugepages 0
@@ -30,14 +30,14 @@ Node 0, zone      DMA
       nr_anon_transparent_hugepages 0
       nr_vmscan_write 0
       nr_vmscan_immediate_reclaim 0
-      nr_dirtied   68635
-      nr_written   67623
+      nr_dirtied   1868
+      nr_written   1342
       nr_throttled_written 0
       nr_kernel_misc_reclaimable 0
       nr_foll_pin_acquired 0
       nr_foll_pin_released 0
       nr_kernel_stack 1168
-      nr_page_table_pages 420
+      nr_page_table_pages 470
       nr_sec_page_table_pages 0
       nr_iommu_pages 0
       nr_swapcached 0
@@ -48,7 +48,7 @@ Node 0, zone      DMA
       nr_hugetlb   0
       nr_balloon_pages 0
       nr_kernel_file_pages 0
-  pages free     153508
+  pages free     221090
         boost    0
         min      985
         low      1231
@@ -59,21 +59,21 @@ Node 0, zone      DMA
         managed  250174
         cma      0
         protection: (0, 0, 0, 0)
-      nr_free_pages 153508
-      nr_free_pages_blocks 146688
+      nr_free_pages 221090
+      nr_free_pages_blocks 212224
       nr_zone_inactive_anon 0
-      nr_zone_active_anon 2548
-      nr_zone_inactive_file 65839
-      nr_zone_active_file 16849
+      nr_zone_active_anon 2841
+      nr_zone_inactive_file 3243
+      nr_zone_active_file 15066
       nr_zone_unevictable 0
-      nr_zone_write_pending 12
+      nr_zone_write_pending 526
       nr_mlock     0
       nr_zspages   0
       nr_free_cma  0
   pagesets
     cpu: 0
-              count:    732
-              high:     1231
+              count:    835
+              high:     1333
               batch:    63
               high_min: 1231
               high_max: 30329

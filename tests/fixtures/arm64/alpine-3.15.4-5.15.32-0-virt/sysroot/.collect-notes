@@ -2,10 +2,20 @@ absent: /sys/kernel/security/lockdown
 absent: /sys/kernel/boot_params/data
 absent: /sys/kernel/boot_params/setup_data
 absent: /sys/firmware/memmap
+absent: /proc/self/attr/current
+absent: /sys/kernel/security/lsm
+absent: /sys/module/apparmor/parameters/enabled
+absent: /sys/fs/selinux/enforce
+absent: /sys/fs/selinux/policyvers
+absent: /sys/fs/selinux/mls
+absent: /.dockerenv
+absent: /run/.containerenv
+absent: /sys/class/iscsi_transport
 absent: /proc/device-tree/chosen
 absent: /proc/device-tree/rtas
 absent: /sys/firmware/devicetree/base/chosen
 absent: /sys/firmware/devicetree/base/rtas
+WARNING: captured /sys/firmware/fdt may contain board-identifying data (serial number, MAC address). Run extra/anonymize-fdt on it before sharing or committing this capture.
 present: /sys/firmware/efi
 absent: /boot/config-5.15.32-0-virt
 absent: /proc/config.gz
@@ -13,5 +23,4 @@ absent: /boot/vmlinuz-5.15.32-0-virt
 absent: /boot/Image-5.15.32-0-virt
 absent: /boot/vmlinux-5.15.32-0-virt
 absent: /boot/System.map-5.15.32-0-virt
-skipped: /proc/kallsyms (use --kallsyms to include)
-unavailable: dmesg
+anonymized: host identity, CPU brand, UUIDs/MACs, sensitive cmdline values redacted

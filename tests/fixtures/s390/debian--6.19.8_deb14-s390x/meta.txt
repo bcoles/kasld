@@ -1,10 +1,11 @@
-collect_version:  1
-collected_utc:    Fri May 29 11:54:12 UTC 2026
+collect_version:  3
+collected_utc:    Sun Aug 30 18:01:39 UTC 2026
 uname_m_raw:      s390x
+endianness:       big
 arch_canonical:   s390
 kernel_release:   6.19.8+deb14-s390x
 distro:           debian-
-kasld:            kasld 0.1.2-dev
+kasld:            kasld 0.3.1-dev
 suggested_fixture: tests/fixtures/s390/debian--6.19.8_deb14-s390x/
-anonymized:       0
-kallsyms:         0
+anonymized:       1
+kallsyms:         1

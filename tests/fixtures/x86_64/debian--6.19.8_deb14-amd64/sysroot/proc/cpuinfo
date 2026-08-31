@@ -2,7 +2,6 @@ processor	: 0
 vendor_id	: AuthenticAMD
 cpu family	: 15
 model		: 107
-model name	: QEMU Virtual CPU version 2.5+
 stepping	: 1
 microcode	: 0x1000065
 cpu MHz		: 3598.766

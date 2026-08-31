@@ -1,12 +1,12 @@
 Node 0, zone      DMA
   per-node stats
       nr_inactive_anon 0
-      nr_active_anon 1552
-      nr_inactive_file 100867
-      nr_active_file 14805
+      nr_active_anon 1685
+      nr_inactive_file 3604
+      nr_active_file 6975
       nr_unevictable 0
-      nr_slab_reclaimable 3740
-      nr_slab_unreclaimable 2111
+      nr_slab_reclaimable 886
+      nr_slab_unreclaimable 1933
       nr_isolated_anon 0
       nr_isolated_file 0
       workingset_nodes 0
@@ -17,10 +17,10 @@ Node 0, zone      DMA
       workingset_restore_anon 0
       workingset_restore_file 0
       workingset_nodereclaim 0
-      nr_anon_pages 1472
-      nr_mapped    5444
-      nr_file_pages 115752
-      nr_dirty     8
+      nr_anon_pages 1611
+      nr_mapped    4048
+      nr_file_pages 10659
+      nr_dirty     477
       nr_writeback 0
       nr_writeback_temp 0
       nr_shmem     80
@@ -31,17 +31,17 @@ Node 0, zone      DMA
       nr_anon_transparent_hugepages 0
       nr_vmscan_write 0
       nr_vmscan_immediate_reclaim 0
-      nr_dirtied   145150
-      nr_written   144294
+      nr_dirtied   2020
+      nr_written   1543
       nr_throttled_written 0
       nr_kernel_misc_reclaimable 0
       nr_foll_pin_acquired 0
       nr_foll_pin_released 0
-      nr_kernel_stack 488
-      nr_page_table_pages 103
+      nr_kernel_stack 504
+      nr_page_table_pages 107
       nr_sec_page_table_pages 0
       nr_swapcached 0
-  pages free     123365
+  pages free     183178
         boost    0
         min      857
         low      1071
@@ -51,20 +51,20 @@ Node 0, zone      DMA
         managed  189199
         cma      0
         protection: (0, 0, 256, 256)
-      nr_free_pages 123365
+      nr_free_pages 183178
       nr_zone_inactive_anon 0
-      nr_zone_active_anon 3
-      nr_zone_inactive_file 58146
-      nr_zone_active_file 535
+      nr_zone_active_anon 0
+      nr_zone_inactive_file 1671
+      nr_zone_active_file 0
       nr_zone_unevictable 0
-      nr_zone_write_pending 8
+      nr_zone_write_pending 35
       nr_mlock     0
       nr_bounce    0
       nr_zspages   0
       nr_free_cma  0
   pagesets
     cpu: 0
-              count: 183
+              count: 417
               high:  1071
               batch: 63
   vm stats threshold: 8
@@ -82,30 +82,30 @@ Node 0, zone   Normal
         cma      0
         protection: (0, 0, 0, 0)
 Node 0, zone  HighMem
-  pages free     6080
-        boost    2048
-        min      2112
-        low      2188
-        high     2264
+  pages free     54042
+        boost    0
+        min      64
+        low      140
+        high     216
         spanned  65536
         present  65536
         managed  65536
         cma      4096
         protection: (0, 0, 0, 0)
-      nr_free_pages 6080
+      nr_free_pages 54042
       nr_zone_inactive_anon 0
-      nr_zone_active_anon 1550
-      nr_zone_inactive_file 42712
-      nr_zone_active_file 14268
+      nr_zone_active_anon 1683
+      nr_zone_inactive_file 1933
+      nr_zone_active_file 6975
       nr_zone_unevictable 0
-      nr_zone_write_pending 0
+      nr_zone_write_pending 442
       nr_mlock     0
       nr_bounce    0
       nr_zspages   0
-      nr_free_cma  0
+      nr_free_cma  4032
   pagesets
     cpu: 0
-              count: 97
+              count: 68
               high:  140
               batch: 15
   vm stats threshold: 6

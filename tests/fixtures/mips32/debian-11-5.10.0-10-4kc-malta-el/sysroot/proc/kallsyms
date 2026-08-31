@@ -1,0 +1,5 @@
+81730400 T _stext
+82038528 T _etext
+8232e000 T _sinittext
+8232e000 T __init_begin
+8236a1f4 T _einittext

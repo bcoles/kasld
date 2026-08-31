@@ -1,4 +1,4 @@
-00000000-00000000 : System RAM
-  00000000-00000000 : Kernel code
-  00000000-00000000 : Kernel data
-  00000000-00000000 : Kernel bss
+00000000-3fffffff : System RAM
+  00a74000-017c3fff : Kernel code
+  017c4000-021f5fff : Kernel data
+  02352000-023fffff : Kernel bss

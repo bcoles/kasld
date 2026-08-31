@@ -6,7 +6,7 @@ revision	: 2.9 (pvr 000c 0209)
 bogomips	: 33.21
 
 total bogomips	: 33.21
-timebase	: 16605983
+timebase	: 16605133
 platform	: PowerMac
 model		: Power Macintosh
 machine		: Power Macintosh

@@ -1,1 +1,1 @@
-root=/dev/vda1 rootwait console=ttyAMA0
+root=[redacted] rootwait console=ttyAMA0 init=/bin/sh rw

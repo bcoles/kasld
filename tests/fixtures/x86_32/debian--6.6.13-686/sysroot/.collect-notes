@@ -1,11 +1,17 @@
 absent: /sys/kernel/boot_params/setup_data
+absent: /sys/fs/selinux/enforce
+absent: /sys/fs/selinux/policyvers
+absent: /sys/fs/selinux/mls
+absent: /.dockerenv
+absent: /run/.containerenv
+absent: /sys/class/iscsi_transport
 absent: /proc/device-tree/chosen
 absent: /proc/device-tree/rtas
 absent: /sys/firmware/devicetree/base/chosen
 absent: /sys/firmware/devicetree/base/rtas
+absent: /sys/firmware/fdt
 absent: /proc/config.gz
 header: /boot/vmlinuz-6.6.13-686 (4096B prefix; full size 6093664 in sizes.txt)
 absent: /boot/Image-6.6.13-686
 absent: /boot/vmlinux-6.6.13-686
-skipped: /proc/kallsyms (use --kallsyms to include)
-unavailable: dmesg
+anonymized: host identity, CPU brand, UUIDs/MACs, sensitive cmdline values redacted

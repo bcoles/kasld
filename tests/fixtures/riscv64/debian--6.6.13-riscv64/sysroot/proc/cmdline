@@ -1,1 +1,1 @@
-root=LABEL=rootfs console=ttyS0
+root=[redacted] console=ttyS0

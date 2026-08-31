@@ -1,10 +1,11 @@
-collect_version:  1
-collected_utc:    Sun May 31 05:07:13 UTC 2026
+collect_version:  3
+collected_utc:    Mon Aug 31 00:36:14 UTC 2026
 uname_m_raw:      aarch64
+endianness:       little
 arch_canonical:   arm64
 kernel_release:   6.12.90+deb13-arm64
 distro:           debian-13
-kasld:            kasld 0.2.0-dev
+kasld:            kasld 0.3.1-dev
 suggested_fixture: tests/fixtures/arm64/debian-13-6.12.90_deb13-arm64/
-anonymized:       0
-kallsyms:         0
+anonymized:       1
+kallsyms:         1
