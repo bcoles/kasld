@@ -4582,30 +4582,34 @@ static void print_outcome_names(const char **names, int shown, int n) {
 }
 
 /* Components the orchestrator killed for outrunning the timeout. */
-static void report_killed_components(void) {
+/* Returns whether anything was reported, so the caller can space the block
+ * without emitting a separator for a report that is not there. */
+static int report_killed_components(void) {
   const char *names[OUTCOME_NAMES_SHOWN];
   int shown, n = collect_outcome_names(OUTCOME_TIMEOUT, names,
                                        OUTCOME_NAMES_SHOWN, &shown);
   if (n == 0)
-    return;
+    return 0;
 
   printf("%s%d component%s timed out after %ds and %s killed (", c(C_DIM), n,
          n == 1 ? "" : "s", component_timeout, n == 1 ? "was" : "were");
   print_outcome_names(names, shown, n);
+  return 1;
 }
 
 /* Components that died on a signal. Named rather than left to the tally
  * because a fault is reproducible: which component died is the whole of the
  * report. */
-static void report_crashed_components(void) {
+static int report_crashed_components(void) {
   const char *names[OUTCOME_NAMES_SHOWN];
   int shown, n = collect_outcome_names(OUTCOME_CRASHED, names,
                                        OUTCOME_NAMES_SHOWN, &shown);
   if (n == 0)
-    return;
+    return 0;
 
   printf("%s%d component%s died on a signal (", c(C_DIM), n, n == 1 ? "" : "s");
   print_outcome_names(names, shown, n);
+  return 1;
 }
 
 /* Orchestration-layer summary emit: build the summary, run resolution (stats,
@@ -5014,11 +5018,17 @@ int main(int argc, char *argv[]) {
     run_phase(&phases[p]); /* merges results after each phase */
 
   if (!quiet && !verbose && plain_output()) {
+    /* One blank separates the run narration from what follows it. The reports
+     * are usually absent, and bracketing them with a separator each printed two
+     * blank lines whenever they were -- the trailing one belongs to the
+     * reports, not to the gap. */
+    int reported;
     progress_finish();
     printf("\n");
-    report_killed_components();
-    report_crashed_components();
-    printf("\n");
+    reported = report_killed_components();
+    reported |= report_crashed_components();
+    if (reported)
+      printf("\n");
   }
 
   /* The KASLR default-window analysis and, with -H, the hardening assessment

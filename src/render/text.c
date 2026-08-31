@@ -1639,7 +1639,11 @@ static int readout_print_leaks(void) {
   /* "Evidence", not "Leaks": the block holds side-channel measurements
    * (prefetch timing) alongside actual disclosures, and only the latter are
    * leaks. */
-  printf("%sEvidence%s  (%d finding%s, %d component%s)\n", c(C_BOLD),
+  /* The block opens its own gap, below the early return, so a run with no
+   * evidence leaves no stray blank behind. Every block in this readout spaces
+   * itself from what precedes it; none spaces the next one, which is what kept
+   * two notes apart by two blank lines and this heading apart by none. */
+  printf("\n%sEvidence%s  (%d finding%s, %d component%s)\n", c(C_BOLD),
          c(C_RESET), nf, nf == 1 ? "" : "s", total_sources,
          total_sources == 1 ? "" : "s");
 
@@ -2065,7 +2069,6 @@ static void render_readout(const struct summary *s) {
     }
     if (rem_lo || rem_hi)
       readout_default_remark(s->kaslr.default_addr, rem_lo, rem_hi);
-    printf("\n");
   } else {
     /* Coupling closes the bounds table as a single dim line: it is a static
      * arch property (not a measured quantity), so it recedes from the measured
@@ -2082,7 +2085,6 @@ static void render_readout(const struct summary *s) {
      * value column alongside addresses under an abbreviated label its siblings
      * do not use. */
     printf("\n  %sNote: %s%s\n", c(C_DIM), kasld_coupling_descr(), c(C_RESET));
-    printf("\n");
   }
 
   /* Why the Window and Candidates cells disagree.

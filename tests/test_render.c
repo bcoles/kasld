@@ -1433,6 +1433,44 @@ static void test_render_memory_kaslr_uses_stored_slots(void) {
  *
  * Asserted in both directions from one staging, since the difference is the
  * whole point: same count, baseline present versus absent. */
+/* The readout never emits two blank lines in a row.
+ *
+ * Each block spaces itself from what precedes it and spaces nothing after; two
+ * blocks that both supply a separator put a hole in the output. That is what
+ * separated the two Notes below the table by two blank lines while leaving the
+ * Evidence heading with none, and it is invisible to every other guard here --
+ * the width check measures columns, the parity checks compare values, and
+ * neither reads the shape of the page. */
+static void test_render_readout_has_no_double_blank(void) {
+  struct summary s;
+  const char *p;
+  int run = 0, worst = 0;
+
+  reset_results();
+  reset_comp_logs();
+  stage_likely_reset();
+  num_scalar_facts = 0;
+  memset(&s, 0, sizeof(s));
+  memset(&t_stage, 0, sizeof(t_stage));
+  t_stage.vslots = 60;
+  s.kaslr.vtext = (unsigned long)KASLR_VIRT_TEXT_MIN;
+
+  capture_stdout(wrap_render_summary, &s);
+
+  for (p = render_cap; *p; p++) {
+    if (*p != '\n')
+      continue;
+    if (p[1] == '\n') {
+      if (++run > worst)
+        worst = run;
+    } else {
+      run = 0;
+    }
+  }
+  /* One blank line between blocks is the separator; two is the defect. */
+  assert(worst <= 1);
+}
+
 static void test_render_baseline_equal_to_count_is_stated(void) {
   struct summary s;
 
@@ -5224,6 +5262,7 @@ int main(void) {
   RUN(test_render_directmap_offset_follows_paging_level);
   RUN(test_render_json_publishes_unrandomized_directmap_base);
   RUN(test_render_entropy_states_its_baseline);
+  RUN(test_render_readout_has_no_double_blank);
   RUN(test_render_baseline_equal_to_count_is_stated);
   RUN(test_render_markdown_evidence_names_the_edge);
   RUN(test_render_grain_states_a_floor_as_one);
