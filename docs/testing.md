@@ -763,8 +763,13 @@ It serves two roles:
   ```
 
 - **Recurring soundness gate** — `make test-fixtures` (`tests/validate-fixtures`)
-  runs `validate-bundle` over every *truth-bearing* fixture (`anonymized: 0`) in
-  the corpus, failing on any resolved window that excludes the real base. This is
+  runs `validate-bundle` over every fixture that carries ground truth, failing
+  on any resolved window that excludes the real base. A capture qualifies by
+  what it holds rather than by how it was prepared: a real (non-zero) kallsyms
+  `_text`/`_stext`, or an iomem "Kernel code" line. `anonymized: 0` is admitted
+  as well, as the historical marker, but it is not the test — `--anonymize`
+  redacts host identity and never touches `/proc/kallsyms` or the iomem kernel
+  line, so most of the corpus is anonymized and truth-bearing at once. This is
   the reproducible, boot-free complement to `tests/vm/run` (layer 5): it catches
   the *window-excludes-truth* soundness class in CI without a live boot. Native
   arches validate directly; foreign arches replay under qemu-user (`QEMU_DIR` or
@@ -780,16 +785,16 @@ It serves two roles:
   kasld over two copies of a bundle that differ only in a container-fakeable
   input (the cgroup-reported `MemTotal`/`LowTotal`, faked with the DRAM extent
   present and masked) and fails if the guaranteed window shifts. Needing no
-  ground truth, it runs over the **whole** corpus — including the anonymized
-  fixtures the containment gate skips — so every coupled arch's ceiling rules get
-  covered, not just the truth-bearing captures. This is what catches the
+  ground truth, it runs over the **whole** corpus — including the captures that
+  carry none for the containment gate to use — so every coupled arch's ceiling
+  rules get covered, not just the truth-bearing captures. This is what catches the
   *fakeable-value-reaches-the-guaranteed-window* soundness class (e.g. the
   `MemTotal`-ceiling bug on the 32-bit and other coupled arches).
 
 A FAIL is a soundness violation — the engine's resolved window excluded
 the truth. The only legitimate outcomes are PASS (range admits the truth,
-possibly wide) or N/A (no truth available, e.g. an `--anonymize`-stripped
-bundle). Tightness is a separate concern.
+possibly wide) or N/A (the capture carries no truth to check against: taken
+without `--kallsyms`, and with the iomem kernel lines read back as zeros). Tightness is a separate concern.
 
 Bundles are captured from real systems — the machine under test, a
 system attached to a bug report, or an external test VM — so a PASS is
