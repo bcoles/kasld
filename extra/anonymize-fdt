@@ -14,9 +14,14 @@
 # riscv64_fdt_kaslr_seed) — scrubbing it would falsify the fixture's ground
 # truth. Existing committed fixtures keep chosen/kaslr-seed as-is.
 #
-# Requires `dtc`. Edits each .dtb in place, keeping a <file>.orig backup. Run on
-# the dev host (the target usually has no dtc), then review the diff before
-# committing:  dtc -I dtb -O dts <file> | less
+# Requires `dtc`. Edits each .dtb in place and writes no backup beside it: an
+# unscrubbed copy of the tree left in the bundle is what this exists to keep out
+# of it, and a name ending in .orig is not obviously a device tree to whoever
+# files the capture. The original is held outside the bundle for as long as the
+# rebuild takes and put back if it fails, so a failure leaves the input as it
+# was rather than a truncated blob. Run on the dev host (the target usually has
+# no dtc), then review the result before committing:
+#   dtc -I dtb -O dts <file> | less
 #
 # Usage:  extra/anonymize-fdt <fdt.dtb> [more.dtb ...]
 # ---
@@ -44,12 +49,14 @@ command -v dtc >/dev/null 2>&1 || {
 dts=''
 clean=''
 report=''
+orig=''
 cleanup() {
   # `if` rather than `[ ... ] && rm`: under `set -e` an unset name would make the
   # && list return non-zero and abandon the removals after it.
   if [ -n "$dts" ]; then rm -f "$dts"; fi
   if [ -n "$clean" ]; then rm -f "$clean"; fi
   if [ -n "$report" ]; then rm -f "$report"; fi
+  if [ -n "$orig" ]; then rm -f "$orig"; fi
   return 0
 }
 trap cleanup EXIT INT TERM HUP
@@ -59,7 +66,8 @@ for dtb in "$@"; do
     echo "skip (not a file): $dtb" >&2
     continue
   fi
-  cp -f "$dtb" "$dtb.orig"
+  orig=$(mktemp) || { echo "anonymize-fdt: mktemp failed" >&2; exit 1; }
+  cp -f "$dtb" "$orig"
   dts=$(mktemp) || { echo "anonymize-fdt: mktemp failed" >&2; exit 1; }
   clean=$(mktemp) || { echo "anonymize-fdt: mktemp failed" >&2; exit 1; }
   report=$(mktemp) || { echo "anonymize-fdt: mktemp failed" >&2; exit 1; }
@@ -86,13 +94,20 @@ for dtb in "$@"; do
     END { print count + 0 > "/dev/stderr" }
   ' "$dts" >"$clean" 2>"$report"
 
-  dtc -I dts -O dtb -o "$dtb" "$clean" 2>/dev/null
+  # The rebuild writes over the input, so a failure half-way leaves a truncated
+  # tree where a capture used to be. Put the original back and stop.
+  if ! dtc -I dts -O dtb -o "$dtb" "$clean" 2>/dev/null || [ ! -s "$dtb" ]; then
+    cp -f "$orig" "$dtb"
+    echo "anonymize-fdt: $dtb: rebuild failed; original restored" >&2
+    exit 1
+  fi
   n=$(tail -n1 "$report")
   grep '^  removed:' "$report" >&2 || true
-  echo "$dtb: removed ${n} identifying propert$([ "$n" = 1 ] && echo y || echo ies); backup at $dtb.orig"
+  echo "$dtb: removed ${n} identifying propert$([ "$n" = 1 ] && echo y || echo ies)"
   echo "  review: dtc -I dtb -O dts $dtb | less"
   cleanup
   dts=''
   clean=''
   report=''
+  orig=''
 done
