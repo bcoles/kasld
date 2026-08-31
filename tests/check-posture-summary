@@ -111,6 +111,24 @@ lines=$("$TOOL" --csv "$TMP/web01.json" "$TMP/db02.json" 2>/dev/null | wc -l)
 "$TOOL" --markdown "$TMP/web01.json" 2>/dev/null | grep -q '^| host |' ||
   fail "--markdown header missing"
 
+# The documented sample states the tool's columns.
+#
+# Nothing tied the two together, and the sample fell a column behind: `defenses`
+# was added to the roll-up and the table in docs/usage.md kept the older header,
+# so a reader sized their parsing from a set of columns the tool no longer
+# emits. Compared as the column NAMES in order, not the spacing -- the doc pads
+# to its own sample's widths, which are not the widths a real fleet produces.
+doc_hdr=$(awk '/^host  *arch  *kernel/ { print; exit }' "$ROOT/docs/usage.md" |
+  tr -s ' ' ' ' | sed 's/ *$//')
+tool_hdr=$(sed -n 's/^HDR="\(.*\)"$/\1/p' "$TOOL")
+if [ -z "$tool_hdr" ]; then
+  fail "cannot read HDR from $TOOL"
+elif [ "$doc_hdr" != "$tool_hdr" ]; then
+  fail "docs/usage.md sample header does not match the tool
+        doc:  $doc_hdr
+        tool: $tool_hdr"
+fi
+
 # Error paths -> exit 2.
 exits 2 "$TOOL"                           # no args
 exits 2 "$TOOL" "$TMP/broken.json"        # all-bad
@@ -121,5 +139,5 @@ if [ "$fails" -ne 0 ]; then
   exit 1
 fi
 
-printf '%scheck-posture-summary: OK%s (rows labelled, bad skipped, all formats)\n' \
+printf '%scheck-posture-summary: OK%s (rows labelled, bad skipped, all formats, docs state the tool'"'"'s columns)\n' \
   "$GREEN" "$RESET"

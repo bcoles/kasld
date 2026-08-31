@@ -903,15 +903,16 @@ extra/posture-summary snap/*.json
 ```
 
 ```
-host     arch    kernel      kaslr   vbits  pbits  leaks  cves  top-fix
-cache03  x86_64  6.12.81     active  9b     31b    2/71   0     Set kernel.perf_event_paranoid = 2
-db02     aarch64 6.12.90     active  16b    16b    0/68   0     -
-web01    x86_64  6.15.6      active  9b     31b    1/70   1     Enable kernel lockdown (confidentiality mode)
+host     arch     kernel   kaslr   vbits  pbits  leaks  defenses  cves  top-fix
+cache03  x86_64   6.12.81  active  9b     31b    2/71   1         0     Set kernel.perf_event_paranoid = 2
+db02     aarch64  6.12.90  active  16b    16b    0/68   3         0     -
+web01    x86_64   6.15.6   active  9b     31b    1/70   2         1     Enable kernel lockdown (confidentiality mode)
 ```
 
 Each row carries only the boot-stable posture — KASLR state, guaranteed
-residual entropy (virtual/physical), leaks succeeded/total, unpatched CVE-class
-count, and the most load-bearing hardening action. The host label is the
+residual entropy (virtual/physical), leaks succeeded/total, how many distinct
+hardening controls were observed foiling a leak, unpatched CVE-class count, and
+the most load-bearing hardening action still available. The host label is the
 snapshot's filename (`-j` carries no hostname), so each file must be named after
 its host at collection time; this tool does no collection or transport itself.
 Output is an aligned text table by default, or `--markdown` (issue trackers),
