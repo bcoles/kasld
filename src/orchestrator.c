@@ -4785,6 +4785,25 @@ int main(int argc, char *argv[]) {
             "capabilities); KASLD_* environment settings are not honoured, so "
             "this readout describes the local system\n");
 
+  /* The report presents an unidentified capture's kernel as unknown, which is
+   * correct but silent: a reader sees an absence without learning that the
+   * capture caused it, or that supplying the release would fill it in. Same
+   * policy as the caveat above -- it qualifies the answer rather than
+   * narrating progress, so --quiet does not silence it, and stderr keeps it
+   * out of the document on stdout. */
+  if (!kasld_uname_describes_target()) {
+    const char *rel = getenv("KASLD_UNAME_RELEASE");
+    fprintf(stderr, "warning: the captured tree states no kernel identity "
+                    "(/proc/version absent or unparseable)\n");
+    if (rel && *rel)
+      fprintf(stderr, "  the release comes from KASLD_UNAME_RELEASE; the "
+                      "version stays unknown, so build-keyed lookups cannot "
+                      "match\n");
+    else
+      fprintf(stderr,
+              "  hint:  set KASLD_UNAME_RELEASE to the captured release\n");
+  }
+
   /* Take the environment before anything else looks at the system: every
    * format's readout, the "KASLR disabled" branch and the hardening advisor
    * read it, and the advisor weighs a component's denial against the settings

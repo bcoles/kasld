@@ -2490,7 +2490,8 @@ void render_system_config(int replay) {
     return;
 
   printf("%-30s%s\n", "Kernel release:", u.release);
-  printf("%-30s%s\n", "Kernel version:", u.version);
+  if (u.version[0])
+    printf("%-30s%s\n", "Kernel version:", u.version);
   printf("%-30s%s\n", "Kernel arch:", u.machine);
   /* Stated only when it applies: a live run is the ordinary case, and a row
    * reading "live system" on every host would be noise rather than a finding.

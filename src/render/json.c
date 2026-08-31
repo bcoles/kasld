@@ -411,7 +411,12 @@ void render_json(const struct summary *s) {
     printf("    \"release\": ");
     json_print_escaped(u.release);
     printf(",\n    \"version\": ");
-    json_print_escaped(u.version);
+    /* A capture that states no version leaves it unknown; null says so, where
+     * an empty string would read as a version that is genuinely empty. */
+    if (u.version[0])
+      json_print_escaped(u.version);
+    else
+      printf("null");
     printf(",\n    \"machine\": ");
     json_print_escaped(u.machine);
     printf("\n");

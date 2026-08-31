@@ -43,6 +43,21 @@ static void write_file(const char *rel, const char *content) {
 
 static void rm_file(const char *rel) { th_sysroot_rm(rel); }
 
+/* The release the staged tree claims. Deliberately not this host's: the keyed
+ * path is built from the release kasld resolves, so keying the file to
+ * uname(2) would pass whenever the tool read the analysing host instead of the
+ * tree -- the one substitution these tests must be able to catch. */
+#define STAGED_RELEASE "5.15.207-0-staged"
+
+/* A capture states its own release through /proc/version, the way collect
+ * records it; without one the tree identifies no kernel and no keyed path can
+ * be built. */
+static void stage_identity(void) {
+  th_sysroot_write("/proc/version",
+                   "Linux version " STAGED_RELEASE " (b@h) (gcc) "
+                   "#1-staged SMP Mon Jan 2 09:28:30 UTC 2023\n");
+}
+
 /* Run the component, capturing its stdout (the wire channel) into `cap`;
  * the stderr diagnostics are silenced. */
 static void run_capture(void) {
@@ -93,10 +108,9 @@ static void test_unkeyed_config_is_heuristic(void) {
 /* The release-keyed /boot/config-$(uname -r) is authoritative for the running
  * kernel: its facts stay at CONF_PARSED. */
 static void test_keyed_config_is_parsed(void) {
-  struct utsname u;
-  assert(uname(&u) == 0);
   char keyed[300];
-  snprintf(keyed, sizeof(keyed), "/boot/config-%s", u.release);
+  stage_identity();
+  snprintf(keyed, sizeof(keyed), "/boot/config-%s", STAGED_RELEASE);
   write_file(keyed, CFG);
   run_capture();
   rm_file(keyed);
@@ -109,10 +123,9 @@ static void test_keyed_config_is_parsed(void) {
 /* With BOTH present, the keyed path wins (tried first) — the unkeyed file must
  * not shadow the authoritative one. */
 static void test_keyed_beats_unkeyed(void) {
-  struct utsname u;
-  assert(uname(&u) == 0);
   char keyed[300];
-  snprintf(keyed, sizeof(keyed), "/boot/config-%s", u.release);
+  stage_identity();
+  snprintf(keyed, sizeof(keyed), "/boot/config-%s", STAGED_RELEASE);
   write_file(keyed, CFG);
   write_file("/boot/config", CFG);
   run_capture();

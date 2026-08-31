@@ -188,7 +188,8 @@ void render_markdown(const struct summary *s) {
   /* Header info */
   printf("# KASLD Results\n\n");
   if (have_uname)
-    printf("**Kernel:** %s (%s, %s)%s\n\n", u.release, u.machine, u.version,
+    printf("**Kernel:** %s (%s%s%s)%s\n\n", u.release, u.machine,
+           u.version[0] ? ", " : "", u.version,
            (rep && rep->replay) ? " — *replayed capture*" : "");
 
   /* Component outcome summary */

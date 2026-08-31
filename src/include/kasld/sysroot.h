@@ -250,17 +250,50 @@ kasld_uname_from_proc_version(struct utsname *u) {
 __attribute__((unused)) static int kasld_uname(struct utsname *u) {
   int rc = uname(u);
   if (rc == 0) {
-    const char *rel;
-    if (kasld_sysroot())
-      kasld_uname_from_proc_version(u);
-    rel = getenv("KASLD_UNAME_RELEASE");
-    if (rel && *rel) {
+    const char *rel = getenv("KASLD_UNAME_RELEASE");
+    int have_rel = rel && *rel;
+
+    /* Under a sysroot, uname(2) answers for the machine reading the capture,
+     * not for the capture. Where the capture states no identity of its own,
+     * the release and version are simply not known, and are cleared rather
+     * than left holding the analysing host's -- a wrong kernel asserted
+     * confidently is worse than an absent one, and every consumer already
+     * handles absent: a component keying a /boot path or a build fingerprint
+     * on the release gives up, and the formats present the identity as
+     * unknown. The run fails outright only when nothing identifies the
+     * capture; KASLD_UNAME_RELEASE supplying the release keeps it usable, with
+     * the version still unknown. .machine is left alone throughout: it is the
+     * emulated arch under qemu and compile-time on native, so it describes the
+     * binary doing the reading in either case. */
+    if (kasld_sysroot() && kasld_uname_from_proc_version(u) != 0) {
+      memset(u->release, 0, sizeof(u->release));
+      memset(u->version, 0, sizeof(u->version));
+      if (!have_rel)
+        rc = -1;
+    }
+
+    if (have_rel) {
       size_t n = sizeof(u->release) - 1;
       strncpy(u->release, rel, n);
       u->release[n] = '\0';
     }
   }
   return rc;
+}
+
+/* Whether the reported kernel identity describes the system being analysed.
+ *
+ * A live run's uname(2) is that system by definition. A replay takes release
+ * and version from the captured /proc/version; a capture carrying none leaves
+ * both at the analysing host's, and KASLD_UNAME_RELEASE can replace only the
+ * release, so the build fingerprint stays the host's and matches no per-build
+ * entry. The caller warns -- a report naming the wrong kernel is worth saying
+ * out loud, since nothing else in it gives the substitution away. */
+__attribute__((unused)) static int kasld_uname_describes_target(void) {
+  struct utsname probe;
+  if (!kasld_sysroot())
+    return 1;
+  return kasld_uname_from_proc_version(&probe) == 0;
 }
 
 /* Compose "<release> <version>" into buf and trim trailing spaces. Offset-table

@@ -86,9 +86,11 @@ static void test_env_release_overrides_the_capture(void) {
   assert(strcmp(u.version, STAGED_VERSION) == 0);
 }
 
-/* Unparseable input leaves both fields as uname(2) returned them. Blanking a
- * field would label the report with an empty kernel, which reads as a fact. */
-static void test_unparseable_leaves_the_uname_fields(void) {
+/* Unparseable input identifies nothing, so the call fails and neither field is
+ * left holding the analysing host's. Asserting the host's values would be the
+ * defect: a replay that reports the reading machine's kernel is confidently
+ * wrong, and nothing else in the document gives the substitution away. */
+static void test_unparseable_identifies_nothing(void) {
   struct utsname u, host;
   const char *bad[] = {
       "not a version line at all\n",
@@ -102,19 +104,71 @@ static void test_unparseable_leaves_the_uname_fields(void) {
   assert(uname(&host) == 0);
   for (i = 0; i < sizeof(bad) / sizeof(bad[0]); i++) {
     stage_version(bad[i]);
-    assert(kasld_uname(&u) == 0);
-    assert(strcmp(u.release, host.release) == 0);
-    assert(strcmp(u.version, host.version) == 0);
+    assert(kasld_uname(&u) != 0);
+    assert(u.release[0] == '\0');
+    assert(u.version[0] == '\0');
+    /* Specifically not the host's -- the case this exists to catch. */
+    assert(strcmp(u.release, host.release) != 0);
   }
 }
 
-static void test_absent_version_leaves_the_uname_fields(void) {
+static void test_absent_version_identifies_nothing(void) {
   struct utsname u, host;
   stage_version(NULL);
   assert(uname(&host) == 0);
+  assert(kasld_uname(&u) != 0);
+  assert(u.release[0] == '\0');
+  assert(u.version[0] == '\0');
+  assert(strcmp(u.release, host.release) != 0);
+}
+
+/* .machine describes the binary doing the reading -- the emulated arch under
+ * qemu, compile-time on native -- so it is true either way and is kept. */
+static void test_machine_survives_an_unidentified_capture(void) {
+  struct utsname u, host;
+  stage_version(NULL);
+  assert(uname(&host) == 0);
+  assert(kasld_uname(&u) != 0);
+  assert(strcmp(u.machine, host.machine) == 0);
+}
+
+/* The override is what a capture with no /proc/version has: it supplies the
+ * release and keeps the run usable, while the version stays unknown rather
+ * than borrowing the host's -- so the build fingerprint cannot match a wrong
+ * per-build entry. */
+static void test_override_identifies_a_capture_that_states_nothing(void) {
+  struct utsname u, host;
+  char fp[192];
+  stage_version(NULL);
+  assert(uname(&host) == 0);
+  assert(setenv("KASLD_UNAME_RELEASE", "5.15.207-0-lts", 1) == 0);
   assert(kasld_uname(&u) == 0);
-  assert(strcmp(u.release, host.release) == 0);
-  assert(strcmp(u.version, host.version) == 0);
+  assert(unsetenv("KASLD_UNAME_RELEASE") == 0);
+  assert(strcmp(u.release, "5.15.207-0-lts") == 0);
+  assert(u.version[0] == '\0');
+  assert(strcmp(u.version, host.version) != 0);
+  kasld_uname_fingerprint(fp, sizeof(fp), &u);
+  assert(strcmp(fp, "5.15.207-0-lts") == 0);
+}
+
+/* The predicate the orchestrator warns on. Under a sysroot it answers for the
+ * capture, not for the environment override: KASLD_UNAME_RELEASE replaces the
+ * release and never the version, so a capture stating nothing still leaves the
+ * fingerprint the analysing host's. */
+static void test_identity_predicate_answers_for_the_capture(void) {
+  stage_version(STAGED_LINE);
+  assert(kasld_uname_describes_target() == 1);
+
+  stage_version("not a version line at all\n");
+  assert(kasld_uname_describes_target() == 0);
+
+  stage_version(NULL);
+  assert(kasld_uname_describes_target() == 0);
+
+  /* An override supplies the release; the capture still states nothing. */
+  assert(setenv("KASLD_UNAME_RELEASE", "9.9.9-explicit", 1) == 0);
+  assert(kasld_uname_describes_target() == 0);
+  assert(unsetenv("KASLD_UNAME_RELEASE") == 0);
 }
 
 static void test_fingerprint_names_the_captured_build(void) {
@@ -160,8 +214,11 @@ int main(void) {
 
   BEGIN_CATEGORY("fallbacks");
   RUN(test_env_release_overrides_the_capture);
-  RUN(test_unparseable_leaves_the_uname_fields);
-  RUN(test_absent_version_leaves_the_uname_fields);
+  RUN(test_unparseable_identifies_nothing);
+  RUN(test_absent_version_identifies_nothing);
+  RUN(test_machine_survives_an_unidentified_capture);
+  RUN(test_override_identifies_a_capture_that_states_nothing);
+  RUN(test_identity_predicate_answers_for_the_capture);
 
   BEGIN_CATEGORY("offset-table fingerprint");
   RUN(test_fingerprint_names_the_captured_build);
