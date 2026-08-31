@@ -1,0 +1,92 @@
+#!/bin/sh
+# This file is part of KASLD - https://github.com/bcoles/kasld
+#
+# trim-kallsyms — reduce a capture's /proc/kallsyms to the lines a replay
+# fixture needs, and prove the reduction changed nothing.
+#
+# A capture taken with `extra/collect --kallsyms` carries the kernel's whole
+# symbol table — a few hundred thousand lines. A committed fixture keeps only
+# what the corpus reads: the image landmarks that carry ground truth. Trimming
+# is not a neutral edit, because a component may key on a symbol by NAME:
+# sysfs_kernel_notes_xen greps for xen_elfnote_* to tell a v6.13+ place-relative
+# note, whose values are build-time constants, from a relocated one. Drop that
+# and the component reads the absence as "not stale", emits unrelocated entry
+# points at parsed confidence, and those outrank and evict the true text pin --
+# leaving a guaranteed window that does not contain the kernel.
+#
+# The list below is therefore landmarks plus every name a component looks up.
+# The list is the intent; the check is the guarantee. extra/validate-bundle is
+# run against the capture before and after, and the trim is kept only if its
+# soundness result is identical. A future component keying on a symbol nobody
+# thought to add here fails the check instead of shipping a broken fixture.
+#
+# The original is restored on any mismatch, so a refused trim leaves the bundle
+# as it was. No backup file is written into the bundle: an unreviewed copy of
+# the full symbol table beside the trimmed one is the thing this exists to keep
+# out of the tree.
+#
+# Requires `jq` (through validate-bundle) and the arch's binary from
+# `make cross`. Without them validate-bundle cannot run and the trim is refused
+# rather than applied unchecked.
+#
+# Usage:  extra/trim-kallsyms <bundle-dir>
+# Env:    QEMU_DIR, BUILD_DIR   (as extra/validate-bundle)
+# ---
+# <bcoles@gmail.com>
+
+set -u
+PROG=$(basename "$0")
+ROOT=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+VB=$ROOT/extra/validate-bundle
+
+die() { echo "$PROG: $*" >&2; exit 2; }
+
+[ "$#" -eq 1 ] || die "usage: $PROG <bundle-dir>"
+B=$1
+[ -f "$B/meta.txt" ] || die "$B: not a capture bundle (no meta.txt)"
+K=$B/sysroot/proc/kallsyms
+[ -f "$K" ] || die "$B: no sysroot/proc/kallsyms (captured without --kallsyms?)"
+[ -x "$VB" ] || die "extra/validate-bundle is not executable"
+
+TMP=$(mktemp -d) || die "mktemp failed"
+trap 'rm -rf "$TMP"' EXIT INT TERM
+
+# The soundness block validate-bundle prints is the comparison. Its other
+# sections name paths and a capture date, which say nothing about the trim.
+soundness() { "$VB" "$1" 2>&1 | sed -n '/^Soundness:/,/^$/p'; }
+
+before=$(soundness "$B")
+case "$before" in
+  '') die "validate-bundle produced no soundness report (jq missing, or no binary for this arch — run make cross)" ;;
+esac
+
+cp "$K" "$TMP/kallsyms.orig"
+
+# Image landmarks (the ground truth a fixture carries) plus names a component
+# resolves by string: xen_elfnote_* (sysfs_kernel_notes_xen staleness canary).
+# Not every kernel exports every landmark; the ones it lacks simply do not match.
+awk '
+  $3=="__per_cpu_start" || $3=="__per_cpu_end" || $3=="_stext" || $3=="_text" ||
+  $3=="startup_64"      || $3=="_etext"       || $3=="__start_rodata" ||
+  $3=="__end_rodata"    || $3=="_sdata"       || $3=="_edata" ||
+  $3=="__init_begin"    || $3=="_sinittext"   || $3=="_einittext" ||
+  $3=="__init_end"      || $3=="__bss_start"  || $3=="__bss_stop" || $3=="_end" ||
+  $3 ~ /^xen_elfnote_/
+' "$TMP/kallsyms.orig" > "$TMP/kallsyms.trim" || die "awk failed"
+
+if [ ! -s "$TMP/kallsyms.trim" ]; then
+  die "trim would leave no symbols; refusing"
+fi
+
+cp "$TMP/kallsyms.trim" "$K"
+after=$(soundness "$B")
+
+if [ "$before" != "$after" ]; then
+  cp "$TMP/kallsyms.orig" "$K"
+  echo "$PROG: REFUSED — trimming changed the soundness result; bundle restored" >&2
+  printf '  before:\n%s\n  after:\n%s\n' "$before" "$after" >&2
+  exit 1
+fi
+
+printf '%s: %s lines -> %s; soundness unchanged\n' \
+  "$PROG" "$(wc -l < "$TMP/kallsyms.orig" | tr -d ' ')" "$(wc -l < "$K" | tr -d ' ')"

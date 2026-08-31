@@ -38,7 +38,11 @@ that prepares a fixture for sharing (`extra/collect --anonymize`, plus
 `extra/anonymize-fdt` for device-tree boards) redacts host-identifying text —
 hostname, CPU model, UUIDs, MACs, sensitive `cmdline` values — from
 `cpuinfo`/`cmdline`/`version`/`dmesg`, but never touches `/proc/kallsyms` or the
-iomem kernel line, so the base survives. The offline checks are cheap and
+iomem kernel line, so the base survives. A capture's symbol table is reduced to
+the landmarks a fixture reads by `extra/trim-kallsyms`, which validates the
+capture before and after and keeps the reduction only when the soundness result
+is identical — a component that resolves a symbol by name reads a truncated
+table as an absence rather than an omission. The offline checks are cheap and
 continuous; the VM check is slower and run periodically.
 
 ## Contents
